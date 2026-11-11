@@ -1,0 +1,2067 @@
+[
+  {
+    "package": "rightkit-app-settings",
+    "kind": "cargo",
+    "family": "HeardRight review",
+    "existsAs": [
+      "crates/rightkit-app-settings"
+    ],
+    "feeds": {},
+    "basis": "fresh generic store; HeardRight keeps its own schema, migration and patch allowlist on top",
+    "referenceApp": "heardright",
+    "shape": "best",
+    "shapeReason": "Right shape for HeardRight: the flat format, fixed quarantine name and flat-migration hook reproduce the shipped file contract exactly, and failure handling is strictly better than live. The one gap (S11) is already fixed in the RightKit tree.",
+    "apps": {
+      "heardright": {
+        "fit": "fits",
+        "note": "Flat format keeps settings.json byte-compatible; one UI snapshot gap fixed at 0.3.3+, main pins 0.3.1."
+      }
+    },
+    "boundary": [
+      "Inventory files src-tauri/src/settings.rs under rightkit-tauri-shell; functionally it is settings storage",
+      "Schema, migration, patch allowlist and typed accessors stay app-side by design"
+    ],
+    "actions": [
+      "Publish and pin >= 0.3.3 so Store::snapshot() gives per-field repair on the UI read (S11); main pins 0.3.1",
+      "Windows replace is rename, not ReplaceFileW/write-through (S10); power-loss behaviour not verified",
+      "Check stat-per-snapshot cost on hot paths such as the hotkey hook (S8, suspicion)"
+    ],
+    "depth": "deep",
+    "confidence": "medium"
+  },
+  {
+    "package": "@rightkit/settings-ui",
+    "kind": "npm",
+    "family": "HeardRight review",
+    "existsAs": [
+      "packages/settings-ui"
+    ],
+    "feeds": {},
+    "basis": "fresh implementation; HeardRight uses the panel frame and row primitives only",
+    "referenceApp": "heardright",
+    "shape": "gaps",
+    "shapeReason": "Right shape with listed gaps: as a frame plus row primitives it fits and HeardRight loses nothing because all product sections stay app-owned. Gaps are the revision typed as a JS number (U3) and standard sections that do not match HeardRight's license, update and model screens (U2).",
+    "apps": {
+      "heardright": {
+        "fit": "gaps",
+        "note": "Used as frame and row primitives only; every HeardRight section stays app code."
+      }
+    },
+    "boundary": [
+      "About 4.4k lines of live settings UI mostly do not move; 8 of 9 standard sections are switched off",
+      "App keeps its own tab strip, 637-line search registry and backend adapter"
+    ],
+    "actions": [
+      "Type revision so a 64-bit store revision fits (U3); main works around it with a 64-entry handle table",
+      "Standard license/updates/models sections do not match HeardRight screens (U2, U6)",
+      "Appearance section theme vocabulary (system/light/dark) needs an app adapter to app_theme (U4)"
+    ],
+    "depth": "deep",
+    "confidence": "medium"
+  },
+  {
+    "package": "@rightkit/onboarding",
+    "kind": "npm",
+    "family": "HeardRight review",
+    "existsAs": [
+      "packages/onboarding"
+    ],
+    "feeds": {},
+    "basis": "fresh implementation of the frame; HeardRight supplies all eight step bodies, hooks and adapters",
+    "referenceApp": "heardright",
+    "shape": "gaps",
+    "shapeReason": "Right shape with listed gaps: the frame reproduces live's flow, gates and finish sequence and adds resume. HeardRight loses state-dependent button labels and hints (O2) and needs 0.6.4's card frame published to drop its CSS overrides (O3, O4).",
+    "apps": {
+      "heardright": {
+        "fit": "gaps",
+        "note": "Frame fits and adds resume; state-dependent button labels and hints are lost; card frame only in unpublished 0.6.4."
+      }
+    },
+    "boundary": [
+      "Native onboarding Rust (onboarding_mic.rs, onboarding_calibration.rs, about 1.9k lines) is mapped here but the package is React-only with no Rust pair (O17)",
+      "Built-in permissionsStep and licenseStep are not used; they cannot express mic signal check or email-then-key trial",
+      "First-run legal is in the RightKit gate while re-acceptance still uses the standalone page: two code paths (O12)"
+    ],
+    "actions": [
+      "Let continueLabel and blockedHint accept a function of the step context (O2)",
+      "Publish 0.6.4 (frame=\"card\") and bump the pin from 0.6.3 so about 20 CSS overrides can go (O3, O4)",
+      "Step count should exclude the hidden Agreement step (O3)",
+      "Model row: elapsed-seconds while preparing is lost (O7, minor)",
+      "Adopt the native legal receipt create port instead of deprecated write (O11)"
+    ],
+    "depth": "deep",
+    "confidence": "medium"
+  },
+  {
+    "package": "rightkit-tauri-shell",
+    "kind": "cargo",
+    "family": "HeardRight review",
+    "existsAs": [
+      "crates/rightkit-tauri-shell"
+    ],
+    "feeds": {},
+    "basis": "fresh implementation; main uses it lifecycle-only with single instance, autostart, tray, idle suspend and window builder",
+    "referenceApp": "heardright",
+    "shape": "gaps",
+    "shapeReason": "Right shape with listed gaps: single instance and autostart are the right shape and include the upgrade paths a live 0.1.213 user needs. The tray needs a custom left-click action (H5); the hub's window choreography is HeardRight-specific and correctly stays out.",
+    "apps": {
+      "heardright": {
+        "fit": "gaps",
+        "note": "Used lifecycle-only; single instance and autostart carry upgrade migrations; tray lacks a custom left-click action."
+      }
+    },
+    "boundary": [
+      "\"Adopt\" on hub_window.rs (1223 lines) overstates what can move; most of the 3.3k live shell lines stay app code (H12)",
+      "menubar_helper.rs, helper_process.rs, platform_setup.rs, background_updates.rs are mapped here but use child-process, fs and onnx, no shell API (H15)",
+      "settings.rs is mapped here but is settings storage"
+    ],
+    "actions": [
+      "Add a custom tray left-click action so the app stops reaching into the raw icon (H5)",
+      "Publish 0.7.3 (main pins 0.7.0); publish the account and link license host commands",
+      "Run the single-instance and autostart migrations against a real 0.1.213 install (H1, H3 read, not run)",
+      "Verify close-handler ordering between app handler and plugin (H8)",
+      "Window builder is Wry-only so main downcasts the app handle (H11)",
+      "Tray icon field named icon_png receives .ico bytes (H7)"
+    ],
+    "depth": "deep",
+    "confidence": "medium"
+  },
+  {
+    "package": "@rightkit/react-shell",
+    "kind": "npm",
+    "family": "HeardRight review",
+    "existsAs": [
+      "packages/react-shell"
+    ],
+    "feeds": {},
+    "basis": "fresh implementation; replaced HeardRight's own TitleBar, WindowControls and CommandPalette",
+    "referenceApp": "heardright",
+    "shape": "gaps",
+    "shapeReason": "Right shape with listed gaps: it replaces the generic frame and leaves HeardRight's title-bar tools in slots. Gaps are a maximizable option on caption controls (R3) and the --ink token clash (R5), a migration hazard rather than a missing feature.",
+    "apps": {
+      "heardright": {
+        "fit": "gaps",
+        "note": "AppShell replaced about 800 lines of app frame; maximise button hidden with CSS; --ink token clash."
+      }
+    },
+    "boundary": [
+      "Per-page title-bar tools stay app code in the titlebarEnd slot (R4)"
+    ],
+    "actions": [
+      "Add a maximizable option to CaptionControls (R3)",
+      "--ink means text in RightKit and chrome in HeardRight; product surfaces renamed to --hr-ink, missed uses not audited (R5)",
+      "Title-bar theme toggle is gone; whether AppShell draws its own was not read (R2)",
+      "Bump pin 0.7.2 to 0.7.3"
+    ],
+    "depth": "deep",
+    "confidence": "medium"
+  },
+  {
+    "package": "@rightkit/theme",
+    "kind": "npm",
+    "family": "HeardRight review",
+    "existsAs": [
+      "packages/theme"
+    ],
+    "feeds": {},
+    "basis": "fresh implementation; small helper, HeardRight keeps its own palette values",
+    "referenceApp": "heardright",
+    "shape": "best",
+    "shapeReason": "Right shape for the web app; wrong target for the iOS files. On the web it is a small helper and HeardRight keeps its own palette; palette (T1) and default-font (T3) changes from live should be confirmed as intended.",
+    "apps": {
+      "heardright": {
+        "fit": "fits",
+        "note": "Thin token writer on the web; three iOS Swift files mapped to it cannot move into an npm package."
+      }
+    },
+    "boundary": [
+      "Inventory maps ios-native AppMark.swift, Color+HR.swift, Font+HR.swift here; the package has no Swift output (T4)",
+      "iOS report: those three files are generated brand-token output the app keeps; no Swift module implied"
+    ],
+    "actions": [
+      "Fix the mapping of the three iOS Swift files (T4)",
+      "App: default font \"system\" in web vs \"hanken\" in Rust, and the patch allowlist rejects \"system\" (T3)",
+      "App: confirm the palette change from live is intended (T1)",
+      "Bump pin 0.3.1 to 0.3.2"
+    ],
+    "depth": "deep",
+    "confidence": "medium"
+  },
+  {
+    "package": "rightkit-hotkeys",
+    "kind": "cargo",
+    "family": "HeardRight review",
+    "existsAs": [
+      "crates/rightkit-hotkeys"
+    ],
+    "feeds": {},
+    "basis": "faithful port of live HeardRight code (ptt_policy, fn-hotkey tap, middle mouse) plus Carbon/RegisterHotKey chord backends",
+    "referenceApp": "heardright",
+    "shape": "gaps",
+    "shapeReason": "Right shape with listed gaps: the macOS tap, the PTT policy and the chord registration reproduce the LIVE logic closely and MAIN already runs on them. Gaps are observability (H2 to H5), a Serialize-able conflict type (H7) and the Windows side, where HeardRight's hooks have not moved.",
+    "apps": {
+      "heardright": {
+        "fit": "gaps",
+        "note": "macOS tap, PTT policy and chords match live and main runs on them; diagnostics and Windows hooks missing."
+      }
+    },
+    "boundary": [
+      "Main still owns the Windows WH_KEYBOARD_LL hook (recording_cancel_hook/hook.rs) though the package has LowLevelHooks",
+      "Main still owns the Windows middle-mouse hook (middle_mouse_win.rs)",
+      "heardright_core/src/hotkey_conflict.rs duplicates HotkeyConflict",
+      "Debounce and tap-versus-hold policy stay app code (hotkey.rs)"
+    ],
+    "actions": [
+      "Add hooks for the lost diagnostics: fn+Escape accepted, tap re-enable count, ptt_hold_suppressed (H2 to H4)",
+      "Move diag off the event-tap callback thread (H5)",
+      "Derive Serialize on HotkeyConflict (H7)",
+      "Add a Windows push-to-talk tap and Windows middle-mouse type, or move HeardRight's hooks onto LowLevelHooks",
+      "Carry hold duration, stop reason and key in FnHotkeyCallbacks (H1)",
+      "Publish 0.1.3; main pins 0.1.2"
+    ],
+    "depth": "deep",
+    "confidence": "medium"
+  },
+  {
+    "package": "rightkit-overlay",
+    "kind": "cargo",
+    "family": "HeardRight review",
+    "existsAs": [
+      "crates/rightkit-overlay"
+    ],
+    "feeds": {},
+    "basis": "faithful port of live HeardRight Windows no-activate, topmost, clamp and hover-gate code, plus a fresh overlay model HeardRight does not use",
+    "referenceApp": "heardright",
+    "shape": "gaps",
+    "shapeReason": "Right shape with listed gaps, for a narrow slice: for Windows overlay window styles, topmost repair, clamp, hover gate and monitor lookup the crate is a faithful port and MAIN already uses it. It cannot stand in for HeardRight's pill model (O2 to O4), its Windows full-screen rule (O5 to O7) or any of the Mac pill (O1).",
+    "apps": {
+      "heardright": {
+        "fit": "gaps",
+        "note": "Faithful port for Windows window styles, clamp and hover gate only; no macOS, no pill model."
+      }
+    },
+    "boundary": [
+      "About 2,600 inventory lines mapped here are CloudKit, keychain, App Intents and menu-bar code",
+      "Roughly 4,900 mapped lines are the Swift pill UI; Swift can only go to the Swift module RightKitOverlay",
+      "Main keeps its own pill model, hover, state machine, guardian, full-screen tests and dispatch queue",
+      "OverlayModel, OverlayEvent, PillMode, WorkArea, FullScreenPolicy and foreground_* are unused by main"
+    ],
+    "actions": [
+      "Add Voice{level} and Success to OverlayEvent (O2)",
+      "foreground_fullscreen_on must require a borderless window or it hides the pill under a maximised window on a taskbar-less monitor (O5)",
+      "Borderless check: 2 px tolerance, DWM frame bounds, shell-class exclusion, same-monitor rule (O6); align shell class list (O7)",
+      "Visibility must allow the always-show setting and full-screen rule (O4); Starting mode mapping (O3)",
+      "Decide an owner for dispatch queue, visibility guardian and temporary-event timer (O8, O9)",
+      "Publish 0.2.2; main pins 0.2.0"
+    ],
+    "depth": "deep",
+    "confidence": "medium"
+  },
+  {
+    "package": "rightkit-overlay-win",
+    "kind": "cargo",
+    "family": "HeardRight review",
+    "existsAs": [
+      "crates/rightkit-overlay-win"
+    ],
+    "feeds": {},
+    "basis": "fresh implementation written against HeardRight main's native Windows pill; no counterpart in the live build",
+    "referenceApp": "heardright",
+    "shape": "gaps",
+    "shapeReason": "Right shape with listed gaps: the crate was written against MAIN's native pill and MAIN uses exactly the surface the crate documents. Gaps are the pin (0.1.0 lacks set_focusable and present, so clip editing is missing on Windows) and unproven parity with the pill users see.",
+    "apps": {
+      "heardright": {
+        "fit": "gaps",
+        "note": "Only renderer of main's Windows pill; pinned 0.1.0 lacks clip-card editing; visual parity not shown."
+      }
+    },
+    "boundary": [
+      "App carries about 5,300 lines on top (pill_native_win/*: model, visuals, driver, clip, hint, prompt)",
+      "Fonts, intro sound and cursor lookup are app code beside the crate (W6)",
+      "Says nothing about the Mac release"
+    ],
+    "actions": [
+      "Publish 0.1.3+ (set_focusable, key events) and bump the pin from 0.1.0 to restore clip-card editing (W2)",
+      "Show visual and interaction parity of the native pill by a run",
+      "Work-area clamp default would move the pill; main turns it off (W4)",
+      "No drag support (W3, probably no loss)"
+    ],
+    "depth": "deep",
+    "confidence": "low"
+  },
+  {
+    "package": "rightkit-crash",
+    "kind": "cargo",
+    "family": "HeardRight review",
+    "existsAs": [
+      "crates/rightkit-crash"
+    ],
+    "feeds": {},
+    "basis": "fresh implementation that reproduces live HeardRight crash capture (panic report, native sample/minidump, dump helper, retention, hang watchdog)",
+    "referenceApp": "heardright",
+    "shape": "gaps",
+    "shapeReason": "Right shape with listed gaps: it reproduces the live panic report, native sample/minidump, dump helper, retention and hang capture, and main already runs on it. It does not, and should not, hold the 5.3k lines of usage-telemetry upload the inventory maps to it; small capture differences remain.",
+    "apps": {
+      "heardright": {
+        "fit": "gaps",
+        "note": "Main runs all crash capture on it; sample is 1 s not 2 s; hang-capture cooldown unset."
+      }
+    },
+    "boundary": [
+      "Inventory maps 28 files / 8,567 lines here; about 5.3k are the usage-telemetry pipeline retired on main",
+      "Feedback call and local event log belong with rightkit-dictation-telemetry, not here",
+      "Main re-implements bundle admission by hand (commands/diagnostics.rs:431-517); admit_crash_artifacts exists in unpublished 0.3.8"
+    ],
+    "actions": [
+      "Add an option for macOS sample duration; it is 1 s for every kind, live used 2 s (C3)",
+      "Hang native capture repeats at most once per 10 minutes; main does not override (C7)",
+      "Publish 0.3.8 (admit_crash_artifacts) and bump the pin from 0.3.6",
+      "Pre-upgrade crash_*.log reports are dropped from exports (C1)",
+      "UI-stall sampling option lost: main passes capture None (C8)"
+    ],
+    "depth": "deep",
+    "confidence": "medium"
+  },
+  {
+    "package": "rightkit-logs",
+    "kind": "cargo",
+    "family": "HeardRight review",
+    "existsAs": [
+      "crates/rightkit-logs"
+    ],
+    "feeds": {},
+    "basis": "fresh implementation; live HeardRight already consumed it at 0.1.0",
+    "referenceApp": "heardright",
+    "shape": "best",
+    "shapeReason": "Right shape: live already used it; main moved the file writer onto JsonlStore with the same 10 MiB, one-predecessor rotation. Nothing the live app does in logging is missing from the package.",
+    "apps": {
+      "heardright": {
+        "fit": "fits",
+        "note": "Live already used it; main moved the writer to JsonlStore with the same rotation."
+      }
+    },
+    "boundary": [
+      "HeardRight keeps its own queue (AsyncWriter not adopted) and its own content redaction in heardright_core",
+      "ConsentStore, Outbox and Uploader are unused; upload was retired"
+    ],
+    "actions": [
+      "Check that 0.3.7 (main's pin) is published; INDEX.md records 0.3.5",
+      "JsonlStore opens the file per append (L1); cost not measured"
+    ],
+    "depth": "deep",
+    "confidence": "medium"
+  },
+  {
+    "package": "@rightkit/logs",
+    "kind": "npm",
+    "family": "HeardRight review",
+    "existsAs": [
+      "packages/logs"
+    ],
+    "feeds": {},
+    "basis": "fresh implementation; live HeardRight already consumed createLogsClient",
+    "referenceApp": "heardright",
+    "shape": "best",
+    "shapeReason": "Right shape: live already used it and main's logs.ts is unchanged; main adds installWindowCrashCapture and scrubWindowCrashText.",
+    "apps": {
+      "heardright": {
+        "fit": "fits",
+        "note": "src/lib/logs.ts identical in live and main; main adds renderer crash capture."
+      }
+    },
+    "boundary": [],
+    "actions": [],
+    "depth": "deep",
+    "confidence": "medium"
+  },
+  {
+    "package": "rightkit-license",
+    "kind": "cargo",
+    "family": "HeardRight review",
+    "existsAs": [
+      "crates/rightkit-license"
+    ],
+    "feeds": {},
+    "basis": "native client built from HeardRight's own licence code",
+    "referenceApp": "heardright",
+    "shape": "gaps",
+    "shapeReason": "Right shape with listed gaps: the native client was built from HeardRight's own licence code and reads the live keychain items in place; lifecycle, clock, lease and device-binding rules match. Main still carries about 600 lines the pinned version could not cover, and its pin lacks a 0.2.9 fix.",
+    "apps": {
+      "heardright": {
+        "fit": "gaps",
+        "note": "Built from HeardRight licence code, reads live keychain items in place; pin 0.2.8 lacks the 0.2.9 Pro-refusal fix."
+      }
+    },
+    "boundary": [
+      "license/trial.rs duplicates request_trial_for (in pinned 0.2.8)",
+      "license/removal.rs (209 lines) duplicates PendingReleaseQueue, deactivate_with_queue, drain_pending_releases",
+      "account_session.rs and license/link.rs stay app code because the published shell and JS package lack the commands",
+      "Direct ed25519-dalek lease verification in src-tauri may now be covered here (not verified)"
+    ],
+    "actions": [
+      "Publish 0.2.9 and bump main from =0.2.8 (K10, K11: Pro refused during a launch-time renew)",
+      "Decide K8: native gate also enforces lease expiry plus grace, or the status view stops doing so",
+      "Replace license/trial.rs with request_trial_for and license/removal.rs with the release-queue API",
+      "Publish the shell account and link commands, then drop account_session.rs and license/link.rs",
+      "Check publication state: INDEX.md lists 0.2.5"
+    ],
+    "depth": "deep",
+    "confidence": "medium"
+  },
+  {
+    "package": "@rightkit/license",
+    "kind": "npm",
+    "family": "HeardRight review",
+    "existsAs": [
+      "packages/license"
+    ],
+    "feeds": {},
+    "basis": "fresh implementation; 0.1.7 to 0.3.0 was a breaking change (no renderer fetch or storage) that main absorbed",
+    "referenceApp": "heardright",
+    "shape": "gaps",
+    "shapeReason": "Right shape with listed gaps (one verdict for crate and npm package): licence authority moved out of the renderer into the native client. requestLink, redeemLink, retryPendingReleases and createAccountClient exist only in unpublished 0.3.1.",
+    "apps": {
+      "heardright": {
+        "fit": "gaps",
+        "note": "Renderer gets fixed views over native commands; account and link clients only in unpublished 0.3.1."
+      }
+    },
+    "boundary": [
+      "Account and link commands stay HeardRight app code until 0.3.1 and the shell commands are published"
+    ],
+    "actions": [
+      "Publish 0.3.1 (createAccountClient, requestLink, redeemLink, retryPendingReleases) and bump from 0.3.0"
+    ],
+    "depth": "deep",
+    "confidence": "medium"
+  },
+  {
+    "package": "rightkit-automation",
+    "kind": "cargo",
+    "family": "HeardRight review",
+    "existsAs": [
+      "crates/rightkit-automation"
+    ],
+    "feeds": {},
+    "basis": "desktop module is a near line-for-line copy of HeardRight main's heardright_platform (moved in 0.6.4); the Automation engine is a fresh implementation",
+    "referenceApp": "heardright",
+    "shape": "gaps",
+    "shapeReason": "Right shape with listed gaps: primitives right, delivery orchestration absent, generic deliver_text wrong for dictation (A4 to A9). Reports differ on the end state: the automation review and the crate docs say delivery policy stays in HeardRight; the more specific delivery design moves the mechanism into a new desktop::delivery entry point with the app passing DeliveryRules, and that is used here.",
+    "apps": {
+      "heardright": {
+        "fit": "gaps",
+        "note": "desktop module is a near-copy of main's platform crate but unused; delivery orchestration absent; deliver_text wrong for dictation."
+      }
+    },
+    "boundary": [
+      "heardright_platform (19 files, 7,614 lines) duplicates rightkit_automation::desktop; main pins the crate with default-features=false",
+      "Inventory targets about 6k lines of delivery orchestration here with EXTEND; docs/MOVED_FROM.md and LOCKED_RULES.md say it stays in HeardRight",
+      "Duplicates inside RightKit: collapse_line_break_runs and continuity_window_valid in proof.rs and desktop.rs; replacement_editor_may_receive also in rightkit-transcript-library",
+      "Media pause/resume has no home; send_media_key is a blind toggle; design recommends a separate crate, not this one",
+      "tsf-tip (953 lines) is dormant with no dependent; design says delete, do not move",
+      "Engine allowlist permanently denies Claude desktop, a common dictation target (A9)"
+    ],
+    "actions": [
+      "Add desktop::delivery (DeliveryRules, capture_destination, choose_destination, deliver, DeliveryObserver): paste-first, receipt, no activation, no Policy::check",
+      "HeardRight: enable desktop-context, call set_own_window_owner_prefix(\"heardright\") at startup, delete heardright_platform",
+      "Move in the persistent UIA worker, WezTerm pane channel and macOS paste probe",
+      "Make proof.rs the single home of the pure rules; fold the in-RightKit duplicates",
+      "Rewrite deliver_text tier 4 on the same transaction core; split policy lists (never_typed_into vs never_driven_by_agent)",
+      "Owner decisions first: success rule, Enter without read-back on macOS, allowlist; then rewrite LOCKED_RULES.md and MOVED_FROM.md"
+    ],
+    "depth": "deep",
+    "confidence": "medium"
+  },
+  {
+    "package": "rightkit-asr",
+    "kind": "cargo",
+    "family": "HeardRight review",
+    "existsAs": [
+      "crates/rightkit-asr"
+    ],
+    "feeds": {},
+    "basis": "Rust port of the Sherpa-ONNX keyword spotter (fresh) plus decode core and ONNX execution moved from HeardRight crates",
+    "referenceApp": "heardright",
+    "shape": "gaps",
+    "shapeReason": "Right shape with listed gaps: what MAIN consumes (KWS, decode core) carries the live constants and model files. Gaps are that port parity with the patched Sherpa build is not checkable from this tree (S4), duplicated decode-core files and ONNX crate that have started to drift (S10), and CoreML and Whisper engines missing live behaviours (S5, S8).",
+    "apps": {
+      "heardright": {
+        "fit": "gaps",
+        "note": "KWS port and decode core in use with live constants; CoreML and Whisper engines lack live behaviours."
+      }
+    },
+    "boundary": [
+      "heardright-parakeet-core bias, tdt_beam, command_alignment are local copies differing by 4, about 62 and 2 lines",
+      "heardright-onnx-asr duplicates onnx_tdt and has diverged (model.rs 202 differing lines)",
+      "Mac CoreML engine, both Whisper engines, onnx_beam_decode and ScheduledStatic15 stay HeardRight code"
+    ],
+    "actions": [
+      "Take main's tdt_beam rank scratch buffer (A8)",
+      "Put the KWS parity tests and fixtures the changelog cites into the crate (S4)",
+      "parakeet_coreml: port command-locator alignment, window health, hypothesis batching, fused graph (S5)",
+      "whisper: decide on the Windows CLI fallback (S8)",
+      "Reconcile onnx_tdt with heardright-onnx-asr, then HeardRight deletes its crate and three parakeet-core files (S10)",
+      "Pin: 0.4.2 changes Windows duration cap 2 to 4; main already overrides to 4 (S6)"
+    ],
+    "depth": "deep",
+    "confidence": "medium"
+  },
+  {
+    "package": "rightkit-vad",
+    "kind": "cargo",
+    "family": "HeardRight review",
+    "existsAs": [
+      "crates/rightkit-vad"
+    ],
+    "feeds": {},
+    "basis": "fresh implementation with a HeardRight-compatible option (Warmup::KeepState \"as HeardRight does\")",
+    "referenceApp": "heardright",
+    "shape": "best",
+    "shapeReason": "Right shape for HeardRight: MAIN already runs its production VAD on rightkit_vad::Silero plus FrameStream with the live session settings and threshold. The only live behaviour not carried is an env-gated calibration that was off by default.",
+    "apps": {
+      "heardright": {
+        "fit": "fits",
+        "note": "Already adopted: same model, frame protocol, threshold and warm-up as live."
+      }
+    },
+    "boundary": [
+      "CoreML parity backend, loading and pending-audio replay stay app code"
+    ],
+    "actions": [
+      "Library default is Warmup::ResetAfter; HeardRight must keep KeepState set (V1)"
+    ],
+    "depth": "deep",
+    "confidence": "medium"
+  },
+  {
+    "package": "rightkit-db",
+    "kind": "cargo",
+    "family": "HeardRight review",
+    "existsAs": [
+      "crates/rightkit-db"
+    ],
+    "feeds": {},
+    "basis": "fresh implementation whose open path reproduces live HeardRight's SQLCipher file, key form and pragma contract",
+    "referenceApp": "heardright",
+    "shape": "gaps",
+    "shapeReason": "Right shape with listed gaps: the open path reproduces the live file, key form and pragmas, so upgrade and downgrade both work by reading. Main has not adopted the encrypted-lifecycle and quarantine owners, so about 1,200 lines of rotation and recovery code duplicate RightKit.",
+    "apps": {
+      "heardright": {
+        "fit": "gaps",
+        "note": "Same file, key form, pragmas and schema; about 1,200 lines of rotation and recovery still duplicated in main."
+      }
+    },
+    "boundary": [
+      "history/key_rotation.rs (87) duplicates encrypted_lifecycle::rotate_key and recover_rotation",
+      "history/sqlcipher_conn.rs:114-223 duplicates EncryptedStore::open and key candidates",
+      "history/recovery.rs quarantine half (most of 978) duplicates quarantine_database_opts and open_writer_recovering",
+      "migrations.rs:51-80 duplicates add_column_if_missing",
+      "KeyVault trait in credential_store.rs duplicates ProtectedKeyStore",
+      "CloudKit replay half of recovery.rs is app policy and stays"
+    ],
+    "actions": [
+      "Check the lifecycle can keep the quarantined file until a CloudKit replay receipt arrives, then HeardRight adopts encrypted-lifecycle and quarantine helpers",
+      "Verify the Windows OpenSSL-to-LibTomCrypt open of a real database (D3, claimed in rightkit#1447)",
+      "Symlinked database file is now refused (D5)",
+      "RIGHTKIT_SQLITE_JOURNAL_MODE overrides WalStrict in release builds (D6)",
+      "Interrupted rotation leaves the key only in the staging account 0.1.213 never reads (D11)",
+      "Bump pin 0.5.5 to 0.5.6"
+    ],
+    "depth": "deep",
+    "confidence": "medium"
+  },
+  {
+    "package": "rightkit-credentials",
+    "kind": "cargo",
+    "family": "HeardRight review",
+    "existsAs": [
+      "crates/rightkit-credentials"
+    ],
+    "feeds": {},
+    "basis": "fresh implementation with explicit Windows target shapes (Slash, KeyringCompat) that match HeardRight's live items",
+    "referenceApp": "heardright",
+    "shape": "best",
+    "shapeReason": "Right shape for HeardRight: every live keychain item is addressed by the same service and account and read in place, and the Windows shapes for both the direct-call item and the keyring items are modelled explicitly. The only open point is the default-keychain-only read on macOS (C3), a deliberate hardening.",
+    "apps": {
+      "heardright": {
+        "fit": "fits",
+        "note": "Every live keychain item keeps the same service and account and is read in place."
+      }
+    },
+    "boundary": [
+      "KeyVault trait and OsKeyVault in credential_store.rs duplicate RightKit once rotation moves to the lifecycle",
+      "macOS in-process key cache is app policy; keep unless RightKit gains a cache",
+      "secret_store.rs (132 lines) is a thin adapter, not a duplicate"
+    ],
+    "actions": [
+      "macOS reads only the default keychain; an item elsewhere reads as absent (C3)",
+      "Verify keyring-core target and blob layout equals KeyringCompat (C2, source not in tree)",
+      "Windows persist type may change on rewrite (C9, suspicion)",
+      "Bump pin 0.5.0 to 0.5.1"
+    ],
+    "depth": "deep",
+    "confidence": "medium"
+  },
+  {
+    "package": "rightkit-fs",
+    "kind": "cargo",
+    "family": "HeardRight review",
+    "existsAs": [
+      "crates/rightkit-fs"
+    ],
+    "feeds": {},
+    "basis": "fresh implementation; replaced three hand-written atomic-write copies and direct sha2 use in HeardRight",
+    "referenceApp": "heardright",
+    "shape": "gaps",
+    "shapeReason": "Right shape with listed gaps: the resolver reproduces the live root for every normal account and removes three copies of atomic-write code. Gaps: redirected HOME and HR_APP_DATA_DIR installs move (F2, F3), Windows replace changed from ReplaceFileW (F6), and a few hand-written helpers and the dirs crate remain.",
+    "apps": {
+      "heardright": {
+        "fit": "gaps",
+        "note": "Same data root for a normal account and one atomic wrapper; HOME and HR_APP_DATA_DIR edge cases move."
+      }
+    },
+    "boundary": [
+      "heardright-runtime/src/cli.rs:415-424 hand-written write_atomic",
+      "heardright-model-store/src/shared.rs:180 temp write plus rename",
+      "history/recovery.rs sync_dir, move_no_clobber, same_file_identity duplicate rename_exclusive and transactions",
+      "legacy_json_migration.rs:103-115 replaceable by publish_file (stale workaround)",
+      "coreml_asr/fused_probe.rs:561 own sha256_path; ane_cache_prune.rs still uses dirs::cache_dir()",
+      "Two RightKit homes for SHA-256: fs digest and rightkit-crypto"
+    ],
+    "actions": [
+      "Decide whether any shipped install relied on HR_APP_DATA_DIR or a redirected $HOME (F2, F3)",
+      "Windows replace is rename, not ReplaceFileW: different ACL inheritance, not write-through (F6)",
+      "HeardRight: replace the remaining hand-written atomic and hash helpers and drop the dirs dependency",
+      "Check the mobile entry injects the data root (F4, suspicion)",
+      "Bump pin 0.4.12 to 0.4.13"
+    ],
+    "depth": "deep",
+    "confidence": "medium"
+  },
+  {
+    "package": "rightkit-http",
+    "kind": "cargo",
+    "family": "HeardRight review",
+    "existsAs": [
+      "crates/rightkit-http"
+    ],
+    "feeds": {},
+    "basis": "fresh implementation with a legacy_ureq_parity preset made for moves off ureq",
+    "referenceApp": "heardright",
+    "shape": "gaps",
+    "shapeReason": "Right shape with listed gaps: legacy_ureq_parity exists for exactly this move and main uses it to keep timeouts, proxy, roots, redirects and user agent. Gaps: the parity client is built three times in HeardRight, the ureq error-text shim remains, and download-engine retry/resume parity in rightkit-models is not verified.",
+    "apps": {
+      "heardright": {
+        "fit": "gaps",
+        "note": "legacy_ureq_parity keeps timeouts, proxy, roots, redirects and user agent; parity client built three times in HeardRight."
+      }
+    },
+    "boundary": [
+      "Three copies of the ureq-parity client set-up (heardright-telemetry http_client.rs, text-pipeline transport.rs, model-store resumable_download.rs)",
+      "ureq_style_error, snake_case, status_display in http_client.rs: app-owned text contract",
+      "Update host changed api.spoares.com to api.orthiclabs.com (H8): outside the package but gates the upgrade"
+    ],
+    "actions": [
+      "Add a parity preset that takes a single timeout, or HeardRight shares one constructor",
+      "New public-web address policy refuses private and loopback hosts (H2); confirm no split-DNS user is affected",
+      "HeardRight: delete the ureq error-text shim once logs stop depending on ureq wording",
+      "Bump pin 0.3.9 to 0.3.12"
+    ],
+    "depth": "deep",
+    "confidence": "medium"
+  },
+  {
+    "package": "rightkit-sync",
+    "kind": "cargo",
+    "family": "HeardRight review",
+    "existsAs": [
+      "crates/rightkit-sync"
+    ],
+    "feeds": {},
+    "basis": "fresh sync engine and shared CloudKit helper that replaced HeardRight's own helper and about 3,400 lines of Rust sync code",
+    "referenceApp": "heardright",
+    "shape": "gaps",
+    "shapeReason": "Right shape with listed gaps: main really runs on the engine and the shared CloudKit helper with the same container, zone and record fields, so cross-device compatibility is kept by reading. Gaps: the scheduler is still HeardRight's own, the ledger migration is one-way, and the Swift helper's save semantics were not read.",
+    "apps": {
+      "heardright": {
+        "fit": "gaps",
+        "note": "Main runs on the engine and shared CloudKit helper; scheduler still app-owned; ledger migration one-way."
+      }
+    },
+    "boundary": [
+      "cloud_sync_scheduler.rs (340) partly duplicates rightkit_sync::schedule; main imports only PassOutcome",
+      "cloud_sync_pending.rs (36): same question",
+      "cloud_sync_core.rs legacy migration (about 150) has no RightKit equivalent; delete once no 0.1.213 ledgers remain",
+      "Mac CloudSyncNotifications.swift duplicates RightKitCloudSync CloudKitWakeHost"
+    ],
+    "actions": [
+      "HeardRight: move the scheduler onto rightkit_sync::schedule (next_delay, sync_once) or state why wake coalescing is app-specific",
+      "Compare rightkit-cloudkit-helper save policy and system fields with the live helper (S1)",
+      "Ledger migration is one-way; downgrade resumes stale legacy ledgers (S3)",
+      "0.2.3 removed MemoryBackend and the fake helper; main pins 0.2.2 (S8)",
+      "Google provider declared in settings but not implemented (rightkit#162)"
+    ],
+    "depth": "deep",
+    "confidence": "medium"
+  },
+  {
+    "package": "rightkit-crypto",
+    "kind": "cargo",
+    "family": "HeardRight review",
+    "existsAs": [
+      "crates/rightkit-crypto"
+    ],
+    "feeds": {},
+    "basis": "fresh implementation; HeardRight uses base64 only",
+    "referenceApp": "heardright",
+    "shape": "best",
+    "shapeReason": "Right shape for HeardRight: HeardRight needs only base64 from it today and the output is identical. Two crate dependencies (base64, getrandom) look unused, and the direct ed25519-dalek use could move.",
+    "apps": {
+      "heardright": {
+        "fit": "fits",
+        "note": "Used for base64 only; output identical to live."
+      }
+    },
+    "boundary": [
+      "src-tauri base64 and getrandom dependencies look unused",
+      "Direct ed25519-dalek for lease-envelope verification; rightkit-crypto has sign"
+    ],
+    "actions": [
+      "Bump pin 0.1.0 to 0.1.3"
+    ],
+    "depth": "deep",
+    "confidence": "medium"
+  },
+  {
+    "package": "rightkit-job-queue",
+    "kind": "cargo",
+    "family": "HeardRight review",
+    "existsAs": [
+      "crates/rightkit-job-queue"
+    ],
+    "feeds": {},
+    "basis": "fresh implementation; main's engine supervisor runs on EngineSupervisor and the launch frame",
+    "referenceApp": "heardright",
+    "shape": "gaps",
+    "shapeReason": "Right shape with listed gaps: the supervisor is a faithful, stricter replacement that keeps LIVE's timeouts and restart rules. The package's main feature (persistent jobs) is unused; long-form transcription surviving an engine crash would be new work, not a migration.",
+    "apps": {
+      "heardright": {
+        "fit": "gaps",
+        "note": "Engine supervisor runs on it with live timeouts and restart rules; persistent job store unused."
+      }
+    },
+    "boundary": [
+      "heardright-app-runtime/src/engine_supervisor/* has a twin in rightkit-dictation-app-runtime",
+      "Speech service keeps its own in-memory queue (speech_service/conn.rs), lost on engine exit"
+    ],
+    "actions": [
+      "Worst-case quit can take about 6 s instead of 3 s (J4, suspicion)",
+      "Write ack 2 s became send timeout 5 s (J5)",
+      "Bump pin 0.5.1 to 0.5.4"
+    ],
+    "depth": "deep",
+    "confidence": "medium"
+  },
+  {
+    "package": "rightkit-child-process",
+    "kind": "cargo",
+    "family": "HeardRight review",
+    "existsAs": [
+      "crates/rightkit-child-process"
+    ],
+    "feeds": {},
+    "basis": "fresh implementation; replaced 40 raw spawns and HeardRight's own Windows job object",
+    "referenceApp": "heardright",
+    "shape": "best",
+    "shapeReason": "Right shape: adoption is complete and the Windows behaviour is the same mechanism. The macOS parent-death change (a forked watchdog instead of the engine's own poll) is the one item that needs a real run on a signed build before release.",
+    "apps": {
+      "heardright": {
+        "fit": "fits",
+        "note": "No raw Command::new left in main; macOS parent-death is now a forked watchdog needing a signed-build run."
+      }
+    },
+    "boundary": [
+      "helper_process.rs:34-175 (bundle path resolution, containment, codesign probe) is app code with no RightKit equivalent; it stays"
+    ],
+    "actions": [
+      "Run kill_on_parent_exit on a signed macOS build: it double-forks the multi-threaded shell without exec (P3)",
+      "Bump pin 0.5.7 to 0.5.10"
+    ],
+    "depth": "deep",
+    "confidence": "medium"
+  },
+  {
+    "package": "rightkit-sidecar",
+    "kind": "cargo",
+    "family": "HeardRight review",
+    "existsAs": [
+      "crates/rightkit-sidecar"
+    ],
+    "feeds": {},
+    "basis": "fresh implementation; replaced HeardRight's bare EngineFrame JSON lines",
+    "referenceApp": "heardright",
+    "shape": "best",
+    "shapeReason": "Right shape: framing is fully on the package. The wire changed from a bare EngineFrame line to a hello/request envelope; shell and engine ship together, and a mismatched pair fails closed at hello.",
+    "apps": {
+      "heardright": {
+        "fit": "fits",
+        "note": "Framing fully on the package; wire is now a hello/request envelope and fails closed on mismatch."
+      }
+    },
+    "boundary": [],
+    "actions": [
+      "A 0.1.213 engine and a main shell cannot talk; check the updater never leaves a stale engine binary (P5)",
+      "Bump pin 0.3.0 to 0.3.2"
+    ],
+    "depth": "deep",
+    "confidence": "medium"
+  },
+  {
+    "package": "rightkit-daemon",
+    "kind": "cargo",
+    "family": "HeardRight review",
+    "existsAs": [
+      "crates/rightkit-daemon"
+    ],
+    "feeds": {},
+    "basis": "fresh implementation; used only by the speech service, which did not exist in live",
+    "referenceApp": "heardright",
+    "shape": "gaps",
+    "shapeReason": "Right shape with listed gaps: the listener is the right owner. Gaps: move the pin to pick up verify_peer and delete peer_trust.rs; RightKit must export the SID string; remove the four unused declarations or say what they are for.",
+    "apps": {
+      "heardright": {
+        "fit": "gaps",
+        "note": "Used only by the post-live speech service; 391 lines of peer checks superseded by 0.5.3+, pin is 0.5.1."
+      }
+    },
+    "boundary": [
+      "speech_service/peer_trust.rs (391 lines) duplicates peer_signature::verify_peer (RightKit 0.5.3+)",
+      "speech_service/transport.rs:80-110 SID query stays until current_user_sid_string is exported",
+      "Declared but never called in src-tauri, heardright-engine, heardright-app-runtime, heardright_platform",
+      "speech_service/ has a twin in rightkit-dictation-runtime"
+    ],
+    "actions": [
+      "Bump pin from 0.5.1 to >= 0.5.3, then HeardRight deletes peer_trust.rs",
+      "Export current_user_sid_string (pub(crate) today)",
+      "HeardRight: remove the four unused dependency declarations",
+      "Owner note about a suite-root guard in the two main.rs files is stale (D2)"
+    ],
+    "depth": "deep",
+    "confidence": "medium"
+  },
+  {
+    "package": "rightkit-models",
+    "kind": "cargo",
+    "family": "HeardRight review",
+    "existsAs": [
+      "crates/rightkit-models"
+    ],
+    "feeds": {},
+    "basis": "fresh shared model store with download, archive and grant; reproduces what live HeardRight did and adds safe replacement",
+    "referenceApp": "heardright",
+    "shape": "gaps",
+    "shapeReason": "Right shape with listed gaps: the store reproduces what LIVE did and adds safe replacement; upgrade from 0.1.213 keeps the installed model working in place. Gaps: Ultra spec and grant are duplicated, RightKit's Ultra spec lacks HeardRight's legacy directories, RightKit cannot install CoreML Whisper, and the per-launch hash needs a decision.",
+    "apps": {
+      "heardright": {
+        "fit": "gaps",
+        "note": "Live models found in place, nothing re-downloaded; Ultra spec and grant duplicated; full hash every launch."
+      }
+    },
+    "boundary": [
+      "ultra_model.rs (368) duplicates suite/catalog.rs parakeet_ultra_spec",
+      "model_download_grant.rs (80) duplicates suite/grant.rs",
+      "resumable_download.rs, archive_install.rs, model_fetch.rs are thin wrappers to delete",
+      "shared.rs strip_foreign_speech_refs overlaps store::retire_speech_models",
+      "whisper_model.rs overlaps suite/whisper.rs for the ggml file only",
+      "Whole heardright-model-store has a twin in rightkit-dictation-models; iOS Packages/SharedModelRoot is mapped here"
+    ],
+    "actions": [
+      "Add HeardRight's legacy_dirs and retired_legacy_paths to parakeet_ultra_spec before HeardRight drops ultra_model.rs",
+      "Decide the per-launch full hash of 363 to 433 MB (M7); stat-receipt fix is switched off",
+      "suite::whisper must install the macOS CoreML bundle",
+      "HeardRight: use suite::grant (it also parses Retry-After)",
+      "Verify the download engine keeps live retry and resume rules",
+      "Bump pin 0.5.3 to 0.5.9"
+    ],
+    "depth": "deep",
+    "confidence": "medium"
+  },
+  {
+    "package": "rightkit-onnx",
+    "kind": "cargo",
+    "family": "HeardRight review",
+    "existsAs": [
+      "crates/rightkit-onnx"
+    ],
+    "feeds": {},
+    "basis": "fresh runtime binding; its CPU thread budget is HeardRight's measured code",
+    "referenceApp": "heardright",
+    "shape": "gaps",
+    "shapeReason": "Right shape with listed gaps: runtime selection is properly owned by the package and stricter than LIVE. Session construction and the thread budget still exist on both sides, and RightKit's session builder differs on CoreML failure handling (O5).",
+    "apps": {
+      "heardright": {
+        "fit": "gaps",
+        "note": "Runtime binding and environment on the package; sessions and thread budget still duplicated in main."
+      }
+    },
+    "boundary": [
+      "heardright-onnx-asr/src/environment.rs:16-66 is a verbatim copy of cpu_thread_budget, physical_cores, count_core_records",
+      "heardright-onnx-asr/src/session.rs:82-310 overlaps SessionOptions",
+      "Runtime candidate lists written twice in main; installed_runtime_candidate exists",
+      "Inventory's 24 files / 43,900 lines for this target are vendored iOS ONNX Runtime headers, not HeardRight code"
+    ],
+    "actions": [
+      "Settle CoreML error_on_failure (O5) and take or drop the DirectML bisect switches so HeardRight can use SessionOptions",
+      "HeardRight: delete the thread-budget copy and call RightKit",
+      "HeardRight: use installed_runtime_candidate for both candidate lists",
+      "Check the ort rc.13 to rc.15 binding bump against the bundled runtime (O1)",
+      "Bump pin 0.2.9 to 0.2.10"
+    ],
+    "depth": "deep",
+    "confidence": "medium"
+  },
+  {
+    "package": "rightkit-ffmpeg",
+    "kind": "cargo",
+    "family": "HeardRight review",
+    "existsAs": [
+      "crates/rightkit-ffmpeg"
+    ],
+    "feeds": {},
+    "basis": "fresh implementation; decode arguments match live HeardRight",
+    "referenceApp": "heardright",
+    "shape": "gaps",
+    "shapeReason": "Right shape with listed gaps: same decode, stricter binary trust. Before release, confirm the bundled ffmpeg hash is the catalogue row, and decide whether to re-pin from 0.2.13.",
+    "apps": {
+      "heardright": {
+        "fit": "gaps",
+        "note": "Decode and probe on the package with matching arguments; bundle must ship exactly the catalogued ffmpeg build."
+      }
+    },
+    "boundary": [
+      "ffmpeg path resolution exists three times in main (file_transcribe.rs, model_paths.rs, engine_supervisor/paths.rs); ResolutionRequest is the intended owner"
+    ],
+    "actions": [
+      "Confirm the bundled ffmpeg is the catalogued build or file transcription fails (F2)",
+      "Decide the re-pin from 0.2.13 to 0.3.1; 0.2.13 API not verified",
+      "HeardRight: collapse the three path lists into one passed to RightKit",
+      "No decode timeout; cancel token never triggered (F5)"
+    ],
+    "depth": "deep",
+    "confidence": "medium"
+  },
+  {
+    "package": "rightkit-audio",
+    "kind": "cargo",
+    "family": "HeardRight review",
+    "existsAs": [
+      "crates/rightkit-audio"
+    ],
+    "feeds": {},
+    "basis": "faithful port of live HeardRight code (heardright_capture)",
+    "referenceApp": "heardright",
+    "shape": "best",
+    "shapeReason": "Right shape: this is HeardRight's own capture code under a new name, already fully adopted. One small wrapper remains because RightKit's route helper cannot read HeardRight's saved-microphone setting.",
+    "apps": {
+      "heardright": {
+        "fit": "fits",
+        "note": "capture is a line-for-line port of heardright_capture; main deleted its own copy."
+      }
+    },
+    "boundary": [
+      "heardright-runtime/src/worker/capture_recovery.rs:13-147 duplicates capture/route.rs names and struct; not a drop-in"
+    ],
+    "actions": [
+      "Route helper matches by exact platform id; HeardRight must convert its saved setting first, then drop the wrapper",
+      "Bump pin 0.3.1 to 0.3.4; whether route.rs exists in 0.3.1 not verified"
+    ],
+    "depth": "deep",
+    "confidence": "medium"
+  },
+  {
+    "package": "rightkit-device",
+    "kind": "cargo",
+    "family": "HeardRight review",
+    "existsAs": [
+      "crates/rightkit-device"
+    ],
+    "feeds": {},
+    "basis": "fresh implementation; live HeardRight already used the same DeviceService through rightkit-tauri",
+    "referenceApp": "heardright",
+    "shape": "best",
+    "shapeReason": "Right shape: same service, same item names, same id, so the device id is stable; LIVE was already on the earlier home of this code. The only unread link is the credential target mapping.",
+    "apps": {
+      "heardright": {
+        "fit": "fits",
+        "note": "Same keychain service, account and id format; live already used DeviceService via rightkit-tauri."
+      }
+    },
+    "boundary": [
+      "native_license_adapter.rs:43-46 re-implements device_id_hash in one line"
+    ],
+    "actions": [
+      "Empty stored value is now an error, never replaced (V4, fail-closed edge)"
+    ],
+    "depth": "deep",
+    "confidence": "medium"
+  },
+  {
+    "package": "rightkit-text-polish",
+    "kind": "cargo",
+    "family": "HeardRight review",
+    "existsAs": [
+      "crates/rightkit-text-polish"
+    ],
+    "feeds": {},
+    "basis": "faithful port of live HeardRight code (formatting-only diffs, brand table parameterised)",
+    "referenceApp": "heardright",
+    "shape": "best",
+    "shapeReason": "Right shape for HeardRight: in use, no gaps. It reproduces LIVE logic exactly apart from brand repair becoming a host-supplied table, and MAIN supplies the same table.",
+    "apps": {
+      "heardright": {
+        "fit": "fits",
+        "note": "In use through heardright_core; reproduces live logic with brand repair as a host table."
+      }
+    },
+    "boundary": [
+      "Proper-noun lexicon still carries HeardRight-specific words inside the shared crate (P5)",
+      "iOS polish Swift files (1,274 lines) are mapped to this crate, which has no Swift target",
+      "BYOKPolishKeyStore.swift belongs with RightKitCredentials"
+    ],
+    "actions": [
+      "Bump pin 0.1.0 to 0.1.1 (test removal)"
+    ],
+    "depth": "deep",
+    "confidence": "medium"
+  },
+  {
+    "package": "rightkit-voice-commands",
+    "kind": "cargo",
+    "family": "HeardRight review",
+    "existsAs": [
+      "crates/rightkit-voice-commands"
+    ],
+    "feeds": {},
+    "basis": "faithful port of live HeardRight code (renamed, tests removed)",
+    "referenceApp": "heardright",
+    "shape": "best",
+    "shapeReason": "Right shape for HeardRight: in use; catalog, matching and recognition reproduce LIVE with comment-only changes. V1 (non-desktop platforms now report commands supported) is Linux-only.",
+    "apps": {
+      "heardright": {
+        "fit": "fits",
+        "note": "In use; catalog, matching and recognition equal live."
+      }
+    },
+    "boundary": [
+      "Main keeps only the external-URL allowlist data",
+      "iOS Shared/IOSVoiceCommand.swift is a spoken-command parser mapped to RightKitIntents; it belongs with the Swift side of this crate or RightKitDictation"
+    ],
+    "actions": [
+      "Owner decision on V1: non-desktop platforms now report commands supported",
+      "Bump pin 0.1.0 to 0.1.1"
+    ],
+    "depth": "deep",
+    "confidence": "medium"
+  },
+  {
+    "package": "rightkit-transcript-library",
+    "kind": "cargo",
+    "family": "HeardRight review",
+    "existsAs": [
+      "crates/rightkit-transcript-library"
+    ],
+    "feeds": {},
+    "basis": "port of live HeardRight heardright_core delivery, history and net (208 of 1,378 lines differ from live)",
+    "referenceApp": "heardright",
+    "shape": "best",
+    "shapeReason": "Right shape for HeardRight: in use through heardright_core re-exports. The LIVE diff was not read line by line.",
+    "apps": {
+      "heardright": {
+        "fit": "fits",
+        "note": "In use for delivery, history and net; live diff not read line by line."
+      }
+    },
+    "boundary": [
+      "replacement_editor_may_receive is defined here and in rightkit-automation proof.rs",
+      "Delivery design moves paste_outcome and the other pure delivery rules into rightkit-automation proof.rs; rightkit-automation must not depend on this crate"
+    ],
+    "actions": [
+      "Fold the duplicated pure delivery rules with rightkit-automation"
+    ],
+    "depth": "deep",
+    "confidence": "low"
+  },
+  {
+    "package": "rightkit-transcript",
+    "kind": "cargo",
+    "family": "HeardRight review",
+    "existsAs": [
+      "crates/rightkit-transcript"
+    ],
+    "feeds": {},
+    "basis": "fresh implementation; no file matches a HeardRight source file",
+    "referenceApp": "heardright",
+    "shape": "best",
+    "shapeReason": "Right shape for HeardRight: in use (subtitle export only). It is not a copy of HeardRight code.",
+    "apps": {
+      "heardright": {
+        "fit": "fits",
+        "note": "In use for subtitle export only."
+      }
+    },
+    "boundary": [],
+    "actions": [
+      "Bump pin 0.4.0 to 0.4.2"
+    ],
+    "depth": "deep",
+    "confidence": "medium"
+  },
+  {
+    "package": "rightkit-speech-client",
+    "kind": "cargo",
+    "family": "HeardRight review",
+    "existsAs": [
+      "crates/rightkit-speech-client"
+    ],
+    "feeds": {},
+    "basis": "fresh implementation; no file matches a HeardRight source file",
+    "referenceApp": "heardright",
+    "shape": "best",
+    "shapeReason": "Right shape for HeardRight: in use; it names HeardRightLauncher and HostRole::HeardRight* by design.",
+    "apps": {
+      "heardright": {
+        "fit": "fits",
+        "note": "In use by the speech service and engine CLI."
+      }
+    },
+    "boundary": [],
+    "actions": [],
+    "depth": "deep",
+    "confidence": "medium"
+  },
+  {
+    "package": "rightkit-dictation-core",
+    "kind": "cargo",
+    "family": "HeardRight review",
+    "existsAs": [
+      "crates/rightkit-dictation-core"
+    ],
+    "feeds": {},
+    "basis": "port of live heardright_core engine and state code (single copy); settings and app_paths are a diverged fork of HeardRight main",
+    "referenceApp": "heardright",
+    "shape": "gaps",
+    "shapeReason": "Right shape with listed gaps: MAIN already uses it for engine, state, wake, mic selection, conditioning and redaction. Its settings and app_paths modules are duplicated in MAIN with a different design, and the app-data-root rule must be settled (A6).",
+    "apps": {
+      "heardright": {
+        "fit": "gaps",
+        "note": "Engine, state, wake, mic selection in use; settings and app_paths modules duplicated in main with a different design."
+      }
+    },
+    "boundary": [
+      "heardright_core/src/settings/{blob,patch}.rs and app_paths.rs (about 910 lines) duplicate ::settings and ::app_paths, diverged in API",
+      "Two designs: injected root (GC-A09) in main vs configured name (rightkit#1437) in RightKit",
+      "Legal contract is compile-time in main, runtime configure_legal_contract returning Option in RightKit"
+    ],
+    "actions": [
+      "Settle the app-data root rule (injected root vs configured name) and expose the winner (A6)",
+      "Keep configure_legal_contract; HeardRight adapts the two Option call sites",
+      "HeardRight: use rightkit_dictation_core::{settings, app_paths} and delete its copies",
+      "Publish 0.2.4; main pins 0.2.3"
+    ],
+    "depth": "deep",
+    "confidence": "medium"
+  },
+  {
+    "package": "rightkit-dictation-telemetry",
+    "kind": "cargo",
+    "family": "HeardRight review",
+    "existsAs": [
+      "crates/rightkit-dictation-telemetry"
+    ],
+    "feeds": {},
+    "basis": "fork of HeardRight main (heardright-telemetry, renamed plus host configuration)",
+    "referenceApp": "heardright",
+    "shape": "best",
+    "shapeReason": "Right shape for HeardRight: same content as MAIN's crate with configure points added; it needs the two configure calls (dump helper name, feedback endpoint).",
+    "apps": {
+      "heardright": {
+        "fit": "fits",
+        "note": "Same content as main's crate plus configure calls; no consumer in main yet."
+      }
+    },
+    "boundary": [
+      "Ten rightkit-dictation-* crates (about 62,000 lines) have no consumer in main; main runs its own copy",
+      "heardright-telemetry (1,353 lines) is the twin; crash review: feedback call and local event log belong here, not rightkit-crash",
+      "Crash review says every source file differs from main's today; chain review counts 71 of 1,282 normalised lines"
+    ],
+    "actions": [
+      "Publish the crate (A11)",
+      "HeardRight: re-export it and call configure_dump_helper_name and configure_feedback_endpoint"
+    ],
+    "depth": "deep",
+    "confidence": "medium"
+  },
+  {
+    "package": "rightkit-dictation-app-runtime",
+    "kind": "cargo",
+    "family": "HeardRight review",
+    "existsAs": [
+      "crates/rightkit-dictation-app-runtime"
+    ],
+    "feeds": {},
+    "basis": "fork of HeardRight main (heardright-app-runtime, renamed plus host configuration)",
+    "referenceApp": "heardright",
+    "shape": "best",
+    "shapeReason": "Right shape for HeardRight: same content as MAIN's crate (82 of 2,282 normalised lines differ); it needs host::configure with the engine binary stem, bundle identifier and resource dir.",
+    "apps": {
+      "heardright": {
+        "fit": "fits",
+        "note": "Same content as main's crate; needs host::configure; no consumer in main yet."
+      }
+    },
+    "boundary": [
+      "Ten rightkit-dictation-* crates (about 62,000 lines) have no consumer in main; main runs its own copy",
+      "heardright-app-runtime (2,425 lines) is the twin; process review counts 177 differing lines by diff -w, RightKit-only host.rs"
+    ],
+    "actions": [
+      "Publish the crate (A11)",
+      "HeardRight: switch after telemetry and models, configure EngineHost"
+    ],
+    "depth": "deep",
+    "confidence": "medium"
+  },
+  {
+    "package": "rightkit-dictation-models",
+    "kind": "cargo",
+    "family": "HeardRight review",
+    "existsAs": [
+      "crates/rightkit-dictation-models"
+    ],
+    "feeds": {},
+    "basis": "fork of HeardRight main (heardright-model-store, renamed plus small divergence)",
+    "referenceApp": "heardright",
+    "shape": "gaps",
+    "shapeReason": "Right shape with listed gaps: a renamed copy of MAIN's model store with one rename bug (grant host) and an env name change. Line counts differ between reports (104 normalised vs 140 by diff -w); the chain review is the more specific and is used.",
+    "apps": {
+      "heardright": {
+        "fit": "gaps",
+        "note": "Fork of main's model store with a grant-host rename bug; no consumer in main yet."
+      }
+    },
+    "boundary": [
+      "Ten rightkit-dictation-* crates (about 62,000 lines) have no consumer in main; main runs its own copy",
+      "heardright-model-store (3,120 lines) is the twin; main-only verify_receipt.rs",
+      "Bug from the move: DEFAULT_WORKER_HOST renamed to rightkit-models… while download URLs still use heardright-models…, so the production host gets the private-address-capable client"
+    ],
+    "actions": [
+      "Restore DEFAULT_WORKER_HOST to the real host or derive it from the archive URL (A4)",
+      "Env name RIGHTKIT_MODEL_WORKER_BASE replaced HR_MODEL_WORKER_BASE; check the feature gate",
+      "Publish the crate (A11)",
+      "HeardRight: configure bundle id and pass app version to legacy_compatibility_required"
+    ],
+    "depth": "deep",
+    "confidence": "medium"
+  },
+  {
+    "package": "rightkit-dictation-text-pipeline",
+    "kind": "cargo",
+    "family": "HeardRight review",
+    "existsAs": [
+      "crates/rightkit-dictation-text-pipeline"
+    ],
+    "feeds": {},
+    "basis": "fork of HeardRight main (heardright-text-pipeline, renamed plus lever removal)",
+    "referenceApp": "heardright",
+    "shape": "gaps",
+    "shapeReason": "Right shape with listed gaps: same logic as MAIN and cleaner, but MAIN has the right strings. User-Agent, prompt-version header and diagnostic prefix were renamed (T9 to T11), and brand and product terms are empty until configured.",
+    "apps": {
+      "heardright": {
+        "fit": "gaps",
+        "note": "Same logic as main; three wire-visible strings renamed; brand and product terms must be configured."
+      }
+    },
+    "boundary": [
+      "Ten rightkit-dictation-* crates (about 62,000 lines) have no consumer in main; main runs its own copy",
+      "heardright-text-pipeline (4,788 lines) is the twin",
+      "Holds process-wide statics, so the switch must go bottom-up"
+    ],
+    "actions": [
+      "Make User-Agent, prompt-version header name and diagnostic prefix host-configurable or restore the HeardRight values (A3)",
+      "Publish the crate (A11)",
+      "HeardRight: call configure_brand_homophones and configure_product_terms in the engine main"
+    ],
+    "depth": "deep",
+    "confidence": "medium"
+  },
+  {
+    "package": "rightkit-dictation-command-host",
+    "kind": "cargo",
+    "family": "HeardRight review",
+    "existsAs": [
+      "crates/rightkit-dictation-command-host"
+    ],
+    "feeds": {},
+    "basis": "fork of HeardRight main (heardright-command-host, renamed, test_mode removed, platform calls now rightkit_automation::desktop)",
+    "referenceApp": "heardright",
+    "shape": "gaps",
+    "shapeReason": "Right shape with listed gaps: it can only land together with heardright_platform to rightkit-automation. The chain review calls the logic the same; the more specific delivery design finds its delivery files already drifting and holding a second paste transaction with the strict rule, and that is used here.",
+    "apps": {
+      "heardright": {
+        "fit": "gaps",
+        "note": "Same dispatch logic as main; delivery files already drifting; can only land with the automation desktop switch."
+      }
+    },
+    "boundary": [
+      "Ten rightkit-dictation-* crates (about 62,000 lines) have no consumer in main; main runs its own copy",
+      "heardright-command-host (5,937 lines) is the twin; delivery/* differs by 49, 0, 123, 35, 15 lines and focus.rs by 55",
+      "Its delivery/insert.rs is a second paste transaction with a different success rule"
+    ],
+    "actions": [
+      "Reduce delivery/insert.rs to a call into the new rightkit-automation deliver entry point, or the duplicate just moves",
+      "Publish the crate (A11)",
+      "HeardRight: switch after the automation desktop step; configure HostIdentity"
+    ],
+    "depth": "deep",
+    "confidence": "low"
+  },
+  {
+    "package": "rightkit-dictation-inference",
+    "kind": "cargo",
+    "family": "HeardRight review",
+    "existsAs": [
+      "crates/rightkit-dictation-inference"
+    ],
+    "feeds": {},
+    "basis": "diverged fork of HeardRight main (heardright-inference)",
+    "referenceApp": "heardright",
+    "shape": "gaps",
+    "shapeReason": "Right shape with listed gaps: 1,744 of 12,910 lines differ plus kws.rs versus kws_cascade.rs (2,962). The KWS reconciliation is the largest real divergence and which side carries the qualified behaviour could not be determined.",
+    "apps": {
+      "heardright": {
+        "fit": "gaps",
+        "note": "Diverged from main; KWS wrapper differs in about 2,960 of 3,000 lines and neither side is decided."
+      }
+    },
+    "boundary": [
+      "Ten rightkit-dictation-* crates (about 62,000 lines) have no consumer in main; main runs its own copy",
+      "heardright-inference (20,323 lines) is the twin; process review did not diff it",
+      "Main-only KWS: KwsCascade, LatchedCut, guarded confirm cut, refractory block; RightKit-only: trace capture, fricative onset search, shared beam"
+    ],
+    "actions": [
+      "Reconcile kws.rs with main's kws_cascade.rs into one file (A7)",
+      "Remove the uncalled SpeechVad::calibrate (A10)",
+      "Depends on rightkit-asr taking the tdt_beam scratch buffer (A8)",
+      "Publish the crate (A11)",
+      "HeardRight: configure display name"
+    ],
+    "depth": "deep",
+    "confidence": "low"
+  },
+  {
+    "package": "rightkit-dictation-runtime",
+    "kind": "cargo",
+    "family": "HeardRight review",
+    "existsAs": [
+      "crates/rightkit-dictation-runtime"
+    ],
+    "feeds": {},
+    "basis": "fork of HeardRight main (heardright-runtime, renamed plus lever removal)",
+    "referenceApp": "heardright",
+    "shape": "gaps",
+    "shapeReason": "Right shape with listed gaps: recording start, pump, finish and streaming files equal MAIN apart from lever removal. RightKit lacks three files including the shipped engine CLI (#309), and hard-codes rightkit-dump-helper.exe.",
+    "apps": {
+      "heardright": {
+        "fit": "gaps",
+        "note": "Renamed copy of main's engine worker; lacks the engine CLI and hard-codes the dump helper name."
+      }
+    },
+    "boundary": [
+      "Ten rightkit-dictation-* crates (about 62,000 lines) have no consumer in main; main runs its own copy",
+      "heardright-runtime (15,805 lines) is the twin; main-only cli.rs, ipc/l3_live.rs, perf_levers.rs",
+      "speech_service/ twin differs by 41 of 1,731 lines; unidentified-peer log needs a newer rightkit-daemon than main's 0.5.1 (suspicion)"
+    ],
+    "actions": [
+      "Port cli.rs and its dispatch in entry::run, with the launcher host-supplied (A1)",
+      "crash_capture: dump helper name and engine version prefix from configuration (A2)",
+      "Settle the app-data root rule with rightkit-dictation-core (A6)",
+      "Remove spawn_dummy_worker (A10)",
+      "Publish the crate (A11)"
+    ],
+    "depth": "deep",
+    "confidence": "medium"
+  },
+  {
+    "package": "rightkit-dictation-engine",
+    "kind": "cargo",
+    "family": "HeardRight review",
+    "existsAs": [
+      "crates/rightkit-dictation-engine"
+    ],
+    "feeds": {},
+    "basis": "fork of HeardRight main (heardright-engine, renamed only)",
+    "referenceApp": "heardright",
+    "shape": "gaps",
+    "shapeReason": "Right shape with listed gaps: 4 of 209 source lines differ. The library facade is fine but main.rs calls entry::run() with no configuration step, and there is no Windows identity build step (A9).",
+    "apps": {
+      "heardright": {
+        "fit": "gaps",
+        "note": "Library facade fine; its binary takes no configuration so it cannot be HeardRight's engine."
+      }
+    },
+    "boundary": [
+      "Ten rightkit-dictation-* crates (about 62,000 lines) have no consumer in main; main runs its own copy",
+      "Main has build.rs embedding the Windows package identity manifest and icon; the RightKit crate has no build script"
+    ],
+    "actions": [
+      "Drop the [[bin]] and keep the library facade, or give run a config argument (A9)",
+      "Publish the crate (A11)",
+      "HeardRight: engine shrinks to main.rs with configure calls, build.rs and entitlements"
+    ],
+    "depth": "deep",
+    "confidence": "medium"
+  },
+  {
+    "package": "rightkit-dictation-tauri",
+    "kind": "cargo",
+    "family": "HeardRight review",
+    "existsAs": [
+      "crates/rightkit-dictation-tauri"
+    ],
+    "feeds": {},
+    "basis": "fork of HeardRight main src-tauri runtime, diverged by host-trait extraction",
+    "referenceApp": "heardright",
+    "shape": "gaps",
+    "shapeReason": "Right shape with listed gaps: same logic with platform delivery moved behind DictationHost (737 of 3,899 lines differ). The trait default pastes at the current foreground target, so HeardRight must supply its own policy; no HeardRight implementation exists in any tree.",
+    "apps": {
+      "heardright": {
+        "fit": "gaps",
+        "note": "Session runtime behind a host trait; HeardRight must write DictationHost; default delivery is not its policy."
+      }
+    },
+    "boundary": [
+      "Ten rightkit-dictation-* crates (about 62,000 lines) have no consumer in main; main runs its own copy",
+      "src-tauri/src/runtime/*, runtime.rs, runtime_lock.rs, start_sequence.rs, dictation_error.rs, engine_event_consumer.rs (about 4,600 lines) are the twin",
+      "About 350 lines of destination policy (session.rs:690-1035) have no RightKit home by design; delivery design moves them to rightkit-automation choose_destination"
+    ],
+    "actions": [
+      "Publish the crate (A11)",
+      "HeardRight: add impl DictationHost over its delivery module and call install_host at startup",
+      "Decide whether destination policy stays host code or moves to rightkit-automation"
+    ],
+    "depth": "deep",
+    "confidence": "medium"
+  },
+  {
+    "package": "rightkit-dictation-ffi",
+    "kind": "cargo",
+    "family": "HeardRight review",
+    "existsAs": [
+      "crates/rightkit-dictation-ffi"
+    ],
+    "feeds": {},
+    "basis": "fork of HeardRight main heardright_core ffi.rs and kws_ffi.rs with renamed C symbols, diverged",
+    "referenceApp": "heardright",
+    "shape": "gaps",
+    "shapeReason": "Right shape with listed gaps: the polish entry point calls the no-brand path, so a native shell on this crate loses \"heard right\" to \"HeardRight\" (P3), and the C symbols were renamed (A5).",
+    "apps": {
+      "heardright": {
+        "fit": "gaps",
+        "note": "C polish entry point drops brand repair; C symbols renamed away from heardright_core_*."
+      }
+    },
+    "boundary": [
+      "Ten rightkit-dictation-* crates (about 62,000 lines) have no consumer in main; main runs its own copy",
+      "heardright_core ffi.rs and kws_ffi.rs (786 lines) are the twin; main keeps brand repair"
+    ],
+    "actions": [
+      "Polish entry point takes or looks up the brand table (A5, P3)",
+      "Decide whether C symbols stay heardright_core_* for existing Swift callers or Swift renames to rightkit_dictation_*",
+      "Publish the crate (A11)"
+    ],
+    "depth": "deep",
+    "confidence": "medium"
+  },
+  {
+    "package": "rightkit-media-control",
+    "kind": "cargo",
+    "family": "HeardRight review",
+    "existsAs": [],
+    "feeds": {},
+    "basis": "does not exist; HeardRight main src-tauri/src/media_control/* (about 700 lines) is the only implementation",
+    "referenceApp": "heardright",
+    "shape": "missing",
+    "shapeReason": "Planned in the inventory as NEW and not in RightKit. The delivery design recommends a small separate crate, or rightkit-now-playing gaining a control-other-players half, rather than rightkit-automation.",
+    "apps": {
+      "heardright": {
+        "fit": "gaps",
+        "note": "Pause and resume of an identified player has no RightKit home; the media-key toggle is no substitute."
+      }
+    },
+    "boundary": [
+      "rightkit-automation send_media_key is a system-wide toggle with no player identity or state read",
+      "rightkit-now-playing publishes the host's own playback only"
+    ],
+    "actions": [
+      "Owner decision: new crate or extend rightkit-now-playing (design question 4)",
+      "Move media_control/{backend,mac,win,worker}.rs as they are; HeardRight keeps the call at recording start and stop"
+    ],
+    "depth": "deep",
+    "confidence": "medium"
+  },
+  {
+    "package": "RightKitDictation",
+    "kind": "swift",
+    "family": "HeardRight review",
+    "existsAs": [],
+    "feeds": {},
+    "basis": "does not exist; HeardRight iOS code (30 files / 10,514 lines on main) is the only implementation",
+    "referenceApp": "heardright",
+    "shape": "missing",
+    "shapeReason": "Planned NEW and not in RightKitSwift. One of only two missing Swift packages HeardRight needs; it is the iOS dictation runtime built on RightKitAudio, RightKitSpeech, RightKitStore and RightKitLiveActivity.",
+    "apps": {
+      "heardright": {
+        "fit": "gaps",
+        "note": "iOS dictation runtime, about 9,835 lines, is still HeardRight code; parts already sit on RightKit primitives."
+      }
+    },
+    "boundary": [
+      "RightKitSpeech/Dictation.swift is an unrelated 40-line enum of composer draft rules",
+      "WarmAudioCapture.swift is mapped here but belongs with RightKitAudio",
+      "RecordingLiveActivityController is an adapter over RightKitLiveActivity",
+      "Import intake files belong with RightKitImportQueue",
+      "App group, defaults keys, deep-link scheme and strings must be injected"
+    ],
+    "actions": [
+      "Create the module: command plane and snapshot first, then coordinator and transcriber, then audio session and policy",
+      "Decide whether a RightKitDictationUI view target is wanted",
+      "Decide whether a watchOS slice here is the watch-recording home"
+    ],
+    "depth": "deep",
+    "confidence": "medium"
+  },
+  {
+    "package": "RightKitLibrary",
+    "kind": "swift",
+    "family": "HeardRight review",
+    "existsAs": [],
+    "feeds": {},
+    "basis": "does not exist; HeardRight iOS code (12 files / 4,984 lines on main) is the only implementation",
+    "referenceApp": "heardright",
+    "shape": "missing",
+    "shapeReason": "Planned NEW and not in RightKitSwift. One of only two missing Swift packages HeardRight needs; whether it shares a data model with ScrapeRight's library was not verified.",
+    "apps": {
+      "heardright": {
+        "fit": "gaps",
+        "note": "Transcript library, about 3,580 lines, is still HeardRight code; cloud sync part already on RightKitCloudSync."
+      }
+    },
+    "boundary": [
+      "ContentViewSettings.swift and ContentViewSettingsAdvanced.swift (1,400 lines) are mapped here but are settings screens",
+      "The Rust crate rightkit-library holds no HeardRight code and has no HeardRight consumer"
+    ],
+    "actions": [
+      "Create the module: store and library first, then the cloud adapter, then the history view (RightKitLibraryUI)",
+      "Verify the shared data model with ScrapeRight"
+    ],
+    "depth": "deep",
+    "confidence": "medium"
+  },
+  {
+    "package": "RightKitStore",
+    "kind": "swift",
+    "family": "HeardRight review",
+    "existsAs": [
+      "swift/RightKitSwift/Sources/RightKitStore"
+    ],
+    "feeds": {},
+    "basis": "rewritten code, not copied; AppGroupFileLock is the same flock loop as live HeardRight",
+    "referenceApp": "heardright",
+    "shape": "best",
+    "shapeReason": "Right shape for HeardRight: command queue, owner lease, revisioned state and file lock are all in use in MAIN.",
+    "apps": {
+      "heardright": {
+        "fit": "fits",
+        "note": "Command queue, owner lease, revisioned state and file lock all in use on main."
+      }
+    },
+    "boundary": [],
+    "actions": [
+      "iOS pin is 0.8.1 while the Mac pill pins 0.9.0; move to one published pin"
+    ],
+    "depth": "deep",
+    "confidence": "medium"
+  },
+  {
+    "package": "RightKitImportQueue",
+    "kind": "swift",
+    "family": "HeardRight review",
+    "existsAs": [
+      "swift/RightKitSwift/Sources/RightKitImportQueue"
+    ],
+    "feeds": {},
+    "basis": "rewritten code, not copied",
+    "referenceApp": "heardright",
+    "shape": "best",
+    "shapeReason": "Right shape for HeardRight: in use by the share extension and the app; ShareViewController shrank from 157 to 53 lines.",
+    "apps": {
+      "heardright": {
+        "fit": "fits",
+        "note": "In use by the share extension and the app."
+      }
+    },
+    "boundary": [
+      "SharedImportQueue, PendingImportProcessor, AudioImportCoordinator, DocumentImportCoordinator (398 lines) are mapped to RightKitDictation but belong here (generic part)"
+    ],
+    "actions": [],
+    "depth": "deep",
+    "confidence": "medium"
+  },
+  {
+    "package": "RightKitCloudSync",
+    "kind": "swift",
+    "family": "HeardRight review",
+    "existsAs": [
+      "swift/RightKitSwift/Sources/RightKitCloudSync"
+    ],
+    "feeds": {},
+    "basis": "rewritten engine; CloudKitWakeHost was moved out of HeardRight's macOS pill helper",
+    "referenceApp": "heardright",
+    "shape": "gaps",
+    "shapeReason": "Right shape with listed gaps: the iOS engine is in use and four live sync files became two. The gap is on HeardRight's side: the Mac CloudKitWakeHost is not adopted.",
+    "apps": {
+      "heardright": {
+        "fit": "gaps",
+        "note": "iOS engine in use; Mac CloudKitWakeHost not adopted, main keeps a 610-line copy."
+      }
+    },
+    "boundary": [
+      "Mac CloudSyncNotifications.swift (610 lines) duplicates CloudKitWakeHost and re-implements the entitlement check RightKit has as CloudKitEntitlement",
+      "CloudSyncNotifications.swift and the live CloudSyncMain.swift are mapped to the rightkit-overlay crate"
+    ],
+    "actions": [
+      "HeardRight: replace CloudSyncNotifications.swift with CloudKitWakeHost, keeping identifiers and FFI entry points"
+    ],
+    "depth": "deep",
+    "confidence": "medium"
+  },
+  {
+    "package": "RightKitLicense",
+    "kind": "swift",
+    "family": "HeardRight review",
+    "existsAs": [
+      "swift/RightKitSwift/Sources/RightKitLicense"
+    ],
+    "feeds": {},
+    "basis": "rewritten code, not copied; verification and HTTP moved out of HeardRight",
+    "referenceApp": "heardright",
+    "shape": "gaps",
+    "shapeReason": "Right shape with listed gaps: covers what HeardRight does. The remaining gap is on HeardRight's side: iOS pin at 0.8.1 and facades not yet removed. The desktop licence review did not review this module, so the iOS review is used.",
+    "apps": {
+      "heardright": {
+        "fit": "gaps",
+        "note": "Client and store in use; HeardRight keeps its own controller, removal queue, link-code call and bridge client."
+      }
+    },
+    "boundary": [
+      "LicenseController (346) duplicates RightKit LicenseController",
+      "PendingLeaseRemoval and three UserDefaults keys duplicate PendingLicenseRemovalQueue and BridgeConsumptionGate",
+      "Hand-written Windows link-code request duplicates requestWindowsLinkCode",
+      "ProBridge and ProBridgeClient duplicate ContinuityBridgeClient",
+      "StoreKitProController.swift and ProAccessStore.swift are mapped here but belong with RightKitPurchases"
+    ],
+    "actions": [
+      "Tag a version containing ContinuityBridgeClient and move the iOS pin from 0.8.1",
+      "HeardRight: delete its controller, removal queue, link-code call and bridge client for the RightKit owners"
+    ],
+    "depth": "deep",
+    "confidence": "medium"
+  },
+  {
+    "package": "RightKitPurchases",
+    "kind": "swift",
+    "family": "HeardRight review",
+    "existsAs": [
+      "swift/RightKitSwift/Sources/RightKitPurchases"
+    ],
+    "feeds": {},
+    "basis": "rewritten code, not copied",
+    "referenceApp": "heardright",
+    "shape": "best",
+    "shapeReason": "Right shape for HeardRight: PurchaseController is in use; ProAccessStore is still to fold into AccessCache.",
+    "apps": {
+      "heardright": {
+        "fit": "fits",
+        "note": "PurchaseController with StoreKit2Backend in use; ProAccessStore still to fold into AccessCache."
+      }
+    },
+    "boundary": [
+      "Shared/ProAccessStore.swift (57) duplicates AccessCache and AccessResolver",
+      "StoreKitProController.swift and ProAccessStore.swift (397 lines) are mapped to RightKitLicense"
+    ],
+    "actions": [
+      "HeardRight: replace ProAccessStore with AccessCache"
+    ],
+    "depth": "deep",
+    "confidence": "medium"
+  },
+  {
+    "package": "RightKitCredentials",
+    "kind": "swift",
+    "family": "HeardRight review",
+    "existsAs": [
+      "swift/RightKitSwift/Sources/RightKitCredentials"
+    ],
+    "feeds": {},
+    "basis": "rewritten code, not copied",
+    "referenceApp": "heardright",
+    "shape": "best",
+    "shapeReason": "Right shape for HeardRight: used by license and account code.",
+    "apps": {
+      "heardright": {
+        "fit": "fits",
+        "note": "Used by license and account code."
+      }
+    },
+    "boundary": [
+      "BYOKPolishKeyStore.swift (138, Keychain storage) is mapped to the rightkit-text-polish crate but belongs here"
+    ],
+    "actions": [],
+    "depth": "deep",
+    "confidence": "medium"
+  },
+  {
+    "package": "RightKitAppleCredentials",
+    "kind": "swift",
+    "family": "HeardRight review",
+    "existsAs": [
+      "swift/RightKitSwift/Sources/RightKitAppleCredentials"
+    ],
+    "feeds": {},
+    "basis": "rewritten store; AppleCredentialHelperHost was moved out of HeardRight's HeardRightAppleCredentials CLI",
+    "referenceApp": "heardright",
+    "shape": "gaps",
+    "shapeReason": "Right shape with listed gaps: the store is in use on iOS and Mac. The gap is on HeardRight's side: AppleCredentialHelperHost is not adopted, and the 300-line iOS facade was not checked line by line.",
+    "apps": {
+      "heardright": {
+        "fit": "gaps",
+        "note": "Store in use on iOS and Mac; AppleCredentialHelperHost not adopted by the Mac helper."
+      }
+    },
+    "boundary": [
+      "Mac helper main.swift (309) still reads and decodes the request line itself; AppleCredentialHelperHost owns that wire protocol",
+      "iOS AppleSyncedCredentialStore.swift still defines SyncedCredentialAccount, CredentialSyncOutcome and the store beside RightKit's types",
+      "The Mac helper main.swift is mapped to the rightkit-overlay crate"
+    ],
+    "actions": [
+      "HeardRight: shrink the Mac helper to service name, access group, account allowlist and a call to AppleCredentialHelperHost",
+      "Check how much of the iOS facade is thin"
+    ],
+    "depth": "deep",
+    "confidence": "medium"
+  },
+  {
+    "package": "RightKitSpeech",
+    "kind": "swift",
+    "family": "HeardRight review",
+    "existsAs": [
+      "swift/RightKitSwift/Sources/RightKitSpeech"
+    ],
+    "feeds": {},
+    "basis": "rewritten code, not copied; replaced HeardRight's own Parakeet and Whisper runtime (14 files, 2,322 lines)",
+    "referenceApp": "heardright",
+    "shape": "gaps",
+    "shapeReason": "Right shape with listed gaps: engines are in use. Model grant, validator and download owner exist but are unused; RightKit gaps are ANE cache maintenance, the Files-import install path, a download telemetry hook and keyword spotting.",
+    "apps": {
+      "heardright": {
+        "fit": "gaps",
+        "note": "ASR engines in use; model grant, validator and download owners exist but HeardRight keeps its copies."
+      }
+    },
+    "boundary": [
+      "ModelGrantClient.swift (162) duplicates RightKitSpeech.ModelGrantClient",
+      "CoreMLModelValidator exists three times: app (259), Packages/SharedModelRoot (146), RightKit",
+      "ModelArtifactInstaller, ModelDownload*, ModelInstallation (about 2,200) overlap ModelDownloader, ModelInstaller, ModelDownloadCoordinator",
+      "ASRBenchRunner and ComputePlanProbe are mapped ADOPT but are app bench screens",
+      "ANECacheMaintenance is mapped ADOPT but has no RightKit equivalent (should be EXTEND)",
+      "Live ASR runtime files were mapped to app-shell (moot on main)"
+    ],
+    "actions": [
+      "Add ANE cache maintenance and SharedModelPublisher",
+      "Add the Files-import install path (4 GB inflate cap) and a download telemetry hook",
+      "Decide a home for keyword spotting over the Rust core (RustKWSBridge, KeywordCommandDetector)",
+      "HeardRight: delete ModelGrantClient and both CoreMLModelValidator copies, then the download and install copies"
+    ],
+    "depth": "deep",
+    "confidence": "medium"
+  },
+  {
+    "package": "RightKitAudio",
+    "kind": "swift",
+    "family": "HeardRight review",
+    "existsAs": [
+      "swift/RightKitSwift/Sources/RightKitAudio"
+    ],
+    "feeds": {},
+    "basis": "rewritten code, not copied; WarmAudioCapture has the same name and role as HeardRight's",
+    "referenceApp": "heardright",
+    "shape": "gaps",
+    "shapeReason": "Right shape with listed gaps: not linked by HeardRight at all. RightKit gaps are in-memory accumulation, speech-activity snapshot and WAV writer; a session policy richer than one category, mode and option set is a suspicion.",
+    "apps": {
+      "heardright": {
+        "fit": "gaps",
+        "note": "Not linked by HeardRight at all; WarmAudioCapture lacks accumulation, speech-activity snapshot and WAV writer."
+      }
+    },
+    "boundary": [
+      "HeardRight WarmAudioCapture.swift (772) duplicates RightKitAudio WarmAudioCapture (546); mapped to RightKitDictation",
+      "WatchRecordingController owns its own AVAudioRecorder instead of AudioFileRecorder",
+      "Arrived in 0.9.0; iOS pins 0.8.1"
+    ],
+    "actions": [
+      "Add in-memory sample accumulation, speech-activity snapshot and a WAV writer to WarmAudioCapture",
+      "Add a session policy layer if RecordingAudioPolicy is to move (mix policies, retry ladder, Bluetooth, warm hold)",
+      "Move the iOS pin to a published version containing 0.9.0 modules",
+      "HeardRight: use AudioFileRecorder on the watch"
+    ],
+    "depth": "deep",
+    "confidence": "low"
+  },
+  {
+    "package": "RightKitLiveActivity",
+    "kind": "swift",
+    "family": "HeardRight review",
+    "existsAs": [
+      "swift/RightKitSwift/Sources/RightKitLiveActivity"
+    ],
+    "feeds": {},
+    "basis": "rewritten lifecycle code; replaced HeardRight's RecordingActivityStateMachine",
+    "referenceApp": "heardright",
+    "shape": "best",
+    "shapeReason": "Right shape for HeardRight (lifecycle): in use through LiveActivityHost and ActivityLifecycle. It has no SwiftUI views and is not a home for the Live Activity views mapped to it.",
+    "apps": {
+      "heardright": {
+        "fit": "fits",
+        "note": "Lifecycle in use; it is not a home for the Live Activity views mapped to it."
+      }
+    },
+    "boundary": [
+      "RecordingActivityViews, RecordingDesignGallery and the ActivityAttributes type (934 lines) are mapped EXTEND here; the module has no view layer and ActivityAttributes must stay in the app",
+      "RecordingLiveActivityController is mapped to RightKitDictation but is an adapter over this module"
+    ],
+    "actions": [
+      "Owner decision whether Live Activity views move to a view target or stay app screens"
+    ],
+    "depth": "deep",
+    "confidence": "medium"
+  },
+  {
+    "package": "RightKitWatchBridge",
+    "kind": "swift",
+    "family": "HeardRight review",
+    "existsAs": [
+      "swift/RightKitSwift/Sources/RightKitWatchBridge"
+    ],
+    "feeds": {},
+    "basis": "rewritten code, not copied",
+    "referenceApp": "heardright",
+    "shape": "gaps",
+    "shapeReason": "Right shape with listed gaps: ledger and senders are in use. It has no WCSessionDelegate halves and no recovery store, and is one candidate home for watch recording.",
+    "apps": {
+      "heardright": {
+        "fit": "gaps",
+        "note": "Ledger and senders in use; no WCSessionDelegate halves and no recovery store."
+      }
+    },
+    "boundary": [
+      "19 Apple Watch files (3,476 lines) are mapped to RightKitWatch, which is an FSEvents file watcher; this module and RightKitAudio are the real owners"
+    ],
+    "actions": [
+      "Decide the watch-recording home: extend this module with the two WCSessionDelegate halves or add a watchOS slice to RightKitDictation",
+      "Add a recovery store"
+    ],
+    "depth": "deep",
+    "confidence": "medium"
+  },
+  {
+    "package": "RightKitDiagnostics",
+    "kind": "swift",
+    "family": "HeardRight review",
+    "existsAs": [
+      "swift/RightKitSwift/Sources/RightKitDiagnostics"
+    ],
+    "feeds": {},
+    "basis": "JSONLDiagnosticStore is an extraction of HeardRight's DogfoodTraceStore; the rest is rewritten",
+    "referenceApp": "heardright",
+    "shape": "gaps",
+    "shapeReason": "Right shape with listed gaps: only PrivacyRedactor is in use. Gaps are non-string field values, the DEBUG campaign file and a MetricKit subscriber.",
+    "apps": {
+      "heardright": {
+        "fit": "gaps",
+        "note": "Only PrivacyRedactor in use; JSONLDiagnosticStore, extracted from HeardRight's DogfoodTraceStore, is unused."
+      }
+    },
+    "boundary": [
+      "Shared/DogfoodTraceStore.swift (223) duplicates JSONLDiagnosticStore",
+      "MobileDiagnosticSubscriber (MetricKit) has no RightKit counterpart",
+      "MobileTelemetryUploader was deleted and the uploader option is not wired"
+    ],
+    "actions": [
+      "DiagnosticEvent must accept non-string field values",
+      "Cover the DEBUG campaign file kept outside Caches",
+      "Add a MetricKit subscriber",
+      "HeardRight: replace DogfoodTraceStore with JSONLDiagnosticStore"
+    ],
+    "depth": "deep",
+    "confidence": "medium"
+  },
+  {
+    "package": "RightKitIntents",
+    "kind": "swift",
+    "family": "HeardRight review",
+    "existsAs": [
+      "swift/RightKitSwift/Sources/RightKitIntents"
+    ],
+    "feeds": {},
+    "basis": "rewritten thin seam (1 file, 139 lines)",
+    "referenceApp": "heardright",
+    "shape": "gaps",
+    "shapeReason": "Right shape with listed gaps: driver, Darwin post and permission handshake are in use; RightKitRecordingBridge.dispatch is unused. The module is a seam, not a home for 855 lines of intents, which must be declared by the app.",
+    "apps": {
+      "heardright": {
+        "fit": "gaps",
+        "note": "Driver, Darwin post and permission handshake in use; dispatch unused; a seam, not a home for intents."
+      }
+    },
+    "boundary": [
+      "HeardRight keeps its own HeardRightRecordingBridge instead of RightKitRecordingBridge.dispatch",
+      "Shared/IOSVoiceCommand.swift (340) is a spoken-command parser, not App Intents",
+      "Mac HeardRightShortcuts/main.swift (App Intents broker) is mapped to the rightkit-overlay crate"
+    ],
+    "actions": [
+      "HeardRight: use RightKitRecordingBridge.dispatch",
+      "Share the recording intent bodies only if the owner wants; AppIntent declarations stay in the app"
+    ],
+    "depth": "deep",
+    "confidence": "medium"
+  },
+  {
+    "package": "RightKitUI",
+    "kind": "swift",
+    "family": "HeardRight review",
+    "existsAs": [
+      "swift/RightKitSwift/Sources/RightKitUI"
+    ],
+    "feeds": {},
+    "basis": "rewritten code; the only RightKit Swift product live HeardRight used",
+    "referenceApp": "heardright",
+    "shape": "best",
+    "shapeReason": "Right shape for what it is; wrong shape as the target for onboarding and app scaffold. It is 230 lines of glass and contrast with nothing for onboarding, settings or navigation.",
+    "apps": {
+      "heardright": {
+        "fit": "fits",
+        "note": "Glass surface and contrast maths in use; wrong target for onboarding and app scaffold files."
+      }
+    },
+    "boundary": [
+      "Five onboarding files (1,563 lines) are mapped here; they are HeardRight screens with HeardRight copy",
+      "Mapping document sends 23 scaffold files / 3,903 lines here while the inventory JSON marks them app-shell"
+    ],
+    "actions": [
+      "Add onboarding and settings scaffolds only if a second app will use them; otherwise they are app screens",
+      "Make the mapping document and inventory JSON agree"
+    ],
+    "depth": "deep",
+    "confidence": "medium"
+  },
+  {
+    "package": "RightKitOverlay",
+    "kind": "swift",
+    "family": "HeardRight review",
+    "existsAs": [
+      "swift/RightKitSwift/Sources/RightKitOverlay"
+    ],
+    "feeds": {},
+    "basis": "fresh implementation (one file, 804 lines); neither live nor main's HeardRightPillMac depends on it",
+    "referenceApp": "heardright",
+    "shape": "gaps",
+    "shapeReason": "Right shape with listed gaps (panel layer only): panel, key policy, collection behaviour and event names fit. Missing are level, done, hover state, hosting view, anchored animated resize, C interface, pill content and splash.",
+    "apps": {
+      "heardright": {
+        "fit": "gaps",
+        "note": "Panel layer fits; the Mac pill uses none of it; no level, done, hover, animation or C interface."
+      }
+    },
+    "boundary": [
+      "HeardRightNonActivatingPanel plus HeardRightPillPanel duplicate RightKitOverlayPanel with a configuration",
+      "All pill Swift (4,735 lines) is mapped to the Rust crate rightkit-overlay; this module is the only place Swift can go",
+      "Splash, launch hand-off and hub transition (864 lines) are launch behaviour, not overlay"
+    ],
+    "actions": [
+      "Add an audio level path and a smoothing driver",
+      "Add a done outcome or rule that done is status(\"Done\")",
+      "Add hover enter/leave state and a SwiftUI hosting view",
+      "Add anchored resize and generation-guarded frame animation",
+      "Add a logging seam; decide the C interface and whether pill content moves in",
+      "Decide the owner of splash and transitions"
+    ],
+    "depth": "deep",
+    "confidence": "medium"
+  },
+  {
+    "package": "RightKitWatch",
+    "kind": "swift",
+    "family": "HeardRight review",
+    "existsAs": [
+      "swift/RightKitSwift/Sources/RightKitWatch"
+    ],
+    "feeds": {},
+    "basis": "fresh implementation of a macOS FSEvents file watcher; holds no HeardRight code",
+    "referenceApp": "heardright",
+    "shape": "wrong",
+    "shapeReason": "Wrong shape: it is an FSEvents file watcher (the target is empty on iOS), not Apple Watch code. The 19 Apple Watch files mapped to it belong with RightKitWatchBridge, RightKitAudio and a new watch-recording home.",
+    "apps": {
+      "heardright": {
+        "fit": "wrong",
+        "note": "An FSEvents file watcher for macOS; no Apple Watch code belongs here."
+      }
+    },
+    "boundary": [
+      "19 Apple Watch files (3,476 lines on main) are mapped here by mistake",
+      "HeardRight does not declare this product"
+    ],
+    "actions": [
+      "Correct the mapping so no file is planned into RightKitWatch",
+      "Choose a watch-recording home that is not this module"
+    ],
+    "depth": "deep",
+    "confidence": "medium"
+  },
+  {
+    "package": "RightKitHubQA",
+    "kind": "swift",
+    "family": "HeardRight review",
+    "existsAs": [
+      "swift/RightKitSwift/Sources/RightKitHubQA"
+    ],
+    "feeds": {},
+    "basis": "fresh implementation of desktop Hub fakes; holds no HeardRight code",
+    "referenceApp": "heardright",
+    "shape": "wrong",
+    "shapeReason": "Wrong shape: it is three files of fakes for the desktop Hub and depends on RightKitHub. The 48 iOS test files mapped to it stay with the app, as the mapping document's own APPTEST rows say.",
+    "apps": {
+      "heardright": {
+        "fit": "wrong",
+        "note": "Fakes for the desktop Hub; no iOS tests belong here."
+      }
+    },
+    "boundary": [
+      "48 iOS test files (6,749 lines on main) are mapped here by the inventory JSON; the mapping document lists them as app-shell APPTEST",
+      "HeardRight imports neither RightKitHub nor RightKitHubQA"
+    ],
+    "actions": [
+      "Correct the mapping so the iOS tests stay with the app"
+    ],
+    "depth": "deep",
+    "confidence": "medium"
+  }
+]

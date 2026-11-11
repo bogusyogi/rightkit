@@ -1,0 +1,871 @@
+[
+ {
+  "package": "rightkit-library",
+  "kind": "cargo",
+  "family": "Ingest & library",
+  "existsAs": [
+   "crates/rightkit-library"
+  ],
+  "feeds": {
+   "heardright": 6049,
+   "genright": 4596,
+   "scraperight": 4280,
+   "postright": 1836
+  },
+  "basis": "ScrapeRight store, history reader and enrichment only",
+  "referenceApp": "heardright",
+  "shape": "wrong",
+  "shapeReason": "Plan merged four different capabilities under one name; the crate holds only ScrapeRight's artifact index, with a fixed social Kind enum and tier rules.",
+  "apps": {
+   "heardright": {
+    "fit": "wrong",
+    "note": "dictation history needs encryption, retention, drafts, origin scoping; its code is in rightkit-transcript-library"
+   },
+   "scraperight": {
+    "fit": "fits",
+    "note": "its own code; not yet a dependency"
+   },
+   "genright": {
+    "fit": "wrong",
+    "note": "job/asset store is in rightkit-media-gen; gallery index artifacts.rs here is not compiled"
+   },
+   "postright": {
+    "fit": "wrong",
+    "note": "content.rs is content planning; belongs in rightkit-content-plan"
+   }
+  },
+  "boundary": [
+   "src/artifacts.rs and src/path_policy.rs are not declared in lib.rs and need serde_json (not a dependency): dead files that would be published",
+   "Kind enum duplicated in rightkit-media-fetch/src/protocol.rs",
+   "publish_replacing duplicated in rightkit-media-fetch/src/extraction.rs",
+   "depends on rightkit-media-fetch for two URL helpers",
+   "ScrapeRight Free/Pro rules and names (transcripts table, history.db) in code",
+   "name and HistoryPage type collide with rightkit-transcript-library"
+  ],
+  "actions": [
+   "remove or properly home artifacts.rs/path_policy.rs",
+   "host-supplied kind; delete duplicate Kind; drop media-fetch dependency",
+   "single publish_replacing in rightkit-fs",
+   "move tier rules to host",
+   "port ScrapeRight history tests",
+   "correct plan mapping for HeardRight, GenRight, PostRight"
+  ],
+  "depth": "deep",
+  "confidence": "high"
+ },
+ {
+  "package": "rightkit-transcript-library",
+  "kind": "cargo",
+  "family": "Ingest & library",
+  "existsAs": [
+   "crates/rightkit-transcript-library"
+  ],
+  "feeds": {
+   "heardright": 0
+  },
+  "basis": "HeardRight heardright_core delivery/history/net (near-identical to live build)",
+  "referenceApp": "heardright",
+  "shape": "gaps",
+  "shapeReason": "Right owner for dictation history and already used by HeardRight main, but the SQLCipher store, recovery, key rotation and export are still app code, and delivery logic is mixed in.",
+  "apps": {
+   "heardright": {
+    "fit": "gaps",
+    "note": "uses =0.1.2 for trait and records; src-tauri/src/history/* (about 2,200 lines) and history_export.rs remain in app"
+   }
+  },
+  "boundary": [
+   "delivery.rs paste/target logic belongs to the dictation family",
+   "MAC_DELETE_AUTHORITY/HistoryOrigin are HeardRight sync rules",
+   "not a plan target; plan sends this code to rightkit-library"
+  ],
+  "actions": [
+   "add feature-gated SQLCipher store, recovery, export with key source and paths as parameters",
+   "move non-record delivery logic to rightkit-dictation-*",
+   "port history tests",
+   "fix plan mapping"
+  ],
+  "depth": "deep",
+  "confidence": "high"
+ },
+ {
+  "package": "@rightkit/library-ui",
+  "kind": "npm",
+  "family": "Ingest & library",
+  "existsAs": [
+   "packages/library-ui"
+  ],
+  "feeds": {
+   "scraperight": 8194,
+   "heardright": 2870
+  },
+  "basis": "ScrapeRight desktop front end (src/queue) and HeardRight History/Transcribe pages (src/history) side by side",
+  "referenceApp": "heardright",
+  "shape": "wrong",
+  "shapeReason": "Two apps' screens in two folders with no shared component, literal Tauri command names and one app's theme, licence and title bar.",
+  "apps": {
+   "heardright": {
+    "fit": "wrong",
+    "note": "History page not exported from barrel; depends on dictation-ui internals; split across two packages"
+   },
+   "scraperight": {
+    "fit": "fits",
+    "note": "its own front end moved wholesale, including theme/licence/settings"
+   }
+  },
+  "boundary": [
+   "depends on license, app-update, settings-ui, tauri-shell, dictation-ui",
+   "queue UI (paste bar, job cards) is not library",
+   "qaMock.ts (869 lines) ships in src",
+   "History AppIcon/historyUtils live in dictation-ui",
+   "Transcribe.tsx is not library",
+   "five modules excluded from barrel for name collisions"
+  ],
+  "actions": [
+   "define LibrarySource/row/detail contract with no IPC",
+   "list from HeardRight History, reader from ScrapeRight Detail",
+   "move queue components to a queue package",
+   "remove theme/licence/update/title bar/settings/mocks",
+   "drop dictation-ui dependency"
+  ],
+  "depth": "deep",
+  "confidence": "high"
+ },
+ {
+  "package": "RightKitLibrary",
+  "kind": "swift",
+  "family": "Ingest & library",
+  "existsAs": [],
+  "feeds": {
+   "heardright": 4984,
+   "scraperight": 1072
+  },
+  "basis": "none",
+  "referenceApp": "heardright",
+  "shape": "missing",
+  "shapeReason": "No Swift module exists; HeardRight's transcript store with tombstones and CloudKit sync and ScrapeRight's small artifact store are different things.",
+  "apps": {
+   "heardright": {
+    "fit": "gaps",
+    "note": "module absent; store, sync, import/export in app"
+   },
+   "scraperight": {
+    "fit": "gaps",
+    "note": "module absent; 150 lines of artifact store"
+   }
+  },
+  "boundary": [
+   "settings views (ContentViewSettings*.swift, 1,400 lines) mis-mapped here",
+   "SharedTranscriptContracts.swift holds shortcuts, recording state, deep links",
+   "TranscriptCloudSync overlaps RightKitCloudSync"
+  ],
+  "actions": [
+   "create transcript library module from HeardRight on RightKitStore/RightKitCloudSync",
+   "remap settings views"
+  ],
+  "depth": "light",
+  "confidence": "medium"
+ },
+ {
+  "package": "rightkit-media-fetch",
+  "kind": "cargo",
+  "family": "Ingest & library",
+  "existsAs": [
+   "crates/rightkit-media-fetch"
+  ],
+  "feeds": {
+   "scraperight": 8515,
+   "genright": 1362
+  },
+  "basis": "ScrapeRight audio/detect crates and extraction modules behind host traits",
+  "referenceApp": "scraperight",
+  "shape": "gaps",
+  "shapeReason": "Fetch, classify and scrapers are sound behind traits, but ScrapeRight's licence tiers and job wire types are inside.",
+  "apps": {
+   "scraperight": {
+    "fit": "fits",
+    "note": "its own code"
+   },
+   "genright": {
+    "fit": "n/a",
+    "note": "stock.rs is stock media search and lives in rightkit-media-gen"
+   }
+  },
+  "boundary": [
+   "LicenseTier, EntitlementsSnapshot, FREE_MAX_TRANSCRIPT_SECONDS in protocol.rs",
+   "JobInfo/Stage/Kind are ScrapeRight queue wire types; Kind duplicated in rightkit-library",
+   "publish_replacing duplicated"
+  ],
+  "actions": [
+   "move tier and entitlement types to host",
+   "one Kind",
+   "remove stock.rs from plan mapping",
+   "port tests"
+  ],
+  "depth": "deep",
+  "confidence": "high"
+ },
+ {
+  "package": "rightkit-web-extract",
+  "kind": "cargo",
+  "family": "Ingest & library",
+  "existsAs": [
+   "crates/rightkit-web-extract"
+  ],
+  "feeds": {
+   "scraperight": 2734
+  },
+  "basis": "ScrapeRight article extraction ladder over ArticleNet/BrowserHost traits",
+  "referenceApp": "scraperight",
+  "shape": "best",
+  "shapeReason": "No transport of its own; host traits for network and browser; no product rules found.",
+  "apps": {
+   "scraperight": {
+    "fit": "fits",
+    "note": "Rust side; Swift extractors have no shared module"
+   }
+  },
+  "boundary": [
+   "HostPin/BrowserConfig overlap concepts in rightkit-browser (suspicion)",
+   "tls-client loaded by path via libloading"
+  ],
+  "actions": [
+   "port tests",
+   "decide home for iOS extractors"
+  ],
+  "depth": "light",
+  "confidence": "medium"
+ },
+ {
+  "package": "rightkit-web-session",
+  "kind": "cargo",
+  "family": "Ingest & library",
+  "existsAs": [
+   "crates/rightkit-web-session"
+  ],
+  "feeds": {
+   "pulse": 2734,
+   "scraperight": 1434
+  },
+  "basis": "Pulse core/src/browser only",
+  "referenceApp": "pulse",
+  "shape": "gaps",
+  "shapeReason": "Correct for Pulse's owner-approved agent browser session; ScrapeRight's in-app cookie sign-in is a different capability and should not target this crate.",
+  "apps": {
+   "pulse": {
+    "fit": "gaps",
+    "note": "not a dependency yet; Pulse CLI names and /etc/pulse paths in code and docs"
+   },
+   "scraperight": {
+    "fit": "wrong",
+    "note": "cookie-capture sign-in belongs in rightkit-browser cookie_export plus tauri-shell"
+   }
+  },
+  "boundary": [
+   "PhoneError and remote-gateway/owner-approvals dependencies",
+   "Pulse names in docs and default paths",
+   "ScrapeRight files mis-mapped"
+  ],
+  "actions": [
+   "remove Pulse names and paths",
+   "remap ScrapeRight sign-in to rightkit-browser/rightkit-tauri-shell",
+   "tests"
+  ],
+  "depth": "deep",
+  "confidence": "high"
+ },
+ {
+  "package": "rightkit-browser",
+  "kind": "cargo",
+  "family": "Ingest & library",
+  "existsAs": [
+   "crates/rightkit-browser"
+  ],
+  "feeds": {
+   "coderight": 3460,
+   "scraperight": 932
+  },
+  "basis": "own implementation, used by ScrapeRight, GenRight, Pulse",
+  "referenceApp": "scraperight",
+  "shape": "gaps",
+  "shapeReason": "Existing shared crate; ScrapeRight still carries a synchronous adapter and cookie sign-in flow that other apps would rewrite. CodeRight source unavailable.",
+  "apps": {
+   "scraperight": {
+    "fit": "gaps",
+    "note": "sync HeadlessBrowser adapter (managed.rs) and sign-in cookie flow in app"
+   },
+   "coderight": {
+    "fit": "n/a",
+    "note": "source not available; not verified"
+   }
+  },
+  "boundary": [],
+  "actions": [
+   "add blocking adapter",
+   "host cookie sign-in flow"
+  ],
+  "depth": "light",
+  "confidence": "low"
+ },
+ {
+  "package": "rightkit-search",
+  "kind": "cargo",
+  "family": "Ingest & library",
+  "existsAs": [
+   "crates/rightkit-search"
+  ],
+  "feeds": {
+   "mailright": 944
+  },
+  "basis": "own implementation",
+  "referenceApp": "mailright",
+  "shape": "gaps",
+  "shapeReason": "Generic FTS helpers exist; MailRight's resumable shadow-table rebuild is generic but sits in rightkit-mail-store with mail table names.",
+  "apps": {
+   "mailright": {
+    "fit": "gaps",
+    "note": "fts rebuild-and-swap should be a rightkit-search function"
+   }
+  },
+  "boundary": [
+   "generic FTS rebuild procedure lives in rightkit-mail-store/src/db/fts_index.rs"
+  ],
+  "actions": [
+   "lift resumable rebuild-and-swap into rightkit-search::fts"
+  ],
+  "depth": "light",
+  "confidence": "medium"
+ },
+ {
+  "package": "rightkit-fsindex",
+  "kind": "cargo",
+  "family": "Ingest & library",
+  "existsAs": [
+   "crates/rightkit-fsindex"
+  ],
+  "feeds": {
+   "pulse": 2980
+  },
+  "basis": "own implementation; Pulse already depends on 0.5.0",
+  "referenceApp": "pulse",
+  "shape": "best",
+  "shapeReason": "Pulse already uses it; the mapped 2,980 lines are Pulse's host around it.",
+  "apps": {
+   "pulse": {
+    "fit": "fits",
+    "note": "version bump 0.5.0 to 0.6.2 pending"
+   }
+  },
+  "boundary": [],
+  "actions": [],
+  "depth": "light",
+  "confidence": "medium"
+ },
+ {
+  "package": "rightkit-feed",
+  "kind": "cargo",
+  "family": "Ingest & library",
+  "existsAs": [
+   "crates/rightkit-feed"
+  ],
+  "feeds": {},
+  "basis": "fresh implementation (RSS/Atom parser)",
+  "referenceApp": "none",
+  "shape": "best",
+  "shapeReason": "Small, bounded, no app decisions; no consumer yet.",
+  "apps": {},
+  "boundary": [],
+  "actions": [],
+  "depth": "light",
+  "confidence": "medium"
+ },
+ {
+  "package": "rightkit-catalog",
+  "kind": "cargo",
+  "family": "Ingest & library",
+  "existsAs": [
+   "crates/rightkit-catalog"
+  ],
+  "feeds": {},
+  "basis": "fresh implementation (localisation catalog generator)",
+  "referenceApp": "none",
+  "shape": "best",
+  "shapeReason": "It is an i18n tool, not a media/library catalog; fine for that purpose but belongs to the i18n family.",
+  "apps": {},
+  "boundary": [
+   "listed in the wrong family"
+  ],
+  "actions": [
+   "list under i18n family"
+  ],
+  "depth": "light",
+  "confidence": "low"
+ },
+ {
+  "package": "rightkit-pipeline",
+  "kind": "cargo",
+  "family": "Content pipeline & social",
+  "existsAs": [
+   "crates/rightkit-pipeline"
+  ],
+  "feeds": {
+   "cutright": 13753,
+   "genright": 1701,
+   "postright": 2521
+  },
+  "basis": "CutRight cutright-genright (GenRight engine client)",
+  "referenceApp": "cutright",
+  "shape": "gaps",
+  "shapeReason": "Holds only CutRight's GenRight client; the brief-run contract that CutRight and GenRight execute and PostRight calls has no shared runner or executor harness.",
+  "apps": {
+   "cutright": {
+    "fit": "gaps",
+    "note": "orchestrator fits; brief/batch/recipe commands in app"
+   },
+   "genright": {
+    "fit": "gaps",
+    "note": "brief run executor harness absent"
+   },
+   "postright": {
+    "fit": "gaps",
+    "note": "child-process runner for brief run absent"
+   }
+  },
+  "boundary": [
+   "name says pipeline, content is one engine's client with genright.* event names",
+   "channel_recipe.rs is a render-preset check (captions/color/audio deps)",
+   "CutRight and GenRight duplicate brief helpers (write_json, rel, envelope id)"
+  ],
+  "actions": [
+   "add brief-run caller runner and executor harness",
+   "rename or add genright module",
+   "move channel_recipe out",
+   "port orchestration tests and fake engine"
+  ],
+  "depth": "deep",
+  "confidence": "medium"
+ },
+ {
+  "package": "@rightkit/social-ui",
+  "kind": "npm",
+  "family": "Content pipeline & social",
+  "existsAs": [
+   "packages/social-ui"
+  ],
+  "feeds": {
+   "postright": 17034
+  },
+  "basis": "PostRight front end, near-complete copy",
+  "referenceApp": "postright",
+  "shape": "gaps",
+  "shapeReason": "Has a DataSource seam, but ships mock fixtures and the product name, and is a whole app.",
+  "apps": {
+   "postright": {
+    "fit": "fits",
+    "note": "its own UI"
+   }
+  },
+  "boundary": [
+   "19 mock fixture files in package",
+   "PostRight in 20 source files"
+  ],
+  "actions": [
+   "mocks to dev entry",
+   "product name via hostAppName"
+  ],
+  "depth": "light",
+  "confidence": "medium"
+ },
+ {
+  "package": "rightkit-social-publish",
+  "kind": "cargo",
+  "family": "Content pipeline & social",
+  "existsAs": [
+   "crates/rightkit-social-publish"
+  ],
+  "feeds": {
+   "postright": 16930
+  },
+  "basis": "PostRight publish adapters, phase machine, quota, accounts over store traits",
+  "referenceApp": "postright",
+  "shape": "gaps",
+  "shapeReason": "Adapters plus a restartable machine over host store traits is sound; no store implementation ships and PostRight's venture/channel/account scope is in every trait.",
+  "apps": {
+   "postright": {
+    "fit": "gaps",
+    "note": "SQL stores and method dispatch remain in app"
+   }
+  },
+  "boundary": [
+   "Scope{venture,channel,account} is PostRight tenancy",
+   "calendar_time is not publish-specific",
+   "README describes only adapters"
+  ],
+  "actions": [
+   "reference SQLite store or documented schema",
+   "opaque or generic scope key",
+   "move calendar_time to rightkit-time",
+   "README",
+   "port tests"
+  ],
+  "depth": "deep",
+  "confidence": "medium"
+ },
+ {
+  "package": "rightkit-social-analytics",
+  "kind": "cargo",
+  "family": "Content pipeline & social",
+  "existsAs": [
+   "crates/rightkit-social-analytics"
+  ],
+  "feeds": {
+   "postright": 5186,
+   "cutright": 1300
+  },
+  "basis": "PostRight links/analytics/metric_import/optimise plus CutRight retention command under a feature",
+  "referenceApp": "postright",
+  "shape": "wrong",
+  "shapeReason": "CutRight's retention-to-timeline-cuts command is video editing and drags video-project, timeline, autoedit and engine-host into a social crate.",
+  "apps": {
+   "postright": {
+    "fit": "gaps",
+    "note": "stores in app"
+   },
+   "cutright": {
+    "fit": "wrong",
+    "note": "retention command belongs with autoedit/video-project"
+   }
+  },
+  "boundary": [
+   "cmd/retention.rs with cutright.* schema ids",
+   "depends on rightkit-social-publish for Scope/Fail",
+   "README stale"
+  ],
+  "actions": [
+   "move cmd/retention.rs to video/autoedit family",
+   "shared social core types crate",
+   "README",
+   "tests"
+  ],
+  "depth": "deep",
+  "confidence": "medium"
+ },
+ {
+  "package": "rightkit-content-plan",
+  "kind": "cargo",
+  "family": "Content pipeline & social",
+  "existsAs": [
+   "crates/rightkit-content-plan"
+  ],
+  "feeds": {
+   "postright": 4599
+  },
+  "basis": "PostRight calendar, variants, hook tests, drafts over store traits",
+  "referenceApp": "postright",
+  "shape": "gaps",
+  "shapeReason": "Consistent with the other social crates; PostRight's content records (mapped to rightkit-library) and digests belong here and are absent.",
+  "apps": {
+   "postright": {
+    "fit": "gaps",
+    "note": "content.rs and digest.rs not moved; stores in app"
+   }
+  },
+  "boundary": [
+   "depends on both social-publish and social-analytics",
+   "README stale"
+  ],
+  "actions": [
+   "add content records and digests",
+   "README",
+   "tests"
+  ],
+  "depth": "light",
+  "confidence": "medium"
+ },
+ {
+  "package": "rightkit-content-proof",
+  "kind": "cargo",
+  "family": "Content pipeline & social",
+  "existsAs": [
+   "crates/rightkit-content-proof"
+  ],
+  "feeds": {
+   "postright": 3820
+  },
+  "basis": "only PostRight's claim-number canonicaliser (172 lines)",
+  "referenceApp": "postright",
+  "shape": "gaps",
+  "shapeReason": "Claim review (proof.rs, 1,103 lines) is not in the crate; acquisition.rs is an approval gate, not proof.",
+  "apps": {
+   "postright": {
+    "fit": "gaps",
+    "note": "claim review not moved"
+   }
+  },
+  "boundary": [
+   "acquisition.rs mis-mapped"
+  ],
+  "actions": [
+   "move claim review over a store trait",
+   "remap acquisition.rs"
+  ],
+  "depth": "light",
+  "confidence": "medium"
+ },
+ {
+  "package": "rightkit-social-inbox",
+  "kind": "cargo",
+  "family": "Content pipeline & social",
+  "existsAs": [
+   "crates/rightkit-social-inbox"
+  ],
+  "feeds": {
+   "postright": 3070
+  },
+  "basis": "PostRight webhook inbox and keyword automation over store traits",
+  "referenceApp": "postright",
+  "shape": "gaps",
+  "shapeReason": "Sound design; Meta-only parsing; depends on publish and analytics for shared types.",
+  "apps": {
+   "postright": {
+    "fit": "gaps",
+    "note": "stores in app"
+   }
+  },
+  "boundary": [
+   "shared types pulled from social-publish/analytics",
+   "README stale"
+  ],
+  "actions": [
+   "shared types crate",
+   "README",
+   "tests"
+  ],
+  "depth": "light",
+  "confidence": "medium"
+ },
+ {
+  "package": "rightkit-research",
+  "kind": "cargo",
+  "family": "Content pipeline & social",
+  "existsAs": [
+   "crates/rightkit-research"
+  ],
+  "feeds": {
+   "postright": 1572
+  },
+  "basis": "Legion legion-research pipeline",
+  "referenceApp": "none",
+  "shape": "gaps",
+  "shapeReason": "Legion code (source unavailable to compare); PostRight's digest and Reddit reader share only the word research.",
+  "apps": {
+   "postright": {
+    "fit": "wrong",
+    "note": "digests create calendar drafts and belong in rightkit-content-plan"
+   },
+   "legion": {
+    "fit": "n/a",
+    "note": "source not available"
+   }
+  },
+  "boundary": [
+   "uses reqwest directly, not rightkit-http",
+   "PostRight files mis-mapped"
+  ],
+  "actions": [
+   "remap PostRight files",
+   "move to rightkit-http"
+  ],
+  "depth": "light",
+  "confidence": "low"
+ },
+ {
+  "package": "rightkit-mail",
+  "kind": "cargo",
+  "family": "Mail & workspace",
+  "existsAs": [
+   "crates/rightkit-mail"
+  ],
+  "feeds": {
+   "mailright": 27603
+  },
+  "basis": "MailRight search compiler, fusion, trust, image checks (pure rules)",
+  "referenceApp": "mailright",
+  "shape": "gaps",
+  "shapeReason": "The pure crate is right; the plan's target was split and the engine method table, sync drivers, image proxy and tests (about 14,000 lines) were never moved.",
+  "apps": {
+   "mailright": {
+    "fit": "gaps",
+    "note": "engine_api (7,541), sync, webimg proxy and db tests (5,270) remain in app"
+   }
+  },
+  "boundary": [
+   "search modules emit SQL against mail-store table names",
+   "plan description (provider-neutral mirror) does not match"
+  ],
+  "actions": [
+   "create rightkit-mail-engine for method table and sync/outbox/backfill over MailRemote",
+   "port tests",
+   "update plan: target is three crates"
+  ],
+  "depth": "deep",
+  "confidence": "high"
+ },
+ {
+  "package": "rightkit-mail-store",
+  "kind": "cargo",
+  "family": "Mail & workspace",
+  "existsAs": [
+   "crates/rightkit-mail-store"
+  ],
+  "feeds": {
+   "mailright": 0
+  },
+  "basis": "MailRight db/*, schema, sync apply, semantic index",
+  "referenceApp": "mailright",
+  "shape": "gaps",
+  "shapeReason": "Encrypted store with a host trait is right, but the host is a process global, inputs are Gmail wire types, and the semantic index is not optional.",
+  "apps": {
+   "mailright": {
+    "fit": "fits",
+    "note": "its own schema; needs MailStoreHost impl"
+   }
+  },
+  "boundary": [
+   "static OnceLock host",
+   "depends on rightkit-google-apis gmail types (db.rs:50, db_sync_apply.rs:272)",
+   "agent gate/send migrations v16-v18 in schema",
+   "embed/onnx/models/sqlite-vec unconditional",
+   "generic FTS rebuild here"
+  ],
+  "actions": [
+   "host passed at open",
+   "store-owned input types; reverse dependency on google-apis",
+   "semantic feature",
+   "port db tests"
+  ],
+  "depth": "deep",
+  "confidence": "high"
+ },
+ {
+  "package": "@rightkit/mail-ui",
+  "kind": "npm",
+  "family": "Mail & workspace",
+  "existsAs": [
+   "packages/mail-ui"
+  ],
+  "feeds": {
+   "mailright": 17055
+  },
+  "basis": "MailRight front end with app store and 158 Tauri command names",
+  "referenceApp": "mailright",
+  "shape": "gaps",
+  "shapeReason": "Whole app UI with IPC names as its API; carries licence, agent and Workspace calls and QA mocks.",
+  "apps": {
+   "mailright": {
+    "fit": "fits",
+    "note": "its own UI"
+   }
+  },
+  "boundary": [
+   "depends on license, onboarding, legal, logs",
+   "workspace/people/agent/pro IPC inside mail package",
+   "QA mock data in src",
+   "MailRight in 12 files"
+  ],
+  "actions": [
+   "MailClient interface with Tauri binding as subpath",
+   "move workspace/agent IPC out",
+   "mocks to dev entry",
+   "hostAppName"
+  ],
+  "depth": "deep",
+  "confidence": "medium"
+ },
+ {
+  "package": "rightkit-google-apis",
+  "kind": "cargo",
+  "family": "Mail & workspace",
+  "existsAs": [
+   "crates/rightkit-google-apis"
+  ],
+  "feeds": {
+   "mailright": 8778
+  },
+  "basis": "MailRight Google REST clients and desktop OAuth",
+  "referenceApp": "mailright",
+  "shape": "gaps",
+  "shapeReason": "One shared client with per-API modules is right; the OAuth scope set is fixed to MailRight's full consent and there are no per-API features.",
+  "apps": {
+   "mailright": {
+    "fit": "fits",
+    "note": "its own code"
+   }
+  },
+  "boundary": [
+   "oauth.rs SCOPE fixes gmail.modify, full Drive, contacts etc.",
+   "third place for Google sign-in"
+  ],
+  "actions": [
+   "scopes as parameter with per-API constants",
+   "cargo features per API",
+   "port tests"
+  ],
+  "depth": "deep",
+  "confidence": "high"
+ },
+ {
+  "package": "rightkit-google-identity",
+  "kind": "cargo",
+  "family": "Mail & workspace",
+  "existsAs": [
+   "crates/rightkit-google-identity"
+  ],
+  "feeds": {},
+  "basis": "fresh protocol-only Sign in with Google",
+  "referenceApp": "none",
+  "shape": "wrong",
+  "shapeReason": "Duplicates PKCE and ID-token verification already in rightkit-oauth (which google-apis uses); no dependant; endpoints marked unverified.",
+  "apps": {},
+  "boundary": [
+   "duplicate of rightkit-oauth pkce/google"
+  ],
+  "actions": [
+   "merge into or re-base on rightkit-oauth",
+   "verify endpoints"
+  ],
+  "depth": "light",
+  "confidence": "medium"
+ },
+ {
+  "package": "@rightkit/workspace-ui",
+  "kind": "npm",
+  "family": "Mail & workspace",
+  "existsAs": [
+   "packages/workspace-ui"
+  ],
+  "feeds": {
+   "mailright": 2722
+  },
+  "basis": "MailRight Calendar/Drive/Contacts/Tasks/Meet views",
+  "referenceApp": "mailright",
+  "shape": "wrong",
+  "shapeReason": "Every view imports mail-ui internals (store, hooks, ipc, icons), so the package cannot be used without the mail app's state.",
+  "apps": {
+   "mailright": {
+    "fit": "fits",
+    "note": "its own views"
+   }
+  },
+  "boundary": [
+   "imports @rightkit/mail-ui store/index, hooks/useDrive, lib/ipc",
+   "useDrive, CalendarNav, DriveNav mapped here but sit in mail-ui"
+  ],
+  "actions": [
+   "own client interface and state slices",
+   "move Drive/Calendar hooks, nav and IPC from mail-ui",
+   "shared icons/account switcher in a lower package"
+  ],
+  "depth": "light",
+  "confidence": "high"
+ }
+]

@@ -1,0 +1,800 @@
+[
+ {
+  "package": "rightkit-mesh",
+  "kind": "cargo",
+  "family": "System utilities",
+  "existsAs": [
+   "crates/rightkit-mesh"
+  ],
+  "feeds": {
+   "pulse": 33474,
+   "heardright": 873,
+   "coderight": 605
+  },
+  "basis": "Pulse's in-tree rightkit-mesh plus core/src/devicelink, near verbatim",
+  "referenceApp": "pulse",
+  "shape": "gaps",
+  "shapeReason": "Transport and device-link core are right, but the desktop host layer (devicelink_host.rs 7,337 and share_mesh.rs 4,831 lines) is not in RightKit, so an adopter must rewrite it.",
+  "apps": {
+   "pulse": {
+    "fit": "gaps",
+    "note": "needs host layer; delete in-tree pulse-mesh and core/src/devicelink copies"
+   },
+   "heardright": {
+    "fit": "n/a",
+    "note": "its 3 mapped files are Watch pairing and account session, not mesh"
+   },
+   "coderight": {
+    "fit": "n/a",
+    "note": "source not available; not verified"
+   }
+  },
+  "boundary": [
+   "devicelink/policy.rs is a Pulse chat rule",
+   "DEFAULT_VAULT_SERVICE 'pulse.device-link' and relay caps are fixed constants",
+   "~30 'pulse-link/...' signing domains and ALPN pulse/relay-enrol/1 are wire names",
+   "Pulse repo holds duplicate pulse-mesh / pulse-mesh-ffi crates",
+   "name clash with rightkit-device-link",
+   "HeardRight files mis-mapped (RightKitWatch, RightKitAccount)"
+  ],
+  "actions": [
+   "Add a desktop host layer: controller, registry-backed PeerTrust, pairing session runner, ALPN dispatcher with app handlers",
+   "Make vault service and relay caps host-supplied",
+   "Move or generalise policy.rs",
+   "Decide and document the pulse-* wire names",
+   "Fix stale crate header"
+  ],
+  "depth": "deep",
+  "confidence": "high"
+ },
+ {
+  "package": "rightkit-mesh-ffi",
+  "kind": "cargo",
+  "family": "System utilities",
+  "existsAs": [
+   "crates/rightkit-mesh-ffi"
+  ],
+  "feeds": {
+   "pulse": 4900
+  },
+  "basis": "Pulse's rightkit-mesh-ffi (lib, circle, store identical; pairing 57 lines changed)",
+  "referenceApp": "pulse",
+  "shape": "gaps",
+  "shapeReason": "Generic C ABI as intended, but the desktop link ALPN and circle approval names are Pulse's and hard-coded.",
+  "apps": {
+   "pulse": {
+    "fit": "fits",
+    "note": "after deleting its own copy"
+   }
+  },
+  "boundary": [
+   "LINK_ALPN 'pulse/link/1' hard-coded (lib.rs:959)",
+   "circle.rs uses pulse.approval.v* and device.circle.members"
+  ],
+  "actions": [
+   "Take the link ALPN from the caller or the host-layer crate"
+  ],
+  "depth": "deep",
+  "confidence": "medium"
+ },
+ {
+  "package": "RightKitMeshLink",
+  "kind": "swift",
+  "family": "System utilities",
+  "existsAs": [
+   "swift/RightKitMeshLink"
+  ],
+  "feeds": {
+   "pulse": 2800
+  },
+  "basis": "Pulse swift/MeshLink, identical file",
+  "referenceApp": "pulse",
+  "shape": "gaps",
+  "shapeReason": "Thin Swift wrapper is right; it sits outside RightKitSwift and the Android Kotlin twin has no RightKit home.",
+  "apps": {
+   "pulse": {
+    "fit": "fits",
+    "note": "Pulse*Client.swift stay in the app"
+   }
+  },
+  "boundary": [
+   "Standalone package, not a RightKitSwift module",
+   "android/meshlink Kotlin wrapper not in RightKit"
+  ],
+  "actions": [
+   "State why it is standalone (binary dependency)",
+   "Add the Kotlin wrapper to rightkit-android"
+  ],
+  "depth": "light",
+  "confidence": "medium"
+ },
+ {
+  "package": "rightkit-device-link",
+  "kind": "cargo",
+  "family": "System utilities",
+  "existsAs": [
+   "crates/rightkit-device-link"
+  ],
+  "feeds": {},
+  "basis": "Fresh sans-IO reliable delivery layer (rightkit#1244); unrelated to Pulse's device link",
+  "referenceApp": "none",
+  "shape": "gaps",
+  "shapeReason": "Sound small crate, but its name collides with the pairing/registry concept and no crate or surveyed app depends on it.",
+  "apps": {
+   "pulse": {
+    "fit": "n/a",
+    "note": "does not use it"
+   }
+  },
+  "boundary": [
+   "Name collides with rightkit_mesh::devicelink and rightkit-device-link-types"
+  ],
+  "actions": [
+   "Rename or fold in; confirm a consumer before publishing"
+  ],
+  "depth": "light",
+  "confidence": "medium"
+ },
+ {
+  "package": "rightkit-device-link-types",
+  "kind": "cargo",
+  "family": "System utilities",
+  "existsAs": [
+   "crates/rightkit-device-link-types"
+  ],
+  "feeds": {
+   "pulse": 700
+  },
+  "basis": "Pulse registry and circle record types plus agent DeviceRef/EffectClass/Principal",
+  "referenceApp": "pulse",
+  "shape": "best",
+  "shapeReason": "Types only, shared by mesh, owner-approvals, remote-gateway and chat-bridge.",
+  "apps": {
+   "pulse": {
+    "fit": "fits",
+    "note": ""
+   }
+  },
+  "boundary": [],
+  "actions": [],
+  "depth": "light",
+  "confidence": "medium"
+ },
+ {
+  "package": "rightkit-disk-cleanup",
+  "kind": "cargo",
+  "family": "System utilities",
+  "existsAs": [
+   "crates/rightkit-disk-cleanup"
+  ],
+  "feeds": {
+   "pulse": 25046
+  },
+  "basis": "Pulse core/src scan, cleanup, rules, store, duplicates",
+  "referenceApp": "pulse",
+  "shape": "gaps",
+  "shapeReason": "The scan and cleanup core is the right boundary; the engine-side runner (scanner.rs index folding, sources, compress worker) is absent.",
+  "apps": {
+   "pulse": {
+    "fit": "gaps",
+    "note": "core fits; runner missing"
+   }
+  },
+  "boundary": [
+   "engine/src/journal/* (4,877 lines) mapped here is the agent task journal",
+   "snapshot.rs identical to rightkit-system-monitor's, schema name 'pulse-snapshot'"
+  ],
+  "actions": [
+   "One owner for snapshot.rs with host-supplied schema name",
+   "Add the scan runner",
+   "Re-map the journal to job-queue/agent engine"
+  ],
+  "depth": "deep",
+  "confidence": "medium"
+ },
+ {
+  "package": "RightKitNotch",
+  "kind": "swift",
+  "family": "System utilities",
+  "existsAs": [],
+  "feeds": {
+   "pulse": 17668
+  },
+  "basis": "none",
+  "referenceApp": "pulse",
+  "shape": "missing",
+  "shapeReason": "No module in RightKitSwift; should be a generic notch surface, not a lift of Pulse's Features and Model.",
+  "apps": {
+   "pulse": {
+    "fit": "gaps",
+    "note": "nothing to adopt"
+   }
+  },
+  "boundary": [
+   "Features/ and Model/ look like Pulse product (not read in depth)"
+  ],
+  "actions": [
+   "Create with generic window, geometry, card container and motion only"
+  ],
+  "depth": "light",
+  "confidence": "medium"
+ },
+ {
+  "package": "rightkit-launcher",
+  "kind": "cargo",
+  "family": "System utilities",
+  "existsAs": [
+   "crates/rightkit-launcher"
+  ],
+  "feeds": {
+   "pulse": 22237
+  },
+  "basis": "Pulse's Windows launcher (panel.rs = windows/src/launcher.rs); Mac Swift twin absent",
+  "referenceApp": "pulse",
+  "shape": "wrong",
+  "shapeReason": "The crate is Pulse's Windows launcher product (Pulse pages, strings, data folder) rather than a launcher core; the portable logic should be split from the Win32 panel.",
+  "apps": {
+   "pulse": {
+    "fit": "wrong",
+    "note": "fits Pulse Windows only because it is Pulse Windows; Mac Swift (12,919 lines) has no home"
+   }
+  },
+  "boundary": [
+   "panel.rs holds Pulse pages, Section::Pulse, launcherPulseCommands, %LOCALAPPDATA%\\Pulse",
+   "json.rs identical to clipboard-history's",
+   "response_layout.rs (AI answer model) does not belong here",
+   "Mac Clipboard*.swift mapped here belongs to clipboard history",
+   "Cargo description stale"
+  ],
+  "actions": [
+   "Split portable core (calc, config, notes, rates, files, commands) from the Win32 panel",
+   "Product pages and strings via host",
+   "Single json module",
+   "Move response_layout",
+   "Decide Mac: FFI to core or Swift module"
+  ],
+  "depth": "deep",
+  "confidence": "high"
+ },
+ {
+  "package": "RightKitSystemUI",
+  "kind": "swift",
+  "family": "System utilities",
+  "existsAs": [],
+  "feeds": {
+   "pulse": 21612
+  },
+  "basis": "none",
+  "referenceApp": "pulse",
+  "shape": "missing",
+  "shapeReason": "No module in RightKitSwift; it is the SwiftUI twin of @rightkit/system-ui and should share that package's contract.",
+  "apps": {
+   "pulse": {
+    "fit": "gaps",
+    "note": "nothing to adopt"
+   }
+  },
+  "boundary": [
+   "Chat, Membrane and Devices sections belong to other families (not verified)"
+  ],
+  "actions": [
+   "Create section by section after the React package's client contract is settled"
+  ],
+  "depth": "light",
+  "confidence": "low"
+ },
+ {
+  "package": "rightkit-app-manager",
+  "kind": "cargo",
+  "family": "System utilities",
+  "existsAs": [
+   "crates/rightkit-app-manager"
+  ],
+  "feeds": {
+   "pulse": 13783
+  },
+  "basis": "Pulse core/src app_manager, apps, process_control, apps_windows",
+  "referenceApp": "pulse",
+  "shape": "gaps",
+  "shapeReason": "Core is right and already takes the host identity; Windows registry inventory, leftovers, startup items and auto-quit are not in.",
+  "apps": {
+   "pulse": {
+    "fit": "gaps",
+    "note": "core fits; engine Windows half missing"
+   }
+  },
+  "boundary": [
+   "Installer cards (windows/src/installer.rs, DiskImageInstaller.swift) are product UI",
+   "subprocess.rs detached runner could live in rightkit-child-process"
+  ],
+  "actions": [
+   "Add Windows inventory/leftovers and startup items"
+  ],
+  "depth": "deep",
+  "confidence": "medium"
+ },
+ {
+  "package": "rightkit-system-monitor",
+  "kind": "cargo",
+  "family": "System utilities",
+  "existsAs": [
+   "crates/rightkit-system-monitor"
+  ],
+  "feeds": {
+   "pulse": 13212
+  },
+  "basis": "Pulse core/src lib, monitor, process_inspect, drive_health, gpu_temp",
+  "referenceApp": "pulse",
+  "shape": "gaps",
+  "shapeReason": "Core is right; Windows sensors, volumes/eject, health and metrics history are absent.",
+  "apps": {
+   "pulse": {
+    "fit": "gaps",
+    "note": "core fits"
+   }
+  },
+  "boundary": [
+   "windows/src/usage.rs (3,013 lines) mapped here is the Claude/Codex usage reader",
+   "snapshot.rs duplicate of disk-cleanup's"
+  ],
+  "actions": [
+   "Single snapshot owner",
+   "Add Windows sensors, volumes, health",
+   "Re-map usage.rs to ai-accounts/spend"
+  ],
+  "depth": "deep",
+  "confidence": "medium"
+ },
+ {
+  "package": "rightkit-clipboard-history",
+  "kind": "cargo",
+  "family": "System utilities",
+  "existsAs": [
+   "crates/rightkit-clipboard-history"
+  ],
+  "feeds": {
+   "pulse": 25520
+  },
+  "basis": "Pulse Windows clip*.rs, near verbatim; Mac Swift twin absent",
+  "referenceApp": "pulse",
+  "shape": "gaps",
+  "shapeReason": "Portable store, detect and search are right, but the Win32 strip UI is in the same crate and pulls notch-ui, win-ui, overlay, hotkeys and automation.",
+  "apps": {
+   "pulse": {
+    "fit": "gaps",
+    "note": "Windows fits; Mac Swift twin has no home"
+   }
+  },
+  "boundary": [
+   "win.rs duplicates raw clipboard access owned by rightkit-clipboard",
+   "json.rs identical to launcher's",
+   "Seal magic PULSECL2 (Mac uses PULSECL1 + Keychain): sealed folders not portable",
+   "shelf.rs is Send UI",
+   "Cargo description stale"
+  ],
+  "actions": [
+   "Split strip UI from the store",
+   "Use rightkit-clipboard for raw access or state why not",
+   "Single json module",
+   "Decide the Mac twin's home"
+  ],
+  "depth": "deep",
+  "confidence": "high"
+ },
+ {
+  "package": "rightkit-clipboard",
+  "kind": "cargo",
+  "family": "System utilities",
+  "existsAs": [
+   "crates/rightkit-clipboard"
+  ],
+  "feeds": {},
+  "basis": "Fresh, split out of rightkit-tauri-shell",
+  "referenceApp": "none",
+  "shape": "best",
+  "shapeReason": "Transaction API for text, HTML, image and files on macOS and Windows; right for its job.",
+  "apps": {
+   "pulse": {
+    "fit": "gaps",
+    "note": "history would need change listener and sequence number to drop its own win.rs (not verified absent)"
+   }
+  },
+  "boundary": [],
+  "actions": [
+   "Add change listening and sequence number if clipboard-history is to use it"
+  ],
+  "depth": "light",
+  "confidence": "medium"
+ },
+ {
+  "package": "@rightkit/system-ui",
+  "kind": "npm",
+  "family": "System utilities",
+  "existsAs": [
+   "packages/system-ui"
+  ],
+  "feeds": {
+   "pulse": 7889
+  },
+  "basis": "Pulse hub/src verbatim (api.ts differs by 18 lines)",
+  "referenceApp": "pulse",
+  "shape": "wrong",
+  "shapeReason": "Views call Tauri invoke directly with Pulse command names, carry Pulse strings and bundle chat, nearby, launcher settings, onboarding and legal; a second app cannot adopt it.",
+  "apps": {
+   "pulse": {
+    "fit": "fits",
+    "note": "it is Pulse's hub"
+   }
+  },
+  "boundary": [
+   "api.ts: 102 direct invoke calls",
+   "lib/rk.ts creates clients at import",
+   "36 'Pulse' strings, pulse.hub.* storage keys",
+   "Chat.tsx, NearbySettings.tsx, LauncherSettings.tsx, onboarding, legal, qr are not system UI",
+   "Monitor and Overview named but absent"
+  ],
+  "actions": [
+   "Inject the transport",
+   "Remove product strings",
+   "Move non-system views to their packages",
+   "Add or drop Monitor/Overview"
+  ],
+  "depth": "deep",
+  "confidence": "high"
+ },
+ {
+  "package": "rightkit-desktop-tweaks",
+  "kind": "cargo",
+  "family": "System utilities",
+  "existsAs": [
+   "crates/rightkit-desktop-tweaks"
+  ],
+  "feeds": {
+   "pulse": 2032
+  },
+  "basis": "Pulse windows/src/keys.rs (planned for rightkit-hotkeys); none of the planned Mac Swift",
+  "referenceApp": "pulse",
+  "shape": "wrong",
+  "shapeReason": "The crate holds the Windows keyboard hook wired to screenshots, snippets, wheel and strip, not the planned Mac Finder and window tweaks.",
+  "apps": {
+   "pulse": {
+    "fit": "wrong",
+    "note": "Mac code has no home; Windows crate couples unrelated features"
+   }
+  },
+  "boundary": [
+   "services.rs encodes Pulse's wiring (screenshot, snippets, wheel, burst, strip)",
+   "Hook hub belongs in rightkit-hotkeys"
+  ],
+  "actions": [
+   "Move the hook hub to rightkit-hotkeys with a generic handler chain",
+   "Keep only shortcut mapping here",
+   "Create the Swift side"
+  ],
+  "depth": "deep",
+  "confidence": "medium"
+ },
+ {
+  "package": "rightkit-app-lock",
+  "kind": "cargo",
+  "family": "System utilities",
+  "existsAs": [
+   "crates/rightkit-app-lock"
+  ],
+  "feeds": {
+   "mailright": 1244,
+   "pulse": 502
+  },
+  "basis": "MailRight state/preference/startup/flow/verify; Pulse hello_key and pin_window",
+  "referenceApp": "mailright",
+  "shape": "gaps",
+  "shapeReason": "MailRight's lock is correctly generalised (product name passed in), but the generation-checked transitions stay in the app and Pulse's owner-approval proofs are in the wrong crate.",
+  "apps": {
+   "mailright": {
+    "fit": "gaps",
+    "note": "engine half (transitions, db gate) not in the crate"
+   },
+   "pulse": {
+    "fit": "gaps",
+    "note": "Windows parts are owner approvals, not app lock; iOS AppLock.swift has no Swift module"
+   }
+  },
+  "boundary": [
+   "hello_key.rs and pin_window.rs belong to rightkit-owner-approvals"
+  ],
+  "actions": [
+   "Move hello_key and pin_window",
+   "Add generation-checked transition core",
+   "Add Swift AppLock with grace period parameter"
+  ],
+  "depth": "deep",
+  "confidence": "high"
+ },
+ {
+  "package": "rightkit-privileged-helper",
+  "kind": "cargo",
+  "family": "System utilities",
+  "existsAs": [
+   "crates/rightkit-privileged-helper",
+   "swift/RightKitSwift/Sources/RightKitHelperProtocol"
+  ],
+  "feeds": {
+   "pulse": 673
+  },
+  "basis": "Pulse engine/src/elevate.rs",
+  "referenceApp": "pulse",
+  "shape": "gaps",
+  "shapeReason": "Only the Rust broker exists; the Swift helper, path policy and UI-side client are still Pulse's.",
+  "apps": {
+   "pulse": {
+    "fit": "gaps",
+    "note": "Swift half missing"
+   }
+  },
+  "boundary": [
+   "Helper main.swift hard-codes dev.orthic.pulse.helper and /Library/Logs/Pulse"
+  ],
+  "actions": [
+   "Add Swift helper module with parameterised identifiers and TrashPolicy"
+  ],
+  "depth": "light",
+  "confidence": "medium"
+ },
+ {
+  "package": "rightkit-send",
+  "kind": "cargo",
+  "family": "System utilities",
+  "existsAs": [
+   "crates/rightkit-send",
+   "swift/RightKitSwift/Sources/RightKitSend"
+  ],
+  "feeds": {
+   "pulse": 9261,
+   "scraperight": 891
+  },
+  "basis": "Pulse's LocalSend implementation, already extracted and used by Pulse",
+  "referenceApp": "pulse",
+  "shape": "gaps",
+  "shapeReason": "LocalSend crate is the right shape; the mesh Send route is still in Pulse and the Swift engine ScrapeRight waits for does not exist.",
+  "apps": {
+   "pulse": {
+    "fit": "fits",
+    "note": "LocalSend fits; mesh route (share_mesh.rs) not extracted"
+   },
+   "scraperight": {
+    "fit": "gaps",
+    "note": "RightKitSend Swift has pinning and trust only; app runs a stub engine"
+   }
+  },
+  "boundary": [
+   "_pulse-send._tcp and the 'pulse' extension key are protocol names (keep)",
+   "Pulse's planned lines are host/UI code, not package code"
+  ],
+  "actions": [
+   "Build the Swift engine or FFI",
+   "Extract the generic part of the mesh Send route"
+  ],
+  "depth": "deep",
+  "confidence": "medium"
+ },
+ {
+  "package": "rightkit-record",
+  "kind": "cargo",
+  "family": "System utilities",
+  "existsAs": [
+   "crates/rightkit-record"
+  ],
+  "feeds": {
+   "pulse": 4656,
+   "heardright": 439
+  },
+  "basis": "RightKit's own per-window recorder; no Pulse or HeardRight code",
+  "referenceApp": "none",
+  "shape": "gaps",
+  "shapeReason": "Right for recording; the only real addition from the feeds is a single-frame window capture, the rest is mis-mapped.",
+  "apps": {
+   "pulse": {
+    "fit": "gaps",
+    "note": "shot_wgc.rs still capture is the only fit; shot.rs is product UI, viewshots.rs is QA"
+   },
+   "heardright": {
+    "fit": "n/a",
+    "note": "shot/* is qa-shot PrintWindow code, belongs to rightkit-qa"
+   }
+  },
+  "boundary": [
+   "viewshots.rs and HeardRight shot/* belong to rightkit-qa",
+   "shot.rs is a screenshot tool, not recording"
+  ],
+  "actions": [
+   "Add still-frame window capture",
+   "Re-map the rest"
+  ],
+  "depth": "deep",
+  "confidence": "medium"
+ },
+ {
+  "package": "rightkit-presence",
+  "kind": "cargo",
+  "family": "System utilities",
+  "existsAs": [
+   "crates/rightkit-presence"
+  ],
+  "feeds": {},
+  "basis": "Fresh, split from the Tauri shell",
+  "referenceApp": "none",
+  "shape": "best",
+  "shapeReason": "Small, Tauri-free presence and DND detection; no feeding code in this family.",
+  "apps": {
+   "pulse": {
+    "fit": "gaps",
+    "note": "its own fullscreen rule (visibility.rs) not compared line by line"
+   }
+  },
+  "boundary": [],
+  "actions": [],
+  "depth": "light",
+  "confidence": "low"
+ },
+ {
+  "package": "rightkit-power",
+  "kind": "cargo",
+  "family": "System utilities",
+  "existsAs": [
+   "crates/rightkit-power"
+  ],
+  "feeds": {},
+  "basis": "Fresh",
+  "referenceApp": "none",
+  "shape": "best",
+  "shapeReason": "Not fed by this family; Pulse has no power code of its own.",
+  "apps": {
+   "pulse": {
+    "fit": "n/a",
+    "note": ""
+   }
+  },
+  "boundary": [],
+  "actions": [],
+  "depth": "light",
+  "confidence": "low"
+ },
+ {
+  "package": "rightkit-now-playing",
+  "kind": "cargo",
+  "family": "System utilities",
+  "existsAs": [
+   "crates/rightkit-now-playing"
+  ],
+  "feeds": {},
+  "basis": "Fresh",
+  "referenceApp": "none",
+  "shape": "best",
+  "shapeReason": "Publishes the app's own playback; Pulse's media.rs controls other apps, a different capability.",
+  "apps": {
+   "pulse": {
+    "fit": "n/a",
+    "note": ""
+   }
+  },
+  "boundary": [],
+  "actions": [],
+  "depth": "light",
+  "confidence": "low"
+ },
+ {
+  "package": "rightkit-notch-ui",
+  "kind": "cargo",
+  "family": "System utilities",
+  "existsAs": [
+   "crates/rightkit-notch-ui"
+  ],
+  "feeds": {
+   "pulse": 6400
+  },
+  "basis": "Pulse windows/src render, layout, motion, card (planned under overlay-win)",
+  "referenceApp": "pulse",
+  "shape": "wrong",
+  "shapeReason": "The cell and mark set is Pulse's AI-usage product (Cell::Claude, Cell::Codex, accounts); a second app would inherit it.",
+  "apps": {
+   "pulse": {
+    "fit": "fits",
+    "note": "it is Pulse's notch"
+   }
+  },
+  "boundary": [
+   "layout.rs:132-175 and card.rs:12-13 hard-code Claude/Codex",
+   "render.rs keeps hub colour settings in process-wide atomics",
+   "Windows-only renderer; Mac twin is the missing RightKitNotch"
+  ],
+  "actions": [
+   "Make cells and marks host-defined",
+   "Keep AI rings in Pulse or an AI-accounts UI crate"
+  ],
+  "depth": "deep",
+  "confidence": "high"
+ },
+ {
+  "package": "rightkit-win-ui",
+  "kind": "cargo",
+  "family": "System utilities",
+  "existsAs": [
+   "crates/rightkit-win-ui"
+  ],
+  "feeds": {
+   "pulse": 3300
+  },
+  "basis": "Pulse windows/src canvas, glyphs, surface, text_layout, raii, fileicon, verbatim",
+  "referenceApp": "heardright",
+  "shape": "gaps",
+  "shapeReason": "Its software canvas duplicates rightkit-overlay-win's PaintCtx, which HeardRight uses and which was derived from this same Pulse canvas.",
+  "apps": {
+   "pulse": {
+    "fit": "fits",
+    "note": ""
+   },
+   "heardright": {
+    "fit": "n/a",
+    "note": "uses rightkit-overlay-win"
+   }
+  },
+  "boundary": [
+   "Two software rasterisers for layered windows: win-ui canvas.rs and overlay-win paint.rs"
+  ],
+  "actions": [
+   "Choose one canvas (overlay-win is the reference by app priority) and port notch-ui and the clipboard strip to it"
+  ],
+  "depth": "deep",
+  "confidence": "high"
+ },
+ {
+  "package": "rightkit-autostart",
+  "kind": "cargo",
+  "family": "System utilities",
+  "existsAs": [
+   "crates/rightkit-autostart"
+  ],
+  "feeds": {},
+  "basis": "Fresh, split from the Tauri shell",
+  "referenceApp": "none",
+  "shape": "best",
+  "shapeReason": "Covers HKCU Run with StartupApproved, LaunchAgent/SMAppService and XDG; Pulse's own autostart.rs duplicates the Windows part.",
+  "apps": {
+   "pulse": {
+    "fit": "fits",
+    "note": "by signatures; windows/src/autostart.rs is a duplicate to delete"
+   }
+  },
+  "boundary": [
+   "Pulse windows/src/autostart.rs duplicates this crate"
+  ],
+  "actions": [],
+  "depth": "light",
+  "confidence": "medium"
+ },
+ {
+  "package": "rightkit-notifications",
+  "kind": "cargo",
+  "family": "System utilities",
+  "existsAs": [
+   "crates/rightkit-notifications"
+  ],
+  "feeds": {},
+  "basis": "Fresh",
+  "referenceApp": "none",
+  "shape": "gaps",
+  "shapeReason": "Right owner for toasts; Pulse raises toasts through PowerShell because it has no app id shortcut, so adoption needs an installer change and a sound-only alert.",
+  "apps": {
+   "pulse": {
+    "fit": "gaps",
+    "note": "needs Start-menu shortcut with app id; sound-only call not confirmed"
+   }
+  },
+  "boundary": [],
+  "actions": [
+   "Confirm a sound-only alert call exists"
+  ],
+  "depth": "light",
+  "confidence": "low"
+ }
+]

@@ -1,0 +1,2084 @@
+[
+ {
+  "package": "rightkit-job-queue",
+  "kind": "cargo",
+  "family": "Foundation: runtime",
+  "existsAs": [
+   "crates/rightkit-job-queue",
+   "swift/RightKitSwift/Sources/RightKitJobQueue"
+  ],
+  "feeds": {
+   "scraperight": 5177,
+   "genright": 501,
+   "postright": 141,
+   "pulse": 63
+  },
+  "basis": "fresh RightKit implementation; three layers behind features (store, contract, supervisor)",
+  "referenceApp": "heardright",
+  "shape": "gaps",
+  "shapeReason": "One API already serves every app that has a queue; the layers are feature-split correctly. Open: a third engine supervisor beside rightkit-daemon::supervisor and rightkit-child-process restart policy, and no store hook that lets an app keep an in-memory registry as authority without rebuilding it (ScrapeRight).",
+  "apps": {
+   "heardright": {
+    "fit": "gaps",
+    "note": "hr-review-process-runtime: right shape with gaps; only EngineSupervisor and launch frame used, no persistent queue"
+   },
+   "viewright": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "pulse": {
+    "fit": "fits",
+    "note": "already on Dispatcher/JobStore/CommandSet/serve_report in 16 files; activity_lease.rs is mis-mapped (a polling lease file, not a job)"
+   },
+   "coderight": {
+    "fit": "fits",
+    "note": "uses only InlineCancelRegistry; its turn scheduling lives in rightkit-agent-server"
+   },
+   "genright": {
+    "fit": "fits",
+    "note": "on JobStore/JobLocks/EngineSupervisor; lease.rs and worker.rs are already in rightkit-media-gen"
+   },
+   "mailright": {
+    "fit": "fits",
+    "note": "JobTable/StatusModel/Transition for the outbox"
+   },
+   "scraperight": {
+    "fit": "gaps",
+    "note": "on JobStore + pool::StagedPool, but keeps a 2.5k-line in-memory registry as the authority with the store as write-behind (queue.rs:5-9)"
+   },
+   "cutright": {
+    "fit": "fits",
+    "note": "Dispatcher/serve/run_cli/doctor"
+   },
+   "postright": {
+    "fit": "fits",
+    "note": "Dispatcher/JobTable; protocol/schema.rs is mis-mapped"
+   }
+  },
+  "boundary": [
+   "EngineSupervisor here, supervisor::supervise in rightkit-daemon and RestartPolicy/HealthPolicy in rightkit-child-process are three supervision surfaces (existence verified, overlap is a suspicion)",
+   "Pulse activity_lease.rs and PostRight protocol/schema.rs mapped here by path, not jobs"
+  ],
+  "actions": [
+   "Decide one engine supervisor (job-queue vs daemon) and re-export from the other",
+   "Add a registry/read-model hook so ScrapeRight can drop its parallel in-memory job authority, or record it as an app need",
+   "Carry the HeardRight gaps from hr-review-process-runtime"
+  ],
+  "depth": "deep",
+  "confidence": "medium"
+ },
+ {
+  "package": "rightkit-child-process",
+  "kind": "cargo",
+  "family": "Foundation: runtime",
+  "existsAs": [
+   "crates/rightkit-child-process"
+  ],
+  "feeds": {
+   "scraperight": 278,
+   "pulse": 124
+  },
+  "basis": "RightKit implementation; HeardRight main fully on it",
+  "referenceApp": "heardright",
+  "shape": "best",
+  "shapeReason": "Every surveyed app already spawns through OwnedCommand/run/RunOptions; no app-side spawn layer of any size remains.",
+  "apps": {
+   "heardright": {
+    "fit": "fits",
+    "note": "hr-review-process-runtime: right shape; macOS parent-death watchdog needs a signed-build run"
+   },
+   "viewright": {
+    "fit": "fits",
+    "note": "OwnedCommand, reveal, process_usage in 4 files (main only; live 0.1.123 does not link it)"
+   },
+   "pulse": {
+    "fit": "fits",
+    "note": "72 files; core/src/subprocess.rs is already in rightkit-app-manager"
+   },
+   "coderight": {
+    "fit": "fits",
+    "note": "62 files incl. tokio_support"
+   },
+   "genright": {
+    "fit": "fits",
+    "note": "23 files"
+   },
+   "mailright": {
+    "fit": "fits",
+    "note": "5 files"
+   },
+   "scraperight": {
+    "fit": "fits",
+    "note": "13 files; helper_process.rs (278 lines) not read"
+   },
+   "cutright": {
+    "fit": "fits",
+    "note": "7 files"
+   },
+   "postright": {
+    "fit": "fits",
+    "note": "sweep/AdoptedProcess"
+   }
+  },
+  "boundary": [
+   "Pulse subprocess.rs mapped here but its lines are in rightkit-app-manager"
+  ],
+  "actions": [],
+  "depth": "light",
+  "confidence": "medium"
+ },
+ {
+  "package": "rightkit-sidecar",
+  "kind": "cargo",
+  "family": "Foundation: runtime",
+  "existsAs": [
+   "crates/rightkit-sidecar"
+  ],
+  "feeds": {
+   "mailright": 3109,
+   "coderight": 3
+  },
+  "basis": "RightKit implementation of bounded JSON-lines framing",
+  "referenceApp": "heardright",
+  "shape": "best",
+  "shapeReason": "Framing only, and every engine-carrying app uses it. The 3.1k MailRight lines mapped here are not framing: they are a private per-launch rightkit-daemon service.",
+  "apps": {
+   "heardright": {
+    "fit": "fits",
+    "note": "hr-review-process-runtime: right shape; wire is now a hello/request envelope"
+   },
+   "viewright": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "pulse": {
+    "fit": "fits",
+    "note": "json-line and length_prefixed readers"
+   },
+   "coderight": {
+    "fit": "fits",
+    "note": "7 files"
+   },
+   "genright": {
+    "fit": "fits",
+    "note": "1 file"
+   },
+   "mailright": {
+    "fit": "fits",
+    "note": "read_json_line only; core_ipc/* belongs to rightkit-daemon (PrivateSecret, supervise_adopted)"
+   },
+   "scraperight": {
+    "fit": "fits",
+    "note": "wire::Frame"
+   },
+   "cutright": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "postright": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   }
+  },
+  "boundary": [
+   "MailRight core_ipc/* (3.1k lines) is mapped here; it is a rightkit-daemon private service (core_ipc/mod.rs:3-11)"
+  ],
+  "actions": [],
+  "depth": "light",
+  "confidence": "medium"
+ },
+ {
+  "package": "rightkit-daemon",
+  "kind": "cargo",
+  "family": "Foundation: runtime",
+  "existsAs": [
+   "crates/rightkit-daemon",
+   "swift/RightKitSwift/Sources/RightKitDaemonClient"
+  ],
+  "feeds": {
+   "coderight": 13142,
+   "mailright": 5589,
+   "postright": 2628,
+   "cutright": 567,
+   "genright": 384
+  },
+  "basis": "RightKit local-service core plus merged-in parts: retired remote daemon crate (PostRight wire), CodeRight loopback HTTP and CodeRight daemon_core/daemon_runtime copied under features",
+  "referenceApp": "pulse",
+  "shape": "wrong",
+  "shapeReason": "The local same-user service API is right and Pulse, MailRight, CutRight and GenRight host on it unchanged. But the crate is eight things: local service, remote HTTPS host, loopback bearer HTTP, relay, run mode and app roots, root migration/cutover, installed-app discovery, approval, and CodeRight's lifecycle authority. ViewRight and ScrapeRight link it only for mode/AppRoot/Suite, and rightkit-models links it only for Suite::resolve.",
+  "apps": {
+   "heardright": {
+    "fit": "gaps",
+    "note": "hr-review-process-runtime: right shape with gaps (speech service only; peer_trust.rs superseded by verify_peer; one SID query not exported)"
+   },
+   "viewright": {
+    "fit": "fits",
+    "note": "uses only mode::AppId, AppRoot, Suite; no service"
+   },
+   "pulse": {
+    "fit": "fits",
+    "note": "25 files: host_with_options, Client::connect_expecting, supervisor::supervise, try_adopt_or_spawn, contract::MethodTable"
+   },
+   "coderight": {
+    "fit": "gaps",
+    "note": "its daemon is loopback HTTP with a bearer token and lives verbatim in rightkit-agent-server; from this crate it uses loopback::*, Suite and the agent_daemon_* modules that are its own code"
+   },
+   "genright": {
+    "fit": "gaps",
+    "note": "hosts on host/Handler/Allowlist; discovery.rs (384 lines) re-implements discover_apps_in_with"
+   },
+   "mailright": {
+    "fit": "fits",
+    "note": "private service with PrivateSecret, ClientPool, supervise_adopted, mode"
+   },
+   "scraperight": {
+    "fit": "fits",
+    "note": "mode::init_or_exit and AppId only"
+   },
+   "cutright": {
+    "fit": "gaps",
+    "note": "hosts on it and calls discover_macos_with/discover_windows_with, yet keeps a 567-line discovery.rs wrapper"
+   },
+   "postright": {
+    "fit": "fits",
+    "note": "remote::Daemon, remote::client, ticker heartbeat, stop_on_stdin_close, mode"
+   }
+  },
+  "boundary": [
+   "agent_daemon_core and agent_daemon_runtime are CodeRight's daemon_core/daemon_runtime crates (lifecycle.rs 166/166 lines) and pull axum and rightkit-agent-engine-protocol into a foundation crate",
+   "mode, Suite, AppRoot, root_cutover (about 5k lines) are path and run-mode policy, used by apps with no daemon; rightkit-fs has its own app_dirs::AppDirs",
+   "remote + link + relay (HTTPS, device enrolment, OAuth callback) is a second product in the crate; pairing also exists in rightkit-identity, rightkit-mesh and rightkit-device-link",
+   "approval module here and approval tokens in rightkit-crypto",
+   "CodeRight daemon files and MailRight runtime/* are mapped here by path but are app or agent-server code"
+  ],
+  "actions": [
+   "Move mode/Suite/AppRoot/root_cutover to one roots crate (or rightkit-fs) and make daemon, models and qa depend on that",
+   "Move agent_daemon_core/agent_daemon_runtime to rightkit-agent-server",
+   "Split remote/link/relay into their own crate, leaving local service + loopback",
+   "Make GenRight and CutRight delete their discovery.rs in favour of discover_apps_in_with",
+   "Carry the HeardRight gaps (verify_peer pin, SID query export)"
+  ],
+  "depth": "deep",
+  "confidence": "medium"
+ },
+ {
+  "package": "rightkit-fs",
+  "kind": "cargo",
+  "family": "Foundation: runtime",
+  "existsAs": [
+   "crates/rightkit-fs",
+   "swift/RightKitSwift/Sources/RightKitFS"
+  ],
+  "feeds": {
+   "pulse": 1653,
+   "scraperight": 1015,
+   "postright": 436,
+   "cutright": 137,
+   "genright": 128,
+   "mailright": 94
+  },
+  "basis": "RightKit implementation",
+  "referenceApp": "heardright",
+  "shape": "gaps",
+  "shapeReason": "Atomic write, private dirs, digests, locks and verified copy are used by every app with the same calls. Gaps are HeardRight's (root edge cases, Windows replace) and the split of root resolution between this crate and rightkit-daemon.",
+  "apps": {
+   "heardright": {
+    "fit": "gaps",
+    "note": "hr-review-storage-network: right shape with gaps (HR_APP_DATA_DIR and redirected HOME, ReplaceFileW vs rename)"
+   },
+   "viewright": {
+    "fit": "fits",
+    "note": "AppDirs, atomic_write_with_options, append_record, contain; main only"
+   },
+   "pulse": {
+    "fit": "fits",
+    "note": "180 files; core/src/platform/* is already rightkit-disk-cleanup (win_native.rs 210/210)"
+   },
+   "coderight": {
+    "fit": "fits",
+    "note": "134 files"
+   },
+   "genright": {
+    "fit": "fits",
+    "note": "48 files, AppDirs + StateDir"
+   },
+   "mailright": {
+    "fit": "fits",
+    "note": "26 files"
+   },
+   "scraperight": {
+    "fit": "fits",
+    "note": "21 files; runtime.rs and runtime_paths.rs path policy not read"
+   },
+   "cutright": {
+    "fit": "fits",
+    "note": "67 files; pins =0.4.7"
+   },
+   "postright": {
+    "fit": "fits",
+    "note": "15 files"
+   }
+  },
+  "boundary": [
+   "App root resolution exists three times: fs::app_dirs::AppDirs, fs::StateDir, daemon::Suite/AppRoot/mode::roots",
+   "SHA-256 and BLAKE3 are in both fs::digest and rightkit-crypto; apps import both",
+   "Pulse platform/* mapped here but lives in rightkit-disk-cleanup"
+  ],
+  "actions": [
+   "One root resolver (see rightkit-daemon action)",
+   "One hashing owner: fs::digest re-exports rightkit-crypto or the reverse",
+   "HeardRight F2/F3/F6 from hr-review-storage-network"
+  ],
+  "depth": "light",
+  "confidence": "medium"
+ },
+ {
+  "package": "rightkit-file-watch",
+  "kind": "cargo",
+  "family": "Foundation: runtime",
+  "existsAs": [
+   "crates/rightkit-file-watch",
+   "swift/RightKitSwift/Sources/RightKitWatch"
+  ],
+  "feeds": {
+   "coderight": 460,
+   "pulse": 328,
+   "viewright": 205
+  },
+  "basis": "RightKit implementation with three front ends",
+  "referenceApp": "viewright",
+  "shape": "best",
+  "shapeReason": "ViewRight, Pulse and CodeRight are each on the crate through a different front end (FileSetWatcher/DirWatchSet, TypedWatcher/WatchCursor, FileWatcher/WatchRegistration). The three match three real needs: open documents, a replayable tree, subscriber registrations.",
+  "apps": {
+   "heardright": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "viewright": {
+    "fit": "fits",
+    "note": "FileSetWatcher, DirWatchSet, EventFilter; watcher.rs is a 205-line adapter"
+   },
+   "pulse": {
+    "fit": "fits",
+    "note": "TypedWatcher, WatchCursor, Granularity; watch.rs maps events to the storage index"
+   },
+   "coderight": {
+    "fit": "fits",
+    "note": "FileWatcher, DebouncedWatchReceiver; api_fs_watch.rs is already in rightkit-agent-server"
+   },
+   "genright": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "mailright": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "scraperight": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "cutright": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "postright": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   }
+  },
+  "boundary": [
+   "Whether the three front ends share one backend was not verified"
+  ],
+  "actions": [
+   "Confirm one backend under the three front ends and document which to pick"
+  ],
+  "depth": "light",
+  "confidence": "low"
+ },
+ {
+  "package": "rightkit-db",
+  "kind": "cargo",
+  "family": "Foundation: runtime",
+  "existsAs": [
+   "crates/rightkit-db",
+   "swift/RightKitSwift/Sources/RightKitDB"
+  ],
+  "feeds": {
+   "mailright": 2552,
+   "postright": 1211
+  },
+  "basis": "RightKit implementation; encrypted lifecycle built for HeardRight",
+  "referenceApp": "heardright",
+  "shape": "gaps",
+  "shapeReason": "Open, migrate, quarantine, backup, restore, checkpoint job and read pool are used by every app with a database, with no second SQLite wrapper found. Missing: encrypted in-place compaction (MailRight) and adoption of the rotation/recovery code HeardRight still carries.",
+  "apps": {
+   "heardright": {
+    "fit": "gaps",
+    "note": "hr-review-storage-network: right shape with gaps; about 1,200 lines of rotation and recovery still app-side"
+   },
+   "viewright": {
+    "fit": "fits",
+    "note": "open_read_only, OpenOrDegrade, QuarantineStamp, migrate; main only"
+   },
+   "pulse": {
+    "fit": "fits",
+    "note": "55 files; migrate, quarantine_database_opts, DurabilityProfile"
+   },
+   "coderight": {
+    "fit": "fits",
+    "note": "60 files; ReadPool, Step::Code, rollback_to, pending_marker"
+   },
+   "genright": {
+    "fit": "fits",
+    "note": "3 crates"
+   },
+   "mailright": {
+    "fit": "gaps",
+    "note": "keeps db_gate (lock order and app-lock gate) and db_compaction (in-place VACUUM); wal_checkpoint is already WalCheckpointJob; migration_gate is in rightkit-mail-store"
+   },
+   "scraperight": {
+    "fit": "fits",
+    "note": "one file, migrate + add_column_if_missing"
+   },
+   "cutright": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "postright": {
+    "fit": "fits",
+    "note": "backup.rs is a manifest layer over online_backup_to, restore_database_locked, StoreLock"
+   }
+  },
+  "boundary": [
+   "MailRight db/migration_gate.rs is mapped here; 56 of 64 lines are in rightkit-mail-store",
+   "job-queue re-exports rusqlite and db; Pulse imports rusqlite through rightkit-job-queue as well as rightkit-db"
+  ],
+  "actions": [
+   "Add verified in-place compaction for keyed databases, from MailRight db_compaction",
+   "Decide whether a connection gate (writer, read pool, app lock) is a package type or stays MailRight's",
+   "HeardRight gaps from hr-review-storage-network"
+  ],
+  "depth": "deep",
+  "confidence": "medium"
+ },
+ {
+  "package": "rightkit-credentials",
+  "kind": "cargo",
+  "family": "Foundation: runtime",
+  "existsAs": [
+   "crates/rightkit-credentials",
+   "swift/RightKitSwift/Sources/RightKitCredentials"
+  ],
+  "feeds": {
+   "heardright": 752,
+   "genright": 379,
+   "mailright": 274,
+   "pulse": 114
+  },
+  "basis": "RightKit implementation",
+  "referenceApp": "heardright",
+  "shape": "best",
+  "shapeReason": "Store/Namespace/Config/GuardMode is the only credential API in use across eight apps; app files mapped here are thin naming wrappers.",
+  "apps": {
+   "heardright": {
+    "fit": "fits",
+    "note": "hr-review-storage-network: right shape; default-keychain-only read is an open edge"
+   },
+   "viewright": {
+    "fit": "fits",
+    "note": "Store with GuardMode::Memory"
+   },
+   "pulse": {
+    "fit": "fits",
+    "note": "Store, Secret, handoff; secure_prompt.rs 76% in package"
+   },
+   "coderight": {
+    "fit": "fits",
+    "note": "Store, apple_helper, conditional writes"
+   },
+   "genright": {
+    "fit": "fits",
+    "note": "Store, EnvReader, Source"
+   },
+   "mailright": {
+    "fit": "fits",
+    "note": "Store, WindowsTarget"
+   },
+   "scraperight": {
+    "fit": "fits",
+    "note": "Store, apple_helper"
+   },
+   "cutright": {
+    "fit": "fits",
+    "note": "Store::generate_key"
+   },
+   "postright": {
+    "fit": "fits",
+    "note": "Store, system_backend"
+   }
+  },
+  "boundary": [],
+  "actions": [],
+  "depth": "light",
+  "confidence": "medium"
+ },
+ {
+  "package": "rightkit-crypto",
+  "kind": "cargo",
+  "family": "Foundation: runtime",
+  "existsAs": [
+   "crates/rightkit-crypto"
+  ],
+  "feeds": {},
+  "basis": "RightKit implementation",
+  "referenceApp": "heardright",
+  "shape": "gaps",
+  "shapeReason": "Used as-is by six apps for hashing, HMAC, base64 and constant-time compare. Hashing is duplicated by rightkit-fs::digest, and the crate also carries approval-token minting.",
+  "apps": {
+   "heardright": {
+    "fit": "fits",
+    "note": "hr-review-storage-network: right shape, base64 only"
+   },
+   "viewright": {
+    "fit": "fits",
+    "note": "hex_encode"
+   },
+   "pulse": {
+    "fit": "fits",
+    "note": "27 files"
+   },
+   "coderight": {
+    "fit": "fits",
+    "note": "57 files"
+   },
+   "genright": {
+    "fit": "fits",
+    "note": "incl. approval::mint, canonical_json"
+   },
+   "mailright": {
+    "fit": "fits",
+    "note": "base64"
+   },
+   "scraperight": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "cutright": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "postright": {
+    "fit": "fits",
+    "note": "hmac, base64"
+   }
+  },
+  "boundary": [
+   "sha256/blake3 also in rightkit-fs::digest",
+   "approval tokens here, approval workflow in rightkit-daemon::approval"
+  ],
+  "actions": [
+   "Single hashing owner",
+   "Drop unused base64/getrandom deps noted in the HeardRight review"
+  ],
+  "depth": "light",
+  "confidence": "medium"
+ },
+ {
+  "package": "rightkit-logs",
+  "kind": "cargo",
+  "family": "Foundation: runtime",
+  "existsAs": [
+   "crates/rightkit-logs"
+  ],
+  "feeds": {
+   "coderight": 4075,
+   "pulse": 845,
+   "scraperight": 686,
+   "mailright": 314,
+   "postright": 166,
+   "viewright": 166,
+   "cutright": 105,
+   "genright": 62
+  },
+  "basis": "RightKit implementation (used by live HeardRight and live ViewRight) plus CodeRight's telemetry crate copied under the agent_telemetry feature",
+  "referenceApp": "heardright",
+  "shape": "gaps",
+  "shapeReason": "The logging core (JsonlStore, EventRecord, scrub, RotatingTextWriter, tracing file, collect_diagnostics) serves all nine apps. The 95% CodeRight match is its agent telemetry (prompt overhead, context ceiling, agent observability, repair), which is agent product code and not logging.",
+  "apps": {
+   "heardright": {
+    "fit": "fits",
+    "note": "hr-review-crash-logs-license: right shape"
+   },
+   "viewright": {
+    "fit": "fits",
+    "note": "live 0.1.123 already ships JsonlStore + collect_diagnostics; logs.rs is location and gate only"
+   },
+   "pulse": {
+    "fit": "fits",
+    "note": "28 files; diag_reports.rs (macOS report watcher) and windows/diag.rs are Pulse features, not log code"
+   },
+   "coderight": {
+    "fit": "gaps",
+    "note": "core use fits; engine/crates/telemetry is in the package verbatim and should move to an agent crate"
+   },
+   "genright": {
+    "fit": "fits",
+    "note": "30 files"
+   },
+   "mailright": {
+    "fit": "fits",
+    "note": "diag.rs wrapper"
+   },
+   "scraperight": {
+    "fit": "fits",
+    "note": "tracing_layer_checked + collect_diagnostics"
+   },
+   "cutright": {
+    "fit": "fits",
+    "note": "1 wrapper"
+   },
+   "postright": {
+    "fit": "fits",
+    "note": "diagnostics.rs wrapper"
+   }
+  },
+  "boundary": [
+   "agent_telemetry (about 3k lines) is CodeRight agent product code in a mandatory foundation crate",
+   "identity::random_uuid and system/metrics live in a logging crate",
+   "Pulse diag_reports.rs is mapped here but is an OS crash-report watcher (closer to rightkit-crash)"
+  ],
+  "actions": [
+   "Move agent_telemetry to a rightkit-agent-* crate",
+   "Move random_uuid out (apps import it from logs)"
+  ],
+  "depth": "deep",
+  "confidence": "high"
+ },
+ {
+  "package": "@rightkit/logs",
+  "kind": "npm",
+  "family": "Foundation: runtime",
+  "existsAs": [
+   "packages/logs"
+  ],
+  "feeds": {},
+  "basis": "RightKit implementation, 808 lines",
+  "referenceApp": "heardright",
+  "shape": "best",
+  "shapeReason": "Every app's package.json depends on it, including both live builds; no app-side renderer logger was mapped.",
+  "apps": {
+   "heardright": {
+    "fit": "fits",
+    "note": "hr-review-crash-logs-license: right shape"
+   },
+   "viewright": {
+    "fit": "fits",
+    "note": "dependency present"
+   },
+   "pulse": {
+    "fit": "fits",
+    "note": "dependency present"
+   },
+   "coderight": {
+    "fit": "fits",
+    "note": "dependency present"
+   },
+   "genright": {
+    "fit": "fits",
+    "note": "dependency present"
+   },
+   "mailright": {
+    "fit": "fits",
+    "note": "dependency present"
+   },
+   "scraperight": {
+    "fit": "fits",
+    "note": "dependency present"
+   },
+   "cutright": {
+    "fit": "fits",
+    "note": "dependency present"
+   },
+   "postright": {
+    "fit": "fits",
+    "note": "dependency present"
+   }
+  },
+  "boundary": [],
+  "actions": [],
+  "depth": "light",
+  "confidence": "medium"
+ },
+ {
+  "package": "rightkit-crash",
+  "kind": "cargo",
+  "family": "Foundation: runtime",
+  "existsAs": [
+   "crates/rightkit-crash"
+  ],
+  "feeds": {
+   "heardright": 3616,
+   "pulse": 227,
+   "mailright": 68,
+   "cutright": 35,
+   "scraperight": 21
+  },
+  "basis": "built from HeardRight's crash capture",
+  "referenceApp": "heardright",
+  "shape": "gaps",
+  "shapeReason": "One capture path serves all apps, but two install entry points are in use: install_panic_hook (five apps) and install_process_hook with ProcessKind (three apps).",
+  "apps": {
+   "heardright": {
+    "fit": "gaps",
+    "note": "hr-review-crash-logs-license: right shape with gaps (1 s sample, hang cooldown); usage-telemetry upload must not move here"
+   },
+   "viewright": {
+    "fit": "fits",
+    "note": "install_panic_hook; main only"
+   },
+   "pulse": {
+    "fit": "fits",
+    "note": "install_panic_hook, HangWatchdog, dump_helper, NativeCapture"
+   },
+   "coderight": {
+    "fit": "fits",
+    "note": "install_process_hook, build_support_bundle"
+   },
+   "genright": {
+    "fit": "fits",
+    "note": "install_panic_hook, list_pending"
+   },
+   "mailright": {
+    "fit": "fits",
+    "note": "install_process_hook"
+   },
+   "scraperight": {
+    "fit": "fits",
+    "note": "install_panic_hook + ProcessKind"
+   },
+   "cutright": {
+    "fit": "fits",
+    "note": "install_process_hook, set_recording_enabled"
+   },
+   "postright": {
+    "fit": "fits",
+    "note": "install_panic_hook"
+   }
+  },
+  "boundary": [
+   "HeardRight usage-telemetry upload (5.3k lines) is mapped here and does not belong (HeardRight review)"
+  ],
+  "actions": [
+   "Keep one install entry point and deprecate the other",
+   "HeardRight capture gaps"
+  ],
+  "depth": "light",
+  "confidence": "medium"
+ },
+ {
+  "package": "rightkit-http",
+  "kind": "cargo",
+  "family": "Foundation: runtime",
+  "existsAs": [
+   "crates/rightkit-http",
+   "swift/RightKitSwift/Sources/RightKitHTTP"
+  ],
+  "feeds": {
+   "postright": 597,
+   "scraperight": 409,
+   "coderight": 186,
+   "genright": 176
+  },
+  "basis": "RightKit implementation",
+  "referenceApp": "heardright",
+  "shape": "gaps",
+  "shapeReason": "Client/Request/RetryPolicy/AddressPolicy is the one HTTP client in every app; app files mapped here are thin or already in domain crates. rightkit-models still declares ureq directly beside rightkit-http.",
+  "apps": {
+   "heardright": {
+    "fit": "gaps",
+    "note": "hr-review-storage-network: right shape with gaps; three ureq-parity clients remain app-side"
+   },
+   "viewright": {
+    "fit": "fits",
+    "note": "percent_decode_component only"
+   },
+   "pulse": {
+    "fit": "fits",
+    "note": "Client, ApprovedOrigins"
+   },
+   "coderight": {
+    "fit": "fits",
+    "note": "85 files, AsyncClient; http_client.rs 86% in package"
+   },
+   "genright": {
+    "fit": "fits",
+    "note": "protocol/http.rs is in rightkit-local-gen"
+   },
+   "mailright": {
+    "fit": "fits",
+    "note": "Client, AsyncClient, MultipartRelated"
+   },
+   "scraperight": {
+    "fit": "fits",
+    "note": "net.rs 62% in package; netpolicy"
+   },
+   "cutright": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "postright": {
+    "fit": "fits",
+    "note": "QuotaStore, parse_retry_after_at; publish/http.rs is in rightkit-social-publish"
+   }
+  },
+  "boundary": [
+   "rightkit-models depends on ureq as well as rightkit-http (Cargo.toml); whether it bypasses the address policy is not verified"
+  ],
+  "actions": [
+   "Remove direct ureq use from rightkit-models",
+   "HeardRight gaps"
+  ],
+  "depth": "light",
+  "confidence": "medium"
+ },
+ {
+  "package": "rightkit-device",
+  "kind": "cargo",
+  "family": "Foundation: runtime",
+  "existsAs": [
+   "crates/rightkit-device",
+   "crates/rightkit-device-link",
+   "crates/rightkit-device-link-types"
+  ],
+  "feeds": {},
+  "basis": "RightKit implementation, split out of rightkit-tauri",
+  "referenceApp": "heardright",
+  "shape": "best",
+  "shapeReason": "DeviceService and device_id_hash are used identically by all eight Tauri apps.",
+  "apps": {
+   "heardright": {
+    "fit": "fits",
+    "note": "hr-review-process-runtime: right shape, device id stable"
+   },
+   "viewright": {
+    "fit": "fits",
+    "note": "DeviceService + device_id_hash"
+   },
+   "pulse": {
+    "fit": "fits",
+    "note": "DeviceService + device_id_hash"
+   },
+   "coderight": {
+    "fit": "fits",
+    "note": "DeviceService + device_id_hash"
+   },
+   "genright": {
+    "fit": "fits",
+    "note": "DeviceService + device_id_hash"
+   },
+   "mailright": {
+    "fit": "fits",
+    "note": "DeviceService + device_id_hash"
+   },
+   "scraperight": {
+    "fit": "fits",
+    "note": "DeviceService + device_id_hash"
+   },
+   "cutright": {
+    "fit": "fits",
+    "note": "DeviceService + device_id_hash"
+   },
+   "postright": {
+    "fit": "fits",
+    "note": "DeviceService + device_id_hash"
+   }
+  },
+  "boundary": [
+   "The crate also exports LogHost/LogService and DiagnosticHost/DiagnosticService (used by Pulse and ScrapeRight): host adapters for logs in a crate named device"
+  ],
+  "actions": [
+   "Rename or move the log and diagnostic host adapters"
+  ],
+  "depth": "light",
+  "confidence": "medium"
+ },
+ {
+  "package": "rightkit-identity",
+  "kind": "cargo",
+  "family": "Foundation: runtime",
+  "existsAs": [
+   "crates/rightkit-identity"
+  ],
+  "feeds": {
+   "pulse": 1360
+  },
+  "basis": "RightKit implementation; no surveyed app imports it",
+  "referenceApp": "pulse",
+  "shape": "gaps",
+  "shapeReason": "No app calls it. The Pulse pairing code planned for it is already in rightkit-mesh (pairing.rs 315/317 lines), and pairing also exists in rightkit-daemon::remote and rightkit-device-link.",
+  "apps": {
+   "heardright": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "viewright": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "pulse": {
+    "fit": "gaps",
+    "note": "devicelink/pairing.rs and identity.rs are in rightkit-mesh, not here"
+   },
+   "coderight": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "genright": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "mailright": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "scraperight": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "cutright": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "postright": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   }
+  },
+  "boundary": [
+   "Device pairing appears in rightkit-identity, rightkit-mesh, rightkit-daemon::remote and rightkit-device-link (existence verified, sameness is a suspicion)"
+  ],
+  "actions": [
+   "Read the four pairing implementations side by side and keep one before publishing"
+  ],
+  "depth": "light",
+  "confidence": "low"
+ },
+ {
+  "package": "rightkit-oauth",
+  "kind": "cargo",
+  "family": "Foundation: runtime",
+  "existsAs": [
+   "crates/rightkit-oauth",
+   "swift/RightKitSwift/Sources/RightKitOAuth"
+  ],
+  "feeds": {
+   "coderight": 809
+  },
+  "basis": "RightKit implementation",
+  "referenceApp": "coderight",
+  "shape": "best",
+  "shapeReason": "CodeRight and MailRight both run on OAuthClient/TokenStore/callback/pkce; CodeRight's token_store.rs is a TokenStore implementation, which the trait intends.",
+  "apps": {
+   "heardright": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "viewright": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "pulse": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "coderight": {
+    "fit": "fits",
+    "note": "9 files"
+   },
+   "genright": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "mailright": {
+    "fit": "fits",
+    "note": "OAuthClient, GoogleIdVerifier"
+   },
+   "scraperight": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "cutright": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "postright": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   }
+  },
+  "boundary": [
+   "Carries a server feature used only by rightkit-daemon::remote"
+  ],
+  "actions": [],
+  "depth": "light",
+  "confidence": "medium"
+ },
+ {
+  "package": "rightkit-passkeys",
+  "kind": "cargo",
+  "family": "Foundation: runtime",
+  "existsAs": [
+   "crates/rightkit-passkeys"
+  ],
+  "feeds": {},
+  "basis": "RightKit adapter over passkey-rs, 289 lines",
+  "referenceApp": "none",
+  "shape": "gaps",
+  "shapeReason": "No surveyed app imports it; shape cannot be judged against a consumer.",
+  "apps": {
+   "heardright": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "viewright": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "pulse": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "coderight": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "genright": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "mailright": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "scraperight": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "cutright": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "postright": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   }
+  },
+  "boundary": [],
+  "actions": [
+   "Find a first consumer before it is called mandatory; not verified"
+  ],
+  "depth": "light",
+  "confidence": "low"
+ },
+ {
+  "package": "rightkit-sync",
+  "kind": "cargo",
+  "family": "Foundation: runtime",
+  "existsAs": [
+   "crates/rightkit-sync",
+   "swift/RightKitSwift/Sources/RightKitCloudSync"
+  ],
+  "feeds": {
+   "scraperight": 6854,
+   "heardright": 2081
+  },
+  "basis": "RightKit engine; HeardRight main runs on it",
+  "referenceApp": "heardright",
+  "shape": "gaps",
+  "shapeReason": "ScrapeRight and HeardRight both run on the same Backend/AuthProvider pass. ScrapeRight's 6.8k lines are its record mapper, schema, hooks and the engine-to-shell CloudKit transport, which are app-side by design; the scheduler is still per app.",
+  "apps": {
+   "heardright": {
+    "fit": "gaps",
+    "note": "hr-review-storage-network: right shape with gaps (own scheduler, one-way ledger migration)"
+   },
+   "viewright": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "pulse": {
+    "fit": "fits",
+    "note": "BackoffPolicy only"
+   },
+   "coderight": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "genright": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "mailright": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "scraperight": {
+    "fit": "gaps",
+    "note": "11 files on the engine; keeps its own runtime/scheduler and an engine-to-shell transport seam (cloud_sync_transport.rs:1-6)"
+   },
+   "cutright": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "postright": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   }
+  },
+  "boundary": [],
+  "actions": [
+   "Add the shared scheduler both apps hand-roll",
+   "Consider owning the engine-to-shell CloudKit transport seam"
+  ],
+  "depth": "light",
+  "confidence": "medium"
+ },
+ {
+  "package": "rightkit-sync-keys",
+  "kind": "cargo",
+  "family": "Foundation: runtime",
+  "existsAs": [
+   "crates/rightkit-sync-keys"
+  ],
+  "feeds": {},
+  "basis": "RightKit implementation",
+  "referenceApp": "none",
+  "shape": "gaps",
+  "shapeReason": "No surveyed app imports it.",
+  "apps": {
+   "heardright": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "viewright": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "pulse": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "coderight": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "genright": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "mailright": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "scraperight": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "cutright": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "postright": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   }
+  },
+  "boundary": [],
+  "actions": [
+   "First consumer before mandatory; not verified"
+  ],
+  "depth": "light",
+  "confidence": "low"
+ },
+ {
+  "package": "rightkit-qa",
+  "kind": "cargo",
+  "family": "Foundation: runtime",
+  "existsAs": [
+   "crates/rightkit-qa",
+   "swift/RightKitSwift/Sources/RightKitHubQA"
+  ],
+  "feeds": {
+   "coderight": 6854,
+   "heardright": 4649,
+   "postright": 907,
+   "mailright": 488
+  },
+  "basis": "RightKit implementation, 52k lines",
+  "referenceApp": "heardright",
+  "shape": "gaps",
+  "shapeReason": "control::Control + harness::Harness/Scenario + workspace::QaWorkspace is the one launch-and-drive API in ViewRight, Pulse, MailRight, ScrapeRight and CutRight; CodeRight and PostRight use suite::run_suite. It cannot drive a terminal app: CodeRight's 6.8k-line Python PTY and ConPTY harness has no counterpart.",
+  "apps": {
+   "heardright": {
+    "fit": "gaps",
+    "note": "not covered by the three HeardRight reviews named for this family; planned 4.6k lines, 5% line match; not verified"
+   },
+   "viewright": {
+    "fit": "fits",
+    "note": "Control, Harness, QaWorkspace, embedded::Control"
+   },
+   "pulse": {
+    "fit": "fits",
+    "note": "same, plus process::Tracker"
+   },
+   "coderight": {
+    "fit": "gaps",
+    "note": "desktop on embedded::Control and run_suite; TUI dogfood (pty.py, conpty_*.py, inside_out.py) needs a PTY driver the package lacks"
+   },
+   "genright": {
+    "fit": "fits",
+    "note": "57 files; media, mock, loudness, engine::Sidecar"
+   },
+   "mailright": {
+    "fit": "fits",
+    "note": "binary::resolve, guard, storage::managed_root; test_root is mode policy"
+   },
+   "scraperight": {
+    "fit": "fits",
+    "note": "Control, guard"
+   },
+   "cutright": {
+    "fit": "fits",
+    "note": "14 files incl. media probes"
+   },
+   "postright": {
+    "fit": "fits",
+    "note": "mock::MockServer, userdata, installed::refuse_installed; mock-platform is a PostRight fake"
+   }
+  },
+  "boundary": [
+   "Media probes (ffprobe, wav, loudness), mock HTTP server, Android and journeys receipts share one crate with the control client",
+   "rightkit-qa-driver is a deprecated shim over the control feature"
+  ],
+  "actions": [
+   "Add a PTY/terminal driver or rule that TUI acceptance stays CodeRight's",
+   "Consider splitting media assertions from the control harness"
+  ],
+  "depth": "deep",
+  "confidence": "medium"
+ },
+ {
+  "package": "rightkit-qa-driver",
+  "kind": "cargo",
+  "family": "Foundation: runtime",
+  "existsAs": [
+   "crates/rightkit-qa-driver"
+  ],
+  "feeds": {},
+  "basis": "deprecated shim (its own Cargo description) over rightkit-qa control and rightkit-automation",
+  "referenceApp": "none",
+  "shape": "wrong",
+  "shapeReason": "Superseded by rightkit-qa; no surveyed app imports it. It should not be in the set apps adopt.",
+  "apps": {
+   "heardright": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "viewright": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "pulse": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "coderight": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "genright": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "mailright": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "scraperight": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "cutright": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "postright": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   }
+  },
+  "boundary": [
+   "Same capability as rightkit-qa::embedded"
+  ],
+  "actions": [
+   "Remove from the mandatory set; publish no new versions"
+  ],
+  "depth": "light",
+  "confidence": "high"
+ },
+ {
+  "package": "@rightkit/qa",
+  "kind": "npm",
+  "family": "Foundation: runtime",
+  "existsAs": [
+   "packages/qa"
+  ],
+  "feeds": {
+   "heardright": 14575,
+   "genright": 4923,
+   "pulse": 3170,
+   "coderight": 2987,
+   "scraperight": 2361,
+   "mailright": 1769,
+   "viewright": 678
+  },
+  "basis": "RightKit implementation, 7.2k lines (CDP page, control client, a11y, visual, evidence, journeys)",
+  "referenceApp": "heardright",
+  "shape": "best",
+  "shapeReason": "All apps depend on it. The about 1% line match is expected: what the plan maps here is app test scripts and renderer IPC mocks, and the large mocks are already in domain UI packages (GenRight browser-mock-api.ts 1990/2008 in media-gen-ui, MailRight qaMock in mail-ui, ScrapeRight qaMock in library-ui).",
+  "apps": {
+   "heardright": {
+    "fit": "gaps",
+    "note": "not covered by the named HeardRight reviews; 14.6k planned lines not verified"
+   },
+   "viewright": {
+    "fit": "fits",
+    "note": "dependency; scripts/test-tooling-e2e.test.mjs is app tooling"
+   },
+   "pulse": {
+    "fit": "fits",
+    "note": "linux-guest, apfs fixtures and footprint probes are Pulse-only scripts"
+   },
+   "coderight": {
+    "fit": "fits",
+    "note": "check-*.mjs scripts are app gates"
+   },
+   "genright": {
+    "fit": "fits",
+    "note": "mocks in media-gen-ui"
+   },
+   "mailright": {
+    "fit": "fits",
+    "note": "mocks in mail-ui"
+   },
+   "scraperight": {
+    "fit": "fits",
+    "note": "mock in library-ui"
+   },
+   "cutright": {
+    "fit": "fits",
+    "note": "dependency"
+   },
+   "postright": {
+    "fit": "fits",
+    "note": "dependency"
+   }
+  },
+  "boundary": [
+   "Renderer IPC mocks are mapped here but belong with each domain UI package",
+   "Package API not read function by function"
+  ],
+  "actions": [
+   "Re-map the mock files to their UI packages in the plan"
+  ],
+  "depth": "light",
+  "confidence": "low"
+ },
+ {
+  "package": "@rightkit/qa-chrome",
+  "kind": "npm",
+  "family": "Foundation: runtime",
+  "existsAs": [
+   "packages/qa-chrome"
+  ],
+  "feeds": {},
+  "basis": "RightKit implementation, 1.9k lines",
+  "referenceApp": "none",
+  "shape": "best",
+  "shapeReason": "Chrome for Testing resolver and launcher; every app depends on it and none carries its own.",
+  "apps": {
+   "heardright": {
+    "fit": "n/a",
+    "note": "not covered by the HeardRight reviews"
+   },
+   "viewright": {
+    "fit": "fits",
+    "note": "dependency present"
+   },
+   "pulse": {
+    "fit": "fits",
+    "note": "dependency present"
+   },
+   "coderight": {
+    "fit": "fits",
+    "note": "dependency present"
+   },
+   "genright": {
+    "fit": "fits",
+    "note": "dependency present"
+   },
+   "mailright": {
+    "fit": "fits",
+    "note": "dependency present"
+   },
+   "scraperight": {
+    "fit": "fits",
+    "note": "dependency present"
+   },
+   "cutright": {
+    "fit": "fits",
+    "note": "dependency present"
+   },
+   "postright": {
+    "fit": "fits",
+    "note": "dependency present"
+   }
+  },
+  "boundary": [],
+  "actions": [],
+  "depth": "light",
+  "confidence": "low"
+ },
+ {
+  "package": "@rightkit/release",
+  "kind": "npm",
+  "family": "Foundation: runtime",
+  "existsAs": [
+   "packages/release"
+  ],
+  "feeds": {
+   "heardright": 20331,
+   "coderight": 1497,
+   "scraperight": 676,
+   "pulse": 609,
+   "postright": 594,
+   "cutright": 320
+  },
+  "basis": "RightKit implementation grown from HeardRight's release scripts; 104k lines in about 380 flat modules",
+  "referenceApp": "heardright",
+  "shape": "gaps",
+  "shapeReason": "One config contract (right-release.config.mjs) is present in every app including both live builds, so adoption is real. The package is a monolith: build, signing, notarisation, updater, cargo/npm/swift publishing, ownership governance, QA admission, disk and snapshot management, iOS and Android, plus single-app rule files.",
+  "apps": {
+   "heardright": {
+    "fit": "gaps",
+    "note": "not covered by the named HeardRight reviews; live build has a right-release.config.mjs; 20k planned lines not verified"
+   },
+   "viewright": {
+    "fit": "fits",
+    "note": "config in live and main"
+   },
+   "pulse": {
+    "fit": "fits",
+    "note": "config; membrane-assets and stage-receipt scripts remain"
+   },
+   "coderight": {
+    "fit": "fits",
+    "note": "desktop and iOS configs"
+   },
+   "genright": {
+    "fit": "fits",
+    "note": "config"
+   },
+   "mailright": {
+    "fit": "fits",
+    "note": "config"
+   },
+   "scraperight": {
+    "fit": "fits",
+    "note": "config; bundled-asset scripts remain"
+   },
+   "cutright": {
+    "fit": "fits",
+    "note": "config"
+   },
+   "postright": {
+    "fit": "fits",
+    "note": "config; crates/tools/check.rs is its own gate"
+   }
+  },
+  "boundary": [
+   "legion-semantic-contracts.mjs is one app's rules inside the shared package",
+   "asr-artifact-adoption.mjs, media-sidecar-catalog.mjs, model-promote.mjs are domain policy",
+   "Ownership governance (about 35 ownership-*.mjs files) and registry publishing are separate products from app release",
+   "App asset-fetch scripts (fetch-ocr-assets, fetch-embed-model, fetch-tanker) are each app's copy of one job"
+  ],
+  "actions": [
+   "Move Legion and ASR rule files behind a per-app rule plug-in",
+   "Split ownership governance and RightKit's own publishing from the app release CLI",
+   "Add one verified asset-fetch step to replace the per-app fetch scripts"
+  ],
+  "depth": "deep",
+  "confidence": "medium"
+ },
+ {
+  "package": "@rightkit/ci",
+  "kind": "npm",
+  "family": "Foundation: runtime",
+  "existsAs": [
+   "packages/ci"
+  ],
+  "feeds": {},
+  "basis": "RightKit implementation, 4.9k lines",
+  "referenceApp": "none",
+  "shape": "best",
+  "shapeReason": "Workflow templates and drift check for public repos; no app-side code planned for it.",
+  "apps": {
+   "heardright": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "viewright": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "pulse": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "coderight": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "genright": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "mailright": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "scraperight": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "cutright": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "postright": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   }
+  },
+  "boundary": [],
+  "actions": [],
+  "depth": "light",
+  "confidence": "low"
+ },
+ {
+  "package": "@rightkit/ax",
+  "kind": "npm",
+  "family": "Foundation: runtime",
+  "existsAs": [
+   "packages/ax"
+  ],
+  "feeds": {
+   "genright": 246,
+   "pulse": 243
+  },
+  "basis": "RightKit implementation, 4.4k lines",
+  "referenceApp": "pulse",
+  "shape": "best",
+  "shapeReason": "Plugin scaffolding and conformance gates; the two mapped files are an eval grader and a plugin launcher binary, neither a second implementation.",
+  "apps": {
+   "heardright": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "viewright": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "pulse": {
+    "fit": "fits",
+    "note": "plugin-launcher/src/main.rs is a Rust launcher, not AX code"
+   },
+   "coderight": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "genright": {
+    "fit": "fits",
+    "note": "evals/grade.mjs is an eval grader"
+   },
+   "mailright": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "scraperight": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "cutright": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "postright": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   }
+  },
+  "boundary": [
+   "Both feeding files look mis-mapped (not verified by reading)"
+  ],
+  "actions": [],
+  "depth": "light",
+  "confidence": "low"
+ },
+ {
+  "package": "rightkit-models",
+  "kind": "cargo",
+  "family": "Foundation: runtime",
+  "existsAs": [
+   "crates/rightkit-models",
+   "crates/rightkit-dictation-models"
+  ],
+  "feeds": {
+   "heardright": 6182,
+   "genright": 3008,
+   "coderight": 1853,
+   "scraperight": 1838,
+   "cutright": 908,
+   "mailright": 340
+  },
+  "basis": "two stores in one crate: a RightKit revisioned store, and the flat suite store ported from ScrapeRight's scraperight-model-store; plus CodeRight's local_models crate under a feature",
+  "referenceApp": "heardright",
+  "shape": "wrong",
+  "shapeReason": "The crate has two independent on-disk layouts and two APIs (suite/mod.rs:20-24). MailRight and GenRight install through Store/ModelSpec/InstallOptions; HeardRight, ScrapeRight and CutRight through suite::*; CodeRight uses only hardware fit. No duplicate code needs one store, and the live app's layout is the suite one.",
+  "apps": {
+   "heardright": {
+    "fit": "gaps",
+    "note": "hr-review-process-runtime: right shape with gaps (Ultra spec and grant duplicated, Whisper off the route, full hash every launch); rightkit-dictation-models is a near copy of its model store"
+   },
+   "viewright": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "pulse": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "coderight": {
+    "fit": "fits",
+    "note": "hardware/probe only; agent_local_models is its own crate copied in (158/160 lines)"
+   },
+   "genright": {
+    "fit": "gaps",
+    "note": "revisioned Store in 8 files; model_management/* is already in rightkit-remote-compute"
+   },
+   "mailright": {
+    "fit": "gaps",
+    "note": "revisioned Store plus suite::catalog and suite::paths in the same file set"
+   },
+   "scraperight": {
+    "fit": "fits",
+    "note": "suite store is its own code; model_ops and commands_models are thin"
+   },
+   "cutright": {
+    "fit": "fits",
+    "note": "suite::ensure_ready and catalog; build-*.py pack scripts are release tooling"
+   },
+   "postright": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   }
+  },
+  "boundary": [
+   "Two model stores with separate layouts, locks and GC entry points",
+   "suite/catalog.rs (1.6k lines) compiles named app models (parakeet, embedding gemma) into the foundation crate",
+   "agent_local_models is CodeRight code and pulls rightkit-sandbox and tokio",
+   "rightkit-dictation-models duplicates HeardRight's model store (HeardRight review)",
+   "Depends on rightkit-daemon only for Suite::resolve; declares ureq beside rightkit-http",
+   "CutRight scripts/runtime/build-*.py are mapped here but are packaging scripts"
+  ],
+  "actions": [
+   "Pick the suite layout as the one store and migrate Store users (MailRight, GenRight) or give Store a suite backend",
+   "Move the trusted catalog entries to data each app or a catalog crate supplies",
+   "Move agent_local_models to an agent crate",
+   "Resolve rightkit-dictation-models vs heardright-model-store",
+   "HeardRight M7 full-hash-on-launch"
+  ],
+  "depth": "deep",
+  "confidence": "medium"
+ },
+ {
+  "package": "rightkit-onnx",
+  "kind": "cargo",
+  "family": "Foundation: runtime",
+  "existsAs": [
+   "crates/rightkit-onnx"
+  ],
+  "feeds": {
+   "scraperight": 304,
+   "coderight": 205
+  },
+  "basis": "RightKit implementation",
+  "referenceApp": "heardright",
+  "shape": "gaps",
+  "shapeReason": "Runtime resolution and configuration are used the same way by six apps; session building is still per app.",
+  "apps": {
+   "heardright": {
+    "fit": "gaps",
+    "note": "hr-review-process-runtime: right shape with gaps (own session builder, thread-budget copy)"
+   },
+   "viewright": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "pulse": {
+    "fit": "fits",
+    "note": "SessionOptions, configured_runtime"
+   },
+   "coderight": {
+    "fit": "fits",
+    "note": "resolve_runtime; ort_common is a thin crate"
+   },
+   "genright": {
+    "fit": "fits",
+    "note": "8 files"
+   },
+   "mailright": {
+    "fit": "fits",
+    "note": "provision_runtime"
+   },
+   "scraperight": {
+    "fit": "fits",
+    "note": "9 files; ort_common thin"
+   },
+   "cutright": {
+    "fit": "fits",
+    "note": "configure_runtime_verified"
+   },
+   "postright": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   }
+  },
+  "boundary": [
+   "CodeRight and ScrapeRight each keep an ort_common crate over it"
+  ],
+  "actions": [
+   "Fold the two ort_common crates into the package",
+   "HeardRight O5"
+  ],
+  "depth": "light",
+  "confidence": "medium"
+ },
+ {
+  "package": "rightkit-spend",
+  "kind": "cargo",
+  "family": "Foundation: runtime",
+  "existsAs": [
+   "crates/rightkit-spend"
+  ],
+  "feeds": {
+   "cutright": 4345,
+   "genright": 2755,
+   "postright": 2272,
+   "pulse": 1655
+  },
+  "basis": "fresh RightKit ledger; PostRight's rules read closest to it",
+  "referenceApp": "pulse",
+  "shape": "gaps",
+  "shapeReason": "Pulse, PostRight and GenRight (through rightkit-media-gen) all reserve and commit on the same Ledger, each adding price and approval layers the crate deliberately leaves out. Two things are worked around: an allowance has no currency, and budget approval seals exist both in the crate and in Pulse. CutRight feeds nothing real: its ledger is an editorial decision log.",
+  "apps": {
+   "heardright": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "viewright": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "pulse": {
+    "fit": "gaps",
+    "note": "budget.rs on Ledger/ReserveOptions (line 42) but keeps approval, HMAC seals, reports and audit; the crate has approved.rs and SealKey::from_keychain"
+   },
+   "coderight": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "genright": {
+    "fit": "fits",
+    "note": "ledger.rs is already rightkit-media-gen on Ledger::reserve_on"
+   },
+   "mailright": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "scraperight": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "cutright": {
+    "fit": "n/a",
+    "note": "cutright-ledger is a hash-chained decision ledger (ledger.rs:1-9), not spend; mis-mapped, 4.3k lines"
+   },
+   "postright": {
+    "fit": "gaps",
+    "note": "on Ledger; adds an allowance_currencies table because the crate's allowance holds no currency; price catalogue is app-side"
+   }
+  },
+  "boundary": [
+   "CutRight cutright-ledger is mapped here and is not a spend ledger",
+   "Approved-budget sealing in both rightkit-spend::approved and Pulse budget.rs (suspicion of duplicate)",
+   "Price qualification rules are repeated per app (PostRight 60-day rule)"
+  ],
+  "actions": [
+   "Add an optional currency to Allowance",
+   "Make Pulse use approved.rs seals or remove them from the crate",
+   "Re-map CutRight's ledger to a review/evidence package"
+  ],
+  "depth": "deep",
+  "confidence": "medium"
+ },
+ {
+  "package": "rightkit-time",
+  "kind": "cargo",
+  "family": "Foundation: runtime",
+  "existsAs": [
+   "crates/rightkit-time"
+  ],
+  "feeds": {
+   "postright": 233,
+   "mailright": 69
+  },
+  "basis": "RightKit implementation; PostRight calendar_time.rs is 84% in it",
+  "referenceApp": "pulse",
+  "shape": "best",
+  "shapeReason": "DateTime, civil date math and HTTP dates are used by six apps with no competing implementation left.",
+  "apps": {
+   "heardright": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "viewright": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "pulse": {
+    "fit": "fits",
+    "note": "17 files"
+   },
+   "coderight": {
+    "fit": "fits",
+    "note": "20 files"
+   },
+   "genright": {
+    "fit": "fits",
+    "note": "3 files"
+   },
+   "mailright": {
+    "fit": "fits",
+    "note": "utc_stamp.rs half in package"
+   },
+   "scraperight": {
+    "fit": "fits",
+    "note": "1 file"
+   },
+   "cutright": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "postright": {
+    "fit": "fits",
+    "note": "calendar_time.rs can be deleted"
+   }
+  },
+  "boundary": [],
+  "actions": [],
+  "depth": "light",
+  "confidence": "medium"
+ },
+ {
+  "package": "rightkit-cache",
+  "kind": "cargo",
+  "family": "Foundation: runtime",
+  "existsAs": [
+   "crates/rightkit-cache"
+  ],
+  "feeds": {
+   "pulse": 89
+  },
+  "basis": "RightKit implementation",
+  "referenceApp": "pulse",
+  "shape": "gaps",
+  "shapeReason": "Two unrelated things share the crate: a size-capped disk cache (MailRight, CutRight) and LLM prompt-cache key tracking (CodeRight, PostRight). Pulse's cache.rs is a versioned snapshot file and uses neither.",
+  "apps": {
+   "heardright": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "viewright": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "pulse": {
+    "fit": "n/a",
+    "note": "cache.rs is a snapshot store on pulse_core::snapshot, not a cache"
+   },
+   "coderight": {
+    "fit": "fits",
+    "note": "prefix::* only"
+   },
+   "genright": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "mailright": {
+    "fit": "fits",
+    "note": "DiskCache"
+   },
+   "scraperight": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "cutright": {
+    "fit": "fits",
+    "note": "DiskCache"
+   },
+   "postright": {
+    "fit": "fits",
+    "note": "prefix::fnv1a_64 only"
+   }
+  },
+  "boundary": [
+   "prefix (prompt-cache keys) belongs with rightkit-llm",
+   "Pulse cache.rs mis-mapped"
+  ],
+  "actions": [
+   "Move prefix to rightkit-llm"
+  ],
+  "depth": "light",
+  "confidence": "medium"
+ },
+ {
+  "package": "rightkit-decimal",
+  "kind": "cargo",
+  "family": "Foundation: runtime",
+  "existsAs": [
+   "crates/rightkit-decimal"
+  ],
+  "feeds": {},
+  "basis": "RightKit implementation, 242 lines",
+  "referenceApp": "none",
+  "shape": "gaps",
+  "shapeReason": "No surveyed app imports it.",
+  "apps": {
+   "heardright": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "viewright": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "pulse": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "coderight": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "genright": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "mailright": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "scraperight": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "cutright": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "postright": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   }
+  },
+  "boundary": [],
+  "actions": [
+   "First consumer before mandatory; not verified"
+  ],
+  "depth": "light",
+  "confidence": "low"
+ },
+ {
+  "package": "rightkit-contracts",
+  "kind": "cargo",
+  "family": "Foundation: runtime",
+  "existsAs": [
+   "crates/rightkit-contracts",
+   "contracts"
+  ],
+  "feeds": {
+   "postright": 1218
+  },
+  "basis": "RightKit implementation",
+  "referenceApp": "postright",
+  "shape": "gaps",
+  "shapeReason": "PostRight and CutRight validate through it and reimplement no rule. The crate mixes content-pipeline documents, record sessions and the daemon API contract, so it is a domain crate placed in the mandatory runtime set.",
+  "apps": {
+   "heardright": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "viewright": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "pulse": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "coderight": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "genright": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "mailright": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "scraperight": {
+    "fit": "n/a",
+    "note": "no code for this package and no import found"
+   },
+   "cutright": {
+    "fit": "fits",
+    "note": "Contract, validate, typed record and brief views"
+   },
+   "postright": {
+    "fit": "fits",
+    "note": "contracts_io.rs runs the crate's stages in order (lines 3-5)"
+   }
+  },
+  "boundary": [
+   "Content brief and delivery envelope are media/social domain; daemon-api is runtime"
+  ],
+  "actions": [
+   "Take it out of the mandatory set or split daemon-api from the content contracts"
+  ],
+  "depth": "light",
+  "confidence": "low"
+ }
+]
