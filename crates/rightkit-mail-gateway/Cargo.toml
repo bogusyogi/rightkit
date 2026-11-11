@@ -1,0 +1,28 @@
+[package]
+name = "rightkit-mail-gateway"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.98.0"
+description = "The mail adapter of the agent gateway: mail verbs (search, thread, draft, send with approval, forward, label, archive, move, delete, attachments) and their profiles, approvals and policy, on the rightkit-agent-gateway core."
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/bogusyogi/rightkit"
+include = ["src/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+
+[lib]
+name = "rightkit_mail_gateway"
+path = "src/lib.rs"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+getrandom = "0.4"
+base64 = { version = "0.23" }
+rightkit-db = { version = "0.5.2", default-features = false, path = "../rightkit-db" }
+rightkit-fs = { version = "0.4.7", default-features = false, features = ["fs", "digest"], path = "../rightkit-fs" }
+rightkit-crypto = { version = "0.1.0", path = "../rightkit-crypto" }
+rightkit-search = { version = "0.4.1", default-features = false, path = "../rightkit-search" }
+rightkit-mail = { version = "0.1.1", path = "../rightkit-mail" }
+rightkit-time = { version = "0.1.0", path = "../rightkit-time" }
+rightkit-agent-gateway = { version = "0.3.0", path = "../rightkit-agent-gateway" }
+rightkit-approvals = { version = "0.2.0", default-features = false, path = "../rightkit-approvals" }

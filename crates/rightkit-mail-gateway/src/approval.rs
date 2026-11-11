@@ -328,9 +328,7 @@ fn still_permitted(c: &rightkit_db::rusqlite::Connection, a: &Approval) -> Resul
         super::outcome::Profile::SendWithApproval
     };
     Ok(registry::get_agent(c, a.agent_id())?.is_some_and(|g| {
-        g.revoked_at.is_none()
-            && g.profile >= least
-            && g.accounts.iter().any(|x| x == a.account_id())
+        g.revoked_at.is_none() && g.profile >= least && g.scopes.iter().any(|x| x == a.account_id())
     }))
 }
 

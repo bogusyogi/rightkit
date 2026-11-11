@@ -4,12 +4,14 @@
 /// - `allowed_users`: Telegram user IDs that are permitted to interact
 /// - `port`: local daemon HTTP port (for self-calls)
 /// - `daemon_token`: bearer token accepted by the daemon API
+/// - `binding_store_path`: the file that keeps which chat is bound to which session
 pub async fn run_telegram_bot(
     bot_token: String,
     allowed_users: Vec<u64>,
     port: u16,
     daemon_token: String,
     runtime_status: TelegramRuntimeStatusStore,
+    binding_store_path: PathBuf,
 ) {
     run_telegram_bot_with_api_base(
         bot_token,
@@ -17,6 +19,7 @@ pub async fn run_telegram_bot(
         port,
         daemon_token,
         runtime_status,
+        binding_store_path,
         "https://api.telegram.org".to_string(),
         25,
         Duration::from_secs(5),
@@ -31,6 +34,7 @@ async fn run_telegram_bot_with_api_base(
     port: u16,
     daemon_token: String,
     runtime_status: TelegramRuntimeStatusStore,
+    binding_store_path: PathBuf,
     api_base_url: String,
     poll_timeout_secs: u64,
     retry_delay: Duration,
@@ -70,7 +74,6 @@ async fn run_telegram_bot_with_api_base(
         allowed_users,
         default_session: default_session.to_string(),
     };
-    let binding_store_path = telegram_binding_store_path();
     let bot = TelegramBot::new_with_binding_store(daemon, &tg_config, &binding_store_path);
     let allowed_users: HashSet<u64> = tg_config.allowed_users.iter().copied().collect();
 

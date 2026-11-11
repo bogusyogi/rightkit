@@ -4,4 +4,4 @@ Standalone consumer, outside the workspace, pinning `rightkit-owner-approvals =0
 
 ## What it proves
 
-That the published crate masks a secret, builds the fixed signed-message layout, refuses a malformed signature with a stable code and cleans audit names.
+That the published crate refuses with a stable code, builds the fixed signed-message layout, refuses a malformed signature with a stable code and cleans audit names.

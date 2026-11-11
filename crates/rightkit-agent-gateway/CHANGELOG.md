@@ -1,17 +1,13 @@
 # Changelog
 
+## 0.3.0 (unpublished)
+
+- Breaking: the package is now the gateway core, with no product verbs. Taken on the recommended option of the 2026-11-11 shape review (docs/audits/2026-11-11-shape-matrix/reports/family-agent-platform.md, "rightkit-agent-gateway"), pending the owner's confirmation; design note: docs/audits/2026-11-11-shape-matrix/reports/agent-platform-redraw.md.
+- The mail verbs that versions 0.1 and 0.2 held (drafts, send, forward, delete, label, attachments, the mail approval policy and the `GatewayHost` seam) moved unchanged to the new crate `rightkit-mail-gateway` 0.1.0, which runs on this core.
+- Kept here, generalised: the agent registry (`registry`: `Agent<P>` and `Verified<P>` over any `gate::Level`; `accounts` is `scopes`, `set_accounts` is `set_scopes`), pairing (`pairing`, generic over the level; `AgentView.scopes`, `AuditView.scope`), the connection seam (`access`), the SQL audit (`audit::SqlAudit`, `audit::page`; `Entry.account_id` is `Entry.scope`, plus `origin` and `fields`), `registry::invisible_or_control`. All under feature `sql` (default).
+- New: `gate` (the ordered checks `lookup`, `allow_level`, `allow_scope`, `allow_door` over a static `Method` table; `Denied` with stable codes; `conclude` writes one audit row per call, `Logging::Required` or `Logging::BestEffort`), `audit::AuditSink` (a sink trait for a table or a log file), `Origin` (the door, from `rightkit-remote-gateway`), `content` (the untrusted wrapper with the source as a parameter, `Budget`, and `stamped` for Pulse's unverified-sender line).
+- `redact` is one module: the secret masking that was `rightkit-owner-approvals::redact` (moved unchanged) plus MailRight's leak check (`find_secret`, `text_has_secret`, `assert_clean`, unchanged markers) that was this crate's `redact`.
+
 ## 0.2.0 (unpublished)
 
-- Breaking: approvals use the `rightkit-approvals` 0.2.0 core's record and rules instead of their own copy. Decision 3 of the 2026-11-11 shape review (docs/audits/2026-11-11-shape-matrix/README.md, "Approvals") taken on the recommended option, pending the owner's confirmation; design note: docs/audits/2026-11-11-shape-matrix/reports/approvals-core-design.md.
-- `approval_store::Approval` is now the core's `Record` (a type alias); `MailApproval` reads it in this crate's words (`agent_id()`, `account_id()`, `draft_id()`, `kind()`, `status()`, `created_at()`, `expires_at()`); `result_id` is `result`. The table is unchanged: `SqlStore` implements the core `Store` trait over `agent_approvals` (kept here rather than as a feature of the core because it needs `rusqlite` through `rightkit-db` and this app's table).
-- Deleted as duplicates: the status-string state machine (`finish`, `claim_approve`, `insert_pending`, `get`, `list_pending`, `count_pending`, the free `sweep`). The claim is the core's `rules::decide` (one guarded UPDATE, unexpired and from this run); creating a request is `rules::file` with the per-agent pending cap; status moves are `SqlStore::move_row`. Kept here as mail policy: the send and delete windows, the decline cooldown, `live_for_draft`, the drafts and attach-path tables.
-- Behaviour unchanged, except new approval ids are 32 hex characters (were 22 base64url characters).
-- `SqlStore` implements the core's new `Store::claimed` (none) and refuses a move to or from the core's `State::Claimed` (`move_row`): the table has no claimed status; its `approved` row is the send in flight, settled by `sweep`.
-
-## 0.1.1 (unpublished)
-
-- Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
-
-## 0.1.0 (unreleased)
-
-- First RightKit release, moved from MailRight (src-tauri agent: access, approval flow, attachments, audit, content, drafts, export, forward, gate, import, mutate, outcome, pairing, read handlers, registry, send requests).
+- MailRight's mail gateway; see `rightkit-mail-gateway`'s CHANGELOG for its history.

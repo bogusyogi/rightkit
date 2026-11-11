@@ -1,27 +1,30 @@
 [package]
 name = "rightkit-agent-gateway"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 rust-version = "1.98.0"
-description = "Local agent gateway for a mail-style app: pairing registry, append-only audit log, request gate profiles and untrusted-content wrapping, over a host-implemented connection trait."
+description = "Core of a local agent gateway, with no product verbs: agent registry (hashed pairing keys, levels, scopes, revoke), the gate's ordered checks over a static method table, one audit row per call, the door a call came by, stable refusal codes, untrusted-content wrapping and secret redaction."
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 repository = "https://github.com/bogusyogi/rightkit"
+keywords = ["agent", "gateway", "audit", "pairing"]
+categories = ["authentication"]
 include = ["src/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [lib]
 name = "rightkit_agent_gateway"
 path = "src/lib.rs"
 
+[features]
+default = ["sql"]
+# The agent registry, pairing and the SQL audit sink over the host's tables.
+sql = ["dep:rightkit-db", "dep:rightkit-crypto", "dep:getrandom", "dep:rightkit-fs"]
+
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-getrandom = "0.4"
-base64 = { version = "0.23" }
-rightkit-db = { version = "0.5.2", default-features = false, path = "../rightkit-db" }
-rightkit-fs = { version = "0.4.7", default-features = false, features = ["fs", "digest"], path = "../rightkit-fs" }
-rightkit-crypto = { version = "0.1.0", path = "../rightkit-crypto" }
-rightkit-search = { version = "0.4.1", default-features = false, path = "../rightkit-search" }
-rightkit-mail = { version = "0.1.1", path = "../rightkit-mail" }
-rightkit-time = { version = "0.1.0", path = "../rightkit-time" }
 rightkit-approvals = { version = "0.2.0", default-features = false, path = "../rightkit-approvals" }
+getrandom = { version = "0.4", optional = true }
+rightkit-db = { version = "0.5.2", default-features = false, path = "../rightkit-db", optional = true }
+rightkit-fs = { version = "0.4.7", default-features = false, features = ["digest"], path = "../rightkit-fs", optional = true }
+rightkit-crypto = { version = "0.1.0", path = "../rightkit-crypto", optional = true }

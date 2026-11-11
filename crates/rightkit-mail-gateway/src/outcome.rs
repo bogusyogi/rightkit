@@ -2,7 +2,8 @@
 //! future transport/CLI. Success is the bare result object; errors are
 //! `{"error":{"code","message"}}`.
 
-use super::access;
+use rightkit_agent_gateway::access;
+use rightkit_agent_gateway::gate::{Denied, Level};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
@@ -33,6 +34,16 @@ pub enum Profile {
     ReadOnly,
     Draft,
     SendWithApproval,
+}
+
+impl Level for Profile {
+    const LOWEST: Self = Profile::ReadOnly;
+    fn as_str(self) -> &'static str {
+        Profile::as_str(self)
+    }
+    fn parse(s: &str) -> Option<Self> {
+        Profile::parse(s)
+    }
 }
 
 impl Profile {
@@ -153,6 +164,20 @@ impl AgentError {
             | AgentError::MutationFailed(r)
             | AgentError::AttachmentFailed(r) => Some(r),
             _ => None,
+        }
+    }
+}
+
+/// The core gate's refusals in this adapter's words: its wire codes are unchanged
+/// (`account_not_allowed`; an unknown method is `bad_request`).
+impl From<Denied> for AgentError {
+    fn from(d: Denied) -> Self {
+        match d {
+            Denied::Unauthorised => AgentError::Unauthorised,
+            Denied::Locked => AgentError::AppLocked,
+            Denied::UnknownMethod => AgentError::BadRequest("unknown method".into()),
+            Denied::ForbiddenLevel | Denied::ReadOnly => AgentError::ForbiddenProfile,
+            Denied::ScopeNotAllowed => AgentError::AccountNotAllowed,
         }
     }
 }

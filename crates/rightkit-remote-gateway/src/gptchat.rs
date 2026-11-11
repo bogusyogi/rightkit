@@ -203,7 +203,7 @@ mod imp {
     }
 
     fn stamped(text: &str) -> String {
-        format!("{STAMP}\n\n{text}")
+        rightkit_agent_gateway::content::stamped(STAMP, text)
     }
 
     /// `chat_peers`: every chat that can be messaged, here and on linked computers, with the

@@ -4,7 +4,7 @@
 //! forge fetch. `tui_host.rs` holds one [`PaneState`] and forwards usage, tool
 //! and key events to it.
 
-use crate::github_app::forge_client::{execute_get_blocking, GitHubForgeClient};
+use rightkit_github::forge_client::{execute_get_blocking, GitHubForgeClient};
 use rightkit_terminal_ui::ci_band::{parse_check_runs, CiBand};
 use rightkit_terminal_ui::crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use rightkit_terminal_ui::diff_review_pane::{Decision, DiffReview};

@@ -192,7 +192,7 @@
     {
       "package": "rightkit-agent-gateway",
       "capability": "agent-gateway",
-      "summary": "Local agent gateway for a mail-style app: pairing registry, append-only audit log, request gate profiles, untrusted-content wrapping and the user-approval flow.; declaration-only detection (no precise implementation fingerprint)",
+      "summary": "Core of a local agent gateway: agent registry, ordered gate checks, one audit row per call, door, refusal codes, untrusted-content wrapping and redaction.; declaration-only detection (no precise implementation fingerprint)",
       "fingerprints": [],
       "detection": "declaration-only",
       "policyNotes": [

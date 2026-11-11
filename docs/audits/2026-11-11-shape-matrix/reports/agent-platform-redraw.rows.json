@@ -1,0 +1,288 @@
+[
+  {
+    "package": "rightkit-agent-gateway",
+    "kind": "cargo",
+    "family": "Redraws on the branch, 2026-11-11",
+    "existsAs": [
+      "crates/rightkit-agent-gateway"
+    ],
+    "feeds": {},
+    "basis": "0.3.0 on the branch: the gateway core with no product verbs; the mail verbs moved to rightkit-mail-gateway 0.1.0, and rightkit-remote-gateway runs on it. Read in full on 2026-11-11 (docs/audits/2026-11-11-shape-matrix/reports/agent-platform-redraw.md)",
+    "referenceApp": "pulse",
+    "shape": "gaps",
+    "shapeReason": "The name now says what it holds: agent registry (MailRight's: several agents, hashed key, level, scopes, revoke; generic over a Level), the gate's ordered checks over a static Method table with stable Denied codes (Pulse's order and codes), one audit row per call (conclude, Required or BestEffort), AuditSink with a SQL sink, Origin (Pulse's door), untrusted-content wrapping and stamping, and one redaction module (Pulse's masking plus MailRight's leak check). Refusal is the approvals core's; pending approvals are rightkit-approvals. Both gateways run on it. Gaps: Pulse's tools are not yet a Method table (its manifest is runtime JSON) and the activity file writer is still in rightkit-owner-approvals.",
+    "apps": {
+      "mailright": {
+        "fit": "fits",
+        "note": "rightkit-mail-gateway runs on the registry, pairing, SQL audit and gate checks; wire codes unchanged"
+      },
+      "pulse": {
+        "fit": "gaps",
+        "note": "rightkit-remote-gateway uses the door, read-only check, best-effort activity row, stamp and redaction; its per-tool switches and unlock are still its own"
+      }
+    },
+    "boundary": [
+      "feature sql (default) pulls rightkit-db; Pulse uses the core without it",
+      "the JSON-lines activity file is still written by rightkit-owner-approvals/audit.rs"
+    ],
+    "actions": [
+      "build Pulse's Method table from its manifest and run lookup and allow_door from it",
+      "decide whether a JSON-lines AuditSink moves into the core with the file writer",
+      "owner to confirm the agent-platform redraw",
+      "publish 0.3.0 with rightkit-mail-gateway 0.1.0"
+    ],
+    "depth": "deep",
+    "confidence": "high"
+  },
+  {
+    "package": "rightkit-mail-gateway",
+    "kind": "cargo",
+    "family": "Redraws on the branch, 2026-11-11",
+    "existsAs": [
+      "crates/rightkit-mail-gateway"
+    ],
+    "feeds": {
+      "mailright": 14620
+    },
+    "basis": "new on the branch (0.1.0, PK230): MailRight's mail verbs, moved with git mv from rightkit-agent-gateway 0.2.0 when that name became the core",
+    "referenceApp": "mailright",
+    "shape": "gaps",
+    "shapeReason": "A mail adapter on the gateway core: mail verbs and their profiles, the mail approval policy (SqlStore over agent_approvals on the approvals core, windows, caps, cooldown), drafts, forward, attachments and the GatewayHost seam. Registry, pairing, audit, access, redaction and the gate checks are the core's; content wraps through the core. Gaps carried over: the decision is not yet bound to the display digest (needs a schema column), and the Settings views renamed accounts to scopes.",
+    "apps": {
+      "mailright": {
+        "fit": "fits",
+        "note": "its own code; Gmail adapters and tests stay in the app"
+      }
+    },
+    "boundary": [
+      "depends on rightkit-mail and rightkit-search: right for a mail adapter"
+    ],
+    "actions": [
+      "MailRight: bind the decision to the display digest (needs a schema column)",
+      "MailRight: follow the Settings view rename (accounts -> scopes, account_id -> scope)",
+      "owner to confirm the agent-platform redraw",
+      "publish 0.1.0"
+    ],
+    "depth": "deep",
+    "confidence": "high"
+  },
+  {
+    "package": "rightkit-remote-gateway",
+    "kind": "cargo",
+    "family": "Redraws on the branch, 2026-11-11",
+    "existsAs": [
+      "crates/rightkit-remote-gateway"
+    ],
+    "feeds": {
+      "pulse": 20758
+    },
+    "basis": "0.1.3 on the branch: Pulse's remote tools on the rightkit-agent-gateway core (without sql) and the approvals core",
+    "referenceApp": "pulse",
+    "shape": "gaps",
+    "shapeReason": "Now shares its gate with MailRight's: Origin, the read-only door check, the best-effort activity row through AuditSink and conclude, the unverified stamp and the redaction are the core's; pending approvals are the approvals core's. Still a product bundle: 20 tool families, the ChatGPT door, Spotify/Music, saved logins and payments (agent_secrets 2k lines), Pulse and ChatGPT names in library text.",
+    "apps": {
+      "pulse": {
+        "fit": "fits",
+        "note": "behaviour and wire unchanged"
+      }
+    },
+    "boundary": [
+      "agent_secrets.rs (saved logins, virtual cards, spend ledger) is a separate product capability",
+      "gptchat.rs and media.rs carry ChatGPT and media-app decisions"
+    ],
+    "actions": [
+      "express the tools as a core Method table built from the manifest",
+      "split agent_secrets into its own crate",
+      "remove Pulse and ChatGPT names from library text",
+      "owner to confirm the agent-platform redraw"
+    ],
+    "depth": "deep",
+    "confidence": "high"
+  },
+  {
+    "package": "rightkit-agent-server",
+    "kind": "cargo",
+    "family": "Redraws on the branch, 2026-11-11",
+    "existsAs": [
+      "crates/rightkit-agent-server"
+    ],
+    "feeds": {
+      "coderight": 91539
+    },
+    "basis": "0.1.2 on the branch: its private copies of the Github App and sign-in, the scheduler model, time and bot profiles, the host observation shapes and the Telegram transport are deleted or moved to their owners (docs/audits/2026-11-11-shape-matrix/reports/agent-platform-redraw.md)",
+    "referenceApp": "coderight",
+    "shape": "wrong",
+    "shapeReason": "No longer holds a copy of a shared crate: it depends on rightkit-github, rightkit-scheduler, rightkit-context-protocol and rightkit-bot-messaging (telegram_poll), and no agent-server file shares more than half its lines with another crate. Still CodeRight's application under a library name: about 530 coderight strings, benchmarks, api_specs, harness-radar data, and some 30k lines planned for engine, agents, llm, orchestration, sandbox and evidence. src/workflow (7.2k) is the daemon host of rightkit-workflow's control plane, not a copy; the scheduler runner (2.7k) runs on DaemonState.",
+    "apps": {
+      "coderight": {
+        "fit": "gaps",
+        "note": "its code; a second app cannot adopt it without CodeRight's product surface"
+      }
+    },
+    "boundary": [
+      "CodeRight product routes, strings and benchmark data in the library",
+      "workflow host and scheduler runner belong in their own crates once the daemon routes they call are split"
+    ],
+    "actions": [
+      "Split: a small generic rightkit-agent-server (session hosting, daemon, API router, permission and session routes); CodeRight's product routes, strings, benchmarks and harness-radar data to the app or a bench crate",
+      "move the scheduler runner into rightkit-scheduler behind a runner trait; the workflow host into its own crate over engine-storage",
+      "move each misplaced module to the package the plan named, or change the plan",
+      "owner to confirm the agent-platform redraw"
+    ],
+    "depth": "deep",
+    "confidence": "high"
+  },
+  {
+    "package": "rightkit-github",
+    "kind": "cargo",
+    "family": "Redraws on the branch, 2026-11-11",
+    "existsAs": [
+      "crates/rightkit-github"
+    ],
+    "feeds": {
+      "coderight": 8586
+    },
+    "basis": "unchanged on the branch; the copy in agent-server (src/github_app, github_signin.rs) is deleted and agent-server depends on it",
+    "referenceApp": "coderight",
+    "shape": "gaps",
+    "shapeReason": "The one copy of CodeRight's Github App module and sign-in: brand-free, host-configured (signin::configure), now used by rightkit-agent-server. The orchestration and review dependencies are behind the observer feature only.",
+    "apps": {
+      "coderight": {
+        "fit": "fits",
+        "note": "agent-server uses forge_client and signin"
+      }
+    },
+    "boundary": [
+      "observer feature depends on rightkit-agent-orchestration and rightkit-review"
+    ],
+    "actions": [
+      "Cut the observer feature's orchestration and review dependencies down to shared contract types",
+      "publish 0.1.1"
+    ],
+    "depth": "light",
+    "confidence": "high"
+  },
+  {
+    "package": "rightkit-scheduler",
+    "kind": "cargo",
+    "family": "Redraws on the branch, 2026-11-11",
+    "existsAs": [
+      "crates/rightkit-scheduler"
+    ],
+    "feeds": {
+      "coderight": 9315
+    },
+    "basis": "unchanged on the branch; agent-server's model, time and bot profile copies and agent-tools' timezone copy are re-exports of it",
+    "referenceApp": "coderight",
+    "shape": "gaps",
+    "shapeReason": "The one schedule model (specs, bot profiles, due minutes, time zones), now used by rightkit-agent-server and rightkit-agent-tools; the runner (execution, delivery, lifecycle, persistence, 2.7k lines) is still in agent-server, on DaemonState.",
+    "apps": {
+      "coderight": {
+        "fit": "gaps",
+        "note": "model shared; runner still in agent-server"
+      }
+    },
+    "boundary": [
+      "Schedule spec also exists in agent-engine-protocol/schedule.rs"
+    ],
+    "actions": [
+      "Move execution, delivery, lifecycle and persistence here behind a runner trait",
+      "publish 0.1.2"
+    ],
+    "depth": "light",
+    "confidence": "high"
+  },
+  {
+    "package": "rightkit-bot-messaging",
+    "kind": "cargo",
+    "family": "Redraws on the branch, 2026-11-11",
+    "existsAs": [
+      "crates/rightkit-bot-messaging"
+    ],
+    "feeds": {
+      "coderight": 6489
+    },
+    "basis": "0.1.2 on the branch: gains telegram_poll, the Telegram transport moved from agent-server",
+    "referenceApp": "coderight",
+    "shape": "gaps",
+    "shapeReason": "Brand-free and now complete for Telegram: decision layer and transport (long-poll loop, Bot API calls, HTTP daemon client, runtime status), with the binding store path host-supplied. The web server half still lives in the host binary.",
+    "apps": {
+      "coderight": {
+        "fit": "fits",
+        "note": "agent-server's telegram_task is a thin host wrapper"
+      }
+    },
+    "boundary": [],
+    "actions": [
+      "Move the remaining bridge code (web server routes) here or document it as host",
+      "publish 0.1.2"
+    ],
+    "depth": "light",
+    "confidence": "medium"
+  },
+  {
+    "package": "rightkit-owner-approvals",
+    "kind": "cargo",
+    "family": "Redraws on the branch, 2026-11-11",
+    "existsAs": [
+      "crates/rightkit-owner-approvals"
+    ],
+    "feeds": {},
+    "basis": "0.1.2 on the branch: redaction moved to the gateway core; holds signed approvals, approver keys, protected guard and the audit files",
+    "referenceApp": "pulse",
+    "shape": "gaps",
+    "shapeReason": "Its name now matches its content: signed owner approvals (the approvals core's Proof), approver and admin keys, the protected-item guard and the Activity and security files. The secret masking left for rightkit-agent-gateway's redact, the one redaction module of the gateways.",
+    "apps": {
+      "pulse": {
+        "fit": "fits",
+        "note": "remote-gateway and web-session read redaction through the gateway"
+      }
+    },
+    "boundary": [
+      "audit.rs writes the gateway's Activity file (remote-activity.jsonl) as well as the security file",
+      "Depended on by rightkit-mesh, rightkit-app-lock, rightkit-remote-gateway, rightkit-web-session"
+    ],
+    "actions": [
+      "owner to confirm the agent-platform redraw",
+      "publish 0.1.2"
+    ],
+    "depth": "light",
+    "confidence": "medium"
+  },
+  {
+    "package": "rightkit-agent-tools",
+    "kind": "cargo",
+    "family": "Redraws on the branch, 2026-11-11",
+    "existsAs": [
+      "crates/rightkit-agent-tools"
+    ],
+    "feeds": {
+      "coderight": 86283,
+      "genright": 302
+    },
+    "basis": "0.3.5 on the branch: the schedule_cron tool's time zone copy is a re-export of rightkit-scheduler",
+    "referenceApp": "coderight",
+    "shape": "gaps",
+    "shapeReason": "One crate still carries both the cross-app tool interface every app needs and 50k lines of coding tools, with 25 RightKit deps. Its copy of rightkit-scheduler's timezone.rs (181 lines, identical) is deleted; the tool re-exports the scheduler's.",
+    "apps": {
+      "coderight": {
+        "fit": "gaps",
+        "note": ""
+      },
+      "genright": {
+        "fit": "fits",
+        "note": ""
+      }
+    },
+    "boundary": [
+      "Thin tool contract and heavy coding tools in one crate",
+      "18 'heardright' strings"
+    ],
+    "actions": [
+      "Split the tool contract from the coding tools",
+      "publish 0.3.5"
+    ],
+    "depth": "light",
+    "confidence": "medium"
+  }
+]

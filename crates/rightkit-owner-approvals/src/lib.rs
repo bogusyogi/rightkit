@@ -1,11 +1,8 @@
-//! Signed owner approvals for privileged and reserved actions, the redaction of secrets from text
-//! an agent may read, and the audit trail of both.
+//! Signed owner approvals for privileged and reserved actions, and their audit trail.
 //!
 //! * [`approval_sig`]: owner-check keys and approver keys (P-256, Windows Hello RSA), the wire
 //!   format an owner's device signs, key bindings, and verification of a signature against an
 //!   enrolled key. Nothing is accepted on a caller's word.
-//! * [`redact`]: masks API keys, tokens, private-key blocks and the like in text before it leaves
-//!   this computer.
 //! * [`audit`]: the Activity file and the security audit file, written one append per line.
 //! * [`protected_guard`]: what each platform adds to a protected credential item (the keychain
 //!   partition check on macOS, the sealed key on macOS and Windows).
@@ -19,7 +16,6 @@ pub mod admin_sig;
 pub mod approval_sig;
 pub mod audit;
 pub mod protected_guard;
-pub mod redact;
 
 use std::sync::OnceLock;
 

@@ -1,53 +1,52 @@
-//! `rightkit-agent-gateway`: the local agent gateway of a mail-style app.
+//! `rightkit-agent-gateway`: the core every local agent gateway runs on, with no product verbs.
 //!
-//! An agent (a local CLI or MCP client) pairs with the app, gets a read-only profile and can be
-//! widened to drafts and to "send with approval". Every request goes through one gate
-//! ([`gate::handle_full`]): key, lock, profile, account, rate limits, then a read handler, a
-//! draft or forward creator, a label mutation or an attachment export, and one audit row.
+//! A gateway lets a caller that is not the user (a paired CLI or MCP agent, a model service
+//! behind a tunnel) call an app's tools. Whatever the tools are, the gate around them is the
+//! same, and this crate holds it once:
 //!
-//! Nothing an agent can call sends, forwards or deletes mail: `send`, `forward`, `delete` and
-//! `attach` only create a pending approval ([`approval_store`]) that the user acts on in the app
-//! window ([`approval::approve`]). Text written by an email sender is wrapped as untrusted
-//! ([`content`]).
+//! * [`origin`]: the door a call came in by ([`Origin`]), set by the process that received it,
+//!   never by the request.
+//! * [`registry`] and [`pairing`] (feature `sql`): several named agents, each with a pairing key
+//!   stored only as a SHA-256 hash, a permission [`gate::Level`] and a scope list (the accounts,
+//!   folders or projects it may touch), revocable at once.
+//! * [`gate`]: the pipeline's checks in one fixed order (caller known, app unlocked, method
+//!   known, level high enough, scope allowed, door allows changes) over a static method table,
+//!   and [`gate::conclude`], which writes exactly one audit row per call.
+//! * [`audit`]: the row ([`audit::Entry`]) and the sink trait ([`audit::AuditSink`]); a SQL
+//!   sink over the host's `agent_audit` table (feature `sql`). An app with a log file
+//!   implements the trait over it.
+//! * [`Refusal`] with stable codes (the approvals core's type) and [`gate::Denied`], the gate's
+//!   own refusals.
+//! * [`content`]: text a third party wrote (a mail sender, another AI) goes out wrapped or
+//!   stamped as untrusted, capped.
+//! * [`redact`]: masks secrets in text before it leaves this computer, and the leak check a
+//!   gateway runs as its release gate.
 //!
-//! The crate owns the `agents`, `agent_accounts`, `agent_audit` and approval tables' SQL, not
-//! their schema or migrations: the host creates them and gives the gateway its connections
-//! through [`access::ConnAccess`]. Everything else it needs from the host (the mutation guard,
-//! the local mail mirror, settings, the file scanner, the product name) is [`host::GatewayHost`],
-//! installed once with [`host::set_host`]. Gmail calls are the host's too, behind the
-//! [`draft::DraftCreator`], [`approval::DraftMailer`] and [`approval_trash::ThreadTrasher`].
+//! Pending approvals are the `rightkit-approvals` core's. The tools are the adapters':
+//! `rightkit-mail-gateway` (mail verbs over this core) and `rightkit-remote-gateway` (files,
+//! terminals, screen and the rest for one owner).
 
+#[cfg(feature = "sql")]
 pub mod access;
-pub mod approval;
-pub mod approval_attach;
-pub mod approval_kind;
-pub mod approval_request;
-pub mod approval_store;
-pub mod approval_trash;
-pub mod attach_open;
-pub mod attach_path;
-pub mod attachment;
 pub mod audit;
 pub mod content;
-pub mod draft;
-pub mod draft_files;
-mod draft_open;
-pub mod draft_view;
-pub mod export;
-pub mod forward;
 pub mod gate;
-pub mod gate_effects;
-pub mod gate_forward;
-pub mod host;
-pub mod import_file;
-pub mod mime;
-pub mod mutate;
-pub mod mutate_local;
-pub mod outcome;
+pub mod origin;
+#[cfg(feature = "sql")]
 pub mod pairing;
-pub mod read_handlers;
 pub mod redact;
+#[cfg(feature = "sql")]
 pub mod registry;
-pub mod send_request;
 
-pub use outcome::{AgentError, Profile, Request};
+pub use gate::{Denied, Level, Method};
+pub use origin::Origin;
+/// The approvals core's refusal: one type, with a stable `code`, for every gateway refusal.
+pub use rightkit_approvals::{Refusal, Result};
+
+/// Milliseconds since the Unix epoch, 0 if the clock reads before it.
+pub fn now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
+}

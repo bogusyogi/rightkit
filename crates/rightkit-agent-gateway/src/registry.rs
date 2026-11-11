@@ -1,27 +1,30 @@
-//! Agent registry: pairing keys (stored only as SHA-256 hashes), profiles and
-//! allowed accounts. All functions take a connection, so the caller picks the
-//! gated writer or reader. Nothing here returns a key hash.
+//! Agent registry: several named agents, each with a pairing key stored only as a SHA-256 hash,
+//! a permission level and a scope list. All functions take a connection, so the caller picks
+//! the gated writer or reader. Nothing here returns a key hash.
+//!
+//! The host owns the schema: `agents(id, name, key_hash, profile, created_at, revoked_at)` and
+//! `agent_accounts(agent_id, account_id)` (one row per allowed scope).
 
-use super::outcome::Profile;
+use crate::gate::Level;
 use rightkit_db::rusqlite::{params, Connection, OptionalExtension};
 use rightkit_fs::digest::sha256_bytes;
-use rightkit_search::values::now_ms;
 
 /// An agent as the gate sees it. No key, no hash.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Agent {
+pub struct Agent<P> {
     pub id: String,
     pub name: String,
-    pub profile: Profile,
+    pub profile: P,
     pub created_at: i64,
     pub revoked_at: Option<i64>,
-    pub accounts: Vec<String>,
+    /// What it may act in (accounts, folders), sorted.
+    pub scopes: Vec<String>,
 }
 
 /// Result of presenting a key.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Verified {
-    Agent(Agent),
+pub enum Verified<P> {
+    Agent(Agent<P>),
     /// Key matched an agent that has been revoked.
     Revoked {
         id: String,
@@ -40,27 +43,51 @@ fn random_bytes<const N: usize>() -> Result<[u8; N], String> {
     Ok(b)
 }
 
-/// Create an agent with profile `read_only` and no accounts. Returns the new
-/// id and the pairing key. The key is shown once and never stored.
-pub fn create_agent(conn: &Connection, name: &str) -> Result<(String, String), String> {
+/// Control characters and the invisible or direction-changing ones (zero-width, bidi
+/// overrides, soft hyphen, line and paragraph separators) a name or header must not carry.
+pub fn invisible_or_control(c: char) -> bool {
+    c.is_control()
+        || matches!(
+            c,
+            '\u{200B}'..='\u{200F}'
+                | '\u{202A}'..='\u{202E}'
+                | '\u{2060}'..='\u{2064}'
+                | '\u{2066}'..='\u{2069}'
+                | '\u{FEFF}'
+                | '\u{00AD}'
+                | '\u{061C}'
+                | '\u{2028}'
+                | '\u{2029}'
+        )
+}
+
+/// Create an agent at level [`Level::LOWEST`] with no scopes. Returns the new id and the
+/// pairing key. The key is shown once and never stored.
+pub fn create_agent<P: Level>(conn: &Connection, name: &str) -> Result<(String, String), String> {
     let name = name.trim();
     if name.is_empty() || name.chars().count() > 80 {
         return Err("agent name must be 1 to 80 characters".into());
     }
-    if name.chars().any(super::draft::invisible_or_control) {
+    if name.chars().any(invisible_or_control) {
         return Err("agent name must not contain control or invisible characters".into());
     }
     let key = rightkit_crypto::base64url_encode(&random_bytes::<32>()?);
     let id = rightkit_crypto::base64url_encode(&random_bytes::<12>()?);
     conn.execute(
-        "INSERT INTO agents(id, name, key_hash, profile, created_at) VALUES(?1, ?2, ?3, 'read_only', ?4)",
-        params![id, name, hash_key(&key), now_ms()],
+        "INSERT INTO agents(id, name, key_hash, profile, created_at) VALUES(?1, ?2, ?3, ?4, ?5)",
+        params![
+            id,
+            name,
+            hash_key(&key),
+            P::LOWEST.as_str(),
+            crate::now_ms()
+        ],
     )
     .map_err(|e| format!("create agent: {e}"))?;
     Ok((id, key))
 }
 
-fn accounts_of(conn: &Connection, agent_id: &str) -> Result<Vec<String>, String> {
+fn scopes_of(conn: &Connection, agent_id: &str) -> Result<Vec<String>, String> {
     let mut st = conn
         .prepare("SELECT account_id FROM agent_accounts WHERE agent_id = ?1 ORDER BY account_id")
         .map_err(|e| format!("agent accounts: {e}"))?;
@@ -96,37 +123,37 @@ fn read_rows(conn: &Connection, filter_id: Option<&str>) -> Result<Vec<Row>, Str
         .collect()
 }
 
-fn to_agent(conn: &Connection, row: Row) -> Result<Agent, String> {
+fn to_agent<P: Level>(conn: &Connection, row: Row) -> Result<Agent<P>, String> {
     let (id, name, _hash, profile, created_at, revoked_at) = row;
-    let profile = Profile::parse(&profile).ok_or("unknown profile in registry")?;
-    let accounts = accounts_of(conn, &id)?;
+    let profile = P::parse(&profile).ok_or("unknown profile in registry")?;
+    let scopes = scopes_of(conn, &id)?;
     Ok(Agent {
         id,
         name,
         profile,
         created_at,
         revoked_at,
-        accounts,
+        scopes,
     })
 }
 
 /// All agents, oldest first. Never includes a key or hash.
-pub fn list_agents(conn: &Connection) -> Result<Vec<Agent>, String> {
+pub fn list_agents<P: Level>(conn: &Connection) -> Result<Vec<Agent<P>>, String> {
     read_rows(conn, None)?
         .into_iter()
         .map(|r| to_agent(conn, r))
         .collect()
 }
 
-pub fn get_agent(conn: &Connection, id: &str) -> Result<Option<Agent>, String> {
+pub fn get_agent<P: Level>(conn: &Connection, id: &str) -> Result<Option<Agent<P>>, String> {
     match read_rows(conn, Some(id))?.into_iter().next() {
         Some(r) => Ok(Some(to_agent(conn, r)?)),
         None => Ok(None),
     }
 }
 
-/// Only the Settings section calls this; no request path does.
-pub fn set_profile(conn: &Connection, id: &str, profile: Profile) -> Result<(), String> {
+/// Only the app's own settings call this; no request path does.
+pub fn set_profile<P: Level>(conn: &Connection, id: &str, profile: P) -> Result<(), String> {
     let n = conn
         .execute(
             "UPDATE agents SET profile = ?2 WHERE id = ?1",
@@ -139,8 +166,8 @@ pub fn set_profile(conn: &Connection, id: &str, profile: Profile) -> Result<(), 
     Ok(())
 }
 
-/// Replace the agent's allowed accounts. Every account must exist.
-pub fn set_accounts(conn: &Connection, id: &str, accounts: &[String]) -> Result<(), String> {
+/// Replace the agent's allowed scopes.
+pub fn set_scopes(conn: &Connection, id: &str, scopes: &[String]) -> Result<(), String> {
     let tx = conn
         .unchecked_transaction()
         .map_err(|e| format!("set accounts: {e}"))?;
@@ -153,7 +180,7 @@ pub fn set_accounts(conn: &Connection, id: &str, accounts: &[String]) -> Result<
     }
     tx.execute("DELETE FROM agent_accounts WHERE agent_id = ?1", [id])
         .map_err(|e| format!("set accounts: {e}"))?;
-    for a in accounts {
+    for a in scopes {
         tx.execute(
             "INSERT OR IGNORE INTO agent_accounts(agent_id, account_id) VALUES(?1, ?2)",
             params![id, a],
@@ -168,7 +195,7 @@ pub fn revoke(conn: &Connection, id: &str) -> Result<(), String> {
     let n = conn
         .execute(
             "UPDATE agents SET revoked_at = COALESCE(revoked_at, ?2) WHERE id = ?1",
-            params![id, now_ms()],
+            params![id, crate::now_ms()],
         )
         .map_err(|e| format!("revoke: {e}"))?;
     if n == 0 {
@@ -179,7 +206,7 @@ pub fn revoke(conn: &Connection, id: &str) -> Result<(), String> {
 
 /// Check a presented key against every stored hash in constant time per hash.
 /// The loop never exits early on a match, so timing does not reveal which row.
-pub fn verify_key(conn: &Connection, key: &str) -> Result<Verified, String> {
+pub fn verify_key<P: Level>(conn: &Connection, key: &str) -> Result<Verified<P>, String> {
     let presented = hash_key(key);
     let mut hit: Option<Row> = None;
     for row in read_rows(conn, None)? {

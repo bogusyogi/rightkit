@@ -72,7 +72,6 @@ mod doctor;
 mod dogfood_inventory;
 mod driver_host_runtime;
 mod evo_db;
-mod github_app;
 mod github_signin;
 mod goal_terminal;
 mod harness_radar_feed;

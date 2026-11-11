@@ -4,6 +4,8 @@ Remote tools for agents on this computer: files, documents, terminals, processes
 
 The local approvals (`approvals`) are the `rightkit-approvals` core: the engine keeps its record in the core `MemoryStore` and files, decides and uses requests through the core rules; this crate adds the doors, the hello-label filer, the unlock family and the owner's proofs.
 
+The gate around the tools is the `rightkit-agent-gateway` core's (without its `sql` feature): the door (`Origin`), the read-only door check, one activity row per call (best effort), the unverified-sender stamp and the secret redaction (`redact`).
+
 Moved into RightKit from Pulse (pulse-core remote/*) on 2026-11-01.
 
 ## What the host app supplies

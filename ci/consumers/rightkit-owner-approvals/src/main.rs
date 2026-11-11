@@ -1,6 +1,6 @@
 //! Registry consumer for rightkit-owner-approvals 0.1.0: builds against the published API only.
 use rightkit_owner_approvals::approval_sig::{self, Signed};
-use rightkit_owner_approvals::{audit, redact::redact};
+use rightkit_owner_approvals::{audit, Refusal};
 
 fn check(ok: bool, what: &str) {
     if !ok {
@@ -11,11 +11,9 @@ fn check(ok: bool, what: &str) {
 }
 
 fn main() {
-    let token = format!("gh{}{}", "p_", "b".repeat(36));
-    let (clean, count) = redact(&format!("x {token} y"));
     check(
-        count == 1 && clean == "x [redacted] y",
-        "a token assembled at run time is masked",
+        Refusal::new("approval_unknown", "no such approval").code == "approval_unknown",
+        "refusals carry a stable code (the approvals core's type)",
     );
     let message = approval_sig::message("approve", "r", "a", "c", "d", "k", "n", 1, 2);
     check(

@@ -4,6 +4,8 @@ Agent server host: daemon API routes, CLI and interactive-session runtime and se
 
 Call `run()` from a thin binary. Moved into RightKit from the CodeRight engine binary on 2026-11-01.
 
+It holds no private copy of a shared crate: the GitHub App and sign-in are `rightkit-github`'s, the schedule model and bot profiles `rightkit-scheduler`'s, the Telegram transport `rightkit-bot-messaging`'s, the host observation shapes `rightkit-context-protocol`'s. CodeRight product surface (routes, strings, benchmarks, harness-radar data) is still here; see docs/audits/2026-11-11-shape-matrix/reports/agent-platform-redraw.md for what remains to split.
+
 ## Licensing (Pro entitlement)
 
 The daemon decides Pro itself and never reads the owner's credential store. The owner app (the CodeRight shell, the only binary that reads the OS store) builds a snapshot with `rightkit_license::LicenseClient::engine_snapshot` and delivers it; the daemon holds it in an `EngineSnapshotCell` and verifies it again with `EngineEntitlements::from_snapshot` (suite key, app `coderight`, the device binding the snapshot names, expiry, and the owner's anti-rollback ledger, read-only).
