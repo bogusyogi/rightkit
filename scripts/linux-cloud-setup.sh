@@ -5,13 +5,26 @@
 #   node packages/release/bin/rightkit-gate.mjs --commit <sha> --to compile --units-file <file> --receipt-dir <new dir>
 #
 # Every step below is one that a real run on WSL2 (Ubuntu 24.04, 2026-11-10, commit 09aaf01e1) needed before the gate went green.
-# Needs: bash, curl, tar, xz, git, a C toolchain (build-essential), and this checkout. Downloads are pinned by sha256 and refused otherwise.
+# Needs: bash, curl, tar, xz, git, apt-get, a C toolchain (build-essential), and this checkout. Downloads are pinned by sha256 and refused otherwise.
 set -euo pipefail
 
 NODE_VERSION="v26.12.1"
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 DATA="${XDG_STATE_HOME:-$HOME/.local/state}/rightkit"
 RELEASE="$REPO/packages/release"
+
+# 0. System libraries the Tauri crates link against (rightkit-tauri-shell, rightkit-qa, the WebView consumer): without them
+# gdk-sys, pango-sys, atk-sys and gdk-pixbuf-sys fail their build scripts. The list is the one CI installs
+# (.github/workflows/publish-owner.yml, qualify-direct.yml).
+SYSTEM_PACKAGES="pkg-config libglib2.0-dev libgtk-3-dev libwebkit2gtk-4.1-dev libjavascriptcoregtk-4.1-dev libsoup-3.0-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev"
+MISSING_PACKAGES=""
+for p in $SYSTEM_PACKAGES; do dpkg -s "$p" >/dev/null 2>&1 || MISSING_PACKAGES="$MISSING_PACKAGES $p"; done
+if [ -n "$MISSING_PACKAGES" ]; then
+  SUDO=""; [ "$(id -u)" = "0" ] || SUDO="sudo"
+  $SUDO apt-get update -qq
+  # shellcheck disable=SC2086
+  DEBIAN_FRONTEND=noninteractive $SUDO apt-get install -y -qq --no-install-recommends $MISSING_PACKAGES
+fi
 
 # 1. Node, through nvm, when the pinned version is not installed.
 export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
@@ -45,7 +58,9 @@ node "$RELEASE/bin/rightkit-linux-setup.mjs" --root "$REPO"
 rustup target add aarch64-apple-darwin x86_64-pc-windows-msvc x86_64-pc-windows-gnu
 
 # 4. Scan tools the quick checks require, each pinned by archive and binary sha256, then enrolled for this host.
-enrol() { # tool version path
+enrol() { # tool version path; a tool already enrolled with this binary is left alone, so the script can be run again
+  local sha; sha="$(sha256sum "$3" | cut -c1-64)"
+  if node "$RELEASE/scan-tool-enrolment.mjs" show --platform linux --data-root "$DATA" 2>/dev/null | node -e 'const t=JSON.parse(require("fs").readFileSync(0,"utf8")).tools?.[process.argv[1]];process.exit(t&&t.sha256===process.argv[2]?0:1)' "$1" "$sha" 2>/dev/null; then return 0; fi
   node "$RELEASE/scan-tool-enrolment.mjs" enroll --platform linux --data-root "$DATA" --tool "$1" --path "$3" --sha256 "$(sha256sum "$3" | cut -c1-64)" --version "$2"
 }
 fetch_tool() { # tool version url archive-sha256 binary-sha256 binary-name
