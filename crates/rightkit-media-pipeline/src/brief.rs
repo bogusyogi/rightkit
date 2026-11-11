@@ -1252,7 +1252,7 @@ fn review_mode(brief: &ContentBrief) -> &'static str {
 /// does not require it and the result says so.
 fn review_gate(brief: &ContentBrief, produced: &[Produced]) -> Result<Value, Fail> {
     let files: Vec<PathBuf> = produced.iter().map(|p| p.src.clone()).collect();
-    rightkit_approvals::eyes::review_gate(review_mode(brief), &files, "brief delivery")
+    rightkit_media_gen_approvals::eyes::review_gate(review_mode(brief), &files, "brief delivery")
         .map_err(|error| Fail::new("refused", error))
 }
 

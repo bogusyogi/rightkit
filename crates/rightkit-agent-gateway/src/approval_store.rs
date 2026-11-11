@@ -1,10 +1,14 @@
-//! Database side of send approvals: the agent-created draft record, the
-//! approval rows and every status move. A move is one UPDATE guarded by the
-//! status it expects, so two deciders can never both win. Rows hold ids, times
-//! and reason codes only. The only audit rows written here come from `sweep`, through the gate
-//! module's `record_decision`; every other move is audited by its caller.
+//! Database side of send approvals: the agent-created draft record, and the
+//! approval rows as a `rightkit-approvals` [`Store`] ([`SqlStore`]). The record
+//! and the rules (one decision, one claim, the pending cap) are the core's; this
+//! file keeps the table, the mail limits (send and delete windows, decline
+//! cooldown) and the run binding. A move is one UPDATE guarded by the status it
+//! expects, so two deciders can never both win. Rows hold ids, times and reason
+//! codes only. The only audit rows written here come from `sweep`, through the
+//! gate module's `record_decision`; every other move is audited by its caller.
 
 use super::gate::{record_decision, Decision};
+use rightkit_approvals::{Binding, Change, Origin, Record, Refusal, Request, State, Store};
 use rightkit_db::rusqlite::{params, Connection, OptionalExtension};
 
 /// An approval waits this long, then it is denied with reason `timeout`.
@@ -25,46 +29,320 @@ pub const DELETE_DAILY_LIMIT: i64 = 100;
 /// target again for this long. A timeout does not count.
 pub const DECLINE_COOLDOWN_MS: i64 = 10 * 60 * 1000;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Approval {
-    pub id: String,
-    pub agent_id: String,
-    pub account_id: String,
-    pub draft_id: String,
-    pub created_at: i64,
-    pub expires_at: i64,
-    pub boot_id: String,
-    /// pending | approved | sent | denied | failed
-    pub status: String,
-    pub reason: Option<String>,
-    pub decided_at: Option<i64>,
-    pub result_id: Option<String>,
-    /// send | forward | delete (see `approval_kind`). For a delete, `draft_id`
-    /// holds the thread id.
-    pub kind: String,
+/// An approval is the core's record (`rightkit_approvals::Record`): `kind` is send, forward,
+/// delete or attach (see `approval_kind`), `scope` the account, `origin.client` the agent,
+/// `binding.destination` the draft (for a delete the thread; for an attach the target key), and
+/// `detail.target_key` the key of the decline cooldown. [`MailApproval`] reads it in this
+/// crate's words.
+pub type Approval = Record;
+
+/// The mail words for the core record's fields.
+pub trait MailApproval {
+    fn id(&self) -> &str;
+    fn agent_id(&self) -> &str;
+    fn account_id(&self) -> &str;
+    /// The draft id; for a delete the thread id.
+    fn draft_id(&self) -> &str;
+    fn kind(&self) -> &str;
+    fn created_at(&self) -> i64;
+    fn expires_at(&self) -> i64;
+    /// pending | approved | sent | denied | failed, as the table and the agent see it.
+    fn status(&self) -> &'static str;
 }
 
-const COLS: &str = "id, agent_id, account_id, draft_id, created_at, expires_at, boot_id, status, reason, decided_at, result_id, kind";
+impl MailApproval for Record {
+    fn id(&self) -> &str {
+        &self.request.id
+    }
+    fn agent_id(&self) -> &str {
+        &self.request.origin.client
+    }
+    fn account_id(&self) -> &str {
+        &self.request.scope
+    }
+    fn draft_id(&self) -> &str {
+        &self.request.binding.destination
+    }
+    fn kind(&self) -> &str {
+        &self.request.kind
+    }
+    fn created_at(&self) -> i64 {
+        ms_i64(self.request.created_ms)
+    }
+    fn expires_at(&self) -> i64 {
+        ms_i64(self.request.expires_ms)
+    }
+    fn status(&self) -> &'static str {
+        status_word(self.state)
+    }
+}
+
+fn ms_u64(v: i64) -> u64 {
+    v.max(0) as u64
+}
+
+fn ms_i64(v: u64) -> i64 {
+    i64::try_from(v).unwrap_or(i64::MAX)
+}
+
+/// The table's status word for a core state. A timeout is stored as `denied` with reason
+/// `timeout`, as before.
+fn status_word(state: State) -> &'static str {
+    match state {
+        State::Pending => "pending",
+        State::Approved => "approved",
+        State::Done => "sent",
+        State::Denied | State::Expired => "denied",
+        State::Failed => "failed",
+    }
+}
+
+fn state_of(status: &str, reason: Option<&str>) -> State {
+    match status {
+        "pending" => State::Pending,
+        "approved" => State::Approved,
+        "sent" => State::Done,
+        "denied" if reason == Some("timeout") => State::Expired,
+        "denied" => State::Denied,
+        _ => State::Failed,
+    }
+}
+
+const COLS: &str = "id, agent_id, account_id, draft_id, created_at, expires_at, boot_id, status, reason, decided_at, result_id, kind, target_key";
 
 fn row(r: &rightkit_db::rusqlite::Row<'_>) -> rightkit_db::rusqlite::Result<Approval> {
-    Ok(Approval {
-        id: r.get(0)?,
-        agent_id: r.get(1)?,
-        account_id: r.get(2)?,
-        draft_id: r.get(3)?,
-        created_at: r.get(4)?,
-        expires_at: r.get(5)?,
-        boot_id: r.get(6)?,
-        status: r.get(7)?,
-        reason: r.get(8)?,
-        decided_at: r.get(9)?,
-        result_id: r.get(10)?,
-        kind: r.get(11)?,
+    let status: String = r.get(7)?;
+    let reason: Option<String> = r.get(8)?;
+    let target_key: Option<String> = r.get(12)?;
+    Ok(Record {
+        request: Request {
+            id: r.get(0)?,
+            kind: r.get(11)?,
+            scope: r.get(2)?,
+            origin: Origin {
+                door: String::new(),
+                filer: String::new(),
+                client: r.get(1)?,
+            },
+            binding: Binding::new("", r.get::<_, String>(3)?),
+            summary: String::new(),
+            detail: match target_key {
+                Some(key) => serde_json::json!({ "target_key": key }),
+                None => serde_json::Value::Null,
+            },
+            created_ms: ms_u64(r.get(4)?),
+            expires_ms: ms_u64(r.get(5)?),
+        },
+        state: state_of(&status, reason.as_deref()),
+        decided_ms: ms_u64(r.get::<_, Option<i64>>(9)?.unwrap_or(0)),
+        last_used_ms: 0,
+        grant: None,
+        reason,
+        result: r.get(10)?,
     })
 }
 
 fn db(what: &str, e: rightkit_db::rusqlite::Error) -> String {
     format!("approval {what}: {e}")
+}
+
+fn refusal(e: String) -> Refusal {
+    Refusal::new("db", e)
+}
+
+/// The `agent_approvals` table as a `rightkit-approvals` store, for one run of the app
+/// (`boot`): a pending row of another run is never live, and a claim (pending to approved) also
+/// requires the row to be unexpired and from this run, in the same guarded UPDATE.
+pub struct SqlStore<'c> {
+    conn: &'c Connection,
+    boot: String,
+}
+
+impl<'c> SqlStore<'c> {
+    pub fn new(conn: &'c Connection, boot: &str) -> SqlStore<'c> {
+        SqlStore {
+            conn,
+            boot: boot.to_string(),
+        }
+    }
+
+    fn list(
+        &self,
+        sql: &str,
+        p: &[&dyn rightkit_db::rusqlite::ToSql],
+    ) -> Result<Vec<Approval>, String> {
+        let mut st = self.conn.prepare(sql).map_err(|e| db("list", e))?;
+        let rows = st.query_map(p, row).map_err(|e| db("list", e))?;
+        rows.map(|r| r.map_err(|e| db("list", e))).collect()
+    }
+
+    /// Close what can no longer be decided: pending rows past their expiry or left by an earlier
+    /// run become denied/timeout; in-flight sends that never finished become
+    /// failed/unknown_outcome. Each move is audited once by the gate.
+    pub fn sweep(&self, now: i64) -> Result<(), String> {
+        let pending = self.list(
+            &format!(
+                "SELECT {COLS} FROM agent_approvals
+                 WHERE status = 'pending' AND (expires_at <= ?1 OR boot_id <> ?2)"
+            ),
+            &[&now, &self.boot],
+        )?;
+        for a in pending {
+            let change = Change::to(State::Expired, ms_u64(now)).reason("timeout");
+            if self.move_row(a.id(), State::Pending, &change)? {
+                record_decision(self.conn, &a, Decision::Denied, "reason=timeout")?;
+            }
+        }
+        let stuck = self.list(
+            &format!(
+                "SELECT {COLS} FROM agent_approvals
+                 WHERE status = 'approved' AND (decided_at <= ?1 OR boot_id <> ?2)"
+            ),
+            &[&(now - STUCK_MS), &self.boot],
+        )?;
+        for a in stuck {
+            let change = Change::to(State::Failed, ms_u64(now)).reason("unknown_outcome");
+            if self.move_row(a.id(), State::Approved, &change)? {
+                record_decision(
+                    self.conn,
+                    &a,
+                    Decision::SendFailed,
+                    "reason=unknown_outcome",
+                )?;
+            }
+        }
+        Ok(())
+    }
+
+    /// One guarded UPDATE: `id` moves only while it is in `from` (a claim also only while
+    /// unexpired and from this run). True only for the caller that made the move.
+    pub fn move_row(&self, id: &str, from: State, change: &Change) -> Result<bool, String> {
+        let at = ms_i64(change.at_ms);
+        let n = if from == State::Pending && change.to == State::Approved {
+            self.conn
+                .execute(
+                    "UPDATE agent_approvals SET status = 'approved', decided_at = ?2
+                     WHERE id = ?1 AND status = 'pending' AND expires_at > ?2 AND boot_id = ?3",
+                    params![id, at, self.boot],
+                )
+                .map_err(|e| db("claim", e))?
+        } else {
+            let reason = match (change.to, change.reason.as_deref()) {
+                (State::Expired, None) => Some("timeout"),
+                (_, reason) => reason,
+            };
+            self.conn
+                .execute(
+                    "UPDATE agent_approvals SET status = ?3, reason = ?4, decided_at = ?5, result_id = ?6
+                     WHERE id = ?1 AND status = ?2",
+                    params![
+                        id,
+                        status_word(from),
+                        status_word(change.to),
+                        reason,
+                        at,
+                        change.result
+                    ],
+                )
+                .map_err(|e| db("update", e))?
+        };
+        Ok(n == 1)
+    }
+}
+
+impl Store for SqlStore<'_> {
+    fn insert(&self, a: &Record) -> rightkit_approvals::Result<()> {
+        let target_key = a.request.detail["target_key"]
+            .as_str()
+            .unwrap_or(a.draft_id())
+            .to_string();
+        self.conn
+            .execute(
+                "INSERT INTO agent_approvals(id, agent_id, account_id, draft_id, created_at, expires_at, boot_id, status, kind, target_key)
+                 VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, 'pending', ?8, ?9)",
+                params![
+                    a.id(),
+                    a.agent_id(),
+                    a.account_id(),
+                    a.draft_id(),
+                    a.created_at(),
+                    a.expires_at(),
+                    self.boot,
+                    a.kind(),
+                    target_key
+                ],
+            )
+            .map(|_| ())
+            .map_err(|e| refusal(db("insert", e)))
+    }
+
+    fn get(&self, id: &str) -> rightkit_approvals::Result<Option<Record>> {
+        self.conn
+            .query_row(
+                &format!("SELECT {COLS} FROM agent_approvals WHERE id = ?1"),
+                [id],
+                row,
+            )
+            .optional()
+            .map_err(|e| refusal(db("read", e)))
+    }
+
+    /// Pending approvals of this run that have not expired, oldest first.
+    fn pending(&self, now_ms: u64) -> rightkit_approvals::Result<Vec<Record>> {
+        self.list(
+            &format!(
+                "SELECT {COLS} FROM agent_approvals
+                 WHERE status = 'pending' AND boot_id = ?1 AND expires_at > ?2
+                 ORDER BY created_at, rowid"
+            ),
+            &[&self.boot, &ms_i64(now_ms)],
+        )
+        .map_err(refusal)
+    }
+
+    fn approved(&self, now_ms: u64) -> rightkit_approvals::Result<Vec<Record>> {
+        self.list(
+            &format!(
+                "SELECT {COLS} FROM agent_approvals
+                 WHERE status = 'approved' AND boot_id = ?1 AND decided_at > ?2
+                 ORDER BY created_at, rowid"
+            ),
+            &[&self.boot, &(ms_i64(now_ms) - STUCK_MS)],
+        )
+        .map_err(refusal)
+    }
+
+    fn transition(
+        &self,
+        id: &str,
+        from: State,
+        change: &Change,
+    ) -> rightkit_approvals::Result<bool> {
+        self.move_row(id, from, change).map_err(refusal)
+    }
+
+    /// All pending rows of an agent (or all), whatever their run: the cap counts what the sweep
+    /// left.
+    fn count_pending(
+        &self,
+        client: Option<&str>,
+        _now_ms: u64,
+    ) -> rightkit_approvals::Result<usize> {
+        let n: i64 = match client {
+            Some(agent) => self.conn.query_row(
+                "SELECT COUNT(*) FROM agent_approvals WHERE agent_id = ?1 AND status = 'pending'",
+                [agent],
+                |r| r.get(0),
+            ),
+            None => self.conn.query_row(
+                "SELECT COUNT(*) FROM agent_approvals WHERE status = 'pending'",
+                [],
+                |r| r.get(0),
+            ),
+        }
+        .map_err(|e| refusal(db("count", e)))?;
+        Ok(usize::try_from(n).unwrap_or(0))
+    }
 }
 
 /// Remember a draft the agent created, with the hash of what was validated.
@@ -161,36 +439,6 @@ pub fn any_draft_hash(
     .map_err(|e| db("draft lookup", e))
 }
 
-pub fn get(conn: &Connection, id: &str) -> Result<Option<Approval>, String> {
-    conn.query_row(
-        &format!("SELECT {COLS} FROM agent_approvals WHERE id = ?1"),
-        [id],
-        row,
-    )
-    .optional()
-    .map_err(|e| db("read", e))
-}
-
-pub fn insert_pending(conn: &Connection, a: &Approval, target_key: &str) -> Result<(), String> {
-    conn.execute(
-        "INSERT INTO agent_approvals(id, agent_id, account_id, draft_id, created_at, expires_at, boot_id, status, kind, target_key)
-         VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, 'pending', ?8, ?9)",
-        params![
-            a.id,
-            a.agent_id,
-            a.account_id,
-            a.draft_id,
-            a.created_at,
-            a.expires_at,
-            a.boot_id,
-            a.kind,
-            target_key
-        ],
-    )
-    .map(|_| ())
-    .map_err(|e| db("insert", e))
-}
-
 /// True when the user denied (reason `user`, not a timeout) a request of this
 /// kind by this agent for this target after `since` (exclusive).
 pub fn declined_since(
@@ -264,15 +512,6 @@ pub fn attach_path(conn: &Connection, approval_id: &str) -> Result<Option<String
     .map_err(|e| db("attach path", e))
 }
 
-pub fn count_pending(conn: &Connection, agent_id: &str) -> Result<i64, String> {
-    conn.query_row(
-        "SELECT COUNT(*) FROM agent_approvals WHERE agent_id = ?1 AND status = 'pending'",
-        [agent_id],
-        |r| r.get(0),
-    )
-    .map_err(|e| db("count", e))
-}
-
 /// Requests created since `since` (exclusive) by one agent (`by_agent`) or
 /// into one account, whatever became of them: each one interrupted the user.
 /// `deletes` counts the delete kind; otherwise sends and forwards together.
@@ -293,96 +532,4 @@ pub fn count_sends(
         |r| r.get(0),
     )
     .map_err(|e| db("count", e))
-}
-
-/// Pending approvals of this run that have not expired, oldest first.
-pub fn list_pending(conn: &Connection, now: i64, boot: &str) -> Result<Vec<Approval>, String> {
-    let mut st = conn
-        .prepare(&format!(
-            "SELECT {COLS} FROM agent_approvals
-             WHERE status = 'pending' AND boot_id = ?1 AND expires_at > ?2
-             ORDER BY created_at, rowid"
-        ))
-        .map_err(|e| db("list", e))?;
-    let rows = st
-        .query_map(params![boot, now], row)
-        .map_err(|e| db("list", e))?;
-    rows.map(|r| r.map_err(|e| db("list", e))).collect()
-}
-
-fn due(
-    conn: &Connection,
-    sql: &str,
-    p: &[&dyn rightkit_db::rusqlite::ToSql],
-) -> Result<Vec<Approval>, String> {
-    let mut st = conn.prepare(sql).map_err(|e| db("sweep", e))?;
-    let rows = st.query_map(p, row).map_err(|e| db("sweep", e))?;
-    rows.map(|r| r.map_err(|e| db("sweep", e))).collect()
-}
-
-/// Close what can no longer be decided: pending rows past their expiry or left
-/// by an earlier run become denied/timeout; in-flight sends that never finished
-/// become failed/unknown_outcome. Each move is audited once by the gate.
-pub fn sweep(conn: &Connection, now: i64, boot: &str) -> Result<(), String> {
-    let pending = due(
-        conn,
-        &format!(
-            "SELECT {COLS} FROM agent_approvals
-             WHERE status = 'pending' AND (expires_at <= ?1 OR boot_id <> ?2)"
-        ),
-        &[&now, &boot],
-    )?;
-    for a in pending {
-        if finish(conn, &a.id, "pending", "denied", Some("timeout"), now, None)? {
-            record_decision(conn, &a, Decision::Denied, "reason=timeout")?;
-        }
-    }
-    let stuck = due(
-        conn,
-        &format!(
-            "SELECT {COLS} FROM agent_approvals
-             WHERE status = 'approved' AND (decided_at <= ?1 OR boot_id <> ?2)"
-        ),
-        &[&(now - STUCK_MS), &boot],
-    )?;
-    for a in stuck {
-        let reason = Some("unknown_outcome");
-        if finish(conn, &a.id, "approved", "failed", reason, now, None)? {
-            record_decision(conn, &a, Decision::SendFailed, "reason=unknown_outcome")?;
-        }
-    }
-    Ok(())
-}
-
-/// Move `id` from `from` to `to`. True only for the caller that made the move.
-pub fn finish(
-    conn: &Connection,
-    id: &str,
-    from: &str,
-    to: &str,
-    reason: Option<&str>,
-    now: i64,
-    result_id: Option<&str>,
-) -> Result<bool, String> {
-    let n = conn
-        .execute(
-            "UPDATE agent_approvals SET status = ?3, reason = ?4, decided_at = ?5, result_id = ?6
-             WHERE id = ?1 AND status = ?2",
-            params![id, from, to, reason, now, result_id],
-        )
-        .map_err(|e| db("update", e))?;
-    Ok(n == 1)
-}
-
-/// pending -> approved, only while unexpired and from this run. The one place
-/// an approval is claimed for sending.
-pub fn claim_approve(conn: &Connection, id: &str, now: i64, boot: &str) -> Result<bool, String> {
-    let n = conn
-        .execute(
-            "UPDATE agent_approvals SET status = 'approved', decided_at = ?2
-             WHERE id = ?1 AND status = 'pending' AND expires_at > ?2 AND boot_id = ?3",
-            params![id, now, boot],
-        )
-        .map_err(|e| db("claim", e))?;
-    Ok(n == 1)
 }

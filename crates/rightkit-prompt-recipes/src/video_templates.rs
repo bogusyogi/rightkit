@@ -2199,7 +2199,7 @@ pub fn preflight(ctx: &Context, input: &Value) -> GenResult<Value> {
     // The single-use approval challenge travels with the response, not inside the stored draft.
     let (inputs, legacy) = approval_inputs_of(&draft);
     draft["approval_challenge"] =
-        rightkit_approvals::issue(ctx, "video_templates", &draft_id, &inputs, &legacy)?;
+        rightkit_media_gen_approvals::issue(ctx, "video_templates", &draft_id, &inputs, &legacy)?;
     Ok(draft)
 }
 
@@ -2229,7 +2229,7 @@ fn approval_inputs_of(draft: &Value) -> (Value, String) {
 /// no longer matches the fingerprint taken at preflight, and one whose approval inputs changed
 /// since the challenge was issued.
 pub fn approve(ctx: &Context, input: &Value) -> GenResult<Value> {
-    let gate = rightkit_approvals::gate(input)?;
+    let gate = rightkit_media_gen_approvals::gate(input)?;
     let id = require_string(input, "draft_id")?;
     let mut draft = read_draft(ctx, &id)?;
     let current = engine_fingerprint(&draft["engine_request"]);
@@ -2246,11 +2246,18 @@ pub fn approve(ctx: &Context, input: &Value) -> GenResult<Value> {
         ));
     }
     let (inputs, legacy) = approval_inputs_of(&draft);
-    let record = rightkit_approvals::consume(ctx, &gate, "video_templates", &id, &inputs, &legacy)?;
+    let record = rightkit_media_gen_approvals::consume(
+        ctx,
+        &gate,
+        "video_templates",
+        &id,
+        &inputs,
+        &legacy,
+    )?;
     let already = draft["approval"]["approved"].as_bool() == Some(true);
     if !already {
         draft["status"] = json!("approved");
-        let mut approval = rightkit_approvals::approval_fields(&record);
+        let mut approval = rightkit_media_gen_approvals::approval_fields(&record);
         approval.insert("required".into(), json!(true));
         approval.insert("approved".into(), json!(true));
         draft["approval"] = Value::Object(approval);

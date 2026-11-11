@@ -442,7 +442,7 @@ fn is_asset_id(name: &str) -> bool {
 /// Eyes approvals are bound to the bytes they were given for, and to the engine's approval record.
 /// An `approved` sidecar reads `approved` only when its recorded `hash` matches the file's current
 /// bytes AND its `approval` record has the shape the engine's eyes gate writes and is bound to those
-/// bytes (`approval_record_bound`); the gate in `rightkit-approvals` (`eyes::gate_state`) applies the same
+/// bytes (`approval_record_bound`); the gate in `rightkit-media-gen-approvals` (`eyes::gate_state`) applies the same
 /// rule. A recorded hash that no longer matches reads `stale`; an APPROVE without a bound record reads
 /// `pending`, so a bare sidecar cannot pass the Gallery's eyes filter. Both block like a pending review.
 ///
@@ -471,10 +471,10 @@ fn mark_stale_approval(artifact: &mut Value) {
     }
 }
 
-/// True when the sidecar's `approval` record has the shape `rightkit-approvals` writes
+/// True when the sidecar's `approval` record has the shape `rightkit-media-gen-approvals` writes
 /// (non-empty `channel`, `nonce`, `approved_at`, a 64-hex `input_hash`, and a `legacy_hash` equal to
 /// the file's current hash). Shape only: it cannot prove who wrote the record. Must stay identical to
-/// `rightkit_approvals::eyes` approval-record check.
+/// `rightkit_media_gen_approvals::eyes` approval-record check.
 fn approval_record_bound(raw: &Value, current: Option<&str>) -> bool {
     let Some(record) = raw.get("approval").and_then(Value::as_object) else {
         return false;
@@ -496,7 +496,7 @@ fn approval_record_bound(raw: &Value, current: Option<&str>) -> bool {
 }
 
 /// `sha256:` plus the first 16 hex digits of the file's bytes, the form the eyes gate records.
-/// Must stay identical to `rightkit_approvals::eyes::file_hash`. `None` when the file cannot be read.
+/// Must stay identical to `rightkit_media_gen_approvals::eyes::file_hash`. `None` when the file cannot be read.
 fn file_hash(path: &Path) -> Option<String> {
     let hex = rightkit_fs::digest::sha256_file(path).ok()?;
     Some(format!("sha256:{}", &hex[..16]))

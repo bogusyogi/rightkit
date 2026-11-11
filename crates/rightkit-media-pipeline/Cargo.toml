@@ -21,7 +21,7 @@ motion = ["dep:rightkit-browser", "dep:rightkit-motion", "dep:tokio", "dep:serde
 [dependencies]
 rightkit-media-gen = { version = "0.1.0", path = "../rightkit-media-gen" }
 rightkit-local-gen = { version = "0.1.0", path = "../rightkit-local-gen" }
-rightkit-approvals = { version = "0.1.0", path = "../rightkit-approvals" }
+rightkit-media-gen-approvals = { version = "0.1.0", path = "../rightkit-media-gen-approvals" }
 rightkit-contracts = { version = "0.1.8", path = "../rightkit-contracts" }
 serde_json = { version = "1.0", features = ["preserve_order"] }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }

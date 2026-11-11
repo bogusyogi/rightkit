@@ -10,15 +10,11 @@ use serde::{Deserialize, Serialize};
 pub struct PayloadDigest(String);
 
 impl PayloadDigest {
-    /// Digest of the tool name and the exact final payload bytes. Fields are
-    /// length-prefixed so (tool, payload) pairs cannot collide by shifting bytes.
+    /// Digest of the tool name and the exact final payload bytes: the approvals core's binding
+    /// digest (`rightkit_approvals::bind_of`) over the two, each length-prefixed so (tool,
+    /// payload) pairs cannot collide by shifting bytes.
     pub fn of(tool: &str, payload: &[u8]) -> Self {
-        let mut buf = Vec::with_capacity(tool.len() + payload.len() + 16);
-        buf.extend_from_slice(&(tool.len() as u64).to_be_bytes());
-        buf.extend_from_slice(tool.as_bytes());
-        buf.extend_from_slice(&(payload.len() as u64).to_be_bytes());
-        buf.extend_from_slice(payload);
-        Self(sha256_hex(&buf))
+        Self(rightkit_approvals::bind_of(&[tool.as_bytes(), payload]))
     }
 
     pub fn as_str(&self) -> &str {
@@ -91,11 +87,4 @@ impl SessionGrants {
     pub fn matches_digest(&self, digest: &str) -> bool {
         self.granted.contains(digest)
     }
-}
-
-fn sha256_hex(data: &[u8]) -> String {
-    rightkit_crypto::sha256(data)
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect()
 }

@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-agent-engine"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 rust-version = "1.98.0"
 description = "Always-on agent contracts: task envelope and transitions, principals, intents, effects, device and approval binding, voice hand-off."
@@ -17,3 +17,5 @@ path = "src/lib.rs"
 serde_json = { version = "1.0" }
 serde = { version = "1.0", features = ["derive"] }
 thiserror = { version = "2.0" }
+# The core binding record (`ApprovalBinding::core_binding`); no store, no file IO.
+rightkit-approvals = { version = "0.2.0", default-features = false, path = "../rightkit-approvals" }

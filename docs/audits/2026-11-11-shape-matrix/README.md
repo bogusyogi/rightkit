@@ -73,8 +73,9 @@ Each follows the recommendation above. Decisions 3 to 8 were not answered while 
 | One on-disk model store: `Store` writes HeardRight's suite layout and migrates MailRight's and GenRight's entries in place; multi-revision rollback is dropped | `rightkit-models` 0.7.0 and eleven consumers | model store (`reports/family-foundation-runtime.md`) |
 | Agent runtime out of the daemon; remote access and app roots split out | `rightkit-daemon` 0.6.0 to 0.8.0, new `rightkit-agent-daemon`, `rightkit-daemon-remote`, `rightkit-roots` 0.1.0 | 6 and the daemon split |
 | One neutral Tauri client; per-app wrappers deprecated | `@rightkit/tauri` 0.4.0 | `@rightkit/tauri` row |
+| One approvals core (model, digest binding, decision and single-use rules, `Store` and `Proof` traits, memory and file stores); Pulse's and MailRight's queues run on it, GenRight's approvals move to their own crate on it (`reports/approvals-core-design.md`) | `rightkit-approvals` 0.2.0, new `rightkit-media-gen-approvals` 0.1.0, `rightkit-remote-gateway` 0.1.3, `rightkit-agent-gateway` 0.2.0, `rightkit-owner-approvals` 0.1.2, `rightkit-agent-engine` 0.1.1, `rightkit-agent-policy` 0.1.3 | 3 |
 
-Still to redraw: approvals (decision 3), the agent engine (decision 4), documents (decision 7 and the documents review).
+Still to redraw: the agent engine (decision 4, which also carries the last approval record, CodeRight's `PendingApprovalContext`, onto the core binding), documents (decision 7 and the documents review).
 
 ## Publication state (measured 2026-11-11)
 

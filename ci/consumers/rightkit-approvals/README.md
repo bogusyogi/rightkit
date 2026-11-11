@@ -1,13 +1,15 @@
-# rightkit-approvals 0.1.0 registry consumer
+# rightkit-approvals 0.2.0 registry consumer
 
-Standalone consumer, outside the workspace, pinning `rightkit-approvals =0.1.0` exactly with its default features. It installs the crate from the sealed archive through the offline directory registry and runs `src/main.rs`, which prints `ok:` lines and exits 1 on the first failed check.
+Standalone consumer, outside the workspace, pinning `rightkit-approvals =0.2.0` exactly with its default features (`file`). It installs the crate from the sealed archive through the offline directory registry and runs `src/main.rs`, which prints `ok:` lines and exits 1 on the first failed check.
 
 ## What it proves
 
-- `parent_is_app`: an unreadable parent and a shell beside the engine are refused.
-- `input_hash` is stable for equal inputs and differs for different ones.
-- `handle` refuses an unknown approval kind with `invalid_input`, and a registered kind resolves (the challenge then needs OS randomness and a data folder, both local).
+- `bind_of` length-prefixes its parts (two splits of the same bytes differ) and is 64 lowercase hex; `new_id` gives distinct 32-hex ids.
+- `Binding::check`: another destination is `Different`, other arguments or another revision `Changed`, a past expiry `Expired`.
+- The rules on a `MemoryStore`: a repeat of a waiting request gets the same id; the pending cap refuses with `Busy`; a decision with a display digest that is not the request's is `Shown` and leaves it pending; a decision with the right digest approves; `take` refuses another door, filer or destination (`Different`) and other arguments (`Changed`), uses once, and a second use is `Used`; a pending request without a proof is `Pending`; a session grant is found for its own client only.
+- A `Proof` that refuses blocks a decision; one that accepts lets `take` decide and use a pending request in one move.
+- `FileStore` under a temp folder: the request file sits at `<kind>/<destination>.<id>.json` with `nonce` and `input_hash` keys, a use creates `.used`, and a second use loses.
 
 ## What it deliberately does not prove
 
-Anything that needs external assets (model files, provider keys, network, ffmpeg or a desktop session). The crate's own tests cover those, asset-gated.
+App proofs (launch-secret tokens, approver signatures, PINs) and app stores (MailRight's SQL table): their crates' recipes cover them.

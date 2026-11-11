@@ -25,7 +25,7 @@ use super::access::ConnAccess;
 use super::approval::Clock;
 use super::approval::SystemClock;
 use super::approval_kind;
-use super::approval_store::{self, Approval};
+use super::approval_store::{self, Approval, MailApproval};
 use super::audit::{self, Entry};
 use super::draft::{self, DraftCreator, DraftRequest};
 use super::draft_files;
@@ -234,22 +234,22 @@ pub fn record_decision(
 ) -> Result<(), String> {
     let plain = |c: char| c.is_ascii_alphanumeric() || "_=. -".contains(c);
     let text = if detail.chars().all(plain) {
-        format!("approval={} {}", a.id, detail.trim())
+        format!("approval={} {}", a.id(), detail.trim())
     } else {
-        format!("approval={} detail=withheld", a.id)
+        format!("approval={} detail=withheld", a.id())
     };
-    let name = registry::get_agent(conn, &a.agent_id)
+    let name = registry::get_agent(conn, a.agent_id())
         .ok()
         .flatten()
         .map(|g| g.name);
     audit::record(
         conn,
         &Entry {
-            agent_id: Some(&a.agent_id),
+            agent_id: Some(a.agent_id()),
             agent_name: name.as_deref(),
-            account_id: Some(&a.account_id),
-            method: approval_kind::method(&a.kind),
-            outcome: d.as_str(&a.kind),
+            account_id: Some(a.account_id()),
+            method: approval_kind::method(a.kind()),
+            outcome: d.as_str(a.kind()),
             detail: Some(text.trim()),
             at: None,
         },

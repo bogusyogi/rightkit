@@ -15,7 +15,7 @@ path = "src/lib.rs"
 
 [dependencies]
 rightkit-media-gen = { version = "0.1.0", path = "../rightkit-media-gen" }
-rightkit-approvals = { version = "0.1.0", path = "../rightkit-approvals" }
+rightkit-media-gen-approvals = { version = "0.1.0", path = "../rightkit-media-gen-approvals" }
 rightkit-fs = { version = "0.4.9", default-features = false, features = ["fs", "lock", "digest", "app-dirs"], path = "../rightkit-fs" }
 rightkit-logs = { version = "0.4.0", default-features = false, path = "../rightkit-logs" }
 rightkit-time = { version = "0.1.1", path = "../rightkit-time" }

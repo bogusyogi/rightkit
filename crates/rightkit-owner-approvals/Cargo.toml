@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-owner-approvals"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
 rust-version = "1.98.0"
 description = "Signed owner approvals for privileged and reserved actions: owner-check and approver keys, key bindings, secret redaction and the security audit trail."
@@ -26,6 +26,7 @@ rightkit-credentials = { version = "0.5.0", path = "../rightkit-credentials" }
 rightkit-logs = { version = "0.4.0", default-features = false, path = "../rightkit-logs" }
 rightkit-app-host = { version = "0.1.0", path = "../rightkit-app-host" }
 rightkit-device-link-types = { version = "0.1.0", path = "../rightkit-device-link-types" }
+rightkit-approvals = { version = "0.2.0", default-features = false, path = "../rightkit-approvals" }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 libc = "0.2"

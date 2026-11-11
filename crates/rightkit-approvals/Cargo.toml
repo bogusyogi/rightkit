@@ -1,12 +1,14 @@
 [package]
 name = "rightkit-approvals"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.98.0"
-description = "In-app approval of paid drafts and deliveries: single-use challenges, launch-secret tokens minted by the shell and verified by the engine, parent binding, host-registered draft kinds"
+description = "One approvals core for every app: a pending request bound to a digest of its exact arguments, destination, expiry and revision; one decision rule; single-use claims; a Store trait with in-memory and file stores; a Proof trait for who decided."
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 repository = "https://github.com/bogusyogi/rightkit"
+keywords = ["approval", "authorization", "consent"]
+categories = ["authentication"]
 include = ["src/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [lib]
@@ -14,12 +16,14 @@ name = "rightkit_approvals"
 path = "src/lib.rs"
 
 [features]
+default = ["file"]
+# `FileStore`: one JSON file per request with marker files for its moves (atomic, owner-only).
+file = ["rightkit-fs/fs"]
 
 [dependencies]
-rightkit-media-gen = { version = "0.1.0", path = "../rightkit-media-gen" }
-serde_json = { version = "1.0", features = ["preserve_order"] }
-rightkit-child-process = { version = "0.5.7", path = "../rightkit-child-process" }
-rightkit-contracts = { version = "0.1.8", path = "../rightkit-contracts" }
-rightkit-daemon = { version = "0.8.0", path = "../rightkit-daemon" }
-rightkit-fs = { version = "0.4.9", default-features = false, features = ["fs", "lock", "digest", "app-dirs"], path = "../rightkit-fs" }
-time = { version = "0.3", features = ["formatting", "macros"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# Request ids from the OS random source (no fallback: no source, no request).
+getrandom = "0.4"
+# SHA-256 and hex for the binding digests; `fs` (atomic, owner-only writes) only with `file`.
+rightkit-fs = { version = "0.4.9", default-features = false, features = ["digest"], path = "../rightkit-fs" }

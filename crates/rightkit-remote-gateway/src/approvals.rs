@@ -27,8 +27,12 @@
 //! returned to a different door's caller as a way to approve.
 
 use super::{Origin, Refusal, Result};
+use rightkit_approvals::rules::{self, Decision, Limits};
+use rightkit_approvals::{
+    Binding, Error, Grant, MemoryStore, Origin as Asker, Record, Request, Retention, State, Store,
+};
 use serde_json::{Value, json};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 /// How long an act approval can be used after the user gave it.
 pub const ACT_VALID: Duration = Duration::from_secs(10 * 60);
@@ -44,7 +48,7 @@ const STANDING_PREFIXES: [&str; 2] = ["launch:", "fill:"];
 /// The session family of a per-chat unlock (`unlock.rs`). Its grants are keyed by client
 /// (`chat:<id>`), end at a time or with the chat, and are given only by `decide_unlock`.
 pub const UNLOCK_FAMILY: &str = "unlock";
-/// Most requests and grants kept; the oldest finished ones go first.
+/// Most requests, and most grants and answers, kept; the oldest go first.
 const MAX_ITEMS: usize = 64;
 /// Most requests waiting at once: a caller cannot fill the user's prompt list.
 const MAX_PENDING: usize = 16;
@@ -78,29 +82,6 @@ pub struct Item {
     pub detail: Value,
 }
 
-fn now() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
-}
-
-fn new_id() -> String {
-    use ring::rand::{SecureRandom, SystemRandom};
-    let mut bytes = [0u8; 8];
-    // An id names a request; it is not a secret (only the user's local answer approves). A failed
-    // system RNG leaves zeros, which a second live request would collide with, so the pair is
-    // also mixed with the clock.
-    if SystemRandom::new().fill(&mut bytes).is_err() {
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_nanos() as u64)
-            .unwrap_or(1);
-        bytes = nanos.to_be_bytes();
-    }
-    rightkit_fs::digest::hex(&bytes)
-}
-
 fn clean_summary(text: &str) -> String {
     text.chars()
         .map(|c| if c.is_control() { ' ' } else { c })
@@ -126,21 +107,18 @@ fn waiting(id: &str, what: &str) -> Refusal {
     )
 }
 
-/// Hex SHA-256 of `parts`, each length-prefixed so two different splits never hash alike.
-pub fn bind_of(parts: &[&[u8]]) -> String {
-    let mut hasher = rightkit_fs::digest::Sha256Hasher::new();
-    for part in parts {
-        hasher.update(&(part.len() as u64).to_be_bytes());
-        hasher.update(part);
-    }
-    hasher.finalize()
-}
+/// Hex SHA-256 of `parts`, each length-prefixed so two different splits never hash alike: the
+/// core's binding digest.
+pub use rightkit_approvals::bind_of;
 
 // ---- the engine's request and decision record ------------------------------------------------
 //
 // A file a program running as the user can edit would prove nothing, so neither a request nor an
 // `approved` is ever stored in one (the old `remote-approvals.json` API is gone). The resident
-// engine (`mark_engine_process`) keeps the record in its own memory and nowhere else:
+// engine (`mark_engine_process`) keeps the record in its own memory and nowhere else: the
+// `rightkit-approvals` core's `MemoryStore`, under the core's rules (`rules::file`, `decide`,
+// `take`, `session`); this module adds the doors, the hello-label filer, the unlock family and
+// the owner's proofs:
 //
 // * **Requests.** A tool in the engine files its request in memory (`request_act_held`,
 //   `request_session_held`); a tool in another process (the gateway) files it through the engine
@@ -167,10 +145,10 @@ pub fn bind_of(parts: &[&[u8]]) -> String {
 // request under a label with a misleading summary that the owner may approve. Budget requests are
 // filed by the engine itself and committed only against the engine's own text (`take_act_exact`).
 
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Mutex, MutexGuard};
 
-/// A refusal stays visible to `outcome` this long, so the caller that asked can learn it.
+/// A refusal stays visible to `outcome` this long (seconds), so the caller that asked can learn it.
 const DENIED_VISIBLE: u64 = 5 * 60;
 /// Most consumed act ids remembered, so a used approval cannot be used again.
 const USED_KEPT: usize = 256;
@@ -179,11 +157,6 @@ const FIELD_MAX: usize = 160;
 
 static ENGINE: AtomicBool = AtomicBool::new(false);
 static LABEL: Mutex<Option<&'static str>> = Mutex::new(None);
-static HELD: Mutex<Held> = Mutex::new(Held {
-    requests: Vec::new(),
-    decisions: Vec::new(),
-    used: Vec::new(),
-});
 
 thread_local! {
     /// Who the call running on this thread is for (`set_client`). Session grants are keyed by it,
@@ -219,49 +192,6 @@ fn clean_client(key: &str) -> String {
         .map(|c| if c.is_control() { '?' } else { c })
         .take(FIELD_MAX)
         .collect()
-}
-
-struct Held {
-    requests: Vec<Request>,
-    decisions: Vec<Decision>,
-    used: Vec<String>,
-}
-
-/// A request waiting for the owner, as the engine recorded it.
-#[derive(Clone)]
-struct Request {
-    id: String,
-    kind: String,
-    scope: String,
-    origin: String,
-    /// The hello label that filed it through the engine; empty for a tool running in the engine.
-    filer: String,
-    /// The requesting client (see `Item::client`).
-    client: String,
-    bind: String,
-    summary: String,
-    created: u64,
-    /// See `Item::detail`.
-    detail: Value,
-}
-
-/// One answer the owner gave through the engine.
-#[derive(Clone)]
-struct Decision {
-    id: String,
-    kind: String,
-    scope: String,
-    origin: String,
-    filer: String,
-    client: String,
-    bind: String,
-    summary: String,
-    approved: bool,
-    decided: u64,
-    /// A session's last use.
-    last_used: u64,
-    /// An unlock's end in Unix seconds; 0 is "until the chat ends". Unused for other kinds.
-    expires: u64,
 }
 
 /// Where a request stands, as the engine knows it. Carries nothing that could approve.
@@ -356,16 +286,9 @@ pub(super) fn unlock_request_client(id: &str) -> Option<String> {
     if !is_engine() {
         return None;
     }
-    let mut h = held();
-    prune_held(&mut h);
-    h.requests
-        .iter()
-        .find(|r| r.id == id && r.kind == "session" && r.scope == UNLOCK_FAMILY)
-        .map(|r| r.client.clone())
-}
-
-fn held() -> MutexGuard<'static, Held> {
-    HELD.lock().unwrap_or_else(|e| e.into_inner())
+    waiting_request(id)
+        .filter(|r| is_unlock(&r.request))
+        .map(|r| r.request.origin.client)
 }
 
 fn not_engine() -> Refusal {
@@ -389,48 +312,87 @@ fn invalid_field() -> Refusal {
     )
 }
 
-/// The digest the owner's click is bound to: a SHA-256 over the request's kind, tool or family,
-/// door, bind and summary, exactly as the list shows them. The hub computes it from the item it
-/// displayed; the engine refuses the click when it differs from its own request's.
-pub fn request_digest(kind: &str, scope: &str, origin: &str, bind: &str, summary: &str) -> String {
-    bind_of(&[
-        b"pulse.approval.request.v1",
-        kind.as_bytes(),
-        scope.as_bytes(),
-        origin.as_bytes(),
-        bind.as_bytes(),
-        summary.as_bytes(),
-    ])
+/// The domain tag of [`request_digest`]: the owner's app computes the same digest, so it is a
+/// wire constant.
+const REQUEST_DOMAIN: &str = "pulse.approval.request.v1";
+
+/// The engine's record: requests, answers and used ids, in memory only.
+static STORE: MemoryStore = MemoryStore::new(Retention {
+    max_pending: MAX_ITEMS,
+    max_decided: MAX_ITEMS,
+    max_done: USED_KEPT,
+    closed_visible_ms: DENIED_VISIBLE * 1000,
+});
+
+fn now_ms() -> u64 {
+    rightkit_approvals::now_ms()
 }
 
-fn prune_held(h: &mut Held) {
-    let at = now();
-    h.requests
-        .retain(|r| at.saturating_sub(r.created) <= PENDING_VALID.as_secs());
-    h.decisions.retain(|d| match (d.kind.as_str(), d.approved) {
-        ("act", true) => at.saturating_sub(d.decided) <= ACT_VALID.as_secs(),
-        // An unlock ends at its own time (the setting) or when its chat ends (checked on use,
-        // `serve_session`); it never idles out.
-        ("session", true) if d.scope == UNLOCK_FAMILY => d.expires == 0 || at < d.expires,
-        ("session", true) => {
-            let idle = if STANDING_PREFIXES.iter().any(|p| d.scope.starts_with(p)) {
-                STANDING_IDLE
-            } else {
-                SESSION_IDLE
-            };
-            at.saturating_sub(d.last_used.max(d.decided)) <= idle.as_secs()
+fn secs(ms: u64) -> u64 {
+    ms / 1000
+}
+
+fn ms(d: Duration) -> u64 {
+    d.as_millis() as u64
+}
+
+/// The digest the owner's click is bound to: a SHA-256 over the request's kind, tool or family,
+/// door, bind and summary, exactly as the list shows them (the core's
+/// `Request::display_digest`). The hub computes it from the item it displayed; the engine refuses
+/// the click when it differs from its own request's.
+pub fn request_digest(kind: &str, scope: &str, origin: &str, bind: &str, summary: &str) -> String {
+    Request {
+        kind: kind.to_string(),
+        scope: scope.to_string(),
+        origin: Asker {
+            door: origin.to_string(),
+            ..Asker::default()
+        },
+        binding: Binding::new(bind, ""),
+        summary: summary.to_string(),
+        ..Request::default()
+    }
+    .display_digest(REQUEST_DOMAIN)
+}
+
+fn is_unlock(r: &Request) -> bool {
+    r.kind == "session" && r.scope == UNLOCK_FAMILY
+}
+
+/// How long the owner's answer lives: an act once within `ACT_VALID`, a standing family until
+/// idle for `STANDING_IDLE`, an unlock until `unlock_until` (Unix seconds; 0 is until the chat
+/// ends, checked on use), any other session until idle for `SESSION_IDLE`.
+fn grant_for(r: &Request, unlock_until: u64) -> Grant {
+    if r.kind == "act" {
+        Grant::Once {
+            valid_ms: ms(ACT_VALID),
         }
-        _ => at.saturating_sub(d.decided) <= DENIED_VISIBLE,
-    });
-    while h.requests.len() > MAX_ITEMS {
-        h.requests.remove(0);
+    } else if is_unlock(r) {
+        if unlock_until == 0 {
+            Grant::Open
+        } else {
+            Grant::Until {
+                at_ms: unlock_until * 1000,
+            }
+        }
+    } else if STANDING_PREFIXES.iter().any(|p| r.scope.starts_with(p)) {
+        Grant::Idle {
+            idle_ms: ms(STANDING_IDLE),
+        }
+    } else {
+        Grant::Idle {
+            idle_ms: ms(SESSION_IDLE),
+        }
     }
-    while h.decisions.len() > MAX_ITEMS {
-        h.decisions.remove(0);
-    }
-    while h.used.len() > USED_KEPT {
-        h.used.remove(0);
-    }
+}
+
+/// A waiting request, by id. Engine only.
+fn waiting_request(id: &str) -> Option<Record> {
+    STORE
+        .get(id)
+        .ok()
+        .flatten()
+        .filter(|r| r.state == State::Pending && r.live(now_ms()))
 }
 
 /// Records a request in engine memory and returns its id; a repeat of the same pending request
@@ -479,39 +441,35 @@ fn file_request_detail(
     {
         return Err(invalid_field());
     }
-    let client = clean_client(client);
-    let mut h = held();
-    prune_held(&mut h);
-    if let Some(existing) = h.requests.iter().find(|r| {
-        r.kind == kind
-            && r.scope == scope
-            && r.origin == origin
-            && r.filer == filer
-            && r.client == client
-            && r.bind == bind
-    }) {
-        return Ok(existing.id.clone());
-    }
-    if h.requests.len() >= MAX_PENDING {
-        return Err(Refusal::new(
-            "approval_busy",
-            "too many approval requests are waiting; answer or let them expire first",
-        ));
-    }
-    let id = new_id();
-    h.requests.push(Request {
-        id: id.clone(),
+    let now = now_ms();
+    let request = Request {
+        id: rightkit_approvals::new_id()?,
         kind: kind.to_string(),
         scope: scope.to_string(),
-        origin: origin.to_string(),
-        filer: filer.to_string(),
-        client,
-        bind: bind.to_string(),
+        origin: Asker {
+            door: origin.to_string(),
+            filer: filer.to_string(),
+            client: clean_client(client),
+        },
+        binding: Binding::new(bind, ""),
         summary: clean_summary(summary),
-        created: now(),
         detail,
-    });
-    Ok(id)
+        created_ms: now,
+        expires_ms: now + ms(PENDING_VALID),
+    };
+    let limits = Limits {
+        pending_cap: MAX_PENDING,
+        per_client: false,
+    };
+    match rules::file(&STORE, request, &limits, now) {
+        Ok(filed) => Ok(filed.id().to_string()),
+        Err(Error::Busy) => Err(Refusal::new(
+            "approval_busy",
+            "too many approval requests are waiting; answer or let them expire first",
+        )),
+        Err(Error::Malformed) => Err(invalid_field()),
+        Err(e) => Err(e.refusal()),
+    }
 }
 
 /// Asks the resident engine one `remote.approvals.*` question from a process that is not the
@@ -693,23 +651,25 @@ pub fn pending_held() -> Result<Vec<Item>> {
     if !is_engine() {
         return Err(not_engine());
     }
-    let mut h = held();
-    prune_held(&mut h);
-    Ok(h.requests
-        .iter()
-        .map(|r| Item {
-            id: r.id.clone(),
-            kind: r.kind.clone(),
-            scope: r.scope.clone(),
-            origin: r.origin.clone(),
-            client: r.client.clone(),
-            bind: r.bind.clone(),
-            summary: r.summary.clone(),
-            state: "pending".into(),
-            created: r.created,
-            decided: 0,
-            last_used: 0,
-            detail: r.detail.clone(),
+    Ok(STORE
+        .pending(now_ms())?
+        .into_iter()
+        .map(|r| {
+            let r = r.request;
+            Item {
+                id: r.id,
+                kind: r.kind,
+                scope: r.scope,
+                origin: r.origin.door,
+                client: r.origin.client,
+                bind: r.binding.args,
+                summary: r.summary,
+                state: "pending".into(),
+                created: secs(r.created_ms),
+                decided: 0,
+                last_used: 0,
+                detail: r.detail,
+            }
         })
         .collect())
 }
@@ -726,12 +686,12 @@ pub fn decide_held(id: &str, approve: bool, digest: &str) -> Result<bool> {
 /// `decide_held` with the owner's proof, for the engine's `remote.approvals.decide` (acts, logins,
 /// payments, budgets: every request that is not an unlock). Denying needs no proof. Approving needs
 /// `method`: `"sig"` (an enrolled approver key signed this request, kind `approve`, bound to the
-/// engine's own request id, digest and client: `approval_sig`) or `"pin"` (the host app PIN, verified
-/// inside the engine). `"os"` (owner app's word that Touch ID or Windows Hello accepted the owner)
-/// is refused on every platform, Windows included until Hello signs with an enrolled key. Without a
-/// proof an approval is refused `unlock_needs_auth`, so a caller's word, the hub's click included,
-/// never approves. An unlock request is refused here whatever the proof (`unlock::decide_signed`
-/// answers those).
+/// engine's own request id, digest and client: `approval_sig::SignedApproval`, the core's proof)
+/// or `"pin"` (the host app PIN, verified inside the engine). `"os"` (owner app's word that Touch
+/// ID or Windows Hello accepted the owner) is refused on every platform, Windows included until
+/// Hello signs with an enrolled key. Without a proof an approval is refused `unlock_needs_auth`,
+/// so a caller's word, the hub's click included, never approves. An unlock request is refused here
+/// whatever the proof (`unlock::decide_signed` answers those).
 pub fn decide_signed(
     id: &str,
     approve: bool,
@@ -741,44 +701,39 @@ pub fn decide_signed(
     sig: Option<&Value>,
 ) -> Result<bool> {
     if !approve {
-        return decide_inner(id, false, digest, false);
+        return decide_inner(id, false, digest, false, None, 0);
     }
     if !is_engine() {
         return Err(not_engine());
     }
-    let (client, is_unlock) = {
-        let mut h = held();
-        prune_held(&mut h);
-        match h.requests.iter().find(|r| r.id == id) {
-            Some(r) => (
-                r.client.clone(),
-                r.kind == "session" && r.scope == UNLOCK_FAMILY,
-            ),
-            None => return Ok(false),
-        }
+    let Some(waiting) = waiting_request(id) else {
+        return Ok(false);
     };
-    if !is_unlock {
-        match method {
-            Some("sig") => {
-                let signed = super::approval_sig::Signed::from_value(sig.unwrap_or(&Value::Null))?;
-                super::approval_sig::verify("approve", id, digest, &client, &signed)?;
-            }
-            Some("os") => {
-                return Err(Refusal::new(
-                    "unlock_needs_auth",
-                    "an approval needs the owner's signed approval (Touch ID on a Mac) or the PIN; a caller's word that the system accepted the owner is not enough, and on Windows Hello cannot sign yet, so use the PIN",
-                ));
-            }
-            Some("pin") => super::unlock::confirm_pin(pin.unwrap_or(""))?,
-            _ => {
-                return Err(Refusal::new(
-                    "unlock_needs_auth",
-                    "an approval needs method sig (signed by the owner's key) or pin",
-                ));
-            }
-        }
+    if is_unlock(&waiting.request) {
+        return decide_inner(id, true, digest, false, None, 0);
     }
-    decide_inner(id, true, digest, false)
+    match method {
+        Some("sig") => {
+            let signed = super::approval_sig::Signed::from_value(sig.unwrap_or(&Value::Null))?;
+            let proof = super::approval_sig::SignedApproval {
+                signed: &signed,
+                digest,
+            };
+            decide_inner(id, true, digest, false, Some(&proof), 0)
+        }
+        Some("os") => Err(Refusal::new(
+            "unlock_needs_auth",
+            "an approval needs the owner's signed approval (Touch ID on a Mac) or the PIN; a caller's word that the system accepted the owner is not enough, and on Windows Hello cannot sign yet, so use the PIN",
+        )),
+        Some("pin") => {
+            super::unlock::confirm_pin(pin.unwrap_or(""))?;
+            decide_inner(id, true, digest, false, None, 0)
+        }
+        _ => Err(Refusal::new(
+            "unlock_needs_auth",
+            "an approval needs method sig (signed by the owner's key) or pin",
+        )),
+    }
 }
 
 /// The engine's `remote.unlock.decide`, after the caller proved who the owner is: `unlock.rs`
@@ -786,43 +741,30 @@ pub fn decide_signed(
 /// request of the unlock family can be answered here, and the unlock ends at `expires` (Unix
 /// seconds) or, when that is 0, with the chat. Denying needs no proof.
 pub fn decide_unlock(id: &str, approve: bool, digest: &str, expires: u64) -> Result<bool> {
-    let decided = decide_inner(id, approve, digest, true)?;
-    if decided && approve && expires > 0 {
-        let mut h = held();
-        if let Some(d) = h
-            .decisions
-            .iter_mut()
-            .find(|d| d.id == id && d.kind == "session" && d.scope == UNLOCK_FAMILY)
-        {
-            d.expires = expires;
-        }
-    }
-    Ok(decided)
+    decide_inner(id, approve, digest, true, None, expires)
 }
 
 /// Whether request `id` is a waiting unlock request. Engine only; anything else is false.
 pub fn is_unlock_request(id: &str) -> bool {
-    if !is_engine() {
-        return false;
-    }
-    let mut h = held();
-    prune_held(&mut h);
-    h.requests
-        .iter()
-        .any(|r| r.id == id && r.kind == "session" && r.scope == UNLOCK_FAMILY)
+    is_engine() && waiting_request(id).is_some_and(|r| is_unlock(&r.request))
 }
 
-fn decide_inner(id: &str, approve: bool, digest: &str, unlock: bool) -> Result<bool> {
+fn decide_inner(
+    id: &str,
+    approve: bool,
+    digest: &str,
+    unlock: bool,
+    proof: Option<&dyn rightkit_approvals::Proof>,
+    unlock_until: u64,
+) -> Result<bool> {
     if !is_engine() {
         return Err(not_engine());
     }
-    let mut h = held();
-    prune_held(&mut h);
-    let Some(position) = h.requests.iter().position(|r| r.id == id) else {
+    let Some(waiting) = waiting_request(id) else {
         return Ok(false);
     };
-    let r = &h.requests[position];
-    let is_unlock = r.kind == "session" && r.scope == UNLOCK_FAMILY;
+    let r = &waiting.request;
+    let is_unlock = is_unlock(r);
     // The unlock answer never approves anything else, and a plain approve never opens an unlock.
     // A plain deny of an unlock is allowed.
     if unlock && !is_unlock {
@@ -837,40 +779,35 @@ fn decide_inner(id: &str, approve: bool, digest: &str, unlock: bool) -> Result<b
             "an unlock is approved only with Touch ID (Mac) or the PIN, from the notch or the hub's PIN field",
         ));
     }
-    if request_digest(&r.kind, &r.scope, &r.origin, &r.bind, &r.summary) != digest {
-        return Err(Refusal::new(
+    let decision = Decision {
+        approve,
+        shown: Some(digest),
+        domain: REQUEST_DOMAIN,
+        proof,
+        grant: grant_for(r, unlock_until),
+        reason: None,
+    };
+    match rules::decide(&STORE, id, &decision, now_ms()) {
+        Ok(Some(decided)) => {
+            // The decision is kept only in memory; this line is its durable trace. Codes only.
+            super::audit::record_security(
+                "approval.decided",
+                serde_json::json!({
+                    "kind": decided.request.kind,
+                    "door": decided.request.origin.door,
+                    "approved": approve,
+                    "unlock": is_unlock,
+                }),
+            );
+            Ok(true)
+        }
+        Ok(None) => Ok(false),
+        Err(Error::Shown) => Err(Refusal::new(
             "approval_changed",
             "what you answered is not what is waiting; refresh the list and look again",
-        ));
+        )),
+        Err(e) => Err(e.refusal()),
     }
-    let r = h.requests.remove(position);
-    let at = now();
-    // The decision is kept only in memory; this line is its durable trace. Codes only.
-    super::audit::record_security(
-        "approval.decided",
-        serde_json::json!({
-            "kind": r.kind,
-            "door": r.origin,
-            "approved": approve,
-            "unlock": is_unlock,
-        }),
-    );
-    h.decisions.push(Decision {
-        id: r.id,
-        kind: r.kind,
-        scope: r.scope,
-        origin: r.origin,
-        filer: r.filer,
-        client: r.client,
-        bind: r.bind,
-        summary: r.summary,
-        approved: approve,
-        decided: at,
-        last_used: at,
-        expires: 0,
-    });
-    prune_held(&mut h);
-    Ok(true)
 }
 
 fn refused(id: &str, pending: bool, why: &str) -> Refusal {
@@ -882,9 +819,9 @@ fn refused(id: &str, pending: bool, why: &str) -> Refusal {
     Refusal::new(code, format!("approval {id}: {why}"))
 }
 
-/// Uses the approval `id` from the engine's memory. Engine only. `filer` is the hello label that
-/// filed the request (empty for a tool in the engine) and must be the caller's; `summary` of
-/// `Some` must also equal what the owner was shown.
+/// Uses the approval `id` from the engine's memory (the core's `rules::take`). Engine only.
+/// `filer` is the hello label that filed the request (empty for a tool in the engine) and must be
+/// the caller's; `summary` of `Some` must also equal what the owner was shown.
 fn take_local(
     filer: &str,
     origin: &str,
@@ -896,42 +833,36 @@ fn take_local(
     if !is_engine() {
         return Err(not_engine());
     }
-    let mut h = held();
-    prune_held(&mut h);
-    if h.used.iter().any(|u| u == id) {
-        return Err(refused(id, false, "unknown, expired or already used"));
+    let presented = Request {
+        kind: "act".into(),
+        scope: tool.to_string(),
+        origin: Asker {
+            door: origin.to_string(),
+            filer: filer.to_string(),
+            client: String::new(),
+        },
+        binding: Binding::new(bind, ""),
+        summary: summary.unwrap_or_default().to_string(),
+        ..Request::default()
+    };
+    let gone = "unknown, expired or already used";
+    match rules::take(&STORE, id, &presented, None, summary.is_some(), now_ms()) {
+        Ok(_) => Ok(()),
+        Err(Error::Unknown | Error::Used | Error::Expired) => Err(refused(id, false, gone)),
+        Err(Error::Different | Error::Changed) => Err(refused(
+            id,
+            false,
+            "it was given for a different action or target; ask again",
+        )),
+        Err(Error::Shown) => Err(refused(
+            id,
+            false,
+            "what the owner was shown is not what this call asks; ask again",
+        )),
+        Err(Error::Denied) => Err(refused(id, false, "it was refused")),
+        Err(Error::Pending) => Err(refused(id, true, "still waiting for your answer")),
+        Err(e) => Err(e.refusal()),
     }
-    let different = "it was given for a different action or target; ask again";
-    if let Some(position) = h
-        .decisions
-        .iter()
-        .position(|d| d.kind == "act" && d.id == id)
-    {
-        let d = &h.decisions[position];
-        if d.filer != filer || d.scope != tool || d.origin != origin || d.bind != bind {
-            return Err(refused(id, false, different));
-        }
-        if summary.is_some_and(|shown| shown != d.summary) {
-            return Err(refused(
-                id,
-                false,
-                "what the owner was shown is not what this call asks; ask again",
-            ));
-        }
-        if !d.approved {
-            return Err(refused(id, false, "it was refused"));
-        }
-        h.decisions.remove(position);
-        h.used.push(id.to_string());
-        return Ok(());
-    }
-    if let Some(r) = h.requests.iter().find(|r| r.kind == "act" && r.id == id) {
-        if r.filer != filer || r.scope != tool || r.origin != origin || r.bind != bind {
-            return Err(refused(id, false, different));
-        }
-        return Err(refused(id, true, "still waiting for your answer"));
-    }
-    Err(refused(id, false, "unknown, expired or already used"))
 }
 
 /// Uses the approval `id` for the action `bind`, on the engine's record of the owner's answer:
@@ -992,8 +923,6 @@ pub fn serve_outcome(id: &str) -> Result<Outcome> {
     if !is_engine() {
         return Err(not_engine());
     }
-    let mut h = held();
-    prune_held(&mut h);
     let known = |state: &str, kind: &str, scope: &str, origin: &str, decided: u64| Outcome {
         id: id.to_string(),
         state: state.to_string(),
@@ -1002,17 +931,18 @@ pub fn serve_outcome(id: &str) -> Result<Outcome> {
         origin: origin.to_string(),
         decided,
     };
-    if let Some(d) = h.decisions.iter().find(|d| d.id == id) {
-        let state = if d.approved { "approved" } else { "denied" };
-        return Ok(known(state, &d.kind, &d.scope, &d.origin, d.decided));
-    }
-    if h.used.iter().any(|u| u == id) {
-        return Ok(known("used", "act", "", "", 0));
-    }
-    if let Some(r) = h.requests.iter().find(|r| r.id == id) {
-        return Ok(known("pending", &r.kind, &r.scope, &r.origin, 0));
-    }
-    Ok(known("unknown", "", "", "", 0))
+    let Some(record) = STORE.get(id)? else {
+        return Ok(known("unknown", "", "", "", 0));
+    };
+    let r = &record.request;
+    let decided = secs(record.decided_ms);
+    Ok(match record.state {
+        State::Approved => known("approved", &r.kind, &r.scope, &r.origin.door, decided),
+        State::Denied => known("denied", &r.kind, &r.scope, &r.origin.door, decided),
+        State::Done => known("used", "act", "", "", 0),
+        State::Pending => known("pending", &r.kind, &r.scope, &r.origin.door, 0),
+        _ => known("unknown", "", "", "", 0),
+    })
 }
 
 /// Whether a session grant the owner gave through the engine is active for `family` on this door;
@@ -1036,84 +966,69 @@ pub fn serve_session(origin: Origin, client: &str, family: &str) -> Result<bool>
     if !is_engine() {
         return Err(not_engine());
     }
-    let origin = origin_name(origin);
-    let client = clean_client(client);
-    if family == UNLOCK_FAMILY && origin == origin_name(Origin::Local) {
+    let asker = Asker {
+        door: origin_name(origin).to_string(),
+        filer: String::new(),
+        client: clean_client(client),
+    };
+    let grant_of = |record: &Record| {
+        record.request.kind == "session"
+            && record.request.scope == family
+            && record.request.origin.door == asker.door
+            && record.request.origin.client == asker.client
+    };
+    if family == UNLOCK_FAMILY && origin == Origin::Local {
         // After an engine restart the memory holds no grant: a valid stored token (OS credential
         // store, sealed, with an expiry; `unlock::restore_token`) brings the chat's unlock back.
-        let known = held().decisions.iter().any(|d| {
-            d.kind == "session"
-                && d.approved
-                && d.scope == family
-                && d.origin == origin
-                && d.client == client
-        });
-        if !known && let Some((token_expires, until_end)) = super::unlock::restore_token(&client) {
-            // An "until the chat ends" grant keeps expires 0, so it stays bound to the chat's liveness.
-            let expires = if until_end { 0 } else { token_expires };
-            let mut h = held();
-            let at = now();
-            h.decisions.push(Decision {
-                id: new_id(),
+        let known = STORE.approved(now_ms())?.iter().any(grant_of);
+        if !known
+            && let Some((token_expires, until_end)) = super::unlock::restore_token(&asker.client)
+            && let Ok(id) = rightkit_approvals::new_id()
+        {
+            // An "until the chat ends" grant stays open, so it stays bound to the chat's liveness.
+            let at = now_ms();
+            let request = Request {
+                id,
                 kind: "session".into(),
                 scope: family.into(),
-                origin: origin.into(),
-                filer: String::new(),
-                client: client.clone(),
-                bind: String::new(),
+                origin: asker.clone(),
                 summary: "restored from the stored unlock token".into(),
-                approved: true,
-                decided: at,
-                last_used: at,
-                expires,
-            });
+                created_ms: at,
+                expires_ms: at,
+                ..Request::default()
+            };
+            let grant = grant_for(&request, if until_end { 0 } else { token_expires });
+            STORE.insert(&Record {
+                request,
+                state: State::Approved,
+                decided_ms: at,
+                last_used_ms: at,
+                grant: Some(grant),
+                ..Record::default()
+            })?;
         }
     }
     if family == UNLOCK_FAMILY {
         // An unlock that lasts until its chat ends is checked against the roster on every use,
         // outside the record's lock (it reads the chat files).
-        let until_chat_ends = {
-            let mut h = held();
-            prune_held(&mut h);
-            h.decisions.iter().any(|d| {
-                d.kind == "session"
-                    && d.approved
-                    && d.scope == family
-                    && d.origin == origin
-                    && d.client == client
-                    && d.expires == 0
-            })
-        };
-        if until_chat_ends && !super::unlock::chat_alive(&client) {
-            super::unlock::forget_token(&client);
-            let mut h = held();
-            h.decisions.retain(|d| {
-                !(d.kind == "session"
-                    && d.scope == family
-                    && d.origin == origin
-                    && d.client == client)
+        let until_chat_ends = STORE
+            .approved(now_ms())?
+            .iter()
+            .any(|r| grant_of(r) && r.grant == Some(Grant::Open));
+        if until_chat_ends && !super::unlock::chat_alive(&asker.client) {
+            super::unlock::forget_token(&asker.client);
+            STORE.remove_where(|r| {
+                r.request.kind == "session"
+                    && r.request.scope == family
+                    && r.request.origin.door == asker.door
+                    && r.request.origin.client == asker.client
             });
             return Ok(false);
         }
     }
-    let mut h = held();
-    prune_held(&mut h);
-    let at = now();
-    Ok(
-        match h.decisions.iter_mut().find(|d| {
-            d.kind == "session"
-                && d.approved
-                && d.scope == family
-                && d.origin == origin
-                && d.client == client
-        }) {
-            Some(d) => {
-                d.last_used = at;
-                true
-            }
-            None => false,
-        },
-    )
+    Ok(rules::session(&STORE, "session", family, &asker, now_ms())
+        .map_err(|e| e.refusal())?
+        .is_some())
 }
 
 /// Ends every session grant, and drops every waiting session request, for `family`. It only ever
@@ -1131,14 +1046,7 @@ pub fn serve_revoke(family: &str) -> Result<usize> {
     if !is_engine() {
         return Err(not_engine());
     }
-    let mut h = held();
-    let before = h.decisions.len() + h.requests.len();
-    h.decisions
-        .retain(|d| !(d.kind == "session" && d.scope == family));
-    h.requests
-        .retain(|r| !(r.kind == "session" && r.scope == family));
-    let removed = before - h.decisions.len() - h.requests.len();
-    drop(h);
+    let removed = STORE.remove_where(|r| r.request.kind == "session" && r.request.scope == family);
     // Memory is cleared first; a token that cannot be removed is reported.
     if family == UNLOCK_FAMILY {
         super::unlock::forget_all_tokens()?;

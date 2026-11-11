@@ -1534,7 +1534,7 @@ fn preflight_with_challenge(ctx: &Context, input: &Value) -> GenResult<Value> {
     if let Some(id) = draft["draft_id"].as_str().map(str::to_string) {
         let (inputs, legacy) = approval_inputs_of(&draft);
         draft["approval_challenge"] =
-            rightkit_approvals::issue(ctx, "recipes", &id, &inputs, &legacy)?;
+            rightkit_media_gen_approvals::issue(ctx, "recipes", &id, &inputs, &legacy)?;
     }
     Ok(draft)
 }
@@ -1542,7 +1542,7 @@ fn preflight_with_challenge(ctx: &Context, input: &Value) -> GenResult<Value> {
 /// Record the user's in-app approval. Needs an approval token only the app shell can mint
 /// (`approvals`); `operator_approved` alone is refused.
 fn approve(ctx: &Context, input: &Value) -> GenResult<Value> {
-    let gate = rightkit_approvals::gate(input)?;
+    let gate = rightkit_media_gen_approvals::gate(input)?;
     let id = get(input, "draft_id")
         .or_else(|| get(input, "id"))
         .and_then(Value::as_str)
@@ -1581,12 +1581,13 @@ fn approve(ctx: &Context, input: &Value) -> GenResult<Value> {
         }
     }
     let (inputs, legacy) = approval_inputs_of(&draft);
-    let record = rightkit_approvals::consume(ctx, &gate, "recipes", id, &inputs, &legacy)?;
+    let record =
+        rightkit_media_gen_approvals::consume(ctx, &gate, "recipes", id, &inputs, &legacy)?;
     if status == "draft" {
         draft["status"] = json!("approved");
         draft["approved_at"] = record["approved_at"].clone();
         draft["approved_by"] = record["approved_by"].clone();
-        draft["approval"] = Value::Object(rightkit_approvals::approval_fields(&record));
+        draft["approval"] = Value::Object(rightkit_media_gen_approvals::approval_fields(&record));
         write_json(&draft_path(ctx, id)?, &draft)?;
     }
     // Only engine request fields: `generate` refuses any other top-level key.
@@ -2393,7 +2394,7 @@ fn tpl_approval_inputs_of(doc: &Value) -> (Value, String) {
 fn tpl_challenge(ctx: &Context, doc: &Value) -> GenResult<Value> {
     let id = doc["draft_id"].as_str().unwrap_or_default();
     let (inputs, legacy) = tpl_approval_inputs_of(doc);
-    rightkit_approvals::issue(ctx, "recipe_templates", id, &inputs, &legacy)
+    rightkit_media_gen_approvals::issue(ctx, "recipe_templates", id, &inputs, &legacy)
 }
 
 /// Approve one template draft: hash-bound, token-bound, and a final stage needs its draft stage
@@ -2402,7 +2403,7 @@ fn tpl_challenge(ctx: &Context, doc: &Value) -> GenResult<Value> {
 fn approve_template_draft(
     ctx: &Context,
     id: &str,
-    gate: &rightkit_approvals::Gate,
+    gate: &rightkit_media_gen_approvals::Gate,
 ) -> GenResult<Value> {
     let mut doc = tpl_read(ctx, id)?;
     match doc["status"].as_str().unwrap_or("") {
@@ -2445,12 +2446,13 @@ fn approve_template_draft(
         }
     }
     let (inputs, legacy) = tpl_approval_inputs_of(&doc);
-    let record = rightkit_approvals::consume(ctx, gate, "recipe_templates", id, &inputs, &legacy)?;
+    let record =
+        rightkit_media_gen_approvals::consume(ctx, gate, "recipe_templates", id, &inputs, &legacy)?;
     if doc["status"] == "draft" {
         doc["status"] = json!("approved");
         doc["approved_at"] = record["approved_at"].clone();
         doc["approved_by"] = record["approved_by"].clone();
-        doc["approval"] = Value::Object(rightkit_approvals::approval_fields(&record));
+        doc["approval"] = Value::Object(rightkit_media_gen_approvals::approval_fields(&record));
         tpl_write(ctx, &doc)?;
     }
     Ok(doc)
@@ -2459,7 +2461,7 @@ fn approve_template_draft(
 /// Needs an approval token only the app shell can mint (`approvals`, kind `recipe_templates`);
 /// `operator_approved` is ignored. Input: `{draft_id, approval_token, approval_nonce}`.
 fn template_approve(ctx: &Context, input: &Value) -> GenResult<Value> {
-    let gate = rightkit_approvals::gate(input)?;
+    let gate = rightkit_media_gen_approvals::gate(input)?;
     let id = get(input, "draft_id")
         .or_else(|| get(input, "id"))
         .and_then(Value::as_str)
@@ -2703,7 +2705,7 @@ fn batch_review(ctx: &Context, input: &Value) -> GenResult<Value> {
         String,
         String,
         Option<String>,
-        Option<rightkit_approvals::Gate>,
+        Option<rightkit_media_gen_approvals::Gate>,
     )> = Vec::new();
     for d in &decisions {
         let index = d.get("item").and_then(Value::as_u64).unwrap_or(0);
@@ -2730,7 +2732,7 @@ fn batch_review(ctx: &Context, input: &Value) -> GenResult<Value> {
             ));
         }
         let gate = if decision == "approve" {
-            Some(rightkit_approvals::gate(d)?)
+            Some(rightkit_media_gen_approvals::gate(d)?)
         } else {
             None
         };

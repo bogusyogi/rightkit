@@ -13,7 +13,7 @@
 
 use super::access::ConnAccess;
 use super::approval::{self, ApprovalCard, Clock, DecisionView};
-use super::approval_store::{self as store, Approval};
+use super::approval_store::{self as store, Approval, MailApproval};
 use super::attach_path::{self, AttachFiles, AttachSummary};
 use super::draft_files::TOTAL_MAX;
 
@@ -25,22 +25,22 @@ pub fn card<A: ConnAccess>(
     agent_name: String,
 ) -> Result<ApprovalCard, String> {
     let path = access
-        .read(|c| store::attach_path(c, &a.id))?
+        .read(|c| store::attach_path(c, a.id()))?
         .ok_or("This request is no longer available.")?;
     let meta = files
         .stat(&path)
         .map_err(|e| e.card_message().to_string())?;
     Ok(ApprovalCard {
-        content_hash: attach_path::binding(&a.account_id, &a.agent_id, &path, meta),
+        content_hash: attach_path::binding(a.account_id(), a.agent_id(), &path, meta),
         attach: Some(AttachSummary {
             path,
             size: meta.size,
         }),
-        id: a.id,
-        kind: a.kind,
+        id: a.id().to_string(),
+        kind: a.kind().to_string(),
         agent_name,
-        account: a.account_id,
-        expires_at: a.expires_at,
+        account: a.account_id().to_string(),
+        expires_at: a.expires_at(),
         ..ApprovalCard::default()
     })
 }
@@ -53,7 +53,7 @@ pub fn finish<A: ConnAccess>(
     a: &Approval,
     shown_hash: &str,
 ) -> Result<DecisionView, String> {
-    let Some(path) = access.read(|c| store::attach_path(c, &a.id))? else {
+    let Some(path) = access.read(|c| store::attach_path(c, a.id()))? else {
         return approval::failed(access, clock, a, "file_missing", "");
     };
     let meta = match files.stat(&path) {
@@ -61,7 +61,7 @@ pub fn finish<A: ConnAccess>(
         Err(e) => return approval::failed(access, clock, a, e.reason(), ""),
     };
     let counts = format!("size={}", meta.size);
-    if attach_path::binding(&a.account_id, &a.agent_id, &path, meta) != shown_hash {
+    if attach_path::binding(a.account_id(), a.agent_id(), &path, meta) != shown_hash {
         return approval::failed(access, clock, a, "file_changed", &counts);
     }
     if meta.size > TOTAL_MAX {
@@ -71,7 +71,7 @@ pub fn finish<A: ConnAccess>(
         Ok(b) => b,
         Err(e) => return approval::failed(access, clock, a, e.reason(), &counts),
     };
-    match files.store(&a.agent_id, &path, &bytes) {
+    match files.store(a.agent_id(), &path, &bytes) {
         Ok(stored) if !stored.extension_blocked => {
             approval::completed(access, clock, a, &stored.name, &counts)
         }

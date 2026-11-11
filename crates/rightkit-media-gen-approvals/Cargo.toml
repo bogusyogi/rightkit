@@ -1,0 +1,29 @@
+[package]
+name = "rightkit-media-gen-approvals"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.98.0"
+description = "Media-generation approvals on the rightkit-approvals core: launch-secret approval tokens minted by the app shell and verified by the engine, parent binding, host-registered draft kinds, the Blender finish confirmation and the human-eyes release of assets."
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/bogusyogi/rightkit"
+keywords = ["approval", "media", "generation"]
+categories = ["authentication"]
+include = ["src/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+
+[lib]
+name = "rightkit_media_gen_approvals"
+path = "src/lib.rs"
+
+[features]
+
+[dependencies]
+# The record, the file store and the single-use rule.
+rightkit-approvals = { version = "0.2.0", path = "../rightkit-approvals" }
+rightkit-media-gen = { version = "0.1.0", path = "../rightkit-media-gen" }
+serde_json = { version = "1.0", features = ["preserve_order"] }
+rightkit-child-process = { version = "0.5.7", path = "../rightkit-child-process" }
+rightkit-contracts = { version = "0.1.8", path = "../rightkit-contracts" }
+rightkit-daemon = { version = "0.8.0", path = "../rightkit-daemon" }
+rightkit-fs = { version = "0.4.9", default-features = false, features = ["fs", "lock", "digest", "app-dirs"], path = "../rightkit-fs" }
+time = { version = "0.3", features = ["formatting", "macros"] }

@@ -47,3 +47,22 @@ pub struct ExecutorRef {
     /// Executor name on that device, for example a chat session or a right-ctl command set.
     pub executor: String,
 }
+
+impl ApprovalBinding {
+    /// This binding as the approvals core's [`rightkit_approvals::Binding`], the one record every
+    /// approval store and rule uses: the arguments digest (without its `sha256:` prefix), the
+    /// destination, the expiry and the revision. Principal, task, effect, executor and scope stay
+    /// on this record; the core binds what the act does, this record also says who may do it.
+    pub fn core_binding(&self) -> rightkit_approvals::Binding {
+        rightkit_approvals::Binding {
+            args: self
+                .args_hash
+                .strip_prefix("sha256:")
+                .unwrap_or(&self.args_hash)
+                .to_string(),
+            destination: self.destination.clone(),
+            expires_ms: self.expires_at_ms,
+            revision: self.revision,
+        }
+    }
+}

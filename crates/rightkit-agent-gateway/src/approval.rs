@@ -20,12 +20,14 @@
 use super::access::{ConnAccess, LOCKED_MESSAGE};
 use super::approval_attach;
 use super::approval_kind as kinds;
-use super::approval_store::{self as store, Approval};
+use super::approval_store::{Approval, MailApproval, SqlStore, STUCK_MS};
 use super::approval_trash::{self, ThreadSummary, ThreadTrasher};
 use super::attach_path::{AttachFiles, AttachSummary};
 use super::draft_view::{AttachmentInfo, FetchedDraft};
 use super::gate::{record_decision, Decision};
 use super::registry;
+use rightkit_approvals::rules::{self, Decision as Ruling};
+use rightkit_approvals::{Change, Grant, State, Store};
 use serde::Serialize;
 use std::sync::OnceLock;
 
@@ -66,8 +68,8 @@ pub struct Approved {
 impl Approved {
     fn mint(a: &Approval) -> Approved {
         Approved {
-            account: a.account_id.clone(),
-            draft_id: a.draft_id.clone(),
+            account: a.account_id().to_string(),
+            draft_id: a.draft_id().to_string(),
         }
     }
     pub fn account(&self) -> &str {
@@ -108,10 +110,10 @@ pub struct DecisionView {
 }
 
 fn view(a: &Approval) -> DecisionView {
-    let status = match a.status.as_str() {
-        "sent" => kinds::done_word(&a.kind),
-        "denied" => "denied",
-        "failed" => "failed",
+    let status = match a.state {
+        State::Done => kinds::done_word(a.kind()),
+        State::Denied | State::Expired => "denied",
+        State::Failed => "failed",
         _ => "approved",
     };
     DecisionView {
@@ -184,16 +186,19 @@ pub fn pending<A: ConnAccess>(access: &A, clock: &dyn Clock) -> Result<Vec<Pendi
     }
     let (now, boot) = (clock.now_ms(), clock.boot_id());
     access.write(|c| {
-        store::sweep(c, now, &boot)?;
-        Ok(store::list_pending(c, now, &boot)?
+        let approvals = SqlStore::new(c, &boot);
+        approvals.sweep(now)?;
+        Ok(approvals
+            .pending(at(now))
+            .map_err(|e| e.message)?
             .into_iter()
             .map(|a| PendingView {
-                agent_name: agent_name(c, &a.agent_id),
-                kind: a.kind,
-                id: a.id,
-                account: a.account_id,
-                created_at: a.created_at,
-                expires_at: a.expires_at,
+                agent_name: agent_name(c, a.agent_id()),
+                kind: a.kind().to_string(),
+                id: a.id().to_string(),
+                account: a.account_id().to_string(),
+                created_at: a.created_at(),
+                expires_at: a.expires_at(),
             })
             .collect())
     })
@@ -212,57 +217,63 @@ pub fn card<A: ConnAccess>(
     }
     let (now, boot) = (clock.now_ms(), clock.boot_id());
     let (a, name, created_hash, thread) = access.write(|c| {
-        store::sweep(c, now, &boot)?;
-        let a = store::get(c, id)?
-            .filter(|a| a.status == "pending" && a.boot_id == boot && a.expires_at > now)
+        let approvals = SqlStore::new(c, &boot);
+        approvals.sweep(now)?;
+        // `pending` holds only this run's unexpired requests.
+        let a = approvals
+            .pending(at(now))
+            .map_err(|e| e.message)?
+            .into_iter()
+            .find(|a| a.id() == id && a.expires_at() > now)
             .ok_or("This request is no longer pending.")?;
-        let name = agent_name(c, &a.agent_id);
-        if a.kind == kinds::DELETE {
+        let name = agent_name(c, a.agent_id());
+        if a.kind() == kinds::DELETE {
             // A delete has no draft: the card shows the thread, read locally by id.
-            let t = approval_trash::summary(c, &a.account_id, &a.draft_id)?
+            let t = approval_trash::summary(c, a.account_id(), a.draft_id())?
                 .ok_or("This conversation is no longer available.")?;
-            let (hash, _) = approval_trash::thread_binding(c, &a.account_id, &a.draft_id)?;
+            let (hash, _) = approval_trash::thread_binding(c, a.account_id(), a.draft_id())?;
             return Ok((a, name, None, Some((t, hash))));
         }
-        let created = store::any_draft_hash(c, &a.agent_id, &a.account_id, &a.draft_id)?;
+        let created =
+            super::approval_store::any_draft_hash(c, a.agent_id(), a.account_id(), a.draft_id())?;
         Ok((a, name, created, None))
     })?;
     if let Some((t, hash)) = thread {
         return Ok(ApprovalCard {
-            id: a.id,
-            kind: a.kind,
+            id: a.id().to_string(),
+            kind: a.kind().to_string(),
             thread: Some(t),
             content_hash: hash,
             agent_name: name,
-            account: a.account_id,
-            expires_at: a.expires_at,
+            account: a.account_id().to_string(),
+            expires_at: a.expires_at(),
             ..ApprovalCard::default()
         });
     }
-    if a.kind == kinds::ATTACH {
+    if a.kind() == kinds::ATTACH {
         // An attach has no draft: the card shows the path and the size.
         return approval_attach::card(access, files, a, name);
     }
     let d = mailer
-        .fetch(&a.account_id, &a.draft_id)
+        .fetch(a.account_id(), a.draft_id())
         .map_err(|_| "The draft could not be read from Gmail.".to_string())?;
     let hash = d.hash();
     // A send compares the fields the agent's `draft` request set; a forward
     // was built by the app, so it compares the whole content hash taken when
     // the app re-read the new draft.
-    let created = if a.kind == kinds::FORWARD {
+    let created = if a.kind() == kinds::FORWARD {
         hash.clone()
     } else {
         d.creation_hash()
     };
     let html_text = d.html_text_if_different();
     Ok(ApprovalCard {
-        id: a.id,
-        kind: a.kind,
+        id: a.id().to_string(),
+        kind: a.kind().to_string(),
         thread: None,
         agent_name: name,
-        account: a.account_id,
-        expires_at: a.expires_at,
+        account: a.account_id().to_string(),
+        expires_at: a.expires_at(),
         edited_since_created: created_hash.as_deref() != Some(created.as_str()),
         content_hash: hash,
         reply_to: d.reply_to,
@@ -279,6 +290,30 @@ pub fn card<A: ConnAccess>(
     })
 }
 
+fn at(ms: i64) -> u64 {
+    ms.max(0) as u64
+}
+
+/// The claim: the core's decision rule moves the request from pending to approved (one guarded
+/// UPDATE, unexpired and from this run). The decision is the call from the app's own window, so
+/// there is no proof and no display digest here; the binding is checked after the claim, against
+/// the hash the card showed.
+fn claim_won(approvals: &SqlStore<'_>, id: &str, now: i64) -> Result<bool, String> {
+    let ruling = Ruling {
+        approve: true,
+        shown: None,
+        domain: "",
+        proof: None,
+        grant: Grant::Once {
+            valid_ms: STUCK_MS as u64,
+        },
+        reason: None,
+    };
+    rules::decide(approvals, id, &ruling, at(now))
+        .map(|won| won.is_some())
+        .map_err(|e| e.refusal().message)
+}
+
 enum Claim {
     Won(Approval),
     Done(Approval),
@@ -287,13 +322,15 @@ enum Claim {
 /// Refuse a claim whose agent lost its rights while the card was open.
 fn still_permitted(c: &rightkit_db::rusqlite::Connection, a: &Approval) -> Result<bool, String> {
     // An attach needs the draft profile; every mail kind needs send-with-approval.
-    let least = if a.kind == kinds::ATTACH {
+    let least = if a.kind() == kinds::ATTACH {
         super::outcome::Profile::Draft
     } else {
         super::outcome::Profile::SendWithApproval
     };
-    Ok(registry::get_agent(c, &a.agent_id)?.is_some_and(|g| {
-        g.revoked_at.is_none() && g.profile >= least && g.accounts.contains(&a.account_id)
+    Ok(registry::get_agent(c, a.agent_id())?.is_some_and(|g| {
+        g.revoked_at.is_none()
+            && g.profile >= least
+            && g.accounts.iter().any(|x| x == a.account_id())
     }))
 }
 
@@ -306,7 +343,8 @@ pub fn failed<A: ConnAccess>(
 ) -> Result<DecisionView, String> {
     let now = clock.now_ms();
     access.write(|c| {
-        if store::finish(c, &a.id, "approved", "failed", Some(reason), now, None)? {
+        let change = Change::to(State::Failed, at(now)).reason(reason);
+        if SqlStore::new(c, "").move_row(a.id(), State::Approved, &change)? {
             record_decision(
                 c,
                 a,
@@ -333,13 +371,14 @@ pub fn completed<A: ConnAccess>(
 ) -> Result<DecisionView, String> {
     let done = clock.now_ms();
     access.write(|c| {
-        if store::finish(c, &a.id, "approved", "sent", None, done, Some(result_id))? {
+        let change = Change::to(State::Done, at(done)).result(result_id);
+        if SqlStore::new(c, "").move_row(a.id(), State::Approved, &change)? {
             record_decision(c, a, Decision::Sent, counts)?;
         }
         Ok(())
     })?;
     Ok(DecisionView {
-        status: kinds::done_word(&a.kind),
+        status: kinds::done_word(a.kind()),
         reason: None,
     })
 }
@@ -361,35 +400,37 @@ pub fn approve<A: ConnAccess>(
     }
     let (now, boot) = (clock.now_ms(), clock.boot_id());
     let claim = access.write(|c| {
-        store::sweep(c, now, &boot)?;
-        let a = store::get(c, id)?.ok_or("No such approval.")?;
-        if a.status != "pending" {
+        let approvals = SqlStore::new(c, &boot);
+        approvals.sweep(now)?;
+        let a = approvals
+            .get(id)
+            .map_err(|e| e.message)?
+            .ok_or("No such approval.")?;
+        if a.state != State::Pending {
             return Ok(Claim::Done(a));
         }
+        let reread = |a: Approval| -> Result<Claim, String> {
+            Ok(Claim::Done(
+                approvals.get(id).map_err(|e| e.message)?.unwrap_or(a),
+            ))
+        };
         if !still_permitted(c, &a)? {
             // Revoked, lowered or narrowed since the request: nothing is sent.
-            if store::claim_approve(c, id, now, &boot)? {
-                store::finish(
-                    c,
-                    id,
-                    "approved",
-                    "failed",
-                    Some("not_permitted"),
-                    now,
-                    None,
-                )?;
+            if claim_won(&approvals, id, now)? {
+                let change = Change::to(State::Failed, at(now)).reason("not_permitted");
+                approvals.move_row(id, State::Approved, &change)?;
                 record_decision(c, &a, Decision::SendFailed, "reason=not_permitted")?;
             }
-            return Ok(Claim::Done(store::get(c, id)?.unwrap_or(a)));
+            return reread(a);
         }
         crate::host::host().guard(
             c,
             crate::host::MutationClass::ReversibleMutation,
-            kinds::guard_action(&a.kind),
-            Some(&a.account_id),
+            kinds::guard_action(a.kind()),
+            Some(a.account_id()),
         )?;
-        if !store::claim_approve(c, id, now, &boot)? {
-            return Ok(Claim::Done(store::get(c, id)?.unwrap_or(a)));
+        if !claim_won(&approvals, id, now)? {
+            return reread(a);
         }
         record_decision(c, &a, Decision::Approved, "")?;
         Ok(Claim::Won(a))
@@ -399,13 +440,13 @@ pub fn approve<A: ConnAccess>(
         Claim::Won(a) => a,
     };
     // No database lock is held from here on.
-    if a.kind == kinds::ATTACH {
+    if a.kind() == kinds::ATTACH {
         return approval_attach::finish(access, files, clock, &a, shown_hash);
     }
-    if a.kind == kinds::DELETE {
+    if a.kind() == kinds::DELETE {
         return approval_trash::finish_delete(access, trasher, clock, &a, shown_hash);
     }
-    let fetched = match mailer.fetch(&a.account_id, &a.draft_id) {
+    let fetched = match mailer.fetch(a.account_id(), a.draft_id()) {
         Ok(d) => d,
         Err(_) => return failed(access, clock, &a, "fetch_failed", ""),
     };
@@ -418,7 +459,8 @@ pub fn approve<A: ConnAccess>(
         Ok(message_id) => {
             let done = clock.now_ms();
             access.write(|c| {
-                if store::finish(c, &a.id, "approved", "sent", None, done, Some(&message_id))? {
+                let change = Change::to(State::Done, at(done)).result(&message_id);
+                if SqlStore::new(c, "").move_row(a.id(), State::Approved, &change)? {
                     record_decision(c, &a, Decision::Sent, &counts)?;
                 }
                 Ok(())
@@ -446,13 +488,29 @@ pub fn deny<A: ConnAccess>(
     }
     let (now, boot) = (clock.now_ms(), clock.boot_id());
     access.write(|c| {
-        store::sweep(c, now, &boot)?;
-        let a = store::get(c, id)?.ok_or("No such approval.")?;
-        if a.status == "pending"
-            && store::finish(c, id, "pending", "denied", Some("user"), now, None)?
+        let approvals = SqlStore::new(c, &boot);
+        approvals.sweep(now)?;
+        let a = approvals
+            .get(id)
+            .map_err(|e| e.message)?
+            .ok_or("No such approval.")?;
+        let ruling = Ruling {
+            approve: false,
+            shown: None,
+            domain: "",
+            proof: None,
+            grant: Grant::Once { valid_ms: 0 },
+            reason: Some("user"),
+        };
+        if a.state == State::Pending
+            && rules::decide(&approvals, id, &ruling, at(now))
+                .map_err(|e| e.refusal().message)?
+                .is_some()
         {
             record_decision(c, &a, Decision::Denied, "reason=user")?;
         }
-        Ok(view(&store::get(c, id)?.unwrap_or(a)))
+        Ok(view(
+            &approvals.get(id).map_err(|e| e.message)?.unwrap_or(a),
+        ))
     })
 }

@@ -3,7 +3,7 @@
   "capabilities": [
     {
       "capability": "approvals",
-      "summary": "Launch-secret approval challenges and tokens; declaration-only detection (no precise implementation fingerprint)",
+      "summary": "One approvals core: digest-bound requests, the decision and single-use rules, store and proof traits; declaration-only detection (no precise implementation fingerprint)",
       "fingerprints": [],
       "detection": "declaration-only",
       "policyNotes": [

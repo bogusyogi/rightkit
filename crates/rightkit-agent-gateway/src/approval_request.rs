@@ -12,9 +12,11 @@
 
 use super::approval::Clock;
 use super::approval_kind as kinds;
-use super::approval_store::{self as store, Approval};
+use super::approval_store::{self as store, Approval, MailApproval, SqlStore};
 use super::outcome::{from_db_error, AgentError};
 use super::registry::Agent;
+use rightkit_approvals::rules::{self, Limits};
+use rightkit_approvals::{Binding, Error, Origin, Request, Store};
 use rightkit_db::rusqlite::Connection;
 use serde_json::{json, Value};
 
@@ -22,20 +24,14 @@ fn db(e: String) -> AgentError {
     from_db_error(&e)
 }
 
-fn new_id() -> Result<String, String> {
-    let mut b = [0u8; 16];
-    getrandom::fill(&mut b).map_err(|e| format!("random: {e}"))?;
-    Ok(rightkit_crypto::base64url_encode(&b))
-}
-
 /// The reply while a request waits for the user.
 pub fn pending_reply(a: &Approval) -> Value {
     json!({
         "status": "approval_pending",
-        "kind": a.kind,
-        "approval_id": a.id,
-        "expires_at": a.expires_at,
-        "note": kinds::pending_note(&a.kind),
+        "kind": a.kind(),
+        "approval_id": a.id(),
+        "expires_at": a.expires_at(),
+        "note": kinds::pending_note(a.kind()),
     })
 }
 
@@ -55,12 +51,16 @@ pub fn check_room(
     target_key: &str,
 ) -> Result<(), AgentError> {
     let (now, boot) = (clock.now_ms(), clock.boot_id());
-    store::sweep(conn, now, &boot).map_err(db)?;
+    let approvals = SqlStore::new(conn, &boot);
+    approvals.sweep(now).map_err(db)?;
     let since = now - store::DECLINE_COOLDOWN_MS;
     if store::declined_since(conn, &agent.id, account, kind, target_key, since).map_err(db)? {
         return Err(AgentError::Quota(DECLINED_MESSAGE));
     }
-    if store::count_pending(conn, &agent.id).map_err(db)? >= store::PENDING_CAP {
+    let pending = approvals
+        .count_pending(Some(&agent.id), 0)
+        .map_err(|e| db(e.message))?;
+    if pending >= store::PENDING_CAP as usize {
         return Err(AgentError::RateLimited);
     }
     let deletes = kind == kinds::DELETE;
@@ -97,9 +97,10 @@ pub fn create_pending(
 ) -> Result<(Value, Option<String>), AgentError> {
     let (now, boot) = (clock.now_ms(), clock.boot_id());
     let key = key.unwrap_or(target);
-    store::sweep(conn, now, &boot).map_err(db)?;
+    let approvals = SqlStore::new(conn, &boot);
+    approvals.sweep(now).map_err(db)?;
     if let Some(a) = store::live_for_draft(conn, &agent.id, account, target, kind).map_err(db)? {
-        return match a.status.as_str() {
+        return match a.status() {
             "pending" => Ok((pending_reply(&a), None)),
             _ => Err(AgentError::BadRequest(
                 "That request already has an action in progress or done.".into(),
@@ -107,20 +108,28 @@ pub fn create_pending(
         };
     }
     check_room(conn, clock, agent, account, kind, key)?;
-    let a = Approval {
-        id: new_id().map_err(db)?,
-        agent_id: agent.id.clone(),
-        account_id: account.to_string(),
-        draft_id: target.to_string(),
-        created_at: now,
-        expires_at: now + store::TIMEOUT_MS,
-        boot_id: boot,
-        status: "pending".into(),
-        reason: None,
-        decided_at: None,
-        result_id: None,
+    let request = Request {
+        id: rightkit_approvals::new_id().map_err(|e| db(e.message))?,
         kind: kind.to_string(),
+        scope: account.to_string(),
+        origin: Origin {
+            client: agent.id.clone(),
+            ..Origin::default()
+        },
+        binding: Binding::new("", target),
+        detail: json!({ "target_key": key }),
+        created_ms: now.max(0) as u64,
+        expires_ms: (now + store::TIMEOUT_MS).max(0) as u64,
+        ..Request::default()
     };
-    store::insert_pending(conn, &a, key).map_err(db)?;
-    Ok((pending_reply(&a), Some(a.id)))
+    let limits = Limits {
+        pending_cap: store::PENDING_CAP as usize,
+        per_client: true,
+    };
+    let filed: Approval = match rules::file(&approvals, request, &limits, now.max(0) as u64) {
+        Ok(filed) => filed.record().clone(),
+        Err(Error::Busy) => return Err(AgentError::RateLimited),
+        Err(e) => return Err(db(e.refusal().message)),
+    };
+    Ok((pending_reply(&filed), Some(filed.id().to_string())))
 }

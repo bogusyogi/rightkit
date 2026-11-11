@@ -8,10 +8,11 @@
 use super::approval::Clock;
 use super::approval_kind as kinds;
 use super::approval_request::create_pending;
-use super::approval_store as store;
+use super::approval_store::{self as store, MailApproval, SqlStore};
 use super::outcome::AgentError;
 use super::read_handlers::str_param;
 use super::registry::Agent;
+use rightkit_approvals::Store;
 use rightkit_db::rusqlite::Connection;
 use serde_json::{json, Value};
 
@@ -50,7 +51,9 @@ pub fn create(
 ) -> Result<(Value, Option<String>), AgentError> {
     only_keys(params, &["account", "draft_id"])?;
     let draft_id = str_param(params, "draft_id", ID_MAX)?;
-    store::sweep(conn, clock.now_ms(), &clock.boot_id()).map_err(db)?;
+    SqlStore::new(conn, &clock.boot_id())
+        .sweep(clock.now_ms())
+        .map_err(db)?;
     // Only a draft this agent made with `draft`, in this account, can be sent.
     // A forward draft is not one: it is approved as a forward, never as a send.
     if store::draft_hash(conn, &agent.id, account, draft_id)
@@ -117,31 +120,33 @@ pub fn status(
 ) -> Result<Value, AgentError> {
     only_keys(params, &["approval_id"])?;
     let id = str_param(params, "approval_id", ID_MAX)?;
-    store::sweep(conn, clock.now_ms(), &clock.boot_id()).map_err(db)?;
-    let a = store::get(conn, id)
-        .map_err(db)?
-        .filter(|a| a.agent_id == agent.id)
+    let approvals = SqlStore::new(conn, &clock.boot_id());
+    approvals.sweep(clock.now_ms()).map_err(db)?;
+    let a = approvals
+        .get(id)
+        .map_err(|e| db(e.message))?
+        .filter(|a| a.agent_id() == agent.id)
         .ok_or_else(|| bad("No such approval."))?;
     let reason = a.reason.clone().unwrap_or_default();
-    let kind = a.kind.as_str();
-    match a.status.as_str() {
+    let kind = a.kind();
+    match a.status() {
         "pending" => Ok(json!({
             "status": "pending",
             "kind": kind,
-            "approval_id": a.id,
-            "expires_at": a.expires_at,
+            "approval_id": a.id(),
+            "expires_at": a.expires_at(),
         })),
-        "approved" => Ok(json!({"status": "approved", "kind": kind, "approval_id": a.id})),
+        "approved" => Ok(json!({"status": "approved", "kind": kind, "approval_id": a.id()})),
         "sent" if kind == kinds::ATTACH => Ok(json!({
             "status": kinds::done_word(kind),
             "kind": kind,
-            "approval_id": a.id,
-            "attachment": a.result_id,
+            "approval_id": a.id(),
+            "attachment": a.result,
         })),
         "sent" => Ok(json!({
             "status": kinds::done_word(kind),
             "kind": kind,
-            "approval_id": a.id,
+            "approval_id": a.id(),
         })),
         "denied" => Err(AgentError::ApprovalDenied(if reason == "user" {
             "user"

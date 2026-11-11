@@ -21,37 +21,11 @@ pub mod audit;
 pub mod protected_guard;
 pub mod redact;
 
-use serde_json::{Value, json};
 use std::sync::OnceLock;
 
-/// A refusal or failure, with a stable `code` a caller can rely on.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Refusal {
-    pub code: &'static str,
-    pub message: String,
-}
-
-impl Refusal {
-    pub fn new(code: &'static str, message: impl Into<String>) -> Refusal {
-        Refusal {
-            code,
-            message: message.into(),
-        }
-    }
-
-    /// `{"error": message, "code": code}`.
-    pub fn to_json(&self) -> Value {
-        json!({"error": self.message, "code": self.code})
-    }
-}
-
-impl std::fmt::Display for Refusal {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}: {}", self.code, self.message)
-    }
-}
-
-impl std::error::Error for Refusal {}
+/// The refusal type and `Result` of the `rightkit-approvals` core, re-exported: every approval
+/// path (this crate's signatures, the gateway's queue) refuses with the one type.
+pub use rightkit_approvals::{Refusal, Result};
 
 /// A refusal of an admin or phone request, with a stable code; `retryable` says whether the same
 /// request can succeed later.
@@ -86,9 +60,6 @@ impl std::fmt::Display for PhoneError {
 }
 
 impl std::error::Error for PhoneError {}
-
-/// `Result` with a [`Refusal`].
-pub type Result<T> = std::result::Result<T, Refusal>;
 
 /// What the approvals need from the agent gateway's PIN and unlock state. Install one with
 /// [`set_hooks`]; the gateway does it from its own `init`.

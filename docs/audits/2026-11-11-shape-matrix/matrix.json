@@ -7251,10 +7251,10 @@
      "mailright": 2083,
      "genright": 1485
     },
-    "basis": "rightkit-approvals is GenRight's paid-draft approval (launch-secret HMAC token, 'eyes' release, blender_finish). Pulse's signed owner approvals are in rightkit-owner-approvals and its pending queue in rightkit-remote-gateway/approvals.rs. MailRight's are in rightkit-agent-gateway/approval*.rs",
+    "basis": "the core all apps share; Pulse's binding rule is the reference",
     "referenceApp": "pulse",
-    "shape": "wrong",
-    "shapeReason": "Three apps, three unconnected approval implementations in four crates; the crate with the shared name depends on rightkit-media-gen and has GenRight draft kinds built in, so no other app can use it.",
+    "shape": "gaps",
+    "shapeReason": "One approvals core since 0.2.0 (branch): request, record, Pulse's digest binding, decide/take/session rules, Store and Proof traits, memory and file stores. Pulse's and MailRight's queues run on it; GenRight's studio code moved to rightkit-media-gen-approvals.",
     "apps": {
      "pulse": {
       "fit": "wrong",
@@ -7276,11 +7276,10 @@
      "Plan maps Pulse devicelink/phone.rs (3.6k) and winadmin service (3.5k) here; they are device-link and elevated-helper code"
     ],
     "actions": [
-     "Redraw rightkit-approvals as the core: Request {id, kind, scope, origin, client, bind digest of exact arguments, summary, detail, created, expires}; states pending/approved/denied/consumed/expired; single-use claim; caps and decline cooldown; ApprovalStore trait (memory, file, SQL); Proof trait (owner click with request digest, launch-secret HMAC, signed approver key)",
-     "Keep Pulse's rules as the reference: only the owner's app decides, the click is bound to a digest of what was shown, an approval is spent by one act",
-     "Move GenRight kinds (eyes, blender_finish) to a media-gen approvals crate that registers kinds; drop the media-gen dependency",
-     "Fold rightkit-owner-approvals in as the 'signed' Proof (or keep as -signed sub-crate); move its redact.rs and audit.rs out",
-     "Port agent-gateway/approval_store.rs and remote-gateway/approvals.rs onto the core"
+     "CodeRight: make PendingApprovalContext.payload_digest a mandatory core Binding (with the engine merge, decision 4)",
+     "MailRight: bind the decision to the display digest (needs a schema column)",
+     "owner to confirm decision 3",
+     "publish 0.2.0"
     ],
     "depth": "deep",
     "confidence": "high",
@@ -16044,10 +16043,10 @@
      "crates/rightkit-owner-approvals (0.1.1, on crates.io, 4,508 lines)"
     ],
     "feeds": {},
-    "basis": "Pulse's signed owner approvals (approval_sig.rs, admin_sig.rs, protected_guard/*), per family-agent-platform.md",
+    "basis": "Pulse's owner signing on the shared core",
     "referenceApp": "pulse",
-    "shape": "wrong",
-    "shapeReason": "Conclusion taken from family-agent-platform.md (section `rightkit-approvals (with rightkit-owner-approvals)`, lines 269-293): approvals exist as three unconnected implementations in four crates; this crate should become the `signed` proof of a redrawn rightkit-approvals core, with its redact.rs and audit.rs moved out.",
+    "shape": "gaps",
+    "shapeReason": "Its Refusal is the core's; the signed-key Proof (approval_sig::SignedApproval) implements the core Proof trait. Remaining owner-side code is Pulse's signing and redaction.",
     "apps": {
      "pulse": {
       "fit": "fits",
@@ -16068,9 +16067,8 @@
      "The plan has no row with this name; Pulse's 13,104 planned lines are under rightkit-approvals"
     ],
     "actions": [
-     "Follow the rightkit-approvals actions in matrix-rows-agent-platform.json: one core (request, states, single-use claim, store trait, proof trait); this crate becomes the signed proof or a `-signed` sub-crate",
-     "Move redact.rs and audit.rs to their owners",
-     "Do not publish further versions under this name until that decision is made"
+     "owner to confirm decision 3",
+     "publish 0.1.2"
     ],
     "depth": "light",
     "confidence": "medium",

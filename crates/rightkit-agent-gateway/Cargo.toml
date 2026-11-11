@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-agent-gateway"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Local agent gateway for a mail-style app: pairing registry, append-only audit log, request gate profiles and untrusted-content wrapping, over a host-implemented connection trait."
@@ -24,3 +24,4 @@ rightkit-crypto = { version = "0.1.0", path = "../rightkit-crypto" }
 rightkit-search = { version = "0.4.1", default-features = false, path = "../rightkit-search" }
 rightkit-mail = { version = "0.1.1", path = "../rightkit-mail" }
 rightkit-time = { version = "0.1.0", path = "../rightkit-time" }
+rightkit-approvals = { version = "0.2.0", default-features = false, path = "../rightkit-approvals" }

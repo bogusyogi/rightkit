@@ -1733,7 +1733,7 @@ fn train_preflight(ctx: &Context, input: &Value) -> GenResult<Value> {
     p["approval_challenge"] = Value::Null;
     if p["ready"].as_bool() == Some(true) {
         let plan_id = p["plan_id"].as_str().unwrap_or("").to_string();
-        p["approval_challenge"] = rightkit_approvals::issue_labeled(
+        p["approval_challenge"] = rightkit_media_gen_approvals::issue_labeled(
             ctx,
             "character_training",
             &plan_id,
@@ -1748,7 +1748,7 @@ fn train(ctx: &Context, input: &Value) -> GenResult<Value> {
     // Spend gate: only a token the running app minted starts a paid run. Checked before the plan
     // is read, so a caller without the app's secret learns nothing; `operator_approved`, a plan id
     // or the old echoed token approve nothing.
-    let gate = rightkit_approvals::gate(input)?;
+    let gate = rightkit_media_gen_approvals::gate(input)?;
     let p = plan(ctx, input)?;
     let cost = p["predicted_cost_usd"].as_f64().unwrap_or(0.0);
     if p["exceeds_cap"].as_bool() == Some(true) && !flag(input, "override_cap") {
@@ -1763,7 +1763,7 @@ fn train(ctx: &Context, input: &Value) -> GenResult<Value> {
     let plan_id = p["plan_id"].as_str().unwrap_or("");
 
     // Verify and consume the single-use token for exactly this plan; it approves one run.
-    let approval = rightkit_approvals::consume(
+    let approval = rightkit_media_gen_approvals::consume(
         ctx,
         &gate,
         "character_training",
@@ -1771,7 +1771,7 @@ fn train(ctx: &Context, input: &Value) -> GenResult<Value> {
         &training_approval_view(&p),
         plan_id,
     )?;
-    let approval = Value::Object(rightkit_approvals::approval_fields(&approval));
+    let approval = Value::Object(rightkit_media_gen_approvals::approval_fields(&approval));
 
     // One live training per approved plan: a retry returns it instead of paying twice.
     let token = plan_id;

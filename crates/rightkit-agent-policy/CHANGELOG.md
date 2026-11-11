@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.3 (unpublished)
+
+- `PayloadDigest::of` is the `rightkit-approvals` 0.2.0 core's `bind_of` over the tool name and the payload, byte for byte the digest it computed itself (each part length-prefixed, SHA-256, lowercase hex); the private copy is deleted. Decision 3 of the 2026-11-11 shape review (docs/audits/2026-11-11-shape-matrix/README.md, "Approvals") taken on the recommended option, pending the owner's confirmation; design note: docs/audits/2026-11-11-shape-matrix/reports/approvals-core-design.md.
+
 ## 0.1.2
 
 - Publishes the source changes made since 0.1.1 was published under the same version number (src/capabilities.rs, src/denial_tracking.rs, src/engine.rs, src/lib.rs, src/provenance.rs, src/shell_command.rs, src/trust.rs).

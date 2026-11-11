@@ -13,8 +13,9 @@
 
 use super::access::ConnAccess;
 use super::approval::{failed, Clock, DecisionView, MailFailure};
-use super::approval_store::{self as store, Approval};
+use super::approval_store::{Approval, MailApproval, SqlStore};
 use super::gate::{record_decision, Decision};
+use rightkit_approvals::{Change, State};
 use rightkit_db::rusqlite::{params, Connection, OptionalExtension};
 use rightkit_fs::digest::Sha256Hasher;
 use serde::Serialize;
@@ -34,8 +35,8 @@ pub struct ApprovedTrash {
 impl ApprovedTrash {
     fn mint(a: &Approval, message_ids: Vec<String>) -> ApprovedTrash {
         ApprovedTrash {
-            account: a.account_id.clone(),
-            thread_id: a.draft_id.clone(),
+            account: a.account_id().to_string(),
+            thread_id: a.draft_id().to_string(),
             message_ids,
         }
     }
@@ -196,7 +197,7 @@ pub fn finish_delete<A: ConnAccess>(
     a: &Approval,
     shown_hash: &str,
 ) -> Result<DecisionView, String> {
-    let (hash, ids) = access.read(|c| thread_binding(c, &a.account_id, &a.draft_id))?;
+    let (hash, ids) = access.read(|c| thread_binding(c, a.account_id(), a.draft_id()))?;
     if ids.is_empty() {
         return failed(access, clock, a, "thread_missing", "messages=0");
     }
@@ -209,8 +210,9 @@ pub fn finish_delete<A: ConnAccess>(
         Ok(()) => {
             let done = clock.now_ms();
             access.write(|c| {
-                if store::finish(c, &a.id, "approved", "sent", None, done, None)? {
-                    let local = apply_local_trash(c, &a.account_id, &a.draft_id);
+                let change = Change::to(State::Done, done.max(0) as u64);
+                if SqlStore::new(c, "").move_row(a.id(), State::Approved, &change)? {
+                    let local = apply_local_trash(c, a.account_id(), a.draft_id());
                     let note = if local.is_ok() {
                         counts.clone()
                     } else {

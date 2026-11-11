@@ -2,6 +2,8 @@
 
 Remote tools for agents on this computer: files, documents, terminals, processes, screen, app launch, media, clipboard, chat read and start, saved logins and payments; folder confinement, per-chat unlock, local approvals, owner settings and the activity trail.
 
+The local approvals (`approvals`) are the `rightkit-approvals` core: the engine keeps its record in the core `MemoryStore` and files, decides and uses requests through the core rules; this crate adds the doors, the hello-label filer, the unlock family and the owner's proofs.
+
 Moved into RightKit from Pulse (pulse-core remote/*) on 2026-11-01.
 
 ## What the host app supplies

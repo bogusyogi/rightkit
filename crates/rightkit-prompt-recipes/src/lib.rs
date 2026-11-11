@@ -3,7 +3,7 @@
 //!
 //! Each module owns its `studio.<area>.*` commands and its JSON data under `data/<area>/`
 //! (embedded at compile time). The commands run against a `rightkit_media_gen::Context` and the
-//! approval gate of `rightkit-approvals`.
+//! approval gate of `rightkit-media-gen-approvals`.
 
 use serde_json::Value;
 

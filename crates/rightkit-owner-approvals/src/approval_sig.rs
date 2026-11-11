@@ -511,6 +511,28 @@ pub fn verify(
     )
 }
 
+/// A signed approval as the core's [`rightkit_approvals::Proof`]: the enrolled key
+/// `signed.key_id` signed kind `approve` for the record's own id and client and for `digest`,
+/// the display digest the owner's device was shown. The core's decision rule then refuses the
+/// decision unless `digest` is the waiting request's own display digest.
+pub struct SignedApproval<'a> {
+    pub signed: &'a Signed,
+    pub digest: &'a str,
+}
+
+impl rightkit_approvals::Proof for SignedApproval<'_> {
+    fn verify(&self, record: &rightkit_approvals::Record) -> Result<()> {
+        let request = &record.request;
+        verify(
+            "approve",
+            &request.id,
+            self.digest,
+            &request.origin.client,
+            self.signed,
+        )
+    }
+}
+
 // ---- enrolment and revocation (owner path only) ------------------------------------------------
 
 /// Who may change the registry (enrol or revoke), first key included: the host app PIN, verified
