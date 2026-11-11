@@ -27,7 +27,7 @@
 //! queue of its own circle, so a stranger who knows a mailbox id can neither read nor block that
 //! mailbox's queue.
 //!
-//! Not here (see CHANGELOG 0.2.6, "open"): a socket or WebSocket adapter and deployment, the
+//! Not here (see the rightkit-daemon CHANGELOG, 0.2.6, "open"): a socket or WebSocket adapter and deployment, the
 //! concrete end-to-end cipher and its key agreement, direct connection and hole punching,
 //! push-wake, and persistence of the queue.
 

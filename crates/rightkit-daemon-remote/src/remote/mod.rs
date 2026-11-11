@@ -1,4 +1,4 @@
-//! rightkit-daemon remote transport: the daemon host capability (RK10), moved here from
+//! rightkit-daemon-remote host transport: the daemon host capability (RK10), moved here from
 //! the retired standalone daemon crate by the M7 merge.
 //!
 //! Implements the `daemon-api` v1 contract: three authorisation classes

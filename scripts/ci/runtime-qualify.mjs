@@ -71,17 +71,15 @@ const TRUSTED_COVERAGE = Object.freeze({
     defaultFeatures: true,
     coverage: Object.freeze({
       default: "local native socket/named-pipe echo: 64 held connections, 20000 verified requests, 30 seconds idle",
-      remote: "real loopback TLS listener, production-default durable daemon, ephemeral signed device enrollment, 10000 signed job writes, listener held idle; requires producer-provisioned per-run localhost TLS material",
       "remote-loopback": "real loopback HTTP listener and bearer authorization: 64 held TCP connections, 20000 verified echo requests, 30 seconds idle; token bucket retained with finite-load burst, no presence reaper configured",
       testing: "test-only; excluded",
       "test-mode": "test-only; excluded",
     }),
     workloads: Object.freeze([
       Object.freeze({ id: "local", features: null, bench: "budget", trailing: Object.freeze(["64", "20000", "30"]), env: Object.freeze(["RIGHTKIT_RUNTIME_SCRATCH_ROOT"]), intervalMs: 1000, description: "CI isolated native daemon echo: 64 held connections, 20000 verified requests, then 30 s idle" }),
-      Object.freeze({ id: "remote", features: "remote", bench: "remote_budget", trailing: Object.freeze(["10000", "30"]), env: Object.freeze(["RIGHTKIT_RUNTIME_SCRATCH_ROOT", "RIGHTKIT_DAEMON_BUDGET_TLS_CERT", "RIGHTKIT_DAEMON_BUDGET_TLS_KEY"]), profile: profileOf("remote", ["remote"], "submissions", 10000), intervalMs: null, description: "CI isolated TLS daemon: 10000 signed job submissions over a harness-provisioned ephemeral localhost certificate, then 30 s idle" }),
       Object.freeze({ id: "remote-loopback", features: "remote-loopback", bench: "budget", trailing: Object.freeze(["--loopback", "64", "20000", "30"]), env: Object.freeze([]), intervalMs: null, description: "CI isolated loopback HTTP daemon: 64 held connections, 20000 verified echo requests, then 30 s idle" }),
     ]),
-    requiredSources: Object.freeze(["crates/rightkit-daemon/src/server.rs", "crates/rightkit-daemon/src/remote/http.rs", "crates/rightkit-daemon/src/loopback/mod.rs"]),
+    requiredSources: Object.freeze(["crates/rightkit-daemon/src/server.rs", "crates/rightkit-daemon/src/loopback/mod.rs"]),
   }),
   // Wake-ups are gated as a delta over a bare Wry loop (runtime-budget.json ceilingBasis); each native bench child pairs
   // bare and measured processes itself, so the RESULT line carries bare_wakeups_per_s and wakeups_delta_per_s.

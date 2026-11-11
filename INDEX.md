@@ -12,7 +12,7 @@ Flagged mismatches: 1.
 
 The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `rustright`; its old `rightkit` alias is retired); it is not part of this inventory. `packages/build-control-policy` keeps the agent permission hooks.
 
-## Rust crates (217)
+## Rust crates (218)
 
 | Crate | Registry | Source | Published | Staged | Flag | Owns | What it is |
 |---|---|---|---|---|---|---|---|
@@ -98,7 +98,8 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 | `rightkit-crash` | crates.io | 0.3.8 | 0.3.6 | 0.3.8 | staged, not yet published | crash-reporting | Privacy-first panic capture, redacted crash reports, native dumps and support bundles for Right Suite apps. |
 | `rightkit-credentials` | crates.io | 0.5.1 | 0.4.2 | 0.5.1 | staged, not yet published | os-credential-store | Per-app OS credential storage for Right Suite apps: Keychain / Credential Manager / Linux Secret Service / Android Keystore, passive presence checks, non-interactive mode, guards that deny, DB-key provisioning, and migration. |
 | `rightkit-crypto` | crates.io | 0.1.3 | 0.1.0 | 0.1.3 | staged, not yet published | crypto-primitives | Neutral crypto primitives: SHA-256, HMAC, constant-time compare, base64/base64url, hex, BLAKE3, canonical JSON, approval tokens, Ed25519, ECDSA/RSA verify, AES-GCM and ChaCha20-Poly1305, HKDF, PBKDF2, TOTP, RNG and a wiped secret. |
-| `rightkit-daemon` | crates.io | 0.6.0 | 0.4.0 | 0.6.0 | staged, not yet published | local-services | One discovery/auth convention for Right Suite local services: service.json, ranking and takeover, current-user-only Unix socket / named pipe, per-app request allowlist. |
+| `rightkit-daemon` | crates.io | 0.7.0 | 0.4.0 | 0.7.0 | staged, not yet published | local-services | One discovery/auth convention for Right Suite local services: service.json, ranking and takeover, current-user-only Unix socket / named pipe, per-app request allowlist. |
+| `rightkit-daemon-remote` | crates.io | 0.1.0 | none recorded | 0.1.0 | staged, never published |  | Remote side of a Right Suite daemon: the daemon-api v1 HTTPS host for enrolled devices, the blocking rk-link/1 device client and the rk-relay/1 blind relay protocol. |
 | `rightkit-db` | crates.io | 0.5.6 | 0.5.2 | 0.5.6 | staged, not yet published | sqlite-storage | Correct-by-default SQLite and SQLCipher connection bootstrap for Right Suite apps. |
 | `rightkit-decimal` | crates.io | 0.1.0 | none recorded | 0.1.0 | staged, never published |  | Exact decimal owner: parse a decimal string, canonical form, total ordering and lt/le/eq/ge/gt comparison with no floats, bounded input, std only. |
 | `rightkit-deep-link` | crates.io | 0.1.1 | none recorded | 0.1.1 | staged, never published |  | Deep-link queue without Tauri: scheme validation, argv extraction and a bounded queue that holds links until the app is ready to take them. |

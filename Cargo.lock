@@ -11152,33 +11152,46 @@ dependencies = [
 
 [[package]]
 name = "rightkit-daemon"
-version = "0.6.0"
+version = "0.7.0"
+dependencies = [
+ "core-foundation 0.10.1",
+ "getrandom 0.4.3",
+ "rightkit-child-process",
+ "rightkit-fs",
+ "rightkit-sidecar",
+ "security-framework",
+ "serde",
+ "serde_json",
+ "subtle",
+ "tempfile",
+ "windows 0.62.2",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "rightkit-daemon-remote"
+version = "0.1.0"
 dependencies = [
  "axum",
  "base64 0.23.1",
  "blake3",
- "core-foundation 0.10.1",
  "form_urlencoded",
  "getrandom 0.4.3",
  "hyper",
  "hyper-util",
  "rightkit-child-process",
  "rightkit-contracts",
- "rightkit-fs",
+ "rightkit-daemon",
  "rightkit-identity",
  "rightkit-oauth",
- "rightkit-sidecar",
  "ring",
  "rustls",
- "security-framework",
  "serde",
  "serde_json",
  "subtle",
  "tempfile",
  "tokio",
  "tokio-rustls",
- "windows 0.62.2",
- "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -12690,6 +12703,7 @@ dependencies = [
  "rightkit-child-process",
  "rightkit-code-audit-provider-sdk",
  "rightkit-daemon",
+ "rightkit-daemon-remote",
  "rightkit-evidence-contracts",
  "rightkit-ffmpeg",
  "rightkit-fs",

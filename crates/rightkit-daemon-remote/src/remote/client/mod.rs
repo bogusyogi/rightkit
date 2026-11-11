@@ -10,8 +10,8 @@
 //! the caller supplies: there is no system-root fallback.
 //!
 //! ```no_run
-//! use rightkit_daemon::remote::client::{Client, ClientConfig, DeviceKey};
-//! # fn run(addr: std::net::SocketAddr, root_pem: &[u8], code: &str) -> Result<(), rightkit_daemon::remote::client::Error> {
+//! use rightkit_daemon_remote::remote::client::{Client, ClientConfig, DeviceKey};
+//! # fn run(addr: std::net::SocketAddr, root_pem: &[u8], code: &str) -> Result<(), rightkit_daemon_remote::remote::client::Error> {
 //! let client = Client::new(ClientConfig::new(addr).root_pem(root_pem)?)?;
 //! let pkcs8 = DeviceKey::generate_pkcs8()?; // the caller stores these bytes
 //! let device = client.enrol(code, DeviceKey::from_pkcs8(&pkcs8)?, Some("ci"))?;

@@ -8,11 +8,8 @@ Local service discovery and authentication for Right Suite apps. It owns the con
 
 ## Features
 
-`local` (default, the local transport described below), `link` (the outbound device link client, no tokio, axum or hyper), `remote` (the daemon host; implies `link`), `testing` (test host; implies `remote`), `remote-loopback` (loopback-only HTTP host with a bearer token; independent of `remote`, see below), `test-mode` (see `CHANGELOG.md`).
+`local` (default, the local transport described below) and `remote-loopback` (loopback-only HTTP host with a bearer token, see below). The remote HTTPS host, the device link client and the blind relay (the former `remote`, `link` and `relay` features) are the `rightkit-daemon-remote` crate since 0.7.0.
 
-### Outbound link (`link` / `remote`)
-
-A machine with no inbound port reaches the host over `rk-link/1`: a TLS connection upgraded with a device-signed `GET /v1/link`, then signed, numbered JSON-line frames in both directions. The host leases durable tasks to the device (`Daemon::enqueue_task`); exactly one device owns a task at a time, results are fenced by a lease epoch, a dropped link resumes and the host sends again every leased task the device has not acked, a lapsed lease re-queues once. The device side is `rightkit_daemon::link::client::LinkClient` (blocking, std and rustls only). See `CHANGELOG.md` (0.2.0) for the frame and lease rules.
 
 ## Platform support
 
@@ -155,21 +152,9 @@ It fails closed (`Err`) for a device caller (no OS peer), a peer with no pid, ui
 
 The executable is compared the way the client side does it (canonical path, or the same file by identity). Code signing is the caller's verifier: this crate links no signing API. On Windows run `WinVerifyTrust` on `HostProcess::executable` and compare the signer; on macOS build a `SecCode` from `HostProcess::audit_token` (the token the kernel captured at connect time) and check a `SecRequirement`. An unsigned-path match alone is only as strong as the file's location: anyone who can overwrite the expected executable passes.
 
-## Pairing a device by short code (`remote` feature)
-
-`Daemon::open_pairing(PairingOptions)` opens a window in which a device with no credential can run a short-authenticated-string exchange (`rk-pair/1`, the protocol and its argument are in `remote::pairing`): the device commits to its key and a nonce, the host answers with its own nonce, the device reveals, and both derive the same six-digit code from the whole transcript. The owner reads the code off the device and types it into the host (`confirm_pairing`); only a match enrols the committed key. Routes (unauthenticated, outside the daemon-api table like `/v1/link`): `POST /v1/pair`, `POST /v1/pair/{id}/reveal`, `GET /v1/pair/{id}`. Devices use `remote::pairing::PairingInitiator` (feature `link`).
-
-Bounds, all enforced in the daemon: nothing is served unless the owner opened a window; a window expires and serves one pairing; at most `max_pending` sessions at once and `max_begins` in total; a session lives `session_secs`; `max_wrong_codes` wrong codes burn a session and `max_failures` failures close the window. The code is only readable in process (`pairing_code`) and is in no event or response. Pairing state is memory only.
-
-`Daemon::forget_device(id)` (in process, never routed) removes a revoked device and everything keyed by its id so the same key can enrol again as a new device; see its documentation for what is removed and what is kept.
-
 ## Private per-run child service (`private`)
 
 For an app that runs its own engine as a child that only it may call (MailRight's core, issue #269). The parent makes a per-run suite (`Suite::per_run_temp`) and starts the child with `PrivateChild::spawn(OwnedCommand)`, which pipes stdin and writes a fresh 256-bit `PrivateSecret` to it as the first line (never an argument or environment variable). The child reads it with `PrivateSecret::read_from_stdin()`, hosts with `ServiceConfig::private_secret(secret)`, and calls `exit_when_stdin_closes(code)` (or `watch_stdin_eof`) so it ends when the parent does, however the parent ended. The parent connects with `ClientConfig::secret(..)` (use `connect_expecting` too: a secret goes to whatever answered). The `hello` and every `request` frame carry a top-level `secret`; the host compares it in constant time over a fixed-length buffer before any handler runs, and a missing or wrong one is answered `unauthenticated` and the connection closed. The secret adds to the same-user transport check; it does not replace it, and code running as the user that can read the child's stdin or memory is out of scope. `subtle` and `getrandom` are now unconditional dependencies (both small, already in the tree).
-
-## Blind relay (`relay` feature, `rk-relay/1`)
-
-The protocol pieces for devices that cannot reach each other directly: a relay that stores and forwards sealed bytes it cannot read, and the device side that talks to it. `relay::RelayCore` is the relay's state machine (challenge and ticket authentication, queues, caps, quota; no sockets or clock), `relay::RelaySession` is a device's side, and the cipher between devices is a `Sealer` the caller supplies. What the relay learns: mailbox and circle pseudonyms, who talks to whom, when, and how much. See the 0.2.6 changelog for what is not built yet (the cipher, a socket adapter, direct paths, push-wake, durable queues).
 
 The handshake can carry a second line: `PrivateChild::spawn_with_extra(command, secret, Some(line))` writes the secret line and then `line` before it returns, and `PrivateChild::write_line` sends a line later. A line may not contain a newline.
 
@@ -189,7 +174,7 @@ Failed secrets are limited (`src/fail_limit.rs`, ported from MailRight): five fa
 
 ## Loopback HTTP host (`remote-loopback` feature)
 
-CodeRight's current wire is HTTP/1.1 on `127.0.0.1` with a per-launch bearer token, a discovery file and a client-presence refcount. `loopback::Loopback` lets a shared owner provide that listener, parser and authentication instead of each app hand-rolling them. It is not the `remote` host: no TLS, no device signatures, no tokio, axum, hyper or rustls (std threads), and it neither enables `remote` nor is enabled by it. `releaseSwitches.remoteHost` stays false for desktop apps, and the release scanner's refusal of a desktop build with `remote` is unchanged; the scanner (outside this crate) gets its own rule for `remote-loopback`.
+CodeRight's current wire is HTTP/1.1 on `127.0.0.1` with a per-launch bearer token, a discovery file and a client-presence refcount. `loopback::Loopback` lets a shared owner provide that listener, parser and authentication instead of each app hand-rolling them. It is not the remote host (`rightkit-daemon-remote`, feature `remote`, a crate of its own since 0.7.0): no TLS, no device signatures, no tokio, axum, hyper or rustls (std threads), and it does not depend on that crate. `releaseSwitches.remoteHost` stays false for desktop apps, and the release scanner's refusal of a desktop build with the remote host is unchanged; the scanner (outside this crate) gets its own rule for `remote-loopback`.
 
 Every request goes through, before the app's `LoopbackApp::handle` runs: the global token bucket; a bounded parser (head, header-count, request-line and body limits, head and body timeouts, only `HTTP/1.1`, no `Transfer-Encoding`, no `Expect`, no repeated `Host`/`Authorization`/`Content-Length`, no dot or encoded-separator path); the `Host` rule (a loopback name on any port, so a rebound foreign name is refused with 421); the `Origin` rule (only origins the owner listed, or the host's own; `null` and anything else is 403; a cross-site state-changing request is refused even without `Origin`); the CORS preflight; `GET /health` (no credentials); credentials by route class; and the JSON guard (a state-changing body must be `application/json`, nested and sized within the crate's other limits). Credentials: bearer by default (`Authorization: Bearer`, the owner's legacy headers such as `X-CodeRight-Token`, and `?access_token=` only on routes declared `RouteSpec::bearer_query_token`, for event streams); `RouteSpec::public` for exact-match routes whose handler verifies its own signature; `RouteSpec::capability` for a capability in a header, path segment or cookie, verified by the owner's `CapabilityVerifier` (a cookie capability needs an allowed `Origin` to change state). A failed credential is counted by the failed-authentication limiter; a correct one is never refused by it. `LoopbackRecord` is the `daemon.port` line in CodeRight's PascalCase shape; `PresenceConfig` turns on `/clients` (attach, heartbeat, detach, list) with CodeRight's single live app, expiry and exit rule.
 
@@ -198,10 +183,6 @@ Every request goes through, before the app's `LoopbackApp::handle` runs: the glo
 ## Messages above one frame (`chunk`)
 
 The 16 MiB frame limit stays the cap on every frame. `Client::call_large` sends a larger request in pieces through the reserved `rk.upload` method, which the host assembles under a separate `HostOptions::max_message` bound. Chunking is off by default (`max_message` 0; the host refuses `rk.upload`): a service that takes large calls opts in with a size, for example `HostOptions::new().max_message(chunk::SUGGESTED_MAX_MESSAGE)` (64 MiB). The first piece is authorised before anything is buffered, a connection holds one assembly, and the assembled text is bounded in nesting and value count before it is parsed. On Unix `HostOptions::max_connections` (default 64) caps concurrent connections (see "Supervising a daemon-pipe child" for the slots kept beyond it and the handshake deadline). A client that calls through `call_large` gets an oversized result back in pieces (`rk.fetch`) instead of `response_too_large`. A plain `Client::call` is unchanged. Events keep the frame limit. A shared-file handoff is not built; see the 0.2.7 changelog.
-
-## Public routes (`remote` feature)
-
-An application route that needs no device signature (a provider webhook, a callback, a redirect) is registered with `Daemon::add_public_route(method, path, body_limit, handler)`. The method and path must match exactly, the path may not be under `/v1`, and the handler does its own verification over `Request::body`. Public routes are checked before any device check and before the daemon-api table.
 
 ## Stop, ticker and heartbeat (`stop`, `ticker`)
 
@@ -214,10 +195,6 @@ There is no test mode, no `test-mode` feature, no `Mode::Test`, no `test_selecto
 ## Listener (`transport`)
 
 `Listener::bind`, `accept` (returning `Accepted::Conn(Conn)`, `Accepted::Rejected` or `Accepted::Vanished`), `wake` and `cleanup` are public. Each accepted peer is checked for the current user before any byte is read.
-
-## Operator surface (`remote` feature)
-
-`Daemon::list_devices` (every device, revoked ones marked, `linked` while a link is open, never the key), device roles (`role:<name>` scopes granted at enrolment; `Caller::role`, `CallContext::role`, and `MethodPolicy::remote(["role:operator"])` to gate a method), and an event cursor for live screens (`Daemon::events_since`, `wait_events`; every event now carries a `seq`). See the 0.2.7 changelog for what issue #306 asks for that is not built.
 
 ## App-root migration (`AppRoot::migrate_from`)
 
@@ -241,7 +218,7 @@ A request is bound to one effect digest, decided by a principal an app-supplied 
 
 ## Service registration (`Registration`)
 
-`Service::builder().register(&suite, Registration::new(identity).method(descriptor, handler)?, HostOptions::new())?.start()?` hosts a service from one declaration: identity, method descriptors and a closure per method. It uses the local transport only (current-user-only socket or pipe); a `TransportProfile::Local` registration refuses remote-reachable methods and a remote daemon.
+`Service::builder().register(&suite, Registration::new(identity).method(descriptor, handler)?, HostOptions::new())?.start()?` hosts a service from one declaration: identity, method descriptors and a closure per method. It uses the local transport only (current-user-only socket or pipe); a `TransportProfile::Local` registration refuses remote-reachable methods. Signed devices reach the same method table and handler through `rightkit-daemon-remote` (`Daemon::with_calls(DeviceCalls::new(table, handler))`); `ServiceBuilder::remote` left with that crate in 0.7.0.
 
 ## Threat model
 

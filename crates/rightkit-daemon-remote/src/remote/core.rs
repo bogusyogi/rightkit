@@ -24,7 +24,6 @@ pub use self::pairing::{PairedDevice, PairingError, PairingInfo, PairingOptions,
 pub use self::tasks::{TaskInfo, TaskSpec};
 pub use crate::remote::events::EventsPage;
 
-use crate::record::write_atomic;
 use crate::remote::call::DeviceCalls;
 use crate::remote::config::DaemonConfig;
 use crate::remote::events::EventLog;
@@ -37,6 +36,7 @@ use crate::remote::state::{
     Device, EnrolCode, IdemRecord, InboxItem, Job, State, TaskStatus, Upload, UploadDone,
 };
 use crate::remote::util::{ct_eq, hex, random_bytes, sha256_hex, unhex, Clock};
+use rightkit_daemon::write_atomic;
 
 /// A fully read request. Header names are lower-case.
 #[derive(Debug, Clone, Default)]
@@ -796,7 +796,7 @@ impl Daemon {
                 device_id: id.clone(),
                 label: d.label.clone(),
                 scopes: d.scopes.clone(),
-                role: crate::contract::role_of(d.scopes.iter().map(String::as_str))
+                role: rightkit_daemon::contract::role_of(d.scopes.iter().map(String::as_str))
                     .map(str::to_string),
                 enrolled_at: d.enrolled_at,
                 revoked: d.revoked,

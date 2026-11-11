@@ -61,9 +61,8 @@ mod host_identity;
 mod incumbent;
 pub mod install;
 pub mod lifecycle;
-#[cfg(feature = "link")]
-pub mod link;
-/// Loopback-only HTTP host with a bearer token (`remote-loopback` feature, not `remote`).
+/// Loopback-only HTTP host with a bearer token (`remote-loopback` feature). The remote HTTPS host
+/// is the `rightkit-daemon-remote` crate.
 #[cfg(feature = "remote-loopback")]
 pub mod loopback;
 pub mod metrics;
@@ -73,12 +72,7 @@ mod peer_signature;
 pub mod private;
 mod record;
 mod registration;
-#[cfg(feature = "relay")]
-pub mod relay;
 pub mod reload;
-/// Daemon host (`remote` feature) and device client (`link` feature); see the module docs.
-#[cfg(any(feature = "remote", feature = "link"))]
-pub mod remote;
 mod root_cutover;
 mod server;
 mod service;

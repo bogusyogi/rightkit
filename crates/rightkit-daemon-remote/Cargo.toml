@@ -1,0 +1,94 @@
+[package]
+name = "rightkit-daemon-remote"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.98.0"
+description = "Remote side of a Right Suite daemon: the daemon-api v1 HTTPS host for enrolled devices, the blocking rk-link/1 device client and the rk-relay/1 blind relay protocol."
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/bogusyogi/rightkit"
+readme = "README.md"
+keywords = ["daemon", "device", "tls", "relay"]
+categories = ["network-programming"]
+include = ["src/**", "schemas/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+
+[dependencies]
+# The local service the remote side builds on: the method table, handler and call context the
+# device route dispatches to, the typed service error, and the atomic owner-only record write.
+rightkit-daemon = { version = "0.7.0", path = "../rightkit-daemon", default-features = false }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+subtle = "2.6"
+getrandom = "0.4"
+
+# `link` (device client) and `remote` (daemon host) dependencies, all optional. `link` carries no
+# tokio, axum or hyper.
+base64 = { version = "0.23", optional = true }
+blake3 = { version = "1", optional = true }
+form_urlencoded = { version = "1", optional = true }
+ring = { version = "0.17", optional = true }
+rightkit-identity = { version = "0.1.1", path = "../rightkit-identity", optional = true }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"], optional = true }
+# `remote` only.
+rightkit-child-process = { version = "0.5.7", path = "../rightkit-child-process", optional = true }
+rightkit-contracts = { version = "0.1.8", path = "../rightkit-contracts", default-features = false, optional = true }
+rightkit-oauth = { version = "0.10.0", path = "../rightkit-oauth", default-features = false, features = ["server"], optional = true }
+axum = { version = "0.8", default-features = false, features = ["http1", "tokio"], optional = true }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "sync", "time", "io-util"], optional = true }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"], optional = true }
+hyper = { version = "1", features = ["http1", "server"], optional = true }
+hyper-util = { version = "0.1", features = ["tokio", "service", "server-graceful"], optional = true }
+
+[features]
+default = []
+# Blocking device client (enrol, signed requests, resumable upload, `rk-link/1` link client)
+# pinned to caller-supplied roots. No tokio, axum or hyper. Enables `link`, `remote::client`,
+# `remote::signing` and `remote::pairing`.
+link = ["dep:base64", "dep:blake3", "dep:ring", "dep:rightkit-identity", "dep:rustls"]
+# `rk-relay/1`: the blind relay and mailbox protocol (frames, relay state machine, device session).
+# Transport-free; needs only what `link` already carries.
+relay = ["link"]
+# Daemon host: HTTPS listener, device enrolment and signed requests, OAuth callback and signed
+# webhook route classes, durable state and lifecycle events (daemon-api v1). Implies `link`. A
+# desktop app does not ship it: `@rightkit/release` refuses it unless the app declares
+# `releaseSwitches.remoteHost: true`.
+remote = [
+  "link",
+  "dep:axum",
+  "dep:form_urlencoded",
+  "dep:hyper",
+  "dep:hyper-util",
+  "dep:rightkit-child-process",
+  "dep:rightkit-contracts",
+  "dep:rightkit-oauth",
+  "dep:tokio",
+  "dep:tokio-rustls",
+]
+
+[[bench]]
+name = "remote_budget"
+path = "benches/remote_budget.rs"
+harness = false
+required-features = ["remote"]
+
+[dev-dependencies]
+tempfile = "3"
+
+[package.metadata.rightkit]
+# The listener and the link thread live only while the caller holds the value that runs them; the
+# relay and the daemon core are transport-free (docs/RUNTIME-BUDGETS.md, held-resource). The remote
+# profile of rightkit-daemon's runtime budget (no measurement was ever recorded) is not carried.
+continuous = "held-resource"
+
+[[package.metadata.rightkit.resources]]
+api = "serve_blocking"
+file = "src/remote/http.rs"
+holds = ["listener", "task", "thread"]
+scale = "one TLS listener and an owned tokio runtime (2 workers, at most 32 blocking threads) for the caller's Daemon; at most 1024 connections, one task each, plus one heartbeat task per open rk-link/1 link; serve (async) holds the same listener and tasks on the caller's runtime"
+release = "StopHandle::stop"
+
+[[package.metadata.rightkit.resources]]
+api = "LinkClient::start"
+file = "src/link/client.rs"
+holds = ["thread"]
+scale = "one link thread per LinkHandle, plus one short-lived thread per task the host leases to the device"
+release = "Drop"

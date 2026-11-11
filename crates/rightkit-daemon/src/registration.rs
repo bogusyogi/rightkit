@@ -18,12 +18,13 @@
 //! or reserved, a method that is reachable by remote devices needs the
 //! [`TransportProfile::LocalAndRemote`] profile). It adds no transport. The only listener a
 //! service has is the local one [`Service::builder`](crate::Service::builder) already hosts (a
-//! current-user-only socket or pipe); nothing here opens a network address, and a service
-//! registered with [`TransportProfile::Local`] refuses `ServiceBuilder::remote` at `start`. That
-//! is what lets an app satisfy "hosts a service" without registering a public listener.
+//! current-user-only socket or pipe); nothing here opens a network address. That is what lets an
+//! app satisfy "hosts a service" without registering a public listener. A remote device host is
+//! the `rightkit-daemon-remote` crate (since 0.7.0); it should be given only a registration whose
+//! [`profile`](Registration::profile) is [`TransportProfile::LocalAndRemote`].
 //!
-//! The method table remains the one source of method policy: the local allowlist and, with the
-//! `remote` feature, the device route table are both derived from it, exactly as for a hand-built
+//! The method table remains the one source of method policy: the local allowlist and the device
+//! route table of `rightkit-daemon-remote` are both derived from it, exactly as for a hand-built
 //! [`Handler`].
 
 use std::collections::BTreeMap;
@@ -43,8 +44,7 @@ use crate::Allowlist;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum TransportProfile {
-    /// The local transport only. No method may be reachable by a remote device, and the builder
-    /// refuses a remote daemon.
+    /// The local transport only. No method may be reachable by a remote device.
     Local,
     /// The local transport, and signed remote devices for the methods whose policy names them.
     LocalAndRemote,
@@ -166,6 +166,8 @@ pub enum RegistrationError {
     /// A method is reachable by remote devices but the profile is [`TransportProfile::Local`].
     RemoteMethodInLocalProfile(String),
     /// A remote daemon was configured for a service registered with [`TransportProfile::Local`].
+    /// [`ServiceBuilder`](crate::ServiceBuilder) hosts only locally since 0.7.0 and no longer
+    /// returns it; it stays for a remote transport that is handed such a registration.
     RemoteNotDeclared,
     /// No method was registered.
     NoMethods,

@@ -2233,7 +2233,7 @@
         "rightkit-credentials = { version = \"=0.4.0\", default-features = false }",
         "rightkit-http = { version = \"0.3\", default-features = false }"
       ],
-      "consumes": "rightkit-daemon/src/remote/oauth.rs::FlowOAuthHandler; PK06-5 existing remote consumer; PK10-3 typed OAuth port is consumer-facing abstraction, not DB ownership",
+      "consumes": "rightkit-daemon-remote/src/remote/oauth.rs::FlowOAuthHandler; PK06-5 existing remote consumer; PK10-3 typed OAuth port is consumer-facing abstraction, not DB ownership",
       "files": {
         "Cargo.toml": "e965060bdd8881138d97b0536b21e3a74173eb6dc2e5eccc10ca1333cbbcd636",
         "src/main.rs": "cf445197f627d3b5150e7e4837ec6bb2f209c644cbded7a6cf70382e75dcbf4c"
@@ -2371,18 +2371,18 @@
     "rightkit-daemon": {
       "pkId": "PK07",
       "id": "ci/consumers/rightkit-daemon/src/main.rs",
-      "dependency": "rightkit-daemon = { version = \"=0.6.0\" }",
+      "dependency": "rightkit-daemon = { version = \"=0.7.0\" }",
       "extraDependencies": [
         "serde_json = \"1\""
       ],
       "gateEvidence": "per-run private temp suites removed on drop; local current-user IPC to same process for PK07 R2; no TCP or real user data",
       "consumes": "PK07 named consumers per docs/plans/2026-10-20-rightkit-implementation/01-packages.md: HeardRight and ScrapeRight data-folder move; Pulse migrated_app_root() retirement (PK07-3); CutoverParticipant surface at crates/rightkit-daemon/src/root_cutover.rs:231; PK07 R2 Service builder/local host, Client::connect_expecting, echo, method/app denial & executable mismatch",
       "files": {
-        "Cargo.toml": "061bf0dc0f304980dc5f7d15b17f9899916237542bdd15da8b5d9094ef09240f",
-        "README.md": "87981cb3e7879a0d913732718db14d9516242e6a7065b5f26630c64207da6f5e",
-        "src/main.rs": "69d6ec612233fc14702a5aa55fd20bc31af0d3aff37755339452f060c9c35593"
+        "Cargo.toml": "79eab233c8e292eec8daef8a75ea1a3f9c54fc13c034a96a4f26d0fdaa60b96e",
+        "README.md": "acbd56e5217b24771853e4025145ecebce89875d37fb6aa7a224bc31a77beca3",
+        "src/main.rs": "2214d3f3a7e90b5b0554b325178084762357c75d08d8aed84cfc8c333182259e"
       },
-      "aggregateSha256": "757bad71bae3a76207c7f249a16b5cabf386714627d2e30b4a40f5f0873ef5a6"
+      "aggregateSha256": "9d7ca8eb0e37d9cbe5f8df3d9d25e24a7e6bfe6b862ef804712eb0c053bb4e91"
     },
     "rightkit-qa": {
       "pkId": "PK14",
@@ -3707,6 +3707,15 @@
         "Cargo.toml": "9430302efcd8d98a9d0e16b1a52456bfcde9329fa1de3c7e9e6c6f0ea403762d",
         "README.md": "c46af034cd1be81a52df535e763b2ddb90f3857cf6a04f2a065fea3941967724",
         "src/main.rs": "4dcce5115cd8481576bf0d48d399d69a854ba33a20de7d4a2dff17a5d71fc2c7"
+      }
+    },
+    "rightkit-daemon-remote": {
+      "pkId": "PK215",
+      "id": "ci/consumers/rightkit-daemon-remote/src/main.rs",
+      "files": {
+        "Cargo.toml": "f5e096406875c0d5e7b5b169e7027051df582a5b28edf0226c3a329067461e9b",
+        "README.md": "35f149bc0b514136fb6b52324b3102de1199a68862657cf48d30d994136bbffb",
+        "src/main.rs": "c1441fdf44f95b9a16564ffab67d8512ba70fe036dac1d1f82b9cb9ca11a9912"
       }
     },
     "rightkit-agent-demo": {

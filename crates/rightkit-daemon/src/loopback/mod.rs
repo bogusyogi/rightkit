@@ -4,15 +4,16 @@
 //! bearer token, a discovery file with the port and the token, and the client-presence refcount.
 //! The spec's decision (D5) is to preserve that wire for its current clients (the window, the CLI,
 //! the SSH-tunnel and phone clients) and let a shared owner provide the listener, the parser and the
-//! authentication, so an app stops hand-rolling them. It is **not** the daemon's `remote` host:
+//! authentication, so an app stops hand-rolling them. It is **not** the remote host, which is its
+//! own crate since 0.7.0 (`rightkit-daemon-remote`, feature `remote`):
 //!
 //! * `remote` is a TLS listener for enrolled devices with signed requests (`RK-Device`), durable
 //!   enrolment state and the `daemon-api` v1 contract. A desktop app never ships it, and
 //!   `releaseSwitches.remoteHost` stays false for desktop apps.
-//! * `remote-loopback` is a different feature. It binds loopback only, speaks plain HTTP with a
+//! * `remote-loopback` is this crate's feature. It binds loopback only, speaks plain HTTP with a
 //!   bearer token or an owner-declared capability, and needs no tokio, axum, hyper, rustls or
-//!   device state: it is std threads over `TcpListener`. It does not enable `remote` and is not
-//!   enabled by it (the `loopback_features` test pins that). The release scanner (outside this
+//!   device state: it is std threads over `TcpListener`. It does not depend on
+//!   `rightkit-daemon-remote`. The release scanner (outside this
 //!   crate, `release-switch-scan.mjs`, PK17-2) keeps refusing a desktop build that enables
 //!   `remote`; it gets its own rule for this feature.
 //!
@@ -20,8 +21,8 @@
 //! status table ([`ServiceError`], `contract::status_for_error`), the
 //! failed-authentication limiter (`FailLimiter`), the JSON depth and node guard (`chunk`), the
 //! atomic owner-only record write (`record::write_atomic`), and the process-birth identity check
-//! (`rightkit-child-process`). The `remote` router itself is axum and device-signature bound, so it
-//! cannot be reused without enabling `remote`; the loopback host keeps its own small request
+//! (`rightkit-child-process`). The remote router itself is axum and device-signature bound, so it
+//! cannot be reused without the remote host; the loopback host keeps its own small request
 //! pipeline, written to the same rules (bounded body, refuse-before-handler, no env or request
 //! field sets a role).
 //!

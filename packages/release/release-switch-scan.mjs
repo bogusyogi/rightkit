@@ -103,14 +103,17 @@ export function featureClosureFindings(treeText, { forbidden = [...REGISTRY.forb
   return findings;
 }
 
-// M7 lane E: rightkit-daemon `remote` (the HTTPS host with tokio, axum and hyper) may enter a release graph only for an app
-// that declares `releaseSwitches.remoteHost: true` (the Hetzner Pulse and PostRight server builds). `testing` implies `remote`,
-// so it is caught by the same line. Fail-closed: a value other than a boolean throws, and `false` or an absent key refuses.
-// PK17-2: a `remote` that appears ONLY beneath the daemon `remote-loopback` feature (the loopback feature enables the shared
-// router and auth internals) is not a host declaration; that case is judged by `remoteLoopbackFindings`, not here. Any other
-// path to `remote` (a direct request, `testing`, another crate's feature) is still refused exactly as before.
-export const REMOTE_SERVICE_CRATE = "rightkit-daemon";
+// M7 lane E: the `remote` feature of rightkit-daemon-remote (the HTTPS host with tokio, axum and hyper; rightkit-daemon's own
+// `remote` feature until rightkit-daemon 0.7.0) may enter a release graph only for an app that declares
+// `releaseSwitches.remoteHost: true` (the Hetzner Pulse and PostRight server builds). Its `link` and `relay` features (the device
+// client and the relay protocol, no listener) are not a host. Fail-closed: a value other than a boolean throws, and `false` or an
+// absent key refuses. PK17-2: a `remote` that appears ONLY beneath the daemon `remote-loopback` feature is not a host
+// declaration; that case is judged by `remoteLoopbackFindings`, not here (since rightkit-daemon 0.7.0 the loopback feature
+// enables nothing in rightkit-daemon-remote, so the exception can no longer apply). Any other path to `remote` is refused.
+export const REMOTE_SERVICE_CRATE = "rightkit-daemon-remote";
 export const REMOTE_SERVICE_FEATURE = "remote";
+// The loopback host stays in rightkit-daemon with the local service (2026-11-11 shape review).
+export const REMOTE_LOOPBACK_CRATE = "rightkit-daemon";
 export const REMOTE_LOOPBACK_FEATURE = "remote-loopback";
 
 // Feature lines of a `cargo tree -e features` text with their parent. Default `--prefix indent` output indents each level by
@@ -130,7 +133,7 @@ function featureTreeEntries(treeText) {
   }
   return entries;
 }
-const impliedByLoopback = (entry) => entry.parent?.crate === REMOTE_SERVICE_CRATE && entry.parent?.feature === REMOTE_LOOPBACK_FEATURE;
+const impliedByLoopback = (entry) => entry.parent?.crate === REMOTE_LOOPBACK_CRATE && entry.parent?.feature === REMOTE_LOOPBACK_FEATURE;
 
 export function remoteServiceFindings(treeText, { remoteHost = false } = {}) {
   if (typeof remoteHost !== "boolean") throw new Error(`releaseSwitches.remoteHost must be true or false, got ${JSON.stringify(remoteHost)}`);
@@ -153,9 +156,9 @@ export function remoteLoopbackFindings(treeText, { remoteLoopback = false } = {}
   if (typeof remoteLoopback !== "boolean") throw new Error(`releaseSwitches.remoteLoopback must be true or false, got ${JSON.stringify(remoteLoopback)}`);
   if (remoteLoopback) return [];
   for (const entry of featureTreeEntries(treeText)) {
-    if (entry.crate !== REMOTE_SERVICE_CRATE || entry.feature !== REMOTE_LOOPBACK_FEATURE) continue;
+    if (entry.crate !== REMOTE_LOOPBACK_CRATE || entry.feature !== REMOTE_LOOPBACK_FEATURE) continue;
     const id = "remote-loopback-undeclared";
-    return [{ layer: "feature-closure", rule: id, file: "<cargo tree>", reason: `${id}: crate \`${REMOTE_SERVICE_CRATE}\` has feature \`${REMOTE_LOOPBACK_FEATURE}\` enabled in the resolved graph, but the app does not declare releaseSwitches.remoteLoopback: true (only a headless engine build that serves its own loopback API may enable it; releaseSwitches.remoteHost does not cover it)` }];
+    return [{ layer: "feature-closure", rule: id, file: "<cargo tree>", reason: `${id}: crate \`${REMOTE_LOOPBACK_CRATE}\` has feature \`${REMOTE_LOOPBACK_FEATURE}\` enabled in the resolved graph, but the app does not declare releaseSwitches.remoteLoopback: true (only a headless engine build that serves its own loopback API may enable it; releaseSwitches.remoteHost does not cover it)` }];
   }
   return [];
 }

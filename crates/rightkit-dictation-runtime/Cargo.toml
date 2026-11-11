@@ -24,7 +24,7 @@ rightkit-dictation-inference = { version = "0.1.0", path = "../rightkit-dictatio
 rightkit-dictation-command-host = { version = "0.1.0", path = "../rightkit-dictation-command-host" }
 rightkit-automation = { version = "0.6.4", path = "../rightkit-automation", features = ["desktop-context"] }
 rightkit-speech-client = { version = "0.4.1", path = "../rightkit-speech-client" }
-rightkit-daemon = { version = "0.6.0", path = "../rightkit-daemon" }
+rightkit-daemon = { version = "0.7.0", path = "../rightkit-daemon" }
 rightkit-child-process = { version = "0.5.7", path = "../rightkit-child-process" }
 rightkit-sidecar = { version = "0.3.0", path = "../rightkit-sidecar" }
 rightkit-job-queue = { version = "0.5.1", default-features = false, features = ["protocol"], path = "../rightkit-job-queue" }

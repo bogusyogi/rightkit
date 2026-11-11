@@ -26,8 +26,8 @@ minimize = ["dep:regex", "dep:sha2", "dep:hex", "dep:thiserror", "serde_json/pre
 render-qa = ["dep:rightkit-video-project", "dep:rightkit-timeline", "dep:rightkit-ffmpeg", "dep:rightkit-fs", "dep:rightkit-child-process", "dep:chrono", "dep:tempfile", "dep:thiserror"]
 # Phone review and pause surface over a daemon's public routes (rightkit#1489): per-device HMAC-stored bearer tokens bound to
 # one account, approve, reject, resolve and pause routes, autonomy gating, failed-auth rate limiting and revision 409s.
-# Pulls rightkit-daemon's `remote` host, so only a host that already carries it enables this.
-phone = ["dep:rightkit-daemon", "dep:ring"]
+# Pulls the `remote` host of rightkit-daemon-remote, so only a host that already carries it enables this.
+phone = ["dep:rightkit-daemon", "dep:rightkit-daemon-remote", "dep:ring"]
 # Dev/test only: `render_qa::critic::default_critic_binary` honours RIGHTKIT_CRITIC_BIN. Never in a shipped build.
 
 [dependencies]
@@ -47,7 +47,8 @@ rightkit-timeline = { version = "0.1.0", path = "../rightkit-timeline", optional
 rightkit-ffmpeg = { version = "0.3.0", path = "../rightkit-ffmpeg", default-features = false, optional = true }
 rightkit-fs = { version = "0.4.9", path = "../rightkit-fs", default-features = false, features = ["fs", "blake3", "zip"], optional = true }
 rightkit-child-process = { version = "0.5.7", path = "../rightkit-child-process", optional = true }
-rightkit-daemon = { version = "0.6.0", path = "../rightkit-daemon", default-features = false, features = ["remote"], optional = true }
+rightkit-daemon = { version = "0.7.0", path = "../rightkit-daemon", default-features = false, optional = true }
+rightkit-daemon-remote = { version = "0.1.0", path = "../rightkit-daemon-remote", features = ["remote"], optional = true }
 ring = { version = "0.17", optional = true }
 
 # Citationberg is pulled by rightkit-typeset through rightkit-captions (video-project); see the vendored fix.

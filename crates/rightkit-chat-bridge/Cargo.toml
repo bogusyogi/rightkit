@@ -28,7 +28,7 @@ rightkit-device-link-types = { version = "0.1.0", path = "../rightkit-device-lin
 rightkit-app-settings = { version = "0.4.0", path = "../rightkit-app-settings" }
 rightkit-child-process = { version = "0.5.7", path = "../rightkit-child-process" }
 rightkit-crypto = { version = "0.1.0", path = "../rightkit-crypto" }
-rightkit-daemon = { version = "0.6.0", default-features = false, path = "../rightkit-daemon" }
+rightkit-daemon = { version = "0.7.0", default-features = false, path = "../rightkit-daemon" }
 rightkit-db = { version = "0.5.3", features = ["bundled", "statement-cache"], path = "../rightkit-db" }
 rightkit-fs = { version = "0.4.8", default-features = false, features = ["fs", "lock", "digest", "app-dirs"], path = "../rightkit-fs" }
 rightkit-hooks = { version = "0.2.0", path = "../rightkit-hooks" }

@@ -53,7 +53,6 @@ export const WORKLOAD_MIN_WINDOW_MS = Object.freeze({
   "rightkit-job-queue/pool_budget": 30_000,
   "rightkit-qa/budget": 30_000,
   "rightkit-daemon/local": 30_000,
-  "rightkit-daemon/remote": 30_000,
   "rightkit-daemon/remote-loopback": 30_000,
   "rightkit-tauri-shell/native-shell-wv2-0_38": 35_000,
   "rightkit-tauri-shell/native-shell-wv2-0_39": 35_000,

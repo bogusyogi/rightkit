@@ -20,7 +20,12 @@ pub struct CallContext {
     handoff: Arc<AtomicBool>,
 }
 
-pub(crate) fn new_context(
+/// The context a transport hands a [`Handler`] for one request. The local host builds its own;
+/// another transport over the same handler and [`MethodTable`](crate::contract::MethodTable)
+/// (the signed device route of `rightkit-daemon-remote`) builds one per call with this. `caller`
+/// is what that transport authenticated; `closed` and `handoff` are the flags the handler polls
+/// through [`CallContext::peer_closed`] and [`CallContext::handoff_requested`].
+pub fn new_context(
     conn: u64,
     caller: Caller,
     closed: Arc<AtomicBool>,

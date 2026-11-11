@@ -14,8 +14,10 @@ use std::sync::Arc;
 
 use serde_json::{json, Value};
 
-use crate::contract::{new_context, status_for_error, Caller, Emit, Handler, MethodTable};
-use crate::error::ServiceError;
+use rightkit_daemon::contract::{
+    new_context, status_for_error, Caller, Emit, Handler, MethodTable,
+};
+use rightkit_daemon::ServiceError;
 
 /// The table and handler a [`Daemon`](crate::remote::Daemon) dispatches device calls to.
 #[derive(Clone)]

@@ -22,5 +22,5 @@ pub use handler::{CallContext, Emit, Handler};
 pub use method::{validate_method_id, MethodPolicy, MethodTable, TableError, Transport};
 pub use status::{status_for_code, status_for_error};
 
-pub(crate) use handler::new_context;
+pub use handler::new_context;
 pub(crate) use method::authorize_allowlist;

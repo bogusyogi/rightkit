@@ -39,7 +39,7 @@ rightkit-fs = { version = "0.4.9", path = "../rightkit-fs", default-features = f
 # The real OS credential store, read and written by the snapshot and restore (`snapshot` module).
 rightkit-credentials = { version = "0.5.0", path = "../rightkit-credentials" }
 rightkit-sidecar = { version = "0.3.0", path = "../rightkit-sidecar" }
-rightkit-daemon = { version = "0.6.0", path = "../rightkit-daemon" }
+rightkit-daemon = { version = "0.7.0", path = "../rightkit-daemon" }
 rightkit-child-process = { version = "0.5.7", path = "../rightkit-child-process" }
 rightkit-browser = { version = "0.3.7", path = "../rightkit-browser", optional = true }
 # Generic input, admission, lease and key code (and `macos::background::frontmost_*` for the guard).

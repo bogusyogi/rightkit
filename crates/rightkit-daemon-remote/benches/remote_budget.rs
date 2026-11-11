@@ -1,13 +1,13 @@
 //! Native remote budget: real TLS listener, ephemeral enrolled device, signed job writes.
-//! Run `rustright cargo test --locked --profile release-iterate -p rightkit-daemon
+//! Run `rustright cargo test --locked --profile release-iterate -p rightkit-daemon-remote
 //! --features remote --bench remote_budget -- 10000 30`.
 //! Producer supplies RIGHTKIT_RUNTIME_SCRATCH_ROOT plus per-run localhost certificate/key
 //! paths in RIGHTKIT_DAEMON_BUDGET_TLS_CERT / RIGHTKIT_DAEMON_BUDGET_TLS_KEY. Missing or
 //! invalid TLS material fails; no `testing` feature, committed key, trust bypass or remote host.
 
 use rightkit_child_process::{observe_idle, process_usage, BudgetLabels};
-use rightkit_daemon::remote::client::{Client, ClientConfig, DeviceKey};
-use rightkit_daemon::remote::{
+use rightkit_daemon_remote::remote::client::{Client, ClientConfig, DeviceKey};
+use rightkit_daemon_remote::remote::{
     load_tls, serve_blocking, Daemon, DaemonConfig, StopHandle, SystemClock,
 };
 use serde_json::json;

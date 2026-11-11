@@ -53,7 +53,7 @@ rightkit-time = { version = "0.1.1", path = "../rightkit-time" }
 rightkit-file-watch = { version = "0.4.2", path = "../rightkit-file-watch" }
 rightkit-oauth = { version = "0.10.0", path = "../rightkit-oauth", features = ["secrets", "system-sources"], default-features = false }
 rightkit-child-process = { version = "0.5.7", path = "../rightkit-child-process", features = ["tokio"] }
-rightkit-daemon = { version = "0.6.0", path = "../rightkit-daemon", features = ["local", "remote-loopback"], default-features = false }
+rightkit-daemon = { version = "0.7.0", path = "../rightkit-daemon", features = ["local", "remote-loopback"], default-features = false }
 rightkit-agent-daemon = { version = "0.1.0", path = "../rightkit-agent-daemon" }
 rightkit-sidecar = { version = "0.3.0", path = "../rightkit-sidecar" }
 rightkit-license = { version = "0.2.6", path = "../rightkit-license", features = ["engine-snapshot"] }

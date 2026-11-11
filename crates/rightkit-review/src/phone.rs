@@ -1,7 +1,7 @@
 //! The phone review and pause surface (rightkit#1489, PostRight ask bogusyogi/postright#443):
 //! the serving side a native phone app calls over a daemon's public routes.
 //!
-//! It is built on `rightkit-daemon`'s pattern routes ([`Daemon::add_public_route_pattern`]) and
+//! It is built on `rightkit-daemon-remote`'s pattern routes ([`Daemon::add_public_route_pattern`]) and
 //! serves under `/review/api/*`:
 //!
 //! | Method and path | Does |
@@ -44,8 +44,8 @@ use std::net::IpAddr;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
-use rightkit_daemon::remote::{hex, unhex, Daemon, Request, Response};
 use rightkit_daemon::FailLimiter;
+use rightkit_daemon_remote::remote::{hex, unhex, Daemon, Request, Response};
 use ring::hmac;
 use ring::rand::{SecureRandom, SystemRandom};
 use serde::{Deserialize, Serialize};
