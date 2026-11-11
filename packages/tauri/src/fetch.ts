@@ -1,4 +1,4 @@
-import type { Invoke } from './index.js';
+import type { Invoke } from './client.js';
 
 /**
  * A `fetch`-compatible function over the native fetch bridge (`FetchBridge` in `rightkit-app-update`, #448).

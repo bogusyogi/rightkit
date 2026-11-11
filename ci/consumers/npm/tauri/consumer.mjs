@@ -85,6 +85,23 @@ try {
     return { refusedConfigs: 2, invokesOnRefusal: 0, updatesPassThrough: true };
   });
 
+  await run('one-constructor-takes-app-config-deprecated-wrappers-delegate', async () => {
+    assert.deepEqual(tauri.logsOnlyRightKitTauriCommands, {
+      logs: { write: 'rightkit_logs_write', collect: 'rightkit_logs_collect', clear: 'rightkit_logs_clear' },
+      diagnostics: { collect: 'rightkit_logs_collect', clear: 'rightkit_logs_clear' },
+    });
+    const drive = async client => { await client.device.getOrCreate(); await client.diagnostics.collect(); await client.diagnostics.clear(); };
+    const neutral = fixtureHost();
+    await drive(tauri.createRightKitTauriClient({ invoke: neutral.invoke, commands: tauri.logsOnlyRightKitTauriCommands, deviceGetOrCreate: tauri.standardRightKitDeviceGetOrCreate }));
+    const wrapped = fixtureHost();
+    await drive(tauri.createHeardRightTauriClient({ invoke: wrapped.invoke }));
+    assert.deepEqual(wrapped.calls, neutral.calls);
+    const standard = fixtureHost();
+    await drive(tauri.createMailRightTauriClient({ invoke: standard.invoke }));
+    assert.deepEqual(standard.calls.map(call => call.command), ['secure_device_id_get_or_create', 'collect_diagnostics', 'clear_diagnostic_logs']);
+    return { neutralPreset: true, deprecatedWrappersDelegate: 2 };
+  });
+
   await run('dialog-subpath-bound-to-archive-without-plugin-load', async () => {
     const dialogFile = provenance.entries['@rightkit/tauri/dialog'];
     assert.match(dialogFile, /\/dist\/dialog\.js$/);

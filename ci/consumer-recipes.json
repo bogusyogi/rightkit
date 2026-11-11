@@ -256,7 +256,7 @@
       "pkId": "PK23",
       "id": "ci/consumers/npm/tauri/consumer.mjs",
       "recipeId": "tauri-host-adapter-command-contract-consumer",
-      "scenarios": 6,
+      "scenarios": 7,
       "surface": [
         ".",
         "./dialog"
@@ -281,8 +281,8 @@
         }
       },
       "files": {
-        "ci/consumers/npm/tauri/README.md": "dc61c9f8b3b34d5f45eebf44cfa3e3a275f9ae0653ee66c98b3f1af6732d818d",
-        "ci/consumers/npm/tauri/consumer.mjs": "9f02cf75b03879bce155c87aa629b9a98eef3862852910b2c28267a261f933c2",
+        "ci/consumers/npm/tauri/README.md": "582c5574bce3aa424993a96b0acdaf6b359d801bf43f05f84b65d553f16175a8",
+        "ci/consumers/npm/tauri/consumer.mjs": "22cfc2039fb038ffebb8a0ea2c32b33352929dc49460e397841ef5d2058106fb",
         "ci/consumers/npm/tauri/package.json": "e8df9822f2b14fefd5006f9447998e348290c8c9739413547e6cca01af036772",
         "ci/consumers/npm/tauri/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "fc160695e1dc97dc7e32e746c9e4471e2d85168b097623de818befeb00ee438c"

@@ -1,6 +1,6 @@
 # @rightkit/tauri
 
-Typed renderer adapters for shared Right Suite device, logs & diagnostics commands. Supply app `invoke` & optionally a command map (default `standardRightKitTauriCommands`). Typed constructors cover ViewRight, ScrapeRight, HeardRight, MailRight & CodeRight.
+Typed renderer adapters for shared RightKit device, logs & diagnostics commands, plus the app command registry (`defineTauriCommands`), the native fetch bridge (`createNativeFetch`) and native file dialogs. One constructor, `createRightKitTauriClient`, takes the app's `invoke` and the command names its host registers as configuration. The package names no app.
 
 | Item | Value |
 |---|---|
@@ -15,7 +15,7 @@ Updater behavior comes from `@rightkit/app-update`: an `AutoUpdateClient` passed
 
 | Import | Contents |
 |---|---|
-| `@rightkit/tauri` | `createRightKitTauriClient`, `createRightSuiteAppTauriClient`, `rightSuiteTauriAppConfigs`, `standardRightKitTauriCommands`, `standardRightKitDeviceGetOrCreate`, `createViewRightTauriClient`, `createScrapeRightTauriClient`, `createHeardRightTauriClient`, `createMailRightTauriClient`, `createCodeRightTauriClient`; types `Invoke`, `RightKitTauriCommands`, `RightKitTauriClientConfig`, `RightKitTauriAdapterConfig`, `RightKitTauriAppConfig`, `RightKitTauriClient` |
+| `@rightkit/tauri` | `createRightKitTauriClient`, `standardRightKitTauriCommands`, `logsOnlyRightKitTauriCommands`, `standardRightKitDeviceGetOrCreate`, `defineTauriCommands`, `declaredTauriCommandNames`, `tauriHandlerCommandNames`, `missingTauriHandlers`, `TauriCommandError`, `createNativeFetch`, `NativeFetchError`, `NATIVE_FETCH_MESSAGES`, `RIGHTKIT_FETCH_COMMAND`; types `Invoke`, `RightKitTauriCommands`, `RightKitTauriClientConfig`, `RightKitTauriAdapterConfig`, `RightKitTauriAppConfig`, `RightKitTauriClient`. Deprecated, removed in 0.5.0: `createViewRightTauriClient`, `createScrapeRightTauriClient`, `createHeardRightTauriClient`, `createMailRightTauriClient`, `createCodeRightTauriClient`, `createRightSuiteAppTauriClient`, `rightSuiteTauriAppConfigs` |
 | `@rightkit/tauri/dialog` | `pickFolder`, `pickFile`, `pickFiles` (native file dialogs; see below) |
 
 Clients expose `device.getOrCreate`, `logs.write/collect/clear`, `diagnostics.collect/clear` & optional `updates`.
@@ -34,13 +34,36 @@ Peer dependency: `@rightkit/app-update` `>=0.2.5 <0.5`, used only as a type (`Au
 
 ```ts
 import { invoke } from "@tauri-apps/api/core";
-import { createCodeRightTauriClient } from "@rightkit/tauri";
+import {
+  createRightKitTauriClient,
+  standardRightKitDeviceGetOrCreate,
+  type RightKitTauriAppConfig,
+} from "@rightkit/tauri";
 
-const native = createCodeRightTauriClient({ invoke });
+// The app's own values: the command names its native host registers.
+const appConfig = {
+  deviceGetOrCreate: standardRightKitDeviceGetOrCreate,
+} satisfies RightKitTauriAppConfig;
+
+const native = createRightKitTauriClient({ invoke, ...appConfig });
 const deviceId = await native.device.getOrCreate();
 ```
 
-`createRightSuiteAppTauriClient("viewright" | "scraperight" | "heardright" | "mailright" | "coderight", { invoke })` is the same thing with the app name as an argument.
+A host that answers diagnostics from the log store passes `commands: logsOnlyRightKitTauriCommands`.
+
+## Migrate to 0.4.0
+
+The per-app constructors still work in 0.4.0 and are removed in 0.5.0. Replace them with the one constructor and the app's own values:
+
+| 0.3.x | 0.4.0 |
+|---|---|
+| `createViewRightTauriClient`, `createScrapeRightTauriClient`, `createMailRightTauriClient` `({ invoke })` | `createRightKitTauriClient({ invoke, deviceGetOrCreate: standardRightKitDeviceGetOrCreate })` |
+| `createHeardRightTauriClient`, `createCodeRightTauriClient` `({ invoke })` | `createRightKitTauriClient({ invoke, commands: logsOnlyRightKitTauriCommands, deviceGetOrCreate: standardRightKitDeviceGetOrCreate })` |
+| `createRightSuiteAppTauriClient(app, config)`, `rightSuiteTauriAppConfigs[app]` | the app's own `RightKitTauriAppConfig` value spread into `createRightKitTauriClient` |
+
+`createRightKitTauriClient` has no default `deviceGetOrCreate`; pass it, or `device.getOrCreate()` rejects. `updates` and type arguments are unchanged.
+
+Why here and not in `@rightkit/tauri-shell`: that package is the bridge for the `rightkit-tauri-shell` crate's own `rk_shell_*` commands and has no dependencies. The commands here belong to other owners (`rightkit-device`, `@rightkit/logs`, app diagnostics, the `rightkit-app-update` fetch bridge), so the two packages do not duplicate an API.
 
 ## Native file dialogs (`@rightkit/tauri/dialog`)
 

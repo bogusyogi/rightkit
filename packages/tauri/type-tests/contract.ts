@@ -2,8 +2,11 @@ import {
   createHeardRightTauriClient,
   createRightKitTauriClient,
   createViewRightTauriClient,
+  logsOnlyRightKitTauriCommands,
   rightSuiteTauriAppConfigs,
+  standardRightKitDeviceGetOrCreate,
 } from '../src/index.js';
+import type { RightKitTauriAppConfig } from '../src/index.js';
 import type { DialogPickers, PickOptions } from '../src/dialog-types.js';
 
 type Device = { id: string };
@@ -30,6 +33,21 @@ rightSuiteTauriAppConfigs.viewright.commands.device;
 void logs;
 void diagnostics;
 void heardRightDevice;
+
+// 0.4.0: the app owns its config value; the one constructor takes it.
+const appConfig = {
+  commands: logsOnlyRightKitTauriCommands,
+  deviceGetOrCreate: standardRightKitDeviceGetOrCreate,
+} satisfies RightKitTauriAppConfig;
+const neutral = createRightKitTauriClient<Device, LogBundle, LogEvent, Diagnostics>({
+  invoke: async <T>() => undefined as T,
+  ...appConfig,
+});
+const neutralDevice: Promise<Device> = neutral.device.getOrCreate();
+// The deprecated per-app tables keep their 0.3.x values.
+const heardRightCommands: typeof logsOnlyRightKitTauriCommands = rightSuiteTauriAppConfigs.heardright.commands;
+void neutralDevice;
+void heardRightCommands;
 
 createRightKitTauriClient({
   invoke: async <T>() => undefined as T,

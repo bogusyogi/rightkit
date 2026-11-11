@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.4.0 — unpublished staging
+
+Shape review 2026-11-11 (`docs/audits/2026-11-11-shape-matrix/reports/family-foundation-shell-ui.md`, section 6) judged this package the wrong shape: it exported one constructor per app and a table of apps, so a shared library named its consumers and had to be republished for each new app. 0.4.0 keeps one product-neutral constructor and moves the per-app values into the apps. 0.3.1 was never published; its entries below ship in this version.
+
+Decision: redraw here, not fold into `@rightkit/tauri-shell`. `@rightkit/tauri-shell` is the bridge for one crate's `rk_shell_*` commands and events and has no dependencies. This package covers commands owned elsewhere (`rightkit-device` identity, `@rightkit/logs` command names, app-registered diagnostics, the `rightkit-app-update` fetch bridge), the app's own command registry (`defineTauriCommands`) and the plugin-dialog pickers. Folding would give tauri-shell a `@rightkit/logs` dependency and two peers without removing a duplicate API; the only shared piece is the `Invoke` type.
+
+Added:
+- `logsOnlyRightKitTauriCommands`: the command map for a host that answers diagnostics from the log store (`diagnostics.collect/clear` call `rightkit_logs_collect/clear`). It is the one non-standard map any app used (formerly the HeardRight and CodeRight entries).
+
+The one constructor is `createRightKitTauriClient({ invoke, commands?, deviceGetOrCreate?, argumentNames?, updates? })`, unchanged. Each app keeps its own `RightKitTauriAppConfig` value.
+
+Deprecated (still exported and behaving as in 0.3.x; removed in 0.5.0):
+- `createViewRightTauriClient`, `createScrapeRightTauriClient`, `createMailRightTauriClient`: use `createRightKitTauriClient({ invoke, deviceGetOrCreate: standardRightKitDeviceGetOrCreate })`.
+- `createHeardRightTauriClient`, `createCodeRightTauriClient`: use `createRightKitTauriClient({ invoke, commands: logsOnlyRightKitTauriCommands, deviceGetOrCreate: standardRightKitDeviceGetOrCreate })`.
+- `createRightSuiteAppTauriClient(app, config)` and `rightSuiteTauriAppConfigs`: keep the app's values in the app and pass them to `createRightKitTauriClient`.
+
+Note when migrating: `createRightKitTauriClient` has no default `deviceGetOrCreate` (without it `device.getOrCreate()` rejects), while every per-app constructor set `standardRightKitDeviceGetOrCreate`. Pass it explicitly.
+
+Breaking: none. The per-app constructors are thin wrappers over `createRightKitTauriClient` with their 0.3.x values, in `src/deprecated-app-clients.ts`; no other source file names an app.
+
 ## 0.3.1 — unpublished staging
 
 - Removed (Adrian, 2026-11-03: end-to-end tests only): the three unit test files under `src/`, the `test` script and the `vitest` devDependency. `typecheck:contracts` stays.

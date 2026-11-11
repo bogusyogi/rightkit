@@ -1,4 +1,4 @@
-import type { Invoke } from './index.js';
+import type { Invoke } from './client.js';
 
 /**
  * A command spec is an interface of async methods: each key is the app's command name, the one
@@ -6,7 +6,7 @@ import type { Invoke } from './index.js';
  * the resolved value.
  *
  * ```ts
- * interface CodeRightCommands {
+ * interface AppCommands {
  *   git_status(args: { path: string }): Promise<GitStatus>;
  *   daemon_stop(): Promise<void>;
  * }
@@ -54,7 +54,7 @@ const RUST_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
  * the keys of `commands`; calling one invokes the Rust command with the argument object.
  *
  * ```ts
- * const commands = defineTauriCommands<CodeRightCommands>({
+ * const commands = defineTauriCommands<AppCommands>({
  *   invoke,
  *   commands: { git_status: true, daemon_stop: true },
  * });
