@@ -120,17 +120,9 @@
       "rightkit-qa": {
         "version": "0.10.6",
         "allow": [
-          "allow_missing_assets",
-          "allow_no_test"
+          "allow_missing_assets"
         ],
-        "reason": "ci/asset-gated.json: FFmpeg binary for the media cross-check (tests/media_ffmpeg.rs); its skip-handling tests also print SKIP markers by design; the publish workflow does not provision them, so those tests print SKIP markers recorded in the receipts and the crate's own compile, clippy, doc and remaining tests still qualify it. The crate refuses Linux (util::platform: macOS and Windows only), so its unit & integration tests are cfg-gated to macOS and Windows & the Linux direct-origin lane runs none (allow_no_test); the macOS and Windows verify jobs run every test."
-      },
-      "@rightkit/release": {
-        "version": "0.6.53",
-        "allow": [
-          "allow_no_test"
-        ],
-        "reason": "Adrian, 2026-11-03: \"publish without tests, after publish is done, then work on the tests and keep it for next version\". Every old test of the package was deleted (\"delete all of them, replace them with e2e tests\"); until the end-to-end suite lands the package has no test script and qualifies on preflight, Class A and the native verify of its sealed archive. Published from the local host without provenance (rightkit#1471, #1472)."
+        "reason": "ci/asset-gated.json: FFmpeg binary for the media cross-check (tests/media_ffmpeg.rs); its skip-handling tests also print SKIP markers by design; the publish workflow does not provision them, so those tests print SKIP markers recorded in the receipts and the crate's own compile, clippy, doc and remaining tests still qualify it. The crate refuses Linux (util::platform: macOS and Windows only), so its unit & integration tests are cfg-gated to macOS and Windows and the Linux direct-origin lane runs none, which a crate may do (zero tests qualify; publish.mjs takes allow_no_test for npm packages only); the macOS and Windows verify jobs run every test."
       },
       "@rightkit/legal": {
         "version": "0.6.3",

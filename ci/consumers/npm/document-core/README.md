@@ -1,6 +1,6 @@
 # @rightkit/document-core npm consumer (npm.@rightkit/document-core)
 
-Packed-archive consumer for `@rightkit/document-core` 0.1.0 (the workspace version). The unit is installed only from the sealed `file:` archive; the reviewed closure pins `react` 19.3.1, `react-dom` 19.3.1, `@rightkit/license` 0.3.0, `@rightkit/logs` 0.1.6, `@rightkit/pdf-ui` 0.2.0, `@rightkit/platform-ui` 0.4.0, `@rightkit/react-shell` 0.7.2, `@rightkit/settings-ui` 0.7.0, `@rightkit/tauri-shell` 0.1.3, `@rightkit/theme` 0.3.1. Declared-only dependencies: `@codemirror/view`, `@phosphor-icons/react`, `@tauri-apps/api`, `pdfjs-dist`.
+Packed-archive consumer for `@rightkit/document-core` 0.1.2 (the workspace version). The unit is installed only from the sealed `file:` archive; the reviewed closure pins `react` 19.3.1, `react-dom` 19.3.1, `@rightkit/license` 0.3.1, `@rightkit/logs` 0.1.6, `@rightkit/pdf-ui` 0.3.0, `@rightkit/platform-ui` 0.4.1, `@rightkit/react-shell` 0.7.3, `@rightkit/settings-ui` 0.7.1, `@rightkit/tauri-shell` 0.1.4, `@rightkit/theme` 0.3.2. Declared-only dependencies: `@codemirror/view`, `@phosphor-icons/react`, `@tauri-apps/api`, `pdfjs-dist`.
 
 Surface (exact `exports` keys): `.`, `./*`, `./*.css`, `./*.json`.
 

@@ -1,6 +1,7 @@
 // Pure affected-unit, grouping and scan-planning regressions.
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { buildInventory, classifyUnitResults, selectAffectedAcrossInventories, selectAffectedUnits, unitListReport } from "./affected-units.mjs";
@@ -65,7 +66,7 @@ test("batchClippyInvocations: compatible crates share one invocation; crate-spec
 });
 
 test("planScans: dependency-freshness is off the blocking path unless advice is asked for", (t) => {
-  const scratch = process.platform === "win32" ? "D:\\scratch" : "/Volumes/D/scratch";
+  const scratch = ((root) => (fs.existsSync(root) ? root : os.tmpdir()))(process.platform === "win32" ? "D:\\scratch" : "/Volumes/D/scratch");
   const root = fs.mkdtempSync(path.join(scratch, "rk-freshness-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   fs.mkdirSync(path.join(root, ".rightkit"), { recursive: true });
