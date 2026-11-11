@@ -27,6 +27,6 @@ rightkit-logs = { version = "0.4.0", path = "../rightkit-logs" }
 rightkit-models = { version = "0.6.0", path = "../rightkit-models" }
 rightkit-job-queue = { version = "0.5.1", features = ["store", "service", "supervisor"], path = "../rightkit-job-queue" }
 rightkit-child-process = { version = "0.5.7", path = "../rightkit-child-process" }
-rightkit-daemon = { version = "0.5.1", path = "../rightkit-daemon" }
+rightkit-daemon = { version = "0.6.0", path = "../rightkit-daemon" }
 rightkit-app-settings = { version = "0.4.0", path = "../rightkit-app-settings" }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }

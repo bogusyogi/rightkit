@@ -1,0 +1,12 @@
+[package]
+name = "rightkit-agent-daemon-registry-consumer"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+rightkit-agent-daemon = { version = "=0.1.0" }
+async-trait = "0.1"
+http = "1"

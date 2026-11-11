@@ -19,7 +19,7 @@ host-env = []
 [dependencies]
 rightkit-app-settings = { version = "0.4.0", path = "../rightkit-app-settings" }
 rightkit-agent-policy = { version = "0.1.0", path = "../rightkit-agent-policy" }
-rightkit-daemon = { version = "0.5.1", default-features = false, features = ["local"], path = "../rightkit-daemon" }
+rightkit-daemon = { version = "0.6.0", default-features = false, features = ["local"], path = "../rightkit-daemon" }
 rightkit-fs = { version = "0.4.9", path = "../rightkit-fs", default-features = false, features = ["fs", "lock", "json", "digest", "transaction"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.154", features = ["raw_value"] }

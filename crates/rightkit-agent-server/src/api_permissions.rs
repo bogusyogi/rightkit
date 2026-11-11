@@ -107,14 +107,12 @@ pub struct SetWorkspaceTrust {
 include!("api_permissions/openapi.rs");
 
 // `enforce_trusted_source_authority` / `lower_source_trust` moved to the
-// binary-independent `coderight-daemon-core` crate (engine/crates/daemon_core
-// /src/authority.rs) so extracted domain crates (e.g. `coderight-attention`)
+// binary-independent `rightkit-agent-daemon` crate (src/authority.rs, from
+// CodeRight's `coderight-daemon-core`) so extracted domain crates (e.g. `coderight-attention`)
 // can call the gate without depending on this binary crate. Re-exported here
 // so this module's ~58 existing `crate::api_permissions::...` call sites are
 // unaffected.
-pub(crate) use rightkit_daemon::agent_daemon_core::{
-    enforce_trusted_source_authority, lower_source_trust,
-};
+pub(crate) use rightkit_agent_daemon::{enforce_trusted_source_authority, lower_source_trust};
 
 fn enforce_policy_mutation_authority(headers: &HeaderMap) -> Result<(), StatusCode> {
     enforce_trusted_source_authority(headers)

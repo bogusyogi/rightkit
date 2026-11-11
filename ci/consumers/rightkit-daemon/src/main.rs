@@ -1,6 +1,6 @@
-// rightkit-daemon 0.4.0 registry consumer, outside the workspace, pinning `rightkit-daemon =0.4.0`
+// rightkit-daemon 0.6.0 registry consumer, outside the workspace, pinning `rightkit-daemon =0.6.0`
 // exactly with default features only (the `local` marker). It avoids `remote`, `remote-loopback`,
-// `link`, `relay` and `test-mode`.
+// `link` and `relay`.
 //
 // Proves the PK07-3 root-cutover surface an app uses to move its data root: `Suite::per_run_temp`
 // and `Suite::app_root`, `RootCutover::{new, fs_move, participant, run, status, selected_root,
@@ -182,6 +182,6 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     service_r2()?;
 
-    println!("OK rightkit-daemon 0.4.0 (registry consumer, PK07-3 root cutover + PK07 R2 service)");
+    println!("OK rightkit-daemon 0.6.0 (registry consumer, PK07-3 root cutover + PK07 R2 service)");
     Ok(())
 }

@@ -103,7 +103,7 @@ async fn daemon_status() -> i32 {
 /// DL-014: `coderight stop`. Routes directly through the shared `authority()`
 /// singleton's `Stop` command; no independent stop path is implemented here.
 async fn daemon_stop(force: bool) -> i32 {
-    use rightkit_daemon::agent_daemon_runtime::LifecycleCommand;
+    use rightkit_agent_daemon::LifecycleCommand;
 
     match crate::daemon::lifecycle_backend::authority()
         .execute_cli(LifecycleCommand::Stop { force })

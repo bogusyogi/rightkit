@@ -57,9 +57,9 @@
 // Moved out of `host-app/src/api_permissions/authority.rs` into this
 // binary-independent crate so both the daemon binary and any extracted
 // domain crate (e.g. `rightkit-agent-engine-attention`) can call the gate without the
-// domain crate depending on the binary crate. The bin re-exports these two
-// functions from `crate::agent_daemon_core::api_permissions` so its ~58 existing call sites are
-// unaffected.
+// domain crate depending on the binary crate. `rightkit-agent-server` re-exports
+// these two functions from its `api_permissions` module so its ~58 existing call
+// sites are unaffected.
 
 use axum::http::{HeaderMap, StatusCode};
 

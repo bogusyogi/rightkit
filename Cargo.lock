@@ -9933,6 +9933,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "rightkit-agent-daemon"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "axum",
+ "rightkit-agent-engine-protocol",
+ "tokio",
+]
+
+[[package]]
 name = "rightkit-agent-demo"
 version = "0.1.0"
 dependencies = [
@@ -10274,6 +10284,7 @@ dependencies = [
  "mach2",
  "rightkit-adapt",
  "rightkit-agent-config",
+ "rightkit-agent-daemon",
  "rightkit-agent-engine-api-integrations",
  "rightkit-agent-engine-api-platform",
  "rightkit-agent-engine-api-sessions",
@@ -11141,9 +11152,8 @@ dependencies = [
 
 [[package]]
 name = "rightkit-daemon"
-version = "0.5.4"
+version = "0.6.0"
 dependencies = [
- "async-trait",
  "axum",
  "base64 0.23.1",
  "blake3",
@@ -11152,7 +11162,6 @@ dependencies = [
  "getrandom 0.4.3",
  "hyper",
  "hyper-util",
- "rightkit-agent-engine-protocol",
  "rightkit-child-process",
  "rightkit-contracts",
  "rightkit-fs",

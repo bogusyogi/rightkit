@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.0 (unpublished)
+
+- **Breaking:** removed the `agent_daemon_core` and `agent_daemon_runtime` features and their modules. CodeRight's agent daemon primitives (source-trust authority gate, `DaemonSettingsStore`, `EngineConfig`, `LiveTurnHandle`, `LiveTurnGuard`, and the `LifecycleAuthority` with its command parser and backend trait) are now their own crate, `rightkit-agent-daemon` 0.1.0: `rightkit_daemon::agent_daemon_core::X` and `rightkit_daemon::agent_daemon_runtime::X` become `rightkit_agent_daemon::X`. It is agent product code that pulled `axum` and `rightkit-agent-engine-protocol` into a crate every desktop app adopts (2026-11-11 shape review, docs/audits/2026-11-11-shape-matrix/reports/family-foundation-runtime.md). The optional `rightkit-agent-engine-protocol` and `async-trait` dependencies are gone with it; `axum` and `tokio` stay optional for `remote`. The rest of the API is unchanged.
+- Not addressed here, recorded from the same review: the crate still holds several concerns besides the local service (run mode, `Suite`, `AppRoot` and root cutover, which apps with no daemon link; the `remote`, `link` and `relay` HTTPS host and device enrolment; the approval workflow; installed-app discovery). Those splits are separate changes.
+
 ## 0.5.4
 - Docs: `spawn_heartbeat_with` no longer links the private `write_atomic_with` (rustdoc `-D warnings` failed).
 

@@ -1,0 +1,21 @@
+[package]
+name = "rightkit-agent-daemon"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.98.0"
+description = "Daemon primitives for an agent host: trusted-source authority gate, daemon settings, live-turn handle and the lifecycle authority behind every operator surface."
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/bogusyogi/rightkit"
+keywords = ["agent", "daemon", "lifecycle", "authority"]
+categories = ["development-tools"]
+include = ["src/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+
+[features]
+default = []
+
+[dependencies]
+rightkit-agent-engine-protocol = { version = "0.1.1", path = "../rightkit-agent-engine-protocol" }
+axum = { version = "0.8", default-features = false }
+async-trait = "0.1"
+tokio = { version = "1", features = ["sync"] }

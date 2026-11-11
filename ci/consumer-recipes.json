@@ -2371,18 +2371,18 @@
     "rightkit-daemon": {
       "pkId": "PK07",
       "id": "ci/consumers/rightkit-daemon/src/main.rs",
-      "dependency": "rightkit-daemon = { version = \"=0.5.0\" }",
+      "dependency": "rightkit-daemon = { version = \"=0.6.0\" }",
       "extraDependencies": [
         "serde_json = \"1\""
       ],
       "gateEvidence": "per-run private temp suites removed on drop; local current-user IPC to same process for PK07 R2; no TCP or real user data",
       "consumes": "PK07 named consumers per docs/plans/2026-10-20-rightkit-implementation/01-packages.md: HeardRight and ScrapeRight data-folder move; Pulse migrated_app_root() retirement (PK07-3); CutoverParticipant surface at crates/rightkit-daemon/src/root_cutover.rs:231; PK07 R2 Service builder/local host, Client::connect_expecting, echo, method/app denial & executable mismatch",
       "files": {
-        "Cargo.toml": "ce18ac21d33fd09641100beda293091c7c35dcc31569b8f4478f65dc42fcabee",
-        "README.md": "c8089bb550515c35b36ec6d5c496a0ad1e889add6111ae86ea1adcb7b6d55fff",
-        "src/main.rs": "120b5b7a5d097644a630f3ba038140f2e9a9442556f6a8235918dbe8be979827"
+        "Cargo.toml": "061bf0dc0f304980dc5f7d15b17f9899916237542bdd15da8b5d9094ef09240f",
+        "README.md": "87981cb3e7879a0d913732718db14d9516242e6a7065b5f26630c64207da6f5e",
+        "src/main.rs": "69d6ec612233fc14702a5aa55fd20bc31af0d3aff37755339452f060c9c35593"
       },
-      "aggregateSha256": "2caba0101d9c54e8745bd045694169038104e4dfac19fda719f6523b019b9fd5"
+      "aggregateSha256": "757bad71bae3a76207c7f249a16b5cabf386714627d2e30b4a40f5f0873ef5a6"
     },
     "rightkit-qa": {
       "pkId": "PK14",
@@ -3698,6 +3698,15 @@
         "Cargo.toml": "846ab60df378412a34cce6ee29aaec6e475dbcb3be7ae0e33264f89c67ee303d",
         "README.md": "d838471aa475ec4d331714a3c9dd9cde8ae41d398e5dd0cb48fe866d8d5e0f69",
         "src/main.rs": "898054505d363edde6a089bf374cf53ddf9ad07223b681a8c81ed92260fe0cf1"
+      }
+    },
+    "rightkit-agent-daemon": {
+      "pkId": "PK214",
+      "id": "ci/consumers/rightkit-agent-daemon/src/main.rs",
+      "files": {
+        "Cargo.toml": "9430302efcd8d98a9d0e16b1a52456bfcde9329fa1de3c7e9e6c6f0ea403762d",
+        "README.md": "c46af034cd1be81a52df535e763b2ddb90f3857cf6a04f2a065fea3941967724",
+        "src/main.rs": "4dcce5115cd8481576bf0d48d399d69a854ba33a20de7d4a2dff17a5d71fc2c7"
       }
     },
     "rightkit-agent-demo": {

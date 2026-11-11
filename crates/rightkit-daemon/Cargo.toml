@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-daemon"
-version = "0.5.4"
+version = "0.6.0"
 edition = "2021"
 rust-version = "1.98.0"
 description = "One discovery/auth convention for Right Suite local services: service.json, ranking and takeover, current-user-only Unix socket / named pipe, per-app request allowlist."
@@ -36,10 +36,6 @@ tokio-rustls = { version = "0.26", default-features = false, features = ["ring",
 hyper = { version = "1", features = ["http1", "server"], optional = true }
 hyper-util = { version = "0.1", features = ["tokio", "service", "server-graceful"], optional = true }
 
-# Windows named pipes with a current-user-only DACL. cfg(windows) only: this
-# backend compiles on the Windows host (see API.md for the exact command).
-rightkit-agent-engine-protocol = {version = "0.1.1", path = "../rightkit-agent-engine-protocol", optional = true}
-async-trait = {version = "0.1", optional = true}
 # Peer code-signature check (`peer_signature`, rightkit#1319): Security.framework on macOS,
 # WinVerifyTrust on Windows.
 [target.'cfg(target_os = "macos")'.dependencies]
@@ -47,6 +43,8 @@ security-framework = { version = "3.7", default-features = false }
 core-foundation = { version = "0.10" }
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Cryptography", "Win32_Security_Cryptography_Catalog", "Win32_Security_Cryptography_Sip", "Win32_Security_WinTrust", "Win32_System_Threading"] }
+# Windows named pipes with a current-user-only DACL. cfg(windows) only: this
+# backend compiles on the Windows host (see API.md for the exact command).
 windows = { version = "0.62", features = [
   "Win32_Foundation",
   "Win32_Security",
@@ -88,8 +86,6 @@ remote = [
 # enabled by it. `releaseSwitches.remoteHost` stays false for
 # desktop apps and `@rightkit/release` keeps refusing a desktop build with `remote`.
 remote-loopback = []
-agent_daemon_core = ["dep:axum", "dep:rightkit-agent-engine-protocol"]
-agent_daemon_runtime = ["dep:async-trait", "dep:tokio", "tokio/rt"]
 
 [[bench]]
 name = "budget"

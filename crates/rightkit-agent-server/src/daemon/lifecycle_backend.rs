@@ -1,5 +1,5 @@
 // RIGHTKIT-SERIOUS: rightkit-daemon 0.3.0 is a user-only pipe/socket service with no TCP, token or port record, so the loopback-HTTP daemon that the window, CLI, iOS and SSH clients connect to cannot move onto it (report O-2)
-//! Runtime binding for `rightkit_daemon::agent_daemon_runtime::LifecycleAuthority`.
+//! Runtime binding for `rightkit_agent_daemon::LifecycleAuthority`.
 //!
 //! This module deliberately delegates to existing daemon launch, client
 //! presence, schedule, and session APIs. It does not create another process
@@ -12,7 +12,7 @@ use std::sync::OnceLock;
 use super::launch::DaemonLaunchSpec;
 use super::reload::{ReloadHooks, ReloadRequest, ReloadStore};
 use async_trait::async_trait;
-use rightkit_daemon::agent_daemon_runtime::{
+use rightkit_agent_daemon::{
     BackendOutcome, LaunchMode, LifecycleAuthority, LifecycleBackend, ProcessEntry,
 };
 use serde_json::{json, Value};
@@ -43,7 +43,7 @@ pub(crate) fn authority() -> &'static LifecycleAuthority<DaemonLifecycleBackend>
 /// helper falls back to `resolve_daemon_or_autostart()` directly so callers
 /// still get a working endpoint rather than a spurious failure.
 pub(crate) async fn resolve_daemon_endpoint_via_authority() -> Option<(String, String)> {
-    use rightkit_daemon::agent_daemon_runtime::{LifecycleCommand, LifecycleSurface};
+    use rightkit_agent_daemon::{LifecycleCommand, LifecycleSurface};
 
     match authority()
         .execute(
@@ -88,7 +88,7 @@ fn tui_presence_allowed(service_host_selected: bool) -> bool {
 /// authority (mirrors the previous `Option<PresenceGuard>::is_some()`
 /// check at the call site).
 pub(crate) async fn attach_tui_presence(client_id: &str) -> bool {
-    use rightkit_daemon::agent_daemon_runtime::{LifecycleCommand, LifecycleSurface};
+    use rightkit_agent_daemon::{LifecycleCommand, LifecycleSurface};
 
     if !tui_presence_allowed(crate::main_runtime::service_host_explicitly_selected()) {
         return false;
@@ -124,7 +124,7 @@ pub(crate) async fn attach_tui_presence(client_id: &str) -> bool {
 /// authority-owned guard rather than calling `PresenceGuard::detach`
 /// directly, since the authority's backend now owns that guard.
 pub(crate) async fn detach_tui_presence(client_id: &str) {
-    use rightkit_daemon::agent_daemon_runtime::{LifecycleCommand, LifecycleSurface};
+    use rightkit_agent_daemon::{LifecycleCommand, LifecycleSurface};
 
     let _ = authority()
         .execute(

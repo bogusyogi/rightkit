@@ -1,4 +1,4 @@
-pub use rightkit_daemon::agent_daemon_core::{DaemonSettingsStore, EngineConfig, LiveTurnHandle};
+pub use rightkit_agent_daemon::{DaemonSettingsStore, EngineConfig, LiveTurnHandle};
 
 /// Bounded engine mailbox capacity for `LiveSession::msg_tx`. A route update
 /// treats `capacity() < SESSION_MSG_CHANNEL_CAPACITY` as queued user work.
