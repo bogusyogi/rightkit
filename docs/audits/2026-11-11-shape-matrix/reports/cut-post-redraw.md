@@ -1,0 +1,56 @@
+# CutRight- and PostRight-built packages: redraw note
+
+Date: 2026-11-11. Branch `redraw-cut-post` (from `claude/busy-hypatia-e30h7l`). Rows: `@rightkit/video-ui`, `rightkit-pipeline`, `rightkit-social-analytics`, `rightkit-engine-host` (`../matrix.md`), and the new `rightkit-media-gen-client`. Taken on the recommended option of the shape review, pending the owner's confirmation. Nothing here is on `main`.
+
+All four rows were `wrong`. CutRight and PostRight were started just before the RightKit decision and carry the least weight, so each package was redrawn so that a second app can adopt it without a CutRight or PostRight product decision. The reference order stays HeardRight and ViewRight, then Pulse. All four are now `gaps`; the new crate is `gaps`.
+
+## A. `rightkit-engine-host` 0.2.0 (the engine-binary framework, both sides of its CLI)
+
+| Item | Before | After |
+|---|---|---|
+| `project.rs` (505 lines) and `project_cmd/` (feature `project-cmd`) | in the engine framework; pulled `rightkit-video-project`, timeline, transcript, app-settings, fs and cache into every engine that turned the feature on | `rightkit_video_project::engine` and `::cmd` (feature `engine-commands`, `rightkit-video-project` 0.1.3), moved with `git mv`, code unchanged. `SETTINGS_SCHEMA_ID` is `video-project-settings` (was `cutright-settings`); flat settings files store no schema id, so nothing on disk changes |
+| `doctor.rs` (82 lines) | a second engine doctor report envelope and capability list beside `rightkit_doctor::report`, and a second resource-folder rule beside `env::Env::resource_dir` | deleted. `rightkit-doctor` 0.2.0 is the one report; the one rule is `env::resource_dir(os, exe)`, which `Env::resource_dir` and `rightkit_doctor::command::DoctorHost::resource_dir` call |
+| caller side of the engine CLI | only in `rightkit-pipeline` (`ProcessRunner`, the reply parse, the doctor handshake), named for GenRight | `call`: `EngineProcess` (absolute path only, `--input` or stdin past 8 KiB, null stdin otherwise, 64 MiB capture caps, deadline with tree kill), `parse_reply` (result or `{"error":{code,message,details?}}`), `json_lines` (stderr NDJSON), `handshake` (exact contract version, minimum capability versions). The crate now holds both sides of the one engine-to-engine call contract |
+
+Dependents follow: `rightkit-autoedit` 0.2.0, `rightkit-motion` 0.4.0 and `rightkit-shorts` 0.2.0 (`engine-commands` take `Env` from engine-host 0.2.0 and the helpers from `rightkit_video_project::engine`), `rightkit-apple-ops` 0.2.0 and `rightkit-doctor` 0.2.0 (their API carries engine-host types), `rightkit-media-pipeline` 0.2.0 (its `motion` feature returns `rightkit_motion::Encoder`), `rightkit-agent-server` 0.1.2 (unpublished; requirement only).
+
+Comparison with HeardRight and CodeRight (the review's first action). HeardRight's engine (read-only, `/home/user/heardright/tauri-app-next`) speaks `rightkit-job-queue`'s envelope with typed `heardright_core::engine::EngineFrame` payloads: the supervisor (`heardright-app-runtime/src/engine_supervisor/`, wire.rs keeps an explicit `ENGINE_METHOD_ALLOWLIST`) and the engine (`heardright-runtime/src/ipc/dispatch.rs`, a typed `Request` match) share frames, not a command registry; its CLI (`heardright-runtime/src/cli.rs`) is a speech-service client with its own exit codes. The layer both HeardRight and this crate stand on is `rightkit-job-queue` (with `rightkit-child-process` and `rightkit-sidecar`), which is what the mandatory set already names for M3 and M4. CodeRight's local service is `rightkit-daemon`'s contract (`MethodTable`, per-caller `authorize`, current-user socket), a different seam: a resident service with authorisation, not an engine binary run as a CLI and a sidecar. So `rightkit-engine-host` is the right shape for the command engines (CutRight, GenRight, ScrapeRight, PostRight, MailRight) and not for HeardRight. It is not on the mandatory set (`packages/release/ownership-mandatory-set.json` rows M1-M25 name no engine-host) and stays off it; nothing was removed there.
+
+Not done (gaps): `apps.rs` (installed-suite discovery over `rightkit-daemon`'s discovery, plus doctor probes) is a suite-launcher concern and could move to `rightkit-app-manager`; PostRight's dispatch discipline (attempt row before spawn, process-identity sweep, no silent rerun, `engine/dispatch.rs`) is not in `call` because it needs the app's store; the per-engine `brief run` skeleton is not built; the per-app inventory rows the review asked for are not produced.
+
+## B. `rightkit-pipeline` 0.2.0 (deprecated) and the new `rightkit-media-gen-client` 0.1.0
+
+| Item | Before | After |
+|---|---|---|
+| the generation engine client (`GenRightClient`, `Orchestrator`, `Journal`, `ModelCatalog`, `generated_source`; 2,800 lines) | `rightkit-pipeline`, a name that collides in meaning with `rightkit-media-pipeline` | new crate `rightkit-media-gen-client` (moved with `git mv`), named for the contract it calls: the media-generation engine `rightkit-media-gen` serves. `GenRightClient` is `GenerationClient`; its process call is `rightkit_engine_host::call` (the copy of the runner, reply parse and handshake is gone); `Error` keeps its variants and converts `CallError` |
+| product words | `genright.*` host events, "genright-engine" errors, "update GenRight" | `media_gen.*` events, "generation engine" errors. Imported file names (`media/genright-<job>-<asset>.<ext>`) and the journal lock label are on-disk names and stay, so projects imported before keep resolving |
+| `channel_recipe` (feature `channel-recipe`, 247 lines) | a render-preset check inside the generation client, pulling captions, colour and audio | `rightkit_video_project::channel_recipe` (feature `channel-recipe`), code unchanged |
+| `rightkit-pipeline` | the crate | 0.2.0 re-exports `rightkit-media-gen-client` for one release (`GenRightClient` is a deprecated alias), as `rightkit-adapt-taste` does for `rightkit-adapt` |
+
+Why not "move the client to the app": PostRight (`engine/dispatch.rs`) and any editor or campaign app also call the generation engine, so the client is shared code and belongs in RightKit; what was CutRight-specific was its name and its private process runner, both gone.
+
+Not done (gaps): the callee's reply types (`JobRecord`, `ResultDescriptor`, `AssetDescriptor`) are still typed only on the client side; `rightkit-media-gen`'s `descriptor::build` writes untyped JSON. One typed contract module both sides share is the next step. The brief dispatcher and the `brief run` caller runner are not built.
+
+## C. `rightkit-social-analytics` 0.2.0 (no video dependency)
+
+`cmd/retention.rs` (1,166 lines: a retention CSV bound to one render becomes reviewable cut proposals and one timeline revision) moved with `git mv`, code unchanged, to `rightkit_autoedit::cmd::retention` (feature `engine-commands`, `rightkit-autoedit` 0.2.0). The `engine-commands` feature and the optional dependencies on `rightkit-engine-host`, `rightkit-video-project`, `rightkit-timeline`, `rightkit-transcript` and `rightkit-autoedit` are gone; the crate depends on serde, `rightkit-social-publish`, `rightkit-http` and `rightkit-fs` only. README and description now name links, analytics, metric import and optimise. Dependents: `rightkit-social-inbox` 0.2.0 (its `AutomationStore` extends `LinksStore`), `rightkit-content-plan` 0.1.3.
+
+Not done (gaps): the shared social core types crate (Scope/Fail still come from `rightkit-social-publish`); the stores stay in PostRight by design. The retention commands still write `cutright.retention.v1` and `cutright.render-request.v1` and read `cutright.render.v1`; renaming the `cutright.*` schema ids is a family-wide sweep across the video crates (`family-video-generative.md` finding 7), not done here.
+
+## D. `@rightkit/video-ui` 0.2.0 (editing components over a host)
+
+| Item | Before | After |
+|---|---|---|
+| shape | CutRight's `src/` moved whole: 16 pages, a desktop workspace, demo mode, legal config, app name, a GenRight client, services, settings and models backends, a generated export-everything index | the editing components (`TimelineEditorView`, `Timeline`, `Inspector`, `ColourInspector`, `CaptionInspector`, `TranscriptPanel`, `ChangesPanel`, `NativePlayer`/`StagePlayer`, `RangePreview`), the typed video engine client (`lib/media`, `lib/project`, `lib/progress`) and a deliberate index |
+| Tauri | `invoke` of `playback_*`, `playback_set_gain`, `media_scope_allow`, `reveal_path`, `authorised_media_source_id`, `prepare_registered_media_playback`, `cancel_media_playback`, `convertFileSrc`, `@rightkit/tauri-shell` engine calls | none. `installVideoHost(host)` takes a `VideoHost`: `engine` (call, events, status), `playback` (open, refresh, close, status, control, frame, gain), `assetUrl`, `allowMediaScope`, `mediaSourceId`, `revealPath` |
+| app shell | in the package | deleted here; it stays in CutRight: `views/*`, `components/DesktopWorkspace`, `demo/*`, `legal/legalConfig`, `appName`, `lib/genright`, `lib/services`, `lib/settingsBackend`, `lib/modelsBackend`, `lib/models`, `lib/shell`, `lib/dialog`, `lib/mic`, `lib/assemble`, `hooks/useProgress`, the page-only `ui` helpers and their stylesheets (about 10,000 lines) |
+| copies of owning packages | its own 59-glyph icon set beside `@rightkit/react-shell`'s; `appName.ts` (byte-identical in nine packages); `lib/shell.ts` (also in social-ui and media-gen-ui); a dialog wrapper over `@rightkit/tauri` | `Icon` is react-shell's with the nine editing glyphs it lacks passed as `glyphs`; the other three are gone with the shell |
+| dependencies | 13 `@rightkit/*` packages and four Tauri packages | `@rightkit/media-ui` and `@rightkit/react-shell` |
+| styling | CutRight's `--s*`, `--r-*`, `--cr-stage` tokens with no fallback | the same names with the suite's 4px-grid values as fallbacks |
+| licence notice | the vendored hyperframes files pointed to a `NOTICES.md` that did not exist | `src/editor/NOTICES.md` |
+
+Not done (gaps): a Tauri `VideoHost` implementation over `@rightkit/tauri-shell` is left to the app (README shows the mapping); the native preview session's Rust side (`playback_*`) is still only in CutRight's shell (the preview-session crate the family review proposes); the generation UI client shared with `@rightkit/media-gen-ui` is not built (it belongs with that package's redraw); `lib/media` still types every video engine method CutRight calls, including ones whose server is not in RightKit yet (recipes, batch, bundle, package).
+
+## Checks
+
+Rust (toolchain 1.99.1, `--target-dir /home/user/rightkit/target`): `cargo check` of every changed crate and its dependents with their command features; clippy `--all-features -D warnings`, `cargo doc --no-deps --all-features` with `-D warnings` and `rustfmt --check` on the changed crates; `cargo metadata --locked`. Recipes run against path dependencies in a scratch folder: engine-host, media-gen-client, pipeline, social-analytics, doctor, video-project, autoedit, shorts, social-inbox, apple-ops, content-plan, motion, media-pipeline. npm: `@rightkit/video-ui` typecheck and build; its recipe run against a `pnpm pack` archive with the closure (media-ui 0.3.5, platform-ui 0.4.1, react-shell 0.7.3) overridden to local packs. `node scripts/preflight.mjs --worktree`.

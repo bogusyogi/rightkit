@@ -1,4 +1,4 @@
-//! Registry consumer for rightkit-social-inbox 0.1.0: builds against the published API only.
+//! Registry consumer for rightkit-social-inbox 0.2.0: builds against the published API only.
 use rightkit_social_inbox::keywords::keyword_matches;
 use rightkit_social_inbox::webhook::{
     parse_delivery, signature_header_for, verify_signature, Parsed,

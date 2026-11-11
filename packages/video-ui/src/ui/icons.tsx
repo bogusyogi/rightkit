@@ -1,85 +1,42 @@
-// Inline icon set. Paths from Lucide (ISC License, see ICONS-NOTICE.md).
-// 16px, stroke 1.6, currentColor — docs/design/app-ui.md §1 Icons.
-import type { SVGProps } from "react";
+// The editing glyphs this package adds to the shared set of @rightkit/react-shell (`Icon`, `ICONS`).
+// Paths from Lucide (ISC License, see the notice in @rightkit/react-shell's icons).
+import { Icon as SharedIcon, type IconName as SharedIconName, type IconProps, type IconShape } from "@rightkit/react-shell/react";
 
-const P: Record<string, string[]> = {
-  plus: ["M5 12h14", "M12 5v14"],
-  x: ["M18 6 6 18", "m6 6 12 12"],
-  check: ["M20 6 9 17l-5-5"],
-  "chevron-left": ["m15 18-6-6 6-6"],
-  "chevron-right": ["m9 18 6-6-6-6"],
-  "chevron-down": ["m6 9 6 6 6-6"],
-  "chevron-up": ["m18 15-6-6-6 6"],
-  "layout-list": [
+const p = (...d: string[]): IconShape => d.map((path) => ["path", { d: path }] as const);
+
+/** Editing glyphs that are not in the shared set. */
+export const EDITING_GLYPHS = {
+  "layout-list": p(
     "M4 3h5a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z",
     "M4 14h5a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-5a1 1 0 0 1 1-1Z",
     "M14 4h7",
     "M14 9h7",
     "M14 15h7",
     "M14 20h7",
-  ],
-  "more-horizontal": ["M12 12h.01", "M19 12h.01", "M5 12h.01"],
-  film: ["M3 3h18v18H3z", "M7 3v18", "M17 3v18", "M3 7.5h4", "M3 12h18", "M3 16.5h4", "M17 7.5h4", "M17 16.5h4"],
-  clapperboard: ["M20.2 6 3 11l-.9-2.4c-.3-1.1.3-2.2 1.3-2.5l13.5-4c1.1-.3 2.2.3 2.5 1.3Z", "m6.2 5.3 3.1 3.9", "m12.4 3.4 3.1 4", "M3 11h18v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"],
-  "wand-sparkles": ["m21.64 3.64-1.28-1.28a1.21 1.21 0 0 0-1.72 0L2.36 18.64a1.21 1.21 0 0 0 0 1.72l1.28 1.28a1.2 1.2 0 0 0 1.72 0L21.64 5.36a1.2 1.2 0 0 0 0-1.72", "m14 7 3 3", "M5 6v4", "M19 14v4", "M10 2v2", "M7 8H3", "M21 16h-4", "M11 3H9"],
-  download: ["M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4", "m7 10 5 5 5-5", "M12 15V3"],
-  upload: ["M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4", "m17 8-5-5-5 5", "M12 3v12"],
-  image: ["M3 3h18v18H3z", "M9 9h.01", "m21 15-5-5L5 21"],
-  music: ["M9 18V5l12-2v13", "M6 15a3 3 0 1 0 0 6 3 3 0 0 0 0-6Z", "M18 13a3 3 0 1 0 0 6 3 3 0 0 0 0-6Z"],
-  mic: ["M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z", "M19 10v2a7 7 0 0 1-14 0v-2", "M12 19v3"],
-  scissors: ["M6 3a3 3 0 1 0 0 6 3 3 0 0 0 0-6Z", "M6 15a3 3 0 1 0 0 6 3 3 0 0 0 0-6Z", "M20 4 8.12 15.88", "M14.47 14.48 20 20", "M8.12 8.12 12 12"],
-  "mouse-pointer": ["M12.586 12.586 19 19", "M3.688 3.037a.497.497 0 0 0-.651.651l6.5 15.999a.501.501 0 0 0 .947-.062l1.569-6.083a2 2 0 0 1 1.448-1.479l6.124-1.579a.5.5 0 0 0 .063-.947z"],
-  undo: ["M3 7v6h6", "M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"],
-  redo: ["M21 7v6h-6", "M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3l3 2.7"],
-  play: ["M6 3 20 12 6 21Z"],
-  pause: ["M6 4h4v16H6z", "M14 4h4v16h-4z"],
-  "step-back": ["M17 18 9 12l8-6Z", "M7 6v12"],
-  "step-forward": ["m7 18 8-6-8-6Z", "M17 6v12"],
-  repeat: ["m17 2 4 4-4 4", "M3 11v-1a4 4 0 0 1 4-4h14", "m7 22-4-4 4-4", "M21 13v1a4 4 0 0 1-4 4H3"],
-  volume: ["M11 4.7a.7.7 0 0 0-1.2-.5L6.4 7.6A1.4 1.4 0 0 1 5.4 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.4a1.4 1.4 0 0 1 1 .4l3.4 3.4a.7.7 0 0 0 1.2-.5Z", "M16 9a5 5 0 0 1 0 6", "M19.4 18.4a9 9 0 0 0 0-12.7"],
-  "volume-x": ["M11 4.7a.7.7 0 0 0-1.2-.5L6.4 7.6A1.4 1.4 0 0 1 5.4 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.4a1.4 1.4 0 0 1 1 .4l3.4 3.4a.7.7 0 0 0 1.2-.5Z", "m22 9-6 6", "m16 9 6 6"],
-  magnet: ["m6 15-4-4 6.75-6.77a7.79 7.79 0 0 1 11 11L13 22l-4-4 6.39-6.36a2.14 2.14 0 0 0-3-3L6 15", "m5 8 4 4", "m12 15 4 4"],
-  settings: ["M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z", "M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6Z"],
-  sun: ["M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Z", "M12 2v2", "M12 20v2", "m4.93 4.93 1.41 1.41", "m17.66 17.66 1.41 1.41", "M2 12h2", "M20 12h2", "m6.34 17.66-1.41 1.41", "m19.07 4.93-1.41 1.41"],
-  moon: ["M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"],
-  folder: ["M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"],
-  "folder-open": ["m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"],
-  "list-video": ["M12 12H3", "M16 6H3", "M12 18H3", "m16 12 5 3-5 3v-6Z"],
-  "sliders-horizontal": ["M21 4h-7", "M10 4H3", "M21 12h-9", "M8 12H3", "M21 20h-5", "M12 20H3", "M14 2v4", "M8 10v4", "M16 18v4"],
-  "text-quote": ["M17 6H3", "M21 12H8", "M21 18H8", "M3 12v6"],
-  "chart-line": ["M3 3v16a2 2 0 0 0 2 2h16", "m19 9-5 5-4-4-3 3"],
-  sparkles: ["M9.94 15.5A2 2 0 0 0 8.5 14.06l-6.13-1.58a.5.5 0 0 1 0-.96L8.5 9.94A2 2 0 0 0 9.94 8.5l1.58-6.13a.5.5 0 0 1 .96 0L14.06 8.5A2 2 0 0 0 15.5 9.94l6.13 1.58a.5.5 0 0 1 0 .96L15.5 14.06a2 2 0 0 0-1.44 1.44l-1.58 6.13a.5.5 0 0 1-.96 0z"],
-  "triangle-alert": ["m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3", "M12 9v4", "M12 17h.01"],
-  "circle-check": ["M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Z", "m9 12 2 2 4-4"],
-  "rotate-ccw": ["M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8", "M3 3v5h5"],
-  link: ["M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71", "M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"],
-  maximize: ["M8 3H5a2 2 0 0 0-2 2v3", "M21 8V5a2 2 0 0 0-2-2h-3", "M3 16v3a2 2 0 0 0 2 2h3", "M16 21h3a2 2 0 0 0 2-2v-3"],
-  captions: ["M3 5h18v14H3z", "M7 15h4", "M15 15h2", "M7 11h2", "M13 11h4"],
-  layers: ["m12.83 2.18 8.58 3.9a1 1 0 0 1 0 1.83l-8.58 3.9a2 2 0 0 1-1.66 0L2.6 7.9a1 1 0 0 1 0-1.83l8.58-3.9a2 2 0 0 1 1.66 0Z", "m22 12-9.17 4.17a2 2 0 0 1-1.66 0L2 12", "m22 17-9.17 4.17a2 2 0 0 1-1.66 0L2 17"],
-  copy: ["M8 8h12v12H8z", "M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"],
-  "trash-2": ["M3 6h18", "M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6", "M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2", "M10 11v6", "M14 11v6"],
-  "message-square-text": ["M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z", "M13 8H7", "M17 12H7"],
-};
+  ),
+  film: p("M3 3h18v18H3z", "M7 3v18", "M17 3v18", "M3 7.5h4", "M3 12h18", "M3 16.5h4", "M17 7.5h4", "M17 16.5h4"),
+  scissors: p(
+    "M6 3a3 3 0 1 0 0 6 3 3 0 0 0 0-6Z",
+    "M6 15a3 3 0 1 0 0 6 3 3 0 0 0 0-6Z",
+    "M20 4 8.12 15.88",
+    "M14.47 14.48 20 20",
+    "M8.12 8.12 12 12",
+  ),
+  "mouse-pointer": p(
+    "M12.586 12.586 19 19",
+    "M3.688 3.037a.497.497 0 0 0-.651.651l6.5 15.999a.501.501 0 0 0 .947-.062l1.569-6.083a2 2 0 0 1 1.448-1.479l6.124-1.579a.5.5 0 0 0 .063-.947z",
+  ),
+  "step-back": p("M17 18 9 12l8-6Z", "M7 6v12"),
+  "step-forward": p("m7 18 8-6-8-6Z", "M17 6v12"),
+  repeat: p("m17 2 4 4-4 4", "M3 11v-1a4 4 0 0 1 4-4h14", "m7 22-4-4 4-4", "M21 13v1a4 4 0 0 1-4 4H3"),
+  magnet: p("m6 15-4-4 6.75-6.77a7.79 7.79 0 0 1 11 11L13 22l-4-4 6.39-6.36a2.14 2.14 0 0 0-3-3L6 15", "m5 8 4 4", "m12 15 4 4"),
+  captions: p("M3 5h18v14H3z", "M7 15h4", "M15 15h2", "M7 11h2", "M13 11h4"),
+} as const satisfies Record<string, IconShape>;
 
-export type IconName = keyof typeof P;
+export type EditingGlyph = keyof typeof EDITING_GLYPHS;
+export type IconName = SharedIconName | EditingGlyph;
 
-export function Icon({ name, ...rest }: { name: IconName } & SVGProps<SVGSVGElement>) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      width={16}
-      height={16}
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.6}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-      {...rest}
-    >
-      {(P[name] ?? []).map((d) => (
-        <path key={d} d={d} />
-      ))}
-    </svg>
-  );
+/** The shared icon with the editing glyphs added. */
+export function Icon(props: Omit<IconProps<EditingGlyph>, "glyphs">) {
+  return <SharedIcon<EditingGlyph> {...props} glyphs={EDITING_GLYPHS} />;
 }

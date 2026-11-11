@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-video-project"
-version = "0.1.2"
+version = "0.1.3"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Video project layer for Right Suite apps: project files, sources and their integrity, revisions on the timeline, render jobs, and portable project bundles."
@@ -14,6 +14,14 @@ name = "rightkit_video_project"
 path = "src/lib.rs"
 
 [features]
+default = []
+# Engine command support (`engine` and `cmd`): the project-method layer engine command modules share and the
+# project housekeeping handlers, moved from rightkit-engine-host's `project-cmd`. Adds rightkit-engine-host (for
+# `env::Env`), rightkit-transcript, rightkit-app-settings and rightkit-cache.
+engine-commands = ["dep:rightkit-engine-host", "dep:rightkit-transcript", "dep:rightkit-app-settings", "dep:rightkit-cache"]
+# Channel recipe validation (`channel_recipe`): checks a recipe body against the presets a render accepts (cut
+# presets, formats, caption styles, colour and audio ids). Moved from rightkit-pipeline. Adds rightkit-color.
+channel-recipe = ["dep:rightkit-color"]
 
 [dependencies]
 chrono = { version = "0.4", features = ["serde", "clock"] }
@@ -26,6 +34,11 @@ rightkit-fs = { version = "0.4.9", default-features = false, features = ["fs", "
 rightkit-child-process = { version = "0.5.7", default-features = false, path = "../rightkit-child-process" }
 rightkit-audio = { version = "0.3.1", default-features = false, path = "../rightkit-audio" }
 rightkit-ffmpeg = { version = "0.3.0", default-features = false, features = ["native"], path = "../rightkit-ffmpeg" }
+rightkit-engine-host = { version = "0.2.0", path = "../rightkit-engine-host", optional = true }
+rightkit-transcript = { version = "0.4.0", path = "../rightkit-transcript", optional = true }
+rightkit-app-settings = { version = "0.4.0", path = "../rightkit-app-settings", optional = true }
+rightkit-cache = { version = "0.2.3", path = "../rightkit-cache", optional = true }
+rightkit-color = { version = "0.1.0", path = "../rightkit-color", optional = true }
 
 # rightkit-typeset's citationberg 0.7.0 pins quick-xml 0.38.4 (RUSTSEC-2026-0194, RUSTSEC-2026-0195); a [patch] does not reach
 # dependents, so every workspace that links rightkit-typeset carries the same vendored fix (vendor/citationberg/VENDORED.md).

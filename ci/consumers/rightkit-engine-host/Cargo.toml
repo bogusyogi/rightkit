@@ -7,5 +7,5 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-engine-host = { version = "=0.1.2" }
+rightkit-engine-host = { version = "=0.2.0" }
 serde_json = "1"

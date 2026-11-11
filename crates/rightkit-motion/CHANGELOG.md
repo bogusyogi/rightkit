@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.0 (unpublished)
+
+Taken on the recommended option of the shape review (`docs/audits/2026-11-11-shape-matrix/reports/cut-post-redraw.md`), pending the owner's confirmation.
+
+- Breaking (feature `engine-commands` only): requires `rightkit-engine-host` 0.2.0 (the `Env` the commands take) and `rightkit-video-project` 0.1.3; the shared project-method helpers are `rightkit_video_project::engine` (were `rightkit_engine_host::project`). Encode, server and browser-source are unchanged.
+
 ## 0.3.0 (unpublished)
 
 - rightkit#1144: the loopback project host takes the app's policy. BREAKING (`server` feature): `project_server::Project` replaces `gsap_js` with `injection: Injection`; new `Injection { runtime, swaps }`, `ScriptSwap { url_contains, url_ends_with, route, body }` (`ScriptSwap::gsap`), `Injection::deterministic(gsap)` (the previous behaviour: bundled `hf-runtime.js` plus the GSAP swap), `swap_scripts`, `serve(dir, entry, Injection) -> Handle { url, port(), logs(), shutdown() }` and `ProjectServer::start_with`. `ProjectServer::start(dir, entry, gsap_js)` is unchanged. Swap routes must be under `/__hf/`. Host guard, containment, byte ranges, log sink unchanged.

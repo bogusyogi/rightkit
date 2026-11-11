@@ -25,8 +25,8 @@ use serde_json::{json, Value};
 
 use super::rules as rules_cmd;
 use rightkit_engine_host::env::Env;
-use rightkit_engine_host::project::media_tools;
-use rightkit_engine_host::project::{
+use rightkit_video_project::engine::media_tools;
+use rightkit_video_project::engine::{
     analysis_dir, bad, find_source, load_envelope, load_transcript, timemap_path,
     transcript_exists, write_json,
 };

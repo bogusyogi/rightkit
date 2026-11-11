@@ -2,7 +2,9 @@
 //! CLI ([`cli`]) and as the resident stdio sidecar a shell supervises ([`sidecar`]), with the wire
 //! types they share ([`wire`]), the contract and TypeScript export ([`registry`]) and the
 //! QA marker ([`data_folder`]), the process environment an engine's commands read
-//! ([`mod@env`]) and installed-app discovery for an `apps` command ([`apps`]).
+//! ([`mod@env`]) and installed-app discovery for an `apps` command ([`apps`]). [`call`] is the other
+//! side of the same CLI: one engine calling another installed engine (absolute path, stdin switch,
+//! bounded capture, error envelope, contract and capability handshake).
 //!
 //! ```no_run
 //! use std::sync::Arc;
@@ -22,15 +24,11 @@
 //! ```
 
 pub mod apps;
+pub mod call;
 pub mod caller;
 pub mod cli;
 pub mod data_folder;
-pub mod doctor;
 pub mod env;
-#[cfg(feature = "project-cmd")]
-pub mod project;
-#[cfg(feature = "project-cmd")]
-pub mod project_cmd;
 pub mod registry;
 pub mod sidecar;
 pub mod wire;

@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-media-pipeline"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Named production pipelines on rightkit-media-gen: compose, dubbing with retiming, translation with terminology, fan-out multi-job steps, finishing hand-off and the campaign production stack"
@@ -34,6 +34,6 @@ rightkit-logs = { version = "0.4.0", default-features = false, path = "../rightk
 rightkit-models = { version = "0.7.0", path = "../rightkit-models" }
 rightkit-transcript = { version = "0.4.0", path = "../rightkit-transcript" }
 rightkit-browser = { version = "0.3.7", path = "../rightkit-browser", optional = true }
-rightkit-motion = { version = "0.3.0", default-features = false, features = ["encode", "server"], path = "../rightkit-motion", optional = true }
+rightkit-motion = { version = "0.4.0", default-features = false, features = ["encode", "server"], path = "../rightkit-motion", optional = true }
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "time"], optional = true }
 serde = { version = "1.0", features = ["derive"], optional = true }

@@ -12,7 +12,7 @@ use rightkit_timeline::TICKS_PER_SECOND;
 use rightkit_video_project::{Access, Project, ProjectError};
 use serde_json::{json, Value};
 
-use rightkit_engine_host::project::{bad, find_source, load_transcript, read_json, timemap_path};
+use rightkit_video_project::engine::{bad, find_source, load_transcript, read_json, timemap_path};
 
 fn parse_preset(name: Option<&str>) -> Result<CutPreset, ProjectError> {
     match name.unwrap_or("natural") {

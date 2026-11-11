@@ -12,11 +12,10 @@
 //!   [`optimise::OptimiseStore`].
 //! - [`protocol`]: the analytics, metric-import and optimise payload shapes.
 //!
-//! The tables and pulling platform metrics belong to the host app.
+//! The tables and pulling platform metrics belong to the host app. Nothing here edits video: the
+//! retention-to-timeline-cuts commands are `rightkit_autoedit::cmd::retention`.
 
 pub mod analytics;
-#[cfg(feature = "engine-commands")]
-pub mod cmd;
 pub mod links;
 pub mod metric_import;
 pub mod optimise;

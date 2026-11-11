@@ -2,6 +2,7 @@
 
 ## 0.1.2 (unpublished)
 
+- Requires `rightkit-doctor` 0.2.0 (the one engine doctor report; `rightkit-engine-host` 0.2.0 deleted its copy). No behaviour change here.
 - Renamed dependencies, no behaviour change: CodeRight's learning crate is `rightkit-agent-learning` 0.1.0 (was `rightkit-adapt` 0.1.x) and its memory client is `rightkit-memory-client` 0.1.0 (was `rightkit-memory` 0.1.x); requires `rightkit-agent-engine-api-workflows` 0.2.0. The harness-radar feed (watch-list parsing, diffing, proposals), CodeRight's backlog intake that `rightkit-adapt` 0.1.x carried, is this crate's private module `harness_radar_feed`; its only user was this crate's `/runtime/harness-radar` routes. Taken on the recommended option of the 2026-11-11 shape review, pending the owner's confirmation.
 - Requires `rightkit-agent-engine-protocol` 0.2.0 (its approval records carry the approvals core's `Binding`, a mandatory digest, instead of an optional `payload_digest`) and `rightkit-agent-engine-core` 0.1.1. "Approve for session" on a tool with no command always installs the payload grant: every pending approval now carries its core binding, so the branch that approved once without a grant (no digest) is gone. Decision 4 of the 2026-11-11 shape review (docs/audits/2026-11-11-shape-matrix/README.md, "Agent engine") taken on the recommended option, pending the owner's confirmation; design note: docs/audits/2026-11-11-shape-matrix/reports/agent-engine-contract-design.md.
 

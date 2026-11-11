@@ -1,7 +1,7 @@
 /**
  * Selection inspector: continuous controls preview locally and commit once on
  * release/blur through `useInspectorGestureTransaction` (adapted from
- * hyperframes). Every control maps to a real `cutright_timeline::Action` or is
+ * hyperframes). Every control maps to a real `rightkit_timeline::Action` or is
  * rendered disabled with the capability reason.
  */
 import { Checkbox, Field, Input } from "@rightkit/react-shell/react";
@@ -531,8 +531,8 @@ function GatedRow({
         display: "flex",
         alignItems: "center",
         justifyContent: "space-between",
-        gap: "var(--s2)",
-        padding: "var(--s2) var(--s3)",
+        gap: "var(--s2, 8px)",
+        padding: "var(--s2, 8px) var(--s3, 12px)",
         borderStyle: "dashed",
       }}
     >

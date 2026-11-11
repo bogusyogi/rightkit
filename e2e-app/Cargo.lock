@@ -6576,7 +6576,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-motion"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "rightkit-transcript",
  "serde",

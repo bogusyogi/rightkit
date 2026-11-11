@@ -1,0 +1,9 @@
+[package]
+name = "rightkit-media-gen-client-consumer"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+rightkit-media-gen-client = { version = "=0.1.0" }
+serde_json = "1"

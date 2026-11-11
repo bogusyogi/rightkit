@@ -1,4 +1,4 @@
-//! Registry consumer for rightkit-social-analytics 0.1.0: builds against the published API only.
+//! Registry consumer for rightkit-social-analytics 0.2.0: builds against the published API only.
 use rightkit_social_analytics::links::{final_url, is_link_id, link_id_of, referrer_host, Utm};
 
 fn check(ok: bool, what: &str) {

@@ -25,7 +25,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use rightkit_engine_host::env::Env;
-use rightkit_engine_host::project::{analysis_dir, bad, find_source, io_err, media_tools};
+use rightkit_video_project::engine::{analysis_dir, bad, find_source, io_err, media_tools};
 
 /// Index layout version. A different version is rebuilt, never read.
 const INDEX_VERSION: u32 = 1;

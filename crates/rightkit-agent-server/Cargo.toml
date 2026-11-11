@@ -21,7 +21,7 @@ qualification = ["rightkit-agent-engine-core/qualification"]
 fastembed = ["rightkit-onnx/session", "rightkit-agent-tools/coding_tools-embeddings"]
 
 [dependencies]
-rightkit-doctor = { version = "0.1.0", path = "../rightkit-doctor" }
+rightkit-doctor = { version = "0.2.0", path = "../rightkit-doctor" }
 rightkit-agent-host-traits = { version = "0.1.1", path = "../rightkit-agent-host-traits" }
 rightkit-agent-plugins = { version = "0.1.1", path = "../rightkit-agent-plugins" }
 rightkit-agent-recipes = { version = "0.1.0", path = "../rightkit-agent-recipes" }

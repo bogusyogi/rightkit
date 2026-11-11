@@ -1,26 +1,15 @@
-//! Host -> generation engine orchestration (GenRight engine contract).
+//! Deprecated: this crate is `rightkit-media-gen-client`, named for what it holds (the client of
+//! the generation engine contract). Every item re-exports from there, for one release.
 //!
-//! Library API for a host engine: construct an [`Orchestrator`] with the
-//! discovered installed engine path and the project directory, then
-//! `submit` -> `wait` -> `import`, or `recover` after a restart. See
-//! [`orchestrator`] for the crash-safety model.
+//! `channel_recipe` (feature `channel-recipe` in 0.1.x) is `rightkit_video_project::channel_recipe`
+//! (feature `channel-recipe` of `rightkit-video-project`); the process call is
+//! `rightkit_engine_host::call`.
 
-#[cfg(feature = "channel-recipe")]
-pub mod channel_recipe;
-pub mod engine;
-pub mod error;
-pub mod generated_source;
-pub mod journal;
-pub mod models;
-pub mod orchestrator;
+pub use rightkit_media_gen_client::*;
 
-pub use engine::{
-    media_needs_probe, progress_event, AssetDescriptor, AssetResolution, EngineInfo,
-    GenRightClient, GenerateReply, GenerateSpec, JobListQuery, JobPage, JobRecord, MediaKind,
-    ProcessRunner, RawOutput, ResultDescriptor, Runner, MAX_INPUT_ARG_BYTES, REQUIRED_CAPABILITIES,
-    REQUIRED_CONTRACT_VERSION,
-};
-pub use error::{Error, Result};
-pub use journal::{ImportRecord, Journal, JournalData, RequestEntry, RequestState};
-pub use models::{parse_label_durations, DurationRule, ModelCatalog, ModelInfo, SpecViolation};
-pub use orchestrator::{new_request_id, Orchestrator, Submission, WaitOptions, DEFAULT_CONSUMER};
+/// The generation engine client under its 0.1.x name.
+#[deprecated(
+    since = "0.2.0",
+    note = "use rightkit_media_gen_client::GenerationClient"
+)]
+pub type GenRightClient<R> = rightkit_media_gen_client::GenerationClient<R>;

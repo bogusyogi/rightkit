@@ -1,5 +1,5 @@
 /**
- * Transcript tab of the Finished edit side panel (docs/design/app-ui.md §3.4).
+ * Transcript tab of the Finished edit side panel.
  *
  * Review mode: lines are the timeline-mapped caption cues (`captions.show`) —
  * stamp + text, current line highlighted, click seeks.
@@ -299,7 +299,7 @@ function WordEditor({
       })}
 
       {selInfo && (
-        <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--s2)", alignItems: "center" }}>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--s2, 8px)", alignItems: "center" }}>
           {selInfo.allCut ? (
             <Button
               size="sm"

@@ -10576,7 +10576,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-apple-ops"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "base64 0.23.1",
  "brotli",
@@ -10650,7 +10650,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-autoedit"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "blake3",
  "chrono",
@@ -10976,7 +10976,7 @@ version = "0.1.0"
 
 [[package]]
 name = "rightkit-content-plan"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "rightkit-fs",
  "rightkit-platform-rules",
@@ -11540,7 +11540,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-doctor"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "rightkit-crypto",
  "rightkit-engine-host",
@@ -11585,16 +11585,11 @@ dependencies = [
 
 [[package]]
 name = "rightkit-engine-host"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
- "rightkit-app-settings",
- "rightkit-cache",
+ "rightkit-child-process",
  "rightkit-daemon",
- "rightkit-fs",
  "rightkit-job-queue",
- "rightkit-timeline",
- "rightkit-transcript",
- "rightkit-video-project",
  "serde",
  "serde_json",
 ]
@@ -12142,8 +12137,20 @@ dependencies = [
 ]
 
 [[package]]
-name = "rightkit-media-pipeline"
+name = "rightkit-media-gen-client"
 version = "0.1.0"
+dependencies = [
+ "rightkit-engine-host",
+ "rightkit-fs",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "rightkit-media-pipeline"
+version = "0.2.0"
 dependencies = [
  "image",
  "rightkit-audio",
@@ -12266,7 +12273,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-motion"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "chrono",
  "image",
@@ -12452,18 +12459,9 @@ dependencies = [
 
 [[package]]
 name = "rightkit-pipeline"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
- "rightkit-audio",
- "rightkit-captions",
- "rightkit-child-process",
- "rightkit-color",
- "rightkit-fs",
- "rightkit-job-queue",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror 2.0.21",
+ "rightkit-media-gen-client",
 ]
 
 [[package]]
@@ -12835,7 +12833,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-shorts"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "chrono",
  "rightkit-autoedit",
@@ -12872,23 +12870,18 @@ version = "0.1.0"
 
 [[package]]
 name = "rightkit-social-analytics"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
- "rightkit-autoedit",
- "rightkit-engine-host",
  "rightkit-fs",
  "rightkit-http",
  "rightkit-social-publish",
- "rightkit-timeline",
- "rightkit-transcript",
- "rightkit-video-project",
  "serde",
  "serde_json",
 ]
 
 [[package]]
 name = "rightkit-social-inbox"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "rightkit-crypto",
  "rightkit-http",
@@ -13179,15 +13172,20 @@ dependencies = [
 
 [[package]]
 name = "rightkit-video-project"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "chrono",
+ "rightkit-app-settings",
  "rightkit-audio",
+ "rightkit-cache",
  "rightkit-captions",
  "rightkit-child-process",
+ "rightkit-color",
+ "rightkit-engine-host",
  "rightkit-ffmpeg",
  "rightkit-fs",
  "rightkit-timeline",
+ "rightkit-transcript",
  "serde",
  "serde_json",
  "thiserror 2.0.21",

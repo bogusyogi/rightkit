@@ -1,5 +1,5 @@
 /**
- * Changes tab of the Finished edit side panel (docs/design/app-ui.md §3.4).
+ * Changes tab of the Finished edit side panel.
  * Reads the stored auto-edit plans via `editplan.list` (analysis/editplan-*.json
  * with every item and take mapped through the live timeline by the engine):
  * items grouped by editorial category with counts, each suggestion with its

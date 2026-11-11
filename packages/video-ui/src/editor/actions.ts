@@ -1,5 +1,5 @@
 /**
- * Wire builders for `cutright_timeline::Action` — the serde shape the engine's
+ * Wire builders for `rightkit_timeline::Action` — the serde shape the engine's
  * `edit` method consumes (`{ "type": <snake_case>, ... }`). Field names and
  * units match rightkit-timeline src/action.rs exactly:
  * times are `Ticks` (705_600_000 per second), gains are `MilliDb`

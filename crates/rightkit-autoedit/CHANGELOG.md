@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.0 (unpublished)
+
+Taken on the recommended option of the shape review (`docs/audits/2026-11-11-shape-matrix/reports/cut-post-redraw.md`), pending the owner's confirmation.
+
+- New (feature `engine-commands`): `cmd::retention`, the audience-retention feedback commands (`retention.import`, `retention.list`, `retention.proposals`, `retention.apply`): a retention CSV bound to one render becomes reviewable cut proposals and one timeline revision. Moved, code unchanged, from `rightkit-social-analytics` 0.1.x, which no longer depends on video crates.
+- Breaking (feature `engine-commands`): requires `rightkit-engine-host` 0.2.0 (the `Env` the commands take) and `rightkit-video-project` 0.1.3; the shared project-method helpers are `rightkit_video_project::engine` (were `rightkit_engine_host::project`).
+
 ## 0.1.2 (unpublished)
 
 - Calls `rightkit_ffmpeg::verify_ffmpeg_handle` / `verify_ffprobe_handle` (renamed from `verify_*_or_development`); requires `rightkit-ffmpeg` 0.2.16.

@@ -13,7 +13,7 @@ use rightkit_video_project::{Access, Project, ProjectError};
 use serde_json::{json, Value};
 
 use rightkit_engine_host::env::Env;
-use rightkit_engine_host::project::media_tools;
+use rightkit_video_project::engine::media_tools;
 
 pub const METHODS: &[&str] = &["mic.align"];
 

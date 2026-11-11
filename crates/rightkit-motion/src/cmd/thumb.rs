@@ -16,7 +16,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use rightkit_engine_host::env::Env;
-use rightkit_engine_host::project::{bad, find_source, io_err, media_tools};
+use rightkit_video_project::engine::{bad, find_source, io_err, media_tools};
 
 /// Looks up the colour chain a project saved for a source: the ffmpeg filter and its signature, or
 /// `None` to show the frame ungraded. The host supplies it (its colour command owns the cache).
@@ -34,7 +34,7 @@ const THUMB_CACHE_MAX_BYTES: u64 = 256 * 1024 * 1024;
 const THUMB_STALE_TMP_AFTER: Duration = Duration::from_secs(10 * 60);
 
 /// Root of the thumbnail cache under a project directory. `storage.status` sizes and clears it.
-pub use rightkit_engine_host::project::thumb_cache_root;
+pub use rightkit_video_project::engine::thumb_cache_root;
 
 /// Key for one frame: grouped by media key, then time and width.
 fn thumb_key(media_key: &str, at_ms: i64, width: u32) -> CacheKey {

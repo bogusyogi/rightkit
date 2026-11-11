@@ -1,4 +1,4 @@
-//! CutRight project layer (media plan step 1).
+//! Video project layer for Right Suite video apps.
 //!
 //! - [`project`]: directory layout, canonical `project.json`/`timeline.json`, init/open/show.
 //! - [`lock`]: cross-process exclusive project lock with stale-owner recovery.
@@ -11,8 +11,19 @@
 //! - [`loudness`]: two-pass loudnorm measurement for final renders.
 //! - [`reframe_track`]: portable crop-path smoothing (anchor points in, typed path out).
 //! - [`render`]: render orchestration (source reverification, encoder choice, partial rename).
+//! - `engine` (feature `engine-commands`): the support layer engine command modules share (JSON and
+//!   transcript files, analysis layout, clip ranges, flat settings files, project font, media tools).
+//! - `channel_recipe` (feature `channel-recipe`): the typed check of a channel recipe body.
+//! - `cmd` (feature `engine-commands`): `projects.create`, `slot.fill`, `storage.status` and
+//!   `storage.clear` handlers.
 
 pub mod audio_sync;
+#[cfg(feature = "channel-recipe")]
+pub mod channel_recipe;
+#[cfg(feature = "engine-commands")]
+pub mod cmd;
+#[cfg(feature = "engine-commands")]
+pub mod engine;
 pub mod error;
 pub mod fsutil;
 pub mod ingest;

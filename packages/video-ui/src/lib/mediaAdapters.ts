@@ -1,32 +1,12 @@
 import { useEffect, useState } from "react";
-import { convertFileSrc, invoke } from "@tauri-apps/api/core";
-import { getCurrentWindow } from "@tauri-apps/api/window";
-import type { MediaAdapters } from "@rightkit/media-ui";
-import { defaultToastBus } from "@rightkit/react-shell";
+import { videoHost } from "../host.js";
 
-/**
- * the host app bindings for @rightkit/media-ui. Media the webview cannot decode is
- * remuxed by `rightkit-playback` (`prepare_registered_media_playback`, registry shared with
- * src-tauri/src/playback_host.rs); the player gets the derivative as an asset URL.
- * The `id` is the registry-issued source id from `useMediaPlaybackId`, never a path.
- */
-export const mediaAdapters: MediaAdapters = {
-  resolveSrc: (source) => (/^[a-z][a-z0-9+.-]*:/i.test(source) ? source : convertFileSrc(source)),
-  preparePlayback: async ({ id, requestId }) =>
-    convertFileSrc(await invoke<string>("prepare_registered_media_playback", { source: id, requestId })),
-  cancelPlayback: (requestId) => invoke<void>("cancel_media_playback", { requestId }),
-  setFullscreen: (on) => getCurrentWindow().setFullscreen(on),
-  notify: (message, severity) => {
-    defaultToastBus.push(message, severity === "error" ? "error" : "info");
-  },
-};
-
-/** Registry-issued id; RightKit's authoriser checks the host's scope on every platform. */
-export const mediaSourceId = (path: string) => invoke<string>("authorised_media_source_id", { path });
+/** The host's registered id for `path`; the host checks its media scope. */
+export const mediaSourceId = (path: string) => videoHost().mediaSourceId(path);
 
 /**
  * The `playbackId` for `path`, once the host has registered it. Undefined until then, and
- * stays undefined when the file is outside the media scope (no compatibility copy, as before).
+ * stays undefined when the file is outside the media scope (no compatibility copy).
  * Call sites key the player on this value so a late id remounts it cleanly.
  */
 export function useMediaPlaybackId(path: string | null | undefined): string | undefined {

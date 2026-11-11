@@ -1,4 +1,4 @@
-// rightkit-autoedit 0.1.0 consumed by exact registry pin, outside the workspace.
+// rightkit-autoedit 0.2.0 consumed by exact registry pin, outside the workspace.
 //
 // Proves the editing-rules contract a host stores and resolves: a channel rule beats platform,
 // content-type and project rules for the same parameter, every loser is reported as overridden by

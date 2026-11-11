@@ -1,20 +1,9 @@
-import { invoke } from "@tauri-apps/api/core";
-import type { EngineEvent as ShellEngineEvent } from "@rightkit/tauri-shell";
-
+import { videoHost, type VideoEngineHello, type VideoEngineState, type VideoEngineStatus } from "../host.js";
 import type { EngineFrame } from "./progress.js";
-import { shell } from "./shell.js";
 
-// the host app view model adapted from shared engine lifecycle snapshots.
-export type EngineState = "starting" | "ready" | "restarting" | "failed" | "stopped";
-
-export type EngineHello = { engine: string; version: string; contract_version: number };
-
-export type EngineStatus = {
-  state: EngineState;
-  hello: EngineHello | null;
-  restarts: number;
-  last_error: string | null;
-};
+export type EngineState = VideoEngineState;
+export type EngineHello = VideoEngineHello;
+export type EngineStatus = VideoEngineStatus;
 
 export type DoctorCheck = {
   id?: string;
@@ -28,54 +17,31 @@ export type DoctorReport = {
   readiness?: { status?: string; checks?: DoctorCheck[] };
 };
 
-export const engineStatus = async (): Promise<EngineStatus> => {
-  // Typed lifecycle snapshot from @rightkit/tauri-shell 0.1.2 (`rk_shell_engine_status`).
-  const status = (await shell.engine.status()) as {
-    state: EngineState | "error";
-    hello?: EngineHello | null;
-    restarts?: number;
-    last_error?: string | null;
-    message?: string;
-  } | null;
-  if (!status) return { state: "failed", hello: null, restarts: 0, last_error: "no engine configured" };
-  return {
-    state: status.state === "error" ? "failed" : status.state,
-    hello: (status.hello ?? null) as EngineHello | null,
-    restarts: status.restarts ?? 0,
-    last_error: status.last_error ?? status.message ?? null,
-  };
-};
+/** The host engine's lifecycle snapshot. */
+export const engineStatus = (): Promise<EngineStatus> => videoHost().engine.status();
 export const engineDoctor = () => engineCall<DoctorReport>("doctor");
 
 export type EngineCallError = { code: string; message: string; origin: "supervisor" | "engine" };
 
-/** Allowlisted passthrough (see `ALLOWED_METHODS` in the supervisor). */
 let activeCalls = 0;
 export const engineBusy = () => activeCalls > 0;
+/** One call to the host's video engine; events of the call echo `tag`; failures reject typed. */
 export async function engineCall<T = unknown>(method: string, params: Record<string, unknown> = {}, tag?: string): Promise<T> {
   activeCalls += 1;
   try {
-    // Tagged call from @rightkit/tauri-shell 0.1.2: events echo the tag, failures reject typed.
-    return await shell.engine.callTagged<T>(method, params, tag);
+    return await videoHost().engine.call<T>(method, params, tag);
   } finally {
     activeCalls -= 1;
   }
 }
 
-export const revealPath = (path: string) => invoke<void>("reveal_path", { path });
+export const revealPath = (path: string) => videoHost().revealPath(path);
 
 export type { EngineEvent, EngineFrame } from "./progress.js";
 
-/** Every engine event payload (`{call, id, tag, event}`), lifecycle frames included. */
-export const onEngineRaw = (handler: (payload: ShellEngineEvent) => void): Promise<() => void> =>
-  shell.engine.onEvent(handler);
-
 /** Frames are `{id: engine request id, tag: the caller's tag for that call, event}`. */
 export function onEngineEvent(handler: (frame: EngineFrame) => void): Promise<() => void> {
-  return shell.engine.onEvent((frame) => {
-    if (frame.call === "$lifecycle" || frame.id === undefined) return;
-    handler({ id: frame.id, tag: frame.tag ?? null, event: frame.event as EngineFrame["event"] });
-  });
+  return videoHost().engine.onEvent(handler);
 }
 
 export function errorCode(error: unknown): string | undefined {

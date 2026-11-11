@@ -1,5 +1,5 @@
 /**
- * Finished-edit timeline (docs/design/app-ui.md §3.4): ruler, playhead,
+ * Finished-edit timeline: ruler, playhead,
  * selectable clips with trim/move/slip gestures in Edit mode, navigation-only
  * in Review mode. All pointer geometry is transient — the canonical timeline
  * updates only when `session.apply` commits a planned action and the host
@@ -499,7 +499,7 @@ export function Timeline({
         </div>
       </div>
       {gestureError && (
-        <p role="alert" className="cr-muted" style={{ margin: 0, padding: "0 var(--s4)", fontSize: 12 }}>
+        <p role="alert" className="cr-muted" style={{ margin: 0, padding: "0 var(--s4, 16px)", fontSize: 12 }}>
           {gestureError}
         </p>
       )}

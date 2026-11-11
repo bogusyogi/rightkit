@@ -1,6 +1,9 @@
-//! Registry consumer for rightkit-pipeline 0.1.0: builds against the published API only.
-//! It does not start a generation engine; the crate's own tests drive a fake one.
-use rightkit_pipeline::{parse_label_durations, Orchestrator, DEFAULT_CONSUMER};
+//! Registry consumer for rightkit-pipeline 0.2.0 (deprecated; re-exports rightkit-media-gen-client):
+//! builds against the published API only. It does not start a generation engine.
+#![allow(deprecated)]
+use rightkit_pipeline::{
+    parse_label_durations, GenRightClient, Orchestrator, ProcessRunner, DEFAULT_CONSUMER,
+};
 
 fn check(ok: bool, what: &str) {
     if !ok {
@@ -29,6 +32,7 @@ fn main() {
         "a fresh project has no requests",
     );
     let _ = parse_label_durations;
+    let _client: GenRightClient<ProcessRunner> = GenRightClient::new(ProcessRunner::new(&missing));
     let _ = std::fs::remove_dir_all(&dir);
     println!("rightkit-pipeline consumer: all checks passed");
 }

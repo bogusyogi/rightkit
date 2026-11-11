@@ -3,7 +3,7 @@
   "capabilities": [
     {
       "capability": "video-ui",
-      "summary": "Video editor UI: timeline, inspector, preview and project views.",
+      "summary": "Video editing components (timeline, inspector, colour and caption inspectors, transcript, changes, native preview player) over a host-supplied video engine and preview session.",
       "fingerprints": [],
       "detection": "declaration-only",
       "policyNotes": [

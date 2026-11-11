@@ -1,4 +1,4 @@
-// rightkit-video-project 0.1.0 consumed by exact registry pin, outside the workspace.
+// rightkit-video-project 0.1.3 consumed by exact registry pin, outside the workspace.
 //
 // Proves the project lifecycle a host relies on: a project is created in a directory, opened for
 // writing, holds an empty timeline at the requested frame rate, saves its timeline and metadata,

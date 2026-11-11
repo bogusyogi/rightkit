@@ -33,11 +33,12 @@ pub trait DoctorHost: Send + Sync {
         None
     }
 
-    /// The resource folder; defaults to the one beside the running executable.
+    /// The resource folder; defaults to the running executable's, by the engine rule
+    /// ([`rightkit_engine_host::env::resource_dir`]).
     fn resource_dir(&self) -> Option<std::path::PathBuf> {
         std::env::current_exe()
             .ok()
-            .and_then(|exe| rightkit_engine_host::doctor::resource_dir(&exe))
+            .and_then(|exe| rightkit_engine_host::env::resource_dir(std::env::consts::OS, &exe))
     }
 
     /// The app's own top-level sections of the report.

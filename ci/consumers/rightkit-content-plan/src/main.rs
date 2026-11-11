@@ -1,4 +1,4 @@
-//! Registry consumer for rightkit-content-plan 0.1.0: builds against the published API only.
+//! Registry consumer for rightkit-content-plan 0.1.3: builds against the published API only.
 use rightkit_content_plan::drafts::{approval_gate, disclosed, host_allowed};
 
 fn check(ok: bool, what: &str) {
