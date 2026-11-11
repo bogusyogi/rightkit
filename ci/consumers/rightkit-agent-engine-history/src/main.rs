@@ -20,7 +20,7 @@ fn main() {
     let root = std::env::temp_dir().join(format!("rk-history-consumer-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(&root).expect("temp dir");
-    let store = HistoryStore::new(&root, ".rightkit");
+    let store = HistoryStore::new(&root, ".rightkit", "consumer");
     let file = root.join("x.txt");
     store.snapshot(&file, "before").expect("snapshot");
     let restored = store.restore_latest(&file).expect("restore");
