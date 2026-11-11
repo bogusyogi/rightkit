@@ -1,5 +1,5 @@
 {
- "generated": "2026-11-11T09:57:08.172Z",
+ "generated": "2026-11-11T17:49:02.684Z",
  "rightkitHead": "55b330d",
  "apps": [
   "heardright",
@@ -4503,6 +4503,100 @@
    }
   },
   {
+   "package": "rightkit-agent-config",
+   "kind": "cargo",
+   "dir": "crates/rightkit-agent-config",
+   "class": "planned",
+   "domain": "planned",
+   "rowsOwned": [],
+   "version": null,
+   "registryLatest": null,
+   "published": "n/a",
+   "pins": {
+    "heardright": "-",
+    "viewright": "-",
+    "pulse": "-",
+    "coderight": "-",
+    "genright": "-",
+    "mailright": "-",
+    "scraperight": "-",
+    "cutright": "-",
+    "postright": "-",
+    "legion": "-"
+   },
+   "plan": {},
+   "review": {
+    "package": "rightkit-agent-config",
+    "kind": "cargo",
+    "family": "Redraws on the branch, 2026-11-11",
+    "existsAs": [
+     "crates/rightkit-agent-config"
+    ],
+    "feeds": {
+     "coderight": 3775
+    },
+    "basis": "CodeRight's coderight-config, moved out of rightkit-app-settings",
+    "referenceApp": "coderight",
+    "shape": "gaps",
+    "shapeReason": "New crate holding only agent configuration; consumers are the agent crates. Not yet reviewed against Pulse's agent configuration.",
+    "apps": {},
+    "boundary": [],
+    "actions": [
+     "compare with Pulse's agent configuration before publishing as the shared shape",
+     "publish 0.1.0"
+    ],
+    "depth": "light",
+    "confidence": "medium",
+    "source": "matrix-rows-zz-redraws.json"
+   }
+  },
+  {
+   "package": "rightkit-agent-daemon",
+   "kind": "cargo",
+   "dir": "crates/rightkit-agent-daemon",
+   "class": "planned",
+   "domain": "planned",
+   "rowsOwned": [],
+   "version": null,
+   "registryLatest": null,
+   "published": "n/a",
+   "pins": {
+    "heardright": "-",
+    "viewright": "-",
+    "pulse": "-",
+    "coderight": "-",
+    "genright": "-",
+    "mailright": "-",
+    "scraperight": "-",
+    "cutright": "-",
+    "postright": "-",
+    "legion": "-"
+   },
+   "plan": {},
+   "review": {
+    "package": "rightkit-agent-daemon",
+    "kind": "cargo",
+    "family": "Redraws on the branch, 2026-11-11",
+    "existsAs": [
+     "crates/rightkit-agent-daemon"
+    ],
+    "feeds": {},
+    "basis": "CodeRight's agent daemon core and lifecycle, moved out of rightkit-daemon",
+    "referenceApp": "coderight",
+    "shape": "gaps",
+    "shapeReason": "New crate holding only agent daemon state and lifecycle, used by rightkit-agent-server; the review would rather fold it into agent-server.",
+    "apps": {},
+    "boundary": [],
+    "actions": [
+     "decide whether it folds into rightkit-agent-server when that crate is split",
+     "publish 0.1.0"
+    ],
+    "depth": "light",
+    "confidence": "medium",
+    "source": "matrix-rows-zz-redraws.json"
+   }
+  },
+  {
    "package": "rightkit-agent-demo",
    "kind": "cargo",
    "dir": "crates/rightkit-agent-demo",
@@ -5766,6 +5860,51 @@
    }
   },
   {
+   "package": "rightkit-agent-local-models",
+   "kind": "cargo",
+   "dir": "crates/rightkit-agent-local-models",
+   "class": "planned",
+   "domain": "planned",
+   "rowsOwned": [],
+   "version": null,
+   "registryLatest": null,
+   "published": "n/a",
+   "pins": {
+    "heardright": "-",
+    "viewright": "-",
+    "pulse": "-",
+    "coderight": "-",
+    "genright": "-",
+    "mailright": "-",
+    "scraperight": "-",
+    "cutright": "-",
+    "postright": "-",
+    "legion": "-"
+   },
+   "plan": {},
+   "review": {
+    "package": "rightkit-agent-local-models",
+    "kind": "cargo",
+    "family": "Redraws on the branch, 2026-11-11",
+    "existsAs": [
+     "crates/rightkit-agent-local-models"
+    ],
+    "feeds": {},
+    "basis": "CodeRight's local-model routing, moved out of rightkit-models",
+    "referenceApp": "coderight",
+    "shape": "gaps",
+    "shapeReason": "New crate holding only the agent's local-model routing, used by rightkit-agent-server.",
+    "apps": {},
+    "boundary": [],
+    "actions": [
+     "publish 0.1.0"
+    ],
+    "depth": "light",
+    "confidence": "medium",
+    "source": "matrix-rows-zz-redraws.json"
+   }
+  },
+  {
    "package": "rightkit-agent-orchestration",
    "kind": "cargo",
    "dir": "crates/rightkit-agent-orchestration",
@@ -6139,6 +6278,51 @@
     "depth": "light",
     "confidence": "low",
     "source": "matrix-rows-agent-platform.json"
+   }
+  },
+  {
+   "package": "rightkit-agent-telemetry",
+   "kind": "cargo",
+   "dir": "crates/rightkit-agent-telemetry",
+   "class": "planned",
+   "domain": "planned",
+   "rowsOwned": [],
+   "version": null,
+   "registryLatest": null,
+   "published": "n/a",
+   "pins": {
+    "heardright": "-",
+    "viewright": "-",
+    "pulse": "-",
+    "coderight": "-",
+    "genright": "-",
+    "mailright": "-",
+    "scraperight": "-",
+    "cutright": "-",
+    "postright": "-",
+    "legion": "-"
+   },
+   "plan": {},
+   "review": {
+    "package": "rightkit-agent-telemetry",
+    "kind": "cargo",
+    "family": "Redraws on the branch, 2026-11-11",
+    "existsAs": [
+     "crates/rightkit-agent-telemetry"
+    ],
+    "feeds": {},
+    "basis": "CodeRight's agent telemetry, moved out of rightkit-logs",
+    "referenceApp": "coderight",
+    "shape": "gaps",
+    "shapeReason": "New crate holding only agent telemetry, used by the agent crates.",
+    "apps": {},
+    "boundary": [],
+    "actions": [
+     "publish 0.1.0"
+    ],
+    "depth": "light",
+    "confidence": "medium",
+    "source": "matrix-rows-zz-redraws.json"
    }
   },
   {
@@ -6830,23 +7014,15 @@
    "review": {
     "package": "rightkit-app-settings",
     "kind": "cargo",
-    "family": "Foundation: shell and UI",
+    "family": "Redraws on the branch, 2026-11-11",
     "existsAs": [
      "crates/rightkit-app-settings"
     ],
-    "feeds": {
-     "postright": 66,
-     "scraperight": 163,
-     "mailright": 1032,
-     "genright": 222,
-     "pulse": 7270,
-     "heardright": 1470,
-     "coderight": 10622
-    },
-    "basis": "fresh store plus CodeRight's coderight-config moved in as feature agent_config",
+    "feeds": {},
+    "basis": "store core serving every app; CodeRight's agent configuration moved out in 0.4.0",
     "referenceApp": "heardright",
-    "shape": "wrong",
-    "shapeReason": "The store API serves every app, but 3,775 of 8,768 lines are CodeRight's layered TOML agent configuration (the whole 47% match), which is a different capability and one app's schema.",
+    "shape": "gaps",
+    "shapeReason": "The reason it was judged wrong, CodeRight's layered TOML agent configuration, moved to rightkit-agent-config (0.4.0). The store API serves every app; the review's remaining items are gaps, not a redraw.",
     "apps": {
      "heardright": {
       "fit": "fits",
@@ -6886,17 +7062,18 @@
      "Schema, migration, patch allowlist and typed accessors stay app-side by design"
     ],
     "actions": [
-     "move agent_config to its own crate",
      "extend the manifest for per-platform defaults and ranges, or retire one generator",
-     "publish 0.3.3+",
      "document Document vs Store<T>",
+     "publish 0.4.0",
+     "move agent_config to its own crate",
+     "publish 0.3.3+",
      "Publish and pin >= 0.3.3 so Store::snapshot() gives per-field repair on the UI read (S11); main pins 0.3.1",
      "Windows replace is rename, not ReplaceFileW/write-through (S10); power-loss behaviour not verified",
      "Check stat-per-snapshot cost on hot paths such as the hotkey hook (S8, suspicion)"
     ],
     "depth": "deep",
-    "confidence": "high",
-    "source": "matrix-rows-aa-heardright.json, matrix-rows-foundation-shell-ui.json"
+    "confidence": "medium",
+    "source": "matrix-rows-aa-heardright.json, matrix-rows-foundation-shell-ui.json, matrix-rows-zz-redraws.json"
    }
   },
   {
@@ -10015,22 +10192,15 @@
    "review": {
     "package": "rightkit-daemon",
     "kind": "cargo",
-    "family": "Foundation: runtime",
+    "family": "Redraws on the branch, 2026-11-11",
     "existsAs": [
-     "crates/rightkit-daemon",
-     "swift/RightKitSwift/Sources/RightKitDaemonClient"
+     "crates/rightkit-daemon"
     ],
-    "feeds": {
-     "coderight": 13142,
-     "mailright": 5589,
-     "postright": 2628,
-     "cutright": 567,
-     "genright": 384
-    },
-    "basis": "RightKit local-service core plus merged-in parts: retired remote daemon crate (PostRight wire), CodeRight loopback HTTP and CodeRight daemon_core/daemon_runtime copied under features",
-    "referenceApp": "pulse",
+    "feeds": {},
+    "basis": "local service plus several other products; CodeRight's agent daemon code moved out in 0.6.0",
+    "referenceApp": "heardright",
     "shape": "wrong",
-    "shapeReason": "The local same-user service API is right and Pulse, MailRight, CutRight and GenRight host on it unchanged. But the crate is eight things: local service, remote HTTPS host, loopback bearer HTTP, relay, run mode and app roots, root migration/cutover, installed-app discovery, approval, and CodeRight's lifecycle authority. ViewRight and ScrapeRight link it only for mode/AppRoot/Suite, and rightkit-models links it only for Suite::resolve.",
+    "shapeReason": "Agent daemon code moved to rightkit-agent-daemon (0.6.0). Still wrong: run mode and app roots, the remote HTTPS host with link and relay, and an approval workflow share the crate with the local service.",
     "apps": {
      "heardright": {
       "fit": "gaps",
@@ -10070,6 +10240,7 @@
      }
     },
     "boundary": [
+     "root resolution exists three times: fs::app_dirs, fs::StateDir and daemon::Suite/AppRoot/mode",
      "agent_daemon_core and agent_daemon_runtime are CodeRight's daemon_core/daemon_runtime crates (lifecycle.rs 166/166 lines) and pull axum and rightkit-agent-engine-protocol into a foundation crate",
      "mode, Suite, AppRoot, root_cutover (about 5k lines) are path and run-mode policy, used by apps with no daemon; rightkit-fs has its own app_dirs::AppDirs",
      "remote + link + relay (HTTPS, device enrolment, OAuth callback) is a second product in the crate; pairing also exists in rightkit-identity, rightkit-mesh and rightkit-device-link",
@@ -10081,6 +10252,9 @@
      "speech_service/ has a twin in rightkit-dictation-runtime"
     ],
     "actions": [
+     "move mode/Suite/AppRoot/root_cutover to one roots crate or rightkit-fs",
+     "split remote/link/relay into their own crate, leaving local service and loopback",
+     "GenRight and CutRight use discover_apps_in_with instead of their own discovery",
      "Move mode/Suite/AppRoot/root_cutover to one roots crate (or rightkit-fs) and make daemon, models and qa depend on that",
      "Move agent_daemon_core/agent_daemon_runtime to rightkit-agent-server",
      "Split remote/link/relay into their own crate, leaving local service + loopback",
@@ -10093,7 +10267,7 @@
     ],
     "depth": "deep",
     "confidence": "medium",
-    "source": "matrix-rows-aa-heardright.json, matrix-rows-foundation-runtime.json"
+    "source": "matrix-rows-aa-heardright.json, matrix-rows-foundation-runtime.json, matrix-rows-zz-redraws.json"
    }
   },
   {
@@ -14083,24 +14257,15 @@
    "review": {
     "package": "rightkit-logs",
     "kind": "cargo",
-    "family": "Foundation: runtime",
+    "family": "Redraws on the branch, 2026-11-11",
     "existsAs": [
      "crates/rightkit-logs"
     ],
-    "feeds": {
-     "coderight": 4075,
-     "pulse": 845,
-     "scraperight": 686,
-     "mailright": 314,
-     "postright": 166,
-     "viewright": 166,
-     "cutright": 105,
-     "genright": 62
-    },
-    "basis": "RightKit implementation (used by live HeardRight and live ViewRight) plus CodeRight's telemetry crate copied under the agent_telemetry feature",
+    "feeds": {},
+    "basis": "logging core serving all nine apps; CodeRight's agent telemetry moved out in 0.4.0",
     "referenceApp": "heardright",
     "shape": "gaps",
-    "shapeReason": "The logging core (JsonlStore, EventRecord, scrub, RotatingTextWriter, tracing file, collect_diagnostics) serves all nine apps. The 95% CodeRight match is its agent telemetry (prompt overhead, context ceiling, agent observability, repair), which is agent product code and not logging.",
+    "shapeReason": "Agent telemetry moved to rightkit-agent-telemetry (0.4.0). Remaining review items are small.",
     "apps": {
      "heardright": {
       "fit": "fits",
@@ -14147,14 +14312,17 @@
      "ConsentStore, Outbox and Uploader are unused; upload was retired"
     ],
     "actions": [
+     "move random_uuid out (apps import it from logs)",
+     "measure JsonlStore's open per append",
+     "publish 0.4.0",
      "Move agent_telemetry to a rightkit-agent-* crate",
      "Move random_uuid out (apps import it from logs)",
      "Check that 0.3.7 (main's pin) is published; INDEX.md records 0.3.5",
      "JsonlStore opens the file per append (L1); cost not measured"
     ],
     "depth": "deep",
-    "confidence": "high",
-    "source": "matrix-rows-aa-heardright.json, matrix-rows-foundation-runtime.json"
+    "confidence": "medium",
+    "source": "matrix-rows-aa-heardright.json, matrix-rows-foundation-runtime.json, matrix-rows-zz-redraws.json"
    }
   },
   {
@@ -15120,23 +15288,15 @@
    "review": {
     "package": "rightkit-models",
     "kind": "cargo",
-    "family": "Foundation: runtime",
+    "family": "Redraws on the branch, 2026-11-11",
     "existsAs": [
-     "crates/rightkit-models",
-     "crates/rightkit-dictation-models"
+     "crates/rightkit-models"
     ],
-    "feeds": {
-     "heardright": 6182,
-     "genright": 3008,
-     "coderight": 1853,
-     "scraperight": 1838,
-     "cutright": 908,
-     "mailright": 340
-    },
-    "basis": "two stores in one crate: a RightKit revisioned store, and the flat suite store ported from ScrapeRight's scraperight-model-store; plus CodeRight's local_models crate under a feature",
+    "feeds": {},
+    "basis": "two independent stores; CodeRight's agent local-model code moved out in 0.6.0",
     "referenceApp": "heardright",
     "shape": "wrong",
-    "shapeReason": "The crate has two independent on-disk layouts and two APIs (suite/mod.rs:20-24). MailRight and GenRight install through Store/ModelSpec/InstallOptions; HeardRight, ScrapeRight and CutRight through suite::*; CodeRight uses only hardware fit. No duplicate code needs one store, and the live app's layout is the suite one.",
+    "shapeReason": "Agent local-model code moved to rightkit-agent-local-models (0.6.0). Still wrong: two independent on-disk stores and APIs (Store for MailRight and GenRight, suite::* for HeardRight, ScrapeRight and CutRight).",
     "apps": {
      "heardright": {
       "fit": "gaps",
@@ -15190,6 +15350,9 @@
      "Whole heardright-model-store has a twin in rightkit-dictation-models; iOS Packages/SharedModelRoot is mapped here"
     ],
     "actions": [
+     "pick the suite layout (HeardRight's live layout) as the one store and migrate Store users, or give Store a suite backend",
+     "move the trusted catalog entries to data each app or a catalog crate supplies",
+     "resolve rightkit-dictation-models vs heardright-model-store",
      "Pick the suite layout as the one store and migrate Store users (MailRight, GenRight) or give Store a suite backend",
      "Move the trusted catalog entries to data each app or a catalog crate supplies",
      "Move agent_local_models to an agent crate",
@@ -15204,7 +15367,7 @@
     ],
     "depth": "deep",
     "confidence": "medium",
-    "source": "matrix-rows-aa-heardright.json, matrix-rows-foundation-runtime.json"
+    "source": "matrix-rows-aa-heardright.json, matrix-rows-foundation-runtime.json, matrix-rows-zz-redraws.json"
    }
   },
   {
