@@ -62,6 +62,10 @@
 //!   (`remote.secure.put|list|remove`) and the monthly spend ledger.
 //! * `audit`: one line per call in `remote-activity.jsonl`, which the hub's Activity page shows.
 //!
+//! The gate around the tools is the `rightkit-agent-gateway` core's: the door ([`Origin`]), the
+//! read-only door check, one activity row per call (best effort, `gate::conclude`), the
+//! unverified-sender stamp and the secret redaction ([`redact`]) are its, re-exported here.
+//!
 //! `execute` is the one entry the CLI, the engine and the ChatGPT gateway
 //! (`the gateway`) call, so they behave the same. A call from the gateway carries
 //! `Origin::Gateway` and is refused unless `remoteGateway` is on as well as `remoteTools`.
@@ -104,7 +108,10 @@ pub mod unlock;
 
 pub use unlock::Requester;
 
-pub use rightkit_owner_approvals::{Refusal, Result, approval_sig, protected_guard, redact};
+pub use rightkit_agent_gateway::{Origin, redact};
+pub use rightkit_owner_approvals::{Refusal, Result, approval_sig, protected_guard};
+
+use rightkit_agent_gateway::gate::{self, Logging};
 
 /// What `rightkit-owner-approvals` asks of this crate: the PIN, the unlock sessions and whether this
 /// process is the engine.
@@ -137,27 +144,6 @@ pub fn init() -> bool {
 /// name is a label the caller supplies (the engine takes `client` from its own callers), so a
 /// reader that must tell the gateway's calls apart goes by `origin`, never by `client`.
 pub const GATEWAY_CLIENT: &str = "chatgpt-gateway";
-
-/// Which door a call came in by. Set by the process that makes the call, never by the caller's
-/// own request, so a request cannot claim to be local.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum Origin {
-    /// The CLI or the engine, run by the user on this computer.
-    #[default]
-    Local,
-    /// `the gateway`, serving ChatGPT through OpenAI's tunnel. It needs `remoteGateway`.
-    Gateway,
-}
-
-impl Origin {
-    /// The word Activity records.
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Origin::Local => "local",
-            Origin::Gateway => "gateway",
-        }
-    }
-}
 
 /// One remote call, as the CLI, the engine or the gateway received it.
 #[derive(Clone, Debug, Default)]
@@ -208,8 +194,10 @@ pub fn execute(call: &Call) -> Result<Value> {
 pub fn execute_args(call: &Call, args: &Value) -> Result<Value> {
     init();
     let result = run(call, args);
-    audit::record_args(call, args, &result);
-    result
+    let written = audit::record_args(call, args, &result);
+    gate::conclude(result, written, Logging::BestEffort, |e| {
+        Refusal::new("audit_failed", e)
+    })
 }
 
 fn run(call: &Call, args: &Value) -> Result<Value> {
@@ -217,12 +205,12 @@ fn run(call: &Call, args: &Value) -> Result<Value> {
     let settings = settings::Settings::load();
     if call.origin == Origin::Gateway {
         settings.require_gateway()?;
-        if settings.read_only && changes_things(&call.tool) {
-            return Err(Refusal::new(
-                "read_only_tool",
+        gate::allow_door(settings.read_only, changes_things(&call.tool)).map_err(|denied| {
+            Refusal::new(
+                denied.code(),
                 "the ChatGPT gateway is read-only: the owner turned on remoteReadOnly in the app's settings",
-            ));
-        }
+            )
+        })?;
     }
     // Session grants belong to the client of this call, and an effectful tool on the local door
     // needs its chat unlocked first (`unlock`).

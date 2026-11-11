@@ -374,7 +374,7 @@ mod live {
                 Value::Null
             };
             let text: String = text.chars().take(OBSERVE_TEXT_MAX).collect();
-            let (text, redacted) = rightkit_owner_approvals::redact::redact(&text);
+            let (text, redacted) = rightkit_remote_gateway::redact::redact(&text);
             Ok(json!({
                 "url": url, "title": title, "text": text, "redacted": redacted,
                 "screenshot_jpeg_base64": shot,

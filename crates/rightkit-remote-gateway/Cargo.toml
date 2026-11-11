@@ -22,6 +22,7 @@ portable-pty = "=0.9.0"
 rightkit-app-host = { version = "0.1.0", path = "../rightkit-app-host" }
 rightkit-owner-approvals = { version = "0.1.2", path = "../rightkit-owner-approvals" }
 rightkit-approvals = { version = "0.2.0", default-features = false, path = "../rightkit-approvals" }
+rightkit-agent-gateway = { version = "0.3.0", default-features = false, path = "../rightkit-agent-gateway" }
 rightkit-chat-bridge = { version = "0.1.0", path = "../rightkit-chat-bridge" }
 rightkit-device-link-types = { version = "0.1.0", path = "../rightkit-device-link-types" }
 rightkit-system-monitor = { version = "0.2.0", path = "../rightkit-system-monitor" }

@@ -116,15 +116,6 @@ fn parse_update(update: &Value) -> Option<(u64, TelegramUpdate, Option<String>)>
     None
 }
 
-pub(crate) fn telegram_binding_store_path() -> PathBuf {
-    if let Ok(path) = std::env::var("RIGHTKIT_TELEGRAM_BINDINGS") {
-        return PathBuf::from(path);
-    }
-    if let Some(root) = rightkit_agent_config::state_root() {
-        return root.join("telegram-bindings.json");
-    }
-    PathBuf::from(".coderight").join("telegram-bindings.json")
-}
 
 // ---------------------------------------------------------------------------
 // Public entry point

@@ -54,7 +54,7 @@ fn accounts(conn: &Connection, agent: &Agent) -> Result<Out, AgentError> {
     let rows = host().list_accounts(conn).map_err(|e| from_db_error(&e))?;
     let list: Vec<Value> = rows
         .into_iter()
-        .filter(|r| agent.accounts.iter().any(|a| a == &r.id))
+        .filter(|r| agent.scopes.iter().any(|a| a == &r.id))
         .map(|r| json!({"id": r.id, "display_name": r.display_name}))
         .collect();
     let detail = format!("accounts={}", list.len());
@@ -160,7 +160,7 @@ fn thread(conn: &Connection, agent: &Agent, params: &Value) -> Result<Out, Agent
         list.push(json!({
             "id": m.message_id,
             "from_name": untrusted(&m.from_name),
-            "from_addr": address(&m.from_addr, &agent.accounts),
+            "from_addr": address(&m.from_addr, &agent.scopes),
             "to": untrusted(&m.to_addrs),
             "cc": untrusted(&m.cc_addrs),
             "reply_to": untrusted_opt(m.reply_to.as_deref()),

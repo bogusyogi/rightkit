@@ -3714,9 +3714,9 @@
       "pkId": "PK164",
       "id": "ci/consumers/rightkit-agent-gateway/src/main.rs",
       "files": {
-        "Cargo.toml": "2bbd8198af48aa3e3d9e2f2b9f0bb0080727bacc996c5821a42f220e01926eeb",
-        "README.md": "fc0b081c1b96c3135820e752d3b610a157771fb5af8669be30d9e33418b48353",
-        "src/main.rs": "12ef4b2969b3cc92c03ee6bca9ea99ff06c078aa7e9596350da658587d222fe6"
+        "Cargo.toml": "53fc19efc480c8a64e8242eb23aea7990f81aaac9474d4734bf0197673feb419",
+        "README.md": "e5cafb76967f60a1523f0904beb24d8a47ab0e2e50add6f5e0f420872ff0aaba",
+        "src/main.rs": "f0db6e059b9672c0cd119a6cb63776a4b3bcd1eb4d780592f037057192fd8630"
       }
     },
     "rightkit-chat-bridge": {
@@ -3751,8 +3751,8 @@
       "id": "ci/consumers/rightkit-owner-approvals/src/main.rs",
       "files": {
         "Cargo.toml": "bec6aba8abad60243b234dd612c3717ae11ced48a26aed9b360f79bb8ccf28ef",
-        "README.md": "69b36403a8ec9e6f6964566321cef8523ce2dd5b3689fe84ae75f1c95860fe2d",
-        "src/main.rs": "da2ac5cf2449c394f8cc23286bb46aa90baeac2a932024a0473e8119c2cade40"
+        "README.md": "2b2cf422073903d90269517e7c75ad11c18582891c22848060b3fc46e2ea4b54",
+        "src/main.rs": "d27ffa734d4206d86079e0c3c0f3aedf4b7cb185b1e36aa32679bd5283807e7c"
       }
     },
     "rightkit-remote-gateway": {
@@ -4158,6 +4158,15 @@
         "Cargo.toml": "76bb66a47924c311c461ac3af60daff24af7de891e3092721142bfb10b34c590",
         "README.md": "740e0fbbc44bfe463b99e72739230f60bd22b956da6451450b90e09cb7a382e3",
         "src/main.rs": "430f29ad8a8bfa83aeccd51af2015ce5369842a4f847dfc698834111c0eb880b"
+      }
+    },
+    "rightkit-mail-gateway": {
+      "pkId": "PK230",
+      "id": "ci/consumers/rightkit-mail-gateway/src/main.rs",
+      "files": {
+        "Cargo.toml": "b97944429a2f0f288eb5bb36a3739ac579117b7f5a650ec9160421b1cf21801a",
+        "README.md": "bce65e0005cd3a5748955ce76aa12adb1442df232a4b28dc1f0841efdc809a75",
+        "src/main.rs": "01fe54be9b5f3a7e2466621dc2ce28e404af4ed37ed582e17328343eb2eeb42c"
       }
     }
   }

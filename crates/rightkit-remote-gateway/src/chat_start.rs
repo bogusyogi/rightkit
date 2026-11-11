@@ -231,9 +231,12 @@ mod imp {
             .to_string();
         let stdin_path = dir.join(format!("{id}.in"));
         let log_path = dir.join(format!("{id}.log"));
-        let full = format!(
-            "{STAMP}\n\nWhen you have finished, report the result to ChatGPT with: {} chat send ChatGPT \"<short summary>\" (it reads that with chat_inbox).\n\n{prompt}",
-            app_command()
+        let full = rightkit_agent_gateway::content::stamped(
+            STAMP,
+            &format!(
+                "When you have finished, report the result to ChatGPT with: {} chat send ChatGPT \"<short summary>\" (it reads that with chat_inbox).\n\n{prompt}",
+                app_command()
+            ),
         );
         rightkit_fs::atomic_write_with_options(
             &stdin_path,

@@ -6,33 +6,70 @@
 //! caller read.
 
 use super::Call;
-use serde_json::{Value, json};
-use std::time::{SystemTime, UNIX_EPOCH};
+use rightkit_agent_gateway::audit::{AuditSink, Entry};
+use serde_json::{Map, Value, json};
 
 pub use rightkit_owner_approvals::audit::{
     FILE, SECURITY_FILE, append_activity, client, extension, record_secret, record_security,
     short_id,
 };
 
+/// The Activity file as the core gate's audit sink: one JSON line per row, `at` in seconds.
+/// Best effort: a line that cannot be written is dropped, and the call still answers.
+pub struct ActivityFile;
+
+impl AuditSink for ActivityFile {
+    fn record(&self, entry: &Entry<'_>) -> std::result::Result<(), String> {
+        let mut line = json!({
+            "v": 1,
+            "at": entry.at_ms().max(0) / 1000,
+            "client": entry.agent_name.unwrap_or_default(),
+            "origin": entry.origin.unwrap_or_default().as_str(),
+            "tool": entry.method,
+            "outcome": entry.outcome,
+        });
+        if let (Some(row), Some(facts)) = (line.as_object_mut(), entry.fields) {
+            for (key, value) in facts {
+                row.insert(key.clone(), value.clone());
+            }
+        }
+        append_activity(&line);
+        Ok(())
+    }
+}
+
 /// Writes the record of one finished call. Best effort: failures are ignored.
-pub fn record(call: &Call, result: &super::Result<Value>) {
+pub fn record(call: &Call, result: &super::Result<Value>) -> std::result::Result<(), String> {
     record_args(call, &Value::Null, result)
 }
 
 /// `record` for a call that carried structured arguments: the record adds only their SHAPE (the
 /// op of `files.manage`, the length of a command, the number of edits), never a path, command
 /// text, edit text, input or approval id.
-pub fn record_args(call: &Call, args: &Value, result: &super::Result<Value>) {
-    let mut record = line(call, result);
-    shape(&mut record, args);
-    append_activity(&record);
+pub fn record_args(
+    call: &Call,
+    args: &Value,
+    result: &super::Result<Value>,
+) -> std::result::Result<(), String> {
+    let mut fields = facts(call, result);
+    shape(&mut fields, args);
+    let client = client(&call.client);
+    let outcome = match result {
+        Ok(_) => "ok",
+        Err(refusal) => refusal.code,
+    };
+    ActivityFile.record(&Entry {
+        agent_name: Some(&client),
+        origin: Some(call.origin),
+        method: &call.tool,
+        outcome,
+        fields: Some(&fields),
+        ..Entry::default()
+    })
 }
 
 /// Adds the shape of structured arguments to a record.
-fn shape(record: &mut Value, args: &Value) {
-    let Some(fields) = record.as_object_mut() else {
-        return;
-    };
+fn shape(fields: &mut Map<String, Value>, args: &Value) {
     if let Some(op) = args["op"].as_str()
         && matches!(op, "mkdir" | "move" | "copy" | "trash")
     {
@@ -129,40 +166,24 @@ fn shape(record: &mut Value, args: &Value) {
     }
 }
 
-/// The record's JSON.
-fn line(call: &Call, result: &super::Result<Value>) -> Value {
-    let at = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
-    let mut record = json!({
-        "v": 1,
-        "at": at,
-        "client": client(&call.client),
-        "origin": call.origin.as_str(),
-        "tool": call.tool,
-    });
-    let fields = record.as_object_mut().expect("an object");
-    match result {
-        Ok(answer) => {
-            fields.insert("outcome".into(), json!("ok"));
-            if let Some(root) = answer["root"].as_u64() {
-                fields.insert("root".into(), json!(root));
-            }
-            // A screen.act answer names the tier that ran and the crate's result word.
-            if let Some(tier) = answer["tier"].as_str()
-                && matches!(tier, "semantic" | "in_app" | "targeted" | "foreground")
-            {
-                fields.insert("tier".into(), json!(tier));
-            }
-            for key in ["bytes", "returned"] {
-                if let Some(n) = answer[key].as_u64() {
-                    fields.insert(key.into(), json!(n));
-                }
-            }
+/// The record's facts beyond who, which door, which tool and the outcome.
+fn facts(call: &Call, result: &super::Result<Value>) -> Map<String, Value> {
+    let mut record = Map::new();
+    let fields = &mut record;
+    if let Ok(answer) = result {
+        if let Some(root) = answer["root"].as_u64() {
+            fields.insert("root".into(), json!(root));
         }
-        Err(refusal) => {
-            fields.insert("outcome".into(), json!(refusal.code));
+        // A screen.act answer names the tier that ran and the crate's result word.
+        if let Some(tier) = answer["tier"].as_str()
+            && matches!(tier, "semantic" | "in_app" | "targeted" | "foreground")
+        {
+            fields.insert("tier".into(), json!(tier));
+        }
+        for key in ["bytes", "returned"] {
+            if let Some(n) = answer[key].as_u64() {
+                fields.insert(key.into(), json!(n));
+            }
         }
     }
     if let Some(path) = &call.path {

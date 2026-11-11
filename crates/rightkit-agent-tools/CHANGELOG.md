@@ -2,6 +2,8 @@
 
 ## 0.3.5 (unpublished)
 
+- `coding_tools`: the `schedule_cron` tool's time zone code (`normalize_time_zone`, `time_zone_offset_minutes_at` and their helpers, 181 lines identical to `rightkit-scheduler::timezone`) is deleted and re-exported from `rightkit-scheduler` 0.1.2 (new optional dependency, on with `coding_tools`). Same results. Taken on the recommended option of the 2026-11-11 shape review, pending the owner's confirmation; design note: docs/audits/2026-11-11-shape-matrix/reports/agent-platform-redraw.md.
+
 - Requires `rightkit-agent-engine-protocol` 0.2.0, whose approval records carry the approvals core's `Binding` (mandatory digest) instead of an optional `payload_digest`. Decision 4 of the 2026-11-11 shape review (docs/audits/2026-11-11-shape-matrix/README.md, "Agent engine") taken on the recommended option, pending the owner's confirmation; design note: docs/audits/2026-11-11-shape-matrix/reports/agent-engine-contract-design.md.
 
 ## 0.3.3 (unpublished)

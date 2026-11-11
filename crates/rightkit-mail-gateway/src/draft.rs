@@ -174,23 +174,7 @@ fn bad(msg: &str) -> AgentError {
     AgentError::BadRequest(msg.into())
 }
 
-/// Control characters, bidi controls and invisible format characters: text
-/// that can make what a person reads differ from what is there.
-pub fn invisible_or_control(c: char) -> bool {
-    c.is_control()
-        || matches!(
-            c,
-            '\u{200B}'..='\u{200F}'
-                | '\u{202A}'..='\u{202E}'
-                | '\u{2060}'..='\u{2064}'
-                | '\u{2066}'..='\u{2069}'
-                | '\u{FEFF}'
-                | '\u{00AD}'
-                | '\u{061C}'
-                | '\u{2028}'
-                | '\u{2029}'
-        )
-}
+pub use rightkit_agent_gateway::registry::invisible_or_control;
 
 fn header_unsafe(c: char) -> bool {
     c.is_control() || c == '\u{2028}' || c == '\u{2029}'

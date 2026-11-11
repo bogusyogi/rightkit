@@ -21,6 +21,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1" }
 thiserror = { version = "2" }
 tokio = { version = "1", features = ["full"] }
+tracing = { version = "0.1" }
 async-trait = { version = "0.1" }
-rightkit-http = { version = "0.3.9", features = ["gzip", "untrusted", "async"], path = "../rightkit-http" }
+rightkit-http = { version = "0.3.9", features = ["gzip", "untrusted", "async", "agent_host"], path = "../rightkit-http" }
 url = { version = "2" }

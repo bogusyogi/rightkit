@@ -1,3 +1,4 @@
+/// How far the loop has pushed one chat's events.
 #[derive(Clone, Debug, Default)]
 pub struct TelegramChatCursorStatus {
     pub chat_label: String,
@@ -5,6 +6,7 @@ pub struct TelegramChatCursorStatus {
     pub last_pushed_seq: i64,
 }
 
+/// The loop's health: last poll, last success, last error, retry and per-chat cursors.
 #[derive(Clone, Debug, Default)]
 pub struct TelegramRuntimeStatus {
     pub started_at: Option<String>,
@@ -19,9 +21,11 @@ pub struct TelegramRuntimeStatus {
     pub chat_cursors: Vec<TelegramChatCursorStatus>,
 }
 
-pub(crate) type TelegramRuntimeStatusStore = Arc<Mutex<TelegramRuntimeStatus>>;
+/// The shared status the loop updates and the host reads.
+pub type TelegramRuntimeStatusStore = Arc<Mutex<TelegramRuntimeStatus>>;
 
-pub(crate) fn new_telegram_runtime_status_store() -> TelegramRuntimeStatusStore {
+/// A fresh, empty status store.
+pub fn new_telegram_runtime_status_store() -> TelegramRuntimeStatusStore {
     Arc::new(Mutex::new(TelegramRuntimeStatus::default()))
 }
 

@@ -1,26 +1,39 @@
-//! Telegram long-poll loop and HTTP `DaemonClient` implementation.
-//!
-//! `run_telegram_bot` is spawned as a tokio task from `serve()` when
-//! `config.remote.telegram_token` is set. It polls the Telegram Bot API for
-//! updates, delegates decision logic to `TelegramBot` (from `coderight-remote`),
-//! and sends replies back to Telegram - all without ever interacting with the
-//! engine internals directly (only via the local daemon HTTP API).
+//! The Telegram transport is `rightkit-bot-messaging`'s (`telegram_poll`); the daemon picks
+//! where the chat-to-session bindings are kept.
 
-use async_trait::async_trait;
-use rightkit_agent_engine_protocol::ProtocolEvent;
-use rightkit_bot_messaging::{
-    DaemonClient, DaemonError, InlineButton, TelegramBot, TelegramConfig, TelegramReply,
-    TelegramUpdate,
-};
-use rightkit_http::AsyncClient as Client;
-use serde_json::Value;
-use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use tracing::info;
 
-include!("telegram/status.rs");
-include!("telegram/client.rs");
-include!("telegram/bot_api.rs");
-include!("telegram/polling.rs");
+pub use rightkit_bot_messaging::telegram_poll::{
+    new_telegram_runtime_status_store, TelegramChatCursorStatus, TelegramRuntimeStatus,
+    TelegramRuntimeStatusStore,
+};
+
+/// Run the Telegram long-poll loop with the daemon's binding store.
+pub async fn run_telegram_bot(
+    bot_token: String,
+    allowed_users: Vec<u64>,
+    port: u16,
+    daemon_token: String,
+    runtime_status: TelegramRuntimeStatusStore,
+) {
+    rightkit_bot_messaging::telegram_poll::run_telegram_bot(
+        bot_token,
+        allowed_users,
+        port,
+        daemon_token,
+        runtime_status,
+        telegram_binding_store_path(),
+    )
+    .await;
+}
+
+/// `RIGHTKIT_TELEGRAM_BINDINGS`, else `telegram-bindings.json` in the state root.
+pub(crate) fn telegram_binding_store_path() -> PathBuf {
+    if let Ok(path) = std::env::var("RIGHTKIT_TELEGRAM_BINDINGS") {
+        return PathBuf::from(path);
+    }
+    if let Some(root) = rightkit_agent_config::state_root() {
+        return root.join("telegram-bindings.json");
+    }
+    PathBuf::from(".coderight").join("telegram-bindings.json")
+}

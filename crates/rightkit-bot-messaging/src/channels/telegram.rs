@@ -1,6 +1,6 @@
 //! Telegram bot adapter — message routing, command handling, approval inline keyboards.
 //!
-//! The real long-poll loop lives in the binary; this module is the pure decision layer:
+//! The long-poll loop is [`crate::telegram_poll`]; this module is the pure decision layer:
 //! given a Telegram update and config, decide what daemon calls to make and what reply
 //! to send back. Fully testable against `StubDaemon`.
 
