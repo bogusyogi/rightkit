@@ -3844,10 +3844,10 @@
      "mailright": 559,
      "genright": 192
     },
-    "basis": "fresh typed adapters for device, logs, diagnostics commands",
+    "basis": "one neutral Tauri client; per-app wrappers deprecated",
     "referenceApp": "pulse",
-    "shape": "wrong",
-    "shapeReason": "Exports one constructor per product (createViewRightTauriClient, createHeardRightTauriClient, ...), so the shared package names its consumers. The generic constructor is the right API.",
+    "shape": "gaps",
+    "shapeReason": "Since 0.4.0 (branch) the generic client is the API every app uses; the per-product constructors (createViewRightTauriClient, createHeardRightTauriClient, ...) are deprecated wrappers kept for one release.",
     "apps": {
      "heardright": {
       "fit": "n/a",
@@ -3875,8 +3875,9 @@
      "duplicates the role of @rightkit/tauri-shell"
     ],
     "actions": [
-     "remove per-app constructors",
-     "merge into @rightkit/tauri-shell or reduce to defineTauriCommands and createNativeFetch"
+     "remove the deprecated per-product constructors at the next breaking release",
+     "owner to confirm",
+     "publish 0.4.0"
     ],
     "depth": "light",
     "confidence": "medium",

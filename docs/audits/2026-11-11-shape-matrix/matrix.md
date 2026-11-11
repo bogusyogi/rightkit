@@ -2,7 +2,7 @@
 
 Generated 2026-11-11T17:49Z from RightKit 55b330d.
 
-Packages: 306 (223 crates, 53 npm, 30 Swift). Reviewed for shape: 306 (best 68, gaps 205, wrong 26, missing 7). Not yet reviewed: 0.
+Packages: 306 (223 crates, 53 npm, 30 Swift). Reviewed for shape: 306 (best 68, gaps 206, wrong 25, missing 7). Not yet reviewed: 0.
 
 Cell: review fit · pin state on the app's main · planned lines and the share found in the package. Empty means the app has nothing for the package.
 
@@ -189,7 +189,7 @@ Cell: review fit · pin state on the app's main · planned lines and the share f
 | `@rightkit/platform-ui` | npm | no (0.4.1, registry 0.4.0) | best | fresh headless helpers | adopted | fits · adopted · 160L 1% | fits · adopted | fits · adopted | fits · adopted | fits · adopted | adopted | adopted | adopted |  |
 | `@rightkit/react-shell` | npm | no (0.7.3, registry 0.7.2) | gaps | fresh component set | gaps · adopted | fits · adopted | fits · adopted | gaps · adopted · 4054L 1% | fits · adopted · 788L 0% | fits · adopted · 2464L 2% | adopted · 4155L 0% | adopted | adopted · 350L 2% |  |
 | `@rightkit/settings-ui` | npm | no (0.7.1, registry 0.7.0) | gaps | fresh frame, primitives, standard sections, backend port | gaps · adopted · 6175L 2% | gaps · adopted · 2684L 2% | fits · adopted · 4666L 3% | fits · adopted | fits · adopted · 3617L 1% | fits · adopted · 3465L 2% | adopted · 2072L 2% | adopted | adopted · 522L 0% |  |
-| `@rightkit/tauri` | npm | no (0.3.1, registry 0.3.0) | wrong | fresh typed adapters for device, logs, diagnostics commands | adopted | adopted | fits · adopted | adopted | adopted · 192L 0% | gaps · adopted · 559L 0% | adopted · 248L 0% | adopted | adopted · 133L 0% |  |
+| `@rightkit/tauri` | npm | no (0.3.1, registry 0.3.0) | gaps | one neutral Tauri client; per-app wrappers deprecated | adopted | adopted | fits · adopted | adopted | adopted · 192L 0% | gaps · adopted · 559L 0% | adopted · 248L 0% | adopted | adopted · 133L 0% |  |
 | `@rightkit/tauri-shell` | npm | no (0.1.4, registry 0.1.3) | best | fresh typed renderer bridge for the crate | exception | fits · adopted | fits · adopted | fits · adopted | fits · adopted | exception | adopted | adopted | adopted |  |
 | `@rightkit/theme` | npm | no (0.3.2, registry 0.3.1) | gaps | fresh brand-to-token generator | gaps · adopted · 271L 0% | fits · adopted · 290L 1% | fits · adopted · 445L 0% | gaps · adopted · 4133L 1% | adopted · 199L 0% | fits · adopted · 74L 2% | adopted · 166L 0% | adopted | adopted · 10L 0% |  |
 | `rightkit-app-host` | cargo | no (0.1.1, registry 0.1.0) | wrong | seam for companion crates moved out of Pulse |  |  | fits · ahead |  |  |  |  |  |  |  |
@@ -387,14 +387,13 @@ Cell: review fit · pin state on the app's main · planned lines and the share f
 | `rightkit-video-project` | cargo | yes | gaps | CutRight cutright-project moved (project, ingest, render, source, probe, worker, loudness, lock, audio_sync, still) |  |  |  |  |  |  |  | gaps · ahead · 14524L 35% |  |  |
 | `RightKitMedia` | swift | n/a | missing | not in RightKit |  |  |  |  |  |  |  | gaps · 1859L 0% |  |  |
 
-## Wrong shape (23 packages; sub-crates that inherit a family verdict are not repeated)
+## Wrong shape (22 packages; sub-crates that inherit a family verdict are not repeated)
 
 | Package | Why | Reference app |
 |---|---|---|
 | `@rightkit/media-gen-ui` | The GenRight application frontend including a 4,003-line browser mock of the engine, legal documents, onboarding/license/app-update wiring and brand data. | genright |
 | `@rightkit/ml-lab` | A private, unbuilt file dump of one product's experiments: no entry points, no dependency manifest, machine paths, dated experiment folders. Not a shared package and not publishable. | heardright |
 | `@rightkit/system-ui` | Views call Tauri invoke directly with Pulse command names, carry Pulse strings and bundle chat, nearby, launcher settings, onboarding and legal; a second app cannot adopt it. | pulse |
-| `@rightkit/tauri` | Exports one constructor per product (createViewRightTauriClient, createHeardRightTauriClient, ...), so the shared package names its consumers. The generic constructor is the right API. | pulse |
 | `@rightkit/video-ui` | It is the CutRight application frontend, not a component library: Home, Settings, legal config, demo mode, app name, GenRight client, and Tauri invokes of commands that exist only in the CutRight shell. | cutright |
 | `@rightkit/workspace-ui` | Every view imports mail-ui internals (store, hooks, ipc, icons), so the package cannot be used without the mail app's state. | mailright |
 | `rightkit-adapt` | Two unrelated subsystems under one name with no shared type and no dependency between them; the Pulse one (the reference) has the suffixed name. | pulse |
@@ -461,7 +460,7 @@ Cell: review fit · pin state on the app's main · planned lines and the share f
 - `@rightkit/social-ui` (gaps): mocks to dev entry; product name via hostAppName
 - `@rightkit/sync-worker` (gaps): Owner decision: parked or supported. Make the workspace file, this README and the rightkit-sync README say the same thing; Keep private; never publish to npm. If supported, put it back in the workspace so it is built and tested
 - `@rightkit/system-ui` (wrong): Inject the transport; Remove product strings; Move non-system views to their packages; Add or drop Monitor/Overview
-- `@rightkit/tauri` (wrong): remove per-app constructors; merge into @rightkit/tauri-shell or reduce to defineTauriCommands and createNativeFetch
+- `@rightkit/tauri` (gaps): remove the deprecated per-product constructors at the next breaking release; owner to confirm; publish 0.4.0
 - `@rightkit/theme` (gaps): add Swift token output or generate from rightkit-theme; re-map scripts; Fix the mapping of the three iOS Swift files (T4); App: default font "system" in web vs "hanken" in Rust, and the patch allowlist rejects "system" (T3); App: confirm the palette change from live is intended (T1); Bump pin 0.3.1 to 0.3.2
 - `@rightkit/video-ui` (wrong): Split: (1) editor components (Timeline, Inspector, ColourInspector, CaptionInspector, TranscriptPanel, Player, RangePreview) taking an injected engine adapter with no Tauri import; (2) the CutRight shell (views, settings, legal, demo) stays in the app; Replace the generated export-everything index with a deliberate API; Move genright.ts to a generation client package shared with media-gen-ui
 - `@rightkit/workspace-ui` (wrong): own client interface and state slices; move Drive/Calendar hooks, nav and IPC from mail-ui; shared icons/account switcher in a lower package
