@@ -100,7 +100,7 @@ fn install_inner(
 /// [`recover_orphaned_install`] can find it after a crash without guessing.
 /// Only one install of a given `installed_name` is ever in flight at a time
 /// (the entry lock guarantees it), so a fixed name cannot collide.
-fn previous_aside_path(dest_root: &Path, installed_name: &str) -> PathBuf {
+pub(crate) fn previous_aside_path(dest_root: &Path, installed_name: &str) -> PathBuf {
     dest_root.join(format!(".{installed_name}.previous-aside"))
 }
 

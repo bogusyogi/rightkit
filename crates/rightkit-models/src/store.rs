@@ -1,28 +1,43 @@
-//! On-disk layout, durable state, verification, rollback and uninstall.
+//! `Store`: the manifest-driven installer API over the one on-disk layout, the suite layout
+//! ([`crate::suite`]). Since 0.7.0 there is no second format: a model `Store` installs is an
+//! ordinary suite entry, byte-compatible with what `suite::ensure_ready` writes.
 //!
 //! ```text
-//! <root>/<model-id>/state.json              active revision, history, per-revision file records
-//! <root>/<model-id>/revisions/<key>/<files> one immutable dir per (revision, quant)
-//! <root>/<model-id>/.staging/<key>/         resumable in-flight install (swapped in atomically)
-//! <root>/<model-id>/.staging/<key>/.dl/paused.json  marker of a paused install
-//! <root>/<model-id>/.aside/<key>/          previous same-key revision while a replacement commits (crash-recoverable)
-//! <root>/<model-id>/.adopt/<key>/          an adoption being assembled (discarded if interrupted)
-//! <root>/<model-id>.lock                    cross-process operation lock
-//! <shared root>/<path>                     shared-runtime files (FileSpec::shared), outside the model dir
-//! <alias root>/<model-id> -> revisions/<active key>   opt-in legacy flat alias
+//! <root>/<model-id>/<files>                  the installed model (one revision per id)
+//! <root>/<model-id>/manifest.json            suite manifest: id, version = revision key, files + sha256 + size
+//! <root>/<model-id>.lock                     cross-process operation lock (the suite entry lock)
+//! <root>/.<model-id>.previous-aside/         previous entry while a replacement commits (suite archive name)
+//! <root>/.incoming/<model-id>.staging/<key>/ resumable in-flight install; `.dl/paused.json` marks a pause
+//! <root>/.incoming/<model-id>.adopt/<key>/   an adoption being assembled (discarded if interrupted)
+//! <root>/refs/<app>.json                     per-app reference registry (suite refs)
+//! <shared root>/<path>                       shared-runtime files (FileSpec::shared), outside the entry
+//! <alias path> -> <root>/<model-id>          opt-in legacy flat alias
 //! ```
-//! Activation is a single atomic write of `state.json`; revision directories
-//! are never edited in place, so rollback is a pointer flip.
+//! Activation is the rename of a complete staging directory, manifest included, onto
+//! `<root>/<id>`; the previous entry waits at the suite's deterministic aside path until the
+//! rename lands, and [`crate::suite::archive::recover_orphaned_install`] (run under every lock
+//! acquisition) puts it back after a crash in between.
 //!
-//! **Resolving a model.** Runtimes call [`Store::resolve`] (active revision,
+//! **One revision per model.** The suite layout keeps one revision of each id. Installing another
+//! revision replaces the entry; [`Store::rollback`] has nothing to roll back to and
+//! `InstallOptions::keep_revisions` is ignored. [`Store::state`] reports the installed revision as
+//! `active` with an empty `history`.
+//!
+//! **Earlier layout (0.6 and older).** An entry written by the revisioned store
+//! (`<root>/<id>/state.json` + `revisions/<key>/`) is still read as it is, and is migrated to the
+//! suite layout the first time the store takes that model's lock ([`Store::recover`],
+//! [`Store::resolve`] and every install, adopt, rollback or discard): the active revision's
+//! directory becomes the entry, its record becomes `manifest.json`, earlier revisions and paused
+//! installs of the old layout are dropped. See `legacy_layout.rs`.
+//!
+//! **Resolving a model.** Runtimes call [`Store::resolve`] (installed revision,
 //! size-verified) or [`Store::resolve_or_legacy`] (falls back to a pre-store
 //! flat directory).
 //!
 //! **Legacy flat alias (opt-in).** With [`Store::with_legacy_alias_root`],
 //! `<alias root>/<id>` is kept as a symlink (Windows: directory symlink, else
-//! a junction) to the active revision directory. It is re-pointed on every
-//! install, adopt and rollback, re-pointed or removed on revision removal, and
-//! removed on uninstall and GC, so runtimes that read flat directories keep
+//! a junction) to the entry directory. It is re-pointed on every install and
+//! adopt, and removed on uninstall and GC, so runtimes that read flat directories keep
 //! working. A real file or directory already at the alias path is never
 //! touched (status `skipped_real_path`); move it away (e.g. after
 //! [`Store::adopt`]) and call [`Store::sync_legacy_alias`]. On unix the link
@@ -30,20 +45,13 @@
 //! recreated, so a reader can briefly see no alias.
 //!
 //! **Per-id alias locations.** [`Store::with_legacy_alias_map`] lets the app
-//! name each id's alias path (`None` falls back to the alias root, if any), so
-//! aliases can sit anywhere an app's runtime expects them: a flat runtime dir
-//! (`<qts dir>/<id>`) or inside the store root (`<root>/<id>/r3`). The same
-//! maintenance and real-path rules apply, plus:
-//! - the path must be absolute-or-relative without `.`/`..` components and lie
-//!   under an allowed root: the store root, the alias root, or a root added
-//!   with [`Store::with_legacy_alias_allowed_root`] (the explicit opt-in);
-//! - inside the store root, an alias must sit in **its own** model directory
-//!   (`<root>/<id>/<name>[/...]`), and `<name>` must not be a store-owned
-//!   entry (`revisions`, `state.json`/`state.*`, or any dot-name such as
-//!   `.staging`, `.aside`, `.adopt`), compared ASCII-case-insensitively; a
-//!   top-level `<root>/<name>` is always refused (it is model or registry
-//!   namespace). A refused path reports [`AliasStatus::Failed`] and nothing is
-//!   written.
+//! name each id's alias path (`None` falls back to the alias root, if any). The path must have no
+//! `.`/`..` components and lie under an allowed root: the store root, the alias root, or a root
+//! added with [`Store::with_legacy_alias_allowed_root`] (the explicit opt-in). Inside the store root
+//! an alias must sit in **its own** model directory (`<root>/<id>/<name>`, `<name>` not a dot-name,
+//! `manifest.json`, `revisions` or `state.*`); since the entry directory is already the flat
+//! directory, such an alias is accepted but never written (status `disabled`, with a message). A
+//! refused path reports [`AliasStatus::Failed`] and nothing is written.
 //!
 //! **URL rewrite (test seam).** [`Store::with_url_rewrite`] sends every file
 //! download to a loopback mock server instead of the manifest host. The crate
@@ -82,11 +90,14 @@ pub struct RevisionRecord {
     pub files: Vec<FileRecord>,
 }
 
+/// What is installed for one model ([`Store::state`]). Since 0.7.0 it is read from the suite
+/// entry's `manifest.json`: `active` is the installed revision key, `revisions` holds its record
+/// alone and `history` is empty (pre-0.7 entries are read from their `state.json` until migrated).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct State {
     pub id: String,
     pub active: Option<String>,
-    /// Previously active keys, most recent last.
+    /// Previously active keys, most recent last (always empty for a suite entry).
     pub history: Vec<String>,
     pub revisions: BTreeMap<String, RevisionRecord>,
 }
@@ -135,7 +146,7 @@ pub struct ResolvedRevision {
     pub dir: PathBuf,
 }
 
-/// Outcome of keeping the legacy flat alias in step with `state.json`.
+/// Outcome of keeping the legacy flat alias in step with the installed entry.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AliasStatus {
@@ -374,6 +385,7 @@ impl Store {
         let name = parts[1].to_ascii_lowercase();
         if name.starts_with('.')
             || name == "revisions"
+            || name == "manifest.json"
             || name == "state.json"
             || name.starts_with("state.")
             || name == "state"
@@ -461,51 +473,80 @@ impl Store {
         crate::http::http_client_with_options(options)
     }
 
-    /// `<root>/<id>`; fails for any id that is not a single safe path component.
+    /// `<root>/<id>`, the model's suite entry directory; fails for any id that is not a single
+    /// safe path component.
     pub fn model_dir(&self, id: &str) -> Result<PathBuf> {
         Ok(self.root.join(ModelId::parse(id)?.as_str()))
     }
+
+    /// Where revision `key` of `id` is installed. The suite layout keeps one revision per model
+    /// in the entry directory itself, so this is [`Store::model_dir`] for every valid `key` (the
+    /// key is still validated). Before 0.7.0 it was `<root>/<id>/revisions/<key>`.
     pub fn revision_dir(&self, id: &str, key: &str) -> Result<PathBuf> {
-        Ok(self
-            .model_dir(id)?
-            .join("revisions")
-            .join(RevisionKey::parse(key)?.as_str()))
+        RevisionKey::parse(key)?;
+        self.model_dir(id)
     }
+
+    /// `<root>/.incoming`: the suite layout's resumable download scratch.
+    fn incoming_dir(&self) -> PathBuf {
+        self.root.join(".incoming")
+    }
+
+    /// `<root>/.incoming/<id>.staging`: every resumable install of `id`.
+    pub(crate) fn staging_root(&self, id: &str) -> Result<PathBuf> {
+        Ok(self
+            .incoming_dir()
+            .join(format!("{}.staging", ModelId::parse(id)?.as_str())))
+    }
+
     pub(crate) fn staging_dir(&self, id: &str, key: &str) -> Result<PathBuf> {
         Ok(self
-            .model_dir(id)?
-            .join(".staging")
-            .join(RevisionKey::parse(key)?.as_str()))
-    }
-    /// Where the previous same-key revision waits while a replacement commits.
-    pub(crate) fn aside_dir(&self, id: &str, key: &str) -> Result<PathBuf> {
-        Ok(self
-            .model_dir(id)?
-            .join(".aside")
+            .staging_root(id)?
             .join(RevisionKey::parse(key)?.as_str()))
     }
 
+    /// `<root>/.incoming/<id>.adopt`: adoptions being assembled under the lock.
+    pub(crate) fn adopt_root(&self, id: &str) -> Result<PathBuf> {
+        Ok(self
+            .incoming_dir()
+            .join(format!("{}.adopt", ModelId::parse(id)?.as_str())))
+    }
+
+    /// Where the previous entry waits while a replacement commits: the suite archive install's
+    /// deterministic aside path, so either side recovers the other's interrupted swap.
+    pub(crate) fn aside_dir(&self, id: &str) -> Result<PathBuf> {
+        Ok(crate::suite::archive::previous_aside_path(
+            &self.root,
+            ModelId::parse(id)?.as_str(),
+        ))
+    }
+
+    /// What is installed for `id`: the entry's `manifest.json` as a [`State`] whose `active` is
+    /// the manifest's revision key (`history` is always empty: one revision per model). An entry
+    /// still in the pre-0.7 revisioned layout is read from its `state.json` until it is migrated.
+    /// Nothing installed is an empty state.
     pub fn state(&self, id: &str) -> Result<State> {
-        let path = self.model_dir(id)?.join("state.json");
-        match fs::read_to_string(&path) {
-            Ok(text) => serde_json::from_str(&text).map_err(|e| Error::io(path.display(), e)),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(State {
-                id: id.into(),
-                ..State::default()
-            }),
-            Err(e) => Err(Error::io(path.display(), e)),
+        let dir = self.model_dir(id)?;
+        match crate::suite::manifest::read_manifest(&dir) {
+            Ok(Some(manifest)) => Ok(state_from_manifest(id, &dir, &manifest)),
+            Ok(None) => crate::legacy_layout::read_state(&dir, id),
+            Err(e) => Err(Error::new(ErrorCode::Io, e)),
         }
     }
 
-    pub(crate) fn save_state(&self, state: &State) -> Result<()> {
-        self.reject_links(&state.id)?;
-        let path = self.model_dir(&state.id)?.join("state.json");
-        let json = serde_json::to_vec_pretty(state).map_err(|e| Error::io("serialize state", e))?;
-        write_atomic(&path, &json)
+    /// Directory holding the files of installed revision `key`: the entry, or, for an entry not
+    /// yet migrated from the pre-0.7 layout, its `revisions/<key>`.
+    pub(crate) fn installed_dir(&self, id: &str, key: &str) -> Result<PathBuf> {
+        let dir = self.model_dir(id)?;
+        let key = RevisionKey::parse(key)?;
+        if crate::legacy_layout::is_legacy(&dir) {
+            return Ok(crate::legacy_layout::revision_dir(&dir, key.as_str()));
+        }
+        Ok(dir)
     }
 
-    /// Take the cross-process lock for `id`, then finish any interrupted
-    /// same-key swap before the caller mutates anything.
+    /// Take the cross-process lock for `id`, then finish any interrupted swap and migrate a
+    /// pre-0.7 entry before the caller mutates anything.
     pub(crate) fn acquire(&self, id: &str, wait: Duration) -> Result<StoreLock> {
         let lock = self.acquire_raw(id, wait)?;
         self.recover_locked(id)?;
@@ -521,18 +562,20 @@ impl Store {
         Ok(lock)
     }
 
-    /// Refuse to operate through symlinks planted at any directory the store
-    /// owns under `<root>/<id>` (a link there would redirect writes/deletes).
+    /// Refuse to operate through symlinks planted at any path the store owns for `id` (a link
+    /// there would redirect writes/deletes).
     pub(crate) fn reject_links(&self, id: &str) -> Result<()> {
         let dir = self.model_dir(id)?;
-        for p in [
+        let mut owned = vec![
             dir.clone(),
-            dir.join("revisions"),
-            dir.join(".staging"),
-            dir.join(".aside"),
-            dir.join(".adopt"),
-            dir.join("state.json"),
-        ] {
+            crate::suite::paths::manifest_path(&dir),
+            self.incoming_dir(),
+            self.staging_root(id)?,
+            self.adopt_root(id)?,
+            self.aside_dir(id)?,
+        ];
+        owned.extend(crate::legacy_layout::owned_paths(&dir));
+        for p in owned {
             if is_link(&p) {
                 return Err(Error::new(
                     ErrorCode::Io,
@@ -720,15 +763,22 @@ impl Store {
 
     /// Remove every model no app references, skipping `keep`, anything under a
     /// live install lock, and everything while any runtime-family lease is
-    /// held. A corrupt ref blocks deletion (nothing is removed).
+    /// held. A corrupt ref blocks deletion (nothing is removed). This is the suite GC
+    /// ([`crate::suite::store::prune_unref_entries_with`]); the removed ids' resumable staging
+    /// and legacy aliases go with them.
     pub fn gc(&self, keep: &[&str]) -> Result<Vec<String>> {
         let removed = crate::suite::store::prune_unref_entries_with(&self.root, keep, &[])
             .map_err(|e| Error::new(ErrorCode::Io, e))?;
         for id in &removed {
-            if let Ok(Some(alias)) = self.legacy_alias_path(id) {
-                let _ = crate::alias::remove(&alias);
+            if let Ok(staging) = self.staging_root(id) {
+                let _ = remove_tree(&staging);
             }
+            if let Ok(adopt) = self.adopt_root(id) {
+                let _ = remove_tree(&adopt);
+            }
+            self.remove_alias(id);
         }
+        let _ = fs::remove_dir(self.incoming_dir());
         Ok(removed)
     }
 
@@ -749,19 +799,20 @@ impl Store {
         self.uninstall(id.as_str())
     }
 
-    /// Public entry for crash recovery: finishes an interrupted same-key swap
-    /// for `id` (see [`Store::install`]). Safe to call at startup.
+    /// Crash recovery and migration for `id`, safe to call at startup: finishes an interrupted
+    /// swap (see [`Store::install`]), discards an interrupted adoption, and migrates an entry
+    /// still in the pre-0.7 revisioned layout. Returns whether anything was restored or migrated.
     pub fn recover(&self, id: &str) -> Result<bool> {
         let _lock = self.acquire_raw(id, Duration::ZERO)?;
         self.recover_locked(id)
     }
 
-    /// True when every recorded file of `key` passes `mode`.
+    /// True when `key` is the installed revision of `id` and every recorded file passes `mode`.
     pub fn verify(&self, id: &str, key: &str, mode: VerifyMode) -> bool {
         let Ok(state) = self.state(id) else {
             return false;
         };
-        let Ok(dir) = self.revision_dir(id, key) else {
+        let Ok(dir) = self.installed_dir(id, key) else {
             return false;
         };
         let Some(rec) = state.revisions.get(key) else {
@@ -795,22 +846,29 @@ impl Store {
             })
     }
 
-    /// Directory of the active revision if it passes a size check.
+    /// Directory of the installed revision if it passes a size check.
     pub fn active_dir(&self, id: &str) -> Option<PathBuf> {
         self.resolve(id).map(|r| r.dir)
     }
 
-    /// The active revision (key + directory) if it passes a size check:
-    /// what a runtime should load for `id`.
+    /// The installed revision (key + directory) if it passes a size check:
+    /// what a runtime should load for `id`. An entry in the pre-0.7 layout is migrated first
+    /// when its lock is free; when it is not (or the migration fails), the old layout is read
+    /// in place.
     pub fn resolve(&self, id: &str) -> Option<ResolvedRevision> {
-        let key = self.state(id).ok()?.active?;
+        let dir = self.model_dir(id).ok()?;
+        if crate::legacy_layout::is_legacy(&dir) {
+            let _ = self.recover(id);
+        }
+        let state = self.state(id).ok()?;
+        let key = state.active?;
         if self.reject_links(id).is_err() {
             return None;
         }
         if !self.verify(id, &key, VerifyMode::Size) {
             return None;
         }
-        let dir = self.revision_dir(id, &key).ok()?;
+        let dir = self.installed_dir(id, &key).ok()?;
         Some(ResolvedRevision { key, dir })
     }
 
@@ -821,11 +879,29 @@ impl Store {
             .or_else(|| legacy.is_dir().then(|| legacy.to_path_buf()))
     }
 
-    /// Re-point (or remove) the legacy flat alias to match `state.json`.
+    /// Re-point (or remove) the legacy flat alias to match the installed entry.
     pub fn sync_legacy_alias(&self, id: &str) -> Result<AliasSync> {
         let _lock = self.acquire(id, Duration::ZERO)?;
         let state = self.state(id)?;
         Ok(self.sync_alias_locked(id, &state))
+    }
+
+    /// Whether `path` lies inside the store root (where the entry is already the flat directory).
+    fn alias_in_store(&self, path: &Path) -> bool {
+        under(
+            &crate::alias::absolute(path),
+            &crate::alias::absolute(&self.root),
+        )
+        .is_some()
+    }
+
+    /// Remove `id`'s alias link, if one is configured outside the store root. Best effort.
+    fn remove_alias(&self, id: &str) {
+        if let Ok(Some(alias)) = self.legacy_alias_path(id) {
+            if !self.alias_in_store(&alias) {
+                let _ = crate::alias::remove(&alias);
+            }
+        }
     }
 
     pub(crate) fn sync_alias_locked(&self, id: &str, state: &State) -> AliasSync {
@@ -848,11 +924,23 @@ impl Store {
                 }
             }
         };
+        if self.alias_in_store(&path) {
+            return AliasSync {
+                status: AliasStatus::Disabled,
+                path: Some(path),
+                target: None,
+                message: Some(
+                    "inside the store root the entry directory is already the flat directory; \
+                     no alias is written"
+                        .into(),
+                ),
+            };
+        }
         let target = state
             .active
             .as_deref()
-            .filter(|k| self.verify_record(state, id, k))
-            .and_then(|k| self.revision_dir(id, k).ok())
+            .filter(|k| self.verify(id, k, VerifyMode::Size))
+            .and_then(|k| self.installed_dir(id, k).ok())
             .map(|d| crate::alias::absolute(&d));
         let result = match &target {
             Some(t) => crate::alias::point(&path, t),
@@ -871,9 +959,10 @@ impl Store {
     }
 
     /// Installs paused with `InstallOptions::pause`, resumable by installing
-    /// the same revision again.
+    /// the same revision again. (Paused installs of the pre-0.7 layout are not listed; its
+    /// migration discards them.)
     pub fn paused(&self, id: &str) -> Result<Vec<PausedInstall>> {
-        let root = self.model_dir(id)?.join(".staging");
+        let root = self.staging_root(id)?;
         let mut out = Vec::new();
         let Ok(entries) = fs::read_dir(&root) else {
             return Ok(out);
@@ -892,152 +981,187 @@ impl Store {
     }
 
     /// Cancel a paused (or interrupted) install: delete its staging,
-    /// including `.part` files. Installed revisions are untouched.
+    /// including `.part` files. The installed entry is untouched.
     pub fn discard_staging(&self, id: &str, key: &str) -> Result<()> {
         let key = RevisionKey::parse(key)?;
         let _lock = self.acquire(id, Duration::ZERO)?;
         self.reject_links(id)?;
-        remove_tree(&self.staging_dir(id, key.as_str())?)
+        remove_tree(&self.staging_dir(id, key.as_str())?)?;
+        self.tidy_incoming(id);
+        Ok(())
     }
 
-    /// Re-point `active` at an earlier revision (default: the most recent
-    /// history entry that still verifies). Returns the new active key.
+    /// Drop `id`'s empty staging root and an empty `.incoming`. Best effort.
+    pub(crate) fn tidy_incoming(&self, id: &str) {
+        if let Ok(root) = self.staging_root(id) {
+            let _ = fs::remove_dir(root);
+        }
+        let _ = fs::remove_dir(self.incoming_dir());
+    }
+
+    /// Roll back to an earlier revision. **Since 0.7.0 the suite layout keeps one revision per
+    /// model**, so there is never an earlier one: `target` naming the installed, verifying
+    /// revision returns it unchanged; anything else (including `None`) is `NoRollback`.
+    /// Reinstall the wanted revision with [`Store::install`] instead.
     pub fn rollback(&self, id: &str, target: Option<&str>) -> Result<String> {
         let _lock = self.acquire(id, Duration::ZERO)?;
         self.reject_links(id)?;
-        let mut state = self.state(id)?;
-        let current = state.active.clone();
-        let target = match target {
-            Some(t) => RevisionKey::parse(t)?.as_str().to_string(),
-            None => state
-                .history
-                .iter()
-                .rev()
-                .find(|k| Some(*k) != current.as_ref() && self.verify(id, k, VerifyMode::Size))
-                .cloned()
-                .ok_or_else(|| Error::new(ErrorCode::NoRollback, "no earlier verified revision"))?,
-        };
-        if !self.verify(id, &target, VerifyMode::Size) {
+        let state = self.state(id)?;
+        let target =
+            match target {
+                Some(t) => RevisionKey::parse(t)?.as_str().to_string(),
+                None => return Err(Error::new(
+                    ErrorCode::NoRollback,
+                    "the store keeps one revision per model; no earlier revision to roll back to",
+                )),
+            };
+        if state.active.as_deref() != Some(target.as_str())
+            || !self.verify(id, &target, VerifyMode::Size)
+        {
             return Err(Error::new(
                 ErrorCode::NoRollback,
                 format!("revision {target} is not installed or fails verification"),
             ));
         }
-        if let Some(c) = current.filter(|c| *c != target) {
-            state.history.retain(|k| *k != target);
-            state.history.push(c);
-        }
-        state.active = Some(target.clone());
-        self.save_state(&state)?;
-        self.sync_alias_locked(id, &state);
         Ok(target)
     }
 
-    /// Remove one revision. If it was active, fall back to the newest
-    /// verified history entry (or none).
+    /// Remove one revision: with one revision per model, removing the installed revision removes
+    /// the entry (as [`Store::uninstall`]); its staging, if any, goes too. Any other key is
+    /// `NotFound`.
     pub fn uninstall_revision(&self, id: &str, key: &str) -> Result<()> {
         let key = RevisionKey::parse(key)?.as_str().to_string();
         let key = key.as_str();
-        let _lock = self.acquire(id, Duration::ZERO)?;
-        self.reject_links(id)?;
-        let mut state = self.state(id)?;
-        if state.revisions.remove(key).is_none() {
-            return Err(Error::new(
-                ErrorCode::NotFound,
-                format!("{id} has no revision {key}"),
-            ));
-        }
-        state.history.retain(|k| k != key);
-        if state.active.as_deref() == Some(key) {
-            state.active = state
-                .history
-                .iter()
-                .rev()
-                .find(|k| self.verify_record(&state, id, k))
-                .cloned();
-            if let Some(a) = &state.active {
-                state.history.retain(|k| k != a);
+        {
+            let _lock = self.acquire(id, Duration::ZERO)?;
+            self.reject_links(id)?;
+            if self.state(id)?.active.as_deref() != Some(key) {
+                return Err(Error::new(
+                    ErrorCode::NotFound,
+                    format!("{id} has no revision {key}"),
+                ));
             }
         }
-        self.save_state(&state)?;
-        self.sync_alias_locked(id, &state);
-        remove_tree(&self.revision_dir(id, key)?)?;
-        let _ = remove_tree(&self.staging_dir(id, key)?);
-        Ok(())
+        self.uninstall(id)
     }
 
-    fn verify_record(&self, state: &State, id: &str, key: &str) -> bool {
-        let Ok(dir) = self.revision_dir(id, key) else {
-            return false;
-        };
-        state
-            .revisions
-            .get(key)
-            .is_some_and(|r| self.record_matches(r, &dir, VerifyMode::Size))
-    }
-
-    /// Remove the whole model: every revision, staging, and state, plus the
-    /// legacy alias link. A symlink at `<root>/<id>` is unlinked, never
-    /// followed. Shared-runtime files stay (other models may load them).
+    /// Remove the whole model: the entry, its staging and any interrupted aside or adoption, plus
+    /// the legacy alias link. A symlink at `<root>/<id>` is unlinked, never followed.
+    /// Shared-runtime files stay (other models may load them).
     pub fn uninstall(&self, id: &str) -> Result<()> {
         let _lock = self.acquire_raw(id, Duration::ZERO)?;
         if let Some(alias) = self.legacy_alias_path(id)? {
-            crate::alias::remove(&alias).map_err(|e| Error::new(ErrorCode::Io, e))?;
-        }
-        remove_tree(&self.model_dir(id)?)
-    }
-
-    /// Finish an interrupted same-key swap (see `install`): the previous
-    /// revision directory waits in `.aside/<key>` while the replacement commits.
-    /// - `revisions/<key>` missing: the swap died between the two renames; put
-    ///   the previous revision back.
-    /// - present and matching the recorded files: the swap committed; drop the aside.
-    /// - present but not matching while the aside does: the replacement was
-    ///   renamed in but never recorded; restore the aside the ledger still names.
-    ///
-    /// Caller holds the model lock. Returns whether anything was restored.
-    pub(crate) fn recover_locked(&self, id: &str) -> Result<bool> {
-        self.reject_links(id)?;
-        // An adoption is assembled entirely under the lock; leftovers are
-        // from a killed process and were never recorded.
-        remove_tree(&self.model_dir(id)?.join(".adopt"))?;
-        let aside_root = self.model_dir(id)?.join(".aside");
-        let Ok(entries) = fs::read_dir(&aside_root) else {
-            return Ok(false);
-        };
-        let state = self.state(id)?;
-        let mut restored = false;
-        for entry in entries.flatten() {
-            let name = entry.file_name();
-            let Some(key) = name.to_str().and_then(|n| RevisionKey::parse(n).ok()) else {
-                let _ = remove_tree(&entry.path());
-                continue;
-            };
-            let aside = entry.path();
-            let dest = self.revision_dir(id, key.as_str())?;
-            let rec = state.revisions.get(key.as_str());
-            let restore = if !dest.exists() {
-                true
-            } else {
-                let dest_ok = rec.is_some_and(|r| self.record_matches(r, &dest, VerifyMode::Size));
-                let aside_ok =
-                    rec.is_some_and(|r| self.record_matches(r, &aside, VerifyMode::Size));
-                !dest_ok && aside_ok
-            };
-            if restore {
-                remove_tree(&dest)?;
-                if let Some(parent) = dest.parent() {
-                    fs::create_dir_all(parent).map_err(|e| Error::io(parent.display(), e))?;
-                }
-                fs::rename(&aside, &dest)
-                    .map_err(|e| Error::io(format!("restore {}", dest.display()), e))?;
-                restored = true;
-            } else {
-                remove_tree(&aside)?;
+            if !self.alias_in_store(&alias) {
+                crate::alias::remove(&alias).map_err(|e| Error::new(ErrorCode::Io, e))?;
             }
         }
-        let _ = fs::remove_dir(&aside_root);
-        Ok(restored)
+        remove_tree(&self.model_dir(id)?)?;
+        remove_tree(&self.aside_dir(id)?)?;
+        remove_tree(&self.staging_root(id)?)?;
+        remove_tree(&self.adopt_root(id)?)?;
+        crate::legacy_layout::remove_migration_scratch(&self.root, id);
+        self.tidy_incoming(id);
+        Ok(())
+    }
+
+    /// Finish an interrupted swap (the suite's aside recovery: the previous entry is put back
+    /// when the replacement never landed, else dropped), discard an interrupted adoption, and
+    /// migrate a pre-0.7 entry. Caller holds the model lock. Returns whether anything was
+    /// restored or migrated.
+    pub(crate) fn recover_locked(&self, id: &str) -> Result<bool> {
+        self.reject_links(id)?;
+        let id = ModelId::parse(id)?;
+        let restored = crate::suite::archive::recover_orphaned_install(&self.root, id.as_str())
+            .map_err(|e| Error::new(ErrorCode::Io, e))?;
+        remove_tree(&self.adopt_root(id.as_str())?)?;
+        let migrated = crate::legacy_layout::migrate_locked(self, id.as_str())?;
+        Ok(restored || migrated)
+    }
+}
+
+/// The [`State`] of a suite entry: its manifest's version is the installed revision key.
+fn state_from_manifest(id: &str, dir: &Path, manifest: &crate::suite::Manifest) -> State {
+    let mut state = State {
+        id: id.into(),
+        ..State::default()
+    };
+    let Ok(key) = RevisionKey::parse(&manifest.version) else {
+        return state;
+    };
+    let (revision, quant) = decode_revision_key(key.as_str());
+    let installed_at_unix = fs::metadata(crate::suite::paths::manifest_path(dir))
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let files = manifest
+        .files
+        .iter()
+        .map(|f| FileRecord {
+            path: f.path.clone(),
+            bytes: f.size.unwrap_or(0),
+            sha256: f.sha256.clone().unwrap_or_default(),
+            shared: f.shared.clone(),
+        })
+        .collect();
+    state.revisions.insert(
+        key.as_str().to_string(),
+        RevisionRecord {
+            revision,
+            quant,
+            installed_at_unix,
+            files,
+        },
+    );
+    state.active = Some(key.as_str().to_string());
+    state
+}
+
+/// The suite manifest that records `records` as revision `key` of `id`.
+pub(crate) fn manifest_for(id: &str, key: &str, records: &[FileRecord]) -> crate::suite::Manifest {
+    let mut files: Vec<crate::suite::ManifestFile> = records
+        .iter()
+        .map(|r| crate::suite::ManifestFile {
+            path: r.path.clone(),
+            sha256: Some(r.sha256.to_ascii_lowercase()),
+            size: Some(r.bytes),
+            shared: r.shared.clone(),
+        })
+        .collect();
+    files.sort_by(|a, b| a.path.cmp(&b.path));
+    crate::suite::Manifest {
+        id: id.into(),
+        version: key.into(),
+        files,
+    }
+}
+
+/// Inverse of [`crate::ids::encode_revision_key`]: `(revision, quant)`.
+fn decode_revision_key(key: &str) -> (String, Option<String>) {
+    fn part(s: &str) -> String {
+        let b = s.as_bytes();
+        let mut out = Vec::with_capacity(b.len());
+        let mut i = 0;
+        while i < b.len() {
+            if b[i] == b'_' {
+                if let Some(v) = s
+                    .get(i + 1..i + 3)
+                    .and_then(|h| u8::from_str_radix(h, 16).ok())
+                {
+                    out.push(v);
+                    i += 3;
+                    continue;
+                }
+            }
+            out.push(b[i]);
+            i += 1;
+        }
+        String::from_utf8_lossy(&out).into_owned()
+    }
+    match key.split_once('@') {
+        Some((revision, quant)) => (part(revision), Some(part(quant))),
+        None => (part(key), None),
     }
 }
 

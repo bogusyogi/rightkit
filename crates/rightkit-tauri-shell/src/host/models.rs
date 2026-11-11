@@ -1,4 +1,4 @@
-//! Native model commands over the existing revisioned `rightkit-models::Store`.
+//! Native model commands over `rightkit-models::Store` (the suite layout, one revision per model).
 //! Catalog, paths, revisions, download URLs & credentials are native configuration;
 //! IPC accepts only a declared model id. `cancel` pauses, preserving resumable parts.
 

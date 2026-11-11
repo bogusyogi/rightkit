@@ -56,7 +56,7 @@ rightkit-crash = { version = "0.3.4", path = "../rightkit-crash", default-featur
 rightkit-license = { version = "0.2.5", path = "../rightkit-license", default-features = false, features = ["update-auth"], optional = true }
 rightkit-overlay = { version = "0.2.0", path = "../rightkit-overlay", optional = true }
 rightkit-pdf = { version = "0.3.3", path = "../rightkit-pdf", default-features = false, features = ["host"], optional = true }
-rightkit-models = { version = "0.6.0", path = "../rightkit-models", default-features = false, optional = true }
+rightkit-models = { version = "0.7.0", path = "../rightkit-models", default-features = false, optional = true }
 rightkit-autostart = { version = "0.1.0", path = "../rightkit-autostart" }
 rightkit-clipboard = { version = "0.1.0", path = "../rightkit-clipboard" }
 rightkit-deep-link = { version = "0.1.0", path = "../rightkit-deep-link" }

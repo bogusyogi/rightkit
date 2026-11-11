@@ -53,10 +53,11 @@ pub fn profile_dir(model_root: &Path, profile_id: &str, revision: i64) -> PathBu
         .unwrap_or_else(|| model_root.join(profile_id).join(rev))
 }
 
-/// Keep a model's pre-store flat layout linked to the store's active
-/// revision: `legacy` is where runtimes already read it (SD.cpp
-/// `<root>/<id>/rN`, inside the store root; the QTS flat folder, whose parent
-/// is allowed as an alias root). A real directory there (an existing flat
+/// Keep a model's pre-store flat layout linked to the store's entry: `legacy` is
+/// where runtimes already read it (the QTS flat folder, whose parent is allowed
+/// as an alias root). For SD.cpp `<root>/<id>/rN`, inside the store root, no link
+/// is written since rightkit-models 0.7.0: the entry `<root>/<id>` is already flat
+/// and [`profile_dir`] resolves it. A real directory there (an existing flat
 /// install) is left alone and keeps loading.
 pub fn with_legacy_alias(store: Store, id: &str, legacy: &Path) -> Store {
     let mut paths = std::collections::BTreeMap::new();

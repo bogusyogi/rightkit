@@ -1,7 +1,8 @@
 //! Install / upgrade: disk preflight, resumable verified downloads into a
-//! persistent staging dir, archive extraction, then an atomic swap +
-//! `state.json` activation. Installing a newer revision *is* the upgrade; the
-//! previous revision stays on disk for rollback up to `keep_revisions`.
+//! persistent staging dir (`<root>/.incoming/<id>.staging/<key>`), archive extraction, then the
+//! suite `manifest.json` written into staging and one atomic swap onto the suite entry
+//! `<root>/<id>`. Installing another revision *is* the upgrade and replaces the entry (the suite
+//! layout keeps one revision per model).
 //!
 //! - **Pause vs cancel.** `InstallOptions::pause` stops at the next chunk and
 //!   keeps staging (finished files and `.part`s) with a `paused.json` marker;
@@ -26,7 +27,7 @@ use crate::ids::ModelId;
 use crate::platform::Platform;
 use crate::spec::{safe_rel_path, Extract, FileSpec, ModelSpec, RevisionSpec};
 use crate::store::{
-    is_link, remove_tree, write_atomic, AliasStatus, FileRecord, PausedInstall, RevisionRecord,
+    is_link, manifest_for, remove_tree, write_atomic, AliasStatus, FileRecord, PausedInstall,
     State, Store, VerifyMode,
 };
 use serde::Serialize;
@@ -86,6 +87,7 @@ pub enum Event {
         key: String,
         previous: Option<String>,
     },
+    /// The previously installed revision `key` was replaced (one revision per model).
     Pruned {
         key: String,
     },
@@ -129,7 +131,8 @@ pub struct InstallOptions {
     /// [`PausedInstall`] marker. Installing the same revision again resumes.
     /// `cancel` wins when both are set.
     pub pause: Arc<AtomicBool>,
-    /// Revisions kept besides the active one (for rollback).
+    /// Ignored since 0.7.0: the suite layout keeps one revision per model, so an install of
+    /// another revision replaces the installed one. Kept so existing callers compile.
     pub keep_revisions: usize,
     /// Test/override hook for the free-space probe.
     pub free_bytes_override: Option<u64>,
@@ -144,15 +147,15 @@ pub struct InstallOptions {
     pub crash_after: Option<CrashPoint>,
 }
 
-/// Durable steps of replacing an existing same-key revision directory.
+/// Durable steps of replacing an existing entry directory.
 #[doc(hidden)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CrashPoint {
-    /// Previous revision moved to `.aside`, replacement not yet renamed in.
+    /// Previous entry moved to the aside path, replacement not yet renamed in.
     AfterAside,
-    /// Replacement renamed in, ledger (`state.json`) not yet written.
+    /// Replacement (manifest included) renamed in, aside copy not yet deleted.
     AfterSwap,
-    /// Ledger written, aside copy not yet deleted.
+    /// Same point as `AfterSwap` since 0.7.0 (the manifest is written before the swap).
     AfterState,
 }
 
@@ -264,6 +267,15 @@ impl Store {
                 return Err(Error::new(
                     ErrorCode::InvalidSpec,
                     format!("unsafe file path {:?}", f.path),
+                ));
+            }
+            if f.shared.is_none() && f.path.split('/').next() == Some("manifest.json") {
+                return Err(Error::new(
+                    ErrorCode::InvalidSpec,
+                    format!(
+                        "{}: {:?} is the store's own entry record name",
+                        spec.id, f.path
+                    ),
                 ));
             }
             let archive_pinned = f.sha256.is_some() && f.bytes.is_some();
@@ -518,8 +530,8 @@ impl Store {
     /// the manifest pins and record it as installed, without downloading.
     /// `existing` maps each manifest file to where its installed payload lives
     /// today (`Extract::Member` files: the extracted member). Each file is
-    /// hard-linked (same volume) or copied into a private `.adopt/<key>`
-    /// tree, verified there (size + sha256), and the tree is swapped in and
+    /// hard-linked (same volume) or copied into a private
+    /// `.incoming/<id>.adopt/<key>` tree, verified there (size + sha256), and the tree is swapped in and
     /// activated exactly like a download. Fails closed: every platform file
     /// must be supplied (shared-runtime files may instead already sit at their
     /// shared location) and pinned, `TarGz` trees cannot be adopted, and any
@@ -566,7 +578,7 @@ impl Store {
             return Ok(out);
         }
 
-        let work = self.model_dir(id)?.join(".adopt").join(&key);
+        let work = self.adopt_root(id)?.join(&key);
         remove_tree(&work)?;
         fs::create_dir_all(&work).map_err(|e| Error::io(work.display(), e))?;
         let mut cache = HashCache::default();
@@ -617,19 +629,21 @@ impl Store {
             self.place_shared(&files, &work, &mut cache)?;
             Ok(records)
         })();
-        let adopt_root = self.model_dir(id)?.join(".adopt");
+        let adopt_root = self.adopt_root(id)?;
         let records = match assembled {
             Ok(r) => r,
             Err(e) => {
                 let _ = remove_tree(&work);
                 let _ = fs::remove_dir(&adopt_root);
+                self.tidy_incoming(id);
                 return Err(e);
             }
         };
-        // A failure from here on leaves `.adopt` for the next lock holder's
-        // recovery to discard; nothing is recorded until `state.json` is.
+        // A failure from here on leaves the adoption tree for the next lock holder's
+        // recovery to discard; nothing is installed until the swap.
         let out = self.commit_staged(&mut state, rev, &key, &work, records, opts, &mut sink)?;
         let _ = fs::remove_dir(&adopt_root);
+        self.tidy_incoming(id);
         Ok(out)
     }
 
@@ -639,7 +653,7 @@ impl Store {
     /// fixed to that layout.
     ///
     /// Nothing is trusted from the directory: each file is linked or copied into a private
-    /// `.adopt/<key>` tree and verified there against the pinned size and sha256 (all files
+    /// `.incoming/<id>.adopt/<key>` tree and verified there against the pinned size and sha256 (all files
     /// must be pinned; `require_pinned` is forced), and the revision is recorded only after
     /// every file verifies. The flat directory is left untouched. A missing file is
     /// `NotFound`, a symlink or non-regular file in the directory is refused (`InvalidSpec`),
@@ -703,31 +717,29 @@ impl Store {
         )
     }
 
-    /// Already installed and intact: just (re)activate.
+    /// Already installed and intact: nothing to do.
     fn reactivate_if_installed(
         &self,
         state: &mut State,
         key: &str,
-        opts: &InstallOptions,
+        _opts: &InstallOptions,
         sink: &mut impl FnMut(Event),
     ) -> Result<Option<InstallOutcome>> {
         let id = state.id.clone();
-        if !(state.revisions.contains_key(key) && self.verify(&id, key, VerifyMode::Full)) {
+        if !(state.active.as_deref() == Some(key) && self.verify(&id, key, VerifyMode::Full)) {
             return Ok(None);
         }
         sink(Event::AlreadyInstalled { key: key.into() });
-        let previous = self.activate(state, key)?;
         sink(Event::Activated {
             key: key.into(),
-            previous: previous.clone(),
+            previous: None,
         });
-        self.prune(state, opts.keep_revisions, sink)?;
         self.alias_event(state, sink);
         Ok(Some(InstallOutcome {
-            dir: self.revision_dir(&id, key)?,
+            dir: self.model_dir(&id)?,
             key: key.into(),
             already_installed: true,
-            previous,
+            previous: None,
         }))
     }
 
@@ -779,8 +791,8 @@ impl Store {
         }
     }
 
-    /// Hard-link files of the existing same-key revision (a repair) whose
-    /// pins still match into staging, so they are neither downloaded nor
+    /// Hard-link files of the installed entry (a repair, or an upgrade that keeps some files)
+    /// whose pins still match into staging, so they are neither downloaded nor
     /// counted against free space. Best effort: anything not linked is fetched.
     fn seed_from_installed(
         &self,
@@ -790,10 +802,11 @@ impl Store {
         staging: &Path,
         cache: &mut HashCache,
     ) {
-        let Ok(dir) = self.revision_dir(id, key) else {
+        let _ = key;
+        let Ok(dir) = self.model_dir(id) else {
             return;
         };
-        if !dir.is_dir() {
+        if !dir.is_dir() || crate::legacy_layout::is_legacy(&dir) {
             return;
         }
         for f in files {
@@ -887,42 +900,50 @@ impl Store {
         Ok(())
     }
 
-    /// Atomic swap of `staging` into `revisions/<key>`, ledger write,
-    /// activation, pruning and alias maintenance. A same-key directory is
-    /// never deleted before its replacement is durable: it is renamed to
-    /// `.aside/<key>`, the new tree renamed in, the ledger written, and only
-    /// then the aside dropped. `Store::recover` (run under every lock
-    /// acquisition) finishes or undoes whichever step a crash interrupted.
+    /// Write the suite manifest into `staging`, then swap it onto the entry `<root>/<id>`. The
+    /// previous entry is never deleted before its replacement is in place: it is renamed to the
+    /// suite's aside path, the new tree renamed in, anything the app kept in the old entry that
+    /// the store does not own carried over, and only then the aside dropped.
+    /// `Store::recover` (run under every lock acquisition) puts the aside back if a crash
+    /// interrupted the swap.
     #[allow(clippy::too_many_arguments)]
     fn commit_staged(
         &self,
         state: &mut State,
-        rev: &RevisionSpec,
+        _rev: &RevisionSpec,
         key: &str,
         staging: &Path,
-        mut records: Vec<FileRecord>,
+        records: Vec<FileRecord>,
         opts: &InstallOptions,
         sink: &mut impl FnMut(Event),
     ) -> Result<InstallOutcome> {
         let id = state.id.clone();
         let _ = fs::remove_dir_all(staging.join(".dl"));
         let _ = remove_tree(&staging.join(".shared"));
-        let dest = self.revision_dir(&id, key)?;
-        if let Some(parent) = dest.parent() {
-            fs::create_dir_all(parent).map_err(|e| Error::io(dest.display(), e))?;
-        }
+        crate::suite::manifest::write_manifest(staging, &manifest_for(&id, key, &records))
+            .map_err(|e| Error::new(ErrorCode::Io, e))?;
+        let dest = self.model_dir(&id)?;
         let crash = |p: CrashPoint| -> Result<()> {
             if opts.crash_after == Some(p) {
                 return Err(Error::new(ErrorCode::Io, format!("injected crash {p:?}")));
             }
             Ok(())
         };
-        let aside = self.aside_dir(&id, key)?;
+        // Top-level names the previous entry's manifest owns; everything else in it is the app's.
+        let owned: Vec<String> = crate::suite::manifest::read_manifest(&dest)
+            .ok()
+            .flatten()
+            .map(|m| {
+                m.files
+                    .iter()
+                    .filter(|f| f.shared.is_none())
+                    .filter_map(|f| f.path.split('/').next().map(String::from))
+                    .collect()
+            })
+            .unwrap_or_default();
+        let aside = self.aside_dir(&id)?;
         let had_previous = fs::symlink_metadata(&dest).is_ok();
         if had_previous {
-            if let Some(parent) = aside.parent() {
-                fs::create_dir_all(parent).map_err(|e| Error::io(aside.display(), e))?;
-            }
             remove_tree(&aside)?;
             fs::rename(&dest, &aside)
                 .map_err(|e| Error::io(format!("move aside {}", dest.display()), e))?;
@@ -935,26 +956,21 @@ impl Store {
             return Err(Error::io(format!("activate {}", dest.display()), e));
         }
         crash(CrashPoint::AfterSwap)?;
-        records.sort_by(|a, b| a.path.cmp(&b.path));
-        state.revisions.insert(
-            key.to_string(),
-            RevisionRecord {
-                revision: rev.revision.clone(),
-                quant: rev.quant.clone(),
-                installed_at_unix: unix_now(),
-                files: records,
-            },
-        );
-        let previous = self.activate(state, key)?;
         crash(CrashPoint::AfterState)?;
         if had_previous {
+            crate::legacy_layout::carry_foreign(&aside, &dest, &owned)?;
             remove_tree(&aside)?;
         }
+        self.tidy_incoming(&id);
+        let previous = state.active.clone().filter(|a| a != key);
+        *state = self.state(&id)?;
         sink(Event::Activated {
             key: key.to_string(),
             previous: previous.clone(),
         });
-        self.prune(state, opts.keep_revisions, sink)?;
+        if let Some(p) = &previous {
+            sink(Event::Pruned { key: p.clone() });
+        }
         self.alias_event(state, sink);
         Ok(InstallOutcome {
             dir: dest,
@@ -974,46 +990,6 @@ impl Store {
                 message: a.message,
             });
         }
-    }
-
-    /// Flip `active` to `key` (recording the old one in history) and persist.
-    fn activate(&self, state: &mut State, key: &str) -> Result<Option<String>> {
-        let previous = state.active.clone().filter(|a| a != key);
-        if let Some(p) = &previous {
-            state.history.retain(|k| k != p);
-            state.history.push(p.clone());
-        }
-        state.history.retain(|k| k != key);
-        state.active = Some(key.to_string());
-        self.save_state(state)?;
-        Ok(previous)
-    }
-
-    /// Keep the active revision plus the `keep` most recent history entries.
-    fn prune(&self, state: &mut State, keep: usize, sink: &mut impl FnMut(Event)) -> Result<()> {
-        let id = state.id.clone();
-        let retained: Vec<String> = state.history.iter().rev().take(keep).cloned().collect();
-        let doomed: Vec<String> = state
-            .revisions
-            .keys()
-            .filter(|k| Some(*k) != state.active.as_ref() && !retained.contains(k))
-            .cloned()
-            .collect();
-        if doomed.is_empty() {
-            return Ok(());
-        }
-        for k in &doomed {
-            state.revisions.remove(k);
-            state.history.retain(|h| h != k);
-        }
-        self.save_state(state)?;
-        for k in doomed {
-            if let Ok(dir) = self.revision_dir(&id, &k) {
-                let _ = remove_tree(&dir);
-            }
-            sink(Event::Pruned { key: k });
-        }
-        Ok(())
     }
 
     #[allow(clippy::too_many_arguments)]

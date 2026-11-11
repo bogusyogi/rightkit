@@ -18,6 +18,12 @@ pub struct ManifestFile {
     pub sha256: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub size: Option<u64>,
+    /// Shared-runtime kind (0.7.0): the file lives at `<shared root for kind>/<path>`, outside
+    /// the entry. Only [`crate::Store`] records it (for a `FileSpec::shared` file); suite catalog
+    /// manifests never set it, and when it is unset nothing is serialized, so manifests written
+    /// before 0.7.0 and by the suite store are byte-identical.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shared: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -191,6 +197,7 @@ pub fn matches_trusted(actual: &Manifest, trusted: &Manifest) -> bool {
         seen.insert(&file.path)
             && trusted.files.iter().any(|pin| {
                 file.path == pin.path
+                    && file.shared.is_none()
                     && file.sha256 == pin.sha256
                     && file.size == pin.size
                     && pin.size.is_some()
@@ -252,6 +259,7 @@ pub fn manifest_from_dir(entry_dir: &Path, id: &str, version: &str) -> Result<Ma
                 path: f.path,
                 sha256,
                 size,
+                shared: None,
             })
         })
         .collect::<Result<Vec<_>, String>>()?;
@@ -279,6 +287,7 @@ fn collect_files(root: &Path, dir: &Path, out: &mut Vec<ManifestFile>) -> Result
                 path: rel,
                 sha256: None,
                 size: None,
+                shared: None,
             });
         }
     }

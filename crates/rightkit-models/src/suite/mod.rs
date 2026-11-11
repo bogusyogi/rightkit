@@ -19,11 +19,11 @@
 //! manifest (compiled into the app, per-file SHA-256 + size pins) - a manifest
 //! read from disk never defines its own identity.
 //!
-//! This is the flat, unversioned layout. The revisioned layout in
-//! [`crate::store`] (`<root>/<id>/state.json` + `revisions/`) is independent;
-//! a model id belongs to exactly one of the two. GC ([`store::prune_unref_entries`]
-//! and [`crate::Store::gc`]) honours the same `refs/` registry and runtime leases
-//! for both.
+//! This is the one on-disk layout. [`crate::Store`] (the manifest-driven installer that MailRight
+//! and GenRight use) installs into it too since 0.7.0: a `Store` entry is `<root>/<id>/` plus a
+//! `manifest.json` whose `version` is the revision key, its staging lives under `.incoming/`, and
+//! its GC ([`crate::Store::gc`]) is [`store::prune_unref_entries_with`]. Both honour the same
+//! `refs/` registry, entry locks and runtime leases.
 
 #![allow(clippy::too_many_arguments)]
 

@@ -16,7 +16,7 @@ path = "src/lib.rs"
 [dependencies]
 rightkit-media-gen = { version = "0.1.0", path = "../rightkit-media-gen" }
 rightkit-local-gen = { version = "0.1.0", path = "../rightkit-local-gen" }
-rightkit-models = { version = "0.6.0", path = "../rightkit-models" }
+rightkit-models = { version = "0.7.0", path = "../rightkit-models" }
 serde_json = { version = "1.0", features = ["preserve_order"] }
 rightkit-child-process = { version = "0.5.7", path = "../rightkit-child-process" }
 rightkit-crypto = { version = "0.1.0", path = "../rightkit-crypto" }

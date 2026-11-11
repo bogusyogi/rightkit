@@ -109,6 +109,7 @@ impl ModelSpec {
                     path: f.path.to_string(),
                     sha256: f.sha256.map(str::to_string),
                     size: f.size,
+                    shared: None,
                 })
                 .collect(),
         }

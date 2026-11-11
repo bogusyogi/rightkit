@@ -1,7 +1,7 @@
 //! Native model install on top of `rightkit-models`: the shared store owns the
 //! manifest-pinned resumable download (ETag/Range, retries), in-process
-//! tar.gz/zip member extraction, disk preflight, atomic activation, rollback,
-//! uninstall, progress, pause (keep the partial, resume later) and cancel
+//! tar.gz/zip member extraction, disk preflight, atomic activation in the suite
+//! layout (one revision per model), uninstall, progress, pause (keep the partial, resume later) and cancel
 //! (discard it). This module keeps what is the host's: the
 //! `studio.models.install*` wire (install records in the shared settings
 //! table, live progress, honest error codes) and adoption of models already
@@ -9,7 +9,8 @@
 //!
 //! Records persist in the shared settings table (`models.installs`) so a
 //! paused or crashed install resumes honestly; the store keeps `.part`
-//! files in its per-revision staging directory until cancel discards them.
+//! files in its staging directory (`<root>/.incoming/<id>.staging/<key>`) until cancel
+//! discards them.
 //!
 //! Bundled sd.cpp profiles do not come through [`Target`]: they run through the
 //! local-image installer (`super::sdcpp`), which shares this module's session,
@@ -414,7 +415,7 @@ pub fn discard_partial(id: &str, target: &Target) -> GenResult<bool> {
     Ok(discarded)
 }
 
-/// Removes an installed model's files: the store entry (every revision) and any
+/// Removes an installed model's files: the store entry and any
 /// files still in the pre-store layout. Returns the names of the flat files removed.
 pub fn remove_target(id: &str, target: &Target) -> GenResult<Vec<String>> {
     let store = target.store();
@@ -458,8 +459,9 @@ pub fn uninstall(
     Ok(json!({"id": id, "state": "uninstalled", "removed": removed}))
 }
 
-/// Re-point the store's active revision at an earlier one (default: the most
-/// recent verified earlier revision). The runtime reads the active revision's
+/// Roll back to an earlier revision. Since rightkit-models 0.7.0 the store keeps one
+/// revision per model, so this answers `no_rollback` unless `revision` names the installed
+/// one (then it is a no-op). The runtime reads the installed revision's
 /// folder, so a rollback is real state, not a label.
 pub fn rollback(
     ctx: &Context,

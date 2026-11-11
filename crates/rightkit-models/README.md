@@ -1,10 +1,46 @@
 # rightkit-models
 
-Shared local-model manifest and installer for Right Suite apps. It owns model revisions and quantizations, resumable verified downloads (ETag and Range, SHA-256), hardened archive extraction (tar.gz and zip), atomic activation with rollback, shared runtime directories with reference counting, and hardware-fit preflight (disk, RAM, GPU). It is product-neutral: apps supply the manifest.
+Shared local-model manifest and installer for Right Suite apps. It owns one on-disk model store (the suite layout), model revisions and quantizations as manifests, resumable verified downloads (ETag and Range, SHA-256), hardened archive extraction (tar.gz and zip), atomic activation, shared runtime directories with reference counting, and hardware-fit preflight (disk, RAM, GPU). It is product-neutral: apps supply the manifest.
 
 **Use it** when an app must download, verify, adopt, activate, or garbage-collect local model or runtime files, and needs the same install semantics as other Right Suite apps.
 
 **Do not use it** to run models, to choose which model an app should use, or to fetch arbitrary files. Inference lives in the app or in crates such as `rightkit-tts-qwen`, `rightkit-onnx`, and `rightkit-ocr`.
+
+## One store
+
+Since 0.7.0 there is one on-disk store, the suite layout that HeardRight's live installs already use. `Store` (the manifest-driven installer MailRight and GenRight call) is a thin API over it; `suite::*` (HeardRight, ScrapeRight, CutRight) is unchanged. Decision: the 2026-11-11 shape review (`docs/audits/2026-11-11-shape-matrix/reports/family-foundation-runtime.md`, rightkit-models section) found two independent stores; the review README recommends the suite layout as the one store, pending the owner's confirmation. No path an existing HeardRight install uses changed.
+
+How the two stores mapped before 0.7.0, and what `Store` does now:
+
+| Concern | Suite layout (`suite::*`, unchanged) | Revisioned `Store` (0.6 and older, removed) | `Store` since 0.7.0 |
+|---|---|---|---|
+| Root | `<suite root>/models` (`suite::paths::models_root`) or an explicit root | any root the app passed | same: the root the app passes, laid out as a suite models root |
+| Model files | `<root>/<id>/<files>` | `<root>/<id>/revisions/<key>/<files>` | `<root>/<id>/<files>` |
+| Metadata | `<root>/<id>/manifest.json`: `id`, `version`, `files[]` (`path`, `sha256`, `size`) | `<root>/<id>/state.json`: active key, history, per-revision file records | the suite `manifest.json`, `version` = revision key (`1@q4`); a `FileSpec::shared` file is listed with `"shared": "<kind>"` (omitted otherwise, so suite manifests are byte-identical) |
+| Revisions kept | one | active + `keep_revisions` for rollback | one; another revision replaces the entry |
+| Lock | `<root>/<id>.lock` (`lock::lock_timeout`) | same file | same file |
+| Download scratch | `<root>/.incoming/<id>.tar.gz(.part)`, `.part` beside each file | `<root>/<id>/.staging/<key>/` | `<root>/.incoming/<id>.staging/<key>/` (`.dl/paused.json` marks a pause) |
+| Atomic replace | archive unpacked to `<root>/.<id>.installing-*`, old entry to `<root>/.<id>.previous-aside`, `recover_orphaned_install` | `.aside/<key>`, `recover` | staging (manifest included) renamed onto `<root>/<id>`, old entry to `<root>/.<id>.previous-aside`; recovery is the suite's `recover_orphaned_install` |
+| Adoption | `seed_from_dir` (`<id>.staging-<pid>`) | `<root>/<id>/.adopt/<key>/` | `<root>/.incoming/<id>.adopt/<key>/` |
+| Verify | `suite::manifest::verify_dir` against the trusted catalog spec (`Presence`/`Size`/`Full`) | `Store::verify` against `state.json` records | `Store::verify` against the manifest's records; the suite reader verifies a `Store` entry too |
+| References | `<root>/refs/<app>.json` | same registry | same registry |
+| Runtime leases | `<suite root>/runtime/model-use/<family>.lock` | honoured by `Store::gc` | honoured by `Store::gc` |
+| Remove / GC | `release_models`, `prune_unref_entries_with`, `prune_retired` | `uninstall`, `uninstall_revision`, `uninstall_unreferenced`, `gc` (= suite prune) | same calls; `uninstall` also removes the id's staging and aside |
+| Listing | `status_at` / `set_status_at` / `base_status_at` over catalog specs | `Store::state` per id | `Store::state` per id, read from the manifest |
+| Migration | `migrate_legacy_checked` (pre-suite app folders, journal in `.migration/`) | none | an entry in the 0.6 layout is migrated on first lock (below) |
+
+**`Store` methods whose meaning changed in 0.7.0** (signatures are unchanged):
+
+- `rollback(id, None)` is always `NoRollback`; `rollback(id, Some(key))` succeeds only for the installed key, unchanged. There is no earlier revision to return to.
+- `InstallOptions::keep_revisions` is ignored. Installing another revision replaces the entry; the outcome's `previous` names the replaced key and `Event::Pruned` reports it.
+- `state(id)` reads the entry's `manifest.json`: `active` is the installed key, `revisions` has that one record, `history` is empty; `installed_at_unix` is the manifest's modification time.
+- `revision_dir(id, key)` is `<root>/<id>` for every valid key; `verify(id, key, _)` is true only for the installed key.
+- `uninstall_revision(id, key)` removes the whole entry when `key` is installed, else `NotFound`.
+- Legacy aliases: an alias outside the store root links to `<root>/<id>`. An alias mapped inside the store root (GenRight's `<root>/<id>/r<N>`) is not written, because the entry is already that flat directory (`AliasStatus::Disabled` with a message).
+- A `FileSpec` (not shared) whose path starts with `manifest.json` is refused (`InvalidSpec`): that name is the entry record.
+- An install replaces the whole entry directory; any real file or folder the app kept in `<root>/<id>` that the previous manifest does not list is carried into the new entry.
+
+**Old-layout entries (MailRight, GenRight; not live).** They are found without a re-download. `state`, `verify` and `resolve` read `state.json` + `revisions/<key>/` while the entry is still in that layout; the first call that takes the model's lock (`resolve`, `recover`, `install`, `adopt*`, `rollback`, `discard_staging`, `sync_legacy_alias`) migrates it: the active revision directory (checked against its recorded sizes) is renamed into `<root>/.incoming/<id>.migrate`, its record written there as `manifest.json`, any real non-store folder in `<root>/<id>` moved along, and the result renamed onto `<root>/<id>`. Each step is a rename or an idempotent write and resumes after a crash. Earlier revisions (rollback history) and paused old-layout installs are dropped. An entry whose active revision fails its size check is left alone (it did not load before either) and is replaced by the next install.
 
 ## Features
 
@@ -27,7 +63,7 @@ Published version: see `INDEX.md` at the repository root. Release notes: see [CH
 
 ## Example
 
-Illustrative. The model store and install calls below are shown with the types from `src/store.rs` and `src/install.rs`. For compiled usage, see `tests/install.rs`, `tests/adoption.rs`, and `tests/e2e_resume.rs`.
+Illustrative. The model store and install calls below are shown with the types from `src/store.rs` and `src/install.rs`. For compiled usage, see the registry recipe `ci/consumers/rightkit-models` (install through `Store`, suite layout, old-layout migration) and the e2e probe `e2e-app/crates/engine/src/probes/models.rs` (download, resume, upgrade, corruption).
 
 ```rust,ignore
 use rightkit_models::{InstallOptions, Store};
@@ -92,8 +128,8 @@ Added in 0.2.0:
   and record it without downloading (hard link on the same volume, else copy;
   atomic swap; fails closed, never records a partial adoption).
 - `Store::resolve` / `resolve_or_legacy`, and the opt-in legacy flat alias
-  (`Store::with_legacy_alias_root`: `<alias root>/<id>` links to the active
-  revision, maintained on install, adopt, rollback, removal, uninstall and GC).
+  (`Store::with_legacy_alias_root`: `<alias root>/<id>` links to the entry
+  directory, maintained on install, adopt, uninstall and GC; see "One store").
 - Disk preflight credits staged, same-key installed (hard-linked) and shared
   files whose pins match (`Event::PreflightCredit`).
 - Shared runtimes: `FileSpec::shared = Some(kind)` places a file under the

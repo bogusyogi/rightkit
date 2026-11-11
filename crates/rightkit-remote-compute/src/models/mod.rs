@@ -20,7 +20,8 @@
 //! - `install.status` `{id?}`, `install.pause` `{id}` (keeps the partial; install again resumes),
 //!   `install.cancel` `{id}` (discards the partial),
 //!   `install.uninstall` `{id}` (deletes files — explicit user action),
-//!   `install.rollback` `{id, revision?}`.
+//!   `install.rollback` `{id, revision?}` (`no_rollback` unless it names the installed
+//!   revision: the store keeps one revision per model since rightkit-models 0.7.0).
 //! - `route.get` / `route.set` `{capability, route, model?, revision?}` →
 //!   persisted per-capability route choice in the shared settings table.
 //! - `unload`    `{id}` → real unload: QTS cancel/quiesce, local worker

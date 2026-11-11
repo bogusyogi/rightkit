@@ -1,7 +1,7 @@
 //! rightkit-models: install a two-revision model from a manifest through the real store, downloading from an
 //! in-probe loopback HTTP server (strong ETag, Range, one deliberately truncated first body so the downloader must
-//! resume), with SHA-256 pins, activation, upgrade, rollback, corruption detection, a wrong-digest refusal and
-//! uninstall. No asset needed: the model bytes are generated here and the store lives in this run's data root.
+//! resume), with SHA-256 pins, activation, upgrade in place in the suite entry (one revision per model, so rollback
+//! has nothing to return to), corruption detection, a wrong-digest refusal and uninstall. No asset needed: the model bytes are generated here and the store lives in this run's data root.
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::net::TcpListener;
@@ -233,12 +233,16 @@ pub fn probe(ctx: &super::Ctx) -> Result<Value, String> {
         return Err("re-installing the same revision was not idempotent".into());
     }
 
-    // Upgrade, rollback.
+    // Upgrade: the suite layout keeps one revision per model, so v2 replaces v1 in the same
+    // entry directory and there is nothing to roll back to.
     let up = store
         .install(&spec, &opts("2"), |_| {})
         .map_err(|e| format!("install v2: {e:?}"))?;
     if up.previous.as_deref() != Some("1@q4") {
         return Err(format!("upgrade previous was {:?}", up.previous));
+    }
+    if up.dir != out.dir {
+        return Err("the upgrade did not land in the same suite entry".into());
     }
     let active = store
         .active_dir("e2e-demo")
@@ -246,41 +250,39 @@ pub fn probe(ctx: &super::Ctx) -> Result<Value, String> {
     if sha256_file(&active.join("model.bin"))? != digests["v2.bin"].0 {
         return Err("active revision is not v2".into());
     }
-    if store
-        .rollback("e2e-demo", None)
-        .map_err(|e| format!("rollback: {e:?}"))?
-        != "1@q4"
-    {
-        return Err("rollback did not return 1@q4".into());
+    let record = rightkit_models::suite::manifest::read_manifest(&active)?
+        .ok_or("no suite manifest.json in the entry")?;
+    if record.version != "2@q4" || active.join("state.json").exists() {
+        return Err("the entry is not a suite entry recording 2@q4".into());
     }
-    let active = store
-        .active_dir("e2e-demo")
-        .ok_or("no active dir after rollback")?;
-    if sha256_file(&active.join("model.bin"))? != digests["v1.bin"].0 {
-        return Err("rollback did not restore v1".into());
+    match store.rollback("e2e-demo", None) {
+        Err(e) if e.code == ErrorCode::NoRollback => {}
+        other => return Err(format!("rollback must be NoRollback, got {other:?}")),
     }
 
     // Corruption is detected and the corrupt revision is not served.
-    let rev1 = store
-        .revision_dir("e2e-demo", "1@q4")
+    let rev2 = store
+        .revision_dir("e2e-demo", "2@q4")
         .map_err(|e| format!("revision_dir: {e:?}"))?;
-    std::fs::write(rev1.join("model.bin"), b"short").map_err(|e| format!("corrupt: {e}"))?;
-    if store.verify("e2e-demo", "1@q4", VerifyMode::Full) || store.active_dir("e2e-demo").is_some()
+    std::fs::write(rev2.join("model.bin"), b"short").map_err(|e| format!("corrupt: {e}"))?;
+    if store.verify("e2e-demo", "2@q4", VerifyMode::Full) || store.active_dir("e2e-demo").is_some()
     {
         return Err("a corrupted revision is still served".into());
     }
     store
-        .uninstall_revision("e2e-demo", "1@q4")
+        .uninstall_revision("e2e-demo", "2@q4")
         .map_err(|e| format!("uninstall revision: {e:?}"))?;
     if store
         .state("e2e-demo")
         .map_err(|e| format!("state: {e:?}"))?
         .active
-        .as_deref()
-        != Some("2@q4")
+        .is_some()
     {
-        return Err("did not fall back to the verified v2 revision".into());
+        return Err("removing the installed revision left one active".into());
     }
+    store
+        .install(&spec, &opts("2"), |_| {})
+        .map_err(|e| format!("reinstall v2: {e:?}"))?;
 
     // A manifest whose pin is wrong is refused and installs nothing.
     let mut bad = manifest.clone();
