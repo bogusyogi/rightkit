@@ -65,5 +65,18 @@
     "url": "git+https://github.com/bogusyogi/rightkit.git",
     "directory": "packages/doc-render"
   },
-  "packageManager": "pnpm@12.16.1"
+  "packageManager": "pnpm@12.16.1",
+  "rightkit": {
+    "publishCheck": {
+      "binSmoke": {
+        "rightkit-doc-render-check-katex": {
+          "args": [
+            "rightkit-smoke-missing-lockfile.yaml"
+          ],
+          "exitCode": 2,
+          "output": "rightkit-doc-render-check-katex: cannot read"
+        }
+      }
+    }
+  }
 }

@@ -25,7 +25,7 @@
 //! * [`PtyCommand::from_argv`] takes an argv that is already wrapped (a Seatbelt
 //!   `sandbox-exec -p <profile> -- <program> ...` prefix, a `bwrap` prefix): element 0 is what is
 //!   executed.
-//! * [`PtyCommand::pre_exec_last`] (Unix, `unsafe`) runs a closure in the forked child after
+//! * `PtyCommand::pre_exec_last` (Unix, `unsafe`) runs a closure in the forked child after
 //!   `setsid`, the controlling-terminal ioctl and the descriptor sweep, as the last step
 //!   before `exec` (a seccomp or landlock filter belongs here).
 //! * [`PtyCommand::owned_mut`] is the underlying [`OwnedCommand`]: set its Job limits, priority,
