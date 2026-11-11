@@ -41,9 +41,11 @@ fi
 export PATH="$NVM_DIR/versions/node/$NODE_VERSION/bin:$HOME/.cargo/bin:$PATH"
 
 # 2. The setup command imports from node_modules (smol-toml), so an empty checkout needs pnpm and one install before it can start.
+# The pinned pnpm is installed into the pinned Node itself: checked from / so another pnpm on PATH that delegates by the repo's
+# packageManager field does not pass for it (the gate's import probe runs pnpm outside the checkout and refuses a different one).
+PNPM_VERSION="$(node -e 'console.log(/^pnpm@(\d+\.\d+\.\d+)/.exec(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).packageManager)[1])' "$REPO/package.json")"
+[ "$(cd / && pnpm --version 2>/dev/null || true)" = "$PNPM_VERSION" ] || npm install -g "pnpm@$PNPM_VERSION"
 if [ ! -d "$RELEASE/node_modules/smol-toml" ]; then
-  PNPM_VERSION="$(node -e 'console.log(/^pnpm@(\d+\.\d+\.\d+)/.exec(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).packageManager)[1])' "$REPO/package.json")"
-  [ "$(pnpm --version 2>/dev/null || true)" = "$PNPM_VERSION" ] || npm install -g "pnpm@$PNPM_VERSION"
   (cd "$REPO" && pnpm install --frozen-lockfile)
 fi
 
