@@ -124,6 +124,13 @@
         ],
         "reason": "ci/asset-gated.json: FFmpeg binary for the media cross-check (tests/media_ffmpeg.rs); its skip-handling tests also print SKIP markers by design; the publish workflow does not provision them, so those tests print SKIP markers recorded in the receipts and the crate's own compile, clippy, doc and remaining tests still qualify it. The crate refuses Linux (util::platform: macOS and Windows only), so its unit & integration tests are cfg-gated to macOS and Windows and the Linux direct-origin lane runs none, which a crate may do (zero tests qualify; publish.mjs takes allow_no_test for npm packages only); the macOS and Windows verify jobs run every test."
       },
+      "@rightkit/release": {
+        "version": "0.6.53",
+        "allow": [
+          "allow_missing_assets"
+        ],
+        "reason": "ci/asset-gated.json lists @rightkit/release only because local-publish.mjs forwards RIGHTKIT_REQUIRE_ASSETS to the units it runs; the package's own 296 tests need no assets and run in full on every host."
+      },
       "@rightkit/legal": {
         "version": "0.6.3",
         "allow": [

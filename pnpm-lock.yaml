@@ -677,6 +677,9 @@ importers:
       '@phosphor-icons/react':
         specifier: ^2.1.10
         version: 2.1.10(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
+      '@rightkit/license':
+        specifier: workspace:^
+        version: link:../license
       '@rightkit/logs':
         specifier: workspace:^
         version: link:../logs
