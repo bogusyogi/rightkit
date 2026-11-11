@@ -7,7 +7,7 @@ use std::time::Duration;
 
 /// Host of the compiled-in model worker. Any other worker base is a development
 /// override, the only case allowed to resolve to a local or private address.
-const DEFAULT_WORKER_HOST: &str = "rightkit-models.adrdsouza.workers.dev";
+const DEFAULT_WORKER_HOST: &str = "heardright-models.adrdsouza.workers.dev";
 
 pub struct ModelGrantRequest<'a> {
     pub worker_base: &'a str,

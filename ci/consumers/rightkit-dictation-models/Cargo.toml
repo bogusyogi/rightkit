@@ -7,4 +7,4 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-dictation-models = { version = "=0.1.2" }
+rightkit-dictation-models = { version = "=0.1.3" }

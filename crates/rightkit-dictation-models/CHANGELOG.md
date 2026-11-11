@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.3 (unpublished)
+
+- Fixed: the compiled-in model worker host is `heardright-models.adrdsouza.workers.dev`, the host every download URL in this crate uses. It read `rightkit-models.adrdsouza.workers.dev` after the move from HeardRight, so the production worker was treated as a development override, the one case allowed to resolve to a local or private address (`model_download_grant.rs`). Found in the HeardRight shape review (rightkit#1572).
+
 ## 0.1.2 (unpublished)
 
 - Removed (breaking, rightkit#1437): the `test-mode` feature; the `test_support` module; `shared::reset_activation_for_tests` and `shared::activate_for_tests`; the `verify_receipt` module and the `RIGHTKIT_MODEL_VERIFY=receipt` stat-receipt policy (every launch verifies in full, as every release build already did); the `RIGHTKIT_MODEL_BASE_URL` manifest override in `model_fetch::load_manifest`; and the `KwsCandidateKind::DevSource` variant with its `CARGO_MANIFEST_DIR` source-checkout candidate. Release behaviour is unchanged. A build that enables `rightkit-dictation-models/test-mode` no longer resolves: drop the feature.
