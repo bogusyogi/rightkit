@@ -1,6 +1,6 @@
 {
   "name": "@rightkit/system-ui",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "System views (storage, cleanup, duplicates, drive health, apps, activity) and chart helpers for desktop utility apps, over typed clients the host supplies.",
   "license": "MIT OR Apache-2.0",
   "type": "module",
@@ -41,6 +41,10 @@
       "types": "./dist/host.d.ts",
       "import": "./dist/host.js"
     },
+    "./tauri": {
+      "types": "./dist/tauri/index.d.ts",
+      "import": "./dist/tauri/index.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
@@ -57,6 +61,7 @@
     "@rightkit/platform-ui": "workspace:^",
     "@rightkit/react-shell": "workspace:^",
     "@rightkit/settings-ui": "workspace:^",
+    "@tauri-apps/api": "^2.12.4",
     "lucide-react": "^1.57.0"
   },
   "peerDependencies": {

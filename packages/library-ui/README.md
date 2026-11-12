@@ -13,10 +13,16 @@ Library list and reader over a host-supplied `LibrarySource` (the main entry hol
 | Import | Contents |
 |---|---|
 | `@rightkit/library-ui` | The library contract (`LibrarySource`, `LibraryRow`, `LibraryDetail`, `LibraryQuery`), host configuration (`configureLibraryHost`), the list (`LibraryScreen` and its parts, `useGroupSelection`, `OriginIcon`, list helpers) and the reader (`LibraryReader` and its parts, find helpers). |
+| `@rightkit/library-ui/tauri` | `tauriLibrarySource()`: the `LibrarySource` over ScrapeRight's artifact library (`get_history_page`, `get_transcript`, `get_transcript_variant`, `delete_transcript`, the `job://update` event), and `LIBRARY_SORT_VARIANTS`. Imports Tauri. HeardRight's history is the `history` source of `@rightkit/dictation-ui/tauri`. |
 | `@rightkit/library-ui/queue` | ScrapeRight's queue screens (paste bar, queue board, job cards, workbench preview, its Detail screen over the reader). Not IPC-free: this entry imports `@tauri-apps/api`, `@tauri-apps/plugin-dialog` and `@rightkit/tauri-shell` and calls ScrapeRight's Tauri commands by name; it stays here until a queue UI package exists. |
 | `@rightkit/library-ui/styles.css` | Reader and queue styles, plus `@rightkit/doc-render`'s. |
 
 ## The contract
+
+A ScrapeRight-shaped host writes `const source = tauriLibrarySource();` and passes it, with `variants={LIBRARY_SORT_VARIANTS}`
+(the variant is the engine's sort order), to `LibraryScreen` and `LibraryReader`. Options: `commands` (command names),
+`changeEvent`, `listen`, `copyText`. `update`, `exportAll` and `saveText` throw "not mapped" (ScrapeRight has no such
+call); date and origin filters are not sent (the engine takes none).
 
 The main entry (`@rightkit/library-ui`) holds no IPC; only `./queue` does (above). The host implements
 `LibrarySource` over its own store and maps each record to a `LibraryRow` (list) and `LibraryDetail` (reader). Only `query` and `copyText` are required; the list and reader

@@ -23,7 +23,7 @@
     "@rightkit/react-shell": "0.7.4",
     "@rightkit/release": "0.6.52",
     "@rightkit/settings-ui": "0.7.2",
-    "@rightkit/system-ui": "0.2.0",
+    "@rightkit/system-ui": "0.2.1",
     "@rightkit/theme": "0.3.3",
     "@rightkit/workspace-ui": "0.2.1"
   }
