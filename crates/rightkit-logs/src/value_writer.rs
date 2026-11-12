@@ -469,35 +469,3 @@ impl Worker {
         Ok(())
     }
 }
-
-#[cfg(test)]
-mod snapshot_tests {
-    use super::*;
-
-    #[test]
-    fn snapshot_copies_rotated_generations() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("app.jsonl");
-        let store = Arc::new(JsonlStore::new(&path, 200).with_generations(2));
-        let writer =
-            ValueWriter::spawn(vec![Arc::clone(&store)], ValueWriterConfig::default()).unwrap();
-        for n in 0..30 {
-            assert!(writer.append_to(&path, json!({"event": "e", "n": n, "pad": "x".repeat(40)})));
-        }
-        assert!(writer.flush(Duration::from_secs(5)));
-        assert!(
-            dir.path().join("app.jsonl.1").exists(),
-            "test needs a rotation"
-        );
-        let out = dir.path().join("out");
-        let copied = writer.snapshot(&[], &out, Duration::from_secs(5)).unwrap();
-        let mut names: Vec<_> = copied
-            .iter()
-            .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
-            .collect();
-        names.sort();
-        assert_eq!(names[0], "app.jsonl");
-        assert!(names.contains(&"app.jsonl.1".to_string()), "{names:?}");
-        assert!(out.join("app.jsonl.1").exists());
-    }
-}

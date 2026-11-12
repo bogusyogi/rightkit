@@ -2,7 +2,7 @@
 
 ## 0.2.1
 
-- Fix (`FileStore`): two moves out of the same state could both succeed. The rival check and the marker were separate steps, and an approval's `.approved` and a refusal's `.closed`, or a claim's `.claimed` and a revocation's `.closed`, were not rivals at all, so an approve and a deny of one request, or a claim and a revocation of one approval, both returned `true`. Every move out of a state now first creates that state's guard file with `create_new` (`<request>.json.from-pending`, `.from-approved`, `.from-claimed`, holding the move), and only its creator writes the descriptive marker after it; a reader follows a guard whose marker is not written yet, so a move cut short by a crash is still read as made. Records written by 0.2.0 read as before. Tests: `tests/file_races.rs` (approve against deny, claim against revoke, a guard without its marker).
+- Fix (`FileStore`): two moves out of the same state could both succeed. The rival check and the marker were separate steps, and an approval's `.approved` and a refusal's `.closed`, or a claim's `.claimed` and a revocation's `.closed`, were not rivals at all, so an approve and a deny of one request, or a claim and a revocation of one approval, both returned `true`. Every move out of a state now first creates that state's guard file with `create_new` (`<request>.json.from-pending`, `.from-approved`, `.from-claimed`, holding the move), and only its creator writes the descriptive marker after it; a reader follows a guard whose marker is not written yet, so a move cut short by a crash is still read as made. Records written by 0.2.0 read as before.
 
 ## 0.2.0
 

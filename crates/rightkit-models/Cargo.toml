@@ -42,9 +42,6 @@ dirs = "7"
 getrandom = "0.4"
 zip = { version = "9", default-features = false, features = ["deflate"] }
 
-[dev-dependencies]
-# A scratch suite root for the migration and replace-in-use tests.
-tempfile = "3"
 
 [package.metadata.rightkit]
 continuous = false

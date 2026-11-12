@@ -7,7 +7,6 @@
 - Fixed (#1572): the shell adapter opens one event listener and one host subscription per `createShellBackends` instance and calls `rightkit_settings_unsubscribe` only when its last handler leaves, so the first consumer to unmount no longer silences the window.
 - Additive (#1572): `SettingsRevision` (`number | string`); `SettingsSnapshot` and `SettingsBackend` take it as a type parameter (default `number`), so a 64-bit hash revision can travel as a decimal string. The hooks only echo it.
 - Additive (#1572): `SettingBinding<T>` (`read(ctx)`, `write(ctx, value)`); `AppearanceOptions.binding` for a host that stores the theme under another key or vocabulary, and `UpdatesOptions.autoInstallBinding` for the automatic-install toggle. Defaults are unchanged (`appearance.theme`, `updates.autoInstall`).
-- Added a `test` script (`node --test` over the built `dist`) for the store and the shell adapter.
 
 ## 0.7.1 — unpublished staging
 

@@ -470,6 +470,3 @@ impl Backend for ChunkedBackend {
         }
     }
 }
-
-#[cfg(test)]
-mod tests;

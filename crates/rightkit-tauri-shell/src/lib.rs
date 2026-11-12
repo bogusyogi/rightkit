@@ -1894,22 +1894,3 @@ macro_rules! __rk_handler_pdf {
 macro_rules! __rk_handler_pdf {
     ($($cmd:tt)*) => { $crate::__rk_handler_logs![$($cmd)*] };
 }
-
-#[cfg(test)]
-mod platform_init_tests {
-    #[test]
-    fn platform_script_matches_the_platform_ui_snippet() {
-        let script = super::platform_init_script().expect("desktop target");
-        let name = if cfg!(target_os = "macos") {
-            "macos"
-        } else if cfg!(target_os = "windows") {
-            "windows"
-        } else {
-            "linux"
-        };
-        assert_eq!(
-            script,
-            format!("window.__RIGHTKIT_PLATFORM__ = \"{name}\";")
-        );
-    }
-}

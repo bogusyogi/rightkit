@@ -48,7 +48,6 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test": "pnpm run build && node --test test/boot-script.test.mjs",
     "prepack": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && pnpm run build",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },

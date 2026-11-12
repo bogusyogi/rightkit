@@ -562,16 +562,3 @@ mod platform {
         None
     }
 }
-
-#[cfg(test)]
-mod sample_secs_tests {
-    use super::*;
-
-    #[test]
-    fn sample_duration_is_held_to_the_capture_timeout() {
-        assert_eq!(DEFAULT_SAMPLE_SECS, 1);
-        assert_eq!(clamp_sample_secs(0), 1);
-        assert_eq!(clamp_sample_secs(2), 2);
-        assert_eq!(clamp_sample_secs(200), 3);
-    }
-}

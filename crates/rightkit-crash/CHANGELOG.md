@@ -2,9 +2,9 @@
 
 ## Unreleased
 
-- New: `CrashConfig::abort_after_report(bool)` (default `false`): the panic hook calls `std::process::abort()` after recording (and after any chained hook), so an app no longer wraps the hook to get that. Test: `tests/abort_after_report.rs`.
+- New: `CrashConfig::abort_after_report(bool)` (default `false`): the panic hook calls `std::process::abort()` after recording (and after any chained hook), so an app no longer wraps the hook to get that.
 - New: `CrashConfig::sample_secs(u8)` (default 1, unchanged; held to 1 to 3 because the capture is abandoned after 6 s): the macOS `sample` duration for the panic hook, the hang watchdog and `capture_native_for_pid`. Windows is unaffected. Checked, not run, for macOS.
-- Changed: `admit_crash_artifacts` skips a `dump_*` file it cannot copy (partial copy removed) and names it in the new `AdmittedCrashArtifacts::skipped`, instead of failing the whole call; reports and samples that cannot be written still fail it. Test: `tests/admit_skip.rs`.
+- Changed: `admit_crash_artifacts` skips a `dump_*` file it cannot copy (partial copy removed) and names it in the new `AdmittedCrashArtifacts::skipped`, instead of failing the whole call; reports and samples that cannot be written still fail it.
 
 ## 0.4.0
 

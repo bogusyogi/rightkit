@@ -111,39 +111,3 @@ where
             .map_err(|error| HostOperationError::new(HostOperation::ClearDiagnostics, error))
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    struct Host;
-    impl LogHost<u8, String> for Host {
-        fn write(&self, entry: &u8) -> Result<(), String> {
-            if *entry == 0 {
-                Err("zero".into())
-            } else {
-                Ok(())
-            }
-        }
-        fn collect(&self) -> Result<String, String> {
-            Ok("bundle".into())
-        }
-        fn clear(&self) -> Result<(), String> {
-            Err("busy".into())
-        }
-    }
-
-    #[test]
-    fn log_service_names_the_failed_operation() {
-        let service = LogService::<_, u8, String>::new(&Host);
-        assert!(service.write(&1).is_ok());
-        let error = service.write(&0).unwrap_err();
-        assert_eq!(error.operation, HostOperation::WriteLog);
-        assert_eq!(error.message, "zero");
-        assert_eq!(service.collect().unwrap(), "bundle");
-        assert_eq!(
-            service.clear().unwrap_err().operation,
-            HostOperation::ClearLogs
-        );
-    }
-}

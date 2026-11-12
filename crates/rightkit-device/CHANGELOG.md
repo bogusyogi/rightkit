@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Fixed: a blank stored device id (empty or whitespace only) no longer fails `get_or_create` forever. `credentials::CredentialStore::get` returns `None` for it and `set_if_absent` replaces it (under the `DeviceService` creation lock); a non-blank id is never replaced and a control character is still an error. Test: `tests/blank_device_id.rs`.
+- Fixed: a blank stored device id (empty or whitespace only) no longer fails `get_or_create` forever. `credentials::CredentialStore::get` returns `None` for it and `set_if_absent` replaces it (under the `DeviceService` creation lock); a non-blank id is never replaced and a control character is still an error.
 - **Breaking:** removed `LicenseVault` (and `vault`, `LicenseState`, `LicenseStatus`, `VaultError`), `AuthorizationService`, `LicenseRecord`, `AuthorizationDenial`, `AuthorizationError`, `guard_paid_command`, `PaidCommandError` and the `LicenseRequirement` / `RevokedIds` re-exports: a second licence authority with no user in any RightKit crate, e2e-app, desktop-app-template or app repo (only docs and an ownership-rule regex mention the names). Licence checks live in `rightkit-license`. The `serde` dependency went with the vault.
 - Moved: `LogHost`, `LogService`, `DiagnosticHost`, `DiagnosticService`, `HostOperation` and `HostOperationError` now live in `rightkit-logs`; they stay re-exported here for one release (`rustc` ignores `#[deprecated]` on a re-export, so the deprecation is this note). New dependency on `rightkit-logs` (no default features). Callers: Pulse and ScrapeRight; switch the import to `rightkit_logs`.
 

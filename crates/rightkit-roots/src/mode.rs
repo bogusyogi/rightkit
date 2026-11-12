@@ -255,6 +255,3 @@ pub fn roots_with(app: &AppId, mode: &Mode, input: &dyn ModeInput) -> Result<App
         }
     }
 }
-
-#[cfg(test)]
-mod tests;

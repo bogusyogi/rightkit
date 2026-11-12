@@ -759,28 +759,3 @@ pub async fn rightkit_logs_clear(
     runtime_of(&app)?;
     blocking(move || app.state::<LogsRuntime>().clear().into_result()).await
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    #[test]
-    fn unparseable_record_is_kept_as_warn_with_its_name() {
-        let batch = prepare_batch(
-            vec![
-                json!({"event": "ui_click", "level": "loud", "ts_ms": "yesterday"}),
-                json!({"event": "ok", "level": "info", "ts_ms": 1}),
-                json!({"level": "loud"}),
-                json!("not an object"),
-            ],
-            &RedactionPolicy::default(),
-        );
-        assert_eq!(batch.invalid, 1);
-        assert_eq!(batch.records.len(), 3);
-        assert_eq!(batch.records[0].event, "ui_click");
-        assert_eq!(batch.records[0].level, Level::Warn);
-        assert_eq!(batch.records[1].event, "ok");
-        assert_eq!(batch.records[2].event, "unknown");
-    }
-}

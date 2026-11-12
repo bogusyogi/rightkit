@@ -5,7 +5,7 @@
 Additive. Existing props, defaults and markup are unchanged.
 
 - `CaptionControls` takes `buttons?: { minimize?: boolean; maximize?: boolean }` (type `CaptionButtons`); `Titlebar` and `AppShell` take the same object as `captionButtons`. `false` leaves that button out of the markup, for a window that cannot be minimised or maximised. Close is always drawn. Default: all three, as before. Apps hid the buttons with CSS (`display: none !important` on a class or on `:nth-child(2)`); those rules can go once the option is passed.
-- `systemPrefersDark` is now `@rightkit/theme`'s `prefersDark` (same result: `false` without `window` or `matchMedia`). `themeBootScript(options)` builds its text with `@rightkit/theme`'s `themeBootScript`, so there is one implementation; the script text is unchanged (`@rightkit/theme`'s test pins it). New dependency: `@rightkit/theme`.
+- `systemPrefersDark` is now `@rightkit/theme`'s `prefersDark` (same result: `false` without `window` or `matchMedia`). `themeBootScript(options)` builds its text with `@rightkit/theme`'s `themeBootScript`, so there is one implementation; the script text is unchanged. New dependency: `@rightkit/theme`.
 
 ## 0.7.3 — issue sweep (2026-11-03)
 

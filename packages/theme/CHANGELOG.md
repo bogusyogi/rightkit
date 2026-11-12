@@ -4,7 +4,7 @@
 
 Additive. The root export list is unchanged; `parseBrand` accepts every input it accepted before.
 
-- `themeBootScript(storageKey, { qaOverride })`: `"light"` or `"dark"` beats the stored choice (`null` or `"system"` overrides nothing). This is the option `@rightkit/react-shell`'s copy of the script had; that package now calls this function, so there is one implementation. Without `qaOverride` the script text is byte-identical to before; with it the text is byte-identical to what `@rightkit/react-shell`'s `themeBootScript` produced (a test pins both).
+- `themeBootScript(storageKey, { qaOverride })`: `"light"` or `"dark"` beats the stored choice (`null` or `"system"` overrides nothing). This is the option `@rightkit/react-shell`'s copy of the script had; that package now calls this function, so there is one implementation. Without `qaOverride` the script text is byte-identical to before; with it the text is byte-identical to what `@rightkit/react-shell`'s `themeBootScript` produced.
 - `BrandFile.wordmark` is the product name; the font is `wordmarkFont`. A `wordmark` that is a font-family list (two or more comma-separated entries, one a lower-case CSS generic family such as `sans-serif` or `system-ui`) did nothing and hid the mistake. `applyBrand` now reports it once with `console.warn` outside production builds and still applies the brand. `parseBrand` does not reject it. The check cannot reject a product name: it needs a comma and a bare generic family keyword as an entry.
 
 ## 0.3.2 — unpublished staging

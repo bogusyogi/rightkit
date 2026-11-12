@@ -4,7 +4,7 @@
 
 - `ClientConfig::single_deadline(timeout)` and `Client::try_new_or_direct(config)`: one overall deadline per call (phase limits cleared, `request_timeout` and `stream_timeout` set), and a client that falls back to a direct connection when the proxy settings cannot be used, as `ureq` did. Replace the per-app `parity_client` wrappers in HeardRight's telemetry and text-pipeline crates (#1572).
 - Breaking: the `agent_host` feature and the `http_client` module are removed; the module moved to `rightkit-agent-daemon` (`rightkit_agent_daemon::http_client`), its only users being the agent host and the bot-messaging relay (#1572).
-- Breaking: `wrap_untrusted_web_text_coderight` and `CODERIGHT_TAG` are removed. `wrap_untrusted_envelope(source, text, &EnvelopeOptions { tag, source_prefix, max_bytes, block_on_injection })` takes the host's element name and source prefix; with `tag: "coderight-untrusted-context"` and `source_prefix: "tool:"` its output is byte-identical to the old function (test `envelope_output_is_byte_identical_to_the_former_coderight_function`) (#1572).
+- Breaking: `wrap_untrusted_web_text_coderight` and `CODERIGHT_TAG` are removed. `wrap_untrusted_envelope(source, text, &EnvelopeOptions { tag, source_prefix, max_bytes, block_on_injection })` takes the host's element name and source prefix; with `tag: "coderight-untrusted-context"` and `source_prefix: "tool:"` its output is byte-identical to the old function (#1572).
 
 
 ## 0.3.11

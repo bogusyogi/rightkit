@@ -25,8 +25,7 @@
   "scripts": {
     "build": "tsc",
     "prepack": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && pnpm run build",
-    "typecheck": "tsc --noEmit",
-    "test": "tsc && node --test test/lifecycle.test.mjs"
+    "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",

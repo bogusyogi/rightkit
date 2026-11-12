@@ -4,7 +4,6 @@ Additive; defaults and wire behaviour unchanged. `dist/lifecycle.js` and `dist/l
 
 - Lifecycle (lifted from the live HeardRight app, product parts as host configuration, exported from the package root): `snapshotFromLicenseView(view, messages?)`, `shouldRefreshLicenseFromServer`, `millisecondsUntilLicenseCheck`, `expiredTrialAcknowledgementKey`, `dialogForLicenseLifecycle(state, { appName, paidTier, spelling? })`, `isExpiredTrialNoticeAcknowledged` / `acknowledgeExpiredTrialNotice(state, { storageKey, storage? })` (the legacy full-id key still counts) and `createLicenseLifecycleMonitor({ client, afterChange?, changeEventNames?, fallbackMs?, messages? })` returning `{ get, subscribe, refresh, start }` in place of module singletons. Same order and rules as the app: retry queued releases (errors ignored), status, a server refresh only when explicit and the state needs it, `afterChange`, then subscribers; one check in flight; timer `min(max(delay, 1), fallbackMs)`; triggers focus, visibility, the client's `onChange` and the host's event names.
 - Message overrides: `createLicenseClient({ messages })`, `createAccountClient({ messages })` and `licenseMessage(code, messages?)` take the host's own wording by message code. `LICENSE_MESSAGES_EN_US` is the US spelling. New `accountDeletionMessage(view, messages?)` (`ACCOUNT_DELETION_MESSAGES`) words how an account deletion ended.
-- Tests: `pnpm run test` builds and runs `test/lifecycle.test.mjs`.
 
 # 0.3.1 (unpublished)
 
