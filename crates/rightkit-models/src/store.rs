@@ -10,6 +10,7 @@
 //! <root>/.incoming/<model-id>.staging/<key>/ resumable in-flight install; `.dl/paused.json` marks a pause
 //! <root>/.incoming/<model-id>.adopt/<key>/   an adoption being assembled (discarded if interrupted)
 //! <root>/refs/<app>.json                     per-app reference registry (suite refs)
+//! <root>/.legacy-kept/<model-id>/            an old-layout directory a migration replaced (kept)
 //! <shared root>/<path>                       shared-runtime files (FileSpec::shared), outside the entry
 //! <alias path> -> <root>/<model-id>          opt-in legacy flat alias
 //! ```
@@ -27,8 +28,14 @@
 //! (`<root>/<id>/state.json` + `revisions/<key>/`) is still read as it is, and is migrated to the
 //! suite layout the first time the store takes that model's lock ([`Store::recover`],
 //! [`Store::resolve`] and every install, adopt, rollback or discard): the active revision's
-//! directory becomes the entry, its record becomes `manifest.json`, earlier revisions and paused
-//! installs of the old layout are dropped. See `legacy_layout.rs`.
+//! directory becomes the entry, its record becomes `manifest.json`, and the rest of the old
+//! directory (earlier revisions, paused installs, `state.json`) is kept, never deleted, under
+//! `<root>/.legacy-kept/<id>` ([`Store::legacy_kept`] lists them). See `legacy_layout.rs`.
+//!
+//! **Replacing a model in use.** Installing over an existing entry first takes every runtime-family
+//! lease (`<suite>/runtime/model-use/`, [`crate::suite::lease`]), as GC does; while a running app
+//! holds a model loaded the install refuses with [`ErrorCode::Busy`] ("in use") and the entry is
+//! left exactly as it was.
 //!
 //! **Resolving a model.** Runtimes call [`Store::resolve`] (installed revision,
 //! size-verified) or [`Store::resolve_or_legacy`] (falls back to a pre-store
@@ -575,6 +582,7 @@ impl Store {
             self.aside_dir(id)?,
         ];
         owned.extend(crate::legacy_layout::owned_paths(&dir));
+        owned.push(self.root.join(crate::legacy_layout::KEPT_DIR));
         for p in owned {
             if is_link(&p) {
                 return Err(Error::new(
@@ -1043,6 +1051,22 @@ impl Store {
             }
         }
         self.uninstall(id)
+    }
+
+    /// The old-layout (pre-0.7) directories a migration replaced, kept under
+    /// `<root>/.legacy-kept/` instead of deleted: each holds that model's earlier revisions,
+    /// `state.json` and old staging, exactly as the old layout left them. Report them to the user,
+    /// who may remove them; the store never does. Sorted; empty when there are none.
+    pub fn legacy_kept(&self) -> Result<Vec<PathBuf>> {
+        let kept = self.root.join(crate::legacy_layout::KEPT_DIR);
+        let entries = match fs::read_dir(&kept) {
+            Ok(entries) => entries,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(e) => return Err(Error::io(kept.display(), e)),
+        };
+        let mut out: Vec<PathBuf> = entries.flatten().map(|entry| entry.path()).collect();
+        out.sort();
+        Ok(out)
     }
 
     /// Remove the whole model: the entry, its staging and any interrupted aside or adoption, plus

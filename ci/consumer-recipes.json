@@ -2192,7 +2192,7 @@
       "pkId": "PK12",
       "id": "ci/consumers/rightkit-models/src/main.rs",
       "files": {
-        "Cargo.toml": "cacd3a0b34a6c008085aa49c65182ab610f9c35670662ba537808f05548dd00a",
+        "Cargo.toml": "f4524182808f3db91422a2225d7a58c644943cc8790804457c90165792184254",
         "README.md": "724628f98df342af4288b5eeae1edd8faab410c12c5aebbee63aa27868698c10",
         "src/main.rs": "898a0003b7cb92ef926a691d954b7b531166587723c9cca4f47574cdb881d8c5"
       }

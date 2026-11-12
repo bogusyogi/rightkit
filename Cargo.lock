@@ -12279,7 +12279,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-models"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "base64 0.23.1",
  "chrono",
@@ -12293,6 +12293,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tar",
+ "tempfile",
  "ureq",
  "url",
  "zip",

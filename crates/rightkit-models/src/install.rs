@@ -900,6 +900,27 @@ impl Store {
         Ok(())
     }
 
+    /// Every runtime-family lease of the suite this store lives in (`<suite>/runtime/model-use/`,
+    /// and the legacy suite root's when this is the suite's own store), held while an existing
+    /// entry is replaced. `Busy` ("in use") while any running app holds one: the store cannot tell
+    /// which family a model id belongs to, so, as its GC does, it refuses on any.
+    fn lease_for_replace(&self, id: &str) -> Result<crate::suite::lease::ModelLease> {
+        let suite_root = self.root.parent().unwrap_or(&self.root);
+        match crate::suite::lease::try_acquire_for_gc(suite_root, &self.app) {
+            Ok(Some(guard)) => Ok(guard),
+            Ok(None) => Err(Error::new(
+                ErrorCode::Busy,
+                format!(
+                    "{id} is in use: a running app holds a model loaded (a lease under {}), so the \
+                     installed copy cannot be replaced now; close that app or unload the model and \
+                     install again",
+                    suite_root.join("runtime").join("model-use").display()
+                ),
+            )),
+            Err(e) => Err(Error::new(ErrorCode::Io, e)),
+        }
+    }
+
     /// Write the suite manifest into `staging`, then swap it onto the entry `<root>/<id>`. The
     /// previous entry is never deleted before its replacement is in place: it is renamed to the
     /// suite's aside path, the new tree renamed in, anything the app kept in the old entry that
@@ -943,6 +964,14 @@ impl Store {
             .unwrap_or_default();
         let aside = self.aside_dir(&id)?;
         let had_previous = fs::symlink_metadata(&dest).is_ok();
+        // A running app may have the live entry loaded: replacing it then must not rename files
+        // out from under the runtime. Take every runtime-family lease (`runtime/model-use/`, as
+        // the store's GC does) for the whole swap, and refuse while any is held.
+        let _in_use_guard = if had_previous {
+            Some(self.lease_for_replace(&id)?)
+        } else {
+            None
+        };
         if had_previous {
             remove_tree(&aside)?;
             fs::rename(&dest, &aside)

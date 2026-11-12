@@ -1,6 +1,12 @@
 # Changelog
 
-## 0.7.0 (unpublished)
+## 0.7.1
+
+- Fix: migrating a pre-0.7 entry no longer deletes anything. The old directory (earlier revisions, `state.json`, old staging and paused installs) was deleted once the active revision became the suite entry; it is now moved to `<root>/.legacy-kept/<id>` (`<id>.1`, `<id>.2` when taken) at every step that removed it, uninstall included, and kept there. New `Store::legacy_kept()` lists those directories so the app can report them and let the user remove them; the store never does. A symlink at `<root>/.legacy-kept` is refused like every other store path.
+- Fix: replacing an installed model no longer renames the live entry out from under a running app. Before the swap, the store takes every runtime-family lease (`<suite>/runtime/model-use/`, as its GC does; it cannot tell a model id's family) and holds them through the swap; while any is held the install or adoption refuses with `ErrorCode::Busy` and a message saying the model is in use, and the entry is left as it was. A first install (nothing to replace) takes no lease.
+- Tests: `tests/keep_and_lease.rs` (a migration keeps and reports the old revisions; a replacement refuses while a lease is held and goes through once it is released).
+
+## 0.7.0
 
 One store. The 2026-11-11 shape review (`docs/audits/2026-11-11-shape-matrix/reports/family-foundation-runtime.md`, rightkit-models section) judged the crate wrong: two independent on-disk stores and APIs, the revisioned `Store` (MailRight, GenRight) and the flat `suite::*` layout (HeardRight, live; ScrapeRight; CutRight). Decision taken, as recommended in `docs/audits/2026-11-11-shape-matrix/README.md` and pending the owner's confirmation: the suite layout, which is HeardRight's live layout, is the one store, and `Store` becomes a thin API over it, so no live user's models move. The mapping is in the README, section "One store".
 

@@ -18,7 +18,10 @@
 //! 2. anything else the app kept in `<root>/<id>` (a real pre-store folder, never a link) moves
 //!    into it;
 //! 3. `<root>/<id>` is renamed to `<root>/.incoming/<id>.old`, the new entry renamed onto
-//!    `<root>/<id>`, and the old directory (earlier revisions, `state.json`, old staging) deleted.
+//!    `<root>/<id>`, and the old directory (earlier revisions, `state.json`, old staging) moved to
+//!    `<root>/.legacy-kept/<id>` (`<id>.1`, `<id>.2` and so on when that name is taken). It is
+//!    never deleted: nothing the old layout held is lost, and [`Store::legacy_kept`] lists what
+//!    is kept so the app can report it and let the user remove it.
 //!
 //! Every step is a rename or an idempotent write, and a rerun resumes from whichever step a
 //! crash interrupted. An entry whose active revision does not verify is left as it is (it was not
@@ -66,6 +69,32 @@ pub(crate) fn owned_paths(dir: &Path) -> Vec<PathBuf> {
     LEGACY_NAMES.iter().map(|n| dir.join(n)).collect()
 }
 
+/// `<root>/.legacy-kept`: old-layout directories a migration replaced, kept rather than deleted.
+pub(crate) const KEPT_DIR: &str = ".legacy-kept";
+
+/// Move a replaced old-layout directory `old` (if there is one) to `<root>/.legacy-kept/<id>`,
+/// or `<id>.<n>` with the first free `n`; never deletes it. Returns where it went.
+pub(crate) fn keep_old(root: &Path, id: &str, old: &Path) -> Result<Option<PathBuf>> {
+    if !exists(old) {
+        return Ok(None);
+    }
+    let kept = root.join(KEPT_DIR);
+    fs::create_dir_all(&kept).map_err(|e| Error::io(kept.display(), e))?;
+    let target = (0u32..)
+        .map(|n| {
+            if n == 0 {
+                kept.join(id)
+            } else {
+                kept.join(format!("{id}.{n}"))
+            }
+        })
+        .find(|p| !exists(p))
+        .expect("an unbounded range has a free name");
+    fs::rename(old, &target)
+        .map_err(|e| Error::io(format!("keep {} -> {}", old.display(), target.display()), e))?;
+    Ok(Some(target))
+}
+
 fn scratch(root: &Path, id: &str) -> (PathBuf, PathBuf) {
     let incoming = root.join(".incoming");
     (
@@ -74,11 +103,12 @@ fn scratch(root: &Path, id: &str) -> (PathBuf, PathBuf) {
     )
 }
 
-/// Remove an abandoned migration's scratch (uninstall). Best effort.
+/// Remove an abandoned migration's scratch (uninstall). Best effort. A replaced old-layout
+/// directory is kept ([`keep_old`]), not deleted.
 pub(crate) fn remove_migration_scratch(root: &Path, id: &str) {
     let (staged, old) = scratch(root, id);
     let _ = remove_tree(&staged);
-    let _ = remove_tree(&old);
+    let _ = keep_old(root, id, &old);
 }
 
 /// Migrate (or finish migrating) `<root>/<id>` from the old layout. Caller holds the model lock
@@ -94,19 +124,19 @@ pub(crate) fn migrate_locked(store: &Store, id: &str) -> Result<bool> {
         if !exists(&dir) {
             // Interrupted between moving the old directory away and the new one in.
             rename(&staged, &dir)?;
-            remove_tree(&old)?;
+            keep_old(&store.root, id, &old)?;
             let _ = fs::remove_dir(store.root.join(".incoming"));
             return Ok(true);
         }
         if !is_legacy(&dir) {
             // Nothing left to migrate into: the scratch is stale.
             remove_tree(&staged)?;
-            remove_tree(&old)?;
+            keep_old(&store.root, id, &old)?;
             return Ok(false);
         }
     } else {
         if exists(&old) && exists(&dir) {
-            remove_tree(&old)?;
+            keep_old(&store.root, id, &old)?;
         }
         if !is_legacy(&dir) {
             return Ok(false);
@@ -145,10 +175,10 @@ pub(crate) fn migrate_locked(store: &Store, id: &str) -> Result<bool> {
             .map_err(|e| Error::new(ErrorCode::Io, e))?;
     }
     carry_foreign(&dir, &staged, &[])?;
-    remove_tree(&old)?;
+    keep_old(&store.root, id, &old)?;
     rename(&dir, &old)?;
     rename(&staged, &dir)?;
-    remove_tree(&old)?;
+    keep_old(&store.root, id, &old)?;
     let _ = fs::remove_dir(store.root.join(".incoming"));
     Ok(true)
 }
