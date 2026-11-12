@@ -132,7 +132,7 @@ if !store.writable() {
 - A patch is a `serde_json::Value`, which cannot carry the order it was written in: several new open keys in one patch are appended alphabetically (in the patch's own order when serde_json's `preserve_order` feature is on somewhere in the build; this crate does not enable it, because that would change `serde_json::Map` for every crate in the build). Keys added by separate patches are appended in call order.
 - A `HashMap` field has no stable serialisation order, so several new keys inside one are appended in no stable order. Use a struct or a `BTreeMap`.
 - `pretty_sorted_newline(true)` always sorts, whatever `key_order` says.
-- **Flat migration**: `flat_migration(|map| ...)` returns `(migrated, changed)`; it runs once on open, before defaults and repair, never read-only.
+- **Flat migration**: `flat_migration(|map| ...)` returns `(migrated, changed)`; it runs once on open, before defaults and repair, and a writable store commits the migrated file once. `open_read_only` applies it in memory on open and on every re-read, and `Store::snapshot()` applies it in memory on every store (so a file an older writer put back still reads migrated, with the stored file's revision); neither writes anything.
 
 ### Frontend-owned documents
 

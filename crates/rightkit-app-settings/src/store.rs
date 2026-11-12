@@ -481,7 +481,19 @@ impl<T: Serialize + DeserializeOwned + Default + Clone> Store<T> {
     /// this is one. A read failure, or a file this build must not read (newer schema), is an
     /// `Err`; it does not fall back to the last known value. Writes nothing and leaves the cache
     /// as it is.
+    ///
+    /// The value is what this build makes of the stored file, on a writable store as on a
+    /// read-only one: the flat-file migration ([`StoreOptions::flat_migration`]) is applied in
+    /// memory, then defaults and per-field repair. So a flat file another writer put back in an
+    /// older layout reads as the migrated value, with the revision of the file as stored.
     pub fn snapshot(&self) -> Result<(T, u64), Error> {
+        let loaded = self.load_migrated()?;
+        Ok((loaded.value, loaded.revision))
+    }
+
+    /// One backend load, decoded as this build reads it: refused when newer, the flat migration
+    /// applied in memory, then defaults and repair. Nothing is written or marked for rewrite.
+    fn load_migrated(&self) -> Result<Loaded<T>, Error> {
         let snapshot = self.backend.load()?;
         if let Some(s) = snapshot.as_ref() {
             if let Some(found) = self.newer(s) {
@@ -492,20 +504,19 @@ impl<T: Serialize + DeserializeOwned + Default + Clone> Store<T> {
             }
         }
         let snapshot = match snapshot {
-            Some(s) if self.read_only => Some(in_memory_migrate(
+            Some(s) => Some(in_memory_migrate(
                 s,
                 self.flat_migration.as_ref(),
                 self.format,
             )?),
-            other => other,
+            None => None,
         };
-        let loaded = decode::<T>(
+        decode::<T>(
             snapshot.as_ref(),
             &self.schema,
             self.defaults.as_ref(),
             self.fill_optional,
-        )?;
-        Ok((loaded.value, loaded.revision))
+        )
     }
 
     /// Lock-free read of the committed document. `None` when the document is missing, is a
@@ -857,9 +868,9 @@ struct Loaded<T> {
 
 /// Decodes a backend document: applies migrations, then repairs typed fields. A missing document
 /// decodes to the defaults provider's object, or to `T::default()` (dirty, so it is written).
-/// A flat document with the app's migration applied in memory, for a read-only store. Only an
-/// unversioned flat document runs it, as the open does for a writer. The stored document is not
-/// marked for rewrite, so nothing is written.
+/// A flat document with the app's migration applied in memory, for a read-only store and for
+/// [`Store::snapshot`]. Only an unversioned flat document runs it, as the open does for a writer.
+/// The stored document is not marked for rewrite, so nothing is written.
 fn in_memory_migrate(
     mut stored: Stored,
     migrate: Option<&FlatMigration>,
