@@ -57,12 +57,22 @@ export const LICENSE_MESSAGES = Object.freeze({
   unknown: 'Something went wrong.',
 });
 export type MessageCode = keyof typeof LICENSE_MESSAGES;
-export function licenseMessage(code: unknown): string { return LICENSE_MESSAGES[messageCode(code)]; }
+/** The host's own wording, by message code. A code not listed keeps the default text from `LICENSE_MESSAGES`. Text only; no code is added or removed. */
+export type LicenseMessageOverrides = Partial<Record<MessageCode, string>>;
+/** `LICENSE_MESSAGES` in US spelling ("license" for "licence"); pass it as `messages`. */
+export const LICENSE_MESSAGES_EN_US: Readonly<Record<MessageCode, string>> = Object.freeze(Object.fromEntries(
+  Object.entries(LICENSE_MESSAGES).map(([code, words]) => [code, words.replace(/\b([Ll])icence(s?)\b/g, '$1icense$2')]),
+) as Record<MessageCode, string>);
+export function licenseMessage(code: unknown, messages?: LicenseMessageOverrides): string {
+  const known = messageCode(code);
+  const own = messages?.[known];
+  return typeof own === 'string' ? own : LICENSE_MESSAGES[known];
+}
 export class LicenseClientError extends Error {
   readonly code: CommandErrorCode | 'unknown';
   readonly reason?: RejectReason;
-  constructor(code: CommandErrorCode | 'unknown' = 'unknown', message: MessageCode = 'unknown', reason?: RejectReason) {
-    super(licenseMessage(message));
+  constructor(code: CommandErrorCode | 'unknown' = 'unknown', message: MessageCode = 'unknown', reason?: RejectReason, messages?: LicenseMessageOverrides) {
+    super(licenseMessage(message, messages));
     this.name = 'LicenseClientError';
     this.code = code;
     if (code === 'rejected' && reason !== undefined) this.reason = reason;
@@ -71,7 +81,12 @@ export class LicenseClientError extends Error {
 export type LicenseInvoke = <T = unknown>(command: string, args?: Record<string, unknown>) => Promise<T>;
 export type LicenseUnlisten = () => void;
 export type LicenseListen = <T = unknown>(event: string, callback: (event: { payload: T }) => void) => Promise<LicenseUnlisten>;
-export interface LicenseConfig { invoke: LicenseInvoke; listen: LicenseListen }
+export interface LicenseConfig {
+  invoke: LicenseInvoke;
+  listen: LicenseListen;
+  /** The host's own wording for the client's errors; see `LicenseMessageOverrides`. */
+  messages?: LicenseMessageOverrides;
+}
 export interface LicenseRequirement { tier?: LicenseTier; feature?: string; allFeatures?: readonly string[]; anyFeature?: readonly string[] }
 const lifecycles: readonly Lifecycle[] = ['unlicensed', 'migration_required', 'trial', 'expired_trial', 'active', 'grace', 'expired', 'lifetime_provisional', 'verification_required', 'lifetime', 'clock_repair_required', 'revoked', 'invalid'];
 const reasons: readonly RejectReason[] = ['keyNotAccepted', 'revoked', 'expired', 'deviceLimit', 'rateLimited', 'other'];
@@ -115,7 +130,7 @@ function projectView(value: unknown): LicenseView {
     revisionState: oneOf(v.revisionState, ['active', 'tombstone', 'none']), message: messageCode(v.message),
   };
 }
-function commandError(value: unknown): LicenseClientError {
+function commandError(value: unknown, messages?: LicenseMessageOverrides): LicenseClientError {
   try {
     const e = record(value);
     const code = oneOf(e.code, codes);
@@ -126,18 +141,21 @@ function commandError(value: unknown): LicenseClientError {
       store: 'storeFailed', clock: 'clockUnavailable', verify: 'verifyFailed', forbidden: 'forbidden', unsupported: 'unsupported',
     };
     // Only a closed native MessageCode selects text; no raw message or cause survives.
-    return new LicenseClientError(code, e.message === undefined ? defaults[code] : messageCode(e.message), reason);
-  } catch { return new LicenseClientError(); }
+    return new LicenseClientError(code, e.message === undefined ? defaults[code] : messageCode(e.message), reason, messages);
+  } catch { return new LicenseClientError('unknown', 'unknown', undefined, messages); }
 }
-export function createLicenseClient({ invoke, listen }: LicenseConfig) {
+export function createLicenseClient({ invoke, listen, messages }: LicenseConfig) {
+  const unknown = (): LicenseClientError => new LicenseClientError('unknown', 'unknown', undefined, messages);
   async function call<T>(command: string, project: (value: unknown) => T, args?: Record<string, unknown>): Promise<T> {
     let value: unknown;
-    try { value = await invoke(command, args); } catch (error) { throw commandError(error); }
-    try { return project(value); } catch { throw new LicenseClientError(); }
+    try { value = await invoke(command, args); } catch (error) { throw commandError(error, messages); }
+    try { return project(value); } catch { throw unknown(); }
   }
+  /** A transient input (key, code, email), refused in the client's own words before any native call. */
+  const input = (value: unknown, max: number): string => { try { return text(value, max); } catch { throw unknown(); } };
   return {
     status: (): Promise<LicenseView> => call('rightkit_license_status', projectView),
-    activate: async (key: string): Promise<LicenseView> => call('rightkit_license_activate', projectView, { key: text(key, 4096) }),
+    activate: async (key: string): Promise<LicenseView> => call('rightkit_license_activate', projectView, { key: input(key, 4096) }),
     refresh: (): Promise<RefreshView> => call('rightkit_license_refresh', value => {
       const v = record(value);
       return { view: projectView(v.view), outcome: oneOf(v.outcome, ['noCredential', 'refreshed', 'stale', 'revoked', 'reanchored', 'clockRefused']) };
@@ -150,7 +168,7 @@ export function createLicenseClient({ invoke, listen }: LicenseConfig) {
     requestLink: (): Promise<LinkRequestView> => call('rightkit_license_link_request', linkRequestView),
     /** Redeem a link code another device issued (#1130). Answers the new licence view. */
     redeemLink: async (code: string, deviceLabel?: string): Promise<LicenseView> => call('rightkit_license_link_redeem', projectView, {
-      code: text(code, 4096), deviceLabel: deviceLabel === undefined ? null : text(deviceLabel, 128),
+      code: input(code, 4096), deviceLabel: deviceLabel === undefined ? null : input(deviceLabel, 128),
     }),
     /**
      * Settle the app's queued licence releases now (#1036): the native host drains the queue the app configured
@@ -160,7 +178,7 @@ export function createLicenseClient({ invoke, listen }: LicenseConfig) {
     requestTrial: async (email: string): Promise<TrialView> => call('rightkit_license_request_trial', value => {
       const v = record(value);
       return { accepted: boolean(v.accepted), message: messageCode(v.message) };
-    }, { email: text(email, 320) }),
+    }, { email: input(email, 320) }),
     /** Invalid events stop this subscription & report one fixed error. Call cleanup on unmount. */
     async onChange(callback: (view: LicenseView) => void, onError?: (error: LicenseClientError) => void): Promise<LicenseUnlisten> {
       let active = true;
@@ -173,7 +191,7 @@ export function createLicenseClient({ invoke, listen }: LicenseConfig) {
       };
       const report = () => {
         stop();
-        try { onError?.(new LicenseClientError()); } catch { /* Caller errors cannot prevent cleanup. */ }
+        try { onError?.(unknown()); } catch { /* Caller errors cannot prevent cleanup. */ }
       };
       let release: LicenseUnlisten;
       try {
@@ -184,8 +202,8 @@ export function createLicenseClient({ invoke, listen }: LicenseConfig) {
           catch { report(); return; }
           try { callback(view); } catch { report(); }
         });
-      } catch { stop(); throw new LicenseClientError(); }
-      if (typeof release !== 'function') { stop(); throw new LicenseClientError(); }
+      } catch { stop(); throw unknown(); }
+      if (typeof release !== 'function') { stop(); throw unknown(); }
       cleanup = release;
       if (!active) stop();
       return stop;
@@ -244,11 +262,16 @@ export const ACCOUNT_MESSAGES = Object.freeze({
   unsupported: 'This feature is not available in this app.',
   unknown: 'Something went wrong.',
 });
+export type AccountMessageCode = keyof typeof ACCOUNT_MESSAGES;
+/** The host's own account wording, by message code. A code not listed keeps the default text from `ACCOUNT_MESSAGES`. */
+export type AccountMessageOverrides = Partial<Record<AccountMessageCode, string>>;
 export class AccountClientError extends Error {
   readonly code: AccountErrorCode | 'unknown';
   readonly reason?: AccountRejectReason;
-  constructor(code: AccountErrorCode | 'unknown' = 'unknown', reason?: AccountRejectReason) {
-    super(ACCOUNT_MESSAGES[code === 'rejected' && reason !== undefined && reason !== 'other' ? reason : code]);
+  constructor(code: AccountErrorCode | 'unknown' = 'unknown', reason?: AccountRejectReason, messages?: AccountMessageOverrides) {
+    const words: AccountMessageCode = code === 'rejected' && reason !== undefined && reason !== 'other' ? reason : code;
+    const own = messages?.[words];
+    super(typeof own === 'string' ? own : ACCOUNT_MESSAGES[words]);
     this.name = 'AccountClientError';
     this.code = code;
     if (code === 'rejected' && reason !== undefined) this.reason = reason;
@@ -264,12 +287,12 @@ export type AccountDeletionView =
   | { outcome: 'deleted'; localSessionCleared: boolean }
   | { outcome: 'refused'; reason: 'activeSubscription' | 'rateLimited' | 'other' }
   | { outcome: 'indeterminate' };
-function accountError(value: unknown): AccountClientError {
+function accountError(value: unknown, messages?: AccountMessageOverrides): AccountClientError {
   try {
     const e = record(value);
     const code = oneOf(e.code, accountCodes);
-    return new AccountClientError(code, code === 'rejected' && e.reason !== undefined ? oneOf(e.reason, accountReasons) : undefined);
-  } catch { return new AccountClientError(); }
+    return new AccountClientError(code, code === 'rejected' && e.reason !== undefined ? oneOf(e.reason, accountReasons) : undefined, messages);
+  } catch { return new AccountClientError('unknown', undefined, messages); }
 }
 function optionalText(value: unknown, max: number): string | null { return value === null || value === undefined ? null : text(value, max); }
 function accountStatus(value: unknown): AccountStatusView {
@@ -291,6 +314,24 @@ function accountDeletion(value: unknown): AccountDeletionView {
   if (outcome === 'refused') return { outcome, reason: oneOf(v.reason, ['activeSubscription', 'rateLimited', 'other'] as const) };
   return { outcome };
 }
+/** Fixed text for each way an account deletion can end; `deleted` has none. */
+export const ACCOUNT_DELETION_MESSAGES = Object.freeze({
+  deleted: '',
+  activeSubscription: 'You have an active subscription. Cancel it before deleting your account, then try again.',
+  rateLimited: 'Too many attempts. Try again shortly.',
+  other: 'The account service declined the deletion. Try again later.',
+  indeterminate: "We couldn't confirm your account was deleted. Check your connection and try again.",
+});
+export type AccountDeletionMessageCode = keyof typeof ACCOUNT_DELETION_MESSAGES;
+/**
+ * The words for how an account deletion ended: empty for `deleted`, the refusal's reason, or that the answer
+ * could not be confirmed (`indeterminate`: the account may or may not be deleted). `messages` replaces any of them.
+ */
+export function accountDeletionMessage(view: AccountDeletionView, messages?: Partial<Record<AccountDeletionMessageCode, string>>): string {
+  const code: AccountDeletionMessageCode = view.outcome === 'refused' ? view.reason : view.outcome;
+  const own = messages?.[code];
+  return typeof own === 'string' ? own : ACCOUNT_DELETION_MESSAGES[code];
+}
 const deviceId = (id: string): string => /^[A-Za-z0-9_-]{1,128}$/u.test(id) ? id : fail();
 /**
  * The native passwordless account session (#1032): sign-in by e-mailed code, status, the account's devices and
@@ -298,11 +339,11 @@ const deviceId = (id: string): string => /^[A-Za-z0-9_-]{1,128}$/u.test(id) ? id
  * `rightkit-license`). Native keeps the session token; the renderer sees only the views and fixed error text.
  * The link calls live on `createLicenseClient` (`requestLink`, `redeemLink`).
  */
-export function createAccountClient({ invoke }: { invoke: LicenseInvoke }) {
+export function createAccountClient({ invoke, messages }: { invoke: LicenseInvoke; messages?: AccountMessageOverrides }) {
   async function call<T>(command: string, project: (value: unknown) => T, args?: Record<string, unknown>): Promise<T> {
     let value: unknown;
-    try { value = await invoke(command, args); } catch (error) { throw accountError(error); }
-    try { return project(value); } catch { throw new AccountClientError(); }
+    try { value = await invoke(command, args); } catch (error) { throw accountError(error, messages); }
+    try { return project(value); } catch { throw new AccountClientError('unknown', undefined, messages); }
   }
   const nothing = (): void => undefined;
   return {
@@ -318,7 +359,7 @@ export function createAccountClient({ invoke }: { invoke: LicenseInvoke }) {
       return value.map(accountDevice);
     }),
     renameDevice: (device: string, label: string): Promise<void> => {
-      if (typeof label !== 'string' || new TextEncoder().encode(label).length > 256 || /[\u0000-\u001f\u007f]/u.test(label)) throw new AccountClientError('rejected', 'invalidInput');
+      if (typeof label !== 'string' || new TextEncoder().encode(label).length > 256 || /[\u0000-\u001f\u007f]/u.test(label)) throw new AccountClientError('rejected', 'invalidInput', messages);
       return call('rightkit_account_rename_device', nothing, { device: deviceId(device), label });
     },
     removeDevice: (device: string): Promise<void> => call('rightkit_account_remove_device', nothing, { device: deviceId(device) }),
@@ -327,7 +368,7 @@ export function createAccountClient({ invoke }: { invoke: LicenseInvoke }) {
      * native command builds its confirmation proof from it and refuses anything else.
      */
     deleteAccount: (options: { confirmed: true }): Promise<AccountDeletionView> => {
-      if (options?.confirmed !== true) throw new AccountClientError('rejected', 'invalidInput');
+      if (options?.confirmed !== true) throw new AccountClientError('rejected', 'invalidInput', messages);
       return call('rightkit_account_delete', accountDeletion, { confirmed: true });
     },
   };
@@ -356,3 +397,4 @@ export function satisfiesRequirement(view: LicenseView | null, requirement: Lice
     && (!requirement.allFeatures || hasAllFeatures(view, requirement.allFeatures))
     && (!requirement.anyFeature || hasAnyFeature(view, requirement.anyFeature));
 }
+export * from './lifecycle.js';

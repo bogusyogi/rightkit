@@ -16,6 +16,8 @@
   "files": [
     "dist/index.js",
     "dist/index.d.ts",
+    "dist/lifecycle.js",
+    "dist/lifecycle.d.ts",
     "LICENSE-MIT",
     "LICENSE-APACHE"
   ],
@@ -23,7 +25,8 @@
   "scripts": {
     "build": "tsc",
     "prepack": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && pnpm run build",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "tsc && node --test test/lifecycle.test.mjs"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",
