@@ -76,30 +76,59 @@ export interface ShellBackends {
 /** Backends over the host-services Tauri commands. */
 export function createShellBackends(shell: HostTransport | SettingsShell): ShellBackends {
   const { invoke, listen } = shell;
+
+  // The host keeps one subscription per window and drops it on `settingsUnsubscribe`, so every consumer of this instance
+  // shares one listener and one host subscription; the host is told only when the last handler leaves. The host sends the
+  // event only to subscribed windows, so the listener is attached first, then the window subscribes; leaving reverses both.
+  const handlers = new Set<(keys: string[]) => void>();
+  let connection: Promise<() => void> | null = null;
+  // Connects and disconnects run one after another, so a subscribe right after the last unsubscribe cannot be undone by it.
+  let queue: Promise<unknown> = Promise.resolve();
+  const connect = async (): Promise<() => void> => {
+    const off = await listen<{ keys?: unknown }>(EVENTS.settingsChanged, (change) => {
+      const keys = change?.keys;
+      if (Array.isArray(keys) && keys.every((k) => typeof k === "string")) for (const h of [...handlers]) h(keys as string[]);
+    });
+    try {
+      await invoke<number>(METHODS.settingsSubscribe);
+    } catch (e) {
+      off();
+      throw e;
+    }
+    return () => {
+      off();
+      void invoke<void>(METHODS.settingsUnsubscribe).catch(() => undefined);
+    };
+  };
+  const subscribe: SettingsBackend["subscribe"] = async (handler) => {
+    handlers.add(handler);
+    const mine = (connection ??= queue.then(connect));
+    queue = mine.catch(() => undefined);
+    try {
+      await mine;
+    } catch (e) {
+      handlers.delete(handler);
+      if (connection === mine) connection = null;
+      throw e;
+    }
+    let left = false;
+    return () => {
+      if (left) return;
+      left = true;
+      handlers.delete(handler);
+      if (handlers.size > 0 || connection !== mine) return;
+      connection = null;
+      queue = mine.then((disconnect) => disconnect(), () => undefined);
+    };
+  };
+
   return {
     settings: {
       describe: () => invoke<SettingsDescription>(METHODS.settingsDescribe),
       load: () => invoke<SettingsSnapshot>(METHODS.settingsGet),
       patch: (patch, expectedRevision) => invoke<SettingsSnapshot>(METHODS.settingsPatch, { patch, expectedRevision: expectedRevision ?? null }),
       reset: (keys, expectedRevision) => invoke<SettingsSnapshot>(METHODS.settingsReset, { keys, expectedRevision: expectedRevision ?? null }),
-      // The host sends the event only to windows that subscribed (by their native label), so the
-      // listener is attached first, then the window subscribes; unsubscribing reverses both.
-      subscribe: async (handler) => {
-        const off = await listen<{ keys?: unknown }>(EVENTS.settingsChanged, (change) => {
-          const keys = change?.keys;
-          if (Array.isArray(keys) && keys.every((k) => typeof k === "string")) handler(keys as string[]);
-        });
-        try {
-          await invoke<number>(METHODS.settingsSubscribe);
-        } catch (e) {
-          off();
-          throw e;
-        }
-        return () => {
-          off();
-          void invoke<void>(METHODS.settingsUnsubscribe).catch(() => undefined);
-        };
-      },
+      subscribe,
     },
     secrets: {
       presence: (refs) => invoke<SecretPresence[]>(METHODS.secretsPresence, { refs }),

@@ -7,7 +7,7 @@ import { errText } from "./errors.js";
 import { useDoctor, useLicenseSection, type DoctorCheck, type DoctorResult, type DoctorStatus, type LicenseClientLike } from "./hooks.js";
 import { sectionIcons } from "./icons.js";
 import { ProgressBar, SettingRow, SettingsGroup, formatBytes } from "./primitives.js";
-import type { ModelEntry, ModelsBackend, SecretPresence, SecretRef, SecretsBackend, SettingsContext, SettingsSection } from "./types.js";
+import type { ModelEntry, ModelsBackend, SecretPresence, SecretRef, SecretsBackend, SettingBinding, SettingsContext, SettingsSection } from "./types.js";
 
 
 /** Two-step button: first click arms, second confirms; avoids a modal for destructive row actions. */
@@ -80,6 +80,8 @@ export interface UpdatesOptions {
    * for some tier). The "Install updates automatically" toggle is shown only when this is true. Default false.
    */
   supportsAutoInstall?: boolean;
+  /** Where the automatic-install choice is stored, when the host keeps it elsewhere. Default: the `updates.autoInstall` key. */
+  autoInstallBinding?: SettingBinding<boolean>;
   /** Override any user-visible string. */
   labels?: Partial<UpdatesLabels>;
   /**
@@ -240,7 +242,8 @@ function UpdatesBody({ ctx, o }: { ctx: SettingsContext; o: UpdatesOptions }) {
   const { status } = controller;
   const L = updatesLabels(o);
   const line = statusLine(status);
-  const auto = ctx.values["updates.autoInstall"] === true;
+  const autoBinding = o.autoInstallBinding;
+  const auto = (autoBinding ? autoBinding.read(ctx) : ctx.values["updates.autoInstall"]) === true;
   const card = (
     <SettingsGroup>
       <SettingRow id="updates.status" label={L.version(o.currentVersion)} description={<span role="status" data-update-status={status.kind}>{L.status(status, line.text)}</span>}>
@@ -251,7 +254,7 @@ function UpdatesBody({ ctx, o }: { ctx: SettingsContext; o: UpdatesOptions }) {
       ) : null}
       {o.supportsAutoInstall ? (
         <SettingRow id="updates.auto" label={L.autoInstall} description={L.autoInstallDescription}>
-          <Toggle label={L.autoInstall} checked={auto} onChange={(v) => void ctx.set("updates.autoInstall", v)} />
+          <Toggle label={L.autoInstall} checked={auto} onChange={(v) => void (autoBinding ? autoBinding.write(ctx, v) : ctx.set("updates.autoInstall", v))} />
         </SettingRow>
       ) : null}
     </SettingsGroup>

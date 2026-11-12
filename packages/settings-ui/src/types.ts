@@ -2,21 +2,30 @@ import type { ReactNode } from "react";
 
 export type SettingsValues = Record<string, unknown>;
 
-export interface SettingsSnapshot {
+/**
+ * A committed revision. A counter fits a number; a 64-bit value (the content hash a flat store uses as its revision) does
+ * not, and travels as a decimal string. The package never computes with it: it is compared by identity and echoed back.
+ */
+export type SettingsRevision = number | string;
+
+export interface SettingsSnapshot<R extends SettingsRevision = number> {
   values: SettingsValues;
-  /** Monotonic revision from `rightkit-app-settings`; used for compare-and-set. */
-  revision: number;
+  /** Committed revision from `rightkit-app-settings`; used for compare-and-set. */
+  revision: R;
   /** Schema version of the stored document, when the host reports it. */
   schemaVersion?: number;
   /** Set when the write is stored but a later step failed (for example the directory sync). Do not repeat the write. */
   warning?: string;
 }
 
-/** Persistence port. The shell adapter talks to `rightkit-app-settings`; tests and previews use the memory adapter. */
-export interface SettingsBackend {
-  load(): Promise<SettingsSnapshot>;
+/**
+ * Persistence port. The shell adapter talks to `rightkit-app-settings`; tests and previews use the memory adapter.
+ * `R` is the revision type the host uses (`number` by default, `string` for a 64-bit revision).
+ */
+export interface SettingsBackend<R extends SettingsRevision = number> {
+  load(): Promise<SettingsSnapshot<R>>;
   /** Merge top-level keys. `null` removes a key. Rejects with `code: "revision_conflict"` when `expectedRevision` is stale. */
-  patch(patch: SettingsValues, expectedRevision?: number): Promise<SettingsSnapshot>;
+  patch(patch: SettingsValues, expectedRevision?: R): Promise<SettingsSnapshot<R>>;
   /** Changed top-level keys from another window/process. Returns an unsubscribe. */
   subscribe?(handler: (keys: string[]) => void): Promise<() => void>;
 }
@@ -81,6 +90,17 @@ export interface SettingsContext {
   saving: boolean;
   error: string | null;
   clearError(): void;
+}
+
+/**
+ * How a standard section reads and writes one setting when the host stores it under another key or in another form (for
+ * example a theme kept as `app_theme` with its own vocabulary). Without a binding the section uses its own key.
+ */
+export interface SettingBinding<T> {
+  /** The current value from the settings context; `undefined` when unset or not understood. */
+  read(ctx: SettingsContext): T | undefined;
+  /** Persists the value, usually with `ctx.set` or `ctx.patch`. */
+  write(ctx: SettingsContext, value: T): void | Promise<void>;
 }
 
 export interface SettingsEntry {

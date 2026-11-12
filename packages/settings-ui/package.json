@@ -64,7 +64,8 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "prepack": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && pnpm run build",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "pnpm run build && node --test settings-ui.test.mjs"
   },
   "publishConfig": {
     "registry": "https://registry.npmjs.org",

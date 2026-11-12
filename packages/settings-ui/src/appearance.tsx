@@ -3,7 +3,7 @@ import { SegmentedControl, createThemeStore, useMediaQuery, useShellOptional, ty
 import { applyBrand, brandFromAccent } from "@rightkit/theme";
 import { sectionIcons } from "./icons.js";
 import { SettingRow, SettingsGroup } from "./primitives.js";
-import type { SettingsContext, SettingsSection } from "./types.js";
+import type { SettingBinding, SettingsContext, SettingsSection } from "./types.js";
 
 /* ---- Appearance ----------------------------------------------------------------------------- */
 
@@ -12,6 +12,11 @@ export interface AppearanceOptions {
   themeStore?: ThemeStore;
   /** Optional accent presets (user-chosen colour on top of the brand). The first is treated as the brand default. */
   accents?: ReadonlyArray<{ id: string; label: string; color: string }>;
+  /**
+   * Where the theme choice is stored, when the host keeps it under another key or vocabulary. Default: the `appearance.theme`
+   * key holding `"system"`, `"light"` or `"dark"`.
+   */
+  binding?: SettingBinding<ThemeChoice>;
   /** Extra rows (density, font size) the app adds under Appearance. */
   extra?: (ctx: SettingsContext) => ReactNode;
 }
@@ -22,6 +27,14 @@ const THEME_OPTIONS = [
   { value: "dark" as const, label: "Dark" },
 ];
 
+const defaultBinding: SettingBinding<ThemeChoice> = {
+  read: (ctx) => {
+    const v = ctx.values["appearance.theme"];
+    return v === "light" || v === "dark" || v === "system" ? v : undefined;
+  },
+  write: (ctx, choice) => ctx.set("appearance.theme", choice),
+};
+
 function AppearanceBody({ ctx, options }: { ctx: SettingsContext; options: AppearanceOptions }) {
   const shell = useShellOptional();
   const fallback = useMemo(() => options.themeStore ?? createThemeStore({ storageKey: "rightkit.theme" }), [options.themeStore]);
@@ -29,7 +42,8 @@ function AppearanceBody({ ctx, options }: { ctx: SettingsContext; options: Appea
   const choice = useSyncExternalStore(store.subscribe, store.read, store.read);
   const systemDark = useMediaQuery("(prefers-color-scheme: dark)");
   const resolved = choice === "system" ? (systemDark ? "dark" : "light") : choice;
-  const saved = ctx.values["appearance.theme"] as ThemeChoice | undefined;
+  const binding = options.binding ?? defaultBinding;
+  const saved = binding.read(ctx);
   const accentId = ctx.values["appearance.accent"] as string | undefined;
   const accents = options.accents ?? [];
 
@@ -54,7 +68,7 @@ function AppearanceBody({ ctx, options }: { ctx: SettingsContext; options: Appea
             options={THEME_OPTIONS}
             onChange={(next) => {
               store.save(next);
-              void ctx.set("appearance.theme", next);
+              void binding.write(ctx, next);
             }}
           />
         </SettingRow>
