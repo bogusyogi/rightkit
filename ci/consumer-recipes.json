@@ -4233,6 +4233,15 @@
         "README.md": "bce65e0005cd3a5748955ce76aa12adb1442df232a4b28dc1f0841efdc809a75",
         "src/main.rs": "01fe54be9b5f3a7e2466621dc2ce28e404af4ed37ed582e17328343eb2eeb42c"
       }
+    },
+    "rightkit-agent-coding-tools": {
+      "pkId": "PK251",
+      "id": "ci/consumers/rightkit-agent-coding-tools/src/main.rs",
+      "files": {
+        "Cargo.toml": "2058f1c6bf82b2d1ced7723d03d1cef32d304b9be87ba11253f3c7147e5ea1d0",
+        "README.md": "303865d6968c286d63cdf8cb0f36f2b1a85d258c5800eda41cf996a737604348",
+        "src/main.rs": "5ba0257545c308ec0a210000e2ff8232408f57a86fd5ff4f5c598ebd9c89ea5e"
+      }
     }
   }
 }

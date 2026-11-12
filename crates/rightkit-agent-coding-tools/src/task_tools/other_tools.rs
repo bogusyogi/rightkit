@@ -172,6 +172,8 @@ impl Tool for TaskOutputTool {
             return ToolResult::error(format!("No task with id '{id}'."));
         };
         if let Some(shell_id) = &record.shell_id {
+            #[cfg(not(feature = "host"))]
+            let _ = shell_id;
             #[cfg(feature = "host")]
             if shell_is_attached(ctx, shell_id) {
                 let polled = GetShellOutputTool

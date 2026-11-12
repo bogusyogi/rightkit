@@ -497,6 +497,7 @@
   "stagedCargo": {
     "rightkit-adapt": "0.2.0",
     "rightkit-adapt-taste": "0.1.3",
+    "rightkit-agent-coding-tools": "0.1.0",
     "rightkit-agent-config": "0.1.0",
     "rightkit-agent-daemon": "0.1.0",
     "rightkit-agent-demo": "0.2.0",

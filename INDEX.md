@@ -12,12 +12,13 @@ Flagged mismatches: 2.
 
 The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `rustright`; its old `rightkit` alias is retired); it is not part of this inventory. `packages/build-control-policy` keeps the agent permission hooks.
 
-## Rust crates (227)
+## Rust crates (228)
 
 | Crate | Registry | Source | Published | Staged | Flag | Owns | What it is |
 |---|---|---|---|---|---|---|---|
 | `rightkit-adapt` | crates.io | 0.2.0 | none recorded | 0.2.0 | staged, never published | adapt | Governed behavioural learning from agent transcripts (Pulse's Membrane Adapt): taste preferences and insights, deterministic and model-free. |
 | `rightkit-adapt-taste` | crates.io | 0.1.3 | none recorded | 0.1.3 | staged, never published | adaptive-learning | Deprecated name of rightkit-adapt (governed behavioural learning: taste and insights); re-exports it unchanged. |
+| `rightkit-agent-coding-tools` | crates.io | 0.1.0 | none recorded | 0.1.0 | staged, never published |  | The coding agent's host tools (files, edit and patch, shell and PTY, git, browser, MCP, LSP, tasks, checkpoints, sandboxing) behind an async `Tool` trait and a `ToolRegistry`. |
 | `rightkit-agent-config` | crates.io | 0.1.0 | none recorded | 0.1.0 | staged, never published |  | Layered TOML configuration for an agent host: defaults, user, workspace, environment and session layers, state root, workspace trust, instructions and presets. |
 | `rightkit-agent-daemon` | crates.io | 0.1.0 | none recorded | 0.1.0 | staged, never published |  | Daemon primitives for an agent host: trusted-source authority gate, daemon settings, live-turn handle and the lifecycle authority behind every operator surface. |
 | `rightkit-agent-demo` | crates.io | 0.2.0 | none recorded | 0.2.0 | staged, never published | agent-demo-mode | Consented agent demo mode for Tauri hosts: an agent drives one catalog app through rightkit-automation while the host records that app's window into a sealed bundle, with an always-visible badge, a kill hotkey and a tray stop item. |

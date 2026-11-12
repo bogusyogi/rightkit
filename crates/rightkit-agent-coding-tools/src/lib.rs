@@ -19,6 +19,9 @@
     clippy::result_large_err,
     clippy::type_complexity
 )]
+// Without `host` the host-only tools are not registered, so the readers and helpers only they call
+// are compiled but unused (the mobile runtime builds this way).
+#![cfg_attr(not(feature = "host"), allow(dead_code, unused_imports))]
 //!
 //! All tools implement [`tool_trait::Tool`] and are registered in [`registry::ToolRegistry`].
 

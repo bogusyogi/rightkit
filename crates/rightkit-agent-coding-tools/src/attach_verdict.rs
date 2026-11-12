@@ -12,11 +12,18 @@ pub struct AttachVerdictTool;
 /// trust-checking tool refuses rather than read the working-directory fallback that `workspace_trust_store_path`
 /// returns, which a checked-out repository could supply itself.
 pub(crate) fn host_trust_store() -> Option<std::path::PathBuf> {
-    use rightkit_agent_config::workspace_trust::WORKSPACE_TRUST_STORE_ENV;
     use rightkit_agent_config::{state_root, workspace_trust_store_path};
     let path = workspace_trust_store_path();
-    let overridden = std::env::var_os(WORKSPACE_TRUST_STORE_ENV)
-        .is_some_and(|v| std::path::Path::new(&v) == path.as_path());
+    // The override variable exists only with the host feature (rightkit-agent-config `host-env`);
+    // without it the path above is never the override, so there is nothing to recognise.
+    #[cfg(feature = "host")]
+    let overridden = {
+        use rightkit_agent_config::workspace_trust::WORKSPACE_TRUST_STORE_ENV;
+        std::env::var_os(WORKSPACE_TRUST_STORE_ENV)
+            .is_some_and(|v| std::path::Path::new(&v) == path.as_path())
+    };
+    #[cfg(not(feature = "host"))]
+    let overridden = false;
     let under_state_root = state_root().is_some_and(|root| path.starts_with(root));
     (overridden || under_state_root).then_some(path)
 }

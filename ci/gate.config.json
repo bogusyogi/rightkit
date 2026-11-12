@@ -578,7 +578,18 @@
         ],
         [
           "--features",
-          "coding_tools-host,mcp-provider,coding_tools-embeddings,coding_tools-test-support"
+          "mcp-provider"
+        ]
+      ]
+    },
+    "rightkit-agent-coding-tools": {
+      "featureSets": [
+        []
+      ],
+      "checkFeatureSets": [
+        [
+          "--features",
+          "host,embeddings,test-support"
         ]
       ]
     },
