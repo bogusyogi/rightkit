@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Fix: `JournalSelect::WalStrict` is WAL or fail. The environment kill-switch (`JOURNAL_ENV` and `DbOptions::journal_env`) used to override it (`delete`/`truncate` opened a rollback-journal database); it now applies only to the modes that may fall back (`WalWithFallback`, `Delete`, `Truncate`). A host that set the switch to get a rollback journal under `WalStrict` now gets WAL or an open error. No workspace crate uses `WalStrict`. Test: `tests/journal_env.rs`.
+
 ## 0.5.5
 
 - `MigrateOptions::backup_name` and `verify_backup` are closures now (`BackupName` and `VerifyBackup`, `Arc<dyn Fn ...+ Send + Sync>`), not bare fn pointers, so an owner can keep state in them (key, message count, free-space floor) (rightkit#770). Source break: a `Some(f)` becomes `Some(Arc::new(f))`; `rightkit-mail-store` is updated in the same change and drops its thread-local.
