@@ -26,7 +26,7 @@ Do not use it to take foreground input or to click the screen with computer-use 
 
 An app is reached over one of two transports; the profile, the allowlist and the exposure rules are the same for both.
 
-- **Pipe** (default): the `control-<app>` `rightkit-daemon` service.
+- **Pipe** (default): the `control-<app>` `rightkit-daemon` service. A release app that serves only its typed commands hosts it with `serve_commands(suite, &profile, profile.service_config(role, rank, version), handler)`; the webview methods stay QA-only.
 - **Loopback HTTP** (`AppProfile::with_http`, or `RIGHT_CTL_HTTP_<APP>=ip:port[/path]` for `right-ctl`): for an app whose control surface is a local HTTP server. Wire contract `control-http v1`: `POST <path>` with `{"method","params"}`, answered `{"ok":true,"result"}` or `{"ok":false,"error":{"code","message","retryable"}}`. Only loopback addresses are accepted; a bearer token, if the app needs one, comes from a file (`RIGHT_CTL_HTTP_<APP>_TOKEN_FILE`) read on each call.
 
 **Serving a toolbox over MCP.** With feature `mcp-provider`, `ToolboxProvider::new(Arc<Toolbox>, Caller)` is a `rightkit_mcp::ToolProvider`. `rightkit-mcp` keeps the transport (framing, versions, batching, deadline, cancellation); the toolbox keeps policy and schema. `tools/list` shows only what the caller's allowlist permits, every `tools/call` passes the toolbox's full gate, a refusal is a tool-level error with the stable `ToolError` code, and an unknown tool is `ToolNotFound`. A cancelled MCP request cancels the tool's `CancelToken`. Decision record: `docs/plans/2026-10-20-rightkit-spec-adjudication.md`, section C.

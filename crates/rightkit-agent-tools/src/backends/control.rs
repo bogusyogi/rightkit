@@ -7,7 +7,10 @@
 use super::http::HttpEndpoint;
 use crate::exposure::{self, GENERIC_READ_METHODS};
 use crate::spec::*;
-use rightkit_daemon::{Client, ServiceError, Suite};
+use rightkit_daemon::{
+    Allowlist, CallContext, Client, Emit, Handler, HostError, Hosted, ServiceConfig, ServiceError,
+    Suite,
+};
 use serde_json::{json, Value};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -130,6 +133,16 @@ impl AppProfile {
     pub fn with_speech(mut self) -> Self {
         self.speech = true;
         self
+    }
+
+    /// Whether command `name` may run for this app: the command policy lists it and the hard
+    /// exposure rules do not refuse it. The client tools, `batch` and [`serve_commands`] share it.
+    pub fn command_permitted(&self, name: &str) -> bool {
+        let listed = match &self.commands {
+            CommandPolicy::Any => true,
+            CommandPolicy::Only(names) => names.iter().any(|n| n == name),
+        };
+        listed && !self.command_forbidden(name)
     }
 
     /// Whether the hard exposure rules refuse command `name` for this app.
@@ -340,11 +353,7 @@ impl Tool for ControlTool {
         }
         let params = if self.method == "command" {
             let name = args["name"].as_str().unwrap_or_default();
-            let allowed = match &self.profile.commands {
-                CommandPolicy::Any => true,
-                CommandPolicy::Only(l) => l.iter().any(|c| c == name),
-            };
-            if !allowed || self.profile.command_forbidden(name) {
+            if !self.profile.command_permitted(name) {
                 return Err(ToolError::new(
                     ERR_NOT_ALLOWED,
                     format!("command `{name}` is not exposed for {}", self.profile.app),
@@ -436,11 +445,7 @@ fn check_batch(profile: &AppProfile, args: &Value) -> Result<(), ToolError> {
         }
         if m == "command" {
             let name = step["params"]["name"].as_str().unwrap_or_default();
-            let allowed = match &profile.commands {
-                CommandPolicy::Any => true,
-                CommandPolicy::Only(l) => l.iter().any(|c| c == name),
-            };
-            if !allowed || profile.command_forbidden(name) {
+            if !profile.command_permitted(name) {
                 return Err(ToolError::new(
                     ERR_NOT_ALLOWED,
                     format!(
@@ -472,4 +477,99 @@ pub fn control_tools(suite: &Suite, profile: &AppProfile) -> Vec<Arc<dyn Tool>> 
             }) as Arc<dyn Tool>
         })
         .collect()
+}
+
+impl AppProfile {
+    /// The [`ServiceConfig`] for serving this profile with [`serve_commands`]: service name
+    /// `self.service`, and an allowlist that lets the `right-ctl` client call exactly the profile's
+    /// enabled methods. `role`, `rank` and `version` are the host's own (see [`ServiceConfig::new`]).
+    pub fn service_config(&self, role: &str, rank: u8, version: &str) -> ServiceConfig {
+        let allowlist = Allowlist::new().allow(
+            CLIENT_APP,
+            self.methods
+                .iter()
+                .filter(|m| self.method_enabled(m))
+                .map(String::as_str),
+        );
+        ServiceConfig::new(&self.service, role, rank, version, allowlist)
+    }
+}
+
+struct CommandService<F> {
+    profile: AppProfile,
+    handler: F,
+}
+
+impl<F> Handler for CommandService<F>
+where
+    F: Fn(&CallContext, &str, &str) -> Result<Value, ServiceError> + Send + Sync + 'static,
+{
+    fn call(
+        &self,
+        cx: &CallContext,
+        method: &str,
+        params: &Value,
+        _emit: &Emit,
+    ) -> Result<Value, ServiceError> {
+        let profile = &self.profile;
+        let refuse = |what: &str| {
+            ServiceError::new(
+                ERR_NOT_ALLOWED,
+                format!("{what} is not exposed for {}", profile.app),
+            )
+        };
+        if !profile.method_enabled(method) {
+            return Err(refuse(&format!("method `{method}`")));
+        }
+        match method {
+            "health" => Ok(json!({"ok": true, "app": profile.app})),
+            "command" => {
+                let name = params["name"].as_str().unwrap_or_default();
+                if name.is_empty() {
+                    return Err(ServiceError::new(ERR_INVALID_ARGS, "missing 'name'"));
+                }
+                if !profile.command_permitted(name) {
+                    return Err(refuse(&format!("command `{name}`")));
+                }
+                // The client sends `args` as a string; a non-string value is passed as its JSON text,
+                // as the QA control server does.
+                let args = match &params["args"] {
+                    Value::Null => String::new(),
+                    Value::String(s) => s.clone(),
+                    other => other.to_string(),
+                };
+                (self.handler)(cx, name, &args)
+            }
+            other => Err(refuse(&format!("method `{other}`"))),
+        }
+    }
+}
+
+/// Serve `profile` as an app's release-side control service: the host half of the tools
+/// [`control_tools`] builds, for an app that implements only the typed commands. It answers `health`
+/// and `command` (`{name, args}`, `args` the command's argument text) as the client sends them and
+/// refuses every other method; a command the profile's command policy or the hard exposure rules
+/// refuse never reaches `handler`, which gets `(call context, command name, args text)` and returns
+/// the command's JSON result or a [`ServiceError`]. Pair it with [`AppProfile::service_config`].
+/// A profile that enables the webview methods (`click`, `eval`, ...) gets them refused here: this
+/// service does not implement them, so the QA control server stays their only host.
+// `HostError::Held` carries the incumbent's record by value (as `rightkit_daemon::host` returns it).
+#[allow(clippy::result_large_err)]
+pub fn serve_commands<F>(
+    suite: &Suite,
+    profile: &AppProfile,
+    config: ServiceConfig,
+    handler: F,
+) -> Result<Hosted, HostError>
+where
+    F: Fn(&CallContext, &str, &str) -> Result<Value, ServiceError> + Send + Sync + 'static,
+{
+    rightkit_daemon::host(
+        suite,
+        config,
+        Arc::new(CommandService {
+            profile: profile.clone(),
+            handler,
+        }),
+    )
 }
