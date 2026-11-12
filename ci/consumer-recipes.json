@@ -357,16 +357,16 @@
       ],
       "closure": {
         "install": {
+          "smol-toml": "1.9.1",
           "@rightkit/ci": "0.3.2",
-          "@rightkit/outdated": "0.3.0",
-          "smol-toml": "1.9.1"
+          "@rightkit/outdated": "0.3.1"
         },
         "declaredOnly": []
       },
       "files": {
         "ci/consumers/npm/release/README.md": "7c90fb735b7a4c96e44f0249a0c88b3c817ed4d05db4a1aae32966d1e111b9be",
         "ci/consumers/npm/release/consumer.mjs": "29d851acf846b2c845d6ff04cf3470ea80c9d90c8d89cf3da1729d95e89c11d1",
-        "ci/consumers/npm/release/package.json": "37f91f4e0bb787349c09abbfd1bfcfd0d9b5e7e541959ca9eb92218c8f49f169",
+        "ci/consumers/npm/release/package.json": "27daffd9e8b029eb42474a3a2f13c67b2e9e4942d5599f3784d6431a73aff827",
         "ci/consumers/npm/release/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "fc160695e1dc97dc7e32e746c9e4471e2d85168b097623de818befeb00ee438c"
       }
@@ -707,12 +707,23 @@
         "install": {
           "react": "19.3.1",
           "react-dom": "19.3.1",
-          "@rightkit/app-update": "0.4.2",
-          "@rightkit/platform-ui": "0.4.0",
-          "@rightkit/react-shell": "0.7.2",
-          "@rightkit/settings-ui": "0.7.0",
+          "@rightkit/app-update": "0.4.3",
+          "@rightkit/ci": "0.3.2",
+          "@rightkit/legal": "0.6.3",
+          "@rightkit/legal-ui": "0.4.2",
+          "@rightkit/license": "0.3.1",
+          "@rightkit/logs": "0.1.6",
           "@rightkit/mail-ui": "0.2.0",
-          "@rightkit/system-ui": "0.2.0"
+          "@rightkit/onboarding": "0.6.4",
+          "@rightkit/outdated": "0.3.1",
+          "@rightkit/pdf-ui": "0.3.0",
+          "@rightkit/platform-ui": "0.4.1",
+          "@rightkit/react-shell": "0.7.3",
+          "@rightkit/release": "0.6.52",
+          "@rightkit/settings-ui": "0.7.1",
+          "@rightkit/system-ui": "0.2.0",
+          "@rightkit/theme": "0.3.2",
+          "@rightkit/workspace-ui": "0.2.0"
         },
         "declaredOnly": [
           "@tauri-apps/api",
@@ -722,7 +733,7 @@
       "files": {
         "ci/consumers/npm/agent-ui-approvals/README.md": "9e4b4d733bfa23475d249e24f9672e20338669638c1693bff25b3720e8a29f7d",
         "ci/consumers/npm/agent-ui-approvals/consumer.mjs": "2b249fff3c04b999bf377622d2cd37a909e9a74facf69dfe28ad3b25bfad3f35",
-        "ci/consumers/npm/agent-ui-approvals/package.json": "441ca1fa813ac7f5da684cf52d0566513849ec1714e6ebc539ef10dc1a4ea47b",
+        "ci/consumers/npm/agent-ui-approvals/package.json": "4696a3cf4d5ea92eb585ffc35998f563121cc3fb8bd88a08e09e96596d741de4",
         "ci/consumers/npm/agent-ui-approvals/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "fc160695e1dc97dc7e32e746c9e4471e2d85168b097623de818befeb00ee438c"
       }
@@ -741,18 +752,28 @@
         "install": {
           "react": "19.3.1",
           "react-dom": "19.3.1",
-          "@rightkit/app-update": "0.4.2",
-          "@rightkit/legal-ui": "0.4.1",
-          "@rightkit/platform-ui": "0.4.0",
-          "@rightkit/react-shell": "0.7.2",
-          "@rightkit/settings-ui": "0.7.0"
+          "@rightkit/agent-ui-core": "0.1.0",
+          "@rightkit/agent-ui-hooks": "0.1.0",
+          "@rightkit/agent-ui-settings": "0.1.0",
+          "@rightkit/agent-ui-workbench": "0.1.0",
+          "@rightkit/app-update": "0.4.3",
+          "@rightkit/ci": "0.3.2",
+          "@rightkit/doc-render": "0.2.2",
+          "@rightkit/legal": "0.6.3",
+          "@rightkit/legal-ui": "0.4.2",
+          "@rightkit/license": "0.3.1",
+          "@rightkit/logs": "0.1.6",
+          "@rightkit/onboarding": "0.6.4",
+          "@rightkit/outdated": "0.3.1",
+          "@rightkit/platform-ui": "0.4.1",
+          "@rightkit/react-shell": "0.7.3",
+          "@rightkit/release": "0.6.52",
+          "@rightkit/settings-ui": "0.7.1",
+          "@rightkit/tauri-shell": "0.1.4",
+          "@rightkit/terminal-ui": "0.1.0",
+          "@rightkit/theme": "0.3.2"
         },
         "declaredOnly": [
-          "@rightkit/agent-ui-core",
-          "@rightkit/agent-ui-hooks",
-          "@rightkit/agent-ui-settings",
-          "@rightkit/agent-ui-workbench",
-          "@rightkit/terminal-ui",
           "@tauri-apps/api",
           "@tauri-apps/plugin-dialog",
           "zustand"
@@ -761,7 +782,7 @@
       "files": {
         "ci/consumers/npm/agent-ui-components/README.md": "794556ef9f9f7716fdeb0c0284d88b36f201bbcc84ddbdd41368ef1279a40330",
         "ci/consumers/npm/agent-ui-components/consumer.mjs": "e93c693554e81959dc2e95c39b6cab846f7c627acdc08752f490662906b07101",
-        "ci/consumers/npm/agent-ui-components/package.json": "df25963492ee52a3579908849383e60ba689f91b11ac122630739171bbce27d6",
+        "ci/consumers/npm/agent-ui-components/package.json": "d3176e2e5c57af2e74d5690a85a88785bfc4af1d2c66cff7439e88661ab3e805",
         "ci/consumers/npm/agent-ui-components/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "fc160695e1dc97dc7e32e746c9e4471e2d85168b097623de818befeb00ee438c"
       }
@@ -1175,10 +1196,17 @@
         "install": {
           "react": "19.3.1",
           "react-dom": "19.3.1",
+          "@rightkit/app-update": "0.4.3",
+          "@rightkit/doc-render": "0.2.2",
           "@rightkit/library-ui": "0.2.0",
-          "@rightkit/platform-ui": "0.4.0",
-          "@rightkit/react-shell": "0.7.2",
-          "@rightkit/settings-ui": "0.7.0"
+          "@rightkit/license": "0.3.1",
+          "@rightkit/logs": "0.1.6",
+          "@rightkit/media-ui": "0.3.6",
+          "@rightkit/platform-ui": "0.4.1",
+          "@rightkit/react-shell": "0.7.3",
+          "@rightkit/settings-ui": "0.7.1",
+          "@rightkit/tauri-shell": "0.1.4",
+          "@rightkit/theme": "0.3.2"
         },
         "declaredOnly": [
           "@phosphor-icons/react"
@@ -1187,7 +1215,7 @@
       "files": {
         "ci/consumers/npm/dictation-ui/README.md": "7b6be5306b427f66ddf943d65afa02be6162670257250268cfa9bdffd36b3ffc",
         "ci/consumers/npm/dictation-ui/consumer.mjs": "e5f2b5286ec8cd7ec50c909e49f4cab90ff3f77f66b91504fa69537c70b35f9f",
-        "ci/consumers/npm/dictation-ui/package.json": "55dc0391bc56ca15e195ce7eabdae7577b3de1440420e1adab4ee2ca4f64c739",
+        "ci/consumers/npm/dictation-ui/package.json": "ed74eac75b1759aa21ac2f139afb7b60f1daa2c8624b4864ad8b1c4aa033f8cf",
         "ci/consumers/npm/dictation-ui/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "fc160695e1dc97dc7e32e746c9e4471e2d85168b097623de818befeb00ee438c"
       }
@@ -1244,6 +1272,7 @@
         "install": {
           "react": "19.3.1",
           "react-dom": "19.3.1",
+          "@rightkit/app-update": "0.4.3",
           "@rightkit/license": "0.3.1",
           "@rightkit/logs": "0.1.6",
           "@rightkit/pdf-ui": "0.3.0",
@@ -1261,7 +1290,7 @@
       "files": {
         "ci/consumers/npm/document-core/README.md": "6a0f526f7aa680252b0f3b5c4837798322333624fb89e95d5796edbcd5a1d767",
         "ci/consumers/npm/document-core/consumer.mjs": "6279c3131b53288d222fae76f1c296a7bcbd682f1f4845039e59d7f98c1cb264",
-        "ci/consumers/npm/document-core/package.json": "ab1e987e2a4b47c3ea8fe2ca1ec095a5850cb32815d13d4de02e8e4013711515",
+        "ci/consumers/npm/document-core/package.json": "67724c82388c9ac9d625fe3d1b564eebabc52893ace2ed55f8b2eb211101a7af",
         "ci/consumers/npm/document-core/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "fc160695e1dc97dc7e32e746c9e4471e2d85168b097623de818befeb00ee438c"
       }
@@ -1280,15 +1309,27 @@
         "install": {
           "react": "19.3.1",
           "react-dom": "19.3.1",
-          "@rightkit/app-update": "0.4.2",
+          "@rightkit/app-update": "0.4.3",
+          "@rightkit/ci": "0.3.2",
+          "@rightkit/doc-render": "0.2.2",
+          "@rightkit/document-core": "0.2.0",
+          "@rightkit/docx-editor": "0.1.2",
+          "@rightkit/html-editor": "0.2.0",
           "@rightkit/legal": "0.6.3",
-          "@rightkit/legal-ui": "0.4.1",
-          "@rightkit/license": "0.3.0",
-          "@rightkit/media-ui": "0.3.4",
-          "@rightkit/onboarding": "0.6.3",
-          "@rightkit/platform-ui": "0.4.0",
-          "@rightkit/react-shell": "0.7.2",
-          "@rightkit/settings-ui": "0.7.0"
+          "@rightkit/legal-ui": "0.4.2",
+          "@rightkit/license": "0.3.1",
+          "@rightkit/logs": "0.1.6",
+          "@rightkit/markdown-editor": "0.2.0",
+          "@rightkit/media-ui": "0.3.6",
+          "@rightkit/onboarding": "0.6.4",
+          "@rightkit/outdated": "0.3.1",
+          "@rightkit/pdf-ui": "0.3.0",
+          "@rightkit/platform-ui": "0.4.1",
+          "@rightkit/react-shell": "0.7.3",
+          "@rightkit/release": "0.6.52",
+          "@rightkit/settings-ui": "0.7.1",
+          "@rightkit/tauri-shell": "0.1.4",
+          "@rightkit/theme": "0.3.2"
         },
         "declaredOnly": [
           "@codemirror/autocomplete",
@@ -1303,11 +1344,6 @@
           "@codemirror/view",
           "@lezer/highlight",
           "@phosphor-icons/react",
-          "@rightkit/document-core",
-          "@rightkit/docx-editor",
-          "@rightkit/html-editor",
-          "@rightkit/markdown-editor",
-          "@rightkit/pdf-ui",
           "@tauri-apps/api",
           "pdfjs-dist",
           "prosemirror-state",
@@ -1318,7 +1354,7 @@
       "files": {
         "ci/consumers/npm/document-workspace/README.md": "bab715aaafe229da26e375331ab135d35e3ec88a064c5dd3361491dac9b0f53c",
         "ci/consumers/npm/document-workspace/consumer.mjs": "fd7898324ea9304de7c215e14bee1152238969f67d48cabc343d9ec8016c9927",
-        "ci/consumers/npm/document-workspace/package.json": "1af58ff9e54e84de62f0ceba2db4bc3ed7a4ee871b93dc276b5225ca85ece12a",
+        "ci/consumers/npm/document-workspace/package.json": "2314961353d3f8e9a6a5d69f680551e2bf790010478af64a6e8bb058fa633c57",
         "ci/consumers/npm/document-workspace/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "fc160695e1dc97dc7e32e746c9e4471e2d85168b097623de818befeb00ee438c"
       }
@@ -1341,14 +1377,21 @@
         "install": {
           "react": "19.3.1",
           "react-dom": "19.3.1",
-          "@rightkit/platform-ui": "0.4.0",
-          "@rightkit/theme": "0.3.1"
+          "@rightkit/app-update": "0.4.3",
+          "@rightkit/document-core": "0.2.0",
+          "@rightkit/license": "0.3.1",
+          "@rightkit/logs": "0.1.6",
+          "@rightkit/pdf-ui": "0.3.0",
+          "@rightkit/platform-ui": "0.4.1",
+          "@rightkit/react-shell": "0.7.3",
+          "@rightkit/settings-ui": "0.7.1",
+          "@rightkit/tauri-shell": "0.1.4",
+          "@rightkit/theme": "0.3.2"
         },
         "declaredOnly": [
           "@eigenpal/docx-editor-core",
           "@eigenpal/docx-editor-react",
           "@phosphor-icons/react",
-          "@rightkit/document-core",
           "prosemirror-commands",
           "prosemirror-dropcursor",
           "prosemirror-history",
@@ -1363,7 +1406,7 @@
       "files": {
         "ci/consumers/npm/docx-editor/README.md": "da82457027d747ab311651736729a08ab289c45746c720bdb7d66caa0c979cca",
         "ci/consumers/npm/docx-editor/consumer.mjs": "be62e8ee0d2434c1bb0759ad85ade3cdd2bd42de8aad1ad288e9b127f244d24c",
-        "ci/consumers/npm/docx-editor/package.json": "9c789eb92b5a0d2616ee1a26d9ec0094dd6798c2e5666a6dedeb0b01290fbc59",
+        "ci/consumers/npm/docx-editor/package.json": "4e50f14d1b5404351e3e7790ffdfc811657eb6fe31c844be7c8c4dbd87aa3241",
         "ci/consumers/npm/docx-editor/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "fc160695e1dc97dc7e32e746c9e4471e2d85168b097623de818befeb00ee438c"
       }
@@ -1412,13 +1455,20 @@
         "install": {
           "react": "19.3.1",
           "react-dom": "19.3.1",
-          "@rightkit/platform-ui": "0.4.0",
-          "@rightkit/react-shell": "0.7.2"
+          "@rightkit/app-update": "0.4.3",
+          "@rightkit/document-core": "0.2.0",
+          "@rightkit/license": "0.3.1",
+          "@rightkit/logs": "0.1.6",
+          "@rightkit/pdf-ui": "0.3.0",
+          "@rightkit/platform-ui": "0.4.1",
+          "@rightkit/react-shell": "0.7.3",
+          "@rightkit/settings-ui": "0.7.1",
+          "@rightkit/tauri-shell": "0.1.4",
+          "@rightkit/theme": "0.3.2"
         },
         "declaredOnly": [
           "@codemirror/view",
           "@phosphor-icons/react",
-          "@rightkit/document-core",
           "dompurify",
           "parse5",
           "prosemirror-commands",
@@ -1432,7 +1482,7 @@
       "files": {
         "ci/consumers/npm/html-editor/README.md": "60ef2f914f9783fde63a3b199c952152e239d8bf923fa7a8f6d193fc360312b4",
         "ci/consumers/npm/html-editor/consumer.mjs": "ccb3194a9aecc8d14d6fff6b74dac9a9a3fb4c89e6ce8e4c84acdff1a91716ef",
-        "ci/consumers/npm/html-editor/package.json": "047bcbc2d5ff9160e46b7c237092925bcc8d625c6321cc8696d91dec8f1d2837",
+        "ci/consumers/npm/html-editor/package.json": "43b2528a25519cdfae6d57d1bf323a1f5543b5cdfe0b0fd283c139cafe9d59c2",
         "ci/consumers/npm/html-editor/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "fc160695e1dc97dc7e32e746c9e4471e2d85168b097623de818befeb00ee438c"
       }
@@ -1452,11 +1502,11 @@
         "install": {
           "react": "19.3.1",
           "react-dom": "19.3.1",
-          "@rightkit/doc-render": "0.2.1",
-          "@rightkit/media-ui": "0.3.4",
-          "@rightkit/platform-ui": "0.4.0",
-          "@rightkit/react-shell": "0.7.2",
-          "@rightkit/tauri-shell": "0.1.3"
+          "@rightkit/doc-render": "0.2.2",
+          "@rightkit/media-ui": "0.3.6",
+          "@rightkit/platform-ui": "0.4.1",
+          "@rightkit/react-shell": "0.7.3",
+          "@rightkit/tauri-shell": "0.1.4"
         },
         "declaredOnly": [
           "@phosphor-icons/react",
@@ -1468,7 +1518,7 @@
       "files": {
         "ci/consumers/npm/library-ui/README.md": "c3b9e69cfa3b6eafd1c969407b90cfbd0d2ef4ad13d74049021b513dc0ea56e1",
         "ci/consumers/npm/library-ui/consumer.mjs": "09d7e7864e55b23b56e46c6bc298373c079d2fe02c69b209dade5bcd4e2d6bb1",
-        "ci/consumers/npm/library-ui/package.json": "e5bb04d512972c776d70fe2e2af1413625aa79cac832e6b3d29a9cd27008ae42",
+        "ci/consumers/npm/library-ui/package.json": "f4a221bb721defdcc6b474cadf306f35fdae2389891832f69605eb6079a5ed77",
         "ci/consumers/npm/library-ui/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "fc160695e1dc97dc7e32e746c9e4471e2d85168b097623de818befeb00ee438c"
       }
@@ -1497,16 +1547,20 @@
         "install": {
           "react": "19.3.1",
           "react-dom": "19.3.1",
+          "@rightkit/app-update": "0.4.3",
+          "@rightkit/ci": "0.3.2",
           "@rightkit/legal": "0.6.3",
-          "@rightkit/license": "0.3.0",
+          "@rightkit/legal-ui": "0.4.2",
+          "@rightkit/license": "0.3.1",
           "@rightkit/logs": "0.1.6",
-          "@rightkit/onboarding": "0.6.3",
-          "@rightkit/pdf-ui": "0.2.0",
-          "@rightkit/platform-ui": "0.4.0",
-          "@rightkit/react-shell": "0.7.2",
-          "@rightkit/settings-ui": "0.7.0",
-          "@rightkit/theme": "0.3.1",
-          "@rightkit/legal-ui": "0.4.1",
+          "@rightkit/onboarding": "0.6.4",
+          "@rightkit/outdated": "0.3.1",
+          "@rightkit/pdf-ui": "0.3.0",
+          "@rightkit/platform-ui": "0.4.1",
+          "@rightkit/react-shell": "0.7.3",
+          "@rightkit/release": "0.6.52",
+          "@rightkit/settings-ui": "0.7.1",
+          "@rightkit/theme": "0.3.2",
           "@rightkit/workspace-ui": "0.2.0"
         },
         "declaredOnly": [
@@ -1527,7 +1581,7 @@
       "files": {
         "ci/consumers/npm/mail-ui/README.md": "caf90bbb9c06e66d9a5aab77587110fb89dc0cfd0b64a7e436a20796efafa7f0",
         "ci/consumers/npm/mail-ui/consumer.mjs": "d83e183db11e802324e50a8b82c527a90a0bf2ee29f8a3402813186f458f8ed4",
-        "ci/consumers/npm/mail-ui/package.json": "e92870a739314abdc5d883da2fe8b1c65423f91ce44325ccb7a6a0f5b4614226",
+        "ci/consumers/npm/mail-ui/package.json": "dbd761e85a222a6af9cdeb87442d0cdb1080ef992df02631953b6cc63c45f87b",
         "ci/consumers/npm/mail-ui/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "fc160695e1dc97dc7e32e746c9e4471e2d85168b097623de818befeb00ee438c"
       }
@@ -1571,9 +1625,17 @@
         "install": {
           "react": "19.3.1",
           "react-dom": "19.3.1",
-          "@rightkit/doc-render": "0.2.1",
-          "@rightkit/platform-ui": "0.4.0",
-          "@rightkit/react-shell": "0.7.2"
+          "@rightkit/app-update": "0.4.3",
+          "@rightkit/doc-render": "0.2.2",
+          "@rightkit/document-core": "0.2.0",
+          "@rightkit/license": "0.3.1",
+          "@rightkit/logs": "0.1.6",
+          "@rightkit/pdf-ui": "0.3.0",
+          "@rightkit/platform-ui": "0.4.1",
+          "@rightkit/react-shell": "0.7.3",
+          "@rightkit/settings-ui": "0.7.1",
+          "@rightkit/tauri-shell": "0.1.4",
+          "@rightkit/theme": "0.3.2"
         },
         "declaredOnly": [
           "@codemirror/lint",
@@ -1581,7 +1643,6 @@
           "@codemirror/view",
           "@mdx-js/mdx",
           "@phosphor-icons/react",
-          "@rightkit/document-core",
           "@tauri-apps/api",
           "dompurify",
           "github-slugger",
@@ -1605,7 +1666,7 @@
       "files": {
         "ci/consumers/npm/markdown-editor/README.md": "bfab02e469caffd29629f41c1521f8cdb17701f28c9ae1b403764b12661c2b1c",
         "ci/consumers/npm/markdown-editor/consumer.mjs": "029b00e70bab59b317d261ae8eb740329da655eb3a9d2d5b7db5d4d19e91083f",
-        "ci/consumers/npm/markdown-editor/package.json": "574d72ca53ec89c5132a25bd9bf718e4ea4c75511e32064b8959d369e293d54e",
+        "ci/consumers/npm/markdown-editor/package.json": "7c6bb9a09ab5b854378c081d046f1da87435fd2528c33d5c731dd57d029a66f7",
         "ci/consumers/npm/markdown-editor/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "fc160695e1dc97dc7e32e746c9e4471e2d85168b097623de818befeb00ee438c"
       }
@@ -1624,13 +1685,17 @@
         "install": {
           "react": "19.3.1",
           "react-dom": "19.3.1",
+          "@rightkit/app-update": "0.4.3",
+          "@rightkit/legal-ui": "0.4.2",
+          "@rightkit/license": "0.3.1",
           "@rightkit/logs": "0.1.6",
           "@rightkit/media-ui": "0.3.6",
-          "@rightkit/onboarding": "0.6.3",
-          "@rightkit/platform-ui": "0.4.0",
-          "@rightkit/react-shell": "0.7.2",
-          "@rightkit/settings-ui": "0.7.0",
-          "@rightkit/tauri-shell": "0.1.3"
+          "@rightkit/onboarding": "0.6.4",
+          "@rightkit/platform-ui": "0.4.1",
+          "@rightkit/react-shell": "0.7.3",
+          "@rightkit/settings-ui": "0.7.1",
+          "@rightkit/tauri-shell": "0.1.4",
+          "@rightkit/theme": "0.3.2"
         },
         "declaredOnly": [
           "@tauri-apps/api",
@@ -1640,7 +1705,7 @@
       "files": {
         "ci/consumers/npm/media-gen-ui/README.md": "6b049111b18fe9f79d18fedf0318621245f4dd600b21881835b23234faf4b249",
         "ci/consumers/npm/media-gen-ui/consumer.mjs": "7964c962df0dc90460cdb31fd00a3d09c7d7d7280b4f9e25b5d6e339079ca5e7",
-        "ci/consumers/npm/media-gen-ui/package.json": "16f119b0cbbd3a831ad4bc10285b06f2f9ccdd1c533574ce125e5e9971d3aa65",
+        "ci/consumers/npm/media-gen-ui/package.json": "143f9f8ec6837da96e73019608ad1b4f86707f15facedeeeb706ec1eb27761de",
         "ci/consumers/npm/media-gen-ui/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "fc160695e1dc97dc7e32e746c9e4471e2d85168b097623de818befeb00ee438c"
       }
@@ -1696,17 +1761,21 @@
         "install": {
           "react": "19.3.1",
           "react-dom": "19.3.1",
+          "lucide-react": "1.66.0",
+          "@rightkit/app-update": "0.4.3",
+          "@rightkit/license": "0.3.1",
+          "@rightkit/logs": "0.1.6",
           "@rightkit/platform-ui": "0.4.1",
           "@rightkit/react-shell": "0.7.3",
           "@rightkit/settings-ui": "0.7.1",
-          "lucide-react": "1.66.0"
+          "@rightkit/theme": "0.3.2"
         },
         "declaredOnly": []
       },
       "files": {
         "ci/consumers/npm/system-ui/README.md": "7e6425b8fbd0b75f0190f6361a932325183c46c7705a5e91bc255ab41727ecfe",
         "ci/consumers/npm/system-ui/consumer.mjs": "1d8568c1fd87064467a9924a09881d0b4b964d801bca46cfd2b9c8d655360ef9",
-        "ci/consumers/npm/system-ui/package.json": "ab88dd5e954002becf3a7a6f71404f7b1f5ea1c9ad127d9a6a5c70483baeb22e",
+        "ci/consumers/npm/system-ui/package.json": "2e763ec21ea3cba7cd02cbb7a425b837e84d7ea186489d2e25b00bc7e636ee90",
         "ci/consumers/npm/system-ui/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "fc160695e1dc97dc7e32e746c9e4471e2d85168b097623de818befeb00ee438c"
       }
@@ -1753,7 +1822,7 @@
         "install": {
           "react": "19.3.1",
           "react-dom": "19.3.1",
-          "@rightkit/media-ui": "0.3.5",
+          "@rightkit/media-ui": "0.3.6",
           "@rightkit/platform-ui": "0.4.1",
           "@rightkit/react-shell": "0.7.3"
         },
@@ -1762,7 +1831,7 @@
       "files": {
         "ci/consumers/npm/video-ui/README.md": "355f10bcc5fc2791a001644e55131f06179924cc3db0cec9195855a08aa71317",
         "ci/consumers/npm/video-ui/consumer.mjs": "fedabc092c6e382aea763bb6016a351195e02eec48b692dcfe8130ae9c7e6336",
-        "ci/consumers/npm/video-ui/package.json": "f63daff693e88ae78d716c364778f4c9d2fcf54bbd19d44e886be4ff613687e3",
+        "ci/consumers/npm/video-ui/package.json": "2469e8eca1edefc186680d9b2e7f6d15ee7cc2be43c74d5cfb1c458132bc78a8",
         "ci/consumers/npm/video-ui/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "fc160695e1dc97dc7e32e746c9e4471e2d85168b097623de818befeb00ee438c"
       }
@@ -1804,17 +1873,21 @@
         "install": {
           "react": "19.3.1",
           "react-dom": "19.3.1",
+          "lucide-react": "1.66.0",
+          "@rightkit/app-update": "0.4.3",
+          "@rightkit/license": "0.3.1",
+          "@rightkit/logs": "0.1.6",
           "@rightkit/platform-ui": "0.4.1",
           "@rightkit/react-shell": "0.7.3",
           "@rightkit/settings-ui": "0.7.1",
-          "lucide-react": "1.66.0"
+          "@rightkit/theme": "0.3.2"
         },
         "declaredOnly": []
       },
       "files": {
         "ci/consumers/npm/workspace-ui/README.md": "4e2be5a6579fa9b005a10dac787044e93b0af1b36a8a508496b23eb08d9cc240",
         "ci/consumers/npm/workspace-ui/consumer.mjs": "58d4da739ba45c23cd93e768867dbf602bdb8f996edf35cbc749fe9fb77201f8",
-        "ci/consumers/npm/workspace-ui/package.json": "5cd197df3dcea8938cbe8e8fcb8e8bb9aae30bfbe6ffbfd4016bac6c2d9f17b3",
+        "ci/consumers/npm/workspace-ui/package.json": "cf8e151d6ea0c453ac17a37b26cc5870b1842048b06ec3c685b0d08dfe3e8f89",
         "ci/consumers/npm/workspace-ui/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "fc160695e1dc97dc7e32e746c9e4471e2d85168b097623de818befeb00ee438c"
       }

@@ -9,6 +9,7 @@
   "dependencies": {
     "react": "19.3.1",
     "react-dom": "19.3.1",
+    "@rightkit/app-update": "0.4.3",
     "@rightkit/license": "0.3.1",
     "@rightkit/logs": "0.1.6",
     "@rightkit/pdf-ui": "0.3.0",
