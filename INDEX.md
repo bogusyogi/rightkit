@@ -275,7 +275,7 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 | `@rightkit/library-ui` | npm | 0.2.1 | none recorded | 0.2.1 | staged, never published |  | library-ui | Library list and reader over a host-supplied LibrarySource (no IPC); ScrapeRight queue screens on ./queue. |
 | `@rightkit/license` | npm | 0.3.1 | 0.3.0 | 0.3.1 | staged, not yet published |  | licensing | Native licence invoke client & safe display views for Right Suite apps. |
 | `@rightkit/logs` | npm | 0.1.6 | 0.1.6 | 0.1.6 | ok |  | structured-logging | Local-only structured logging and diagnostics client for Right Suite apps. |
-| `@rightkit/mail-ui` | npm | 0.2.0 | none recorded | 0.2.0 | staged, never published |  | mail-ui | Mail client UI: inbox, reader, compose editor, recipients, attachments, account switcher and the mail store. |
+| `@rightkit/mail-ui` | npm | 0.2.1 | none recorded | 0.2.1 | staged, never published |  | mail-ui | Mail client UI: inbox, reader, compose editor, recipients, attachments, account switcher and the mail store. |
 | `@rightkit/markdown-editor` | npm | 0.2.0 | none recorded | 0.2.0 | staged, never published |  | markdown-editor | Markdown and MDX editor: ProseMirror WYSIWYG, source mode, math, diagrams and properties panel. |
 | `@rightkit/media-gen-ui` | npm | 0.2.0 | none recorded | 0.2.0 | staged, never published |  | media-gen-ui | Media-generation UI components (generate form, jobs, gallery, voices, models, recipes and production panels) over a host-supplied engine client. |
 | `@rightkit/media-ui` | npm | 0.3.6 | 0.3.4 | 0.3.6 | staged, not yet published |  | media-ui | Brand-neutral media player and image viewer/editor for Right Suite apps. |
@@ -299,7 +299,7 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 | `@rightkit/theme` | npm | 0.3.2 | 0.3.1 | 0.3.2 | staged, not yet published | rightkit-theme | theme-ui | Brand file to CSS tokens generator for Right Suite apps: light/dark/system, derived dark accent, WCAG contrast and hard-coded-colour checks, runtime brand application. |
 | `@rightkit/video-ui` | npm | 0.2.0 | none recorded | 0.2.0 | staged, never published |  | video-ui | Video editing components (timeline, inspector, colour and caption inspectors, transcript, changes, native preview player) over a host-supplied video engine and preview session. |
 | `@rightkit/waitlist-worker` | npm | 0.1.0 | none recorded | 0.1.0 | staged, never published |  | waitlist-worker | Cloudflare Worker that captures waitlist email signups in KV, rate-limits per IP and sends an optional Resend confirmation email. |
-| `@rightkit/workspace-ui` | npm | 0.2.0 | none recorded | 0.2.0 | staged, never published |  | workspace-ui | Calendar, contacts, drive, tasks and meeting views and their navs, over a typed workspace client and state the host supplies. |
+| `@rightkit/workspace-ui` | npm | 0.2.1 | none recorded | 0.2.1 | staged, never published |  | workspace-ui | Calendar, contacts, drive, tasks and meeting views and their navs, over a typed workspace client and state the host supplies. |
 
 ## Version records without a manifest
 

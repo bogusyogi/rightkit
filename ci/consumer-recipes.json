@@ -713,7 +713,7 @@
           "@rightkit/legal-ui": "0.4.2",
           "@rightkit/license": "0.3.1",
           "@rightkit/logs": "0.1.6",
-          "@rightkit/mail-ui": "0.2.0",
+          "@rightkit/mail-ui": "0.2.1",
           "@rightkit/onboarding": "0.6.4",
           "@rightkit/outdated": "0.3.1",
           "@rightkit/pdf-ui": "0.3.0",
@@ -723,7 +723,7 @@
           "@rightkit/settings-ui": "0.7.1",
           "@rightkit/system-ui": "0.2.0",
           "@rightkit/theme": "0.3.2",
-          "@rightkit/workspace-ui": "0.2.0"
+          "@rightkit/workspace-ui": "0.2.1"
         },
         "declaredOnly": [
           "@tauri-apps/api",
@@ -731,9 +731,9 @@
         ]
       },
       "files": {
-        "ci/consumers/npm/agent-ui-approvals/README.md": "9e4b4d733bfa23475d249e24f9672e20338669638c1693bff25b3720e8a29f7d",
+        "ci/consumers/npm/agent-ui-approvals/README.md": "e309af96fe42c41d5878219e1eab1f94ec5faa3921fb464fe1e779aea7e42343",
         "ci/consumers/npm/agent-ui-approvals/consumer.mjs": "2b249fff3c04b999bf377622d2cd37a909e9a74facf69dfe28ad3b25bfad3f35",
-        "ci/consumers/npm/agent-ui-approvals/package.json": "4696a3cf4d5ea92eb585ffc35998f563121cc3fb8bd88a08e09e96596d741de4",
+        "ci/consumers/npm/agent-ui-approvals/package.json": "a3198dad7ff35557c4c108bf807d8e0c6501c9c297b7094c880bc91364c28ac2",
         "ci/consumers/npm/agent-ui-approvals/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "fc160695e1dc97dc7e32e746c9e4471e2d85168b097623de818befeb00ee438c"
       }
@@ -1564,7 +1564,7 @@
           "@rightkit/release": "0.6.52",
           "@rightkit/settings-ui": "0.7.1",
           "@rightkit/theme": "0.3.2",
-          "@rightkit/workspace-ui": "0.2.0"
+          "@rightkit/workspace-ui": "0.2.1"
         },
         "declaredOnly": [
           "@tanstack/react-virtual",
@@ -1582,9 +1582,9 @@
         ]
       },
       "files": {
-        "ci/consumers/npm/mail-ui/README.md": "caf90bbb9c06e66d9a5aab77587110fb89dc0cfd0b64a7e436a20796efafa7f0",
-        "ci/consumers/npm/mail-ui/consumer.mjs": "d83e183db11e802324e50a8b82c527a90a0bf2ee29f8a3402813186f458f8ed4",
-        "ci/consumers/npm/mail-ui/package.json": "dbd761e85a222a6af9cdeb87442d0cdb1080ef992df02631953b6cc63c45f87b",
+        "ci/consumers/npm/mail-ui/README.md": "e630aaeeb2e81db658a299ff1133274f194f9bf7edb21911e7e15cd14d996295",
+        "ci/consumers/npm/mail-ui/consumer.mjs": "c0116924896989ddd20aa2bc24bba0602c94ecb96b32097667a39166a1870964",
+        "ci/consumers/npm/mail-ui/package.json": "f4c52f2b7b191c01b016f8881288366d5dc3af907c8cdf0f33e92b973461e755",
         "ci/consumers/npm/mail-ui/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "fc160695e1dc97dc7e32e746c9e4471e2d85168b097623de818befeb00ee438c"
       }
@@ -1888,8 +1888,8 @@
         "declaredOnly": []
       },
       "files": {
-        "ci/consumers/npm/workspace-ui/README.md": "4e2be5a6579fa9b005a10dac787044e93b0af1b36a8a508496b23eb08d9cc240",
-        "ci/consumers/npm/workspace-ui/consumer.mjs": "58d4da739ba45c23cd93e768867dbf602bdb8f996edf35cbc749fe9fb77201f8",
+        "ci/consumers/npm/workspace-ui/README.md": "dbe39a98fbd62b6eb5de2f1810272e51cd62b662832ff6bafce2c90a87d6f07e",
+        "ci/consumers/npm/workspace-ui/consumer.mjs": "138d6ce84dfa296b30f838c83efce0f35b17e9c3534e122d8febb3087e5a9f4f",
         "ci/consumers/npm/workspace-ui/package.json": "cf8e151d6ea0c453ac17a37b26cc5870b1842048b06ec3c685b0d08dfe3e8f89",
         "ci/consumers/npm/workspace-ui/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "fc160695e1dc97dc7e32e746c9e4471e2d85168b097623de818befeb00ee438c"

@@ -7,8 +7,8 @@ import { setPref } from "../lib/preferences.js";
 import { removeSavedSearch as removeSavedSearchFrom, SAVED_SEARCHES_KEY } from "../lib/savedSearches.js";
 import type { ThreadRef } from "../lib/ipc.js";
 import { useAppStore, APP_OF } from "../store/index.js";
-import { CalendarNav, ContactsNav, DriveNav, TasksNav, WorkspaceHostProvider } from "@rightkit/workspace-ui";
-import { mailWorkspaceHost } from "../workspaceHost.js";
+import { CalendarNav, ContactsNav, DriveNav, TasksNav } from "@rightkit/workspace-ui";
+import { MailWorkspaceProvider } from "../workspaceViews.js";
 
 interface Props {
   unreadFor: (id: string) => number;
@@ -213,13 +213,13 @@ export function Sidebar({
 
       {/* Contextual app nav. */}
       {app === "drive" ? (
-        <WorkspaceHostProvider host={mailWorkspaceHost}><DriveNav /></WorkspaceHostProvider>
+        <MailWorkspaceProvider><DriveNav /></MailWorkspaceProvider>
       ) : app === "calendar" ? (
-        <WorkspaceHostProvider host={mailWorkspaceHost}><CalendarNav /></WorkspaceHostProvider>
+        <MailWorkspaceProvider><CalendarNav /></MailWorkspaceProvider>
       ) : app === "contacts" ? (
-        <WorkspaceHostProvider host={mailWorkspaceHost}><ContactsNav /></WorkspaceHostProvider>
+        <MailWorkspaceProvider><ContactsNav /></MailWorkspaceProvider>
       ) : app === "tasks" ? (
-        <WorkspaceHostProvider host={mailWorkspaceHost}><TasksNav /></WorkspaceHostProvider>
+        <MailWorkspaceProvider><TasksNav /></MailWorkspaceProvider>
       ) : app === "settings" ? (
         <div className="appnav settings-nav">
           <div className="labels-head"><span>Settings</span></div>

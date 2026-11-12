@@ -39,7 +39,7 @@
     "@rightkit/library-ui": "0.2.1",
     "@rightkit/license": "0.3.1",
     "@rightkit/logs": "0.1.6",
-    "@rightkit/mail-ui": "0.2.0",
+    "@rightkit/mail-ui": "0.2.1",
     "@rightkit/markdown-editor": "0.2.0",
     "@rightkit/media-gen-ui": "0.2.0",
     "@rightkit/media-ui": "0.3.6",
@@ -61,7 +61,7 @@
     "@rightkit/theme": "0.3.2",
     "@rightkit/video-ui": "0.2.0",
     "@rightkit/waitlist-worker": "0.1.0",
-    "@rightkit/workspace-ui": "0.2.0"
+    "@rightkit/workspace-ui": "0.2.1"
   },
   "legacyNpm": {
     "@rightkit/app-shell": [

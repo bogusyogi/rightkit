@@ -5,7 +5,7 @@ Mail client UI: inbox, reader, compose editor, recipients, attachments, account 
 | Item | Value |
 |---|---|
 | Where it runs | App webview UI (React) |
-| Version | 0.2.0 |
+| Version | 0.2.1 |
 | License | MIT OR Apache-2.0 |
 
 ## Entry points
@@ -35,9 +35,15 @@ rendering.
 
 ## Workspace views
 
-The calendar, contacts, Drive, tasks and Meet views and their navs are `@rightkit/workspace-ui`'s. This package
-supplies MailRight's host for them: `mailWorkspaceHost` (wrap the views in
-`<WorkspaceHostProvider host={mailWorkspaceHost}>`) and `mailWorkspaceClient`.
+The calendar, contacts, Drive, tasks and Meet views and their navs are `@rightkit/workspace-ui`'s, and they throw
+at render without a `WorkspaceHostProvider`. This package supplies MailRight's host for them and ready wrappers:
+
+- `CalendarView`, `TasksView`, `DriveView`, `ContactsView`, `MeetView` (root export): workspace-ui's views already
+  inside the provider over `mailWorkspaceHost`. Mount or lazy-load these, not the bare views from workspace-ui:
+  `lazy(() => import("@rightkit/mail-ui").then((m) => ({ default: m.CalendarView })))`.
+- `MailWorkspaceProvider`: the provider over `mailWorkspaceHost`, for anything else from workspace-ui (navs,
+  dialogs, `useDrive`). `Sidebar` renders the navs inside it.
+- `mailWorkspaceHost` and `mailWorkspaceClient`: the host itself.
 
 ## Host contract
 

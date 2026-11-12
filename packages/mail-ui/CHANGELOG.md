@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.1
+
+- Fix: the workspace views were unusable on their own. `@rightkit/workspace-ui` 0.2.0's views throw at render without a `WorkspaceHostProvider`, and MailRight lazy-loads all five without one. New root exports: `MailWorkspaceProvider` (the provider over `mailWorkspaceHost`) and `CalendarView`, `TasksView`, `DriveView`, `ContactsView`, `MeetView`, workspace-ui's views already inside it; MailRight lazy-loads these from `@rightkit/mail-ui` instead of the bare views. `Sidebar` renders the navs inside `MailWorkspaceProvider`. Needs `@rightkit/workspace-ui` 0.2.1.
+
 ## 0.2.0 (unpublished)
 
 Taken on the recommended option of the shape review (the `@rightkit/workspace-ui` redraw), pending the owner's

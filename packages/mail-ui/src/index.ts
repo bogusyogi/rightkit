@@ -91,3 +91,4 @@ export * from "./views/ReaderView.js";
 export * from "./views/SearchCoverageBanner.js";
 export * from "./views/Sidebar.js";
 export * from "./workspaceHost.js";
+export * from "./workspaceViews.js";
