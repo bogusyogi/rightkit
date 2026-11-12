@@ -96,12 +96,19 @@ export function configureLegal({ manifest, contract }: { manifest: unknown; cont
   });
 }
 
+/** True once `configureLegal` has run with a manifest and contract. Until then the gate has nothing to
+ *  show or check, and the workspace must not open (`AppRoot` fails closed). */
+export function legalConfigured(): boolean {
+  return legalManifest !== undefined && typeof REQUIRED_LEGAL_ACCEPTANCE_VERSION === "string" && typeof LEGAL_MATERIAL_SHA256 === "string";
+}
+
 /** True only when every field of the acceptance receipt is current: the
  *  acceptance version and material-document hash match the generated
  *  contract (src/generated/legal-contract.json, synced from legal-manifest.json
  *  by scripts/sync-legal-acceptance-contract.mjs), the timestamp is a
  *  canonical UTC instant, and an eligibility basis was recorded. */
 export function legalAcceptanceCurrent(settings: LegalReceiptFields): boolean {
+  if (!legalConfigured()) return false;
   const basis = settings.legalEligibilityBasis;
   if (
     !isCanonicalUtcTimestamp(settings.legalAcceptedAt) ||

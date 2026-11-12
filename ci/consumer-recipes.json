@@ -1355,8 +1355,8 @@
         ]
       },
       "files": {
-        "ci/consumers/npm/document-workspace/README.md": "bab715aaafe229da26e375331ab135d35e3ec88a064c5dd3361491dac9b0f53c",
-        "ci/consumers/npm/document-workspace/consumer.mjs": "fd7898324ea9304de7c215e14bee1152238969f67d48cabc343d9ec8016c9927",
+        "ci/consumers/npm/document-workspace/README.md": "512e293d4450f6cce74eef02c8493417729afddd2ed4b0b9be0d88e27b01979c",
+        "ci/consumers/npm/document-workspace/consumer.mjs": "15828ba90bbadefb4611d85d0a4a24c5a19f5a4361ad1473bb7859622b227a41",
         "ci/consumers/npm/document-workspace/package.json": "2314961353d3f8e9a6a5d69f680551e2bf790010478af64a6e8bb058fa633c57",
         "ci/consumers/npm/document-workspace/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "fc160695e1dc97dc7e32e746c9e4471e2d85168b097623de818befeb00ee438c"

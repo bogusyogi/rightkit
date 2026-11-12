@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.1
+
+- Fix (security): the legal gate failed open. `AppRoot` skipped the gate (`needsGate = legal !== null && ...`) and opened the workspace when the host passed no `firstRun`, and an unconfigured `configureLegal` left nothing to check. It now fails closed: without `firstRun` or without `configureLegal`, `AppRoot` renders a blocking "Legal configuration missing" screen (role `alert`, a Quit button) and never the workspace. New exports: `legalConfigured()` (`state/legal`), `missingLegalConfiguration()` (`app/AppRoot`); `legalAcceptanceCurrent` is false until `configureLegal` runs. Hosts that configure both (the documented contract) see no change.
+
 ## 0.2.0 (unpublished)
 
 Shape review 2026-11-11 (`docs/audits/2026-11-11-shape-matrix/reports/family-documents.md`; design in `reports/documents-redraw-design.md`). Taken on the recommended option, pending the owner's confirmation.
@@ -13,7 +17,7 @@ Added:
 
 Removed (breaking; these are the host's composition and move to the host):
 - `state/updateLicense` (update client, licence client, `APP_VERSION`, `UPDATE_LICENSE_URL`, background update check), `settings/publishedSections` (`UpdatesPanel`, `AboutFrame`, `PublishedLicense`, `LegalPanel`), `settings/sections/UpdateLicenseBlock` and `settings/sections/AboutSection`. A host passes its About page as `settings.about` and its check as `backgroundUpdateCheck`. Dependencies `@rightkit/app-update`, `@rightkit/license`, `@rightkit/legal-ui` and `@tauri-apps/plugin-process` removed.
-- The built-in legal gate copy, palette (`#0C6AA5` accent), Tanker wordmark URL and 960x560 size: the host passes them in `firstRun`. Without `firstRun` there is no gate.
+- The built-in legal gate copy, palette (`#0C6AA5` accent), Tanker wordmark URL and 960x560 size: the host passes them in `firstRun`. Without `firstRun` there is no gate (fail-open; fixed in 0.2.1, which blocks instead).
 - "Email to support" sends to `supportEmail`; without it the action is not shown (was `hello@viewright.cc`).
 
 Changed (breaking):

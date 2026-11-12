@@ -28,7 +28,7 @@
     "@rightkit/dictation-ui": "0.2.1",
     "@rightkit/doc-render": "0.2.2",
     "@rightkit/document-core": "0.2.0",
-    "@rightkit/document-workspace": "0.2.0",
+    "@rightkit/document-workspace": "0.2.1",
     "@rightkit/docx-editor": "0.1.2",
     "@rightkit/hooks": "0.1.2",
     "@rightkit/html-editor": "0.2.0",

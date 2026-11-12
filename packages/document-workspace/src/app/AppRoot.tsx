@@ -9,6 +9,7 @@ import {
   REQUIRED_LEGAL_ACCEPTANCE_VERSION,
   createOnboardingSettingsBackend,
   legalAcceptanceCurrent,
+  legalConfigured,
   legalReceiptFields,
   legalReceiptRecord,
   legalRecordCurrent,
@@ -20,9 +21,21 @@ import { getShell } from "@rightkit/document-core/state/tauriBridge";
 import { hostAppName } from "../appName.js";
 import { workspaceConfig } from "../config.js";
 
+/**
+ * What the host left out of the legal configuration: `configureDocumentWorkspace({ firstRun })` (the gate's
+ * copy and look) and `configureLegal({ manifest, contract })` (the documents, acceptance version and
+ * material hash). Either missing means the gate cannot run, and the workspace must not open without it.
+ */
+export function missingLegalConfiguration(): string[] {
+  const missing: string[] = [];
+  if (!workspaceConfig().firstRun) missing.push("configureDocumentWorkspace({ firstRun })");
+  if (!legalConfigured()) missing.push("configureLegal({ manifest, contract })");
+  return missing;
+}
+
 function legalStep(): LegalStepConfig | null {
   const firstRun = workspaceConfig().firstRun;
-  if (!firstRun) return null;
+  if (!firstRun || !legalConfigured()) return null;
   return {
     appName: hostAppName(),
     documents: LEGAL_GATE_DOCUMENTS,
@@ -101,16 +114,48 @@ async function destroyWindow(): Promise<void> {
 }
 
 /**
- * Top-level shell: when the host configured a first-run gate (`configureDocumentWorkspace({ firstRun })`),
- * renders the shared Right Suite legal gate in place of the document workspace until the acceptance
- * receipt in settings is current, then swaps to <App/>. Owns the one call to useReadyShow() for BOTH
+ * Shown instead of the workspace when the host did not configure the legal gate. Fails closed: the
+ * workspace never opens without a gate, and nothing here lets the user past it.
+ */
+function LegalConfigurationMissing({ missing }: { missing: string[] }) {
+  return (
+    <main
+      role="alert"
+      data-testid="legal-configuration-missing"
+      style={{ display: "grid", placeItems: "center", minHeight: "100vh", padding: 32, textAlign: "center" }}
+    >
+      <div style={{ maxWidth: 440, display: "grid", gap: 12 }}>
+        <h1 style={{ margin: 0, fontSize: 18 }}>Legal configuration missing</h1>
+        <p style={{ margin: 0 }}>
+          {hostAppName()} cannot open: this build does not carry the legal terms you must accept first. Install
+          the official build again, or contact support.
+        </p>
+        <p style={{ margin: 0, fontSize: 12, opacity: 0.7 }}>Not configured: {missing.join(", ")}</p>
+        <div>
+          <button type="button" onClick={() => void destroyWindow()}>
+            Quit
+          </button>
+        </div>
+      </div>
+    </main>
+  );
+}
+
+/**
+ * Top-level shell: renders the shared Right Suite legal gate (configured by the host with
+ * `configureDocumentWorkspace({ firstRun })` and `configureLegal`) in place of the document workspace
+ * until the acceptance receipt in settings is current, then swaps to <App/>. Fails closed: when either
+ * configuration is missing it renders a blocking "Legal configuration missing" screen, never the
+ * workspace. Owns the one call to useReadyShow() for BOTH
  * paths — the gate's own window must reveal itself just like the main app window does, or a real
  * first-run user launching the installer-hidden window sees nothing at all.
  */
 export function AppRoot() {
   const { settings, update, updateAsync } = useSettings();
+  const missing = useMemo(missingLegalConfiguration, []);
   const legal = useMemo(legalStep, []);
-  const needsGate = legal !== null && !legalAcceptanceCurrent(settings);
+  // Fail closed: no configured gate means the gate is needed, never skipped.
+  const needsGate = legal === null || !legalAcceptanceCurrent(settings);
 
   // Configure native state before reveal. The gate is fixed at the host's size; accepted/current
   // workspace launches with normal controls and maximized geometry.
@@ -142,7 +187,11 @@ export function AppRoot() {
     [],
   );
 
-  if (!needsGate || !legal) return <App />;
+  if (missing.length > 0 || !legal) {
+    console.error(`@rightkit/document-workspace: legal configuration missing (${missing.join(", ")}); the workspace stays closed`);
+    return <LegalConfigurationMissing missing={missing} />;
+  }
+  if (!needsGate) return <App />;
 
   // Onboarding's legal step comes first and wraps the shared LegalGate; with no further steps,
   // accepting the receipt is the whole first run and the settings swap above mounts <App/>.
