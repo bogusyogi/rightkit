@@ -268,6 +268,12 @@ static PROMPTED: AtomicBool = AtomicBool::new(false);
 /// The answer the held-by-another-app state was last settled for (`answer_code`); 0 for none yet.
 static SETTLED: AtomicU8 = AtomicU8::new(0);
 
+/// The application commands switch: `launcherAppCommands`, or the name Pulse still writes,
+/// `launcherPulseCommands`, for a host whose settings predate the rename.
+fn app_commands_on() -> bool {
+    host::switch_on("launcherAppCommands") || host::switch_on("launcherPulseCommands")
+}
+
 fn answer_code(answer: Option<bool>) -> u8 {
     match answer {
         None => 1,
@@ -3537,7 +3543,7 @@ impl Panel {
     fn host_items(&self, text: &str) -> Vec<Item> {
         // The application commands switch (the Mac's `launcherPulseCommands`) covers the pages,
         // the readings and the disk and cleanup rows.
-        if text.chars().count() < 2 || !host::switch_on("launcherAppCommands") {
+        if text.chars().count() < 2 || !app_commands_on() {
             return Vec::new();
         }
         let mut out: Vec<Item> = host::app_pages()
@@ -3592,7 +3598,7 @@ impl Panel {
     /// host's saved scan only: nothing here starts a scan.
     fn storage_rows(text: &str) -> Vec<Item> {
         // The application commands switch and two typed characters, as for the pages above.
-        if text.chars().count() < 2 || !host::switch_on("launcherAppCommands") {
+        if text.chars().count() < 2 || !app_commands_on() {
             return Vec::new();
         }
         let Some((storage_page, cleanup_page)) = host::storage_pages() else {
