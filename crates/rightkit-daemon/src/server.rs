@@ -10,7 +10,7 @@ use crate::transport::{
 };
 use rightkit_roots::lock::{try_lock_exclusive, LockedFile};
 use rightkit_roots::{make_private_dir, Suite, SuiteError};
-use rightkit_sidecar::wire::{Frame, WireError};
+use rightkit_sidecar::wire::{Frame, ServiceHello, WireError};
 use rightkit_sidecar::{read_json_line, write_json_line, FrameError};
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -1212,7 +1212,7 @@ fn serve_conn(s: Arc<Shared>, conn: Conn, mut pre: PreHandshake) {
             retryable,
             details: None,
         };
-        send(&json!({"type": "hello", "ok": false, "error": e.to_value()}));
+        send(&ServiceHello::refused(&e.to_value()));
         s.event(ServiceEvent::ConnectionRejected {
             app: app.clone(),
             reason: reason.into(),
@@ -1286,13 +1286,21 @@ fn serve_conn(s: Arc<Shared>, conn: Conn, mut pre: PreHandshake) {
         conn: id,
         app: app.clone(),
     });
-    send(&json!({
-        "type": "hello", "ok": true, "service": s.cfg.service, "role": s.cfg.role, "rank": s.cfg.rank,
-        "version": s.cfg.version, "protocol_major": PROTOCOL_MAJOR, "protocol_minor": PROTOCOL_MINOR,
-        "methods": s.cfg.allowlist.methods_for(&app),
-        "frame_limit": limit, "max_message": s.max_message,
-        "chunk_bytes": crate::chunk::chunk_bytes_for(limit),
-    }));
+    send(
+        &ServiceHello {
+            service: s.cfg.service.clone(),
+            role: s.cfg.role.clone(),
+            rank: s.cfg.rank,
+            version: s.cfg.version.clone(),
+            protocol_major: PROTOCOL_MAJOR,
+            protocol_minor: PROTOCOL_MINOR,
+            methods: s.cfg.allowlist.methods_for(&app),
+            frame_limit: limit,
+            max_message: s.max_message,
+            chunk_bytes: crate::chunk::chunk_bytes_for(limit),
+        }
+        .to_value(),
+    );
 
     let caller = Caller::local_app(app.clone(), peer.clone());
     let closed_notified = Arc::new(AtomicBool::new(false));

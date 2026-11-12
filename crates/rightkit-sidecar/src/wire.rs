@@ -183,3 +183,80 @@ impl Frame {
         }
     }
 }
+
+/// The `hello` a local service host (`rightkit-daemon`) answers with. It is not the engine
+/// [`Frame::Hello`]: it carries no `engine` or `contract_version`, and says which service, role and
+/// rank answered, the protocol it speaks and what this caller may call. [`ServiceHello::to_value`]
+/// writes `{type, ok: true, service, role, rank, version, protocol_major, protocol_minor, methods,
+/// frame_limit, max_message, chunk_bytes}`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ServiceHello {
+    pub service: String,
+    pub role: String,
+    pub rank: u8,
+    pub version: String,
+    pub protocol_major: u32,
+    pub protocol_minor: u32,
+    /// The methods this caller may call.
+    pub methods: Vec<String>,
+    pub frame_limit: usize,
+    pub max_message: usize,
+    pub chunk_bytes: usize,
+}
+
+#[derive(Serialize)]
+struct ServiceHelloWire<'a> {
+    #[serde(rename = "type")]
+    kind: &'static str,
+    ok: bool,
+    service: &'a str,
+    role: &'a str,
+    rank: u8,
+    version: &'a str,
+    protocol_major: u32,
+    protocol_minor: u32,
+    methods: &'a [String],
+    frame_limit: usize,
+    max_message: usize,
+    chunk_bytes: usize,
+}
+
+#[derive(Serialize)]
+struct ServiceHelloRefusedWire<'a> {
+    #[serde(rename = "type")]
+    kind: &'static str,
+    ok: bool,
+    error: &'a Value,
+}
+
+impl ServiceHello {
+    /// The accepted hello as a JSON value.
+    pub fn to_value(&self) -> Value {
+        serde_json::to_value(ServiceHelloWire {
+            kind: "hello",
+            ok: true,
+            service: &self.service,
+            role: &self.role,
+            rank: self.rank,
+            version: &self.version,
+            protocol_major: self.protocol_major,
+            protocol_minor: self.protocol_minor,
+            methods: &self.methods,
+            frame_limit: self.frame_limit,
+            max_message: self.max_message,
+            chunk_bytes: self.chunk_bytes,
+        })
+        .unwrap_or(Value::Null)
+    }
+
+    /// The refusal a service answers a bad or unauthorised `hello` with:
+    /// `{"type":"hello","ok":false,"error":<error>}`.
+    pub fn refused(error: &Value) -> Value {
+        serde_json::to_value(ServiceHelloRefusedWire {
+            kind: "hello",
+            ok: false,
+            error,
+        })
+        .unwrap_or(Value::Null)
+    }
+}
