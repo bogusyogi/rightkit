@@ -2,8 +2,8 @@
 // pin: write screening, scope slugs, the membrane schema check and the engine's tier type at the
 // backend boundary. No external membrane binary is run.
 use rightkit_memory_client::backend::types::path_to_scope;
-use rightkit_memory_client::membrane::{check_schema, SUPPORTED_MAJOR};
 use rightkit_memory_client::backend::MemoryTier;
+use rightkit_memory_client::membrane::{check_schema, SUPPORTED_MAJOR};
 use rightkit_memory_client::screen;
 
 fn check(ok: bool, what: &str) {

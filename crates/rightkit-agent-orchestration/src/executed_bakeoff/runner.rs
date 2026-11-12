@@ -319,13 +319,7 @@ async fn execute_and_score(
     request: &ExecutionRequest,
     experiment_id: &str,
     role: &str,
-) -> Result<
-    (
-        RunScore,
-        rightkit_agent_telemetry::EvaluationOutcomeV1,
-    ),
-    BakeoffError,
-> {
+) -> Result<(RunScore, rightkit_agent_telemetry::EvaluationOutcomeV1), BakeoffError> {
     let started = Instant::now();
     let record = executor
         .execute(request)

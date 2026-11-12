@@ -1,7 +1,9 @@
 use std::fs;
 
-static CORPUS_SCHEMA_VERSION: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| crate::host_identity::schema("eval-corpus.v1"));
-static CORPUS_REPORT_SCHEMA_VERSION: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| crate::host_identity::schema("corpus-bakeoff.v1"));
+static CORPUS_SCHEMA_VERSION: std::sync::LazyLock<String> =
+    std::sync::LazyLock::new(|| crate::host_identity::schema("eval-corpus.v1"));
+static CORPUS_REPORT_SCHEMA_VERSION: std::sync::LazyLock<String> =
+    std::sync::LazyLock::new(|| crate::host_identity::schema("corpus-bakeoff.v1"));
 const MAX_CORPUS_MANIFEST_BYTES: u64 = 1024 * 1024;
 
 #[derive(Debug, Deserialize)]

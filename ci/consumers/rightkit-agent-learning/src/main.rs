@@ -1,8 +1,8 @@
 // rightkit-agent-learning 0.1.0 (published as rightkit-adapt until 0.1.2) consumed by exact registry
 // pin: the evaluation gate and the proposal store over an in-memory agent database. No files are
 // written.
-use rightkit_agent_learning::{EvalEvidence, EvalGate, GateOutcome, ProposalStore};
 use rightkit_agent_engine_storage::Storage;
+use rightkit_agent_learning::{EvalEvidence, EvalGate, GateOutcome, ProposalStore};
 use std::sync::Arc;
 
 fn check(ok: bool, what: &str) {

@@ -552,7 +552,8 @@ async fn cli_provider(command: ProviderCommand) -> i32 {
             }
             _ => {
                 eprintln!(
-                    "{provider} uses an API key: run `{app} provider connect {provider}`.", app = crate::host_identity::app()
+                    "{provider} uses an API key: run `{app} provider connect {provider}`.",
+                    app = crate::host_identity::app()
                 );
                 2
             }
@@ -654,7 +655,10 @@ async fn cli_provider_key_write(provider: String) -> i32 {
                 | rightkit_terminal_ui::nav::ProviderKind::VendorCli
         )
     ) {
-        eprintln!("{provider} does not use an API key; use `{app} provider login {provider}`.", app = crate::host_identity::app());
+        eprintln!(
+            "{provider} does not use an API key; use `{app} provider login {provider}`.",
+            app = crate::host_identity::app()
+        );
         return 2;
     }
     let secret = match read_secret_line("Provider API key") {

@@ -103,7 +103,12 @@ impl DaemonState {
         // and tracks failures for the ratchet loop.
         let traces_dir = rightkit_agent_config::state_root()
             .map(|root| root.join("traces"))
-            .unwrap_or_else(|| std::path::PathBuf::from(format!("/tmp/{app}/traces", app = crate::host_identity::app())));
+            .unwrap_or_else(|| {
+                std::path::PathBuf::from(format!(
+                    "/tmp/{app}/traces",
+                    app = crate::host_identity::app()
+                ))
+            });
         let mut evolution_harness = EvolutionHarness::new(traces_dir, session_id);
 
         // Build an LLM client for the conductor's configured model.

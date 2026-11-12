@@ -494,7 +494,8 @@ async fn install_marketplace_plugin_handler(
     let temp_root = std::env::temp_dir().join(format!(
         "{app}-plugin-install-{}-{}",
         entry.manifest.id,
-        now_millis(), app = crate::host_identity::app()
+        now_millis(),
+        app = crate::host_identity::app()
     ));
     let mut package_checksum = String::new();
     let source_path = if entry.source_path.as_os_str().is_empty() {
@@ -647,7 +648,8 @@ async fn rollback_plugin_handler(
             "{app}-plugin-rollback-{}-{}-{}",
             id,
             req.target_version,
-            now_millis(), app = crate::host_identity::app()
+            now_millis(),
+            app = crate::host_identity::app()
         ));
         let source_path = if entry.source_path.as_os_str().is_empty() {
             if entry.source_url.trim().is_empty() {

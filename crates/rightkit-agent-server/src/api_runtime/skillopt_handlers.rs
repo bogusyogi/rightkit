@@ -201,7 +201,9 @@ async fn list_skillopt_rejected_edits(
 
 /// A missing file is an empty store; a file that does not parse is set aside (`<name>.damaged-<time>`) before the empty
 /// store is returned, so the next save cannot overwrite the only copy.
-pub(crate) fn load_skillopt_store(path: &FsPath) -> rightkit_agent_learning::SkillOptimizationStore {
+pub(crate) fn load_skillopt_store(
+    path: &FsPath,
+) -> rightkit_agent_learning::SkillOptimizationStore {
     crate::store_write::load_or_set_aside::<rightkit_agent_learning::SkillOptimizationStore>(path)
         .unwrap_or_default()
 }

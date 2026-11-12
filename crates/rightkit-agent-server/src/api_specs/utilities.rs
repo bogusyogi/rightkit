@@ -180,7 +180,9 @@ fn load_constitution_sources(workspace_root: &str) -> Vec<ConstitutionSource> {
         .unwrap_or_else(|_| PathBuf::from(workspace_root));
     candidates.push((
         "workspace".to_string(),
-        workspace_path.join(crate::host_identity::home_dir()).join("constitution.md"),
+        workspace_path
+            .join(crate::host_identity::home_dir())
+            .join("constitution.md"),
     ));
 
     candidates

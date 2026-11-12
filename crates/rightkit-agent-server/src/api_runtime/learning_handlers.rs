@@ -42,10 +42,13 @@ fn write_approved_proposal_instinct(
     Ok(true)
 }
 
-fn proposal_to_instinct(proposal: &rightkit_agent_learning::Proposal) -> Option<rightkit_agent_learning::Instinct> {
+fn proposal_to_instinct(
+    proposal: &rightkit_agent_learning::Proposal,
+) -> Option<rightkit_agent_learning::Instinct> {
     if !matches!(
         proposal.kind,
-        rightkit_agent_learning::ProposalKind::HarnessRule | rightkit_agent_learning::ProposalKind::Memory
+        rightkit_agent_learning::ProposalKind::HarnessRule
+            | rightkit_agent_learning::ProposalKind::Memory
     ) {
         return None;
     }

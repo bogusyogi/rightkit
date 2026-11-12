@@ -270,7 +270,9 @@ fn write_script_output_artifact(
     command: &str,
     output: &ScriptOnlyOutput,
 ) -> Result<PathBuf, String> {
-    let dir = root.join(crate::host_identity::home_dir()).join("schedule-artifacts");
+    let dir = root
+        .join(crate::host_identity::home_dir())
+        .join("schedule-artifacts");
     std::fs::create_dir_all(&dir).map_err(|e| {
         format!(
             "failed to create schedule artifact dir '{}': {e}",

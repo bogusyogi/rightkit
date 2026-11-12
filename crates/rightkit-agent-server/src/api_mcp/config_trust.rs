@@ -17,8 +17,11 @@ pub(crate) fn default_mcp_user_config_path() -> PathBuf {
     std::env::var_os("RIGHTKIT_MCP_CONFIG")
         .map(PathBuf::from)
         .or_else(|| {
-            rightkit_agent_config::os_home_dir()
-                .map(|home| home.join(".config").join(crate::host_identity::app()).join("mcp.json"))
+            rightkit_agent_config::os_home_dir().map(|home| {
+                home.join(".config")
+                    .join(crate::host_identity::app())
+                    .join("mcp.json")
+            })
         })
         .unwrap_or_else(|| {
             std::env::current_dir()

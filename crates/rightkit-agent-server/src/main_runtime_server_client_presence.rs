@@ -37,10 +37,9 @@ async fn run_startup_guard(db_path: &str) -> Result<(), String> {
 /// Remove `<state root>/daemon.port` on graceful shutdown, but only while it still holds the record
 /// this process published: a successor's record is never deleted by a daemon late to exit.
 fn remove_daemon_port_file() {
-    if let (Some(state_dir), Some(record)) = (
-        rightkit_agent_config::state_root(),
-        DAEMON_RECORD.get(),
-    ) {
+    if let (Some(state_dir), Some(record)) =
+        (rightkit_agent_config::state_root(), DAEMON_RECORD.get())
+    {
         record.remove_if_ours(&state_dir.join("daemon.port"));
     }
 }

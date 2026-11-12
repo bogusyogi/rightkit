@@ -47,7 +47,10 @@ async fn daemon_kill(session_id: &str) -> i32 {
     let (base_url, token) = match crate::cli_presence::resolve_daemon_or_autostart().await {
         Some(p) => p,
         None => {
-            eprintln!("No running daemon found. Start one with `{app} serve`.", app = crate::host_identity::app());
+            eprintln!(
+                "No running daemon found. Start one with `{app} serve`.",
+                app = crate::host_identity::app()
+            );
             return 1;
         }
     };
@@ -132,14 +135,20 @@ fn render_handoff_payload(payload: &serde_json::Value) -> String {
 }
 
 fn render_app_open_handoff_hint(session_id: &str) -> String {
-    format!("For machine handoff JSON, run `{app} app handoff` with session ID: {session_id}", app = crate::host_identity::app())
+    format!(
+        "For machine handoff JSON, run `{app} app handoff` with session ID: {session_id}",
+        app = crate::host_identity::app()
+    )
 }
 
 async fn fetch_daemon_handoff(session_id: &str) -> Result<serde_json::Value, String> {
     let (base_url, token) = match crate::cli_presence::resolve_daemon_or_autostart().await {
         Some(p) => p,
         None => {
-            return Err(format!("No running daemon found. Start one with `{app} serve`.", app = crate::host_identity::app()));
+            return Err(format!(
+                "No running daemon found. Start one with `{app} serve`.",
+                app = crate::host_identity::app()
+            ));
         }
     };
 
@@ -170,7 +179,8 @@ async fn fetch_daemon_handoff(session_id: &str) -> Result<serde_json::Value, Str
 fn session_deeplink_url(session_id: &str) -> String {
     format!(
         "{app}://sessions/{}",
-        percent_encode_path_segment(session_id), app = crate::host_identity::app()
+        percent_encode_path_segment(session_id),
+        app = crate::host_identity::app()
     )
 }
 

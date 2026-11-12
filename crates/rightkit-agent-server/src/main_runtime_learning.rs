@@ -71,7 +71,10 @@ async fn daemon_get_json_value(path: &str, label: &str) -> Result<serde_json::Va
     let (base_url, token) = match resolved {
         Ok(Some(p)) => p,
         Ok(None) => {
-            eprintln!("No running daemon found. Start one with `{app} serve`.", app = crate::host_identity::app());
+            eprintln!(
+                "No running daemon found. Start one with `{app} serve`.",
+                app = crate::host_identity::app()
+            );
             return Err(1);
         }
         Err(_) => {
@@ -126,7 +129,10 @@ async fn daemon_json_request(
     let (base_url, token) = match crate::cli_presence::resolve_daemon_or_autostart().await {
         Some(p) => p,
         None => {
-            eprintln!("No running daemon found. Start one with `{app} serve`.", app = crate::host_identity::app());
+            eprintln!(
+                "No running daemon found. Start one with `{app} serve`.",
+                app = crate::host_identity::app()
+            );
             return 1;
         }
     };

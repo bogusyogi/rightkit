@@ -158,8 +158,11 @@ fn current_harness_radar_snapshot() -> RuntimeHarnessRadarSnapshot {
         crate::harness_radar_feed::import_harness_radar_yaml(source_id, &data.snapshot_yaml);
     let previous_entries =
         crate::harness_radar_feed::import_harness_radar_yaml(source_id, &data.previous_yaml);
-    let changes =
-        crate::harness_radar_feed::diff_harness_radar_entries(source_id, &previous_entries, &entries);
+    let changes = crate::harness_radar_feed::diff_harness_radar_entries(
+        source_id,
+        &previous_entries,
+        &entries,
+    );
     let actionable_entries = entries
         .iter()
         .filter(|entry| {
@@ -179,7 +182,8 @@ fn current_harness_radar_snapshot() -> RuntimeHarnessRadarSnapshot {
         })
         .cloned()
         .collect::<Vec<_>>();
-    let proposals = crate::harness_radar_feed::generate_harness_radar_proposals(&actionable_entries);
+    let proposals =
+        crate::harness_radar_feed::generate_harness_radar_proposals(&actionable_entries);
     let validations = sources
         .iter()
         .map(|source| crate::harness_radar_feed::validate_harness_radar_snapshot(source, &entries))

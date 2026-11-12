@@ -408,7 +408,12 @@ fn review_findings_session_arg(focus: &[String], explicit: Option<&str>) -> Resu
                 .filter(|value| !value.is_empty())
                 .map(str::to_string)
         })
-        .ok_or_else(|| format!("Usage: {app} review findings <session-id> [--json]", app = crate::host_identity::app()))
+        .ok_or_else(|| {
+            format!(
+                "Usage: {app} review findings <session-id> [--json]",
+                app = crate::host_identity::app()
+            )
+        })
 }
 
 fn is_auditor_transcript_artifact(artifact: &serde_json::Value) -> bool {
@@ -464,7 +469,8 @@ pub(crate) fn read_secret_line(label: &str) -> Result<String, String> {
     let mut line = String::new();
     match std::io::stdin().read_line(&mut line) {
         Ok(0) => Err(format!(
-            "{label}: no secret received on stdin (pipe it: printf '%s' \"$KEY\" | {app} ...)", app = crate::host_identity::app()
+            "{label}: no secret received on stdin (pipe it: printf '%s' \"$KEY\" | {app} ...)",
+            app = crate::host_identity::app()
         )),
         Ok(_) => {
             let secret = line.trim();

@@ -130,15 +130,9 @@ pub fn resolve_builtin_role_pack_for_spawn(
 
 fn builtin_role_pack_source(role: &str) -> Option<&'static str> {
     match role {
-        "orchestrator" => Some(include_str!(
-            "../../data/role-packs/orchestrator.v1.toml"
-        )),
-        "coder" => Some(include_str!(
-            "../../data/role-packs/coder.v1.toml"
-        )),
-        "verifier" => Some(include_str!(
-            "../../data/role-packs/verifier.v1.toml"
-        )),
+        "orchestrator" => Some(include_str!("../../data/role-packs/orchestrator.v1.toml")),
+        "coder" => Some(include_str!("../../data/role-packs/coder.v1.toml")),
+        "verifier" => Some(include_str!("../../data/role-packs/verifier.v1.toml")),
         _ => None,
     }
 }

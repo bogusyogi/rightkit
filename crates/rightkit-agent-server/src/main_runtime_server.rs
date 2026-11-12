@@ -363,8 +363,7 @@ async fn serve(
 
     // Persist learning under the state root so self-improvement accumulates across
     // restarts; fall back to in-memory if there is no state directory.
-    let evo_path =
-        rightkit_agent_config::state_root().map(|root| root.join("evolution.db"));
+    let evo_path = rightkit_agent_config::state_root().map(|root| root.join("evolution.db"));
     if let Some(p) = evo_path.as_ref() {
         if let Some(dir) = p.parent() {
             let _ = std::fs::create_dir_all(dir);
@@ -409,7 +408,8 @@ async fn serve(
                 // D18: context failure never prevents local execution. Keep the
                 // daemon alive with typed-unavailable memory and a visible reason;
                 // no local context store is created as a fallback.
-                serve_context_degraded = Some(rightkit_memory_client::membrane::OFF_REASON.to_string());
+                serve_context_degraded =
+                    Some(rightkit_memory_client::membrane::OFF_REASON.to_string());
                 let backend: std::sync::Arc<dyn rightkit_memory_client::backend::MemoryBackend> =
                     std::sync::Arc::new(
                         rightkit_memory_client::backend::unavailable::UnavailableMemoryBackend::new(
@@ -975,7 +975,10 @@ async fn serve(
     if primary_daemon {
         write_daemon_port_file(&info);
     } else {
-        eprintln!("[serve] auxiliary daemon (--db): not writing ~/{home}/daemon.port", home = crate::host_identity::home_dir());
+        eprintln!(
+            "[serve] auxiliary daemon (--db): not writing ~/{home}/daemon.port",
+            home = crate::host_identity::home_dir()
+        );
     }
 
     // Same readiness point, reported back to a reload coordinator. If this

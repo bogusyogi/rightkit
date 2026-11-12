@@ -1,18 +1,13 @@
 fn load_workspace_config_only(
     workspace: &FsPath,
-) -> Result<
-    rightkit_agent_config::HostConfig,
-    rightkit_agent_config::ConfigError,
-> {
+) -> Result<rightkit_agent_config::HostConfig, rightkit_agent_config::ConfigError> {
     let path = workspace_config_path(workspace);
     match fs::read_to_string(&path) {
         Ok(content) => rightkit_agent_config::ConfigLoader::new().load_str(&content),
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
             Ok(rightkit_agent_config::HostConfig::default())
         }
-        Err(err) => Err(rightkit_agent_config::ConfigError::Io(
-            err.to_string(),
-        )),
+        Err(err) => Err(rightkit_agent_config::ConfigError::Io(err.to_string())),
     }
 }
 
@@ -114,16 +109,15 @@ async fn update_workspace_config_blocking(
 ) -> Result<(), StatusCode> {
     let outcome = tokio::task::spawn_blocking(move || {
         let read_failed = std::cell::Cell::new(false);
-        let result = rightkit_agent_config::ConfigLoader::new()
-            .update_workspace_from(
-                &workspace,
-                || {
-                    load_workspace_config_only(&workspace).inspect_err(|_| {
-                        read_failed.set(true);
-                    })
-                },
-                edit,
-            );
+        let result = rightkit_agent_config::ConfigLoader::new().update_workspace_from(
+            &workspace,
+            || {
+                load_workspace_config_only(&workspace).inspect_err(|_| {
+                    read_failed.set(true);
+                })
+            },
+            edit,
+        );
         (result.map(|_| ()), read_failed.get())
     })
     .await

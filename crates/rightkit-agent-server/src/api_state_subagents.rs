@@ -935,7 +935,10 @@ fn default_subagent_worktree_path(role: &str, sub_id: &str) -> String {
         })
         .collect();
     std::env::temp_dir()
-        .join(format!("{app}-subagent-{safe_role}-{sub_id}", app = crate::host_identity::app()))
+        .join(format!(
+            "{app}-subagent-{safe_role}-{sub_id}",
+            app = crate::host_identity::app()
+        ))
         .to_string_lossy()
         .into_owned()
 }

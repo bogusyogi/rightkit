@@ -17,7 +17,9 @@ pub(crate) fn default_db_path() -> String {
     if rightkit_fs::ensure_private_dir(&dir).is_err() {
         let _ = std::fs::create_dir_all(&dir);
     }
-    dir.join(format!("{}.db", crate::host_identity::app())).display().to_string()
+    dir.join(format!("{}.db", crate::host_identity::app()))
+        .display()
+        .to_string()
 }
 
 fn default_db_dir(
@@ -602,9 +604,7 @@ where
 /// required credential that is absent) are never offered. Credential
 /// resolution uses the existing credential resolver. Native OpenAI routes
 /// remain owned by the broker's account catalog. Sorted for stable order.
-fn configured_catalog_routes(
-    config: &rightkit_agent_config::HostConfig,
-) -> Vec<(String, String)> {
+fn configured_catalog_routes(config: &rightkit_agent_config::HostConfig) -> Vec<(String, String)> {
     let mut rows: Vec<(String, String)> = config
         .provider_routes
         .iter()
@@ -642,7 +642,8 @@ pub(crate) fn load_cli_instruction_context(
     if let Some(home) = rightkit_agent_config::os_home_dir() {
         base_loader.add_root(
             rightkit_agent_config::InstructionScope::User,
-            home.join(".config").join(crate::host_identity::config_dir()),
+            home.join(".config")
+                .join(crate::host_identity::config_dir()),
         );
     }
     base_loader.add_root(

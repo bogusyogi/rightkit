@@ -2,7 +2,10 @@ async fn daemon_logs(session_id: &str) -> i32 {
     let (base_url, token) = match crate::cli_presence::resolve_daemon_or_autostart().await {
         Some(p) => p,
         None => {
-            eprintln!("No running daemon found. Start one with `{app} serve`.", app = crate::host_identity::app());
+            eprintln!(
+                "No running daemon found. Start one with `{app} serve`.",
+                app = crate::host_identity::app()
+            );
             return 1;
         }
     };
@@ -205,7 +208,10 @@ async fn daemon_conduct(
     let (base_url, token) = match crate::cli_presence::resolve_daemon_or_autostart().await {
         Some(p) => p,
         None => {
-            eprintln!("No running daemon found. Start one with `{app} serve`.", app = crate::host_identity::app());
+            eprintln!(
+                "No running daemon found. Start one with `{app} serve`.",
+                app = crate::host_identity::app()
+            );
             return 1;
         }
     };
@@ -291,7 +297,10 @@ async fn daemon_attach(session_id: &str) -> i32 {
         match crate::daemon::lifecycle_backend::resolve_daemon_endpoint_via_authority().await {
             Some(p) => p,
             None => {
-                eprintln!("No running daemon found. Start one with `{app} serve`.", app = crate::host_identity::app());
+                eprintln!(
+                    "No running daemon found. Start one with `{app} serve`.",
+                    app = crate::host_identity::app()
+                );
                 return 1;
             }
         };

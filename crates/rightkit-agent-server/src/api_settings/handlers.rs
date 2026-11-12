@@ -507,8 +507,7 @@ async fn reload_settings(
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     enforce_trusted_source_authority(&headers)?;
     let workspace = workspace_path(&q);
-    let cfg = rightkit_agent_config::ConfigLoader::new()
-        .load_files_for_workspace(&workspace);
+    let cfg = rightkit_agent_config::ConfigLoader::new().load_files_for_workspace(&workspace);
     {
         let mut store = lock_recover(&state.settings, "state.settings");
         if !cfg.orchestration.boss_model.trim().is_empty() {
@@ -531,8 +530,8 @@ async fn list_settings_toolsets(
     let workspace = workspace_path(&q);
     let workspace_config =
         load_workspace_config_only(&workspace).map_err(|_| StatusCode::BAD_REQUEST)?;
-    let effective_config = rightkit_agent_config::ConfigLoader::new()
-        .load_files_for_workspace(&workspace);
+    let effective_config =
+        rightkit_agent_config::ConfigLoader::new().load_files_for_workspace(&workspace);
     let configured = configured_toolset_profiles(&workspace_config);
     let effective = toolset_profiles_for_config(&effective_config);
     Ok(Json(serde_json::json!({
@@ -605,8 +604,8 @@ async fn delete_settings_toolset(
 fn settings_response(state: &DaemonState, q: &WorkspaceQuery) -> serde_json::Value {
     let store = lock_recover(&state.settings, "state.settings").clone();
     let registry = &state.agent_registry;
-    let persisted_config = rightkit_agent_config::ConfigLoader::new()
-        .load_files_for_workspace(&workspace_path(q));
+    let persisted_config =
+        rightkit_agent_config::ConfigLoader::new().load_files_for_workspace(&workspace_path(q));
     let role_model_split_available =
         crate::model_policy::split_entitled(|feature| state.has_license_feature(feature));
     let effective_role_model_mode =
@@ -738,10 +737,7 @@ fn settings_response(state: &DaemonState, q: &WorkspaceQuery) -> serde_json::Val
 
 /// Applies only the budget fields present in `patch` onto the freshly loaded config, so a save
 /// that names one field cannot overwrite the others with a stale in-memory copy.
-fn apply_budget_patch(
-    patch: &serde_json::Value,
-    budget: &mut rightkit_agent_config::BudgetConfig,
-) {
+fn apply_budget_patch(patch: &serde_json::Value, budget: &mut rightkit_agent_config::BudgetConfig) {
     let f = |k: &str| patch.get(k).and_then(|v| v.as_f64());
     let u = |k: &str| patch.get(k).and_then(|v| v.as_u64()).map(|v| v as u32);
     if let Some(v) = f("perTaskMaxUsd") {
@@ -869,11 +865,9 @@ async fn save_settings(
                                     .agents
                                     .entry(agent.clone())
                                     .and_modify(|o| o.model_id = slug.to_string())
-                                    .or_insert_with(|| {
-                                        rightkit_agent_config::AgentOverride {
-                                            model_id: slug.to_string(),
-                                            provider_id: "openrouter".to_string(),
-                                        }
+                                    .or_insert_with(|| rightkit_agent_config::AgentOverride {
+                                        model_id: slug.to_string(),
+                                        provider_id: "openrouter".to_string(),
                                     });
                             }
                         }
@@ -895,11 +889,10 @@ async fn save_settings(
                         }
                     }
                     if let Some(routing) = body.routing {
-                        cfg.orchestration.routing =
-                            rightkit_agent_config::RoutingConfig {
-                                capability_router: Some(routing.capability_router),
-                                aggressiveness: routing.aggressiveness,
-                            };
+                        cfg.orchestration.routing = rightkit_agent_config::RoutingConfig {
+                            capability_router: Some(routing.capability_router),
+                            aggressiveness: routing.aggressiveness,
+                        };
                     }
                     if let Some(orch) = body.orchestration {
                         cfg.orchestration.conductor_routing = Some(orch.conductor_routing);

@@ -122,9 +122,7 @@ fn run_main() {
                 .map(std::path::PathBuf::from)
                 .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
             let resolved = rightkit_agent_config::presets::load_presets(&workspace)
-                .and_then(|all| {
-                    rightkit_agent_config::presets::resolve_preset(&all, &name)
-                });
+                .and_then(|all| rightkit_agent_config::presets::resolve_preset(&all, &name));
             match resolved {
                 Ok(preset) => {
                     // Carried in run options (`--append-system-prompt`) for `-p`.
@@ -457,9 +455,7 @@ fn cli_acquisition_v1_enabled() -> bool {
     cli_acquisition_v1_enabled_from_config(&load_current_merged_config())
 }
 
-fn cli_acquisition_v1_enabled_from_config(
-    config: &rightkit_agent_config::HostConfig,
-) -> bool {
+fn cli_acquisition_v1_enabled_from_config(config: &rightkit_agent_config::HostConfig) -> bool {
     config.features.cli_acquisition_v1.unwrap_or(true)
 }
 
@@ -802,7 +798,8 @@ async fn async_main(cli: Cli) {
                 if !rejected.is_empty() {
                     eprintln!(
                         "`{app} review findings` does not accept: {}",
-                        rejected.join(", "), app = crate::host_identity::app()
+                        rejected.join(", "),
+                        app = crate::host_identity::app()
                     );
                     std::process::exit(2);
                 }

@@ -525,7 +525,13 @@ fn effective_candidate_limit(requested: Option<f64>, operator_limit: f64) -> Opt
 
 fn private_corpus_secret(token: &str, suite_namespace: &str) -> [u8; 32] {
     let mut digest = rightkit_fs::digest::Sha256Hasher::new();
-    digest.update(format!("{}/runtime-executed-bakeoff/corpus-secret/v1\0", crate::host_identity::app()).as_bytes());
+    digest.update(
+        format!(
+            "{}/runtime-executed-bakeoff/corpus-secret/v1\0",
+            crate::host_identity::app()
+        )
+        .as_bytes(),
+    );
     digest.update(token.as_bytes());
     digest.update(&[0]);
     digest.update(suite_namespace.as_bytes());
@@ -1003,7 +1009,8 @@ impl BakeoffWorktree {
             .collect::<String>();
         let path = std::env::temp_dir().join(format!(
             "{app}-executed-bakeoff-{strategy}-{task_fragment}-{}-{sequence}",
-            std::process::id(), app = crate::host_identity::app()
+            std::process::id(),
+            app = crate::host_identity::app()
         ));
         // Own the cleanup guard before awaiting the mutating Git operation. If
         // the outer bakeoff timeout cancels this future midway through `add`,

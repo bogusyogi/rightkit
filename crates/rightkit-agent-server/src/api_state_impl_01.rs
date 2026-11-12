@@ -99,7 +99,9 @@ impl DaemonState {
             bound_port: 0,
             database_path: String::new(),
             learning: crate::learning::LearningHarness::new(),
-            skillopt_runs: Arc::new(Mutex::new(rightkit_agent_learning::SkillOptimizationStore::new())),
+            skillopt_runs: Arc::new(Mutex::new(
+                rightkit_agent_learning::SkillOptimizationStore::new(),
+            )),
             skillopt_store_path: None,
             memory_backend,
             membrane: Arc::new(rightkit_memory_client::membrane::Unavailable),

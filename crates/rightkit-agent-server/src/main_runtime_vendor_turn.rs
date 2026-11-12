@@ -316,14 +316,11 @@ pub(crate) fn resolve_provider_account(
     session_id: &str,
     project: &str,
 ) -> Result<Option<ResolvedClaudeAccount>, String> {
-    let store =
-        match rightkit_agent_config::accounts::AccountStore::default_location() {
-            Ok(store) => store,
-            Err(rightkit_agent_config::accounts::AccountsError::NoStateRoot) => {
-                return Ok(None)
-            }
-            Err(error) => return Err(error.to_string()),
-        };
+    let store = match rightkit_agent_config::accounts::AccountStore::default_location() {
+        Ok(store) => store,
+        Err(rightkit_agent_config::accounts::AccountsError::NoStateRoot) => return Ok(None),
+        Err(error) => return Err(error.to_string()),
+    };
     let Some(account_id) = store
         .resolve(Some(session_id), Some(project))
         .map_err(|error| error.to_string())?
@@ -626,8 +623,12 @@ fn vendor_launch_spec(
     } = request;
     match kind {
         VendorCli::ClaudeCode => {
-            let current_exe = std::env::current_exe()
-                .map_err(|error| format!("cannot resolve {app} executable: {error}", app = crate::host_identity::app()))?;
+            let current_exe = std::env::current_exe().map_err(|error| {
+                format!(
+                    "cannot resolve {app} executable: {error}",
+                    app = crate::host_identity::app()
+                )
+            })?;
             let mcp_config = serde_json::json!({
                 "mcpServers": {
                     (crate::host_identity::app()): {
@@ -657,7 +658,10 @@ fn vendor_launch_spec(
             }
             spec.args.extend([
                 "--permission-prompt-tool".into(),
-                format!("mcp__{app}__permission_prompt", app = crate::host_identity::app()),
+                format!(
+                    "mcp__{app}__permission_prompt",
+                    app = crate::host_identity::app()
+                ),
             ]);
             let frame = serde_json::json!({
                 "type": "user",

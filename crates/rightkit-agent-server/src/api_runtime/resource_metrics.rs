@@ -349,11 +349,9 @@ pub(crate) async fn resource_metrics_json(state: &DaemonState) -> serde_json::Va
     let prompt_overhead = rightkit_agent_telemetry::prompt_overhead_aggregates();
     let cache_prefix_events = rightkit_agent_telemetry::cache_prefix_events();
     let tool_schema_observations = rightkit_agent_telemetry::tool_schema_observations();
-    let procedural_asset_observations =
-        rightkit_agent_telemetry::procedural_asset_observations();
+    let procedural_asset_observations = rightkit_agent_telemetry::procedural_asset_observations();
     let evaluation_outcomes = rightkit_agent_telemetry::evaluation_outcomes();
-    let provider_turn_evidence =
-        rightkit_agent_telemetry::evidence::provider_turn_evidence_ring();
+    let provider_turn_evidence = rightkit_agent_telemetry::evidence::provider_turn_evidence_ring();
     let live_session_ids: std::collections::HashSet<&str> = session_handles
         .iter()
         .map(|session| session.id.as_str())
@@ -612,9 +610,7 @@ fn event_loop_delay_json() -> serde_json::Value {
 /// fabricated zero-child topology.
 #[cfg(unix)]
 fn enumerate_child_pids() -> Option<Vec<u32>> {
-    rightkit_agent_telemetry::resource_report::platform_topology::children_of(
-        std::process::id(),
-    )
+    rightkit_agent_telemetry::resource_report::platform_topology::children_of(std::process::id())
 }
 
 /// Windows child enumeration via Toolhelp32. The exe name is carried so the

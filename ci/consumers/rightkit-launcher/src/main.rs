@@ -49,8 +49,10 @@ fn main() {
         "json::parse refuses input over its byte cap",
     );
     check(
-        tf("{} opens first; {} no longer gets the key", &["App", "Other"])
-            == "App opens first; Other no longer gets the key",
+        tf(
+            "{} opens first; {} no longer gets the key",
+            &["App", "Other"],
+        ) == "App opens first; Other no longer gets the key",
         "tf fills placeholders in order without a host",
     );
     println!("OK rightkit-launcher 0.2.0 (registry consumer)");

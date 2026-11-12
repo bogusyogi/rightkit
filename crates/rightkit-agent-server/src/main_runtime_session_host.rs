@@ -320,8 +320,9 @@ fn apply_membrane_cli_composition(mut state: api::DaemonState) -> api::DaemonSta
             // Pulse absent connects to the typed unavailable backend; the
             // context is still off and must be reported degraded.
             if rightkit_memory_client::backend::native::context_is_off() {
-                state =
-                    state.with_context_degraded(rightkit_memory_client::membrane::OFF_REASON.to_string());
+                state = state.with_context_degraded(
+                    rightkit_memory_client::membrane::OFF_REASON.to_string(),
+                );
             }
         }
         Err(error) => {
@@ -809,7 +810,9 @@ impl InlineMcpProjection {
         let name = request
             .get("tool_name")
             .and_then(serde_json::Value::as_str)
-            .and_then(|name| name.strip_prefix(&format!("mcp__{app}__", app = crate::host_identity::app())));
+            .and_then(|name| {
+                name.strip_prefix(&format!("mcp__{app}__", app = crate::host_identity::app()))
+            });
         let Some(name) = name.filter(|name| *name != "permission_prompt") else {
             return Ok(
                 serde_json::json!({"behavior": "deny", "message": "Only RightKit tools are permitted"}),

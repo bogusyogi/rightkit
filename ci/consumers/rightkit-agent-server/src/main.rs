@@ -25,9 +25,18 @@ fn main() {
 
     let derived = HostIdentity::new("example-app");
     check(derived.app() == "example-app", "app name kept");
-    check(derived.home_dir() == ".example-app", "state folder derives from the app name");
-    check(derived.config_dir() == "example-app", "config folder derives from the app name");
-    check(derived.license_app() == "example-app", "licence app derives from the app name");
+    check(
+        derived.home_dir() == ".example-app",
+        "state folder derives from the app name",
+    );
+    check(
+        derived.config_dir() == "example-app",
+        "config folder derives from the app name",
+    );
+    check(
+        derived.license_app() == "example-app",
+        "licence app derives from the app name",
+    );
     check(
         derived.credential_namespace() == "example-app",
         "credential namespace derives from the app name",
@@ -36,7 +45,10 @@ fn main() {
         derived.github_client_id().is_none() && derived.homepage().is_none(),
         "no Github client id or homepage unless given",
     );
-    check(derived.harness_radar().is_none(), "no watch-list unless given");
+    check(
+        derived.harness_radar().is_none(),
+        "no watch-list unless given",
+    );
 
     let set = HostIdentity::new("example-app")
         .with_home_dir(".example")
@@ -65,7 +77,10 @@ fn main() {
     std::panic::set_hook(Box::new(|_| {}));
     let refused = std::panic::catch_unwind(|| HostIdentity::new("Bad Name"));
     std::panic::set_hook(previous_hook);
-    check(refused.is_err(), "an app name that is not a lowercase slug is refused");
+    check(
+        refused.is_err(),
+        "an app name that is not a lowercase slug is refused",
+    );
 
     println!("OK rightkit-agent-server 0.1.2 (registry consumer, entry not invoked)");
 }

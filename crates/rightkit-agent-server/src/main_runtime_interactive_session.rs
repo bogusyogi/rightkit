@@ -264,7 +264,8 @@ mod interactive_session {
 
     // ── Repository scope selection (1C) ──────────────────────────────────
 
-    type SelectedRepository = rightkit_memory_client::backend::repository_scope::CanonicalRepositoryScope;
+    type SelectedRepository =
+        rightkit_memory_client::backend::repository_scope::CanonicalRepositoryScope;
 
     /// Initialize the selected repository from the launch directory. The cwd
     /// is consulted ONCE here and only when the existing canonical
@@ -1270,7 +1271,10 @@ mod interactive_session {
             .await
             .unwrap_or_default();
             if models.is_empty() {
-                eprintln!("{app} models {provider}: vendor catalog unavailable", app = crate::host_identity::app());
+                eprintln!(
+                    "{app} models {provider}: vendor catalog unavailable",
+                    app = crate::host_identity::app()
+                );
                 return 1;
             }
             for (id, _) in models {
@@ -1290,7 +1294,10 @@ mod interactive_session {
                     0
                 }
                 Err(error) => {
-                    eprintln!("{app} models {provider}: {error}", app = crate::host_identity::app());
+                    eprintln!(
+                        "{app} models {provider}: {error}",
+                        app = crate::host_identity::app()
+                    );
                     1
                 }
             };
@@ -1321,7 +1328,8 @@ mod interactive_session {
         ids.dedup();
         if ids.is_empty() {
             eprintln!(
-                "{app} models {provider}: provider is not configured or has no known models", app = crate::host_identity::app()
+                "{app} models {provider}: provider is not configured or has no known models",
+                app = crate::host_identity::app()
             );
             return 1;
         }
@@ -5706,9 +5714,9 @@ mod interactive_session {
                         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                             Ok(rightkit_agent_config::HostConfig::default())
                         }
-                        Err(error) => Err(rightkit_agent_config::ConfigError::Io(
-                            error.to_string(),
-                        )),
+                        Err(error) => {
+                            Err(rightkit_agent_config::ConfigError::Io(error.to_string()))
+                        }
                     },
                     |config| {
                         let _ = crate::tui_projects::apply_tui_setting(config, key, value);

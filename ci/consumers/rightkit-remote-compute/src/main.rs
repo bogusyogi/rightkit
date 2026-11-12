@@ -1,6 +1,8 @@
 // rightkit-remote-compute 0.2.0 consumed by exact registry pin (default features), outside the workspace.
 // Pure decisions only; no provider key, no network, no SSH.
-use rightkit_remote_compute::{commands, remote, rental, SettingsWorkerStore, WorkerStore, WORKERS_KEY};
+use rightkit_remote_compute::{
+    commands, remote, rental, SettingsWorkerStore, WorkerStore, WORKERS_KEY,
+};
 use serde_json::json;
 
 fn check(ok: bool, what: &str) {

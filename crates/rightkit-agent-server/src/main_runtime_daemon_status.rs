@@ -224,7 +224,10 @@ async fn daemon_resume(
         return daemon_attach(id).await;
     }
     if !last {
-        eprintln!("Usage: {app} resume <session-id> or {app} resume --last", app = crate::host_identity::app());
+        eprintln!(
+            "Usage: {app} resume <session-id> or {app} resume --last",
+            app = crate::host_identity::app()
+        );
         return 2;
     }
 
@@ -275,7 +278,10 @@ async fn daemon_fork(
             }
         }
     } else {
-        eprintln!("Usage: {app} fork <session-id> or {app} fork --last", app = crate::host_identity::app());
+        eprintln!(
+            "Usage: {app} fork <session-id> or {app} fork --last",
+            app = crate::host_identity::app()
+        );
         return 2;
     };
 

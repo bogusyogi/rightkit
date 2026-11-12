@@ -45,7 +45,10 @@ fn main() {
         safe_bytes: 1024.0,
         scanned_at: 0.0,
     };
-    check(summary.items == 3, "a cleanup summary is the host's own scan");
+    check(
+        summary.items == 3,
+        "a cleanup summary is the host's own scan",
+    );
     check(
         type_ahead::take().is_empty(),
         "the type-ahead holds nothing while no capture is open",
@@ -59,5 +62,7 @@ fn main() {
 
 #[cfg(not(windows))]
 fn main() {
-    println!("skip: rightkit-launcher-win exports only Windows modules; nothing to check on this host");
+    println!(
+        "skip: rightkit-launcher-win exports only Windows modules; nothing to check on this host"
+    );
 }

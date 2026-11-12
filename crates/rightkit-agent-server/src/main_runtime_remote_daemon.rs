@@ -137,7 +137,10 @@ fn telegram_live_smoke_next_steps(
     if readiness_passed && chat_passed {
         return vec![
             "Send a normal Telegram command/message to the bot to exercise the target session.",
-            crate::host_identity::interned(format!("Use `{app} remote status` for redacted cursor and binding details.", app = crate::host_identity::app())),
+            crate::host_identity::interned(format!(
+                "Use `{app} remote status` for redacted cursor and binding details.",
+                app = crate::host_identity::app()
+            )),
         ];
     }
 
@@ -176,7 +179,10 @@ async fn daemon_remote_json(label: &str, path: &str) -> i32 {
     let (base_url, token) = match crate::cli_presence::resolve_daemon_or_autostart().await {
         Some(p) => p,
         None => {
-            eprintln!("No running daemon found. Start one with `{app} serve`.", app = crate::host_identity::app());
+            eprintln!(
+                "No running daemon found. Start one with `{app} serve`.",
+                app = crate::host_identity::app()
+            );
             return 1;
         }
     };

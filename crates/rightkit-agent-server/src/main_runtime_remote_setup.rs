@@ -63,9 +63,7 @@ fn cli_remote_setup(
     0
 }
 
-fn remote_setup_summary_payload(
-    cfg: &rightkit_agent_config::HostConfig,
-) -> serde_json::Value {
+fn remote_setup_summary_payload(cfg: &rightkit_agent_config::HostConfig) -> serde_json::Value {
     serde_json::json!({
         "saved": true,
         "configPath": user_config_path().map(|p| p.display().to_string()),
@@ -79,9 +77,7 @@ fn remote_setup_summary_payload(
     })
 }
 
-fn remote_setup_next_steps(
-    cfg: &rightkit_agent_config::HostConfig,
-) -> Vec<&'static str> {
+fn remote_setup_next_steps(cfg: &rightkit_agent_config::HostConfig) -> Vec<&'static str> {
     if cfg.remote.telegram_token.is_none() {
         return vec![
             crate::host_identity::interned(format!("Create a bot with Telegram BotFather, then run `{app} remote setup --telegram-token <token>`.", app = crate::host_identity::app())),
@@ -91,10 +87,19 @@ fn remote_setup_next_steps(
 
     if cfg.remote.telegram_allowed_users.is_empty() {
         return vec![
-            crate::host_identity::interned(format!("Run `{app} remote validate` to verify Telegram accepts the saved BotFather token.", app = crate::host_identity::app())),
+            crate::host_identity::interned(format!(
+                "Run `{app} remote validate` to verify Telegram accepts the saved BotFather token.",
+                app = crate::host_identity::app()
+            )),
             "Message the bot once from the Telegram account that should control RightKit.",
-            crate::host_identity::interned(format!("Run `{app} remote users` to discover the numeric Telegram user id.", app = crate::host_identity::app())),
-            crate::host_identity::interned(format!("Run `{app} remote setup --allowed-user <id>` with the discovered user id.", app = crate::host_identity::app())),
+            crate::host_identity::interned(format!(
+                "Run `{app} remote users` to discover the numeric Telegram user id.",
+                app = crate::host_identity::app()
+            )),
+            crate::host_identity::interned(format!(
+                "Run `{app} remote setup --allowed-user <id>` with the discovered user id.",
+                app = crate::host_identity::app()
+            )),
         ];
     }
 

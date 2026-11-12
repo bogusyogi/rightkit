@@ -2,7 +2,10 @@ async fn daemon_export(session_id: &str, as_json: bool) -> i32 {
     let (base_url, token) = match crate::cli_presence::resolve_daemon_or_autostart().await {
         Some(p) => p,
         None => {
-            eprintln!("No running daemon found. Start one with `{app} serve`.", app = crate::host_identity::app());
+            eprintln!(
+                "No running daemon found. Start one with `{app} serve`.",
+                app = crate::host_identity::app()
+            );
             return 1;
         }
     };
@@ -56,7 +59,10 @@ async fn daemon_review_findings(session_id: &str, as_json: bool) -> i32 {
     let (base_url, token) = match crate::cli_presence::resolve_daemon_or_autostart().await {
         Some(p) => p,
         None => {
-            eprintln!("No running daemon found. Start one with `{app} serve`.", app = crate::host_identity::app());
+            eprintln!(
+                "No running daemon found. Start one with `{app} serve`.",
+                app = crate::host_identity::app()
+            );
             return 1;
         }
     };
@@ -211,7 +217,12 @@ fn render_cli_transcript_markdown(
 async fn daemon_post_raw(path: &str, body: serde_json::Value) -> Result<serde_json::Value, String> {
     let (base_url, token) = crate::cli_presence::resolve_daemon_or_autostart()
         .await
-        .ok_or_else(|| format!("No running daemon found. Start one with `{app} serve`.", app = crate::host_identity::app()))?;
+        .ok_or_else(|| {
+            format!(
+                "No running daemon found. Start one with `{app} serve`.",
+                app = crate::host_identity::app()
+            )
+        })?;
     let resp = rightkit_http::http_client::daemon_call(
         rightkit_http::Method::Post,
         &format!("{base_url}{path}"),

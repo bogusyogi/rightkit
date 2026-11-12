@@ -64,7 +64,8 @@ fn delivery_file_path(
 }
 
 fn remote_deliveries_path(root: &Path) -> PathBuf {
-    root.join(crate::host_identity::home_dir()).join("remote-deliveries.json")
+    root.join(crate::host_identity::home_dir())
+        .join("remote-deliveries.json")
 }
 
 pub(super) fn normalize_lexical(path: &Path) -> PathBuf {

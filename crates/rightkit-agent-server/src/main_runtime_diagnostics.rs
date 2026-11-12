@@ -144,7 +144,10 @@ async fn daemon_diagnostics_watch(once: bool, interval_ms: u64, json: bool) -> i
     let (base_url, token) = match crate::cli_presence::resolve_daemon_or_autostart().await {
         Some(connection) => connection,
         None => {
-            eprintln!("No running daemon found. Start one with `{app} serve`.", app = crate::host_identity::app());
+            eprintln!(
+                "No running daemon found. Start one with `{app} serve`.",
+                app = crate::host_identity::app()
+            );
             return 1;
         }
     };
@@ -239,7 +242,10 @@ async fn daemon_diagnostics_bundle(output: &str) -> i32 {
     let (base_url, token) = match crate::cli_presence::resolve_daemon_or_autostart().await {
         Some(p) => p,
         None => {
-            eprintln!("No running daemon found. Start one with `{app} serve`.", app = crate::host_identity::app());
+            eprintln!(
+                "No running daemon found. Start one with `{app} serve`.",
+                app = crate::host_identity::app()
+            );
             return 1;
         }
     };
