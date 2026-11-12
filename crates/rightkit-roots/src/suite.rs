@@ -208,6 +208,10 @@ fn platform_default_base() -> Result<PathBuf, SuiteError> {
 /// `SHGetKnownFolderPath(FOLDERID_LocalAppData, token = NULL)` is not used: for the current user
 /// it expands the known folder's `%USERPROFILE%\AppData\Local` default against the process
 /// environment, so a launcher (`rightkit-qa` sets `USERPROFILE` for its child) redirects it.
+/// (`rightkit_fs::app_dirs` does not call that API for Local AppData either: it reads the
+/// `User Shell Folders` value and expands it against the account's environment block, so the
+/// process environment does not move it. It differs from this base only for a relocated Local
+/// AppData or profile; do not unify the two without migrating the installed suite folder.)
 /// `LocalAppData` is a per-machine folder that Windows does not redirect to a server, so the
 /// profile-relative path is the real one.
 #[cfg(windows)]

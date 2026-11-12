@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Docs: the `app_dirs` module docs said every Windows folder is asked of `SHGetKnownFolderPath`; only the Profile folder is. Roaming and Local AppData are read from the `User Shell Folders` value and expanded against the account's environment block. No behaviour change.
+
 ## 0.4.14 (unpublished)
 
 - Added `atomic::publish_replacing(from, to)` (re-exported at the root): publish over an existing file with the write-through move and the bounded Windows access-denied retry (five attempts, 100 ms apart). `rightkit-library` and `rightkit-media-fetch` each carried their own copy (two in media-fetch); they now call this one. Shape review 2026-11-11, `rightkit-library` row; taken on the recommended option, pending the owner's confirmation.
