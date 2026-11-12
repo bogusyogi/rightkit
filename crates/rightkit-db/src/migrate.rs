@@ -14,8 +14,8 @@
 //! - rollback replays `down` steps and refuses when any step in the range lacks one.
 
 use crate::recover::{
-    allowed, is_unreadable, quarantine_database_journaled, unfinished_quarantine, RecoveryPolicy,
-    QUARANTINE_JOURNAL_SUFFIX,
+    allowed, is_unreadable, quarantine_database_journaled, resume_quarantine, with_suffix,
+    QuarantineResume, RecoveryPolicy, QUARANTINE_JOURNAL_SUFFIX,
 };
 use crate::{DbError, DbOptions, Result};
 use rusqlite::{Connection, ErrorCode, OptionalExtension};
@@ -777,11 +777,11 @@ pub struct Degraded {
     /// quarantine stopped part way and could not be undone (see `quarantine_incomplete`): then
     /// it is where the main file is now.
     pub quarantined: Option<PathBuf>,
-    /// `true` when a quarantine moved part of the stored database and neither finished nor rolled
-    /// back. The files are split between the original path and `quarantined`; a
-    /// `<db>.quarantine-journal` file records the move and makes later opens through
-    /// [`DbOptions::open_writer_migrated_or_degrade`] stay in memory instead of creating a
-    /// replacement over the split files. A person must reunite or remove them.
+    /// `true` when a quarantine moved part of the stored database and could be neither finished
+    /// nor rolled back. The files are split between the original path and `quarantined`; a
+    /// `<db>.quarantine-journal` file records the move. Every open through
+    /// [`DbOptions::open_writer_migrated_or_degrade`] first tries [`crate::resume_quarantine`], and
+    /// while that fails it stays in memory instead of creating a replacement over the split files.
     pub quarantine_incomplete: bool,
     /// `true` when the connection is a private in-memory store, not a file at the path.
     pub in_memory: bool,
@@ -835,26 +835,34 @@ impl DbOptions {
         options: &MigrateOptions,
         policy: RecoveryPolicy,
     ) -> Result<OpenOrDegrade> {
-        // A quarantine an earlier run could not finish or undo: never create a replacement over
-        // the split files.
-        if let Some(journal) = unfinished_quarantine(&self.path) {
-            let reason = format!(
-                "an earlier quarantine of {} stopped part way and was not undone; see {}",
-                self.path.display(),
-                journal.display()
-            );
-            let refuse = DbError::Fs(rightkit_fs::FsError::io(
-                &journal,
-                std::io::Error::other(reason.clone()),
-            ));
-            return self.degrade_in_memory(migrations, options, policy, reason, None, true, refuse);
-        }
+        // A quarantine an earlier run started and did not finish is settled before anything opens:
+        // never create a replacement over split files, and never open a missing main file beside
+        // a live `-wal`. If it cannot be settled, the store stays untouched.
+        let resumed = match resume_quarantine(&self.path) {
+            Ok(QuarantineResume::Completed { quarantined }) => Some(quarantined),
+            Ok(_) => None,
+            Err(refuse) => {
+                let journal = with_suffix(&self.path, QUARANTINE_JOURNAL_SUFFIX);
+                let reason = format!(
+                    "an earlier quarantine of {} stopped part way and could not be settled; see {}: {refuse}",
+                    self.path.display(),
+                    journal.display()
+                );
+                return self
+                    .degrade_in_memory(migrations, options, policy, reason, None, true, refuse);
+            }
+        };
         let error = match self.open_writer_migrated(migrations, options) {
             Ok((conn, report)) => {
                 return Ok(OpenOrDegrade {
                     conn,
                     report,
-                    degraded: None,
+                    degraded: resumed.map(|quarantined| Degraded {
+                        reason: "an earlier quarantine was finished before this open".into(),
+                        quarantined: Some(quarantined),
+                        quarantine_incomplete: false,
+                        in_memory: false,
+                    }),
                 })
             }
             Err(error) if is_recoverable_damage(&error) => error,

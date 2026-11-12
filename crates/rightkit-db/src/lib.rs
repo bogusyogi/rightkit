@@ -53,8 +53,9 @@ pub use migrate::{
 #[cfg(feature = "cipher")]
 pub use recover::rekey;
 pub use recover::{
-    quarantine_database, quarantine_database_opts, quarantine_database_with, MoveMode, OpenOutcome,
-    QuarantineOptions, QuarantineStamp, RecoveryPolicy, SidecarPolicy,
+    quarantine_database, quarantine_database_opts, quarantine_database_with, resume_quarantine,
+    MoveMode, OpenOutcome, QuarantineOptions, QuarantineResume, QuarantineStamp, RecoveryPolicy,
+    SidecarPolicy,
 };
 
 pub use restore::{
