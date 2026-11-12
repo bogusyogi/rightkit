@@ -1,4 +1,4 @@
-// rightkit-daemon 0.8.0 registry consumer, outside the workspace, pinning `rightkit-daemon =0.8.0`
+// rightkit-daemon 0.9.0 registry consumer, outside the workspace, pinning `rightkit-daemon =0.9.0`
 // exactly with default features only (the `local` marker). It avoids `remote-loopback`; the
 // `remote`, `link` and `relay` features left for `rightkit-daemon-remote` in 0.7.0.
 //
@@ -184,6 +184,6 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     service_r2()?;
 
-    println!("OK rightkit-daemon 0.8.0 (registry consumer, PK07-3 root cutover + PK07 R2 service)");
+    println!("OK rightkit-daemon 0.9.0 (registry consumer, PK07-3 root cutover + PK07 R2 service)");
     Ok(())
 }

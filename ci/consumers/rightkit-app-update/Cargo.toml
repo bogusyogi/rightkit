@@ -7,5 +7,5 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-app-update = { version = "=0.1.0" }
+rightkit-app-update = { version = "=0.2.0" }
 serde_json = "1"

@@ -9,18 +9,18 @@
   "dependencies": {
     "react": "19.3.1",
     "react-dom": "19.3.1",
-    "@rightkit/app-update": "0.4.3",
+    "@rightkit/app-update": "0.4.4",
     "@rightkit/ci": "0.3.2",
     "@rightkit/legal": "0.6.3",
     "@rightkit/legal-ui": "0.4.2",
-    "@rightkit/license": "0.3.1",
+    "@rightkit/license": "0.3.2",
     "@rightkit/logs": "0.1.6",
-    "@rightkit/onboarding": "0.6.4",
+    "@rightkit/onboarding": "0.6.5",
     "@rightkit/outdated": "0.3.1",
     "@rightkit/platform-ui": "0.4.1",
-    "@rightkit/react-shell": "0.7.3",
+    "@rightkit/react-shell": "0.7.4",
     "@rightkit/release": "0.6.52",
     "@rightkit/tauri-shell": "0.1.4",
-    "@rightkit/theme": "0.3.2"
+    "@rightkit/theme": "0.3.3"
   }
 }

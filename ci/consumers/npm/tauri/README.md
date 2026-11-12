@@ -1,6 +1,6 @@
 # @rightkit/tauri npm consumer (draft, npm.@rightkit/tauri)
 
-Packed-archive consumer for `@rightkit/tauri` 0.4.0 (workspace version). The unit is installed only from the sealed
+Packed-archive consumer for `@rightkit/tauri` 0.4.1 (workspace version). The unit is installed only from the sealed
 `file:` archive. Its direct `@rightkit/*` dependencies are pinned to workspace versions: `@rightkit/logs` 0.1.6
 (runtime import of the command constants) and `@rightkit/app-update` 0.4.0 (non-optional peer, type-only at runtime).
 `@tauri-apps/plugin-dialog` 2.8.3 is installed explicitly for dialog import portability.

@@ -1,6 +1,6 @@
 # @rightkit/library-ui npm consumer (npm.@rightkit/library-ui)
 
-Packed-archive consumer for `@rightkit/library-ui` 0.2.1 (the workspace version). The unit is installed only from the sealed `file:` archive; the reviewed closure pins `react` 19.3.1, `react-dom` 19.3.1, `@rightkit/doc-render` 0.2.2, `@rightkit/media-ui` 0.3.6, `@rightkit/platform-ui` 0.4.1, `@rightkit/react-shell` 0.7.3, `@rightkit/tauri-shell` 0.1.4. Declared-only dependencies: `@phosphor-icons/react`, `@tauri-apps/api`, `@tauri-apps/plugin-dialog`, `lucide-react`.
+Packed-archive consumer for `@rightkit/library-ui` 0.2.1 (the workspace version). The unit is installed only from the sealed `file:` archive; the reviewed closure pins `react` 19.3.1, `react-dom` 19.3.1, `@rightkit/doc-render` 0.2.2, `@rightkit/media-ui` 0.3.6, `@rightkit/platform-ui` 0.4.1, `@rightkit/react-shell` 0.7.4, `@rightkit/tauri-shell` 0.1.4. Declared-only dependencies: `@phosphor-icons/react`, `@tauri-apps/api`, `@tauri-apps/plugin-dialog`, `lucide-react`.
 
 Surface (exact `exports` keys): `.`, `./package.json`, `./queue`, `./styles.css`.
 

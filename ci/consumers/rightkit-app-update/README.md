@@ -1,7 +1,7 @@
-# rightkit-app-update 0.1.0 registry consumer
+# rightkit-app-update 0.2.0 registry consumer
 
 Standalone package outside the RightKit workspace. It depends on `rightkit-app-update` by exact registry pin
-(`=0.1.0`) with default features. It has no path, Git, workspace or patch dependency and no
+(`=0.2.0`) with default features. It has no path, Git, workspace or patch dependency and no
 committed `Cargo.lock`. Extra pinned-by-range test dependencies: `serde_json`.
 
 Boot probation runs its real sentinel state machine (begin, evaluate_boot, report_stage,

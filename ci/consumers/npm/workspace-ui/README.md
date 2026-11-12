@@ -1,6 +1,6 @@
 # @rightkit/workspace-ui npm consumer (npm.@rightkit/workspace-ui)
 
-Packed-archive consumer for `@rightkit/workspace-ui` (the workspace version, from `RIGHTKIT_CONSUMER_EXPECTED_VERSION`). The unit is installed only from the sealed `file:` archive; the reviewed closure pins `react` 19.3.1, `react-dom` 19.3.1, `@rightkit/platform-ui` 0.4.1 (the peer of `@rightkit/react-shell`), `@rightkit/react-shell` 0.7.3, `@rightkit/settings-ui` 0.7.1, `lucide-react` 1.66.0. No declared-only dependencies (0.2.0 no longer depends on `@rightkit/mail-ui`).
+Packed-archive consumer for `@rightkit/workspace-ui` (the workspace version, from `RIGHTKIT_CONSUMER_EXPECTED_VERSION`). The unit is installed only from the sealed `file:` archive; the reviewed closure pins `react` 19.3.1, `react-dom` 19.3.1, `@rightkit/platform-ui` 0.4.1 (the peer of `@rightkit/react-shell`), `@rightkit/react-shell` 0.7.4, `@rightkit/settings-ui` 0.7.2, `lucide-react` 1.66.0. No declared-only dependencies (0.2.0 no longer depends on `@rightkit/mail-ui`).
 
 Surface (exact `exports` keys): `.`, `./client`, `./host`, `./lib/avatar`, `./lib/calendarUtils`, `./package.json`.
 

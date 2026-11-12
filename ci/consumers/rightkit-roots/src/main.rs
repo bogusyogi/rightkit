@@ -1,4 +1,4 @@
-// rightkit-roots 0.1.0 registry consumer, outside the workspace, pinning `rightkit-roots =0.1.0`
+// rightkit-roots 0.2.0 registry consumer, outside the workspace, pinning `rightkit-roots =0.2.0`
 // exactly (no features exist). The crate is run mode, the suite root, app roots and root cutover,
 // moved unchanged from rightkit-daemon 0.7.0.
 //
@@ -148,6 +148,6 @@ fn main() -> Result<(), Box<dyn Error>> {
     assert_eq!(rightkit_roots::app_dirs::DEFAULT_ORG, SUITE_DIR_NAME);
     ok("app_dirs and StateDir re-exports");
 
-    println!("OK rightkit-roots 0.1.0 (registry consumer)");
+    println!("OK rightkit-roots 0.2.0 (registry consumer)");
     Ok(())
 }

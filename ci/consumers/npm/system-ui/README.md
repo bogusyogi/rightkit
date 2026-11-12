@@ -1,6 +1,6 @@
 # @rightkit/system-ui npm consumer (npm.@rightkit/system-ui)
 
-Packed-archive consumer for `@rightkit/system-ui` (the workspace version, from `RIGHTKIT_CONSUMER_EXPECTED_VERSION`). The unit is installed only from the sealed `file:` archive; the reviewed closure pins `react` 19.3.1, `react-dom` 19.3.1, `@rightkit/platform-ui` 0.4.1, `@rightkit/react-shell` 0.7.3, `@rightkit/settings-ui` 0.7.1, `lucide-react` 1.66.0. No declared-only dependencies (0.2.0 has no Tauri, logs, onboarding or legal dependency).
+Packed-archive consumer for `@rightkit/system-ui` (the workspace version, from `RIGHTKIT_CONSUMER_EXPECTED_VERSION`). The unit is installed only from the sealed `file:` archive; the reviewed closure pins `react` 19.3.1, `react-dom` 19.3.1, `@rightkit/platform-ui` 0.4.1, `@rightkit/react-shell` 0.7.4, `@rightkit/settings-ui` 0.7.2, `lucide-react` 1.66.0. No declared-only dependencies (0.2.0 has no Tauri, logs, onboarding or legal dependency).
 
 Surface (exact `exports` keys): `.`, `./activityLease`, `./api`, `./components/Chart`, `./host`, `./metrics`, `./package.json`, `./styles.css`, `./views/Storage`, `./views/monitor.css`, `./visible`.
 

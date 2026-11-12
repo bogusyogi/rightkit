@@ -1978,7 +1978,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-child-process"
-version = "0.5.10"
+version = "0.5.11"
 dependencies = [
  "libc",
  "windows",
@@ -1996,7 +1996,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-fs"
-version = "0.4.14"
+version = "0.4.15"
 dependencies = [
  "libc",
  "sha2",
@@ -2006,7 +2006,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-logs"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "getrandom 0.4.3",
  "libc",

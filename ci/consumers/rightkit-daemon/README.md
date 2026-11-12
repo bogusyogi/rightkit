@@ -1,6 +1,6 @@
-# rightkit-daemon 0.8.0 registry consumer (PK07-3 + PK07 R2)
+# rightkit-daemon 0.9.0 registry consumer (PK07-3 + PK07 R2)
 
-Standalone consumer, outside the workspace, pinning `rightkit-daemon =0.8.0` exactly with default
+Standalone consumer, outside the workspace, pinning `rightkit-daemon =0.9.0` exactly with default
 features only. It exercises the root-cutover surface a registered app uses to move its data root:
 `Suite::per_run_temp`, `Suite::app_root`, `RootCutover` with a `FsMove::Tree` copy and one no-op
 `CutoverParticipant`, `status`, `selected_root`, the completed rerun, `recover`, and

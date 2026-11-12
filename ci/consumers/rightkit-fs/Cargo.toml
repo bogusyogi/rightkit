@@ -7,5 +7,5 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-fs = { version = "=0.4.14", features = ["transaction"] }
+rightkit-fs = { version = "=0.4.15", features = ["transaction"] }
 serde_json = "1"

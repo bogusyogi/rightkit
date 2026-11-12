@@ -128,7 +128,7 @@ Capabilities: 222 (58 with fingerprints, 164 declaration-only). Internal owners 
 | github-workflows | `@rightkit/ci` | none | declaration-only | 0 | @rightkit/ci: published 0.3.1 (npm) |
 | global-hotkeys | `rightkit-hotkeys` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-hotkeys: published 0.1.2 (crates.io) |
 | google-identity | `rightkit-google-identity` | none | declaration-only | 0 | rightkit-google-identity: published 0.2.0 (crates.io) |
-| google-workspace-apis | `rightkit-google-apis` | none | declaration-only | 0 | rightkit-google-apis: staged 0.1.1, not published |
+| google-workspace-apis | `rightkit-google-apis` | none | declaration-only | 0 | rightkit-google-apis: staged 0.2.0, not published |
 | html-editor | `@rightkit/html-editor` | none | declaration-only | 0 | @rightkit/html-editor: staged 0.2.0, not published |
 | http-client | `rightkit-http` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-http: published 0.3.8 (crates.io) |
 | installation-identity | `rightkit-identity` | none | declaration-only | 0 | rightkit-identity: published 0.1.0 (crates.io) |
@@ -147,7 +147,7 @@ Capabilities: 222 (58 with fingerprints, 164 declaration-only). Internal owners 
 | mail-ui | `@rightkit/mail-ui` | none | declaration-only | 0 | @rightkit/mail-ui: staged 0.2.1, not published |
 | markdown-editor | `@rightkit/markdown-editor` | none | declaration-only | 0 | @rightkit/markdown-editor: staged 0.2.0, not published |
 | mcp | `rightkit-mcp` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-mcp: published 0.7.0 (crates.io) |
-| media-fetch | `rightkit-media-fetch` | none | declaration-only | 0 | rightkit-media-fetch: staged 0.1.3, not published |
+| media-fetch | `rightkit-media-fetch` | none | declaration-only | 0 | rightkit-media-fetch: staged 0.2.0, not published |
 | media-gen-ui | `@rightkit/media-gen-ui` | none | declaration-only | 0 | @rightkit/media-gen-ui: staged 0.2.1, not published |
 | media-pipelines | `rightkit-ffmpeg` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-ffmpeg: published 0.2.10 (crates.io) |
 | media-playback | `rightkit-playback` | advise | fingerprinted | 1 (0 block, 1 advise) | rightkit-playback: published 0.3.0 (crates.io) |

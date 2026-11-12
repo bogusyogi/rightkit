@@ -1,4 +1,4 @@
-// rightkit-sync 0.2.3 consumed by exact registry pin (default features: helper, process-usage), outside
+// rightkit-sync 0.3.0 consumed by exact registry pin (default features: helper, process-usage), outside
 // the workspace.
 //
 // Compile-only (Adrian, 2026-11-03: "no dummy data, no fucking made up shit. real data."; "My decision was no

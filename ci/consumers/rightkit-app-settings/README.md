@@ -1,6 +1,6 @@
-# rightkit-app-settings 0.4.0 registry consumer (PK04)
+# rightkit-app-settings 0.4.1 registry consumer (PK04)
 
-Standalone consumer, outside the workspace, pinning `rightkit-app-settings =0.4.0` exactly. It
+Standalone consumer, outside the workspace, pinning `rightkit-app-settings =0.4.1` exactly. It
 exercises `atomic_write`: a first publication, then a replacement, each read back byte for byte.
 
 State: a per-process directory under the OS temp directory, removed at the end. No network, no

@@ -1,6 +1,6 @@
-# rightkit-roots 0.1.0 registry consumer
+# rightkit-roots 0.2.0 registry consumer
 
-Standalone package outside the RightKit workspace. It depends on `rightkit-roots` by exact registry pin (`=0.1.0`)
+Standalone package outside the RightKit workspace. It depends on `rightkit-roots` by exact registry pin (`=0.2.0`)
 with default features (there are none). It has no path, Git, workspace or patch dependency, no committed
 `Cargo.lock` and no other dependency.
 

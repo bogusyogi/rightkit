@@ -7,5 +7,5 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-google-apis = { version = "=0.1.1" }
+rightkit-google-apis = { version = "=0.2.0" }
 
