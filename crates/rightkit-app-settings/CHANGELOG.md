@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Added (#1572): `StoreOptions::retry_access_denied(attempts, delay)` and `FileBackend::retry_access_denied`, an opt-in (default off) retry of the replace on Windows access denied (error 5) as well as sharing/lock violations 32/33. With the default `Rename`, a reader that holds the file open without delete sharing fails the replace with 5, which `retry_sharing_violation` never covered. It uses `rightkit_fs::AccessDeniedRetry` (only the replace is repeated; its bound replaces the sharing bound for that write). Inert on Unix. Additive.
 - Fixed (#1572): `Store::snapshot()` applies the flat-file migration (`StoreOptions::flat_migration`) in memory on every store, not only on one opened with `open_read_only`. A writable store used to return the stored flat object unmigrated when another writer (an older build, a tool that knows the old layout) replaced the file after the open; it now returns the migrated value with the stored file's revision, as an app's own "decode, then migrate" read did. Nothing is written: no lock, no `.bak`, no commit. Per-field repair applied already. `Store::get`, `revision` and `poll_external` are unchanged.
 
 ## 0.4.0 (unpublished)

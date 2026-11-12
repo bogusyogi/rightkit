@@ -258,6 +258,13 @@ impl FileBackend {
         self
     }
 
+    /// Retry the replace on Windows access denied (error 5) as well. See
+    /// [`StoreOptions::retry_access_denied`].
+    pub fn retry_access_denied(mut self, attempts: u32, delay: std::time::Duration) -> Self {
+        self.mode.access_denied = Some(SharingRetry { attempts, delay });
+        self
+    }
+
     /// What to do with an unreadable file. Default [`OnCorrupt::Quarantine`].
     pub fn on_corrupt(mut self, policy: OnCorrupt) -> Self {
         self.on_corrupt = policy;
@@ -282,6 +289,7 @@ impl FileBackend {
                 replace: options.replace,
                 durable: options.durable,
                 retry: options.sharing_retry,
+                access_denied: options.access_denied_retry,
                 security: options.write_security,
             },
             keep_corrupt_copy: options.keep_corrupt_copy,

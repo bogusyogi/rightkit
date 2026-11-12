@@ -25,6 +25,9 @@ pub(crate) struct WriteMode {
     pub replace: ReplaceMode,
     pub durable: bool,
     pub retry: Option<SharingRetry>,
+    /// The opt-in bound for retrying Windows access denied (5) with 32/33; see
+    /// [`crate::StoreOptions::retry_access_denied`].
+    pub access_denied: Option<SharingRetry>,
     /// Who may read the written file. Translated into `rightkit_fs::Privacy` by [`fs_options`];
     /// this crate holds no permission or ACL code of its own.
     pub security: WriteSecurity,
@@ -36,6 +39,7 @@ impl Default for WriteMode {
             replace: ReplaceMode::Rename,
             durable: true,
             retry: None,
+            access_denied: None,
             security: WriteSecurity::Default,
         }
     }
@@ -62,14 +66,28 @@ pub(crate) fn fs_options(mode: &WriteMode) -> rightkit_fs::AtomicWriteOptions {
     }
 }
 
-/// [`atomic_write`] with an explicit replace mode, durability flag, and sharing-violation retry.
+/// [`atomic_write`] with an explicit replace mode, durability flag, and retry policy.
 /// `Error::Io` means nothing was published; `Error::Replaced` means the new file is in place.
 pub(crate) fn atomic_write_mode(dest: &Path, bytes: &[u8], mode: &WriteMode) -> Result<(), Error> {
     // Parents are made by the write itself, not here: a plain `create_dir_all` creates them with
     // no directory sync, so a durable write below them could lose the whole path.
     parent_of(dest)?;
-    rightkit_fs::atomic_write_with_options(dest, fs_options(mode), |f| f.write_all(bytes))
-        .map_err(|e| publish_error(dest, e))
+    let options = fs_options(mode);
+    let fill = |f: &mut fs::File| f.write_all(bytes);
+    let published = match mode.access_denied {
+        // The opt-in is rightkit-fs's own: it replaces the sharing-violation bound for this write.
+        Some(retry) => rightkit_fs::atomic_write_with_access_denied_retry(
+            dest,
+            options,
+            rightkit_fs::AccessDeniedRetry::new(rightkit_fs::RetryPolicy::new(
+                retry.attempts,
+                retry.delay,
+            )),
+            fill,
+        ),
+        None => rightkit_fs::atomic_write_with_options(dest, options, fill),
+    };
+    published.map_err(|e| publish_error(dest, e))
 }
 
 /// As [`atomic_write`] with an injectable replace step (used to prove the old file survives a
