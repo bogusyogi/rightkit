@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- **Fixed: licence removal uses the lent release queue.** `LicenseHostService::deactivate` calls the new `LicenseOps::deactivate_with_queue` (default: plain `deactivate`) when a queue was given with `with_release_queue`, so an offline removal no longer leaks the seat. Pair it with `rightkit_license::CredentialReleaseQueue`.
+- **Changed: the default `LicenseOps` for `LicenseClient` follows the client config** (`with_lease_activation`, `with_host_trial_platform`) instead of always using the typed-key activation and the platform-less trial request. Defaults unchanged.
+- **Fixed: the legal receipt read command returns a receipt of an earlier version** as `{ record, current: false }` (what `@rightkit/onboarding` expects) instead of `null`, which treated a user in the middle of setup as first-run. New `LegalReceiptService::read_state` and `LegalRead`; `read` is unchanged.
+- **Fixed: `LicenseAuthority` refreshes the licence before it captures a private binding**, best effort (a failed refresh keeps the stored entitlement), as a paid update needs a fresh one.
+
 ## 0.8.0
 
 - Breaking for dependents: dependency requirements `rightkit-app-settings` 0.3 -> 0.4, `rightkit-crash` 0.3 -> 0.4, `rightkit-daemon` 0.5 -> 0.8, `rightkit-instance` 0.1 -> 0.2, `rightkit-job-queue` 0.5 -> 0.6, `rightkit-logs` 0.3 -> 0.4, `rightkit-models` 0.5 -> 0.7. 0.7.3 was published before these requirements were raised; a semver-breaking dependency is a breaking change, so they ship as 0.8.0 instead of changing 0.7.3 in place (#1572).

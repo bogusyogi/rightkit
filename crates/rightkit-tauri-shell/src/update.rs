@@ -1550,10 +1550,16 @@ impl UpdateAuthority for LicenseAuthority {
                 rightkit_license::LicenseRevision::none(),
                 rightkit_license::UpdateRoute::Public,
             ),
-            UpdateRoute::Private => (
-                self.provider.revision().map_err(license_refusal)?,
-                rightkit_license::UpdateRoute::Private,
-            ),
+            UpdateRoute::Private => {
+                // A paid update needs a fresh signed entitlement, so the licence is re-validated
+                // first. This is the one point the revision is captured (a refresh after it would
+                // stale the binding). A failed refresh keeps the stored token and never blocks.
+                self.provider.refresh_best_effort();
+                (
+                    self.provider.revision().map_err(license_refusal)?,
+                    rightkit_license::UpdateRoute::Private,
+                )
+            }
         };
         Ok(BindingToken::new(rightkit_license::UpdateBinding {
             revision,
