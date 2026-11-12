@@ -6,6 +6,7 @@
 
 ## Unreleased
 
+- `AppRoot`, `AppRootError`, `Suite` and `mode::AppRoots` come from `rightkit-roots` (new dependency) instead of the deprecated `rightkit_daemon` paths.
 - Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
 
 ## 0.1.0 (unreleased)

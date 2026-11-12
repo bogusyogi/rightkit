@@ -15,12 +15,12 @@ include = ["src/**", "examples/**", "docs/**", "README.md", "CHANGELOG.md", "LIC
 # `windows` crate already pinned in the workspace lock (UI Automation, GDI,
 # clipboard, SendInput). No Python or Node at runtime. The `windows` crate is
 # cfg(windows) only, so the Windows backend compiles on the Windows host.
-# The optional `paths` feature adds `rightkit-daemon`. There is no dependency on any QA
+# The optional `paths` feature adds `rightkit-roots`. There is no dependency on any QA
 # crate: tier 2 is the `in_app::InApp` trait, implemented by the caller.
 [features]
 default = []
-# The fail-closed app-data root helpers in `paths` (resolved through `rightkit-daemon::Suite`).
-paths = ["dep:rightkit-daemon"]
+# The fail-closed app-data root helpers in `paths` (resolved through `rightkit-roots::Suite`).
+paths = ["dep:rightkit-roots"]
 # macOS only: lets `offscreen` call the WKWebView private SPI
 # `_setWindowOcclusionDetectionEnabled:` so an off-screen window keeps animating. Default off, so
 # shipping apps opt in explicitly; without it `offscreen` fails with a typed
@@ -40,7 +40,7 @@ desktop-context = [
 ]
 
 [dependencies]
-rightkit-daemon = { version = "0.8.0", path = "../rightkit-daemon", optional = true }
+rightkit-roots = { version = "0.1.0", path = "../rightkit-roots", optional = true }
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62", features = [

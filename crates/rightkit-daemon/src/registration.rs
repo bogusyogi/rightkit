@@ -36,9 +36,9 @@ use serde_json::Value;
 use crate::contract::{validate_method_id, CallContext, Emit, Handler, MethodPolicy, MethodTable};
 use crate::contract::{TableError, Transport};
 use crate::error::ServiceError;
+use crate::server::valid_service_name;
 use crate::server::ServiceConfig;
 use crate::Allowlist;
-use rightkit_roots::valid_service_name;
 
 /// Which transports a registered service may be offered on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

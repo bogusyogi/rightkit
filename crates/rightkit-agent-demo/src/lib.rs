@@ -188,8 +188,8 @@ pub fn plugin(identity: DemoIdentity) -> tauri::plugin::TauriPlugin<Wry> {
     let _ = IDENTITY.set(identity);
     tauri::plugin::Builder::<Wry>::new("agent-demo")
         .setup(|app, _api| {
-            let app_root = app.state::<rightkit_daemon::AppRoot>();
-            let roots = app.state::<rightkit_daemon::mode::AppRoots>();
+            let app_root = app.state::<rightkit_roots::AppRoot>();
+            let roots = app.state::<rightkit_roots::mode::AppRoots>();
             let host = DemoHost::new(app.clone(), &app_root, roots.suite.clone())?;
             app.manage(host.clone());
             host.restore();

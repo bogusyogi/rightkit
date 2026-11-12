@@ -401,18 +401,6 @@ pub fn passwd_home_dir() -> Result<PathBuf, SuiteError> {
     }
 }
 
-/// The longest service name `host` accepts, in bytes.
-pub const MAX_SERVICE_NAME_LEN: usize = 48;
-
-/// Whether `s` is a service name `host` accepts: non-empty, at most [`MAX_SERVICE_NAME_LEN`] bytes,
-/// and only ASCII lowercase letters, digits and `-`. This is the single rule `host` enforces.
-pub fn valid_service_name(s: &str) -> bool {
-    !s.is_empty()
-        && s.len() <= MAX_SERVICE_NAME_LEN
-        && s.chars()
-            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
-}
-
 /// Create `dir` (and parents), make the leaf owner-only and prove it, through the
 /// `rightkit-fs` private primitives (one-way roots -> fs dependency). On Windows this is the
 /// corrected existing-object repair: a pinned no-reparse handle, current-token ownership, a

@@ -6,9 +6,9 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use rightkit_daemon::{AppRoot, AppRootError};
 use rightkit_fs::{atomic_write, contain, contain_lenient};
 use rightkit_logs::JsonlStore;
+use rightkit_roots::{AppRoot, AppRootError};
 use serde_json::{json, Value};
 
 pub struct Store {

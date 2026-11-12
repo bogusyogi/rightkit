@@ -4,7 +4,7 @@
 
 use std::path::{Path, PathBuf};
 
-pub use rightkit_daemon::AppRoot;
+pub use rightkit_roots::AppRoot;
 
 /// Inputs to path resolution.
 #[derive(Debug, Clone)]

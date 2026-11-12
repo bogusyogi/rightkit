@@ -17,7 +17,7 @@
 //! * [`RootCutover`] - the crash-safe move of an app's data root to a new location, with the app's
 //!   lifecycle participants, persisted phases and recovery.
 //!
-//! These moved unchanged from `rightkit-daemon` 0.7.0, which re-exports them under their old paths
+//! These moved unchanged from `rightkit-daemon` 0.7.0, which re-exports them under their old paths, deprecated,
 //! (`rightkit_daemon::{mode, Suite, AppRoot, RootCutover, ...}`) for one release. An app that
 //! only needs its paths depends on this crate and not on the local-service crate.
 //!
@@ -58,6 +58,5 @@ pub use root_cutover::{
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 pub use suite::passwd_home_dir;
 pub use suite::{
-    make_private_dir, valid_service_name, Suite, SuiteError, ENV_SUITE_ROOT, MAX_SERVICE_NAME_LEN,
-    SHARED_DIR_NAME, SUITE_DIR_NAME,
+    make_private_dir, Suite, SuiteError, ENV_SUITE_ROOT, SHARED_DIR_NAME, SUITE_DIR_NAME,
 };
