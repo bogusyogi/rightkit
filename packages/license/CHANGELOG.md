@@ -1,4 +1,4 @@
-## Unreleased
+## 0.3.2
 
 Additive; defaults and wire behaviour unchanged. `dist/lifecycle.js` and `dist/lifecycle.d.ts` join the published files.
 

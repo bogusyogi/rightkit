@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.3
 
 Additive. The root export list is unchanged; `parseBrand` accepts every input it accepted before.
 

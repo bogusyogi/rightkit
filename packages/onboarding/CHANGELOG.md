@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.6.5
 
 - Changed: `OnboardingStep.blockedHint` and `OnboardingStep.continueLabel` also accept `(context) => string | undefined`, so the text can follow the step's state (`undefined` shows no hint, or the default label). A string works as before.
 - Removed: `importLegacyAcceptance`, its `LegacyAcceptanceImportOptions` type, and `LEGAL_RECEIPT_COMMANDS.import` (`rightkit_legal_receipt_import`). Both were added in 0.6.4 (unpublished). No Rust crate registers that command and no app calls the function. The native receipt (`crates/rightkit-tauri-shell/src/host/legal.rs`) imports a legacy receipt on its first read instead (`with_legacy_import`).

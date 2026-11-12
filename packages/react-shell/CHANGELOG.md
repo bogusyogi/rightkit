@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.7.4
 
 Additive. Existing props, defaults and markup are unchanged.
 
