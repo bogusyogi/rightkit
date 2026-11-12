@@ -7,6 +7,10 @@
 
 ## Unreleased
 
+- Renderer log bridge: `prepare_batch_filtered` keeps a record that fails to parse as a Warn carrying its event name (`unknown` when it has none) instead of counting it invalid. Non-objects and bad names stay invalid.
+- `ShellPlugin` injects `window.__RIGHTKIT_PLATFORM__ = "macos" | "ios" | "windows" | "linux"` (the value `platformInitializationScript` returns) in every profile, `lifecycle_only` included; apps no longer hand-write it. Nothing is injected on other targets.
+- `LeftClick::Emit`: a left click opens no menu and touches no window, it only emits the `click` tray event, for an app that handles the click itself.
+- `tauri` feature `image-ico` is on, so `TraySpec::icon_png` also accepts `.ico` bytes.
 - Docs: the `qa-probes` comments no longer promise a debug-assertions gate or a `compile_error!` (neither exists since the debug-assertion switches went); the feature is only a dev/QA feature a release build must not enable.
 - Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
 

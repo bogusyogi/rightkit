@@ -46,7 +46,7 @@ models = ["host-services", "dep:rightkit-models"]
 app-lock = ["host-services", "dep:rightkit-credentials", "rightkit-credentials/os-auth"]
 
 [dependencies]
-tauri = { version = "2", features = ["tray-icon", "image-png"] }
+tauri = { version = "2", features = ["tray-icon", "image-png", "image-ico"] }
 rightkit-daemon = { version = "0.8.0", path = "../rightkit-daemon" }
 rightkit-job-queue = { version = "0.6.0", path = "../rightkit-job-queue", default-features = false, features = ["supervisor"], optional = true }
 rightkit-child-process = { version = "0.5.0", path = "../rightkit-child-process" }

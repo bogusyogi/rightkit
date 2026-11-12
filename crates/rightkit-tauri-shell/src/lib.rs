@@ -930,6 +930,24 @@ impl Shell {
     }
 }
 
+/// `window.__RIGHTKIT_PLATFORM__ = "<name>";`, the same snippet `platformInitializationScript` in
+/// `@rightkit/platform-ui` returns, from the compile target. `None` on a target that package does not
+/// name (Android), so the renderer keeps its fallback.
+pub(crate) fn platform_init_script() -> Option<String> {
+    let name = if cfg!(target_os = "macos") {
+        "macos"
+    } else if cfg!(target_os = "ios") {
+        "ios"
+    } else if cfg!(target_os = "windows") {
+        "windows"
+    } else if cfg!(target_os = "linux") {
+        "linux"
+    } else {
+        return None;
+    };
+    Some(format!("window.__RIGHTKIT_PLATFORM__ = \"{name}\";"))
+}
+
 /// Build the plugin for `cfg`, honouring `cfg.modules`. Shared by [`Shell::plugin`] and
 /// [`ShellPluginBuilder::build`].
 pub(crate) fn install(cfg: ShellBuilder) -> TauriPlugin<Wry> {
@@ -1108,6 +1126,10 @@ pub(crate) fn install(cfg: ShellBuilder) -> TauriPlugin<Wry> {
             }
             setup(&app, cfg, nav, opener)
         });
+    // Every profile, `lifecycle_only` included: the first render already knows the OS.
+    if let Some(script) = platform_init_script() {
+        plugin = plugin.js_init_script(script);
+    }
     if harden_webviews {
         plugin = match script_scope {
             HardeningScript::AllFrames => {
@@ -1858,4 +1880,20 @@ macro_rules! __rk_handler_pdf {
 #[cfg(not(feature = "pdf-host"))]
 macro_rules! __rk_handler_pdf {
     ($($cmd:tt)*) => { $crate::__rk_handler_logs![$($cmd)*] };
+}
+
+#[cfg(test)]
+mod platform_init_tests {
+    #[test]
+    fn platform_script_matches_the_platform_ui_snippet() {
+        let script = super::platform_init_script().expect("desktop target");
+        let name = if cfg!(target_os = "macos") {
+            "macos"
+        } else if cfg!(target_os = "windows") {
+            "windows"
+        } else {
+            "linux"
+        };
+        assert_eq!(script, format!("window.__RIGHTKIT_PLATFORM__ = \"{name}\";"));
+    }
 }

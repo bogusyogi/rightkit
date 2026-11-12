@@ -292,7 +292,8 @@ pub struct WriteReport {
     pub received: usize,
     /// Dropped by the recording gate (nothing is stored while it is off).
     pub muted: usize,
-    /// Not an object, a bad event name or level, the reserved `logs_dropped` name.
+    /// Not an object, a bad event name, the reserved `logs_dropped` name. A record whose other fields do not
+    /// parse (a bad level, say) is kept as a Warn, not counted here.
     pub invalid: usize,
     /// Serialised larger than [`MAX_EVENT_BYTES`].
     pub oversize: usize,
@@ -453,10 +454,19 @@ pub fn prepare_batch_filtered(
             continue;
         }
         redaction.redact_value(&mut event);
-        let Ok(mut record) = serde_json::from_value::<EventRecord>(event) else {
-            out.invalid += 1;
-            continue;
-        };
+        // A record that does not parse is kept as a Warn carrying its event name (or `unknown`), never
+        // dropped: the renderer's report that something happened outlives its malformed fields.
+        let name = event
+            .get("event")
+            .and_then(Value::as_str)
+            .unwrap_or("unknown")
+            .to_owned();
+        let mut record = serde_json::from_value::<EventRecord>(event).unwrap_or_else(|_| {
+            let ts_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX));
+            EventRecord::new(ts_ms, Level::Warn, name)
+        });
         if !valid_event_name(&record.event) {
             out.invalid += 1;
             continue;
@@ -748,4 +758,29 @@ pub async fn rightkit_logs_clear(
     authorize(&webview, "clear")?;
     runtime_of(&app)?;
     blocking(move || app.state::<LogsRuntime>().clear().into_result()).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn unparseable_record_is_kept_as_warn_with_its_name() {
+        let batch = prepare_batch(
+            vec![
+                json!({"event": "ui_click", "level": "loud", "ts_ms": "yesterday"}),
+                json!({"event": "ok", "level": "info", "ts_ms": 1}),
+                json!({"level": "loud"}),
+                json!("not an object"),
+            ],
+            &RedactionPolicy::default(),
+        );
+        assert_eq!(batch.invalid, 1);
+        assert_eq!(batch.records.len(), 3);
+        assert_eq!(batch.records[0].event, "ui_click");
+        assert_eq!(batch.records[0].level, Level::Warn);
+        assert_eq!(batch.records[1].event, "ok");
+        assert_eq!(batch.records[2].event, "unknown");
+    }
 }
