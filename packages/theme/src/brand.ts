@@ -11,7 +11,8 @@ export type Mode = "light" | "dark";
  * - `colors["brand-soft"]`, `["brand-border"]`, `["brand-action-hover"]` carried through as CSS variables
  * - `dark`                   optional explicit dark values for any `brand-*` key
  * - `tokens`                 optional overrides of the suite colours per mode (surfaces, ink, status), emitted as `--rk-<name>`
- * - `wordmark`               the product name as written in the wordmark (e.g. "CutRight"); informational, never emitted as CSS
+ * - `wordmark`               the product name as written in the wordmark (e.g. "CutRight"); informational, never emitted as CSS.
+ *                            A font-family list here is ignored, and `applyBrand` warns (the font goes in `wordmarkFont`)
  * - `wordmarkFont`           CSS font-family stack for the wordmark, emitted as `--rk-wordmark-font` (e.g. `"Tanker", sans-serif`)
  */
 export interface BrandFile {

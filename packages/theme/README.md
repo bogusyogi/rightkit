@@ -56,6 +56,16 @@ undo(); // restores the previous inline value of each name it set
 
 `applyBrand(brand, mode, root, { applySuiteAliases: true })` also writes the flat suite aliases. It is off by default, because writing `--ink` or `--panel` would overwrite an app that owns those names.
 
+### Wordmark name and wordmark font
+
+In a brand file `wordmark` is the product name (`"CutRight"`); it is informational and never becomes CSS. The font is `wordmarkFont` (`"Tanker", sans-serif`), emitted as `--rk-wordmark-font`. In `fontTokens({ wordmark })` the key is the font stack.
+
+A `wordmark` that is a font-family list (two or more comma-separated entries, one of them a lower-case CSS generic family such as `sans-serif` or `system-ui`) is a mistake: it has no effect, and `applyBrand` reports it once with `console.warn` outside production builds (the brand is still applied). `parseBrand` accepts it. A product name is never matched: it would need a comma and a bare generic family keyword.
+
+### First-paint script
+
+`themeBootScript(storageKey, { defaultChoice?, alwaysPaintDataTheme?, darkRemovesAttribute?, qaOverride? })` returns the inline `<head>` script that sets `data-theme` before any bundle loads. It is the one implementation; `@rightkit/react-shell`'s `themeBootScript(options)` calls it. `qaOverride: "light" | "dark"` beats the stored choice. The script text changes only when `qaOverride` is passed, so an existing CSP hash stays valid.
+
 ## Known issues
 
 - `./node` imports Node built-ins. Browser bundles must import only the root entry.
