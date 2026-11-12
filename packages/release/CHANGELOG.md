@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **A crate scoped away from the packing host packs `--no-verify`.** `cargoPackageArgs(unit, qualifyOnly, entry, platform)` drops the verify build from the qualify-only pack (the gate's package stage, `scripts/ci/publish.mjs` `packCrates`) when the crate's `ci/gate.config.json` `platforms` (`crateRunsOn`) leave out the host's OS, so a darwin and win32 crate such as `rightkit-tts-qwen-sys` can be packed and sealed on the Linux runner of a direct qualification; its compile is proven by the native verify hosts it is scoped to. A crate with no `platforms`, or one that names the host, still verifies at pack time. The recorded step command, `--from-evidence` and the local admission's step check use the same function.
+
 ## 0.6.55
 
 - **`kind: "ffmpeg"` stages from the catalog row's archive when it names no `sources`.** The row's pinned `archive` (url, sha256, member) is fetched and checked like a `sources` entry, so an app no longer repeats the archive URLs and digests the catalog already carries. Skipped when the entry has a `stage` command; a config with `sources` is unchanged.

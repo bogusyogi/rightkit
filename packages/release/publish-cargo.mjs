@@ -415,16 +415,16 @@ export async function runCargoPublish(options, execute = (_command, args, settin
     if (status.error || status.status !== 0 || String(status.stdout ?? "").trim()) throw new Error("--from-evidence requires clean crate Cargo.toml, Cargo.lock and ci gate config (ci/gate.config.json, ci/asset-gated.json)");
     const proofHost = singleHostOfPolicy(gate.evidence) ?? "darwin";
     const runs = gate.evidence.runs.filter((run) => run?.host?.os === proofHost);
-    const command = `cargo package --locked -p ${options.crate}`;
-    if (!runs.length || !runs.every((run) => run.steps?.some((step) => step.ok === true && step.command === command))) {
-      throw new Error("--from-evidence requires a verified cargo package --locked receipt for this artifact");
-    }
     // Load the shared planner after module initialization: local-publish itself imports this publisher.
     // Validate the complete current qualification matrix, not merely one passing test and lint command.
-    const { localTestPlan } = await import("./local-publish.mjs");
+    const { cargoPackageArgs, localTestPlan } = await import("./local-publish.mjs");
     let config;
     try { config = JSON.parse(fs.readFileSync(path.join(options.workspaceRoot, "ci", "gate.config.json"), "utf8")); }
     catch { throw new Error("--from-evidence cannot read current ci/gate.config.json"); }
+    const command = `cargo ${cargoPackageArgs(options.crate, true, config?.rust?.[options.crate], proofHost).join(" ")}`;
+    if (!runs.length || !runs.every((run) => run.steps?.some((step) => step.ok === true && step.command === command))) {
+      throw new Error("--from-evidence requires a verified cargo package --locked receipt for this artifact");
+    }
     for (const run of runs) {
       if (!Array.isArray(run.steps) || run.steps.some((step) => step?.ok !== true || (step.failed ?? 0) !== 0)) {
         throw new Error("--from-evidence refuses an unsuccessful qualification step");
