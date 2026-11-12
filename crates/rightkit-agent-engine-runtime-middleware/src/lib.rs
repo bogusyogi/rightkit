@@ -3,6 +3,10 @@ use serde_json::Value;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+/// The `schemaVersion` of the execution-observation payload this crate writes. A wire format
+/// that existing data carries, so it stays as is for every app; readers compare against it.
+pub const EXECUTION_OBSERVATION_SCHEMA: &str = "coderight.execution-observation.v1";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum MiddlewarePhase {
@@ -443,7 +447,7 @@ fn execution_observation(span: &RuntimeSpan) -> RuntimeObservation {
         .to_string(),
         message: format!("{:?}: {}", span.phase, span.status),
         payload: serde_json::json!({
-            "schemaVersion": "coderight.execution-observation.v1",
+            "schemaVersion": EXECUTION_OBSERVATION_SCHEMA,
             "eventId": span.id.clone(),
             "sessionId": span.session_id.clone(),
             "causalParentId": span.parent_id.clone(),

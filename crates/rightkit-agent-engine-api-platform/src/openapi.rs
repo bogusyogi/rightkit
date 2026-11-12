@@ -1,5 +1,9 @@
 use serde_json::{json, Map, Value};
 
+/// The `schemaVersion` of the machine-status contract. A wire format that existing data and
+/// clients carry, so it stays as is for every app; the agent server emits and checks this.
+pub const MACHINE_STATUS_SCHEMA: &str = "coderight.machine-status.v1";
+
 pub fn health_openapi_components(allowed_sandbox_tiers: &[&str]) -> Map<String, Value> {
     let mut schemas = Map::new();
     schemas.insert("HealthResponse".into(), json!({"type":"object","required":["ok","service","version","contractVersion","protocolVersion"],"properties":{"ok":{"type":"boolean"},"service":{"type":"string"},"version":{"type":"string"},"contractVersion":{"type":"integer","minimum":0},"protocolVersion":{"type":"integer","minimum":0}},"additionalProperties":false}));
@@ -34,7 +38,7 @@ pub fn health_openapi_components(allowed_sandbox_tiers: &[&str]) -> Map<String, 
     schemas.insert("DiagnosticsBundleDownload".into(), json!({"type":"object","required":["fileName","contentType","contentBase64"],"properties":{"fileName":{"type":"string"},"contentType":{"type":"string","const":"application/zip"},"contentBase64":{"type":"string"}},"additionalProperties":false}));
     schemas.insert(
         "MachineStatusSchemaVersion".into(),
-        json!({"type":"string","const":"coderight.machine-status.v1"}),
+        json!({"type":"string","const":MACHINE_STATUS_SCHEMA}),
     );
     schemas.insert(
         "MachineStatusLifecycle".into(),

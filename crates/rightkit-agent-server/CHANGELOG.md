@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Fix: the machine-status and execution-observation schema ids are the wire formats of the crates that own them (`rightkit-agent-engine-api-platform::openapi::MACHINE_STATUS_SCHEMA`, `rightkit-agent-engine-runtime-middleware::EXECUTION_OBSERVATION_SCHEMA`), no longer derived from the host app name, so an app other than `coderight` no longer disagrees with them. Unchanged for `coderight`.
+
 ## 0.2.0 (unpublished)
 
 - Breaking: product names are host-supplied. Taken on the recommended option of the 2026-11-11 shape review, pending the owner's confirmation; design note: docs/audits/2026-11-11-shape-matrix/reports/agent-server-redraw.md.
