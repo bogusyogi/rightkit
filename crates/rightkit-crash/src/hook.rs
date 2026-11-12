@@ -81,6 +81,11 @@ pub struct CrashConfig {
     /// Whether the panic hook hands the panic to the previously installed hook (default: only in
     /// builds with debug assertions; see [`CrashConfig::chain_default_hook`]).
     chain_default_hook: bool,
+    /// Whether the panic hook aborts the process after recording (default `false`; see
+    /// [`CrashConfig::abort_after_report`]).
+    abort_after_report: bool,
+    /// macOS `sample` duration in seconds (default 1; see [`CrashConfig::sample_secs`]).
+    sample_secs: u8,
 }
 
 impl CrashConfig {
@@ -102,6 +107,8 @@ impl CrashConfig {
             process_kind: None,
             redact_values: SecretList::default(),
             chain_default_hook: false,
+            abort_after_report: false,
+            sample_secs: crate::native::DEFAULT_SAMPLE_SECS,
         }
     }
 
@@ -125,6 +132,27 @@ impl CrashConfig {
     pub fn chain_default_hook(mut self, enabled: bool) -> Self {
         self.chain_default_hook = enabled;
         self
+    }
+
+    /// Abort the process (`std::process::abort`) once the panic hook has recorded its report and
+    /// run any chained hook. Default `false`: the hook returns and the panic unwinds (or aborts)
+    /// as the build's panic strategy says. Set it for an app that must never continue past a
+    /// panic caught by a foreign frame, with the report already on disk.
+    pub fn abort_after_report(mut self, enabled: bool) -> Self {
+        self.abort_after_report = enabled;
+        self
+    }
+
+    /// How long the macOS native sample runs, in seconds, for the panic hook, the hang watchdog
+    /// and `capture_native_for_pid`. Default 1; held to 1 to 3, because the capture is abandoned
+    /// after 6 s. Ignored where there is no sample (Windows takes a minidump).
+    pub fn sample_secs(mut self, secs: u8) -> Self {
+        self.sample_secs = crate::native::clamp_sample_secs(secs);
+        self
+    }
+
+    pub(crate) fn sample_duration(&self) -> u8 {
+        self.sample_secs
     }
 
     /// The known secrets set with [`CrashConfig::redact_values`], for the hang watchdog's log tail.
@@ -327,6 +355,7 @@ pub fn recording_enabled() -> bool {
 pub fn install_panic_hook(config: CrashConfig) {
     let previous = std::panic::take_hook();
     let chain = config.chain_default_hook;
+    let abort = config.abort_after_report;
     let app_name = config.app_name.clone();
     std::panic::set_hook(Box::new(move |info| {
         if caught_scope_active() {
@@ -350,6 +379,9 @@ pub fn install_panic_hook(config: CrashConfig) {
             previous(info);
         } else {
             eprintln!("{}", non_chaining_notice(&app_name, recorded));
+        }
+        if abort {
+            std::process::abort();
         }
     }));
 }
@@ -469,6 +501,7 @@ pub fn capture_native_for_pid(config: &CrashConfig, kind: &str, pid: u32) -> Opt
         stamp,
         pid,
         config.redact_values.as_slice(),
+        config.sample_secs,
     );
     if outcome.artifact.is_some() {
         retention::prune(&dir, config.retention);
@@ -547,7 +580,7 @@ pub fn record_report(
     if config.native_capture == NativeCapture::Auto {
         let outcome = dir
             .as_deref()
-            .map(|d| native::capture_detailed(d, &kind, stamp, secrets))
+            .map(|d| native::capture_detailed(d, &kind, stamp, secrets, config.sample_secs))
             .unwrap_or_default();
         if let Some(path) = outcome.artifact {
             if let Some(name) = path.file_name() {

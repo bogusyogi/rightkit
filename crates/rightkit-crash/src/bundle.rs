@@ -96,6 +96,9 @@ pub struct AdmittedCrashArtifacts {
     pub reports: Vec<String>,
     /// `dump_*` and `sample_*` files; empty unless `include_native_dumps`.
     pub native: Vec<String>,
+    /// `dump_*` files that could not be copied into `staging`, left out and reported here. The
+    /// rest of the call carries on.
+    pub skipped: Vec<String>,
 }
 
 /// Admits crash artifacts into a caller's staging directory under the same rules the support
@@ -106,9 +109,11 @@ pub struct AdmittedCrashArtifacts {
 /// * With `include_native_dumps`, `dump_*` files are copied and `sample_*` text is scrubbed again
 ///   on the way in. A sample that cannot be read or scrubbed is replaced by a short withheld
 ///   marker, never by the raw bytes. A leftover raw sample never matches.
-/// * Failure rule: a file that cannot be written or copied into `staging` fails the whole call
-///   with an error naming it; nothing is skipped silently once it was admitted. Files already
-///   written stay in `staging` for the caller to discard.
+/// * Failure rule: a `dump_*` file that cannot be copied is skipped (any partial copy removed)
+///   and named in [`AdmittedCrashArtifacts::skipped`]; one bad dump does not cost the rest of
+///   the bundle. A report or sample that cannot be written into `staging`, or a `staging` that
+///   cannot be created, fails the whole call with an error naming it. Files already written
+///   stay in `staging` for the caller to discard.
 ///
 /// `staging` is created when missing. Names are returned in admission order.
 pub fn admit_crash_artifacts(
@@ -159,8 +164,11 @@ pub fn admit_crash_artifacts(
                     std::fs::write(&target, text)
                         .map_err(|e| format!("write {}: {e}", target.display()))?;
                 } else {
-                    std::fs::copy(entry.path(), &target)
-                        .map_err(|e| format!("copy {}: {e}", target.display()))?;
+                    if std::fs::copy(entry.path(), &target).is_err() {
+                        let _ = std::fs::remove_file(&target);
+                        admitted.skipped.push(name);
+                        continue;
+                    }
                 }
                 admitted.native.push(name);
             }

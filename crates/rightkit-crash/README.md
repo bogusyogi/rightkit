@@ -49,7 +49,7 @@ fn main() {
 
 ## Usage
 
-In release builds the panic hook prints one fixed line instead of the previous hook's message, so the panic payload never reaches stderr (rightkit#513). Builds with debug assertions chain to the previous hook by default. `CrashConfig::chain_default_hook(bool)` overrides either default.
+In release builds the panic hook prints one fixed line instead of the previous hook's message, so the panic payload never reaches stderr (rightkit#513). Builds with debug assertions chain to the previous hook by default. `CrashConfig::chain_default_hook(bool)` overrides either default. `CrashConfig::abort_after_report(true)` makes the hook call `std::process::abort()` after the report (default `false`). `CrashConfig::sample_secs(n)` sets the macOS `sample` duration (default 1 s, held to 1 to 3).
 
 
 Taken from the setup in `tests/crash_e2e.rs`:
