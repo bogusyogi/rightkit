@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+Additive. The existing pickers are unchanged.
+
+- `@rightkit/tauri/dialog`: `pickSavePath(options?)` resolves the chosen path or `null` (wraps the plugin's `save`), and `ask(message, options?)` resolves `true` only on confirm (wraps `ask`). Options pass through, as the pickers' do. Types `SaveOptions` and `AskOptions` are exported from the entry. The plugin's `save` and `ask` are declared in the ambient shape `src/plugin-dialog.d.ts`. Type checks in `type-tests/contract.ts`.
+
 ## 0.4.0 — unpublished staging
 
 Shape review 2026-11-11 (`docs/audits/2026-11-11-shape-matrix/reports/family-foundation-shell-ui.md`, section 6) judged this package the wrong shape: it exported one constructor per app and a table of apps, so a shared library named its consumers and had to be republished for each new app. 0.4.0 keeps one product-neutral constructor and moves the per-app values into the apps. 0.3.1 was never published; its entries below ship in this version.
