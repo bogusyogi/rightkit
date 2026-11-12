@@ -9934,7 +9934,10 @@ dependencies = [
  "async-trait",
  "axum",
  "rightkit-agent-engine-protocol",
+ "rightkit-http",
+ "serde_json",
  "tokio",
+ "url",
 ]
 
 [[package]]
@@ -10706,6 +10709,7 @@ name = "rightkit-bot-messaging"
 version = "0.1.2"
 dependencies = [
  "async-trait",
+ "rightkit-agent-daemon",
  "rightkit-agent-engine-protocol",
  "rightkit-agent-policy",
  "rightkit-crypto",
@@ -11845,7 +11849,6 @@ dependencies = [
  "serde_json",
  "tokio",
  "ureq",
- "url",
  "webpki-roots",
 ]
 
