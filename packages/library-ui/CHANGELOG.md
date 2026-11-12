@@ -2,6 +2,8 @@
 
 ## 0.2.1
 
+- Added: `./tauri` entry with `tauriLibrarySource(options?)`, the `LibrarySource` over ScrapeRight's artifact library (`get_history_page` by cursor behind the list's offsets, `get_transcript` and `get_transcript_variant` for the reader, `delete_transcript`, `job://update` for changes; command names overridable), and `LIBRARY_SORT_VARIANTS`.
+
 - Fix: the origin filter never matched. Its options were the rows' display labels (a friendly app name such as "Google Chrome"), and that label went to the source as `LibraryQuery.origin`, while a source such as HeardRight's delivery store matches its own raw key (the process name). `LibraryOrigin` gains `filterKey` (the source's key, default `label`): the filter sends `filterKey` and shows `label`. `LibraryToolbar`'s `appOptions` also takes `{ value, label }` options (`LibraryFilterOption`); bare strings behave as before.
 - Docs: "no IPC" holds for the main entry (contract, list, reader) only; the `./queue` entry imports `@tauri-apps/api`, `@tauri-apps/plugin-dialog` and `@rightkit/tauri-shell` and calls ScrapeRight's commands by name. README, CHANGELOG wording and the entry comments say so.
 
