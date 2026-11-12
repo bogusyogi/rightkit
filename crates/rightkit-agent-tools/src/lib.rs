@@ -20,8 +20,6 @@
 
 pub mod applicability;
 pub mod backends;
-#[cfg(feature = "coding_tools")]
-pub mod coding_tools;
 pub mod exposure;
 mod journal;
 #[cfg(feature = "mcp-provider")]

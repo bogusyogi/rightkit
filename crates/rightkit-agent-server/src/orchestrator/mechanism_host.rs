@@ -9,7 +9,7 @@ use rightkit_agent_orchestration::coding::mechanism::{
 };
 
 fn conductor_capability_source() -> StaticCapabilitySource {
-    let capabilities = rightkit_agent_tools::coding_tools::default_tool_capabilities();
+    let capabilities = rightkit_agent_coding_tools::default_tool_capabilities();
     let descriptors = capabilities
         .iter()
         .map(|capability| {

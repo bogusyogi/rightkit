@@ -27,7 +27,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 /// One agent's worktree request, mirroring
-/// `rightkit_agent_tools::coding_tools::SubagentWorktreeOptions` at the orchestration seam
+/// `rightkit_agent_coding_tools::SubagentWorktreeOptions` at the orchestration seam
 /// (this crate does not depend on `host_tools`, so the caller maps
 /// fields across the boundary).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -237,7 +237,7 @@ fn run_managed_command(
     context: rightkit_sandbox::execution::ProcessLaunchContext,
 ) -> Result<(i32, Vec<u8>, Vec<u8>), String> {
     let adapter: Arc<dyn rightkit_sandbox::execution::ProcessLaunchAdapter> =
-        Arc::new(rightkit_agent_tools::coding_tools::shell::NativeCommandSandboxAdapter);
+        Arc::new(rightkit_agent_coding_tools::shell::NativeCommandSandboxAdapter);
     let spec = rightkit_sandbox::execution::CommandLaunchSpec {
         program: program.to_string(),
         argv: args.to_vec(),
@@ -301,7 +301,7 @@ fn registered_worktree_matches(
         sandbox_required: true,
         network_required: false,
     };
-    let adapter = rightkit_agent_tools::coding_tools::shell::NativeCommandSandboxAdapter;
+    let adapter = rightkit_agent_coding_tools::shell::NativeCommandSandboxAdapter;
     let prepared = rightkit_sandbox::execution::CommandSandboxAdapter::prepare(
         &adapter,
         "git",

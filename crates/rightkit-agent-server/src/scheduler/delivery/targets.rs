@@ -98,9 +98,9 @@ async fn deliver_session_message(
     fallback_content: &str,
 ) -> Result<(), String> {
     let message = delivery_message_content(source_artifact, fallback_content);
-    rightkit_agent_tools::coding_tools::MessageDispatcher::dispatch(
+    rightkit_agent_coding_tools::MessageDispatcher::dispatch(
         state,
-        rightkit_agent_tools::coding_tools::MessageDispatch {
+        rightkit_agent_coding_tools::MessageDispatch {
             from_session_id: session_id.to_string(),
             target_session_id: target
                 .target

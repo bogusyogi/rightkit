@@ -161,7 +161,7 @@ struct DaemonCompactionRouteResolver {
     state: DaemonState,
     selection: crate::inference_runtime::InferenceSelection,
     scheduler: crate::inference_runtime::InferenceScheduler,
-    tools: std::sync::Arc<rightkit_agent_tools::coding_tools::ToolRegistry>,
+    tools: std::sync::Arc<rightkit_agent_coding_tools::ToolRegistry>,
     active_requests: std::sync::Arc<std::sync::atomic::AtomicUsize>,
 }
 
@@ -450,7 +450,7 @@ impl DaemonState {
                     .output();
                 match added {
                     Ok(output) if output.status.success() => {
-                        if let Err(error) = rightkit_agent_tools::coding_tools::git_read::ignore_runtime_worktrees(std::path::Path::new(base)) {
+                        if let Err(error) = rightkit_agent_coding_tools::git_read::ignore_runtime_worktrees(std::path::Path::new(base)) {
                             tracing::warn!(session_id = %id, %error, "could not exclude engine-owned isolation worktrees from Git status");
                         }
                         tracing::info!(session_id = %id, path = %candidate.display(), "forced isolation git worktree created");
@@ -486,7 +486,7 @@ impl DaemonState {
             let reports_handle = self.mutation_journal_reports.clone();
             tokio::spawn(async move {
                 let scanned = tokio::task::spawn_blocking(move || {
-                    rightkit_agent_tools::coding_tools::file_service::recover_mutation_journals(
+                    rightkit_agent_coding_tools::file_service::recover_mutation_journals(
                         std::path::Path::new(&workspace_for_recovery),
                     )
                 })
@@ -697,7 +697,7 @@ impl DaemonState {
         let pending_plans: crate::plan_exit::PendingPlans = Arc::new(Mutex::new(HashMap::new()));
         let transcript: Arc<Mutex<Vec<TranscriptMessage>>> = Arc::new(Mutex::new(seed.clone().unwrap_or_default()));
         let tasks: Arc<Mutex<Vec<rightkit_agent_engine_protocol::TaskNode>>> = Arc::new(Mutex::new(Vec::new()));
-        let background_shells: rightkit_agent_tools::coding_tools::background_shell::BgStore = Arc::new(Mutex::new(HashMap::new()));
+        let background_shells: rightkit_agent_coding_tools::background_shell::BgStore = Arc::new(Mutex::new(HashMap::new()));
         let process_launch_adapter = crate::main_runtime::governed_child_process_launcher().ok();
         let process_launch_context = rightkit_sandbox::execution::ProcessLaunchContext {
             workspace_root: workspace_root.to_string(),
@@ -705,8 +705,8 @@ impl DaemonState {
             sandbox_required: options.safe_mode,
             network_required: false,
         };
-        let browser_sessions: rightkit_agent_tools::coding_tools::browser::BrowserStore = Arc::new(tokio::sync::Mutex::new(HashMap::new()));
-        let task_store: rightkit_agent_tools::coding_tools::task_tools::TaskStore = Arc::new(Mutex::new(HashMap::new()));
+        let browser_sessions: rightkit_agent_coding_tools::browser::BrowserStore = Arc::new(tokio::sync::Mutex::new(HashMap::new()));
+        let task_store: rightkit_agent_coding_tools::task_tools::TaskStore = Arc::new(Mutex::new(HashMap::new()));
         let artifacts: Arc<Mutex<Vec<rightkit_agent_engine_protocol::ArtifactRow>>> = Arc::new(Mutex::new(Vec::new()));
         let (steer_tx, steer_rx) = tokio::sync::mpsc::channel::<String>(16);
         let (provider_boundary_tx, provider_boundary_rx) =
@@ -1715,7 +1715,7 @@ impl DaemonState {
                 )
             };
         let mut turn_checkpoint_seq: u64 = if turn_checkpoints_enabled {
-            rightkit_agent_tools::coding_tools::workspace_checkpoint::latest_turn_number(
+            rightkit_agent_coding_tools::workspace_checkpoint::latest_turn_number(
                 std::path::Path::new(&workspace),
                 &session_id,
             )
@@ -1778,7 +1778,7 @@ impl DaemonState {
             let snapshot_session = session_id.to_string();
             let snapshot_turn = turn_checkpoint_seq;
             let snapshot = tokio::task::spawn_blocking(move || {
-                rightkit_agent_tools::coding_tools::workspace_checkpoint::snapshot_turn(
+                rightkit_agent_coding_tools::workspace_checkpoint::snapshot_turn(
                     std::path::Path::new(&snapshot_workspace),
                     &snapshot_session,
                     snapshot_turn,
@@ -2069,7 +2069,7 @@ impl DaemonState {
             let commit_workspace = workspace.clone();
             let message = format!("{app}: auto-commit on exit (session {session_id})", app = crate::host_identity::app());
             match tokio::task::spawn_blocking(move || {
-                rightkit_agent_tools::coding_tools::workspace_checkpoint::auto_commit_workspace(
+                rightkit_agent_coding_tools::workspace_checkpoint::auto_commit_workspace(
                     std::path::Path::new(&commit_workspace),
                     &message,
                 )

@@ -21,7 +21,7 @@ use crate::llm::{LlmClient, LlmRequestMetadata, LlmResponse, LlmResponseStream, 
 use async_trait::async_trait;
 use futures::StreamExt;
 use rightkit_agent_engine_protocol::{ToolCall, TranscriptMessage};
-use rightkit_agent_tools::coding_tools::ToolRegistry;
+use rightkit_agent_coding_tools::ToolRegistry;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
@@ -329,7 +329,7 @@ impl LlmClient for RedactingLlm {
 
     fn promoted_tool_state_snapshot(
         &self,
-    ) -> rightkit_agent_tools::coding_tools::registry::PromotedToolState {
+    ) -> rightkit_agent_coding_tools::registry::PromotedToolState {
         self.inner.promoted_tool_state_snapshot()
     }
 

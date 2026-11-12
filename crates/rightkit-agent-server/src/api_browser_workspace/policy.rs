@@ -3,8 +3,8 @@
 //! decomposition map (ra-020): pure decision logic, no `RoutesState`
 //! dependency.
 //!
-//! Re-implemented (not re-used) from `rightkit_agent_tools::coding_tools::browser_fetch::ssrf_guard_reject_reason`
-//! because the guard is `pub(crate)` inside `rightkit_agent_tools::coding_tools`; re-using it
+//! Re-implemented (not re-used) from `rightkit_agent_coding_tools::browser_fetch::ssrf_guard_reject_reason`
+//! because the guard is `pub(crate)` inside `rightkit_agent_coding_tools`; re-using it
 //! from the standalone fragment would require widening the crate boundary,
 //! which is out of scope. The policy is the same: loopback-permit /
 //! metadata-host-block / DNS-resolve-private-target-reject.
@@ -14,7 +14,7 @@ use axum::response::Json;
 use rightkit_agent_policy::{
     CapabilityClass, PermissionDecision, PermissionEngine, PermissionMode,
 };
-use rightkit_agent_tools::coding_tools::browser::{
+use rightkit_agent_coding_tools::browser::{
     browser_navigation_reject_reason_with_allowlist, BrowserNavigationTrustV1,
 };
 use serde_json::Value;

@@ -30,7 +30,7 @@
 
 use crate::mop::{signature, tool_call_shape, LoopSignal};
 use rightkit_agent_engine_protocol::ToolCall;
-use rightkit_agent_tools::coding_tools::ToolRegistry;
+use rightkit_agent_coding_tools::ToolRegistry;
 use std::collections::{HashMap, VecDeque};
 
 /// Idempotency classification of a single tool call. Drives the

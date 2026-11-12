@@ -63,7 +63,7 @@
 //!   plumbing exists yet, and `ffi.rs` is not in this lane's allowlist.
 //! - The `is_reversible` predicate this module requires the caller to
 //!   supply has no production implementation yet. The natural source is
-//!   `rightkit_agent_tools::coding_tools::effect_receipt_store` (an in-process, non-durable
+//!   `rightkit_agent_coding_tools::effect_receipt_store` (an in-process, non-durable
 //!   per-session ledger) merged with tool-specific knowledge of what each
 //!   `effect_id` prefix means (e.g. a `write_file`/`edit_file` effect is
 //!   reversible via `undo_edit`'s snapshot stack; a `git push` or GitHub PR

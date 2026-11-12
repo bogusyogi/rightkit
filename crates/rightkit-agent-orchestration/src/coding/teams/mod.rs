@@ -4,7 +4,7 @@
 //! donor's `/team` command spawns a **peer** team of agents (`enableAgentTeams`
 //! + `createTeamName`) that coordinates across independent sessions/processes
 //! — distinct from the host app's existing parent-child subagent dispatch
-//! (`crate::coding::spawn`, `rightkit_agent_tools::coding_tools::TeamDirectory`) where
+//! (`crate::coding::spawn`, `rightkit_agent_coding_tools::TeamDirectory`) where
 //! one process owns and blocks on its children.
 //!
 //! Peer coordination needs three durable, shared surfaces that survive any

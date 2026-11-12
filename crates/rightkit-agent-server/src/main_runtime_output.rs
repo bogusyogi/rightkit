@@ -273,12 +273,12 @@ fn print_event(ev: &rightkit_agent_engine_protocol::ProtocolEvent, color: crate:
 
 async fn cli_diff(workspace: Option<&str>, staged: bool) -> i32 {
     use rightkit_agent_policy::{PermissionMode, WorkspaceTrust};
-    use rightkit_agent_tools::coding_tools::Tool;
+    use rightkit_agent_coding_tools::Tool;
 
     let workspace_path = workspace
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| ".".into()));
-    let ctx = rightkit_agent_tools::coding_tools::ToolContext::new(
+    let ctx = rightkit_agent_coding_tools::ToolContext::new(
         "cli-diff",
         &workspace_path,
         PermissionMode::Bypass,
@@ -286,7 +286,7 @@ async fn cli_diff(workspace: Option<&str>, staged: bool) -> i32 {
     );
     let repo_path = workspace_path.display().to_string();
 
-    let status = rightkit_agent_tools::coding_tools::git_read::GitReadTool
+    let status = rightkit_agent_coding_tools::git_read::GitReadTool
         .execute(serde_json::json!({ "repo_path": repo_path.clone() }), &ctx)
         .await;
     if status.is_error {
@@ -294,7 +294,7 @@ async fn cli_diff(workspace: Option<&str>, staged: bool) -> i32 {
         return 1;
     }
 
-    let diff = rightkit_agent_tools::coding_tools::git_diff::GitDiffTool
+    let diff = rightkit_agent_coding_tools::git_diff::GitDiffTool
         .execute(
             serde_json::json!({
                 "repo_path": repo_path,

@@ -347,7 +347,7 @@ pub fn spawn_replacement_for_request(
         use std::os::windows::process::CommandExt as _;
         let mut command = replacement_command_for_request(spec, identity);
         command.creation_flags(
-            rightkit_agent_tools::coding_tools::no_window::CREATE_NO_WINDOW
+            rightkit_agent_coding_tools::no_window::CREATE_NO_WINDOW
                 | rightkit_child_process::CREATE_BREAKAWAY_FROM_JOB,
         );
         match command.spawn() {

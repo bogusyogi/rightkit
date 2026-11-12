@@ -143,14 +143,14 @@ pub struct LiveSession {
     /// Latest task graph snapshot from TaskGraphUpdated events.
     pub tasks: Arc<Mutex<Vec<rightkit_agent_engine_protocol::TaskNode>>>,
     /// Live background shells owned by this daemon session.
-    pub background_shells: rightkit_agent_tools::coding_tools::background_shell::BgStore,
+    pub background_shells: rightkit_agent_coding_tools::background_shell::BgStore,
     /// Host-composed process adapter exposed to execution handlers. Process
     /// lifecycle/schema ownership remains with the process subsystem.
     pub process_launch_adapter: Option<Arc<dyn rightkit_sandbox::execution::ProcessLaunchAdapter>>,
     /// Session-bound policy context paired with `process_launch_adapter`.
     pub process_launch_context: rightkit_sandbox::execution::ProcessLaunchContext,
     /// Live browser sessions shared by agent tools and the visible Browser pane.
-    pub browser_sessions: rightkit_agent_tools::coding_tools::browser::BrowserStore,
+    pub browser_sessions: rightkit_agent_coding_tools::browser::BrowserStore,
     /// Artifacts produced during a conductor run (worker handoffs, the
     /// goal_verification record). Surfaced by GET /runtime/artifacts.
     pub artifacts: Arc<Mutex<Vec<rightkit_agent_engine_protocol::ArtifactRow>>>,
@@ -294,7 +294,7 @@ impl LiveSession {
     pub fn publish_mcp_manager(
         &self,
         manager: Arc<rightkit_mcp::agent_mcp::McpManager>,
-        tools: Arc<rightkit_agent_tools::coding_tools::ToolRegistry>,
+        tools: Arc<rightkit_agent_coding_tools::ToolRegistry>,
     ) {
         static REVISION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let Some(sender) = self.provider_boundary_tx.as_ref() else {
@@ -314,7 +314,7 @@ impl LiveSession {
 pub struct DriverToolRequest {
     pub call: rightkit_agent_engine_protocol::ToolCall,
     pub permission_only: bool,
-    pub response: tokio::sync::oneshot::Sender<rightkit_agent_tools::coding_tools::ToolResult>,
+    pub response: tokio::sync::oneshot::Sender<rightkit_agent_coding_tools::ToolResult>,
 }
 
 /// Cached completion-evidence flags consumed by `finalize_goal` to build
@@ -338,7 +338,7 @@ struct DaemonQuestioner {
     sandbox_grant_prompts: Arc<std::sync::atomic::AtomicBool>,
 }
 
-impl rightkit_agent_tools::coding_tools::UserQuestioner for DaemonQuestioner {
+impl rightkit_agent_coding_tools::UserQuestioner for DaemonQuestioner {
     fn supports_sandbox_grants(&self) -> bool {
         self.sandbox_grant_prompts
             .load(std::sync::atomic::Ordering::Acquire)
@@ -423,7 +423,7 @@ pub struct DaemonState {
     pub sessions: Arc<Mutex<HashMap<String, Arc<LiveSession>>>>,
     /// Shared authority for root-controller handoffs. Intake paths consult
     /// this controller before accepting work for a session being transferred.
-    pub handoff_controller: Arc<rightkit_agent_tools::coding_tools::handoff::HandoffController>,
+    pub handoff_controller: Arc<rightkit_agent_coding_tools::handoff::HandoffController>,
     /// Daemon-lifetime canonical MCP transport pool (master-change 3.4).
     /// Sessions loading the same server share one transport (one process +
     /// N leases) instead of spawning per-session copies.
@@ -556,7 +556,7 @@ pub struct DaemonState {
     /// User-level MCP config path managed by `/mcp` routes.
     pub mcp_user_config_path: PathBuf,
     /// Live team definitions created by agent/team tools.
-    pub live_teams: Arc<Mutex<HashMap<String, rightkit_agent_tools::coding_tools::TeamDefinition>>>,
+    pub live_teams: Arc<Mutex<HashMap<String, rightkit_agent_coding_tools::TeamDefinition>>>,
     /// Durable user-level team-definition index.
     pub team_store_path: PathBuf,
     /// Durable inter-session message ledger.
@@ -641,7 +641,7 @@ pub struct DaemonState {
         Mutex<
             std::collections::HashMap<
                 String,
-                Vec<rightkit_agent_tools::coding_tools::file_service::JournalReconciliation>,
+                Vec<rightkit_agent_coding_tools::file_service::JournalReconciliation>,
             >,
         >,
     >,

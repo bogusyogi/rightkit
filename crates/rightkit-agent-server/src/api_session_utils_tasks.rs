@@ -47,7 +47,7 @@ pub(crate) fn task_node_json(task: &rightkit_agent_engine_protocol::TaskNode) ->
 }
 
 pub(crate) fn task_record_json(
-    record: &rightkit_agent_tools::coding_tools::task_tools::TaskRecord,
+    record: &rightkit_agent_coding_tools::task_tools::TaskRecord,
     path: &FsPath,
     live_shell_statuses: &HashMap<String, String>,
 ) -> serde_json::Value {
@@ -132,7 +132,7 @@ pub(crate) fn task_record_json(
 }
 
 fn task_lifecycle_reason(
-    record: &rightkit_agent_tools::coding_tools::task_tools::TaskRecord,
+    record: &rightkit_agent_coding_tools::task_tools::TaskRecord,
     process_status: &str,
 ) -> String {
     match record.node.state {
@@ -189,18 +189,18 @@ pub(crate) fn same_path(left: &str, right: &FsPath) -> bool {
 }
 
 fn process_status_label(
-    status: rightkit_agent_tools::coding_tools::background_shell::BgStatus,
+    status: rightkit_agent_coding_tools::background_shell::BgStatus,
 ) -> String {
     match status {
-        rightkit_agent_tools::coding_tools::background_shell::BgStatus::Running => "running".into(),
-        rightkit_agent_tools::coding_tools::background_shell::BgStatus::Exited(_) => {
+        rightkit_agent_coding_tools::background_shell::BgStatus::Running => "running".into(),
+        rightkit_agent_coding_tools::background_shell::BgStatus::Exited(_) => {
             "exited".into()
         }
-        rightkit_agent_tools::coding_tools::background_shell::BgStatus::Killed => "killed".into(),
-        rightkit_agent_tools::coding_tools::background_shell::BgStatus::SpawnFailed(_) => {
+        rightkit_agent_coding_tools::background_shell::BgStatus::Killed => "killed".into(),
+        rightkit_agent_coding_tools::background_shell::BgStatus::SpawnFailed(_) => {
             "spawnFailed".into()
         }
-        rightkit_agent_tools::coding_tools::background_shell::BgStatus::Unknown => "unknown".into(),
+        rightkit_agent_coding_tools::background_shell::BgStatus::Unknown => "unknown".into(),
     }
 }
 
@@ -218,7 +218,7 @@ pub(crate) fn workspace_tasks_path(root: &FsPath) -> PathBuf {
 
 pub(crate) fn load_workspace_task_records(
     root: &FsPath,
-) -> Result<HashMap<String, rightkit_agent_tools::coding_tools::task_tools::TaskRecord>, String> {
+) -> Result<HashMap<String, rightkit_agent_coding_tools::task_tools::TaskRecord>, String> {
     let path = workspace_tasks_path(root);
     if !path.exists() {
         return Ok(HashMap::new());

@@ -277,7 +277,7 @@ pub unsafe extern "C" fn host_mobile_runtime_update_cloudflare_credential(
         handle.set_last_error(Some("config_json must be non-null UTF-8".into()));
         return -1;
     };
-    let config: rightkit_agent_tools::coding_tools::CloudflareConfig =
+    let config: rightkit_agent_coding_tools::CloudflareConfig =
         match serde_json::from_str(raw) {
             Ok(config) => config,
             Err(error) => {
@@ -367,7 +367,7 @@ pub unsafe extern "C" fn host_mobile_runtime_resolve_inbox_work(
             }
         }
     };
-    let resolution = rightkit_agent_tools::coding_tools::deferred_resolution::DeferredResolution {
+    let resolution = rightkit_agent_coding_tools::deferred_resolution::DeferredResolution {
         content: content.to_string(),
         is_error,
         data,
@@ -1357,12 +1357,12 @@ fn dispatch_capabilities_for_host(
     on_device_inference_available: bool,
     wasm_compute_available: bool,
 ) -> *mut c_char {
-    let mobile_capabilities = rightkit_agent_tools::coding_tools::MobileToolCapabilities {
+    let mobile_capabilities = rightkit_agent_coding_tools::MobileToolCapabilities {
         fetched_resource_packs,
         ..Default::default()
     };
     let resource_packs = mobile_capabilities.capabilities().to_vec();
-    let registry = rightkit_agent_tools::coding_tools::ToolRegistry::build_default();
+    let registry = rightkit_agent_coding_tools::ToolRegistry::build_default();
     let has_tool = |name: &str| registry.get(name).is_some();
     let statuses = vec![
             MobileCapabilityStatus {
@@ -1407,7 +1407,7 @@ fn dispatch_capabilities_for_host(
                 reason: if wasm_compute_available {
                     "Built-in import-free WasmKit interpreter is ready with memory, fuel, and wall-clock bounds.".to_string()
                 } else if has_tool("wasm_compute") {
-                    rightkit_agent_tools::coding_tools::wasm_compute::WasmComputeError::RuntimeNotConfigured.to_string()
+                    rightkit_agent_coding_tools::wasm_compute::WasmComputeError::RuntimeNotConfigured.to_string()
                 } else {
                     "The WASM compute tool is not registered in this mobile build.".to_string()
                 },
@@ -1531,7 +1531,7 @@ fn probe_tool(
     tool_name: &str,
     args: serde_json::Value,
 ) -> *mut c_char {
-    let registry = rightkit_agent_tools::coding_tools::ToolRegistry::build_default();
+    let registry = rightkit_agent_coding_tools::ToolRegistry::build_default();
     let Some(tool) = registry.get(tool_name) else {
         return ffi_err(format!(
             "tool {tool_name} is not registered in this mobile build"
@@ -1541,7 +1541,7 @@ fn probe_tool(
     if !workspace_root.is_absolute() {
         return ffi_err("workspaceRoot must be an absolute path");
     }
-    let context = rightkit_agent_tools::coding_tools::ToolContext::new(
+    let context = rightkit_agent_coding_tools::ToolContext::new(
         if request.session_id.is_empty() {
             "mobile-capability-probe"
         } else {
@@ -1834,13 +1834,13 @@ pub unsafe extern "C" fn host_mobile_branch_execute_rollback(
 #[serde(rename_all = "camelCase")]
 struct CloudProvisionWorkspaceRequest {
     session_id: String,
-    target: rightkit_agent_tools::coding_tools::cloud_endpoint::ExecutionTarget,
+    target: rightkit_agent_coding_tools::cloud_endpoint::ExecutionTarget,
     base_url: String,
     credential: String,
 }
 
 /// Provision (or re-fetch) a durable cloud workspace. See
-/// [`rightkit_agent_tools::coding_tools::cloud_workspace::provision_workspace`]. The caller is
+/// [`rightkit_agent_coding_tools::cloud_workspace::provision_workspace`]. The caller is
 /// expected to have already verified the endpoint (e.g.
 /// `cloud_endpoint::verify_endpoint`) — this does not re-verify reachability.
 ///
@@ -1854,11 +1854,11 @@ pub unsafe extern "C" fn host_mobile_cloud_provision_workspace(
         Ok(request) => request,
         Err(error) => return error,
     };
-    let config = rightkit_agent_tools::coding_tools::cloud_endpoint::CloudEndpointConfig {
+    let config = rightkit_agent_coding_tools::cloud_endpoint::CloudEndpointConfig {
         base_url: request.base_url,
         credential: request.credential,
     };
-    let handle = rightkit_agent_tools::coding_tools::cloud_workspace::provision_workspace(
+    let handle = rightkit_agent_coding_tools::cloud_workspace::provision_workspace(
         &request.session_id,
         request.target,
         &config,
@@ -1870,13 +1870,13 @@ pub unsafe extern "C" fn host_mobile_cloud_provision_workspace(
 #[serde(rename_all = "camelCase")]
 struct CloudStartRunRequest {
     session_id: String,
-    target: rightkit_agent_tools::coding_tools::cloud_endpoint::ExecutionTarget,
+    target: rightkit_agent_coding_tools::cloud_endpoint::ExecutionTarget,
     run_id: String,
     workspace_id: String,
 }
 
 /// Start (or resume tracking of) a run inside a provisioned workspace. See
-/// [`rightkit_agent_tools::coding_tools::cloud_workspace::start_run`]. Idempotent for a
+/// [`rightkit_agent_coding_tools::cloud_workspace::start_run`]. Idempotent for a
 /// `runId` already known.
 ///
 /// # Safety
@@ -1887,7 +1887,7 @@ pub unsafe extern "C" fn host_mobile_cloud_start_run(request_json: *const c_char
         Ok(request) => request,
         Err(error) => return error,
     };
-    let snapshot = rightkit_agent_tools::coding_tools::cloud_workspace::start_run(
+    let snapshot = rightkit_agent_coding_tools::cloud_workspace::start_run(
         &request.session_id,
         request.target,
         &request.run_id,
@@ -1900,7 +1900,7 @@ pub unsafe extern "C" fn host_mobile_cloud_start_run(request_json: *const c_char
 #[serde(rename_all = "camelCase")]
 struct CloudResumeEventsRequest {
     session_id: String,
-    target: rightkit_agent_tools::coding_tools::cloud_endpoint::ExecutionTarget,
+    target: rightkit_agent_coding_tools::cloud_endpoint::ExecutionTarget,
     run_id: String,
     since_cursor: u64,
 }
@@ -1908,7 +1908,7 @@ struct CloudResumeEventsRequest {
 /// Resume a run's event stream from `sinceCursor` (exclusive) — everything
 /// the client has not already seen, including events appended while
 /// disconnected. See
-/// [`rightkit_agent_tools::coding_tools::cloud_workspace::resume_events_since`].
+/// [`rightkit_agent_coding_tools::cloud_workspace::resume_events_since`].
 ///
 /// # Safety
 /// `request_json` must be null or a valid NUL-terminated UTF-8 C string.
@@ -1920,7 +1920,7 @@ pub unsafe extern "C" fn host_mobile_cloud_resume_events_since(
         Ok(request) => request,
         Err(error) => return error,
     };
-    let events = rightkit_agent_tools::coding_tools::cloud_workspace::resume_events_since(
+    let events = rightkit_agent_coding_tools::cloud_workspace::resume_events_since(
         &request.session_id,
         request.target,
         &request.run_id,
@@ -1931,7 +1931,7 @@ pub unsafe extern "C" fn host_mobile_cloud_resume_events_since(
 
 // --- explicit cross-target handoff (ENG-66) -----------------------------
 //
-// Only the phase-transition half of `rightkit_agent_tools::coding_tools::handoff` is wrapped
+// Only the phase-transition half of `rightkit_agent_coding_tools::handoff` is wrapped
 // here. `HandoffController::resume_at_destination` also requires a
 // `rightkit_agent_engine_history::session_package::SessionPackage` value, and this
 // crate has no dependency on `rightkit-agent-engine-history` (only `host_tools`
@@ -1943,12 +1943,12 @@ pub unsafe extern "C" fn host_mobile_cloud_resume_events_since(
 #[serde(rename_all = "camelCase")]
 struct HandoffBeginRequest {
     session_id: String,
-    source: rightkit_agent_tools::coding_tools::cloud_endpoint::ExecutionTarget,
-    destination: rightkit_agent_tools::coding_tools::cloud_endpoint::ExecutionTarget,
+    source: rightkit_agent_coding_tools::cloud_endpoint::ExecutionTarget,
+    destination: rightkit_agent_coding_tools::cloud_endpoint::ExecutionTarget,
 }
 
 /// Begin an explicit handoff of a session from `source` to `destination`.
-/// See [`rightkit_agent_tools::coding_tools::handoff::HandoffController::begin`].
+/// See [`rightkit_agent_coding_tools::handoff::HandoffController::begin`].
 ///
 /// # Safety
 /// `request_json` must be null or a valid NUL-terminated UTF-8 C string.
@@ -1958,7 +1958,7 @@ pub unsafe extern "C" fn host_mobile_handoff_begin(request_json: *const c_char) 
         Ok(request) => request,
         Err(error) => return error,
     };
-    match rightkit_agent_tools::coding_tools::handoff::HandoffController::begin(
+    match rightkit_agent_coding_tools::handoff::HandoffController::begin(
         &request.session_id,
         request.source,
         request.destination,
@@ -1972,12 +1972,12 @@ pub unsafe extern "C" fn host_mobile_handoff_begin(request_json: *const c_char) 
 #[serde(rename_all = "camelCase")]
 struct HandoffConfirmQuiescedRequest {
     session_id: String,
-    source: rightkit_agent_tools::coding_tools::cloud_endpoint::ExecutionTarget,
+    source: rightkit_agent_coding_tools::cloud_endpoint::ExecutionTarget,
 }
 
 /// The source target's own runtime calls this once it has genuinely stopped
 /// dispatching tool calls for the session. See
-/// [`rightkit_agent_tools::coding_tools::handoff::HandoffController::confirm_quiesced`].
+/// [`rightkit_agent_coding_tools::handoff::HandoffController::confirm_quiesced`].
 ///
 /// # Safety
 /// `request_json` must be null or a valid NUL-terminated UTF-8 C string.
@@ -1989,7 +1989,7 @@ pub unsafe extern "C" fn host_mobile_handoff_confirm_quiesced(
         Ok(request) => request,
         Err(error) => return error,
     };
-    match rightkit_agent_tools::coding_tools::handoff::HandoffController::confirm_quiesced(
+    match rightkit_agent_coding_tools::handoff::HandoffController::confirm_quiesced(
         &request.session_id,
         request.source,
     ) {
@@ -2006,7 +2006,7 @@ struct HandoffSessionRequest {
 
 /// True if a handoff is currently in flight (not yet completed) for the
 /// session. See
-/// [`rightkit_agent_tools::coding_tools::handoff::HandoffController::is_in_flight`].
+/// [`rightkit_agent_coding_tools::handoff::HandoffController::is_in_flight`].
 ///
 /// # Safety
 /// `request_json` must be null or a valid NUL-terminated UTF-8 C string.
@@ -2018,14 +2018,14 @@ pub unsafe extern "C" fn host_mobile_handoff_is_in_flight(
         Ok(request) => request,
         Err(error) => return error,
     };
-    let in_flight = rightkit_agent_tools::coding_tools::handoff::HandoffController::is_in_flight(
+    let in_flight = rightkit_agent_coding_tools::handoff::HandoffController::is_in_flight(
         &request.session_id,
     );
     ffi_ok(serde_json::Value::Bool(in_flight))
 }
 
 /// Drop the in-flight (or completed) handoff record for the session. See
-/// [`rightkit_agent_tools::coding_tools::handoff::HandoffController::clear`]. Idempotent.
+/// [`rightkit_agent_coding_tools::handoff::HandoffController::clear`]. Idempotent.
 ///
 /// # Safety
 /// `request_json` must be null or a valid NUL-terminated UTF-8 C string.
@@ -2035,7 +2035,7 @@ pub unsafe extern "C" fn host_mobile_handoff_clear(request_json: *const c_char) 
         Ok(request) => request,
         Err(error) => return error,
     };
-    rightkit_agent_tools::coding_tools::handoff::HandoffController::clear(&request.session_id);
+    rightkit_agent_coding_tools::handoff::HandoffController::clear(&request.session_id);
     ffi_ok_empty()
 }
 
@@ -2418,7 +2418,7 @@ pub unsafe extern "C" fn host_mobile_session_package_decode(
 #[serde(rename_all = "camelCase")]
 struct HandoffResumeAtDestinationRequest {
     session_id: String,
-    destination: rightkit_agent_tools::coding_tools::cloud_endpoint::ExecutionTarget,
+    destination: rightkit_agent_coding_tools::cloud_endpoint::ExecutionTarget,
     /// Trusted package JSON — callers should have already round-tripped this
     /// through [`host_mobile_session_package_decode`] if it arrived
     /// from another host, but this entry point re-validates it via
@@ -2431,7 +2431,7 @@ struct HandoffResumeAtDestinationRequest {
 /// `package`'s cursor as its replay starting point. Fails unless
 /// [`host_mobile_handoff_confirm_quiesced`] has already been recorded
 /// for this handoff. See
-/// [`rightkit_agent_tools::coding_tools::handoff::HandoffController::resume_at_destination`].
+/// [`rightkit_agent_coding_tools::handoff::HandoffController::resume_at_destination`].
 ///
 /// Returns the replay cursor (as `value`) on success.
 ///
@@ -2454,7 +2454,7 @@ pub unsafe extern "C" fn host_mobile_handoff_resume_at_destination(
             Ok(package) => package,
             Err(error) => return ffi_err(error),
         };
-    match rightkit_agent_tools::coding_tools::handoff::HandoffController::resume_at_destination(
+    match rightkit_agent_coding_tools::handoff::HandoffController::resume_at_destination(
         &request.session_id,
         request.destination,
         &package,

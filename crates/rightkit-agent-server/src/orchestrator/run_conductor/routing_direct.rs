@@ -119,7 +119,7 @@ impl DaemonState {
             if specs.is_empty() {
                 true
             } else {
-                let ctx = rightkit_agent_tools::coding_tools::ToolContext::new(
+                let ctx = rightkit_agent_coding_tools::ToolContext::new(
                     session_id,
                     session.workspace_root.trim(),
                     rightkit_agent_policy::PermissionMode::Bypass,
@@ -127,7 +127,7 @@ impl DaemonState {
                 );
                 !matches!(
                 crate::pre_gate::run_pre_gate(&conduit, session_id, &ctx, &specs).await,
-                rightkit_agent_tools::coding_tools::check_runner::PreGateDecision::SkipJuryFailed(_)
+                rightkit_agent_coding_tools::check_runner::PreGateDecision::SkipJuryFailed(_)
             )
             };
 

@@ -9,8 +9,8 @@ use axum::{
     routing::{get, post},
     Router,
 };
-use rightkit_agent_tools::coding_tools::browser::BrowserNetworkDecisionV1;
-use rightkit_agent_tools::coding_tools::browser_fetch::wrap_untrusted_web_text;
+use rightkit_agent_coding_tools::browser::BrowserNetworkDecisionV1;
+use rightkit_agent_coding_tools::browser_fetch::wrap_untrusted_web_text;
 use serde_json::{json, Value};
 use std::sync::Arc;
 

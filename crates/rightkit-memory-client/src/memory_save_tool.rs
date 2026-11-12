@@ -4,8 +4,8 @@
 //! through record_run — the model has no way to persist a fact on purpose.
 
 use crate::backend::{normalize_scope, path_to_scope, MemoryBackend, MemoryTier};
-use rightkit_agent_tools::coding_tools::context::ToolContext;
-use rightkit_agent_tools::coding_tools::{Tool, ToolResult};
+use rightkit_agent_coding_tools::context::ToolContext;
+use rightkit_agent_coding_tools::{Tool, ToolResult};
 use serde_json::Value;
 use std::sync::Arc;
 

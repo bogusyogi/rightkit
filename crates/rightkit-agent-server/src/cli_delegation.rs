@@ -20,7 +20,7 @@
 //!    [`AgentResult`], and returns the structured result alongside
 //!    the child's `{app}_agent_id`.
 //!
-//! [`SpawnRuntimeKind::AuthenticatedCli`]: rightkit_agent_tools::coding_tools::SpawnRuntimeKind::AuthenticatedCli
+//! [`SpawnRuntimeKind::AuthenticatedCli`]: rightkit_agent_coding_tools::SpawnRuntimeKind::AuthenticatedCli
 //! [`CliDelegationPolicy`]: rightkit_agents::driver_host::cli_runtime::CliDelegationPolicy
 
 use std::collections::BTreeSet;
@@ -35,7 +35,7 @@ use rightkit_agent_engine_storage::{
 use rightkit_agent_orchestration::coding::supervision::{
     enter_worktree, exit_worktree, SystemGitWorktreeExecutor, WorktreeEnterRequest,
 };
-use rightkit_agent_tools::coding_tools::{
+use rightkit_agent_coding_tools::{
     SpawnRuntimeKind, SubagentContinuity, SubagentSpawnOptions,
 };
 use rightkit_agents::driver_host::cli_runtime::{
@@ -429,7 +429,7 @@ fn enforce_child_tool_ceiling(
     disallowed_tools: &[String],
 ) -> Result<Vec<String>, String> {
     if safe_mode {
-        let read_only = rightkit_agent_tools::coding_tools::ToolRegistry::build_default()
+        let read_only = rightkit_agent_coding_tools::ToolRegistry::build_default()
             .capabilities()
             .into_iter()
             .filter(|capability| capability.read_only)

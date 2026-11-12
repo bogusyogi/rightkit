@@ -163,7 +163,7 @@ pub fn run(
         eprintln!("{error}");
         std::process::exit(2);
     }
-    if rightkit_agent_tools::coding_tools::rich_parser_worker::run_if_requested() {
+    if rightkit_agent_coding_tools::rich_parser_worker::run_if_requested() {
         return;
     }
     main_runtime::main();
@@ -172,9 +172,9 @@ pub fn run(
 fn binary_resource_profile(
     command: Option<&std::ffi::OsStr>,
     local_override: Option<&str>,
-) -> Result<rightkit_agent_tools::coding_tools::process_resource_authority::ResourceProfile, String>
+) -> Result<rightkit_agent_coding_tools::process_resource_authority::ResourceProfile, String>
 {
-    use rightkit_agent_tools::coding_tools::process_resource_authority::{
+    use rightkit_agent_coding_tools::process_resource_authority::{
         local_resource_profile_from_value, ResourceProfile,
     };
     // Cli has no global options: the sole ServiceHost entry is the first
@@ -188,7 +188,7 @@ fn binary_resource_profile(
 }
 
 fn install_binary_resource_profile() -> Result<(), String> {
-    use rightkit_agent_tools::coding_tools::process_resource_authority::{
+    use rightkit_agent_coding_tools::process_resource_authority::{
         install_process_resource_profile, PROCESS_RESOURCE_PROFILE_ENV,
     };
     let command = std::env::args_os().nth(1);

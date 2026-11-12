@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Breaking: the coding tools (`coding_tools`, about 52k lines with their own async `Tool` trait) moved to the new crate `rightkit-agent-coding-tools` 0.1.0, which depends on nothing here; the two halves never referenced each other. `rightkit_agent_tools::coding_tools::X` is now `rightkit_agent_coding_tools::X` (the module tree under it is unchanged). The features `coding_tools`, `coding_tools-host`, `coding_tools-code-mode`, `coding_tools-embeddings` and `coding_tools-test-support` are gone from this crate (now `host`, `code-mode`, `embeddings`, `test-support` there), with the dependencies only they needed, including `rightkit-agent-config` and `rightkit-agent-telemetry`; `assets/image-routes.json` and `licenses/termul-MIT.txt` went with them.
 - `coding_tools`: the web-fetch envelope calls `rightkit_http::wrap_untrusted_envelope` with the same tag and `tool:` prefix as before; output unchanged (#1572).
 
 

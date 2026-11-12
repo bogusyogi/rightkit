@@ -89,15 +89,15 @@ async fn run_agent_compare(
     state: &DaemonState,
     body: CompareRequest,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
-    use rightkit_agent_tools::coding_tools::SubagentSpawner;
+    use rightkit_agent_coding_tools::SubagentSpawner;
 
     let task = body.task.ok_or(StatusCode::BAD_REQUEST)?;
     let variant_a = body.variant_a.ok_or(StatusCode::BAD_REQUEST)?;
     let variant_b = body.variant_b.ok_or(StatusCode::BAD_REQUEST)?;
     let workspace = body.workspace_path.unwrap_or_default();
-    let spawn_options = rightkit_agent_tools::coding_tools::SubagentSpawnOptions {
+    let spawn_options = rightkit_agent_coding_tools::SubagentSpawnOptions {
         max_iterations: body.max_turns,
-        ..rightkit_agent_tools::coding_tools::SubagentSpawnOptions::default()
+        ..rightkit_agent_coding_tools::SubagentSpawnOptions::default()
     };
 
     let session_id = format!("compare-{}", now_millis());
@@ -273,7 +273,7 @@ pub(crate) async fn managed_verification_shell_command(
     command: &str,
     workspace_root: &std::path::Path,
 ) -> Result<(i32, String), String> {
-    let adapter = rightkit_agent_tools::coding_tools::shell::NativeCommandSandboxAdapter;
+    let adapter = rightkit_agent_coding_tools::shell::NativeCommandSandboxAdapter;
     {
         let context = rightkit_sandbox::execution::ProcessLaunchContext {
             workspace_root: workspace_root.display().to_string(),
@@ -339,7 +339,7 @@ pub(crate) struct ManagedCommandSpec {
 }
 
 pub(crate) async fn run_managed_command(spec: ManagedCommandSpec) -> Result<(i32, String), String> {
-    let adapter = rightkit_agent_tools::coding_tools::shell::NativeCommandSandboxAdapter;
+    let adapter = rightkit_agent_coding_tools::shell::NativeCommandSandboxAdapter;
     let context = rightkit_sandbox::execution::ProcessLaunchContext {
         workspace_root: spec.cwd.display().to_string(),
         sandbox_profile: Some("benchmark-command".into()),

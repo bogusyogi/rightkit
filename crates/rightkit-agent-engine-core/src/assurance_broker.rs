@@ -262,7 +262,7 @@ impl AssuranceBroker {
         let allowed = scope.iter().all(|item| {
             contract.repository_scope.is_empty()
                 || contract.repository_scope.iter().any(|root| {
-                    rightkit_agent_tools::coding_tools::read_file::path_is_within(
+                    rightkit_agent_coding_tools::read_file::path_is_within(
                         std::path::Path::new(item),
                         std::path::Path::new(root),
                     )

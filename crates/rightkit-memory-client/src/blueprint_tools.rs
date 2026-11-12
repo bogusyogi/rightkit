@@ -2,8 +2,8 @@
 //! Only `blueprint_search` has a CLI equivalent; the rest return a clear error.
 
 use crate::membrane::MembraneBackend as _;
-use rightkit_agent_tools::coding_tools::context::ToolContext;
-use rightkit_agent_tools::coding_tools::{Tool, ToolRegistry, ToolResult};
+use rightkit_agent_coding_tools::context::ToolContext;
+use rightkit_agent_coding_tools::{Tool, ToolRegistry, ToolResult};
 use serde_json::{json, Map, Value};
 
 pub const TOOL_NAMES: [&str; 5] = [

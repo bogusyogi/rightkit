@@ -109,14 +109,14 @@ fn envelope_ledger() -> &'static std::sync::Mutex<HashMap<String, EnvelopeLedger
 /// own tests, so in production these registries only ever grew — including
 /// for sessions the user had explicitly deleted.
 pub fn retire_session_compaction_state(session_id: &str) {
-    rightkit_agent_tools::coding_tools::context::retire_cloudflare_credential(session_id);
-    rightkit_agent_tools::coding_tools::context::retire_flyio_credential(session_id);
-    rightkit_agent_tools::coding_tools::async_inbox::retire_session(session_id);
+    rightkit_agent_coding_tools::context::retire_cloudflare_credential(session_id);
+    rightkit_agent_coding_tools::context::retire_flyio_credential(session_id);
+    rightkit_agent_coding_tools::async_inbox::retire_session(session_id);
     crate::engine::tool_dispatch::retire_session_async_state(session_id);
     // A tunnel stop that fails leaves a public exposure possibly live (#376): record it at error
     // level with the leaked resources instead of discarding the failures.
     let leaked_exposures =
-        rightkit_agent_tools::coding_tools::tunnel::retire_tunnel_session(session_id);
+        rightkit_agent_coding_tools::tunnel::retire_tunnel_session(session_id);
     if !leaked_exposures.is_empty() {
         tracing::error!(
             session_id,
@@ -204,8 +204,8 @@ impl SessionEngine {
         &self,
         tool_call_id: impl Into<String>,
     ) -> Result<
-        rightkit_agent_tools::coding_tools::deferred_resolution::DeferredToolCall,
-        rightkit_agent_tools::coding_tools::deferred_resolution::RegisterError,
+        rightkit_agent_coding_tools::deferred_resolution::DeferredToolCall,
+        rightkit_agent_coding_tools::deferred_resolution::RegisterError,
     > {
         self.deferred_tool_calls.try_register(tool_call_id)
     }
@@ -215,8 +215,8 @@ impl SessionEngine {
     pub fn resolve_deferred_tool_call(
         &self,
         tool_call_id: &str,
-        resolution: rightkit_agent_tools::coding_tools::deferred_resolution::DeferredResolution,
-    ) -> Result<(), rightkit_agent_tools::coding_tools::deferred_resolution::ResolveError> {
+        resolution: rightkit_agent_coding_tools::deferred_resolution::DeferredResolution,
+    ) -> Result<(), rightkit_agent_coding_tools::deferred_resolution::ResolveError> {
         let payload = serde_json::json!({
             "toolCallId": tool_call_id,
             "isError": resolution.is_error,
@@ -229,9 +229,9 @@ impl SessionEngine {
         // represents a duplicate or unknown resolver here.
         match self.deferred_tool_calls.resolve(tool_call_id, resolution) {
             Ok(())
-            | Err(rightkit_agent_tools::coding_tools::deferred_resolution::ResolveError::AlreadyResolvedOrAbandoned) =>
+            | Err(rightkit_agent_coding_tools::deferred_resolution::ResolveError::AlreadyResolvedOrAbandoned) =>
                 {}
-            Err(error @ rightkit_agent_tools::coding_tools::deferred_resolution::ResolveError::NotFound) => {
+            Err(error @ rightkit_agent_coding_tools::deferred_resolution::ResolveError::NotFound) => {
                 return Err(error);
             }
         }
@@ -324,7 +324,7 @@ impl SessionEngine {
 
     pub fn set_cloudflare_config(
         &mut self,
-        config: rightkit_agent_tools::coding_tools::CloudflareConfig,
+        config: rightkit_agent_coding_tools::CloudflareConfig,
     ) {
         self.cloudflare_config = Some(config);
     }
@@ -336,7 +336,7 @@ impl SessionEngine {
     /// exactly the lock a host wants to avoid blocking on when it refreshes a
     /// near-expiry token mid-turn. This associated function instead writes
     /// straight into the tools crate's session-keyed credential cell
-    /// (`rightkit_agent_tools::coding_tools::context::update_cloudflare_credential`), so the
+    /// (`rightkit_agent_coding_tools::context::update_cloudflare_credential`), so the
     /// refreshed bearer reaches the NEXT Cloudflare tool call in this session
     /// without waiting for any in-flight call to finish, and without
     /// disturbing that in-flight call's own already-captured credential.
@@ -346,9 +346,9 @@ impl SessionEngine {
     /// independently of any particular `SessionEngine` instance.
     pub fn update_cloudflare_credential(
         session_id: &str,
-        config: rightkit_agent_tools::coding_tools::CloudflareConfig,
+        config: rightkit_agent_coding_tools::CloudflareConfig,
     ) {
-        rightkit_agent_tools::coding_tools::context::update_cloudflare_credential(
+        rightkit_agent_coding_tools::context::update_cloudflare_credential(
             session_id, config,
         );
     }
@@ -442,7 +442,7 @@ impl SessionEngine {
     /// Attach an operator-question callback used by the `ask_user` tool.
     pub fn set_questioner(
         &mut self,
-        questioner: Arc<dyn rightkit_agent_tools::coding_tools::UserQuestioner>,
+        questioner: Arc<dyn rightkit_agent_coding_tools::UserQuestioner>,
     ) {
         self.questioner = Some(questioner);
     }
@@ -451,7 +451,7 @@ impl SessionEngine {
     #[cfg(feature = "host")]
     pub fn set_context_tool_dispatcher(
         &mut self,
-        dispatcher: Arc<dyn rightkit_agent_tools::coding_tools::code_mode::ContextToolDispatcher>,
+        dispatcher: Arc<dyn rightkit_agent_coding_tools::code_mode::ContextToolDispatcher>,
     ) {
         self.context_tool_dispatcher = Some(dispatcher);
     }
@@ -459,7 +459,7 @@ impl SessionEngine {
     /// Attach a plan-exit callback used by the `exit_plan_mode` tool.
     pub fn set_plan_exit(
         &mut self,
-        plan_exit: Arc<dyn rightkit_agent_tools::coding_tools::PlanExit>,
+        plan_exit: Arc<dyn rightkit_agent_coding_tools::PlanExit>,
     ) {
         self.plan_exit = Some(plan_exit);
     }
@@ -467,7 +467,7 @@ impl SessionEngine {
     /// Attach a live message dispatcher used by the `send_message` tool.
     pub fn set_message_dispatcher(
         &mut self,
-        dispatcher: Arc<dyn rightkit_agent_tools::coding_tools::MessageDispatcher>,
+        dispatcher: Arc<dyn rightkit_agent_coding_tools::MessageDispatcher>,
     ) {
         self.message_dispatcher = Some(dispatcher);
     }
@@ -475,7 +475,7 @@ impl SessionEngine {
     /// Attach a live team directory used by team tools.
     pub fn set_team_directory(
         &mut self,
-        directory: Arc<dyn rightkit_agent_tools::coding_tools::TeamDirectory>,
+        directory: Arc<dyn rightkit_agent_coding_tools::TeamDirectory>,
     ) {
         self.team_directory = Some(directory);
     }
@@ -717,7 +717,7 @@ impl SessionEngine {
     /// Attach host-owned wait/interrupt control for spawned child identities.
     pub fn set_subagent_supervisor(
         &mut self,
-        supervisor: Arc<dyn rightkit_agent_tools::coding_tools::SubagentSupervisor>,
+        supervisor: Arc<dyn rightkit_agent_coding_tools::SubagentSupervisor>,
     ) {
         self.subagent_supervisor = Some(supervisor);
     }

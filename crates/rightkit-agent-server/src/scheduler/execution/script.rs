@@ -153,7 +153,7 @@ async fn run_local_script_only_schedule(
     use rightkit_sandbox::execution::{
         CommandLaunchSpec, ProcessLaunchAdapter, ProcessLaunchContext,
     };
-    let adapter = rightkit_agent_tools::coding_tools::shell::NativeCommandSandboxAdapter;
+    let adapter = rightkit_agent_coding_tools::shell::NativeCommandSandboxAdapter;
     let mut child = adapter
         .spawn(CommandLaunchSpec {
             program: program.to_string(),

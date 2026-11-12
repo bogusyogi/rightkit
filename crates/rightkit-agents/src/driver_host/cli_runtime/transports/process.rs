@@ -32,7 +32,7 @@ pub struct StdioProcessIo {
     stdin: Arc<Mutex<ChildStdin>>,
     stdout: Arc<Mutex<BufReader<ChildStdout>>>,
     #[cfg(windows)]
-    windows_job: Arc<Mutex<Option<rightkit_agent_tools::coding_tools::sandbox::WindowsJob>>>,
+    windows_job: Arc<Mutex<Option<rightkit_agent_coding_tools::sandbox::WindowsJob>>>,
 }
 
 impl StdioProcessIo {
@@ -71,7 +71,7 @@ impl StdioProcessIo {
         env: Vec<(String, String)>,
         limit: std::time::Duration,
     ) -> Result<BoundedCapture, CliRuntimeError> {
-        let adapter = rightkit_agent_tools::coding_tools::shell::NativeCommandSandboxAdapter;
+        let adapter = rightkit_agent_coding_tools::shell::NativeCommandSandboxAdapter;
         let spec = CommandLaunchSpec {
             program: executable.to_string_lossy().into_owned(),
             argv,
@@ -153,7 +153,7 @@ impl StdioProcessIo {
         Self::spawn_with_adapter(
             launch,
             generation,
-            Arc::new(rightkit_agent_tools::coding_tools::shell::NativeCommandSandboxAdapter),
+            Arc::new(rightkit_agent_coding_tools::shell::NativeCommandSandboxAdapter),
             context,
         )
     }
@@ -326,7 +326,7 @@ impl StdioProcessIo {
         let pid = child.id();
         #[cfg(windows)]
         let windows_job = {
-            let job = rightkit_agent_tools::coding_tools::sandbox::shell_job()
+            let job = rightkit_agent_coding_tools::sandbox::shell_job()
                 .map_err(|error| CliRuntimeError::new("cli_process_job", error.to_string()))?;
             job.assign_process_id(pid)
                 .map_err(|error| CliRuntimeError::new("cli_process_job", error.to_string()))?;
@@ -595,7 +595,7 @@ fn configure_sandbox(
         let command = _command;
         let launch = _launch;
         let home = managed_home(launch)?;
-        rightkit_agent_tools::coding_tools::sandbox::confine_driver_command(
+        rightkit_agent_coding_tools::sandbox::confine_driver_command(
             command,
             &launch.executable,
             &launch.cwd,

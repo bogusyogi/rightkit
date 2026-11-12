@@ -11,7 +11,7 @@
 use axum::http::StatusCode;
 use std::path::PathBuf;
 
-use rightkit_agent_tools::coding_tools::ToolRegistry;
+use rightkit_agent_coding_tools::ToolRegistry;
 
 use crate::api::{now_iso, DaemonState};
 

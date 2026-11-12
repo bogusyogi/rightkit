@@ -22,7 +22,7 @@ rightkit-fs = {version = "0.4.9", features = ["fs", "lock", "json", "digest", "t
 rightkit-agent-policy = {version = "0.1.0", path = "../rightkit-agent-policy"}
 rightkit-agent-engine-history = {version = "0.1.1", path = "../rightkit-agent-engine-history"}
 rightkit-mcp = {version = "0.7.2", features = ["advanced-http", "agent_mcp"], path = "../rightkit-mcp"}
-rightkit-agent-tools = {version = "0.3.1", path = "../rightkit-agent-tools", features = ["coding_tools"]}
+rightkit-agent-coding-tools = { version = "0.1.0", path = "../rightkit-agent-coding-tools" }
 rightkit-sandbox = {version = "0.6.3", path = "../rightkit-sandbox", features = ["execution"]}
 rightkit-hooks = {version = "0.2.1", path = "../rightkit-hooks", features = ["agent_hooks"]}
 rightkit-agent-host-traits = {version = "0.1.0", path = "../rightkit-agent-host-traits"}
@@ -40,5 +40,5 @@ tracing = {version = "0.1"}
 
 [features]
 default = ["host"]
-host = ["rightkit-agent-tools/coding_tools-host", "rightkit-mcp/agent_mcp-os-keyring", "rightkit-mcp/agent_mcp-host-env", "rightkit-hooks/agent_hooks-host-env", "dep:rquickjs"]
+host = ["rightkit-agent-coding-tools/host", "rightkit-mcp/agent_mcp-os-keyring", "rightkit-mcp/agent_mcp-host-env", "rightkit-hooks/agent_hooks-host-env", "dep:rquickjs"]
 qualification = []

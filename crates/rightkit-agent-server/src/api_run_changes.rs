@@ -674,7 +674,7 @@ pub struct RunChangeRecord {
 pub struct RunChangeStore {
     root: PathBuf,
     inner: RwLock<BTreeMap<String, RunChangeRecord>>,
-    file_service: RwLock<Option<Arc<rightkit_agent_tools::coding_tools::FileService>>>,
+    file_service: RwLock<Option<Arc<rightkit_agent_coding_tools::FileService>>>,
 }
 
 impl RunChangeStore {
@@ -682,8 +682,8 @@ impl RunChangeStore {
     /// routes; later engines adopt this same authority before execution.
     pub(crate) fn bind_file_service(
         &self,
-        candidate: Arc<rightkit_agent_tools::coding_tools::FileService>,
-    ) -> Arc<rightkit_agent_tools::coding_tools::FileService> {
+        candidate: Arc<rightkit_agent_coding_tools::FileService>,
+    ) -> Arc<rightkit_agent_coding_tools::FileService> {
         let mut bound = self.file_service.write().unwrap_or_else(|e| e.into_inner());
         bound.get_or_insert(candidate).clone()
     }
@@ -1190,7 +1190,7 @@ impl rightkit_agent_engine_core::RunChangesSink for DaemonRunChangesSink {
         run_id: &str,
         workspace_root: &Path,
         tool_call_id: &str,
-        mutations: &[rightkit_agent_tools::coding_tools::WorkspaceMutation],
+        mutations: &[rightkit_agent_coding_tools::WorkspaceMutation],
         tool_failed: bool,
     ) -> Result<(), String> {
         let root = workspace_root
@@ -1201,26 +1201,26 @@ impl rightkit_agent_engine_core::RunChangesSink for DaemonRunChangesSink {
         for (index, mutation) in mutations.iter().enumerate() {
             let path = relative_workspace_path(&root, &mutation.path)?;
             let original_path = match &mutation.kind {
-                rightkit_agent_tools::coding_tools::WorkspaceMutationKind::Renamed { from } => {
+                rightkit_agent_coding_tools::WorkspaceMutationKind::Renamed { from } => {
                     Some(relative_workspace_path(&root, from)?)
                 }
                 _ => None,
             };
             let observed_classification = match mutation.kind {
-                rightkit_agent_tools::coding_tools::WorkspaceMutationKind::Created => {
+                rightkit_agent_coding_tools::WorkspaceMutationKind::Created => {
                     if git_path_is_tracked(&workspace, &path) {
                         ChangeClassification::Tracked
                     } else {
                         ChangeClassification::Untracked
                     }
                 }
-                rightkit_agent_tools::coding_tools::WorkspaceMutationKind::Modified => {
+                rightkit_agent_coding_tools::WorkspaceMutationKind::Modified => {
                     ChangeClassification::Tracked
                 }
-                rightkit_agent_tools::coding_tools::WorkspaceMutationKind::Deleted => {
+                rightkit_agent_coding_tools::WorkspaceMutationKind::Deleted => {
                     ChangeClassification::Deleted
                 }
-                rightkit_agent_tools::coding_tools::WorkspaceMutationKind::Renamed { .. } => {
+                rightkit_agent_coding_tools::WorkspaceMutationKind::Renamed { .. } => {
                     ChangeClassification::Renamed
                 }
             };
@@ -1234,15 +1234,15 @@ impl rightkit_agent_engine_core::RunChangesSink for DaemonRunChangesSink {
             let (additions, deletions) = diff_counts(&diff);
             let exists = mutation.path.exists();
             let undo = match &mutation.kind {
-                rightkit_agent_tools::coding_tools::WorkspaceMutationKind::Created => {
+                rightkit_agent_coding_tools::WorkspaceMutationKind::Created => {
                     Some(UndoBody {
                         fingerprint: fingerprint_path(&mutation.path).unwrap_or_default(),
                         body: "__RIGHTKIT_DELETE__".to_string(),
                         note: "remove file created by this tool call".to_string(),
                     })
                 }
-                rightkit_agent_tools::coding_tools::WorkspaceMutationKind::Modified
-                | rightkit_agent_tools::coding_tools::WorkspaceMutationKind::Deleted => mutation
+                rightkit_agent_coding_tools::WorkspaceMutationKind::Modified
+                | rightkit_agent_coding_tools::WorkspaceMutationKind::Deleted => mutation
                     .previous_content
                     .as_ref()
                     .filter(|content| content.len() <= MAX_UNDO_BYTES as usize)
@@ -1252,7 +1252,7 @@ impl rightkit_agent_engine_core::RunChangesSink for DaemonRunChangesSink {
                         body: content.clone(),
                         note: "restore the exact pre-effect file content".to_string(),
                     }),
-                rightkit_agent_tools::coding_tools::WorkspaceMutationKind::Renamed { .. } => {
+                rightkit_agent_coding_tools::WorkspaceMutationKind::Renamed { .. } => {
                     Some(UndoBody {
                         fingerprint: fingerprint_path(&mutation.path).unwrap_or_default(),
                         body: "__RIGHTKIT_RENAME__".to_string(),
@@ -1665,12 +1665,12 @@ fn managed_git_output(
 /// Every reversal now runs through a typed `MutationIntent` under the
 /// exclusive restore lease, and declares the revision it expects.
 fn apply_undo_with_service(
-    files: &rightkit_agent_tools::coding_tools::FileService,
+    files: &rightkit_agent_coding_tools::FileService,
     workspace_root: &Path,
     entry: &ChangeEntry,
     undo: &UndoBody,
 ) -> Result<(), String> {
-    use rightkit_agent_tools::coding_tools::file_service::{ExpectedPreimage, MutationIntent};
+    use rightkit_agent_coding_tools::file_service::{ExpectedPreimage, MutationIntent};
 
     let path = resolve_relative_within(workspace_root, &entry.path)?;
 

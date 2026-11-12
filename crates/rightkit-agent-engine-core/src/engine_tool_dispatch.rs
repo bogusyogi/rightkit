@@ -29,26 +29,26 @@ type ProcessLaunchAuthority = (
 // ToolResult is the dispatch error contract shared by every caller; boxing it would change them all.
 #[allow(clippy::result_large_err)]
 fn required_process_launch_authority(
-    tools: &rightkit_agent_tools::coding_tools::ToolRegistry,
+    tools: &rightkit_agent_coding_tools::ToolRegistry,
     tool_name: &str,
     args: &serde_json::Value,
     workspace_root: &std::path::Path,
-) -> Result<Option<ProcessLaunchAuthority>, Box<rightkit_agent_tools::coding_tools::ToolResult>> {
+) -> Result<Option<ProcessLaunchAuthority>, Box<rightkit_agent_coding_tools::ToolResult>> {
     let Some(tool) = tools.get(tool_name) else {
         return Ok(None);
     };
     let Some(kind) = tool.process_resource_kind_for(args) else {
         return Ok(None);
     };
-    let governor = rightkit_agent_tools::coding_tools::process_resource_authority::require_process_resource_governor()
+    let governor = rightkit_agent_coding_tools::process_resource_authority::require_process_resource_governor()
         .map_err(|error| {
-            Box::new(rightkit_agent_tools::coding_tools::ToolResult::error(
+            Box::new(rightkit_agent_coding_tools::ToolResult::error(
                 error.to_string(),
             ))
         })?;
     if !governor.capability_available(kind) {
         return Err(Box::new(
-            rightkit_agent_tools::coding_tools::ToolResult::error(format!(
+            rightkit_agent_coding_tools::ToolResult::error(format!(
                 "{}: tool '{}' requires unavailable resource {kind:?}",
                 rightkit_sandbox::execution::EffectExecutionError::ResourceLimitsMissing,
                 tool_name
@@ -63,13 +63,13 @@ fn required_process_launch_authority(
     };
     let adapter: std::sync::Arc<dyn rightkit_sandbox::execution::ProcessLaunchAdapter> =
         std::sync::Arc::new(
-            rightkit_agent_tools::coding_tools::process_resource_authority::GovernedProcessLaunchAdapter::new(
-                rightkit_agent_tools::coding_tools::shell::NativeCommandSandboxAdapter,
+            rightkit_agent_coding_tools::process_resource_authority::GovernedProcessLaunchAdapter::new(
+                rightkit_agent_coding_tools::shell::NativeCommandSandboxAdapter,
                 governor,
                 kind,
                 matches!(
                     kind,
-                    rightkit_agent_tools::coding_tools::process_resource_authority::ResourceKind::ChildProcess
+                    rightkit_agent_coding_tools::process_resource_authority::ResourceKind::ChildProcess
                 ),
             ),
         );
@@ -542,7 +542,7 @@ impl SessionEngine {
         // and the wait below is never missed and an idle call parks instead
         // of waking on a timer.
         let mut shell_events =
-            rightkit_agent_tools::coding_tools::background_shell::subscribe_shell_events();
+            rightkit_agent_coding_tools::background_shell::subscribe_shell_events();
         tokio::spawn(async move {
             let mut observed_new_shell = false;
             // Calls that launch no shell leave after this discovery window.
@@ -560,20 +560,20 @@ impl SessionEngine {
                         }
                         observed_new_shell = true;
                         let status = match shell.status() {
-                            rightkit_agent_tools::coding_tools::background_shell::BgStatus::Running => {
+                            rightkit_agent_coding_tools::background_shell::BgStatus::Running => {
                                 has_running_shell = true;
                                 continue;
                             }
-                            rightkit_agent_tools::coding_tools::background_shell::BgStatus::Exited(code) => {
+                            rightkit_agent_coding_tools::background_shell::BgStatus::Exited(code) => {
                                 format!("exited ({code})")
                             }
-                            rightkit_agent_tools::coding_tools::background_shell::BgStatus::Killed => {
+                            rightkit_agent_coding_tools::background_shell::BgStatus::Killed => {
                                 "cancelled".to_string()
                             }
-                            rightkit_agent_tools::coding_tools::background_shell::BgStatus::SpawnFailed(error) => {
+                            rightkit_agent_coding_tools::background_shell::BgStatus::SpawnFailed(error) => {
                                 format!("spawn_failed: {error}")
                             }
-                            rightkit_agent_tools::coding_tools::background_shell::BgStatus::Unknown => {
+                            rightkit_agent_coding_tools::background_shell::BgStatus::Unknown => {
                                 "unknown (restart reconciliation required)".to_string()
                             }
                         };
@@ -715,7 +715,7 @@ impl SessionEngine {
                 .unwrap_or_default();
             let victims: Vec<(
                 String,
-                Arc<rightkit_agent_tools::coding_tools::background_shell::BgShell>,
+                Arc<rightkit_agent_coding_tools::background_shell::BgShell>,
             )> = {
                 let shells = store.lock().unwrap();
                 shells
@@ -724,7 +724,7 @@ impl SessionEngine {
                         !baseline.contains(id.as_str())
                             && shell.process_kind() != INTERACTIVE_TERMINAL_PROCESS_KIND
                             && shell.status()
-                                == rightkit_agent_tools::coding_tools::background_shell::BgStatus::Running
+                                == rightkit_agent_coding_tools::background_shell::BgStatus::Running
                     })
                     .map(|(id, shell)| (id.clone(), shell.clone()))
                     .collect()
@@ -784,7 +784,7 @@ impl SessionEngine {
         summary: String,
         turn_results: &mut std::collections::HashMap<
             String,
-            rightkit_agent_tools::coding_tools::ToolResult,
+            rightkit_agent_coding_tools::ToolResult,
         >,
     ) {
         // Denied / middleware-blocked calls are surfaced to the engine-loop
@@ -794,7 +794,7 @@ impl SessionEngine {
         // entry for a denied call that failed later in the chain.
         turn_results.insert(
             call.id.clone(),
-            rightkit_agent_tools::coding_tools::ToolResult::error(summary.clone()),
+            rightkit_agent_coding_tools::ToolResult::error(summary.clone()),
         );
         let (summary, mut output, _store_failed) =
             self.store_tool_output(&call.name, &summary, Some("text/plain; charset=utf-8"));
@@ -832,7 +832,7 @@ impl SessionEngine {
         calls: &[&ToolCall],
         turn_results: &mut std::collections::HashMap<
             String,
-            rightkit_agent_tools::coding_tools::ToolResult,
+            rightkit_agent_coding_tools::ToolResult,
         >,
     ) {
         self.dispatch_concurrent_batch_with_bound(calls, max_concurrent_tool_calls(), turn_results)
@@ -853,7 +853,7 @@ impl SessionEngine {
         bound: usize,
         turn_results: &mut std::collections::HashMap<
             String,
-            rightkit_agent_tools::coding_tools::ToolResult,
+            rightkit_agent_coding_tools::ToolResult,
         >,
     ) {
         let bound = bound.max(1);
@@ -906,7 +906,7 @@ impl SessionEngine {
         // P1-6: one mandatory masking choke point — built-ins and MCP share
         // the identical observation policy because every tool result, regardless
         // of origin, flows through this function.
-        let masked = rightkit_agent_tools::coding_tools::output_compaction::mask_secrets(content);
+        let masked = rightkit_agent_coding_tools::output_compaction::mask_secrets(content);
 
         if crate::compaction_archive::is_exempt_tool_name(tool_name)
             && masked.len() <= EXEMPT_TOOL_OUTPUT_INLINE_CAP

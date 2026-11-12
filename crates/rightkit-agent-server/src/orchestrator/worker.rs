@@ -43,7 +43,7 @@ impl Worker for SpawnWorker {
                 &task.agent,
                 &task.payload,
                 &self.parent_session_id,
-                rightkit_agent_tools::coding_tools::SubagentSpawnOptions::default(),
+                rightkit_agent_coding_tools::SubagentSpawnOptions::default(),
                 failure_kind_slot.clone(),
             )
             .await;

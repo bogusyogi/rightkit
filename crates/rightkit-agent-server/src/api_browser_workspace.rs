@@ -1,5 +1,5 @@
 //! Standalone HTTP workspace surface over the existing per-session browser
-//! store (`rightkit_agent_tools::coding_tools::browser::BrowserStore`).
+//! store (`rightkit_agent_coding_tools::browser::BrowserStore`).
 //!
 //! Lane discipline (D3 — shared browser workspace):
 //!
@@ -21,11 +21,11 @@
 //!
 //! - Security boundaries preserved by the fragment's contract (Agent 4's
 //!   implementation MUST honor these when wiring the trait impls):
-//!     * SSRF guard (`rightkit_agent_tools::coding_tools::browser_fetch::ssrf_guard_reject_reason`)
+//!     * SSRF guard (`rightkit_agent_coding_tools::browser_fetch::ssrf_guard_reject_reason`)
 //!       runs before any navigation. Host policy is additive on top.
 //!     * Browser capability gate runs before any state mutation.
 //!     * Page text and console output are wrapped via
-//!       `rightkit_agent_tools::coding_tools::browser_fetch::wrap_untrusted_web_text`.
+//!       `rightkit_agent_coding_tools::browser_fetch::wrap_untrusted_web_text`.
 //!     * Browser profiles are ephemeral by default; named shared profiles
 //!       require the operator to flip `profile_kind` through the consent
 //!       endpoint below.

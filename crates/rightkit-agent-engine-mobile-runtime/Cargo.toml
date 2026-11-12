@@ -19,7 +19,7 @@ crate-type = ["staticlib", "rlib"]
 rightkit-agent-engine-protocol = {version = "0.2.0", path = "../rightkit-agent-engine-protocol"}
 rightkit-agent-policy = {version = "0.1.0", path = "../rightkit-agent-policy"}
 rightkit-agent-engine-core = {version = "0.1.1", path = "../rightkit-agent-engine-core", default-features = false}
-rightkit-agent-tools = {version = "0.3.1", path = "../rightkit-agent-tools", features = ["coding_tools"]}
+rightkit-agent-coding-tools = { version = "0.1.0", path = "../rightkit-agent-coding-tools" }
 rightkit-llm = {version = "0.3.2", path = "../rightkit-llm", features = ["agent_providers"]}
 rightkit-agent-engine-history = {version = "0.1.1", path = "../rightkit-agent-engine-history"}
 rightkit-memory-client = { version = "0.1.0", path = "../rightkit-memory-client"}

@@ -290,8 +290,8 @@ impl DaemonState {
 /// "owns" the run.
 pub(crate) fn find_team_preset_for_goal(
     goal_text: &str,
-    teams: &[rightkit_agent_tools::coding_tools::TeamDefinition],
-) -> Option<rightkit_agent_tools::coding_tools::TeamDefinition> {
+    teams: &[rightkit_agent_coding_tools::TeamDefinition],
+) -> Option<rightkit_agent_coding_tools::TeamDefinition> {
     let needle = goal_text.to_lowercase();
     teams
         .iter()

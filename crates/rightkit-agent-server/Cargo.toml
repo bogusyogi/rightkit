@@ -20,7 +20,7 @@ default = []
 # The evaluation harness (benchmark, compare, terminal-bench, executed and corpus bake-offs, soak).
 benchmarks = []
 qualification = ["rightkit-agent-engine-core/qualification"]
-fastembed = ["rightkit-onnx/session", "rightkit-agent-tools/coding_tools-embeddings"]
+fastembed = ["rightkit-onnx/session", "rightkit-agent-coding-tools/embeddings"]
 
 [dependencies]
 rightkit-doctor = { version = "0.2.0", path = "../rightkit-doctor" }
@@ -36,7 +36,7 @@ rightkit-memory-client = { version = "0.1.0", path = "../rightkit-memory-client"
 rightkit-agent-policy = { version = "0.1.0", path = "../rightkit-agent-policy" }
 rightkit-logs = { version = "0.4.0", path = "../rightkit-logs", features = ["tracing"], default-features = false }
 rightkit-agent-telemetry = { version = "0.1.0", path = "../rightkit-agent-telemetry" }
-rightkit-agent-tools = { version = "0.3.3", path = "../rightkit-agent-tools", features = ["coding_tools"] }
+rightkit-agent-coding-tools = { version = "0.1.0", path = "../rightkit-agent-coding-tools" }
 rightkit-agent-config = { version = "0.1.0", path = "../rightkit-agent-config", features = ["host-env"] }
 rightkit-agent-orchestration = { version = "0.1.1", path = "../rightkit-agent-orchestration" , features = ["coding", "coding-host"] }
 rightkit-agent-learning = { version = "0.1.0", path = "../rightkit-agent-learning" }

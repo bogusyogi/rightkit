@@ -120,7 +120,7 @@ pub struct LspQuery {
 pub struct SaveLspConfigRequest {
     pub workspace_root: String,
     #[serde(default)]
-    pub servers: Vec<rightkit_agent_tools::coding_tools::lsp_tool::LspWorkspaceServer>,
+    pub servers: Vec<rightkit_agent_coding_tools::lsp_tool::LspWorkspaceServer>,
 }
 
 async fn get_lsp_handler(
@@ -130,7 +130,7 @@ async fn get_lsp_handler(
     if workspace.is_empty() {
         return Err(StatusCode::BAD_REQUEST);
     }
-    let status = rightkit_agent_tools::coding_tools::lsp_tool::lsp_status(Path::new(workspace));
+    let status = rightkit_agent_coding_tools::lsp_tool::lsp_status(Path::new(workspace));
     Ok(Json(
         serde_json::to_value(status).unwrap_or(serde_json::Value::Null),
     ))
@@ -150,15 +150,15 @@ async fn save_lsp_handler(
     {
         return Err(StatusCode::BAD_REQUEST);
     }
-    let config = rightkit_agent_tools::coding_tools::lsp_tool::LspWorkspaceConfig {
+    let config = rightkit_agent_coding_tools::lsp_tool::LspWorkspaceConfig {
         servers: body.servers,
     };
-    rightkit_agent_tools::coding_tools::lsp_tool::write_lsp_workspace_config(
+    rightkit_agent_coding_tools::lsp_tool::write_lsp_workspace_config(
         Path::new(workspace),
         &config,
     )
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let status = rightkit_agent_tools::coding_tools::lsp_tool::lsp_status(Path::new(workspace));
+    let status = rightkit_agent_coding_tools::lsp_tool::lsp_status(Path::new(workspace));
     Ok(Json(
         serde_json::to_value(status).unwrap_or(serde_json::Value::Null),
     ))

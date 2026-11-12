@@ -17,16 +17,16 @@ struct SessionCredentialRequester {
     pending: Arc<Mutex<crate::credential_request::PendingCredentialRequests>>,
 }
 
-impl rightkit_agent_tools::coding_tools::CredentialRequester for SessionCredentialRequester {
+impl rightkit_agent_coding_tools::CredentialRequester for SessionCredentialRequester {
     fn request(
         &self,
         tool_call_id: String,
-        prompt: rightkit_agent_tools::coding_tools::CredentialPrompt,
+        prompt: rightkit_agent_coding_tools::CredentialPrompt,
     ) -> std::pin::Pin<
         Box<
             dyn std::future::Future<
                     Output = Result<
-                        Option<rightkit_agent_tools::coding_tools::SecretString>,
+                        Option<rightkit_agent_coding_tools::SecretString>,
                         String,
                     >,
                 > + Send,
@@ -55,7 +55,7 @@ impl rightkit_agent_tools::coding_tools::CredentialRequester for SessionCredenti
             });
             match tokio::time::timeout(std::time::Duration::from_secs(300), receiver).await {
                 Ok(Ok(CredentialResume::Supplied(value))) => {
-                    Ok(Some(rightkit_agent_tools::coding_tools::SecretString::new(
+                    Ok(Some(rightkit_agent_coding_tools::SecretString::new(
                         value.expose().to_string(),
                     )))
                 }
@@ -110,9 +110,9 @@ impl SessionEngine {
         user_approved: bool,
         turn_results: &mut std::collections::HashMap<
             String,
-            rightkit_agent_tools::coding_tools::ToolResult,
+            rightkit_agent_coding_tools::ToolResult,
         >,
-    ) -> Option<rightkit_agent_tools::coding_tools::ToolResult> {
+    ) -> Option<rightkit_agent_coding_tools::ToolResult> {
         let (args, arg_parse_error) = parse_tool_arguments_attributed(
             &call.arguments_json,
             self.tools
@@ -256,7 +256,7 @@ impl SessionEngine {
             crate::tool_dispatch_plumbing::EffectAdmissionStage::Execute,
         );
         let result = if let Some(err) = arg_parse_error {
-            rightkit_agent_tools::coding_tools::ToolResult::error(err)
+            rightkit_agent_coding_tools::ToolResult::error(err)
         } else {
             let registry = self.tools.clone();
             match registry.get(&call.name) {
@@ -393,7 +393,7 @@ impl SessionEngine {
                         .as_ref()
                         .and_then(|store| store.snapshot_targets(&write_targets).err());
                     let result = if let Some(failure) = history_failure {
-                        rightkit_agent_tools::coding_tools::ToolResult::error(failure)
+                        rightkit_agent_coding_tools::ToolResult::error(failure)
                     } else if call.name == "exec" {
                         crate::engine::composition::execute_exec_call(
                             self,
@@ -412,7 +412,7 @@ impl SessionEngine {
                         }
                         #[cfg(not(feature = "host"))]
                         {
-                            rightkit_agent_tools::coding_tools::ToolResult::error(
+                            rightkit_agent_coding_tools::ToolResult::error(
                                 "run_program is unavailable in this runtime profile",
                             )
                         }
@@ -439,7 +439,7 @@ impl SessionEngine {
                     drop(cancel_guard);
                     result
                 }
-                None => rightkit_agent_tools::coding_tools::ToolResult::error(format!(
+                None => rightkit_agent_coding_tools::ToolResult::error(format!(
                     "unknown tool: {}",
                     call.name
                 )),
@@ -466,7 +466,7 @@ fn is_git_commit_command(command: &str) -> bool {
 async fn staged_git_diff(workspace_root: &std::path::Path) -> String {
     #[cfg(feature = "host")]
     {
-        let adapter = rightkit_agent_tools::coding_tools::shell::NativeCommandSandboxAdapter;
+        let adapter = rightkit_agent_coding_tools::shell::NativeCommandSandboxAdapter;
         let context = rightkit_sandbox::execution::ProcessLaunchContext {
             workspace_root: workspace_root.display().to_string(),
             sandbox_profile: Some("git-precommit-diff".into()),
@@ -481,10 +481,10 @@ async fn staged_git_diff(workspace_root: &std::path::Path) -> String {
             env: Vec::new(),
         };
         let Ok(mut child) =
-            rightkit_agent_tools::coding_tools::process_resource_authority::spawn_with_process_authority(
+            rightkit_agent_coding_tools::process_resource_authority::spawn_with_process_authority(
                 &adapter,
                 spec,
-                rightkit_agent_tools::coding_tools::process_resource_authority::ResourceKind::ChildProcess,
+                rightkit_agent_coding_tools::process_resource_authority::ResourceKind::ChildProcess,
                 true,
             )
             .await

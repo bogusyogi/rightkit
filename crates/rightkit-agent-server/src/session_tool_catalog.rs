@@ -1,7 +1,7 @@
 use rightkit_agent_engine_core::provider_turn_boundary::{
     BoundarySendOutcome, ProviderBoundarySender, ProviderBoundaryUpdate,
 };
-use rightkit_agent_tools::coding_tools::ToolRegistry;
+use rightkit_agent_coding_tools::ToolRegistry;
 use std::sync::{Arc, Mutex};
 
 const TOOL_NAMES: [&str; 5] = [
@@ -17,7 +17,7 @@ type Rebuild = Box<dyn Fn() -> ToolRegistry + Send + Sync>;
 fn with_model_profile(
     registry: ToolRegistry,
     lazy_tool_loading: bool,
-    model_interface: rightkit_agent_tools::coding_tools::ModelToolInterface,
+    model_interface: rightkit_agent_coding_tools::ModelToolInterface,
 ) -> ToolRegistry {
     registry
         .with_lazy_loading(lazy_tool_loading)
@@ -26,13 +26,13 @@ fn with_model_profile(
 
 pub(crate) fn model_interface_from_config(
     config: rightkit_agent_config::ModelToolInterfaceConfig,
-) -> rightkit_agent_tools::coding_tools::ModelToolInterface {
+) -> rightkit_agent_coding_tools::ModelToolInterface {
     match config {
         rightkit_agent_config::ModelToolInterfaceConfig::LegacyPromoted => {
-            rightkit_agent_tools::coding_tools::ModelToolInterface::LegacyPromoted
+            rightkit_agent_coding_tools::ModelToolInterface::LegacyPromoted
         }
         rightkit_agent_config::ModelToolInterfaceConfig::FixedV1 => {
-            rightkit_agent_tools::coding_tools::ModelToolInterface::FixedV1
+            rightkit_agent_coding_tools::ModelToolInterface::FixedV1
         }
     }
 }
@@ -41,8 +41,8 @@ pub(crate) fn model_interface_from_config(
 /// Answered from the static capability table — no tool handler is
 /// constructed for a metadata query.
 pub(crate) fn default_tool_capabilities(
-) -> Vec<rightkit_agent_tools::coding_tools::registry::ToolCapability> {
-    rightkit_agent_tools::coding_tools::registry::default_tool_capabilities()
+) -> Vec<rightkit_agent_coding_tools::registry::ToolCapability> {
+    rightkit_agent_coding_tools::registry::default_tool_capabilities()
 }
 
 /// Inputs for [`build_session_tool_registry_for_plugins`].
@@ -53,7 +53,7 @@ pub(crate) struct SessionToolRegistryRequest<'a> {
     pub(crate) requested_allowed_tools: &'a [String],
     pub(crate) requested_disallowed_tools: &'a [String],
     pub(crate) lazy_tool_loading: bool,
-    pub(crate) model_interface: rightkit_agent_tools::coding_tools::ModelToolInterface,
+    pub(crate) model_interface: rightkit_agent_coding_tools::ModelToolInterface,
     pub(crate) memory: Option<(
         Arc<dyn rightkit_memory_client::backend::MemoryBackend>,
         rightkit_memory_client::memory_provenance::MemoryProvenanceStore,
@@ -156,7 +156,7 @@ pub(crate) fn build_session_tool_registry_for_plugins(
 
     if registry.get("run_program").is_some() {
         registry.register(Box::new(
-            rightkit_agent_tools::coding_tools::code_mode::RunProgramTool::new(&registry),
+            rightkit_agent_coding_tools::code_mode::RunProgramTool::new(&registry),
         ));
     }
 

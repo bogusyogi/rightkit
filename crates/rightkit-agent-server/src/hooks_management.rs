@@ -174,7 +174,7 @@ async fn test_hooks_handler(Json(req): Json<HookTestRequest>) -> Json<HookTestRe
         sandbox_required: false,
         network_required: false,
     };
-    let adapter = rightkit_agent_tools::coding_tools::shell::NativeCommandSandboxAdapter;
+    let adapter = rightkit_agent_coding_tools::shell::NativeCommandSandboxAdapter;
     let hooks = env_command_hooks_for_event(&req.event, matcher);
     let report: HookDryRunReport = rightkit_hooks::agent_hooks::dry_run_hook_with_adapter(
         &req.event,

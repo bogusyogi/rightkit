@@ -116,7 +116,7 @@ struct ManagedDriver {
     stdin: StdinHandle,
     ready: watch::Receiver<bool>,
     #[cfg(windows)]
-    _windows_job: rightkit_agent_tools::coding_tools::sandbox::WindowsJob,
+    _windows_job: rightkit_agent_coding_tools::sandbox::WindowsJob,
 }
 
 impl Default for DriverHostRuntime {
@@ -217,7 +217,7 @@ impl DriverHostRuntime {
         #[cfg(windows)]
         let windows_job = {
             let job =
-                rightkit_agent_tools::coding_tools::sandbox::shell_job().map_err(|error| {
+                rightkit_agent_coding_tools::sandbox::shell_job().map_err(|error| {
                     DriverRuntimeError::Spawn(format!("Windows Job Object: {error}"))
                 })?;
             let pid = pid
@@ -1038,13 +1038,13 @@ async fn capture_version(
 fn default_process_launch_adapter() -> Arc<dyn ProcessLaunchAdapter> {
     {
         let governor =
-            rightkit_agent_tools::coding_tools::process_resource_authority::require_process_resource_governor()
+            rightkit_agent_coding_tools::process_resource_authority::require_process_resource_governor()
                 .expect("driver process authority must be installed by host composition");
         Arc::new(
-            rightkit_agent_tools::coding_tools::process_resource_authority::GovernedProcessLaunchAdapter::new(
-                rightkit_agent_tools::coding_tools::process_launch::LocalProcessLaunchAdapter,
+            rightkit_agent_coding_tools::process_resource_authority::GovernedProcessLaunchAdapter::new(
+                rightkit_agent_coding_tools::process_launch::LocalProcessLaunchAdapter,
                 governor,
-                rightkit_agent_tools::coding_tools::process_resource_authority::ResourceKind::ChildProcess,
+                rightkit_agent_coding_tools::process_resource_authority::ResourceKind::ChildProcess,
                 true,
             ),
         )

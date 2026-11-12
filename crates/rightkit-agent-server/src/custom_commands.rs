@@ -208,7 +208,7 @@ pub(crate) fn expand_by_name(
 ) -> Option<TurnOverrides> {
     let command = resolve(commands, name)?;
     let catalog: Vec<String> =
-        rightkit_agent_tools::coding_tools::registry::default_tool_capabilities()
+        rightkit_agent_coding_tools::registry::default_tool_capabilities()
             .into_iter()
             .map(|capability| capability.name)
             .collect();

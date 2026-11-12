@@ -45,7 +45,7 @@ impl SessionEngine {
         &mut self,
         sid: &str,
         call_id: &str,
-        result: &rightkit_agent_tools::coding_tools::ToolResult,
+        result: &rightkit_agent_coding_tools::ToolResult,
     ) {
         if result.is_error && result.content.contains("refusing unsandboxed") {
             self.emit_tool_policy_event(
@@ -59,10 +59,10 @@ impl SessionEngine {
         #[cfg(feature = "host")]
         if let Some(denial) = result.sandbox_denial.as_ref() {
             let what = match denial.kind {
-                rightkit_agent_tools::coding_tools::sandbox::SandboxDenialKind::Network => {
+                rightkit_agent_coding_tools::sandbox::SandboxDenialKind::Network => {
                     "outbound network"
                 }
-                rightkit_agent_tools::coding_tools::sandbox::SandboxDenialKind::Filesystem {
+                rightkit_agent_coding_tools::sandbox::SandboxDenialKind::Filesystem {
                     ..
                 } => "filesystem access",
             };
@@ -82,7 +82,7 @@ impl SessionEngine {
         middleware_decisions: &[AppliedMiddlewareDecision],
         turn_results: &mut std::collections::HashMap<
             String,
-            rightkit_agent_tools::coding_tools::ToolResult,
+            rightkit_agent_coding_tools::ToolResult,
         >,
     ) -> Option<bool> {
         let mut verdict = self.permission_verdict_for(call);

@@ -32,7 +32,7 @@ pub fn detect_unbacked_mutations(
     tool_calls: &[ToolCall],
     tool_results: &std::collections::HashMap<
         String,
-        rightkit_agent_tools::coding_tools::ToolResult,
+        rightkit_agent_coding_tools::ToolResult,
     >,
 ) -> Vec<String> {
     let mut offenders = Vec::new();

@@ -35,7 +35,7 @@ rightkit-llm = { version = "0.3.2", path = "../rightkit-llm", features = ["agent
 rightkit-repo-graph = { version = "0.2.0", path = "../rightkit-repo-graph", optional = true }
 rightkit-agent-telemetry = { version = "0.1.0", path = "../rightkit-agent-telemetry", optional = true }
 rightkit-sandbox = { version = "0.6.3", path = "../rightkit-sandbox", features = ["execution"], optional = true }
-rightkit-agent-tools = { version = "0.3.1", path = "../rightkit-agent-tools", features = ["coding_tools"], optional = true }
+rightkit-agent-coding-tools = { version = "0.1.0", path = "../rightkit-agent-coding-tools", optional = true }
 rightkit-db = { version = "0.5.3", path = "../rightkit-db", features = ["bundled", "statement-cache"], optional = true }
 rightkit-fs = { version = "0.4.9", path = "../rightkit-fs", features = ["fs", "lock", "json", "digest", "transaction"], optional = true }
 
@@ -55,9 +55,9 @@ coding = [
     "dep:rightkit-repo-graph",
     "dep:rightkit-agent-telemetry",
     "dep:rightkit-sandbox",
-    "dep:rightkit-agent-tools",
+    "dep:rightkit-agent-coding-tools",
     "dep:rightkit-db",
     "dep:rightkit-fs",
 ]
-coding-host = ["coding", "rightkit-agent-tools/coding_tools-host"]
+coding-host = ["coding", "rightkit-agent-coding-tools/host"]
 coding-os-keyring = ["coding", "rightkit-llm/agent_providers-os-keyring", "rightkit-llm/agent_router-os-keyring"]

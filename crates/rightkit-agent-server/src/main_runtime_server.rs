@@ -1019,7 +1019,7 @@ async fn serve(
     // this process so no grant for a dead AppContainer SID stays on the user's
     // Python install.
     #[cfg(windows)]
-    rightkit_agent_tools::coding_tools::sandbox::release_pinned_read_roots();
+    rightkit_agent_coding_tools::sandbox::release_pinned_read_roots();
 }
 
 /// Cap on the post-shutdown drain. Long enough for a real request to finish,

@@ -36,7 +36,7 @@ impl SessionEngine {
         &mut self,
         turn_results: &std::collections::HashMap<
             String,
-            rightkit_agent_tools::coding_tools::ToolResult,
+            rightkit_agent_coding_tools::ToolResult,
         >,
         iteration: usize,
         sid: &str,
@@ -140,7 +140,7 @@ impl SessionEngine {
         call: &ToolCall,
         turn_results: &mut std::collections::HashMap<
             String,
-            rightkit_agent_tools::coding_tools::ToolResult,
+            rightkit_agent_coding_tools::ToolResult,
         >,
     ) {
         self.dispatch_tool_call(call, turn_results).await;
@@ -166,7 +166,7 @@ impl SessionEngine {
         // has one code path.
         let mut turn_results: std::collections::HashMap<
             String,
-            rightkit_agent_tools::coding_tools::ToolResult,
+            rightkit_agent_coding_tools::ToolResult,
         > = std::collections::HashMap::new();
 
         // Sessions rule 32: count identical calls in a row. The fourth is an
@@ -331,7 +331,7 @@ impl SessionEngine {
         post_turn_gate: &mut crate::post_turn_gate::PostTurnGateState,
         turn_results: &std::collections::HashMap<
             String,
-            rightkit_agent_tools::coding_tools::ToolResult,
+            rightkit_agent_coding_tools::ToolResult,
         >,
         pending_verify: &mut crate::verify_fanout::PendingVerification,
     ) -> ToolDispatchOutcome {

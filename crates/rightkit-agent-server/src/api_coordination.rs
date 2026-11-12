@@ -139,7 +139,7 @@ async fn delete_team_handler(
     Path(name): Path<String>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     enforce_trusted_source_authority(&headers)?;
-    match rightkit_agent_tools::coding_tools::TeamDirectory::delete_team(&state, name).await {
+    match rightkit_agent_coding_tools::TeamDirectory::delete_team(&state, name).await {
         Ok(summary) => Ok(Json(serde_json::json!({
             "deleted": true,
             "summary": summary,
@@ -149,7 +149,7 @@ async fn delete_team_handler(
     }
 }
 
-fn team_json(team: &rightkit_agent_tools::coding_tools::TeamDefinition) -> serde_json::Value {
+fn team_json(team: &rightkit_agent_coding_tools::TeamDefinition) -> serde_json::Value {
     serde_json::json!({
         "name": team.name,
         "description": team.description,

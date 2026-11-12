@@ -1299,7 +1299,7 @@ async fn run_worktree_git(
                 || target
                     .components()
                     .any(|part| part == std::path::Component::ParentDir)
-                || rightkit_agent_tools::coding_tools::sandbox::path_is_protected_secret(&target)
+                || rightkit_agent_coding_tools::sandbox::path_is_protected_secret(&target)
             {
                 return Err(StatusCode::BAD_REQUEST);
             }
@@ -1308,7 +1308,7 @@ async fn run_worktree_git(
                 std::fs::create_dir_all(&target).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
             }
             let profile =
-                rightkit_agent_tools::coding_tools::sandbox::AppContainerProfile::for_workspace(
+                rightkit_agent_coding_tools::sandbox::AppContainerProfile::for_workspace(
                     std::path::Path::new(&root),
                 )
                 .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;

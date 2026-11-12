@@ -19,7 +19,7 @@ codex = []
 # Session lifecycle: spawn, event stream, approvals, cancel, tree teardown. Pulls in both protocol clients.
 session = ["claude", "codex"]
 agent_acp = []
-driver_host = ["claude", "codex", "dep:rightkit-crypto", "dep:async-trait", "dep:rightkit-agent-tools", "rightkit-child-process/tokio", "dep:rightkit-agent-config", "dep:rightkit-sandbox", "dep:rightkit-fs", "dep:rightkit-sidecar", "dep:rightkit-time", "dep:thiserror", "dep:tokio", "dep:libc"]
+driver_host = ["claude", "codex", "dep:rightkit-crypto", "dep:async-trait", "dep:rightkit-agent-coding-tools", "rightkit-child-process/tokio", "dep:rightkit-agent-config", "dep:rightkit-sandbox", "dep:rightkit-fs", "dep:rightkit-sidecar", "dep:rightkit-time", "dep:thiserror", "dep:tokio", "dep:libc"]
 
 [dependencies]
 rightkit-agent-engine-protocol = { version = "0.2.0", path = "../rightkit-agent-engine-protocol", optional = true }
@@ -30,7 +30,7 @@ serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 rightkit-crypto = {version = "0.1.0", path = "../rightkit-crypto", optional = true}
 async-trait = {version = "0.1", optional = true}
-rightkit-agent-tools = {version = "0.3.1", path = "../rightkit-agent-tools", features = ["coding_tools"], optional = true}
+rightkit-agent-coding-tools = { version = "0.1.0", path = "../rightkit-agent-coding-tools", optional = true }
 rightkit-agent-config = { version = "0.1.0", path = "../rightkit-agent-config", features = ["host-env"], optional = true }
 rightkit-sandbox = {version = "0.6.2", path = "../rightkit-sandbox", features = ["execution"], optional = true}
 rightkit-fs = {version = "0.4.9", features = ["fs", "lock", "json", "digest", "transaction"], path = "../rightkit-fs", optional = true}

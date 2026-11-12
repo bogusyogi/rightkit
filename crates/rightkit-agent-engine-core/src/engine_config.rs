@@ -24,18 +24,18 @@ pub struct SessionEngineConfig {
     pub execution_workspace_path: Option<std::path::PathBuf>,
     pub execution_network_profile: Option<String>,
     pub execution_resource_limits:
-        Option<rightkit_agent_tools::coding_tools::ExecutionResourceLimits>,
+        Option<rightkit_agent_coding_tools::ExecutionResourceLimits>,
     #[cfg(feature = "host")]
     pub execution_backend_registry:
-        Option<Arc<rightkit_agent_tools::coding_tools::ExecutionBackendRegistry>>,
+        Option<Arc<rightkit_agent_coding_tools::ExecutionBackendRegistry>>,
     pub mcp_channel: String,
     pub toolset: Option<String>,
     pub runtime_middleware: Option<Arc<Mutex<RuntimeMiddlewareRegistry>>>,
     #[cfg(feature = "host")]
-    pub background_shells: Option<rightkit_agent_tools::coding_tools::background_shell::BgStore>,
+    pub background_shells: Option<rightkit_agent_coding_tools::background_shell::BgStore>,
     #[cfg(feature = "host")]
-    pub browser_sessions: Option<rightkit_agent_tools::coding_tools::browser::BrowserStore>,
-    pub task_store: Option<rightkit_agent_tools::coding_tools::task_tools::TaskStore>,
+    pub browser_sessions: Option<rightkit_agent_coding_tools::browser::BrowserStore>,
+    pub task_store: Option<rightkit_agent_coding_tools::task_tools::TaskStore>,
     /// UTC day bucket (`YYYY-MM-DD`) used to derive the stable
     /// `cache:prompt:stable:{hash}` cache key. Empty string means the
     /// engine constructor will fill it from `cache::today_day()` at session

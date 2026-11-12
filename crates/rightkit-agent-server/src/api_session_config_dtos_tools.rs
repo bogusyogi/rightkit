@@ -229,7 +229,7 @@ pub(crate) fn effective_tool_filter(
 
 pub(crate) fn build_session_tool_registry_for_plugins(
     request: crate::session_tool_catalog::SessionToolRegistryRequest<'_>,
-) -> rightkit_agent_tools::coding_tools::ToolRegistry {
+) -> rightkit_agent_coding_tools::ToolRegistry {
     crate::session_tool_catalog::build_session_tool_registry_for_plugins(request)
 }
 
@@ -244,7 +244,7 @@ pub(crate) fn load_workspace_config_with_env(
 
 pub(crate) fn web_search_config_from_config(
     config: &rightkit_agent_config::HostConfig,
-) -> Option<rightkit_agent_tools::coding_tools::WebSearchConfig> {
+) -> Option<rightkit_agent_coding_tools::WebSearchConfig> {
     let provider = config
         .tools
         .web_search_provider
@@ -268,7 +268,7 @@ pub(crate) fn web_search_config_from_config(
     if provider != "tinyfish" && api_key.is_empty() {
         return None;
     }
-    Some(rightkit_agent_tools::coding_tools::WebSearchConfig {
+    Some(rightkit_agent_coding_tools::WebSearchConfig {
         provider,
         api_key: api_key.to_string(),
     })

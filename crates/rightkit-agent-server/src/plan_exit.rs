@@ -25,7 +25,7 @@ pub struct DaemonPlanExit {
     pub permission_mode_tx: tokio::sync::watch::Sender<PermissionMode>,
 }
 
-impl rightkit_agent_tools::coding_tools::PlanExit for DaemonPlanExit {
+impl rightkit_agent_coding_tools::PlanExit for DaemonPlanExit {
     fn present(
         &self,
         plan: String,

@@ -4,7 +4,7 @@ impl SessionEngine {
     pub(in crate::engine) async fn checkpoint_sentinel(
         &mut self,
         call: &ToolCall,
-        result: &rightkit_agent_tools::coding_tools::ToolResult,
+        result: &rightkit_agent_coding_tools::ToolResult,
     ) -> Result<(), String> {
         let (Some(client), Some(run_id)) = (&self.sentinel_client, &self.sentinel_run_id) else {
             return Ok(());
@@ -94,7 +94,7 @@ impl SessionEngine {
         // owns the workspace-boundary check (typed "escapes the workspace
         // root" error) and the sandbox/EFF-001 external grant flow. Gating
         // them here would pre-empt both with an opaque assurance denial.
-        let resolved = if rightkit_agent_tools::coding_tools::read_file::path_is_within(
+        let resolved = if rightkit_agent_coding_tools::read_file::path_is_within(
             &resolved,
             &self.workspace_root,
         ) {
@@ -108,7 +108,7 @@ impl SessionEngine {
     pub(in crate::engine) fn record_assurance_receipt(
         &mut self,
         call: &ToolCall,
-        result: &rightkit_agent_tools::coding_tools::ToolResult,
+        result: &rightkit_agent_coding_tools::ToolResult,
     ) -> Result<(), String> {
         let Some(broker) = &self.assurance_broker else {
             return Ok(());
@@ -156,10 +156,10 @@ impl SessionEngine {
         sid: &str,
         call: &ToolCall,
         pre_span_id: Option<&str>,
-        mut result: rightkit_agent_tools::coding_tools::ToolResult,
+        mut result: rightkit_agent_coding_tools::ToolResult,
         turn_results: &mut std::collections::HashMap<
             String,
-            rightkit_agent_tools::coding_tools::ToolResult,
+            rightkit_agent_coding_tools::ToolResult,
         >,
     ) {
         // The post-edit guard reads `turn_results` to derive typed

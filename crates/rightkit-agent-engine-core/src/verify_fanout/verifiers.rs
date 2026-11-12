@@ -37,7 +37,7 @@ use std::time::Duration;
 use futures::FutureExt;
 
 #[cfg(feature = "host")]
-use rightkit_agent_tools::coding_tools::Tool;
+use rightkit_agent_coding_tools::Tool;
 
 use super::budget::VerifyBudgets;
 use super::finding::{
@@ -485,7 +485,7 @@ pub(crate) fn parse_lsp_finding_line(
 #[cfg(feature = "host")]
 async fn run_lsp_unit(
     path: PathBuf,
-    tool_ctx: rightkit_agent_tools::coding_tools::ToolContext,
+    tool_ctx: rightkit_agent_coding_tools::ToolContext,
     per_file: Duration,
 ) -> VerifierOutcome {
     let verifier = VerifierId::lsp();
@@ -497,7 +497,7 @@ async fn run_lsp_unit(
         );
     }
     let before_hash = content_hash(&path);
-    let lsp = rightkit_agent_tools::coding_tools::lsp_tool::LspTool;
+    let lsp = rightkit_agent_coding_tools::lsp_tool::LspTool;
     let args = serde_json::json!({
         "operation": "diagnostics",
         "path": path.to_string_lossy(),
@@ -515,7 +515,7 @@ async fn run_lsp_unit(
             }
             let message = result.content;
             if let Some(body) = message
-                .strip_prefix(rightkit_agent_tools::coding_tools::lsp_tool::DIAGNOSTICS_PREFIX)
+                .strip_prefix(rightkit_agent_coding_tools::lsp_tool::DIAGNOSTICS_PREFIX)
             {
                 let findings: Vec<VerifiedFinding> = body
                     .lines()
@@ -592,7 +592,7 @@ async fn run_lsp_unit(
 #[cfg(not(feature = "host"))]
 async fn run_lsp_unit(
     path: PathBuf,
-    _tool_ctx: rightkit_agent_tools::coding_tools::ToolContext,
+    _tool_ctx: rightkit_agent_coding_tools::ToolContext,
     _per_file: Duration,
 ) -> VerifierOutcome {
     VerifierOutcome::unavailable(
@@ -956,7 +956,7 @@ impl Drop for KillOnDrop {
 /// sandbox (consumed by the AppContainer backend; empty roots add nothing).
 #[cfg(feature = "host")]
 pub(crate) fn launch_read_roots_env(read_roots: &[PathBuf]) -> Vec<(String, String)> {
-    rightkit_agent_tools::coding_tools::sandbox::sandbox_read_roots_env(read_roots)
+    rightkit_agent_coding_tools::sandbox::sandbox_read_roots_env(read_roots)
 }
 
 #[cfg(feature = "host")]
@@ -974,7 +974,7 @@ async fn run_process_capture(
         capture_stream_bounded, CommandLaunchSpec, OutputLimits, ProcessLaunchAdapter,
         ProcessLaunchContext,
     };
-    let adapter = rightkit_agent_tools::coding_tools::shell::NativeCommandSandboxAdapter;
+    let adapter = rightkit_agent_coding_tools::shell::NativeCommandSandboxAdapter;
     let mut child = KillOnDrop(Some(
         adapter
             .spawn(CommandLaunchSpec {

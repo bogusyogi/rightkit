@@ -51,7 +51,7 @@ use rightkit_agent_policy::{
     parse_capability, PermissionDecision, PermissionEngine, PermissionMode, PermissionVerdict,
     RuleSource, RuleStore, WorkspaceTrust,
 };
-use rightkit_agent_tools::coding_tools::{
+use rightkit_agent_coding_tools::{
     SubagentSpawner, SubagentSupervisor, ToolContext, ToolRegistry, WebSearchConfig,
 };
 use std::collections::{HashMap, HashSet};
@@ -333,11 +333,11 @@ pub struct SessionEngine {
     external_approval_times: HashMap<String, std::time::Instant>,
     /// Session-owned deferred tool resolutions (ENG-86).
     deferred_tool_calls:
-        Arc<rightkit_agent_tools::coding_tools::deferred_resolution::DeferredToolCallRegistry>,
+        Arc<rightkit_agent_coding_tools::deferred_resolution::DeferredToolCallRegistry>,
     /// Capability retained by out-of-turn producers. It is bound to this
     /// session lifetime, so callbacks from a retired engine cannot reach a
     /// later engine that reuses the same visible session id.
-    async_inbox_producer: rightkit_agent_tools::coding_tools::async_inbox::AsyncInboxProducer,
+    async_inbox_producer: rightkit_agent_coding_tools::async_inbox::AsyncInboxProducer,
     /// Session-scoped registry of in-flight mid-turn credential requests
     /// (ENG-94). Mirrors `pending_approvals` exactly: constructed the same
     /// way, held behind the same `Arc<Mutex<..>>` shape, and intended to be
@@ -379,27 +379,27 @@ pub struct SessionEngine {
     /// dimensions. `None` per slot records as unattributed.
     repair_attribution: Option<(Option<String>, Option<String>)>,
     /// Optional operator-question callback for the `ask_user` tool.
-    questioner: Option<Arc<dyn rightkit_agent_tools::coding_tools::UserQuestioner>>,
+    questioner: Option<Arc<dyn rightkit_agent_coding_tools::UserQuestioner>>,
     /// Per-session registry of background shells (shared into every ToolContext).
     #[cfg(feature = "host")]
-    background_shells: rightkit_agent_tools::coding_tools::background_shell::BgStore,
+    background_shells: rightkit_agent_coding_tools::background_shell::BgStore,
     /// Per-session file-read receipts shared into every ToolContext.
-    file_service: Arc<rightkit_agent_tools::coding_tools::FileService>,
+    file_service: Arc<rightkit_agent_coding_tools::FileService>,
     /// Per-session registry of browser sessions (shared into every ToolContext).
     #[cfg(feature = "host")]
-    browser_sessions: rightkit_agent_tools::coding_tools::browser::BrowserStore,
+    browser_sessions: rightkit_agent_coding_tools::browser::BrowserStore,
     /// Per-session registry of durable/background task records.
-    task_store: rightkit_agent_tools::coding_tools::task_tools::TaskStore,
+    task_store: rightkit_agent_coding_tools::task_tools::TaskStore,
     /// Optional plan-exit callback for the `exit_plan_mode` tool.
-    plan_exit: Option<Arc<dyn rightkit_agent_tools::coding_tools::PlanExit>>,
+    plan_exit: Option<Arc<dyn rightkit_agent_coding_tools::PlanExit>>,
     /// Optional live message dispatcher for the `send_message` tool.
-    message_dispatcher: Option<Arc<dyn rightkit_agent_tools::coding_tools::MessageDispatcher>>,
+    message_dispatcher: Option<Arc<dyn rightkit_agent_coding_tools::MessageDispatcher>>,
     /// Optional live team directory for team tools.
-    team_directory: Option<Arc<dyn rightkit_agent_tools::coding_tools::TeamDirectory>>,
+    team_directory: Option<Arc<dyn rightkit_agent_coding_tools::TeamDirectory>>,
     /// Authenticated host adapter for run_program's Membrane operations & Pull projection.
     #[cfg(feature = "host")]
     context_tool_dispatcher:
-        Option<Arc<dyn rightkit_agent_tools::coding_tools::code_mode::ContextToolDispatcher>>,
+        Option<Arc<dyn rightkit_agent_coding_tools::code_mode::ContextToolDispatcher>>,
     /// Optional web-search provider credentials shared into web_search tool contexts.
     web_search_config: Option<WebSearchConfig>,
     /// Image-provider keys supplied by a trusted host, keyed by image route
@@ -407,7 +407,7 @@ pub struct SessionEngine {
     /// model-visible tool input/output.
     image_provider_keys: HashMap<String, String>,
     /// Optional Cloudflare account credential shared into native deployment tool contexts.
-    cloudflare_config: Option<rightkit_agent_tools::coding_tools::CloudflareConfig>,
+    cloudflare_config: Option<rightkit_agent_coding_tools::CloudflareConfig>,
     /// Optional forge credential shared into GitHub API & git push tool contexts.
     github_token: Option<String>,
     /// Optional MCP manager for the dynamic MCP tools.
@@ -425,12 +425,12 @@ pub struct SessionEngine {
     /// Selected network profile for process-spawning tools.
     execution_network_profile: Option<String>,
     /// Resource caps selected for backend-routed process tools.
-    execution_resource_limits: Option<rightkit_agent_tools::coding_tools::ExecutionResourceLimits>,
+    execution_resource_limits: Option<rightkit_agent_coding_tools::ExecutionResourceLimits>,
     /// Catalog of configured execution backends so process tools can resolve an
     /// arbitrary backend id to its kind and refuse disabled backends.
     #[cfg(feature = "host")]
     execution_backend_registry:
-        Option<Arc<rightkit_agent_tools::coding_tools::ExecutionBackendRegistry>>,
+        Option<Arc<rightkit_agent_coding_tools::ExecutionBackendRegistry>>,
     /// Local skill directories used by the `invoke_skill` tool.
     skill_dirs: Vec<std::path::PathBuf>,
     /// Optional lifecycle hook bus. When set, the engine publishes
@@ -578,7 +578,7 @@ pub struct SessionEngine {
         String,
         (
             String,
-            rightkit_agent_tools::coding_tools::sandbox::SandboxGrant,
+            rightkit_agent_coding_tools::sandbox::SandboxGrant,
         ),
     >,
     /// ENG-73: demand-driven lifetime facts for this engine. Updated from
@@ -740,14 +740,14 @@ impl SessionEngine {
     /// Install host-composed mutation authority shared by engine tools & undo.
     pub fn set_file_service(
         &mut self,
-        file_service: Arc<rightkit_agent_tools::coding_tools::FileService>,
+        file_service: Arc<rightkit_agent_coding_tools::FileService>,
     ) {
         self.file_service = file_service;
     }
 
     /// Expose the host assembled mutation authority for adjacent daemon
     /// projections that must share its locks, revisions, & receipts.
-    pub fn file_service(&self) -> Arc<rightkit_agent_tools::coding_tools::FileService> {
+    pub fn file_service(&self) -> Arc<rightkit_agent_coding_tools::FileService> {
         self.file_service.clone()
     }
 
@@ -824,7 +824,7 @@ impl SessionEngine {
     pub(crate) fn file_collision_note(
         &self,
         call: &rightkit_agent_engine_protocol::ToolCall,
-        result: &rightkit_agent_tools::coding_tools::ToolResult,
+        result: &rightkit_agent_coding_tools::ToolResult,
     ) -> Option<String> {
         if result.is_error || result.mutations.is_empty() {
             return None;
@@ -861,7 +861,7 @@ impl SessionEngine {
     fn record_run_changes(
         &self,
         call: &rightkit_agent_engine_protocol::ToolCall,
-        result: &rightkit_agent_tools::coding_tools::ToolResult,
+        result: &rightkit_agent_coding_tools::ToolResult,
     ) -> Result<(), String> {
         if result.mutations.is_empty() {
             return Ok(());
@@ -1066,7 +1066,7 @@ impl SessionEngine {
             Arc::new(crate::secret_redaction::SecretRedactor::new()),
         ));
         let async_inbox_producer =
-            rightkit_agent_tools::coding_tools::async_inbox::activate_session(&config.session_id);
+            rightkit_agent_coding_tools::async_inbox::activate_session(&config.session_id);
         let workspace_root = config.workspace_root;
         let assurance_broker_path = workspace_root
             .join(".rightkit")
@@ -1119,7 +1119,7 @@ impl SessionEngine {
             approval_required_calls: Arc::new(Mutex::new(std::collections::HashSet::new())),
             external_approval_times: HashMap::new(),
             deferred_tool_calls: Arc::new(
-                rightkit_agent_tools::coding_tools::deferred_resolution::DeferredToolCallRegistry::new(),
+                rightkit_agent_coding_tools::deferred_resolution::DeferredToolCallRegistry::new(),
             ),
             async_inbox_producer,
             pending_credential_requests: Arc::new(Mutex::new(
@@ -1141,7 +1141,7 @@ impl SessionEngine {
             questioner: None,
             #[cfg(feature = "host")]
             background_shells,
-            file_service: rightkit_agent_tools::coding_tools::FileService::new(),
+            file_service: rightkit_agent_coding_tools::FileService::new(),
             #[cfg(feature = "host")]
             browser_sessions,
             task_store,

@@ -156,7 +156,7 @@ pub(crate) fn resolve_execution_backend_resource_limits(
     workspace_root: &std::path::Path,
     base_registry: &rightkit_sandbox::execution::ExecutionBackendRegistry,
     backend_id: Option<&str>,
-) -> Result<Option<rightkit_agent_tools::coding_tools::ExecutionResourceLimits>, String> {
+) -> Result<Option<rightkit_agent_coding_tools::ExecutionResourceLimits>, String> {
     let Some(backend_id) = backend_id.map(str::trim).filter(|value| !value.is_empty()) else {
         return Ok(None);
     };
@@ -165,7 +165,7 @@ pub(crate) fn resolve_execution_backend_resource_limits(
         .map_err(|err| err.message)?;
     Ok(registry.get(backend_id).map(|backend| {
         let limits = &backend.resource_limits;
-        rightkit_agent_tools::coding_tools::ExecutionResourceLimits {
+        rightkit_agent_coding_tools::ExecutionResourceLimits {
             cpu: limits.cpu,
             memory_mb: limits.memory_mb,
             disk_mb: limits.disk_mb,

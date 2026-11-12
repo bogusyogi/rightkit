@@ -105,7 +105,7 @@ impl DaemonSubagentSupervisor {
     async fn terminal_status(
         &self,
         session_id: &str,
-    ) -> Result<Option<rightkit_agent_tools::coding_tools::SubagentTerminalStatus>, String> {
+    ) -> Result<Option<rightkit_agent_coding_tools::SubagentTerminalStatus>, String> {
         let Some(storage) = self.state.storage.as_ref() else {
             return Err("subagent supervision requires daemon session storage".to_string());
         };
@@ -116,11 +116,11 @@ impl DaemonSubagentSupervisor {
             .ok_or_else(|| format!("unknown subagent session {session_id}"))?;
         Ok(match status.as_str() {
             "completed" | "idle" => {
-                Some(rightkit_agent_tools::coding_tools::SubagentTerminalStatus::Completed)
+                Some(rightkit_agent_coding_tools::SubagentTerminalStatus::Completed)
             }
-            "failed" => Some(rightkit_agent_tools::coding_tools::SubagentTerminalStatus::Failed),
+            "failed" => Some(rightkit_agent_coding_tools::SubagentTerminalStatus::Failed),
             "cancelled" => {
-                Some(rightkit_agent_tools::coding_tools::SubagentTerminalStatus::Cancelled)
+                Some(rightkit_agent_coding_tools::SubagentTerminalStatus::Cancelled)
             }
             _ => None,
         })
@@ -154,7 +154,7 @@ impl DaemonSubagentSupervisor {
     }
 }
 
-impl rightkit_agent_tools::coding_tools::SubagentSupervisor for DaemonSubagentSupervisor {
+impl rightkit_agent_coding_tools::SubagentSupervisor for DaemonSubagentSupervisor {
     fn wait_for(
         &self,
         parent_session_id: &str,
@@ -164,7 +164,7 @@ impl rightkit_agent_tools::coding_tools::SubagentSupervisor for DaemonSubagentSu
         Box<
             dyn std::future::Future<
                     Output = Result<
-                        Vec<rightkit_agent_tools::coding_tools::SubagentWaitOutcome>,
+                        Vec<rightkit_agent_coding_tools::SubagentWaitOutcome>,
                         String,
                     >,
                 > + Send,
@@ -185,7 +185,7 @@ impl rightkit_agent_tools::coding_tools::SubagentSupervisor for DaemonSubagentSu
                 for (path, session_id) in &resolved {
                     match supervisor.terminal_status(session_id).await? {
                         Some(status) => {
-                            outcomes.push(rightkit_agent_tools::coding_tools::SubagentWaitOutcome {
+                            outcomes.push(rightkit_agent_coding_tools::SubagentWaitOutcome {
                                 agent_path: path.clone(),
                                 status,
                             })
@@ -411,10 +411,10 @@ impl SubagentFork {
 /// an explicit provider/model pair remains paired and wins over inheritance.
 /// The result is carried on the child runtime options only, never persisted.
 pub(crate) fn native_spawn_route(
-    options: &rightkit_agent_tools::coding_tools::SubagentSpawnOptions,
+    options: &rightkit_agent_coding_tools::SubagentSpawnOptions,
 ) -> Option<(String, String)> {
     let runtime = options.runtime.as_ref()?;
-    let rightkit_agent_tools::coding_tools::SpawnRuntimeKind::HostNative { model_id, .. } = runtime
+    let rightkit_agent_coding_tools::SpawnRuntimeKind::HostNative { model_id, .. } = runtime
     else {
         return None;
     };
@@ -438,7 +438,7 @@ pub(crate) fn build_subagent_fork(
     task: String,
     workspace_root: String,
     parent_session: Option<&Arc<LiveSession>>,
-    options: &rightkit_agent_tools::coding_tools::SubagentSpawnOptions,
+    options: &rightkit_agent_coding_tools::SubagentSpawnOptions,
     brief_default: bool,
     inherited_model: Option<String>,
 ) -> SubagentFork {
@@ -799,14 +799,14 @@ pub(crate) async fn cleanup_subagent_worktree(parent_workspace: &str, path: &str
 
 pub(crate) fn open_subagent_worktree_pool(
     parent_workspace: &std::path::Path,
-) -> Result<rightkit_agent_tools::coding_tools::worktree_pool::WorktreePool, String> {
+) -> Result<rightkit_agent_coding_tools::worktree_pool::WorktreePool, String> {
     let pool_dir = parent_workspace
         .join(crate::host_identity::home_dir())
         .join("subagent-worktree-pool");
     let state_dir = parent_workspace
         .join(crate::host_identity::home_dir())
         .join("subagent-worktree-pool-state");
-    rightkit_agent_tools::coding_tools::worktree_pool::WorktreePool::open(
+    rightkit_agent_coding_tools::worktree_pool::WorktreePool::open(
         parent_workspace,
         &pool_dir,
         &state_dir,
@@ -819,7 +819,7 @@ pub(crate) fn open_subagent_worktree_pool(
 /// children run under the same process authority as subagent worktrees.
 pub(crate) fn governed_workspace_worktree_pool(
     workspace: &std::path::Path,
-) -> Result<rightkit_agent_tools::coding_tools::worktree_pool::WorktreePool, String> {
+) -> Result<rightkit_agent_coding_tools::worktree_pool::WorktreePool, String> {
     let process_adapter = crate::main_runtime::governed_child_process_launcher()
         .map_err(|error| format!("worktree pool process authority unavailable: {error}"))?;
     Ok(open_subagent_worktree_pool(workspace)?.with_process_launch(
@@ -837,7 +837,7 @@ pub(crate) async fn prepare_subagent_workspace(
     parent_workspace: &str,
     role: &str,
     sub_id: &str,
-    options: &rightkit_agent_tools::coding_tools::SubagentSpawnOptions,
+    options: &rightkit_agent_coding_tools::SubagentSpawnOptions,
 ) -> Result<(String, Option<String>), String> {
     let Some(worktree) = &options.worktree else {
         return Ok((parent_workspace.to_string(), None));
