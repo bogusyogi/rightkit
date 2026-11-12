@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.3
 
 - **`FullScreenProbe::require_borderless`** (additive field, default `false`: today's behaviour). `windows::foreground_fullscreen_on` then counts only a foreground window without a caption and without a sizing border (`style_is_borderless`), measured by its DWM frame bounds (`DWMWA_EXTENDED_FRAME_BOUNDS`, falling back to `GetWindowRect`). A maximised ordinary window on a monitor without a taskbar no longer counts. The shell notification state still applies: a presentation counts, an exclusive Direct3D or Store-app full-screen counts when the window covers the monitor whatever its style, and `QUNS_BUSY` adds nothing beyond the borderless test. Downstream struct literals of `FullScreenProbe` must add the field (`..Default::default()` needs nothing).
 - **A foreground event source**: `windows::run_foreground_event_pump(on_ready, on_event) -> bool` runs WinEvent hooks on the calling thread until `ForegroundPumpStop::stop` (new foreground window, minimise and restore system-wide; move and resize of the foreground window only, for its process). It sleeps with no timer and reports `ForegroundEvent::{Focus, Geometry}` from `on_event`, which must only enqueue. `false` when the hooks cannot be installed or a pump already runs; the non-Windows stub returns `false`. New types `ForegroundEvent` and `ForegroundPumpStop`. Features added: `Win32_Graphics_Dwm`, `Win32_System_Threading`, `Win32_UI_Accessibility`.

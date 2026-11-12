@@ -658,7 +658,7 @@
     "rightkit-oauth": "0.11.0",
     "rightkit-ocr": "0.3.0",
     "rightkit-onnx": "0.3.0",
-    "rightkit-overlay": "0.2.2",
+    "rightkit-overlay": "0.2.3",
     "rightkit-overlay-win": "0.1.5",
     "rightkit-owner-approvals": "0.1.2",
     "rightkit-ownership": "0.4.6",
