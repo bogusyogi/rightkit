@@ -1,4 +1,4 @@
-// rightkit-code-audit-qualification 0.1.0 consumed by exact registry pin (`=0.1.0`), outside the workspace.
+// rightkit-code-audit-qualification 0.2.0 consumed by exact registry pin (`=0.2.0`), outside the workspace.
 //
 // Proves, through the public API only, the pure digest and path rules of the assurance record:
 // - sha256_digest returns the sha256:<64 lower-hex> form and is_digest accepts exactly that form;
@@ -47,5 +47,5 @@ fn main() {
     );
     check(!safe_relative_path("a\\b"), "a backslash path is refused");
     check(!safe_relative_path("C:x"), "a drive-style path is refused");
-    println!("OK rightkit-code-audit-qualification 0.1.0 (registry consumer)");
+    println!("OK rightkit-code-audit-qualification 0.2.0 (registry consumer)");
 }

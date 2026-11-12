@@ -53,6 +53,7 @@ pub enum Denial {
     /// The webview shows a preview document (one of the schemes registered with
     /// `ShellBuilder::preview_protocol`). A preview is untrusted content and gets no privileged IPC,
     /// even where the navigation policy serves its scheme in place.
+    #[cfg(feature = "viewer")]
     PreviewDocument,
 }
 
@@ -69,6 +70,7 @@ impl Denial {
             Self::UntrustedLabel => "the caller's window is not trusted by the service",
             Self::UntrustedOrigin => "the caller's origin is not trusted by the service",
             Self::ActionNotEnabled => "the action is not enabled for the service",
+            #[cfg(feature = "viewer")]
             Self::PreviewDocument => "the caller is a preview document",
         }
     }
@@ -175,6 +177,7 @@ pub fn gather(webview: &Webview<Wry>) -> Result<OwnedCallerFacts, CallerError> {
     let url = webview.url().ok();
     // A webview whose page is a preview document is untrusted content: refused before any
     // service rule, whatever the navigation policy says about the scheme.
+    #[cfg(feature = "viewer")]
     if let Some(origins) = app.try_state::<crate::preview::PreviewOrigins>() {
         refuse_preview_document(&origins, url.as_ref())?;
     }
@@ -194,6 +197,7 @@ pub fn gather(webview: &Webview<Wry>) -> Result<OwnedCallerFacts, CallerError> {
 /// ([`crate::preview::PreviewOrigins`]): a preview document is untrusted content and never reaches a
 /// privileged command, whatever label it was given and whatever the navigation policy says about its
 /// scheme. A webview whose URL could not be read passes here (the origin rule refuses it later).
+#[cfg(feature = "viewer")]
 pub fn refuse_preview_document(
     origins: &crate::preview::PreviewOrigins,
     url: Option<&Url>,

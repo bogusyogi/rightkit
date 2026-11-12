@@ -58,7 +58,7 @@ fn execution_observation_evidence<'a>(
             let phase = payload.get("phase").and_then(|value| value.as_str())?;
             let status = payload.get("status").and_then(|value| value.as_str())?;
             let created_at = payload.get("createdAt").and_then(|value| value.as_str())?;
-            if schema != crate::host_identity::schema("execution-observation.v1")
+            if schema != rightkit_agent_engine_runtime_middleware::EXECUTION_OBSERVATION_SCHEMA
                 || event_id != observation.span_id
                 || session_id != observation.session_id
                 || created_at != observation.created_at

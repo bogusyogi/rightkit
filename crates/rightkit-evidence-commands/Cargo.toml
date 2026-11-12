@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-evidence-commands"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Evidence, freeze, contract, decision, governance, key, state and run command logic as library modules for a host CLI"
@@ -17,8 +17,8 @@ path = "src/lib.rs"
 clap = { version = "4.6.7", features = ["derive"] }
 hex = { version = "0.4.3" }
 rightkit-child-process = { version = "0.5.7", path = "../rightkit-child-process" }
-rightkit-code-audit-engine = { version = "0.1.0", path = "../rightkit-code-audit-engine" }
-rightkit-evidence-application = { version = "0.1.0", path = "../rightkit-evidence-application" }
+rightkit-code-audit-engine = { version = "0.2.0", path = "../rightkit-code-audit-engine" }
+rightkit-evidence-application = { version = "0.2.0", path = "../rightkit-evidence-application" }
 rightkit-evidence-contracts = { version = "0.1.0", path = "../rightkit-evidence-contracts" }
 rightkit-evidence-decisions = { version = "0.1.0", path = "../rightkit-evidence-decisions" }
 rightkit-evidence-governance = { version = "0.1.0", path = "../rightkit-evidence-governance" }

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.3
+
+- New `EXECUTION_OBSERVATION_SCHEMA`, the one constant for the execution-observation schema id (`coderight.execution-observation.v1`, unchanged on the wire); the observation payload uses it and the agent server filters on it.
+
 ## 0.1.2
 
 - Publishes the source changes made since 0.1.1 was published under the same version number (src/lib.rs).

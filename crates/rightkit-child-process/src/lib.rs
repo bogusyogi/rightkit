@@ -45,6 +45,11 @@ mod usage_pid;
 #[cfg(windows)]
 pub mod windows_job;
 
+pub use bundled_helper::{
+    is_team_id, login_item_in_bundle, login_item_in_bundle_with, resolve_bundled,
+    resolve_bundled_login_item, resolve_bundled_login_item_with, resolve_in_bundle,
+    team_requirement, verify_team_signature, BundledHelperError, LoginItemOptions,
+};
 pub use capture::{read_bounded, CapturedOutput, OutputCapture};
 pub use child_usage::ChildUsage;
 #[cfg(unix)]
@@ -59,11 +64,6 @@ pub use foreign::{
 pub use foreign::{resume_session, signal_session, suspend_session};
 pub use health::{HealthOutcome, HealthPolicy, HealthProbe, HealthTracker};
 pub use journal::{recover as recover_journal, JournalRecovery, WorkerJournal};
-pub use bundled_helper::{
-    is_team_id, login_item_in_bundle, login_item_in_bundle_with, resolve_bundled,
-    resolve_bundled_login_item, resolve_bundled_login_item_with, resolve_in_bundle,
-    team_requirement, verify_team_signature, BundledHelperError, LoginItemOptions,
-};
 pub use launch::{launch_app, launch_bundle, open_url};
 #[cfg(any(unix, windows))]
 pub use native_capture::NativeOutputCapture;

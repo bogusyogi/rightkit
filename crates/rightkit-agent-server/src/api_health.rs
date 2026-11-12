@@ -287,8 +287,8 @@ include!("api_health/readiness.rs");
 // degraded response. It does not touch desktop/iOS, Membrane/CM-001,
 // §17/manifests, or Cargo.
 
-pub(crate) static MACHINE_STATUS_SCHEMA: std::sync::LazyLock<String> =
-    std::sync::LazyLock::new(|| crate::host_identity::schema("machine-status.v1"));
+pub(crate) const MACHINE_STATUS_SCHEMA: &str =
+    rightkit_agent_engine_api_platform::openapi::MACHINE_STATUS_SCHEMA;
 
 /// Stable machine-facing lifecycle class. `Unreachable` is emitted by a
 /// client that cannot transport-probe a daemon; the daemon itself can emit
@@ -364,7 +364,7 @@ fn machine_unavailable_response(
     (
         StatusCode::SERVICE_UNAVAILABLE,
         Json(json!({
-            "schemaVersion": MACHINE_STATUS_SCHEMA.as_str(),
+            "schemaVersion": MACHINE_STATUS_SCHEMA,
             "status": status,
             "ok": false,
             "code": "unavailable",
@@ -404,7 +404,7 @@ async fn machine_status(State(state): State<DaemonState>) -> impl IntoResponse {
         provider_key_storage.keychain_failure_observed || !degraded_reasons.is_empty(),
     );
     let payload = MachineStatusResponse {
-        schema_version: MACHINE_STATUS_SCHEMA.as_str().to_string(),
+        schema_version: MACHINE_STATUS_SCHEMA.to_string(),
         status,
         ok: status.is_healthy(),
         service: crate::host_identity::prefixed("daemon"),

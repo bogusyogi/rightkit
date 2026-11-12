@@ -1,4 +1,4 @@
-// rightkit-code-audit-engine 0.1.0 consumed by exact registry pin (`=0.1.0`), outside the workspace.
+// rightkit-code-audit-engine 0.2.0 consumed by exact registry pin (`=0.2.0`), outside the workspace.
 //
 // Proves, through the public API only, the pure ordering and digest helpers:
 // - topological over an empty provider list is an empty order (Ok, no providers run);
@@ -41,5 +41,5 @@ fn main() {
         matches!(canonical_bytes(&"x"), Ok(bytes) if bytes == b"\"x\""),
         "canonical_bytes writes a string as its JSON form",
     );
-    println!("OK rightkit-code-audit-engine 0.1.0 (registry consumer)");
+    println!("OK rightkit-code-audit-engine 0.2.0 (registry consumer)");
 }

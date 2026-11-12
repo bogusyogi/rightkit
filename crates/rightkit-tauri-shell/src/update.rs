@@ -953,7 +953,7 @@ fn clip(text: &str) -> String {
 }
 
 fn random_handle() -> Result<String, UpdateHostError> {
-    crate::preview::random_hex(16)
+    crate::entropy::random_hex(16)
         .map_err(|_| UpdateHostError::new(UpdateErrorCode::Unknown, UpdateMessage::Unknown))
 }
 

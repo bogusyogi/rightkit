@@ -638,6 +638,7 @@ pub(crate) fn run_event(app: &AppHandle<Wry>, event: &RunEvent) {
             }
             WindowEvent::Destroyed => {
                 crate::windows::release_modal(app, label);
+                #[cfg(feature = "viewer")]
                 crate::content_webview::forget(label);
                 if let Some(surfaces) = app.try_state::<crate::surface::SurfaceRegistry>() {
                     surfaces.forget(label);

@@ -200,7 +200,7 @@ pub(crate) fn validate_machine_status_document(
         .get("schemaVersion")
         .and_then(Value::as_str)
         .ok_or(MachineConformanceError::MissingSchemaVersion)?;
-    if schema != MACHINE_STATUS_SCHEMA.as_str() {
+    if schema != MACHINE_STATUS_SCHEMA {
         return Err(MachineConformanceError::WrongSchemaVersion);
     }
     let status = object
@@ -224,7 +224,7 @@ pub(crate) fn validate_machine_status_document(
 
 pub(crate) fn machine_status_document(status: MachineStatus) -> Value {
     serde_json::json!({
-        "schemaVersion": MACHINE_STATUS_SCHEMA.as_str(),
+        "schemaVersion": MACHINE_STATUS_SCHEMA,
         "status": status,
         "ok": matches!(status, MachineStatus::Healthy),
     })

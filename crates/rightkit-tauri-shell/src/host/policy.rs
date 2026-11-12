@@ -69,6 +69,7 @@ impl ServiceId {
     /// Crash reporting commands.
     pub const CRASH: Self = Self("crash");
     /// Preview document registration (`rightkit_preview_*`, [`crate::preview::PreviewService`]).
+    #[cfg(feature = "viewer")]
     pub const PREVIEW: Self = Self("preview");
     /// The native legal receipt (`rightkit_legal_receipt_*`, [`crate::host::legal::LegalReceiptService`]).
     pub const LEGAL: Self = Self("legal");

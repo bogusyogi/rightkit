@@ -10,7 +10,7 @@ readme = "README.md"
 include = ["build.rs", "src/**", "README.md", "LICENSE-MIT", "LICENSE-APACHE", "CHANGELOG.md"]
 
 [features]
-default = ["wv2-0_39"]
+default = ["wv2-0_39", "viewer"]
 # Windows: which `windows` + `webview2-com` generation the app's Tauri resolves, so types cross the
 # boundary (Tauri 2.12: 0.62/0.39, the default since 0.5.0; Tauri 2.11: 0.61/0.38).
 # An app locked to Tauri 2.11 uses default-features = false, features = ["wv2-0_38"] (retain other features).
@@ -20,6 +20,11 @@ wv2-0_39 = ["dep:windows_062", "dep:webview2_com_039"]
 # Engine sidecar wiring over rightkit-job-queue EngineClient + rightkit-child-process. Off by default: it pulls
 # rightkit-job-queue (db, time, uuid); apps that run an engine sidecar opt in.
 engine = ["dep:rightkit-job-queue"]
+# The document-viewer surface: in-memory preview documents (`preview`, `ShellBuilder::preview_protocol`, the
+# `rightkit_preview_*` commands), ranged streaming (`stream`) and site-root (`site`) schemes with their grant
+# commands, native printing (`print`, `rk_shell_print`) and remote-origin content webviews (`content_webview`).
+# On by default; an app that shows none of these uses default-features = false and leaves it out.
+viewer = []
 # Required by `DevToolsPolicy::ContentOnly`: compiles Tauri's devtools in so a registered content
 # webview can be inspected. Every other webview stays non-inspectable. Only an app on the
 # `right-release` allow-list (`packages/release/devtools-policy.json`, today only ViewRight) may

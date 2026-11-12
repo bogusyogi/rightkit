@@ -139,7 +139,8 @@ pub fn rk_shell_status(
         .iter()
         .map(|(id, i)| (id.clone(), i.is_enabled().unwrap_or(false)))
         .collect();
-    Ok(json!({
+    #[allow(unused_mut)]
+    let mut status = json!({
         "appId": state.app_id,
         "instance": *state.single_instance.lock().unwrap_or_else(|e| e.into_inner()),
         "tray": tray,
@@ -149,13 +150,17 @@ pub fn rk_shell_status(
         "menuEnabled": menu_enabled,
         "stateDir": state.windows.dir(),
         "devtoolsOpen": devtools_open,
-        "streamScheme": state.stream_scheme,
-        "streamSchemes": state.stream_schemes,
-        "siteScheme": state.site_scheme,
         "modules": state.modules.names(),
         "clipboardDir": state.clipboard_dir,
         "cacheRepair": state.cache_repair.lock().unwrap_or_else(|e| e.into_inner()).as_ref().map(|(p, o)| json!({"dir": p, "outcome": o})),
-    }))
+    });
+    #[cfg(feature = "viewer")]
+    if let Some(status) = status.as_object_mut() {
+        status.insert("streamScheme".into(), json!(state.stream_scheme));
+        status.insert("streamSchemes".into(), json!(state.stream_schemes));
+        status.insert("siteScheme".into(), json!(state.site_scheme));
+    }
+    Ok(status)
 }
 
 #[tauri::command]
@@ -979,6 +984,7 @@ pub fn rk_shell_path_regrant_saved(
 
 /// Mint the stream URL for a granted file. `scheme` picks one of the registered stream schemes
 /// (default: the first). Rejects `broker_denied` for anything not granted.
+#[cfg(feature = "viewer")]
 #[tauri::command]
 pub fn rk_shell_stream_grant(
     webview: Webview<Wry>,
@@ -1016,6 +1022,7 @@ pub fn rk_shell_stream_grant(
 
 /// Grant the site root of a document the person already opened, and return the base URL the
 /// document's `<base href>` uses: `{token, root, baseUrl}`.
+#[cfg(feature = "viewer")]
 #[tauri::command]
 pub fn rk_shell_site_grant(
     webview: Webview<Wry>,
@@ -1038,6 +1045,7 @@ pub fn rk_shell_site_grant(
 }
 
 /// Revoke a site-root token when its tab closes. Its URLs stop serving at once and never revive.
+#[cfg(feature = "viewer")]
 #[tauri::command]
 pub fn rk_shell_site_revoke(
     webview: Webview<Wry>,
