@@ -1818,23 +1818,44 @@
       "scenarios": 1,
       "surface": [
         ".",
+        "./app",
+        "./app.css",
         "./package.json",
-        "./styles.css"
+        "./styles.css",
+        "./tauri"
       ],
       "closure": {
         "install": {
           "react": "19.3.1",
           "react-dom": "19.3.1",
+          "@rightkit/app-update": "0.4.3",
+          "@rightkit/ci": "0.3.2",
+          "@rightkit/legal": "0.6.3",
+          "@rightkit/legal-ui": "0.4.2",
+          "@rightkit/license": "0.3.1",
+          "@rightkit/logs": "0.1.6",
           "@rightkit/media-ui": "0.3.6",
+          "@rightkit/onboarding": "0.6.4",
+          "@rightkit/outdated": "0.3.1",
           "@rightkit/platform-ui": "0.4.1",
-          "@rightkit/react-shell": "0.7.3"
+          "@rightkit/react-shell": "0.7.3",
+          "@rightkit/release": "0.6.52",
+          "@rightkit/settings-ui": "0.7.1",
+          "@rightkit/tauri": "0.4.0",
+          "@rightkit/tauri-shell": "0.1.4",
+          "@rightkit/theme": "0.3.2"
         },
-        "declaredOnly": []
+        "declaredOnly": [
+          "@tauri-apps/api",
+          "@tauri-apps/plugin-dialog",
+          "@tauri-apps/plugin-process",
+          "@tauri-apps/plugin-updater"
+        ]
       },
       "files": {
-        "ci/consumers/npm/video-ui/README.md": "355f10bcc5fc2791a001644e55131f06179924cc3db0cec9195855a08aa71317",
-        "ci/consumers/npm/video-ui/consumer.mjs": "fedabc092c6e382aea763bb6016a351195e02eec48b692dcfe8130ae9c7e6336",
-        "ci/consumers/npm/video-ui/package.json": "2469e8eca1edefc186680d9b2e7f6d15ee7cc2be43c74d5cfb1c458132bc78a8",
+        "ci/consumers/npm/video-ui/README.md": "98f11aee922c29d879385183db8f527b931b50139837483f5006f15e5535c877",
+        "ci/consumers/npm/video-ui/consumer.mjs": "5b63ce47b4cd093da6c9ab64504e01bfbaec6c704a2e2724a1d3fe174440c981",
+        "ci/consumers/npm/video-ui/package.json": "5647b59f79e3f8238964dae1247d986785bc57821398435aa80209442f47e203",
         "ci/consumers/npm/video-ui/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "fc160695e1dc97dc7e32e746c9e4471e2d85168b097623de818befeb00ee438c"
       }

@@ -1,0 +1,17 @@
+/* Every stylesheet the app entry uses (`@rightkit/video-ui/app`), in 0.1.x order, then the editing components'
+   (`styles.css`). Hosts import "<package>/app.css" once instead of "<package>/styles.css". */
+@import "./components/Workspace.css";
+@import "./demo/demo.css";
+@import "./ui/ui.css";
+@import "./views/Assets.css";
+@import "./views/Recipe.css";
+@import "./views/Exports.css";
+@import "./views/Home.css";
+@import "@rightkit/onboarding/onboarding.css";
+@import "./views/Phrases.css";
+@import "./views/Prompt.css";
+@import "./views/Retention.css";
+@import "@rightkit/settings-ui/settings.css";
+@import "./views/Shorts.css";
+@import "./views/Media.css";
+@import "../styles.css";

@@ -1,0 +1,84 @@
+/* From prompt — app-ui.md §3.8 */
+
+.Prompt {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s4);
+  max-width: 720px;
+}
+
+.Prompt .rk-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+}
+
+/* Header controls sit left-aligned after the title (owner review). */
+.Prompt-cardHead {
+  display: flex;
+  align-items: center;
+  gap: var(--s4);
+}
+.Prompt-cardHead .rk-seg { margin-left: var(--s2); }
+.Prompt-cardHead > :last-child:not(h2):not(.rk-seg) { margin-left: auto; }
+.Prompt-cardHead h2 {
+  margin: 0;
+  font: 600 15px/1.3 var(--rk-font-body);
+}
+
+.Prompt-grRow {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+}
+.Prompt-label {
+  font: 500 11px/1 var(--rk-font-body);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--rk-ink-2);
+}
+
+.Prompt-error {
+  margin: 0;
+  font-size: 13px;
+  color: var(--rk-warn);
+}
+
+/* One card of shot rows divided by 1px lines (owner review: no nested cards). */
+.Prompt-shotRow {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  padding: var(--s3) 0;
+}
+.Prompt-shotRow + .Prompt-shotRow { border-top: 1px solid var(--rk-line); }
+
+/* kind | provider | model | duration — the model column stays wide enough
+   that model names don't truncate. */
+.Prompt-shotGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 2fr 120px;
+  gap: var(--s2);
+  align-items: end;
+}
+.Prompt-shotGrid .rk-field { min-width: 0; }
+.Prompt-shotGrid .rk-input, .Prompt-shotGrid .rk-input { width: 100%; }
+
+.Prompt-shotGrid--auto { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
+
+.Prompt-titleRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: var(--s2);
+}
+.Prompt-titleRow .rk-field { flex: 1; min-width: 7rem; }
+
+.Prompt-actions {
+  display: flex;
+  gap: var(--s2);
+}
+
+.Prompt-confirm { border-color: var(--rk-accent); }
+.Prompt-confirmInner { display: flex; flex-direction: column; gap: var(--s3); font-size: 13px; }
+.Prompt-confirmInner p { margin: 0; }

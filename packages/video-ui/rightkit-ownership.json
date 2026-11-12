@@ -3,7 +3,7 @@
   "capabilities": [
     {
       "capability": "video-ui",
-      "summary": "Video editing components (timeline, inspector, colour and caption inspectors, transcript, changes, native preview player) over a host-supplied video engine and preview session.",
+      "summary": "Video editing components (timeline, inspector, colour and caption inspectors, transcript, changes, native preview player) over a host-supplied video engine and preview session; CutRight's application UI on ./app and its Tauri host on ./tauri.",
       "fingerprints": [],
       "detection": "declaration-only",
       "policyNotes": [

@@ -1,5 +1,40 @@
 # Changelog
 
+## 0.2.1
+
+The owner's decision on 0.2.0's redraw: CutRight's UI belongs in RightKit, not in the app. 0.2.0 deleted it
+while CutRight's app is only `<DesktopWorkspace/>` from this package, so CutRight could not upgrade.
+
+- Restored CutRight's application UI as an app-level entry, `@rightkit/video-ui/app` (`src/app/`): the 25
+  files of 0.1.x `views/*` (every page and its stylesheet; `FinishedEdit.css` stays merged into
+  `editor/Editor.css`), `components/DesktopWorkspace` and `Workspace.css`, and what they need that 0.2.0
+  also removed: `appName`, `legal/legalConfig`, `demo/*`, `hooks/useProgress`, `lib/assemble`, `lib/dialog`,
+  `lib/genright`, `lib/mic`, `lib/models`, `lib/modelsBackend`, `lib/services`, `lib/settingsBackend`,
+  `lib/shell`, `mediaAdapters` and the page UI helpers (`Thumbnail`, `ProgressRow`, `Drawer`, `ErrorPanel`,
+  `fileSize`) with their styles. The entry is a superset of the root and carries every runtime name the
+  0.1.x root exported except `shell`, which moved to `./tauri`. The editing components are 0.2.0's, unchanged.
+- Rewired onto the host seam instead of direct Tauri: the app entry imports no Tauri module. `VideoHost`
+  gains an optional `app` part (`VideoAppHost`: `invoke`/`listen` command bridge, `onEngineRaw`, window,
+  `onDragDrop`, pickers, `appVersion`, `checkUpdate`, `relaunch`, `quit`, `exit`), read through
+  `videoAppHost()`, which throws with the fix when the host has none. The licence and logs clients, demo
+  mode, media playback derivatives, pickers, drag and drop, the updater, the legal gate's quit and the
+  Settings version read go through it.
+- New `@rightkit/video-ui/tauri`: `tauriVideoHost()`, the Tauri `VideoHost` with the `app` part, making the
+  native calls 0.1.x made (shell engine call/events/status with the same lifecycle filter and status mapping,
+  `playback_*` with `toolsDir: null`, `media_scope_allow`, `authorised_media_source_id`, `reveal_path`,
+  `prepare_registered_media_playback`, `cancel_media_playback`, plugin process/updater/dialog, window and
+  webview drag and drop). CutRight upgrades with `installVideoHost(tauriVideoHost())` and imports from
+  `./app` (and `./app.css`) instead of the root.
+- Host-supplied app name and legal facts as before (`setHostAppName`, `configureLegal`); `configureLegal`
+  also takes `step` to override the gate's copy and look, which default to 0.1.x's.
+- New `./app.css`: the app's stylesheets in 0.1.x order plus `styles.css`.
+- Icons: the pages use the shared `Icon` with the editing glyphs plus six app glyphs (`APP_GLYPHS`), not a
+  second icon set.
+- Dependencies: the app and Tauri entries bring back `@rightkit/app-update`, `legal`, `legal-ui`, `license`,
+  `logs`, `onboarding`, `platform-ui`, `settings-ui`, `tauri`, `tauri-shell` and `@tauri-apps/api`,
+  `plugin-dialog`, `plugin-process`, `plugin-updater` (0.1.x's set without `@rightkit/theme`, which no
+  source imports). The root entry still imports only `media-ui` and `react-shell`.
+
 ## 0.2.0
 
 Taken on the recommended option of the shape review (`docs/audits/2026-11-11-shape-matrix/reports/cut-post-redraw.md`), pending the owner's confirmation.
