@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.8.0
 
 - **New: the settings bridge accepts a flat `Document`** (`Document::open_flat_path`), so an app with a flat `settings.json` that a sidecar also reads can use `rightkit_settings_*` instead of its own commands. A flat file's revision is a content hash: it is sent as `revisionText` (16 hex digits) with no numeric `revision`.
 - **Additive wire: `revisionText`** (string) next to `revision` in `get`/`patch`/`reset`/`describe` answers and the `rightkit://settings-changed` payload (the decimal of the number for a versioned document), and in `revision_conflict` details (`expectedText`, `actualText`). `expectedRevision` is a number or a string (`SettingsBridge::patch_expecting` / `reset_expecting`, `ExpectedRevision`). `rightkit_settings_subscribe` answers the number as before, or the `revisionText` string for a flat file.
@@ -10,8 +10,6 @@
 - **Changed: the default `LicenseOps` for `LicenseClient` follows the client config** (`with_lease_activation`, `with_host_trial_platform`) instead of always using the typed-key activation and the platform-less trial request. Defaults unchanged.
 - **Fixed: the legal receipt read command returns a receipt of an earlier version** as `{ record, current: false }` (what `@rightkit/onboarding` expects) instead of `null`, which treated a user in the middle of setup as first-run. New `LegalReceiptService::read_state` and `LegalRead`; `read` is unchanged.
 - **New: `LicenseAuthority::with_refresh_before_private(true)`** re-validates the licence, best effort, before a private binding is captured (a failed refresh keeps the stored entitlement). Off by default: a binding is captured on every update check, so it costs one licence request per check and, offline, that request's timeout. An app that wants a fresh entitlement only at install calls `UpdateAuthProvider::refresh_best_effort` there.
-
-## 0.8.0
 
 - Breaking for dependents: dependency requirements `rightkit-app-settings` 0.3 -> 0.4, `rightkit-crash` 0.3 -> 0.4, `rightkit-daemon` 0.5 -> 0.8, `rightkit-instance` 0.1 -> 0.2, `rightkit-job-queue` 0.5 -> 0.6, `rightkit-logs` 0.3 -> 0.4, `rightkit-models` 0.5 -> 0.7. 0.7.3 was published before these requirements were raised; a semver-breaking dependency is a breaking change, so they ship as 0.8.0 instead of changing 0.7.3 in place (#1572).
 - `host::models` module doc names the suite layout (one revision per model) that `rightkit-models` 0.7 uses; no code change.

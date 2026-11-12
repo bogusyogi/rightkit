@@ -1,10 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.7.2
 
 - Additive (#1572): the shell adapter reads `revisionText` when the host sends no numeric `revision` (a flat settings file) and sends `expectedRevision` back as that string; `createShellBackends<R>` / `ShellSettingsBackend<R>` / `ShellBackends<R>` take the revision type (default `number`, so a counter host is unchanged; use `createShellBackends<string>` for a flat file).
-
-## 0.7.2
 
 - Fixed (#1572): `useSettings(backend)` keeps one store per backend object in the window (`WeakMap` read with `useSyncExternalStore`): one load, one revision, one serial write queue and one backend subscription however many consumers there are, and a write by one consumer shows in all of them at once, with or without `backend.subscribe`. The hook's return shape is unchanged. `createPreferenceStore` runs on the same store core.
 - Fixed (#1572): a failed write no longer puts back a value that was never stored. Each key still holding that write's value goes back to the last stored value (a key a later queued write has set again is left to it), and the document is read again once the queue drains.
