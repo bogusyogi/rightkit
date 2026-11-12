@@ -206,7 +206,7 @@ Capabilities: 222 (58 with fingerprints, 164 declaration-only). Internal owners 
 | sync-key-management | `rightkit-sync-keys` | none | declaration-only | 0 | rightkit-sync-keys: none recorded |
 | sync-worker | `@rightkit/sync-worker` | none | declaration-only | 0 | @rightkit/sync-worker: none recorded |
 | system-monitor | `rightkit-system-monitor` | none | declaration-only | 0 | rightkit-system-monitor: staged 0.3.0, not published |
-| system-ui | `@rightkit/system-ui` | none | declaration-only | 0 | @rightkit/system-ui: staged 0.2.0, not published |
+| system-ui | `@rightkit/system-ui` | none | declaration-only | 0 | @rightkit/system-ui: staged 0.2.1, not published |
 | tauri-host-adapters | `@rightkit/tauri`, `rightkit-device` | advise | fingerprinted | 2 (0 block, 2 advise) | @rightkit/tauri: published 0.3.0 (npm); rightkit-device: published 0.4.0 (crates.io) |
 | terminal-ui | `rightkit-terminal-ui` | none | declaration-only | 0 | rightkit-terminal-ui: staged 0.1.2, not published |
 | terminal-ui-components | `@rightkit/terminal-ui` | none | declaration-only | 0 | @rightkit/terminal-ui: staged 0.1.0, not published |

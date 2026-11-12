@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.1
 
 - Added: `./tauri` entry with `tauriSystemHost({ appName, storagePrefix }, options?)` (the whole `SystemHost`), `tauriSystemClient()`, `tauriAppsClient()` and `tauriSystemSubscribe(options?)`: the 0.1.x commands and argument shapes, the `metrics_*`, `activity_lease`, `cleanup_history` and `initial_app` commands the views called directly, and the 9 events, with `listen` and `events` options. Dependency added: `@tauri-apps/api`, used by that entry only.
 

@@ -1580,6 +1580,9 @@ importers:
       '@rightkit/settings-ui':
         specifier: workspace:^
         version: link:../settings-ui
+      '@tauri-apps/api':
+        specifier: ^2.12.4
+        version: 2.12.4
       lucide-react:
         specifier: ^1.57.0
         version: 1.66.0(@types/react@19.3.0)(react@19.3.1)

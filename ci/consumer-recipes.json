@@ -723,7 +723,7 @@
           "@rightkit/react-shell": "0.7.4",
           "@rightkit/release": "0.6.52",
           "@rightkit/settings-ui": "0.7.2",
-          "@rightkit/system-ui": "0.2.0",
+          "@rightkit/system-ui": "0.2.1",
           "@rightkit/theme": "0.3.3",
           "@rightkit/workspace-ui": "0.2.1"
         },
@@ -733,9 +733,9 @@
         ]
       },
       "files": {
-        "ci/consumers/npm/agent-ui-approvals/README.md": "5cdfaa50d5b4a52698732235ceb3880c9f2f2781faf5dbdb2e80f081ce5b37c2",
+        "ci/consumers/npm/agent-ui-approvals/README.md": "808899395e10f230c4f5f3241e6747c62d20449223d60bd82f620477a37e093c",
         "ci/consumers/npm/agent-ui-approvals/consumer.mjs": "fc6710db18c95cd7104428f66d383afaff68069facb6cbb0723202b1cc503b71",
-        "ci/consumers/npm/agent-ui-approvals/package.json": "9ad32b33ef88f237787c2a152770c93314307e547bb58d91fc6ef398996cc2b2",
+        "ci/consumers/npm/agent-ui-approvals/package.json": "ded9675b19b97597a4fa90c098015ab32e88c4b121360f1e4a2cea8829164453",
         "ci/consumers/npm/agent-ui-approvals/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "fc160695e1dc97dc7e32e746c9e4471e2d85168b097623de818befeb00ee438c"
       }
@@ -1508,7 +1508,8 @@
         ".",
         "./package.json",
         "./queue",
-        "./styles.css"
+        "./styles.css",
+        "./tauri"
       ],
       "closure": {
         "install": {
@@ -1767,6 +1768,7 @@
         "./metrics",
         "./package.json",
         "./styles.css",
+        "./tauri",
         "./views/Storage",
         "./views/monitor.css",
         "./visible"
@@ -1784,7 +1786,9 @@
           "@rightkit/settings-ui": "0.7.2",
           "@rightkit/theme": "0.3.3"
         },
-        "declaredOnly": []
+        "declaredOnly": [
+          "@tauri-apps/api"
+        ]
       },
       "files": {
         "ci/consumers/npm/system-ui/README.md": "a20081a2b3c56f2875de517424504758f008f9bd4c1b73d4c3afbb558fd84a3b",

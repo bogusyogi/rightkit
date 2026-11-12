@@ -7,7 +7,7 @@ helpers. The views hold no IPC and no product: they render over typed clients th
 | Item | Value |
 |---|---|
 | Where it runs | App webview UI (React) |
-| Version | 0.2.0 |
+| Version | 0.2.1 |
 | License | MIT OR Apache-2.0 |
 
 ## Entry points
