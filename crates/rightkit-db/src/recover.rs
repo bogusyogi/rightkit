@@ -229,7 +229,7 @@ const QUARANTINE_NAME_ATTEMPTS: u32 = 100;
 /// create-new semantics (`rename_exclusive`, or `link` for [`MoveMode::HardLinkThenRemove`]), never
 /// by check-then-rename, so a concurrent quarantine cannot be overwritten.
 pub fn quarantine_database_opts(db: &Path, options: &QuarantineOptions) -> Result<PathBuf> {
-    quarantine_steps(db, options).map_err(|failure| failure.error)
+    quarantine_steps(db, options, &|_| false).map_err(|failure| failure.error)
 }
 
 /// File name suffix of the journal [`quarantine_database_journaled`] keeps while a quarantine is
@@ -262,6 +262,27 @@ pub(crate) fn quarantine_database_journaled(
     stamp: QuarantineStamp,
     sidecars: SidecarPolicy,
 ) -> std::result::Result<PathBuf, QuarantineFailure> {
+    quarantine_database_journaled_hooked(db, stamp, sidecars, &|_| false)
+}
+
+/// The points of a quarantine where a test can stop the process.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum QuarantineStep {
+    /// The journal is written; no file has moved.
+    Recorded,
+    /// The main file has moved; the sidecars have not.
+    MainMoved,
+}
+
+/// [`quarantine_database_journaled`] with a test seam: `die` returning `true` for a step stops
+/// there, as a dead process would, leaving the journal and the files as they are.
+#[allow(clippy::result_large_err)]
+pub(crate) fn quarantine_database_journaled_hooked(
+    db: &Path,
+    stamp: QuarantineStamp,
+    sidecars: SidecarPolicy,
+    die: &dyn Fn(QuarantineStep) -> bool,
+) -> std::result::Result<PathBuf, QuarantineFailure> {
     let journal = with_suffix(db, QUARANTINE_JOURNAL_SUFFIX);
     let result = quarantine_steps(
         db,
@@ -271,6 +292,7 @@ pub(crate) fn quarantine_database_journaled(
             marker: Some(journal.clone()),
             ..QuarantineOptions::default()
         },
+        die,
     );
     match &result {
         Err(failure) if failure.stranded_at.is_some() => {}
@@ -448,6 +470,7 @@ struct Moved {
 fn quarantine_steps(
     db: &Path,
     options: &QuarantineOptions,
+    die: &dyn Fn(QuarantineStep) -> bool,
 ) -> std::result::Result<PathBuf, QuarantineFailure> {
     let name = db
         .file_name()
@@ -475,6 +498,9 @@ fn quarantine_steps(
         if let Some(marker) = &options.marker {
             write_marker(marker, db, &dest).map_err(QuarantineFailure::untouched)?;
         }
+        if die(QuarantineStep::Recorded) {
+            return Err(simulated_death(&dest));
+        }
         match move_file(db, &dest, options.move_mode) {
             Ok(()) => {}
             // Another quarantine claimed the name after the check: try the next one.
@@ -490,6 +516,9 @@ fn quarantine_steps(
                     rightkit_fs::FsError::io(db, error),
                 )));
             }
+        }
+        if die(QuarantineStep::MainMoved) {
+            return Err(simulated_death(&dest));
         }
         let mut done = vec![Moved {
             from: db.to_path_buf(),
@@ -534,6 +563,16 @@ fn quarantine_steps(
             ),
         ),
     )))
+}
+
+fn simulated_death(dest: &Path) -> QuarantineFailure {
+    QuarantineFailure {
+        error: DbError::Fs(rightkit_fs::FsError::io(
+            dest,
+            std::io::Error::other("simulated process death"),
+        )),
+        stranded_at: Some(dest.to_path_buf()),
+    }
 }
 
 /// A sidecar step failed after the main file moved. Move everything back in reverse order. A

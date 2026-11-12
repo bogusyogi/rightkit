@@ -5,6 +5,7 @@ use super::error::LifecycleError;
 use super::keystore::{
     Key, KeySource, KeyStoreError, PendingKey, ProtectedKeySession, ProtectedKeyStore,
 };
+use super::rebuild::{rebuild_after_failure, settle_interrupted, RebuildPolicy, RebuildReport};
 use super::rotate::{recover_with_guard, Faults, NoFaults, RecoveryOutcome};
 use super::transition::{
     acquire_shared, journal_exists, next_id, JournalState, RootIdentity, StoreTransition,
@@ -47,7 +48,7 @@ pub struct EncryptedStoreConfig {
     pub legacy_staging_accounts: Vec<String>,
     /// Create the database when the file is missing and a primary key is stored. Default `false`:
     /// a missing file is `StoreMissing`, never an empty database. A file that exists but that no
-    /// key opens is never replaced, whatever this is set to.
+    /// key opens is never replaced, whatever this is set to (only [`Self::with_rebuild`] does that).
     pub create_if_missing: bool,
     /// Delete a legacy staging item after canonical storage and a reopen readback prove recovery
     /// stays possible without it. Default `true`.
@@ -57,6 +58,8 @@ pub struct EncryptedStoreConfig {
     pub validate: Option<StoreValidate>,
     /// How long a drain waits for an in-flight writer and for checked-out pool readers.
     pub drain_timeout: Duration,
+    /// Opt-in rebuild for a file that is there but that no key opens (see [`RebuildPolicy`]).
+    pub(super) rebuild: Option<RebuildPolicy>,
 }
 
 impl EncryptedStoreConfig {
@@ -71,7 +74,17 @@ impl EncryptedStoreConfig {
             host: None,
             validate: None,
             drain_timeout: Duration::from_secs(5),
+            rebuild: None,
         }
+    }
+
+    /// Let `open` replace a database file that its key cannot open: no primary key stored
+    /// (`KeyMissing`) or none that opens it (`NoKeyOpens`), per the policy's reason switches. The
+    /// old file is quarantined, never deleted, and [`EncryptedStore::rebuilt`] reports what
+    /// happened. Without this, `open` never creates, quarantines or replaces a database.
+    pub fn with_rebuild(mut self, policy: RebuildPolicy) -> Self {
+        self.rebuild = Some(policy);
+        self
     }
 
     pub fn with_legacy_staging_account(mut self, alias: impl Into<String>) -> Self {
@@ -544,6 +557,28 @@ pub(super) fn establish(
     ))
 }
 
+/// [`establish`], plus the opt-in rebuild: an interrupted quarantine or rebuild is settled first,
+/// and a file that no key opens is replaced when the policy allows it.
+pub(super) fn establish_with_rebuild(
+    cfg: &EncryptedStoreConfig,
+    faults: &dyn Faults,
+) -> Result<(Established, Option<RebuildReport>), LifecycleError> {
+    let mut report = settle_interrupted(cfg, faults)?;
+    match establish(cfg, faults) {
+        Ok(established) => Ok((established, report)),
+        Err(error @ (LifecycleError::KeyMissing | LifecycleError::NoKeyOpens { .. })) => {
+            match rebuild_after_failure(cfg, faults)? {
+                Some(rebuilt) => {
+                    report = Some(rebuilt);
+                    Ok((establish(cfg, faults)?, report))
+                }
+                None => Err(error),
+            }
+        }
+        Err(error) => Err(error),
+    }
+}
+
 /// Explicit relocation settlement has already selected this root. Ordinary open must not
 /// bypass its journal; this path verifies identity & canonical storage under fresh authority.
 pub(super) fn establish_relocation(
@@ -796,6 +831,8 @@ pub struct EncryptedStore {
     pub(super) pools: Mutex<Vec<Arc<PoolSlot>>>,
     /// Why the paths the most recent relocation or relocation recovery left behind were kept.
     pub(super) relocation_cleanup_errors: Mutex<Vec<(PathBuf, String)>>,
+    /// What the rebuild that `open` ran did, when it ran one.
+    rebuilt: Option<RebuildReport>,
 }
 
 impl EncryptedStore {
@@ -819,6 +856,7 @@ impl EncryptedStore {
             }),
             pools: Mutex::new(Vec::new()),
             relocation_cleanup_errors: Mutex::new(Vec::new()),
+            rebuilt: None,
         }
     }
     /// Open the existing encrypted database.
@@ -830,10 +868,23 @@ impl EncryptedStore {
     ///
     /// Failures are classified ([`LifecycleError`]): a missing file, a plaintext file, a missing
     /// key, denied or unavailable key storage, a key that does not open the file, an unreadable
-    /// file. None of them creates, quarantines or replaces a database.
+    /// file. None of them creates, quarantines or replaces a database, unless the config has a
+    /// [`RebuildPolicy`] ([`EncryptedStoreConfig::with_rebuild`]) that allows it for that reason
+    /// (`KeyMissing`, `NoKeyOpens`): then the key is persisted, the file quarantined (never
+    /// deleted) and a new database created, and [`Self::rebuilt`] says so. A quarantine an earlier
+    /// run left half done is settled before anything opens.
     pub fn open(config: EncryptedStoreConfig) -> Result<Self, LifecycleError> {
+        Self::open_with_faults(config, &NoFaults)
+    }
+
+    /// [`Self::open`] with the deterministic process-death test seam.
+    #[doc(hidden)]
+    pub fn open_with_faults(
+        config: EncryptedStoreConfig,
+        faults: &dyn Faults,
+    ) -> Result<Self, LifecycleError> {
         let config = config.checked()?;
-        let established = establish(&config, &NoFaults)?;
+        let (established, rebuilt) = establish_with_rebuild(&config, faults)?;
         let Established {
             key,
             source,
@@ -853,7 +904,14 @@ impl EncryptedStore {
             }),
             pools: Mutex::new(Vec::new()),
             relocation_cleanup_errors: Mutex::new(Vec::new()),
+            rebuilt,
         })
+    }
+
+    /// What the rebuild that this store's `open` ran did (reason, where the old file went), or
+    /// `None` when `open` found a database its key opens.
+    pub fn rebuilt(&self) -> Option<&RebuildReport> {
+        self.rebuilt.as_ref()
     }
 
     pub(super) fn config(&self) -> EncryptedStoreConfig {
