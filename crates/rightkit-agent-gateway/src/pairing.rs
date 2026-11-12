@@ -8,7 +8,7 @@ use crate::audit;
 use crate::gate::Level;
 use crate::registry::{self, Agent};
 use rightkit_db::rusqlite::Connection;
-use serde::Serialize;
+use serde::{Deserialize, Serialize, Serializer};
 
 /// Where the engine's pairing key lives. The production implementation writes
 /// the OS credential store item the engine reads.
@@ -22,7 +22,13 @@ pub const DEFAULT_PAGE: usize = 50;
 pub const MAX_PAGE: usize = 200;
 
 /// An agent as a settings page sees it. No key, no hash.
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+///
+/// Wire compatibility for one release: 0.3 renamed `accounts` to `scopes`. The JSON form carries
+/// both names with the same value and input accepts either, so a settings UI or reader written for
+/// 0.2 keeps working; a value with both (this release's own output) reads back, `scopes` winning.
+/// The `accounts` copy goes in the next breaking release.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(try_from = "AgentViewIn")]
 pub struct AgentView {
     pub id: String,
     pub name: String,
@@ -30,6 +36,62 @@ pub struct AgentView {
     pub scopes: Vec<String>,
     pub created_at: i64,
     pub revoked_at: Option<i64>,
+}
+
+/// [`AgentView`]'s input form: `scopes`, its 0.2 name `accounts` (`#[serde(alias)]` alone would
+/// refuse a value carrying both as a duplicate field), or both.
+#[derive(Deserialize)]
+struct AgentViewIn {
+    id: String,
+    name: String,
+    profile: String,
+    #[serde(default)]
+    scopes: Option<Vec<String>>,
+    #[serde(default)]
+    accounts: Option<Vec<String>>,
+    created_at: i64,
+    revoked_at: Option<i64>,
+}
+
+impl TryFrom<AgentViewIn> for AgentView {
+    type Error = &'static str;
+
+    fn try_from(v: AgentViewIn) -> Result<Self, Self::Error> {
+        Ok(AgentView {
+            id: v.id,
+            name: v.name,
+            profile: v.profile,
+            scopes: v.scopes.or(v.accounts).ok_or("missing field `scopes`")?,
+            created_at: v.created_at,
+            revoked_at: v.revoked_at,
+        })
+    }
+}
+
+impl Serialize for AgentView {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        #[derive(Serialize)]
+        struct Wire<'a> {
+            id: &'a str,
+            name: &'a str,
+            profile: &'a str,
+            scopes: &'a [String],
+            /// The 0.2 name of `scopes`, kept for one release.
+            accounts: &'a [String],
+            created_at: i64,
+            revoked_at: Option<i64>,
+        }
+        Wire {
+            id: &self.id,
+            name: &self.name,
+            profile: &self.profile,
+            scopes: &self.scopes,
+            accounts: &self.scopes,
+            created_at: self.created_at,
+            revoked_at: self.revoked_at,
+        }
+        .serialize(serializer)
+    }
 }
 
 impl<P: Level> From<Agent<P>> for AgentView {
@@ -46,7 +108,12 @@ impl<P: Level> From<Agent<P>> for AgentView {
 }
 
 /// One audit row for a settings table.
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+///
+/// Wire compatibility for one release: 0.3 renamed `account_id` to `scope`. The JSON form carries
+/// both names with the same value and input accepts either or both, `scope` winning. The
+/// `account_id` copy goes in the next breaking release.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(from = "AuditViewIn")]
 pub struct AuditView {
     pub id: i64,
     pub at: i64,
@@ -55,6 +122,63 @@ pub struct AuditView {
     pub method: String,
     pub outcome: String,
     pub detail: Option<String>,
+}
+
+/// [`AuditView`]'s input form: `scope`, its 0.2 name `account_id`, or both.
+#[derive(Deserialize)]
+struct AuditViewIn {
+    id: i64,
+    at: i64,
+    agent_name: Option<String>,
+    #[serde(default)]
+    scope: Option<String>,
+    #[serde(default)]
+    account_id: Option<String>,
+    method: String,
+    outcome: String,
+    detail: Option<String>,
+}
+
+impl From<AuditViewIn> for AuditView {
+    fn from(v: AuditViewIn) -> Self {
+        AuditView {
+            id: v.id,
+            at: v.at,
+            agent_name: v.agent_name,
+            scope: v.scope.or(v.account_id),
+            method: v.method,
+            outcome: v.outcome,
+            detail: v.detail,
+        }
+    }
+}
+
+impl Serialize for AuditView {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        #[derive(Serialize)]
+        struct Wire<'a> {
+            id: i64,
+            at: i64,
+            agent_name: Option<&'a str>,
+            scope: Option<&'a str>,
+            /// The 0.2 name of `scope`, kept for one release.
+            account_id: Option<&'a str>,
+            method: &'a str,
+            outcome: &'a str,
+            detail: Option<&'a str>,
+        }
+        Wire {
+            id: self.id,
+            at: self.at,
+            agent_name: self.agent_name.as_deref(),
+            scope: self.scope.as_deref(),
+            account_id: self.scope.as_deref(),
+            method: &self.method,
+            outcome: &self.outcome,
+            detail: self.detail.as_deref(),
+        }
+        .serialize(serializer)
+    }
 }
 
 pub fn list<P: Level>(conn: &Connection) -> Result<Vec<AgentView>, String> {
