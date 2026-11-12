@@ -1,6 +1,6 @@
 {
   "name": "@rightkit/media-gen-ui",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Media-generation UI components (generate form, jobs, gallery, voices, models, recipes and production panels) over a host-supplied engine client.",
   "license": "MIT OR Apache-2.0",
   "type": "module",

@@ -32,10 +32,13 @@
 //! directory (earlier revisions, paused installs, `state.json`) is kept, never deleted, under
 //! `<root>/.legacy-kept/<id>` ([`Store::legacy_kept`] lists them). See `legacy_layout.rs`.
 //!
-//! **Replacing a model in use.** Installing over an existing entry first takes every runtime-family
-//! lease (`<suite>/runtime/model-use/`, [`crate::suite::lease`]), as GC does; while a running app
-//! holds a model loaded the install refuses with [`ErrorCode::Busy`] ("in use") and the entry is
-//! left exactly as it was.
+//! **Replacing a model in use.** Installing over an existing entry refuses with
+//! [`ErrorCode::Busy`] ("in use") and leaves the entry exactly as it was in two cases. In the
+//! suite store (a store whose parent folder has `runtime/model-use/`, [`crate::suite::lease`]) it
+//! first takes every runtime-family lease, as GC does, and refuses while a running app holds one.
+//! In every store, on Windows, a program that has the installed files open stops the entry being
+//! moved aside; that is reported as in use too. A store outside the suite has no leases, and none
+//! are created beside it.
 //!
 //! **Resolving a model.** Runtimes call [`Store::resolve`] (installed revision,
 //! size-verified) or [`Store::resolve_or_legacy`] (falls back to a pre-store
@@ -1067,6 +1070,29 @@ impl Store {
         let mut out: Vec<PathBuf> = entries.flatten().map(|entry| entry.path()).collect();
         out.sort();
         Ok(out)
+    }
+
+    /// Delete one kept old-layout directory: `kept` must be an entry [`Store::legacy_kept`]
+    /// lists (a direct child of `<root>/.legacy-kept/`, not a link); anything else is refused.
+    /// Call it when the user chooses to free the space. The folder is removed when it is empty.
+    pub fn remove_legacy_kept(&self, kept: &Path) -> Result<()> {
+        let dir = self.root.join(crate::legacy_layout::KEPT_DIR);
+        let listed = kept.parent() == Some(dir.as_path())
+            && kept.file_name().is_some()
+            && !is_link(&dir)
+            && !is_link(kept);
+        if !listed {
+            return Err(Error::new(
+                ErrorCode::InvalidSpec,
+                format!(
+                    "{} is not a kept old-layout directory of this store",
+                    kept.display()
+                ),
+            ));
+        }
+        remove_tree(kept)?;
+        let _ = fs::remove_dir(&dir);
+        Ok(())
     }
 
     /// Remove the whole model: the entry, its staging and any interrupted aside or adoption, plus

@@ -41,7 +41,7 @@
     "@rightkit/logs": "0.1.6",
     "@rightkit/mail-ui": "0.2.1",
     "@rightkit/markdown-editor": "0.2.0",
-    "@rightkit/media-gen-ui": "0.2.0",
+    "@rightkit/media-gen-ui": "0.2.1",
     "@rightkit/media-ui": "0.3.6",
     "@rightkit/onboarding": "0.6.4",
     "@rightkit/outdated": "0.3.1",

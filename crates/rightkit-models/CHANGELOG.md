@@ -3,8 +3,10 @@
 ## 0.7.1
 
 - Fix: migrating a pre-0.7 entry no longer deletes anything. The old directory (earlier revisions, `state.json`, old staging and paused installs) was deleted once the active revision became the suite entry; it is now moved to `<root>/.legacy-kept/<id>` (`<id>.1`, `<id>.2` when taken) at every step that removed it, uninstall included, and kept there. New `Store::legacy_kept()` lists those directories so the app can report them and let the user remove them; the store never does. A symlink at `<root>/.legacy-kept` is refused like every other store path.
-- Fix: replacing an installed model no longer renames the live entry out from under a running app. Before the swap, the store takes every runtime-family lease (`<suite>/runtime/model-use/`, as its GC does; it cannot tell a model id's family) and holds them through the swap; while any is held the install or adoption refuses with `ErrorCode::Busy` and a message saying the model is in use, and the entry is left as it was. A first install (nothing to replace) takes no lease.
-- Tests: `tests/keep_and_lease.rs` (a migration keeps and reports the old revisions; a replacement refuses while a lease is held and goes through once it is released).
+- Fix: replacing an installed model in use is refused with `Busy` ("in use"), the entry left exactly as it was. In the suite store (a store whose parent folder has `runtime/model-use/`) the store takes every runtime-family lease before the swap, as its GC does (a lease names a family, not a model id), and refuses while a running app holds one. In every store, on Windows, a program with the installed files open stops the entry being moved aside; that is now `Busy` with the reason, where it was a bare I/O error after the download. A store outside the suite (an app's own model folder, as GenRight's) has no leases: none are consulted and no lease folder is created beside it.
+- New: `Store::remove_legacy_kept(path)` deletes one directory `legacy_kept()` lists (and nothing else), for an app that lets the user free the space.
+- Rollback: the suite layout holds one revision per model, so `rollback(id, None)` stays `NoRollback`; `@rightkit/media-gen-ui` 0.2.1 no longer offers the action.
+- Tests: `tests/keep_and_lease.rs` (a migration keeps and reports the old revisions, and only a listed one can be removed; a replacement refuses while a lease is held and goes through once it is released; a store outside the suite replaces without leases and gets no lease folder).
 
 ## 0.7.0
 

@@ -900,21 +900,30 @@ impl Store {
         Ok(())
     }
 
-    /// Every runtime-family lease of the suite this store lives in (`<suite>/runtime/model-use/`,
-    /// and the legacy suite root's when this is the suite's own store), held while an existing
-    /// entry is replaced. `Busy` ("in use") while any running app holds one: the store cannot tell
-    /// which family a model id belongs to, so, as its GC does, it refuses on any.
-    fn lease_for_replace(&self, id: &str) -> Result<crate::suite::lease::ModelLease> {
+    /// The suite's runtime-family leases (`<suite>/runtime/model-use/`, and the legacy suite root's
+    /// when this is the suite's own store), held while an existing entry is replaced. `Busy`
+    /// ("in use") while a running app holds one: a lease names a runtime family, not a model id,
+    /// so, as the store's GC does, the replace waits for all of them.
+    ///
+    /// Only a store whose parent folder already has a lease folder is asked: that is the suite
+    /// store, whose runtimes take leases. A store elsewhere (an app's own model folder) has no
+    /// leases to honour, gets none created beside it, and is protected by the swap itself
+    /// ([`in_use_or_io`]).
+    fn lease_for_replace(&self, id: &str) -> Result<Option<crate::suite::lease::ModelLease>> {
         let suite_root = self.root.parent().unwrap_or(&self.root);
+        let leases = suite_root.join("runtime").join("model-use");
+        if !leases.is_dir() {
+            return Ok(None);
+        }
         match crate::suite::lease::try_acquire_for_gc(suite_root, &self.app) {
-            Ok(Some(guard)) => Ok(guard),
+            Ok(Some(guard)) => Ok(Some(guard)),
             Ok(None) => Err(Error::new(
                 ErrorCode::Busy,
                 format!(
                     "{id} is in use: a running app holds a model loaded (a lease under {}), so the \
                      installed copy cannot be replaced now; close that app or unload the model and \
                      install again",
-                    suite_root.join("runtime").join("model-use").display()
+                    leases.display()
                 ),
             )),
             Err(e) => Err(Error::new(ErrorCode::Io, e)),
@@ -965,17 +974,19 @@ impl Store {
         let aside = self.aside_dir(&id)?;
         let had_previous = fs::symlink_metadata(&dest).is_ok();
         // A running app may have the live entry loaded: replacing it then must not rename files
-        // out from under the runtime. Take every runtime-family lease (`runtime/model-use/`, as
-        // the store's GC does) for the whole swap, and refuse while any is held.
+        // out from under the runtime. In the suite store, take every runtime-family lease for
+        // the whole swap and refuse while any is held; in every store, a failed move of the live
+        // entry because its files are open is "in use" too.
         let _in_use_guard = if had_previous {
-            Some(self.lease_for_replace(&id)?)
+            self.lease_for_replace(&id)?
         } else {
             None
         };
         if had_previous {
             remove_tree(&aside)?;
-            fs::rename(&dest, &aside)
-                .map_err(|e| Error::io(format!("move aside {}", dest.display()), e))?;
+            // Windows refuses to move a folder while a program has a file in it open: that is a
+            // model in use, reported as such, with the installed entry exactly as it was.
+            fs::rename(&dest, &aside).map_err(|e| in_use_or_io(&id, &dest, e))?;
             crash(CrashPoint::AfterAside)?;
         }
         if let Err(e) = fs::rename(staging, &dest) {
@@ -1443,4 +1454,25 @@ fn authorization_host_matches(url: &str, pinned: Option<&str>) -> bool {
     };
     let pinned = pinned.trim_matches(['[', ']']).trim_end_matches('.');
     crate::http::url_host_port(url).is_some_and(|(host, _)| host.eq_ignore_ascii_case(pinned))
+}
+
+/// The error for a failed move of the live entry `dest` out of the way: `Busy` ("in use") when the
+/// system refused because a program has its files open (Windows: access denied, sharing or lock
+/// violation), else the I/O error.
+fn in_use_or_io(id: &str, dest: &Path, err: std::io::Error) -> Error {
+    // ERROR_ACCESS_DENIED, ERROR_SHARING_VIOLATION, ERROR_LOCK_VIOLATION.
+    let open_elsewhere = cfg!(windows) && matches!(err.raw_os_error(), Some(5 | 32 | 33));
+    if open_elsewhere {
+        Error::new(
+            ErrorCode::Busy,
+            format!(
+                "{id} is in use: a running program has files of the installed copy open ({}), so \
+                 it cannot be replaced now; close that program or unload the model and install \
+                 again ({err})",
+                dest.display()
+            ),
+        )
+    } else {
+        Error::io(format!("move aside {}", dest.display()), err)
+    }
 }

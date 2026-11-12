@@ -142,9 +142,12 @@ export function installActions(entry: ModelEntry, rec: InstallRecord | undefined
   const installable = entry.installable === true;
   if (installable && (!ready || rec?.state === 'failed' || rec?.state === 'cancelled' || rec?.state === 'paused')) out.push('install');
   if (installable && rec?.state === 'paused') out.push('cancel');
-  if (installable && ready) out.push('upgrade', 'rollback', 'uninstall');
+  // No 'rollback': the model store keeps one revision per model (rightkit-models 0.7), so there is
+  // never an earlier revision to go back to and the command only answers `no_rollback`. The action
+  // stays in the type for hosts that still name it.
+  if (installable && ready) out.push('upgrade', 'uninstall');
   else if (installable && rec?.state === 'installed') {
-    out.push('rollback', 'uninstall');
+    out.push('uninstall');
   }
   return out;
 }

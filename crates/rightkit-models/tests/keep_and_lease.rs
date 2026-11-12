@@ -84,6 +84,25 @@ fn migration_keeps_the_old_layout_and_reports_it() {
     // A second recover changes nothing and keeps the report.
     assert!(!store.recover(ID).unwrap());
     assert_eq!(store.legacy_kept().unwrap(), kept);
+    // Only a listed entry can be removed; removing it frees the space and empties the report.
+    let outside = suite.path().join("elsewhere");
+    fs::create_dir_all(&outside).unwrap();
+    assert_eq!(
+        store.remove_legacy_kept(&outside).unwrap_err().code,
+        ErrorCode::InvalidSpec
+    );
+    assert_eq!(
+        store.remove_legacy_kept(&root.join(ID)).unwrap_err().code,
+        ErrorCode::InvalidSpec
+    );
+    assert!(outside.is_dir() && dir.join("weights.bin").is_file());
+    store.remove_legacy_kept(&kept[0]).unwrap();
+    assert!(store.legacy_kept().unwrap().is_empty());
+    assert!(!root.join(".legacy-kept").exists());
+    assert_eq!(
+        fs::read(dir.join("weights.bin")).unwrap(),
+        b"current weights"
+    );
 }
 
 fn spec(revision: &str, payload: &Path) -> ModelSpec {
@@ -140,4 +159,29 @@ fn a_model_in_use_is_not_replaced() {
         .adopt_flat_dir(&spec("r2", &v2.join("weights.bin")), &opts, &v2)
         .unwrap();
     assert_eq!(fs::read(&installed).unwrap(), b"second weights");
+}
+
+#[test]
+fn a_store_outside_the_suite_has_no_leases_and_gets_none() {
+    // An app's own model folder: no `runtime/model-use/` beside it. A replacement goes through
+    // and no lease folder appears next to the store.
+    let home = tempfile::tempdir().unwrap();
+    let root = home.path().join("models");
+    let store = Store::new(&root, "keep-test");
+    let v1 = home.path().join("v1");
+    let v2 = home.path().join("v2");
+    write(&v1.join("weights.bin"), b"first weights");
+    write(&v2.join("weights.bin"), b"second weights");
+    let opts = InstallOptions::default();
+    store
+        .adopt_flat_dir(&spec("r1", &v1.join("weights.bin")), &opts, &v1)
+        .unwrap();
+    store
+        .adopt_flat_dir(&spec("r2", &v2.join("weights.bin")), &opts, &v2)
+        .unwrap();
+    assert_eq!(
+        fs::read(root.join(ID).join("weights.bin")).unwrap(),
+        b"second weights"
+    );
+    assert!(!home.path().join("runtime").exists());
 }
