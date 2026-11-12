@@ -9,6 +9,6 @@ for one release; depend on `rightkit-media-gen-client` instead.
 | `GenRightClient` | `rightkit_media_gen_client::GenerationClient` (deprecated alias here) |
 | everything else at the root and in `engine`, `error`, `journal`, `models`, `orchestrator`, `generated_source` | the same names in `rightkit_media_gen_client` |
 | `ProcessRunner`, `Runner`, `RawOutput`, `EngineInfo` | `rightkit_engine_host::call` (re-exported by the client) |
-| `channel_recipe` (feature `channel-recipe`) | `rightkit_video_project::channel_recipe` (feature `channel-recipe`) |
+| `channel_recipe` (feature `channel-recipe`) | `rightkit_video_project::channel_recipe` (feature `channel-recipe`); still re-exported here at the old path with this crate's `channel-recipe` feature |
 
 Moved into RightKit from `cutright-genright` (CutRight) on 2026-11-01.

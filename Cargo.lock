@@ -12488,6 +12488,7 @@ name = "rightkit-pipeline"
 version = "0.2.0"
 dependencies = [
  "rightkit-media-gen-client",
+ "rightkit-video-project",
 ]
 
 [[package]]

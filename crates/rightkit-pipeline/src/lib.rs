@@ -1,11 +1,15 @@
 //! Deprecated: this crate is `rightkit-media-gen-client`, named for what it holds (the client of
 //! the generation engine contract). Every item re-exports from there, for one release.
 //!
-//! `channel_recipe` (feature `channel-recipe` in 0.1.x) is `rightkit_video_project::channel_recipe`
-//! (feature `channel-recipe` of `rightkit-video-project`); the process call is
-//! `rightkit_engine_host::call`.
+//! `channel_recipe` (feature `channel-recipe`) is `rightkit_video_project::channel_recipe`
+//! (feature `channel-recipe` of `rightkit-video-project`), re-exported here at its 0.1.x path for
+//! one release; the process call is `rightkit_engine_host::call`.
 
 pub use rightkit_media_gen_client::*;
+
+/// The channel recipe check under its 0.1.x path (`rightkit_pipeline::channel_recipe`).
+#[cfg(feature = "channel-recipe")]
+pub use rightkit_video_project::channel_recipe;
 
 /// The generation engine client under its 0.1.x name.
 #[deprecated(
