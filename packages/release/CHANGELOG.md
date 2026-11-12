@@ -2,6 +2,7 @@
 
 ## 0.6.54 (unpublished)
 
+- **The package's own tests run on hosted macOS and Windows runners (#1505).** Test-only fixes, no library change: expectations are computed from the host instead of the owner's machines (path spellings joined and resolved by the host, the Windows `\\?\` repository key, a fake installed-gate tree keyed in the host's spelling, a temp path instead of `/Volumes/D`); git fixtures use `NUL` on Windows (not `\\.\nul`) and set `core.autocrlf=false` so Git for Windows' system config cannot rewrite their bytes; POSIX permission bits are asserted on POSIX only; every Windows snapshot-lock take gets its own token (it names the holder's job object); qualification-verify provisions an empty zig wrapper directory of its own instead of needing `provision-zig`.
 - **The remote-host rule follows the remote host to its own crate (2026-11-11 shape review).** `remote-feature-undeclared` now looks for the `remote` feature of `rightkit-daemon-remote` (`REMOTE_SERVICE_CRATE`), where rightkit-daemon 0.7.0 moved the HTTPS host, the device link client and the relay; `remote-loopback-undeclared` keeps looking at `rightkit-daemon` (`REMOTE_LOOPBACK_CRATE`), where the loopback host stays. Without this the rule would have matched nothing once the feature left rightkit-daemon.
 
 ## Unreleased

@@ -289,7 +289,9 @@ test("source identity, render receipt, vectors, broker digest", () => {
 });
 
 test("helpers: repository key, listings, worktree count", () => {
-  assert.equal(repositoryKey("/x"), sha("/x").slice(0, 16));
+  // The default platform is the host's: an absolute path in this host's spelling keys as the gate keys it here (the verbatim \\?\ prefix on Windows).
+  const here = path.resolve("/x");
+  assert.equal(repositoryKey(here), sha(process.platform === "win32" ? `\\\\?\\${here}` : here).slice(0, 16));
   assert.ok(sameListing("l", "a", "a").ok); assert.equal(sameListing("l", "a", "b").ok, false);
   assert.equal(worktreeCount("worktree /a\nHEAD x\n\nworktree /b\n"), 2);
 });
@@ -354,9 +356,11 @@ test("a failed or receiptless baseline run fails GC-A04 and GC-A21 instead of le
 });
 
 test("a bad GC-I22 comparison: the RustRight contracts dir is derived from the workspace root and a missing dir fails, never skips", () => {
-  assert.equal(workspaceRootOf("/w/claude/rightkit/packages/release"), "/w/claude");
-  assert.equal(path.join(workspaceRootOf("/w/claude/rightkit/packages/release"), "rustright", "docs", "contracts"), "/w/claude/rustright/docs/contracts");
-  const missing = CHECKS["GC-I22"]({ rustrightContracts: "/Volumes/D/scratch/gate-acceptance/no-such-dir" });
+  // Paths in the host's own spelling: workspaceRootOf resolves, so "/w" is "<drive>:\w" on Windows.
+  const w = path.resolve("/w");
+  assert.equal(workspaceRootOf(path.join(w, "claude", "rightkit", "packages", "release")), path.join(w, "claude"));
+  assert.equal(path.join(workspaceRootOf(path.join(w, "claude", "rightkit", "packages", "release")), "rustright", "docs", "contracts"), path.join(w, "claude", "rustright", "docs", "contracts"));
+  const missing = CHECKS["GC-I22"]({ rustrightContracts: path.join(os.tmpdir(), `rk-gate-acceptance-${process.pid}-no-such-dir`) });
   assert.equal(missing.status, "fail"); assert.match(missing.problems.join(), /was not found/);
   const none = CHECKS["GC-I22"]({});
   assert.equal(none.status, "fail");
@@ -517,6 +521,9 @@ function tempRepo() {
   fs.mkdirSync(SCRATCH, { recursive: true });
   const dir = fs.mkdtempSync(path.join(SCRATCH, "t-"));
   g(dir, "init", "-q", "-b", "main");
+  // The fixture's bytes are its own: Git for Windows' system config sets core.autocrlf=true, which would rewrite README.md as CRLF on every checkout
+  // the stash makes, so "restored exactly" would compare line-ending conversion instead of the restore.
+  g(dir, "config", "core.autocrlf", "false");
   fs.writeFileSync(path.join(dir, "README.md"), "hello\n"); fs.writeFileSync(path.join(dir, "lib.rs"), "fn main() {}\n");
   g(dir, "add", "."); g(dir, "commit", "-q", "-m", "init");
   return dir;
@@ -809,7 +816,9 @@ test("NN19: the gate under test is the installed sealed gate; a checkout gate mu
   const ok = gateIdentityProblems(base);
   assert.ok(ok.ok); assert.equal(ok.kind, "installed");
   assert.match(gateIdentityProblems({ ...base, launcherVersion: "0.6.47" }).problems.join(), /not the installed gate/);
-  assert.match(gateIdentityProblems({ ...base, launcherText: "exec node /w/rightkit/packages/release/bin/rightkit-gate.mjs \"$@\"" }).problems.join(), /runs the checkout gate \S+ and no --gate names it/);
+  // A launcher names the checkout gate in its host's own spelling (backslashes in a Windows .cmd), as gateIdentityProblems joins it.
+  const checkoutEntry = path.join(base.checkoutRoot, "packages", "release", "bin", "rightkit-gate.mjs");
+  assert.match(gateIdentityProblems({ ...base, launcherText: `exec node ${checkoutEntry} "$@"` }).problems.join(), /runs the checkout gate \S+ and no --gate names it/);
   assert.match(gateIdentityProblems({ ...base, installed: null }).problems.join(), /no sealed installed gate/);
   assert.match(gateIdentityProblems({ ...base, launcherExists: false, launcherVersion: null }).problems.join(), /does not exist/);
   assert.match(gateIdentityProblems({ ...base, launcherVersion: null }).problems.join(), /printed no version/);
@@ -817,9 +826,11 @@ test("NN19: the gate under test is the installed sealed gate; a checkout gate mu
   assert.ok(named.ok); assert.equal(named.kind, "named", "named by --gate: accepted, and recorded as not the installed gate");
   assert.equal(gateIdentityProblems({ ...base, gateArg: base.defaultGate }).kind, "installed");
   // findInstalledGate: a sealed folder (named by its manifest's sha256) with the newest version wins; an unsealed one never does.
-  const files = new Map(); const mk = (version, sealed = true) => { const manifest = `m${version}\n`; const name = sealed ? sha(manifest) : "f".repeat(64); files.set(`/m/trusted-gates/${name}.manifest.txt`, manifest); files.set(`/m/trusted-gates/${name}/node_modules/@rightkit/release/package.json`, JSON.stringify({ name: "@rightkit/release", version })); return name; };
+  // The fake tree is keyed in the host's path spelling, as findInstalledGate joins its paths.
+  const files = new Map(); const names = new Set(); const gates = path.join("/m", "trusted-gates");
+  const mk = (version, sealed = true) => { const manifest = `m${version}\n`; const name = sealed ? sha(manifest) : "f".repeat(64); names.add(name); files.set(path.join(gates, `${name}.manifest.txt`), manifest); files.set(path.join(gates, name, "node_modules", "@rightkit", "release", "package.json"), JSON.stringify({ name: "@rightkit/release", version })); return name; };
   mk("0.6.9"); mk("0.6.46"); mk("0.6.99", false);
-  const found = findInstalledGate("/m", { list: () => [...new Set([...files.keys()].map((k) => k.split("/")[3]).filter((n) => /^[a-f0-9]{64}$/.test(n)))], read: (f) => { if (!files.has(f)) throw new Error("ENOENT"); return files.get(f); } });
+  const found = findInstalledGate("/m", { list: (dir) => { assert.equal(dir, gates); return [...names]; }, read: (f) => { if (!files.has(f)) throw new Error("ENOENT"); return files.get(f); } });
   assert.equal(found.version, "0.6.46");
   assert.equal(findInstalledGate("/nowhere"), null);
 });

@@ -59,7 +59,9 @@ test("a requirement that moved to its workspace root is planned there, so it gro
   const b = requirement("b", ["check", "--profile", "release", "--target", "aarch64-apple-darwin", "-p", "rightkit-b", "--all-targets"], { cwd: "crates/rightkit-b" });
   const prove = (r, exists = () => false) => proveWorkspaceCwd({ requirement: r, snapshot: "/snapshot", checkout: "/checkout", exists, toolchainOf: () => "stable-x86_64" });
   assert.equal(prove(a).normalized, true);
-  assert.equal(prove(b, (p) => p === "/snapshot/crates/rightkit-b/.cargo/config.toml").normalized, false);
+  // The override is the host's own spelling of that file (on Windows "/snapshot" resolves to "<drive>:\\snapshot" and joins with backslashes).
+  const override = path.join(path.resolve("/snapshot"), "crates", "rightkit-b", ".cargo", "config.toml");
+  assert.equal(prove(b, (p) => p === override).normalized, false);
   const planned = planUnitListScans({ entries: [entry("cargo:a", a), entry("cargo:b", b)], adapt, normalizedCwds: new Map([["a", prove(a).cwd], ["b", prove(b).cwd]]) });
   assert.deepEqual(planned.scans.map((s) => s.cwd), [".", "."]);
   assert.equal(planned.scans[0].batchable.key, planned.scans[1].batchable.key);

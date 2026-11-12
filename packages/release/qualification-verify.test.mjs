@@ -5,6 +5,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createHash, generateKeyPairSync, sign } from "node:crypto";
 import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { ProvenanceError, canonicalJson, signedBytes, verifyProvenanceSignature } from "./receipt-signature.mjs";
 import { verifyCiCompileReceipts, verifyQualificationReceipts } from "./qualification-verify.mjs";
 import { expectedStageCommands } from "./stage-commands.mjs";
@@ -17,6 +19,11 @@ const DATA = "/data/rightkit", SNAP = `${DATA}/snapshots/repokey01`, VERDICTS = 
 const PRIMARY = "/work/claude/app";
 const unit = { kind: "cargo", name: "rightkit-decimal" };
 const config = JSON.parse(fs.readFileSync(new URL("../../ci/gate.config.json", import.meta.url), "utf8"));
+// The stage builders refuse a crate's cross-target rows on a host without the zig wrappers (GC-A14), and the verifier derives the same rows.
+// Only the argv of those rows is checked here, never the wrappers themselves, so the suite provisions an empty wrapper directory of its own
+// instead of depending on one the owner's hosts (or a provisioned CI job) have; a hosted runner has none.
+process.env.RIGHTKIT_CROSS_CC_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "rk-qv-cross-cc-"));
+process.on("exit", () => fs.rmSync(process.env.RIGHTKIT_CROSS_CC_DIR, { recursive: true, force: true }));
 const expected = expectedStageCommands({ kind: unit.kind, unit: unit.name, config, platform: "darwin" });
 
 function makeKey({ host = HOST } = {}) {

@@ -182,7 +182,8 @@ test("the Class A verdict exists only for a complete green plan and binds commit
   const file = writeClassAVerdict(dir, v);
   assert.equal(path.basename(file), `class-a-${commit.slice(0, 12)}-full-root.json`);
   assert.deepEqual(JSON.parse(fs.readFileSync(file, "utf8")), v);
-  assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+  // Owner-only on POSIX; Windows keeps no POSIX permission bits (Node reports a writable file as 0o666 whatever mode it was written with).
+  if (process.platform !== "win32") assert.equal(fs.statSync(file).mode & 0o777, 0o600);
   assert.throws(() => writeClassAVerdict(dir, { ...v, status: "fail" }), /passing verdict/);
   assert.throws(() => writeClassAVerdict("relative", v), /absolute/);
   assert.deepEqual(seamEnv({ commit, classA: file }), { [GATE_COMMIT_ENV]: commit, [CLASS_A_ENV]: file });
@@ -311,7 +312,10 @@ test("the lock body is { pid, identity, commit, token } with the broker's identi
   assert.throws(() => snapshotLockBody({ pid: 1, identity: darwin, commit }), /not this process/);
   // The lock file carries exactly that body; a live seam holder is busy; a dead one without broker proof stays busy; with proof it is reclaimed.
   const dir = tmp(); const lockFile = path.join(dir, "snap.lock");
-  const mine = snapshotLockBody({ pid: process.pid, identity: `${process.platform}:${process.pid}:x`, commit });
+  // Each lock taken gets its own body, as the door makes one per run (rightkit-gate.mjs seamLockFor): on Windows the token names the holder's job object,
+  // which lives as long as this process does, so a second take with an already-used token would find its job existing.
+  const lockBody = () => snapshotLockBody({ pid: process.pid, identity: `${process.platform}:${process.pid}:x`, commit });
+  let mine = lockBody();
   const release = acquireSnapshotLock(lockFile, {}, { body: mine });
   assert.deepEqual(JSON.parse(fs.readFileSync(lockFile, "utf8")), mine);
   release(); assert.equal(fs.existsSync(lockFile), false);
@@ -320,6 +324,7 @@ test("the lock body is { pid, identity, commit, token } with the broker's identi
   fs.writeFileSync(lockFile, JSON.stringify({ pid: deadPid, identity: `${process.platform}:${deadPid}:gone`, commit, token: "t" }));
   assert.throws(() => acquireSnapshotLock(lockFile, {}, { body: mine }), /reclaimed only on the broker's proof.*GAP/);
   assert.throws(() => acquireSnapshotLock(lockFile, {}, { body: mine, judge: () => false }), /gave no such proof/);
+  mine = lockBody();
   const reclaimed = acquireSnapshotLock(lockFile, {}, { body: mine, judge: (holder) => holder.pid === deadPid });
   assert.deepEqual(JSON.parse(fs.readFileSync(lockFile, "utf8")), mine);
   reclaimed();
@@ -330,6 +335,7 @@ test("the lock body is { pid, identity, commit, token } with the broker's identi
   assert.throws(() => acquireSnapshotLock(lockFile, {}, { body: mine, judge: () => true, identityOf: () => liveIdentity }), /is held by/, "the same birth identity is the live holder");
   assert.throws(() => acquireSnapshotLock(lockFile, {}, { body: mine, judge: () => true, identityOf: () => null }), /cannot be read to tell it from a reused pid/, "an unreadable identity proves nothing");
   assert.throws(() => acquireSnapshotLock(lockFile, {}, { body: mine, judge: () => false, identityOf: () => `${process.platform}:${process.pid}:birth-B` }), /gave no such proof/, "a reused pid still needs the broker's proof");
+  mine = lockBody();
   const reused = acquireSnapshotLock(lockFile, {}, { body: mine, judge: () => true, identityOf: () => `${process.platform}:${process.pid}:birth-B` });
   assert.deepEqual(JSON.parse(fs.readFileSync(lockFile, "utf8")), mine); reused();
   // another platform's seam lock is never judged here

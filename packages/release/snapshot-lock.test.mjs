@@ -3,6 +3,7 @@
 // Real git, real files, no broker: the seam body's broker proof is a `judge` function, the rest is the production code.
 import test from "node:test";
 import assert from "node:assert/strict";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -10,7 +11,7 @@ import { spawnSync } from "node:child_process";
 import { SnapshotError, WINDOWS_JOB_SCHEMA, acquireSnapshotLock, containLockHolder, liveLockChildren, queryJobHolder, lockView, recordLockChild, windowsJobLive, repositoryOf, snapshotCommand, syncSnapshot, takeSnapshotLock } from "./snapshot.mjs";
 import { spawn as spawnAsync } from "node:child_process";
 
-const GIT_ENV = { GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@t", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@t", GIT_CONFIG_GLOBAL: os.devNull, GIT_CONFIG_NOSYSTEM: "1" };
+const GIT_ENV = { GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@t", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@t", GIT_CONFIG_GLOBAL: process.platform === "win32" ? "NUL" : "/dev/null", GIT_CONFIG_NOSYSTEM: "1" };
 
 /** One committed file in a throwaway repository, and a snapshot root beside it (managed root: none, so no volume rule applies). */
 function fixture() {
@@ -40,6 +41,9 @@ function deadPid() {
   for (;;) { try { process.kill(pid, 0); pid += 1; } catch (e) { if (e.code === "ESRCH") return pid; pid += 1; } }
 }
 const seamIdentity = (pid, start = "x") => `${process.platform === "win32" ? "win32" : process.platform}:${pid}:${start}`;
+// A seam body's token for a lock this process takes. On Windows the token names the holder's job object (`Local\RightKitSnapshotLock-<token>`, one per
+// logon session), which lives as long as this process does: as the door mints one per run (gate-seam.mjs snapshotLockBody), every take gets its own.
+const freshToken = (label) => `${label}-${crypto.randomUUID()}`;
 const writeLock = (f, body) => { fs.mkdirSync(f.root, { recursive: true, mode: 0o700 }); fs.writeFileSync(f.lockFile, JSON.stringify(body)); };
 const busy = (fn, pattern) => assert.throws(fn, (e) => e instanceof SnapshotError && e.code === "busy" && pattern.test(e.message), `expected a busy refusal matching ${pattern}`);
 
@@ -101,7 +105,7 @@ test("a legacy lock that names its holder's birth identity tells a reused pid fr
 test("the seam body is written whole and a dead holder's lock is reclaimed only on the broker's proof", () => {
   const f = fixture();
   const dead = deadPid();
-  const body = { pid: process.pid, identity: seamIdentity(process.pid), commit: f.commit, token: "mine" };
+  let body = { pid: process.pid, identity: seamIdentity(process.pid), commit: f.commit, token: freshToken("mine") };
   const old = { pid: dead, identity: seamIdentity(dead, "gone"), commit: f.commit, token: "old" };
   const mine = take(f, { body });
   assert.deepEqual(JSON.parse(fs.readFileSync(f.lockFile, "utf8")), body); mine();
@@ -109,6 +113,7 @@ test("the seam body is written whole and a dead holder's lock is reclaimed only 
   busy(() => take(f, { body }), /reclaimed only on the broker's proof/);
   busy(() => take(f, { body, judge: () => false }), /gave no such proof/);
   assert.deepEqual(JSON.parse(fs.readFileSync(f.lockFile, "utf8")), old, "no proof, no change");
+  body = { ...body, token: freshToken("mine") };
   let asked = null;
   const reclaimed = take(f, { body, judge: (holder) => { asked = holder; return true; } });
   assert.deepEqual(asked, old);
@@ -169,7 +174,7 @@ test("`snapshot` syncs under the lock its host route names, refuses when the rou
   const lines = []; const errors = [];
   const o = { cwd: f.repo, snapshotRoot: f.root, managedRoot: null, env: process.env, platform: process.platform, out: (l) => lines.push(l), err: (l) => errors.push(l) };
   let asked = null;
-  const body = { pid: process.pid, identity: seamIdentity(process.pid), commit: f.commit, token: "seam-token" };
+  const body = { pid: process.pid, identity: seamIdentity(process.pid), commit: f.commit, token: freshToken("seam-token") };
   assert.equal(snapshotCommand(o, ["--commit", f.commit], { lockFor: (q) => { asked = q; return { lock: { body } }; } }), 0, errors.join("\n"));
   assert.equal(asked.commit, f.commit); assert.equal(asked.root, f.root); assert.equal(path.resolve(asked.checkout), path.resolve(f.repo));
   assert.match(lines.join("\n"), /snapshot .* commit=[0-9a-f]{40} tree=[0-9a-f]{40} written=\d+/);
