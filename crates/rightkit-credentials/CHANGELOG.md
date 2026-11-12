@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Changed: the bundled-helper path resolvers and the code-signature check now live in `rightkit-child-process` (`resolve_bundled`, `resolve_bundled_login_item`, `verify_team_signature`); `apple_helper` calls them, with the same checks and the same error text. New dependency on `rightkit-child-process`. No behaviour change.
+
 ## 0.5.2
 
 - Fixed (rightkit#1572): a text secret over 1,200 bytes could not be stored in a `WindowsTarget::KeyringCompat` namespace on Windows. Chunking wrote a binary manifest (with a random generation) and cut chunks at byte 1,200, and the namespace's UTF-16 codec refused both with `Error::NotUtf8` (the manifest in about 255 of 256 writes; a chunk whenever byte 1,200 fell inside a character). Text of 1,201 to 1,280 UTF-16 units, which fitted one item before chunking existed, failed too. Now, in a keyring-compatible namespace: text up to 1,280 UTF-16 units (the 2,560-byte blob limit, the `keyring` crate's own limit; exported as `CHUNK_KEYRING_INLINE_UNITS`) is one inline item exactly as `keyring` stores it; longer text is cut on character boundaries into chunks of at most 1,280 units behind the ASCII manifest `RKCHUNK2 <generation> <count> <total bytes>`, so every stored blob is text. Chunk accounts are unchanged.
