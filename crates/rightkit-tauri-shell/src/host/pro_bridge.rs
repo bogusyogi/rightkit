@@ -40,15 +40,32 @@
 //! [`ProBridgeConfig`] (names, state file, helper) and [`ProBridgeHost`] (the licence client, "is
 //! this device Pro", the app's own sync-choice marker, a log sink). The methods are synchronous and
 //! block on the helper and the network; a Tauri command wraps one in `spawn_blocking`.
+//!
+//! # Commands
+//!
+//! The shell registers the five commands the apps carried, under the same names and shapes, behind
+//! [`ServiceId::PRO_BRIDGE`] ([`HostServicesBuilder::pro_bridge`](super::HostServicesBuilder::pro_bridge)):
+//! `pro_bridge_status` (the [`ProBridgeStatus`], camelCase), `pro_bridge_set_keychain_sync_enabled`
+//! and `pro_bridge_set_pro_resolution_enabled` (`{ enabled }`), `pro_bridge_set_sync_enabled`
+//! (`{ enabled }`, both halves) and `pro_bridge_suppress_consumption` (`{ suppressed }`). The four
+//! setters answer `null`; every error is a plain string. Each asks the host caller policy first
+//! (the action is the command name without the `pro_bridge_` prefix), so a window the app did not
+//! trust reaches neither the helper nor the state file.
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use tauri::{Manager, Webview, Wry};
+
 use rightkit_credentials::apple_helper::{AppleHelper, HelperTrust, Scope};
 use rightkit_credentials::Secret;
 use rightkit_license::{BridgePlatform, LicenseClient, SecretString};
 use serde::{Deserialize, Serialize};
+
+use super::policy::ServiceId;
+use super::HostServices;
+use crate::caller_gate::{self, CallerError, CallerFacts, Denial};
 
 /// The synchronized account the bridge token lives in (a name the Swift helper allow-lists).
 const ACCOUNT_PRO_BRIDGE: &str = "pro.bridge";
@@ -485,4 +502,110 @@ impl ProBridge {
         self.update_state(|state| state.suppress_consumption = suppressed)
             .map(|_| ())
     }
+}
+
+/// The registered Pro bridge: what [`HostServicesBuilder::pro_bridge`](super::HostServicesBuilder::pro_bridge)
+/// stores behind [`ServiceId::PRO_BRIDGE`]. The app keeps its own `Arc` to call
+/// [`ProBridge::run_launch`] at start.
+pub struct ProBridgeHostService {
+    bridge: Arc<ProBridge>,
+}
+
+impl ProBridgeHostService {
+    pub fn new(bridge: Arc<ProBridge>) -> Self {
+        Self { bridge }
+    }
+}
+
+/// The bridge for `action`, after the caller policy allowed it. Errors are the plain strings the
+/// commands answer.
+pub fn pro_bridge_for(
+    host: &HostServices,
+    action: &str,
+    facts: &CallerFacts<'_>,
+) -> Result<Arc<ProBridge>, String> {
+    match host.policy().decide(ServiceId::PRO_BRIDGE, action, facts) {
+        Ok(()) => {}
+        Err(CallerError::Forbidden(Denial::ServiceNotRegistered)) => {
+            return Err("unsupported".to_string())
+        }
+        Err(CallerError::Forbidden(_)) => return Err("forbidden".to_string()),
+    }
+    host.service::<ProBridgeHostService>(ServiceId::PRO_BRIDGE)
+        .map(|service| service.bridge.clone())
+        .ok_or_else(|| "unsupported".to_string())
+}
+
+fn bridge_service(webview: &Webview<Wry>, action: &str) -> Result<Arc<ProBridge>, String> {
+    let host = super::managed(webview.app_handle()).map_err(|_| "unsupported".to_string())?;
+    let owned = caller_gate::gather(webview).map_err(|_| "forbidden".to_string())?;
+    pro_bridge_for(&host, action, &owned.facts())
+}
+
+async fn blocking<T: Send + 'static>(
+    command: &'static str,
+    work: impl FnOnce() -> Result<T, String> + Send + 'static,
+) -> Result<T, String> {
+    tauri::async_runtime::spawn_blocking(work)
+        .await
+        .map_err(|err| format!("join {command}: {err}"))?
+}
+
+/// The status: both halves, the helper's readiness and the suppression flag.
+#[tauri::command]
+pub async fn pro_bridge_status(webview: Webview<Wry>) -> Result<ProBridgeStatus, String> {
+    let bridge = bridge_service(&webview, "status")?;
+    blocking("pro_bridge_status", move || Ok(bridge.status())).await
+}
+
+/// The Keychain credential half only.
+#[tauri::command]
+pub async fn pro_bridge_set_keychain_sync_enabled(
+    webview: Webview<Wry>,
+    enabled: bool,
+) -> Result<(), String> {
+    let bridge = bridge_service(&webview, "set_keychain_sync_enabled")?;
+    blocking("pro_bridge_set_keychain_sync_enabled", move || {
+        bridge.set_keychain_sync_enabled(enabled)
+    })
+    .await
+}
+
+/// The backend Pro-resolution half only.
+#[tauri::command]
+pub async fn pro_bridge_set_pro_resolution_enabled(
+    webview: Webview<Wry>,
+    enabled: bool,
+) -> Result<(), String> {
+    let bridge = bridge_service(&webview, "set_pro_resolution_enabled")?;
+    blocking("pro_bridge_set_pro_resolution_enabled", move || {
+        bridge.set_pro_resolution_enabled(enabled)
+    })
+    .await
+}
+
+/// Both halves together (the single "Sync with Apple devices" control).
+#[tauri::command]
+pub async fn pro_bridge_set_sync_enabled(
+    webview: Webview<Wry>,
+    enabled: bool,
+) -> Result<(), String> {
+    let bridge = bridge_service(&webview, "set_sync_enabled")?;
+    blocking("pro_bridge_set_sync_enabled", move || {
+        bridge.set_sync_enabled(enabled)
+    })
+    .await
+}
+
+/// Set or clear consumption suppression (the renderer sets it before a deactivation).
+#[tauri::command]
+pub async fn pro_bridge_suppress_consumption(
+    webview: Webview<Wry>,
+    suppressed: bool,
+) -> Result<(), String> {
+    let bridge = bridge_service(&webview, "suppress_consumption")?;
+    blocking("pro_bridge_suppress_consumption", move || {
+        bridge.suppress_consumption(suppressed)
+    })
+    .await
 }

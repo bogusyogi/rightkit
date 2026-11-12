@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.4
+
+- Added `wire::ServiceHello`: the typed `hello` of a local service host (`service`, `role`, `rank`, `version`, `protocol_major`, `protocol_minor`, `methods`, `frame_limit`, `max_message`, `chunk_bytes`; no `engine` or `contract_version`) with `to_value()`, and `ServiceHello::refused(error)` for the `{type: hello, ok: false, error}` refusal. `Frame::Hello` is unchanged.
+
 ## 0.3.3
 
 - Added `wire::Frame::to_value(include_error_retryable)`: the frame as a JSON value, optionally without `retryable` in a failed response's `error` (for a peer whose wire `error` is `{code, message}`).

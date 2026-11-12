@@ -1112,7 +1112,7 @@ pub mod windows {
     ///   monitor-sized, so they are excluded this way);
     /// - it overlaps `monitor`, so a full-screen program on another monitor does not count; and
     /// - either it covers `monitor` on every edge within `probe.edge_tolerance_px`
-    ///   ([`covers_monitor_within`]), or `probe.use_shell_notification_state` is set and
+    ///   ([`crate::covers_monitor_within`]), or `probe.use_shell_notification_state` is set and
     ///   `SHQueryUserNotificationState` reports a busy full-screen, Direct3D full-screen,
     ///   presentation or Store-app state.
     ///

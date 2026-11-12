@@ -105,6 +105,8 @@ pub use models::{DeclaredModel, ModelEntry, ModelState, ModelsHostService, EVENT
 pub use policy::{
     is_shell_guard_exempt, HostCallerPolicy, ServiceId, ServiceTrust, SHELL_GUARD_EXEMPT,
 };
+#[cfg(feature = "pro-bridge")]
+pub use pro_bridge::{ProBridge, ProBridgeConfig, ProBridgeHost, ProBridgeHostService};
 pub use secrets::{
     ApiKeySlot, SecretPresence, SecretStore, SecretStoreError, SecretValue, SecretWriter,
     SecretsError, SecretsService, WriteIntent,
@@ -330,6 +332,19 @@ impl HostServicesBuilder {
         client: rightkit_license::LicenseClient,
     ) -> Self {
         self.service(ServiceId::LICENSE, trust, LicenseHostService::new(client))
+    }
+
+    /// Register the Pro bridge behind the five `pro_bridge_*` commands (feature `pro-bridge`); the
+    /// trust's actions are the command names without the `pro_bridge_` prefix. Trust the window that
+    /// shows the Apple-devices setting; a registered content webview is refused regardless. The app
+    /// keeps its own `Arc` to run the launch algorithm.
+    #[cfg(feature = "pro-bridge")]
+    pub fn pro_bridge(self, trust: ServiceTrust, bridge: Arc<pro_bridge::ProBridge>) -> Self {
+        self.service(
+            ServiceId::PRO_BRIDGE,
+            trust,
+            pro_bridge::ProBridgeHostService::new(bridge),
+        )
     }
 
     /// Register the native account session client behind the nine `rightkit_account_*` commands
