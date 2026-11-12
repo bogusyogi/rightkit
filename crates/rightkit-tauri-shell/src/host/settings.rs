@@ -1,5 +1,5 @@
 //! The settings bridge: `describe`, `get`, `patch(expectedRevision)`, `reset(keys)` and
-//! `subscribe` over an `rightkit-app-settings` [`Document`].
+//! `subscribe` over an `rightkit-app-settings` [`Document`] (a versioned envelope, or a flat file).
 //!
 //! [`SettingsBridge`] is plain Rust (no Tauri types), so every rule below is tested without a
 //! webview. [`SettingsHostService`] and the `rightkit_settings_*` commands are the thin adapter.
@@ -36,7 +36,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use rightkit_app_settings::{Document, DocumentState, Error as StoreError};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use tauri::{AppHandle, Emitter, Manager, Webview, Wry};
 
@@ -54,6 +54,37 @@ pub const DEFAULT_MAX_DOCUMENT_BYTES: usize = 1024 * 1024;
 pub const MAX_KEY_BYTES: usize = 128;
 /// How often a patch with no `expectedRevision` retries after losing a race to another writer.
 const UNCONDITIONAL_ATTEMPTS: usize = 3;
+
+/// A revision a caller expects, as it arrives from a renderer: a JSON number, or a string (the
+/// decimal text of a counter, or the 16 hex digits of a flat file's content hash; a 64-bit value
+/// does not survive a JavaScript number). The bridge reads the string by the kind of file it holds.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(untagged)]
+pub enum ExpectedRevision {
+    Number(u64),
+    Text(String),
+}
+
+impl From<u64> for ExpectedRevision {
+    fn from(n: u64) -> Self {
+        Self::Number(n)
+    }
+}
+
+/// A revision as text: decimal for a counter, 16 hex digits for a flat file's content hash.
+fn revision_text(opaque: bool, revision: u64) -> String {
+    if opaque {
+        format!("{revision:016x}")
+    } else {
+        revision.to_string()
+    }
+}
+
+/// The numeric revision a renderer may compare as a number. A content hash is not one: it can
+/// exceed 2^53, so it travels as `revisionText` only.
+fn revision_number(opaque: bool, revision: u64) -> Option<u64> {
+    (!opaque).then_some(revision)
+}
 
 /// The app's declaration of its settings: schema version, UI description and limits, and the
 /// checks the bridge runs before it commits.
@@ -195,8 +226,14 @@ impl SettingsSchema for StaticSchema {
 /// Why a settings call failed. Each variant has a stable [`SettingsError::code`].
 #[derive(Debug, Clone, PartialEq)]
 pub enum SettingsError {
-    /// `expectedRevision` is not the committed revision.
-    Conflict { expected: u64, actual: u64 },
+    /// `expectedRevision` is not the committed revision. `opaque` is set for a flat file, whose
+    /// revisions are content hashes: they are then shown as 16 hex digits and sent without a
+    /// numeric field.
+    Conflict {
+        expected: u64,
+        actual: u64,
+        opaque: bool,
+    },
     /// The request is malformed: not an object, a key the schema does not allow, nothing to reset.
     Invalid(String),
     /// The complete candidate failed the app's validation. The message is the app's.
@@ -241,9 +278,15 @@ impl SettingsError {
 impl std::fmt::Display for SettingsError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Conflict { expected, actual } => write!(
+            Self::Conflict {
+                expected,
+                actual,
+                opaque,
+            } => write!(
                 f,
-                "settings changed since revision {expected}; now at revision {actual}"
+                "settings changed since revision {}; now at revision {}",
+                revision_text(*opaque, *expected),
+                revision_text(*opaque, *actual)
             ),
             Self::Invalid(m) | Self::Rejected(m) => f.write_str(m),
             Self::ValueTooLarge { key, len, limit } => {
@@ -267,9 +310,16 @@ impl std::error::Error for SettingsError {}
 impl From<SettingsError> for HostError {
     fn from(e: SettingsError) -> Self {
         let details = match &e {
-            SettingsError::Conflict { expected, actual } => {
-                Some(serde_json::json!({"expected": expected, "actual": actual}))
-            }
+            SettingsError::Conflict {
+                expected,
+                actual,
+                opaque,
+            } => Some(serde_json::json!({
+                "expected": revision_number(*opaque, *expected),
+                "actual": revision_number(*opaque, *actual),
+                "expectedText": revision_text(*opaque, *expected),
+                "actualText": revision_text(*opaque, *actual),
+            })),
             SettingsError::ValueTooLarge { key, len, limit } => {
                 Some(serde_json::json!({"key": key, "len": len, "limit": limit}))
             }
@@ -293,7 +343,11 @@ impl From<SettingsError> for HostError {
 /// renderer otherwise.
 fn map_store_error(e: StoreError) -> SettingsError {
     match e {
-        StoreError::Conflict { expected, actual } => SettingsError::Conflict { expected, actual },
+        StoreError::Conflict { expected, actual } => SettingsError::Conflict {
+            expected,
+            actual,
+            opaque: false,
+        },
         StoreError::NewerSchema { found, supported } => {
             SettingsError::NewerSchema { found, supported }
         }
@@ -324,8 +378,16 @@ fn map_store_error(e: StoreError) -> SettingsError {
 pub struct SettingsSnapshot {
     /// The document's top-level values: always a JSON object.
     pub values: Value,
-    /// Monotonic committed revision, `0` when nothing is stored yet.
-    pub revision: u64,
+    /// Monotonic committed revision, `0` when nothing is stored yet. `None` for a flat file (its
+    /// revision is a content hash, see `revision_text`) and when the revision could not be read
+    /// back after a write that is stored.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub revision: Option<u64>,
+    /// The revision as text: the decimal of `revision`, or for a flat file 16 hex digits (a hash
+    /// above 2^53 loses bits as a JavaScript number). Send it back as `expectedRevision`. `None`
+    /// only when the revision is unknown (re-read failed after a stored write).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub revision_text: Option<String>,
     pub schema_version: u32,
     /// Set when the write is stored but a later step failed (for example the directory sync). The
     /// write must not be repeated.
@@ -338,7 +400,11 @@ pub struct SettingsSnapshot {
 #[serde(rename_all = "camelCase")]
 pub struct SettingsDescription {
     pub schema_version: u32,
-    pub revision: u64,
+    /// As [`SettingsSnapshot::revision`]; `0` when nothing is stored or readable.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub revision: Option<u64>,
+    /// As [`SettingsSnapshot::revision_text`].
+    pub revision_text: String,
     /// The app's UI description, opaque here.
     pub descriptor: Value,
     /// False when the bridge is read-only or the stored document is refused.
@@ -362,7 +428,11 @@ pub struct SettingsLimits {
 #[serde(rename_all = "camelCase")]
 pub struct SettingsChange {
     pub keys: Vec<String>,
-    pub revision: u64,
+    /// As [`SettingsSnapshot::revision`]: absent for a flat file.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub revision: Option<u64>,
+    /// As [`SettingsSnapshot::revision_text`].
+    pub revision_text: String,
 }
 
 type Listener = Arc<dyn Fn(&SettingsChange) + Send + Sync>;
@@ -404,6 +474,8 @@ type ApplyHook = Arc<dyn Fn(&Map<String, Value>) -> Result<Undo, String> + Send 
 /// The settings bridge. See the module documentation.
 pub struct SettingsBridge {
     document: Document,
+    /// The document is flat: its revisions are content hashes (see [`Document::is_flat`]).
+    opaque: bool,
     schema: Arc<dyn SettingsSchema>,
     read_only: bool,
     apply: Option<ApplyHook>,
@@ -414,9 +486,12 @@ pub struct SettingsBridge {
 }
 
 impl SettingsBridge {
-    /// Bridge `document` under `schema`. Nothing is read or written until the first call.
+    /// Bridge `document` under `schema`. Nothing is read or written until the first call. A flat
+    /// document ([`Document::open_flat_path`]) is bridged the same way: its revisions travel as
+    /// `revisionText` (16 hex digits) and the numeric `revision` is left out.
     pub fn new(document: Document, schema: impl SettingsSchema + 'static) -> Self {
         Self {
+            opaque: document.is_flat(),
             document,
             schema: Arc::new(schema),
             read_only: false,
@@ -479,7 +554,8 @@ impl SettingsBridge {
         };
         SettingsDescription {
             schema_version: self.schema.schema_version(),
-            revision,
+            revision: revision_number(self.opaque, revision),
+            revision_text: revision_text(self.opaque, revision),
             descriptor: self.schema.descriptor(),
             writable: !self.read_only && refusal.is_none(),
             refusal,
@@ -504,9 +580,19 @@ impl SettingsBridge {
         patch: &Value,
         expected_revision: Option<u64>,
     ) -> Result<SettingsSnapshot, SettingsError> {
+        self.patch_expecting(patch, expected_revision.map(ExpectedRevision::from))
+    }
+
+    /// [`SettingsBridge::patch`] with the revision as a renderer sent it (number or text).
+    pub fn patch_expecting(
+        &self,
+        patch: &Value,
+        expected_revision: Option<ExpectedRevision>,
+    ) -> Result<SettingsSnapshot, SettingsError> {
         self.require_writable()?;
         let patch = self.check_patch(patch)?;
-        self.commit(&patch, expected_revision)
+        let expected = self.resolve(expected_revision)?;
+        self.commit(&patch, expected)
     }
 
     /// Remove `keys` from the stored document so the frontend's defaults apply again. The
@@ -516,6 +602,15 @@ impl SettingsBridge {
         &self,
         keys: &[String],
         expected_revision: Option<u64>,
+    ) -> Result<SettingsSnapshot, SettingsError> {
+        self.reset_expecting(keys, expected_revision.map(ExpectedRevision::from))
+    }
+
+    /// [`SettingsBridge::reset`] with the revision as a renderer sent it (number or text).
+    pub fn reset_expecting(
+        &self,
+        keys: &[String],
+        expected_revision: Option<ExpectedRevision>,
     ) -> Result<SettingsSnapshot, SettingsError> {
         self.require_writable()?;
         if keys.is_empty() {
@@ -528,7 +623,36 @@ impl SettingsBridge {
             self.check_key(key)?;
             patch.insert(key.clone(), Value::Null);
         }
-        self.commit(&patch, expected_revision)
+        let expected = self.resolve(expected_revision)?;
+        self.commit(&patch, expected)
+    }
+
+    /// The revision a caller sent, as the number compared against the committed one.
+    fn resolve(&self, sent: Option<ExpectedRevision>) -> Result<Option<u64>, SettingsError> {
+        match sent {
+            None => Ok(None),
+            Some(ExpectedRevision::Number(n)) => Ok(Some(n)),
+            Some(ExpectedRevision::Text(t)) => {
+                let radix = if self.opaque { 16 } else { 10 };
+                u64::from_str_radix(t.trim(), radix).map(Some).map_err(|_| {
+                    SettingsError::Invalid("expectedRevision is not a revision".into())
+                })
+            }
+        }
+    }
+
+    /// [`map_store_error`], with a conflict marked for this document's revision kind.
+    fn store_error(&self, e: StoreError) -> SettingsError {
+        match map_store_error(e) {
+            SettingsError::Conflict {
+                expected, actual, ..
+            } => SettingsError::Conflict {
+                expected,
+                actual,
+                opaque: self.opaque,
+            },
+            other => other,
+        }
     }
 
     /// Look for a change another writer committed (another window's store, another process) and
@@ -609,7 +733,7 @@ impl SettingsBridge {
 
     /// Read the committed document and refuse one a newer build wrote.
     fn read(&self) -> Result<Current, SettingsError> {
-        let stored = self.document.get().map_err(map_store_error)?;
+        let stored = self.document.get().map_err(|e| self.store_error(e))?;
         let supported = self.schema.schema_version();
         match stored {
             None => Ok(Current {
@@ -627,7 +751,8 @@ impl SettingsBridge {
     fn snapshot(&self, current: Current, warning: Option<String>) -> SettingsSnapshot {
         SettingsSnapshot {
             values: Value::Object(current.values),
-            revision: current.revision,
+            revision: revision_number(self.opaque, current.revision),
+            revision_text: Some(revision_text(self.opaque, current.revision)),
             schema_version: self.schema.schema_version(),
             warning,
         }
@@ -653,6 +778,7 @@ impl SettingsBridge {
                     return Err(SettingsError::Conflict {
                         expected,
                         actual: before.revision,
+                        opaque: self.opaque,
                     });
                 }
             }
@@ -684,20 +810,32 @@ impl SettingsBridge {
                 Err(StoreError::Replaced { .. }) => {
                     // The new file is in place; only a later step failed. Never report a failure
                     // the caller would retry.
-                    let after = self.read().unwrap_or(Current {
-                        values: candidate,
-                        revision: before.revision.saturating_add(1),
+                    // A flat file's new revision is a hash of the bytes: it cannot be predicted, and
+                    // a guessed one would break the caller's next compare-and-swap. Read it back;
+                    // when that fails too, say the revision is unknown.
+                    let warning = Some("saved, but a step after the save failed".into());
+                    return Ok(match self.read() {
+                        Ok(after) => {
+                            let _ = self.observe(&after);
+                            self.snapshot(after, warning)
+                        }
+                        Err(_) => SettingsSnapshot {
+                            values: Value::Object(candidate),
+                            revision: None,
+                            revision_text: None,
+                            schema_version: self.schema.schema_version(),
+                            warning,
+                        },
                     });
-                    let _ = self.observe(&after);
-                    return Ok(self.snapshot(
-                        after,
-                        Some("saved, but a step after the save failed".into()),
-                    ));
                 }
                 Err(StoreError::Conflict { expected, actual }) => {
-                    lost_race = Some(SettingsError::Conflict { expected, actual });
+                    lost_race = Some(SettingsError::Conflict {
+                        expected,
+                        actual,
+                        opaque: self.opaque,
+                    });
                 }
-                Err(other) => return Err(map_store_error(other)),
+                Err(other) => return Err(self.store_error(other)),
             }
         }
         Err(lost_race.unwrap_or(SettingsError::Storage("the settings storage failed")))
@@ -729,7 +867,8 @@ impl SettingsBridge {
                     });
                     (!keys.is_empty()).then_some(SettingsChange {
                         keys,
-                        revision: current.revision,
+                        revision: revision_number(self.opaque, current.revision),
+                        revision_text: revision_text(self.opaque, current.revision),
                     })
                 }
             }
@@ -909,13 +1048,13 @@ pub async fn rightkit_settings_get(webview: Webview<Wry>) -> Result<SettingsSnap
 pub async fn rightkit_settings_patch(
     webview: Webview<Wry>,
     patch: Value,
-    expected_revision: Option<u64>,
+    expected_revision: Option<ExpectedRevision>,
 ) -> Result<SettingsSnapshot, HostError> {
     let service = settings_service(&webview, "patch")?;
     blocking(move || {
         service
             .bridge()
-            .patch(&patch, expected_revision)
+            .patch_expecting(&patch, expected_revision)
             .map_err(HostError::from)
     })
     .await
@@ -926,29 +1065,35 @@ pub async fn rightkit_settings_patch(
 pub async fn rightkit_settings_reset(
     webview: Webview<Wry>,
     keys: Vec<String>,
-    expected_revision: Option<u64>,
+    expected_revision: Option<ExpectedRevision>,
 ) -> Result<SettingsSnapshot, HostError> {
     let service = settings_service(&webview, "reset")?;
     blocking(move || {
         service
             .bridge()
-            .reset(&keys, expected_revision)
+            .reset_expecting(&keys, expected_revision)
             .map_err(HostError::from)
     })
     .await
 }
 
 /// Subscribe the invoking window (its native label, not an argument) to
-/// [`EVENT_SETTINGS_CHANGED`]. Answers the current revision.
+/// [`EVENT_SETTINGS_CHANGED`]. Answers the current revision: the number for a counter, the
+/// `revisionText` string for a flat file (a bare answer has no field to put it in).
 #[tauri::command]
-pub async fn rightkit_settings_subscribe(webview: Webview<Wry>) -> Result<u64, HostError> {
+pub async fn rightkit_settings_subscribe(webview: Webview<Wry>) -> Result<Value, HostError> {
     let service = settings_service(&webview, "subscribe")?;
     service.subscribe_window(webview.label());
     blocking(move || {
         service
             .bridge()
             .get()
-            .map(|snapshot| snapshot.revision)
+            .map(
+                |snapshot| match (snapshot.revision, snapshot.revision_text) {
+                    (Some(n), _) => Value::from(n),
+                    (None, text) => text.map_or(Value::Null, Value::from),
+                },
+            )
             .map_err(HostError::from)
     })
     .await

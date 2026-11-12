@@ -14,6 +14,7 @@ import type {
   SecretRef,
   SecretsBackend,
   SettingsBackend,
+  SettingsRevision,
   SettingsSnapshot,
   WriteIntent,
 } from "./types.js";
@@ -45,14 +46,17 @@ export const METHODS = {
 
 /** Event names the host emits to subscribed windows. */
 export const EVENTS = {
-  /** Payload `{ keys: string[], revision: number }`, emitted after a commit. */
+  /** Payload `{ keys: string[], revision?: number, revisionText: string }`, emitted after a commit. */
   settingsChanged: "rightkit://settings-changed",
 } as const;
 
 /** What `rightkit_settings_describe` answers. `descriptor` is the app's own UI description, opaque here. */
 export interface SettingsDescription {
   schemaVersion: number;
-  revision: number;
+  /** Absent for a flat settings file, whose revision is a content hash: see `revisionText`. */
+  revision?: number;
+  /** The revision as text (decimal for a counter, 16 hex digits for a flat file's hash). */
+  revisionText?: string;
   descriptor: unknown;
   /** False when the bridge is read-only or the stored document is refused. */
   writable: boolean;
@@ -62,20 +66,31 @@ export interface SettingsDescription {
 }
 
 /** Settings backend plus the host-only calls the panel does not need (describe, reset). */
-export interface ShellSettingsBackend extends SettingsBackend {
+export interface ShellSettingsBackend<R extends SettingsRevision = number> extends SettingsBackend<R> {
   describe(): Promise<SettingsDescription>;
   /** Remove top-level `keys` from the document (compare-and-set when `expectedRevision` is given). */
-  reset(keys: string[], expectedRevision?: number): Promise<SettingsSnapshot>;
+  reset(keys: string[], expectedRevision?: R): Promise<SettingsSnapshot<R>>;
 }
 
-export interface ShellBackends {
-  settings: ShellSettingsBackend;
+export interface ShellBackends<R extends SettingsRevision = number> {
+  settings: ShellSettingsBackend<R>;
   secrets: SecretsBackend;
 }
 
-/** Backends over the host-services Tauri commands. */
-export function createShellBackends(shell: HostTransport | SettingsShell): ShellBackends {
+/** The snapshot as the host sends it: `revision` is absent for a flat file and `revisionText` carries the revision. */
+type WireSnapshot = Omit<SettingsSnapshot, "revision"> & { revision?: number; revisionText?: string };
+
+/**
+ * Backends over the host-services Tauri commands.
+ *
+ * A host with a versioned (counter) document answers a numeric `revision`, and this adapter hands that number on, so `R`
+ * stays `number`. A host with a flat settings file (revision = 64-bit content hash) answers only `revisionText`, a string
+ * that is sent back unchanged as `expectedRevision`; call `createShellBackends<string>(shell)` for it.
+ */
+export function createShellBackends<R extends SettingsRevision = number>(shell: HostTransport | SettingsShell): ShellBackends<R> {
   const { invoke, listen } = shell;
+  const snapshot = ({ revision, revisionText, ...rest }: WireSnapshot): SettingsSnapshot<R> =>
+    ({ ...rest, revision: (revision ?? revisionText) as R });
 
   // The host keeps one subscription per window and drops it on `settingsUnsubscribe`, so every consumer of this instance
   // shares one listener and one host subscription; the host is told only when the last handler leaves. The host sends the
@@ -90,7 +105,7 @@ export function createShellBackends(shell: HostTransport | SettingsShell): Shell
       if (Array.isArray(keys) && keys.every((k) => typeof k === "string")) for (const h of [...handlers]) h(keys as string[]);
     });
     try {
-      await invoke<number>(METHODS.settingsSubscribe);
+      await invoke<number | string>(METHODS.settingsSubscribe);
     } catch (e) {
       off();
       throw e;
@@ -125,9 +140,9 @@ export function createShellBackends(shell: HostTransport | SettingsShell): Shell
   return {
     settings: {
       describe: () => invoke<SettingsDescription>(METHODS.settingsDescribe),
-      load: () => invoke<SettingsSnapshot>(METHODS.settingsGet),
-      patch: (patch, expectedRevision) => invoke<SettingsSnapshot>(METHODS.settingsPatch, { patch, expectedRevision: expectedRevision ?? null }),
-      reset: (keys, expectedRevision) => invoke<SettingsSnapshot>(METHODS.settingsReset, { keys, expectedRevision: expectedRevision ?? null }),
+      load: () => invoke<WireSnapshot>(METHODS.settingsGet).then(snapshot),
+      patch: (patch, expectedRevision) => invoke<WireSnapshot>(METHODS.settingsPatch, { patch, expectedRevision: expectedRevision ?? null }).then(snapshot),
+      reset: (keys, expectedRevision) => invoke<WireSnapshot>(METHODS.settingsReset, { keys, expectedRevision: expectedRevision ?? null }).then(snapshot),
       subscribe,
     },
     secrets: {
