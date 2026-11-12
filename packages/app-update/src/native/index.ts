@@ -227,9 +227,17 @@ export function createNativeUpdateClient(transport: NativeUpdateTransport): Nati
 
 
 
+/**
+ * Refusals that mean the licence does not entitle this update: the update is shown as available but not eligible
+ * (`pro_required`). `disabledNoPublicPatch` is an app without a licence product asked for a non-public update.
+ */
+const licenceRefusals: ReadonlySet<UpdateRefusal> = new Set<UpdateRefusal>([
+  'notLicensed', 'expired', 'revoked', 'tierIneligible', 'disabledNoPublicPatch',
+]);
+
 /** Refusals that are not an entitlement state; each becomes an error status with the native message text. */
 const refusalMessages: Partial<Record<UpdateRefusal, UpdateMessageCode>> = {
-  expired: 'expired', revoked: 'revoked', busy: 'busy', unresolved: 'unresolved', offline: 'networkUnavailable',
+  busy: 'busy', unresolved: 'unresolved', offline: 'networkUnavailable',
 };
 
 function progressPercent(received: number, total: number | undefined): number {
@@ -317,11 +325,8 @@ export function createNativeAutoUpdateClient(native: NativeUpdateClient, options
       const version = view.version;
       const tier = view.kind;
       if (!view.eligible) {
-        if (view.refusal === 'notLicensed' || view.refusal === 'tierIneligible') {
+        if (licenceRefusals.has(view.refusal)) {
           return emit({ kind: 'available', version, tier, eligible: false, reason: 'pro_required' });
-        }
-        if (view.refusal === 'disabledNoPublicPatch') {
-          return emit({ kind: 'available', version, tier, eligible: false, reason: 'auto_install_off' });
         }
         return emit({ kind: 'error', message: words(refusalMessages[view.refusal] ?? 'unknown') });
       }
