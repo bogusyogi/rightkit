@@ -371,14 +371,29 @@ pub fn parse_transcript(
 /// `transcript_id` binds to the session, and `parser_digest` is the stream's
 /// committed tip `prefixDigest` so a normalized event names the exact
 /// absorbed prefix it was derived from. Rows that are not `coderight_event_v1`
-/// shape yield no events; callers count them as omissions.
+/// shape yield no events; callers count them as omissions. The same as
+/// [`parse_absorbed_rows_for_host`] for the host `coderight`.
 pub fn parse_absorbed_rows(
     session_id: &str,
     tip_digest: &str,
     rows: &[(u64, serde_json::Value)],
 ) -> Vec<TranscriptEventV1> {
+    parse_absorbed_rows_for_host("coderight", session_id, tip_digest, rows)
+}
+
+/// [`parse_absorbed_rows`] for the session's own `host`: the app whose agent server exported the
+/// rows (`<host>_event_v1` rows naming `host`, as `rightkit-agent-server`'s exporter writes them
+/// for the app it runs in). Every event carries `host`. Rows of another host yield no events;
+/// callers count them as omissions. `coderight_event_v1` rows are read whatever `host` is, as
+/// [`crate::adapters::iter_events_for_host`] does.
+pub fn parse_absorbed_rows_for_host(
+    host: &str,
+    session_id: &str,
+    tip_digest: &str,
+    rows: &[(u64, serde_json::Value)],
+) -> Vec<TranscriptEventV1> {
     let mut normalizer = RawEventNormalizer::new(
-        "coderight".to_string(),
+        host.to_string(),
         session_id.to_string(),
         session_id.to_string(),
         "default".to_string(),

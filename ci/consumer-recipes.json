@@ -3028,7 +3028,7 @@
       "pkId": "PK77",
       "id": "ci/consumers/rightkit-agent-transcript/src/main.rs",
       "files": {
-        "Cargo.toml": "042af8fa605b69abb390b509d12c0ce5f643dd38a2cbd4c6072ad7f34d1bfb0f",
+        "Cargo.toml": "8c52c77c77a616b446008dd80d5dbee4752bda192341952e199ffb6ddc080be5",
         "README.md": "142902fc8a809c53a76ef95c14eaa00a72b8d93482869ea2d72aa2184dfcb56b",
         "src/main.rs": "8331761fb4f6cc49aa0a5d1cc7fee18490059d6f444515a91f3b20b9baee504f"
       }

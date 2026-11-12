@@ -369,7 +369,7 @@ pub fn codex_events(obj: &Value) -> Vec<RawEvent> {
     }
 }
 
-// ---- CodeRight absorbed-stream adapter ----
+// ---- Absorbed-stream adapter (an agent server's exported session events) ----
 
 const GENERIC_KINDS: &[&str] = &[
     "user_message",
@@ -380,19 +380,41 @@ const GENERIC_KINDS: &[&str] = &[
     "meta",
 ];
 
+/// The row type an agent server's exporter writes for `host` (`<host>_event_v1`), or `None` when
+/// `host` is not a plain lowercase name (letters, digits, `_` and `-`), so no row matches.
+pub fn host_event_type(host: &str) -> Option<String> {
+    let plain = !host.is_empty()
+        && host
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '-');
+    plain.then(|| format!("{host}_event_v1"))
+}
+
 /// Reads one already-normalized event from a CodeRight runtime export row:
-/// `{"type":"coderight_event_v1","host":"coderight","sessionId":"…",
-/// "sourceSeq":N,"eventId":"…","occurredAt":"…","event":{…}}`.
-///
-/// These rows never arrive through file transcripts — they are produced by
-/// CodeRight's durable-event exporter and consumed from the absorbed store —
-/// so the row carries canonical identity the generic `adapt_event_v1` shape
-/// lacks (`sessionId`/`sourceSeq`/`eventId` at row level).
+/// `{"type":"coderight_event_v1","host":"coderight",…}`. The same as
+/// [`host_events`] for the host `coderight`.
 pub fn coderight_events(obj: &Value) -> Vec<RawEvent> {
-    if obj.get("type").and_then(Value::as_str) != Some("coderight_event_v1") {
+    host_events("coderight", obj)
+}
+
+/// Reads one already-normalized event from an agent server's runtime export row for `host`:
+/// `{"type":"<host>_event_v1","host":"<host>","sessionId":"…",
+/// "sourceSeq":N,"eventId":"…","occurredAt":"…","event":{…}}` (the exporter names the row
+/// after the app that hosts the agent server). A row of another host, or of no host, yields
+/// nothing.
+///
+/// These rows never arrive through file transcripts — they are produced by the agent server's
+/// durable-event exporter and consumed from the absorbed store — so the row carries canonical
+/// identity the generic `adapt_event_v1` shape lacks (`sessionId`/`sourceSeq`/`eventId` at
+/// row level).
+pub fn host_events(host: &str, obj: &Value) -> Vec<RawEvent> {
+    let Some(row_type) = host_event_type(host) else {
+        return Vec::new();
+    };
+    if obj.get("type").and_then(Value::as_str) != Some(row_type.as_str()) {
         return Vec::new();
     }
-    if obj.get("host").and_then(Value::as_str) != Some("coderight") {
+    if obj.get("host").and_then(Value::as_str) != Some(host) {
         return Vec::new();
     }
     let Some(event) = obj.get("event").filter(|e| e.is_object()) else {
@@ -469,10 +491,15 @@ pub fn detect_host(path: &Path) -> std::io::Result<&'static str> {
 
 /// Public dispatch: route one decoded row through the right adapter.
 /// `coderight_event_v1` rows always take the native path regardless of the
-/// caller's host label (the row self-declares and self-verifies).
+/// caller's host label (the row self-declares and self-verifies), and so does a
+/// `<host>_event_v1` row of the caller's own `host` (another app's agent server).
 pub fn iter_events_for_host(host: &str, obj: &Value) -> Vec<RawEvent> {
-    if obj.get("type").and_then(Value::as_str) == Some("coderight_event_v1") {
+    let row_type = obj.get("type").and_then(Value::as_str);
+    if row_type == Some("coderight_event_v1") {
         return coderight_events(obj);
+    }
+    if row_type.is_some() && row_type.map(str::to_string) == host_event_type(host) {
+        return host_events(host, obj);
     }
     match host {
         "claude_code" => claude_events(obj),

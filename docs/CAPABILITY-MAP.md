@@ -40,7 +40,7 @@ Capabilities: 222 (58 with fingerprints, 164 declaration-only). Internal owners 
 | agent-storage | `rightkit-agent-engine-storage` | none | declaration-only | 0 | rightkit-agent-engine-storage: staged 0.1.2, not published |
 | agent-tasks | `rightkit-agent-engine-tasks` | none | declaration-only | 0 | rightkit-agent-engine-tasks: staged 0.1.2, not published |
 | agent-tools | `rightkit-agent-tools` | none | declaration-only | 0 | rightkit-agent-tools: published 0.3.0 (crates.io) |
-| agent-transcript | `rightkit-agent-transcript` | none | declaration-only | 0 | rightkit-agent-transcript: staged 0.1.2, not published |
+| agent-transcript | `rightkit-agent-transcript` | none | declaration-only | 0 | rightkit-agent-transcript: staged 0.1.3, not published |
 | agent-ui-approvals | `@rightkit/agent-ui-approvals` | none | declaration-only | 0 | @rightkit/agent-ui-approvals: staged 0.2.0, not published |
 | agent-ui-components | `@rightkit/agent-ui-components` | none | declaration-only | 0 | @rightkit/agent-ui-components: staged 0.1.1, not published |
 | agent-ui-core | `@rightkit/agent-ui-core` | none | declaration-only | 0 | @rightkit/agent-ui-core: staged 0.1.1, not published |

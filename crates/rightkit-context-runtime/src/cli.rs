@@ -1099,9 +1099,10 @@ pub(crate) enum AdaptCmd {
         #[arg(long, default_value_t = 2)]
         min_recurrence: u32,
     },
-    /// Mine committed CodeRight session events from the absorbed stream —
+    /// Mine committed agent-server session events from the absorbed stream —
     /// the native Lane-C source. Reads `absorbed_events` rows per session,
-    /// normalizes `coderight_event_v1` payloads through the same pipeline as
+    /// normalizes the stream host's `<host>_event_v1` payloads (`coderight_event_v1`
+    /// for CodeRight) through the same pipeline as
     /// file transcripts, and emits the same response/taste_review shape.
     /// Requires the resident store; routes through the installed daemon.
     MineSession {
@@ -2369,7 +2370,8 @@ pub fn run_native_adapt_mine(request: NativeAdaptMineRequest) -> Result<serde_js
 /// shape, identical normalization (`rightkit_agent_transcript::parse_absorbed_rows`
 /// shares `parse_transcript`'s RawEvent loop), identical candidate
 /// extraction. The only difference is the source: committed
-/// `coderight_event_v1` rows from the session's absorbed stream, bound by the
+/// `<host>_event_v1` rows from the session's absorbed stream (the host of the
+/// agent server that exported them), bound by the
 /// stream tip's `prefixDigest` instead of a file prefix receipt.
 fn run_native_adapt_mine_stream(
     store: &MemoryStore,
@@ -2444,7 +2446,10 @@ fn run_native_adapt_mine_stream(
         };
         let native_rows: Vec<(u64, serde_json::Value)> =
             rows.into_iter().map(|row| (row.seq, row.payload)).collect();
-        let normalized = rightkit_agent_transcript::parse_absorbed_rows(
+        // The rows name the app whose agent server exported them (one host per stream).
+        let host = stream::stream_host(&native_rows);
+        let normalized = rightkit_agent_transcript::parse_absorbed_rows_for_host(
+            &host,
             &session_id,
             &tip.prefix_digest,
             &native_rows,
@@ -2458,9 +2463,7 @@ fn run_native_adapt_mine_stream(
         }
         taste_review_sources.push(TasteReviewSourceV1 {
             path: PathBuf::new(),
-            host: Some(
-                rightkit_context_protocol::session_transcript::SESSION_TRANSCRIPT_HOST.to_string(),
-            ),
+            host: Some(host),
             prefix_digest: tip.prefix_digest.clone(),
             stream_id: Some(session_id.clone()),
             tip_seq: Some(tip.last_seq),
@@ -2633,7 +2636,13 @@ pub(crate) fn execute_adapt_command(
                         .map_err(|error| format!("re-read Taste stream {stream_id}: {error}"))?;
                     let native_rows: Vec<(u64, serde_json::Value)> =
                         rows.into_iter().map(|row| (row.seq, row.payload)).collect();
-                    let normalized = rightkit_agent_transcript::parse_absorbed_rows(
+                    // The host the source was mined for; a source recorded before hosts were
+                    // recorded for streams is CodeRight's.
+                    let host = source.host.as_deref().unwrap_or(
+                        rightkit_context_protocol::session_transcript::SESSION_TRANSCRIPT_HOST,
+                    );
+                    let normalized = rightkit_agent_transcript::parse_absorbed_rows_for_host(
+                        host,
                         stream_id,
                         &tip.prefix_digest,
                         &native_rows,

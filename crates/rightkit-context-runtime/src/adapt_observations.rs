@@ -68,8 +68,8 @@ pub enum AdaptObservationRequestV1 {
         dataset_sha256: String,
         case_sha256: String,
     },
-    /// CodeRight's native exporter appends committed durable session events
-    /// (as `coderight_event_v1` rows) into the absorbed stream under a
+    /// An agent server's native exporter appends committed durable session events
+    /// (as `<host>_event_v1` rows, `coderight_event_v1` for CodeRight) into the absorbed stream under a
     /// producer-assigned stream seq the worker CAS-verifies.
     SessionTranscript { append: SessionTranscriptAppendV1 },
     /// Tombstone a session's transcript stream; later appends answer 410.

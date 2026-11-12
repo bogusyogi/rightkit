@@ -31,8 +31,8 @@ pub use event::{
     MAX_TOOL_CALL_CHARS, MAX_TOOL_RESULT_CHARS,
 };
 pub use parser::{
-    parse, parse_absorbed_rows, parse_prefix_receipt, parse_source_events, resolve_session,
-    SessionCandidate,
+    parse, parse_absorbed_rows, parse_absorbed_rows_for_host, parse_prefix_receipt,
+    parse_source_events, resolve_session, SessionCandidate,
 };
 pub use source::{discover_open, DiscoveredTranscript};
 
