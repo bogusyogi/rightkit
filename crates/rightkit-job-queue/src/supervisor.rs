@@ -1449,6 +1449,14 @@ impl EngineSupervisor {
         }
     }
 
+    /// Register demand for the engine, then wait for it: an `OnDemand` engine that is down
+    /// restarts (within its budget), and this returns once it is `Ready`. A spent budget answers
+    /// a retryable `restart_budget_spent` without latching a terminal failure; calling again after
+    /// the budget window has moved on starts the engine. [`Self::wait_ready`] is not demand.
+    pub fn demand_ready(&self) -> JobResult<()> {
+        self.ready_client().map(|_| ())
+    }
+
     fn ready_client(&self) -> JobResult<(Arc<EngineClient>, u64)> {
         ready_shared(&self.sh)
     }
@@ -1646,6 +1654,14 @@ fn ready_shared(sh: &Arc<Shared>) -> JobResult<(Arc<EngineClient>, u64)> {
                             sh.emit(&g, "restarting on demand", None);
                             schedule_restart(sh, permit);
                             continue;
+                        }
+                        RestartOutcome::Exhausted => {
+                            // Not terminal: the demand stays pending, so a call once the
+                            // rolling window has moved on starts the engine again.
+                            return Err(JobError::supervisor_retryable(
+                                "restart_budget_spent",
+                                "engine is down and its restart budget is spent; retry later",
+                            ));
                         }
                         _ => {
                             let text = "engine is down and its restart budget is spent";

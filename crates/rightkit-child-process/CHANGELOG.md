@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Fixed: `RestartTracker::request_restart` on an `OnDemand` policy no longer clears the pending demand when the budget is spent. It returns `Exhausted` and keeps waiting, so a later demand, once the rolling window has moved on, gets a `Restart` permit (before, the next call answered `AwaitingDemand` for good). `Automatic` and `Disabled` policies behave as before.
+
 ## 0.5.10
 - Fixed (Windows): `OwnedChild::tree_members` no longer lists the leader's own console host (`conhost.exe` whose parent is the leader). Windows attaches it to a console leader inside the same job, so a caller recording survivors saw a false "descendant outlived the child" (Pulse membrane g01 on the Dell, 2026-11-05, 3 of 3 runs). A process table that cannot be read excludes nothing. Source only: not compiled or run here; needs a Windows run of Pulse's `e2e_binaries` without its `without_console_host` workaround.
 
