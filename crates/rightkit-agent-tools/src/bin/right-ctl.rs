@@ -6,7 +6,8 @@
 //!   right-ctl <app> <method> [json | k=v ...]      a control method (health click type key dom ...)
 //!   right-ctl <app> command <name> [args...]       one of the app's own typed commands
 //!   right-ctl <app> <name> [args...]               shorthand for `command <name>`
-//!   right-ctl heardright transcribe <file> [language=xx]   file transcription via the speech service
+//!   right-ctl <app> transcribe <file> [language=xx]   file transcription via the speech service
+//!                                                  (apps whose profile has `with_speech`, built in: heardright)
 //!   right-ctl run                                  JSON array [{"tool","args"}] on stdin, one session
 //!                                                  (desktop.*, browser.*, <app>.*, speech.*)
 //!   right-ctl <app> batch '{"steps":[{"method","params"}]}'   many control steps, one round trip
@@ -270,7 +271,7 @@ fn main() -> ExitCode {
     let verb = argv[1].clone();
     let rest = &argv[2..];
 
-    let (tool, args) = if app == "heardright" && verb == "transcribe" {
+    let (tool, args) = if verb == "transcribe" && AppProfile::for_app(&app).speech {
         let Some(file) = rest.first() else {
             return usage();
         };

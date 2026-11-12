@@ -28,6 +28,7 @@ fn map(e: ClientError) -> ToolError {
 struct Transcribe {
     spec: ToolSpec,
     root: PathBuf,
+    role: HostRole,
 }
 
 impl Tool for Transcribe {
@@ -63,8 +64,7 @@ impl Tool for Transcribe {
             }
         });
         opts = opts.cancel_token(token);
-        let r =
-            speech::transcribe_via_service_with(&self.root, HostRole::CutRight, path, &mut opts);
+        let r = speech::transcribe_via_service_with(&self.root, self.role, path, &mut opts);
         watcher_done.store(true, std::sync::atomic::Ordering::SeqCst);
         let _ = w.join();
         let r = r.map_err(map)?;
@@ -94,8 +94,9 @@ impl Tool for Capabilities {
 }
 
 /// `speech.transcribe{path,language?}` and `speech.capabilities`. HeardRight's
-/// `right-ctl heardright transcribe <file>` routes to `speech.transcribe`.
-pub fn speech_tools(suite: &Suite) -> Vec<Arc<dyn Tool>> {
+/// `right-ctl <app> transcribe <file>` routes to `speech.transcribe` for an app whose profile has
+/// `with_speech`. `role` is how the speech service sees the caller.
+pub fn speech_tools(suite: &Suite, role: HostRole) -> Vec<Arc<dyn Tool>> {
     let root = suite.root().to_path_buf();
     vec![
         Arc::new(Transcribe {
@@ -106,6 +107,7 @@ pub fn speech_tools(suite: &Suite) -> Vec<Arc<dyn Tool>> {
                 json!({"type": "object", "properties": {"path": {"type": "string"}, "language": {"type": "string"}, "stall_timeout_secs": {"type": "integer"}}, "required": ["path"]}),
             ),
             root: root.clone(),
+            role,
         }),
         Arc::new(Capabilities { spec: ToolSpec::new("speech.capabilities", "Engines and options the speech service offers.", Effect::Observe, json!({"type": "object", "properties": {}})), root }),
     ]

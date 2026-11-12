@@ -2,7 +2,8 @@
 
 ## Unreleased
 
-- Breaking: the coding tools (`coding_tools`, about 52k lines with their own async `Tool` trait) moved to the new crate `rightkit-agent-coding-tools` 0.1.0, which depends on nothing here; the two halves never referenced each other. `rightkit_agent_tools::coding_tools::X` is now `rightkit_agent_coding_tools::X` (the module tree under it is unchanged). The features `coding_tools`, `coding_tools-host`, `coding_tools-code-mode`, `coding_tools-embeddings` and `coding_tools-test-support` are gone from this crate (now `host`, `code-mode`, `embeddings`, `test-support` there), with the dependencies only they needed, including `rightkit-agent-config` and `rightkit-agent-telemetry`; `assets/image-routes.json` and `licenses/termul-MIT.txt` went with them.
+- Added: `AppProfile::with_speech()` (field `speech`) selects which app gets the `speech.*` tools; the built-in HeardRight profile sets it, so `add_app`, `control_toolbox` and `right-ctl heardright transcribe` behave as before. `right-ctl <app> transcribe` follows the profile, not the app name. A hand-built HeardRight profile must now call `with_speech()` to get `speech.*`.
+- Breaking (`speech` feature): `backends::speech::speech_tools(suite, role)` takes the caller's `rightkit_speech_client::HostRole` instead of always sending `CutRight`. `add_app` keeps presenting that role (`CTL_SPEECH_ROLE`); `add_app_as(tb, suite, profile, role)` lets an embedding app pass its own.
 - `coding_tools`: the web-fetch envelope calls `rightkit_http::wrap_untrusted_envelope` with the same tag and `tool:` prefix as before; output unchanged (#1572).
 
 
