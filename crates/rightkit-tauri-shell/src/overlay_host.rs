@@ -40,6 +40,9 @@ use rightkit_overlay::{
     OverlayStyle, Rect, WorkArea,
 };
 
+mod watch;
+pub use watch::{FullScreenWatch, FullScreenWatcher, MIN_FALLBACK_INTERVAL};
+
 /// The longest an overlay may be asked to stay up on its own.
 pub const MAX_AUTO_HIDE: Duration = Duration::from_secs(600);
 /// Largest logical overlay edge.
@@ -487,6 +490,23 @@ impl OverlayCore {
         }
         let was = self.suppressed();
         self.foreground_fills = fills;
+        self.suppression_ops(was)
+    }
+
+    /// Change what the overlay does while a program fills its monitor, now and later. The last
+    /// verdict is kept, so a shown overlay hides at once when the new policy is
+    /// [`FullScreenPolicy::Hide`] and a program already fills the monitor, and comes back when the
+    /// policy changes to [`FullScreenPolicy::StayAbove`].
+    pub fn set_full_screen_policy(&mut self, policy: FullScreenPolicy) -> Vec<OverlayOp> {
+        if self.phase == Phase::Disposed || policy == self.spec.full_screen {
+            return Vec::new();
+        }
+        let was = self.suppressed();
+        self.spec.full_screen = policy;
+        self.suppression_ops(was)
+    }
+
+    fn suppression_ops(&mut self, was: bool) -> Vec<OverlayOp> {
         let now = self.suppressed();
         match (self.phase == Phase::Shown, was, now) {
             (true, false, true) => vec![OverlayOp::Hide],
@@ -635,6 +655,11 @@ impl<S: OverlaySurface> Overlay<S> {
         self.run(ops)
     }
 
+    pub fn set_full_screen_policy(&mut self, policy: FullScreenPolicy) -> Result<(), OverlayError> {
+        let ops = self.core.set_full_screen_policy(policy);
+        self.run(ops)
+    }
+
     pub fn monitors_changed(&mut self, monitors: &[MonitorPlacement]) -> Result<(), OverlayError> {
         let ops = self.core.monitors_changed(monitors);
         self.run(ops)
@@ -761,6 +786,16 @@ impl<S: OverlaySurface> OverlayHost<S> {
         let overlay = self.get(id)?;
         let mut overlay = lock(&overlay);
         overlay.set_foreground_fills_monitor(fills)
+    }
+
+    pub fn set_full_screen_policy(
+        &self,
+        id: &str,
+        policy: FullScreenPolicy,
+    ) -> Result<(), OverlayError> {
+        let overlay = self.get(id)?;
+        let mut overlay = lock(&overlay);
+        overlay.set_full_screen_policy(policy)
     }
 
     /// Tell every overlay the monitors changed. Returns the ids that could not be re-placed.
@@ -1092,6 +1127,23 @@ fn monitor_holding(monitors: &[MonitorPlacement], rect: OverlayRect) -> Option<&
     })
 }
 
+/// [`OverlayService::refresh_full_screen_with`] over the host, so the watcher thread can run it.
+pub(crate) fn refresh_full_screen_of(
+    host: &OverlayHost<TauriSurface>,
+    app: &AppHandle<Wry>,
+    verdict: impl Fn(&MonitorPlacement) -> bool,
+) {
+    let monitors = monitors_of(app);
+    for id in host.ids() {
+        let fills = host
+            .state(&id)
+            .and_then(|s| s.rect)
+            .and_then(|rect| monitor_holding(&monitors, rect))
+            .is_some_and(&verdict);
+        let _ = host.set_foreground_fills_monitor(&id, fills);
+    }
+}
+
 fn monitors_of(app: &AppHandle<Wry>) -> Vec<MonitorPlacement> {
     let to_area = |pos: &PhysicalPosition<i32>, size: &PhysicalSize<u32>| WorkArea {
         left: f64::from(pos.x),
@@ -1230,16 +1282,7 @@ impl OverlayService {
         app: &AppHandle<Wry>,
         verdict: impl Fn(&MonitorPlacement) -> bool,
     ) {
-        let monitors = monitors_of(app);
-        for id in self.host.ids() {
-            let fills = self
-                .host
-                .state(&id)
-                .and_then(|s| s.rect)
-                .and_then(|rect| monitor_holding(&monitors, rect))
-                .is_some_and(&verdict);
-            let _ = self.host.set_foreground_fills_monitor(&id, fills);
-        }
+        refresh_full_screen_of(&self.host, app, verdict);
     }
 
     /// [`OverlayService::refresh_full_screen_with`] with the Windows probe (#1021): the foreground
@@ -1253,6 +1296,19 @@ impl OverlayService {
         self.refresh_full_screen_with(app, |m| {
             rightkit_overlay::windows::foreground_fullscreen_on(m.bounds, &probe)
         });
+    }
+
+    /// Change an overlay's [`FullScreenPolicy`] while it lives, for an app whose rule depends on
+    /// its own state (an active overlay stays above a full-screen program, a resting one hides).
+    /// Takes effect at once against the last full-screen verdict: a shown overlay hides when the
+    /// policy becomes `Hide` and a program already fills its monitor, and returns when it becomes
+    /// `StayAbove`. Keep the verdict current with [`OverlayService::watch_full_screen`].
+    pub fn set_full_screen_policy(
+        &self,
+        id: &str,
+        policy: FullScreenPolicy,
+    ) -> Result<(), OverlayError> {
+        self.host.set_full_screen_policy(id, policy)
     }
 
     pub fn covering(&self, id: &str) -> Result<Option<String>, OverlayError> {
