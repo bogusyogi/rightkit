@@ -2,6 +2,8 @@
 
 ## 0.10.7 (unpublished)
 
+- Embedded `wait` and `eval` take an opt-in `finishHiddenAnimations: true` (client: `Control::eval_with`, `Control::wait_eval_with`): while the window is hidden they finish every FINITE running animation (never an infinite one) before the script, and `wait` before every predicate check, so a hidden window's finite CSS animations no longer hang a wait. Off by default; `screenshot` shares the same code and now finishes only finite running animations.
+
 - The service-name rule (`valid_service_name`, `MAX_SERVICE_NAME_LEN`) is read from `rightkit-daemon` again, where it now lives.
 
 - Dependencies: new `rightkit-roots` 0.1.0; `Suite`, `ENV_SUITE_ROOT`, `MAX_SERVICE_NAME_LEN` and `valid_service_name` now come from it (they moved there in rightkit-daemon 0.8.0, which still re-exports them) (2026-11-11 shape review, docs/audits/2026-11-11-shape-matrix/reports/family-foundation-runtime.md). `rightkit-daemon` stays for the client, host, record and endpoint calls. No behaviour change.

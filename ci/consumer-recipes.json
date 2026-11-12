@@ -2160,7 +2160,7 @@
       "gateEvidence": "no assets needed; pure geometry and model only; no windows, no Win32 calls, no timers, no files",
       "consumes": "PK08-4 names HeardRight hub_window.rs:420 (pill/hub) as the OverlayHost consumer (per the plan, not re-read here); rightkit-overlay public items used: OverlayModel::new/apply/hit_test (src/lib.rs:911-945), OverlayEvent (src/lib.rs:30), fills_monitor (src/lib.rs:208), rects_overlap (src/lib.rs:311), covering_window and CoveringCandidate (src/lib.rs:318-353), Rect and WorkArea (src/lib.rs:55,82)",
       "files": {
-        "Cargo.toml": "8505a612223efff165b5c8d15bbc169a9c936a137b485f6182de1f0ee25e9879",
+        "Cargo.toml": "dd0944245640c7f69d6aa02527f6a8ce4668cf9bfa782b9c10409f1c6584d738",
         "README.md": "770ff4bb02fbe406da975e7b6799480bbb07090f35fd1debef8dab2d0297d623",
         "src/main.rs": "c8656352b667fb13e79d44fc2e66ab373ea3962c4e8d887ef10246e996f5bb5c"
       },

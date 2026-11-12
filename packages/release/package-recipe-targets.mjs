@@ -54,6 +54,13 @@ function commandList(value, label) {
   });
 }
 
+/** `targets.<platform>.requiredFiles`: app-relative files that must exist after the prepare steps (checked by recipe-build before the build step). */
+function requiredFilesSpec(value, label) {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value) || !value.length || value.some((file) => typeof file !== "string" || !file.trim())) fail(`${label}.requiredFiles must be a non-empty list of app-relative file paths`);
+  return value.map((file, index) => relativeInside(file, `${label}.requiredFiles[${index}]`));
+}
+
 /** The keys shared by winPackage and macPackage: profile, tauriConfig, prepare (and postBuild where allowed). */
 function buildExtras(spec, label, { postBuild }) {
   if (spec.profile !== undefined && (typeof spec.profile !== "string" || !PROFILE.test(spec.profile))) fail(`${label}.profile must be a Cargo profile name`);
@@ -79,13 +86,13 @@ const configArgs = (extras, appRoot, cwd) => (extras.tauriConfig ? ["--config", 
  * release.mjs runs ONE prePackage command: node recipe-build.mjs runs the built-in cleanup, prepare, the Tauri build,
  * the artifact stability poll and postBuild in order. `cleanup` and `stability` are recipe-build plan sections.
  */
-function recipeBuildCommand({ extras, build, env, cleanup, stability, stage, timeoutMs, verifySidecars, nativeHelpers, boundTargets }) {
+function recipeBuildCommand({ extras, build, env, cleanup, stability, stage, timeoutMs, verifySidecars, nativeHelpers, boundTargets, requiredFiles }) {
   const steps = [
     ...extras.prepare.map((step) => ({ phase: "prepare", ...step })),
     { phase: "build", cmd: build.cmd, args: build.args, cwd: build.cwd },
     ...extras.postBuild.map((step) => ({ phase: "postBuild", ...step })),
   ];
-  const plan = { version: 1, steps, ...(boundTargets?.length ? { boundTargets } : {}), ...(cleanup ? { cleanup } : {}), ...(stability ? { stability } : {}), ...(stage && (stage.pre?.length || stage.post?.length) ? { stage } : {}), ...(verifySidecars ? { verifySidecars } : {}), ...(nativeHelpers ? { nativeHelpers } : {}) };
+  const plan = { version: 1, steps, ...(boundTargets?.length ? { boundTargets } : {}), ...(cleanup ? { cleanup } : {}), ...(stability ? { stability } : {}), ...(stage && (stage.pre?.length || stage.post?.length) ? { stage } : {}), ...(verifySidecars ? { verifySidecars } : {}), ...(nativeHelpers ? { nativeHelpers } : {}), ...(requiredFiles?.length ? { requiredFiles } : {}) };
   return { cmd: process.execPath, args: [RECIPE_BUILD, "--plan", JSON.stringify(plan)], env, ...(timeoutMs ? { timeoutMs } : {}) };
 }
 
@@ -169,9 +176,9 @@ function splitTargetRootMapper({ spec, appRoot, cwd, resolveTargetRoot, label })
   return mapper;
 }
 
-function winPrePackage({ extras, cwd, appRoot, triple, jobs, timeoutMs, cleanup, stability, stage, boundTargets }) {
+function winPrePackage({ extras, cwd, appRoot, triple, jobs, timeoutMs, cleanup, stability, stage, boundTargets, requiredFiles }) {
   const args = ["exec", "tauri", "build", "--no-bundle", "--target", triple, ...configArgs(extras, appRoot, cwd), ...buildCargoArgs(extras, jobs)];
-  return recipeBuildCommand({ extras, build: { cmd: "pnpm", args, cwd }, env: QUIET_TAURI_ENV, cleanup, stability, stage, timeoutMs, boundTargets });
+  return recipeBuildCommand({ extras, build: { cmd: "pnpm", args, cwd }, env: QUIET_TAURI_ENV, cleanup, stability, stage, timeoutMs, boundTargets, requiredFiles });
 }
 
 /** `targets.win.winPackage` → prePackage (`tauri build --no-bundle`) and package (`tauri bundle --bundles nsis`). */
@@ -233,7 +240,7 @@ export function expandWinPackageTarget(target, { appRoot, config = {}, env = pro
   return {
     ...rest,
     signingContract: "windows-raw-exe-authenticode-before-nsis-v1",
-    prePackage: winPrePackage({ extras, cwd, appRoot: plan.appRoot, triple: plan.triple, jobs, timeoutMs: timeout, cleanup, stability: { files: [rawExe] }, stage: prePackageStage, boundTargets: mapPath.bound }),
+    prePackage: winPrePackage({ extras, cwd, appRoot: plan.appRoot, triple: plan.triple, jobs, timeoutMs: timeout, cleanup, stability: { files: [rawExe] }, stage: prePackageStage, boundTargets: mapPath.bound, requiredFiles: requiredFilesSpec(target.requiredFiles, "targets.win") }),
     package: bundleCommand,
     sign: { ...(target.sign ?? {}), prePackageFiles: [rawExe], files: [installerFile] },
     recipe: { kind: "winPackage", productName: plan.productName, updater: plan.updater },
@@ -383,7 +390,8 @@ export function expandMacPackageTarget(target, { appRoot, config = {}, env = pro
   // An entry inside another staged entry (a file within the .app) is covered by copying the outer one.
   const macEntries = [...mapPath.staged.values()].filter((entry) => ![...mapPath.staged.values()].some((outer) => outer !== entry && entry.to.startsWith(`${outer.to}/`)));
   const macStage = macEntries.length ? { post: macEntries.map((entry) => ({ ...entry, fresh: true })), resolve: mapPath.resolve() } : undefined;
-  const wrapped = extras.prepare.length || extras.postBuild.length || cleanup || macStage || helpers;
+  const requiredFiles = requiredFilesSpec(target.requiredFiles, "targets.mac");
+  const wrapped = extras.prepare.length || extras.postBuild.length || cleanup || macStage || helpers || requiredFiles;
   const forceArch = helpers && triple !== "universal-apple-darwin" ? (triple === "aarch64-apple-darwin" ? "arm64" : "x86_64") : undefined;
   const nativeHelpersPlan = helpers ? { app, helpers, ...(config?.version ? { version: config.version } : {}), ...(forceArch ? { forceArch } : {}), configuration: "release" } : undefined;
   const verifySidecars = sidecars && triple === "universal-apple-darwin" ? { receipt: sidecars.receipt, target: triple } : undefined;
@@ -400,8 +408,8 @@ export function expandMacPackageTarget(target, { appRoot, config = {}, env = pro
     ...rest,
     ...postSign,
     prePackage: prebuilt
-      ? (wrapped ? recipeBuildCommand({ extras, build: { cmd: target.prePackage.cmd, args: target.prePackage.args ?? [], ...(target.prePackage.cwd === undefined ? {} : { cwd: target.prePackage.cwd }) }, env: target.prePackage.env ?? {}, cleanup, stage: macStage, boundTargets: mapPath.bound }) : target.prePackage)
-      : wrapped ? recipeBuildCommand({ extras, build: { cmd: "pnpm", args, cwd }, env: QUIET_TAURI_ENV, cleanup, stage: macStage, verifySidecars, nativeHelpers: nativeHelpersPlan, boundTargets: mapPath.bound }) : { cmd: "pnpm", args, cwd, env: QUIET_TAURI_ENV },
+      ? (wrapped ? recipeBuildCommand({ extras, build: { cmd: target.prePackage.cmd, args: target.prePackage.args ?? [], ...(target.prePackage.cwd === undefined ? {} : { cwd: target.prePackage.cwd }) }, env: target.prePackage.env ?? {}, cleanup, stage: macStage, boundTargets: mapPath.bound, requiredFiles }) : target.prePackage)
+      : wrapped ? recipeBuildCommand({ extras, build: { cmd: "pnpm", args, cwd }, env: QUIET_TAURI_ENV, cleanup, stage: macStage, verifySidecars, nativeHelpers: nativeHelpersPlan, boundTargets: mapPath.bound, requiredFiles }) : { cmd: "pnpm", args, cwd, env: QUIET_TAURI_ENV },
     // Helpers are signed by release.mjs inside-out through sign.nestedCode (deepest path first, hardened runtime, each helper's own entitlements), then the app.
     sign: { ...(target.sign ?? {}), ...(helpers ? { nestedCode: { ...nativeHelperNestedCode(helpers), ...(target.sign?.nestedCode ?? {}) } } : {}), prePackageFiles },
     notarize: { ...target.notarize, app, appBeforePackage: true },

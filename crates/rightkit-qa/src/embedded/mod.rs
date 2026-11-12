@@ -1159,6 +1159,25 @@ fn pause(ms: u64) {
     }
     std::thread::sleep(Duration::from_millis(ms));
 }
+/// Statements that finish every FINITE running animation while the page is hidden. A hidden window
+/// produces no frames, so `document.timeline` never advances and a finite CSS animation stays
+/// pending and `running` for ever; an infinite one is left alone (it has no end state).
+const FINISH_HIDDEN_ANIMATIONS_JS: &str = "if (document.hidden) { for (const a of document.getAnimations()) { const t = a.effect && a.effect.getTiming ? a.effect.getTiming() : null; if (a.playState === 'running' && t && t.iterations !== Infinity) { try { a.finish(); } catch (_) {} } } } ";
+
+/// `js` with [`FINISH_HIDDEN_ANIMATIONS_JS`] in front when the request sets `finishHiddenAnimations: true`
+/// (default off); `wait` runs it before every predicate check.
+fn with_finished_animations(js: String, params: &Value) -> String {
+    if params
+        .get("finishHiddenAnimations")
+        .and_then(Value::as_bool)
+        == Some(true)
+    {
+        format!("{FINISH_HIDDEN_ANIMATIONS_JS}{js}")
+    } else {
+        js
+    }
+}
+
 fn js_json<R: Runtime>(win: &WebviewWindow<R>, body: &str) -> Result<String, String> {
     eval(win, &format!("JSON.stringify((function(){{{body}}})())"))
 }
@@ -1399,13 +1418,13 @@ fn route<R: Runtime>(
             ok()
         }
         "wait" => {
-            let js = str_field(b, "js").ok_or("missing 'js'")?;
+            let js = with_finished_animations(str_field(b, "js").ok_or("missing 'js'")?, params);
             let timeout = bounded_ms(params, "timeoutMs", 10_000, 1, MAX_WAIT_MS)?;
             let interval = bounded_ms(params, "intervalMs", 20, 1, 5_000)?;
             wait_route(win, &js, timeout, interval)
         }
         "eval" => {
-            let js = str_field(b, "js").ok_or("missing 'js'")?;
+            let js = with_finished_animations(str_field(b, "js").ok_or("missing 'js'")?, params);
             let v = js_json(win, &js)?;
             Ok(Out::Json(format!(
                 "{{\"ok\":true,\"value\":{}}}",
@@ -1448,7 +1467,7 @@ fn route<R: Runtime>(
             // Hide, capture and restore as one operation (one main-thread operation on macOS).
             // Masking failure discards the capture; a restore failure is an error.
             let hide = format!(
-                "try{{if(document.visibilityState==='hidden')for(const a of document.getAnimations()){{try{{a.finish()}}catch(e){{}}}}}}catch(e){{}}const els=Array.from(document.querySelectorAll({sel_json}));window.__rkMasked=els.map(e=>[e,e.style.getPropertyValue('visibility'),e.style.getPropertyPriority('visibility')]);for(const e of els)e.style.setProperty('visibility','hidden','important');return String(els.length);"
+                "try{{{FINISH_HIDDEN_ANIMATIONS_JS}}}catch(e){{}}const els=Array.from(document.querySelectorAll({sel_json}));window.__rkMasked=els.map(e=>[e,e.style.getPropertyValue('visibility'),e.style.getPropertyPriority('visibility')]);for(const e of els)e.style.setProperty('visibility','hidden','important');return String(els.length);"
             );
             let (png, masked) = native::screenshot_masked(
                 win,
