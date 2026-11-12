@@ -18,6 +18,8 @@
     "dist/index.d.ts",
     "dist/lifecycle.js",
     "dist/lifecycle.d.ts",
+    "dist/proBridge.js",
+    "dist/proBridge.d.ts",
     "LICENSE-MIT",
     "LICENSE-APACHE"
   ],

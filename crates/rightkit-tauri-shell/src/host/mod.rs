@@ -71,6 +71,8 @@ pub mod license;
 #[cfg(feature = "models")]
 pub mod models;
 pub mod policy;
+#[cfg(feature = "pro-bridge")]
+pub mod pro_bridge;
 pub mod secrets;
 pub mod settings;
 

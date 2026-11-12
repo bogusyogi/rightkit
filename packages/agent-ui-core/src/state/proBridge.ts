@@ -11,56 +11,42 @@
 // exchange reaches the app through the owner's change event (`licenseClient.onChange`).
 
 import { invoke } from "@tauri-apps/api/core";
+import { createProBridgeClient, type ProBridgeStatus as BridgeStatus } from "@rightkit/license";
 import type { LicenseView } from "./license.js";
 
-export type ProResolutionStatus = "off" | "blocked_no_keychain" | "ok";
+export type { ProResolutionStatus } from "@rightkit/license";
 
-/** Mirrors `ProBridgeStatus` in pro_bridge.rs (camelCase over the wire). */
-export type ProBridgeStatus = {
-  keychainSyncEnabled: boolean;
-  proResolutionEnabled: boolean;
-  keychainReady: boolean;
-  keychainDetail?: string | null;
-  /** True while this device must not consume the shared bridge. */
-  consumptionSuppressed: boolean;
-  /** "blocked_no_keychain" is its own failure mode, never plain "off". */
-  proResolutionStatus: ProResolutionStatus;
+/** Mirrors `ProBridgeStatus` in rightkit-tauri-shell `host::pro_bridge` (camelCase over the wire). */
+export type ProBridgeStatus = Omit<BridgeStatus, "supported"> & {
   /** False on platforms without iCloud Keychain (Windows). */
   supported: boolean;
 };
 
+// The one client (`@rightkit/license`); its suppress and clear rule is the one every app shares.
+const bridge = createProBridgeClient({
+  invoke: <T>(command: string, args?: Record<string, unknown>) => invoke<T>(command, args),
+});
+
 export async function getProBridgeStatus(): Promise<ProBridgeStatus> {
-  return invoke<ProBridgeStatus>("pro_bridge_status");
+  return (await bridge.status()) as ProBridgeStatus;
 }
 
 /** Turn Apple device Pro continuity on or off for this Mac. Turning it on is an
  *  explicit reconnect (clears suppression after a removal). Turning it off
  *  never deletes the shared iCloud item. */
-export async function setProBridgeSyncEnabled(enabled: boolean): Promise<void> {
-  await invoke("pro_bridge_set_sync_enabled", { enabled });
-}
+export const setProBridgeSyncEnabled = (enabled: boolean): Promise<void> =>
+  bridge.setSyncEnabled(enabled);
 
 /** Suppress (or clear) this device's ability to consume the shared bridge.
  *  Best effort: a failure here must never block a licence removal, and the
  *  command is an inert stub outside macOS. */
-export async function suppressProBridgeConsumption(suppressed: boolean): Promise<void> {
-  try {
-    await invoke("pro_bridge_suppress_consumption", { suppressed });
-  } catch {
-    /* best effort */
-  }
-}
+export const suppressProBridgeConsumption = (suppressed: boolean): Promise<void> =>
+  bridge.suppressConsumption(suppressed);
 
 /** Call after an explicit activation succeeds: clears suppression and, when
  *  the user opted in, publishes this device's activation as a bridge. Best
  *  effort; offline or unsupported never affects the local licence. */
-export async function notifyProBridgeAfterActivation(): Promise<void> {
-  try {
-    await invoke("pro_bridge_after_activation");
-  } catch {
-    /* best effort */
-  }
-}
+export const notifyProBridgeAfterActivation = (): Promise<void> => bridge.notifyAfterActivation();
 
 /** Redeem the one-time code shown on an entitled Apple device. The licence owner verifies the
  *  returned lease before storing it and answers the new view (no token). Rejects with the owner's
