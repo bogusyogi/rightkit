@@ -1,11 +1,6 @@
 # Changelog
 
-## 0.6.54 (unpublished)
-
-- **The package's own tests run on hosted macOS and Windows runners (#1505).** Test-only fixes, no library change: expectations are computed from the host instead of the owner's machines (path spellings joined and resolved by the host, the Windows `\\?\` repository key, a fake installed-gate tree keyed in the host's spelling, a temp path instead of `/Volumes/D`); git fixtures use `NUL` on Windows (not `\\.\nul`) and set `core.autocrlf=false` so Git for Windows' system config cannot rewrite their bytes; POSIX permission bits are asserted on POSIX only; every Windows snapshot-lock take gets its own token (it names the holder's job object); qualification-verify provisions an empty zig wrapper directory of its own instead of needing `provision-zig`.
-- **The remote-host rule follows the remote host to its own crate (2026-11-11 shape review).** `remote-feature-undeclared` now looks for the `remote` feature of `rightkit-daemon-remote` (`REMOTE_SERVICE_CRATE`), where rightkit-daemon 0.7.0 moved the HTTPS host, the device link client and the relay; `remote-loopback-undeclared` keeps looking at `rightkit-daemon` (`REMOTE_LOOPBACK_CRATE`), where the loopback host stays. Without this the rule would have matched nothing once the feature left rightkit-daemon.
-
-## Unreleased
+## 0.6.55
 
 - **`kind: "ffmpeg"` stages from the catalog row's archive when it names no `sources`.** The row's pinned `archive` (url, sha256, member) is fetched and checked like a `sources` entry, so an app no longer repeats the archive URLs and digests the catalog already carries. Skipped when the entry has a `stage` command; a config with `sources` is unchanged.
 - **`targets.win.requiredFiles` / `targets.mac.requiredFiles` (optional).** App-relative files that must exist after the prepare steps and before the build; a missing one fails with `RECIPE_BUILD_REQUIRED_FILES_MISSING` naming every missing path. Absent key: unchanged.
@@ -21,6 +16,11 @@
 - **Class B store rule (Adrian 2026-11-08, rightkit#1536 plan step 1).** A row is stored only by the invocation that ran it: a member of a grouped compile is no longer stored under its own key (the group compiled with Cargo's unified features, targets and dependencies; 2026-11-07: 296 conflicting pairs across 28 crates, a projected pass hid a member's own error). The group row is stored under its own key; a member hits alone only after it ran alone. Grouped failures are attributed from `--message-format=json` only; nothing is bisected. A stored row's command is compared with `--jobs` dropped, as the key already was, so a different `--cargo-jobs` no longer misses every stored pass (#1526).
 - **No cache-miss approval.** `RK_GATE_MISS_APPROVAL` is gone. The lookup still writes the miss report with every unexpected miss and its cause; the rows then run. A miss where nothing changed is a cache bug to file with the report (#1526).
 - **Benchmark switches removed:** `RK_GATE_CLASS_B_BATCH`, `RK_GATE_MERGE_FEATURE_ROWS`, `RK_GATE_PUBLISHER_GROUP`, `RK_GATE_PUBLISHER_JOBS`, `RK_GATE_ORIGIN_JOBS`, `RK_GATE_TEST_JOBS`, `RK_GATE_GROUP_TESTS`, `RK_GATE_CLASS_B_PIPELINE`, `RK_GATE_LOOKUP_ONLY`. Batching and grouping are always on; the class A test lane is as wide as `RK_GATE_JOBS`; publisher union concurrency is 1 with 8 origin submissions; the class B pipeline is 2 (#1526).
+
+## 0.6.54 (unpublished)
+
+- **The package's own tests run on hosted macOS and Windows runners (#1505).** Test-only fixes, no library change: expectations are computed from the host instead of the owner's machines (path spellings joined and resolved by the host, the Windows `\\?\` repository key, a fake installed-gate tree keyed in the host's spelling, a temp path instead of `/Volumes/D`); git fixtures use `NUL` on Windows (not `\\.\nul`) and set `core.autocrlf=false` so Git for Windows' system config cannot rewrite their bytes; POSIX permission bits are asserted on POSIX only; every Windows snapshot-lock take gets its own token (it names the holder's job object); qualification-verify provisions an empty zig wrapper directory of its own instead of needing `provision-zig`.
+- **The remote-host rule follows the remote host to its own crate (2026-11-11 shape review).** `remote-feature-undeclared` now looks for the `remote` feature of `rightkit-daemon-remote` (`REMOTE_SERVICE_CRATE`), where rightkit-daemon 0.7.0 moved the HTTPS host, the device link client and the relay; `remote-loopback-undeclared` keeps looking at `rightkit-daemon` (`REMOTE_LOOPBACK_CRATE`), where the loopback host stays. Without this the rule would have matched nothing once the feature left rightkit-daemon.
 
 ## 0.6.53
 

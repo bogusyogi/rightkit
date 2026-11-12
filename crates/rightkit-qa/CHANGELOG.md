@@ -1,10 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.10.7 (unpublished)
 
 - Embedded `wait` and `eval` take an opt-in `finishHiddenAnimations: true` (client: `Control::eval_with`, `Control::wait_eval_with`): while the window is hidden they finish every FINITE running animation (never an infinite one) before the script, and `wait` before every predicate check, so a hidden window's finite CSS animations no longer hang a wait. Off by default; `screenshot` shares the same code and now finishes only finite running animations.
-
-## 0.10.7 (unpublished)
 
 - The service-name rule (`valid_service_name`, `MAX_SERVICE_NAME_LEN`) is read from `rightkit-daemon` again, where it now lives.
 
