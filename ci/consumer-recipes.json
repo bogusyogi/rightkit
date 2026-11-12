@@ -65,7 +65,8 @@
           "@testing-library/dom": "10.4.2",
           "@testing-library/user-event": "14.6.8",
           "jsdom": "30.1.3",
-          "@rightkit/platform-ui": "0.4.0"
+          "@rightkit/platform-ui": "0.4.0",
+          "@rightkit/theme": "0.3.2"
         },
         "declaredOnly": []
       },
@@ -657,7 +658,8 @@
         "install": {
           "@rightkit/platform-ui": "0.4.1",
           "react": "19.3.1",
-          "react-dom": "19.3.1"
+          "react-dom": "19.3.1",
+          "@rightkit/theme": "0.3.2"
         },
         "declaredOnly": [
           "@tauri-apps/plugin-os"
@@ -991,7 +993,8 @@
           "react-dom": "19.3.1",
           "@rightkit/app-update": "0.4.2",
           "@rightkit/react-shell": "0.7.2",
-          "@rightkit/agent-ui-core": "0.1.1"
+          "@rightkit/agent-ui-core": "0.1.1",
+          "@rightkit/theme": "0.3.2"
         },
         "declaredOnly": [
           "@tauri-apps/api",
@@ -1049,7 +1052,8 @@
           "@rightkit/app-update": "0.4.2",
           "@rightkit/doc-render": "0.2.1",
           "@rightkit/react-shell": "0.7.2",
-          "@rightkit/settings-ui": "0.7.0"
+          "@rightkit/settings-ui": "0.7.0",
+          "@rightkit/theme": "0.3.2"
         },
         "declaredOnly": [
           "@rightkit/agent-ui-core",
@@ -1141,7 +1145,8 @@
           "react-dom": "19.3.1",
           "@rightkit/doc-render": "0.2.1",
           "@rightkit/platform-ui": "0.4.0",
-          "@rightkit/react-shell": "0.7.2"
+          "@rightkit/react-shell": "0.7.2",
+          "@rightkit/theme": "0.3.2"
         },
         "declaredOnly": [
           "@rightkit/agent-ui-core",
@@ -1509,7 +1514,8 @@
           "@rightkit/media-ui": "0.3.6",
           "@rightkit/platform-ui": "0.4.1",
           "@rightkit/react-shell": "0.7.3",
-          "@rightkit/tauri-shell": "0.1.4"
+          "@rightkit/tauri-shell": "0.1.4",
+          "@rightkit/theme": "0.3.2"
         },
         "declaredOnly": [
           "@phosphor-icons/react",
@@ -1728,7 +1734,8 @@
           "react-dom": "19.3.1",
           "@rightkit/platform-ui": "0.4.0",
           "@rightkit/react-shell": "0.7.2",
-          "@rightkit/tauri-shell": "0.1.3"
+          "@rightkit/tauri-shell": "0.1.3",
+          "@rightkit/theme": "0.3.2"
         },
         "declaredOnly": [
           "@tauri-apps/api"
@@ -1799,7 +1806,8 @@
           "react": "19.3.1",
           "react-dom": "19.3.1",
           "@rightkit/react-shell": "0.7.2",
-          "@rightkit/agent-ui-core": "0.1.1"
+          "@rightkit/agent-ui-core": "0.1.1",
+          "@rightkit/theme": "0.3.2"
         },
         "declaredOnly": []
       },
