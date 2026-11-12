@@ -1,6 +1,10 @@
 # Changelog
 
-## 0.2.0 (unpublished)
+## 0.2.1
+
+- Fix (`FileStore`): two moves out of the same state could both succeed. The rival check and the marker were separate steps, and an approval's `.approved` and a refusal's `.closed`, or a claim's `.claimed` and a revocation's `.closed`, were not rivals at all, so an approve and a deny of one request, or a claim and a revocation of one approval, both returned `true`. Every move out of a state now first creates that state's guard file with `create_new` (`<request>.json.from-pending`, `.from-approved`, `.from-claimed`, holding the move), and only its creator writes the descriptive marker after it; a reader follows a guard whose marker is not written yet, so a move cut short by a crash is still read as made. Records written by 0.2.0 read as before. Tests: `tests/file_races.rs` (approve against deny, claim against revoke, a guard without its marker).
+
+## 0.2.0
 
 - Breaking: the crate is now the one approvals core every app uses. Decision 3 of the 2026-11-11 shape review (docs/audits/2026-11-11-shape-matrix/README.md, "Approvals") taken on the recommended option, pending the owner's confirmation; design note: docs/audits/2026-11-11-shape-matrix/reports/approvals-core-design.md.
 - The model: `Request` (id, kind, scope, `Origin` {door, filer, client}, `Binding`, summary, display-only detail, created, deadline), `Record` (a request plus its `State`: pending, approved, denied, done, failed, expired; the `Grant` an approval gives: one act, idle session, until a time, until revoked; reason; result), `Change` (one move).

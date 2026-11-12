@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-approvals"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 rust-version = "1.98.0"
 description = "One approvals core for every app: a pending request bound to a digest of its exact arguments, destination, expiry and revision; one decision rule; single-use claims; a Store trait with in-memory and file stores; a Proof trait for who decided."
@@ -27,3 +27,7 @@ serde_json = "1"
 getrandom = "0.4"
 # SHA-256 and hex for the binding digests; `fs` (atomic, owner-only writes) only with `file`.
 rightkit-fs = { version = "0.4.9", default-features = false, features = ["digest"], path = "../rightkit-fs" }
+
+[dev-dependencies]
+# A scratch root for the file store race tests.
+tempfile = "3"

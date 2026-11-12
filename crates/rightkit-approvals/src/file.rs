@@ -1,11 +1,18 @@
-//! A store in files: one owner-only JSON file per request, and one marker file per move made
-//! with `create_new`, so of two racing moves exactly one wins.
+//! A store in files: one owner-only JSON file per request, and per move out of a state one guard
+//! file made with `create_new`, so of two racing moves out of the same state exactly one wins.
 //!
 //! Layout under the store's root: `<kind>/<destination>.<id>.json` holds the request;
+//! `<...>.json.from-pending`, `<...>.json.from-approved` and `<...>.json.from-claimed` are the
+//! guards: each is created (`create_new`) by the one move that leaves that state and holds that
+//! move as JSON, before anything else is written. Then the descriptive marker follows:
 //! `<...>.json.approved` an approval, `<...>.json.claimed` a claim, `<...>.json.used` the use,
 //! `<...>.json.closed` a refusal, revocation, failure or expiry, each holding the move as JSON.
-//! A claim, a use and a close of an approval exclude each other; a claim is then settled by
-//! exactly one of `.used` or `.closed`. The request file also carries `nonce` (the
+//! So an approval and a refusal of the same request, or a claim and a revocation of the same
+//! approval, never both succeed: the second finds the guard taken. A claim is then settled by
+//! exactly one of `.used` or `.closed` (the `from-claimed` guard). A reader takes the state from
+//! the markers and then follows any guard whose marker is not written yet (a move in flight, or
+//! one a crash cut short after its guard), so a move is never half-applied. The request file
+//! also carries `nonce` (the
 //! id) and `input_hash` (the binding's arguments) at its top level, so a reader that only checks
 //! "this request was issued for these arguments and used" (`<file>` plus `<file>.used`) needs
 //! nothing else.
@@ -52,6 +59,71 @@ fn safe(label: &str, value: &str, allow_dots: bool) -> Result<()> {
             format!("invalid {label} \"{value}\""),
         ))
     }
+}
+
+/// The guard file suffix for the moves out of `from`; `None` for a final state (nothing leaves it).
+fn guard_of(from: State) -> Option<&'static str> {
+    match from {
+        State::Pending => Some("from-pending"),
+        State::Approved => Some("from-approved"),
+        State::Claimed => Some("from-claimed"),
+        State::Denied | State::Done | State::Failed | State::Expired => None,
+    }
+}
+
+/// The move a marker or guard file holds, as JSON.
+fn change_body(change: &Change) -> Value {
+    json!({
+        "state": change.to,
+        "at_ms": change.at_ms,
+        "grant": change.grant,
+        "reason": change.reason,
+        "result": change.result,
+    })
+}
+
+/// The descriptive marker a move to `to` writes; `None` for a move to pending (never made).
+fn marker_of(to: State) -> Option<&'static str> {
+    match to {
+        State::Approved => Some(APPROVED),
+        State::Claimed => Some(CLAIMED),
+        State::Done => Some(USED),
+        State::Pending => None,
+        State::Denied | State::Failed | State::Expired => Some(CLOSED),
+    }
+}
+
+/// Creates `path` owner-only with `body`, failing with `Ok(false)` when it exists already.
+fn create_exclusive(path: &Path, body: &Value) -> Result<bool> {
+    let mut file = match rightkit_fs::create_private_new(path) {
+        Ok(file) => file,
+        // An existing file is `AlreadyExists` on Unix but an `Io` error carrying that kind on
+        // Windows, so test the kind, not the variant.
+        Err(e) if e.kind() == Some(std::io::ErrorKind::AlreadyExists) => return Ok(false),
+        Err(e) => return Err(io(path, e)),
+    };
+    use std::io::Write;
+    file.write_all(body.to_string().as_bytes())
+        .map_err(|e| io(path, e))?;
+    Ok(true)
+}
+
+/// The move held in a marker or guard file; `None` when the file is absent or not complete JSON
+/// yet. `fallback` is the state a marker names when its body carries none.
+fn read_change(path: &Path, fallback: Option<State>, grant: Option<Grant>) -> Option<Change> {
+    let text = std::fs::read_to_string(path).ok()?;
+    let change = serde_json::from_str::<Value>(&text).ok()?;
+    let state = serde_json::from_value::<State>(change["state"].clone())
+        .ok()
+        .or(fallback)?;
+    let own = serde_json::from_value::<Grant>(change["grant"].clone()).ok();
+    Some(Change {
+        to: state,
+        at_ms: change["at_ms"].as_u64().unwrap_or(0),
+        grant: own.or(grant),
+        reason: change["reason"].as_str().map(str::to_string),
+        result: change["result"].as_str().map(str::to_string),
+    })
 }
 
 fn with_suffix(path: &Path, suffix: &str) -> PathBuf {
@@ -112,28 +184,29 @@ impl FileStore {
         let mut record: Record =
             serde_json::from_value(value["record"].clone()).map_err(|e| io(path, e))?;
         for marker in [APPROVED, CLAIMED, CLOSED, USED] {
-            let Ok(text) = std::fs::read_to_string(with_suffix(path, marker)) else {
-                continue;
+            let fallback = match marker {
+                APPROVED => State::Approved,
+                CLAIMED => State::Claimed,
+                USED => State::Done,
+                _ => State::Denied,
             };
-            let Ok(change) = serde_json::from_str::<Value>(&text) else {
-                continue;
-            };
-            let state =
-                serde_json::from_value::<State>(change["state"].clone()).unwrap_or(match marker {
-                    APPROVED => State::Approved,
-                    CLAIMED => State::Claimed,
-                    USED => State::Done,
-                    _ => State::Denied,
-                });
-            let grant = serde_json::from_value::<Grant>(change["grant"].clone()).ok();
-            Change {
-                to: state,
-                at_ms: change["at_ms"].as_u64().unwrap_or(0),
-                grant: grant.or(record.grant),
-                reason: change["reason"].as_str().map(str::to_string),
-                result: change["result"].as_str().map(str::to_string),
+            if let Some(change) =
+                read_change(&with_suffix(path, marker), Some(fallback), record.grant)
+            {
+                change.apply(&mut record);
             }
-            .apply(&mut record);
+        }
+        // A move whose guard is taken but whose marker is not written yet (in flight, or cut short
+        // by a crash) has still happened: follow the guards from the state the markers give. A
+        // guard that is not complete JSON yet is a move still being written; it is not applied.
+        while let Some(guard) = guard_of(record.state) {
+            let Some(change) = read_change(&with_suffix(path, guard), None, record.grant) else {
+                break;
+            };
+            if change.to == record.state || change.to == State::Pending {
+                break;
+            }
+            change.apply(&mut record);
         }
         Ok(record)
     }
@@ -227,15 +300,14 @@ impl Store for FileStore {
         if self.read(&path)?.state != from {
             return Ok(false);
         }
-        let marker = match change.to {
-            State::Approved => APPROVED,
-            State::Claimed => CLAIMED,
-            State::Done => USED,
-            State::Pending => return Ok(false),
-            _ => CLOSED,
+        let (Some(marker), Some(guard)) = (marker_of(change.to), guard_of(from)) else {
+            return Ok(false);
         };
-        // A use and a close exclude each other, and a claim excludes both unless they settle
-        // it: whichever marker exists first wins.
+        if change.to == from {
+            return Ok(false);
+        }
+        // Records written before the guards: a use and a close exclude each other, and a claim
+        // excludes both unless they settle it.
         let rivals: &[&str] = match marker {
             CLAIMED => &[USED, CLOSED],
             USED if from == State::Claimed => &[CLOSED],
@@ -247,24 +319,16 @@ impl Store for FileStore {
         if rivals.iter().any(|r| with_suffix(&path, r).exists()) {
             return Ok(false);
         }
-        let marker_path = with_suffix(&path, marker);
-        let mut file = match rightkit_fs::create_private_new(&marker_path) {
-            Ok(file) => file,
-            // An existing marker is `AlreadyExists` on Unix but an `Io` error carrying that kind
-            // on Windows, so test the kind, not the variant.
-            Err(e) if e.kind() == Some(std::io::ErrorKind::AlreadyExists) => return Ok(false),
-            Err(e) => return Err(io(&marker_path, e)),
-        };
-        let body = json!({
-            "state": change.to,
-            "at_ms": change.at_ms,
-            "grant": change.grant,
-            "reason": change.reason,
-            "result": change.result,
-        });
-        use std::io::Write;
-        file.write_all(body.to_string().as_bytes())
-            .map_err(|e| io(&marker_path, e))?;
+        let body = change_body(change);
+        // The one decision: exactly one move out of `from` creates its guard. Every rival move
+        // out of the same state (approve or deny, claim or revoke, use or fail) finds it taken.
+        if !create_exclusive(&with_suffix(&path, guard), &body)? {
+            return Ok(false);
+        }
+        // The descriptive marker, for readers that look for `.used` and the like. Only the guard's
+        // owner gets here, so the marker is new unless a pre-guard writer made it; the move is
+        // already decided and the guard alone keeps it readable either way.
+        create_exclusive(&with_suffix(&path, marker), &body)?;
         Ok(true)
     }
 }
