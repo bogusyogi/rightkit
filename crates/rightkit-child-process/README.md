@@ -263,7 +263,14 @@ in which that could happen. The rule that replaces it:
   of each stream are kept (`StreamOutput`).
 - `open_url(url)` opens a URL with its scheme's handler (`file:` is refused). `launch_app(id)`
   launches an app by macOS bundle identifier or Windows AppUserModelID. Both hand off to a
-  detached desktop launcher, as `reveal` does.
+  detached desktop launcher, as `reveal` does. `launch_bundle(path, background, env)` launches an
+  `.app` by path (macOS `open [-g] --env KEY=VALUE`), so a helper app is mapped to its bundle;
+  calling it again activates the running instance.
+- Bundled helpers (macOS): `resolve_bundled(name)` and `resolve_bundled_login_item(name)` find a
+  helper inside the running app's `.app` (canonical, regular file, contained in the bundle);
+  `LoginItemOptions::allow_unbundled_sibling(true)` adds a development-only fallback to a bare
+  file beside the executable (off by default). `verify_team_signature(path, team_id)` checks the
+  code signature against a Developer ID team with `codesign --verify --strict` and fails closed.
 - `reveal::open_folder(path, scope)` opens the folder itself. A folder is refused only when it is
   a real `.app` or `.workflow` bundle, so a folder named `chart.js` opens. `reveal::open_installer`
   runs a Windows `.exe`, `.msi` or `.msp` through the shell (`explorer.exe`), so SmartScreen and

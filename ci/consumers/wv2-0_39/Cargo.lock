@@ -3052,7 +3052,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-child-process"
-version = "0.5.11"
+version = "0.5.12"
 dependencies = [
  "libc",
  "windows 0.62.2",
@@ -3193,7 +3193,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-sidecar"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "libc",
  "serde",

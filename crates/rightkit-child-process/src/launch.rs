@@ -9,7 +9,7 @@
 //! AppUserModelID (`PackageFamilyName!AppId`, `shell:AppsFolder`).
 
 use crate::{reveal::LAUNCH_WAIT, OwnedCommand};
-use std::{io, process::Stdio};
+use std::{ffi::OsStr, io, path::Path, process::Stdio};
 
 /// Opens `url` with the handler registered for its scheme (for example `claude://`).
 pub fn open_url(url: &str) -> io::Result<()> {
@@ -44,6 +44,57 @@ pub fn launch_app(id: &str) -> io::Result<()> {
     } else {
         Err(io::Error::from(io::ErrorKind::Unsupported))
     }
+}
+
+/// Launches the app bundle at `path` (an `.app` directory) through LaunchServices, as
+/// `open [-g] [--env KEY=VALUE]... <path>` does (macOS only; other hosts return `Unsupported`).
+///
+/// An app launched this way is a normal single-instance app, so calling this again while it is
+/// alive activates the existing process instead of starting a duplicate: a caller that watches a
+/// heartbeat can relaunch with the same call. The app is not a child of this process, which is
+/// the point: LaunchServices maps it to its bundle, which a bare child is not reliably.
+///
+/// `background` adds `-g`, so the app does not take focus. Each `env` pair is passed as
+/// `--env KEY=VALUE` and appears in the launched app's environment. A key must be non-empty and
+/// contain neither `=` nor a control character, a value no control character, and `path` must be
+/// an existing directory named `*.app`; anything else is `InvalidInput` before `open` starts.
+pub fn launch_bundle(path: &Path, background: bool, env: &[(&str, &str)]) -> io::Result<()> {
+    let is_app = path.is_dir()
+        && path
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("app"));
+    if !is_app {
+        return Err(invalid(format!(
+            "{} is not an .app bundle directory",
+            path.display()
+        )));
+    }
+    for (key, value) in env {
+        if key.is_empty() || key.contains('=') || key.chars().any(char::is_control) {
+            return Err(invalid(format!(
+                "{key:?} is not an environment variable name"
+            )));
+        }
+        if value.chars().any(char::is_control) {
+            return Err(invalid(format!(
+                "the value of {key} holds a control character"
+            )));
+        }
+    }
+    if !cfg!(target_os = "macos") {
+        return Err(io::Error::from(io::ErrorKind::Unsupported));
+    }
+    let pairs: Vec<String> = env.iter().map(|(k, v)| format!("{k}={v}")).collect();
+    let mut args: Vec<&OsStr> = Vec::new();
+    if background {
+        args.push(OsStr::new("-g"));
+    }
+    for pair in &pairs {
+        args.push(OsStr::new("--env"));
+        args.push(OsStr::new(pair));
+    }
+    args.push(path.as_os_str());
+    hand_off("open", &args)
 }
 
 fn invalid(message: String) -> io::Error {
@@ -84,7 +135,7 @@ fn valid_app_user_model_id(id: &str) -> bool {
 
 /// Starts the launcher detached and waits up to [`LAUNCH_WAIT`] for it to report. A launcher
 /// that is still running is handing off to the desktop and counts as success.
-fn hand_off(program: &str, args: &[&str]) -> io::Result<()> {
+fn hand_off<S: AsRef<OsStr>>(program: &str, args: &[S]) -> io::Result<()> {
     let mut command = OwnedCommand::new(program);
     command
         .command_mut()

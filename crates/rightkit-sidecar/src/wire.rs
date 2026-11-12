@@ -162,6 +162,18 @@ impl Frame {
             event,
         }
     }
+    /// The frame as a JSON value, with the field order and presence the derive writes.
+    /// `include_error_retryable` false drops `retryable` from a failed response's `error` (a peer
+    /// whose wire `error` is `{code, message}`); it changes nothing in any other frame.
+    pub fn to_value(&self, include_error_retryable: bool) -> Value {
+        let mut value = serde_json::to_value(self).unwrap_or(Value::Null);
+        if !include_error_retryable {
+            if let Some(error) = value.get_mut("error").and_then(Value::as_object_mut) {
+                error.remove("retryable");
+            }
+        }
+        value
+    }
     /// The request id this frame answers or reports on, if any.
     pub fn id(&self) -> Option<u64> {
         match self {

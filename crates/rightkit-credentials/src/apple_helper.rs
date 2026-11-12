@@ -18,9 +18,10 @@
 
 use crate::error::{Error, Result};
 use crate::secret::Secret;
+use rightkit_child_process::BundledHelperError;
 use serde::Serialize;
 use serde_json::{json, Value};
-use std::ffi::{OsStr, OsString};
+use std::ffi::OsString;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -407,11 +408,7 @@ impl HelperTrust {
     /// letters or digits (an Apple team identifier). Anything else is refused, so the value can
     /// never alter the requirement text.
     pub fn team(team_id: &str) -> Result<Self> {
-        let valid = team_id.len() == 10
-            && team_id
-                .bytes()
-                .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit());
-        if !valid {
+        if !rightkit_child_process::is_team_id(team_id) {
             return Err(Error::Invalid {
                 what: "team id",
                 reason: "must be 10 uppercase ASCII letters or digits".into(),
@@ -430,10 +427,8 @@ impl HelperTrust {
     /// The code requirement:
     /// `anchor apple generic and certificate leaf[subject.OU] = "<TEAM>"`.
     pub fn requirement(&self) -> String {
-        format!(
-            "anchor apple generic and certificate leaf[subject.OU] = \"{}\"",
-            self.team
-        )
+        // `team` was validated by `HelperTrust::team`, so the requirement always exists.
+        rightkit_child_process::team_requirement(&self.team).unwrap_or_default()
     }
 }
 
@@ -687,9 +682,6 @@ impl AppleHelper {
     }
 }
 
-/// Bundle subdirectories (under `Contents/`) searched by [`resolve_bundled`], in order.
-const BUNDLE_HELPER_DIRS: [&str; 3] = ["MacOS", "Helpers", "Library/LoginItems"];
-
 /// Resolve the helper `name` inside the running app's bundle, or `None`. `name` is a single file
 /// name (no separator, no `.`/`..`), looked up as
 /// `Contents/{MacOS,Helpers,Library/LoginItems}/<name>` of the `.app` that contains the
@@ -697,8 +689,10 @@ const BUNDLE_HELPER_DIRS: [&str; 3] = ["MacOS", "Helpers", "Library/LoginItems"]
 /// bundle) and verified to lie under the canonical bundle root; any doubt is `None`.
 /// Pass the result to [`AppleHelper::new`]. This checks placement only; it does not check the
 /// code signature (the helper's entitlement is enforced by the OS at run time).
+///
+/// The lookup is `rightkit_child_process::resolve_bundled`.
 pub fn resolve_bundled(name: &str) -> Option<PathBuf> {
-    resolve_in_bundle(&std::env::current_exe().ok()?, name)
+    rightkit_child_process::resolve_bundled(name)
 }
 
 /// [`resolve_bundled`] and the code-signature check in one call (rightkit#749): resolve the helper
@@ -713,34 +707,6 @@ pub fn resolve_bundled_trusted(name: &str, trust: HelperTrust) -> Result<AppleHe
     Ok(AppleHelper::new_trusted(verified, trust))
 }
 
-fn resolve_in_bundle(exe: &std::path::Path, name: &str) -> Option<PathBuf> {
-    use std::path::Component;
-    let mut parts = std::path::Path::new(name).components();
-    match (parts.next(), parts.next()) {
-        (Some(Component::Normal(n)), None) if n == std::ffi::OsStr::new(name) => {}
-        _ => return None,
-    }
-    let exe = exe.canonicalize().ok()?;
-    let bundle = exe.ancestors().find(|a| {
-        a.extension().is_some_and(|e| e.eq_ignore_ascii_case("app")) && a.join("Contents").is_dir()
-    })?;
-    let bundle = bundle.canonicalize().ok()?;
-    BUNDLE_HELPER_DIRS.iter().find_map(|dir| {
-        let found = bundle
-            .join("Contents")
-            .join(dir)
-            .join(name)
-            .canonicalize()
-            .ok()?;
-        (found.starts_with(&bundle) && found.is_file()).then_some(found)
-    })
-}
-
-/// The nested login-item location, relative to the bundle root: the helper `<name>` is the
-/// executable of its own `<name>.app` (which is the unit that is signed and carries the
-/// provisioning profile).
-const LOGIN_ITEMS_DIR: &str = "Contents/Library/LoginItems";
-
 /// Resolve the nested login-item helper `name` of the running app:
 /// `<main bundle>/Contents/Library/LoginItems/<name>.app/Contents/MacOS/<name>`.
 ///
@@ -751,174 +717,32 @@ const LOGIN_ITEMS_DIR: &str = "Contents/Library/LoginItems";
 /// error: [`Error::Invalid`] for a bad `name`, [`Error::Helper`] for everything else.
 ///
 /// This checks placement only; pass the result to [`AppleHelper::new_trusted`] so the code
-/// signature is checked as well. [`resolve_bundled`] cannot find this layout.
+/// signature is checked as well. [`resolve_bundled`] cannot find this layout. The lookup is
+/// `rightkit_child_process::resolve_bundled_login_item`, which also offers an opt-in
+/// development fallback to a bare sibling executable; this function never uses it.
 #[cfg(target_os = "macos")]
 pub fn resolve_bundled_login_item(name: &str) -> Result<PathBuf> {
-    let exe = std::env::current_exe().map_err(|e| {
-        Error::Helper(format!(
-            "cannot locate the running executable: {}",
-            e.kind()
-        ))
-    })?;
-    login_item_in_bundle(&exe, name)
+    rightkit_child_process::resolve_bundled_login_item(name).map_err(helper_error)
 }
 
-/// The path logic of `resolve_bundled_login_item`, independent of the OS and of the running
-/// executable (`exe` is any file inside the main `.app`).
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
-fn login_item_in_bundle(exe: &Path, name: &str) -> Result<PathBuf> {
-    use std::path::Component;
-    let bad_name = |reason: &str| Error::Invalid {
-        what: "login item helper name",
-        reason: reason.to_string(),
-    };
-    if name.is_empty() {
-        return Err(bad_name("empty"));
+/// The credentials error for a failed bundled-helper step, with the same text as before the
+/// check moved to `rightkit-child-process`.
+fn helper_error(error: BundledHelperError) -> Error {
+    match error {
+        BundledHelperError::InvalidName(reason) => Error::Invalid {
+            what: "login item helper name",
+            reason,
+        },
+        BundledHelperError::Untrusted(reason) => {
+            Error::Helper(format!("untrusted helper: {reason}"))
+        }
+        other => Error::Helper(other.to_string()),
     }
-    let mut parts = Path::new(name).components();
-    match (parts.next(), parts.next()) {
-        (Some(Component::Normal(n)), None) if n == OsStr::new(name) => {}
-        _ => return Err(bad_name("must be a single path component")),
-    }
-    // Refuse both separator spellings on every OS, so a name that is one component here cannot
-    // be several on another.
-    if name.contains(['/', '\\']) {
-        return Err(bad_name("must be a single path component"));
-    }
-    let missing = |what: &str| Error::Helper(format!("login item helper {what}"));
-    let exe = exe
-        .canonicalize()
-        .map_err(|_| missing("not found: the running executable cannot be resolved"))?;
-    let bundle = exe
-        .ancestors()
-        .find(|a| {
-            a.extension().is_some_and(|e| e.eq_ignore_ascii_case("app"))
-                && a.join("Contents").is_dir()
-        })
-        .ok_or_else(|| missing("not found: the running executable is not inside an .app bundle"))?;
-    let bundle = bundle
-        .canonicalize()
-        .map_err(|_| missing("not found: the app bundle cannot be resolved"))?;
-    let app = bundle.join(LOGIN_ITEMS_DIR).join(format!("{name}.app"));
-    let app = app
-        .canonicalize()
-        .map_err(|_| missing("not found in Contents/Library/LoginItems"))?;
-    if !app.starts_with(&bundle) {
-        return Err(missing("resolves outside the app bundle"));
-    }
-    let binary = app
-        .join("Contents")
-        .join("MacOS")
-        .join(name)
-        .canonicalize()
-        .map_err(|_| missing("executable not found in its .app"))?;
-    if !binary.starts_with(&app) {
-        return Err(missing("executable resolves outside its .app"));
-    }
-    if !binary.is_file() {
-        return Err(missing("executable is not a regular file"));
-    }
-    Ok(binary)
-}
-
-const CODESIGN: &str = "/usr/bin/codesign";
-const CODESIGN_TIMEOUT: Duration = Duration::from_secs(20);
-
-fn untrusted(reason: impl std::fmt::Display) -> Error {
-    Error::Helper(format!("untrusted helper: {reason}"))
-}
-
-/// What `codesign` should be pointed at: the enclosing `.app` when `binary` is
-/// `<X>.app/Contents/MacOS/<file>` (the sealed, signed unit), else the file itself.
-fn signed_unit(binary: &Path) -> &Path {
-    let named = |p: &Path, n: &str| p.file_name().is_some_and(|f| f == OsStr::new(n));
-    let layout = binary.parent().and_then(|macos| {
-        let contents = macos.parent()?;
-        let app = contents.parent()?;
-        (named(macos, "MacOS")
-            && named(contents, "Contents")
-            && app
-                .extension()
-                .is_some_and(|e| e.eq_ignore_ascii_case("app")))
-        .then_some(app)
-    });
-    layout.unwrap_or(binary)
 }
 
 /// Verify `path` against `trust` and return the canonical path that was verified, which the
 /// caller must execute (not `path`). Fails closed on every doubt; see
-/// [`AppleHelper::new_trusted`].
+/// [`AppleHelper::new_trusted`] and `rightkit_child_process::verify_team_signature`.
 fn verify_helper(path: &Path, trust: &HelperTrust) -> Result<PathBuf> {
-    let canonical = path
-        .canonicalize()
-        .map_err(|e| untrusted(format!("cannot resolve the helper path ({})", e.kind())))?;
-    if !canonical.is_file() {
-        return Err(untrusted("the helper is not a regular file"));
-    }
-    // `-R` takes a requirement file path unless the text starts with `=`.
-    let requirement = OsString::from(format!("={}", trust.requirement()));
-    let target = signed_unit(&canonical);
-    let args: [&OsStr; 5] = [
-        OsStr::new("--verify"),
-        OsStr::new("--strict"),
-        OsStr::new("-R"),
-        &requirement,
-        target.as_os_str(),
-    ];
-    match run_bounded(Path::new(CODESIGN), &args, CODESIGN_TIMEOUT) {
-        Ok(Bounded::Exited(status)) if status.success() => Ok(canonical),
-        Ok(Bounded::Exited(status)) => Err(untrusted(format!(
-            "the code signature check failed ({status})"
-        ))),
-        Ok(Bounded::TimedOut) => Err(untrusted(format!(
-            "the code signature check did not finish within {} s",
-            CODESIGN_TIMEOUT.as_secs()
-        ))),
-        Err(e) => Err(untrusted(format!(
-            "the code signature check could not run ({})",
-            e.kind()
-        ))),
-    }
-}
-
-enum Bounded {
-    Exited(std::process::ExitStatus),
-    TimedOut,
-}
-
-/// Run `program` with no stdin and no output, wait at most `limit`, and kill and reap it if it
-/// is still running then (or if waiting fails). Output goes to the null device so there is no
-/// pipe that could fill and stall the child.
-///
-/// Only the child itself is killed, not a process tree: `codesign` starts no children that
-/// outlive it. The poll sleeps at most 10 ms at a time and the call ends by `limit`.
-fn run_bounded(program: &Path, args: &[&OsStr], limit: Duration) -> std::io::Result<Bounded> {
-    let mut child = Command::new(program)
-        .args(args)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()?;
-    let now = Instant::now();
-    let deadline = now
-        .checked_add(limit)
-        .unwrap_or_else(|| now + Duration::from_secs(365 * 24 * 60 * 60));
-    loop {
-        match child.try_wait() {
-            Ok(Some(status)) => return Ok(Bounded::Exited(status)),
-            Ok(None) => {}
-            Err(e) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err(e);
-            }
-        }
-        let left = deadline.saturating_duration_since(Instant::now());
-        if left.is_zero() {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Ok(Bounded::TimedOut);
-        }
-        std::thread::sleep(left.min(Duration::from_millis(10)));
-    }
+    rightkit_child_process::verify_team_signature(path, trust.team_id()).map_err(helper_error)
 }

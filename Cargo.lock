@@ -10824,7 +10824,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-child-process"
-version = "0.5.11"
+version = "0.5.12"
 dependencies = [
  "libc 0.2.191",
  "tokio",
@@ -11166,6 +11166,7 @@ dependencies = [
  "getrandom 0.4.3",
  "objc2",
  "objc2-foundation",
+ "rightkit-child-process",
  "rightkit-crypto",
  "rightkit-db",
  "secret-service",
@@ -12898,7 +12899,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-sidecar"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "libc 0.2.191",
  "serde",

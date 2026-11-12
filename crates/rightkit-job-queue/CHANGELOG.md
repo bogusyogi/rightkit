@@ -2,6 +2,8 @@
 
 ## 0.6.0
 
+- Changed: the dispatcher builds its hello, event and response frames through `rightkit_sidecar::wire::Frame` instead of `json!` literals. The bytes on the wire are unchanged.
+
 - Added: feature `serve` (implies `protocol`, no store): `Dispatcher`, `serve`, `serve_report`, `run_cli`, `CommandSet`, `EventEmitter` and the related types are available without the database. `contract` now means `serve` plus `store` and adds only `JobCommands`, `PayloadMapper` and `JOB_METHODS`; every existing `contract` and `service` consumer builds unchanged (the dispatcher code stays in `contract.rs`, the `job.*` commands moved to `job_commands.rs`, same public paths).
 - Added: `Dispatcher::with_hello_fields(..)` (extra hello fields such as an engine instance id; `type`, `engine`, `version` and `contract_version` stay the dispatcher's own) and `EventEmitter::emit_for_session(session_id, event)` (event frame with a top-level `session_id`).
 - Fixed: `serve` / `serve_report` answer an oversized request under its own request id (read from the frame head) with `frame_too_large`, instead of id 0, so the caller fails at once rather than at its timeout; a rejected malformed or non-UTF-8 line is wiped from the read buffer.

@@ -1,5 +1,6 @@
 //! `OwnedCommand::inherit_handles_only` restricts inheritance to caller handles/fds plus stdio (Unix children inherit no other descriptor by default, `inherit_fds` adds some, `inherit_all_descriptors(true)` opts out); Windows requires `windows_spawn_config` for opaque Command settings.
 
+mod bundled_helper;
 mod capture;
 mod child_usage;
 #[cfg(unix)]
@@ -58,7 +59,12 @@ pub use foreign::{
 pub use foreign::{resume_session, signal_session, suspend_session};
 pub use health::{HealthOutcome, HealthPolicy, HealthProbe, HealthTracker};
 pub use journal::{recover as recover_journal, JournalRecovery, WorkerJournal};
-pub use launch::{launch_app, open_url};
+pub use bundled_helper::{
+    is_team_id, login_item_in_bundle, login_item_in_bundle_with, resolve_bundled,
+    resolve_bundled_login_item, resolve_bundled_login_item_with, resolve_in_bundle,
+    team_requirement, verify_team_signature, BundledHelperError, LoginItemOptions,
+};
+pub use launch::{launch_app, launch_bundle, open_url};
 #[cfg(any(unix, windows))]
 pub use native_capture::NativeOutputCapture;
 pub use no_window::{command_std, NoWindow, CREATE_BREAKAWAY_FROM_JOB, CREATE_NO_WINDOW};

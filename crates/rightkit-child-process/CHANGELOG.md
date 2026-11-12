@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.12
+
+- Added `resolve_bundled`, `resolve_bundled_login_item` (with `LoginItemOptions`, an opt-in development fallback to a bare sibling executable, off by default) and `verify_team_signature` (`codesign --verify --strict` against a Developer ID team): the bundled-helper placement and signature checks that lived in `rightkit-credentials`, moved here unchanged. Added `launch_bundle(path, background, env)`: `open [-g] --env KEY=VALUE <app>` through LaunchServices (macOS; `Unsupported` elsewhere).
+
 ## 0.5.11
 
 - Fixed: `RestartTracker::request_restart` on an `OnDemand` policy no longer clears the pending demand when the budget is spent. It returns `Exhausted` and keeps waiting, so a later demand, once the rolling window has moved on, gets a `Restart` permit (before, the next call answered `AwaitingDemand` for good). `Automatic` and `Disabled` policies behave as before.
