@@ -155,9 +155,7 @@ fn process_status(
         rightkit_agent_coding_tools::background_shell::BgStatus::Running => "running",
         rightkit_agent_coding_tools::background_shell::BgStatus::Exited(_) => "exited",
         rightkit_agent_coding_tools::background_shell::BgStatus::Killed => "killed",
-        rightkit_agent_coding_tools::background_shell::BgStatus::SpawnFailed(_) => {
-            "spawnFailed"
-        }
+        rightkit_agent_coding_tools::background_shell::BgStatus::SpawnFailed(_) => "spawnFailed",
         rightkit_agent_coding_tools::background_shell::BgStatus::Unknown => "unknown",
     }
 }

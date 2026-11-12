@@ -1,7 +1,7 @@
+use rightkit_agent_coding_tools::ToolRegistry;
 use rightkit_agent_engine_core::provider_turn_boundary::{
     BoundarySendOutcome, ProviderBoundarySender, ProviderBoundaryUpdate,
 };
-use rightkit_agent_coding_tools::ToolRegistry;
 use std::sync::{Arc, Mutex};
 
 const TOOL_NAMES: [&str; 5] = [

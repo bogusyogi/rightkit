@@ -1307,11 +1307,10 @@ async fn run_worktree_git(
             if created {
                 std::fs::create_dir_all(&target).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
             }
-            let profile =
-                rightkit_agent_coding_tools::sandbox::AppContainerProfile::for_workspace(
-                    std::path::Path::new(&root),
-                )
-                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            let profile = rightkit_agent_coding_tools::sandbox::AppContainerProfile::for_workspace(
+                std::path::Path::new(&root),
+            )
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
             profile
                 .lease_extra_access(&target, true)
                 .map_err(|_| StatusCode::FORBIDDEN)?;

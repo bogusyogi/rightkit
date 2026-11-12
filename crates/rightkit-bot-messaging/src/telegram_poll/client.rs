@@ -8,8 +8,10 @@ struct HttpDaemonClient {
 impl HttpDaemonClient {
     fn new(port: u16, token: String) -> Self {
         Self {
-            client: rightkit_agent_daemon::http_client::daemon_client(&format!("http://127.0.0.1:{port}"))
-                .expect("rightkit-http client builds with the platform verifier"),
+            client: rightkit_agent_daemon::http_client::daemon_client(&format!(
+                "http://127.0.0.1:{port}"
+            ))
+            .expect("rightkit-http client builds with the platform verifier"),
             base_url: format!("http://127.0.0.1:{port}"),
             token,
         }

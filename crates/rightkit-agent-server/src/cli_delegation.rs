@@ -27,6 +27,7 @@ use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use rightkit_agent_coding_tools::{SpawnRuntimeKind, SubagentContinuity, SubagentSpawnOptions};
 use rightkit_agent_engine_protocol::ProtocolEvent;
 use rightkit_agent_engine_storage::{
     DriverBindingRow, DriverEventClaim, DriverEventInboxRow, SessionCapabilityLeaseRow, Storage,
@@ -34,9 +35,6 @@ use rightkit_agent_engine_storage::{
 };
 use rightkit_agent_orchestration::coding::supervision::{
     enter_worktree, exit_worktree, SystemGitWorktreeExecutor, WorktreeEnterRequest,
-};
-use rightkit_agent_coding_tools::{
-    SpawnRuntimeKind, SubagentContinuity, SubagentSpawnOptions,
 };
 use rightkit_agents::driver_host::cli_runtime::{
     resolve_child_runtime, AgentKind, AgentResult, AgentResultStatus, AgentRuntimeBackend,

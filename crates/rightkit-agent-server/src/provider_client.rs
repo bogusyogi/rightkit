@@ -11,15 +11,15 @@ use crate::api::EngineConfig;
 use crate::observation::{provider_turn_evidence_observation, HostObservationProvenanceV1};
 use async_trait::async_trait;
 use futures_util::StreamExt;
-use rightkit_agent_engine_core::llm::{
-    LlmClient, LlmRequestMetadata, LlmResponse, LlmResponseStream, LlmStreamEvent,
-};
-use rightkit_agent_engine_protocol::TranscriptMessage;
 use rightkit_agent_coding_tools::registry::{
     tool_defs_for_messages_checked, PromotedToolState, ToolCatalogGenerationTracker,
     ToolPromotionEvent,
 };
 use rightkit_agent_coding_tools::ToolRegistry;
+use rightkit_agent_engine_core::llm::{
+    LlmClient, LlmRequestMetadata, LlmResponse, LlmResponseStream, LlmStreamEvent,
+};
+use rightkit_agent_engine_protocol::TranscriptMessage;
 use rightkit_llm::agent_providers::client::{
     ProviderRequestIdentityV1, RequestAuthorityBindingV1, RequestAuthorityErrorV1,
     RequestAuthorityInputV1, RequestAuthorityResponseV1, RequestAuthorityStateV1,

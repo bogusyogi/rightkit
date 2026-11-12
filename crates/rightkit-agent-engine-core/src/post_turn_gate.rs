@@ -30,10 +30,7 @@ fn is_legacy_edit_tool_name(name: &str) -> bool {
 /// produce an unbacked mutation by construction.
 pub fn detect_unbacked_mutations(
     tool_calls: &[ToolCall],
-    tool_results: &std::collections::HashMap<
-        String,
-        rightkit_agent_coding_tools::ToolResult,
-    >,
+    tool_results: &std::collections::HashMap<String, rightkit_agent_coding_tools::ToolResult>,
 ) -> Vec<String> {
     let mut offenders = Vec::new();
     for call in tool_calls {

@@ -115,8 +115,7 @@ pub fn retire_session_compaction_state(session_id: &str) {
     crate::engine::tool_dispatch::retire_session_async_state(session_id);
     // A tunnel stop that fails leaves a public exposure possibly live (#376): record it at error
     // level with the leaked resources instead of discarding the failures.
-    let leaked_exposures =
-        rightkit_agent_coding_tools::tunnel::retire_tunnel_session(session_id);
+    let leaked_exposures = rightkit_agent_coding_tools::tunnel::retire_tunnel_session(session_id);
     if !leaked_exposures.is_empty() {
         tracing::error!(
             session_id,
@@ -322,10 +321,7 @@ impl SessionEngine {
         }
     }
 
-    pub fn set_cloudflare_config(
-        &mut self,
-        config: rightkit_agent_coding_tools::CloudflareConfig,
-    ) {
+    pub fn set_cloudflare_config(&mut self, config: rightkit_agent_coding_tools::CloudflareConfig) {
         self.cloudflare_config = Some(config);
     }
 
@@ -348,9 +344,7 @@ impl SessionEngine {
         session_id: &str,
         config: rightkit_agent_coding_tools::CloudflareConfig,
     ) {
-        rightkit_agent_coding_tools::context::update_cloudflare_credential(
-            session_id, config,
-        );
+        rightkit_agent_coding_tools::context::update_cloudflare_credential(session_id, config);
     }
 
     pub fn set_github_token(&mut self, token: impl Into<String>) {
@@ -457,10 +451,7 @@ impl SessionEngine {
     }
 
     /// Attach a plan-exit callback used by the `exit_plan_mode` tool.
-    pub fn set_plan_exit(
-        &mut self,
-        plan_exit: Arc<dyn rightkit_agent_coding_tools::PlanExit>,
-    ) {
+    pub fn set_plan_exit(&mut self, plan_exit: Arc<dyn rightkit_agent_coding_tools::PlanExit>) {
         self.plan_exit = Some(plan_exit);
     }
 

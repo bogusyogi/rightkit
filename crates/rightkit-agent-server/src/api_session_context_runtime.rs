@@ -25,10 +25,8 @@ pub(crate) fn session_start_snapshot_block(workspace: &std::path::Path) -> Optio
         format!("Workspace root: {}", workspace.display()),
     ];
 
-    match rightkit_agent_coding_tools::git_read::workspace_snapshot(
-        workspace,
-        MAX_GIT_STATUS_LINES,
-    ) {
+    match rightkit_agent_coding_tools::git_read::workspace_snapshot(workspace, MAX_GIT_STATUS_LINES)
+    {
         Some(snapshot) => {
             lines.push(format!("Git branch: {}", snapshot.branch));
             if snapshot.status_lines.is_empty() {

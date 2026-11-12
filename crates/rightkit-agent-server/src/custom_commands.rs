@@ -207,11 +207,10 @@ pub(crate) fn expand_by_name(
     workspace: &Path,
 ) -> Option<TurnOverrides> {
     let command = resolve(commands, name)?;
-    let catalog: Vec<String> =
-        rightkit_agent_coding_tools::registry::default_tool_capabilities()
-            .into_iter()
-            .map(|capability| capability.name)
-            .collect();
+    let catalog: Vec<String> = rightkit_agent_coding_tools::registry::default_tool_capabilities()
+        .into_iter()
+        .map(|capability| capability.name)
+        .collect();
     let (allowed_tools, mut warnings) = map_allowed_tools(&command.allowed_tools, &catalog);
     // Fail open to the normal toolset (with a warning) rather than an empty
     // allowlist, which the run path would read as "restrict to nothing usable".

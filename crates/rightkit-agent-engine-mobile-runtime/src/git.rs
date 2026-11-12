@@ -1174,11 +1174,10 @@ async fn lfs_fetch(plan: MobileLfsFetchPlan, token: Option<&str>) -> Result<Valu
         let transfer = if cached.exists() {
             Ok(cached.clone())
         } else {
-            let request =
-                rightkit_agent_coding_tools::git_lfs_batch_client::BatchObjectRequest {
-                    oid: oid.clone(),
-                    size: *size,
-                };
+            let request = rightkit_agent_coding_tools::git_lfs_batch_client::BatchObjectRequest {
+                oid: oid.clone(),
+                size: *size,
+            };
             rightkit_agent_coding_tools::git_lfs_batch_client::fetch_objects(
                 &plan.remote_url,
                 &[request],

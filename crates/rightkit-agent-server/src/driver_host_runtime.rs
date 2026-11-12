@@ -216,10 +216,9 @@ impl DriverHostRuntime {
         let pid = child.pid();
         #[cfg(windows)]
         let windows_job = {
-            let job =
-                rightkit_agent_coding_tools::sandbox::shell_job().map_err(|error| {
-                    DriverRuntimeError::Spawn(format!("Windows Job Object: {error}"))
-                })?;
+            let job = rightkit_agent_coding_tools::sandbox::shell_job().map_err(|error| {
+                DriverRuntimeError::Spawn(format!("Windows Job Object: {error}"))
+            })?;
             let pid = pid
                 .ok_or_else(|| DriverRuntimeError::Spawn("child process id unavailable".into()))?;
             job.assign_process_id(pid).map_err(|error| {

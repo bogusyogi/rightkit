@@ -28,10 +28,10 @@
 //!       live with the session and are dropped with it.
 
 use axum::Router;
-use rightkit_agent_policy::PermissionMode;
 use rightkit_agent_coding_tools::browser::{
     BrowserNavigationTrustV1, BrowserNetworkDecisionV1, BrowserObservationV1, BrowserStore,
 };
+use rightkit_agent_policy::PermissionMode;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex as StdMutex};

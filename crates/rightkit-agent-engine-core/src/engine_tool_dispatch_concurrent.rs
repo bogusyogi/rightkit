@@ -13,9 +13,8 @@ use std::{future::Future, pin::Pin};
 // `rightkit_agent_coding_tools`'s `lib.rs`, so it cannot be `use`d from here without
 // that out-of-lane wiring.
 
-pub(in crate::engine) type StreamingToolFuture = Pin<
-    Box<dyn Future<Output = (ToolCall, rightkit_agent_coding_tools::ToolResult)> + Send>,
->;
+pub(in crate::engine) type StreamingToolFuture =
+    Pin<Box<dyn Future<Output = (ToolCall, rightkit_agent_coding_tools::ToolResult)> + Send>>;
 
 impl SessionEngine {
     /// Record result only after every earlier queued call has been recorded.
@@ -689,8 +688,7 @@ impl SessionEngine {
         if let Some(call) = calls.iter().rev().find(|c| c.name == "todo_write") {
             let args: serde_json::Value =
                 serde_json::from_str(&call.arguments_json).unwrap_or(serde_json::Value::Null);
-            let tasks =
-                rightkit_agent_coding_tools::todo_write::task_nodes_from_args(&args, "t");
+            let tasks = rightkit_agent_coding_tools::todo_write::task_nodes_from_args(&args, "t");
             if !tasks.is_empty() {
                 let summary = format!("{} todos", tasks.len());
                 self.emit(|seq| ProtocolEvent::TaskGraphUpdated {

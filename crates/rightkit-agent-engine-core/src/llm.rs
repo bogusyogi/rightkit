@@ -5,8 +5,8 @@
 
 use async_trait::async_trait;
 use futures::Stream;
-use rightkit_agent_engine_protocol::{ToolCall, TranscriptMessage};
 use rightkit_agent_coding_tools::ToolRegistry;
+use rightkit_agent_engine_protocol::{ToolCall, TranscriptMessage};
 use std::pin::Pin;
 use std::sync::Arc;
 

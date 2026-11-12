@@ -221,8 +221,7 @@ fn output_parts_to_result(
     }
 
     let full_copy = crate::output_compaction::recovery_copy(&combined);
-    let mut combined =
-        crate::output_compaction::reduce_output(&combined, exit_ok, command);
+    let mut combined = crate::output_compaction::reduce_output(&combined, exit_ok, command);
     // Never lose the only full copy: when reduction omitted content, keep the
     // complete (masked) output durably and tell the model how to fetch it.
     if crate::output_compaction::reduction_omitted_content(&full_copy, &combined) {

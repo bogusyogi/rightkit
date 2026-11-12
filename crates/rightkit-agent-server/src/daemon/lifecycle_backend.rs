@@ -502,7 +502,8 @@ async fn stop_daemon(force: bool) -> Result<BackendOutcome, String> {
         .map_err(|e| format!("build stop client: {e}"))?
         .send_any(&rightkit_http::Request::post(takeover_url).bearer(&info.token))
         .await;
-        if cooperative.is_ok_and(|response| rightkit_agent_daemon::http_client::is_success(response.status))
+        if cooperative
+            .is_ok_and(|response| rightkit_agent_daemon::http_client::is_success(response.status))
         {
             // The takeover ack only means the request was accepted; confirm the
             // process actually exited and escalate if it lingers.

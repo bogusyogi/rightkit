@@ -78,12 +78,14 @@ impl MobileRuntime {
         let deferred =
             engine
                 .defer_tool_call(tool_call_id.to_string())
-                .map_err(|error| match error {
-                    rightkit_agent_coding_tools::deferred_resolution::RegisterError::AlreadyPending => {
-                        RuntimeError::Engine(format!(
-                            "deferred tool call '{tool_call_id}' is already pending"
-                        ))
-                    }
+                .map_err(|error| {
+                    match error {
+                rightkit_agent_coding_tools::deferred_resolution::RegisterError::AlreadyPending => {
+                    RuntimeError::Engine(format!(
+                        "deferred tool call '{tool_call_id}' is already pending"
+                    ))
+                }
+            }
                 })?;
         deferred_receivers()
             .lock()

@@ -93,12 +93,8 @@ async fn create_execution_process(
         Vec::new()
     };
     let persistence = match body.persistence.as_deref().unwrap_or("inline") {
-        "inline" => {
-            rightkit_agent_coding_tools::background_shell::ProcessPersistence::Inline
-        }
-        "service" => {
-            rightkit_agent_coding_tools::background_shell::ProcessPersistence::Service
-        }
+        "inline" => rightkit_agent_coding_tools::background_shell::ProcessPersistence::Inline,
+        "service" => rightkit_agent_coding_tools::background_shell::ProcessPersistence::Service,
         other => {
             return Err(ExecutionError::bad_request(format!(
                 "unsupported persistence '{other}'"
@@ -170,32 +166,31 @@ async fn create_execution_process(
         context,
         env: Vec::new(),
     };
-    let shell_id =
-        rightkit_agent_coding_tools::background_shell::spawn_managed_channel_with_kind(
-            adapter,
-            spec,
-            channel,
-            program,
-            &live.background_shells,
-            None,
-            rightkit_agent_coding_tools::background_shell::BgExecutionTarget {
-                backend_id: Some("local".to_string()),
-                workspace_id: live.execution_workspace_id.clone(),
-                network_profile: live.execution_network_profile.clone(),
-            },
-            persistence,
-            "terminalSession".into(),
-        )
-        .await
-        .map_err(|error| match error {
-            rightkit_sandbox::execution::EffectExecutionError::ResourceLimitsMissing => {
-                ExecutionError {
-                    status: StatusCode::TOO_MANY_REQUESTS,
-                    message: "resource governor denied process creation before spawn".into(),
-                }
+    let shell_id = rightkit_agent_coding_tools::background_shell::spawn_managed_channel_with_kind(
+        adapter,
+        spec,
+        channel,
+        program,
+        &live.background_shells,
+        None,
+        rightkit_agent_coding_tools::background_shell::BgExecutionTarget {
+            backend_id: Some("local".to_string()),
+            workspace_id: live.execution_workspace_id.clone(),
+            network_profile: live.execution_network_profile.clone(),
+        },
+        persistence,
+        "terminalSession".into(),
+    )
+    .await
+    .map_err(|error| match error {
+        rightkit_sandbox::execution::EffectExecutionError::ResourceLimitsMissing => {
+            ExecutionError {
+                status: StatusCode::TOO_MANY_REQUESTS,
+                message: "resource governor denied process creation before spawn".into(),
             }
-            other => ExecutionError::conflict(other.to_string()),
-        })?;
+        }
+        other => ExecutionError::conflict(other.to_string()),
+    })?;
     let process = live_execution_process(&state, &shell_id, true)?
         .map(|(process, _)| process)
         .ok_or_else(|| ExecutionError::not_found("execution process not found"))?;

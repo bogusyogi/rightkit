@@ -119,9 +119,7 @@ impl Drop for CompositionCallGuard<'_, '_> {
 }
 
 #[cfg(feature = "host")]
-impl rightkit_agent_coding_tools::code_mode::NestedToolDispatcher
-    for ProgramNestedDispatcher<'_>
-{
+impl rightkit_agent_coding_tools::code_mode::NestedToolDispatcher for ProgramNestedDispatcher<'_> {
     fn invoke<'a>(
         &'a self,
         tool: &'a str,
@@ -170,9 +168,7 @@ pub(in crate::engine) async fn execute_run_program_call(
     context: &rightkit_agent_coding_tools::ToolContext,
 ) -> rightkit_agent_coding_tools::ToolResult {
     let Some(source) = args.get("code").and_then(serde_json::Value::as_str) else {
-        return rightkit_agent_coding_tools::ToolResult::error(
-            "run_program.code must be a string",
-        );
+        return rightkit_agent_coding_tools::ToolResult::error("run_program.code must be a string");
     };
     let specs = rightkit_agent_coding_tools::code_mode::RunProgramTool::new(&engine.tools)
         .tool_specs()
@@ -708,9 +704,9 @@ async fn run_js_call(
         }
     };
     match done {
-        Ok(output) if nested_failure => rightkit_agent_coding_tools::ToolResult::error(
-            nested_failure_projection(&output),
-        ),
+        Ok(output) if nested_failure => {
+            rightkit_agent_coding_tools::ToolResult::error(nested_failure_projection(&output))
+        }
         Ok(output) => rightkit_agent_coding_tools::ToolResult::ok(output),
         Err(error) => rightkit_agent_coding_tools::ToolResult::error(error),
     }

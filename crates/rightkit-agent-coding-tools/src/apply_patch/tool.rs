@@ -67,13 +67,12 @@ impl Tool for ApplyPatchTool {
                             hunks.push((file, std::mem::take(&mut current_lines)));
                         }
                     }
-                    current_file = match crate::read_file::resolve_in_workspace(
-                        path_str,
-                        &ctx.workspace_root,
-                    ) {
-                        Ok(path) => Some(path),
-                        Err(error) => return ToolResult::error(error),
-                    };
+                    current_file =
+                        match crate::read_file::resolve_in_workspace(path_str, &ctx.workspace_root)
+                        {
+                            Ok(path) => Some(path),
+                            Err(error) => return ToolResult::error(error),
+                        };
                 }
                 other => {
                     if current_file.is_some() {
@@ -97,18 +96,14 @@ impl Tool for ApplyPatchTool {
         // Preflight every target before writing any hunk so a later sensitive
         // target cannot leave an earlier non-sensitive hunk partially applied.
         for (path, _) in &hunks {
-            if let Err(error) =
-                crate::durable_write::require_path_authorization(path, ctx)
-            {
+            if let Err(error) = crate::durable_write::require_path_authorization(path, ctx) {
                 return ToolResult::error(error);
             }
             for access in [
                 crate::read_file::PathAccess::Write,
                 crate::read_file::PathAccess::Read,
             ] {
-                if let Err(error) =
-                    crate::read_file::enforce_path_deny(ctx, path, access)
-                {
+                if let Err(error) = crate::read_file::enforce_path_deny(ctx, path, access) {
                     return ToolResult::error(error);
                 }
             }
@@ -234,8 +229,7 @@ impl Tool for ApplyPatchTool {
                 continue;
             }
             let item = &prepared[entry.index];
-            crate::lsp_notify::document_mutated(&ctx.workspace_root, &item.path)
-                .await;
+            crate::lsp_notify::document_mutated(&ctx.workspace_root, &item.path).await;
             applied.push(item.path.display().to_string());
             mutations.push(WorkspaceMutation {
                 path: item.path.clone(),

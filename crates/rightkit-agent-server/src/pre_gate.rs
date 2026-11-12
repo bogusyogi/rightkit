@@ -6,13 +6,13 @@
 //! module just maps config → `CheckSpec`, owns the conduit emission, and is
 //! called from `DaemonState::run_conductor` between planning and `run_graph`.
 
-use rightkit_agent_config::PreGateCheckConfig;
-use rightkit_agent_engine_core::Conduit;
-use rightkit_agent_engine_protocol::ProtocolEvent;
 use rightkit_agent_coding_tools::check_runner::{
     decide, run_check, CheckSpec, OnFailure, PreGateDecision,
 };
 use rightkit_agent_coding_tools::ToolContext;
+use rightkit_agent_config::PreGateCheckConfig;
+use rightkit_agent_engine_core::Conduit;
+use rightkit_agent_engine_protocol::ProtocolEvent;
 
 use crate::api::now_iso;
 

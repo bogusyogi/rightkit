@@ -220,8 +220,10 @@ fn resolve_telegram_token_arg(telegram_token: Option<&str>) -> Option<String> {
 async fn fetch_telegram_get_me(api_base: &str, token: &str) -> Result<serde_json::Value, String> {
     let base = api_base.trim_end_matches('/');
     let url = format!("{base}/bot{token}/getMe");
-    let client =
-        rightkit_agent_daemon::http_client::endpoint_client(&url, std::time::Duration::from_secs(60))?;
+    let client = rightkit_agent_daemon::http_client::endpoint_client(
+        &url,
+        std::time::Duration::from_secs(60),
+    )?;
     // The bot token is part of the URL path: register it so no error text echoes it.
     let response = rightkit_agent_daemon::http_client::send_any(
         &client,
@@ -242,8 +244,10 @@ async fn fetch_telegram_updates(
 ) -> Result<serde_json::Value, String> {
     let base = api_base.trim_end_matches('/');
     let url = format!("{base}/bot{token}/getUpdates?limit={limit}");
-    let client =
-        rightkit_agent_daemon::http_client::endpoint_client(&url, std::time::Duration::from_secs(60))?;
+    let client = rightkit_agent_daemon::http_client::endpoint_client(
+        &url,
+        std::time::Duration::from_secs(60),
+    )?;
     let response = rightkit_agent_daemon::http_client::send_any(
         &client,
         &rightkit_http::Request::get(url).redact_value(token),
