@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.5.11
 
 - Fixed: `RestartTracker::request_restart` on an `OnDemand` policy no longer clears the pending demand when the budget is spent. It returns `Exhausted` and keeps waiting, so a later demand, once the rolling window has moved on, gets a `Restart` permit (before, the next call answered `AwaitingDemand` for good). `Automatic` and `Disabled` policies behave as before.
 

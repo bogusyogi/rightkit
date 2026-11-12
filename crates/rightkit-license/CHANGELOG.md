@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.0
 
 - **New: `CredentialReleaseQueue` (feature `client`).** A `PendingReleaseQueue` kept in one credential-store item (the host passes the `Store` and the account). It reads and writes the JSON array HeardRight already stores (`{"kind":"legacy","activation_token"}` / `{"kind":"lease","device_id_hash","lease_id"}`), so an installed app's pending removals survive adoption. Row ids carry no token (a legacy row is named by a hash of it); `enqueue` does not duplicate a row.
 - **New: `LicenseClientConfig::with_lease_activation(bool)` and `with_host_trial_platform(bool)`**, with `LicenseClient::activate_as_configured` and `request_trial_as_configured` that follow them. Defaults are off; `activate` and `request_trial` are unchanged.

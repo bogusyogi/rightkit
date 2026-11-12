@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.0
 
 - Removed `valid_service_name` and `MAX_SERVICE_NAME_LEN`: they are `rightkit-daemon`'s and this crate never used them. The crate is unpublished, so no deprecated copy is kept.
 - `mode::AppId` carries the layout an app really has, additively: `without_org()` (flat `<per-user local folder>/<dir_name>`, the folder `rightkit_fs::app_dirs::AppDirs::local` gives), `with_legacy_names(..)` (an existing legacy folder is used when the current one is missing), and `with_dev_dir(..)` plus `dev_variant()` (the dev or QA folder, chosen at compile time). `mode::roots` resolves a flat app through `rightkit-fs` `app_dirs`, so HeardRight's installed `<Local AppData>\HeardRightNext` and `~/Library/Application Support/HeardRightNext` come from here; an organisation-layout app resolves to the same `<Orthic Labs>/<dir_name>` as before. `ModeInput` gains the provided methods `app_dirs` and `is_dir` so tests inject the base folders of any OS.

@@ -16,4 +16,4 @@ path = "src/lib.rs"
 [dependencies]
 rightkit-context-protocol = { version = "0.2.0", path = "../rightkit-context-protocol" }
 serde_json = { version = "1" }
-rightkit-daemon = { version = "0.8.0", path = "../rightkit-daemon" }
+rightkit-daemon = { version = "0.9.0", path = "../rightkit-daemon" }

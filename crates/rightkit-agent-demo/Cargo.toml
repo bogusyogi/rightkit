@@ -27,8 +27,8 @@ rightkit-hotkeys = { version = "0.1.2", path = "../rightkit-hotkeys" }
 rightkit-overlay = { version = "0.2.0", path = "../rightkit-overlay" }
 rightkit-contracts = { version = "0.1.8", path = "../rightkit-contracts", default-features = false }
 rightkit-credentials = { version = "0.5.0", path = "../rightkit-credentials" }
-rightkit-daemon = { version = "0.8.0", path = "../rightkit-daemon" }
-rightkit-roots = { version = "0.1.0", path = "../rightkit-roots" }
+rightkit-daemon = { version = "0.9.0", path = "../rightkit-daemon" }
+rightkit-roots = { version = "0.2.0", path = "../rightkit-roots" }
 rightkit-child-process = { version = "0.5.7", path = "../rightkit-child-process" }
 rightkit-fs = { version = "0.4.9", path = "../rightkit-fs", default-features = false, features = ["fs"] }
 rightkit-logs = { version = "0.4.0", path = "../rightkit-logs", default-features = false }

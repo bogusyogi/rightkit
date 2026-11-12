@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.0
+
+- Requires `rightkit-roots` 0.2.0 (a breaking release), so this release is breaking too.
+
 ## 0.8.0 (unpublished)
 
 - Moved: run mode, the suite root, app roots and root cutover (`mode`, `Suite`, `AppRoot` and the app-root migration, `RootCutover`; `mode.rs`, `suite.rs`, `app_root.rs`, `root_cutover.rs`, 4,643 lines) are now the `rightkit-roots` 0.1.0 crate, moved with `git mv`, with the exclusive lock file they share with the host election (`discovery.rs`'s `LockedFile` and `try_lock_exclusive`, now `rightkit_roots::lock`). The 2026-11-11 shape review (docs/audits/2026-11-11-shape-matrix/reports/family-foundation-runtime.md, rightkit-daemon section) found them to be path and run-mode policy that apps with no daemon link this crate for; its action: "Move mode/Suite/AppRoot/root_cutover to one roots crate (or rightkit-fs) and make daemon, models and qa depend on that."

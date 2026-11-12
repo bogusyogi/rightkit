@@ -17,7 +17,7 @@ path = "src/lib.rs"
 rightkit-db = { version = "0.5.3", default-features = false, features = ["bundled", "cipher", "statement-cache"], path = "../rightkit-db" }
 rightkit-search = { version = "0.4.1", default-features = false, path = "../rightkit-search" }
 rightkit-mail = { version = "0.1.1", path = "../rightkit-mail" }
-rightkit-google-apis = { version = "0.1.0", path = "../rightkit-google-apis" }
+rightkit-google-apis = { version = "0.2.0", path = "../rightkit-google-apis" }
 rightkit-cache = { version = "0.2.3", path = "../rightkit-cache" }
 rightkit-embed = { version = "0.7.0", path = "../rightkit-embed" }
 rightkit-models = { version = "0.7.0", path = "../rightkit-models" }

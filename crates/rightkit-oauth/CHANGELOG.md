@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.11.0
+
+- Requires `rightkit-http` 0.4.0 (a breaking release), so this release is breaking too.
+
 ## 0.10.5
 
 - Manifest only: dependency requirements and workspace metadata changed since 0.10.4 was published; no source change.

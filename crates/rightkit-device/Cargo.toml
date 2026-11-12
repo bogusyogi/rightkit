@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-device"
-version = "0.4.2"
+version = "0.5.0"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Native host services for Right Suite Tauri license and device adapters."
@@ -19,9 +19,9 @@ license-client = ["credentials", "rightkit-license/client"]
 [dependencies]
 getrandom = "0.4"
 rightkit-credentials = { version = "0.5.0", path = "../rightkit-credentials", optional = true }
-rightkit-license = { version = "0.2.6", path = "../rightkit-license" }
+rightkit-license = { version = "0.3.0", path = "../rightkit-license" }
 # The log/diagnostic bridges moved there; re-exported here for one release.
-rightkit-logs = { version = "0.4.0", path = "../rightkit-logs", default-features = false }
+rightkit-logs = { version = "0.4.1", path = "../rightkit-logs", default-features = false }
 
 [package.metadata.rightkit]
 continuous = false

@@ -18,7 +18,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1" }
 rightkit-social-publish = { version = "0.2.0", path = "../rightkit-social-publish" }
 rightkit-social-analytics = { version = "0.3.0", path = "../rightkit-social-analytics" }
-rightkit-http = { version = "0.3.9", path = "../rightkit-http" }
+rightkit-http = { version = "0.4.0", path = "../rightkit-http" }
 rightkit-crypto = { version = "0.1.0", path = "../rightkit-crypto" }
 rightkit-logs = { version = "0.4.0", default-features = false, path = "../rightkit-logs" }
 rightkit-time = { version = "0.1.1", path = "../rightkit-time" }

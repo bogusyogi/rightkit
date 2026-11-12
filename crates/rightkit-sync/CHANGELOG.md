@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.0
+
+- Requires `rightkit-http` 0.4.0 (a breaking release), so this release is breaking too.
+
 ## 0.2.3 (unpublished)
 
 - New feature `cloudkit-live` (no library code): `tests/helper_e2e.rs` builds only with it, as `vault-s3` gates the real-bucket test. A default test build no longer consists solely of tests that must be skipped, which the gate refuses (rightkit#1560).

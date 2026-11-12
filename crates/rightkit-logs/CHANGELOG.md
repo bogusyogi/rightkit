@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.1
 
 - Fixed: `ValueWriter::snapshot` also copies each store's rotated generations (`name.1` newest) beside the current file, so a diagnostics bundle no longer loses the rotated predecessor. New `JsonlStore::generation_paths()`. Additive.
 - New: `LogHost`, `LogService`, `DiagnosticHost`, `DiagnosticService`, `HostOperation`, `HostOperationError` (moved from `rightkit-device`, which re-exports them for one release). No new dependency.

@@ -20,7 +20,7 @@ host-env = []
 rightkit-app-settings = { version = "0.4.0", path = "../rightkit-app-settings" }
 rightkit-agent-policy = { version = "0.1.0", path = "../rightkit-agent-policy" }
 # The suite root behind the state root (`Suite`, `SuiteError`), from rightkit-roots since rightkit-daemon 0.8.0.
-rightkit-roots = { version = "0.1.0", path = "../rightkit-roots" }
+rightkit-roots = { version = "0.2.0", path = "../rightkit-roots" }
 rightkit-fs = { version = "0.4.9", path = "../rightkit-fs", default-features = false, features = ["fs", "lock", "json", "digest", "transaction"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.154", features = ["raw_value"] }

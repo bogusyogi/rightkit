@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.0
 
 - `ClientConfig::single_deadline(timeout)` and `Client::try_new_or_direct(config)`: one overall deadline per call (phase limits cleared, `request_timeout` and `stream_timeout` set), and a client that falls back to a direct connection when the proxy settings cannot be used, as `ureq` did. Replace the per-app `parity_client` wrappers in HeardRight's telemetry and text-pipeline crates (#1572).
 - Breaking: the `agent_host` feature and the `http_client` module are removed; the module moved to `rightkit-agent-daemon` (`rightkit_agent_daemon::http_client`), its only users being the agent host and the bot-messaging relay (#1572).

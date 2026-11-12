@@ -47,7 +47,7 @@ rightkit-timeline = { version = "0.1.0", path = "../rightkit-timeline", optional
 rightkit-ffmpeg = { version = "0.3.0", path = "../rightkit-ffmpeg", default-features = false, optional = true }
 rightkit-fs = { version = "0.4.9", path = "../rightkit-fs", default-features = false, features = ["fs", "blake3", "zip"], optional = true }
 rightkit-child-process = { version = "0.5.7", path = "../rightkit-child-process", optional = true }
-rightkit-daemon = { version = "0.8.0", path = "../rightkit-daemon", default-features = false, optional = true }
+rightkit-daemon = { version = "0.9.0", path = "../rightkit-daemon", default-features = false, optional = true }
 rightkit-daemon-remote = { version = "0.1.0", path = "../rightkit-daemon-remote", features = ["remote"], optional = true }
 ring = { version = "0.17", optional = true }
 

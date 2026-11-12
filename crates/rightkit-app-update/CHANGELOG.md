@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.0
+
+- Requires `rightkit-http` 0.4.0 (a breaking release), so this release is breaking too.
+
 ## 0.1.0 (unreleased)
 
 New crate for #448 (HeardRight's tauri-plugin-updater and tauri-plugin-http cutover; boot probation requested by the CodeRight owner chat, narrowed by decision D1 of #771).

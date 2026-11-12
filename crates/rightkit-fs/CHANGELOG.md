@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.15
 
 - Docs: the `app_dirs` module docs said every Windows folder is asked of `SHGetKnownFolderPath`; only the Profile folder is. Roaming and Local AppData are read from the `User Shell Folders` value and expanded against the account's environment block. No behaviour change.
 
