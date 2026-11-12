@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.1
+
+- Fix: the origin filter never matched. Its options were the rows' display labels (a friendly app name such as "Google Chrome"), and that label went to the source as `LibraryQuery.origin`, while a source such as HeardRight's delivery store matches its own raw key (the process name). `LibraryOrigin` gains `filterKey` (the source's key, default `label`): the filter sends `filterKey` and shows `label`. `LibraryToolbar`'s `appOptions` also takes `{ value, label }` options (`LibraryFilterOption`); bare strings behave as before.
+- Docs: "no IPC" holds for the main entry (contract, list, reader) only; the `./queue` entry imports `@tauri-apps/api`, `@tauri-apps/plugin-dialog` and `@rightkit/tauri-shell` and calls ScrapeRight's commands by name. README, CHANGELOG wording and the entry comments say so.
+
 ## 0.2.0 (unpublished)
 
 Shape review 2026-11-11 (`docs/audits/2026-11-11-shape-matrix/reports/family-content-ingest-mail.md`; design in `reports/dictation-library-ui-redraw-design.md`). Taken on the recommended option, pending the owner's confirmation.
@@ -7,7 +12,7 @@ Shape review 2026-11-11 (`docs/audits/2026-11-11-shape-matrix/reports/family-con
 The review judged this package the wrong shape: two apps' screens in two folders with no shared component, literal Tauri command names and one app's theme, licence and title bar. It is redrawn as one library contract with one list and one reader.
 
 Added:
-- `contract`: `LibrarySource` (the host's store: `query`, `copyText`, and optional `subscribe`, `remove`, `update`, `exportAll`, `saveText`, `retention`, `recovery`, `originIcon`, `detail`), `LibraryRow`, `LibraryOrigin`, `LibraryQuery`, `LibraryPageResult`, `LibraryVariant`, `LibraryGroup`, `LibraryDetail`. No IPC in the package.
+- `contract`: `LibrarySource` (the host's store: `query`, `copyText`, and optional `subscribe`, `remove`, `update`, `exportAll`, `saveText`, `retention`, `recovery`, `originIcon`, `detail`), `LibraryRow`, `LibraryOrigin`, `LibraryQuery`, `LibraryPageResult`, `LibraryVariant`, `LibraryGroup`, `LibraryDetail`. No IPC in the main entry (the `./queue` entry still imports Tauri; see 0.2.1).
 - `host`: `configureLibraryHost({ appName, storagePrefix, storageKeys })`; storage keys are no longer `heardright.*` / `hr.*` literals.
 - The list, from HeardRight's History page: `LibraryScreen` (filters, variants, retention, export, selection, edit, delete with confirmation, group visibility), `LibraryRows`, `LibraryRowView`, `LibraryToolbar`, `LibraryActionsLine`, `LibraryConfirmDialog`, `RecoveryBanner`, `OriginIcon`, `useLibraryQuery`, `useLibrarySelection`, `useGroupSelection`, list helpers (`format`). The generic half of `@rightkit/dictation-ui` 0.1.0's `pages/history/historyUtils` and `AppIcon` moved here.
 - The reader, from ScrapeRight's Detail reader: `LibraryReader` over `source.detail(id)`, with the reader parts (`TranscriptBody`, `FindBar`, `CarouselLayout`, `ImageGrid`, `MediaPlayer`, `textForTab`) and find helpers on `LibraryDetail`.

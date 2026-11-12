@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.1
+
+- Fix: History's app filter matches. `deliveryRow` sets `origin.filterKey` to the key the delivery store's `app_name` filter matches (`deliveryFilterKey`: the file label for a file transcription, else the raw process name, window title or "Unknown app"), so `deliveryQueryArgs` sends that key as `app` instead of the friendly name. Needs `@rightkit/library-ui` 0.2.1 (`LibraryOrigin.filterKey`).
+
 ## 0.2.0 (unpublished)
 
 Shape review 2026-11-11 (`docs/audits/2026-11-11-shape-matrix/reports/family-remaining.md`; design in `reports/dictation-library-ui-redraw-design.md`). Taken on the recommended option, pending the owner's confirmation.

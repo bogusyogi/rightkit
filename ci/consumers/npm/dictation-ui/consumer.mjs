@@ -9,7 +9,7 @@ const result = { recipeId, schemaVersion: 1, ok: false, host: { platform: proces
 const failure = error => ({ name: error?.name ?? 'Error', message: String(error?.message ?? error) });
 const required = name => { assert(process.env[name], `${name} is required`); return process.env[name]; };
 const surface = [".", "./package.json", "./pill"];
-const expected = ["configureDictationHost", "HomePage", "DictationHistory", "deliveryRow"];
+const expected = ["configureDictationHost", "HomePage", "DictationHistory", "deliveryRow", "deliveryFilterKey", "deliveryQueryArgs"];
 
 try {
   const archive = path.resolve(required('RIGHTKIT_CONSUMER_ARTIFACT'));
@@ -36,7 +36,12 @@ try {
     assert.deepEqual(Object.keys(manifest.exports ?? {}).sort(), surface);
     const mod = await import(provenance.entries['@rightkit/dictation-ui']);
     for (const key of expected) assert.ok(key in mod, `missing root export ${key}`);
-    return { checked: expected, exportKeys: surface.length };
+    // The app filter sends the raw key the delivery store matches, and shows the friendly name.
+    const row = mod.deliveryRow({ delivery_id: 'd1', transcript: 't', delivered_at_ms: 1, outcome: { kind: 'pasted' }, target: { process_name: 'chrome.exe', window_title: 'Docs' } });
+    assert.equal(row.origin.label, 'Google Chrome');
+    assert.equal(row.origin.filterKey, 'chrome.exe');
+    assert.equal(mod.deliveryQueryArgs({ search: '', fromMs: null, untilMs: null, origin: row.origin.filterKey, variant: 'dictations', offset: 0, limit: 50 }).app, 'chrome.exe');
+    return { checked: expected, exportKeys: surface.length, filterKey: row.origin.filterKey };
   });
 
   assert.equal(result.scenarios.length, 1);

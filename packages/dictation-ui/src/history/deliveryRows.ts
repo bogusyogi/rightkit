@@ -78,7 +78,20 @@ export function targetDisplay(item: HistoryItem): { app: string; windowTitle: st
   return { app, windowTitle: redundant ? "" : windowTitle };
 }
 
-/** A delivery record as a library row. `origin.iconKey` is the exe path, else the process name. */
+/**
+ * The key the delivery store's app filter matches (`app_name`, written as the lower-cased raw label):
+ * the file label for a file transcription, else the raw process name, window title or "Unknown app".
+ * Never the friendly name the row shows, which the store cannot match.
+ */
+export function deliveryFilterKey(item: HistoryItem): string {
+  if (item.source?.kind === "file_transcription") return targetLabel(item);
+  return item.target?.process_name || item.target?.window_title || "Unknown app";
+}
+
+/**
+ * A delivery record as a library row. `origin.label` is the friendly app name, `origin.filterKey` the raw
+ * key the store filters on (`deliveryFilterKey`), `origin.iconKey` the exe path, else the process name.
+ */
 export function deliveryRow(item: HistoryItem): LibraryRow {
   const { app, windowTitle } = targetDisplay(item);
   const kind = item.source?.kind === "file_transcription" ? "file" : item.source?.kind === "cloud_sync" ? "synced" : "app";
@@ -90,6 +103,7 @@ export function deliveryRow(item: HistoryItem): LibraryRow {
     timestampMs: item.delivered_at_ms,
     origin: {
       label: app,
+      filterKey: deliveryFilterKey(item),
       detail: windowTitle || undefined,
       iconKey: kind === "app" ? item.target?.exe_path?.trim() || item.target?.process_name?.trim() || undefined : undefined,
       kind,
