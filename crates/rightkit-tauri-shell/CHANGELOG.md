@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- New feature `viewer` (on by default) gates the document-viewer surface: modules `preview`, `stream`, `site`, `print`, `content_webview`, their re-exports, `ShellBuilder::{preview_protocol, stream_protocol, site_protocol}`, the `ShellState` stream/site fields, the `rk_shell_stream_grant`, `rk_shell_site_grant`, `rk_shell_site_revoke`, `rk_shell_print` and `rightkit_preview_*` commands (and their entries in `handler!`), `Denial::PreviewDocument`, `refuse_preview_document` and `host::policy::PREVIEW`. An app that uses none of them opts out with `default-features = false`; an app that already uses `default-features = false` and one of them must now add `viewer`. `rk_shell_status` omits `streamScheme`, `streamSchemes` and `siteScheme` without it.
+- `random_hex` and the OS entropy reader moved to an internal module shared by the path broker, previews and the updater (the broker's duplicate reader is gone); behaviour unchanged.
+
 ## 0.8.0
 
 - **New: `OverlayService::set_full_screen_policy(id, policy)`** changes an overlay's `FullScreenPolicy` while it lives, for an app whose rule depends on its own state (an active overlay stays above a full-screen program, a resting one hides). It acts at once on the last verdict: a shown overlay hides when the policy becomes `Hide` and a program already fills its monitor, and returns on `StayAbove`. Also on `OverlayHost`, `Overlay` and `OverlayCore`.

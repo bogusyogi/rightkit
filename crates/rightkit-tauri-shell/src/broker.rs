@@ -107,37 +107,9 @@ pub fn normalize_write_target(path: impl AsRef<Path>) -> Result<PathBuf, ShellEr
     Ok(parent.join(name))
 }
 
-#[cfg(unix)]
-fn fill_entropy(buf: &mut [u8]) -> std::io::Result<()> {
-    extern "C" {
-        fn getentropy(buf: *mut std::ffi::c_void, len: usize) -> std::ffi::c_int;
-    }
-    // SAFETY: `buf` is a valid writable slice of at most 256 bytes.
-    if unsafe { getentropy(buf.as_mut_ptr().cast(), buf.len()) } == 0 {
-        Ok(())
-    } else {
-        Err(std::io::Error::last_os_error())
-    }
-}
-
-#[cfg(windows)]
-fn fill_entropy(buf: &mut [u8]) -> std::io::Result<()> {
-    #[link(name = "advapi32")]
-    extern "system" {
-        #[link_name = "SystemFunction036"]
-        fn RtlGenRandom(buf: *mut u8, len: u32) -> u8;
-    }
-    // SAFETY: `buf` is a valid writable slice for `len` bytes.
-    if unsafe { RtlGenRandom(buf.as_mut_ptr(), buf.len() as u32) } != 0 {
-        Ok(())
-    } else {
-        Err(std::io::Error::last_os_error())
-    }
-}
-
 fn random_id(prefix: &str) -> Result<String, ShellError> {
     let mut bytes = [0_u8; 16];
-    fill_entropy(&mut bytes)
+    crate::entropy::fill_entropy(&mut bytes)
         .map_err(|e| ShellError::Other(format!("entropy source unavailable: {e}")))?;
     let mut id = String::with_capacity(prefix.len() + 32);
     id.push_str(prefix);

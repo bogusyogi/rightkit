@@ -31,12 +31,14 @@ pub mod caller_gate;
 pub mod clipboard;
 pub mod commands;
 pub mod consent;
+#[cfg(feature = "viewer")]
 pub mod content_webview;
 #[cfg(feature = "crash")]
 pub mod crash_commands;
 pub mod devtools;
 #[cfg(feature = "engine")]
 pub mod engine;
+mod entropy;
 pub mod error;
 pub mod frameless;
 pub mod harden;
@@ -58,13 +60,17 @@ pub mod os_settings;
 pub mod overlay_host;
 #[cfg(feature = "pdf-host")]
 pub mod pdf_host;
+#[cfg(feature = "viewer")]
 pub mod preview;
+#[cfg(feature = "viewer")]
 pub mod print;
 pub mod quit;
 pub mod recovery;
+#[cfg(feature = "viewer")]
 pub mod site;
 pub mod startup_cache;
 pub mod startup_error;
+#[cfg(feature = "viewer")]
 pub mod stream;
 pub mod surface;
 pub mod tray;
@@ -99,6 +105,7 @@ pub use associations::{AssociationGroup, AssociationSpec};
 pub use autostart::{AutostartMigration, AutostartOptions, LegacyAutostartNames, MacosBackend};
 pub use broker::PathBroker;
 pub use clipboard::{ClipboardItem, ClipboardOptions, ClipboardPolicy, ImagePreference};
+#[cfg(feature = "viewer")]
 pub use content_webview::{ContentProfile, ContentWebviewSpec};
 pub use devtools::{ContentWebview, DevToolsError, DevToolsGate, DevToolsPolicy, WebviewDecision};
 pub use error::ShellError;
@@ -118,13 +125,16 @@ pub use open_paths::EVENT_OPEN_PATHS;
 pub use opener::{ExternalOpener, SystemOpener};
 pub use os_settings::SettingsPane;
 pub use presence::{AutoPrefs, PresenceState};
+#[cfg(feature = "viewer")]
 pub use preview::{PreviewLimits, PreviewStore};
 pub use recovery::{MigrationOutcome, RecoverySpec};
 pub use single_instance::{
     ClaimFailure, ClaimOptions, ClaimOutcome, InstanceMessage, LegacySingleInstanceNames,
     SingleInstance, SingleInstanceGuard,
 };
+#[cfg(feature = "viewer")]
 pub use site::SitePolicy;
+#[cfg(feature = "viewer")]
 pub use stream::{StreamEvent, StreamEventKind, StreamObserver, StreamPolicy};
 pub use surface::{
     SurfaceActivation, SurfaceClose, SurfacePlacement, SurfaceRegistry, SurfaceReport, SurfaceSpec,
@@ -292,11 +302,15 @@ pub struct ShellState {
     /// Result of the startup cache-directory repair (`None` when disabled).
     pub cache_repair: Mutex<Option<(PathBuf, recovery::CacheDirOutcome)>>,
     /// First scheme registered with [`ShellBuilder::stream_protocol`]; the default for `rk_shell_stream_grant`.
+    #[cfg(feature = "viewer")]
     pub stream_scheme: Option<String>,
     /// Every scheme registered with [`ShellBuilder::stream_protocol`].
+    #[cfg(feature = "viewer")]
     pub stream_schemes: Vec<String>,
     /// Scheme registered with [`ShellBuilder::site_protocol`].
+    #[cfg(feature = "viewer")]
     pub site_scheme: Option<String>,
+    #[cfg(feature = "viewer")]
     pub site_policy: site::SitePolicy,
     /// Modules this app installed (see [`Module`]).
     pub modules: ModuleSet,
@@ -349,7 +363,9 @@ pub struct ShellBuilder {
     watchdog: Option<WatchdogConfig>,
     on_menu: Option<MenuCallback>,
     on_second_instance: Option<SecondInstanceCallback>,
+    #[cfg(feature = "viewer")]
     streams: Vec<(String, StreamPolicy)>,
+    #[cfg(feature = "viewer")]
     site: Option<(String, site::SitePolicy)>,
     modules: ModuleSet,
     clipboard: clipboard::ClipboardPolicy,
@@ -367,6 +383,7 @@ pub struct ShellBuilder {
     engine: Option<engine::EngineSpec>,
     #[cfg(feature = "engine")]
     engine_policy: engine::EnginePolicy,
+    #[cfg(feature = "viewer")]
     previews: Vec<(String, Arc<preview::PreviewStore>)>,
     surfaces: Vec<SurfaceSpec>,
     surface_fallback: Option<(std::time::Duration, Option<String>)>,
@@ -419,7 +436,9 @@ impl Shell {
             watchdog: Some(WatchdogConfig::default()),
             on_menu: None,
             on_second_instance: None,
+            #[cfg(feature = "viewer")]
             streams: Vec::new(),
+            #[cfg(feature = "viewer")]
             site: None,
             modules: ModuleSet::all(),
             clipboard: clipboard::ClipboardPolicy::default(),
@@ -433,6 +452,7 @@ impl Shell {
             cache_dir: None,
             repair_cache: None,
             on_presence: None,
+            #[cfg(feature = "viewer")]
             previews: Vec::new(),
             surfaces: Vec::new(),
             surface_fallback: None,
@@ -658,6 +678,7 @@ impl ShellBuilder {
     /// Serve in-memory preview documents over `<scheme>://localhost/<token>` (see [`preview`]).
     /// # Panics
     /// Panics on a malformed scheme (a programmer error at startup).
+    #[cfg(feature = "viewer")]
     pub fn preview_protocol(mut self, scheme: &str, store: Arc<preview::PreviewStore>) -> Self {
         let scheme =
             nav::validate_internal_scheme(scheme).expect("rightkit-tauri-shell: preview_protocol");
@@ -761,6 +782,7 @@ impl ShellBuilder {
     }
     /// Serve broker-granted files over a ranged custom protocol: `<scheme>://localhost/<id>` with
     /// the id from `rk_shell_stream_grant` (see [`stream`]). Off unless this is called.
+    #[cfg(feature = "viewer")]
     pub fn stream_protocol(mut self, scheme: &str, policy: StreamPolicy) -> Self {
         let scheme = scheme.to_ascii_lowercase();
         self.streams.retain(|(s, _)| *s != scheme);
@@ -769,6 +791,7 @@ impl ShellBuilder {
     }
     /// Serve allowlisted subresources of granted site roots over `<scheme>://localhost/<token>/<path>`
     /// (see [`site`]). Granted with the `rk_shell_site_grant` command. Off unless this is called.
+    #[cfg(feature = "viewer")]
     pub fn site_protocol(mut self, scheme: &str, policy: site::SitePolicy) -> Self {
         self.site = Some((scheme.to_ascii_lowercase(), policy));
         self
@@ -1001,7 +1024,9 @@ pub(crate) fn install(cfg: ShellBuilder) -> TauriPlugin<Wry> {
     let ready_policy = show_policy_of(&cfg);
     let restore_windows = modules.contains(Module::WindowState);
     let main_label = cfg.main_label.clone();
+    #[cfg(feature = "viewer")]
     let previews = cfg.previews.clone();
+    #[cfg(feature = "viewer")]
     let (streams, site) = if modules.contains(Module::Stream) {
         (cfg.streams.clone(), cfg.site.clone())
     } else {
@@ -1032,9 +1057,12 @@ pub(crate) fn install(cfg: ShellBuilder) -> TauriPlugin<Wry> {
     if modules.contains(Module::NavigationPolicy) {
         plugin = plugin.on_navigation(move |webview, url| {
             // A remote-origin content window is governed by its own spec (origin allow-list).
+            #[cfg(feature = "viewer")]
             if content_webview::is_content(webview.label()) {
                 return true;
             }
+            #[cfg(not(feature = "viewer"))]
+            let _ = webview;
             match nav_hook.decide(url) {
                 NavDecision::Allow => true,
                 NavDecision::External { url } => {
@@ -1156,6 +1184,7 @@ pub(crate) fn install(cfg: ShellBuilder) -> TauriPlugin<Wry> {
             HardeningScript::Off => plugin,
         };
     }
+    #[cfg(feature = "viewer")]
     for (scheme, policy) in streams {
         plugin = plugin.register_asynchronous_uri_scheme_protocol(
             scheme,
@@ -1167,6 +1196,7 @@ pub(crate) fn install(cfg: ShellBuilder) -> TauriPlugin<Wry> {
             },
         );
     }
+    #[cfg(feature = "viewer")]
     if let Some((scheme, policy)) = site {
         plugin = plugin.register_asynchronous_uri_scheme_protocol(
             scheme,
@@ -1178,6 +1208,7 @@ pub(crate) fn install(cfg: ShellBuilder) -> TauriPlugin<Wry> {
             },
         );
     }
+    #[cfg(feature = "viewer")]
     for (scheme, store) in previews {
         plugin = plugin.register_asynchronous_uri_scheme_protocol(
             scheme,
@@ -1318,11 +1349,13 @@ fn setup(
     } else {
         None
     };
+    #[cfg(feature = "viewer")]
     let stream_schemes: Vec<String> = if cfg.modules.contains(Module::Stream) {
         cfg.streams.iter().map(|(s, _)| s.clone()).collect()
     } else {
         Vec::new()
     };
+    #[cfg(feature = "viewer")]
     let site_scheme = if cfg.modules.contains(Module::Stream) {
         cfg.site.as_ref().map(|(s, _)| s.clone())
     } else {
@@ -1371,6 +1404,7 @@ fn setup(
     }
     app.manage(surface_registry);
     // The preview schemes: a webview showing one of them is untrusted content (see `caller_gate`).
+    #[cfg(feature = "viewer")]
     app.manage(preview::PreviewOrigins::new(
         cfg.previews.iter().map(|(scheme, _)| scheme.clone()),
     ));
@@ -1428,9 +1462,13 @@ fn setup(
         }),
         recovery,
         cache_repair: Mutex::new(cache_repair),
+        #[cfg(feature = "viewer")]
         stream_scheme: stream_schemes.first().cloned(),
+        #[cfg(feature = "viewer")]
         stream_schemes,
+        #[cfg(feature = "viewer")]
         site_scheme,
+        #[cfg(feature = "viewer")]
         site_policy: cfg
             .site
             .as_ref()
@@ -1586,7 +1624,7 @@ fn setup(
 #[macro_export]
 macro_rules! handler {
     ($($app_cmd:path),* $(,)?) => {
-        $crate::__rk_handler_host![
+        $crate::__rk_handler_viewer![
             $crate::commands::rk_shell_open_external,
             $crate::commands::rk_shell_ready,
             $crate::commands::rk_shell_status,
@@ -1627,17 +1665,13 @@ macro_rules! handler {
             $crate::commands::rk_shell_path_revoke,
             $crate::commands::rk_shell_path_grant_recent,
             $crate::commands::rk_shell_path_regrant_saved,
-            $crate::commands::rk_shell_stream_grant,
             $crate::commands::rk_shell_recovery_save,
             $crate::commands::rk_shell_recovery_load,
             $crate::commands::rk_shell_recovery_clear,
             $crate::commands::rk_shell_clipboard_item,
-            $crate::commands::rk_shell_site_grant,
-            $crate::commands::rk_shell_site_revoke,
             $crate::commands::rk_shell_set_menu_item_checked,
             $crate::commands::rk_shell_set_menu_state,
             $crate::surface::rk_shell_set_surface,
-            $crate::print::rk_shell_print,
             $crate::open_paths::rk_shell_open_paths_ready,
             $crate::associations::rk_shell_associations_status,
             $crate::associations::rk_shell_associations_set,
@@ -1650,6 +1684,35 @@ macro_rules! handler {
 // These macros let `handler!` add a feature's commands without the app enabling that
 // feature: a `cfg` inside `handler!` itself would be evaluated in the APP crate, so each feature
 // gets a pair of macros whose `cfg` is evaluated here.
+
+/// Prepends the viewer commands: stream and site grants, print, preview documents (feature `viewer`).
+#[doc(hidden)]
+#[macro_export]
+#[cfg(feature = "viewer")]
+macro_rules! __rk_handler_viewer {
+    ($($cmd:tt)*) => {
+        $crate::__rk_handler_host![
+            $crate::commands::rk_shell_stream_grant,
+            $crate::commands::rk_shell_site_grant,
+            $crate::commands::rk_shell_site_revoke,
+            $crate::print::rk_shell_print,
+            $crate::preview::rightkit_preview_register,
+            $crate::preview::rightkit_preview_revoke,
+            $crate::preview::rightkit_preview_revoke_all,
+            $($cmd)*
+        ]
+    };
+}
+
+/// Passes the list on unchanged (feature `viewer` off).
+#[doc(hidden)]
+#[macro_export]
+#[cfg(not(feature = "viewer"))]
+macro_rules! __rk_handler_viewer {
+    ($($cmd:tt)*) => {
+        $crate::__rk_handler_host![$($cmd)*]
+    };
+}
 
 /// Prepends the settings and secrets commands (feature `host-services`).
 #[doc(hidden)]
@@ -1670,9 +1733,6 @@ macro_rules! __rk_handler_host {
             $crate::host::legal::rightkit_legal_receipt_read,
             $crate::host::legal::rightkit_legal_receipt_create,
             $crate::host::legal::rightkit_legal_receipt_reset,
-            $crate::preview::rightkit_preview_register,
-            $crate::preview::rightkit_preview_revoke,
-            $crate::preview::rightkit_preview_revoke_all,
             $($cmd)*
         ]
     };

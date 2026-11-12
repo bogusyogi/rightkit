@@ -11,6 +11,7 @@ Shared Tauri desktop shell for Right Suite applications. It owns hardened webvie
 | Feature | Default | Pulls in | Effect |
 |---|---|---|---|
 | `engine` | off | `rightkit-job-queue` (optional; `rightkit-child-process` is an unconditional dependency) | Engine sidecar wiring over `rightkit-job-queue` `EngineClient`. Opt in; it pulls `rightkit-job-queue` (db, time, uuid). |
+| `viewer` | on | nothing | The document-viewer surface: `preview`, `stream`, `site`, `print` and `content_webview` with `preview_protocol`, `stream_protocol`, `site_protocol`, the `rk_shell_stream_grant`, `rk_shell_site_*`, `rk_shell_print` and `rightkit_preview_*` commands, `ContentProfile`/`ContentWebviewSpec`, and the preview-document caller refusal. An app with `default-features = false` must add `viewer` to keep them. |
 | `wv2-0_38` | off | `windows` 0.61, `webview2-com` 0.38 | Windows types for apps locked to Tauri 2.11. Use `default-features = false, features = ["wv2-0_38"]` & retain other selected features. |
 | `wv2-0_39` | on | `windows` 0.62, `webview2-com` 0.39 | Windows types for Tauri 2.12; default since 0.5.0. Enabling both selects 0.39. |
 | `content-devtools` | off | `tauri/devtools` | Required by `DevToolsPolicy::ContentOnly`. Only an app on the `right-release` allow-list (today ViewRight) may ship it; see "DevTools policy". Never a default feature. |
