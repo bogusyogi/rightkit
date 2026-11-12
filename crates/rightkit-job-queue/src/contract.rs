@@ -22,6 +22,7 @@ use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
+use rightkit_sidecar::wire::{Frame, WireError};
 use rightkit_sidecar::{
     encode_json_line, read_json_line_or_oversized, write_json_line, FrameError, Incoming,
     ReadLimits,
@@ -121,13 +122,18 @@ impl EventEmitter {
     /// dispatcher's frame limit or cannot be written as one line; nothing is written then.
     /// Delivery to a peer that has already gone is not reported (the connection ends the serve).
     pub fn emit(&self, event: Value) -> JobResult<()> {
-        self.send(json!({"type": "event", "event": event}))
+        self.send(Frame::event(None, event).to_value(true))
     }
 
     /// As [`Self::emit`], with the event frame carrying a top-level `session_id` so a client can
     /// route it to one session (subscribers receive the frame whole).
     pub fn emit_for_session(&self, session_id: &str, event: Value) -> JobResult<()> {
-        self.send(json!({"type": "event", "session_id": session_id, "event": event}))
+        let frame = Frame::Event {
+            id: None,
+            session_id: Some(session_id.to_string()),
+            event,
+        };
+        self.send(frame.to_value(true))
     }
 
     fn send(&self, frame: Value) -> JobResult<()> {
@@ -215,13 +221,19 @@ pub struct Outcome {
 }
 
 fn ok(id: u64, result: Value) -> Value {
-    json!({"type": "response", "id": id, "ok": true, "result": result})
+    Frame::ok(id, result).to_value(true)
 }
 fn err(id: u64, code: &str, message: &str) -> Value {
-    json!({"type": "response", "id": id, "ok": false, "error": {"code": code, "message": message, "retryable": false}})
+    Frame::err(id, WireError::new(code, message)).to_value(true)
 }
 fn err_job(id: u64, e: &JobError, retryable: bool) -> Value {
-    json!({"type": "response", "id": id, "ok": false, "error": e.to_json_with(retryable)})
+    let error = WireError {
+        code: e.code.clone(),
+        message: e.message.clone(),
+        retryable: e.retryable,
+        details: e.details().cloned(),
+    };
+    Frame::err(id, error).to_value(retryable)
 }
 
 /// `internal` error for a panic while serving `method`.
@@ -416,8 +428,12 @@ impl Dispatcher {
         self
     }
     pub fn hello(&self) -> Value {
-        let mut hello = json!({"type": "hello", "engine": self.engine, "version": self.version,
-               "contract_version": CONTRACT_VERSION});
+        let mut hello = Frame::Hello {
+            engine: self.engine.clone(),
+            version: self.version.clone(),
+            contract_version: CONTRACT_VERSION,
+        }
+        .to_value(true);
         for (k, v) in &self.hello_fields {
             hello[k.as_str()] = v.clone();
         }
@@ -567,7 +583,7 @@ impl Dispatcher {
         let method = req["method"].as_str().unwrap_or("");
         let frames: Sink = {
             let emit = Arc::clone(emit);
-            Arc::new(move |ev| emit(json!({"type": "event", "id": id, "event": ev})))
+            Arc::new(move |ev| emit(Frame::event(Some(id), ev).to_value(true)))
         };
         let params = req.get("params").cloned().unwrap_or_else(|| json!({}));
         let response = match self.call(method, &params, dry_run, &frames) {

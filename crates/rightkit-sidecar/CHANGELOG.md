@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Added `wire::Frame::to_value(include_error_retryable)`: the frame as a JSON value, optionally without `retryable` in a failed response's `error` (for a peer whose wire `error` is `{code, message}`).
+
 ## 0.3.2
 - Docs: intra-doc links rustdoc could not resolve (feature-only, private or out-of-scope items) are plain code, so the doc build (`-D warnings`) passes.
 

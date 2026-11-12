@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Changed: the dispatcher builds its hello, event and response frames through `rightkit_sidecar::wire::Frame` instead of `json!` literals. The bytes on the wire are unchanged.
+
 ## 0.6.0
 
 - Added: feature `serve` (implies `protocol`, no store): `Dispatcher`, `serve`, `serve_report`, `run_cli`, `CommandSet`, `EventEmitter` and the related types are available without the database. `contract` now means `serve` plus `store` and adds only `JobCommands`, `PayloadMapper` and `JOB_METHODS`; every existing `contract` and `service` consumer builds unchanged (the dispatcher code stays in `contract.rs`, the `job.*` commands moved to `job_commands.rs`, same public paths).
