@@ -4,6 +4,6 @@ Packed-archive consumer for `@rightkit/agent-ui-approvals` (the workspace versio
 
 Surface (exact `exports` keys): `.`, `./*`, `./*.css`, `./*.json`.
 
-Scenario (1): the installed manifest is the reviewed package and its export keys match; the root entry imports and exposes `setHostAppName`, `hostAppName`, `AgentApprovalCard`.
+Scenario (1): the installed manifest is the reviewed package and its export keys match; the root entry imports and exposes `setHostAppName`, `hostAppName`, `AgentApprovalCard`, `agentScopes`, `auditScope`; `agentScopes` and `auditScope` read both agent wires (gateway 0.3.0 `scopes`/`scope`, older `accounts`/`account_id`).
 
 Required environment: `RIGHTKIT_CONSUMER_ARTIFACT`, `RIGHTKIT_CONSUMER_ARTIFACT_SHA256`, `RIGHTKIT_CONSUMER_EXPECTED_VERSION` and `RIGHTKIT_CONSUMER_RESOLUTION` (`packed` or `fetched`). `provenance.mjs` is the shared byte-identical helper that binds every installed file to the supplied archive. No network, no credentials. Output is one JSON line; `nativeHostQualified` is always false.

@@ -2,6 +2,7 @@
 import { SettingRow, SettingsGroup } from "@rightkit/settings-ui/core";
 import { Button, Table, TableBody, TableCell, TableHead, TableHeaderCell, TableRow } from "@rightkit/react-shell/react";
 import type { AgentAuditRow } from "@rightkit/mail-ui/lib/ipc";
+import { auditScope } from "../lib/agentWire.js";
 
 function when(ms: number): string {
   return new Date(ms).toLocaleString();
@@ -36,7 +37,7 @@ export function SettingsAgentsAudit({
                 <TableRow key={r.id}>
                   <TableCell>{when(r.at)}</TableCell>
                   <TableCell>{r.agent_name ?? ""}</TableCell>
-                  <TableCell>{r.account_id ?? ""}</TableCell>
+                  <TableCell>{auditScope(r) ?? ""}</TableCell>
                   <TableCell>{r.method}</TableCell>
                   <TableCell>{r.outcome}</TableCell>
                   <TableCell>{r.detail ?? ""}</TableCell>

@@ -731,8 +731,8 @@
         ]
       },
       "files": {
-        "ci/consumers/npm/agent-ui-approvals/README.md": "e309af96fe42c41d5878219e1eab1f94ec5faa3921fb464fe1e779aea7e42343",
-        "ci/consumers/npm/agent-ui-approvals/consumer.mjs": "2b249fff3c04b999bf377622d2cd37a909e9a74facf69dfe28ad3b25bfad3f35",
+        "ci/consumers/npm/agent-ui-approvals/README.md": "5cdfaa50d5b4a52698732235ceb3880c9f2f2781faf5dbdb2e80f081ce5b37c2",
+        "ci/consumers/npm/agent-ui-approvals/consumer.mjs": "fc6710db18c95cd7104428f66d383afaff68069facb6cbb0723202b1cc503b71",
         "ci/consumers/npm/agent-ui-approvals/package.json": "a3198dad7ff35557c4c108bf807d8e0c6501c9c297b7094c880bc91364c28ac2",
         "ci/consumers/npm/agent-ui-approvals/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "fc160695e1dc97dc7e32e746c9e4471e2d85168b097623de818befeb00ee438c"
@@ -1582,8 +1582,8 @@
         ]
       },
       "files": {
-        "ci/consumers/npm/mail-ui/README.md": "e630aaeeb2e81db658a299ff1133274f194f9bf7edb21911e7e15cd14d996295",
-        "ci/consumers/npm/mail-ui/consumer.mjs": "c0116924896989ddd20aa2bc24bba0602c94ecb96b32097667a39166a1870964",
+        "ci/consumers/npm/mail-ui/README.md": "cd4d361cbdae6c78311945d184a25779c9c05e5938aaa72a6bf6719122c8dfd2",
+        "ci/consumers/npm/mail-ui/consumer.mjs": "87c6aed178db9d3421ba09fc42c538086c7b13d3667acb669469525b963d701f",
         "ci/consumers/npm/mail-ui/package.json": "f4c52f2b7b191c01b016f8881288366d5dc3af907c8cdf0f33e92b973461e755",
         "ci/consumers/npm/mail-ui/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "fc160695e1dc97dc7e32e746c9e4471e2d85168b097623de818befeb00ee438c"

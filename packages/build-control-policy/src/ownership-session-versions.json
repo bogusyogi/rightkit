@@ -13,7 +13,7 @@
     "@rightkit/updates": "0.2.3"
   },
   "stagedNpm": {
-    "@rightkit/agent-ui-approvals": "0.2.0",
+    "@rightkit/agent-ui-approvals": "0.2.1",
     "@rightkit/agent-ui-components": "0.1.1",
     "@rightkit/agent-ui-core": "0.1.1",
     "@rightkit/agent-ui-hooks": "0.1.0",
