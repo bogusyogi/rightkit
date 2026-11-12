@@ -1448,6 +1448,9 @@ importers:
 
   packages/react-shell:
     dependencies:
+      '@rightkit/theme':
+        specifier: workspace:^
+        version: link:../theme
       '@tauri-apps/plugin-os':
         specifier: '>=2 <3'
         version: 2.4.0
