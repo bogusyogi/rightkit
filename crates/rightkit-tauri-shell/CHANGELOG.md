@@ -5,7 +5,7 @@
 - **Fixed: licence removal uses the lent release queue.** `LicenseHostService::deactivate` calls the new `LicenseOps::deactivate_with_queue` (default: plain `deactivate`) when a queue was given with `with_release_queue`, so an offline removal no longer leaks the seat. Pair it with `rightkit_license::CredentialReleaseQueue`.
 - **Changed: the default `LicenseOps` for `LicenseClient` follows the client config** (`with_lease_activation`, `with_host_trial_platform`) instead of always using the typed-key activation and the platform-less trial request. Defaults unchanged.
 - **Fixed: the legal receipt read command returns a receipt of an earlier version** as `{ record, current: false }` (what `@rightkit/onboarding` expects) instead of `null`, which treated a user in the middle of setup as first-run. New `LegalReceiptService::read_state` and `LegalRead`; `read` is unchanged.
-- **Fixed: `LicenseAuthority` refreshes the licence before it captures a private binding**, best effort (a failed refresh keeps the stored entitlement), as a paid update needs a fresh one.
+- **New: `LicenseAuthority::with_refresh_before_private(true)`** re-validates the licence, best effort, before a private binding is captured (a failed refresh keeps the stored entitlement). Off by default: a binding is captured on every update check, so it costs one licence request per check and, offline, that request's timeout. An app that wants a fresh entitlement only at install calls `UpdateAuthProvider::refresh_best_effort` there.
 
 ## 0.8.0
 
