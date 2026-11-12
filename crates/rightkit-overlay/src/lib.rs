@@ -211,6 +211,29 @@ impl FullScreenPolicy {
     }
 }
 
+/// Why a full-screen verdict may have changed, from [`windows::run_foreground_event_pump`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ForegroundEvent {
+    /// A different window became foreground, or one was minimised or restored. A burst of these
+    /// belongs to one focus change.
+    Focus,
+    /// The foreground window was moved or resized. A resize is a continuous stream.
+    Geometry,
+}
+
+/// Stops a running [`windows::run_foreground_event_pump`]. Cheap to copy and send.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ForegroundPumpStop {
+    thread_id: u32,
+}
+
+impl ForegroundPumpStop {
+    /// Make the pump return. Safe to call more than once, and after the pump has returned.
+    pub fn stop(&self) {
+        windows::stop_pump(self.thread_id);
+    }
+}
+
 /// True when `window` covers all of `monitor` (both in the same screen coordinates). A window
 /// that is merely maximised does not: it stops at the work area.
 pub fn fills_monitor(window: WorkArea, monitor: WorkArea) -> bool {
@@ -346,6 +369,14 @@ pub struct FullScreenProbe {
     /// How far, in pixels, an edge of the window may fall short of the monitor edge and still
     /// count as covering it.
     pub edge_tolerance_px: i32,
+    /// Count only a foreground window without a caption and without a sizing border (a game, a
+    /// video player), measured by its DWM frame bounds (the visible edges, without the invisible
+    /// resize margins). A maximised ordinary window keeps its caption, so on a monitor without a
+    /// taskbar, where it matches the monitor exactly, it no longer hides the overlay. The shell
+    /// notification state then counts a presentation, and an exclusive Direct3D or Store-app
+    /// full-screen only when the window also covers the monitor, whatever its style. Off by
+    /// default: the covering test alone decides.
+    pub require_borderless: bool,
 }
 
 impl Default for FullScreenProbe {
@@ -358,6 +389,7 @@ impl Default for FullScreenProbe {
                 .collect(),
             use_shell_notification_state: true,
             edge_tolerance_px: 2,
+            require_borderless: false,
         }
     }
 }
@@ -469,11 +501,14 @@ pub mod windows {
 
     use windows_sys::core::BOOL;
     use windows_sys::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
+    use windows_sys::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_EXTENDED_FRAME_BOUNDS};
     use windows_sys::Win32::Graphics::Gdi::{
         GetMonitorInfoW, MonitorFromPoint, MonitorFromWindow, HMONITOR, MONITORINFO,
         MONITOR_DEFAULTTONEAREST,
     };
     use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
+    use windows_sys::Win32::System::Threading::{GetCurrentProcessId, GetCurrentThreadId};
+    use windows_sys::Win32::UI::Accessibility::{SetWinEventHook, UnhookWinEvent, HWINEVENTHOOK};
     use windows_sys::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
     use windows_sys::Win32::UI::Shell::{
         SHQueryUserNotificationState, QUNS_APP, QUNS_BUSY, QUNS_PRESENTATION_MODE,
@@ -481,19 +516,22 @@ pub mod windows {
     };
     use windows_sys::Win32::UI::WindowsAndMessaging::WS_POPUP;
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        CallWindowProcW, CreateWindowExW, DefWindowProcW, DestroyWindow, EnumWindows,
-        GetClassNameW, GetDesktopWindow, GetForegroundWindow, GetShellWindow, GetWindowLongPtrW,
-        GetWindowRect, GetWindowThreadProcessId, IsIconic, IsWindowVisible,
-        SetWindowDisplayAffinity, SetWindowLongPtrW, SetWindowPos, GWLP_WNDPROC, GWL_EXSTYLE,
-        GWL_STYLE, HWND_MESSAGE, HWND_TOPMOST, MA_NOACTIVATE, SWP_FRAMECHANGED, SWP_HIDEWINDOW,
-        SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW,
-        WDA_EXCLUDEFROMCAPTURE, WDA_NONE, WM_MOUSEACTIVATE, WM_NCDESTROY, WNDPROC, WS_EX_APPWINDOW,
-        WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST,
+        CallWindowProcW, CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW,
+        EnumWindows, GetClassNameW, GetDesktopWindow, GetForegroundWindow, GetMessageW,
+        GetShellWindow, GetWindowLongPtrW, GetWindowRect, GetWindowThreadProcessId, IsIconic,
+        IsWindowVisible, PeekMessageW, PostThreadMessageW, SetWindowDisplayAffinity,
+        SetWindowLongPtrW, SetWindowPos, TranslateMessage, EVENT_OBJECT_LOCATIONCHANGE,
+        EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_MINIMIZEEND, EVENT_SYSTEM_MINIMIZESTART,
+        GWLP_WNDPROC, GWL_EXSTYLE, GWL_STYLE, HWND_MESSAGE, HWND_TOPMOST, MA_NOACTIVATE, MSG,
+        OBJID_WINDOW, PM_NOREMOVE, SWP_FRAMECHANGED, SWP_HIDEWINDOW, SWP_NOACTIVATE, SWP_NOMOVE,
+        SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW, WDA_EXCLUDEFROMCAPTURE, WDA_NONE,
+        WINEVENT_OUTOFCONTEXT, WM_MOUSEACTIVATE, WM_NCDESTROY, WM_QUIT, WM_USER, WNDPROC,
+        WS_EX_APPWINDOW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST,
     };
 
     use crate::{
-        ex_style, FullScreenProbe, MonitorPlacement, OverlayRect, OverlayStyle, WindowCreateError,
-        WorkArea,
+        ex_style, ForegroundEvent, ForegroundPumpStop, FullScreenProbe, MonitorPlacement,
+        OverlayRect, OverlayStyle, WindowCreateError, WorkArea,
     };
 
     static ORIGINAL_WNDPROCS: OnceLock<Mutex<HashMap<isize, isize>>> = OnceLock::new();
@@ -1117,10 +1155,235 @@ pub mod windows {
             if !crate::rects_overlap(window, monitor) {
                 return false;
             }
+            if probe.require_borderless {
+                return borderless_fullscreen_on(foreground, window, monitor, probe);
+            }
             if crate::covers_monitor_within(window, monitor, probe.edge_tolerance_px) {
                 return true;
             }
             probe.use_shell_notification_state && shell_reports_fullscreen()
+        }
+    }
+
+    /// The `require_borderless` branch of [`foreground_fullscreen_on`]: the window must have no
+    /// frame and cover the monitor by its DWM frame bounds. With the shell state on, a
+    /// presentation counts as is, and a Direct3D or Store-app full-screen counts when the window
+    /// covers the monitor, framed or not.
+    unsafe fn borderless_fullscreen_on(
+        foreground: HWND,
+        window_rect: WorkArea,
+        monitor: WorkArea,
+        probe: &FullScreenProbe,
+    ) -> bool {
+        let mut frame = RECT {
+            left: 0,
+            top: 0,
+            right: 0,
+            bottom: 0,
+        };
+        let measured = if DwmGetWindowAttribute(
+            foreground,
+            DWMWA_EXTENDED_FRAME_BOUNDS as u32,
+            &mut frame as *mut RECT as *mut core::ffi::c_void,
+            std::mem::size_of::<RECT>() as u32,
+        ) == 0
+        {
+            area(frame)
+        } else {
+            window_rect
+        };
+        let covers = crate::covers_monitor_within(measured, monitor, probe.edge_tolerance_px);
+        let style = GetWindowLongPtrW(foreground, GWL_STYLE) as u32;
+        if covers && crate::style_is_borderless(style) {
+            return true;
+        }
+        if !probe.use_shell_notification_state {
+            return false;
+        }
+        let mut state: i32 = 0;
+        if SHQueryUserNotificationState(&mut state) < 0 {
+            return false;
+        }
+        match state {
+            QUNS_PRESENTATION_MODE => true,
+            QUNS_RUNNING_D3D_FULL_SCREEN | QUNS_APP => covers,
+            _ => false,
+        }
+    }
+
+    type EventSink = std::sync::Arc<dyn Fn(ForegroundEvent) + Send + Sync>;
+
+    /// The running pump's sink; `Some` while a pump runs (one at a time per process).
+    static EVENT_SINK: Mutex<Option<EventSink>> = Mutex::new(None);
+    /// The foreground window the location hook filters on.
+    static FOREGROUND_HWND: std::sync::atomic::AtomicIsize = std::sync::atomic::AtomicIsize::new(0);
+    /// The per-process location hook; swapped only on the pump thread.
+    static LOCATION_HOOK: std::sync::atomic::AtomicPtr<core::ffi::c_void> =
+        std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
+
+    fn emit(event: ForegroundEvent) {
+        let sink = EVENT_SINK.lock().ok().and_then(|guard| guard.clone());
+        if let Some(sink) = sink {
+            sink(event);
+        }
+    }
+
+    /// Re-point the location hook at the foreground window's process. A system-wide location hook
+    /// would fire on every cursor move and animated window, so only the foreground process is
+    /// watched; this process's own windows are never a program's full-screen window.
+    unsafe fn watch_foreground_location(foreground: HWND) {
+        use std::sync::atomic::Ordering;
+        let previous = LOCATION_HOOK.swap(std::ptr::null_mut(), Ordering::SeqCst);
+        if !previous.is_null() {
+            UnhookWinEvent(previous);
+        }
+        if foreground.is_null() {
+            return;
+        }
+        let mut pid = 0u32;
+        GetWindowThreadProcessId(foreground, &mut pid);
+        if pid == 0 || pid == GetCurrentProcessId() {
+            return;
+        }
+        let hook = SetWinEventHook(
+            EVENT_OBJECT_LOCATIONCHANGE,
+            EVENT_OBJECT_LOCATIONCHANGE,
+            std::ptr::null_mut(),
+            Some(win_event_proc),
+            pid,
+            0,
+            WINEVENT_OUTOFCONTEXT,
+        );
+        LOCATION_HOOK.store(hook, Ordering::SeqCst);
+    }
+
+    unsafe extern "system" fn win_event_proc(
+        _hook: HWINEVENTHOOK,
+        event: u32,
+        hwnd: HWND,
+        id_object: i32,
+        _id_child: i32,
+        _event_thread: u32,
+        _event_time: u32,
+    ) {
+        use std::sync::atomic::Ordering;
+        match event {
+            EVENT_SYSTEM_FOREGROUND => {
+                // A transition can report no window; resolve the real foreground window.
+                let foreground = if hwnd.is_null() {
+                    GetForegroundWindow()
+                } else {
+                    hwnd
+                };
+                FOREGROUND_HWND.store(foreground as isize, Ordering::SeqCst);
+                watch_foreground_location(foreground);
+                emit(ForegroundEvent::Focus);
+            }
+            EVENT_SYSTEM_MINIMIZESTART | EVENT_SYSTEM_MINIMIZEEND => emit(ForegroundEvent::Focus),
+            EVENT_OBJECT_LOCATIONCHANGE
+                if id_object == OBJID_WINDOW
+                    && !hwnd.is_null()
+                    && hwnd as isize == FOREGROUND_HWND.load(Ordering::SeqCst) =>
+            {
+                emit(ForegroundEvent::Geometry)
+            }
+            _ => {}
+        }
+    }
+
+    unsafe fn unhook(hook: HWINEVENTHOOK) {
+        if !hook.is_null() {
+            UnhookWinEvent(hook);
+        }
+    }
+
+    /// Run the foreground event source on the calling thread, which it blocks until
+    /// [`ForegroundPumpStop::stop`]: a message pump with out-of-context WinEvent hooks for a new
+    /// foreground window and minimise or restore (system-wide, rare), and for a move or resize of
+    /// the foreground window (installed for the foreground window's process only and re-pointed on
+    /// every foreground change). It sleeps in `GetMessageW` with no timer. `on_ready` runs once the
+    /// hooks are installed and receives the handle that stops the pump; `on_event` runs on this
+    /// thread for every event and must only enqueue work. Returns `false` without calling
+    /// `on_ready` when the hooks could not be installed or a pump already runs in this process.
+    pub fn run_foreground_event_pump(
+        on_ready: impl FnOnce(ForegroundPumpStop),
+        on_event: impl Fn(ForegroundEvent) + Send + Sync + 'static,
+    ) -> bool {
+        use std::sync::atomic::Ordering;
+        {
+            let Ok(mut sink) = EVENT_SINK.lock() else {
+                return false;
+            };
+            if sink.is_some() {
+                return false;
+            }
+            *sink = Some(std::sync::Arc::new(on_event));
+        }
+        // SAFETY: the hooks and the message loop run on this thread only; the callbacks touch only
+        // the statics above.
+        unsafe {
+            let mut msg: MSG = std::mem::zeroed();
+            // Create this thread's message queue before announcing its id, so a WM_QUIT posted
+            // right after `on_ready` cannot be lost.
+            PeekMessageW(
+                &mut msg,
+                std::ptr::null_mut(),
+                WM_USER,
+                WM_USER,
+                PM_NOREMOVE,
+            );
+            let foreground = SetWinEventHook(
+                EVENT_SYSTEM_FOREGROUND,
+                EVENT_SYSTEM_FOREGROUND,
+                std::ptr::null_mut(),
+                Some(win_event_proc),
+                0,
+                0,
+                WINEVENT_OUTOFCONTEXT,
+            );
+            let minimize = SetWinEventHook(
+                EVENT_SYSTEM_MINIMIZESTART,
+                EVENT_SYSTEM_MINIMIZEEND,
+                std::ptr::null_mut(),
+                Some(win_event_proc),
+                0,
+                0,
+                WINEVENT_OUTOFCONTEXT,
+            );
+            if foreground.is_null() || minimize.is_null() {
+                unhook(foreground);
+                unhook(minimize);
+                if let Ok(mut sink) = EVENT_SINK.lock() {
+                    *sink = None;
+                }
+                return false;
+            }
+            let initial = GetForegroundWindow();
+            FOREGROUND_HWND.store(initial as isize, Ordering::SeqCst);
+            watch_foreground_location(initial);
+            on_ready(ForegroundPumpStop {
+                thread_id: GetCurrentThreadId(),
+            });
+            while GetMessageW(&mut msg, std::ptr::null_mut(), 0, 0) > 0 {
+                TranslateMessage(&msg);
+                DispatchMessageW(&msg);
+            }
+            unhook(foreground);
+            unhook(minimize);
+            unhook(LOCATION_HOOK.swap(std::ptr::null_mut(), Ordering::SeqCst));
+            FOREGROUND_HWND.store(0, Ordering::SeqCst);
+        }
+        if let Ok(mut sink) = EVENT_SINK.lock() {
+            *sink = None;
+        }
+        true
+    }
+
+    /// Stop the pump of [`run_foreground_event_pump`] from any thread.
+    pub(crate) fn stop_pump(thread_id: u32) {
+        // SAFETY: posting a thread message takes plain values.
+        unsafe {
+            PostThreadMessageW(thread_id, WM_QUIT, 0, 0);
         }
     }
 }
@@ -1178,6 +1441,13 @@ pub mod windows {
     ) -> bool {
         false
     }
+    pub fn run_foreground_event_pump(
+        _on_ready: impl FnOnce(crate::ForegroundPumpStop),
+        _on_event: impl Fn(crate::ForegroundEvent) + Send + Sync + 'static,
+    ) -> bool {
+        false
+    }
+    pub(crate) fn stop_pump(_thread_id: u32) {}
     pub fn create_layered_overlay_window(
         _hinstance: isize,
         _class_name: &str,

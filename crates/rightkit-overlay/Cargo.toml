@@ -15,8 +15,11 @@ serde = { version = "1.0.229", features = ["derive"] }
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61.2", features = [
     "Win32_Foundation",
+    "Win32_Graphics_Dwm",
     "Win32_Graphics_Gdi",
     "Win32_System_LibraryLoader",
+    "Win32_System_Threading",
+    "Win32_UI_Accessibility",
     "Win32_UI_HiDpi",
     "Win32_UI_Shell",
     "Win32_UI_WindowsAndMessaging",
@@ -24,6 +27,6 @@ windows-sys = { version = "0.61.2", features = [
 
 [package.metadata.rightkit]
 continuous = false
-continuous_reason = "no thread-spawn, task-spawn, sleep, timer, listener or watcher in non-test src: pure geometry and hover models plus, on Windows only, a window-procedure subclass installed on the caller's own window by make_noactivate (lib.rs) that runs only when that window receives a message and holds one map entry per window (reviewed 2026-10-11); resident-static: ORIGINAL_WNDPROCS in src/lib.rs (Windows only) is a OnceLock Mutex HashMap with one entry per subclassed caller window, inserted by install_noactivate_mouse_guard and removed on WM_NCDESTROY, so it holds no more entries than live subclassed windows (reviewed 2026-10-17)"
+continuous_reason = "no thread-spawn, task-spawn, sleep, timer, listener or watcher in non-test src: pure geometry and hover models plus, on Windows only, a window-procedure subclass installed on the caller's own window by make_noactivate (lib.rs) that runs only when that window receives a message and holds one map entry per window (reviewed 2026-10-11); resident-static: ORIGINAL_WNDPROCS in src/lib.rs (Windows only) is a OnceLock Mutex HashMap with one entry per subclassed caller window, inserted by install_noactivate_mouse_guard and removed on WM_NCDESTROY, so it holds no more entries than live subclassed windows (reviewed 2026-10-17); run_foreground_event_pump (Windows only, lib.rs) is a blocking function the caller runs on its own thread: it installs WinEvent hooks, sleeps in GetMessageW with no timer, holds one process-wide sink, and removes the hooks and the sink when ForegroundPumpStop::stop posts WM_QUIT (reviewed 2026-11-12)"
 
 # One Cargo workspace and lock per crate (rightkit#1285).
