@@ -239,6 +239,9 @@ pub struct ShellState {
     pub nav: Arc<NavPolicy>,
     pub opener: Arc<dyn ExternalOpener>,
     pub frameless: bool,
+    /// WebView2 user data folder for windows built through `windows::builder`/`open` (see
+    /// [`ShellBuilder::webview_data_directory`]).
+    pub webview_data_directory: Option<PathBuf>,
     pub close_to_tray: bool,
     /// `CloseBehavior::HideToBackground`: hide and reveal also change the macOS activation policy.
     pub hide_to_background: bool,
@@ -337,6 +340,7 @@ pub struct ShellBuilder {
     on_second_instance_reveal: Option<RevealDecider>,
     quit_drain: Option<std::time::Duration>,
     frameless: bool,
+    webview_data_directory: Option<PathBuf>,
     show_on_ready: Option<bool>,
     state_dir: Option<PathBuf>,
     schemes: Vec<String>,
@@ -406,6 +410,7 @@ impl Shell {
             on_second_instance_reveal: None,
             quit_drain: None,
             frameless: false,
+            webview_data_directory: None,
             show_on_ready: None,
             state_dir: None,
             schemes: Vec::new(),
@@ -630,6 +635,13 @@ impl ShellBuilder {
     /// Frameless chrome for windows created through `windows::builder`/`open` (see `frameless`).
     pub fn frameless(mut self, on: bool) -> Self {
         self.frameless = on;
+        self
+    }
+    /// The WebView2 user data folder for windows created through `windows::builder`/`open`, set on each
+    /// window builder instead of the process environment. Windows only (other platforms ignore it).
+    /// Unset: windows keep whatever the environment or `webview2_env` provides.
+    pub fn webview_data_directory(mut self, path: impl Into<PathBuf>) -> Self {
+        self.webview_data_directory = Some(path.into());
         self
     }
     /// Show the main window when its webview is ready (default on). Calling this is an explicit
@@ -1370,6 +1382,7 @@ fn setup(
         nav,
         opener,
         frameless: cfg.frameless && cfg.modules.contains(Module::Frameless),
+        webview_data_directory: cfg.webview_data_directory.clone(),
         close_to_tray: cfg.close_to_tray,
         destroy_on_close: cfg.destroy_on_close
             || cfg.webview_lifecycle == WebviewLifecycle::DestroyOnHide,
@@ -1894,6 +1907,9 @@ mod platform_init_tests {
         } else {
             "linux"
         };
-        assert_eq!(script, format!("window.__RIGHTKIT_PLATFORM__ = \"{name}\";"));
+        assert_eq!(
+            script,
+            format!("window.__RIGHTKIT_PLATFORM__ = \"{name}\";")
+        );
     }
 }

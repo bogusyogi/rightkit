@@ -7,6 +7,7 @@
 
 ## Unreleased
 
+- `ShellBuilder::webview_data_directory(path)` (`ShellState::webview_data_directory`): `windows::builder` and `windows::open` set it as the WebView2 user data folder on each window builder (Windows only), so an app no longer has to export an environment variable. Unset, behaviour is unchanged.
 - Renderer log bridge: `prepare_batch_filtered` keeps a record that fails to parse as a Warn carrying its event name (`unknown` when it has none) instead of counting it invalid. Non-objects and bad names stay invalid.
 - `ShellPlugin` injects `window.__RIGHTKIT_PLATFORM__ = "macos" | "ios" | "windows" | "linux"` (the value `platformInitializationScript` returns) in every profile, `lifecycle_only` included; apps no longer hand-write it. Nothing is injected on other targets.
 - `LeftClick::Emit`: a left click opens no menu and touches no window, it only emits the `click` tray event, for an app that handles the click itself.
