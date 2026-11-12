@@ -55,7 +55,10 @@ export const useLegalStore = create<LegalStoreState>((set) => ({
   error: null,
   async load() {
     try {
-      set({ status: "ready", receipt: (await receiptPort.read()) ?? null });
+      const value = await receiptPort.read();
+      // A historical receipt (`{ record, current: false }`) is superseded and never satisfies the gate.
+      const receipt = value !== null && typeof value === "object" && "current" in value && value.current === false ? null : (value as LegalAcceptanceRecord | null);
+      set({ status: "ready", receipt });
     } catch {
       // An unreadable receipt never satisfies the gate.
       set({ status: "ready", receipt: null });

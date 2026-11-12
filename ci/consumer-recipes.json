@@ -752,7 +752,7 @@
         "install": {
           "react": "19.3.1",
           "react-dom": "19.3.1",
-          "@rightkit/agent-ui-core": "0.1.0",
+          "@rightkit/agent-ui-core": "0.1.1",
           "@rightkit/agent-ui-hooks": "0.1.0",
           "@rightkit/agent-ui-settings": "0.1.0",
           "@rightkit/agent-ui-workbench": "0.1.0",
@@ -782,7 +782,7 @@
       "files": {
         "ci/consumers/npm/agent-ui-components/README.md": "794556ef9f9f7716fdeb0c0284d88b36f201bbcc84ddbdd41368ef1279a40330",
         "ci/consumers/npm/agent-ui-components/consumer.mjs": "e93c693554e81959dc2e95c39b6cab846f7c627acdc08752f490662906b07101",
-        "ci/consumers/npm/agent-ui-components/package.json": "d3176e2e5c57af2e74d5690a85a88785bfc4af1d2c66cff7439e88661ab3e805",
+        "ci/consumers/npm/agent-ui-components/package.json": "6ab6504de0d09cece4220e79d8a97d4c950ba6ee24bfbf19e6bf05f466d7c1da",
         "ci/consumers/npm/agent-ui-components/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "fc160695e1dc97dc7e32e746c9e4471e2d85168b097623de818befeb00ee438c"
       }
@@ -916,16 +916,19 @@
         "install": {
           "react": "19.3.1",
           "react-dom": "19.3.1",
-          "@rightkit/app-update": "0.4.2",
+          "@rightkit/app-update": "0.4.3",
+          "@rightkit/ci": "0.3.2",
           "@rightkit/legal": "0.6.3",
-          "@rightkit/license": "0.3.0",
+          "@rightkit/legal-ui": "0.4.2",
+          "@rightkit/license": "0.3.1",
           "@rightkit/logs": "0.1.6",
-          "@rightkit/onboarding": "0.6.3",
-          "@rightkit/platform-ui": "0.4.0",
-          "@rightkit/react-shell": "0.7.2",
-          "@rightkit/tauri-shell": "0.1.3",
-          "@rightkit/theme": "0.3.1",
-          "@rightkit/legal-ui": "0.4.1"
+          "@rightkit/onboarding": "0.6.4",
+          "@rightkit/outdated": "0.3.1",
+          "@rightkit/platform-ui": "0.4.1",
+          "@rightkit/react-shell": "0.7.3",
+          "@rightkit/release": "0.6.52",
+          "@rightkit/tauri-shell": "0.1.4",
+          "@rightkit/theme": "0.3.2"
         },
         "declaredOnly": [
           "@phosphor-icons/react",
@@ -936,9 +939,9 @@
         ]
       },
       "files": {
-        "ci/consumers/npm/agent-ui-core/README.md": "46f02e8e9a374dd8de0c1e81c00ffaac36be2bce9dc42d86f39f812cd4727e60",
+        "ci/consumers/npm/agent-ui-core/README.md": "2c7fb674ce20e05ea28d5d8b272b2a0bbdedf5f086ebbd35904533e398caacb4",
         "ci/consumers/npm/agent-ui-core/consumer.mjs": "381058b521739d663e08a4951ef94f140aa821709b13197f6b2438bad2c14e78",
-        "ci/consumers/npm/agent-ui-core/package.json": "d2af818269cd7c2f83f2252bfee2ae5104fcd13fa5e8e303c1dc8a24717c635b",
+        "ci/consumers/npm/agent-ui-core/package.json": "c2f6ba29b02ee19ad932c4dc9e7867d0f87e1d41f87140988147641927a24d73",
         "ci/consumers/npm/agent-ui-core/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "fc160695e1dc97dc7e32e746c9e4471e2d85168b097623de818befeb00ee438c"
       }
@@ -988,7 +991,7 @@
           "react-dom": "19.3.1",
           "@rightkit/app-update": "0.4.2",
           "@rightkit/react-shell": "0.7.2",
-          "@rightkit/agent-ui-core": "0.1.0"
+          "@rightkit/agent-ui-core": "0.1.1"
         },
         "declaredOnly": [
           "@tauri-apps/api",
@@ -998,7 +1001,7 @@
       "files": {
         "ci/consumers/npm/agent-ui-hooks/README.md": "44926a26e99d7e2355002f501f0dcdae72272405d2e62c79b541b12aa54472b8",
         "ci/consumers/npm/agent-ui-hooks/consumer.mjs": "9363009e3bfb197e8a6f12e83f6332a2154d012c6aa92bd048a526d620beb0e2",
-        "ci/consumers/npm/agent-ui-hooks/package.json": "a9867d5dd0ace2046dfcd4dae96500c7699759e14cfe8f44cc08e833efed6bbc",
+        "ci/consumers/npm/agent-ui-hooks/package.json": "27b4838a03bdfff4a4a20b805cdea876a60c6558d32ad344434f073d09e43c93",
         "ci/consumers/npm/agent-ui-hooks/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "fc160695e1dc97dc7e32e746c9e4471e2d85168b097623de818befeb00ee438c"
       }
@@ -1796,14 +1799,14 @@
           "react": "19.3.1",
           "react-dom": "19.3.1",
           "@rightkit/react-shell": "0.7.2",
-          "@rightkit/agent-ui-core": "0.1.0"
+          "@rightkit/agent-ui-core": "0.1.1"
         },
         "declaredOnly": []
       },
       "files": {
         "ci/consumers/npm/terminal-ui/README.md": "4ef817c49a481fe0dfe2be0e7d30184f48a2fded5769b9a277f5a0123a47e2dd",
         "ci/consumers/npm/terminal-ui/consumer.mjs": "66c85b9791f65c35a51edba07842f8edb7a630253683ab635f04977cbcfe0a37",
-        "ci/consumers/npm/terminal-ui/package.json": "466aa9294f456ca4a2829cd2e4badbbb326955d63939a3e535a1dc6fa9ab9f33",
+        "ci/consumers/npm/terminal-ui/package.json": "ca825ee18b329fdda91d625d7a712a52108e67ffc301a0b0d321a70a11ebe057",
         "ci/consumers/npm/terminal-ui/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "fc160695e1dc97dc7e32e746c9e4471e2d85168b097623de818befeb00ee438c"
       }

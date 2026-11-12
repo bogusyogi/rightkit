@@ -9,6 +9,7 @@
   "dependencies": {
     "react": "19.3.1",
     "react-dom": "19.3.1",
-    "@rightkit/react-shell": "0.7.2"
+    "@rightkit/react-shell": "0.7.2",
+    "@rightkit/agent-ui-core": "0.1.1"
   }
 }
