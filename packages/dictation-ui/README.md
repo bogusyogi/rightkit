@@ -40,6 +40,22 @@ configureDictationHost({
   calls, `log`, and typed events through `on` (`event`, `hover`, `cursor`, `intro`, `deliveryRecorded`,
   `modelPhase`, `hintShow`, `clipboardShow`).
 
+## Tauri host
+
+`@rightkit/dictation-ui/tauri` implements both clients over Tauri `invoke` and `listen`, with the command and event
+names HeardRight's web code uses. It is the only entry that imports Tauri. One line per window installs it:
+
+```ts
+configureDictationHost({ client: tauriDictationClient({ appName: "Your App", fileNamePrefix: "your-app" }) }); // hub
+configureDictationHost({ pill: tauriPillClient() });                                                            // pill, popups
+```
+
+Options (all optional): `listen` (how native events reach the window, default Tauri's `listen`; pass the app's
+own subscribe when it delivers events through its own channel), `entitlement` (`{ current, subscribe }` from the
+app's licence lifecycle; without it `entitlement()` and the `entitlement` event throw "not mapped"),
+`settingsKeys` (`fromNative`/`toNative` key mapping for the settings store), `settingsEvent`, `appName`,
+`fileNamePrefix`. The app's `src-tauri` must serve the commands the entry calls (listed in `src/tauri`).
+
 The app frame (sidebar, title bar, window controls, palette) is `@rightkit/react-shell`; licence `@rightkit/license`;
 updates `@rightkit/app-update`; theme `@rightkit/theme`; legal `@rightkit/legal-ui`; settings screens
 `@rightkit/settings-ui`. The voice conversation loop is in `@rightkit/agent-ui-components`.

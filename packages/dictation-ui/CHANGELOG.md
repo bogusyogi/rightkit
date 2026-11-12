@@ -2,6 +2,8 @@
 
 ## 0.2.1
 
+- Added: `./tauri` entry with `tauriDictationClient(options?)` and `tauriPillClient(options?)`, the Tauri implementation of `DictationClient` and `PillClient`. It makes the native calls HeardRight's web code makes (about 55 commands, 13 events), so an app installs it with one line per window instead of hand-writing the transport. The event subscription is an option (`listen`, default Tauri's) for apps that route events to windows themselves. Pro entitlement and the settings key mapping are host options. New dependencies: `@rightkit/tauri`, `@tauri-apps/api`, `@tauri-apps/plugin-dialog`; no other entry imports them.
+
 - Fix: History's app filter matches. `deliveryRow` sets `origin.filterKey` to the key the delivery store's `app_name` filter matches (`deliveryFilterKey`: the file label for a file transcription, else the raw process name, window title or "Unknown app"), so `deliveryQueryArgs` sends that key as `app` instead of the friendly name. Needs `@rightkit/library-ui` 0.2.1 (`LibraryOrigin.filterKey`).
 
 ## 0.2.0 (unpublished)
