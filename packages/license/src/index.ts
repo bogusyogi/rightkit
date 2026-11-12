@@ -398,3 +398,4 @@ export function satisfiesRequirement(view: LicenseView | null, requirement: Lice
     && (!requirement.anyFeature || hasAnyFeature(view, requirement.anyFeature));
 }
 export * from './lifecycle.js';
+export * from './proBridge.js';

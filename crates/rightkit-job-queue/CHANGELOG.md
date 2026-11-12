@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.6.0
 
 - Added: feature `serve` (implies `protocol`, no store): `Dispatcher`, `serve`, `serve_report`, `run_cli`, `CommandSet`, `EventEmitter` and the related types are available without the database. `contract` now means `serve` plus `store` and adds only `JobCommands`, `PayloadMapper` and `JOB_METHODS`; every existing `contract` and `service` consumer builds unchanged (the dispatcher code stays in `contract.rs`, the `job.*` commands moved to `job_commands.rs`, same public paths).
 - Added: `Dispatcher::with_hello_fields(..)` (extra hello fields such as an engine instance id; `type`, `engine`, `version` and `contract_version` stay the dispatcher's own) and `EventEmitter::emit_for_session(session_id, event)` (event frame with a top-level `session_id`).
@@ -9,8 +9,6 @@
 - Fixed: lines on the engine's stdout before hello that are not frames (text, or JSON that is not an object) no longer fail the boot with `engine_protocol`. They are reported to the protocol-error sink (`ignored before hello: ...`) and skipped until `hello_timeout`, as the reader already does after hello. A well-formed frame that is not hello is still `first frame was not hello`.
 - Fixed: a spent restart budget on an `OnDemand` engine is no longer terminal. A call that finds the engine down with the budget spent answers a retryable `restart_budget_spent` error and leaves the lifecycle `Down` with no `Terminal::Failed`; the first call after the budget window has moved on starts the engine again. Always-on (`Automatic`) hosts still latch `Terminal::Failed` when the budget is spent.
 - Added: `EngineSupervisor::demand_ready()`: register demand for the engine (restarting an `OnDemand` engine that is down), then wait for `Ready`. `wait_ready` is still not demand.
-
-## 0.6.0
 
 - Breaking for dependents: dependency requirements `rightkit-crash` 0.3 -> 0.4, `rightkit-daemon` 0.5 -> 0.8. 0.5.4 was published before these requirements were raised; a semver-breaking dependency is a breaking change, so they ship as 0.6.0 instead of changing 0.5.4 in place (#1572). No source change in this crate since 0.5.4.
 

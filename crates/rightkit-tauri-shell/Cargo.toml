@@ -43,6 +43,10 @@ update-license = ["update", "dep:rightkit-license", "dep:url"]
 overlay = ["dep:rightkit-overlay"]
 pdf-host = ["host-services", "dep:rightkit-pdf"]
 models = ["host-services", "dep:rightkit-models"]
+# Pro continuity across a person's Apple devices (macOS): iCloud-Keychain helper, local toggle state and launch
+# algorithm over `LicenseClient::{bridge_publish, bridge_exchange}`. Compiles on every OS (the helper is only
+# found on macOS). Adds `rightkit-credentials` and `rightkit-fs`.
+pro-bridge = ["license", "dep:rightkit-credentials", "dep:rightkit-fs"]
 app-lock = ["host-services", "dep:rightkit-credentials", "rightkit-credentials/os-auth"]
 
 [dependencies]
@@ -66,6 +70,7 @@ rightkit-notifications = { version = "0.1.0", path = "../rightkit-notifications"
 rightkit-signal = { version = "0.1.0", path = "../rightkit-signal" }
 rightkit-app-update = { version = "0.2.0", path = "../rightkit-app-update", optional = true }
 rightkit-credentials = { version = "0.5.0", path = "../rightkit-credentials", optional = true }
+rightkit-fs = { version = "0.4.9", path = "../rightkit-fs", default-features = false, features = ["fs"], optional = true }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 tauri-plugin-updater = { version = ">=2.10.1, <3", optional = true, default-features = true }

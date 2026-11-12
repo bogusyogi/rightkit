@@ -15,7 +15,7 @@
   "stagedNpm": {
     "@rightkit/agent-ui-approvals": "0.2.1",
     "@rightkit/agent-ui-components": "0.1.1",
-    "@rightkit/agent-ui-core": "0.1.1",
+    "@rightkit/agent-ui-core": "0.1.2",
     "@rightkit/agent-ui-hooks": "0.1.0",
     "@rightkit/agent-ui-settings": "0.1.0",
     "@rightkit/agent-ui-web": "0.1.0",

@@ -754,7 +754,7 @@
         "install": {
           "react": "19.3.1",
           "react-dom": "19.3.1",
-          "@rightkit/agent-ui-core": "0.1.1",
+          "@rightkit/agent-ui-core": "0.1.2",
           "@rightkit/agent-ui-hooks": "0.1.0",
           "@rightkit/agent-ui-settings": "0.1.0",
           "@rightkit/agent-ui-workbench": "0.1.0",
@@ -784,7 +784,7 @@
       "files": {
         "ci/consumers/npm/agent-ui-components/README.md": "794556ef9f9f7716fdeb0c0284d88b36f201bbcc84ddbdd41368ef1279a40330",
         "ci/consumers/npm/agent-ui-components/consumer.mjs": "e93c693554e81959dc2e95c39b6cab846f7c627acdc08752f490662906b07101",
-        "ci/consumers/npm/agent-ui-components/package.json": "84d9ae18fd609639c8360a6cc2ffa386ffc98b70fb5049e87e2dc36fcd40d68f",
+        "ci/consumers/npm/agent-ui-components/package.json": "07204c30dead2a90e31dcd98ffd5912070a2355061abc3261e0f5fc7e29ff38c",
         "ci/consumers/npm/agent-ui-components/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "fc160695e1dc97dc7e32e746c9e4471e2d85168b097623de818befeb00ee438c"
       }
@@ -941,7 +941,7 @@
         ]
       },
       "files": {
-        "ci/consumers/npm/agent-ui-core/README.md": "0fd794513d5e2b756d1670e1ca9bb6fb3e3106df38bfea2598bee5dbd9d6e09f",
+        "ci/consumers/npm/agent-ui-core/README.md": "1b5cf6d7e2bf261f158ed5052152e4015a863b3ba4138b94e80e1591153723cc",
         "ci/consumers/npm/agent-ui-core/consumer.mjs": "381058b521739d663e08a4951ef94f140aa821709b13197f6b2438bad2c14e78",
         "ci/consumers/npm/agent-ui-core/package.json": "d6edeaca79eaaae1e061ff97ae716236b3e80ae35df4ea8deca533e015431caf",
         "ci/consumers/npm/agent-ui-core/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
@@ -993,7 +993,7 @@
           "react-dom": "19.3.1",
           "@rightkit/app-update": "0.4.2",
           "@rightkit/react-shell": "0.7.2",
-          "@rightkit/agent-ui-core": "0.1.1",
+          "@rightkit/agent-ui-core": "0.1.2",
           "@rightkit/theme": "0.3.3"
         },
         "declaredOnly": [
@@ -1004,7 +1004,7 @@
       "files": {
         "ci/consumers/npm/agent-ui-hooks/README.md": "44926a26e99d7e2355002f501f0dcdae72272405d2e62c79b541b12aa54472b8",
         "ci/consumers/npm/agent-ui-hooks/consumer.mjs": "9363009e3bfb197e8a6f12e83f6332a2154d012c6aa92bd048a526d620beb0e2",
-        "ci/consumers/npm/agent-ui-hooks/package.json": "27b4838a03bdfff4a4a20b805cdea876a60c6558d32ad344434f073d09e43c93",
+        "ci/consumers/npm/agent-ui-hooks/package.json": "6b6d5a73b262e7fce714a278385728078dfa283e4e9b8d1909acfdc5ef1a8c75",
         "ci/consumers/npm/agent-ui-hooks/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "fc160695e1dc97dc7e32e746c9e4471e2d85168b097623de818befeb00ee438c"
       }
@@ -1810,7 +1810,7 @@
           "react": "19.3.1",
           "react-dom": "19.3.1",
           "@rightkit/react-shell": "0.7.2",
-          "@rightkit/agent-ui-core": "0.1.1",
+          "@rightkit/agent-ui-core": "0.1.2",
           "@rightkit/theme": "0.3.3"
         },
         "declaredOnly": []
@@ -1818,7 +1818,7 @@
       "files": {
         "ci/consumers/npm/terminal-ui/README.md": "4ef817c49a481fe0dfe2be0e7d30184f48a2fded5769b9a277f5a0123a47e2dd",
         "ci/consumers/npm/terminal-ui/consumer.mjs": "66c85b9791f65c35a51edba07842f8edb7a630253683ab635f04977cbcfe0a37",
-        "ci/consumers/npm/terminal-ui/package.json": "ca825ee18b329fdda91d625d7a712a52108e67ffc301a0b0d321a70a11ebe057",
+        "ci/consumers/npm/terminal-ui/package.json": "6032a9156c7ce803a93006f166739fc9617fe3aa3d64fcdda548fe1a571eea9e",
         "ci/consumers/npm/terminal-ui/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "fc160695e1dc97dc7e32e746c9e4471e2d85168b097623de818befeb00ee438c"
       }
