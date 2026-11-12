@@ -6,6 +6,8 @@
 //   media_gen.job      {request_id, job_id, status, attempts, error}
 //   media_gen.job_progress {request_id?, job_id, status, stage, attempt, at, message?}
 //   media_gen.import   {request_id, job_id, asset_id, media_path, sha256}
+//                     (each media_gen.* event is also read under its pre-0.2.0 name genright.*, which
+//                      CutRight's engine and rightkit-pipeline 0.1.x emit; see `generationEventName`)
 //   import.done       {item (label), request_id, job_id, path, blake3, needs_probe} (assemble)
 //                     {request_id, job_id, asset_id, path, source_id, needs_probe}  (generate)
 //   timeline.built    {video_clips, added_clips, titles, total_frames, revision}
@@ -89,6 +91,14 @@ function upsertJob(state: ProgressState, requestId: string, patch: Partial<JobVi
   return { ...state.jobs, [requestId]: { ...prev, ...patch } };
 }
 
+/**
+ * An engine event's name with the generation events under one spelling: `genright.*` (rightkit-pipeline 0.1.x,
+ * CutRight's engine) reads as `media_gen.*` (rightkit-media-gen-client), so progress folds either.
+ */
+export function generationEventName(name: string | undefined): string | undefined {
+  return name?.startsWith("genright.") ? `media_gen.${name.slice("genright.".length)}` : name;
+}
+
 const withStage = (state: ProgressState, name: string) =>
   state.stages.includes(name) ? state.stages : [...state.stages, name];
 
@@ -102,7 +112,7 @@ export function reduceFrame(state: ProgressState, frame: EngineFrame): ProgressS
     log: [...state.log.slice(-99), ev],
   };
   const requestId = str(ev.request_id);
-  switch (str(ev.event)) {
+  switch (generationEventName(str(ev.event))) {
     case "assemble.started": {
       const jobs: ProgressState["jobs"] = {};
       if (isObj(ev.requests)) {

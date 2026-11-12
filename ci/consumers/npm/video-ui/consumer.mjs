@@ -53,6 +53,12 @@ try {
     assert.deepEqual(calls, [['project.show', { dir: '/p' }]]);
     assert.equal(mod.assetUrl('/a.png'), 'asset:///a.png');
     assert.equal(mod.timecode(61000), '01:01');
+    // Generation progress folds both event spellings: media_gen.* (rightkit-media-gen-client) and genright.* (0.1.x engines).
+    for (const prefix of ['media_gen', 'genright']) {
+      const state = mod.reduceFrame(mod.beginProgress('t', null), { id: 1, tag: 't', event: { event: `${prefix}.job`, request_id: 'r1', job_id: 'j1', status: 'running' } });
+      assert.equal(state.jobs.r1?.status, 'running', `${prefix}.job not folded`);
+    }
+    assert.equal(mod.generationEventName('genright.import'), 'media_gen.import');
     // The app entry is a superset of the root (one module instance) with CutRight's pages and services over the
     // host's app part.
     const appMod = await import(provenance.entries['@rightkit/video-ui/app']);

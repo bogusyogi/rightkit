@@ -30,6 +30,11 @@ while CutRight's app is only `<DesktopWorkspace/>` from this package, so CutRigh
 - New `./app.css`: the app's stylesheets in 0.1.x order plus `styles.css`.
 - Icons: the pages use the shared `Icon` with the editing glyphs plus six app glyphs (`APP_GLYPHS`), not a
   second icon set.
+- Fix: generation progress was lost against engines that still emit the pre-0.2.0 event names. 0.2.0's
+  `reduceFrame` read only `media_gen.request`, `.job`, `.job_progress` and `.import` (as
+  `rightkit-media-gen-client` emits them); 0.1.x read `genright.*`, which CutRight's engine and
+  rightkit-pipeline 0.1.x emit. Both spellings are read now (`generationEventName`, new export, maps
+  `genright.*` to `media_gen.*`).
 - Dependencies: the app and Tauri entries bring back `@rightkit/app-update`, `legal`, `legal-ui`, `license`,
   `logs`, `onboarding`, `platform-ui`, `settings-ui`, `tauri`, `tauri-shell` and `@tauri-apps/api`,
   `plugin-dialog`, `plugin-process`, `plugin-updater` (0.1.x's set without `@rightkit/theme`, which no
