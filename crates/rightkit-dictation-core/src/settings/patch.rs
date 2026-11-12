@@ -42,7 +42,15 @@ pub fn apply_patch_to(blob: &mut SettingsBlob, patch: &Value) -> Result<(), Stri
             }
             "app_font" => {
                 let s = v.as_str().ok_or("app_font must be string")?.to_string();
-                if !["hanken", "inter", "source-serif", "geist", "jetbrains"].contains(&s.as_str())
+                if ![
+                    "system",
+                    "hanken",
+                    "inter",
+                    "source-serif",
+                    "geist",
+                    "jetbrains",
+                ]
+                .contains(&s.as_str())
                 {
                     return Err(format!("invalid app_font: {s}"));
                 }

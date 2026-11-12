@@ -2,6 +2,8 @@
 
 ## 0.3.0
 
+- `DEFAULT_APP_FONT` is `"system"` (was `"hanken"`), and a settings patch accepts `"system"` for `app_font`. The settings screen already offers and defaults to the system font; the Rust default disagreed, so a fresh blob named a font the screen did not show as selected, and choosing the system font was refused by the patch check (#1572).
+
 - Breaking for dependents: dependency requirements `rightkit-logs` 0.3 -> 0.4, `rightkit-speech-client` 0.4 -> 0.5. 0.2.4 was published before these requirements were raised; a semver-breaking dependency is a breaking change, so they ship as 0.3.0 instead of changing 0.2.4 in place (#1572). No source change in this crate since 0.2.4.
 
 ## 0.2.4
