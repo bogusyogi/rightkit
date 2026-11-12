@@ -231,7 +231,7 @@ pub struct RawArtifact {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NormalizedTriggerEvent {
-    /// Schema marker. Always `"coderight.trigger/v1"`. The inbox refuses
+    /// Schema marker. Always `"{app}.trigger/v1"`. The inbox refuses
     /// any event whose `specVersion` differs.
     pub spec_version: String,
     /// Stable event id (`wf_evt:<22 hex>` namespaced form).
@@ -243,7 +243,7 @@ pub struct NormalizedTriggerEvent {
     /// inbox folds it into the dedupe key alongside the source.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub external_id: Option<String>,
-    /// Stable source identity: `github:owner/repo`, `coderight:manual`,
+    /// Stable source identity: `github:owner/repo`, `{app}:manual`,
     /// `webhook:<trigger-id>`, etc.
     pub source: String,
     /// Logical event type (`push`, `pull_request`, `manual`, `schedule.cron`,
@@ -289,7 +289,11 @@ pub struct NormalizedTriggerEvent {
 
 impl NormalizedTriggerEvent {
     /// `specVersion` constant.
-    pub const SPEC_VERSION: &'static str = "coderight.trigger/v1";
+    pub fn spec_version() -> &'static str {
+        static VERSION: std::sync::LazyLock<String> =
+            std::sync::LazyLock::new(|| crate::host_identity::schema("trigger/v1"));
+        VERSION.as_str()
+    }
 
     /// Set the runtime `time` and `received_at` fields from unix-ms values
     /// using a deterministic RFC3339 formatter. The inbox calls this once

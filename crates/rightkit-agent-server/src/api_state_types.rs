@@ -184,7 +184,7 @@ pub struct LiveSession {
     /// events. `None` until the first usage event arrives, or permanently
     /// when the active model's pricing is unknown — unknown cost must never
     /// be conflated with zero. Surfaced as `costUsd` on the session row and
-    /// `coderight agents --json`.
+    /// `{app} agents --json`.
     pub cost_usd: Arc<Mutex<Option<f64>>>,
     /// Shared counter the engine bumps on every successful typed
     /// `WorkspaceMutation`. Read by `finalize_goal` so the unbacked-victory
@@ -502,7 +502,7 @@ pub struct DaemonState {
     /// One sticky, startup-selected memory authority shared by routes, tools,
     /// session retrieval, & compaction.
     pub memory_backend: Arc<dyn rightkit_memory_client::backend::MemoryBackend>,
-    /// Pulse Membrane CLI adapter (`coderight-membrane-cli`); `Unavailable` when Pulse is not
+    /// Pulse Membrane CLI adapter (`{app}-membrane-cli`); `Unavailable` when Pulse is not
     /// installed. Every call is bounded by the adapter timeout.
     pub membrane: Arc<dyn rightkit_memory_client::membrane::MembraneBackend + Send + Sync>,
     /// Lane-C native session-transcript exporter on the same authenticated
@@ -649,6 +649,7 @@ pub struct DaemonState {
     /// conductor/sub-agent seams; tests may replace it with a deterministic
     /// executor to exercise the authenticated HTTP contract without spending
     /// provider credits.
+    #[cfg(feature = "benchmarks")]
     pub(crate) executed_bakeoff_runtime: Arc<dyn crate::api_benchmarks::ExecutedBakeoffRuntime>,
     /// Broadcast one-shot: closed/sent when the client-presence reaper decides
     /// the daemon should shut down. `main_runtime_server::serve` races this
@@ -656,7 +657,7 @@ pub struct DaemonState {
     pub shutdown_tx: Arc<tokio::sync::watch::Sender<bool>>,
 }
 
-// Sub-state extraction for the extracted `coderight-attention` crate (crate-
+// Sub-state extraction for the extracted `{app}-attention` crate (crate-
 // extraction pilot, docs/pending/rust-build-surgery.md). The attention domain
 // never reads any `DaemonState` field, so its sub-state is empty; this impl
 // lets axum mount `rightkit_agent_engine_attention::attention_routes()` — a

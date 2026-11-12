@@ -1,4 +1,4 @@
-//! Glue between `coderight-providers` and the engine's `LlmClient` trait.
+//! Glue between `{app}-providers` and the engine's `LlmClient` trait.
 //!
 //! `ProviderLlmClient` wraps `OpenAiCompatClient` and implements `LlmClient`
 //! so the `SessionEngine` can talk to a real OpenAI-compatible provider.
@@ -135,7 +135,7 @@ pub(crate) type RetainedContextRevisionCallback =
     Arc<dyn Fn(Option<RetainedContextRevisionObservationV1>) + Send + Sync>;
 
 /// Host-owned synchronous authority. It pulls task context through Pulse's
-/// Membrane CLI (`coderight-membrane-cli`) and injects it into the final user
+/// Membrane CLI (`{app}-membrane-cli`) and injects it into the final user
 /// message. Pulse absent or any CLI failure means no context for the request,
 /// never a failed turn.
 #[derive(Clone)]
@@ -528,7 +528,7 @@ impl HostRequestAuthority {
             evidence,
             HostObservationProvenanceV1 {
                 receipt_id: authorization_id.to_string(),
-                source: "coderight.provider.submission".to_string(),
+                source: crate::host_identity::schema("provider.submission"),
                 receipt_digest: format!("sha256:{}", submission.prepared.body_digest),
             },
         );
@@ -2022,7 +2022,8 @@ async fn build_checked_client(route: &ProviderRoute) -> Result<OpenAiCompatClien
             .map_err(ProviderError::Provider)?;
         if resolved_auth.is_none() && effective_api_key.trim().is_empty() {
             return Err(ProviderError::Provider(format!(
-                "{provider} is signed out; run `coderight provider login {provider}`"
+                "{provider} is signed out; run `{app} provider login {provider}`",
+                app = crate::host_identity::app()
             )));
         }
         if let Some(auth) = resolved_auth {
@@ -2075,10 +2076,9 @@ async fn build_checked_client(route: &ProviderRoute) -> Result<OpenAiCompatClien
     }
 
     let mut public_headers = BTreeMap::new();
-    public_headers.insert(
-        "HTTP-Referer".to_string(),
-        "https://github.com/adrdsouza/coderight".to_string(),
-    );
+    if let Some(homepage) = crate::host_identity::host().homepage() {
+        public_headers.insert("HTTP-Referer".to_string(), homepage.to_string());
+    }
     public_headers.insert("X-Title".to_string(), "RightKit".to_string());
     public_headers.extend(auth_headers);
     let mut client = OpenAiCompatClient::new_direct(

@@ -64,7 +64,7 @@ pub fn derive_event_id(source: &str, external_id: &str, time_unix_ms: i64) -> Tr
 /// and compare it to the stored id without paying for a second allocation.
 pub(crate) fn raw_event_id_hash(source: &str, external_id: &str, time_unix_ms: i64) -> String {
     let mut hasher = rightkit_fs::digest::Sha256Hasher::new();
-    hasher.update(b"coderight:trigger-event-v1\x1f");
+    hasher.update(format!("{}:trigger-event-v1\x1f", crate::host_identity::app()).as_bytes());
     hasher.update(truncate_bytes(source, MAX_COMPONENT_BYTES).as_bytes());
     hasher.update(b"\x1f");
     hasher.update(truncate_bytes(external_id, MAX_COMPONENT_BYTES).as_bytes());
@@ -107,7 +107,7 @@ pub fn derive_dedupe_key(
 /// rest of the workflow crate.
 pub fn compute_content_hash(canonical_bytes: &[u8]) -> ContentHash {
     let mut hasher = rightkit_fs::digest::Sha256Hasher::new();
-    hasher.update(b"coderight:trigger-content-v1\x1f");
+    hasher.update(format!("{}:trigger-content-v1\x1f", crate::host_identity::app()).as_bytes());
     hasher.update(canonical_bytes);
     let digest = hasher.finalize_bytes();
     ContentHash::sha256(&digest)

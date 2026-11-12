@@ -620,7 +620,7 @@ impl DaemonState {
             };
             let fork_workspace_config = rightkit_agent_config::ConfigLoader::new()
                 .load_files_for_workspace(std::path::Path::new(&workspace));
-            // Per-agent TOML scoping (`.coderight/agents/<role>.toml`): role,
+            // Per-agent TOML scoping (`.{app}/agents/<role>.toml`): role,
             // optional model override, and agent-scoped MCP servers. The
             // load is best-effort — a malformed file must never block a
             // spawn (the global config and the per-agent override map

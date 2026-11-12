@@ -48,7 +48,7 @@ pub struct ActiveWorker {
     pub boot_epoch_ms: u128,
 }
 
-/// Default worker-journal path: `~/.coderight/worker-journal.jsonl`, a
+/// Default worker-journal path: `~/.{app}/worker-journal.jsonl`, a
 /// sibling of the single-instance lock written by
 /// [`super::ownership::default_lockfile_path`] and of the `daemon.port`
 /// discovery file.

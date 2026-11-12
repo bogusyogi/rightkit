@@ -17,6 +17,8 @@ path = "src/lib.rs"
 
 [features]
 default = []
+# The evaluation harness (benchmark, compare, terminal-bench, executed and corpus bake-offs, soak).
+benchmarks = []
 qualification = ["rightkit-agent-engine-core/qualification"]
 fastembed = ["rightkit-onnx/session", "rightkit-agent-tools/coding_tools-embeddings"]
 

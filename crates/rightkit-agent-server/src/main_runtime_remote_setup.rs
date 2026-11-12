@@ -84,25 +84,25 @@ fn remote_setup_next_steps(
 ) -> Vec<&'static str> {
     if cfg.remote.telegram_token.is_none() {
         return vec![
-            "Create a bot with Telegram BotFather, then run `coderight remote setup --telegram-token <token>`.",
-            "After saving a token, run `coderight remote validate` to verify Telegram accepts it.",
+            crate::host_identity::interned(format!("Create a bot with Telegram BotFather, then run `{app} remote setup --telegram-token <token>`.", app = crate::host_identity::app())),
+            crate::host_identity::interned(format!("After saving a token, run `{app} remote validate` to verify Telegram accepts it.", app = crate::host_identity::app())),
         ];
     }
 
     if cfg.remote.telegram_allowed_users.is_empty() {
         return vec![
-            "Run `coderight remote validate` to verify Telegram accepts the saved BotFather token.",
+            crate::host_identity::interned(format!("Run `{app} remote validate` to verify Telegram accepts the saved BotFather token.", app = crate::host_identity::app())),
             "Message the bot once from the Telegram account that should control RightKit.",
-            "Run `coderight remote users` to discover the numeric Telegram user id.",
-            "Run `coderight remote setup --allowed-user <id>` with the discovered user id.",
+            crate::host_identity::interned(format!("Run `{app} remote users` to discover the numeric Telegram user id.", app = crate::host_identity::app())),
+            crate::host_identity::interned(format!("Run `{app} remote setup --allowed-user <id>` with the discovered user id.", app = crate::host_identity::app())),
         ];
     }
 
     vec![
-        "Run `coderight remote validate` to verify Telegram accepts the saved BotFather token.",
-        "Restart `coderight serve` or the desktop app so Telegram long polling starts with the saved token and allowlist.",
-        "Run `coderight remote test` after restart to inspect redacted daemon readiness.",
-        "Run `coderight remote smoke --timeout-seconds 120`, then send any message to the bot from an allowed Telegram account.",
+        crate::host_identity::interned(format!("Run `{app} remote validate` to verify Telegram accepts the saved BotFather token.", app = crate::host_identity::app())),
+        crate::host_identity::interned(format!("Restart `{app} serve` or the desktop app so Telegram long polling starts with the saved token and allowlist.", app = crate::host_identity::app())),
+        crate::host_identity::interned(format!("Run `{app} remote test` after restart to inspect redacted daemon readiness.", app = crate::host_identity::app())),
+        crate::host_identity::interned(format!("Run `{app} remote smoke --timeout-seconds 120`, then send any message to the bot from an allowed Telegram account.", app = crate::host_identity::app())),
     ]
 }
 
@@ -142,7 +142,7 @@ async fn cli_remote_validate(telegram_token: Option<String>, api_base: &str) -> 
         print_json_value(serde_json::json!({
             "verdict": "block",
             "telegramTokenConfigured": false,
-            "detail": "No Telegram bot token configured. Run `coderight remote setup --telegram-token ...` or pass --telegram-token.",
+            "detail": format!("No Telegram bot token configured. Run `{app} remote setup --telegram-token ...` or pass --telegram-token.", app = crate::host_identity::app()),
         }));
         return 1;
     };
@@ -175,7 +175,7 @@ async fn cli_remote_users(telegram_token: Option<String>, api_base: &str, limit:
         print_json_value(serde_json::json!({
             "verdict": "block",
             "telegramTokenConfigured": false,
-            "detail": "No Telegram bot token configured. Run `coderight remote setup --telegram-token ...` or pass --telegram-token.",
+            "detail": format!("No Telegram bot token configured. Run `{app} remote setup --telegram-token ...` or pass --telegram-token.", app = crate::host_identity::app()),
         }));
         return 1;
     };
@@ -280,8 +280,8 @@ fn telegram_validate_payload(value: &serde_json::Value) -> serde_json::Value {
             "isBot": result.get("is_bot").and_then(serde_json::Value::as_bool),
         },
         "nextSteps": [
-            "Restart `coderight serve` or the desktop app if the token was just saved.",
-            "Run `coderight remote test` to inspect daemon-side readiness.",
+            format!("Restart `{app} serve` or the desktop app if the token was just saved.", app = crate::host_identity::app()),
+            format!("Run `{app} remote test` to inspect daemon-side readiness.", app = crate::host_identity::app()),
             "Send a message to the bot from an allowed Telegram account for the final live smoke."
         ]
     })
@@ -353,8 +353,8 @@ fn telegram_users_payload(value: &serde_json::Value) -> serde_json::Value {
         "users": users,
         "nextSteps": [
             "Ask the intended user to send any message to the bot, then run this command again if no users are listed.",
-            "Copy the desired userId into `coderight remote setup --allowed-user <id>`.",
-            "Restart the daemon/app and run `coderight remote test` before the final live message smoke."
+            format!("Copy the desired userId into `{app} remote setup --allowed-user <id>`.", app = crate::host_identity::app()),
+            format!("Restart the daemon/app and run `{app} remote test` before the final live message smoke.", app = crate::host_identity::app())
         ]
     })
 }

@@ -342,7 +342,7 @@ impl NodeExecutor {
 
         if plan.nodes.is_empty() {
             debug!(
-                target: "coderight.workflow.executor",
+                target: "agent_server.workflow.executor",
                 run_id = %run_id,
                 "executor: plan has no nodes; returning Empty"
             );
@@ -385,7 +385,7 @@ impl NodeExecutor {
             Some(n) => n,
             None => {
                 debug!(
-                    target: "coderight.workflow.executor",
+                    target: "agent_server.workflow.executor",
                     run_id = %run_id,
                     "executor: no ready nodes; returning Empty"
                 );
@@ -414,7 +414,7 @@ impl NodeExecutor {
             Some(r) => r,
             None => {
                 info!(
-                    target: "coderight.workflow.executor",
+                    target: "agent_server.workflow.executor",
                     run_id = %run_id,
                     max_total_concurrent = self.limiters.max_total_concurrent,
                     "executor: resource limit reached; returning Busy"

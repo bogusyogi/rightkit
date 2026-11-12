@@ -1,1 +1,1 @@
-//! Thin binary re-export; cycle-free validation lives in coderight-api-sessions.
+//! Thin binary re-export; cycle-free validation lives in {app}-api-sessions.

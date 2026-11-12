@@ -1,4 +1,4 @@
-/// Probe an existing `~/.coderight/daemon.port` daemon (if any) and refuse to
+/// Probe an existing `~/.{app}/daemon.port` daemon (if any) and refuse to
 /// start a second one on the same database. Different db path, no port file,
 /// unreachable daemon, or an unhealthy response all proceed — see
 /// `api_clients::startup_guard_decision` for the pure decision logic.

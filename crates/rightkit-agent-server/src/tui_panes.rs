@@ -120,7 +120,7 @@ impl PaneState {
                         }
                         CiFetch::Unauthenticated => {
                             self.ci_note = Some(
-                                "PR/CI status needs a GitHub sign-in (run `coderight github sign-in`)."
+                                format!("PR/CI status needs a GitHub sign-in (run `{app} github sign-in`).", app = crate::host_identity::app())
                                     .to_string(),
                             );
                         }

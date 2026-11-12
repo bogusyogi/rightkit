@@ -49,8 +49,10 @@ use rightkit_license::{
     EngineSnapshotCell, Entitlement, OwnerLedgerReader, ProcessAnchor, TrustedClock,
 };
 
-/// The app identity RightKit's suite tokens are signed for.
-pub const EXPECTED_APP: &str = "coderight";
+/// The app identity RightKit's suite tokens are signed for: the host's licence app id.
+pub fn expected_app() -> &'static str {
+    crate::host_identity::host().license_app()
+}
 
 /// How long a granting verdict is served before the snapshot is verified again.
 const GRANT_TTL: Duration = Duration::from_secs(30);
@@ -235,7 +237,7 @@ impl LicenseGate {
             OwnerLedgerReader::new(&locators.license_dir),
             ProcessAnchor::process(now),
         );
-        let config = EngineEntitlementsConfig::suite_snapshot(EXPECTED_APP, &cell);
+        let config = EngineEntitlementsConfig::suite_snapshot(expected_app(), &cell);
         Ok(Self::with_config(
             cell,
             config,

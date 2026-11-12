@@ -3,7 +3,7 @@ async fn cli_info(json: bool) -> i32 {
         .map(|p| p.display().to_string())
         .unwrap_or_else(|_| ".".to_string());
     let mut body = serde_json::json!({
-        "schema_version": "coderight.cli.info.v1",
+        "schema_version": crate::host_identity::schema("cli.info.v1"),
         "version": env!("CARGO_PKG_VERSION"),
         "cwd": cwd,
         "daemon": {

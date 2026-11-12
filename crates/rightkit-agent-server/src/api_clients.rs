@@ -13,7 +13,7 @@
 //! self-exit whenever the live-client refcount drops to zero (explicit detach,
 //! or heartbeat silence past `EXPIRY_SECONDS`, reaped by a background sweep) —
 //! after a `LINGER_SECONDS` grace window and only if nothing is in flight. A
-//! daemon that has never seen a client (bare `coderight serve` for dev/tests)
+//! daemon that has never seen a client (bare `{app} serve` for dev/tests)
 //! never self-exits — see `Presence::should_shut_down`.
 
 use axum::{

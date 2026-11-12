@@ -5,7 +5,7 @@
 //! hard-coded bump per release. Resolution order:
 //!
 //! 1. `RIGHTKIT_CHATGPT_CLIENT_VERSION` (explicit override) wins;
-//! 2. a cached value in `~/.coderight/state/codex-client-version.json`
+//! 2. a cached value in `~/.{app}/state/codex-client-version.json`
 //!    younger than 24h;
 //! 3. the npm registry's `@openai/codex/latest` `version` (5s timeout),
 //!    written back to the cache;
@@ -24,7 +24,7 @@ const FRESH_FOR_SECS: u64 = 24 * 60 * 60;
 const FETCH_TIMEOUT: Duration = Duration::from_secs(5);
 
 fn cache_path() -> Option<PathBuf> {
-    // Same `~/.coderight/state` directory as `model-selection.json`.
+    // Same `~/.{app}/state` directory as `model-selection.json`.
     let selection = crate::main_runtime::model_selection_path()?;
     Some(selection.parent()?.join(CACHE_FILE))
 }

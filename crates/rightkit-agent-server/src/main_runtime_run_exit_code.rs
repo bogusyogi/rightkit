@@ -1,4 +1,4 @@
-/// Stable process exit codes for `coderight run`/`exec`. Each variant maps to
+/// Stable process exit codes for `{app} run`/`exec`. Each variant maps to
 /// a stable `u8` value so downstream CI scripts and integrations can branch on
 /// the numeric exit code without parsing the textual class label.
 ///

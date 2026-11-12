@@ -37,7 +37,7 @@ async fn intake(
     // `require_token` bearer-token gate (api_router.rs) — it is not itself a
     // bypassed/unauthenticated seam. `enforce_trusted_source_authority` is a
     // second, additive check: it rejects an explicitly-declared untrusted
-    // caller (`x-coderight-source-trust`) with a typed `StatusCode::FORBIDDEN`
+    // caller (`x-{app}-source-trust`) with a typed `StatusCode::FORBIDDEN`
     // rather than a silent drop or panic. The primary FM-151 external-trigger
     // signature/identity mechanism lives at `deliver_trigger` in
     // api_triggers.rs; this intake path is the corrective/observation seam

@@ -42,9 +42,10 @@ struct PendingDisk {
 
 fn pending_path() -> std::path::PathBuf {
     std::path::PathBuf::from(
-        rightkit_llm::agent_providers::subscription_auth::expand_tilde(
-            "~/.coderight/provider-auth-pending.json",
-        ),
+        rightkit_llm::agent_providers::subscription_auth::expand_tilde(&format!(
+            "~/{home}/provider-auth-pending.json",
+            home = crate::host_identity::home_dir()
+        )),
     )
 }
 fn persist_pending(map: &HashMap<String, Arc<PendingLogin>>) {
@@ -108,7 +109,7 @@ impl PendingLogin {
 /// `<state root>/locks/oauth`.
 fn oauth_lock_dir() -> std::path::PathBuf {
     rightkit_agent_config::state_root()
-        .unwrap_or_else(|| std::env::temp_dir().join("coderight"))
+        .unwrap_or_else(|| std::env::temp_dir().join(crate::host_identity::app()))
         .join("locks")
         .join("oauth")
 }
@@ -117,7 +118,7 @@ fn broker() -> &'static Arc<CredentialBroker> {
     BROKER.get_or_init(|| {
         let mut broker = CredentialBroker::new(
             Arc::new(rightkit_llm::agent_providers::OsKeyStore),
-            "coderight",
+            crate::host_identity::app(),
             Arc::new(ProcessAuthContext),
         );
         for provider in rightkit_llm::agent_providers::PROVIDERS {
@@ -536,7 +537,7 @@ fn decode_catalog_models(bytes: &[u8]) -> Result<Vec<CatalogModel>, String> {
 /// Live models the signed-in ChatGPT account can use, in the backend's
 /// picker order. Errors are typed by the stage that failed — credential
 /// resolution, missing ChatGPT base URL, HTTP status, or decode — so a
-/// diagnostic caller (`coderight models`) can tell an empty account list
+/// diagnostic caller (`{app} models`) can tell an empty account list
 /// apart from a broken fetch; credential bytes are never part of an error.
 /// Callers that only want "no account list" semantics swallow the error.
 pub(crate) async fn fetch_chatgpt_account_models(

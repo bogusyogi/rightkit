@@ -399,7 +399,7 @@ pub fn apply_capability_routing(
     // SPEC 5: emit the decision through a plain tracing/log line for now.
     // R1a-L4 wires `ProtocolEvent::ModelRouteDecision` here.
     tracing::info!(
-        target: "coderight.router_seam",
+        target: "agent_server.router_seam",
         role = inputs.role.unwrap_or("<none>"),
         previous_model_id = %previous,
         routed_model_id = %decision.model_id,

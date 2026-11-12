@@ -1,4 +1,4 @@
-// ── `coderight status|stop|ps|agents|resume|fork` ────────────────────────────
+// ── `{app} status|stop|ps|agents|resume|fork` ────────────────────────────
 
 async fn daemon_status() -> i32 {
     let resolution = resolve_daemon_state();
@@ -100,7 +100,7 @@ async fn daemon_status() -> i32 {
     0
 }
 
-/// DL-014: `coderight stop`. Routes directly through the shared `authority()`
+/// DL-014: `{app} stop`. Routes directly through the shared `authority()`
 /// singleton's `Stop` command; no independent stop path is implemented here.
 async fn daemon_stop(force: bool) -> i32 {
     use rightkit_agent_daemon::LifecycleCommand;
@@ -224,7 +224,7 @@ async fn daemon_resume(
         return daemon_attach(id).await;
     }
     if !last {
-        eprintln!("Usage: coderight resume <session-id> or coderight resume --last");
+        eprintln!("Usage: {app} resume <session-id> or {app} resume --last", app = crate::host_identity::app());
         return 2;
     }
 
@@ -275,7 +275,7 @@ async fn daemon_fork(
             }
         }
     } else {
-        eprintln!("Usage: coderight fork <session-id> or coderight fork --last");
+        eprintln!("Usage: {app} fork <session-id> or {app} fork --last", app = crate::host_identity::app());
         return 2;
     };
 

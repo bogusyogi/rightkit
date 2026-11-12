@@ -12,7 +12,7 @@
 //!
 //! Tasks are per-session: the canonical flat list lives on
 //! `LiveSession::tasks` (`Arc<std::sync::Mutex<Vec<TaskNode>>>`,
-//! `engine/bins/coderight/src/api_state_types.rs`), populated from
+//! `engine/src/api_state_types.rs`), populated from
 //! `TaskGraphUpdated` events — not on `DaemonState`. Every route therefore
 //! carries the session id in its path; each handler resolves the session
 //! via `DaemonState::get_session`, returns `404 NOT_FOUND` for an unknown

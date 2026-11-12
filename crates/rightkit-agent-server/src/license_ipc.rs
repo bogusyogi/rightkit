@@ -7,8 +7,8 @@
 //! * Service name `engine-license-<port>` (`<port>` is this daemon's loopback port, so every
 //!   daemon instance has its own endpoint and none takes over another's). The owner finds the port
 //!   in the daemon record it already reads, connects with
-//!   `Client::connect_expecting(<this daemon's executable>)`, says `hello` as app `coderight`
-//!   ([`crate::license::EXPECTED_APP`]) and calls [`LICENSE_SNAPSHOT_METHOD`].
+//!   `Client::connect_expecting(<this daemon's executable>)`, says `hello` as app `{app}`
+//!   ([`crate::license::expected_app`]) and calls [`LICENSE_SNAPSHOT_METHOD`].
 //! * Params `{"frame": "<base64>"}`: one `rightkit_credentials::handoff` Reply frame
 //!   (`write_message(&Message::reply_snapshot(id, client.engine_snapshot()))`), standard base64.
 //!   Result `{"ack": "<base64>"}`: the Ack frame, to check with `expect_ack(read_message(..), id)`.
@@ -32,7 +32,7 @@ use rightkit_daemon::{
 };
 use serde_json::{json, Value};
 
-use crate::license::{DeliveryError, LicenseGate, LicenseLocators, EXPECTED_APP};
+use crate::license::{expected_app, DeliveryError, LicenseGate, LicenseLocators};
 
 /// The rank the licence service publishes. It is unique per daemon, so no takeover contest
 /// between daemons ever happens; the value only has to be valid.
@@ -72,7 +72,7 @@ pub fn host_license_service(
     .map_err(|error| error.to_string())?;
     let registration = Registration::new(identity)
         .method(
-            MethodDescriptor::local(LICENSE_SNAPSHOT_METHOD, [EXPECTED_APP]),
+            MethodDescriptor::local(LICENSE_SNAPSHOT_METHOD, [expected_app()]),
             move |cx, params, _emit| {
                 let frame = decode_frame(params)?;
                 let ack = gate

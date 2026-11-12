@@ -5,7 +5,7 @@
 mod onboarding;
 
 // The `/providers` screen's list, status projection and key/test actions,
-// shared by the TUI host and `coderight provider ...`.
+// shared by the TUI host and `{app} provider ...`.
 #[path = "provider_setup.rs"]
 pub(crate) mod provider_setup;
 
@@ -13,10 +13,15 @@ pub(crate) const TARGET_NOFILE_SOFT: u64 = 8_192;
 
 pub(crate) fn main() {
     let handle = std::thread::Builder::new()
-        .name("coderight-main".to_string())
+        .name(crate::host_identity::prefixed("main"))
         .stack_size(16 * 1024 * 1024)
         .spawn(run_main)
-        .expect("failed to start coderight main thread");
+        .unwrap_or_else(|error| {
+            panic!(
+                "failed to start {} main thread: {error}",
+                crate::host_identity::app()
+            )
+        });
     if let Err(payload) = handle.join() {
         std::panic::resume_unwind(payload);
     }
@@ -35,7 +40,7 @@ fn run_main() {
     let raw_args = std::env::args().collect::<Vec<_>>();
     if let Some(command) = disabled_cli_acquisition_command(&raw_args) {
         eprintln!(
-            "`coderight {command}` is disabled by the cli-acquisition-v1 feature gate. Use the older command path or enable the gate."
+            "`{app} {command}` is disabled by the cli-acquisition-v1 feature gate. Use the older command path or enable the gate.", app = crate::host_identity::app()
         );
         std::process::exit(2);
     }
@@ -43,7 +48,7 @@ fn run_main() {
         .enable_all()
         .build()
         .expect("failed to initialize tokio runtime");
-    // R10 CR-26: `coderight onboard` — terminal first-run onboarding. This is
+    // R10 CR-26: `{app} onboard` — terminal first-run onboarding. This is
     // the real call site for the onboarding flow (first-run detection, shared
     // route/model picker, credential storage, real readiness probe).
     // Intercepted before `Cli::parse` because the clap definitions live in an
@@ -232,7 +237,7 @@ pub(crate) fn trust_workspace_command(path: Option<String>) -> i32 {
 
 /// Permission mode chosen by a top-level launch flag for a headless `-p`
 /// run. `Command::Run` reads it into `RunArgs.permission_mode`; the explicit
-/// `coderight run` flags (`--auto-approve`, `--bypass-approvals`) are untouched.
+/// `{app} run` flags (`--auto-approve`, `--bypass-approvals`) are untouched.
 static LAUNCH_PERMISSION_MODE: std::sync::OnceLock<rightkit_agent_policy::PermissionMode> =
     std::sync::OnceLock::new();
 
@@ -269,7 +274,7 @@ fn install_launch_tool_filters(launch: &LaunchCli) -> Result<(), String> {
     Ok(())
 }
 
-/// Build the argv `coderight run` receives for a top-level `-p` launch.
+/// Build the argv `{app} run` receives for a top-level `-p` launch.
 /// Pure so it is unit-testable; `provider_model` is the already-resolved
 /// route (`--model` never reaches `run` unresolved).
 fn print_launch_run_argv(
@@ -278,7 +283,7 @@ fn print_launch_run_argv(
     provider_model: Option<(&str, &str)>,
 ) -> Vec<String> {
     let mut argv = vec![
-        "coderight".to_string(),
+        crate::host_identity::app().to_string(),
         "run".to_string(),
         "--print".to_string(),
     ];
@@ -326,7 +331,7 @@ fn print_launch_run_argv(
     argv
 }
 
-/// `coderight -p "<prompt>"`: resolve `--model` against the route catalog,
+/// `{app} -p "<prompt>"`: resolve `--model` against the route catalog,
 /// then hand off to the existing headless `Command::Run` path (which exits
 /// the process with the run's exit code). Returns only on a launch error.
 async fn run_print_launch(launch: LaunchCli, prompt: String) {
@@ -796,8 +801,8 @@ async fn async_main(cli: Cli) {
                 }
                 if !rejected.is_empty() {
                     eprintln!(
-                        "`coderight review findings` does not accept: {}",
-                        rejected.join(", ")
+                        "`{app} review findings` does not accept: {}",
+                        rejected.join(", "), app = crate::host_identity::app()
                     );
                     std::process::exit(2);
                 }
@@ -812,8 +817,8 @@ async fn async_main(cli: Cli) {
             }
             if !rejected.is_empty() {
                 eprintln!(
-                    "`coderight review` does not accept: {} (the auditor dispatch owns provider, turn, budget, and output policy)",
-                    rejected.join(", ")
+                    "`{app} review` does not accept: {} (the auditor dispatch owns provider, turn, budget, and output policy)",
+                    rejected.join(", "), app = crate::host_identity::app()
                 );
                 std::process::exit(2);
             }
@@ -908,7 +913,7 @@ async fn async_main(cli: Cli) {
     }
 }
 
-// R10 CR-26: real entrypoint for terminal first-run onboarding (`coderight
+// R10 CR-26: real entrypoint for terminal first-run onboarding (`{app}
 // onboard`). Detects first-run / missing-configuration state from the merged
 // config plus the real credential store, runs the interactive flow, and maps
 // the outcome to a process exit code. Cancelling exits 0 with prior state

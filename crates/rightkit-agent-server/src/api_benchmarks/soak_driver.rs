@@ -10,7 +10,7 @@
 //! Workers are real `LiveSession` trees created through the same
 //! `DaemonState::create_session_with_options` seam the `/sessions` and
 //! `/sessions/{id}/fork` HTTP routes use (see
-//! `engine/bins/coderight/src/api_sessions/lifecycle.rs`). No new spawn
+//! `engine/src/api_sessions/lifecycle.rs`). No new spawn
 //! mechanism is introduced. Cancellation mirrors `kill_session`: signal
 //! `interrupt_tx` when present, then remove the session from the live map.
 //! Containment is checked the same way `list_sessions` (S:P... session

@@ -45,7 +45,7 @@ pub fn handle_initialize(params: Value) -> Result<Value, acp::AcpError> {
     // ACP covers the portable prompt/session subset. Publish the RightKit
     // lifecycle controls that deliberately remain on the versioned daemon
     // API so clients do not infer their absence or fail late.
-    value["coderightCapabilityGaps"] = json!({
+    value[format!("{app}CapabilityGaps", app = crate::host_identity::app())] = json!({
         "transport": "daemonApi",
         "controls": [
             "goalLifecycle",

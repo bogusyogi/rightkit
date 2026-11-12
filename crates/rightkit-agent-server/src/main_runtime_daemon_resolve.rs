@@ -1,6 +1,6 @@
 // ── Daemon client helpers ─────────────────────────────────────────────────────
 
-/// Machine-readable daemon state used by `coderight status`.
+/// Machine-readable daemon state used by `{app} status`.
 ///
 /// `Stopped` means no daemon could be resolved. `Unreachable` means a configured
 /// or discovered daemon failed transport/probe connection. `Degraded` means

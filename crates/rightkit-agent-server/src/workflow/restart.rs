@@ -132,7 +132,7 @@ impl RecoveryWorker {
 
         if active_run_ids.is_empty() {
             debug!(
-                target: "coderight.workflow.recovery",
+                target: "agent_server.workflow.recovery",
                 "recovery: no active runs found"
             );
             return Ok(RecoveryOutcome::None);
@@ -145,7 +145,7 @@ impl RecoveryWorker {
             match self.process_active_run(run_id).await {
                 Ok(()) => processed.push(run_id.clone()),
                 Err(e) => warn!(
-                    target: "coderight.workflow.recovery",
+                    target: "agent_server.workflow.recovery",
                     run_id = %run_id,
                     error = %e,
                     "recovery: failed to process active run; continuing"
@@ -154,7 +154,7 @@ impl RecoveryWorker {
         }
 
         info!(
-            target: "coderight.workflow.recovery",
+            target: "agent_server.workflow.recovery",
             count = processed.len(),
             "recovery: rehydrate pass complete"
         );
@@ -355,7 +355,7 @@ fn replay_journal_through_reducer(
                 observed_revision,
             } => {
                 warn!(
-                    target: "coderight.workflow.recovery",
+                    target: "agent_server.workflow.recovery",
                     run_id = %run.workflow_id,
                     seq = ev.seq,
                     event_kind = %ev.event_kind,

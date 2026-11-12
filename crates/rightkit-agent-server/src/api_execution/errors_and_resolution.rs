@@ -76,19 +76,19 @@ fn optional_workspace_root(value: Option<&str>) -> Option<PathBuf> {
 
 fn execution_workspace_store_path(workspace_root: &std::path::Path) -> PathBuf {
     workspace_root
-        .join(".coderight")
+        .join(crate::host_identity::home_dir())
         .join("execution-workspaces.json")
 }
 
 fn execution_backend_default_store_path(workspace_root: &std::path::Path) -> PathBuf {
     workspace_root
-        .join(".coderight")
+        .join(crate::host_identity::home_dir())
         .join("execution-backends.json")
 }
 
 fn execution_process_store_path(workspace_root: &std::path::Path) -> PathBuf {
     workspace_root
-        .join(".coderight")
+        .join(crate::host_identity::home_dir())
         .join("execution-processes.json")
 }
 

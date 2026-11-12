@@ -1,7 +1,7 @@
 //! Truthful projection of the Pulse Membrane CLI binding.
 //!
 //! This is presentation only. RightKit reaches Membrane solely through the
-//! `coderight-membrane-cli` adapter; this module only checks whether the CLI can be
+//! `{app}-membrane-cli` adapter; this module only checks whether the CLI can be
 //! located (no process is spawned, no store is created) and never infers health.
 
 use serde::{Deserialize, Serialize};

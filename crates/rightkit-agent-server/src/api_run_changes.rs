@@ -29,7 +29,7 @@
 //! - Classifications are explicit enums; secret/large/binary/conflict
 //!   rows stay in the inventory so the UI can render the right
 //!   affordances without diffing the body.
-//! - Restart survives: state lives in `~/.coderight/run_changes/<id>.bin`
+//! - Restart survives: state lives in `~/.{app}/run_changes/<id>.bin`
 //!   and is loaded lazily by `RunChangeStore::open`.
 //! - Stale anchors track the `(mutation id, line)` reference; when the
 //!   captured snapshot changes beyond a tolerance the anchor flips to
@@ -2054,7 +2054,7 @@ async fn post_reset_handler(
 /// in `api_workspace.rs::search_registry`. The integration lead (I2)
 /// attaches a dedicated `Arc<RunChangeStore>` to `DaemonState`; until
 /// then this slot hosts one default store rooted at
-/// `~/.coderight/run_changes`.
+/// `~/.{app}/run_changes`.
 pub(crate) fn shared_run_changes_store() -> Arc<RunChangeStore> {
     static STORE: OnceLock<Arc<RunChangeStore>> = OnceLock::new();
     STORE
@@ -2085,7 +2085,8 @@ fn dirs_default_home() -> PathBuf {
         }
     }
     {
-        rightkit_agent_config::state_root().unwrap_or_else(|| PathBuf::from(".coderight"))
+        rightkit_agent_config::state_root()
+            .unwrap_or_else(|| PathBuf::from(crate::host_identity::home_dir()))
     }
 }
 

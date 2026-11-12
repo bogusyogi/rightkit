@@ -74,21 +74,25 @@ impl TriggerProvider {
     fn signature_header(self) -> &'static str {
         match self {
             Self::Github => "x-hub-signature-256",
-            Self::Generic => "x-coderight-signature-256",
+            Self::Generic => {
+                crate::host_identity::interned(crate::host_identity::header("signature-256"))
+            }
         }
     }
 
     fn delivery_header(self) -> &'static str {
         match self {
             Self::Github => "x-github-delivery",
-            Self::Generic => "x-coderight-delivery-id",
+            Self::Generic => {
+                crate::host_identity::interned(crate::host_identity::header("delivery-id"))
+            }
         }
     }
 
     fn event_header(self) -> &'static str {
         match self {
             Self::Github => "x-github-event",
-            Self::Generic => "x-coderight-event",
+            Self::Generic => crate::host_identity::interned(crate::host_identity::header("event")),
         }
     }
 }
@@ -868,7 +872,7 @@ fn trigger_store_path(state: &DaemonState) -> PathBuf {
         .unwrap_or_else(|| {
             std::env::current_dir()
                 .unwrap_or_else(|_| PathBuf::from("."))
-                .join(".coderight")
+                .join(crate::host_identity::home_dir())
         })
         .join("triggers.json")
 }

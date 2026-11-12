@@ -32,7 +32,7 @@ async fn apply_adapt_proposal_handler(
     // daemon's auth middleware stamps this header; missing/invalid identity
     // never reaches the mutation host.
     if headers
-        .get("x-coderight-authenticated")
+        .get(crate::host_identity::header("authenticated"))
         .and_then(|value| value.to_str().ok())
         != Some("true")
     {

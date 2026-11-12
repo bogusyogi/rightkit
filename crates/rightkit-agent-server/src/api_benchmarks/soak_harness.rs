@@ -166,7 +166,7 @@ impl SoakHarness {
             .filter(|receipt| receipt.observed)
             .count();
         SoakReport {
-            schema_version: "coderight.long-run-soak.v1".to_string(),
+            schema_version: crate::host_identity::schema("long-run-soak.v1"),
             run_id: self.config.run_id,
             status: self.status,
             receipts: self.receipts,
@@ -200,7 +200,7 @@ pub(crate) fn validate_machine_status_document(
         .get("schemaVersion")
         .and_then(Value::as_str)
         .ok_or(MachineConformanceError::MissingSchemaVersion)?;
-    if schema != MACHINE_STATUS_SCHEMA {
+    if schema != MACHINE_STATUS_SCHEMA.as_str() {
         return Err(MachineConformanceError::WrongSchemaVersion);
     }
     let status = object
@@ -224,7 +224,7 @@ pub(crate) fn validate_machine_status_document(
 
 pub(crate) fn machine_status_document(status: MachineStatus) -> Value {
     serde_json::json!({
-        "schemaVersion": MACHINE_STATUS_SCHEMA,
+        "schemaVersion": MACHINE_STATUS_SCHEMA.as_str(),
         "status": status,
         "ok": matches!(status, MachineStatus::Healthy),
     })

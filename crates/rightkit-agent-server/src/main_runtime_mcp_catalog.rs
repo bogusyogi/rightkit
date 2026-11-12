@@ -1,4 +1,4 @@
-// Curated MCP server catalog for `coderight mcp catalog` / `coderight mcp install`.
+// Curated MCP server catalog for `{app} mcp catalog` / `{app} mcp install`.
 // Static, in-code list (no network fetch, no signing) — mirrors the plugin
 // marketplace's Install/InstallMarketplace pattern but scoped down to what the
 // #224 gap actually needs: a curated list + one-command resolve-and-add.

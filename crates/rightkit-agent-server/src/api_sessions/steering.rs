@@ -5,7 +5,7 @@
 //! its existing engine channels.
 //!
 //! FM-124: edit, reorder & send-now controls on queued messages. The daemon
-//! route (`steer_session` in `bins/coderight/src/api_sessions/messages.rs`)
+//! route (`steer_session` in `src/api_sessions/messages.rs`)
 //! dispatches `action` in {enqueue, list, edit, reorder, remove, sendNow} to
 //! `edit`/`reorder`/`pending`+`mark_dispatched` below; every mutator here
 //! rejects an already-dispatched item so a promoted (send-now'd) message can

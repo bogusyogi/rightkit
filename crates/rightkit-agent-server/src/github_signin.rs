@@ -1,19 +1,18 @@
-//! Desktop and CLI Github sign-in is `rightkit-github`'s (`signin`); this host installs its
-//! client id and credential namespace before the first call.
+//! Desktop and CLI Github sign-in is `rightkit-github`'s (`signin`); this module installs the
+//! host app's client id and credential namespace ([`crate::HostIdentity`]) before the first call.
+//! Without a client id the crate reports that sign-in is not configured.
 
 use std::sync::Once;
 
 pub(crate) use rightkit_github::signin::DeviceWait;
 
-/// Public Github App client id shared with the iOS configuration.
-const CLIENT_ID: &str = "Iv23liUIkiMqvrf6e3hi";
-
 fn configured() {
     static ONCE: Once = Once::new();
     ONCE.call_once(|| {
+        let host = crate::host_identity::host();
         rightkit_github::signin::configure(rightkit_github::signin::SignInConfig {
-            client_id: CLIENT_ID.to_string(),
-            credential_namespace: "coderight".to_string(),
+            client_id: host.github_client_id().unwrap_or_default().to_string(),
+            credential_namespace: host.credential_namespace().to_string(),
             keychain_disable_env: "RIGHTKIT_DISABLE_OS_KEYCHAIN".to_string(),
         });
     });

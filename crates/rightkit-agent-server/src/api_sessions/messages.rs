@@ -16,9 +16,9 @@ use crate::api::{
 };
 use crate::api_permissions::{enforce_trusted_source_authority, lower_source_trust};
 
-// Kept path-local so queue semantics stay in the engine crate's owned source
-// lane without widening the shared protocol or LiveSession shape.
-#[path = "../../data/engine__crates__engine__src__steering.rs"]
+// The mid-run steering queue (queue semantics only; see the module docs).
+// Kept beside this file, not in the shared protocol or the LiveSession shape.
+#[path = "steering.rs"]
 mod steering;
 
 const EVT005_QUALIFICATION_FAULT_ENV: &str = "RIGHTKIT_QUAL_EVT005_FAULT";
@@ -576,7 +576,7 @@ pub(crate) async fn post_message(
     }
 
     let response = serde_json::json!({
-        "schemaVersion": "coderight.machine.v1",
+        "schemaVersion": crate::host_identity::schema("machine.v1"),
         "sessionId": id,
         "requestId": idempotency,
         "correlationId": correlation_id,
@@ -650,7 +650,7 @@ fn machine_error(
     (
         status,
         Json(serde_json::json!({
-            "schemaVersion": "coderight.error.v1",
+            "schemaVersion": crate::host_identity::schema("error.v1"),
             "code": code,
             "detail": detail,
             "correlationId": correlation_id,
@@ -981,7 +981,7 @@ pub(crate) async fn pause_goal(
     let live = state.get_session(&id).ok_or(StatusCode::NOT_FOUND)?;
     touch_session(&live);
     if let Some(client_id) = headers
-        .get("x-coderight-client-id")
+        .get(crate::host_identity::header("client-id"))
         .and_then(|value| value.to_str().ok())
         .filter(|value| !value.trim().is_empty())
     {
@@ -997,7 +997,7 @@ pub(crate) async fn resume_goal(
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     enforce_trusted_source_authority(&headers)?;
     if let Some(client_id) = headers
-        .get("x-coderight-client-id")
+        .get(crate::host_identity::header("client-id"))
         .and_then(|value| value.to_str().ok())
         .filter(|value| !value.trim().is_empty())
     {

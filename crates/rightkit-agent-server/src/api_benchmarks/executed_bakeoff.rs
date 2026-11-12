@@ -312,14 +312,14 @@ pub(crate) async fn run_live_executed_bakeoff(
         state.clone(),
         runtime.clone(),
         runtime_config.clone(),
-        "coderight-routed-orchestration",
+        &crate::host_identity::prefixed("routed-orchestration"),
         ExecutionTopology::RoutedOrchestrated,
     );
     let baseline = RuntimeBakeoffExecutor::new(
         state,
         runtime,
         runtime_config,
-        "coderight-same-cost-single-agent",
+        &crate::host_identity::prefixed("same-cost-single-agent"),
         ExecutionTopology::SingleAgent,
     );
     let report = run_executed_bakeoff(&candidate, &baseline, &ArtifactDigestVerifier, &tasks)
@@ -525,7 +525,7 @@ fn effective_candidate_limit(requested: Option<f64>, operator_limit: f64) -> Opt
 
 fn private_corpus_secret(token: &str, suite_namespace: &str) -> [u8; 32] {
     let mut digest = rightkit_fs::digest::Sha256Hasher::new();
-    digest.update(b"coderight/runtime-executed-bakeoff/corpus-secret/v1\0");
+    digest.update(format!("{}/runtime-executed-bakeoff/corpus-secret/v1\0", crate::host_identity::app()).as_bytes());
     digest.update(token.as_bytes());
     digest.update(&[0]);
     digest.update(suite_namespace.as_bytes());
@@ -1002,8 +1002,8 @@ impl BakeoffWorktree {
             .take(16)
             .collect::<String>();
         let path = std::env::temp_dir().join(format!(
-            "coderight-executed-bakeoff-{strategy}-{task_fragment}-{}-{sequence}",
-            std::process::id()
+            "{app}-executed-bakeoff-{strategy}-{task_fragment}-{}-{sequence}",
+            std::process::id(), app = crate::host_identity::app()
         ));
         // Own the cleanup guard before awaiting the mutating Git operation. If
         // the outer bakeoff timeout cancels this future midway through `add`,
@@ -1173,7 +1173,7 @@ impl Drop for BakeoffSessionGuard {
                     let _ = store.delete_session(session_id);
                 }
             } else if let Err(error) = std::thread::Builder::new()
-                .name("coderight-bakeoff-cleanup".to_string())
+                .name(crate::host_identity::prefixed("bakeoff-cleanup"))
                 .spawn(move || {
                     // A dedicated thread is independent of the Tokio runtime
                     // that may be cancelling the timed-out bakeoff future.
@@ -1383,7 +1383,7 @@ pub(crate) fn insert_executed_bakeoff_openapi_components(schemas: &mut Map<Strin
             "properties": {
                 "report": {
                     "type": "object",
-                    "description": "Sanitized coderight.executed-bakeoff.v1 report. It omits prompts, expected digests, and artifact bodies."
+                    "description": format!("Sanitized {app}.executed-bakeoff.v1 report. It omits prompts, expected digests, and artifact bodies.", app = crate::host_identity::app())
                 },
                 "decision": {
                     "type": "object",

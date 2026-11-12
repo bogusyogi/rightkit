@@ -37,13 +37,13 @@ async fn daemon_session(command: SessionCommand) -> i32 {
 }
 
 async fn daemon_session_list(status: Option<String>, tag: Option<String>) -> i32 {
-    // DL-014: `coderight ps`/`coderight sessions` reach the daemon through
+    // DL-014: `{app} ps`/`{app} sessions` reach the daemon through
     // the shared `LifecycleAuthority` (`Start { Background }`) rather than
     // calling the autostart coordinator directly; see
     // `daemon::lifecycle_backend::resolve_daemon_endpoint_via_authority`.
     // Both the autostart/readiness wait and the request are bounded: a daemon
     // that accepts the connection but never answers must fail loudly, not
-    // leave `coderight ps` hanging forever.
+    // leave `{app} ps` hanging forever.
     let resolved = tokio::time::timeout(
         std::time::Duration::from_secs(60),
         crate::daemon::lifecycle_backend::resolve_daemon_endpoint_via_authority(),
@@ -52,7 +52,7 @@ async fn daemon_session_list(status: Option<String>, tag: Option<String>) -> i32
     let (base_url, token) = match resolved {
         Ok(Some(p)) => p,
         Ok(None) => {
-            eprintln!("No running daemon found. Start one with `coderight serve`.");
+            eprintln!("No running daemon found. Start one with `{app} serve`.", app = crate::host_identity::app());
             return 1;
         }
         Err(_) => {
@@ -111,7 +111,7 @@ async fn daemon_session_search(query: &str, limit: usize) -> i32 {
     let (base_url, token) = match crate::cli_presence::resolve_daemon_or_autostart().await {
         Some(p) => p,
         None => {
-            eprintln!("No running daemon found. Start one with `coderight serve`.");
+            eprintln!("No running daemon found. Start one with `{app} serve`.", app = crate::host_identity::app());
             return 1;
         }
     };
@@ -146,7 +146,7 @@ async fn daemon_session_delete(session_id: &str) -> i32 {
     let (base_url, token) = match crate::cli_presence::resolve_daemon_or_autostart().await {
         Some(p) => p,
         None => {
-            eprintln!("No running daemon found. Start one with `coderight serve`.");
+            eprintln!("No running daemon found. Start one with `{app} serve`.", app = crate::host_identity::app());
             return 1;
         }
     };
@@ -183,7 +183,7 @@ async fn daemon_session_set_status(session_id: &str, status: &str) -> i32 {
     let (base_url, token) = match crate::cli_presence::resolve_daemon_or_autostart().await {
         Some(p) => p,
         None => {
-            eprintln!("No running daemon found. Start one with `coderight serve`.");
+            eprintln!("No running daemon found. Start one with `{app} serve`.", app = crate::host_identity::app());
             return 1;
         }
     };
@@ -227,7 +227,7 @@ async fn daemon_session_set(
     let (base_url, token) = match crate::cli_presence::resolve_daemon_or_autostart().await {
         Some(p) => p,
         None => {
-            eprintln!("No running daemon found. Start one with `coderight serve`.");
+            eprintln!("No running daemon found. Start one with `{app} serve`.", app = crate::host_identity::app());
             return 1;
         }
     };

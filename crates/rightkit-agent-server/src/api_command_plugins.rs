@@ -2,7 +2,7 @@
 //!
 //! Historical path for plugin marketplace routes. The active implementation lives in
 //! `api_plugins/` (mod `api_plugins`, surface `api_plugins/*`). This shim preserves
-//! the `engine/bins/coderight/src/api_command_plugins.rs` file gate for FM-156 while
+//! the `engine/src/api_command_plugins.rs` file gate for FM-156 while
 //! re-exporting the catalogue, category, rollback, and per-session activation
 //! surface so `cargo check` and `cargo test` validate the same contracts.
 //!

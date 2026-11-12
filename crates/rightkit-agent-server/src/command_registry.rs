@@ -56,7 +56,7 @@ pub fn enforce_mid_turn(name: &str) -> Result<(), String> {
 }
 
 /// The registry's implementation of the TUI's `CommandSource` seam
-/// (`engine/crates/tui/src/component.rs`). `coderight-tui` is a dependency
+/// (`engine/crates/tui/src/component.rs`). `{app}-tui` is a dependency
 /// of this binary purely so the `impl` below can name the trait;
 /// `CommandRouter`'s own inherent methods are unchanged and unaware of the
 /// TUI crate.

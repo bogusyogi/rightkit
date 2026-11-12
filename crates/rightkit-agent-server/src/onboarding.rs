@@ -42,7 +42,7 @@
 //!      Failure: "Readiness failed: <provider's verbatim error>"
 //!               "Nothing was changed. Fix the error and re-run /onboard."
 //!
-//! 8. Onboarding complete. Try: coderight run 'hello'
+//! 8. Onboarding complete. Try: {app} run 'hello'
 //! ```
 //!
 //! Re-running `/onboard` on a configured install repeats this flow but defaults
@@ -741,7 +741,7 @@ async fn run_onboarding_with_native_auth<
                 return OnboardOutcome::Failed { detail: e };
             }
             io.write(&format!(
-                "Ready — {provider}/{model} replied: {reply}\n\nOnboarding complete. Try: coderight run 'hello'\n"
+                "Ready — {provider}/{model} replied: {reply}\n\nOnboarding complete. Try: {app} run 'hello'\n", app = crate::host_identity::app()
             ));
             OnboardOutcome::Completed { provider, model }
         }

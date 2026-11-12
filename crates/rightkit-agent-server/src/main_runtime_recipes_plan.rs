@@ -1,5 +1,5 @@
 // Sub-recipe run-plan execution + response-schema pass-through for
-// `coderight recipe run` (spliced into main_runtime via include!).
+// `{app} recipe run` (spliced into main_runtime via include!).
 
 #[allow(clippy::too_many_arguments)]
 async fn run_recipe_sub_steps(
@@ -115,7 +115,7 @@ fn recipe_response_schema_file(recipe: &Recipe) -> Result<Option<String>, String
     let Some(schema) = recipe.response_schema.as_ref() else {
         return Ok(None);
     };
-    let dir = std::env::temp_dir().join("coderight-recipe-schemas");
+    let dir = std::env::temp_dir().join(crate::host_identity::prefixed("recipe-schemas"));
     std::fs::create_dir_all(&dir).map_err(|error| error.to_string())?;
     let path = dir.join(format!(
         "recipe-schema-{}-{}.json",

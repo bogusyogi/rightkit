@@ -18,7 +18,7 @@ pub(crate) fn dim_with_evidence(
 }
 
 /// Collect every dimension probe into a stable-key map. Output order in JSON
-/// (alphabetical via `BTreeMap`) is part of the `coderight.cli.doctor.v1`
+/// (alphabetical via `BTreeMap`) is part of the `{app}.cli.doctor.v1`
 /// contract — downstream consumers MAY rely on it.
 pub fn collect_dimensions(verbose: bool) -> BTreeMap<&'static str, Dimension> {
     let mut map = BTreeMap::new();

@@ -219,7 +219,9 @@ fn notification_workspace_root(query: &NotificationWorkspaceQuery) -> PathBuf {
 }
 
 pub fn notifications_store_path(workspace_root: &FsPath) -> PathBuf {
-    workspace_root.join(".coderight").join("notifications.json")
+    workspace_root
+        .join(crate::host_identity::home_dir())
+        .join("notifications.json")
 }
 
 fn load_notifications(workspace_root: &FsPath) -> Result<Vec<NotificationRow>, String> {

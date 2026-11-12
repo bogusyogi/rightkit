@@ -108,7 +108,7 @@ include!("api_permissions/openapi.rs");
 
 // `enforce_trusted_source_authority` / `lower_source_trust` moved to the
 // binary-independent `rightkit-agent-daemon` crate (src/authority.rs, from
-// CodeRight's `coderight-daemon-core`) so extracted domain crates (e.g. `coderight-attention`)
+// the host app's `{app}-daemon-core`) so extracted domain crates (e.g. `{app}-attention`)
 // can call the gate without depending on this binary crate. Re-exported here
 // so this module's ~58 existing `crate::api_permissions::...` call sites are
 // unaffected.

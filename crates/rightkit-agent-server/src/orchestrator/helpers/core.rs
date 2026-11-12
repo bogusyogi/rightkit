@@ -142,7 +142,7 @@ fn push_artifact(session: &LiveSession, artifact: ProtocolArtifact) {
     push_session_artifact(session, artifact);
 }
 
-/// Persist a promoted model as a per-agent override in `~/.coderight/config.toml`
+/// Persist a promoted model as a per-agent override in `~/.{app}/config.toml`
 /// so it becomes the role's model on the next daemon start.
 fn persist_agent_model(role: &str, model_id: &str) {
     use rightkit_agent_config::{AgentOverride, ConfigLoader};

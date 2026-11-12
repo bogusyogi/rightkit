@@ -232,7 +232,7 @@ pub(crate) fn driver_capabilities_schema() -> Value {
         "type": "object",
         "required": ["transport", "requiresLease", "tools"],
         "properties": {
-            "transport": {"const": "coderight-mcp"},
+            "transport": {"const": crate::host_identity::prefixed("mcp")},
             "requiresLease": {"const": true},
             "tools": {"type": "array", "items": {
                 "type": "object", "required": ["id", "requiresApproval"],

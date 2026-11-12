@@ -6,6 +6,10 @@ mod agent_roster;
 mod api;
 mod api_accounts;
 mod api_adapt;
+#[cfg(feature = "benchmarks")]
+mod api_benchmarks;
+#[cfg(not(feature = "benchmarks"))]
+#[path = "api_benchmarks_off.rs"]
 mod api_benchmarks;
 mod api_browser_workspace;
 mod api_clients;
@@ -76,6 +80,8 @@ mod github_signin;
 mod goal_terminal;
 mod harness_radar_feed;
 mod hooks;
+pub mod host_identity;
+pub use host_identity::{HarnessRadarData, HostIdentity};
 mod host_retained_context;
 mod inference_runtime;
 mod inline_host_init;
@@ -133,13 +139,17 @@ fn install_crash_capture() {
 
 /// Run the agent server host binary entry.
 ///
-/// The product passes its skill implementations: `skill_catalog` answers skill discovery and
+/// The product passes its names and its skill implementations: `identity` gives every product
+/// name the server writes (command name, state folder, schema ids, headers, licence app,
+/// credential namespace; see [`HostIdentity`]), `skill_catalog` answers skill discovery and
 /// trigger queries for the agent crates, and `skill_host` supplies the slash-command table,
-/// custom commands, skill manifests and trigger evaluation. Both are installed before anything runs.
+/// custom commands, skill manifests and trigger evaluation. All are installed before anything runs.
 pub fn run(
+    identity: HostIdentity,
     skill_catalog: std::sync::Arc<dyn rightkit_agent_host_traits::SkillCatalog>,
     skill_host: std::sync::Arc<dyn rightkit_agent_host_traits::skill_host::SkillHost>,
 ) {
+    host_identity::install(identity);
     rightkit_agent_host_traits::install_skill_catalog(skill_catalog);
     rightkit_agent_host_traits::skill_host::install_skill_host(skill_host);
     // First, before any other thread: read the licence locators the shell passed and remove every

@@ -724,7 +724,7 @@ async fn export_bot_handler(
         task_templates: profile.task_templates,
         capability_labels: profile.tools,
         schedules: Vec::new(),
-        provenance: "coderight:authority-free-export".into(),
+        provenance: format!("{app}:authority-free-export", app = crate::host_identity::app()),
         content_hash: String::new(),
     };
     let bytes = rightkit_workflow::control_plane::import_export::export_authority_free_bot_package(

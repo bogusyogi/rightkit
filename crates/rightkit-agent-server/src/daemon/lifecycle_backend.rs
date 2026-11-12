@@ -76,7 +76,7 @@ fn tui_presence_allowed(service_host_selected: bool) -> bool {
 /// deliberately best-effort with **no autostart**
 /// (`cli_presence::attach_cli_presence`'s doc comment), while
 /// `LifecycleCommand::Start`'s background branch always autostarts. Routing
-/// through `Start` unconditionally would change behavior (a bare `coderight`
+/// through `Start` unconditionally would change behavior (a bare `{app}`
 /// invocation would start launching a daemon it previously left alone), so
 /// this probes reachability first with the same non-autostart
 /// `crate::main_runtime::resolve_daemon()` the direct call effectively used,
@@ -148,7 +148,11 @@ impl LifecycleBackend for DaemonLifecycleBackend {
     async fn start(&mut self, mode: LaunchMode) -> Result<BackendOutcome, String> {
         if mode == LaunchMode::Foreground {
             return Ok(BackendOutcome {
-                detail: "foreground selected; caller owns `coderight serve` process".to_string(),
+                detail: format!(
+                    "foreground selected; caller owns `{app} serve` process",
+                    app = crate::host_identity::app()
+                )
+                .to_string(),
                 ..Default::default()
             });
         }
@@ -454,7 +458,7 @@ impl ReloadHooks for LifecycleReloadHooks {
 }
 
 /// Stop the daemon whose identity is published in the discovery record
-/// (`~/.coderight/daemon.port`) through the exact same control surface
+/// (`~/.{app}/daemon.port`) through the exact same control surface
 /// `takeover.rs::acquire_or_take_over` already uses in production to
 /// displace a live predecessor: a cooperative `POST /internal/takeover`
 /// first (unless `force`), then `kill_tree::terminate_pid_pinned` — which

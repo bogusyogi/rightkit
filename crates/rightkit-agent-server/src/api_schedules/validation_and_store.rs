@@ -156,15 +156,15 @@ fn schedule_workspace_root(q: &ScheduleWorkspaceQuery) -> PathBuf {
 }
 
 pub fn schedules_store_path(root: &FsPath) -> PathBuf {
-    root.join(".coderight").join("schedules.json")
+    root.join(crate::host_identity::home_dir()).join("schedules.json")
 }
 
 fn schedule_runs_store_path(root: &FsPath) -> PathBuf {
-    root.join(".coderight").join("schedule-runs.json")
+    root.join(crate::host_identity::home_dir()).join("schedule-runs.json")
 }
 
 fn schedule_admin_audit_store_path(root: &FsPath) -> PathBuf {
-    root.join(".coderight").join("schedule-admin-audit.json")
+    root.join(crate::host_identity::home_dir()).join("schedule-admin-audit.json")
 }
 
 pub fn load_api_schedules(root: &FsPath) -> Result<HashMap<String, StoredScheduleEntry>, String> {

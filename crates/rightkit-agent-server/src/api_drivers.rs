@@ -46,8 +46,10 @@ pub(crate) use driver_lifecycle::*;
 pub(crate) use model_catalog::*;
 pub(crate) use schemas::*;
 
-const CAPABILITY_HEADER: &str = "x-coderight-capability-token";
-const DRIVER_INSTANCE_HEADER: &str = "x-coderight-driver-instance";
+static CAPABILITY_HEADER: std::sync::LazyLock<String> =
+    std::sync::LazyLock::new(|| crate::host_identity::header("capability-token"));
+static DRIVER_INSTANCE_HEADER: std::sync::LazyLock<String> =
+    std::sync::LazyLock::new(|| crate::host_identity::header("driver-instance"));
 const MAX_LEASE_TTL_SECONDS: u64 = 60 * 60;
 const DEFAULT_LEASE_TTL_SECONDS: u64 = 15 * 60;
 const SPECIAL_TOOLS: &[&str] = &[
@@ -717,8 +719,9 @@ async fn cli_provider_verify_harness(
         .map_err(|_| StatusCode::BAD_GATEWAY)?;
     let executable = discovery.executable.clone().ok_or(StatusCode::CONFLICT)?;
     let workspace = std::env::temp_dir().join(format!(
-        "coderight-qualification-{}",
-        crate::startup::generate_token()
+        "{app}-qualification-{}",
+        crate::startup::generate_token(),
+        app = crate::host_identity::app()
     ));
     tokio::fs::create_dir(&workspace)
         .await
@@ -1303,8 +1306,8 @@ async fn run_cli_runtime_matrix_cell(
                 capability.parse::<axum::http::HeaderValue>(),
                 instance.parse::<axum::http::HeaderValue>(),
             ) {
-                headers.insert(CAPABILITY_HEADER, capability);
-                headers.insert(DRIVER_INSTANCE_HEADER, instance);
+                headers.insert(CAPABILITY_HEADER.as_str(), capability);
+                headers.insert(DRIVER_INSTANCE_HEADER.as_str(), instance);
                 let request = CapabilityCallRequest {
                     call_id: json!("matrix-exact-once"),
                     name: "memory_recall".to_string(),
@@ -1397,8 +1400,8 @@ async fn run_cli_runtime_matrix_cell(
                 capability.parse::<axum::http::HeaderValue>(),
                 instance.parse::<axum::http::HeaderValue>(),
             ) {
-                headers.insert(CAPABILITY_HEADER, capability);
-                headers.insert(DRIVER_INSTANCE_HEADER, instance);
+                headers.insert(CAPABILITY_HEADER.as_str(), capability);
+                headers.insert(DRIVER_INSTANCE_HEADER.as_str(), instance);
                 if body.scenario == "revoked_authority" {
                     if let Some(lease) = lease.as_ref() {
                         let _ = storage

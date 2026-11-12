@@ -4,7 +4,7 @@
 // A vendor route runs turns through the vendor's own installed CLI instead
 // of the `SessionExecutionHost` run loop: `claude` reuses the Claude harness
 // launch contract (stream-json in and out, the `--tools ""` delegation
-// policy, a run-scoped `--mcp-config` exposing the `coderight` stdio server)
+// policy, a run-scoped `--mcp-config` exposing the `{app}` stdio server)
 // and `agy` runs through `agy_harness` (`-p` + `--output-format
 // stream-json`, `--conversation` for resume). Vendor stdout frames are
 // parsed into the shared `NormalizedEvent` vocabulary and projected into the
@@ -574,7 +574,7 @@ pub(crate) fn session_auth_report(
 }
 
 /// Claude's `--permission-mode` for a RightKit policy mode. RightKit stays the approval
-/// authority (permission prompts route to `mcp__coderight__permission_prompt`), so only the two
+/// authority (permission prompts route to `mcp__{app}__permission_prompt`), so only the two
 /// modes that have a Claude equivalent change anything; `Bypass` is never forwarded because the
 /// driver host refuses `bypassPermissions`.
 fn claude_permission_mode_for(mode: rightkit_agent_policy::PermissionMode) -> &'static str {
@@ -627,10 +627,10 @@ fn vendor_launch_spec(
     match kind {
         VendorCli::ClaudeCode => {
             let current_exe = std::env::current_exe()
-                .map_err(|error| format!("cannot resolve coderight executable: {error}"))?;
+                .map_err(|error| format!("cannot resolve {app} executable: {error}", app = crate::host_identity::app()))?;
             let mcp_config = serde_json::json!({
                 "mcpServers": {
-                    "coderight": {
+                    (crate::host_identity::app()): {
                         "type": "stdio",
                         "command": current_exe,
                         "args": vendor_mcp_args(workspace, false),
@@ -657,7 +657,7 @@ fn vendor_launch_spec(
             }
             spec.args.extend([
                 "--permission-prompt-tool".into(),
-                "mcp__coderight__permission_prompt".into(),
+                format!("mcp__{app}__permission_prompt", app = crate::host_identity::app()),
             ]);
             let frame = serde_json::json!({
                 "type": "user",
@@ -1124,7 +1124,7 @@ impl Drop for ActiveChildGuard {
     }
 }
 
-/// Headless vendor turn for `coderight run --provider <vendor>`: same child
+/// Headless vendor turn for `{app} run --provider <vendor>`: same child
 /// machinery, events projected to stdout/stderr instead of the TUI queue.
 async fn run_vendor_turn_headless(
     args: &RunArgs,

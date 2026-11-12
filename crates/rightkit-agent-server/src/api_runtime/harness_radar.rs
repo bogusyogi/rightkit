@@ -130,7 +130,7 @@ async fn schedule_harness_radar_refresh(
 }
 
 fn harness_radar_refresh_prompt() -> String {
-    "Harness Radar refresh: read assets/harness-radar/sources.toml, fetch the configured public watchlist sources when network is available, compare them with assets/harness-radar/projects.snapshot.yaml, validate required capabilities/categories, summarize new or changed agent-harness projects, and propose only RightKit-relevant backlog updates with source evidence. Do not auto-promote proposals without operator approval.".to_string()
+    "Harness Radar refresh: read the workspace's harness-radar sources (sources.toml), fetch the configured public watchlist sources when network is available, compare them with the current project snapshot (projects.snapshot.yaml), validate required capabilities/categories, summarize new or changed agent-harness projects, and propose only backlog updates relevant to this workspace, with source evidence. Do not auto-promote proposals without operator approval.".to_string()
 }
 
 struct RuntimeHarnessRadarSnapshot {
@@ -142,22 +142,22 @@ struct RuntimeHarnessRadarSnapshot {
     capability_map: std::collections::BTreeMap<String, usize>,
 }
 
+/// The feed over the host app's watch-list ([`crate::HostIdentity::with_harness_radar`]); empty
+/// when the app gives none.
 fn current_harness_radar_snapshot() -> RuntimeHarnessRadarSnapshot {
-    let sources = crate::harness_radar_feed::parse_harness_radar_sources(include_str!(
-        "../../data/assets__harness-radar__sources.toml"
-    ));
+    let empty = crate::host_identity::HarnessRadarData::default();
+    let data = crate::host_identity::host()
+        .harness_radar()
+        .unwrap_or(&empty);
+    let sources = crate::harness_radar_feed::parse_harness_radar_sources(&data.sources_toml);
     let source_id = sources
         .first()
         .map(|source| source.id.as_str())
-        .unwrap_or("awesome-agent-harness");
-    let entries = crate::harness_radar_feed::import_harness_radar_yaml(
-        source_id,
-        include_str!("../../data/assets__harness-radar__projects.snapshot.yaml"),
-    );
-    let previous_entries = crate::harness_radar_feed::import_harness_radar_yaml(
-        source_id,
-        include_str!("../../data/assets__harness-radar__projects.previous.yaml"),
-    );
+        .unwrap_or("harness-radar");
+    let entries =
+        crate::harness_radar_feed::import_harness_radar_yaml(source_id, &data.snapshot_yaml);
+    let previous_entries =
+        crate::harness_radar_feed::import_harness_radar_yaml(source_id, &data.previous_yaml);
     let changes =
         crate::harness_radar_feed::diff_harness_radar_entries(source_id, &previous_entries, &entries);
     let actionable_entries = entries

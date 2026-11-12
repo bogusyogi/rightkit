@@ -294,7 +294,7 @@ async fn admit_authenticated_delivery_via_coordinator(
         received_at: delivery.received_at.clone(),
     };
     let event_for_policy = crate::workflow::triggers::NormalizedTriggerEvent {
-        spec_version: crate::workflow::triggers::NormalizedTriggerEvent::SPEC_VERSION.into(),
+        spec_version: crate::workflow::triggers::NormalizedTriggerEvent::spec_version().into(),
         id: event_id,
         trigger_id: Some(rightkit_workflow::control_plane::domain::trigger_id(
             trigger.id.clone(),
@@ -2127,7 +2127,7 @@ async fn admit_occurrence(
     let now_ms = clock.now_unix_ms();
     let now = crate::workflow::triggers::format_unix_ms_as_iso(now_ms);
     let delivery_id = format!("manual-{}", unique_suffix());
-    let source = "coderight:manual".to_string();
+    let source = format!("{app}:manual", app = crate::host_identity::app());
     let content_hash =
         rightkit_workflow::control_plane::domain::ContentHash::sha256(b"{\"manual\":true}");
     let event_id = crate::workflow::triggers::derive_event_id(&source, &delivery_id, now_ms);
@@ -2152,7 +2152,7 @@ async fn admit_occurrence(
         received_at: now.clone(),
     };
     let normalized = crate::workflow::triggers::NormalizedTriggerEvent {
-        spec_version: crate::workflow::triggers::NormalizedTriggerEvent::SPEC_VERSION.into(),
+        spec_version: crate::workflow::triggers::NormalizedTriggerEvent::spec_version().into(),
         id: event_id,
         trigger_id: Some(rightkit_workflow::control_plane::domain::trigger_id(
             trigger.id.clone(),

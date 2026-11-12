@@ -1,7 +1,7 @@
 use std::fs;
 
-const CORPUS_SCHEMA_VERSION: &str = "coderight.eval-corpus.v1";
-const CORPUS_REPORT_SCHEMA_VERSION: &str = "coderight.corpus-bakeoff.v1";
+static CORPUS_SCHEMA_VERSION: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| crate::host_identity::schema("eval-corpus.v1"));
+static CORPUS_REPORT_SCHEMA_VERSION: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| crate::host_identity::schema("corpus-bakeoff.v1"));
 const MAX_CORPUS_MANIFEST_BYTES: u64 = 1024 * 1024;
 
 #[derive(Debug, Deserialize)]
@@ -106,7 +106,7 @@ struct CorpusBakeoffResponse {
     sources: CorpusSourceCounts,
     report: BakeoffReport,
     decision: BakeoffGateDecision,
-    /// Additive daemon resource snapshot (`coderight.resource-metrics.v1`
+    /// Additive daemon resource snapshot (`{app}.resource-metrics.v1`
     /// shape) captured when the report is produced. Existing consumers keep
     /// working: this field only adds to the response.
     resource_metrics: serde_json::Value,
@@ -162,7 +162,7 @@ async fn run_corpus_bakeoff_handler(
     .map_err(|_| corpus_http_error(StatusCode::GATEWAY_TIMEOUT, "corpus bakeoff timed out"))?
     .map_err(|status| corpus_http_error(status, "corpus bakeoff execution failed"))?;
     Ok(Json(CorpusBakeoffResponse {
-        schema_version: CORPUS_REPORT_SCHEMA_VERSION,
+        schema_version: CORPUS_REPORT_SCHEMA_VERSION.as_str(),
         manifest_sha256: loaded.manifest_sha256,
         task_count,
         sources: loaded.sources,
@@ -196,10 +196,10 @@ fn load_corpus_manifest(path: &Path) -> Result<LoadedCorpus, CorpusLoadError> {
         .map_err(|_| CorpusLoadError::bad("corpus manifest must be UTF-8 JSON"))?;
     let manifest: CorpusManifest = serde_json::from_str(&raw)
         .map_err(|error| CorpusLoadError::bad(format!("invalid corpus manifest: {error}")))?;
-    if manifest.schema_version != CORPUS_SCHEMA_VERSION {
+    if manifest.schema_version != CORPUS_SCHEMA_VERSION.as_str() {
         return Err(CorpusLoadError::bad(format!(
-            "unsupported corpus schemaVersion {}; expected {CORPUS_SCHEMA_VERSION}",
-            manifest.schema_version
+            "unsupported corpus schemaVersion {}; expected {}",
+            manifest.schema_version, *CORPUS_SCHEMA_VERSION
         )));
     }
     if manifest.tasks.is_empty() || manifest.tasks.len() > MAX_TASKS {

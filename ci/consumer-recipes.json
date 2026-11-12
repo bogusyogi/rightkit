@@ -3737,8 +3737,8 @@
       "id": "ci/consumers/rightkit-agent-server/src/main.rs",
       "files": {
         "Cargo.toml": "e769da2cac23564f2b820d4d480c50a837c360e912e7ffe2223a3d898f65e8df",
-        "README.md": "883d04ba2de5733a0114018a9bdf941d7d7026d193089a29491ad4f62db01ada",
-        "src/main.rs": "8e3086a70d80843fd10be99a619bd925c4641ee4e45d7007af33371f59c59ae1"
+        "README.md": "31383be1f6dc0d8455a5dfd379d57e0c8d9265f8b72bf840d7d6519567fd8f1f",
+        "src/main.rs": "41a57c417e67a19065ced5e98e6e778e9961ca8569f81d99e724a297a1afd6b3"
       }
     },
     "rightkit-agent-skills": {

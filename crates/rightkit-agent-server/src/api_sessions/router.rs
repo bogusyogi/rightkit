@@ -139,7 +139,7 @@ async fn normalize_session_error_envelope(request: Request<Body>, next: Next) ->
     (
         status,
         axum::Json(serde_json::json!({
-            "schemaVersion": "coderight.error.v1",
+            "schemaVersion": crate::host_identity::schema("error.v1"),
             "code": code,
             "detail": status.canonical_reason().unwrap_or("request failed"),
             "correlationId": rightkit_agent_engine_protocol::uuid_v7(),

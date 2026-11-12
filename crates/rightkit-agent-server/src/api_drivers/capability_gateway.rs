@@ -198,7 +198,7 @@ pub(crate) async fn issue_capability_lease(
         "tools": tools,
         "capabilityToken": plaintext_token,
         "mcp": {
-            "command": "coderight",
+            "command": crate::host_identity::app(),
             "args": ["mcp-server", "--session-id", session_id],
             "secretEnvironment": DRIVER_MCP_SECRET_ENVIRONMENT,
         }
@@ -593,7 +593,7 @@ pub(crate) async fn authorize_lease(
     StatusCode,
 > {
     let token = headers
-        .get(CAPABILITY_HEADER)
+        .get(CAPABILITY_HEADER.as_str())
         .and_then(|value| value.to_str().ok())
         .ok_or(StatusCode::UNAUTHORIZED)?;
     let mut parts = token.split('.');
@@ -641,7 +641,7 @@ pub(crate) async fn authorize_gateway_lease(
 > {
     let (lease, tools) = authorize_lease(state, session_id, headers).await?;
     let instance_secret = headers
-        .get(DRIVER_INSTANCE_HEADER)
+        .get(DRIVER_INSTANCE_HEADER.as_str())
         .and_then(|value| value.to_str().ok())
         .filter(|value| value.len() >= 64)
         .ok_or(StatusCode::UNAUTHORIZED)?;

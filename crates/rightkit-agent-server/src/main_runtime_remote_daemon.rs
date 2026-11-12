@@ -8,7 +8,7 @@ async fn cli_remote_smoke(
         None => {
             print_json_value(serde_json::json!({
                 "verdict": "block",
-                "detail": "No running daemon found. Start one with `coderight serve` or the desktop app.",
+                "detail": format!("No running daemon found. Start one with `{app} serve` or the desktop app.", app = crate::host_identity::app()),
             }));
             return 1;
         }
@@ -137,32 +137,32 @@ fn telegram_live_smoke_next_steps(
     if readiness_passed && chat_passed {
         return vec![
             "Send a normal Telegram command/message to the bot to exercise the target session.",
-            "Use `coderight remote status` for redacted cursor and binding details.",
+            crate::host_identity::interned(format!("Use `{app} remote status` for redacted cursor and binding details.", app = crate::host_identity::app())),
         ];
     }
 
     if !telegram_token_configured {
         return vec![
             "Create a bot with Telegram BotFather.",
-            "Save the bot token in Settings > Remote or run `coderight remote setup --telegram-token <token>`.",
-            "Restart `coderight serve` or the desktop app, then rerun `coderight remote smoke --timeout-seconds 120`.",
+            crate::host_identity::interned(format!("Save the bot token in Settings > Remote or run `{app} remote setup --telegram-token <token>`.", app = crate::host_identity::app())),
+            crate::host_identity::interned(format!("Restart `{app} serve` or the desktop app, then rerun `{app} remote smoke --timeout-seconds 120`.", app = crate::host_identity::app())),
         ];
     }
 
     if allowed_user_count == 0 {
         return vec![
-            "Run `coderight remote validate` to verify Telegram accepts the saved BotFather token.",
+            crate::host_identity::interned(format!("Run `{app} remote validate` to verify Telegram accepts the saved BotFather token.", app = crate::host_identity::app())),
             "Message the bot once from the Telegram account that should control RightKit.",
-            "Run `coderight remote users`, then save the discovered user id with `coderight remote setup --allowed-user <id>`.",
-            "Restart `coderight serve` or the desktop app, then rerun `coderight remote smoke --timeout-seconds 120`.",
+            crate::host_identity::interned(format!("Run `{app} remote users`, then save the discovered user id with `{app} remote setup --allowed-user <id>`.", app = crate::host_identity::app())),
+            crate::host_identity::interned(format!("Restart `{app} serve` or the desktop app, then rerun `{app} remote smoke --timeout-seconds 120`.", app = crate::host_identity::app())),
         ];
     }
 
     if !readiness_passed {
         return vec![
-            "Run `coderight remote test` to inspect the failing readiness check.",
+            crate::host_identity::interned(format!("Run `{app} remote test` to inspect the failing readiness check.", app = crate::host_identity::app())),
             "Confirm the daemon/app was restarted after saving the BotFather token and allowed Telegram user ids.",
-            "If Telegram reports a token or network error, rerun `coderight remote validate`.",
+            crate::host_identity::interned(format!("If Telegram reports a token or network error, rerun `{app} remote validate`.", app = crate::host_identity::app())),
         ];
     }
 
@@ -176,7 +176,7 @@ async fn daemon_remote_json(label: &str, path: &str) -> i32 {
     let (base_url, token) = match crate::cli_presence::resolve_daemon_or_autostart().await {
         Some(p) => p,
         None => {
-            eprintln!("No running daemon found. Start one with `coderight serve`.");
+            eprintln!("No running daemon found. Start one with `{app} serve`.", app = crate::host_identity::app());
             return 1;
         }
     };

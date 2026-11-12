@@ -809,7 +809,7 @@ impl InlineMcpProjection {
         let name = request
             .get("tool_name")
             .and_then(serde_json::Value::as_str)
-            .and_then(|name| name.strip_prefix("mcp__coderight__"));
+            .and_then(|name| name.strip_prefix(&format!("mcp__{app}__", app = crate::host_identity::app())));
         let Some(name) = name.filter(|name| *name != "permission_prompt") else {
             return Ok(
                 serde_json::json!({"behavior": "deny", "message": "Only RightKit tools are permitted"}),
@@ -1053,7 +1053,7 @@ impl ServiceHost {
         let (base_url, token) = crate::cli_presence::resolve_daemon_or_autostart()
             .await
             .ok_or_else(|| {
-                "No running ServiceHost found and automatic start failed. Start one with `coderight serve`."
+                format!("No running ServiceHost found and automatic start failed. Start one with `{app} serve`.", app = crate::host_identity::app())
                     .to_string()
             })?;
         let client = Arc::new(DaemonSessionClient::new(base_url, token));

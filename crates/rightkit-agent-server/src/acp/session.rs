@@ -11,7 +11,7 @@
 //! internal `use` paths changed to fit the new tree.
 //!
 //! `DaemonClient` is a separate-*process* HTTP client (this binary runs as
-//! `coderight acp-server`, a thin protocol adapter), not an in-process
+//! `{app} acp-server`, a thin protocol adapter), not an in-process
 //! daemon route — it reuses `POST /sessions`, `POST /sessions/{id}/messages`,
 //! `GET /sessions/{id}/events/history`, `POST /sessions/{id}/interrupt`,
 //! `POST /sessions/{id}/tool-approval`, `GET /sessions`,

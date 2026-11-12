@@ -2,7 +2,7 @@
 //! agent surface.
 //!
 //! NOTICE: this module is a relocation of the pre-existing
-//! `engine/bins/coderight/src/acp_transport.rs` (RightKit-original, RETAIN
+//! `engine/src/acp_transport.rs` (RightKit-original, RETAIN
 //! action per canon CG-A08) into the ACP module's canonical home. Logic,
 //! shape, and test lineage are carried forward unchanged; only the module
 //! path moves.

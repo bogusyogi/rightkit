@@ -1,5 +1,5 @@
 //! The `/providers` screen's backing logic, shared by the TUI host and the
-//! `coderight provider ...` CLI so both call the same in-process functions
+//! `{app} provider ...` CLI so both call the same in-process functions
 //! (no daemon): the fixed provider list, status projection, API-key
 //! add/remove, the connection test, and vendor-CLI facts.
 //!
@@ -132,7 +132,7 @@ pub fn screen_label(provider: &ScreenProvider, status: &str) -> String {
     format!("{} · {}", provider.display, status)
 }
 
-// ── Vendor CLIs (detection lives in coderight-driver-host) ───────────────
+// ── Vendor CLIs (detection lives in {app}-driver-host) ───────────────
 
 fn vendor_cli(provider_id: &str) -> Option<rightkit_agents::driver_host::vendor_cli::VendorCli> {
     rightkit_agents::driver_host::vendor_cli::VendorCli::from_provider_id(provider_id)

@@ -61,7 +61,7 @@ async fn daemon_get_pretty_json(path: &str, label: &str) -> i32 {
 }
 
 async fn daemon_get_json_value(path: &str, label: &str) -> Result<serde_json::Value, i32> {
-    // Bounded like `coderight ps`: a daemon that never answers must fail
+    // Bounded like `{app} ps`: a daemon that never answers must fail
     // loudly, not hang the command.
     let resolved = tokio::time::timeout(
         std::time::Duration::from_secs(60),
@@ -71,7 +71,7 @@ async fn daemon_get_json_value(path: &str, label: &str) -> Result<serde_json::Va
     let (base_url, token) = match resolved {
         Ok(Some(p)) => p,
         Ok(None) => {
-            eprintln!("No running daemon found. Start one with `coderight serve`.");
+            eprintln!("No running daemon found. Start one with `{app} serve`.", app = crate::host_identity::app());
             return Err(1);
         }
         Err(_) => {
@@ -126,7 +126,7 @@ async fn daemon_json_request(
     let (base_url, token) = match crate::cli_presence::resolve_daemon_or_autostart().await {
         Some(p) => p,
         None => {
-            eprintln!("No running daemon found. Start one with `coderight serve`.");
+            eprintln!("No running daemon found. Start one with `{app} serve`.", app = crate::host_identity::app());
             return 1;
         }
     };

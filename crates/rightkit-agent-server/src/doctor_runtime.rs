@@ -53,7 +53,7 @@ pub fn run(json: bool, verbose: bool, clipboard: bool) -> i32 {
 }
 
 /// Serialise a `DiagnosticsReport` to JSON, additionally adding the
-/// `coderight.cli.doctor.v1` schema tag and the security/runtime dimension
+/// `{app}.cli.doctor.v1` schema tag and the security/runtime dimension
 /// probes (`policy`, `workspace-trust`, `hooks`, `csprng`, `learning`).
 ///
 /// With `verbose` the dimensions include their `evidence` sub-checks.
@@ -64,7 +64,7 @@ pub fn cli_json(report: &DiagnosticsReport, verbose: bool) -> String {
     if let Some(object) = value.as_object_mut() {
         object.insert(
             "schema_version".to_string(),
-            serde_json::json!("coderight.cli.doctor.v1"),
+            serde_json::json!(crate::host_identity::schema("cli.doctor.v1")),
         );
         object.insert("dimensions".to_string(), dimensions_value);
         object.insert(

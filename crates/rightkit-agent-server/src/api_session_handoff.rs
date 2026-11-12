@@ -399,7 +399,7 @@ fn session_handoff_payload_after(
     let events_sse = format!("{session_path}/events?after={after}");
     let events_history = format!("{session_path}/events/history?after={after}");
     SessionHandoffPayload {
-        kind: "coderight.session_handoff.v1".to_string(),
+        kind: crate::host_identity::schema("session_handoff.v1"),
         created_at: now_iso(),
         session,
         daemon: SessionHandoffDaemon {
@@ -550,7 +550,7 @@ pub(crate) fn session_handoff_openapi_components() -> Map<String, Value> {
             "type": "object",
             "required": ["kind", "createdAt", "session", "daemon", "endpoints", "continuity", "webUrl", "notes"],
             "properties": {
-                "kind": {"type": "string", "const": "coderight.session_handoff.v1"},
+                "kind": {"type": "string", "const": crate::host_identity::schema("session_handoff.v1")},
                 "createdAt": {"type": "string"},
                 "session": {"type": "object", "additionalProperties": true},
                 "daemon": {"$ref": "#/components/schemas/SessionHandoffDaemon"},

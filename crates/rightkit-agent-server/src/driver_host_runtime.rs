@@ -283,7 +283,7 @@ impl DriverHostRuntime {
                     "method": "initialize",
                     "params": {
                         "clientInfo": {
-                            "name": "coderight",
+                            "name": crate::host_identity::app(),
                             "title": "RightKit",
                             "version": env!("CARGO_PKG_VERSION")
                         },

@@ -7,7 +7,7 @@
 // without editing any fragment definition.
 //
 // Schema list (14 entries) is the contract fragment for
-// `engine/bins/coderight/src/api_run_changes.rs`:
+// `engine/src/api_run_changes.rs`:
 //   - ChangeEntry, ChangeClassification, ChangeStage, AnchorStatus,
 //     CommentKind
 //   - CaptureSnapshotRequest, CaptureSnapshotResponse

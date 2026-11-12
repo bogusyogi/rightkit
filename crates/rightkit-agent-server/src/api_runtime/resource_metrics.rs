@@ -1,5 +1,5 @@
 /// `GET /runtime/resource-metrics` — daemon resource counters with a stable
-/// JSON shape (`coderight.resource-metrics.v1`). Deliberately distinct from
+/// JSON shape (`{app}.resource-metrics.v1`). Deliberately distinct from
 /// `/runtime/metrics`, which returns learning-domain JSON and keeps its own
 /// consumers.
 ///
@@ -177,7 +177,7 @@ async fn get_resource_metrics(
     body["observedSeconds"] = serde_json::json!(observed_secs);
     body["sampleIntervalSeconds"] = serde_json::json!(RESOURCE_SAMPLE_INTERVAL_SECS);
     body["soakReceipt"] = serde_json::json!({
-        "schema": "coderight.ops003.soak-receipt.v1",
+        "schema": crate::host_identity::schema("ops003.soak-receipt.v1"),
         "requestedWindowSeconds": window_secs,
         "requiredSoakSeconds": RESOURCE_SOAK_WINDOW_SECS,
         "observedSeconds": observed_secs,
@@ -271,10 +271,10 @@ async fn get_process_topology(
         invoked.extend(shells.values().filter_map(|shell| shell.pid()));
     }
     let mut processes = vec![json!({
-        "pid": std::process::id(), "owner": "coderight", "role": "resident",
+        "pid": std::process::id(), "owner": crate::host_identity::app(), "role": "resident",
         "hostMode": "service",
     })];
-    let mut coderight_children = 0usize;
+    let mut host_children = 0usize;
     for (pid, executable) in &children {
         // CREATE_NO_WINDOW still needs Windows' console infrastructure.
         // Retain it in the census, separately from invoked execution trees.
@@ -283,28 +283,28 @@ async fn get_process_topology(
                 .as_deref()
                 .is_some_and(|name| name.eq_ignore_ascii_case("conhost.exe"));
         if !console_host {
-            coderight_children += 1;
+            host_children += 1;
         }
         processes.push(json!({
             "pid": pid, "parentPid": std::process::id(), "executable": executable,
-            "owner": if console_host { "windows" } else { "coderight" },
+            "owner": if console_host { "windows" } else { crate::host_identity::app() },
             "role": if console_host { "console-host" } else { "helper" },
             "invoked": invoked.contains(pid),
         }));
     }
     Ok(Json(json!({
-        "schema": "coderight.process-topology.v1",
+        "schema": crate::host_identity::schema("process-topology.v1"),
         "sampledAt": now_iso(),
         "profile": query.profile,
         "hostMode": "service",
         "processes": processes,
-        "coderightChildCount": coderight_children,
+        format!("{app}ChildCount", app = crate::host_identity::app()): host_children,
         "membrane": {"sampled": false, "reason": "separate context authority"},
         "note": "live direct-child census; invoked is backed by the session execution registry; untracked children are not declared authorized",
     })))
 }
 
-/// Shared builder for the `coderight.resource-metrics.v1` JSON object. Also
+/// Shared builder for the `{app}.resource-metrics.v1` JSON object. Also
 /// embedded into the corpus-bakeoff report as `resourceMetrics`.
 pub(crate) async fn resource_metrics_json(state: &DaemonState) -> serde_json::Value {
     let (open_sse_streams, live_sessions, active_child_agents, session_handles) = {
@@ -384,7 +384,7 @@ pub(crate) async fn resource_metrics_json(state: &DaemonState) -> serde_json::Va
     }
 
     serde_json::json!({
-        "schemaVersion": "coderight.resource-metrics.v1",
+        "schemaVersion": crate::host_identity::schema("resource-metrics.v1"),
         "generatedAt": now_iso(),
         "idle": crate::api_clients::idle_resource_metrics(),
         // Recorded counters come from real call sites in the engine turn loop
@@ -677,7 +677,7 @@ fn enumerate_child_pids() -> Option<Vec<u32>> {
 /// OPS-002/003: enumerate RightKit-owned children into labelled helper
 /// observations. Every real child is sampled where the platform supports it;
 /// children are helpers regardless of which host binary they are.
-fn observe_coderight_helpers(
+fn observe_host_helpers(
     report: &mut rightkit_agent_telemetry::resource_report::ResourceReport,
 ) -> Vec<u32> {
     use rightkit_agent_telemetry::resource_report::{LabelledProcess, ProcessOwnership};
@@ -694,7 +694,7 @@ fn observe_coderight_helpers(
         };
         report.observe(LabelledProcess {
             ownership: ProcessOwnership::HostHelper,
-            name: format!("coderight-helper-pid-{pid}"),
+            name: format!("{app}-helper-pid-{pid}", app = crate::host_identity::app()),
             sample,
         });
     }
@@ -752,8 +752,8 @@ fn process_topology_json() -> serde_json::Value {
         Some(children) => serde_json::json!({
             "measurable": true,
             "primaryPid": std::process::id(),
-            "coderightChildPids": children,
-            "coderightChildCount": children.len(),
+            format!("{app}ChildPids", app = crate::host_identity::app()): children,
+            format!("{app}ChildCount", app = crate::host_identity::app()): children.len(),
             "note": "Membrane is separate first-party infrastructure and is never a RightKit child; strict profile requires this count to be zero",
         }),
         None => serde_json::json!({
@@ -790,13 +790,13 @@ fn ops009_resource_report() -> serde_json::Value {
     };
     report.observe(LabelledProcess {
         ownership: ProcessOwnership::HostPrimary,
-        name: "coderight".to_string(),
+        name: crate::host_identity::app().to_string(),
         sample,
     });
     // OPS-003 helper residency: real enumerated children join the report as
     // RightKitHelper so incremental cost and the post-task reclamation
     // check have genuine helper observations, not a fabricated zero.
-    let _child_pids = observe_coderight_helpers(&mut report);
+    let _child_pids = observe_host_helpers(&mut report);
 
     let incremental = report.incremental_host();
     let combined = match report.combined_with_membrane() {
@@ -812,7 +812,7 @@ fn ops009_resource_report() -> serde_json::Value {
     };
 
     serde_json::json!({
-        "schema": "coderight.ops009.resource-report.v1",
+        "schema": crate::host_identity::schema("ops009.resource-report.v1"),
         "incrementalRightKit": {
             "processCount": incremental.process_count,
             "rssBytes": incremental.rss_bytes,

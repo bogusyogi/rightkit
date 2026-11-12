@@ -4,7 +4,7 @@
 //! as JSON lines. On clean completion, the file is deleted. If the daemon finds
 //! a journal file on startup, it knows that run was interrupted mid-flight.
 //!
-//! Journal path: `~/.coderight/journals/<session_id>.journal`
+//! Journal path: `~/.{app}/journals/<session_id>.journal`
 //! Format: newline-delimited JSON, one entry per line.
 
 use std::path::{Path, PathBuf};
@@ -24,7 +24,7 @@ pub struct ExecutionJournal {
 }
 
 impl ExecutionJournal {
-    /// Locate the journals directory under `~/.coderight/journals/`.
+    /// Locate the journals directory under `~/.{app}/journals/`.
     pub fn journals_dir() -> Option<PathBuf> {
         rightkit_agent_config::state_root().map(|root| root.join("journals"))
     }
@@ -187,7 +187,7 @@ pub async fn persist_recovery_markers(storage: &crate::api::SharedStorage, journ
 /// Scan the daemon's journals directory and log any interrupted runs found.
 /// Called once at startup to surface leftover journals. Takes the dir from
 /// the daemon state so auxiliary (`--db`) daemons scan their own journals,
-/// never the primary daemon's `~/.coderight/journals`.
+/// never the primary daemon's `~/.{app}/journals`.
 pub async fn detect_interrupted_journals(dir: &Path) {
     let mut entries = match fs::read_dir(&dir).await {
         Ok(e) => e,

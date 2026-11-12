@@ -99,11 +99,11 @@ impl DaemonState {
             }
         }
 
-        // Evolution harness: traces every worker result to ~/.coderight/traces/<session_id>.jsonl
+        // Evolution harness: traces every worker result to ~/.{app}/traces/<session_id>.jsonl
         // and tracks failures for the ratchet loop.
         let traces_dir = rightkit_agent_config::state_root()
             .map(|root| root.join("traces"))
-            .unwrap_or_else(|| std::path::PathBuf::from("/tmp/coderight/traces"));
+            .unwrap_or_else(|| std::path::PathBuf::from(format!("/tmp/{app}/traces", app = crate::host_identity::app())));
         let mut evolution_harness = EvolutionHarness::new(traces_dir, session_id);
 
         // Build an LLM client for the conductor's configured model.
