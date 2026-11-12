@@ -30,6 +30,9 @@ pub struct DocumentState {
 pub struct Document {
     backend: Box<dyn SettingsBackend>,
     namespace: String,
+    /// A flat file (the settings object itself): no version, no namespace, and a revision that is
+    /// a content hash rather than a counter.
+    flat: bool,
 }
 
 impl Document {
@@ -41,6 +44,7 @@ impl Document {
         Ok(Self {
             backend: Box::new(backend),
             namespace,
+            flat: false,
         })
     }
 
@@ -60,6 +64,7 @@ impl Document {
         Ok(Self {
             backend: Box::new(backend),
             namespace,
+            flat: false,
         })
     }
 
@@ -73,7 +78,50 @@ impl Document {
         Ok(Self {
             backend: Box::new(backend),
             namespace,
+            flat: false,
         })
+    }
+
+    /// Open the document at `path` as a FLAT file: the settings object itself, with no envelope,
+    /// so a sidecar or another process that reads the plain object keeps working. Top-level keys
+    /// are kept as written. The file has no version and no counter: [`DocumentState::version`] is
+    /// `0`, the `version` a write passes is ignored, and the revision is a 64-bit content hash of
+    /// the file ([`Document::is_flat`]), so it can only be compared, never predicted or ordered.
+    pub fn open_flat_path(path: impl AsRef<Path>) -> Result<Self, Error> {
+        Ok(Self {
+            backend: Box::new(FileBackend::new(
+                path.as_ref().to_path_buf(),
+                FileFormat::Flat,
+            )),
+            namespace: String::new(),
+            flat: true,
+        })
+    }
+
+    /// As [`Document::open_flat_path`], configured by the file-level options a [`crate::Store`]
+    /// takes. Fails unless the options use [`FileFormat::Flat`].
+    pub fn open_flat_path_with(
+        path: impl AsRef<Path>,
+        options: &StoreOptions,
+    ) -> Result<Self, Error> {
+        if options.format != FileFormat::Flat {
+            return Err(Error::Invalid(
+                "a flat document needs FileFormat::Flat".into(),
+            ));
+        }
+        Ok(Self {
+            backend: Box::new(FileBackend::with_options(
+                path.as_ref().to_path_buf(),
+                options,
+            )),
+            namespace: String::new(),
+            flat: true,
+        })
+    }
+
+    /// Whether the file is flat: its revision is a content hash (compare for equality only).
+    pub fn is_flat(&self) -> bool {
+        self.flat
     }
 
     /// The committed document, or `None` when nothing has been written. Reads the backup when the
@@ -142,6 +190,7 @@ impl Document {
     ) -> Result<bool, Error> {
         let mut build = Some(build);
         let ns = self.namespace.clone();
+        let flat = self.flat;
         let mut wrote = false;
         self.backend.patch(&mut |cur| {
             if cur.is_some() {
@@ -155,8 +204,8 @@ impl Document {
                 Some(v) => {
                     wrote = true;
                     Ok(Edit::Commit(Stored {
-                        version: Some(version),
-                        namespace: Some(ns.clone()),
+                        version: (!flat).then_some(version),
+                        namespace: (!flat).then(|| ns.clone()),
                         values: into_object(v)?,
                         revision: 0,
                         needs_rewrite: false,
@@ -177,6 +226,7 @@ impl Document {
     ) -> Result<Option<DocumentState>, Error> {
         let mut edit = Some(edit);
         let ns = self.namespace.clone();
+        let flat = self.flat;
         let mut result: Option<DocumentState> = None;
         let committed = self.backend.patch(&mut |cur| {
             let revision = cur.map_or(0, |s| s.revision);
@@ -188,7 +238,7 @@ impl Document {
                     });
                 }
             }
-            if let Some(s) = cur {
+            if let Some(s) = cur.filter(|_| !flat) {
                 if let Some(other) = s.namespace.as_deref().filter(|n| *n != ns) {
                     return Err(Error::Invalid(format!(
                         "document belongs to namespace {other}, not {ns}"
@@ -208,20 +258,21 @@ impl Document {
                 return Ok(Edit::Keep);
             };
             let unchanged = cur.is_some_and(|s| {
-                s.values == values && s.version == Some(version) && s.namespace.is_some()
+                s.values == values
+                    && (flat || (s.version == Some(version) && s.namespace.is_some()))
             });
             if unchanged {
                 result = cur.map(|s| state_of(s.clone()));
                 return Ok(Edit::Keep);
             }
             result = Some(DocumentState {
-                version,
+                version: if flat { 0 } else { version },
                 value: Value::Object(values.clone()),
                 revision,
             });
             Ok(Edit::Commit(Stored {
-                version: Some(version),
-                namespace: Some(ns.clone()),
+                version: (!flat).then_some(version),
+                namespace: (!flat).then(|| ns.clone()),
                 values,
                 revision,
                 needs_rewrite: false,

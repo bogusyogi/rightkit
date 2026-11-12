@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Added (#1572): `Document::open_flat_path` / `open_flat_path_with` / `is_flat`: a frontend-owned document over a FLAT file (the settings object itself, other readers keep working, unknown top-level keys kept as written). No version or namespace (`DocumentState::version` is `0`, a write's `version` is ignored); the revision is the file's 64-bit content hash, comparable for equality only. Envelope behaviour is unchanged.
+
 ## 0.4.1
 
 - Added (#1572): `StoreOptions::retry_access_denied(attempts, delay)` and `FileBackend::retry_access_denied`, an opt-in (default off) retry of the replace on Windows access denied (error 5) as well as sharing/lock violations 32/33. With the default `Rename`, a reader that holds the file open without delete sharing fails the replace with 5, which `retry_sharing_violation` never covered. It uses `rightkit_fs::AccessDeniedRetry` (only the replace is repeated; its bound replaces the sharing bound for that write). Inert on Unix. Additive.
