@@ -7,4 +7,4 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-mail-store = { version = "=0.1.0" }
+rightkit-mail-store = { version = "=0.2.0" }

@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-repo-graph"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Repository code graph: tree-sitter extraction across 30+ languages, symbol/reference graph store, freshness tracking, watch and query."
@@ -58,9 +58,9 @@ arborium-rescript = { version = "=2.18.2" }
 rightkit-repo-graph-grammars = { version = "0.1.0", path = "../rightkit-repo-graph-grammars" }
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
 unicode-normalization = { version = "0.1" }
-rightkit-embed = { version = "0.6.2", path = "../rightkit-embed" }
-rightkit-onnx = { version = "0.2.9", path = "../rightkit-onnx" }
+rightkit-embed = { version = "0.7.0", path = "../rightkit-embed" }
+rightkit-onnx = { version = "0.3.0", path = "../rightkit-onnx" }
 rightkit-db = { version = "0.5.3", features = ["bundled", "statement-cache"], path = "../rightkit-db" }
 rightkit-file-watch = { version = "0.4.2", path = "../rightkit-file-watch" }
-rightkit-context-core = { version = "0.1.0", path = "../rightkit-context-core" }
-rightkit-context-protocol = { version = "0.1.0", path = "../rightkit-context-protocol" }
+rightkit-context-core = { version = "0.2.0", path = "../rightkit-context-core" }
+rightkit-context-protocol = { version = "0.2.0", path = "../rightkit-context-protocol" }

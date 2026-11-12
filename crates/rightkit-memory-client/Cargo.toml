@@ -30,4 +30,4 @@ rightkit-time = { version = "0.1.1", path = "../rightkit-time" }
 async-trait = "0.1"
 tokio-util = "0.7"
 tokio = { version = "1", features = ["rt", "time", "macros"] }
-rightkit-memory-core = { version = "0.1.1", path = "../rightkit-memory-core" }
+rightkit-memory-core = { version = "0.2.0", path = "../rightkit-memory-core" }

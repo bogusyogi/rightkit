@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-app-host"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
 rust-version = "1.98.0"
 description = "Host services a desktop app gives RightKit companion crates (state folder, account home, published UI state and settings), installed once per process, with neutral defaults."

@@ -7,4 +7,4 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-dictation-tauri = { version = "=0.1.1" }
+rightkit-dictation-tauri = { version = "=0.2.0" }

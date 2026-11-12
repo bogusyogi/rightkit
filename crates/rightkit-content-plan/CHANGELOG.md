@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.0
+
+- Breaking for dependents: dependency requirements `rightkit-social-analytics` 0.2 -> 0.3, `rightkit-social-publish` 0.1 -> 0.2. 0.1.3 was published before these requirements were raised; a semver-breaking dependency is a breaking change, so they ship as 0.2.0 instead of changing 0.1.3 in place (#1572). No source change in this crate since 0.1.3.
+
 ## 0.1.3 (unpublished)
 
 Taken on the recommended option of the shape review (`docs/audits/2026-11-11-shape-matrix/reports/cut-post-redraw.md`), pending the owner's confirmation.

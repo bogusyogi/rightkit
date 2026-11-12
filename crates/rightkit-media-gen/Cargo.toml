@@ -15,13 +15,13 @@ path = "src/lib.rs"
 
 [dependencies]
 rightkit-local-gen = { version = "0.1.0", path = "../rightkit-local-gen" }
-rightkit-tts = { version = "0.2.3", default-features = false, features = ["client"], path = "../rightkit-tts" }
+rightkit-tts = { version = "0.3.0", default-features = false, features = ["client"], path = "../rightkit-tts" }
 rightkit-models = { version = "0.7.0", path = "../rightkit-models" }
 rightkit-compose = { version = "0.2.1", features = ["still-finish"], path = "../rightkit-compose" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0" }
 rightkit-db = { version = "0.5.3", features = ["bundled", "statement-cache"], path = "../rightkit-db" }
-rightkit-job-queue = { version = "0.5.1", features = ["store", "service", "supervisor"], path = "../rightkit-job-queue" }
+rightkit-job-queue = { version = "0.6.0", features = ["store", "service", "supervisor"], path = "../rightkit-job-queue" }
 rightkit-spend = { version = "0.2.0", path = "../rightkit-spend" }
 rightkit-app-settings = { version = "0.4.0", default-features = false, features = ["sql"], path = "../rightkit-app-settings" }
 rightkit-logs = { version = "0.4.0", default-features = false, path = "../rightkit-logs" }
@@ -31,7 +31,7 @@ uuid = { version = "1", features = ["v4"] }
 time = { version = "0.3", features = ["formatting", "macros"] }
 rightkit-credentials = { version = "0.5.0", path = "../rightkit-credentials" }
 rightkit-crypto = { version = "0.1.0", path = "../rightkit-crypto" }
-rightkit-onnx = { version = "0.2.9", features = ["half", "session"], path = "../rightkit-onnx" }
+rightkit-onnx = { version = "0.3.0", features = ["half", "session"], path = "../rightkit-onnx" }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
 rightkit-child-process = { version = "0.5.7", path = "../rightkit-child-process" }
 rightkit-ffmpeg = { version = "0.3.0", path = "../rightkit-ffmpeg" }

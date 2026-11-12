@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.0
+
+- Breaking for dependents: dependency requirements `rightkit-daemon` 0.5 -> 0.8, `rightkit-dictation-core` 0.2 -> 0.3, `rightkit-dictation-models` 0.1 -> 0.2, `rightkit-dictation-telemetry` 0.1 -> 0.2, `rightkit-job-queue` 0.5 -> 0.6, `rightkit-logs` 0.3 -> 0.4. 0.1.2 was published before these requirements were raised; a semver-breaking dependency is a breaking change, so they ship as 0.2.0 instead of changing 0.1.2 in place (#1572). No source change in this crate since 0.1.2.
+
 ## 0.1.2 (unpublished)
 
 - Removed (rightkit#1437): the `shared_store_smoke` example and its `[[example]]` entry. It ran the shared store against a scratch suite root through `rightkit-daemon`'s `test-mode` and `TEST_CAPABILITY`, which no longer exist (rightkit-daemon 0.5.3): a dummy root is not a test any more. Removed too: the `test-mode` feature and everything it gated: `engine_supervisor::{pass_live_eval_env_for_test, l3_env_keys_for_test, strip_l3_env_for_test, resolve_engine_override_for_test, build_sidecar_command_for_test}`; the `RIGHTKIT_ENGINE_BIN`, `RIGHTKIT_ENGINE_APP_PATH`, `RIGHTKIT_NEXT_ENGINE_ROOT`, `RIGHTKIT_AI_EVAL_*`, `RIGHTKIT_L3_LOG_PAYLOADS`, `RIGHTKIT_OWNER_DIAGNOSTICS*` and `HR_*` lever forwards; the `RIGHTKIT_SUITE_ROOT` / `RIGHT_SUITE_DIR` / `ORTHIC_SHARED_DIR` / `RIGHTKIT_APP_DATA_DIR` forwards to the sidecar; and the source-checkout sidecar lookup (`CARGO_MANIFEST_DIR`). `resolve_engine_bin` looks only next to the executable and in the macOS bundle `Resources`. Release behaviour is unchanged. A build that enables `rightkit-dictation-app-runtime/test-mode` no longer resolves: drop the feature.

@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-context-federation"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Context federation coordinator: immutable provider registry, fan-out of context operations across providers, and skill ranking."
@@ -15,10 +15,10 @@ path = "src/lib.rs"
 
 [dependencies]
 rightkit-time = { version = "0.1.1", path = "../rightkit-time" }
-rightkit-context-core = { version = "0.1.0", path = "../rightkit-context-core" }
-rightkit-context-protocol = { version = "0.1.0", path = "../rightkit-context-protocol" }
-rightkit-context-provider-sdk = { version = "0.1.0", path = "../rightkit-context-provider-sdk" }
-rightkit-repo-graph = { version = "0.1.0", path = "../rightkit-repo-graph" }
+rightkit-context-core = { version = "0.2.0", path = "../rightkit-context-core" }
+rightkit-context-protocol = { version = "0.2.0", path = "../rightkit-context-protocol" }
+rightkit-context-provider-sdk = { version = "0.2.0", path = "../rightkit-context-provider-sdk" }
+rightkit-repo-graph = { version = "0.2.0", path = "../rightkit-repo-graph" }
 async-trait = { version = "0.1" }
 gix = { version = "0.90", default-features = false, features = ["sha1"] }
 serde = { version = "1", features = ["derive"] }

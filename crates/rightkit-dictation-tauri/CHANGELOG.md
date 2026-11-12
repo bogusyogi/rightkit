@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.0
+
+- Breaking for dependents: dependency requirements `rightkit-dictation-app-runtime` 0.1 -> 0.2, `rightkit-dictation-command-host` 0.1 -> 0.2, `rightkit-dictation-core` 0.2 -> 0.3, `rightkit-dictation-models` 0.1 -> 0.2, `rightkit-dictation-telemetry` 0.1 -> 0.2. 0.1.1 was published before these requirements were raised; a semver-breaking dependency is a breaking change, so they ship as 0.2.0 instead of changing 0.1.1 in place (#1572). No source change in this crate since 0.1.1.
+
 ## 0.1.1 (unpublished)
 
 - Removed (breaking): the `*_for_test` hooks (`apply_sidecar_control_tail_for_test`, `watchdog_progress_event_for_test`, `transcribe_watchdog_due_for_test`, `state_emission_permitted_for_test`, `stale_error_expiry_rejected_for_test`, `shared_state_clone_shares_for_test`, `lock_free_facades_absent_for_test`) and the `controller` re-export (the module is gone from rightkit-dictation-core 0.2.3). Adrian, 2026-11-03: "My decision was no unit tests. Only e2e."; "dev mode, is mine ... real data. snapshot and restore."

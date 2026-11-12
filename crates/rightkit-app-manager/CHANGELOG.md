@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.0
+
+- Breaking for dependents: dependency requirements `rightkit-disk-cleanup` 0.1 -> 0.2, `rightkit-system-monitor` 0.2 -> 0.3. 0.1.2 was published before these requirements were raised; a semver-breaking dependency is a breaking change, so they ship as 0.2.0 instead of changing 0.1.2 in place (#1572). No source change in this crate since 0.1.2.
+
 ## 0.1.2 (unpublished)
 
 - rightkit#1483: sysinfo 0.40 and rightkit-system-monitor 0.2.0. `System::new()` and `process_sampler::with_processes` now return `Result`; where the OS gives no process table: listings are empty, `procs.list` refuses with `unavailable`, an action-time identity check finds nothing to act on, and a process that cannot be shown gone counts as alive.

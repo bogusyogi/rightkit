@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.0
+
+- Breaking for dependents: dependency requirements `rightkit-app-settings` 0.3 -> 0.4, `rightkit-embed` 0.6 -> 0.7, `rightkit-job-queue` 0.5 -> 0.6, `rightkit-models` 0.5 -> 0.7, `rightkit-onnx` 0.2 -> 0.3. 0.1.0 was published before these requirements were raised; a semver-breaking dependency is a breaking change, so they ship as 0.2.0 instead of changing 0.1.0 in place (#1572). No source change in this crate since 0.1.0.
+
 ## Unreleased
 
 - `db::rebuild_step`, `db::RebuildStep` and `db::REBUILD_BATCH` are public: the resumable full-text rebuild that `migrate_v15` registers for a populated mailbox had no caller reachable from outside the crate, so it could never finish (its only callers were unit tests, since removed). The host app's background job drives it.

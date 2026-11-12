@@ -7,5 +7,5 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-automation = { version = "=0.6.8", features = ["paths"] }
-rightkit-daemon = { version = "=0.5.1" }
+rightkit-automation = { version = "=0.7.0", features = ["paths"] }
+rightkit-daemon = { version = "=0.8.0" }

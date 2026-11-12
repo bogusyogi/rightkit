@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-memory-core"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Durable-memory core: memory tiers, retrieval ranking, a quality eval gate and token accounting, with no I/O."
@@ -20,5 +20,5 @@ serde_json = { version = "1" }
 thiserror = { version = "2" }
 tiktoken-rs = { version = "0.12" }
 rayon = { version = "=1.12.0" }
-rightkit-embed = { version = "0.6.2", path = "../rightkit-embed" }
+rightkit-embed = { version = "0.7.0", path = "../rightkit-embed" }
 rightkit-fs = { version = "0.4.9", features = ["digest"], path = "../rightkit-fs" }

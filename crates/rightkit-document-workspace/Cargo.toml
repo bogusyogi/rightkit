@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-document-workspace"
-version = "0.1.4"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Document workspace store: recent files, pinned files and folders, per-document view state and tab session in one SQLite file, with corruption quarantine and path purge."

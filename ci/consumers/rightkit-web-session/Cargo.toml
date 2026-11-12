@@ -7,5 +7,5 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-web-session = { version = "=0.1.0" }
+rightkit-web-session = { version = "=0.1.1" }
 

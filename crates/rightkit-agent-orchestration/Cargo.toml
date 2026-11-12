@@ -32,7 +32,7 @@ rightkit-cache = { version = "0.2.3", path = "../rightkit-cache", optional = tru
 rightkit-agent-engine-protocol = { version = "0.2.0", path = "../rightkit-agent-engine-protocol", optional = true }
 rightkit-agent-host-traits = { version = "0.1.0", path = "../rightkit-agent-host-traits", optional = true }
 rightkit-llm = { version = "0.3.2", path = "../rightkit-llm", features = ["agent_providers", "agent_router"], optional = true }
-rightkit-repo-graph = { version = "0.1.0", path = "../rightkit-repo-graph", optional = true }
+rightkit-repo-graph = { version = "0.2.0", path = "../rightkit-repo-graph", optional = true }
 rightkit-agent-telemetry = { version = "0.1.0", path = "../rightkit-agent-telemetry", optional = true }
 rightkit-sandbox = { version = "0.6.3", path = "../rightkit-sandbox", features = ["execution"], optional = true }
 rightkit-agent-tools = { version = "0.3.1", path = "../rightkit-agent-tools", features = ["coding_tools"], optional = true }

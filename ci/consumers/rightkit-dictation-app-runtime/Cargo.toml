@@ -7,4 +7,4 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-dictation-app-runtime = { version = "=0.1.2" }
+rightkit-dictation-app-runtime = { version = "=0.2.0" }

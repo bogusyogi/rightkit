@@ -3,6 +3,10 @@
 All notable changes to `rightkit-asr`. Versions follow Cargo semver; while the
 version is `0.x`, a minor bump may carry breaking changes.
 
+## 0.5.0
+
+- Breaking for dependents: dependency requirements `rightkit-onnx` 0.2 -> 0.3, `rightkit-vad` 0.1 -> 0.2. 0.4.2 was published before these requirements were raised; a semver-breaking dependency is a breaking change, so they ship as 0.5.0 instead of changing 0.4.2 in place (#1572). No source change in this crate since 0.4.2.
+
 ## 0.4.2 (unpublished)
 
 - Removed the `dev_var!`/`dev_var_os!` stubs and every environment experiment switch behind them (`RIGHTKIT_ONNX_*_EXPERIMENT`, `RIGHTKIT_ONNX_DML_*`, `RIGHTKIT_ASR_ALLOW_DML_FUSION`, `RIGHTKIT_ASR_BIAS_CACHE`, `RIGHTKIT_CONTROL_ALIGN_ENCODER_REUSE`), the audit-only split predictor/joint decoder (`OnnxAsr::predictor_step*`, `joint_from_predictor*`, `has_split_predictor_experiment`, `PredictorOutput`) and the DirectML optimizer bisect; the shipped defaults are unchanged. `AlignEncoderReuse::from_env` now returns `Off`. (Adrian, 2026-11-03: "make sure no debug assertions in their respective apps/ repos"; "My decision was no unit tests. Only e2e."; "dev mode, is mine. im the fucking owner, my data. no dummy data ... real data. snapshot and restore."). Release behaviour unchanged.

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.0
+
+- Breaking for dependents: dependency requirements `rightkit-daemon` 0.5 -> 0.8. 0.1.1 was published before these requirements were raised; a semver-breaking dependency is a breaking change, so they ship as 0.2.0 instead of changing 0.1.1 in place (#1572). No source change in this crate since 0.1.1.
+
 ## 0.1.1
 - Docs: intra-doc links rustdoc could not resolve (feature-only, private or out-of-scope items) are plain code, so the doc build (`-D warnings`) passes.
 

@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-dictation-runtime"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Dictation engine runtime: the JSON-RPC sidecar worker (recording, finalize, polish, delivery decisions), speech service, IPC, crash capture and engine paths for a push-to-talk dictation engine."
@@ -14,21 +14,21 @@ name = "rightkit_dictation_runtime"
 path = "src/lib.rs"
 
 [dependencies]
-rightkit-dictation-core = { version = "0.2.0", path = "../rightkit-dictation-core" }
+rightkit-dictation-core = { version = "0.3.0", path = "../rightkit-dictation-core" }
 rightkit-text-polish = { version = "0.1.0", path = "../rightkit-text-polish" }
 rightkit-voice-commands = { version = "0.1.0", path = "../rightkit-voice-commands" }
 rightkit-transcript-library = { version = "0.1.0", path = "../rightkit-transcript-library" }
-rightkit-dictation-models = { version = "0.1.0", path = "../rightkit-dictation-models" }
-rightkit-dictation-text-pipeline = { version = "0.1.0", path = "../rightkit-dictation-text-pipeline" }
-rightkit-dictation-inference = { version = "0.1.0", path = "../rightkit-dictation-inference" }
-rightkit-dictation-command-host = { version = "0.1.0", path = "../rightkit-dictation-command-host" }
-rightkit-automation = { version = "0.6.4", path = "../rightkit-automation", features = ["desktop-context"] }
-rightkit-speech-client = { version = "0.4.1", path = "../rightkit-speech-client" }
+rightkit-dictation-models = { version = "0.2.0", path = "../rightkit-dictation-models" }
+rightkit-dictation-text-pipeline = { version = "0.2.0", path = "../rightkit-dictation-text-pipeline" }
+rightkit-dictation-inference = { version = "0.2.0", path = "../rightkit-dictation-inference" }
+rightkit-dictation-command-host = { version = "0.2.0", path = "../rightkit-dictation-command-host" }
+rightkit-automation = { version = "0.7.0", path = "../rightkit-automation", features = ["desktop-context"] }
+rightkit-speech-client = { version = "0.5.0", path = "../rightkit-speech-client" }
 rightkit-daemon = { version = "0.8.0", path = "../rightkit-daemon" }
 rightkit-child-process = { version = "0.5.7", path = "../rightkit-child-process" }
 rightkit-sidecar = { version = "0.3.0", path = "../rightkit-sidecar" }
-rightkit-job-queue = { version = "0.5.1", default-features = false, features = ["protocol"], path = "../rightkit-job-queue" }
-rightkit-crash = { version = "0.3.6", default-features = false, path = "../rightkit-crash" }
+rightkit-job-queue = { version = "0.6.0", default-features = false, features = ["protocol"], path = "../rightkit-job-queue" }
+rightkit-crash = { version = "0.4.0", default-features = false, path = "../rightkit-crash" }
 rightkit-logs = { version = "0.4.0", default-features = false, features = ["tracing"], path = "../rightkit-logs" }
 rightkit-fs = { version = "0.4.9", default-features = false, features = ["fs"], path = "../rightkit-fs" }
 rightkit-audio = { version = "0.3.1", default-features = false, features = ["capture"], path = "../rightkit-audio" }
@@ -39,7 +39,7 @@ parking_lot = { version = "0.13" }
 sys-locale = { version = "0.3" }
 libloading = { version = "0.9" }
 anyhow = { version = "1" }
-rightkit-onnx = { version = "0.2.9", default-features = false, features = ["session"], path = "../rightkit-onnx" }
+rightkit-onnx = { version = "0.3.0", default-features = false, features = ["session"], path = "../rightkit-onnx" }
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62.2", features = ["Win32_Foundation", "Win32_Media_Audio", "Win32_System_Com", "Win32_System_Com_StructuredStorage", "Win32_System_Power", "Win32_UI_WindowsAndMessaging"] }

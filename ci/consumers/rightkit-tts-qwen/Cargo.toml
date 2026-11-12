@@ -7,4 +7,4 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-tts-qwen = { version = "=0.2.8" }
+rightkit-tts-qwen = { version = "=0.3.0" }

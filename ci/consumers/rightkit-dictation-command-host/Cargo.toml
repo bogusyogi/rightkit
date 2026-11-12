@@ -7,4 +7,4 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-dictation-command-host = { version = "=0.1.0" }
+rightkit-dictation-command-host = { version = "=0.2.0" }

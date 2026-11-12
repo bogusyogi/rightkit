@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.0
+
+- Breaking for dependents: dependency requirements `rightkit-logs` 0.3 -> 0.4. 0.3.8 was published before these requirements were raised; a semver-breaking dependency is a breaking change, so they ship as 0.4.0 instead of changing 0.3.8 in place (#1572). No source change in this crate since 0.3.8.
+
 ## 0.3.8 (unpublished)
 
 - Support bundle redaction counts (#793): `BundleManifest::redactions` (`rightkit_logs::RedactionCounts`, per kind) is the merge of the diagnostics collection (settings and log events), `summary.json` and every app section, counted with `rightkit_logs::scrub_value_counted`; the same counts are written to `redactions.json` in the bundle root (counts only; the name is reserved against `ExtraFile`). Requires `rightkit-logs` 0.3.9.

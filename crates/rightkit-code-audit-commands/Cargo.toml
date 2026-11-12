@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-code-audit-commands"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Code audit command logic (audit, assurance, coverage, minimize, report, review, rules, verify) as library modules for a host CLI"
@@ -24,7 +24,7 @@ rightkit-evidence-contracts = { version = "0.1.0", path = "../rightkit-evidence-
 rightkit-evidence-effects = { version = "0.1.0", path = "../rightkit-evidence-effects" }
 rightkit-evidence-report = { version = "0.1.0", path = "../rightkit-evidence-report" }
 rightkit-policy-rules = { version = "0.1.0", path = "../rightkit-policy-rules" }
-rightkit-review = { version = "0.4.1", path = "../rightkit-review", features = ["code", "minimize"] }
+rightkit-review = { version = "0.5.0", path = "../rightkit-review", features = ["code", "minimize"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.154", features = ["preserve_order"] }
 sha2 = { version = "0.11" }

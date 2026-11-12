@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-github"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.98.0"
 description = "GitHub App authority contracts, forge request specs, App state store, webhook verification, installation tokens and device-flow sign-in"
@@ -25,7 +25,7 @@ serde_json = "1"
 url = "2"
 rightkit-agent-orchestration = { version = "0.1.1", path = "../rightkit-agent-orchestration", optional = true }
 rightkit-code-audit-provider-sdk = { version = "0.1.0", path = "../rightkit-code-audit-provider-sdk", optional = true }
-rightkit-review = { version = "0.4.1", path = "../rightkit-review", features = ["code"], optional = true }
+rightkit-review = { version = "0.5.0", path = "../rightkit-review", features = ["code"], optional = true }
 tokio-util = { version = "0.7.20", features = ["rt"], optional = true }
 
 [features]

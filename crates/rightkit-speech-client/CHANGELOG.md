@@ -3,6 +3,10 @@
 All notable changes to `rightkit-speech-client`. Versions follow Cargo semver; while the
 version is `0.x`, a minor bump may carry breaking changes.
 
+## 0.5.0
+
+- Breaking for dependents: dependency requirements `rightkit-daemon` 0.5 -> 0.8. 0.4.2 was published before these requirements were raised; a semver-breaking dependency is a breaking change, so they ship as 0.5.0 instead of changing 0.4.2 in place (#1572). No source change in this crate since 0.4.2.
+
 ## 0.4.2 (unpublished)
 
 - Added `transcribe_via_running_host(suite_root, ServiceRoute, &CancelToken, TranscribeOptions) -> RouteOutcome` (#1098): the gated service route. Uses a running host only when it is another process, speaks this protocol major, the input fits one window (`audio_ms <= window_ms`) and the host advertises file transcription and verbatim; submits with verbatim on; never launches a host or requests a takeover; any failure after the gate returns `UseLocal(LocalReason::SubmitFailed)` so the caller falls back to local; cancel returns `Cancelled` within about 25 ms even while the connect is blocked (worker thread, caller never waits on it). `LocalReason` is typed with a `Display` for logs. The routing contract of #979 (HeardRight first, consumer mic records locally and submits through `transcribe`) is unchanged; ScrapeRight adopts this entry point. Not compiled here.

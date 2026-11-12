@@ -19,17 +19,17 @@ llmlingua-onnx = ["dep:tokenizers", "dep:rightkit-onnx"]
 
 [dependencies]
 rightkit-time = { version = "0.1.1", path = "../rightkit-time" }
-rightkit-memory-store = { version = "0.1.0", path = "../rightkit-memory-store" }
-rightkit-memory-core = { version = "0.1.0", path = "../rightkit-memory-core" }
-rightkit-context-protocol = { version = "0.1.0", path = "../rightkit-context-protocol" }
-rightkit-repo-graph = { version = "0.1.0", path = "../rightkit-repo-graph" }
-rightkit-context-core = { version = "0.1.0", path = "../rightkit-context-core" }
-rightkit-context-federation = { version = "0.1.0", path = "../rightkit-context-federation" }
-rightkit-context-provider-sdk = { version = "0.1.0", path = "../rightkit-context-provider-sdk" }
+rightkit-memory-store = { version = "0.2.0", path = "../rightkit-memory-store" }
+rightkit-memory-core = { version = "0.2.0", path = "../rightkit-memory-core" }
+rightkit-context-protocol = { version = "0.2.0", path = "../rightkit-context-protocol" }
+rightkit-repo-graph = { version = "0.2.0", path = "../rightkit-repo-graph" }
+rightkit-context-core = { version = "0.2.0", path = "../rightkit-context-core" }
+rightkit-context-federation = { version = "0.2.0", path = "../rightkit-context-federation" }
+rightkit-context-provider-sdk = { version = "0.2.0", path = "../rightkit-context-provider-sdk" }
 rightkit-adapt = { version = "0.2.0", path = "../rightkit-adapt" }
 rightkit-agent-transcript = { version = "0.1.0", path = "../rightkit-agent-transcript" }
 rightkit-db = { version = "0.5.3", features = ["bundled", "hooks"], path = "../rightkit-db" }
-rightkit-embed = { version = "0.6.2", path = "../rightkit-embed" }
+rightkit-embed = { version = "0.7.0", path = "../rightkit-embed" }
 rightkit-logs = { version = "0.4.0", default-features = false, path = "../rightkit-logs" }
 rightkit-fs = { version = "0.4.9", features = ["lock", "digest", "app-dirs"], path = "../rightkit-fs" }
 rightkit-child-process = { version = "0.5.7", path = "../rightkit-child-process" }
@@ -56,7 +56,7 @@ tree-sitter-javascript = { version = "0.25" }
 tree-sitter-typescript = { version = "0.23" }
 tokenizers = { version = "0.23", optional = true }
 tempfile = { version = "3" }
-rightkit-onnx = { version = "0.2.9", optional = true, features = ["ndarray"], path = "../rightkit-onnx" }
+rightkit-onnx = { version = "0.3.0", optional = true, features = ["ndarray"], path = "../rightkit-onnx" }
 
 [build-dependencies]
 serde_json = { version = "1" }

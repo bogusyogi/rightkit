@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.8.0
+
+- Breaking for dependents: dependency requirements `rightkit-app-settings` 0.3 -> 0.4, `rightkit-crash` 0.3 -> 0.4, `rightkit-daemon` 0.5 -> 0.8, `rightkit-instance` 0.1 -> 0.2, `rightkit-job-queue` 0.5 -> 0.6, `rightkit-logs` 0.3 -> 0.4, `rightkit-models` 0.5 -> 0.7. 0.7.3 was published before these requirements were raised; a semver-breaking dependency is a breaking change, so they ship as 0.8.0 instead of changing 0.7.3 in place (#1572).
+- `host::models` module doc names the suite layout (one revision per model) that `rightkit-models` 0.7 uses; no code change.
+
 ## Unreleased
 
 - Docs: the `qa-probes` comments no longer promise a debug-assertions gate or a `compile_error!` (neither exists since the debug-assertion switches went); the feature is only a dev/QA feature a release build must not enable.

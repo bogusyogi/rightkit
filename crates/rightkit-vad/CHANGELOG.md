@@ -3,6 +3,10 @@
 All notable changes to `rightkit-vad`. Versions follow Cargo semver; while the
 version is `0.x`, a minor bump may carry breaking changes.
 
+## 0.2.0
+
+- Breaking for dependents: dependency requirements `rightkit-onnx` 0.2 -> 0.3. 0.1.3 was published before these requirements were raised; a semver-breaking dependency is a breaking change, so they ship as 0.2.0 instead of changing 0.1.3 in place (#1572). No source change in this crate since 0.1.3.
+
 ## 0.1.3 (unpublished)
 
 - Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.

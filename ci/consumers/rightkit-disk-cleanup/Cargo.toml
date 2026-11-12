@@ -7,5 +7,5 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-disk-cleanup = { version = "=0.1.2" }
+rightkit-disk-cleanup = { version = "=0.2.0" }
 

@@ -1,8 +1,12 @@
 # Changelog
 
+## 0.5.0
+
+- Breaking for dependents: dependency requirement `rightkit-daemon` 0.5 -> 0.8 (feature `phone`), plus `rightkit-daemon-remote` 0.1 (new, feature `phone`). 0.4.3 was published before this change; a semver-breaking dependency is a breaking change, so it ships as 0.5.0 instead of changing 0.4.3 in place (#1572).
+- `phone` builds on `rightkit-daemon-remote` 0.1.0 (feature `remote`) for the daemon host, request and response types, and on `rightkit-daemon` 0.8.0 (no features) for `FailLimiter`: rightkit-daemon 0.7.0 moved its `remote`, `link` and `relay` features to that crate (2026-11-11 shape review). Paths in this crate only; the surface is unchanged.
+
 ## 0.4.3 (unreleased)
 
-- `phone` builds on `rightkit-daemon-remote` 0.1.0 (feature `remote`) for the daemon host, request and response types, and on `rightkit-daemon` 0.7.0 (no features) for `FailLimiter`: rightkit-daemon 0.7.0 moved its `remote`, `link` and `relay` features to that crate (2026-11-11 shape review). Paths in this crate only; the surface is unchanged.
 - Removed `tests/render_qa_critic_states.rs`: it fed synthetic `CriticInput` to the critic binary and judged nothing from a real render (Adrian, 2026-11-03: "My decision was no unit tests. Only e2e."). The `rightkit-render-critic` binary is unchanged.
 - rightkit#1489, new additive feature `phone` (off by default): module `phone`, the phone review and pause surface PostRight asked for, built on `rightkit-daemon`'s pattern public routes. `PhoneSurface::register` serves `GET /review/api/jobs`, `POST /review/api/jobs/{id}/approve | reject | resolve | pause` and `POST /review/api/account/pause`. `TokenRegistry` issues per-device bearer tokens bound to one account (HMAC-SHA256 stored, the secret shown once, constant-time verify, revocable, optional expiry, host-supplied persistence); a revoked, expired, unknown or malformed token is the same `401`. Approve takes `expected_revision` and `policy_revision`, reject and resolve take `expected_revision`; stale revisions, a wrong job state and an autonomous pairing answer `409` (`revision_conflict`, `policy_revision_conflict`, `state_conflict`, `autonomy_gated`); approve, reject and resolve run only at `Reviewed` or `ReviewLight`, pause at any level. Failed authentication is counted per remote address by the daemon's `FailLimiter` (`429`). The host implements `ReviewHost`; nothing is logged and no token or host text reaches a response. PostRight keeps `review.token_issue`, `review.token_revoke` and `calendar.resolve_failure`, which call `TokenRegistry::issue`, `revoke` and the host.
 

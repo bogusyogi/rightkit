@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-context-provider-sdk"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Context provider SDK: the typed Provider trait, the canonical Fixture shape and the run_conformance harness for adapters implementing context operations."
@@ -14,7 +14,7 @@ name = "rightkit_context_provider_sdk"
 path = "src/lib.rs"
 
 [dependencies]
-rightkit-context-protocol = { version = "0.1.0", path = "../rightkit-context-protocol" }
+rightkit-context-protocol = { version = "0.2.0", path = "../rightkit-context-protocol" }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1" }
 thiserror = { version = "2" }

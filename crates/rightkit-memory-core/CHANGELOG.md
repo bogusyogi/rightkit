@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.0
+
+- Breaking for dependents: dependency requirements `rightkit-embed` 0.6 -> 0.7. 0.1.1 was published before these requirements were raised; a semver-breaking dependency is a breaking change, so they ship as 0.2.0 instead of changing 0.1.1 in place (#1572). No source change in this crate since 0.1.1.
+
 ## 0.1.1
 
 - `MemoryTier::as_str` and `MemoryTier::parse`, and `PartialEq` on `MemoryEntry`, so the memory client (`rightkit-memory-client`) uses these types instead of declaring its own copies. Additive. Taken on the recommended option of the 2026-11-11 shape review, pending the owner's confirmation.

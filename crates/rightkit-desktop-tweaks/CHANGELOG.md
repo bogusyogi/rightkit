@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.0
+
+- Breaking for dependents: dependency requirements `rightkit-automation` 0.6 -> 0.7. 0.2.0 was published before these requirements were raised; a semver-breaking dependency is a breaking change, so they ship as 0.3.0 instead of changing 0.2.0 in place (#1572). No source change in this crate since 0.2.0.
+
 ## 0.2.0
 
 - Breaking: the crate is the Mac-style shortcut layer only, one handler on `rightkit_hotkeys::windows::hub` (`rightkit-hotkeys` 0.1.4). `keys::apply(Shortcuts { mac, save_find_tab_close, guards })` switches it (was `start`/`apply(mac_shortcuts, screenshot_keys)` plus the `altRemapSaveFindTabClose` and `altAsCtrlGuards` switches read through the services); `keys::current`, `keys::ORDER`. `send_input` and `paste` stay, tagged with the hub's tag.

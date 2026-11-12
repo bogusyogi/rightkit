@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.0
+
+- Breaking for dependents: dependency requirements `rightkit-crash` 0.3 -> 0.4, `rightkit-daemon` 0.5 -> 0.8. 0.5.4 was published before these requirements were raised; a semver-breaking dependency is a breaking change, so they ship as 0.6.0 instead of changing 0.5.4 in place (#1572). No source change in this crate since 0.5.4.
+
 ## 0.5.4
 
 - Publishes the source changes made since 0.5.3 was published under the same version number (src/lib.rs).

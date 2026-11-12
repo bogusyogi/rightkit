@@ -28,9 +28,9 @@ coding_tools = ["dep:bytes", "dep:rightkit-db", "dep:anyhow", "dep:rightkit-agen
 
 [dependencies]
 rightkit-daemon = { version = "0.8.0", path = "../rightkit-daemon" }
-rightkit-automation = { version = "0.6.4", path = "../rightkit-automation", optional = true }
+rightkit-automation = { version = "0.7.0", path = "../rightkit-automation", optional = true }
 rightkit-browser = { version = "0.3.7", path = "../rightkit-browser", optional = true }
-rightkit-speech-client = { version = "0.4.1", path = "../rightkit-speech-client", optional = true }
+rightkit-speech-client = { version = "0.5.0", path = "../rightkit-speech-client", optional = true }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 tokio = { version = "1", features = ["rt-multi-thread", "time"], optional = true }
@@ -47,7 +47,7 @@ rightkit-agent-policy = {version = "0.1.0", path = "../rightkit-agent-policy", o
 rightkit-agent-config = { version = "0.1.0", path = "../rightkit-agent-config", optional = true }
 rightkit-mcp = {version = "0.7.4", path = "../rightkit-mcp", optional = true}
 rightkit-agent-engine-history = {version = "0.1.0", path = "../rightkit-agent-engine-history", optional = true}
-rightkit-ocr = {version = "0.2.3", path = "../rightkit-ocr", default-features = false, features = ["native"], optional = true}
+rightkit-ocr = {version = "0.3.0", path = "../rightkit-ocr", default-features = false, features = ["native"], optional = true}
 rightkit-ffmpeg = {version = "0.3.0", path = "../rightkit-ffmpeg", features = ["agent_media"], optional = true}
 rightkit-agent-plugins = {version = "0.1.0", path = "../rightkit-agent-plugins", optional = true}
 rightkit-agent-host-traits = {version = "0.1.0", path = "../rightkit-agent-host-traits", optional = true}
@@ -59,7 +59,7 @@ tracing = {version = "0.1", optional = true}
 rightkit-http = {version = "0.3.9", features = ["gzip", "untrusted", "async"], path = "../rightkit-http", optional = true}
 url = {version = "2", optional = true}
 async-trait = {version = "0.1", optional = true}
-rightkit-embed = {version = "0.6.2", default-features = false, features = ["vector"], path = "../rightkit-embed", optional = true}
+rightkit-embed = {version = "0.7.0", default-features = false, features = ["vector"], path = "../rightkit-embed", optional = true}
 rightkit-child-process = {version = "0.5.7", features = ["tokio"], path = "../rightkit-child-process", optional = true}
 portable-pty = {version = "0.9", optional = true}
 futures = {version = "0.3", optional = true}

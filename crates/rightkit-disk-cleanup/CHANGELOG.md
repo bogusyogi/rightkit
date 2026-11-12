@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.0
+
+- Breaking for dependents: dependency requirements `rightkit-app-settings` 0.3 -> 0.4. 0.1.2 was published before these requirements were raised; a semver-breaking dependency is a breaking change, so they ship as 0.2.0 instead of changing 0.1.2 in place (#1572). No source change in this crate since 0.1.2.
+
 ## Unreleased
 
 - Rule pack 2: 276 cleanup rules ported from Kudu's rule data (macOS and Windows per-user caches and logs; 92 safe, 184 review), reviewed per bogusyogi/rightkit#1530; Kudu's MIT notice ships in `NOTICE`.

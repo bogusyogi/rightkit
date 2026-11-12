@@ -9907,7 +9907,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-adapt-taste"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "rightkit-adapt",
 ]
@@ -9939,7 +9939,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-agent-demo"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "getrandom 0.4.3",
  "rightkit-agent-tools",
@@ -9971,7 +9971,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-agent-engine-api-integrations"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "rightkit-agent-config",
  "rightkit-agent-engine-runtime-middleware",
@@ -10515,7 +10515,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-app-host"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "rightkit-fs",
  "serde_json",
@@ -10537,7 +10537,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-app-manager"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "libc 0.2.191",
  "rightkit-child-process",
@@ -10607,7 +10607,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-asr"
-version = "0.4.2"
+version = "0.5.0"
 dependencies = [
  "half",
  "hound",
@@ -10667,7 +10667,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-automation"
-version = "0.6.8"
+version = "0.7.0"
 dependencies = [
  "core-foundation 0.10.1",
  "core-graphics",
@@ -10781,7 +10781,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-chat-bridge"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "libc 0.2.191",
  "rightkit-ai-accounts",
@@ -10827,7 +10827,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-clipboard-history"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "rightkit-automation",
  "rightkit-child-process",
@@ -10845,7 +10845,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-code-audit-commands"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "clap",
  "hex",
@@ -10977,7 +10977,7 @@ version = "0.1.0"
 
 [[package]]
 name = "rightkit-content-plan"
-version = "0.1.3"
+version = "0.2.0"
 dependencies = [
  "rightkit-fs",
  "rightkit-platform-rules",
@@ -10993,7 +10993,7 @@ version = "0.1.1"
 
 [[package]]
 name = "rightkit-context"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "clap",
  "rightkit-child-process",
@@ -11010,7 +11010,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-context-client"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "rightkit-context-protocol",
  "rightkit-daemon",
@@ -11019,7 +11019,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-context-core"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "rightkit-context-protocol",
  "serde",
@@ -11029,7 +11029,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-context-federation"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "gix",
@@ -11048,7 +11048,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-context-protocol"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "rightkit-fs",
  "rightkit-logs",
@@ -11059,7 +11059,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-context-provider-sdk"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "rightkit-context-protocol",
@@ -11129,7 +11129,7 @@ version = "0.1.0"
 
 [[package]]
 name = "rightkit-crash"
-version = "0.3.8"
+version = "0.4.0"
 dependencies = [
  "rightkit-crypto",
  "rightkit-fs",
@@ -11243,7 +11243,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-desktop-tweaks"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "rightkit-automation",
  "rightkit-hotkeys",
@@ -11275,7 +11275,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-dictation-app-runtime"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "rightkit-daemon",
  "rightkit-dictation-core",
@@ -11291,7 +11291,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-dictation-command-host"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "cc",
  "chrono",
@@ -11315,7 +11315,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-dictation-core"
-version = "0.2.4"
+version = "0.3.0"
 dependencies = [
  "rightkit-credentials",
  "rightkit-fs",
@@ -11330,7 +11330,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-dictation-engine"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "libc 0.2.191",
@@ -11352,7 +11352,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-dictation-ffi"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "rightkit-asr",
  "rightkit-dictation-core",
@@ -11363,7 +11363,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-dictation-inference"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "cc",
  "half",
@@ -11398,7 +11398,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-dictation-models"
-version = "0.1.3"
+version = "0.2.0"
 dependencies = [
  "dirs",
  "rightkit-child-process",
@@ -11416,7 +11416,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-dictation-runtime"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "libloading 0.9.0",
@@ -11451,7 +11451,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-dictation-tauri"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "rightkit-dictation-app-runtime",
  "rightkit-dictation-command-host",
@@ -11465,7 +11465,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-dictation-telemetry"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "chrono",
  "dirs",
@@ -11484,7 +11484,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-dictation-text-pipeline"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "chrono",
  "iana-time-zone",
@@ -11506,7 +11506,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-disk-cleanup"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "libc 0.2.191",
  "rightkit-app-settings",
@@ -11551,7 +11551,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-document-workspace"
-version = "0.1.4"
+version = "0.2.0"
 dependencies = [
  "base64 0.23.1",
  "dirs",
@@ -11570,7 +11570,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-embed"
-version = "0.6.5"
+version = "0.7.0"
 dependencies = [
  "objc2",
  "objc2-core-ml",
@@ -11755,7 +11755,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-github"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "rightkit-agent-orchestration",
  "rightkit-child-process",
@@ -11868,7 +11868,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-instance"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "rightkit-daemon",
  "serde",
@@ -11877,7 +11877,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-job-queue"
-version = "0.5.4"
+version = "0.6.0"
 dependencies = [
  "rightkit-child-process",
  "rightkit-crash",
@@ -12046,7 +12046,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-mail-store"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "rightkit-app-settings",
  "rightkit-cache",
@@ -12200,7 +12200,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-memory"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "rightkit-memory-core",
  "rightkit-memory-store",
@@ -12228,7 +12228,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-memory-core"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "rayon",
  "rightkit-embed",
@@ -12242,7 +12242,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-memory-store"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "libc 0.2.191",
  "rightkit-context-protocol",
@@ -12257,7 +12257,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-mesh"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "iroh",
  "iroh-mdns-address-lookup",
@@ -12367,7 +12367,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-ocr"
-version = "0.2.4"
+version = "0.3.0"
 dependencies = [
  "image",
  "objc2",
@@ -12384,7 +12384,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-onnx"
-version = "0.2.10"
+version = "0.3.0"
 dependencies = [
  "half",
  "ndarray",
@@ -12545,7 +12545,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-privileged-helper"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "rightkit-app-manager",
  "serde_json",
@@ -12634,7 +12634,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-reframe"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "chrono",
  "rightkit-ffmpeg",
@@ -12692,7 +12692,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-repo-graph"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "arborium-rescript",
  "getrandom 0.4.3",
@@ -12773,7 +12773,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-review"
-version = "0.4.3"
+version = "0.5.0"
 dependencies = [
  "chrono",
  "hex",
@@ -12895,7 +12895,7 @@ version = "0.1.0"
 
 [[package]]
 name = "rightkit-social-analytics"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "rightkit-fs",
  "rightkit-http",
@@ -12906,7 +12906,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-social-inbox"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "rightkit-crypto",
  "rightkit-http",
@@ -12920,7 +12920,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-social-publish"
-version = "0.1.3"
+version = "0.2.0"
 dependencies = [
  "rightkit-cache",
  "rightkit-fs",
@@ -12934,7 +12934,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-speech-client"
-version = "0.4.2"
+version = "0.5.0"
 dependencies = [
  "rightkit-daemon",
  "rightkit-sidecar",
@@ -12988,7 +12988,7 @@ version = "0.1.0"
 
 [[package]]
 name = "rightkit-system-monitor"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "libc 0.2.191",
  "rightkit-app-settings",
@@ -13002,7 +13002,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-tauri-shell"
-version = "0.7.3"
+version = "0.8.0"
 dependencies = [
  "block2",
  "objc2",
@@ -13127,7 +13127,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-tts"
-version = "0.2.5"
+version = "0.3.0"
 dependencies = [
  "libc 0.2.191",
  "rightkit-child-process",
@@ -13142,7 +13142,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-tts-qwen"
-version = "0.2.8"
+version = "0.3.0"
 dependencies = [
  "getrandom 0.4.3",
  "hound",
@@ -13176,7 +13176,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-vad"
-version = "0.1.3"
+version = "0.2.0"
 dependencies = [
  "rightkit-onnx",
 ]
@@ -13236,7 +13236,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-web-session"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "chromiumoxide",
  "libc 0.2.191",

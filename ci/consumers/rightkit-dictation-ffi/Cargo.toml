@@ -7,4 +7,4 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-dictation-ffi = { version = "=0.1.0" }
+rightkit-dictation-ffi = { version = "=0.2.0" }

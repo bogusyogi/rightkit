@@ -21,7 +21,7 @@ engine-commands = ["dep:rightkit-engine-host", "dep:chrono", "dep:rightkit-ocr",
 [dependencies]
 chrono = { version = "0.4", features = ["serde", "clock"], optional = true }
 rightkit-engine-host = { version = "0.2.0", path = "../rightkit-engine-host", optional = true }
-rightkit-ocr = { version = "0.2.3", path = "../rightkit-ocr", optional = true }
+rightkit-ocr = { version = "0.3.0", path = "../rightkit-ocr", optional = true }
 rightkit-search = { version = "0.4.1", path = "../rightkit-search", optional = true }
 rightkit-video-project = { version = "0.1.3", path = "../rightkit-video-project", optional = true }
 rightkit-ffmpeg = { version = "0.3.0", path = "../rightkit-ffmpeg", default-features = false, optional = true }

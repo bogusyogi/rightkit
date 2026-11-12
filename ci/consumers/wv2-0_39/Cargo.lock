@@ -3036,7 +3036,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-automation"
-version = "0.6.8"
+version = "0.7.0"
 dependencies = [
  "windows 0.62.2",
 ]
@@ -3119,7 +3119,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-instance"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "rightkit-daemon",
  "serde",
@@ -3128,7 +3128,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-job-queue"
-version = "0.5.4"
+version = "0.6.0"
 dependencies = [
  "rightkit-child-process",
  "rightkit-sidecar",
@@ -3207,7 +3207,7 @@ version = "0.1.0"
 
 [[package]]
 name = "rightkit-tauri-shell"
-version = "0.7.3"
+version = "0.8.0"
 dependencies = [
  "block2",
  "objc2",

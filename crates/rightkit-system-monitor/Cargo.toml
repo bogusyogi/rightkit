@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-system-monitor"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 rust-version = "1.98.0"
 description = "Live system monitoring: CPU, memory pressure, hang-proof disk listing, per-process footprint/disk I/O/GPU rows, process groups and inspection, network counters, GPU temperature and drive health."

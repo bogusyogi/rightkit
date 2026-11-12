@@ -46,7 +46,7 @@ rightkit-roots = { version = "0.1.0", path = "../rightkit-roots" }
 rightkit-child-process = { version = "0.5.7", path = "../rightkit-child-process" }
 rightkit-browser = { version = "0.3.7", path = "../rightkit-browser", optional = true }
 # Generic input, admission, lease and key code (and `macos::background::frontmost_*` for the guard).
-rightkit-automation = { version = "0.6.7", path = "../rightkit-automation" }
+rightkit-automation = { version = "0.7.0", path = "../rightkit-automation" }
 tauri = { version = "2", optional = true }
 tokio = { version = "1", features = ["rt", "time"], optional = true }
 png = "0.18"

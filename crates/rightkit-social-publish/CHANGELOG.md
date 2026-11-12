@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.0
+
+- Breaking for dependents: dependency requirements `rightkit-logs` 0.3 -> 0.4. 0.1.3 was published before these requirements were raised; a semver-breaking dependency is a breaking change, so they ship as 0.2.0 instead of changing 0.1.3 in place (#1572). No source change in this crate since 0.1.3.
+
 ## 0.1.3 (unpublished)
 
 - Fixed (#1496, part): `readiness_of` reads `token_expires_at`. A token at or past its expiry blocks readiness with the existing `reauth_required` code (the blocker vocabulary is unchanged). An account already `reauth_required` reports it once.

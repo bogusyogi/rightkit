@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-chat-bridge"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2024"
 rust-version = "1.98.0"
 description = "Chat between AI chats: envelopes, linked computers and the device link, native delivery into running Claude and Codex chats (hooks, desktop), receipts, the chat skill and hook installer. The host app supplies its brand and state folder."
