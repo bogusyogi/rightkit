@@ -159,6 +159,12 @@
       "profile": "desktop",
       "owners": [
         {
+          "name": "rightkit-roots",
+          "ecosystem": "cargo",
+          "min": "0.1.0",
+          "registryMax": "0.1.0"
+        },
+        {
           "name": "rightkit-daemon",
           "ecosystem": "cargo",
           "min": "0.3.0",
