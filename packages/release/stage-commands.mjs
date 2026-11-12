@@ -104,7 +104,7 @@ export function expectedStageCommands({ kind, unit, config, manifest, platform }
     pack.push(PNPM(npmPackArgs(dir, ANY_ABSOLUTE_PATH)));
   } else {
     compile.unshift(CARGO(crateDir, qualifyFmtArgs(unit)));
-    pack.push(CARGO(crateDir, cargoPackageArgs(unit, true)), CARGO(crateDir, [...CARGO_METADATA_ARGS], CARGO_METADATA_ARGS.filter((arg) => arg !== "--offline")));
+    pack.push(CARGO(crateDir, cargoPackageArgs(unit, true, config?.rust?.[unit], platform)), CARGO(crateDir, [...CARGO_METADATA_ARGS], CARGO_METADATA_ARGS.filter((arg) => arg !== "--offline")));
   }
   return { compile, package: pack };
 }

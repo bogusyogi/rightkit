@@ -27,6 +27,7 @@ import { consumeCrates, consumeNpm } from "./consume.mjs";
 import { readIncompleteReport } from "./exports-import-effects.mjs";
 import { NATIVE_HELPER } from "./consumer-recipes.mjs";
 import { stageSourceVersions } from "../../packages/release/rightkit-sync.mjs";
+import { cargoPackageArgs } from "../../packages/release/local-publish.mjs";
 import { crateWorkspaces } from "../../packages/release/crate-workspaces.mjs";
 import { owningWorkspace } from "./crate-scan-workspaces.mjs";
 import { pnpmBuildClosureArgs } from "./select.mjs";
@@ -547,13 +548,16 @@ function packCrates({ units, root, outDir, env, spawn, perCrate }) {
     if (archive.error || archive.status !== 0) throw new Error(`cannot export the commit's tree for packing: ${archive.stderr ?? archive.error?.message ?? ""}`);
     const extract = spawn("tar", ["-xf", path.join(scratch, "tree.tar"), "-C", exported], { encoding: "utf8", env: childEnv(env) });
     if (extract.error || extract.status !== 0) throw new Error("cannot unpack the commit's tree for packing");
+    // A crate that ci/gate.config.json `platforms` keeps off this host cannot build here: it is packed --no-verify (cargoPackageArgs) and
+    // compiled by the native verify hosts it is scoped to. Read from the exported tree, the bytes qualified.
+    const gateConfig = readJson(path.join(exported, "ci", "gate.config.json"), {});
     for (const unit of units) {
       const crate = `${unit.name}-${unit.version}.crate`;
       const owner = perCrate.get(unit.name);
       if (!owner) throw new Error(`${unit.name}: no crate workspace metadata`);
       // Package from the crate's directory of the export: cargo finds the workspace that owns it (the root workspace and its one Cargo.lock,
       // rightkit#1505; the crate's own for a crate that declares one) and builds into that workspace's checkout target directory.
-      const packed = spawn("cargo", ["package", "--locked", "-p", unit.name], { cwd: path.join(exported, owner.dir), stdio: "inherit", env: { ...env, CARGO_TARGET_DIR: owner.metadata.target_directory } });
+      const packed = spawn("cargo", cargoPackageArgs(unit.name, true, gateConfig.rust?.[unit.name], process.platform), { cwd: path.join(exported, owner.dir), stdio: "inherit", env: { ...env, CARGO_TARGET_DIR: owner.metadata.target_directory } });
       if (packed.error || packed.status !== 0) throw new Error(`cargo package failed for ${unit.name}; it compiles and verifies the crate without any token`);
       const source = path.join(owner.metadata.target_directory, "package", crate);
       if (!fs.existsSync(source)) throw new Error(`cargo package did not produce ${crate} under ${owner.metadata.target_directory}/package`);

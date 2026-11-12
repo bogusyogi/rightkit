@@ -12,7 +12,7 @@ import { readCargoPackage } from "../../packages/release/crate-graph.mjs";
 import { readArchiveEntries } from "./archive-secret-scan.mjs";
 import { runtimeFeatureProofPolicy } from "./semantic-admission.mjs";
 import { cargoLocksFor, localRequiredScanIds, verifyLocalScanRecord } from "./scan-receipt.mjs";
-import { localTestPlan } from "../../packages/release/local-publish.mjs";
+import { cargoPackageArgs, localTestPlan } from "../../packages/release/local-publish.mjs";
 import { LOCAL_HOST_OS } from "./upload.mjs";
 import { verifyLocalRuntimeProof } from "./runtime-supplement.mjs";
 
@@ -293,7 +293,7 @@ export function evidenceStepProblems({ evidence, unit, gateConfig, hostOs, works
     ...(!run?.batch ? [{ command: `cargo fmt -p ${unit.name} --check`, test: false },
       { command: `scanCrateForSecrets ${unit.dir}`, test: false }] : []),
     ...plan.steps.map((step) => ({ command: `${step.command} ${step.args.join(" ")}`, test: step.test === true })),
-    { command: `cargo package --locked -p ${unit.name}`, test: false },
+    { command: `cargo ${cargoPackageArgs(unit.name, true, gateConfig?.rust?.[unit.name], hostOs).join(" ")}`, test: false },
   ];
   const problems = [];
   if (run?.batch) {

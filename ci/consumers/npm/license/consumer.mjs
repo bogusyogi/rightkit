@@ -50,13 +50,13 @@ try {
   }
 
   await run('export-surface-exact', async () => {
-    assert.deepEqual(Object.keys(license).sort(), ['ACCOUNT_MESSAGES', 'AccountClientError', 'LICENSE_MESSAGES', 'LicenseClientError', 'createAccountClient', 'createLicenseClient', 'hasAllFeatures', 'hasAnyFeature', 'hasFeature', 'isLicensed', 'isPro', 'licenseMessage', 'lifecycleGrantsAccess', 'lifecycleNeedsOnlineRefresh', 'satisfiesRequirement', 'tier', 'tierAtLeast']);
+    assert.deepEqual(Object.keys(license).sort(), ['ACCOUNT_DELETION_MESSAGES', 'ACCOUNT_MESSAGES', 'AccountClientError', 'LICENSE_MESSAGES', 'LICENSE_MESSAGES_EN_US', 'LicenseClientError', 'PRO_BRIDGE_COMMANDS', 'accountDeletionMessage', 'acknowledgeExpiredTrialNotice', 'createAccountClient', 'createLicenseClient', 'createLicenseLifecycleMonitor', 'createProBridgeClient', 'dialogForLicenseLifecycle', 'expiredTrialAcknowledgementKey', 'hasAllFeatures', 'hasAnyFeature', 'hasFeature', 'isExpiredTrialNoticeAcknowledged', 'isLicensed', 'isPro', 'licenseMessage', 'lifecycleGrantsAccess', 'lifecycleNeedsOnlineRefresh', 'millisecondsUntilLicenseCheck', 'satisfiesRequirement', 'shouldRefreshLicenseFromServer', 'snapshotFromLicenseView', 'tier', 'tierAtLeast']);
     assert.deepEqual(Object.keys(manifest.exports), ['.']);
     let code = null;
     try { import.meta.resolve('@rightkit/license/testing'); } catch (error) { code = error.code; }
     assert.equal(code, 'ERR_PACKAGE_PATH_NOT_EXPORTED', 'there is no testing export');
     assert.equal(Object.isFrozen(LICENSE_MESSAGES), true);
-    return { rootExports: 14, testingExport: false };
+    return { rootExports: 30, testingExport: false };
   });
 
   await run('status-projects-safe-view-and-drops-unknown-fields', async () => {

@@ -304,6 +304,13 @@ Native publication checks cover exactly those units & their configured standalon
 dependents remain ordinary CI obligations (`scripts/ci/select.mjs`, `selectUnits`).
 `publish.yml` has no `dry_run` dispatch input & never uploads to a registry. It packs once,
 then Windows (`windows-2025`) & macOS (`xcode-27`) verify those sealed archives.
+A crate packs with a verifying `cargo package --locked` (it compiles the crate on the packing host), except a crate whose
+`ci/gate.config.json` `platforms` leave the packing host's OS out (`rightkit-tts-qwen-sys`: darwin and win32 only, so the Linux
+pack of a direct qualification, `qualify-direct.yml`, cannot build it): that crate packs with `cargo package --locked --no-verify`
+on that host. The archive is the same bytes and is still sealed; its compile and consumer build are proven on the hosts it is
+scoped to, by `publish.yml`'s native `verify` jobs, which build the sealed archive as a consumer would. One definition,
+`cargoPackageArgs` (`packages/release/local-publish.mjs`, using `crateRunsOn`), serves the gate's package stage, the hosted pack
+and the receipts that check the recorded command. A crate with no `platforms`, or one that names the packing host, keeps the verifying pack.
 Its per-run concurrency group permits independent qualifications concurrently; `publish-direct.yml` uploads
 serially in the `publish` concurrency group, so dependency-ordered dispatches publish in order.
 

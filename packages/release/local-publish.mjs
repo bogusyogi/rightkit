@@ -33,7 +33,7 @@ import { recordPublished, stageSourceVersions, workspaceFeedOptions } from "./ri
 import { prepareSwapHelper, SWAP_HELPER_CARGO_ARGS, SWAP_HELPER_PACKAGE } from "./swap-helper-bundle.mjs";
 import { exclusionsFor, npmContentDigest } from "./pack-digest.mjs";
 import { requireDoorRun, gateStateDir } from "./gate-stages.mjs";
-import { crossCompileEnv, crossTargetsFor, oneOutput, scopedCrossTargets } from "./cross-targets.mjs";
+import { crateRunsOn, crossCompileEnv, crossTargetsFor, oneOutput, scopedCrossTargets } from "./cross-targets.mjs";
 import { crossFeatureSets, defaultCheckFeatureSets, hostFeatureSets } from "./feature-sets.mjs";
 
 export const LOCAL_OPERATOR = "agent (local-build grant)";
@@ -137,7 +137,11 @@ const JOBS_SUBCOMMANDS = new Set(["test", "clippy", "check", "package"]);
 // stage-commands.mjs, which derives what a qualification's signed receipts must show (the hosted admission and the gate share it).
 export const qualifyFmtArgs = (unit) => ["fmt", "-p", unit, "--check"];
 export const npmPackArgs = (packDir, scratch) => ["--dir", packDir, "pack", "--pack-destination", scratch];
-export const cargoPackageArgs = (unit, qualifyOnly) => ["package", "--locked", ...(qualifyOnly ? [] : ["--no-verify"]), "-p", unit];
+// A qualify-only pack verifies (compiles) the archive on the packing host, except for a crate whose ci/gate.config.json `platforms` leave that host
+// out (crateRunsOn): it cannot build there (rightkit-tts-qwen-sys has no bindings for linux), so the archive is packed --no-verify and its
+// compile is proven by the hosts it is scoped to (publish.yml's native verify jobs build and run the sealed archive). `entry` is the crate's
+// gate config entry and `platform` the packing host's process.platform; with no platform the pack verifies, as before.
+export const cargoPackageArgs = (unit, qualifyOnly, entry, platform) => ["package", "--locked", ...(qualifyOnly && (platform === undefined || crateRunsOn(entry, platform)) ? [] : ["--no-verify"]), "-p", unit];
 export const CARGO_METADATA_ARGS = Object.freeze(["metadata", "--offline", "--format-version", "1", "--no-deps"]);
 export function withCargoJobs(args, jobs) {
   return jobs !== undefined && JOBS_SUBCOMMANDS.has(args[0])
@@ -998,7 +1002,7 @@ async function* publishUnitStages(parsed, deps, batch) {
     } else {
       // A combined publish verifies once in `cargo publish`; detached qualification verifies here before
       // its evidence leaves this host, so the publishing host can reuse that exact archive's proof.
-      const packageArgs = cargoPackageArgs(unit, parsed.qualifyOnly);
+      const packageArgs = cargoPackageArgs(unit, parsed.qualifyOnly, gateConfig?.rust?.[unit], platform);
       packCommands.push(`cargo ${packageArgs.join(" ")}`);
       const packed = await run("cargo", withCargoJobs(packageArgs, parsed.jobs), { cwd: unitPath, env });
       if (packed.error || packed.status !== 0) refuse(`cargo package failed for ${unit}\n${tail(`${packed.stdout ?? ""}\n${packed.stderr ?? ""}`)}`);
