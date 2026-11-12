@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- `coding_tools`: the web-fetch envelope calls `rightkit_http::wrap_untrusted_envelope` with the same tag and `tool:` prefix as before; output unchanged (#1572).
+
+
 ## 0.3.5 (unpublished)
 
 - `coding_tools`: the `schedule_cron` tool's time zone code (`normalize_time_zone`, `time_zone_offset_minutes_at` and their helpers, 181 lines identical to `rightkit-scheduler::timezone`) is deleted and re-exported from `rightkit-scheduler` 0.1.2 (new optional dependency, on with `coding_tools`). Same results. Taken on the recommended option of the 2026-11-11 shape review, pending the owner's confirmation; design note: docs/audits/2026-11-11-shape-matrix/reports/agent-platform-redraw.md.

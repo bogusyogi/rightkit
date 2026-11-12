@@ -15,7 +15,9 @@
 //! Retries are off everywhere (`RetryPolicy::none()`): each call is one request, as
 //! one buffered request per call.
 
-use crate::{AddressPolicy, AsyncClient, ClientConfig, ProxyMode, Request, Response, RetryPolicy};
+use rightkit_http::{
+    AddressPolicy, AsyncClient, ClientConfig, ProxyMode, Request, Response, RetryPolicy,
+};
 use std::time::Duration;
 
 /// Whole-request ceiling for a buffered call when the caller names none.
@@ -162,7 +164,7 @@ pub fn is_success(status: u16) -> bool {
 /// when present, is sent as JSON. Any status is a response; only transport, policy
 /// and timeout failures are errors (as a display string).
 pub async fn daemon_call(
-    method: crate::Method,
+    method: rightkit_http::Method,
     url: &str,
     token: &str,
     body: Option<&serde_json::Value>,
@@ -177,5 +179,5 @@ pub async fn daemon_call(
 
 /// [`daemon_call`] with GET.
 pub async fn daemon_get(url: &str, token: &str) -> Result<Response, String> {
-    daemon_call(crate::Method::Get, url, token, None).await
+    daemon_call(rightkit_http::Method::Get, url, token, None).await
 }

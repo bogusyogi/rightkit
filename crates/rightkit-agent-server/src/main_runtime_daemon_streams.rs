@@ -41,7 +41,7 @@ async fn daemon_logs(session_id: &str) -> i32 {
         }
     }
 
-    let client = match rightkit_http::http_client::daemon_client(&base_url) {
+    let client = match rightkit_agent_daemon::http_client::daemon_client(&base_url) {
         Ok(client) => client,
         Err(e) => {
             eprintln!("Failed to contact daemon: {e}");
@@ -106,7 +106,7 @@ async fn stream_events_with_reconnect(
             .stream_any(&rightkit_http::Request::get(url).bearer(token))
             .await
         {
-            Ok(r) if rightkit_http::http_client::is_success(r.status) => r,
+            Ok(r) if rightkit_agent_daemon::http_client::is_success(r.status) => r,
             Ok(r) => {
                 eprintln!("Daemon returned {} for session {session_id}", r.status);
                 return 1;
@@ -227,7 +227,7 @@ async fn daemon_conduct(
     );
 
     // 1. Create a session bound to the workspace.
-    match rightkit_http::http_client::daemon_call(
+    match rightkit_agent_daemon::http_client::daemon_call(
         rightkit_http::Method::Post,
         &format!("{base_url}/sessions"),
         &token,
@@ -241,7 +241,7 @@ async fn daemon_conduct(
     )
     .await
     {
-        Ok(r) if rightkit_http::http_client::is_success(r.status) => {}
+        Ok(r) if rightkit_agent_daemon::http_client::is_success(r.status) => {}
         Ok(r) => {
             eprintln!("Failed to create session: daemon returned {}", r.status);
             return 1;
@@ -254,7 +254,7 @@ async fn daemon_conduct(
 
     // 2. Kick off the conductor (returns immediately; progress streams via SSE).
     let encoded_session_id = url_encode_component(&session_id);
-    match rightkit_http::http_client::daemon_call(
+    match rightkit_agent_daemon::http_client::daemon_call(
         rightkit_http::Method::Post,
         &format!("{base_url}/sessions/{encoded_session_id}/orchestrate"),
         &token,
@@ -262,7 +262,7 @@ async fn daemon_conduct(
     )
     .await
     {
-        Ok(r) if rightkit_http::http_client::is_success(r.status) => {
+        Ok(r) if rightkit_agent_daemon::http_client::is_success(r.status) => {
             eprintln!(
                 "[conduct] session {session_id}: {} started",
                 if dry_run { "dry-run plan" } else { "run" }
@@ -308,7 +308,7 @@ async fn daemon_attach(session_id: &str) -> i32 {
     let encoded_session_id = url_encode_component(session_id);
 
     // Resume the session first (rehydrate if dormant).
-    match rightkit_http::http_client::daemon_call(
+    match rightkit_agent_daemon::http_client::daemon_call(
         rightkit_http::Method::Post,
         &format!("{base_url}/sessions/{encoded_session_id}/resume"),
         &token,
@@ -316,7 +316,7 @@ async fn daemon_attach(session_id: &str) -> i32 {
     )
     .await
     {
-        Ok(resp) if rightkit_http::http_client::is_success(resp.status) => {
+        Ok(resp) if rightkit_agent_daemon::http_client::is_success(resp.status) => {
             eprintln!("[attach] session {session_id} resumed");
         }
         Ok(resp) => {
@@ -352,7 +352,7 @@ async fn daemon_attach(session_id: &str) -> i32 {
                     continue;
                 }
                 let body = serde_json::json!({ "text": msg });
-                match rightkit_http::http_client::daemon_call(
+                match rightkit_agent_daemon::http_client::daemon_call(
                     rightkit_http::Method::Post,
                     &format!("{base_url}/sessions/{encoded_session_id}/messages"),
                     &token,
@@ -360,7 +360,7 @@ async fn daemon_attach(session_id: &str) -> i32 {
                 )
                 .await
                 {
-                    Ok(resp) if rightkit_http::http_client::is_success(resp.status) => {}
+                    Ok(resp) if rightkit_agent_daemon::http_client::is_success(resp.status) => {}
                     Ok(resp) => eprintln!("[attach] send returned {}", resp.status),
                     Err(e) => eprintln!("[attach] send failed: {e}"),
                 }
@@ -374,7 +374,7 @@ async fn daemon_attach(session_id: &str) -> i32 {
 }
 
 async fn daemon_logs_inner(base_url: &str, token: &str, session_id: &str) -> i32 {
-    let client = match rightkit_http::http_client::daemon_client(base_url) {
+    let client = match rightkit_agent_daemon::http_client::daemon_client(base_url) {
         Ok(client) => client,
         Err(e) => {
             eprintln!("Failed to contact daemon: {e}");
@@ -487,7 +487,7 @@ pub async fn fetch_scrollback_page(
         // that distinct fault rather than an empty page.
         return Err(ScrollbackError::HistoryCatchUpFailed(resp.text()));
     }
-    if !rightkit_http::http_client::is_success(status) {
+    if !rightkit_agent_daemon::http_client::is_success(status) {
         return Err(ScrollbackError::Transport(format!(
             "daemon returned {}: {}",
             status,
@@ -535,7 +535,7 @@ pub async fn fetch_full_scrollback(
     limit: usize,
 ) -> Result<Vec<serde_json::Value>, ScrollbackError> {
     let client =
-        rightkit_http::http_client::daemon_client(base_url).map_err(ScrollbackError::Transport)?;
+        rightkit_agent_daemon::http_client::daemon_client(base_url).map_err(ScrollbackError::Transport)?;
     let mut pages: Vec<Vec<serde_json::Value>> = Vec::new();
     let mut before = i64::MAX;
     loop {

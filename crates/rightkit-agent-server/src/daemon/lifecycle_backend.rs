@@ -494,7 +494,7 @@ async fn stop_daemon(force: bool) -> Result<BackendOutcome, String> {
 
     if !force {
         let takeover_url = format!("http://127.0.0.1:{}/internal/takeover", info.port);
-        let cooperative = rightkit_http::http_client::daemon_client_probe(
+        let cooperative = rightkit_agent_daemon::http_client::daemon_client_probe(
             &takeover_url,
             std::time::Duration::from_millis(500),
             std::time::Duration::from_millis(500),
@@ -502,7 +502,7 @@ async fn stop_daemon(force: bool) -> Result<BackendOutcome, String> {
         .map_err(|e| format!("build stop client: {e}"))?
         .send_any(&rightkit_http::Request::post(takeover_url).bearer(&info.token))
         .await;
-        if cooperative.is_ok_and(|response| rightkit_http::http_client::is_success(response.status))
+        if cooperative.is_ok_and(|response| rightkit_agent_daemon::http_client::is_success(response.status))
         {
             // The takeover ack only means the request was accepted; confirm the
             // process actually exited and escalate if it lingers.
@@ -541,7 +541,7 @@ async fn daemon_json(
     let (base_url, token) = crate::cli_presence::resolve_daemon_or_autostart()
         .await
         .ok_or_else(|| "no reachable daemon endpoint".to_string())?;
-    let response = rightkit_http::http_client::daemon_call(
+    let response = rightkit_agent_daemon::http_client::daemon_call(
         method,
         &format!("{base_url}{path}"),
         &token,
@@ -551,7 +551,7 @@ async fn daemon_json(
     .map_err(|error| format!("daemon request {path}: {error}"))?;
     let status = response.status;
     let payload = response.text();
-    if !rightkit_http::http_client::is_success(status) {
+    if !rightkit_agent_daemon::http_client::is_success(status) {
         return Err(format!(
             "daemon request {path} failed with {status}: {payload}"
         ));

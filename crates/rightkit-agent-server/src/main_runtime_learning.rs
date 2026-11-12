@@ -84,12 +84,12 @@ async fn daemon_get_json_value(path: &str, label: &str) -> Result<serde_json::Va
     };
 
     let url = format!("{base_url}{path}");
-    let fetched = match rightkit_http::http_client::daemon_client_with(
+    let fetched = match rightkit_agent_daemon::http_client::daemon_client_with(
         &url,
         std::time::Duration::from_secs(30),
     ) {
         Ok(client) => {
-            rightkit_http::http_client::send_any(
+            rightkit_agent_daemon::http_client::send_any(
                 &client,
                 &rightkit_http::Request::get(url.clone()).bearer(&token),
             )
@@ -98,7 +98,7 @@ async fn daemon_get_json_value(path: &str, label: &str) -> Result<serde_json::Va
         Err(e) => Err(e),
     };
     match fetched {
-        Ok(resp) if rightkit_http::http_client::is_success(resp.status) => {
+        Ok(resp) if rightkit_agent_daemon::http_client::is_success(resp.status) => {
             let value = resp
                 .json::<serde_json::Value>()
                 .unwrap_or(serde_json::Value::Null);
@@ -137,7 +137,7 @@ async fn daemon_json_request(
         }
     };
 
-    match rightkit_http::http_client::daemon_call(
+    match rightkit_agent_daemon::http_client::daemon_call(
         method,
         &format!("{base_url}{path}"),
         &token,
@@ -145,7 +145,7 @@ async fn daemon_json_request(
     )
     .await
     {
-        Ok(resp) if rightkit_http::http_client::is_success(resp.status) => {
+        Ok(resp) if rightkit_agent_daemon::http_client::is_success(resp.status) => {
             let value = resp
                 .json::<serde_json::Value>()
                 .unwrap_or(serde_json::Value::Null);

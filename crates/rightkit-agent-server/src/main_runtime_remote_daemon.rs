@@ -21,13 +21,13 @@ async fn cli_remote_smoke(
     let mut last_test_payload = serde_json::Value::Null;
 
     loop {
-        match rightkit_http::http_client::daemon_get(
+        match rightkit_agent_daemon::http_client::daemon_get(
             &format!("{base_url}/remote/telegram/test"),
             &token,
         )
         .await
         {
-            Ok(resp) if rightkit_http::http_client::is_success(resp.status) => {
+            Ok(resp) if rightkit_agent_daemon::http_client::is_success(resp.status) => {
                 match resp.json::<serde_json::Value>() {
                     Ok(value) => {
                         let payload = telegram_live_smoke_payload(&value, require_chat, false);
@@ -187,8 +187,8 @@ async fn daemon_remote_json(label: &str, path: &str) -> i32 {
         }
     };
 
-    match rightkit_http::http_client::daemon_get(&format!("{base_url}{path}"), &token).await {
-        Ok(resp) if rightkit_http::http_client::is_success(resp.status) => {
+    match rightkit_agent_daemon::http_client::daemon_get(&format!("{base_url}{path}"), &token).await {
+        Ok(resp) if rightkit_agent_daemon::http_client::is_success(resp.status) => {
             let value = resp
                 .json::<serde_json::Value>()
                 .unwrap_or(serde_json::Value::Null);

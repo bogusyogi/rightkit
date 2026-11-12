@@ -42,7 +42,7 @@ pub async fn discover_direct_models(
         connection.normalized_base_url.trim_end_matches('/')
     );
     // No proxy, no redirects; the host resolves only to the addresses validated above.
-    let client = rightkit_http::http_client::pinned_client(
+    let client = rightkit_agent_daemon::http_client::pinned_client(
         &url,
         &resolved,
         std::time::Duration::from_secs(3),
@@ -55,7 +55,7 @@ pub async fn discover_direct_models(
         request = request.secret_header(name, value);
     }
     let discovered = match client.send_any(&request).await {
-        Ok(response) if rightkit_http::http_client::is_success(response.status) => {
+        Ok(response) if rightkit_agent_daemon::http_client::is_success(response.status) => {
             let value: serde_json::Value =
                 serde_json::from_slice(&response.body).map_err(|_| "model_unavailable")?;
             Some(stable_catalog_models(&value).map_err(|_| "model_unavailable")?)

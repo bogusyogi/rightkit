@@ -4,6 +4,7 @@
 
 mod authority;
 mod dto;
+pub mod http_client;
 pub mod lifecycle;
 mod state;
 

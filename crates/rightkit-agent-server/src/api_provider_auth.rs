@@ -565,7 +565,7 @@ pub(crate) async fn fetch_chatgpt_account_models(
         base.trim_end_matches('/')
     );
     let client =
-        rightkit_http::http_client::endpoint_client(&url, std::time::Duration::from_secs(10))
+        rightkit_agent_daemon::http_client::endpoint_client(&url, std::time::Duration::from_secs(10))
             .map_err(|error| format!("could not build an HTTP client: {error}"))?;
     let mut request = rightkit_http::Request::get(url).bearer(&token);
     for (name, value) in auth.headers.unwrap_or_default() {
@@ -576,7 +576,7 @@ pub(crate) async fn fetch_chatgpt_account_models(
         .await
         .map_err(|error| format!("catalog request failed: {error}"))?;
     let status = response.status;
-    if !rightkit_http::http_client::is_success(status) {
+    if !rightkit_agent_daemon::http_client::is_success(status) {
         return Err(format!("catalog endpoint answered HTTP {status}"));
     }
     let bytes = response.body;

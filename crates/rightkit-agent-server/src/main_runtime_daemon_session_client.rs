@@ -79,7 +79,7 @@ fn with_json_body(
 impl DaemonSessionClient {
     pub(crate) fn new(base_url: String, token: String) -> Self {
         let base_url = base_url.trim_end_matches('/').to_string();
-        let http = rightkit_http::http_client::daemon_client(&base_url)
+        let http = rightkit_agent_daemon::http_client::daemon_client(&base_url)
             .expect("rightkit-http client builds with the platform verifier");
         Self {
             base_url,
@@ -116,7 +116,7 @@ impl DaemonSessionClient {
             .send(self.req(DaemonVerb::Get, "/runtime/context/status"))
             .await
             .map_err(|error| format!("read daemon context status: {error}"))?;
-        if !rightkit_http::http_client::is_success(response.status) {
+        if !rightkit_agent_daemon::http_client::is_success(response.status) {
             return Err(format!(
                 "read daemon context status: HTTP {}",
                 response.status
@@ -136,7 +136,7 @@ impl DaemonSessionClient {
             .send(self.req(DaemonVerb::Get, "/hooks/status"))
             .await
             .map_err(|error| format!("read hooks status: {error}"))?;
-        if !rightkit_http::http_client::is_success(response.status) {
+        if !rightkit_agent_daemon::http_client::is_success(response.status) {
             return Err(format!("read hooks status: HTTP {}", response.status));
         }
         response
@@ -153,7 +153,7 @@ impl DaemonSessionClient {
             .send(self.req_json(DaemonVerb::Post, "/sessions", &body))
             .await
             .map_err(|error| format!("create daemon session: {error}"))?;
-        if rightkit_http::http_client::is_success(response.status) {
+        if rightkit_agent_daemon::http_client::is_success(response.status) {
             return Ok(());
         }
         if response.status == 409 {
@@ -185,7 +185,7 @@ impl DaemonSessionClient {
             .send(self.req(DaemonVerb::Get, "/sessions?includeSubagents=true"))
             .await
             .map_err(|error| format!("inspect conflicting daemon session: {error}"))?;
-        if !rightkit_http::http_client::is_success(response.status) {
+        if !rightkit_agent_daemon::http_client::is_success(response.status) {
             return Err(format!(
                 "inspect conflicting daemon session: HTTP {}",
                 response.status
@@ -225,7 +225,7 @@ impl DaemonSessionClient {
             ))
             .await
             .map_err(|error| format!("submit daemon message: {error}"))?;
-        if !rightkit_http::http_client::is_success(response.status) {
+        if !rightkit_agent_daemon::http_client::is_success(response.status) {
             return Err(format!("submit daemon message: HTTP {}", response.status));
         }
         let response: Value = response
@@ -256,7 +256,7 @@ impl DaemonSessionClient {
                 .await
                 .map_err(|error| format!("read daemon event replay: {error}"))?;
             let status = response.status;
-            if !rightkit_http::http_client::is_success(status) {
+            if !rightkit_agent_daemon::http_client::is_success(status) {
                 if out.is_empty() && (status == 404 || status == 405) {
                     return self.events_history_after(session_id, after).await;
                 }
@@ -300,7 +300,7 @@ impl DaemonSessionClient {
             ))
             .await
             .map_err(|error| format!("read daemon event history: {error}"))?;
-        if !rightkit_http::http_client::is_success(response.status) {
+        if !rightkit_agent_daemon::http_client::is_success(response.status) {
             return Err(format!(
                 "read daemon event history: HTTP {}",
                 response.status
@@ -333,7 +333,7 @@ impl DaemonSessionClient {
             )
             .await
             .map_err(|error| format!("open daemon event stream: {error}"))?;
-        if !rightkit_http::http_client::is_success(response.status) {
+        if !rightkit_agent_daemon::http_client::is_success(response.status) {
             return Err(format!(
                 "open daemon event stream: HTTP {}",
                 response.status
@@ -367,7 +367,7 @@ impl DaemonSessionClient {
             .send(self.req(DaemonVerb::Get, &path))
             .await
             .map_err(|error| format!("read daemon event history: {error}"))?;
-        if !rightkit_http::http_client::is_success(response.status) {
+        if !rightkit_agent_daemon::http_client::is_success(response.status) {
             return Err(format!(
                 "read daemon event history: HTTP {}",
                 response.status
@@ -392,7 +392,7 @@ impl DaemonSessionClient {
             ))
             .await
             .map_err(|error| format!("patch daemon session route: {error}"))?;
-        if rightkit_http::http_client::is_success(response.status) {
+        if rightkit_agent_daemon::http_client::is_success(response.status) {
             Ok(())
         } else {
             let status = response.status;
@@ -428,7 +428,7 @@ impl DaemonSessionClient {
             ))
             .await
             .map_err(|error| format!("steer daemon session: {error}"))?;
-        if rightkit_http::http_client::is_success(response.status) {
+        if rightkit_agent_daemon::http_client::is_success(response.status) {
             Ok(())
         } else {
             Err(format!("steer daemon session: HTTP {}", response.status))
@@ -489,7 +489,7 @@ impl DaemonSessionClient {
             .send(request)
             .await
             .map_err(|error| format!("goal {op} ({suffix}): {error}"))?;
-        if !rightkit_http::http_client::is_success(response.status) {
+        if !rightkit_agent_daemon::http_client::is_success(response.status) {
             return Err(format!("goal {op}: HTTP {}", response.status));
         }
         response
@@ -511,7 +511,7 @@ impl DaemonSessionClient {
             ))
             .await
             .map_err(|error| format!("resolve daemon approval: {error}"))?;
-        if rightkit_http::http_client::is_success(response.status) {
+        if rightkit_agent_daemon::http_client::is_success(response.status) {
             Ok(())
         } else {
             Err(format!("resolve daemon approval: HTTP {}", response.status))
@@ -523,7 +523,7 @@ impl DaemonSessionClient {
             .send(self.req(DaemonVerb::Post, &Self::session_path(session_id, suffix)))
             .await
             .map_err(|error| format!("{action}: {error}"))?;
-        if rightkit_http::http_client::is_success(response.status) {
+        if rightkit_agent_daemon::http_client::is_success(response.status) {
             Ok(())
         } else {
             Err(format!("{action}: HTTP {}", response.status))
@@ -544,7 +544,7 @@ impl DaemonSessionClient {
             ))
             .await
             .map_err(|error| format!("respond to daemon interaction: {error}"))?;
-        if rightkit_http::http_client::is_success(response.status) {
+        if rightkit_agent_daemon::http_client::is_success(response.status) {
             Ok(())
         } else {
             Err(format!(
@@ -563,7 +563,7 @@ impl DaemonSessionClient {
             .send(self.req(DaemonVerb::Get, "/sessions"))
             .await
             .map_err(|error| format!("list daemon sessions: {error}"))?;
-        if !rightkit_http::http_client::is_success(response.status) {
+        if !rightkit_agent_daemon::http_client::is_success(response.status) {
             return Err(format!("list daemon sessions: HTTP {}", response.status));
         }
         response
@@ -609,7 +609,7 @@ impl DaemonSessionClient {
             .send(request)
             .await
             .map_err(|error| format!("{action} daemon session: {error}"))?;
-        if !rightkit_http::http_client::is_success(response.status) {
+        if !rightkit_agent_daemon::http_client::is_success(response.status) {
             return Err(format!("{action} daemon session: HTTP {}", response.status));
         }
         response
@@ -622,7 +622,7 @@ impl DaemonSessionClient {
             .send(self.req_json(DaemonVerb::Post, "/runtime/context/adapt/insights", body))
             .await
             .map_err(|error| format!("request Adapt insights: {error}"))?;
-        if !rightkit_http::http_client::is_success(response.status) {
+        if !rightkit_agent_daemon::http_client::is_success(response.status) {
             return Err(format!("Adapt insights: HTTP {}", response.status));
         }
         response
@@ -655,7 +655,7 @@ impl DaemonSessionClient {
             .send(request)
             .await
             .map_err(|error| format!("{action} worktree: {error}"))?;
-        if !rightkit_http::http_client::is_success(response.status) {
+        if !rightkit_agent_daemon::http_client::is_success(response.status) {
             return Err(format!("{action} worktree: HTTP {}", response.status));
         }
         response
@@ -673,7 +673,7 @@ impl DaemonSessionClient {
                 .send(self.req(DaemonVerb::Get, &path))
                 .await
                 .map_err(|error| format!("read permission rules: {error}"))?;
-            if !rightkit_http::http_client::is_success(response.status) {
+            if !rightkit_agent_daemon::http_client::is_success(response.status) {
                 return Err(format!("read permission rules: HTTP {}", response.status));
             }
             response
@@ -697,7 +697,7 @@ impl DaemonSessionClient {
                 .send(self.req_json(DaemonVerb::Post, &path, &body))
                 .await
                 .map_err(|error| format!("install permission rule: {error}"))?;
-            if rightkit_http::http_client::is_success(response.status) {
+            if rightkit_agent_daemon::http_client::is_success(response.status) {
                 Ok(())
             } else {
                 Err(format!("install permission rule: HTTP {}", response.status))
@@ -742,7 +742,7 @@ impl DaemonSessionClient {
             .send(self.req(DaemonVerb::Get, &Self::session_path(session_id, "/agents")))
             .await
             .map_err(|error| format!("get daemon session agents: {error}"))?;
-        if !rightkit_http::http_client::is_success(response.status) {
+        if !rightkit_agent_daemon::http_client::is_success(response.status) {
             return Err(format!(
                 "get daemon session agents: HTTP {}",
                 response.status
@@ -758,7 +758,7 @@ impl DaemonSessionClient {
             .send(self.req(DaemonVerb::Get, &Self::session_path(session_id, "/tasks")))
             .await
             .map_err(|error| format!("get daemon session tasks: {error}"))?;
-        if !rightkit_http::http_client::is_success(response.status) {
+        if !rightkit_agent_daemon::http_client::is_success(response.status) {
             return Err(format!(
                 "get daemon session tasks: HTTP {}",
                 response.status
@@ -779,7 +779,7 @@ impl DaemonSessionClient {
             .send(self.req(DaemonVerb::Get, "/execution/processes"))
             .await
             .map_err(|error| format!("list daemon processes: {error}"))?;
-        if !rightkit_http::http_client::is_success(response.status) {
+        if !rightkit_agent_daemon::http_client::is_success(response.status) {
             return Err(format!("list daemon processes: HTTP {}", response.status));
         }
         let body = response
@@ -800,7 +800,7 @@ impl DaemonSessionClient {
             ))
             .await
             .map_err(|error| format!("read daemon process output: {error}"))?;
-        if !rightkit_http::http_client::is_success(response.status) {
+        if !rightkit_agent_daemon::http_client::is_success(response.status) {
             return Err(format!(
                 "read daemon process output: HTTP {}",
                 response.status
@@ -825,7 +825,7 @@ impl DaemonSessionClient {
             ))
             .await
             .map_err(|error| format!("attach daemon process: {error}"))?;
-        if !rightkit_http::http_client::is_success(response.status) {
+        if !rightkit_agent_daemon::http_client::is_success(response.status) {
             return Err(format!("attach daemon process: HTTP {}", response.status));
         }
         let body = response
@@ -855,7 +855,7 @@ impl DaemonSessionClient {
             &serde_json::json!({ "input": input, "leaseEpoch": epoch, "inputSequence": sequence }),
         ))
             .await.map_err(|error| format!("write daemon process input: {error}"))?;
-        if !rightkit_http::http_client::is_success(response.status) {
+        if !rightkit_agent_daemon::http_client::is_success(response.status) {
             return Err(format!(
                 "write daemon process input: HTTP {}",
                 response.status
@@ -878,7 +878,7 @@ impl DaemonSessionClient {
             ))
             .await
             .map_err(|error| format!("resize daemon process: {error}"))?;
-        if !rightkit_http::http_client::is_success(response.status) {
+        if !rightkit_agent_daemon::http_client::is_success(response.status) {
             return Err(format!("resize daemon process: HTTP {}", response.status));
         }
         Ok(())
@@ -892,7 +892,7 @@ impl DaemonSessionClient {
             ))
             .await
             .map_err(|error| format!("detach daemon process: {error}"))?;
-        if !rightkit_http::http_client::is_success(response.status) {
+        if !rightkit_agent_daemon::http_client::is_success(response.status) {
             return Err(format!("detach daemon process: HTTP {}", response.status));
         }
         Ok(())
@@ -906,7 +906,7 @@ impl DaemonSessionClient {
             ))
             .await
             .map_err(|error| format!("stop daemon process: {error}"))?;
-        if !rightkit_http::http_client::is_success(response.status) {
+        if !rightkit_agent_daemon::http_client::is_success(response.status) {
             return Err(format!("stop daemon process: HTTP {}", response.status));
         }
         Ok(())
@@ -922,7 +922,7 @@ impl DaemonSessionClient {
             .send(self.req(DaemonVerb::Post, &Self::session_path(session_id, &path)))
             .await
             .map_err(|error| format!("cancel daemon task: {error}"))?;
-        if !rightkit_http::http_client::is_success(response.status) {
+        if !rightkit_agent_daemon::http_client::is_success(response.status) {
             return Err(format!("cancel daemon task: HTTP {}", response.status));
         }
         Ok(())
@@ -949,7 +949,7 @@ impl DaemonSessionClient {
             ))
             .await
             .map_err(|error| format!("execute daemon slash command: {error}"))?;
-        if !rightkit_http::http_client::is_success(response.status) {
+        if !rightkit_agent_daemon::http_client::is_success(response.status) {
             return Err(format!(
                 "execute daemon slash command: HTTP {}",
                 response.status

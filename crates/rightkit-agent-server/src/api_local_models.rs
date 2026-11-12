@@ -474,12 +474,12 @@ fn load_user_config_only(
 async fn probe_openai_models_endpoint(base_url: &str) -> ProbeEndpointResponse {
     let trimmed = base_url.trim().trim_end_matches('/');
     let models_url = format!("{trimmed}/models");
-    let outcome = match rightkit_http::http_client::endpoint_client(
+    let outcome = match rightkit_agent_daemon::http_client::endpoint_client(
         &models_url,
         std::time::Duration::from_secs(5),
     ) {
         Ok(client) => {
-            rightkit_http::http_client::send_any(
+            rightkit_agent_daemon::http_client::send_any(
                 &client,
                 &rightkit_http::Request::get(models_url.clone()),
             )
@@ -491,7 +491,7 @@ async fn probe_openai_models_endpoint(base_url: &str) -> ProbeEndpointResponse {
         Ok(resp) => {
             let status = resp.status;
             match resp.json::<serde_json::Value>() {
-                Ok(json) if rightkit_http::http_client::is_success(status) => {
+                Ok(json) if rightkit_agent_daemon::http_client::is_success(status) => {
                     let models = json
                         .get("data")
                         .and_then(serde_json::Value::as_array)
@@ -571,12 +571,12 @@ async fn chat_smoke_openai_endpoint(base_url: &str, model: &str) -> ChatSmokeRes
         "temperature": 0,
         "stream": false
     });
-    let outcome = match rightkit_http::http_client::endpoint_client(
+    let outcome = match rightkit_agent_daemon::http_client::endpoint_client(
         &chat_url,
         std::time::Duration::from_secs(10),
     ) {
         Ok(client) => match rightkit_http::Request::post(chat_url.clone()).json(&body) {
-            Ok(request) => rightkit_http::http_client::send_any(&client, &request).await,
+            Ok(request) => rightkit_agent_daemon::http_client::send_any(&client, &request).await,
             Err(error) => Err(error.to_string()),
         },
         Err(error) => Err(error),
@@ -585,7 +585,7 @@ async fn chat_smoke_openai_endpoint(base_url: &str, model: &str) -> ChatSmokeRes
         Ok(resp) => {
             let status = resp.status;
             match resp.json::<serde_json::Value>() {
-                Ok(json) if rightkit_http::http_client::is_success(status) => {
+                Ok(json) if rightkit_agent_daemon::http_client::is_success(status) => {
                     let preview = json
                         .get("choices")
                         .and_then(serde_json::Value::as_array)

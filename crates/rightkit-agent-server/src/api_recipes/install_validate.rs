@@ -52,7 +52,7 @@ async fn install_recipe_url_handler(
     enforce_recipe_trusted_source(&headers)?;
     let url = validated_recipe_github_url(&body.url)?;
     let raw_url = normalized_recipe_github_raw_url(&url)?;
-    let client = rightkit_http::http_client::endpoint_client(
+    let client = rightkit_agent_daemon::http_client::endpoint_client(
         raw_url.as_str(),
         std::time::Duration::from_secs(15),
     )
@@ -72,7 +72,7 @@ async fn install_recipe_url_handler(
             "error": format!("failed to fetch recipe URL: {other}")
         })),
     })?;
-    if !rightkit_http::http_client::is_success(response.status) {
+    if !rightkit_agent_daemon::http_client::is_success(response.status) {
         return Err(RecipeApiError::bad_request(serde_json::json!({
             "error": format!("recipe URL returned HTTP {}", response.status)
         })));

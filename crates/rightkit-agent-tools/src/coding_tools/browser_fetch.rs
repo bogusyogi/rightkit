@@ -269,10 +269,12 @@ pub fn wrap_untrusted_web_text(source: &str, text: &str) -> String {
     // the host app's own threat scan decides whether the text is withheld (policy stays here); the
     // envelope is RightKit's `<coderight-untrusted-context>` wrapper, which also fills the body
     // hash and escapes a closing tag inside the body.
-    rightkit_http::wrap_untrusted_web_text_coderight(
+    rightkit_http::wrap_untrusted_envelope(
         source,
         &sanitize_untrusted_tool_text(source, text),
-        &rightkit_http::WrapOptions {
+        &rightkit_http::EnvelopeOptions {
+            tag: "coderight-untrusted-context".to_owned(),
+            source_prefix: "tool:".to_owned(),
             max_bytes: 0,
             block_on_injection: false,
         },

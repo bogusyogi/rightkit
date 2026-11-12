@@ -731,7 +731,7 @@ async fn dev_servers_handler<S: BrowserWorkspaceServices>(
 pub(crate) async fn probe_loopback(url: &str) -> bool {
     // Redirects are not followed (`daemon_client_probe`), so a 3xx is the answer; only
     // the status line is read.
-    match rightkit_http::http_client::daemon_client_probe(
+    match rightkit_agent_daemon::http_client::daemon_client_probe(
         url,
         std::time::Duration::from_millis(400),
         std::time::Duration::from_millis(400),

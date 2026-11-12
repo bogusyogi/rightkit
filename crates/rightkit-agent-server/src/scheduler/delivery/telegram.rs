@@ -27,7 +27,7 @@ async fn deliver_telegram_chat_result(
         api_base.as_str().trim_end_matches('/'),
         token
     );
-    let client = rightkit_http::http_client::endpoint_client(&url, Duration::from_secs(10))
+    let client = rightkit_agent_daemon::http_client::endpoint_client(&url, Duration::from_secs(10))
         .map_err(|e| format!("failed to build HTTP client: {e}"))?;
     // The bot token is part of the URL path: register it so no error text echoes it.
     let request = rightkit_http::Request::post(url)

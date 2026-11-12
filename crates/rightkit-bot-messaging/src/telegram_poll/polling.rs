@@ -40,7 +40,7 @@ async fn run_telegram_bot_with_api_base(
     retry_delay: Duration,
 ) {
     // Long polls hold the request open for `poll_timeout_secs`; the ceiling leaves headroom.
-    let http = match rightkit_http::http_client::endpoint_client(
+    let http = match rightkit_agent_daemon::http_client::endpoint_client(
         &api_base_url,
         Duration::from_secs(poll_timeout_secs.saturating_add(35)),
     ) {

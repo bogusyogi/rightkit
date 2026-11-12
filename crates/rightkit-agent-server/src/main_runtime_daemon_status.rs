@@ -21,13 +21,13 @@ async fn daemon_status() -> i32 {
             return 0;
         }
     };
-    let health = match rightkit_http::http_client::send_any(
+    let health = match rightkit_agent_daemon::http_client::send_any(
         &client,
         &rightkit_http::Request::get(format!("{base_url}/health")),
     )
     .await
     {
-        Ok(resp) if rightkit_http::http_client::is_success(resp.status) => resp
+        Ok(resp) if rightkit_agent_daemon::http_client::is_success(resp.status) => resp
             .json::<serde_json::Value>()
             .unwrap_or(serde_json::Value::Null),
         Ok(resp) => {
@@ -46,11 +46,11 @@ async fn daemon_status() -> i32 {
     let authed_get = |path: &str| {
         let request = rightkit_http::Request::get(format!("{base_url}{path}")).bearer(&token);
         let client = &client;
-        async move { rightkit_http::http_client::send_any(client, &request).await }
+        async move { rightkit_agent_daemon::http_client::send_any(client, &request).await }
     };
 
     let sessions = match authed_get("/sessions").await {
-        Ok(resp) if rightkit_http::http_client::is_success(resp.status) => resp
+        Ok(resp) if rightkit_agent_daemon::http_client::is_success(resp.status) => resp
             .json::<serde_json::Value>()
             .unwrap_or_else(|_| serde_json::json!([])),
         Ok(resp) => {
@@ -79,7 +79,7 @@ async fn daemon_status() -> i32 {
     // metrics response is retained as unavailable; status never invents a
     // healthy context from daemon reachability alone.
     if let Ok(resp) = authed_get("/runtime/resource-metrics").await {
-        if rightkit_http::http_client::is_success(resp.status) {
+        if rightkit_agent_daemon::http_client::is_success(resp.status) {
             if let Ok(metrics) = resp.json::<serde_json::Value>() {
                 status["context"] =
                     serde_json::to_value(crate::context_status::from_metrics(&metrics))
@@ -90,7 +90,7 @@ async fn daemon_status() -> i32 {
     // Client-presence passthrough (client-presence v1): older daemons without
     // the `/clients` route simply omit this key rather than failing status.
     if let Ok(resp) = authed_get("/clients").await {
-        if rightkit_http::http_client::is_success(resp.status) {
+        if rightkit_agent_daemon::http_client::is_success(resp.status) {
             if let Ok(clients) = resp.json::<serde_json::Value>() {
                 status["clients"] = clients;
             }
@@ -123,7 +123,7 @@ async fn daemon_stop(force: bool) -> i32 {
 /// Status probes verify the complete session projection for upgrade safety;
 /// persisted history can exceed a liveness probe's 500 ms budget.
 fn daemon_status_client(base_url: &str) -> Result<rightkit_http::AsyncClient, String> {
-    rightkit_http::http_client::daemon_client_probe(
+    rightkit_agent_daemon::http_client::daemon_client_probe(
         base_url,
         std::time::Duration::from_millis(300),
         std::time::Duration::from_secs(5),

@@ -59,7 +59,7 @@ pub(crate) async fn require_existing_session(
 
 impl DaemonClient {
     pub fn new(port: u16, token: Option<String>) -> Self {
-        let client = rightkit_http::http_client::daemon_client(&format!("http://127.0.0.1:{port}"))
+        let client = rightkit_agent_daemon::http_client::daemon_client(&format!("http://127.0.0.1:{port}"))
             .expect("rightkit-http client builds with the platform verifier");
         Self {
             port,
@@ -111,7 +111,7 @@ impl DaemonClient {
         if status == 409 {
             return Ok(json!({ "id": session_id, "alreadyExists": true }));
         }
-        if !rightkit_http::http_client::is_success(status) {
+        if !rightkit_agent_daemon::http_client::is_success(status) {
             return Err(format!("HTTP {status}"));
         }
         resp.json::<Value>().map_err(|e| e.to_string())
@@ -127,7 +127,7 @@ impl DaemonClient {
             )
             .await?;
         let status = resp.status;
-        if !rightkit_http::http_client::is_success(status) {
+        if !rightkit_agent_daemon::http_client::is_success(status) {
             return Err(format!("HTTP {status}"));
         }
         let value: Value = resp.json().map_err(|e| e.to_string())?;
@@ -146,7 +146,7 @@ impl DaemonClient {
         if status == 404 {
             return Ok(Vec::new());
         }
-        if !rightkit_http::http_client::is_success(status) {
+        if !rightkit_agent_daemon::http_client::is_success(status) {
             return Err(format!("HTTP {status}"));
         }
         resp.json::<Vec<Value>>().map_err(|e| e.to_string())
@@ -160,7 +160,7 @@ impl DaemonClient {
                 None,
             )
             .await?;
-        if !rightkit_http::http_client::is_success(resp.status) {
+        if !rightkit_agent_daemon::http_client::is_success(resp.status) {
             return Err(format!("HTTP {}", resp.status));
         }
         Ok(())
@@ -183,7 +183,7 @@ impl DaemonClient {
         let status = resp.status;
         // Already-resolved / unknown tool call ids are not fatal to the ACP
         // caller — the underlying approval race is CR's, not ACP's, to solve.
-        if !rightkit_http::http_client::is_success(status) && status != 404 {
+        if !rightkit_agent_daemon::http_client::is_success(status) && status != 404 {
             return Err(format!("HTTP {status}"));
         }
         Ok(())
@@ -193,7 +193,7 @@ impl DaemonClient {
         let resp = self
             .call(rightkit_http::Method::Get, "/sessions", None)
             .await?;
-        if !rightkit_http::http_client::is_success(resp.status) {
+        if !rightkit_agent_daemon::http_client::is_success(resp.status) {
             return Err(format!("HTTP {}", resp.status));
         }
         resp.json::<Vec<Value>>().map_err(|e| e.to_string())
@@ -208,7 +208,7 @@ impl DaemonClient {
             )
             .await?;
         let status = resp.status;
-        if !rightkit_http::http_client::is_success(status) && status != 404 {
+        if !rightkit_agent_daemon::http_client::is_success(status) && status != 404 {
             return Err(format!("HTTP {status}"));
         }
         Ok(())
@@ -223,7 +223,7 @@ impl DaemonClient {
             )
             .await?;
         let status = resp.status;
-        if !rightkit_http::http_client::is_success(status) && status != 404 {
+        if !rightkit_agent_daemon::http_client::is_success(status) && status != 404 {
             return Err(format!("HTTP {status}"));
         }
         Ok(())

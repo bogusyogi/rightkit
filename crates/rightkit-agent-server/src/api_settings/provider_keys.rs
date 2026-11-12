@@ -165,7 +165,7 @@ async fn probe_provider_credential(provider: &str, secret: &str) -> ProviderCred
     // Redirects are never followed (`endpoint_client`), and the bearer secret is
     // registered with the request so no error text can echo it.
     let client =
-        match rightkit_http::http_client::endpoint_client(&url, std::time::Duration::from_secs(10))
+        match rightkit_agent_daemon::http_client::endpoint_client(&url, std::time::Duration::from_secs(10))
         {
             Ok(client) => client,
             Err(error) => {
