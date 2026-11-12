@@ -2019,8 +2019,19 @@ impl Control {
     }
     /// Evaluate a JS function body (`return ...`) in the page; returns its JSON value.
     pub fn eval(&self, js: &str) -> Result<Value> {
+        self.eval_with(js, false)
+    }
+    /// [`Control::eval`] that first finishes the page's FINITE animations when the window is hidden
+    /// (`finish_hidden_animations`; a hidden window produces no frames, so they never end); infinite
+    /// ones are left alone.
+    pub fn eval_with(&self, js: &str, finish_hidden_animations: bool) -> Result<Value> {
+        let params = if finish_hidden_animations {
+            json!({"js": js, "finishHiddenAnimations": true})
+        } else {
+            json!({"js": js})
+        };
         Ok(self
-            .json("eval", json!({"js": js}))?
+            .json("eval", params)?
             .get("value")
             .cloned()
             .unwrap_or(Value::Null))
@@ -2278,10 +2289,24 @@ impl Control {
     /// waits in the page (DOM mutations, events, a short timer) and replies the moment it holds.
     /// An app on an older driver without the `wait` method is polled every 25 ms instead.
     pub fn wait_eval(&self, js: &str, timeout: Duration) -> Result<Value> {
+        self.wait_eval_with(js, timeout, false)
+    }
+    /// [`Control::wait_eval`] that finishes the page's FINITE animations before every check while the
+    /// window is hidden (`finish_hidden_animations`); infinite ones are left alone.
+    pub fn wait_eval_with(
+        &self,
+        js: &str,
+        timeout: Duration,
+        finish_hidden_animations: bool,
+    ) -> Result<Value> {
         let ms = timeout.as_millis().clamp(1, 600_000) as u64;
         let reply = self.rpc_within(
             "wait",
-            json!({"js": js, "timeoutMs": ms}),
+            if finish_hidden_animations {
+                json!({"js": js, "timeoutMs": ms, "finishHiddenAnimations": true})
+            } else {
+                json!({"js": js, "timeoutMs": ms})
+            },
             timeout + self.request_timeout,
         );
         match reply {
