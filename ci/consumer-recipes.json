@@ -357,16 +357,16 @@
       ],
       "closure": {
         "install": {
-          "smol-toml": "1.9.1",
           "@rightkit/ci": "0.3.2",
-          "@rightkit/outdated": "0.3.1"
+          "@rightkit/outdated": "0.3.0",
+          "smol-toml": "1.9.1"
         },
         "declaredOnly": []
       },
       "files": {
         "ci/consumers/npm/release/README.md": "7c90fb735b7a4c96e44f0249a0c88b3c817ed4d05db4a1aae32966d1e111b9be",
         "ci/consumers/npm/release/consumer.mjs": "29d851acf846b2c845d6ff04cf3470ea80c9d90c8d89cf3da1729d95e89c11d1",
-        "ci/consumers/npm/release/package.json": "27daffd9e8b029eb42474a3a2f13c67b2e9e4942d5599f3784d6431a73aff827",
+        "ci/consumers/npm/release/package.json": "b3d45f75f983b514a2fd935d09376289a597cc323ecb398c5c118da9efae4d6d",
         "ci/consumers/npm/release/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "fc160695e1dc97dc7e32e746c9e4471e2d85168b097623de818befeb00ee438c"
       }
