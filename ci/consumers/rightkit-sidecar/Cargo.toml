@@ -7,5 +7,5 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-sidecar = { version = "=0.3.2" }
+rightkit-sidecar = { version = "=0.3.3" }
 serde_json = "1"

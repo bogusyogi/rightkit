@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.5.12
 
 - Added `resolve_bundled`, `resolve_bundled_login_item` (with `LoginItemOptions`, an opt-in development fallback to a bare sibling executable, off by default) and `verify_team_signature` (`codesign --verify --strict` against a Developer ID team): the bundled-helper placement and signature checks that lived in `rightkit-credentials`, moved here unchanged. Added `launch_bundle(path, background, env)`: `open [-g] --env KEY=VALUE <app>` through LaunchServices (macOS; `Unsupported` elsewhere).
 

@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.3
 
 - Added `wire::Frame::to_value(include_error_retryable)`: the frame as a JSON value, optionally without `retryable` in a failed response's `error` (for a peer whose wire `error` is `{code, message}`).
 

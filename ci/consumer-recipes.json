@@ -2184,7 +2184,7 @@
       "pkId": "PK06",
       "id": "ci/consumers/rightkit-sidecar/src/main.rs",
       "files": {
-        "Cargo.toml": "579ba0f3f7e67a9ddb23121bd8924725736b6fc9be3308ef8dd07cf7aecfeedd",
+        "Cargo.toml": "076cec5dbe2447097a96a79a9f90306578d244d4efcc2fbb164ae524cfc02af4",
         "README.md": "9357b45245ed0e9c9c9a05b32c3b894b68b14234ac02a47bccde46addd94c994",
         "src/main.rs": "2b8439ab27e28074f38c981423b5f142a8e406397a63f75fca092a27c763f07d"
       }
@@ -2329,7 +2329,7 @@
       "gateEvidence": "the child is the consumer executable itself (std::env::current_exe with a --child mode argument): no shell, network, files or ffmpeg; the strict incomplete-capture Err path is not exercised (not deterministic on a trivial child)",
       "consumes": "PK02 plan (01-packages.md:116-129): ScrapeRight and CodeRight runners; public items exercised: run (crates/rightkit-child-process/src/run.rs:192), run_with_stdin (src/run.rs:173), run_command (src/run.rs:249), run_command_capture (src/run.rs:271), RunOptions (src/run.rs:64), CaptureOptions (src/run.rs:105), OwnedCommand::new and command_mut (src/owned.rs:167,216); 0.5.5 descriptor policy surface: OwnedCommand::inherit_all_descriptors and inherit_fd (src/owned.rs:255,273)",
       "files": {
-        "Cargo.toml": "d45288f098f2049ad8acca8f8a2ddb0ad35521116b9c940ea56d8ef1b0e041f8",
+        "Cargo.toml": "2e42ef08254033a63a616b96321ca2d2a5a235611feb8134c4c8882cceaf2f93",
         "README.md": "1cd2a069b87285744a044a1ce292fdc83d41bd8eb3ab49fd6e3f7076960959a9",
         "src/main.rs": "f755ebe9531d83e34b4ba70cbe6d3ec5d9d723840a2becd8b630320e00fcc450"
       },
