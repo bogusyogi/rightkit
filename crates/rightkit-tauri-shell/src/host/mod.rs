@@ -93,7 +93,8 @@ pub use app_update::{AppUpdateHostService, BootStatus};
 pub use crash::CrashHostService;
 pub use legal::{
     CreateRequest as LegalCreateRequest, DeclaredDocument, DocumentReceiptStore, LegalClock,
-    LegalManifest, LegalReceiptService, LegalReceiptStore, LegalRecord, SystemLegalClock,
+    LegalManifest, LegalRead, LegalReceiptService, LegalReceiptStore, LegalRecord,
+    SystemLegalClock,
 };
 #[cfg(feature = "license")]
 pub use license::{LicenseHostService, LicenseOps, EVENT_LICENSE_CHANGED};
