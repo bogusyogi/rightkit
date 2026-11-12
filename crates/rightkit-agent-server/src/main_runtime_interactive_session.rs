@@ -2313,10 +2313,8 @@ mod interactive_session {
         fn live_pty_shell(
             &self,
             id: &str,
-        ) -> Result<
-            std::sync::Arc<rightkit_agent_coding_tools::background_shell::BgShell>,
-            String,
-        > {
+        ) -> Result<std::sync::Arc<rightkit_agent_coding_tools::background_shell::BgShell>, String>
+        {
             let Some(super::SessionExecutionHost::Inline(host)) =
                 super::SessionExecutionHost::select_if_ready(self.context_mode)
             else {
@@ -3293,17 +3291,13 @@ mod interactive_session {
                     rightkit_agent_coding_tools::background_shell::BgStatus::Running => {
                         "running".to_string()
                     }
-                    rightkit_agent_coding_tools::background_shell::BgStatus::Exited(
-                        code,
-                    ) => {
+                    rightkit_agent_coding_tools::background_shell::BgStatus::Exited(code) => {
                         format!("exited {code}")
                     }
                     rightkit_agent_coding_tools::background_shell::BgStatus::Killed => {
                         "stopped".to_string()
                     }
-                    rightkit_agent_coding_tools::background_shell::BgStatus::SpawnFailed(
-                        error,
-                    ) => {
+                    rightkit_agent_coding_tools::background_shell::BgStatus::SpawnFailed(error) => {
                         format!("failed: {error}")
                     }
                     rightkit_agent_coding_tools::background_shell::BgStatus::Unknown => {

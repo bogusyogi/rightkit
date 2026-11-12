@@ -277,16 +277,15 @@ pub unsafe extern "C" fn host_mobile_runtime_update_cloudflare_credential(
         handle.set_last_error(Some("config_json must be non-null UTF-8".into()));
         return -1;
     };
-    let config: rightkit_agent_coding_tools::CloudflareConfig =
-        match serde_json::from_str(raw) {
-            Ok(config) => config,
-            Err(error) => {
-                handle.set_last_error(Some(format!(
-                    "config_json is not a valid CloudflareConfig: {error}"
-                )));
-                return -1;
-            }
-        };
+    let config: rightkit_agent_coding_tools::CloudflareConfig = match serde_json::from_str(raw) {
+        Ok(config) => config,
+        Err(error) => {
+            handle.set_last_error(Some(format!(
+                "config_json is not a valid CloudflareConfig: {error}"
+            )));
+            return -1;
+        }
+    };
     handle.runtime.update_cloudflare_credential(config);
     handle.set_last_error(None);
     0
@@ -2018,9 +2017,8 @@ pub unsafe extern "C" fn host_mobile_handoff_is_in_flight(
         Ok(request) => request,
         Err(error) => return error,
     };
-    let in_flight = rightkit_agent_coding_tools::handoff::HandoffController::is_in_flight(
-        &request.session_id,
-    );
+    let in_flight =
+        rightkit_agent_coding_tools::handoff::HandoffController::is_in_flight(&request.session_id);
     ffi_ok(serde_json::Value::Bool(in_flight))
 }
 

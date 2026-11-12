@@ -300,8 +300,9 @@ pub async fn test_connection(provider_id: &str) -> Result<String, String> {
     let request = test_request(provider_id)?;
     let key = rightkit_llm::agent_providers::load_api_key(provider_id)
         .ok_or_else(|| "No key is set for this provider.".to_string())?;
-    let client = rightkit_agent_daemon::http_client::endpoint_client(&request.url, Duration::from_secs(10))
-        .map_err(|_| "could not build the HTTP client".to_string())?;
+    let client =
+        rightkit_agent_daemon::http_client::endpoint_client(&request.url, Duration::from_secs(10))
+            .map_err(|_| "could not build the HTTP client".to_string())?;
     let response = client
         .send_any(&rightkit_http::Request::get(request.url.clone()).bearer(&key))
         .await

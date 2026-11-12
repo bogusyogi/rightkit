@@ -39,9 +39,7 @@ impl SentinelClient {
             let server = server.to_owned();
             let client = tokio::task::spawn_blocking(move || {
                 let launcher = rightkit_mcp::agent_mcp::rightkit_process_launcher(
-                    Arc::new(
-                        rightkit_agent_coding_tools::shell::NativeCommandSandboxAdapter,
-                    ),
+                    Arc::new(rightkit_agent_coding_tools::shell::NativeCommandSandboxAdapter),
                     context,
                     runtime,
                 );

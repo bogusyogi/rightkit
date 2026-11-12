@@ -638,8 +638,7 @@ pub const EXEMPT_RESULTS_KEPT_PER_TOOL: usize = 4;
 /// crate lists `skill_tool` but the registered tool is `invoke_skill` (audit
 /// C5), so both are treated as exempt here.
 pub fn is_exempt_tool_name(name: &str) -> bool {
-    name == "invoke_skill"
-        || rightkit_agent_coding_tools::output_compaction::is_exempt_tool(name)
+    name == "invoke_skill" || rightkit_agent_coding_tools::output_compaction::is_exempt_tool(name)
 }
 
 impl DecayingObservationProjection {

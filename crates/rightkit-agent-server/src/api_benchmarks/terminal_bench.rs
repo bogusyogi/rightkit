@@ -50,8 +50,8 @@ pub(crate) async fn run_terminal_bench_task(
     state: &DaemonState,
     body: TerminalBenchRunRequest,
 ) -> Result<serde_json::Value, StatusCode> {
-    use rightkit_agent_orchestration::coding::TbenchCatalog;
     use rightkit_agent_coding_tools::SubagentSpawner;
+    use rightkit_agent_orchestration::coding::TbenchCatalog;
 
     let tasks = TbenchCatalog::all_tasks();
     let task = tasks

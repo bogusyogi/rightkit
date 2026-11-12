@@ -27,12 +27,12 @@ pub mod small_model;
 pub mod team_fleet;
 pub mod wasm;
 
+use rightkit_agent_coding_tools::registry::ToolRegistry;
 use rightkit_agent_engine_core::conduit::Conduit;
 use rightkit_agent_engine_core::engine::{SessionEngine, SessionEngineConfig};
 use rightkit_agent_engine_core::llm::LlmClient;
 use rightkit_agent_engine_protocol::ProtocolEvent;
 use rightkit_agent_policy::PermissionMode;
-use rightkit_agent_coding_tools::registry::ToolRegistry;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicI64, Ordering};
@@ -413,9 +413,9 @@ impl MobileRuntime {
         let mut tools = ToolRegistry::build_default();
         if wasm::is_wasm_executor_installed() {
             tools.replace(Box::new(
-                rightkit_agent_coding_tools::wasm_compute::WasmComputeTool::with_runtime(
-                    Arc::new(wasm::MobileWasmRuntime),
-                ),
+                rightkit_agent_coding_tools::wasm_compute::WasmComputeTool::with_runtime(Arc::new(
+                    wasm::MobileWasmRuntime,
+                )),
             ));
         } else {
             tools.remove("wasm_compute");

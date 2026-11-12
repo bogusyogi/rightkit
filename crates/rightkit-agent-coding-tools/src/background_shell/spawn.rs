@@ -95,12 +95,7 @@ async fn run_windows_background(
         let spawn_args = args.clone();
         let spawn_root = workspace_root.clone();
         let mut spawn = tokio::task::spawn_blocking(move || {
-            crate::shell::spawn_windows_appcontainer(
-                &spawn_program,
-                &spawn_args,
-                &spawn_root,
-                true,
-            )
+            crate::shell::spawn_windows_appcontainer(&spawn_program, &spawn_args, &spawn_root, true)
         });
         let spawned = tokio::select! {
             joined = &mut spawn => joined,
@@ -448,9 +443,7 @@ fn spawn_background_program_with_kind_and_target_using(
                 workspace_root: workspace_root_owned.to_string_lossy().into_owned(),
                 sandbox_profile: Some("workspace".to_string()),
                 sandbox_required: apply_local_sandbox
-                    && !crate::shell::sandbox_disabled_for_workspace(
-                        &workspace_root_owned,
-                    ),
+                    && !crate::shell::sandbox_disabled_for_workspace(&workspace_root_owned),
                 network_required: false,
             },
             env: Vec::new(),

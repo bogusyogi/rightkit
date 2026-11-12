@@ -17,7 +17,9 @@ async fn cli_info(json: bool) -> i32 {
             "running": false,
             "baseUrl": base_url,
         });
-        match rightkit_agent_daemon::http_client::daemon_get(&format!("{base_url}/health"), &token).await {
+        match rightkit_agent_daemon::http_client::daemon_get(&format!("{base_url}/health"), &token)
+            .await
+        {
             Ok(resp) => {
                 let status = resp.status;
                 body["daemon"]["healthStatus"] = serde_json::json!(status);

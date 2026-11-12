@@ -514,8 +514,8 @@ async fn run_lsp_unit(
                 );
             }
             let message = result.content;
-            if let Some(body) = message
-                .strip_prefix(rightkit_agent_coding_tools::lsp_tool::DIAGNOSTICS_PREFIX)
+            if let Some(body) =
+                message.strip_prefix(rightkit_agent_coding_tools::lsp_tool::DIAGNOSTICS_PREFIX)
             {
                 let findings: Vec<VerifiedFinding> = body
                     .lines()

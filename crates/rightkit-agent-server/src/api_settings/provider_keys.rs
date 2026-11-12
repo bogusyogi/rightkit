@@ -164,16 +164,17 @@ async fn probe_provider_credential(provider: &str, secret: &str) -> ProviderCred
     let url = format!("{}/models", info.base_url.trim_end_matches('/'));
     // Redirects are never followed (`endpoint_client`), and the bearer secret is
     // registered with the request so no error text can echo it.
-    let client =
-        match rightkit_agent_daemon::http_client::endpoint_client(&url, std::time::Duration::from_secs(10))
-        {
-            Ok(client) => client,
-            Err(error) => {
-                return ProviderCredentialProbe::Unreachable(format!(
-                    "probe client unavailable: {error}"
-                ))
-            }
-        };
+    let client = match rightkit_agent_daemon::http_client::endpoint_client(
+        &url,
+        std::time::Duration::from_secs(10),
+    ) {
+        Ok(client) => client,
+        Err(error) => {
+            return ProviderCredentialProbe::Unreachable(format!(
+                "probe client unavailable: {error}"
+            ))
+        }
+    };
     let response = match client
         .send_any(&rightkit_http::Request::get(url).bearer(secret))
         .await

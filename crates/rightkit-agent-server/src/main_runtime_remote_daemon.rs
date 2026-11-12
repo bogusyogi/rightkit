@@ -187,7 +187,8 @@ async fn daemon_remote_json(label: &str, path: &str) -> i32 {
         }
     };
 
-    match rightkit_agent_daemon::http_client::daemon_get(&format!("{base_url}{path}"), &token).await {
+    match rightkit_agent_daemon::http_client::daemon_get(&format!("{base_url}{path}"), &token).await
+    {
         Ok(resp) if rightkit_agent_daemon::http_client::is_success(resp.status) => {
             let value = resp
                 .json::<serde_json::Value>()

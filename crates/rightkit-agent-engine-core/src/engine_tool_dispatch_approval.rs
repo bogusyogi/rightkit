@@ -62,9 +62,9 @@ impl SessionEngine {
                 rightkit_agent_coding_tools::sandbox::SandboxDenialKind::Network => {
                     "outbound network"
                 }
-                rightkit_agent_coding_tools::sandbox::SandboxDenialKind::Filesystem {
-                    ..
-                } => "filesystem access",
+                rightkit_agent_coding_tools::sandbox::SandboxDenialKind::Filesystem { .. } => {
+                    "filesystem access"
+                }
             };
             let cause = format!("the sandbox blocked {what} (tier {:?})", denial.tier);
             self.emit_tool_policy_event(sid, call_id, &denial.rule_id, "sandbox_refusal", &cause);

@@ -171,9 +171,10 @@ impl PresenceGuard {
     }
 
     async fn send_detach(&self) {
-        if let Ok(client) =
-            rightkit_agent_daemon::http_client::daemon_client_with(&self.base_url, Duration::from_secs(2))
-        {
+        if let Ok(client) = rightkit_agent_daemon::http_client::daemon_client_with(
+            &self.base_url,
+            Duration::from_secs(2),
+        ) {
             let _ = client
                 .send_any(
                     &rightkit_http::Request::delete(format!(

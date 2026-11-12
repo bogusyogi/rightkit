@@ -564,9 +564,11 @@ pub(crate) async fn fetch_chatgpt_account_models(
         "{}/codex/models?client_version={client_version}",
         base.trim_end_matches('/')
     );
-    let client =
-        rightkit_agent_daemon::http_client::endpoint_client(&url, std::time::Duration::from_secs(10))
-            .map_err(|error| format!("could not build an HTTP client: {error}"))?;
+    let client = rightkit_agent_daemon::http_client::endpoint_client(
+        &url,
+        std::time::Duration::from_secs(10),
+    )
+    .map_err(|error| format!("could not build an HTTP client: {error}"))?;
     let mut request = rightkit_http::Request::get(url).bearer(&token);
     for (name, value) in auth.headers.unwrap_or_default() {
         request = request.header(name, value);

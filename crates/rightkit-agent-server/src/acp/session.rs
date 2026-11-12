@@ -59,8 +59,9 @@ pub(crate) async fn require_existing_session(
 
 impl DaemonClient {
     pub fn new(port: u16, token: Option<String>) -> Self {
-        let client = rightkit_agent_daemon::http_client::daemon_client(&format!("http://127.0.0.1:{port}"))
-            .expect("rightkit-http client builds with the platform verifier");
+        let client =
+            rightkit_agent_daemon::http_client::daemon_client(&format!("http://127.0.0.1:{port}"))
+                .expect("rightkit-http client builds with the platform verifier");
         Self {
             port,
             token,

@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use rightkit_agent_coding_tools::SubagentSpawner;
 use rightkit_agent_engine_protocol::TranscriptMessage;
 use rightkit_agent_orchestration::coding::{
     evaluate_bakeoff, run_executed_bakeoff, to_membrane_comparison, ArtifactDigestVerifier,
@@ -9,7 +10,6 @@ use rightkit_agent_orchestration::coding::{
     TaskIdentity, ToolCallTrace, VerificationContract, Worker, WorkerOutcome, WorkerResult,
     WorkerTask,
 };
-use rightkit_agent_coding_tools::SubagentSpawner;
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::path::{Path, PathBuf};

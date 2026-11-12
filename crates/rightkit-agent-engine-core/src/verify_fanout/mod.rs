@@ -50,8 +50,8 @@ pub use verifiers::{
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use rightkit_agent_policy::{PermissionMode, WorkspaceTrust};
 use rightkit_agent_coding_tools::{ToolContext, ToolResult, WorkspaceMutation};
+use rightkit_agent_policy::{PermissionMode, WorkspaceTrust};
 
 /// Sort, dedupe, and absolute-resolve a list of mutations the engine just
 /// collected. This is the single seam where `path` strings become typed

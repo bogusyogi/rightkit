@@ -1014,7 +1014,9 @@ impl InlineMcpProjection {
 /// unavailable; no presentation surface gets a native-launch fallback.
 pub(crate) fn governed_mcp_process_launcher(
 ) -> Result<Arc<dyn rightkit_sandbox::execution::ProcessLaunchAdapter>, String> {
-    let governor = rightkit_agent_coding_tools::process_resource_authority::require_process_resource_governor()
+    let governor =
+        rightkit_agent_coding_tools::process_resource_authority::require_process_resource_governor(
+        )
         .map_err(|error| format!("MCP process authority unavailable: {error}"))?;
     Ok(Arc::new(
         rightkit_agent_coding_tools::process_resource_authority::GovernedProcessLaunchAdapter::new(
@@ -1033,7 +1035,9 @@ pub(crate) fn governed_mcp_process_launcher(
 /// returned child until wait/cancel/drop completes.
 pub(crate) fn governed_child_process_launcher(
 ) -> Result<Arc<dyn rightkit_sandbox::execution::ProcessLaunchAdapter>, String> {
-    let governor = rightkit_agent_coding_tools::process_resource_authority::require_process_resource_governor()
+    let governor =
+        rightkit_agent_coding_tools::process_resource_authority::require_process_resource_governor(
+        )
         .map_err(|error| format!("child-process authority unavailable: {error}"))?;
     Ok(Arc::new(
         rightkit_agent_coding_tools::process_resource_authority::GovernedProcessLaunchAdapter::new(

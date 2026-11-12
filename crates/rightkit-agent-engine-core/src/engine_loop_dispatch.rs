@@ -34,10 +34,7 @@ impl SessionEngine {
     /// and observation but neither finishes nor reenters the turn.
     async fn post_edit_verify_gate(
         &mut self,
-        turn_results: &std::collections::HashMap<
-            String,
-            rightkit_agent_coding_tools::ToolResult,
-        >,
+        turn_results: &std::collections::HashMap<String, rightkit_agent_coding_tools::ToolResult>,
         iteration: usize,
         sid: &str,
         pending_verify: &mut crate::verify_fanout::PendingVerification,
@@ -329,10 +326,7 @@ impl SessionEngine {
         iteration: usize,
         sid: &str,
         post_turn_gate: &mut crate::post_turn_gate::PostTurnGateState,
-        turn_results: &std::collections::HashMap<
-            String,
-            rightkit_agent_coding_tools::ToolResult,
-        >,
+        turn_results: &std::collections::HashMap<String, rightkit_agent_coding_tools::ToolResult>,
         pending_verify: &mut crate::verify_fanout::PendingVerification,
     ) -> ToolDispatchOutcome {
         for call in &response.tool_calls {

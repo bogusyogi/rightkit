@@ -3571,9 +3571,7 @@ fn is_ctrl_c(key: &KeyEvent) -> bool {
 ///    closed input channel (EOF/error from the input thread) all exit
 ///    cleanly, restoring the terminal via `TerminalGuard`'s `Drop` on the
 ///    way out.
-fn tool_render_class_to_tui(
-    class: rightkit_agent_coding_tools::ToolRenderClass,
-) -> RenderClass {
+fn tool_render_class_to_tui(class: rightkit_agent_coding_tools::ToolRenderClass) -> RenderClass {
     match class {
         rightkit_agent_coding_tools::ToolRenderClass::FileRead => RenderClass::FileRead,
         rightkit_agent_coding_tools::ToolRenderClass::FileWrite => RenderClass::FileWrite,

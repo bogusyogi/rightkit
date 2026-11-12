@@ -28,10 +28,10 @@
 //! and never constructs a network client or accepts an API key.
 
 use crate::{ProviderConfig, RuntimeError};
+use rightkit_agent_coding_tools::registry::ToolRegistry;
 use rightkit_agent_engine_core::llm::{LlmClient, LlmResponse};
 use rightkit_agent_engine_protocol::ToolCall;
 use rightkit_agent_engine_protocol::TranscriptMessage;
-use rightkit_agent_coding_tools::registry::ToolRegistry;
 use rightkit_llm::agent_providers::anthropic_client::AnthropicCompatClient;
 use rightkit_llm::agent_providers::client::{CompletedTurn, OpenAiCompatClient};
 use serde_json::{json, Value};

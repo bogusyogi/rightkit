@@ -1234,13 +1234,11 @@ impl rightkit_agent_engine_core::RunChangesSink for DaemonRunChangesSink {
             let (additions, deletions) = diff_counts(&diff);
             let exists = mutation.path.exists();
             let undo = match &mutation.kind {
-                rightkit_agent_coding_tools::WorkspaceMutationKind::Created => {
-                    Some(UndoBody {
-                        fingerprint: fingerprint_path(&mutation.path).unwrap_or_default(),
-                        body: "__RIGHTKIT_DELETE__".to_string(),
-                        note: "remove file created by this tool call".to_string(),
-                    })
-                }
+                rightkit_agent_coding_tools::WorkspaceMutationKind::Created => Some(UndoBody {
+                    fingerprint: fingerprint_path(&mutation.path).unwrap_or_default(),
+                    body: "__RIGHTKIT_DELETE__".to_string(),
+                    note: "remove file created by this tool call".to_string(),
+                }),
                 rightkit_agent_coding_tools::WorkspaceMutationKind::Modified
                 | rightkit_agent_coding_tools::WorkspaceMutationKind::Deleted => mutation
                     .previous_content

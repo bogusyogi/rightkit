@@ -40,20 +40,22 @@ fn required_process_launch_authority(
     let Some(kind) = tool.process_resource_kind_for(args) else {
         return Ok(None);
     };
-    let governor = rightkit_agent_coding_tools::process_resource_authority::require_process_resource_governor()
+    let governor =
+        rightkit_agent_coding_tools::process_resource_authority::require_process_resource_governor(
+        )
         .map_err(|error| {
             Box::new(rightkit_agent_coding_tools::ToolResult::error(
                 error.to_string(),
             ))
         })?;
     if !governor.capability_available(kind) {
-        return Err(Box::new(
-            rightkit_agent_coding_tools::ToolResult::error(format!(
+        return Err(Box::new(rightkit_agent_coding_tools::ToolResult::error(
+            format!(
                 "{}: tool '{}' requires unavailable resource {kind:?}",
                 rightkit_sandbox::execution::EffectExecutionError::ResourceLimitsMissing,
                 tool_name
-            )),
-        ));
+            ),
+        )));
     }
     let launch_context = rightkit_sandbox::execution::ProcessLaunchContext {
         workspace_root: workspace_root.display().to_string(),

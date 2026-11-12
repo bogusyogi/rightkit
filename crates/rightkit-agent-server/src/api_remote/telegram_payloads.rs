@@ -5,8 +5,10 @@ async fn fetch_telegram_updates(
 ) -> Result<serde_json::Value, String> {
     let base = api_base.trim_end_matches('/');
     let url = format!("{base}/bot{token}/getUpdates?limit={limit}");
-    let client =
-        rightkit_agent_daemon::http_client::endpoint_client(&url, std::time::Duration::from_secs(60))?;
+    let client = rightkit_agent_daemon::http_client::endpoint_client(
+        &url,
+        std::time::Duration::from_secs(60),
+    )?;
     // The bot token is part of the URL path: register it so no error text echoes it.
     let response = rightkit_agent_daemon::http_client::send_any(
         &client,

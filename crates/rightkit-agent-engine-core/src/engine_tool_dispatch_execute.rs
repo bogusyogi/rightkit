@@ -25,10 +25,7 @@ impl rightkit_agent_coding_tools::CredentialRequester for SessionCredentialReque
     ) -> std::pin::Pin<
         Box<
             dyn std::future::Future<
-                    Output = Result<
-                        Option<rightkit_agent_coding_tools::SecretString>,
-                        String,
-                    >,
+                    Output = Result<Option<rightkit_agent_coding_tools::SecretString>, String>,
                 > + Send,
         >,
     > {
@@ -54,11 +51,9 @@ impl rightkit_agent_coding_tools::CredentialRequester for SessionCredentialReque
                 }
             });
             match tokio::time::timeout(std::time::Duration::from_secs(300), receiver).await {
-                Ok(Ok(CredentialResume::Supplied(value))) => {
-                    Ok(Some(rightkit_agent_coding_tools::SecretString::new(
-                        value.expose().to_string(),
-                    )))
-                }
+                Ok(Ok(CredentialResume::Supplied(value))) => Ok(Some(
+                    rightkit_agent_coding_tools::SecretString::new(value.expose().to_string()),
+                )),
                 Ok(Ok(CredentialResume::Declined)) => Ok(None),
                 Ok(Err(_)) => Err("Credential request was closed.".to_string()),
                 Err(_) => {

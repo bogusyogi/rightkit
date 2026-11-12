@@ -23,8 +23,7 @@ pub struct SessionEngineConfig {
     pub execution_workspace_id: Option<String>,
     pub execution_workspace_path: Option<std::path::PathBuf>,
     pub execution_network_profile: Option<String>,
-    pub execution_resource_limits:
-        Option<rightkit_agent_coding_tools::ExecutionResourceLimits>,
+    pub execution_resource_limits: Option<rightkit_agent_coding_tools::ExecutionResourceLimits>,
     #[cfg(feature = "host")]
     pub execution_backend_registry:
         Option<Arc<rightkit_agent_coding_tools::ExecutionBackendRegistry>>,

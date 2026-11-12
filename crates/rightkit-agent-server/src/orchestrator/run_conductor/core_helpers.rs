@@ -93,9 +93,8 @@ impl DaemonState {
             rightkit_agent_policy::PermissionMode::Bypass,
             session.workspace_trust,
         );
-        if let rightkit_agent_coding_tools::check_runner::PreGateDecision::SkipJuryFailed(
-            reasons,
-        ) = crate::pre_gate::run_pre_gate(conduit, session_id, &ctx, &pre_gate_specs).await
+        if let rightkit_agent_coding_tools::check_runner::PreGateDecision::SkipJuryFailed(reasons) =
+            crate::pre_gate::run_pre_gate(conduit, session_id, &ctx, &pre_gate_specs).await
         {
             let seq = conduit.next_seq();
             conduit.publish(ProtocolEvent::AssistantMessageCompleted {

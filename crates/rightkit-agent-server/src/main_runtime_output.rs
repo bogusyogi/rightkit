@@ -272,8 +272,8 @@ fn print_event(ev: &rightkit_agent_engine_protocol::ProtocolEvent, color: crate:
 }
 
 async fn cli_diff(workspace: Option<&str>, staged: bool) -> i32 {
-    use rightkit_agent_policy::{PermissionMode, WorkspaceTrust};
     use rightkit_agent_coding_tools::Tool;
+    use rightkit_agent_policy::{PermissionMode, WorkspaceTrust};
 
     let workspace_path = workspace
         .map(std::path::PathBuf::from)

@@ -40,6 +40,9 @@ use crate::{cache::today_day, CacheStatus, CacheTracker};
 // short names. FEATURE-MATRIX par §#141 extraction.
 #[allow(unused_imports)]
 pub(crate) use engine_helpers::{now_iso, now_nanos, pinned_system_prefix_as_stable};
+use rightkit_agent_coding_tools::{
+    SubagentSpawner, SubagentSupervisor, ToolContext, ToolRegistry, WebSearchConfig,
+};
 use rightkit_agent_engine_protocol::{
     MiddlewareDecisionEvidence, OutputRef, ProtocolEvent, ToolCall, TranscriptMessage,
 };
@@ -50,9 +53,6 @@ use rightkit_agent_engine_runtime_middleware::{
 use rightkit_agent_policy::{
     parse_capability, PermissionDecision, PermissionEngine, PermissionMode, PermissionVerdict,
     RuleSource, RuleStore, WorkspaceTrust,
-};
-use rightkit_agent_coding_tools::{
-    SubagentSpawner, SubagentSupervisor, ToolContext, ToolRegistry, WebSearchConfig,
 };
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
@@ -429,8 +429,7 @@ pub struct SessionEngine {
     /// Catalog of configured execution backends so process tools can resolve an
     /// arbitrary backend id to its kind and refuse disabled backends.
     #[cfg(feature = "host")]
-    execution_backend_registry:
-        Option<Arc<rightkit_agent_coding_tools::ExecutionBackendRegistry>>,
+    execution_backend_registry: Option<Arc<rightkit_agent_coding_tools::ExecutionBackendRegistry>>,
     /// Local skill directories used by the `invoke_skill` tool.
     skill_dirs: Vec<std::path::PathBuf>,
     /// Optional lifecycle hook bus. When set, the engine publishes
@@ -574,13 +573,8 @@ pub struct SessionEngine {
     wire_projection: std::sync::Arc<dyn crate::compaction_archive::WireProjection>,
     internal_composition_call_ids: std::collections::HashSet<String>,
     #[cfg(feature = "host")]
-    sandbox_retry_grants: HashMap<
-        String,
-        (
-            String,
-            rightkit_agent_coding_tools::sandbox::SandboxGrant,
-        ),
-    >,
+    sandbox_retry_grants:
+        HashMap<String, (String, rightkit_agent_coding_tools::sandbox::SandboxGrant)>,
     /// ENG-73: demand-driven lifetime facts for this engine. Updated from
     /// the turn-boundary points already owned by this file
     /// (`begin_run_changes`); UI/session leases are acquired and released by

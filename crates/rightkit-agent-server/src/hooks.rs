@@ -679,7 +679,8 @@ fn post_http_hook(url: String, payload: HttpHookPayload) {
     tokio::spawn(async move {
         // Fire-and-forget: the hook URL is operator-configured, so its host alone may
         // resolve privately; the call is bounded to 5s and any failure is ignored.
-        let Ok(client) = rightkit_agent_daemon::http_client::endpoint_client(&url, Duration::from_secs(5))
+        let Ok(client) =
+            rightkit_agent_daemon::http_client::endpoint_client(&url, Duration::from_secs(5))
         else {
             return;
         };
@@ -768,12 +769,13 @@ async fn run(cmd: &str, payload: &HttpHookPayload, confine: bool) {
                 return;
             }
         };
-    let launcher = rightkit_agent_coding_tools::process_resource_authority::GovernedProcessLaunchAdapter::new(
-        rightkit_agent_coding_tools::shell::NativeCommandSandboxAdapter,
-        governor,
-        rightkit_agent_coding_tools::process_resource_authority::ResourceKind::ChildProcess,
-        true,
-    );
+    let launcher =
+        rightkit_agent_coding_tools::process_resource_authority::GovernedProcessLaunchAdapter::new(
+            rightkit_agent_coding_tools::shell::NativeCommandSandboxAdapter,
+            governor,
+            rightkit_agent_coding_tools::process_resource_authority::ResourceKind::ChildProcess,
+            true,
+        );
     let Ok(mut child) =
         rightkit_sandbox::execution::ProcessLaunchAdapter::spawn(&launcher, spec).await
     else {

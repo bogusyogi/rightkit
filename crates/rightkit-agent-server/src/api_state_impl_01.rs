@@ -55,9 +55,7 @@ impl DaemonState {
             memory_consolidation_status:
                 rightkit_memory_client::consolidation_status::ConsolidationStatusState::new(),
             sessions: Arc::new(Mutex::new(HashMap::new())),
-            handoff_controller: Arc::new(
-                rightkit_agent_coding_tools::handoff::HandoffController,
-            ),
+            handoff_controller: Arc::new(rightkit_agent_coding_tools::handoff::HandoffController),
             mcp_pool: Arc::new(rightkit_mcp::agent_mcp::McpTransportPool::default()),
             driver_host,
             cli_registry,

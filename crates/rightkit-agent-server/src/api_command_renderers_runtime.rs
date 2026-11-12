@@ -326,8 +326,8 @@ pub(crate) fn host_delivery_inventory_section(
 }
 
 pub(crate) async fn command_diff(args: &[String]) -> CommandResult {
-    use rightkit_agent_policy::{PermissionMode, WorkspaceTrust};
     use rightkit_agent_coding_tools::Tool;
+    use rightkit_agent_policy::{PermissionMode, WorkspaceTrust};
 
     let staged = args.iter().any(|arg| arg == "--staged");
     let workspace_arg = args

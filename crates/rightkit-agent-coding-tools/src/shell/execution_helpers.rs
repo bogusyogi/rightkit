@@ -248,14 +248,12 @@ impl rightkit_sandbox::execution::ProcessLaunchAdapter for NativeCommandSandboxA
         let argv = spec.argv.clone();
         let env = spec.env.clone();
         let confined = tokio::task::spawn_blocking(move || {
-            crate::sandbox::AppContainerProfile::for_workspace(&root).and_then(
-                |profile| {
-                    let profile = profile.with_network(network_required);
-                    crate::sandbox::spawn_confined_piped_with_env(
-                        &profile, &program, &argv, &cwd, true, &env,
-                    )
-                },
-            )
+            crate::sandbox::AppContainerProfile::for_workspace(&root).and_then(|profile| {
+                let profile = profile.with_network(network_required);
+                crate::sandbox::spawn_confined_piped_with_env(
+                    &profile, &program, &argv, &cwd, true, &env,
+                )
+            })
         })
         .await
         .unwrap_or_else(|error| Err(std::io::Error::other(error.to_string())));
@@ -374,13 +372,9 @@ impl rightkit_sandbox::execution::ProcessLaunchAdapter for NativeCommandSandboxA
             } else {
                 crate::shell::effective_sandbox_tier(&root, None)
             };
-            let wrapped = crate::shell::macos_sandbox_wrap_for_tier(
-                &spec.program,
-                &spec.argv,
-                &root,
-                tier,
-            )
-            .ok_or(rightkit_sandbox::execution::EffectExecutionError::SandboxMissing)?;
+            let wrapped =
+                crate::shell::macos_sandbox_wrap_for_tier(&spec.program, &spec.argv, &root, tier)
+                    .ok_or(rightkit_sandbox::execution::EffectExecutionError::SandboxMissing)?;
             enforced = true;
             network_enforced = tier.denies_network();
             wrapped
@@ -934,9 +928,7 @@ fn assign_windows_job_to_child(
 }
 
 #[cfg(windows)]
-pub(crate) fn assign_windows_job_to_pid(
-    pid: u32,
-) -> std::io::Result<crate::sandbox::WindowsJob> {
+pub(crate) fn assign_windows_job_to_pid(pid: u32) -> std::io::Result<crate::sandbox::WindowsJob> {
     let job = crate::sandbox::shell_job()?;
     job.assign_process_id(pid)?;
     Ok(job)
@@ -971,13 +963,7 @@ pub(crate) fn spawn_windows_appcontainer_with_grant(
             profile.lease_extra_access(path, true)?;
         }
     }
-    crate::sandbox::spawn_confined_piped(
-        &profile,
-        program,
-        args,
-        workspace_root,
-        with_stdin,
-    )
+    crate::sandbox::spawn_confined_piped(&profile, program, args, workspace_root, with_stdin)
 }
 
 fn record_foreground_process(
@@ -999,9 +985,7 @@ fn record_foreground_process(
     }
 }
 
-fn execution_target_from_context(
-    ctx: &ToolContext,
-) -> crate::background_shell::BgExecutionTarget {
+fn execution_target_from_context(ctx: &ToolContext) -> crate::background_shell::BgExecutionTarget {
     crate::background_shell::BgExecutionTarget {
         backend_id: ctx.execution_backend.clone(),
         workspace_id: ctx.execution_workspace_id.clone(),
@@ -1009,9 +993,7 @@ fn execution_target_from_context(
     }
 }
 
-pub(crate) fn sandbox_tier_for_workspace(
-    workspace_root: &Path,
-) -> crate::sandbox::SandboxTier {
+pub(crate) fn sandbox_tier_for_workspace(workspace_root: &Path) -> crate::sandbox::SandboxTier {
     sandbox_policy_for_workspace(workspace_root).effective
 }
 

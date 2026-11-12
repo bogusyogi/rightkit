@@ -20,8 +20,8 @@
 use crate::llm::{LlmClient, LlmRequestMetadata, LlmResponse, LlmResponseStream, LlmStreamEvent};
 use async_trait::async_trait;
 use futures::StreamExt;
-use rightkit_agent_engine_protocol::{ToolCall, TranscriptMessage};
 use rightkit_agent_coding_tools::ToolRegistry;
+use rightkit_agent_engine_protocol::{ToolCall, TranscriptMessage};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 

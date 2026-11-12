@@ -119,9 +119,7 @@ impl DaemonSubagentSupervisor {
                 Some(rightkit_agent_coding_tools::SubagentTerminalStatus::Completed)
             }
             "failed" => Some(rightkit_agent_coding_tools::SubagentTerminalStatus::Failed),
-            "cancelled" => {
-                Some(rightkit_agent_coding_tools::SubagentTerminalStatus::Cancelled)
-            }
+            "cancelled" => Some(rightkit_agent_coding_tools::SubagentTerminalStatus::Cancelled),
             _ => None,
         })
     }
@@ -163,10 +161,7 @@ impl rightkit_agent_coding_tools::SubagentSupervisor for DaemonSubagentSuperviso
     ) -> std::pin::Pin<
         Box<
             dyn std::future::Future<
-                    Output = Result<
-                        Vec<rightkit_agent_coding_tools::SubagentWaitOutcome>,
-                        String,
-                    >,
+                    Output = Result<Vec<rightkit_agent_coding_tools::SubagentWaitOutcome>, String>,
                 > + Send,
         >,
     > {
@@ -414,8 +409,7 @@ pub(crate) fn native_spawn_route(
     options: &rightkit_agent_coding_tools::SubagentSpawnOptions,
 ) -> Option<(String, String)> {
     let runtime = options.runtime.as_ref()?;
-    let rightkit_agent_coding_tools::SpawnRuntimeKind::HostNative { model_id, .. } = runtime
-    else {
+    let rightkit_agent_coding_tools::SpawnRuntimeKind::HostNative { model_id, .. } = runtime else {
         return None;
     };
     if model_id.trim().is_empty() {

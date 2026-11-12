@@ -188,14 +188,10 @@ pub(crate) fn same_path(left: &str, right: &FsPath) -> bool {
     }
 }
 
-fn process_status_label(
-    status: rightkit_agent_coding_tools::background_shell::BgStatus,
-) -> String {
+fn process_status_label(status: rightkit_agent_coding_tools::background_shell::BgStatus) -> String {
     match status {
         rightkit_agent_coding_tools::background_shell::BgStatus::Running => "running".into(),
-        rightkit_agent_coding_tools::background_shell::BgStatus::Exited(_) => {
-            "exited".into()
-        }
+        rightkit_agent_coding_tools::background_shell::BgStatus::Exited(_) => "exited".into(),
         rightkit_agent_coding_tools::background_shell::BgStatus::Killed => "killed".into(),
         rightkit_agent_coding_tools::background_shell::BgStatus::SpawnFailed(_) => {
             "spawnFailed".into()
