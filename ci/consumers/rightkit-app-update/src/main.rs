@@ -1,4 +1,4 @@
-// rightkit-app-update 0.1.0 consumed by exact registry pin (`=0.1.0`), outside the workspace.
+// rightkit-app-update 0.2.0 consumed by exact registry pin (`=0.2.0`), outside the workspace.
 // Probation runs its real sentinel state machine against one JSON file in a private temporary
 // directory that is removed at the end. The fetch bridge is only driven through refusals that happen
 // before any connection: no DNS lookup, network, process or user data is touched.
@@ -236,5 +236,5 @@ fn fetch_bridge() {
 fn main() {
     probation();
     fetch_bridge();
-    println!("OK rightkit-app-update 0.1.0 (registry consumer, public API)");
+    println!("OK rightkit-app-update 0.2.0 (registry consumer, public API)");
 }

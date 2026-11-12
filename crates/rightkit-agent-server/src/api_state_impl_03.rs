@@ -118,7 +118,7 @@ impl DaemonState {
         &self,
         workspace_root: &str,
         execution_backend: Option<&str>,
-    ) -> Option<rightkit_agent_tools::coding_tools::ExecutionResourceLimits> {
+    ) -> Option<rightkit_agent_coding_tools::ExecutionResourceLimits> {
         let backend_id = execution_backend
             .map(str::trim)
             .filter(|value| !value.is_empty())?;
@@ -133,7 +133,7 @@ impl DaemonState {
                 tracing::warn!(workspace_root = %workspace_root, backend_id = %backend_id, error = %err, "execution backend resource-limit lookup failed");
                 registry.get(backend_id).map(|backend| {
                     let limits = &backend.resource_limits;
-                    rightkit_agent_tools::coding_tools::ExecutionResourceLimits {
+                    rightkit_agent_coding_tools::ExecutionResourceLimits {
                         cpu: limits.cpu,
                         memory_mb: limits.memory_mb,
                         disk_mb: limits.disk_mb,

@@ -1,6 +1,6 @@
 # @rightkit/media-gen-ui npm consumer (npm.@rightkit/media-gen-ui)
 
-Packed-archive consumer for `@rightkit/media-gen-ui` 0.2.0 (the workspace version). The unit is installed only from the sealed `file:` archive; the reviewed closure pins `react` 19.3.1, `react-dom` 19.3.1, `@rightkit/logs` 0.1.6, `@rightkit/media-ui` 0.3.6, `@rightkit/onboarding` 0.6.3, `@rightkit/platform-ui` 0.4.0, `@rightkit/react-shell` 0.7.2, `@rightkit/settings-ui` 0.7.0, `@rightkit/tauri-shell` 0.1.3. Declared-only dependencies: `@tauri-apps/api`, `tailwindcss`.
+Packed-archive consumer for `@rightkit/media-gen-ui` 0.2.1 (the workspace version). The unit is installed only from the sealed `file:` archive; the reviewed closure pins `react` 19.3.1, `react-dom` 19.3.1, `@rightkit/logs` 0.1.6, `@rightkit/media-ui` 0.3.6, `@rightkit/onboarding` 0.6.3, `@rightkit/platform-ui` 0.4.0, `@rightkit/react-shell` 0.7.2, `@rightkit/settings-ui` 0.7.0, `@rightkit/tauri-shell` 0.1.3. Declared-only dependencies: `@tauri-apps/api`, `tailwindcss`.
 
 Surface (exact `exports` keys): `.`, `./*`, `./*.css`, `./*.json`.
 

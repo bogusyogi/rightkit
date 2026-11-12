@@ -268,6 +268,12 @@ static PROMPTED: AtomicBool = AtomicBool::new(false);
 /// The answer the held-by-another-app state was last settled for (`answer_code`); 0 for none yet.
 static SETTLED: AtomicU8 = AtomicU8::new(0);
 
+/// The application commands switch, under the name the host keeps it by
+/// (`PanelHost::app_commands_switch`): exactly one switch is read, so a stored "off" holds.
+fn app_commands_on() -> bool {
+    host::app_commands_on()
+}
+
 fn answer_code(answer: Option<bool>) -> u8 {
     match answer {
         None => 1,
@@ -397,10 +403,12 @@ fn scheme_registered(scheme: &str) -> bool {
 /// The Alt+Space answer kept from an earlier run: `Some(true)` this application takes it, `Some(false)`
 /// the other program keeps it, `None` nobody has said.
 fn conflict_answer() -> Option<bool> {
-    match host::launcher_hotkey_conflict()?.as_str() {
-        // "pulse" is the token Pulse's Windows launcher stored before 0.1.0 of this crate.
-        "app" | "pulse" => Some(true),
+    let stored = host::launcher_hotkey_conflict()?;
+    match stored.as_str() {
         "other" => Some(false),
+        // The host's own value for "this application" (`PanelHost::hotkey_conflict_take_token`),
+        // and `app`, this crate's default for it.
+        token if token == host::hotkey_conflict_take_token() || token == "app" => Some(true),
         _ => None,
     }
 }
@@ -408,7 +416,13 @@ fn conflict_answer() -> Option<bool> {
 /// Keeps the answer as the setting `launcherHotkeyConflict`, through the notch's own command
 /// folder (the one thread that owns the settings file writes it); in force here at once.
 fn save_conflict_answer(take: bool) {
-    let answer = if take { "app" } else { "other" };
+    // The host's value for "this application": its settings file and other surfaces accept only
+    // the value they know.
+    let answer = if take {
+        host::hotkey_conflict_take_token()
+    } else {
+        "other"
+    };
     host::set_live_hotkey_conflict(Some(answer));
     let Some(commands) = launcher_dir().and_then(|dir| Some(dir.parent()?.join("hub-commands")))
     else {
@@ -3537,7 +3551,7 @@ impl Panel {
     fn host_items(&self, text: &str) -> Vec<Item> {
         // The application commands switch (the Mac's `launcherPulseCommands`) covers the pages,
         // the readings and the disk and cleanup rows.
-        if text.chars().count() < 2 || !host::switch_on("launcherAppCommands") {
+        if text.chars().count() < 2 || !app_commands_on() {
             return Vec::new();
         }
         let mut out: Vec<Item> = host::app_pages()
@@ -3592,7 +3606,7 @@ impl Panel {
     /// host's saved scan only: nothing here starts a scan.
     fn storage_rows(text: &str) -> Vec<Item> {
         // The application commands switch and two typed characters, as for the pages above.
-        if text.chars().count() < 2 || !host::switch_on("launcherAppCommands") {
+        if text.chars().count() < 2 || !app_commands_on() {
             return Vec::new();
         }
         let Some((storage_page, cleanup_page)) = host::storage_pages() else {

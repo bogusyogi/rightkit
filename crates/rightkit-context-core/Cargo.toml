@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-context-core"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Context budget and lane reconciliation: one cross-provider attention budget whose explicit lanes reconcile every receipt's selected and delivered tokens."
@@ -14,7 +14,7 @@ name = "rightkit_context_core"
 path = "src/lib.rs"
 
 [dependencies]
-rightkit-context-protocol = { version = "0.1.0", path = "../rightkit-context-protocol" }
+rightkit-context-protocol = { version = "0.2.0", path = "../rightkit-context-protocol" }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1" }
 thiserror = { version = "2" }

@@ -11,7 +11,7 @@
 //! Action `ADAPT_TO_RUST` (`E→B`); donor: Pi (canon names the mechanism
 //! family "Lens": change detection, concurrent diagnostics, turn-boundary
 //! injection, stale-result handling), layered read-only over CG-B01
-//! (`rightkit_agent_tools::coding_tools::lsp_tool`) and FM-179 (`crate::post_edit` receipts).
+//! (`rightkit_agent_coding_tools::lsp_tool`) and FM-179 (`crate::post_edit` receipts).
 //! Per-leg donor lineage is documented at the top of each submodule; the
 //! lane WIRING report carries the full citation + the donor-search receipt.
 //!
@@ -51,7 +51,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use rightkit_agent_policy::{PermissionMode, WorkspaceTrust};
-use rightkit_agent_tools::coding_tools::{ToolContext, ToolResult, WorkspaceMutation};
+use rightkit_agent_coding_tools::{ToolContext, ToolResult, WorkspaceMutation};
 
 /// Sort, dedupe, and absolute-resolve a list of mutations the engine just
 /// collected. This is the single seam where `path` strings become typed
@@ -213,9 +213,9 @@ pub async fn run_verify_fanout(request: FanoutRequest<'_>) -> FanoutReport {
         .filter(|m| {
             matches!(
                 m.kind,
-                rightkit_agent_tools::coding_tools::WorkspaceMutationKind::Created
-                    | rightkit_agent_tools::coding_tools::WorkspaceMutationKind::Modified
-                    | rightkit_agent_tools::coding_tools::WorkspaceMutationKind::Renamed { .. }
+                rightkit_agent_coding_tools::WorkspaceMutationKind::Created
+                    | rightkit_agent_coding_tools::WorkspaceMutationKind::Modified
+                    | rightkit_agent_coding_tools::WorkspaceMutationKind::Renamed { .. }
             )
         })
         .map(|m| m.path.clone())

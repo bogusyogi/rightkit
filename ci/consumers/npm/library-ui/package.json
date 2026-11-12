@@ -12,7 +12,7 @@
     "@rightkit/doc-render": "0.2.2",
     "@rightkit/media-ui": "0.3.6",
     "@rightkit/platform-ui": "0.4.1",
-    "@rightkit/react-shell": "0.7.3",
+    "@rightkit/react-shell": "0.7.4",
     "@rightkit/tauri-shell": "0.1.4"
   }
 }

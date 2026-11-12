@@ -13,7 +13,8 @@
 //!   the effects settle, journaling both the old and the new root. Lock order: guard, then the key
 //!   store's rotation lock, then the database operation.
 //! - [`EncryptedStore::open`](crate::encrypted_lifecycle::EncryptedStore::open) selects the key and reconciles unfinished transitions. It never
-//!   creates, quarantines or replaces a database; every failure is classified ([`LifecycleError`](crate::encrypted_lifecycle::LifecycleError)).
+//!   creates, quarantines or replaces a database (unless the config opts into a [`RebuildPolicy`](crate::encrypted_lifecycle::RebuildPolicy) for a file its key cannot
+//!   open); every failure is classified ([`LifecycleError`](crate::encrypted_lifecycle::LifecycleError)).
 //! - [`EncryptedStore::rotate_key`](crate::encrypted_lifecycle::EncryptedStore::rotate_key) returns a [`RotationReport`](crate::encrypted_lifecycle::RotationReport) classified from readback, never
 //!   from an error value alone, and keeps every viable key durably until the database and key
 //!   storage are proven consistent. A cleanup failure never rolls back a committed rotation.
@@ -30,6 +31,7 @@
 
 mod error;
 mod keystore;
+mod rebuild;
 mod relocate;
 mod rotate;
 mod store;
@@ -40,6 +42,9 @@ pub use keystore::{
     Key, KeySource, KeyStoreError, KeyStoreErrorKind, PendingKey, PendingRevision,
     ProtectedKeySession, ProtectedKeyStore,
 };
+#[doc(hidden)]
+pub use rebuild::RebuildStep;
+pub use rebuild::{MintKey, RebuildPolicy, RebuildReason, RebuildReport};
 pub use relocate::{
     recover_aborted_relocation, recover_completed_relocation, recover_relocation,
     recover_relocation_session, RelocationPlan, RelocationRecovery, RelocationReport,

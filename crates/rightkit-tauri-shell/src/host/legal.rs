@@ -465,6 +465,16 @@ pub struct LegalReceiptService {
     gate: Mutex<()>,
 }
 
+/// What the read command answers (`@rightkit/onboarding`'s `createNativeLegalReceiptPort` reads
+/// both): the record itself when it matches the manifest, `{ record, current: false }` when it is
+/// an earlier version's.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(untagged)]
+pub enum LegalRead {
+    Current(LegalRecord),
+    Historical { record: LegalRecord, current: bool },
+}
+
 impl LegalReceiptService {
     /// A service over `store` that stamps system time.
     pub fn new(manifest: LegalManifest, store: impl LegalReceiptStore + 'static) -> Self {
@@ -504,11 +514,30 @@ impl LegalReceiptService {
     /// The current manifest's stored receipt, or `None`. Historical receipts stay stored until
     /// re-acceptance replaces them, but cannot satisfy a changed native version or digest.
     pub fn read(&self) -> Result<Option<LegalRecord>, HostError> {
+        Ok(match self.read_state()? {
+            Some(LegalRead::Current(record)) => Some(record),
+            _ => None,
+        })
+    }
+
+    /// As [`read`](Self::read), but a well-formed receipt of an earlier version or digest comes
+    /// back as [`LegalRead::Historical`] instead of nothing, so the renderer can show a
+    /// re-acceptance and keep the user's setup progress. This is what the read command answers.
+    pub fn read_state(&self) -> Result<Option<LegalRead>, HostError> {
         let _gate = self.lock();
         if let Some(record) = self.store.load()? {
             // Native policy remains authoritative even if the renderer omits its requirements.
             // Preserve historical receipts in storage, but never expose one as current approval.
-            return Ok(self.matches_manifest(&record).then_some(record));
+            return Ok(if self.matches_manifest(&record) {
+                Some(LegalRead::Current(record))
+            } else if record.is_well_formed() {
+                Some(LegalRead::Historical {
+                    record,
+                    current: false,
+                })
+            } else {
+                None
+            });
         }
         let Some(importer) = &self.legacy else {
             return Ok(None);
@@ -524,7 +553,9 @@ impl LegalReceiptService {
                     && r.documents_hash == manifest.documents_hash
             })
         })?;
-        Ok(imported.filter(|record| self.matches_manifest(record)))
+        Ok(imported
+            .filter(|record| self.matches_manifest(record))
+            .map(LegalRead::Current))
     }
 
     fn matches_manifest(&self, record: &LegalRecord) -> bool {
@@ -619,13 +650,13 @@ pub fn legal_for(
     host.service_for::<LegalReceiptService>(ServiceId::LEGAL, action, facts)
 }
 
-/// The stored receipt, or `null`.
+/// The stored receipt (`{ record, current: false }` when it is an earlier version's), or `null`.
 #[tauri::command]
 pub async fn rightkit_legal_receipt_read(
     webview: Webview<Wry>,
-) -> Result<Option<LegalRecord>, HostError> {
+) -> Result<Option<LegalRead>, HostError> {
     let service = legal_service(&webview, "read")?;
-    blocking(move || service.read()).await
+    blocking(move || service.read_state()).await
 }
 
 /// Record the agreement the user just gave. `request` is the declaration (no time); the service

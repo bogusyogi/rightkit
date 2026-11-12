@@ -14,13 +14,13 @@ name = "rightkit_memory_client"
 path = "src/lib.rs"
 
 [features]
-agent_host = ["dep:axum", "dep:rightkit-agent-engine-runtime-resources", "dep:rightkit-agent-policy", "dep:rightkit-agent-tools", "dep:tracing"]
+agent_host = ["dep:axum", "dep:rightkit-agent-engine-runtime-resources", "dep:rightkit-agent-policy", "dep:rightkit-agent-coding-tools", "dep:tracing"]
 
 [dependencies]
 axum = { version = "0.8", optional = true }
 rightkit-agent-engine-runtime-resources = { version = "0.1.0", path = "../rightkit-agent-engine-runtime-resources", optional = true }
 rightkit-agent-policy = { version = "0.1.0", path = "../rightkit-agent-policy", optional = true }
-rightkit-agent-tools = { version = "0.3.1", path = "../rightkit-agent-tools", features = ["coding_tools"], optional = true }
+rightkit-agent-coding-tools = { version = "0.1.0", path = "../rightkit-agent-coding-tools", optional = true }
 tracing = { version = "0.1", optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1" }
@@ -30,4 +30,4 @@ rightkit-time = { version = "0.1.1", path = "../rightkit-time" }
 async-trait = "0.1"
 tokio-util = "0.7"
 tokio = { version = "1", features = ["rt", "time", "macros"] }
-rightkit-memory-core = { version = "0.1.1", path = "../rightkit-memory-core" }
+rightkit-memory-core = { version = "0.2.0", path = "../rightkit-memory-core" }

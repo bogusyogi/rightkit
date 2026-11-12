@@ -7,6 +7,7 @@ mod collect;
 mod consent;
 mod detached;
 mod event;
+mod host;
 pub mod identity;
 mod known;
 #[cfg(feature = "log-bridge")]
@@ -38,6 +39,9 @@ pub use collect::{
 pub use consent::{Consent, ConsentStore};
 pub use detached::{DetachedLog, DrainReport, Drainer};
 pub use event::{cap_batch, EventRecord, Level, DEFAULT_BATCH_CAP, LOGS_DROPPED_EVENT};
+pub use host::{
+    DiagnosticHost, DiagnosticService, HostOperation, HostOperationError, LogHost, LogService,
+};
 pub use known::{KnownSecrets, KNOWN_SECRET_MARKER};
 #[cfg(feature = "log-bridge")]
 pub use log_bridge::init_log_bridge;

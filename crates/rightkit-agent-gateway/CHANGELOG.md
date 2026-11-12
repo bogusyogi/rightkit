@@ -2,6 +2,7 @@
 
 ## 0.3.0 (unpublished)
 
+- Wire compatibility for one release: `pairing::AgentView` serializes `scopes` and also its 0.2 name `accounts` (same value), and `pairing::AuditView` serializes `scope` and also `account_id`. Both now implement `Deserialize` and accept either name or both (the new name wins), so MailRight's agents settings and any reader of the 0.2 field names keep working. The old names go in the next breaking release.
 - Tests build with `rightkit-db/bundled` as a dev-dependency: without `rightkit-mail` in the graph nothing else selected a SQLite provider, so the Windows test link failed (`LNK1181: sqlite3.lib`). The library still leaves the provider to the host.
 
 - Breaking: the package is now the gateway core, with no product verbs. Taken on the recommended option of the 2026-11-11 shape review (docs/audits/2026-11-11-shape-matrix/reports/family-agent-platform.md, "rightkit-agent-gateway"), pending the owner's confirmation; design note: docs/audits/2026-11-11-shape-matrix/reports/agent-platform-redraw.md.

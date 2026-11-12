@@ -94,7 +94,7 @@ async fn attach_cli_presence_to(
     label: &str,
     pid: u32,
 ) -> Option<PresenceGuard> {
-    let client = rightkit_http::http_client::daemon_client_probe(
+    let client = rightkit_agent_daemon::http_client::daemon_client_probe(
         base_url,
         Duration::from_millis(500),
         Duration::from_secs(3),
@@ -110,7 +110,7 @@ async fn attach_cli_presence_to(
         )
         .await
         .ok()?;
-    if !rightkit_http::http_client::is_success(resp.status) {
+    if !rightkit_agent_daemon::http_client::is_success(resp.status) {
         return None;
     }
     let attach: AttachResponse = resp.json().ok()?;
@@ -172,7 +172,7 @@ impl PresenceGuard {
 
     async fn send_detach(&self) {
         if let Ok(client) =
-            rightkit_http::http_client::daemon_client_with(&self.base_url, Duration::from_secs(2))
+            rightkit_agent_daemon::http_client::daemon_client_with(&self.base_url, Duration::from_secs(2))
         {
             let _ = client
                 .send_any(
@@ -200,7 +200,7 @@ impl Drop for PresenceGuard {
         let client_id = self.client_id.clone();
         if let Ok(handle) = tokio::runtime::Handle::try_current() {
             handle.spawn(async move {
-                if let Ok(client) = rightkit_http::http_client::daemon_client_with(
+                if let Ok(client) = rightkit_agent_daemon::http_client::daemon_client_with(
                     &base_url,
                     Duration::from_secs(2),
                 ) {
@@ -453,7 +453,7 @@ async fn daemon_health_ok(base_url: &str) -> bool {
 }
 
 async fn daemon_health_ok_with(base_url: &str) -> bool {
-    let Ok(client) = rightkit_http::http_client::daemon_client_probe(
+    let Ok(client) = rightkit_agent_daemon::http_client::daemon_client_probe(
         base_url,
         Duration::from_millis(300),
         Duration::from_millis(500),
@@ -464,7 +464,7 @@ async fn daemon_health_ok_with(base_url: &str) -> bool {
         client
             .send_any(&rightkit_http::Request::get(format!("{base_url}/health")))
             .await,
-        Ok(resp) if rightkit_http::http_client::is_success(resp.status)
+        Ok(resp) if rightkit_agent_daemon::http_client::is_success(resp.status)
     )
 }
 

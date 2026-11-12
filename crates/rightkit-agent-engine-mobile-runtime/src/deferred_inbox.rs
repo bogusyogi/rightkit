@@ -6,8 +6,8 @@
 //! shell dependency.
 
 use crate::{MobileRuntime, RuntimeError};
-use rightkit_agent_tools::coding_tools::async_inbox::{self, AsyncMessage, MAX_QUEUE_LEN};
-use rightkit_agent_tools::coding_tools::deferred_resolution::{DeferredResolution, ResolveError};
+use rightkit_agent_coding_tools::async_inbox::{self, AsyncMessage, MAX_QUEUE_LEN};
+use rightkit_agent_coding_tools::deferred_resolution::{DeferredResolution, ResolveError};
 use serde::Serialize;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -79,7 +79,7 @@ impl MobileRuntime {
             engine
                 .defer_tool_call(tool_call_id.to_string())
                 .map_err(|error| match error {
-                    rightkit_agent_tools::coding_tools::deferred_resolution::RegisterError::AlreadyPending => {
+                    rightkit_agent_coding_tools::deferred_resolution::RegisterError::AlreadyPending => {
                         RuntimeError::Engine(format!(
                             "deferred tool call '{tool_call_id}' is already pending"
                         ))

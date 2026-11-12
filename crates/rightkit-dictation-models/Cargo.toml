@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-dictation-models"
-version = "0.1.3"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Dictation model store: speech model catalog, shared model leases and paths, downloads with grants and verification, on top of rightkit-models."
@@ -17,15 +17,15 @@ path = "src/lib.rs"
 dev-worker-override = ["rightkit-models/dev-worker-override"]
 
 [dependencies]
-rightkit-dictation-core = { version = "0.2.0", path = "../rightkit-dictation-core" }
-rightkit-dictation-telemetry = { version = "0.1.0", path = "../rightkit-dictation-telemetry" }
+rightkit-dictation-core = { version = "0.3.0", path = "../rightkit-dictation-core" }
+rightkit-dictation-telemetry = { version = "0.2.0", path = "../rightkit-dictation-telemetry" }
 rightkit-transcript-library = { version = "0.1.0", path = "../rightkit-transcript-library" }
 rightkit-models = { version = "0.7.0", path = "../rightkit-models" }
 rightkit-fs = { version = "0.4.9", default-features = false, features = ["fs", "digest"], path = "../rightkit-fs" }
 rightkit-child-process = { version = "0.5.7", path = "../rightkit-child-process" }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1" }
-rightkit-http = { version = "0.3.9", default-features = false, features = ["gzip"], path = "../rightkit-http" }
+rightkit-http = { version = "0.4.0", default-features = false, features = ["gzip"], path = "../rightkit-http" }
 dirs = { version = "7" }
 
 [dev-dependencies]

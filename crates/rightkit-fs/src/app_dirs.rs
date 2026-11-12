@@ -6,9 +6,12 @@
 //! * **Per-OS bases.** (The mappings below describe [`AppDirs::resolve_with`] over a supplied
 //!   environment; the process-reading resolvers feed it the account's folders instead of `HOME`,
 //!   `XDG_*`, `APPDATA`, `LOCALAPPDATA` and `USERPROFILE`, and Linux has no XDG override there.) Windows: the Roaming AppData known folder (data) and the Local AppData known
-//!   folder (local, cache), home from the Profile known folder, each asked of `SHGetKnownFolderPath`
-//!   by [`AppDirs::resolve`] (environment redirection of `%APPDATA%`, `%LOCALAPPDATA%` and
-//!   `%USERPROFILE%` is ignored, as the `dirs` crate does); a failed call is an error
+//!   folder (local, cache), home from the Profile known folder. [`AppDirs::resolve`] asks
+//!   `SHGetKnownFolderPath` for the Profile folder, and reads the Roaming and Local AppData folders
+//!   from the `User Shell Folders` registry value expanded against the account's environment block
+//!   (`ExpandEnvironmentStringsForUserW` with the process token); redirection of `%APPDATA%`,
+//!   `%LOCALAPPDATA%` and `%USERPROFILE%` in the process environment is ignored, as the `dirs`
+//!   crate does; a failed lookup is an error
 //!   ([`AppDirsError::AccountHome`] or `NoBase`), never a fallback to the variable.
 //!   [`AppDirs::resolve`] and [`AppDirs::resolve_with_options`] build the macOS and Linux bases from
 //!   [`account_home`] (`getpwuid_r(geteuid())`), ignoring `HOME` and every `XDG_*` variable, so a

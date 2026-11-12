@@ -49,6 +49,7 @@ mod account;
 mod account_store;
 mod bridge;
 mod clockstore;
+mod credential_queue;
 mod envelope;
 mod invalidation;
 mod lock;
@@ -76,6 +77,7 @@ pub use account::{
 };
 pub use bridge::{BridgePlatform, LinkCodeView, LinkRequestOutcome};
 pub use clockstore::{ClientClockError, ClientClockStore};
+pub use credential_queue::CredentialReleaseQueue;
 pub use invalidation::LicenseInvalidation;
 pub use ops::LegacySource;
 pub use reader::{
@@ -214,6 +216,30 @@ impl LicenseClient {
     ) -> Result<LicenseView, LicenseError> {
         let core = self.configured()?;
         core.signalled(|| core.lease_activate(key, device_label))
+    }
+
+    /// Activate the way the config says ([`LicenseClientConfig::with_lease_activation`]): through
+    /// the device-lease endpoint when on, else as [`LicenseClient::activate`].
+    pub fn activate_as_configured(&self, key: SecretString) -> Result<LicenseView, LicenseError> {
+        if self.configured()?.cfg.lease_activation {
+            self.lease_activate(key, None)
+        } else {
+            self.activate(key)
+        }
+    }
+
+    /// Request a trial the way the config says ([`LicenseClientConfig::with_host_trial_platform`]).
+    pub fn request_trial_as_configured(&self, email: &str) -> Result<TrialView, LicenseError> {
+        let platform = if !self.configured()?.cfg.host_trial_platform {
+            None
+        } else if cfg!(target_os = "macos") {
+            Some("macos")
+        } else if cfg!(target_os = "windows") {
+            Some("windows")
+        } else {
+            None
+        };
+        self.request_trial_for(email, platform)
     }
 
     /// Persist an existing native pending-release queue before the local tombstone.

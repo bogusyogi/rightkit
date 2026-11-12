@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-job-queue"
-version = "0.5.4"
+version = "0.6.0"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Persistent job store, runner, and stdio/CLI command contract for Right Suite engines."
@@ -22,9 +22,13 @@ store = ["dep:rightkit-db", "dep:rightkit-fs", "dep:uuid"]
 # The framed wire constants (`CONTRACT_VERSION`, `DEFAULT_FRAME_LIMIT`); store-free
 # (gates `rightkit-sidecar`).
 protocol = ["dep:rightkit-sidecar"]
-# The stdio/CLI command contract: `Dispatcher`, `serve`, `run_cli`, `JobCommands`, `CommandSet`.
-# Implies `store` (the dispatcher drives a `JobStore`/`Runner`) and `protocol`.
-contract = ["store", "protocol"]
+# The engine half of the stdio/CLI command contract, store-free: `Dispatcher` (hello, request
+# loop, oversize reply, shutdown), `serve`, `serve_report`, `run_cli`, `CommandSet`, `EventEmitter`.
+# Implies `protocol` only: an engine with its own persistence serves the contract without a database.
+serve = ["protocol"]
+# The stdio/CLI command contract with the shared `job.*` commands: everything in `serve` plus
+# `JobCommands` and `PayloadMapper` (which drive a `JobStore`/`Runner`). Implies `serve` and `store`.
+contract = ["serve", "store"]
 # `EngineSupervisor` / `EngineClient` and the `rightkit-child-process` re-exports (gates
 # `rightkit-child-process`). Implies `protocol` only: a shell that supervises an engine needs no
 # database. Includes the store-free `doctor` probe and (for `SupervisorConfig::with_handshake`) `zeroize`. A consumer that also serves or speaks the
@@ -47,9 +51,9 @@ ffi = ["supervisor", "dep:rightkit-daemon"]
 rightkit-fs = { version = "0.4.9", path = "../rightkit-fs", default-features = false, features = ["digest", "lock"], optional = true }
 rightkit-db = { version = "0.5.3", path = "../rightkit-db", features = ["bundled", "statement-cache"], optional = true }
 rightkit-sidecar = { version = "0.3.0", path = "../rightkit-sidecar", optional = true }
-rightkit-child-process = { version = "0.5.7", path = "../rightkit-child-process", optional = true }
-rightkit-crash = { version = "0.3.6", path = "../rightkit-crash", default-features = false, optional = true }
-rightkit-daemon = { version = "0.8.0", path = "../rightkit-daemon", optional = true }
+rightkit-child-process = { version = "0.5.11", path = "../rightkit-child-process", optional = true }
+rightkit-crash = { version = "0.4.0", path = "../rightkit-crash", default-features = false, optional = true }
+rightkit-daemon = { version = "0.9.0", path = "../rightkit-daemon", optional = true }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 uuid = { version = "1", features = ["v4"], optional = true }

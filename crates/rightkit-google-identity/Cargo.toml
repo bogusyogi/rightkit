@@ -14,7 +14,7 @@ publish = false
 include = ["src/**", "Cargo.toml", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [dependencies]
-rightkit-oauth = { version = "0.10.5", path = "../rightkit-oauth", default-features = false, features = ["google"] }
+rightkit-oauth = { version = "0.11.0", path = "../rightkit-oauth", default-features = false, features = ["google"] }
 
 [package.metadata.rightkit]
 continuous = false

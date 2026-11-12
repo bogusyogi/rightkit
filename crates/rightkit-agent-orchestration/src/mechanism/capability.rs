@@ -4,7 +4,7 @@
 //! registry — no second registry." This module therefore owns **no** tool
 //! storage. It defines the descriptor shape and the [`CapabilitySource`]
 //! projection seam; the daemon implements the seam once over
-//! `rightkit_agent_tools::coding_tools::registry::ToolRegistry::capabilities()` (whose
+//! `rightkit_agent_coding_tools::registry::ToolRegistry::capabilities()` (whose
 //! `ToolCapability` carries exactly the four projected fields:
 //! `name`, `description`, `category`, `read_only`). The wiring note in
 //! `docs/canon/daemon-master-canon-atoms.md`
@@ -55,7 +55,7 @@ pub struct CapabilityDescriptor {
 }
 
 impl CapabilityDescriptor {
-    /// Exact projection of the four `rightkit_agent_tools::coding_tools::registry::ToolCapability`
+    /// Exact projection of the four `rightkit_agent_coding_tools::registry::ToolCapability`
     /// fields. `class_hint` starts as `None`; the daemon seam may refine it
     /// with `with_class_hint` using `tool_render_class`/policy class metadata.
     pub fn from_registry_projection(

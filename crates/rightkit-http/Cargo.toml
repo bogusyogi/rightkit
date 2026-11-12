@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-http"
-version = "0.3.12"
+version = "0.4.0"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Brand-neutral blocking HTTP client for Right Suite apps: timeouts, retry/backoff with Retry-After, SSE streaming, multipart bodies, redacted secrets, and untrusted web-text wrapping."
@@ -12,7 +12,6 @@ categories = ["web-programming::http-client"]
 include = ["src/**", "README.md", "CHANGELOG.md", "API.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [features]
-agent_host = ["async", "dep:url", "gzip", "untrusted"]
 default = []
 # `untrusted` module: tamper-evident wrapping of external text for model input. Its only
 # dependency is `rightkit-fs` (SHA-256 digest); HTTP-only consumers can opt out.
@@ -25,7 +24,6 @@ async = ["dep:reqwest", "dep:tokio", "dep:futures-util", "dep:bytes", "dep:rustl
 # In-process mock HTTP server for tests of this crate and its consumers.
 
 [dependencies]
-url = { version = "2", optional = true }
 rightkit-fs = { version = "0.4.9", path = "../rightkit-fs", default-features = false, features = ["digest"], optional = true }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"

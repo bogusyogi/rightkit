@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-approvals"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 rust-version = "1.98.0"
 description = "One approvals core for every app: a pending request bound to a digest of its exact arguments, destination, expiry and revision; one decision rule; single-use claims; a Store trait with in-memory and file stores; a Proof trait for who decided."

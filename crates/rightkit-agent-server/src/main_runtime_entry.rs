@@ -475,8 +475,8 @@ async fn async_main(cli: Cli) {
             resident,
         } => {
             if let Err(existing) =
-                rightkit_agent_tools::coding_tools::process_resource_authority::install_process_resource_profile(
-                    rightkit_agent_tools::coding_tools::process_resource_authority::ResourceProfile::Expanded,
+                rightkit_agent_coding_tools::process_resource_authority::install_process_resource_profile(
+                    rightkit_agent_coding_tools::process_resource_authority::ResourceProfile::Expanded,
                 )
             {
                 eprintln!(
@@ -959,7 +959,7 @@ pub fn runtime_route_picker() -> Vec<crate::main_runtime::onboarding::RouteChoic
 }
 
 fn cli_caps(json: bool) -> i32 {
-    let capabilities = rightkit_agent_tools::coding_tools::default_tool_capabilities();
+    let capabilities = rightkit_agent_coding_tools::default_tool_capabilities();
     if json {
         let body = serde_json::json!({
             "toolCount": capabilities.len(),
@@ -974,7 +974,7 @@ fn cli_caps(json: bool) -> i32 {
     } else {
         println!(
             "{}",
-            rightkit_agent_tools::coding_tools::render_tool_capabilities_markdown(&capabilities)
+            rightkit_agent_coding_tools::render_tool_capabilities_markdown(&capabilities)
         );
     }
     0

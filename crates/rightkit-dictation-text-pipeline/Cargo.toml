@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-dictation-text-pipeline"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Dictation text pipeline: LLM cleanup (L1-L3) with provider transports and policy, provider keys, runtime settings, screen-context vocabulary and the text polish orchestration."
@@ -16,11 +16,11 @@ path = "src/lib.rs"
 [features]
 
 [dependencies]
-rightkit-dictation-core = { version = "0.2.0", path = "../rightkit-dictation-core" }
+rightkit-dictation-core = { version = "0.3.0", path = "../rightkit-dictation-core" }
 rightkit-text-polish = { version = "0.1.0", path = "../rightkit-text-polish" }
 rightkit-voice-commands = { version = "0.1.0", path = "../rightkit-voice-commands" }
 rightkit-transcript-library = { version = "0.1.0", path = "../rightkit-transcript-library" }
-rightkit-automation = { version = "0.6.4", path = "../rightkit-automation", features = ["desktop-context"] }
+rightkit-automation = { version = "0.7.0", path = "../rightkit-automation", features = ["desktop-context"] }
 rightkit-credentials = { version = "0.5.0", path = "../rightkit-credentials" }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1" }

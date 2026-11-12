@@ -1400,7 +1400,7 @@ pub(crate) fn driver_capabilities_json() -> Value {
 }
 
 pub(crate) async fn capture_driver_version(executable: &str) -> Result<String, String> {
-    let adapter = rightkit_agent_tools::coding_tools::shell::NativeCommandSandboxAdapter;
+    let adapter = rightkit_agent_coding_tools::shell::NativeCommandSandboxAdapter;
     let context = rightkit_sandbox::execution::ProcessLaunchContext {
         workspace_root: std::env::current_dir()
             .map_err(|error| error.to_string())?
@@ -1473,7 +1473,7 @@ pub(crate) async fn managed_driver_probe(
     executable: &str,
     args: &[&str],
 ) -> Result<(i32, String, String), String> {
-    let adapter = rightkit_agent_tools::coding_tools::shell::NativeCommandSandboxAdapter;
+    let adapter = rightkit_agent_coding_tools::shell::NativeCommandSandboxAdapter;
     let root = std::env::current_dir().map_err(|e| e.to_string())?;
     let context = rightkit_sandbox::execution::ProcessLaunchContext {
         workspace_root: root.display().to_string(),

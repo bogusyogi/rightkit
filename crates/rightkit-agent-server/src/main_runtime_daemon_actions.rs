@@ -1,6 +1,6 @@
 async fn daemon_logs_until_terminal(base_url: &str, token: &str, session_id: &str) -> i32 {
     use futures_util::StreamExt as _;
-    let client = match rightkit_http::http_client::daemon_client(base_url) {
+    let client = match rightkit_agent_daemon::http_client::daemon_client(base_url) {
         Ok(c) => c,
         Err(e) => {
             eprintln!("Stream error: {e}");
@@ -20,7 +20,7 @@ async fn daemon_logs_until_terminal(base_url: &str, token: &str, session_id: &st
         }
     };
 
-    if !rightkit_http::http_client::is_success(resp.status) {
+    if !rightkit_agent_daemon::http_client::is_success(resp.status) {
         return 1;
     }
 
@@ -56,9 +56,9 @@ async fn daemon_kill(session_id: &str) -> i32 {
     };
 
     let encoded_session_id = url_encode_component(session_id);
-    let result = match rightkit_http::http_client::daemon_client(&base_url) {
+    let result = match rightkit_agent_daemon::http_client::daemon_client(&base_url) {
         Ok(client) => {
-            rightkit_http::http_client::send_any(
+            rightkit_agent_daemon::http_client::send_any(
                 &client,
                 &rightkit_http::Request::post(format!(
                     "{base_url}/sessions/{encoded_session_id}/kill"
@@ -70,7 +70,7 @@ async fn daemon_kill(session_id: &str) -> i32 {
         Err(e) => Err(e),
     };
     match result {
-        Ok(resp) if rightkit_http::http_client::is_success(resp.status) => {
+        Ok(resp) if rightkit_agent_daemon::http_client::is_success(resp.status) => {
             println!("Session {session_id} killed.");
             0
         }
@@ -153,9 +153,9 @@ async fn fetch_daemon_handoff(session_id: &str) -> Result<serde_json::Value, Str
     };
 
     let encoded_session_id = url_encode_component(session_id);
-    let result = match rightkit_http::http_client::daemon_client(&base_url) {
+    let result = match rightkit_agent_daemon::http_client::daemon_client(&base_url) {
         Ok(client) => {
-            rightkit_http::http_client::send_any(
+            rightkit_agent_daemon::http_client::send_any(
                 &client,
                 &rightkit_http::Request::get(format!(
                     "{base_url}/sessions/{encoded_session_id}/handoff"
@@ -167,7 +167,7 @@ async fn fetch_daemon_handoff(session_id: &str) -> Result<serde_json::Value, Str
         Err(e) => Err(e),
     };
     match result {
-        Ok(resp) if rightkit_http::http_client::is_success(resp.status) => Ok(resp
+        Ok(resp) if rightkit_agent_daemon::http_client::is_success(resp.status) => Ok(resp
             .json::<serde_json::Value>()
             .unwrap_or(serde_json::Value::Null)),
         Ok(resp) if resp.status == 404 => Err(format!("Session not found: {session_id}")),

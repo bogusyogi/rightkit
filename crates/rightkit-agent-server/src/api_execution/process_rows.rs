@@ -28,7 +28,7 @@ fn live_execution_process(
 ) -> Result<
     Option<(
         ExecutionProcessRow,
-        std::sync::Arc<rightkit_agent_tools::coding_tools::background_shell::BgShell>,
+        std::sync::Arc<rightkit_agent_coding_tools::background_shell::BgShell>,
     )>,
     ExecutionError,
 > {
@@ -48,7 +48,7 @@ fn live_execution_process(
 fn execution_process_row(
     live: &crate::api::LiveSession,
     shell_id: &str,
-    shell: &rightkit_agent_tools::coding_tools::background_shell::BgShell,
+    shell: &rightkit_agent_coding_tools::background_shell::BgShell,
     include_output: bool,
 ) -> ExecutionProcessRow {
     let status = shell.status();
@@ -149,32 +149,32 @@ fn historical_process_row(record: ExecutionProcessRecord) -> ExecutionProcessRow
 }
 
 fn process_status(
-    status: &rightkit_agent_tools::coding_tools::background_shell::BgStatus,
+    status: &rightkit_agent_coding_tools::background_shell::BgStatus,
 ) -> &'static str {
     match status {
-        rightkit_agent_tools::coding_tools::background_shell::BgStatus::Running => "running",
-        rightkit_agent_tools::coding_tools::background_shell::BgStatus::Exited(_) => "exited",
-        rightkit_agent_tools::coding_tools::background_shell::BgStatus::Killed => "killed",
-        rightkit_agent_tools::coding_tools::background_shell::BgStatus::SpawnFailed(_) => {
+        rightkit_agent_coding_tools::background_shell::BgStatus::Running => "running",
+        rightkit_agent_coding_tools::background_shell::BgStatus::Exited(_) => "exited",
+        rightkit_agent_coding_tools::background_shell::BgStatus::Killed => "killed",
+        rightkit_agent_coding_tools::background_shell::BgStatus::SpawnFailed(_) => {
             "spawnFailed"
         }
-        rightkit_agent_tools::coding_tools::background_shell::BgStatus::Unknown => "unknown",
+        rightkit_agent_coding_tools::background_shell::BgStatus::Unknown => "unknown",
     }
 }
 
 fn process_status_label(
-    status: &rightkit_agent_tools::coding_tools::background_shell::BgStatus,
+    status: &rightkit_agent_coding_tools::background_shell::BgStatus,
 ) -> String {
     match status {
-        rightkit_agent_tools::coding_tools::background_shell::BgStatus::Running => "running".into(),
-        rightkit_agent_tools::coding_tools::background_shell::BgStatus::Exited(code) => {
+        rightkit_agent_coding_tools::background_shell::BgStatus::Running => "running".into(),
+        rightkit_agent_coding_tools::background_shell::BgStatus::Exited(code) => {
             format!("exited (code {code})")
         }
-        rightkit_agent_tools::coding_tools::background_shell::BgStatus::Killed => "killed".into(),
-        rightkit_agent_tools::coding_tools::background_shell::BgStatus::SpawnFailed(error) => {
+        rightkit_agent_coding_tools::background_shell::BgStatus::Killed => "killed".into(),
+        rightkit_agent_coding_tools::background_shell::BgStatus::SpawnFailed(error) => {
             format!("spawn failed: {error}")
         }
-        rightkit_agent_tools::coding_tools::background_shell::BgStatus::Unknown => {
+        rightkit_agent_coding_tools::background_shell::BgStatus::Unknown => {
             "unknown (restart reconciliation required)".into()
         }
     }

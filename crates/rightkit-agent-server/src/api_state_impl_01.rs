@@ -21,13 +21,13 @@ impl DaemonState {
                 memory_backend.clone(),
             );
         let instincts = crate::store_write::load_instincts(&default_instincts_store_path());
-        let driver_host = match rightkit_agent_tools::coding_tools::process_resource_authority::process_resource_governor() {
+        let driver_host = match rightkit_agent_coding_tools::process_resource_authority::process_resource_governor() {
             Some(governor) => crate::driver_host_runtime::DriverHostRuntime::new().with_process_launch(
                 Arc::new(
-                    rightkit_agent_tools::coding_tools::process_resource_authority::GovernedProcessLaunchAdapter::new(
-                        rightkit_agent_tools::coding_tools::process_launch::LocalProcessLaunchAdapter,
+                    rightkit_agent_coding_tools::process_resource_authority::GovernedProcessLaunchAdapter::new(
+                        rightkit_agent_coding_tools::process_launch::LocalProcessLaunchAdapter,
                         governor,
-                        rightkit_agent_tools::coding_tools::process_resource_authority::ResourceKind::ChildProcess,
+                        rightkit_agent_coding_tools::process_resource_authority::ResourceKind::ChildProcess,
                         true,
                     ),
                 ),
@@ -56,7 +56,7 @@ impl DaemonState {
                 rightkit_memory_client::consolidation_status::ConsolidationStatusState::new(),
             sessions: Arc::new(Mutex::new(HashMap::new())),
             handoff_controller: Arc::new(
-                rightkit_agent_tools::coding_tools::handoff::HandoffController,
+                rightkit_agent_coding_tools::handoff::HandoffController,
             ),
             mcp_pool: Arc::new(rightkit_mcp::agent_mcp::McpTransportPool::default()),
             driver_host,
@@ -224,7 +224,7 @@ impl DaemonState {
         let llm: Arc<dyn rightkit_agent_engine_core::llm::LlmClient> =
             Arc::new(crate::provider_client::ProviderLlmClient::new(
                 client,
-                Arc::new(rightkit_agent_tools::coding_tools::ToolRegistry::new()),
+                Arc::new(rightkit_agent_coding_tools::ToolRegistry::new()),
             ));
         Some(Arc::new(LlmDispatchClassifier { llm }))
     }
@@ -336,7 +336,7 @@ impl DaemonState {
 
     pub(crate) fn record_message_history(
         &self,
-        message: rightkit_agent_tools::coding_tools::MessageDispatch,
+        message: rightkit_agent_coding_tools::MessageDispatch,
         delivery_status: &str,
         delivered_session_ids: Vec<String>,
         error: Option<String>,

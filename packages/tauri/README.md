@@ -16,7 +16,7 @@ Updater behavior comes from `@rightkit/app-update`: an `AutoUpdateClient` passed
 | Import | Contents |
 |---|---|
 | `@rightkit/tauri` | `createRightKitTauriClient`, `standardRightKitTauriCommands`, `logsOnlyRightKitTauriCommands`, `standardRightKitDeviceGetOrCreate`, `defineTauriCommands`, `declaredTauriCommandNames`, `tauriHandlerCommandNames`, `missingTauriHandlers`, `TauriCommandError`, `createNativeFetch`, `NativeFetchError`, `NATIVE_FETCH_MESSAGES`, `RIGHTKIT_FETCH_COMMAND`; types `Invoke`, `RightKitTauriCommands`, `RightKitTauriClientConfig`, `RightKitTauriAdapterConfig`, `RightKitTauriAppConfig`, `RightKitTauriClient`. Deprecated, removed in 0.5.0: `createViewRightTauriClient`, `createScrapeRightTauriClient`, `createHeardRightTauriClient`, `createMailRightTauriClient`, `createCodeRightTauriClient`, `createRightSuiteAppTauriClient`, `rightSuiteTauriAppConfigs` |
-| `@rightkit/tauri/dialog` | `pickFolder`, `pickFile`, `pickFiles` (native file dialogs; see below) |
+| `@rightkit/tauri/dialog` | `pickFolder`, `pickFile`, `pickFiles`, `pickSavePath`, `ask` (native dialogs; see below) |
 
 Clients expose `device.getOrCreate`, `logs.write/collect/clear`, `diagnostics.collect/clear` & optional `updates`.
 
@@ -68,14 +68,16 @@ Why here and not in `@rightkit/tauri-shell`: that package is the bridge for the 
 ## Native file dialogs (`@rightkit/tauri/dialog`)
 
 ```ts
-import { pickFolder, pickFile, pickFiles } from "@rightkit/tauri/dialog";
+import { pickFolder, pickFile, pickFiles, pickSavePath, ask } from "@rightkit/tauri/dialog";
 
 const project = await pickFolder({ title: "Open project" }); // string | null
 const csv = await pickFile({ filters: [{ name: "CSV", extensions: ["csv"] }] }); // string | null
 const media = await pickFiles({ title: "Add media" }); // string[] | null
+const target = await pickSavePath({ defaultPath: "history.json" }); // string | null; the app writes the file
+const sure = await ask("Delete this export?", { kind: "warning" }); // boolean; true only on confirm
 ```
 
-Thin wrappers over `@tauri-apps/plugin-dialog` (install it in the app; it is an optional peer). Options pass to the plugin unchanged except `directory` and `multiple`, which the function decides. Cancel is `null`. There is no `saveFile`. Titles, extensions and callbacks stay in the app.
+Thin wrappers over `@tauri-apps/plugin-dialog` (install it in the app; it is an optional peer). Options pass to the plugin unchanged except `directory` and `multiple`, which the function decides. Cancel is `null` for the pickers and `pickSavePath`; `ask` resolves `false` on cancel. `pickSavePath` only chooses a path: the app writes the file. Titles, extensions and button labels stay in the app.
 
 There is no QA variant of this entry: the unpublished `dialog-qa` module was removed before 0.3.0 because no consumer is named for the rightkit-qa `dialog` module. An app's QA answers its native pickers in its own native code or test seam, not through this import.
 

@@ -91,7 +91,7 @@ impl TeamExecutionPreset {
 
 fn matching_team_execution_preset(
     goal: &str,
-    teams: &[rightkit_agent_tools::coding_tools::TeamDefinition],
+    teams: &[rightkit_agent_coding_tools::TeamDefinition],
 ) -> Option<TeamExecutionPreset> {
     let goal = goal.to_lowercase();
     teams.iter().find_map(|team| {

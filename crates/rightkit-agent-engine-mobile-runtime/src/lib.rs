@@ -32,7 +32,7 @@ use rightkit_agent_engine_core::engine::{SessionEngine, SessionEngineConfig};
 use rightkit_agent_engine_core::llm::LlmClient;
 use rightkit_agent_engine_protocol::ProtocolEvent;
 use rightkit_agent_policy::PermissionMode;
-use rightkit_agent_tools::coding_tools::registry::ToolRegistry;
+use rightkit_agent_coding_tools::registry::ToolRegistry;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicI64, Ordering};
@@ -106,7 +106,7 @@ pub struct RuntimeConfig {
     pub github_token: Option<String>,
     /// Optional Cloudflare OAuth/API-token credential supplied from host Keychain.
     #[serde(default)]
-    pub cloudflare: Option<rightkit_agent_tools::coding_tools::CloudflareConfig>,
+    pub cloudflare: Option<rightkit_agent_coding_tools::CloudflareConfig>,
     #[serde(default)]
     pub max_iterations: Option<usize>,
     /// `"plan"` | `"ask"` | `"acceptEdits"` | `"autoSafe"`.
@@ -413,7 +413,7 @@ impl MobileRuntime {
         let mut tools = ToolRegistry::build_default();
         if wasm::is_wasm_executor_installed() {
             tools.replace(Box::new(
-                rightkit_agent_tools::coding_tools::wasm_compute::WasmComputeTool::with_runtime(
+                rightkit_agent_coding_tools::wasm_compute::WasmComputeTool::with_runtime(
                     Arc::new(wasm::MobileWasmRuntime),
                 ),
             ));
@@ -533,7 +533,7 @@ impl MobileRuntime {
         // OpenAI image endpoint may reuse this account's Keychain-supplied
         // key. Custom/OpenAI-compatible text endpoints never receive it.
         if let Some(image_provider) =
-            rightkit_agent_tools::coding_tools::image_generate::image_provider_for_base_url(
+            rightkit_agent_coding_tools::image_generate::image_provider_for_base_url(
                 &config.provider.base_url,
             )
         {
@@ -567,7 +567,7 @@ impl MobileRuntime {
         }
         engine.set_mcp(Arc::new(mcp));
         if let Some(search) = config.web_search {
-            engine.set_web_search_config(rightkit_agent_tools::coding_tools::WebSearchConfig {
+            engine.set_web_search_config(rightkit_agent_coding_tools::WebSearchConfig {
                 provider: search.provider,
                 api_key: search.api_key,
             });
@@ -1143,7 +1143,7 @@ impl MobileRuntime {
     /// this session observes the refreshed one.
     pub fn update_cloudflare_credential(
         &self,
-        config: rightkit_agent_tools::coding_tools::CloudflareConfig,
+        config: rightkit_agent_coding_tools::CloudflareConfig,
     ) {
         rightkit_agent_engine_core::engine::SessionEngine::update_cloudflare_credential(
             &self.session_id,

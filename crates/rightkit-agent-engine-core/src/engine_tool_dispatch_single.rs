@@ -65,13 +65,13 @@ impl SessionEngine {
     pub async fn authorize_external_tool_call(
         &mut self,
         call: ToolCall,
-    ) -> rightkit_agent_tools::coding_tools::ToolResult {
+    ) -> rightkit_agent_coding_tools::ToolResult {
         self.refresh_permission_mode();
         self.expire_external_tool_approvals();
         if self.tools.get(&call.name).is_none()
             || serde_json::from_str::<serde_json::Value>(&call.arguments_json).is_err()
         {
-            return rightkit_agent_tools::coding_tools::ToolResult::error(
+            return rightkit_agent_coding_tools::ToolResult::error(
                 "unknown tool or invalid arguments",
             );
         }
@@ -85,10 +85,10 @@ impl SessionEngine {
             self.repair_attribution.as_ref(),
         );
         if let Some(error) = error {
-            return rightkit_agent_tools::coding_tools::ToolResult::error(error);
+            return rightkit_agent_coding_tools::ToolResult::error(error);
         }
         if self.approved_effect_digests.lock().unwrap().len() >= 64 {
-            return rightkit_agent_tools::coding_tools::ToolResult::error(
+            return rightkit_agent_coding_tools::ToolResult::error(
                 "too many outstanding permission requests",
             );
         }
@@ -101,10 +101,10 @@ impl SessionEngine {
             Some(_) => {
                 self.external_approval_times
                     .insert(call.id.clone(), std::time::Instant::now());
-                rightkit_agent_tools::coding_tools::ToolResult::ok("allowed")
+                rightkit_agent_coding_tools::ToolResult::ok("allowed")
             }
             None => results.remove(&call.id).unwrap_or_else(|| {
-                rightkit_agent_tools::coding_tools::ToolResult::error("permission denied")
+                rightkit_agent_coding_tools::ToolResult::error("permission denied")
             }),
         }
     }
@@ -119,14 +119,14 @@ impl SessionEngine {
     pub async fn dispatch_external_tool_call(
         &mut self,
         call: ToolCall,
-    ) -> rightkit_agent_tools::coding_tools::ToolResult {
+    ) -> rightkit_agent_coding_tools::ToolResult {
         self.refresh_permission_mode();
         self.expire_external_tool_approvals();
         if let Some(broker) = &self.assurance_broker {
             let mut broker = match broker.lock() {
                 Ok(broker) => broker,
                 Err(_) => {
-                    return rightkit_agent_tools::coding_tools::ToolResult::error(
+                    return rightkit_agent_coding_tools::ToolResult::error(
                         "assurance broker lock poisoned before external tool dispatch",
                     );
                 }
@@ -148,7 +148,7 @@ impl SessionEngine {
                     scope,
                     Vec::new(),
                 ) {
-                    return rightkit_agent_tools::coding_tools::ToolResult::error(format!(
+                    return rightkit_agent_coding_tools::ToolResult::error(format!(
                         "initialize assurance contract for external tool dispatch: {error}"
                     ));
                 }
@@ -163,7 +163,7 @@ impl SessionEngine {
             if let Err(error) = self.begin_run_changes() {
                 self.end_active_run();
                 self.active_run_id = previous_run;
-                return rightkit_agent_tools::coding_tools::ToolResult::error(format!(
+                return rightkit_agent_coding_tools::ToolResult::error(format!(
                     "capture external tool baseline: {error}"
                 ));
             }
@@ -176,7 +176,7 @@ impl SessionEngine {
             self.active_run_id = previous_run;
         }
         results.remove(&call_id).unwrap_or_else(|| {
-            rightkit_agent_tools::coding_tools::ToolResult::error(
+            rightkit_agent_coding_tools::ToolResult::error(
                 "governed tool dispatch ended without a typed result",
             )
         })
@@ -187,7 +187,7 @@ impl SessionEngine {
         call: &ToolCall,
         turn_results: &mut std::collections::HashMap<
             String,
-            rightkit_agent_tools::coding_tools::ToolResult,
+            rightkit_agent_coding_tools::ToolResult,
         >,
     ) {
         // A blocking plan/tool approval can change authority during this turn.
@@ -691,10 +691,10 @@ impl SessionEngine {
     async fn offer_sandbox_grant_retry(
         &mut self,
         original: &ToolCall,
-        denial: rightkit_agent_tools::coding_tools::sandbox::SandboxDenial,
+        denial: rightkit_agent_coding_tools::sandbox::SandboxDenial,
         turn_results: &mut std::collections::HashMap<
             String,
-            rightkit_agent_tools::coding_tools::ToolResult,
+            rightkit_agent_coding_tools::ToolResult,
         >,
     ) {
         let Some(grant) = denial.requested_grant.filter(|grant| !grant.is_empty()) else {
@@ -758,7 +758,7 @@ impl SessionEngine {
             .iter()
             .filter_map(|key| args.get(*key).and_then(serde_json::Value::as_str))
             .filter_map(|path| {
-                rightkit_agent_tools::coding_tools::read_file::resolve_in_workspace(
+                rightkit_agent_coding_tools::read_file::resolve_in_workspace(
                     path,
                     &self.workspace_root,
                 )
@@ -831,7 +831,7 @@ impl SessionEngine {
         &self,
         operation_id: Option<&str>,
         call: &ToolCall,
-        result: &rightkit_agent_tools::coding_tools::ToolResult,
+        result: &rightkit_agent_coding_tools::ToolResult,
     ) -> Result<(), crate::mutation_diagnostics::MutationDiagnosticsFailure> {
         let Some(operation_id) = operation_id else {
             return Ok(());
@@ -935,7 +935,7 @@ impl SessionEngine {
         call: &ToolCall,
         turn_results: &mut std::collections::HashMap<
             String,
-            rightkit_agent_tools::coding_tools::ToolResult,
+            rightkit_agent_coding_tools::ToolResult,
         >,
     ) -> bool {
         let read_only = self
@@ -958,9 +958,9 @@ impl SessionEngine {
         turn_results.insert(
             call.id.clone(),
             if was_error {
-                rightkit_agent_tools::coding_tools::ToolResult::error(summary.clone())
+                rightkit_agent_coding_tools::ToolResult::error(summary.clone())
             } else {
-                rightkit_agent_tools::coding_tools::ToolResult::ok(summary.clone())
+                rightkit_agent_coding_tools::ToolResult::ok(summary.clone())
             },
         );
         self.transcript

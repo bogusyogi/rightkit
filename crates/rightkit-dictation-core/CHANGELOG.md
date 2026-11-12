@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.0
+
+- Breaking for dependents: dependency requirements `rightkit-logs` 0.3 -> 0.4, `rightkit-speech-client` 0.4 -> 0.5. 0.2.4 was published before these requirements were raised; a semver-breaking dependency is a breaking change, so they ship as 0.3.0 instead of changing 0.2.4 in place (#1572). No source change in this crate since 0.2.4.
+
 ## 0.2.4
 
 - Publishes the source changes made since 0.2.3 was published under the same version number (src/engine/provider_handoff.rs).

@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-reframe"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Tracked 9:16 reframe for Right Suite video apps: ONNX face detection (YuNet; CoreML, DirectML or CPU), subject tracking, a smoothed crop path, and approval-gated crop plans."
@@ -23,4 +23,4 @@ rightkit-fs = { version = "0.4.9", default-features = false, features = ["fs", "
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0" }
 thiserror = { version = "2.0" }
-rightkit-onnx = { version = "0.2.9", path = "../rightkit-onnx" }
+rightkit-onnx = { version = "0.3.0", path = "../rightkit-onnx" }

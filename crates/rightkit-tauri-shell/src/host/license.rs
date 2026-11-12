@@ -93,6 +93,14 @@ pub trait LicenseOps: Send + Sync {
     ) -> Result<DrainReport, LicenseError> {
         Err(LicenseError::Unsupported)
     }
+    /// Remove the licence with the release persisted to `queue` first (#1036). Default: the plain
+    /// `deactivate`, so an app with its own `LicenseOps` keeps its policy until it opts in.
+    fn deactivate_with_queue(
+        &self,
+        _queue: &dyn PendingReleaseQueue,
+    ) -> Result<LicenseView, LicenseError> {
+        self.deactivate()
+    }
     /// Redeem a link code issued by an Apple device on this one (#1130). Default: unsupported.
     fn link_redeem(
         &self,
@@ -108,7 +116,7 @@ impl LicenseOps for LicenseClient {
         LicenseClient::status(self)
     }
     fn activate(&self, key: SecretString) -> Result<LicenseView, LicenseError> {
-        LicenseClient::activate(self, key)
+        LicenseClient::activate_as_configured(self, key)
     }
     fn refresh(&self) -> Result<RefreshView, LicenseError> {
         LicenseClient::refresh(self)
@@ -117,7 +125,7 @@ impl LicenseOps for LicenseClient {
         LicenseClient::deactivate(self)
     }
     fn request_trial(&self, email: &str) -> Result<TrialView, LicenseError> {
-        LicenseClient::request_trial(self, email)
+        LicenseClient::request_trial_as_configured(self, email)
     }
     fn link_request(&self) -> Result<LinkRequestOutcome, LicenseError> {
         LicenseClient::link_request(self)
@@ -134,6 +142,12 @@ impl LicenseOps for LicenseClient {
         queue: &dyn PendingReleaseQueue,
     ) -> Result<DrainReport, LicenseError> {
         LicenseClient::drain_pending_releases(self, queue)
+    }
+    fn deactivate_with_queue(
+        &self,
+        queue: &dyn PendingReleaseQueue,
+    ) -> Result<LicenseView, LicenseError> {
+        LicenseClient::deactivate_with_queue(self, queue)
     }
     fn invalidation(&self) -> Option<LicenseInvalidation> {
         Some(LicenseClient::invalidation(self))
@@ -215,8 +229,13 @@ impl LicenseHostService {
         self.ops.drain_pending_releases(queue).map(Into::into)
     }
 
+    /// Remove the licence. With a lent queue the release is queued before the local tombstone, so
+    /// an offline removal cannot leak the seat; without one, as the client's plain `deactivate`.
     pub fn deactivate(&self) -> Result<LicenseView, LicenseError> {
-        self.ops.deactivate()
+        match self.queue.as_deref() {
+            Some(queue) => self.ops.deactivate_with_queue(queue),
+            None => self.ops.deactivate(),
+        }
     }
 
     /// Ask for a trial key by e-mail. An address that is empty, too long or holds a control

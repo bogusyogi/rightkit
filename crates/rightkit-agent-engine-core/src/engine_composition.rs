@@ -73,9 +73,9 @@ pub(in crate::engine) async fn execute_exec_call(
     call: &ToolCall,
     args: &serde_json::Value,
     cancel_rx: tokio::sync::watch::Receiver<bool>,
-) -> rightkit_agent_tools::coding_tools::ToolResult {
+) -> rightkit_agent_coding_tools::ToolResult {
     match parse_exec_form(args) {
-        Err(error) => rightkit_agent_tools::coding_tools::ToolResult::error(error),
+        Err(error) => rightkit_agent_coding_tools::ToolResult::error(error),
         Ok(ExecForm::Capability {
             capability,
             schema_digest,
@@ -119,15 +119,15 @@ impl Drop for CompositionCallGuard<'_, '_> {
 }
 
 #[cfg(feature = "host")]
-impl rightkit_agent_tools::coding_tools::code_mode::NestedToolDispatcher
+impl rightkit_agent_coding_tools::code_mode::NestedToolDispatcher
     for ProgramNestedDispatcher<'_>
 {
     fn invoke<'a>(
         &'a self,
         tool: &'a str,
         args: serde_json::Value,
-        _context: &'a rightkit_agent_tools::coding_tools::ToolContext,
-    ) -> rightkit_agent_tools::coding_tools::code_mode::NestedToolFuture<'a> {
+        _context: &'a rightkit_agent_coding_tools::ToolContext,
+    ) -> rightkit_agent_coding_tools::code_mode::NestedToolFuture<'a> {
         Box::pin(async move {
             let sequence = self
                 .next_call
@@ -154,7 +154,7 @@ impl rightkit_agent_tools::coding_tools::code_mode::NestedToolDispatcher
             Box::pin(guard.engine.dispatch_tool_call(&call, &mut results)).await;
             drop(guard);
             results.remove(&call.id).unwrap_or_else(|| {
-                rightkit_agent_tools::coding_tools::ToolResult::error(
+                rightkit_agent_coding_tools::ToolResult::error(
                     "governed run_program child ended without a typed result",
                 )
             })
@@ -167,14 +167,14 @@ pub(in crate::engine) async fn execute_run_program_call(
     engine: &mut SessionEngine,
     call: &ToolCall,
     args: &serde_json::Value,
-    context: &rightkit_agent_tools::coding_tools::ToolContext,
-) -> rightkit_agent_tools::coding_tools::ToolResult {
+    context: &rightkit_agent_coding_tools::ToolContext,
+) -> rightkit_agent_coding_tools::ToolResult {
     let Some(source) = args.get("code").and_then(serde_json::Value::as_str) else {
-        return rightkit_agent_tools::coding_tools::ToolResult::error(
+        return rightkit_agent_coding_tools::ToolResult::error(
             "run_program.code must be a string",
         );
     };
-    let specs = rightkit_agent_tools::coding_tools::code_mode::RunProgramTool::new(&engine.tools)
+    let specs = rightkit_agent_coding_tools::code_mode::RunProgramTool::new(&engine.tools)
         .tool_specs()
         .to_vec();
     let context_dispatcher = engine.context_tool_dispatcher.clone();
@@ -183,7 +183,7 @@ pub(in crate::engine) async fn execute_run_program_call(
         parent_call_id: call.id.clone(),
         next_call: std::sync::atomic::AtomicUsize::new(0),
     };
-    rightkit_agent_tools::coding_tools::code_mode::execute_program(
+    rightkit_agent_coding_tools::code_mode::execute_program(
         source,
         &specs,
         context,
@@ -286,22 +286,22 @@ async fn run_capability_call(
     schema_digest: &str,
     nested_args: serde_json::Value,
     cancel_rx: tokio::sync::watch::Receiver<bool>,
-) -> rightkit_agent_tools::coding_tools::ToolResult {
+) -> rightkit_agent_coding_tools::ToolResult {
     if *cancel_rx.borrow() {
-        return rightkit_agent_tools::coding_tools::ToolResult::error("exec cancelled");
+        return rightkit_agent_coding_tools::ToolResult::error("exec cancelled");
     }
     let tool = match engine.tools.resolve_capability(capability, schema_digest) {
         Ok(tool) => tool,
-        Err(error) => return rightkit_agent_tools::coding_tools::ToolResult::error(error),
+        Err(error) => return rightkit_agent_coding_tools::ToolResult::error(error),
     };
     if !COMPOSABLE_TOOL_NAMES.contains(&tool.name()) {
-        return rightkit_agent_tools::coding_tools::ToolResult::error(format!(
+        return rightkit_agent_coding_tools::ToolResult::error(format!(
             "exec refuses capability `{capability}`: composition admits only {}",
             COMPOSABLE_TOOL_NAMES.join(", ")
         ));
     }
     if !tool.is_read_only() {
-        return rightkit_agent_tools::coding_tools::ToolResult::error(format!(
+        return rightkit_agent_coding_tools::ToolResult::error(format!(
             "exec refuses mutating capability `{capability}`: composition is read-only"
         ));
     }
@@ -313,7 +313,7 @@ async fn run_capability_call(
     let mut results = HashMap::new();
     let result = dispatch_nested(engine, &nested_call, &mut results).await;
     if result.content.len() > MAX_NESTED_RESULT_BYTES {
-        return rightkit_agent_tools::coding_tools::ToolResult::error(format!(
+        return rightkit_agent_coding_tools::ToolResult::error(format!(
             "exec nested result exceeds the {MAX_NESTED_RESULT_BYTES}-byte aggregate limit"
         ));
     }
@@ -325,9 +325,9 @@ async fn run_capability_call(
     })
     .to_string();
     if result.is_error {
-        rightkit_agent_tools::coding_tools::ToolResult::error(payload)
+        rightkit_agent_coding_tools::ToolResult::error(payload)
     } else {
-        rightkit_agent_tools::coding_tools::ToolResult::ok(payload)
+        rightkit_agent_coding_tools::ToolResult::ok(payload)
     }
 }
 
@@ -371,8 +371,8 @@ impl Drop for NestedDispatchGuard<'_> {
 async fn dispatch_nested(
     engine: &mut SessionEngine,
     nested_call: &ToolCall,
-    results: &mut HashMap<String, rightkit_agent_tools::coding_tools::ToolResult>,
-) -> rightkit_agent_tools::coding_tools::ToolResult {
+    results: &mut HashMap<String, rightkit_agent_coding_tools::ToolResult>,
+) -> rightkit_agent_coding_tools::ToolResult {
     engine
         .internal_composition_call_ids
         .insert(nested_call.id.clone());
@@ -385,7 +385,7 @@ async fn dispatch_nested(
     guard.completed = true;
     drop(guard);
     results.remove(&nested_call.id).unwrap_or_else(|| {
-        rightkit_agent_tools::coding_tools::ToolResult::error(
+        rightkit_agent_coding_tools::ToolResult::error(
             "governed nested dispatch ended without a typed result",
         )
     })
@@ -434,9 +434,9 @@ async fn run_js_call(
     source: &str,
     _timeout_ms: u64,
     _cancel_rx: tokio::sync::watch::Receiver<bool>,
-) -> rightkit_agent_tools::coding_tools::ToolResult {
+) -> rightkit_agent_coding_tools::ToolResult {
     let _ = source;
-    rightkit_agent_tools::coding_tools::ToolResult::error(
+    rightkit_agent_coding_tools::ToolResult::error(
         "exec JavaScript composition is unavailable on this build (no host QuickJS runtime)",
     )
 }
@@ -448,9 +448,9 @@ async fn run_js_call(
     source: &str,
     timeout_ms: u64,
     cancel_rx: tokio::sync::watch::Receiver<bool>,
-) -> rightkit_agent_tools::coding_tools::ToolResult {
+) -> rightkit_agent_coding_tools::ToolResult {
     if source.len() > MAX_SOURCE_BYTES {
-        return rightkit_agent_tools::coding_tools::ToolResult::error(format!(
+        return rightkit_agent_coding_tools::ToolResult::error(format!(
             "exec source exceeds the {MAX_SOURCE_BYTES}-byte limit ({} bytes)",
             source.len()
         ));
@@ -465,12 +465,12 @@ async fn run_js_call(
     {
         Ok(Ok(permit)) => permit,
         Ok(Err(_)) => {
-            return rightkit_agent_tools::coding_tools::ToolResult::error(
+            return rightkit_agent_coding_tools::ToolResult::error(
                 "exec JavaScript runtime pool is closed",
             )
         }
         Err(_) => {
-            return rightkit_agent_tools::coding_tools::ToolResult::error(format!(
+            return rightkit_agent_coding_tools::ToolResult::error(format!(
                 "exec timed out after {timeout_ms}ms waiting for a JavaScript runtime slot"
             ))
         }
@@ -493,7 +493,7 @@ async fn run_js_call(
             let _ = done_tx.send(result);
         });
     if let Err(error) = spawned {
-        return rightkit_agent_tools::coding_tools::ToolResult::error(format!(
+        return rightkit_agent_coding_tools::ToolResult::error(format!(
             "exec failed to start the JavaScript runtime thread: {error}"
         ));
     }
@@ -680,7 +680,7 @@ async fn run_js_call(
                                 let settled = nested_results
                                     .remove(&nested_call.id)
                                     .unwrap_or_else(|| {
-                                        rightkit_agent_tools::coding_tools::ToolResult::error(
+                                        rightkit_agent_coding_tools::ToolResult::error(
                                             aborted
                                                 .clone()
                                                 .unwrap_or_else(|| "exec aborted".to_string()),
@@ -708,11 +708,11 @@ async fn run_js_call(
         }
     };
     match done {
-        Ok(output) if nested_failure => rightkit_agent_tools::coding_tools::ToolResult::error(
+        Ok(output) if nested_failure => rightkit_agent_coding_tools::ToolResult::error(
             nested_failure_projection(&output),
         ),
-        Ok(output) => rightkit_agent_tools::coding_tools::ToolResult::ok(output),
-        Err(error) => rightkit_agent_tools::coding_tools::ToolResult::error(error),
+        Ok(output) => rightkit_agent_coding_tools::ToolResult::ok(output),
+        Err(error) => rightkit_agent_coding_tools::ToolResult::error(error),
     }
 }
 

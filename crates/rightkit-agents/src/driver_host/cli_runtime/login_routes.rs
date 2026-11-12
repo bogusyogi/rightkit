@@ -355,7 +355,7 @@ fn login_with(
         .iter()
         .map(|value| (*value).to_string())
         .collect::<Vec<_>>();
-    let policy_adapter = rightkit_agent_tools::coding_tools::shell::NativeCommandSandboxAdapter;
+    let policy_adapter = rightkit_agent_coding_tools::shell::NativeCommandSandboxAdapter;
     let prepared = rightkit_sandbox::execution::CommandSandboxAdapter::prepare(
         &policy_adapter,
         binary,

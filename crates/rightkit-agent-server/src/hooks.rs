@@ -405,7 +405,7 @@ pub fn spawn_hook_runner_for_workspace(bus: &HookBus, workspace_root: &Path, con
     tokio::spawn(async move {
         let mut config = config;
         let governor =
-            match rightkit_agent_tools::coding_tools::process_resource_authority::require_process_resource_governor() {
+            match rightkit_agent_coding_tools::process_resource_authority::require_process_resource_governor() {
                 Ok(governor) => governor,
                 Err(error) => {
                     tracing::warn!(error = %error, "MCP hook transport setup denied: process resource authority unavailable");
@@ -413,10 +413,10 @@ pub fn spawn_hook_runner_for_workspace(bus: &HookBus, workspace_root: &Path, con
                 }
             };
         let launcher: Arc<dyn rightkit_sandbox::execution::ProcessLaunchAdapter> = Arc::new(
-            rightkit_agent_tools::coding_tools::process_resource_authority::GovernedProcessLaunchAdapter::new(
-                rightkit_agent_tools::coding_tools::shell::NativeCommandSandboxAdapter,
+            rightkit_agent_coding_tools::process_resource_authority::GovernedProcessLaunchAdapter::new(
+                rightkit_agent_coding_tools::shell::NativeCommandSandboxAdapter,
                 governor,
-                rightkit_agent_tools::coding_tools::process_resource_authority::ResourceKind::Mcp,
+                rightkit_agent_coding_tools::process_resource_authority::ResourceKind::Mcp,
                 true,
             ),
         );
@@ -679,7 +679,7 @@ fn post_http_hook(url: String, payload: HttpHookPayload) {
     tokio::spawn(async move {
         // Fire-and-forget: the hook URL is operator-configured, so its host alone may
         // resolve privately; the call is bounded to 5s and any failure is ignored.
-        let Ok(client) = rightkit_http::http_client::endpoint_client(&url, Duration::from_secs(5))
+        let Ok(client) = rightkit_agent_daemon::http_client::endpoint_client(&url, Duration::from_secs(5))
         else {
             return;
         };
@@ -761,17 +761,17 @@ async fn run(cmd: &str, payload: &HttpHookPayload, confine: bool) {
         env,
     };
     let governor =
-        match rightkit_agent_tools::coding_tools::process_resource_authority::require_process_resource_governor() {
+        match rightkit_agent_coding_tools::process_resource_authority::require_process_resource_governor() {
             Ok(governor) => governor,
             Err(error) => {
                 tracing::warn!(hook_event = %payload.event, error = %error, "hook launch denied: process resource authority unavailable");
                 return;
             }
         };
-    let launcher = rightkit_agent_tools::coding_tools::process_resource_authority::GovernedProcessLaunchAdapter::new(
-        rightkit_agent_tools::coding_tools::shell::NativeCommandSandboxAdapter,
+    let launcher = rightkit_agent_coding_tools::process_resource_authority::GovernedProcessLaunchAdapter::new(
+        rightkit_agent_coding_tools::shell::NativeCommandSandboxAdapter,
         governor,
-        rightkit_agent_tools::coding_tools::process_resource_authority::ResourceKind::ChildProcess,
+        rightkit_agent_coding_tools::process_resource_authority::ResourceKind::ChildProcess,
         true,
     );
     let Ok(mut child) =

@@ -6,7 +6,7 @@
 use async_trait::async_trait;
 use futures::Stream;
 use rightkit_agent_engine_protocol::{ToolCall, TranscriptMessage};
-use rightkit_agent_tools::coding_tools::ToolRegistry;
+use rightkit_agent_coding_tools::ToolRegistry;
 use std::pin::Pin;
 use std::sync::Arc;
 
@@ -199,8 +199,8 @@ pub trait LlmClient: Send + Sync {
     /// for them, not just a placeholder.
     fn promoted_tool_state_snapshot(
         &self,
-    ) -> rightkit_agent_tools::coding_tools::registry::PromotedToolState {
-        rightkit_agent_tools::coding_tools::registry::PromotedToolState::new()
+    ) -> rightkit_agent_coding_tools::registry::PromotedToolState {
+        rightkit_agent_coding_tools::registry::PromotedToolState::new()
     }
 
     /// Identity of the model route the NEXT request will use (model id, or an

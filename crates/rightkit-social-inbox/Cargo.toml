@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-social-inbox"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Signed social webhook inbox core: constant-time HMAC-SHA256 signature verification, bounded body decoding, app-secret handling, Meta delivery parsing into bounded events, and keyword matching for comment automation."
@@ -16,9 +16,9 @@ path = "src/lib.rs"
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1" }
-rightkit-social-publish = { version = "0.1.1", path = "../rightkit-social-publish" }
-rightkit-social-analytics = { version = "0.2.0", path = "../rightkit-social-analytics" }
-rightkit-http = { version = "0.3.9", path = "../rightkit-http" }
+rightkit-social-publish = { version = "0.2.0", path = "../rightkit-social-publish" }
+rightkit-social-analytics = { version = "0.3.0", path = "../rightkit-social-analytics" }
+rightkit-http = { version = "0.4.0", path = "../rightkit-http" }
 rightkit-crypto = { version = "0.1.0", path = "../rightkit-crypto" }
 rightkit-logs = { version = "0.4.0", default-features = false, path = "../rightkit-logs" }
 rightkit-time = { version = "0.1.1", path = "../rightkit-time" }

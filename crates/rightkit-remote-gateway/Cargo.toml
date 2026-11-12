@@ -23,17 +23,17 @@ rightkit-app-host = { version = "0.1.0", path = "../rightkit-app-host" }
 rightkit-owner-approvals = { version = "0.1.2", path = "../rightkit-owner-approvals" }
 rightkit-approvals = { version = "0.2.0", default-features = false, path = "../rightkit-approvals" }
 rightkit-agent-gateway = { version = "0.3.0", default-features = false, path = "../rightkit-agent-gateway" }
-rightkit-chat-bridge = { version = "0.1.0", path = "../rightkit-chat-bridge" }
+rightkit-chat-bridge = { version = "0.2.0", path = "../rightkit-chat-bridge" }
 rightkit-device-link-types = { version = "0.1.0", path = "../rightkit-device-link-types" }
-rightkit-system-monitor = { version = "0.2.0", path = "../rightkit-system-monitor" }
-rightkit-automation = { version = "0.6.2", default-features = false, path = "../rightkit-automation" }
+rightkit-system-monitor = { version = "0.3.0", path = "../rightkit-system-monitor" }
+rightkit-automation = { version = "0.7.0", default-features = false, path = "../rightkit-automation" }
 rightkit-child-process = { version = "0.5.7", path = "../rightkit-child-process" }
 rightkit-credentials = { version = "0.5.0", path = "../rightkit-credentials" }
 rightkit-crypto = { version = "0.1.0", path = "../rightkit-crypto" }
-rightkit-daemon = { version = "0.8.0", default-features = false, path = "../rightkit-daemon" }
+rightkit-daemon = { version = "0.9.0", default-features = false, path = "../rightkit-daemon" }
 rightkit-docs = { version = "0.1.3", path = "../rightkit-docs" }
 rightkit-fs = { version = "0.4.8", default-features = false, features = ["fs", "lock", "digest", "app-dirs"], path = "../rightkit-fs" }
-rightkit-http = { version = "0.3.9", default-features = false, path = "../rightkit-http" }
+rightkit-http = { version = "0.4.0", default-features = false, path = "../rightkit-http" }
 rightkit-logs = { version = "0.4.0", default-features = false, path = "../rightkit-logs" }
 
 [target.'cfg(unix)'.dependencies]

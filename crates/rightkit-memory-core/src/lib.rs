@@ -6,11 +6,17 @@
 //! The re-exports below form the stable crate API. Compatibility is governed
 //! by crate semver and each typed record's schema version; internal modules
 //! remain private unless explicitly marked as part of this surface.
+//!
+//! Feature `embed` (off by default) adds embedding and retrieval (`embed`, `retriever`:
+//! `Embedder`, `HashEmbedder`, `MemoryRetriever` and their types), which pull `rightkit-embed`
+//! and its ONNX inference and SQLite vector stack. Without it the crate builds with no embedding
+//! stack, so a client that needs only `MemoryEntry`, `MemoryTier` and `default_scope` stays small.
 
 pub mod absorbed;
 mod accounting;
 mod dream;
 mod effectiveness;
+#[cfg(feature = "embed")]
 pub mod embed;
 mod eval_gate;
 pub mod fingerprint;
@@ -18,6 +24,7 @@ mod graph;
 pub mod planner;
 mod quant;
 mod registry;
+#[cfg(feature = "embed")]
 pub mod retriever;
 pub mod review;
 mod routing;
@@ -35,9 +42,11 @@ pub use dream::{
     consolidate_dream_memories, DreamAgentPolicy, DreamConsolidatedMemory, DreamPlan, DreamStatus,
 };
 pub use effectiveness::{EffectivenessGate, MemoryUsageRecord, Outcome};
-pub use embed::{EmbedProviderReport, Embedder, HashEmbedder, EMBEDDING_MAX_SEQUENCE_TOKENS};
+#[cfg(feature = "embed")]
+pub use embed::{EmbedProviderReport, Embedder, HashEmbedder};
 pub use eval_gate::{EvalGateConfig, MemoryRetrievalEvalGate};
 pub use fingerprint::PipelineFingerprint;
+pub use fingerprint::EMBEDDING_MAX_SEQUENCE_TOKENS;
 pub use graph::{
     is_canonical_relation, is_observation_relation, relation_category, EdgeRejection,
     EvidenceRelation, MemoryEdge, MemoryGraph, MemoryNode, RelationCategory, RelationDiagnostic,
@@ -50,6 +59,7 @@ pub use planner::{
 };
 pub use quant::{quantized_cosine, QuantizedVector};
 pub use registry::{MemoryRegistry, RegistryError};
+#[cfg(feature = "embed")]
 pub use retriever::{CortexProjection, LexicalHit, MemoryRetriever, ProjectedEntry, ProjectedKind};
 pub use review::{
     bound_memory_candidate_extraction_window, ExtractionWindowV1, ForegroundMemoryEmissionV1,

@@ -457,8 +457,37 @@ impl EngineClient {
                 }
             }
             let _on_exit = OnExit(closed_signal, Arc::clone(&map), subs.clone());
-            let first =
-                read_json_line_or_oversized::<_, Value>(&mut reader, &mut buf, frame_limit, limits);
+            // An engine can write stray lines on its stdout before hello (a native library's
+            // loading chatter); after hello the reader already drops them. Report and skip lines
+            // that are not frames until the hello deadline; a well-formed frame that is not hello
+            // is still a protocol error.
+            let hello_deadline = Instant::now() + hello_timeout;
+            let first = loop {
+                let r = read_json_line_or_oversized::<_, Value>(
+                    &mut reader,
+                    &mut buf,
+                    frame_limit,
+                    limits,
+                );
+                let stray = match &r {
+                    Ok(Some(Incoming::Frame(v))) => !v.is_object(),
+                    Err(FrameError::Json(_) | FrameError::InvalidUtf8 { .. }) => true,
+                    _ => false,
+                };
+                if !stray || Instant::now() >= hello_deadline {
+                    break r;
+                }
+                let note = match &r {
+                    Err(e) => e.to_string(),
+                    _ => "not a frame (not a JSON object)".to_string(),
+                };
+                if let Some(sink) = &sink {
+                    sink.report(&ProtocolError {
+                        line: String::from_utf8_lossy(&buf).into_owned(),
+                        message: format!("ignored before hello: {note}"),
+                    });
+                }
+            };
             let hello = match first {
                 Ok(Some(Incoming::Frame(h))) if h["type"] == "hello" => match &required {
                     Some(req) if !req.accepts(&h) => {
@@ -840,12 +869,21 @@ impl EngineClient {
     /// within `3 * grace + 500 ms` when another path (a monitor reaping it) already owns
     /// it and is itself bounded. [`ChildExit::reaped`] is false only if that bound passed.
     pub fn shutdown_detailed(&self, grace: Duration) -> ChildExit {
+        self.shutdown_detailed_with(grace, grace)
+    }
+
+    /// As [`Self::shutdown_detailed`], but the wait for the engine's reply to the shutdown request
+    /// is `request_timeout` (a hung engine costs that, then the kill steps cost `grace` each), so a
+    /// host can bound the first wait apart from the kill steps. `request_timeout == grace` is
+    /// [`Self::shutdown_detailed`]. A zero `request_timeout` sends the request and moves straight
+    /// on to the kill steps.
+    pub fn shutdown_detailed_with(&self, request_timeout: Duration, grace: Duration) -> ChildExit {
         let core = Arc::clone(&self.core);
         let (tx, rx) = channel();
         std::thread::spawn(move || {
-            let _ = tx.send(core.call("shutdown", json!({}), None, Some(grace)));
+            let _ = tx.send(core.call("shutdown", json!({}), None, Some(request_timeout)));
         });
-        let _ = rx.recv_timeout(grace);
+        let _ = rx.recv_timeout(request_timeout);
         let taken = self
             .core
             .child

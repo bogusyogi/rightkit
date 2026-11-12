@@ -22,7 +22,7 @@
 //! `docs/canon/daemon-master-canon-atoms.md`.
 
 use crate::assurance_broker::{ToolReceipt, HOST_ISSUER, SCHEMA};
-use rightkit_agent_tools::coding_tools::{ToolResult, WorkspaceMutation};
+use rightkit_agent_coding_tools::{ToolResult, WorkspaceMutation};
 use std::fmt;
 
 #[derive(Debug, Clone, PartialEq, Eq)]

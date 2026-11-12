@@ -82,7 +82,7 @@ async fn list_mcp_handler(
 async fn mcp_server_status_handler() -> Json<serde_json::Value> {
     let mut read_only_tools = Vec::new();
     let mut mutating_tools = Vec::new();
-    for capability in rightkit_agent_tools::coding_tools::default_tool_capabilities() {
+    for capability in rightkit_agent_coding_tools::default_tool_capabilities() {
         if capability.read_only {
             read_only_tools.push(capability.name);
         } else {

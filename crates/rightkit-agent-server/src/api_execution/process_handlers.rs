@@ -94,10 +94,10 @@ async fn create_execution_process(
     };
     let persistence = match body.persistence.as_deref().unwrap_or("inline") {
         "inline" => {
-            rightkit_agent_tools::coding_tools::background_shell::ProcessPersistence::Inline
+            rightkit_agent_coding_tools::background_shell::ProcessPersistence::Inline
         }
         "service" => {
-            rightkit_agent_tools::coding_tools::background_shell::ProcessPersistence::Service
+            rightkit_agent_coding_tools::background_shell::ProcessPersistence::Service
         }
         other => {
             return Err(ExecutionError::bad_request(format!(
@@ -145,9 +145,9 @@ async fn create_execution_process(
     // them.
     let adapter: std::sync::Arc<dyn rightkit_sandbox::execution::ProcessLaunchAdapter> =
         std::sync::Arc::new(
-            rightkit_agent_tools::coding_tools::process_resource_authority::GovernedProcessLaunchAdapter::new(
-                rightkit_agent_tools::coding_tools::process_launch::LocalProcessLaunchAdapter,
-                rightkit_agent_tools::coding_tools::process_resource_authority::require_process_resource_governor()
+            rightkit_agent_coding_tools::process_resource_authority::GovernedProcessLaunchAdapter::new(
+                rightkit_agent_coding_tools::process_launch::LocalProcessLaunchAdapter,
+                rightkit_agent_coding_tools::process_resource_authority::require_process_resource_governor()
                     .map_err(|error| ExecutionError {
                         status: StatusCode::SERVICE_UNAVAILABLE,
                         message: error.to_string(),
@@ -171,14 +171,14 @@ async fn create_execution_process(
         env: Vec::new(),
     };
     let shell_id =
-        rightkit_agent_tools::coding_tools::background_shell::spawn_managed_channel_with_kind(
+        rightkit_agent_coding_tools::background_shell::spawn_managed_channel_with_kind(
             adapter,
             spec,
             channel,
             program,
             &live.background_shells,
             None,
-            rightkit_agent_tools::coding_tools::background_shell::BgExecutionTarget {
+            rightkit_agent_coding_tools::background_shell::BgExecutionTarget {
                 backend_id: Some("local".to_string()),
                 workspace_id: live.execution_workspace_id.clone(),
                 network_profile: live.execution_network_profile.clone(),
@@ -444,15 +444,15 @@ enum UnacknowledgedInputReconciliationChoice {
 }
 
 impl From<UnacknowledgedInputReconciliationChoice>
-    for rightkit_agent_tools::coding_tools::background_shell::UnacknowledgedInputDecision
+    for rightkit_agent_coding_tools::background_shell::UnacknowledgedInputDecision
 {
     fn from(choice: UnacknowledgedInputReconciliationChoice) -> Self {
         match choice {
             UnacknowledgedInputReconciliationChoice::Delivered => {
-                rightkit_agent_tools::coding_tools::background_shell::UnacknowledgedInputDecision::ReconcileAsDelivered
+                rightkit_agent_coding_tools::background_shell::UnacknowledgedInputDecision::ReconcileAsDelivered
             }
             UnacknowledgedInputReconciliationChoice::Lost => {
-                rightkit_agent_tools::coding_tools::background_shell::UnacknowledgedInputDecision::ReconcileAsLost
+                rightkit_agent_coding_tools::background_shell::UnacknowledgedInputDecision::ReconcileAsLost
             }
         }
     }

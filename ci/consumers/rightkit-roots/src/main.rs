@@ -1,10 +1,10 @@
-// rightkit-roots 0.1.0 registry consumer, outside the workspace, pinning `rightkit-roots =0.1.0`
+// rightkit-roots 0.2.0 registry consumer, outside the workspace, pinning `rightkit-roots =0.2.0`
 // exactly (no features exist). The crate is run mode, the suite root, app roots and root cutover,
 // moved unchanged from rightkit-daemon 0.7.0.
 //
 // Proves: `mode::{AppId, decide, roots_with, Mode, ModeInput}` against a fake input, the
 // per-user default's shape (resolved only), `Suite::{at, per_run_temp, service_dir, data_dir,
-// app_root}`, `valid_app_name`, `valid_service_name`, `AppRoot::{lock_writer, migrate_from,
+// app_root}`, `valid_app_name`, `AppRoot::{lock_writer, migrate_from,
 // migration_state}`, `lock::try_lock_exclusive`, `RootCutover::status`, `CUTOVER_RECORD`, and the
 // `app_dirs` and `StateDir` re-exports.
 // Does not prove: a cutover run, recovery or retirement (PK07 does), migration options, Windows
@@ -14,8 +14,8 @@
 use rightkit_roots::lock::try_lock_exclusive;
 use rightkit_roots::mode::{self, AppId, Mode, ModeInput};
 use rightkit_roots::{
-    valid_app_name, valid_service_name, MigrationOutcome, MigrationState, RootCutover, Suite,
-    SuiteError, CUTOVER_RECORD, SHARED_DIR_NAME, SUITE_DIR_NAME,
+    valid_app_name, MigrationOutcome, MigrationState, RootCutover, Suite, SuiteError,
+    CUTOVER_RECORD, SHARED_DIR_NAME, SUITE_DIR_NAME,
 };
 use std::error::Error;
 use std::fs;
@@ -90,8 +90,6 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     assert!(valid_app_name("RkRoots"));
     assert!(!valid_app_name("../escape"));
-    assert!(valid_service_name("speech-1"));
-    assert!(!valid_service_name("Speech"));
     ok("name rules");
 
     // App root: inside a non-canonical suite it lives under <root>/apps.
@@ -150,6 +148,6 @@ fn main() -> Result<(), Box<dyn Error>> {
     assert_eq!(rightkit_roots::app_dirs::DEFAULT_ORG, SUITE_DIR_NAME);
     ok("app_dirs and StateDir re-exports");
 
-    println!("OK rightkit-roots 0.1.0 (registry consumer)");
+    println!("OK rightkit-roots 0.2.0 (registry consumer)");
     Ok(())
 }

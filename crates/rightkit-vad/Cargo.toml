@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-vad"
-version = "0.1.3"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.98.0"
 publish = true
@@ -20,7 +20,7 @@ name = "rightkit_vad"
 path = "src/lib.rs"
 
 [dependencies]
-rightkit-onnx = { path = "../rightkit-onnx", version = "0.2.9", optional = true }
+rightkit-onnx = { path = "../rightkit-onnx", version = "0.3.0", optional = true }
 
 [features]
 # Default: the Silero scorer over ONNX Runtime. The crate fetches and copies no

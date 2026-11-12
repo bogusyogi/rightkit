@@ -62,7 +62,7 @@ use std::sync::{Arc, Mutex};
 
 use rightkit_agent_config::{ConfigLoader, HostConfig, ProviderRouteConfig};
 use rightkit_agent_engine_protocol::TranscriptMessage;
-use rightkit_agent_tools::coding_tools::ToolRegistry;
+use rightkit_agent_coding_tools::ToolRegistry;
 
 use crate::provider_client::{ProviderLlmClient, ProviderRoute};
 

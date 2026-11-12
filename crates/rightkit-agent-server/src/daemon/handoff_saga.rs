@@ -12,7 +12,7 @@
 //!
 //! # Distinct from FM-167 / ENG-66
 //!
-//! `rightkit_agent_tools::coding_tools::handoff::HandoffController` fences a *different*
+//! `rightkit_agent_coding_tools::handoff::HandoffController` fences a *different*
 //! mechanism: client-surface session continuity across `Local`/`Cloud`/
 //! `Computer` execution targets (FM-167). The canon amendment at the bottom
 //! of `docs/canon/daemon-master-canon-atoms.md`'s pre-lock section is

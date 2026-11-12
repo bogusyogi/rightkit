@@ -4,7 +4,7 @@
 //! fall back to cwd; that is the defect this replaces).
 
 use crate::model::{Error, Result};
-use rightkit_daemon::Suite;
+use rightkit_roots::Suite;
 use std::path::PathBuf;
 
 /// `<suite>/automation`, created owner-only. Honours `RIGHTKIT_SUITE_ROOT`.

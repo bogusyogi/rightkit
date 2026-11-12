@@ -240,7 +240,7 @@ fn effective_run_budget(state: &DaemonState, parent_id: &str) -> RunSubagentBudg
         let goal = lock_recover(&parent.goal, "session.goal").clone();
         goal.and_then(|goal_text| {
             let teams = lock_recover(&state.live_teams, "live_teams").clone();
-            let snapshot: Vec<rightkit_agent_tools::coding_tools::TeamDefinition> = teams
+            let snapshot: Vec<rightkit_agent_coding_tools::TeamDefinition> = teams
                 .values()
                 .filter_map(|team| team.max_workers.map(|_| team.clone()))
                 .collect();
@@ -259,7 +259,7 @@ fn effective_run_budget(state: &DaemonState, parent_id: &str) -> RunSubagentBudg
 /// task graph already uses.
 fn effective_max_workers(
     configured: usize,
-    team: Option<&rightkit_agent_tools::coding_tools::TeamDefinition>,
+    team: Option<&rightkit_agent_coding_tools::TeamDefinition>,
 ) -> usize {
     match (
         configured,
@@ -274,7 +274,7 @@ fn effective_max_workers(
 fn native_spawn_task_spec(
     task_id: String,
     payload: String,
-    options: &rightkit_agent_tools::coding_tools::SubagentSpawnOptions,
+    options: &rightkit_agent_coding_tools::SubagentSpawnOptions,
     requested_tier: u8,
 ) -> TaskSpec {
     let task = TaskSpec::new(task_id, payload).with_tier(requested_tier);
@@ -289,7 +289,7 @@ impl DaemonState {
     /// moved to a destination runtime.
     pub(crate) fn handoff_intake_is_fenced(&self, session_id: &str) -> bool {
         let _controller = &self.handoff_controller;
-        rightkit_agent_tools::coding_tools::handoff::HandoffController::is_in_flight(session_id)
+        rightkit_agent_coding_tools::handoff::HandoffController::is_in_flight(session_id)
     }
 }
 
@@ -299,13 +299,13 @@ impl DaemonState {
 /// wall-clock ceiling, conduit closure), which classify by their text.
 pub(crate) type SubagentFailureKindSlot = std::sync::Arc<std::sync::Mutex<Option<String>>>;
 
-impl rightkit_agent_tools::coding_tools::SubagentSpawner for DaemonState {
+impl rightkit_agent_coding_tools::SubagentSpawner for DaemonState {
     fn spawn(
         &self,
         role: &str,
         task: &str,
         parent_session_id: &str,
-        options: rightkit_agent_tools::coding_tools::SubagentSpawnOptions,
+        options: rightkit_agent_coding_tools::SubagentSpawnOptions,
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<String, String>> + Send>> {
         self.spawn_with_failure_kind(
             role,
@@ -323,7 +323,7 @@ impl DaemonState {
         role: &str,
         task: &str,
         parent_session_id: &str,
-        options: rightkit_agent_tools::coding_tools::SubagentSpawnOptions,
+        options: rightkit_agent_coding_tools::SubagentSpawnOptions,
         failure_kind_slot: SubagentFailureKindSlot,
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<String, String>> + Send>> {
         let state = self.clone();
@@ -339,7 +339,7 @@ impl DaemonState {
             // child `driver_bindings` row with `parent_agent_id` set,
             // and returns the structured `AgentResult` projected onto
             // its `final_text`.
-            if let Some(rightkit_agent_tools::coding_tools::SpawnRuntimeKind::AuthenticatedCli {
+            if let Some(rightkit_agent_coding_tools::SpawnRuntimeKind::AuthenticatedCli {
                 ..
             }) = &options.runtime
             {
@@ -361,7 +361,7 @@ impl DaemonState {
             // Codex's continuation form re-attaches to an existing child
             // instead of creating a second transcript. Validate ownership
             // before enqueueing so a parent cannot steer a foreign child.
-            if let Some(rightkit_agent_tools::coding_tools::SubagentContinuity::ContinueAgent {
+            if let Some(rightkit_agent_coding_tools::SubagentContinuity::ContinueAgent {
                 continue_agent_id,
             }) = &options.continuity
             {
@@ -1043,10 +1043,10 @@ impl DaemonState {
     }
 }
 
-impl rightkit_agent_tools::coding_tools::MessageDispatcher for DaemonState {
+impl rightkit_agent_coding_tools::MessageDispatcher for DaemonState {
     fn dispatch(
         &self,
-        message: rightkit_agent_tools::coding_tools::MessageDispatch,
+        message: rightkit_agent_coding_tools::MessageDispatch,
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<String, String>> + Send>> {
         let state = self.clone();
         Box::pin(async move {
@@ -1132,10 +1132,10 @@ impl rightkit_agent_tools::coding_tools::MessageDispatcher for DaemonState {
     }
 }
 
-impl rightkit_agent_tools::coding_tools::TeamDirectory for DaemonState {
+impl rightkit_agent_coding_tools::TeamDirectory for DaemonState {
     fn create_team(
         &self,
-        team: rightkit_agent_tools::coding_tools::TeamDefinition,
+        team: rightkit_agent_coding_tools::TeamDefinition,
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<String, String>> + Send>> {
         let teams = self.live_teams.clone();
         let store_path = self.team_store_path.clone();

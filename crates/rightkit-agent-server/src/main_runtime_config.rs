@@ -279,7 +279,7 @@ pub(crate) fn load_current_merged_config() -> rightkit_agent_config::HostConfig 
 
 fn web_search_config_from_config(
     config: &rightkit_agent_config::HostConfig,
-) -> Option<rightkit_agent_tools::coding_tools::WebSearchConfig> {
+) -> Option<rightkit_agent_coding_tools::WebSearchConfig> {
     let provider = config
         .tools
         .web_search_provider
@@ -303,7 +303,7 @@ fn web_search_config_from_config(
     if provider != "tinyfish" && api_key.is_empty() {
         return None;
     }
-    Some(rightkit_agent_tools::coding_tools::WebSearchConfig {
+    Some(rightkit_agent_coding_tools::WebSearchConfig {
         provider,
         api_key: api_key.to_string(),
     })

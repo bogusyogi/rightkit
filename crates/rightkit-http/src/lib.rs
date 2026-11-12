@@ -60,13 +60,9 @@ pub use secret::{MemorySecretStore, Secret, SecretError, SecretStore};
 pub use sse::{EofPolicy, SseDecoder, SseEvent, SseReader};
 #[cfg(feature = "untrusted")]
 pub use untrusted::{
-    wrap_untrusted_web_text, wrap_untrusted_web_text_coderight, wrap_untrusted_web_text_with,
-    WrapOptions,
+    wrap_untrusted_envelope, wrap_untrusted_web_text, wrap_untrusted_web_text_with,
+    EnvelopeOptions, WrapOptions,
 };
 
 #[cfg(feature = "async")]
 pub use async_client::{AsyncClient, AsyncStreamResponse, BodyStream, SseStream};
-
-#[cfg(feature = "agent_host")]
-#[allow(missing_docs, clippy::all, rustdoc::all, unused)]
-pub mod http_client;

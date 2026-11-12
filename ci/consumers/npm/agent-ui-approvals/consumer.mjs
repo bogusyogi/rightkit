@@ -9,7 +9,7 @@ const result = { recipeId, schemaVersion: 1, ok: false, host: { platform: proces
 const failure = error => ({ name: error?.name ?? 'Error', message: String(error?.message ?? error) });
 const required = name => { assert(process.env[name], `${name} is required`); return process.env[name]; };
 const surface = [".", "./package.json", "./styles.css"];
-const expected = ["setHostAppName", "hostAppName", "AgentApprovalCard"];
+const expected = ["setHostAppName", "hostAppName", "AgentApprovalCard", "agentScopes", "auditScope"];
 
 try {
   const archive = path.resolve(required('RIGHTKIT_CONSUMER_ARTIFACT'));
@@ -36,7 +36,14 @@ try {
     assert.deepEqual(Object.keys(manifest.exports ?? {}).sort(), surface);
     const mod = await import(provenance.entries['@rightkit/agent-ui-approvals']);
     for (const key of expected) assert.ok(key in mod, `missing root export ${key}`);
-    return { checked: expected, exportKeys: surface.length };
+    // Both agent wires: gateway 0.3.0 (scopes/scope) and older (accounts/account_id).
+    assert.deepEqual(mod.agentScopes({ scopes: ['me@example.com'] }), ['me@example.com']);
+    assert.deepEqual(mod.agentScopes({ accounts: ['me@example.com'] }), ['me@example.com']);
+    assert.deepEqual(mod.agentScopes({}), []);
+    assert.equal(mod.auditScope({ scope: 'me@example.com' }), 'me@example.com');
+    assert.equal(mod.auditScope({ account_id: 'me@example.com' }), 'me@example.com');
+    assert.equal(mod.auditScope({}), null);
+    return { checked: expected, exportKeys: surface.length, wires: 2 };
   });
 
   assert.equal(result.scenarios.length, 1);

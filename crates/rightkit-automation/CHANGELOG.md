@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- The `paths` feature depends on `rightkit-roots` (for `Suite`) instead of `rightkit-daemon`. No behaviour change.
+
+## 0.7.0
+
+- Breaking for dependents: dependency requirements `rightkit-daemon` 0.5 -> 0.8. 0.6.8 was published before these requirements were raised; a semver-breaking dependency is a breaking change, so they ship as 0.7.0 instead of changing 0.6.8 in place (#1572). No source change in this crate since 0.6.8.
+
 ## 0.6.8
 - Docs: the `secret` module links `Action::FillSecret` by its crate path; the doc build (`-D warnings`) failed on the unresolved link.
 

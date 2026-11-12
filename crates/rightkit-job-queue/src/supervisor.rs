@@ -574,6 +574,9 @@ pub struct SupervisorConfig {
     pub health: Option<HealthCheck>,
     /// Grace for the engine's own `shutdown` request, and for reaping.
     pub shutdown_grace: Duration,
+    /// How long to wait for the engine's reply to the `shutdown` request before the kill steps;
+    /// `None` is `shutdown_grace`.
+    pub shutdown_request_timeout: Option<Duration>,
     /// Most recent stderr bytes kept for diagnostics.
     pub stderr_tail_bytes: usize,
     redact: Option<Arc<Redactor>>,
@@ -609,6 +612,7 @@ impl SupervisorConfig {
             restart: RestartPolicy::default(),
             health: None,
             shutdown_grace: Duration::from_secs(2),
+            shutdown_request_timeout: None,
             stderr_tail_bytes: 16 * 1024,
             redact: None,
             on_stderr: None,
@@ -808,6 +812,13 @@ impl SupervisorConfig {
     }
     pub fn with_shutdown_grace(mut self, d: Duration) -> Self {
         self.shutdown_grace = d;
+        self
+    }
+    /// Bound the wait for the engine's reply to the `shutdown` request apart from `shutdown_grace`
+    /// (which still bounds each kill and reap step). A wedged engine then costs
+    /// `request timeout + grace` instead of `2 * grace`. Default: `shutdown_grace`, as before.
+    pub fn with_shutdown_request_timeout(mut self, d: Duration) -> Self {
+        self.shutdown_request_timeout = Some(d);
         self
     }
     /// Redact (or drop, by returning `None`) each stderr line before it is
@@ -1355,7 +1366,10 @@ impl EngineSupervisor {
         let mut exit = ChildExit::default();
         let mut worst = ShutdownOutcome::NoEngine;
         for c in &clients {
-            let e = c.shutdown_detailed(grace);
+            let e = c.shutdown_detailed_with(
+                self.sh.cfg.shutdown_request_timeout.unwrap_or(grace),
+                grace,
+            );
             if e.pid.is_some() {
                 let outcome = if e.reaped && !e.killed {
                     ShutdownOutcome::Exited
@@ -1447,6 +1461,14 @@ impl EngineSupervisor {
             unreaped: self.unreaped_children(),
             elapsed: started.elapsed(),
         }
+    }
+
+    /// Register demand for the engine, then wait for it: an `OnDemand` engine that is down
+    /// restarts (within its budget), and this returns once it is `Ready`. A spent budget answers
+    /// a retryable `restart_budget_spent` without latching a terminal failure; calling again after
+    /// the budget window has moved on starts the engine. [`Self::wait_ready`] is not demand.
+    pub fn demand_ready(&self) -> JobResult<()> {
+        self.ready_client().map(|_| ())
     }
 
     fn ready_client(&self) -> JobResult<(Arc<EngineClient>, u64)> {
@@ -1646,6 +1668,14 @@ fn ready_shared(sh: &Arc<Shared>) -> JobResult<(Arc<EngineClient>, u64)> {
                             sh.emit(&g, "restarting on demand", None);
                             schedule_restart(sh, permit);
                             continue;
+                        }
+                        RestartOutcome::Exhausted => {
+                            // Not terminal: the demand stays pending, so a call once the
+                            // rolling window has moved on starts the engine again.
+                            return Err(JobError::supervisor_retryable(
+                                "restart_budget_spent",
+                                "engine is down and its restart budget is spent; retry later",
+                            ));
                         }
                         _ => {
                             let text = "engine is down and its restart budget is spent";

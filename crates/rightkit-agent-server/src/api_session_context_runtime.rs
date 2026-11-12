@@ -25,7 +25,7 @@ pub(crate) fn session_start_snapshot_block(workspace: &std::path::Path) -> Optio
         format!("Workspace root: {}", workspace.display()),
     ];
 
-    match rightkit_agent_tools::coding_tools::git_read::workspace_snapshot(
+    match rightkit_agent_coding_tools::git_read::workspace_snapshot(
         workspace,
         MAX_GIT_STATUS_LINES,
     ) {

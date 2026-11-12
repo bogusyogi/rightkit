@@ -177,6 +177,15 @@ Check the result against the old app in light and dark. Each value that differs 
 ### Known gaps for the recipe
 
 - `AppShell`'s built-in titlebar does not take `captionGlyphs` or `maximized`. Use the `titlebar` prop with a `Titlebar` for those.
+
+### Windows that cannot be minimised or maximised
+
+`CaptionControls` takes `buttons={{ minimize?: boolean, maximize?: boolean }}`; `Titlebar` and `AppShell` take the same object as `captionButtons`. `false` leaves that button out of the markup, so no CSS is needed to hide it. Close is always drawn; the default is all three.
+
+```tsx
+<AppShell captionButtons={{ maximize: false }} ... />
+<CaptionControls adapter={windowAdapter} buttons={{ minimize: false, maximize: false }} />
+```
 - Tokens size the bar. They do not move the titlebar's title, the sidebar's nav, or the content plane. Use `slots` or a custom titlebar for those.
 
 ### Headless toggle and segmented control

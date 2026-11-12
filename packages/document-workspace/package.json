@@ -1,6 +1,6 @@
 {
   "name": "@rightkit/document-workspace",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Host-configured multi-format document workspace shell: tabs, sidebar, document router, loaders, savers, actions, settings and the PDF editor pane.",
   "license": "MIT OR Apache-2.0",
   "type": "module",

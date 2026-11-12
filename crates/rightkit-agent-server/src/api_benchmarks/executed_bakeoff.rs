@@ -9,7 +9,7 @@ use rightkit_agent_orchestration::coding::{
     TaskIdentity, ToolCallTrace, VerificationContract, Worker, WorkerOutcome, WorkerResult,
     WorkerTask,
 };
-use rightkit_agent_tools::coding_tools::SubagentSpawner;
+use rightkit_agent_coding_tools::SubagentSpawner;
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::path::{Path, PathBuf};
@@ -565,7 +565,7 @@ fn default_context_class() -> ContextClass {
 struct DaemonSpawnWorker {
     state: DaemonState,
     parent_session_id: String,
-    spawn_options: rightkit_agent_tools::coding_tools::SubagentSpawnOptions,
+    spawn_options: rightkit_agent_coding_tools::SubagentSpawnOptions,
 }
 
 #[async_trait]
@@ -950,8 +950,8 @@ fn bakeoff_tools(mutable: bool) -> Vec<String> {
 fn bakeoff_spawn_options(
     cost_limit_usd: Option<f64>,
     mutable: bool,
-) -> rightkit_agent_tools::coding_tools::SubagentSpawnOptions {
-    rightkit_agent_tools::coding_tools::SubagentSpawnOptions {
+) -> rightkit_agent_coding_tools::SubagentSpawnOptions {
+    rightkit_agent_coding_tools::SubagentSpawnOptions {
         max_iterations: Some(8),
         permission_mode: Some(if mutable {
             rightkit_agent_policy::PermissionMode::Bypass
@@ -961,7 +961,7 @@ fn bakeoff_spawn_options(
         allowed_tools: bakeoff_tools(mutable),
         budget_microusd: cost_limit_usd
             .map(|limit| (limit * 1_000_000.0).floor().max(1.0).min(u64::MAX as f64) as u64),
-        ..rightkit_agent_tools::coding_tools::SubagentSpawnOptions::default()
+        ..rightkit_agent_coding_tools::SubagentSpawnOptions::default()
     }
 }
 

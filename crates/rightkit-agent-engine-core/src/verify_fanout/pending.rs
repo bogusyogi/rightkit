@@ -16,7 +16,7 @@
 
 use std::collections::HashMap;
 
-use rightkit_agent_tools::coding_tools::ToolResult;
+use rightkit_agent_coding_tools::ToolResult;
 
 /// Accumulated required-verification debt for the current turn.
 #[derive(Debug, Default)]

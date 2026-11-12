@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.7.0
+
+- Breaking for dependents: dependency requirements `rightkit-onnx` 0.2 -> 0.3. 0.6.5 was published before these requirements were raised; a semver-breaking dependency is a breaking change, so they ship as 0.7.0 instead of changing 0.6.5 in place (#1572). No source change in this crate since 0.6.5.
+
 ## 0.6.5
 
 - Manifest only: dependency requirements and workspace metadata changed since 0.6.4 was published; no source change.

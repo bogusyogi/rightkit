@@ -1,6 +1,6 @@
 //! Authenticated context bridge used by bounded code-mode programs.
 
-use rightkit_agent_tools::coding_tools::{
+use rightkit_agent_coding_tools::{
     code_mode::{ContextToolDispatcher, NestedToolDispatcher, NestedToolFuture},
     context::ToolContext,
     ToolResult,

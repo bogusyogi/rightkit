@@ -7,5 +7,5 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-context = { version = "=0.1.0" }
+rightkit-context = { version = "=0.2.0" }
 

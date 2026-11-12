@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-models"
-version = "0.7.0"
+version = "0.7.1"
 edition = "2021"
 rust-version = "1.98.0"
 license = "MIT OR Apache-2.0"
@@ -26,9 +26,9 @@ dev-worker-override = []
 [dependencies]
 rightkit-fs = { version = "0.4.9", path = "../rightkit-fs", default-features = false, features = ["digest", "fs", "lock"] }
 # One suite-root rule for every Right Suite crate: `Suite::resolve`, always the per-user default (no test mode).
-rightkit-roots = { version = "0.1.0", path = "../rightkit-roots" }
+rightkit-roots = { version = "0.2.0", path = "../rightkit-roots" }
 # Every outbound request goes through rightkit-http: address policy, per-hop redirect vetting.
-rightkit-http = { version = "0.3.9", path = "../rightkit-http", default-features = false }
+rightkit-http = { version = "0.4.0", path = "../rightkit-http", default-features = false }
 ed25519-dalek = { version = "3", optional = true }
 base64 = { version = "0.23", optional = true }
 url = { version = "2", optional = true }
@@ -41,6 +41,7 @@ flate2 = "1"
 dirs = "7"
 getrandom = "0.4"
 zip = { version = "9", default-features = false, features = ["deflate"] }
+
 
 [package.metadata.rightkit]
 continuous = false

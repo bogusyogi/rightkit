@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.0
+
+- Requires `rightkit-http` 0.4.0 (a breaking release), so this release is breaking too.
+
 ## 0.1.3
 
 - `extraction::publish_replacing` is now a re-export of `rightkit_fs::publish_replacing` (needs `rightkit-fs` 0.4.13), and the private copy in `carousel` is gone: one implementation, in `rightkit-fs`. Same signature and behaviour.

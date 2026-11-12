@@ -15,7 +15,7 @@ pub(crate) fn feed_session_message(
     channel: &str,
     message: &str,
 ) -> Option<u64> {
-    rightkit_agent_tools::coding_tools::async_inbox::push(
+    rightkit_agent_coding_tools::async_inbox::push(
         target_session_id,
         "session_message",
         format!("Message from {from_session_id} via {channel}."),

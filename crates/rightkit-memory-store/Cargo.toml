@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-memory-store"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Durable memory store: SQLite memory store, installation identity, scopes and durable telemetry."
@@ -16,7 +16,7 @@ path = "src/lib.rs"
 [dependencies]
 rightkit-logs = { version = "0.4.0", default-features = false, path = "../rightkit-logs" }
 rightkit-time = { version = "0.1.1", path = "../rightkit-time" }
-rightkit-context-protocol = { version = "0.1.0", path = "../rightkit-context-protocol" }
+rightkit-context-protocol = { version = "0.2.0", path = "../rightkit-context-protocol" }
 rightkit-db = { version = "0.5.3", features = ["bundled"], path = "../rightkit-db" }
 rightkit-fs = { version = "0.4.9", features = ["lock", "digest"], path = "../rightkit-fs" }
 serde = { version = "1", features = ["derive"] }

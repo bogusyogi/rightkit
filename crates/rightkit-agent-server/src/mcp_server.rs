@@ -54,7 +54,7 @@ impl SessionGateway {
             .trim_end_matches('/')
             .to_string();
         // No proxy, no redirects: the capability token goes to the daemon host only.
-        let client = rightkit_http::http_client::daemon_client_probe(
+        let client = rightkit_agent_daemon::http_client::daemon_client_probe(
             &daemon_url,
             CONNECT_TIMEOUT,
             REQUEST_TIMEOUT,
@@ -95,7 +95,7 @@ impl SessionGateway {
         let body: Value = response
             .json()
             .map_err(|error| format!("gateway tools response was not JSON: {error}"))?;
-        if !rightkit_http::http_client::is_success(status) {
+        if !rightkit_agent_daemon::http_client::is_success(status) {
             return Err(format!("gateway tools rejected ({status}): {body}"));
         }
         body.get("tools")
@@ -134,7 +134,7 @@ impl SessionGateway {
         let body: Value = response
             .json()
             .map_err(|error| format!("gateway tool response was not JSON: {error}"))?;
-        if !rightkit_http::http_client::is_success(status) {
+        if !rightkit_agent_daemon::http_client::is_success(status) {
             return Err(format!("gateway tool call rejected ({status}): {body}"));
         }
         Ok(body)

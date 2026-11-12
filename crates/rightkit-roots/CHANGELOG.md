@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.0
+
+- Removed `valid_service_name` and `MAX_SERVICE_NAME_LEN`: they are `rightkit-daemon`'s and this crate never used them. The crate is unpublished, so no deprecated copy is kept.
+- `mode::AppId` carries the layout an app really has, additively: `without_org()` (flat `<per-user local folder>/<dir_name>`, the folder `rightkit_fs::app_dirs::AppDirs::local` gives), `with_legacy_names(..)` (an existing legacy folder is used when the current one is missing), and `with_dev_dir(..)` plus `dev_variant()` (the dev or QA folder, chosen at compile time). `mode::roots` resolves a flat app through `rightkit-fs` `app_dirs`, so HeardRight's installed `<Local AppData>\HeardRightNext` and `~/Library/Application Support/HeardRightNext` come from here; an organisation-layout app resolves to the same `<Orthic Labs>/<dir_name>` as before. `ModeInput` gains the provided methods `app_dirs` and `is_dir` so tests inject the base folders of any OS.
+- `AppRoot::for_app(&AppRoots)`: the app root for whatever folder `mode::roots` resolved, with the same name check, case-conflict check, private directory, writer lock, containment and cutover as `AppRoot::new`.
+- Docs: corrected what the Windows per-user folder resolution of `rightkit_fs::app_dirs` reads (the `User Shell Folders` value expanded against the account's environment block, not the process environment, and not `SHGetKnownFolderPath` for Local AppData), and what unifying it with the suite base would need. No base folder changed.
+- `app_dirs` is documented as the public entry for the per-user folders. Its code stays in `rightkit-fs`: moving it here would make `rightkit-fs` depend on this crate (a cycle).
+
 ## 0.1.0 (unpublished)
 
 - New crate. Run mode, the suite root, app roots and root cutover moved here from `rightkit-daemon` 0.7.0 with `git mv` (`mode.rs`, `suite.rs`, `app_root.rs`, `root_cutover.rs`; 4,643 lines), with the exclusive lock file they share with the daemon's host election (`LockedFile`, `try_lock_exclusive`, from `discovery.rs`, now the public `lock` module). The 2026-11-11 shape review (docs/audits/2026-11-11-shape-matrix/reports/family-foundation-runtime.md, rightkit-daemon section) found this path and run-mode policy in the local-service crate, linked by ViewRight and ScrapeRight only for `mode`, `AppRoot` and `Suite` and by `rightkit-models` only for `Suite::resolve`; its action: "Move mode/Suite/AppRoot/root_cutover to one roots crate (or rightkit-fs) and make daemon, models and qa depend on that."

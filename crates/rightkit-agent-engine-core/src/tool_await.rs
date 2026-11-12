@@ -71,9 +71,9 @@ pub(crate) async fn supervise_tool_await<F>(
     tool: &str,
     deadline: Duration,
     fut: F,
-) -> rightkit_agent_tools::coding_tools::ToolResult
+) -> rightkit_agent_coding_tools::ToolResult
 where
-    F: Future<Output = rightkit_agent_tools::coding_tools::ToolResult>,
+    F: Future<Output = rightkit_agent_coding_tools::ToolResult>,
 {
     if !is_supervised_tool(tool) {
         return fut.await;
@@ -90,7 +90,7 @@ where
                 seconds = timeout.seconds,
                 "non-provider await timed out"
             );
-            rightkit_agent_tools::coding_tools::ToolResult::error(timeout.to_string())
+            rightkit_agent_coding_tools::ToolResult::error(timeout.to_string())
         }
     }
 }

@@ -236,7 +236,7 @@ fn mcp_resource_command_row(resource: &rightkit_mcp::agent_mcp::McpResourceDef) 
 }
 
 fn mcp_server_mode_tool_counts() -> (usize, usize) {
-    let capabilities = rightkit_agent_tools::coding_tools::default_tool_capabilities();
+    let capabilities = rightkit_agent_coding_tools::default_tool_capabilities();
     let read_only = capabilities.iter().filter(|tool| tool.read_only).count();
     let total = capabilities.len();
     (read_only, total.saturating_sub(read_only))

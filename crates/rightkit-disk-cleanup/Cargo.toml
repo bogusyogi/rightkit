@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-disk-cleanup"
-version = "0.1.2"
+version = "0.2.0"
 edition = "2024"
 rust-version = "1.98.0"
 description = "Disk usage scanning and safe cleanup: symlink-safe bounded scan, cleanup rules with evidence, duplicates, folder growth, crash-safe snapshot store and an undoable cleanup journal."

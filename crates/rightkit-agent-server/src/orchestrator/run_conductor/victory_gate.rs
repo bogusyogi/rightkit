@@ -8,14 +8,14 @@ impl DaemonState {
         session_id: &str,
         timeout: Duration,
     ) -> Result<String, String> {
-        use rightkit_agent_tools::coding_tools::SubagentSpawner;
+        use rightkit_agent_coding_tools::SubagentSpawner;
         match tokio::time::timeout(
             timeout,
             self.spawn(
                 role,
                 prompt,
                 session_id,
-                rightkit_agent_tools::coding_tools::SubagentSpawnOptions::default(),
+                rightkit_agent_coding_tools::SubagentSpawnOptions::default(),
             ),
         )
         .await

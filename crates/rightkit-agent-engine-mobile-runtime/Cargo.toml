@@ -19,7 +19,7 @@ crate-type = ["staticlib", "rlib"]
 rightkit-agent-engine-protocol = {version = "0.2.0", path = "../rightkit-agent-engine-protocol"}
 rightkit-agent-policy = {version = "0.1.0", path = "../rightkit-agent-policy"}
 rightkit-agent-engine-core = {version = "0.1.1", path = "../rightkit-agent-engine-core", default-features = false}
-rightkit-agent-tools = {version = "0.3.1", path = "../rightkit-agent-tools", features = ["coding_tools"]}
+rightkit-agent-coding-tools = { version = "0.1.0", path = "../rightkit-agent-coding-tools" }
 rightkit-llm = {version = "0.3.2", path = "../rightkit-llm", features = ["agent_providers"]}
 rightkit-agent-engine-history = {version = "0.1.1", path = "../rightkit-agent-engine-history"}
 rightkit-memory-client = { version = "0.1.0", path = "../rightkit-memory-client"}
@@ -32,10 +32,10 @@ serde_json = {version = "1"}
 tokio = {version = "1", default-features = false, features = ["rt-multi-thread", "sync", "time", "macros"]}
 url = {version = "2"}
 git2 = {version = "0.21.0", default-features = false, features = ["vendored-libgit2"]}
-rightkit-http = {version = "0.3.9", default-features = false, features = ["async"], path = "../rightkit-http"}
+rightkit-http = {version = "0.4.0", default-features = false, features = ["async"], path = "../rightkit-http"}
 rightkit-fs = {version = "0.4.9", features = ["fs", "lock", "json", "digest", "transaction"], path = "../rightkit-fs"}
 rightkit-crypto = {version = "0.1.0", path = "../rightkit-crypto"}
-rightkit-job-queue = {version = "0.5.1", default-features = false, path = "../rightkit-job-queue"}
+rightkit-job-queue = {version = "0.6.0", default-features = false, path = "../rightkit-job-queue"}
 wuff = {version = "0.2.9"}
 
 [features]

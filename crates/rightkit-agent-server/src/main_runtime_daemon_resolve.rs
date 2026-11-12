@@ -109,7 +109,7 @@ fn resolve_daemon_state_from_sources(
 /// an async context.
 fn blocking_health_reachable_repeated(base_url: &str) -> bool {
     let mut policy = rightkit_http::AddressPolicy::public_web();
-    if let Some(host) = rightkit_http::http_client::host_of(base_url) {
+    if let Some(host) = rightkit_agent_daemon::http_client::host_of(base_url) {
         policy = policy.allow_if(vec![host], |_| true);
     }
     let client = rightkit_http::Client::new(rightkit_http::ClientConfig {

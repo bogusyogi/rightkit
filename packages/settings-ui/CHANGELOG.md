@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.7.2
+
+- Fixed (#1572): `useSettings(backend)` keeps one store per backend object in the window (`WeakMap` read with `useSyncExternalStore`): one load, one revision, one serial write queue and one backend subscription however many consumers there are, and a write by one consumer shows in all of them at once, with or without `backend.subscribe`. The hook's return shape is unchanged. `createPreferenceStore` runs on the same store core.
+- Fixed (#1572): a failed write no longer puts back a value that was never stored. Each key still holding that write's value goes back to the last stored value (a key a later queued write has set again is left to it), and the document is read again once the queue drains.
+- Fixed (#1572): the shell adapter opens one event listener and one host subscription per `createShellBackends` instance and calls `rightkit_settings_unsubscribe` only when its last handler leaves, so the first consumer to unmount no longer silences the window.
+- Additive (#1572): `SettingsRevision` (`number | string`); `SettingsSnapshot` and `SettingsBackend` take it as a type parameter (default `number`), so a 64-bit hash revision can travel as a decimal string. The hooks only echo it.
+- Additive (#1572): `SettingBinding<T>` (`read(ctx)`, `write(ctx, value)`); `AppearanceOptions.binding` for a host that stores the theme under another key or vocabulary, and `UpdatesOptions.autoInstallBinding` for the automatic-install toggle. Defaults are unchanged (`appearance.theme`, `updates.autoInstall`).
+
 ## 0.7.1 — unpublished staging
 
 - Removed (Adrian, 2026-11-03: end-to-end tests only; a built harness page on a dev server is not end to end): the real-browser tests against a harness page, their harness, `vitest.config.ts` and the `test` and `pretest` scripts and the test-only devDependencies (`@rightkit/qa-chrome`, `vite`, `vitest`, `react-dom`, `@types/react-dom`). Nothing shipped changes.

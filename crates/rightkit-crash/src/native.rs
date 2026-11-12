@@ -85,7 +85,7 @@ fn dump_helper_path() -> Option<PathBuf> {
 /// written to stderr as one `rightkit-crash:` line. The artifact is
 /// local-only, like the panic hook's.
 pub fn capture_native(dir: &Path, kind: &str) -> Option<PathBuf> {
-    capture_native_with_secrets(dir, kind, &[])
+    capture_native_with_secrets(dir, kind, &[], DEFAULT_SAMPLE_SECS)
 }
 
 /// [`capture_native`] with the configured known secrets removed from the macOS sample text, for
@@ -94,13 +94,21 @@ pub(crate) fn capture_native_with_secrets(
     dir: &Path,
     kind: &str,
     secrets: &[String],
+    sample_secs: u8,
 ) -> Option<PathBuf> {
     std::fs::create_dir_all(dir).ok()?;
     let stamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0);
-    capture_detailed(dir, &crate::report::sanitize_kind(kind), stamp, secrets).artifact
+    capture_detailed(
+        dir,
+        &crate::report::sanitize_kind(kind),
+        stamp,
+        secrets,
+        sample_secs,
+    )
+    .artifact
 }
 
 /// Native capture of another process, `pid`, named by the caller (a supervised helper that hangs
@@ -112,8 +120,19 @@ pub(crate) fn capture_pid_detailed(
     stamp: u64,
     pid: u32,
     secrets: &[String],
+    sample_secs: u8,
 ) -> NativeOutcome {
-    capture_detailed_for(dir, kind, stamp, pid, secrets)
+    capture_detailed_for(dir, kind, stamp, pid, secrets, sample_secs)
+}
+
+/// macOS `sample` duration when the app sets none, in seconds.
+pub(crate) const DEFAULT_SAMPLE_SECS: u8 = 1;
+/// Longest accepted `sample` duration: the capture is abandoned after 6 s.
+const MAX_SAMPLE_SECS: u8 = 3;
+
+/// `secs` held to `1..=MAX_SAMPLE_SECS`, so a bad setting cannot run past the capture timeout.
+pub(crate) fn clamp_sample_secs(secs: u8) -> u8 {
+    secs.clamp(1, MAX_SAMPLE_SECS)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -132,8 +151,9 @@ pub(crate) fn capture_detailed(
     kind: &str,
     stamp: u64,
     secrets: &[String],
+    sample_secs: u8,
 ) -> NativeOutcome {
-    capture_detailed_for(dir, kind, stamp, std::process::id(), secrets)
+    capture_detailed_for(dir, kind, stamp, std::process::id(), secrets, sample_secs)
 }
 
 fn capture_detailed_for(
@@ -142,11 +162,19 @@ fn capture_detailed_for(
     stamp: u64,
     pid: u32,
     secrets: &[String],
+    sample_secs: u8,
 ) -> NativeOutcome {
     #[cfg(target_os = "macos")]
-    let outcome = platform::capture(dir, kind, stamp, pid, secrets);
+    let outcome = platform::capture(dir, kind, stamp, pid, secrets, sample_secs);
     #[cfg(not(target_os = "macos"))]
-    let outcome = NativeOutcome::from_option(platform::capture(dir, kind, stamp, pid, secrets));
+    let outcome = NativeOutcome::from_option(platform::capture(
+        dir,
+        kind,
+        stamp,
+        pid,
+        secrets,
+        sample_secs,
+    ));
     if let Some(note) = &outcome.note {
         let _ = std::io::Write::write_fmt(
             &mut std::io::stderr(),
@@ -356,7 +384,6 @@ mod platform {
     use std::time::{Duration, Instant};
 
     static IN_FLIGHT: AtomicBool = AtomicBool::new(false);
-    const SAMPLE_SECS: &str = "1";
     const TIMEOUT: Duration = Duration::from_secs(6);
 
     struct Guard;
@@ -372,6 +399,7 @@ mod platform {
         stamp: u64,
         pid: u32,
         secrets: &[String],
+        sample_secs: u8,
     ) -> NativeOutcome {
         if IN_FLIGHT.swap(true, Ordering::AcqRel) {
             return NativeOutcome::nothing();
@@ -392,7 +420,7 @@ mod platform {
         };
         let spawned = Command::new("/usr/bin/sample")
             .arg(pid.to_string())
-            .arg(SAMPLE_SECS)
+            .arg(super::clamp_sample_secs(sample_secs).to_string())
             .arg("-file")
             .arg(&raw)
             .stdout(Stdio::null())
@@ -469,6 +497,7 @@ mod platform {
         stamp: u64,
         pid: u32,
         _secrets: &[String],
+        _sample_secs: u8,
     ) -> Option<PathBuf> {
         if IN_FLIGHT.swap(true, Ordering::AcqRel) {
             return None;
@@ -528,6 +557,7 @@ mod platform {
         _stamp: u64,
         _pid: u32,
         _secrets: &[String],
+        _sample_secs: u8,
     ) -> Option<PathBuf> {
         None
     }

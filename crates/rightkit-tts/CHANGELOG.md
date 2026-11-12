@@ -3,6 +3,10 @@
 All notable changes to `rightkit-tts`. Versions follow Cargo semver; while the
 version is `0.x`, a minor bump may carry breaking changes.
 
+## 0.3.0
+
+- Breaking for dependents: dependency requirements `rightkit-onnx` 0.2 -> 0.3, `rightkit-tts-qwen` 0.2 -> 0.3. 0.2.5 was published before these requirements were raised; a semver-breaking dependency is a breaking change, so they ship as 0.3.0 instead of changing 0.2.5 in place (#1572). No source change in this crate since 0.2.5.
+
 ## 0.2.5 (unpublished)
 
 - Removed: the `dev-overrides` feature (and its forward to `rightkit-onnx`). An inherited `ORT_DYLIB_PATH` is stripped from the worker and never read in every build. Adrian, 2026-11-03: "dev mode, is mine. im the fucking owner, my data. no dummy data, no fucking made up shit. real data. snapshot and restore."

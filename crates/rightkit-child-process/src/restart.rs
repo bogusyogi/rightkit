@@ -209,8 +209,13 @@ impl RestartTracker {
         if self.policy.mode == RestartMode::OnDemand && !self.awaiting_demand {
             return RestartOutcome::AwaitingDemand;
         }
-        self.awaiting_demand = false;
-        self.schedule(at)
+        let outcome = self.schedule(at);
+        // A spent budget is not an answered demand: an on-demand host keeps waiting, so the
+        // next demand after the window has moved on can start the engine again.
+        if matches!(outcome, RestartOutcome::Restart(_)) {
+            self.awaiting_demand = false;
+        }
+        outcome
     }
 
     /// The running `generation` reported ready: the consecutive-failure count restarts from zero

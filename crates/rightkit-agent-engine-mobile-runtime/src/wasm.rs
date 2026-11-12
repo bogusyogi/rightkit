@@ -1,6 +1,6 @@
 //! iOS-owned WasmKit bridge for the shared `wasm_compute` model tool.
 
-use rightkit_agent_tools::coding_tools::wasm_compute::{
+use rightkit_agent_coding_tools::wasm_compute::{
     WasmComputeError, WasmComputeTool, WasmExecutionBounds, WasmExecutionRequest, WasmRuntime,
 };
 use std::ffi::{c_char, CStr, CString};

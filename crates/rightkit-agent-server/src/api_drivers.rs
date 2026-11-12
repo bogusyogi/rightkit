@@ -5,7 +5,7 @@ use axum::{
     Json, Router,
 };
 use rightkit_agent_engine_protocol::ToolCall;
-use rightkit_agent_tools::coding_tools::{
+use rightkit_agent_coding_tools::{
     SpawnRuntimeKind, SubagentContinuity, SubagentSpawnOptions, SubagentSpawner, ToolRegistry,
     ToolResult,
 };
@@ -1531,7 +1531,7 @@ async fn run_cli_runtime_matrix_cell(
             let _ = executor.shutdown_agent(&agent_id).await;
         }
         if let Ok(governor) =
-            rightkit_agent_tools::coding_tools::process_resource_authority::require_process_resource_governor()
+            rightkit_agent_coding_tools::process_resource_authority::require_process_resource_governor()
         {
             let scope =
                 rightkit_agent_engine_runtime_resources::ServiceScope::Workspace(body.workspace.clone());
@@ -1543,25 +1543,25 @@ async fn run_cli_runtime_matrix_cell(
                 .max(governor.limits().daemon_children)
                 .saturating_add(2)
             {
-                match rightkit_agent_tools::coding_tools::process_resource_authority::reserve_with_governor(
+                match rightkit_agent_coding_tools::process_resource_authority::reserve_with_governor(
                     &governor,
-                    rightkit_agent_tools::coding_tools::process_resource_authority::ResourceKind::BackgroundProcess,
+                    rightkit_agent_coding_tools::process_resource_authority::ResourceKind::BackgroundProcess,
                     scope.clone(),
                     true,
                 ) {
                     Ok(permit) => permits.push(permit),
                     Err(error) => {
-                        rejected = error.kind == rightkit_agent_tools::coding_tools::process_resource_authority::ResourceKind::ExternalExecution
-                            || error.kind == rightkit_agent_tools::coding_tools::process_resource_authority::ResourceKind::BackgroundProcess;
+                        rejected = error.kind == rightkit_agent_coding_tools::process_resource_authority::ResourceKind::ExternalExecution
+                            || error.kind == rightkit_agent_coding_tools::process_resource_authority::ResourceKind::BackgroundProcess;
                         break;
                     }
                 }
             }
             let filled_capacity = !permits.is_empty() && rejected;
             drop(permits);
-            let recovered = rightkit_agent_tools::coding_tools::process_resource_authority::reserve_with_governor(
+            let recovered = rightkit_agent_coding_tools::process_resource_authority::reserve_with_governor(
                 &governor,
-                rightkit_agent_tools::coding_tools::process_resource_authority::ResourceKind::BackgroundProcess,
+                rightkit_agent_coding_tools::process_resource_authority::ResourceKind::BackgroundProcess,
                 scope,
                 true,
             )

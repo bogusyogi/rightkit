@@ -579,7 +579,7 @@ async fn run_login_command(
             ),
         ],
     };
-    let adapter = rightkit_agent_tools::coding_tools::shell::NativeCommandSandboxAdapter;
+    let adapter = rightkit_agent_coding_tools::shell::NativeCommandSandboxAdapter;
     let mut child = rightkit_sandbox::execution::ProcessLaunchAdapter::spawn(&adapter, spec)
         .await
         .map_err(|e| format!("spawn error: {e:?}"))?;
@@ -655,7 +655,7 @@ async fn probe_models(
             ),
         ],
     };
-    let adapter = rightkit_agent_tools::coding_tools::shell::NativeCommandSandboxAdapter;
+    let adapter = rightkit_agent_coding_tools::shell::NativeCommandSandboxAdapter;
     let mut child = rightkit_sandbox::execution::ProcessLaunchAdapter::spawn(&adapter, spec)
         .await
         .map_err(|e| format!("sandboxed model probe failed: {e:?}"))?;

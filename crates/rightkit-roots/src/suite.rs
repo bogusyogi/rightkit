@@ -208,6 +208,10 @@ fn platform_default_base() -> Result<PathBuf, SuiteError> {
 /// `SHGetKnownFolderPath(FOLDERID_LocalAppData, token = NULL)` is not used: for the current user
 /// it expands the known folder's `%USERPROFILE%\AppData\Local` default against the process
 /// environment, so a launcher (`rightkit-qa` sets `USERPROFILE` for its child) redirects it.
+/// (`rightkit_fs::app_dirs` does not call that API for Local AppData either: it reads the
+/// `User Shell Folders` value and expands it against the account's environment block, so the
+/// process environment does not move it. It differs from this base only for a relocated Local
+/// AppData or profile; do not unify the two without migrating the installed suite folder.)
 /// `LocalAppData` is a per-machine folder that Windows does not redirect to a server, so the
 /// profile-relative path is the real one.
 #[cfg(windows)]
@@ -395,18 +399,6 @@ pub fn passwd_home_dir() -> Result<PathBuf, SuiteError> {
         let bytes = unsafe { CStr::from_ptr(dir) }.to_bytes();
         return Ok(PathBuf::from(OsStr::from_bytes(bytes)));
     }
-}
-
-/// The longest service name `host` accepts, in bytes.
-pub const MAX_SERVICE_NAME_LEN: usize = 48;
-
-/// Whether `s` is a service name `host` accepts: non-empty, at most [`MAX_SERVICE_NAME_LEN`] bytes,
-/// and only ASCII lowercase letters, digits and `-`. This is the single rule `host` enforces.
-pub fn valid_service_name(s: &str) -> bool {
-    !s.is_empty()
-        && s.len() <= MAX_SERVICE_NAME_LEN
-        && s.chars()
-            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
 }
 
 /// Create `dir` (and parents), make the leaf owner-only and prove it, through the

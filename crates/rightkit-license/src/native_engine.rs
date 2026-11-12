@@ -84,6 +84,7 @@ pub struct NativeEngineEntitlements<N, C: ClockStore> {
     app: String,
     policy: LifecyclePolicy,
     revoked: RevokedIds,
+    requirement: LicenseRequirement,
     observed_time: Arc<Mutex<ObservedTime>>,
     continuity: Mutex<Option<Continuity>>,
     transient_clock_error: fn(&C::Error) -> bool,
@@ -182,6 +183,7 @@ where
             app: app.into(),
             policy,
             revoked: RevokedIds::new(),
+            requirement: LicenseRequirement::pro(),
             observed_time,
             continuity: Mutex::new(None),
             transient_clock_error: |_| false,
@@ -193,6 +195,14 @@ where
     /// list is native configuration, never an input from the window.
     pub fn with_revoked_ids(mut self, revoked: RevokedIds) -> Self {
         self.revoked = revoked;
+        self
+    }
+
+    /// Gate on `requirement` (a tier, a feature, a minimum version) instead of the default Pro
+    /// tier. It applies to every verdict this instance reports, `current` and [`Self::require`]
+    /// included.
+    pub fn with_requirement(mut self, requirement: LicenseRequirement) -> Self {
+        self.requirement = requirement;
         self
     }
 
@@ -287,6 +297,12 @@ where
         }
     }
 
+    /// As [`Self::require_pro`], for the requirement set with [`Self::with_requirement`] (Pro by
+    /// default).
+    pub fn require(&self) -> Result<LifecycleReport, NativeEntitlementError> {
+        self.require_pro()
+    }
+
     pub fn require_pro(&self) -> Result<LifecycleReport, NativeEntitlementError> {
         let report = self.current()?;
         if report.grants_access() {
@@ -329,10 +345,9 @@ where
                 clock_initialized: record.clock_initialized,
             },
         };
-        let requirement = LicenseRequirement::pro();
         let context = LifecycleContext::new(&self.pubkey, &self.app, device)
             .with_policy(self.policy)
-            .with_requirement(&requirement)
+            .with_requirement(&self.requirement)
             .with_revoked_ids(&self.revoked);
         let report = evaluate_lifecycle(&context, &self.clock, credential, wall)
             .map_err(|error| {

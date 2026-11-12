@@ -44,7 +44,10 @@ pub mod protected_key;
 mod windows;
 
 pub use backend::{system_backend, Backend, ConditionalDelete, Interaction, UnavailableBackend};
-pub use chunked::{ChunkedBackend, INLINE_MAX as CHUNK_INLINE_MAX};
+pub use chunked::{
+    ChunkedBackend, INLINE_MAX as CHUNK_INLINE_MAX,
+    KEYRING_INLINE_UNITS as CHUNK_KEYRING_INLINE_UNITS,
+};
 pub use error::{Error, Result};
 pub use migrate::{
     migrate_between, migrate_plaintext_file, EnvImport, EnvMap, EnvReader, FileMigration,

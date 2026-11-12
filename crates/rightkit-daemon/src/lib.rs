@@ -135,9 +135,10 @@ pub use registration::{
     MethodDescriptor, Registration, RegistrationError, ServiceIdentity, TransportProfile,
 };
 pub use server::{
-    host, host_with_options, CallContext, Emit, Handler, HostError, HostOptions, Hosted,
-    ServiceConfig, ServiceEvent, ServiceStatus, DEFAULT_FRAME_LIMIT, DEFAULT_HANDSHAKE_TIMEOUT,
-    DEFAULT_MAX_CONNECTIONS, DEFAULT_RESERVED_SLOTS, DEFAULT_WRITE_TIMEOUT,
+    host, host_with_options, valid_service_name, CallContext, Emit, Handler, HostError,
+    HostOptions, Hosted, ServiceConfig, ServiceEvent, ServiceStatus, DEFAULT_FRAME_LIMIT,
+    DEFAULT_HANDSHAKE_TIMEOUT, DEFAULT_MAX_CONNECTIONS, DEFAULT_RESERVED_SLOTS,
+    DEFAULT_WRITE_TIMEOUT, MAX_SERVICE_NAME_LEN,
 };
 pub use service::{BuildError, Service, ServiceBuilder};
 pub use shutdown::{OrderedShutdown, PhaseOutcome, PhaseReport, ShutdownReport};
@@ -148,22 +149,95 @@ pub use transport::{
 };
 
 // Run mode, the suite root, app roots and root cutover moved to `rightkit-roots` 0.1.0
-// (rightkit-daemon 0.8.0). They stay exported here under their old paths for one release so
-// existing callers keep compiling; new code depends on `rightkit-roots` directly. Deprecated
-// items keep their deprecation, reported at the caller's own use site.
-pub use rightkit_roots::mode;
-pub use rightkit_roots::{
-    valid_app_name, AppRoot, AppRootError, LinkNotCreated, MigrateOptions, MigratedLink,
-    MigrationOutcome, MigrationReport, MigrationScope, MigrationState, MigrationStatus,
-    OmittedLink, ReparseKind, SkippedReparsePoint, SkippedSpecial, SpecialKind, WriterLock,
-    MAX_APP_NAME_LEN, MIGRATION_MARKER, MIGRATION_STATE,
-};
-pub use rightkit_roots::{
-    valid_service_name, Suite, SuiteError, ENV_SUITE_ROOT, MAX_SERVICE_NAME_LEN, SHARED_DIR_NAME,
-    SUITE_DIR_NAME,
-};
-pub use rightkit_roots::{
-    CutoverContext, CutoverError, CutoverParticipant, CutoverPhase, CutoverReport, CutoverStep,
-    FsMove, ParticipantError, RecoverOutcome, RetireMode, Retired, RootCutover, RootSelection,
-    RootStatus, Settlement, CUTOVER_RECORD,
-};
+// (rightkit-daemon 0.8.0). `Suite` and `SuiteError` stay exported here for good: the daemon's own
+// API takes them. Every other moved item stays exported under its old path for one release and is
+// deprecated, naming the new path. (`#[deprecated]` on a `pub use` is ignored by rustc, so each is
+// a deprecated alias, constant or function of the same name; they are the same types.)
+/// Moved to `rightkit_roots::CutoverParticipant`. A trait cannot be aliased or deprecated through a
+/// re-export; implement it from `rightkit_roots`.
+pub use rightkit_roots::CutoverParticipant;
+pub use rightkit_roots::{Suite, SuiteError};
+
+#[deprecated(since = "0.8.0", note = "use `rightkit_roots::mode`")]
+pub mod mode {
+    pub use rightkit_roots::mode::*;
+}
+
+#[deprecated(since = "0.8.0", note = "use `rightkit_roots::valid_app_name`")]
+pub fn valid_app_name(s: &str) -> bool {
+    rightkit_roots::valid_app_name(s)
+}
+#[deprecated(since = "0.8.0", note = "use `rightkit_roots::AppRoot`")]
+pub type AppRoot = rightkit_roots::AppRoot;
+#[deprecated(since = "0.8.0", note = "use `rightkit_roots::AppRootError`")]
+pub type AppRootError = rightkit_roots::AppRootError;
+#[deprecated(since = "0.8.0", note = "use `rightkit_roots::LinkNotCreated`")]
+pub type LinkNotCreated = rightkit_roots::LinkNotCreated;
+#[deprecated(since = "0.8.0", note = "use `rightkit_roots::MigrateOptions`")]
+pub type MigrateOptions = rightkit_roots::MigrateOptions;
+#[deprecated(since = "0.8.0", note = "use `rightkit_roots::MigratedLink`")]
+pub type MigratedLink = rightkit_roots::MigratedLink;
+#[deprecated(since = "0.8.0", note = "use `rightkit_roots::MigrationOutcome`")]
+pub type MigrationOutcome = rightkit_roots::MigrationOutcome;
+#[deprecated(since = "0.8.0", note = "use `rightkit_roots::MigrationReport`")]
+pub type MigrationReport = rightkit_roots::MigrationReport;
+#[deprecated(since = "0.8.0", note = "use `rightkit_roots::MigrationScope`")]
+pub type MigrationScope = rightkit_roots::MigrationScope;
+#[deprecated(since = "0.8.0", note = "use `rightkit_roots::MigrationState`")]
+pub type MigrationState = rightkit_roots::MigrationState;
+#[deprecated(since = "0.8.0", note = "use `rightkit_roots::MigrationStatus`")]
+pub type MigrationStatus = rightkit_roots::MigrationStatus;
+#[deprecated(since = "0.8.0", note = "use `rightkit_roots::OmittedLink`")]
+pub type OmittedLink = rightkit_roots::OmittedLink;
+#[deprecated(since = "0.8.0", note = "use `rightkit_roots::ReparseKind`")]
+pub type ReparseKind = rightkit_roots::ReparseKind;
+#[deprecated(since = "0.8.0", note = "use `rightkit_roots::SkippedReparsePoint`")]
+pub type SkippedReparsePoint = rightkit_roots::SkippedReparsePoint;
+#[deprecated(since = "0.8.0", note = "use `rightkit_roots::SkippedSpecial`")]
+pub type SkippedSpecial = rightkit_roots::SkippedSpecial;
+#[deprecated(since = "0.8.0", note = "use `rightkit_roots::SpecialKind`")]
+pub type SpecialKind = rightkit_roots::SpecialKind;
+#[deprecated(since = "0.8.0", note = "use `rightkit_roots::WriterLock`")]
+pub type WriterLock = rightkit_roots::WriterLock;
+#[deprecated(since = "0.8.0", note = "use `rightkit_roots::CutoverContext`")]
+pub type CutoverContext = rightkit_roots::CutoverContext;
+#[deprecated(since = "0.8.0", note = "use `rightkit_roots::CutoverError`")]
+pub type CutoverError = rightkit_roots::CutoverError;
+#[deprecated(since = "0.8.0", note = "use `rightkit_roots::CutoverPhase`")]
+pub type CutoverPhase = rightkit_roots::CutoverPhase;
+#[deprecated(since = "0.8.0", note = "use `rightkit_roots::CutoverReport`")]
+pub type CutoverReport = rightkit_roots::CutoverReport;
+#[deprecated(since = "0.8.0", note = "use `rightkit_roots::CutoverStep`")]
+pub type CutoverStep = rightkit_roots::CutoverStep;
+#[deprecated(since = "0.8.0", note = "use `rightkit_roots::FsMove`")]
+pub type FsMove = rightkit_roots::FsMove;
+#[deprecated(since = "0.8.0", note = "use `rightkit_roots::ParticipantError`")]
+pub type ParticipantError = rightkit_roots::ParticipantError;
+#[deprecated(since = "0.8.0", note = "use `rightkit_roots::RecoverOutcome`")]
+pub type RecoverOutcome = rightkit_roots::RecoverOutcome;
+#[deprecated(since = "0.8.0", note = "use `rightkit_roots::RetireMode`")]
+pub type RetireMode = rightkit_roots::RetireMode;
+#[deprecated(since = "0.8.0", note = "use `rightkit_roots::Retired`")]
+pub type Retired = rightkit_roots::Retired;
+#[deprecated(since = "0.8.0", note = "use `rightkit_roots::RootCutover`")]
+pub type RootCutover = rightkit_roots::RootCutover;
+#[deprecated(since = "0.8.0", note = "use `rightkit_roots::RootSelection`")]
+pub type RootSelection = rightkit_roots::RootSelection;
+#[deprecated(since = "0.8.0", note = "use `rightkit_roots::RootStatus`")]
+pub type RootStatus = rightkit_roots::RootStatus;
+#[deprecated(since = "0.8.0", note = "use `rightkit_roots::Settlement`")]
+pub type Settlement = rightkit_roots::Settlement;
+#[deprecated(since = "0.8.0", note = "use `rightkit_roots::MAX_APP_NAME_LEN`")]
+pub const MAX_APP_NAME_LEN: usize = rightkit_roots::MAX_APP_NAME_LEN;
+#[deprecated(since = "0.8.0", note = "use `rightkit_roots::MIGRATION_MARKER`")]
+pub const MIGRATION_MARKER: &str = rightkit_roots::MIGRATION_MARKER;
+#[deprecated(since = "0.8.0", note = "use `rightkit_roots::MIGRATION_STATE`")]
+pub const MIGRATION_STATE: &str = rightkit_roots::MIGRATION_STATE;
+#[deprecated(since = "0.8.0", note = "use `rightkit_roots::ENV_SUITE_ROOT`")]
+pub const ENV_SUITE_ROOT: &str = rightkit_roots::ENV_SUITE_ROOT;
+#[deprecated(since = "0.8.0", note = "use `rightkit_roots::SHARED_DIR_NAME`")]
+pub const SHARED_DIR_NAME: &str = rightkit_roots::SHARED_DIR_NAME;
+#[deprecated(since = "0.8.0", note = "use `rightkit_roots::SUITE_DIR_NAME`")]
+pub const SUITE_DIR_NAME: &str = rightkit_roots::SUITE_DIR_NAME;
+#[deprecated(since = "0.8.0", note = "use `rightkit_roots::CUTOVER_RECORD`")]
+pub const CUTOVER_RECORD: &str = rightkit_roots::CUTOVER_RECORD;

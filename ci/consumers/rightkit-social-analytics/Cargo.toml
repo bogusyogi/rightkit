@@ -7,5 +7,5 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-social-analytics = { version = "=0.2.0" }
+rightkit-social-analytics = { version = "=0.3.0" }
 

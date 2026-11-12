@@ -1,0 +1,10 @@
+[package]
+name = "rightkit-agent-coding-tools-registry-consumer"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+rightkit-agent-coding-tools = { version = "=0.1.0" }

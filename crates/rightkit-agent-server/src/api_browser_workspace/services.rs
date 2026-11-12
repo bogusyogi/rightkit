@@ -14,11 +14,11 @@
 //!
 //! - Security boundaries preserved by the fragment's contract (Agent 4's
 //!   implementation MUST honor these when wiring the trait impls):
-//!     * SSRF guard (`rightkit_agent_tools::coding_tools::browser_fetch::ssrf_guard_reject_reason`)
+//!     * SSRF guard (`rightkit_agent_coding_tools::browser_fetch::ssrf_guard_reject_reason`)
 //!       runs before any navigation. Host policy is additive on top.
 //!     * Browser capability gate runs before any state mutation.
 //!     * Page text and console output are wrapped via
-//!       `rightkit_agent_tools::coding_tools::browser_fetch::wrap_untrusted_web_text`.
+//!       `rightkit_agent_coding_tools::browser_fetch::wrap_untrusted_web_text`.
 //!     * Browser profiles are ephemeral by default; named shared profiles
 //!       require the operator to flip `profile_kind` through the consent
 //!       endpoint below.
@@ -29,7 +29,7 @@
 
 use axum::Router;
 use rightkit_agent_policy::PermissionMode;
-use rightkit_agent_tools::coding_tools::browser::{
+use rightkit_agent_coding_tools::browser::{
     BrowserNavigationTrustV1, BrowserNetworkDecisionV1, BrowserObservationV1, BrowserStore,
 };
 use std::collections::HashMap;
@@ -46,9 +46,9 @@ use super::types::{
 };
 
 /// Re-exported for callers that want the canonical browser-store type without
-/// depending on `rightkit_agent_tools::coding_tools` directly. Matches HEAD `pub type BrowserStore`
+/// depending on `rightkit_agent_coding_tools` directly. Matches HEAD `pub type BrowserStore`
 /// in `engine/crates/tools/src/browser.rs`.
-pub use rightkit_agent_tools::coding_tools::browser::BrowserSession;
+pub use rightkit_agent_coding_tools::browser::BrowserSession;
 
 /// Injection seam the route handlers call. Agent 4 implements this against
 /// `LiveSession` and the central `PermissionEngine`. Every method is invoked

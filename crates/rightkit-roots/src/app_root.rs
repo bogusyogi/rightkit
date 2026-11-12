@@ -723,11 +723,31 @@ impl Suite {
 
 impl AppRoot {
     pub fn new(suite: &Suite, app: &str) -> Result<AppRoot, AppRootError> {
+        AppRoot::open(&suite.app_parent(), app)
+    }
+
+    /// The app root for the folder [`mode::roots`](crate::mode::roots) resolved, whatever the
+    /// app's layout (under `Orthic Labs`, or flat under the per-user local folder). It gets the
+    /// same name check, case-conflict check, private directory, writer lock, containment and
+    /// root cutover as [`AppRoot::new`]; for an organisation-layout app it is that root.
+    pub fn for_app(roots: &crate::mode::AppRoots) -> Result<AppRoot, AppRootError> {
+        let name = roots
+            .app_dir
+            .file_name()
+            .and_then(|n| n.to_str())
+            .ok_or_else(|| AppRootError::InvalidName(roots.app_dir.display().to_string()))?;
+        let parent = roots
+            .app_dir
+            .parent()
+            .ok_or_else(|| AppRootError::InvalidName(name.to_string()))?;
+        AppRoot::open(parent, name)
+    }
+
+    fn open(parent: &Path, app: &str) -> Result<AppRoot, AppRootError> {
         if !valid_app_name(app) {
             return Err(AppRootError::InvalidName(app.to_string()));
         }
-        let parent = suite.app_parent();
-        if let Ok(rd) = fs::read_dir(&parent) {
+        if let Ok(rd) = fs::read_dir(parent) {
             for e in rd.flatten() {
                 let n = e.file_name().to_string_lossy().into_owned();
                 if n != app && n.eq_ignore_ascii_case(app) {

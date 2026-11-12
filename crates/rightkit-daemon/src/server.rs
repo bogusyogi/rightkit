@@ -9,7 +9,7 @@ use crate::transport::{
     DEFAULT_MAX_PIPE_INSTANCES,
 };
 use rightkit_roots::lock::{try_lock_exclusive, LockedFile};
-use rightkit_roots::{make_private_dir, valid_service_name, Suite, SuiteError};
+use rightkit_roots::{make_private_dir, Suite, SuiteError};
 use rightkit_sidecar::{read_json_line, write_json_line, FrameError};
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -17,6 +17,18 @@ use std::io::{BufReader, Write};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant, SystemTime};
+
+/// The longest service name `host` accepts, in bytes.
+pub const MAX_SERVICE_NAME_LEN: usize = 48;
+
+/// Whether `s` is a service name `host` accepts: non-empty, at most [`MAX_SERVICE_NAME_LEN`] bytes,
+/// and only ASCII lowercase letters, digits and `-`. This is the single rule `host` enforces.
+pub fn valid_service_name(s: &str) -> bool {
+    !s.is_empty()
+        && s.len() <= MAX_SERVICE_NAME_LEN
+        && s.chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+}
 
 pub const DEFAULT_FRAME_LIMIT: usize = 16 * 1024 * 1024;
 

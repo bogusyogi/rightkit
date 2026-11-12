@@ -355,7 +355,7 @@ pub(crate) fn write_message_history_store(
 
 pub(crate) fn load_team_store(
     path: &FsPath,
-) -> HashMap<String, rightkit_agent_tools::coding_tools::TeamDefinition> {
+) -> HashMap<String, rightkit_agent_coding_tools::TeamDefinition> {
     let Ok(raw) = std::fs::read_to_string(path) else {
         return HashMap::new();
     };
@@ -364,7 +364,7 @@ pub(crate) fn load_team_store(
 
 pub(crate) fn write_team_store(
     path: &FsPath,
-    teams: &HashMap<String, rightkit_agent_tools::coding_tools::TeamDefinition>,
+    teams: &HashMap<String, rightkit_agent_coding_tools::TeamDefinition>,
 ) -> Result<(), String> {
     let raw = serde_json::to_string_pretty(teams).map_err(|e| e.to_string())?;
     write_store_file(path, &raw)

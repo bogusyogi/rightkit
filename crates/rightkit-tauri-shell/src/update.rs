@@ -1528,12 +1528,26 @@ impl UpdateHost {
 #[cfg(feature = "update-license")]
 pub struct LicenseAuthority {
     provider: rightkit_license::UpdateAuthProvider,
+    refresh_before_private: bool,
 }
 
 #[cfg(feature = "update-license")]
 impl LicenseAuthority {
     pub fn new(provider: rightkit_license::UpdateAuthProvider) -> Self {
-        Self { provider }
+        Self {
+            provider,
+            refresh_before_private: false,
+        }
+    }
+
+    /// Re-validate the licence with the server before each private (paid) binding is captured.
+    /// Off by default: a binding is captured on every update check of a licensed app, so this
+    /// adds one licence request per check and, offline, waits for that request to time out before
+    /// the check continues. An app that only wants a fresh entitlement at install time calls
+    /// `UpdateAuthProvider::refresh_best_effort` itself there instead.
+    pub fn with_refresh_before_private(mut self, on: bool) -> Self {
+        self.refresh_before_private = on;
+        self
     }
 }
 
@@ -1550,10 +1564,18 @@ impl UpdateAuthority for LicenseAuthority {
                 rightkit_license::LicenseRevision::none(),
                 rightkit_license::UpdateRoute::Public,
             ),
-            UpdateRoute::Private => (
-                self.provider.revision().map_err(license_refusal)?,
-                rightkit_license::UpdateRoute::Private,
-            ),
+            UpdateRoute::Private => {
+                // When the host asked for it, the licence is re-validated first. This is the one
+                // point the revision is captured (a refresh after it would stale the binding). A
+                // failed refresh keeps the stored token and never blocks.
+                if self.refresh_before_private {
+                    self.provider.refresh_best_effort();
+                }
+                (
+                    self.provider.revision().map_err(license_refusal)?,
+                    rightkit_license::UpdateRoute::Private,
+                )
+            }
         };
         Ok(BindingToken::new(rightkit_license::UpdateBinding {
             revision,

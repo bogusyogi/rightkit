@@ -2,17 +2,17 @@
 //! before the conductor spins up the expensive jury, emits a `CheckRunCompleted`
 //! per check, and returns whether the run may proceed to the jury.
 //!
-//! The decision/runner logic lives in `rightkit_agent_tools::coding_tools::check_runner`; this
+//! The decision/runner logic lives in `rightkit_agent_coding_tools::check_runner`; this
 //! module just maps config → `CheckSpec`, owns the conduit emission, and is
 //! called from `DaemonState::run_conductor` between planning and `run_graph`.
 
 use rightkit_agent_config::PreGateCheckConfig;
 use rightkit_agent_engine_core::Conduit;
 use rightkit_agent_engine_protocol::ProtocolEvent;
-use rightkit_agent_tools::coding_tools::check_runner::{
+use rightkit_agent_coding_tools::check_runner::{
     decide, run_check, CheckSpec, OnFailure, PreGateDecision,
 };
-use rightkit_agent_tools::coding_tools::ToolContext;
+use rightkit_agent_coding_tools::ToolContext;
 
 use crate::api::now_iso;
 

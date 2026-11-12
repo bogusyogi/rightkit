@@ -5,7 +5,7 @@ Multi-format document workspace shell a host configures: tabs, sidebar, document
 | Item | Value |
 |---|---|
 | Where it runs | App webview UI (React) |
-| Version | 0.2.0 |
+| Version | 0.2.1 |
 | License | MIT OR Apache-2.0 |
 
 ## Entry points
@@ -34,7 +34,9 @@ The package does not import the host's legal files. The host passes them in once
 
 Until `configureLegal` runs, the legal exports (`REQUIRED_LEGAL_ACCEPTANCE_VERSION`,
 `LEGAL_MATERIAL_SHA256`, `LEGAL_GATE_DOCUMENTS`, `LEGAL_ABOUT_LINKS`) are empty or unset, so call it
-before the first render. The exports are live bindings, so every importer sees the configured values.
+before the first render. The gate fails closed: without `configureLegal` (`legalConfigured()` false) or
+without `firstRun`, `AppRoot` renders the blocking "Legal configuration missing" screen and never the
+workspace (`missingLegalConfiguration()` names what is missing). The exports are live bindings, so every importer sees the configured values.
 
 
 ## Host configuration
@@ -48,7 +50,7 @@ first render. Nothing product-specific is built in; everything comes from this o
 | `id` | The host's native identifier, prefix of event names, schemes (`<id>-stream`, `<id>-site`, `<id>-preview`), the `x-<id>-path-hex` header, storage keys and QA globals. Default `"rk-document"`. See `@rightkit/document-core` (`configureDocumentHost`). |
 | `appVersion` | The running build's version (diagnostics). Required. |
 | `supportEmail` | Address for "Email to support" in Diagnostics. Absent: the action is not shown. |
-| `firstRun` | The first-run legal gate: `legal` (the gate's theme, trust line, agreement sentence, wordmark font and the rest of `LegalStepConfig` from `@rightkit/onboarding`) and `gateWindow` (`{ width, height }`, the gate's own fixed window). Absent: no gate. |
+| `firstRun` | The first-run legal gate: `legal` (the gate's theme, trust line, agreement sentence, wordmark font and the rest of `LegalStepConfig` from `@rightkit/onboarding`) and `gateWindow` (`{ width, height }`, the gate's own fixed window). Required: absent, `AppRoot` fails closed and renders a blocking "Legal configuration missing" screen (with a Quit button) instead of the workspace. |
 | `settings.about` | The host's About page (brand card, updates, licence, legal documents), rendered as the first settings section. Absent: no About section. |
 | `settings.sections` | Further settings sections, merged after the workspace's own (same id replaces). |
 | `backgroundUpdateCheck` | Advisory update check run once per launch while automatic checks are on; resolve `{ version, tier }` to show a toast, or null. Absent: no check. |

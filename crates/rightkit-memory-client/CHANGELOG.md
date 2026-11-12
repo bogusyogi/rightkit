@@ -4,6 +4,7 @@
 
 - Renamed from `rightkit-memory` (library `rightkit_memory_client`): the crate is the client of the memory engine, and the `rightkit-memory` name now belongs to the engine (0.2.0, a facade over `rightkit-memory-core` and `rightkit-memory-store`). Replace `rightkit_memory::` with `rightkit_memory_client::`.
 - `backend::MemoryTier`, `backend::MemoryEntry` and `default_scope` are the engine's types from `rightkit-memory-core` 0.1.1, re-exported; the second declaration is gone. Same wire shape; `backend::types::default_scope` is now public (the engine's).
+- Builds without the embedding stack: `rightkit-memory-core` 0.2 keeps embedding and retrieval behind its `embed` feature, which this crate leaves off, so `rightkit-embed` (ONNX inference, SQLite vectors) is no longer in its graph or in the graphs of `rightkit-agent-engine-mobile-runtime` and `rightkit-agent-server` through it.
 - `src/retriever.rs`, a second retrieval router that was never compiled (not declared in `lib.rs`) and duplicated `rightkit-memory-core`'s routing, is deleted.
 - Taken on the recommended option of the 2026-11-11 shape review, pending the owner's confirmation.
 

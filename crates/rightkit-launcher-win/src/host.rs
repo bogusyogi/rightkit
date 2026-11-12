@@ -187,6 +187,21 @@ pub trait PanelHost: Send + Sync + 'static {
         false
     }
 
+    /// The name of the switch that shows the application's own rows (its pages, readings, storage
+    /// and cleanup rows). A host whose settings already hold this switch under another name
+    /// returns that name, so the user's stored choice is the one read.
+    fn app_commands_switch(&self) -> &'static str {
+        "launcherAppCommands"
+    }
+
+    /// The value stored in the setting `launcherHotkeyConflict` when the user gives Alt+Space to
+    /// this application (the other answer is always `other`). A host whose settings file and
+    /// other surfaces already use another value for it returns that value, so what the panel
+    /// writes is what they accept.
+    fn hotkey_conflict_take_token(&self) -> &'static str {
+        "app"
+    }
+
     /// The user's launcher items as the JSON text [`rightkit_launcher::config::parse`] reads.
     fn launcher_config_json(&self) -> String {
         String::new()
@@ -341,6 +356,16 @@ pub(crate) fn cleanup_summary() -> Option<CleanupSummary> {
 
 pub(crate) fn storage_pages() -> Option<(&'static str, &'static str)> {
     HOST.get()?.storage_pages()
+}
+
+pub(crate) fn app_commands_on() -> bool {
+    HOST.get()
+        .is_some_and(|host| host.switch_on(host.app_commands_switch()))
+}
+
+pub(crate) fn hotkey_conflict_take_token() -> &'static str {
+    HOST.get()
+        .map_or("app", |host| host.hotkey_conflict_take_token())
 }
 
 pub(crate) fn switch_on(key: &str) -> bool {

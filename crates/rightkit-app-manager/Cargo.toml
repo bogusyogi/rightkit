@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-app-manager"
-version = "0.1.2"
+version = "0.2.0"
 edition = "2024"
 rust-version = "1.98.0"
 description = "Installed-app management: inventory, icons, usage, updates, safe uninstall with leftovers to the Trash, and app quit/force-quit with system and self protection."
@@ -14,11 +14,11 @@ name = "rightkit_app_manager"
 path = "src/lib.rs"
 
 [dependencies]
-rightkit-disk-cleanup = { version = "0.1.0", path = "../rightkit-disk-cleanup" }
-rightkit-system-monitor = { version = "0.2.0", path = "../rightkit-system-monitor" }
+rightkit-disk-cleanup = { version = "0.2.0", path = "../rightkit-disk-cleanup" }
+rightkit-system-monitor = { version = "0.3.0", path = "../rightkit-system-monitor" }
 rightkit-child-process = { version = "0.5.7", path = "../rightkit-child-process" }
 rightkit-fs = { version = "0.4.9", default-features = false, features = ["fs", "lock", "digest"], path = "../rightkit-fs" }
-rightkit-http = { version = "0.3.9", default-features = false, path = "../rightkit-http" }
+rightkit-http = { version = "0.4.0", default-features = false, path = "../rightkit-http" }
 libc = { version = "0.2" }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1" }

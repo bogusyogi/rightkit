@@ -222,10 +222,16 @@ export interface OnboardingStep {
   skippable?: boolean;
   /** Continue/Finish stay disabled until this returns true. Default: always allowed. */
   canContinue?: (context: OnboardingStepContext) => boolean;
-  /** Shown beside the disabled Continue/Finish button. */
-  blockedHint?: string;
-  /** Primary button text for this step (e.g. "Open CodeRight"). Overrides Continue and Finish setup. */
-  continueLabel?: string;
+  /**
+   * Shown beside the disabled Continue/Finish button. A function gets the step context and returns the text for the
+   * current state (`undefined` shows nothing), so one step can say different things as its readiness changes.
+   */
+  blockedHint?: string | ((context: OnboardingStepContext) => string | undefined);
+  /**
+   * Primary button text for this step (e.g. "Open CodeRight"). Overrides Continue and Finish setup. A function gets the
+   * step context; `undefined` keeps the default label.
+   */
+  continueLabel?: string | ((context: OnboardingStepContext) => string | undefined);
   /**
    * Runs before Continue/Finish advances. Return `false` (or throw) to keep the step; a throw shows its message.
    * `void` or `true` advances. Not run for Back, the rail, or Skip.

@@ -2,7 +2,7 @@ use super::*;
 use std::{future::Future, pin::Pin};
 
 // ENG-63/64 (durable cloud workspace + persistent run lifecycle) live in
-// `rightkit_agent_tools::coding_tools::cloud_workspace`. That module's event log/cursor
+// `rightkit_agent_coding_tools::cloud_workspace`. That module's event log/cursor
 // resumption (`resume_events_since`) is the primitive a reconnect-after-
 // disconnect client calls; this file only dispatches *local* tool-call
 // futures for the current turn and has no remote event-stream client to
@@ -10,11 +10,11 @@ use std::{future::Future, pin::Pin};
 // (e.g. a `StreamingToolFuture` variant backed by
 // `cloud_workspace::resume_events_since` instead of local tool execution)
 // is a follow-up: `cloud_workspace` is not yet declared in
-// `rightkit_agent_tools::coding_tools`'s `lib.rs`, so it cannot be `use`d from here without
+// `rightkit_agent_coding_tools`'s `lib.rs`, so it cannot be `use`d from here without
 // that out-of-lane wiring.
 
 pub(in crate::engine) type StreamingToolFuture = Pin<
-    Box<dyn Future<Output = (ToolCall, rightkit_agent_tools::coding_tools::ToolResult)> + Send>,
+    Box<dyn Future<Output = (ToolCall, rightkit_agent_coding_tools::ToolResult)> + Send>,
 >;
 
 impl SessionEngine {
@@ -23,10 +23,10 @@ impl SessionEngine {
     pub(in crate::engine) async fn record_streaming_concurrent_result(
         &mut self,
         call: ToolCall,
-        result: rightkit_agent_tools::coding_tools::ToolResult,
+        result: rightkit_agent_coding_tools::ToolResult,
         turn_results: &mut std::collections::HashMap<
             String,
-            rightkit_agent_tools::coding_tools::ToolResult,
+            rightkit_agent_coding_tools::ToolResult,
         >,
     ) {
         let sid = self.session_id.clone();
@@ -97,7 +97,7 @@ impl SessionEngine {
         calls: &[&ToolCall],
         turn_results: &mut std::collections::HashMap<
             String,
-            rightkit_agent_tools::coding_tools::ToolResult,
+            rightkit_agent_coding_tools::ToolResult,
         >,
     ) {
         // Hook-bearing calls must use the serialized authority.  The caller's
@@ -476,7 +476,7 @@ impl SessionEngine {
                         Ok(process_launch) => process_launch,
                         Err(result) => return (call, *result),
                     };
-                    let mut ctx = rightkit_agent_tools::coding_tools::ToolContext::new(
+                    let mut ctx = rightkit_agent_coding_tools::ToolContext::new(
                         &session_id,
                         &workspace_root,
                         permission_mode,
@@ -562,11 +562,11 @@ impl SessionEngine {
                         }
                     }
                     let result = if let Some(err) = arg_parse_error {
-                        rightkit_agent_tools::coding_tools::ToolResult::error(err)
+                        rightkit_agent_coding_tools::ToolResult::error(err)
                     } else if let Some(reason) = effect_denial {
-                        rightkit_agent_tools::coding_tools::ToolResult::error(reason)
+                        rightkit_agent_coding_tools::ToolResult::error(reason)
                     } else if let Some(reason) = concurrency_denial {
-                        rightkit_agent_tools::coding_tools::ToolResult::error(reason)
+                        rightkit_agent_coding_tools::ToolResult::error(reason)
                     } else {
                         crate::tool_dispatch_plumbing::record_production_admission_stage(
                             &call.id,
@@ -581,7 +581,7 @@ impl SessionEngine {
                                 )
                                 .await
                             }
-                            None => rightkit_agent_tools::coding_tools::ToolResult::error(format!(
+                            None => rightkit_agent_coding_tools::ToolResult::error(format!(
                                 "unknown tool: {}",
                                 call.name
                             )),
@@ -690,7 +690,7 @@ impl SessionEngine {
             let args: serde_json::Value =
                 serde_json::from_str(&call.arguments_json).unwrap_or(serde_json::Value::Null);
             let tasks =
-                rightkit_agent_tools::coding_tools::todo_write::task_nodes_from_args(&args, "t");
+                rightkit_agent_coding_tools::todo_write::task_nodes_from_args(&args, "t");
             if !tasks.is_empty() {
                 let summary = format!("{} todos", tasks.len());
                 self.emit(|seq| ProtocolEvent::TaskGraphUpdated {

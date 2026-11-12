@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.0
+
+- Breaking for dependents: dependency requirements `rightkit-models` 0.5 -> 0.7. 0.2.10 was published before these requirements were raised; a semver-breaking dependency is a breaking change, so they ship as 0.3.0 instead of changing 0.2.10 in place (#1572). No source change in this crate since 0.2.10.
+
 ## 0.2.10 (unpublished)
 
 - Removed (breaking): the `dev-overrides` feature, `developer_override_candidate` and `BindSpec::developer_env`. `clear_inherited_runtime_for_release` always clears `ORT_DYLIB_PATH`. Adrian, 2026-11-03: "dev mode, is mine. im the fucking owner, my data. no dummy data, no fucking made up shit. real data. snapshot and restore." and "make sure no debug assertions in their respective apps/ repos". Callers to fix: rightkit-dictation-runtime `entry.rs` (`developer_override_candidate`), rightkit-tts `dev-overrides` forward.

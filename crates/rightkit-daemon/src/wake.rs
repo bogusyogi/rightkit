@@ -17,7 +17,8 @@
 //! A listener that is dropped removes its endpoint. A crashed listener leaves a stale endpoint that
 //! the next `post` removes.
 
-use rightkit_roots::{valid_service_name, Suite};
+use crate::server::valid_service_name;
+use rightkit_roots::Suite;
 use std::io;
 use std::time::Duration;
 

@@ -807,7 +807,7 @@ fn scan_workdir_lfs_pointers(
 }
 
 /// ENG-55: read-only pointer inventory for the iOS host UI. No network
-/// access, no capability gate, mirrors `git_lfs_scan` in `rightkit_agent_tools::coding_tools`.
+/// access, no capability gate, mirrors `git_lfs_scan` in `rightkit_agent_coding_tools`.
 fn lfs_scan(repo: &Repository) -> Result<Value, String> {
     let pointers = scan_lfs_pointers(repo)?;
     let total_declared_bytes: u64 = pointers.iter().map(|pointer| pointer.size).sum();
@@ -1175,11 +1175,11 @@ async fn lfs_fetch(plan: MobileLfsFetchPlan, token: Option<&str>) -> Result<Valu
             Ok(cached.clone())
         } else {
             let request =
-                rightkit_agent_tools::coding_tools::git_lfs_batch_client::BatchObjectRequest {
+                rightkit_agent_coding_tools::git_lfs_batch_client::BatchObjectRequest {
                     oid: oid.clone(),
                     size: *size,
                 };
-            rightkit_agent_tools::coding_tools::git_lfs_batch_client::fetch_objects(
+            rightkit_agent_coding_tools::git_lfs_batch_client::fetch_objects(
                 &plan.remote_url,
                 &[request],
                 &plan.objects_root,

@@ -605,7 +605,7 @@ impl WireProjection for IdentityProjection {
 /// Rules enforced here (the same class of logic as `ObservationMasker`):
 /// - Only `Tool` result messages older than the recent horizon are candidates.
 /// - Pinned results are never decayed (they are load-bearing by construction).
-/// - Exempt tool classes (`rightkit_agent_tools::coding_tools::output_compaction::is_exempt_tool`
+/// - Exempt tool classes (`rightkit_agent_coding_tools::output_compaction::is_exempt_tool`
 ///   — `ask_user`, `exit_plan_mode`, `skill_tool`, `plugin_tool`,
 ///   `todo_write`) are never decayed, whatever their age.
 /// - Open obligations (summaries carrying the literal `OPEN OBLIGATION`,
@@ -639,7 +639,7 @@ pub const EXEMPT_RESULTS_KEPT_PER_TOOL: usize = 4;
 /// C5), so both are treated as exempt here.
 pub fn is_exempt_tool_name(name: &str) -> bool {
     name == "invoke_skill"
-        || rightkit_agent_tools::coding_tools::output_compaction::is_exempt_tool(name)
+        || rightkit_agent_coding_tools::output_compaction::is_exempt_tool(name)
 }
 
 impl DecayingObservationProjection {

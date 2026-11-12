@@ -6,7 +6,7 @@ IPC, no store and no product name: they render over a typed client and state the
 | Item | Value |
 |---|---|
 | Where it runs | App webview UI (React) |
-| Version | 0.2.0 |
+| Version | 0.2.1 |
 | License | MIT OR Apache-2.0 |
 
 ## Entry points
@@ -21,7 +21,12 @@ IPC, no store and no product name: they render over a typed client and state the
 
 ## Host contract
 
-Render the views and navs inside one `<WorkspaceHostProvider host={host}>`. `host` is a `WorkspaceHost`:
+**The provider is required.** Every view and nav (`CalendarView`, `ContactsView`, `DriveView`, `TasksView`,
+`MeetView`, the dialogs, `CalendarNav`, `ContactsNav`, `DriveNav`, `TasksNav`) and `useDrive` must render inside a
+`<WorkspaceHostProvider host={host}>`. The types do not enforce it: a view rendered (or lazy-loaded) without the
+provider type-checks and then throws at render with `MISSING_WORKSPACE_HOST_PROVIDER` ("missing
+<WorkspaceHostProvider host={...}>"). Wrap each mount point, or one provider around all of them. `host` is a
+`WorkspaceHost`:
 
 | Field | What the host supplies |
 |---|---|
@@ -34,7 +39,9 @@ Render the views and navs inside one `<WorkspaceHostProvider host={host}>`. `hos
 | `openView` | Switches to another workspace view (Meet's "schedule" opens the calendar). |
 | `AccountSwitcher` | Optional; shown in each view's header. |
 
-MailRight's host is `mailWorkspaceHost` in `@rightkit/mail-ui`.
+MailRight's host is `mailWorkspaceHost` in `@rightkit/mail-ui`, which also exports `MailWorkspaceProvider` (the
+provider over that host) and the five views already wrapped in it (`CalendarView`, `TasksView`, `DriveView`,
+`ContactsView`, `MeetView`); MailRight mounts those, not the bare views from this package.
 
 Glyphs come from Lucide (`lucide-react`); the package imports no app's icon set. Hosts bundle the package with
 Vite; Tailwind hosts add `node_modules/@rightkit/workspace-ui/dist/**/*.js` to their content globs.

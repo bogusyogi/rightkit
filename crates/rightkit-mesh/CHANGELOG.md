@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.0
+
+- Breaking for dependents: dependency requirements `rightkit-logs` 0.3 -> 0.4. 0.1.2 was published before these requirements were raised; a semver-breaking dependency is a breaking change, so they ship as 0.2.0 instead of changing 0.1.2 in place (#1572). No source change in this crate since 0.1.2.
+
 ## 0.1.2 (unpublished)
 
 - Added the relay admission registry `mailbox::registry` and the service `rightkit-mesh-relay-admission` (#952): device registration by proof of work (`pow_ok`, default 20 leading zero bits) or by a pairing attestation, an Ed25519 signature from a current circle member over `attestation_input(circle, endpoint)`; quotas per circle, per /24 (IPv4) or /48 (IPv6) network prefix, per registry; eviction (`evict`, `evict_circle`, `readmit`) effective at the next relay connection with no relay restart, persisted in one atomically replaced JSON state file that fails closed when unreadable. The service answers the relay's `POST /admit` from the registry, the operator allowlist (the floor, loaded by the existing `Allowlist`) or unexpired grants, and serves `POST /register`, `POST /evict` (admin token) and `GET /pow`, loopback only behind a TLS proxy. Limit: a connection already up is not cut by an eviction (iroh-relay 1.4.1 has no per-connection revocation hook and no per-endpoint byte metering); a cut of a live device still restarts the relay. Additive. Not compiled here. Needs: relay-side deployment (`deploy/relay`, the Pulse owner) to point `access.http.url` at the new service.

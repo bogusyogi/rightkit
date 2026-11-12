@@ -131,7 +131,7 @@ fn preserved_skill_read_indices(
 /// structural.
 ///
 /// CR-28/CR-32: this is a consumer of the canonical list in
-/// `rightkit_agent_tools::coding_tools::output_compaction`, not a second definition — one
+/// `rightkit_agent_coding_tools::output_compaction`, not a second definition — one
 /// exempt class, one source of truth.
 fn assistant_calls_exempt_tool(tool_calls: &[ToolCall]) -> bool {
     tool_calls

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.5
+
+- Changed: `OnboardingStep.blockedHint` and `OnboardingStep.continueLabel` also accept `(context) => string | undefined`, so the text can follow the step's state (`undefined` shows no hint, or the default label). A string works as before.
+- Removed: `importLegacyAcceptance`, its `LegacyAcceptanceImportOptions` type, and `LEGAL_RECEIPT_COMMANDS.import` (`rightkit_legal_receipt_import`). Both were added in 0.6.4 (unpublished). No Rust crate registers that command and no app calls the function. The native receipt (`crates/rightkit-tauri-shell/src/host/legal.rs`) imports a legacy receipt on its first read instead (`with_legacy_import`).
+
 ## 0.6.4 — unpublished staging
 
 - Removed (Adrian, 2026-11-03: end-to-end tests only; a built harness page on a dev server is not end to end): the real-browser tests against a harness page, their harness, `vitest.config.ts` and the `test` and `pretest` scripts and the test-only devDependencies (`@rightkit/qa-chrome`, `vite`, `vitest`, `react-dom`, `@types/react-dom`). Nothing shipped changes.

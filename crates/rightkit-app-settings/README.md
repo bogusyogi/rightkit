@@ -103,12 +103,15 @@ if !store.writable() {
 
 ### Durability, damaged files, formatting, flat migration
 
-- **Replace mode** (`replace_mode`, `durable`, `retry_sharing_violation`). Default `Rename` with `durable(true)`: on Unix and macOS the temp file is flushed, renamed, and the directory flushed. On Windows the rename is not write-through, so a power loss can bring back the previous (complete) file. Only `ReplaceMode::MoveWriteThrough` is write-through on Windows. It can hit a sharing violation when another process holds the file open, so pair it with a retry:
+- **Replace mode** (`replace_mode`, `durable`, `retry_sharing_violation`, `retry_access_denied`). Default `Rename` with `durable(true)`: on Unix and macOS the temp file is flushed, renamed, and the directory flushed. On Windows the rename is not write-through, so a power loss can bring back the previous (complete) file. Only `ReplaceMode::MoveWriteThrough` is write-through on Windows. It can hit a sharing violation when another process holds the file open, so pair it with a retry:
 
   ```rust,ignore
   let opts = StoreOptions::new(schema)
       .replace_mode(ReplaceMode::MoveWriteThrough)
       .retry_sharing_violation(5, std::time::Duration::from_millis(50));
+
+  // Default Rename fails with error 5 (not 32/33) against a reader without delete sharing;
+  // that retry is a separate opt-in: .retry_access_denied(5, Duration::from_millis(50))
 
   // What a write with these options gets on this platform, given whether the file exists:
   let guarantee = opts.achieved_durability(path.exists()); // PublicationDurability
@@ -132,7 +135,7 @@ if !store.writable() {
 - A patch is a `serde_json::Value`, which cannot carry the order it was written in: several new open keys in one patch are appended alphabetically (in the patch's own order when serde_json's `preserve_order` feature is on somewhere in the build; this crate does not enable it, because that would change `serde_json::Map` for every crate in the build). Keys added by separate patches are appended in call order.
 - A `HashMap` field has no stable serialisation order, so several new keys inside one are appended in no stable order. Use a struct or a `BTreeMap`.
 - `pretty_sorted_newline(true)` always sorts, whatever `key_order` says.
-- **Flat migration**: `flat_migration(|map| ...)` returns `(migrated, changed)`; it runs once on open, before defaults and repair, never read-only.
+- **Flat migration**: `flat_migration(|map| ...)` returns `(migrated, changed)`; it runs once on open, before defaults and repair, and a writable store commits the migrated file once. `open_read_only` applies it in memory on open and on every re-read, and `Store::snapshot()` applies it in memory on every store (so a file an older writer put back still reads migrated, with the stored file's revision); neither writes anything.
 
 ### Frontend-owned documents
 

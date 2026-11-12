@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-dictation-engine"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Dictation engine: the speech engine sidecar binary and library facade over the dictation runtime, inference, text pipeline and command host, with engine contract tests and fixtures."
@@ -18,24 +18,24 @@ default = []
 cuda-bench = ["rightkit-dictation-inference/cuda-bench"]
 
 [dependencies]
-rightkit-dictation-core = { version = "0.2.0", path = "../rightkit-dictation-core" }
+rightkit-dictation-core = { version = "0.3.0", path = "../rightkit-dictation-core" }
 rightkit-text-polish = { version = "0.1.0", path = "../rightkit-text-polish" }
 rightkit-transcript-library = { version = "0.1.0", path = "../rightkit-transcript-library" }
-rightkit-dictation-text-pipeline = { version = "0.1.0", path = "../rightkit-dictation-text-pipeline" }
-rightkit-dictation-inference = { version = "0.1.0", path = "../rightkit-dictation-inference" }
-rightkit-dictation-command-host = { version = "0.1.0", path = "../rightkit-dictation-command-host" }
-rightkit-dictation-runtime = { version = "0.1.0", path = "../rightkit-dictation-runtime" }
-rightkit-daemon = { version = "0.8.0", default-features = false, path = "../rightkit-daemon" }
+rightkit-dictation-text-pipeline = { version = "0.2.0", path = "../rightkit-dictation-text-pipeline" }
+rightkit-dictation-inference = { version = "0.2.0", path = "../rightkit-dictation-inference" }
+rightkit-dictation-command-host = { version = "0.2.0", path = "../rightkit-dictation-command-host" }
+rightkit-dictation-runtime = { version = "0.2.0", path = "../rightkit-dictation-runtime" }
+rightkit-daemon = { version = "0.9.0", default-features = false, path = "../rightkit-daemon" }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1" }
 anyhow = { version = "1" }
 
 [dev-dependencies]
-rightkit-automation = { version = "0.6.4", path = "../rightkit-automation", features = ["desktop-context"] }
+rightkit-automation = { version = "0.7.0", path = "../rightkit-automation", features = ["desktop-context"] }
 libc = { version = "0.2" }
 rightkit-audio = { version = "0.3.1", default-features = false, features = ["capture"], path = "../rightkit-audio" }
 libloading = { version = "0.9" }
-rightkit-onnx = { version = "0.2.9", default-features = false, features = ["session"], path = "../rightkit-onnx" }
+rightkit-onnx = { version = "0.3.0", default-features = false, features = ["session"], path = "../rightkit-onnx" }
 
 [[example]]
 name = "av_decode_dump"

@@ -11,7 +11,7 @@ Catalog capability: `agent-tools`.
 | `<app>.*` | Each app's in-app control service, over `rightkit-daemon`. It exists only in development and QA builds (`rightkit-qa` feature `control`, compiled only with debug assertions); release builds ship no in-app control surface. `right-ctl` is a developer and agent tool that drives it. | none |
 | `desktop.*` | `rightkit-automation` (macOS accessibility tree, Windows UI Automation) | `automation` |
 | `browser.*` | `rightkit-browser` (Chrome DevTools Protocol) | `browser` |
-| `speech.*` | `rightkit-speech-client` (shared speech service) | `speech` |
+| `speech.*` | `rightkit-speech-client` (shared speech service) | `speech` | Registered for an app whose profile has `AppProfile::with_speech()` (the built-in HeardRight profile sets it); `speech_tools(suite, role)` takes the caller's `HostRole`.
 
 Exposure rules are built in and cannot be loosened (`exposure` module). No pasteboard or paste tool can be registered or called, for any app, in snake_case, kebab-case, camelCase or PascalCase (`pasteText`, `getClipboard`). A dictation app (`AppProfile::with_dictation_rules`, set by the built-in HeardRight profile; `Toolbox::protect_dictation` for a hand-built toolbox) also refuses dictation, text-delivery and history names. Other apps keep their own `history` or `delivery` commands. A profile registered under the app name `heardright` is always sensitive and dictation-protected, whatever its flags say: it has no `eval`, `dom`, `ax`, `screenshot`, `wait` or `batch` tool (`tests/negative_gate.rs`).
 

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.0
+
+- Breaking for dependents: dependency requirements `rightkit-dictation-core` 0.2 -> 0.3, `rightkit-dictation-telemetry` 0.1 -> 0.2, `rightkit-models` 0.5 -> 0.7. 0.1.3 was published before these requirements were raised; a semver-breaking dependency is a breaking change, so they ship as 0.2.0 instead of changing 0.1.3 in place (#1572). No source change in this crate since 0.1.3.
+
 ## 0.1.3 (unpublished)
 
 - Fixed: the compiled-in model worker host is `heardright-models.adrdsouza.workers.dev`, the host every download URL in this crate uses. It read `rightkit-models.adrdsouza.workers.dev` after the move from HeardRight, so the production worker was treated as a development override, the one case allowed to resolve to a local or private address (`model_download_grant.rs`). Found in the HeardRight shape review (rightkit#1572).

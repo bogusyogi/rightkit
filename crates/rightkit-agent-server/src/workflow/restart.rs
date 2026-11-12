@@ -408,7 +408,7 @@ async fn is_dead_holder(holder: &str) -> bool {
         // `ps` observes existence without signalling another process or
         // misclassifying an EPERM result as a dead holder. Route it through
         // the managed process seam, and fail closed on every probe failure.
-        let adapter = rightkit_agent_tools::coding_tools::shell::NativeCommandSandboxAdapter;
+        let adapter = rightkit_agent_coding_tools::shell::NativeCommandSandboxAdapter;
         let context = rightkit_sandbox::execution::ProcessLaunchContext {
             workspace_root: ".".to_string(),
             sandbox_profile: Some("workflow-process-probe".to_string()),

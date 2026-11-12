@@ -361,6 +361,11 @@ pub fn builder<'a>(
                 WindowOpenDecision::Deny => NewWindowResponse::Deny,
             }
         });
+    #[cfg(windows)]
+    let b = match state.webview_data_directory.clone() {
+        Some(dir) => b.data_directory(dir),
+        None => b,
+    };
     // A never-show host's windows are never created focused.
     let b = if crate::lifecycle::never_show(app) {
         b.focused(false)

@@ -9,9 +9,7 @@
 //!   graceful fallback when the model is missing or not loaded). Captures
 //!   lexical overlap, so it still beats nothing.
 
-/// Maximum token sequence length for the embedding model. This replaces the
-/// legacy 512-token limit. Tokenizer-aware — not a word count.
-pub const EMBEDDING_MAX_SEQUENCE_TOKENS: usize = 2048;
+pub use crate::fingerprint::EMBEDDING_MAX_SEQUENCE_TOKENS;
 
 /// Which ONNX execution provider was requested and which one is really serving inference.
 ///

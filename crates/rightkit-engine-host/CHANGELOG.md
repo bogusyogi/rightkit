@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- `env::AppRoot` is re-exported from `rightkit_roots` (new dependency on `rightkit-roots`); it is the same type `rightkit_daemon::AppRoot` named.
+
 ## 0.2.0 (unpublished)
 
 Taken on the recommended option of the shape review (`docs/audits/2026-11-11-shape-matrix/reports/cut-post-redraw.md`), pending the owner's confirmation.

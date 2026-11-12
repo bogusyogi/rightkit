@@ -1,6 +1,6 @@
-# rightkit-sync 0.2.3 registry consumer (compile-only)
+# rightkit-sync 0.3.0 registry consumer (compile-only)
 
-Standalone consumer, outside the workspace, pinning `rightkit-sync =0.2.3` exactly with its default features (`helper` and `process-usage`, which is what HeardRight, ScrapeRight and Pulse's membrane runtime link). It installs the crate from the sealed archive through the offline directory registry and builds `src/main.rs`.
+Standalone consumer, outside the workspace, pinning `rightkit-sync =0.3.0` exactly with its default features (`helper` and `process-usage`, which is what HeardRight, ScrapeRight and Pulse's membrane runtime link). It installs the crate from the sealed archive through the offline directory registry and builds `src/main.rs`.
 
 It is compile-only. Adrian, 2026-11-03: "no dummy data, no fucking made up shit. real data." and "My decision was no unit tests. Only e2e." The crate has no in-process backend any more and the published package never shipped a helper stand-in, so this program runs nothing: `main` prints one line.
 

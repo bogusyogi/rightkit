@@ -10,7 +10,7 @@ impl DaemonState {
         repeats: u32,
         session_id: &str,
     ) -> rightkit_agent_orchestration::coding::BenchmarkReport {
-        use rightkit_agent_tools::coding_tools::SubagentSpawner;
+        use rightkit_agent_coding_tools::SubagentSpawner;
 
         // A temporary state whose registry forces the benchmarked role onto the
         // model under test; everything else (sessions, conduits) is shared.
@@ -31,7 +31,7 @@ impl DaemonState {
                     role,
                     goal,
                     session_id,
-                    rightkit_agent_tools::coding_tools::SubagentSpawnOptions::default(),
+                    rightkit_agent_coding_tools::SubagentSpawnOptions::default(),
                 )
                 .await;
             let ok = match produced {
@@ -47,7 +47,7 @@ impl DaemonState {
                             "signoff",
                             &vp,
                             session_id,
-                            rightkit_agent_tools::coding_tools::SubagentSpawnOptions::default(),
+                            rightkit_agent_coding_tools::SubagentSpawnOptions::default(),
                         )
                         .await
                     {
@@ -156,7 +156,7 @@ impl DaemonState {
         workspace_config: &rightkit_agent_config::HostConfig,
         selected_model: Option<&str>,
     ) -> Result<Arc<dyn LlmClient>, String> {
-        use rightkit_agent_tools::coding_tools::ToolRegistry;
+        use rightkit_agent_coding_tools::ToolRegistry;
         use rightkit_llm::agent_providers::OpenAiCompatClient;
 
         let global = self

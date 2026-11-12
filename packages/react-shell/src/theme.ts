@@ -1,3 +1,5 @@
+import { themeBootScript as buildThemeBootScript } from "@rightkit/theme";
+
 export type ThemeChoice = "system" | "light" | "dark";
 export type ResolvedTheme = "light" | "dark";
 
@@ -78,13 +80,8 @@ export function resolveTheme(choice: ThemeChoice, systemPrefersDark: boolean): R
   return choice;
 }
 
-export function systemPrefersDark(): boolean {
-  try {
-    return typeof window !== "undefined" && window.matchMedia("(prefers-color-scheme: dark)").matches;
-  } catch {
-    return false;
-  }
-}
+/** True when the OS asks for a dark colour scheme; `false` without a `window` or `matchMedia`. `@rightkit/theme`'s `prefersDark`. */
+export { prefersDark as systemPrefersDark } from "@rightkit/theme";
 
 /**
  * Persisted light/dark/system choice applied as `data-theme` on the root element. The store owns
@@ -207,18 +204,15 @@ export function applyStoredThemeSync(options: ThemeStoreOptions): ResolvedTheme 
  * in `<head>`) that applies the stored theme before any bundle loads. It mirrors `applyStoredThemeSync`
  * (storage key, light/dark/system, `qaOverride`, `defaultChoice`, `alwaysPaintDataTheme`) and never throws.
  * A strict CSP must allow it with a `'sha256-...'` hash of the exact script text or a nonce on the tag.
+ * The script text is built by `@rightkit/theme`'s `themeBootScript`; this is the theme store's options in front of it.
  */
 export function themeBootScript(options: Pick<ThemeStoreOptions, "storageKey" | "qaOverride" | "defaultChoice" | "alwaysPaintDataTheme" | "darkRemovesAttribute">): string {
-  const json = (v: unknown) => JSON.stringify(v).replace(/</g, "\\u003c").replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029");
-  const qa = options.qaOverride === "light" || options.qaOverride === "dark" ? options.qaOverride : null;
-  return (
-    `(function(){try{var k=${json(options.storageKey)},c=${json(options.defaultChoice ?? "system")},p=${options.alwaysPaintDataTheme === false ? "false" : "true"},d=${options.darkRemovesAttribute === true ? "true" : "false"},q=${json(qa)};` +
-    `if(q){c=q}else{try{var v=localStorage.getItem(k);if(v==="light"||v==="dark"||v==="system")c=v}catch(_){}}` +
-    `var r=document.documentElement;` +
-    `if(c==="system"){if(!p){r.removeAttribute("data-theme");return}` +
-    `c=matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light"}` +
-    `if(c==="dark"&&d){r.removeAttribute("data-theme");return}r.setAttribute("data-theme",c)}catch(_){}})();`
-  );
+  return buildThemeBootScript(options.storageKey, {
+    defaultChoice: options.defaultChoice,
+    alwaysPaintDataTheme: options.alwaysPaintDataTheme,
+    darkRemovesAttribute: options.darkRemovesAttribute,
+    qaOverride: options.qaOverride ?? null,
+  });
 }
 
 /**

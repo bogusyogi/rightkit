@@ -631,7 +631,7 @@ pub trait TurnHost: Send + Sync + 'static {
 
     /// Answer one `@` file-search query from the host's canonical file
     /// source — the same gitignore-aware workspace discovery `list_files`
-    /// runs (`rightkit_agent_tools::coding_tools::list_files::discover_workspace_files`),
+    /// runs (`rightkit_agent_coding_tools::list_files::discover_workspace_files`),
     /// scoped to the selected repository root, never a TUI-local scanner.
     /// The drive loop hands the composer's latest request here verbatim and
     /// handles empty/cancel itself, so `query` is always non-empty.
@@ -3572,15 +3572,15 @@ fn is_ctrl_c(key: &KeyEvent) -> bool {
 ///    cleanly, restoring the terminal via `TerminalGuard`'s `Drop` on the
 ///    way out.
 fn tool_render_class_to_tui(
-    class: rightkit_agent_tools::coding_tools::ToolRenderClass,
+    class: rightkit_agent_coding_tools::ToolRenderClass,
 ) -> RenderClass {
     match class {
-        rightkit_agent_tools::coding_tools::ToolRenderClass::FileRead => RenderClass::FileRead,
-        rightkit_agent_tools::coding_tools::ToolRenderClass::FileWrite => RenderClass::FileWrite,
-        rightkit_agent_tools::coding_tools::ToolRenderClass::Shell => RenderClass::Shell,
-        rightkit_agent_tools::coding_tools::ToolRenderClass::Search => RenderClass::Search,
-        rightkit_agent_tools::coding_tools::ToolRenderClass::Network => RenderClass::Network,
-        rightkit_agent_tools::coding_tools::ToolRenderClass::Generic => RenderClass::Generic,
+        rightkit_agent_coding_tools::ToolRenderClass::FileRead => RenderClass::FileRead,
+        rightkit_agent_coding_tools::ToolRenderClass::FileWrite => RenderClass::FileWrite,
+        rightkit_agent_coding_tools::ToolRenderClass::Shell => RenderClass::Shell,
+        rightkit_agent_coding_tools::ToolRenderClass::Search => RenderClass::Search,
+        rightkit_agent_coding_tools::ToolRenderClass::Network => RenderClass::Network,
+        rightkit_agent_coding_tools::ToolRenderClass::Generic => RenderClass::Generic,
     }
 }
 
@@ -3588,7 +3588,7 @@ pub async fn drive(host: impl TurnHost) -> i32 {
     // P1-4/KRN-007: {app}-tools owns executable registry construction.
     // TUI consumes only the tools-owned metadata projection; unknown/dynamic
     // tools remain bounded `Generic`.
-    let live_classes = rightkit_agent_tools::coding_tools::default_tool_render_classes();
+    let live_classes = rightkit_agent_coding_tools::default_tool_render_classes();
     // Leak the owned metadata names so they are `'static` for the TUI's
     // process-wide presentation map. No executable tool authority crosses
     // into the frontend.

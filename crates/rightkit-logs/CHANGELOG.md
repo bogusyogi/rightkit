@@ -1,8 +1,13 @@
 # Changelog
 
+## 0.4.1
+
+- Fixed: `ValueWriter::snapshot` also copies each store's rotated generations (`name.1` newest) beside the current file, so a diagnostics bundle no longer loses the rotated predecessor. New `JsonlStore::generation_paths()`. Additive.
+- New: `LogHost`, `LogService`, `DiagnosticHost`, `DiagnosticService`, `HostOperation`, `HostOperationError` (moved from `rightkit-device`, which re-exports them for one release). No new dependency.
+
 ## 0.4.0 (unpublished)
 
-- **Breaking:** removed the `agent_telemetry` feature and the `agent_telemetry` module. The agent runtime telemetry is now its own crate, `rightkit-agent-telemetry` 0.1.0: `rightkit_agent_telemetry::X` becomes `rightkit_agent_telemetry::X`. It is CodeRight agent product code, not logging (2026-11-11 shape review, docs/audits/2026-11-11-shape-matrix/reports/family-foundation-runtime.md). The optional `thiserror` dependency is gone with it (it was unused); `rightkit-crypto` and `tracing` stay optional for `token-hash` and `tracing`. The logging API is unchanged.
+- **Breaking:** removed the `agent_telemetry` feature and the `agent_telemetry` module. The agent runtime telemetry is now its own crate, `rightkit-agent-telemetry` 0.1.0: `rightkit_logs::agent_telemetry::X` becomes `rightkit_agent_telemetry::X`. It is CodeRight agent product code, not logging (2026-11-11 shape review, docs/audits/2026-11-11-shape-matrix/reports/family-foundation-runtime.md). The optional `thiserror` dependency is gone with it (it was unused); `rightkit-crypto` and `tracing` stay optional for `token-hash` and `tracing`. The logging API is unchanged.
 
 ## 0.3.10
 

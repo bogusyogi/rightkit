@@ -54,7 +54,7 @@ async fn query_codex_model_catalogue_managed(
     executable: &str,
     env: Vec<(String, String)>,
 ) -> Result<Vec<Value>, String> {
-    let adapter = rightkit_agent_tools::coding_tools::shell::NativeCommandSandboxAdapter;
+    let adapter = rightkit_agent_coding_tools::shell::NativeCommandSandboxAdapter;
     let root = std::env::current_dir().map_err(|e| e.to_string())?;
     let context = rightkit_sandbox::execution::ProcessLaunchContext {
         workspace_root: root.display().to_string(),

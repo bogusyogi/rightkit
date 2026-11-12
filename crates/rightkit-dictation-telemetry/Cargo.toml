@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-dictation-telemetry"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Dictation telemetry: local utterance timelines, telemetry writer, crash dump capture, feedback and HTTP client for diagnostics, redacted before anything is written."
@@ -14,15 +14,15 @@ name = "rightkit_dictation_telemetry"
 path = "src/lib.rs"
 
 [dependencies]
-rightkit-dictation-core = { version = "0.2.0", path = "../rightkit-dictation-core" }
+rightkit-dictation-core = { version = "0.3.0", path = "../rightkit-dictation-core" }
 rightkit-transcript-library = { version = "0.1.0", path = "../rightkit-transcript-library" }
 http = { version = "1" }
-rightkit-crash = { version = "0.3.6", path = "../rightkit-crash" }
+rightkit-crash = { version = "0.4.0", path = "../rightkit-crash" }
 rightkit-logs = { version = "0.4.0", path = "../rightkit-logs" }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1" }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
-rightkit-http = { version = "0.3.9", default-features = false, features = ["gzip"], path = "../rightkit-http" }
+rightkit-http = { version = "0.4.0", default-features = false, features = ["gzip"], path = "../rightkit-http" }
 dirs = { version = "7" }
 
 [target.'cfg(target_os = "windows")'.dependencies]

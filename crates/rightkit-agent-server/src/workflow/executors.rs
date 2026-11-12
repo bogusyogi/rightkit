@@ -703,7 +703,7 @@ impl TrustedRemoteTransport {
         }
         // The configured executor host alone may resolve privately; no redirects.
         let mut policy = rightkit_http::AddressPolicy::public_web();
-        if let Some(host) = rightkit_http::http_client::host_of(&base_url) {
+        if let Some(host) = rightkit_agent_daemon::http_client::host_of(&base_url) {
             policy = policy.allow_if(vec![host], |_| true);
         }
         let client = BlockingClient::try_new(rightkit_http::ClientConfig {

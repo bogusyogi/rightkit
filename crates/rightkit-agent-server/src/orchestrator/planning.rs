@@ -3,7 +3,7 @@
 /// actually exist while still respecting user-defined collaboration patterns.
 pub fn planner_system_prompt(
     registry: &AgentRegistry,
-    teams: &[rightkit_agent_tools::coding_tools::TeamDefinition],
+    teams: &[rightkit_agent_coding_tools::TeamDefinition],
 ) -> String {
     let mut roles = String::new();
     for a in registry.all() {
@@ -156,7 +156,7 @@ pub async fn plan_goal(
     goal: &str,
     memory: Option<&str>,
     registry: &AgentRegistry,
-    teams: &[rightkit_agent_tools::coding_tools::TeamDefinition],
+    teams: &[rightkit_agent_coding_tools::TeamDefinition],
 ) -> Result<Vec<TaskNode>, String> {
     let user = match memory {
         Some(m) => format!("Goal: {goal}\n\nRelevant experience from past runs:\n{m}"),

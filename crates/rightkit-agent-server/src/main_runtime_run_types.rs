@@ -131,7 +131,7 @@ fn resolve_cli_tool_filters_with_mcp(
     disallowed_tools: Vec<String>,
     no_mcp: bool,
 ) -> Result<CliToolFilters, String> {
-    let catalog = rightkit_agent_tools::coding_tools::registry::default_tool_capabilities()
+    let catalog = rightkit_agent_coding_tools::registry::default_tool_capabilities()
         .into_iter()
         .map(|capability| capability.name)
         .collect::<Vec<_>>();
@@ -314,7 +314,7 @@ const MIN_CLI_SUBAGENT_TIMEOUT_SECONDS: u64 = 60;
 const MAX_CLI_SUBAGENT_TIMEOUT_SECONDS: u64 = 900;
 
 fn cli_subagent_timeout(
-    options: &rightkit_agent_tools::coding_tools::SubagentSpawnOptions,
+    options: &rightkit_agent_coding_tools::SubagentSpawnOptions,
 ) -> std::time::Duration {
     let env_seconds = std::env::var("RIGHTKIT_CLI_SUBAGENT_TIMEOUT_SECONDS").ok();
     std::time::Duration::from_secs(cli_subagent_timeout_seconds(
@@ -324,7 +324,7 @@ fn cli_subagent_timeout(
 }
 
 fn cli_subagent_timeout_seconds(
-    options: &rightkit_agent_tools::coding_tools::SubagentSpawnOptions,
+    options: &rightkit_agent_coding_tools::SubagentSpawnOptions,
     env_seconds: Option<&str>,
 ) -> u64 {
     if let Some(raw) = env_seconds {
@@ -380,13 +380,13 @@ fn tail_chars(value: &str, max_chars: usize) -> String {
     format!("...{}", tail.into_iter().collect::<String>())
 }
 
-impl rightkit_agent_tools::coding_tools::SubagentSpawner for CliSubagentSpawner {
+impl rightkit_agent_coding_tools::SubagentSpawner for CliSubagentSpawner {
     fn spawn(
         &self,
         role: &str,
         task: &str,
         _parent_session_id: &str,
-        options: rightkit_agent_tools::coding_tools::SubagentSpawnOptions,
+        options: rightkit_agent_coding_tools::SubagentSpawnOptions,
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<String, String>> + Send>> {
         let role = role.to_string();
         let task = task.to_string();
@@ -459,7 +459,7 @@ impl rightkit_agent_tools::coding_tools::SubagentSpawner for CliSubagentSpawner 
             use rightkit_sandbox::execution::{
                 CommandLaunchSpec, ProcessLaunchAdapter, ProcessLaunchContext,
             };
-            let adapter = rightkit_agent_tools::coding_tools::shell::NativeCommandSandboxAdapter;
+            let adapter = rightkit_agent_coding_tools::shell::NativeCommandSandboxAdapter;
             let mut child = adapter
                 .spawn(CommandLaunchSpec {
                     program: exe.to_string_lossy().into_owned(),

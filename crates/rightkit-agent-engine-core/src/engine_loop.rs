@@ -538,7 +538,7 @@ impl SessionEngine {
             // cache key here, so tool-schema churn broke the provider's
             // prompt cache with no metric showing it. `tool_digest` reuses
             // the canonical-ordered serialization already implemented in
-            // `rightkit_agent_tools::coding_tools::registry::lazy_loading` (byte-stable across
+            // `rightkit_agent_coding_tools::registry::lazy_loading` (byte-stable across
             // turns with an identical tool set) so a tool-set change is
             // folded into the same observation and reported as a cache
             // Break rather than a silent Hit. `CacheTracker` (rightkit-cache)
@@ -551,7 +551,7 @@ impl SessionEngine {
             // transition, defeating invariant F.
             let tool_promoted_state = self.llm.promoted_tool_state_snapshot();
             let tool_defs_for_digest =
-                rightkit_agent_tools::coding_tools::registry::tool_defs_for_messages(
+                rightkit_agent_coding_tools::registry::tool_defs_for_messages(
                     &self.tools,
                     &tool_promoted_state,
                 );
@@ -1270,7 +1270,7 @@ impl SessionEngine {
         (
             crate::llm::LlmResponse,
             bool,
-            std::collections::HashMap<String, rightkit_agent_tools::coding_tools::ToolResult>,
+            std::collections::HashMap<String, rightkit_agent_coding_tools::ToolResult>,
             StreamPersistence,
         ),
         EngineError,
@@ -1340,7 +1340,7 @@ impl SessionEngine {
         // new model tool call before the provider's terminal signal.
         let mut completed_streaming_results: Vec<(
             ToolCall,
-            rightkit_agent_tools::coding_tools::ToolResult,
+            rightkit_agent_coding_tools::ToolResult,
         )> = Vec::new();
         // CR-08/EFF-009: side effects must never survive an errored,
         // interrupted, or incomplete model stream with no committed assistant
@@ -1757,7 +1757,7 @@ impl SessionEngine {
         reason: &str,
         turn_results: &mut std::collections::HashMap<
             String,
-            rightkit_agent_tools::coding_tools::ToolResult,
+            rightkit_agent_coding_tools::ToolResult,
         >,
     ) {
         for call in calls {

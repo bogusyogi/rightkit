@@ -239,6 +239,9 @@ pub struct ShellState {
     pub nav: Arc<NavPolicy>,
     pub opener: Arc<dyn ExternalOpener>,
     pub frameless: bool,
+    /// WebView2 user data folder for windows built through `windows::builder`/`open` (see
+    /// [`ShellBuilder::webview_data_directory`]).
+    pub webview_data_directory: Option<PathBuf>,
     pub close_to_tray: bool,
     /// `CloseBehavior::HideToBackground`: hide and reveal also change the macOS activation policy.
     pub hide_to_background: bool,
@@ -337,6 +340,7 @@ pub struct ShellBuilder {
     on_second_instance_reveal: Option<RevealDecider>,
     quit_drain: Option<std::time::Duration>,
     frameless: bool,
+    webview_data_directory: Option<PathBuf>,
     show_on_ready: Option<bool>,
     state_dir: Option<PathBuf>,
     schemes: Vec<String>,
@@ -406,6 +410,7 @@ impl Shell {
             on_second_instance_reveal: None,
             quit_drain: None,
             frameless: false,
+            webview_data_directory: None,
             show_on_ready: None,
             state_dir: None,
             schemes: Vec::new(),
@@ -630,6 +635,13 @@ impl ShellBuilder {
     /// Frameless chrome for windows created through `windows::builder`/`open` (see `frameless`).
     pub fn frameless(mut self, on: bool) -> Self {
         self.frameless = on;
+        self
+    }
+    /// The WebView2 user data folder for windows created through `windows::builder`/`open`, set on each
+    /// window builder instead of the process environment. Windows only (other platforms ignore it).
+    /// Unset: windows keep whatever the environment or `webview2_env` provides.
+    pub fn webview_data_directory(mut self, path: impl Into<PathBuf>) -> Self {
+        self.webview_data_directory = Some(path.into());
         self
     }
     /// Show the main window when its webview is ready (default on). Calling this is an explicit
@@ -930,6 +942,24 @@ impl Shell {
     }
 }
 
+/// `window.__RIGHTKIT_PLATFORM__ = "<name>";`, the same snippet `platformInitializationScript` in
+/// `@rightkit/platform-ui` returns, from the compile target. `None` on a target that package does not
+/// name (Android), so the renderer keeps its fallback.
+pub(crate) fn platform_init_script() -> Option<String> {
+    let name = if cfg!(target_os = "macos") {
+        "macos"
+    } else if cfg!(target_os = "ios") {
+        "ios"
+    } else if cfg!(target_os = "windows") {
+        "windows"
+    } else if cfg!(target_os = "linux") {
+        "linux"
+    } else {
+        return None;
+    };
+    Some(format!("window.__RIGHTKIT_PLATFORM__ = \"{name}\";"))
+}
+
 /// Build the plugin for `cfg`, honouring `cfg.modules`. Shared by [`Shell::plugin`] and
 /// [`ShellPluginBuilder::build`].
 pub(crate) fn install(cfg: ShellBuilder) -> TauriPlugin<Wry> {
@@ -1108,6 +1138,10 @@ pub(crate) fn install(cfg: ShellBuilder) -> TauriPlugin<Wry> {
             }
             setup(&app, cfg, nav, opener)
         });
+    // Every profile, `lifecycle_only` included: the first render already knows the OS.
+    if let Some(script) = platform_init_script() {
+        plugin = plugin.js_init_script(script);
+    }
     if harden_webviews {
         plugin = match script_scope {
             HardeningScript::AllFrames => {
@@ -1348,6 +1382,7 @@ fn setup(
         nav,
         opener,
         frameless: cfg.frameless && cfg.modules.contains(Module::Frameless),
+        webview_data_directory: cfg.webview_data_directory.clone(),
         close_to_tray: cfg.close_to_tray,
         destroy_on_close: cfg.destroy_on_close
             || cfg.webview_lifecycle == WebviewLifecycle::DestroyOnHide,

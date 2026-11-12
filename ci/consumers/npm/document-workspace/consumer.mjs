@@ -9,7 +9,7 @@ const result = { recipeId, schemaVersion: 1, ok: false, host: { platform: proces
 const failure = error => ({ name: error?.name ?? 'Error', message: String(error?.message ?? error) });
 const required = name => { assert(process.env[name], `${name} is required`); return process.env[name]; };
 const surface = [".", "./package.json", "./styles.css"];
-const expected = ["App", "AppDialogs", "AppDialogsHost", "configureDocumentWorkspace"];
+const expected = ["App", "AppDialogs", "AppDialogsHost", "AppRoot", "configureDocumentWorkspace", "configureLegal", "legalConfigured", "missingLegalConfiguration"];
 
 try {
   const archive = path.resolve(required('RIGHTKIT_CONSUMER_ARTIFACT'));
@@ -36,7 +36,11 @@ try {
     assert.deepEqual(Object.keys(manifest.exports ?? {}).sort(), surface);
     const mod = await import(provenance.entries['@rightkit/document-workspace']);
     for (const key of expected) assert.ok(key in mod, `missing root export ${key}`);
-    return { checked: expected, exportKeys: surface.length };
+    // The legal gate fails closed: unconfigured, both halves are reported missing and nothing is current.
+    assert.equal(mod.legalConfigured(), false);
+    assert.deepEqual(mod.missingLegalConfiguration(), ['configureDocumentWorkspace({ firstRun })', 'configureLegal({ manifest, contract })']);
+    assert.equal(mod.legalAcceptanceCurrent({ legalAcceptanceVersion: 'v', legalAcceptedAt: '2026-01-01T00:00:00Z', legalEligibilityBasis: 'individual', legalMaterialSha256: undefined }), false);
+    return { checked: expected, exportKeys: surface.length, failsClosed: true };
   });
 
   assert.equal(result.scenarios.length, 1);

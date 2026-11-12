@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.1
+
+- Fix: the models panel no longer offers Rollback. The model store keeps one revision per model since `rightkit-models` 0.7, so the action could only fail with `no_rollback`. `installActions` never returns `'rollback'`; the value stays in its type and the panel still handles it, for hosts that name it.
+
 ## 0.2.0
 
 - Changed (breaking): the package is the media-generation panels, not the GenRight app. Removed and left to the app: the app shell (`App`, `main`, `DesktopWorkspace`, `Settings`, `ComingSoon`, window controls, theme wiring, `brand.css`, `shell.css`), onboarding (`Onboarding`, `lib/onboarding`, `lib/setup-steps`, `lib/doctor`, `lib/platform`), legal documents (`legal/documents`, `LegalDocument`), licence (`lib/license`, `LicensePlan`), app updates (`lib/app-update*`) and the KDP workflow (`Kdp`, `kdp-*`). A host builds those from `@rightkit/react-shell`, `@rightkit/onboarding`, `@rightkit/settings-ui`, `@rightkit/legal-ui`, `@rightkit/license` and `@rightkit/app-update`; the dependencies on `@rightkit/app-update`, `legal`, `legal-ui`, `license`, `theme` and the Tauri process and updater plugins are gone.

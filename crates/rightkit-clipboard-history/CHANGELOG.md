@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.0
+
+- Breaking for dependents: dependency requirements `rightkit-automation` 0.6 -> 0.7. 0.2.0 was published before these requirements were raised; a semver-breaking dependency is a breaking change, so they ship as 0.3.0 instead of changing 0.2.0 in place (#1572). No source change in this crate since 0.2.0.
+
 ## 0.2.0
 
 - Requires `rightkit-notch-ui` 0.2.0 (host-defined notch cells), whose `card::CardContent` and `layout::Edge` appear in this crate's Windows API (`burst::burst_preview_panel`, the strip's placement): breaking for that reason only; the strip and burst code is unchanged.

@@ -81,12 +81,12 @@ async fn daemon_session_list(status: Option<String>, tag: Option<String>) -> i32
         url.push('?');
         url.push_str(&query);
     }
-    let listed = match rightkit_http::http_client::daemon_client_with(
+    let listed = match rightkit_agent_daemon::http_client::daemon_client_with(
         &url,
         std::time::Duration::from_secs(30),
     ) {
         Ok(client) => {
-            rightkit_http::http_client::send_any(
+            rightkit_agent_daemon::http_client::send_any(
                 &client,
                 &rightkit_http::Request::get(url.clone()).bearer(&token),
             )
@@ -95,7 +95,7 @@ async fn daemon_session_list(status: Option<String>, tag: Option<String>) -> i32
         Err(e) => Err(e),
     };
     match listed {
-        Ok(resp) if rightkit_http::http_client::is_success(resp.status) => {
+        Ok(resp) if rightkit_agent_daemon::http_client::is_success(resp.status) => {
             println!("{}", resp.text());
             0
         }
@@ -132,8 +132,8 @@ async fn daemon_session_search(query: &str, limit: usize) -> i32 {
         url_encode_component(query),
         limit.max(1)
     );
-    match rightkit_http::http_client::daemon_get(&url, &token).await {
-        Ok(resp) if rightkit_http::http_client::is_success(resp.status) => {
+    match rightkit_agent_daemon::http_client::daemon_get(&url, &token).await {
+        Ok(resp) if rightkit_agent_daemon::http_client::is_success(resp.status) => {
             println!("{}", resp.text());
             0
         }
@@ -161,7 +161,7 @@ async fn daemon_session_delete(session_id: &str) -> i32 {
     };
 
     let encoded_session_id = url_encode_component(session_id);
-    match rightkit_http::http_client::daemon_call(
+    match rightkit_agent_daemon::http_client::daemon_call(
         rightkit_http::Method::Delete,
         &format!("{base_url}/sessions/{encoded_session_id}"),
         &token,
@@ -169,7 +169,7 @@ async fn daemon_session_delete(session_id: &str) -> i32 {
     )
     .await
     {
-        Ok(resp) if rightkit_http::http_client::is_success(resp.status) => {
+        Ok(resp) if rightkit_agent_daemon::http_client::is_success(resp.status) => {
             println!("Session {session_id} deleted.");
             0
         }
@@ -202,7 +202,7 @@ async fn daemon_session_set_status(session_id: &str, status: &str) -> i32 {
 
     let encoded_session_id = url_encode_component(session_id);
     let body = serde_json::json!({ "status": status });
-    match rightkit_http::http_client::daemon_call(
+    match rightkit_agent_daemon::http_client::daemon_call(
         rightkit_http::Method::Patch,
         &format!("{base_url}/sessions/{encoded_session_id}"),
         &token,
@@ -210,7 +210,7 @@ async fn daemon_session_set_status(session_id: &str, status: &str) -> i32 {
     )
     .await
     {
-        Ok(resp) if rightkit_http::http_client::is_success(resp.status) => {
+        Ok(resp) if rightkit_agent_daemon::http_client::is_success(resp.status) => {
             println!("Session {session_id} status set to {status}.");
             0
         }
@@ -280,7 +280,7 @@ async fn daemon_session_set(
     }
 
     let encoded_session_id = url_encode_component(session_id);
-    match rightkit_http::http_client::daemon_call(
+    match rightkit_agent_daemon::http_client::daemon_call(
         rightkit_http::Method::Patch,
         &format!("{base_url}/sessions/{encoded_session_id}"),
         &token,
@@ -288,7 +288,7 @@ async fn daemon_session_set(
     )
     .await
     {
-        Ok(resp) if rightkit_http::http_client::is_success(resp.status) => {
+        Ok(resp) if rightkit_agent_daemon::http_client::is_success(resp.status) => {
             println!("Session {session_id} updated.");
             0
         }

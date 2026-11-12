@@ -21,9 +21,8 @@ use rightkit_child_process::reveal::{reveal, PathScope};
 use rightkit_contracts::types::record_event::{InputKind, Phase as EventPhase};
 use rightkit_contracts::types::record_session::BundleStatus;
 use rightkit_credentials::Secret;
-use rightkit_daemon::{
-    Allowlist, AppRoot, AppRootError, CallContext, Hosted, ServiceConfig, Suite,
-};
+use rightkit_daemon::{Allowlist, CallContext, Hosted, ServiceConfig};
+use rightkit_roots::{AppRoot, AppRootError, Suite};
 use serde_json::json;
 use tauri::{AppHandle, Emitter};
 

@@ -139,6 +139,15 @@ export interface CaptionButtonClasses {
  */
 export type CaptionTitles = false | { minimize?: string | false; maximize?: string | false; close?: string | false };
 
+/**
+ * Which caption buttons are drawn. `false` leaves that button out of the markup (a window that cannot be minimised
+ * or maximised). A button left out of the object is drawn; Close is always drawn. Default: all three.
+ */
+export interface CaptionButtons {
+  minimize?: boolean;
+  maximize?: boolean;
+}
+
 export function CaptionControls({
   adapter,
   labels = createWindowControlLabels(),
@@ -148,6 +157,7 @@ export function CaptionControls({
   buttonClasses,
   titles,
   blurOnClick = true,
+  buttons,
 }: {
   adapter: WindowControlAdapter;
   labels?: WindowControlLabels;
@@ -157,6 +167,7 @@ export function CaptionControls({
   buttonClasses?: CaptionButtonClasses;
   titles?: CaptionTitles;
   blurOnClick?: boolean;
+  buttons?: CaptionButtons;
 }) {
   const controls = useMemo(() => createWindowControls(adapter), [adapter]);
   const titleOf = (key: "minimize" | "maximize" | "close"): string | undefined => {
@@ -168,16 +179,20 @@ export function CaptionControls({
   const maximizeGlyph = maximized ? (glyphs?.restore ?? glyphs?.maximize) : glyphs?.maximize;
   return (
     <div className={cx("rk-caption", className)}>
-      <button type="button" className={cx("rk-caption__btn", buttonClasses?.minimize)} title={titleOf("minimize")} aria-label={labels.minimize} onClick={blurThen(controls.minimize, blurOnClick)}>
-        {glyphs?.minimize ?? (
-          <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><rect x="0" y="4.5" width="10" height="1" fill="currentColor" /></svg>
-        )}
-      </button>
-      <button type="button" className={cx("rk-caption__btn", buttonClasses?.maximize)} title={titleOf("maximize")} aria-label={labels.maximize} onClick={blurThen(controls.toggleMaximize, blurOnClick)}>
-        {maximizeGlyph ?? (
-          <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><rect x="0.5" y="0.5" width="9" height="9" fill="none" stroke="currentColor" /></svg>
-        )}
-      </button>
+      {buttons?.minimize === false ? null : (
+        <button type="button" className={cx("rk-caption__btn", buttonClasses?.minimize)} title={titleOf("minimize")} aria-label={labels.minimize} onClick={blurThen(controls.minimize, blurOnClick)}>
+          {glyphs?.minimize ?? (
+            <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><rect x="0" y="4.5" width="10" height="1" fill="currentColor" /></svg>
+          )}
+        </button>
+      )}
+      {buttons?.maximize === false ? null : (
+        <button type="button" className={cx("rk-caption__btn", buttonClasses?.maximize)} title={titleOf("maximize")} aria-label={labels.maximize} onClick={blurThen(controls.toggleMaximize, blurOnClick)}>
+          {maximizeGlyph ?? (
+            <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><rect x="0.5" y="0.5" width="9" height="9" fill="none" stroke="currentColor" /></svg>
+          )}
+        </button>
+      )}
       <button type="button" className={cx("rk-caption__btn rk-caption__close", buttonClasses?.close)} title={titleOf("close")} aria-label={labels.close} onClick={blurThen(controls.close, blurOnClick)}>
         {glyphs?.close ?? (
           <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M0.5 0.5 9.5 9.5M9.5 0.5 0.5 9.5" stroke="currentColor" strokeWidth="1" /></svg>
@@ -224,6 +239,8 @@ export interface TitlebarProps {
    * Default true. Pass false to keep focus on the button.
    */
   blurCaptionOnClick?: boolean;
+  /** Which caption buttons are drawn: `{ maximize: false }` for a window that cannot be maximised. Default: all three. */
+  captionButtons?: CaptionButtons;
   /** Element type of the root. Default `"header"`. The element gets the same classes and `data-tauri-drag-region`. */
   as?: ElementType;
   platform?: Platform;
@@ -262,7 +279,7 @@ export const DragRegion = forwardRef<HTMLElement, DragRegionProps>(function Drag
  * (Overlay title bar); Windows/Linux draw caption buttons from the adapter. Heights, paddings and
  * widths are `--rk-titlebar-*` / `--rk-lights-width` / `--rk-caption-*` tokens (see the README recipe).
  */
-export function Titlebar({ start, startWidth, title, titleRef, titleFill, end, windowControls, windowControlLabels, captionGlyphs, maximized, captionButtonClasses, captionTitles, blurCaptionOnClick, as: Root = "header", platform: platformProp, className, slots }: TitlebarProps) {
+export function Titlebar({ start, startWidth, title, titleRef, titleFill, end, windowControls, windowControlLabels, captionGlyphs, maximized, captionButtonClasses, captionTitles, blurCaptionOnClick, captionButtons, as: Root = "header", platform: platformProp, className, slots }: TitlebarProps) {
   const detected = usePlatform();
   // The provider's platform wins over host detection: one injected platform for the whole shell.
   const provided = useShellOptional()?.platform;
@@ -278,7 +295,7 @@ export function Titlebar({ start, startWidth, title, titleRef, titleFill, end, w
       {title || titleRef || titleFill ? <div ref={titleRef} className={cx("rk-top__title", titleFill && "rk-top__title--fill", slots?.title)} data-tauri-drag-region>{title}</div> : null}
       {titleFill ? null : <div className={cx("rk-top__drag", slots?.drag)} data-tauri-drag-region />}
       {end ? <div className={cx("rk-top__end", slots?.end)} data-tauri-drag-region>{end}</div> : null}
-      {caps.customCaptionButtons && windowControls ? <CaptionControls adapter={windowControls} labels={windowControlLabels} className={slots?.caption} glyphs={captionGlyphs} maximized={maximized} buttonClasses={captionButtonClasses} titles={captionTitles} blurOnClick={blurCaptionOnClick} /> : null}
+      {caps.customCaptionButtons && windowControls ? <CaptionControls adapter={windowControls} labels={windowControlLabels} className={slots?.caption} glyphs={captionGlyphs} maximized={maximized} buttonClasses={captionButtonClasses} titles={captionTitles} blurOnClick={blurCaptionOnClick} buttons={captionButtons} /> : null}
     </Root>
   );
 }
@@ -673,6 +690,8 @@ export interface AppShellProps {
   /** @deprecated Use `bridge.window`. */
   windowControls?: WindowControlAdapter;
   windowControlLabels?: WindowControlLabels;
+  /** Which caption buttons the default titlebar draws. See `TitlebarProps.captionButtons`. */
+  captionButtons?: CaptionButtons;
   labels?: Partial<ShellLabels>;
   /** Override detection (tests, browser QA). Defaults to platform-ui. */
   platform?: Platform;
@@ -815,6 +834,7 @@ function ShellLayout(props: AppShellProps) {
           end={props.titlebarEnd}
           windowControls={adapter}
           windowControlLabels={props.windowControlLabels}
+          captionButtons={props.captionButtons}
           platform={platform}
           className={props.slots?.titlebar}
         />

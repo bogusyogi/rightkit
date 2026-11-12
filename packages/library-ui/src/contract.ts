@@ -1,4 +1,4 @@
-// The library contract. The package has no IPC: the host implements `LibrarySource` over its own
+// The library contract. The list and reader hold no IPC: the host implements `LibrarySource` over its own
 // store (HeardRight's delivery history, ScrapeRight's artifacts, ...) and maps its records to
 // `LibraryRow` and `LibraryDetail`. Every capability past `query` and `copyText` is optional; the
 // list and reader hide what the source does not offer.
@@ -9,8 +9,14 @@ export type Unsubscribe = () => void;
 
 /** Where a row came from: an app, a file, a synced device. */
 export interface LibraryOrigin {
-  /** Shown in the meta line and used by the origin filter. */
+  /** Shown in the meta line and as the origin filter's option text. */
   label: string;
+  /**
+   * The source's own key for this origin (e.g. a raw process name), sent as `LibraryQuery.origin` when the
+   * origin filter picks it. Defaults to `label`; set it whenever `label` is a display form the source cannot
+   * match on.
+   */
+  filterKey?: string;
   /** Extra detail (a window title) shown only when it adds information. */
   detail?: string;
   /** Key the source resolves to an icon (`LibrarySource.originIcon`). */
@@ -43,7 +49,7 @@ export interface LibraryQuery {
   search: string;
   fromMs: number | null;
   untilMs: number | null;
-  /** Origin label to match, or "" for all. */
+  /** The picked origin's `filterKey` (its `label` when it has none), or "" for all. */
   origin: string;
   /** Active variant key (see `LibraryVariant`). */
   variant: string;

@@ -399,6 +399,17 @@ impl UpdateAuthProvider {
         }
     }
 
+    /// Re-validate the licence with the server, best effort: a paid update needs a fresh signed
+    /// entitlement, and an offline or refused refresh keeps the stored one, which every later
+    /// check still verifies. Call it BEFORE [`revision`](Self::revision): a refresh can replace the
+    /// token, and a binding captured earlier would then be stale. The result is dropped on
+    /// purpose, and a disabled client does nothing.
+    pub fn refresh_best_effort(&self) {
+        if let Some(core) = &self.core {
+            let _ = core.signalled(|| core.refresh());
+        }
+    }
+
     /// The revision to bind a new update to, read inside one lock hold. Refused unless a valid
     /// licence is stored now (a public patch needs no binding revision: use
     /// [`LicenseRevision::none`]).

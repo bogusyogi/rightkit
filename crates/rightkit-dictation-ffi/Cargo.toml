@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-dictation-ffi"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Stable C surface for native shells over the dictation text pipeline, ASR audio conditioning and Parakeet detokenization."
@@ -17,6 +17,6 @@ crate-type = ["rlib", "staticlib"]
 [dependencies]
 serde_json = "1"
 rightkit-text-polish = { version = "0.1.0", path = "../rightkit-text-polish" }
-rightkit-dictation-core = { version = "0.2.0", path = "../rightkit-dictation-core" }
-rightkit-asr = { version = "0.4.0", default-features = false, path = "../rightkit-asr" }
-rightkit-onnx = { version = "0.2.9", default-features = false, features = ["session"], path = "../rightkit-onnx" }
+rightkit-dictation-core = { version = "0.3.0", path = "../rightkit-dictation-core" }
+rightkit-asr = { version = "0.5.0", default-features = false, path = "../rightkit-asr" }
+rightkit-onnx = { version = "0.3.0", default-features = false, features = ["session"], path = "../rightkit-onnx" }

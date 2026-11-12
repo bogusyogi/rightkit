@@ -7,5 +7,5 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-ocr = { version = "=0.2.4" }
+rightkit-ocr = { version = "=0.3.0" }
 serde_json = "1"

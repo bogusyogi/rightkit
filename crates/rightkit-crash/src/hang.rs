@@ -598,7 +598,12 @@ impl Monitor {
             if !self.may_write(state) {
                 return;
             }
-            let _ = capture_native_with_secrets(&dir, "hang", self.config.secrets());
+            let _ = capture_native_with_secrets(
+                &dir,
+                "hang",
+                self.config.secrets(),
+                self.config.sample_duration(),
+            );
         }
         if self.may_write(state) {
             crate::retention::prune(&dir, self.config.retention);

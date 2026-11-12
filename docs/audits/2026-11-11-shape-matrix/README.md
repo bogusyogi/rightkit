@@ -51,6 +51,30 @@ These cannot be settled from code.
 9. **Crates no surveyed app imports:** `rightkit-passkeys`, `rightkit-sync-keys`, `rightkit-decimal`, `rightkit-identity`, `rightkit-scheduler`, `rightkit-github`, `rightkit-qa-driver`. Keep, or drop from the mandatory set.
 10. **Changes after the live HeardRight build that reverse a shipped choice:** the active pill staying visible in full-screen apps; the pill visibility check moving from a 250 ms poll to OS events; the web default font moving from "hanken" to "system" while Rust still defaults to "hanken" and rejects "system".
 
+## Owner decisions, 2026-11-12
+
+Taken by the session Adrian put in charge of the repository (branch `claude/hopeful-hypatia-x956lw`), from the code of RightKit, of HeardRight's shipped builds (Mac 0.1.213 `12b7d8ce`, Windows 0.1.162 `4cefb239`) and of the other apps. Publishing and merging to `main` stay Adrian's.
+
+| # | Decision | Outcome |
+|---|---|---|
+| 1, 2 | Transcript delivery rule and allowlist | Open. HeardRight-only behaviour with two shipped rules; not changed on this branch. |
+| 3 | One approvals core | Kept. The file store's rival moves are settled by one guard per source state. The daemon coordinator's verifier, approver list and replay ledger were not carried over and are not claimed; claim, settle, recover and audit are library API with no app caller yet. |
+| 4 | One agent engine, one task contract | Kept as a boundary. `Binding::check` is still not called at use time: CodeRight's execution compares the digest as before. Open work, not a guarantee. |
+| 5 | `RightKitAgent` on phones | Not started and not needed until an app adopts it. |
+| 6 | Agent product code out of mandatory crates | Kept and extended: `rightkit-http` loses the agent daemon client and the app-named wrapper; `rightkit-agent-tools` loses the 52k lines of coding tools (new `rightkit-agent-coding-tools`) and its dependencies on `rightkit-agent-config` and `rightkit-agent-telemetry`; `rightkit-device` loses the unused second licence authority. |
+| 7 | DOCX | Unchanged: eigenpal's packages as published; the toolbar patch stays undelivered until upstream takes the prop. |
+| 8 | ml-lab | Kept: experiment scripts are tooling, not a shared package; they stay in HeardRight's repository. |
+| 9 | Crates no app imports | Kept in RightKit, none mandatory. |
+| 10 | HeardRight changes after the live build | Not changed here. Font: `main`'s October redesign uses the system face while the Rust settings still default to and accept only `hanken`; the two must be made to agree in HeardRight. Pill over full screen and the move from a poll to OS events: one rule for both systems is still owed. |
+| new | `rightkit-memory` | The name stays the engine (Pulse's), the client is `rightkit-memory-client`; 0.2.0 is not yanked. The client must be published in the same wave. |
+| new | Model store | One revision per model (HeardRight's layout). A migration keeps earlier revisions under `.legacy-kept/`; rollback is not offered. |
+| new | Data location | `rightkit-roots` owns it and from 0.2.0 produces a flat app folder (HeardRight's `HeardRightNext`). The mandatory row keeps naming `rightkit-daemon` until apps reach daemon 0.9; roots joins M6 through draft amendment v2.2. The two Windows base-folder resolvers are not unified: doing so would move shared models on relocated profiles. |
+| new | Window host row (M1) | Decided, not yet applied to the table: its npm owner should be `@rightkit/tauri-shell` (seven apps import it; draft amendment v2.1), `@rightkit/tauri` keeps the command registry, dialogs and native fetch, and `rightkit-device` belongs to M12 only. |
+| new | QA row (M20) | Decided, not yet applied: `@rightkit/qa` and `@rightkit/qa-chrome` are browser and dev-server tooling that three apps do not use; only `rightkit-qa` should be mandatory for every app. |
+| new | Unit tests | None committed (E2E standard D7). The tests written to verify the fixes on this branch ran green and were removed; they are readable at commits `600c1673` and `2823ceca`. |
+
+What the branch added to the mandatory packages against HeardRight's own code is listed per crate and package in their CHANGELOGs under the new versions. Still open from the mandatory-set review: a flat-file settings bridge in the shell (design in the `rightkit-app-settings` review), the overlay full-screen policy and event sources, the macOS status-item helper, the pro-bridge host (three drifting app copies), release tooling (`rightkit-host-gate` ownership, ffmpeg source fallback), `serve_commands` for `rightkit-agent-tools`, the update client's `checkOnce` mapping, and Tauri host clients for `dictation-ui`, `library-ui` and `system-ui`.
+
 ## Order of work
 
 1. **HeardRight, because it is live.** Switch main onto the RightKit copies it already duplicates, bottom-up (order in `reports/hr-review-dictation-chain.md`): about 132k lines on main already exist in RightKit, including ten `rightkit-dictation-*` crates (about 62k lines) that nothing consumes. Before that, eleven RightKit changes listed in that report, starting with the model-host rename bug in `rightkit-dictation-models` and bumping pins that are behind published fixes (license 0.2.9, overlay-win, hotkeys, app-settings 0.3.3+).
@@ -61,9 +85,9 @@ These cannot be settled from code.
 6. **Swift:** fix the mapping, one published pin, create `RightKitDictation` and `RightKitLibrary` (`reports/hr-review-ios-swift.md`).
 7. Everything else per the action list in `matrix.md`.
 
-## Redraws made on the branch (`claude/busy-hypatia-e30h7l`, not on `main`)
+## Redraws (merged to `main` on 2026-11-11; partly published the same day)
 
-Each follows the recommendation above. Decisions 3 to 8 were not answered while Adrian was travelling, so these were made by the agent on the recommended option, are recorded as pending his confirmation in each crate's CHANGELOG, and can be reverted commit by commit.
+Each follows the recommendation above. Decisions 3 to 8 were not answered while Adrian was travelling, so these were made by the agent on the recommended option and recorded as pending his confirmation in each crate's CHANGELOG. On 2026-11-12 Adrian delegated the shape decisions ("you own this repository now ... reason through it and bring it to the absolute best shape"); the outcome of each is in "Owner decisions, 2026-11-12" below, which supersedes the "pending" wording in the CHANGELOGs. Source can be reverted commit by commit; versions already on crates.io or npm cannot be replaced, only yanked or superseded.
 
 | Change | Crates | Decision |
 |---|---|---|

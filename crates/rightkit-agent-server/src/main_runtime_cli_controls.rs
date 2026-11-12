@@ -783,7 +783,7 @@ async fn cli_runtime(command: CliRuntimeCommand) -> i32 {
                     return 1;
                 }
             };
-            let response = rightkit_http::http_client::daemon_call(
+            let response = rightkit_agent_daemon::http_client::daemon_call(
                 rightkit_http::Method::Post,
                 &format!("{base_url}/cli-runtime/matrix-cell"),
                 &token,
@@ -795,7 +795,7 @@ async fn cli_runtime(command: CliRuntimeCommand) -> i32 {
             .await;
             match response {
                 Ok(response) => {
-                    let success = rightkit_http::http_client::is_success(response.status);
+                    let success = rightkit_agent_daemon::http_client::is_success(response.status);
                     let value = response.json::<serde_json::Value>().unwrap_or_else(|_| {
                         serde_json::json!({
                             "provider": provider, "scenario": scenario, "passed": false,

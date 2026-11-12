@@ -20,14 +20,14 @@ default = []
 # The evaluation harness (benchmark, compare, terminal-bench, executed and corpus bake-offs, soak).
 benchmarks = []
 qualification = ["rightkit-agent-engine-core/qualification"]
-fastembed = ["rightkit-onnx/session", "rightkit-agent-tools/coding_tools-embeddings"]
+fastembed = ["rightkit-onnx/session", "rightkit-agent-coding-tools/embeddings"]
 
 [dependencies]
 rightkit-doctor = { version = "0.2.0", path = "../rightkit-doctor" }
 rightkit-agent-host-traits = { version = "0.1.1", path = "../rightkit-agent-host-traits" }
 rightkit-agent-plugins = { version = "0.1.1", path = "../rightkit-agent-plugins" }
 rightkit-agent-recipes = { version = "0.1.0", path = "../rightkit-agent-recipes" }
-rightkit-onnx = { version = "0.2.9", path = "../rightkit-onnx", features = ["agent_ort"], default-features = false }
+rightkit-onnx = { version = "0.3.0", path = "../rightkit-onnx", features = ["agent_ort"], default-features = false }
 rightkit-agent-engine-protocol = { version = "0.2.0", path = "../rightkit-agent-engine-protocol" }
 rightkit-agent-engine-core = { version = "0.1.1", path = "../rightkit-agent-engine-core" }
 rightkit-hooks = { version = "0.2.3", path = "../rightkit-hooks", features = ["agent_hooks", "agent_hooks-host-env"] }
@@ -36,7 +36,7 @@ rightkit-memory-client = { version = "0.1.0", path = "../rightkit-memory-client"
 rightkit-agent-policy = { version = "0.1.0", path = "../rightkit-agent-policy" }
 rightkit-logs = { version = "0.4.0", path = "../rightkit-logs", features = ["tracing"], default-features = false }
 rightkit-agent-telemetry = { version = "0.1.0", path = "../rightkit-agent-telemetry" }
-rightkit-agent-tools = { version = "0.3.3", path = "../rightkit-agent-tools", features = ["coding_tools"] }
+rightkit-agent-coding-tools = { version = "0.1.0", path = "../rightkit-agent-coding-tools" }
 rightkit-agent-config = { version = "0.1.0", path = "../rightkit-agent-config", features = ["host-env"] }
 rightkit-agent-orchestration = { version = "0.1.1", path = "../rightkit-agent-orchestration" , features = ["coding", "coding-host"] }
 rightkit-agent-learning = { version = "0.1.0", path = "../rightkit-agent-learning" }
@@ -53,20 +53,20 @@ rightkit-crypto = { version = "0.1.0", path = "../rightkit-crypto" }
 rightkit-fs = { version = "0.4.9", path = "../rightkit-fs", features = ["digest", "fs", "json", "lock", "transaction"] }
 rightkit-time = { version = "0.1.1", path = "../rightkit-time" }
 rightkit-file-watch = { version = "0.4.2", path = "../rightkit-file-watch" }
-rightkit-oauth = { version = "0.10.0", path = "../rightkit-oauth", features = ["secrets", "system-sources"], default-features = false }
+rightkit-oauth = { version = "0.11.0", path = "../rightkit-oauth", features = ["secrets", "system-sources"], default-features = false }
 rightkit-child-process = { version = "0.5.7", path = "../rightkit-child-process", features = ["tokio"] }
-rightkit-daemon = { version = "0.8.0", path = "../rightkit-daemon", features = ["local", "remote-loopback"], default-features = false }
+rightkit-daemon = { version = "0.9.0", path = "../rightkit-daemon", features = ["local", "remote-loopback"], default-features = false }
 rightkit-agent-daemon = { version = "0.1.0", path = "../rightkit-agent-daemon" }
 rightkit-sidecar = { version = "0.3.0", path = "../rightkit-sidecar" }
-rightkit-license = { version = "0.2.6", path = "../rightkit-license", features = ["engine-snapshot"] }
-rightkit-crash = { version = "0.3.6", path = "../rightkit-crash", features = ["support-bundle"], default-features = false }
-rightkit-http = { version = "0.3.10", path = "../rightkit-http", features = ["agent_host", "async", "gzip", "untrusted"] }
+rightkit-license = { version = "0.3.0", path = "../rightkit-license", features = ["engine-snapshot"] }
+rightkit-crash = { version = "0.4.0", path = "../rightkit-crash", features = ["support-bundle"], default-features = false }
+rightkit-http = { version = "0.4.0", path = "../rightkit-http", features = ["async", "gzip", "untrusted"] }
 rightkit-credentials = { version = "0.5.0", path = "../rightkit-credentials" }
 rightkit-db = { version = "0.5.3", path = "../rightkit-db", features = ["bundled", "statement-cache"] }
-rightkit-job-queue = { version = "0.5.1", path = "../rightkit-job-queue", default-features = false }
-rightkit-github = { version = "0.1.1", path = "../rightkit-github" }
+rightkit-job-queue = { version = "0.6.0", path = "../rightkit-job-queue", default-features = false }
+rightkit-github = { version = "0.2.0", path = "../rightkit-github" }
 rightkit-scheduler = { version = "0.1.2", path = "../rightkit-scheduler" }
-rightkit-context-protocol = { version = "0.1.1", path = "../rightkit-context-protocol" }
+rightkit-context-protocol = { version = "0.2.0", path = "../rightkit-context-protocol" }
 rightkit-bot-messaging = { version = "0.1.2", path = "../rightkit-bot-messaging" }
 rightkit-mcp = { version = "0.7.2", path = "../rightkit-mcp", features = ["agent_mcp", "agent_mcp-host-env"] }
 rightkit-agents = { version = "0.2.4", path = "../rightkit-agents", features = ["agent_acp", "agent_host"] }

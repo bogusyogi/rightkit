@@ -111,7 +111,7 @@ pub struct StoredAnnotation {
 }
 
 /// Console line projection — what the fragment needs from the live console.
-/// Matches `rightkit_agent_tools::coding_tools::browser::ConsoleLine` shape but the fragment
+/// Matches `rightkit_agent_coding_tools::browser::ConsoleLine` shape but the fragment
 /// never imports the live type, so it can be satisfied by either the live
 /// store or a test stub.
 #[derive(Clone, Debug)]

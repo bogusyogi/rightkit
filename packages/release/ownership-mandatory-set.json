@@ -710,6 +710,22 @@
           ]
         }
       ]
+    },
+    "v2.2": {
+      "description": "TABLE1-AMENDMENT-v2.2 (draft): rightkit-roots joins M6 (Data location). Run mode, Suite, AppRoot and root cutover live there since rightkit-daemon 0.6; from rightkit-roots 0.2.0 it also resolves a flat app folder such as HeardRight's. Draft until apps move to rightkit-daemon 0.9: on older daemon pins the same code is inside the daemon, so enforcing this row earlier fails every app with nothing to adopt. Opt-in via --amendment v2.2.",
+      "rows": [
+        {
+          "id": "M6",
+          "profile": "desktop",
+          "owners": [
+            {
+              "name": "rightkit-roots",
+              "ecosystem": "cargo",
+              "min": "0.2.0"
+            }
+          ]
+        }
+      ]
     }
   }
 }

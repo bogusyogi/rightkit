@@ -131,7 +131,7 @@ async fn probe_streams_inner(
 ) -> Result<(i32, Vec<u8>, Vec<u8>), String> {
     let label = label.as_str();
     let started = std::time::Instant::now();
-    let adapter = rightkit_agent_tools::coding_tools::shell::NativeCommandSandboxAdapter;
+    let adapter = rightkit_agent_coding_tools::shell::NativeCommandSandboxAdapter;
     let child = match tokio::time::timeout(
         timeout,
         rightkit_sandbox::execution::ProcessLaunchAdapter::spawn(&adapter, spec),

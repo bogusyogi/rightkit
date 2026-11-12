@@ -11,13 +11,13 @@ async fn daemon_export(session_id: &str, as_json: bool) -> i32 {
     };
 
     let encoded_session_id = url_encode_component(session_id);
-    let messages = match rightkit_http::http_client::daemon_get(
+    let messages = match rightkit_agent_daemon::http_client::daemon_get(
         &format!("{base_url}/sessions/{encoded_session_id}/transcript"),
         &token,
     )
     .await
     {
-        Ok(resp) if rightkit_http::http_client::is_success(resp.status) => resp
+        Ok(resp) if rightkit_agent_daemon::http_client::is_success(resp.status) => resp
             .json::<serde_json::Value>()
             .unwrap_or_else(|_| serde_json::json!([])),
         Ok(resp) if resp.status == 404 => {
@@ -66,7 +66,7 @@ async fn daemon_review_findings(session_id: &str, as_json: bool) -> i32 {
             return 1;
         }
     };
-    let artifacts = match rightkit_http::http_client::daemon_get(
+    let artifacts = match rightkit_agent_daemon::http_client::daemon_get(
         &format!(
             "{base_url}/sessions/{}/runtime/artifacts",
             url_encode_component(session_id)
@@ -75,7 +75,7 @@ async fn daemon_review_findings(session_id: &str, as_json: bool) -> i32 {
     )
     .await
     {
-        Ok(resp) if rightkit_http::http_client::is_success(resp.status) => resp
+        Ok(resp) if rightkit_agent_daemon::http_client::is_success(resp.status) => resp
             .json::<serde_json::Value>()
             .unwrap_or_else(|_| serde_json::json!([])),
         Ok(resp) if resp.status == 404 => {
@@ -104,7 +104,7 @@ async fn daemon_review_findings(session_id: &str, as_json: bool) -> i32 {
         let transcript = if review_session_id.is_empty() {
             serde_json::Value::Null
         } else {
-            match rightkit_http::http_client::daemon_get(
+            match rightkit_agent_daemon::http_client::daemon_get(
                 &format!(
                     "{base_url}/sessions/{}/transcript",
                     url_encode_component(review_session_id)
@@ -113,7 +113,7 @@ async fn daemon_review_findings(session_id: &str, as_json: bool) -> i32 {
             )
             .await
             {
-                Ok(resp) if rightkit_http::http_client::is_success(resp.status) => resp
+                Ok(resp) if rightkit_agent_daemon::http_client::is_success(resp.status) => resp
                     .json::<serde_json::Value>()
                     .unwrap_or(serde_json::Value::Null),
                 _ => serde_json::Value::Null,
@@ -223,7 +223,7 @@ async fn daemon_post_raw(path: &str, body: serde_json::Value) -> Result<serde_js
                 app = crate::host_identity::app()
             )
         })?;
-    let resp = rightkit_http::http_client::daemon_call(
+    let resp = rightkit_agent_daemon::http_client::daemon_call(
         rightkit_http::Method::Post,
         &format!("{base_url}{path}"),
         &token,
@@ -231,7 +231,7 @@ async fn daemon_post_raw(path: &str, body: serde_json::Value) -> Result<serde_js
     )
     .await
     .map_err(|e| format!("Failed to contact daemon: {e}"))?;
-    if !rightkit_http::http_client::is_success(resp.status) {
+    if !rightkit_agent_daemon::http_client::is_success(resp.status) {
         return Err(format!(
             "Daemon returned HTTP {}: {}",
             resp.status,

@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-social-analytics"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Social campaign analytics without a store: tracked short links (public-https destination checks, UTM tagging, deterministic link ids, redirect-route rules), platform insight pulls and the metric registry, manual metric CSV import and calendar change proposals, over host-implemented stores."
@@ -16,6 +16,6 @@ path = "src/lib.rs"
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1" }
-rightkit-social-publish = { version = "0.1.1", path = "../rightkit-social-publish" }
-rightkit-http = { version = "0.3.9", path = "../rightkit-http" }
+rightkit-social-publish = { version = "0.2.0", path = "../rightkit-social-publish" }
+rightkit-http = { version = "0.4.0", path = "../rightkit-http" }
 rightkit-fs = { version = "0.4.8", default-features = false, features = ["digest"], path = "../rightkit-fs" }

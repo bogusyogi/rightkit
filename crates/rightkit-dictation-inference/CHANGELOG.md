@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.0
+
+- Breaking for dependents: dependency requirements `rightkit-asr` 0.4 -> 0.5, `rightkit-dictation-core` 0.2 -> 0.3, `rightkit-dictation-text-pipeline` 0.1 -> 0.2, `rightkit-onnx` 0.2 -> 0.3, `rightkit-vad` 0.1 -> 0.2. 0.1.0 was published before these requirements were raised; a semver-breaking dependency is a breaking change, so they ship as 0.2.0 instead of changing 0.1.0 in place (#1572). No source change in this crate since 0.1.0.
+
 ## Unreleased
 
 - **Breaking:** `calibration::run(models_dir, samples, collect_diagnostics)` takes the diagnostics option explicitly; the `RIGHTKIT_CALIBRATION_COLLECT_DIAGNOSTICS` environment switch is removed.

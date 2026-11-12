@@ -17,4 +17,20 @@ declare module '@tauri-apps/plugin-dialog' {
     [option: string]: unknown;
   }
   export function open(options?: OpenDialogOptions): Promise<string | string[] | null>;
+  export interface SaveDialogOptions {
+    title?: string;
+    filters?: DialogFilter[];
+    defaultPath?: string;
+    canCreateDirectories?: boolean;
+    [option: string]: unknown;
+  }
+  export function save(options?: SaveDialogOptions): Promise<string | null>;
+  export interface MessageDialogOptions {
+    title?: string;
+    kind?: 'info' | 'warning' | 'error';
+    okLabel?: string;
+    cancelLabel?: string;
+    [option: string]: unknown;
+  }
+  export function ask(message: string, options?: MessageDialogOptions): Promise<boolean>;
 }

@@ -1,8 +1,10 @@
-//! Canonical CodeRight session-transcript ingestion into the absorbed store.
+//! Canonical agent-server session-transcript ingestion into the absorbed store.
 //!
-//! The producer is CodeRight's native runtime exporter; it appends committed
-//! durable `ProtocolEvent` projections — never live-only rows — as
-//! `coderight_event_v1` normalized rows. Identity, ordering, scope, and
+//! The producer is an agent server's native runtime exporter (CodeRight's, or
+//! `rightkit-agent-server`'s in any app); it appends committed durable
+//! `ProtocolEvent` projections — never live-only rows — as `<host>_event_v1`
+//! normalized rows naming the app that hosts it (`coderight_event_v1` for
+//! CodeRight); a stream holds one host's rows. Identity, ordering, scope, and
 //! provenance are verified structurally before any write, and the append-only
 //! store provides the sequencing, replay, and tombstone primitives:
 //!
@@ -13,14 +15,14 @@
 //! * a session that ran `session_transcript_forget` retains its event
 //!   tombstones and is permanently gone — later appends answer `410`.
 //!
-//! Rows are stored verbatim so `membrane-transcript`'s `coderight` adapter
+//! Rows are stored verbatim so `rightkit-agent-transcript`'s host adapter
 //! normalizes them into the existing Adapt input shape; this module adds no
 //! second learning path.
 
+use rightkit_agent_transcript::adapters::host_event_type;
 use rightkit_context_protocol::session_transcript::{
     SessionTranscriptAppendReceiptV1, SessionTranscriptAppendV1, SessionTranscriptCursorTipV1,
-    SessionTranscriptEventV1, SESSION_TRANSCRIPT_EVENT_TYPE, SESSION_TRANSCRIPT_HOST,
-    SESSION_TRANSCRIPT_SCHEMA_VERSION,
+    SessionTranscriptEventV1, SESSION_TRANSCRIPT_HOST, SESSION_TRANSCRIPT_SCHEMA_VERSION,
 };
 use rightkit_db::rusqlite::{self, OptionalExtension};
 use rightkit_memory_store::{
@@ -234,16 +236,37 @@ pub fn tip_response(store: &MemoryStore, body: &str) -> (u16, String) {
     }
 }
 
+/// The host a stream's rows name: the app whose agent server exported them (`coderight` for
+/// CodeRight's runtime; `rightkit-agent-server` names its rows after the app it runs in). A
+/// stream with no committed rows, or a first row with no host, is CodeRight's.
+pub(crate) fn stream_host(rows: &[(u64, Value)]) -> String {
+    rows.first()
+        .and_then(|(_, payload)| payload.get("host").and_then(Value::as_str))
+        .filter(|host| host_event_type(host).is_some())
+        .unwrap_or(SESSION_TRANSCRIPT_HOST)
+        .to_string()
+}
+
 /// Structural row binding: every normalized row must belong to the declared
-/// session, carry its own `sourceSeq`/`eventId`, and name CodeRight plus the
-/// durable source in provenance. A row that disagrees with its envelope is
-/// malformed, not merely mismatched.
+/// session, carry its own `sourceSeq`/`eventId`, and name its host (the app
+/// whose agent server exported it) in its type (`<host>_event_v1`), its `host`
+/// and its provenance source, plus the durable source in provenance. A row
+/// that disagrees with its envelope is malformed, not merely mismatched.
+/// Returns the row's host.
 fn validate_row(
     session_id: &str,
     event: &SessionTranscriptEventV1,
-) -> Result<(), SessionTranscriptError> {
+) -> Result<String, SessionTranscriptError> {
     let invalid = |detail: &str| SessionTranscriptError::Invalid(detail.to_string());
-    if event.event_type != SESSION_TRANSCRIPT_EVENT_TYPE {
+    let payload = &event.payload;
+    let host = payload
+        .get("host")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let Some(row_type) = host_event_type(host) else {
+        return Err(invalid("row host must be a plain lowercase app name"));
+    };
+    if event.event_type != row_type {
         return Err(invalid("unsupported transcript row contract"));
     }
     if event.event_id != format!("evt-v1:{session_id}:{}", event.source_seq) {
@@ -251,12 +274,10 @@ fn validate_row(
             "event identity does not bind session and source sequence",
         ));
     }
-    let payload = &event.payload;
-    if payload.get("type").and_then(Value::as_str) != Some(SESSION_TRANSCRIPT_EVENT_TYPE) {
-        return Err(invalid("row type must be coderight_event_v1"));
-    }
-    if payload.get("host").and_then(Value::as_str) != Some(SESSION_TRANSCRIPT_HOST) {
-        return Err(invalid("row host must be coderight"));
+    if payload.get("type").and_then(Value::as_str) != Some(row_type.as_str()) {
+        return Err(invalid(
+            "row type must be <host>_event_v1 for the row's host",
+        ));
     }
     if payload.get("sessionId").and_then(Value::as_str) != Some(session_id) {
         return Err(invalid("row session does not match the stream"));
@@ -271,13 +292,13 @@ fn validate_row(
     let Some(provenance) = provenance else {
         return Err(invalid("row provenance is required"));
     };
-    if provenance.get("source").and_then(Value::as_str) != Some("coderight") {
-        return Err(invalid("row provenance source must be coderight"));
+    if provenance.get("source").and_then(Value::as_str) != Some(host) {
+        return Err(invalid("row provenance source must be the row's host"));
     }
     if provenance.get("producer").and_then(Value::as_str).is_none() {
         return Err(invalid("row provenance producer is required"));
     }
-    Ok(())
+    Ok(host.to_string())
 }
 
 /// The committed row's `recorded_at_ms` for `event_id`, when one exists.
@@ -315,10 +336,35 @@ pub fn append(
             seq: 0,
         });
     }
+    let mut hosts = Vec::with_capacity(request.events.len());
     for event in &request.events {
-        validate_row(&request.session_id, event)?;
+        hosts.push(validate_row(&request.session_id, event)?);
     }
     let cursor = db.cursor(&request.session_id).map_err(store_error)?;
+    // One stream, one host: every row names the host of the stream's first committed row (or,
+    // for a new stream, of this batch's first row), so a reader normalizes the whole stream for
+    // that host.
+    let committed_host = if cursor.last_seq > 0 {
+        let first = db
+            .events_range(&request.session_id, 1, 2)
+            .map_err(store_error)?
+            .into_iter()
+            .map(|row| (row.seq, row.payload))
+            .collect::<Vec<_>>();
+        Some(stream_host(&first))
+    } else {
+        None
+    };
+    if let Some(stream) = committed_host
+        .as_deref()
+        .or(hosts.first().map(String::as_str))
+    {
+        if hosts.iter().any(|host| host != stream) {
+            return Err(SessionTranscriptError::Invalid(
+                "every row of a session transcript stream names the same host".to_string(),
+            ));
+        }
+    }
     // A producer ahead of our tip declares events we never saw; reject before
     // partially committing so a mismatch cannot leave a gap behind a written
     // prefix.
@@ -334,7 +380,7 @@ pub fn append(
         .unwrap_or(0);
     let mut inserted = 0u64;
     let mut already_present = 0u64;
-    for event in &request.events {
+    for (event, host) in request.events.iter().zip(&hosts) {
         // Byte-stable replay: `payload_json` stores the whole record, so a
         // retried append must reuse the committed `recorded_at_ms` for the
         // store's whole-record identity check to answer `AlreadyPresent`
@@ -353,7 +399,7 @@ pub fn append(
             lifecycle: "active".into(),
             retention: "local_audit".into(),
             provenance: vec![ProvenanceRef {
-                source: SESSION_TRANSCRIPT_HOST.into(),
+                source: host.clone(),
                 source_event_ids: vec![event.event_id.clone()],
                 producer: event
                     .payload

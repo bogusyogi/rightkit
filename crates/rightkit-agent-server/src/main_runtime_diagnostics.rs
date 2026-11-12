@@ -151,7 +151,7 @@ async fn daemon_diagnostics_watch(once: bool, interval_ms: u64, json: bool) -> i
             return 1;
         }
     };
-    let client = match rightkit_http::http_client::daemon_client(&base_url) {
+    let client = match rightkit_agent_daemon::http_client::daemon_client(&base_url) {
         Ok(client) => client,
         Err(error) => {
             eprintln!("diagnostics watch: {error}");
@@ -197,7 +197,7 @@ async fn diagnostics_watch_sample(
             .send_any(&rightkit_http::Request::get(format!("{base_url}{path}")).bearer(token))
             .await
             .map_err(|error| format!("GET {path}: {error}"))?;
-        if !rightkit_http::http_client::is_success(response.status) {
+        if !rightkit_agent_daemon::http_client::is_success(response.status) {
             return Err(format!("GET {path}: HTTP {}", response.status));
         }
         response
@@ -249,7 +249,7 @@ async fn daemon_diagnostics_bundle(output: &str) -> i32 {
             return 1;
         }
     };
-    let resp = match rightkit_http::http_client::daemon_call(
+    let resp = match rightkit_agent_daemon::http_client::daemon_call(
         rightkit_http::Method::Post,
         &format!("{base_url}/diagnostics/bundle"),
         &token,
@@ -265,7 +265,7 @@ async fn daemon_diagnostics_bundle(output: &str) -> i32 {
     };
     let status = resp.status;
     let body = resp.text();
-    if !rightkit_http::http_client::is_success(status) {
+    if !rightkit_agent_daemon::http_client::is_success(status) {
         eprintln!("Daemon returned {status} for diagnostics bundle: {body}");
         return 1;
     }
@@ -277,7 +277,7 @@ async fn daemon_diagnostics_bundle(output: &str) -> i32 {
         }
     };
 
-    let resp = match rightkit_http::http_client::daemon_get(
+    let resp = match rightkit_agent_daemon::http_client::daemon_get(
         &format!("{base_url}/diagnostics/bundles/{}", summary.bundle_id),
         &token,
     )
@@ -291,7 +291,7 @@ async fn daemon_diagnostics_bundle(output: &str) -> i32 {
     };
     let status = resp.status;
     let body = resp.text();
-    if !rightkit_http::http_client::is_success(status) {
+    if !rightkit_agent_daemon::http_client::is_success(status) {
         eprintln!("Daemon returned {status} for diagnostics bundle download: {body}");
         return 1;
     }

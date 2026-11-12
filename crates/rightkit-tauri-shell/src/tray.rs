@@ -31,6 +31,9 @@ pub enum LeftClick {
     ShowMenu,
     /// Left click reveals the main window and never hides it (a tray that only brings the app forward).
     Show,
+    /// Left click opens no menu and touches no window: it only emits the `click` tray event, for an app
+    /// that decides what a click does itself.
+    Emit,
 }
 
 #[derive(Debug, Clone)]

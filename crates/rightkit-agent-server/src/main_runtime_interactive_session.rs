@@ -2314,7 +2314,7 @@ mod interactive_session {
             &self,
             id: &str,
         ) -> Result<
-            std::sync::Arc<rightkit_agent_tools::coding_tools::background_shell::BgShell>,
+            std::sync::Arc<rightkit_agent_coding_tools::background_shell::BgShell>,
             String,
         > {
             let Some(super::SessionExecutionHost::Inline(host)) =
@@ -3268,7 +3268,7 @@ mod interactive_session {
             for (id, shell) in shells.iter() {
                 if !matches!(
                     shell.status(),
-                    rightkit_agent_tools::coding_tools::background_shell::BgStatus::Running
+                    rightkit_agent_coding_tools::background_shell::BgStatus::Running
                 ) {
                     continue;
                 }
@@ -3290,23 +3290,23 @@ mod interactive_session {
                 let port = None;
                 let elapsed = elapsed_since_epoch_ns(shell.started_at_ns());
                 let status = match shell.status() {
-                    rightkit_agent_tools::coding_tools::background_shell::BgStatus::Running => {
+                    rightkit_agent_coding_tools::background_shell::BgStatus::Running => {
                         "running".to_string()
                     }
-                    rightkit_agent_tools::coding_tools::background_shell::BgStatus::Exited(
+                    rightkit_agent_coding_tools::background_shell::BgStatus::Exited(
                         code,
                     ) => {
                         format!("exited {code}")
                     }
-                    rightkit_agent_tools::coding_tools::background_shell::BgStatus::Killed => {
+                    rightkit_agent_coding_tools::background_shell::BgStatus::Killed => {
                         "stopped".to_string()
                     }
-                    rightkit_agent_tools::coding_tools::background_shell::BgStatus::SpawnFailed(
+                    rightkit_agent_coding_tools::background_shell::BgStatus::SpawnFailed(
                         error,
                     ) => {
                         format!("failed: {error}")
                     }
-                    rightkit_agent_tools::coding_tools::background_shell::BgStatus::Unknown => {
+                    rightkit_agent_coding_tools::background_shell::BgStatus::Unknown => {
                         "unknown".to_string()
                     }
                 };
@@ -5540,7 +5540,7 @@ mod interactive_session {
         /// against — after a `/repo` switch the picker must never list the
         /// old tree); the listing itself comes from the canonical read-only
         /// discovery `list_files` runs
-        /// (`rightkit_agent_tools::coding_tools::list_files::discover_workspace_files`):
+        /// (`rightkit_agent_coding_tools::list_files::discover_workspace_files`):
         /// gitignore-aware, noise-filtered, workspace-relative. No
         /// TUI-local scanner, no FileService, no separate ranking
         /// subsystem — the filter below is a bounded substring match and
@@ -5569,7 +5569,7 @@ mod interactive_session {
             let needle = needle.to_string();
             let walk_root = root.clone();
             let discovered = tokio::task::spawn_blocking(move || {
-                rightkit_agent_tools::coding_tools::list_files::discover_workspace_files_bounded(
+                rightkit_agent_coding_tools::list_files::discover_workspace_files_bounded(
                     &walk_root,
                     &walk_root,
                     None,
@@ -5944,19 +5944,19 @@ mod interactive_session {
         }
 
         async fn workspace_diff(&self) -> Result<String, String> {
-            use rightkit_agent_tools::coding_tools::Tool;
+            use rightkit_agent_coding_tools::Tool;
             let root = self
                 .active_directory()
                 .ok_or_else(|| "No workspace is selected".to_string())?;
             let trust = crate::main_runtime::workspace_trust_for(&root);
             let workspace = std::path::PathBuf::from(&root);
-            let context = rightkit_agent_tools::coding_tools::ToolContext::new(
+            let context = rightkit_agent_coding_tools::ToolContext::new(
                 self.current_session_id(),
                 &workspace,
                 rightkit_agent_policy::PermissionMode::Ask,
                 trust,
             );
-            let result = rightkit_agent_tools::coding_tools::git_diff::GitDiffTool
+            let result = rightkit_agent_coding_tools::git_diff::GitDiffTool
                 .execute(
                     serde_json::json!({"repo_path": workspace, "staged": false}),
                     &context,

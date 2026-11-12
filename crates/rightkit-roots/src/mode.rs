@@ -10,28 +10,88 @@
 
 use std::fmt;
 use std::io;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
+
+use rightkit_fs::app_dirs::{AppDirs, AppDirsError, AppId as FolderId, Options};
 
 use crate::suite::{Suite, SuiteError};
 
 /// The app asking for a mode. `id` is the binding key (`"viewright"`); `dir_name` is the folder
-/// under `Orthic Labs` that holds the app's own data (`"ViewRight"`).
+/// that holds the app's own data (`"ViewRight"`): under `Orthic Labs` by default, or directly under
+/// the platform's per-user local folder for an app whose installed data predates that layout
+/// ([`AppId::without_org`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AppId {
     id: &'static str,
     dir_name: &'static str,
+    flat: bool,
+    legacy_names: &'static [&'static str],
+    dev_dir_name: Option<&'static str>,
 }
 
 impl AppId {
     /// An app whose data folder carries the same name as its id.
     pub const fn new(id: &'static str) -> AppId {
-        AppId { id, dir_name: id }
+        AppId::with_dir(id, id)
     }
 
     /// An app whose data folder differs from its id.
     pub const fn with_dir(id: &'static str, dir_name: &'static str) -> AppId {
-        AppId { id, dir_name }
+        AppId {
+            id,
+            dir_name,
+            flat: false,
+            legacy_names: &[],
+            dev_dir_name: None,
+        }
+    }
+
+    /// No organisation folder: the data folder is `<per-user local folder>/<dir_name>` (Windows
+    /// Local AppData, `~/Library/Application Support`, `~/.local/share`), for an app whose
+    /// installed data predates the `Orthic Labs` layout. The folder is the one
+    /// `rightkit_fs::app_dirs::AppDirs::local` gives for a flat app, so installed users keep it.
+    pub const fn without_org(mut self) -> AppId {
+        self.flat = true;
+        self
+    }
+
+    /// Earlier folder names whose existing folders are still used, most preferred first: when the
+    /// current folder is missing and a legacy one exists, the legacy one is the app's folder.
+    /// Nothing is moved or created.
+    pub const fn with_legacy_names(mut self, names: &'static [&'static str]) -> AppId {
+        self.legacy_names = names;
+        self
+    }
+
+    /// The folder name of the dev or QA variant (for example `"ViewRightDev"`), used by
+    /// [`AppId::dev_variant`]. The app chooses the variant at compile time (a feature); nothing is
+    /// read from the environment.
+    pub const fn with_dev_dir(mut self, dev_dir_name: &'static str) -> AppId {
+        self.dev_dir_name = Some(dev_dir_name);
+        self
+    }
+
+    /// This app's dev or QA variant: the same layout with the [`AppId::with_dev_dir`] folder and
+    /// no legacy names. A compile error in a `const` when no dev folder was named.
+    pub const fn dev_variant(mut self) -> AppId {
+        match self.dev_dir_name {
+            Some(dir) => {
+                self.dir_name = dir;
+                self.legacy_names = &[];
+                self
+            }
+            None => panic!("AppId::dev_variant needs with_dev_dir"),
+        }
+    }
+
+    /// Whether the data folder has no organisation folder.
+    pub const fn is_flat(&self) -> bool {
+        self.flat
+    }
+
+    pub const fn legacy_names(&self) -> &'static [&'static str] {
+        self.legacy_names
     }
 
     pub const fn id(&self) -> &'static str {
@@ -102,6 +162,17 @@ pub trait ModeInput {
     fn per_user_default(&self) -> Result<Suite, SuiteError> {
         Suite::per_user_default()
     }
+
+    /// The per-user folders of a flat app ([`AppId::without_org`]), from the account database and
+    /// never the environment. A test supplies the base folders of any OS.
+    fn app_dirs(&self, app: &FolderId) -> Result<AppDirs, AppDirsError> {
+        AppDirs::resolve_with_options(app.clone(), &Options::current().dev(false))
+    }
+
+    /// Whether a candidate legacy folder exists.
+    fn is_dir(&self, path: &Path) -> bool {
+        path.is_dir()
+    }
 }
 
 /// The real process environment.
@@ -146,7 +217,8 @@ pub fn init_or_exit(app: &AppId) -> &'static Mode {
     }
 }
 
-/// The roots every store must come through, against the real process.
+/// The roots every store must come through, against the real process. Wrap `app_dir` with
+/// [`AppRoot::for_app`](crate::AppRoot::for_app).
 pub fn roots(app: &AppId, mode: &Mode) -> Result<AppRoots, SuiteError> {
     roots_with(app, mode, &ProcessInput)
 }
@@ -156,15 +228,30 @@ pub fn roots_with(app: &AppId, mode: &Mode, input: &dyn ModeInput) -> Result<App
     match mode {
         Mode::Release => {
             let suite = input.per_user_default()?;
-            let orthic = suite
-                .root()
-                .parent()
-                .ok_or_else(|| SuiteError::NoRoot("the per-user suite root has no parent".into()))?
-                .to_path_buf();
-            Ok(AppRoots {
-                suite,
-                app_dir: orthic.join(app.dir_name),
-            })
+            let app_dir = if app.flat {
+                let folder = FolderId::new(app.dir_name)
+                    .without_org()
+                    .with_legacy_names(app.legacy_names);
+                input
+                    .app_dirs(&folder)
+                    .map_err(|e| SuiteError::NoRoot(e.to_string()))?
+                    .local
+            } else {
+                let orthic = suite.root().parent().ok_or_else(|| {
+                    SuiteError::NoRoot("the per-user suite root has no parent".into())
+                })?;
+                let current = orthic.join(app.dir_name);
+                if input.is_dir(&current) {
+                    current
+                } else {
+                    app.legacy_names
+                        .iter()
+                        .map(|legacy| orthic.join(legacy))
+                        .find(|candidate| input.is_dir(candidate))
+                        .unwrap_or(current)
+                }
+            };
+            Ok(AppRoots { suite, app_dir })
         }
     }
 }

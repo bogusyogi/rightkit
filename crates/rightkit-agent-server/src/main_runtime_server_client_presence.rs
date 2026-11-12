@@ -14,7 +14,7 @@ async fn run_startup_guard(db_path: &str) -> Result<(), String> {
         return Ok(());
     };
     let url = format!("http://127.0.0.1:{}", info.port);
-    let client = match rightkit_http::http_client::daemon_client_probe(
+    let client = match rightkit_agent_daemon::http_client::daemon_client_probe(
         &url,
         std::time::Duration::from_millis(500),
         std::time::Duration::from_millis(500),
@@ -26,7 +26,7 @@ async fn run_startup_guard(db_path: &str) -> Result<(), String> {
         .send_any(&rightkit_http::Request::get(format!("{url}/health")))
         .await
     {
-        Ok(resp) if rightkit_http::http_client::is_success(resp.status) => {
+        Ok(resp) if rightkit_agent_daemon::http_client::is_success(resp.status) => {
             resp.json::<serde_json::Value>().ok()
         }
         _ => None,

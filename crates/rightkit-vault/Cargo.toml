@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-vault"
-version = "0.2.1"
+version = "0.3.0"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Split-key secret sync for Right Suite apps: a small secret map sealed under a random data key, the key wrapped under a server-held wrapping key combined with a client-held secret, the blob kept in the user's own cloud app folder."
@@ -13,7 +13,7 @@ include = ["src/**", "README.md", "API.md", "CHANGELOG.md", "LICENSE-MIT", "LICE
 
 [dependencies]
 rightkit-credentials = { version = "0.5.0", path = "../rightkit-credentials" }
-rightkit-http = { version = "0.3.9", path = "../rightkit-http" }
+rightkit-http = { version = "0.4.0", path = "../rightkit-http" }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 thiserror = "2"

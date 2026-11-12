@@ -71,6 +71,8 @@ pub struct AppProfile {
     /// Dictation apps (HeardRight) also refuse the dictation, delivery and history names
     /// ([`exposure::forbidden_with`]). Other apps keep those words.
     pub dictation: bool,
+    /// Register the `speech.*` tools beside this app's control tools ([`AppProfile::with_speech`]).
+    pub speech: bool,
     /// Loopback HTTP endpoint for an app whose control surface is not a `control-<app>` pipe
     /// service (rightkit#795). `None` (the default) uses the pipe service named by `service`.
     /// Every other part of the profile applies to both transports unchanged.
@@ -87,6 +89,7 @@ impl AppProfile {
             commands: CommandPolicy::Any,
             sensitive: false,
             dictation: false,
+            speech: false,
             http: None,
         }
     }
@@ -107,6 +110,7 @@ impl AppProfile {
             commands: CommandPolicy::Only(commands),
             sensitive: true,
             dictation: false,
+            speech: false,
             http: None,
         }
     }
@@ -121,6 +125,13 @@ impl AppProfile {
         self
     }
 
+    /// Also register the `speech.*` tools (file transcription over the shared speech service) for
+    /// this app: `add_app` adds them and `right-ctl <app> transcribe <file>` routes to them.
+    pub fn with_speech(mut self) -> Self {
+        self.speech = true;
+        self
+    }
+
     /// Whether the hard exposure rules refuse command `name` for this app.
     pub fn command_forbidden(&self, name: &str) -> bool {
         exposure::forbidden_with(name, self.dictation_enforced()).is_some()
@@ -132,14 +143,16 @@ impl AppProfile {
         self.dictation || self.app == LOCKED_APP
     }
 
-    /// The built-in profile for `app`: HeardRight is sensitive, everything else standard.
+    /// The built-in profile for `app`: HeardRight is sensitive, dictation-protected and carries the
+    /// speech tools; everything else is standard.
     pub fn for_app(app: &str) -> Self {
         match app {
             "heardright" => Self::sensitive(
                 "heardright",
                 &["health", "version", "list_models", "model_status"],
             )
-            .with_dictation_rules(),
+            .with_dictation_rules()
+            .with_speech(),
             _ => Self::standard(app),
         }
     }

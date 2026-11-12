@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.0
+
+- Breaking for dependents: dependency requirements `rightkit-memory-core` 0.1 -> 0.2, `rightkit-memory-store` 0.1 -> 0.2. 0.2.0 was published before these requirements were raised; a semver-breaking dependency is a breaking change, so they ship as 0.3.0 instead of changing 0.2.0 in place (#1572). No source change in this crate since 0.2.0.
+- Enables `rightkit-memory-core`'s new `embed` feature, so the re-exported embedding and retrieval items (`Embedder`, `HashEmbedder`, `MemoryRetriever`, ...) are all still here.
+
 ## 0.2.0
 
 - The name now holds the memory engine: the crate re-exports `rightkit-memory-core` 0.1.1 at its root and `rightkit-memory-store` 0.1.1 as `store`. It has no code of its own.

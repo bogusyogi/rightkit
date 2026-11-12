@@ -178,8 +178,9 @@ pub enum WriteSecurity {
     OwnerPrivate,
 }
 
-/// Retry for a publish step that fails because another process holds the file open. Only Windows
-/// sharing and lock violations are retried; the policy is inert on other platforms.
+/// The bound of a retry for a publish step that fails because another process holds the file open:
+/// Windows sharing and lock violations ([`StoreOptions::retry_sharing_violation`]) or, when asked
+/// for, access denied as well ([`StoreOptions::retry_access_denied`]). Inert on other platforms.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SharingRetry {
     /// Retries after the first attempt. Zero means one attempt.
@@ -228,6 +229,7 @@ pub struct StoreOptions {
     pub(crate) replace: ReplaceMode,
     pub(crate) durable: bool,
     pub(crate) sharing_retry: Option<SharingRetry>,
+    pub(crate) access_denied_retry: Option<SharingRetry>,
     pub(crate) write_security: WriteSecurity,
     pub(crate) keep_corrupt_copy: bool,
     pub(crate) quarantine_name: QuarantineName,
@@ -259,6 +261,7 @@ impl StoreOptions {
             replace: ReplaceMode::Rename,
             durable: true,
             sharing_retry: None,
+            access_denied_retry: None,
             write_security: WriteSecurity::Default,
             keep_corrupt_copy: false,
             quarantine_name: QuarantineName::Timestamped,
@@ -329,6 +332,7 @@ impl StoreOptions {
             replace: self.replace,
             durable: self.durable,
             retry: self.sharing_retry,
+            access_denied: self.access_denied_retry,
             security: self.write_security,
         };
         rightkit_fs::publication_durability(&crate::atomic::fs_options(&mode), destination_exists)
@@ -346,9 +350,28 @@ impl StoreOptions {
 
     /// Retry the replace up to `attempts` more times, pausing `delay` before each, when Windows
     /// reports a sharing or lock violation (another process holds the file open). Default: no
-    /// retry. Inert on Unix. Useful with `MoveWriteThrough`.
+    /// retry. Inert on Unix. Useful with `MoveWriteThrough`. Access denied (error 5) is not
+    /// retried by this; see [`StoreOptions::retry_access_denied`].
     pub fn retry_sharing_violation(mut self, attempts: u32, delay: Duration) -> Self {
         self.sharing_retry = Some(SharingRetry { attempts, delay });
+        self
+    }
+
+    /// Retry the replace up to `attempts` more times, pausing `delay` before each, when Windows
+    /// reports access denied (error 5) as well as a sharing or lock violation. Default: no retry.
+    ///
+    /// The case it is for: with the default [`ReplaceMode::Rename`], a reader that holds the
+    /// settings file open without delete sharing (another process, a scanner, an editor) makes the
+    /// replace fail with error 5, not with a sharing violation, so
+    /// [`StoreOptions::retry_sharing_violation`] does not cover it. Error 5 is also what a real
+    /// permission failure returns, which is why this is a separate opt-in: a true denial still
+    /// fails with the same error, only later by at most `attempts * delay`.
+    ///
+    /// The retry is `rightkit_fs::AccessDeniedRetry`: only the replace is repeated (nothing is
+    /// written again), no permission or attribute is changed, and this bound replaces the one of
+    /// `retry_sharing_violation` for the write, so 5, 32 and 33 share one budget. Inert on Unix.
+    pub fn retry_access_denied(mut self, attempts: u32, delay: Duration) -> Self {
+        self.access_denied_retry = Some(SharingRetry { attempts, delay });
         self
     }
 
@@ -408,7 +431,9 @@ impl StoreOptions {
     /// reports a change, the store commits the migrated document once during open. An `Err`
     /// aborts the open and nothing is written. [`crate::Store::open_read_only`] runs it too, in
     /// memory only: its value is the migrated file on open and on every re-read, and it writes
-    /// nothing. It never runs for a missing file or for envelope files (which use
+    /// nothing. [`crate::Store::snapshot`] does the same on every store, so a file another writer
+    /// put back in the old layout still reads migrated. It never runs for a missing file or for
+    /// envelope files (which use
     /// [`crate::Schema::migration`]). It must be idempotent: a crash after the file write
     /// and before your own bookkeeping runs it again on the migrated object.
     pub fn flat_migration(

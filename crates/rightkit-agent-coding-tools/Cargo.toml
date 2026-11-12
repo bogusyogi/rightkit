@@ -1,0 +1,76 @@
+[package]
+name = "rightkit-agent-coding-tools"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.98.0"
+description = "The coding agent's host tools (files, edit and patch, shell and PTY, git, browser, MCP, LSP, tasks, checkpoints, sandboxing) behind an async `Tool` trait and a `ToolRegistry`."
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/bogusyogi/rightkit"
+readme = "README.md"
+keywords = ["agents", "coding", "tools", "sandbox"]
+categories = ["development-tools"]
+include = ["src/**", "licenses/**", "assets/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+
+[features]
+default = []
+# The host-process tools: browser, OCR, media, plugins, PTY, OS keyring and host-environment overrides. Was `rightkit-agent-tools` `coding_tools-host`.
+host = ["code-mode", "dep:rightkit-browser", "dep:rightkit-ocr", "dep:rightkit-ffmpeg", "dep:rightkit-agent-plugins", "dep:portable-pty", "rightkit-mcp/agent_mcp-os-keyring", "rightkit-llm/agent_providers-os-keyring", "rightkit-agent-config/host-env", "rightkit-mcp/agent_mcp-host-env", "rightkit-llm/agent_providers-host-env"]
+# The QuickJS code-mode tool. Was `coding_tools-code-mode`.
+code-mode = ["dep:rquickjs"]
+# Local embedding inference. Was `coding_tools-embeddings`.
+embeddings = ["rightkit-embed/inference"]
+# Test doubles for dependents' tests. Was `coding_tools-test-support`.
+test-support = []
+
+[dependencies]
+rightkit-daemon = { version = "0.9.0", path = "../rightkit-daemon" }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+tokio = { version = "1", features = ["full"] }
+bytes = "1"
+rightkit-db = { version = "0.5.3", features = ["bundled", "statement-cache"], path = "../rightkit-db" }
+anyhow = "1"
+rightkit-agent-engine-protocol = { version = "0.2.0", path = "../rightkit-agent-engine-protocol" }
+rightkit-scheduler = { version = "0.1.2", path = "../rightkit-scheduler" }
+rightkit-agent-engine-runtime-resources = { version = "0.1.0", path = "../rightkit-agent-engine-runtime-resources" }
+rightkit-fs = { version = "0.4.9", features = ["fs", "lock", "json", "digest", "transaction"], path = "../rightkit-fs" }
+rightkit-crypto = { version = "0.1.0", path = "../rightkit-crypto" }
+rightkit-time = { version = "0.1.1", path = "../rightkit-time" }
+rightkit-agent-policy = { version = "0.1.0", path = "../rightkit-agent-policy" }
+rightkit-agent-config = { version = "0.1.0", path = "../rightkit-agent-config" }
+rightkit-mcp = { version = "0.7.4", path = "../rightkit-mcp", features = ["agent_mcp"] }
+rightkit-agent-engine-history = { version = "0.1.0", path = "../rightkit-agent-engine-history" }
+rightkit-agent-host-traits = { version = "0.1.0", path = "../rightkit-agent-host-traits" }
+rightkit-sandbox = { version = "0.6.2", path = "../rightkit-sandbox", features = ["execution"] }
+rightkit-llm = { version = "0.3.2", path = "../rightkit-llm", features = ["agent_providers"] }
+rightkit-agent-telemetry = { version = "0.1.0", path = "../rightkit-agent-telemetry" }
+thiserror = "2"
+tracing = "0.1"
+rightkit-http = { version = "0.4.0", features = ["gzip", "untrusted", "async"], path = "../rightkit-http" }
+url = "2"
+async-trait = "0.1"
+rightkit-embed = { version = "0.7.0", default-features = false, features = ["vector"], path = "../rightkit-embed" }
+rightkit-child-process = { version = "0.5.7", features = ["tokio"], path = "../rightkit-child-process" }
+futures = "0.3"
+tempfile = "3"
+scraper = "0.29"
+git2 = { version = "0.21.0", default-features = false, features = ["vendored-libgit2"] }
+ignore = "0.4"
+globset = "0.4"
+regex = "1"
+flate2 = "1"
+rightkit-browser = { version = "0.3.7", path = "../rightkit-browser", optional = true }
+rightkit-ocr = { version = "0.3.0", path = "../rightkit-ocr", default-features = false, features = ["native"], optional = true }
+rightkit-ffmpeg = { version = "0.3.0", path = "../rightkit-ffmpeg", features = ["agent_media"], optional = true }
+rightkit-agent-plugins = { version = "0.1.0", path = "../rightkit-agent-plugins", optional = true }
+portable-pty = { version = "0.9", optional = true }
+rquickjs = { version = "=0.14.0", features = ["futures"], optional = true }
+
+# One Cargo workspace and lock per crate (rightkit#1285).
+[target."cfg(unix)".dependencies]
+libc = "0.2"
+
+[target."cfg(windows)".dependencies]
+rightkit-daemon = { version = "0.9.0", default-features = false, features = ["local"], path = "../rightkit-daemon" }
+winapi = { version = "0.3", features = ["consoleapi", "handleapi", "processthreadsapi", "synchapi", "minwindef", "winbase", "winnt", "namedpipeapi", "wincontypes", "ntdef"] }
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_Security_Isolation", "Win32_System_JobObjects", "Win32_System_Threading"] }

@@ -317,7 +317,7 @@ impl ValueWriter {
     }
 
     /// Queue-ordered export: after every earlier-queued event is written, copy the current file
-    /// of each of `paths` (empty means all) into `destination`, and return the copies. A file
+    /// of each of `paths` (empty means all) and its rotated generations (`name.1` newest) into `destination`, and return the copies. A file
     /// that does not exist yet is skipped. A pending overflow count is written to the primary
     /// file first so the copy carries it.
     pub fn snapshot(
@@ -442,15 +442,20 @@ impl Worker {
         std::fs::create_dir_all(destination).map_err(WriterError::Io)?;
         let mut copied = Vec::new();
         for &index in stores {
-            let source = self.stores[index].path();
-            let Some(name) = source.file_name() else {
-                continue;
-            };
-            let target = destination.join(name);
-            match std::fs::copy(source, &target) {
-                Ok(_) => copied.push(target),
-                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-                Err(error) => return Err(WriterError::Io(error)),
+            let store = &self.stores[index];
+            // The current file, then each rotated generation (`name.1` newest), same names.
+            let sources =
+                std::iter::once(store.path().to_path_buf()).chain(store.generation_paths());
+            for source in sources {
+                let Some(name) = source.file_name() else {
+                    continue;
+                };
+                let target = destination.join(name);
+                match std::fs::copy(&source, &target) {
+                    Ok(_) => copied.push(target),
+                    Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                    Err(error) => return Err(WriterError::Io(error)),
+                }
             }
         }
         Ok(copied)

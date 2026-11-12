@@ -25,6 +25,31 @@ export interface PickOptions {
   [pluginOption: string]: unknown;
 }
 
+/** The options of the dialog plugin's `save()` that an app may set. Options not named here pass through unchanged. */
+export interface SaveOptions {
+  /** Dialog title (desktop). */
+  title?: string;
+  filters?: DialogFilter[];
+  /** Suggested file name or path. */
+  defaultPath?: string;
+  /** macOS: allow creating folders in the dialog. */
+  canCreateDirectories?: boolean;
+  [pluginOption: string]: unknown;
+}
+
+/** The options of the dialog plugin's `ask()` that an app may set. Options not named here pass through unchanged. */
+export interface AskOptions {
+  /** Dialog title. */
+  title?: string;
+  /** Icon and tone of the dialog. The plugin's default is `'info'`. */
+  kind?: 'info' | 'warning' | 'error';
+  /** Label of the confirm button. */
+  okLabel?: string;
+  /** Label of the cancel button. */
+  cancelLabel?: string;
+  [pluginOption: string]: unknown;
+}
+
 /** The three pick functions every entry of `@rightkit/tauri/dialog` exports. */
 export interface DialogPickers {
   /** One folder, or `null` when the person cancels. */

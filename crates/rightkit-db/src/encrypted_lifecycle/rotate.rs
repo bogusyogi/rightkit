@@ -148,6 +148,13 @@ pub trait Faults: Send + Sync {
 
     /// Runs while read-pool admission holds the live-state lock, before registry insertion.
     fn before_pool_registration(&self) {}
+
+    /// A rebuild stops after `step` as a dead process would: `open` returns an error and nothing
+    /// after the step ran.
+    fn die_rebuild_after(&self, step: super::rebuild::RebuildStep) -> bool {
+        let _ = step;
+        false
+    }
 }
 
 pub(super) struct NoFaults;

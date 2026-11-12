@@ -364,7 +364,7 @@ pub(crate) async fn resource_metrics_json(state: &DaemonState) -> serde_json::Va
         .iter()
         .filter(|event| event.prefix_changed)
         .count();
-    let lsp_bridge_count = rightkit_agent_tools::coding_tools::lsp_tool::bridge_count().await;
+    let lsp_bridge_count = rightkit_agent_coding_tools::lsp_tool::bridge_count().await;
 
     // Context is served by Pulse's `membrane` CLI; RightKit holds no in-process binding.
     // Reports whether the binary is installed without spawning it (use
@@ -497,7 +497,7 @@ pub(crate) async fn resource_metrics_json(state: &DaemonState) -> serde_json::Va
         "lspBridges": {
             "available": true,
             "count": lsp_bridge_count,
-            "note": "live count from rightkit_agent_tools::coding_tools::lsp_tool::workspace_manager registry (one entry per distinct workspace/language/server)",
+            "note": "live count from rightkit_agent_coding_tools::lsp_tool::workspace_manager registry (one entry per distinct workspace/language/server)",
         },
         "childAgents": {
             "active": active_child_agents,

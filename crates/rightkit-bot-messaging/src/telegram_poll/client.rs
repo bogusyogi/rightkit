@@ -8,7 +8,7 @@ struct HttpDaemonClient {
 impl HttpDaemonClient {
     fn new(port: u16, token: String) -> Self {
         Self {
-            client: rightkit_http::http_client::daemon_client(&format!("http://127.0.0.1:{port}"))
+            client: rightkit_agent_daemon::http_client::daemon_client(&format!("http://127.0.0.1:{port}"))
                 .expect("rightkit-http client builds with the platform verifier"),
             base_url: format!("http://127.0.0.1:{port}"),
             token,
@@ -54,7 +54,7 @@ impl HttpDaemonClient {
         match resp.status {
             409 => Ok(()),
             401 => Err(DaemonError::Unauthorized),
-            s if !rightkit_http::http_client::is_success(s) => {
+            s if !rightkit_agent_daemon::http_client::is_success(s) => {
                 Err(DaemonError::Http(format!("HTTP {s}")))
             }
             _ => Ok(()),
@@ -80,7 +80,7 @@ impl DaemonClient for HttpDaemonClient {
         match resp.status {
             404 => Err(DaemonError::SessionNotFound(session_id.to_string())),
             401 => Err(DaemonError::Unauthorized),
-            s if !rightkit_http::http_client::is_success(s) => {
+            s if !rightkit_agent_daemon::http_client::is_success(s) => {
                 Err(DaemonError::Http(format!("HTTP {s}")))
             }
             _ => {
@@ -112,7 +112,7 @@ impl DaemonClient for HttpDaemonClient {
         match resp.status {
             404 => Err(DaemonError::SessionNotFound(session_id.to_string())),
             401 => Err(DaemonError::Unauthorized),
-            s if !rightkit_http::http_client::is_success(s) => {
+            s if !rightkit_agent_daemon::http_client::is_success(s) => {
                 Err(DaemonError::Http(format!("HTTP {s}")))
             }
             _ => {
@@ -153,7 +153,7 @@ impl DaemonClient for HttpDaemonClient {
         match resp.status {
             404 => Err(DaemonError::SessionNotFound(session_id.to_string())),
             401 => Err(DaemonError::Unauthorized),
-            s if !rightkit_http::http_client::is_success(s) => {
+            s if !rightkit_agent_daemon::http_client::is_success(s) => {
                 Err(DaemonError::Http(format!("HTTP {s}")))
             }
             _ => Ok(()),
@@ -175,7 +175,7 @@ impl DaemonClient for HttpDaemonClient {
         match resp.status {
             404 => Err(DaemonError::SessionNotFound(session_id.to_string())),
             401 => Err(DaemonError::Unauthorized),
-            s if !rightkit_http::http_client::is_success(s) => {
+            s if !rightkit_agent_daemon::http_client::is_success(s) => {
                 Err(DaemonError::Http(format!("HTTP {s}")))
             }
             _ => {
@@ -202,7 +202,7 @@ impl DaemonClient for HttpDaemonClient {
 
         match resp.status {
             401 => Err(DaemonError::Unauthorized),
-            s if !rightkit_http::http_client::is_success(s) => {
+            s if !rightkit_agent_daemon::http_client::is_success(s) => {
                 Err(DaemonError::Http(format!("HTTP {s}")))
             }
             _ => Ok(()),

@@ -17,13 +17,13 @@ async fn cli_info(json: bool) -> i32 {
             "running": false,
             "baseUrl": base_url,
         });
-        match rightkit_http::http_client::daemon_get(&format!("{base_url}/health"), &token).await {
+        match rightkit_agent_daemon::http_client::daemon_get(&format!("{base_url}/health"), &token).await {
             Ok(resp) => {
                 let status = resp.status;
                 body["daemon"]["healthStatus"] = serde_json::json!(status);
                 body["daemon"]["running"] =
-                    serde_json::json!(rightkit_http::http_client::is_success(status));
-                if rightkit_http::http_client::is_success(status) {
+                    serde_json::json!(rightkit_agent_daemon::http_client::is_success(status));
+                if rightkit_agent_daemon::http_client::is_success(status) {
                     if let Ok(health) = resp.json::<serde_json::Value>() {
                         body["daemon"]["health"] = health;
                     }

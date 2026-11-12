@@ -22,6 +22,7 @@ import {
 } from "@rightkit/mail-ui/lib/ipc";
 import { showDialog } from "@rightkit/mail-ui/hooks/dialog";
 import { AGENT_FILE_MAX, fileToBase64 } from "../lib/agentFile.js";
+import { agentScopes } from "../lib/agentWire.js";
 import { SettingsAgentsAudit } from "./SettingsAgentsAudit.js";
 import { hostAppName } from "../../appName.js";
 
@@ -206,10 +207,10 @@ export function SettingsAgentsSection() {
                 </Badge>
               </>
             }
-            searchText={`agent ${a.name} ${a.accounts.join(" ")}`}
+            searchText={`agent ${a.name} ${agentScopes(a).join(" ")}`}
             description={
               <>
-                {a.accounts.join(", ") || "no accounts"}
+                {agentScopes(a).join(", ") || "no accounts"}
                 {!a.revoked_at && a.profile === "send_with_approval" && <> · {SEND_NOTICE}</>}
               </>
             }

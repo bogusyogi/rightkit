@@ -1448,6 +1448,9 @@ importers:
 
   packages/react-shell:
     dependencies:
+      '@rightkit/theme':
+        specifier: workspace:^
+        version: link:../theme
       '@tauri-apps/plugin-os':
         specifier: '>=2 <3'
         version: 2.4.0
@@ -1658,12 +1661,54 @@ importers:
 
   packages/video-ui:
     dependencies:
+      '@rightkit/app-update':
+        specifier: workspace:^
+        version: link:../app-update
+      '@rightkit/legal':
+        specifier: workspace:^
+        version: link:../legal
+      '@rightkit/legal-ui':
+        specifier: workspace:^
+        version: link:../legal-ui
+      '@rightkit/license':
+        specifier: workspace:^
+        version: link:../license
+      '@rightkit/logs':
+        specifier: workspace:^
+        version: link:../logs
       '@rightkit/media-ui':
         specifier: workspace:^
         version: link:../media-ui
+      '@rightkit/onboarding':
+        specifier: workspace:^
+        version: link:../onboarding
+      '@rightkit/platform-ui':
+        specifier: workspace:^
+        version: link:../platform-ui
       '@rightkit/react-shell':
         specifier: workspace:^
         version: link:../react-shell
+      '@rightkit/settings-ui':
+        specifier: workspace:^
+        version: link:../settings-ui
+      '@rightkit/tauri':
+        specifier: workspace:^
+        version: link:../tauri
+      '@rightkit/tauri-shell':
+        specifier: workspace:^
+        version: link:../tauri-shell
+      '@tauri-apps/api':
+        specifier: ^2.12.4
+        version: 2.12.4
+      '@tauri-apps/plugin-dialog':
+        specifier: ^2.8.3
+        version: 2.8.4
+      '@tauri-apps/plugin-process':
+        specifier: ^2.4.0
+        version: 2.4.0
+      '@tauri-apps/plugin-updater':
+        specifier: ^2.14.0
+        version: 2.14.1
     devDependencies:
       '@types/node':
         specifier: ^26.6.6

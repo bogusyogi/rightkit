@@ -1,6 +1,6 @@
 {
   "name": "@rightkit/license",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "packageManager": "pnpm@12.16.1",
   "description": "Native licence invoke client & safe display views for Right Suite apps.",
   "license": "MIT OR Apache-2.0",
@@ -16,6 +16,8 @@
   "files": [
     "dist/index.js",
     "dist/index.d.ts",
+    "dist/lifecycle.js",
+    "dist/lifecycle.d.ts",
     "LICENSE-MIT",
     "LICENSE-APACHE"
   ],

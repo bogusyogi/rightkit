@@ -1,4 +1,4 @@
-//! Registry consumer for rightkit-media-fetch 0.1.3: builds against the published API only.
+//! Registry consumer for rightkit-media-fetch 0.2.0: builds against the published API only.
 //! It never runs yt-dlp or ffmpeg.
 use rightkit_media_fetch::detect::{classify, is_media_ext, JobKind};
 use rightkit_media_fetch::{ytdlp_cmd_from_env_parts, FetchPlan};

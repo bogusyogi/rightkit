@@ -981,7 +981,7 @@ impl InlineMcpProjection {
         name: &str,
         arguments: serde_json::Value,
         permission_only: bool,
-    ) -> Result<rightkit_agent_tools::coding_tools::ToolResult, String> {
+    ) -> Result<rightkit_agent_coding_tools::ToolResult, String> {
         let live = self
             .state
             .get_session(&self.session_id)
@@ -1014,15 +1014,15 @@ impl InlineMcpProjection {
 /// unavailable; no presentation surface gets a native-launch fallback.
 pub(crate) fn governed_mcp_process_launcher(
 ) -> Result<Arc<dyn rightkit_sandbox::execution::ProcessLaunchAdapter>, String> {
-    let governor = rightkit_agent_tools::coding_tools::process_resource_authority::require_process_resource_governor()
+    let governor = rightkit_agent_coding_tools::process_resource_authority::require_process_resource_governor()
         .map_err(|error| format!("MCP process authority unavailable: {error}"))?;
     Ok(Arc::new(
-        rightkit_agent_tools::coding_tools::process_resource_authority::GovernedProcessLaunchAdapter::new(
+        rightkit_agent_coding_tools::process_resource_authority::GovernedProcessLaunchAdapter::new(
             // MCP callers declare confinement through ProcessLaunchContext.
             // Honor normal-mode launches & fail closed for required sandboxing.
-            rightkit_agent_tools::coding_tools::process_launch::LocalProcessLaunchAdapter,
+            rightkit_agent_coding_tools::process_launch::LocalProcessLaunchAdapter,
             governor,
-            rightkit_agent_tools::coding_tools::process_resource_authority::ResourceKind::Mcp,
+            rightkit_agent_coding_tools::process_resource_authority::ResourceKind::Mcp,
             true,
         ),
     ))
@@ -1033,13 +1033,13 @@ pub(crate) fn governed_mcp_process_launcher(
 /// returned child until wait/cancel/drop completes.
 pub(crate) fn governed_child_process_launcher(
 ) -> Result<Arc<dyn rightkit_sandbox::execution::ProcessLaunchAdapter>, String> {
-    let governor = rightkit_agent_tools::coding_tools::process_resource_authority::require_process_resource_governor()
+    let governor = rightkit_agent_coding_tools::process_resource_authority::require_process_resource_governor()
         .map_err(|error| format!("child-process authority unavailable: {error}"))?;
     Ok(Arc::new(
-        rightkit_agent_tools::coding_tools::process_resource_authority::GovernedProcessLaunchAdapter::new(
-            rightkit_agent_tools::coding_tools::shell::NativeCommandSandboxAdapter,
+        rightkit_agent_coding_tools::process_resource_authority::GovernedProcessLaunchAdapter::new(
+            rightkit_agent_coding_tools::shell::NativeCommandSandboxAdapter,
             governor,
-            rightkit_agent_tools::coding_tools::process_resource_authority::ResourceKind::ChildProcess,
+            rightkit_agent_coding_tools::process_resource_authority::ResourceKind::ChildProcess,
             true,
         ),
     ))

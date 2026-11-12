@@ -869,7 +869,7 @@ async fn run_session_controlled(mut args: RunArgs, control: Arc<RunCancellation>
     }
     if !service_host_explicitly_selected() {
         let profile =
-            match rightkit_agent_tools::coding_tools::process_resource_authority::local_resource_profile_from_env() {
+            match rightkit_agent_coding_tools::process_resource_authority::local_resource_profile_from_env() {
                 Ok(profile) => profile,
                 Err(error) => {
                     return run_error_exit(
@@ -880,7 +880,7 @@ async fn run_session_controlled(mut args: RunArgs, control: Arc<RunCancellation>
                 }
             };
         if let Err(existing) =
-            rightkit_agent_tools::coding_tools::process_resource_authority::install_process_resource_profile(profile)
+            rightkit_agent_coding_tools::process_resource_authority::install_process_resource_profile(profile)
         {
             let message = format!(
                 "InlineHost requested resource profile {profile:?}, but this process is already bound to {existing:?}"

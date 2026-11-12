@@ -85,13 +85,13 @@
 //! - The actual "does the running tool have the credential it needs" check —
 //!   i.e. where a tool would detect the gap and call into this module instead
 //!   of just failing — is not implemented here; that requires touching each
-//!   tool's `execute` path (e.g. `rightkit_agent_tools::coding_tools::cloudflare`,
-//!   `rightkit_agent_tools::coding_tools::flyio`) and the dispatch loop in
+//!   tool's `execute` path (e.g. `rightkit_agent_coding_tools::cloudflare`,
+//!   `rightkit_agent_coding_tools::flyio`) and the dispatch loop in
 //!   `engine_tool_dispatch_execute.rs`, none of which are in this lane's
 //!   allowlist.
 //! - Delivering a `Supplied` credential to the *running* tool call is
 //!   designed to reuse the existing mid-session registries in
-//!   `rightkit_agent_tools::coding_tools::context` (`update_cloudflare_credential`,
+//!   `rightkit_agent_coding_tools::context` (`update_cloudflare_credential`,
 //!   `update_flyio_credential`, and their `*_credential` /
 //!   `retire_*_credential` counterparts) — a resumed call should route the
 //!   secret through those session-keyed cells rather than a new channel, so
@@ -103,7 +103,7 @@
 use std::collections::HashMap;
 
 /// Identity of the credential being requested. Deliberately an open string
-/// enum member (`Other`) alongside the two credential kinds `rightkit_agent_tools::coding_tools`
+/// enum member (`Other`) alongside the two credential kinds `rightkit_agent_coding_tools`
 /// already has mid-session refresh registries for, so a new provider doesn't
 /// require touching this type — only the (out-of-allowlist) dispatch wiring
 /// that maps a kind to its `update_*_credential` call.
@@ -139,7 +139,7 @@ impl SecretValue {
     /// Explicit, deliberate access to the raw secret. Callers must not pass
     /// the result of this to anything that logs, serializes to a transcript,
     /// or otherwise persists it outside the credential registries in
-    /// `rightkit_agent_tools::coding_tools::context`.
+    /// `rightkit_agent_coding_tools::context`.
     pub fn expose(&self) -> &str {
         &self.0
     }

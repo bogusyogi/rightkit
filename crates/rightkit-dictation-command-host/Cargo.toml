@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-dictation-command-host"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Dictation command host: voice command dispatch (keys, app launch, Shortcuts, power with confirmation), text delivery and insertion, focus checks and screen capture for a dictation app."
@@ -14,11 +14,11 @@ name = "rightkit_dictation_command_host"
 path = "src/lib.rs"
 
 [dependencies]
-rightkit-dictation-core = { version = "0.2.0", path = "../rightkit-dictation-core" }
+rightkit-dictation-core = { version = "0.3.0", path = "../rightkit-dictation-core" }
 rightkit-voice-commands = { version = "0.1.0", path = "../rightkit-voice-commands" }
 rightkit-transcript-library = { version = "0.1.0", path = "../rightkit-transcript-library" }
-rightkit-dictation-text-pipeline = { version = "0.1.0", path = "../rightkit-dictation-text-pipeline" }
-rightkit-automation = { version = "0.6.4", path = "../rightkit-automation", features = ["desktop-context"] }
+rightkit-dictation-text-pipeline = { version = "0.2.0", path = "../rightkit-dictation-text-pipeline" }
+rightkit-automation = { version = "0.7.0", path = "../rightkit-automation", features = ["desktop-context"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1" }
 rightkit-child-process = { version = "0.5.7", path = "../rightkit-child-process" }
@@ -28,7 +28,7 @@ chrono = { version = "0.4" }
 image = { version = "0.25", default-features = false, features = ["png"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
-rightkit-automation = { version = "0.6.4", path = "../rightkit-automation" }
+rightkit-automation = { version = "0.7.0", path = "../rightkit-automation" }
 rightkit-overlay = { version = "0.2.0", path = "../rightkit-overlay" }
 windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_System_Diagnostics_Debug", "Win32_System_Kernel", "Win32_System_Memory", "Win32_System_Ole", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging", "Win32_System_Threading", "Win32_System_Com", "Win32_System_DataExchange", "Win32_Graphics_Gdi", "Win32_Storage_FileSystem"] }
 windows = { version = "0.62.2", features = ["Win32_Foundation", "Win32_System_Com", "Win32_UI_Shell"] }
@@ -36,7 +36,7 @@ windows = { version = "0.62.2", features = ["Win32_Foundation", "Win32_System_Co
 [target.'cfg(target_os = "macos")'.dependencies]
 libc = { version = "0.2" }
 core-graphics = { version = "0.25", features = ["highsierra"] }
-rightkit-automation = { version = "0.6.4", path = "../rightkit-automation" }
+rightkit-automation = { version = "0.7.0", path = "../rightkit-automation" }
 
 [target.'cfg(target_os = "macos")'.build-dependencies]
 cc = { version = "1" }

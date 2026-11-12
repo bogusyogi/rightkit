@@ -53,8 +53,9 @@ pub use migrate::{
 #[cfg(feature = "cipher")]
 pub use recover::rekey;
 pub use recover::{
-    quarantine_database, quarantine_database_opts, quarantine_database_with, MoveMode, OpenOutcome,
-    QuarantineOptions, QuarantineStamp, RecoveryPolicy, SidecarPolicy,
+    quarantine_database, quarantine_database_opts, quarantine_database_with, resume_quarantine,
+    MoveMode, OpenOutcome, QuarantineOptions, QuarantineResume, QuarantineStamp, RecoveryPolicy,
+    SidecarPolicy,
 };
 
 pub use restore::{
@@ -184,7 +185,7 @@ pub enum JournalSelect {
     /// WAL when the filesystem honors it and is not a detected network mount; else a
     /// rollback journal (TRUNCATE with [`DbOptions::per_host_fallback`], else DELETE).
     WalWithFallback,
-    /// WAL or fail (no fallback).
+    /// WAL or fail (no fallback). The environment kill-switch ([`JOURNAL_ENV`]) does not override it.
     WalStrict,
     /// Rollback journal, deleted after each transaction.
     Delete,
@@ -199,7 +200,8 @@ impl JournalSelect {
 }
 
 /// Environment kill-switch (`wal` | `delete` | `truncate`) for a misclassified mount in the
-/// field. An app's own variable ([`DbOptions::journal_env`]) is checked first.
+/// field. An app's own variable ([`DbOptions::journal_env`]) is checked first. It never applies to
+/// [`JournalSelect::WalStrict`], which is WAL or fail whatever the environment says.
 pub const JOURNAL_ENV: &str = "RIGHTKIT_SQLITE_JOURNAL_MODE";
 
 /// Post-key, pre-pragma per-connection initializer (register functions, collations, ...).
@@ -826,6 +828,10 @@ fn env_journal(options: &DbOptions) -> Option<JournalSelect> {
 }
 
 fn effective_journal(options: &DbOptions) -> JournalSelect {
+    // Strict means strict: the environment switch only picks among the modes that may fall back.
+    if options.journal == JournalSelect::WalStrict {
+        return JournalSelect::WalStrict;
+    }
     if let Some(mode) = env_journal(options) {
         return mode;
     }

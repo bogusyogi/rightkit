@@ -15,11 +15,11 @@ use rightkit_agent_engine_core::llm::{
     LlmClient, LlmRequestMetadata, LlmResponse, LlmResponseStream, LlmStreamEvent,
 };
 use rightkit_agent_engine_protocol::TranscriptMessage;
-use rightkit_agent_tools::coding_tools::registry::{
+use rightkit_agent_coding_tools::registry::{
     tool_defs_for_messages_checked, PromotedToolState, ToolCatalogGenerationTracker,
     ToolPromotionEvent,
 };
-use rightkit_agent_tools::coding_tools::ToolRegistry;
+use rightkit_agent_coding_tools::ToolRegistry;
 use rightkit_llm::agent_providers::client::{
     ProviderRequestIdentityV1, RequestAuthorityBindingV1, RequestAuthorityErrorV1,
     RequestAuthorityInputV1, RequestAuthorityResponseV1, RequestAuthorityStateV1,
@@ -3258,7 +3258,7 @@ impl LlmClient for ProviderLlmClient {
 
     fn promoted_tool_state_snapshot(
         &self,
-    ) -> rightkit_agent_tools::coding_tools::registry::PromotedToolState {
+    ) -> rightkit_agent_coding_tools::registry::PromotedToolState {
         lock_recover(&self.promoted_tools, "promoted tool state").clone()
     }
 

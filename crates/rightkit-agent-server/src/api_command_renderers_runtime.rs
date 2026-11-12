@@ -97,8 +97,8 @@ fn doctor_status_label(status: crate::doctor::Status) -> &'static str {
 }
 
 pub(crate) fn command_caps() -> CommandResult {
-    let capabilities = rightkit_agent_tools::coding_tools::default_tool_capabilities();
-    command_ok(rightkit_agent_tools::coding_tools::render_tool_capabilities_markdown(&capabilities))
+    let capabilities = rightkit_agent_coding_tools::default_tool_capabilities();
+    command_ok(rightkit_agent_coding_tools::render_tool_capabilities_markdown(&capabilities))
 }
 
 pub(crate) fn command_doctor() -> CommandResult {
@@ -193,7 +193,7 @@ pub(crate) fn command_context(state: &DaemonState, args: &[String]) -> CommandRe
     let enabled_plugins = plugin_manifests.iter().filter(|(m, _)| m.enabled).count();
     let (total_skills, enabled_skills) =
         crate::api_skills::skill_inventory_counts(&state.skill_dirs);
-    let capabilities = rightkit_agent_tools::coding_tools::default_tool_capabilities();
+    let capabilities = rightkit_agent_coding_tools::default_tool_capabilities();
     let read_only_tools = capabilities.iter().filter(|tool| tool.read_only).count();
     let mut live = state.list_sessions();
     live.sort_by(|a, b| a.id.cmp(&b.id));
@@ -327,7 +327,7 @@ pub(crate) fn host_delivery_inventory_section(
 
 pub(crate) async fn command_diff(args: &[String]) -> CommandResult {
     use rightkit_agent_policy::{PermissionMode, WorkspaceTrust};
-    use rightkit_agent_tools::coding_tools::Tool;
+    use rightkit_agent_coding_tools::Tool;
 
     let staged = args.iter().any(|arg| arg == "--staged");
     let workspace_arg = args
@@ -341,14 +341,14 @@ pub(crate) async fn command_diff(args: &[String]) -> CommandResult {
     } else {
         PathBuf::from(workspace_arg.trim())
     };
-    let ctx = rightkit_agent_tools::coding_tools::ToolContext::new(
+    let ctx = rightkit_agent_coding_tools::ToolContext::new(
         "slash-diff",
         &workspace,
         PermissionMode::Bypass,
         WorkspaceTrust::Trusted,
     );
 
-    let status = rightkit_agent_tools::coding_tools::git_read::GitReadTool
+    let status = rightkit_agent_coding_tools::git_read::GitReadTool
         .execute(serde_json::json!({ "repo_path": workspace }), &ctx)
         .await;
     if status.is_error {
@@ -359,7 +359,7 @@ pub(crate) async fn command_diff(args: &[String]) -> CommandResult {
         ));
     }
 
-    let diff = rightkit_agent_tools::coding_tools::git_diff::GitDiffTool
+    let diff = rightkit_agent_coding_tools::git_diff::GitDiffTool
         .execute(
             serde_json::json!({
                 "repo_path": workspace,

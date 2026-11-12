@@ -16,7 +16,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use rightkit_agent_tools::coding_tools::{ToolResult, WorkspaceMutation, WorkspaceMutationKind};
+use rightkit_agent_coding_tools::{ToolResult, WorkspaceMutation, WorkspaceMutationKind};
 
 use crate::assurance_broker::ToolReceipt;
 use crate::post_edit::{bind_mutations_to_receipt, MutationReceiptBindingError};

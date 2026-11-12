@@ -9,8 +9,8 @@ use axum::{
     routing::{get, post},
     Router,
 };
-use rightkit_agent_tools::coding_tools::browser::BrowserNetworkDecisionV1;
-use rightkit_agent_tools::coding_tools::browser_fetch::wrap_untrusted_web_text;
+use rightkit_agent_coding_tools::browser::BrowserNetworkDecisionV1;
+use rightkit_agent_coding_tools::browser_fetch::wrap_untrusted_web_text;
 use serde_json::{json, Value};
 use std::sync::Arc;
 
@@ -731,7 +731,7 @@ async fn dev_servers_handler<S: BrowserWorkspaceServices>(
 pub(crate) async fn probe_loopback(url: &str) -> bool {
     // Redirects are not followed (`daemon_client_probe`), so a 3xx is the answer; only
     // the status line is read.
-    match rightkit_http::http_client::daemon_client_probe(
+    match rightkit_agent_daemon::http_client::daemon_client_probe(
         url,
         std::time::Duration::from_millis(400),
         std::time::Duration::from_millis(400),

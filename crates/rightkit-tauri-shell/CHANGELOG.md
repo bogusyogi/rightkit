@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+- **Fixed: licence removal uses the lent release queue.** `LicenseHostService::deactivate` calls the new `LicenseOps::deactivate_with_queue` (default: plain `deactivate`) when a queue was given with `with_release_queue`, so an offline removal no longer leaks the seat. Pair it with `rightkit_license::CredentialReleaseQueue`.
+- **Changed: the default `LicenseOps` for `LicenseClient` follows the client config** (`with_lease_activation`, `with_host_trial_platform`) instead of always using the typed-key activation and the platform-less trial request. Defaults unchanged.
+- **Fixed: the legal receipt read command returns a receipt of an earlier version** as `{ record, current: false }` (what `@rightkit/onboarding` expects) instead of `null`, which treated a user in the middle of setup as first-run. New `LegalReceiptService::read_state` and `LegalRead`; `read` is unchanged.
+- **New: `LicenseAuthority::with_refresh_before_private(true)`** re-validates the licence, best effort, before a private binding is captured (a failed refresh keeps the stored entitlement). Off by default: a binding is captured on every update check, so it costs one licence request per check and, offline, that request's timeout. An app that wants a fresh entitlement only at install calls `UpdateAuthProvider::refresh_best_effort` there.
+
+## 0.8.0
+
+- Breaking for dependents: dependency requirements `rightkit-app-settings` 0.3 -> 0.4, `rightkit-crash` 0.3 -> 0.4, `rightkit-daemon` 0.5 -> 0.8, `rightkit-instance` 0.1 -> 0.2, `rightkit-job-queue` 0.5 -> 0.6, `rightkit-logs` 0.3 -> 0.4, `rightkit-models` 0.5 -> 0.7. 0.7.3 was published before these requirements were raised; a semver-breaking dependency is a breaking change, so they ship as 0.8.0 instead of changing 0.7.3 in place (#1572).
+- `host::models` module doc names the suite layout (one revision per model) that `rightkit-models` 0.7 uses; no code change.
+
+## Unreleased
+
+- `ShellBuilder::webview_data_directory(path)` (`ShellState::webview_data_directory`): `windows::builder` and `windows::open` set it as the WebView2 user data folder on each window builder (Windows only), so an app no longer has to export an environment variable. Unset, behaviour is unchanged.
+- Renderer log bridge: `prepare_batch_filtered` keeps a record that fails to parse as a Warn carrying its event name (`unknown` when it has none) instead of counting it invalid. Non-objects and bad names stay invalid.
+- `ShellPlugin` injects `window.__RIGHTKIT_PLATFORM__ = "macos" | "ios" | "windows" | "linux"` (the value `platformInitializationScript` returns) in every profile, `lifecycle_only` included; apps no longer hand-write it. Nothing is injected on other targets.
+- `LeftClick::Emit`: a left click opens no menu and touches no window, it only emits the `click` tray event, for an app that handles the click itself.
+- `tauri` feature `image-ico` is on, so `TraySpec::icon_png` also accepts `.ico` bytes.
 - Docs: the `qa-probes` comments no longer promise a debug-assertions gate or a `compile_error!` (neither exists since the debug-assertion switches went); the feature is only a dev/QA feature a release build must not enable.
 - Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
 

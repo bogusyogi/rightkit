@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- The service-name rule (`valid_service_name`, `MAX_SERVICE_NAME_LEN`) is read from `rightkit-daemon` again, where it now lives.
+
 
 ## 0.10.7 (unpublished)
 

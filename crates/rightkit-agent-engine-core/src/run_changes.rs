@@ -6,7 +6,7 @@
 //! run publish the exact mutations it produced without making the engine depend
 //! on the daemon binary.
 
-use rightkit_agent_tools::coding_tools::WorkspaceMutation;
+use rightkit_agent_coding_tools::WorkspaceMutation;
 use std::sync::Mutex;
 
 /// Durable sink for post-effect workspace mutations.

@@ -867,6 +867,18 @@ impl ClientConfig {
         }
     }
 
+    /// One overall deadline per call, as a plain `ureq` agent with a global timeout: clears the
+    /// per-phase limits (`connect_timeout`, `response_timeout`, `recv_body_timeout`) and sets
+    /// `request_timeout` and `stream_timeout` to `timeout`.
+    pub fn single_deadline(mut self, timeout: Duration) -> Self {
+        self.connect_timeout = None;
+        self.response_timeout = None;
+        self.recv_body_timeout = None;
+        self.request_timeout = timeout;
+        self.stream_timeout = Some(timeout);
+        self
+    }
+
     /// Set the per-attempt hook; see [`ClientConfig::on_attempt`].
     pub fn on_attempt(
         mut self,
@@ -1532,6 +1544,17 @@ impl Client {
     pub fn try_new(config: ClientConfig) -> Result<Self, HttpError> {
         let (routing, used) = config.resolved_routing_with_mode()?;
         Ok(Self::build(config, routing, used))
+    }
+
+    /// Build a client; when the proxy settings cannot be used (an unusable proxy variable, an
+    /// unsupported system proxy), connect directly instead, as `ureq` does. Fails only when even
+    /// the direct client cannot be built. Unlike [`Client::new`], the fallback client records no
+    /// configuration error, so requests are not refused.
+    pub fn try_new_or_direct(config: ClientConfig) -> Result<Self, HttpError> {
+        match Self::try_new(config.clone()) {
+            Ok(client) => Ok(client),
+            Err(_) => Self::try_new(config.proxy(ProxyMode::None)),
+        }
     }
 
     fn build(config: ClientConfig, routing: Routing, used: ProxyModeUsed) -> Self {
