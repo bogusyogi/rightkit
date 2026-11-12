@@ -8,7 +8,7 @@ mod child_supervisor;
 mod client;
 #[cfg(feature = "store")]
 mod config;
-#[cfg(feature = "contract")]
+#[cfg(feature = "serve")]
 mod contract;
 #[cfg(feature = "doctor")]
 mod doctor_probe;
@@ -17,6 +17,8 @@ mod error;
 #[allow(unsafe_code)]
 pub mod ffi;
 mod inline;
+#[cfg(feature = "contract")]
+mod job_commands;
 #[cfg(feature = "protocol")]
 mod launch;
 pub mod lease;
@@ -57,11 +59,10 @@ pub use config::{
     ArtifactNames, ClockFn, ColumnType, Ext, ExtColumn, ProgressPolicy, StatusModel, StoreConfig,
     StoreHook, DEFAULT_JOBS_TABLE,
 };
-#[cfg(feature = "contract")]
+#[cfg(feature = "serve")]
 pub use contract::{
     parse_flags, run_cli, serve, serve_report, CommandSet, Dispatcher, DoctorFn, ErrorRedactor,
-    EventEmitter, Flags, JobCommands, Outcome, PayloadMapper, ReadinessFn, ServeReport, Sink,
-    JOB_METHODS,
+    EventEmitter, Flags, Outcome, ReadinessFn, ServeReport, Sink,
 };
 #[cfg(feature = "doctor")]
 pub use doctor_probe::{
@@ -79,6 +80,8 @@ pub use inline::{
     ActivityOptions, ActivityRegistry, ActivitySnapshot, CountUnit, Counts, InlineCancelRegistry,
     InlineJobGuard,
 };
+#[cfg(feature = "contract")]
+pub use job_commands::{JobCommands, PayloadMapper, JOB_METHODS};
 #[cfg(feature = "doctor")]
 pub use one_shot::{
     OneShot, RawOutput, DEFAULT_CAPTURE_LIMIT, DEFAULT_MAX_ARG_BYTES, DEFAULT_ONE_SHOT_TIMEOUT,

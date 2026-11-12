@@ -22,9 +22,13 @@ store = ["dep:rightkit-db", "dep:rightkit-fs", "dep:uuid"]
 # The framed wire constants (`CONTRACT_VERSION`, `DEFAULT_FRAME_LIMIT`); store-free
 # (gates `rightkit-sidecar`).
 protocol = ["dep:rightkit-sidecar"]
-# The stdio/CLI command contract: `Dispatcher`, `serve`, `run_cli`, `JobCommands`, `CommandSet`.
-# Implies `store` (the dispatcher drives a `JobStore`/`Runner`) and `protocol`.
-contract = ["store", "protocol"]
+# The engine half of the stdio/CLI command contract, store-free: `Dispatcher` (hello, request
+# loop, oversize reply, shutdown), `serve`, `serve_report`, `run_cli`, `CommandSet`, `EventEmitter`.
+# Implies `protocol` only: an engine with its own persistence serves the contract without a database.
+serve = ["protocol"]
+# The stdio/CLI command contract with the shared `job.*` commands: everything in `serve` plus
+# `JobCommands` and `PayloadMapper` (which drive a `JobStore`/`Runner`). Implies `serve` and `store`.
+contract = ["serve", "store"]
 # `EngineSupervisor` / `EngineClient` and the `rightkit-child-process` re-exports (gates
 # `rightkit-child-process`). Implies `protocol` only: a shell that supervises an engine needs no
 # database. Includes the store-free `doctor` probe and (for `SupervisorConfig::with_handshake`) `zeroize`. A consumer that also serves or speaks the

@@ -33,7 +33,8 @@ No feature is on by default (0.3.0): a bare dependency builds error types & `Inl
 
 - `store`: the job store, runner, locks, recovery classes, pruning, scheduler, pool and progress policy; pulls `rightkit-db`, `rightkit-fs` and `uuid`.
 - `protocol`: the wire constants (`CONTRACT_VERSION`, `DEFAULT_FRAME_LIMIT`); pulls `rightkit-sidecar`.
-- `contract` (implies `store` and `protocol`): the stdio/CLI command contract (`Dispatcher`, `serve`, `run_cli`, `JobCommands`).
+- `serve` (implies `protocol`; no store): the engine half of the stdio/CLI contract (`Dispatcher` with `with_hello_fields`, `serve`, `serve_report`, `run_cli`, `CommandSet`, `EventEmitter` with `emit_for_session`).
+- `contract` (implies `serve` and `store`): `serve` plus the shared `job.*` commands (`JobCommands`, `PayloadMapper`).
 - `doctor`: bounded CLI doctor probes & binary-identity capability caching; pulls only `rightkit-child-process`.
 - `supervisor` (implies `protocol` & `doctor`): `EngineSupervisor`, `EngineClient` and the `rightkit-child-process` re-exports; pulls `rightkit-child-process`, not `rightkit-db`.
 - `service` (implies `contract`): `DispatcherHandler` over `rightkit-daemon`.
