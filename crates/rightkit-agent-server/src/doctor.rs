@@ -1,4 +1,4 @@
-//! `coderight doctor` — a preflight that previews whether the engine is ready
+//! `{app} doctor` — a preflight that previews whether the engine is ready
 //! to run, without executing models or tools.
 //!
 //! See the included siblings for the implementation:
@@ -63,8 +63,8 @@ impl Default for ProviderReadiness {
 pub struct Facts {
     /// Provider the default model resolves to, and whether it can authenticate.
     pub provider: ProviderReadiness,
-    /// `~/.coderight` exists or can be created (writable).
-    pub coderight_dir_writable: bool,
+    /// `~/.{app}` exists or can be created (writable).
+    pub state_dir_writable: bool,
     /// The evolution DB opens cleanly.
     pub evolution_db_ok: bool,
     /// A local TCP socket can be bound (the daemon can serve).
@@ -75,7 +75,7 @@ pub struct Facts {
     pub git_available: bool,
     /// Default daemon port (5057) is not already in use.
     pub daemon_port_free: bool,
-    /// `~/.coderight/skills/` directory exists (optional, warns if missing).
+    /// `~/.{app}/skills/` directory exists (optional, warns if missing).
     pub skills_dir_present: bool,
     /// Number of MCP servers found in config (None = no config file).
     pub mcp_server_count: Option<usize>,

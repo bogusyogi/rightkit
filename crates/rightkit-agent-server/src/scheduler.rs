@@ -1,6 +1,6 @@
 //! Workspace schedule runner for `schedule_cron` records.
 //!
-//! The tool writes durable records into `.coderight/schedules.json`; this daemon
+//! The tool writes durable records into `.{app}/schedules.json`; this daemon
 //! runner claims due records, prevents duplicate fires per minute, and submits
 //! the scheduled prompt through the normal session/message path.
 

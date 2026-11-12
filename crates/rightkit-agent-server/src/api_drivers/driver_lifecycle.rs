@@ -251,7 +251,7 @@ pub(crate) async fn start_driver(
         format!("http://127.0.0.1:{}", state.bound_port),
     );
     let capability_token = headers
-        .get(CAPABILITY_HEADER)
+        .get(CAPABILITY_HEADER.as_str())
         .and_then(|value| value.to_str().ok())
         .ok_or(StatusCode::UNAUTHORIZED)?;
     spec.env.insert(
@@ -1390,7 +1390,7 @@ pub(crate) fn driver_diagnostic(status: &str) -> Option<&'static str> {
 
 pub(crate) fn driver_capabilities_json() -> Value {
     json!({
-        "transport": "coderight-mcp",
+        "transport": crate::host_identity::prefixed("mcp"),
         "requiresLease": true,
         "tools": DRIVER_CAPABILITIES.iter().map(|id| json!({
             "id": id,
@@ -1539,8 +1539,9 @@ pub(crate) fn codex_login_status_is_authenticated(
 
 pub(crate) async fn generate_codex_schema_hash(executable: &str) -> Result<String, String> {
     let output_dir = std::env::temp_dir().join(format!(
-        "coderight-codex-schema-{}",
-        crate::startup::generate_token()
+        "{app}-codex-schema-{}",
+        crate::startup::generate_token(),
+        app = crate::host_identity::app()
     ));
     std::fs::create_dir_all(&output_dir).map_err(|error| error.to_string())?;
     let output_arg = output_dir.to_string_lossy().into_owned();

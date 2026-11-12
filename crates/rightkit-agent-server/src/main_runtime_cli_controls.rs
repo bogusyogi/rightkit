@@ -471,7 +471,7 @@ async fn cli_permission(command: PermissionCommand) -> i32 {
     }
 }
 
-/// `coderight provider ...`: every verb runs in-process through
+/// `{app} provider ...`: every verb runs in-process through
 /// `provider_setup` / `api_provider_auth` — the same functions the
 /// `/providers` screen calls — so none of them needs a running daemon.
 /// `set-visibility` writes the one shared `model-visibility.json`.
@@ -552,7 +552,7 @@ async fn cli_provider(command: ProviderCommand) -> i32 {
             }
             _ => {
                 eprintln!(
-                    "{provider} uses an API key: run `coderight provider connect {provider}`."
+                    "{provider} uses an API key: run `{app} provider connect {provider}`.", app = crate::host_identity::app()
                 );
                 2
             }
@@ -615,7 +615,7 @@ async fn cli_provider(command: ProviderCommand) -> i32 {
             visible,
         } => {
             // The same function `/providers` calls: one store,
-            // ~/.coderight/state/model-visibility.json.
+            // ~/.{app}/state/model-visibility.json.
             match set_model_hidden(&provider, &model, !visible) {
                 Ok(()) => {
                     println!(
@@ -654,7 +654,7 @@ async fn cli_provider_key_write(provider: String) -> i32 {
                 | rightkit_terminal_ui::nav::ProviderKind::VendorCli
         )
     ) {
-        eprintln!("{provider} does not use an API key; use `coderight provider login {provider}`.");
+        eprintln!("{provider} does not use an API key; use `{app} provider login {provider}`.", app = crate::host_identity::app());
         return 2;
     }
     let secret = match read_secret_line("Provider API key") {
@@ -882,7 +882,7 @@ fn mcp_management_query(scope: Option<&str>, workspace_root: Option<&str>) -> St
     }
 }
 
-/// Renders `/help` (and CLI `coderight help`) from [`crate::cli::command_registry`].
+/// Renders `/help` (and CLI `{app} help`) from [`crate::cli::command_registry`].
 /// This is the one place help text is generated — grouping is Common vs
 /// Advanced (`--all` includes Advanced) exactly as the registry declares it,
 /// so a command added to the registry appears here with no second edit.

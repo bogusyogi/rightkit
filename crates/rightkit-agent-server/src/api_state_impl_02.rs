@@ -620,8 +620,8 @@ impl rightkit_agents::driver_host::cli_runtime::AttestationStore for StorageAtte
         })?;
         let isolation_mode = match row.isolation_mode.as_str() {
             // `HarnessIsolationMode::label()` writes `exclusive_rightkit_gateway`; rows stored
-            // before the rename carry the legacy `exclusive_coderight_gateway`.
-            "exclusive_rightkit_gateway" | "exclusive_coderight_gateway" => rightkit_agents::driver_host::cli_runtime::HarnessIsolationMode::ExclusiveHostGateway,
+            // before the rename carry the legacy `exclusive_{app}_gateway`.
+            mode if mode == "exclusive_rightkit_gateway" || mode == format!("exclusive_{}_gateway", crate::host_identity::app()) => rightkit_agents::driver_host::cli_runtime::HarnessIsolationMode::ExclusiveHostGateway,
             "native_read_only_compatibility" => rightkit_agents::driver_host::cli_runtime::HarnessIsolationMode::NativeReadOnlyCompatibility,
             _ => return Err(rightkit_agents::driver_host::cli_runtime::AttestationStoreError::Backend(
                 "invalid attestation isolation_mode".into(),

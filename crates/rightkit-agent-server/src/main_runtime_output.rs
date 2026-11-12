@@ -16,7 +16,7 @@ fn cli_error_exit(stream_json: bool, code: CliExitCode, message: &str) -> i32 {
 
 fn cli_error_envelope(code: CliExitCode, message: &str) -> serde_json::Value {
     serde_json::json!({
-        "schema_version": "coderight.cli.error.v1",
+        "schema_version": crate::host_identity::schema("cli.error.v1"),
         "event": "error",
         "error": {
             "class": code.class(),
@@ -111,7 +111,7 @@ fn render_cli_stream_event(
         })
     });
     let mut value = serde_json::json!({
-        "schema_version": "coderight.cli.stream_event.v1",
+        "schema_version": crate::host_identity::schema("cli.stream_event.v1"),
         "event": data.get("$kind").and_then(|value| value.as_str()).unwrap_or("unknown"),
         "seq": data.get("seq").and_then(|value| value.as_i64()).unwrap_or_else(|| event_seq(ev)),
         "session_id": data.get("sessionId").and_then(|value| value.as_str()).unwrap_or(""),
@@ -371,7 +371,7 @@ fn is_review_findings_request(focus: &[String]) -> bool {
 
 /// Explicitly-passed options the auditor dispatch cannot honor. The flags
 /// survive from the retired single-agent review; leaving them silently
-/// discarded made `coderight review --max-budget-usd 1` look accepted while
+/// discarded made `{app} review --max-budget-usd 1` look accepted while
 /// having no effect. Reject them before a session is created instead.
 fn review_rejected_options(
     provider: Option<&str>,
@@ -408,7 +408,7 @@ fn review_findings_session_arg(focus: &[String], explicit: Option<&str>) -> Resu
                 .filter(|value| !value.is_empty())
                 .map(str::to_string)
         })
-        .ok_or_else(|| "Usage: coderight review findings <session-id> [--json]".to_string())
+        .ok_or_else(|| format!("Usage: {app} review findings <session-id> [--json]", app = crate::host_identity::app()))
 }
 
 fn is_auditor_transcript_artifact(artifact: &serde_json::Value) -> bool {
@@ -449,7 +449,7 @@ const CLI_SECRET_MAX_LEN: usize = 16_384;
 
 /// Read one secret from stdin without echoing or logging it.
 ///
-/// Piped input (`printf '%s' "$KEY" | coderight provider connect openrouter`)
+/// Piped input (`printf '%s' "$KEY" | {app} provider connect openrouter`)
 /// is the preferred path and needs no prompt. On a TTY a prompt is printed to
 /// stderr instead of stdout so stdout stays machine-readable, with an honest
 /// note that typed input is visible locally; piping keeps it out of view.
@@ -464,7 +464,7 @@ pub(crate) fn read_secret_line(label: &str) -> Result<String, String> {
     let mut line = String::new();
     match std::io::stdin().read_line(&mut line) {
         Ok(0) => Err(format!(
-            "{label}: no secret received on stdin (pipe it: printf '%s' \"$KEY\" | coderight ...)"
+            "{label}: no secret received on stdin (pipe it: printf '%s' \"$KEY\" | {app} ...)", app = crate::host_identity::app()
         )),
         Ok(_) => {
             let secret = line.trim();
@@ -494,7 +494,7 @@ pub(crate) fn provider_key_put_body(secret: &str) -> serde_json::Value {
 
 // ── S:H14: redacted config view ─────────────────────────────────────────────
 //
-// `coderight config` prints the merged configuration. The merged config can
+// `{app} config` prints the merged configuration. The merged config can
 // carry secret material (today: remote.telegram_token), so the view redacts
 // secret-bearing fields before serialization instead of printing raw config.
 
@@ -544,7 +544,7 @@ fn config_key_is_secret(key: &str) -> bool {
         .any(|marker| normalized.contains(marker))
 }
 
-/// Build the redacted merged-configuration view for `coderight config`.
+/// Build the redacted merged-configuration view for `{app} config`.
 /// Secret-bearing fields are replaced before the value ever reaches a
 /// serializer; the raw config is never printed.
 pub(crate) fn redacted_merged_config_view() -> Result<serde_json::Value, String> {

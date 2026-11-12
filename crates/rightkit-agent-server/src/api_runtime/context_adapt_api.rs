@@ -226,7 +226,7 @@ fn adapt_unavailable() -> (axum::http::StatusCode, Json<Value>) {
     (
         axum::http::StatusCode::SERVICE_UNAVAILABLE,
         Json(serde_json::json!({
-            "schemaVersion": "coderight.context-adapt.v1",
+            "schemaVersion": crate::host_identity::schema("context-adapt.v1"),
             "error": "adapt_unavailable",
             "reason": rightkit_memory_client::membrane::OFF_REASON
         })),
@@ -237,7 +237,7 @@ fn adapt_not_available() -> (axum::http::StatusCode, Json<Value>) {
     (
         axum::http::StatusCode::NOT_IMPLEMENTED,
         Json(serde_json::json!({
-            "schemaVersion": "coderight.context-adapt.v1",
+            "schemaVersion": crate::host_identity::schema("context-adapt.v1"),
             "error": "adapt_not_available",
             "reason": ADAPT_NOT_AVAILABLE
         })),
@@ -259,7 +259,7 @@ fn adapt_error(
     (
         status,
         Json(serde_json::json!({
-            "schemaVersion": "coderight.context-adapt.v1",
+            "schemaVersion": crate::host_identity::schema("context-adapt.v1"),
             "error": "adapt_operation_failed",
             "detail": error.to_string()
         })),
@@ -270,7 +270,7 @@ fn adapt_bad_request(message: String) -> (axum::http::StatusCode, Json<Value>) {
     (
         axum::http::StatusCode::BAD_REQUEST,
         Json(serde_json::json!({
-            "schemaVersion": "coderight.context-adapt.v1",
+            "schemaVersion": crate::host_identity::schema("context-adapt.v1"),
             "error": "invalid_adapt_request",
             "reason": message,
         })),

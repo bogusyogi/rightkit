@@ -21,7 +21,7 @@
 //! **Auto-start.** When `resolve_daemon()` finds nothing reachable, daemon-
 //! backed one-shot commands (the generic `daemon_get_json_value` /
 //! `daemon_post_pretty_json` / `daemon_delete_pretty_json` REST helpers, plus
-//! the few call sites that talk to the daemon directly) spawn `coderight
+//! the few call sites that talk to the daemon directly) spawn `{app}
 //! serve` detached, poll for its startup file, and proceed. Set
 //! `RIGHTKIT_NO_AUTOSTART=1` to disable (status/info commands never
 //! auto-start — they exist to report truthfully on whether a daemon is up).
@@ -40,7 +40,7 @@ fn clamp_heartbeat_seconds(seconds: u64) -> u64 {
 }
 
 fn presence_allowed_for_label(label: &str, service_host_selected: bool) -> bool {
-    // KRN-003: ordinary `coderight run` is an InlineHost client by default,
+    // KRN-003: ordinary `{app} run` is an InlineHost client by default,
     // so it must not discover/attach/lease a daemon merely because one happens
     // to be running. Other long-lived daemon-backed surfaces keep their
     // historical presence contract; explicit ServiceHost selection restores
@@ -221,10 +221,10 @@ impl Drop for PresenceGuard {
 // ── Auto-start ─────────────────────────────────────────────────────────────
 
 /// Resolve a running daemon the same way `resolve_daemon()` does, but when
-/// none is found, best-effort spawn `coderight serve` detached and poll for
+/// none is found, best-effort spawn `{app} serve` detached and poll for
 /// its startup file before giving up. Intended for daemon-backed *action*
 /// commands only (the generic REST helpers, kill/conduct/session/etc.) —
-/// `coderight status`/`coderight info` must keep calling `resolve_daemon()`
+/// `{app} status`/`{app} info` must keep calling `resolve_daemon()`
 /// directly so they report the true current state rather than mutating it.
 pub(crate) async fn resolve_daemon_or_autostart() -> Option<(String, String)> {
     if let Some(found) = resolve_daemon() {
@@ -271,15 +271,15 @@ fn autostart_enabled_from_env(no_autostart: Option<&str>) -> bool {
     !matches!(no_autostart, Some("1") | Some("true") | Some("TRUE"))
 }
 
-/// Spawn `coderight serve` as a detached background process, stdout/stderr
-/// redirected to a log file under `~/.coderight/` so the parent CLI's own
+/// Spawn `{app} serve` as a detached background process, stdout/stderr
+/// redirected to a log file under `~/.{app}/` so the parent CLI's own
 /// stdout stays clean for the command that triggered the auto-start. Returns
 /// `None` (logging to stderr) on any failure to locate the current exe, open
 /// the log file, or spawn — callers treat that as "no daemon available,"
 /// which is exactly what would have happened before auto-start existed.
 fn spawn_detached_daemon() -> Option<rightkit_child_process::OwnedChild> {
     let exe = std::env::current_exe().ok()?;
-    let log_path = coderight_home_dir().map(|dir| {
+    let log_path = host_home_dir().map(|dir| {
         let _ = std::fs::create_dir_all(&dir);
         dir.join("daemon-autostart.log")
     });
@@ -323,16 +323,23 @@ fn spawn_detached_daemon() -> Option<rightkit_child_process::OwnedChild> {
             }
             if let Some(path) = log_path.as_ref() {
                 eprintln!(
-                    "[coderight] no daemon found — started one; log: {}",
-                    path.display()
+                    "[{app}] no daemon found — started one; log: {}",
+                    path.display(),
+                    app = crate::host_identity::app()
                 );
             } else {
-                eprintln!("[coderight] no daemon found — started one in the background.");
+                eprintln!(
+                    "[{app}] no daemon found — started one in the background.",
+                    app = crate::host_identity::app()
+                );
             }
             Some(child)
         }
         Err(e) => {
-            eprintln!("[coderight] failed to auto-start daemon: {e}");
+            eprintln!(
+                "[{app}] failed to auto-start daemon: {e}",
+                app = crate::host_identity::app()
+            );
             None
         }
     }
@@ -354,7 +361,7 @@ fn autostart_capture(path: &std::path::Path) -> rightkit_logs::DetachedLog {
 /// finds a daemon already up, so output from a daemon that outlived the CLI that started it still
 /// reaches `daemon-autostart.log`. Best-effort.
 pub(crate) fn drain_autostart_log() {
-    let Some(path) = coderight_home_dir().map(|dir| dir.join("daemon-autostart.log")) else {
+    let Some(path) = host_home_dir().map(|dir| dir.join("daemon-autostart.log")) else {
         return;
     };
     let capture = autostart_capture(&path);
@@ -397,12 +404,18 @@ async fn poll_for_daemon(
     for _ in 0..max_attempts {
         match child.try_wait() {
             Ok(Some(status)) => {
-                eprintln!("[coderight] auto-started daemon exited early with {status}");
+                eprintln!(
+                    "[{app}] auto-started daemon exited early with {status}",
+                    app = crate::host_identity::app()
+                );
                 finish_autostart_capture_after_exit();
                 return None;
             }
             Err(error) => {
-                eprintln!("[coderight] could not inspect auto-started daemon: {error}");
+                eprintln!(
+                    "[{app}] could not inspect auto-started daemon: {error}",
+                    app = crate::host_identity::app()
+                );
                 return None;
             }
             Ok(None) => {}
@@ -455,7 +468,7 @@ async fn daemon_health_ok_with(base_url: &str) -> bool {
     )
 }
 
-fn coderight_home_dir() -> Option<std::path::PathBuf> {
+fn host_home_dir() -> Option<std::path::PathBuf> {
     rightkit_agent_config::state_root()
 }
 
@@ -464,13 +477,13 @@ fn coderight_home_dir() -> Option<std::path::PathBuf> {
 struct AutostartClaim(#[allow(dead_code)] rightkit_fs::FileLock);
 
 fn acquire_autostart_claim() -> Option<AutostartClaim> {
-    let path = coderight_home_dir()?.join("daemon-autostart.claim");
+    let path = host_home_dir()?.join("daemon-autostart.claim");
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
     match rightkit_fs::FileLock::acquire(
         &path,
-        &rightkit_fs::LockOptions::default().labeled("coderight-autostart"),
+        &rightkit_fs::LockOptions::default().labeled(&crate::host_identity::prefixed("autostart")),
     ) {
         Ok(lock) => Some(AutostartClaim(lock)),
         Err(rightkit_fs::FsError::Locked { .. } | rightkit_fs::FsError::LockTimeout { .. }) => {
@@ -478,7 +491,10 @@ fn acquire_autostart_claim() -> Option<AutostartClaim> {
             None
         }
         Err(error) => {
-            eprintln!("[coderight] unable to claim daemon autostart: {error}");
+            eprintln!(
+                "[{app}] unable to claim daemon autostart: {error}",
+                app = crate::host_identity::app()
+            );
             None
         }
     }

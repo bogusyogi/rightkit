@@ -11,7 +11,7 @@
 // automatically; there is no separate integer to keep in sync.
 //
 // Uniqueness across the concatenated manifest is enforced at runtime by a
-// focused test (see `engine/bins/coderight/src/api_contract/tests/part_03.rs`)
+// focused test (see `engine/src/api_contract/tests/part_03.rs`)
 // because const-fn `&str` equality is not stable on every supported toolchain
 // version we ship to. The const-eval path here proves the manifest is well
 // sized; the test proves it is well named.

@@ -1,8 +1,8 @@
 // Bare-invocation interactive session (par #222).
 //
-// `coderight` with no subcommand used to be a clap usage error. This module
+// `{app}` with no subcommand used to be a clap usage error. This module
 // gives it the same shape as bare `claude`/`codex`/`hermes`: submit a prompt
-// to the engine via the same `run_session` path `coderight run` uses (so
+// to the engine via the same `run_session` path `{app} run` uses (so
 // provider/workspace/API-key resolution is identical), stream the response,
 // loop. `/quit`, Ctrl-D on an empty line, or EOF exits cleanly.
 //
@@ -21,8 +21,10 @@
 mod interactive_session {
     use std::io::Write as _;
 
-    /// Interactive prompt shown before each turn.
-    const PROMPT: &str = "coderight> ";
+    /// Interactive prompt shown before each turn: `{app}> `.
+    fn prompt() -> String {
+        format!("{}> ", crate::host_identity::app())
+    }
 
     /// Banner printed once at session start.
     fn print_banner() {
@@ -32,7 +34,7 @@ mod interactive_session {
 
     /// Build a one-shot [`RunArgs`] for a single interactive turn. Provider is
     /// resolved once per session from the merged config (same order as
-    /// `coderight serve`: configured route for the default model, then keyed
+    /// `{app} serve`: configured route for the default model, then keyed
     /// hosted provider) so a bare session behaves identically to every other
     /// entry point instead of hardcoding `openrouter`. The selected
     /// repository root is carried on `RunArgs.workspace` so session
@@ -686,7 +688,7 @@ mod interactive_session {
         // A ChatGPT sign-in proves no model list in the stored credential;
         // ask the account's live catalog so new models appear without a
         // RightKit release. A fetch failure keeps "no account list"
-        // semantics here — `coderight models --provider openai` surfaces the
+        // semantics here — `{app} models --provider openai` surfaces the
         // typed stage error instead.
         // The broker's status `source` can name a stored key even when the
         // credential turns resolve is the ChatGPT sign-in, so the resolved
@@ -1245,7 +1247,7 @@ mod interactive_session {
         groups
     }
 
-    /// `coderight models [--provider <id>]`: print one model id per line —
+    /// `{app} models [--provider <id>]`: print one model id per line —
     /// the live account catalog for a native-subscription (ChatGPT sign-in)
     /// provider, the broker's account-reported list for other OAuth routes,
     /// or the canonical provider table for API-key routes. This is the
@@ -1268,7 +1270,7 @@ mod interactive_session {
             .await
             .unwrap_or_default();
             if models.is_empty() {
-                eprintln!("coderight models {provider}: vendor catalog unavailable");
+                eprintln!("{app} models {provider}: vendor catalog unavailable", app = crate::host_identity::app());
                 return 1;
             }
             for (id, _) in models {
@@ -1288,7 +1290,7 @@ mod interactive_session {
                     0
                 }
                 Err(error) => {
-                    eprintln!("coderight models {provider}: {error}");
+                    eprintln!("{app} models {provider}: {error}", app = crate::host_identity::app());
                     1
                 }
             };
@@ -1319,7 +1321,7 @@ mod interactive_session {
         ids.dedup();
         if ids.is_empty() {
             eprintln!(
-                "coderight models {provider}: provider is not configured or has no known models"
+                "{app} models {provider}: provider is not configured or has no known models", app = crate::host_identity::app()
             );
             return 1;
         }
@@ -1528,7 +1530,7 @@ mod interactive_session {
         let mut active_session_id = session_id.to_string();
         let mut initial_prompt = initial_prompt;
         loop {
-            print!("{PROMPT}");
+            print!("{}", prompt());
             let _ = std::io::stdout().flush();
             let raw = match initial_prompt
                 .take()
@@ -1703,7 +1705,7 @@ mod interactive_session {
         }
     }
 
-    /// Entry point called from `async_main` when `coderight` is invoked with
+    /// Entry point called from `async_main` when `{app}` is invoked with
     /// no subcommand. A fresh UUID identifies each launch so PID reuse cannot
     /// implicitly resume an unrelated durable session; the
     /// provider id is resolved from the merged config like every other path.
@@ -1785,10 +1787,10 @@ mod interactive_session {
             .await;
         }
 
-        // Bare `coderight` used to resolve a provider id (falling all the
+        // Bare `{app}` used to resolve a provider id (falling all the
         // way through to hardcoded "openrouter") and enter the TUI even
         // with nothing configured. Detect first-run state from the SAME
-        // real config + credential store `coderight onboard` and
+        // real config + credential store `{app} onboard` and
         // `/onboard` use, and run the SAME onboarding flow (never a second
         // implementation) before constructing any execution host.
         if requested_session.is_none() {
@@ -5157,7 +5159,7 @@ mod interactive_session {
         }
 
         /// `/providers` level-2 actions run in-process through the same
-        /// functions `coderight provider ...` calls. The typed key (add /
+        /// functions `{app} provider ...` calls. The typed key (add /
         /// replace) goes straight to the keychain writer.
         async fn provider_action(
             &self,
@@ -7013,7 +7015,7 @@ mod interactive_session {
     }
 
     impl EngineTurnHost {
-        /// In-session `/onboard`: the SAME flow as `coderight onboard`
+        /// In-session `/onboard`: the SAME flow as `{app} onboard`
         /// (`run_onboard_command` in `main_runtime_entry.rs`) —
         /// `detect_from_config` -> `run_onboarding` with OsKeyStore /
         /// RealReadinessRunner / ConfigPersister. There is exactly one
@@ -7030,7 +7032,7 @@ mod interactive_session {
         /// stops reading (see `spawn_input_thread` in `tui_host.rs`), the
         /// drive loop drains-and-drops events that were already queued, and
         /// the flag is restored on every exit path via an RAII guard. This
-        /// in-session surface is therefore equivalent to `coderight onboard`
+        /// in-session surface is therefore equivalent to `{app} onboard`
         /// in a fresh terminal, not best-effort.
         ///
         /// Credential invariant: this wrapper never touches credential
@@ -7058,7 +7060,7 @@ mod interactive_session {
             }
             println!();
             println!(
-                "[hint] onboarding is taking over this terminal for the next few prompts. TUI input is paused; keystrokes go to the prompts. 'coderight onboard' in a fresh terminal is equivalent."
+                "[hint] onboarding is taking over this terminal for the next few prompts. TUI input is paused; keystrokes go to the prompts. '{app} onboard' in a fresh terminal is equivalent.", app = crate::host_identity::app()
             );
             println!();
             let _ = std::io::stdout().flush();

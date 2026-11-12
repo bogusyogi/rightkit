@@ -389,7 +389,7 @@ fn ensure_supported_kind(adapter_name: &'static str, spec: &NodeSpec) -> Result<
         NodeKind::Agent | NodeKind::Recipe => Ok(()),
         other => {
             warn!(
-                target: "coderight.workflow.executors",
+                target: "agent_server.workflow.executors",
                 adapter = adapter_name,
                 kind = ?other,
                 "adapter received unsupported kind"
@@ -511,7 +511,7 @@ impl ExecutorAdapter for NativeAdapter {
         manifest: &ContextManifest,
     ) -> Result<NodeOutput, ExecutorError> {
         debug!(
-            target: "coderight.workflow.executors",
+            target: "agent_server.workflow.executors",
             adapter = "native",
             node_id = %spec.id,
             manifest_hash = %manifest.provenance().content_hash,
@@ -588,7 +588,7 @@ impl ExecutorAdapter for ConductorAdapter {
         manifest: &ContextManifest,
     ) -> Result<NodeOutput, ExecutorError> {
         debug!(
-            target: "coderight.workflow.executors",
+            target: "agent_server.workflow.executors",
             adapter = "conductor",
             node_id = %spec.id,
             manifest_hash = %manifest.provenance().content_hash,
@@ -845,7 +845,7 @@ pub fn try_build_daemon_a2a_adapter() -> Option<Arc<A2aAdapter>> {
         Ok(value) if !value.trim().is_empty() => value.trim().to_string(),
         _ => {
             tracing::info!(
-                target: "coderight.workflow.a2a",
+                target: "agent_server.workflow.a2a",
                 "A2A executor URL not configured; bounded A2A stays closed"
             );
             return None;
@@ -855,7 +855,7 @@ pub fn try_build_daemon_a2a_adapter() -> Option<Arc<A2aAdapter>> {
         Ok(value) if !value.trim().is_empty() => value.trim().to_string(),
         _ => {
             tracing::warn!(
-                target: "coderight.workflow.a2a",
+                target: "agent_server.workflow.a2a",
                 "A2A trust-root public key not configured; bounded A2A stays closed"
             );
             return None;
@@ -865,7 +865,7 @@ pub fn try_build_daemon_a2a_adapter() -> Option<Arc<A2aAdapter>> {
         Ok(value) if !value.trim().is_empty() => value,
         _ => {
             tracing::warn!(
-                target: "coderight.workflow.a2a",
+                target: "agent_server.workflow.a2a",
                 "A2A descriptor not configured; bounded A2A stays closed"
             );
             return None;
@@ -875,7 +875,7 @@ pub fn try_build_daemon_a2a_adapter() -> Option<Arc<A2aAdapter>> {
         Ok(descriptor) => descriptor,
         Err(error) => {
             tracing::warn!(
-                target: "coderight.workflow.a2a",
+                target: "agent_server.workflow.a2a",
                 %error,
                 "A2A descriptor JSON is invalid; bounded A2A stays closed"
             );
@@ -886,7 +886,7 @@ pub fn try_build_daemon_a2a_adapter() -> Option<Arc<A2aAdapter>> {
         Ok(verifier) => Arc::new(verifier),
         Err(error) => {
             tracing::warn!(
-                target: "coderight.workflow.a2a",
+                target: "agent_server.workflow.a2a",
                 %error,
                 "A2A trust-root verifier could not be built; bounded A2A stays closed"
             );
@@ -901,7 +901,7 @@ pub fn try_build_daemon_a2a_adapter() -> Option<Arc<A2aAdapter>> {
         Ok(transport) => Arc::new(transport),
         Err(error) => {
             tracing::warn!(
-                target: "coderight.workflow.a2a",
+                target: "agent_server.workflow.a2a",
                 %error,
                 "A2A trust handshake failed; bounded A2A stays closed"
             );
@@ -912,7 +912,7 @@ pub fn try_build_daemon_a2a_adapter() -> Option<Arc<A2aAdapter>> {
         Ok(adapter) => Some(Arc::new(adapter)),
         Err(error) => {
             tracing::warn!(
-                target: "coderight.workflow.a2a",
+                target: "agent_server.workflow.a2a",
                 %error,
                 "A2A descriptor failed admission validation; bounded A2A stays closed"
             );

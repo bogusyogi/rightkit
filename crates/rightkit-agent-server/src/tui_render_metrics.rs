@@ -33,7 +33,7 @@ pub(super) fn start(metrics: Arc<RenderMetrics>) -> MetricsExport {
             let path = path.clone();
             let result = tokio::task::spawn_blocking(move || -> std::io::Result<()> {
                 let payload = serde_json::json!({
-                    "schemaVersion": "coderight.tui-render-metrics.v1",
+                    "schemaVersion": crate::host_identity::schema("tui-render-metrics.v1"),
                     "redraws": snapshot.redraws,
                     "reflows": snapshot.reflows,
                     "coalesced": snapshot.coalesced_requests,

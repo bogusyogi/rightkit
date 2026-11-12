@@ -2,7 +2,7 @@ async fn daemon_logs(session_id: &str) -> i32 {
     let (base_url, token) = match crate::cli_presence::resolve_daemon_or_autostart().await {
         Some(p) => p,
         None => {
-            eprintln!("No running daemon found. Start one with `coderight serve`.");
+            eprintln!("No running daemon found. Start one with `{app} serve`.", app = crate::host_identity::app());
             return 1;
         }
     };
@@ -50,7 +50,7 @@ async fn daemon_logs(session_id: &str) -> i32 {
 
 // ── ra-009: bounded reconnect/backoff for the live SSE tail ────────────────
 //
-// Both `coderight logs` (`daemon_logs`) and `coderight attach`
+// Both `{app} logs` (`daemon_logs`) and `{app} attach`
 // (`daemon_logs_inner`) used to stop the moment the SSE connection dropped
 // or a chunk read failed — a transient network blip silently truncated
 // monitoring instead of resuming. `stream_events_with_reconnect` is the
@@ -174,7 +174,7 @@ async fn reconnect_or_fail(attempt: &mut u32, print_status: bool, reason: &str) 
 /// Headless multi-agent conductor run: create a session bound to the workspace,
 /// kick off the conductor (`/orchestrate`), then stream its progress events
 /// (plan → task graph → verdict) until the stream ends. Reuses the same daemon
-/// client + SSE-tail path as `coderight logs`.
+/// client + SSE-tail path as `{app} logs`.
 fn conduct_create_session_body(
     session_id: &str,
     workspace_root: &str,
@@ -205,7 +205,7 @@ async fn daemon_conduct(
     let (base_url, token) = match crate::cli_presence::resolve_daemon_or_autostart().await {
         Some(p) => p,
         None => {
-            eprintln!("No running daemon found. Start one with `coderight serve`.");
+            eprintln!("No running daemon found. Start one with `{app} serve`.", app = crate::host_identity::app());
             return 1;
         }
     };
@@ -291,7 +291,7 @@ async fn daemon_attach(session_id: &str) -> i32 {
         match crate::daemon::lifecycle_backend::resolve_daemon_endpoint_via_authority().await {
             Some(p) => p,
             None => {
-                eprintln!("No running daemon found. Start one with `coderight serve`.");
+                eprintln!("No running daemon found. Start one with `{app} serve`.", app = crate::host_identity::app());
                 return 1;
             }
         };
@@ -506,7 +506,7 @@ pub async fn fetch_scrollback_page(
 }
 
 /// Page backwards through an entire session's durable history, reassembling
-/// the transcript in seq-ascending order. Real caller: `coderight logs`
+/// the transcript in seq-ascending order. Real caller: `{app} logs`
 /// (`daemon_logs` below), which prints this history before tailing the live
 /// SSE stream from the highest seq printed.
 ///

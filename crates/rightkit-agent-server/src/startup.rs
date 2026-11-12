@@ -1,6 +1,6 @@
 //! Daemon startup helpers.
 //!
-//! The one-line discovery record `coderight serve` prints and writes to `<state root>/daemon.port`
+//! The one-line discovery record `{app} serve` prints and writes to `<state root>/daemon.port`
 //! is `rightkit_daemon::loopback::LoopbackRecord`; this file no longer defines it.
 
 use std::path::Path;

@@ -144,7 +144,7 @@ async fn daemon_diagnostics_watch(once: bool, interval_ms: u64, json: bool) -> i
     let (base_url, token) = match crate::cli_presence::resolve_daemon_or_autostart().await {
         Some(connection) => connection,
         None => {
-            eprintln!("No running daemon found. Start one with `coderight serve`.");
+            eprintln!("No running daemon found. Start one with `{app} serve`.", app = crate::host_identity::app());
             return 1;
         }
     };
@@ -212,7 +212,7 @@ async fn diagnostics_watch_sample(
     let clients = clients?.as_array().map(Vec::len).unwrap_or(0);
     let inference = inference.unwrap_or_else(|error| serde_json::json!({ "unavailable": error }));
     Ok(serde_json::json!({
-        "schema_version": "coderight.diagnostics.watch.v1",
+        "schema_version": crate::host_identity::schema("diagnostics.watch.v1"),
         "timestamp": now_iso(),
         "sessions": sessions,
         "clients": clients,
@@ -239,7 +239,7 @@ async fn daemon_diagnostics_bundle(output: &str) -> i32 {
     let (base_url, token) = match crate::cli_presence::resolve_daemon_or_autostart().await {
         Some(p) => p,
         None => {
-            eprintln!("No running daemon found. Start one with `coderight serve`.");
+            eprintln!("No running daemon found. Start one with `{app} serve`.", app = crate::host_identity::app());
             return 1;
         }
     };

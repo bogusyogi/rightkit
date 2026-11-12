@@ -422,9 +422,9 @@ impl DaemonState {
             let base = workspace_root.trim();
             // Isolated path under the workspace when it is a valid dir, else temp.
             let candidate = if base.is_empty() || base == "/" {
-                std::env::temp_dir().join(format!("coderight-isolated-{}", id))
+                std::env::temp_dir().join(format!("{app}-isolated-{}", id, app = crate::host_identity::app()))
             } else {
-                std::path::PathBuf::from(base).join(".coderight").join("worktrees").join(id)
+                std::path::PathBuf::from(base).join(crate::host_identity::home_dir()).join("worktrees").join(id)
             };
             if let Err(e) = std::fs::create_dir_all(&candidate) {
                 tracing::warn!(session_id = %id, error = %e, path = %candidate.display(), "failed to create forced worktree directory");
@@ -1356,7 +1356,7 @@ impl DaemonState {
         };
         // FM-026 ABAC PDP — consulted before RuleStore at the permission_rules seam.
         // Precedence: inline `permissions.abac_yaml` (from_yaml_like) wins over
-        // `<workspace>/.coderight/policy.abac.yaml` file; first-match-wins; abac:<id>.
+        // `<workspace>/.{app}/policy.abac.yaml` file; first-match-wins; abac:<id>.
         let abac_pdp_for_engine = {
             let inline = workspace_config
                 .permissions
@@ -1373,7 +1373,7 @@ impl DaemonState {
                 }
             } else {
                 let p = std::path::Path::new(workspace_root.trim())
-                    .join(".coderight")
+                    .join(crate::host_identity::home_dir())
                     .join("policy.abac.yaml");
                 if p.exists() {
                     match std::fs::read_to_string(&p) {
@@ -1631,7 +1631,7 @@ impl DaemonState {
                 network_required: false,
             };
             // A203: project-scoped MCP declarations (`.mcp.json`,
-            // `.coderight/mcp.json`) load only for a workspace this session
+            // `.{app}/mcp.json`) load only for a workspace this session
             // resolved as explicitly Trusted; every other posture is fail-closed.
             let project_trust = if workspace_trust == rightkit_agent_policy::WorkspaceTrust::Trusted {
                 rightkit_mcp::agent_mcp::ProjectTrust::Trusted
@@ -1701,7 +1701,7 @@ impl DaemonState {
         // A204: opt-in per-turn git checkpoint and auto-commit on exit. Both
         // stay off unless the merged config opts in AND this session resolved
         // the workspace as explicitly Trusted (an untrusted project's own
-        // `.coderight/config.toml` can never switch them on).
+        // `.{app}/config.toml` can never switch them on).
         let (turn_checkpoints_enabled, auto_commit_on_exit_enabled) =
             if options.bare || workspace_trust != rightkit_agent_policy::WorkspaceTrust::Trusted {
                 (false, false)
@@ -2067,7 +2067,7 @@ impl DaemonState {
         // config opted in; see the gate above). Best-effort and never fatal.
         if auto_commit_on_exit_enabled {
             let commit_workspace = workspace.clone();
-            let message = format!("coderight: auto-commit on exit (session {session_id})");
+            let message = format!("{app}: auto-commit on exit (session {session_id})", app = crate::host_identity::app());
             match tokio::task::spawn_blocking(move || {
                 rightkit_agent_tools::coding_tools::workspace_checkpoint::auto_commit_workspace(
                     std::path::Path::new(&commit_workspace),
@@ -2204,7 +2204,7 @@ impl DaemonState {
                     }
                 } else {
                     let path = std::path::Path::new(workspace_root_for_policy.trim())
-                        .join(".coderight")
+                        .join(crate::host_identity::home_dir())
                         .join("policy.abac.yaml");
                     if path.exists() {
                         match std::fs::read_to_string(&path) {

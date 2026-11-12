@@ -1,4 +1,4 @@
-//! `coderight acp-server` — RightKit as an Agent Client Protocol (ACP) agent
+//! `{app} acp-server` — RightKit as an Agent Client Protocol (ACP) agent
 //! over stdio JSON-RPC 2.0. Implements the stable v1 agent-bound method
 //! surface from `agentclientprotocol/agent-client-protocol`
 //! (`schema/v1/meta.json`): `initialize`, `authenticate`, `session/new`,
@@ -36,7 +36,7 @@
 //! including typed timeout failure + version rejection. No source copied.
 //!
 //! Live wiring: `main.rs` declares this module & `main_runtime_entry.rs`
-//! routes `coderight acp-server` into [`run_stdio`].
+//! routes `{app} acp-server` into [`run_stdio`].
 
 pub mod cancel;
 pub mod config;

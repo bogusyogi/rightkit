@@ -3,7 +3,7 @@
 //!
 //! Markdown files under the user state root `commands/` and, only when the
 //! workspace is trusted, the project's `.claude/commands/` and
-//! `.coderight/commands/` (later roots override earlier ones). Parsing,
+//! `.{app}/commands/` (later roots override earlier ones). Parsing,
 //! discovery, `$ARGUMENTS`/`$1..$n` and `@file` live in
 //! `rightkit_agent_host_traits::skill_host::custom_commands`; `!{cmd}` and backtick-bang run through
 //! the policy-backed `inline_shell_runner::expand_custom_command`, so an
@@ -160,7 +160,9 @@ pub(crate) fn roots_for(
             CommandScope::Project,
         ));
         roots.push((
-            workspace.join(".coderight").join("commands"),
+            workspace
+                .join(crate::host_identity::home_dir())
+                .join("commands"),
             CommandScope::Project,
         ));
     }

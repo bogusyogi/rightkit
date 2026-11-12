@@ -181,7 +181,7 @@ async fn create_schedule_handler(
         let text =
             serde_json::to_string_pretty(&raw).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
         rightkit_fs::atomic_write_with(
-            &root.join(".coderight").join("schedules.json"),
+            &root.join(crate::host_identity::home_dir()).join("schedules.json"),
             rightkit_fs::AtomicOptions {
                 create_parents: true,
                 ..rightkit_fs::AtomicOptions::default()

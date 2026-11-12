@@ -14,7 +14,7 @@ pub enum AppCommand {
         /// Session ID to hand off.
         session_id: String,
     },
-    /// Open the desktop app on a session via the registered coderight:// link.
+    /// Open the desktop app on a session via the registered {app}:// link.
     Open {
         /// Session ID to open.
         session_id: String,
@@ -103,7 +103,7 @@ pub enum McpCommand {
     },
     /// Resolve a curated catalog entry and add it (config write, same as add-json).
     Install {
-        /// Catalog entry name (see `coderight mcp catalog`).
+        /// Catalog entry name (see `{app} mcp catalog`).
         name: String,
         /// Config scope to write.
         #[arg(long, default_value = "user")]

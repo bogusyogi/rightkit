@@ -146,8 +146,8 @@ mod hosted_run_session {
             }
         };
         if prompt.trim().is_empty() {
-            let message = "non-interactive `coderight run` requires a non-empty prompt; use --pipe or --input-format stream-json for stdin input";
-            return run_error_exit(output_mode, RunExitCode::Usage, message);
+            let message = format!("non-interactive `{app} run` requires a non-empty prompt; use --pipe or --input-format stream-json for stdin input", app = crate::host_identity::app());
+            return run_error_exit(output_mode, RunExitCode::Usage, &message);
         }
         let attachments = match headless_input::read_cli_image_attachments(&args.image) {
             Ok(images) => (!images.is_empty()).then_some(images),
@@ -229,7 +229,7 @@ mod hosted_run_session {
             // D18: typed degraded signal, never a silent shadow store.
             if matches!(output_mode, RunOutputMode::StreamJson) {
                 emit_cli_json_line(&serde_json::json!({
-                    "schema_version": "coderight.cli.stream_event.v1",
+                    "schema_version": crate::host_identity::schema("cli.stream_event.v1"),
                     "event": "contextDegraded",
                     "seq": 0,
                     "session_id": session_id,

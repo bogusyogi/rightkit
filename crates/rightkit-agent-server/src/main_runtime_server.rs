@@ -19,10 +19,14 @@ use crate::api::lock_recover;
 pub(crate) fn harden_data_dir(dir: &std::path::Path) {
     /// RightKit-owned entries directly inside the data directory. Foreign
     /// siblings are deliberately left untouched.
-    const OWNED_STATE_NAMES: &[&str] = &[
-        "coderight.db",
-        "coderight.db-wal",
-        "coderight.db-shm",
+    let db = crate::host_identity::app();
+    let db_file = format!("{db}.db");
+    let db_wal = format!("{db}.db-wal");
+    let db_shm = format!("{db}.db-shm");
+    let owned_state_names: &[&str] = &[
+        &db_file,
+        &db_wal,
+        &db_shm,
         "daemon.port",
         "config.toml",
         "triggers.json",
@@ -32,7 +36,7 @@ pub(crate) fn harden_data_dir(dir: &std::path::Path) {
         "memory.db",
     ];
     if dir.is_dir() {
-        let _ = rightkit_fs::sweep_owner_only(dir, OWNED_STATE_NAMES);
+        let _ = rightkit_fs::sweep_owner_only(dir, owned_state_names);
     }
 }
 
@@ -60,7 +64,7 @@ async fn serve(
     let token = generate_token();
     let db_path = db.unwrap_or_else(default_db_path);
     // A daemon on the default per-user DB is the machine's primary daemon and
-    // owns the shared `~/.coderight` surfaces (daemon.port, journals). A
+    // owns the shared `~/.{app}` surfaces (daemon.port, journals). A
     // daemon started with an explicit `--db` elsewhere (QA, dev snapshots) is
     // auxiliary: it must not clobber the primary's port file — the installed
     // app's CLI/attach discovery breaks mid-session — and must not share the
@@ -290,7 +294,7 @@ async fn serve(
         &RecordLabels {
             database_path: db_path.to_string(),
             protocol_version: 1,
-            schema_id: "coderight.daemon.v1".to_string(),
+            schema_id: crate::host_identity::schema("daemon.v1"),
             runtime: "rust".to_string(),
             generation: 1,
         },
@@ -317,7 +321,7 @@ async fn serve(
         // config never sees, lands here too.
         let route_count = config.provider_routes.len();
         let reason = if route_count == 0 {
-            "no provider API key and no local provider route are configured (checked ~/.coderight/config.toml). Add a key in Settings, or register a local OpenAI-compatible route, then restart RightKit.".to_string()
+            format!("no provider API key and no local provider route are configured (checked ~/{home}/config.toml). Add a key in Settings, or register a local OpenAI-compatible route, then restart RightKit.", home = crate::host_identity::home_dir())
         } else {
             let names = config
                 .provider_routes
@@ -971,7 +975,7 @@ async fn serve(
     if primary_daemon {
         write_daemon_port_file(&info);
     } else {
-        eprintln!("[serve] auxiliary daemon (--db): not writing ~/.coderight/daemon.port");
+        eprintln!("[serve] auxiliary daemon (--db): not writing ~/{home}/daemon.port", home = crate::host_identity::home_dir());
     }
 
     // Same readiness point, reported back to a reload coordinator. If this
@@ -1112,7 +1116,7 @@ fn normalized_agent_override_provider_id(provider_id: String) -> String {
     }
 }
 
-/// Write the daemon startup info to `~/.coderight/daemon.port` so CLI
+/// Write the daemon startup info to `~/.{app}/daemon.port` so CLI
 /// subcommands can locate the running daemon without an env var.
 ///
 /// The file carries the daemon bearer token; the default umask would

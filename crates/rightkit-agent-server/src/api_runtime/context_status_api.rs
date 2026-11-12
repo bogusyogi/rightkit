@@ -5,14 +5,14 @@ async fn get_context_status(State(state): State<DaemonState>) -> Json<serde_json
     let backend = state.membrane.clone();
     match tokio::task::spawn_blocking(move || backend.status()).await {
         Ok(Ok(info)) if info.mode == "off" => Json(serde_json::json!({
-            "schemaVersion": "coderight.context-status.v1",
+            "schemaVersion": crate::host_identity::schema("context-status.v1"),
             "state": "unavailable",
             "reason": degraded_reason.as_deref().unwrap_or(rightkit_memory_client::membrane::OFF_REASON),
             "contextDegraded": degraded_reason.is_some(),
             "degradedReason": degraded_reason,
         })),
         Ok(Ok(info)) => Json(serde_json::json!({
-            "schemaVersion": "coderight.context-status.v1",
+            "schemaVersion": crate::host_identity::schema("context-status.v1"),
             "state": info.mode,
             "source": "membrane_cli_status",
             "contextDegraded": degraded_reason.is_some(),
@@ -20,14 +20,14 @@ async fn get_context_status(State(state): State<DaemonState>) -> Json<serde_json
             "snapshot": info.raw
         })),
         Ok(Err(error)) => Json(serde_json::json!({
-            "schemaVersion": "coderight.context-status.v1",
+            "schemaVersion": crate::host_identity::schema("context-status.v1"),
             "state": "unavailable",
             "reason": error.to_string(),
             "contextDegraded": degraded_reason.is_some(),
             "degradedReason": degraded_reason,
         })),
         Err(_) => Json(serde_json::json!({
-            "schemaVersion": "coderight.context-status.v1",
+            "schemaVersion": crate::host_identity::schema("context-status.v1"),
             "state": "unavailable",
             "reason": "context_status_worker_failed",
             "contextDegraded": degraded_reason.is_some(),

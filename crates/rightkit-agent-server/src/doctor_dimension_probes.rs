@@ -21,7 +21,7 @@ pub(crate) fn probe_policy(verbose: bool) -> Dimension {
 
     let mut evidence: Vec<Evidence> = Vec::new();
 
-    let home = match coderight_home() {
+    let home = match host_home() {
         Some(h) => h,
         None => {
             evidence.push(Evidence {
@@ -255,7 +255,7 @@ pub(crate) fn probe_csprng(verbose: bool) -> Dimension {
 pub(crate) fn probe_learning(verbose: bool) -> Dimension {
     use rightkit_agent_learning::InstinctStore;
 
-    let Some(home) = coderight_home() else {
+    let Some(home) = host_home() else {
         let detail =
             "learning: no state directory — cannot locate the RightKit state directory".to_string();
         return if verbose {
@@ -334,14 +334,14 @@ pub(crate) fn probe_learning(verbose: bool) -> Dimension {
 }
 
 /// Helper: locate the RightKit state directory (the rightkit-daemon AppRoot).
-pub(crate) fn coderight_home() -> Option<PathBuf> {
+pub(crate) fn host_home() -> Option<PathBuf> {
     rightkit_agent_config::state_root()
 }
 
 /// Helper: candidate locations for `destructive-guard.toml`.
 pub(crate) fn hook_config_probe_paths() -> Vec<PathBuf> {
     let mut paths = Vec::new();
-    if let Some(h) = coderight_home() {
+    if let Some(h) = host_home() {
         paths.push(h.join("hooks").join("destructive-guard.toml"));
         paths.push(h.join("destructive-guard.toml"));
     }
@@ -352,7 +352,7 @@ pub(crate) fn hook_config_probe_paths() -> Vec<PathBuf> {
                 .join("destructive-guard.toml"),
         );
         paths.push(
-            cwd.join(".coderight")
+            cwd.join(crate::host_identity::home_dir())
                 .join("hooks")
                 .join("destructive-guard.toml"),
         );

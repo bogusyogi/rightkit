@@ -2,12 +2,12 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path as FsPath, PathBuf};
 
-fn coderight_state_file(name: &str) -> PathBuf {
+fn host_state_file(name: &str) -> PathBuf {
     rightkit_agent_config::state_root()
         .unwrap_or_else(|| {
             std::env::current_dir()
                 .unwrap_or_else(|_| PathBuf::from("."))
-                .join(".coderight")
+                .join(crate::host_identity::home_dir())
         })
         .join(name)
 }
@@ -15,37 +15,37 @@ fn coderight_state_file(name: &str) -> PathBuf {
 pub(crate) fn default_team_store_path() -> PathBuf {
     std::env::var_os("RIGHTKIT_TEAM_STORE")
         .map(PathBuf::from)
-        .unwrap_or_else(|| coderight_state_file("teams.json"))
+        .unwrap_or_else(|| host_state_file("teams.json"))
 }
 
 pub(crate) fn default_message_store_path() -> PathBuf {
     std::env::var_os("RIGHTKIT_MESSAGE_STORE")
         .map(PathBuf::from)
-        .unwrap_or_else(|| coderight_state_file("messages.json"))
+        .unwrap_or_else(|| host_state_file("messages.json"))
 }
 
 pub(crate) fn default_instincts_store_path() -> PathBuf {
     std::env::var_os("RIGHTKIT_INSTINCTS_STORE")
         .map(PathBuf::from)
-        .unwrap_or_else(|| coderight_state_file("instincts.json"))
+        .unwrap_or_else(|| host_state_file("instincts.json"))
 }
 
 pub(crate) fn default_permission_rule_store_path() -> PathBuf {
     std::env::var_os("RIGHTKIT_PERMISSION_RULE_STORE")
         .map(PathBuf::from)
-        .unwrap_or_else(|| coderight_state_file("permission-rules.json"))
+        .unwrap_or_else(|| host_state_file("permission-rules.json"))
 }
 
 pub(crate) fn default_permission_denial_store_path() -> PathBuf {
     std::env::var_os("RIGHTKIT_PERMISSION_DENIAL_STORE")
         .map(PathBuf::from)
-        .unwrap_or_else(|| coderight_state_file("permission-denials.json"))
+        .unwrap_or_else(|| host_state_file("permission-denials.json"))
 }
 
 pub(crate) fn default_workspace_trust_store_path() -> PathBuf {
     std::env::var_os("RIGHTKIT_WORKSPACE_TRUST_STORE")
         .map(PathBuf::from)
-        .unwrap_or_else(|| coderight_state_file("workspace-trust.json"))
+        .unwrap_or_else(|| host_state_file("workspace-trust.json"))
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]

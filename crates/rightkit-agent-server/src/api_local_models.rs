@@ -564,7 +564,7 @@ async fn chat_smoke_openai_endpoint(base_url: &str, model: &str) -> ChatSmokeRes
         "messages": [
             {
                 "role": "user",
-                "content": "Reply with exactly: coderight local model ok"
+                "content": format!("Reply with exactly: {app} local model ok", app = crate::host_identity::app())
             }
         ],
         "max_tokens": 16,

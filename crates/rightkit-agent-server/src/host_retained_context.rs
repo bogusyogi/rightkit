@@ -71,7 +71,7 @@ pub(crate) fn callback_for_retained_context(
         .to_owned();
     let receipt = HostReceiptProvenanceV1::new(
         authorization_id,
-        "coderight.provider.context-assembly",
+        crate::host_identity::schema("provider.context-assembly"),
         observed_at_unix_ms,
         host_digest.clone(),
     );

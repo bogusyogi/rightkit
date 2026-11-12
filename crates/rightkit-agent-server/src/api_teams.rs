@@ -39,7 +39,7 @@ fn peer_team_store_root() -> PathBuf {
         .unwrap_or_else(|| {
             std::env::current_dir()
                 .unwrap_or_else(|_| PathBuf::from("."))
-                .join(".coderight")
+                .join(crate::host_identity::home_dir())
                 .join("peer-teams")
         })
 }

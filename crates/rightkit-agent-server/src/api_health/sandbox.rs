@@ -12,7 +12,7 @@ fn optional_workspace_root(value: Option<&str>) -> Option<PathBuf> {
 
 fn sandbox_settings_path(workspace_root: &FsPath) -> PathBuf {
     workspace_root
-        .join(".coderight")
+        .join(crate::host_identity::home_dir())
         .join("sandbox-settings.json")
 }
 

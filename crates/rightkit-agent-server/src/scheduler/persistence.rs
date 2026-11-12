@@ -10,11 +10,13 @@ use super::model::{ScheduleEntry, ScheduleLifecycleState, ScheduleRuntimeMetadat
 use super::time::cron_matches_in_time_zone;
 
 pub(super) fn schedules_path(root: &Path) -> PathBuf {
-    root.join(".coderight").join("schedules.json")
+    root.join(crate::host_identity::home_dir())
+        .join("schedules.json")
 }
 
 pub(super) fn runs_path(root: &Path) -> PathBuf {
-    root.join(".coderight").join("schedule-runs.json")
+    root.join(crate::host_identity::home_dir())
+        .join("schedule-runs.json")
 }
 
 pub(super) fn load_schedules(root: &Path) -> Result<HashMap<String, ScheduleEntry>, String> {

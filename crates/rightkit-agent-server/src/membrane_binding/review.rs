@@ -56,7 +56,7 @@ impl ForegroundMemoryCursorV1 {
 
     pub fn digest_for(session_id: &str, last_seq: u64) -> String {
         let mut digest = rightkit_fs::digest::Sha256Hasher::new();
-        digest.update(b"coderight.foreground-memory-cursor.v1\0");
+        digest.update(&crate::host_identity::domain("foreground-memory-cursor.v1"));
         digest.update(session_id.as_bytes());
         digest.update(&last_seq.to_be_bytes());
         format!("sha256:{}", digest.finalize())

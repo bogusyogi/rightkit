@@ -38,7 +38,7 @@ pub struct NodeOutput {
     /// Artifact ids (relative to the workspace) the node produced.
     pub artifacts: Vec<String>,
     /// Cost in micros of a US dollar. Mirrors the
-    /// `coderight_budget::BudgetLedger::record_cost` shape so the same units
+    /// `{app}_budget::BudgetLedger::record_cost` shape so the same units
     /// roll into the workflow budget.
     pub cost_usd_micros: u64,
     /// Total tokens consumed across all provider calls in this node.

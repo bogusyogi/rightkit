@@ -19,7 +19,7 @@ fn api_contract_openapi_components() -> Map<String, Value> {
             "type": "object",
             "required": ["name", "version", "endpoints"],
             "properties": {
-                "name": {"type": "string", "const": "coderight-daemon"},
+                "name": {"type": "string", "const": crate::host_identity::prefixed("daemon")},
                 "version": {"type": "integer"},
                 "endpoints": {
                     "type": "array",

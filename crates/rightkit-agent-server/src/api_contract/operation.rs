@@ -140,7 +140,7 @@ fn driver_capability_header_parameters(path: &str) -> Vec<Value> {
     }
     let mut parameters = vec![json!({
         "in": "header",
-        "name": "x-coderight-capability-token",
+        "name": crate::host_identity::header("capability-token"),
         "required": true,
         "schema": {"type": "string"}
     })];
@@ -150,7 +150,7 @@ fn driver_capability_header_parameters(path: &str) -> Vec<Value> {
     ) {
         parameters.push(json!({
             "in": "header",
-            "name": "x-coderight-driver-instance",
+            "name": crate::host_identity::header("driver-instance"),
             "required": true,
             "schema": {"type": "string"}
         }));
@@ -158,7 +158,7 @@ fn driver_capability_header_parameters(path: &str) -> Vec<Value> {
     parameters
 }
 
-/// Machine-status runtime handlers (`bins/coderight/src/api_health.rs`,
+/// Machine-status runtime handlers (`src/api_health.rs`,
 /// `machine_status`/`machine_info`) both return `machine_unavailable_response`
 /// with HTTP 503 before the daemon has finished initializing (ra-004). The
 /// success-only match in `response_schemas.rs` has no slot for a second

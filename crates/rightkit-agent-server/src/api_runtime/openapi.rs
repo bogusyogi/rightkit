@@ -85,7 +85,7 @@ pub(crate) fn runtime_openapi_request_schema(method: &str, path: &str) -> Option
 pub(crate) fn runtime_openapi_response_schema(method: &str, path: &str) -> Option<Value> {
     match (method, path) {
         ("get", "/runtime/context/status") => Some(
-            json!({"type":"object","required":["schemaVersion","state","contextDegraded","degradedReason"],"properties":{"schemaVersion":{"type":"string","enum":["coderight.context-status.v1"]},"state":{"type":"string"},"contextDegraded":{"type":"boolean"},"degradedReason":{"type":["string","null"]},"reason":{"type":"string"},"source":{"type":"string"},"snapshot":{"type":"object"}}}),
+            json!({"type":"object","required":["schemaVersion","state","contextDegraded","degradedReason"],"properties":{"schemaVersion":{"type":"string","enum":[crate::host_identity::schema("context-status.v1")]},"state":{"type":"string"},"contextDegraded":{"type":"boolean"},"degradedReason":{"type":["string","null"]},"reason":{"type":"string"},"source":{"type":"string"},"snapshot":{"type":"object"}}}),
         ),
         // Adapt payloads are SDK-owned JSON objects, forwarded without reshaping.
         ("get", "/runtime/context/adapt/status")

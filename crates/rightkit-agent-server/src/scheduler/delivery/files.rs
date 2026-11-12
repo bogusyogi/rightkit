@@ -42,7 +42,7 @@ fn delivery_file_path(
         .filter(|value| !value.is_empty())
         .map(PathBuf::from)
         .unwrap_or_else(|| {
-            root.join(".coderight")
+            root.join(crate::host_identity::home_dir())
                 .join("schedule-deliveries")
                 .join(format!(
                     "{}-{}.txt",
@@ -64,7 +64,7 @@ fn delivery_file_path(
 }
 
 fn remote_deliveries_path(root: &Path) -> PathBuf {
-    root.join(".coderight").join("remote-deliveries.json")
+    root.join(crate::host_identity::home_dir()).join("remote-deliveries.json")
 }
 
 pub(super) fn normalize_lexical(path: &Path) -> PathBuf {

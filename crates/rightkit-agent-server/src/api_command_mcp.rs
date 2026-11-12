@@ -284,9 +284,9 @@ fn command_mcp_summary(state: &DaemonState, args: &[String]) -> CommandResult {
     let count = servers.len();
     let (read_only_tools, mutating_tools) = mcp_server_mode_tool_counts();
     let mut output = format!(
-        "**MCP:** {count} server{}\nUser config: {}\nServer mode: `coderight mcp-server` exposes {read_only_tools} read-only tools by default; `coderight mcp-server --allow-mutate` exposes {mutating_tools} mutating tools when the configured trust tier permits them. Served MCP invocations are audit-recorded.",
+        "**MCP:** {count} server{}\nUser config: {}\nServer mode: `{app} mcp-server` exposes {read_only_tools} read-only tools by default; `{app} mcp-server --allow-mutate` exposes {mutating_tools} mutating tools when the configured trust tier permits them. Served MCP invocations are audit-recorded.",
         if count == 1 { "" } else { "s" },
-        state.mcp_user_config_path.display(),
+        state.mcp_user_config_path.display(), app = crate::host_identity::app(),
     );
     if servers.is_empty() {
         output.push_str("\nNo configured MCP servers.");

@@ -1,7 +1,7 @@
 //! Workspace-bound routes over the shared pre-warmed worktree pool (VG-004).
 //!
 //! The pool is the same per-workspace pool subagent worktrees use
-//! (`<workspace>/.coderight/subagent-worktree-pool`), so there is one pool
+//! (`<workspace>/.{app}/subagent-worktree-pool`), so there is one pool
 //! authority per workspace. Each pool is bound to the workspace of the session
 //! that created it. Acquisition is owned by a session: the lease records the
 //! owner and only an owner-matching release can return the checkout to the

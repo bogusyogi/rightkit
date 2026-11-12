@@ -233,7 +233,7 @@ fn canonical_event(
         payload: value,
         content_hash: digest.clone(),
         provenance: BackgroundEventProvenanceV1 {
-            source: "coderight.session-conduit".into(),
+            source: crate::host_identity::schema("session-conduit"),
             receipt_id: format!("conduit:{session_id}:{seq}"),
             receipt_digest: digest,
         },

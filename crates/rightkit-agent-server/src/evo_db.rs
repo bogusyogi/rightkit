@@ -1,10 +1,10 @@
 //! Dedicated SQLite store for the evolution/governance subsystems.
 //!
-//! The session store (`coderight-storage`) owns one database for sessions,
+//! The session store (`{app}-storage`) owns one database for sessions,
 //! events, tasks, and artifacts. The evolution/governance subsystems —
 //! learning proposals, role stats, the observation stream, the hash-chained
 //! audit log, and durable memory — get their **own** database
-//! (`~/.coderight/evolution.db`) with clear table separation, rather than a
+//! (`~/.{app}/evolution.db`) with clear table separation, rather than a
 //! scatter of JSON files. These subsystems are synchronous and low-volume
 //! (post-run bookkeeping, not the hot session path), so a single connection
 //! behind an `Arc<Mutex<…>>` is the right fit: no async seam, transactional

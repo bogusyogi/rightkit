@@ -3,7 +3,7 @@
 // `main_runtime_run_input_format.rs` already implements the JSONL
 // `stream-json` input channel (`InputFormat::StreamJson`,
 // `drive_jsonl_script`, `pick_initial_prompt`, `summarize_script`) for
-// `coderight run --input-format stream-json`. What's missing — and what
+// `{app} run --input-format stream-json`. What's missing — and what
 // this module adds — is the layer *above* that: normalizing whatever a
 // headless one-shot invocation actually received (a positional prompt arg,
 // piped stdin text, both, or neither) into one admitted prompt string
@@ -14,7 +14,7 @@
 //
 // Not wired into the binary yet — see the lane's `WIRING.md` note for the
 // exact call-site swap the orchestrator must make in `main_runtime_server.rs`
-// / wherever `coderight run` currently reads its prompt.
+// / wherever `{app} run` currently reads its prompt.
 
 use std::io::Read;
 
@@ -75,7 +75,7 @@ impl std::fmt::Display for InputAdmissionError {
 
 impl std::error::Error for InputAdmissionError {}
 
-/// Raw, not-yet-normalized inputs a one-shot `coderight run` invocation may
+/// Raw, not-yet-normalized inputs a one-shot `{app} run` invocation may
 /// carry. `positional_prompt` is whatever the CLI parsed as the prompt
 /// argument (may be absent); `stdin_text` is the full content read from
 /// stdin when the caller determined stdin was piped (not a TTY) — callers

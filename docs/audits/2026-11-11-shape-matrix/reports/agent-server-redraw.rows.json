@@ -1,0 +1,39 @@
+[
+  {
+    "package": "rightkit-agent-server",
+    "kind": "cargo",
+    "family": "Redraws on the branch, 2026-11-11",
+    "existsAs": [
+      "crates/rightkit-agent-server"
+    ],
+    "feeds": {},
+    "basis": "0.1.2 on the branch: product names host-supplied through HostIdentity, CodeRight's harness-radar data and unused fixtures deleted, the benchmark harness behind an off-by-default feature (docs/audits/2026-11-11-shape-matrix/reports/agent-server-redraw.md)",
+    "referenceApp": "coderight",
+    "shape": "gaps",
+    "shapeReason": "A library a second app can adopt: run(identity, skill_catalog, skill_host) takes a HostIdentity and every name the server writes (command name, .{app} state folder, ~/.config/{app}, schema ids, x-{app}-* headers, hash domains, MCP server name, licence app, credential namespace, Github client id, provider referer, harness-radar watch-list) comes from it; CodeRight passes HostIdentity::new(\"coderight\") and keeps byte-identical paths, ids and digests. No coderight string is left in code except four field names owned by rightkit-agents, rightkit-agent-engine-storage and rightkit-agent-host-traits. No product data is compiled in. The evaluation harness (api_benchmarks) is the benchmarks feature, off by default. Gaps: the scheduler runner (runs on DaemonState) and the workflow host (7.2k) are still here, and about 30k lines the plan assigns to engine, agents, llm, orchestration, sandbox and evidence sit in DaemonState handler files.",
+    "apps": {
+      "coderight": {
+        "fit": "gaps",
+        "note": "its code; the app passes HostIdentity::new(\"coderight\") with its Github client id, homepage and watch-list, and enables benchmarks"
+      }
+    },
+    "boundary": [
+      "src/scheduler runner (execution, delivery, lifecycle, persistence) runs on DaemonState; rightkit-scheduler has no runner trait",
+      "src/workflow (7.2k) is the daemon host of rightkit-workflow's control plane; cannot go into rightkit-workflow (dependency cycle)",
+      "api_benchmarks needs a public session-hosting API on DaemonState before it can leave for a bench crate",
+      "about 30k lines planned for agent-engine, agents, llm, orchestration, sandbox, evidence spread over api_*, main_runtime_* and tui_host handler files",
+      "coderight_agent_id (rightkit-agents, rightkit-agent-engine-storage) and metadata.coderight (rightkit-agent-host-traits) are product names owned by other crates"
+    ],
+    "actions": [
+      "move the scheduler runner into rightkit-scheduler behind a runner trait",
+      "move the workflow host into its own crate over engine-storage once its daemon routes are split out",
+      "give DaemonState a public session-hosting API, then move api_benchmarks to rightkit-agent-bench",
+      "split handlers from logic and move each misplaced module to the package the plan named, or change the plan; first the steering queue to the engine core",
+      "rename coderight_agent_id and metadata.coderight in their owning crates with a migration",
+      "owner to decide whether the spec workflow (api_specs) stays in the generic server",
+      "owner to confirm the agent-server redraw"
+    ],
+    "depth": "deep",
+    "confidence": "high"
+  }
+]

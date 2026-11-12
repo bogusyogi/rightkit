@@ -128,7 +128,7 @@ pub enum RecipeCommand {
         #[arg(long)]
         max_budget_usd: Option<f64>,
     },
-    /// Create a coderight:// recipe deeplink.
+    /// Create a {app}:// recipe deeplink.
     Deeplink {
         /// Installed recipe id or path to a .json/.yaml/.yml recipe file.
         target: String,

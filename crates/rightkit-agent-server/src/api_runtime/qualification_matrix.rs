@@ -150,7 +150,7 @@ async fn post_qualification_matrix_run(
     }
 
     Ok(Json(json!({
-        "schema": "coderight.qualification-matrix-run.v1",
+        "schema": crate::host_identity::schema("qualification-matrix-run.v1"),
         "matrixVersion": QUALIFICATION_MATRIX_VERSION,
         "executionPath": "session-engine",
         "hostMode": "service",

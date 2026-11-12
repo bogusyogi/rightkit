@@ -61,11 +61,11 @@ pub(super) fn insert(schemas: &mut Map<String, Value>) {
     );
     schemas.insert(
         "SpecAnalysisRun".to_string(),
-        coderight_specs_object_schema("Coverage analysis result for a feature spec."),
+        specs_object_schema("Coverage analysis result for a feature spec."),
     );
     schemas.insert(
         "SpecTrace".to_string(),
-        coderight_specs_object_schema("Requirement, task, and evidence trace for a feature spec."),
+        specs_object_schema("Requirement, task, and evidence trace for a feature spec."),
     );
     schemas.insert(
         "SpecEnvelope".to_string(),

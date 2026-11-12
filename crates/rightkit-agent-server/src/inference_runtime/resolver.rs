@@ -80,7 +80,7 @@ pub async fn ensure_inference_selection_qualified(
                         return Err(InferenceRouteError::SecretRequired);
                     }
                     let secret = rightkit_llm::agent_providers::KeyStore::get(
-                        "coderight",
+                        crate::host_identity::app(),
                         &format!("direct-connection:{}", connection.id),
                     )
                     .map_err(|_| InferenceRouteError::SecretRequired)?;
@@ -144,8 +144,8 @@ pub async fn ensure_inference_selection_qualified(
         model_id: &selection.model_id,
         route_policy_id: selection.route_policy_id.as_deref(),
         catalog_entry_hash: &catalog_hash,
-        security_policy_hash: &hash("coderight-direct-security-v1"),
-        tool_schema_hash: &hash("coderight-local-tools-v1"),
+        security_policy_hash: &hash(&crate::host_identity::prefixed("direct-security-v1")),
+        tool_schema_hash: &hash(&crate::host_identity::prefixed("local-tools-v1")),
     });
     let attestation_id = format!("att-{}", &fingerprint[..24]);
     let row = InferenceRouteAttestationRow {
@@ -157,8 +157,8 @@ pub async fn ensure_inference_selection_qualified(
         route_policy_id: selection.route_policy_id.clone(),
         selection_fingerprint: fingerprint.clone(),
         catalog_entry_hash: catalog_hash,
-        security_policy_hash: hash("coderight-direct-security-v1"),
-        tool_schema_hash: hash("coderight-local-tools-v1"),
+        security_policy_hash: hash(&crate::host_identity::prefixed("direct-security-v1")),
+        tool_schema_hash: hash(&crate::host_identity::prefixed("local-tools-v1")),
         configuration_revision,
         credential_revision,
         status: "qualified".into(),

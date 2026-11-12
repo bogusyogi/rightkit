@@ -467,8 +467,9 @@ pub(crate) async fn create_worktree_handler(
     let path = req.path.clone().unwrap_or_else(|| {
         std::env::temp_dir()
             .join(format!(
-                "coderight-wt-{}",
-                sanitize_branch_segment(&req.branch)
+                "{app}-wt-{}",
+                sanitize_branch_segment(&req.branch),
+                app = crate::host_identity::app()
             ))
             .to_string_lossy()
             .into_owned()
@@ -1259,7 +1260,7 @@ async fn probe_binary(bin: &str, args: &[&str]) -> (Option<String>, Option<Strin
     // Version probes need no workspace. Confine them to a tiny private
     // directory: using the daemon's cwd made every probe lease the whole
     // working tree to the sandbox profile.
-    let root = std::env::temp_dir().join("coderight-probe");
+    let root = std::env::temp_dir().join(crate::host_identity::prefixed("probe"));
     let _ = std::fs::create_dir_all(&root);
     let result = run_local_command(bin, args, &root.to_string_lossy(), 2_000).await;
     if matches!(result.status, CommandStatus::Exited) && result.exit_code == Some(0) {

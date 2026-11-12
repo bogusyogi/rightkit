@@ -35,5 +35,5 @@ pub(crate) fn telegram_binding_store_path() -> PathBuf {
     if let Some(root) = rightkit_agent_config::state_root() {
         return root.join("telegram-bindings.json");
     }
-    PathBuf::from(".coderight").join("telegram-bindings.json")
+    PathBuf::from(crate::host_identity::home_dir()).join("telegram-bindings.json")
 }

@@ -178,7 +178,7 @@ pub(crate) fn insert_session_components_01(schemas: &mut Map<String, Value>) {
             "required": ["text"],
             "properties": {
                 "text": {"type": "string"},
-                "nonce": {"type": ["string", "null"], "description": "Durable idempotency key. Identical retries replay the original response; conflicting reuse returns coderight.error.v1."},
+                "nonce": {"type": ["string", "null"], "description": format!("Durable idempotency key. Identical retries replay the original response; conflicting reuse returns {app}.error.v1.", app = crate::host_identity::app())},
                 "attachments": {"type": "array", "items": {"$ref": "#/components/schemas/MessageAttachment"}},
                 "references": {"type": "array", "items": {"$ref": "#/components/schemas/ReferenceMeta"}},
                 "workspaceRoot": {"type": ["string", "null"]}
@@ -192,7 +192,7 @@ pub(crate) fn insert_session_components_01(schemas: &mut Map<String, Value>) {
             "type": "object",
             "required": ["schemaVersion", "sessionId", "requestId", "correlationId", "effectState", "accepted", "seq"],
             "properties": {
-                "schemaVersion": {"const": "coderight.machine.v1"},
+                "schemaVersion": {"const": crate::host_identity::schema("machine.v1")},
                 "sessionId": {"type": "string"},
                 "requestId": {"type": ["string", "null"]},
                 "correlationId": {"type": "string"},
@@ -222,7 +222,7 @@ pub(crate) fn insert_session_components_01(schemas: &mut Map<String, Value>) {
             "type": "object",
             "required": ["schemaVersion", "code", "detail", "correlationId", "retryable", "effectState", "remediation"],
             "properties": {
-                "schemaVersion": {"const": "coderight.error.v1"},
+                "schemaVersion": {"const": crate::host_identity::schema("error.v1")},
                 "code": {"type": "string"},
                 "detail": {"type": "string"},
                 "correlationId": {"type": "string"},

@@ -1,4 +1,4 @@
-// Top-level launch flags for a bare `coderight` start (no subcommand).
+// Top-level launch flags for a bare `{app}` start (no subcommand).
 // Included from cli_definitions.rs (shares its `clap` imports).
 //
 // `main_runtime_entry.rs::interactive_layout_invocation` decides whether an
@@ -6,11 +6,11 @@
 // then parses it so clap owns validation: the four permission flags are
 // mutually exclusive, `--model` / `-p` need a value.
 
-/// `coderight [--plain] [--reduced-motion] [--ask|--accept-edits|--auto|--yolo]
+/// `{app} [--plain] [--reduced-motion] [--ask|--accept-edits|--auto|--yolo]
 /// [--model ROUTE] [--provider ID] [--effort LEVEL] [--workspace PATH] [PROMPT]`.
 #[derive(Parser, Debug, Clone, PartialEq, Eq, Default)]
 #[command(
-    name = "coderight",
+    name = crate::host_identity::app(),
     version,
     about = "RightKit interactive session (launch flags)",
     disable_help_subcommand = true

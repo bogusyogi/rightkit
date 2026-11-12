@@ -801,10 +801,10 @@ pub(crate) fn open_subagent_worktree_pool(
     parent_workspace: &std::path::Path,
 ) -> Result<rightkit_agent_tools::coding_tools::worktree_pool::WorktreePool, String> {
     let pool_dir = parent_workspace
-        .join(".coderight")
+        .join(crate::host_identity::home_dir())
         .join("subagent-worktree-pool");
     let state_dir = parent_workspace
-        .join(".coderight")
+        .join(crate::host_identity::home_dir())
         .join("subagent-worktree-pool-state");
     rightkit_agent_tools::coding_tools::worktree_pool::WorktreePool::open(
         parent_workspace,
@@ -935,7 +935,7 @@ fn default_subagent_worktree_path(role: &str, sub_id: &str) -> String {
         })
         .collect();
     std::env::temp_dir()
-        .join(format!("coderight-subagent-{safe_role}-{sub_id}"))
+        .join(format!("{app}-subagent-{safe_role}-{sub_id}", app = crate::host_identity::app()))
         .to_string_lossy()
         .into_owned()
 }

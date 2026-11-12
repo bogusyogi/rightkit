@@ -78,7 +78,7 @@ fn admit(
     };
     let clock = SystemClock::new();
     let at = crate::workflow::triggers::format_unix_ms_as_iso(due);
-    let source = "coderight:cron".to_string();
+    let source = format!("{app}:cron", app = crate::host_identity::app());
     let external = format!("{}:{due}", trigger.id);
     let hash = ContentHash::sha256(external.as_bytes());
     let dedupe =
@@ -98,7 +98,7 @@ fn admit(
         received_at: crate::workflow::triggers::format_unix_ms_as_iso(now),
     };
     let normalized = crate::workflow::triggers::NormalizedTriggerEvent {
-        spec_version: crate::workflow::triggers::NormalizedTriggerEvent::SPEC_VERSION.into(),
+        spec_version: crate::workflow::triggers::NormalizedTriggerEvent::spec_version().into(),
         id: rightkit_workflow::control_plane::domain::trigger_event_id(
             event.id.strip_prefix("wf_evt_").unwrap_or(&event.id),
         ),

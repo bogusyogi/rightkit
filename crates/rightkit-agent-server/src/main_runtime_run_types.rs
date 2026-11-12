@@ -104,7 +104,7 @@ const MCP_GATEWAY_TOOLS: [&str; 5] = [
 
 /// Non-matching allowlist entry that keeps a fully-excluded allowlist
 /// non-empty (an empty allowlist would mean "allow everything").
-const CLI_NO_TOOLS_SENTINEL: &str = "__coderight_no_tools__";
+const CLI_NO_TOOLS_SENTINEL: &str = "__host_no_tools__";
 
 fn resolve_cli_tool_filters(
     toolset: Option<&str>,

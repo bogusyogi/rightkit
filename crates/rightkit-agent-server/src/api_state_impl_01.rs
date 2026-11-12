@@ -169,6 +169,7 @@ impl DaemonState {
             )),
             session_plugin_unloads: Arc::new(Mutex::new(HashMap::new())),
             mutation_journal_reports: Arc::new(Mutex::new(HashMap::new())),
+            #[cfg(feature = "benchmarks")]
             executed_bakeoff_runtime: Arc::new(crate::api_benchmarks::DaemonExecutedBakeoffRuntime),
         }
     }

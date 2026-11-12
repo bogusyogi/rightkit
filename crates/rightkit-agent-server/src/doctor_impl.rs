@@ -152,7 +152,7 @@ fn provider_key_check(provider: &ProviderReadiness) -> Check {
             Status::Block,
             &format!("{id} route: required key not found"),
             &format!(
-                "Set the environment variable named by provider-routes.{id}.api-key-env, or run `coderight onboard` to store a key for {id} in the OS keychain."
+                "Set the environment variable named by provider-routes.{id}.api-key-env, or run `{app} onboard` to store a key for {id} in the OS keychain.", app = crate::host_identity::app()
             ),
         ),
         RouteAuth::MissingBaseUrl => check(
@@ -171,20 +171,20 @@ pub(crate) fn evaluate(f: &Facts) -> DiagnosticsReport {
 
     checks.push(provider_key_check(&f.provider));
 
-    checks.push(if f.coderight_dir_writable {
+    checks.push(if f.state_dir_writable {
         check(
-            "coderight_dir",
-            "~/.coderight writable",
+            &format!("{app}_dir", app = crate::host_identity::app()),
+            &format!("~/{home} writable", home = crate::host_identity::home_dir()),
             Status::Pass,
             "ok",
             "",
         )
     } else {
         check(
-            "coderight_dir",
-            "~/.coderight writable",
+            &format!("{app}_dir", app = crate::host_identity::app()),
+            &format!("~/{home} writable", home = crate::host_identity::home_dir()),
             Status::Block,
-            "cannot create or write ~/.coderight",
+            &format!("cannot create or write ~/{home}", home = crate::host_identity::home_dir()),
             "Check the permissions of the RightKit data directory; the daemon stores keys and state there.",
         )
     });
@@ -202,7 +202,7 @@ pub(crate) fn evaluate(f: &Facts) -> DiagnosticsReport {
             "evolution_db",
             "Evolution database",
             Status::Warn,
-            "could not open ~/.coderight/evolution.db",
+            &format!("could not open ~/{home}/evolution.db", home = crate::host_identity::home_dir()),
             "Learning/memory will be in-memory only this run; check disk space/permissions.",
         )
     });
@@ -239,7 +239,7 @@ pub(crate) fn evaluate(f: &Facts) -> DiagnosticsReport {
             "Workspace writable",
             Status::Warn,
             "cannot create files in the current directory",
-            "Run coderight from a directory you own and can write to.",
+            &format!("Run {app} from a directory you own and can write to.", app = crate::host_identity::app()),
         )
     });
 
@@ -263,7 +263,7 @@ pub(crate) fn evaluate(f: &Facts) -> DiagnosticsReport {
             "Daemon port 5057",
             Status::Warn,
             "port 5057 is already in use",
-            "Another coderight daemon may be running, or use --port to pick a different port.",
+            &format!("Another {app} daemon may be running, or use --port to pick a different port.", app = crate::host_identity::app()),
         )
     });
 
@@ -272,7 +272,7 @@ pub(crate) fn evaluate(f: &Facts) -> DiagnosticsReport {
             "skills_dir",
             "Skills directory",
             Status::Pass,
-            "~/.coderight/skills/ present",
+            &format!("~/{home}/skills/ present", home = crate::host_identity::home_dir()),
             "",
         )
     } else {
@@ -280,8 +280,8 @@ pub(crate) fn evaluate(f: &Facts) -> DiagnosticsReport {
             "skills_dir",
             "Skills directory",
             Status::Warn,
-            "~/.coderight/skills/ not found",
-            "Create it to add custom skills: mkdir -p ~/.coderight/skills",
+            &format!("~/{home}/skills/ not found", home = crate::host_identity::home_dir()),
+            &format!("Create it to add custom skills: mkdir -p ~/{home}/skills", home = crate::host_identity::home_dir()),
         )
     });
 
@@ -290,15 +290,15 @@ pub(crate) fn evaluate(f: &Facts) -> DiagnosticsReport {
             "mcp_config",
             "MCP config",
             Status::Warn,
-            "no MCP config found (~/.coderight/mcp.json)",
-            "Create ~/.coderight/mcp.json to configure MCP servers (optional).",
+            &format!("no MCP config found (~/{home}/mcp.json)", home = crate::host_identity::home_dir()),
+            &format!("Create ~/{home}/mcp.json to configure MCP servers (optional).", home = crate::host_identity::home_dir()),
         )),
         Some(0) => checks.push(check(
             "mcp_config",
             "MCP config",
             Status::Warn,
             "MCP config present but no servers configured",
-            "Add at least one server to ~/.coderight/mcp.json to enable MCP tools.",
+            &format!("Add at least one server to ~/{home}/mcp.json to enable MCP tools.", home = crate::host_identity::home_dir()),
         )),
         Some(n) => checks.push(check(
             "mcp_config",
@@ -362,7 +362,7 @@ pub(crate) fn gather() -> Facts {
         },
     };
 
-    let coderight_dir_writable = state_dir
+    let state_dir_writable = state_dir
         .as_ref()
         .map(|dir| directory_is_writable(dir))
         .unwrap_or(false);
@@ -414,7 +414,7 @@ pub(crate) fn gather() -> Facts {
 
     Facts {
         provider,
-        coderight_dir_writable,
+        state_dir_writable,
         evolution_db_ok,
         can_bind_local,
         workspace_writable,

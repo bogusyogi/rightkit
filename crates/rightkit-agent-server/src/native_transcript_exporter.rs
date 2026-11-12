@@ -3,7 +3,7 @@
 //!
 //! This exporter reads the **durable** RightKit event log (already gated
 //! through `spawn_event_persister`), projects each durable `ProtocolEvent` into
-//! the `coderight_event_v1` normalized row and appends bounded batches with a
+//! the `{app}_event_v1` normalized row and appends bounded batches with a
 //! cursor-checked `transcript append`.
 //!
 //! Ownership lines it must not cross:
@@ -47,14 +47,17 @@ pub(crate) fn membrane_backend() -> Arc<dyn MembraneBackend + Send + Sync> {
 
 /// Rows per `transcript append` call.
 const MAX_EVENTS_PER_APPEND: usize = 256;
-/// `coderight_event_v1` row identity.
-const SESSION_TRANSCRIPT_EVENT_TYPE: &str = "coderight_event_v1";
-const SESSION_TRANSCRIPT_HOST: &str = "coderight";
+/// `{app}_event_v1` row identity.
+static SESSION_TRANSCRIPT_EVENT_TYPE: std::sync::LazyLock<String> =
+    std::sync::LazyLock::new(|| format!("{}_event_v1", crate::host_identity::app()));
+static SESSION_TRANSCRIPT_HOST: std::sync::LazyLock<String> =
+    std::sync::LazyLock::new(|| crate::host_identity::app().to_string());
 /// Explicit error for operations Pulse's CLI does not expose yet.
 const NOT_AVAILABLE_VIA_CLI: &str = "not available via Membrane CLI (Orthic-Labs/pulse#129)";
 
 /// Provenance marker carried on every normalized row.
-const EXPORTER_PRODUCER: &str = "coderight-daemon";
+static EXPORTER_PRODUCER: std::sync::LazyLock<String> =
+    std::sync::LazyLock::new(|| crate::host_identity::prefixed("daemon"));
 
 /// How one export pass ended. Transient failures stay typed so callers can
 /// log them; only terminal stream states change durable behavior.
@@ -250,8 +253,9 @@ impl NativeTranscriptExporter {
             .unwrap_or(0);
         let expected_cursor = first_seq.saturating_sub(1);
         let window_id = format!(
-            "coderight-h4:{session_id}:{first_seq}:{}",
-            cursor.last_input_sequence
+            "{app}-h4:{session_id}:{first_seq}:{}",
+            cursor.last_input_sequence,
+            app = crate::host_identity::app()
         );
         let request = json!({
             "operation":"analyze", "scope":scope_id, "windowId":window_id,
@@ -621,9 +625,9 @@ pub fn spawn_session_forget(exporter: Arc<NativeTranscriptExporter>, session_ids
     });
 }
 
-/// Project one committed `ProtocolEvent` into the `coderight_event_v1`
+/// Project one committed `ProtocolEvent` into the `{app}_event_v1`
 /// normalized row the worker stores verbatim and the `membrane-transcript`
-/// `coderight` adapter consumes. Row-level identity fields
+/// `{app}` adapter consumes. Row-level identity fields
 /// (`sessionId`/`sourceSeq`/`eventId`) bind the row to the stream; the
 /// normalized `event` object uses the frozen `adapt_event_v1` field names so
 /// the existing generic learning path reads it unchanged.
@@ -636,16 +640,16 @@ fn project_event(
     let event_id = rightkit_agent_engine_protocol::event::stable_event_id(session_id, source_seq);
     let normalized = normalize_event(session_id, event, scope_id);
     json!({
-        "type": SESSION_TRANSCRIPT_EVENT_TYPE,
-        "host": SESSION_TRANSCRIPT_HOST,
+        "type": SESSION_TRANSCRIPT_EVENT_TYPE.as_str(),
+        "host": SESSION_TRANSCRIPT_HOST.as_str(),
         "sessionId": session_id,
         "sourceSeq": source_seq,
         "eventId": event_id,
         "occurredAt": event.created_at(),
         "scopeId": scope_id,
         "provenance": {
-            "source": "coderight",
-            "producer": EXPORTER_PRODUCER,
+            "source": crate::host_identity::app(),
+            "producer": EXPORTER_PRODUCER.as_str(),
             "sessionId": session_id,
             "sourceSeq": source_seq,
             "eventId": event_id,
@@ -758,7 +762,7 @@ fn project_execution_observation(
     let unavailable = json!({"coverage":"unavailable","unavailableReason":"provider_omitted"});
     Some(json!({
         "schemaVersion":1,
-        "observationId":format!("coderight-h4:{session_id}:{source_seq}"),
+        "observationId":format!("{app}-h4:{session_id}:{source_seq}", app = crate::host_identity::app()),
         "sessionId":session_id,
         "taskId":{"coverage":"complete","value":task_id},
         "parentTaskId":unavailable,
@@ -767,7 +771,7 @@ fn project_execution_observation(
         "observedAtUnixMs":timestamp,
         "model":model,
         "provider":provider,
-        "client":"coderight",
+        "client":crate::host_identity::app(),
         "routePolicy":unavailable,
         "observationKind":kind,
         "subjectId":subject.map(|value| json!({"coverage":"complete","value":value})).unwrap_or_else(|| unavailable.clone()),
@@ -786,8 +790,8 @@ fn project_execution_observation(
         "completion":unavailable,
         "provenanceReceipt":{
             "schemaVersion":1,
-            "receiptId":format!("coderight-event:{session_id}:{source_seq}"),
-            "source":"coderight",
+            "receiptId":format!("{app}-event:{session_id}:{source_seq}", app = crate::host_identity::app()),
+            "source":crate::host_identity::app(),
             "observedAtUnixMs":timestamp,
             "receiptDigest":digest
         }

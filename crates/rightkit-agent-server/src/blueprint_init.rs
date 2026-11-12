@@ -7,7 +7,9 @@ use rightkit_agent_engine_protocol::ProtocolEvent;
 
 use crate::api::{now_iso, DaemonState};
 
-const UNDERSTANDING_DIR: &str = ".coderight/understanding";
+fn understanding_dir() -> std::path::PathBuf {
+    std::path::Path::new(crate::host_identity::home_dir()).join("understanding")
+}
 const MAX_MAPPED_FILES: usize = 2_000;
 
 pub(crate) fn spawn_workspace_blueprint_init(
@@ -53,15 +55,15 @@ struct BlueprintReport {
 }
 
 fn emit_bootstrap_understanding(root: &Path) -> Result<BlueprintReport, String> {
-    let coderight_dir = root.join(".coderight");
-    fs::create_dir_all(&coderight_dir)
+    let host_dir = root.join(crate::host_identity::home_dir());
+    fs::create_dir_all(&host_dir)
         .map_err(|err| format!("create RightKit state directory: {err}"))?;
-    let gitignore = coderight_dir.join(".gitignore");
+    let gitignore = host_dir.join(".gitignore");
     if !gitignore.exists() {
         fs::write(&gitignore, "*\n")
             .map_err(|err| format!("ignore RightKit workspace state: {err}"))?;
     }
-    let out_dir = root.join(UNDERSTANDING_DIR);
+    let out_dir = root.join(understanding_dir());
     let previous = read_previous_fingerprint(&out_dir);
     let first_open = previous.is_none();
     let map = RepoMap::scan(root)?;
@@ -193,8 +195,8 @@ fn should_skip(name: &str, root: &Path, path: &Path) -> bool {
     matches!(
         name,
         ".git" | "target" | "node_modules" | "dist" | "build" | ".next" | ".cache"
-    ) || path == root.join(UNDERSTANDING_DIR)
-        || path.starts_with(root.join(UNDERSTANDING_DIR))
+    ) || path == root.join(understanding_dir())
+        || path.starts_with(root.join(understanding_dir()))
 }
 
 fn concepts_for_map(

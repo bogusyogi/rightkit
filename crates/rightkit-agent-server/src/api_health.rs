@@ -40,7 +40,7 @@ pub(crate) fn health_routes() -> Router<DaemonState> {
 async fn health() -> Json<HealthResponse> {
     Json(HealthResponse {
         ok: true,
-        service: "coderight-daemon".to_string(),
+        service: crate::host_identity::prefixed("daemon"),
         version: env!("CARGO_PKG_VERSION").to_string(),
         contract_version: rightkit_agent_engine_api_platform::health::CONTRACT_VERSION,
         protocol_version: rightkit_agent_engine_api_platform::health::PROTOCOL_VERSION,
@@ -55,7 +55,7 @@ fn provider_key_storage_status(
     }
 }
 
-/// Runtime preflight (the `coderight doctor` checks, runtime subset) so the
+/// Runtime preflight (the `{app} doctor` checks, runtime subset) so the
 /// onboarding UI can show ready/warning/blocked with fixes.
 async fn health_diagnostics(
     Query(query): Query<WorkspaceQuery>,
@@ -69,9 +69,17 @@ async fn health_diagnostics(
     let source = match resolution.source {
         rightkit_agent_policy::SandboxPolicySource::Default => "default",
         rightkit_agent_policy::SandboxPolicySource::Operator => "RIGHTKIT_SANDBOX_TIER",
-        rightkit_agent_policy::SandboxPolicySource::Workspace => ".coderight/sandbox-settings.json",
+        rightkit_agent_policy::SandboxPolicySource::Workspace => {
+            crate::host_identity::interned(format!(
+                "{home}/sandbox-settings.json",
+                home = crate::host_identity::home_dir()
+            ))
+        }
         rightkit_agent_policy::SandboxPolicySource::OperatorAndWorkspace => {
-            "RIGHTKIT_SANDBOX_TIER + .coderight/sandbox-settings.json"
+            crate::host_identity::interned(format!(
+                "RIGHTKIT_SANDBOX_TIER + {home}/sandbox-settings.json",
+                home = crate::host_identity::home_dir()
+            ))
         }
     };
     let report = crate::doctor::gather_runtime_with_sandbox_tier(
@@ -279,7 +287,8 @@ include!("api_health/readiness.rs");
 // degraded response. It does not touch desktop/iOS, Membrane/CM-001,
 // §17/manifests, or Cargo.
 
-pub(crate) const MACHINE_STATUS_SCHEMA: &str = "coderight.machine-status.v1";
+pub(crate) static MACHINE_STATUS_SCHEMA: std::sync::LazyLock<String> =
+    std::sync::LazyLock::new(|| crate::host_identity::schema("machine-status.v1"));
 
 /// Stable machine-facing lifecycle class. `Unreachable` is emitted by a
 /// client that cannot transport-probe a daemon; the daemon itself can emit
@@ -355,12 +364,12 @@ fn machine_unavailable_response(
     (
         StatusCode::SERVICE_UNAVAILABLE,
         Json(json!({
-            "schemaVersion": MACHINE_STATUS_SCHEMA,
+            "schemaVersion": MACHINE_STATUS_SCHEMA.as_str(),
             "status": status,
             "ok": false,
             "code": "unavailable",
             "error": detail.into(),
-            "service": "coderight-daemon"
+            "service": crate::host_identity::prefixed("daemon")
         })),
     )
 }
@@ -395,10 +404,10 @@ async fn machine_status(State(state): State<DaemonState>) -> impl IntoResponse {
         provider_key_storage.keychain_failure_observed || !degraded_reasons.is_empty(),
     );
     let payload = MachineStatusResponse {
-        schema_version: MACHINE_STATUS_SCHEMA.to_string(),
+        schema_version: MACHINE_STATUS_SCHEMA.as_str().to_string(),
         status,
         ok: status.is_healthy(),
-        service: "coderight-daemon".to_string(),
+        service: crate::host_identity::prefixed("daemon"),
         port: state.bound_port,
         database_path: state.database_path.clone(),
         utc_now: now_iso(),
@@ -432,7 +441,7 @@ async fn machine_info(State(state): State<DaemonState>) -> impl IntoResponse {
             }
         });
     let payload = MachineInfoResponse {
-        service: "coderight-daemon".to_string(),
+        service: crate::host_identity::prefixed("daemon"),
         version: env!("CARGO_PKG_VERSION").to_string(),
         os: std::env::consts::OS.to_string(),
         arch: std::env::consts::ARCH.to_string(),

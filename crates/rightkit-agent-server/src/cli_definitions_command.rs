@@ -7,7 +7,7 @@ mod cli_definitions_command_run;
 // registry-rendered variant, and clap's auto-generated `help` subcommand would
 // collide with it. `--help` is unaffected.
 #[command(
-    name = "coderight",
+    name = crate::host_identity::app(),
     version,
     about = "RightKit agent engine",
     after_help = "Launch flags (interactive session, no subcommand):\n  \
@@ -248,7 +248,7 @@ pub enum Command {
         session_id: String,
     },
     /// Run a multi-agent conductor session against a goal (headless), streaming
-    /// progress events. Requires a running daemon (`coderight serve`).
+    /// progress events. Requires a running daemon (`{app} serve`).
     Conduct {
         /// The goal for the conductor to decompose and execute.
         goal: String,
@@ -299,10 +299,10 @@ pub enum Command {
     Review {
         /// Optional review focus, for example "security" or "test coverage".
         focus: Vec<String>,
-        /// Session to read when using `coderight review findings`.
+        /// Session to read when using `{app} review findings`.
         #[arg(long)]
         session: Option<String>,
-        /// Emit structured JSON for `coderight review findings`.
+        /// Emit structured JSON for `{app} review findings`.
         #[arg(long)]
         json: bool,
         /// Review changes against a base git ref.
@@ -416,14 +416,14 @@ pub enum Command {
         session_id: Option<String>,
     },
     /// Run RightKit as an Agent Client Protocol (ACP) agent over stdio.
-    /// Bridges to an already-running daemon's session API; start `coderight
+    /// Bridges to an already-running daemon's session API; start `{app}
     /// serve` first and pass its port here.
     #[command(alias = "acp")]
     AcpServer {
         /// Local daemon HTTP port to bridge ACP sessions/messages through.
         #[arg(long)]
         port: u16,
-        /// Daemon auth token (same value printed by `coderight serve`'s
+        /// Daemon auth token (same value printed by `{app} serve`'s
         /// startup contract line). Omit only against a daemon started with
         /// auth disabled.
         #[arg(long)]

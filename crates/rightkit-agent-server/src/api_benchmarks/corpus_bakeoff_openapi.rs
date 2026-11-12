@@ -34,7 +34,7 @@ fn insert_corpus_bakeoff_openapi_components(schemas: &mut Map<String, Value>) {
                 "manifestPath": {
                     "type": "string",
                     "minLength": 1,
-                    "description": "Operator-selected local path to a coderight.eval-corpus.v1 JSON manifest."
+                    "description": format!("Operator-selected local path to a {app}.eval-corpus.v1 JSON manifest.", app = crate::host_identity::app())
                 }
             },
             "additionalProperties": false
@@ -118,11 +118,11 @@ fn insert_corpus_bakeoff_openapi_components(schemas: &mut Map<String, Value>) {
     schemas.insert(
         "CorpusBakeoffManifest".to_string(),
         json!({
-            "$id": "https://coderight.local/schemas/eval-corpus-v1.json",
+            "$id": format!("https://{app}.local/schemas/eval-corpus-v1.json", app = crate::host_identity::app()),
             "type": "object",
             "required": ["schemaVersion", "suiteNamespace", "candidateRoles", "baselineRole", "tasks"],
             "properties": {
-                "schemaVersion": {"type": "string", "const": CORPUS_SCHEMA_VERSION},
+                "schemaVersion": {"type": "string", "const": CORPUS_SCHEMA_VERSION.as_str()},
                 "suiteNamespace": {"type": "string", "minLength": 1, "maxLength": 128},
                 "candidateRoles": {"type": "array", "minItems": 2, "maxItems": 4, "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 64}},
                 "baselineRole": {"type": "string", "minLength": 1, "maxLength": 64},
@@ -139,7 +139,7 @@ fn insert_corpus_bakeoff_openapi_components(schemas: &mut Map<String, Value>) {
             "type": "object",
             "required": ["schemaVersion", "manifestSha256", "taskCount", "sources", "report", "decision"],
             "properties": {
-                "schemaVersion": {"type": "string", "const": CORPUS_REPORT_SCHEMA_VERSION},
+                "schemaVersion": {"type": "string", "const": CORPUS_REPORT_SCHEMA_VERSION.as_str()},
                 "manifestSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$", "description": "Corpus snapshot digest bound to manifest bytes, resolved instructions, verifier expectations, and clean workspace Git HEAD/subdirectory identity."},
                 "taskCount": {"type": "integer", "minimum": 1, "maximum": MAX_TASKS},
                 "sources": {
@@ -153,7 +153,7 @@ fn insert_corpus_bakeoff_openapi_components(schemas: &mut Map<String, Value>) {
                 },
                 "report": {
                     "type": "object",
-                    "description": "Aggregate coderight.executed-bakeoff.v1 report with verified completion, failures, cost, latency, escalation, tool efficiency, review false positives, long-context degradation, and same-cost baseline metrics."
+                    "description": format!("Aggregate {app}.executed-bakeoff.v1 report with verified completion, failures, cost, latency, escalation, tool efficiency, review false positives, long-context degradation, and same-cost baseline metrics.", app = crate::host_identity::app())
                 },
                 "decision": {
                     "type": "object",

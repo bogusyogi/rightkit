@@ -1,7 +1,7 @@
 //! The TUI host (R6 / CR-20): the real terminal session that actually runs
 //! `engine/crates/tui`.
 //!
-//! Everything in `coderight-tui` -- the composer, the transcript, session/agent
+//! Everything in `{app}-tui` -- the composer, the transcript, session/agent
 //! navigation, the frame scheduler, terminal capability detection -- was
 //! shipped with 189 passing tests and reachable from nothing. This module is
 //! the thing that reaches it: it owns the event loop, feeds `Event`s to
@@ -3042,7 +3042,7 @@ const LOCAL_AGENT_ID: &str = "local-root";
 /// Intentional render class for every built-in production tool name.
 ///
 /// TEST FIXTURE ONLY (P1-4): the production registration in `drive()` is
-/// derived live from `coderight-tools default metadata projection` via
+/// derived live from `{app}-tools default metadata projection` via
 /// `tool_render_class_to_tui`; this compile-time table is never registered on
 /// the production path. It remains as the closed expected-value set the drift
 /// tests below enumerate: one test proves every real production tool has an
@@ -3157,7 +3157,7 @@ const PRODUCTION_RENDER_CLASSES: &[(&str, RenderClass)] = &[
     //
     // Upgrading them is therefore a registry change, not a TUI change: add the
     // names to `tool_render_class` first, then move these rows to match. That
-    // file is in the `coderight-tools` crate and sits outside Dispatch A's
+    // file is in the `{app}-tools` crate and sits outside Dispatch A's
     // file allowlist, so this lane records the gap instead of closing it.
     // `RenderClass` is presentation-only today regardless — every class
     // renders the same bordered frame — so no rendering differs either way.
@@ -3471,7 +3471,7 @@ fn spawn_input_thread(pause: Arc<InputPause>) -> mpsc::Receiver<io::Result<ct_ev
     let (tx, rx) = mpsc::channel(INPUT_QUEUE_CAPACITY);
     let mut pressed_chars = std::collections::HashSet::<char>::new();
     std::thread::Builder::new()
-        .name("coderight-tui-input".into())
+        .name(crate::host_identity::prefixed("tui-input"))
         .spawn(move || loop {
             if pause.reader_park_with(discard_protected_input) {
                 pressed_chars.clear();
@@ -3494,7 +3494,12 @@ fn spawn_input_thread(pause: Arc<InputPause>) -> mpsc::Receiver<io::Result<ct_ev
                 }
             }
         })
-        .expect("spawn coderight-tui-input thread");
+        .unwrap_or_else(|error| {
+            panic!(
+                "spawn {}-tui-input thread: {error}",
+                crate::host_identity::app()
+            )
+        });
     rx
 }
 
@@ -3580,7 +3585,7 @@ fn tool_render_class_to_tui(
 }
 
 pub async fn drive(host: impl TurnHost) -> i32 {
-    // P1-4/KRN-007: coderight-tools owns executable registry construction.
+    // P1-4/KRN-007: {app}-tools owns executable registry construction.
     // TUI consumes only the tools-owned metadata projection; unknown/dynamic
     // tools remain bounded `Generic`.
     let live_classes = rightkit_agent_tools::coding_tools::default_tool_render_classes();
@@ -4725,7 +4730,7 @@ fn refresh_completion_catalog(
     let busy = turn_in_flight || session.timeline.has_open_entry();
     let mut catalog = command_effect_catalog(busy);
     catalog.extend(shared_command_catalog(busy));
-    // #132: custom slash commands (`.claude/commands`, `.coderight/commands`, user root).
+    // #132: custom slash commands (`.claude/commands`, `.{app}/commands`, user root).
     catalog.extend(
         crate::custom_commands::popup_rows()
             .into_iter()
@@ -7832,7 +7837,7 @@ fn parse_export_args(rest: &str) -> Result<ExportTarget, ()> {
     }
 }
 
-/// `coderight-session-<first 8 id chars>.<ext>`, filesystem-safe.
+/// `{app}-session-<first 8 id chars>.<ext>`, filesystem-safe.
 fn export_file_name(session_id: &str, format: &str) -> String {
     let short: String = session_id
         .chars()
@@ -7844,7 +7849,10 @@ fn export_file_name(session_id: &str, format: &str) -> String {
     } else {
         short
     };
-    format!("coderight-session-{short}.{format}")
+    format!(
+        "{app}-session-{short}.{format}",
+        app = crate::host_identity::app()
+    )
 }
 
 /// Write the exported content into `dir` and return the full path.

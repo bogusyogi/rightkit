@@ -2,7 +2,7 @@
 //!
 //! Ported from `grok-build` `crates/codegen/xai-grok-workspace-daemon/src/daemonize.rs`
 //! (`PidFile::acquire`), adapted to the RightKit seam: lock lives beside
-//! RightKit's existing `~/.coderight/daemon.port` discovery file rather than
+//! RightKit's existing `~/.{app}/daemon.port` discovery file rather than
 //! `/tmp`. This module supplies secure exclusive acquisition, held-lock
 //! lifetime, & advisory PID diagnostics. Exact-process pinning
 //! (`process_start_epoch_ms`) remains owned by `main_runtime_daemon_resolve.rs`
@@ -20,7 +20,7 @@ use std::path::{Path, PathBuf};
 
 use rightkit_fs::{FileLock, FsError};
 
-/// Default single-instance lock path: `~/.coderight/daemon.lock`, sibling of
+/// Default single-instance lock path: `~/.{app}/daemon.lock`, sibling of
 /// the existing `daemon.port` discovery file owned by
 /// `main_runtime_daemon_resolve.rs`.
 pub(crate) fn default_lockfile_path() -> Option<PathBuf> {

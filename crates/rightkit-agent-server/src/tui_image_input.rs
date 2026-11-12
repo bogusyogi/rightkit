@@ -157,7 +157,7 @@ pub fn mention_for(path: &Path) -> String {
 /// its path. `None` when the clipboard holds no image or the platform helper
 /// is unavailable.
 pub fn capture_clipboard_image() -> Option<PathBuf> {
-    let dir = std::env::temp_dir().join("coderight-clipboard");
+    let dir = std::env::temp_dir().join(crate::host_identity::prefixed("clipboard"));
     std::fs::create_dir_all(&dir).ok()?;
     let stamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

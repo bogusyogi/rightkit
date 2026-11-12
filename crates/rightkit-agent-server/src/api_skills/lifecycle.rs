@@ -213,7 +213,7 @@ fn transition_skill_lifecycle(
 
 fn append_skill_audit_log(dir: &FsPath, entry: SkillAuditEntry) -> Result<(), StatusCode> {
     std::fs::create_dir_all(dir).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let path = dir.join(".coderight-skill-audit-log.json");
+    let path = dir.join(format!("{home}-skill-audit-log.json", home = crate::host_identity::home_dir()));
     let mut rows = if path.is_file() {
         std::fs::read_to_string(&path)
             .ok()
@@ -236,7 +236,7 @@ fn managed_skill_dir(dirs: &[PathBuf]) -> Result<PathBuf, StatusCode> {
 }
 
 fn skill_governance_store_path(dirs: &[PathBuf]) -> Result<PathBuf, StatusCode> {
-    Ok(managed_skill_dir(dirs)?.join(".coderight-skill-governance.json"))
+    Ok(managed_skill_dir(dirs)?.join(format!("{home}-skill-governance.json", home = crate::host_identity::home_dir())))
 }
 
 fn load_skill_governance_store(path: &FsPath) -> SkillGovernanceStore {

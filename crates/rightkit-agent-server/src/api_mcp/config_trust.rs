@@ -18,12 +18,12 @@ pub(crate) fn default_mcp_user_config_path() -> PathBuf {
         .map(PathBuf::from)
         .or_else(|| {
             rightkit_agent_config::os_home_dir()
-                .map(|home| home.join(".config").join("coderight").join("mcp.json"))
+                .map(|home| home.join(".config").join(crate::host_identity::app()).join("mcp.json"))
         })
         .unwrap_or_else(|| {
             std::env::current_dir()
                 .unwrap_or_else(|_| PathBuf::from("."))
-                .join(".coderight")
+                .join(crate::host_identity::home_dir())
                 .join("mcp.json")
         })
 }
@@ -238,7 +238,7 @@ fn mcp_trust_store_home_dir() -> Option<PathBuf> {
 }
 
 /// Whether the workspace is explicitly trusted in the persisted workspace-trust
-/// store (the store `coderight trust`, the TUI and `PATCH /workspace/trust`
+/// store (the store `{app} trust`, the TUI and `PATCH /workspace/trust`
 /// all write). Project-scoped MCP servers of any transport may only be
 /// contacted from a trusted workspace; an unknown, blank or non-`trusted`
 /// workspace fails closed (A203).

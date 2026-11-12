@@ -90,7 +90,7 @@ fn decode_base64_field(value: &str, field: &str) -> Result<Vec<u8>, String> {
 
 fn marketplace_entry_signature_payload(entry: &PluginMarketplaceEntry) -> Vec<u8> {
     serde_json::to_vec(&json!({
-        "scheme": "coderight-plugin-marketplace-entry-v1",
+        "scheme": crate::host_identity::prefixed("plugin-marketplace-entry-v1"),
         "id": entry.manifest.id,
         "version": entry.manifest.version,
         "checksumSha256": entry.checksum_sha256,

@@ -23,7 +23,7 @@ pub fn selection_fingerprint(input: &SelectionFingerprintInput<'_>) -> String {
     // Struct ordering is canonical field ordering; no credential material enters input.
     let json = serde_json::to_vec(input).unwrap_or_default();
     let mut hash = rightkit_fs::digest::Sha256Hasher::new();
-    hash.update(b"coderight.inference-selection.v1\0");
+    hash.update(&crate::host_identity::domain("inference-selection.v1"));
     hash.update(AsRef::<[u8]>::as_ref(&json));
     hash.finalize()
 }

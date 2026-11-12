@@ -114,7 +114,7 @@ async fn query_codex_model_catalogue_over_stdio(
             "method": "initialize",
             "params": {
                 "clientInfo": {
-                    "name": "coderight",
+                    "name": crate::host_identity::app(),
                     "title": "RightKit",
                     "version": env!("CARGO_PKG_VERSION")
                 },
@@ -147,7 +147,7 @@ where
     W: tokio::io::AsyncWrite + Unpin,
     R: tokio::io::AsyncRead + Unpin,
 {
-    write_codex_jsonrpc_line(stdin, &json!({"id":1,"method":"initialize","params":{"clientInfo":{"name":"coderight","title":"RightKit","version":env!("CARGO_PKG_VERSION")},"capabilities":{"experimentalApi":false}}})).await?;
+    write_codex_jsonrpc_line(stdin, &json!({"id":1,"method":"initialize","params":{"clientInfo":{"name":crate::host_identity::app(),"title":"RightKit","version":env!("CARGO_PKG_VERSION")},"capabilities":{"experimentalApi":false}}})).await?;
     read_codex_jsonrpc_response(lines, 1).await?;
     write_codex_jsonrpc_line(stdin, &json!({"method":"initialized"})).await?;
     write_codex_jsonrpc_line(

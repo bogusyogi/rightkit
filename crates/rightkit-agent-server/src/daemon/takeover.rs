@@ -104,7 +104,7 @@ pub fn acquire_or_take_over(
     match identity_matches_current_binary(pid) {
         Some(false) => {
             eprintln!(
-                "lockfile pid {pid} does not resolve to a coderight executable; declining takeover (likely pid reuse)"
+                "lockfile pid {pid} does not resolve to a {app} executable; declining takeover (likely pid reuse)", app = crate::host_identity::app()
             );
             return Ok(None);
         }
@@ -117,7 +117,10 @@ pub fn acquire_or_take_over(
         }
     }
 
-    eprintln!("taking over from predecessor coderight daemon (pid {pid})");
+    eprintln!(
+        "taking over from predecessor {app} daemon (pid {pid})",
+        app = crate::host_identity::app()
+    );
     if request_cooperative_shutdown(path, pid) {
         if let Some(guard) = poll_acquire(path, grace)? {
             return Ok(Some(guard));

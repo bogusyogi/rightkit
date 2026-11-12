@@ -93,9 +93,9 @@ async fn mcp_server_status_handler() -> Json<serde_json::Value> {
     mutating_tools.sort();
 
     Json(serde_json::json!({
-        "command": "coderight mcp-server",
-        "readOnlyCommand": "coderight mcp-server",
-        "mutatingCommand": "coderight mcp-server --allow-mutate",
+        "command": format!("{app} mcp-server", app = crate::host_identity::app()),
+        "readOnlyCommand": format!("{app} mcp-server", app = crate::host_identity::app()),
+        "mutatingCommand": format!("{app} mcp-server --allow-mutate", app = crate::host_identity::app()),
         "defaultMode": "read_only",
         "mutatingRequiresOptIn": true,
         "readOnlyToolCount": read_only_tools.len(),

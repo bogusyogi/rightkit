@@ -30,7 +30,7 @@ struct ApiContract {
 
 async fn get_api_contract_handler() -> Json<ApiContract> {
     Json(ApiContract {
-        name: "coderight-daemon",
+        name: crate::host_identity::interned(crate::host_identity::prefixed("daemon")),
         version: 1,
         endpoints: DAEMON_API_ENDPOINTS,
     })

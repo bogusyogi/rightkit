@@ -40,7 +40,7 @@ pub(crate) fn plugin_routes() -> Router<DaemonState> {
 
 fn extension_execution_diagnostics_json() -> serde_json::Value {
     serde_json::json!({
-        "schema_version": "coderight.plugins.execution-trust.v1",
+        "schema_version": crate::host_identity::schema("plugins.execution-trust.v1"),
         "extension_execution": rightkit_agent_plugins::extension_trust_catalog(),
     })
 }
@@ -492,9 +492,9 @@ async fn install_marketplace_plugin_handler(
         verify_marketplace_entry_signature(entry).map_err(|_| StatusCode::BAD_REQUEST)?;
     }
     let temp_root = std::env::temp_dir().join(format!(
-        "coderight-plugin-install-{}-{}",
+        "{app}-plugin-install-{}-{}",
         entry.manifest.id,
-        now_millis()
+        now_millis(), app = crate::host_identity::app()
     ));
     let mut package_checksum = String::new();
     let source_path = if entry.source_path.as_os_str().is_empty() {
@@ -644,10 +644,10 @@ async fn rollback_plugin_handler(
     if let Some(entry) = catalog_entry {
         // Install from catalog entry (with snapshot preservation)
         let temp_root = std::env::temp_dir().join(format!(
-            "coderight-plugin-rollback-{}-{}-{}",
+            "{app}-plugin-rollback-{}-{}-{}",
             id,
             req.target_version,
-            now_millis()
+            now_millis(), app = crate::host_identity::app()
         ));
         let source_path = if entry.source_path.as_os_str().is_empty() {
             if entry.source_url.trim().is_empty() {

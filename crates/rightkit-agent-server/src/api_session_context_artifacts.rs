@@ -167,7 +167,8 @@ pub(crate) fn discover_instruction_files(
     if let Some(home) = rightkit_agent_config::os_home_dir() {
         loader.add_root(
             rightkit_agent_config::InstructionScope::User,
-            home.join(".config/coderight"),
+            home.join(".config")
+                .join(crate::host_identity::config_dir()),
         );
     }
 
@@ -179,7 +180,7 @@ pub(crate) fn discover_instruction_files(
         );
         loader.add_root(
             rightkit_agent_config::InstructionScope::Local,
-            workspace.join(".coderight"),
+            workspace.join(crate::host_identity::home_dir()),
         );
     }
 
@@ -340,7 +341,10 @@ fn discover_capability_index(
     ));
     skill_roots.push((
         rightkit_agent_host_traits::skill_host::manifest::SkillSourceScope::Workspace,
-        workspace.join(".coderight/skills"),
+        workspace.join(format!(
+            "{home}/skills",
+            home = crate::host_identity::home_dir()
+        )),
     ));
     for skill in
         rightkit_agent_host_traits::skill_host::manifest::discover_skill_roots(&skill_roots)
@@ -404,8 +408,22 @@ fn discover_hook_and_command_files(
     excluded: &std::collections::HashSet<&str>,
 ) {
     for (kind, root, effect) in [
-        ("hook", workspace.join(".coderight/hooks"), "execute"),
-        ("command", workspace.join(".coderight/commands"), "guidance"),
+        (
+            "hook",
+            workspace.join(format!(
+                "{home}/hooks",
+                home = crate::host_identity::home_dir()
+            )),
+            "execute",
+        ),
+        (
+            "command",
+            workspace.join(format!(
+                "{home}/commands",
+                home = crate::host_identity::home_dir()
+            )),
+            "guidance",
+        ),
     ] {
         for path in bounded_declaration_files(&root) {
             let Ok(body) = std::fs::read_to_string(&path) else {
@@ -541,7 +559,10 @@ fn discover_plugin_entries(
     entries: &mut std::collections::BTreeMap<String, CapabilityIndexEntry>,
     excluded: &std::collections::HashSet<&str>,
 ) {
-    for (plugin, root) in plugin_manifests_with_roots(&workspace.join(".coderight/plugins")) {
+    for (plugin, root) in plugin_manifests_with_roots(&workspace.join(format!(
+        "{home}/plugins",
+        home = crate::host_identity::home_dir()
+    ))) {
         let mut risks = vec!["executable"];
         if plugin.sandbox.inherit_env {
             risks.push("secret_exposure");

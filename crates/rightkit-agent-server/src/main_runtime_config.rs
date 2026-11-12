@@ -17,7 +17,7 @@ pub(crate) fn default_db_path() -> String {
     if rightkit_fs::ensure_private_dir(&dir).is_err() {
         let _ = std::fs::create_dir_all(&dir);
     }
-    dir.join("coderight.db").display().to_string()
+    dir.join(format!("{}.db", crate::host_identity::app())).display().to_string()
 }
 
 fn default_db_dir(
@@ -160,7 +160,7 @@ pub(crate) fn launch_effort() -> Option<String> {
 }
 
 /// Per-provider model visibility the `/providers` picker toggles: which
-/// catalog models `/model` hides. Shares the `~/.coderight/state` directory
+/// catalog models `/model` hides. Shares the `~/.{app}/state` directory
 /// with `model-selection.json`.
 fn model_visibility_path() -> Option<std::path::PathBuf> {
     model_selection_path()
@@ -243,7 +243,7 @@ fn save_model_visibility_at(
 
 /// Flip one model's hidden flag for a provider and persist the whole map.
 /// The ONE visibility writer: the `/providers` screen and
-/// `coderight provider set-visibility` both call this.
+/// `{app} provider set-visibility` both call this.
 pub(crate) fn set_model_hidden(provider: &str, model: &str, hidden: bool) -> Result<(), String> {
     let path = model_visibility_path().ok_or("no home directory for model visibility")?;
     set_model_hidden_at(&path, provider, model, hidden)
@@ -468,7 +468,7 @@ fn resolve_default_provider_id_checked(
 /// resolution [`resolve_engine_config`] uses when no provider is requested.
 /// `None` when no route matches the default model (a turn then falls back to
 /// the hosted default). The resolved credential never leaves this function;
-/// `coderight doctor` reports presence only.
+/// `{app} doctor` reports presence only.
 pub(crate) fn default_route_auth(
     config: &rightkit_agent_config::HostConfig,
 ) -> Option<(String, crate::doctor::RouteAuth)> {
@@ -642,7 +642,7 @@ pub(crate) fn load_cli_instruction_context(
     if let Some(home) = rightkit_agent_config::os_home_dir() {
         base_loader.add_root(
             rightkit_agent_config::InstructionScope::User,
-            home.join(".config/coderight"),
+            home.join(".config").join(crate::host_identity::config_dir()),
         );
     }
     base_loader.add_root(
@@ -651,7 +651,7 @@ pub(crate) fn load_cli_instruction_context(
     );
     base_loader.add_root(
         rightkit_agent_config::InstructionScope::Local,
-        workspace_root.join(".coderight"),
+        workspace_root.join(crate::host_identity::home_dir()),
     );
 
     let base_files = base_loader.discover();

@@ -1,5 +1,5 @@
 // `--output-schema` loader / validator / prompt-steering fragment for
-// `coderight run` (FEATURE-MATRIX par sect#214).
+// `{app} run` (FEATURE-MATRIX par sect#214).
 //
 // Included into the `main_runtime` module via `include!`. Defines a
 // `pub(crate)` API consumed by `main_runtime_run_session.rs`:
@@ -9,7 +9,7 @@
 //   - `prepare_output_schema`     : steer `append_system_prompt` + load validator
 //   - `validate_run_output`       : post-engine output gate
 //
-// Draft selection: the existing `coderight-recipes` crate does not
+// Draft selection: the existing `{app}-recipes` crate does not
 // standardize on a specific JSON Schema draft and does not currently depend
 // on a JSON Schema validator crate (verified via ripgrep over the
 // workspace). We adopt the `jsonschema` 0.18 crate's default draft

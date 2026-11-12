@@ -80,8 +80,14 @@ impl SessionGateway {
             .client
             .send_any(
                 &rightkit_http::Request::get(self.endpoint("tools"))
-                    .secret_header("x-coderight-capability-token", &self.capability_token)
-                    .secret_header("x-coderight-driver-instance", &self.driver_instance_secret),
+                    .secret_header(
+                        crate::host_identity::header("capability-token"),
+                        &self.capability_token,
+                    )
+                    .secret_header(
+                        crate::host_identity::header("driver-instance"),
+                        &self.driver_instance_secret,
+                    ),
             )
             .await
             .map_err(|error| format!("gateway tools request failed: {error}"))?;
@@ -105,8 +111,14 @@ impl SessionGateway {
         arguments: Value,
     ) -> Result<Value, String> {
         let request = rightkit_http::Request::post(self.endpoint("call"))
-            .secret_header("x-coderight-capability-token", &self.capability_token)
-            .secret_header("x-coderight-driver-instance", &self.driver_instance_secret)
+            .secret_header(
+                crate::host_identity::header("capability-token"),
+                &self.capability_token,
+            )
+            .secret_header(
+                crate::host_identity::header("driver-instance"),
+                &self.driver_instance_secret,
+            )
             .json(&json!({
                 "callId": request_id,
                 "name": name,
@@ -396,7 +408,7 @@ impl McpStdioServer {
             vendor_permissions,
         });
         let host = RightKitMcpServer::new(
-            "coderight",
+            crate::host_identity::app(),
             env!("CARGO_PKG_VERSION"),
             backend.clone(),
             policy,

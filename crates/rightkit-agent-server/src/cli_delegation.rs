@@ -18,7 +18,7 @@
 //! 5. Opens the child through [`AuthenticatedCliExecutor`], sends the
 //!    [`CliHandoffBrief`] prompt, folds the vendor events into an
 //!    [`AgentResult`], and returns the structured result alongside
-//!    the child's `coderight_agent_id`.
+//!    the child's `{app}_agent_id`.
 //!
 //! [`SpawnRuntimeKind::AuthenticatedCli`]: rightkit_agent_tools::coding_tools::SpawnRuntimeKind::AuthenticatedCli
 //! [`CliDelegationPolicy`]: rightkit_agents::driver_host::cli_runtime::CliDelegationPolicy
@@ -338,7 +338,7 @@ fn enter_child_worktree(
         .map(str::trim)
         .filter(|branch| !branch.is_empty())
         .map(str::to_string)
-        .unwrap_or_else(|| format!("coderight/{child_agent_id}"));
+        .unwrap_or_else(|| format!("{app}/{child_agent_id}", app = crate::host_identity::app()));
     let request = WorktreeEnterRequest {
         repo_root: repo_root.clone(),
         branch,

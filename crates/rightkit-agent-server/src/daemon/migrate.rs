@@ -1,7 +1,7 @@
 //! Daemon-side entry point for versioned state-store migrations: crash-
 //! resume detection, an atomic-publish wrapper around
 //! `rightkit_agent_engine_storage::Storage::open`, and a status/report surface a
-//! `coderight migrate status` CLI verb (or an equivalent TUI/API route) can
+//! `{app} migrate status` CLI verb (or an equivalent TUI/API route) can
 //! be wired onto.
 //!
 //! `rightkit_agent_engine_storage::migrations` (see that crate for the full mechanism)
@@ -36,7 +36,7 @@ use rightkit_agent_engine_storage::{Storage, StorageError};
 
 /// What happened when the daemon tried to bring its state store up to date
 /// at startup. Meant to be logged as a structured event and surfaced
-/// through `coderight migrate status` / the TUI startup banner — never a
+/// through `{app} migrate status` / the TUI startup banner — never a
 /// silent side effect of `Storage::open`.
 #[derive(Debug)]
 pub struct StartupMigrationReport {
@@ -278,8 +278,9 @@ pub fn open_with_migration_report<P: AsRef<Path>>(
             to_version = journal.to_version,
             pending = ?journal.pending_versions,
             pid = journal.pid,
-            "coderight daemon: found a pending-migration journal from a previous run \
-             that did not shut down cleanly; resuming automatically via PRAGMA user_version"
+            "{} daemon: found a pending-migration journal from a previous run \
+             that did not shut down cleanly; resuming automatically via PRAGMA user_version",
+            crate::host_identity::app()
         );
     }
 

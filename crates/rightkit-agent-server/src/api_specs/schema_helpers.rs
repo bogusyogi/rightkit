@@ -63,7 +63,7 @@ fn constitution_decision_schema() -> Value {
     })
 }
 
-fn coderight_specs_object_schema(description: &str) -> Value {
+fn specs_object_schema(description: &str) -> Value {
     json!({
         "type": "object",
         "description": description,

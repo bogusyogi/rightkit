@@ -156,7 +156,7 @@ fn admit(
     };
     let clock = rightkit_workflow::control_plane::clock::SystemClock::new();
     let now = crate::workflow::triggers::format_unix_ms_as_iso(now_ms);
-    let source = "coderight:monitor".to_string();
+    let source = format!("{app}:monitor", app = crate::host_identity::app());
     let content_hash = ContentHash::sha256(event.data.to_string().as_bytes());
     let dedupe = crate::workflow::triggers::derive_dedupe_key(
         &source,
@@ -180,7 +180,7 @@ fn admit(
         received_at: now.clone(),
     };
     let normalized = crate::workflow::triggers::NormalizedTriggerEvent {
-        spec_version: crate::workflow::triggers::NormalizedTriggerEvent::SPEC_VERSION.into(),
+        spec_version: crate::workflow::triggers::NormalizedTriggerEvent::spec_version().into(),
         id: rightkit_workflow::control_plane::domain::trigger_event_id(
             row.id.strip_prefix("wf_evt_").unwrap_or(&row.id),
         ),

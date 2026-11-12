@@ -79,7 +79,7 @@ pub enum InboxAdmission {
 /// status without re-parsing a stringified error.
 #[derive(Debug, Error)]
 pub enum InboxError {
-    /// The event's `specVersion` is not `"coderight.trigger/v1"`.
+    /// The event's `specVersion` is not `"{app}.trigger/v1"`.
     #[error("inbox: refusing unsupported specVersion {0}")]
     UnsupportedSpecVersion(String),
     /// The event's `dataContentType` is not `application/json`.
@@ -329,7 +329,7 @@ fn outcome_label(outcome: &TriggerEventInsert) -> &'static str {
 // ─── Validators ──────────────────────────────────────────────────────────────
 
 fn validate_spec_version(spec_version: &str) -> Result<(), InboxError> {
-    if spec_version == NormalizedTriggerEvent::SPEC_VERSION {
+    if spec_version == NormalizedTriggerEvent::spec_version() {
         Ok(())
     } else {
         Err(InboxError::UnsupportedSpecVersion(spec_version.to_string()))

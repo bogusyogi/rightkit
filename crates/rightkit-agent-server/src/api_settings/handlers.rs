@@ -60,7 +60,7 @@ async fn probe_direct_connection(
             return Err(inference_error("secret_required", StatusCode::BAD_REQUEST));
         }
         let secret = rightkit_llm::agent_providers::KeyStore::get(
-            "coderight",
+            crate::host_identity::app(),
             &format!("direct-connection:{}", connection.id),
         )
         .map_err(|_| inference_error("keychain_unavailable", StatusCode::SERVICE_UNAVAILABLE))?;
@@ -303,7 +303,7 @@ async fn update_direct_connection(
         .map_err(|error| inference_error(error.code(), StatusCode::BAD_REQUEST))?;
     if old.auth_kind != "none" && row.auth_kind == "none" && old.credential_configured {
         match rightkit_llm::agent_providers::KeyStore::delete(
-            "coderight",
+            crate::host_identity::app(),
             &format!("direct-connection:{id}"),
         ) {
             Ok(()) | Err(rightkit_llm::agent_providers::KeyStoreError::NotFound { .. }) => {}
@@ -347,7 +347,7 @@ async fn delete_direct_connection(
         ));
     }
     let _ = rightkit_llm::agent_providers::KeyStore::delete(
-        "coderight",
+        crate::host_identity::app(),
         &format!("direct-connection:{id}"),
     );
     Ok(Json(json!({"deleted": true, "id": id})))
@@ -376,7 +376,7 @@ async fn put_direct_connection_secret(
         .map_err(|_| inference_error("authority_unavailable", StatusCode::INTERNAL_SERVER_ERROR))?
         .ok_or_else(|| inference_error("connection_not_found", StatusCode::NOT_FOUND))?;
     rightkit_llm::agent_providers::KeyStore::set(
-        "coderight",
+        crate::host_identity::app(),
         &format!("direct-connection:{id}"),
         &body.secret,
     )
@@ -413,7 +413,7 @@ async fn delete_direct_connection_secret(
         .map_err(|_| inference_error("authority_unavailable", StatusCode::INTERNAL_SERVER_ERROR))?
         .ok_or_else(|| inference_error("connection_not_found", StatusCode::NOT_FOUND))?;
     rightkit_llm::agent_providers::KeyStore::delete(
-        "coderight",
+        crate::host_identity::app(),
         &format!("direct-connection:{id}"),
     )
     .map_err(|_| inference_error("keychain_unavailable", StatusCode::SERVICE_UNAVAILABLE))?;
@@ -828,7 +828,7 @@ async fn save_settings(
         (previous, store.clone())
     };
 
-    // Persist the requested fields to ~/.coderight/config.toml so budgets and the
+    // Persist the requested fields to ~/.{app}/config.toml so budgets and the
     // orchestrator model all survive a daemon restart.
     {
         use rightkit_agent_config::ConfigLoader;

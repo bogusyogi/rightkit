@@ -1,4 +1,4 @@
-//! CLI surface for the `coderight` binary.
+//! CLI surface for the `{app}` binary.
 
 use clap::{Parser, Subcommand, ValueEnum};
 

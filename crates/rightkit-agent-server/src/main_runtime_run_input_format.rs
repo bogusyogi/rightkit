@@ -2,7 +2,7 @@ use clap::ValueEnum;
 use rightkit_agent_engine_protocol::TrustEnvelope;
 use serde::{Deserialize, Serialize};
 
-/// CLI flag selector for the prompt input channel used by `coderight run`.
+/// CLI flag selector for the prompt input channel used by `{app} run`.
 /// `text` (default) keeps the existing positional-prompt behavior untouched;
 /// `stream-json` reads JSONL events from stdin and drives the run from them
 /// (FEATURE-MATRIX par §#32 + #35 — inbound complement to `--stream-json`).
@@ -24,7 +24,7 @@ pub enum ControlAction {
     Ping,
 }
 
-/// Inbound JSONL event schema for `coderight run --input-format stream-json`.
+/// Inbound JSONL event schema for `{app} run --input-format stream-json`.
 ///
 /// The discriminator is `"type"` (per the FEATURE-MATRIX spec) NOT the
 /// outbound wire's `"$kind"`. Field names mirror the OUTBOUND stream-json

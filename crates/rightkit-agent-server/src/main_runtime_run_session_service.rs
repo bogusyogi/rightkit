@@ -88,7 +88,7 @@ fn apply_prepared_prompt_append(prompt: String, append: Option<String>) -> Strin
 
 fn run_error_envelope(code: RunExitCode, message: &str) -> Value {
     serde_json::json!({
-        "schema_version": "coderight.cli.error.v1",
+        "schema_version": crate::host_identity::schema("cli.error.v1"),
         "event": "error",
         "error": {
             "class": code.class(),
@@ -222,7 +222,7 @@ fn process_daemon_event_with_mode(
                 }
                 RunOutputMode::Json if terminal => {
                     let mut envelope = serde_json::json!({
-                        "schema_version": "coderight.cli.rpc.v1",
+                        "schema_version": crate::host_identity::schema("cli.rpc.v1"),
                         "session_id": session_id,
                         "terminal_event": protocol_event,
                     });
