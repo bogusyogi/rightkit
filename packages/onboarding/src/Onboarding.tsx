@@ -236,7 +236,7 @@ export function Onboarding({ settings, legal, legalMode = "gate", appName, steps
   }, [needsGate, gateCleared, beforeLegalGate]);
 
   const setResult = useCallback((value: unknown) => { stepResults.current[activeId] = value; }, [activeId]);
-  const context: OnboardingStepContext = { state: activeState, settings, setState: saveStep, permissions, models, license, signIn, ready: readyMap, setReady, setResult };
+  const context: OnboardingStepContext = { state: activeState, settings, setState: saveStep, permissions, models, license, signIn, ready: readyMap, setReady, setResult, advance: () => advanceFromStep() };
   const canContinue = active?.canContinue ? active.canContinue(context) : true;
   const runCallback = async (callback: (() => void | Promise<void>) | undefined) => {
     try { await callback?.(); } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
@@ -255,6 +255,14 @@ export function Onboarding({ settings, legal, legalMode = "gate", appName, steps
       return;
     }
     await save({ completed, skippedSteps, currentStep: nextIndex, skipped: false });
+  };
+  /**
+   * `context.advance`: completes the step that was on screen when this context was built and moves to the next one, as Continue
+   * does without the `onContinue` veto. A no-op once another step is on screen (Back, the rail), so a late call never moves the user.
+   */
+  const advanceFromStep = async () => {
+    if (!active || activeIdRef.current !== active.id) return;
+    await markAndMove(index + 1, { completed: active.id });
   };
   /** Primary button: runs the step's `onContinue` veto first; `false` or a throw keeps the step. */
   const advance = async () => {
@@ -347,6 +355,6 @@ export function Onboarding({ settings, legal, legalMode = "gate", appName, steps
   return <main className={rootClass} data-testid="onboarding" data-step-id={active.id}>
     <TitleStrip titlebar={titlebar} dragRegion={dragRegion} />
     <aside className="rk-onboarding__rail"><div className="rk-onboarding__brand">{appName ?? legal?.appName}</div><nav aria-label="Setup progress">{builtins.map((step, i) => <button key={step.id} type="button" className={cx("rk-onboarding__step", i === index && "is-active", activeState.completed.includes(step.id) && "is-done")} aria-current={i === index ? "step" : undefined} disabled={(gated && i === 0 && builtins.length > 1) || continuing} onClick={() => { if (!continuing && i >= lead && (i <= index || canContinue)) void save({ currentStep: i }); }}><span>{activeState.completed.includes(step.id) ? "✓" : i + 1}</span>{step.label}</button>)}</nav></aside>
-    <section className="rk-onboarding__main"><header><p className="rk-onboarding__eyebrow">Step {index + 1} of {builtins.length}</p>{active.title ? <h1>{active.title}</h1> : null}{active.description ? <p className="rk-onboarding__description">{active.description}</p> : null}</header><div className="rk-onboarding__content">{body}</div>{error ? <p className="rk-onboarding__error" role="alert">{error}</p> : null}<footer>{allowSkip ? <Button variant="ghost" disabled={saving || continuing} onClick={() => { void save({ currentStep: index, skipped: true }).then((ok) => ok ? runCallback(onSkip) : undefined); }}>{L.skip}</Button> : null}{active.skippable ? <Button variant="ghost" disabled={saving || continuing} onClick={() => void markAndMove(index + 1, { skipped: active.id })}>{L.skipStep}</Button> : null}<span className="rk-onboarding__hint">{!canContinue && blockedHint ? blockedHint : null}</span><Button variant="secondary" disabled={index <= lead || saving || continuing} onClick={() => void save({ currentStep: index - 1 })}>{L.back}</Button><Button variant="primary" disabled={saving || continuing || !canContinue} onClick={() => void advance()}>{continueLabel}</Button></footer></section>
+    <section className="rk-onboarding__main"><header><p className="rk-onboarding__eyebrow">Step {index + 1 - lead} of {builtins.length - lead}</p>{active.title ? <h1>{active.title}</h1> : null}{active.description ? <p className="rk-onboarding__description">{active.description}</p> : null}</header><div className="rk-onboarding__content">{body}</div>{error ? <p className="rk-onboarding__error" role="alert">{error}</p> : null}<footer>{allowSkip ? <Button variant="ghost" disabled={saving || continuing} onClick={() => { void save({ currentStep: index, skipped: true }).then((ok) => ok ? runCallback(onSkip) : undefined); }}>{L.skip}</Button> : null}{active.skippable ? <Button variant="ghost" disabled={saving || continuing} onClick={() => void markAndMove(index + 1, { skipped: active.id })}>{L.skipStep}</Button> : null}<span className="rk-onboarding__hint">{!canContinue && blockedHint ? blockedHint : null}</span><Button variant="secondary" disabled={index <= lead || saving || continuing} onClick={() => void save({ currentStep: index - 1 })}>{L.back}</Button><Button variant="primary" disabled={saving || continuing || !canContinue} onClick={() => void advance()}>{continueLabel}</Button></footer></section>
   </main>;
 }

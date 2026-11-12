@@ -20,7 +20,7 @@ tauri = { version = "2", features = ["tray-icon"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 getrandom = "0.4"
-rightkit-agent-tools = { version = "0.3.1", path = "../rightkit-agent-tools", default-features = false, features = ["demo"] }
+rightkit-agent-tools = { version = "0.4.0", path = "../rightkit-agent-tools", default-features = false, features = ["demo"] }
 rightkit-automation = { version = "0.7.0", path = "../rightkit-automation" }
 rightkit-record = { version = "0.4.0", path = "../rightkit-record" }
 rightkit-hotkeys = { version = "0.1.2", path = "../rightkit-hotkeys" }

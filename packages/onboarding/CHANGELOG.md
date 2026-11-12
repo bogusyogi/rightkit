@@ -2,6 +2,8 @@
 
 ## 0.6.5
 
+- Fixed: the rail frame's "Step n of N" eyebrow counts the steps the user sees. In gate mode the hidden Agreement stand-in was counted, so the first setup step read "Step 2 of 9" instead of "Step 1 of 8". Apps that drew their own label to hide the eyebrow can drop it.
+- Added: `OnboardingStepContext.advance()` completes the step on screen and moves to the next one without the Continue press or the `onContinue` veto; it does nothing after the user left the step. A hand-built `OnboardingStepContext` must add it. Apps that wrote the frame's `currentStep` index through `setState` for an automatic advance can call it instead.
 - Changed: `OnboardingStep.blockedHint` and `OnboardingStep.continueLabel` also accept `(context) => string | undefined`, so the text can follow the step's state (`undefined` shows no hint, or the default label). A string works as before.
 - Removed: `importLegacyAcceptance`, its `LegacyAcceptanceImportOptions` type, and `LEGAL_RECEIPT_COMMANDS.import` (`rightkit_legal_receipt_import`). Both were added in 0.6.4 (unpublished). No Rust crate registers that command and no app calls the function. The native receipt (`crates/rightkit-tauri-shell/src/host/legal.rs`) imports a legacy receipt on its first read instead (`with_legacy_import`).
 

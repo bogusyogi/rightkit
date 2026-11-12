@@ -1,4 +1,4 @@
-// rightkit-agent-coding-tools 0.1.0 (the `coding_tools` module of rightkit-agent-tools until 0.3.5)
+// rightkit-agent-coding-tools 0.1.0 (the `coding_tools` module of rightkit-agent-tools up to 0.3.4)
 // consumed by exact registry pin: the edit helper the file-editing tools share. No files are
 // written and nothing is started.
 use rightkit_agent_coding_tools::edit_helpers::apply_single_edit;
