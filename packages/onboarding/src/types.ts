@@ -212,6 +212,12 @@ export interface OnboardingStepContext {
   setReady: (ready: boolean) => void;
   /** Stores a value for this step; it is passed to `onComplete` as `result.steps[step.id]`. */
   setResult: (value: unknown) => void;
+  /**
+   * Completes this step and moves to the next one without the user pressing Continue (a download that finished, a grant that
+   * arrived). It skips `onContinue`, completing the last step finishes setup, and it does nothing once the user has left the
+   * step. Resolves when the move is saved.
+   */
+  advance: () => Promise<void>;
 }
 
 export interface OnboardingStep {
