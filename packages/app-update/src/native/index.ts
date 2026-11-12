@@ -64,6 +64,12 @@ export interface NativeUpdateClient {
   setBusy(busy: boolean): Promise<void>;
   /** Release status for the native app, read by the shell (`rightkit_update_release_status`) and validated against the release status schema. */
   releaseStatus(): Promise<ReleaseStatus>;
+  /**
+   * Restart the app after an install (`rightkit_update_relaunch`). The host refuses it unless an install completed,
+   * and sequences the exit and the restart so the single-instance guard does not kill the replacement; use it
+   * instead of a plugin `relaunch()`.
+   */
+  relaunch(): Promise<void>;
   onProgress(callback: (progress: UpdateProgress) => void): Promise<Unlisten>;
   /** Also cleans registrations whose asynchronous listen call has not resolved. */
   dispose(): void;
@@ -197,6 +203,7 @@ export function createNativeUpdateClient(transport: NativeUpdateTransport): Nati
     async download(handleId) { return request('rightkit_update_download', downloadResult, { handleId: handle(handleId) }); },
     async install(handleId) { return request('rightkit_update_install', installResult, { handleId: handle(handleId) }); },
     async cancel(handleId) { return request('rightkit_update_cancel', value => ({ cancelled: bool(record(value).cancelled) }), { handleId: handle(handleId) }); },
+    async relaunch() { await request('rightkit_update_relaunch', () => undefined); },
     async setBusy(busy) { await request('rightkit_update_set_busy', () => undefined, { busy: bool(busy) }); },
     async onProgress(callback) {
       if (disposed) throw new NativeUpdateClientError('unsupported', 'unsupported');

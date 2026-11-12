@@ -565,3 +565,13 @@ export {
   buildActivationUpdateHeaders,
   type ActivationUpdateHeaderOptions,
 } from './activation-headers.js';
+export { proUpdateVersion, type ProUpdateVersionOptions, type ProUpdateVersionRead, type ProUpdateVersionRequest } from './pro-update.js';
+export {
+  createUpdateSession,
+  type BackgroundUpdateStatus,
+  type UpdateSession,
+  type UpdateSessionBusyConfig,
+  type UpdateSessionClientHooks,
+  type UpdateSessionOptions,
+  type UpdateSessionTransport,
+} from './session.js';
