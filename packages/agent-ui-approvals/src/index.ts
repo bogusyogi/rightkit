@@ -6,6 +6,7 @@ export * from "./approvals/components/AgentApprovalCard.js";
 export * from "./approvals/components/AgentApprovalThread.js";
 export * from "./approvals/hooks/useAgentApprovals.js";
 export * from "./approvals/lib/agentFile.js";
+export * from "./approvals/lib/agentWire.js";
 export * from "./approvals/lib/approvalQueue.js";
 export * from "./approvals/views/SettingsAgentsAudit.js";
 export * from "./approvals/views/SettingsAgentsSection.js";

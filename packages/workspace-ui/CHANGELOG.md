@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.1
+
+- The views and navs need `WorkspaceHostProvider` and throw at render without it, although they type-check. The README now says the provider is required, and the thrown error names exactly what is missing: `MISSING_WORKSPACE_HOST_PROVIDER` (new export), "missing <WorkspaceHostProvider host={...}> (exported by @rightkit/workspace-ui)", with the views and navs that need it and MailRight's ready wrapper (`@rightkit/mail-ui` `MailWorkspaceProvider` and wrapped views). No behaviour change otherwise.
+
 ## 0.2.0 (unpublished)
 
 Taken on the recommended option of the shape review, pending the owner's confirmation.

@@ -713,7 +713,7 @@
           "@rightkit/legal-ui": "0.4.2",
           "@rightkit/license": "0.3.1",
           "@rightkit/logs": "0.1.6",
-          "@rightkit/mail-ui": "0.2.0",
+          "@rightkit/mail-ui": "0.2.1",
           "@rightkit/onboarding": "0.6.4",
           "@rightkit/outdated": "0.3.1",
           "@rightkit/pdf-ui": "0.3.0",
@@ -723,7 +723,7 @@
           "@rightkit/settings-ui": "0.7.1",
           "@rightkit/system-ui": "0.2.0",
           "@rightkit/theme": "0.3.2",
-          "@rightkit/workspace-ui": "0.2.0"
+          "@rightkit/workspace-ui": "0.2.1"
         },
         "declaredOnly": [
           "@tauri-apps/api",
@@ -731,9 +731,9 @@
         ]
       },
       "files": {
-        "ci/consumers/npm/agent-ui-approvals/README.md": "9e4b4d733bfa23475d249e24f9672e20338669638c1693bff25b3720e8a29f7d",
-        "ci/consumers/npm/agent-ui-approvals/consumer.mjs": "2b249fff3c04b999bf377622d2cd37a909e9a74facf69dfe28ad3b25bfad3f35",
-        "ci/consumers/npm/agent-ui-approvals/package.json": "4696a3cf4d5ea92eb585ffc35998f563121cc3fb8bd88a08e09e96596d741de4",
+        "ci/consumers/npm/agent-ui-approvals/README.md": "5cdfaa50d5b4a52698732235ceb3880c9f2f2781faf5dbdb2e80f081ce5b37c2",
+        "ci/consumers/npm/agent-ui-approvals/consumer.mjs": "fc6710db18c95cd7104428f66d383afaff68069facb6cbb0723202b1cc503b71",
+        "ci/consumers/npm/agent-ui-approvals/package.json": "a3198dad7ff35557c4c108bf807d8e0c6501c9c297b7094c880bc91364c28ac2",
         "ci/consumers/npm/agent-ui-approvals/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "fc160695e1dc97dc7e32e746c9e4471e2d85168b097623de818befeb00ee438c"
       }
@@ -1201,7 +1201,7 @@
           "react-dom": "19.3.1",
           "@rightkit/app-update": "0.4.3",
           "@rightkit/doc-render": "0.2.2",
-          "@rightkit/library-ui": "0.2.0",
+          "@rightkit/library-ui": "0.2.1",
           "@rightkit/license": "0.3.1",
           "@rightkit/logs": "0.1.6",
           "@rightkit/media-ui": "0.3.6",
@@ -1216,9 +1216,9 @@
         ]
       },
       "files": {
-        "ci/consumers/npm/dictation-ui/README.md": "7b6be5306b427f66ddf943d65afa02be6162670257250268cfa9bdffd36b3ffc",
-        "ci/consumers/npm/dictation-ui/consumer.mjs": "e5f2b5286ec8cd7ec50c909e49f4cab90ff3f77f66b91504fa69537c70b35f9f",
-        "ci/consumers/npm/dictation-ui/package.json": "ed74eac75b1759aa21ac2f139afb7b60f1daa2c8624b4864ad8b1c4aa033f8cf",
+        "ci/consumers/npm/dictation-ui/README.md": "075957d2212d751ab8722f8b6d9d976622cbf6d811d26a75c51571aa8a0ab5ad",
+        "ci/consumers/npm/dictation-ui/consumer.mjs": "fb280222b1314665f41d03982f68be329e59994365c950e581675af85a87fd2e",
+        "ci/consumers/npm/dictation-ui/package.json": "445d6039c1d58c747ba28b2c693100f1b0647b996404f482988af094e27177c9",
         "ci/consumers/npm/dictation-ui/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "fc160695e1dc97dc7e32e746c9e4471e2d85168b097623de818befeb00ee438c"
       }
@@ -1355,8 +1355,8 @@
         ]
       },
       "files": {
-        "ci/consumers/npm/document-workspace/README.md": "bab715aaafe229da26e375331ab135d35e3ec88a064c5dd3361491dac9b0f53c",
-        "ci/consumers/npm/document-workspace/consumer.mjs": "fd7898324ea9304de7c215e14bee1152238969f67d48cabc343d9ec8016c9927",
+        "ci/consumers/npm/document-workspace/README.md": "512e293d4450f6cce74eef02c8493417729afddd2ed4b0b9be0d88e27b01979c",
+        "ci/consumers/npm/document-workspace/consumer.mjs": "15828ba90bbadefb4611d85d0a4a24c5a19f5a4361ad1473bb7859622b227a41",
         "ci/consumers/npm/document-workspace/package.json": "2314961353d3f8e9a6a5d69f680551e2bf790010478af64a6e8bb058fa633c57",
         "ci/consumers/npm/document-workspace/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "fc160695e1dc97dc7e32e746c9e4471e2d85168b097623de818befeb00ee438c"
@@ -1519,7 +1519,7 @@
         ]
       },
       "files": {
-        "ci/consumers/npm/library-ui/README.md": "c3b9e69cfa3b6eafd1c969407b90cfbd0d2ef4ad13d74049021b513dc0ea56e1",
+        "ci/consumers/npm/library-ui/README.md": "2eaee1a9ec0ab463b099aa4677d4f4a35e2178f4a652636ad7070586deb7b775",
         "ci/consumers/npm/library-ui/consumer.mjs": "09d7e7864e55b23b56e46c6bc298373c079d2fe02c69b209dade5bcd4e2d6bb1",
         "ci/consumers/npm/library-ui/package.json": "f4a221bb721defdcc6b474cadf306f35fdae2389891832f69605eb6079a5ed77",
         "ci/consumers/npm/library-ui/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
@@ -1564,7 +1564,7 @@
           "@rightkit/release": "0.6.52",
           "@rightkit/settings-ui": "0.7.1",
           "@rightkit/theme": "0.3.2",
-          "@rightkit/workspace-ui": "0.2.0"
+          "@rightkit/workspace-ui": "0.2.1"
         },
         "declaredOnly": [
           "@tanstack/react-virtual",
@@ -1582,9 +1582,9 @@
         ]
       },
       "files": {
-        "ci/consumers/npm/mail-ui/README.md": "caf90bbb9c06e66d9a5aab77587110fb89dc0cfd0b64a7e436a20796efafa7f0",
-        "ci/consumers/npm/mail-ui/consumer.mjs": "d83e183db11e802324e50a8b82c527a90a0bf2ee29f8a3402813186f458f8ed4",
-        "ci/consumers/npm/mail-ui/package.json": "dbd761e85a222a6af9cdeb87442d0cdb1080ef992df02631953b6cc63c45f87b",
+        "ci/consumers/npm/mail-ui/README.md": "cd4d361cbdae6c78311945d184a25779c9c05e5938aaa72a6bf6719122c8dfd2",
+        "ci/consumers/npm/mail-ui/consumer.mjs": "87c6aed178db9d3421ba09fc42c538086c7b13d3667acb669469525b963d701f",
+        "ci/consumers/npm/mail-ui/package.json": "f4c52f2b7b191c01b016f8881288366d5dc3af907c8cdf0f33e92b973461e755",
         "ci/consumers/npm/mail-ui/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "fc160695e1dc97dc7e32e746c9e4471e2d85168b097623de818befeb00ee438c"
       }
@@ -1818,23 +1818,44 @@
       "scenarios": 1,
       "surface": [
         ".",
+        "./app",
+        "./app.css",
         "./package.json",
-        "./styles.css"
+        "./styles.css",
+        "./tauri"
       ],
       "closure": {
         "install": {
           "react": "19.3.1",
           "react-dom": "19.3.1",
+          "@rightkit/app-update": "0.4.3",
+          "@rightkit/ci": "0.3.2",
+          "@rightkit/legal": "0.6.3",
+          "@rightkit/legal-ui": "0.4.2",
+          "@rightkit/license": "0.3.1",
+          "@rightkit/logs": "0.1.6",
           "@rightkit/media-ui": "0.3.6",
+          "@rightkit/onboarding": "0.6.4",
+          "@rightkit/outdated": "0.3.1",
           "@rightkit/platform-ui": "0.4.1",
-          "@rightkit/react-shell": "0.7.3"
+          "@rightkit/react-shell": "0.7.3",
+          "@rightkit/release": "0.6.52",
+          "@rightkit/settings-ui": "0.7.1",
+          "@rightkit/tauri": "0.4.0",
+          "@rightkit/tauri-shell": "0.1.4",
+          "@rightkit/theme": "0.3.2"
         },
-        "declaredOnly": []
+        "declaredOnly": [
+          "@tauri-apps/api",
+          "@tauri-apps/plugin-dialog",
+          "@tauri-apps/plugin-process",
+          "@tauri-apps/plugin-updater"
+        ]
       },
       "files": {
-        "ci/consumers/npm/video-ui/README.md": "355f10bcc5fc2791a001644e55131f06179924cc3db0cec9195855a08aa71317",
-        "ci/consumers/npm/video-ui/consumer.mjs": "fedabc092c6e382aea763bb6016a351195e02eec48b692dcfe8130ae9c7e6336",
-        "ci/consumers/npm/video-ui/package.json": "2469e8eca1edefc186680d9b2e7f6d15ee7cc2be43c74d5cfb1c458132bc78a8",
+        "ci/consumers/npm/video-ui/README.md": "14f25f4c243f010bf55c7c43347e44a79437e11ebc6589ebe4a4903ca0f4ee91",
+        "ci/consumers/npm/video-ui/consumer.mjs": "69fc7ef0dc87eaf406f11b3698820b040deff65bbcd8d0992a3702d5825c2f4a",
+        "ci/consumers/npm/video-ui/package.json": "5647b59f79e3f8238964dae1247d986785bc57821398435aa80209442f47e203",
         "ci/consumers/npm/video-ui/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "fc160695e1dc97dc7e32e746c9e4471e2d85168b097623de818befeb00ee438c"
       }
@@ -1888,8 +1909,8 @@
         "declaredOnly": []
       },
       "files": {
-        "ci/consumers/npm/workspace-ui/README.md": "4e2be5a6579fa9b005a10dac787044e93b0af1b36a8a508496b23eb08d9cc240",
-        "ci/consumers/npm/workspace-ui/consumer.mjs": "58d4da739ba45c23cd93e768867dbf602bdb8f996edf35cbc749fe9fb77201f8",
+        "ci/consumers/npm/workspace-ui/README.md": "dbe39a98fbd62b6eb5de2f1810272e51cd62b662832ff6bafce2c90a87d6f07e",
+        "ci/consumers/npm/workspace-ui/consumer.mjs": "138d6ce84dfa296b30f838c83efce0f35b17e9c3534e122d8febb3087e5a9f4f",
         "ci/consumers/npm/workspace-ui/package.json": "cf8e151d6ea0c453ac17a37b26cc5870b1842048b06ec3c685b0d08dfe3e8f89",
         "ci/consumers/npm/workspace-ui/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "fc160695e1dc97dc7e32e746c9e4471e2d85168b097623de818befeb00ee438c"

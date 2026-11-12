@@ -9,7 +9,7 @@ const result = { recipeId, schemaVersion: 1, ok: false, host: { platform: proces
 const failure = error => ({ name: error?.name ?? 'Error', message: String(error?.message ?? error) });
 const required = name => { assert(process.env[name], `${name} is required`); return process.env[name]; };
 const surface = [".", "./components/AccountSwitcher", "./components/Icons", "./hooks/dialog", "./lib/ipc", "./lib/ipc/agentApprovals", "./lib/mail", "./lib/preferences", "./lib/visibleText", "./package.json", "./store/index", "./store/types", "./styles.css"];
-const expected = ["setHostAppName", "hostAppName", "AccountSwitcher", "mailWorkspaceHost", "mailWorkspaceClient"];
+const expected = ["setHostAppName", "hostAppName", "AccountSwitcher", "mailWorkspaceHost", "mailWorkspaceClient", "MailWorkspaceProvider", "CalendarView", "TasksView", "DriveView", "ContactsView", "MeetView", "normalizeAgentRow", "normalizeAgentAuditRow"];
 
 try {
   const archive = path.resolve(required('RIGHTKIT_CONSUMER_ARTIFACT'));
@@ -40,7 +40,32 @@ try {
     for (const gone of ["useDrive", "CalendarNav", "DriveNav", "rangeFor"]) assert.ok(!(gone in mod), `${gone} must come from @rightkit/workspace-ui`);
     assert.equal(typeof mod.mailWorkspaceClient.listCalendars, 'function');
     assert.equal(typeof mod.mailWorkspaceHost.useState, 'function');
-    return { checked: expected, exportKeys: surface.length };
+    // The workspace views mail-ui exports are ready to mount: they carry their own provider over mailWorkspaceHost,
+    // where workspace-ui's bare views throw without one.
+    const { createElement } = await import('react');
+    const { renderToString } = await import('react-dom/server');
+    const workspace = await import('@rightkit/workspace-ui');
+    let seen = null;
+    function Probe() { seen = workspace.useWorkspaceHost(); return null; }
+    renderToString(createElement(mod.MailWorkspaceProvider, null, createElement(Probe)));
+    assert.equal(seen, mod.mailWorkspaceHost);
+    // A ready view gets past the provider (it may still need the app's own startup, e.g. preferences, to render).
+    for (const view of ['CalendarView', 'TasksView', 'DriveView', 'ContactsView', 'MeetView']) {
+      try { renderToString(createElement(mod[view])); }
+      catch (error) { assert.notEqual(error.message, workspace.MISSING_WORKSPACE_HOST_PROVIDER, `${view} has no provider`); }
+    }
+    // The agent wire: gateway 0.3.0 says scopes/scope, older gateways accounts/account_id; both normalize alike.
+    const agent = { id: 'a', name: 'A', profile: 'read_only', created_at: 1, revoked_at: null };
+    for (const row of [mod.normalizeAgentRow({ ...agent, scopes: ['me@example.com'] }), mod.normalizeAgentRow({ ...agent, accounts: ['me@example.com'] })]) {
+      assert.deepEqual(row.scopes, ['me@example.com']);
+      assert.deepEqual(row.accounts, ['me@example.com']);
+    }
+    const audit = { id: 1, at: 1, agent_name: 'A', method: 'search', outcome: 'ok', detail: null };
+    for (const row of [mod.normalizeAgentAuditRow({ ...audit, scope: 'me@example.com' }), mod.normalizeAgentAuditRow({ ...audit, account_id: 'me@example.com' })]) {
+      assert.equal(row.scope, 'me@example.com');
+      assert.equal(row.account_id, 'me@example.com');
+    }
+    return { checked: expected, exportKeys: surface.length, providerSuppliesHost: true, agentWires: 2 };
   });
 
   assert.equal(result.scenarios.length, 1);

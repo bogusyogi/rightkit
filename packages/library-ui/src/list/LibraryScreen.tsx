@@ -9,12 +9,13 @@ import {
   LibraryConfirmDialog,
   LibraryContext,
   type LibraryContextValue,
+  type LibraryFilterOption,
   type LibraryLabels,
   LibraryNotice,
   LibraryToolbar,
 } from "./LibraryChrome.js";
 import { LibraryRows } from "./LibraryRows.js";
-import { type DateFilter, dateFilterRange, formatRowsPlainText, type PendingConfirm } from "./format.js";
+import { type DateFilter, dateFilterRange, formatRowsPlainText, friendlyAppName, type PendingConfirm } from "./format.js";
 import { collectAllRows, type LibraryFilter, useLibraryQuery } from "./useLibraryQuery.js";
 import { RecoveryBanner } from "./RecoveryBanner.js";
 import { type GroupSelection, useGroupSelection } from "./useGroupSelection.js";
@@ -179,10 +180,24 @@ export function LibraryScreen({
     stopPropagation: false,
   });
 
-  const appOptions = useMemo(() => {
-    const apps = new Set(visibleItems.flatMap((item) => (item.origin ? [item.origin.label] : [])));
-    if (appFilter !== "all") apps.add(appFilter);
-    return Array.from(apps).sort((a, b) => a.localeCompare(b));
+  // The filter sends an origin's `filterKey` (the source's own key, e.g. a raw process name) and shows its
+  // `label`; a source that matches on the key never sees the display form. Labels seen once stay known, so
+  // a picked origin keeps its label while the filtered list is empty.
+  const originLabels = useRef(new Map<string, string>());
+  const appOptions = useMemo<LibraryFilterOption[]>(() => {
+    const options = new Map<string, string>();
+    for (const item of visibleItems) {
+      if (!item.origin) continue;
+      const value = item.origin.filterKey ?? item.origin.label;
+      originLabels.current.set(value, item.origin.label);
+      if (!options.has(value)) options.set(value, item.origin.label);
+    }
+    if (appFilter !== "all" && !options.has(appFilter)) {
+      options.set(appFilter, originLabels.current.get(appFilter) ?? friendlyAppName(appFilter));
+    }
+    return Array.from(options, ([value, label]) => ({ value, label })).sort(
+      (a, b) => a.label.localeCompare(b.label) || a.value.localeCompare(b.value),
+    );
   }, [visibleItems, appFilter]);
 
   const hasActiveFilters =

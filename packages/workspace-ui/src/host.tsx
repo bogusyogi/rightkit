@@ -122,9 +122,16 @@ export function WorkspaceHostProvider({ host, children }: { host: WorkspaceHost;
   return <HostContext.Provider value={host}>{children}</HostContext.Provider>;
 }
 
+/** The message thrown when a view or nav renders with no provider above it. */
+export const MISSING_WORKSPACE_HOST_PROVIDER =
+  "@rightkit/workspace-ui: missing <WorkspaceHostProvider host={...}> (exported by @rightkit/workspace-ui). Every workspace view " +
+  "and nav (CalendarView, ContactsView, DriveView, TasksView, MeetView, CalendarNav, ContactsNav, DriveNav, TasksNav) must render " +
+  "inside it. MailRight: use <MailWorkspaceProvider> or the ready views from @rightkit/mail-ui.";
+
+/** The host from the nearest `WorkspaceHostProvider`; throws `MISSING_WORKSPACE_HOST_PROVIDER` when there is none. */
 export function useWorkspaceHost(): WorkspaceHost {
   const host = useContext(HostContext);
-  if (!host) throw new Error("@rightkit/workspace-ui: render the views inside <WorkspaceHostProvider host={...}>");
+  if (!host) throw new Error(MISSING_WORKSPACE_HOST_PROVIDER);
   return host;
 }
 

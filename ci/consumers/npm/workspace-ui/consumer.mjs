@@ -9,7 +9,7 @@ const result = { recipeId, schemaVersion: 1, ok: false, host: { platform: proces
 const failure = error => ({ name: error?.name ?? 'Error', message: String(error?.message ?? error) });
 const required = name => { assert(process.env[name], `${name} is required`); return process.env[name]; };
 const surface = [".", "./client", "./host", "./lib/avatar", "./lib/calendarUtils", "./package.json"];
-const expected = ["buildVcf", "parseVcf", "parseContactsCsv", "WorkspaceHostProvider", "useWorkspaceHost", "useWorkspaceState", "CalendarView", "ContactsView", "DriveView", "TasksView", "MeetView", "CalendarNav", "DriveNav", "useDrive", "colorFor", "WEEKDAYS"];
+const expected = ["buildVcf", "parseVcf", "parseContactsCsv", "WorkspaceHostProvider", "useWorkspaceHost", "useWorkspaceState", "CalendarView", "ContactsView", "DriveView", "TasksView", "MeetView", "CalendarNav", "DriveNav", "useDrive", "colorFor", "WEEKDAYS", "MISSING_WORKSPACE_HOST_PROVIDER"];
 
 try {
   const archive = path.resolve(required('RIGHTKIT_CONSUMER_ARTIFACT'));
@@ -39,7 +39,10 @@ try {
     // The views hold no IPC: without a host they refuse to render rather than reach for a transport.
     const { createElement } = await import('react');
     const { renderToString } = await import('react-dom/server');
-    assert.throws(() => renderToString(createElement(mod.TasksNav)), /WorkspaceHostProvider/);
+    // and the error names the missing provider exactly.
+    assert.match(mod.MISSING_WORKSPACE_HOST_PROVIDER, /missing <WorkspaceHostProvider host=\{\.\.\.\}>/);
+    assert.throws(() => renderToString(createElement(mod.TasksNav)), error => error.message === mod.MISSING_WORKSPACE_HOST_PROVIDER);
+    assert.throws(() => renderToString(createElement(mod.MeetView)), error => error.message === mod.MISSING_WORKSPACE_HOST_PROVIDER);
     const avatar = await import(new URL('./lib/avatar.js', provenance.entries['@rightkit/workspace-ui']).href);
     assert.equal(avatar.colorFor('ada@example.com'), mod.colorFor('ada@example.com'));
     assert.equal(avatar.initialOf(' ada'), 'A');

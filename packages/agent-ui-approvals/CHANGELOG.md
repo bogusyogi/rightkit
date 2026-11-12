@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.1
+
+- Fix: Settings · Agents read the pre-0.3.0 agent wire only (`a.accounts.join`, `r.account_id`); rightkit-agent-gateway 0.3.0 renamed them `scopes` and `scope`, so the agent list threw and the activity log showed no account with a 0.3.0 host. New `approvals/lib/agentWire` (root export): `agentScopes` (`scopes ?? accounts`) and `auditScope` (`scope ?? account_id`); `SettingsAgentsSection` and `SettingsAgentsAudit` read through them, so both gateway versions work. Needs `@rightkit/mail-ui` 0.2.1 (its rows carry both names).
+
 ## 0.2.0 (unpublished)
 
 Follows the `@rightkit/system-ui` 0.2.0 redraw (recommended option of the shape review, pending the owner's

@@ -1,7 +1,7 @@
 // @rightkit/library-ui: one library contract (`LibrarySource`, `LibraryRow`, `LibraryDetail`), the
 // list (HeardRight's History as the reference) and the reader (ScrapeRight's Detail as the
-// reference). No IPC: the host supplies the source. ScrapeRight's queue screens are on the
-// `./queue` entry until a queue UI package exists.
+// reference). This entry holds no IPC: the host supplies the source. ScrapeRight's queue screens are on
+// the `./queue` entry until a queue UI package exists; that entry imports Tauri and calls ScrapeRight's commands.
 
 export * from "./contract.js";
 export * from "./host.js";

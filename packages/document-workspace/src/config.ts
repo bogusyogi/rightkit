@@ -37,7 +37,8 @@ export interface DocumentWorkspaceConfig {
   appVersion: string;
   /** Address for "Email diagnostics". Absent: the action is not offered. */
   supportEmail?: string;
-  /** First-run legal gate. Absent: no gate; the workspace opens directly. */
+  /** First-run legal gate. Required in practice: absent (or without `configureLegal`), the workspace
+   *  fails closed and renders a blocking "Legal configuration missing" screen instead of opening. */
   firstRun?: WorkspaceFirstRunConfig;
   /** Settings the host owns. */
   settings?: {

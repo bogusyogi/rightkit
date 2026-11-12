@@ -121,6 +121,12 @@ function VariantTabs({
   );
 }
 
+/** One option of the origin filter: `value` is sent as `LibraryQuery.origin`, `label` is shown. */
+export interface LibraryFilterOption {
+  value: string;
+  label: string;
+}
+
 // The page's filter row: outcome tabs + date/app pop-ups. Source visibility
 // and the search field live in the title bar. Retention, Export, Select and
 // Delete All sit on the ONE compact line directly under it
@@ -136,7 +142,8 @@ export function LibraryToolbar({
 }: {
   dateFilter: DateFilter;
   appFilter: string;
-  appOptions: string[];
+  /** Origin filter options; a bare string is both the value and (through `friendlyAppName`) the label. */
+  appOptions: ReadonlyArray<string | LibraryFilterOption>;
   outcomeFilter: string;
   setDateFilter: (value: DateFilter) => void;
   setAppFilter: (value: string) => void;
@@ -166,11 +173,14 @@ export function LibraryToolbar({
         onChange={(e) => setAppFilter(e.target.value)}
       >
         <option value="all">All apps</option>
-        {appOptions.map((app) => (
-          <option key={app} value={app}>
-            {friendlyAppName(app)}
-          </option>
-        ))}
+        {appOptions.map((app) => {
+          const option = typeof app === "string" ? { value: app, label: friendlyAppName(app) } : app;
+          return (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          );
+        })}
       </select>
     </div>
   );
