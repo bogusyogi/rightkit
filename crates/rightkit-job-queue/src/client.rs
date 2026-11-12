@@ -869,12 +869,21 @@ impl EngineClient {
     /// within `3 * grace + 500 ms` when another path (a monitor reaping it) already owns
     /// it and is itself bounded. [`ChildExit::reaped`] is false only if that bound passed.
     pub fn shutdown_detailed(&self, grace: Duration) -> ChildExit {
+        self.shutdown_detailed_with(grace, grace)
+    }
+
+    /// As [`Self::shutdown_detailed`], but the wait for the engine's reply to the shutdown request
+    /// is `request_timeout` (a hung engine costs that, then the kill steps cost `grace` each), so a
+    /// host can bound the first wait apart from the kill steps. `request_timeout == grace` is
+    /// [`Self::shutdown_detailed`]. A zero `request_timeout` sends the request and moves straight
+    /// on to the kill steps.
+    pub fn shutdown_detailed_with(&self, request_timeout: Duration, grace: Duration) -> ChildExit {
         let core = Arc::clone(&self.core);
         let (tx, rx) = channel();
         std::thread::spawn(move || {
-            let _ = tx.send(core.call("shutdown", json!({}), None, Some(grace)));
+            let _ = tx.send(core.call("shutdown", json!({}), None, Some(request_timeout)));
         });
-        let _ = rx.recv_timeout(grace);
+        let _ = rx.recv_timeout(request_timeout);
         let taken = self
             .core
             .child
