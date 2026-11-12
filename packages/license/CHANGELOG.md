@@ -1,8 +1,6 @@
-## Unreleased
+## 0.3.2
 
 - `createProBridgeClient({ invoke, commands? })` (`status`, `setSyncEnabled`, `suppressConsumption`, `beforeDeactivate`, `afterActivate(view)`, `notifyAfterActivation`) and `PRO_BRIDGE_COMMANDS` (defaults `pro_bridge_status`, `pro_bridge_set_sync_enabled`, `pro_bridge_suppress_consumption`, `pro_bridge_after_activation`): the renderer half of Apple-device Pro continuity. The rule: suppress consumption before a deactivation, clear it only after an activation that answers `active`; suppress is best effort. `dist/proBridge.*` join the published files.
-
-## 0.3.2
 
 Additive; defaults and wire behaviour unchanged. `dist/lifecycle.js` and `dist/lifecycle.d.ts` join the published files.
 

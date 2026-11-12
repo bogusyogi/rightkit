@@ -1,13 +1,10 @@
 # Changelog
 
-## Unreleased
+## 0.3.5 (unpublished)
 
 - Added: `AppProfile::with_speech()` (field `speech`) selects which app gets the `speech.*` tools; the built-in HeardRight profile sets it, so `add_app`, `control_toolbox` and `right-ctl heardright transcribe` behave as before. `right-ctl <app> transcribe` follows the profile, not the app name. A hand-built HeardRight profile must now call `with_speech()` to get `speech.*`.
 - Breaking (`speech` feature): `backends::speech::speech_tools(suite, role)` takes the caller's `rightkit_speech_client::HostRole` instead of always sending `CutRight`. `add_app` keeps presenting that role (`CTL_SPEECH_ROLE`); `add_app_as(tb, suite, profile, role)` lets an embedding app pass its own.
 - `coding_tools`: the web-fetch envelope calls `rightkit_http::wrap_untrusted_envelope` with the same tag and `tool:` prefix as before; output unchanged (#1572).
-
-
-## 0.3.5 (unpublished)
 
 - `coding_tools`: the `schedule_cron` tool's time zone code (`normalize_time_zone`, `time_zone_offset_minutes_at` and their helpers, 181 lines identical to `rightkit-scheduler::timezone`) is deleted and re-exported from `rightkit-scheduler` 0.1.2 (new optional dependency, on with `coding_tools`). Same results. Taken on the recommended option of the 2026-11-11 shape review, pending the owner's confirmation; design note: docs/audits/2026-11-11-shape-matrix/reports/agent-platform-redraw.md.
 

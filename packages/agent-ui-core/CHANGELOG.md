@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.2
 
 - `state/proBridge` calls the shared `createProBridgeClient` of `@rightkit/license` instead of its own `invoke` calls. Same commands, arguments and best-effort behaviour; exports unchanged.
 

@@ -13036,6 +13036,7 @@ dependencies = [
  "rightkit-credentials",
  "rightkit-daemon",
  "rightkit-deep-link",
+ "rightkit-fs",
  "rightkit-instance",
  "rightkit-job-queue",
  "rightkit-license",
