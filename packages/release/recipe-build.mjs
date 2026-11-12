@@ -53,7 +53,7 @@ export class RecipeBuildError extends Error {
 const fail = (code, message, details) => { throw new RecipeBuildError(code, message, details); };
 const isObject = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
 const STEP_KEYS = new Set(["phase", "cmd", "args", "cwd", "env"]);
-const PLAN_KEYS = new Set(["version", "steps", "cleanup", "stability", "stage", "verifySidecars", "nativeHelpers", "boundTargets"]);
+const PLAN_KEYS = new Set(["version", "steps", "cleanup", "stability", "stage", "verifySidecars", "nativeHelpers", "boundTargets", "requiredFiles"]);
 const VERIFY_SIDECARS_KEYS = new Set(["receipt", "target"]);
 const NATIVE_HELPERS_KEYS = new Set(["app", "helpers", "version", "forceArch", "configuration"]);
 const UNIVERSAL_TRIPLE = "universal-apple-darwin";
@@ -188,6 +188,14 @@ function validateStage(value, errors) {
   return out;
 }
 
+/** `requiredFiles`: app-relative files that must exist (as files) once the prepare steps have staged everything, before the build step. */
+function validateRequiredFiles(value, errors) {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value) || !value.length) { errors.push("requiredFiles must be a non-empty list of app-relative file paths"); return undefined; }
+  const files = value.map((file, index) => insideApp(file, `requiredFiles[${index}]`, errors, { strict: true }));
+  return files.every(Boolean) ? [...new Set(files)] : undefined;
+}
+
 function validateVerifySidecars(value, errors) {
   if (value === undefined) return undefined;
   if (!isObject(value)) { errors.push("verifySidecars must be { receipt, target }"); return undefined; }
@@ -244,9 +252,10 @@ export function validateRecipePlan(plan) {
   const stage = validateStage(plan.stage, errors);
   const verifySidecars = validateVerifySidecars(plan.verifySidecars, errors);
   const nativeHelpers = validateNativeHelpersSection(plan.nativeHelpers, errors, boundTargets ?? []);
+  const requiredFiles = validateRequiredFiles(plan.requiredFiles, errors);
   if (boundTargets && stage && (stage.pre?.length || stage.post?.length)) errors.push("a plan that binds Cargo targets (a door split) plans no stage copies: the build output is read and signed in place (rightkit#924 copies are zero)");
   if (errors.length) fail("RECIPE_BUILD_PLAN_INVALID", `invalid recipe plan:\n${errors.map((line) => `- ${line}`).join("\n")}`, { errors });
-  return { version: RECIPE_BUILD_PLAN_VERSION, steps, ...(boundTargets ? { boundTargets } : {}), ...(cleanup ? { cleanup } : {}), ...(stability ? { stability } : {}), ...(stage ? { stage } : {}), ...(verifySidecars ? { verifySidecars } : {}), ...(nativeHelpers ? { nativeHelpers } : {}) };
+  return { version: RECIPE_BUILD_PLAN_VERSION, steps, ...(boundTargets ? { boundTargets } : {}), ...(cleanup ? { cleanup } : {}), ...(stability ? { stability } : {}), ...(stage ? { stage } : {}), ...(verifySidecars ? { verifySidecars } : {}), ...(nativeHelpers ? { nativeHelpers } : {}), ...(requiredFiles ? { requiredFiles } : {}) };
 }
 
 /** This package's own right-release entry: the door's RightKit, whatever the app's node_modules holds. */
@@ -453,6 +462,10 @@ export function runRecipeBuild(rawPlan, { appRoot, env = process.env, platform =
       staged = stageArtifacts((plan.stage.pre ?? []).map((entry) => resolveEntry(entry, "from")), { ...(fs ? { fs } : {}), log, requireParent: true });
       // Immediately before the step that embeds the real EXE: it must be exactly the signed in-app copy.
       verifyReal("after the copy-back, before the build step");
+    }
+    if (step.phase === "build" && plan.requiredFiles) {
+      const missing = plan.requiredFiles.filter((file) => { try { return !(fs?.statSync ?? nodeStatSync)(path.resolve(appRoot, file)).isFile(); } catch { return true; } });
+      if (missing.length) fail("RECIPE_BUILD_REQUIRED_FILES_MISSING", `required files are missing after the prepare steps (${missing.length}): ${missing.join(", ")}; the build is invalid without them`, { missing });
     }
     if (step.phase === "build" && plan.verifySidecars) verifyUniversalSidecars(plan.verifySidecars, { appRoot, spawnSync, env, log, ...(fs?.readFileSync ? { readFile: fs.readFileSync } : {}) });
     const stepArgs = lockedTauriArgs(step.args, env);

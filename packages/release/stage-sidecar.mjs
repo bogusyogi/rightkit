@@ -1157,15 +1157,17 @@ function resolveLocalFfmpegSource(ctx, spec, tool) {
 }
 
 /**
- * Fetch the bytes of the catalog rows that `ffmpeg.sources` names (a local `path` is copied, never downloaded): an archive pinned by digest, one member unpacked, the
+ * Fetch the bytes of the catalog rows that `ffmpeg.sources` names, or the rows' own pinned archives when it names none (a local `path` is copied, never downloaded): an archive pinned by digest, one member unpacked, the
  * member's digest checked against the APPROVED catalog row (so a swapped archive can never stage). A staged file that already
  * matches its row is left alone.
  */
 async function fetchFfmpegSources(entry, ctx, plan, arch) {
-  if (!entry.sources) return;
+  // No `sources` and no `stage` command: the catalog row's own pinned archive is the source (as the native-library kind does).
+  if (!entry.sources && entry.stage) return;
   const { fs } = ctx;
-  for (const file of plan.files) {
-    const spec = ffmpegSourceFor(entry.sources, file.tool, arch);
+  for (const [index, file] of plan.files.entries()) {
+    const archive = plan.rows?.[index]?.archive;
+    const spec = entry.sources ? ffmpegSourceFor(entry.sources, file.tool, arch) : archive && { url: archive.url, sha256: archive.sha256, member: archive.member ?? file.tool };
     if (!spec) continue;
     if (fs.existsSync(file.stagedPath) && catalogContentDigest(fs.readFileSync(file.stagedPath), arch) === file.contentSha256) {
       ctx.log(`stage-sidecar: ${rel(ctx, file.stagedPath)} already staged`);
