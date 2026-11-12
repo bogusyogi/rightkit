@@ -11236,7 +11236,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-db"
-version = "0.5.7"
+version = "0.5.8"
 dependencies = [
  "cc",
  "libc 0.2.191",
@@ -12899,7 +12899,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-sidecar"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "libc 0.2.191",
  "serde",

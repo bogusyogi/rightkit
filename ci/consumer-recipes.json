@@ -2012,7 +2012,7 @@
       "pkId": "PK03",
       "id": "ci/consumers/rightkit-credentials/src/main.rs",
       "files": {
-        "Cargo.toml": "12254ceb63114b461fa5db9cc383d98e4e6647c1192d27f3b2d0f73011d9c6a8",
+        "Cargo.toml": "52762c5f28b8386f4f9c6a74990c539226ae2078c2cd522aef97654cc24012d1",
         "prepare_signed_helper.py": "5416b80b5b81ef50528033bbc9b91131a73c421a66764b3390331dd80fa0cd6c",
         "qualification-helper/entitlements.plist": "a6aa6260390ae45abe50cc5bed4d0dd2b922a67ac93f69bd58b86419666f123c",
         "qualification-helper/Info.plist": "8a865dfac7975ff5b0bd3315625676af43490ed611e3e31d2a823debc7b664ad",
@@ -2184,7 +2184,7 @@
       "pkId": "PK06",
       "id": "ci/consumers/rightkit-sidecar/src/main.rs",
       "files": {
-        "Cargo.toml": "076cec5dbe2447097a96a79a9f90306578d244d4efcc2fbb164ae524cfc02af4",
+        "Cargo.toml": "dadc06149f9f926192371aa5009249584b613240ff2cb2d87bff583aadab2c26",
         "README.md": "9357b45245ed0e9c9c9a05b32c3b894b68b14234ac02a47bccde46addd94c994",
         "src/main.rs": "2b8439ab27e28074f38c981423b5f142a8e406397a63f75fca092a27c763f07d"
       }
@@ -2301,7 +2301,7 @@
       "gateEvidence": "no OS keychain or SQLCipher key: bundled SQLite only; temp directory removed on exit; encrypted lifecycle (sqlcipher, ProtectedKeyStore, rotation, relocation) not exercised and needs its own PK03-3..6 gate rows",
       "consumes": "PK03 plan (docs/plans/2026-10-20-rightkit-implementation/01-packages.md:131-146) db 0.5.x surface; public items exercised: DbOptions::new, open_writer_migrated, open_read_pool_with (crates/rightkit-db/src/migrate.rs:788, src/lib.rs:217,383), write_txn (src/lib.rs:735), open_read_only, open_existing_writer, open_in_memory (src/lib.rs:524-534), ReadPoolOptions::with_read_only (src/lib.rs:823), migrate::Migration::sql (src/migrate.rs:31), MigrateOptions (src/migrate.rs:111), user_version (src/migrate.rs:191)",
       "files": {
-        "Cargo.toml": "e3cf983dbad36d56a8b017c14bc88a352306295a5d51baf085f010bbb093908e",
+        "Cargo.toml": "748bccefdaf07e72f0c2a771b071cbd248092d9188816994afa0c71408523c61",
         "README.md": "fccbf7c8387ccb776090ac2c717edc090af0a0b6d2368c641017849350b96c21",
         "src/main.rs": "af1c9a4987c9179dec7c72c1b63c37b19e6a077465d2152531527265a357622d"
       },

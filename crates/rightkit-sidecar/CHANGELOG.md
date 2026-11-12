@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.4
 
 - Added `wire::ServiceHello`: the typed `hello` of a local service host (`service`, `role`, `rank`, `version`, `protocol_major`, `protocol_minor`, `methods`, `frame_limit`, `max_message`, `chunk_bytes`; no `engine` or `contract_version`) with `to_value()`, and `ServiceHello::refused(error)` for the `{type: hello, ok: false, error}` refusal. `Frame::Hello` is unchanged.
 
