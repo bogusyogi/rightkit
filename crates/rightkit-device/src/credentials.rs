@@ -11,8 +11,11 @@ use rightkit_credentials::{windows_credential_identity, Error, Secret, Store};
 /// absence. The backend must honor its atomic `add_if_absent` contract against
 /// every writer; this adapter never substitutes a read followed by a write.
 ///
-/// Values must be nonempty UTF-8 without control characters. Existing malformed
-/// values fail closed instead of being treated as missing or replaced.
+/// Values must be nonempty UTF-8 without control characters. A stored value that is empty or
+/// only whitespace is treated as absent: `get` returns `None` and `set_if_absent` replaces it,
+/// so a blank slot cannot wedge device creation forever. Any other existing malformed value
+/// (a control character, non-UTF-8) fails closed instead of being treated as missing or
+/// replaced, and a non-blank value is never replaced by `set_if_absent`.
 #[derive(Clone)]
 pub struct CredentialStore {
     store: Store,
@@ -31,6 +34,10 @@ impl CredentialStore {
             account,
         })
     }
+}
+
+fn is_blank(value: &str) -> bool {
+    value.trim().is_empty()
 }
 
 fn validate_value(value: &str) -> Result<(), Error> {
@@ -55,10 +62,14 @@ impl SecureStore<String> for CredentialStore {
                 secret
                     .map(|secret| {
                         let value = secret.expose_str()?;
+                        if is_blank(value) {
+                            return Ok(None);
+                        }
                         validate_value(value)?;
-                        Ok(value.to_owned())
+                        Ok(Some(value.to_owned()))
                     })
                     .transpose()
+                    .map(Option::flatten)
             })
             .map_err(|error| error.to_string())
     }
@@ -82,12 +93,25 @@ impl SecureStore<String> for CredentialStore {
 
     fn set_if_absent(&self, value: &String) -> Result<bool, String> {
         validate_value(value).map_err(|error| error.to_string())?;
-        self.store
-            .add_if_absent(
-                &self.account,
-                &Secret::from_bytes(value.as_bytes().to_vec()),
-            )
-            .map_err(|error| error.to_string())
+        let secret = Secret::from_bytes(value.as_bytes().to_vec());
+        let added = self
+            .store
+            .add_if_absent(&self.account, &secret)
+            .map_err(|error| error.to_string())?;
+        if added {
+            return Ok(true);
+        }
+        // Something occupies the slot. Only a blank value is replaced; the caller holds the
+        // device creation lock (and the cross-process file lock when configured).
+        match SecureStore::get(self)? {
+            Some(_) => Ok(false),
+            None => {
+                self.store
+                    .set(&self.account, &secret)
+                    .map_err(|error| error.to_string())?;
+                Ok(true)
+            }
+        }
     }
 }
 

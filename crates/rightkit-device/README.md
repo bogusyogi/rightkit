@@ -7,14 +7,13 @@ This crate owns:
 - typed secure-storage mutation ordering;
 - one atomic, serialized device get-or-create service per app host, with a
   crate-owned OS-CSPRNG UUIDv4 generator and no renderer-supplied fallback;
-- fail-closed authorization from a native license store plus a separate,
-  authoritative native device store;
-- signed-token verification of app, device, and time before Pro-tier or named
-  feature requirements are evaluated;
-- a paid-command guard that cannot call product logic after denial; and
-- typed log and diagnostic host bridges.
+  A blank stored id (empty or whitespace only) counts as absent and is replaced; a
+  non-blank id is never replaced.
 
-**Use it** in a Right Suite Tauri app's native host, to get the shared device, license, and command-guard logic.
+Licence authorization lives in `rightkit-license`; the log and diagnostic host bridges moved to
+`rightkit-logs` (still re-exported here for one release).
+
+**Use it** in a Right Suite Tauri app's native host, to get the shared device-identity and secure-storage logic.
 
 **Do not use it** from the renderer, or as a substitute for the app's own keyring and command wrappers.
 
@@ -42,7 +41,7 @@ operation with its own outcome.
 - `LicenseRequirement` (re-exported from `rightkit-license`).
 - `DeviceService`: the single managed device service described above.
 - `device_id_hash(raw)`: lowercase hex SHA-256 of the raw device id; the only form that leaves the machine.
-- Also public in `src/lib.rs`: `SecureService`, `MutationHook`, `AuthorizationService`, `guard_paid_command`, and `LogService` / `DiagnosticService` over the `LogHost` / `DiagnosticHost` traits.
+- Also public in `src/lib.rs`: `SecureService` and `MutationHook`.
 
 ## Features
 
