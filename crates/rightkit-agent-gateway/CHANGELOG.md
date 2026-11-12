@@ -2,6 +2,8 @@
 
 ## 0.3.0 (unpublished)
 
+- Tests build with `rightkit-db/bundled` as a dev-dependency: without `rightkit-mail` in the graph nothing else selected a SQLite provider, so the Windows test link failed (`LNK1181: sqlite3.lib`). The library still leaves the provider to the host.
+
 - Breaking: the package is now the gateway core, with no product verbs. Taken on the recommended option of the 2026-11-11 shape review (docs/audits/2026-11-11-shape-matrix/reports/family-agent-platform.md, "rightkit-agent-gateway"), pending the owner's confirmation; design note: docs/audits/2026-11-11-shape-matrix/reports/agent-platform-redraw.md.
 - The mail verbs that versions 0.1 and 0.2 held (drafts, send, forward, delete, label, attachments, the mail approval policy and the `GatewayHost` seam) moved unchanged to the new crate `rightkit-mail-gateway` 0.1.0, which runs on this core.
 - Kept here, generalised: the agent registry (`registry`: `Agent<P>` and `Verified<P>` over any `gate::Level`; `accounts` is `scopes`, `set_accounts` is `set_scopes`), pairing (`pairing`, generic over the level; `AgentView.scopes`, `AuditView.scope`), the connection seam (`access`), the SQL audit (`audit::SqlAudit`, `audit::page`; `Entry.account_id` is `Entry.scope`, plus `origin` and `fields`), `registry::invisible_or_control`. All under feature `sql` (default).
