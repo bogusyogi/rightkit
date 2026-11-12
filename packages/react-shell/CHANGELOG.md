@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+Additive. Existing props, defaults and markup are unchanged.
+
+- `CaptionControls` takes `buttons?: { minimize?: boolean; maximize?: boolean }` (type `CaptionButtons`); `Titlebar` and `AppShell` take the same object as `captionButtons`. `false` leaves that button out of the markup, for a window that cannot be minimised or maximised. Close is always drawn. Default: all three, as before. Apps hid the buttons with CSS (`display: none !important` on a class or on `:nth-child(2)`); those rules can go once the option is passed.
+
 ## 0.7.3 — issue sweep (2026-11-03)
 
 - Removed (Adrian, 2026-11-03: end-to-end tests only; a built harness page on a dev server is not end to end): the real-browser tests against a harness page, their harness, `vitest.config.ts`, `test-fixtures/`, the `pretest` and `test` scripts and the devDependencies `@rightkit/qa-chrome`, `vite` and `vitest`. Nothing shipped changes.
