@@ -10,6 +10,7 @@ use crate::transport::{
 };
 use rightkit_roots::lock::{try_lock_exclusive, LockedFile};
 use rightkit_roots::{make_private_dir, Suite, SuiteError};
+use rightkit_sidecar::wire::{Frame, WireError};
 use rightkit_sidecar::{read_json_line, write_json_line, FrameError};
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -1105,6 +1106,25 @@ fn hand_off(s: &Shared, t: TakeoverRequest, their: u8) {
     s.release();
 }
 
+/// A successful `response` frame, built through the one wire envelope.
+fn ok_frame(id: u64, result: Value) -> Value {
+    Frame::ok(id, result).to_value(true)
+}
+
+/// A failed `response` frame: `error` carries `code`, `message`, `retryable` and, when set, `details`.
+fn err_frame(id: u64, e: &ServiceError) -> Value {
+    Frame::err(
+        id,
+        WireError {
+            code: e.code.clone(),
+            message: e.message.clone(),
+            retryable: e.retryable,
+            details: e.details.clone(),
+        },
+    )
+    .to_value(true)
+}
+
 fn frame_err(e: &FrameError) -> ServiceError {
     ServiceError::new("bad_frame", e.to_string())
 }
@@ -1296,9 +1316,7 @@ fn serve_conn(s: Arc<Shared>, conn: Conn, mut pre: PreHandshake) {
             Ok(Some(v)) => v,
             Ok(None) | Err(FrameError::Io(_)) => break,
             Err(e) => {
-                send(
-                    &json!({"type": "response", "id": 0, "ok": false, "error": frame_err(&e).to_value()}),
-                );
+                send(&err_frame(0, &frame_err(&e)));
                 continue;
             }
         };
@@ -1317,10 +1335,13 @@ fn serve_conn(s: Arc<Shared>, conn: Conn, mut pre: PreHandshake) {
                         app: app.clone(),
                         reason: "too many failed authentications".into(),
                     });
-                    send(
-                        &json!({"type": "response", "id": req["id"].as_u64().unwrap_or(0), "ok": false,
-                        "error": ServiceError::new(crate::error::ERROR_RATE_LIMITED, "too many failed authentications; wait before reconnecting").to_value()}),
-                    );
+                    send(&err_frame(
+                        req["id"].as_u64().unwrap_or(0),
+                        &ServiceError::new(
+                            crate::error::ERROR_RATE_LIMITED,
+                            "too many failed authentications; wait before reconnecting",
+                        ),
+                    ));
                     break;
                 }
                 s.fails
@@ -1331,22 +1352,24 @@ fn serve_conn(s: Arc<Shared>, conn: Conn, mut pre: PreHandshake) {
                     app: app.clone(),
                     reason: "missing or wrong secret".into(),
                 });
-                send(
-                    &json!({"type": "response", "id": req["id"].as_u64().unwrap_or(0), "ok": false,
-                    "error": ServiceError::new(crate::error::ERROR_UNAUTHENTICATED, "missing or wrong secret").to_value()}),
-                );
+                send(&err_frame(
+                    req["id"].as_u64().unwrap_or(0),
+                    &ServiceError::new(
+                        crate::error::ERROR_UNAUTHENTICATED,
+                        "missing or wrong secret",
+                    ),
+                ));
                 break;
             }
         }
         let Some(rid) = req["id"].as_u64().filter(|_| req["type"] == "request") else {
-            send(
-                &json!({"type": "response", "id": 0, "ok": false, "error": ServiceError::new("bad_request", "expected {type:request,id,method}").to_value()}),
-            );
+            send(&err_frame(
+                0,
+                &ServiceError::new("bad_request", "expected {type:request,id,method}"),
+            ));
             continue;
         };
-        let respond_err = |e: ServiceError| {
-            send(&json!({"type": "response", "id": rid, "ok": false, "error": e.to_value()}))
-        };
+        let respond_err = |e: ServiceError| send(&err_frame(rid, &e));
         // Any frame is a chance to drop an assembly that went idle.
         uploads.expire();
         let mut method = req["method"].as_str().unwrap_or("").to_string();
@@ -1367,7 +1390,7 @@ fn serve_conn(s: Arc<Shared>, conn: Conn, mut pre: PreHandshake) {
                 )),
             };
             match answer {
-                Ok(v) => send(&json!({"type": "response", "id": rid, "ok": true, "result": v})),
+                Ok(v) => send(&ok_frame(rid, v)),
                 Err(e) => respond_err(e),
             }
             continue;
@@ -1399,8 +1422,7 @@ fn serve_conn(s: Arc<Shared>, conn: Conn, mut pre: PreHandshake) {
                 &authorize,
             ) {
                 Ok(crate::chunk::UploadStep::More { received }) => {
-                    send(&json!({"type": "response", "id": rid, "ok": true,
-                        "result": {"received": received}}));
+                    send(&ok_frame(rid, json!({"received": received})));
                     continue;
                 }
                 Ok(crate::chunk::UploadStep::Done { method: m, params }) => {
@@ -1423,9 +1445,7 @@ fn serve_conn(s: Arc<Shared>, conn: Conn, mut pre: PreHandshake) {
             continue;
         }
         if method == "ping" {
-            send(
-                &json!({"type": "response", "id": rid, "ok": true, "result": {"pong": true, "rank": s.cfg.rank}}),
-            );
+            send(&ok_frame(rid, json!({"pong": true, "rank": s.cfg.rank})));
             continue;
         }
         let params =
@@ -1439,7 +1459,7 @@ fn serve_conn(s: Arc<Shared>, conn: Conn, mut pre: PreHandshake) {
         let emit: Emit = {
             let (write, s, method) = (write.clone(), s.clone(), method.clone());
             Arc::new(move |ev| {
-                if !write(&json!({"type": "event", "id": rid, "event": ev})) {
+                if !write(&Frame::event(Some(rid), ev).to_value(true)) {
                     s.event(ServiceEvent::FrameTooLarge {
                         conn: id,
                         method: method.clone(),
@@ -1487,7 +1507,8 @@ fn serve_conn(s: Arc<Shared>, conn: Conn, mut pre: PreHandshake) {
             Ok(v) => {
                 // A result that does not fit is answered with a typed error, never dropped:
                 // a dropped response leaves the client waiting for its whole deadline.
-                if !write(&json!({"type": "response", "id": rid, "ok": true, "result": v})) {
+                let frame = ok_frame(rid, v);
+                if !write(&frame) {
                     s.event(ServiceEvent::FrameTooLarge {
                         conn: id,
                         method: method.clone(),
@@ -1497,10 +1518,10 @@ fn serve_conn(s: Arc<Shared>, conn: Conn, mut pre: PreHandshake) {
                     // A client that opted in gets the result in pieces, within the message
                     // bound; everyone else, and anything beyond the bound, the typed error.
                     let held = chunked_ok
-                        .then(|| serde_json::to_string(&v).ok())
+                        .then(|| serde_json::to_string(&frame["result"]).ok())
                         .flatten()
                         .filter(|text| text.len() <= s.max_message);
-                    drop(v);
+                    drop(frame);
                     match held {
                         Some(text) => {
                             downloads_made += 1;
@@ -1511,8 +1532,11 @@ fn serve_conn(s: Arc<Shared>, conn: Conn, mut pre: PreHandshake) {
                             );
                             let descriptor = held.descriptor();
                             download = Some(held);
-                            send(&json!({"type": "response", "id": rid, "ok": true,
-                                "result": Value::Null, "chunked": descriptor}));
+                            // The chunked descriptor rides beside a null result; it is not part of
+                            // the envelope, so it is added to the typed frame.
+                            let mut frame = ok_frame(rid, Value::Null);
+                            frame["chunked"] = descriptor;
+                            send(&frame);
                         }
                         None => respond_err(ServiceError::new(
                             ERROR_RESPONSE_TOO_LARGE,

@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- The `response` and `event` frames the server writes are built through `rightkit_sidecar::wire::Frame` instead of `json!` literals; the bytes are unchanged. The two `hello` frames stay literals: they carry the daemon's own handshake fields, which the envelope's `Hello` does not.
+
 ## 0.9.0
 
 - Requires `rightkit-roots` 0.2.0 (a breaking release), so this release is breaking too.
