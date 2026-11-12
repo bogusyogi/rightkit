@@ -181,6 +181,13 @@ impl JsonlStore {
         &self.path
     }
 
+    /// Paths of the rotated predecessors, newest (`.1`) first, whether or not they exist.
+    pub fn generation_paths(&self) -> Vec<PathBuf> {
+        (1..=self.generations)
+            .map(|n| rotate::generation_path(&self.path, n, DEFAULT_NAME))
+            .collect()
+    }
+
     /// The last `max_bytes` bytes of the current file, without reading the rest. See [`tail_bytes`].
     pub fn tail_bytes(&self, max_bytes: u64) -> io::Result<Vec<u8>> {
         tail_bytes(&self.path, max_bytes)

@@ -317,7 +317,7 @@ impl ValueWriter {
     }
 
     /// Queue-ordered export: after every earlier-queued event is written, copy the current file
-    /// of each of `paths` (empty means all) into `destination`, and return the copies. A file
+    /// of each of `paths` (empty means all) and its rotated generations (`name.1` newest) into `destination`, and return the copies. A file
     /// that does not exist yet is skipped. A pending overflow count is written to the primary
     /// file first so the copy carries it.
     pub fn snapshot(
@@ -442,15 +442,20 @@ impl Worker {
         std::fs::create_dir_all(destination).map_err(WriterError::Io)?;
         let mut copied = Vec::new();
         for &index in stores {
-            let source = self.stores[index].path();
-            let Some(name) = source.file_name() else {
-                continue;
-            };
-            let target = destination.join(name);
-            match std::fs::copy(source, &target) {
-                Ok(_) => copied.push(target),
-                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-                Err(error) => return Err(WriterError::Io(error)),
+            let store = &self.stores[index];
+            // The current file, then each rotated generation (`name.1` newest), same names.
+            let sources =
+                std::iter::once(store.path().to_path_buf()).chain(store.generation_paths());
+            for source in sources {
+                let Some(name) = source.file_name() else {
+                    continue;
+                };
+                let target = destination.join(name);
+                match std::fs::copy(&source, &target) {
+                    Ok(_) => copied.push(target),
+                    Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                    Err(error) => return Err(WriterError::Io(error)),
+                }
             }
         }
         Ok(copied)
@@ -462,5 +467,37 @@ impl Worker {
             self.stores[index].clear().map_err(WriterError::Io)?;
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod snapshot_tests {
+    use super::*;
+
+    #[test]
+    fn snapshot_copies_rotated_generations() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("app.jsonl");
+        let store = Arc::new(JsonlStore::new(&path, 200).with_generations(2));
+        let writer =
+            ValueWriter::spawn(vec![Arc::clone(&store)], ValueWriterConfig::default()).unwrap();
+        for n in 0..30 {
+            assert!(writer.append_to(&path, json!({"event": "e", "n": n, "pad": "x".repeat(40)})));
+        }
+        assert!(writer.flush(Duration::from_secs(5)));
+        assert!(
+            dir.path().join("app.jsonl.1").exists(),
+            "test needs a rotation"
+        );
+        let out = dir.path().join("out");
+        let copied = writer.snapshot(&[], &out, Duration::from_secs(5)).unwrap();
+        let mut names: Vec<_> = copied
+            .iter()
+            .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        assert_eq!(names[0], "app.jsonl");
+        assert!(names.contains(&"app.jsonl.1".to_string()), "{names:?}");
+        assert!(out.join("app.jsonl.1").exists());
     }
 }
