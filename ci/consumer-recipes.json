@@ -1198,7 +1198,8 @@
       "surface": [
         ".",
         "./package.json",
-        "./pill"
+        "./pill",
+        "./tauri"
       ],
       "closure": {
         "install": {
@@ -1214,10 +1215,13 @@
           "@rightkit/react-shell": "0.7.4",
           "@rightkit/settings-ui": "0.7.2",
           "@rightkit/tauri-shell": "0.1.4",
-          "@rightkit/theme": "0.3.3"
+          "@rightkit/theme": "0.3.3",
+          "@rightkit/tauri": "0.4.1"
         },
         "declaredOnly": [
-          "@phosphor-icons/react"
+          "@phosphor-icons/react",
+          "@tauri-apps/api",
+          "@tauri-apps/plugin-dialog"
         ]
       },
       "files": {
