@@ -3726,8 +3726,8 @@
       "id": "ci/consumers/rightkit-roots/src/main.rs",
       "files": {
         "Cargo.toml": "861e42898d85a4cec3079bf8896c381b3bbbb39a4d395a7ba0ceea486abf9621",
-        "README.md": "c026dee66225495113d57395d8c7d9e74b06aef005565c50f2a9685438c29ddb",
-        "src/main.rs": "ddaadb6eb25aeb6654f5b243fa42bb99ddfe47d91894905f9d8efb84caa751fe"
+        "README.md": "a2a4f51c8177b9cf9771d9d135b70027a39b27f0d3e268d604a69348447d860b",
+        "src/main.rs": "4e7ceb27944afda2aa6537bbe836661205408ea31ed0f31d018623ffca4ef06d"
       }
     },
     "rightkit-media-gen-approvals": {

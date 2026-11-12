@@ -9956,6 +9956,7 @@ dependencies = [
  "rightkit-logs",
  "rightkit-overlay",
  "rightkit-record",
+ "rightkit-roots",
  "rightkit-tauri-shell",
  "serde",
  "serde_json",
@@ -10679,7 +10680,7 @@ dependencies = [
  "objc2-app-kit",
  "objc2-foundation",
  "rightkit-child-process",
- "rightkit-daemon",
+ "rightkit-roots",
  "windows 0.62.2",
  "windows-sys 0.61.2",
 ]
@@ -11596,6 +11597,7 @@ dependencies = [
  "rightkit-child-process",
  "rightkit-daemon",
  "rightkit-job-queue",
+ "rightkit-roots",
  "serde",
  "serde_json",
 ]

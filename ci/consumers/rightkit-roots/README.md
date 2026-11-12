@@ -9,7 +9,7 @@ Exercises the root surface an app uses without a daemon (moved from `rightkit-da
 per-user default is a per-run suite named `Orthic Labs/shared`, so the app directory is the sibling
 `Orthic Labs/<dir_name>`; `Suite::per_user_default` is absolute and ends in `Orthic Labs/shared` (resolved, never
 created or written); `Suite::at` refuses a relative root; `Suite::per_run_temp`, `service_dir` and `data_dir`;
-`valid_app_name` and `valid_service_name`; `Suite::app_root` (inside the per-run suite, under `apps`), `lock_writer`
+`valid_app_name`; `Suite::app_root` (inside the per-run suite, under `apps`), `lock_writer`
 held once; `AppRoot::migrate_from` with `Migrated`, `AlreadyMigrated` and `NothingToMigrate`, and
 `migration_state`; `lock::try_lock_exclusive` taken once and refused while held; `RootCutover::status` before any
 cutover and `CUTOVER_RECORD`; and that the `app_dirs` and `StateDir` re-exports name the `rightkit-fs` items.
