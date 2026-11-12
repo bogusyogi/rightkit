@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-evidence-application"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.98.0"
 description = "In-process evidence application: composes audit, orchestration, policy and report crates behind host-supplied catalog, report and run sources"
@@ -15,7 +15,7 @@ path = "src/lib.rs"
 
 [dependencies]
 async-trait = { version = "0.1.92" }
-rightkit-code-audit-engine = { version = "0.1.0", path = "../rightkit-code-audit-engine" }
+rightkit-code-audit-engine = { version = "0.2.0", path = "../rightkit-code-audit-engine" }
 rightkit-code-audit-provider-sdk = { version = "0.1.0", path = "../rightkit-code-audit-provider-sdk" }
 rightkit-evidence-contracts = { version = "0.1.0", path = "../rightkit-evidence-contracts" }
 rightkit-evidence-report = { version = "0.1.0", path = "../rightkit-evidence-report" }

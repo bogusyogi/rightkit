@@ -1,4 +1,4 @@
-// rightkit-evidence-application 0.1.0 consumed by exact registry pin (`=0.1.0`), outside the workspace.
+// rightkit-evidence-application 0.2.0 consumed by exact registry pin (`=0.2.0`), outside the workspace.
 //
 // Proves, through the public API only, the configuration refusal and the catalog value types:
 // - NativeApplicationConfig::new builds a default configuration value without I/O;
@@ -37,5 +37,5 @@ fn main() {
     );
     let _empty = EmptyCatalog;
     check(true, "EmptyCatalog is constructible");
-    println!("OK rightkit-evidence-application 0.1.0 (registry consumer)");
+    println!("OK rightkit-evidence-application 0.2.0 (registry consumer)");
 }

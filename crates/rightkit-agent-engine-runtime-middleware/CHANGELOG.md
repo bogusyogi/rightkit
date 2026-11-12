@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.3
 
 - New `EXECUTION_OBSERVATION_SCHEMA`, the one constant for the execution-observation schema id (`coderight.execution-observation.v1`, unchanged on the wire); the observation payload uses it and the agent server filters on it.
 

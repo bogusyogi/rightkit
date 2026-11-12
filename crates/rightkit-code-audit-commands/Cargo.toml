@@ -16,10 +16,10 @@ path = "src/lib.rs"
 [dependencies]
 clap = { version = "4.6.7", features = ["derive"] }
 hex = { version = "0.4.3" }
-rightkit-code-audit-engine = { version = "0.1.0", path = "../rightkit-code-audit-engine" }
+rightkit-code-audit-engine = { version = "0.2.0", path = "../rightkit-code-audit-engine" }
 rightkit-code-audit-provider-sdk = { version = "0.1.0", path = "../rightkit-code-audit-provider-sdk" }
-rightkit-evidence-application = { version = "0.1.0", path = "../rightkit-evidence-application" }
-rightkit-evidence-commands = { version = "0.1.0", path = "../rightkit-evidence-commands" }
+rightkit-evidence-application = { version = "0.2.0", path = "../rightkit-evidence-application" }
+rightkit-evidence-commands = { version = "0.2.0", path = "../rightkit-evidence-commands" }
 rightkit-evidence-contracts = { version = "0.1.0", path = "../rightkit-evidence-contracts" }
 rightkit-evidence-effects = { version = "0.1.0", path = "../rightkit-evidence-effects" }
 rightkit-evidence-report = { version = "0.1.0", path = "../rightkit-evidence-report" }

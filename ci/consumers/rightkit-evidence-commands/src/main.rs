@@ -1,4 +1,4 @@
-// rightkit-evidence-commands 0.1.0 consumed by exact registry pin (`=0.1.0`), outside the workspace.
+// rightkit-evidence-commands 0.2.0 consumed by exact registry pin (`=0.2.0`), outside the workspace.
 //
 // Proves, through the public API only, the path display rule and the error vocabulary:
 // - display_path strips the Windows extended-length prefix and leaves other paths unchanged;
@@ -38,5 +38,5 @@ fn main() {
         io.code == 3 && io.message == "disk full",
         "io errors map to internal exit code 3",
     );
-    println!("OK rightkit-evidence-commands 0.1.0 (registry consumer)");
+    println!("OK rightkit-evidence-commands 0.2.0 (registry consumer)");
 }

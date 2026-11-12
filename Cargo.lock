@@ -10037,7 +10037,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-agent-engine-api-platform"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "serde",
  "serde_json",
@@ -10155,7 +10155,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-agent-engine-runtime-middleware"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "rightkit-fs",
  "serde",
@@ -10884,7 +10884,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-code-audit-engine"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "ed25519-dalek",
@@ -10937,7 +10937,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-code-audit-qualification"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "ed25519-dalek",
  "hex",
@@ -11623,7 +11623,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-evidence-application"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "rightkit-agent-orchestration",
@@ -11640,7 +11640,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-evidence-commands"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "clap",
  "hex",

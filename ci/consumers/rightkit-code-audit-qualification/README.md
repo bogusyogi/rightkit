@@ -1,7 +1,7 @@
-# rightkit-code-audit-qualification 0.1.0 registry consumer
+# rightkit-code-audit-qualification 0.2.0 registry consumer
 
 Standalone package outside the RightKit workspace. It depends on `rightkit-code-audit-qualification` by exact registry pin
-(`=0.1.0`) with default features. It has no path, Git, workspace or patch dependency and no
+(`=0.2.0`) with default features. It has no path, Git, workspace or patch dependency and no
 committed `Cargo.lock`.
 
 Digest form and safe relative path rules of the assurance record. No record, key or attestation is read.

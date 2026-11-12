@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.3
 
 - New `openapi::MACHINE_STATUS_SCHEMA`, the one constant for the machine-status schema id (`coderight.machine-status.v1`, unchanged on the wire); the OpenAPI component uses it and the agent server emits and checks it.
 
