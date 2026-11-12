@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.2 (unpublished)
+## 0.2.0 (unpublished)
 
 - Breaking: product names are host-supplied. Taken on the recommended option of the 2026-11-11 shape review, pending the owner's confirmation; design note: docs/audits/2026-11-11-shape-matrix/reports/agent-server-redraw.md.
   - `run(identity, skill_catalog, skill_host)` takes a new first argument, `HostIdentity` (new public module `host_identity`, re-exported with `HarnessRadarData`). Every `coderight` the library wrote now comes from it: the command name in messages and the clap command name, the `[{app}]` log tag and the `{app}> ` prompt, the state folder `.{app}` (workspace and home: schedules, notifications, worktrees, skills, hooks, commands, plugins, constitution, understanding, sandbox settings, stores), `~/.config/{app}`, `{app}.db`, wire schema ids and labels (`{app}.context-status.v1`, `{app}.error.v1`, `{app}.cli.*`, `{app}.session_handoff.v1`, `{app}.trigger/v1`, `{app}:cron`, ...), HTTP headers (`x-{app}-capability-token`, `x-{app}-driver-instance`, `x-{app}-client-id`, `x-{app}-authenticated`, the generic webhook headers), hash domains (inference selection, foreground memory cursor, background provider authority, trigger dedupe, bake-off corpus secret), thread names, temp folders, the MCP server name and the `mcp__{app}__` tool prefix, `{app}-daemon`, the transcript host and event type, the licence app id (`license::expected_app()`, was `EXPECTED_APP`), and the Github sign-in credential namespace.

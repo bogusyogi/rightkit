@@ -8290,10 +8290,10 @@
     "feeds": {
      "coderight": 91539
     },
-    "basis": "0.1.2 on the branch: its private copies of the Github App and sign-in, the scheduler model, time and bot profiles, the host observation shapes and the Telegram transport are deleted or moved to their owners (docs/audits/2026-11-11-shape-matrix/reports/agent-platform-redraw.md)",
+    "basis": "0.1.2 on the branch: product names host-supplied through HostIdentity, CodeRight's harness-radar data and unused fixtures deleted, the benchmark harness behind an off-by-default feature (docs/audits/2026-11-11-shape-matrix/reports/agent-server-redraw.md)",
     "referenceApp": "coderight",
-    "shape": "wrong",
-    "shapeReason": "No longer holds a copy of a shared crate: it depends on rightkit-github, rightkit-scheduler, rightkit-context-protocol and rightkit-bot-messaging (telegram_poll), and no agent-server file shares more than half its lines with another crate. Still CodeRight's application under a library name: about 530 coderight strings, benchmarks, api_specs, harness-radar data, and some 30k lines planned for engine, agents, llm, orchestration, sandbox and evidence. src/workflow (7.2k) is the daemon host of rightkit-workflow's control plane, not a copy; the scheduler runner (2.7k) runs on DaemonState.",
+    "shape": "gaps",
+    "shapeReason": "A library a second app can adopt: run(identity, skill_catalog, skill_host) takes a HostIdentity and every name the server writes (command name, .{app} state folder, ~/.config/{app}, schema ids, x-{app}-* headers, hash domains, MCP server name, licence app, credential namespace, Github client id, provider referer, harness-radar watch-list) comes from it; CodeRight passes HostIdentity::new(\"coderight\") and keeps byte-identical paths, ids and digests. No coderight string is left in code except four field names owned by rightkit-agents, rightkit-agent-engine-storage and rightkit-agent-host-traits. No product data is compiled in. The evaluation harness (api_benchmarks) is the benchmarks feature, off by default. Gaps: the scheduler runner (runs on DaemonState) and the workflow host (7.2k) are still here, and about 30k lines the plan assigns to engine, agents, llm, orchestration, sandbox and evidence sit in DaemonState handler files.",
     "apps": {
      "coderight": {
       "fit": "gaps",
@@ -8308,10 +8308,13 @@
      "Holds 11.7k lines planned for agent-engine, 6.8k for agents, 4.6k for llm, 3.7k for orchestration, 2.6k for sandbox, 1.8k for evidence"
     ],
     "actions": [
-     "Split: a small generic rightkit-agent-server (session hosting, daemon, API router, permission and session routes); CodeRight's product routes, strings, benchmarks and harness-radar data to the app or a bench crate",
-     "move the scheduler runner into rightkit-scheduler behind a runner trait; the workflow host into its own crate over engine-storage",
-     "move each misplaced module to the package the plan named, or change the plan",
-     "owner to confirm the agent-platform redraw"
+     "move the scheduler runner into rightkit-scheduler behind a runner trait",
+     "move the workflow host into its own crate over engine-storage once its daemon routes are split out",
+     "give DaemonState a public session-hosting API, then move api_benchmarks to rightkit-agent-bench",
+     "split handlers from logic and move each misplaced module to the package the plan named, or change the plan; first the steering queue to the engine core",
+     "rename coderight_agent_id and metadata.coderight in their owning crates with a migration",
+     "owner to decide whether the spec workflow (api_specs) stays in the generic server",
+     "owner to confirm the agent-server redraw"
     ],
     "depth": "light",
     "confidence": "high",

@@ -2,7 +2,7 @@
 
 Generated 2026-11-11T17:49Z from RightKit 55b330d.
 
-Packages: 312 (229 crates, 53 npm, 30 Swift). Reviewed for shape: 312 (best 70, gaps 234, wrong 1, missing 7). Not yet reviewed: 0.
+Packages: 312 (229 crates, 53 npm, 30 Swift). Reviewed for shape: 312 (best 70, gaps 235, wrong 0, missing 7). Not yet reviewed: 0.
 
 Cell: review fit · pin state on the app's main · planned lines and the share found in the package. Empty means the app has nothing for the package.
 
@@ -46,7 +46,7 @@ Cell: review fit · pin state on the app's main · planned lines and the share f
 | `rightkit-agent-plugins` | cargo | no (0.1.2, registry 0.1.1) | best | CodeRight plugin discovery |  |  |  |  |  |  |  |  |  |  |
 | `rightkit-agent-policy` | cargo | no (0.1.2, registry 0.1.1) | gaps | CodeRight's policy crate |  |  |  | fits · 16018L 85% |  |  |  |  |  |  |
 | `rightkit-agent-recipes` | cargo | yes | best | CodeRight recipes |  |  |  |  |  |  |  |  |  |  |
-| `rightkit-agent-server` | cargo | yes | wrong | 0.1.2 on the branch: its private copies of the Github App and sign-in, the scheduler model, time and bot profiles, the host observation shapes and the Telegram transport are deleted or moved to their owners (docs/audits/2026-11-11-shape-matrix/reports/agent-platform-redraw.md) |  |  |  | gaps · 91539L 88% |  |  |  |  |  |  |
+| `rightkit-agent-server` | cargo | yes | gaps | 0.1.2 on the branch: product names host-supplied through HostIdentity, CodeRight's harness-radar data and unused fixtures deleted, the benchmark harness behind an off-by-default feature (docs/audits/2026-11-11-shape-matrix/reports/agent-server-redraw.md) |  |  |  | gaps · 91539L 88% |  |  |  |  |  |  |
 | `rightkit-agent-skills` | cargo | yes | best | CodeRight skills |  |  |  |  |  |  |  |  |  |  |
 | `rightkit-agent-tools` | cargo | no (0.3.4, registry 0.3.3) | gaps | 0.3.5 on the branch: the schedule_cron tool's time zone copy is a re-export of rightkit-scheduler | n/a | n/a | adopted | fits · n/a · 86283L 94% | gaps · adopted · 302L 8% | n/a | n/a | adopted | n/a | adopted |
 | `rightkit-agent-transcript` | cargo | no (0.1.2, registry 0.1.1) | gaps | Pulse's membrane-transcript crate (planned under rightkit-agents) |  |  | fits · ahead | gaps |  |  |  |  |  |  |
@@ -393,7 +393,7 @@ Cell: review fit · pin state on the app's main · planned lines and the share f
 | `rightkit-video-project` | cargo | yes | gaps | CutRight cutright-project moved (project, ingest, render, source, probe, worker, loudness, lock, audio_sync, still) |  |  |  |  |  |  |  | gaps · ahead · 14524L 35% |  |  |
 | `RightKitMedia` | swift | n/a | missing | not in RightKit |  |  |  |  |  |  |  | gaps · 1859L 0% |  |  |
 
-## Wrong shape (1 packages; sub-crates that inherit a family verdict are not repeated)
+## Wrong shape (0 packages; sub-crates that inherit a family verdict are not repeated)
 
 | Package | Why | Reference app |
 |---|---|---|
@@ -458,7 +458,7 @@ Cell: review fit · pin state on the app's main · planned lines and the share f
 - `rightkit-agent-local-models` (gaps): publish 0.1.0
 - `rightkit-agent-orchestration` (gaps): Put repo-graph and code-audit coupling behind features; Not read for behaviour
 - `rightkit-agent-policy` (gaps): Have remote-gateway's terminal command policy call this crate's classifier, or state why not; Check overlap with rightkit-policy-rules
-- `rightkit-agent-server` (wrong): Split: a small generic rightkit-agent-server (session hosting, daemon, API router, permission and session routes); CodeRight's product routes, strings, benchmarks and harness-radar data to the app or a bench crate; move the scheduler runner into rightkit-scheduler behind a runner trait; the workflow host into its own crate over engine-storage; move each misplaced module to the package the plan named, or change the plan; owner to confirm the agent-platform redraw
+- `rightkit-agent-server` (gaps): move the scheduler runner into rightkit-scheduler behind a runner trait; move the workflow host into its own crate over engine-storage once its daemon routes are split out; give DaemonState a public session-hosting API, then move api_benchmarks to rightkit-agent-bench; split handlers from logic and move each misplaced module to the package the plan named, or change the plan; first the steering queue to the engine core; rename coderight_agent_id and metadata.coderight in their owning crates with a migration; owner to decide whether the spec workflow (api_specs) stays in the generic server; owner to confirm the agent-server redraw
 - `rightkit-agent-telemetry` (gaps): publish 0.1.0
 - `rightkit-agent-tools` (gaps): Split the tool contract from the coding tools; publish 0.3.5
 - `rightkit-agent-transcript` (gaps): Point CodeRight's exporter at TranscriptEventV1; Fix plan target

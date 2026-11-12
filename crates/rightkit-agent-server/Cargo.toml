@@ -2,7 +2,7 @@
 autotests = false
 autobins = false
 name = "rightkit-agent-server"
-version = "0.1.2"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Agent server host: HTTP/daemon API routes, CLI and interactive-session runtime, session hosting and orchestration glue for coding-agent applications"
