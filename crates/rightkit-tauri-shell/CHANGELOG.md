@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **New (feature `pro-bridge`): the five `pro_bridge_*` commands** (`pro_bridge_status`, `pro_bridge_set_keychain_sync_enabled`, `pro_bridge_set_pro_resolution_enabled`, `pro_bridge_set_sync_enabled`, `pro_bridge_suppress_consumption`), listed by `handler!`, with the names, arguments and JSON shapes the apps' own wrappers had. They sit behind `ServiceId::PRO_BRIDGE` and the host caller policy: register a `ProBridge` with `HostServicesBuilder::pro_bridge(trust, Arc<ProBridge>)` (trust actions: the command names without the prefix) and keep your own `Arc` to call `ProBridge::run_launch`. `ProBridge`, `ProBridgeConfig`, `ProBridgeHost` and `ProBridgeHostService` are re-exported from `host`.
+
 ## 0.8.0
 
 - New feature `viewer` (on by default) gates the document-viewer surface: modules `preview`, `stream`, `site`, `print`, `content_webview`, their re-exports, `ShellBuilder::{preview_protocol, stream_protocol, site_protocol}`, the `ShellState` stream/site fields, the `rk_shell_stream_grant`, `rk_shell_site_grant`, `rk_shell_site_revoke`, `rk_shell_print` and `rightkit_preview_*` commands (and their entries in `handler!`), `Denial::PreviewDocument`, `refuse_preview_document` and `host::policy::PREVIEW`. An app that uses none of them opts out with `default-features = false`; an app that already uses `default-features = false` and one of them must now add `viewer`. `rk_shell_status` omits `streamScheme`, `streamSchemes` and `siteScheme` without it.

@@ -1615,7 +1615,7 @@ fn setup(
 /// `rightkit_tauri_shell::handler![my_command, other]`.
 ///
 /// Feature `host-services` adds the `rightkit_settings_*` and `rightkit_secrets_*` commands, feature
-/// `license` the five `rightkit_license_*` commands, feature `logs` the `rightkit_logs_*` commands
+/// `license` the five `rightkit_license_*` commands, feature `pro-bridge` the five `pro_bridge_*` commands, feature `logs` the `rightkit_logs_*` commands
 /// and feature `crash` the renderer error sink `rightkit_crash_window_error` (with or without
 /// `host-services`), so an app lists none of them. Every one of them
 /// refuses a caller the installed `host::HostCallerPolicy` does not trust (the shell-wide app
@@ -1753,7 +1753,7 @@ macro_rules! __rk_handler_host {
 #[cfg(feature = "app-lock")]
 macro_rules! __rk_handler_app_lock {
     ($($cmd:tt)*) => {
-        $crate::__rk_handler_license![
+        $crate::__rk_handler_pro_bridge![
             $crate::host::app_lock::rightkit_app_lock_status,
             $crate::host::app_lock::rightkit_app_lock_lock,
             $crate::host::app_lock::rightkit_app_lock_begin_unlock,
@@ -1767,6 +1767,31 @@ macro_rules! __rk_handler_app_lock {
 #[macro_export]
 #[cfg(not(feature = "app-lock"))]
 macro_rules! __rk_handler_app_lock {
+    ($($cmd:tt)*) => { $crate::__rk_handler_pro_bridge![$($cmd)*] };
+}
+
+/// Prepends the Pro bridge commands (feature `pro-bridge`).
+#[doc(hidden)]
+#[macro_export]
+#[cfg(feature = "pro-bridge")]
+macro_rules! __rk_handler_pro_bridge {
+    ($($cmd:tt)*) => {
+        $crate::__rk_handler_license![
+            $crate::host::pro_bridge::pro_bridge_status,
+            $crate::host::pro_bridge::pro_bridge_set_keychain_sync_enabled,
+            $crate::host::pro_bridge::pro_bridge_set_pro_resolution_enabled,
+            $crate::host::pro_bridge::pro_bridge_set_sync_enabled,
+            $crate::host::pro_bridge::pro_bridge_suppress_consumption,
+            $($cmd)*
+        ]
+    };
+}
+
+/// Passes the list on unchanged (feature `pro-bridge` off).
+#[doc(hidden)]
+#[macro_export]
+#[cfg(not(feature = "pro-bridge"))]
+macro_rules! __rk_handler_pro_bridge {
     ($($cmd:tt)*) => { $crate::__rk_handler_license![$($cmd)*] };
 }
 
