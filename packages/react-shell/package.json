@@ -40,6 +40,9 @@
   "sideEffects": [
     "*.css"
   ],
+  "dependencies": {
+    "@rightkit/theme": "workspace:^"
+  },
   "peerDependencies": {
     "@rightkit/platform-ui": ">=0.4.1 <1",
     "@tauri-apps/plugin-os": ">=2 <3",
