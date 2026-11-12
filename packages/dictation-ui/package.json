@@ -15,6 +15,10 @@
       "types": "./dist/pill/index.d.ts",
       "import": "./dist/pill/index.js"
     },
+    "./tauri": {
+      "types": "./dist/tauri/index.d.ts",
+      "import": "./dist/tauri/index.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
@@ -32,7 +36,10 @@
     "@rightkit/library-ui": "workspace:^",
     "@rightkit/platform-ui": "workspace:^",
     "@rightkit/react-shell": "workspace:^",
-    "@rightkit/settings-ui": "workspace:^"
+    "@rightkit/settings-ui": "workspace:^",
+    "@rightkit/tauri": "workspace:^",
+    "@tauri-apps/api": "^2.12.4",
+    "@tauri-apps/plugin-dialog": "^2.8.3"
   },
   "peerDependencies": {
     "react": ">=18 <21"
