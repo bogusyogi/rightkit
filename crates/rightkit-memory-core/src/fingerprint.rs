@@ -4,6 +4,11 @@
 //! as a SHA-256 hash. Rows whose `(content_hash, full_pipeline_digest)` both
 //! match need no re-embedding on `reindex`.
 
+/// Maximum token sequence length for the embedding model. This replaces the
+/// legacy 512-token limit. Tokenizer-aware — not a word count. (Also
+/// `embed::EMBEDDING_MAX_SEQUENCE_TOKENS` with the `embed` feature.)
+pub const EMBEDDING_MAX_SEQUENCE_TOKENS: usize = 2048;
+
 /// Pipeline fingerprint — SHA-256 of the embedding pipeline configuration.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PipelineFingerprint {
@@ -56,7 +61,7 @@ impl PipelineFingerprint {
     /// Create a fingerprint for the selectable BGE-small embedding pipeline.
     pub fn bge_small_en_v1_5() -> Self {
         Self::compute(
-            super::embed::EMBEDDING_MAX_SEQUENCE_TOKENS,
+            EMBEDDING_MAX_SEQUENCE_TOKENS,
             "{text}",
             "Represent this sentence for searching relevant passages: {text}",
             "bge-small-en-v1.5",
@@ -71,7 +76,7 @@ impl PipelineFingerprint {
     /// until `reindex` re-embeds them.
     pub fn gemma2_q4() -> Self {
         Self::compute(
-            super::embed::EMBEDDING_MAX_SEQUENCE_TOKENS,
+            EMBEDDING_MAX_SEQUENCE_TOKENS,
             "title: none | text: {text}",
             "task: search result | query: {text}",
             "embeddinggemma2-q4",

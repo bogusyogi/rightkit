@@ -14,5 +14,5 @@ name = "rightkit_memory"
 path = "src/lib.rs"
 
 [dependencies]
-rightkit-memory-core = { version = "0.2.0", path = "../rightkit-memory-core" }
+rightkit-memory-core = { version = "0.2.0", path = "../rightkit-memory-core", features = ["embed"] }
 rightkit-memory-store = { version = "0.2.0", path = "../rightkit-memory-store" }

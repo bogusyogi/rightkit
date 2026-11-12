@@ -13,6 +13,14 @@ include = ["src/**", "data/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LIC
 name = "rightkit_memory_core"
 path = "src/lib.rs"
 
+[features]
+default = []
+# Embedding and retrieval (`embed`: `Embedder`, `HashEmbedder`, `EmbedProviderReport`; `retriever`: `MemoryRetriever`
+# and its projection types). Pulls rightkit-embed with its default features (the ONNX inference and SQLite vector
+# stack). Off by default, so a crate that needs only the memory types (`MemoryEntry`, `MemoryTier`, `default_scope`)
+# or the planner, review and accounting builds without that stack.
+embed = ["dep:rightkit-embed"]
+
 [dependencies]
 rightkit-time = { version = "0.1.1", path = "../rightkit-time" }
 serde = { version = "1", features = ["derive"] }
@@ -20,5 +28,5 @@ serde_json = { version = "1" }
 thiserror = { version = "2" }
 tiktoken-rs = { version = "0.12" }
 rayon = { version = "=1.12.0" }
-rightkit-embed = { version = "0.7.0", path = "../rightkit-embed" }
+rightkit-embed = { version = "0.7.0", path = "../rightkit-embed", optional = true }
 rightkit-fs = { version = "0.4.9", features = ["digest"], path = "../rightkit-fs" }

@@ -20,7 +20,7 @@ llmlingua-onnx = ["dep:tokenizers", "dep:rightkit-onnx"]
 [dependencies]
 rightkit-time = { version = "0.1.1", path = "../rightkit-time" }
 rightkit-memory-store = { version = "0.2.0", path = "../rightkit-memory-store" }
-rightkit-memory-core = { version = "0.2.0", path = "../rightkit-memory-core" }
+rightkit-memory-core = { version = "0.2.0", path = "../rightkit-memory-core", features = ["embed"] }
 rightkit-context-protocol = { version = "0.2.0", path = "../rightkit-context-protocol" }
 rightkit-repo-graph = { version = "0.2.0", path = "../rightkit-repo-graph" }
 rightkit-context-core = { version = "0.2.0", path = "../rightkit-context-core" }
