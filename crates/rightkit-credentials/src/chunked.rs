@@ -17,55 +17,108 @@
 //!
 //! Mutations of one credential are serialised by [`crate::Store`] on the manifest's identity, which
 //! covers the whole multi-item write. Chunk accounts are `<account>.rkchunk.<generation>.<index>`.
+//!
+//! ## Keyring-compatible namespaces
+//! In a [`WindowsTarget::KeyringCompat`](crate::WindowsTarget::KeyringCompat) namespace every
+//! stored blob is UTF-16LE text, so every item this module writes there is text:
+//!
+//! * A text secret of at most [`KEYRING_INLINE_UNITS`] UTF-16 code units (the 2,560-byte blob
+//!   limit, which is also the `keyring` crate's own limit) is stored inline, exactly as `keyring`
+//!   and every earlier version store it.
+//! * A longer one is cut on character boundaries into chunks of at most that many units, behind
+//!   the ASCII manifest `RKCHUNK2 <generation> <count> <total bytes>`. No character is split and
+//!   nothing is re-encoded.
+//! * The binary manifest and its 1,200-byte chunks are still read there (a secret whose chunks and
+//!   random generation happened to be text could be stored that way before), and a secret that is
+//!   not text takes the binary form as before, which the Windows codec refuses with
+//!   `Error::NotUtf8`.
 
 use crate::backend::{Backend, ConditionalDelete, Interaction};
 use crate::error::{Error, Result};
-use crate::namespace::Namespace;
+use crate::namespace::{BlobCodec, Namespace};
 use crate::secret::Secret;
 use std::sync::Arc;
 use zeroize::Zeroizing;
 
-/// The most bytes one item holds. Windows allows 2,560 bytes of blob, and the keyring-compatible
-/// Windows codec stores UTF-16 (up to two bytes per byte of text), so 1,200 stays under the limit
-/// in every codec.
+/// The most bytes one item holds outside a keyring-compatible namespace (see
+/// [`KEYRING_INLINE_UNITS`] for those), and the size of a binary chunk. Windows allows 2,560
+/// bytes of blob.
 pub const INLINE_MAX: usize = 1_200;
 
+/// The most UTF-16 code units one item holds in a keyring-compatible namespace: the 2,560-byte
+/// Windows blob limit at two bytes per unit. It is the limit of the `keyring` crate as well, so a
+/// text secret up to this size stays one item that `keyring` reads.
+pub const KEYRING_INLINE_UNITS: usize = 1_280;
+
 const MAGIC: &[u8; 8] = b"RKCHUNK1";
+/// Marker of the text manifest (keyring-compatible namespaces only).
+const TEXT_MAGIC: &str = "RKCHUNK2";
 /// Magic, generation (u64), chunk count (u32), total length (u64).
 const MANIFEST_LEN: usize = 8 + 8 + 4 + 8;
 /// A secret may need at most this many chunks (1,200 bytes each: a 4.8 MB secret). Bounded so a
 /// corrupt manifest cannot make a reader loop over billions of accounts.
 const MAX_CHUNKS: u32 = 4_096;
 
+/// How a chunked value is laid out.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Form {
+    /// Binary manifest, chunks of exactly [`INLINE_MAX`] bytes (the last one shorter).
+    Binary,
+    /// ASCII manifest, text chunks cut on character boundaries at [`KEYRING_INLINE_UNITS`].
+    Text,
+}
+
 struct Manifest {
+    form: Form,
     generation: u64,
     count: u32,
+    /// Length of the logical value in bytes.
     total: u64,
+}
+
+fn corrupt_manifest() -> Error {
+    Error::Invalid {
+        what: "chunked credential",
+        reason: "the manifest is malformed".into(),
+    }
 }
 
 impl Manifest {
     fn encode(&self) -> Secret {
-        let mut out = Vec::with_capacity(MANIFEST_LEN);
-        out.extend_from_slice(MAGIC);
-        out.extend_from_slice(&self.generation.to_be_bytes());
-        out.extend_from_slice(&self.count.to_be_bytes());
-        out.extend_from_slice(&self.total.to_be_bytes());
-        Secret::from_bytes(out)
+        match self.form {
+            Form::Binary => {
+                let mut out = Vec::with_capacity(MANIFEST_LEN);
+                out.extend_from_slice(MAGIC);
+                out.extend_from_slice(&self.generation.to_be_bytes());
+                out.extend_from_slice(&self.count.to_be_bytes());
+                out.extend_from_slice(&self.total.to_be_bytes());
+                Secret::from_bytes(out)
+            }
+            Form::Text => Secret::from_string(format!(
+                "{TEXT_MAGIC} {:016x} {} {}",
+                self.generation, self.count, self.total
+            )),
+        }
     }
 
-    /// `None` when `raw` is not a manifest at all (an inline secret). A value that carries the
+    /// `None` when `raw` is not a manifest at all (an inline secret). A value that carries a
     /// marker but is not a well-formed manifest cannot be written by this module (such a secret
-    /// is always chunked), so it is reported as corrupt.
-    fn parse(raw: &[u8]) -> Result<Option<Manifest>> {
-        if raw.len() < MAGIC.len() || &raw[..MAGIC.len()] != MAGIC {
-            return Ok(None);
+    /// is always chunked), so it is reported as corrupt. The text manifest exists only in a
+    /// keyring-compatible namespace; everywhere else a value that begins with its marker is an
+    /// ordinary inline secret.
+    fn parse(ns: &Namespace, raw: &[u8]) -> Result<Option<Manifest>> {
+        if raw.starts_with(MAGIC) {
+            return Self::parse_binary(raw).map(Some);
         }
-        let corrupt = || Error::Invalid {
-            what: "chunked credential",
-            reason: "the manifest is malformed".into(),
-        };
+        if ns.blob_codec() == BlobCodec::KeyringUtf16 && raw.starts_with(TEXT_MAGIC.as_bytes()) {
+            return Self::parse_text(raw).map(Some);
+        }
+        Ok(None)
+    }
+
+    fn parse_binary(raw: &[u8]) -> Result<Manifest> {
         if raw.len() != MANIFEST_LEN {
-            return Err(corrupt());
+            return Err(corrupt_manifest());
         }
         let mut g = [0u8; 8];
         g.copy_from_slice(&raw[8..16]);
@@ -74,16 +127,73 @@ impl Manifest {
         let mut t = [0u8; 8];
         t.copy_from_slice(&raw[20..28]);
         let m = Manifest {
+            form: Form::Binary,
             generation: u64::from_be_bytes(g),
             count: u32::from_be_bytes(c),
             total: u64::from_be_bytes(t),
         };
         let expected = m.total.div_ceil(INLINE_MAX as u64);
         if m.count == 0 || m.count > MAX_CHUNKS || u64::from(m.count) != expected {
-            return Err(corrupt());
+            return Err(corrupt_manifest());
         }
-        Ok(Some(m))
+        Ok(m)
     }
+
+    fn parse_text(raw: &[u8]) -> Result<Manifest> {
+        let text = std::str::from_utf8(raw).map_err(|_| corrupt_manifest())?;
+        let mut fields = text.split(' ');
+        let (Some(TEXT_MAGIC), Some(generation), Some(count), Some(total), None) = (
+            fields.next(),
+            fields.next(),
+            fields.next(),
+            fields.next(),
+            fields.next(),
+        ) else {
+            return Err(corrupt_manifest());
+        };
+        let m = Manifest {
+            form: Form::Text,
+            generation: u64::from_str_radix(generation, 16).map_err(|_| corrupt_manifest())?,
+            count: count.parse().map_err(|_| corrupt_manifest())?,
+            total: total.parse().map_err(|_| corrupt_manifest())?,
+        };
+        // Only the exact text `encode` writes is a manifest (no sign, no padding, lowercase hex).
+        if m.encode().expose_bytes() != raw {
+            return Err(corrupt_manifest());
+        }
+        // Every chunk but the last holds KEYRING_INLINE_UNITS units, or one fewer when the next
+        // character needs two; a unit is one to three bytes of UTF-8.
+        let units = KEYRING_INLINE_UNITS as u64;
+        let earlier = u64::from(m.count.saturating_sub(1));
+        if m.count == 0
+            || m.count > MAX_CHUNKS
+            || m.total <= earlier * (units - 1)
+            || m.total > u64::from(m.count) * units * 3
+        {
+            return Err(corrupt_manifest());
+        }
+        Ok(m)
+    }
+}
+
+/// `text` cut on character boundaries into pieces of at most [`KEYRING_INLINE_UNITS`] UTF-16
+/// code units each, so every piece is text the keyring-compatible codec stores in one blob.
+fn split_text(text: &str) -> Vec<&str> {
+    let mut parts = Vec::new();
+    let (mut start, mut units) = (0usize, 0usize);
+    for (at, c) in text.char_indices() {
+        let n = c.len_utf16();
+        if units + n > KEYRING_INLINE_UNITS {
+            parts.push(&text[start..at]);
+            start = at;
+            units = 0;
+        }
+        units += n;
+    }
+    if start < text.len() {
+        parts.push(&text[start..]);
+    }
+    parts
 }
 
 fn chunk_account(account: &str, generation: u64, index: u32) -> String {
@@ -101,8 +211,21 @@ impl ChunkedBackend {
         Self { inner }
     }
 
-    fn needs_chunks(secret: &Secret) -> bool {
-        secret.len() > INLINE_MAX || secret.expose_bytes().starts_with(MAGIC)
+    /// How `secret` is stored in `ns`: `None` is inline (one item, the secret itself).
+    fn layout(ns: &Namespace, secret: &Secret) -> Option<Form> {
+        let bytes = secret.expose_bytes();
+        let keyring = ns.blob_codec() == BlobCodec::KeyringUtf16;
+        // A secret that begins with a marker a reader of this namespace would take for a
+        // manifest is always chunked.
+        let marked =
+            bytes.starts_with(MAGIC) || (keyring && bytes.starts_with(TEXT_MAGIC.as_bytes()));
+        if keyring {
+            if let Ok(text) = std::str::from_utf8(bytes) {
+                let fits = text.encode_utf16().count() <= KEYRING_INLINE_UNITS;
+                return (!fits || marked).then_some(Form::Text);
+            }
+        }
+        (bytes.len() > INLINE_MAX || marked).then_some(Form::Binary)
     }
 
     /// Write the chunk items of a new generation. On any failure the chunks already written are
@@ -112,25 +235,34 @@ impl ChunkedBackend {
         ns: &Namespace,
         account: &str,
         secret: &Secret,
+        form: Form,
         mode: Interaction,
     ) -> Result<Manifest> {
         let mut rnd = [0u8; 8];
         getrandom::fill(&mut rnd)
             .map_err(|_| Error::Unavailable("the system random source is unavailable".into()))?;
         let bytes = secret.expose_bytes();
-        let count = u32::try_from(bytes.len().div_ceil(INLINE_MAX).max(1))
+        let parts: Vec<&[u8]> = match form {
+            Form::Binary => bytes.chunks(INLINE_MAX).collect(),
+            Form::Text => split_text(secret.expose_str()?)
+                .into_iter()
+                .map(str::as_bytes)
+                .collect(),
+        };
+        let count = u32::try_from(parts.len())
             .ok()
-            .filter(|c| *c <= MAX_CHUNKS)
+            .filter(|c| (1..=MAX_CHUNKS).contains(c))
             .ok_or_else(|| Error::Invalid {
                 what: "secret",
                 reason: "too large to store".into(),
             })?;
         let manifest = Manifest {
+            form,
             generation: u64::from_be_bytes(rnd),
             count,
             total: bytes.len() as u64,
         };
-        for (i, part) in bytes.chunks(INLINE_MAX).enumerate() {
+        for (i, part) in parts.into_iter().enumerate() {
             let name = chunk_account(account, manifest.generation, i as u32);
             let piece = Secret::from_bytes(part.to_vec());
             if let Err(e) = self.inner.set(ns, &name, &piece, mode) {
@@ -163,21 +295,46 @@ impl ChunkedBackend {
             reason: "a chunk is missing or has the wrong length".into(),
         };
         let mut out: Zeroizing<Vec<u8>> = Zeroizing::new(Vec::with_capacity(m.total as usize));
+        // Text form: whether the previous chunk stopped one unit short of the limit, which only
+        // happens when this chunk begins with a character of two units.
+        let mut short_before = false;
         for i in 0..m.count {
             let part = self
                 .inner
                 .get(ns, &chunk_account(account, m.generation, i), mode)?
                 .ok_or_else(missing)?;
             let last = i + 1 == m.count;
-            let want = if last {
-                (m.total - u64::from(i) * INLINE_MAX as u64) as usize
-            } else {
-                INLINE_MAX
-            };
-            if part.len() != want {
-                return Err(missing());
+            match m.form {
+                Form::Binary => {
+                    let want = if last {
+                        (m.total - u64::from(i) * INLINE_MAX as u64) as usize
+                    } else {
+                        INLINE_MAX
+                    };
+                    if part.len() != want {
+                        return Err(missing());
+                    }
+                }
+                Form::Text => {
+                    let text = part.expose_str().map_err(|_| missing())?;
+                    let units = text.encode_utf16().count();
+                    let wide_first = text.chars().next().is_some_and(|c| c.len_utf16() == 2);
+                    let short = units + 1 == KEYRING_INLINE_UNITS;
+                    let length_ok = if last {
+                        (1..=KEYRING_INLINE_UNITS).contains(&units)
+                    } else {
+                        short || units == KEYRING_INLINE_UNITS
+                    };
+                    if !length_ok || (short_before && !wide_first) {
+                        return Err(missing());
+                    }
+                    short_before = !last && short;
+                }
             }
             out.extend_from_slice(part.expose_bytes());
+        }
+        if out.len() as u64 != m.total {
+            return Err(missing());
         }
         Ok(Secret::from_bytes(out.to_vec()))
     }
@@ -193,7 +350,7 @@ impl ChunkedBackend {
         match self.inner.get(ns, account, mode)? {
             None => Ok(None),
             Some(raw) => {
-                let manifest = Manifest::parse(raw.expose_bytes())?;
+                let manifest = Manifest::parse(ns, raw.expose_bytes())?;
                 Ok(Some((raw, manifest)))
             }
         }
@@ -233,11 +390,11 @@ impl Backend for ChunkedBackend {
         // The previous manifest, to remove its chunks after the new value is committed. An
         // unreadable previous item is not a reason to refuse the write: the new value replaces it.
         let previous = match self.inner.get(ns, account, mode) {
-            Ok(Some(raw)) => Manifest::parse(raw.expose_bytes()).ok().flatten(),
+            Ok(Some(raw)) => Manifest::parse(ns, raw.expose_bytes()).ok().flatten(),
             _ => None,
         };
-        if Self::needs_chunks(secret) {
-            let manifest = self.write_chunks(ns, account, secret, mode)?;
+        if let Some(form) = Self::layout(ns, secret) {
+            let manifest = self.write_chunks(ns, account, secret, form, mode)?;
             if let Err(e) = self.inner.set(ns, account, &manifest.encode(), mode) {
                 self.remove_chunks(ns, account, &manifest, mode);
                 return Err(e);
@@ -257,10 +414,10 @@ impl Backend for ChunkedBackend {
         secret: &Secret,
         mode: Interaction,
     ) -> Result<bool> {
-        if !Self::needs_chunks(secret) {
+        let Some(form) = Self::layout(ns, secret) else {
             return self.inner.add_if_absent(ns, account, secret, mode);
-        }
-        let manifest = self.write_chunks(ns, account, secret, mode)?;
+        };
+        let manifest = self.write_chunks(ns, account, secret, form, mode)?;
         match self
             .inner
             .add_if_absent(ns, account, &manifest.encode(), mode)
@@ -278,7 +435,7 @@ impl Backend for ChunkedBackend {
     }
     fn delete(&self, ns: &Namespace, account: &str, mode: Interaction) -> Result<bool> {
         let previous = match self.inner.get(ns, account, mode) {
-            Ok(Some(raw)) => Manifest::parse(raw.expose_bytes()).ok().flatten(),
+            Ok(Some(raw)) => Manifest::parse(ns, raw.expose_bytes()).ok().flatten(),
             _ => None,
         };
         let removed = self.inner.delete(ns, account, mode)?;
@@ -313,3 +470,6 @@ impl Backend for ChunkedBackend {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;
