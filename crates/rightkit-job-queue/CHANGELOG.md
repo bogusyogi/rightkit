@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Fixed: lines on the engine's stdout before hello that are not frames (text, or JSON that is not an object) no longer fail the boot with `engine_protocol`. They are reported to the protocol-error sink (`ignored before hello: ...`) and skipped until `hello_timeout`, as the reader already does after hello. A well-formed frame that is not hello is still `first frame was not hello`.
 - Fixed: a spent restart budget on an `OnDemand` engine is no longer terminal. A call that finds the engine down with the budget spent answers a retryable `restart_budget_spent` error and leaves the lifecycle `Down` with no `Terminal::Failed`; the first call after the budget window has moved on starts the engine again. Always-on (`Automatic`) hosts still latch `Terminal::Failed` when the budget is spent.
 - Added: `EngineSupervisor::demand_ready()`: register demand for the engine (restarting an `OnDemand` engine that is down), then wait for `Ready`. `wait_ready` is still not demand.
 

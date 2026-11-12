@@ -457,8 +457,37 @@ impl EngineClient {
                 }
             }
             let _on_exit = OnExit(closed_signal, Arc::clone(&map), subs.clone());
-            let first =
-                read_json_line_or_oversized::<_, Value>(&mut reader, &mut buf, frame_limit, limits);
+            // An engine can write stray lines on its stdout before hello (a native library's
+            // loading chatter); after hello the reader already drops them. Report and skip lines
+            // that are not frames until the hello deadline; a well-formed frame that is not hello
+            // is still a protocol error.
+            let hello_deadline = Instant::now() + hello_timeout;
+            let first = loop {
+                let r = read_json_line_or_oversized::<_, Value>(
+                    &mut reader,
+                    &mut buf,
+                    frame_limit,
+                    limits,
+                );
+                let stray = match &r {
+                    Ok(Some(Incoming::Frame(v))) => !v.is_object(),
+                    Err(FrameError::Json(_) | FrameError::InvalidUtf8 { .. }) => true,
+                    _ => false,
+                };
+                if !stray || Instant::now() >= hello_deadline {
+                    break r;
+                }
+                let note = match &r {
+                    Err(e) => e.to_string(),
+                    _ => "not a frame (not a JSON object)".to_string(),
+                };
+                if let Some(sink) = &sink {
+                    sink.report(&ProtocolError {
+                        line: String::from_utf8_lossy(&buf).into_owned(),
+                        message: format!("ignored before hello: {note}"),
+                    });
+                }
+            };
             let hello = match first {
                 Ok(Some(Incoming::Frame(h))) if h["type"] == "hello" => match &required {
                     Some(req) if !req.accepts(&h) => {
