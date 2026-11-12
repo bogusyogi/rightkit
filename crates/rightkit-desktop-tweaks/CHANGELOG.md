@@ -2,7 +2,8 @@
 
 ## 0.3.0
 
-- Breaking for dependents: dependency requirements `rightkit-automation` 0.6 -> 0.7. 0.2.0 was published before these requirements were raised; a semver-breaking dependency is a breaking change, so they ship as 0.3.0 instead of changing 0.2.0 in place (#1572). No source change in this crate since 0.2.0.
+- Breaking for dependents: dependency requirements `rightkit-automation` 0.6 -> 0.7. 0.2.0 was published before these requirements were raised; a semver-breaking dependency is a breaking change, so they ship as 0.3.0 instead of changing 0.2.0 in place (#1572).
+- Fix: a held editing chord repeats again. Each auto-repeat of a handled Alt chord (Ctrl-key, Ctrl-keep-Shift and terminal copy/paste plans) injects the chord once more and is swallowed, as Pulse does and as a held Ctrl+V or Ctrl+Z does; 0.2.0 swallowed every repeat, so a held Alt+V pasted once. The `keys_alt_v` trace line stays once per press.
 
 ## 0.2.0
 

@@ -1,7 +1,8 @@
 //! Mac-style editing shortcuts on Windows: the left Alt acts as Ctrl for the editing keys, as the
 //! Command key does on a Mac. One handler on the shared hook hub
 //! (`rightkit_hotkeys::windows::hub`); the hub owns the hook, the modifier state and the
-//! swallowing of a handled key's repeats and release.
+//! swallowing of a handled key's repeats and release. Each auto-repeat of a handled chord injects
+//! the chord again (a held Alt+V pastes again, as a held Ctrl+V does) and is swallowed.
 //!
 //! * Left Alt+A / C / V / X / Z act as Ctrl+A / C / V / X / Z; Alt+Shift+Z acts as Ctrl+Y.
 //!   Only the left Alt does this; with the right Alt these keys reach the application.
@@ -136,10 +137,10 @@ fn handle(event: &KeyEventDetail, cx: &KeyContext) -> HookDecision {
     if !editing {
         return HookDecision::Pass;
     }
-    if cx.repeat {
-        // The press was handled; its auto-repeats stay away from the application.
-        return HookDecision::Swallow;
-    }
+    // An auto-repeat goes through the same plan as the press, so a held Alt+V pastes again and
+    // a held Alt+Z keeps undoing, as Ctrl+V and Ctrl+Z do: each repeat injects the chord once
+    // more and is swallowed. Only the per-press trace line below is skipped for repeats.
+    let repeat = cx.repeat;
     LAST_ALT.store(cx.alt_vk, Ordering::Relaxed);
     LAST_SHIFT.store(cx.shift_vk, Ordering::Relaxed);
     let shift = cx.shift;
@@ -152,7 +153,7 @@ fn handle(event: &KeyEventDetail, cx: &KeyContext) -> HookDecision {
     } else {
         None
     };
-    if vk == VK_V {
+    if vk == VK_V && !repeat {
         // One line per Alt+V press (no content), so a paste that does nothing can be traced.
         let route = match terminal_chord {
             Some(_) => "terminal",
