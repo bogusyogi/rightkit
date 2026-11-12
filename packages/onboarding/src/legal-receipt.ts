@@ -10,8 +10,6 @@ export const LEGAL_RECEIPT_COMMANDS = Object.freeze({
   read: "rightkit_legal_receipt_read",
   create: "rightkit_legal_receipt_create",
   reset: "rightkit_legal_receipt_reset",
-  /** Imports a renderer-held legacy acceptance once (see `importLegacyAcceptance`). */
-  import: "rightkit_legal_receipt_import",
 });
 
 /** Tauri's `invoke`, structurally (`@tauri-apps/api/core`). No import, so the package stays free of Tauri. */
@@ -80,57 +78,6 @@ export function createNativeLegalReceiptPort({ invoke, commands }: NativeLegalRe
     },
     async reset() { await call(invoke, names.reset); },
   };
-}
-
-export interface LegacyAcceptanceImportOptions {
-  invoke: LegalReceiptInvoke;
-  /** Key of the renderer-held legacy receipt, for example `scraperight.legal-acceptance.v1`. */
-  storageKey: string;
-  /**
-   * Maps the stored text to the declaration the native service verifies against its manifest (hashes, versions, documents).
-   * `null`: not an importable record; nothing is sent and the legacy key stays in place.
-   */
-  parse: (raw: string) => LegalReceiptCreateRequest | null;
-  /** Storage that holds the legacy key. Default `localStorage` when present. `null`: no legacy storage to read. */
-  storage?: Pick<Storage, "getItem" | "removeItem"> | null;
-  commands?: Partial<typeof LEGAL_RECEIPT_COMMANDS>;
-}
-
-function browserStorage(): Pick<Storage, "getItem" | "removeItem"> | null {
-  try {
-    return typeof localStorage === "undefined" ? null : localStorage;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * One-time import of a renderer-held (legacy) acceptance into the native receipt. The legacy record is submitted once to the
- * native `import` command, which verifies it against the manifest and stamps the import with its own clock. Only after the
- * native service confirms the record is the legacy key removed. A refusal or a failed call throws and leaves the key in place,
- * so the next launch retries; no acceptance is invented here. Returns the imported record, or `null` when there is nothing to
- * import.
- */
-export async function importLegacyAcceptance({ invoke, storageKey, parse, storage, commands }: LegacyAcceptanceImportOptions): Promise<LegalAcceptanceRecord | null> {
-  const names = { ...LEGAL_RECEIPT_COMMANDS, ...commands };
-  const backing = storage === undefined ? browserStorage() : storage;
-  let raw: string | null;
-  try {
-    raw = backing?.getItem(storageKey) ?? null;
-  } catch {
-    raw = null;
-  }
-  if (raw === null) return null;
-  const request = parse(raw);
-  if (!request) return null;
-  const imported = readAcceptance(await call(invoke, names.import, { request: declaration(request) }));
-  if (!imported) throw new Error("The legal receipt service returned an invalid record.");
-  try {
-    backing?.removeItem(storageKey);
-  } catch {
-    /* the native receipt is stored; the native import is idempotent, so a later run only repeats the confirmation */
-  }
-  return imported;
 }
 
 /**
