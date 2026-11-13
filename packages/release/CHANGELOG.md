@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.6.57
 
 - **A crate scoped away from the Linux direct origin no longer fails the publication gate on `features`.** `localTestPlan` planned no feature set for rightkit-tts-qwen-sys on Linux (every `featureSets` entry is host-scoped to darwin and win32), so the Linux run receipt carried `features: []` and `validatePublicationEvidence` refused it (`Linux run receipt 0 invalid: features`). The receipt now names `not built on linux (ci/gate.config.json platforms)` when `crateRunsOn` is false and no set is planned; the validator is unchanged, so a crate that runs on the host and plans no set is still refused.
 
