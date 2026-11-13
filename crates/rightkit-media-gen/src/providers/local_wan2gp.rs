@@ -241,17 +241,9 @@ const KNOWN_PARAMS: [&str; 6] = [
 const FRAMES_PER_SECOND: u32 = 16;
 const RUN_TIMEOUT: Duration = Duration::from_secs(2 * 60 * 60);
 const MONITOR_TICK: Duration = Duration::from_millis(100);
-/// Environment variable overriding where per-job folders live (tests), under the default
-/// `RIGHTKIT` prefix; the host prefix is read first. Default is under the organisation root.
-pub const JOBS_ENV: &str = "RIGHTKIT_WAN2GP_JOBS";
-
-/// Where per-job folders live: `<PREFIX>_WAN2GP_JOBS`, else `<organisation root>/wan2gp-jobs`.
+/// Where per-job folders live: `<organisation root>/wan2gp-jobs`.
 pub fn jobs_dir() -> Option<PathBuf> {
-    crate::host::env_var("WAN2GP_JOBS")
-        .map(std::ffi::OsString::from)
-        .filter(|v| !v.to_string_lossy().trim().is_empty())
-        .map(PathBuf::from)
-        .or_else(|| super::tools_root().map(|r| r.join("wan2gp-jobs")))
+    super::tools_root().map(|r| r.join("wan2gp-jobs"))
 }
 
 pub struct LocalWan2Gp {

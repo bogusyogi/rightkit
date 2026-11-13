@@ -15,7 +15,6 @@
 //!   onnx/decoder_model_merged.onnx
 //!   onnx/encodec_decode.onnx
 //! ```
-//! `<PREFIX>_MUSICGEN_MODEL_DIR` overrides the location (tests, dev).
 
 use super::{
     Durations, GenRequest, Kind, ModelInfo, Output, PollOutcome, Provider, ProviderError,
@@ -68,15 +67,11 @@ fn bad(m: impl Into<String>) -> ProviderError {
     ProviderError::new("invalid_request", m, false)
 }
 
-/// `<PREFIX>_MUSICGEN_MODEL_DIR` or `<data>/models/musicgen-small` — same
-/// root convention as `local_lipsync::model_dir`.
+/// `<data>/models/musicgen-small` — same root convention as `local_lipsync::model_dir`.
 pub fn model_dir() -> PathBuf {
-    match crate::host::env_var("MUSICGEN_MODEL_DIR").filter(|v| !v.is_empty()) {
-        Some(p) => PathBuf::from(p),
-        None => crate::qts::models::data_root()
-            .join("models")
-            .join(MODEL_SMALL),
-    }
+    crate::qts::models::data_root()
+        .join("models")
+        .join(MODEL_SMALL)
 }
 
 /// Required model files: (relative path, exact byte size, sha256 hex).

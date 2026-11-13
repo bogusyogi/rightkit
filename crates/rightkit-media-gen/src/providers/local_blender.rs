@@ -210,9 +210,7 @@ impl LocalBlender {
             .map(PathBuf::from)
             .or_else(default_blender)
             .unwrap_or_else(|| PathBuf::from("blender"));
-        let worker = crate::host::env_var("BLENDER_WORKER_DIR")
-            .map(PathBuf::from)
-            .unwrap_or_else(default_worker);
+        let worker = default_worker();
         let assets = resolve_assets_dir(crate::host::env_var(ASSETS_SUFFIX).map(Into::into), &data);
         Self {
             config: Config {

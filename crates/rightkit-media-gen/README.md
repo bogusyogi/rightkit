@@ -16,7 +16,7 @@ job-store database file (default `media-gen.sqlite3`).
 Crate-specific literals go through `host::configure_media(MediaHostConfig { .. })`: the display name
 used in user-visible messages (`app_name`), the stderr log prefix, the `User-Agent` of stock
 downloads and the name of the spend-ledger attach lock file. The defaults are neutral. Environment
-overrides (budget, Blender, Wan2GP, lip-sync and music model folders) are read as `<PREFIX>_NAME`
+overrides (budget, Blender, Wan2GP, lip-sync model folder) are read as `<PREFIX>_NAME`
 first, then `RIGHTKIT_NAME`.
 
 The approval token domain is the host's (`host::approval::set_token_domain`, default
