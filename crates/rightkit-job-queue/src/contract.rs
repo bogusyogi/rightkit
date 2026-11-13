@@ -37,7 +37,7 @@ pub use crate::wire::{finite_frame_limit, CONTRACT_VERSION, DEFAULT_FRAME_LIMIT}
 pub type Sink = Arc<dyn Fn(Value) + Send + Sync>;
 
 /// A group of commands. Apps implement this for product commands and add
-/// [`JobCommands`] for the shared `job.*` surface.
+/// [`JobCommands`](crate::JobCommands) for the shared `job.*` surface.
 pub trait CommandSet: Send + Sync {
     fn methods(&self) -> Vec<String>;
     /// Long-running requests run on their own thread so others stay live.

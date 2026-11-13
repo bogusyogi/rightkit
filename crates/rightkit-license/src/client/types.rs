@@ -224,15 +224,15 @@ impl LicenseClientConfig {
         self
     }
 
-    /// Whether [`LicenseClient::activate_as_configured`] (what the shell's default licence
+    /// Whether [`LicenseClient::activate_as_configured`](super::LicenseClient::activate_as_configured) (what the shell's default licence
     /// commands call) activates through the renewable device-lease endpoint instead of the
-    /// typed-key one. Default `false`; [`LicenseClient::activate`] itself is unchanged.
+    /// typed-key one. Default `false`; [`LicenseClient::activate`](super::LicenseClient::activate) itself is unchanged.
     pub fn with_lease_activation(mut self, on: bool) -> Self {
         self.lease_activation = on;
         self
     }
 
-    /// Whether [`LicenseClient::request_trial_as_configured`] sends the host platform (`macos` or
+    /// Whether [`LicenseClient::request_trial_as_configured`](super::LicenseClient::request_trial_as_configured) sends the host platform (`macos` or
     /// `windows`, chosen at compile time; nothing on other systems) with the trial request, for a
     /// licence service that keys the trial length on it. Default `false`.
     pub fn with_host_trial_platform(mut self, on: bool) -> Self {
