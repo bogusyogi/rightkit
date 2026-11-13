@@ -3074,6 +3074,7 @@ name = "rightkit-credentials"
 version = "0.5.3"
 dependencies = [
  "getrandom 0.4.3",
+ "rightkit-child-process",
  "secret-service",
  "serde",
  "serde_json",
