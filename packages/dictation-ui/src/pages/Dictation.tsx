@@ -4,13 +4,13 @@
 // cancel, incl. the zephyr triggers) lives in Controls; standalone action
 // commands live in Commands.
 
-import { PageShell } from "@rightkit/react-shell/react";
+import PageFrame from "../components/PageFrame.js";
 import { formattingGuideUrl } from "../host.js";
 import VocabularyPage from "./Vocabulary.js";
 
 export default function DictationPage() {
   return (
-    <PageShell maxWidth={1320} className="dictation-page dictation-page--dictation">
+    <PageFrame page="dictation">
       <div className="flex w-full min-w-0 flex-col gap-[var(--space-4)]">
         {/* Informational, always on. Neutral: ember is reserved for the active
             row, switches, primary buttons, and recording. */}
@@ -33,6 +33,6 @@ export default function DictationPage() {
 
         <VocabularyPage />
       </div>
-    </PageShell>
+    </PageFrame>
   );
 }

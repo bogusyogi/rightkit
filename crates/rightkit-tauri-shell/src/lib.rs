@@ -1686,9 +1686,10 @@ macro_rules! handler {
 // gets a pair of macros whose `cfg` is evaluated here.
 
 /// Prepends the viewer commands: stream and site grants, print, preview documents (feature `viewer`).
+/// The preview document commands exist only with `host-services`.
 #[doc(hidden)]
 #[macro_export]
-#[cfg(feature = "viewer")]
+#[cfg(all(feature = "viewer", feature = "host-services"))]
 macro_rules! __rk_handler_viewer {
     ($($cmd:tt)*) => {
         $crate::__rk_handler_host![
@@ -1699,6 +1700,22 @@ macro_rules! __rk_handler_viewer {
             $crate::preview::rightkit_preview_register,
             $crate::preview::rightkit_preview_revoke,
             $crate::preview::rightkit_preview_revoke_all,
+            $($cmd)*
+        ]
+    };
+}
+
+/// Prepends the viewer commands that need no host services (feature `viewer` without `host-services`).
+#[doc(hidden)]
+#[macro_export]
+#[cfg(all(feature = "viewer", not(feature = "host-services")))]
+macro_rules! __rk_handler_viewer {
+    ($($cmd:tt)*) => {
+        $crate::__rk_handler_host![
+            $crate::commands::rk_shell_stream_grant,
+            $crate::commands::rk_shell_site_grant,
+            $crate::commands::rk_shell_site_revoke,
+            $crate::print::rk_shell_print,
             $($cmd)*
         ]
     };

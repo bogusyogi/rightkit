@@ -5,8 +5,10 @@
 // name also come from here, so no app's literals are baked in. Call `configureDictationHost` once per
 // window, before rendering.
 
+import type { ComponentType, ReactNode } from "react";
 import type { LibrarySource } from "@rightkit/library-ui";
 import type { SettingsBackend } from "@rightkit/settings-ui/core";
+import type { UseSettings } from "./hooks/useSettings.js";
 import type { AppState, HistoryItem } from "./lib/homeMetrics.js";
 import type { PillEvent } from "./pill/pillBars.js";
 import type { VocabularyEntry, VocabularySuggestion } from "./types/vocabulary.js";
@@ -224,6 +226,55 @@ export interface PillClient {
 // ---------------------------------------------------------------------------------------------
 // Configuration
 
+/** The pages that render inside the host's page wrapper. */
+export type DictationPageName = "dictation" | "polish" | "home";
+
+export interface DictationPageShellProps {
+  page: DictationPageName;
+  children: ReactNode;
+}
+
+export interface DictationToggleProps {
+  checked: boolean;
+  onChange: (next: boolean) => void;
+  /** Accessible name. */
+  label: string;
+  disabled?: boolean;
+}
+
+export interface DictationOriginIconProps {
+  item: HistoryItem;
+  size?: number;
+  className?: string;
+}
+
+/** Visual pieces a host may replace. Each default is the package's own markup. */
+export interface DictationComponents {
+  /** Wrapper around the Dictation, Polish and Home pages. Default: `PageShell` from `@rightkit/react-shell/react`, `maxWidth` 1320, class `dictation-page dictation-page--<page>`. */
+  PageShell?: ComponentType<DictationPageShellProps>;
+  /** Switch on the Polish page. Default: `Toggle` from `@rightkit/react-shell/react`. */
+  Toggle?: ComponentType<DictationToggleProps>;
+  /** A chord on the Home page (`chord` is a `lib/chords` token string such as `fn+space`). Default: `Kbd` from `@rightkit/platform-ui/react`. */
+  Kbd?: ComponentType<{ chord: string }>;
+  /** Leading app tile of a recent-history row on the Home page. Default: library-ui `OriginIcon` over `DictationClient.history`. */
+  OriginIcon?: ComponentType<DictationOriginIconProps>;
+}
+
+/** Class names a host may replace. */
+export interface DictationClassNames {
+  /** Row action buttons (copy, edit, ...) on the Home page. Default: library-ui `rowActionChip`. */
+  rowChip?: string;
+}
+
+/** Hooks a host may replace. A hook must be the same function for the life of the window. */
+export interface DictationHooks {
+  /**
+   * The settings store every page reads and patches through. Default: `@rightkit/settings-ui`'s store over
+   * `DictationClient.settings`. A host with its own store passes a hook with the `UseSettings` shape.
+   */
+  useSettings?: () => UseSettings;
+}
+
 /** Browser-storage values the package keeps. Hosts with stored data pass their existing keys. */
 export type DictationStorageKey = "promptHintCount" | "promptHintSeen" | "promptHintDisabled";
 
@@ -240,6 +291,17 @@ export interface DictationHostConfig {
   storageKeys?: Partial<Record<DictationStorageKey, string>>;
   /** URL of the spoken-formatting guide linked from the Dictation page. */
   formattingGuideUrl?: string;
+  /** Replacement visual pieces; see `DictationComponents`. */
+  components?: DictationComponents;
+  /** Replacement class names; see `DictationClassNames`. */
+  classNames?: DictationClassNames;
+  /** Replacement hooks; see `DictationHooks`. */
+  hooks?: DictationHooks;
+  /**
+   * Where focus goes when the file-transcription modal closes; `opener` is the control that opened it (or
+   * null). Default: focus `opener` on the next animation frame when it is still on the page.
+   */
+  restoreFocus?: (opener: HTMLElement | null) => void;
 }
 
 let config: DictationHostConfig = {};
@@ -268,4 +330,31 @@ export function dictationClient(): DictationClient {
 export function pillClient(): PillClient {
   if (!config.pill) throw new Error("@rightkit/dictation-ui: configureDictationHost({ pill }) was not called");
   return config.pill;
+}
+
+export function hostComponents(): DictationComponents {
+  return config.components ?? {};
+}
+
+export function hostClassNames(): DictationClassNames {
+  return config.classNames ?? {};
+}
+
+export function hostHooks(): DictationHooks {
+  return config.hooks ?? {};
+}
+
+export function hostRestoreFocus(): ((opener: HTMLElement | null) => void) | undefined {
+  return config.restoreFocus;
+}
+
+/** Opens the pricing page. A failed open is logged, never thrown: callers are click handlers. */
+export function openPricing(): void {
+  void (async () => {
+    try {
+      await dictationClient().openPricing();
+    } catch (error) {
+      console.warn("@rightkit/dictation-ui: openPricing failed", error);
+    }
+  })();
 }

@@ -269,9 +269,7 @@
           "@rightkit/logs": "0.1.6",
           "@tauri-apps/plugin-dialog": "2.8.3"
         },
-        "declaredOnly": [
-          "@tauri-apps/api"
-        ]
+        "declaredOnly": []
       },
       "importClosures": {
         ".": {

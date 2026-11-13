@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useRef } from "react";
 
+import { hostRestoreFocus } from "../host.js";
 import { cx } from "../lib/ui.js";
 
 // Split out of the entry chunk with the other non-critical surfaces — the
@@ -74,6 +75,11 @@ export default function TranscribeModal({
     onClose();
     // Return focus to the control that opened the modal, when it is still on the page.
     const opener = openerRef.current;
+    const restoreFocus = hostRestoreFocus();
+    if (restoreFocus) {
+      restoreFocus(opener);
+      return;
+    }
     window.requestAnimationFrame(() => {
       if (opener?.isConnected) opener.focus({ preventScroll: true });
     });

@@ -40,6 +40,27 @@ configureDictationHost({
   calls, `log`, and typed events through `on` (`event`, `hover`, `cursor`, `intro`, `deliveryRecorded`,
   `modelPhase`, `hintShow`, `clipboardShow`).
 
+Optional replacements, for a host whose pages must look or behave as its own (every default is the package's markup):
+
+```ts
+configureDictationHost({
+  components: {
+    PageShell,   // ({ page: "dictation" | "polish" | "home", children }) wrapper of those pages
+    Toggle,      // ({ checked, onChange, label, disabled? }) the Polish switches
+    Kbd,         // ({ chord }) chords on Home
+    OriginIcon,  // ({ item: HistoryItem, size?, className? }) app tile of a Home recent row
+  },
+  classNames: { rowChip: "..." },        // Home row action buttons
+  hooks: { useSettings },                // the settings store the pages read and patch (the `UseSettings` shape)
+  restoreFocus: (opener) => { /* ... */ }, // where focus goes when the file-transcription modal closes
+});
+```
+
+`useSettings` must return `{ data, loaded, error, setError, patch(key, value), get(key, fallback) }` (`UseSettings`);
+every page reads and patches settings through it. Pro state is `DictationClient.entitlement()` (read once) plus the
+`entitlement` event on `on` (changes), so a host with its own licence lifecycle returns its snapshot from the first and
+subscribes in the second. A rejected `openPricing()` is logged and swallowed by the pages.
+
 ## Tauri host
 
 `@rightkit/dictation-ui/tauri` implements both clients over Tauri `invoke` and `listen`, with the command and event
