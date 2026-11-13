@@ -12,6 +12,7 @@
     "@rightkit/app-update": "0.4.2",
     "@rightkit/doc-render": "0.2.1",
     "@rightkit/react-shell": "0.7.2",
-    "@rightkit/settings-ui": "0.7.0"
+    "@rightkit/settings-ui": "0.7.0",
+    "@rightkit/theme": "0.3.3"
   }
 }

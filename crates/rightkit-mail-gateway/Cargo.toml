@@ -26,3 +26,7 @@ rightkit-mail = { version = "0.1.1", path = "../rightkit-mail" }
 rightkit-time = { version = "0.1.0", path = "../rightkit-time" }
 rightkit-agent-gateway = { version = "0.3.0", path = "../rightkit-agent-gateway" }
 rightkit-approvals = { version = "0.2.0", default-features = false, path = "../rightkit-approvals" }
+
+[dev-dependencies]
+# The crate's own tests link SQLite; a dependent picks the provider (as rightkit-agent-gateway does).
+rightkit-db = { version = "0.5.2", default-features = false, features = ["bundled"], path = "../rightkit-db" }

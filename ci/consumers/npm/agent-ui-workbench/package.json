@@ -11,6 +11,7 @@
     "react-dom": "19.3.1",
     "@rightkit/doc-render": "0.2.1",
     "@rightkit/platform-ui": "0.4.0",
-    "@rightkit/react-shell": "0.7.2"
+    "@rightkit/react-shell": "0.7.2",
+    "@rightkit/theme": "0.3.3"
   }
 }
