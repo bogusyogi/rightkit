@@ -100,7 +100,7 @@ fn run_git(root: &Path, args: &[&str]) -> Result<Vec<u8>, ()> {
 /// for the `snapshot`/`generation` reference kinds.
 fn treeish_semantic_graph(repo_root: &Path, treeish: &str) -> Result<Value, BlueprintError> {
     crate::delta_store::with_treeish_worktree(repo_root, treeish, |worktree| {
-        let historical_store = worktree.join(".agent").join("graph").join("graph.db");
+        let historical_store = crate::graph_dir::graph_db_path(worktree);
         let authorization = crate::engine::verified_construction_reason(&historical_store)
             .map_err(|error| error.to_string())?;
         if authorization.is_none() {

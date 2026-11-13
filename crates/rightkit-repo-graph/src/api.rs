@@ -60,6 +60,21 @@ impl Bounds {
         Self::default()
     }
 
+    /// The bounds one request's response is checked against. A request that names its own
+    /// `maxBytes` budget (the same budget query answers are fitted to) gets that budget as its
+    /// response bound, clamped to the transport ceiling; otherwise the bound is unchanged (#601).
+    pub fn for_request(self, request: &BlueprintRequest) -> Self {
+        match request.input.get("maxBytes").and_then(Value::as_u64) {
+            Some(bytes) => Self {
+                max_response_bytes: usize::try_from(bytes)
+                    .unwrap_or(MAX_RESPONSE_BYTES)
+                    .clamp(1, MAX_RESPONSE_BYTES),
+                ..self
+            },
+            None => self,
+        }
+    }
+
     pub fn bounded(self) -> Self {
         Self {
             max_request_bytes: self.max_request_bytes.clamp(1, MAX_ONE_SHOT_REQUEST_BYTES),

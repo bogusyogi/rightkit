@@ -237,10 +237,7 @@ fn changes_view(
     generation: &GraphGeneration,
     request: &BlueprintRequest,
 ) -> Result<Value, BlueprintError> {
-    let db_path = Path::new(&generation.repo_root)
-        .join(".agent")
-        .join("graph")
-        .join("graph.db");
+    let db_path = crate::graph_dir::graph_db_path(Path::new(&generation.repo_root));
     if !db_path.exists() {
         // In-memory GraphGeneration callers have no persisted history; keep
         // that boundary explicit instead of fabricating a current-only delta.
@@ -285,7 +282,7 @@ fn changes_view(
 
 const BASE64URL: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
 
-fn base64url_encode(bytes: &[u8]) -> String {
+pub(crate) fn base64url_encode(bytes: &[u8]) -> String {
     let mut output = String::with_capacity((bytes.len() * 4).div_ceil(3));
     let mut index = 0;
     while index < bytes.len() {
@@ -306,7 +303,7 @@ fn base64url_encode(bytes: &[u8]) -> String {
     output
 }
 
-fn base64url_decode(input: &str) -> Option<Vec<u8>> {
+pub(crate) fn base64url_decode(input: &str) -> Option<Vec<u8>> {
     if input.len() % 4 == 1 || input.bytes().any(|byte| !BASE64URL.contains(&byte)) {
         return None;
     }

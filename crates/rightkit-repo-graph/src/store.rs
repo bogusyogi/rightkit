@@ -237,16 +237,45 @@ pub fn save_generation(conn: &mut Connection, generation: &Generation) -> Result
     Ok(())
 }
 
+/// Node and edge row counts straight from the store, without reading rows.
+pub fn stored_graph_rows(conn: &Connection) -> Result<(u64, u64), StoreError> {
+    let count = |table: &str| -> Result<u64, StoreError> {
+        let rows: i64 = conn.query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+            row.get(0)
+        })?;
+        Ok(rows.max(0) as u64)
+    };
+    let nodes = count("files")? + count("symbols")? + count("annotation_nodes")?;
+    Ok((nodes, count("edges")?))
+}
+
+/// Node rows of one source path: its file row, symbols and annotation nodes (#635).
+pub fn load_path_nodes(conn: &Connection, path: &str) -> Result<Vec<Value>, StoreError> {
+    load_nodes(conn, Some(path))
+}
+
+/// Edge rows leaving one node id (#635).
+pub fn load_node_edges(conn: &Connection, source: &str) -> Result<Vec<Value>, StoreError> {
+    load_edges(conn, Some(source))
+}
+
+/// The file report row of one source path, if the path is stored (#635).
+pub fn load_path_file_report(conn: &Connection, path: &str) -> Result<Option<Value>, StoreError> {
+    Ok(load_file_reports(conn, Some(path))?.into_iter().next())
+}
+
 /// Read the full persisted generation, or `None` when no envelope is sealed.
 pub fn load_generation(conn: &Connection) -> Result<Option<Generation>, StoreError> {
+    // One whole-graph materialisation at a time (#635).
+    let _gate = crate::memory::full_graph_guard();
     let envelope = read_generation_envelope(conn)?;
     if envelope.is_none() {
         return Ok(None);
     }
     let mut generation = generation_from_envelope(envelope.unwrap())?;
-    generation.nodes = load_nodes(conn)?;
-    generation.edges = load_edges(conn)?;
-    generation.file_reports = load_file_reports(conn)?;
+    generation.nodes = load_nodes(conn, None)?;
+    generation.edges = load_edges(conn, None)?;
+    generation.file_reports = load_file_reports(conn, None)?;
     load_document_rows(conn, &mut generation)?;
     Ok(Some(generation))
 }
@@ -692,11 +721,18 @@ fn insert_edge(tx: &Transaction<'_>, edge: &Value, generation_id: &str) -> Resul
     Ok(())
 }
 
-fn load_nodes(conn: &Connection) -> Result<Vec<Value>, StoreError> {
+/// Node rows as JSON values; `path` narrows the read to one source path through the
+/// path indexes, so a partial refresh never reads the whole graph (#635).
+fn load_nodes(conn: &Connection, path: Option<&str>) -> Result<Vec<Value>, StoreError> {
+    let by_path = if path.is_some() {
+        " WHERE path = ?1"
+    } else {
+        ""
+    };
     let mut ordered = Vec::<(i64, i64, Value)>::new();
     {
-        let mut statement = conn.prepare("SELECT node_id,path,labels,name,qualified_name,confidence,evidence,extra,node_ordinal,rowid,generation_id FROM files")?;
-        let mut rows = statement.query([])?;
+        let mut statement = conn.prepare(&format!("SELECT node_id,path,labels,name,qualified_name,confidence,evidence,extra,node_ordinal,rowid,generation_id FROM files{by_path}"))?;
+        let mut rows = statement.query(rusqlite::params_from_iter(path))?;
         while let Some(row) = rows.next()? {
             let id: Option<String> = row.get(0)?;
             let path: String = row.get(1)?;
@@ -737,8 +773,8 @@ fn load_nodes(conn: &Connection) -> Result<Vec<Value>, StoreError> {
         }
     }
     {
-        let mut statement = conn.prepare("SELECT id,kind,labels,name,qualified_name,path,confidence,evidence,extra,node_ordinal,rowid,generation_id FROM symbols")?;
-        let mut rows = statement.query([])?;
+        let mut statement = conn.prepare(&format!("SELECT id,kind,labels,name,qualified_name,path,confidence,evidence,extra,node_ordinal,rowid,generation_id FROM symbols{by_path}"))?;
+        let mut rows = statement.query(rusqlite::params_from_iter(path))?;
         while let Some(row) = rows.next()? {
             let mut base = Map::new();
             base.insert("id".into(), Value::String(row.get(0)?));
@@ -777,9 +813,15 @@ fn load_nodes(conn: &Connection) -> Result<Vec<Value>, StoreError> {
         }
     }
     {
-        let mut statement =
-            conn.prepare("SELECT payload,node_ordinal,rowid FROM annotation_nodes")?;
-        let mut rows = statement.query([])?;
+        let annotation_by_path = if path.is_some() {
+            " WHERE json_extract(payload, '$.path') = ?1"
+        } else {
+            ""
+        };
+        let mut statement = conn.prepare(&format!(
+            "SELECT payload,node_ordinal,rowid FROM annotation_nodes{annotation_by_path}"
+        ))?;
+        let mut rows = statement.query(rusqlite::params_from_iter(path))?;
         while let Some(row) = rows.next()? {
             ordered.push((
                 row.get::<_, Option<i64>>(1)?.unwrap_or(row.get(2)?),
@@ -792,9 +834,16 @@ fn load_nodes(conn: &Connection) -> Result<Vec<Value>, StoreError> {
     Ok(ordered.into_iter().map(|(_, _, value)| value).collect())
 }
 
-fn load_edges(conn: &Connection) -> Result<Vec<Value>, StoreError> {
-    let mut statement = conn.prepare("SELECT id,kind,source,target,confidence,resolved,specifier,evidence,confidence_tier,extra,generation_id FROM edges ORDER BY rowid")?;
-    let mut rows = statement.query([])?;
+/// Edge rows as JSON values; `source` narrows the read to the edges leaving one node through
+/// the source index (#635).
+fn load_edges(conn: &Connection, source: Option<&str>) -> Result<Vec<Value>, StoreError> {
+    let by_source = if source.is_some() {
+        " WHERE source = ?1"
+    } else {
+        ""
+    };
+    let mut statement = conn.prepare(&format!("SELECT id,kind,source,target,confidence,resolved,specifier,evidence,confidence_tier,extra,generation_id FROM edges{by_source} ORDER BY rowid"))?;
+    let mut rows = statement.query(rusqlite::params_from_iter(source))?;
     let mut result = Vec::new();
     while let Some(row) = rows.next()? {
         let mut base = Map::new();
@@ -834,9 +883,14 @@ fn load_edges(conn: &Connection) -> Result<Vec<Value>, StoreError> {
     Ok(result)
 }
 
-fn load_file_reports(conn: &Connection) -> Result<Vec<Value>, StoreError> {
-    let mut statement = conn.prepare("SELECT path,content_hash,language,provider,parse_status,error_node_count,extra FROM files ORDER BY node_ordinal,rowid")?;
-    let mut rows = statement.query([])?;
+fn load_file_reports(conn: &Connection, path: Option<&str>) -> Result<Vec<Value>, StoreError> {
+    let by_path = if path.is_some() {
+        " WHERE path = ?1"
+    } else {
+        ""
+    };
+    let mut statement = conn.prepare(&format!("SELECT path,content_hash,language,provider,parse_status,error_node_count,extra FROM files{by_path} ORDER BY node_ordinal,rowid"))?;
+    let mut rows = statement.query(rusqlite::params_from_iter(path))?;
     let mut reports = Vec::new();
     while let Some(row) = rows.next()? {
         let path: String = row.get(0)?;

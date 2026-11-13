@@ -379,6 +379,22 @@ pub fn delete_facts_by_owner(
             let rows = statement.query_map(params![path], |row| row.get::<_, String>(0))?;
             node_ids.extend(rows.collect::<Result<Vec<_>, _>>()?);
         }
+        // Every edge leaves a node of its own path (its evidence path is its source node's
+        // path), so the edges to replace are found through the source index. The previous
+        // `evidence LIKE` scan read the whole edges table once per path: minutes for a 1.5M-row
+        // graph refreshing a few hundred files (#635). Gathered before the nodes are deleted.
+        let mut source_ids = node_ids.clone();
+        source_ids.push(format!("file:{path}"));
+        for sql in [
+            "SELECT id FROM symbols WHERE path = ?1",
+            "SELECT node_id FROM files WHERE path = ?1 AND node_id IS NOT NULL",
+        ] {
+            let mut statement = tx.prepare(sql)?;
+            let rows = statement.query_map(params![path], |row| row.get::<_, String>(0))?;
+            source_ids.extend(rows.collect::<Result<Vec<_>, _>>()?);
+        }
+        source_ids.sort();
+        source_ids.dedup();
         for node_id in &node_ids {
             tx.execute("DELETE FROM symbols WHERE id = ?1", params![node_id])?;
             tx.execute(
@@ -390,12 +406,14 @@ pub fn delete_facts_by_owner(
                 params![node_id],
             )?;
         }
-        let edge_pattern = format!("%\"path\":\"{}\"%", path.replace('"', ""));
         let mut edge_ids = Vec::new();
         {
-            let mut statement = tx.prepare("SELECT id FROM edges WHERE evidence LIKE ?1")?;
-            let rows = statement.query_map(params![edge_pattern], |row| row.get::<_, String>(0))?;
-            edge_ids.extend(rows.collect::<Result<Vec<_>, _>>()?);
+            let mut statement = tx.prepare("SELECT id FROM edges WHERE source = ?1")?;
+            for source_id in &source_ids {
+                let rows =
+                    statement.query_map(params![source_id], |row| row.get::<_, String>(0))?;
+                edge_ids.extend(rows.collect::<Result<Vec<_>, _>>()?);
+            }
         }
         for edge_id in edge_ids {
             tx.execute("DELETE FROM edges WHERE id = ?1", params![edge_id])?;

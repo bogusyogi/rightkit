@@ -120,7 +120,7 @@ fn contract_registry_for_repo(
 ) -> Option<contract_registry::ContractRegistry> {
     let db_path = crate::security::canonical_root(Path::new(repo_root))
         .ok()
-        .map(|root| root.join(".agent").join("graph").join("graph.db"))?;
+        .map(|root| crate::graph_dir::graph_db_path(&root))?;
     if !db_path.exists() {
         return None;
     }

@@ -41,7 +41,7 @@ fn id_exclude(path: &str) -> bool {
 /// graph has been built or the read fails for any reason (matching the
 /// JS try/catch-to-null fallback).
 pub fn read_stored_manifest(root: &Path) -> Option<Value> {
-    let db_path = root.join(".agent").join("graph").join("graph.db");
+    let db_path = crate::graph_dir::graph_db_path(root);
     if !db_path.exists() {
         return None;
     }
@@ -711,7 +711,7 @@ pub struct GenerateDocsResult {
 /// Build the small input projection needed by the generated-doc emitter from
 /// the native store. Native builds persist one SQLite generation.
 fn read_native_inputs(root: &Path) -> Option<(Value, Value, Value, Option<Value>, Value)> {
-    let db_path = root.join(".agent").join("graph").join("graph.db");
+    let db_path = crate::graph_dir::graph_db_path(root);
     if !db_path.exists() {
         return None;
     }

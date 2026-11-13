@@ -10,6 +10,7 @@ use crate::freshness::{stable_read_with_limit, StableReadError, MAX_SOURCE_FILE_
 use crate::graph::{self, GraphGeneration, GraphOptions};
 use crate::model::Operation;
 use crate::query;
+use crate::refresh_view::{RefreshView, StoredEnvelope};
 use crate::security::{canonical_root, is_confined_path};
 use crate::store::{self, Generation, StoreError};
 use serde_json::{json, Value};
@@ -35,14 +36,36 @@ impl BlueprintOperation for NativeBlueprintOperation {
         request: &BlueprintRequest,
         context: &RequestContext,
     ) -> Result<Value, BlueprintError> {
+        let mut result = self.execute_unfitted(request, context)?;
+        // #554: a result that no operation fitted itself (doctor, findings, snapshots, document
+        // truth, and any future one) is cut to the request's byte bound with `byte_ceiling`
+        // omissions, never rejected as `blueprint_oversized`. The map export answers with a path
+        // and counts and is not cut.
+        if request.method != Operation::Export {
+            query::fit_any_result(&mut result, request, context);
+        }
+        Ok(result)
+    }
+}
+
+impl NativeBlueprintOperation {
+    fn execute_unfitted(
+        &self,
+        request: &BlueprintRequest,
+        context: &RequestContext,
+    ) -> Result<Value, BlueprintError> {
         context.check()?;
         let root = confined_root(request, context)?;
         check_paths(request, &root)?;
+        crate::graph_dir::retire_legacy_graph(&root);
         let db_path = store_path(&root);
         match request.method {
             Operation::Doctor => doctor(request, &root),
             Operation::Repair => repair(request, &root),
             Operation::Build | Operation::Refresh => {
+                // A rebuilt or refreshed store leaves any cached copy of the old generation
+                // unreachable; drop it on every exit so it is never held until the next query.
+                let _evict = EvictCachedGeneration(&db_path);
                 if request.generation.is_some()
                     || request
                         .input
@@ -50,14 +73,23 @@ impl BlueprintOperation for NativeBlueprintOperation {
                         .and_then(Value::as_str)
                         .is_some()
                 {
-                    let current = load_current(&db_path)?;
-                    ensure_generation(request, &current)?;
+                    // The stored identity is in the envelope; never load the graph for it (#635).
+                    let stored = RefreshView::open(&db_path)?.envelope()?;
+                    ensure_generation_id(request, &stored.generation_id)?;
                 }
                 match verified_construction_reason(&db_path)? {
                     Some(verified) => {
+                        defer_oversized_rebuild(&db_path)?;
                         build_and_publish(request, context, &root, &db_path, verified)
                     }
-                    None => incremental_refresh_with_repair(request, context, &root, &db_path),
+                    None => {
+                        if let Some(unchanged) =
+                            unchanged_generation_response(request, &root, &db_path)?
+                        {
+                            return Ok(unchanged);
+                        }
+                        incremental_refresh_with_repair(request, context, &root, &db_path)
+                    }
                 }
             }
             Operation::Status | Operation::DbStatus => status(request, context, &root, &db_path)
@@ -84,6 +116,9 @@ impl BlueprintOperation for NativeBlueprintOperation {
                 // the native owner so installed CLI callers cannot fall back
                 // to a second JS detector or an unpinned live scan.
                 let connection = store::open_store_read_only(&db_path).map_err(store_error)?;
+                let (stored_nodes, stored_edges) =
+                    store::stored_graph_rows(&connection).map_err(store_error)?;
+                refuse_oversized_query_load(stored_nodes.saturating_add(stored_edges))?;
                 let generation = store::load_generation(&connection)
                     .map_err(store_error)?
                     .ok_or_else(|| {
@@ -92,10 +127,7 @@ impl BlueprintOperation for NativeBlueprintOperation {
                             "no persisted Blueprint generation exists",
                         )
                     })?;
-                let state_dir = root
-                    .join(".agent")
-                    .join("blueprint")
-                    .join("findings-baselines");
+                let state_dir = crate::graph_dir::findings_baselines_dir(&root);
                 crate::findings::execute_findings(&generation, request, context, &state_dir)
             }
             Operation::DocumentTruth => {
@@ -105,6 +137,9 @@ impl BlueprintOperation for NativeBlueprintOperation {
                 // not carry, so this reads store::Generation directly, the
                 // same pattern FindingsGet uses above.
                 let connection = store::open_store_read_only(&db_path).map_err(store_error)?;
+                let (stored_nodes, stored_edges) =
+                    store::stored_graph_rows(&connection).map_err(store_error)?;
+                refuse_oversized_query_load(stored_nodes.saturating_add(stored_edges))?;
                 let generation = store::load_generation(&connection)
                     .map_err(store_error)?
                     .ok_or_else(|| {
@@ -124,7 +159,8 @@ impl BlueprintOperation for NativeBlueprintOperation {
                     .and_then(Value::as_str)
                     .ok_or_else(|| BlueprintError::missing("input.snapshot"))?;
                 let (generation_id, snapshot) = {
-                    let generation = store::load_generation(&connection)
+                    // Only the generation id is needed: read the envelope, never the rows (#635).
+                    let generation = store::read_generation_envelope(&connection)
                         .map_err(store_error)?
                         .ok_or_else(|| {
                             BlueprintError::new(
@@ -141,7 +177,8 @@ impl BlueprintOperation for NativeBlueprintOperation {
             }
             Operation::SnapshotList => {
                 let connection = store::open_store_read_only(&db_path).map_err(store_error)?;
-                let generation = store::load_generation(&connection)
+                // Only the generation id is needed: read the envelope, never the rows (#635).
+                let generation = store::read_generation_envelope(&connection)
                     .map_err(store_error)?
                     .ok_or_else(|| {
                         BlueprintError::new(
@@ -157,7 +194,8 @@ impl BlueprintOperation for NativeBlueprintOperation {
             }
             Operation::Changes => {
                 let connection = store::open_store_read_only(&db_path).map_err(store_error)?;
-                let generation = store::load_generation(&connection)
+                // Only the generation id is needed: read the envelope, never the rows (#635).
+                let generation = store::read_generation_envelope(&connection)
                     .map_err(store_error)?
                     .ok_or_else(|| {
                         BlueprintError::new(
@@ -225,7 +263,11 @@ impl BlueprintOperation for NativeBlueprintOperation {
             | Operation::Architecture => {
                 let (generation, source_observation) = load_current_shared(&db_path)?;
                 ensure_generation(request, &generation)?;
-                context.check()?;
+                // #554: a search answers with the page its scan reaches inside its deadline, so it
+                // does not fail here on an expired deadline (see `query::search`).
+                if request.method != Operation::Search {
+                    context.check()?;
+                }
                 // The freshness receipt compares the sealed basis against a
                 // bounded live VCS observation; stale paths are confined to
                 // files this generation actually indexed.
@@ -271,9 +313,12 @@ impl BlueprintOperation for NativeBlueprintOperation {
                 // without a re-fit the wrapped response exceeds its bound and
                 // the whole answer is rejected as `blueprint_oversized`.
                 query::fit_to_request_bounds(&mut result, request, context);
-                context.check()?;
+                if request.method != Operation::Search {
+                    context.check()?;
+                }
                 Ok(result)
             }
+            Operation::Export => export_html_map(request, context, &db_path),
             operation => Err(BlueprintError::new(
                 "unsupported_operation",
                 format!(
@@ -336,14 +381,175 @@ fn check_paths(request: &BlueprintRequest, root: &Path) -> Result<(), BlueprintE
 }
 
 fn store_path(root: &Path) -> PathBuf {
-    root.join(".agent").join("graph").join("graph.db")
+    crate::graph_dir::graph_db_path(root)
 }
 
-/// Apply one watcher-shaped code-file refresh in place. Unsupported work is
-/// reported without mutating or reconstructing the valid generation.
-/// Apply a bounded source event set by reparsing only changed files and their
-/// dependency-DAG reference closure. Untouched source rows remain addressed
-/// by their existing content hashes & are never sent through providers.
+/// What a refresh was asked to apply. A watcher or explicit caller names the paths; a startup or
+/// Build/Refresh with none discovers them by comparing a digest-only scan with the stored hashes.
+enum Change {
+    Explicit(Vec<Value>),
+    Discovered {
+        paths: Vec<String>,
+        files: Vec<graph::FileRecord>,
+    },
+}
+
+/// Phase progress lines for a refresh, one per completed phase.
+struct PhaseLog<'a> {
+    request: &'a BlueprintRequest,
+    started: Instant,
+}
+
+impl<'a> PhaseLog<'a> {
+    fn new(request: &'a BlueprintRequest) -> Self {
+        Self {
+            request,
+            started: Instant::now(),
+        }
+    }
+
+    fn mark(&self, name: &str, detail: u64) {
+        stderr_line!(
+            "{}",
+            json!({"event":"blueprint_incremental_phase","requestId":self.request.request_id,"phase":name,"elapsedMs":self.started.elapsed().as_millis(),"detail":detail})
+        );
+    }
+}
+
+fn parse_event_kind(request: &BlueprintRequest) -> Option<EventKind> {
+    let name = request
+        .input
+        .get("eventKind")
+        .and_then(Value::as_str)
+        .unwrap_or("modify")
+        .to_ascii_lowercase();
+    match name.as_str() {
+        "create" => Some(EventKind::Create),
+        "modify" | "changed" => Some(EventKind::Modify),
+        "delete" => Some(EventKind::Delete),
+        "repair" => Some(EventKind::Repair),
+        "rename" => Some(EventKind::Rename),
+        _ => None,
+    }
+}
+
+fn request_source_clock(request: &BlueprintRequest) -> i64 {
+    request
+        .input
+        .get("sourceClock")
+        .and_then(Value::as_u64)
+        .and_then(|clock| i64::try_from(clock).ok())
+        .unwrap_or(0)
+}
+
+/// Paths whose stored content hash differs from the scanned one, or that exist on one side only.
+fn digest_delta(stored: &[(String, String)], files: &[graph::FileRecord]) -> Vec<String> {
+    let strip = |hash: &str| -> String { hash.strip_prefix("xxh128:").unwrap_or(hash).to_owned() };
+    let before: HashMap<&str, String> = stored
+        .iter()
+        .map(|(path, hash)| (path.as_str(), strip(hash)))
+        .collect();
+    let after: HashMap<&str, String> = files
+        .iter()
+        .map(|file| (file.path.as_str(), strip(&file.content_hash)))
+        .collect();
+    let mut paths = before
+        .keys()
+        .chain(after.keys())
+        .copied()
+        .collect::<Vec<_>>();
+    paths.sort_unstable();
+    paths.dedup();
+    paths
+        .into_iter()
+        .filter(|path| before.get(path) != after.get(path))
+        .map(str::to_owned)
+        .collect()
+}
+
+/// A file record that carries identity only: path and stored hash, no bytes.
+fn identity_file_record(root: &Path, path: &str, digest: &str) -> graph::FileRecord {
+    graph::FileRecord {
+        absolute_path: root.join(path),
+        path: path.to_owned(),
+        bytes: Vec::new(),
+        text: None,
+        size: 0,
+        semantic_content_hash: digest.to_owned(),
+        content_hash: digest.to_owned(),
+    }
+}
+
+fn identity_symbol_stub(id: String, name: String, path: String) -> crate::model::GraphNode {
+    crate::model::GraphNode {
+        id,
+        kind: "symbol".into(),
+        path: Some(path),
+        name: Some(name),
+        generation_id: String::new(),
+        evidence: Vec::new(),
+    }
+}
+
+fn identity_file_stub(path: &str) -> crate::model::GraphNode {
+    crate::model::GraphNode {
+        id: format!("file:{path}"),
+        kind: "file".into(),
+        path: Some(path.to_owned()),
+        name: None,
+        generation_id: String::new(),
+        evidence: Vec::new(),
+    }
+}
+
+/// A refresh that cannot be answered from a partial view, or whose delta is too large for one,
+/// either rebuilds the graph from scratch (only when the whole graph fits `FULL_GRAPH_BYTE_BUDGET`
+/// and only through `full_graph_guard`) or is deferred with a typed error and the stored
+/// generation kept. It never loads the stored graph (#635).
+#[allow(clippy::too_many_arguments)] // the refresh request context, passed through as the caller holds it
+fn full_build_or_defer(
+    request: &BlueprintRequest,
+    context: &RequestContext,
+    root: &Path,
+    db_path: &Path,
+    stored: &StoredEnvelope,
+    stored_rows: u64,
+    trigger: &str,
+    detail: Value,
+) -> Result<Value, BlueprintError> {
+    if !crate::memory::full_graph_fits(stored_rows) {
+        let estimated = crate::memory::estimated_graph_bytes(stored_rows);
+        let mut error = BlueprintError::new(
+            "blueprint_incremental_deferred_memory_budget",
+            format!(
+                "{trigger}: a full build of {stored_rows} stored rows needs about {} MiB, above the {} MiB budget; refresh deferred, stored generation preserved",
+                estimated / (1024 * 1024),
+                crate::memory::FULL_GRAPH_BYTE_BUDGET / (1024 * 1024)
+            ),
+        );
+        error.details = Some(json!({
+            "preservedGeneration": true, "trigger": trigger, "detail": detail,
+            "generationId": stored.generation_id, "complete": stored.complete,
+            "storedRows": stored_rows, "estimatedBytes": estimated,
+            "byteBudget": crate::memory::FULL_GRAPH_BYTE_BUDGET,
+        }));
+        return Err(error);
+    }
+    let result = build_and_publish(
+        request,
+        context,
+        root,
+        db_path,
+        VerifiedConstructionReason::IncrementalFallback,
+    );
+    crate::memory::release_unused_memory();
+    result
+}
+
+/// Apply one change set by rebuilding only the changed files and the files that reference them.
+/// The stored graph is read through path and edge indexes (`RefreshView`) and the delta is
+/// written in one transaction; the whole generation is never materialised (#635). Untouched
+/// source rows keep their content hashes and never pass through a provider.
 fn incremental_refresh_with_repair(
     request: &BlueprintRequest,
     context: &RequestContext,
@@ -368,26 +574,34 @@ fn incremental_refresh_with_repair(
             Some(json!({"preservedGeneration": true, "pendingChanges": pending.clone()}));
         error
     };
-    let phase_start = std::time::Instant::now();
-    let phase = |name: &str, detail: u64| {
-        stderr_line!(
-            "{}",
-            json!({"event":"blueprint_incremental_phase","requestId":request.request_id,"phase":name,"elapsedMs":phase_start.elapsed().as_millis(),"detail":detail})
-        );
-    };
-    let (current, current_observation) = load_current_with_observation(db_path)?;
-    if !current.complete {
+    let log = PhaseLog::new(request);
+    // One refresh holds one bounded working set at a time, whichever repository it is for.
+    let _refresh = crate::memory::refresh_guard();
+    context.check()?;
+    let view = RefreshView::open(db_path)?;
+    let stored = view.envelope()?;
+    if !stored.complete {
         return Err(unsupported("existing generation is incomplete"));
     }
+    let (stored_nodes, stored_edges, stored_files) = view.counts()?;
+    log.mark("load", stored_nodes.saturating_add(stored_edges));
     context.check()?;
-    phase("load", current.nodes.len() as u64);
     // Watcher and explicit callers already identify the changed paths. Keep
     // this path-scoped branch ahead of discovery so a known event never walks
     // the repository just to rediscover the event it supplied.
     if !pending.is_empty() {
-        return incremental_known_paths(request, context, root, db_path, current, pending);
+        return incremental_partial(
+            request,
+            context,
+            root,
+            db_path,
+            view,
+            stored,
+            Change::Explicit(pending.clone()),
+            false,
+        );
     }
-    let scan = graph::scan_repository_with_cancellation(
+    let scan = graph::scan_repository_digests_with_cancellation(
         root,
         &graph::ScanOptions::default(),
         &context.cancellation,
@@ -399,413 +613,194 @@ fn incremental_refresh_with_repair(
         graph::GraphError::Cancelled => BlueprintError::cancelled(),
         error => BlueprintError::new("blueprint_refresh_scan_failed", error.to_string()),
     })?;
-    phase("scan", scan.files.len() as u64);
+    log.mark("scan", scan.files.len() as u64);
     if scan.traversal_truncated || scan.file_limit_reached {
         return Err(unsupported("change discovery is incomplete"));
     }
-    let changed = source_path_delta(&current, &scan.files)
-        .into_iter()
-        .collect::<std::collections::BTreeSet<_>>();
-    let event_name = request
-        .input
-        .get("eventKind")
-        .and_then(Value::as_str)
-        .unwrap_or("modify")
-        .to_ascii_lowercase();
-    let event_kind = match event_name.as_str() {
-        "create" => EventKind::Create,
-        "modify" | "changed" => EventKind::Modify,
-        "delete" => EventKind::Delete,
-        "repair" => EventKind::Repair,
-        "rename" => EventKind::Rename,
-        _ => return Err(unsupported("event kind lacks incremental implementation")),
-    };
-    let mut paths = pending
-        .iter()
-        .filter_map(Value::as_str)
-        .map(graph::normalize_path)
-        .collect::<Vec<_>>();
-    if paths.iter().any(|path| {
-        path.is_empty()
-            || path.starts_with('/')
-            || path.contains("..")
-            || path.starts_with(".agent/")
-    }) {
-        return Err(unsupported("pending path is outside incremental scope"));
+    let changed = digest_delta(&view.file_hashes()?, &scan.files);
+    if parse_event_kind(request).is_none() {
+        return Err(unsupported("event kind lacks incremental implementation"));
     }
-    paths.dedup();
-    if event_kind != EventKind::Rename {
-        paths.sort();
-    }
-    if paths.is_empty() {
-        if !changed.is_empty() {
-            if matches!(request.method, Operation::Build | Operation::Refresh) {
-                paths = changed.iter().cloned().collect();
-            } else {
-                let mut error = unsupported("source changes require an explicit event set");
-                error.details = Some(
-                    json!({"preservedGeneration": true, "pendingChanges": pending, "changedPaths": changed}),
-                );
-                return Err(error);
-            }
-        } else {
-            let observation = crate::git_source_observation::git_source_observation(
-                &root.to_string_lossy(),
-            )
-            .map(|value| {
-                json!({
-                    "sourceClock": request.input.get("sourceClock"),
-                    "eventKind": request.input.get("eventKind"),
-                    "paths": request.input.get("paths"),
-                    "head": value.head,
-                    "dirty": value.dirty,
-                    "statusDigest": value.status_digest,
-                    "sealedAtUnixMs": now_unix_ms(),
-                })
-            });
-            let metadata_changed = observation.as_ref().is_some_and(|live| {
-                current_observation
-                    .as_ref()
-                    .map(|sealed| {
-                        sealed.get("head") != live.get("head")
-                            || sealed.get("dirty") != live.get("dirty")
-                            || sealed.get("statusDigest") != live.get("statusDigest")
-                    })
-                    .unwrap_or(true)
-            });
-            if !metadata_changed {
-                return bounded_generation_response(
-                    request,
-                    json!({
-                        "schemaVersion":1,"operation":request.method.as_str(),"state":"fresh","refreshMode":"incremental_noop",
-                        "generationId":current.generation_id,"repoRoot":root.to_string_lossy(),"storePath":db_path.to_string_lossy(),
-                        "sourceHash":current.source_hash,"complete":current.complete,"truncationReasons":current.truncation_reasons,
-                        "counts":{"nodes":current.nodes.len(),"edges":current.edges.len(),"files":current.files.len()},
-                        "sourceObservation":current_observation.clone().unwrap_or(Value::Null)
-                    }),
-                );
-            }
-            let observation =
-                observation.ok_or_else(|| unsupported("git source observation unavailable"))?;
-            let source_clock = request
-                .input
-                .get("sourceClock")
-                .and_then(Value::as_u64)
-                .and_then(|clock| i64::try_from(clock).ok())
-                .unwrap_or(0);
-            let mut connection = open_store(db_path)?;
-            delta_store::apply_source_observation(&mut connection, &observation, source_clock)
-                .map_err(|error| delta_error(context, error))?;
-            let status = post_apply_status(db_path)?;
-            return bounded_generation_response(
-                request,
-                json!({
-                    "schemaVersion": 1, "operation": request.method.as_str(), "state": "fresh",
-                    "refreshMode": "metadata", "generationId": status.generation_id,
-                    "repoRoot": root.to_string_lossy(), "storePath": db_path.to_string_lossy(),
-                    "sourceHash": status.source_hash, "complete": status.complete,
-                    "truncationReasons": status.truncation_reasons,
-                    "counts": {"nodes": status.nodes, "edges": status.edges, "files": status.files},
-                    "invalidatedPaths": [], "reusedFiles": status.files,
-                    "sourceObservation": status.source_observation,
-                }),
-            );
-        }
-    }
-    let rename_to = if event_kind == EventKind::Rename {
-        if paths.len() != 2 {
-            return Err(unsupported("rename requires old & new paths"));
-        }
-        Some(paths[1].clone())
-    } else {
-        None
-    };
-    if event_kind != EventKind::Repair {
-        let expected = if event_kind == EventKind::Rename {
-            paths
-                .iter()
-                .cloned()
-                .collect::<std::collections::BTreeSet<_>>()
-        } else {
-            paths.iter().cloned().collect()
-        };
-        if changed != expected {
-            return Err(unsupported(
-                "pending change set does not match observed repository changes",
-            ));
-        }
-    } else if paths
-        .iter()
-        .any(|path| !changed.contains(path) && !scan.files.iter().any(|file| file.path == *path))
-    {
-        return Err(unsupported(
-            "repair path is absent from observed repository",
-        ));
-    }
-    let source_clock = request
-        .input
-        .get("sourceClock")
-        .and_then(Value::as_u64)
-        .and_then(|clock| i64::try_from(clock).ok())
-        .unwrap_or(0);
-    let config_digest = crate::static_provider::build_config_digest_for_files(&scan.files);
-    let observation =
-        crate::git_source_observation::git_source_observation(&root.to_string_lossy());
-    let source_hash = graph::source_hash_for_files(&scan.files);
-    phase("source", changed.len() as u64);
-    let provider_file_map: std::collections::BTreeMap<String, &graph::FileRecord> = scan
-        .files
-        .iter()
-        .map(|file| (file.path.clone(), file))
-        .collect();
-    let before_paths = current
-        .nodes
-        .iter()
-        .filter_map(|node| (node.kind == "file").then(|| node.path.clone()).flatten())
-        .collect::<HashSet<_>>();
-    let after_paths = scan
-        .files
-        .iter()
-        .map(|file| file.path.clone())
-        .collect::<HashSet<_>>();
-    let affected = affected_reference_closure(&current, &paths, context)?;
-    // Resolver configuration is itself content addressed. Existing explicit
-    // config edges are included above; the config file still gets its own
-    // replacement row so equivalent digests are sealed without reparsing all
-    // consumers.
-    let mut ordered = affected.into_iter().collect::<Vec<_>>();
-    ordered.sort();
-    phase("closure", ordered.len() as u64);
-    let scan_files_by_path: HashMap<&str, &graph::FileRecord> = scan
-        .files
-        .iter()
-        .map(|file| (file.path.as_str(), file))
-        .collect();
-    let mut target_events = HashMap::new();
-    for target in &ordered {
-        context.check()?;
-        let target_file = scan_files_by_path.get(target.as_str()).copied();
-        let is_root_rename = rename_to.as_deref() == Some(target.as_str());
-        let target_event = if event_kind == EventKind::Rename && is_root_rename {
-            EventKind::Create
-        } else if !after_paths.contains(target) && before_paths.contains(target) {
-            EventKind::Delete
-        } else if !before_paths.contains(target) {
-            EventKind::Create
-        } else if changed.contains(target) {
-            event_kind
-        } else {
-            EventKind::Repair
-        };
-        if target_event != EventKind::Delete && target_file.is_none() {
-            return Err(unsupported(&format!(
-                "source facts unavailable for {target}"
-            )));
-        }
-        target_events.insert(target.clone(), target_event);
-    }
-    phase("targets", ordered.len() as u64);
-
-    // Parse the initial affected set once.  Newly introduced symbols can make
-    // prior unresolved CALLS edges resolvable; include those callers before
-    // the final post-change resolution pass.
-    let mut facts_by_path = HashMap::new();
-    for target in &ordered {
-        context.check()?;
-        if target_events[target] == EventKind::Delete {
-            continue;
-        }
-        // Defer cross-file CALLS resolution until the single post-change
-        // index below; rebuilding an index over the full generation here for
-        // every target made this path quadratic in affected files × nodes.
-        let facts = graph::build_file_facts_from_scan(
-            root,
-            target,
-            &scan.files,
-            &[],
-            &context.cancellation,
-        )
-        .map_err(|error| match error {
-            graph::GraphError::Cancelled if context.cancellation.deadline_expired() => {
-                BlueprintError::deadline()
-            }
-            graph::GraphError::Cancelled => BlueprintError::cancelled(),
-            error => BlueprintError::new("blueprint_incremental_failed", error.to_string()),
-        })?
-        .ok_or_else(|| unsupported(&format!("source facts unavailable for {target}")))?;
-        facts_by_path.insert(target.clone(), facts);
-    }
-    phase("facts", facts_by_path.len() as u64);
-    let unresolved_dependents =
-        unresolved_reference_dependents(&current, facts_by_path.values(), &scan.files);
-    for dependent in unresolved_dependents {
-        if target_events.contains_key(&dependent) {
-            continue;
-        }
-        if !scan_files_by_path.contains_key(dependent.as_str()) {
-            continue;
-        }
-        target_events.insert(dependent.clone(), EventKind::Repair);
-        ordered.push(dependent.clone());
-        context.check()?;
-        let facts = graph::build_file_facts_from_scan(
-            root,
-            &dependent,
-            &scan.files,
-            &[],
-            &context.cancellation,
-        )
-        .map_err(|error| match error {
-            graph::GraphError::Cancelled if context.cancellation.deadline_expired() => {
-                BlueprintError::deadline()
-            }
-            graph::GraphError::Cancelled => BlueprintError::cancelled(),
-            error => BlueprintError::new("blueprint_incremental_failed", error.to_string()),
-        })?
-        .ok_or_else(|| unsupported(&format!("source facts unavailable for {dependent}")))?;
-        facts_by_path.insert(dependent, facts);
-    }
-    phase("dependents", ordered.len() as u64);
-    ordered.sort();
-
-    // Replace old symbols for every affected path, then resolve all rebuilt
-    // edges against the resulting symbol set. This repairs callers that were
-    // unresolved before a changed file introduced their target. Unaffected
-    // nodes are borrowed; only the small affected set is owned so the index
-    // never deep-clones the whole generation.
-    let mut fact_nodes = Vec::new();
-    for facts in facts_by_path.values() {
-        fact_nodes.push(facts.file.clone());
-        fact_nodes.extend(facts.nodes.iter().cloned());
-    }
-    let resolution_index = graph::symbol_index(
-        current
-            .nodes
-            .iter()
-            .filter(|node| {
-                node.path
-                    .as_deref()
-                    .is_none_or(|path| !target_events.contains_key(path))
-            })
-            .chain(fact_nodes.iter()),
-    );
-    for facts in facts_by_path.values_mut() {
-        graph::resolve_file_facts_edges(facts, &resolution_index);
-    }
-    phase("resolve", facts_by_path.len() as u64);
-
-    let mut deltas = Vec::with_capacity(ordered.len());
-    for target in &ordered {
-        context.check()?;
-        let target_file = scan_files_by_path.get(target.as_str()).copied();
-        let target_event = target_events[target];
-        let facts = facts_by_path.remove(target);
-        let provider_batches = if target_event == EventKind::Delete {
-            Vec::new()
-        } else {
-            provider_batches_for_path(
-                root,
-                target_file.ok_or_else(|| {
-                    unsupported(&format!("source facts unavailable for {target}"))
-                })?,
-                &provider_file_map,
-            )?
-        };
-        let delta = file_delta_from_graph(
-            target,
-            target_event,
-            facts,
-            target_file,
-            provider_batches,
-            source_clock,
-            &source_hash,
-            config_digest.clone(),
-            observation.clone(),
+    if !changed.is_empty() {
+        return incremental_partial(
             request,
-        )?;
-        deltas.push(delta);
+            context,
+            root,
+            db_path,
+            view,
+            stored,
+            Change::Discovered {
+                paths: changed,
+                files: scan.files,
+            },
+            false,
+        );
     }
-    phase("deltas", deltas.len() as u64);
-    context.check()?;
+    let observation = crate::git_source_observation::git_source_observation(
+        &root.to_string_lossy(),
+    )
+    .map(|value| {
+        json!({
+            "sourceClock": request.input.get("sourceClock"),
+            "eventKind": request.input.get("eventKind"),
+            "paths": request.input.get("paths"),
+            "head": value.head,
+            "dirty": value.dirty,
+            "statusDigest": value.status_digest,
+            "sealedAtUnixMs": now_unix_ms(),
+        })
+    });
+    let metadata_changed = observation.as_ref().is_some_and(|live| {
+        stored
+            .observation
+            .as_ref()
+            .map(|sealed| {
+                sealed.get("head") != live.get("head")
+                    || sealed.get("dirty") != live.get("dirty")
+                    || sealed.get("statusDigest") != live.get("statusDigest")
+            })
+            .unwrap_or(true)
+    });
+    if !metadata_changed {
+        return bounded_generation_response(
+            request,
+            json!({
+                "schemaVersion":1,"operation":request.method.as_str(),"state":"fresh","refreshMode":"incremental_noop",
+                "generationId":stored.generation_id,"repoRoot":root.to_string_lossy(),"storePath":db_path.to_string_lossy(),
+                "sourceHash":stored.source_hash,"complete":stored.complete,"truncationReasons":stored.truncation_reasons,
+                "counts":{"nodes":stored_nodes,"edges":stored_edges,"files":stored_files},
+                "sourceObservation":stored.observation.clone().unwrap_or(Value::Null)
+            }),
+        );
+    }
+    let observation =
+        observation.ok_or_else(|| unsupported("git source observation unavailable"))?;
+    drop(view);
     let mut connection = open_store(db_path)?;
-    delta_store::apply_file_deltas(
+    delta_store::apply_source_observation(
         &mut connection,
-        &deltas,
-        ApplyOptions {
-            cancellation: Some(context.cancellation.clone()),
-            ..ApplyOptions::default()
-        },
+        &observation,
+        request_source_clock(request),
     )
     .map_err(|error| delta_error(context, error))?;
-    phase("apply", 0);
-    let applied = ordered.clone();
-    // Rename is represented by an old-path delete followed by destination
-    // creation. Both deltas carry the same source identity & final publication
-    // therefore remains equivalent to one atomic source event set.
-    if event_kind == EventKind::Rename {
-        let old = &paths[0];
-        if after_paths.contains(old) || !before_paths.contains(old) {
-            return Err(unsupported("rename source/destination is inconsistent"));
-        }
-    }
     let status = post_apply_status(db_path)?;
-    phase("status", 0);
     bounded_generation_response(
         request,
         json!({
-            "schemaVersion": 1, "operation": request.method.as_str(), "state": "fresh", "refreshMode": "incremental",
-            "generationId": status.generation_id, "repoRoot": root.to_string_lossy(), "storePath": db_path.to_string_lossy(),
-            "sourceHash": status.source_hash, "complete": status.complete, "truncationReasons": status.truncation_reasons,
+            "schemaVersion": 1, "operation": request.method.as_str(), "state": "fresh",
+            "refreshMode": "metadata", "generationId": status.generation_id,
+            "repoRoot": root.to_string_lossy(), "storePath": db_path.to_string_lossy(),
+            "sourceHash": status.source_hash, "complete": status.complete,
+            "truncationReasons": status.truncation_reasons,
             "counts": {"nodes": status.nodes, "edges": status.edges, "files": status.files},
-            "sourceClock": request.input.get("sourceClock").cloned().unwrap_or(Value::Null), "eventKind": request.input.get("eventKind").cloned().unwrap_or(Value::Null),
-            "invalidatedPaths": applied, "reusedFiles": scan.files.len().saturating_sub(ordered.len()), "sourceObservation": status.source_observation,
+            "invalidatedPaths": [], "reusedFiles": status.files,
+            "sourceObservation": status.source_observation,
         }),
     )
 }
 
-/// Refresh an explicit event set without discovering any other filesystem
-/// paths. Existing graph facts provide resolver path identity; only supplied
-/// files are stable-read and hashed.
-fn incremental_known_paths(
+/// Apply a discovered delta that is too large for one partial refresh, over a graph too large for
+/// a full build, as bounded batches of changed files. Each batch is a complete partial refresh
+/// against the post-change file set (its own referrers, vanished-target reset and transaction), so
+/// progress persists batch by batch and an interrupted run resumes from the stored file hashes.
+/// Deleted files go first so referrers of a deleted file are reset before later batches read them.
+/// A batch whose own rows and referrers still exceed the budget is deferred with the typed error.
+fn incremental_batches(
     request: &BlueprintRequest,
     context: &RequestContext,
     root: &Path,
     db_path: &Path,
-    current: GraphGeneration,
-    pending: Vec<Value>,
+    files: Vec<graph::FileRecord>,
+    changed: Vec<String>,
 ) -> Result<Value, BlueprintError> {
+    let after: HashSet<&str> = files.iter().map(|file| file.path.as_str()).collect();
+    let mut changed = changed;
+    changed.sort_by_key(|path| after.contains(path.as_str()));
+    let mut batches: Vec<Vec<String>> = Vec::new();
+    {
+        let view = RefreshView::open(db_path)?;
+        let budget_rows =
+            crate::memory::PARTIAL_REFRESH_BYTE_BUDGET / crate::memory::ESTIMATED_BYTES_PER_ROW / 2;
+        let mut current: Vec<String> = Vec::new();
+        let mut rows = 0u64;
+        for path in changed {
+            context.check()?;
+            let cost = view.rows_for_path(&path)?.max(1);
+            if !current.is_empty() && rows.saturating_add(cost) > budget_rows {
+                batches.push(std::mem::take(&mut current));
+                rows = 0;
+            }
+            rows = rows.saturating_add(cost);
+            current.push(path);
+        }
+        if !current.is_empty() {
+            batches.push(current);
+        }
+    }
+    let total = batches.len();
+    let log = PhaseLog::new(request);
+    let mut last = Value::Null;
+    for (index, batch) in batches.into_iter().enumerate() {
+        context.check()?;
+        let view = RefreshView::open(db_path)?;
+        let stored = view.envelope()?;
+        last = incremental_partial(
+            request,
+            context,
+            root,
+            db_path,
+            view,
+            stored,
+            Change::Discovered {
+                paths: batch,
+                files: files.clone(),
+            },
+            true,
+        )?;
+        log.mark("batch", (index + 1) as u64);
+    }
+    if let Some(object) = last.as_object_mut() {
+        object.insert("batches".into(), json!(total));
+    }
+    Ok(last)
+}
+
+#[allow(clippy::too_many_arguments)] // the refresh request context, passed through as the caller holds it
+fn incremental_partial(
+    request: &BlueprintRequest,
+    context: &RequestContext,
+    root: &Path,
+    db_path: &Path,
+    view: RefreshView,
+    stored: StoredEnvelope,
+    change: Change,
+    batched: bool,
+) -> Result<Value, BlueprintError> {
+    let pending_report: Vec<Value> = match &change {
+        Change::Explicit(pending) => pending.clone(),
+        Change::Discovered { paths, .. } => paths.iter().cloned().map(Value::String).collect(),
+    };
     let unsupported = |reason: &str| {
         let mut error = BlueprintError::new("blueprint_incremental_unsupported", reason);
         error.details =
-            Some(json!({"preservedGeneration": true, "pendingChanges": pending.clone()}));
+            Some(json!({"preservedGeneration": true, "pendingChanges": pending_report.clone()}));
         error
     };
-    let phase_start = std::time::Instant::now();
-    let phase = |name: &str, detail: u64| {
-        stderr_line!(
-            "{}",
-            json!({"event":"blueprint_incremental_phase","requestId":request.request_id,"phase":name,"elapsedMs":phase_start.elapsed().as_millis(),"detail":detail})
-        );
+    let log = PhaseLog::new(request);
+    let Some(event_kind) = parse_event_kind(request) else {
+        return Err(unsupported("event kind lacks incremental implementation"));
     };
-    let event_name = request
-        .input
-        .get("eventKind")
-        .and_then(Value::as_str)
-        .unwrap_or("modify")
-        .to_ascii_lowercase();
-    let event_kind = match event_name.as_str() {
-        "create" => EventKind::Create,
-        "modify" | "changed" => EventKind::Modify,
-        "delete" => EventKind::Delete,
-        "repair" => EventKind::Repair,
-        "rename" => EventKind::Rename,
-        _ => return Err(unsupported("event kind lacks incremental implementation")),
+    let (mut paths, discovered_files) = match change {
+        Change::Explicit(pending) => (
+            pending
+                .iter()
+                .filter_map(Value::as_str)
+                .map(graph::normalize_path)
+                .collect::<Vec<_>>(),
+            None,
+        ),
+        Change::Discovered { paths, files } => (paths, Some(files)),
     };
-    let mut paths = pending
-        .iter()
-        .filter_map(Value::as_str)
-        .map(graph::normalize_path)
-        .collect::<Vec<_>>();
     if paths.iter().any(|path| {
         path.is_empty()
             || path.starts_with('/')
@@ -815,7 +810,11 @@ fn incremental_known_paths(
         return Err(unsupported("pending path is outside incremental scope"));
     }
     paths.dedup();
+    let discovered = discovered_files.is_some();
     let rename_to = if event_kind == EventKind::Rename {
+        if discovered {
+            return Err(unsupported("rename requires old & new paths"));
+        }
         let destination = request
             .input
             .get("renameTo")
@@ -839,91 +838,106 @@ fn incremental_known_paths(
     }
     context.check()?;
 
-    let mut source_files = stored_file_records(root, &current);
-    let before_paths = source_files
+    let stored_hashes = view.file_hashes()?;
+    let before_paths = stored_hashes
         .iter()
-        .map(|file| file.path.clone())
+        .map(|(path, _)| path.clone())
         .collect::<HashSet<_>>();
+    let stored_hash_by_path: HashMap<&str, &str> = stored_hashes
+        .iter()
+        .map(|(path, hash)| (path.as_str(), hash.as_str()))
+        .collect();
     let mut observed = HashMap::<String, graph::FileRecord>::new();
-    for path in &paths {
-        let is_deleted = event_kind == EventKind::Delete
-            || (event_kind == EventKind::Rename && Some(path.as_str()) != rename_to.as_deref());
-        if is_deleted {
-            continue;
-        }
-        context.check()?;
-        match stable_explicit_file(root, path) {
-            Ok(Some(file)) => {
-                observed.insert(path.clone(), file);
-            }
-            Ok(None) => return Err(unsupported(&format!("source path is absent: {path}"))),
-            Err(error) => return Err(error),
-        }
-    }
-    // The event set is explicit, so derive membership from the stored graph
-    // and supplied observations only. The small closure below avoids any
-    // filesystem metadata probe for untouched paths.
-    let after_paths = {
-        let mut result = before_paths.clone();
-        match event_kind {
-            EventKind::Delete => {
-                for path in &paths {
-                    result.remove(path);
-                }
-            }
-            EventKind::Rename => {
-                result.remove(&paths[0]);
-                result.insert(rename_to.clone().unwrap());
-            }
-            _ => {
-                for path in &paths {
-                    result.insert(path.clone());
-                }
-            }
-        }
-        result
-    };
     let mut changed_paths = Vec::new();
     let mut noop_paths = Vec::new();
-    for path in &paths {
-        let previous = source_files
-            .iter()
-            .find(|file| file.path == *path)
-            .map(|file| file.content_hash.as_str());
-        let current_digest = observed.get(path).map(|file| file.content_hash.as_str());
-        let same_digest = previous
-            .zip(current_digest)
-            .is_some_and(|(before, after)| normalize_digest(before) == normalize_digest(after));
-        if event_kind != EventKind::Repair && event_kind != EventKind::Rename && same_digest {
-            noop_paths.push(path.clone());
-        } else {
-            changed_paths.push(path.clone());
+    let after_paths: HashSet<String>;
+    let mut source_files: Vec<graph::FileRecord>;
+    if let Some(files) = discovered_files {
+        // A discovered change set is already a difference against the stored hashes, and the
+        // digest-only scan is the post-change identity of every file.
+        after_paths = files.iter().map(|file| file.path.clone()).collect();
+        source_files = files;
+        changed_paths = paths.clone();
+    } else {
+        for path in &paths {
+            let is_deleted = event_kind == EventKind::Delete
+                || (event_kind == EventKind::Rename && Some(path.as_str()) != rename_to.as_deref());
+            if is_deleted {
+                continue;
+            }
+            context.check()?;
+            match stable_explicit_file(root, path) {
+                Ok(Some(file)) => {
+                    observed.insert(path.clone(), file);
+                }
+                Ok(None) => return Err(unsupported(&format!("source path is absent: {path}"))),
+                Err(error) => return Err(error),
+            }
         }
+        // The event set is explicit, so derive membership from the stored graph
+        // and supplied observations only; no untouched path is probed.
+        after_paths = {
+            let mut result = before_paths.clone();
+            match event_kind {
+                EventKind::Delete => {
+                    for path in &paths {
+                        result.remove(path);
+                    }
+                }
+                EventKind::Rename => {
+                    result.remove(&paths[0]);
+                    result.insert(rename_to.clone().unwrap());
+                }
+                _ => {
+                    for path in &paths {
+                        result.insert(path.clone());
+                    }
+                }
+            }
+            result
+        };
+        for path in &paths {
+            let previous = stored_hash_by_path.get(path.as_str()).copied();
+            let current_digest = observed.get(path).map(|file| file.content_hash.as_str());
+            let same_digest = previous
+                .zip(current_digest)
+                .is_some_and(|(before, after)| normalize_digest(before) == normalize_digest(after));
+            if event_kind != EventKind::Repair && event_kind != EventKind::Rename && same_digest {
+                noop_paths.push(path.clone());
+            } else {
+                changed_paths.push(path.clone());
+            }
+        }
+        if event_kind == EventKind::Delete && paths.iter().any(|path| !before_paths.contains(path))
+        {
+            return Err(unsupported("delete path is absent from stored graph"));
+        }
+        if event_kind == EventKind::Modify && paths.iter().any(|path| !observed.contains_key(path))
+        {
+            return Err(unsupported("modify path is absent from repository"));
+        }
+        source_files = stored_hashes
+            .iter()
+            .filter(|(path, _)| !paths.contains(path))
+            .map(|(path, hash)| identity_file_record(root, path, hash))
+            .collect();
+        source_files.extend(observed.values().cloned());
+        source_files.sort_by(|a, b| a.path.cmp(&b.path));
     }
-    if event_kind == EventKind::Delete && paths.iter().any(|path| !before_paths.contains(path)) {
-        return Err(unsupported("delete path is absent from stored graph"));
-    }
-    if event_kind == EventKind::Modify && paths.iter().any(|path| !observed.contains_key(path)) {
-        return Err(unsupported("modify path is absent from repository"));
-    }
-    phase("observe", observed.len() as u64);
+    log.mark("observe", observed.len() as u64);
 
-    for path in &paths {
-        source_files.retain(|file| file.path != *path);
-    }
-    for file in observed.values() {
-        source_files.push(file.clone());
-    }
-    source_files.sort_by(|a, b| a.path.cmp(&b.path));
     let source_hash = graph::source_hash_for_files(&source_files);
     let config_digest = crate::static_provider::build_config_digest_for_files(&source_files);
     let observation =
         crate::git_source_observation::git_source_observation(&root.to_string_lossy());
+    let source_clock = request_source_clock(request);
     let provider_file_map: std::collections::BTreeMap<String, &graph::FileRecord> = source_files
         .iter()
         .map(|file| (file.path.clone(), file))
         .collect();
     if changed_paths.is_empty() {
+        let (stored_nodes, stored_edges, _) = view.counts()?;
+        drop(view);
         let mut deltas = Vec::new();
         for path in &noop_paths {
             deltas.push(file_delta_from_graph(
@@ -932,12 +946,7 @@ fn incremental_known_paths(
                 None,
                 observed.get(path),
                 Vec::new(),
-                request
-                    .input
-                    .get("sourceClock")
-                    .and_then(Value::as_u64)
-                    .and_then(|value| i64::try_from(value).ok())
-                    .unwrap_or(0),
+                source_clock,
                 &source_hash,
                 config_digest.clone(),
                 observation.clone(),
@@ -960,9 +969,9 @@ fn incremental_known_paths(
             request,
             json!({
                 "schemaVersion": 1, "operation": request.method.as_str(), "state": "fresh", "refreshMode": "incremental_noop",
-                "generationId": current.generation_id, "repoRoot": root.to_string_lossy(), "storePath": db_path.to_string_lossy(),
-                "sourceHash": current.source_hash, "complete": current.complete, "truncationReasons": current.truncation_reasons,
-                "counts": {"nodes": current.nodes.len(), "edges": current.edges.len(), "files": current.files.len()},
+                "generationId": stored.generation_id, "repoRoot": root.to_string_lossy(), "storePath": db_path.to_string_lossy(),
+                "sourceHash": stored.source_hash, "complete": stored.complete, "truncationReasons": stored.truncation_reasons,
+                "counts": {"nodes": stored_nodes, "edges": stored_edges, "files": before_paths.len()},
                 "invalidatedPaths": [], "reusedFiles": source_files.len(),
                 "sourceObservation": {"sourceClock": request.input.get("sourceClock"), "eventKind": request.input.get("eventKind"),
                     "paths": request.input.get("paths"), "head": observation.as_ref().map(|value| value.head.clone()),
@@ -972,11 +981,60 @@ fn incremental_known_paths(
         );
     }
 
-    phase("detect", changed_paths.len() as u64);
-    let affected = affected_reference_closure(&current, &changed_paths, context)?;
-    let mut ordered = affected.into_iter().collect::<Vec<_>>();
-    ordered.sort();
-    phase("closure", ordered.len() as u64);
+    log.mark("detect", changed_paths.len() as u64);
+    // Rebuild set: the changed files plus the files whose edges point at their nodes. A caller
+    // whose edge targets a symbol that moved or vanished is the only file a change can leave
+    // inconsistent; files that merely sit near it in the graph are untouched.
+    let (stored_nodes, stored_edges, _) = view.counts()?;
+    let stored_rows = stored_nodes.saturating_add(stored_edges);
+    let mut ordered = changed_paths
+        .iter()
+        .cloned()
+        .collect::<std::collections::BTreeSet<_>>();
+    for path in view.referencing_paths(&changed_paths)? {
+        if before_paths.contains(&path) && after_paths.contains(&path) {
+            ordered.insert(path);
+        }
+    }
+    let mut ordered = ordered.into_iter().collect::<Vec<_>>();
+    let mut affected_rows = 0u64;
+    for path in &ordered {
+        affected_rows = affected_rows.saturating_add(view.rows_for_path(path)?);
+    }
+    log.mark("closure", ordered.len() as u64);
+    context.check()?;
+    // The percentage rule only matters for repositories large enough that a partial rewrite of a
+    // quarter of the files costs more than one build.
+    let share_exceeded = ordered.len() >= crate::memory::PARTIAL_REFRESH_PERCENT_MIN_FILES
+        && (ordered.len() as u64).saturating_mul(100)
+            > (after_paths.len() as u64)
+                .saturating_mul(crate::memory::PARTIAL_REFRESH_MAX_FILE_PERCENT);
+    let over_budget = if batched {
+        // A batch has no share rule; only its own row budget bounds it.
+        !crate::memory::partial_refresh_fits(affected_rows)
+    } else {
+        share_exceeded || !crate::memory::partial_refresh_fits(affected_rows)
+    };
+    if over_budget && discovered && !batched && !crate::memory::full_graph_fits(stored_rows) {
+        // The stored graph is too large for a full build, so deferring would repeat forever.
+        // Apply the delta in bounded batches, each its own transaction (#635).
+        drop(view);
+        return incremental_batches(request, context, root, db_path, source_files, changed_paths);
+    }
+    if over_budget {
+        drop(view);
+        return full_build_or_defer(
+            request,
+            context,
+            root,
+            db_path,
+            &stored,
+            stored_rows,
+            "delta too large for a partial refresh",
+            json!({"affectedFiles": ordered.len(), "affectedRows": affected_rows, "totalFiles": after_paths.len()}),
+        );
+    }
+
     let source_files_by_path: HashMap<&str, &graph::FileRecord> = source_files
         .iter()
         .map(|file| (file.path.as_str(), file))
@@ -1003,20 +1061,21 @@ fn incremental_known_paths(
         }
         target_events.insert(target.clone(), target_event);
     }
-    phase("targets", ordered.len() as u64);
-    let stored_facts = StoredFileFactsIndex::build(&current, context)?;
-    let mut facts_by_path = HashMap::new();
+    log.mark("targets", ordered.len() as u64);
+
+    let mut facts_by_path: HashMap<String, graph::FileFacts> = HashMap::new();
     for target in &ordered {
         context.check()?;
         if target_events[target] == EventKind::Delete {
             continue;
         }
         let facts = if changed_set.contains(target.as_str()) {
+            // Cross-file calls are resolved once below against the post-change symbol set.
             graph::build_file_facts_from_scan(
                 root,
                 target,
                 &source_files,
-                &current.nodes,
+                &[],
                 &context.cancellation,
             )
             .map_err(|error| match error {
@@ -1028,59 +1087,186 @@ fn incremental_known_paths(
             })?
             .ok_or_else(|| unsupported(&format!("source facts unavailable for {target}")))?
         } else {
-            stored_facts.get(target).ok_or_else(|| {
+            view.facts(target)?.ok_or_else(|| {
                 unsupported(&format!("stored source facts unavailable for {target}"))
             })?
         };
         facts_by_path.insert(target.clone(), facts);
     }
-    for dependent in
-        unresolved_reference_dependents(&current, facts_by_path.values(), &source_files)
-    {
+    log.mark("facts", facts_by_path.len() as u64);
+
+    // A call resolves only when exactly one symbol carries its name, so a change matters to other
+    // files only where it moved a name across that boundary (none to one, one to two, two to one,
+    // one to none). Count each changed name before and after, over the symbols the change did not
+    // touch, and find the files whose stored edges name those transitions.
+    let mut in_changed_before: HashMap<String, usize> = HashMap::new();
+    for path in &changed_paths {
+        for name in view.symbol_names(path)? {
+            *in_changed_before.entry(name).or_default() += 1;
+        }
+    }
+    let mut in_changed_after: HashMap<String, usize> = HashMap::new();
+    for (path, facts) in &facts_by_path {
+        if !changed_set.contains(path.as_str()) {
+            continue;
+        }
+        for node in &facts.nodes {
+            if let (true, Some(name)) = (node.kind == "symbol", node.name.as_ref()) {
+                *in_changed_after.entry(name.clone()).or_default() += 1;
+            }
+        }
+    }
+    let moved_names: HashSet<String> = in_changed_before
+        .keys()
+        .chain(in_changed_after.keys())
+        .filter(|name| in_changed_before.get(*name) != in_changed_after.get(*name))
+        .cloned()
+        .collect();
+    let mut transition_names = HashSet::new();
+    if !moved_names.is_empty() {
+        let others = view.symbols_named(&moved_names)?;
+        for name in &moved_names {
+            let untouched = others.get(name).map_or(0, |entries| {
+                entries
+                    .iter()
+                    .filter(|(_, path)| !changed_set.contains(path.as_str()))
+                    .count()
+            });
+            let before = untouched + in_changed_before.get(name).copied().unwrap_or(0);
+            let after = untouched + in_changed_after.get(name).copied().unwrap_or(0);
+            if before != after && !(before >= 2 && after >= 2) {
+                transition_names.insert(name.clone());
+            }
+        }
+    }
+    let created: HashSet<String> = target_events
+        .iter()
+        .filter(|(path, event)| **event == EventKind::Create && facts_by_path.contains_key(*path))
+        .map(|(path, _)| path.clone())
+        .collect();
+    let mut late_dependents = Vec::new();
+    for dependent in view.reference_dependents(&transition_names, &created, &after_paths)? {
         if target_events.contains_key(&dependent)
-            || !source_files_by_path.contains_key(dependent.as_str())
+            || !before_paths.contains(&dependent)
+            || !after_paths.contains(&dependent)
         {
             continue;
         }
-        target_events.insert(dependent.clone(), EventKind::Repair);
-        ordered.push(dependent.clone());
+        affected_rows = affected_rows.saturating_add(view.rows_for_path(&dependent)?);
+        late_dependents.push(dependent);
+    }
+    if !crate::memory::partial_refresh_fits(affected_rows) {
+        drop(view);
+        return full_build_or_defer(
+            request,
+            context,
+            root,
+            db_path,
+            &stored,
+            stored_rows,
+            "dependents too large for a partial refresh",
+            json!({"affectedFiles": ordered.len() + late_dependents.len(), "affectedRows": affected_rows, "totalFiles": after_paths.len()}),
+        );
+    }
+    for dependent in late_dependents {
         context.check()?;
-        let facts = stored_facts.get(&dependent).ok_or_else(|| {
+        target_events.insert(dependent.clone(), EventKind::Repair);
+        let facts = view.facts(&dependent)?.ok_or_else(|| {
             unsupported(&format!("stored source facts unavailable for {dependent}"))
         })?;
-        facts_by_path.insert(dependent, facts);
+        facts_by_path.insert(dependent.clone(), facts);
+        ordered.push(dependent);
     }
-    phase("facts_dependents", ordered.len() as u64);
     ordered.sort();
-    // Unaffected nodes are borrowed; only the small affected set is owned so
-    // the resolution index never deep-clones the whole generation.
-    let mut fact_nodes = Vec::new();
+    log.mark("dependents", ordered.len() as u64);
+
+    // Resolution index: only the symbols the rebuilt files call by name, the rebuilt files' own
+    // symbols, and file identity. Stand-ins carry id, kind, name and path; nothing else reads them.
+    let mut call_names = HashSet::new();
     for facts in facts_by_path.values() {
-        fact_nodes.push(facts.file.clone());
-        fact_nodes.extend(facts.nodes.iter().cloned());
+        for edge in &facts.edges {
+            if edge.kind != "CALLS" {
+                continue;
+            }
+            if let Some(name) = edge
+                .evidence
+                .first()
+                .and_then(|evidence| evidence.get("callName"))
+                .and_then(Value::as_str)
+            {
+                call_names.insert(name.to_owned());
+            }
+        }
     }
-    let resolution_index = graph::symbol_index(
-        current
-            .nodes
-            .iter()
-            .filter(|node| {
-                node.path
-                    .as_deref()
-                    .is_none_or(|path| !target_events.contains_key(path))
+    let mut stand_ins: Vec<crate::model::GraphNode> = Vec::new();
+    for (name, entries) in view.symbols_named(&call_names)? {
+        for (id, path) in entries {
+            if !target_events.contains_key(&path) {
+                stand_ins.push(identity_symbol_stub(id, name.clone(), path));
+            }
+        }
+    }
+    for facts in facts_by_path.values() {
+        for node in &facts.nodes {
+            if let (true, Some(name), Some(path)) = (
+                node.kind == "symbol",
+                node.name.as_ref(),
+                node.path.as_ref(),
+            ) {
+                stand_ins.push(identity_symbol_stub(
+                    node.id.clone(),
+                    name.clone(),
+                    path.clone(),
+                ));
+            }
+        }
+    }
+    for path in &after_paths {
+        stand_ins.push(identity_file_stub(path));
+    }
+    // Stored facts of an unchanged referrer still name nodes the delta deletes, renames or
+    // replaces away. A source rebuild would leave those edges unresolved, so reset them here;
+    // otherwise the rewrite re-inserts a resolved edge to a missing node, whatever the write order.
+    let mut vanished: HashSet<String> = HashSet::new();
+    for path in &changed_paths {
+        let kept: HashSet<&str> = facts_by_path
+            .get(path)
+            .map(|facts| {
+                std::iter::once(facts.file.id.as_str())
+                    .chain(facts.nodes.iter().map(|node| node.id.as_str()))
+                    .collect()
             })
-            .chain(fact_nodes.iter()),
-    );
+            .unwrap_or_default();
+        for id in view.node_ids(path)? {
+            if !kept.contains(id.as_str()) {
+                vanished.insert(id);
+            }
+        }
+    }
+    if !vanished.is_empty() {
+        for (path, facts) in facts_by_path.iter_mut() {
+            if changed_set.contains(path.as_str()) {
+                continue;
+            }
+            for edge in facts.edges.iter_mut() {
+                if edge.kind != "CALLS"
+                    && edge
+                        .target
+                        .as_deref()
+                        .is_some_and(|target| vanished.contains(target))
+                {
+                    graph::unresolve_edge(edge);
+                }
+            }
+        }
+    }
+    let resolution_index = graph::symbol_index(stand_ins.iter());
     for facts in facts_by_path.values_mut() {
         graph::resolve_file_facts_edges(facts, &resolution_index);
     }
-    phase("resolve", facts_by_path.len() as u64);
+    log.mark("resolve", facts_by_path.len() as u64);
+    drop(view);
 
-    let source_clock = request
-        .input
-        .get("sourceClock")
-        .and_then(Value::as_u64)
-        .and_then(|value| i64::try_from(value).ok())
-        .unwrap_or(0);
     let mut deltas = Vec::with_capacity(ordered.len() + noop_paths.len());
     for target in &ordered {
         context.check()?;
@@ -1090,13 +1276,18 @@ fn incremental_known_paths(
         {
             Vec::new()
         } else {
-            provider_batches_for_path(
-                root,
-                target_file.ok_or_else(|| {
-                    unsupported(&format!("source facts unavailable for {target}"))
-                })?,
-                &provider_file_map,
-            )?
+            // Providers read the file itself; a digest-only scan record carries no bytes.
+            let hydrated;
+            let provider_file: &graph::FileRecord = match observed.get(target) {
+                Some(file) => file,
+                None => {
+                    hydrated = stable_explicit_file(root, target)?.ok_or_else(|| {
+                        unsupported(&format!("source facts unavailable for {target}"))
+                    })?;
+                    &hydrated
+                }
+            };
+            provider_batches_for_path(root, provider_file, &provider_file_map)?
         };
         deltas.push(file_delta_from_graph(
             target,
@@ -1125,7 +1316,9 @@ fn incremental_known_paths(
             request,
         )?);
     }
-    phase("deltas", deltas.len() as u64);
+    // Deletes first, then upserts, so the outcome does not depend on path order.
+    deltas.sort_by_key(|delta| !matches!(delta.event_kind, EventKind::Delete));
+    log.mark("deltas", deltas.len() as u64);
     context.check()?;
     let mut connection = open_store(db_path)?;
     delta_store::apply_file_deltas(
@@ -1137,9 +1330,15 @@ fn incremental_known_paths(
         },
     )
     .map_err(|error| delta_error(context, error))?;
-    phase("apply", 0);
+    log.mark("apply", 0);
+    if event_kind == EventKind::Rename {
+        let old = &paths[0];
+        if after_paths.contains(old) || !before_paths.contains(old) {
+            return Err(unsupported("rename source/destination is inconsistent"));
+        }
+    }
     let status = post_apply_status(db_path)?;
-    phase("status", 0);
+    log.mark("status", 0);
     bounded_generation_response(
         request,
         json!({
@@ -1194,264 +1393,6 @@ fn stable_explicit_file(
         semantic_content_hash: read.content_digest,
         text: Some(text),
     }))
-}
-
-fn stored_file_records(root: &Path, current: &GraphGeneration) -> Vec<graph::FileRecord> {
-    let mut records = Vec::new();
-    for node in &current.nodes {
-        if node.kind != "file" {
-            continue;
-        }
-        let Some(path) = node.path.clone() else {
-            continue;
-        };
-        if records
-            .iter()
-            .any(|file: &graph::FileRecord| file.path == path)
-        {
-            continue;
-        }
-        let digest = node
-            .evidence
-            .first()
-            .and_then(|evidence| evidence.get("contentHash"))
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_owned();
-        records.push(graph::FileRecord {
-            absolute_path: root.join(&path),
-            path,
-            bytes: Vec::new(),
-            text: None,
-            size: 0,
-            semantic_content_hash: digest.clone(),
-            content_hash: digest,
-        });
-    }
-    records
-}
-
-#[derive(Debug)]
-struct StoredFileFactsIndex<'a> {
-    files: HashMap<&'a str, &'a crate::model::GraphNode>,
-    nodes: HashMap<&'a str, Vec<&'a crate::model::GraphNode>>,
-    edges: HashMap<&'a str, Vec<&'a crate::model::GraphEdge>>,
-    reports: HashMap<&'a str, &'a graph::FileReport>,
-}
-
-impl<'a> StoredFileFactsIndex<'a> {
-    fn build(
-        current: &'a GraphGeneration,
-        context: &RequestContext,
-    ) -> Result<Self, BlueprintError> {
-        let mut index = Self {
-            files: HashMap::new(),
-            nodes: HashMap::new(),
-            edges: HashMap::new(),
-            reports: HashMap::new(),
-        };
-        for (ordinal, node) in current.nodes.iter().enumerate() {
-            if ordinal % 4096 == 0 {
-                context.check()?;
-            }
-            let Some(path) = node.path.as_deref() else {
-                continue;
-            };
-            if node.kind == "file" {
-                index.files.entry(path).or_insert(node);
-            } else {
-                index.nodes.entry(path).or_default().push(node);
-            }
-        }
-        for (ordinal, edge) in current.edges.iter().enumerate() {
-            if ordinal % 4096 == 0 {
-                context.check()?;
-            }
-            let mut paths = HashSet::new();
-            for evidence in &edge.evidence {
-                let Some(path) = evidence.get("path").and_then(Value::as_str) else {
-                    continue;
-                };
-                if paths.insert(path) {
-                    index.edges.entry(path).or_default().push(edge);
-                }
-            }
-        }
-        for (ordinal, report) in current.files.iter().enumerate() {
-            if ordinal % 4096 == 0 {
-                context.check()?;
-            }
-            index.reports.entry(report.path.as_str()).or_insert(report);
-        }
-        Ok(index)
-    }
-
-    fn get(&self, path: &str) -> Option<graph::FileFacts> {
-        let file = (**self.files.get(path)?).clone();
-        let nodes = self
-            .nodes
-            .get(path)
-            .into_iter()
-            .flatten()
-            .map(|node| (**node).clone())
-            .collect();
-        let edges = self
-            .edges
-            .get(path)
-            .into_iter()
-            .flatten()
-            .map(|edge| (**edge).clone())
-            .collect();
-        let report = self
-            .reports
-            .get(path)
-            .map(|report| (*report).clone())
-            .unwrap_or_else(|| graph::FileReport {
-                path: path.to_owned(),
-                language: None,
-                provider: "native-rust".into(),
-                precision: graph::PrecisionTier::Lexical,
-                parse_status: "unknown".into(),
-                error_node_count: 0,
-                error: None,
-            });
-        let content_digest = file
-            .evidence
-            .first()
-            .and_then(|evidence| evidence.get("contentHash"))
-            .and_then(Value::as_str)?
-            .to_owned();
-        Some(graph::FileFacts {
-            file,
-            nodes,
-            edges,
-            report,
-            content_digest,
-            size: 0,
-        })
-    }
-}
-
-/// Union of the path-level reference closure for every changed path. The
-/// previous form re-scanned the full edge list — with a linear node lookup
-/// for every non-`file:` target — once per changed path, which is cubic on
-/// large graphs and never observed the request deadline: a stale large
-/// enrollment could burn past MAX_BUILD_DEADLINE_MS while blocking every
-/// later enrolled build and making supervisor drain uninterruptible. Build
-/// the path-level adjacency once, then run one multi-source BFS that checks
-/// the deadline periodically.
-fn affected_reference_closure(
-    current: &GraphGeneration,
-    changed_paths: &[String],
-    context: &RequestContext,
-) -> Result<std::collections::BTreeSet<String>, BlueprintError> {
-    let node_path_by_id: HashMap<&str, &str> = current
-        .nodes
-        .iter()
-        .filter_map(|node| node.path.as_deref().map(|path| (node.id.as_str(), path)))
-        .collect();
-    let mut outgoing: HashMap<&str, Vec<&str>> = HashMap::new();
-    let mut incoming: HashMap<&str, Vec<&str>> = HashMap::new();
-    for edge in &current.edges {
-        let source = edge
-            .evidence
-            .iter()
-            .find_map(|e| e.get("path").and_then(Value::as_str));
-        let target = edge.target.as_deref().and_then(|id| {
-            id.strip_prefix("file:")
-                .or_else(|| node_path_by_id.get(id).copied())
-        });
-        if let (Some(source), Some(target)) = (source, target) {
-            if source.is_empty() || target.is_empty() || source == target {
-                continue;
-            }
-            outgoing.entry(source).or_default().push(target);
-            incoming.entry(target).or_default().push(source);
-        }
-    }
-    let mut affected = std::collections::BTreeSet::new();
-    let mut frontier = std::collections::VecDeque::new();
-    for path in changed_paths {
-        if affected.insert(path.clone()) {
-            frontier.push_back(path.clone());
-        }
-    }
-    let mut steps = 0usize;
-    while let Some(target_path) = frontier.pop_front() {
-        steps += 1;
-        if steps.is_multiple_of(4096) {
-            context.check()?;
-        }
-        for neighbor in outgoing
-            .get(target_path.as_str())
-            .into_iter()
-            .flatten()
-            .chain(incoming.get(target_path.as_str()).into_iter().flatten())
-        {
-            if affected.insert((*neighbor).to_owned()) {
-                frontier.push_back((*neighbor).to_owned());
-            }
-        }
-    }
-    Ok(affected)
-}
-
-fn unresolved_reference_dependents<'a, I>(
-    current: &GraphGeneration,
-    rebuilt: I,
-    scan_files: &[graph::FileRecord],
-) -> std::collections::BTreeSet<String>
-where
-    I: IntoIterator<Item = &'a graph::FileFacts>,
-{
-    let rebuilt = rebuilt.into_iter().collect::<Vec<_>>();
-    let introduced = rebuilt
-        .iter()
-        .flat_map(|facts| {
-            facts
-                .nodes
-                .iter()
-                .filter_map(|node| node.name.as_deref().map(str::to_owned))
-        })
-        .collect::<HashSet<_>>();
-    let introduced_paths = rebuilt
-        .iter()
-        .filter_map(|facts| facts.file.path.clone())
-        .collect::<HashSet<_>>();
-    let file_map = scan_files
-        .iter()
-        .map(|file| (file.path.clone(), file))
-        .collect::<std::collections::BTreeMap<_, _>>();
-    current
-        .edges
-        .iter()
-        .filter_map(|edge| {
-            if edge.target.is_some() {
-                return None;
-            }
-            let source_path = edge
-                .evidence
-                .iter()
-                .find_map(|evidence| evidence.get("path").and_then(Value::as_str))?;
-            let reference = edge.evidence.iter().find_map(|evidence| {
-                evidence
-                    .get("callName")
-                    .or_else(|| evidence.get("specifier"))
-                    .and_then(Value::as_str)
-            })?;
-            let becomes_resolved = match edge.kind.as_str() {
-                "CALLS" | "CALL" => introduced.contains(reference),
-                "IMPORTS" | "IMPORT" => crate::module_resolution::resolve_import_in_files(
-                    source_path,
-                    reference,
-                    &file_map,
-                )
-                .is_some_and(|target| introduced_paths.contains(&target)),
-                _ => false,
-            };
-            becomes_resolved.then(|| source_path.to_owned())
-        })
-        .collect()
 }
 
 fn provider_batches_for_path(
@@ -1601,6 +1542,10 @@ pub(crate) enum VerifiedConstructionReason {
     /// provider than this build supports. The graph is a rebuildable index, so
     /// it is set aside (never deleted) and rebuilt fresh (#482).
     IncompatibleGeneration,
+    /// A refresh whose delta is too large for a partial refresh rebuilds the graph in place,
+    /// within `memory::FULL_GRAPH_BYTE_BUDGET` (#635). The store is replaced in one transaction,
+    /// so nothing is set aside.
+    IncrementalFallback,
 }
 
 impl VerifiedConstructionReason {
@@ -1610,6 +1555,7 @@ impl VerifiedConstructionReason {
             Self::UnrecoverableCorruption => "unrecoverable_corruption",
             Self::NewerSchema => "newer_schema",
             Self::IncompatibleGeneration => "incompatible_generation",
+            Self::IncrementalFallback => "incremental_fallback",
         }
     }
 }
@@ -1631,7 +1577,9 @@ pub(crate) fn verified_construction_reason(
         }
         drop(connection);
         let connection = store::open_store_read_only(db_path)?;
-        store::load_generation(&connection)
+        // Schema and provider identity live in the sealed envelope; reading the
+        // whole graph here held a full second copy per root (#635).
+        store::read_generation_envelope(&connection)
     }) {
         Ok(Some(generation)) => {
             // Missing or unparseable schema/provider metadata is never defaulted
@@ -1680,41 +1628,94 @@ pub(crate) fn verified_construction_reason(
     }
 }
 
-fn source_path_delta(current: &GraphGeneration, files: &[graph::FileRecord]) -> Vec<String> {
-    let before = current
-        .nodes
-        .iter()
-        .filter(|node| node.kind == "file")
-        .filter_map(|node| {
-            let path = node.path.as_deref()?;
-            let hash = node.evidence.first()?.get("contentHash")?.as_str()?;
-            let hash = hash.strip_prefix("xxh128:").unwrap_or(hash);
-            Some((path, hash))
-        })
-        .collect::<std::collections::HashMap<_, _>>();
-    let after = files
-        .iter()
-        .map(|file| {
-            (
-                file.path.as_str(),
-                file.content_hash
-                    .strip_prefix("xxh128:")
-                    .unwrap_or(&file.content_hash),
-            )
-        })
-        .collect::<std::collections::HashMap<_, _>>();
-    let mut paths = before
-        .keys()
-        .chain(after.keys())
-        .copied()
-        .collect::<Vec<_>>();
-    paths.sort_unstable();
-    paths.dedup();
-    paths
-        .into_iter()
-        .filter(|path| before.get(path) != after.get(path))
-        .map(str::to_owned)
-        .collect()
+/// A Build/Refresh with no explicit change set whose sealed source observation
+/// equals the live HEAD and worktree fingerprint has nothing to apply: answer
+/// from the envelope and row counts without materialising the graph (#635).
+fn unchanged_generation_response(
+    request: &BlueprintRequest,
+    root: &Path,
+    db_path: &Path,
+) -> Result<Option<Value>, BlueprintError> {
+    let explicit_paths = request
+        .input
+        .get("paths")
+        .and_then(Value::as_array)
+        .is_some_and(|paths| paths.iter().any(|path| path.as_str() != Some(".git/HEAD")));
+    if explicit_paths {
+        return Ok(None);
+    }
+    let Some(live) = crate::git_source_observation::git_source_observation(&root.to_string_lossy())
+    else {
+        return Ok(None);
+    };
+    let status = post_apply_status(db_path)?;
+    let sealed_matches = status.complete
+        && status
+            .source_observation
+            .get("head")
+            .and_then(Value::as_str)
+            == Some(live.head.as_str())
+        && status
+            .source_observation
+            .get("dirty")
+            .and_then(Value::as_bool)
+            == Some(live.dirty)
+        && status
+            .source_observation
+            .get("statusDigest")
+            .and_then(Value::as_str)
+            == Some(live.status_digest.as_str());
+    if !sealed_matches {
+        return Ok(None);
+    }
+    let connection = store::open_store_read_only(db_path).map_err(store_error)?;
+    let (nodes, edges) = store::stored_graph_rows(&connection).map_err(store_error)?;
+    drop(connection);
+    bounded_generation_response(
+        request,
+        json!({
+            "schemaVersion":1,"operation":request.method.as_str(),"state":"fresh","refreshMode":"incremental_noop",
+            "generationId":status.generation_id,"repoRoot":root.to_string_lossy(),"storePath":db_path.to_string_lossy(),
+            "sourceHash":status.source_hash,"complete":status.complete,"truncationReasons":status.truncation_reasons,
+            "counts":{"nodes":nodes,"edges":edges,"files":status.files},
+            "sourceObservation":status.source_observation
+        }),
+    )
+    .map(Some)
+}
+
+/// A missing, incompatible or corrupt store is rebuilt in process. When the old store is still
+/// countable and its rows exceed the full-build budget, the rebuild is deferred with the typed
+/// error and the store left in place. A missing store has no row count and builds under
+/// `full_graph_guard`.
+fn defer_oversized_rebuild(db_path: &Path) -> Result<(), BlueprintError> {
+    if !db_path.is_file() {
+        return Ok(());
+    }
+    let Ok(connection) = store::open_store_read_only(db_path) else {
+        return Ok(());
+    };
+    let Ok((nodes, edges)) = store::stored_graph_rows(&connection) else {
+        return Ok(());
+    };
+    let rows = nodes.saturating_add(edges);
+    if crate::memory::full_graph_fits(rows) {
+        return Ok(());
+    }
+    let mut error = BlueprintError::new(
+        "blueprint_incremental_deferred_memory_budget",
+        format!(
+            "rebuild of an unusable store of {rows} rows needs about {} MiB, above the {} MiB budget; deferred, store kept",
+            crate::memory::estimated_graph_bytes(rows) / (1024 * 1024),
+            crate::memory::FULL_GRAPH_BYTE_BUDGET / (1024 * 1024)
+        ),
+    );
+    error.details = Some(json!({
+        "preservedGeneration": true, "trigger": "store unusable", "storedRows": rows,
+        "estimatedBytes": crate::memory::estimated_graph_bytes(rows),
+        "byteBudget": crate::memory::FULL_GRAPH_BYTE_BUDGET,
+    }));
+    Err(error)
 }
 
 fn build_and_publish(
@@ -1725,6 +1726,9 @@ fn build_and_publish(
     verified_reason: VerifiedConstructionReason,
 ) -> Result<Value, BlueprintError> {
     context.check()?;
+    // One whole-graph materialisation at a time (#635). Taken after any refresh guard, never
+    // before one.
+    let _full_graph = crate::memory::full_graph_guard();
     record_construction_event(
         root,
         request,
@@ -1954,10 +1958,7 @@ fn record_construction_event(
     db_path: &Path,
     quarantined_to: Option<&Path>,
 ) -> Result<(), BlueprintError> {
-    let path = root
-        .join(".agent")
-        .join("graph")
-        .join("full-constructions.jsonl");
+    let path = crate::graph_dir::graph_dir(root).join("full-constructions.jsonl");
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|error| {
             BlueprintError::new("blueprint_construction_receipt_failed", error.to_string())
@@ -1975,6 +1976,9 @@ fn record_construction_event(
         }
         VerifiedConstructionReason::NewerSchema => {
             json!({"storePath":db_path,"storeExisted":true,"newerSchema":true,"supportedSchema":crate::migrations::SCHEMA_VERSION,"quarantinedTo":quarantined_to})
+        }
+        VerifiedConstructionReason::IncrementalFallback => {
+            json!({"storePath":db_path,"storeExisted":true,"deltaTooLargeForPartialRefresh":true})
         }
     };
     let record = json!({"schemaVersion":1,"phase":phase,"caller":{"requestId":request.request_id,"operation":request.method.as_str()},"verifiedReason":reason.code(),"evidence":evidence,"resultingGeneration":generation});
@@ -2000,17 +2004,21 @@ fn bounded_generation_response(
     let count = value["truncationReasons"].as_array().map_or(0, Vec::len);
     value["truncationReasonCount"] = json!(count);
     value["truncationReasonsOmitted"] = json!(0);
-    // Path listings are receipts, not data channels. A large enrolled
-    // repository can invalidate thousands of paths in one refresh; without
-    // projection the listing alone overflows the response bound, the applied
-    // refresh is reported as `blueprint_oversized`, and the resident rebuilds
-    // the same repository forever. Record authoritative counts up front so
-    // listings can shrink without losing the truth.
-    const PATH_RECEIPT_FIELDS: [&str; 3] = ["invalidatedPaths", "changedPaths", "pendingChanges"];
-    for field in PATH_RECEIPT_FIELDS {
-        if let Some(length) = value.get(field).and_then(Value::as_array).map(Vec::len) {
-            value[format!("{field}Count")] = json!(length);
-            value[format!("{field}Omitted")] = json!(0);
+    // Receipt listings are not data channels. A large enrolled repository can invalidate thousands
+    // of paths in one refresh, and the freshness receipt of `status` carries every changed path
+    // (`freshnessReceipt.staleSources.paths`, #601). Without projection the listing alone overflows
+    // the response bound and the answer is refused. Record authoritative counts up front so each
+    // listing can shrink without losing the truth.
+    const RECEIPT_LISTS: [&str; 4] = [
+        "invalidatedPaths",
+        "changedPaths",
+        "pendingChanges",
+        "freshnessReceipt.staleSources.paths",
+    ];
+    for field in RECEIPT_LISTS {
+        if let Some(length) = receipt_list(&value, field).map(Vec::len) {
+            set_receipt_counter(&mut value, field, "Count", json!(length));
+            set_receipt_counter(&mut value, field, "Omitted", json!(0));
         }
     }
     // `omissions` is keyed by field: each shrink rewrites that field's single
@@ -2050,13 +2058,10 @@ fn bounded_generation_response(
                 }
                 // Shrink the largest receipt listing geometrically so the
                 // loop re-validates O(log n) times rather than once per path.
-                let largest = PATH_RECEIPT_FIELDS
+                let largest = RECEIPT_LISTS
                     .iter()
                     .filter_map(|field| {
-                        value
-                            .get(*field)
-                            .and_then(Value::as_array)
-                            .map(|list| (*field, list.len()))
+                        receipt_list(&value, field).map(|list| (*field, list.len()))
                     })
                     .filter(|(_, length)| *length > 0)
                     .max_by_key(|(_, length)| *length)
@@ -2065,22 +2070,64 @@ fn bounded_generation_response(
                     return Err(error);
                 };
                 let kept = {
-                    let list = value
-                        .get_mut(field)
-                        .and_then(Value::as_array_mut)
+                    let list = receipt_list_mut(&mut value, field)
                         .expect("largest receipt field is an array");
                     list.truncate(list.len() / 2);
                     list.len()
                 };
-                let total = value
-                    .get(format!("{field}Count"))
+                let total = receipt_counter(&value, field, "Count")
                     .and_then(Value::as_u64)
                     .unwrap_or(kept as u64);
                 let omitted = total.saturating_sub(kept as u64);
-                value[format!("{field}Omitted")] = json!(omitted);
+                set_receipt_counter(&mut value, field, "Omitted", json!(omitted));
                 record_omission(&mut value, field, omitted);
             }
         }
+    }
+}
+
+/// A receipt listing at a dotted path below the response root, such as
+/// `freshnessReceipt.staleSources.paths`.
+fn receipt_list<'a>(value: &'a Value, field: &str) -> Option<&'a Vec<Value>> {
+    field
+        .split('.')
+        .try_fold(value, |node, part| node.get(part))
+        .and_then(Value::as_array)
+}
+
+fn receipt_list_mut<'a>(value: &'a mut Value, field: &str) -> Option<&'a mut Vec<Value>> {
+    field
+        .split('.')
+        .try_fold(value, |node, part| node.get_mut(part))
+        .and_then(Value::as_array_mut)
+}
+
+/// Counter sitting beside a receipt listing: `<leaf><suffix>` in the listing's parent object,
+/// so `invalidatedPaths` keeps `invalidatedPathsCount` at the root and `paths` gets `pathsCount`
+/// beside it in `staleSources`.
+fn receipt_counter<'a>(value: &'a Value, field: &str, suffix: &str) -> Option<&'a Value> {
+    let (parent, leaf) = field.rsplit_once('.').unwrap_or(("", field));
+    let parent_value = if parent.is_empty() {
+        value
+    } else {
+        parent
+            .split('.')
+            .try_fold(value, |node, part| node.get(part))?
+    };
+    parent_value.get(format!("{leaf}{suffix}"))
+}
+
+fn set_receipt_counter(value: &mut Value, field: &str, suffix: &str, counter: Value) {
+    let (parent, leaf) = field.rsplit_once('.').unwrap_or(("", field));
+    let target = if parent.is_empty() {
+        Some(value)
+    } else {
+        parent
+            .split('.')
+            .try_fold(value, |node, part| node.get_mut(part))
+    };
+    if let Some(target) = target {
+        target[format!("{leaf}{suffix}")] = counter;
     }
 }
 
@@ -2294,6 +2341,12 @@ fn status_value(
         "truncationReasons": generation.map(|g| g.truncation_reasons.clone()).unwrap_or_default(),
         "sourceObservation": source_observation.cloned(),
         "freshnessReceipt": freshness,
+        // What brings the graph current, so a stale answer says how to fix it (#601).
+        "refreshCommand": match state {
+            "fresh" => Value::Null,
+            "missing" | "corrupt" => json!("pulse blueprint build"),
+            _ => json!("pulse blueprint refresh"),
+        },
         // Last write to the graph store (the database and its WAL), the closest wall-clock
         // evidence of the last build or refresh: the store records no build time of its own.
         // Null when the store is absent or its time unreadable; never guessed (#555).
@@ -2606,10 +2659,6 @@ fn open_store(path: &Path) -> Result<rightkit_db::rusqlite::Connection, Blueprin
     store::open_store(Some(path)).map_err(store_error)
 }
 
-fn load_current(path: &Path) -> Result<GraphGeneration, BlueprintError> {
-    load_current_with_observation(path).map(|(generation, _)| generation)
-}
-
 /// Post-delta response state without re-materialising graph rows. The delta
 /// apply already reseals `generation.manifest` (identity, counts, digests),
 /// so the bounded response only needs the envelope plus a files count.
@@ -2683,6 +2732,28 @@ fn post_apply_status(db_path: &Path) -> Result<PostApplyStatus, BlueprintError> 
     })
 }
 
+/// Most stored rows a read-only query (search, impact, findings, document truth) may load into
+/// memory. Queries load once under `full_graph_guard` and the cache keeps one generation, so the
+/// ceiling is above `FULL_GRAPH_BYTE_BUDGET` (rightkit, ~1.5M rows, must stay searchable); a
+/// refresh and a full build keep the byte budget (#635).
+const MAX_QUERY_LOAD_ROWS: u64 = 2_500_000;
+
+fn refuse_oversized_query_load(rows: u64) -> Result<(), BlueprintError> {
+    if rows <= MAX_QUERY_LOAD_ROWS {
+        return Ok(());
+    }
+    let mut error = BlueprintError::new(
+        "blueprint_generation_too_large",
+        format!(
+            "stored generation of {rows} rows is above the {MAX_QUERY_LOAD_ROWS}-row query limit; answered without loading it"
+        ),
+    );
+    error.details = Some(json!({"rows": rows, "limitRows": MAX_QUERY_LOAD_ROWS}));
+    Err(error)
+}
+
+/// The whole stored generation, materialised. Only the read-only query cache and the
+/// full-build fallback reach it; a refresh reads through `refresh_view` instead (#635).
 fn load_current_with_observation(
     path: &Path,
 ) -> Result<(GraphGeneration, Option<Value>), BlueprintError> {
@@ -2693,6 +2764,11 @@ fn load_current_with_observation(
         ));
     }
     let connection = store::open_store_read_only(path).map_err(store_error)?;
+    // A whole-generation load costs the same bytes per row as a full build; above the same budget
+    // it answers a typed refusal instead of passing the resident memory ceiling (#635).
+    let (stored_nodes, stored_edges) =
+        store::stored_graph_rows(&connection).map_err(store_error)?;
+    refuse_oversized_query_load(stored_nodes.saturating_add(stored_edges))?;
     let generation = store::load_generation(&connection)
         .map_err(store_error)?
         .ok_or_else(|| {
@@ -2716,6 +2792,31 @@ type CachedGeneration = (
     Option<Value>,
 );
 const GENERATION_CACHE_REPOSITORIES: usize = 4;
+/// Total graph rows (nodes + edges) the cache may hold across repositories (#635). A generation
+/// larger than this is answered from one transient load and never retained: the resident engine
+/// sat at 3.4 GB steady with a 1.5M-row rightkit generation eligible to live here. The small
+/// repositories that make up most queries stay cached.
+const GENERATION_CACHE_MAX_ROWS: usize = 300_000;
+
+/// Drops the cached generation of one store when a build or refresh exits, however it exits, and
+/// returns the freed pages to the OS.
+struct EvictCachedGeneration<'a>(&'a Path);
+
+impl Drop for EvictCachedGeneration<'_> {
+    fn drop(&mut self) {
+        let evicted = match generation_cache().lock() {
+            Ok(mut cache) => {
+                let before = cache.len();
+                cache.retain(|(cached_path, _)| cached_path != self.0);
+                cache.len() != before
+            }
+            Err(_) => false,
+        };
+        if evicted {
+            crate::memory::release_unused_memory();
+        }
+    }
+}
 
 fn generation_cache() -> &'static Mutex<Vec<(PathBuf, CachedGeneration)>> {
     static CACHE: OnceLock<Mutex<Vec<(PathBuf, CachedGeneration)>>> = OnceLock::new();
@@ -2752,6 +2853,13 @@ fn load_current_shared(
     }
     let (generation, observation) = load_current_with_observation(path)?;
     let generation = Arc::new(generation);
+    if generation.nodes.len() + generation.edges.len() > GENERATION_CACHE_MAX_ROWS {
+        // Too large to retain: the caller's Arc is the only owner and frees it with the request.
+        if let Ok(mut cache) = generation_cache().lock() {
+            cache.retain(|(cached_path, _)| cached_path != path);
+        }
+        return Ok((generation, observation));
+    }
     if let Ok(mut cache) = generation_cache().lock() {
         cache.retain(|(cached_path, _)| cached_path != path);
         if cache.len() >= GENERATION_CACHE_REPOSITORIES {
@@ -2761,6 +2869,13 @@ fn load_current_shared(
             path.to_path_buf(),
             (envelope, Arc::clone(&generation), observation.clone()),
         ));
+        let rows =
+            |entry: &(PathBuf, CachedGeneration)| entry.1 .1.nodes.len() + entry.1 .1.edges.len();
+        while cache.len() > 1 && cache.iter().map(rows).sum::<usize>() > GENERATION_CACHE_MAX_ROWS {
+            cache.remove(0);
+        }
+        drop(cache);
+        crate::memory::release_unused_memory();
     }
     Ok((generation, observation))
 }
@@ -2769,19 +2884,72 @@ fn ensure_generation(
     request: &BlueprintRequest,
     generation: &GraphGeneration,
 ) -> Result<(), BlueprintError> {
+    ensure_generation_id(request, &generation.generation_id)
+}
+
+fn ensure_generation_id(
+    request: &BlueprintRequest,
+    generation_id: &str,
+) -> Result<(), BlueprintError> {
     if let Some(expected) = request
         .generation
         .as_deref()
         .or_else(|| request.input.get("generation").and_then(Value::as_str))
     {
-        if expected != generation.generation_id {
+        if expected != generation_id {
             return Err(BlueprintError::generation_mismatch(
                 expected,
-                generation.generation_id.clone(),
+                generation_id.to_owned(),
             ));
         }
     }
     Ok(())
+}
+
+/// `export --format html` (#556): write the self-contained Blueprint map of the loaded generation
+/// to `map.html` in the graph directory beside the store (`graph_dir`), and answer with where it went. The page is a
+/// derived file; the answer carries its path and size, never the page, so the response stays
+/// inside its byte bound.
+fn export_html_map(
+    request: &BlueprintRequest,
+    context: &RequestContext,
+    db_path: &Path,
+) -> Result<Value, BlueprintError> {
+    let format = request
+        .input
+        .get("format")
+        .and_then(Value::as_str)
+        .unwrap_or("html");
+    if format != "html" {
+        return Err(BlueprintError::invalid(format!(
+            "unsupported export format: {format}"
+        )));
+    }
+    let (generation, _) = load_current_shared(db_path)?;
+    ensure_generation(request, &generation)?;
+    context.check()?;
+    let page = crate::html_map::render(
+        &generation.generation_id,
+        &generation.provider,
+        generation.complete,
+        &generation.nodes,
+        &generation.edges,
+    );
+    context.check()?;
+    let out = db_path.with_file_name("map.html");
+    let tmp = db_path.with_file_name("map.html.tmp");
+    fs::write(&tmp, page.as_bytes())
+        .and_then(|()| fs::rename(&tmp, &out))
+        .map_err(|error| BlueprintError::new("blueprint_map_write_failed", error.to_string()))?;
+    Ok(json!({
+        "kind": "html-map",
+        "generationId": generation.generation_id,
+        "complete": generation.complete,
+        "path": out.to_string_lossy(),
+        "bytes": page.len(),
+        "nodeCount": generation.nodes.len(),
+        "edgeCount": generation.edges.len(),
+    }))
 }
 
 fn to_store_generation(graph: &GraphGeneration, source_observation: Value) -> Generation {
@@ -2897,7 +3065,9 @@ fn from_store_generation(value: Generation) -> Result<GraphGeneration, Blueprint
     })
 }
 
-fn graph_node_from_store(value: Value) -> Result<crate::model::GraphNode, BlueprintError> {
+pub(crate) fn graph_node_from_store(
+    value: Value,
+) -> Result<crate::model::GraphNode, BlueprintError> {
     let Value::Object(mut object) = value else {
         return Err(BlueprintError::new(
             "blueprint_store_corrupt",
@@ -2914,7 +3084,9 @@ fn graph_node_from_store(value: Value) -> Result<crate::model::GraphNode, Bluepr
         .map_err(|error| BlueprintError::new("blueprint_store_corrupt", error.to_string()))
 }
 
-fn graph_edge_from_store(value: Value) -> Result<crate::model::GraphEdge, BlueprintError> {
+pub(crate) fn graph_edge_from_store(
+    value: Value,
+) -> Result<crate::model::GraphEdge, BlueprintError> {
     let Value::Object(mut object) = value else {
         return Err(BlueprintError::new(
             "blueprint_store_corrupt",
@@ -2931,7 +3103,7 @@ fn graph_edge_from_store(value: Value) -> Result<crate::model::GraphEdge, Bluepr
         .map_err(|error| BlueprintError::new("blueprint_store_corrupt", error.to_string()))
 }
 
-fn store_error(error: StoreError) -> BlueprintError {
+pub(crate) fn store_error(error: StoreError) -> BlueprintError {
     let code = match &error {
         StoreError::GenerationNotFound | StoreError::GenerationMismatch { .. } => {
             "blueprint_store_missing"
