@@ -8,9 +8,21 @@
 //! 3. the Rust navigation hook (`NavPolicy`) that catches whatever navigates anyway.
 
 use serde::Serialize;
-use tauri::{Runtime, Webview};
+use tauri::{Runtime, Webview, WebviewWindow};
 
 use crate::devtools::WebviewDecision;
+
+/// Turn WebView2's built-in browser accelerator keys (reload, find, print, zoom, history) off for
+/// `window`'s webview, all or nothing: the keydown still reaches the page, but the engine no longer
+/// acts on it. The same setting [`Hardening::disable_browser_accelerators`] applies, for an app that
+/// does not run the shell's webview hardening. Windows (WebView2) only; a no-op on other platforms
+/// and when the runtime lacks the setting. Best effort: failures are ignored.
+pub fn disable_browser_accelerators<R: Runtime>(window: &WebviewWindow<R>) {
+    #[cfg(windows)]
+    windows_impl::disable_accelerators(window);
+    #[cfg(not(windows))]
+    let _ = window;
+}
 
 /// Frame scope for the full shell plugin's DOM hardening script.
 /// Native webview settings & Rust navigation policy are configured separately.
@@ -174,6 +186,20 @@ mod windows_impl {
         ICoreWebView2Settings3, ICoreWebView2Settings5, ICoreWebView2Settings6,
     };
     use crate::winapi::windows::core::Interface;
+
+    pub fn disable_accelerators<R: Runtime>(window: &WebviewWindow<R>) {
+        let _ = window.with_webview(|platform| unsafe {
+            let Ok(core) = platform.controller().CoreWebView2() else {
+                return;
+            };
+            let Ok(settings) = core.Settings() else {
+                return;
+            };
+            if let Ok(s3) = settings.cast::<ICoreWebView2Settings3>() {
+                let _ = s3.SetAreBrowserAcceleratorKeysEnabled(false);
+            }
+        });
+    }
 
     /// WebView2 side of the same policy. NOT compiled on this (macOS) host: compile and verify on
     /// the Windows agent with `rustright cargo check -p rightkit-tauri-shell` (see API.md).

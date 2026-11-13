@@ -230,18 +230,27 @@ impl NavPolicy {
         self.allow_loopback && matches!(scheme, "http" | "https") && is_loopback(host)
     }
 
+    /// The broker hop alone: `Some(decision)` when `url` is `https://<broker_host>/...`, `None` for
+    /// every other URL (and always when no [`NavPolicy::broker_host`] is set). The in-place,
+    /// external and blocked rules of [`NavPolicy::decide`] are not applied.
+    pub fn decide_broker(&self, url: &Url) -> Option<NavDecision> {
+        let host = self.broker_host.as_deref()?;
+        if url.scheme() != "https" || url.host_str() != Some(host) {
+            return None;
+        }
+        let target = url
+            .query_pairs()
+            .find_map(|(k, v)| (k == "target").then(|| v.into_owned()));
+        Some(match target {
+            Some(t) if external_scheme_allowed(&t) => NavDecision::External { url: t },
+            _ => NavDecision::Block,
+        })
+    }
+
     /// Decide a top-level (or `on_navigation`) load.
     pub fn decide(&self, url: &Url) -> NavDecision {
-        if let Some(host) = &self.broker_host {
-            if url.scheme() == "https" && url.host_str() == Some(host.as_str()) {
-                let target = url
-                    .query_pairs()
-                    .find_map(|(k, v)| (k == "target").then(|| v.into_owned()));
-                return match target {
-                    Some(t) if external_scheme_allowed(&t) => NavDecision::External { url: t },
-                    _ => NavDecision::Block,
-                };
-            }
+        if let Some(decision) = self.decide_broker(url) {
+            return decision;
         }
         if self.serves_in_place(url) {
             return NavDecision::Allow;
