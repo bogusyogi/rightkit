@@ -6,7 +6,7 @@
 
 import { useCallback, useState } from "react";
 import { useSettings as useSettingsStore } from "@rightkit/settings-ui/core";
-import { dictationClient } from "../host.js";
+import { dictationClient, hostHooks } from "../host.js";
 import type { PatchValue, SettingsBlob } from "../types/settings.js";
 
 export interface UseSettings {
@@ -18,7 +18,8 @@ export interface UseSettings {
   get: <T extends PatchValue>(key: keyof SettingsBlob, fallback: T) => T;
 }
 
-export function useSettings(): UseSettings {
+/** The package's own settings hook (the default of `DictationHooks.useSettings`). */
+export function usePackageSettings(): UseSettings {
   const store = useSettingsStore(dictationClient().settings);
   const data = store.values as SettingsBlob;
   const { set, clearError } = store;
@@ -34,4 +35,9 @@ export function useSettings(): UseSettings {
     [data],
   );
   return { data, loaded: store.loaded, error: pageError || (store.error ?? ""), setError, patch, get };
+}
+
+/** The settings the pages use: the host's `hooks.useSettings` when it supplies one, else the package's. */
+export function useSettings(): UseSettings {
+  return (hostHooks().useSettings ?? usePackageSettings)();
 }

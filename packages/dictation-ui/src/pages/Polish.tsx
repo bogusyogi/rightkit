@@ -11,17 +11,19 @@ import {
   CompactSettingsGroup,
 } from "../components/settings/CompactSettingsGroup.js";
 import { useSettings } from "../hooks/useSettings.js";
-import { dictationClient } from "../host.js";
+import { dictationClient, hostComponents, openPricing } from "../host.js";
 import { useDictationEvent } from "../hooks/useDictationEvent.js";
 import { AI_POLISH_PRIVACY_NOTICE } from "../lib/privacyDisclosure.js";
 import { cx, ui } from "../lib/ui.js";
 import { getPlatform } from "@rightkit/platform-ui";
-import { PageShell, Toggle } from "@rightkit/react-shell/react";
+import { Toggle as DefaultToggle } from "@rightkit/react-shell/react";
+import PageFrame from "../components/PageFrame.js";
 import ApiKeysPanel from "./polish/ApiKeysPanel.js";
 import { SmartPolishCard } from "./polish/PolishCards.js";
 
 export default function PolishPage() {
   const { loaded, error, setError, patch, get } = useSettings();
+  const { Toggle = DefaultToggle } = hostComponents();
   const [hasAiKey, setHasAiKey] = useState(false);
   const [keyError, setKeyError] = useState("");
   const [clearKeyErrorSignal, setClearKeyErrorSignal] = useState(0);
@@ -74,7 +76,7 @@ export default function PolishPage() {
   }
 
   return (
-    <PageShell maxWidth={1320} className="dictation-page dictation-page--polish">
+    <PageFrame page="polish">
       <div className="grid gap-[var(--space-5)]">
         {error || keyError ? (
           <ErrorBanner
@@ -150,7 +152,7 @@ export default function PolishPage() {
                   <button
                     type="button"
                     className={cx(ui.button, ui.buttonCompact)}
-                    onClick={() => void dictationClient().openPricing()}
+                    onClick={() => openPricing()}
                   >
                     Get Pro
                   </button>
@@ -250,6 +252,6 @@ export default function PolishPage() {
           </>
         )}
       </div>
-    </PageShell>
+    </PageFrame>
   );
 }

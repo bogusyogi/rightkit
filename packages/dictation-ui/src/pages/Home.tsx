@@ -13,15 +13,15 @@ import {
   Sparkle,
 } from "@phosphor-icons/react";
 import ErrorBanner from "../components/ErrorBanner.js";
-import { Kbd } from "@rightkit/platform-ui/react";
-import { OriginIcon, rowActionChip as historyActionChip } from "@rightkit/library-ui";
+import { Kbd as DefaultKbd } from "@rightkit/platform-ui/react";
+import PageFrame from "../components/PageFrame.js";
+import { OriginIcon as DefaultOriginIcon, rowActionChip as defaultRowChip } from "@rightkit/library-ui";
 import { DICTATION_CHORD, pushToTalkChord } from "../lib/chords.js";
-import { PageShell } from "@rightkit/react-shell/react";
 import { useHomeDashboard } from "../hooks/useHomeDashboard.js";
 import { getPlatform } from "@rightkit/platform-ui";
 import { useSettings } from "../hooks/useSettings.js";
 import type { HistoryItem } from "../lib/homeMetrics.js";
-import { dictationClient, type NativeDragDropPosition } from "../host.js";
+import { dictationClient, hostClassNames, hostComponents, type NativeDragDropPosition } from "../host.js";
 import { cx, ui } from "../lib/ui.js";
 import { deliveryRow, historyDevice, isLocallyDeletable, targetDisplay } from "../history/deliveryRows.js";
 
@@ -54,6 +54,8 @@ function positionInside(el: HTMLElement | null, position: NativeDragDropPosition
 export default function HomePage({ onOpenTranscribe }: { onOpenTranscribe?: () => void }) {
   const { history, error, clearError, refreshHistory } = useHomeDashboard("home");
   const platform = getPlatform();
+  const { Kbd = DefaultKbd, OriginIcon: CustomOriginIcon } = hostComponents();
+  const historyActionChip = hostClassNames().rowChip ?? defaultRowChip;
   const { get } = useSettings();
 
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -165,7 +167,7 @@ export default function HomePage({ onOpenTranscribe }: { onOpenTranscribe?: () =
   const middleMouseOn = get("middle_mouse_recording", true);
 
   return (
-    <PageShell maxWidth={1320} className="dictation-page dictation-page--home">
+    <PageFrame page="home">
       <div className="flex w-full flex-col gap-[var(--space-4)]">
         <ErrorBanner
           message={actionError || error}
@@ -260,7 +262,11 @@ export default function HomePage({ onOpenTranscribe }: { onOpenTranscribe?: () =
                     <span className="mt-[1px] w-[56px] shrink-0 whitespace-nowrap [font-family:var(--font-mono)] text-[length:var(--size-xs)] text-[var(--muted-2)] [font-variant-numeric:tabular-nums]">
                       {timeAgo(item.delivered_at_ms)}
                     </span>
-                    <OriginIcon origin={deliveryRow(item).origin} source={dictationClient().history} size={28} className="mt-[1px]" />
+                    {CustomOriginIcon ? (
+                      <CustomOriginIcon item={item} size={28} className="mt-[1px]" />
+                    ) : (
+                      <DefaultOriginIcon origin={deliveryRow(item).origin} source={dictationClient().history} size={28} className="mt-[1px]" />
+                    )}
                     <div className="min-w-0 flex-1">
                       {isEditing ? (
                         <textarea
@@ -389,6 +395,6 @@ export default function HomePage({ onOpenTranscribe }: { onOpenTranscribe?: () =
           </div>
         )}
       </div>
-    </PageShell>
+    </PageFrame>
   );
 }

@@ -5,7 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { FileAudio, DownloadSimple } from "@phosphor-icons/react";
 import { getPlatform } from "@rightkit/platform-ui";
 import ErrorBanner from "../components/ErrorBanner.js";
-import { dictationClient, type FileTranscript } from "../host.js";
+import { dictationClient, openPricing, type FileTranscript } from "../host.js";
 import { cx, ui } from "../lib/ui.js";
 
 function baseName(path: string): string {
@@ -111,7 +111,7 @@ export function TranscribeSurface({
           <button
             type="button"
             className="cursor-pointer border-0 bg-transparent p-0 [font:inherit] font-semibold text-[var(--accent-cool)] underline-offset-4 hover:underline focus-visible:outline-none focus-visible:[box-shadow:var(--focus-ring)]"
-            onClick={() => void dictationClient().openPricing()}
+            onClick={() => openPricing()}
           >
             buy a Pro license
           </button>
