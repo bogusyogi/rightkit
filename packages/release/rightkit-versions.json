@@ -600,7 +600,7 @@
     "rightkit-dictation-telemetry": "0.2.0",
     "rightkit-dictation-text-pipeline": "0.2.0",
     "rightkit-disk-cleanup": "0.2.0",
-    "rightkit-docs": "0.1.4",
+    "rightkit-docs": "0.1.5",
     "rightkit-doctor": "0.2.0",
     "rightkit-document-workspace": "0.2.0",
     "rightkit-embed": "0.7.0",

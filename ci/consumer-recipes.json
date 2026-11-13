@@ -2537,7 +2537,7 @@
       "gateEvidence": "no assets needed; deterministic, in-process; no ci/asset-gated.json entry needed",
       "consumes": "no app pins this version yet; publication unblocks adoption (recipe exercises the public API family named in its README)",
       "files": {
-        "Cargo.toml": "e1739edf202db0b7dd5a0fcf2cdb018189046b3dc34a580f8a0a7b46eb6ff097",
+        "Cargo.toml": "29880eefc23668163d25a1156c5ddc8a31ad39d4d684630bafbe9ccb73591a15",
         "README.md": "22936b5da53124454311c8d2f4ee14ef03704b13b302a55cb7a1ca00e5e58c62",
         "src/main.rs": "075d73ceb4a21180d830105d88a56428f637e8ef959ac0ba2ee893295f3b529e"
       },

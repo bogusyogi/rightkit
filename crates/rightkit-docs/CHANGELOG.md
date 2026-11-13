@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.5
+
+- Fixed: the requirement on `rightkit-pdf` is `0.3.5` (was `0.3.4`). 0.1.4 uses API that first shipped in `rightkit-pdf` 0.3.5, so a lockfile still holding 0.3.4 failed to compile.
+
 ## 0.1.4 (unpublished)
 
 - Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
