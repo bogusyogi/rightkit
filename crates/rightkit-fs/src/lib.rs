@@ -176,7 +176,7 @@ pub use lease::{Acquire, Lease, LeaseInfo, LeaseOptions, Staleness};
 #[cfg(feature = "lock")]
 pub use lock::{probe_owner, with_lock, FileLock, LockKind, LockOptions, LockOwner};
 #[cfg(feature = "fs")]
-pub use malware_scan::{scan_file, ScanVerdict};
+pub use malware_scan::{scan_file, scan_file_with_timeout, ScanVerdict};
 #[cfg(feature = "fs")]
 pub use migrate::{migrate_dir, MigrateMethod, Migrated};
 #[cfg(feature = "fs")]
