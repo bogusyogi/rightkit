@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.5.1
 
 - New `credentials::IdCodec` (`Raw` default, `JsonIdField`) and `CredentialStore::with_codec`: an app whose device id already sits in its credential item as `{"id":"<id>"}` reads and writes the same bytes under the same item. Existing callers are unchanged. The `credentials` feature now also pulls in `serde_json`.
 
