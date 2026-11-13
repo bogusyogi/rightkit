@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- New: `apple_helper::SPAWN_FAILED_PREFIX`, the fixed start (`cannot start helper: `) of the `Error::Helper` text for a helper that could not be spawned, so a caller can tell that case from the rest. The text itself is unchanged.
+
 ## 0.5.2
 
 - Changed: the bundled-helper path resolvers and the code-signature check now live in `rightkit-child-process` (`resolve_bundled`, `resolve_bundled_login_item`, `verify_team_signature`); `apple_helper` calls them, with the same checks and the same error text. New dependency on `rightkit-child-process`. No behaviour change.

@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- **New (feature `pro-bridge`): the host words the helper status text.** `ProBridgeHost::describe_helper_condition(&HelperCondition) -> String` (default method, returns `HelperCondition::default_text()`, which reproduces today's strings exactly, so existing hosts are unchanged). `HelperCondition` (`#[non_exhaustive]`): `NotBundled { helper_name, reason }`, `Spawn { helper_name, detail }`, `TimedOut { helper_name, secs }`, `Helper { detail }`, `Other { message }`. The not-bundled refusals and the status row's `keychainDetail` go through it. A host that wants shorter wording returns it, for example `"<name> helper not bundled — Apple device continuity unavailable"` (ignoring `reason`), `"spawn <name>: <detail>"` and `"<name> timed out"`.
+- **New: `ProBridgeConfig::with_unbundled_sibling(bool)`** (default off): the unpackaged development fallback to a bare helper file beside the running executable, through `rightkit_child_process::LoginItemOptions::allow_unbundled_sibling`. Documented: `helper_team_id = None` (default) builds the helper with `AppleHelper::new` and enforces no code signature; `Some` verifies the signature before every spawn. Compiled on Linux and Windows only; the macOS-only lookup change was not compiled.
+
 ## 0.8.0
 
 - **New (feature `pro-bridge`): the five `pro_bridge_*` commands** (`pro_bridge_status`, `pro_bridge_set_keychain_sync_enabled`, `pro_bridge_set_pro_resolution_enabled`, `pro_bridge_set_sync_enabled`, `pro_bridge_suppress_consumption`), listed by `handler!`, with the names, arguments and JSON shapes the apps' own wrappers had. They sit behind `ServiceId::PRO_BRIDGE` and the host caller policy: register a `ProBridge` with `HostServicesBuilder::pro_bridge(trust, Arc<ProBridge>)` (trust actions: the command names without the prefix) and keep your own `Arc` to call `ProBridge::run_launch`. `ProBridge`, `ProBridgeConfig`, `ProBridgeHost` and `ProBridgeHostService` are re-exported from `host`.

@@ -32,6 +32,10 @@ use zeroize::{Zeroize, Zeroizing};
 /// Response cap (and read buffer size) for one helper reply.
 const RESPONSE_CAP: usize = 1 << 20;
 
+/// The start of the [`Error::Helper`] text when the helper process could not be spawned; what
+/// follows is the OS error kind. A caller that words that condition itself matches on it.
+pub const SPAWN_FAILED_PREFIX: &str = "cannot start helper: ";
+
 #[derive(Serialize)]
 struct WriteRequest<'a> {
     command: &'static str,
@@ -561,7 +565,7 @@ impl AppleHelper {
                 .stdout(Stdio::piped())
                 .stderr(Stdio::null())
                 .spawn()
-                .map_err(|e| Error::Helper(format!("cannot start helper: {}", e.kind())))?,
+                .map_err(|e| Error::Helper(format!("{SPAWN_FAILED_PREFIX}{}", e.kind())))?,
         );
         let mut stdin = child
             .0

@@ -91,6 +91,11 @@ pub struct ProBridgeConfig {
     pub state_file: PathBuf,
     /// Deadline for one helper exchange. Default 15 s.
     pub helper_timeout: Duration,
+    /// Development builds only: accept a bare helper file beside the running executable when the
+    /// bundle has no nested login-item app (an unpackaged `target/<profile>/` run). Default
+    /// `false`: a packaged build never runs an unbundled helper (it carries no provisioning
+    /// profile or entitlement). See [`ProBridgeConfig::with_unbundled_sibling`].
+    pub(crate) allow_unbundled_sibling: bool,
 }
 
 impl ProBridgeConfig {
@@ -105,12 +110,79 @@ impl ProBridgeConfig {
             consent_marker: consent_marker.into(),
             state_file: state_file.into(),
             helper_timeout: DEFAULT_HELPER_TIMEOUT,
+            allow_unbundled_sibling: false,
         }
     }
 
+    /// Require the helper to be signed by this Developer ID team: the signature is verified before
+    /// every spawn and the helper is built with `AppleHelper::new_trusted`. Without it
+    /// (`helper_team_id` is `None`, the default) no code signature is enforced and the helper is
+    /// built with `AppleHelper::new`: placement alone decides, so set it in every release build.
     pub fn with_helper_team_id(mut self, team_id: impl Into<String>) -> Self {
         self.helper_team_id = Some(team_id.into());
         self
+    }
+
+    /// Allow the unpackaged development fallback: when the nested login-item app is not found, a
+    /// bare regular file named `helper_binary_name` directly in the running executable's
+    /// directory is used (`rightkit_child_process::LoginItemOptions::allow_unbundled_sibling`;
+    /// it must canonicalise to a regular file in that directory, so a symlink that leaves it is
+    /// refused). Default `false`. Combine it with a team id only if the dev helper is signed.
+    pub fn with_unbundled_sibling(mut self, allow: bool) -> Self {
+        self.allow_unbundled_sibling = allow;
+        self
+    }
+}
+
+/// A condition of the Apple helper that the Settings row shows as text
+/// ([`ProBridgeStatus::keychain_detail`] and the not-bundled refusals). The host words it through
+/// [`ProBridgeHost::describe_helper_condition`]; [`HelperCondition::default_text`] is the wording
+/// used when it does not.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum HelperCondition {
+    /// The helper is not where the bundle should hold it (or this is not macOS). `reason` is the
+    /// lookup's own explanation, when there is one.
+    NotBundled {
+        helper_name: String,
+        reason: Option<String>,
+    },
+    /// The helper process could not be started; `detail` is the OS error kind.
+    Spawn { helper_name: String, detail: String },
+    /// The helper did not answer within the deadline (`secs`).
+    TimedOut { helper_name: String, secs: u64 },
+    /// The helper ran and reported a failure; `detail` is its text.
+    Helper { detail: String },
+    /// Any other failure; `message` is the credential layer's own text.
+    Other { message: String },
+}
+
+impl HelperCondition {
+    /// The wording RightKit uses when the host does not override it.
+    pub fn default_text(&self) -> String {
+        match self {
+            Self::NotBundled {
+                helper_name,
+                reason: Some(why),
+            } => format!(
+                "{helper_name} helper not bundled ({why}) — Apple device continuity unavailable"
+            ),
+            Self::NotBundled {
+                helper_name,
+                reason: None,
+            } => format!("{helper_name} helper not bundled — Apple device continuity unavailable"),
+            Self::Spawn { detail, .. } => {
+                format!(
+                    "apple helper error: {}{detail}",
+                    rightkit_credentials::apple_helper::SPAWN_FAILED_PREFIX
+                )
+            }
+            Self::TimedOut { secs, .. } => {
+                format!("credential store operation apple_helper timed out after {secs}s")
+            }
+            Self::Helper { detail } => format!("apple helper error: {detail}"),
+            Self::Other { message } => message.clone(),
+        }
     }
 }
 
@@ -132,6 +204,12 @@ pub trait ProBridgeHost: Send + Sync + 'static {
     }
     /// A diagnostic event. `detail` never holds a token.
     fn log(&self, event: &str, detail: &str);
+    /// The text shown for a helper condition: the not-bundled refusals and the status row's
+    /// `keychainDetail`. Default: [`HelperCondition::default_text`]. An app that ships its own
+    /// wording returns it here (for example `"{helper_name} timed out"` for `TimedOut`).
+    fn describe_helper_condition(&self, condition: &HelperCondition) -> String {
+        condition.default_text()
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -249,20 +327,50 @@ impl ProBridge {
     }
 
     fn not_bundled(&self, why: Option<String>) -> String {
-        let name = &self.config.helper_binary_name;
-        match why {
-            Some(why) => {
-                format!("{name} helper not bundled ({why}) — Apple device continuity unavailable")
-            }
-            None => format!("{name} helper not bundled — Apple device continuity unavailable"),
-        }
+        self.host
+            .describe_helper_condition(&HelperCondition::NotBundled {
+                helper_name: self.config.helper_binary_name.clone(),
+                reason: why,
+            })
+    }
+
+    /// A failed helper exchange, worded by the host.
+    fn describe_credential_error(&self, err: &rightkit_credentials::Error) -> String {
+        use rightkit_credentials::apple_helper::SPAWN_FAILED_PREFIX;
+        use rightkit_credentials::Error;
+        let helper_name = self.config.helper_binary_name.clone();
+        let condition = match err {
+            Error::Timeout {
+                op: "apple_helper",
+                secs,
+            } => HelperCondition::TimedOut {
+                helper_name,
+                secs: *secs,
+            },
+            Error::Helper(text) => match text.strip_prefix(SPAWN_FAILED_PREFIX) {
+                Some(detail) => HelperCondition::Spawn {
+                    helper_name,
+                    detail: detail.to_string(),
+                },
+                None => HelperCondition::Helper {
+                    detail: text.clone(),
+                },
+            },
+            other => HelperCondition::Other {
+                message: other.to_string(),
+            },
+        };
+        self.host.describe_helper_condition(&condition)
     }
 
     #[cfg(target_os = "macos")]
     fn helper_path(&self) -> Result<PathBuf, String> {
-        use rightkit_credentials::apple_helper::{resolve_bundled, resolve_bundled_login_item};
+        use rightkit_child_process::{resolve_bundled_login_item_with, LoginItemOptions};
+        use rightkit_credentials::apple_helper::resolve_bundled;
         let name = &self.config.helper_binary_name;
-        match resolve_bundled_login_item(name) {
+        let options = LoginItemOptions::default()
+            .allow_unbundled_sibling(self.config.allow_unbundled_sibling);
+        match resolve_bundled_login_item_with(name, options) {
             Ok(path) => Ok(path),
             // A bare sibling binary only for an unsigned (no team id) dev run.
             Err(err) if self.config.helper_team_id.is_none() => {
@@ -424,7 +532,7 @@ impl ProBridge {
         };
         let (keychain_ready, keychain_detail) = match self
             .helper()
-            .and_then(|h| h.status().map_err(|e| e.to_string()))
+            .and_then(|h| h.status().map_err(|e| self.describe_credential_error(&e)))
         {
             Ok(status) => (
                 status.ready,
