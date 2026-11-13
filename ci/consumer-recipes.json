@@ -1204,6 +1204,7 @@
         ".",
         "./package.json",
         "./pill",
+        "./settings",
         "./tauri"
       ],
       "closure": {
@@ -1231,7 +1232,7 @@
       },
       "files": {
         "ci/consumers/npm/dictation-ui/README.md": "05cb356a734beb4c433cdf839e89583da8bc2ca694e112107a77bf02821bfde0",
-        "ci/consumers/npm/dictation-ui/consumer.mjs": "a7f2da912e674bcd51ac5836250a8a9fd39dcfcfb8b69a8f57c6801e0cea3158",
+        "ci/consumers/npm/dictation-ui/consumer.mjs": "be5124945917f1545cd88d5c7039cd02bef2cf686bdf823bd52e65965f3705e8",
         "ci/consumers/npm/dictation-ui/package.json": "e197493d8c27e5331e215452b2dc6a24aebe63d46ce73101a43113c744b76ed0",
         "ci/consumers/npm/dictation-ui/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "fc160695e1dc97dc7e32e746c9e4471e2d85168b097623de818befeb00ee438c"
