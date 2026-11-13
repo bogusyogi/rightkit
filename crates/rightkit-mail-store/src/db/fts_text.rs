@@ -8,7 +8,8 @@ const INLINE_TAGS: [&str; 14] = [
     "abbr",
 ];
 
-pub(crate) fn html_to_text(html: &str) -> String {
+/// Indexable plain text of an HTML body: visible text only, entities decoded, whitespace collapsed.
+pub fn html_to_text(html: &str) -> String {
     let b = html.as_bytes();
     let mut out = String::with_capacity(html.len() / 3);
     let (mut i, mut run) = (0usize, 0usize);

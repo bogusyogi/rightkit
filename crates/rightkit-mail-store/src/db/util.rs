@@ -9,7 +9,7 @@ use rightkit_db::rusqlite::{Connection, Params, Row};
 /// Prepare `sql`, run `query_map` with `params`, and collect every row via
 /// `row_fn` into a `Vec<T>`. `label` names the operation for the three error
 /// variants (prepare / query / row) so a failure still says what it was doing.
-pub(crate) fn query_map_collect<T, P, F>(
+pub fn query_map_collect<T, P, F>(
     conn: &Connection,
     sql: &str,
     params: P,

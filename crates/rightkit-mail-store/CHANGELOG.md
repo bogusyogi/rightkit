@@ -6,6 +6,9 @@
 
 ## Unreleased
 
+- Public for hosts that call them from outside the store (rustdoc added, names unchanged): `db::pragma_optimize`, `db::store_lock::release`, `db::fts_index::migrate_v15` (module `db::fts_index` is now public), `db::free_space::free_bytes`, `db::query_map_collect`, `db::now_ms`, `db::fts_text::html_to_text`, `attach_cache::cache_set` and `attach_cache::enforce_shared_budget`.
+- New `db::open_keyed(db_path, key)`: one keyed, verified writer connection with the store's open contract and no lock, migration or schema step (for short-lived maintenance connections such as a WAL checkpoint).
+- New `db::semantic::model_install::set_download_base_url` and `download_base_url`: the host may supply the embedding-model download base URL from its own build variable; `DOWNLOAD_BASE_URL` (`RIGHTKIT_EMBED_MODEL_URL`) stays the default.
 - `db::rebuild_step`, `db::RebuildStep` and `db::REBUILD_BATCH` are public: the resumable full-text rebuild that `migrate_v15` registers for a populated mailbox had no caller reachable from outside the crate, so it could never finish (its only callers were unit tests, since removed). The host app's background job drives it.
 - `data_dir`: docs no longer name a test-mode refusal; the per-process fallback folder after a host refusal is `<app>-no-data-dir-<pid>` (was `<app>-under-test-<pid>`).
 - Pre-migration backup hooks are closures (rightkit-db `BackupName`/`VerifyBackup`, rightkit#770): the key, timestamp name and message-count check are captured per migration, replacing the thread-local that carried them.

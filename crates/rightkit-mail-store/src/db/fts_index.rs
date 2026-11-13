@@ -83,8 +83,8 @@ fn drop_triggers_sql() -> String {
 }
 
 /// v15 DDL. Empty mailbox: build the final shape now. Populated mailbox: leave
-/// the old index in service and register the background rebuild.
-pub(crate) fn migrate_v15(conn: &Connection) -> Result<(), String> {
+/// the old index in service and register the background rebuild (driven by [`rebuild_step`]).
+pub fn migrate_v15(conn: &Connection) -> Result<(), String> {
     let e = |what: &'static str| move |err: rightkit_db::rusqlite::Error| format!("{what}: {err}");
     conn.execute_batch(BASE_SQL)
         .map_err(e("create message_search"))?;
