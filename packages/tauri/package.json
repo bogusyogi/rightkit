@@ -30,8 +30,7 @@
   "rightkit": {
     "publishCheck": {
       "skipImport": [
-        "./dialog",
-        "./window"
+        "./dialog"
       ]
     }
   },
@@ -40,13 +39,9 @@
   },
   "peerDependencies": {
     "@rightkit/app-update": ">=0.2.5 <0.5",
-    "@tauri-apps/api": "^2.0.0",
     "@tauri-apps/plugin-dialog": "^2.0.0"
   },
   "peerDependenciesMeta": {
-    "@tauri-apps/api": {
-      "optional": true
-    },
     "@tauri-apps/plugin-dialog": {
       "optional": true
     }

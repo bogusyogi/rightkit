@@ -2,7 +2,7 @@
 
 ## 0.4.2
 
-- Added: `@rightkit/tauri/window` entry with `tauriWindowControls()`, the minimise / toggle-maximise / close adapter for the current Tauri window, shaped as `@rightkit/platform-ui`'s `WindowControlAdapter` so it feeds the `@rightkit/react-shell` caption buttons directly. `@tauri-apps/api` is imported on the first call and is a new optional peer dependency (`^2.0.0`); window errors are not swallowed.
+- Added: `@rightkit/tauri/window` entry with `tauriWindowControls(current)`, the minimise / toggle-maximise / close adapter for a Tauri window, shaped as `@rightkit/platform-ui`'s `WindowControlAdapter` so it feeds the `@rightkit/react-shell` caption buttons directly. The app passes how to reach its window (`async () => (await import("@tauri-apps/api/window")).getCurrentWindow()`), so the package adds no dependency on `@tauri-apps/api`; window errors are not swallowed (#1572).
 
 ## 0.4.1
 
