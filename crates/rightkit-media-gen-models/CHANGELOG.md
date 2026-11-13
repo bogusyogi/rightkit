@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- The Blender and Wan2GP setup rows name the environment variables under the host prefix (`<PREFIX>_BLENDER_PATH`, `<PREFIX>_BLENDER_WORKER_DIR`, `<PREFIX>_WAN2GP_DIR`, `<PREFIX>_WAN2GP_PYTHON`), as `rightkit-media-gen` now reads them. With the default prefix the names are the same as before.
+- The Blender and Wan2GP setup rows name the environment variables under the host prefix (`<PREFIX>_BLENDER_PATH`, `<PREFIX>_WAN2GP_DIR`, `<PREFIX>_WAN2GP_PYTHON`), as `rightkit-media-gen` now reads them. With the default prefix the names are the same as before. The Blender `worker_path_env` field is gone: `rightkit-media-gen` no longer reads a worker-folder variable.
 
 
 ## 0.1.0

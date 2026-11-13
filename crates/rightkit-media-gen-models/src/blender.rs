@@ -16,7 +16,6 @@ fn setup() -> Value {
         "mode": "user_managed_external_runtime",
         "download_available": false,
         "blender_path_env": rightkit_media_gen::host::env_name("BLENDER_PATH"),
-        "worker_path_env": rightkit_media_gen::host::env_name("BLENDER_WORKER_DIR"),
         "worker_default": rightkit_media_gen::providers::tools_root()
             .map(|p| p.join("shared").join("tools").join("renderright").to_string_lossy().into_owned()),
         "worker_install_recipe": "Install Blender and the RenderRight worker separately, then point these paths at them.",
