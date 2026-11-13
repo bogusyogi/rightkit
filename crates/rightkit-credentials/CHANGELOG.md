@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.4
+
+- Apple helper: a broken pipe on the request write is no longer the reported failure. A helper that exits before reading its request (killed at launch, a loader failure) is now reported by what it left behind: `HelperFailure::NoOutput` with its stderr, or its reply if it wrote one. Other write errors are unchanged (#1572).
+
 ## 0.5.3
 
 - New: `apple_helper::SPAWN_FAILED_PREFIX`, the fixed start (`cannot start helper: `) of the `Error::Helper` text for a helper that could not be spawned, so a caller can tell that case from the rest. The text itself is unchanged.

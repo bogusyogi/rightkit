@@ -784,6 +784,9 @@ impl AppleHelper {
 
         match written_rx.recv_timeout(remaining()) {
             Ok(Ok(())) => {}
+            // The helper left before it read the request (killed at launch, a loader failure): what
+            // it wrote, or the absence of a reply, says why, so the read below decides the outcome.
+            Ok(Err(std::io::ErrorKind::BrokenPipe)) => {}
             Ok(Err(kind)) => return Err(Error::Helper(format!("write failed: {kind}"))),
             Err(_) => return Err(timed_out(&mut child)),
         }
