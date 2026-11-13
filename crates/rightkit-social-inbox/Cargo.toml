@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-social-inbox"
-version = "0.3.0"
+version = "0.3.1"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Signed social webhook inbox core: constant-time HMAC-SHA256 signature verification, bounded body decoding, app-secret handling, Meta delivery parsing into bounded events, and keyword matching for comment automation."

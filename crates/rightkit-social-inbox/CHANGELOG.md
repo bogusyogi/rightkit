@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.1
+
+- Fixed: `webhook::event_secs` reads a UTC instant by the calendar's rule (`rightkit_time::zones::parse_instant`) again, so a minute-precision instant (`2026-10-20T10:00Z`, `2026-10-20T10:00+0000`) is accepted as PostRight's shipped code accepted it. The lift had narrowed it to the 20-character form.
+
 ## 0.3.0
 
 - Breaking for dependents: dependency requirements `rightkit-social-analytics` 0.2 -> 0.3, `rightkit-social-publish` 0.1 -> 0.2. 0.2.0 was published before these requirements were raised; a semver-breaking dependency is a breaking change, so they ship as 0.3.0 instead of changing 0.2.0 in place (#1572). No source change in this crate since 0.2.0.

@@ -1736,6 +1736,8 @@
       "scenarios": 1,
       "surface": [
         ".",
+        "./data",
+        "./data/source",
         "./package.json"
       ],
       "closure": {
@@ -1753,7 +1755,7 @@
       },
       "files": {
         "ci/consumers/npm/social-ui/README.md": "52ce438812281093bc2357a6ef26ffa3b32e54454d2c6643f972a23abbacef4a",
-        "ci/consumers/npm/social-ui/consumer.mjs": "ffaef8321b410b1408c13006d052e5d6a68ce7e89c6eb050972b349a508e0415",
+        "ci/consumers/npm/social-ui/consumer.mjs": "4e3bf2e3fc2f255a90678ea110ff45e54ef1491990d0dcb54000719b3c35d32a",
         "ci/consumers/npm/social-ui/package.json": "d2cd5324eb470c8578fdb3825b3481a7718dc5a1ba7ead79838c430cd31a033d",
         "ci/consumers/npm/social-ui/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "fc160695e1dc97dc7e32e746c9e4471e2d85168b097623de818befeb00ee438c"
@@ -3387,7 +3389,7 @@
       "pkId": "PK116",
       "id": "ci/consumers/rightkit-social-inbox/src/main.rs",
       "files": {
-        "Cargo.toml": "48bcfd9f2f1bc2d86a5239c490e708c5a126ecabee974662fde1c42f2638aa6a",
+        "Cargo.toml": "bb9c26d91cb2054ded24aa84433d7ff50d8183cf8898df8757a16f6828410706",
         "README.md": "4a4d6158e46267c8de2f6d99313c1cac826b19ccfb0dd2b922b44ec4a88556d3",
         "src/main.rs": "31e3472cd5e991815ff02f055d82bc2d8e3a27351eaa01bc6bbeba6c942deabc"
       }
@@ -3522,7 +3524,7 @@
       "pkId": "PK136",
       "id": "ci/consumers/rightkit-content-plan/src/main.rs",
       "files": {
-        "Cargo.toml": "8ab53c8172e078ad11716c06d0c1895ce0ce1540772423b0a45ef7c087699247",
+        "Cargo.toml": "bb3eb022d2108ffd76709d472156a594b898d74d393140f14bde2bc48280197c",
         "README.md": "2e145bf38f05968b2413c03870da60fa58c144f5da71f62cc41e1a6c04dc7b72",
         "src/main.rs": "fed72de9df3e10a3d0751ea292e3469d94043f6647d0b76f0b9cea42d7b8bb7e"
       }

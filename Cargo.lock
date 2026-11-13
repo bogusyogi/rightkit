@@ -10994,7 +10994,7 @@ version = "0.1.0"
 
 [[package]]
 name = "rightkit-content-plan"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "rightkit-fs",
  "rightkit-platform-rules",
@@ -12926,7 +12926,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-social-inbox"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "rightkit-crypto",
  "rightkit-http",

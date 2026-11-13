@@ -344,9 +344,8 @@ pub fn event_secs(raw: &str) -> Option<i64> {
     parse_instant(&format!("{base}Z"))
 }
 
-/// Parse `YYYY-MM-DDTHH:MM:SSZ` (UTC, whole seconds) into seconds since the epoch.
+/// Parse a UTC instant `YYYY-MM-DDTHH:MM:SSZ` or `YYYY-MM-DDTHH:MMZ` into seconds since the epoch
+/// (the calendar's rule, [`rightkit_time::zones::parse_instant`]).
 fn parse_instant(raw: &str) -> Option<i64> {
-    rightkit_time::DateTime::parse_rfc3339(raw)
-        .filter(|t| raw.len() == 20 && raw.ends_with('Z') && t.second <= 59)
-        .map(|t| t.unix_seconds())
+    rightkit_time::zones::parse_instant(raw, "event_time").ok()
 }
