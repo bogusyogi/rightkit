@@ -2,6 +2,9 @@
 
 ## 0.2.2
 
+- Added: opt-in host options so an app can render the pages with its own look and settings store; defaults are unchanged. `configureDictationHost({ components: { PageShell, Toggle, Kbd, OriginIcon }, classNames: { rowChip }, hooks: { useSettings }, restoreFocus })` with the exported types `DictationComponents`, `DictationClassNames`, `DictationHooks`, `DictationPageShellProps`, `DictationToggleProps`, `DictationOriginIconProps`, `DictationPageName`. `useSettings` (now routed through `hooks.useSettings`; the package's own is `usePackageSettings`) serves Home, Polish and Vocabulary; `PageShell` wraps Dictation, Polish and Home; `restoreFocus(opener)` replaces the TranscribeModal's focus return.
+- Fixed: a rejected `DictationClient.openPricing()` (Polish and file-transcription "buy a Pro license" buttons) is logged with `console.warn` instead of surfacing as an unhandled rejection.
+
 - Added: `tauriDictationSettingsBackend(options?)` and `TauriSettingsOptions` from `./tauri`, the settings backend of `tauriDictationClient` on its own (`get_settings_snapshot` / `apply_settings_patch_at`, string-revision handles, `revision_conflict` mapping, window event fan-out, `settingsKeys` key mapping). For an app that renders the settings screens without the hub; it lives in its own module, so it does not pull in the client's other commands. New option `invoke` (default Tauri's) for an app with its own IPC bridge. `tauriDictationClient` uses it internally; its behaviour is unchanged.
 
 ## 0.2.1
