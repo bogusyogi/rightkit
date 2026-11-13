@@ -10,8 +10,9 @@ approvals core's `rightkit_approvals::Binding` (digest of the exact arguments, d
 so an approval checked here is the same record every approval store checks.
 
 Product names are the caller's: a voice hand-off is mapped with the `VoiceLabels` (chat label, policy
-reference) the application supplies, and the task command line (feature `cli`) takes its program name,
-product name, voice labels and submitting chat from the application's `TaskHost`.
+reference, agent name) the application supplies, and the task command line (feature `cli`) takes its program name,
+product name, voice labels, submitting chat and, when it must keep its own text, the `TaskTexts` (help, command
+spelling, two refusals) from the application's `TaskHost`.
 
 `rightkit-agent-engine` re-exports this crate as `contract`, and its protocol uses it for authority
 (`ExternalEffectSettlement::task_status`). `rightkit-device-link-types` re-exports its `device`, `effect` and

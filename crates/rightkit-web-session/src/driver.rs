@@ -165,9 +165,10 @@ mod live {
     pub fn start(root: &Path, sites: &[String]) -> Result<Live, PhoneError> {
         // Chromium without its sandbox is refused: it would run web content as root.
         if unsafe { libc::geteuid() } == 0 {
-            return Err(unavailable(
-                "this computer runs the app as root; the agent browser needs an ordinary account",
-            ));
+            return Err(unavailable(format!(
+                "this computer runs {} as root; the agent browser needs an ordinary account",
+                crate::product_name()
+            )));
         }
         let profiles = root.join("profiles");
         for dir in [
@@ -232,7 +233,7 @@ mod live {
             .admission(admission);
         let rt = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(2)
-            .thread_name("rightkit-browser")
+            .thread_name(crate::thread_name("browser"))
             .enable_all()
             .build()
             .map_err(|e| PhoneError::retry("browser_failed", e.to_string()))?;
@@ -509,9 +510,10 @@ mod live {
     /// Whether a browser can be found, without starting one.
     pub fn availability() -> Result<(), PhoneError> {
         if unsafe { libc::geteuid() } == 0 {
-            return Err(unavailable(
-                "this computer runs the app as root; the agent browser needs an ordinary account",
-            ));
+            return Err(unavailable(format!(
+                "this computer runs {} as root; the agent browser needs an ordinary account",
+                crate::product_name()
+            )));
         }
         rightkit_browser::chrome_for_testing_path(None)
             .map(|_| ())

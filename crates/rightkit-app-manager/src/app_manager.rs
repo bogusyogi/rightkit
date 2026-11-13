@@ -1747,7 +1747,7 @@ pub fn with_elevator<R>(elevator: Elevator, run: impl FnOnce() -> R) -> R {
 }
 
 /// Whether the host app's privileged helper is approved, as the host app reports it with
-/// [`crate::set_privileged_helper_enabled`].
+/// [`crate::set_privileged_helper_probe`] (asked on every call) or [`crate::set_privileged_helper_enabled`].
 fn helper_enabled() -> bool {
     crate::host::privileged_helper_enabled()
 }
@@ -2908,7 +2908,10 @@ fn check_app(
     };
     let Some(candidates) = parse_appcast(&xml, macos_version().as_deref()) else {
         row.state = "unknown".into();
-        row.reason = Some("The feed is not a Sparkle appcast this app can read.".into());
+        row.reason = Some(format!(
+            "The feed is not a Sparkle appcast {} can read.",
+            crate::host::display_name_inline()
+        ));
         return row;
     };
     let Some(newest) = newest_candidate(candidates) else {
@@ -3023,7 +3026,10 @@ pub fn update_action(path: &str) -> Result<UpdateAction, String> {
     if has_feed {
         Ok(UpdateAction::Sparkle)
     } else {
-        Err("This app has no update source this app can use.".into())
+        Err(format!(
+            "This app has no update source {} can use.",
+            crate::host::display_name_inline()
+        ))
     }
 }
 

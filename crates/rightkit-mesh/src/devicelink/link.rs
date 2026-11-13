@@ -881,7 +881,19 @@ impl DeviceLink {
             if !matches!(record.state, PairedState::Active) {
                 return Err(LinkError::Revoked);
             }
+            // Never without the owner-check signed grant and this computer's redemption of it:
+            // a PIN-made or unredeemed guest cannot be approved, and the lease may not exceed the
+            // redeemed (signed) one.
+            let signed_lease = match record.grant_pair.as_ref() {
+                Some(pair) if pair.redemption.member_class == super::circle::MEMBER_CLASS_GUEST => {
+                    pair.redemption.lease_expires_at_ms
+                }
+                _ => return Err(LinkError::NotAuthorized),
+            };
             let pass = record.guest.as_mut().ok_or(LinkError::NotAuthorized)?;
+            if pass.lease_expires_ms > signed_lease {
+                return Err(LinkError::NotAuthorized);
+            }
             // Only a pending guest inside its lease; a lapsed one needs a new link.
             if pass.approved_ms.is_some() || now_ms >= pass.lease_expires_ms {
                 return Err(LinkError::NotAuthorized);

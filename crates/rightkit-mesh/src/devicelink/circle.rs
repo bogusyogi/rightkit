@@ -1007,7 +1007,12 @@ fn accept_pairs(
 /// Record the redemptions of the accepted `pairs` in the registry's durable ledger (first seen
 /// now), and drop entries older than the grant window plus the delivery allowance (R07).
 fn note_redemptions(registry: &mut Registry, pairs: &[GrantPair], accepted: &[usize], now_ms: u64) {
-    let keep_ms = PAIRING_TTL_MS.saturating_add(REDEMPTION_DELIVERY_ALLOWANCE_MS);
+    // A grant may have been issued up to `CLOCK_SKEW_MS` ahead of this device's first sight of it,
+    // so its window can end that much later than first-seen plus the TTL: an entry is kept past
+    // that, or a second joiner could redeem the same pairing id in the window's tail.
+    let keep_ms = PAIRING_TTL_MS
+        .saturating_add(REDEMPTION_DELIVERY_ALLOWANCE_MS)
+        .saturating_add(CLOCK_SKEW_MS);
     registry
         .redeemed_pairings
         .retain(|e| now_ms.saturating_sub(e.first_seen_ms) <= keep_ms);
@@ -1052,6 +1057,15 @@ fn reject_conflicts(registry: &mut Registry, conflicts: &[String], now_ms: u64, 
                 .is_some_and(|p| conflicts.contains(&p.redemption.pairing_id))
         {
             revoke_record(record, now_ms, by);
+            // A circle revocation of an introduced device: the device's first eight characters and
+            // the number of conflicting pairings, never an id or a name.
+            rightkit_owner_approvals::audit::record_security(
+                "circle.introduced_revoked",
+                serde_json::json!({
+                    "device": rightkit_owner_approvals::audit::short_id(&record.device.device_id),
+                    "conflicts": conflicts.len(),
+                }),
+            );
         }
     }
 }
@@ -1364,9 +1378,14 @@ impl DeviceLink {
                 return Err(LinkError::NotAuthorized);
             }
             // The class and lease are signed in: a guest record makes a guest redemption
-            // for its pass's lease, every other joiner a member one.
+            // for its pass's lease, every other joiner a member one. A guest whose signed lease
+            // has already ended is refused here, so the record never carries a lease no
+            // receiver would accept the redemption for.
             let (member_class, lease_expires_at_ms) = match record.guest.as_mut() {
                 Some(pass) if grant.member_class == MEMBER_CLASS_GUEST => {
+                    if grant.lease_expires_at_ms <= now_ms {
+                        return Err(LinkError::Expired);
+                    }
                     pass.lease_expires_ms = pass.lease_expires_ms.min(grant.lease_expires_at_ms);
                     (MEMBER_CLASS_GUEST, pass.lease_expires_ms)
                 }

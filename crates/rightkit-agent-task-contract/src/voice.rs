@@ -33,6 +33,9 @@ pub const VOICE_CHECK_OUTCOME_SCHEMA_VERSION: u32 = 1;
 /// Largest accepted transcript, in bytes.
 pub const MAX_TRANSCRIPT_BYTES: usize = 4096;
 
+/// What a refusal calls the receiving agent when the caller names none.
+const DEFAULT_AGENT_NAME: &str = "the agent";
+
 /// The labels a hand-off is mapped with. They name a product and its policy, so the caller
 /// supplies them; the contract holds no product's names.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -42,6 +45,9 @@ pub struct VoiceLabels {
     pub chat: String,
     /// Policy reference applied to voice-submitted tasks, such as `voice-control/v1`.
     pub policy_ref: String,
+    /// What the refusal of a hand-off that is not an agent request calls the receiving agent
+    /// (`only an unresolved agent request is submitted to <agent_name>`). Empty reads `the agent`.
+    pub agent_name: String,
 }
 
 /// What the voice front end sends for one final addressed CONTROL utterance.
@@ -137,9 +143,15 @@ pub enum VoiceError {
     #[error("transcript exceeds 4096 bytes")]
     TranscriptTooLong,
     #[error(
-        "not an agent request (R0 {r0:?}, R1 {r1:?}); only an unresolved agent request is submitted to the agent"
+        "not an agent request (R0 {r0:?}, R1 {r1:?}); only an unresolved agent request is submitted to {agent}"
     )]
-    NotAgentRequest { r0: R0Outcome, r1: R1Outcome },
+    NotAgentRequest {
+        r0: R0Outcome,
+        r1: R1Outcome,
+        /// What the message calls the receiving agent: [`VoiceLabels::agent_name`], or `the agent`
+        /// when [`VoiceHandoff::validate`] is called on its own.
+        agent: String,
+    },
 }
 
 fn non_empty(field: &'static str, value: &str) -> Result<(), VoiceError> {
@@ -182,6 +194,7 @@ impl VoiceHandoff {
             return Err(VoiceError::NotAgentRequest {
                 r0: self.checks.r0.outcome,
                 r1: self.checks.r1.outcome,
+                agent: DEFAULT_AGENT_NAME.to_string(),
             });
         }
         Ok(())
@@ -198,7 +211,16 @@ impl VoiceHandoff {
     /// * `idempotency_key` is derived from the utterance, so a resend after an
     ///   unknown outcome resolves to the same task.
     pub fn to_task_envelope(&self, labels: &VoiceLabels) -> Result<TaskEnvelope, VoiceError> {
-        self.validate()?;
+        self.validate().map_err(|error| match error {
+            VoiceError::NotAgentRequest { r0, r1, .. } if !labels.agent_name.trim().is_empty() => {
+                VoiceError::NotAgentRequest {
+                    r0,
+                    r1,
+                    agent: labels.agent_name.clone(),
+                }
+            }
+            other => other,
+        })?;
         non_empty("chat label", &labels.chat)?;
         non_empty("policy reference", &labels.policy_ref)?;
         let utterance_id = &self.utterance.utterance_id;

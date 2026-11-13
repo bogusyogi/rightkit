@@ -54,7 +54,7 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
     GetKeyState, VIRTUAL_KEY, VK_CONTROL, VK_MENU, VK_SHIFT,
 };
 use windows::Win32::UI::WindowsAndMessaging::*;
-use windows::core::{PCWSTR, w};
+use windows::core::PCWSTR;
 
 /// Calls the `windows` crate does not need to grow a feature for.
 #[allow(non_snake_case)]
@@ -90,9 +90,6 @@ mod ffi {
     }
 }
 
-const CLASS: PCWSTR = w!("RightKitClipStrip");
-/// The preview's window class: a picture the pointer goes through, with a proc of its own.
-const PREVIEW_CLASS: PCWSTR = w!("RightKitClipPreview");
 const WM_SYNC: u32 = WM_APP + 1;
 const WM_TOGGLE: u32 = WM_APP + 2;
 /// Opens the strip with one item selected (the launcher's Ctrl+Return); the id is in `PICK`.
@@ -251,7 +248,7 @@ pub fn can_open() -> bool {
 
 pub fn start() {
     let spawned = std::thread::Builder::new()
-        .name("rightkit-clip-strip".to_string())
+        .name(host::thread_name("strip"))
         .spawn(thread_main);
     if spawned.is_err() {
         host::log_info("clipboard_strip", &[("result", "no_thread")]);
@@ -3369,15 +3366,21 @@ fn thread_main() {
     let Some(instance) = unsafe { GetModuleHandleW(None) }.ok().map(HINSTANCE::from) else {
         return;
     };
+    // The class names outlive the class guards and the windows that use them.
+    let product = host::product_name();
+    let class_name = host::wide(&format!("{product}ClipStrip"));
+    let class = PCWSTR(class_name.as_ptr());
+    let preview_class_name = host::wide(&format!("{product}ClipPreview"));
+    let preview_class = PCWSTR(preview_class_name.as_ptr());
     // Declared before the window so it is unregistered after the window is gone.
-    let _class = match ClassGuard::register(CLASS, Some(strip_proc), instance) {
+    let _class = match ClassGuard::register(class, Some(strip_proc), instance) {
         Ok(class) => class,
         Err(error) => {
             host::log_error("RegisterClassW", &error, "clipboard_strip");
             return;
         }
     };
-    let _preview_class = match ClassGuard::register(PREVIEW_CLASS, Some(preview_proc), instance) {
+    let _preview_class = match ClassGuard::register(preview_class, Some(preview_proc), instance) {
         Ok(class) => class,
         Err(error) => {
             host::log_error("RegisterClassW", &error, "clipboard_preview");
@@ -3387,8 +3390,8 @@ fn thread_main() {
     // A tool window (no taskbar button), above the others, drawn with per-pixel alpha. It is
     // not NOACTIVATE: it takes the keys when it opens.
     let window = match OwnedWindow::overlay(
-        CLASS,
-        "RightKit Clipboard",
+        class,
+        &format!("{product} Clipboard"),
         (0, 0, 0, 0),
         rightkit_overlay::OverlayStyle::KEYBOARD,
         instance,
@@ -3401,8 +3404,8 @@ fn thread_main() {
     };
     // The preview: a picture the pointer goes through and the keys never reach.
     let preview_window = match OwnedWindow::overlay(
-        PREVIEW_CLASS,
-        "RightKit Clipboard Preview",
+        preview_class,
+        &format!("{product} Clipboard Preview"),
         (0, 0, 0, 0),
         rightkit_overlay::OverlayStyle::CLICK_THROUGH,
         instance,

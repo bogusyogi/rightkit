@@ -1,7 +1,7 @@
-# rightkit-win-ui 0.1.0 registry consumer
+# rightkit-win-ui 0.1.1 registry consumer
 
 Standalone package outside the RightKit workspace. It depends on `rightkit-win-ui` by exact registry pin
-(`=0.1.0`) with default features. It has no path, Git, workspace or patch dependency and no
+(`=0.1.1`) with default features. It has no path, Git, workspace or patch dependency and no
 committed `Cargo.lock`.
 
 Windows-only: names the nine public Windows modules. On other hosts the crate exports nothing and the consumer reports a skip.

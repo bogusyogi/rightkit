@@ -19,6 +19,7 @@ pub struct HostIdentity {
 static IDENTITY: OnceLock<HostIdentity> = OnceLock::new();
 static STATE_DIRECTORY: OnceLock<PathBuf> = OnceLock::new();
 static HELPER_ENABLED: AtomicBool = AtomicBool::new(false);
+static HELPER_PROBE: OnceLock<Box<dyn Fn() -> bool + Send + Sync>> = OnceLock::new();
 
 /// Set the host app's identity. Only the first call takes effect; returns `false` otherwise.
 pub fn set_host_identity(identity: HostIdentity) -> bool {
@@ -36,6 +37,14 @@ pub fn set_privileged_helper_enabled(enabled: bool) {
     HELPER_ENABLED.store(enabled, Ordering::Relaxed);
 }
 
+/// Have the host app answer whether its privileged helper is approved, asked afresh on every check
+/// (for a host whose helper state changes while the process runs, for example one read from a state
+/// file another process writes). When set it replaces the flag of [`set_privileged_helper_enabled`].
+/// Only the first call takes effect; returns `false` otherwise.
+pub fn set_privileged_helper_probe(probe: impl Fn() -> bool + Send + Sync + 'static) -> bool {
+    HELPER_PROBE.set(Box::new(probe)).is_ok()
+}
+
 #[cfg(unix)]
 pub(crate) fn state_directory() -> Option<PathBuf> {
     STATE_DIRECTORY.get().cloned()
@@ -43,7 +52,10 @@ pub(crate) fn state_directory() -> Option<PathBuf> {
 
 #[cfg(unix)]
 pub(crate) fn privileged_helper_enabled() -> bool {
-    HELPER_ENABLED.load(Ordering::Relaxed)
+    match HELPER_PROBE.get() {
+        Some(probe) => probe(),
+        None => HELPER_ENABLED.load(Ordering::Relaxed),
+    }
 }
 
 #[cfg(unix)]
@@ -53,6 +65,16 @@ pub(crate) fn display_name() -> String {
         .map(|id| id.display_name.clone())
         .filter(|name| !name.is_empty())
         .unwrap_or_else(|| "This app".to_owned())
+}
+
+/// The host app's name for the middle of a sentence: its display name as given, else `this app`.
+#[cfg(unix)]
+pub(crate) fn display_name_inline() -> String {
+    IDENTITY
+        .get()
+        .map(|id| id.display_name.clone())
+        .filter(|name| !name.is_empty())
+        .unwrap_or_else(|| "this app".to_owned())
 }
 
 #[cfg(unix)]

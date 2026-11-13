@@ -7,6 +7,7 @@
 
 ## Unreleased
 
+- The product name comes from the app host (`rightkit_app_host::AppHost::product_name`, default `RightKit`) in the "runs <name> as root" and "<name> Settings, agentBrowser" refusals (they said "the app" / "the app's settings") and in the thread names (`<name lower case>-browser`, `<name lower case>-browser-watch`; they were `rightkit-browser...`).
 - Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
 
 ## 0.1.0 (unreleased)

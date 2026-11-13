@@ -56,6 +56,14 @@ pub trait Host: Send + Sync + 'static {
         "0".to_string()
     }
 
+    /// The application's name, one word, as the history shows it in its window class names
+    /// (`<name>ClipboardListener`, `<name>ClipStrip`, `<name>ClipPreview`), window titles
+    /// (`<name> clipboard`, `<name> Clipboard`, `<name> Clipboard Preview`) and, in lower case, thread
+    /// names (`<name>-clip-read`, ...). Default `RightKit`.
+    fn product_name(&self) -> String {
+        "RightKit".to_string()
+    }
+
     /// Name of the clipboard format that marks the application's own writes.
     fn own_write_format(&self) -> String {
         "RightKitOwnWrite".to_string()
@@ -156,6 +164,23 @@ pub fn t(key: &str) -> &'static str {
     let leaked: &'static str = Box::leak(text.into_boxed_str());
     kept.insert(leaked);
     leaked
+}
+
+/// The host's product name, `RightKit` until one is installed.
+pub(crate) fn product_name() -> String {
+    HOST.get()
+        .map_or_else(|| "RightKit".to_string(), |host| host.product_name())
+}
+
+/// The name of a thread this crate starts: `<product, lower case>-clip-<what>`.
+pub(crate) fn thread_name(what: &str) -> String {
+    format!("{}-clip-{what}", product_name().to_lowercase())
+}
+
+/// `text` as a NUL-terminated UTF-16 string, for a class name or a window title.
+#[cfg(windows)]
+pub(crate) fn wide(text: &str) -> Vec<u16> {
+    text.encode_utf16().chain(std::iter::once(0)).collect()
 }
 
 pub(crate) fn data_dir() -> Option<PathBuf> {

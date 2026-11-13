@@ -1,4 +1,4 @@
-// rightkit-win-ui 0.1.0 consumed by exact registry pin (`=0.1.0`), outside the workspace.
+// rightkit-win-ui 0.1.1 consumed by exact registry pin (`=0.1.1`), outside the workspace.
 //
 // Every public module of this crate is compiled only for Windows. On Windows this consumer names
 // each public module, which proves the reviewed surface resolves at the pinned exact version. It
@@ -11,7 +11,7 @@ fn main() {
         canvas, clock, diag, fileicon, glyphs, process, raii, surface, text_layout,
     };
     println!("ok: nine Windows modules resolve; none constructed");
-    println!("OK rightkit-win-ui 0.1.0 (registry consumer, Windows surface)");
+    println!("OK rightkit-win-ui 0.1.1 (registry consumer, Windows surface)");
 }
 
 #[cfg(not(windows))]

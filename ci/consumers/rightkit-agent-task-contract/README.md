@@ -1,7 +1,7 @@
-# rightkit-agent-task-contract 0.1.0 registry consumer
+# rightkit-agent-task-contract 0.1.1 registry consumer
 
 Standalone package outside the RightKit workspace. It depends on `rightkit-agent-task-contract` by exact registry
-pin (`=0.1.0`) with default features (no `cli`), plus `serde_json`. It has no path, Git, workspace or patch
+pin (`=0.2.0`) with default features (no `cli`), plus `serde_json`. It has no path, Git, workspace or patch
 dependency and no committed `Cargo.lock`.
 
 Proof row: task contract. Each check prints an `ok:` line; a failed check prints `FAIL:` and exits 1.
