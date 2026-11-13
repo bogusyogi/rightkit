@@ -3,7 +3,7 @@
 //! and this module runs only the discovery probes in `rightkit_media_gen::providers::local_wan2gp`.
 //! Generation runs through the `local-wan2gp` provider (wan2gp-t2v, wan2gp-i2v), free and local.
 
-use rightkit_media_gen::providers::local_wan2gp::{self, Wan2GpInstall, DIR_ENV, PYTHON_ENV};
+use rightkit_media_gen::providers::local_wan2gp::{self, dir_env, python_env, Wan2GpInstall};
 use rightkit_media_gen::providers::{tools_root, ProviderError};
 use serde_json::{json, Value};
 
@@ -11,8 +11,8 @@ fn setup() -> Value {
     json!({
         "mode": "user_managed_external_runtime",
         "download_available": false,
-        "wan2gp_dir_env": DIR_ENV,
-        "python_env": PYTHON_ENV,
+        "wan2gp_dir_env": dir_env(),
+        "python_env": python_env(),
         "entry": local_wan2gp::ENTRY,
         "models": ["wan2gp-t2v", "wan2gp-i2v"],
         "cost": "free_local",
