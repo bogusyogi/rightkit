@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Button, EmptyState, Notice, PageShell, SkeletonRows } from "@rightkit/react-shell/react";
 import { AccountChip, LoadError, MockBanner, PermalinkCopy } from "../components/Shared.js";
 import { useAsync } from "../hooks/useAsync.js";
-import { OUTCOME_UNKNOWN_EXPLANATION } from "./labels.js";
+import { outcomeUnknownExplanation } from "./labels.js";
 import {
   accountOrdinals,
   instantLabel,
@@ -246,7 +246,7 @@ function FailureCard({
       {item.kind === "outcome_unknown" ? (
         <div className="op-failure__check">
           <p>
-            <strong>{OUTCOME_UNKNOWN_EXPLANATION}</strong>
+            <strong>{outcomeUnknownExplanation()}</strong>
           </p>
           {reconcile === null ? (
             <p>Not checked yet. Checking reads the platform. It does not publish or retry.</p>

@@ -585,7 +585,10 @@ const PUBLISH_CAUSE: Partial<Record<string, string>> = {
   platform_rejected: "The platform refused this post.",
   container_failed: "The platform could not process the uploaded media.",
   container_timeout: "The platform did not finish processing the media in time.",
-  retries_exhausted: `The platform kept failing or limiting requests, so ${hostAppName()} stopped.`,
+  // Read when shown, so the host's name (set at startup) is in it.
+  get retries_exhausted() {
+    return `The platform kept failing or limiting requests, so ${hostAppName()} stopped.`;
+  },
   approval_invalidated: "The post changed or lost its approval before it went out.",
   account_paused: "The account was paused before the post went out.",
 };

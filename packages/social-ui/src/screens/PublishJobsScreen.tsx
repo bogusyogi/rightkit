@@ -23,8 +23,9 @@ interface Props {
 type CopyFn = (text: string, what: string) => Promise<void>;
 
 /** The plain explanation shown above every outcome_unknown job. The wording is fixed. */
-const OUTCOME_UNKNOWN_TEXT =
-  `The platform may or may not have received the post. ${hostAppName()} will not send it again by itself. A person must look at the account on the platform, then record what they saw with the publish.resolve_unknown command on the server. This screen cannot change a job.`;
+function outcomeUnknownText(): string {
+  return `The platform may or may not have received the post. ${hostAppName()} will not send it again by itself. A person must look at the account on the platform, then record what they saw with the publish.resolve_unknown command on the server. This screen cannot change a job.`;
+}
 
 export function PublishJobsScreen({ source, rev }: Props) {
   const scopes = useAsync<OperatorScope[]>(() => source.listScopes(), [source, rev]);
@@ -105,7 +106,7 @@ function PublishJobsView({ source, rev, scopeId }: { source: DataSource; rev: nu
         <h2 id="publish-unknown-title" className="op-section-title">
           Outcome unknown ({groupDigits(String(unknown.length))})
         </h2>
-        <p className="op-hint">{OUTCOME_UNKNOWN_TEXT}</p>
+        <p className="op-hint">{outcomeUnknownText()}</p>
         {unknown.length === 0 ? (
           <p className="op-hint">No job has an unknown outcome.</p>
         ) : (
