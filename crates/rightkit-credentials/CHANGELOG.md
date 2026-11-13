@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- `secure_prompt::set_unsupported_message`: the host sets the error `secure_prompt::ask` returns on a system with no native prompt (default unchanged).
+
 ## 0.5.4
 
 - Apple helper: a broken pipe on the request write is no longer the reported failure. A helper that exits before reading its request (killed at launch, a loader failure) is now reported by what it left behind: `HelperFailure::NoOutput` with its stderr, or its reply if it wrote one. Other write errors are unchanged (#1572).
