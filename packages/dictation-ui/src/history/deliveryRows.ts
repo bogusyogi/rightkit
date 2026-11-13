@@ -6,7 +6,7 @@
 import { createElement } from "react";
 import { Desktop, DeviceMobile, Laptop, Watch } from "@phosphor-icons/react";
 import { getPlatform } from "@rightkit/platform-ui";
-import { friendlyAppName, type LibraryGroup, type LibraryLabels, type LibraryQuery, type LibraryRow, type LibraryVariant } from "@rightkit/library-ui";
+import { friendlyAppName, type LibraryGroup, type LibraryLabels, type LibraryOrigin, type LibraryQuery, type LibraryRow, type LibraryVariant } from "@rightkit/library-ui";
 import { hostAppName } from "../host.js";
 import type { HistoryItem } from "../lib/homeMetrics.js";
 
@@ -95,7 +95,6 @@ export function deliveryFilterKey(item: HistoryItem): string {
 export function deliveryRow(item: HistoryItem): LibraryRow {
   const { app, windowTitle } = targetDisplay(item);
   const kind = item.source?.kind === "file_transcription" ? "file" : item.source?.kind === "cloud_sync" ? "synced" : "app";
-  const badge = deviceBadgeLabel(item);
   return {
     id: item.delivery_id,
     text: item.transcript,
@@ -109,9 +108,11 @@ export function deliveryRow(item: HistoryItem): LibraryRow {
       kind,
     },
     status: historyOutcomeLabel(item),
-    badges: [...(item.outcome.kind === "cancelled" ? ["Cancelled"] : []), ...(badge ? [badge] : [])],
+    // The device is the row's group glyph, not a badge: only "Cancelled" is.
+    badges: item.outcome.kind === "cancelled" ? ["Cancelled"] : [],
     durationMs: item.recording_ms ?? null,
     group: historyDevice(item),
+    groupLabel: deviceBadgeLabel(item),
     readOnly: !isLocallyDeletable(item),
   };
 }
@@ -135,6 +136,13 @@ export const DELIVERY_VARIANTS: readonly LibraryVariant[] = [
   },
 ];
 
+/** The device choices of a host's source-visibility control (a title bar's checkboxes), in group order. */
+export const HISTORY_SOURCES: readonly { key: HistorySource; label: string }[] = [
+  { key: "mac", label: "Mac" },
+  { key: "iphone", label: "iPhone" },
+  { key: "watch", label: "Watch" },
+];
+
 /**
  * Device groups: this desktop on by default, iPhone and Watch off. Windows has no Apple sync, so
  * hosts there pass `fixed: true` to `useGroupSelection` (or no groups).
@@ -148,6 +156,14 @@ export function deliveryGroups(): readonly LibraryGroup[] {
   ];
 }
 
+/**
+ * The "Export selected" text's origin line: the raw key the delivery store knows an app by (`filterKey`), and
+ * the row's own label for file and synced rows.
+ */
+function exportOrigin(origin: LibraryOrigin): string {
+  return origin.kind === "app" ? (origin.filterKey ?? origin.label) : origin.label;
+}
+
 export function deliveryLabels(): Partial<LibraryLabels> {
   return {
     item: "transcript",
@@ -155,6 +171,16 @@ export function deliveryLabels(): Partial<LibraryLabels> {
     area: "History",
     alt: ["Undo AI polish", "Redo AI polish", "AI", "original"],
     editHint: `Correcting teaches ${hostAppName()}. The fixed text replaces this entry.`,
+    readOnly: {
+      title: "Foreign-device transcript is read-only here",
+      label: (rowContext) => `Transcript from another device is read-only, ${rowContext}`,
+    },
+    expandTitle: (expanded) => (expanded ? "Collapse transcript" : "Expand transcript"),
+    deleteAllHint: "Removes this device's transcripts in the current filters. Transcripts from other devices aren't affected.",
+    groupGlyph: (label) => `Recorded on ${label}`,
+    noMatch: "No history items match your search.",
+    deleteFailed: (failed, total) => `${failed} of ${total} transcript deletes failed.`,
+    exportFields: { origin: "Target", text: "Transcript", originValue: exportOrigin },
   };
 }
 

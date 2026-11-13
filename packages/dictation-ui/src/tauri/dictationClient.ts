@@ -67,12 +67,15 @@ function extensionOf(name: string): string {
   return dot > 0 ? name.slice(dot + 1) : "";
 }
 
+/** The save dialog's filter name for an extension; others show the extension in capitals. */
+const FILTER_NAMES: Record<string, string> = { txt: "Plain text" };
+
 /** Shows a save dialog for `suggestedName` (filtered to its extension) and writes `contents` through `write_text_file`. */
 async function saveTextFile(suggestedName: string, contents: string): Promise<boolean> {
   const ext = extensionOf(suggestedName);
   const path = await pickSavePath({
     defaultPath: suggestedName,
-    ...(ext ? { filters: [{ name: ext.toUpperCase(), extensions: [ext] }] } : {}),
+    ...(ext ? { filters: [{ name: FILTER_NAMES[ext.toLowerCase()] ?? ext.toUpperCase(), extensions: [ext] }] } : {}),
   });
   if (!path) return false;
   await invoke("write_text_file", { path, contents });
