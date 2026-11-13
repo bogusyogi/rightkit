@@ -40,6 +40,7 @@ fn main() {
         format: "text".into(),
         media: Vec::new(),
         settings: serde_json::Value::Null,
+        first_comment: None,
     };
     check(
         x::check(&payload).is_ok(),

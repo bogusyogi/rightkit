@@ -17,6 +17,7 @@ use rightkit_sync::{
 use std::path::PathBuf;
 use std::sync::Arc;
 
+#[derive(Clone)]
 struct Note {
     id: String,
     text: String,
