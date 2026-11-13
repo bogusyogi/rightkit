@@ -74,8 +74,26 @@ export function ensureContrast(fg: string, bg: string, min: number): string {
   return mix(fg, target, hi);
 }
 
-/** Space-separated `R G B` channels of a hex colour (`#1E7F3C` -> `30 127 60`), the form `rgb(var(--x-rgb) / alpha)` reads. Throws on invalid hex, like `parseHex`. */
-export function rgbChannels(hex: string): string {
-  const { r, g, b } = parseHex(hex);
-  return `${r} ${g} ${b}`;
+const RGB_FUNCTION = /^rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*[0-9.]+)?\)$/i;
+
+/** Options for [`rgbChannels`]. */
+export interface RgbChannelsOptions {
+  /**
+   * Tolerant mode: a value that is not hex is read as comma-separated `rgb(r, g, b)` / `rgba(r, g, b, a)` (integer
+   * channels, as written, not clamped), and anything else yields `fallback` instead of throwing.
+   */
+  fallback?: string;
+}
+
+/**
+ * Space-separated `R G B` channels of a hex colour (`#1E7F3C` -> `30 127 60`), the form `rgb(var(--x-rgb) / alpha)`
+ * reads. Throws on invalid hex, like `parseHex`, unless `options.fallback` is set (see [`RgbChannelsOptions`]).
+ */
+export function rgbChannels(hex: string, options?: RgbChannelsOptions): string {
+  if (options?.fallback === undefined || isHex(hex)) {
+    const { r, g, b } = parseHex(hex);
+    return `${r} ${g} ${b}`;
+  }
+  const m = RGB_FUNCTION.exec(String(hex).trim());
+  return m ? `${Number(m[1])} ${Number(m[2])} ${Number(m[3])}` : options.fallback;
 }

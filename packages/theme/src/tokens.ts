@@ -29,9 +29,16 @@ export interface ApplyTokensOptions {
   skipUnchanged?: boolean;
   /**
    * Colour token names (for example `--ink`) whose space-separated channel companion `<name>-rgb` is also written
-   * (`--ink-rgb: 35 31 26`), for `rgb(var(--ink-rgb) / alpha)`. The named value must be hex (see [`rgbChannels`]).
+   * (`--ink-rgb: 35 31 26`), for `rgb(var(--ink-rgb) / alpha)`. The named value must be hex (see [`rgbChannels`]),
+   * unless `rgbFallback` is set.
    */
   rgbCompanions?: readonly string[];
+  /**
+   * Make the companions tolerant: a value that is not hex is read as `rgb()` / `rgba()` when it is one, and otherwise
+   * the companion is this string (for example `"0 0 0"`) instead of the call throwing. A persisted custom colour that
+   * is not hex then cannot break the call. Unset: a non-hex value throws, as before.
+   */
+  rgbFallback?: string;
 }
 
 /**
@@ -52,7 +59,7 @@ export function applyTokens(
   for (const name of options.rgbCompanions ?? []) {
     assertCustomProperty(name);
     const value = record[name];
-    if (value !== undefined) entries.push([`${name}-rgb`, rgbChannels(value)]);
+    if (value !== undefined) entries.push([`${name}-rgb`, rgbChannels(value, { fallback: options.rgbFallback })]);
   }
   const previous = new Map<string, string>();
   for (const [name, value] of entries) {
