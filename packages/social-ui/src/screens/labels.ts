@@ -30,7 +30,7 @@ import type {
   TokenHealth,
 } from "../data/index.js";
 import { daysUntil, formatCount, isSocialPlatform, remaining } from "../data/index.js";
-import { hostAppName } from "../appName.js";
+import { hostAppName, hostProducerApps } from "../appName.js";
 
 /** The ordinary name of each account platform. Exhaustive over SocialPlatform: a new id fails to compile until it is named. */
 export const PLATFORM_LABEL: Record<SocialPlatform, string> = {
@@ -120,8 +120,9 @@ export const PUBLISH_RESOLUTION_LABEL: Record<PublishResolutionDecision, string>
 };
 
 /** The plain explanation shown on every outcome_unknown failure. The wording is fixed. */
-export const OUTCOME_UNKNOWN_EXPLANATION =
-  `The platform may have accepted this post. ${hostAppName()} will not retry until the daemon has checked.`;
+export function outcomeUnknownExplanation(): string {
+  return `The platform may have accepted this post. ${hostAppName()} will not retry until the daemon has checked.`;
+}
 
 export const REJECT_LABEL: Record<RejectReason, string> = {
   wrong_content: "Wrong content",
@@ -235,7 +236,14 @@ export const DISPATCH_OUTCOME_LABEL: Record<DispatchOutcome, { text: string; ton
   running: { text: "Running now", tone: "accent" },
   delivered: { text: "Delivered", tone: "ok" },
   partial: { text: "Partly delivered: the engine skipped or refused some deliverables", tone: "warn" },
-  awaiting_approval: { text: `Waiting for approval in the producer's app (${hostAppName()} or ${hostAppName()}): approve the assets there, then run the brief again`, tone: "warn" },
+  awaiting_approval: {
+    // Read when shown, so the host's producer names (set at startup) are in it.
+    get text() {
+      const apps = hostProducerApps();
+      return `Waiting for approval in the producer's app${apps ? ` (${apps})` : ""}: approve the assets there, then run the brief again`;
+    },
+    tone: "warn",
+  },
   engine_failed: { text: "Engine failed", tone: "bad" },
   timed_out: { text: "Timed out: the run was killed", tone: "bad" },
   delivery_invalid: { text: "Finished, but no usable envelope", tone: "bad" },
