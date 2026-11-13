@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.2
 
 Added: options so a host can make the list look and read as its own. Every default is unchanged: the rendered markup, strings, export text and storage of a host that sets none of them are byte-identical to 0.2.1.
 

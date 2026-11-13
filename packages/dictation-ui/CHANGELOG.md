@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.3
 
 Added: `DictationHistory` now renders HeardRight's History screen, so an app can delete its own copy. Needs the matching `@rightkit/library-ui` (its `Unreleased` options).
 
