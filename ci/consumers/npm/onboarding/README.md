@@ -4,7 +4,7 @@ PK10 R2 external React mount fixture. Static candidate; runner owns execution & 
 
 Runner copies this directory outside workspace, installs supplied exact onboarding tarball as dependency alongside fixture manifest, then runs `node consumer.mjs`. Fixture never invokes package managers or commands. No source imports, workspace paths, fake native command host, generated lock or pass receipt. Record runner installation output, resolved integrity & artifact binding separately.
 
-Candidate: `rk-pack/rightkit-onboarding-0.6.4.tgz` (packed by publish.yml at 24eb443), version `0.6.4`, SHA-256 `da072785909f0626d0b22fa14253d5f103eff954e0736af3012c0e9835605a40`.
+Candidate: `rk-pack/rightkit-onboarding-0.6.5.tgz` (packed by publish.yml at 65c7819), version `0.6.5`, SHA-256 `4f8536daaabefd884588ae471c7e38054a2aab325b10a3d67d587c89e4e0ee0b`.
 
 Direct dependency versions derive from candidate packed package.json: react-shell 0.7.2, legal-ui 0.4.1; React/React DOM 19.3.1, Testing Library React 16.3.3, DOM 10.4.2, user-event 14.6.8 & jsdom 30.1.3 use candidate's declared devDependency minimum versions. Runner resolves their registry dependencies/peers normally, records full resolution & installs no workspace substitutions. Candidate onboarding itself is intentionally absent from fixture manifest until runner installs selected archive.
 
@@ -14,7 +14,7 @@ Required environment:
 | --- | --- |
 | `RIGHTKIT_CONSUMER_ARTIFACT` | Absolute installed archive path |
 | `RIGHTKIT_CONSUMER_ARTIFACT_SHA256` | Actual lowercase SHA-256; packed mode must match candidate above |
-| `RIGHTKIT_CONSUMER_EXPECTED_VERSION` | `0.6.4` |
+| `RIGHTKIT_CONSUMER_EXPECTED_VERSION` | `0.6.5` |
 | `RIGHTKIT_CONSUMER_RESOLUTION` | `packed` for R2(a), `fetched` after registry readback |
 
 Run on Windows & macOS. For fetched mode repeat fresh installation of exact registry-fetched version, retain archive & supply its actual digest. Artifact bytes & installed manifest version are checked; runner must establish installation came from declared archive. These fixtures do not replace 112 package tests or native host service qualification.
