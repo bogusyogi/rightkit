@@ -704,6 +704,14 @@ jobs:
           (cd "$RUNNER_TEMP/swap-signed" && sha256sum -c rightkit-swap.sha256)
           install -d packages/release/bin/darwin
           install -m 0755 "$RUNNER_TEMP/swap-signed/rightkit-swap" packages/release/bin/darwin/rightkit-swap
+      # The direct route packs on Linux, and `cargo package` compiles what it packs: a Tauri crate (or rightkit-qa) needs the
+      # same system libraries there that qualify-direct.yml installs for it. The xcode-27 pack needs none.
+      - name: Install the GTK and WebKit development libraries for Tauri units and rightkit-qa (Linux pack)
+        if: ${{ runner.os == 'Linux' && needs.plan.outputs.registry == 'crates' && (contains(needs.plan.outputs.units, 'tauri') || contains(needs.plan.outputs.units, 'rightkit-qa')) }}
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends pkg-config libglib2.0-dev libgtk-3-dev libwebkit2gtk-4.1-dev libsoup-3.0-dev libayatana-appindicator3-dev librsvg2-dev
       - name: Pack the planned units once and seal them
         env:
           PUBLISH_REGISTRY: ${{ needs.plan.outputs.registry }}
