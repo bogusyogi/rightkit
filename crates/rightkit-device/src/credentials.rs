@@ -20,6 +20,20 @@ use rightkit_credentials::{windows_credential_identity, Error, Secret, Store};
 pub struct CredentialStore {
     store: Store,
     account: String,
+    codec: IdCodec,
+}
+
+/// How the device id is laid out in the credential's secret.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum IdCodec {
+    /// The id string itself is the secret (the default).
+    #[default]
+    Raw,
+    /// A compact JSON object `{"id":"<id>"}`, the format an app that predates this crate wrote
+    /// into its credential item. Reading accepts any JSON object with a string `id` (other fields
+    /// are ignored); a secret that is not such an object fails with an error (never treated as
+    /// absent), and a blank `id` reads as absent. A blank secret reads as absent, as for `Raw`.
+    JsonIdField,
 }
 
 impl CredentialStore {
@@ -32,7 +46,55 @@ impl CredentialStore {
         Ok(Self {
             store: store.pinned()?,
             account,
+            codec: IdCodec::Raw,
         })
+    }
+
+    /// Choose how the id is laid out in the secret (default [`IdCodec::Raw`]). Use
+    /// [`IdCodec::JsonIdField`] to read and write an existing `{"id":"..."}` item byte for byte.
+    #[must_use]
+    pub fn with_codec(mut self, codec: IdCodec) -> Self {
+        self.codec = codec;
+        self
+    }
+
+    fn encode(&self, value: &str) -> Result<Secret, Error> {
+        validate_value(value)?;
+        Ok(match self.codec {
+            IdCodec::Raw => Secret::from_bytes(value.as_bytes().to_vec()),
+            IdCodec::JsonIdField => {
+                Secret::from_bytes(serde_json::json!({ "id": value }).to_string().into_bytes())
+            }
+        })
+    }
+
+    fn decode(&self, stored: &str) -> Result<Option<String>, Error> {
+        if is_blank(stored) {
+            return Ok(None);
+        }
+        match self.codec {
+            IdCodec::Raw => {
+                validate_value(stored)?;
+                Ok(Some(stored.to_owned()))
+            }
+            IdCodec::JsonIdField => {
+                let malformed = |reason: String| Error::Invalid {
+                    what: "device credential value",
+                    reason,
+                };
+                let value: serde_json::Value = serde_json::from_str(stored)
+                    .map_err(|e| malformed(format!("stored device id is malformed: {e}")))?;
+                let id = value
+                    .get("id")
+                    .and_then(serde_json::Value::as_str)
+                    .ok_or_else(|| malformed("stored device id is malformed: no id".into()))?;
+                if is_blank(id) {
+                    return Ok(None);
+                }
+                validate_value(id)?;
+                Ok(Some(id.to_owned()))
+            }
+        }
     }
 }
 
@@ -62,11 +124,7 @@ impl SecureStore<String> for CredentialStore {
                 secret
                     .map(|secret| {
                         let value = secret.expose_str()?;
-                        if is_blank(value) {
-                            return Ok(None);
-                        }
-                        validate_value(value)?;
-                        Ok(Some(value.to_owned()))
+                        self.decode(value)
                     })
                     .transpose()
                     .map(Option::flatten)
@@ -75,12 +133,9 @@ impl SecureStore<String> for CredentialStore {
     }
 
     fn set(&self, value: &String) -> Result<(), String> {
-        validate_value(value).map_err(|error| error.to_string())?;
+        let secret = self.encode(value).map_err(|error| error.to_string())?;
         self.store
-            .set(
-                &self.account,
-                &Secret::from_bytes(value.as_bytes().to_vec()),
-            )
+            .set(&self.account, &secret)
             .map_err(|error| error.to_string())
     }
 
@@ -92,8 +147,7 @@ impl SecureStore<String> for CredentialStore {
     }
 
     fn set_if_absent(&self, value: &String) -> Result<bool, String> {
-        validate_value(value).map_err(|error| error.to_string())?;
-        let secret = Secret::from_bytes(value.as_bytes().to_vec());
+        let secret = self.encode(value).map_err(|error| error.to_string())?;
         let added = self
             .store
             .add_if_absent(&self.account, &secret)

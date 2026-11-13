@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.1
+
+- New `credentials::IdCodec` (`Raw` default, `JsonIdField`) and `CredentialStore::with_codec`: an app whose device id already sits in its credential item as `{"id":"<id>"}` reads and writes the same bytes under the same item. Existing callers are unchanged. The `credentials` feature now also pulls in `serde_json`.
+
 ## 0.5.0
 
 - Fixed: a blank stored device id (empty or whitespace only) no longer fails `get_or_create` forever. `credentials::CredentialStore::get` returns `None` for it and `set_if_absent` replaces it (under the `DeviceService` creation lock); a non-blank id is never replaced and a control character is still an error.

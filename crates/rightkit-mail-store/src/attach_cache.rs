@@ -25,7 +25,7 @@ pub(crate) const ATTACH_NAMESPACE: &str = "attachcache";
 pub const SHARED_BUDGET_BYTES: u64 = 768 * 1024 * 1024; // 768 MB
 
 /// The one cache set shared by the attachment and remote-image caches.
-pub(crate) fn cache_set() -> Result<&'static CacheSet, String> {
+pub fn cache_set() -> Result<&'static CacheSet, String> {
     static SET: OnceLock<Result<CacheSet, String>> = OnceLock::new();
     SET.get_or_init(|| {
         CacheSet::open_namespaces(
@@ -43,7 +43,7 @@ pub(crate) fn cache_set() -> Result<&'static CacheSet, String> {
 }
 
 /// Applies the combined budget after a write to either namespace.
-pub(crate) fn enforce_shared_budget() {
+pub fn enforce_shared_budget() {
     if let Ok(set) = cache_set() {
         set.enforce_budget();
     }

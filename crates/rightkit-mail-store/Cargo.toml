@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-mail-store"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Mail store over SQLCipher: encrypted open with key candidates and lifetime lock, versioned schema and migration gate with backup, accounts, labels, threads, search adapter, outbox and pending queues, sync apply and the local semantic index."

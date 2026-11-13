@@ -32,7 +32,8 @@ pub(crate) fn hold_shared(db_path: &Path) -> Result<bool, String> {
     Ok(true)
 }
 
-/// Drop the shared guard. Call after the writer and every pooled reader are closed.
-pub(crate) fn release() {
+/// Drop the shared guard taken by an open. Call after the writer and every pooled reader are
+/// closed (for example before a replace or a lock transition hands the store to another process).
+pub fn release() {
     *HELD.lock().unwrap_or_else(|e| e.into_inner()) = None;
 }

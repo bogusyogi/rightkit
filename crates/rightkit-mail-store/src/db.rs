@@ -1,8 +1,8 @@
-pub(crate) mod fts_index;
+pub mod fts_index;
 // The resumable full-text rebuild is driven by the host app's background job (one `rebuild_step`
 // of `REBUILD_BATCH` rows per writer-lock acquisition); `migrate_v15` registers the rebuild it finishes.
 pub use fts_index::{rebuild_step, RebuildStep, REBUILD_BATCH};
-pub(crate) mod fts_text;
+pub mod fts_text;
 mod migrations;
 pub(crate) use migrations::ensure_runtime_schema;
 // The schema migration runs only through `migration_gate::gate_and_migrate`:
@@ -11,7 +11,7 @@ pub(crate) mod data_dir;
 pub use data_dir::data_dir;
 mod migration_backup;
 mod migration_gate;
-pub(crate) mod store_lock;
+pub mod store_lock;
 /// The database file's name inside the data folder.
 /// The database file name inside the data folder: `<app slug>.sqlite`.
 pub fn db_file() -> String {
@@ -19,11 +19,11 @@ pub fn db_file() -> String {
 }
 // Free-space probe shared with compaction (std-only file, also built without the shell).
 #[path = "db/free_space.rs"]
-pub(crate) mod free_space;
+pub mod free_space;
 mod pragma_optimize;
-pub(crate) use pragma_optimize::pragma_optimize;
+pub use pragma_optimize::pragma_optimize;
 mod util;
-pub(crate) use util::query_map_collect;
+pub use util::query_map_collect;
 // SQLCipher mail store; the schema is created up front so sync and compose have a stable shape.
 mod outbox_contacts;
 pub use outbox_contacts::*;
@@ -164,6 +164,16 @@ pub(crate) fn db_options(db_path: &Path, key: &str) -> DbOptions {
     opts
 }
 
+/// Open one keyed writer connection to `db_path` with the store's open contract (SQLCipher key,
+/// cache profile, durability, sqlite-vec) and verify the key decrypts the file (or initialises a
+/// fresh one). No lifetime lock, migration or runtime schema is applied: for short-lived
+/// maintenance connections (a checkpoint) beside the long-lived writer from [`open_at`].
+pub fn open_keyed(db_path: &Path, key: &str) -> Result<Connection, String> {
+    db_options(db_path, key)
+        .open_writer()
+        .map_err(|e| format!("open database: {e}"))
+}
+
 /// Build the UI read pool: read-only readers with the pooled cache size. The
 /// first connection opens now so an unavailable DB/key is reported here; the
 /// rest open lazily. Returns None when the database/key isn't available
@@ -267,7 +277,7 @@ pub fn count_accounts(conn: &Connection) -> Result<i64, String> {
         .map_err(|e| format!("count accounts: {e}"))
 }
 /// Unix milliseconds now (`rightkit-search`'s `values::now_ms`).
-pub(crate) use rightkit_search::values::now_ms;
+pub use rightkit_search::values::now_ms;
 /// Run `work` inside a write transaction that reserves the writer slot up front
 /// (`rightkit_db::write_txn_unchecked`), rolling back on error.
 fn in_txn(conn: &Connection, work: impl FnOnce() -> Result<(), String>) -> Result<(), String> {

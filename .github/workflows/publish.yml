@@ -934,7 +934,6 @@ jobs:
         run: node scripts/ci/publish.mjs verify
       - name: Show what Security and Chrome logged on the macOS verify host
         if: ${{ failure() && runner.os == 'macOS' && needs.plan.outputs.registry == 'crates' && contains(needs.plan.outputs.units, 'rightkit-browser') }}
-        continue-on-error: true
         run: |
           security list-keychains -d user || true
           timeout 60 log show --last 15m --style compact --predicate '(process == "securityd" OR process == "SecurityAgent" OR process BEGINSWITH "Google Chrome" OR process == "Chrome for Testing") AND (eventMessage CONTAINS[c] "keychain" OR eventMessage CONTAINS[c] "Safe Storage" OR eventMessage CONTAINS[c] "interaction")' | tail -n 80 || true

@@ -39,6 +39,22 @@ pub fn store_app() -> String {
 // and install refuses to run without it, unless the bundled resource dir
 // already holds all six files (adopted and verified, no download).
 pub const DOWNLOAD_BASE_URL: Option<&str> = option_env!("RIGHTKIT_EMBED_MODEL_URL");
+
+static HOST_BASE_URL: std::sync::OnceLock<Option<&'static str>> = std::sync::OnceLock::new();
+
+/// Let the host choose the download base URL, for a build pipeline that names its own variable:
+/// call once at start-up, before the first [`download_base_url`], with the host's value (for
+/// example `option_env!("MYAPP_EMBED_MODEL_URL")`). `None` keeps [`DOWNLOAD_BASE_URL`]. Returns
+/// `false` when a value was already set.
+pub fn set_download_base_url(url: Option<&'static str>) -> bool {
+    HOST_BASE_URL.set(url).is_ok()
+}
+
+/// The base URL the models are downloaded from: the host's [`set_download_base_url`] value, else
+/// [`DOWNLOAD_BASE_URL`] (`None` when neither is configured: install then only adopts bundled files).
+pub fn download_base_url() -> Option<&'static str> {
+    HOST_BASE_URL.get().copied().flatten().or(DOWNLOAD_BASE_URL)
+}
 /// Reserved-TLD stand-in so a spec can be built for adoption with no source.
 const NO_SOURCE_BASE: &str = "https://model-source-not-configured.invalid";
 
@@ -95,7 +111,7 @@ pub fn bundle_spec() -> ModelSpec {
         MODEL_ID,
         MODEL_REVISION,
         &pinned_files(),
-        DOWNLOAD_BASE_URL.unwrap_or(NO_SOURCE_BASE),
+        download_base_url().unwrap_or(NO_SOURCE_BASE),
     )
 }
 

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.16
+
+- New `malware_scan::scan_file_with_timeout(path, Option<Duration>)` (also re-exported at the crate root): the caller chooses the scan time limit, `None` waits for the scanner's verdict. `scan_file` is unchanged (120 s).
+
 ## 0.4.15
 
 - Docs: the `app_dirs` module docs said every Windows folder is asked of `SHGetKnownFolderPath`; only the Profile folder is. Roaming and Local AppData are read from the `User Shell Folders` value and expanded against the account's environment block. No behaviour change.

@@ -11270,12 +11270,13 @@ dependencies = [
 
 [[package]]
 name = "rightkit-device"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "getrandom 0.4.3",
  "rightkit-credentials",
  "rightkit-license",
  "rightkit-logs",
+ "serde_json",
 ]
 
 [[package]]
@@ -11749,7 +11750,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-fs"
-version = "0.4.15"
+version = "0.4.16"
 dependencies = [
  "blake3",
  "libc 0.2.191",
@@ -12064,7 +12065,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-mail-store"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "rightkit-app-settings",
  "rightkit-cache",
@@ -13021,7 +13022,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-tauri-shell"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "block2",
  "objc2",

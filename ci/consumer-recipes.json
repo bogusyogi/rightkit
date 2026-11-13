@@ -2000,7 +2000,7 @@
       "pkId": "PK01",
       "id": "ci/consumers/rightkit-fs/src/main.rs",
       "files": {
-        "Cargo.toml": "cc661eaf4fc96fdbceda289c70732dc63923dcc669e1abf1004d5f27d827ab8f",
+        "Cargo.toml": "1600e35c5386c85f8cc88148e9ea852ff5d62f852931bba252cf9d7eff838e59",
         "README.md": "1e8c1f28c4b7e9d594c89bf23b6881c9b51a3d226091823cda07971d3e3da1bf",
         "src/main.rs": "457e4dbf3385980a7e39f91b020318df0c44a3159c155cfdffceda2b8c6c6794"
       }
@@ -2198,7 +2198,7 @@
       "pkId": "PK05",
       "id": "ci/consumers/rightkit-device/src/main.rs",
       "files": {
-        "Cargo.toml": "d1da113eeb25b4b3bd05ae72d2413eff088731e0093bc7d3d0461ecc8c980848",
+        "Cargo.toml": "6f8ef6dd7339513335abee34e6f133e1267c77040af36becad88a00c743eee4d",
         "README.md": "5e34d2ab7752e36c863d81e788b7cd795ef60b85fc135741b580c51844ba5f03",
         "src/main.rs": "24a8d0ad3a59f612d938ff7708687b6c44bac0e8c8a8f8e235fad9900b02f8de"
       }
@@ -2261,7 +2261,7 @@
       "pkId": "PK08",
       "id": "ci/consumers/rightkit-tauri-shell/src/main.rs",
       "files": {
-        "Cargo.toml": "dd64e2e2d69bc8a5f79634664a847bee9ddb7aab8d5e026f4dce1344d2f0d5fa",
+        "Cargo.toml": "8c063df76b293c9e483a69b485c4535266d5792207c2813c007c796794b47df8",
         "README.md": "6c436494f121266387c34ec66bad6959d92ae9e378fe05f1551f238489e222e6",
         "src/main.rs": "8019c8f4a15fd6d4e0abf44933b074fc0cedffd99231cb5e721620b7c81f28d9"
       },
@@ -3972,7 +3972,7 @@
       "pkId": "PK185",
       "id": "ci/consumers/rightkit-mail-store/src/main.rs",
       "files": {
-        "Cargo.toml": "df687c6c341f9ea4559284d15a14e8b7e9ca19e84bad9b12ce82535be9ee28a5",
+        "Cargo.toml": "0f228569d9fad22204b579810077d36bed7261bdf2af6abe7edf4a2e06b72257",
         "README.md": "b595a859c41fa2fb5012462634d62fe906126ef0bb74c4f6c703dfe2e6bc21e7",
         "src/main.rs": "a865c60bbc1faa7435ef036735419a8dc0c7990b2311cceba440601430b566e1"
       }

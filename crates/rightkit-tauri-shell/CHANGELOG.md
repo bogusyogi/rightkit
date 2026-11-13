@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.8.2
+
+- **New: `startup_error::show_with(title, message, &StartupErrorOptions)`** (`show` is unchanged and equals the default options): choose the macOS dialog (`MacosDialog::AlertCritical` default, or `DialogStop`: `display dialog` with an `OK` button and the stop icon), add `MB_SETFOREGROUND` on Windows, set a stderr line prefix, and report a failed `osascript` start as `could not show the start-up error: <error>`. macOS now discards `osascript`'s stdout for the dialog it shows (it printed the clicked button).
+- **New: `startup_error::set_window_icon_native::<R>(&WebviewWindow<R>, &Image)`**: `set_window_icon` for any runtime from a decoded image; on Windows it also sends `WM_SETICON` (small, small2, big) so the taskbar does not keep a cached icon.
+
 ## 0.8.1
 
 - **New: `ShellBuilder::broker_only_navigation()` and `NavPolicy::decide_broker(&Url) -> Option<NavDecision>`** (default off, nothing changes). With it the navigation policy handles only the `NavPolicy::broker_host` hop (`https://<host>/?target=<url>`: an allowed target opens externally, anything else is refused) and leaves every other top-level navigation to Tauri untouched. `NavPolicy::decide` now calls `decide_broker` first; its result is the same.
