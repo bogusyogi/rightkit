@@ -3208,7 +3208,7 @@ version = "0.1.0"
 
 [[package]]
 name = "rightkit-tauri-shell"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "block2",
  "objc2",

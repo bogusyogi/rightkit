@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.7.3
 
 Additive; `diagnosticsSection` renders as before without the new options.
 

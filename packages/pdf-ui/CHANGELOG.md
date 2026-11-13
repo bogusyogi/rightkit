@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.1
 
 - **`readPdfPageText(page, mode?, signal?)`**: new optional `signal` cancels the stream reader mid-read and rejects with an `AbortError`. Fixed: items without `str` (marked-content markers) no longer add an empty part, so the joined text has no doubled spaces where a marker sat; a multi-word query now matches across such a marker.
 

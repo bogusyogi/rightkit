@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.8.1
 
 - **New: `ShellBuilder::broker_only_navigation()` and `NavPolicy::decide_broker(&Url) -> Option<NavDecision>`** (default off, nothing changes). With it the navigation policy handles only the `NavPolicy::broker_host` hop (`https://<host>/?target=<url>`: an allowed target opens externally, anything else is refused) and leaves every other top-level navigation to Tauri untouched. `NavPolicy::decide` now calls `decide_broker` first; its result is the same.
 - **New: `rightkit_tauri_shell::disable_browser_accelerators(&WebviewWindow)`** turns WebView2's browser accelerator keys off for one window without the shell's webview hardening (the setting `Hardening::disable_browser_accelerators` applies). A no-op off Windows.

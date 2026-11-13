@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.2
+
+- Requires `rightkit-repo-graph` 0.3 (was 0.2): its `framework_intelligence::FiFile` now borrows its text. No source change in this crate (#1572).
+
 ## 0.1.1
 
 - Enables `rightkit-memory-core`'s `embed` feature (0.2 puts embedding and retrieval behind it), which the store and `adapt` commands use.
