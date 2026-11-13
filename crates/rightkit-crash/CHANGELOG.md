@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.1
+
+- Changed: `admit_crash_artifacts` no longer fails the whole call when a `sample_*` file cannot be written into `staging`: the partial file is removed and the name is listed in `AdmittedCrashArtifacts::skipped`, as a `dump_*` file that cannot be copied already is (an app that skipped such a sample and carried on keeps that behaviour, and now also learns which file was left out). A report that cannot be written, or a `staging` that cannot be created, still fails the call. Kept on purpose: a partly copied `dump_*` is removed and listed, never left in the bundle (safer than leaving a truncated dump, and invisible to the user).
+
 ## 0.4.0
 
 - New: `CrashConfig::abort_after_report(bool)` (default `false`): the panic hook calls `std::process::abort()` after recording (and after any chained hook), so an app no longer wraps the hook to get that.

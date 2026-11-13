@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.3
+
+- New: `apple_helper::SPAWN_FAILED_PREFIX`, the fixed start (`cannot start helper: `) of the `Error::Helper` text for a helper that could not be spawned, so a caller can tell that case from the rest. The text itself is unchanged.
+- New: `apple_helper::HelperFailure` (`#[non_exhaustive]`: `Spawn { detail, kind }`, `NoOutput { stderr }`, `Unparseable { error, line }`, `TimedOut { secs, stderr }`, `Reported { detail }`) and `AppleHelper::last_failure()`, the raw facts of the most recent failed call (the full OS error text of a failed spawn, the helper's stderr, the unparseable line, the helper's `error` or else `detail` text), for a caller that words the condition itself. `Error` and every `Display` text are unchanged and no variant was added, so this is semver-compatible; a clone of the client starts with an empty record. The helper's stderr is now read on a third thread (up to 1 MiB kept) instead of being discarded. The text is the helper's own output and can be sensitive: a `read` reply is never kept as `line`, and `Debug` omits the text.
+
 ## 0.5.2
 
 - Changed: the bundled-helper path resolvers and the code-signature check now live in `rightkit-child-process` (`resolve_bundled`, `resolve_bundled_login_item`, `verify_team_signature`); `apple_helper` calls them, with the same checks and the same error text. New dependency on `rightkit-child-process`. No behaviour change.

@@ -108,6 +108,48 @@ impl fmt::Debug for LicenseSetup {
 /// Default account of the licence record in the app's credential namespace.
 pub const DEFAULT_RECORD_ACCOUNT: &str = "license-record";
 
+/// Which e-mail addresses a trial request sends to the licence service. The service stays the
+/// authority; this only refuses obvious non-addresses before any request.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
+pub enum TrialEmailRule {
+    /// At most 254 characters, no whitespace or control characters, an `@` that is neither the
+    /// first nor the last character. The default.
+    #[default]
+    Lenient,
+    /// At most 320 characters, no whitespace or control characters, exactly one `@`, a non-empty
+    /// local part and a domain that contains a `.` and neither starts nor ends with one (so
+    /// `user@localhost` is refused). The rule HeardRight's trial form ships.
+    DottedDomain,
+}
+
+impl TrialEmailRule {
+    /// Whether `email` (already trimmed) passes the rule.
+    pub(crate) fn allows(self, email: &str) -> bool {
+        match self {
+            Self::Lenient => super::ops::plausible_email(email),
+            Self::DottedDomain => {
+                if email.is_empty()
+                    || email.chars().count() > 320
+                    || email.chars().any(|c| c.is_whitespace() || c.is_control())
+                {
+                    return false;
+                }
+                match email.split_once('@') {
+                    Some((local, domain)) => {
+                        !local.is_empty()
+                            && !domain.contains('@')
+                            && domain.contains('.')
+                            && !domain.starts_with('.')
+                            && !domain.ends_with('.')
+                    }
+                    None => false,
+                }
+            }
+        }
+    }
+}
+
 /// Static inputs of a configured client. The endpoints are fixed: HTTPS, the compiled-in host,
 /// the paths of `@rightkit/license` 0.2.1 and the lease routes. There is no option for a URL.
 #[derive(Clone)]
@@ -130,6 +172,10 @@ pub struct LicenseClientConfig {
     pub(crate) invalidation: Option<LicenseInvalidation>,
     pub(crate) lease_activation: bool,
     pub(crate) host_trial_platform: bool,
+    pub(crate) trial_email_rule: TrialEmailRule,
+    pub(crate) unlocked_trial: bool,
+    pub(crate) trial_timeout: Option<Duration>,
+    pub(crate) trial_http: Option<HttpConfig>,
 }
 
 impl fmt::Debug for LicenseClientConfig {
@@ -187,6 +233,10 @@ impl LicenseClientConfig {
             invalidation: None,
             lease_activation: false,
             host_trial_platform: false,
+            trial_email_rule: TrialEmailRule::Lenient,
+            unlocked_trial: false,
+            trial_timeout: None,
+            trial_http: None,
         })
     }
 
@@ -237,6 +287,50 @@ impl LicenseClientConfig {
     /// licence service that keys the trial length on it. Default `false`.
     pub fn with_host_trial_platform(mut self, on: bool) -> Self {
         self.host_trial_platform = on;
+        self
+    }
+
+    /// Which e-mail shapes a trial request may send ([`TrialEmailRule`]). Default
+    /// [`TrialEmailRule::Lenient`]. An address the rule refuses is answered `accepted: false` with
+    /// no request, as today.
+    pub fn with_trial_email_rule(mut self, rule: TrialEmailRule) -> Self {
+        self.trial_email_rule = rule;
+        self
+    }
+
+    /// Whether a trial request skips the licence operation lock. Default `false`: the request holds
+    /// the lock across its network call, so it can answer `Busy` while a renew or an activation
+    /// runs. A trial issues no credential and writes no record, so with `true` it never waits for
+    /// (nor blocks) those operations. It still takes no part in any stored state.
+    pub fn with_unlocked_trial(mut self, on: bool) -> Self {
+        self.unlocked_trial = on;
+        self
+    }
+
+    /// The whole-request timeout of a trial request. Default `None`: the client's own 15 second
+    /// timeout. The connect timeout is capped at it. Applies to the trial request only.
+    pub fn with_trial_timeout(mut self, timeout: Duration) -> Self {
+        self.trial_timeout = Some(timeout);
+        self
+    }
+
+    /// The HTTP client configuration of the trial request, for an app whose trial request has
+    /// always gone out through its own transport (system proxy variables, bundled trust roots,
+    /// redirects, a larger response cap, its own User-Agent, one overall deadline). Default
+    /// `None`: the licence transport (no proxy, platform roots, no redirects, 256 KiB cap,
+    /// `rightkit-license/<version>` as User-Agent, 15 s).
+    ///
+    /// When set, the trial POST is sent by a client built from exactly this configuration
+    /// (through [`rightkit_http::Client::try_new_or_direct`]: an unusable proxy setting falls back
+    /// to a direct connection) and it supersedes [`with_trial_timeout`](Self::with_trial_timeout),
+    /// the licence transport's limits and its User-Agent. The request goes to the compiled licence
+    /// origin only; the configuration decides how. Two details follow the host so the request is
+    /// the one the app sent before: the request carries `Content-Type` and no `Accept` header, and
+    /// a response body that is not UTF-8 (whatever the status) is a [`LicenseError::Network`]
+    /// failure, where the default transport reads the status and the JSON `ok` only. Every other
+    /// licence call keeps the licence transport. Server text is still never forwarded.
+    pub fn with_trial_http(mut self, config: HttpConfig) -> Self {
+        self.trial_http = Some(config);
         self
     }
 

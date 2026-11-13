@@ -159,6 +159,8 @@ pub struct LicenseHostService {
     ops: Arc<dyn LicenseOps>,
     /// The app's durable pending-release queue (#1036); `None` answers `unsupported`.
     queue: Option<Arc<dyn PendingReleaseQueue + Send + Sync>>,
+    /// Runs before every `status()` read; see [`LicenseHostService::with_before_status`].
+    before_status: Option<Arc<dyn Fn() + Send + Sync>>,
 }
 
 /// The counts of one pending-release drain, in the renderer's shape (`PendingReleaseDrain` in
@@ -188,6 +190,7 @@ impl LicenseHostService {
         Self {
             ops: Arc::new(client),
             queue: None,
+            before_status: None,
         }
     }
 
@@ -200,11 +203,32 @@ impl LicenseHostService {
 
     /// A service over any [`LicenseOps`] (a test double).
     pub fn with_ops(ops: Arc<dyn LicenseOps>) -> Self {
-        Self { ops, queue: None }
+        Self {
+            ops,
+            queue: None,
+            before_status: None,
+        }
+    }
+
+    /// Run `hook` before every status read: the `rightkit_license_status` command and the fresh
+    /// read behind every change event ([`LicenseHostService::on_change`]). For work the view
+    /// should already reflect, such as retrying the in-place import of an older stored record
+    /// that failed at launch, so the view and the native gates come from the same record. Nothing
+    /// else changes: the hook has no result and cannot refuse the read. It runs on the thread that
+    /// reads (a command's blocking thread, or the thread that finished a licence operation), so
+    /// it must be cheap when there is nothing to do and must not block on a lock a licence
+    /// operation may hold. Set it before [`LicenseHostService::on_change`], which captures it.
+    /// Default: none.
+    pub fn with_before_status(mut self, hook: Arc<dyn Fn() + Send + Sync>) -> Self {
+        self.before_status = Some(hook);
+        self
     }
 
     /// The licence as it stands. No network.
     pub fn status(&self) -> LicenseView {
+        if let Some(hook) = &self.before_status {
+            hook();
+        }
         self.ops.status()
     }
 
@@ -286,10 +310,14 @@ impl LicenseHostService {
         };
         // Weak, so the listener the client keeps does not keep the client alive.
         let ops: Weak<dyn LicenseOps> = Arc::downgrade(&self.ops);
+        let before_status = self.before_status.clone();
         let pump = ChangeCoalescer::default();
         invalidation.subscribe(move |_generation| {
             pump.signal(|| {
                 if let Some(ops) = ops.upgrade() {
+                    if let Some(hook) = &before_status {
+                        hook();
+                    }
                     emit(&ops.status());
                 }
             });

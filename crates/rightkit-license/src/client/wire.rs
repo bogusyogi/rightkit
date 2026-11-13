@@ -11,6 +11,8 @@
 //! layer scrubs them from its errors. Server text is read only to classify (`status`, `ok`); it
 //! is never forwarded.
 
+use std::time::Duration;
+
 use rightkit_http::{Client, Request};
 use serde_json::{json, Value};
 use zeroize::{Zeroize, Zeroizing};
@@ -42,6 +44,10 @@ pub(crate) enum TrialAnswer {
 
 pub(crate) struct Transport {
     client: Client,
+    /// A client with its own timeout, for the trial request, when the config sets one.
+    trial_client: Option<Client>,
+    /// The trial client is the host's own configuration (`with_trial_http`).
+    trial_host_config: bool,
     origin: String,
     app: String,
     app_version: String,
@@ -50,8 +56,23 @@ pub(crate) struct Transport {
 impl Transport {
     pub(crate) fn new(config: &LicenseClientConfig) -> Result<Self, LicenseError> {
         let client = Client::try_new(config.http.clone()).map_err(|_| LicenseError::Network)?;
+        let trial_client = match (&config.trial_http, config.trial_timeout) {
+            (Some(http), _) => {
+                Some(Client::try_new_or_direct(http.clone()).map_err(|_| LicenseError::Network)?)
+            }
+            (None, Some(timeout)) => {
+                let mut http = config.http.clone();
+                http.connect_timeout = Some(Duration::from_secs(10).min(timeout));
+                http.request_timeout = timeout;
+                http.response_timeout = Some(timeout);
+                Some(Client::try_new(http).map_err(|_| LicenseError::Network)?)
+            }
+            (None, None) => None,
+        };
         Ok(Self {
             client,
+            trial_client,
+            trial_host_config: config.trial_http.is_some(),
             origin: config.origin(),
             app: config.app.clone(),
             app_version: config.app_version.clone(),
@@ -59,17 +80,30 @@ impl Transport {
     }
 
     fn post(&self, path: &str, body: &Value, secrets: &[&str]) -> Result<Reply, LicenseError> {
+        self.post_with(&self.client, path, body, secrets, true)
+    }
+
+    fn post_with(
+        &self,
+        client: &Client,
+        path: &str,
+        body: &Value,
+        secrets: &[&str],
+        accept_json: bool,
+    ) -> Result<Reply, LicenseError> {
         let mut bytes =
             Zeroizing::new(serde_json::to_vec(body).map_err(|_| LicenseError::Network)?);
         let mut request = Request::post(format!("{}{path}", self.origin))
             .header("Content-Type", "application/json")
-            .header("Accept", "application/json")
             .body(bytes.to_vec());
+        if accept_json {
+            request = request.header("Accept", "application/json");
+        }
         bytes.zeroize();
         for secret in secrets {
             request = request.redact_value(*secret);
         }
-        let result = self.client.send_any(&request);
+        let result = client.send_any(&request);
         request.body.zeroize();
         match result {
             Ok(response) => Ok(Reply {
@@ -138,7 +172,19 @@ impl Transport {
             Some(platform) => json!({ "app": self.app, "email": email, "platform": platform }),
             None => json!({ "app": self.app, "email": email }),
         };
-        let reply = self.post(suite_api::LICENSE_TRIAL_PATH, &body, &[])?;
+        let client = self.trial_client.as_ref().unwrap_or(&self.client);
+        let reply = self.post_with(
+            client,
+            suite_api::LICENSE_TRIAL_PATH,
+            &body,
+            &[],
+            !self.trial_host_config,
+        )?;
+        // The host's own transport read the body as text before the status was judged, so a body
+        // that is not UTF-8 was a read failure, whatever the status.
+        if self.trial_host_config && std::str::from_utf8(&reply.body).is_err() {
+            return Err(LicenseError::Network);
+        }
         if reply.status == 429 {
             return Ok(TrialAnswer::RateLimited);
         }

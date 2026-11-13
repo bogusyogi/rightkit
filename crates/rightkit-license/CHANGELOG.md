@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.1
+
+- **New: trial request options on `LicenseClientConfig`, so an app can keep the trial behaviour it already ships (all default to today's behaviour).** `with_trial_email_rule(TrialEmailRule)` (`Lenient`, the default, is the 254 character check; `DottedDomain` is the HeardRight rule: at most 320 characters, no whitespace or control characters, exactly one `@`, a non-empty local part, a domain with a `.` that neither starts nor ends with one, so `user@localhost` is refused before any request). `with_unlocked_trial(bool)`: the trial request skips the operation lock, so it never answers `Busy` during a renew or an activation (a trial issues no credential and writes no record). `with_trial_timeout(Duration)`: the trial request's own timeout instead of the client's 15 s. `TrialEmailRule` is exported from the crate root and `client`.
+- **New: `LicenseClientConfig::with_trial_http(rightkit_http::ClientConfig)`**, for an app whose trial request has always gone out through its own transport (system proxy variables, bundled trust roots, redirects, a bigger response cap, its own User-Agent, one overall deadline, e.g. `ClientConfig::legacy_ureq_parity(UA).single_deadline(..)`). The trial POST is then sent by a client built from exactly that configuration (an unusable proxy setting falls back to a direct connection) and supersedes `with_trial_timeout`; the request carries `Content-Type` and no `Accept` header, and a response body that is not UTF-8 is `LicenseError::Network` (the default transport answers "refused"). Every other licence call keeps the licence transport. Default unchanged.
+
 ## 0.3.0
 
 - **New: `CredentialReleaseQueue` (feature `client`).** A `PendingReleaseQueue` kept in one credential-store item (the host passes the `Store` and the account). It reads and writes the JSON array HeardRight already stores (`{"kind":"legacy","activation_token"}` / `{"kind":"lease","device_id_hash","lease_id"}`), so an installed app's pending removals survive adoption. Row ids carry no token (a legacy row is named by a hash of it); `enqueue` does not duplicate a row.

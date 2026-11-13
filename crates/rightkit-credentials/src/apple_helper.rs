@@ -24,13 +24,154 @@ use serde_json::{json, Value};
 use std::ffi::OsString;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, ChildStderr, Command, Stdio};
 use std::sync::mpsc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use zeroize::{Zeroize, Zeroizing};
 
 /// Response cap (and read buffer size) for one helper reply.
 const RESPONSE_CAP: usize = 1 << 20;
+
+/// The start of the [`Error::Helper`] text when the helper process could not be spawned; what
+/// follows is the OS error kind. A caller that words that condition itself matches on it.
+pub const SPAWN_FAILED_PREFIX: &str = "cannot start helper: ";
+
+/// The most stderr text kept for a [`HelperFailure`] (bytes). The rest is read and dropped so the
+/// helper never blocks on a full pipe.
+const STDERR_CAP: usize = 1 << 20;
+/// The longest helper reply line kept in [`HelperFailure::Unparseable`] (bytes, cut on a character
+/// boundary).
+const LINE_CAP: usize = 8 * 1024;
+
+/// What an exchange with the helper failed on, as raw facts for a caller that words the condition
+/// itself (rightkit-tauri-shell's pro bridge). Obtained from [`AppleHelper::last_failure`]; the
+/// [`Error`] a call returns, and its text, are unchanged, so a caller that never asks sees no
+/// difference. A failure that is not one of these (an encoding error, an untrusted helper, a
+/// failed write) has no entry here and is only its `Error`.
+///
+/// **Sensitive text.** `stderr` and `line` are the helper's own output and `detail` can be its
+/// message. They can hold whatever the helper printed, so pass them only where an operator, not a
+/// remote party, reads them; the `Debug` output omits them. A reply to `read`, which can carry a
+/// secret value, is never kept as `line`.
+#[derive(Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum HelperFailure {
+    /// The helper process could not be started. `detail` is the full OS error text (for example
+    /// `No such file or directory (os error 2)`), `kind` the `io::ErrorKind` text (`entity not
+    /// found`), which is what the [`Error::Helper`] text carries.
+    Spawn { detail: String, kind: String },
+    /// The helper answered with nothing (blank stdout). `stderr` is what it wrote to stderr,
+    /// trimmed, when that is not empty.
+    NoOutput { stderr: Option<String> },
+    /// The reply line was not JSON. `error` is the parser's position text (it names no content);
+    /// `line` is the line (at most 8 KiB), `None` for a `read` reply.
+    Unparseable { error: String, line: Option<String> },
+    /// The helper did not finish within the deadline (`secs`). `stderr` as for `NoOutput`.
+    TimedOut { secs: u64, stderr: Option<String> },
+    /// The helper answered `ok: false`: its `error` text, else its `detail` text. Not recorded
+    /// when it sent neither (the error is then `helper reported failure`).
+    Reported { detail: String },
+}
+
+impl std::fmt::Debug for HelperFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Spawn { kind, .. } => f.debug_struct("Spawn").field("kind", kind).finish(),
+            Self::NoOutput { stderr } => f
+                .debug_struct("NoOutput")
+                .field("stderr_present", &stderr.is_some())
+                .finish(),
+            Self::Unparseable { error, .. } => {
+                f.debug_struct("Unparseable").field("error", error).finish()
+            }
+            Self::TimedOut { secs, stderr } => f
+                .debug_struct("TimedOut")
+                .field("secs", secs)
+                .field("stderr_present", &stderr.is_some())
+                .finish(),
+            Self::Reported { .. } => f.debug_struct("Reported").finish_non_exhaustive(),
+        }
+    }
+}
+
+/// The failure of the most recent call of one [`AppleHelper`]; a clone starts empty.
+#[derive(Default)]
+struct FailureSlot(Mutex<Option<HelperFailure>>);
+
+impl Clone for FailureSlot {
+    fn clone(&self) -> Self {
+        Self::default()
+    }
+}
+
+impl std::fmt::Debug for FailureSlot {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("FailureSlot")
+    }
+}
+
+impl FailureSlot {
+    fn clear(&self) {
+        if let Ok(mut slot) = self.0.lock() {
+            *slot = None;
+        }
+    }
+    fn set(&self, failure: HelperFailure) {
+        if let Ok(mut slot) = self.0.lock() {
+            *slot = Some(failure);
+        }
+    }
+    fn get(&self) -> Option<HelperFailure> {
+        self.0.lock().ok().and_then(|slot| slot.clone())
+    }
+}
+
+/// The helper's stderr, drained on its own thread (capped) while the exchange runs.
+struct StderrTail {
+    buf: Arc<Mutex<Vec<u8>>>,
+    done: mpsc::Receiver<()>,
+}
+
+impl StderrTail {
+    fn spawn(mut stderr: ChildStderr) -> Self {
+        let buf = Arc::new(Mutex::new(Vec::new()));
+        let (done_tx, done) = mpsc::channel();
+        let shared = Arc::clone(&buf);
+        std::thread::spawn(move || {
+            let mut chunk = [0u8; 4096];
+            while let Ok(n) = stderr.read(&mut chunk) {
+                if n == 0 {
+                    break;
+                }
+                if let Ok(mut kept) = shared.lock() {
+                    let room = STDERR_CAP.saturating_sub(kept.len());
+                    kept.extend_from_slice(&chunk[..n.min(room)]);
+                }
+            }
+            let _ = done_tx.send(());
+        });
+        Self { buf, done }
+    }
+
+    /// What the helper wrote to stderr, trimmed; `None` when it wrote nothing. Call after the
+    /// helper has been killed: it waits briefly for the pipe to close, then takes what was read.
+    fn text(&self) -> Option<String> {
+        let _ = self.done.recv_timeout(Duration::from_millis(300));
+        let kept = self.buf.lock().ok()?;
+        let text = String::from_utf8_lossy(&kept);
+        let text = text.trim();
+        (!text.is_empty()).then(|| text.to_string())
+    }
+}
+
+fn capped_line(line: &str) -> String {
+    let mut end = line.len().min(LINE_CAP);
+    while !line.is_char_boundary(end) {
+        end -= 1;
+    }
+    line[..end].to_string()
+}
 
 #[derive(Serialize)]
 struct WriteRequest<'a> {
@@ -358,12 +499,15 @@ fn parse_read_reply(line: &str) -> std::result::Result<ReadReply, Malformed> {
     Ok(reply)
 }
 
-fn check_ok(v: &Value) -> Result<()> {
+fn check_ok(v: &Value, slot: &FailureSlot) -> Result<()> {
     if v.get("ok").and_then(Value::as_bool) != Some(true) {
-        let msg = v
-            .get("error")
-            .and_then(Value::as_str)
-            .unwrap_or("helper reported failure");
+        let error = v.get("error").and_then(Value::as_str);
+        if let Some(detail) = error.or_else(|| v.get("detail").and_then(Value::as_str)) {
+            slot.set(HelperFailure::Reported {
+                detail: detail.to_string(),
+            });
+        }
+        let msg = error.unwrap_or("helper reported failure");
         return Err(Error::Helper(msg.to_string()));
     }
     Ok(())
@@ -439,6 +583,7 @@ pub struct AppleHelper {
     timeout: Duration,
     /// `Some` for a client built by [`AppleHelper::new_trusted`]: verified before every spawn.
     trust: Option<HelperTrust>,
+    failure: FailureSlot,
 }
 
 /// Owns the helper process and kills and reaps it when dropped, so no path out of an exchange
@@ -466,6 +611,7 @@ impl AppleHelper {
             args: Vec::new(),
             timeout: Duration::from_secs(10),
             trust: None,
+            failure: FailureSlot::default(),
         }
     }
 
@@ -509,21 +655,48 @@ impl AppleHelper {
         self
     }
 
+    /// The raw facts of the failure of this client's most recent call, or `None` when that call
+    /// succeeded or failed in a way [`HelperFailure`] does not describe (the returned [`Error`]
+    /// is then all there is). Every call clears it first, so read it right after the failing
+    /// call, from the same thread; a clone has its own, initially empty, record. See
+    /// [`HelperFailure`] for the sensitivity of its text. While a call runs, the helper's stderr is
+    /// read on one more thread (up to 1 MiB kept) instead of being discarded.
+    pub fn last_failure(&self) -> Option<HelperFailure> {
+        self.failure.get()
+    }
+
     /// A request line (JSON + newline) in a buffer that is zeroed on drop. Used for requests that
     /// carry no secret; `write` builds its own line so the secret is never copied into a
     /// `serde_json::Value`.
     fn call(&self, request: Value) -> Result<Value> {
+        self.failure.clear();
         let mut line = Zeroizing::new(
             serde_json::to_vec(&request)
                 .map_err(|_| Error::Helper("cannot encode request".into()))?,
         );
         line.push(b'\n');
-        let out = self.exchange(line)?;
-        let first = out.lines().next().unwrap_or("");
-        let v: Value = serde_json::from_str(first)
-            .map_err(|_| Error::Helper("invalid helper response".into()))?;
-        check_ok(&v)?;
+        let (out, tail) = self.exchange(line)?;
+        let v = self.parse_reply(&out, &tail)?;
+        check_ok(&v, &self.failure)?;
         Ok(v)
+    }
+
+    /// The first reply line as JSON, or the failure: blank output, or a line that is not JSON.
+    fn parse_reply(&self, out: &str, tail: &StderrTail) -> Result<Value> {
+        let first = out.lines().next().unwrap_or("");
+        if out.trim().is_empty() {
+            self.failure.set(HelperFailure::NoOutput {
+                stderr: tail.text(),
+            });
+            return Err(Error::Helper("invalid helper response".into()));
+        }
+        serde_json::from_str(first).map_err(|e| {
+            self.failure.set(HelperFailure::Unparseable {
+                error: e.to_string(),
+                line: Some(capped_line(first)),
+            });
+            Error::Helper("invalid helper response".into())
+        })
     }
 
     /// Send one request line, return the raw response text (zeroed on drop). The response buffer
@@ -535,7 +708,8 @@ impl AppleHelper {
     /// bounded by the one deadline, and the helper is killed and reaped when the call ends,
     /// whatever the outcome (a helper that has closed stdout but is still alive is killed
     /// rather than waited for).
-    fn exchange(&self, line: Zeroizing<Vec<u8>>) -> Result<Zeroizing<String>> {
+    fn exchange(&self, line: Zeroizing<Vec<u8>>) -> Result<(Zeroizing<String>, StderrTail)> {
+        self.failure.clear();
         // A trusted client verifies the helper first and then runs exactly the path it
         // verified. This happens before the exchange deadline starts and before anything is
         // spawned or written, so a failed check cannot reach the secret in `line`.
@@ -548,21 +722,36 @@ impl AppleHelper {
         let deadline = started
             .checked_add(self.timeout)
             .unwrap_or_else(|| started + Duration::from_secs(365 * 24 * 60 * 60));
-        let timed_out = || Error::Timeout {
-            op: "apple_helper",
-            secs: self.timeout.as_secs(),
-        };
         let remaining = || deadline.saturating_duration_since(Instant::now());
 
-        let mut child = Reaped(
-            Command::new(&exec_path)
-                .args(&self.args)
-                .stdin(Stdio::piped())
-                .stdout(Stdio::piped())
-                .stderr(Stdio::null())
-                .spawn()
-                .map_err(|e| Error::Helper(format!("cannot start helper: {}", e.kind())))?,
-        );
+        let spawned = Command::new(&exec_path)
+            .args(&self.args)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|e| {
+                self.failure.set(HelperFailure::Spawn {
+                    detail: e.to_string(),
+                    kind: e.kind().to_string(),
+                });
+                Error::Helper(format!("{SPAWN_FAILED_PREFIX}{}", e.kind()))
+            })?;
+        let mut child = Reaped(spawned);
+        let tail = child.0.stderr.take().map(StderrTail::spawn);
+        // The helper is killed first, so its stderr is complete when it is read.
+        let timed_out = |child: &mut Reaped| {
+            let _ = child.0.kill();
+            let _ = child.0.wait();
+            self.failure.set(HelperFailure::TimedOut {
+                secs: self.timeout.as_secs(),
+                stderr: tail.as_ref().and_then(StderrTail::text),
+            });
+            Error::Timeout {
+                op: "apple_helper",
+                secs: self.timeout.as_secs(),
+            }
+        };
         let mut stdin = child
             .0
             .stdin
@@ -596,9 +785,22 @@ impl AppleHelper {
         match written_rx.recv_timeout(remaining()) {
             Ok(Ok(())) => {}
             Ok(Err(kind)) => return Err(Error::Helper(format!("write failed: {kind}"))),
-            Err(_) => return Err(timed_out()),
+            Err(_) => return Err(timed_out(&mut child)),
         }
-        rx.recv_timeout(remaining()).map_err(|_| timed_out())
+        let out = match rx.recv_timeout(remaining()) {
+            Ok(out) => out,
+            Err(_) => return Err(timed_out(&mut child)),
+        };
+        // The reply is in; the helper may still be running and is killed on return, after which
+        // `StderrTail::text` is complete.
+        let tail = tail.unwrap_or_else(|| {
+            let (_, done) = mpsc::channel();
+            StderrTail {
+                buf: Arc::default(),
+                done,
+            }
+        });
+        Ok((out, tail))
         // `child` is dropped here: the helper is killed and reaped, so it cannot outlive the
         // deadline by staying alive after it closed stdout.
     }
@@ -611,6 +813,7 @@ impl AppleHelper {
         })
     }
     pub fn read(&self, scope: Scope, account: &str) -> Result<Option<Secret>> {
+        self.failure.clear();
         let mut line = Zeroizing::new(
             serde_json::to_vec(
                 &json!({"command": "read", "scope": scope.wire(), "account": account}),
@@ -618,13 +821,33 @@ impl AppleHelper {
             .map_err(|_| Error::Helper("cannot encode request".into()))?,
         );
         line.push(b'\n');
-        let out = self.exchange(line)?;
+        let (out, tail) = self.exchange(line)?;
         let first = out.lines().next().unwrap_or("");
         // Hand-decoded: the value goes from the zeroised reply into a zeroised string with no
         // intermediate copy (neither a `Value::String` nor serde_json's scratch buffer).
-        let resp =
-            parse_read_reply(first).map_err(|_| Error::Helper("invalid helper response".into()))?;
+        let resp = parse_read_reply(first).map_err(|_| {
+            // The line can hold the secret, so it is never kept; the syntax error text of a
+            // generic parse names a position only.
+            self.failure.set(if out.trim().is_empty() {
+                HelperFailure::NoOutput {
+                    stderr: tail.text(),
+                }
+            } else {
+                HelperFailure::Unparseable {
+                    error: serde_json::from_str::<serde::de::IgnoredAny>(first)
+                        .err()
+                        .map_or_else(|| "unexpected reply shape".to_string(), |e| e.to_string()),
+                    line: None,
+                }
+            });
+            Error::Helper("invalid helper response".into())
+        })?;
         if resp.ok != Some(true) {
+            if let Some(detail) = &resp.error {
+                self.failure.set(HelperFailure::Reported {
+                    detail: detail.clone(),
+                });
+            }
             return Err(Error::Helper(
                 resp.error
                     .unwrap_or_else(|| "helper reported failure".to_string()),
@@ -641,6 +864,7 @@ impl AppleHelper {
             .ok_or_else(|| Error::Helper("helper lacks `exists` support".into()))
     }
     pub fn write(&self, scope: Scope, account: &str, secret: &Secret) -> Result<()> {
+        self.failure.clear();
         let value = secret.expose_str()?;
         // Serialize straight from the borrowed secret into a zeroed buffer. JSON escaping grows a
         // byte to at most six (`\u00XX`), so reserving that much up front means the buffer never
@@ -663,11 +887,9 @@ impl AppleHelper {
         )
         .map_err(|_| Error::Helper("cannot encode request".into()))?;
         line.push(b'\n');
-        let out = self.exchange(line)?;
-        let first = out.lines().next().unwrap_or("");
-        let v: Value = serde_json::from_str(first)
-            .map_err(|_| Error::Helper("invalid helper response".into()))?;
-        check_ok(&v)
+        let (out, tail) = self.exchange(line)?;
+        let v = self.parse_reply(&out, &tail)?;
+        check_ok(&v, &self.failure)
     }
     /// Removes the synced AND device copy; Apple propagates the deletion to every device of the
     /// account, so call only for an explicit "forget everywhere" user action.

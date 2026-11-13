@@ -106,7 +106,9 @@ pub use policy::{
     is_shell_guard_exempt, HostCallerPolicy, ServiceId, ServiceTrust, SHELL_GUARD_EXEMPT,
 };
 #[cfg(feature = "pro-bridge")]
-pub use pro_bridge::{ProBridge, ProBridgeConfig, ProBridgeHost, ProBridgeHostService};
+pub use pro_bridge::{
+    HelperCondition, ProBridge, ProBridgeConfig, ProBridgeHost, ProBridgeHostService,
+};
 pub use secrets::{
     ApiKeySlot, SecretPresence, SecretStore, SecretStoreError, SecretValue, SecretWriter,
     SecretsError, SecretsService, WriteIntent,
