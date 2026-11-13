@@ -790,6 +790,23 @@ jobs:
         if: ${{ needs.plan.outputs.registry == 'crates' && runner.os == 'Windows' }}
         shell: pwsh
         run: '& "$env:GITHUB_WORKSPACE/scripts/ci/locate-native-openssl.ps1"'
+      # rightkit-tts-qwen-sys builds ggml with Vulkan on Windows (ci/gate.config.json feature set "vulkan"): it needs
+      # vulkan-1.lib and glslc. The hosted runner has no Vulkan SDK, so this run installs the pinned LunarG one where
+      # build.rs looks (C:\VulkanSDK\<version>). URL, hash and silent arguments are the winget manifest's.
+      - name: Provision the pinned Vulkan SDK (rightkit-tts-qwen-sys, rightkit-tts-qwen)
+        if: ${{ needs.plan.outputs.registry == 'crates' && runner.os == 'Windows' && contains(needs.plan.outputs.units, 'rightkit-tts-qwen') }}
+        shell: bash
+        env:
+          VULKAN_SDK_VERSION: "1.4.321.1"
+          VULKAN_SDK_SHA256: "baaa4f7ca11ed3d82aa1c102b21208915485bbaa473068c763daa425cca468bd"
+        run: |
+          set -euo pipefail
+          installer="$RUNNER_TEMP/vulkansdk-windows-X64-${VULKAN_SDK_VERSION}.exe"
+          curl --fail --silent --show-error --location --output "$installer" "https://sdk.lunarg.com/sdk/download/${VULKAN_SDK_VERSION}/windows/vulkansdk-windows-X64-${VULKAN_SDK_VERSION}.exe"
+          echo "${VULKAN_SDK_SHA256}  ${installer}" | sha256sum --check --strict
+          "$installer" install --accept-licenses --default-answer --confirm-command
+          test -f "/c/VulkanSDK/${VULKAN_SDK_VERSION}/Lib/vulkan-1.lib"
+          test -f "/c/VulkanSDK/${VULKAN_SDK_VERSION}/Bin/glslc.exe"
       # rightkit#1285: every crate is its own Cargo workspace (crates/<x>/Cargo.lock, crates/<x>/target); a crates run caches each unit's workspace.
       # rightkit-browser launches Chrome with the real OS keychain (rightkit#1306: no mock keychain). On the hosted macOS
       # host its consumer stalled in the cookie export (stage "browser tabs and export", launch itself took 8 s): Chrome
