@@ -625,6 +625,21 @@ pub fn apply_file_deltas(
             return Err(ApplyFileDeltaError::Cancelled);
         }
     }
+    // Integrity pass over the rewritten rows only (fact_owner and files are path-indexed): a
+    // resolved edge to a file node that no longer exists is made unresolved, never committed.
+    for delta in deltas
+        .iter()
+        .filter(|delta| !matches!(delta.event_kind, EventKind::Delete))
+    {
+        let path = delta.path.replace('\\', "/");
+        tx.prepare_cached(
+            "UPDATE edges SET target = NULL, resolved = 0 \
+             WHERE id IN (SELECT fact_id FROM fact_owner WHERE source_path = ?1 AND fact_kind = 'edge') \
+               AND target LIKE 'file:%' AND kind <> 'CALLS' \
+               AND NOT EXISTS (SELECT 1 FROM files WHERE path = substr(edges.target, 6))",
+        )?
+        .execute(params![path])?;
+    }
     if !deltas.is_empty() {
         refresh_batch_manifest_counts(&tx)?;
     }

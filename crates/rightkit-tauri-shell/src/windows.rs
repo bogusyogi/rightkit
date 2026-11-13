@@ -299,6 +299,57 @@ fn dim(v: Option<f64>, default: f64, min: f64) -> f64 {
         .max(min)
 }
 
+/// Route the page's new-window requests (`target=_blank`, middle-click, "open in new window") of a
+/// window the shell did not build (for example one created from `tauri.conf.json`) to the app's
+/// [`crate::ShellBuilder::on_new_window`] hook, the way [`builder`] does for its own windows. The
+/// hook gets the requested URL: `true` means the app handled it and WebView2 opens nothing;
+/// `false` lets WebView2 proceed as it would without the shell. Does nothing when no hook is set.
+///
+/// Windows (WebView2) only. Tauri's wry hook (`on_new_window`) can be set only while a window is
+/// being built, so on other platforms this is a no-op: build the window with [`builder`] there.
+/// Do not call it for a window made by [`builder`], whose hook already routes.
+pub fn route_new_windows(window: &WebviewWindow<Wry>) {
+    #[cfg(windows)]
+    {
+        use crate::winapi::webview2_com::NewWindowRequestedEventHandler;
+        use crate::winapi::windows::core::PWSTR;
+
+        let Some(router) = window
+            .app_handle()
+            .state::<ShellState>()
+            .new_window_router
+            .clone()
+        else {
+            return;
+        };
+        let _ = window.with_webview(move |webview| unsafe {
+            let Ok(core) = webview.controller().CoreWebView2() else {
+                return;
+            };
+            let handler = NewWindowRequestedEventHandler::create(Box::new(move |_sender, args| {
+                let Some(args) = args else {
+                    return Ok(());
+                };
+                let mut uri = PWSTR::null();
+                args.Uri(&mut uri)?;
+                let url = if uri.is_null() {
+                    String::new()
+                } else {
+                    uri.to_string().unwrap_or_default()
+                };
+                if router(&url) {
+                    args.SetHandled(true)?;
+                }
+                Ok(())
+            }));
+            let mut token: i64 = 0;
+            let _ = core.add_NewWindowRequested(&handler, &mut token);
+        });
+    }
+    #[cfg(not(windows))]
+    let _ = window;
+}
+
 /// A `WebviewWindowBuilder` carrying the shell policy: popup handling through [`crate::nav`],
 /// frameless chrome when the shell was configured for it, hidden until restored/shown.
 /// Navigation, init scripts and native hardening come from the shell plugin for every webview.

@@ -13,8 +13,9 @@ use crate::model::{GraphEdge, GraphNode, Operation};
 use crate::recall_circuit::{self, AtomicPath};
 use serde_json::{json, Map, Value};
 use std::cmp::Ordering;
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::sync::{Arc, Mutex, OnceLock};
+use std::time::Instant;
 
 const TASK_INDEX_GENERATIONS: usize = 4;
 
@@ -323,36 +324,47 @@ fn resolve(
 ) -> Result<(String, Value), BlueprintError> {
     let query = raw.trim();
     let wanted = norm(query);
-    let mut tiers: Vec<(&str, Vec<&GraphNode>)> = Vec::new();
+    // A file path names the file's own node. Every symbol the file contains also carries that
+    // path, so matching on the path alone made each file seed a same-tier ambiguity over all of
+    // them (#601). When a file node matches, only file nodes (and exact id matches) stay in the tier.
+    let path_query = query.strip_prefix("./").unwrap_or(query).replace('\\', "/");
+    let is_path_match = |n: &GraphNode| {
+        n.path
+            .as_deref()
+            .is_some_and(|p| p == query || p == path_query)
+    };
+    let file_hit = generation
+        .nodes
+        .iter()
+        .any(|n| n.kind == "file" && is_path_match(n));
     let exact: Vec<_> = generation
         .nodes
         .iter()
-        .filter(|n| n.id == query || n.path.as_deref() == Some(query))
+        .filter(|n| n.id == query || (is_path_match(n) && (!file_hit || n.kind == "file")))
         .collect();
-    tiers.push(("exact", exact));
-    let folded: Vec<_> = generation
-        .nodes
-        .iter()
-        .filter(|n| {
-            n.id != query
-                && (norm(&n.id) == wanted
-                    || n.path.as_deref().is_some_and(|p| norm(p) == wanted)
-                    || text(n).iter().any(|v| norm(v) == wanted))
-        })
-        .collect();
-    tiers.push(("case_folded", folded));
-    let fuzzy: Vec<_> = if wanted.is_empty() {
-        Vec::new()
-    } else {
-        generation
-            .nodes
-            .iter()
-            .filter(|n| n.id != query && text(n).iter().any(|v| norm(v).contains(&wanted)))
-            .collect()
-    };
-    tiers.push(("fuzzy", fuzzy));
-    for (tier, mut matches) in tiers {
+    // Tiers are built lazily: a resolved exact match must not pay for scanning every node's text
+    // in the folded and fuzzy tiers (#601: impact on a large graph spent its deadline here).
+    for tier in ["exact", "case_folded", "fuzzy"] {
         check(context)?;
+        let mut matches: Vec<&GraphNode> = match tier {
+            "exact" => exact.clone(),
+            "case_folded" => generation
+                .nodes
+                .iter()
+                .filter(|n| {
+                    n.id != query
+                        && (norm(&n.id) == wanted
+                            || n.path.as_deref().is_some_and(|p| norm(p) == wanted)
+                            || text(n).iter().any(|v| norm(v) == wanted))
+                })
+                .collect(),
+            _ if wanted.is_empty() => Vec::new(),
+            _ => generation
+                .nodes
+                .iter()
+                .filter(|n| n.id != query && text(n).iter().any(|v| norm(v).contains(&wanted)))
+                .collect(),
+        };
         matches.sort_by(|a, b| a.id.cmp(&b.id));
         if matches.is_empty() {
             continue;
@@ -404,8 +416,12 @@ fn adjacent<'a>(
         check(context)?;
         let mut next = Vec::new();
         let mut acquired = 0usize;
+        // Membership in the frontier is a hash lookup, not a scan of the frontier per edge: the
+        // scan made each depth O(edges x frontier), which exceeded impact's deadline on a large
+        // graph (#601).
+        let frontier_set: HashSet<&str> = frontier.iter().map(String::as_str).collect();
         for edge in &generation.edges {
-            let out = direction != "in" && frontier.iter().any(|id| id == &edge.source);
+            let out = direction != "in" && frontier_set.contains(edge.source.as_str());
             // BM04: a `target: None` edge (dynamic dispatch/reflection/unresolved
             // call) must still be carried into the frontier for classification
             // rather than dropped here. When walking "in"/"both" we cannot
@@ -417,8 +433,8 @@ fn adjacent<'a>(
                 && (edge
                     .target
                     .as_ref()
-                    .is_some_and(|target| frontier.iter().any(|id| id == target))
-                    || (edge.target.is_none() && frontier.iter().any(|id| id == &edge.source)));
+                    .is_some_and(|target| frontier_set.contains(target.as_str()))
+                    || (edge.target.is_none() && frontier_set.contains(edge.source.as_str())));
             if !out && !incoming {
                 continue;
             }
@@ -466,6 +482,7 @@ fn adjacent<'a>(
                 }
             }
         }
+        drop(frontier_set);
         frontier = next;
         if frontier.is_empty() {
             break;
@@ -1207,6 +1224,31 @@ pub(crate) fn fit_to_request_bounds(
     fit_envelope_bytes(result, Limits::from(request, context).bytes, request);
 }
 
+/// Fit the result of any operation to the request's byte bound (#554). Operations that fit their
+/// own result are untouched (already within the bound). A larger object result is cut the same way
+/// a query is, and the cut is recorded: an `omissions` receipt array is created when the result
+/// has none, so nothing is dropped silently.
+pub(crate) fn fit_any_result(
+    result: &mut Value,
+    request: &BlueprintRequest,
+    context: &RequestContext,
+) {
+    let budget = Limits::from(request, context).bytes;
+    if !result.is_object() {
+        return;
+    }
+    let size = serde_json::to_vec(&*result)
+        .map(|bytes| bytes.len())
+        .unwrap_or(usize::MAX);
+    if size <= budget.saturating_sub(1024) {
+        return;
+    }
+    if !result.get("omissions").is_some_and(Value::is_array) {
+        result["omissions"] = Value::Array(Vec::new());
+    }
+    fit_envelope_bytes(result, budget, request);
+}
+
 /// Graph and diagnostic sections a `projection: "candidates"` caller (Pull
 /// federation) never consumes; Explorer and diagnostics request them.
 const PRESENTATIONAL_SECTIONS: [&str; 6] = [
@@ -1382,6 +1424,62 @@ fn fit_envelope_bytes(result: &mut Value, budget: usize, request: &BlueprintRequ
     }
 }
 
+/// Share of the remaining request deadline a search scan may spend before it returns the page it
+/// has. The rest is left for the freshness receipt, the response fit and serialisation (#554).
+const SEARCH_SCAN_SHARE: f64 = 0.6;
+/// Nodes scanned between two clock reads. A search always scans at least one stride, so every
+/// request makes progress even when its deadline is already spent.
+const SEARCH_CLOCK_STRIDE: usize = 256;
+/// Bytes kept free (at most a quarter of the bound) in a search page for the receipts the engine
+/// appends after the query.
+const SEARCH_RECEIPT_RESERVE: usize = 16 * 1024;
+
+/// Cursor for the next search page: a scan position in this generation's node order, bound to the
+/// generation id and the normalized query so it cannot resume a different search (#554).
+fn search_cursor(generation_id: &str, query: &str, position: usize) -> String {
+    let payload = json!({
+        "view": "search",
+        "generationId": generation_id,
+        "query": query,
+        "position": position,
+    });
+    crate::architecture_views::base64url_encode(
+        serde_json::to_string(&payload)
+            .unwrap_or_default()
+            .as_bytes(),
+    )
+}
+
+fn decode_search_cursor(
+    cursor: Option<&str>,
+    generation_id: &str,
+    query: &str,
+    total: usize,
+) -> Result<usize, BlueprintError> {
+    let Some(cursor) = cursor else { return Ok(0) };
+    let invalid = || {
+        BlueprintError::new(
+            "cursor_invalid",
+            "Search cursor is malformed or does not match this query and generation.",
+        )
+    };
+    let bytes = crate::architecture_views::base64url_decode(cursor).ok_or_else(invalid)?;
+    let value: Value = serde_json::from_slice(&bytes).map_err(|_| invalid())?;
+    let position = value
+        .get("position")
+        .and_then(Value::as_u64)
+        .ok_or_else(invalid)? as usize;
+    let valid = value.get("view").and_then(Value::as_str) == Some("search")
+        && value.get("generationId").and_then(Value::as_str) == Some(generation_id)
+        && value.get("query").and_then(Value::as_str) == Some(query)
+        && position <= total;
+    if valid {
+        Ok(position)
+    } else {
+        Err(invalid())
+    }
+}
+
 fn search(
     generation: &GraphGeneration,
     request: &BlueprintRequest,
@@ -1394,39 +1492,158 @@ fn search(
         .or_else(|| request.input.get("task"))
         .and_then(Value::as_str)
         .unwrap_or("");
-    let q = norm(query);
-    let mut found: Vec<_> = generation
-        .nodes
-        .iter()
-        .filter(|n| text(n).iter().any(|v| norm(v).contains(&q)))
-        .collect();
-    found.sort_by(|a, b| a.id.cmp(&b.id));
-    let omitted = found.len().saturating_sub(limits.candidates);
-    found.truncate(limits.candidates);
-    check(context)?;
-    let mut result = envelope(
+    // #617: a query is split on whitespace and a node must contain every term (AND, each term
+    // matched within one of the node's searchable fields). The per-term counts say which word hit,
+    // so a multi-word miss is never silent. Only names, paths and provider evidence fields are
+    // indexed: comments, doc comments and string literals are not, and a zero-hit answer says so.
+    //
+    // #554: the scan runs in the generation's node order and resumes from `cursor`. It stops when
+    // the page is full, the end of the graph is reached, or its share of the deadline is spent,
+    // and it always returns what it has with a `nextCursor` while more nodes remain. It never
+    // answers `deadline_exceeded` or an empty page that hides the rest of the graph.
+    let normalized = norm(query);
+    let terms: Vec<String> = normalized.split_whitespace().map(str::to_owned).collect();
+    let total = generation.nodes.len();
+    let start = decode_search_cursor(
+        request.input.get("cursor").and_then(Value::as_str),
+        &generation.generation_id,
+        &normalized,
+        total,
+    )?;
+    let scan_until = Instant::now() + context.deadline.remaining().mul_f64(SEARCH_SCAN_SHARE);
+    let page_size = limits.candidates.max(1);
+    let mut term_counts = vec![0usize; terms.len()];
+    let mut matches: Vec<(usize, &GraphNode)> = Vec::new();
+    let mut position = start;
+    let mut deadline_stop = false;
+    while position < total {
+        let scanned = position - start;
+        if scanned > 0 && scanned % SEARCH_CLOCK_STRIDE == 0 && Instant::now() >= scan_until {
+            deadline_stop = true;
+            break;
+        }
+        let node = &generation.nodes[position];
+        let fields: Vec<String> = text(node).iter().map(|v| norm(v)).collect();
+        let mut all = !terms.is_empty();
+        for (index, term) in terms.iter().enumerate() {
+            if fields.iter().any(|v| v.contains(term.as_str())) {
+                term_counts[index] += 1;
+            } else {
+                all = false;
+            }
+        }
+        position += 1;
+        if all {
+            matches.push((position - 1, node));
+            if matches.len() >= page_size {
+                break;
+            }
+        }
+    }
+    let scanned_to = position;
+
+    // Fit the page to the byte bound one whole candidate at a time, so the page keeps as many
+    // matches as fit and the cursor resumes at the first one left out. A single match larger than
+    // the whole bound is skipped and named in an omission, so the scan still moves past it.
+    let mut omissions: Vec<Value> = Vec::new();
+    let overhead = serde_json::to_vec(&envelope(
         request,
         &generation.generation_id,
         "complete",
         Map::from_iter([
             ("query".into(), json!(query)),
+            ("candidates".into(), json!([])),
+            ("omissions".into(), json!([])),
+        ]),
+    ))
+    .map_or(0, |b| b.len());
+    // The reserve shrinks for a small bound so a 16 KiB response still keeps candidates.
+    let reserve = SEARCH_RECEIPT_RESERVE.min(limits.bytes / 4);
+    let budget = limits
+        .bytes
+        .saturating_sub(reserve)
+        .saturating_sub(overhead);
+    let mut used = 0usize;
+    let mut kept: Vec<Value> = Vec::new();
+    let mut resume = scanned_to;
+    for (match_position, node) in &matches {
+        let value = node_value(node);
+        let size = serde_json::to_vec(&value).map_or(usize::MAX, |b| b.len() + 1);
+        if size > budget {
+            omissions.push(json!({
+                "reason": "candidate_byte_ceiling",
+                "id": node.id,
+                "bytes": size,
+            }));
+            continue;
+        }
+        if used + size > budget {
+            resume = *match_position;
+            break;
+        }
+        used += size;
+        kept.push(value);
+    }
+    let has_more = resume < total;
+    if deadline_stop {
+        omissions.push(json!({
+            "reason": "deadline_partial",
+            "scannedNodes": scanned_to - start,
+            "nodeCount": total,
+        }));
+    }
+    if kept.is_empty() && !has_more && omissions.is_empty() {
+        omissions.push(json!({
+            "reason": "no_symbol_match",
+            "scope": "symbols_and_files",
+            "searchedFields": ["name", "path", "qualifiedName", "symbol", "displayName", "text"],
+            "textSearch": "evidence_text_only",
+            "matchMode": "all_terms",
+            "termCandidateCounts": term_counts_value(&terms, &term_counts),
+            "detail": "no node name, path or provider evidence field contains every term; comments, doc comments and string literals are searched only where a provider stores them as evidence text"
+        }));
+    }
+    let partial = has_more || !omissions.is_empty();
+    let next_cursor =
+        has_more.then(|| search_cursor(&generation.generation_id, &normalized, resume));
+    let candidate_count = kept.len();
+    let mut result = envelope(
+        request,
+        &generation.generation_id,
+        if partial { "partial" } else { "complete" },
+        Map::from_iter([
+            ("query".into(), json!(query)),
             ("requestedQuery".into(), json!(query)),
+            ("matchMode".into(), json!("all_terms")),
             (
-                "candidates".into(),
-                json!(found.iter().map(|n| node_value(n)).collect::<Vec<_>>()),
+                "termCandidateCounts".into(),
+                term_counts_value(&terms, &term_counts),
             ),
             (
-                "omissions".into(),
-                json!(if omitted > 0 {
-                    vec![omission("candidate_ceiling", Some(omitted))]
-                } else {
-                    vec![]
-                }),
+                "scanRange".into(),
+                json!({"from": start, "to": scanned_to, "nodeCount": total}),
             ),
+            ("candidates".into(), Value::Array(kept)),
+            ("candidateCount".into(), json!(candidate_count)),
+            (
+                "nextCursor".into(),
+                next_cursor.map_or(Value::Null, Value::String),
+            ),
+            ("omissions".into(), json!(omissions)),
         ]),
     );
     fit_envelope_bytes(&mut result, limits.bytes, request);
     Ok(result)
+}
+
+fn term_counts_value(terms: &[String], counts: &[usize]) -> Value {
+    Value::Array(
+        terms
+            .iter()
+            .zip(counts)
+            .map(|(term, count)| json!({"term": term, "candidateCount": count}))
+            .collect(),
+    )
 }
 
 /// Append `incomplete_generation` to an envelope's top-level and candidate-set
@@ -1513,7 +1730,11 @@ fn execute_query_impl(
     context: &RequestContext,
     dense: Option<DenseTaskResult>,
 ) -> Result<Value, BlueprintError> {
-    check(context)?;
+    // #554: a search answers with the page it can scan inside its deadline, so an expired deadline
+    // here is not an error for it (see `search`).
+    if request.method != Operation::Search {
+        check(context)?;
+    }
     let limits = Limits::from(request, context);
     // Only an explicit caller-requested generation that does not match the
     // sealed generation fails closed (an exact-freshness contract violation).

@@ -61,7 +61,7 @@ Hide the built-in bar with `findBar={false}`, render your controls in the `toolb
 - `attachPasswordHandler(task, getHandler, timer?)` and `createLoadTimer(ms, message)`: the password flow and the load timer (its clock stops while the user is asked for a password).
 - `pdfTextContentSource(page, mode?)` and `renderPdfTextLayer(page, container, viewport, mode?)`: the text layer, from `getTextContent` (default) or `streamTextContent` (`"streamTextContent"`).
 - `createPdfRangeTransport(url, { headers?, chunkSize?, signal? })` and `pdfRangeDocumentInit(transport, documentOptions?, chunkSize?)`: the range transport and its `getDocument` init.
-- `readPdfPageText(page, mode?)`: the page text find searches.
+- `readPdfPageText(page, mode?, signal?)`: the page text find searches (marked-content items add nothing). An aborted `signal` cancels the stream reader and rejects with an `AbortError`.
 - `highlightSpan(span, query, { matchCase, wholeWord, markBg, markActiveBg, activeOccurrence })`: find marks in a text-layer span. Without the colour options it uses the package colours.
 
 ## Known issues

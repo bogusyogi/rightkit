@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-repo-graph"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Repository code graph: tree-sitter extraction across 30+ languages, symbol/reference graph store, freshness tracking, watch and query."

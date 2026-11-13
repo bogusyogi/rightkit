@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.1
+
+- Additive: `BlockingStream::split(read_wait, write_wait)` returns a `TunnelReader` and a `TunnelWriter`, a byte pipe over one stream for the ssh tunnel (both exported from the crate root). The pipe counts relayed bytes against the session cap (25 MB) and the circle's monthly relay budget, reserving in 64 KiB steps and refunding what a closed pipe did not use; a direct path is not charged. `BlockingStream` now carries the circle budget (internal; `BlockingStream::new` is not public API) (#1572).
+- Additive: the hello capability word `agent-files` is accepted from a peer (`KNOWN_CAPS`) (#1572).
+- Dependency pin `iroh-mdns-address-lookup` `=0.6.0` -> `=0.6.1` (#1572).
+
 ## 0.2.0
 
 - Breaking for dependents: dependency requirements `rightkit-logs` 0.3 -> 0.4. 0.1.2 was published before these requirements were raised; a semver-breaking dependency is a breaking change, so they ship as 0.2.0 instead of changing 0.1.2 in place (#1572). No source change in this crate since 0.1.2.

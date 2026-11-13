@@ -5684,9 +5684,9 @@ dependencies = [
 
 [[package]]
 name = "iroh-mdns-address-lookup"
-version = "0.6.0"
+version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7afb03c296022fcb724a7bb76dbb8dcca6aac4f4eb65df161e084b7276c93d8c"
+checksum = "c7e00b132891c9cfad726fb437b62315e722949d409717b6c7dcb535e9f24112"
 dependencies = [
  "data-encoding",
  "derive_more",
@@ -11046,7 +11046,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-context-federation"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "async-trait",
  "gix",
@@ -11088,7 +11088,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-context-runtime"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "clap",
  "comrak",
@@ -12275,7 +12275,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-mesh"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "iroh",
  "iroh-mdns-address-lookup",
@@ -12711,7 +12711,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-repo-graph"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "arborium-rescript",
  "getrandom 0.4.3",
@@ -13021,7 +13021,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-tauri-shell"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "block2",
  "objc2",

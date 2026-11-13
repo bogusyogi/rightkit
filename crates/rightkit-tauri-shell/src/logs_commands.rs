@@ -682,10 +682,67 @@ fn attempt_clear(report: &mut ClearReport, name: &str, clear: impl FnOnce() -> i
     }
 }
 
-/// Create the runtime and register it as managed state for the commands.
+/// Create the runtime and register it as managed state for the commands. When the app set up the
+/// [`early`] appender, the runtime adopts its recording switch.
 pub fn install(app: &AppHandle<Wry>, config: LogsConfig) -> io::Result<()> {
-    let _ = app.manage(LogsRuntime::new(config)?);
+    let runtime = LogsRuntime::new(config)?;
+    early::adopt(&runtime);
+    let _ = app.manage(runtime);
     Ok(())
+}
+
+/// A process-global appender for records written before the runtime exists: the panic hook and
+/// startup errors, which have no `AppHandle` to reach a [`LogsRuntime`] through.
+///
+/// [`configure`](early::configure) it first thing in `main` with the same file and size limit as the
+/// [`LogsConfig`] the app will install; [`append`](early::append) then writes each record
+/// synchronously to that file (so a record written just before an abort is not lost) while the
+/// gate set by [`set_recording`](early::set_recording) is on. It writes nothing until the app has
+/// switched recording on, so an app whose diagnostics choice is "off" stays silent. When
+/// [`install`] runs, the runtime takes over the same file and adopts the switch; the app can keep
+/// calling [`append`](early::append) for records with no runtime in reach. Records are appended
+/// as given, with no redaction: keep them to event names, levels and non-sensitive details.
+pub mod early {
+    use std::path::PathBuf;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::OnceLock;
+
+    use rightkit_logs::{EventRecord, JsonlStore};
+
+    use super::LogsRuntime;
+
+    static STORE: OnceLock<JsonlStore> = OnceLock::new();
+    static RECORDING: AtomicBool = AtomicBool::new(false);
+    static GATE_SET: AtomicBool = AtomicBool::new(false);
+
+    /// Point the early appender at `log_path`, rotating at `max_file_bytes` (`0` disables rotation).
+    /// The first call wins; returns `false` when it was already configured.
+    pub fn configure(log_path: impl Into<PathBuf>, max_file_bytes: u64) -> bool {
+        STORE.set(JsonlStore::new(log_path, max_file_bytes)).is_ok()
+    }
+
+    /// The diagnostics gate of the early path (default off). Records are appended only while on.
+    pub fn set_recording(enabled: bool) {
+        GATE_SET.store(true, Ordering::Relaxed);
+        RECORDING.store(enabled, Ordering::Relaxed);
+    }
+
+    /// Append `event` when the early appender is configured and recording; absorbs failure.
+    pub fn append(event: &EventRecord) {
+        if !RECORDING.load(Ordering::Relaxed) {
+            return;
+        }
+        if let Some(store) = STORE.get() {
+            store.append_best_effort(event);
+        }
+    }
+
+    /// The runtime starts with the gate the app set on the early path, when it set one.
+    pub(super) fn adopt(runtime: &LogsRuntime) {
+        if GATE_SET.load(Ordering::Relaxed) {
+            runtime.set_recording(RECORDING.load(Ordering::Relaxed));
+        }
+    }
 }
 
 /// A command whose state was never registered is `unsupported`, not a silent success.

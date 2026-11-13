@@ -83,9 +83,8 @@ pub struct ProviderDescriptor {
 /// Build the provider registry in legacy order. Each owning lane appends
 /// exactly one `registry.push(ProviderDescriptor { .. });` call in its own
 /// marked section below — never reorders or edits another lane's entry.
-/// A descriptor whose `id` is not in [`PROVIDER_ORDER`] is a lane bug; debug
-/// builds assert this so the mistake surfaces at test time rather than
-/// silently mis-ordering the build pass.
+/// A descriptor whose `id` is not in [`PROVIDER_ORDER`] is a lane bug: it sorts after every
+/// known provider.
 pub fn registry() -> Vec<ProviderDescriptor> {
     let registry: Vec<ProviderDescriptor> = vec![
         ProviderDescriptor {

@@ -38,7 +38,12 @@ pub const CAP_IDLE_CLOSE: &str = "idle-close";
 
 /// The capability words a dialler accepts from a peer (anything else is dropped): the mesh's own
 /// and the engine's. A peer's claim is a hint that picks a longer reuse window, never a grant.
-const KNOWN_CAPS: &[&str] = &[CAP_IDLE_CLOSE, "send-manifest", "small-unsupported"];
+const KNOWN_CAPS: &[&str] = &[
+    CAP_IDLE_CLOSE,
+    "send-manifest",
+    "small-unsupported",
+    "agent-files",
+];
 
 /// A cached answer is refreshed in the background once it is older than this; a cached `Legacy`
 /// older than this reads as `Unknown` until the refresh lands (an upgraded peer must not stay

@@ -627,6 +627,10 @@ export interface DiagnosticsEmailSupport {
   subject: string;
   /** Body text. Say that the report is on the clipboard; the user pastes it in. */
   body: string;
+  /** Builds the subject from the report text; replaces `subject`. */
+  buildSubject?: (report: string) => string;
+  /** Builds the body from the report text; replaces `body`. */
+  buildBody?: (report: string) => string;
 }
 
 /** The end of one log file, for the preview. Log text is content-free by the app's own field policy. */
@@ -643,8 +647,56 @@ export interface DiagnosticsLogFiles {
   reveal?(path: string): void | Promise<void>;
 }
 
+/** Button and note wording of the diagnostics section; every field defaults to the text shown today. */
+export interface DiagnosticsLabels {
+  /** The collect button. Default "Collect". */
+  collect?: string;
+  /** The copy button (after a collect, or the direct copy when `reportText` is set). Default "Copy". */
+  copy?: string;
+  /** Note after a copy. Default "Copied to the clipboard." */
+  copied?: string;
+  /** The email button. Default "Email to support". */
+  email?: string;
+  /** Note after the report was copied for the email. Default "Report copied. Paste it into the email." */
+  emailCopied?: string;
+  /** Refresh of the ring log. Default "Refresh". */
+  refresh?: string;
+  /** Opens the ring log. Default "View". */
+  viewLog?: string;
+  /** Closes the ring log. Default "Hide". */
+  hideLog?: string;
+  /** The clear button. Default "Clear". */
+  clear?: string;
+  /** Shown when the ring log is empty. Default "No renderer events recorded yet." */
+  noEntries?: string;
+}
+
+/** An off state: while `when` is true the section shows only `message` (for example diagnostics switched off in Privacy). */
+export interface DiagnosticsOff {
+  when(ctx: SettingsContext): boolean;
+  message: string;
+}
+
 export interface DiagnosticsOptions {
   logs: LogsClient;
+  /** Button and note wording. Unset fields keep their defaults. */
+  labels?: DiagnosticsLabels;
+  /** Off-state message that replaces the whole section body while `when` holds. Unset: always the full section. */
+  off?: DiagnosticsOff;
+  /**
+   * A custom report text (for example plain text rather than JSON). Set: the report row is a single direct copy
+   * button (no collect step, no preview), the email action copies this text, and `logs.collectDiagnostics` is not
+   * called. Unset: the collected JSON bundle, as before.
+   */
+  reportText?: () => string | Promise<string>;
+  /** Show the "Verbose logging" row. Default true. */
+  verbose?: boolean;
+  /** Ask for confirmation before clearing. Default true; false clears on the first click. */
+  confirmClear?: boolean;
+  /** Show the ring log (`entries`) always, with Refresh and no View/Hide button. Default false. */
+  inline?: boolean;
+  /** List the ring log newest first. Default false (oldest first, as `entries` returns it). */
+  newestFirst?: boolean;
   /** Copy text to the clipboard; defaults to `navigator.clipboard`. */
   copy?: (text: string) => void | Promise<void>;
   /** Email-support action (copy the report, then open the mail link). Omit to hide the action. */
@@ -662,10 +714,24 @@ function DiagnosticsBody({ ctx, o }: { ctx: SettingsContext; o: DiagnosticsOptio
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const [showLog, setShowLog] = useState(false);
-  const [ring, setRing] = useState<DiagnosticEntry[]>([]);
+  const [ring, setRing] = useState<DiagnosticEntry[]>(() => (o.inline && o.entries ? o.entries() : []));
   const [tails, setTails] = useState<LogFileTail[] | null>(null);
   const copy = o.copy ?? ((t: string) => navigator.clipboard.writeText(t));
   const { logFiles, entries, emailSupport } = o;
+  const L: Required<DiagnosticsLabels> = {
+    collect: "Collect",
+    copy: "Copy",
+    copied: "Copied to the clipboard.",
+    email: "Email to support",
+    emailCopied: "Report copied. Paste it into the email.",
+    refresh: "Refresh",
+    viewLog: "View",
+    hideLog: "Hide",
+    clear: "Clear",
+    noEntries: "No renderer events recorded yet.",
+    ...o.labels,
+  };
+  const listed = showLog || !!o.inline;
   useEffect(() => {
     if (logFiles) void logFiles.list().then(setTails, (e) => setNote(errText(e)));
   }, [logFiles]);
@@ -686,10 +752,12 @@ function DiagnosticsBody({ ctx, o }: { ctx: SettingsContext; o: DiagnosticsOptio
     setBusy(true);
     setNote(null);
     try {
-      const text = report ?? (await collect());
+      const text = o.reportText ? await o.reportText() : (report ?? (await collect()));
       await copy(text);
-      setNote("Report copied. Paste it into the email.");
-      const url = `mailto:${email.address}?subject=${encodeURIComponent(email.subject)}&body=${encodeURIComponent(email.body)}`;
+      setNote(L.emailCopied);
+      const subject = email.buildSubject ? email.buildSubject(text) : email.subject;
+      const body = email.buildBody ? email.buildBody(text) : email.body;
+      const url = `mailto:${email.address}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
       await (o.openExternal ? o.openExternal(url) : window.location.assign(url));
     } catch (e) {
       setNote(errText(e));
@@ -697,81 +765,98 @@ function DiagnosticsBody({ ctx, o }: { ctx: SettingsContext; o: DiagnosticsOptio
       setBusy(false);
     }
   };
+  const clearLogs = () =>
+    void o.logs.clear().then(
+      () => {
+        setReport(null);
+        setNote("Logs cleared.");
+        readRing();
+        readTails();
+      },
+      (e) => setNote(errText(e)),
+    );
   return (
     <>
       <SettingsGroup description="Logs are content-free: field names are allow-listed by the app and never include what you type, say or open.">
-        <SettingRow id="diagnostics.verbose" label="Verbose logging" description="Record more detail while you reproduce a problem.">
-          <Toggle label="Verbose logging" checked={ctx.values["diagnostics.verbose"] === true} onChange={(v) => void ctx.set("diagnostics.verbose", v)} />
-        </SettingRow>
+        {o.verbose === false ? null : (
+          <SettingRow id="diagnostics.verbose" label="Verbose logging" description="Record more detail while you reproduce a problem.">
+            <Toggle label="Verbose logging" checked={ctx.values["diagnostics.verbose"] === true} onChange={(v) => void ctx.set("diagnostics.verbose", v)} />
+          </SettingRow>
+        )}
         <SettingRow id="diagnostics.collect" label="Diagnostics report" description={note ?? "Collect a report you can attach to a support request."}>
           <div className="rk-sr__buttons">
-            <Button
-              size="sm"
-              variant="secondary"
-              disabled={busy}
-              onClick={() => {
-                setBusy(true);
-                setNote(null);
-                void collect()
-                  .catch((e) => setNote(errText(e)))
-                  .finally(() => setBusy(false));
-              }}
-            >
-              Collect
-            </Button>
-            {report ? (
-              <Button size="sm" variant="ghost" onClick={() => void Promise.resolve(copy(report)).then(() => setNote("Copied to the clipboard."), (e) => setNote(errText(e)))}>Copy</Button>
-            ) : null}
+            {o.reportText ? (
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={busy}
+                onClick={() => void Promise.resolve(o.reportText?.()).then((text) => copy(text ?? "")).then(() => setNote(L.copied), (e) => setNote(errText(e)))}
+              >
+                {L.copy}
+              </Button>
+            ) : (
+              <>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  disabled={busy}
+                  onClick={() => {
+                    setBusy(true);
+                    setNote(null);
+                    void collect()
+                      .catch((e) => setNote(errText(e)))
+                      .finally(() => setBusy(false));
+                  }}
+                >
+                  {L.collect}
+                </Button>
+                {report ? (
+                  <Button size="sm" variant="ghost" onClick={() => void Promise.resolve(copy(report)).then(() => setNote(L.copied), (e) => setNote(errText(e)))}>{L.copy}</Button>
+                ) : null}
+              </>
+            )}
           </div>
         </SettingRow>
         {emailSupport ? (
           <SettingRow id="diagnostics.email" label="Email to support" description="Copies the report to the clipboard, then opens an email to support. Paste the report into it.">
-            <Button size="sm" variant="secondary" disabled={busy} onClick={() => void sendEmail(emailSupport)}>Email to support</Button>
+            <Button size="sm" variant="secondary" disabled={busy} onClick={() => void sendEmail(emailSupport)}>{L.email}</Button>
           </SettingRow>
         ) : null}
         {entries ? (
-          <SettingRow id="diagnostics.log" label="Recent log" description={showLog ? `${ring.length} recent renderer events.` : "Show the renderer's recent events here."}>
+          <SettingRow id="diagnostics.log" label="Recent log" description={listed ? `${ring.length} recent renderer events.` : "Show the renderer's recent events here."}>
             <div className="rk-sr__buttons">
-              {showLog ? <Button size="sm" variant="ghost" onClick={readRing}>Refresh</Button> : null}
-              <Button
-                size="sm"
-                variant="secondary"
-                aria-expanded={showLog}
-                onClick={() => {
-                  if (!showLog) readRing();
-                  setShowLog((v) => !v);
-                }}
-              >
-                {showLog ? "Hide" : "View"}
-              </Button>
+              {listed ? <Button size="sm" variant="ghost" onClick={readRing}>{L.refresh}</Button> : null}
+              {o.inline ? null : (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  aria-expanded={showLog}
+                  onClick={() => {
+                    if (!showLog) readRing();
+                    setShowLog((v) => !v);
+                  }}
+                >
+                  {showLog ? L.hideLog : L.viewLog}
+                </Button>
+              )}
             </div>
           </SettingRow>
         ) : null}
         <SettingRow id="diagnostics.clear" label="Clear logs" description="Deletes the log files on this device.">
-          <ConfirmButton
-            label="Clear"
-            disabled={busy}
-            onConfirm={() =>
-              void o.logs.clear().then(
-                () => {
-                  setReport(null);
-                  setNote("Logs cleared.");
-                  readRing();
-                  readTails();
-                },
-                (e) => setNote(errText(e)),
-              )
-            }
-          />
+          {o.confirmClear === false ? (
+            <Button size="sm" variant="secondary" disabled={busy} onClick={clearLogs}>{L.clear}</Button>
+          ) : (
+            <ConfirmButton label={L.clear} disabled={busy} onConfirm={clearLogs} />
+          )}
         </SettingRow>
       </SettingsGroup>
       {report ? <pre className="rk-diag" aria-label="Diagnostics report" tabIndex={0}>{report}</pre> : null}
-      {entries && showLog ? (
+      {entries && listed ? (
         ring.length === 0 ? (
-          <p className="rk-sg__desc">No renderer events recorded yet.</p>
+          <p className="rk-sg__desc">{L.noEntries}</p>
         ) : (
           <ol className="rk-diag rk-diag__entries" aria-label="Recent log" tabIndex={0}>
-            {ring.map((e, i) => (
+            {(o.newestFirst ? [...ring].reverse() : ring).map((e, i) => (
               <li key={`${e.ts_ms}-${i}`}>
                 <time dateTime={new Date(e.ts_ms).toISOString()}>{new Date(e.ts_ms).toLocaleTimeString()}</time> <span className="rk-diag__kind">{e.kind}</span> <span>{e.event}</span>
                 {e.duration_ms !== undefined ? ` · ${e.duration_ms} ms` : null}
@@ -810,13 +895,13 @@ export function diagnosticsSection(options: DiagnosticsOptions): SettingsSection
     order: 100,
     keywords: ["logs", "debug", "support", "report"],
     entries: [
-      { id: "diagnostics.verbose", label: "Verbose logging", keywords: ["debug"] },
+      ...(options.verbose === false ? [] : [{ id: "diagnostics.verbose", label: "Verbose logging", keywords: ["debug"] }]),
       { id: "diagnostics.collect", label: "Collect diagnostics report", keywords: ["support", "logs"] },
-      ...(options.emailSupport ? [{ id: "diagnostics.email", label: "Email to support", keywords: ["support", "mail", "report"] }] : []),
+      ...(options.emailSupport ? [{ id: "diagnostics.email", label: options.labels?.email ?? "Email to support", keywords: ["support", "mail", "report"] }] : []),
       ...(options.entries ? [{ id: "diagnostics.log", label: "Recent log", keywords: ["ring", "events", "renderer"] }] : []),
       { id: "diagnostics.clear", label: "Clear logs" },
     ],
-    render: (ctx) => <DiagnosticsBody ctx={ctx} o={options} />,
+    render: (ctx) => (options.off?.when(ctx) ? <p className="rk-sg__desc">{options.off.message}</p> : <DiagnosticsBody ctx={ctx} o={options} />),
   };
 }
 

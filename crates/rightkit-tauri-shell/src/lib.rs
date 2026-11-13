@@ -109,7 +109,7 @@ pub use clipboard::{ClipboardItem, ClipboardOptions, ClipboardPolicy, ImagePrefe
 pub use content_webview::{ContentProfile, ContentWebviewSpec};
 pub use devtools::{ContentWebview, DevToolsError, DevToolsGate, DevToolsPolicy, WebviewDecision};
 pub use error::ShellError;
-pub use harden::{Hardening, HardeningScript};
+pub use harden::{disable_browser_accelerators, Hardening, HardeningScript};
 pub use idle::{
     IdleErrorCallback, IdleFailure, IdlePhase, IdleTransition, IdleTransitionCallback,
     IdleTransitionKind, IdleTrigger,
@@ -333,6 +333,7 @@ pub struct ShellBuilder {
     devtools_policy: DevToolsPolicy,
     content_webviews: Vec<ContentWebview>,
     nav: NavPolicy,
+    broker_only_navigation: bool,
     extra_internal_schemes: Vec<String>,
     opener: Arc<dyn ExternalOpener>,
     single_instance: bool,
@@ -406,6 +407,7 @@ impl Shell {
             devtools_policy: DevToolsPolicy::default(),
             content_webviews: Vec::new(),
             nav: NavPolicy::default(),
+            broker_only_navigation: false,
             extra_internal_schemes: Vec::new(),
             opener: Arc::new(SystemOpener),
             single_instance: true,
@@ -500,6 +502,15 @@ impl ShellBuilder {
     }
     pub fn nav_policy(mut self, p: NavPolicy) -> Self {
         self.nav = p;
+        self
+    }
+    /// Make the navigation policy intercept only the broker hop (`NavPolicy::broker_host`): that
+    /// host is handled as [`NavPolicy::decide_broker`] says, and every other top-level navigation
+    /// is left to Tauri untouched (no system-browser hand-off, no blocking). Off by default, where
+    /// the policy decides every navigation. Without a broker host nothing is intercepted. Does not
+    /// change window-open handling.
+    pub fn broker_only_navigation(mut self) -> Self {
+        self.broker_only_navigation = true;
         self
     }
     /// Treat `scheme` as the app's own content: the webview loads it in place. Adds to
@@ -998,6 +1009,7 @@ pub(crate) fn install(cfg: ShellBuilder) -> TauriPlugin<Wry> {
     let hardening = cfg.hardening.clone();
     let script_scope = cfg.hardening_script;
     let (nav_hook, opener_hook) = (Arc::clone(&nav), Arc::clone(&opener));
+    let broker_only = cfg.broker_only_navigation;
     let hardening_for_views = hardening.clone();
     // DevTools: the process guard and the gate. A failure is carried to plugin setup, which
     // refuses to start; until then every webview is treated as denied.
@@ -1063,7 +1075,15 @@ pub(crate) fn install(cfg: ShellBuilder) -> TauriPlugin<Wry> {
             }
             #[cfg(not(feature = "viewer"))]
             let _ = webview;
-            match nav_hook.decide(url) {
+            let decision = if broker_only {
+                match nav_hook.decide_broker(url) {
+                    Some(decision) => decision,
+                    None => return true,
+                }
+            } else {
+                nav_hook.decide(url)
+            };
+            match decision {
                 NavDecision::Allow => true,
                 NavDecision::External { url } => {
                     let _ = opener::open_checked(opener_hook.as_ref(), &url);

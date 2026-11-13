@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.7.3
+
+Additive; `diagnosticsSection` renders as before without the new options.
+
+- `DiagnosticsOptions.labels` (`DiagnosticsLabels`: collect, copy, copied, email, emailCopied, refresh, viewLog, hideLog, clear, noEntries), `off` (`{ when(ctx), message }`: the section shows only the message while it holds), `reportText` (a custom report text, for example plain text: one direct copy button, the email action copies it, `collectDiagnostics` is not called), `verbose` (`false` hides the Verbose row), `confirmClear` (`false` clears on the first click), `inline` (the ring log is always listed, with Refresh and no View/Hide), `newestFirst`. `DiagnosticsEmailSupport.buildSubject(report)` / `buildBody(report)` replace `subject` / `body` when set.
+
 ## 0.7.2
 
 - Additive (#1572): the shell adapter reads `revisionText` when the host sends no numeric `revision` (a flat settings file) and sends `expectedRevision` back as that string; `createShellBackends<R>` / `ShellSettingsBackend<R>` / `ShellBackends<R>` take the revision type (default `number`, so a counter host is unchanged; use `createShellBackends<string>` for a flat file).

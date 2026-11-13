@@ -345,10 +345,12 @@ pub fn snapshot_create(
     name: impl Into<String>,
 ) -> Result<Value, BlueprintError> {
     let repo_root = repo_root.into();
-    let db_path = std::path::Path::new(&repo_root)
-        .join(".agent")
-        .join("graph")
-        .join("graph.db");
+    let db_path = crate::graph_dir::graph_db_path(std::path::Path::new(&repo_root));
+    if let Some(parent) = db_path.parent() {
+        std::fs::create_dir_all(parent).map_err(|error| {
+            BlueprintError::new("blueprint_store_unavailable", error.to_string())
+        })?;
+    }
     let mut connection = crate::store::open_store(Some(&db_path))
         .map_err(|error| BlueprintError::new("blueprint_store_unavailable", error.to_string()))?;
     crate::lib_application_snapshots::create_snapshot(
@@ -374,7 +376,7 @@ pub mod doctor_exit {
 }
 
 fn store_db_path(root: &std::path::Path) -> std::path::PathBuf {
-    root.join(".agent").join("graph").join("graph.db")
+    crate::graph_dir::graph_db_path(root)
 }
 
 /// Native store readiness as `(state, errors, warnings, reasons)`.
@@ -404,6 +406,7 @@ pub fn doctor(repo_root: impl Into<String>, full: bool) -> Value {
     let root = std::path::Path::new(&repo_root);
     let generated_at = chrono_now_iso();
     let (mut state, errors, warnings, reasons) = native_store_diagnostics(root);
+    let graph_db_shown = crate::graph_dir::graph_db_display(root);
 
     // Fold errors into the state only when the store itself is not already
     // missing/corrupt, matching legacy's early return for those two states.
@@ -419,7 +422,7 @@ pub fn doctor(repo_root: impl Into<String>, full: bool) -> Value {
         "schemaVersion": 1,
         "state": state,
         "generatedAt": generated_at,
-        "artifacts": {"graph": ".agent/graph/graph.db", "store": ".agent/graph/graph.db"},
+        "artifacts": {"graph": graph_db_shown, "store": graph_db_shown},
         "errors": errors,
         "warnings": warnings,
         "reasons": reasons,
@@ -543,7 +546,7 @@ pub fn apply_repair(repo_root: impl Into<String>, yes: bool) -> Result<Value, Bl
                 // file (never silently delete it: it stays on disk as
                 // evidence) so the rebuild below can create a fresh store,
                 // matching this action's own `reversible: false` marking.
-                let db_path = std::path::Path::new(&repo_root).join(".agent").join("graph").join("graph.db");
+                let db_path = crate::graph_dir::graph_db_path(std::path::Path::new(&repo_root));
                 if db_path.exists() && crate::store::open_store_read_only(&db_path).and_then(|c| crate::store::load_generation(&c)).is_err() {
                     let _ = rightkit_db::quarantine_database(&db_path);
                 }
@@ -618,12 +621,7 @@ pub fn docs(
     let repo_root = repo_root.into();
     // A read-only SQLite open reports an OS error when graph.db is absent;
     // docs contract exposes this as typed `blueprint_store_missing`.
-    if !std::path::Path::new(&repo_root)
-        .join(".agent")
-        .join("graph")
-        .join("graph.db")
-        .exists()
-    {
+    if !crate::graph_dir::graph_db_path(std::path::Path::new(&repo_root)).exists() {
         return Err(BlueprintError::new(
             "blueprint_store_missing",
             "no persisted Blueprint generation exists",

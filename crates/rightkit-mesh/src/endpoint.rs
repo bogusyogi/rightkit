@@ -33,7 +33,7 @@ use iroh::{Endpoint, EndpointAddr, EndpointId, RelayMode, RelayUrl, TransportAdd
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-use crate::caps::{PathKind, RELAY_CIRCLE_MONTH, RelayBudget};
+use crate::caps::{PathKind, RELAY_CIRCLE_MONTH, RELAY_TRANSFER_MAX, RelayBudget};
 use crate::error::MeshError;
 use crate::hello::{
     ALPN_HELLO, CAP_IDLE_CLOSE, HelloBook, HelloHandler, PeerHello, clamp_build, spawn_hello,
@@ -740,6 +740,7 @@ impl Mesh {
                         service,
                         rt: tokio::runtime::Handle::current(),
                         paths: paths.clone(),
+                        budget: budget.clone(),
                     },
                 );
             }
@@ -1375,11 +1376,22 @@ impl StreamControl {
 /// finishes the sending side (and releases its hold on the connection).
 pub struct BlockingStream {
     rt: tokio::runtime::Handle,
-    send: iroh::endpoint::SendStream,
+    send: SendHalf,
     recv: iroh::endpoint::RecvStream,
     wait: Arc<AtomicU64>,
-    // Keeps the connection open while the stream is in use.
-    _connection: Connection,
+    // Keeps the connection open while the stream is in use, and tells a relayed path from a direct
+    // one to [`BlockingStream::split`].
+    connection: Connection,
+    budget: Arc<Mutex<RelayBudget>>,
+}
+
+/// The sending side of a stream: finished when dropped.
+struct SendHalf(iroh::endpoint::SendStream);
+
+impl Drop for SendHalf {
+    fn drop(&mut self) {
+        let _ = self.0.finish();
+    }
 }
 
 impl BlockingStream {
@@ -1388,14 +1400,45 @@ impl BlockingStream {
         send: iroh::endpoint::SendStream,
         recv: iroh::endpoint::RecvStream,
         connection: Connection,
+        budget: Arc<Mutex<RelayBudget>>,
     ) -> Self {
         Self {
             rt,
-            send,
+            send: SendHalf(send),
             recv,
             wait: Arc::new(AtomicU64::new(30_000)),
-            _connection: connection,
+            connection,
+            budget,
         }
+    }
+
+    /// Split into a reader and a writer that two threads can drive at once (a byte pipe such as
+    /// the ssh tunnel, Pulse #626). `read_wait` bounds one read (an idle ssh session waits long),
+    /// `write_wait` one write. While the path is not a direct IP path the halves meter their
+    /// bytes: at most [`RELAY_TRANSFER_MAX`] for the whole stream, counted against the circle's
+    /// monthly relay budget, fail closed (see `Tunnel`). Dropping the writer finishes the
+    /// sending side; the stream's hold on the connection ends with the last half.
+    pub fn split(self, read_wait: Duration, write_wait: Duration) -> (TunnelReader, TunnelWriter) {
+        let tunnel = Arc::new(Tunnel {
+            connection: self.connection,
+            budget: self.budget,
+            state: Mutex::new(TunnelState::default()),
+        });
+        let ms = |wait: Duration| u64::try_from(wait.as_millis()).unwrap_or(u64::MAX).max(1);
+        (
+            TunnelReader {
+                rt: self.rt.clone(),
+                recv: self.recv,
+                wait: ms(read_wait),
+                tunnel: tunnel.clone(),
+            },
+            TunnelWriter {
+                rt: self.rt,
+                send: self.send,
+                wait: ms(write_wait),
+                tunnel,
+            },
+        )
     }
 
     pub fn control(&self) -> StreamControl {
@@ -1423,7 +1466,7 @@ impl Read for BlockingStream {
 impl Write for BlockingStream {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         let wait = self.wait();
-        let send = &mut self.send;
+        let send = &mut self.send.0;
         self.rt.block_on(async {
             match tokio::time::timeout(wait, AsyncWriteExt::write(send, buf)).await {
                 Ok(result) => result,
@@ -1434,7 +1477,7 @@ impl Write for BlockingStream {
 
     fn flush(&mut self) -> io::Result<()> {
         let wait = self.wait();
-        let send = &mut self.send;
+        let send = &mut self.send.0;
         self.rt.block_on(async {
             match tokio::time::timeout(wait, send.flush()).await {
                 Ok(result) => result,
@@ -1444,9 +1487,123 @@ impl Write for BlockingStream {
     }
 }
 
-impl Drop for BlockingStream {
+// ---- a byte pipe over one stream (the ssh tunnel) --------------------------------
+
+/// Relay accounting shared by the two halves of a split stream.
+struct Tunnel {
+    connection: Connection,
+    budget: Arc<Mutex<RelayBudget>>,
+    state: Mutex<TunnelState>,
+}
+
+#[derive(Default)]
+struct TunnelState {
+    /// Bytes that moved while the path was not direct, both directions.
+    relayed: u64,
+    /// Bytes reserved in the monthly ledger so far (taken in steps, the unused part refunded).
+    reserved: u64,
+}
+
+/// The ledger is written once per this many relayed bytes, not once per read.
+const TUNNEL_RESERVE_STEP: u64 = 64 * 1024;
+
+impl Tunnel {
+    /// Count `bytes` that just moved. A direct path is never capped and never counted. A relayed
+    /// (or not provably direct) path allows [`RELAY_TRANSFER_MAX`] per stream and what is left of
+    /// the circle's month; past either, the error ends the stream (D7: the caps fail closed). The
+    /// message never carries a byte of the stream.
+    fn charge(&self, bytes: usize) -> io::Result<()> {
+        if path_kind(&self.connection) == PathKind::Direct {
+            return Ok(());
+        }
+        let bytes = bytes as u64;
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        state.relayed = state.relayed.saturating_add(bytes);
+        if state.relayed > RELAY_TRANSFER_MAX {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "relay_limit: a relayed session carries at most 25 MB; it needs a direct connection",
+            ));
+        }
+        if state.relayed > state.reserved {
+            let mut budget = self.budget.lock().unwrap_or_else(|e| e.into_inner());
+            let step = TUNNEL_RESERVE_STEP.max(state.relayed - state.reserved);
+            budget.reserve(now_ms(), step).map_err(|_| {
+                io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    "relay_budget_spent: the circle has used its relayed bytes for this month",
+                )
+            })?;
+            state.reserved += step;
+        }
+        Ok(())
+    }
+}
+
+impl Drop for Tunnel {
     fn drop(&mut self) {
-        let _ = self.send.finish();
+        let state = self.state.get_mut().unwrap_or_else(|e| e.into_inner());
+        let unused = state.reserved.saturating_sub(state.relayed);
+        if unused > 0 {
+            let mut budget = self.budget.lock().unwrap_or_else(|e| e.into_inner());
+            let _ = budget.refund(unused);
+        }
+    }
+}
+
+/// The receiving half of a split [`BlockingStream`]: `Ok(0)` when the peer finished its side.
+pub struct TunnelReader {
+    rt: tokio::runtime::Handle,
+    recv: iroh::endpoint::RecvStream,
+    wait: u64,
+    tunnel: Arc<Tunnel>,
+}
+
+impl Read for TunnelReader {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        let wait = Duration::from_millis(self.wait);
+        let recv = &mut self.recv;
+        let n = self.rt.block_on(async {
+            match tokio::time::timeout(wait, AsyncReadExt::read(recv, buf)).await {
+                Ok(result) => result,
+                Err(_) => Err(io::ErrorKind::TimedOut.into()),
+            }
+        })?;
+        self.tunnel.charge(n)?;
+        Ok(n)
+    }
+}
+
+/// The sending half of a split [`BlockingStream`]; dropping it finishes the sending side.
+pub struct TunnelWriter {
+    rt: tokio::runtime::Handle,
+    send: SendHalf,
+    wait: u64,
+    tunnel: Arc<Tunnel>,
+}
+
+impl Write for TunnelWriter {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.tunnel.charge(buf.len())?;
+        let wait = Duration::from_millis(self.wait);
+        let send = &mut self.send.0;
+        self.rt.block_on(async {
+            match tokio::time::timeout(wait, AsyncWriteExt::write(send, buf)).await {
+                Ok(result) => result,
+                Err(_) => Err(io::ErrorKind::TimedOut.into()),
+            }
+        })
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        let wait = Duration::from_millis(self.wait);
+        let send = &mut self.send.0;
+        self.rt.block_on(async {
+            match tokio::time::timeout(wait, send.flush()).await {
+                Ok(result) => result,
+                Err(_) => Err(io::ErrorKind::TimedOut.into()),
+            }
+        })
     }
 }
 
@@ -1455,6 +1612,7 @@ struct StreamHandler {
     service: Arc<dyn StreamService>,
     rt: tokio::runtime::Handle,
     paths: PathBook,
+    budget: Arc<Mutex<RelayBudget>>,
 }
 
 impl fmt::Debug for StreamHandler {
@@ -1493,6 +1651,7 @@ impl ProtocolHandler for StreamHandler {
             };
             let rt = self.rt.clone();
             let service = self.service.clone();
+            let budget = self.budget.clone();
             let connection = connection.clone();
             // The marker read and the serve run in their own task, so a slow opener or a long
             // serve never holds up the next accept_bi.
@@ -1506,7 +1665,7 @@ impl ProtocolHandler for StreamHandler {
                 if !matches!(read, Ok(Ok(_))) {
                     return;
                 }
-                let stream = BlockingStream::new(rt, send, recv, connection);
+                let stream = BlockingStream::new(rt, send, recv, connection, budget);
                 let _ = tokio::task::spawn_blocking(move || service.serve(peer, stream)).await;
             });
         }
@@ -1634,7 +1793,13 @@ impl SyncMesh {
                 }
             }
         })?;
-        let stream = BlockingStream::new(self.rt.handle().clone(), send, recv, connection);
+        let stream = BlockingStream::new(
+            self.rt.handle().clone(),
+            send,
+            recv,
+            connection,
+            mesh.budget().clone(),
+        );
         stream.control().set_timeout(wait);
         Ok(stream)
     }

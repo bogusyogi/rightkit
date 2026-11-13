@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.8.1
+
+- **New: `ShellBuilder::broker_only_navigation()` and `NavPolicy::decide_broker(&Url) -> Option<NavDecision>`** (default off, nothing changes). With it the navigation policy handles only the `NavPolicy::broker_host` hop (`https://<host>/?target=<url>`: an allowed target opens externally, anything else is refused) and leaves every other top-level navigation to Tauri untouched. `NavPolicy::decide` now calls `decide_broker` first; its result is the same.
+- **New: `rightkit_tauri_shell::disable_browser_accelerators(&WebviewWindow)`** turns WebView2's browser accelerator keys off for one window without the shell's webview hardening (the setting `Hardening::disable_browser_accelerators` applies). A no-op off Windows.
+- **New: `windows::route_new_windows(&WebviewWindow<Wry>)`** gives a window the shell did not build (for example one from `tauri.conf.json`) the `ShellBuilder::on_new_window` hook: on WebView2 it answers `NewWindowRequested` with the hook (`true` = handled, `false` = WebView2 proceeds). Windows only: Tauri accepts a new-window hook only at window build time, so on macOS and Linux it is a no-op and the window has to be made with `windows::builder`.
+- **New (feature `logs`): `logs_commands::early`**, a process-global appender for records written before any `AppHandle` exists (panic hook, startup errors): `early::configure(path, max_file_bytes)`, `early::set_recording(bool)` (default off), `early::append(&EventRecord)`. It appends synchronously to the same file as the runtime; `logs_commands::install` adopts the recording switch when the app set one.
+
 ## 0.8.0
 
 - Fixed: `handler!` compiles with `viewer` on and `host-services` off (the default features): the preview document commands, which exist only with `host-services`, are listed only then (#1572).

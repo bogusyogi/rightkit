@@ -598,7 +598,8 @@ fn worker() -> Option<&'static mpsc::SyncSender<DenseJob>> {
                             ));
                             continue;
                         }
-                        let db = Path::new(&job.generation.repo_root).join(".agent/graph/graph.db");
+                        let db =
+                            crate::graph_dir::graph_db_path(Path::new(&job.generation.repo_root));
                         if !db.is_file() {
                             let _ = job.reply.send(DenseTaskResult::incomplete(
                                 "Blueprint generation database missing",

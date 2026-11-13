@@ -364,6 +364,28 @@ struct Reuse<'a> {
     prev_started_ns: u128,
 }
 
+/// The snapshot's limits (entries, total bytes) checked from directory listings and file
+/// metadata alone: no file is read or hashed. The resident's build refuses a root with this
+/// before building when the caller asks for it, with the same limits the watcher applies.
+pub fn check_limits(
+    config: &SnapshotConfig,
+    cancellation: &CancellationToken,
+) -> Result<(), SnapshotError> {
+    let root = canonical_root(&config.root)?;
+    let ignore = RepoIgnore::for_root(&root);
+    walk(
+        &root,
+        &root,
+        config,
+        &ignore,
+        &mut Vec::new(),
+        &mut 0,
+        false,
+        None,
+        cancellation,
+    )
+}
+
 pub fn snapshot(config: &SnapshotConfig) -> Result<Snapshot, SnapshotError> {
     snapshot_with_cancellation(config, &CancellationToken::new())
 }

@@ -11,7 +11,7 @@
 // `resolveScopedSymbol` restricted to same-file exact-name matches, which is
 // the only case the legacy fixtures exercise.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 use regex::Regex;
 use serde::Serialize;
@@ -61,17 +61,55 @@ pub struct FiEdge {
     pub evidence: Vec<FiEvidence>,
 }
 
+/// Most evidence entries one framework node keeps. A config key or table read from tens of
+/// thousands of files would otherwise grow one node's evidence without bound; the first entries
+/// in file order are kept and later identical or surplus ones are dropped.
+pub const MAX_NODE_EVIDENCE: usize = 64;
+
 #[derive(Debug, Clone, Default)]
 pub struct FiGeneration {
     pub nodes: Vec<FiNode>,
     pub edges: Vec<FiEdge>,
+    // Lookup tables kept beside `nodes` and `edges` (both are only ever appended to here), so a
+    // node or edge is found without a scan of every node: id -> first index, and the edge ids.
+    node_index: HashMap<String, usize>,
+    edge_ids: HashSet<String>,
+    indexed_nodes: usize,
+    indexed_edges: usize,
 }
 
+impl FiGeneration {
+    /// Indexes the nodes and edges appended since the last call. The first node with an id wins,
+    /// as the linear lookup it replaces did.
+    fn sync_index(&mut self) {
+        for (index, node) in self.nodes.iter().enumerate().skip(self.indexed_nodes) {
+            self.node_index.entry(node.id.clone()).or_insert(index);
+        }
+        self.indexed_nodes = self.nodes.len();
+        for edge in self.edges.iter().skip(self.indexed_edges) {
+            self.edge_ids.insert(edge.id.clone());
+        }
+        self.indexed_edges = self.edges.len();
+    }
+
+    fn node_mut(&mut self, id: &str) -> Option<&mut FiNode> {
+        self.sync_index();
+        let index = *self.node_index.get(id)?;
+        self.nodes.get_mut(index)
+    }
+
+    fn has_edge(&mut self, id: &str) -> bool {
+        self.sync_index();
+        self.edge_ids.contains(id)
+    }
+}
+
+/// A file to scan. The text is borrowed from the caller's file records, never copied.
 #[derive(Debug, Clone)]
-pub struct FiFile {
+pub struct FiFile<'a> {
     pub path: String,
     pub content_hash: Option<String>,
-    pub text: String,
+    pub text: &'a str,
 }
 
 #[derive(Debug, Clone, Default, Serialize)]
@@ -117,7 +155,7 @@ fn domain_id(kind: &str, address: &str) -> String {
     )
 }
 
-fn evidence(file: &FiFile, line: i64) -> Vec<FiEvidence> {
+fn evidence(file: &FiFile<'_>, line: i64) -> Vec<FiEvidence> {
     vec![FiEvidence {
         path: file.path.clone(),
         start_line: line,
@@ -136,13 +174,28 @@ fn ensure_domain(
     generation: &mut FiGeneration,
     kind: &str,
     address: &str,
-    file: &FiFile,
+    file: &FiFile<'_>,
     line: i64,
     opts: EnsureDomainOpts,
 ) -> String {
     let id = domain_id(kind, address);
-    if let Some(node) = generation.nodes.iter_mut().find(|n| n.id == id) {
-        node.evidence.extend(evidence(file, line));
+    if let Some(node) = generation.node_mut(&id) {
+        let found = FiEvidence {
+            path: file.path.clone(),
+            start_line: line,
+            end_line: line,
+            content_hash: file.content_hash.clone(),
+        };
+        if node.evidence.len() < MAX_NODE_EVIDENCE
+            && !node.evidence.iter().any(|seen| {
+                seen.path == found.path
+                    && seen.start_line == found.start_line
+                    && seen.end_line == found.end_line
+                    && seen.content_hash == found.content_hash
+            })
+        {
+            node.evidence.push(found);
+        }
         if let Some(role) = opts.contract_role {
             let mut roles: BTreeSet<String> = node.contract_roles.iter().cloned().collect();
             roles.insert(role.to_string());
@@ -175,11 +228,11 @@ fn add_edge(
     kind: &str,
     source: &str,
     target: &str,
-    file: &FiFile,
+    file: &FiFile<'_>,
     line: i64,
 ) -> bool {
     let id = format!("edge:{kind}:{source}->{target}:{FRAMEWORK_INTELLIGENCE_PROVIDER_ID}:{line}");
-    if generation.edges.iter().any(|e| e.id == id) {
+    if generation.has_edge(&id) {
         return false;
     }
     generation.edges.push(FiEdge {
@@ -195,7 +248,13 @@ fn add_edge(
     true
 }
 
-fn frontier(file: &FiFile, line: i64, relation: &str, target_name: &str, reason: &str) -> Frontier {
+fn frontier(
+    file: &FiFile<'_>,
+    line: i64,
+    relation: &str,
+    target_name: &str,
+    reason: &str,
+) -> Frontier {
     fn safe(value: &str) -> String {
         let re = Regex::new(r"[^A-Za-z0-9_.-]+").unwrap();
         let cleaned = re.replace_all(value, "-");
@@ -241,7 +300,7 @@ fn resolve_scoped_symbol(generation: &FiGeneration, from_path: &str, name: &str)
 
 fn parse_config(
     generation: &mut FiGeneration,
-    file: &FiFile,
+    file: &FiFile<'_>,
     summary: &mut FrameworkIntelligenceSummary,
 ) {
     let patterns = [
@@ -282,7 +341,7 @@ fn parse_config(
 
 fn parse_orm(
     generation: &mut FiGeneration,
-    file: &FiFile,
+    file: &FiFile<'_>,
     summary: &mut FrameworkIntelligenceSummary,
 ) {
     let prisma_re = Regex::new(r"\bprisma\.([A-Za-z_]\w*)\.([A-Za-z_]\w*)\s*\(").unwrap();
@@ -399,7 +458,7 @@ fn parse_orm(
 
 fn parse_di(
     generation: &mut FiGeneration,
-    file: &FiFile,
+    file: &FiFile<'_>,
     summary: &mut FrameworkIntelligenceSummary,
     frontiers: &mut Vec<Frontier>,
 ) {
@@ -460,7 +519,7 @@ fn parse_di(
 
 fn parse_rpc(
     generation: &mut FiGeneration,
-    file: &FiFile,
+    file: &FiFile<'_>,
     summary: &mut FrameworkIntelligenceSummary,
     frontiers: &mut Vec<Frontier>,
 ) {
@@ -538,7 +597,7 @@ fn parse_rpc(
 
 fn parse_ui(
     generation: &mut FiGeneration,
-    file: &FiFile,
+    file: &FiFile<'_>,
     summary: &mut FrameworkIntelligenceSummary,
     frontiers: &mut Vec<Frontier>,
 ) {
@@ -547,7 +606,7 @@ fn parse_ui(
             .unwrap();
     let navigate_re = Regex::new(r#"\bnavigate\(\s*["']([^"']+)["']"#).unwrap();
 
-    let text = &file.text;
+    let text = file.text;
     let line_of = |offset: usize| -> i64 { (text[..offset].matches('\n').count() + 1) as i64 };
 
     for cap in route_re.captures_iter(text) {
@@ -569,7 +628,7 @@ fn parse_ui(
         );
         match resolve_scoped_symbol(generation, &file.path, screen_name) {
             Some(screen_id) => {
-                if let Some(node) = generation.nodes.iter_mut().find(|n| n.id == screen_id) {
+                if let Some(node) = generation.node_mut(&screen_id) {
                     if !node.labels.iter().any(|l| l == "Screen") {
                         node.labels.push("Screen".to_string());
                     }
@@ -618,7 +677,7 @@ fn parse_ui(
 /// Faithful port of `augmentFrameworkIntelligence`.
 pub fn augment_framework_intelligence(
     generation: &mut FiGeneration,
-    files: &[FiFile],
+    files: &[FiFile<'_>],
 ) -> FrameworkIntelligenceSummary {
     let mut summary = FrameworkIntelligenceSummary {
         provider: FRAMEWORK_INTELLIGENCE_PROVIDER_ID.to_string(),
@@ -629,7 +688,7 @@ pub fn augment_framework_intelligence(
         let normalized = FiFile {
             path: normalize_path(&file.path),
             content_hash: file.content_hash.clone(),
-            text: file.text.clone(),
+            text: file.text,
         };
         parse_config(generation, &normalized, &mut summary);
         parse_orm(generation, &normalized, &mut summary);
@@ -686,6 +745,7 @@ pub fn augment_graph_generation(
             })
             .collect(),
         edges: Vec::new(),
+        ..Default::default()
     };
     let fi_files = files
         .iter()
@@ -693,24 +753,23 @@ pub fn augment_graph_generation(
             file.text.as_ref().map(|text| FiFile {
                 path: file.path.clone(),
                 content_hash: Some(file.content_hash.clone()),
-                text: text.clone(),
+                text: text.as_str(),
             })
         })
         .collect::<Vec<_>>();
     let summary = augment_framework_intelligence(&mut fi, &fi_files);
-    let existing = generation
-        .nodes
-        .iter()
-        .map(|node| node.id.clone())
-        .collect::<BTreeSet<_>>();
-    let mut inserted = existing;
+    // id -> index of the first graph node with it (nodes are only appended below, so indices hold
+    // until the final sort); one map serves "already present" and the merge lookup.
+    let mut index: HashMap<String, usize> = HashMap::with_capacity(generation.nodes.len());
+    for (position, node) in generation.nodes.iter().enumerate() {
+        index.entry(node.id.clone()).or_insert(position);
+    }
     for node in &fi.nodes {
-        if !inserted.insert(node.id.clone()) {
+        if let Some(&position) = index.get(node.id.as_str()) {
             // UI routing marks the existing screen symbol as an entry point;
             // retain that first-party fact when converting back to GraphNode.
             if node.entry_point == Some(true) || node.labels.iter().any(|label| label == "Screen") {
-                if let Some(existing) = generation.nodes.iter_mut().find(|item| item.id == node.id)
-                {
+                if let Some(existing) = generation.nodes.get_mut(position) {
                     if let Some(evidence) = existing
                         .evidence
                         .first_mut()
@@ -734,6 +793,7 @@ pub fn augment_graph_generation(
             }
             continue;
         }
+        index.insert(node.id.clone(), generation.nodes.len());
         let node_evidence = serde_json::json!({
             "path": node.path.clone(),
             "startLine": node.evidence.first().map(|e| e.start_line).unwrap_or(1),
@@ -758,7 +818,7 @@ pub fn augment_graph_generation(
         .edges
         .iter()
         .map(|edge| edge.id.clone())
-        .collect::<BTreeSet<_>>();
+        .collect::<HashSet<_>>();
     for edge in fi.edges {
         if !edge_ids.insert(edge.id.clone()) {
             continue;

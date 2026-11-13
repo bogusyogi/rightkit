@@ -1242,7 +1242,13 @@ impl NativeService {
         if owner {
             self.dedup_executions.fetch_add(1, Ordering::Relaxed);
         }
+        let dispatch_started = Instant::now();
         let response = self.operation.dispatch(request, cancellation);
+        if dispatch_started.elapsed() >= Duration::from_millis(500) {
+            // A slow request materialised or built a large graph, ok or failed
+            // (deadline, cancel): hand its freed pages back to the OS (#635).
+            crate::memory::release_unused_memory();
+        }
         if response.ok {
             if let Some(result) = response.result.as_ref() {
                 self.record_generation(result);
@@ -1437,8 +1443,18 @@ impl OneShotExecutor {
                 match context
                     .check()
                     .and_then(|_| self.operation.execute(&request, &context))
-                    .and_then(|value| context.check().map(|_| value))
-                {
+                    .and_then(|value| match context.check() {
+                        // #554: a search returns the page it reached (a cold generation load is
+                        // not interruptible and may itself spend the deadline), so a late page
+                        // is an answer, never `deadline_exceeded`. Cancellation still applies.
+                        Err(error)
+                            if request.method == Operation::Search
+                                && error.code == "deadline_exceeded" =>
+                        {
+                            Ok(value)
+                        }
+                        checked => checked.map(|_| value),
+                    }) {
                     Ok(value) => BlueprintResponse::success(
                         request_id.clone(),
                         request.generation.clone(),
@@ -1449,7 +1465,7 @@ impl OneShotExecutor {
             }
             Err(error) => BlueprintResponse::failure(Some(request_id), error),
         };
-        if let Err(error) = response.validate(self.bounds) {
+        if let Err(error) = response.validate(self.bounds.for_request(&request)) {
             return BlueprintResponse::failure(response.request_id.clone(), error);
         }
         response

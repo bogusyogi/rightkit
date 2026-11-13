@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.4
+
+- `rgbChannels(value, { fallback })` and `applyTokens(..., { rgbCompanions, rgbFallback })`: an opt-in tolerant path for colours that may not be hex. A non-hex value is read as comma-separated `rgb(r, g, b)` / `rgba(r, g, b, a)` (integer channels), and anything else gives the fallback string (for example `"0 0 0"`) instead of throwing, so a persisted custom colour cannot break `applyTokens`. Without the option nothing changes: non-hex still throws.
+
 ## 0.3.3
 
 Additive. The root export list is unchanged; `parseBrand` accepts every input it accepted before.
