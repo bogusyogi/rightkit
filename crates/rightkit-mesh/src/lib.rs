@@ -47,7 +47,7 @@ pub use caps::{
 pub use circle::{CircleMessage, CircleOutcome, Introduction, handle_circle_message};
 pub use endpoint::{
     BlockingStream, Mesh, MeshInit, PathEvent, PathLabel, PeerPath, StreamControl, StreamService,
-    SyncMesh, path_is_nearby, path_kind, set_path_observer,
+    SyncMesh, TunnelReader, TunnelWriter, path_is_nearby, path_kind, set_path_observer,
 };
 pub use error::MeshError;
 pub use hello::{ALPN_HELLO, HelloEvent, PeerHello, set_hello_observer};
