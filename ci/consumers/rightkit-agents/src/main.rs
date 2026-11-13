@@ -210,11 +210,17 @@ fn event_model() {
         Some(&snapshot("allowed")),
         "observed data replaces unsupported"
     );
-    state.mark_unsupported("ignored");
+    state.mark_unsupported("replaced");
     assert!(
-        matches!(state, RateLimitState::Known { .. }),
-        "unsupported never hides known data"
+        matches!(&state, RateLimitState::Unsupported { reason } if reason == "replaced"),
+        "unsupported replaces every state, known data included"
     );
+    state.probe_failed("timeout");
+    assert!(
+        matches!(&state, RateLimitState::Unsupported { .. }),
+        "a failed probe leaves unsupported alone"
+    );
+    state.observe(snapshot("allowed"));
     state.probe_failed("timeout");
     assert_eq!(
         state.snapshot(),
@@ -402,12 +408,12 @@ fn claude_argv_and_frames() {
 
     assert_eq!(
         user_turn_frame("summarise the diff"),
-        "{\"message\":{\"content\":\"summarise the diff\",\"role\":\"user\"},\"type\":\"user\"}\n"
+        "{\"message\":{\"content\":\"summarise the diff\",\"role\":\"user\"},\"type\":\"user\"}"
     );
     let frame = |line: String| -> Value {
         assert!(
-            line.ends_with('\n') && !line[..line.len() - 1].contains('\n'),
-            "one newline-terminated line"
+            !line.contains('\n'),
+            "one line with no line break (the writer adds it)"
         );
         serde_json::from_str(&line).unwrap()
     };
@@ -840,7 +846,10 @@ fn claude_stream_parser() {
         [AgentEvent::ApprovalRequested {
             id: "req_1".into(),
             tool: "Edit".into(),
-            input: json!({ "file_path": "/work/a.txt" })
+            input: json!({ "file_path": "/work/a.txt" }),
+            tool_use_id: None,
+            agent_id: None,
+            blocked_path: None
         }]
     );
     assert_eq!(
@@ -987,12 +996,16 @@ fn codex_lines() {
             "thread/started",
             "turn/started",
             "turn/completed",
+            "turn/failed",
+            "turn/plan/updated",
             "item/started",
             "item/completed",
             "item/agentMessage/delta",
             "thread/tokenUsage/updated",
             "thread/compacted",
-            "serverRequest/resolved"
+            "serverRequest/resolved",
+            "account/rateLimits/updated",
+            "mcpServer/startupStatus/updated"
         ]
     );
 
@@ -1044,7 +1057,7 @@ fn codex_lines() {
         [AgentEvent::TextDelta { text: "Run".into() }]
     );
     assert_eq!(notification(r#"{"method":"item/started","params":{"item":{"type":"commandExecution","id":"c1","command":"ls"}}}"#).1[0], AgentEvent::ToolUse { id: "c1".into(), name: "commandExecution".into(), input: json!({ "type": "commandExecution", "id": "c1", "command": "ls" }), parent_tool_use_id: None });
-    assert_eq!(notification(r#"{"method":"item/completed","params":{"item":{"type":"commandExecution","id":"c1","status":"declined"}}}"#).1, [AgentEvent::ToolResult { id: "c1".into(), is_error: true, parent_tool_use_id: None }]);
+    assert_eq!(notification(r#"{"method":"item/completed","params":{"item":{"type":"commandExecution","id":"c1","status":"declined"}}}"#).1, [AgentEvent::ToolResultContent { id: "c1".into(), is_error: true, content: String::new(), parent_tool_use_id: None }, AgentEvent::ToolResult { id: "c1".into(), is_error: true, parent_tool_use_id: None }]);
     assert_eq!(notification(r#"{"method":"item/completed","params":{"item":{"type":"agentMessage","id":"m","text":"Done"}}}"#).1, [AgentEvent::Text { text: "Done".into(), parent_tool_use_id: None }]);
     assert_eq!(notification(r#"{"method":"item/completed","params":{"item":{"type":"reasoning","summary":["a","b"]}}}"#).1, [AgentEvent::Thinking { text: "a\nb".into(), parent_tool_use_id: None }]);
     let sub_start = notification(r#"{"method":"item/started","params":{"item":{"type":"collabAgentToolCall","id":"s1","prompt":"Survey"}}}"#).1;
@@ -1064,23 +1077,23 @@ fn codex_lines() {
         notification(r#"{"method":"serverRequest/resolved","params":{"requestId":"srv_1"}}"#).1,
         [AgentEvent::ApprovalResolved { id: "srv_1".into() }]
     );
-    assert_eq!(notification(r#"{"method":"turn/completed","params":{"turn":{"id":"t1","status":"completed","durationMs":2500}}}"#).1, [AgentEvent::Result { cost_usd: None, duration_ms: Some(2500), num_turns: Some(1), permission_denials: vec![], is_error: false, subtype: "completed".into() }]);
+    assert_eq!(notification(r#"{"method":"turn/completed","params":{"turn":{"id":"t1","status":"completed","durationMs":2500}}}"#).1[1..], [AgentEvent::Result { cost_usd: None, duration_ms: Some(2500), num_turns: Some(1), permission_denials: vec![], is_error: false, subtype: "completed".into() }]);
     assert!(
-        matches!(&notification(r#"{"method":"turn/completed","params":{"turn":{"status":"failed"}}}"#).1[0], AgentEvent::Result { is_error: true, subtype, .. } if subtype == "failed")
+        matches!(&notification(r#"{"method":"turn/completed","params":{"turn":{"status":"failed"}}}"#).1[1], AgentEvent::Result { is_error: true, subtype, .. } if subtype == "failed")
     );
     let limited = notification(r#"{"method":"turn/failed","params":{"turn":{"id":"t1","durationMs":900},"error":{"message":"You hit your usage limit","codexErrorInfo":"usageLimitExceeded","resetsAt":1700000000}}}"#).1;
     assert!(
-        matches!(&limited[0], AgentEvent::Result { is_error: true, subtype, duration_ms: Some(900), .. } if subtype == "failed")
+        matches!(&limited[1], AgentEvent::Result { is_error: true, subtype, duration_ms: Some(900), .. } if subtype == "failed")
     );
     assert!(
-        matches!(&limited[1], AgentEvent::RateLimit(info) if info.status == "rejected" && info.resets_at == Some(1_700_000_000))
+        matches!(&limited[2], AgentEvent::RateLimit(info) if info.status == "rejected" && info.resets_at == Some(1_700_000_000))
     );
     assert_eq!(
         notification(r#"{"method":"turn/failed","params":{"error":{"message":"overloaded"}}}"#)
             .1
             .len(),
-        1,
-        "a plain failure has no rate limit"
+        2,
+        "a plain failure has a detail and a result, and no rate limit"
     );
     assert!(matches!(
         &notification(r#"{"method":"error","params":{"message":"Usage limit reached"}}"#).1[0],
@@ -1089,7 +1102,7 @@ fn codex_lines() {
     for quiet in [
         "turn/started",
         "item/reasoning/textDelta",
-        "account/rateLimits/updated",
+        "configWarning",
         "warning",
         "thread/status/changed",
     ] {
@@ -1106,7 +1119,7 @@ fn codex_lines() {
     ));
 
     match parse_line(r#"{"jsonrpc":"2.0","id":"srv_1","method":"item/commandExecution/requestApproval","params":{"itemId":"c1","command":"rm -rf build"}}"#).unwrap() {
-        Incoming::ServerRequest { id, method, event: Some(AgentEvent::ApprovalRequested { id: event_id, tool, input }), .. } => {
+        Incoming::ServerRequest { id, method, event: Some(AgentEvent::ApprovalRequested { id: event_id, tool, input, .. }), .. } => {
             assert_eq!((id, method.as_str(), event_id.as_str(), tool.as_str()), (json!("srv_1"), "item/commandExecution/requestApproval", "srv_1", "item/commandExecution/requestApproval"));
             assert_eq!(input["command"], "rm -rf build");
         }

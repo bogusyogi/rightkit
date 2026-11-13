@@ -2272,7 +2272,7 @@
       ],
       "consumes": "rightkit-daemon-remote/src/remote/oauth.rs::FlowOAuthHandler; PK06-5 existing remote consumer; PK10-3 typed OAuth port is consumer-facing abstraction, not DB ownership",
       "files": {
-        "Cargo.toml": "cc7bbb9defe95af9dcd3fc4e292e4fc413b7a76d0a92961cdf27688130be4745",
+        "Cargo.toml": "c1e73f57881c220341af60a1971392e5e7772440bd20c63265b60d26091b3b48",
         "src/main.rs": "cf445197f627d3b5150e7e4837ec6bb2f209c644cbded7a6cf70382e75dcbf4c"
       },
       "runs": [
@@ -2518,7 +2518,7 @@
       "gateEvidence": "no assets needed; deterministic, in-process; no ci/asset-gated.json entry needed",
       "consumes": "no app pins this version yet; publication unblocks adoption (recipe exercises the public API family named in its README)",
       "files": {
-        "Cargo.toml": "625fd9707b00620f2c80d31c069842a5f8b459e510e4cc985d30bc5e85bf17e4",
+        "Cargo.toml": "6fc4bbd443fe9533c5b6dd57ca5e95726afc46bdb42625ba458f35aff5f78b68",
         "README.md": "94a94a3ca200629a7eb8052c1783e29efc4cc479366e35508b9889120370b5b3",
         "src/main.rs": "b6cdd16efbc7840fa77c07e44f63a53bfc2460d4f131eb5fb26f73a522844ee3"
       },
@@ -2597,7 +2597,7 @@
       "files": {
         "Cargo.toml": "f8bc5ff976b8e2bf5072bee32cd27e539ae60c8ae6cc371c024cd027c1a5d41e",
         "README.md": "a67aa3abc0e051a43df83f7379b20291d9187b0b1f89454ef8f471ed292668d3",
-        "src/main.rs": "d0ee057750c9a58a6654a81431108a0cb56b2d43294874568e581764baf426ec"
+        "src/main.rs": "ecefa9a7d508dfb7efa7ffd77f10ac4bee2332a5ee827cf03cde6aecb5f58fee"
       }
     },
     "rightkit-audio": {

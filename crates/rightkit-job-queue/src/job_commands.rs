@@ -52,7 +52,7 @@ pub const JOB_METHODS: [&str; 12] = [
 
 /// The shared `job.*` / `artifact.resolve` command surface over a [`Runner`].
 /// Optional: an app that keeps its own contract either omits it from the
-/// [`Dispatcher`] or renames/disables methods and maps payloads.
+/// [`Dispatcher`](crate::Dispatcher) or renames/disables methods and maps payloads.
 ///
 /// Passive: `job.status|list|events|result|recoverable|wait` and
 /// `artifact.resolve` never run work. Explicit: `job.run`, `job.recover`,

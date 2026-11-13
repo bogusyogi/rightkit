@@ -294,6 +294,7 @@ test("localTestPlan: a host plans its own sets; a host-scoped set has no cross-t
     assert.ok(!darwin.some((s) => s.includes("--target")), "no cross step for a native-host set");
     assert.ok(!stepsOf(scopedOnly, "win32").some((s) => s.includes("metal")));
     assert.equal(localTestPlan({ kind: "cargo", unit: "fx", dir: "crates/fx", config: scopedOnly, platform: "win32" }).featureLabels.join("|"), "default");
+    assert.deepEqual(localTestPlan({ kind: "cargo", unit: "fx", dir: "crates/fx", config: scopedOnly, platform: "linux" }).featureLabels, ["not built on linux (ci/gate.config.json platforms)"]);
     // an unscoped set keeps its cross steps
     const mixed = { rust: { fx: { platforms: ["darwin", "win32"], platformsReason: "fixture", featureSets: [[], { features: ["--features", "metal"], hosts: ["darwin"], hostsReason: "x" }] } } };
     process.env.RIGHTKIT_CROSS_CC_DIR = path.join(scratch, "zig-fixture");
