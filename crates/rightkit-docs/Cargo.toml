@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-docs"
-version = "0.1.4"
+version = "0.1.5"
 edition = "2021"
 rust-version = "1.98.0"
 license = "MIT OR Apache-2.0"
@@ -31,7 +31,7 @@ encoding_rs = { version = "0.8.42", optional = true }
 chardetng = { version = "1.0.0", optional = true }
 base64 = { version = "0.23", optional = true }
 # PDF read and edit are rightkit-pdf's; this crate is the one-shot facade over it.
-rightkit-pdf = { version = "0.3.4", path = "../rightkit-pdf", default-features = false, features = ["edit", "merge", "extract"] }
+rightkit-pdf = { version = "0.3.5", path = "../rightkit-pdf", default-features = false, features = ["edit", "merge", "extract"] }
 lopdf = { version = "0.47", default-features = false, features = ["rayon"] }
 # The one writer behind every write (temp sibling, flush, rename, directory sync).
 rightkit-fs = { version = "0.4.9", path = "../rightkit-fs", default-features = false, features = ["fs"] }

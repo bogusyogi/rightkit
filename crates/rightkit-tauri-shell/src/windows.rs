@@ -309,19 +309,33 @@ fn dim(v: Option<f64>, default: f64, min: f64) -> f64 {
 /// being built, so on other platforms this is a no-op: build the window with [`builder`] there.
 /// Do not call it for a window made by [`builder`], whose hook already routes.
 pub fn route_new_windows(window: &WebviewWindow<Wry>) {
+    let Some(router) = window
+        .app_handle()
+        .state::<ShellState>()
+        .new_window_router
+        .clone()
+    else {
+        return;
+    };
+    route_new_windows_with(window, move |url| router(url));
+}
+
+/// [`route_new_windows`] with a handler for this one window instead of the app-wide
+/// [`crate::ShellBuilder::on_new_window`] hook, for an app whose windows route differently (one
+/// opens links as tabs, another leaves them to the system browser) and so sets no app-wide hook.
+/// The handler gets the requested URL: `true` means the app handled it and WebView2 opens
+/// nothing; `false` lets WebView2 proceed as it would without the shell.
+///
+/// Windows (WebView2) only; a no-op elsewhere, like [`route_new_windows`].
+pub fn route_new_windows_with(
+    window: &WebviewWindow<Wry>,
+    handler: impl Fn(&str) -> bool + Send + 'static,
+) {
     #[cfg(windows)]
     {
         use crate::winapi::webview2_com::NewWindowRequestedEventHandler;
         use crate::winapi::windows::core::PWSTR;
 
-        let Some(router) = window
-            .app_handle()
-            .state::<ShellState>()
-            .new_window_router
-            .clone()
-        else {
-            return;
-        };
         let _ = window.with_webview(move |webview| unsafe {
             let Ok(core) = webview.controller().CoreWebView2() else {
                 return;
@@ -337,7 +351,7 @@ pub fn route_new_windows(window: &WebviewWindow<Wry>) {
                 } else {
                     uri.to_string().unwrap_or_default()
                 };
-                if router(&url) {
+                if handler(&url) {
                     args.SetHandled(true)?;
                 }
                 Ok(())
@@ -347,7 +361,7 @@ pub fn route_new_windows(window: &WebviewWindow<Wry>) {
         });
     }
     #[cfg(not(windows))]
-    let _ = window;
+    let _ = (window, handler);
 }
 
 /// A `WebviewWindowBuilder` carrying the shell policy: popup handling through [`crate::nav`],

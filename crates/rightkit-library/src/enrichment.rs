@@ -43,6 +43,20 @@ pub struct EnrichmentInput<'a> {
     pub language: Option<&'a str>,
     /// Duration in seconds for audio/video jobs.
     pub duration_s: Option<f64>,
+    /// Where [`SourceMetadata::domain`] (and the domain tag) comes from.
+    pub domain: SourceDomain<'a>,
+}
+
+/// Where the enrichment pass takes the source's domain from.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum SourceDomain<'a> {
+    /// The library's own rule: the lowercased host of an `http(s)://` source URL without `www.`,
+    /// credentials or port, when it has a dot; none for anything else.
+    #[default]
+    FromUrl,
+    /// The host's own value, used as given (`None` records no domain). For a host whose shipped
+    /// rule differs, for example one that also reads a scheme-less `example.com/page`.
+    Given(Option<&'a str>),
 }
 
 #[derive(Debug, Clone)]

@@ -124,36 +124,31 @@ pub struct ScrubOptions {
     /// with `[path]`, the way the CodeRight support bundle does. Off by default.
     pub redact_paths: bool,
     /// Replace the value of every `key=value` token whose value is at least this many characters
-    /// and made only of ASCII letters, digits, `%`, `_` and `-`, with `key=<redacted>`. For
-    /// cookie-shaped pairs (`sid=abcdef123456`) that the 32-character opaque-word floor passes.
+    /// and made only of ASCII letters, digits, `%`, `_` and `-`, with `key=<redacted>`. Tokens end
+    /// at whitespace or `;`. For cookie-shaped pairs (`sid=abcdef123456`, `a=…; b=…`) that the
+    /// 32-character opaque-word floor passes.
     /// `None` (the default) leaves the output unchanged.
     pub key_value_min_len: Option<usize>,
 }
 
-/// Redacts the value of each whitespace-separated `key=value` token whose value meets `min_len`
-/// (see [`ScrubOptions::key_value_min_len`]). Whitespace is kept as written. Returns the text and
-/// the number of values replaced.
+/// Redacts the value of each `key=value` token whose value meets `min_len` (see
+/// [`ScrubOptions::key_value_min_len`]). Tokens are separated by whitespace or `;`, so a cookie
+/// list (`a=…; b=…`) is covered; the key is everything before the first `=`. Separators are kept
+/// as written. Returns the text and the number of values replaced.
 fn redact_key_values(text: &str, min_len: usize) -> (String, usize) {
-    let is_key = |key: &str| {
-        !key.is_empty()
-            && key
-                .chars()
-                .all(|c| c.is_alphanumeric() || c == '_' || c == '-' || c == '.')
-    };
+    let is_separator = |c: char| c.is_whitespace() || c == ';';
     let is_value_char = |c: char| c.is_ascii_alphanumeric() || matches!(c, '%' | '_' | '-');
     let mut out = String::with_capacity(text.len());
     let mut count = 0usize;
     let mut rest = text;
     while !rest.is_empty() {
-        let lead = rest.len() - rest.trim_start().len();
+        let lead = rest.len() - rest.trim_start_matches(is_separator).len();
         out.push_str(&rest[..lead]);
         rest = &rest[lead..];
-        let end = rest.find(char::is_whitespace).unwrap_or(rest.len());
+        let end = rest.find(is_separator).unwrap_or(rest.len());
         let (token, tail) = rest.split_at(end);
         match token.split_once('=') {
-            Some((key, value))
-                if is_key(key) && value.len() >= min_len && value.chars().all(is_value_char) =>
-            {
+            Some((key, value)) if value.len() >= min_len && value.chars().all(is_value_char) => {
                 out.push_str(key);
                 out.push_str("=<redacted>");
                 count += 1;

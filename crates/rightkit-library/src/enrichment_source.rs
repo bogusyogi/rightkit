@@ -3,7 +3,10 @@ use super::*;
 pub(super) fn build_source_metadata(input: &EnrichmentInput<'_>) -> SourceMetadata {
     SourceMetadata {
         kind: input.kind.to_string(),
-        domain: extract_domain(input.source_url),
+        domain: match input.domain {
+            SourceDomain::FromUrl => extract_domain(input.source_url),
+            SourceDomain::Given(domain) => domain.map(str::to_string),
+        },
         shortcode: input.shortcode.map(str::to_string),
         duration_s: input.duration_s,
         language: input.language.map(|s| s.to_string()),

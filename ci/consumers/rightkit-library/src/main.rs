@@ -1,5 +1,5 @@
-//! Registry consumer for rightkit-library 0.2.0: builds against the published API only.
-use rightkit_library::enrichment::{enrich, EnrichmentInput};
+//! Registry consumer for rightkit-library 0.3.0: builds against the published API only.
+use rightkit_library::enrichment::{enrich, EnrichmentInput, SourceDomain};
 use rightkit_library::{HistoryRecord, Store};
 
 fn check(ok: bool, what: &str) {
@@ -49,6 +49,7 @@ fn main() {
         article_metadata: None,
         language: Some("en"),
         duration_s: None,
+        domain: SourceDomain::FromUrl,
     };
     let out = enrich(&input);
     check(
@@ -70,6 +71,15 @@ fn main() {
     check(
         local.source_metadata.domain.is_none(),
         "a local file name is not a domain",
+    );
+    let given = enrich(&EnrichmentInput {
+        source_url: "example.com/page",
+        domain: SourceDomain::Given(Some("example.com")),
+        ..input
+    });
+    check(
+        given.source_metadata.domain.as_deref() == Some("example.com"),
+        "a host-given domain is used as given",
     );
     let dir =
         std::env::temp_dir().join(format!("rightkit-library-consumer-{}", std::process::id()));
