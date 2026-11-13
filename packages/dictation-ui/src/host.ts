@@ -7,6 +7,8 @@
 
 import type { ComponentType, ReactNode } from "react";
 import type { LibrarySource } from "@rightkit/library-ui";
+// The `./host` entry holds only the list's host configuration, so the pill entry does not pull in the list.
+import { configureLibraryHost, type LibraryHostConfig } from "@rightkit/library-ui/host";
 import type { SettingsBackend } from "@rightkit/settings-ui/core";
 import type { UseSettings } from "./hooks/useSettings.js";
 import type { AppState, HistoryItem } from "./lib/homeMetrics.js";
@@ -227,10 +229,12 @@ export interface PillClient {
 // Configuration
 
 /** The pages that render inside the host's page wrapper. */
-export type DictationPageName = "dictation" | "polish" | "home";
+export type DictationPageName = "dictation" | "polish" | "home" | "history";
 
 export interface DictationPageShellProps {
   page: DictationPageName;
+  /** Only the `history` page: its filter and actions row, in its own `h-11` flex row. The shell frames it (border, padding) above `children`. */
+  header?: ReactNode;
   children: ReactNode;
 }
 
@@ -250,7 +254,7 @@ export interface DictationOriginIconProps {
 
 /** Visual pieces a host may replace. Each default is the package's own markup. */
 export interface DictationComponents {
-  /** Wrapper around the Dictation, Polish and Home pages. Default: `PageShell` from `@rightkit/react-shell/react`, `maxWidth` 1320, class `dictation-page dictation-page--<page>`. */
+  /** Wrapper around the Dictation, Polish, Home and History pages (History also gets `header`). Default: `PageShell` from `@rightkit/react-shell/react`, `maxWidth` 1320, class `dictation-page dictation-page--<page>`. */
   PageShell?: ComponentType<DictationPageShellProps>;
   /** Switch on the Polish page. Default: `Toggle` from `@rightkit/react-shell/react`. */
   Toggle?: ComponentType<DictationToggleProps>;
@@ -276,7 +280,16 @@ export interface DictationHooks {
 }
 
 /** Browser-storage values the package keeps. Hosts with stored data pass their existing keys. */
-export type DictationStorageKey = "promptHintCount" | "promptHintSeen" | "promptHintDisabled";
+export type DictationStorageKey =
+  | "promptHintCount"
+  | "promptHintSeen"
+  | "promptHintDisabled"
+  // The History list's keys: forwarded to `@rightkit/library-ui`'s host configuration.
+  | "skipDeleteConfirm"
+  | "groupSelection"
+  | "recoveryDismissed";
+
+const LIBRARY_STORAGE_KEYS = ["skipDeleteConfirm", "groupSelection", "recoveryDismissed"] as const;
 
 export interface DictationHostConfig {
   /** Product name in user-facing copy. Default `"App"`. */
@@ -308,6 +321,24 @@ let config: DictationHostConfig = {};
 
 export function configureDictationHost(next: DictationHostConfig): void {
   config = { ...config, ...next };
+  forwardToLibrary(next);
+}
+
+// The History page is `@rightkit/library-ui`'s list, which keeps its own host configuration (product name,
+// storage keys). What this host sets for it goes there too, so an app makes one call.
+function forwardToLibrary(next: DictationHostConfig): void {
+  const library: LibraryHostConfig = {};
+  if (next.appName !== undefined) library.appName = next.appName;
+  if (next.storagePrefix !== undefined) library.storagePrefix = next.storagePrefix;
+  if (next.storageKeys) {
+    const keys: NonNullable<LibraryHostConfig["storageKeys"]> = {};
+    for (const key of LIBRARY_STORAGE_KEYS) {
+      const value = next.storageKeys[key];
+      if (value !== undefined) keys[key] = value;
+    }
+    if (Object.keys(keys).length > 0) library.storageKeys = { ...keys };
+  }
+  if (Object.keys(library).length > 0) configureLibraryHost(library);
 }
 
 export function hostAppName(): string {

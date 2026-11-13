@@ -1212,7 +1212,7 @@
           "react-dom": "19.3.1",
           "@rightkit/app-update": "0.4.4",
           "@rightkit/doc-render": "0.2.2",
-          "@rightkit/library-ui": "0.2.1",
+          "@rightkit/library-ui": "0.2.2",
           "@rightkit/license": "0.3.2",
           "@rightkit/logs": "0.1.6",
           "@rightkit/media-ui": "0.3.6",
@@ -1232,7 +1232,7 @@
       "files": {
         "ci/consumers/npm/dictation-ui/README.md": "05cb356a734beb4c433cdf839e89583da8bc2ca694e112107a77bf02821bfde0",
         "ci/consumers/npm/dictation-ui/consumer.mjs": "a7f2da912e674bcd51ac5836250a8a9fd39dcfcfb8b69a8f57c6801e0cea3158",
-        "ci/consumers/npm/dictation-ui/package.json": "63cd1a9257a9f5148ecc84e5cec3b093285065888427b801bd3cae2a971556b8",
+        "ci/consumers/npm/dictation-ui/package.json": "6e00495a8ef277fad2ca6ec5fb64b4e017e0e1c35bc20812c68c7c637b23fc7b",
         "ci/consumers/npm/dictation-ui/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "fc160695e1dc97dc7e32e746c9e4471e2d85168b097623de818befeb00ee438c"
       }
@@ -1511,6 +1511,7 @@
       "scenarios": 1,
       "surface": [
         ".",
+        "./host",
         "./package.json",
         "./queue",
         "./styles.css",
@@ -1536,7 +1537,7 @@
       },
       "files": {
         "ci/consumers/npm/library-ui/README.md": "3ba58ef3d084af9c401a1cf333eaa8cb84bf6fe7bbb672b2dfa4f94c7eaa24f9",
-        "ci/consumers/npm/library-ui/consumer.mjs": "6abaa029ce5711a058519324f6192bbf029a6b64851f2eec73d8305db512a0e4",
+        "ci/consumers/npm/library-ui/consumer.mjs": "99c3d3cc6c62787c38dd8942a4134fae4d55f858f3fd6aff521146c6fa58ac25",
         "ci/consumers/npm/library-ui/package.json": "a6a11dad17b266d10142fc3b185a0e7f2641b365d0e304e9415b1aaaf031acb9",
         "ci/consumers/npm/library-ui/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "fc160695e1dc97dc7e32e746c9e4471e2d85168b097623de818befeb00ee438c"

@@ -1,13 +1,15 @@
 import { useDismiss } from "@rightkit/platform-ui/headless";
 import { Notice, PageShell } from "@rightkit/react-shell/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { LibraryGroup, LibraryRow, LibrarySource, LibraryVariant } from "../contract.js";
+import type { LibraryGroup, LibraryOrigin, LibraryRow, LibrarySource, LibraryVariant } from "../contract.js";
 import { libraryAppName, readStored, writeStored } from "../host.js";
 import {
   DEFAULT_LIBRARY_LABELS,
   LibraryActionsLine,
   LibraryConfirmDialog,
   LibraryContext,
+  type LibraryClassNames,
+  type LibraryComponents,
   type LibraryContextValue,
   type LibraryFilterOption,
   type LibraryLabels,
@@ -39,7 +41,26 @@ export interface LibraryScreenProps {
   exportName?: string;
   /** Page width cap. Default 1320. */
   maxWidth?: number;
+  /** Replacement visual pieces (page frame, error line, buttons); see `LibraryComponents`. */
+  components?: LibraryComponents;
+  /** Replacement class names; see `LibraryClassNames`. */
+  classNames?: LibraryClassNames;
+  /** How the origin filter lists its options. */
+  originFilter?: LibraryOriginFilter;
 }
+
+/** Options of the origin filter. */
+export interface LibraryOriginFilter {
+  /** Sort the options by their `filterKey` (the value sent to the source) instead of by label. Default "label". */
+  sortBy?: "label" | "value";
+  /** Text of an option, from its value and (when a loaded row has it) its origin. Default: the origin's `label`. */
+  optionLabel?: (value: string, origin: LibraryOrigin | undefined) => string;
+}
+
+// The toolbar row. Inside the screen's own frame one element carries both the row and its frame; a
+// host page shell gets the row alone (`header`) and frames it itself.
+const TOOLBAR_ROW = "flex h-11 w-full min-w-0 items-center gap-[var(--space-2)] overflow-x-auto";
+const TOOLBAR_FRAME = "border-b border-[color-mix(in_srgb,var(--line),transparent_40%)] py-[var(--space-2)]";
 
 /**
  * The library list: filters (variants, date, origin), retention, export, selection, per-row edit,
@@ -55,9 +76,15 @@ export function LibraryScreen({
   labels: labelOverrides,
   exportName,
   maxWidth = 1320,
+  components,
+  classNames,
+  originFilter,
 }: LibraryScreenProps) {
   const labels = useMemo<LibraryLabels>(() => ({ ...DEFAULT_LIBRARY_LABELS, ...labelOverrides }), [labelOverrides]);
-  const context = useMemo<LibraryContextValue>(() => ({ source, groups, variants, labels }), [source, groups, variants, labels]);
+  const context = useMemo<LibraryContextValue>(
+    () => ({ source, groups, variants, labels, components, classNames }),
+    [source, groups, variants, labels, components, classNames],
+  );
   const own = useGroupSelection(groups);
   const sourceSelection = controlledSelection ?? own.groupSelection;
   const [dateFilter, setDateFilter] = useState<DateFilter>("all");
@@ -184,21 +211,26 @@ export function LibraryScreen({
   // `label`; a source that matches on the key never sees the display form. Labels seen once stay known, so
   // a picked origin keeps its label while the filtered list is empty.
   const originLabels = useRef(new Map<string, string>());
+  const optionLabel = originFilter?.optionLabel;
+  const sortByValue = originFilter?.sortBy === "value";
   const appOptions = useMemo<LibraryFilterOption[]>(() => {
     const options = new Map<string, string>();
     for (const item of visibleItems) {
       if (!item.origin) continue;
       const value = item.origin.filterKey ?? item.origin.label;
-      originLabels.current.set(value, item.origin.label);
-      if (!options.has(value)) options.set(value, item.origin.label);
+      const label = optionLabel ? optionLabel(value, item.origin) : item.origin.label;
+      originLabels.current.set(value, label);
+      if (!options.has(value)) options.set(value, label);
     }
     if (appFilter !== "all" && !options.has(appFilter)) {
-      options.set(appFilter, originLabels.current.get(appFilter) ?? friendlyAppName(appFilter));
+      options.set(appFilter, originLabels.current.get(appFilter) ?? (optionLabel ? optionLabel(appFilter, undefined) : friendlyAppName(appFilter)));
     }
     return Array.from(options, ([value, label]) => ({ value, label })).sort(
-      (a, b) => a.label.localeCompare(b.label) || a.value.localeCompare(b.value),
+      sortByValue
+        ? (a, b) => a.value.localeCompare(b.value)
+        : (a, b) => a.label.localeCompare(b.label) || a.value.localeCompare(b.value),
     );
-  }, [visibleItems, appFilter]);
+  }, [visibleItems, appFilter, optionLabel, sortByValue]);
 
   const hasActiveFilters =
     search.trim() !== "" || dateFilter !== "all" || appFilter !== "all" || !isAllSourcesSelected;
@@ -266,7 +298,7 @@ export function LibraryScreen({
         const results = await Promise.allSettled(ids.map((id) => remove(id)));
         const failed = results.filter((r) => r.status === "rejected").length;
         if (failed > 0) {
-          setError(`${failed} of ${ids.length} deletes failed.`);
+          setError(labels.deleteFailed ? labels.deleteFailed(failed, ids.length) : `${failed} of ${ids.length} deletes failed.`);
         } else {
           setNotice(`${ids.length} ${ids.length === 1 ? labels.item : labels.items} deleted.`);
           clearSelection();
@@ -322,7 +354,7 @@ export function LibraryScreen({
       const stem = exportName ?? labels.area.toLowerCase();
       const saved = await source.saveText(
         `${stem}-selected-${new Date().toISOString().slice(0, 10)}.txt`,
-        formatRowsPlainText(selected, `${libraryAppName()} ${labels.area}`),
+        formatRowsPlainText(selected, `${libraryAppName()} ${labels.area}`, labels.exportFields),
       );
       if (!saved) return;
       setNotice(`${selected.length} ${selected.length === 1 ? labels.item : labels.items} exported.`);
@@ -430,85 +462,108 @@ export function LibraryScreen({
 
   const setDraftValue = useCallback((value: string) => setDraft(value), []);
 
-  return (
-    <LibraryContext.Provider value={context}>
-    <PageShell maxWidth={maxWidth}>
-      <div data-page="library" className="w-full">
-        {/* Filters & selection actions share one fixed-height toolbar. */}
-        <div className="flex h-11 w-full min-w-0 items-center gap-[var(--space-2)] overflow-x-auto border-b border-[color-mix(in_srgb,var(--line),transparent_40%)] py-[var(--space-2)]">
-          <LibraryToolbar
-            dateFilter={dateFilter}
-            appFilter={appFilter}
-            appOptions={appOptions}
-            outcomeFilter={outcomeFilter}
-            setDateFilter={setDateFilter}
-            setAppFilter={setAppFilter}
-            setOutcomeFilter={setOutcomeFilter}
-          />
-          <LibraryActionsLine
-            retention={retention}
-            retentionSaving={retentionSaving}
-            setRetention={(value) => void changeRetention(value)}
-            exportHistory={exportAll ? () => void exportHistory() : undefined}
-            requestDeleteAll={() => void requestDeleteAll()}
-            deletableCount={source.remove ? deletableCount : 0}
-            isSelecting={isSelecting}
-            selectedCount={selectedIds.size}
-            allVisibleSelected={allVisibleSelected}
-            toggleSelectAll={toggleSelectAll}
-            exportSelected={() => void exportSelected()}
-            requestDeleteSelected={requestDeleteSelected}
-            toggleSelecting={toggleSelecting}
-          />
-        </div>
-        {source.recovery ? <RecoveryBanner recovery={source.recovery} /> : null}
-        {error ? (
+  const toolbar = (
+    <>
+      <LibraryToolbar
+        dateFilter={dateFilter}
+        appFilter={appFilter}
+        appOptions={appOptions}
+        outcomeFilter={outcomeFilter}
+        setDateFilter={setDateFilter}
+        setAppFilter={setAppFilter}
+        setOutcomeFilter={setOutcomeFilter}
+      />
+      <LibraryActionsLine
+        retention={retention}
+        retentionSaving={retentionSaving}
+        setRetention={(value) => void changeRetention(value)}
+        exportHistory={exportAll ? () => void exportHistory() : undefined}
+        requestDeleteAll={() => void requestDeleteAll()}
+        deletableCount={source.remove ? deletableCount : 0}
+        isSelecting={isSelecting}
+        selectedCount={selectedIds.size}
+        allVisibleSelected={allVisibleSelected}
+        toggleSelectAll={toggleSelectAll}
+        exportSelected={() => void exportSelected()}
+        requestDeleteSelected={requestDeleteSelected}
+        toggleSelecting={toggleSelecting}
+      />
+    </>
+  );
+  const ErrorNotice = components?.ErrorNotice;
+  const body = (
+    <>
+      {source.recovery ? <RecoveryBanner recovery={source.recovery} /> : null}
+      {error ? (
+        ErrorNotice ? (
+          <ErrorNotice message={error} onDismiss={() => setError("")} />
+        ) : (
           <Notice tone="bad" action={<button type="button" className="rk-btn rk-btn--ghost rk-btn--sm" onClick={() => setError("")}>Dismiss</button>}>
             {error}
           </Notice>
-        ) : null}
-
-        <LibraryNotice notice={notice} />
-
-        <LibraryRows
-          loaded={loaded}
-          items={visibleItems}
-          outcomeFilter={outcomeFilter}
-          hasActiveFilters={hasActiveFilters}
-          total={displayTotal}
-          hasMore={hasMore}
-          loadingMore={loadingMore}
-          onLoadMore={loadMore}
-          editingId={editingId}
-          draft={draft}
-          expandedId={expandedId}
-          copiedId={copiedId}
-          showRaw={showRaw}
-          isSelecting={isSelecting}
-          selectedIds={selectedIds}
-          onSetDraft={setDraftValue}
-          onToggleExpand={toggleExpand}
-          onStartCorrection={startCorrection}
-          onCancelCorrection={cancelCorrection}
-          onSaveCorrection={saveCorrection}
-          onCopyCorrection={copyCorrection}
-          onCopyItem={copyItem}
-          onToggleShowRaw={toggleShowRaw}
-          onRequestDelete={requestDelete}
-          onToggleSelect={toggleSelect}
-        />
-      </div>
-      {pendingConfirm ? (
-        <LibraryConfirmDialog
-          pendingConfirm={pendingConfirm}
-          dontAskAgain={dontAskAgain}
-          cancelRef={cancelConfirmRef}
-          setDontAskAgain={setDontAskAgain}
-          onCancel={() => setPendingConfirm(null)}
-          onConfirm={() => void confirmPending()}
-        />
+        )
       ) : null}
-    </PageShell>
+
+      <LibraryNotice notice={notice} />
+
+      <LibraryRows
+        loaded={loaded}
+        items={visibleItems}
+        outcomeFilter={outcomeFilter}
+        hasActiveFilters={hasActiveFilters}
+        total={displayTotal}
+        hasMore={hasMore}
+        loadingMore={loadingMore}
+        onLoadMore={loadMore}
+        editingId={editingId}
+        draft={draft}
+        expandedId={expandedId}
+        copiedId={copiedId}
+        showRaw={showRaw}
+        isSelecting={isSelecting}
+        selectedIds={selectedIds}
+        onSetDraft={setDraftValue}
+        onToggleExpand={toggleExpand}
+        onStartCorrection={startCorrection}
+        onCancelCorrection={cancelCorrection}
+        onSaveCorrection={saveCorrection}
+        onCopyCorrection={copyCorrection}
+        onCopyItem={copyItem}
+        onToggleShowRaw={toggleShowRaw}
+        onRequestDelete={requestDelete}
+        onToggleSelect={toggleSelect}
+      />
+    </>
+  );
+  const dialog = pendingConfirm ? (
+    <LibraryConfirmDialog
+      pendingConfirm={pendingConfirm}
+      dontAskAgain={dontAskAgain}
+      cancelRef={cancelConfirmRef}
+      setDontAskAgain={setDontAskAgain}
+      onCancel={() => setPendingConfirm(null)}
+      onConfirm={() => void confirmPending()}
+    />
+  ) : null;
+  const Shell = components?.PageShell;
+
+  return (
+    <LibraryContext.Provider value={context}>
+      {Shell ? (
+        <Shell maxWidth={maxWidth} header={<div className={TOOLBAR_ROW}>{toolbar}</div>}>
+          <div className="w-full">{body}</div>
+          {dialog}
+        </Shell>
+      ) : (
+        <PageShell maxWidth={maxWidth}>
+          <div data-page="library" className="w-full">
+            {/* Filters & selection actions share one fixed-height toolbar. */}
+            <div className={`${TOOLBAR_ROW} ${TOOLBAR_FRAME}`}>{toolbar}</div>
+            {body}
+          </div>
+          {dialog}
+        </PageShell>
+      )}
     </LibraryContext.Provider>
   );
 }

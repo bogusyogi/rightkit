@@ -45,7 +45,7 @@ Optional replacements, for a host whose pages must look or behave as its own (ev
 ```ts
 configureDictationHost({
   components: {
-    PageShell,   // ({ page: "dictation" | "polish" | "home", children }) wrapper of those pages
+    PageShell,   // ({ page: "dictation" | "polish" | "home" | "history", header?, children }) wrapper of those pages; `header` (History only) is the filter row, which the shell frames above `children`
     Toggle,      // ({ checked, onChange, label, disabled? }) the Polish switches
     Kbd,         // ({ chord }) chords on Home
     OriginIcon,  // ({ item: HistoryItem, size?, className? }) app tile of a Home recent row
@@ -57,7 +57,15 @@ configureDictationHost({
 ```
 
 `useSettings` must return `{ data, loaded, error, setError, patch(key, value), get(key, fallback) }` (`UseSettings`);
-every page reads and patches settings through it. Pro state is `DictationClient.entitlement()` (read once) plus the
+every page reads and patches settings through it.
+
+`DictationHistory` is the History page. It reads the host configuration for what is particular to the app: `appName`
+(copy, and the name of "Export selected"'s file: `<appname>-history-selected-<date>.txt`), `components.PageShell`
+(the frame, called with `page: "history"`) and `storageKeys` `skipDeleteConfirm`, `groupSelection` (stored shape
+`{ mac, iphone, watch }`) and `recoveryDismissed`. `configureDictationHost` forwards `appName`, `storagePrefix` and
+those three keys to `@rightkit/library-ui`'s host configuration, so one call configures both. A host's source-visibility
+control (a title bar's checkboxes) uses `useHistorySourceSelection()` (`{ sourceSelection, setSourceSelection }`,
+the same choice the page follows) and `HISTORY_SOURCES`. Pro state is `DictationClient.entitlement()` (read once) plus the
 `entitlement` event on `on` (changes), so a host with its own licence lifecycle returns its snapshot from the first and
 subscribes in the second. A rejected `openPricing()` is logged and swallowed by the pages.
 

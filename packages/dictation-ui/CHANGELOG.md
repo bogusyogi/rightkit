@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.3
+
+Added: `DictationHistory` now renders HeardRight's History screen, so an app can delete its own copy. Needs the matching `@rightkit/library-ui` (its `Unreleased` options).
+
+- Markup, wording and files equal HeardRight's: the toolbar frame and height, the `ErrorBanner` error line, the `ui` button and input classes, "Foreign-device transcript is read-only here", "Collapse transcript" / "Expand transcript", the Delete-all tooltip, "Recorded on <device>", "No history items match your search.", "N of M transcript deletes failed.", the app filter (options sorted by the raw key, shown as the friendly name), and "Export selected": file `<appname>-history-selected-<date>.txt` (from `appName`), filter "Plain text", content with `Target:` (the raw app key) and `Transcript:`.
+- `deliveryRow` no longer adds the device as a badge (only "Cancelled" is one; the device is the row's glyph) and sets `groupLabel`. `deliveryLabels()` returns the new wording. `HISTORY_SOURCES` (`mac`, `iphone`, `watch` and their labels) and `useHistorySourceSelection()` (`{ groupSelection, sourceSelection, setSourceSelection }`, `SourceSelection`) are new: the device choice a host's title bar renders, stored in the host's `groupSelection` key and followed by the page.
+- Host: `configureDictationHost` forwards `appName`, `storagePrefix` and the storage keys `skipDeleteConfirm`, `groupSelection` and `recoveryDismissed` (new `DictationStorageKey` members) to `@rightkit/library-ui`'s host configuration, so one call configures both. `components.PageShell` is also called for the History page: `page: "history"` (new `DictationPageName` member) and a new `header` prop, the filter row, which the shell frames above `children`. Without a host `PageShell` the page uses the list's own frame.
+- `tauriDictationClient`: the save dialog of `saveTextFile` (History's "Export selected", file transcription's .txt) names the `.txt` filter "Plain text" (was "TXT"); other extensions are unchanged.
+- Not changed: the app filter key of a synced (`cloud_sync`) row stays the raw process name, window title or "Unknown app" (`deliveryFilterKey`). HeardRight's `targetLabel` sends the device name ("iPhone") for it, but the delivery store's `app_name` is `history_target_label` (`rightkit-transcript-library`), which has no synced arm, so that key matches nothing.
+
 ## 0.2.2
 
 - Added: opt-in host options so an app can render the pages with its own look and settings store; defaults are unchanged. `configureDictationHost({ components: { PageShell, Toggle, Kbd, OriginIcon }, classNames: { rowChip }, hooks: { useSettings }, restoreFocus })` with the exported types `DictationComponents`, `DictationClassNames`, `DictationHooks`, `DictationPageShellProps`, `DictationToggleProps`, `DictationOriginIconProps`, `DictationPageName`. `useSettings` (now routed through `hooks.useSettings`; the package's own is `usePackageSettings`) serves Home, Polish and Vocabulary; `PageShell` wraps Dictation, Polish and Home; `restoreFocus(opener)` replaces the TranscribeModal's focus return.

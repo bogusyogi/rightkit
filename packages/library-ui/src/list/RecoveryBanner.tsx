@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import { Button } from "@rightkit/react-shell/react";
 import type { LibraryRecovery, LibraryRecoveryStatus } from "../contract.js";
 import { readStored, writeStored } from "../host.js";
+import { useLibraryButton } from "./LibraryChrome.js";
 
 /**
  * Shown above the list when the source had to set its store aside (kept, never deleted). The
@@ -11,6 +11,7 @@ export function RecoveryBanner({ recovery }: { recovery: LibraryRecovery }) {
   const [status, setStatus] = useState<LibraryRecoveryStatus | null>(null);
   const [dismissed, setDismissed] = useState<string | null>(() => readStored("recoveryDismissed"));
   const [message, setMessage] = useState("");
+  const Btn = useLibraryButton();
 
   useEffect(() => {
     void recovery.status().then(setStatus).catch(() => undefined);
@@ -35,10 +36,10 @@ export function RecoveryBanner({ recovery }: { recovery: LibraryRecovery }) {
         <strong>{status.title}</strong> {status.message}
         {message ? <span> {message}</span> : null}
       </div>
-      <Button size="sm" onClick={() => void exportDiagnostics()}>
+      <Btn size="sm" onClick={() => void exportDiagnostics()}>
         Export diagnostics
-      </Button>
-      <Button
+      </Btn>
+      <Btn
         size="sm"
         onClick={() => {
           writeStored("recoveryDismissed", String(status.createdAtMs));
@@ -46,7 +47,7 @@ export function RecoveryBanner({ recovery }: { recovery: LibraryRecovery }) {
         }}
       >
         Dismiss
-      </Button>
+      </Btn>
     </aside>
   );
 }

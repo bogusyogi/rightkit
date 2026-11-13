@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.2
+
+Added: options so a host can make the list look and read as its own. Every default is unchanged: the rendered markup, strings, export text and storage of a host that sets none of them are byte-identical to 0.2.1.
+
+- `LibraryScreen` props: `components` (`LibraryComponents`: `PageShell` (`LibraryPageShellProps`: `maxWidth`, `header`, `children`; the screen hands it the toolbar as `header` and the list in a full-width block, and draws no frame of its own), `ErrorNotice` (`LibraryErrorNoticeProps`), `Button` (`LibraryButtonProps`: `variant`, `size`, `disabled`, `onClick`, `buttonRef`, `children`; used by the row fix bar, the confirm dialog, Load more and the recovery banner)), `classNames` (`LibraryClassNames`: `input`, the edited row's text field) and `originFilter` (`LibraryOriginFilter`: `sortBy` `"label"` (default) or `"value"`, and `optionLabel(value, origin)`).
+- `LibraryLabels` (all optional): `readOnly` (`{ title, label(rowContext) }`), `expandTitle(expanded)`, `deleteAllHint`, `groupGlyph(label)`, `noMatch`, `deleteFailed(failed, total)` and `exportFields` (`LibraryExportFields`: `origin` and `text` line names, `originValue(origin)`). `formatRowsPlainText` takes the fields as an optional third argument.
+- `LibraryRow.groupLabel`: names a row's group where the group's label does not (the glyph's tooltip).
+- `useLibraryButton()`: the list's button for parts a host renders itself.
+- `./host` entry: `configureLibraryHost`, `libraryAppName`, `libraryStorageKey` and friends on their own, without the list code.
+
 ## 0.2.1
 
 - Added: `./tauri` entry with `tauriLibrarySource(options?)`, the `LibrarySource` over ScrapeRight's artifact library (`get_history_page` by cursor behind the list's offsets, `get_transcript` and `get_transcript_variant` for the reader, `delete_transcript`, `job://update` for changes; command names overridable), and `LIBRARY_SORT_VARIANTS`.

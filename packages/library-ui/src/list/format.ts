@@ -1,7 +1,7 @@
 // Pure helpers and shared classes for the library list (moved from @rightkit/dictation-ui 0.1.0
 // `pages/history/historyUtils`, the half that is not about dictation records).
 
-import type { LibraryRow } from "../contract.js";
+import type { LibraryOrigin, LibraryRow } from "../contract.js";
 
 export const rowActionChip =
   "grid h-8 w-8 shrink-0 place-items-center rounded-[7px] border-0 bg-transparent p-0 text-[var(--muted)] transition-[background-color,color,transform,box-shadow] duration-150 ease-[var(--ease-out-strong)] hover:bg-[rgba(255,255,255,0.06)] hover:text-[var(--paper)] active:scale-[0.94] focus-visible:outline-none focus-visible:[box-shadow:var(--focus-ring)]";
@@ -81,18 +81,28 @@ export function friendlyAppName(name: string | null | undefined): string {
   return stripped;
 }
 
+/** Field names (and the origin's value) in the "Export selected" text. Default: `Origin: <label>` and `Text:`. */
+export interface LibraryExportFields {
+  /** Name of the origin line. */
+  origin: string;
+  /** Name of the line that introduces the row's text. */
+  text: string;
+  /** The origin line's value. Default: the origin's `label`. */
+  originValue?: (origin: LibraryOrigin) => string;
+}
+
 /** Plain-text rendering of rows, for "Export selected". */
-export function formatRowsPlainText(rows: LibraryRow[], title: string): string {
+export function formatRowsPlainText(rows: LibraryRow[], title: string, fields?: LibraryExportFields): string {
   const heading = `${title} (selected)`;
   const lines: string[] = [heading, "=".repeat(Math.max(30, heading.length)), `Records: ${rows.length}`, ""];
   rows.forEach((row, index) => {
     const at = new Date(row.timestampMs).toISOString();
     lines.push(row.status ? `[${at}] ${row.status}` : `[${at}]`);
     lines.push(`ID: ${row.id}`);
-    if (row.origin) lines.push(`Origin: ${row.origin.label}`);
+    if (row.origin) lines.push(`${fields?.origin ?? "Origin"}: ${fields?.originValue ? fields.originValue(row.origin) : row.origin.label}`);
     const clip = formatClip(row.durationMs);
     if (clip) lines.push(`Recording time: ${clip}`);
-    lines.push("Text:");
+    lines.push(`${fields?.text ?? "Text"}:`);
     lines.push(row.text);
     if (index + 1 < rows.length) lines.push("", "--------------------", "");
   });

@@ -15,6 +15,7 @@ export { default as ApiKeysPanel } from "./pages/polish/ApiKeysPanel.js";
 export * from "./pages/polish/PolishCards.js";
 export { DictationHistory } from "./history/DictationHistory.js";
 export * from "./history/deliveryRows.js";
+export * from "./history/useHistorySourceSelection.js";
 
 // Page parts
 export { default as AccessibilityBanner } from "./components/AccessibilityBanner.js";
