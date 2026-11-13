@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.2
 
 - Added: `tauriDictationSettingsBackend(options?)` and `TauriSettingsOptions` from `./tauri`, the settings backend of `tauriDictationClient` on its own (`get_settings_snapshot` / `apply_settings_patch_at`, string-revision handles, `revision_conflict` mapping, window event fan-out, `settingsKeys` key mapping). For an app that renders the settings screens without the hub; it lives in its own module, so it does not pull in the client's other commands. New option `invoke` (default Tauri's) for an app with its own IPC bridge. `tauriDictationClient` uses it internally; its behaviour is unchanged.
 

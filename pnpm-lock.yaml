@@ -1617,6 +1617,9 @@ importers:
       '@rightkit/logs':
         specifier: ^0.1.6
         version: link:../logs
+      '@tauri-apps/api':
+        specifier: ^2.0.0
+        version: 2.12.4
       '@tauri-apps/plugin-dialog':
         specifier: ^2.0.0
         version: 2.8.4
