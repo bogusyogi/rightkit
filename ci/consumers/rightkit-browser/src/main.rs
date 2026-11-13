@@ -46,6 +46,36 @@ async fn stage<T>(name: &str, limit: Duration, work: impl Future<Output = T>) ->
     }
 }
 
+/// One sub-step of a stage: logs its start and its measured time on stderr and carries its own
+/// bound, so a stall names the operation that never returned (not just the enclosing stage).
+async fn step<T, E>(name: &str, work: impl Future<Output = std::result::Result<T, E>>) -> Result<T>
+where
+    E: Into<Box<dyn Error + Send + Sync>>,
+{
+    const STEP_BOUND: Duration = Duration::from_secs(8);
+    let started = Instant::now();
+    eprintln!("  step {name}: start");
+    match tokio::time::timeout(STEP_BOUND, work).await {
+        Ok(Ok(value)) => {
+            eprintln!("  step {name}: ok in {:?}", started.elapsed());
+            Ok(value)
+        }
+        Ok(Err(error)) => {
+            let error: Box<dyn Error + Send + Sync> = error.into();
+            eprintln!("  step {name}: failed in {:?}: {error}", started.elapsed());
+            Err(error)
+        }
+        Err(_) => {
+            eprintln!("  step {name}: no answer after {STEP_BOUND:?}");
+            Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                format!("step `{name}` gave no answer within {STEP_BOUND:?}"),
+            )
+            .into())
+        }
+    }
+}
+
 fn required_env(key: &str) -> Result<String> {
     let value = std::env::var(key)?;
     require(
@@ -151,18 +181,18 @@ async fn browser_tabs_and_export(executable: &Path, scratch: &Path) -> Result<()
     .await??;
     let profile = session.profile_dir().to_path_buf();
     let operation = stage("browser tabs and export", Duration::from_secs(30), async {
-        let first = session.new_page("about:blank").await?;
-        let second = session.new_page("about:blank").await?;
+        let first = step("open first tab", session.new_page("about:blank")).await?;
+        let second = step("open second tab", session.new_page("about:blank")).await?;
         require(
             first.id() != second.id(),
             "tabs must have distinct identities",
         )?;
-        session.select_page(first.id()).await?;
+        step("select first tab", session.select_page(first.id())).await?;
         require(
             session.current()?.id() == first.id(),
             "tab selection failed",
         )?;
-        session.close_page(second.id()).await?;
+        step("close second tab", session.close_page(second.id())).await?;
         require(
             matches!(session.page(second.id()), Err(BrowserError::UnknownPage(_))),
             "closed tab remains registered",
@@ -176,14 +206,19 @@ async fn browser_tabs_and_export(executable: &Path, scratch: &Path) -> Result<()
             NetscapeCookie::new("unrelated.example", "outside", "r2-outside")?,
         ];
         require(
-            first.import_cookies(&seed).await? == seed.len(),
+            step(
+                "import cookies (Network.setCookies)",
+                first.import_cookies(&seed),
+            )
+            .await?
+                == seed.len(),
             "cookie import count",
         )?;
         // about:blank has no matching cookie scope. Query every seeded scope directly
         // over HTTPS (secure cookie) & include /app without navigating or making requests.
-        let stored = first
-            .raw()
-            .execute(
+        let stored = step(
+            "read cookies (Network.getCookies)",
+            first.raw().execute(
                 GetCookiesParams::builder()
                     .urls([
                         "https://example.test/",
@@ -191,10 +226,11 @@ async fn browser_tabs_and_export(executable: &Path, scratch: &Path) -> Result<()
                         "https://unrelated.example/",
                     ])
                     .build(),
-            )
-            .await?
-            .result
-            .cookies;
+            ),
+        )
+        .await?
+        .result
+        .cookies;
         let mut observed = Vec::new();
         for cookie in stored {
             // These are session-cookie vectors. Refuse an unexpected persistent cookie
@@ -215,7 +251,7 @@ async fn browser_tabs_and_export(executable: &Path, scratch: &Path) -> Result<()
             "browser did not retain imported cookies",
         )?;
         export_contract(scratch, &observed)?;
-        session.close_page(first.id()).await?;
+        step("close first tab", session.close_page(first.id())).await?;
         require(
             session.pages().is_empty(),
             "tab registry not empty after close",

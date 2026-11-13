@@ -3,6 +3,7 @@
 ## 0.3.11 (unpublished)
 
 - Requires `rightkit-models` 0.7.0 (one on-disk model store, shape review 2026-11-11, pending the owner's confirmation). No behaviour change in this crate.
+- Note for macOS: with the real keychain (0.3.9) the hosted macOS verify host stalls in the first cookie operation of the registry consumer; the consumer now names the sub-step that stalls, and the verify host sets up its own unlocked default keychain. Chrome's keychain behaviour is unchanged by this crate.
 
 ## 0.3.10
 - Docs: links to `profile-vault`-only items (`ProfileVault`, `LaunchOptions::encrypted_profile`, `VaultError`, `ProfileSpec::Encrypted`) are plain code, so the default-feature doc build (`-D warnings`) passes.
