@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.0
 
 Folds into 0.2.0 (unpublished). Found by diffing GenRight's `genright-gen` against this crate so a host can drop its copy; every default keeps RightKit's behaviour.
 
@@ -11,8 +11,6 @@ Folds into 0.2.0 (unpublished). Found by diffing GenRight's `genright-gen` again
 - Changed: WaveSpeed lipsync-3 is priced per second of input video ($0.135/s; the reservation is the 300 s cap, $40.50; it was a flat $0.05 per call). Ported from GenRight's 2026-11-03 pricing from the official page.
 - Changed: fal video requests send only `16:9` or `9:16` as `aspect_ratio` (anything else becomes `auto` or `16:9`, as before the value was passed through unchecked). Ported from GenRight.
 - Added catalogue entry `bytedance/seedance-2.5/talking-avatar` (WaveSpeed avatar, priced per audio second), from GenRight's catalogue.
-
-## 0.2.0
 
 - Removed (breaking): `media`, GenRight's container probe, a second copy of `rightkit_ffmpeg::quickprobe` (the extended one: size, codec, audio codec and frame count). Use `rightkit_ffmpeg::quickprobe` (`probe`, `probe_prefix`, `probe_file`, `probe_media`, `sniff_mime`, `PROBE_PREFIX_BYTES`); the descriptor, import and stock paths now call it.
 - Removed (breaking): `host::h264`, a copy of `rightkit_ffmpeg::h264_rule` (19 differing lines, all path prefixes). Use `rightkit_ffmpeg::h264_rule`; lip-sync and `rightkit-media-pipeline` call it.

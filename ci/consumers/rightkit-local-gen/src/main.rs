@@ -1,4 +1,4 @@
-// rightkit-local-gen 0.1.2 consumed by exact registry pin (default features), outside the workspace.
+// rightkit-local-gen 0.1.3 consumed by exact registry pin (default features), outside the workspace.
 // Cheap checks on the pure public surface; no model files, no sd-server, no network.
 use rightkit_local_gen::{host, memory, model_store, profiles, roots};
 

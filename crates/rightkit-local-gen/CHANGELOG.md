@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.3
 
 - Added `roots::configure_process_defaults(ProcessDefaults { known_workspace, workspace_folder_name })`: set once at startup, it changes what `EnvValues::from_process()` uses besides the environment, for every caller in the process (`service_host::Host`, `rightkit-media-gen`'s local image provider, `rightkit-media-pipeline`, `rightkit-media-gen-models`). Without a call the defaults stay no known workspace and `<home>/RightKit`. A host that shipped another default workspace (`<home>/<App>`, or a fixed workspace folder) passes it here and keeps its users' folders.
 

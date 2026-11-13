@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.1
 
 - New: `BindVerification::None` for `bind_installed_runtime`: no integrity check, for a host that verified the runtime by other means or never checked it (its install carries no `manifest.json` and no catalog row). The path checks and the known-bad runtime refusal still apply; the report carries the new `VerificationReport::Unverified`. Both enums are `#[non_exhaustive]`, so adding the variants is not breaking.
 - New: `BindSpec::leading_candidates` (explicit candidates searched before the bundled one, for a path the host's shell hands it) and `BindSpec::bundled_candidates` (further bundled locations searched after the `resource_subdir` one and before `extra_dirs`, for example the library directly beside the executable). Both default to empty, so the search order is unchanged. `BindSpec` is not `#[non_exhaustive]`: a struct literal that does not end in `..BindSpec::new(..)` needs the two new fields.
