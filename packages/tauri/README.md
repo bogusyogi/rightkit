@@ -16,6 +16,7 @@ Updater behavior comes from `@rightkit/app-update`: an `AutoUpdateClient` passed
 | Import | Contents |
 |---|---|
 | `@rightkit/tauri` | `createRightKitTauriClient`, `standardRightKitTauriCommands`, `logsOnlyRightKitTauriCommands`, `standardRightKitDeviceGetOrCreate`, `defineTauriCommands`, `declaredTauriCommandNames`, `tauriHandlerCommandNames`, `missingTauriHandlers`, `TauriCommandError`, `createNativeFetch`, `NativeFetchError`, `NATIVE_FETCH_MESSAGES`, `RIGHTKIT_FETCH_COMMAND`; types `Invoke`, `RightKitTauriCommands`, `RightKitTauriClientConfig`, `RightKitTauriAdapterConfig`, `RightKitTauriAppConfig`, `RightKitTauriClient`. Deprecated, removed in 0.5.0: `createViewRightTauriClient`, `createScrapeRightTauriClient`, `createHeardRightTauriClient`, `createMailRightTauriClient`, `createCodeRightTauriClient`, `createRightSuiteAppTauriClient`, `rightSuiteTauriAppConfigs` |
+| `@rightkit/tauri/window` | `tauriWindowControls` (caption-button adapter for the current window; needs `@tauri-apps/api`, an optional peer) |
 | `@rightkit/tauri/dialog` | `pickFolder`, `pickFile`, `pickFiles`, `pickSavePath`, `ask` (native dialogs; see below) |
 
 Clients expose `device.getOrCreate`, `logs.write/collect/clear`, `diagnostics.collect/clear` & optional `updates`.

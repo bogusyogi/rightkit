@@ -56,6 +56,10 @@ app's licence lifecycle; without it `entitlement()` and the `entitlement` event 
 `settingsKeys` (`fromNative`/`toNative` key mapping for the settings store), `settingsEvent`, `appName`,
 `fileNamePrefix`. The app's `src-tauri` must serve the commands the entry calls (listed in `src/tauri`).
 
+An app that only needs the settings screens imports the settings backend alone:
+`tauriDictationSettingsBackend({ settingsKeys, settingsEvent, invoke })` returns the `SettingsBackend` that
+`tauriDictationClient(...).settings` uses (`invoke` defaults to Tauri's).
+
 The app frame (sidebar, title bar, window controls, palette) is `@rightkit/react-shell`; licence `@rightkit/license`;
 updates `@rightkit/app-update`; theme `@rightkit/theme`; legal `@rightkit/legal-ui`; settings screens
 `@rightkit/settings-ui`. The voice conversation loop is in `@rightkit/agent-ui-components`.

@@ -260,7 +260,8 @@
       "scenarios": 7,
       "surface": [
         ".",
-        "./dialog"
+        "./dialog",
+        "./window"
       ],
       "closure": {
         "install": {
@@ -268,7 +269,9 @@
           "@rightkit/logs": "0.1.6",
           "@tauri-apps/plugin-dialog": "2.8.3"
         },
-        "declaredOnly": []
+        "declaredOnly": [
+          "@tauri-apps/api"
+        ]
       },
       "importClosures": {
         ".": {
@@ -279,6 +282,10 @@
           "@rightkit/app-update": "0.4.0",
           "@rightkit/logs": "0.1.6",
           "@tauri-apps/plugin-dialog": "2.8.3"
+        },
+        "./window": {
+          "@rightkit/app-update": "0.4.0",
+          "@rightkit/logs": "0.1.6"
         }
       },
       "files": {

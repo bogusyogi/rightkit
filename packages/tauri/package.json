@@ -1,6 +1,6 @@
 {
   "name": "@rightkit/tauri",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "Typed host adapters for shared Right Suite Tauri commands.",
   "license": "MIT OR Apache-2.0",
   "packageManager": "pnpm@12.16.1",
@@ -15,6 +15,10 @@
     "./dialog": {
       "types": "./dist/dialog.d.ts",
       "import": "./dist/dialog.js"
+    },
+    "./window": {
+      "types": "./dist/window.d.ts",
+      "import": "./dist/window.js"
     }
   },
   "files": [
@@ -26,7 +30,8 @@
   "rightkit": {
     "publishCheck": {
       "skipImport": [
-        "./dialog"
+        "./dialog",
+        "./window"
       ]
     }
   },
@@ -35,9 +40,13 @@
   },
   "peerDependencies": {
     "@rightkit/app-update": ">=0.2.5 <0.5",
+    "@tauri-apps/api": "^2.0.0",
     "@tauri-apps/plugin-dialog": "^2.0.0"
   },
   "peerDependenciesMeta": {
+    "@tauri-apps/api": {
+      "optional": true
+    },
     "@tauri-apps/plugin-dialog": {
       "optional": true
     }
