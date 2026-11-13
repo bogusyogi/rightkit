@@ -2080,7 +2080,7 @@
       "files": {
         "Cargo.toml": "93c40d0edee2840839c4ddd952720582c6fe1ebd15c3dbb26494ca1852bee781",
         "README.md": "8515f8481c8a4fb81582afc0acfa1638aaafe61364656e050bd1e5abb920bc82",
-        "src/main.rs": "7c30977276fda597a3b4bdefa3560c6be36b86c34da410f243027a05e0e71f39"
+        "src/main.rs": "473da59212eab4c03729728ef570dd02f9c437d4b1301f142c022c6c34fcf67e"
       },
       "runs": [
         {
