@@ -68,7 +68,7 @@ Capabilities: 222 (58 with fingerprints, 164 declaration-only). Internal owners 
 | code-audit-provider-sdk | `rightkit-code-audit-provider-sdk` | none | declaration-only | 0 | rightkit-code-audit-provider-sdk: staged 0.1.1, not published |
 | composition-model | `rightkit-compose` | none | declaration-only | 0 | rightkit-compose: published 0.2.0 (crates.io) |
 | content-contracts | `rightkit-contracts` | none | declaration-only | 0 | rightkit-contracts: published 0.1.7 (crates.io) |
-| content-plan | `rightkit-content-plan` | none | declaration-only | 0 | rightkit-content-plan: staged 0.2.0, not published |
+| content-plan | `rightkit-content-plan` | none | declaration-only | 0 | rightkit-content-plan: staged 0.2.1, not published |
 | content-proof | `rightkit-content-proof` | none | declaration-only | 0 | rightkit-content-proof: staged 0.1.1, not published |
 | content-review | `rightkit-review` | none | declaration-only | 0 | rightkit-review: published 0.4.0 (crates.io) |
 | context | `rightkit-context` | none | declaration-only | 0 | rightkit-context: staged 0.2.0, not published |
@@ -195,9 +195,9 @@ Capabilities: 222 (58 with fingerprints, 164 declaration-only). Internal owners 
 | shared-presets | `@rightkit/config` | none | declaration-only | 0 | @rightkit/config: staged 0.1.1, not published |
 | shared-speech-service | `rightkit-speech-client` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-speech-client: published 0.4.0 (crates.io) |
 | social-analytics | `rightkit-social-analytics` | none | declaration-only | 0 | rightkit-social-analytics: staged 0.3.0, not published |
-| social-inbox | `rightkit-social-inbox` | none | declaration-only | 0 | rightkit-social-inbox: staged 0.3.0, not published |
+| social-inbox | `rightkit-social-inbox` | none | declaration-only | 0 | rightkit-social-inbox: staged 0.3.1, not published |
 | social-publish | `rightkit-social-publish` | none | declaration-only | 0 | rightkit-social-publish: staged 0.2.0, not published |
-| social-ui | `@rightkit/social-ui` | none | declaration-only | 0 | @rightkit/social-ui: staged 0.1.0, not published |
+| social-ui | `@rightkit/social-ui` | none | declaration-only | 0 | @rightkit/social-ui: staged 0.1.1, not published |
 | speech-recognition | `rightkit-asr` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-asr: published 0.3.0 (crates.io) |
 | spend-ledger | `rightkit-spend` | none | declaration-only | 0 | rightkit-spend: published 0.2.0 (crates.io) |
 | spreadsheet | `rightkit-docs` | none | declaration-only | 0 | rightkit-docs: published 0.1.2 (crates.io) |

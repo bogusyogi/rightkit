@@ -120,7 +120,10 @@ fn conflict(msg: impl Into<String>) -> Fail {
 }
 
 fn not_found(draft_id: &str) -> Fail {
-    ("not_found", format!("no draft {draft_id} for this scope"))
+    (
+        "not_found",
+        format!("no manual draft {draft_id} for this scope"),
+    )
 }
 
 fn changed(draft_id: &str) -> Fail {

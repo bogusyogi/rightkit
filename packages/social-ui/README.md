@@ -38,4 +38,4 @@ pnpm --dir packages/social-ui test
 ```
 
 Modules left out of the root barrel because an export name collides with an earlier module
-(import them by subpath): `data/index.ts`, `data/source.ts`
+(import them by subpath, `@rightkit/social-ui/data` and `@rightkit/social-ui/data/source`): `data/index.ts`, `data/source.ts`
