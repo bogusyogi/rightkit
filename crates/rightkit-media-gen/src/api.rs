@@ -888,7 +888,11 @@ fn cancel_accepted_paid(
             ),
         }
     } else {
-        format!("{} has no cancel endpoint the host can call", job.provider)
+        format!(
+            "{} has no cancel endpoint {} can call",
+            job.provider,
+            crate::host::app_or("the host")
+        )
     };
     let note = format!(
         "cancel requested; {why}. The provider may still complete and charge, so attempt {} stays reserved. Check the provider, then `job resolve {id} --abandon` (counts it as spent) or `--resubmit` (nothing ran)",

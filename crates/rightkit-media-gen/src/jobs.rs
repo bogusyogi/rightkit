@@ -495,10 +495,14 @@ fn hold_poll_unknown(
         format!(" Provider reply: {detail}")
     };
     if !completed {
+        let recognised = match crate::host::media_config().app_name.as_deref() {
+            Some(app) => format!("a status {app} recognises"),
+            None => "a recognised status".to_string(),
+        };
         let held = err_json(
             "outcome_unknown",
             &format!(
-                "{} answered job {pid} with status {status:?}, which is not a recognised status; it may still run or bill, so attempt {attempt} stays reserved and nothing is resubmitted.{reply}",
+                "{} answered job {pid} with status {status:?}, which is not {recognised}; it may still run or bill, so attempt {attempt} stays reserved and nothing is resubmitted.{reply}",
                 job.provider
             ),
         );

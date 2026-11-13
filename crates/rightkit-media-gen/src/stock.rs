@@ -46,7 +46,6 @@ use rightkit_ffmpeg::quickprobe as media;
 /// Providers `asset.acquire` accepts, in the order the issue names them.
 pub const PROVIDERS: &[&str] = &["pexels", "pixabay", "archive", "nasa", "wikimedia"];
 
-const USER_AGENT: &str = "RightKit-media-gen/0.1 (asset acquisition)";
 const PEXELS_LICENCE: &str = "https://www.pexels.com/license/";
 const PEXELS_DOCS: &str =
     "https://www.pexels.com/api/documentation/ (All content is available free of charge)";
@@ -108,7 +107,8 @@ impl Default for Live {
 
 impl Fetch for Live {
     fn get(&self, req: &Req) -> GenResult<Vec<u8>> {
-        let mut r = Request::get(req.url.clone()).header("User-Agent", USER_AGENT);
+        let mut r = Request::get(req.url.clone())
+            .header("User-Agent", &crate::host::media_config().user_agent);
         if let Some((name, value)) = &req.auth {
             r = r.secret_header(*name, value.as_str());
         }

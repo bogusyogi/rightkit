@@ -122,3 +122,51 @@ pub fn resolve_caller_from(flag: Option<&str>, env: Option<&str>) -> Result<Call
         None => Ok(Caller::cli()),
     }
 }
+
+/// Names and literals specific to this crate that an embedding app may set once at startup, next
+/// to [`configure`]. Every default is RightKit-neutral; a host with shipped users passes the
+/// literals it already uses so file names, user-visible text and the HTTP identity do not change.
+/// Build it with `..Default::default()`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MediaHostConfig {
+    /// The app's display name for user-visible messages ("this app uploads ...", "built into
+    /// ..."). `None` keeps the neutral wording ("this app", "the host", "the catalogue").
+    pub app_name: Option<String>,
+    /// Prefix of diagnostic lines this crate writes to stderr (`<prefix>: ...`).
+    pub log_prefix: String,
+    /// `User-Agent` of the stock-search and asset-download requests.
+    pub user_agent: String,
+    /// File name, under the locks folder, of the lock that serialises attaching the spend ledger
+    /// to the job database. Hosts that already have lock files in place pass the name they use.
+    pub spend_attach_lock_name: String,
+}
+
+impl Default for MediaHostConfig {
+    fn default() -> Self {
+        Self {
+            app_name: None,
+            log_prefix: "rightkit-media-gen".into(),
+            user_agent: "RightKit-media-gen/0.1 (asset acquisition)".into(),
+            spend_attach_lock_name: "spend-attach.lock".into(),
+        }
+    }
+}
+
+static MEDIA_CONFIG: std::sync::OnceLock<MediaHostConfig> = std::sync::OnceLock::new();
+
+/// Set the crate-specific host options once, before first use. Returns the rejected value when
+/// options are already set (or were already read, which fixes the defaults).
+pub fn configure_media(config: MediaHostConfig) -> Result<(), Box<MediaHostConfig>> {
+    MEDIA_CONFIG.set(config).map_err(Box::new)
+}
+
+/// The options in force (the defaults until [`configure_media`] is called).
+pub fn media_config() -> &'static MediaHostConfig {
+    MEDIA_CONFIG.get_or_init(MediaHostConfig::default)
+}
+
+/// The host's display name, or `neutral` when the host named none. For sentence-initial use pass
+/// the capitalised neutral form ("This app").
+pub fn app_or(neutral: &str) -> &str {
+    media_config().app_name.as_deref().unwrap_or(neutral)
+}

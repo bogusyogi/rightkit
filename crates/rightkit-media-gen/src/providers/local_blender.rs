@@ -22,7 +22,11 @@ const MAX_DIMENSION: u64 = 4096;
 const MAX_PIXELS: u64 = 16_777_216;
 const MAX_FRAMES: u64 = 1200;
 const MAX_SAMPLES: u64 = 512;
-const RUN_TIMEOUT: Duration = Duration::from_secs(2 * 60 * 60);
+/// Wall-clock cap for one job's Blender work across all its attempts: 150 minutes, including
+/// retries, sound, encode and validation.
+const RENDER_DEADLINE: Duration = Duration::from_secs(150 * 60);
+/// Error code recorded for a job whose render budget ran out; the owned process tree is already terminated.
+const DEADLINE_CODE: &str = "worker_deadline_exceeded";
 const POLL_INTERVAL: Duration = Duration::from_millis(200);
 
 static MODELS: [ModelInfo; 5] = [
@@ -77,14 +81,17 @@ struct Config {
     probe_cache: PathBuf,
 }
 
-/// Environment variable the RenderRight worker reads for the external assets folder.
+/// Environment variable the Blender worker (`@rightkit/blender-worker`) reads for the external
+/// assets folder; the provider sets it on the spawned Blender process. The host reads its own
+/// `<PREFIX>_BLENDER_ASSETS_DIR` first (then this one) to find the folder.
 pub const ASSETS_ENV: &str = "RIGHTKIT_BLENDER_ASSETS_DIR";
+const ASSETS_SUFFIX: &str = "BLENDER_ASSETS_DIR";
 /// Folder name under the app data root that is used when the variable is unset.
 const ASSETS_DEFAULT_DIR: &str = "blender-assets";
 
 /// Resolve the external Blender assets folder.
 ///
-/// Order: `RIGHTKIT_BLENDER_ASSETS_DIR` when non-empty (passed through verbatim, so a missing
+/// Order: `<PREFIX>_BLENDER_ASSETS_DIR` (then `RIGHTKIT_BLENDER_ASSETS_DIR`) when non-empty (passed through verbatim, so a missing
 /// folder fails in the worker with its own error naming the variable); otherwise
 /// `<app data root>/blender-assets` when that directory exists; otherwise `None`.
 /// No settings source exists for the other Blender paths, so none is added here.
@@ -98,7 +105,10 @@ pub fn resolve_assets_dir(env: Option<std::ffi::OsString>, data_root: &Path) -> 
 
 /// The assets folder this process would hand to Blender, for `doctor` reporting.
 pub fn resolved_assets_dir() -> Option<PathBuf> {
-    resolve_assets_dir(std::env::var_os(ASSETS_ENV), &crate::host::app_data_root())
+    resolve_assets_dir(
+        crate::host::env_var(ASSETS_SUFFIX).map(Into::into),
+        &crate::host::app_data_root(),
+    )
 }
 
 #[derive(Clone, Debug)]
@@ -196,14 +206,14 @@ fn ordinary_path(path: &Path) -> PathBuf {
 impl LocalBlender {
     pub fn new() -> Self {
         let data = crate::host::app_data_root();
-        let blender = std::env::var_os("RIGHTKIT_BLENDER_PATH")
+        let blender = crate::host::env_var("BLENDER_PATH")
             .map(PathBuf::from)
             .or_else(default_blender)
             .unwrap_or_else(|| PathBuf::from("blender"));
-        let worker = std::env::var_os("RIGHTKIT_BLENDER_WORKER_DIR")
+        let worker = crate::host::env_var("BLENDER_WORKER_DIR")
             .map(PathBuf::from)
             .unwrap_or_else(default_worker);
-        let assets = resolve_assets_dir(std::env::var_os(ASSETS_ENV), &data);
+        let assets = resolve_assets_dir(crate::host::env_var(ASSETS_SUFFIX).map(Into::into), &data);
         Self {
             config: Config {
                 blender,
@@ -785,6 +795,18 @@ impl LocalBlender {
         let input_hash = sha256_bytes(&job_bytes);
         rightkit_fs::atomic_write(&job_file, &job_bytes)
             .map_err(|e| unavailable(format!("could not write Blender job: {e}")))?;
+        // The budget is persisted once per job, so a restart or a new attempt keeps only the remaining time.
+        let budget = job_budget(&dir)
+            .map_err(|e| unavailable(format!("could not persist Blender render deadline: {e}")))?;
+        if budget.is_zero() {
+            let expired = json!({"schema":1,"job_id":job_id,"attempt":attempt,"state":"timeout","owner_token":self.owner_token,"owner_pid":std::process::id(),"exit_code":Value::Null,"success":false,"finished_unix_ms":unix_ms(),"input_sha256":input_hash,"message":deadline_message()});
+            atomic_json(&state_file, &expired).map_err(|e| {
+                unavailable(format!("could not record Blender deadline expiry: {e}"))
+            })?;
+            return Ok(SubmitOutcome::Accepted {
+                provider_job_id: provider_id,
+            });
+        }
         // A prior attempt's files remain useful checkpoints, but its manifest
         // cannot certify this attempt's process exit.
         let _ = fs::remove_file(dir.join("result-manifest.json"));
@@ -886,6 +908,7 @@ impl LocalBlender {
                 stderr_capture,
                 dir,
                 encoder,
+                budget,
             )
         });
         Ok(SubmitOutcome::Accepted {
@@ -1064,9 +1087,7 @@ impl Provider for LocalBlender {
                 "Blender render was cancelled",
                 false,
             )),
-            "timeout" => Ok(PollOutcome::Failed {
-                message: "Blender render exceeded its two-hour limit".into(),
-            }),
+            "timeout" => Err(ProviderError::new(DEADLINE_CODE, deadline_message(), false)),
             "failed" | "observer_error" => Ok(PollOutcome::Failed {
                 message: state["message"]
                     .as_str()
@@ -1159,6 +1180,40 @@ impl Provider for LocalBlender {
     }
 }
 
+fn deadline_message() -> String {
+    format!(
+        "Blender render exceeded its {}-minute deadline; the Blender process tree was terminated",
+        RENDER_DEADLINE.as_secs() / 60
+    )
+}
+
+/// Remaining render time for this job. The first call persists `deadline.json` (start and deadline in unix ms);
+/// later calls, including after a runner restart, read it back and return what is left.
+fn job_budget(dir: &Path) -> std::io::Result<Duration> {
+    let path = dir.join("deadline.json");
+    let now = unix_ms();
+    let deadline = if path.exists() {
+        // A file that is there but unreadable is an error, never a fresh budget.
+        let unreadable = || {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "deadline.json is unreadable",
+            )
+        };
+        let saved = read_json(&path).map_err(|_| unreadable())?;
+        saved["deadline_unix_ms"].as_u64().ok_or_else(unreadable)? as u128
+    } else {
+        let deadline = now + RENDER_DEADLINE.as_millis();
+        atomic_json(
+            &path,
+            &json!({"schema":1,"started_unix_ms":now as u64,"deadline_unix_ms":deadline as u64}),
+        )?;
+        deadline
+    };
+    // Capped, so a system clock moved back between attempts cannot extend the budget.
+    Ok(Duration::from_millis(deadline.saturating_sub(now) as u64).min(RENDER_DEADLINE))
+}
+
 fn monitor_blender(
     mut child: rightkit_child_process::OwnedChild,
     mut reader: rightkit_child_process::StderrTail,
@@ -1174,6 +1229,7 @@ fn monitor_blender(
     stderr_capture: rightkit_logs::StderrCapture,
     job_dir: PathBuf,
     encoder: Option<PathBuf>,
+    budget: Duration,
 ) {
     let started = Instant::now();
     // Lease renewal runs on its own thread, independent of everything this loop can block on (the job-store
@@ -1235,14 +1291,10 @@ fn monitor_blender(
             ));
             break;
         }
-        if started.elapsed() >= RUN_TIMEOUT {
+        if started.elapsed() >= budget {
+            // The owned facade ends the whole Blender process tree before the expiry is recorded.
             let _ = child.terminate_tree_bounded(Duration::from_secs(10));
-            result = Some((
-                "timeout".into(),
-                None,
-                false,
-                Some("Blender render exceeded its two-hour limit".into()),
-            ));
+            result = Some(("timeout".into(), None, false, Some(deadline_message())));
             break;
         }
         // Owner wait: blocks up to one poll interval and returns the moment the leader exits.

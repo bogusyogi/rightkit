@@ -1638,7 +1638,7 @@ impl Entry {
                     if self.provider_params.iter().any(|a| a == k) && !body.contains_key(k) {
                         body.insert(k.clone(), v.clone());
                     } else {
-                        eprintln!("rightkit-media-gen: {}/{}: provider_params.{k} is not a documented body key of this model; dropped", self.provider, self.model);
+                        eprintln!("{}: {}/{}: provider_params.{k} is not a documented body key of this model; dropped", crate::host::media_config().log_prefix, self.provider, self.model);
                     }
                 }
             }
@@ -2185,7 +2185,8 @@ fn parse(
             errors.push(format!("{source}: entry {id}: {m}"));
         } else if builtin(&entry.provider, &entry.model) {
             errors.push(format!(
-                "{source}: entry {id}: the model is built into the catalogue and cannot be redeclared"
+                "{source}: entry {id}: the model is built into {} and cannot be redeclared",
+                crate::host::app_or("the catalogue")
             ));
         } else if entries
             .iter()

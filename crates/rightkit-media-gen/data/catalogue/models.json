@@ -3987,6 +3987,72 @@
       "price_source": "https://wavespeed.ai/models/veed/fabric-1.0"
     },
     {
+      "priced_at": "2026-11-03",
+      "reconciled": false,
+      "provider": "wavespeed",
+      "model": "bytedance/seedance-2.5/talking-avatar",
+      "kind": "avatar",
+      "label": "Seedance 2.5 Talking Avatar on WaveSpeed ($0.22/$0.44 per billable audio second at 480p/720p, list price; billed on audio length rounded up to the next second, 4 s minimum, 120 s maximum; the page header shows $0.198 per run (10% off a struck $0.22) and does not reconcile it with the per-second table, the final task charge prevails)",
+      "endpoint": "bytedance/seedance-2.5/talking-avatar",
+      "inputs": [
+        {
+          "param": "image",
+          "json_key": "image",
+          "type": "url",
+          "role": "reference",
+          "required": true
+        },
+        {
+          "param": "audio",
+          "json_key": "audio",
+          "type": "url",
+          "role": "audio",
+          "required": true
+        },
+        {
+          "param": "prompt",
+          "json_key": "prompt",
+          "type": "string"
+        },
+        {
+          "param": "resolution",
+          "json_key": "resolution",
+          "type": "string",
+          "enum": [
+            "480p",
+            "720p"
+          ],
+          "default": "720p"
+        },
+        {
+          "param": "source_seconds",
+          "type": "number",
+          "send": false,
+          "min": 1
+        }
+      ],
+      "pricing": {
+        "kind": "per_second",
+        "usd": 0.44,
+        "seconds_param": "source_seconds",
+        "by": {
+          "param": "resolution",
+          "values": {
+            "480p": 0.22,
+            "720p": 0.44
+          }
+        },
+        "min_billed_s": 4,
+        "max_billed_s": 120,
+        "derived": {
+          "source_param": "audio",
+          "reserve_cap_seconds": 120,
+          "reserve_cap_basis": "assumed"
+        }
+      },
+      "price_source": "https://wavespeed.ai/models/bytedance/seedance-2.5/talking-avatar"
+    },
+    {
       "priced_at": "2026-10-17",
       "reconciled": false,
       "provider": "wavespeed",

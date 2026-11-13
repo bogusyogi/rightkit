@@ -13,6 +13,12 @@ ledger venture), the environment prefix (`RIGHTKIT` by default; `RIGHTKIT_*` nam
 as a fallback) and the content subfolder for local outputs. `Context::with_db_file_name` names the
 job-store database file (default `media-gen.sqlite3`).
 
+Crate-specific literals go through `host::configure_media(MediaHostConfig { .. })`: the display name
+used in user-visible messages (`app_name`), the stderr log prefix, the `User-Agent` of stock
+downloads and the name of the spend-ledger attach lock file. The defaults are neutral. Environment
+overrides (budget, Blender, Wan2GP, lip-sync and music model folders) are read as `<PREFIX>_NAME`
+first, then `RIGHTKIT_NAME`.
+
 The approval token domain is the host's (`host::approval::set_token_domain`, default
 `rightkit-approval-v1`). The spend ledger's sidecar tables are `media_gen_spend_*`; a database with the
 donor's `genright_spend_*` tables is renamed in place on first attach.
