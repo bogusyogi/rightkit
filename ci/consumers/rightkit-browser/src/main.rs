@@ -9,10 +9,11 @@ use rightkit_browser::{
 use sha2::{Digest, Sha256};
 use std::error::Error;
 use std::fs;
+use std::future::Future;
 use std::io::{self, Read};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 type Result<T> = std::result::Result<T, Box<dyn Error + Send + Sync>>;
 
@@ -21,6 +22,27 @@ fn require(condition: bool, message: &str) -> Result<()> {
         Ok(())
     } else {
         Err(io::Error::other(message).into())
+    }
+}
+
+/// Run one bounded stage. An elapsed bound names the stage and its limit (a bare
+/// `tokio::time::error::Elapsed` names nothing), and each finished stage reports its measured
+/// time on stderr, which the publish verification keeps on failure.
+async fn stage<T>(name: &str, limit: Duration, work: impl Future<Output = T>) -> Result<T> {
+    let started = Instant::now();
+    match tokio::time::timeout(limit, work).await {
+        Ok(value) => {
+            eprintln!(
+                "stage {name}: finished in {:?} (bound {limit:?})",
+                started.elapsed()
+            );
+            Ok(value)
+        }
+        Err(_) => Err(io::Error::new(
+            io::ErrorKind::TimedOut,
+            format!("stage `{name}` exceeded its {limit:?} bound"),
+        )
+        .into()),
     }
 }
 
@@ -121,10 +143,14 @@ async fn browser_tabs_and_export(executable: &Path, scratch: &Path) -> Result<()
     options.chrome_path = Some(executable.to_path_buf());
     options.launch_timeout = Duration::from_secs(30);
     options.request_timeout = Duration::from_secs(5);
-    let session =
-        tokio::time::timeout(Duration::from_secs(45), BrowserSession::launch(options)).await??;
+    let session = stage(
+        "browser launch",
+        Duration::from_secs(45),
+        BrowserSession::launch(options),
+    )
+    .await??;
     let profile = session.profile_dir().to_path_buf();
-    let operation = tokio::time::timeout(Duration::from_secs(30), async {
+    let operation = stage("browser tabs and export", Duration::from_secs(30), async {
         let first = session.new_page("about:blank").await?;
         let second = session.new_page("about:blank").await?;
         require(
@@ -201,9 +227,14 @@ async fn browser_tabs_and_export(executable: &Path, scratch: &Path) -> Result<()
 
     // Every success/error/operation-timeout takes owner-scoped shutdown. Only public
     // session ownership can terminate its process tree; never issue a PID/global kill.
-    let graceful = tokio::time::timeout(Duration::from_secs(20), session.shutdown()).await;
+    let graceful = stage(
+        "browser shutdown",
+        Duration::from_secs(20),
+        session.shutdown(),
+    )
+    .await;
     if graceful.is_err() {
-        tokio::time::timeout(Duration::from_secs(15), session.cancel()).await?;
+        stage("browser cancel", Duration::from_secs(15), session.cancel()).await?;
     }
     drop(session);
     require(
@@ -354,7 +385,12 @@ async fn fixture_case(cancel: bool) -> Result<()> {
         actions,
         expires_after_ms: 30_000,
     };
-    let launched = tokio::time::timeout(
+    let launched = stage(
+        if cancel {
+            "fixture launch (cancel case)"
+        } else {
+            "fixture launch (pass case)"
+        },
         Duration::from_secs(45),
         FixtureSession::launch(server, intent),
     )
@@ -384,7 +420,7 @@ async fn fixture_case(cancel: bool) -> Result<()> {
                 result = &mut execution => result,
                 _ = tokio::time::sleep(Duration::from_millis(250)) => {
                     cancel_signal.cancel();
-                    tokio::time::timeout(Duration::from_secs(45), &mut execution).await?
+                    stage("fixture cancel cleanup", Duration::from_secs(45), &mut execution).await?
                 }
             }
         } else {
@@ -392,8 +428,12 @@ async fn fixture_case(cancel: bool) -> Result<()> {
                 Ok(result) => result,
                 Err(_) => {
                     cancel_signal.cancel();
-                    let result =
-                        tokio::time::timeout(Duration::from_secs(45), &mut execution).await?;
+                    let result = stage(
+                        "fixture cleanup after run bound",
+                        Duration::from_secs(45),
+                        &mut execution,
+                    )
+                    .await?;
                     match &result {
                         Ok(outcome) => assert_terminal(&initial, &outcome.attestation).await?,
                         Err(failure) => assert_terminal(&initial, &failure.attestation).await?,

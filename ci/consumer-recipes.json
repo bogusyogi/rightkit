@@ -1221,7 +1221,7 @@
           "@rightkit/settings-ui": "0.7.2",
           "@rightkit/tauri-shell": "0.1.4",
           "@rightkit/theme": "0.3.3",
-          "@rightkit/tauri": "0.4.1"
+          "@rightkit/tauri": "0.4.2"
         },
         "declaredOnly": [
           "@phosphor-icons/react",
@@ -1232,7 +1232,7 @@
       "files": {
         "ci/consumers/npm/dictation-ui/README.md": "05cb356a734beb4c433cdf839e89583da8bc2ca694e112107a77bf02821bfde0",
         "ci/consumers/npm/dictation-ui/consumer.mjs": "a7f2da912e674bcd51ac5836250a8a9fd39dcfcfb8b69a8f57c6801e0cea3158",
-        "ci/consumers/npm/dictation-ui/package.json": "3ed5220123ea4ff4499a6c62e37154c863b1b1893a708b340a38b85f8263ab86",
+        "ci/consumers/npm/dictation-ui/package.json": "63cd1a9257a9f5148ecc84e5cec3b093285065888427b801bd3cae2a971556b8",
         "ci/consumers/npm/dictation-ui/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "fc160695e1dc97dc7e32e746c9e4471e2d85168b097623de818befeb00ee438c"
       }
@@ -2080,7 +2080,7 @@
       "files": {
         "Cargo.toml": "93c40d0edee2840839c4ddd952720582c6fe1ebd15c3dbb26494ca1852bee781",
         "README.md": "8515f8481c8a4fb81582afc0acfa1638aaafe61364656e050bd1e5abb920bc82",
-        "src/main.rs": "a719e9badfca191c21ee3491b4f184a342eea93140f514050897cd0af8d520e9"
+        "src/main.rs": "7c30977276fda597a3b4bdefa3560c6be36b86c34da410f243027a05e0e71f39"
       },
       "runs": [
         {
