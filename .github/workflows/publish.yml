@@ -791,6 +791,20 @@ jobs:
         shell: pwsh
         run: '& "$env:GITHUB_WORKSPACE/scripts/ci/locate-native-openssl.ps1"'
       # rightkit#1285: every crate is its own Cargo workspace (crates/<x>/Cargo.lock, crates/<x>/target); a crates run caches each unit's workspace.
+      # rightkit-browser launches Chrome with the real OS keychain (rightkit#1306: no mock keychain). On the hosted macOS
+      # host its consumer stalled in the cookie export (stage "browser tabs and export", launch itself took 8 s): Chrome
+      # waits on its Safe Storage item. The verify host gets its own unlocked default keychain, a real one, for that run.
+      - name: Give the macOS verify host an unlocked default keychain (rightkit-browser, rightkit-qa)
+        if: ${{ needs.plan.outputs.registry == 'crates' && runner.os == 'macOS' && (contains(needs.plan.outputs.units, 'rightkit-browser') || contains(needs.plan.outputs.units, 'rightkit-qa')) }}
+        run: |
+          set -euo pipefail
+          keychain_path="$RUNNER_TEMP/verify-host.keychain-db"
+          keychain_password="$(uuidgen)"
+          security create-keychain -p "$keychain_password" "$keychain_path"
+          security set-keychain-settings -lut 21600 "$keychain_path"
+          security unlock-keychain -p "$keychain_password" "$keychain_path"
+          security list-keychain -d user -s "$keychain_path"
+          security default-keychain -d user -s "$keychain_path"
       - name: Name the crate workspaces of the plan
         id: crate-workspaces
         if: ${{ needs.plan.outputs.registry == 'crates' }}
