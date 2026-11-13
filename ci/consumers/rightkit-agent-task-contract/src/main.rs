@@ -1,4 +1,4 @@
-// rightkit-agent-task-contract 0.1.0 consumed by exact registry pin (`=0.1.0`), outside the workspace.
+// rightkit-agent-task-contract 0.2.0 consumed by exact registry pin (`=0.2.0`), outside the workspace.
 //
 // Proves, through the public API only: the task-state table, the effect classes, the approval binding's
 // wire form on the approvals core's Binding, and the voice hand-off with caller-supplied labels.

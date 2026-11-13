@@ -26,9 +26,8 @@ use windows::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Threading::{GetCurrentProcessId, GetCurrentThreadId};
 use windows::Win32::UI::WindowsAndMessaging::*;
-use windows::core::{BOOL, PCWSTR, w};
+use windows::core::{BOOL, PCWSTR};
 
-const CLASS: PCWSTR = w!("RightKitClipboardListener");
 const WM_SYNC: u32 = WM_APP + 1;
 const WM_CLIPBOARDUPDATE: u32 = 0x031D;
 const RETENTION_TIMER: usize = 1;
@@ -74,10 +73,10 @@ pub fn start() {
     let (tx, rx) = mpsc::channel::<Change>();
     *WORK.lock().unwrap_or_else(PoisonError::into_inner) = Some(tx);
     let reader = std::thread::Builder::new()
-        .name("rightkit-clip-read".to_string())
+        .name(host::thread_name("read"))
         .spawn(move || reader_main(&rx));
     let owner = std::thread::Builder::new()
-        .name("rightkit-clip-listen".to_string())
+        .name(host::thread_name("listen"))
         .spawn(listener_main);
     if reader.is_err() || owner.is_err() {
         host::log_info("clipboard", &[("result", "no_thread")]);
@@ -115,8 +114,13 @@ fn listener_main() {
     let Some(instance) = unsafe { GetModuleHandleW(None) }.ok().map(HINSTANCE::from) else {
         return;
     };
+    // The class name outlives the class guard and the window that use it.
+    let product = host::product_name();
+    let class_name = host::wide(&format!("{product}ClipboardListener"));
+    let class = PCWSTR(class_name.as_ptr());
+    let title = host::wide(&format!("{product} clipboard"));
     // Declared before the window so it is unregistered after the window is gone.
-    let _class = match ClassGuard::register(CLASS, Some(listener_proc), instance) {
+    let _class = match ClassGuard::register(class, Some(listener_proc), instance) {
         Ok(class) => class,
         Err(error) => {
             host::log_error("RegisterClassW", &error, "clipboard");
@@ -124,12 +128,12 @@ fn listener_main() {
         }
     };
     // A message-only window: no taskbar, no broadcast, only the clipboard's notices.
-    // SAFETY: a plain window creation on this thread; the title is a NUL-terminated literal.
+    // SAFETY: a plain window creation on this thread; the class name and title are NUL-terminated and outlive it.
     let created = unsafe {
         CreateWindowExW(
             WINDOW_EX_STYLE(0),
-            CLASS,
-            w!("RightKit clipboard"),
+            class,
+            PCWSTR(title.as_ptr()),
             WINDOW_STYLE(0),
             0,
             0,

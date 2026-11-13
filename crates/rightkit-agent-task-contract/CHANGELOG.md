@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.1
+
+- Breaking for dependents: a dependency requirement was raised to a semver-breaking version.
+
+## 0.1.1
+
+- `VoiceLabels::agent_name`: what the refusal of a hand-off that is not an agent request calls the receiving agent ("is submitted to <agent_name>"; empty reads "the agent", as before). `VoiceError::NotAgentRequest` carries it as a new `agent` field. Both additions are source-breaking for struct literals and patterns; the crate is still unpublished and has no dependents.
+- Feature `cli`: `TaskHost::texts()` returns `TaskTexts`, with defaults that keep the wording unchanged: `help` (the whole `--help` text, replacing `help()`), `command` (how errors spell the command, default `task`; `app task` gives `(app task --help)`), `kind_required` (the refusal of `submit` without a kind) and `no_device_id`. A host can now reproduce its shipped text exactly.
+
 ## 0.1.0 (unpublished)
 
 - New crate: Pulse's task contract, moved out of `rightkit-agent-engine` 0.1.1 when that name became the facade of

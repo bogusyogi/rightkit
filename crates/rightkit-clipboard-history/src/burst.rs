@@ -372,7 +372,7 @@ fn spawn_worker(state: &mut State, delay_ms: u64) {
     }
     state.worker = true;
     let spawned = std::thread::Builder::new()
-        .name("rightkit-clip-burst".to_string())
+        .name(host::thread_name("burst"))
         .spawn(move || stage_loop(delay_ms));
     if spawned.is_err() {
         state.worker = false;
@@ -423,7 +423,7 @@ fn spawn_watcher(state: &mut State) {
     }
     state.watcher = true;
     let spawned = std::thread::Builder::new()
-        .name("rightkit-clip-burst-idle".to_string())
+        .name(host::thread_name("burst-idle"))
         .spawn(|| {
             loop {
                 std::thread::sleep(Duration::from_secs(5));

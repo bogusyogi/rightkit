@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-app-manager"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2024"
 rust-version = "1.98.0"
 description = "Installed-app management: inventory, icons, usage, updates, safe uninstall with leftovers to the Trash, and app quit/force-quit with system and self protection."

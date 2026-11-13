@@ -3,7 +3,7 @@
 //!
 //! In order: the item's formats go on the clipboard, each in the form the original had (rich
 //! text as HTML, RTF and text; an image as PNG and `CF_DIBV5`; files as a file list; "as plain
-//! text" as the text alone), marked as Pulse's own so the watcher skips the change and, while
+//! text" as the text alone), marked as the application's own so the watcher skips the change and, while
 //! `clipboardWriteBackExcluded` is on, kept out of Windows' own Win+V history. Then the
 //! window that was in front gets the foreground back, and once it has it, Ctrl+V is sent (or
 //! Ctrl+Shift+V, to the terminals that paste with it). Shift, Alt and Ctrl the user may still
@@ -97,7 +97,7 @@ fn start(id: &str, choice: Choice, previous: isize) -> bool {
     }
     let id = id.to_string();
     let spawned = std::thread::Builder::new()
-        .name("pulse-clip-paste".to_string())
+        .name(host::thread_name("paste"))
         .spawn(move || {
             run(&id, choice, previous);
             BUSY.store(false, Ordering::Release);
@@ -209,7 +209,7 @@ fn snapshot() -> Option<Vec<(u32, Vec<u8>)>> {
 /// is not held up.
 fn schedule_restore(saved: Vec<(u32, Vec<u8>)>, written: u32) {
     let _ = std::thread::Builder::new()
-        .name("pulse-clip-restore".to_string())
+        .name(host::thread_name("restore"))
         .spawn(move || {
             std::thread::sleep(RESTORE_DELAY);
             restore(&saved, written);
@@ -217,7 +217,7 @@ fn schedule_restore(saved: Vec<(u32, Vec<u8>)>, written: u32) {
 }
 
 /// Puts `saved` back, but only while the clipboard still holds the change `written` (what the paste
-/// wrote): anything copied meanwhile is left alone. Written as Pulse's own, as the paste is.
+/// wrote): anything copied meanwhile is left alone. Written as the application's own, as the paste is.
 fn restore(saved: &[(u32, Vec<u8>)], written: u32) {
     if win::sequence() != written {
         return;
@@ -317,7 +317,7 @@ pub fn write_back(id: &str, plain: bool) -> bool {
     true
 }
 
-/// Marks what was just written as Pulse's own (and, with `clipboardWriteBackExcluded`, keeps it
+/// Marks what was just written as the application's own (and, with `clipboardWriteBackExcluded`, keeps it
 /// out of Windows' history and cloud), then closes the clipboard and tells the watcher the change
 /// is not a copy.
 /// Marks the clipboard contents just written as the application's own.

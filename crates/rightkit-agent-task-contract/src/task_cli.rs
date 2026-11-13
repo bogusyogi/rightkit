@@ -57,6 +57,34 @@ pub enum Failure {
     },
 }
 
+/// Wording the application can set so its shipped command line text reads as it always has. Every
+/// field's default is this crate's own neutral wording.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TaskTexts {
+    /// The whole `--help` text, replacing [`help`]'s. `None` uses [`help`] with the program and
+    /// product names.
+    pub help: Option<String>,
+    /// How the command is spelled in the pointers inside errors, such as `(task --help)` and
+    /// `task status <task-id>` (default `task`; an application that is called as `app task ...` sets
+    /// `app task`).
+    pub command: String,
+    /// The refusal when `submit` has no job kind (default points at the engine's job-kind list).
+    pub kind_required: String,
+    /// The refusal when this computer has no device id yet.
+    pub no_device_id: String,
+}
+
+impl Default for TaskTexts {
+    fn default() -> Self {
+        Self {
+            help: None,
+            command: "task".to_string(),
+            kind_required: "submit needs --kind <kind>; the engine runs only the kinds in its job-kind list".to_string(),
+            no_device_id: "this computer has no device id yet; open the application on it once, then try again".to_string(),
+        }
+    }
+}
+
 /// What the task command line needs from the application that embeds it.
 pub trait TaskHost {
     /// Calls one engine method over the local engine connection.
@@ -77,6 +105,11 @@ pub trait TaskHost {
     /// can say who is asking. The application reads it from wherever its chat hosts put it (for
     /// example a session-id environment variable); `None` sends none.
     fn submitter_chat(&self) -> Option<String>;
+    /// The wording this application sets itself (see [`TaskTexts`]); the default keeps this
+    /// crate's wording.
+    fn texts(&self) -> TaskTexts {
+        TaskTexts::default()
+    }
 }
 
 use std::io::Read;
@@ -136,15 +169,22 @@ pub fn help(prog: &str, product: &str) -> String {
     HELP.replace("{prog}", prog).replace("{product}", product)
 }
 
-const SUBMIT_USAGE: &str = "submit takes one JSON document, or --stdin (task --help)";
-const ASK_USAGE: &str = "ask takes the question as text, or --stdin (task --help)";
-const ACT_USAGE: &str = "act takes the request as text, or --stdin (task --help)";
-const KEY_USAGE: &str = "--key takes one idempotency key: --key <idempotency-key> (task --help)";
+/// The help the command prints: the host's own text when it sets one, else [`help`].
+fn help_text(host: &dyn TaskHost) -> String {
+    host.texts()
+        .help
+        .unwrap_or_else(|| help(host.program_name(), host.product_name()))
+}
+
+/// The usage line of `submit`, `ask` or `act`, pointing at the help of `command`.
+fn usage(subcommand: &str, what: &str, command: &str) -> String {
+    format!("{subcommand} takes {what}, or --stdin ({command} --help)")
+}
 
 pub fn run(host: &dyn TaskHost, arguments: Vec<String>) -> Result<(), CliError> {
     let mut arguments = arguments;
     if arguments.is_empty() || matches!(arguments[0].as_str(), "help" | "--help" | "-h") {
-        println!("{}", help(host.program_name(), host.product_name()));
+        println!("{}", help_text(host));
         return Ok(());
     }
     let command = arguments.remove(0);
@@ -155,18 +195,23 @@ pub fn run(host: &dyn TaskHost, arguments: Vec<String>) -> Result<(), CliError> 
         "status" | "result" | "cancel" => task_call(host, &command, arguments),
         "events" => events(host, arguments),
         "list" => list(),
-        other => Err(format!("unknown task command: {other} (task --help)").into()),
+        other => {
+            let cmd = host.texts().command;
+            Err(format!("unknown task command: {other} ({cmd} --help)").into())
+        }
     }
 }
 
 fn submit(host: &dyn TaskHost, arguments: Vec<String>) -> Result<(), CliError> {
     if arguments.iter().any(|a| a == "--help" || a == "-h") {
-        println!("{}", help(host.program_name(), host.product_name()));
+        println!("{}", help_text(host));
         return Ok(());
     }
+    let texts = host.texts();
+    let cmd = texts.command.clone();
     let mut arguments = arguments;
-    let kind = take_option(&mut arguments, "--kind")?;
-    let params = take_option(&mut arguments, "--params")?;
+    let kind = take_option(&mut arguments, "--kind", &cmd)?;
+    let params = take_option(&mut arguments, "--params", &cmd)?;
     let from_stdin = arguments.iter().any(|a| a == "--stdin");
     let positional: Vec<&String> = arguments
         .iter()
@@ -174,7 +219,7 @@ fn submit(host: &dyn TaskHost, arguments: Vec<String>) -> Result<(), CliError> {
         .collect();
     let text = if from_stdin {
         if !positional.is_empty() {
-            return Err(SUBMIT_USAGE.into());
+            return Err(usage("submit", "one JSON document", &cmd).into());
         }
         let mut buffer = String::new();
         std::io::stdin()
@@ -184,7 +229,7 @@ fn submit(host: &dyn TaskHost, arguments: Vec<String>) -> Result<(), CliError> {
     } else {
         match positional.as_slice() {
             [document] => document.to_string(),
-            _ => return Err(SUBMIT_USAGE.into()),
+            _ => return Err(usage("submit", "one JSON document", &cmd).into()),
         }
     };
 
@@ -229,11 +274,7 @@ fn submit(host: &dyn TaskHost, arguments: Vec<String>) -> Result<(), CliError> {
         }
     });
     let Some(kind) = kind.or(from_envelope).or(default_kind) else {
-        return refuse(
-            "task.submit",
-            "submit needs --kind <kind>; the engine runs only the kinds in its job-kind list",
-            detail,
-        );
+        return refuse("task.submit", &texts.kind_required, detail);
     };
     let params = match params {
         None if kind == AGENT_REQUEST_KIND => agent_request_params(),
@@ -302,23 +343,25 @@ fn send_request(
     kind: &'static str,
 ) -> Result<(), CliError> {
     let acting = kind == AGENT_ACT_KIND;
-    let (command, usage, chat, policy) = if acting {
+    let texts = host.texts();
+    let cmd = texts.command.clone();
+    let (command, usage_line, chat, policy) = if acting {
         (
             "act",
-            ACT_USAGE,
+            usage("act", "the request as text", &cmd),
             format!("{}-cli:act", host.program_name()),
             ACT_POLICY_REF,
         )
     } else {
         (
             "ask",
-            ASK_USAGE,
+            usage("ask", "the question as text", &cmd),
             format!("{}-cli:ask", host.program_name()),
             ASK_POLICY_REF,
         )
     };
     if arguments.iter().any(|a| a == "--help" || a == "-h") {
-        println!("{}", help(host.program_name(), host.product_name()));
+        println!("{}", help_text(host));
         return Ok(());
     }
     // Words after a bare `--` are the text, even when they look like flags.
@@ -326,7 +369,7 @@ fn send_request(
         Some(at) => (arguments[..at].to_vec(), arguments[at + 1..].to_vec()),
         None => (arguments, Vec::new()),
     };
-    let (options, key) = take_key(options)?;
+    let (options, key) = take_key(options, &cmd)?;
     let wait = options.iter().any(|a| a == "--wait");
     let from_stdin = options.iter().any(|a| a == "--stdin");
     let mut words: Vec<String> = options
@@ -334,12 +377,12 @@ fn send_request(
         .filter(|a| a != "--wait" && a != "--stdin")
         .collect();
     if let Some(flag) = words.iter().find(|a| a.starts_with("--")) {
-        return Err(format!("unknown {command} option {flag} (task --help)").into());
+        return Err(format!("unknown {command} option {flag} ({cmd} --help)").into());
     }
     words.extend(literal);
     let text = if from_stdin {
         if !words.is_empty() {
-            return Err(usage.into());
+            return Err(usage_line.clone().into());
         }
         let mut buffer = String::new();
         std::io::stdin()
@@ -351,15 +394,11 @@ fn send_request(
     };
     let text = text.trim().to_string();
     if text.is_empty() {
-        return Err(usage.into());
+        return Err(usage_line.clone().into());
     }
 
     let Some(device_id) = host.local_device_id() else {
-        return refuse(
-            "task.submit",
-            "this computer has no device id yet; open the application on it once, then try again",
-            json!({"kind": kind}),
-        );
+        return refuse("task.submit", &texts.no_device_id, json!({"kind": kind}));
     };
     let utterance_id = host.random_uuid();
     // `--key` names the task for a resend; without it this call mints a key and prints it.
@@ -440,7 +479,10 @@ fn send_request(
 
 /// Takes `--key <idempotency-key>` out of the ask options. The value is trimmed and must not be
 /// empty or look like another flag. A second `--key` is refused.
-fn take_key(options: Vec<String>) -> Result<(Vec<String>, Option<String>), CliError> {
+fn take_key(
+    options: Vec<String>,
+    command: &str,
+) -> Result<(Vec<String>, Option<String>), CliError> {
     let mut rest = Vec::with_capacity(options.len());
     let mut key: Option<String> = None;
     let mut remaining = options.into_iter();
@@ -450,13 +492,18 @@ fn take_key(options: Vec<String>) -> Result<(Vec<String>, Option<String>), CliEr
             continue;
         }
         if key.is_some() {
-            return Err("--key is given more than once (task --help)".into());
+            return Err(format!("--key is given more than once ({command} --help)").into());
         }
         match remaining.next() {
             Some(value) if !value.trim().is_empty() && !value.starts_with("--") => {
                 key = Some(value.trim().to_string());
             }
-            _ => return Err(KEY_USAGE.into()),
+            _ => {
+                return Err(format!(
+                    "--key takes one idempotency key: --key <idempotency-key> ({command} --help)"
+                )
+                .into());
+            }
         }
     }
     Ok((rest, key))
@@ -507,13 +554,16 @@ fn wait_for(host: &dyn TaskHost, task_id: &str, idempotency_key: &str) -> Result
             };
         }
         if started.elapsed() >= WAIT_LIMIT {
-            let reason = "still running after 10 minutes; check it with task status <task-id>";
+            let reason = format!(
+                "still running after 10 minutes; check it with {} status <task-id>",
+                host.texts().command
+            );
             println!(
                 "{}",
                 receipt(
                     "task.status",
                     "unknown",
-                    reason,
+                    &reason,
                     json!({"task_id": task_id, "idempotency_key": idempotency_key}),
                 )
             );
@@ -539,7 +589,7 @@ fn local_platform() -> DevicePlatform {
 /// `status`, `result` and `cancel`: one task id, forwarded to the method of the same name.
 fn task_call(host: &dyn TaskHost, command: &str, arguments: Vec<String>) -> Result<(), CliError> {
     let method = format!("task.{command}");
-    let task_id = single_task_id(command, &arguments)?;
+    let task_id = single_task_id(&host.texts().command, command, &arguments)?;
     match host.call(&method, json!({ "taskId": task_id })) {
         Ok(answer) => {
             println!("{answer}");
@@ -551,13 +601,14 @@ fn task_call(host: &dyn TaskHost, command: &str, arguments: Vec<String>) -> Resu
 
 fn events(host: &dyn TaskHost, arguments: Vec<String>) -> Result<(), CliError> {
     let mut arguments = arguments;
-    let after = match take_option(&mut arguments, "--after")? {
+    let cmd = host.texts().command;
+    let after = match take_option(&mut arguments, "--after", &cmd)? {
         None => 0,
         Some(text) => text
             .parse::<i64>()
-            .map_err(|_| "--after takes a whole number (task --help)".to_string())?,
+            .map_err(|_| format!("--after takes a whole number ({cmd} --help)"))?,
     };
-    let task_id = single_task_id("events", &arguments)?;
+    let task_id = single_task_id(&cmd, "events", &arguments)?;
     let params = json!({ "taskId": task_id, "after": after });
     match host.call("task.events", params) {
         Ok(answer) => {
@@ -585,20 +636,24 @@ fn list() -> Result<(), CliError> {
     })
 }
 
-fn single_task_id(command: &str, arguments: &[String]) -> Result<String, CliError> {
+fn single_task_id(program: &str, command: &str, arguments: &[String]) -> Result<String, CliError> {
     match arguments {
         [id] if !id.trim().is_empty() => Ok(id.clone()),
-        _ => Err(format!("usage: task {command} <task-id> (task --help)").into()),
+        _ => Err(format!("usage: {program} {command} <task-id> ({program} --help)").into()),
     }
 }
 
 /// Removes `name value` from the arguments and returns the value. A flag with no value is an error.
-fn take_option(arguments: &mut Vec<String>, name: &str) -> Result<Option<String>, CliError> {
+fn take_option(
+    arguments: &mut Vec<String>,
+    name: &str,
+    command: &str,
+) -> Result<Option<String>, CliError> {
     let Some(index) = arguments.iter().position(|a| a == name) else {
         return Ok(None);
     };
     if index + 1 >= arguments.len() {
-        return Err(format!("{name} needs a value (task --help)").into());
+        return Err(format!("{name} needs a value ({command} --help)").into());
     }
     let value = arguments.remove(index + 1);
     arguments.remove(index);

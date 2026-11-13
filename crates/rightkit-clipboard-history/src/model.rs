@@ -1098,7 +1098,7 @@ impl Store {
                 }
                 let waiting: Vec<PathBuf> = disk.iter().map(|(_, path)| path.clone()).collect();
                 let _ = std::thread::Builder::new()
-                    .name("rightkit-clip-undo".to_string())
+                    .name(crate::host::thread_name("undo"))
                     .spawn(move || {
                         std::thread::sleep(Duration::from_secs_f64(UNDO_SECONDS + 1.0));
                         for path in waiting {

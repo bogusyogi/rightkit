@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.2
+
+- Feature `devicelink`: `DeviceLink::approve_guest` refuses a guest that has no owner-check signed grant with this computer's redemption of it (a PIN-made or unredeemed guest), and one whose lease exceeds the redeemed (signed) one, as Pulse does. A guest joined by a signed link is approved as before.
+- Feature `devicelink`: the redeemed-pairing ledger keeps an entry `CLOCK_SKEW_MS` longer (a grant issued ahead of first sight cannot be redeemed twice in its window's tail); redeeming a guest grant whose signed lease has already ended is refused (`Expired`); a circle revocation of an introduced device records a `circle.introduced_revoked` security event (short device id and conflict count). All three as in Pulse.
+
 ## 0.2.1
 
 - Additive: `BlockingStream::split(read_wait, write_wait)` returns a `TunnelReader` and a `TunnelWriter`, a byte pipe over one stream for the ssh tunnel (both exported from the crate root). The pipe counts relayed bytes against the session cap (25 MB) and the circle's monthly relay budget, reserving in 64 KiB steps and refunding what a closed pipe did not use; a direct path is not charged. `BlockingStream` now carries the circle budget (internal; `BlockingStream::new` is not public API) (#1572).

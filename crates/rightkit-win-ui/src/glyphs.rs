@@ -102,7 +102,7 @@ fn fill(
 
 /// Rounded rectangle of half-extents `(hx, hy)` and corner radius `r`, as a closed outline
 /// around the origin.
-pub(crate) fn rounded_rect(hx: f32, hy: f32, r: f32) -> Vec<(f32, f32)> {
+pub fn rounded_rect(hx: f32, hy: f32, r: f32) -> Vec<(f32, f32)> {
     const STEPS: usize = 6;
     let mut points = Vec::new();
     // Corner centres with the angle each arc starts at (clockwise, y down).

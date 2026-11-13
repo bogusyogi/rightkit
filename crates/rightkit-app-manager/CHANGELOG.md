@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.1
+
+- Added `set_privileged_helper_probe`: the host supplies a function asked on every helper check, for a helper state that changes while the process runs. Without it `set_privileged_helper_enabled` keeps working as before.
+- The two update refusals that said "this app" now name the host app: "The feed is not a Sparkle appcast <display name> can read." and "...no update source <display name> can use." The display name is `HostIdentity::display_name`; unset keeps "this app".
+
 ## 0.2.0
 
 - Breaking for dependents: dependency requirements `rightkit-disk-cleanup` 0.1 -> 0.2, `rightkit-system-monitor` 0.2 -> 0.3. 0.1.2 was published before these requirements were raised; a semver-breaking dependency is a breaking change, so they ship as 0.2.0 instead of changing 0.1.2 in place (#1572). No source change in this crate since 0.1.2.

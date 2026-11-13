@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.4
+
+- History rows: the icon tile's hover title is the raw process name again (HeardRight's shipped behaviour; 0.2.3 showed the friendly name), and the icon lookup sends the raw process name, empty when only the exe path is known, instead of the filter key. Needs `@rightkit/library-ui` 0.2.3.
+
 ## 0.2.3
 
 Added: `DictationHistory` now renders HeardRight's History screen, so an app can delete its own copy. Needs the matching `@rightkit/library-ui` (its `Unreleased` options).

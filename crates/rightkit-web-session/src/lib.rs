@@ -224,6 +224,21 @@ fn refuse(code: &str, message: &str) -> PhoneError {
     PhoneError::new(code, message)
 }
 
+/// The host app's product name, from the app host (`RightKit` when none is installed).
+pub(crate) fn product_name() -> String {
+    rightkit_app_host::host().product_name().to_string()
+}
+
+/// The name of a thread this crate starts: `<product, lower case>-<what>`.
+pub(crate) fn thread_name(what: &str) -> String {
+    format!(
+        "{}-{what}",
+        product_name()
+            .to_lowercase()
+            .replace(char::is_whitespace, "-")
+    )
+}
+
 /// A host name an agent may name: lower case letters, digits, hyphens and dots, at least one dot,
 /// a last label that is not a number (no IP addresses), at most 253 characters.
 pub fn clean_site(raw: &str) -> Option<String> {
@@ -362,7 +377,10 @@ impl Browser {
         if !effective.on {
             return Err(refuse(
                 "feature_off",
-                "agent browser logins are off on this computer (the app's settings, agentBrowser)",
+                &format!(
+                    "agent browser logins are off on this computer ({} Settings, agentBrowser)",
+                    product_name()
+                ),
             ));
         }
         Ok(effective)
@@ -1107,7 +1125,7 @@ impl Browser {
     fn watch(&'static self, id: String) {
         let watched = id.clone();
         let spawned = std::thread::Builder::new()
-            .name("rightkit-browser-watch".to_string())
+            .name(thread_name("browser-watch"))
             .spawn(move || {
                 loop {
                     {
