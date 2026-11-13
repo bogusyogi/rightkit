@@ -384,8 +384,8 @@ fn genright_discover_host_tools() {
                 .filter(|p| p.join("Lib").join("vulkan-1.lib").exists())
                 .collect();
             sdks.sort();
-            if let Some(sdk) = sdks.pop() {
-                set_if_unset("VULKAN_SDK", &sdk);
+            if let Some(sdk) = sdks.last() {
+                set_if_unset("VULKAN_SDK", sdk);
             }
         }
     }

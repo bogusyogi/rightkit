@@ -186,6 +186,27 @@
           "allow_missing_assets"
         ],
         "reason": "ci/asset-gated.json: the real-Chrome integration lane (src/page.integration.test.ts) needs Chrome for Testing, which the Linux direct-origin qualification does not provision, & the installed-apps refusal test has no Linux installed-apps root; both skip on Linux by design & are recorded in the receipts. The Windows & macOS verify jobs provision Chrome for Testing & run them strictly."
+      },
+      "rightkit-ocr": {
+        "version": "0.3.0",
+        "allow": [
+          "allow_missing_assets"
+        ],
+        "reason": "ci/asset-gated.json: OCR models and the OS recognizer; the publish workflow does not provision them, so those tests print SKIP markers recorded in the receipts and the crate's own compile, clippy, doc and remaining tests still qualify it."
+      },
+      "rightkit-vad": {
+        "version": "0.2.0",
+        "allow": [
+          "allow_missing_assets"
+        ],
+        "reason": "ci/asset-gated.json: ONNX Runtime and the Silero model; the publish workflow does not provision them, so those tests print SKIP markers recorded in the receipts and the crate's own compile, clippy, doc and remaining tests still qualify it."
+      },
+      "rightkit-tts": {
+        "version": "0.3.0",
+        "allow": [
+          "allow_missing_assets"
+        ],
+        "reason": "ci/asset-gated.json: TTS engine models; the publish workflow does not provision them, so those tests print SKIP markers recorded in the receipts and the crate's own compile, clippy, doc and remaining tests still qualify it."
       }
     },
     "watchTimeoutMinutes": 180,
