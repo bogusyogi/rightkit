@@ -51,6 +51,18 @@
 //! setters answer `null`; every error is a plain string. Each asks the host caller policy first
 //! (the action is the command name without the `pro_bridge_` prefix), so a window the app did not
 //! trust reaches neither the helper nor the state file.
+//!
+//! The caller policy is the [`ServiceTrust`](super::ServiceTrust) the app registers with `HostServicesBuilder::pro_bridge`
+//! (windows by label, optionally origins and actions); the shell has no default label, so the app
+//! names the window that shows the Apple-devices setting (for example
+//! `ServiceTrust::for_labels(["hub"])`), and a registered content webview is refused whatever its
+//! label. An app that already checks its own label in its commands moves that label here.
+//!
+//! # Helper trust
+//!
+//! With [`ProBridgeConfig::with_helper_team_id`] the helper's code signature is verified before
+//! every spawn (`codesign`). With `helper_team_id` left `None` (the default) no `codesign` probe is
+//! run at all: placement alone decides, so set the team id in every release build.
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -58,7 +70,7 @@ use std::time::Duration;
 
 use tauri::{Manager, Webview, Wry};
 
-use rightkit_credentials::apple_helper::{AppleHelper, HelperTrust, Scope};
+use rightkit_credentials::apple_helper::{AppleHelper, HelperFailure, HelperTrust, Scope};
 use rightkit_credentials::Secret;
 use rightkit_license::{BridgePlatform, LicenseClient, SecretString};
 use serde::{Deserialize, Serialize};
@@ -138,6 +150,10 @@ impl ProBridgeConfig {
 /// ([`ProBridgeStatus::keychain_detail`] and the not-bundled refusals). The host words it through
 /// [`ProBridgeHost::describe_helper_condition`]; [`HelperCondition::default_text`] is the wording
 /// used when it does not.
+///
+/// **Sensitive text.** `stderr`, `line` and the helper's own `reported`/`detail` text are what the
+/// helper printed. They are given so the host can show them in its own Settings, as an app that ran
+/// the helper itself did; do not send them to a remote service or a shared log.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum HelperCondition {
@@ -147,12 +163,39 @@ pub enum HelperCondition {
         helper_name: String,
         reason: Option<String>,
     },
-    /// The helper process could not be started; `detail` is the OS error kind.
-    Spawn { helper_name: String, detail: String },
-    /// The helper did not answer within the deadline (`secs`).
-    TimedOut { helper_name: String, secs: u64 },
-    /// The helper ran and reported a failure; `detail` is its text.
-    Helper { detail: String },
+    /// The helper process could not be started. `detail` is the full OS error text (for example
+    /// `No such file or directory (os error 2)`), `kind` the `io::ErrorKind` text (`entity not
+    /// found`) the default wording uses.
+    Spawn {
+        helper_name: String,
+        detail: String,
+        kind: String,
+    },
+    /// The helper answered with nothing. `stderr` is what it wrote to stderr, trimmed, if any.
+    NoOutput {
+        helper_name: String,
+        stderr: Option<String>,
+    },
+    /// The helper's reply was not JSON: the parser's `error` (a position, no content) and the
+    /// reply `line` (at most 8 KiB; `None` for a reply that could hold a secret value).
+    Unparseable {
+        helper_name: String,
+        error: String,
+        line: Option<String>,
+    },
+    /// The helper did not answer within the deadline (`secs`). `stderr` as for `NoOutput`.
+    TimedOut {
+        helper_name: String,
+        secs: u64,
+        stderr: Option<String>,
+    },
+    /// The helper ran and reported a failure. `detail` is the credential layer's text (what the
+    /// default wording shows: the helper's `error`, else `helper reported failure`); `reported`
+    /// is the helper's own text, its `error` or else its `detail` field, when it sent either.
+    Helper {
+        detail: String,
+        reported: Option<String>,
+    },
     /// Any other failure; `message` is the credential layer's own text.
     Other { message: String },
 }
@@ -171,16 +214,19 @@ impl HelperCondition {
                 helper_name,
                 reason: None,
             } => format!("{helper_name} helper not bundled — Apple device continuity unavailable"),
-            Self::Spawn { detail, .. } => {
+            Self::Spawn { kind, .. } => {
                 format!(
-                    "apple helper error: {}{detail}",
+                    "apple helper error: {}{kind}",
                     rightkit_credentials::apple_helper::SPAWN_FAILED_PREFIX
                 )
+            }
+            Self::NoOutput { .. } | Self::Unparseable { .. } => {
+                "apple helper error: invalid helper response".to_string()
             }
             Self::TimedOut { secs, .. } => {
                 format!("credential store operation apple_helper timed out after {secs}s")
             }
-            Self::Helper { detail } => format!("apple helper error: {detail}"),
+            Self::Helper { detail, .. } => format!("apple helper error: {detail}"),
             Self::Other { message } => message.clone(),
         }
     }
@@ -334,29 +380,66 @@ impl ProBridge {
             })
     }
 
-    /// A failed helper exchange, worded by the host.
-    fn describe_credential_error(&self, err: &rightkit_credentials::Error) -> String {
+    /// A failed helper exchange, worded by the host. `failure` is the helper's own record of the
+    /// call that returned `err` ([`AppleHelper::last_failure`]); without one the condition is
+    /// read from the error text.
+    fn describe_credential_error(
+        &self,
+        err: &rightkit_credentials::Error,
+        failure: Option<HelperFailure>,
+    ) -> String {
         use rightkit_credentials::apple_helper::SPAWN_FAILED_PREFIX;
         use rightkit_credentials::Error;
         let helper_name = self.config.helper_binary_name.clone();
-        let condition = match err {
-            Error::Timeout {
-                op: "apple_helper",
+        let condition = match (failure, err) {
+            (Some(HelperFailure::Spawn { detail, kind }), _) => HelperCondition::Spawn {
+                helper_name,
+                detail,
+                kind,
+            },
+            (Some(HelperFailure::NoOutput { stderr }), _) => HelperCondition::NoOutput {
+                helper_name,
+                stderr,
+            },
+            (Some(HelperFailure::Unparseable { error, line }), _) => HelperCondition::Unparseable {
+                helper_name,
+                error,
+                line,
+            },
+            (Some(HelperFailure::TimedOut { secs, stderr }), _) => HelperCondition::TimedOut {
+                helper_name,
                 secs,
-            } => HelperCondition::TimedOut {
+                stderr,
+            },
+            (Some(HelperFailure::Reported { detail }), Error::Helper(text)) => {
+                HelperCondition::Helper {
+                    detail: text.clone(),
+                    reported: Some(detail),
+                }
+            }
+            (
+                _,
+                Error::Timeout {
+                    op: "apple_helper",
+                    secs,
+                },
+            ) => HelperCondition::TimedOut {
                 helper_name,
                 secs: *secs,
+                stderr: None,
             },
-            Error::Helper(text) => match text.strip_prefix(SPAWN_FAILED_PREFIX) {
-                Some(detail) => HelperCondition::Spawn {
+            (_, Error::Helper(text)) => match text.strip_prefix(SPAWN_FAILED_PREFIX) {
+                Some(kind) => HelperCondition::Spawn {
                     helper_name,
-                    detail: detail.to_string(),
+                    detail: kind.to_string(),
+                    kind: kind.to_string(),
                 },
                 None => HelperCondition::Helper {
                     detail: text.clone(),
+                    reported: None,
                 },
             },
-            other => HelperCondition::Other {
+            (_, other) => HelperCondition::Other {
                 message: other.to_string(),
             },
         };
@@ -530,10 +613,10 @@ impl ProBridge {
         } else {
             "ok"
         };
-        let (keychain_ready, keychain_detail) = match self
-            .helper()
-            .and_then(|h| h.status().map_err(|e| self.describe_credential_error(&e)))
-        {
+        let (keychain_ready, keychain_detail) = match self.helper().and_then(|h| {
+            h.status()
+                .map_err(|e| self.describe_credential_error(&e, h.last_failure()))
+        }) {
             Ok(status) => (
                 status.ready,
                 if status.ready { None } else { status.detail },
