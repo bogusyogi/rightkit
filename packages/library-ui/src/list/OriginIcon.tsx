@@ -80,7 +80,7 @@ export function OriginIcon({
   className?: string;
 }) {
   const kind = origin?.kind ?? "app";
-  const label = origin?.label ?? "";
+  const label = origin?.iconTitle ?? origin?.label ?? "";
   const url = useOriginIcon(origin, source);
   const box = { width: size, height: size };
 

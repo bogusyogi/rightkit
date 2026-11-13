@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.3
+
+- Added (optional, defaults unchanged): `LibraryOrigin.iconTitle`, the hover title of the origin icon tile (default `label`), and `LibraryOrigin.processName`, the raw process name a source uses for its icon lookup when it differs from `filterKey`.
+
 ## 0.2.2
 
 Added: options so a host can make the list look and read as its own. Every default is unchanged: the rendered markup, strings, export text and storage of a host that sets none of them are byte-identical to 0.2.1.

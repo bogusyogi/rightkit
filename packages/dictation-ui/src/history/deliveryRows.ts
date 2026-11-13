@@ -102,6 +102,9 @@ export function deliveryRow(item: HistoryItem): LibraryRow {
     timestampMs: item.delivered_at_ms,
     origin: {
       label: app,
+      // The icon tile's hover title is the raw process name, as the app shipped it.
+      iconTitle: item.target?.process_name?.trim() || targetLabel(item),
+      processName: item.target?.process_name?.trim() ?? "",
       filterKey: deliveryFilterKey(item),
       detail: windowTitle || undefined,
       iconKey: kind === "app" ? item.target?.exe_path?.trim() || item.target?.process_name?.trim() || undefined : undefined,

@@ -137,10 +137,13 @@ function historySource(options: TauriDictationOptions, listen: ListenFn): Librar
     },
     // A row's `iconKey` is its exe path, else its process name; `filterKey` is the raw process name.
     async originIcon(origin: LibraryOrigin) {
-      const processName = origin.filterKey?.trim() ?? "";
       const key = origin.iconKey?.trim() ?? "";
+      // A row that names its raw process (`processName`, possibly empty) is looked up by exactly that
+      // and its exe path; other rows fall back to the filter key.
+      const raw = origin.processName?.trim();
+      const processName = raw ?? (origin.filterKey?.trim() || key);
       const url = await invoke<string | null>("app_icon_png", {
-        processName: processName || key,
+        processName,
         exePath: key && key !== processName ? key : null,
       }).catch(() => null);
       return typeof url === "string" && url.startsWith("data:image/") ? url : null;

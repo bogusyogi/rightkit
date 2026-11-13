@@ -1212,7 +1212,7 @@
           "react-dom": "19.3.1",
           "@rightkit/app-update": "0.4.4",
           "@rightkit/doc-render": "0.2.2",
-          "@rightkit/library-ui": "0.2.2",
+          "@rightkit/library-ui": "0.2.3",
           "@rightkit/license": "0.3.2",
           "@rightkit/logs": "0.1.6",
           "@rightkit/media-ui": "0.3.6",
@@ -1232,7 +1232,7 @@
       "files": {
         "ci/consumers/npm/dictation-ui/README.md": "05cb356a734beb4c433cdf839e89583da8bc2ca694e112107a77bf02821bfde0",
         "ci/consumers/npm/dictation-ui/consumer.mjs": "a7f2da912e674bcd51ac5836250a8a9fd39dcfcfb8b69a8f57c6801e0cea3158",
-        "ci/consumers/npm/dictation-ui/package.json": "6e00495a8ef277fad2ca6ec5fb64b4e017e0e1c35bc20812c68c7c637b23fc7b",
+        "ci/consumers/npm/dictation-ui/package.json": "e197493d8c27e5331e215452b2dc6a24aebe63d46ce73101a43113c744b76ed0",
         "ci/consumers/npm/dictation-ui/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "fc160695e1dc97dc7e32e746c9e4471e2d85168b097623de818befeb00ee438c"
       }

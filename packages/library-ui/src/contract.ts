@@ -11,6 +11,13 @@ export type Unsubscribe = () => void;
 export interface LibraryOrigin {
   /** Shown in the meta line and as the origin filter's option text. */
   label: string;
+  /** Hover title of the origin's icon tile. Defaults to `label`. */
+  iconTitle?: string;
+  /**
+   * The raw process name for the icon lookup, when it differs from `filterKey` (an empty string when the
+   * source knows only a path). Defaults to `filterKey`.
+   */
+  processName?: string;
   /**
    * The source's own key for this origin (e.g. a raw process name), sent as `LibraryQuery.origin` when the
    * origin filter picks it. Defaults to `label`; set it whenever `label` is a display form the source cannot
