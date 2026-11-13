@@ -1182,16 +1182,21 @@ impl Core {
             }
         }
         let email = email.trim();
-        if !plausible_email(email) {
+        if !self.cfg.trial_email_rule.allows(email) {
             return Ok(TrialView {
                 accepted: false,
                 message: MessageCode::TrialRefused,
             });
         }
-        let level = order::enter(Level::Op);
-        let _guard = self.op.acquire(self.cfg.mutation_wait)?;
-        let answer = self.transport.trial(email, platform)?;
-        drop(level);
+        let answer = if self.cfg.unlocked_trial {
+            self.transport.trial(email, platform)?
+        } else {
+            let level = order::enter(Level::Op);
+            let _guard = self.op.acquire(self.cfg.mutation_wait)?;
+            let answer = self.transport.trial(email, platform)?;
+            drop(level);
+            answer
+        };
         match answer {
             TrialAnswer::Accepted => Ok(TrialView {
                 accepted: true,

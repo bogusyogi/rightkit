@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **New: trial request options on `LicenseClientConfig`, so an app can keep the trial behaviour it already ships (all default to today's behaviour).** `with_trial_email_rule(TrialEmailRule)` (`Lenient`, the default, is the 254 character check; `DottedDomain` is the HeardRight rule: at most 320 characters, no whitespace or control characters, exactly one `@`, a non-empty local part, a domain with a `.` that neither starts nor ends with one, so `user@localhost` is refused before any request). `with_unlocked_trial(bool)`: the trial request skips the operation lock, so it never answers `Busy` during a renew or an activation (a trial issues no credential and writes no record). `with_trial_timeout(Duration)`: the trial request's own timeout instead of the client's 15 s. `TrialEmailRule` is exported from the crate root and `client`.
+
 ## 0.3.0
 
 - **New: `CredentialReleaseQueue` (feature `client`).** A `PendingReleaseQueue` kept in one credential-store item (the host passes the `Store` and the account). It reads and writes the JSON array HeardRight already stores (`{"kind":"legacy","activation_token"}` / `{"kind":"lease","device_id_hash","lease_id"}`), so an installed app's pending removals survive adoption. Row ids carry no token (a legacy row is named by a hash of it); `enqueue` does not duplicate a row.

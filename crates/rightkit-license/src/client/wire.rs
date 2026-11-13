@@ -11,6 +11,8 @@
 //! layer scrubs them from its errors. Server text is read only to classify (`status`, `ok`); it
 //! is never forwarded.
 
+use std::time::Duration;
+
 use rightkit_http::{Client, Request};
 use serde_json::{json, Value};
 use zeroize::{Zeroize, Zeroizing};
@@ -42,6 +44,8 @@ pub(crate) enum TrialAnswer {
 
 pub(crate) struct Transport {
     client: Client,
+    /// A client with its own timeout, for the trial request, when the config sets one.
+    trial_client: Option<Client>,
     origin: String,
     app: String,
     app_version: String,
@@ -50,8 +54,19 @@ pub(crate) struct Transport {
 impl Transport {
     pub(crate) fn new(config: &LicenseClientConfig) -> Result<Self, LicenseError> {
         let client = Client::try_new(config.http.clone()).map_err(|_| LicenseError::Network)?;
+        let trial_client = match config.trial_timeout {
+            Some(timeout) => {
+                let mut http = config.http.clone();
+                http.connect_timeout = Some(Duration::from_secs(10).min(timeout));
+                http.request_timeout = timeout;
+                http.response_timeout = Some(timeout);
+                Some(Client::try_new(http).map_err(|_| LicenseError::Network)?)
+            }
+            None => None,
+        };
         Ok(Self {
             client,
+            trial_client,
             origin: config.origin(),
             app: config.app.clone(),
             app_version: config.app_version.clone(),
@@ -59,6 +74,16 @@ impl Transport {
     }
 
     fn post(&self, path: &str, body: &Value, secrets: &[&str]) -> Result<Reply, LicenseError> {
+        self.post_with(&self.client, path, body, secrets)
+    }
+
+    fn post_with(
+        &self,
+        client: &Client,
+        path: &str,
+        body: &Value,
+        secrets: &[&str],
+    ) -> Result<Reply, LicenseError> {
         let mut bytes =
             Zeroizing::new(serde_json::to_vec(body).map_err(|_| LicenseError::Network)?);
         let mut request = Request::post(format!("{}{path}", self.origin))
@@ -69,7 +94,7 @@ impl Transport {
         for secret in secrets {
             request = request.redact_value(*secret);
         }
-        let result = self.client.send_any(&request);
+        let result = client.send_any(&request);
         request.body.zeroize();
         match result {
             Ok(response) => Ok(Reply {
@@ -138,7 +163,8 @@ impl Transport {
             Some(platform) => json!({ "app": self.app, "email": email, "platform": platform }),
             None => json!({ "app": self.app, "email": email }),
         };
-        let reply = self.post(suite_api::LICENSE_TRIAL_PATH, &body, &[])?;
+        let client = self.trial_client.as_ref().unwrap_or(&self.client);
+        let reply = self.post_with(client, suite_api::LICENSE_TRIAL_PATH, &body, &[])?;
         if reply.status == 429 {
             return Ok(TrialAnswer::RateLimited);
         }

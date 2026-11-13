@@ -87,7 +87,7 @@ pub use reader::{
 pub use release_queue::{DrainReport, PendingReleaseEntry, PendingReleaseId, PendingReleaseQueue};
 pub use types::{
     DeviceIdError, DeviceIdSource, LicenseClientConfig, LicenseSetup, PendingLicenseRelease,
-    SecretString, DEFAULT_RECORD_ACCOUNT,
+    SecretString, TrialEmailRule, DEFAULT_RECORD_ACCOUNT,
 };
 #[cfg(feature = "update-auth")]
 pub use update_auth::{

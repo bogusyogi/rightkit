@@ -110,9 +110,9 @@ pub use client::{
     LicenseInvalidation, LicenseMode, LicenseSetup, LicenseView, LinkCodeView, LinkRequestOutcome,
     MessageCode, NativeRefusal, PendingLicenseRelease, PendingReleaseEntry, PendingReleaseId,
     PendingReleaseQueue, RefreshView, RefreshViewOutcome, RejectReason, RevisionState,
-    SecretString, TrialView, ViewKind, ViewStage, ViewStatus, ACCOUNT_SESSION_TTL_SECS,
-    DEFAULT_RECORD_ACCOUNT, DEFAULT_SESSION_ACCOUNT, ENGINE_BUSY_TEXT, ENGINE_STORE_TEXT,
-    ENGINE_UNRESOLVED_TEXT,
+    SecretString, TrialEmailRule, TrialView, ViewKind, ViewStage, ViewStatus,
+    ACCOUNT_SESSION_TTL_SECS, DEFAULT_RECORD_ACCOUNT, DEFAULT_SESSION_ACCOUNT, ENGINE_BUSY_TEXT,
+    ENGINE_STORE_TEXT, ENGINE_UNRESOLVED_TEXT,
 };
 #[cfg(feature = "update-auth")]
 pub use client::{
