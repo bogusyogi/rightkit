@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.0
+
+Breaking (one new field on a struct built by literal).
+
+- `EnrichmentInput` gains `domain: SourceDomain`. `SourceDomain::FromUrl` is the 0.2.0 behaviour (the library's own http(s) rule). `SourceDomain::Given(Option<&str>)` records the host's own value as given, for a host whose shipped rule differs: ScrapeRight passes `rightkit_media_fetch::detect::host(url)` filtered to hosts with a dot, which also reads a scheme-less `example.com/page`, so its stored domain tags do not change. Migration: add `domain: SourceDomain::FromUrl` to keep 0.2.0 output.
+
 ## 0.2.0
 
 Breaking. The 2026-11-11 shape review (docs/audits/2026-11-11-shape-matrix/reports/family-content-ingest-mail.md, `rightkit-library` section) found the crate holding ScrapeRight's artifact index with a fixed social `Kind` enum, ScrapeRight's tier rules in its documentation, a dependency on `rightkit-media-fetch` for two URL helpers, a duplicate of the atomic-replace helper, and two dead files from GenRight. Taken on the recommended option, pending the owner's confirmation. Design note: docs/audits/2026-11-11-shape-matrix/reports/library-and-swift-mapping-redraw.md.

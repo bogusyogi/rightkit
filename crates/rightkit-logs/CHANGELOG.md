@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.2
+
+- `ScrubOptions::key_value_min_len` now also ends a token at `;` and accepts any key (everything before the first `=`), so a cookie list (`a=…; b=…`) and keys with other characters are redacted too. ScrapeRight's shipped subprocess-detail rule; it redacts strictly more than 0.4.1 did. Output is unchanged while the option is `None` (the default).
+
 ## 0.4.1
 
 - Fixed: `ValueWriter::snapshot` also copies each store's rotated generations (`name.1` newest) beside the current file, so a diagnostics bundle no longer loses the rotated predecessor. New `JsonlStore::generation_paths()`. Additive.

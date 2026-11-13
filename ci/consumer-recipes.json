@@ -2009,8 +2009,8 @@
       "pkId": "PK11",
       "id": "ci/consumers/rightkit-logs/src/main.rs",
       "files": {
-        "Cargo.toml": "c803b72d3bce22356b5201fb3669177c04d76e2df43e294fda55b44dc1548983",
-        "src/main.rs": "bb4bd10dfc643c4f7094a7f2de79860e8c58ce021102c4924af3b389e572274c"
+        "Cargo.toml": "a12abd5679f30c484be2e932aa124cf64cecbd2be9aff8d9a21529defdb72bbc",
+        "src/main.rs": "857c573ae9d660ca1adbc2b3a5a0fe76f8b073de66c82d1fa44e9b5aa406d580"
       }
     },
     "rightkit-credentials": {
@@ -3261,9 +3261,9 @@
       "pkId": "PK102",
       "id": "ci/consumers/rightkit-library/src/main.rs",
       "files": {
-        "Cargo.toml": "a92206a4b5523606f1051a7fb53e24584369504b77f66cd22e11c594da33944a",
-        "README.md": "75c1a1c2aa8d3b4fc4c8a972a2d8169281b231ef34637e4b0760c89fb0c8e72b",
-        "src/main.rs": "8ac23d0cea05d5f0efb0a5a2aa4e99f53fe33e3f952e6e518a655852155dffa6"
+        "Cargo.toml": "606da4ed242f0ed3517d75adf45f12256b2a5c2e95a27027d495368655019c67",
+        "README.md": "d724bb233a105fe04044aa2db2c53ae1d5ebd1c62f774045dbe5708af0b6c44a",
+        "src/main.rs": "d4d5452a540f2a0e7bb0058e476a6bb9db165796be659ac12f35503a0b4dcdf4"
       }
     },
     "rightkit-local-gen": {
