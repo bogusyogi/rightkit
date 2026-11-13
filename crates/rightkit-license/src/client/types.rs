@@ -175,6 +175,7 @@ pub struct LicenseClientConfig {
     pub(crate) trial_email_rule: TrialEmailRule,
     pub(crate) unlocked_trial: bool,
     pub(crate) trial_timeout: Option<Duration>,
+    pub(crate) trial_http: Option<HttpConfig>,
 }
 
 impl fmt::Debug for LicenseClientConfig {
@@ -235,6 +236,7 @@ impl LicenseClientConfig {
             trial_email_rule: TrialEmailRule::Lenient,
             unlocked_trial: false,
             trial_timeout: None,
+            trial_http: None,
         })
     }
 
@@ -309,6 +311,26 @@ impl LicenseClientConfig {
     /// timeout. The connect timeout is capped at it. Applies to the trial request only.
     pub fn with_trial_timeout(mut self, timeout: Duration) -> Self {
         self.trial_timeout = Some(timeout);
+        self
+    }
+
+    /// The HTTP client configuration of the trial request, for an app whose trial request has
+    /// always gone out through its own transport (system proxy variables, bundled trust roots,
+    /// redirects, a larger response cap, its own User-Agent, one overall deadline). Default
+    /// `None`: the licence transport (no proxy, platform roots, no redirects, 256 KiB cap,
+    /// `rightkit-license/<version>` as User-Agent, 15 s).
+    ///
+    /// When set, the trial POST is sent by a client built from exactly this configuration
+    /// (through [`rightkit_http::Client::try_new_or_direct`]: an unusable proxy setting falls back
+    /// to a direct connection) and it supersedes [`with_trial_timeout`](Self::with_trial_timeout),
+    /// the licence transport's limits and its User-Agent. The request goes to the compiled licence
+    /// origin only; the configuration decides how. Two details follow the host so the request is
+    /// the one the app sent before: the request carries `Content-Type` and no `Accept` header, and
+    /// a response body that is not UTF-8 (whatever the status) is a [`LicenseError::Network`]
+    /// failure, where the default transport reads the status and the JSON `ok` only. Every other
+    /// licence call keeps the licence transport. Server text is still never forwarded.
+    pub fn with_trial_http(mut self, config: HttpConfig) -> Self {
+        self.trial_http = Some(config);
         self
     }
 
