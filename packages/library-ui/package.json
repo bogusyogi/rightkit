@@ -11,6 +11,10 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
+    "./host": {
+      "types": "./dist/host.d.ts",
+      "import": "./dist/host.js"
+    },
     "./tauri": {
       "types": "./dist/tauri/index.d.ts",
       "import": "./dist/tauri/index.js"

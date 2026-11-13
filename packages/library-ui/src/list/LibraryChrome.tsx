@@ -1,4 +1,4 @@
-import { createContext, memo, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { type ComponentType, createContext, memo, type ReactNode, type Ref, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   ArrowsCounterClockwise,
   Check,
@@ -16,6 +16,7 @@ import {
   rowInputClass,
   type DateFilter,
   filterControl,
+  type LibraryExportFields,
   formatClip,
   friendlyAppName,
   type PendingConfirm,
@@ -35,6 +36,70 @@ export interface LibraryLabels {
   alt: [string, string, string, string];
   /** Line shown while a row is edited. */
   editHint?: string;
+  /** Tooltip and accessible name of the lock on a read-only row (`rowContext` names the row). Default: "This <item> is read-only here" and "<Item> is read-only, <rowContext>". */
+  readOnly?: { title: string; label: (rowContext: string) => string };
+  /** Title of the expand/collapse control of a clipped row. Default: "Expand" / "Collapse". */
+  expandTitle?: (expanded: boolean) => string;
+  /** Tooltip of "Delete All…". Default: "Removes the <items> this device owns in the current filters. <Items> from other devices aren't affected." */
+  deleteAllHint?: string;
+  /** Tooltip and accessible name of a row's group glyph, from the row's group label. Default: "From <label>". */
+  groupGlyph?: (label: string) => string;
+  /** Title of the empty list when a search or filter matches nothing. Default: "No <items> match your search." */
+  noMatch?: string;
+  /** Message after a bulk delete in which some deletes failed. Default: "<failed> of <total> deletes failed." */
+  deleteFailed?: (failed: number, total: number) => string;
+  /** Field names of the "Export selected" text. Default: `Origin: <label>` and `Text:`. */
+  exportFields?: LibraryExportFields;
+}
+
+/** Props of the button the list renders (`LibraryComponents.Button`). `variant` defaults to "secondary", `size` to "md". */
+export interface LibraryButtonProps {
+  variant?: "primary" | "secondary" | "ghost" | "danger";
+  size?: "md" | "sm";
+  disabled?: boolean;
+  onClick?: () => void;
+  /** Ref of the rendered `<button>` (the confirm dialog focuses Cancel through it). */
+  buttonRef?: Ref<HTMLButtonElement>;
+  children: ReactNode;
+}
+
+export interface LibraryErrorNoticeProps {
+  message: string;
+  onDismiss: () => void;
+}
+
+export interface LibraryPageShellProps {
+  maxWidth: number;
+  /** The filter and actions row, already in its own `h-11` flex row. The shell frames it (border, padding). */
+  header: ReactNode;
+  /** The rest of the screen: the list, in a full-width block, then the confirm dialog. */
+  children: ReactNode;
+}
+
+/** Visual pieces a host may replace on `LibraryScreen`. Each default is the package's own markup. */
+export interface LibraryComponents {
+  /**
+   * Frame around the screen. Default: `PageShell` from `@rightkit/react-shell/react` (the screen draws its own
+   * toolbar frame inside it). With it, the toolbar goes to the shell as `header`.
+   */
+  PageShell?: ComponentType<LibraryPageShellProps>;
+  /** The dismissible error line. Default: a `Notice tone="bad"` with a Dismiss button. */
+  ErrorNotice?: ComponentType<LibraryErrorNoticeProps>;
+  /** Every button of the list: row fix bar, confirm dialog, Load more, recovery banner. Default: `Button` from `@rightkit/react-shell/react`. */
+  Button?: ComponentType<LibraryButtonProps>;
+}
+
+/** Class names a host may replace. */
+export interface LibraryClassNames {
+  /** The text field of an edited row. Default: `rowInputClass`. */
+  input?: string;
+}
+
+const DefaultButton: ComponentType<LibraryButtonProps> = ({ buttonRef, ...props }) => <Button ref={buttonRef} {...props} />;
+
+/** The list's button: the host's `components.Button` when the list renders under `LibraryScreen` with one, else the shell's. */
+export function useLibraryButton(): ComponentType<LibraryButtonProps> {
+  return useContext(LibraryContext)?.components?.Button ?? DefaultButton;
 }
 
 export const DEFAULT_LIBRARY_LABELS: LibraryLabels = {
@@ -49,6 +114,8 @@ export interface LibraryContextValue {
   groups: readonly LibraryGroup[];
   variants: readonly LibraryVariant[];
   labels: LibraryLabels;
+  components?: LibraryComponents;
+  classNames?: LibraryClassNames;
 }
 
 export const LibraryContext = createContext<LibraryContextValue | null>(null);
@@ -309,7 +376,7 @@ export function LibraryActionsLine({
             type="button"
             data-setting-id="history.delete-all"
             className={cx(lineButton, lineButtonDanger)}
-            title={`Removes the ${labels.items} this device owns in the current filters. ${cap(labels.items)} from other devices aren't affected.`}
+            title={labels.deleteAllHint ?? `Removes the ${labels.items} this device owns in the current filters. ${cap(labels.items)} from other devices aren't affected.`}
             disabled={deletableCount === 0}
             onClick={requestDeleteAll}
           >
@@ -353,6 +420,7 @@ export function LibraryConfirmDialog({
   }, [pendingConfirm]);
 
   const { labels } = useLibraryContext();
+  const Btn = useLibraryButton();
   if (!pendingConfirm) return null;
   const title =
     pendingConfirm.kind === "clear"
@@ -413,16 +481,16 @@ export function LibraryConfirmDialog({
         </label>
       ) : null}
       <div className="mt-[var(--space-5)] flex justify-end gap-[var(--space-2)]">
-        <Button ref={cancelRef} variant="ghost" onClick={onCancel}>
+        <Btn buttonRef={cancelRef} variant="ghost" onClick={onCancel}>
           Cancel
-        </Button>
-        <Button variant="danger" onClick={onConfirm}>
+        </Btn>
+        <Btn variant="danger" onClick={onConfirm}>
           {pendingConfirm.kind === "clear"
             ? "Delete all"
             : pendingConfirm.kind === "selected"
               ? "Delete selected"
               : "Delete"}
-        </Button>
+        </Btn>
       </div>
     </dialog>
   );
@@ -470,15 +538,16 @@ function subscribeTranscriptMeasure(element: Element, measure: () => void) {
 // The group glyph column (right-aligned, fixed width): the row's group icon (e.g. the device it was
 // recorded on), with the group name on the tooltip/label. Hosts without groups get no column.
 function GroupGlyph({ row }: { row: LibraryRow }) {
-  const { groups } = useLibraryContext();
+  const { groups, labels } = useLibraryContext();
   if (groups.length === 0) return null;
   const group = groups.find((g) => g.key === row.group) ?? groups.find((g) => g.local);
   if (!group) return <span aria-hidden="true" className="mt-[2px] h-[20px] w-[24px] shrink-0" />;
+  const description = (labels.groupGlyph ?? ((label: string) => `From ${label}`))(row.groupLabel ?? group.label);
   return (
     <span
       role="img"
-      aria-label={`From ${group.label}`}
-      title={`From ${group.label}`}
+      aria-label={description}
+      title={description}
       className="mt-[2px] grid h-[20px] w-[24px] shrink-0 place-items-center justify-self-end text-[var(--muted-2)] [&>svg]:h-[15px] [&>svg]:w-[15px]"
     >
       {group.icon}
@@ -522,18 +591,19 @@ function RowActions({
   onStartCorrection: (item: LibraryRow) => void;
 }) {
   const { labels, source } = useLibraryContext();
+  const Btn = useLibraryButton();
   const hasAiEdit = !!item.altText && item.altText !== item.text;
   return isEditing ? (
     <>
-      <Button variant="ghost" size="sm" onClick={onCancelCorrection}>
+      <Btn variant="ghost" size="sm" onClick={onCancelCorrection}>
         Cancel
-      </Button>
-      <Button variant="ghost" size="sm" disabled={!draft.trim()} onClick={() => onCopyCorrection(item)}>
+      </Btn>
+      <Btn variant="ghost" size="sm" disabled={!draft.trim()} onClick={() => onCopyCorrection(item)}>
         Copy fix
-      </Button>
-      <Button size="sm" disabled={!draft.trim()} onClick={() => onSaveCorrection(item)}>
+      </Btn>
+      <Btn size="sm" disabled={!draft.trim()} onClick={() => onSaveCorrection(item)}>
         Save fix
-      </Button>
+      </Btn>
     </>
   ) : (
     <>
@@ -654,7 +724,7 @@ export const LibraryRowView = memo(function LibraryRowView({
   const hasAiEdit = !!item.altText && item.altText !== item.text;
   const shownText = showRaw && item.altText ? item.altText : item.text;
   // The meta line's "app · window" half: a friendly app name once, and the
-  const { labels } = useLibraryContext();
+  const { labels, classNames } = useLibraryContext();
   const appName = item.origin?.label ?? "";
   const windowTitle = item.origin?.detail ?? "";
   const windowSuffix = windowTitle ? ` · ${windowTitle}` : "";
@@ -716,8 +786,8 @@ export const LibraryRowView = memo(function LibraryRowView({
           <span
             role="img"
             className="mt-[2px] grid h-5 w-5 shrink-0 place-items-center text-[var(--muted)]"
-            title={`This ${labels.item} is read-only here`}
-            aria-label={`${cap(labels.item)} is read-only, ${actionContext}`}
+            title={labels.readOnly?.title ?? `This ${labels.item} is read-only here`}
+            aria-label={labels.readOnly ? labels.readOnly.label(actionContext) : `${cap(labels.item)} is read-only, ${actionContext}`}
           >
             <Lock aria-hidden="true" className="h-3.5 w-3.5" />
           </span>
@@ -730,7 +800,7 @@ export const LibraryRowView = memo(function LibraryRowView({
       <div className="min-w-0 flex-1">
         {isEditing ? (
           <textarea
-            className={cx(rowInputClass, "min-h-[92px] w-full resize-y")}
+            className={cx(classNames?.input ?? rowInputClass, "min-h-[92px] w-full resize-y")}
             aria-label={`Correct ${labels.item}`}
             value={draft}
             onChange={(e) => onSetDraft(e.target.value)}
@@ -741,9 +811,11 @@ export const LibraryRowView = memo(function LibraryRowView({
             type="button"
             title={
               canToggleTranscript
-                ? isExpanded
-                  ? "Collapse"
-                  : "Expand"
+                ? labels.expandTitle
+                  ? labels.expandTitle(isExpanded)
+                  : isExpanded
+                    ? "Collapse"
+                    : "Expand"
                 : undefined
             }
             aria-expanded={canToggleTranscript ? isExpanded : undefined}

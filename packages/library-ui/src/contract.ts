@@ -41,6 +41,8 @@ export interface LibraryRow {
   durationMs?: number | null;
   /** Group key (e.g. the device a row came from); matches a `LibraryGroup.key`. */
   group?: string;
+  /** Names the row's group where the group's own label does not (e.g. a device the groups do not list). Default: the group's label. */
+  groupLabel?: string;
   /** True when this window may not edit, select or delete the row (e.g. synced from another device). */
   readOnly?: boolean;
 }

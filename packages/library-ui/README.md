@@ -41,6 +41,15 @@ configureLibraryHost({ appName: "Your App", storageKeys: { skipDeleteConfirm: "y
 The origin filter shows each origin's `label` and sends its `filterKey` as `LibraryQuery.origin` (default: the
 label). A source that matches on its own key (a raw process name, an id) sets `filterKey`; `deliveryRow` does.
 
+Options of `LibraryScreen` for a host whose list must look and read as its own (every default is the package's own
+output): `components` (`PageShell`: the screen frame, which then receives the toolbar as `header`; `ErrorNotice`: the
+dismissible error line; `Button`: every button of the list), `classNames` (`input`: the text field of an edited row),
+`originFilter` (`sortBy: "value"` sorts the origin options by the key sent to the source; `optionLabel` words an
+option) and these `labels` beyond `item`, `items`, `area`, `alt` and `editHint`: `readOnly` (lock title and accessible
+name), `expandTitle`, `deleteAllHint`, `groupGlyph`, `noMatch`, `deleteFailed` and `exportFields` (names of the origin
+and text lines of "Export selected", and how the origin line's value is made). A row's `groupLabel` names its group
+where the group's own label does not.
+
 HeardRight's History page is the reference for the list (search, variants, date and origin filters, retention,
 export, selection, edit, delete with confirmation, group visibility); ScrapeRight's Detail reader is the reference
 for the reader (views, find, media, images, copy, save). `@rightkit/dictation-ui` maps dictation delivery records
@@ -50,7 +59,8 @@ to rows (`deliveryRow`) and wraps the list as `DictationHistory`.
 
 `configureLibraryHost({ appName?, storagePrefix?, storageKeys? })`: the product name in copy, and the browser-storage
 keys the list keeps (`skipDeleteConfirm`, `groupSelection`, `recoveryDismissed`; default `rk-library.<key>`). A host
-with stored choices passes its existing keys.
+with stored choices passes its existing keys. The configuration is also importable alone from
+`@rightkit/library-ui/host` (no list code), which is how `@rightkit/dictation-ui` forwards its own host configuration.
 
 ## Peer dependencies
 

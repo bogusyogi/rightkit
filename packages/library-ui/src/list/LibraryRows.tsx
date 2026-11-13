@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Button, cx } from "@rightkit/react-shell/react";
+import { cx } from "@rightkit/react-shell/react";
 import type { LibraryRow } from "../contract.js";
-import { LibraryRowView, useLibraryContext } from "./LibraryChrome.js";
+import { LibraryRowView, useLibraryButton, useLibraryContext } from "./LibraryChrome.js";
 import { dayLabel, emptyClass, startOfDay, surfaceClass } from "./format.js";
 
 // Render window: at most a viewport's worth of rows (plus overscan)
@@ -179,12 +179,13 @@ export function LibraryRows({
   }, [windowed, items, expandedId, editingId, draft, isSelecting, showRaw, updateWindow]);
 
   const { variants, labels } = useLibraryContext();
+  const Btn = useLibraryButton();
   if (!loaded) return null;
   const variant = variants.find((v) => v.key === outcomeFilter);
   // A variant's own empty copy shows when nothing is stored yet, or always for a variant past the first
   // (e.g. "Cancelled"); otherwise the empty list is a filter miss.
   const ownEmpty = !!variant && (variant !== variants[0] || (!hasActiveFilters && total === 0));
-  const emptyTitle = ownEmpty && variant?.emptyTitle ? variant.emptyTitle : !hasActiveFilters && total === 0 ? `No ${labels.items} yet.` : `No ${labels.items} match your search.`;
+  const emptyTitle = ownEmpty && variant?.emptyTitle ? variant.emptyTitle : !hasActiveFilters && total === 0 ? `No ${labels.items} yet.` : (labels.noMatch ?? `No ${labels.items} match your search.`);
   const emptyBody = ownEmpty && variant?.emptyBody ? variant.emptyBody : !hasActiveFilters && total === 0 ? "" : "Try a shorter phrase or clear the search field.";
 
   return (
@@ -295,9 +296,9 @@ export function LibraryRows({
       )}
       {hasMore ? (
         <div className="mt-[var(--space-4)] flex justify-center">
-          <Button disabled={loadingMore} onClick={() => void onLoadMore()}>
+          <Btn disabled={loadingMore} onClick={() => void onLoadMore()}>
             {loadingMore ? "Loading…" : `Load more (${items.length} of ${total})`}
-          </Button>
+          </Btn>
         </div>
       ) : null}
     </>
