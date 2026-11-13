@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **`readPdfPageText(page, mode?, signal?)`**: new optional `signal` cancels the stream reader mid-read and rejects with an `AbortError`. Fixed: items without `str` (marked-content markers) no longer add an empty part, so the joined text has no doubled spaces where a marker sat; a multi-word query now matches across such a marker.
+
 ## 0.3.0 (unpublished)
 
 - Removed (Adrian, 2026-11-03: end-to-end tests only; a built harness page on a dev server is not end to end): the real-browser tests against a harness page, their harness, `test/` (harness, fixture PDFs), the `test:browser` script and the devDependencies `@rightkit/qa-chrome`, `esbuild`, `react-dom` and `@types/react-dom`. Nothing shipped changes.
