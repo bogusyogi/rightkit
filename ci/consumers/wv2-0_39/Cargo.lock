@@ -3071,7 +3071,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-credentials"
-version = "0.5.3"
+version = "0.5.4"
 dependencies = [
  "getrandom 0.4.3",
  "rightkit-child-process",

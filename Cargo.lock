@@ -11160,7 +11160,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-credentials"
-version = "0.5.3"
+version = "0.5.4"
 dependencies = [
  "block2",
  "getrandom 0.4.3",

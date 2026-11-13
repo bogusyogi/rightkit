@@ -8,4 +8,4 @@ publish = false
 
 [dependencies]
 rightkit-vault = { version = "=0.3.0" }
-rightkit-credentials = { version = "=0.5.3" }
+rightkit-credentials = { version = "=0.5.4" }
