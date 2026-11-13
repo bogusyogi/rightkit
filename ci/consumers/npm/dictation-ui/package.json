@@ -20,6 +20,6 @@
     "@rightkit/settings-ui": "0.7.2",
     "@rightkit/tauri-shell": "0.1.4",
     "@rightkit/theme": "0.3.3",
-    "@rightkit/tauri": "0.4.1"
+    "@rightkit/tauri": "0.4.2"
   }
 }
