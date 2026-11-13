@@ -118,7 +118,7 @@ pub fn adopt_path_asset(
     }
 
     // A worker's artifact must sit in its own job folder: the Blender worker's under the data dir,
-    // or Wan2GP's under its jobs root (`RIGHTKIT_WAN2GP_JOBS`, else the organisation root).
+    // or Wan2GP's under its jobs root (`<organisation root>/wan2gp-jobs`).
     let mut owned_roots = vec![ctx.data_dir.join("blender-jobs").join(job_id)];
     if let Some(jobs) = crate::providers::local_wan2gp::jobs_dir() {
         owned_roots.push(jobs.join(job_id));

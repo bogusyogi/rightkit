@@ -347,7 +347,8 @@ pub fn require_confirmation(refs: &[LocalRef], confirmed: bool) -> GenResult<()>
     Err(err(
         CONFIRMATION_REQUIRED,
         format!(
-            "This app uploads this image to your fal storage so NanoBanana can read it ({} local image{}: {}). Send {CONFIRM_FIELD}: true to allow this for this run only.",
+            "{} uploads this image to your fal storage so NanoBanana can read it ({} local image{}: {}). Send {CONFIRM_FIELD}: true to allow this for this run only.",
+            crate::host::app_or("This app"),
             refs.len(),
             if refs.len() == 1 { "" } else { "s" },
             names.join(", ")
@@ -487,7 +488,8 @@ pub fn require_param_confirmation(
     Err(err(
         CONFIRMATION_REQUIRED,
         format!(
-            "This app uploads local files to your fal storage so {provider} can read them ({} local file{}: {}). Send {CONFIRM_FIELD}: true to allow this for this run only.",
+            "{} uploads local files to your fal storage so {provider} can read them ({} local file{}: {}). Send {CONFIRM_FIELD}: true to allow this for this run only.",
+            crate::host::app_or("This app"),
             refs.len(),
             if refs.len() == 1 { "" } else { "s" },
             names.join(", ")

@@ -364,7 +364,7 @@ pub(crate) fn attach(path: &Path) -> GenResult<SpendHandle> {
     let dir = path.parent().unwrap_or_else(|| Path::new("."));
     rightkit_fs::ensure_private_dir(dir)
         .map_err(|e| GenError::new("db", format!("spend ledger folder: {e}")))?;
-    let lock_path = dir.join("spend-attach.lock");
+    let lock_path = dir.join(&crate::host::media_config().spend_attach_lock_name);
     let _file_lock = rightkit_fs::FileLock::acquire(
         &lock_path,
         &rightkit_fs::LockOptions::wait(std::time::Duration::from_secs(30)),
@@ -2103,14 +2103,16 @@ impl CallerBudget {
         match (set(flag_project).or(set(env_project)), set(flag_remaining).or(set(env_remaining))) {
             (None, None) => Ok(None),
             (Some(p), Some(r)) => Self::parse(p, r).map(Some),
-            _ => Err(invalid_budget(
-                "a budget needs both a project and a remaining amount (--budget-project and --budget-remaining, or RIGHTKIT_BUDGET_PROJECT and RIGHTKIT_BUDGET_REMAINING)",
-            )),
+            _ => Err(invalid_budget(format!(
+                "a budget needs both a project and a remaining amount (--budget-project and --budget-remaining, or {} and {})",
+                budget_project_env(),
+                budget_remaining_env()
+            ))),
         }
     }
 
-    /// `--budget-project` / `--budget-remaining`, else `RIGHTKIT_BUDGET_PROJECT` /
-    /// `RIGHTKIT_BUDGET_REMAINING`.
+    /// `--budget-project` / `--budget-remaining`, else `<PREFIX>_BUDGET_PROJECT` /
+    /// `<PREFIX>_BUDGET_REMAINING` (the host prefix, then `RIGHTKIT_`; see [`budget_project_env`]).
     pub fn from_flags_and_env(
         flag_project: Option<&str>,
         flag_remaining: Option<&str>,
@@ -2118,8 +2120,8 @@ impl CallerBudget {
         Self::from_parts(
             flag_project,
             flag_remaining,
-            std::env::var(BUDGET_PROJECT_ENV).ok().as_deref(),
-            std::env::var(BUDGET_REMAINING_ENV).ok().as_deref(),
+            crate::host::env_var(BUDGET_PROJECT_SUFFIX).as_deref(),
+            crate::host::env_var(BUDGET_REMAINING_SUFFIX).as_deref(),
         )
     }
 
@@ -2152,9 +2154,25 @@ impl CallerBudget {
     }
 }
 
-/// Environment variables that carry a budget to child processes (the detached job runner).
+/// Environment variables that carry a budget to child processes (the detached job runner), under
+/// the default `RIGHTKIT` prefix. Reads honour the host prefix first (`<PREFIX>_BUDGET_PROJECT`)
+/// and fall back to these; a host sets the names [`budget_project_env`] and
+/// [`budget_remaining_env`] return.
 pub const BUDGET_PROJECT_ENV: &str = "RIGHTKIT_BUDGET_PROJECT";
 pub const BUDGET_REMAINING_ENV: &str = "RIGHTKIT_BUDGET_REMAINING";
+const BUDGET_PROJECT_SUFFIX: &str = "BUDGET_PROJECT";
+const BUDGET_REMAINING_SUFFIX: &str = "BUDGET_REMAINING";
+
+/// The budget project variable under the host prefix (`GENRIGHT_BUDGET_PROJECT` for prefix
+/// `GENRIGHT`; [`BUDGET_PROJECT_ENV`] by default).
+pub fn budget_project_env() -> String {
+    crate::host::env_name(BUDGET_PROJECT_SUFFIX)
+}
+
+/// The budget remaining variable under the host prefix (see [`budget_project_env`]).
+pub fn budget_remaining_env() -> String {
+    crate::host::env_name(BUDGET_REMAINING_SUFFIX)
+}
 
 /// The refusal: `needed` (this reservation) and `remaining` (what the budget still allows after the
 /// spend already counted against it) with the `project`, as typed `details`.

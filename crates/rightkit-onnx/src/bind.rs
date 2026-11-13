@@ -7,14 +7,16 @@
 //!
 //! 1. [`clear_inherited_runtime_for_release`]\: an
 //!    inherited `ORT_DYLIB_PATH` is dropped.
-//! 2. Candidates, first regular file wins: the bundled runtime beside the installed executable
-//!    ([`installed_runtime_candidate`]), then each of [`BindSpec::extra_dirs`] (app data). A
-//!    bundled runtime beats an app-data copy.
+//! 2. Candidates, first regular file wins: each of [`BindSpec::leading_candidates`] (a path the host
+//!    was handed), the bundled runtime beside the installed executable
+//!    ([`installed_runtime_candidate`]), each of [`BindSpec::bundled_candidates`] (further bundled
+//!    locations), then each of [`BindSpec::extra_dirs`] (app data). A bundled runtime beats an
+//!    app-data copy.
 //! 3. Verification of the resolved file, before anything is bound and before any environment
 //!    variable is written: [`BindVerification::Manifest`] checks the `manifest.json` beside it
 //!    ([`verify_library_in_manifest`]); `BindVerification::Catalog` (feature `catalog`) checks it
 //!    against the native-library catalog for this host and also every companion file that sits
-//!    beside it.
+//!    beside it. [`BindVerification::None`] skips the check.
 //! 4. The existing binding ([`configure_runtime_with_options`] semantics: the known-bad SME2
 //!    refusal, the conflict check against an existing `ORT_DYLIB_PATH`), then the optional `PATH`
 //!    entry, then the recorded binding ([`configured_runtime`]).
@@ -54,12 +56,26 @@ pub enum BindVerification {
     /// feature.
     #[cfg(feature = "catalog")]
     Catalog,
+    /// No integrity check: the resolved file is bound as found. For a host that verified the
+    /// runtime by other means (it ships signed inside its installer, or it checks the file itself)
+    /// or that has never checked it; prefer [`BindVerification::Manifest`] or `Catalog` when an
+    /// install can carry a `manifest.json` or a catalog row. The known-bad runtime refusal and the
+    /// path safety checks still apply; the report carries [`VerificationReport::Unverified`].
+    None,
 }
 
 /// What [`bind_installed_runtime`] needs from the app. Build it with [`BindSpec::new`] and set the
 /// fields that differ from the defaults.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BindSpec {
+    /// Candidates searched before everything else, in order: a runtime path the host was handed
+    /// (by its shell, a resource resolver). Not filtered: the path checks of
+    /// [`crate::resolve_runtime`] apply, so pass absolute paths. Default empty.
+    pub leading_candidates: Vec<RuntimeCandidate>,
+    /// Further bundled locations, searched after the `resource_subdir` one and before
+    /// [`BindSpec::extra_dirs`] (for example the library directly beside the executable). Not
+    /// filtered, like [`BindSpec::leading_candidates`]. Default empty.
+    pub bundled_candidates: Vec<RuntimeCandidate>,
     /// App-data directories searched last, each joined with the platform file name. A relative
     /// directory is skipped, as in [`crate::discovery_candidates`].
     pub extra_dirs: Vec<PathBuf>,
@@ -104,6 +120,8 @@ impl BindSpec {
     /// entry and the default binding policy.
     pub fn new(verification: BindVerification) -> Self {
         Self {
+            leading_candidates: Vec::new(),
+            bundled_candidates: Vec::new(),
             extra_dirs: Vec::new(),
             executable: None,
             resource_subdir: "runtime".to_owned(),
@@ -145,6 +163,8 @@ pub enum VerificationReport {
     Manifest(VerifiedFile),
     #[cfg(feature = "catalog")]
     Catalog(CatalogReport),
+    /// [`BindVerification::None`]: the file was bound without an integrity check.
+    Unverified,
 }
 
 /// The catalog outcome: the runtime row and the companions found beside the runtime.
@@ -421,9 +441,10 @@ fn bind_with(spec: &BindSpec, host: &mut dyn BindHost) -> Result<BoundRuntime, B
     Ok(BoundRuntime { binding, report })
 }
 
-/// The search order: bundled beside the executable, app-data directories.
+/// The search order: the leading candidates, bundled beside the executable, the further bundled
+/// candidates, app-data directories.
 fn candidates(spec: &BindSpec, host: &dyn BindHost) -> Vec<RuntimeCandidate> {
-    let mut out = Vec::new();
+    let mut out = spec.leading_candidates.clone();
     let executable = spec
         .executable
         .clone()
@@ -433,6 +454,7 @@ fn candidates(spec: &BindSpec, host: &dyn BindHost) -> Vec<RuntimeCandidate> {
     {
         out.push(candidate);
     }
+    out.extend(spec.bundled_candidates.iter().cloned());
     out.extend(
         spec.extra_dirs
             .iter()
@@ -472,6 +494,7 @@ fn verify(
             }
             Ok(VerificationReport::Catalog(report))
         }
+        BindVerification::None => Ok(VerificationReport::Unverified),
     }
 }
 

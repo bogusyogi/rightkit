@@ -259,7 +259,10 @@ fn inspect(ctx: &Context, raw: &str) -> GenResult<Source> {
     if inside(&canonical, &images) || inside(&path, &images) {
         return Err(invalid(
             "invalid_request",
-            "path is inside the local-image gallery, which holds produced assets already; import is for files from outside the app",
+            format!(
+                "path is inside the local-image gallery, which holds produced assets already; import is for files from outside {}",
+                crate::host::app_or("the app")
+            ),
         ));
     }
     let bytes = meta.len();

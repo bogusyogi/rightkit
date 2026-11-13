@@ -281,13 +281,17 @@ static SPECS: [Spec; 15] = [
         end_field: None,
         fixed_res: None,
     },
-    // Lipsync: flat per call (per-second billing follows the audio length).
+    // Lipsync: `flat` is USD per second of INPUT VIDEO ($0.135/s, rounded up to a whole second,
+    // 300 s maximum billable = $40.50; fetched 2026-11-03 from
+    // https://wavespeed.ai/models/sync/lipsync-3 and
+    // https://wavespeed.ai/docs/docs-api/sync/sync-lipsync-3). The page header says "$0.135 per
+    // run", which conflicts with the per-second body and API reference; the per-second basis is used.
     Spec {
         id: "lipsync-3",
         family: Family::Lipsync,
         t2v: "sync/lipsync-3",
         i2v: "",
-        flat: 0.05,
+        flat: 0.135,
         tiers: NONE,
         sound_mult: 1.0,
         min_s: 0,
@@ -315,6 +319,8 @@ static SPECS: [Spec; 15] = [
 const DEFAULT_SECS: u32 = 5;
 const AVATAR_MIN_SECS: f64 = 3.0;
 const AVATAR_MAX_SECS: f64 = 600.0;
+/// Lipsync-3 maximum billable input-video seconds ($0.135/s, so $40.50 at the cap).
+const LIPSYNC_MAX_SECS: f64 = 300.0;
 const VOICE_MAX_CHARS: usize = 10_000;
 /// WaveSpeed list price for ElevenLabs Scribe v2 (`elevenlabs/scribe-v2`): $0.01 per input minute,
 /// $0.012 when keyterms are sent; billed proportionally, first 60 minutes only. Source:
@@ -338,7 +344,7 @@ static MODELS: [ModelInfo; 15] = [
     ModelInfo { provider: "wavespeed", model: "elevenlabs-turbo-v2.5", kind: Kind::Voice, label: "ElevenLabs Turbo v2.5 TTS ($0.10/1000 chars)", est_usd: 0.01, durations: Durations::NONE },
     ModelInfo { provider: "wavespeed", model: "minimax-speech-02-hd", kind: Kind::Voice, label: "MiniMax Speech-02 HD TTS ($0.10/1000 chars)", est_usd: 0.01, durations: Durations::NONE },
     ModelInfo { provider: "wavespeed", model: "infinitetalk", kind: Kind::Avatar, label: "InfiniteTalk talking avatar (image + audio, $0.03/s 480p, $0.06/s 720p, 3 s min)", est_usd: 0.30, durations: Durations::range(3, 600, None) },
-    ModelInfo { provider: "wavespeed", model: "lipsync-3", kind: Kind::Lipsync, label: "Sync Lipsync-3 (video + audio, params.sync_mode)", est_usd: 0.05, durations: Durations::NONE },
+    ModelInfo { provider: "wavespeed", model: "lipsync-3", kind: Kind::Lipsync, label: "Sync Lipsync-3 (video + audio, params.sync_mode, $0.135/s of input video, 300 s max = $40.50)", est_usd: 40.50, durations: Durations::NONE },
     ModelInfo { provider: "wavespeed", model: "scribe-v2", kind: Kind::Transcribe, label: "ElevenLabs Scribe v2 transcription (needs params.audio_url, $0.01/audio min, $0.012 with keyterms)", est_usd: 0.60, durations: Durations::NONE },
 ];
 
@@ -1156,7 +1162,9 @@ impl Provider for WaveSpeed {
             return Ok(secs * rate);
         }
         if s.family == Family::Lipsync {
-            return Ok(s.flat);
+            // `video_url` is an https URL the engine cannot measure before submit, so the estimate is the
+            // documented 300 s billable cap (lipsync-3 bills the input video per second, rounded up).
+            return Ok(LIPSYNC_MAX_SECS * s.flat);
         }
         let secs = duration_secs(s, req)? as f64;
         let rate = match resolution(s, req)? {

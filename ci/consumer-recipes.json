@@ -2362,7 +2362,7 @@
         }
       ],
       "files": {
-        "Cargo.toml": "c9ace93f5ea9cc021a7ec82582fe45e6838fd2d35d7cf5de0bf4951f924de7cd",
+        "Cargo.toml": "248a4099c233feb18af27a110c4cbe328669c0b59cc556ea8b892a812e56e16f",
         "README.md": "bd1826337aebd775d5a4c55cc14a144a0319c1a95f98e0d671c3ee576d603f2e",
         "src/main.rs": "5b993d0703b4f770c327d04248c450b989ccb6475eb7f115e65dd903cc7e8d28"
       },
@@ -3273,9 +3273,9 @@
       "pkId": "PK103",
       "id": "ci/consumers/rightkit-local-gen/src/main.rs",
       "files": {
-        "Cargo.toml": "7933dd9468e7641fb2f9c3661c61e88d60b11ba985db56724ee80c6b49a28c3e",
-        "README.md": "24bc590a63627654778b5d8d62d9cf514ac7978b28544a7f611d90fe244c17c6",
-        "src/main.rs": "137e9b9e375b3891561a9b359e0372680120310e7fd7267490db5e11c80431ac"
+        "Cargo.toml": "c8d9db84292ce4eee1afa9933ee6ca7046890d830118411c4245f2ef518fa502",
+        "README.md": "1a976dff54c0f1bab675a9d9146eddd4d66e0d02bf7d3753c9688410c166e8bd",
+        "src/main.rs": "f2985637d3f0ba0caa91b380b4dc7c56e40d00507500c73e811e26c7ba22dde3"
       }
     },
     "rightkit-mail": {

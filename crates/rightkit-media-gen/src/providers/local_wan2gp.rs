@@ -35,10 +35,22 @@ use std::time::{Duration, Instant};
 pub const ID: &str = "local-wan2gp";
 /// Web UI and headless entry script in a Wan2GP checkout.
 pub const ENTRY: &str = "wgp.py";
-/// Environment variable naming the Wan2GP checkout directory.
+/// Environment variable naming the Wan2GP checkout directory, under the default `RIGHTKIT` prefix.
+/// Reads honour the host prefix first; [`dir_env`] is the name the host's users set.
 pub const DIR_ENV: &str = "RIGHTKIT_WAN2GP_DIR";
-/// Environment variable naming the Python interpreter to run Wan2GP with.
+/// Environment variable naming the Python interpreter to run Wan2GP with, under the default
+/// `RIGHTKIT` prefix ([`python_env`] is the host-prefixed name).
 pub const PYTHON_ENV: &str = "RIGHTKIT_WAN2GP_PYTHON";
+
+/// The checkout variable under the host prefix (`GENRIGHT_WAN2GP_DIR` for prefix `GENRIGHT`).
+pub fn dir_env() -> String {
+    crate::host::env_name("WAN2GP_DIR")
+}
+
+/// The Python interpreter variable under the host prefix (see [`dir_env`]).
+pub fn python_env() -> String {
+    crate::host::env_name("WAN2GP_PYTHON")
+}
 const PROBE_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// A discovered, probed Wan2GP installation.
@@ -185,8 +197,11 @@ pub fn discover(root: &Path, python: &Path) -> Result<Wan2GpInstall, ProviderErr
 pub fn discover_from_env(
     tools_root: Option<PathBuf>,
 ) -> Option<Result<Wan2GpInstall, ProviderError>> {
-    let root = resolve_root(std::env::var_os(DIR_ENV), tools_root)?;
-    let python = std::env::var_os(PYTHON_ENV)
+    let root = resolve_root(
+        crate::host::env_var("WAN2GP_DIR").map(Into::into),
+        tools_root,
+    )?;
+    let python = crate::host::env_var("WAN2GP_PYTHON")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("python"));
     Some(discover(&root, &python))
@@ -226,15 +241,9 @@ const KNOWN_PARAMS: [&str; 6] = [
 const FRAMES_PER_SECOND: u32 = 16;
 const RUN_TIMEOUT: Duration = Duration::from_secs(2 * 60 * 60);
 const MONITOR_TICK: Duration = Duration::from_millis(100);
-/// Environment variable overriding where per-job folders live (tests); default is under the organisation root.
-pub const JOBS_ENV: &str = "RIGHTKIT_WAN2GP_JOBS";
-
-/// Where per-job folders live: `RIGHTKIT_WAN2GP_JOBS`, else `<organisation root>/wan2gp-jobs`.
+/// Where per-job folders live: `<organisation root>/wan2gp-jobs`.
 pub fn jobs_dir() -> Option<PathBuf> {
-    std::env::var_os(JOBS_ENV)
-        .filter(|v| !v.to_string_lossy().trim().is_empty())
-        .map(PathBuf::from)
-        .or_else(|| super::tools_root().map(|r| r.join("wan2gp-jobs")))
+    super::tools_root().map(|r| r.join("wan2gp-jobs"))
 }
 
 pub struct LocalWan2Gp {
@@ -260,7 +269,8 @@ impl LocalWan2Gp {
     fn install(&self) -> Result<Wan2GpInstall, ProviderError> {
         discover_from_env(super::tools_root()).unwrap_or_else(|| {
             Err(unavailable(format!(
-                "Wan2GP is not installed; set {DIR_ENV} to your Wan2GP checkout"
+                "Wan2GP is not installed; set {} to your Wan2GP checkout",
+                dir_env()
             )))
         })
     }

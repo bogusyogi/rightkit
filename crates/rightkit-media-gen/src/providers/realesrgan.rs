@@ -282,8 +282,11 @@ impl Provider for RealEsrgan {
             ));
         }
         // Owner-only scratch folder: the output file is not created in the shared temp folder.
-        let scratch =
-            std::env::temp_dir().join(format!("rightkit-realesrgan-{}", std::process::id()));
+        let scratch = std::env::temp_dir().join(format!(
+            "{}-realesrgan-{}",
+            crate::host::config().machine_dir_name,
+            std::process::id()
+        ));
         rightkit_fs::ensure_private_dir(&scratch).map_err(|e| {
             ProviderError::new(
                 "unavailable",

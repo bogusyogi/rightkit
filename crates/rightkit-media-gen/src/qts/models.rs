@@ -128,8 +128,7 @@ pub fn voices_dir() -> PathBuf {
 }
 
 /// Resolve and configure ONNX Runtime (>= 1.24, `api-24`) through RightKit.
-/// Debug builds first accept `ORT_DYLIB_PATH` from the environment.
-/// Bundled locations precede app-data locations; release builds have no override.
+/// Bundled locations precede app-data locations; there is no environment override.
 pub fn find_onnxruntime() -> Option<PathBuf> {
     use rightkit_onnx::{RuntimeCandidate, RuntimeError};
     let selected = resolve_onnxruntime().ok()?;

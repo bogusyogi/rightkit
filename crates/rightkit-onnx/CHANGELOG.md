@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.1
+
+- New: `BindVerification::None` for `bind_installed_runtime`: no integrity check, for a host that verified the runtime by other means or never checked it (its install carries no `manifest.json` and no catalog row). The path checks and the known-bad runtime refusal still apply; the report carries the new `VerificationReport::Unverified`. Both enums are `#[non_exhaustive]`, so adding the variants is not breaking.
+- New: `BindSpec::leading_candidates` (explicit candidates searched before the bundled one, for a path the host's shell hands it) and `BindSpec::bundled_candidates` (further bundled locations searched after the `resource_subdir` one and before `extra_dirs`, for example the library directly beside the executable). Both default to empty, so the search order is unchanged. `BindSpec` is not `#[non_exhaustive]`: a struct literal that does not end in `..BindSpec::new(..)` needs the two new fields.
+
 ## 0.3.0
 
 - Breaking for dependents: dependency requirements `rightkit-models` 0.5 -> 0.7. 0.2.10 was published before these requirements were raised; a semver-breaking dependency is a breaking change, so they ship as 0.3.0 instead of changing 0.2.10 in place (#1572). No source change in this crate since 0.2.10.

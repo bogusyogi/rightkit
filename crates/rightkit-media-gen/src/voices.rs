@@ -2026,7 +2026,8 @@ fn ffmpeg_bin() -> GenResult<crate::host::ffmpeg::FfmpegHandle> {
         GenError::new(
             "ffmpeg_missing",
             format!(
-                "no verified ffmpeg (bundled; RIGHTKIT_FFMPEG or PATH in development builds): {e}"
+                "no verified ffmpeg (bundled; {} or PATH in development builds): {e}",
+                crate::host::env_name("FFMPEG")
             ),
         )
     })

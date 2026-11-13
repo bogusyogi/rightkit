@@ -111,9 +111,9 @@ fn bad(code: &'static str, msg: impl Into<String>) -> ProviderError {
 
 // ---- model / runtime discovery --------------------------------------------
 
-/// `RIGHTKIT_LIPSYNC_MODEL_DIR` or `<data>/models/lipsync`.
+/// `<PREFIX>_LIPSYNC_MODEL_DIR` or `<data>/models/lipsync`.
 pub fn model_dir() -> PathBuf {
-    match std::env::var_os("RIGHTKIT_LIPSYNC_MODEL_DIR").filter(|v| !v.is_empty()) {
+    match crate::host::env_var("LIPSYNC_MODEL_DIR").filter(|v| !v.is_empty()) {
         Some(p) => PathBuf::from(p),
         None => crate::qts::models::data_root()
             .join("models")
@@ -159,8 +159,15 @@ pub fn detector_verified() -> bool {
 
 /// The owner's ffmpeg handle (verified, or a development build's labelled binary); spawns take `.ffmpeg_path()`.
 fn ffmpeg() -> Result<crate::host::ffmpeg::FfmpegHandle, ProviderError> {
-    crate::host::ffmpeg::resolve_ffmpeg()
-        .map_err(|e| bad("not_installed", format!("no verified ffmpeg binary (bundled; RIGHTKIT_FFMPEG or PATH in development builds): {e}")))
+    crate::host::ffmpeg::resolve_ffmpeg().map_err(|e| {
+        bad(
+            "not_installed",
+            format!(
+                "no verified ffmpeg binary (bundled; {} or PATH in development builds): {e}",
+                crate::host::env_name("FFMPEG")
+            ),
+        )
+    })
 }
 
 fn ffmpeg_ok() -> bool {
@@ -914,7 +921,11 @@ fn render_with_encoder(req: &GenRequest, encoder: &str) -> Result<Vec<u8>, Provi
     let mut session = open_session()?;
 
     // Encode pipe: frames stream in as PPM while audio muxes from file.
-    let out_dir = std::env::temp_dir().join(format!("rightkit-lipsync-{}", std::process::id()));
+    let out_dir = std::env::temp_dir().join(format!(
+        "{}-lipsync-{}",
+        crate::host::config().machine_dir_name,
+        std::process::id()
+    ));
     rightkit_fs::ensure_private_dir(&out_dir).map_err(|e| bad("io", e.to_string()))?;
     let out_mp4 = out_dir.join(format!("talking-{}.mp4", uuid::Uuid::new_v4()));
     struct TempVideo(PathBuf);

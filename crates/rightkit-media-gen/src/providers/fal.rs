@@ -450,9 +450,9 @@ impl Fal {
                     .and_then(Value::as_str);
                 if endpoint == VIDEO_I2V {
                     body["image_url"] = json!(image_url(req).unwrap_or_default());
-                    body["aspect_ratio"] = json!(ar.unwrap_or("auto"));
+                    body["aspect_ratio"] = json!(video_aspect(ar, "auto"));
                 } else {
-                    body["aspect_ratio"] = json!(ar.unwrap_or("16:9"));
+                    body["aspect_ratio"] = json!(video_aspect(ar, "16:9"));
                 }
             }
             Kind::Music => {
@@ -681,16 +681,16 @@ fn variant_body(v: &Variant, req: &GenRequest) -> Value {
     match v.mode {
         Mode::I2v => {
             body["image_url"] = json!(image_url(req).unwrap_or_default());
-            body["aspect_ratio"] = json!(ar.unwrap_or("auto"));
+            body["aspect_ratio"] = json!(video_aspect(ar, "auto"));
         }
         Mode::Flf => {
             body["first_frame_url"] = json!(image_url(req).unwrap_or_default());
             body["last_frame_url"] = json!(end_url(req).unwrap_or_default());
-            body["aspect_ratio"] = json!(ar.unwrap_or("auto"));
+            body["aspect_ratio"] = json!(video_aspect(ar, "auto"));
         }
         Mode::Reference => {
             body["image_urls"] = json!(ref_urls(req));
-            body["aspect_ratio"] = json!(ar.unwrap_or("16:9"));
+            body["aspect_ratio"] = json!(video_aspect(ar, "16:9"));
         }
     }
     if v.mode != Mode::Reference {
@@ -1282,4 +1282,11 @@ impl Provider for Fal {
             }
         }
     }
+}
+
+/// The `aspect_ratio` sent for a video: only `16:9` and `9:16` pass through; anything else
+/// (including a value fal would refuse) becomes `default`.
+fn video_aspect<'a>(ar: Option<&'a str>, default: &'a str) -> &'a str {
+    ar.filter(|a| matches!(*a, "16:9" | "9:16"))
+        .unwrap_or(default)
 }
