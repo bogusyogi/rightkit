@@ -485,7 +485,11 @@ export function localTestPlan({ kind, unit, dir, config, manifest, batch = false
   // Consumer rows (separate Cargo workspaces) gate only this crate: they come from this crate's own entry.
   const consumers = consumerRows(unit, entry);
   for (const row of consumers) steps.push(...consumerRowInvocations(row));
-  return { id: `rust:${unit}`, featureLabels: featureSets.map((features) => features.join(" ") || "default"), consumerRows: consumers, steps };
+  // A crate scoped away from this host (platforms) plans no set here: the receipt names that instead of an empty list, which the gate refuses as
+  // "features". A crate that runs on the host and still plans no set keeps the empty list and the refusal (a config error, not a scope).
+  const featureLabels = featureSets.map((features) => features.join(" ") || "default");
+  if (featureLabels.length === 0 && !crateRunsOn(entry, platform)) featureLabels.push(`not built on ${platform} (ci/gate.config.json platforms)`);
+  return { id: `rust:${unit}`, featureLabels, consumerRows: consumers, steps };
 }
 
 /** Publisher compile-stage obligations. Caller supplies authenticated source policy and execution environment. */
