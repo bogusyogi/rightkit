@@ -11,13 +11,14 @@ include = ["src/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE
 
 [features]
 default = []
-credentials = ["dep:rightkit-credentials"]
+credentials = ["dep:rightkit-credentials", "dep:serde_json"]
 # `impl rightkit_license::DeviceIdSource for DeviceService<CredentialStore>`: the licence client's device source,
 # so an app stops hand-writing the adapter. Needs the licence crate's native client.
 license-client = ["credentials", "rightkit-license/client"]
 
 [dependencies]
 getrandom = "0.4"
+serde_json = { version = "1", optional = true }
 rightkit-credentials = { version = "0.5.0", path = "../rightkit-credentials", optional = true }
 rightkit-license = { version = "0.3.0", path = "../rightkit-license" }
 # The log/diagnostic bridges moved there; re-exported here for one release.

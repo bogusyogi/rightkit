@@ -11276,6 +11276,7 @@ dependencies = [
  "rightkit-credentials",
  "rightkit-license",
  "rightkit-logs",
+ "serde_json",
 ]
 
 [[package]]
