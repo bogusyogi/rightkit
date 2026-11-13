@@ -54,10 +54,36 @@ impl EnvValues {
         }
     }
 
-    /// [`EnvValues::from_process_with`] with no known workspace and the folder name `RightKit`.
+    /// [`EnvValues::from_process_with`] with the host's process defaults
+    /// ([`configure_process_defaults`]): by default no known workspace and the folder name
+    /// `RightKit`.
     pub fn from_process() -> Self {
-        Self::from_process_with(None, "RightKit")
+        match PROCESS_DEFAULTS.get() {
+            Some(d) => {
+                Self::from_process_with(d.known_workspace.as_deref(), &d.workspace_folder_name)
+            }
+            None => Self::from_process_with(None, "RightKit"),
+        }
     }
+}
+
+/// What [`EnvValues::from_process`] uses besides the environment: a host folder preferred as the
+/// workspace when it exists, and the default workspace folder name under home.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProcessDefaults {
+    /// A workspace folder the host knows about, used when no variable names one and it exists.
+    pub known_workspace: Option<String>,
+    /// Folder name of the default workspace under home (`<home>/<name>`).
+    pub workspace_folder_name: String,
+}
+
+static PROCESS_DEFAULTS: std::sync::OnceLock<ProcessDefaults> = std::sync::OnceLock::new();
+
+/// Set, once at startup, the defaults every [`EnvValues::from_process`] caller in the process uses
+/// (the service host, the local image provider, ...). Without a call the defaults are no known
+/// workspace and `<home>/RightKit`. Returns the rejected value when already set.
+pub fn configure_process_defaults(defaults: ProcessDefaults) -> Result<(), Box<ProcessDefaults>> {
+    PROCESS_DEFAULTS.set(defaults).map_err(Box::new)
 }
 
 fn user_home() -> Option<String> {
