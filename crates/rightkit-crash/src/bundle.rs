@@ -96,7 +96,7 @@ pub struct AdmittedCrashArtifacts {
     pub reports: Vec<String>,
     /// `dump_*` and `sample_*` files; empty unless `include_native_dumps`.
     pub native: Vec<String>,
-    /// `dump_*` files that could not be copied into `staging`, left out and reported here. The
+    /// `dump_*` and `sample_*` files that could not be copied or written into `staging`, left out and reported here. The
     /// rest of the call carries on.
     pub skipped: Vec<String>,
 }
@@ -109,10 +109,11 @@ pub struct AdmittedCrashArtifacts {
 /// * With `include_native_dumps`, `dump_*` files are copied and `sample_*` text is scrubbed again
 ///   on the way in. A sample that cannot be read or scrubbed is replaced by a short withheld
 ///   marker, never by the raw bytes. A leftover raw sample never matches.
-/// * Failure rule: a `dump_*` file that cannot be copied is skipped (any partial copy removed)
-///   and named in [`AdmittedCrashArtifacts::skipped`]; one bad dump does not cost the rest of
-///   the bundle. A report or sample that cannot be written into `staging`, or a `staging` that
-///   cannot be created, fails the whole call with an error naming it. Files already written
+/// * Failure rule: a `dump_*` or `sample_*` file that cannot be copied or written is skipped (any
+///   partial file removed) and named in [`AdmittedCrashArtifacts::skipped`]; one bad native
+///   artifact does not cost the rest of the bundle. A report that cannot be written into
+///   `staging`, or a `staging` that cannot be created, fails the whole call with an error naming
+///   it. Files already written
 ///   stay in `staging` for the caller to discard.
 ///
 /// `staging` is created when missing. Names are returned in admission order.
@@ -161,8 +162,11 @@ pub fn admit_crash_artifacts(
                         Ok(bytes) => crate::native::scrub_for_bundle(&bytes),
                         Err(_) => crate::native::WITHHELD_MARKER.to_string(),
                     };
-                    std::fs::write(&target, text)
-                        .map_err(|e| format!("write {}: {e}", target.display()))?;
+                    if std::fs::write(&target, text).is_err() {
+                        let _ = std::fs::remove_file(&target);
+                        admitted.skipped.push(name);
+                        continue;
+                    }
                 } else {
                     if std::fs::copy(entry.path(), &target).is_err() {
                         let _ = std::fs::remove_file(&target);
