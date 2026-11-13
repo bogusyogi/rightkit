@@ -11,6 +11,13 @@ import type { LibrarySource } from "@rightkit/library-ui";
 import { configureLibraryHost, type LibraryHostConfig } from "@rightkit/library-ui/host";
 import type { SettingsBackend } from "@rightkit/settings-ui/core";
 import type { UseSettings } from "./hooks/useSettings.js";
+import type {
+  AccountClient,
+  AppSettingsClient,
+  DeveloperClient,
+  SpeechClient,
+  SyncClient,
+} from "./settings/client.js";
 import type { AppState, HistoryItem } from "./lib/homeMetrics.js";
 import type { PillEvent } from "./pill/pillBars.js";
 import type { VocabularyEntry, VocabularySuggestion } from "./types/vocabulary.js";
@@ -91,6 +98,10 @@ export interface DictationEventMap {
   nativeDragDrop: NativeDragDropPayload;
   /** Pro entitlement changed; `null` while it is still being checked. */
   entitlement: boolean | null;
+  /** Local speech model install progress (Parakeet lanes); `phase` is `downloading`, `extracting`, `verifying`, `installing`, `preparing` or `installed`. */
+  localAsrModel: { backend: string; phase: string; received: number; total: number };
+  /** Whisper model install progress; the same phases. */
+  whisperModel: { phase: string; received: number; total: number };
 }
 
 /** Everything the dictation pages need from the host. One method per operation; no command names. */
@@ -143,6 +154,13 @@ export interface DictationClient {
   saveTextFile(suggestedName: string, contents: string): Promise<boolean>;
   /** macOS only: open the Files and Folders privacy pane. */
   openFilesSettings?(removable: boolean): Promise<void>;
+
+  // Settings sections (`@rightkit/dictation-ui/settings`). Each group is needed only by the sections that use it.
+  app?: AppSettingsClient;
+  speech?: SpeechClient;
+  developer?: DeveloperClient;
+  sync?: SyncClient;
+  account?: AccountClient;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -260,8 +278,22 @@ export interface DictationComponents {
   Toggle?: ComponentType<DictationToggleProps>;
   /** A chord on the Home page (`chord` is a `lib/chords` token string such as `fn+space`). Default: `Kbd` from `@rightkit/platform-ui/react`. */
   Kbd?: ComponentType<{ chord: string }>;
+  /** The Developer tools' route test (`context` is `"developer"`). Without it, and without `hooks.useRecognitionSetup`, the section has no route-test button. */
+  RecognitionSetupStep?: ComponentType<{ setup: RecognitionSetup; context: "developer" }>;
   /** Leading app tile of a recent-history row on the Home page. Default: library-ui `OriginIcon` over `DictationClient.history`. */
   OriginIcon?: ComponentType<DictationOriginIconProps>;
+}
+
+/** What the Developer tools' route test works with: the host's own recognition-setup state (an opaque object with the `phase` the section reads). */
+export interface RecognitionSetup {
+  /** `"processing"` disables the route-test button. */
+  phase: string;
+}
+
+/** Arguments of `hooks.useRecognitionSetup`. */
+export interface RecognitionSetupOptions {
+  active: boolean;
+  setError: (message: string) => void;
 }
 
 /** Class names a host may replace. */
@@ -277,6 +309,8 @@ export interface DictationHooks {
    * `DictationClient.settings`. A host with its own store passes a hook with the `UseSettings` shape.
    */
   useSettings?: () => UseSettings;
+  /** Recognition-setup state for the Developer tools' route test; pairs with `components.RecognitionSetupStep`. */
+  useRecognitionSetup?: (options: RecognitionSetupOptions) => RecognitionSetup;
 }
 
 /** Browser-storage values the package keeps. Hosts with stored data pass their existing keys. */

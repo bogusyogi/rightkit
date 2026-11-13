@@ -1,10 +1,23 @@
 // The Tauri `DictationClient`: the hub window's pages over the app's native commands and events.
 import { invoke } from "@tauri-apps/api/core";
-import { pickFile, pickSavePath } from "@rightkit/tauri/dialog";
+import { ask, pickFile, pickSavePath } from "@rightkit/tauri/dialog";
 import type { LibraryOrigin, LibrarySource } from "@rightkit/library-ui";
 import { deliveryQueryArgs, deliveryRow } from "../history/deliveryRows.js";
 import type { DictationClient, DictationCommand, DictationEventMap, Unsubscribe } from "../host.js";
 import type { HistoryItem } from "../lib/homeMetrics.js";
+import type {
+  AccountClient,
+  AppSettingsClient,
+  CloudSyncStatus,
+  DeveloperClient,
+  LocalAsrModelStatus,
+  ProBridgeStatus,
+  SpeechClient,
+  SyncClient,
+  SyncProviderChoice,
+  WakeLabStatus,
+  WhisperModelStatus,
+} from "../settings/client.js";
 import { eventSubscribe, notMapped, tauriListenFn, type ListenFn, type TauriClientOptions } from "./events.js";
 import { tauriDictationSettingsBackend, type TauriSettingsOptions } from "./settingsBackend.js";
 
@@ -21,6 +34,12 @@ export interface TauriDictationOptions extends TauriClientOptions, Omit<TauriSet
     current(): boolean | null;
     subscribe(handler: (pro: boolean | null) => void): Promise<Unsubscribe>;
   };
+  /**
+   * The account session and its devices (`DictationClient.account`), which an app answers from its licence
+   * layer: the rejections carry the wording to show. Without it the group is absent and the Devices section
+   * fails with "no `account` group".
+   */
+  account?: AccountClient;
 }
 
 const COMMANDS: Record<DictationCommand, string> = {
@@ -35,6 +54,8 @@ const EVENTS: { [K in Exclude<keyof DictationEventMap, "entitlement">]: string }
   wake: "wake-fired",
   hotkeyStatus: "hotkey-registration-status",
   nativeDragDrop: "native-drag-drop",
+  localAsrModel: "local-asr-model",
+  whisperModel: "whisper-model",
 };
 
 const RETENTION_OPTIONS = [
@@ -151,6 +172,47 @@ function historySource(options: TauriDictationOptions, listen: ListenFn): Librar
   };
 }
 
+const appSettings: AppSettingsClient = {
+  launchAtLoginEnabled: () => invoke<boolean>("launch_at_login_enabled"),
+  setLaunchAtLogin: (enabled) => invoke<void>("set_launch_at_login", { enabled }),
+  rotateHistoryKey: () => invoke<void>("rotate_history_key"),
+  confirm: (message, options) => ask(message, options),
+};
+
+const speech: SpeechClient = {
+  localAsrModelStatus: (backend) => invoke<LocalAsrModelStatus>("local_asr_model_status_for", { backend }),
+  downloadLocalAsrModel: (backend) => invoke<LocalAsrModelStatus>("download_local_asr_model", { backend }),
+  whisperModelStatus: () => invoke<WhisperModelStatus>("whisper_model_status"),
+  downloadWhisperModel: () => invoke<void>("download_whisper_model"),
+  prewarmEngine: () => invoke<void>("prewarm_engine"),
+  dismissModelUpdate: () => invoke<void>("dismiss_model_update"),
+};
+
+const developer: DeveloperClient = {
+  wakeLabStatus: () => invoke<WakeLabStatus>("get_wake_lab_status"),
+  setWakeLabEnabled: (enabled) => invoke<void>("set_wake_lab_enabled", { enabled }),
+  diagnosticCaptureAudioPresent: () => invoke<boolean>("diagnostic_capture_audio_present"),
+  openDiagnosticCapturesFolder: () => invoke<string>("open_diagnostic_captures_folder"),
+  recompileCoreMlCache: () => invoke<void>("recompile_coreml_cache"),
+  sendDiagnostics: () => invoke<string>("send_diagnostics"),
+  exportDiagnostics: (includeNativeDumps) => invoke<string>("export_diagnostics", { includeNativeDumps }),
+};
+
+// The provider choice reads and writes the store's `sync_provider` through `get_settings` and
+// `apply_settings_patch`, the commands HeardRight's own settings use for it.
+const sync: SyncClient = {
+  async syncProvider() {
+    const settings = await invoke<{ sync_provider?: SyncProviderChoice | null }>("get_settings");
+    return settings.sync_provider;
+  },
+  setSyncProvider: (provider) => invoke<void>("apply_settings_patch", { patch: { sync_provider: provider } }),
+  cloudSyncStatus: () => invoke<CloudSyncStatus>("cloud_sync_status"),
+  setCloudSyncEnabled: (enabled) => invoke<void>("cloud_sync_set_enabled", { enabled }),
+  setKeychainSyncEnabled: (enabled) => invoke<void>("pro_bridge_set_keychain_sync_enabled", { enabled }),
+  setProResolutionEnabled: (enabled) => invoke<void>("pro_bridge_set_pro_resolution_enabled", { enabled }),
+  proBridgeStatus: () => invoke<ProBridgeStatus>("pro_bridge_status"),
+};
+
 /** The Tauri `DictationClient`. Building it touches no Tauri API; the first call does. */
 export function tauriDictationClient(options: TauriDictationOptions = {}): DictationClient {
   const listen = options.listen ?? tauriListenFn;
@@ -207,5 +269,11 @@ export function tauriDictationClient(options: TauriDictationOptions = {}): Dicta
     transcribeFile: (path) => invoke("transcribe_file", { path }),
     saveTextFile,
     openFilesSettings: (removable) => invoke<void>("open_macos_files_settings", { removable }),
+
+    app: appSettings,
+    speech,
+    developer,
+    sync,
+    account: options.account,
   };
 }
