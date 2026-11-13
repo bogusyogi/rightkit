@@ -336,7 +336,7 @@
         [
           "--no-default-features",
           "--features",
-          "wv2-0_39,host-services,license,update,update-license"
+          "wv2-0_39,host-services,license,update,update-license,pro-bridge"
         ],
         [
           "--no-default-features",
