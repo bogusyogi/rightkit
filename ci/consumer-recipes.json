@@ -3771,7 +3771,7 @@
       "files": {
         "Cargo.toml": "981d0b25fb2eca41d91124526809cc0d232870422336054157ffcadb2f5fbccb",
         "README.md": "fac2d8e0a46346014eec181093710d54110c7f77cf763ba46ba8d815b465eb5f",
-        "src/main.rs": "ac3da91ede2b65a94b70e9ba2978bda8072723b9e7724e7f0caad9d2bf2d4f33"
+        "src/main.rs": "f7fec780a3d03f0f21bf48ca778229e9deb7bd7fa4b92ff0f16e19deb06143b4"
       }
     },
     "rightkit-agent-demo": {

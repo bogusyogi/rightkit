@@ -122,6 +122,7 @@ fn main() {
     let labels = VoiceLabels {
         chat: "voice-app:control".to_string(),
         policy_ref: "voice-control/v1".to_string(),
+        agent_name: "Voice App".to_string(),
     };
     let voice: VoiceHandoff = serde_json::from_value(handoff("unresolved-agent-request"))
         .unwrap_or_else(|error| {
@@ -139,6 +140,7 @@ fn main() {
     let empty = VoiceLabels {
         chat: String::new(),
         policy_ref: "voice-control/v1".to_string(),
+        agent_name: String::new(),
     };
     check(
         voice.to_task_envelope(&empty).is_err(),
