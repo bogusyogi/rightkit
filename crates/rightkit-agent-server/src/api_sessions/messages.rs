@@ -473,14 +473,14 @@ pub(crate) async fn post_message(
                     content: crate::api::missing_provider_key_message(),
                     reasoning_content: None,
                     tool_calls: Vec::new(),
-                    pinned: false,
+                    pinned: false, origin: None,
                 };
                 let seq = direct_conduit.next_seq();
                 direct_conduit.publish(ProtocolEvent::AssistantMessageCompleted {
                     session_id: direct_session_id.clone(),
                     seq,
                     created_at: now_iso(),
-                    message,
+                    message, phase: rightkit_agent_engine_protocol::AssistantMessagePhase::legacy_default(),
                 });
             }
             Ok(())
