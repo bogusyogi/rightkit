@@ -9,6 +9,13 @@ use serde::{Deserialize, Serialize};
 pub enum ContentOrigin {
     SessionOrigin,
     ToolDerived,
+    /// Content read from the files of a workspace that is trusted for this run only
+    /// (`--trust-workspace`, a per-session grant): the user vouched for running here once, not
+    /// for what the files say. A README in a cloned repository can carry instructions, so the
+    /// typed durable sinks (hook, config, MCP, skill, rule, instruction, schedule, memory) ask.
+    /// Shell commands do not ask on this origin alone: every headless run reads files, and
+    /// asking would refuse every later test run (decision 2026-11-11).
+    UntrustedWorkspace,
     WebDerived,
     McpDerived,
 }
@@ -18,12 +25,21 @@ impl ContentOrigin {
         match self {
             Self::SessionOrigin => "session-origin",
             Self::ToolDerived => "tool-derived",
+            Self::UntrustedWorkspace => "untrusted-workspace",
             Self::WebDerived => "web-derived",
             Self::McpDerived => "mcp-derived",
         }
     }
 
     pub fn is_external(self) -> bool {
+        matches!(
+            self,
+            Self::UntrustedWorkspace | Self::WebDerived | Self::McpDerived
+        )
+    }
+
+    /// Content that came from outside the machine (the web, an MCP server).
+    pub fn is_remote(self) -> bool {
         matches!(self, Self::WebDerived | Self::McpDerived)
     }
 
@@ -31,7 +47,8 @@ impl ContentOrigin {
         match self {
             Self::SessionOrigin => 0,
             Self::ToolDerived => 1,
-            Self::WebDerived | Self::McpDerived => 2,
+            Self::UntrustedWorkspace => 2,
+            Self::WebDerived | Self::McpDerived => 3,
         }
     }
 }
@@ -131,6 +148,7 @@ pub fn memory_write_requires_approval(provenance: &ContentProvenance) -> bool {
 fn kind_requires_approval(kind: DurableWriteKind, provenance: &ContentProvenance) -> bool {
     match kind {
         DurableWriteKind::Memory => memory_write_requires_approval(provenance),
+        DurableWriteKind::ShellCommand => provenance.origin.is_remote(),
         _ => durable_write_requires_approval(provenance),
     }
 }
@@ -171,6 +189,15 @@ pub fn durable_write_is_authorized(
     explicitly_approved: bool,
 ) -> bool {
     !durable_write_requires_approval(provenance) || explicitly_approved
+}
+
+/// [`durable_write_is_authorized`] for a shell command: only remote content (web, MCP) makes a
+/// shell command a durable sink that needs approval.
+pub fn shell_durable_write_is_authorized(
+    provenance: &ContentProvenance,
+    explicitly_approved: bool,
+) -> bool {
+    !provenance.origin.is_remote() || explicitly_approved
 }
 
 /// Sink-side backstop for `memory_save`: the user's own session writes freely,

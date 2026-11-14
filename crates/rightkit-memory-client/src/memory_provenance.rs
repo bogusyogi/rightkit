@@ -24,6 +24,7 @@ pub enum MemoryCausalOrigin {
     Legacy,
     SessionOrigin,
     ToolDerived,
+    UntrustedWorkspace,
     WebDerived,
     McpDerived,
 }
@@ -33,6 +34,7 @@ impl MemoryCausalOrigin {
         match origin {
             ContentOrigin::SessionOrigin => Self::SessionOrigin,
             ContentOrigin::ToolDerived => Self::ToolDerived,
+            ContentOrigin::UntrustedWorkspace => Self::UntrustedWorkspace,
             ContentOrigin::WebDerived => Self::WebDerived,
             ContentOrigin::McpDerived => Self::McpDerived,
         }
@@ -43,6 +45,7 @@ impl MemoryCausalOrigin {
             Self::Legacy => "legacy",
             Self::SessionOrigin => "session-origin",
             Self::ToolDerived => "tool-derived",
+            Self::UntrustedWorkspace => "untrusted-workspace",
             Self::WebDerived => "web-derived",
             Self::McpDerived => "mcp-derived",
         }
@@ -56,7 +59,7 @@ impl MemoryCausalOrigin {
             Self::Legacy => 3,
             Self::SessionOrigin => 0,
             Self::ToolDerived => 1,
-            Self::WebDerived | Self::McpDerived => 2,
+            Self::UntrustedWorkspace | Self::WebDerived | Self::McpDerived => 2,
         }
     }
 }

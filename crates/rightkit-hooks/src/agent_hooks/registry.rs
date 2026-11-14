@@ -281,8 +281,14 @@ pub async fn dry_run_hook_with_adapter(
             revoked.push(hook.id.clone());
             continue;
         }
-        let result =
-            run_dry_run_command(hook.spec.command.clone(), event_name, adapter, context).await;
+        let result = run_dry_run_command(
+            hook.spec.command.clone(),
+            hook.spec.timeout,
+            event_name,
+            adapter,
+            context,
+        )
+        .await;
         invoked.push(hook.id.clone());
         match (&outcome, result) {
             (HookOutcome::Deny(_), _) => {}
@@ -300,8 +306,60 @@ pub async fn dry_run_hook_with_adapter(
     }
 }
 
+/// Bytes of each hook stream the dry run keeps; the rest is drained and discarded (same bound
+/// as `HOOK_STREAM_CAPTURE_LIMIT` in `bus.rs`).
+const DRY_RUN_CAPTURE_LIMIT: usize = 256 * 1024;
+/// How long the dry run keeps draining a hook's pipes after the hook exited, so a backgrounded
+/// grandchild holding them open cannot stall the report.
+const DRY_RUN_OUTPUT_GRACE: std::time::Duration = std::time::Duration::from_secs(2);
+
+type CappedReader = (
+    tokio::task::JoinHandle<()>,
+    std::sync::Arc<std::sync::Mutex<Vec<u8>>>,
+);
+
+/// Drain `stream` to EOF, keeping at most `DRY_RUN_CAPTURE_LIMIT` bytes.
+fn read_capped<R>(mut stream: R) -> CappedReader
+where
+    R: tokio::io::AsyncRead + Unpin + Send + 'static,
+{
+    let kept = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let sink = kept.clone();
+    let handle = tokio::spawn(async move {
+        use tokio::io::AsyncReadExt;
+        let mut chunk = vec![0u8; 8 * 1024];
+        loop {
+            match stream.read(&mut chunk).await {
+                Ok(0) | Err(_) => return,
+                Ok(read) => {
+                    let mut kept = sink.lock().unwrap_or_else(|e| e.into_inner());
+                    let room = DRY_RUN_CAPTURE_LIMIT.saturating_sub(kept.len());
+                    kept.extend_from_slice(&chunk[..room.min(read)]);
+                }
+            }
+        }
+    });
+    (handle, kept)
+}
+
+/// Give the reader `DRY_RUN_OUTPUT_GRACE` to reach EOF, abort it otherwise, and return what it kept.
+async fn finish_capped(reader: Option<CappedReader>) -> Vec<u8> {
+    let Some((mut handle, kept)) = reader else {
+        return Vec::new();
+    };
+    if tokio::time::timeout(DRY_RUN_OUTPUT_GRACE, &mut handle)
+        .await
+        .is_err()
+    {
+        handle.abort();
+    }
+    let output = std::mem::take(&mut *kept.lock().unwrap_or_else(|e| e.into_inner()));
+    output
+}
+
 async fn run_dry_run_command(
     command: String,
+    spec_timeout: std::time::Duration,
     event_name: &str,
     adapter: &dyn rightkit_sandbox::execution::ProcessLaunchAdapter,
     context: &rightkit_sandbox::execution::ProcessLaunchContext,
@@ -324,28 +382,26 @@ async fn run_dry_run_command(
     };
     match adapter.spawn(spec).await {
         Ok(mut child) => {
-            use tokio::io::AsyncReadExt;
-            let result = tokio::time::timeout(std::time::Duration::from_secs(30), async {
-                let mut stdout = Vec::new();
-                if let Some(mut stream) = child.take_stdout() {
-                    stream.read_to_end(&mut stdout).await.map_err(|_| ())?;
-                }
-                let code = child.wait().await.map_err(|_| ())?;
-                Ok::<_, ()>((stdout, code))
-            })
-            .await;
+            let stdout = child.take_stdout().map(read_capped);
+            let stderr = child.take_stderr().map(read_capped);
+            let result = tokio::time::timeout(spec_timeout, child.wait()).await;
+            if result.is_err() {
+                // Kill the tree first so the readers see EOF instead of waiting out the grace.
+                let _ = child.cancel().await;
+            }
+            let (stdout, _stderr) = tokio::join!(finish_capped(stdout), finish_capped(stderr));
             match result {
-                Ok(Ok((stdout, code))) => hook_exit_outcome(
+                Ok(Ok(code)) => hook_exit_outcome(
                     Some(code),
                     &stdout,
                     "Hook denied execution",
                     "Hook exited with error",
                 ),
-                Ok(Err(())) => HookOutcome::Error("hook process I/O failed".into()),
-                Err(_) => {
-                    let _ = child.cancel().await;
-                    HookOutcome::Error("hook timed out after 30 seconds".into())
-                }
+                Ok(Err(_)) => HookOutcome::Error("hook process I/O failed".into()),
+                Err(_) => HookOutcome::Error(format!(
+                    "hook timed out after {} seconds",
+                    spec_timeout.as_secs()
+                )),
             }
         }
         Err(error) => HookOutcome::Error(format!("hook failed to spawn: {error:?}")),

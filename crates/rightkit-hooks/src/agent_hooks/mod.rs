@@ -8,8 +8,8 @@ pub mod guard;
 pub mod registry;
 
 pub use bus::{
-    HookBus, HookEvent, HookOutcome, HookSubscription, PreToolUseOutcome, PreToolUseReport,
-    ProcessLaunchAdapter,
+    HookBus, HookEvent, HookOutcome, HookRevocationFilter, HookSubscription, HookUrlSink,
+    PreToolUseOutcome, PreToolUseReport, ProcessLaunchAdapter,
 };
 pub use chain::{ChainReport, ConfiguredHooks, HookDecision, HookKind, HookResult, HookSpec};
 pub use guard::{DestructiveGuard, DestructiveGuardDecision};

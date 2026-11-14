@@ -54,6 +54,39 @@ pub const DEFAULT_WRITE_DENY: &[&str] = &[
     "**/.rightkit/runtime/**",
 ];
 
+/// The subset of [`DEFAULT_READ_DENY`] the Linux shell sandbox withholds from the
+/// Landlock ruleset, matched on a workspace-relative path: `.env`, `*.pem`,
+/// `daemon.port`, `daemon.lock` (files) and `.rightkit/runtime` (directory).
+/// Names compare case-insensitively, like the globs. A host with its own state
+/// folder calls [`shell_withholds_read_in`] with that folder's name.
+///
+/// `*secret*`, `*credential*` and `*.key` are excluded on purpose: they match source
+/// files and directories (`secrets.rs`, `credentials.go`, `foo.key` fixtures), and
+/// withholding those would break compilers and test runners.
+pub fn shell_withholds_read(rel: &std::path::Path, is_dir: bool) -> bool {
+    shell_withholds_read_in(rel, is_dir, ".rightkit")
+}
+
+/// [`shell_withholds_read`] for a host whose runtime directory lives under
+/// `state_dir_name` (for example `.coderight`) instead of `.rightkit`.
+pub fn shell_withholds_read_in(rel: &std::path::Path, is_dir: bool, state_dir_name: &str) -> bool {
+    let Some(name) = rel.file_name().and_then(|n| n.to_str()) else {
+        return false;
+    };
+    if is_dir {
+        return name.eq_ignore_ascii_case("runtime")
+            && rel
+                .parent()
+                .and_then(|p| p.file_name())
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.eq_ignore_ascii_case(state_dir_name));
+    }
+    name.eq_ignore_ascii_case(".env")
+        || name.eq_ignore_ascii_case("daemon.port")
+        || name.eq_ignore_ascii_case("daemon.lock")
+        || name.to_ascii_lowercase().ends_with(".pem")
+}
+
 /// Error type for deny-glob construction.
 #[derive(Debug, thiserror::Error)]
 pub enum DenyGlobError {
@@ -63,6 +96,13 @@ pub enum DenyGlobError {
         #[source]
         source: globset::Error,
     },
+    /// File tools match a workspace-relative spelling, so an absolute glob never matched a
+    /// workspace file while looking like a protection. It is refused instead.
+    #[error(
+        "deny glob '{pattern}' is an absolute path, but deny globs match workspace-relative \
+         paths; write '**/{suggestion}' instead"
+    )]
+    AbsolutePattern { pattern: String, suggestion: String },
 }
 
 /// Path deny lists (spec §13). Secrets and VCS internals are blocked regardless of mode/trust —
@@ -118,6 +158,23 @@ impl DenyGlobSet {
     ) -> Result<Self, DenyGlobError> {
         let read_patterns: Vec<String> = read_deny.into_iter().collect();
         let write_patterns: Vec<String> = write_deny.into_iter().collect();
+
+        if let Some(pattern) = read_patterns
+            .iter()
+            .chain(&write_patterns)
+            .find(|pattern| is_absolute_pattern(pattern))
+        {
+            let normalized = pattern.replace('\\', "/");
+            let suggestion = normalized
+                .rsplit('/')
+                .find(|segment| !segment.is_empty())
+                .unwrap_or("*")
+                .to_string();
+            return Err(DenyGlobError::AbsolutePattern {
+                pattern: pattern.clone(),
+                suggestion,
+            });
+        }
 
         let read_set = build_glob_set(&read_patterns, true)?;
         let write_set = build_glob_set(&write_patterns, true)?;
@@ -252,4 +309,15 @@ fn first_match<'a>(patterns: &'a [String], set: &GlobSet, path: &str) -> Option<
         }
     }
     None
+}
+
+/// True for a glob written as an absolute path: a leading `/` or `\\`, or a drive prefix such
+/// as `C:/` or `C:\\`.
+fn is_absolute_pattern(pattern: &str) -> bool {
+    let bytes = pattern.as_bytes();
+    matches!(bytes.first(), Some(b'/' | b'\\'))
+        || (bytes.len() >= 3
+            && bytes[0].is_ascii_alphabetic()
+            && bytes[1] == b':'
+            && matches!(bytes[2], b'/' | b'\\'))
 }

@@ -3,6 +3,7 @@
 ## 0.8.0
 
 - Depends on `rightkit-agent-engine-protocol` 0.4.0 (additive events and fields, see its changelog). Breaking for dependents: the crate exposes protocol types in its public API, so those types are now the 0.4 ones.
+- `agent_mcp::set_config_dir_segment` / `config_dir_segment` (default `rightkit-agent`, `DEFAULT_CONFIG_DIR_SEGMENT`): the folder under `~/.config` that holds the user's `mcp.json` and the persisted trust decisions `mcp_trust.json` (CodeRight passes `coderight`). Part of the sync with CodeRight's `crates/mcp`, which is not finished: the remaining differences are recorded for the next pass, and nothing else in `agent_mcp` changed.
 
 ## 0.7.7
 

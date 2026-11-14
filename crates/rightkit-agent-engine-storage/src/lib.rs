@@ -17,6 +17,7 @@ mod goals;
 mod handoff;
 mod inference;
 pub mod migrations;
+mod partial_reply;
 mod remote;
 mod run_budget_state;
 mod session;
@@ -37,6 +38,26 @@ use rightkit_db::rusqlite::{Connection, OptionalExtension};
 use std::ops::Deref;
 use std::path::Path;
 
+/// Environment variable naming the SQLite journal mode until the host calls
+/// [`set_journal_mode_env`].
+pub const DEFAULT_JOURNAL_MODE_ENV: &str = "RIGHTKIT_SQLITE_JOURNAL_MODE";
+
+static JOURNAL_MODE_ENV: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+/// Sets the environment variable the databases read their journal mode from (for example
+/// `MYAPP_SQLITE_JOURNAL_MODE`). Call once at start-up; returns `false` when one was already set.
+pub fn set_journal_mode_env(name: &str) -> bool {
+    JOURNAL_MODE_ENV.set(name.to_string()).is_ok()
+}
+
+/// The journal mode environment variable in force.
+pub fn journal_mode_env() -> &'static str {
+    JOURNAL_MODE_ENV
+        .get()
+        .map(String::as_str)
+        .unwrap_or(DEFAULT_JOURNAL_MODE_ENV)
+}
+
 pub use cli_attestation::{
     attestation_inputs_are_unique, CliAttestationResult, CliHarnessAttestationRow,
 };
@@ -47,11 +68,11 @@ pub use compaction_archives::{
 pub use driver_host::{
     DriverBindingRow, DriverEventClaim, DriverEventInboxRow, SessionCapabilityLeaseRow,
 };
-pub use error::{Result, StorageError};
+pub use error::{set_product_name, Result, StorageError};
 pub use events::{
     set_sqlite_op_observer, tool_call_origin_id, DecodedEvent, EventPage, EventPersistenceSnapshot,
     EventPersistenceState, EventRow, PersistenceGapError, PersistenceStateError, QuarantineOutcome,
-    SessionMatch, SqliteOpKind, SqliteOpObserver, RESUME_PAGE_ROWS,
+    SessionMatch, SessionTail, SqliteOpKind, SqliteOpObserver, RESUME_PAGE_ROWS,
 };
 pub use goals::{GoalRow, GoalStatus};
 pub use handoff::{
@@ -61,6 +82,7 @@ pub use handoff::{
 pub use inference::{
     DirectInferenceConnectionRow, InferenceRouteAttestationRow, InferenceRuntimeBindingRow,
 };
+pub use partial_reply::PartialReply;
 pub use remote::{RemoteBindingRow, RemoteChannelRow, RemoteDeliveryRow};
 pub use session::SessionRow;
 pub use soak_health::{
@@ -146,7 +168,7 @@ impl Deref for PooledReadConnection {
 impl StoragePool {
     pub fn open<P: AsRef<Path>>(path: P, max_size: usize) -> Result<Self> {
         let options = rightkit_db::DbOptions::new(path.as_ref())
-            .with_journal_env("RIGHTKIT_SQLITE_JOURNAL_MODE")
+            .with_journal_env(journal_mode_env())
             .with_per_host_fallback(true);
         Self::from_options(options, max_size)
     }
@@ -254,7 +276,7 @@ impl Storage {
     pub fn open<P: AsRef<Path>>(path: P) -> Result<Self> {
         let path = path.as_ref();
         let mut options = rightkit_db::DbOptions::new(path)
-            .with_journal_env("RIGHTKIT_SQLITE_JOURNAL_MODE")
+            .with_journal_env(journal_mode_env())
             .with_per_host_fallback(true);
         options.foreign_keys = true;
         // Deleting a session removes its bytes, not just its rows (storage rule 35).
@@ -266,7 +288,7 @@ impl Storage {
         restrict_storage_directory(effective_path)?;
         migrations::migrate(&conn, Some(effective_path))?;
         let mut read_options = rightkit_db::DbOptions::new(effective_path)
-            .with_journal_env("RIGHTKIT_SQLITE_JOURNAL_MODE")
+            .with_journal_env(journal_mode_env())
             .with_per_host_fallback(true);
         read_options.foreign_keys = true;
         // SQLite reports the resolved path (macOS: /var is /private/var). Only a real per-host fallback moves the readers.

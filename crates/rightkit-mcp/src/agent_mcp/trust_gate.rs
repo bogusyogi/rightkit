@@ -57,11 +57,33 @@ pub fn load_trust_store(path: &Path) -> TrustStore {
     }
 }
 
+/// Folder under `~/.config` that holds `mcp.json` and `mcp_trust.json` until the host calls
+/// [`set_config_dir_segment`].
+pub const DEFAULT_CONFIG_DIR_SEGMENT: &str = "rightkit-agent";
+
+static CONFIG_DIR_SEGMENT: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+/// Sets the folder name under `~/.config` that holds the user's `mcp.json` and the persisted
+/// trust decisions `mcp_trust.json` (for example `myapp`). Decisions are stored under it, so a
+/// host that changes it later loses the decisions recorded under the old name. Call once at
+/// start-up; returns `false` when one was already set.
+pub fn set_config_dir_segment(segment: &str) -> bool {
+    CONFIG_DIR_SEGMENT.set(segment.to_string()).is_ok()
+}
+
+/// The folder name under `~/.config` in force.
+pub fn config_dir_segment() -> &'static str {
+    CONFIG_DIR_SEGMENT
+        .get()
+        .map(String::as_str)
+        .unwrap_or(DEFAULT_CONFIG_DIR_SEGMENT)
+}
+
 /// Default on-disk location for trust decisions, next to `mcp.json`.
 pub fn default_trust_store_path(home: Option<&Path>) -> PathBuf {
     let home = home.map(Path::to_path_buf).unwrap_or_default();
     home.join(".config")
-        .join("rightkit-agent")
+        .join(config_dir_segment())
         .join("mcp_trust.json")
 }
 

@@ -87,11 +87,55 @@ pub fn cron_matches_in_time_zone(
     let local_epoch_minute =
         epoch_minute + time_zone_offset_minutes_at(time_zone, epoch_minute)? as i64;
     let t = utc_minute(local_epoch_minute);
+    // Standard cron: when both day-of-month and day-of-week are restricted, either one matching
+    // is enough; when one is `*` the other alone decides.
+    let day_of_month = field_matches(parts[2], 1, 31, t.day)?;
+    let day_of_week = weekday_matches(parts[4], t.weekday)?;
+    let day = match (parts[2].starts_with('*'), parts[4].starts_with('*')) {
+        (false, false) => day_of_month || day_of_week,
+        _ => day_of_month && day_of_week,
+    };
     Ok(field_matches(parts[0], 0, 59, t.minute)?
         && field_matches(parts[1], 0, 23, t.hour)?
-        && field_matches(parts[2], 1, 31, t.day)?
-        && field_matches(parts[3], 1, 12, t.month)?
-        && field_matches(parts[4], 0, 6, t.weekday)?)
+        && field_matches(&month_names(parts[3]), 1, 12, t.month)?
+        && day)
+}
+
+/// Weekday field: `0`-`6` and `7` all name a day (7 is Sunday), and `SUN`-`SAT` work as numbers.
+fn weekday_matches(field: &str, actual: u8) -> Result<bool, String> {
+    let field = weekday_names(field);
+    for part in field.split(',') {
+        let mut values = values_for_field(part, 0, 7)?;
+        if values.contains(&7) {
+            values.push(0);
+        }
+        if values.contains(&actual) {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+fn replace_names(field: &str, names: &[&str], first: u8) -> String {
+    let mut out = field.to_ascii_lowercase();
+    for (index, name) in names.iter().enumerate() {
+        out = out.replace(name, &(index as u8 + first).to_string());
+    }
+    out
+}
+
+fn weekday_names(field: &str) -> String {
+    replace_names(field, &["sun", "mon", "tue", "wed", "thu", "fri", "sat"], 0)
+}
+
+fn month_names(field: &str) -> String {
+    replace_names(
+        field,
+        &[
+            "jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec",
+        ],
+        1,
+    )
 }
 
 pub fn default_time_zone() -> String {

@@ -3,6 +3,14 @@
 ## 0.2.8
 
 - Depends on `rightkit-agent-engine-protocol` 0.4.0 (additive events and fields, see its changelog).
+- Synced with CodeRight's newer hook runner (CodeRight `crates/hooks`), so CodeRight can use `agent_hooks` instead of its copy; `set_env_prefix("CODERIGHT")` and `set_state_dir_name(".coderight")` give its `CODERIGHT_*` variables and `.coderight/hooks.json`.
+- `HookBus::set_revocation_filter` with `HookRevocationFilter`: the host's live test of whether an identified hook is revoked. `specs_for` (so `PreToolUse` and every chain event) skips a revoked hook, identified as `hooks_for` identifies it. Without a filter nothing is skipped, as before.
+- `HookBus::set_url_sink` with `HookUrlSink`: the host's sender for `url` hooks of chain-fired events (events the bus does not publish); without a sink nothing is posted.
+- `HookBus::rewrite_post_tool_result` runs `PostToolUse` command hooks that declare `"rewrite": true` (`updatedOutput`, `additionalContext`); `HookBus::run_blocking_stop_event_for_role` passes the sub-agent role in `RIGHTKIT_HOOK_ROLE` (host prefix applied).
+- Chain: `HookDecision::Defer` (`"decision": "defer"`, reported as an `ask` starting `deferred by <event> hook`), `HookResult::updated_output`, `HookSpec::rewrite` and `block_on_failure` (`"onFailure": "block"`, with `with_rewrite` / `with_block_on_failure`), new event names (`PostToolBatch`, `PermissionDenied`, `PreModelSwitch`, `PostModelSwitch`, `DirectoryAdded`, `FileChanged`). Breaking for exhaustive matches on `HookDecision` and for `HookSpec` built as a struct literal.
+- Safety fixes taken from CodeRight: a fail-closed event denies on a hook that could not run (shell exit 126, 127 or 9009), on exit-0 stdout cut at the 256 KiB capture limit that opens a JSON object but does not parse, and on tool arguments too large for the environment (`E2BIG`) instead of passing them truncated or not at all; stdout that is not exactly one JSON document keeps only the deny, ask, defer or stop of its first JSON value; a lagging bus subscriber reports the dropped events on stderr.
+- `dry_run_hook_with_adapter` honours the hook's own timeout, bounds each captured stream at 256 KiB and drains the pipes for at most two seconds after the hook exits (before: a fixed 30 seconds and unbounded reads).
+- Unit tests are not ported (end-to-end tests only).
 
 ## 0.2.7
 

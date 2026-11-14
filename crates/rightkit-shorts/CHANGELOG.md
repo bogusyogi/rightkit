@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.2
+
+- Breaking for dependents: a dependency requirement was raised to a semver-breaking version (`rightkit-llm` 0.5.0); published 0.2.1 still required 0.4.0.
+
 ## 0.2.1
 
 - Breaking for dependents: a dependency requirement was raised to a semver-breaking version.

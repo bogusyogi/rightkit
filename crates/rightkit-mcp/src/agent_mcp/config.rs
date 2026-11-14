@@ -570,7 +570,11 @@ pub fn config_paths(workspace_root: Option<&Path>) -> Vec<PathBuf> {
 
     // Lowest precedence: user-level defaults.
     if let Some(home) = home_dir() {
-        paths.push(home.join(".config").join("rightkit-agent").join("mcp.json"));
+        paths.push(
+            home.join(".config")
+                .join(crate::agent_mcp::trust_gate::config_dir_segment())
+                .join("mcp.json"),
+        );
     }
 
     // Workspace declarations override user defaults. the host app-local config

@@ -13,6 +13,7 @@ pub use identity::{
     tool_call_origin_id, DecodedEvent, EventPersistenceSnapshot, EventPersistenceState,
     PersistenceGapError, PersistenceStateError,
 };
+pub use query::SessionTail;
 pub use recovery::QuarantineOutcome;
 pub use replay::{EventPage, RESUME_PAGE_ROWS};
 pub use search::SessionMatch;

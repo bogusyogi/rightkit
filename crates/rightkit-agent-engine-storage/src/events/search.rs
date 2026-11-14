@@ -69,9 +69,15 @@ impl Storage {
     pub fn reindex_events_fts(&mut self) -> Result<usize> {
         let tx = rightkit_db::write_txn(&mut self.conn)?;
         tx.execute("DELETE FROM events_fts", [])?;
+        // The same rows the triggers index: message text only (migration v34).
         let n = tx.execute(
             "INSERT INTO events_fts(rowid, session_id, kind, payload) \
-             SELECT rowid, session_id, kind, payload_json FROM events",
+             SELECT rowid, session_id, kind, \
+                    CASE kind WHEN 'userMessageSubmitted' THEN json_extract(payload_json, '$.text') \
+                              ELSE json_extract(payload_json, '$.message.content') END \
+               FROM events \
+              WHERE kind IN ('userMessageSubmitted', 'assistantMessageCompleted') \
+                AND json_valid(payload_json)",
             [],
         )?;
         tx.commit()?;
