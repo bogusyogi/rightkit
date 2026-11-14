@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-agent-config"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Layered TOML configuration for an agent host: defaults, user, workspace, environment and session layers, state root, workspace trust, instructions and presets."
@@ -18,7 +18,7 @@ host-env = []
 
 [dependencies]
 rightkit-app-settings = { version = "0.4.0", path = "../rightkit-app-settings" }
-rightkit-agent-policy = { version = "0.1.0", path = "../rightkit-agent-policy" }
+rightkit-agent-policy = { version = "0.2.0", path = "../rightkit-agent-policy" }
 # The suite root behind the state root (`Suite`, `SuiteError`), from rightkit-roots since rightkit-daemon 0.8.0.
 rightkit-roots = { version = "0.2.0", path = "../rightkit-roots" }
 rightkit-fs = { version = "0.4.9", path = "../rightkit-fs", default-features = false, features = ["fs", "lock", "json", "digest", "transaction"] }

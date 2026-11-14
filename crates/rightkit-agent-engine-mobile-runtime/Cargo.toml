@@ -16,14 +16,14 @@ path = "src/lib.rs"
 crate-type = ["staticlib", "rlib"]
 
 [dependencies]
-rightkit-agent-engine-protocol = {version = "0.3.0", path = "../rightkit-agent-engine-protocol"}
-rightkit-agent-policy = {version = "0.1.4", path = "../rightkit-agent-policy"}
+rightkit-agent-engine-protocol = {version = "0.4.0", path = "../rightkit-agent-engine-protocol"}
+rightkit-agent-policy = {version = "0.2.0", path = "../rightkit-agent-policy"}
 rightkit-agent-engine-core = {version = "0.1.1", path = "../rightkit-agent-engine-core", default-features = false}
 rightkit-agent-coding-tools = { version = "0.1.1", path = "../rightkit-agent-coding-tools" }
-rightkit-llm = {version = "0.4.0", path = "../rightkit-llm", features = ["agent_providers"]}
+rightkit-llm = {version = "0.5.0", path = "../rightkit-llm", features = ["agent_providers"]}
 rightkit-agent-engine-history = {version = "0.1.1", path = "../rightkit-agent-engine-history"}
 rightkit-memory-client = { version = "0.1.0", path = "../rightkit-memory-client"}
-rightkit-mcp = {version = "0.7.7", path = "../rightkit-mcp", features = ["agent_mcp"]}
+rightkit-mcp = {version = "0.8.0", path = "../rightkit-mcp", features = ["agent_mcp"]}
 rightkit-agent-host-traits = {version = "0.1.0", path = "../rightkit-agent-host-traits"}
 rightkit-agent-orchestration = {version = "0.1.1", path = "../rightkit-agent-orchestration", default-features = false, features = ["coding"]}
 async-trait = {version = "0.1"}

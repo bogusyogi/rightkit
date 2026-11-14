@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.0
 
 Ported from CodeRight's newer copy so it can use this crate instead of its own. Every change is additive on the wire: a value written by an earlier version still reads, and the default output of a host that sets none of the options below is unchanged.
 

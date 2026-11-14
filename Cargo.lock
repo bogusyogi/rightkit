@@ -9965,7 +9965,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-agent-config"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "dirs",
  "rightkit-agent-policy",
@@ -9980,7 +9980,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-agent-daemon"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "axum",
@@ -10052,7 +10052,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-agent-engine-api-workflows"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "axum",
  "rightkit-agent-engine-storage",
@@ -10144,7 +10144,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-agent-engine-protocol"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "rightkit-agent-task-contract",
  "rightkit-approvals",
@@ -10173,7 +10173,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-agent-engine-storage"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "rightkit-agent-engine-protocol",
  "rightkit-crypto",
@@ -10190,7 +10190,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-agent-engine-tasks"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "rightkit-agent-engine-protocol",
  "serde",
@@ -10221,7 +10221,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-agent-learning"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "rightkit-agent-engine-storage",
  "rightkit-crypto",
@@ -10301,7 +10301,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-agent-policy"
-version = "0.1.4"
+version = "0.2.0"
 dependencies = [
  "globset",
  "libc 0.2.191",
@@ -10451,7 +10451,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-agent-tools"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "rightkit-automation",
  "rightkit-browser",
@@ -10719,7 +10719,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-bot-messaging"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "async-trait",
  "rightkit-agent-daemon",
@@ -11728,7 +11728,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-ffmpeg"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "rightkit-agent-policy",
  "rightkit-child-process",
@@ -11829,7 +11829,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-hooks"
-version = "0.2.7"
+version = "0.2.8"
 dependencies = [
  "async-trait",
  "regex",
@@ -11971,7 +11971,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-llm"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "async-stream",
  "bytes",
@@ -12089,7 +12089,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-mcp"
-version = "0.7.7"
+version = "0.8.0"
 dependencies = [
  "async-trait",
  "futures",
@@ -12845,7 +12845,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-scheduler"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "rightkit-agent-engine-protocol",
  "rightkit-time",

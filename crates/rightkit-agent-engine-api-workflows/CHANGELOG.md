@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.2
+
+- Requires `rightkit-agent-engine-storage` 0.3.0 (dependency requirement raised; no API change here).
+
 ## 0.2.1
 
 - Breaking for dependents: a dependency requirement was raised to a semver-breaking version.

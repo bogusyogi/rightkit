@@ -2,6 +2,8 @@
 
 ## 0.1.1 (unpublished)
 
+- Builds against `rightkit-agent-engine-protocol` 0.4.0: the events and approval records it emits leave the new optional fields unset (`effects`, `cost_billed`, `ttft_ms`, `total_ms`, `rate_limit`, `cache_ttl_ms`, `PendingApprovalContext` flat-shape fields), and `seq_of` handles `ToolArgumentsPartial` and `SubAgentOutput`. No behaviour change.
+
 - A tool call that waits for approval is bound by the approvals core's rule: its `PendingApprovalContext` carries
   a mandatory `rightkit_approvals::Binding` (the effect payload digest of the exact final payload, and the
   destination: the call's network host, else the tool) built with `rightkit_agent_engine_protocol::effect_binding`,

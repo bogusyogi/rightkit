@@ -22,8 +22,8 @@ agent_acp = []
 driver_host = ["claude", "codex", "dep:rightkit-crypto", "dep:async-trait", "dep:rightkit-agent-coding-tools", "rightkit-child-process/tokio", "dep:rightkit-agent-config", "dep:rightkit-sandbox", "dep:rightkit-fs", "dep:rightkit-sidecar", "dep:rightkit-time", "dep:thiserror", "dep:tokio", "dep:libc"]
 
 [dependencies]
-rightkit-agent-engine-protocol = { version = "0.3.0", path = "../rightkit-agent-engine-protocol", optional = true }
-rightkit-mcp = { version = "0.7.7", path = "../rightkit-mcp", optional = true }
+rightkit-agent-engine-protocol = { version = "0.4.0", path = "../rightkit-agent-engine-protocol", optional = true }
+rightkit-mcp = { version = "0.8.0", path = "../rightkit-mcp", optional = true }
 tracing = { version = "0.1", optional = true }
 rightkit-child-process = { version = "0.5.7", path = "../rightkit-child-process" }
 serde = { version = "1.0.229", features = ["derive"] }
