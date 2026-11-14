@@ -14,6 +14,7 @@ import type { UseSettings } from "./hooks/useSettings.js";
 import type {
   AccountClient,
   AppSettingsClient,
+  LocalBackend,
   DeveloperClient,
   LicenseSettingsClient,
   SpeechClient,
@@ -21,6 +22,7 @@ import type {
 } from "./settings/client.js";
 import type { AppState, HistoryItem } from "./lib/homeMetrics.js";
 import type { OnboardingClient } from "./onboarding/client.js";
+import type { Platform } from "@rightkit/platform-ui";
 import type { PillEvent } from "./pill/pillBars.js";
 import type { VocabularyEntry, VocabularySuggestion } from "./types/vocabulary.js";
 
@@ -285,6 +287,10 @@ export interface DictationComponents {
   Kbd?: ComponentType<{ chord: string }>;
   /** The Developer tools' route test (`context` is `"developer"`). Without it, and without `hooks.useRecognitionSetup`, the section has no route-test button. */
   RecognitionSetupStep?: ComponentType<{ setup: RecognitionSetup; context: "developer" }>;
+  /** Brand mark in the "where it lives" setup step. Default: nothing. */
+  AppMark?: ComponentType;
+  /** Reel under the model download row of the setup. It is shown while the model is not installed; pass a `React.lazy` component to keep its assets out of the first bundle. Default: no reel. */
+  ModelReel?: ComponentType<{ className?: string }>;
   /** Leading app tile of a recent-history row on the Home page. Default: library-ui `OriginIcon` over `DictationClient.history`. */
   OriginIcon?: ComponentType<DictationOriginIconProps>;
 }
@@ -341,6 +347,10 @@ export interface DictationHostConfig {
   storagePrefix?: string;
   /** Exact keys for stored values, e.g. a host's existing keys. */
   storageKeys?: Partial<Record<DictationStorageKey, string>>;
+  /** What the first-run setup needs to know about the product; required by `@rightkit/dictation-ui/onboarding`. */
+  onboarding?: DictationOnboardingConfig;
+  /** Key labels that replace the platform's default in chords drawn by the setup, by platform (for example `{ macos: { esc: "esc" } }`). */
+  chordLabels?: Partial<Record<Platform, Record<string, string>>>;
   /** URL of the spoken-formatting guide linked from the Dictation page. */
   formattingGuideUrl?: string;
   /** Replacement visual pieces; see `DictationComponents`. */
@@ -354,6 +364,27 @@ export interface DictationHostConfig {
    * null). Default: focus `opener` on the next animation frame when it is still on the page.
    */
   restoreFocus?: (opener: HTMLElement | null) => void;
+}
+
+/** The speech model the first-run setup installs and selects. */
+export interface DictationOnboardingModel {
+  /** The backend id the native model commands take. */
+  id: LocalBackend;
+  /** Name shown in the model row and the setup copy. */
+  label: string;
+  /** Download size as shown, by platform. */
+  size: { macos: string; other: string };
+  /** The model's attribution line: `Powered by <name> · <licenseLabel>`. */
+  credit: { name: string; licenseLabel: string; licenseUrl: string };
+}
+
+/** What the first-run setup (`@rightkit/dictation-ui/onboarding`) needs to know about the product. */
+export interface DictationOnboardingConfig {
+  model: DictationOnboardingModel;
+  /** The spoken word that starts the voice commands (`<word> send`). */
+  wakeWord: string;
+  /** Written as `onboarding_version` when setup finishes. Default 3. */
+  version?: number;
 }
 
 let config: DictationHostConfig = {};
@@ -400,6 +431,15 @@ export function dictationClient(): DictationClient {
 export function pillClient(): PillClient {
   if (!config.pill) throw new Error("@rightkit/dictation-ui: configureDictationHost({ pill }) was not called");
   return config.pill;
+}
+
+export function hostOnboarding(): DictationOnboardingConfig {
+  if (!config.onboarding) throw new Error("@rightkit/dictation-ui: configureDictationHost({ onboarding }) was not called");
+  return config.onboarding;
+}
+
+export function hostChordLabels(): NonNullable<DictationHostConfig["chordLabels"]> {
+  return config.chordLabels ?? {};
 }
 
 export function hostComponents(): DictationComponents {
