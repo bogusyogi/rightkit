@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Fix: `wrap_untrusted_web_text` fences web text with the protocol's configured untrusted-context tag (`rightkit_agent_engine_protocol::untrusted_context_tag()`, default `rightkit-untrusted-context`); it was a hard-coded `coderight-untrusted-context`. Changes the fence element name for hosts that do not set a tag (from `coderight-untrusted-context` to `rightkit-untrusted-context`).
+
 ## 0.1.0 (unpublished)
 
 - New crate. The coding agent's host tools moved here from `rightkit-agent-tools` 0.3.5, where they were the `coding_tools` module behind the `coding_tools` feature. They never referenced the rest of that crate, which was left with the tool contract, gate and backends every app uses, and no longer depends on `rightkit-agent-config` or `rightkit-agent-telemetry` (2026-11-12 shape review).
