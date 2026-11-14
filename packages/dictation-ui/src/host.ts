@@ -393,6 +393,10 @@ export interface DictationOnboardingConfig {
 export interface DictationShellConfig {
   /** The installed version as shown, without the leading `v`. */
   appVersion: string;
+  /** Subscribes to one native event by name; resolves to the unsubscribe once registered. Receives the payload only (`useTauriEvent`, the model-update prompt). */
+  listen: <T>(event: string, handler: (payload: T) => void) => Promise<Unsubscribe>;
+  /** The speech model backend id whose update `ModelUpdatePrompt` offers (events for another backend are ignored). */
+  modelBackend: string;
   update: {
     /** Manual update check (never installs). */
     check(): Promise<unknown>;
