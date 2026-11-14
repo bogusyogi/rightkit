@@ -44,8 +44,10 @@ impl DaemonState {
                 content: lines.join("\n"),
                 reasoning_content: None,
                 tool_calls: Vec::new(),
-                pinned: false, origin: None,
-            }, phase: rightkit_agent_engine_protocol::AssistantMessagePhase::legacy_default(),
+                pinned: false,
+                origin: None,
+            },
+            phase: rightkit_agent_engine_protocol::AssistantMessagePhase::legacy_default(),
         });
         RunOutcome {
             completed: false,
@@ -110,8 +112,10 @@ impl DaemonState {
                     ),
                     reasoning_content: None,
                     tool_calls: Vec::new(),
-                    pinned: false, origin: None,
-                }, phase: rightkit_agent_engine_protocol::AssistantMessagePhase::legacy_default(),
+                    pinned: false,
+                    origin: None,
+                },
+                phase: rightkit_agent_engine_protocol::AssistantMessagePhase::legacy_default(),
             });
             return Some(RunOutcome {
                 completed: false,
@@ -255,8 +259,10 @@ impl DaemonState {
                         ),
                         reasoning_content: None,
                         tool_calls: Vec::new(),
-                        pinned: false, origin: None,
-                    }, phase: rightkit_agent_engine_protocol::AssistantMessagePhase::legacy_default(),
+                        pinned: false,
+                        origin: None,
+                    },
+                    phase: rightkit_agent_engine_protocol::AssistantMessagePhase::legacy_default(),
                 });
                 Err(format!(
                     "conductor run exceeded wall-clock limit of {wall_clock_minutes} minutes"

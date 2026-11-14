@@ -53,6 +53,13 @@ pub trait Retranscriber {
         ffmpeg: &Path,
         render: &Path,
     ) -> Result<Retranscription, RetranscribeError>;
+
+    /// Words that follow `SKIP:` when [`RetranscribeError::Unavailable`] is returned, as in
+    /// `SKIP: <this>; speech.retranscription not run`. Default: `speech model not installed`.
+    /// A host whose engine is a service ("HeardRight is not running") overrides it.
+    fn unavailable_reason(&self) -> &str {
+        "speech model not installed"
+    }
 }
 
 pub const CHECK_ID: &str = "speech.retranscription";
@@ -219,9 +226,10 @@ pub fn retranscription_check(
     match retranscriber.retranscribe(ffmpeg, render) {
         Ok(heard) => judge(expect, &heard.words, heard.engine),
         Err(RetranscribeError::Unavailable(why)) => {
-            eprintln!("SKIP: speech model not installed; {CHECK_ID} not run ({why})");
+            let what = retranscriber.unavailable_reason();
+            eprintln!("SKIP: {what}; {CHECK_ID} not run ({why})");
             failed(
-                format!("SKIP: speech model not installed; {CHECK_ID} not run: {why}"),
+                format!("SKIP: {what}; {CHECK_ID} not run: {why}"),
                 json!({"skipped": true, "reason": why}),
             )
         }

@@ -342,7 +342,7 @@ pub fn package_render(tools: &QaTools, req: &PackageRequest) -> Result<PackageOu
         .map_err(|e| QaError::io(format!("creating {}", out_root.display()), e))?;
     // Same-volume staging leaves any existing approved package intact on failure.
     let staging = tempfile::Builder::new()
-        .prefix(".rightkit-package-")
+        .prefix(tools.package_staging_prefix())
         .tempdir_in(&out_root)
         .map_err(|e| QaError::io("creating package staging directory", e))?;
     let dir = staging.path().join("package");

@@ -16,6 +16,8 @@ use crate::render_qa::error::QaError;
 pub struct QaTools {
     pub ffmpeg: PathBuf,
     pub ffprobe: PathBuf,
+    critic: crate::render_qa::critic::CriticLocator,
+    package_staging_prefix: String,
 }
 
 impl QaTools {
@@ -28,7 +30,43 @@ impl QaTools {
                 )));
             }
         }
-        Ok(Self { ffmpeg, ffprobe })
+        Ok(Self {
+            ffmpeg,
+            ffprobe,
+            critic: crate::render_qa::critic::CriticLocator::default(),
+            package_staging_prefix: ".rightkit-package-".to_string(),
+        })
+    }
+
+    /// Looks for the critic binary under `name` (without the platform executable suffix) next to
+    /// the current executable instead of `rightkit-render-critic`. A host that ships the critic
+    /// under its own name sets this; the default is unchanged.
+    pub fn with_critic_binary_name(mut self, name: impl Into<String>) -> Self {
+        self.critic = crate::render_qa::critic::CriticLocator::Named(name.into());
+        self
+    }
+
+    /// Uses the critic binary at `path` instead of searching next to the current executable.
+    /// A path that is not a file reads as "critic not installed", the same as a missing default.
+    pub fn with_critic_path(mut self, path: impl Into<PathBuf>) -> Self {
+        self.critic = crate::render_qa::critic::CriticLocator::Path(path.into());
+        self
+    }
+
+    /// Prefix of the hidden staging directory `package_render` builds a package in (default
+    /// `.rightkit-package-`). A host that wants its own name on leftover staging directories
+    /// sets this.
+    pub fn with_package_staging_prefix(mut self, prefix: impl Into<String>) -> Self {
+        self.package_staging_prefix = prefix.into();
+        self
+    }
+
+    pub(crate) fn package_staging_prefix(&self) -> &str {
+        &self.package_staging_prefix
+    }
+
+    pub(crate) fn critic(&self) -> &crate::render_qa::critic::CriticLocator {
+        &self.critic
     }
 
     /// First line of `ffmpeg -version`.

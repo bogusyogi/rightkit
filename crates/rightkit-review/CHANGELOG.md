@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.0
+
+- New, additive (feature `render-qa`): `QaTools::with_critic_binary_name(name)` looks for the critic binary under `name` (executable suffix added) next to the current executable; `QaTools::with_critic_path(path)` uses an explicit path. Default unchanged: `rightkit-render-critic` next to the executable. The "critic not run" message names the binary that was looked for. CutRight ships `cutright-critic`: `QaTools::new(ffmpeg, ffprobe)?.with_critic_binary_name("cutright-critic")`.
+- New, additive (feature `render-qa`): `Retranscriber::unavailable_reason()` supplies the words after `SKIP:` for `RetranscribeError::Unavailable`. Default method, default `speech model not installed` (unchanged). CutRight returns `HeardRight is not running`.
+- New, additive (feature `render-qa`): `QaTools::with_package_staging_prefix(prefix)` sets the prefix of the hidden staging directory `package_render` builds in. Default `.rightkit-package-` (unchanged); CutRight uses `.cutright-package-`.
+- `QaTools` gained private fields; build it with `QaTools::new` (a struct literal outside the crate never compiled against future fields and now does not compile), hence the minor version.
+
 ## 0.5.0
 
 - Breaking for dependents: dependency requirement `rightkit-daemon` 0.5 -> 0.8 (feature `phone`), plus `rightkit-daemon-remote` 0.1 (new, feature `phone`). 0.4.3 was published before this change; a semver-breaking dependency is a breaking change, so it ships as 0.5.0 instead of changing 0.4.3 in place (#1572).

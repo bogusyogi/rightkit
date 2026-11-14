@@ -52,8 +52,8 @@ pub mod runtime_bundle;
 pub mod session;
 
 pub use bind::{
-    bind_installed_runtime, BindError, BindSpec, BindVerification, BoundRuntime, RuntimeReport,
-    VerificationFailure, VerificationReport,
+    bind_installed_runtime, resolve_installed_runtime, BindError, BindSpec, BindVerification,
+    BoundRuntime, RuntimeReport, VerificationFailure, VerificationReport,
 };
 #[cfg(feature = "catalog")]
 pub use bind::{CatalogReport, MissingCompanion};
@@ -739,17 +739,58 @@ pub fn discover_runtime(extra_dirs: impl IntoIterator<Item = PathBuf>) -> Option
 /// dependencies from `PATH`, not from the library's folder). Idempotent: an entry already present
 /// is moved to the front, never duplicated. An unset `PATH` becomes just that directory, and a
 /// path with no parent directory is ignored. Call single-threaded, before ORT use.
+///
+/// On Windows the entry is written without the verbatim prefix `std::fs::canonicalize` adds: a
+/// `\\?\C:\dir` directory becomes `C:\dir` and `\\?\UNC\host\share\dir` becomes
+/// `\\host\share\dir`, because a verbatim spelling is not a normal `PATH` entry. A path of 260
+/// characters or more keeps its verbatim spelling (the short form would not load). Other
+/// platforms are unchanged.
 pub fn prepend_runtime_dir_to_path(runtime: &Path) {
     let Some(dir) = runtime.parent().filter(|dir| !dir.as_os_str().is_empty()) else {
         return;
     };
-    let mut paths = vec![dir.to_path_buf()];
+    let entry = path_entry_spelling(dir);
+    let mut paths = vec![entry.clone()];
     if let Some(existing) = std::env::var_os("PATH") {
-        paths.extend(std::env::split_paths(&existing).filter(|entry| entry != dir));
+        paths.extend(
+            std::env::split_paths(&existing).filter(|other| *other != entry && other != dir),
+        );
     }
     if let Ok(joined) = std::env::join_paths(paths) {
         std::env::set_var("PATH", joined);
     }
+}
+
+/// The spelling of `dir` written to `PATH`: the verbatim prefix removed on Windows.
+#[cfg(windows)]
+fn path_entry_spelling(dir: &Path) -> PathBuf {
+    const VERBATIM: &str = r"\\?\";
+    const MAX_PATH: usize = 260;
+    let Some(text) = dir.to_str() else {
+        return dir.to_path_buf();
+    };
+    let Some(rest) = text.strip_prefix(VERBATIM) else {
+        return dir.to_path_buf();
+    };
+    let bytes = rest.as_bytes();
+    let drive = bytes.len() >= 2
+        && bytes[0].is_ascii_alphabetic()
+        && bytes[1] == b':'
+        && bytes.get(2).is_none_or(|b| *b == b'\\');
+    if drive && rest.len() < MAX_PATH {
+        return PathBuf::from(rest);
+    }
+    if let Some(unc) = rest.strip_prefix(r"UNC\") {
+        if unc.len() + 2 < MAX_PATH {
+            return PathBuf::from(format!(r"\\{unc}"));
+        }
+    }
+    dir.to_path_buf()
+}
+
+#[cfg(not(windows))]
+fn path_entry_spelling(dir: &Path) -> PathBuf {
+    dir.to_path_buf()
 }
 
 /// Export a discovered runtime to this process: set `ORT_DYLIB_PATH` unless

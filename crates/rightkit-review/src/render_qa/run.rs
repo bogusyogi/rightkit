@@ -15,8 +15,8 @@ use crate::delivery::{
 };
 use crate::qa::{unexpected_intervals, AllowedWindow, Interval as QaInterval};
 use crate::render_qa::critic::{
-    checks_from_findings, critic_unavailable_check, default_critic_binary, CriticInput,
-    CriticRunner, Span, HOLD_SLACK_MS, RULE_BLACK, RULE_SILENCE,
+    checks_from_findings, critic_unavailable_check, CriticInput, CriticRunner, Span, HOLD_SLACK_MS,
+    RULE_BLACK, RULE_SILENCE,
 };
 use crate::render_qa::error::QaError;
 use crate::render_qa::probe::{self, Interval, Probe, QaTools};
@@ -589,6 +589,7 @@ pub fn run_qa(
     };
     let mut checks = judge(spec, expect, &measurements);
     checks.extend(critic_checks(
+        tools,
         spec,
         expect,
         &measurements,
@@ -636,6 +637,7 @@ fn holds(ranges: &[(i64, i64)]) -> Vec<Span> {
 /// maps its verdicts into checks. Silence is judged only with audio and a clean decode,
 /// black only with video and a clean decode; otherwise that critic check is not applicable.
 fn critic_checks(
+    tools: &QaTools,
     spec: &QaSpec,
     expect: &QaExpect,
     m: &Measurements,
@@ -643,16 +645,17 @@ fn critic_checks(
     has_video: bool,
     has_audio: bool,
 ) -> Vec<QaCheck> {
-    let Some(binary) = default_critic_binary() else {
+    let Some(binary) = tools.critic().find() else {
         // Not installed beside the engine: reported, not blocking; the measured checks
         // above still judge silence and black. A critic that runs and fails still blocks.
         return vec![QaCheck {
             id: "critic.run".into(),
             status: CheckStatus::NotApplicable,
             severity: Severity::Warning,
-            message:
-                "critic not run: no rightkit-render-critic binary found (install it beside the host executable)"
-                    .into(),
+            message: format!(
+                "critic not run: no {} binary found (install it beside the host executable)",
+                tools.critic().label()
+            ),
             evidence: serde_json::json!({"critic": {"verdict": "unverified", "required": false}}),
         }];
     };
