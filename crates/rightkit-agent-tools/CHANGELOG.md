@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.1
+
+- Requires `rightkit-mcp` 0.8.0 (dependency requirement raised; no API change here).
+
 ## 0.4.0
 
 - Breaking, hence 0.4.0 (0.3.5 was never published): the `coding_tools` module and its features left this crate for `rightkit-agent-coding-tools`.

@@ -249,6 +249,8 @@ pub fn event_seq(e: &ProtocolEvent) -> i64 {
         | TurnUsage { seq, .. }
         | PromptCacheBreak { seq, .. }
         | ToolOutputDelta { seq, .. }
+        | ToolArgumentsPartial { seq, .. }
+        | SubAgentOutput { seq, .. }
         | BackgroundShellExited { seq, .. } => *seq,
     }
 }

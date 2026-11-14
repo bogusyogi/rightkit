@@ -222,6 +222,7 @@ fn goal_verification_artifact(
             juror: juror.to_string(),
             bound_hash: content_hash_val.to_string(),
             summary: truncate(verification_text, 240),
+            confidence: None,
         }),
         approvals,
         meta: String::new(),

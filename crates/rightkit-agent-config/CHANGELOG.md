@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.2
+
+- Requires `rightkit-agent-policy` 0.2.0 (dependency requirement raised; no API change here).
+
 ## 0.1.1
 
 - Host naming options, defaults unchanged: `set_state_dir_name` / `state_dir_name()` (default `.rightkit`; the workspace config, presets, agents folder, trust-store fallback) and `set_env_prefix` / `env_prefix()` / `env_name(suffix)` (default `RIGHTKIT`; the model, permission-mode, web-search, Telegram and CLI-acquisition overrides in `apply_env`), beside the existing `set_app_name`. Call once at start-up. The licence and trust-store variables keep their `RIGHTKIT_` names.

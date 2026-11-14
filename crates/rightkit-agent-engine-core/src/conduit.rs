@@ -469,6 +469,8 @@ pub fn seq_of(e: &ProtocolEvent) -> i64 {
         | TurnUsage { seq, .. }
         | PromptCacheBreak { seq, .. }
         | ToolOutputDelta { seq, .. }
+        | ToolArgumentsPartial { seq, .. }
+        | SubAgentOutput { seq, .. }
         | BackgroundShellExited { seq, .. }
         | BudgetExceeded { seq, .. }
         | ProviderRouteUpdated { seq, .. }

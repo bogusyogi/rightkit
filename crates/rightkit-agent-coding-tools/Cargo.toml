@@ -30,19 +30,19 @@ tokio = { version = "1", features = ["full"] }
 bytes = "1"
 rightkit-db = { version = "0.5.3", features = ["bundled", "statement-cache"], path = "../rightkit-db" }
 anyhow = "1"
-rightkit-agent-engine-protocol = { version = "0.3.0", path = "../rightkit-agent-engine-protocol" }
-rightkit-scheduler = { version = "0.2.0", path = "../rightkit-scheduler" }
+rightkit-agent-engine-protocol = { version = "0.4.0", path = "../rightkit-agent-engine-protocol" }
+rightkit-scheduler = { version = "0.3.0", path = "../rightkit-scheduler" }
 rightkit-agent-engine-runtime-resources = { version = "0.1.0", path = "../rightkit-agent-engine-runtime-resources" }
 rightkit-fs = { version = "0.4.9", features = ["fs", "lock", "json", "digest", "transaction"], path = "../rightkit-fs" }
 rightkit-crypto = { version = "0.1.0", path = "../rightkit-crypto" }
 rightkit-time = { version = "0.1.1", path = "../rightkit-time" }
-rightkit-agent-policy = { version = "0.1.4", path = "../rightkit-agent-policy" }
+rightkit-agent-policy = { version = "0.2.0", path = "../rightkit-agent-policy" }
 rightkit-agent-config = { version = "0.1.0", path = "../rightkit-agent-config" }
-rightkit-mcp = { version = "0.7.7", path = "../rightkit-mcp", features = ["agent_mcp"] }
+rightkit-mcp = { version = "0.8.0", path = "../rightkit-mcp", features = ["agent_mcp"] }
 rightkit-agent-engine-history = { version = "0.1.0", path = "../rightkit-agent-engine-history" }
 rightkit-agent-host-traits = { version = "0.1.0", path = "../rightkit-agent-host-traits" }
 rightkit-sandbox = { version = "0.6.2", path = "../rightkit-sandbox", features = ["execution"] }
-rightkit-llm = { version = "0.4.0", path = "../rightkit-llm", features = ["agent_providers"] }
+rightkit-llm = { version = "0.5.0", path = "../rightkit-llm", features = ["agent_providers"] }
 rightkit-agent-telemetry = { version = "0.1.0", path = "../rightkit-agent-telemetry" }
 thiserror = "2"
 tracing = "0.1"

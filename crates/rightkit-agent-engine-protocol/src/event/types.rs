@@ -87,6 +87,48 @@ pub struct AgentRosterRow {
     pub elapsed_ms: u64,
     /// most-recent first, max 3
     pub last_tools: Vec<String>,
+    /// Provider or route id this agent runs on; null when the daemon has none.
+    #[serde(default, skip_serializing_if = "crate::wire::omit_none")]
+    pub provider: Option<String>,
+    /// This agent's own spend in USD, from its own usage account (the same
+    /// figure the session row's `costUsd` shows). Null means unknown (no usage
+    /// yet or an unpriced model), never zero; a free local model reports 0.
+    #[serde(default, skip_serializing_if = "crate::wire::omit_none")]
+    pub cost_usd: Option<f64>,
+}
+
+/// The main agent's entry on the agent rail: the session itself, reported
+/// beside (not inside) its sub-agents so clients that treat every roster row as
+/// a child keep working.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentRosterMain {
+    /// The session's own id.
+    pub sub_session_id: String,
+    /// Always `main`.
+    pub role: String,
+    /// Always `Main`.
+    pub label: String,
+    pub model: String,
+    pub provider: Option<String>,
+    pub cost_usd: Option<f64>,
+    /// running | idle
+    pub status: String,
+}
+
+/// Total spend across the main agent and its sub-agents. Returns the sum of the
+/// parts whose cost is known and whether every part was known. An unknown part
+/// is left out of the sum, never counted as zero, and `false` says so.
+pub fn roster_total_cost(main_cost: Option<f64>, rows: &[AgentRosterRow]) -> (f64, bool) {
+    let mut total = 0.0;
+    let mut all_known = true;
+    for cost in std::iter::once(main_cost).chain(rows.iter().map(|r| r.cost_usd)) {
+        match cost {
+            Some(c) if c.is_finite() => total += c,
+            _ => all_known = false,
+        }
+    }
+    (total, all_known)
 }
 
 /// Aggregate token/cost totals across a session's sub-agents (F1 → F2 contract).

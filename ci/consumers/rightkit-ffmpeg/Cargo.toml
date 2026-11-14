@@ -7,4 +7,4 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-ffmpeg = { version = "=0.3.1" }
+rightkit-ffmpeg = { version = "=0.3.2" }

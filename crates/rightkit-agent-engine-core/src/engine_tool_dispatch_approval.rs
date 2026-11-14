@@ -271,6 +271,7 @@ impl SessionEngine {
                             guardrail,
                             middleware_decisions,
                         ),
+                        effects: None,
                     });
                     let unattended_call_id = call.id.clone();
                     self.emit(|seq| ProtocolEvent::ToolApprovalResolved {
@@ -338,6 +339,7 @@ impl SessionEngine {
                             command: extract_command_arg(&call.arguments_json),
                             network,
                             binding,
+                            ..Default::default()
                         },
                     );
                     rx
@@ -359,6 +361,7 @@ impl SessionEngine {
                         guardrail,
                         middleware_decisions,
                     ),
+                    effects: None,
                 });
                 // Tools rule 58: configured `PermissionRequest` hooks are told a card is open
                 // (command, URL or MCP). They only observe: no hook can answer the card, so no

@@ -2137,7 +2137,7 @@
       "gateEvidence": "ffmpeg is never run; encode-feature build only. Existing ci/asset-gated.json entry for rightkit-motion covers the ffmpeg-using encode_e2e test, which this recipe does not use",
       "consumes": "genright-engine motion_service.rs:219 (pending-adoption comment: not a live call site); motion_encode.rs:157 pick_encoder and :231 build_command (the local copies this crate would replace)",
       "files": {
-        "Cargo.toml": "ea824690daf0865f29e3207c3898ab26d08b1ff781fa0b8524115db2c92c009a",
+        "Cargo.toml": "02ce4c57444d3bfa59d72232a1769bccc630653fa2a23954a7f8d5aae91eaec8",
         "README.md": "60c5967809bf75987e4518f9ad719f78ab4615160ac3c6e40267de0e9240f320",
         "src/main.rs": "d8599ea013304d3d3d4f1ec26b6697159146507c855f23f7d45a3d476000b367"
       },
@@ -2195,7 +2195,7 @@
       "gateEvidence": "ffmpeg is never resolved, verified or run; no assets needed; the embedded catalog is parsed only. Default feature native stays on (no extra gate row needed for pure items)",
       "consumes": "motion dependency (PK19 proposal; rightkit-motion encode feature uses rightkit-ffmpeg =0.2.9 per PROPOSAL.txt:157); rightkit-ffmpeg public items used: lib.rs pcm_s16le_16khz_mono_args (src/lib.rs ~1136), command::extract_args and command::transcode_audio_command (src/command.rs:220,276), encoders::EncoderInventory::parse and pick_h264 (src/encoders.rs:115,203), ArtifactCatalog::embedded and parse (src/lib.rs:237-245), MediaError (src/lib.rs:628)",
       "files": {
-        "Cargo.toml": "b663715297a73dc5b48ca53ba3e90426e76e4325f3d8b058c80299505c66fb61",
+        "Cargo.toml": "585ed5604cc85a26e52b376800a8199558fc2f197c46e069799a3f32274d9192",
         "README.md": "bf9a3d9a6f9bc80b9a7dd8e99b797c3d1257471064fc207b34ca665fc312696a",
         "src/main.rs": "fcd2cf237f28083e92e235c0682df4a8cabe260a57df6320c65e707c2da38820"
       },
@@ -2268,7 +2268,7 @@
       "pkId": "PK15",
       "id": "ci/consumers/rightkit-agent-tools/src/main.rs",
       "files": {
-        "Cargo.toml": "7062b533eb269cfcf2eb5f8d26a91df484b71ae04f4905367338cb9711266299",
+        "Cargo.toml": "b93c2f741cfa7b44ea217e5ee1717f0a52cad955bc203649a62f20d2e9568e3e",
         "README.md": "aa7dbfb189d496b1407d4cac1a2404fcb167103e60f6fc5c1a3e22ab7c89fb3b",
         "src/main.rs": "246ff9cedf046c152af85101359688c37e1152696985b24b2f7b094963137c2d"
       }
@@ -2607,7 +2607,7 @@
       "pkId": "PK26",
       "id": "ci/consumers/rightkit-llm/src/main.rs",
       "files": {
-        "Cargo.toml": "1ee522fbc22d3528726d671d1d5a8427036f80dd8ad47ecdc3080d107b19a3de",
+        "Cargo.toml": "ba923eb288c5edc21cfa5d2157a8d27a9b70acfc0525b9eca21f38c546916fbe",
         "README.md": "b6615409fe6230ce89f536708e07002b33df0b9712c828baca6335480662e47a",
         "src/main.rs": "af9e5de71bcd646a770d34f76853e42621347b156f0a5cd6e440f138022c36fa"
       }
@@ -2688,7 +2688,7 @@
       "pkId": "PK34",
       "id": "ci/consumers/rightkit-hooks/src/main.rs",
       "files": {
-        "Cargo.toml": "253384081b6b135affcfb90e39b98f78e8f6b07948dcfead5d02711552ecacc1",
+        "Cargo.toml": "b66685d52a3712a39dd98795034dea3eb5adadb620ab1ffa349a1f1044593b5b",
         "README.md": "7b92ba222bcda5c0a6a37ab7de9c0433cdaa220a0c21ba576b81945ec9b0e8b9",
         "src/main.rs": "81b3c522d503e3cd84fc0be1efef048e20a4c99ab09f663df910f03b042d1e5b"
       }
@@ -2715,7 +2715,7 @@
       "pkId": "PK37",
       "id": "ci/consumers/rightkit-mcp/src/main.rs",
       "files": {
-        "Cargo.toml": "e771f029d8a9ce19c043ac5bc349e0bf860bc316389c6c300a1f4ba892e280c8",
+        "Cargo.toml": "7cfb96f4b99f6a097ed7f7182f5537a00ed3e0c427f4dea0835e6e12064f5b71",
         "README.md": "00380008eab8b972a86e80df704bbfbc2bbeb1361744e1e857409148c751139a",
         "src/main.rs": "01e99b7fdf687797cb1cfa605b26bfa725caee47718d4b0e98db08c36ad9ff94"
       }
@@ -2978,9 +2978,9 @@
       "pkId": "PK65",
       "id": "ci/consumers/rightkit-agent-engine-api-workflows/src/main.rs",
       "files": {
-        "Cargo.toml": "4a02a8eff0c69ee8c402ca554874a202b597b7a32695e2661f570ec525889f2a",
-        "README.md": "2a09b4f11b780919cec41e7b26b4be0599bba428aa93ba67093ecfdc219d8f0e",
-        "src/main.rs": "71dfc97fa90b846b0c062d903f24b92633d6be0b01a1720107c5613194501e46"
+        "Cargo.toml": "a9d39f88912dbad94753b1b0c5b7180adfbf44dc013d2232ae5bb42e0e0d7344",
+        "README.md": "639ca2e00b84d971d60a32a63575868c8a436439f8c023ea9f8f9b7fb4b12183",
+        "src/main.rs": "f8184556736f78dcc28c4780b8face852ffb88be934c1d6d3f2636ac1911e195"
       }
     },
     "rightkit-agent-engine-attention": {
@@ -3014,7 +3014,7 @@
       "pkId": "PK69",
       "id": "ci/consumers/rightkit-agent-engine-protocol/src/main.rs",
       "files": {
-        "Cargo.toml": "e615f91c6e77f4122dccf6550eb329357338cfeba0136dc9b6096ca16bbc45b0",
+        "Cargo.toml": "a9ef6440d75ec2ee46b4d2eca6ce3b4a8cbcc59dbcd29759ef558190d2db40ee",
         "README.md": "97be1f861cddc689daca2c7f71585ac54b31c91810930ef9d635eda2e7c817a1",
         "src/main.rs": "746b26ce31a67e4420a9334d926c1a6f891357fc1e971e9001086e3cb2f28dc2"
       }
@@ -3041,7 +3041,7 @@
       "pkId": "PK72",
       "id": "ci/consumers/rightkit-agent-engine-storage/src/main.rs",
       "files": {
-        "Cargo.toml": "4d260c78ca097e68a42da21ac7a5a443804bd419f22a5d2d7774eeb06927778a",
+        "Cargo.toml": "fb758eec8b7ca3008667a59b92668c7b962baedbb1ee90f4102dd2ecc62f8427",
         "README.md": "87416d0dd7f08d0d3414ecd4dcd45b2b3d4578de79b5718dc6705ecf52f2f223",
         "src/main.rs": "34c4f1d01e4517ccec978d423dd5aa14db206470a14ba37017a6d45a4455cfd8"
       }
@@ -3050,7 +3050,7 @@
       "pkId": "PK73",
       "id": "ci/consumers/rightkit-agent-engine-tasks/src/main.rs",
       "files": {
-        "Cargo.toml": "30f7a5c7e42b2a6a539f45c0f7f1a89154405fd2c3233fe5241ea8079b3ce396",
+        "Cargo.toml": "400bd637d12e33bc36128710fa2f34697a383ee733a8f5304dac7d32231cc805",
         "README.md": "eb7ace51ca863b6283d9b2ee2a93a3f780b931c4765189bf4969f46d5251e5d8",
         "src/main.rs": "8364b8b6d8c0c8191bb523e31227a4f1d596b2ef5e787dbb0371f409988c4f5d"
       }
@@ -3077,7 +3077,7 @@
       "pkId": "PK76",
       "id": "ci/consumers/rightkit-agent-policy/src/main.rs",
       "files": {
-        "Cargo.toml": "de70f6061032771c827d24d08d3d500741a98d4e098a4f2b64d4a071f445a2bd",
+        "Cargo.toml": "db13db654a08a0219f65609bd892078bc15bcbe096e59fda01e6bae18b37f366",
         "README.md": "e4f1eb75be4deae10a24ef6ef4731cb7091b22eb077bf9b0a9b47653daa6cd26",
         "src/main.rs": "65479ebc6ae3773c840dc611cb0fa2c0763a2a44aeefab1339ecc44effb719e4"
       }
@@ -3113,7 +3113,7 @@
       "pkId": "PK81",
       "id": "ci/consumers/rightkit-bot-messaging/src/main.rs",
       "files": {
-        "Cargo.toml": "8ac507dcf16f7d1c22aa08616bd31958f9b238e55776336ab5b0c68ff3ccf1e6",
+        "Cargo.toml": "101fa420c710375863679628fa73bfd4a4b2791c176278ba32dd73a2468ad377",
         "README.md": "c8d1c29165a7352f1eac04ecb15cac3eec7c6b796a40598a1ea9a060af2b6d6a",
         "src/main.rs": "cf4576f8915937d402d51eb0ea51eb5959e716a1b96a9e0e7824413138bbfcc0"
       }
@@ -3619,7 +3619,7 @@
       "pkId": "PK147",
       "id": "ci/consumers/rightkit-dictation-text-pipeline/src/main.rs",
       "files": {
-        "Cargo.toml": "2377621b0535bc1fea4e735168aa52c46439693e9912246635cc2c2b838b41ff",
+        "Cargo.toml": "4f851bee6ff0e96a440c6dd68bb8f652fb806aec49ec9413f2ece857503f7f2e",
         "README.md": "de8bb2a52c0ec97b08dba01753129658b62b60fcb487d46ddc54098fc7a89cca",
         "src/main.rs": "7e1ff4091a3d2e1d897454c6cb44fa9fc6e2bcfedcd46227076f8754a890365b"
       }
@@ -3646,7 +3646,7 @@
       "pkId": "PK152",
       "id": "ci/consumers/rightkit-scheduler/src/main.rs",
       "files": {
-        "Cargo.toml": "05edc4ba6d017404fbb286f2f7b7e907aadd91d115d1977fa861beb21828cd54",
+        "Cargo.toml": "e5ac168f88bf0d2f77c54191d744eaa47f5108c7010a6d7662e0a7bee816028e",
         "README.md": "b25004b76fcc45e1e09c86d0d6cb0480c8802cd7e57d6fe060cb57e952224960",
         "src/main.rs": "0c6ccf89d53a3b872201bfd29b53ef70ba0b283e1e8d1204567e382be16e48f6"
       }
@@ -3709,9 +3709,9 @@
       "pkId": "PK211",
       "id": "ci/consumers/rightkit-agent-config/src/main.rs",
       "files": {
-        "Cargo.toml": "c8f19617a2ad6333da22f4fa4baefd60384c9ad94331e415f09c02c4de6c4e10",
-        "README.md": "58ee0e95a2c420b26fe03c643d5471b07d6603d0f9c65be07b95ab91be37b720",
-        "src/main.rs": "92eed62558bcbe4b7745e9ea90b1e5f0c84ad754a6d9092a50c562997e68b068"
+        "Cargo.toml": "94ac1710bc07858c7e4189d967fa219c3aae55c8d68abb1826e949307b7b02aa",
+        "README.md": "3b4128b734ae69cfccec0d1ae30f99926c830e6953c35a9245c45d756aa2661e",
+        "src/main.rs": "b06c4cf49be055916ae935700d65beecbb177faaf4990045dfc2f9ce2d5491a0"
       }
     },
     "rightkit-agent-telemetry": {
@@ -3736,9 +3736,9 @@
       "pkId": "PK214",
       "id": "ci/consumers/rightkit-agent-daemon/src/main.rs",
       "files": {
-        "Cargo.toml": "70afbf7abd6754b9f22f479cbb644ad1531a151a84dc8489c41613b26e03cc3b",
-        "README.md": "856477287cff700bb3be206aa792f8f53a548e3754687b49c86bc50b0595fac5",
-        "src/main.rs": "e2f72fc3c7c2c925f2b83b8fd77c7fc6a82e479fbc0eca3a3e3473d4faab8544"
+        "Cargo.toml": "64d203037aa30ad4bbe556eb87f7969222572e6161ba5cd37270deca14a51bef",
+        "README.md": "6fd0b2f13e823847ca26a25d123c5cb78590a6e29aa1753da16fde5eb6bf3545",
+        "src/main.rs": "7ac8dc769e19989489f738ee53512cdd111575582fb0a3a7e6a60f6a8d05e553"
       }
     },
     "rightkit-daemon-remote": {
@@ -4222,9 +4222,9 @@
       "pkId": "PK219",
       "id": "ci/consumers/rightkit-agent-learning/src/main.rs",
       "files": {
-        "Cargo.toml": "a3a4bdebb4e02a73f744fafc3e21b15b65acca2b4ac78cd265d904a50862f1fd",
-        "README.md": "89601ab234500034dd85bd3be3b1eee13fffada16585bc2dcd966160d83c533f",
-        "src/main.rs": "bd858da5f2a3f4540b45cb24dce077247b4155a8495f089fae27f804ca1bdda4"
+        "Cargo.toml": "ede855bf21a3568f34df387cef3937c72f77d873171c471ef766c063414e1714",
+        "README.md": "27dffa38adf23412203db600a46615521bcf4ea9f68c9ef7c9d65c673b37be03",
+        "src/main.rs": "2e8f188ea204f6de690bea0c705ed9cc860bd2fc425a9f287e8850561bfc2d65"
       }
     },
     "rightkit-memory-client": {

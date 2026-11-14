@@ -23,6 +23,9 @@ pub(crate) fn publish_agent_roster(parent: &LiveSession) {
         seq,
         created_at: now_iso(),
         agents,
+        main: None,
+        total_cost_usd: None,
+        cost_known: true,
     });
 }
 

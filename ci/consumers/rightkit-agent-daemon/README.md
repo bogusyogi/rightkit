@@ -1,7 +1,7 @@
-# rightkit-agent-daemon 0.1.2 registry consumer
+# rightkit-agent-daemon 0.2.0 registry consumer
 
 Standalone package outside the RightKit workspace. It depends on `rightkit-agent-daemon` by exact registry pin
-(`=0.1.2`) with default features. It has no path, Git, workspace or patch dependency and no committed
+(`=0.2.0`) with default features. It has no path, Git, workspace or patch dependency and no committed
 `Cargo.lock`. Extra dependencies: `async-trait = "0.1"` (to implement `LifecycleBackend`) and `http = "1"`
 (to build the request headers the authority gate reads).
 

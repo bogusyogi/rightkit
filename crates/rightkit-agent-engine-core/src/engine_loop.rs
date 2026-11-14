@@ -1067,6 +1067,7 @@ impl SessionEngine {
                 cache_read_tokens: self.usage.cache_read_tokens as i32,
                 cache_creation_tokens: self.usage.cache_creation_tokens as i32,
                 cost_known,
+                cost_billed: false,
             });
             self.emit_turn_usage(
                 &sid,

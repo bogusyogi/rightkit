@@ -11,12 +11,12 @@ pub use envelope::{
 };
 pub use protocol_event::{
     AssistantMessagePhase, CompactionFederationDecisionV1, CompactionFederationSelectionReceiptV1,
-    GoalSnapshotV1, GoalStepV1, ProtocolEvent, COMPACTION_FEDERATION_SCHEMA_V1,
+    GoalSnapshotV1, GoalStepV1, ProtocolEvent, RateLimitObserved, COMPACTION_FEDERATION_SCHEMA_V1,
 };
 pub use types::{
-    AgentRosterRow, MiddlewareDecisionEvidence, ModelRouteDecisionPayload,
-    OrchestrationObservation, PriceSnapshot, ProtocolEventMeta, RunBudgetExhausted, RunBudgetKind,
-    RunFailureKind, RunOriginFailure, RunOwnershipAction, RunOwnershipFailure,
-    SelfReviewProposalDraft, SelfReviewProposalKind, SessionUsageRollup, ShellExitStatus,
-    UserQuestion, UserQuestionOption, VerificationIssue,
+    roster_total_cost, AgentRosterMain, AgentRosterRow, MiddlewareDecisionEvidence,
+    ModelRouteDecisionPayload, OrchestrationObservation, PriceSnapshot, ProtocolEventMeta,
+    RunBudgetExhausted, RunBudgetKind, RunFailureKind, RunOriginFailure, RunOwnershipAction,
+    RunOwnershipFailure, SelfReviewProposalDraft, SelfReviewProposalKind, SessionUsageRollup,
+    ShellExitStatus, UserQuestion, UserQuestionOption, VerificationIssue,
 };

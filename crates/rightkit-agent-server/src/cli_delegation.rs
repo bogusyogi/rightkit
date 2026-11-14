@@ -1073,6 +1073,7 @@ pub fn child_completed_event(
             AgentResultStatus::Cancelled => "cancelled".to_string(),
         },
         outcome_detail: String::new(),
+        tool_call_id: None,
     }
 }
 
@@ -1094,6 +1095,7 @@ pub fn child_spawned_event(
         sub_session_id: child_agent_id.to_string(),
         role: role.to_string(),
         task_title: task_title.to_string(),
+        tool_call_id: None,
     }
 }
 

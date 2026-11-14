@@ -45,6 +45,8 @@ impl AgentRoster {
                     tool_uses: 0,
                     elapsed_ms: 0,
                     last_tools: vec![],
+                    provider: None,
+                    cost_usd: None,
                 },
             );
         }

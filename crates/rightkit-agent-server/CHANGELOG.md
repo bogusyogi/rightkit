@@ -2,6 +2,8 @@
 
 ## 0.2.0 (unpublished)
 
+- Builds against `rightkit-agent-engine-protocol` 0.4.0: events it emits leave the new optional fields unset (`tool_call_id`, `AgentRosterRow` `provider`/`cost_usd`, roster `main`/`total_cost_usd`/`cost_known`, `ArtifactVerdict::confidence`), and the event matches handle `ToolArgumentsPartial` and `SubAgentOutput`. No behaviour change.
+
 - Builds against the protocol's new `origin` and `phase` fields: assistant messages and completion events it emits carry `origin: None` and `phase: final`. No behaviour change.
 
 - Fix: the machine-status and execution-observation schema ids are the wire formats of the crates that own them (`rightkit-agent-engine-api-platform::openapi::MACHINE_STATUS_SCHEMA`, `rightkit-agent-engine-runtime-middleware::EXECUTION_OBSERVATION_SCHEMA`), no longer derived from the host app name, so an app other than `coderight` no longer disagrees with them. Unchanged for `coderight`.

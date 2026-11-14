@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.2
+
+- Requires `rightkit-agent-policy` 0.2.0 (dependency requirement raised; no API change here).
+
 ## 0.3.1
 - Feature `agent_media`: the `transcribe` tool (`MediaToolKind::Transcribe`) is removed.
 

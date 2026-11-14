@@ -8,6 +8,9 @@ pub struct ArtifactVerdict {
     pub juror: String,
     pub bound_hash: String,
     pub summary: String,
+    /// The juror's stated confidence in [0, 1]; absent on verdicts recorded without one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub confidence: Option<f64>,
 }
 
 /// A recorded approval. Honored only while `bound_hash` == the artifact's current content hash.

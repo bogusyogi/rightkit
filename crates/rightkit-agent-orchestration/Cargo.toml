@@ -27,11 +27,11 @@ tokio = { version = "1.53.3", features = ["full"] }
 tokio-util = { version = "0.7.20", features = ["rt"] }
 toml = { version = "1.1", optional = true }
 rightkit-crypto = { version = "0.1.0", path = "../rightkit-crypto", optional = true }
-rightkit-agent-engine-tasks = { version = "0.2.0", path = "../rightkit-agent-engine-tasks", optional = true }
+rightkit-agent-engine-tasks = { version = "0.3.0", path = "../rightkit-agent-engine-tasks", optional = true }
 rightkit-cache = { version = "0.2.3", path = "../rightkit-cache", optional = true }
-rightkit-agent-engine-protocol = { version = "0.3.0", path = "../rightkit-agent-engine-protocol", optional = true }
+rightkit-agent-engine-protocol = { version = "0.4.0", path = "../rightkit-agent-engine-protocol", optional = true }
 rightkit-agent-host-traits = { version = "0.1.0", path = "../rightkit-agent-host-traits", optional = true }
-rightkit-llm = { version = "0.4.0", path = "../rightkit-llm", features = ["agent_providers", "agent_router"], optional = true }
+rightkit-llm = { version = "0.5.0", path = "../rightkit-llm", features = ["agent_providers", "agent_router"], optional = true }
 rightkit-repo-graph = { version = "0.3.0", path = "../rightkit-repo-graph", optional = true }
 rightkit-agent-telemetry = { version = "0.1.0", path = "../rightkit-agent-telemetry", optional = true }
 rightkit-sandbox = { version = "0.6.3", path = "../rightkit-sandbox", features = ["execution"], optional = true }

@@ -184,6 +184,8 @@ fn event_seq(ev: &rightkit_agent_engine_protocol::ProtocolEvent) -> i64 {
         | TurnUsage { seq, .. }
         | PromptCacheBreak { seq, .. }
         | ToolOutputDelta { seq, .. }
+        | ToolArgumentsPartial { seq, .. }
+        | SubAgentOutput { seq, .. }
         | BackgroundShellExited { seq, .. }
         | ModelRouteDecision { seq, .. } => *seq,
     }

@@ -88,6 +88,7 @@ impl DaemonState {
                         juror: "plan-jury".to_string(),
                         bound_hash: content_hash(plan_text),
                         summary: summary.clone(),
+                        confidence: None,
                     }),
                     approvals: vec![],
                     meta: summary,

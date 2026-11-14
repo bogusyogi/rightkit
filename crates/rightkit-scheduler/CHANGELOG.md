@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.0
+
+- Depends on `rightkit-agent-engine-protocol` 0.4.0 (additive events and fields, see its changelog). Breaking for dependents: the crate exposes protocol types in its public API, so those types are now the 0.4 ones.
+
 ## 0.2.0
 
 - Breaking for dependents: a dependency requirement was raised to a semver-breaking version.
