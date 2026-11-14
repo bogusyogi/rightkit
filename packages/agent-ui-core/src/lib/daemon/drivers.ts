@@ -9,6 +9,7 @@ import type {
   ExternalDriverKind,
 } from "../types.js";
 import { requestDaemonApi } from "../generated/daemon-openapi.js";
+import { daemonFetch } from "./transport.js";
 
 const capabilityHeaders = (capabilityToken: string) => ({
   "x-coderight-capability-token": capabilityToken,
@@ -32,7 +33,7 @@ async function agentRuntimeRequest<T>(
   action: string,
   body?: unknown,
 ): Promise<T> {
-  const response = await fetch(agentRuntimeUrl(config, sessionId, agentId, action), {
+  const response = await daemonFetch(config, agentRuntimeUrl(config, sessionId, agentId, action), {
     method: body === undefined ? "GET" : "POST",
     headers: {
       ...(config.token ? { authorization: `Bearer ${config.token}` } : {}),

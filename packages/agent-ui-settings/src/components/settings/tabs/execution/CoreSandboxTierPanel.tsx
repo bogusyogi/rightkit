@@ -1,5 +1,6 @@
 import { Select } from "@rightkit/react-shell/react";
 import { useEffect, useState } from "react";
+import { hostOption } from "../../../../appName.js";
 import type {
   CoreSandboxSettings,
   CoreSandboxTier,
@@ -59,7 +60,7 @@ export function CoreSandboxTierPanel({
         <div className="min-w-0">
           <h4 className="text-[13px] font-semibold text-text">Core tool sandbox</h4>
           <p className="mt-1 text-[12px] text-text-3">
-            RIGHTKIT_SANDBOX_TIER is the operator minimum; a workspace may only tighten it.
+            {hostOption("sandboxTierEnv")} is the operator minimum; a workspace may only tighten it.
           </p>
         </div>
         {sandboxCheck ? (

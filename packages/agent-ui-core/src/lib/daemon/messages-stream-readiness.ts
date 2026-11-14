@@ -2,6 +2,7 @@ import type { DaemonConfig, GoalSnapshotV1, ProtocolEvent } from "../types.js";
 import { requestDaemonApi } from "../generated/daemon-openapi.js";
 import type { Attachment } from "./config-host.js";
 import type { ReferenceMeta } from "../types/references.js";
+import { daemonFetch } from "./transport.js";
 
 export async function orchestrate(
   config: DaemonConfig,
@@ -164,7 +165,10 @@ export async function replayEventPages(
       `${trimUrl(config.url)}/sessions/${encodeURIComponent(sessionId)}/events/replay`,
     );
     url.searchParams.set("after", String(cursor));
-    const res = await fetch(url.toString(), { headers: tokenHeaders(config), signal });
+    const res = await daemonFetch(config, url.toString(), {
+      headers: tokenHeaders(config),
+      signal,
+    });
     if (!res.ok) throw new Error(`Event replay failed: ${res.status}`);
     const page = (await res.json()) as ReplayPage;
     for (const event of page.events ?? []) {
@@ -189,6 +193,7 @@ export function openEventStream(
   const controller = new AbortController();
   let cancelled = false;
   let lastSeq = afterSeq;
+  let resumed = false;
 
   async function connectOnce() {
     const url = new URL(`${trimUrl(config.url)}/sessions/${encodeURIComponent(sessionId)}/events`);
@@ -197,6 +202,16 @@ export function openEventStream(
       headers: tokenHeaders(config),
       signal: controller.signal,
     });
+    // A session left dormant by a daemon restart has no live stream (404).
+    // Load it once, then reconnect; without this the stream retried a 404
+    // forever and the conversation never went live again.
+    if (res.status === 404 && !resumed) {
+      resumed = true;
+      await requestDaemonApi(config, "postSessionsByIdResume", {
+        pathParams: { id: sessionId },
+      });
+      return;
+    }
     if (!res.ok || !res.body) throw new Error(`SSE stream failed: ${res.status}`);
 
     const reader = res.body.getReader();

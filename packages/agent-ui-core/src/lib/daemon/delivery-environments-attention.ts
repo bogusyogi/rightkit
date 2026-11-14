@@ -33,6 +33,7 @@ import type {
   TranscriptDensity,
 } from "../types.js";
 import type { DaemonConfig } from "../types.js";
+import { daemonFetch } from "./transport.js";
 
 interface DaemonRequestOptions {
   method: "GET" | "POST" | "PATCH" | "DELETE";
@@ -75,7 +76,7 @@ export async function requestDaemon<TResponse = unknown>(
     headers.set("content-type", "application/json");
     init.body = JSON.stringify(options.body);
   }
-  const response = await fetch(url, init);
+  const response = await daemonFetch(config, url, init);
   if (!response.ok) {
     throw new Error(
       `${options.method} ${template} failed: ${response.status} ${response.statusText}`,

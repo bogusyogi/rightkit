@@ -1,5 +1,6 @@
 import { Select, useTheme } from "@rightkit/react-shell/react";
-import { PALETTES, type Palette, useThemeStore } from "@rightkit/agent-ui-core/state/themeStore";
+import { listPalettes, type Palette, useThemeStore } from "@rightkit/agent-ui-core/state/themeStore";
+import { hostOption } from "../../../appName.js";
 import AnalyticsConsentCard from "../analytics/AnalyticsConsentCard.js";
 
 // Dark base names per Right Suite brand.md ("Dark bases (shared): slate
@@ -26,7 +27,8 @@ export default function AppearanceTab() {
   const paletteId = useThemeStore((state) => state.palette);
   const setPalette = useThemeStore((state) => state.setPalette);
   const baseLabel = resolved === "dark" ? DARK_BASE_LABEL[paletteId] : "off-white";
-  const activePalette = PALETTES.find((p) => p.id === paletteId);
+  const palettes = listPalettes();
+  const activePalette = palettes.find((p) => p.id === paletteId);
 
   return (
     <section className="flex max-w-[720px] flex-col gap-4 p-6">
@@ -40,7 +42,7 @@ export default function AppearanceTab() {
       <div className="grid gap-3 rounded-lg border border-line bg-panel p-4">
         <label className="flex flex-col gap-1 text-[13px] text-text-2">
           Palette
-          <Select value={paletteId} options={[...PALETTES.map((palette) => ({ value: palette.id, label: palette.label }))]} onChange={(value) => setPalette(value as Palette)} label="Palette" className="h-9 rounded-lg border border-line bg-bg px-3 text-[13px] text-text outline-none" />
+          <Select value={paletteId} options={[...palettes.map((palette) => ({ value: palette.id, label: palette.label }))]} onChange={(value) => setPalette(value as Palette)} label="Palette" className="h-9 rounded-lg border border-line bg-bg px-3 text-[13px] text-text outline-none" />
         </label>
 
         <div className="min-w-0">
@@ -56,7 +58,7 @@ export default function AppearanceTab() {
           <div className="min-w-0">
             <div className="text-[13px] font-semibold text-text">Palette preview</div>
             <div className="text-[12px] text-text-3">
-              {activePalette?.label ?? "Default"} · {resolved === "dark" ? "dark" : "light"}{" "}
+              {activePalette?.label ?? hostOption("defaultPaletteLabel")} · {resolved === "dark" ? "dark" : "light"}{" "}
               tokens
             </div>
           </div>

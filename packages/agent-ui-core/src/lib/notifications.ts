@@ -1,6 +1,7 @@
 // FM-174 — RightKit native notifications (macOS and Windows) with graceful
 // fallback to Web Notifications and no-op when unavailable.
 // Also owns dock/taskbar badge count (macOS dock, Windows taskbar).
+import { setBadgeCount as setNativeBadgeCount } from "../host/tauriHost.js";
 
 const permissionCache: boolean | null = null;
 
@@ -59,8 +60,7 @@ export function setBadgeCount(count: number): void {
   // Best-effort: update the native dock/taskbar badge when Tauri is available.
   void (async () => {
     try {
-      const { getCurrentWindow } = await import("@tauri-apps/api/window");
-      await getCurrentWindow().setBadgeCount(n || undefined);
+      await setNativeBadgeCount(n || undefined);
     } catch {
       // no-op
     }

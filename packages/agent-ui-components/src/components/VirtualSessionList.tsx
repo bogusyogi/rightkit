@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, KeyboardEvent, ReactNode } from "react";
 import type { SessionRow } from "@rightkit/agent-ui-core/lib/types";
+import { sessionDisplayTitle } from "@rightkit/agent-ui-core/lib/sessionTitle";
 import SessionStatusDot from "./SessionStatusDot.js";
 
 export interface VirtualSessionDividerRow {
@@ -232,11 +233,11 @@ export function VirtualSessionList({
         >
           <button
             aria-current={isSelected ? "page" : undefined}
-            aria-label={session.title || "Untitled session"}
+            aria-label={sessionDisplayTitle(session)}
             className="flex min-w-0 flex-1 items-start gap-1.5 border-0 bg-transparent p-0 text-left text-[13px] text-inherit focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/60"
             onClick={() => onSelectSession(session.id)}
             onKeyDown={(event) => handleRowKeyDown(event, () => onSelectSession(session.id))}
-            title={session.title || "Untitled session"}
+            title={sessionDisplayTitle(session)}
             type="button"
           >
             <SessionStatusDot
@@ -245,7 +246,7 @@ export function VirtualSessionList({
               branchStem={row.branchStem}
             />
             <span className="min-w-0 flex-1">
-              <span className="block truncate">{session.title || "Untitled session"}</span>
+              <span className="block truncate">{sessionDisplayTitle(session)}</span>
               {card ? (
                 <span className="mt-0.5 block truncate text-[11px] text-text-3">
                   {session.workspaceRoot}
@@ -287,7 +288,7 @@ export function VirtualSessionList({
             {onArchiveSession ? (
               <SessionAction label="Archive session" onClick={() => onArchiveSession(session.id)} />
             ) : null}
-            <SessionAction label={`Delete session ${session.title || session.id}`} danger onClick={() => onDeleteSession(session.id)} />
+            <SessionAction label={`Delete session ${sessionDisplayTitle(session)}`} danger onClick={() => onDeleteSession(session.id)} />
           </span>
         </div>
       </div>

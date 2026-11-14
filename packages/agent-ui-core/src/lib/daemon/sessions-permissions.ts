@@ -20,6 +20,7 @@ import type {
 } from "../types.js";
 import { requestDaemonApi } from "../generated/daemon-openapi.js";
 import { tokenHeaders, trimUrl } from "./messages-stream-readiness.js";
+import { daemonFetch } from "./transport.js";
 
 export async function deleteSession(config: DaemonConfig, sessionId: string): Promise<void> {
   await requestDaemonApi(config, "deleteSessionsById", {
@@ -311,6 +312,8 @@ export async function patchSession(
     title?: string;
     tags?: string[];
     model?: string;
+    /** A `[provider-routes]` id; with `model`, runs the session on that route. */
+    providerId?: string;
     inferenceSelection?: InferenceSelection;
     status?: string;
     driverKind?: DriverKind;
@@ -430,7 +433,7 @@ export async function stageDiffHunk(
   );
   const headers = new Headers(tokenHeaders(config));
   headers.set("content-type", "application/json");
-  const response = await fetch(url.toString(), {
+  const response = await daemonFetch(config, url.toString(), {
     method: "POST",
     headers,
     body: JSON.stringify(body),

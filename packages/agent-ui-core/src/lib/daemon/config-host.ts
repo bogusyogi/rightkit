@@ -1,6 +1,6 @@
 import type { DaemonConfig, ExecutionNetworkDefault } from "../types.js";
 import { requestDaemonApi } from "../generated/daemon-openapi.js";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "../../host/tauriHost.js";
 import { isTauriHost } from "./messages-stream-readiness.js";
 import { QA_BUILD } from "../../qaBuild.js";
 

@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "../../host/tauriHost.js";
 
 /** Live remote gateway status returned by the native pairing command. */
 export interface RemoteStatus {

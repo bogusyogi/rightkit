@@ -6,6 +6,9 @@
  * release. The selected task is the only seed for a cold switcher, so opening
  * old windows cannot manufacture recency.
  */
+
+import { sessionDisplayTitle } from "./sessionTitle.js";
+
 export const CARD_WIDTH = 194;
 export const CARD_HEIGHT = 169;
 export const GRID_INSET = 8;
@@ -94,10 +97,9 @@ export function taskSwitcherGridHeight(
   );
 }
 
-export function taskSwitcherTitle(session: Pick<TaskSwitcherSession, "title">): string {
-  return session.title.trim().toLowerCase() === "new session"
-    ? "New task"
-    : session.title || "Untitled session";
+export function taskSwitcherTitle(session: Pick<TaskSwitcherSession, "title"> & { preview?: string | null }): string {
+  if (session.title.trim().toLowerCase() === "new session" && !session.preview?.trim()) return "New task";
+  return sessionDisplayTitle(session);
 }
 
 export function taskSwitcherStatusLabel(status: TaskSwitcherStatus | undefined): string {

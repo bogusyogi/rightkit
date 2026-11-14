@@ -759,10 +759,10 @@
         "install": {
           "react": "19.3.1",
           "react-dom": "19.3.1",
-          "@rightkit/agent-ui-core": "0.1.2",
-          "@rightkit/agent-ui-hooks": "0.1.0",
-          "@rightkit/agent-ui-settings": "0.1.0",
-          "@rightkit/agent-ui-workbench": "0.1.0",
+          "@rightkit/agent-ui-core": "0.1.3",
+          "@rightkit/agent-ui-hooks": "0.1.1",
+          "@rightkit/agent-ui-settings": "0.1.1",
+          "@rightkit/agent-ui-workbench": "0.1.1",
           "@rightkit/app-update": "0.4.4",
           "@rightkit/ci": "0.3.2",
           "@rightkit/doc-render": "0.2.2",
@@ -787,9 +787,9 @@
         ]
       },
       "files": {
-        "ci/consumers/npm/agent-ui-components/README.md": "794556ef9f9f7716fdeb0c0284d88b36f201bbcc84ddbdd41368ef1279a40330",
+        "ci/consumers/npm/agent-ui-components/README.md": "f5c4572a8009fb3a8bd75cbcb62d9460a84782443c67ef3a4e58a7ee683de9f8",
         "ci/consumers/npm/agent-ui-components/consumer.mjs": "e93c693554e81959dc2e95c39b6cab846f7c627acdc08752f490662906b07101",
-        "ci/consumers/npm/agent-ui-components/package.json": "07204c30dead2a90e31dcd98ffd5912070a2355061abc3261e0f5fc7e29ff38c",
+        "ci/consumers/npm/agent-ui-components/package.json": "309c42a3663409c783fd3cf07c16910501c441319624384e6575815eb0659b6c",
         "ci/consumers/npm/agent-ui-components/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "fc160695e1dc97dc7e32e746c9e4471e2d85168b097623de818befeb00ee438c"
       }
@@ -801,6 +801,7 @@
       "scenarios": 1,
       "surface": [
         ".",
+        "./appName",
         "./components/CommandPalette",
         "./components/Icon",
         "./components/PaneErrorBoundary",
@@ -817,6 +818,7 @@
         "./hooks/useLicenseState",
         "./hooks/useLspSettings",
         "./hooks/useSubAgents",
+        "./host/tauriHost",
         "./lib/accounts/accounts",
         "./lib/analytics/analyticsProjection",
         "./lib/api-contract",
@@ -842,6 +844,7 @@
         "./lib/daemon/marketplaces",
         "./lib/daemon/memright",
         "./lib/daemon/streamReconcile",
+        "./lib/daemon/transport",
         "./lib/daemon/workflows",
         "./lib/daemon/workspace-files",
         "./lib/git/gitIndexMutationQueue",
@@ -859,6 +862,7 @@
         "./lib/remote/remoteClient",
         "./lib/secureStore",
         "./lib/sessionShareCode",
+        "./lib/sessionTitle",
         "./lib/shellWindow",
         "./lib/shortcuts/bindings",
         "./lib/shortcuts/dispatcher",
@@ -881,6 +885,7 @@
         "./lib/usage/turnUsageProjection",
         "./lib/usage/usageProjection",
         "./lib/utils",
+        "./lib/visibleInterval",
         "./lib/worktrees/worktreeProjectionManager",
         "./package.json",
         "./qaBuild",
@@ -946,7 +951,7 @@
         ]
       },
       "files": {
-        "ci/consumers/npm/agent-ui-core/README.md": "1b5cf6d7e2bf261f158ed5052152e4015a863b3ba4138b94e80e1591153723cc",
+        "ci/consumers/npm/agent-ui-core/README.md": "a637579d278269d594d6d38278417ec23ffdfe9e335825bea26dd3322b025465",
         "ci/consumers/npm/agent-ui-core/consumer.mjs": "381058b521739d663e08a4951ef94f140aa821709b13197f6b2438bad2c14e78",
         "ci/consumers/npm/agent-ui-core/package.json": "d6edeaca79eaaae1e061ff97ae716236b3e80ae35df4ea8deca533e015431caf",
         "ci/consumers/npm/agent-ui-core/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
@@ -998,7 +1003,7 @@
           "react-dom": "19.3.1",
           "@rightkit/app-update": "0.4.2",
           "@rightkit/react-shell": "0.7.2",
-          "@rightkit/agent-ui-core": "0.1.2",
+          "@rightkit/agent-ui-core": "0.1.3",
           "@rightkit/theme": "0.3.3"
         },
         "declaredOnly": [
@@ -1007,9 +1012,9 @@
         ]
       },
       "files": {
-        "ci/consumers/npm/agent-ui-hooks/README.md": "44926a26e99d7e2355002f501f0dcdae72272405d2e62c79b541b12aa54472b8",
+        "ci/consumers/npm/agent-ui-hooks/README.md": "b270e78498a34ecae7406a2fe1c5f290c38864b2f57f10296f36e07dc683933c",
         "ci/consumers/npm/agent-ui-hooks/consumer.mjs": "9363009e3bfb197e8a6f12e83f6332a2154d012c6aa92bd048a526d620beb0e2",
-        "ci/consumers/npm/agent-ui-hooks/package.json": "b854effcdd3d6e8ba0d19fc46a25ed8edc4d1c328569959a8d3c5cff7aad9caf",
+        "ci/consumers/npm/agent-ui-hooks/package.json": "a87cb357b9325cc489e127effac830226de90a2dcf5ef6c81b0b996422705eb6",
         "ci/consumers/npm/agent-ui-hooks/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "fc160695e1dc97dc7e32e746c9e4471e2d85168b097623de818befeb00ee438c"
       }
@@ -1067,7 +1072,7 @@
         ]
       },
       "files": {
-        "ci/consumers/npm/agent-ui-settings/README.md": "87cc9203ef817a05bcde74b31cfde4acd8e97973cc7db0481c88a7d40870a4a0",
+        "ci/consumers/npm/agent-ui-settings/README.md": "e3d0f4d185bcd9df825a3b30b00ea3011ba213f302d0908a532210b6e965a7a7",
         "ci/consumers/npm/agent-ui-settings/consumer.mjs": "1f2d273882cc6a1223fef8f16bb4cff47b2e9b300602903e2f9be2757872b247",
         "ci/consumers/npm/agent-ui-settings/package.json": "0b789ea6039af9f1406d15234d5adf36bac8064157528406370819733c1c2abc",
         "ci/consumers/npm/agent-ui-settings/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
@@ -1160,7 +1165,7 @@
         ]
       },
       "files": {
-        "ci/consumers/npm/agent-ui-workbench/README.md": "83593e8bcb9448d7cc7e895f4d834b79f6b9da7c6c498866b7c399f07a1057f4",
+        "ci/consumers/npm/agent-ui-workbench/README.md": "df66748f3c4b99d37094dd8c79fefcffd9056c5ccc7bbd204c599214ea2c5e26",
         "ci/consumers/npm/agent-ui-workbench/consumer.mjs": "85ae35f2526a85d4b24c1f5fcc253873a94e43131ec180509ba172a6961ea325",
         "ci/consumers/npm/agent-ui-workbench/package.json": "84048167bb7680ba6994f78cb1b35363702ddcb3f5421043f499e9317b6d06fd",
         "ci/consumers/npm/agent-ui-workbench/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
@@ -1829,7 +1834,7 @@
           "react": "19.3.1",
           "react-dom": "19.3.1",
           "@rightkit/react-shell": "0.7.2",
-          "@rightkit/agent-ui-core": "0.1.2",
+          "@rightkit/agent-ui-core": "0.1.3",
           "@rightkit/theme": "0.3.3"
         },
         "declaredOnly": []
@@ -1837,7 +1842,7 @@
       "files": {
         "ci/consumers/npm/terminal-ui/README.md": "4ef817c49a481fe0dfe2be0e7d30184f48a2fded5769b9a277f5a0123a47e2dd",
         "ci/consumers/npm/terminal-ui/consumer.mjs": "66c85b9791f65c35a51edba07842f8edb7a630253683ab635f04977cbcfe0a37",
-        "ci/consumers/npm/terminal-ui/package.json": "f1e9bf1cf90a5186f5b81aba48aec0296912f383f0a7bd2924400e98c6d1756e",
+        "ci/consumers/npm/terminal-ui/package.json": "032fd286eb8b5c6b47c8cd0181b2deec2a4ab6879cfa74bc3953600d783ec780",
         "ci/consumers/npm/terminal-ui/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "fc160695e1dc97dc7e32e746c9e4471e2d85168b097623de818befeb00ee438c"
       }

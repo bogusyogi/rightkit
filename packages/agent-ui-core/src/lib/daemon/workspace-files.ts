@@ -18,6 +18,7 @@ import type {
   WorkspaceTreeResponse,
   WorkspaceWatchEvent,
 } from "../types/workspace-files.js";
+import { daemonFetch } from "./transport.js";
 
 export interface WorkspaceRequestError extends Error {
   status: number;
@@ -55,7 +56,7 @@ async function workspaceRequest<T>(
     headers.set("content-type", "application/json");
     body = JSON.stringify(options.body);
   }
-  const response = await fetch(url, {
+  const response = await daemonFetch(config, url, {
     method,
     headers,
     body,
@@ -180,7 +181,7 @@ export async function openWorkspaceWatch(
     }
     options.signal.addEventListener("abort", () => controller.abort(), { once: true });
   }
-  const response = await fetch(url, {
+  const response = await daemonFetch(config, url, {
     method: "GET",
     headers,
     signal: controller.signal,

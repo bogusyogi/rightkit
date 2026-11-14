@@ -64,6 +64,16 @@ export function useBrowserWorkspace(opts: UseBrowserWorkspaceOptions): UseBrowse
   const setSummary = useBrowserWorkspaceStore((s) => s.setSummary);
   const setLoading = useBrowserWorkspaceStore((s) => s.setLoading);
   const setError = useBrowserWorkspaceStore((s) => s.setError);
+  // Background loads (summary, screenshot, annotations, signals) of a session the daemon has not loaded yet
+  // answer "session not found": that is the empty state, not a fault (screen audit 2026-11-11, fault 10).
+  const reportLoadError = useCallback(
+    (e: unknown) => {
+      const message = e instanceof Error ? e.message : String(e);
+      if (/session not found/i.test(message)) return;
+      setError(message);
+    },
+    [setError],
+  );
   const setScreenshot = useBrowserWorkspaceStore((s) => s.setScreenshot);
   const setAnnotations = useBrowserWorkspaceStore((s) => s.setAnnotations);
   const upsertAnnotation = useBrowserWorkspaceStore((s) => s.upsertAnnotation);
@@ -80,26 +90,22 @@ export function useBrowserWorkspace(opts: UseBrowserWorkspaceOptions): UseBrowse
     setError(null);
     try {
       const s = await client.getWorkspace(requestedSessionId);
-      if (
-        activeSessionId.current !== requestedSessionId ||
-        summaryRequest.current !== requestId
-      ) {
+      if (activeSessionId.current !== requestedSessionId || summaryRequest.current !== requestId) {
         return;
       }
       setSummary(s);
     } catch (e) {
-      if (
-        activeSessionId.current !== requestedSessionId ||
-        summaryRequest.current !== requestId
-      ) {
+      if (activeSessionId.current !== requestedSessionId || summaryRequest.current !== requestId) {
         return;
       }
-      setError(e instanceof Error ? e.message : String(e));
+      const message = e instanceof Error ? e.message : String(e);
+      // A session that is not loaded in the daemon (restored from storage, never run since a restart) has no
+      // browser yet: that is the empty state, not a fault. It used to open the panel on "Browser needs
+      // attention: Session not found" (screen audit 2026-11-11, fault 10).
+      if (/session not found/i.test(message)) return;
+      setError(message);
     } finally {
-      if (
-        activeSessionId.current === requestedSessionId &&
-        summaryRequest.current === requestId
-      ) {
+      if (activeSessionId.current === requestedSessionId && summaryRequest.current === requestId) {
         setLoading(false);
       }
     }
@@ -195,12 +201,12 @@ export function useBrowserWorkspace(opts: UseBrowserWorkspaceOptions): UseBrowse
           activeSessionId.current === requestedSessionId &&
           screenshotRequest.current === requestId
         ) {
-          setError(e instanceof Error ? e.message : String(e));
+          reportLoadError(e);
         }
         throw e;
       }
     },
-    [client, opts.sessionId, setError, setScreenshot],
+    [client, opts.sessionId, setError, setScreenshot, reportLoadError],
   );
 
   const pause = useCallback(async () => {
@@ -273,11 +279,11 @@ export function useBrowserWorkspace(opts: UseBrowserWorkspaceOptions): UseBrowse
         activeSessionId.current === requestedSessionId &&
         annotationsRequest.current === requestId
       ) {
-        setError(e instanceof Error ? e.message : String(e));
+        reportLoadError(e);
       }
       throw e;
     }
-  }, [client, opts.sessionId, setError, setAnnotations]);
+  }, [client, opts.sessionId, setError, setAnnotations, reportLoadError]);
 
   const refreshSignals = useCallback(
     async (browserSessionId: string) => {
@@ -316,7 +322,7 @@ export function useBrowserWorkspace(opts: UseBrowserWorkspaceOptions): UseBrowse
           activeSessionId.current === requestedSessionId &&
           signalsRequest.current === requestId
         ) {
-          setError(e instanceof Error ? e.message : String(e));
+          reportLoadError(e);
         }
         throw e;
       }
@@ -330,6 +336,7 @@ export function useBrowserWorkspace(opts: UseBrowserWorkspaceOptions): UseBrowse
       setError,
       setErrors,
       setNetworkEntries,
+      reportLoadError,
     ],
   );
 
@@ -355,7 +362,7 @@ export function useBrowserWorkspace(opts: UseBrowserWorkspaceOptions): UseBrowse
           // Live polling is background work. Surface the daemon error in the
           // pane, but do not create an unhandled rejection every 750 ms.
           if (activeSessionId.current === opts.sessionId) {
-            setError(e instanceof Error ? e.message : String(e));
+            reportLoadError(e);
           }
         }
       })();
@@ -368,7 +375,7 @@ export function useBrowserWorkspace(opts: UseBrowserWorkspaceOptions): UseBrowse
         }
       }
     },
-    [opts.sessionId, refresh, refreshSignals, screenshot, setError],
+    [opts.sessionId, refresh, refreshSignals, screenshot, reportLoadError],
   );
 
   const sendAnnotation = useCallback(

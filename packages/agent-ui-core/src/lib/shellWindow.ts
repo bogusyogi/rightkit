@@ -1,6 +1,6 @@
 import { createShell, type WindowAction } from "@rightkit/tauri-shell";
-import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { invoke } from "../host/tauriHost.js";
+import { listen } from "../host/tauriHost.js";
 
 /**
  * Window commands through RightKit's typed shell client (`createShell().window`) over the

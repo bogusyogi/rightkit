@@ -6,7 +6,7 @@ import {
   useState,
   type SetStateAction,
 } from "react";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { listen, type UnlistenFn } from "@rightkit/agent-ui-core/host/tauriHost";
 import type { DaemonConfig } from "@rightkit/agent-ui-core/lib/types/settings-plugins";
 
 export interface WorkspaceStartupTask {

@@ -11,7 +11,7 @@
 import { acceptanceDeclaration, materialAcceptanceDigestAsync } from "@rightkit/legal/browser";
 import type { LegalEligibilityBasis, LegalManifest } from "@rightkit/legal";
 import { createNativeLegalReceiptPort, type LegalAcceptanceRecord } from "@rightkit/onboarding";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "../host/tauriHost.js";
 import { create } from "zustand";
 let hostManifest: LegalManifest | null = null;
 

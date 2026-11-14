@@ -1,5 +1,5 @@
-import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { invoke } from "@rightkit/agent-ui-core/host/tauriHost";
+import { listen } from "@rightkit/agent-ui-core/host/tauriHost";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   FINDING_GROUPS,

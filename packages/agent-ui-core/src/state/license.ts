@@ -1,5 +1,5 @@
-import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { invoke } from "../host/tauriHost.js";
+import { listen } from "../host/tauriHost.js";
 import {
   createLicenseClient,
   licenseMessage,

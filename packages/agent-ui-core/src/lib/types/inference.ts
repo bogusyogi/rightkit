@@ -1,4 +1,7 @@
-export type InferenceAuthority = "direct";
+/** "direct": an in-app connection (Settings > Providers). "config": a
+ * `[provider-routes.<id>]` route in config.toml, run through the session's
+ * `providerId` + `model` rather than an inference selection. */
+export type InferenceAuthority = "direct" | "config";
 export type InferenceProtocol = "openai_compatible" | "anthropic_compatible";
 export type CatalogState = "ready" | "needs_secret" | "unreachable" | "unqualified" | "invalid";
 

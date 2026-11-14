@@ -1,6 +1,6 @@
 {
   "name": "@rightkit/agent-ui-workbench",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Workbench and runtime panels for coding-agent UIs.",
   "license": "MIT OR Apache-2.0",
   "type": "module",

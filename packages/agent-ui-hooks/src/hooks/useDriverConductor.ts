@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { setVisibleInterval } from "@rightkit/agent-ui-core/lib/visibleInterval";
 import type {
   DaemonConfig,
   DriverBindingStatus,
@@ -149,8 +150,7 @@ export function useDriverConductor({
       void refresh();
     };
     poll();
-    const interval = setInterval(poll, DRIVER_STATUS_POLL_MS);
-    return () => clearInterval(interval);
+    return setVisibleInterval(poll, DRIVER_STATUS_POLL_MS);
   }, [config, sessionId, externalKind, refresh]);
 
   // Reconnect a session's driver when you open it.

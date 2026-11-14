@@ -1,6 +1,7 @@
 import { type BootProbationRecord, createBootProbation } from "@rightkit/app-update";
 import { useEffect } from "react";
 import { logs } from "./logs.js";
+import { getAppVersion } from "../host/tauriHost.js";
 
 const STORAGE_KEY = "coderight.bootProbation";
 
@@ -42,8 +43,7 @@ export const bootProbation = createBootProbation({
 });
 
 async function runningVersion(): Promise<string> {
-  const { getVersion } = await import("@tauri-apps/api/app");
-  return getVersion();
+  return getAppVersion();
 }
 
 export async function beginBootProbation(toVersion: string): Promise<void> {

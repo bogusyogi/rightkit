@@ -1,6 +1,7 @@
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { invoke as tauriInvoke } from "@tauri-apps/api/core";
+import { listen, type UnlistenFn } from "@rightkit/agent-ui-core/host/tauriHost";
+import { invoke as tauriInvoke } from "@rightkit/agent-ui-core/host/tauriHost";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { setVisibleInterval } from "@rightkit/agent-ui-core/lib/visibleInterval";
 import {
   getSessionEventHistory,
   getTranscript,
@@ -482,7 +483,7 @@ export function useSessionEvents({
     let stopStream: (() => void) | null = null;
     let transportConnectionId: string | null = null;
     let transportUnlisten: UnlistenFn | null = null;
-    let pollTimer: number | null = null;
+    let stopPollTimer: (() => void) | null = null;
     const resyncAbort = new AbortController();
     let resyncing = false;
 
@@ -620,7 +621,7 @@ export function useSessionEvents({
           );
         }
         let catchUpFailing = false;
-        pollTimer = window.setInterval(() => {
+        stopPollTimer = setVisibleInterval(() => {
           void catchUpEvents(true)
             .then((ok) => {
               if (ok && !cancelled && catchUpFailing) {
@@ -658,7 +659,7 @@ export function useSessionEvents({
         void tauriInvoke("stream_transport_disconnect", { connectionId }).catch(() => undefined);
         transportConnectionId = null;
       }
-      if (pollTimer !== null) window.clearInterval(pollTimer);
+      stopPollTimer?.();
       streamBatcher.current?.flush(activeSessionId);
       activeBatchSessionId.current = null;
       streamReconciler.current.closeSession();

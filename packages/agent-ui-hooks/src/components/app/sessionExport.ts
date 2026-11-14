@@ -1,6 +1,7 @@
 import type { SessionRow, TranscriptMessage } from "@rightkit/agent-ui-core/lib/types";
 import { projectName } from "@rightkit/agent-ui-core/lib/utils";
-import { hostAppName } from "../../appName.js";
+import { hostAppName, hostOption } from "../../appName.js";
+import { assistantToolCalls } from "@rightkit/agent-ui-core/lib/transcriptMessages";
 
 export interface SessionExportOptions {
   exportedAt?: string;
@@ -76,7 +77,7 @@ export function renderStructuredSessionExport(
     cost: { totalUsd: typeof options.costUsd === "number" ? options.costUsd : null },
     transcript,
     toolCalls: assistantMessages.flatMap((message) =>
-      message.toolCalls.map((call) => {
+      assistantToolCalls(message).map((call) => {
         const result = toolResults.get(call.id);
         return {
           id: call.id,
@@ -145,7 +146,7 @@ export function renderStructuredSessionMarkdown(
     if (message.$kind === "user") {
       lines.push(...markdownMessageSection("User", message.createdAt, message.content));
     } else if (message.$kind === "assistant") {
-      lines.push(...markdownMessageSection("Assistant", message.createdAt, message.content));
+      lines.push(...markdownMessageSection(hostOption("assistantExportLabel"), message.createdAt, message.content));
     } else if (message.$kind === "compact") {
       lines.push(
         ...markdownMessageSection(
@@ -236,7 +237,7 @@ export function downloadTextFile(filename: string, content: string, mimeType: st
 }
 
 function markdownMessageSection(
-  role: "User" | "Assistant" | "Compaction" | "Tool",
+  role: string,
   createdAt: string,
   body: string,
 ) {

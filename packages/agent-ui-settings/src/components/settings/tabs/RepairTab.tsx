@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "@rightkit/agent-ui-core/host/tauriHost";
 import {
   CLI_PROVIDER_IDS,
   getProviderDisplay,

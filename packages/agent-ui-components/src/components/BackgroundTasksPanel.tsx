@@ -213,7 +213,7 @@ export default function BackgroundTasksPanel({
                 {agent.model ?? "model unavailable"}
                 {agent.vendorSessionId ? ` · session ${agent.vendorSessionId}` : ""}
                 {agent.isolationMode
-                  ? ` · ${agent.isolationMode === "exclusive_coderight_gateway" ? "${hostAppName()} gateway" : "Read-only compatibility"}`
+                  ? ` · ${agent.isolationMode === "exclusive_coderight_gateway" ? `${hostAppName()} gateway` : "Read-only compatibility"}`
                   : ""}
               </span>
             ) : null}

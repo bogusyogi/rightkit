@@ -250,12 +250,12 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 | Package | Registry | Source | Published | Staged | Flag | CLI | Owns | What it is |
 |---|---|---|---|---|---|---|---|---|
 | `@rightkit/agent-ui-approvals` | npm | 0.2.1 | none recorded | 0.2.1 | staged, never published |  | agent-ui-approvals | Agent approval queue and cards, agent settings, remote approvals, owner PIN and secure-box settings views. |
-| `@rightkit/agent-ui-components` | npm | 0.1.1 | none recorded | 0.1.1 | staged, never published |  | agent-ui-components | Coding-agent UI components: app frame, chat, composer, review, panels, delivery, remote and usage. |
-| `@rightkit/agent-ui-core` | npm | 0.1.2 | none recorded | 0.1.2 | staged, never published |  | agent-ui-core | Coding-agent UI core: daemon client, session and transcript types, stores and helpers. |
-| `@rightkit/agent-ui-hooks` | npm | 0.1.0 | none recorded | 0.1.0 | staged, never published |  | agent-ui-hooks | React hooks for coding-agent UIs: sessions, composer, workspace files, approvals and runtime. |
-| `@rightkit/agent-ui-settings` | npm | 0.1.0 | none recorded | 0.1.0 | staged, never published |  | agent-ui-settings | Settings panes for coding-agent UIs. |
+| `@rightkit/agent-ui-components` | npm | 0.1.2 | none recorded | 0.1.2 | staged, never published |  | agent-ui-components | Coding-agent UI components: app frame, chat, composer, review, panels, delivery, remote and usage. |
+| `@rightkit/agent-ui-core` | npm | 0.1.3 | none recorded | 0.1.3 | staged, never published |  | agent-ui-core | Coding-agent UI core: daemon client, session and transcript types, stores and helpers. |
+| `@rightkit/agent-ui-hooks` | npm | 0.1.1 | none recorded | 0.1.1 | staged, never published |  | agent-ui-hooks | React hooks for coding-agent UIs: sessions, composer, workspace files, approvals and runtime. |
+| `@rightkit/agent-ui-settings` | npm | 0.1.1 | none recorded | 0.1.1 | staged, never published |  | agent-ui-settings | Settings panes for coding-agent UIs. |
 | `@rightkit/agent-ui-web` | npm | 0.1.0 | none recorded | 0.1.0 | staged, never published |  | agent-ui-web | Browser client for a coding-agent daemon: transcript, input bar, diff, model and usage panels. |
-| `@rightkit/agent-ui-workbench` | npm | 0.1.0 | none recorded | 0.1.0 | staged, never published |  | agent-ui-workbench | Workbench and runtime panels for coding-agent UIs. |
+| `@rightkit/agent-ui-workbench` | npm | 0.1.1 | none recorded | 0.1.1 | staged, never published |  | agent-ui-workbench | Workbench and runtime panels for coding-agent UIs. |
 | `@rightkit/app-update` | npm | 0.4.4 | 0.4.2 | 0.4.4 | staged, not yet published |  | update-policy | Shared runtime update policy helper for Right Suite Tauri apps. |
 | `@rightkit/ax` | npm | 0.3.2 | 0.3.2 | 0.3.2 | ok | right-ax | agent-experience-gates | Suite-wide agent-experience (AX) + agent-plugins.org conformance layer: plugin scaffolding/validation and AXA-1 static/conformance/behavioral gates over one product's MCP/CLI surface. |
 | `@rightkit/blender-worker` | npm | 0.1.1 | none recorded | 0.1.1 | staged, never published |  |  | Blender render worker (Python): job protocol, scene authoring, product review and look development, shipped as source for a host to install. |

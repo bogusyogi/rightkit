@@ -27,8 +27,14 @@ export interface AwaySummary {
 }
 
 export interface SessionRow {
+  /** Route the session runs on (`[provider-routes]` id or built-in provider). */
+  providerId?: string | null;
+  /** Whether a turn is running right now. */
+  turnActive?: boolean;
   id: string;
   title: string;
+  /** First user message, one line, at most 120 characters (daemon `SessionRow.preview`). */
+  preview?: string | null;
   model: string;
   inferenceSelection?: InferenceSelection | null;
   workspaceRoot: string;

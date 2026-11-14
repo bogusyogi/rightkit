@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { applyStoredThemeSync, createThemeStore } from "@rightkit/react-shell";
 import { applyTokens, presetTokens, type TokenPreset } from "@rightkit/theme";
 import paletteData from "./palettes.json" with { type: "json" };
+import { hostOption } from "../appName.js";
 
 export type Theme = "dark" | "light";
 export type Palette = "coderight" | "heardright" | "viewright" | "scraperight" | "mailright";
@@ -14,6 +15,17 @@ export const PALETTES: { id: Palette; label: string }[] = [
   { id: "coderight", label: "Default" },
   ...(Object.keys(SIBLINGS) as SiblingPalette[]).map((id) => ({ id, label: SIBLINGS[id].label })),
 ];
+
+/**
+ * The palette list with the default palette labelled by the host (`HostOptions.defaultPaletteLabel`).
+ * `PALETTES` keeps the neutral "Default" label; read this at render time to follow the host's option.
+ */
+export function listPalettes(): { id: Palette; label: string }[] {
+  const defaultPaletteLabel = hostOption("defaultPaletteLabel");
+  return PALETTES.map((palette) =>
+    palette.id === "coderight" ? { id: palette.id, label: defaultPaletteLabel } : palette,
+  );
+}
 
 /**
  * Sibling palettes are RightKit token presets (`@rightkit/theme` `applyTokens` / `presetTokens`), one
