@@ -149,7 +149,7 @@ impl DaemonState {
                 content: missing_provider_key_message(),
                 reasoning_content: None,
                 tool_calls: Vec::new(),
-                pinned: false,
+                pinned: false, origin: None,
             };
             let seq = live.conduit.next_seq();
             live.conduit
@@ -157,7 +157,7 @@ impl DaemonState {
                     session_id: id.to_string(),
                     seq,
                     created_at: now_iso(),
-                    message,
+                    message, phase: rightkit_agent_engine_protocol::AssistantMessagePhase::legacy_default(),
                 });
             false
         };
@@ -238,7 +238,7 @@ impl DaemonState {
                 content: missing_provider_key_message(),
                 reasoning_content: None,
                 tool_calls: Vec::new(),
-                pinned: false,
+                pinned: false, origin: None,
             };
             let seq = live.conduit.next_seq();
             live.conduit
@@ -246,7 +246,7 @@ impl DaemonState {
                     session_id: id.to_string(),
                     seq,
                     created_at: now_iso(),
-                    message,
+                    message, phase: rightkit_agent_engine_protocol::AssistantMessagePhase::legacy_default(),
                 });
         }
         Ok(accepted_seq)

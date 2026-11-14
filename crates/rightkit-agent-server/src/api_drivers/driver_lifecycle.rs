@@ -1070,6 +1070,7 @@ pub(crate) async fn apply_normalized_driver_event(
                 reasoning_content: None,
                 tool_calls: vec![],
                 pinned: false,
+                origin: None,
             };
             live.conduit.publish(
                 rightkit_agent_engine_protocol::ProtocolEvent::AssistantMessageCompleted {
@@ -1077,6 +1078,7 @@ pub(crate) async fn apply_normalized_driver_event(
                     seq,
                     created_at: now.clone(),
                     message,
+                    phase: rightkit_agent_engine_protocol::AssistantMessagePhase::legacy_default(),
                 },
             );
         }
