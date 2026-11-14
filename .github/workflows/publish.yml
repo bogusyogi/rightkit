@@ -908,7 +908,18 @@ jobs:
           test -n "$app"
           codesign -dvv "$app" 2>&1 | grep -E '^(Identifier|TeamIdentifier|Authority)=' || true
           team="$(codesign -dvv "$app" 2>&1 | sed -n 's/^TeamIdentifier=//p')"
-          case "$team" in ""|"not set") partitions="apple-tool:,apple:,unsigned:" ;; *) partitions="apple-tool:,apple:,teamid:${team}" ;; esac
+          case "$team" in
+            ""|"not set")
+              # Ad-hoc signed (no team): securityd names such code by its code directory hash, so admit the app and
+              # every helper app it carries (the network service runs in a helper).
+              partitions="apple-tool:,apple:,unsigned:"
+              while IFS= read -r -d '' bundle; do
+                hash="$(codesign -dvvv "$bundle" 2>&1 | sed -n 's/^CDHash=//p' | head -n 1)"
+                if [ -n "$hash" ]; then partitions="${partitions},cdhash:${hash}"; echo "cdhash ${hash}: ${bundle##*/}"; fi
+              done < <(find "$app" -name '*.app' -type d -print0)
+              ;;
+            *) partitions="apple-tool:,apple:,teamid:${team}" ;;
+          esac
           echo "partition list: $partitions"
           keychain_path="$HOME/Library/Keychains/verify-host.keychain-db"
           for product in Chrome Chromium "Chrome for Testing"; do
