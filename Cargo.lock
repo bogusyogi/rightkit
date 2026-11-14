@@ -10825,7 +10825,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-child-process"
-version = "0.5.12"
+version = "0.5.13"
 dependencies = [
  "libc 0.2.191",
  "tokio",

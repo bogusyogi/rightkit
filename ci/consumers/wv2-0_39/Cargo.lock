@@ -3052,7 +3052,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-child-process"
-version = "0.5.12"
+version = "0.5.13"
 dependencies = [
  "libc",
  "windows 0.62.2",

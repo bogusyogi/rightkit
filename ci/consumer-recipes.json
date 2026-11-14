@@ -2345,7 +2345,7 @@
       "gateEvidence": "the child is the consumer executable itself (std::env::current_exe with a --child mode argument): no shell, network, files or ffmpeg; the strict incomplete-capture Err path is not exercised (not deterministic on a trivial child)",
       "consumes": "PK02 plan (01-packages.md:116-129): ScrapeRight and CodeRight runners; public items exercised: run (crates/rightkit-child-process/src/run.rs:192), run_with_stdin (src/run.rs:173), run_command (src/run.rs:249), run_command_capture (src/run.rs:271), RunOptions (src/run.rs:64), CaptureOptions (src/run.rs:105), OwnedCommand::new and command_mut (src/owned.rs:167,216); 0.5.5 descriptor policy surface: OwnedCommand::inherit_all_descriptors and inherit_fd (src/owned.rs:255,273)",
       "files": {
-        "Cargo.toml": "2e42ef08254033a63a616b96321ca2d2a5a235611feb8134c4c8882cceaf2f93",
+        "Cargo.toml": "818dbf90a70003152469e0bb63a228ac93ac1293513c636a35f867f1f658469e",
         "README.md": "1cd2a069b87285744a044a1ce292fdc83d41bd8eb3ab49fd6e3f7076960959a9",
         "src/main.rs": "f755ebe9531d83e34b4ba70cbe6d3ec5d9d723840a2becd8b630320e00fcc450"
       },
