@@ -819,6 +819,8 @@ jobs:
           # old-style one anywhere else).
           keychain_path="$HOME/Library/Keychains/verify-host.keychain-db"
           keychain_password="$(uuidgen)"
+          echo "::add-mask::$keychain_password"
+          echo "VERIFY_KEYCHAIN_PASSWORD=$keychain_password" >> "$GITHUB_ENV"
           security create-keychain -p "$keychain_password" "$keychain_path"
           security set-keychain-settings -lut 21600 "$keychain_path"
           security unlock-keychain -p "$keychain_password" "$keychain_path"
@@ -894,6 +896,25 @@ jobs:
           RIGHTKIT_CHROME_FOR_TESTING_ROOT: ${{ runner.temp }}/chrome-for-testing
           PUBLISH_DRY_RUN: "false"
         run: node scripts/ci/provision-chrome.mjs
+      # The browser consumer's Network.setCookies opened a SecurityAgent prompt: Chrome found its Safe Storage item but
+      # the item's partition list did not admit Chrome for Testing's signature. Read the provisioned app's signing team
+      # and admit exactly that team (or unsigned code) on the verify host's own items.
+      - name: Admit the provisioned Chrome for Testing to the verify host's Safe Storage items (rightkit-browser, rightkit-qa)
+        if: ${{ needs.plan.outputs.registry == 'crates' && runner.os == 'macOS' && (contains(needs.plan.outputs.units, 'rightkit-browser') || contains(needs.plan.outputs.units, 'rightkit-qa')) }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          app="$(find "$RUNNER_TEMP/chrome-for-testing" -maxdepth 4 -name 'Google Chrome for Testing.app' -type d | head -n 1)"
+          test -n "$app"
+          codesign -dvv "$app" 2>&1 | grep -E '^(Identifier|TeamIdentifier|Authority)=' || true
+          team="$(codesign -dvv "$app" 2>&1 | sed -n 's/^TeamIdentifier=//p')"
+          case "$team" in ""|"not set") partitions="apple-tool:,apple:,unsigned:" ;; *) partitions="apple-tool:,apple:,teamid:${team}" ;; esac
+          echo "partition list: $partitions"
+          keychain_path="$HOME/Library/Keychains/verify-host.keychain-db"
+          for product in Chrome Chromium "Chrome for Testing"; do
+            security set-generic-password-partition-list -S "$partitions" -a "$product" -s "$product Safe Storage" -k "$VERIFY_KEYCHAIN_PASSWORD" "$keychain_path" >/dev/null
+            echo "admitted: $product Safe Storage"
+          done
       - name: Export the trusted pinned CFT route for R2 consumers
         if: ${{ (needs.plan.outputs.registry == 'npm' && (contains(format(' {0} ', needs.plan.outputs.units), ' @rightkit/qa ') || contains(format(' {0} ', needs.plan.outputs.units), ' @rightkit/qa-chrome ') || contains(format(' {0} ', needs.plan.outputs.units), ' @rightkit/react-shell ') || contains(format(' {0} ', needs.plan.outputs.units), ' @rightkit/settings-ui ') || contains(format(' {0} ', needs.plan.outputs.units), ' @rightkit/onboarding '))) || (needs.plan.outputs.registry == 'crates' && contains(format(' {0} ', needs.plan.outputs.units), ' rightkit-browser ')) }}
         shell: bash
