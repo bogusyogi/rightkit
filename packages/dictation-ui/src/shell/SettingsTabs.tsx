@@ -1,6 +1,5 @@
 import { useRef, type KeyboardEvent } from "react";
 import type { SettingsSection } from "@rightkit/settings-ui";
-import "./settings-tabs.css";
 
 /**
  * Chrome-style section tabs across the top of Settings. The shared SettingsPanel

@@ -8,7 +8,6 @@ import {
   type OnboardingStep,
   type OnboardingStepContext,
 } from "@rightkit/onboarding";
-import "@rightkit/onboarding/onboarding.css";
 import { useEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from "react";
 import { dictationClient, hostAppName, hostOnboarding } from "../host.js";
 import type { SettingsBlob } from "../types/settings.js";
@@ -33,7 +32,6 @@ import { onboardingModel } from "./model.js";
 import { usePlatform } from "./platform.js";
 import { RecognitionSetupStep } from "./RecognitionSetupStep.js";
 import { AppLivesStep, CommandsStep, WelcomeStep } from "./StaticSteps.js";
-import "./stepCount.css";
 import { TrialStep } from "./TrialStep.js";
 import type { OS, Step } from "./types.js";
 import { useOnboardingPermissions } from "./usePermissions.js";
