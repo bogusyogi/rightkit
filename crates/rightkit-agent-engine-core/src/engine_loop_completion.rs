@@ -59,7 +59,9 @@ impl SessionEngine {
                 reasoning_content: None,
                 tool_calls: vec![],
                 pinned: false,
+                origin: None,
             },
+            phase: rightkit_agent_engine_protocol::AssistantMessagePhase::legacy_default(),
         });
         self.publish_hook(rightkit_hooks::agent_hooks::HookEvent::Notification {
             session_id: sid.to_string(),
@@ -313,7 +315,9 @@ impl SessionEngine {
                 reasoning_content: self.current_turn_reasoning(),
                 tool_calls: vec![],
                 pinned: false,
+                origin: None,
             },
+            phase: rightkit_agent_engine_protocol::AssistantMessagePhase::legacy_default(),
         });
         // A steer pushed while this response streamed missed the drain at the
         // top of the loop, and the turn is about to end: carry on so the next

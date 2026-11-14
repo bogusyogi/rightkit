@@ -47,7 +47,9 @@ impl SessionEngine {
                         reasoning_content: None,
                         tool_calls: vec![],
                         pinned: false,
+                        origin: None,
                     },
+                    phase: rightkit_agent_engine_protocol::AssistantMessagePhase::legacy_default(),
                 });
                 self.record_session_end(
                     session_span_id,
