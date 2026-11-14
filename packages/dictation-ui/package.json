@@ -15,6 +15,10 @@
       "types": "./dist/pill/index.d.ts",
       "import": "./dist/pill/index.js"
     },
+    "./onboarding": {
+      "types": "./dist/onboarding/index.d.ts",
+      "import": "./dist/onboarding/index.js"
+    },
     "./settings": {
       "types": "./dist/settings/index.d.ts",
       "import": "./dist/settings/index.js"

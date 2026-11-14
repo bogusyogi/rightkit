@@ -20,6 +20,7 @@ import type {
   SyncClient,
 } from "./settings/client.js";
 import type { AppState, HistoryItem } from "./lib/homeMetrics.js";
+import type { OnboardingClient } from "./onboarding/client.js";
 import type { PillEvent } from "./pill/pillBars.js";
 import type { VocabularyEntry, VocabularySuggestion } from "./types/vocabulary.js";
 
@@ -100,7 +101,7 @@ export interface DictationEventMap {
   /** Pro entitlement changed; `null` while it is still being checked. */
   entitlement: boolean | null;
   /** Local speech model install progress (Parakeet lanes); `phase` is `downloading`, `extracting`, `verifying`, `installing`, `preparing` or `installed`. */
-  localAsrModel: { backend: string; phase: string; received: number; total: number };
+  localAsrModel: { backend: string; phase: string; received: number; total: number; message?: string };
   /** Whisper model install progress; the same phases. */
   whisperModel: { phase: string; received: number; total: number };
 }
@@ -163,6 +164,8 @@ export interface DictationClient {
   sync?: SyncClient;
   account?: AccountClient;
   license?: LicenseSettingsClient;
+  /** First-run setup (`@rightkit/dictation-ui/onboarding`). */
+  onboarding?: OnboardingClient;
 }
 
 // ---------------------------------------------------------------------------------------------

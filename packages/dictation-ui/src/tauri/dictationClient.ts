@@ -20,6 +20,7 @@ import type {
   WhisperModelStatus,
 } from "../settings/client.js";
 import { eventSubscribe, notMapped, tauriListenFn, type ListenFn, type TauriClientOptions } from "./events.js";
+import type { OnboardingClient, OnboardingEventMap } from "../onboarding/client.js";
 import { tauriDictationSettingsBackend, type TauriSettingsOptions } from "./settingsBackend.js";
 
 export interface TauriDictationOptions extends TauriClientOptions, Omit<TauriSettingsOptions, "invoke"> {
@@ -59,6 +60,18 @@ const EVENTS: { [K in Exclude<keyof DictationEventMap, "entitlement">]: string }
   nativeDragDrop: "native-drag-drop",
   localAsrModel: "local-asr-model",
   whisperModel: "whisper-model",
+};
+
+const ONBOARDING_EVENTS: { [K in keyof OnboardingEventMap]: string } = {
+  micLevel: "onboarding-mic-level",
+  micMeterError: "onboarding-mic-meter-error",
+  micMeterStatus: "onboarding-mic-meter-status",
+  shortcut: "onboarding-shortcut",
+  fn: "onboarding-fn",
+  ptt: "onboarding-ptt",
+  middleClick: "onboarding-middle-click",
+  microphonePermissionGranted: "microphone-permission-granted",
+  recognitionSetupProgress: "onboarding-recognition-setup-progress",
 };
 
 const RETENTION_OPTIONS = [
@@ -191,6 +204,28 @@ const speech: SpeechClient = {
   dismissModelUpdate: () => invoke<void>("dismiss_model_update"),
 };
 
+function onboarding(listen: ListenFn): OnboardingClient {
+  return {
+    on: eventSubscribe<OnboardingEventMap>(ONBOARDING_EVENTS, listen),
+    microphoneAccessStatus: () => invoke<string>("microphone_access_status"),
+    requestMicrophoneAccess: () => invoke<string>("request_microphone_access"),
+    openMicrophoneSettings: () => invoke<void>("open_macos_microphone_settings"),
+    databaseKeyPresent: () => invoke<boolean>("ensure_private_database_key", { checkOnly: true }),
+    ensureDatabaseKey: () => invoke<void>("ensure_private_database_key"),
+    startMicMeter: (deviceSetting) => invoke<void>("start_onboarding_mic_meter", { deviceSetting }),
+    stopMicMeter: () => invoke<void>("stop_onboarding_mic_meter"),
+    setShortcutsActive: (active, previewOnly) =>
+      invoke<void>("set_onboarding_shortcuts_active", previewOnly === undefined ? { active } : { active, previewOnly }),
+    startRecognitionSetup: () => invoke("start_onboarding_recognition_setup"),
+    stopRecognitionSetup: (sessionId) => invoke("stop_onboarding_recognition_setup", { sessionId }),
+    cancelRecognitionSetup: (sessionId) => invoke<void>("cancel_onboarding_recognition_setup", { sessionId }),
+    applySettingsPatch: (patch) => invoke("apply_settings_patch", { patch }),
+    revealPill: () => invoke<void>("reveal_pill"),
+    parkIdleHub: () => invoke<void>("park_idle_hub"),
+    resizeHubForSurface: () => invoke<void>("resize_hub_for_current_surface"),
+  };
+}
+
 const developer: DeveloperClient = {
   wakeLabStatus: () => invoke<WakeLabStatus>("get_wake_lab_status"),
   setWakeLabEnabled: (enabled) => invoke<void>("set_wake_lab_enabled", { enabled }),
@@ -276,6 +311,7 @@ export function tauriDictationClient(options: TauriDictationOptions = {}): Dicta
     app: appSettings,
     speech,
     developer,
+    onboarding: onboarding(listen),
     sync,
     account: options.account,
     license: options.license,

@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+Added: the first-run setup's hooks and rules in `@rightkit/dictation-ui/onboarding`, HeardRight's, so an app can delete its own copies. Behaviour, wording and native calls equal HeardRight's shipped setup.
+
+- Entry `./onboarding` (new): `useOnboardingPermissions` (Keychain, microphone with the eight Windows states, accessibility), `useOnboardingRecording` (microphone meter, shortcut and push-to-talk preview), `useOnboardingRecognitionSetup` (the voice check), `useOnboardingTrial` (trial key request and activation), and the pure step rules (`ONBOARDING_STEPS`, `stepProgressLabel`, `hardwareReady`, `controlsReady`, `blockedHintFor`, `nextModelProgress`, `modelAdvancePatch`, `trackModelInstall`, push-to-talk key matching, `chordDisplayKeyForEvent`).
+- Host contract, additive: new optional group `DictationClient.onboarding` (`OnboardingClient`: microphone access, database key, microphone meter, shortcut preview, recognition check, final settings write; `tauriDictationClient` implements it with the setup's native commands and events); `LicenseSettingsClient.refreshEntitlements?`; `DictationEventMap.localAsrModel.message?`. The hooks also use the existing accessibility members of the client and its `license` group.
+
 ## 0.2.5
 
 Added: `LicenseSettings` and `AccountSettings` in `@rightkit/dictation-ui/settings`, HeardRight's licence and account sections, so an app can delete its own copies. Markup, classes, wording and native calls equal HeardRight's shipped sections.

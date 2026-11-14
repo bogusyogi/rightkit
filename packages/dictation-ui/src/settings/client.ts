@@ -166,6 +166,8 @@ export interface LicenseSettingsClient {
   isPro(view: LicenseViewLike | null): boolean;
   /** True when the view alone shows Pro. */
   viewShowsPro(view: LicenseViewLike | null): boolean;
+  /** Refreshes the entitlements after an activation (the first-run trial step calls it). */
+  refreshEntitlements?(): Promise<void>;
   /** Normalises the key input (trim, upper-case). */
   formatLicenseKey(raw: string): string;
   /** The words for a licence message code. */
