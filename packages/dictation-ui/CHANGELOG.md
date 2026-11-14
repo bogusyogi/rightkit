@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.7
 
 Added: `@rightkit/dictation-ui/shell`, the app shell's sidebar status footer, so an app can delete its own copy. Markup, classes, wording, native calls and call order equal HeardRight's shipped sidebar footer.
 
