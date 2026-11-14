@@ -3090,7 +3090,7 @@
       "pkId": "PK78",
       "id": "ci/consumers/rightkit-app-manager/src/main.rs",
       "files": {
-        "Cargo.toml": "4653b544ac1ab8f52d1a33b055a037b1b179dcc0b795f1ea3e69f3fbe6ad6ea1",
+        "Cargo.toml": "762aae47043b45cf27d1b47b82398a0edc38f35e5ca378bbac102b602cafe488",
         "README.md": "f17223fb50a3d386cbde4acc478197d3b1520267ef9c34ee44f4bb086f6ff92a",
         "src/main.rs": "b47804c0c9ca33fcd3390f01949605a36cafccb1d9d3a959cd3e5f7a3d270ec2"
       }

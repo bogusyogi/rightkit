@@ -20,6 +20,7 @@ static IDENTITY: OnceLock<HostIdentity> = OnceLock::new();
 static STATE_DIRECTORY: OnceLock<PathBuf> = OnceLock::new();
 static HELPER_ENABLED: AtomicBool = AtomicBool::new(false);
 static HELPER_PROBE: OnceLock<Box<dyn Fn() -> bool + Send + Sync>> = OnceLock::new();
+static HOME_RESOLVER: OnceLock<Box<dyn Fn() -> PathBuf + Send + Sync>> = OnceLock::new();
 
 /// Set the host app's identity. Only the first call takes effect; returns `false` otherwise.
 pub fn set_host_identity(identity: HostIdentity) -> bool {
@@ -99,7 +100,18 @@ pub(crate) fn is_host_name(name: &str) -> bool {
 #[cfg(unix)]
 /// The account's home folder: `HOME` (`USERPROFILE` on Windows); on Unix the password database's
 /// home when `HOME` is unset or `/`.
+/// Resolve the account's home folder with the host's own rule (for example, a host whose shells run with a
+/// `HOME` inside a per-profile folder and must scan the real account's `~/Applications` and `~/Library`).
+/// Called on every lookup. Once set, it replaces the default (`HOME` / `USERPROFILE`, falling back to the
+/// password database when that is `/`). The first call wins; it returns false if a resolver was already set.
+pub fn set_account_home_resolver(resolver: impl Fn() -> PathBuf + Send + Sync + 'static) -> bool {
+    HOME_RESOLVER.set(Box::new(resolver)).is_ok()
+}
+
 pub(crate) fn account_home() -> PathBuf {
+    if let Some(resolve) = HOME_RESOLVER.get() {
+        return resolve();
+    }
     let variable = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
     let env = std::env::var_os(variable)
         .map(PathBuf::from)
