@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.1
+
+Fixes 0.4.0, whose changelog listed weak-name secret redaction that the code did not contain.
+
+- Secret scanning (behaviour change): a value that follows a weaker key-like name is now redacted as `[[CR_SECRET_ASSIGNED_REDACTED]]` when the name contains `KEY`, `AUTH`, `PASS`, `PWD`, `SIGNATURE` or `COOKIE` (case-insensitive, `-` read as `_`) and the name is not already one of the stronger secret names. The value is redacted only when it looks random: 24 or more characters, all of them letters, digits or `+/=_-`, at least two of lower case, upper case and digits, and a per-character entropy of 3.5 bits or more. A value that starts with `/`, `.` or `~`, contains `://`, or is already a redaction marker is kept. Example: `signing_key = Zr8Qw2LpX9vT4mNc7Hs1Ud6YbJ0eKfAg` is redacted; `key: name`, `primary_key=id_of_the_row_in_table`, `auth_url=https://example.com/oauth/authorize`, `cache_key=src/lib/module/path/file.rs` and `pass=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa` stay. This applies to `redact_irreversible`, `find_secrets` and `redact_json_payload`, so events are redacted before they are stored. Text that held such a random value after a weak name is now changed.
+
 ## 0.4.0
 
 Ported from CodeRight's newer copy so it can use this crate instead of its own. Every change is additive on the wire: a value written by an earlier version still reads, and the default output of a host that sets none of the options below is unchanged.

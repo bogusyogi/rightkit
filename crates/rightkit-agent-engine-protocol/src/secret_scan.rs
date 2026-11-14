@@ -96,6 +96,56 @@ fn name_is_secretish(name: &str) -> bool {
     NAME_KEYWORDS.iter().any(|k| norm.contains(k))
 }
 
+/// Weaker key-like names (`KEY`, `AUTH`, `PASS`, ...). A value after one of these is a secret only
+/// when it also looks random (see [`looks_random`]), so plain settings such as `key: name` stay.
+const WEAK_NAME_KEYWORDS: &[&str] = &["KEY", "AUTH", "PASS", "PWD", "SIGNATURE", "COOKIE"];
+
+fn name_is_weakly_secretish(name: &str) -> bool {
+    let norm = name.to_ascii_uppercase().replace('-', "_");
+    WEAK_NAME_KEYWORDS.iter().any(|k| norm.contains(k))
+}
+
+/// A long value with mixed character classes and high per-character entropy: a generated token,
+/// not a word, a path, a URL or a version string.
+fn looks_random(value: &str) -> bool {
+    const MIN_RANDOM_LEN: usize = 24;
+    if value.len() < MIN_RANDOM_LEN
+        || value.starts_with(SECRET_PLACEHOLDER_OPEN)
+        || value.starts_with(['/', '.', '~'])
+        || value.contains("://")
+        || !value
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"+/=_-".contains(&b))
+    {
+        return false;
+    }
+    let classes = [
+        value.bytes().any(|b| b.is_ascii_lowercase()),
+        value.bytes().any(|b| b.is_ascii_uppercase()),
+        value.bytes().any(|b| b.is_ascii_digit()),
+    ]
+    .into_iter()
+    .filter(|present| *present)
+    .count();
+    if classes < 2 {
+        return false;
+    }
+    let mut counts = [0usize; 256];
+    for b in value.bytes() {
+        counts[b as usize] += 1;
+    }
+    let len = value.len() as f64;
+    let entropy: f64 = counts
+        .iter()
+        .filter(|&&c| c > 0)
+        .map(|&c| {
+            let p = c as f64 / len;
+            -p * p.log2()
+        })
+        .sum();
+    entropy >= 3.5
+}
+
 fn ends_with_bearer(prefix: &str) -> bool {
     let b = prefix.as_bytes();
     b.len() >= 7 && b[b.len() - 7..].eq_ignore_ascii_case(b"bearer ")
@@ -197,6 +247,18 @@ pub fn find_secrets(text: &str) -> Vec<SecretSpan> {
         if let Some(kind) = classify(run, ends_with_bearer(&text[..start])) {
             found.push(SecretSpan { start, end, kind });
             continue;
+        }
+        if !name_is_secretish(run) && name_is_weakly_secretish(run) {
+            if let Some((vs, ve)) = assigned_value_span(text, end) {
+                if looks_random(&text[vs..ve]) {
+                    found.push(SecretSpan {
+                        start: vs,
+                        end: ve,
+                        kind: "ASSIGNED",
+                    });
+                    i = ve;
+                }
+            }
         }
         if name_is_secretish(run) {
             if let Some((vs, ve)) = assigned_value_span(text, end) {
