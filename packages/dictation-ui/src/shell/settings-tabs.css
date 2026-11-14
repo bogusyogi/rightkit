@@ -1,0 +1,134 @@
+/* Chrome-style Settings tabs: the active tab joins the content panel below it. */
+.hr-settings-page {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
+/* The search field sits in the shared PageShell header, beside the sentence-case title. */
+.hr-settings-search {
+  width: 240px;
+  max-width: 40%;
+}
+
+.hr-settings-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 16px 20px 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.hr-settings-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+/* Tabs shrink to share the row (label ellipsis) before anything is cut off,
+   the way Chrome tabs do; the active tab never shrinks below its label. */
+.hr-settings-tab {
+  position: relative;
+  display: flex;
+  flex: 0 1 auto;
+  min-width: 56px;
+  padding: 10px 14px 11px;
+  border: 0;
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  background: transparent;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: var(--size-base);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+
+.hr-settings-tab__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.hr-settings-tab[data-active="true"] {
+  flex-shrink: 0;
+}
+
+.hr-settings-tab:hover {
+  color: var(--ink);
+  background: color-mix(in srgb, var(--surface-2) 55%, transparent);
+}
+
+.hr-settings-tab:focus-visible {
+  outline: none;
+  box-shadow: inset var(--focus-ring);
+}
+
+.hr-settings-tab[data-active="true"] {
+  background: var(--surface-2);
+  color: var(--ink);
+  font-weight: 600;
+}
+
+/* Concave corners where the active tab meets the panel, as in Chrome. */
+.hr-settings-tab[data-active="true"]::before,
+.hr-settings-tab[data-active="true"]::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  width: 10px;
+  height: 10px;
+  pointer-events: none;
+}
+
+.hr-settings-tab[data-active="true"]::before {
+  left: -10px;
+  background: radial-gradient(circle at 0 0, transparent 9.5px, var(--surface-2) 10px);
+}
+
+.hr-settings-tab[data-active="true"]::after {
+  right: -10px;
+  background: radial-gradient(circle at 100% 0, transparent 9.5px, var(--surface-2) 10px);
+}
+
+/* Thin separators between inactive neighbours. */
+.hr-settings-tab:not([data-active="true"]) + .hr-settings-tab:not([data-active="true"])::before {
+  content: "";
+  position: absolute;
+  left: -1px;
+  top: 12px;
+  bottom: 12px;
+  width: 1px;
+  background: var(--line);
+}
+
+.hr-settings-tabpanel {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  margin: 0 20px 20px;
+  border-radius: 0 var(--radius-lg) var(--radius-lg) var(--radius-lg);
+  background: var(--surface-2);
+  overflow: hidden;
+}
+
+/* The approved tabs design (docs/mockups/settings-top-tabs.html): with the second column gone, "the content gets
+   the full width". settings-ui caps a section at 760px, which left most of the panel empty. */
+.hr-settings-tabpanel .rk-settings__section {
+  max-width: none;
+}
+
+/* The first tab is flush with the panel's square top-left corner. */
+.hr-settings-tabs:has(.hr-settings-tab:first-child[data-active="true"]) + .hr-settings-tabpanel {
+  border-top-left-radius: 0;
+}
+
+.hr-settings-tab:first-child[data-active="true"]::before {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hr-settings-tab {
+    transition: none;
+  }
+}
