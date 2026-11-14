@@ -59,9 +59,10 @@ pub use transport::{
     MCP_SUPPORTED_VERSIONS,
 };
 pub use trust_gate::{
-    approve_workspace_stdio, decide_workspace_stdio, default_trust_store_path,
-    gate_workspace_stdio_servers, load_trust_store, pending_workspace_stdio, stdio_server_spec,
-    PendingApproval, TrustDecision, TrustStore,
+    approve_workspace_stdio, config_dir_segment, decide_workspace_stdio, default_trust_store_path,
+    gate_workspace_stdio_servers, load_trust_store, pending_workspace_stdio,
+    set_config_dir_segment, stdio_server_spec, PendingApproval, TrustDecision, TrustStore,
+    DEFAULT_CONFIG_DIR_SEGMENT,
 };
 pub use types::{
     HttpConfig, McpChannelPermissions, McpConfigFile, McpOAuthConfig, McpResourceContent,
