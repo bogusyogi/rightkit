@@ -16,6 +16,7 @@
 
 #![allow(clippy::doc_lazy_continuation)]
 use crate::error::{Result, StorageError};
+use crate::journal_mode_env;
 use rightkit_db::rusqlite;
 use rightkit_db::rusqlite::Connection;
 use rightkit_db::DbOptions;
@@ -266,6 +267,51 @@ BEGIN
            kind       = new.kind,
            payload    = new.payload_json
      WHERE rowid = old.rowid;
+END;
+
+CREATE TRIGGER events_ad_fts
+AFTER DELETE ON events
+BEGIN
+    DELETE FROM events_fts WHERE rowid = old.rowid;
+END;
+"#;
+
+/// Index the words people wrote and read, not the whole payload. The v3 triggers copied every
+/// event's JSON (keys, ids, tool output) into `events_fts`, about half the database. From here on
+/// only a user message's text and an assistant answer's content are indexed. Rows indexed before
+/// stay as they are (nothing is deleted; `Storage::reindex_events_fts` rebuilds the lean form).
+/// A payload that is not valid JSON is skipped, never an error: a trigger failure would refuse
+/// the event itself.
+const EVENTS_FTS_TEXT_ONLY_SQL: &str = r#"
+DROP TRIGGER IF EXISTS events_ai_fts;
+DROP TRIGGER IF EXISTS events_au_fts;
+DROP TRIGGER IF EXISTS events_ad_fts;
+
+CREATE TRIGGER events_ai_fts
+AFTER INSERT ON events
+BEGIN
+    INSERT INTO events_fts(rowid, session_id, kind, payload)
+    SELECT new.rowid, new.session_id, new.kind,
+           CASE new.kind
+               WHEN 'userMessageSubmitted' THEN json_extract(new.payload_json, '$.text')
+               ELSE json_extract(new.payload_json, '$.message.content')
+           END
+     WHERE new.kind IN ('userMessageSubmitted', 'assistantMessageCompleted')
+       AND json_valid(new.payload_json);
+END;
+
+CREATE TRIGGER events_au_fts
+AFTER UPDATE ON events
+BEGIN
+    DELETE FROM events_fts WHERE rowid = old.rowid;
+    INSERT INTO events_fts(rowid, session_id, kind, payload)
+    SELECT new.rowid, new.session_id, new.kind,
+           CASE new.kind
+               WHEN 'userMessageSubmitted' THEN json_extract(new.payload_json, '$.text')
+               ELSE json_extract(new.payload_json, '$.message.content')
+           END
+     WHERE new.kind IN ('userMessageSubmitted', 'assistantMessageCompleted')
+       AND json_valid(new.payload_json);
 END;
 
 CREATE TRIGGER events_ad_fts
@@ -1485,6 +1531,13 @@ fn all_migrations() -> Vec<Migration> {
             sql: "",
             down_sql: None,
         },
+        Migration {
+            version: 34,
+            name: "events_fts indexes message text only",
+            sql: EVENTS_FTS_TEXT_ONLY_SQL,
+            // The v3 triggers (every payload indexed) restore the earlier behaviour.
+            down_sql: Some(EVENTS_FTS_TRIGGERS_SQL),
+        },
     ]
 }
 
@@ -1549,7 +1602,7 @@ fn migrate_options(db_path: Option<&Path>) -> rightkit_db::MigrateOptions {
     rightkit_db::MigrateOptions {
         backup_options: db_path.map(|path| {
             DbOptions::new(path)
-                .with_journal_env("RIGHTKIT_SQLITE_JOURNAL_MODE")
+                .with_journal_env(journal_mode_env())
                 .with_per_host_fallback(true)
         }),
         forward_compatible: Some(forward_schema_is_compatible),

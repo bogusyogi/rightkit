@@ -32,9 +32,29 @@ pub enum StorageError {
     /// the host app. Refuse to open rather than risk running stale code against
     /// an unfamiliar schema.
     #[error(
-        "database is from a newer version (schema v{current}, this build knows up to v{max}) — update the app to open it"
+        "database is from a newer {} (schema v{current}, this build knows up to v{max}) — update {} to open it",
+        newer_noun(),
+        update_target()
     )]
     NewerDatabase { current: i64, max: i64 },
+}
+
+static PRODUCT_NAME: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+/// Sets the product name the newer-database message uses (for example `MyApp`: "database is
+/// from a newer MyApp (...) — update MyApp to open it"). Without it the message says "a newer
+/// version" and "update the app". Call once at start-up; returns `false` when one was already
+/// set.
+pub fn set_product_name(name: &str) -> bool {
+    PRODUCT_NAME.set(name.to_string()).is_ok()
+}
+
+fn newer_noun() -> &'static str {
+    PRODUCT_NAME.get().map(String::as_str).unwrap_or("version")
+}
+
+fn update_target() -> &'static str {
+    PRODUCT_NAME.get().map(String::as_str).unwrap_or("the app")
 }
 
 /// Convenience result alias for storage operations.

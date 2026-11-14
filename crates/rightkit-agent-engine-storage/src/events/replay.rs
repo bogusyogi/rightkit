@@ -91,9 +91,19 @@ impl crate::StoragePool {
     /// The whole event log for a session, read page by page through the pool.
     /// Returns exactly what `Storage::all_events` would.
     pub fn all_events_paged(&self, session_id: &str, page_rows: usize) -> Result<Vec<EventRow>> {
+        self.events_after_paged(session_id, 0, page_rows)
+    }
+
+    /// Every event with `seq > after_seq`, read page by page through the pool.
+    pub fn events_after_paged(
+        &self,
+        session_id: &str,
+        after_seq: i64,
+        page_rows: usize,
+    ) -> Result<Vec<EventRow>> {
         let page_rows = page_rows.max(1);
         let mut out = Vec::new();
-        let mut after = 0i64;
+        let mut after = after_seq;
         loop {
             let page = self.events_page_after(session_id, after, page_rows)?;
             after = page.next;

@@ -54,6 +54,12 @@ pub enum PersistenceGapError {
     /// is already in the database; writing at `requested` would either
     /// collide (UNIQUE(session_id, seq)) or rewrite history.
     SeqBelowExisting { requested: i64, existing: i64 },
+    /// SQLite itself failed (busy, I/O, disk full, a constraint). Not a
+    /// sequencing problem, so callers must not wait for a writer to catch up.
+    /// A busy/locked error here is already final: the writer connection carries
+    /// rightkit-db's 5 s `busy_timeout` and the insert runs under `BEGIN
+    /// IMMEDIATE`, so SQLite has waited out the lock before returning it.
+    Storage { requested: i64, message: String },
 }
 
 impl std::fmt::Display for PersistenceGapError {
@@ -73,11 +79,22 @@ impl std::fmt::Display for PersistenceGapError {
                 f,
                 "append_event_at_seq would collide with existing row: requested={requested}, existing={existing}"
             ),
+            Self::Storage { requested, message } => write!(
+                f,
+                "append_event_at_seq storage error at seq {requested}: {message}"
+            ),
         }
     }
 }
 
 impl std::error::Error for PersistenceGapError {}
+
+fn storage_error(requested: i64, error: impl std::fmt::Display) -> PersistenceGapError {
+    PersistenceGapError::Storage {
+        requested,
+        message: error.to_string(),
+    }
+}
 
 /// Errors from `decode_event_row`. The legacy-normalization path never
 /// fails — the row is recoverable even when the payload can't be parsed
@@ -298,10 +315,7 @@ impl Storage {
                         [session_id],
                         |row| row.get(0),
                     )
-                    .map_err(|_| PersistenceGapError::SeqAboveHighWater {
-                        requested: seq,
-                        high_water: 0,
-                    })?;
+                    .map_err(|error| storage_error(seq, error))?;
                 // Prime the cache so subsequent appends skip the SELECT.
                 self.seq_cache.insert(session_id.to_string(), current);
                 current
@@ -315,6 +329,7 @@ impl Storage {
             });
         }
         if seq <= high_water {
+            use rusqlite::OptionalExtension;
             let identical = self
                 .conn
                 .query_row(
@@ -322,7 +337,8 @@ impl Storage {
                     rusqlite::params![session_id, seq],
                     |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
                 )
-                .ok()
+                .optional()
+                .map_err(|error| storage_error(seq, error))?
                 .is_some_and(|(stored_kind, stored_payload)| {
                     let expected = if payload_json.len() > super::append::MAX_EVENT_PAYLOAD_BYTES {
                         super::append::oversized_payload_stub(kind, payload_json)
@@ -340,12 +356,8 @@ impl Storage {
             });
         }
 
-        let tx = rightkit_db::write_txn(&mut self.conn).map_err(|_| {
-            PersistenceGapError::SeqAboveHighWater {
-                requested: seq,
-                high_water,
-            }
-        })?;
+        let tx =
+            rightkit_db::write_txn(&mut self.conn).map_err(|error| storage_error(seq, error))?;
         let created_at = now_iso8601();
         let spilled = super::append::spill_oversized_payload(
             &tx,
@@ -355,20 +367,14 @@ impl Storage {
             payload_json,
             &created_at,
         )
-        .map_err(|_| PersistenceGapError::SeqAboveHighWater {
-            requested: seq,
-            high_water,
-        })?;
+        .map_err(|error| storage_error(seq, error))?;
         let stored_payload: &str = spilled.as_deref().unwrap_or(payload_json);
         tx.execute(
             "INSERT INTO events (session_id, seq, kind, payload_json, created_at) \
              VALUES (?1, ?2, ?3, ?4, ?5)",
             (session_id, seq, kind, stored_payload, &created_at),
         )
-        .map_err(|_| PersistenceGapError::SeqAboveHighWater {
-            requested: seq,
-            high_water,
-        })?;
+        .map_err(|error| storage_error(seq, error))?;
         // EVT-005: when a post-message request carries an idempotency key,
         // bind that request's durable admission sequence in the SAME SQLite
         // transaction as UserMessageSubmitted. A crash can therefore expose
@@ -386,17 +392,10 @@ impl Storage {
                      AND response_json IS NULL",
                     (session_id, key.trim(), kind, seq, &created_at),
                 )
-                .map_err(|_| PersistenceGapError::SeqAboveHighWater {
-                    requested: seq,
-                    high_water,
-                })?;
+                .map_err(|error| storage_error(seq, error))?;
             }
         }
-        tx.commit()
-            .map_err(|_| PersistenceGapError::SeqAboveHighWater {
-                requested: seq,
-                high_water,
-            })?;
+        tx.commit().map_err(|error| storage_error(seq, error))?;
         self.seq_cache.insert(session_id.to_string(), seq);
         Ok(())
     }

@@ -56,7 +56,10 @@ impl Storage {
     ) -> Result<QuarantineOutcome> {
         let candidates: Vec<(i64, String, String, String)> = {
             let mut stmt = self.conn.prepare(
-                "SELECT seq, kind, payload_json, created_at FROM events WHERE session_id = ?1",
+                // Audit M3: let SQLite pick the malformed rows (the same predicate
+                // `Storage::open` uses) instead of loading every payload.
+                "SELECT seq, kind, payload_json, created_at FROM events \
+                 WHERE session_id = ?1 AND NOT json_valid(payload_json)",
             )?;
             let rows = stmt.query_map([session_id], |row| {
                 Ok((
@@ -85,8 +88,9 @@ impl Storage {
             let tx = rightkit_db::write_txn(&mut self.conn)?;
             let quarantined_at = now_iso8601();
             for (seq, kind, payload_json, created_at) in &malformed {
+                // OR IGNORE: an earlier forensic copy for this seq is never overwritten.
                 tx.execute(
-                    "INSERT OR REPLACE INTO events_quarantine \
+                    "INSERT OR IGNORE INTO events_quarantine \
                      (session_id, seq, kind, payload_json, created_at, reason, quarantined_at) \
                      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
                     (
@@ -99,9 +103,13 @@ impl Storage {
                         &quarantined_at,
                     ),
                 )?;
+                // Audit M2: keep the row (and so its seq) in the live log with a
+                // valid-JSON marker instead of deleting it. A deleted tail row
+                // would hand its seq to the next append after a restart, and a
+                // deleted mid-log row would leave a seq gap.
                 tx.execute(
-                    "DELETE FROM events WHERE session_id = ?1 AND seq = ?2",
-                    (session_id, seq),
+                    "UPDATE events SET payload_json = ?3 WHERE session_id = ?1 AND seq = ?2",
+                    (session_id, seq, quarantined_payload_marker(kind)),
                 )?;
                 quarantined_seqs.push(*seq);
             }
@@ -115,25 +123,42 @@ impl Storage {
         })
     }
 
-    /// Move rows that rehydration proved undecodable out of the live log
-    /// (audit M9). The caller decides decodability (it owns the protocol
-    /// types); storage retains the raw bytes in `events_quarantine` under
-    /// `reason` and removes the live rows so they neither bloat later replay
-    /// pages nor get silently skipped on every resume. Only seqs that exist
-    /// for `session_id` are touched; returns the seqs actually moved.
+    /// Record rows that rehydration could not decode (audit M9) in
+    /// `events_quarantine` under `reason`. The caller decides decodability (it
+    /// owns the protocol types). The live rows are kept (audit M1): a row this
+    /// build cannot decode may have been written by a newer build that can, so
+    /// deleting it would truncate the session for good. An existing quarantine
+    /// copy is never overwritten, and a seq that already has one is skipped
+    /// without a write. Only seqs that exist for `session_id` are touched;
+    /// returns the seqs newly recorded.
     pub fn quarantine_undecodable_events(
         &mut self,
         session_id: &str,
         seqs: &[i64],
         reason: &str,
     ) -> Result<Vec<i64>> {
-        if seqs.is_empty() {
+        // Round-3 #11: rows stay in the log, so every resume reports them again.
+        // Seqs that already have a quarantine copy need no write transaction.
+        let pending: Vec<i64> = seqs
+            .iter()
+            .copied()
+            .filter(|seq| {
+                self.conn
+                    .query_row(
+                        "SELECT 1 FROM events_quarantine WHERE session_id = ?1 AND seq = ?2",
+                        (session_id, seq),
+                        |_| Ok(()),
+                    )
+                    .is_err()
+            })
+            .collect();
+        if pending.is_empty() {
             return Ok(Vec::new());
         }
         let tx = rightkit_db::write_txn(&mut self.conn)?;
         let quarantined_at = now_iso8601();
         let mut moved = Vec::new();
-        for seq in seqs {
+        for seq in &pending {
             let row: Option<(String, String, String)> = tx
                 .query_row(
                     "SELECT kind, payload_json, created_at FROM events WHERE session_id = ?1 AND seq = ?2",
@@ -145,7 +170,7 @@ impl Storage {
                 continue;
             };
             tx.execute(
-                "INSERT OR REPLACE INTO events_quarantine (session_id, seq, kind, payload_json, created_at, reason, quarantined_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                "INSERT OR IGNORE INTO events_quarantine (session_id, seq, kind, payload_json, created_at, reason, quarantined_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
                 (
                     session_id,
                     seq,
@@ -155,10 +180,6 @@ impl Storage {
                     reason,
                     &quarantined_at,
                 ),
-            )?;
-            tx.execute(
-                "DELETE FROM events WHERE session_id = ?1 AND seq = ?2",
-                (session_id, seq),
             )?;
             moved.push(*seq);
         }
@@ -243,6 +264,18 @@ impl Storage {
             reason: "corrupt-journal-checkpoint-gap-tail",
         }))
     }
+}
+
+/// Valid-JSON stand-in for a malformed payload whose raw bytes are in
+/// `events_quarantine`. It has no `$kind`, so it never decodes as a protocol
+/// event and replay skips it.
+fn quarantined_payload_marker(kind: &str) -> String {
+    serde_json::json!({
+        "quarantinedPayload": true,
+        "kind": kind,
+        "reason": "malformed-payload-glued-entry",
+    })
+    .to_string()
 }
 
 fn now_iso8601() -> String {

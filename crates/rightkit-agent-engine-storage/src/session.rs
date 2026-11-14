@@ -809,6 +809,14 @@ impl Storage {
             deleted_sessions: bulk_delete_in(&tx, "sessions", "id", &ids)?,
         };
 
+        // A leftover partial-reply snapshot dies with the session.
+        tx.execute_batch(crate::partial_reply::PARTIAL_REPLY_SQL)?;
+        for id in &ids {
+            tx.execute(
+                "DELETE FROM partial_assistant_replies WHERE session_id = ?1",
+                [id],
+            )?;
+        }
         tx.commit()?;
         Ok(outcome)
     }

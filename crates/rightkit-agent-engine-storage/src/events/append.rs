@@ -12,8 +12,8 @@ pub const MAX_EVENT_PAYLOAD_BYTES: usize = 2 * 1024 * 1024;
 const OVERSIZED_PAYLOAD_REASON: &str = "oversized-payload-spilled";
 
 /// Deterministic stub for an oversized payload. It does not decode as a
-/// protocol event, so rehydration quarantines it instead of re-loading the
-/// bloat.
+/// protocol event, so replay pages skip it; a resume puts the full payload
+/// back with [`Storage::restore_spilled_payloads`] (audit M4).
 pub(crate) fn oversized_payload_stub(kind: &str, payload_json: &str) -> String {
     let preview: String = payload_json.chars().take(512).collect();
     serde_json::json!({
@@ -53,7 +53,45 @@ pub(crate) fn spill_oversized_payload(
     Ok(Some(oversized_payload_stub(kind, payload_json)))
 }
 
+fn is_oversized_payload_stub(payload_json: &str) -> bool {
+    payload_json.contains("\"oversizedPayloadSpilled\":true")
+        && serde_json::from_str::<serde_json::Value>(payload_json)
+            .ok()
+            .and_then(|value| value.get("oversizedPayloadSpilled")?.as_bool())
+            == Some(true)
+}
+
 impl Storage {
+    /// Audit M4: replace every oversized-payload stub in `rows` with the full
+    /// payload `spill_oversized_payload` retained for that seq, so a resume
+    /// folds the same events the live session showed. A row with no retained
+    /// copy keeps its stub.
+    pub fn restore_spilled_payloads(
+        &self,
+        session_id: &str,
+        rows: &mut [crate::EventRow],
+    ) -> Result<()> {
+        use rightkit_db::rusqlite::OptionalExtension;
+        for row in rows
+            .iter_mut()
+            .filter(|row| is_oversized_payload_stub(&row.payload_json))
+        {
+            let full: Option<String> = self
+                .conn
+                .query_row(
+                    "SELECT payload_json FROM events_quarantine \
+                     WHERE session_id = ?1 AND seq = ?2 AND reason = ?3",
+                    (session_id, row.seq, OVERSIZED_PAYLOAD_REASON),
+                    |r| r.get(0),
+                )
+                .optional()?;
+            if let Some(full) = full {
+                row.payload_json = full;
+            }
+        }
+        Ok(())
+    }
+
     /// Append an event to the session's log. Assigns the next contiguous `seq`
     /// (starting at 1 for an empty session) atomically inside a transaction and
     /// returns the newly assigned seq.
