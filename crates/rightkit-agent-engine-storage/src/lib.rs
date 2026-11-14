@@ -4,6 +4,9 @@
 mod adapt;
 mod adapt_observation_cursor;
 mod artifacts;
+pub use artifacts::{
+    browser_artifact_producer, set_browser_artifact_producer, DEFAULT_BROWSER_ARTIFACT_PRODUCER,
+};
 mod cli_attestation;
 mod cli_profile;
 mod compaction_archives;
