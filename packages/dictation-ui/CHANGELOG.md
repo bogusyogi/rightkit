@@ -2,6 +2,8 @@
 
 ## 0.2.7
 
+- Fixed: `@rightkit/onboarding` and `@rightkit/legal-ui` are regular dependencies. 0.2.6 declared onboarding an optional peer, but the `./onboarding` entry imports it unconditionally, so a standalone install could not import that entry (0.2.6 was not published).
+
 Added: `@rightkit/dictation-ui/shell`, the app shell's sidebar status footer, so an app can delete its own copy. Markup, classes, wording, native calls and call order equal HeardRight's shipped sidebar footer.
 
 - Entry `./shell` (new): `SidebarStatusFooter({ updateStatus, onChange })` (Plan / Pro / Get Pro row, AI polish row, Apple sync row on macOS, update line) and `SidebarUpdateStatus` (also used by the narrow layout with `surface="narrow"`). `SidebarUpdateState` is the structural status type; `@rightkit/app-update`'s `AutoUpdateStatus` satisfies it, so this package takes no dependency on it.
