@@ -3,6 +3,9 @@
 ## 0.3.0
 
 - Depends on `rightkit-agent-engine-protocol` 0.4.0 (additive events and fields, see its changelog). Breaking for dependents: the crate exposes protocol types in its public API, so those types are now the 0.4 ones.
+- Synced with CodeRight's schedule model and time code (`bins/coderight/src/scheduler/{model,time}.rs`): `ScheduleSpec::validate` refuses an interval under `MIN_INTERVAL_SECONDS` (60; the runner ticks once a minute, R51) and an interval without a start time; `next_after` returns `None` for an interval without a stored start instead of inventing one from the query time (bug fix: the invented start moved with every query, so the interval never became due). Breaking for hosts that created sub-minute or start-less intervals.
+- Cron matching follows standard cron for the day fields (bug fix): when both day-of-month and day-of-week are restricted either one matching is enough, otherwise both must match. Day-of-week accepts `7` for Sunday and `SUN`-`SAT`, month accepts `JAN`-`DEC`.
+- No host wiring was needed: CodeRight's copy re-exports the profile types from its `api_schedules` module and takes time zone code from its `schedule_cron_tool`; this crate already holds both (`profile`, `timezone`), so CodeRight swaps those imports for `rightkit_scheduler::{BotProfileV1, ScheduleLifecycleState, normalize_time_zone, time_zone_offset_minutes_at}`.
 
 ## 0.2.0
 

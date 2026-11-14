@@ -76,6 +76,10 @@ pub enum ScheduleSpec {
     },
 }
 
+/// Smallest interval a schedule may run at (R51). The runner ticks once a minute, so anything
+/// shorter could not be honoured.
+pub const MIN_INTERVAL_SECONDS: u64 = 60;
+
 impl ScheduleSpec {
     pub fn from_legacy(expression: &str, time_zone: &str) -> Result<Self, String> {
         let trimmed = expression.trim();
@@ -133,9 +137,13 @@ impl ScheduleSpec {
                     Ok(())
                 }
             }
-            Self::Interval { every_seconds, .. } if *every_seconds == 0 => {
-                Err("interval must be positive".into())
-            }
+            Self::Interval { every_seconds, .. } if *every_seconds < MIN_INTERVAL_SECONDS => Err(
+                format!("interval must be at least {MIN_INTERVAL_SECONDS} seconds"),
+            ),
+            Self::Interval {
+                start_unix_ms: None,
+                ..
+            } => Err("interval needs a start time".into()),
             Self::Interval { .. } => Ok(()),
             Self::Monitor { topic, .. } if topic.trim().is_empty() => {
                 Err("monitor topic is empty".into())
@@ -155,7 +163,9 @@ impl ScheduleSpec {
                 if step <= 0 {
                     return None;
                 }
-                let start = start_unix_ms.unwrap_or(after_unix_ms.saturating_add(step));
+                // No stored start is an invalid interval (R51): it has no next occurrence, which
+                // is also what the runner's claim decides.
+                let start = (*start_unix_ms)?;
                 if start > after_unix_ms {
                     Some(start)
                 } else {
