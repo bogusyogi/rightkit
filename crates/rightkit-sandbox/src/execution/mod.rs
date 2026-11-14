@@ -117,6 +117,17 @@ pub struct WorkspaceLayout {
     pub metadata: String,
 }
 
+impl WorkspaceLayout {
+    /// The default layout rooted at `<state_dir>/workspaces/{workspaceId}` (the default uses
+    /// `.rightkit`; a host passes its own state folder name, for example `.myapp`).
+    pub fn with_state_dir(state_dir: &str) -> Self {
+        Self {
+            root: format!("{state_dir}/workspaces/{{workspaceId}}"),
+            ..Self::default()
+        }
+    }
+}
+
 impl Default for WorkspaceLayout {
     fn default() -> Self {
         Self {
