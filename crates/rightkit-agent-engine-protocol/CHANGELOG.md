@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.3.0
+
+- `PermissionGateRequest::binding` and `PendingApprovalContext::binding` read as an empty binding when absent (`#[serde(default)]`), so records written by an app's own protocol copy (CodeRight, which sends no binding) still read. Writing is unchanged.
 
 - Ported from the CodeRight app's newer copy (drop-in alignment):
   - `AssistantMessagePhase` (`interim` | `final`) and the `phase` field of `ProtocolEvent::AssistantMessageCompleted` (wire `phase`: `"interim"`/`"final"`; a stored row without it reads as `final`).

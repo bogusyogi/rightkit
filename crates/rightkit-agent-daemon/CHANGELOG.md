@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.2
+
+- Breaking for dependents: a dependency requirement was raised to a semver-breaking version.
+
 ## 0.1.1
 
 - Host naming options, defaults unchanged: `http_client::set_user_agent` / `user_agent()` (default `RightKit/0.1`, `DEFAULT_USER_AGENT`) and `set_source_trust_header` / `source_trust_header()` (default `x-rightkit-agent-source-trust`, `DEFAULT_SOURCE_TRUST_HEADER`). Call once at start-up; a host passes its own literal.

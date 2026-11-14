@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.5.5
 
 - `secure_prompt::set_unsupported_message`: the host sets the error `secure_prompt::ask` returns on a system with no native prompt (default unchanged).
 

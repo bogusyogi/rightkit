@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.7.7
+
+- Breaking for dependents: a dependency requirement was raised to a semver-breaking version.
+
 ## 0.7.6 (unpublished)
 
 - Requires `rightkit-agent-engine-protocol` 0.2.0, whose approval records carry the approvals core's `Binding` (mandatory digest) instead of an optional `payload_digest`. Decision 4 of the 2026-11-11 shape review (docs/audits/2026-11-11-shape-matrix/README.md, "Agent engine") taken on the recommended option, pending the owner's confirmation; design note: docs/audits/2026-11-11-shape-matrix/reports/agent-engine-contract-design.md.

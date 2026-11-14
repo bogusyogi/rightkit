@@ -1,4 +1,4 @@
-// rightkit-agent-learning 0.1.0 (published as rightkit-adapt until 0.1.2) consumed by exact registry
+// rightkit-agent-learning 0.1.1 (published as rightkit-adapt until 0.1.2) consumed by exact registry
 // pin: the evaluation gate and the proposal store over an in-memory agent database. No files are
 // written.
 use rightkit_agent_engine_storage::Storage;

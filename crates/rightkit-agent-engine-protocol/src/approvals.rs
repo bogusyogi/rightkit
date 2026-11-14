@@ -50,6 +50,9 @@ pub struct PermissionGateRequest {
     pub tool_name: String,
     pub description: String,
     pub input: Value,
+    /// Read as an empty binding when absent, so a record written without one (an app's own
+    /// protocol copy) still reads.
+    #[serde(default)]
     pub binding: Binding,
 }
 
@@ -117,7 +120,9 @@ pub struct PendingApprovalContext {
     /// EFF-002, on the approvals core's rule: the digest of the final
     /// post-transform payload shown to the approver (mandatory), the
     /// destination the call reaches, the expiry and the revision. Session
-    /// grants bind to [`PendingApprovalContext::payload_digest`].
+    /// grants bind to [`PendingApprovalContext::payload_digest`]. Read as an empty binding when
+    /// absent, so a record written without one (an app's own protocol copy) still reads.
+    #[serde(default)]
     pub binding: Binding,
 }
 

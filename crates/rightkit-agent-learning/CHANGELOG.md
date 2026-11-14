@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.1
+
+- Breaking for dependents: a dependency requirement was raised to a semver-breaking version.
+
 ## 0.1.0 (renamed from `rightkit-adapt` 0.1.2)
 
 - Renamed from `rightkit-adapt` (library `rightkit_agent_learning`): this is CodeRight's post-session learning, and the `rightkit-adapt` name now holds Pulse's governed behavioural learning (`rightkit-adapt` 0.2.0, formerly `rightkit-adapt-taste`). Replace `rightkit_adapt::` with `rightkit_agent_learning::`.
