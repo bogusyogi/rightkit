@@ -523,7 +523,8 @@ fn fit_for_resources(
                 name: String::new(),
                 vram_gb: Some(gb(mb)),
                 unified: false,
-                vram_mib: None,
+                // The raw MiB keeps exact fit checks; no probe named it.
+                vram_mib: Some(mb),
                 source: None,
                 backends: Vec::new(),
             })
