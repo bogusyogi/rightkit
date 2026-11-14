@@ -280,7 +280,12 @@ impl ReviewDecision {
             Self::Approved
                 | Self::ApprovedForSession
                 | Self::ApprovedExecpolicyAmendment { .. }
-                | Self::NetworkPolicyAmendment { .. }
+                | Self::NetworkPolicyAmendment {
+                    network_policy_amendment: NetworkPolicyAmendment {
+                        action: NetworkPolicyRuleAction::Allow,
+                        ..
+                    }
+                }
         )
     }
 }

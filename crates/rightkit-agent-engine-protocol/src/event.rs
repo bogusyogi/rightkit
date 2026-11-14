@@ -10,8 +10,8 @@ pub use envelope::{
     stable_event_id, EventCorrelationV1, EventEnvelopeV1, EVENT_ENVELOPE_SCHEMA_V1,
 };
 pub use protocol_event::{
-    CompactionFederationDecisionV1, CompactionFederationSelectionReceiptV1, GoalSnapshotV1,
-    GoalStepV1, ProtocolEvent, COMPACTION_FEDERATION_SCHEMA_V1,
+    AssistantMessagePhase, CompactionFederationDecisionV1, CompactionFederationSelectionReceiptV1,
+    GoalSnapshotV1, GoalStepV1, ProtocolEvent, COMPACTION_FEDERATION_SCHEMA_V1,
 };
 pub use types::{
     AgentRosterRow, MiddlewareDecisionEvidence, ModelRouteDecisionPayload,
