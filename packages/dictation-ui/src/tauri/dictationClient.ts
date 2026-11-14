@@ -7,6 +7,7 @@ import type { DictationClient, DictationCommand, DictationEventMap, Unsubscribe 
 import type { HistoryItem } from "../lib/homeMetrics.js";
 import type {
   AccountClient,
+  LicenseSettingsClient,
   AppSettingsClient,
   CloudSyncStatus,
   DeveloperClient,
@@ -40,6 +41,8 @@ export interface TauriDictationOptions extends TauriClientOptions, Omit<TauriSet
    * fails with "no `account` group".
    */
   account?: AccountClient;
+  /** The licence as the License section follows it (`DictationClient.license`); see `LicenseSettingsClient`. */
+  license?: LicenseSettingsClient;
 }
 
 const COMMANDS: Record<DictationCommand, string> = {
@@ -275,5 +278,6 @@ export function tauriDictationClient(options: TauriDictationOptions = {}): Dicta
     developer,
     sync,
     account: options.account,
+    license: options.license,
   };
 }

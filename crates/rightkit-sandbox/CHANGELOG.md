@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.6
+
+- Feature `execution`: `WorkspaceLayout::with_state_dir(name)` builds the default layout under a host state folder; `default()` is unchanged (`.rightkit/workspaces/{workspaceId}`).
+
 ## 0.6.5
 - Feature `execution`: add `PLUGIN_SANDBOX_PROFILE` and `CommandLaunchSpec::starts_from_empty_env` (plugin children start from an empty environment), following CodeRight.
 - Docs: intra-doc links rustdoc could not resolve (feature-only, private or out-of-scope items) are plain code, so the doc build (`-D warnings`) passes.

@@ -399,3 +399,4 @@ export function satisfiesRequirement(view: LicenseView | null, requirement: Lice
 }
 export * from './lifecycle.js';
 export * from './proBridge.js';
+export * from './appLicense.js';

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.1
+
+- Host naming options, defaults unchanged: `http_client::set_user_agent` / `user_agent()` (default `RightKit/0.1`, `DEFAULT_USER_AGENT`) and `set_source_trust_header` / `source_trust_header()` (default `x-rightkit-agent-source-trust`, `DEFAULT_SOURCE_TRUST_HEADER`). Call once at start-up; a host passes its own literal.
+
 ## 0.1.0 (unpublished)
 
 - New module `http_client` (`daemon_client`, `endpoint_client`, `public_client`, `pinned_client`, `send_any`, `daemon_call`, ...), moved from `rightkit-http`'s `agent_host` feature. New dependencies: `rightkit-http` (`async`, `gzip`), `url`, `serde_json` (#1572).

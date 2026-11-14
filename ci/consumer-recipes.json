@@ -2438,7 +2438,7 @@
       "pkId": "PK12",
       "id": "ci/consumers/rightkit-sandbox/src/main.rs",
       "files": {
-        "Cargo.toml": "345ec6ff64afbe18916b178e0a0bfb4e9618f1c7642368645d2b62598bf4879d",
+        "Cargo.toml": "c77466f66c7bec79ec03c6c5a0967c4a88e668d83859aa0b0715a6900b3cffe5",
         "README.md": "388ca08f57a2a388768bb88dc3b9f94e5686f2f8bbf9199a52c51b059945544c",
         "src/main.rs": "682329c712d2d565265b2cb63caafedd38ba75a141677d5ff79f77040f874302"
       }
@@ -2676,7 +2676,7 @@
       "pkId": "PK34",
       "id": "ci/consumers/rightkit-hooks/src/main.rs",
       "files": {
-        "Cargo.toml": "aeede1a3b77ca7ba00050dc932a4e287eddda206a3e70d670a8fd4684e146f30",
+        "Cargo.toml": "f9bf64b4bafe958a8671c1f893c2c1cac54f0f1b72de1c740dd49523c22a8fce",
         "README.md": "7b92ba222bcda5c0a6a37ab7de9c0433cdaa220a0c21ba576b81945ec9b0e8b9",
         "src/main.rs": "81b3c522d503e3cd84fc0be1efef048e20a4c99ab09f663df910f03b042d1e5b"
       }
@@ -2975,7 +2975,7 @@
       "pkId": "PK66",
       "id": "ci/consumers/rightkit-agent-engine-attention/src/main.rs",
       "files": {
-        "Cargo.toml": "4b702f45e77cb5d3f8a967efe3b4e3e55e01358902fa9419ea8592f89f1b8c87",
+        "Cargo.toml": "8290743762cbb2ed190712e3a35fbf7255055348baf9d47f73994b5a93d5df8e",
         "README.md": "ce8350b8b9a5f0166502984aa93172d5989e9a6223cdd0e94ff037da8d22876f",
         "src/main.rs": "6b15cf421749a4ec98bdd32362fd7068f375f2871026a8bea8dbf2be8b206511"
       }
@@ -3029,7 +3029,7 @@
       "pkId": "PK72",
       "id": "ci/consumers/rightkit-agent-engine-storage/src/main.rs",
       "files": {
-        "Cargo.toml": "a6a3c0c742510d4ec7abb36c6a581438440049763e548a02f387df2b950c9f05",
+        "Cargo.toml": "064ff14e26348ba30088204c2d557216f358067da62a278c81f811807caa7d6d",
         "README.md": "87416d0dd7f08d0d3414ecd4dcd45b2b3d4578de79b5718dc6705ecf52f2f223",
         "src/main.rs": "34c4f1d01e4517ccec978d423dd5aa14db206470a14ba37017a6d45a4455cfd8"
       }
@@ -3463,7 +3463,7 @@
       "pkId": "PK124",
       "id": "ci/consumers/rightkit-agent-engine-api-integrations/src/main.rs",
       "files": {
-        "Cargo.toml": "751f2ade233b969304cecfa240cd4d737dee38ae214efde5308b2e38374f2ff0",
+        "Cargo.toml": "ec78f674bfaaa8fb4850690dfd6a34132a05e530aac4d13f24bc4c04334ee391",
         "README.md": "05ac734bd1d7ab7180c7be11e0c6482b8bd63c6450b5b22b158058c74894220f",
         "src/main.rs": "83dacf45d090a491e471b2382e77341c7eb682d8c68091e9131cfcf1fc683365"
       }
@@ -3481,7 +3481,7 @@
       "pkId": "PK128",
       "id": "ci/consumers/rightkit-agent-recipes/src/main.rs",
       "files": {
-        "Cargo.toml": "9d0808731b10daa603f784728dfcdeb3a707eac463d0259a48176b46eee20e23",
+        "Cargo.toml": "4f97b50c21d2b7f2180e6a210de848e4dc68a542c5b566de7be8f536ea6bf7b2",
         "README.md": "bc49ee8ffc96de6fcbf291160474319b2b3a710ef5a0950e54b32cfe3bce7b49",
         "src/main.rs": "deaa105e400b0db63aa6f22fcaaa69fe1fc7b859987eb0b9b31b2ef4c382d688"
       }
@@ -3697,9 +3697,9 @@
       "pkId": "PK211",
       "id": "ci/consumers/rightkit-agent-config/src/main.rs",
       "files": {
-        "Cargo.toml": "b920a20733e108a23b232fbff592da13edf1b68b1ffcc2dc8e5ca3f339ffd7ae",
-        "README.md": "3984ef056715cbe8ff96724cc683965c04b9f169f77ff563025d8f49bc2eaa06",
-        "src/main.rs": "bfc261c30754b0491e15ae7a462cb06ad67005a5833bd228750370964ee7fb4c"
+        "Cargo.toml": "c8f19617a2ad6333da22f4fa4baefd60384c9ad94331e415f09c02c4de6c4e10",
+        "README.md": "58ee0e95a2c420b26fe03c643d5471b07d6603d0f9c65be07b95ab91be37b720",
+        "src/main.rs": "92eed62558bcbe4b7745e9ea90b1e5f0c84ad754a6d9092a50c562997e68b068"
       }
     },
     "rightkit-agent-telemetry": {
@@ -3715,18 +3715,18 @@
       "pkId": "PK213",
       "id": "ci/consumers/rightkit-agent-local-models/src/main.rs",
       "files": {
-        "Cargo.toml": "846ab60df378412a34cce6ee29aaec6e475dbcb3be7ae0e33264f89c67ee303d",
-        "README.md": "d838471aa475ec4d331714a3c9dd9cde8ae41d398e5dd0cb48fe866d8d5e0f69",
-        "src/main.rs": "898054505d363edde6a089bf374cf53ddf9ad07223b681a8c81ed92260fe0cf1"
+        "Cargo.toml": "963ca2d2ba025d0694bd3303d9ea0258f6bba5d9e81dd381138d2be396f18e45",
+        "README.md": "358c9b31e697f80dcb116ab7a7799c5f0ebe499a4bf4573004706bc152c8acf2",
+        "src/main.rs": "ddc56e127ab10e25a51cbe8cb00aa2486da1a3cc2c1fa401b461f285b9b29ce6"
       }
     },
     "rightkit-agent-daemon": {
       "pkId": "PK214",
       "id": "ci/consumers/rightkit-agent-daemon/src/main.rs",
       "files": {
-        "Cargo.toml": "9430302efcd8d98a9d0e16b1a52456bfcde9329fa1de3c7e9e6c6f0ea403762d",
-        "README.md": "c46af034cd1be81a52df535e763b2ddb90f3857cf6a04f2a065fea3941967724",
-        "src/main.rs": "4dcce5115cd8481576bf0d48d399d69a854ba33a20de7d4a2dff17a5d71fc2c7"
+        "Cargo.toml": "65790c0c1b9da7d83d290018a9a6a07cf34550c601e8d11844183e11fb5336b5",
+        "README.md": "88e752fda0cd7453a5cb3a985d2b3a3bfb9c6c08cdffda5aba00a28041b95a00",
+        "src/main.rs": "9183f4acb43b6539075bbc69c19b331da23adeba1869d13fb15743de64b80fa5"
       }
     },
     "rightkit-daemon-remote": {
@@ -4210,7 +4210,7 @@
       "pkId": "PK219",
       "id": "ci/consumers/rightkit-agent-learning/src/main.rs",
       "files": {
-        "Cargo.toml": "e0f7602a8de7d265f2b0e514dc2dd53106bf7d1b63f71ec1bef1faea8a42fb1a",
+        "Cargo.toml": "01b299bc56adda721ee05a410deba073e3ea6d6777ebacbda355182d0d9e6a62",
         "README.md": "fe0ab37d0a417d4f5fbb91517541ae5a6a483cd865a8d188c5ff095db55dc3bf",
         "src/main.rs": "0010c0946edeca3378aca5ffa89795071c8894d7c4d74e6d681a13444f7b67e5"
       }

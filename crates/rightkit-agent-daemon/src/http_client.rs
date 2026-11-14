@@ -53,9 +53,28 @@ fn build(config: ClientConfig) -> Result<AsyncClient, String> {
         .map_err(|error| error.to_string())
 }
 
+/// User agent the clients send unless the host sets its own.
+pub const DEFAULT_USER_AGENT: &str = "RightKit/0.1";
+
+static USER_AGENT: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+/// Sets the user agent every client in this module sends (for example `MyApp/0.1`). Call once at
+/// start-up before building a client; returns `false` when one was already set.
+pub fn set_user_agent(value: &str) -> bool {
+    USER_AGENT.set(value.to_string()).is_ok()
+}
+
+/// The user agent in force: the host's, else [`DEFAULT_USER_AGENT`].
+pub fn user_agent() -> &'static str {
+    USER_AGENT
+        .get()
+        .map(String::as_str)
+        .unwrap_or(DEFAULT_USER_AGENT)
+}
+
 fn config(url: &str, timeout: Duration, proxy: ProxyMode, max_redirects: u32) -> ClientConfig {
     ClientConfig {
-        user_agent: "RightKit/0.1".into(),
+        user_agent: user_agent().to_owned(),
         connect_timeout: Some(CONNECT_TIMEOUT),
         request_timeout: timeout,
         response_timeout: Some(timeout),

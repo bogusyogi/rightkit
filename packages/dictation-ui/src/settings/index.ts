@@ -29,3 +29,5 @@ export {
 } from "./modelUpdate.js";
 export { AppleSyncSettings, CLOUD_SYNC_CHANGED_EVENT } from "./AppleSyncSettings.js";
 export { DeviceManagementSettings } from "./DeviceManagementSettings.js";
+export { LicenseSettings } from "./LicenseSettings.js";
+export { AccountSettings } from "./AccountSettings.js";

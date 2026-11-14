@@ -317,7 +317,10 @@ async fn run_dry_run_command(
         argv,
         cwd: context.workspace_root.clone(),
         context: context.clone(),
-        env: vec![("RIGHTKIT_HOOK_EVENT".to_string(), event_name.to_string())],
+        env: vec![(
+            super::host_env_name("RIGHTKIT_HOOK_EVENT").to_string(),
+            event_name.to_string(),
+        )],
     };
     match adapter.spawn(spec).await {
         Ok(mut child) => {

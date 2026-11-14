@@ -30,6 +30,11 @@ pub const HOOKS_JSON_ENV: &str = "RIGHTKIT_HOOKS_JSON";
 /// and 58).
 pub const PROJECT_HOOK_FILE: &str = ".rightkit/hooks.json";
 
+/// The project hook file path under the host's state folder (`<state dir>/hooks.json`).
+pub fn project_hook_file() -> String {
+    format!("{}/hooks.json", crate::agent_hooks::state_dir_name())
+}
+
 /// Every event name in the supported taxonomy (rule 58, parity list Q44): Claude Code's events
 /// including the permission-request and tool-failure events, and the Codex events this crate
 /// lacked (`PreModelRequest`, `PostModelRequest`, `PostCompact`, `SubagentStart`, `Interrupt`).
@@ -394,7 +399,7 @@ pub fn load_project_hook_file(
     if !trusted {
         return Ok(None);
     }
-    let path = workspace_root.join(PROJECT_HOOK_FILE);
+    let path = workspace_root.join(project_hook_file());
     let raw = match std::fs::read_to_string(&path) {
         Ok(raw) => raw,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
@@ -563,6 +568,9 @@ pub async fn run_chain(
             envs.push(("RIGHTKIT_HOOK_ARGS_JSON", value.to_string()));
         }
         envs.extend(extra_envs.iter().cloned());
+        for (name, _) in envs.iter_mut() {
+            *name = crate::agent_hooks::host_env_name(name);
+        }
 
         report.ran += 1;
         let run = tokio::time::timeout(

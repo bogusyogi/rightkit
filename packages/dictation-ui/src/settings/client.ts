@@ -106,16 +106,80 @@ export type AccountDeviceRow = {
   generation: number;
 };
 
-/** The account session and its devices. Rejections carry the wording to show (an `Error` with the message). */
+/** The account session. `expiresAt` is a Unix-seconds display estimate. */
+export type AccountSessionStatus = { signedIn: boolean; email?: string | null; expiresAt?: number | null };
+
+/**
+ * The account session and its devices. Rejections carry the wording to show (an `Error` with the message). The
+ * device section needs `sessionStatus`, `devices`, `renameDevice` and `removeDevice`; the account section also
+ * needs the members marked optional here and `manageUrl`.
+ */
 export interface AccountClient {
-  sessionStatus(): Promise<{ signedIn: boolean }>;
+  sessionStatus(): Promise<AccountSessionStatus>;
   devices(): Promise<AccountDeviceRow[]>;
   renameDevice(id: string, label: string): Promise<void>;
   removeDevice(id: string): Promise<void>;
+  /** Re-validates the session with the account service. */
+  refresh?(): Promise<AccountSessionStatus>;
+  /** Starts the passwordless sign-in: the service e-mails a one-time link. */
+  beginMagicLink?(email: string): Promise<void>;
+  /** Completes sign-in with the token of the e-mailed link. */
+  complete?(token: string): Promise<AccountSessionStatus>;
+  signOut?(): Promise<void>;
+  /** Permanently deletes the account; resolves only when the service said it is deleted. */
+  deleteAccount?(): Promise<void>;
+  /** The account's web page (a full URL): the "Manage on the web" link, and its host and path in the sign-in text. */
+  manageUrl?: string;
+}
+
+/** The credential-store state of the licence (`{ kind: "error" }` shows the storage banner). */
+export type LicenseStorageState = { kind: "ready" } | { kind: "error"; operation: string; message: string };
+
+/** The part of a licence view the section reads: `status === "active"` is the only activation success. */
+export type LicenseViewLike = { status: string; message?: unknown };
+
+/** The licence lifecycle as a snapshot: `checking` until the first read settles. */
+export type LicenseLifecycleLike = { kind: string; isPro: boolean };
+
+/**
+ * The licence, as the License section follows it. `@rightkit/license`'s `createAppLicense` result has these members
+ * (`...appLicense`); the host adds `words`, `keyPlaceholder` and `trialDays`.
+ */
+export interface LicenseSettingsClient {
+  /** The licence as it stands (native, no network). */
+  loadLicense(): Promise<LicenseViewLike>;
+  /** Activates a key; a rejection carries the wording to show. */
+  activateLicense(key: string): Promise<LicenseViewLike>;
+  /** Re-reads after the user repaired the credential store. */
+  retryLicenseStorage(): Promise<LicenseViewLike>;
+  /** Removes this device's licence. */
+  removeLicense(): Promise<void>;
+  /** Requests a trial key by e-mail; false on any rejection. */
+  requestTrialKey(email: string): Promise<boolean>;
+  /** Link code from this already-leased device; `expiresAt` is Unix milliseconds. */
+  requestWindowsLinkCode(): Promise<{ code: string; expiresAt: number }>;
+  /** Redeems a link code on this device. */
+  redeemWindowsLinkCode(code: string): Promise<void>;
+  storage: { get(): LicenseStorageState; subscribe(listener: (state: LicenseStorageState) => void): () => void };
+  monitor: { get(): LicenseLifecycleLike; subscribe(listener: (state: LicenseLifecycleLike) => void): () => void };
+  /** The display Pro flag while the lifecycle is still `checking`. */
+  isPro(view: LicenseViewLike | null): boolean;
+  /** True when the view alone shows Pro. */
+  viewShowsPro(view: LicenseViewLike | null): boolean;
+  /** Normalises the key input (trim, upper-case). */
+  formatLicenseKey(raw: string): string;
+  /** The words for a licence message code. */
+  licenseText(code: unknown): string;
+  /** Rewords an error text for display (for example to US spelling). Default: unchanged. */
+  words?(text: string): string;
+  /** The key field's placeholder, for example `SR-APPNAME-…`. */
+  keyPlaceholder: string;
+  /** Length of the free trial, in days. */
+  trialDays: number;
 }
 
 /** The client group a section needs, or an error naming the missing group. */
-export function sectionClient<K extends "app" | "speech" | "developer" | "sync" | "account">(
+export function sectionClient<K extends "app" | "speech" | "developer" | "sync" | "account" | "license">(
   group: K,
 ): NonNullable<DictationClient[K]> {
   const found = dictationClient()[group];

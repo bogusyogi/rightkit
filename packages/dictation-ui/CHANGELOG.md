@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.5
+
+Added: `LicenseSettings` and `AccountSettings` in `@rightkit/dictation-ui/settings`, HeardRight's licence and account sections, so an app can delete its own copies. Markup, classes, wording and native calls equal HeardRight's shipped sections.
+
+- `LicenseSettings({ bare? })`: Plan row, license key and "Activate", "Get Pro" with the in-app trial dialog (e-mail, then "Email me a key"), the Windows link-code rows (redeem on Windows, generate on macOS), "Remove license", the secure-storage banner with its retry, and the activation and removal notes. `AccountSettings({ bare? })`: status, sign-in by magic link and pasted token, sign-out, "Manage on the web", account deletion with its confirmation. Product name from `hostAppName()`; the rest is host data.
+- Host contract, additive: new optional group `DictationClient.license` (`LicenseSettingsClient`: `loadLicense`, `activateLicense`, `retryLicenseStorage`, `removeLicense`, `requestTrialKey`, `requestWindowsLinkCode`, `redeemWindowsLinkCode`, `storage`, `monitor`, `isPro`, `viewShowsPro`, `formatLicenseKey`, `licenseText`, optional `words`, `keyPlaceholder`, `trialDays`), also an option of `tauriDictationClient`. The `account` group gains optional `refresh`, `beginMagicLink`, `complete`, `signOut`, `deleteAccount` and `manageUrl`; `sessionStatus()` may also answer `email` and `expiresAt` (Unix seconds). New types `AccountSessionStatus`, `LicenseSettingsClient`, `LicenseStorageState`, `LicenseViewLike`, `LicenseLifecycleLike`. `@rightkit/license`'s `createAppLicense` and `createAppAccountSession` results satisfy the groups structurally; this package takes no dependency on it.
+
 ## 0.2.4
 
 Added: `@rightkit/dictation-ui/settings`, the settings sections of a dictation app that `@rightkit/settings-ui`'s standard sections do not cover, so an app can delete its own copies. Markup, classes, wording and native calls equal HeardRight's shipped sections.

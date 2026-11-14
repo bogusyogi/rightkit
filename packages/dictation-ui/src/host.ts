@@ -15,6 +15,7 @@ import type {
   AccountClient,
   AppSettingsClient,
   DeveloperClient,
+  LicenseSettingsClient,
   SpeechClient,
   SyncClient,
 } from "./settings/client.js";
@@ -161,6 +162,7 @@ export interface DictationClient {
   developer?: DeveloperClient;
   sync?: SyncClient;
   account?: AccountClient;
+  license?: LicenseSettingsClient;
 }
 
 // ---------------------------------------------------------------------------------------------

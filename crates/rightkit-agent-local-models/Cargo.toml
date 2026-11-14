@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-agent-local-models"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Local model primitives for an agent host: hardware report, runtime detection, local model catalog and fit, provider route suggestion and a bounded local inference seam."

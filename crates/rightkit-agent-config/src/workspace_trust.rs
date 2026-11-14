@@ -35,7 +35,7 @@ pub fn workspace_trust_store_path() -> PathBuf {
         .unwrap_or_else(|| {
             std::env::current_dir()
                 .unwrap_or_else(|_| PathBuf::from("."))
-                .join(".rightkit")
+                .join(crate::state_dir_name())
         })
         .join("workspace-trust.json")
 }

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.3
+
+- Host naming option, default unchanged: `set_browser_artifact_producer` / `browser_artifact_producer()` (default `rightkit-browser`, `DEFAULT_BROWSER_ARTIFACT_PRODUCER`) for the `producer` of recorded browser artifacts. The persisted column names are unchanged (`driver_bindings.coderight_agent_id` already matches the app).
+
 ## 0.1.2 (unpublished)
 
 - Requires `rightkit-agent-engine-protocol` 0.2.0, whose approval records carry the approvals core's `Binding` (mandatory digest) instead of an optional `payload_digest`. Decision 4 of the 2026-11-11 shape review (docs/audits/2026-11-11-shape-matrix/README.md, "Agent engine") taken on the recommended option, pending the owner's confirmation; design note: docs/audits/2026-11-11-shape-matrix/reports/agent-engine-contract-design.md.

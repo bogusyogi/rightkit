@@ -1,6 +1,26 @@
 use crate::types::{RecipeDeeplink, RecipeDeeplinkError};
 use std::collections::BTreeMap;
 
+/// URL scheme of recipe deeplinks unless the host sets its own.
+pub const DEFAULT_DEEPLINK_SCHEME: &str = "rightkit-agent";
+
+static DEEPLINK_SCHEME: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+/// Sets the deeplink scheme (the part before `://`, for example `myapp`) that
+/// [`build_recipe_deeplink`] writes and [`parse_recipe_deeplink`] requires. Call once at start-up;
+/// returns `false` when one was already set.
+pub fn set_deeplink_scheme(scheme: &str) -> bool {
+    DEEPLINK_SCHEME.set(scheme.to_string()).is_ok()
+}
+
+/// The deeplink scheme in force.
+pub fn deeplink_scheme() -> &'static str {
+    DEEPLINK_SCHEME
+        .get()
+        .map(String::as_str)
+        .unwrap_or(DEFAULT_DEEPLINK_SCHEME)
+}
+
 pub fn build_recipe_deeplink(
     recipe_id: &str,
     action: &str,
@@ -14,7 +34,8 @@ pub fn build_recipe_deeplink(
     let params_json = serde_json::to_string(params)
         .map_err(|e| deeplink_error(format!("failed to serialize params: {e}")))?;
     let url = format!(
-        "rightkit-agent://recipes/{}?action={}&params={}",
+        "{}://recipes/{}?action={}&params={}",
+        deeplink_scheme(),
         percent_encode(recipe_id),
         percent_encode(&action),
         percent_encode(&params_json)
@@ -29,10 +50,11 @@ pub fn build_recipe_deeplink(
 
 pub fn parse_recipe_deeplink(url: &str) -> Result<RecipeDeeplink, RecipeDeeplinkError> {
     let trimmed = url.trim();
-    let Some(rest) = trimmed.strip_prefix("rightkit-agent://recipes/") else {
-        return Err(deeplink_error(
-            "recipe deeplink must start with rightkit-agent://recipes/",
-        ));
+    let prefix = format!("{}://recipes/", deeplink_scheme());
+    let Some(rest) = trimmed.strip_prefix(prefix.as_str()) else {
+        return Err(deeplink_error(format!(
+            "recipe deeplink must start with {prefix}"
+        )));
     };
     let (recipe_part, query_part) = rest.split_once('?').unwrap_or((rest, ""));
     let recipe_id = percent_decode(recipe_part)?;

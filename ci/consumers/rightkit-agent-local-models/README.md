@@ -1,7 +1,7 @@
-# rightkit-agent-local-models 0.1.0 registry consumer
+# rightkit-agent-local-models 0.1.1 registry consumer
 
 Standalone package outside the RightKit workspace. It depends on `rightkit-agent-local-models` by exact registry
-pin (`=0.1.0`) with default features. It has no path, Git, workspace or patch dependency, no committed
+pin (`=0.1.1`) with default features. It has no path, Git, workspace or patch dependency, no committed
 `Cargo.lock` and no other dependency.
 
 Exercises the pure parts: `model_catalog` over a stated hardware report (a 64 GB host with a 24 GB GPU fits every

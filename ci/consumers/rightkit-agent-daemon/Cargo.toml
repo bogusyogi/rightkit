@@ -7,6 +7,6 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-agent-daemon = { version = "=0.1.0" }
+rightkit-agent-daemon = { version = "=0.1.1" }
 async-trait = "0.1"
 http = "1"

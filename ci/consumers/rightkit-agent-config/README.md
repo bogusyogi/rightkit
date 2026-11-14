@@ -1,7 +1,7 @@
-# rightkit-agent-config 0.1.0 registry consumer
+# rightkit-agent-config 0.1.1 registry consumer
 
 Standalone package outside the RightKit workspace. It depends on `rightkit-agent-config` by exact registry pin
-(`=0.1.0`) with default features. It has no path, Git, workspace or patch dependency, no committed `Cargo.lock`
+(`=0.1.1`) with default features. It has no path, Git, workspace or patch dependency, no committed `Cargo.lock`
 and no other dependency.
 
 Exercises the configuration layers without touching the real user's state: a TOML layer parsed with

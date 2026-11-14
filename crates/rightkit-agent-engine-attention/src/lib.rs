@@ -421,14 +421,24 @@ fn read_notification_rows(path: &std::path::Path) -> Vec<Value> {
     read_json::<Vec<Value>>(path).unwrap_or_default()
 }
 
+static ATTENTION_STATE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// Serialises read-modify-write cycles on the attention files (notifications, snooze map), so two
+/// concurrent requests cannot lose each other's update. Hold it across the whole cycle.
+pub fn lock_attention_state() -> std::sync::MutexGuard<'static, ()> {
+    ATTENTION_STATE.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 fn write_json<T: Serialize>(path: &std::path::Path, value: &T) -> Result<(), String> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)
             .map_err(|e| format!("failed to create dir '{}': {e}", parent.display()))?;
     }
-    std::fs::write(
+    rightkit_fs::atomic_write(
         path,
-        serde_json::to_string_pretty(value).unwrap_or_default(),
+        serde_json::to_string_pretty(value)
+            .unwrap_or_default()
+            .as_bytes(),
     )
     .map_err(|e| format!("failed to write '{}': {e}", path.display()))
 }
@@ -508,6 +518,7 @@ async fn update_attention_state_handler(
     let notifications_path = std::path::PathBuf::from(&req.workspace_root)
         .join(&config().state_dir)
         .join("notifications.json");
+    let guard = lock_attention_state();
     let mut rows: Vec<Value> = read_notification_rows(&notifications_path);
     let mut updated = false;
     for row in rows.iter_mut() {
@@ -530,14 +541,8 @@ async fn update_attention_state_handler(
             "read": req.state == AttentionState::Complete,
         }));
     }
-    if let Some(parent) = notifications_path.parent() {
-        std::fs::create_dir_all(parent).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    }
-    std::fs::write(
-        &notifications_path,
-        serde_json::to_string_pretty(&rows).unwrap_or_default(),
-    )
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    write_json(&notifications_path, &rows).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    drop(guard);
     Ok(Json(json!({
         "id": id,
         "state": req.state.as_str(),
@@ -558,10 +563,13 @@ async fn snooze_attention_handler(
         return Err(StatusCode::BAD_REQUEST);
     }
     ensure_attention_dir(&req.workspace_root).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let mut map = read_json::<SnoozeMap>(&snooze_path(&req.workspace_root)).unwrap_or_default();
-    map.by_id.insert(id.clone(), req.snooze_until.clone());
-    write_json(&snooze_path(&req.workspace_root), &map)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    {
+        let _guard = lock_attention_state();
+        let mut map = read_json::<SnoozeMap>(&snooze_path(&req.workspace_root)).unwrap_or_default();
+        map.by_id.insert(id.clone(), req.snooze_until.clone());
+        write_json(&snooze_path(&req.workspace_root), &map)
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    }
     Ok(Json(json!({
         "id": id,
         "snoozedUntil": req.snooze_until,
@@ -584,10 +592,13 @@ async fn unsnooze_attention_handler(
     if !enforce_workspace_root(&workspace_root) {
         return Err(StatusCode::BAD_REQUEST);
     }
-    let mut map = read_json::<SnoozeMap>(&snooze_path(&workspace_root)).unwrap_or_default();
-    map.by_id.remove(&id);
-    write_json(&snooze_path(&workspace_root), &map)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    {
+        let _guard = lock_attention_state();
+        let mut map = read_json::<SnoozeMap>(&snooze_path(&workspace_root)).unwrap_or_default();
+        map.by_id.remove(&id);
+        write_json(&snooze_path(&workspace_root), &map)
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    }
     Ok(Json(json!({
         "id": id,
         "saved": true,

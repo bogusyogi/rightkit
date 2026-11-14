@@ -1,4 +1,4 @@
-// rightkit-agent-local-models 0.1.0 consumed by exact registry pin (`=0.1.0`), outside the workspace.
+// rightkit-agent-local-models 0.1.1 consumed by exact registry pin (`=0.1.1`), outside the workspace.
 // Builds the local model catalog over stated hardware reports, a provider route suggestion, and runs the
 // bounded inference seam. `probe_hardware_with_adapter` launches probe processes and is never called.
 use std::cell::Cell;
@@ -171,5 +171,5 @@ fn main() {
         infer_with_backend(&backend, &within, limits).map(|r| r.text) == Ok("hello".to_string())
             && backend.calls.get() == 1,
     );
-    println!("OK rightkit-agent-local-models 0.1.0 (registry consumer)");
+    println!("OK rightkit-agent-local-models 0.1.1 (registry consumer)");
 }
