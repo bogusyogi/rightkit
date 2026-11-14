@@ -7,4 +7,4 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-agent-local-models = { version = "=0.1.0" }
+rightkit-agent-local-models = { version = "=0.1.1" }

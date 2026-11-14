@@ -1,4 +1,4 @@
-// rightkit-agent-daemon 0.1.0 consumed by exact registry pin (`=0.1.0`), outside the workspace.
+// rightkit-agent-daemon 0.1.1 consumed by exact registry pin (`=0.1.1`), outside the workspace.
 // Drives the source-trust gate, the settings DTO, the live-turn fence, the lifecycle parser and one
 // lifecycle authority over an in-memory backend. Process memory only; async calls run on a minimal
 // std executor.
@@ -288,5 +288,5 @@ fn main() {
             && calls.lock().unwrap().last().map(String::as_str) == Some("stop false"),
     );
 
-    println!("OK rightkit-agent-daemon 0.1.0 (registry consumer)");
+    println!("OK rightkit-agent-daemon 0.1.1 (registry consumer)");
 }

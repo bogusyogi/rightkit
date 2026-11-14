@@ -1,4 +1,4 @@
-// rightkit-agent-config 0.1.0 consumed by exact registry pin (`=0.1.0`), outside the workspace.
+// rightkit-agent-config 0.1.1 consumed by exact registry pin (`=0.1.1`), outside the workspace.
 // Parses and merges configuration layers, reads a trust store and presets from explicit files in a
 // per-process temp directory, and checks the licence-variable filter and session secrets.
 // `state_root`, `save_user`, `update_user*`, `save_workspace`, `is_workspace_trusted` and `load_presets`
@@ -155,5 +155,5 @@ fn main() {
     let _ = std::fs::remove_dir_all(&dir);
     check("temp directory removed", !dir.exists());
 
-    println!("OK rightkit-agent-config 0.1.0 (registry consumer, public API)");
+    println!("OK rightkit-agent-config 0.1.1 (registry consumer, public API)");
 }

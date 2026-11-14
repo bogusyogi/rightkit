@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.2
 
 - Host naming option, default unchanged: `set_deeplink_scheme` / `deeplink_scheme()` (default `rightkit-agent`, `DEFAULT_DEEPLINK_SCHEME`); the deeplink builder writes it and the parser requires it.
 

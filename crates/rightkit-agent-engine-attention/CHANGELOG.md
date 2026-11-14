@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.3
 
 - Taken from the CodeRight app's newer copy: attention files are written with `rightkit_fs::atomic_write` (a crash can no longer leave a half-written file; the notification-state update used a plain write before), and `lock_attention_state()` serialises the read-modify-write of the notifications and snooze files across concurrent requests. New dependency: `rightkit-fs`. Behaviour change for existing callers: none beyond the safer writes.
 

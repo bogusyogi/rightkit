@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.6.6
 
 - Feature `execution`: `WorkspaceLayout::with_state_dir(name)` builds the default layout under a host state folder; `default()` is unchanged (`.rightkit/workspaces/{workspaceId}`).
 

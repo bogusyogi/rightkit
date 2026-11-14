@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.6
 
 - Host naming options, defaults unchanged: `agent_hooks::set_env_prefix` / `env_prefix()` (default `RIGHTKIT`: the `<prefix>_HOOKS_JSON` variable read, and every `<prefix>_HOOK_*` variable a hook command receives, including `_REASON`) and `set_state_dir_name` / `state_dir_name()` (default `.rightkit`; `chain::project_hook_file()` is the project hook file). `PROJECT_HOOK_FILE` and `HOOKS_JSON_ENV` remain the defaults. Call once at start-up.
 

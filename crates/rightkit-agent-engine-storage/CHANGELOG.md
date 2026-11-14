@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.3
 
 - Host naming option, default unchanged: `set_browser_artifact_producer` / `browser_artifact_producer()` (default `rightkit-browser`, `DEFAULT_BROWSER_ARTIFACT_PRODUCER`) for the `producer` of recorded browser artifacts. The persisted column names are unchanged (`driver_bindings.coderight_agent_id` already matches the app).
 

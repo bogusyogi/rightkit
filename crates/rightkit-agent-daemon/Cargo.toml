@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-agent-daemon"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Daemon primitives for an agent host: trusted-source authority gate, daemon settings, live-turn handle and the lifecycle authority behind every operator surface."
