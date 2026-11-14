@@ -185,7 +185,7 @@
         }
       ],
       "checkFeatureSets": [
-        []
+        { "features": [], "hosts": ["darwin", "win32"], "hostsReason": "native-host set: rightkit-tts-qwen depends on rightkit-tts-qwen-sys unconditionally, which builds only for aarch64-apple-darwin and x86_64-pc-windows-msvc (checked-in bindings, build.rs panics on any other target), so the default-feature check and doc rows are planned on those hosts only, as for rightkit-tts-qwen-sys; left unscoped, the publisher planned cargo check and cargo doc on the Linux direct origin, where the sys build script stops (qualify 2026-11-14: unsupported target x86_64-unknown-linux-gnu: no checked-in bindings)" }
       ]
     },
     "rightkit-tts-qwen-sys": {
