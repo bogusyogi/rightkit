@@ -43,15 +43,52 @@ pub const NOT_IMPLEMENTED: &str =
 /// Allowed ranges get the same 100 ms slack that `run.rs` gives them.
 pub const HOLD_SLACK_MS: i64 = 100;
 
+/// File name (without executable suffix) of the critic binary that ships with this crate.
+pub(crate) const DEFAULT_CRITIC_NAME: &str = "rightkit-render-critic";
+
+/// Where `run_qa` looks for the critic binary. The default is [`DEFAULT_CRITIC_NAME`] next to
+/// the current executable.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum CriticLocator {
+    /// A binary of this name (no executable suffix) next to the current executable.
+    Named(String),
+    /// An explicit path.
+    Path(PathBuf),
+}
+
+impl Default for CriticLocator {
+    fn default() -> Self {
+        Self::Named(DEFAULT_CRITIC_NAME.to_string())
+    }
+}
+
+impl CriticLocator {
+    /// The binary, or `None` when it does not exist.
+    pub(crate) fn find(&self) -> Option<PathBuf> {
+        let candidate = match self {
+            Self::Named(name) => {
+                let exe = std::env::current_exe().ok()?;
+                exe.parent()?
+                    .join(format!("{name}{}", std::env::consts::EXE_SUFFIX))
+            }
+            Self::Path(path) => path.clone(),
+        };
+        candidate.is_file().then_some(candidate)
+    }
+
+    /// A name for the "not found" message.
+    pub(crate) fn label(&self) -> String {
+        match self {
+            Self::Named(name) => name.clone(),
+            Self::Path(path) => path.display().to_string(),
+        }
+    }
+}
+
 /// Critic binary for `run_qa`: the `rightkit-render-critic` binary next to the current
 /// executable. `None` when it does not exist.
 pub fn default_critic_binary() -> Option<PathBuf> {
-    let exe = std::env::current_exe().ok()?;
-    let candidate = exe.parent()?.join(format!(
-        "rightkit-render-critic{}",
-        std::env::consts::EXE_SUFFIX
-    ));
-    candidate.is_file().then_some(candidate)
+    CriticLocator::default().find()
 }
 
 /// A time range in milliseconds from the start of the render.

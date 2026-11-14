@@ -6,7 +6,7 @@
 //! The steps, in order (none of them loads the library; ort does that later):
 //!
 //! 1. [`clear_inherited_runtime_for_release`]\: an
-//!    inherited `ORT_DYLIB_PATH` is dropped.
+//!    inherited `ORT_DYLIB_PATH` is dropped (unless [`BindSpec::clear_inherited_runtime`] is `false`).
 //! 2. Candidates, first regular file wins: each of [`BindSpec::leading_candidates`] (a path the host
 //!    was handed), the bundled runtime beside the installed executable
 //!    ([`installed_runtime_candidate`]), each of [`BindSpec::bundled_candidates`] (further bundled
@@ -16,7 +16,8 @@
 //!    variable is written: [`BindVerification::Manifest`] checks the `manifest.json` beside it
 //!    ([`verify_library_in_manifest`]); `BindVerification::Catalog` (feature `catalog`) checks it
 //!    against the native-library catalog for this host and also every companion file that sits
-//!    beside it. [`BindVerification::None`] skips the check.
+//!    beside it. [`BindVerification::None`] skips the check, and so does
+//!    [`BindSpec::exempt_explicit_from_verification`] for an explicitly named runtime.
 //! 4. The existing binding ([`configure_runtime_with_options`] semantics: the known-bad SME2
 //!    refusal, the conflict check against an existing `ORT_DYLIB_PATH`), then the optional `PATH`
 //!    entry, then the recorded binding ([`configured_runtime`]).
@@ -90,14 +91,11 @@ pub struct BindSpec {
     /// Put the runtime's directory first on `PATH` ([`crate::prepend_runtime_dir_to_path`]) so DLLs
     /// that sit beside it load. Windows resolves a library's own dependencies from `PATH`.
     ///
-    /// Windows host proof pending: the directory put on `PATH` (and the file named by
-    /// `ORT_DYLIB_PATH`) comes from the selected runtime's canonical path, and
-    /// `std::fs::canonicalize` returns a verbatim path (`\\?\C:\...`) on Windows. The catalog
-    /// check's own `VerifiedLibrary::path` is canonical the same way. This crate has not run a
-    /// verbatim directory as a `PATH` entry (the loader's DLL dependency search) on a Windows
-    /// host, so that this works is unproven. Run it on a Windows host before relying on
-    /// `prepend_path` there, and strip the prefix of a non-UNC path in the app if the DirectML or
-    /// other sibling DLLs do not load.
+    /// Windows host proof pending: the directory comes from the selected runtime's canonical path
+    /// (`std::fs::canonicalize` returns a verbatim `\\?\C:\...` path on Windows); the `PATH`
+    /// entry is written without that prefix ([`crate::prepend_runtime_dir_to_path`]), but this
+    /// crate has not run the result on a Windows host. The file named by `ORT_DYLIB_PATH` keeps
+    /// the canonical spelling.
     pub prepend_path: bool,
     /// Overwrite an existing `ORT_DYLIB_PATH` ([`RuntimeBindingOptions::force_replace`]).
     pub force_replace: bool,
@@ -113,6 +111,21 @@ pub struct BindSpec {
     /// feature.
     #[cfg(feature = "catalog")]
     pub require_companions: bool,
+    /// Skip the [`BindSpec::verification`] check when the selected runtime came from a candidate
+    /// whose source is [`CandidateSource::Explicit`] or [`CandidateSource::ExplicitFile`] (a path
+    /// the caller named, usually in [`BindSpec::leading_candidates`]); the report then carries
+    /// [`VerificationReport::Unverified`]. Candidates from any other source are still verified.
+    /// Default `false`: every selected runtime is verified. For a host whose rule is "a runtime
+    /// path the developer or shell names is trusted; only the installed bundle must verify".
+    pub exempt_explicit_from_verification: bool,
+    /// Remove an inherited `ORT_DYLIB_PATH` before anything else
+    /// ([`clear_inherited_runtime_for_release`]). Default `true`. Set `false` for a host that does
+    /// not clear it, or that binds from several threads after startup (removing an environment
+    /// variable needs exclusive access to the environment): the inherited or earlier binding is
+    /// then kept and must name the same file as the selected runtime, otherwise the bind fails
+    /// with [`BindError::Rejected`] ([`RuntimeError`] conflict), unless
+    /// [`BindSpec::force_replace`] is set.
+    pub clear_inherited_runtime: bool,
 }
 
 impl BindSpec {
@@ -131,6 +144,8 @@ impl BindSpec {
             allow_known_bad_runtime: false,
             #[cfg(feature = "catalog")]
             require_companions: false,
+            exempt_explicit_from_verification: false,
+            clear_inherited_runtime: true,
         }
     }
 }
@@ -383,25 +398,14 @@ impl BindHost for ProcessHost {
 }
 
 fn bind_with(spec: &BindSpec, host: &mut dyn BindHost) -> Result<BoundRuntime, BindError> {
-    host.clear_inherited_runtime();
+    if spec.clear_inherited_runtime {
+        host.clear_inherited_runtime();
+    }
 
-    let selection = match resolve_runtime(candidates(spec, host)) {
-        Ok(selection) => selection,
-        Err(RuntimeError::NoCandidates) => {
-            return Err(BindError::NoRuntime {
-                candidates: Vec::new(),
-            })
-        }
-        Err(RuntimeError::NotFound { diagnostics }) => {
-            return Err(BindError::NoRuntime {
-                candidates: diagnostics,
-            })
-        }
-        Err(error) => return Err(BindError::Rejected(error)),
-    };
+    let selection = select(spec, host)?;
 
     // Verify the resolved file before anything is bound or written.
-    let verification = verify(spec, host, &selection.path)?;
+    let verification = verify(spec, host, &selection.path, selection.source)?;
 
     let options = RuntimeBindingOptions {
         force_replace: spec.force_replace,
@@ -441,6 +445,34 @@ fn bind_with(spec: &BindSpec, host: &mut dyn BindHost) -> Result<BoundRuntime, B
     Ok(BoundRuntime { binding, report })
 }
 
+/// Resolve the runtime file `spec` selects, without verifying or binding it and without touching
+/// the environment: the same candidates, order and path checks as [`bind_installed_runtime`]. For
+/// a Doctor or readiness probe that must not configure the process.
+///
+/// Errors as [`bind_installed_runtime`] does for the search ([`BindError::NoRuntime`],
+/// [`BindError::Rejected`]); never [`BindError::VerificationFailed`].
+pub fn resolve_installed_runtime(spec: &BindSpec) -> Result<RuntimeSelection, BindError> {
+    select(
+        spec,
+        &ProcessHost {
+            runtime_check: None,
+        },
+    )
+}
+
+fn select(spec: &BindSpec, host: &dyn BindHost) -> Result<RuntimeSelection, BindError> {
+    match resolve_runtime(candidates(spec, host)) {
+        Ok(selection) => Ok(selection),
+        Err(RuntimeError::NoCandidates) => Err(BindError::NoRuntime {
+            candidates: Vec::new(),
+        }),
+        Err(RuntimeError::NotFound { diagnostics }) => Err(BindError::NoRuntime {
+            candidates: diagnostics,
+        }),
+        Err(error) => Err(BindError::Rejected(error)),
+    }
+}
+
 /// The search order: the leading candidates, bundled beside the executable, the further bundled
 /// candidates, app-data directories.
 fn candidates(spec: &BindSpec, host: &dyn BindHost) -> Vec<RuntimeCandidate> {
@@ -474,7 +506,16 @@ fn verify(
     spec: &BindSpec,
     host: &dyn BindHost,
     path: &Path,
+    source: CandidateSource,
 ) -> Result<VerificationReport, BindError> {
+    if spec.exempt_explicit_from_verification
+        && matches!(
+            source,
+            CandidateSource::Explicit | CandidateSource::ExplicitFile
+        )
+    {
+        return Ok(VerificationReport::Unverified);
+    }
     let failed = |reason| BindError::VerificationFailed {
         path: path.to_path_buf(),
         reason,

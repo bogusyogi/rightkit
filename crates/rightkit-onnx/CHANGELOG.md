@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.2
+
+- New, additive: `BindSpec::exempt_explicit_from_verification` (default `false`): when `true`, a runtime selected from a `CandidateSource::Explicit` or `ExplicitFile` candidate skips `BindSpec::verification` and reports `VerificationReport::Unverified`; every other source is still verified. Reproduces CutRight's rule (a caller-named path is trusted, the installed bundle must verify).
+- New, additive: `BindSpec::clear_inherited_runtime` (default `true`, today's behaviour: an inherited `ORT_DYLIB_PATH` is removed first). `false` keeps an inherited or earlier binding, which must name the same file as the selected runtime or the bind is rejected (unless `force_replace`); for hosts that do not clear it or bind lazily from worker threads (ScrapeRight).
+- New: `resolve_installed_runtime(&BindSpec)`: the candidate search and path checks of `bind_installed_runtime` with no verification, no binding and no environment change, for Doctor and readiness probes (ScrapeRight).
+- Changed (Windows only): `prepend_runtime_dir_to_path` (and `BindSpec::prepend_path`) writes the `PATH` entry without the verbatim prefix that `canonicalize` adds (`\\?\C:\dir` becomes `C:\dir`, `\\?\UNC\h\s` becomes `\\h\s`); paths of 260 characters or more keep it. Other platforms unchanged. Not run on a Windows host.
+- `BindSpec` is not `#[non_exhaustive]`: a struct literal that does not end in `..BindSpec::new(..)` needs the two new fields.
+
 ## 0.3.1
 
 - New: `BindVerification::None` for `bind_installed_runtime`: no integrity check, for a host that verified the runtime by other means or never checked it (its install carries no `manifest.json` and no catalog row). The path checks and the known-bad runtime refusal still apply; the report carries the new `VerificationReport::Unverified`. Both enums are `#[non_exhaustive]`, so adding the variants is not breaking.

@@ -12404,7 +12404,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-onnx"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "half",
  "ndarray",
@@ -12794,7 +12794,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-review"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "chrono",
  "hex",
