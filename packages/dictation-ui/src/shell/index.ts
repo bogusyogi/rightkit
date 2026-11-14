@@ -3,3 +3,5 @@
 
 export { SidebarStatusFooter } from "./SidebarStatusFooter.js";
 export { default as SidebarUpdateStatus, type SidebarUpdateState } from "./SidebarUpdateStatus.js";
+export { default as FeatureReel, type FeatureReelImages } from "./FeatureReel.js";
+export * from "./featureReelState.js";
