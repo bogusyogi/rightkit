@@ -173,6 +173,11 @@ async fn browser_tabs_and_export(executable: &Path, scratch: &Path) -> Result<()
     options.chrome_path = Some(executable.to_path_buf());
     options.launch_timeout = Duration::from_secs(30);
     options.request_timeout = Duration::from_secs(5);
+    // Hosted macOS CI only (RK_BROWSER_CI_MOCK_KEYCHAIN=1, set by the reviewed run-env provider): nobody can answer the
+    // Keychain prompt Chrome raises there for its cookie key. Everywhere else the real keychain is used.
+    if std::env::var("RK_BROWSER_CI_MOCK_KEYCHAIN").as_deref() == Ok("1") {
+        options.extra_args.push("--use-mock-keychain".to_string());
+    }
     let session = stage(
         "browser launch",
         Duration::from_secs(45),
