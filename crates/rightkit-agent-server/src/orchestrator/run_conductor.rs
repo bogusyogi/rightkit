@@ -286,8 +286,10 @@ impl DaemonState {
                             .to_string(),
                         reasoning_content: None,
                         tool_calls: Vec::new(),
-                        pinned: false, origin: None,
-                    }, phase: rightkit_agent_engine_protocol::AssistantMessagePhase::legacy_default(),
+                        pinned: false,
+                        origin: None,
+                    },
+                    phase: rightkit_agent_engine_protocol::AssistantMessagePhase::legacy_default(),
                 });
                 return Ok(RunOutcome {
                     completed: false,
@@ -388,8 +390,10 @@ impl DaemonState {
                 content,
                 reasoning_content: None,
                 tool_calls: Vec::new(),
-                pinned: false, origin: None,
-            }, phase: rightkit_agent_engine_protocol::AssistantMessagePhase::legacy_default(),
+                pinned: false,
+                origin: None,
+            },
+            phase: rightkit_agent_engine_protocol::AssistantMessagePhase::legacy_default(),
         });
 
         // 7. Self-evaluating harness: feed the finished run back into learning
