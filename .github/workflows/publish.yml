@@ -815,7 +815,9 @@ jobs:
         if: ${{ needs.plan.outputs.registry == 'crates' && runner.os == 'macOS' && (contains(needs.plan.outputs.units, 'rightkit-browser') || contains(needs.plan.outputs.units, 'rightkit-qa')) }}
         run: |
           set -euo pipefail
-          keychain_path="$RUNNER_TEMP/verify-host.keychain-db"
+          # Under ~/Library/Keychains, where securityd keeps the current keychain format (it creates an
+          # old-style one anywhere else).
+          keychain_path="$HOME/Library/Keychains/verify-host.keychain-db"
           keychain_password="$(uuidgen)"
           security create-keychain -p "$keychain_password" "$keychain_path"
           security set-keychain-settings -lut 21600 "$keychain_path"
@@ -829,9 +831,9 @@ jobs:
           # Chrome keeps its cookie key in a "Safe Storage" item and waits on a Keychain prompt nobody can
           # answer here. Give this host's keychain that item up front, readable without a prompt, under
           # both names Chrome uses (branded and Chrome for Testing / Chromium).
-          for product in Chrome Chromium; do
+          for product in Chrome Chromium "Chrome for Testing"; do
             security add-generic-password -a "$product" -s "$product Safe Storage" -w "$(openssl rand -base64 16)" -A "$keychain_path"
-            security set-generic-password-partition-list -S "apple-tool:,apple:,teamid:EQHXZ8M8AV" -a "$product" -s "$product Safe Storage" -k "$keychain_password" "$keychain_path" >/dev/null || true
+            security set-generic-password-partition-list -S "apple-tool:,apple:,teamid:EQHXZ8M8AV" -a "$product" -s "$product Safe Storage" -k "$keychain_password" "$keychain_path" | grep -E '"(acct|svce)"' || echo "partition list not set for $product"
           done
           security find-generic-password -s "Chromium Safe Storage" "$keychain_path" | grep -E '"(acct|svce)"'
       - name: Name the crate workspaces of the plan
@@ -961,7 +963,9 @@ jobs:
         if: ${{ failure() && runner.os == 'macOS' && needs.plan.outputs.registry == 'crates' && contains(needs.plan.outputs.units, 'rightkit-browser') }}
         run: |
           security list-keychains -d user || true
-          log show --last 12m --style compact --predicate '(process == "securityd" OR process == "SecurityAgent" OR process BEGINSWITH "Google Chrome" OR process == "Chrome for Testing") AND (eventMessage CONTAINS[c] "keychain" OR eventMessage CONTAINS[c] "Safe Storage" OR eventMessage CONTAINS[c] "interaction")' | tail -n 80 || true
+          # Which Safe Storage items exist now (attributes only, never the stored values): Chrome's own, if it added one.
+          security dump-keychain "$HOME/Library/Keychains/verify-host.keychain-db" | grep -E '"(acct|svce)"' || true
+          log show --last 12m --style compact --predicate '(process == "securityd" OR process == "SecurityAgent" OR process == "CoreServicesUIAgent" OR process BEGINSWITH "Google Chrome") AND (eventMessage CONTAINS[c] "keychain" OR eventMessage CONTAINS[c] "Safe Storage" OR eventMessage CONTAINS[c] "interaction" OR eventMessage CONTAINS[c] "prompt" OR eventMessage CONTAINS[c] "partition" OR eventMessage CONTAINS[c] "acl" OR eventMessage CONTAINS[c] "authoriz" OR eventMessage CONTAINS[c] "denied")' | tail -n 120 || true
       - name: Detach FS qualification volumes & remove bounded fixture state
         if: ${{ always() && needs.plan.outputs.registry == 'crates' && contains(format(' {0} ', needs.plan.outputs.units), ' rightkit-fs ') }}
         env:
