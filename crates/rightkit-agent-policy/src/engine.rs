@@ -242,6 +242,26 @@ impl PermissionEngine {
                         "{:?} by ABAC rule '{}' (tool '{}') -> {:?}",
                         cls, rule.id, rule.tool_match, rule.effect
                     );
+                    // D1 (w3declog): an ABAC Allow never skips steps 4 / 4b. A destructive call
+                    // or a test-file write still needs approval outside Bypass. `source` stays
+                    // `abac:<id>` because callers key on that prefix.
+                    if effect == PermissionDecision::Allow && mode != PermissionMode::Bypass {
+                        if destructive {
+                            effect = PermissionDecision::Ask;
+                            reason.push_str(
+                                "; the action is destructive, so approval is still required",
+                            );
+                        } else if is_file_write(cls)
+                            && target_path
+                                .filter(|p| !p.is_empty())
+                                .is_some_and(is_test_file)
+                        {
+                            effect = PermissionDecision::Ask;
+                            reason.push_str(
+                                "; the target is a test file, so approval is still required",
+                            );
+                        }
+                    }
                     // Rule 51: an ABAC Allow never relaxes the untrusted-workspace clamp. Only
                     // Bypass, the explicit opt-out, passes it.
                     if effect == PermissionDecision::Allow
@@ -415,6 +435,14 @@ fn describe(decision: PermissionDecision, cls: CapabilityClass, mode: Permission
     match decision {
         PermissionDecision::Allow => format!("{:?} allowed in {:?} mode", cls, mode),
         PermissionDecision::Ask => format!("{:?} needs approval in {:?} mode", cls, mode),
-        PermissionDecision::Deny => format!("{:?} denied in {:?} mode", cls, mode),
+        // Say what to do next: a bare denial leaves the model with no way out.
+        PermissionDecision::Deny if mode == PermissionMode::Plan => format!(
+            "{:?} denied in {:?} mode. Plan mode is read-only: finish the plan and call exit_plan_mode to present it for approval, then make changes once it is approved.",
+            cls, mode
+        ),
+        PermissionDecision::Deny => format!(
+            "{:?} denied in {:?} mode. Do not retry it; use a different approach or tell the user what you need allowed.",
+            cls, mode
+        ),
     }
 }

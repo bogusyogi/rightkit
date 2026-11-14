@@ -7,6 +7,7 @@
 - Builds without the embedding stack: `rightkit-memory-core` 0.2 keeps embedding and retrieval behind its `embed` feature, which this crate leaves off, so `rightkit-embed` (ONNX inference, SQLite vectors) is no longer in its graph or in the graphs of `rightkit-agent-engine-mobile-runtime` and `rightkit-agent-server` through it.
 - `src/retriever.rs`, a second retrieval router that was never compiled (not declared in `lib.rs`) and duplicated `rightkit-memory-core`'s routing, is deleted.
 - Taken on the recommended option of the 2026-11-11 shape review, pending the owner's confirmation.
+- `MemoryCausalOrigin::UntrustedWorkspace` (`untrusted-workspace`, risk rank 2) maps the new `rightkit-agent-policy` `ContentOrigin::UntrustedWorkspace`.
 
 ## rightkit-memory, unreleased changes carried into 0.1.0 above
 

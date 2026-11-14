@@ -253,6 +253,18 @@ pub async fn resolve_then_reject_private_allow_loopback_with_trust_and_allowlist
     resolve_then_reject_with_trust(host, port, true, trusted, allowlisted_host(host)).await
 }
 
+/// The same browser verdict, returning the validated addresses. A caller that
+/// connects must connect to exactly these: resolving the name again (as Chrome
+/// does on its own) lets a TTL-0 rebinding answer differ from what was checked.
+pub async fn resolve_browser_target_with_trust_and_allowlist(
+    host: &str,
+    port: u16,
+    trusted: &TrustedNavigationPolicy,
+    allowlisted_host: bool,
+) -> Result<Vec<SocketAddr>, NetGuardError> {
+    resolve_validated_with_trust(host, port, true, trusted, allowlisted_host).await
+}
+
 async fn resolve_then_reject(
     host: &str,
     port: u16,
@@ -297,6 +309,18 @@ async fn resolve_then_reject_with_trust(
     trusted: &TrustedNavigationPolicy,
     allowlisted_host: bool,
 ) -> Result<(), NetGuardError> {
+    resolve_validated_with_trust(host, port, allow_loopback, trusted, allowlisted_host)
+        .await
+        .map(|_| ())
+}
+
+async fn resolve_validated_with_trust(
+    host: &str,
+    port: u16,
+    allow_loopback: bool,
+    trusted: &TrustedNavigationPolicy,
+    allowlisted_host: bool,
+) -> Result<Vec<SocketAddr>, NetGuardError> {
     let blocked = |ip: IpAddr| {
         is_hard_blocked_navigation_ip(ip)
             || (is_private_ip(ip)
@@ -311,13 +335,15 @@ async fn resolve_then_reject_with_trust(
                 "{ip} is a private/reserved address"
             )));
         }
-        return Ok(());
+        return Ok(vec![SocketAddr::new(ip, port)]);
     }
 
-    let addrs = tokio::net::lookup_host((host, port))
+    let addrs: Vec<SocketAddr> = tokio::net::lookup_host((host, port))
         .await
-        .map_err(|e| NetGuardError::ResolutionFailed(host.to_string(), e.to_string()))?;
-    reject_resolved_addresses(host, addrs, blocked)
+        .map_err(|e| NetGuardError::ResolutionFailed(host.to_string(), e.to_string()))?
+        .collect();
+    reject_resolved_addresses(host, addrs.iter().copied(), blocked)?;
+    Ok(addrs)
 }
 
 /// Validate every DNS answer, including all addresses returned during a
