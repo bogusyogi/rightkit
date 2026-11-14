@@ -590,7 +590,9 @@ fn read_facts_file(path: &Path) -> Option<Value> {
 static BRAND_CATALOG: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
 
 /// Register the host's brand catalogue once (`{default_code?, brands:[{code, name, segments:
-/// [[seg, ...]], segment_prefixes:[...]}]}`). Returns the rejected value when one is set.
+/// [[seg, ...]], segment_prefixes:[...]}], gallery_path_fallbacks?:[{contains, code}]}`). Returns
+/// the rejected value when one is set. `gallery_path_fallbacks` only affects the gallery's
+/// listing (see `infer_brand`), not [`infer_brand_code`].
 pub fn set_brand_catalog(catalog: Value) -> Result<(), Value> {
     BRAND_CATALOG.set(catalog)
 }
@@ -908,8 +910,28 @@ fn local_image_sidecar(path: &Path) -> Option<(Value, String)> {
     Some((value, sidecar_path.to_string_lossy().replace('\\', "/")))
 }
 
+/// The brand the gallery lists a file under: [`infer_brand_code`], then the catalogue's optional
+/// `gallery_path_fallbacks` (`[{"contains": "/stunning", "code": "SS"}, ...]`) when that returned
+/// the catalogue's default code: the first entry whose `contains` text occurs in the
+/// lower-cased path (no separator rewriting) gives its `code`. A catalogue without the key keeps
+/// the plain [`infer_brand_code`] result.
 fn infer_brand(path: &str) -> String {
-    infer_brand_code(path)
+    let code = infer_brand_code(path);
+    let catalog = brand_catalog();
+    if code != catalog["default_code"].as_str().unwrap_or("NA") {
+        return code;
+    }
+    let lower = path.to_ascii_lowercase();
+    catalog["gallery_path_fallbacks"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find_map(|rule| {
+            let needle = rule["contains"].as_str()?.to_ascii_lowercase();
+            let fallback = rule["code"].as_str()?;
+            (!needle.is_empty() && lower.contains(&needle)).then(|| fallback.to_string())
+        })
+        .unwrap_or(code)
 }
 
 fn chrono_like_now() -> String {

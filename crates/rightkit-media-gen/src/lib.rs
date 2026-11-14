@@ -66,8 +66,23 @@ pub struct Context {
     pub db_file_name: String,
 }
 
+static CONTEXT_FACTORY: std::sync::OnceLock<fn() -> Context> = std::sync::OnceLock::new();
+
+/// Register the host's production [`Context`] once at startup (its job database file name, its
+/// own credential store). [`Context::production`], and with it the detached runner, the job
+/// resume at start, the lease watcher and the local providers that open the job store, build
+/// their context through it. Returns the rejected factory when one is already registered.
+pub fn set_context_factory(factory: fn() -> Context) -> Result<(), fn() -> Context> {
+    CONTEXT_FACTORY.set(factory)
+}
+
 impl Context {
+    /// The host's context: the one [`set_context_factory`] registered, else the app data root,
+    /// `media-gen.sqlite3` and the guarded OS keychain.
     pub fn production() -> Self {
+        if let Some(factory) = CONTEXT_FACTORY.get() {
+            return factory();
+        }
         Self {
             data_dir: crate::host::app_data_root(),
             credentials: None,

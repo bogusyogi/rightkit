@@ -23,7 +23,7 @@
 //! follows (`consent_url`). `create_prompt` depicts no real person and needs no flag.
 //!
 //! Creation cost is account/plan gated: HeyGen publishes no API price. Results carry
-//! `est_usd:null` plus [`PRICE_NOTICE`] (`cost_notice`, `price_published:false`), never an
+//! `est_usd:null` plus [`price_notice`] (`cost_notice`, `price_published:false`), never an
 //! invented amount and never a reservation. Because the app cannot cap an unpriced spend, a real
 //! (non-dry-run) create needs the explicit per-run `confirm_unpublished_price:true`
 //! ([`CONFIRM_FIELD`]; same pattern as `confirm_fal_upload`; never defaulted, stored or inferred),
@@ -90,8 +90,16 @@ pub const COMMANDS: &[&str] = &[
 
 /// Per-run consent for an unpriced spend. Only the JSON boolean `true` counts.
 pub const CONFIRM_FIELD: &str = "confirm_unpublished_price";
-/// Shown before the user confirms and returned in every create result.
+/// The notice with the neutral wording ("the app"); what [`price_notice`] returns when the host
+/// set no `app_name`.
 pub const PRICE_NOTICE: &str = "Price not published: HeyGen does not publish an API price for avatar creation, so the app cannot estimate or reserve it. It may use your HeyGen plan credits or bill your account, and it is not counted against the app's daily cap.";
+
+/// Shown before the user confirms and returned in every create result: [`PRICE_NOTICE`] with the
+/// host's `app_name` (`host::MediaHostConfig`) in place of "the app".
+pub fn price_notice() -> String {
+    let app = crate::host::app_or("the app");
+    format!("Price not published: HeyGen does not publish an API price for avatar creation, so {app} cannot estimate or reserve it. It may use your HeyGen plan credits or bill your account, and it is not counted against {app}'s daily cap.")
+}
 
 const MAX_UPLOAD_BYTES: u64 = 200 * 1024 * 1024;
 const MAX_PROMPT_CHARS: usize = 1000;
@@ -584,9 +592,9 @@ fn create(ctx: &Context, input: &Value, base: &str, kind: Kind) -> GenResult<Val
     if !dry_run && input.get(CONFIRM_FIELD).and_then(Value::as_bool) != Some(true) {
         return Err(GenError::new(
             "price_confirmation_required",
-            format!("{PRICE_NOTICE} Send {CONFIRM_FIELD}: true to create this avatar for this run only."),
+            format!("{} Send {CONFIRM_FIELD}: true to create this avatar for this run only.", price_notice()),
         )
-        .with_details(json!({"confirm_field": CONFIRM_FIELD, "price_published": false, "cost_notice": PRICE_NOTICE})));
+        .with_details(json!({"confirm_field": CONFIRM_FIELD, "price_published": false, "cost_notice": price_notice()})));
     }
 
     let client = if dry_run {
@@ -644,7 +652,7 @@ fn create(ctx: &Context, input: &Value, base: &str, kind: Kind) -> GenResult<Val
             "consent_link": want_consent_link,
             "est_usd": null,
             "price_published": false,
-            "cost_notice": PRICE_NOTICE,
+            "cost_notice": price_notice(),
             "confirm_field": CONFIRM_FIELD,
             "note": "Nothing was sent. HeyGen avatar creation cost is account/plan gated.",
         }));
@@ -765,7 +773,7 @@ fn create(ctx: &Context, input: &Value, base: &str, kind: Kind) -> GenResult<Val
         "uploaded_asset_ids": uploaded,
         "est_usd": null,
         "price_published": false,
-        "cost_notice": PRICE_NOTICE,
+        "cost_notice": price_notice(),
         "next_action": next_action,
     }))
 }

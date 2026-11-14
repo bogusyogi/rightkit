@@ -265,3 +265,58 @@ pub fn onnxruntime_report() -> OnnxRuntimeReport {
         },
     }
 }
+
+// Pinned size and SHA-256 for the 1.7B CustomVoice / VoiceDesign exports
+// (`rightkit_tts::models::MODE_MANIFESTS` lists names only, so `verify_mode` skips them). Behind the
+// non-default `catalog-1p7b` feature, as in GenRight.
+/// One file of a 1.7B mode checkpoint. `source` stays `None` until hosting is
+/// approved (private R2 via the signed runtime artifact manifest); a `None`
+/// source means the entry is installable only from a local directory.
+#[cfg(feature = "catalog-1p7b")]
+pub struct Mode1p7bFile {
+    pub name: &'static str,
+    pub sha256: &'static str,
+    pub bytes: u64,
+    pub source: Option<&'static str>,
+}
+
+/// Local conversion outputs (`crates/rightkit-tts-qwen/scripts/export_1p7b.py`, q8_0).
+#[cfg(feature = "catalog-1p7b")]
+pub const MODE_1P7B_MANIFEST: [Mode1p7bFile; 6] = [
+    Mode1p7bFile {
+        name: "qwen3-tts-1.7b-voicedesign-talker-q8_0.gguf",
+        sha256: "b030be78e8eba147916531a5eaefad65322dfb61a3b522594709bbb027e1430f",
+        bytes: 2154310656,
+        source: None,
+    },
+    Mode1p7bFile {
+        name: "qwen3-tts-1.7b-voicedesign-code-predictor-q8_0.gguf",
+        sha256: "db73618d27798a61a04a488c8599fe7e9782a3e356fa251e83a181eaccd4d31a",
+        bytes: 274593344,
+        source: None,
+    },
+    Mode1p7bFile {
+        name: "qwen3-tts-1.7b-voicedesign-tokenizer.gguf",
+        sha256: "7f2b3a4c9dd38968e1bfcff02ce2e820d7a1d331897a560ae861740d1e580631",
+        bytes: 5925984,
+        source: None,
+    },
+    Mode1p7bFile {
+        name: "qwen3-tts-1.7b-customvoice-talker-q8_0.gguf",
+        sha256: "836dcede70c86c6db1873a21644cdf07dec30c09e4f33fe81b542de832efeace",
+        bytes: 2154311328,
+        source: None,
+    },
+    Mode1p7bFile {
+        name: "qwen3-tts-1.7b-customvoice-code-predictor-q8_0.gguf",
+        sha256: "b09b71824647c21ed0dd6c2c57369c68d2ed5e004a5786615f31191866335e5a",
+        bytes: 274593472,
+        source: None,
+    },
+    Mode1p7bFile {
+        name: "qwen3-tts-1.7b-customvoice-tokenizer.gguf",
+        sha256: "a3589db51a55bacf80bdee7c5e6081320cbe9fe82d1dc121fa09f75443fb6c00",
+        bytes: 5925984,
+        source: None,
+    },
+];

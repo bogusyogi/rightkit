@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.1
+
+Taken from GenRight's shipped behaviour so it can drop its own copies. Every default keeps RightKit's behaviour; each option is additive.
+
+- Added `set_context_factory` (set once at startup): a `fn() -> Context` the host registers so [`Context::production`] returns the host's context (its job database file name through `with_db_file_name`, its own credential store through `with_credentials`). Default: no factory, so `Context::production()` is the app data root, `media-gen.sqlite3` and the guarded OS keychain, as before. Every internal `Context::production()` (the detached runner's resume at start, the local-image and Blender providers' job-store reads) goes through it, as do the other crates that call it (`rightkit-media-pipeline`, `rightkit-remote-compute`). Added `runner::resume_recoverable_with(&Context)`; `resume_recoverable()` calls it with `Context::production()`. GenRight registers `rightkit_media_gen::set_context_factory(genright_protocol::media_context)` beside `configure_media`.
+- Changed: the local-lease grace override is read through the host prefix, `<PREFIX>_LOCAL_LEASE_GRACE_SECS`, then `RIGHTKIT_LOCAL_LEASE_GRACE_SECS` (default 60 s); `lease::grace_env()` returns the host-prefixed name (`GRACE_ENV` still names the `RIGHTKIT_` one). The lease threads are named `<machine_dir_name>-lease`, `-lease-keeper` and `-lease-watch` (`rightkit-...` with the default host configuration, `genright-...` under GenRight's). With the default prefix nothing changes.
+- Added `avatars::price_notice()`: the unpriced-spend notice built from `MediaHostConfig::app_name` (default none, "the app"), returned in `cost_notice` and the `price_confirmation_required` message. With `app_name` `GenRight` it is GenRight's text byte for byte ("... so GenRight cannot estimate or reserve it ... not counted against GenRight's daily cap."). `PRICE_NOTICE` stays as the neutral text. The avatar route listing needs the host's `avatars::set_models_handler` (the `studio.models.catalog` and `studio.models.workers` commands) registered once, as before; without it only the API providers are listed.
+- Added the brand catalogue key `gallery_path_fallbacks` (`[{"contains": "/stunning", "code": "SS"}]`, in the value passed to `gallery::set_brand_catalog`; default: absent, no fallback). When the catalogue match returns the catalogue's `default_code`, the gallery lists a file under the `code` of the first entry whose `contains` text occurs in the lower-cased path (no separator rewriting). Only the gallery's brand filter and field use it; `infer_brand_code` is unchanged. GenRight adds `{"contains": "/stunning", "code": "SS"}` to its catalogue to reproduce its `SS` rule (`SS` is not a catalogue brand).
+- Added the non-default feature `catalog-1p7b`: `qts::models::Mode1p7bFile` and `MODE_1P7B_MANIFEST` (six pinned names, sizes and SHA-256 of the 1.7B CustomVoice / VoiceDesign exports, `source: None`), GenRight's values unchanged.
+
 ## 0.2.0
 
 Folds into 0.2.0 (unpublished). Found by diffing GenRight's `genright-gen` against this crate so a host can drop its copy; every default keeps RightKit's behaviour.

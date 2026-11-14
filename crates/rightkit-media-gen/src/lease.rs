@@ -43,8 +43,19 @@ const HEARTBEAT_SECS: u64 = 5;
 const TTL_SECS: u64 = 30;
 const WATCH_POLL: Duration = Duration::from_secs(2);
 /// Seconds a dead lease may wait for a new holder before the runner cancels the job.
+/// The `RIGHTKIT_` name; the host-prefixed `<PREFIX>_LOCAL_LEASE_GRACE_SECS` is read first (see [`grace_env`]).
 pub const GRACE_ENV: &str = "RIGHTKIT_LOCAL_LEASE_GRACE_SECS";
 const DEFAULT_GRACE_SECS: u64 = 60;
+
+/// The host-prefixed name of the grace override (`<PREFIX>_LOCAL_LEASE_GRACE_SECS`).
+pub fn grace_env() -> String {
+    crate::host::env_name("LOCAL_LEASE_GRACE_SECS")
+}
+
+/// A thread name under the host's machine folder name (`rightkit-lease`, `genright-lease`, ...).
+fn thread_name(suffix: &str) -> String {
+    format!("{}-{suffix}", crate::host::config().machine_dir_name)
+}
 /// How long a cancelled runner may take to exit before it exits hard.
 const CANCEL_BUDGET: Duration = Duration::from_secs(60);
 
@@ -131,7 +142,7 @@ impl Lease {
         let stop = Arc::new(AtomicBool::new(false));
         let beat_stop = stop.clone();
         let thread = thread::Builder::new()
-            .name("rightkit-lease".into())
+            .name(thread_name("lease"))
             .spawn(move || {
                 let mut slept = 0u64;
                 while !beat_stop.load(Ordering::SeqCst) {
@@ -197,7 +208,7 @@ pub fn keep(ctx: &Context, job_id: &str) {
     static KEEPER: OnceLock<()> = OnceLock::new();
     KEEPER.get_or_init(|| {
         let _ = thread::Builder::new()
-            .name("rightkit-lease-keeper".into())
+            .name(thread_name("lease-keeper"))
             .spawn(|| loop {
                 thread::sleep(Duration::from_secs(HEARTBEAT_SECS));
                 let mut list = kept().lock().unwrap();
@@ -252,15 +263,14 @@ pub fn watch_runner(ctx: &Context, job_id: &str) -> RunnerGuard {
     if live_local_image_job(ctx, job_id) {
         let (ctx, job_id) = (ctx.clone(), job_id.to_string());
         let _ = thread::Builder::new()
-            .name("rightkit-lease-watch".into())
+            .name(thread_name("lease-watch"))
             .spawn(move || watch(&ctx, &job_id));
     }
     guard
 }
 
 fn grace() -> Duration {
-    let seconds = std::env::var(GRACE_ENV)
-        .ok()
+    let seconds = crate::host::env_var("LOCAL_LEASE_GRACE_SECS")
         .and_then(|v| v.trim().parse::<u64>().ok())
         .unwrap_or(DEFAULT_GRACE_SECS);
     Duration::from_secs(seconds)
