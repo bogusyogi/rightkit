@@ -793,8 +793,8 @@ jobs:
       # rightkit-tts-qwen-sys builds ggml with Vulkan on Windows (ci/gate.config.json feature set "vulkan"): it needs
       # vulkan-1.lib and glslc. The hosted runner has no Vulkan SDK, so this run installs the pinned LunarG one where
       # build.rs looks (C:\VulkanSDK\<version>). URL, hash and silent arguments are the winget manifest's.
-      - name: Provision the pinned Vulkan SDK (rightkit-tts-qwen-sys, rightkit-tts-qwen)
-        if: ${{ needs.plan.outputs.registry == 'crates' && runner.os == 'Windows' && contains(needs.plan.outputs.units, 'rightkit-tts-qwen') }}
+      - name: Provision the pinned Vulkan SDK (rightkit-tts, rightkit-tts-qwen-sys, rightkit-tts-qwen)
+        if: ${{ needs.plan.outputs.registry == 'crates' && runner.os == 'Windows' && contains(needs.plan.outputs.units, 'rightkit-tts') }}
         shell: bash
         env:
           VULKAN_SDK_VERSION: "1.4.321.1"
