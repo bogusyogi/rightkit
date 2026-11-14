@@ -32,6 +32,49 @@ pub fn app_name() -> &'static str {
     HOST_APP_NAME.get().map(String::as_str).unwrap_or(APP_NAME)
 }
 
+/// Workspace/user state folder name (`<workspace>/<name>/config.toml`, ...) until the host calls
+/// [`set_state_dir_name`].
+pub const DEFAULT_STATE_DIR_NAME: &str = ".rightkit";
+
+/// Environment-variable prefix (without the trailing `_`) until the host calls [`set_env_prefix`].
+pub const DEFAULT_ENV_PREFIX: &str = "RIGHTKIT";
+
+static HOST_STATE_DIR_NAME: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+static HOST_ENV_PREFIX: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+/// Set the host's workspace state folder name, with its leading dot (for example `.myapp`).
+/// Call once at startup; returns `false` if a name was already set.
+pub fn set_state_dir_name(name: &str) -> bool {
+    HOST_STATE_DIR_NAME.set(name.to_string()).is_ok()
+}
+
+/// The workspace state folder name in effect.
+pub fn state_dir_name() -> &'static str {
+    HOST_STATE_DIR_NAME
+        .get()
+        .map(String::as_str)
+        .unwrap_or(DEFAULT_STATE_DIR_NAME)
+}
+
+/// Set the host's environment-variable prefix, upper case, no trailing underscore (for example
+/// `MYAPP` reads `MYAPP_MODEL`). Call once at startup; returns `false` if one was already set.
+pub fn set_env_prefix(prefix: &str) -> bool {
+    HOST_ENV_PREFIX.set(prefix.to_string()).is_ok()
+}
+
+/// The environment-variable prefix in effect.
+pub fn env_prefix() -> &'static str {
+    HOST_ENV_PREFIX
+        .get()
+        .map(String::as_str)
+        .unwrap_or(DEFAULT_ENV_PREFIX)
+}
+
+/// `<prefix>_<suffix>`, the host's environment variable name for `suffix` (for example `MODEL`).
+pub fn env_name(suffix: &str) -> String {
+    format!("{}_{suffix}", env_prefix())
+}
+
 type Resolved = Option<PathBuf>;
 
 fn cache() -> &'static Mutex<HashMap<PathBuf, Resolved>> {

@@ -93,7 +93,9 @@ pub fn load_presets_from(
 /// Load presets for a workspace using the real user dir and trust store.
 pub fn load_presets(workspace_root: &Path) -> Result<BTreeMap<String, Preset>, String> {
     let user = crate::state_root().map(|r| r.join("presets.toml"));
-    let project = workspace_root.join(".rightkit").join("presets.toml");
+    let project = workspace_root
+        .join(crate::state_dir_name())
+        .join("presets.toml");
     load_presets_from(
         user.as_deref(),
         Some(&project),

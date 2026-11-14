@@ -93,11 +93,11 @@ impl AgentMcpConfig {
 /// Resolve the agents directory for a workspace.
 /// Prefers `<workspace>/<state-dir>/agents/`, falls back to `~/<state-dir>/agents/`.
 pub fn find_agents_dir(workspace: &Path) -> PathBuf {
-    let local = workspace.join(".rightkit").join("agents");
+    let local = workspace.join(crate::state_dir_name()).join("agents");
     if local.is_dir() {
         return local;
     }
     crate::state_root::state_root()
-        .unwrap_or_else(|| PathBuf::from("/tmp").join(".rightkit"))
+        .unwrap_or_else(|| PathBuf::from("/tmp").join(crate::state_dir_name()))
         .join("agents")
 }

@@ -31,7 +31,9 @@ pub use okf::{
     OkfBundleStats, OkfConcept, OkfEmitOptions, OkfError, OkfLink, OKF_VERSION,
 };
 pub use state_root::{
-    app_name, os_home_dir, set_app_name, state_root, state_root_is_isolated, APP_NAME,
+    app_name, env_name, env_prefix, os_home_dir, set_app_name, set_env_prefix, set_state_dir_name,
+    state_dir_name, state_root, state_root_is_isolated, APP_NAME, DEFAULT_ENV_PREFIX,
+    DEFAULT_STATE_DIR_NAME,
 };
 pub use types::{
     AgentOverride, BooleanSetting, BudgetConfig, ChannelProfileConfig, ConfigSource, FeatureConfig,
