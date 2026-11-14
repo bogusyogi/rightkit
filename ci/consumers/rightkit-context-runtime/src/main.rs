@@ -1,4 +1,4 @@
-//! Registry consumer for rightkit-context-runtime 0.1.2: builds against the published API only.
+//! Registry consumer for rightkit-context-runtime 0.1.3: builds against the published API only.
 //! It does not start the resident or open any store.
 use rightkit_context_runtime::{digest, release_identity, PRODUCT_DIR_NAME};
 

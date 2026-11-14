@@ -48,6 +48,18 @@ pub const fn target_triple() -> &'static str {
         "x86_64-apple-darwin"
     } else if cfg!(all(target_arch = "aarch64", target_os = "macos")) {
         "aarch64-apple-darwin"
+    } else if cfg!(all(
+        target_arch = "x86_64",
+        target_os = "linux",
+        target_env = "gnu"
+    )) {
+        "x86_64-unknown-linux-gnu"
+    } else if cfg!(all(
+        target_arch = "aarch64",
+        target_os = "linux",
+        target_env = "gnu"
+    )) {
+        "aarch64-unknown-linux-gnu"
     } else {
         "unsupported"
     }

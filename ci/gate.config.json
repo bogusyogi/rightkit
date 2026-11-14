@@ -188,13 +188,6 @@
         []
       ]
     },
-    "rightkit-context": {
-      "platforms": [
-        "darwin",
-        "win32"
-      ],
-      "platformsReason": "tests/e2e_binaries.rs g01 drives the built binaries through a full identity, enrolment, push and pull journey and requires rightkit_context_runtime::release_identity::target_triple() to name a native release target; that function knows the Windows MSVC and macOS targets only and returns \"unsupported\" on Linux, where the journey refuses to run"
-    },
     "rightkit-tts-qwen-sys": {
       "platforms": [
         "darwin",

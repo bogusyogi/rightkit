@@ -7,5 +7,5 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-context-runtime = { version = "=0.1.2" }
+rightkit-context-runtime = { version = "=0.1.3" }
 

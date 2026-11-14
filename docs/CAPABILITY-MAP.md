@@ -77,7 +77,7 @@ Capabilities: 222 (58 with fingerprints, 164 declaration-only). Internal owners 
 | context-federation | `rightkit-context-federation` | none | declaration-only | 0 | rightkit-context-federation: staged 0.2.1, not published |
 | context-protocol | `rightkit-context-protocol` | none | declaration-only | 0 | rightkit-context-protocol: staged 0.2.0, not published |
 | context-provider-sdk | `rightkit-context-provider-sdk` | none | declaration-only | 0 | rightkit-context-provider-sdk: staged 0.2.0, not published |
-| context-runtime | `rightkit-context-runtime` | none | declaration-only | 0 | rightkit-context-runtime: staged 0.1.2, not published |
+| context-runtime | `rightkit-context-runtime` | none | declaration-only | 0 | rightkit-context-runtime: staged 0.1.3, not published |
 | crash-reporting | `rightkit-crash` | advise | fingerprinted | 1 (0 block, 1 advise) | rightkit-crash: published 0.3.6 (crates.io) |
 | crypto-primitives | `rightkit-crypto` | none | declaration-only | 0 | rightkit-crypto: published 0.1.0 (crates.io) |
 | dependency-updates | `@rightkit/outdated` | none | declaration-only | 0 | @rightkit/outdated: published 0.3.0 (npm) |
