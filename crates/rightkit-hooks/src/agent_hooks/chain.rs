@@ -57,6 +57,12 @@ pub const HOOK_EVENT_NAMES: &[&str] = &[
     "PostCompact",
     "SubagentStart",
     "Interrupt",
+    "PostToolBatch",
+    "PermissionDenied",
+    "PreModelSwitch",
+    "PostModelSwitch",
+    "DirectoryAdded",
+    "FileChanged",
     "PreCommit",
 ];
 
@@ -65,12 +71,35 @@ pub fn fails_closed(event: &str) -> bool {
     event == "PreToolUse"
 }
 
+/// Bytes of each hook stream the launchers keep (`HOOK_STREAM_CAPTURE_LIMIT` in `bus.rs` and in the
+/// daemon's launcher, both 256 KiB). Stdout this long was cut, so it is not the hook's whole answer.
+const HOOK_STDOUT_CAPTURE_LIMIT: usize = 256 * 1024;
+
+/// Exit-0 stdout cut at the capture limit that opens a JSON object but does not parse, for example a
+/// `{"decision":"deny",...}` truncated mid-document. A fail-closed event must not read it as "no
+/// decision" (allow). Shorter stdout that does not parse is not truncated; [`parse_result_json`]
+/// handles it (first JSON value, restrictive fields only).
+fn is_truncated_json_object(stdout: &[u8]) -> bool {
+    if stdout.len() < HOOK_STDOUT_CAPTURE_LIMIT {
+        return false;
+    }
+    let text = String::from_utf8_lossy(stdout);
+    let text = text.trim();
+    text.starts_with('{') && serde_json::from_str::<Value>(text).is_err()
+}
+
 /// A permission decision expressed by a hook.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HookDecision {
     Allow,
     Ask,
     Deny,
+    /// `{"decision": "defer"}`: the hook does not decide now. The call does not run on this
+    /// answer: an attended session asks the operator (as for `ask`), an unattended one denies it
+    /// at once through the engine's unattended denial, and the model is told the call was
+    /// deferred with the hook's reason. The chain reports it as an `ask` whose reason starts
+    /// `deferred by <event> hook`.
+    Defer,
 }
 
 /// Typed JSON result of a hook:
@@ -81,6 +110,8 @@ pub struct HookResult {
     pub reason: Option<String>,
     pub updated_input: Option<Value>,
     pub additional_context: Option<String>,
+    /// A `PostToolUse` hook that declares `"rewrite": true` may replace the tool's result text.
+    pub updated_output: Option<String>,
     pub continue_: bool,
     pub stop_reason: Option<String>,
 }
@@ -92,6 +123,7 @@ impl Default for HookResult {
             reason: None,
             updated_input: None,
             additional_context: None,
+            updated_output: None,
             continue_: true,
             stop_reason: None,
         }
@@ -115,7 +147,8 @@ fn first_non_empty<'a>(candidates: &[&'a str]) -> Option<&'a str> {
 /// Interpret exit code + stdout + stderr.
 ///
 /// * `0` — success; stdout is parsed as a typed JSON result when it is a JSON
-///   object, otherwise ignored.
+///   object; stdout that only starts with one keeps the deny/ask/stop of its
+///   first JSON value; anything else is ignored.
 /// * `2` — block; stderr (falling back to stdout) is the reason.
 /// * other — non-blocking error.
 pub fn parse_hook_output(
@@ -158,9 +191,46 @@ fn parse_result_json(stdout: &str) -> HookResult {
     if !stdout.starts_with('{') {
         return HookResult::default();
     }
-    let Ok(Value::Object(map)) = serde_json::from_str::<Value>(stdout) else {
+    match serde_json::from_str::<Value>(stdout) {
+        Ok(Value::Object(map)) => result_from_map(&map),
+        Ok(_) => HookResult::default(),
+        Err(_) => restrictive_prefix_result(stdout),
+    }
+}
+
+/// Stdout that is not exactly one JSON document (a JSON object followed by a stray log line, two
+/// objects, prose that starts with `{`). The first complete JSON value is read, and only what can
+/// stop the tool is honoured: a deny, an ask, an unrecognised decision (deny) or `continue: false`.
+/// An allow, `updatedInput` and `additionalContext` from such output are ignored, so ambiguous
+/// output never widens authority; with nothing restrictive in it, the result is "no decision", as
+/// before.
+fn restrictive_prefix_result(stdout: &str) -> HookResult {
+    let Some(Ok(Value::Object(map))) = serde_json::Deserializer::from_str(stdout)
+        .into_iter::<Value>()
+        .next()
+    else {
         return HookResult::default();
     };
+    let parsed = result_from_map(&map);
+    let mut result = HookResult::default();
+    if matches!(
+        parsed.decision,
+        Some(HookDecision::Deny) | Some(HookDecision::Ask) | Some(HookDecision::Defer)
+    ) {
+        result.decision = parsed.decision;
+        result.reason = parsed.reason.clone();
+    }
+    if !parsed.continue_ {
+        result.continue_ = false;
+        result.stop_reason = parsed.stop_reason;
+        if result.reason.is_none() {
+            result.reason = parsed.reason;
+        }
+    }
+    result
+}
+
+fn result_from_map(map: &serde_json::Map<String, Value>) -> HookResult {
     let specific = map.get("hookSpecificOutput").and_then(Value::as_object);
     let lookup = |top: &str, nested: &str| -> Option<&Value> {
         map.get(top)
@@ -183,6 +253,7 @@ fn parse_result_json(stdout: &str) -> HookResult {
             match decision.as_str().map(str::to_ascii_lowercase).as_deref() {
                 Some("allow") | Some("approve") => HookDecision::Allow,
                 Some("ask") => HookDecision::Ask,
+                Some("defer") => HookDecision::Defer,
                 Some("deny") | Some("block") => HookDecision::Deny,
                 // A gate that answers with something unintelligible must not
                 // silently allow.
@@ -203,6 +274,9 @@ fn parse_result_json(stdout: &str) -> HookResult {
     if let Some(context) = lookup("additionalContext", "additionalContext").and_then(Value::as_str)
     {
         result.additional_context = Some(context.to_string());
+    }
+    if let Some(output) = lookup("updatedOutput", "updatedOutput").and_then(Value::as_str) {
+        result.updated_output = Some(output.to_string());
     }
     if let Some(false) = map.get("continue").and_then(Value::as_bool) {
         result.continue_ = false;
@@ -247,6 +321,14 @@ pub struct HookSpec {
     pub command: String,
     pub timeout: Duration,
     pub kind: HookKind,
+    /// A `PostToolUse` command hook that may rewrite the tool result (`"rewrite": true`). The
+    /// engine awaits it before the result is stored; every other hook stays fire-and-forget.
+    pub rewrite: bool,
+    /// `"onFailure": "block"`: a failure of this hook (exit 1 or any other non-zero code that is
+    /// not a decision, a start failure, a timeout, a signal kill, an unreadable answer) denies
+    /// the event instead of being a non-blocking error. Without it, only a fail-closed event
+    /// (`PreToolUse`) denies on those failures.
+    pub block_on_failure: bool,
 }
 
 impl HookSpec {
@@ -256,7 +338,19 @@ impl HookSpec {
             command: command.into(),
             timeout: DEFAULT_HOOK_TIMEOUT,
             kind: HookKind::Command,
+            rewrite: false,
+            block_on_failure: false,
         }
+    }
+
+    pub fn with_block_on_failure(mut self) -> Self {
+        self.block_on_failure = true;
+        self
+    }
+
+    pub fn with_rewrite(mut self) -> Self {
+        self.rewrite = true;
+        self
     }
 
     pub fn with_kind(mut self, kind: HookKind) -> Self {
@@ -321,11 +415,33 @@ fn spec_from_entry(entry: &Value, inherited_matcher: Option<&str>) -> Result<Hoo
         Some("mcp") => HookKind::Mcp,
         Some(other) => return Err(format!("unknown hook type `{other}` (command, url or mcp)")),
     };
+    let rewrite = entry
+        .get("rewrite")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    if rewrite && kind != HookKind::Command {
+        return Err("only a command hook can set \"rewrite\"".to_string());
+    }
+    let block_on_failure = match entry.get("onFailure") {
+        None => false,
+        Some(value) => match value.as_str() {
+            Some("block") => true,
+            Some("continue") => false,
+            _ => {
+                return Err("hook \"onFailure\" must be \"block\" or \"continue\"".to_string());
+            }
+        },
+    };
+    if block_on_failure && kind != HookKind::Command {
+        return Err("only a command hook can set \"onFailure\"".to_string());
+    }
     Ok(HookSpec {
         matcher,
         command: command.to_string(),
         timeout,
         kind,
+        rewrite,
+        block_on_failure,
     })
 }
 
@@ -510,6 +626,8 @@ pub struct ChainReport {
     pub updated_input: Option<Value>,
     /// `additionalContext` from each hook, in order.
     pub additional_context: Vec<String>,
+    /// The last `updatedOutput` a hook returned (a `PostToolUse` rewrite).
+    pub updated_output: Option<String>,
     /// Non-blocking failures.
     pub errors: Vec<String>,
     /// The subset of `errors` where a hook could not run at all (timeout or failure to start), as
@@ -533,6 +651,11 @@ impl ChainReport {
     }
 }
 
+/// Largest tool-arguments JSON passed to a hook in `RIGHTKIT_HOOK_ARGS_JSON`. Linux `execve`
+/// fails with E2BIG for any single string over `MAX_ARG_STRLEN` (128 KiB) and Windows limits the
+/// whole environment block to 32 Ki characters; 120 KiB leaves room for the variable name.
+const MAX_HOOK_ARGS_ENV_BYTES: usize = if cfg!(windows) { 32 * 1024 } else { 120 * 1024 };
+
 /// Run `specs` in order for `event`.
 ///
 /// `input` is the mutable payload (tool arguments for `PreToolUse`); it is
@@ -550,13 +673,20 @@ pub async fn run_chain(
 ) -> ChainReport {
     let mut report = ChainReport::default();
     let mut current = input.cloned();
-    let closed = fails_closed(event);
+    let fail_closed_event = fails_closed(event);
 
     // Only command hooks run here; URL and MCP hooks are daemon sinks (fire-and-forget).
     for spec in specs
         .iter()
         .filter(|spec| spec.kind == HookKind::Command && spec.matches(target))
     {
+        // This hook's failure denies: the event fails closed, or the hook asked for it.
+        let closed = fail_closed_event || spec.block_on_failure;
+        let closed_note = if fail_closed_event {
+            "fail closed"
+        } else {
+            "onFailure: block"
+        };
         let mut envs: Vec<(&'static str, String)> = vec![
             ("RIGHTKIT_HOOK_EVENT", event.to_string()),
             ("RIGHTKIT_HOOK_SESSION", session_id.to_string()),
@@ -565,7 +695,23 @@ pub async fn run_chain(
             envs.push(("RIGHTKIT_HOOK_TOOL", tool.to_string()));
         }
         if let Some(value) = &current {
-            envs.push(("RIGHTKIT_HOOK_ARGS_JSON", value.to_string()));
+            let args_json = value.to_string();
+            // execve fails with E2BIG on an oversized environment; refuse up front with a cause.
+            if args_json.len() > MAX_HOOK_ARGS_ENV_BYTES {
+                let message = format!(
+                    "{event} hook `{}` cannot inspect {}-byte tool arguments (limit {} bytes); pass large content another way",
+                    hook_label(&spec.command),
+                    args_json.len(),
+                    MAX_HOOK_ARGS_ENV_BYTES
+                );
+                if closed {
+                    return report.deny(format!("{message} ({closed_note})"));
+                }
+                report.unrunnable.push(message.clone());
+                report.errors.push(message);
+                continue;
+            }
+            envs.push(("RIGHTKIT_HOOK_ARGS_JSON", args_json));
         }
         envs.extend(extra_envs.iter().cloned());
         for (name, _) in envs.iter_mut() {
@@ -585,7 +731,7 @@ pub async fn run_chain(
                     spec.timeout.as_secs_f64()
                 );
                 if closed {
-                    return report.deny(format!("{message} (fail closed)"));
+                    return report.deny(format!("{message} ({closed_note})"));
                 }
                 report.unrunnable.push(message.clone());
                 report.errors.push(message);
@@ -599,11 +745,33 @@ pub async fn run_chain(
                     hook_label(&spec.command)
                 );
                 if closed {
-                    return report.deny(format!("{message} (fail closed)"));
+                    return report.deny(format!("{message} ({closed_note})"));
                 }
                 report.unrunnable.push(message.clone());
                 report.errors.push(message);
                 continue;
+            }
+            // The hook runs through a shell, so a missing or non-executable command still
+            // "starts": the shell reports it as exit 127/126 (`sh`) or 9009 (`cmd`). For a
+            // fail-closed event that is the same case as above (rule 54), not a hook error.
+            Ok(Ok(output)) if closed && matches!(output.status.code(), Some(126 | 127 | 9009)) => {
+                return report.deny(format!(
+                    "{event} hook `{}` could not run (exit {}): {} ({closed_note})",
+                    hook_label(&spec.command),
+                    output.status.code().unwrap_or_default(),
+                    hook_label(&String::from_utf8_lossy(&output.stderr))
+                ));
+            }
+            Ok(Ok(output))
+                if closed
+                    && output.status.code() == Some(0)
+                    && is_truncated_json_object(&output.stdout) =>
+            {
+                return report.deny(format!(
+                    "{event} hook `{}` printed a JSON object cut at the {} byte capture limit ({closed_note})",
+                    hook_label(&spec.command),
+                    HOOK_STDOUT_CAPTURE_LIMIT
+                ));
             }
             Ok(Ok(output)) => parse_hook_output(
                 output.status.code(),
@@ -615,12 +783,17 @@ pub async fn run_chain(
         };
         let result = match parsed {
             ParsedHook::Error(message) => {
+                // Exit 1 or another non-zero code is a non-blocking error unless the hook said
+                // `"onFailure": "block"`.
+                if spec.block_on_failure {
+                    return report.deny(format!("{message} (onFailure: block)"));
+                }
                 report.errors.push(message);
                 continue;
             }
             ParsedHook::Terminated(message) => {
                 if closed {
-                    return report.deny(format!("{message} (fail closed)"));
+                    return report.deny(format!("{message} ({closed_note})"));
                 }
                 report.errors.push(message);
                 continue;
@@ -630,6 +803,9 @@ pub async fn run_chain(
 
         if let Some(context) = result.additional_context {
             report.additional_context.push(context);
+        }
+        if let Some(output) = result.updated_output {
+            report.updated_output = Some(output);
         }
         if let Some(updated) = result.updated_input {
             if current.is_some() {
@@ -659,6 +835,17 @@ pub async fn run_chain(
                 if report.decision != Some(HookDecision::Ask) {
                     report.decision = Some(HookDecision::Ask);
                     report.reason = result.reason;
+                }
+            }
+            Some(HookDecision::Defer) => {
+                // Held like an `ask` (it outranks an allow), with the hook's own reason under a
+                // "deferred" heading so the model and the operator see what happened.
+                if report.decision != Some(HookDecision::Ask) {
+                    report.decision = Some(HookDecision::Ask);
+                    report.reason = Some(match result.reason {
+                        Some(reason) => format!("deferred by {event} hook: {reason}"),
+                        None => format!("deferred by {event} hook"),
+                    });
                 }
             }
             Some(HookDecision::Allow) if report.decision.is_none() => {

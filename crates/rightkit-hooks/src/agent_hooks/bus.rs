@@ -242,12 +242,16 @@ pub struct HookSubscription {
 }
 
 impl HookSubscription {
-    /// Await the next event. Returns `None` if the bus is closed or events were lagged out.
+    /// Await the next event. Returns `None` if the bus is closed. A lagging subscriber skips
+    /// the dropped events (reported on stderr) and keeps receiving.
     pub async fn recv(&mut self) -> Option<HookEvent> {
         loop {
             match self.rx.recv().await {
                 Ok(ev) => return Some(ev),
-                Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(broadcast::error::RecvError::Lagged(skipped)) => {
+                    eprintln!("hook subscriber lagged; {skipped} events dropped");
+                    continue;
+                }
                 Err(broadcast::error::RecvError::Closed) => return None,
             }
         }
@@ -262,7 +266,40 @@ pub struct HookBus {
     launch_context: rightkit_sandbox::execution::ProcessLaunchContext,
     /// Hooks from the `[hooks]` config key and the project hook file; shared by every clone.
     configured: std::sync::Arc<std::sync::RwLock<crate::agent_hooks::chain::ConfiguredHooks>>,
+    /// The host's revocation check (`true` = revoked, skip it); shared by every clone.
+    revoked: std::sync::Arc<std::sync::RwLock<Option<HookRevocationFilter>>>,
+    /// The host's sender for `url` hooks of the events this bus runs through the chain; shared
+    /// by every clone.
+    url_sink: std::sync::Arc<std::sync::RwLock<Option<HookUrlSink>>>,
 }
+
+/// Host-supplied sender of a `url` hook's POST (`url`, JSON body), fire-and-forget. The chain
+/// runs command hooks only; the host owns the network policy for URLs.
+pub type HookUrlSink = std::sync::Arc<dyn Fn(String, serde_json::Value) + Send + Sync>;
+
+/// Events the host's runner already serves `url` hooks for, because they are published on the
+/// bus; the chain must not post them a second time.
+const BUS_PUBLISHED_EVENTS: &[&str] = &[
+    "SessionStart",
+    "SessionEnd",
+    "PreToolUse",
+    "PostToolUse",
+    "PostToolUseFailure",
+    "UserPromptSubmit",
+    "Compaction",
+    "PreCompact",
+    "Stop",
+    "SubagentStop",
+    "Notification",
+    "PreCommit",
+];
+
+/// Host-supplied test of whether an identified hook is revoked. The host decides the identity
+/// (the daemon uses a stable key over what the hook does, not its list position) and reads its
+/// live revocation registry on every call, so a revocation made after the session started
+/// applies to the next event.
+pub type HookRevocationFilter =
+    std::sync::Arc<dyn Fn(&crate::agent_hooks::registry::IdentifiedHook) -> bool + Send + Sync>;
 
 impl HookBus {
     /// Create a new hook bus with the given buffer capacity.
@@ -281,6 +318,8 @@ impl HookBus {
                 network_required: false,
             },
             configured: Default::default(),
+            revoked: Default::default(),
+            url_sink: Default::default(),
         }
     }
 
@@ -295,6 +334,8 @@ impl HookBus {
             launcher,
             launch_context,
             configured: Default::default(),
+            revoked: Default::default(),
+            url_sink: Default::default(),
         }
     }
 
@@ -306,6 +347,80 @@ impl HookBus {
             .configured
             .write()
             .unwrap_or_else(std::sync::PoisonError::into_inner) = hooks;
+    }
+
+    /// Install the host's revocation check. Every chain this bus runs (`PreToolUse` and every
+    /// other event through [`specs_for`](Self::specs_for)) skips a hook it reports revoked, so a
+    /// revoked command hook does not run in the engine either (audit 2026-11-05 round 2,
+    /// finding 3). Every clone of this bus sees the change.
+    pub fn set_revocation_filter(&self, filter: HookRevocationFilter) {
+        *self
+            .revoked
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(filter);
+    }
+
+    /// Install the host's `url` hook sender. Every clone of this bus sees the change.
+    pub fn set_url_sink(&self, sink: HookUrlSink) {
+        *self
+            .url_sink
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(sink);
+    }
+
+    /// POST the event to each `url` hook of a chain-fired event, with the fields a command hook
+    /// gets as environment variables.
+    fn post_url_hooks(
+        &self,
+        specs: &[crate::agent_hooks::chain::HookSpec],
+        event: &str,
+        session_id: &str,
+        target: Option<&str>,
+        extra_envs: &[(&'static str, String)],
+    ) {
+        if BUS_PUBLISHED_EVENTS.contains(&event) {
+            return;
+        }
+        let Some(sink) = self
+            .url_sink
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+        else {
+            return;
+        };
+        let mut env = serde_json::Map::new();
+        env.insert(
+            crate::agent_hooks::host_env_name("RIGHTKIT_HOOK_EVENT").into(),
+            event.into(),
+        );
+        env.insert(
+            crate::agent_hooks::host_env_name("RIGHTKIT_HOOK_SESSION").into(),
+            session_id.into(),
+        );
+        if let Some(tool) = target {
+            env.insert(
+                crate::agent_hooks::host_env_name("RIGHTKIT_HOOK_TOOL").into(),
+                tool.into(),
+            );
+        }
+        for (name, value) in extra_envs {
+            env.insert(
+                crate::agent_hooks::host_env_name(name).into(),
+                value.clone().into(),
+            );
+        }
+        let body = serde_json::json!({
+            "event": event,
+            "sessionId": session_id,
+            "tool": target,
+            "env": env,
+        });
+        for spec in specs.iter().filter(|spec| {
+            spec.kind == crate::agent_hooks::chain::HookKind::Url && spec.matches(target)
+        }) {
+            sink(spec.command.clone(), body.clone());
+        }
     }
 
     pub(crate) fn configured_specs_labelled(
@@ -321,17 +436,23 @@ impl HookBus {
     /// Every hook for `event`, in execution order: the `[hooks]` key, the project file, then the
     /// `RIGHTKIT_HOOKS_JSON` entries. An invalid surface is an error (fail closed for
     /// `PreToolUse`).
+    /// A hook the host's revocation filter reports revoked is left out, identified exactly as
+    /// [`hooks_for`](Self::hooks_for) identifies it for the list, revoke and test routes.
     pub fn specs_for(
         &self,
         event: &str,
     ) -> Result<Vec<crate::agent_hooks::chain::HookSpec>, String> {
-        let mut specs = self
-            .configured
+        let filter = self
+            .revoked
             .read()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .specs(event)?;
-        specs.extend(crate::agent_hooks::chain::env_hook_specs(event)?);
-        Ok(specs)
+            .clone();
+        Ok(self
+            .hooks_for(event)?
+            .into_iter()
+            .filter(|hook| !filter.as_ref().is_some_and(|is_revoked| is_revoked(hook)))
+            .map(|hook| hook.spec)
+            .collect())
     }
 
     /// Subscribe to future events.
@@ -462,6 +583,7 @@ impl HookBus {
                 return report;
             }
         };
+        self.post_url_hooks(&specs, event, session_id, target, extra_envs);
         crate::agent_hooks::chain::run_chain(
             &self.launcher,
             &self.launch_context,
@@ -473,6 +595,68 @@ impl HookBus {
             extra_envs,
         )
         .await
+    }
+
+    /// Run the `PostToolUse` command hooks that declare `"rewrite": true`, in order, and wait for
+    /// each (bounded by its own timeout). The tool result is in `RIGHTKIT_HOOK_RESULT`; a hook
+    /// answers with `{"updatedOutput": "..."}` to replace it and/or `{"additionalContext": "..."}`
+    /// to append a note. Returns the new text, or `None` when nothing changed. A hook that fails
+    /// or times out leaves the result as it was. Hooks without `rewrite` are not run here: the
+    /// daemon's hook runner serves them fire-and-forget.
+    pub async fn rewrite_post_tool_result(
+        &self,
+        session_id: &str,
+        tool: &str,
+        is_error: bool,
+        content: &str,
+    ) -> Option<String> {
+        // One env string must stay under the kernel's limit (see `MAX_HOOK_ARGS_ENV_BYTES`).
+        const MAX_RESULT_ENV_BYTES: usize = 100 * 1024;
+        let specs: Vec<crate::agent_hooks::chain::HookSpec> = self
+            .specs_for("PostToolUse")
+            .ok()?
+            .into_iter()
+            .filter(|spec| spec.rewrite)
+            .collect();
+        if specs.is_empty() {
+            return None;
+        }
+        let mut current = content.to_string();
+        let mut changed = false;
+        for spec in &specs {
+            let mut end = current.len().min(MAX_RESULT_ENV_BYTES);
+            while !current.is_char_boundary(end) {
+                end -= 1;
+            }
+            let envs = vec![
+                ("RIGHTKIT_HOOK_RESULT", current[..end].to_string()),
+                (
+                    "RIGHTKIT_HOOK_IS_ERROR",
+                    if is_error { "1" } else { "0" }.to_string(),
+                ),
+            ];
+            let report = crate::agent_hooks::chain::run_chain(
+                &self.launcher,
+                &self.launch_context,
+                std::slice::from_ref(spec),
+                "PostToolUse",
+                session_id,
+                Some(tool),
+                None,
+                &envs,
+            )
+            .await;
+            if let Some(output) = report.updated_output {
+                current = output;
+                changed = true;
+            }
+            for note in report.additional_context {
+                current.push_str("\n\n");
+                current.push_str(&note);
+                changed = true;
+            }
+        }
+        changed.then_some(current)
     }
 
     /// True when any `PreToolUse` hook is configured (or the configuration is
@@ -510,13 +694,30 @@ impl HookBus {
         reason: &str,
         consecutive_blocks: usize,
     ) -> HookOutcome {
-        let extras = vec![
+        self.run_blocking_stop_event_for_role(event, session_id, reason, consecutive_blocks, None)
+            .await
+    }
+
+    /// [`run_blocking_stop_event`](Self::run_blocking_stop_event) for a sub-agent: its role is in
+    /// `RIGHTKIT_HOOK_ROLE`, as it is for the `SubagentStart` hooks.
+    pub async fn run_blocking_stop_event_for_role(
+        &self,
+        event: &str,
+        session_id: &str,
+        reason: &str,
+        consecutive_blocks: usize,
+        role: Option<&str>,
+    ) -> HookOutcome {
+        let mut extras = vec![
             ("RIGHTKIT_HOOK_REASON", reason.to_string()),
             (
                 "RIGHTKIT_HOOK_CONSECUTIVE_BLOCKS",
                 consecutive_blocks.to_string(),
             ),
         ];
+        if let Some(role) = role {
+            extras.push(("RIGHTKIT_HOOK_ROLE", role.to_string()));
+        }
         self.run_blocking_event(
             event,
             session_id,
