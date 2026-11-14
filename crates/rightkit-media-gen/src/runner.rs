@@ -138,12 +138,17 @@ pub fn drain_job_logs(ctx: &crate::Context, live: &std::collections::HashSet<Str
 /// Resume every recoverable job (§3 Jobs): called at sidecar start and by
 /// every CLI invocation, so interrupted work continues on the next start.
 /// A job store that cannot be opened is returned, never treated as "no jobs".
+/// Uses [`crate::Context::production`] (the host's [`crate::set_context_factory`] context).
 pub fn resume_recoverable() -> crate::GenResult<()> {
-    let ctx = crate::Context::production();
-    let recoverable = crate::api::recoverable_jobs(&ctx)?;
-    drain_job_logs(&ctx, &recoverable.iter().cloned().collect());
+    resume_recoverable_with(&crate::Context::production())
+}
+
+/// [`resume_recoverable`] over a context the caller built.
+pub fn resume_recoverable_with(ctx: &crate::Context) -> crate::GenResult<()> {
+    let recoverable = crate::api::recoverable_jobs(ctx)?;
+    drain_job_logs(ctx, &recoverable.iter().cloned().collect());
     for id in recoverable {
-        spawn_job_runner(&ctx, &id);
+        spawn_job_runner(ctx, &id);
     }
     Ok(())
 }

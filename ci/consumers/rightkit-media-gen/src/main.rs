@@ -1,4 +1,4 @@
-// rightkit-media-gen 0.2.0 consumed by exact registry pin (default features), outside the workspace.
+// rightkit-media-gen 0.2.1 consumed by exact registry pin (default features), outside the workspace.
 // Cheap checks on the public surface; no provider keys, no network, no models.
 use std::collections::BTreeSet;
 
