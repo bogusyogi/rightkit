@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.1
+
+- Breaking for dependents: a dependency requirement was raised to a semver-breaking version.
+
 ## 0.2.0
 
 - Breaking for dependents: dependency requirements `rightkit-automation` 0.6 -> 0.7, `rightkit-dictation-core` 0.2 -> 0.3, `rightkit-logs` 0.3 -> 0.4. 0.1.0 was published before these requirements were raised; a semver-breaking dependency is a breaking change, so they ship as 0.2.0 instead of changing 0.1.0 in place (#1572). No source change in this crate since 0.1.0.

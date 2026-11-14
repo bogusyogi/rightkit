@@ -49,6 +49,12 @@ pub enum TranscriptMessage {
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         tool_calls: Vec<ToolCall>,
         pinned: bool,
+        /// Which provider and model produced this message. Absent on messages stored before
+        /// the tag existed and on synthetic messages. A session can change model or vendor
+        /// between turns; the history transform uses this to drop another model's reasoning
+        /// instead of guessing from tool-call id shapes.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        origin: Option<MessageOrigin>,
     },
 
     /// The result of a tool call. `summary` is the compact transcript line; the full (possibly
@@ -208,4 +214,12 @@ impl TranscriptMessage {
             _ => Vec::new(),
         }
     }
+}
+
+/// The provider route and model that produced an assistant message.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MessageOrigin {
+    pub provider: String,
+    pub model: String,
 }

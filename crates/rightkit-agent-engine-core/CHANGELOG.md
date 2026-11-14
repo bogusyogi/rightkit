@@ -12,6 +12,8 @@
 
 ## Unreleased
 
+- Builds against the protocol's new `origin` and `phase` fields: the assistant messages and completion events the engine emits carry `origin: None` and `phase: final`. No behaviour change.
+
 - Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
 
 ## 0.1.0 (unreleased)

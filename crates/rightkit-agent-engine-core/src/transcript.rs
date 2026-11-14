@@ -72,6 +72,7 @@ impl Transcript {
             reasoning_content: reasoning,
             tool_calls,
             pinned: false,
+            origin: None,
         });
         self.messages.last().unwrap()
     }

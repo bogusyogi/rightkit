@@ -185,6 +185,7 @@ pub fn rehydrate_engine_context(
                         reasoning_content: None,
                         tool_calls: declared,
                         pinned: false,
+                        origin: None,
                     });
                 }
                 messages.push(result);
@@ -238,6 +239,7 @@ pub fn rehydrate_engine_context(
             reasoning_content: None,
             tool_calls: pending_calls,
             pinned: false,
+            origin: None,
         });
     }
     messages

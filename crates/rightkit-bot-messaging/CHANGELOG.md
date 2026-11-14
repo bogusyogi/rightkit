@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.0
+
+- Breaking for dependents: a dependency requirement was raised to a semver-breaking version.
+
 ## 0.1.2 (unpublished)
 
 - Added `telegram_poll`: the Telegram transport that was a private module of `rightkit-agent-server` (the long-poll loop `run_telegram_bot`, the Bot API calls, the HTTP `DaemonClient` over the daemon's `/sessions` and `/remote` routes, `TelegramRuntimeStatus` and its store, backoff). Moved unchanged except that the binding store path is a parameter (the host picks it; the `.coderight` fallback stays in the host). Taken on the recommended option of the 2026-11-11 shape review, pending the owner's confirmation; design note: docs/audits/2026-11-11-shape-matrix/reports/agent-platform-redraw.md. New dependencies: `tracing` 0.1 and `rightkit-http`'s `agent_host` feature.

@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-shorts"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Shorts finder for Right Suite video apps: candidate moments from a long video's transcript, scored and ranked (heuristics plus an optional BYOK LLM pass), with hooks, captions and edit plans per short."
@@ -33,7 +33,7 @@ rightkit-transcript = { version = "0.4.0", path = "../rightkit-transcript" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0" }
 thiserror = { version = "2.0" }
-rightkit-llm = { version = "0.3.2", path = "../rightkit-llm" }
+rightkit-llm = { version = "0.4.0", path = "../rightkit-llm" }
 rightkit-credentials = { version = "0.5.0", path = "../rightkit-credentials" }
 
 # rightkit-typeset's citationberg 0.7.0 pins quick-xml 0.38.4 (RUSTSEC-2026-0194, RUSTSEC-2026-0195); a [patch] does not reach

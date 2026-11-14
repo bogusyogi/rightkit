@@ -37,18 +37,18 @@ pub use approvals::{
 pub use artifact::{ArtifactApproval, ArtifactRow, ArtifactVerdict};
 pub use effect_settlement::ExternalEffectSettlement;
 pub use event::{
-    AgentRosterRow, CompactionFederationDecisionV1, CompactionFederationSelectionReceiptV1,
-    MiddlewareDecisionEvidence, ModelRouteDecisionPayload, OrchestrationObservation, PriceSnapshot,
-    ProtocolEvent, ProtocolEventMeta, RunBudgetExhausted, RunBudgetKind, RunFailureKind,
-    RunOriginFailure, RunOwnershipAction, RunOwnershipFailure, SelfReviewProposalDraft,
-    SelfReviewProposalKind, SessionUsageRollup, ShellExitStatus, UserQuestion, UserQuestionOption,
-    VerificationIssue, COMPACTION_FEDERATION_SCHEMA_V1,
+    AgentRosterRow, AssistantMessagePhase, CompactionFederationDecisionV1,
+    CompactionFederationSelectionReceiptV1, MiddlewareDecisionEvidence, ModelRouteDecisionPayload,
+    OrchestrationObservation, PriceSnapshot, ProtocolEvent, ProtocolEventMeta, RunBudgetExhausted,
+    RunBudgetKind, RunFailureKind, RunOriginFailure, RunOwnershipAction, RunOwnershipFailure,
+    SelfReviewProposalDraft, SelfReviewProposalKind, SessionUsageRollup, ShellExitStatus,
+    UserQuestion, UserQuestionOption, VerificationIssue, COMPACTION_FEDERATION_SCHEMA_V1,
 };
 pub use ids::{
     assistant_message_id, is_canonical_uuid_v7, message_id, tool_call_origin_id, tool_result_id,
     uuid_v7,
 };
-pub use message::TranscriptMessage;
+pub use message::{MessageOrigin, TranscriptMessage};
 pub use op::Op;
 pub use protocol::{AskForApproval, GranularApprovalConfig, NetworkAccess};
 pub use references::{ReferenceMeta, ReferenceProvenance};
@@ -68,4 +68,7 @@ pub use time::now_iso;
 pub use tool::ToolCall;
 pub use tool_output::{ToolOutputNotifier, ToolOutputStream};
 pub use traits::{ArtifactTrustStore, SessionConduit};
-pub use trust::{ContentTrust, TrustEnvelope};
+pub use trust::{
+    neutralize_boundary_tags, set_untrusted_context_tag, untrusted_context_tag, ContentTrust,
+    TrustEnvelope, DEFAULT_UNTRUSTED_CONTEXT_TAG,
+};

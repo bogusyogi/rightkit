@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.1
+
+- Breaking for dependents: a dependency requirement was raised to a semver-breaking version.
+
 ## 0.2.0 (unpublished)
 
 Taken on the recommended option of the shape review (`docs/audits/2026-11-11-shape-matrix/reports/cut-post-redraw.md`), pending the owner's confirmation.

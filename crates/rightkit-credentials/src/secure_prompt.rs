@@ -7,7 +7,20 @@
 //! nothing persisted: two boxes, a visible one and a masked one. Raw declarations, so no `windows`
 //! crate version is added. Other systems answer an error: apps there ask with a native secure field.
 
+use std::sync::OnceLock;
+
 use zeroize::Zeroizing;
+
+/// The error [`ask`] returns where the system has no prompt, as the host set it.
+#[cfg_attr(windows, allow(dead_code))]
+static UNSUPPORTED: OnceLock<String> = OnceLock::new();
+
+/// Set the error [`ask`] returns on a system with no native prompt (anything but Windows), for a host
+/// whose own wording points the user at what it does there. Only the first call takes effect; returns
+/// `false` otherwise. Without it the error is this crate's generic one.
+pub fn set_unsupported_message(message: impl Into<String>) -> bool {
+    UNSUPPORTED.set(message.into()).is_ok()
+}
 
 /// What the dialog collected: the visible box and the masked box (wiped on drop).
 pub struct Entered {
@@ -122,5 +135,7 @@ pub fn ask(target: &str, caption: &str, message: &str) -> Result<Option<Entered>
 /// Open the system credential dialog (unsupported on this system).
 #[cfg(not(windows))]
 pub fn ask(_target: &str, _caption: &str, _message: &str) -> Result<Option<Entered>, String> {
-    Err("No native secret prompt on this system: ask with the platform's own secure field (for example a SwiftUI `SecureField`).".to_string())
+    Err(UNSUPPORTED.get().cloned().unwrap_or_else(|| {
+        "No native secret prompt on this system: ask with the platform's own secure field (for example a SwiftUI `SecureField`).".to_string()
+    }))
 }
