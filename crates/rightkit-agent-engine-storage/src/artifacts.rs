@@ -3,6 +3,27 @@ use crate::Storage;
 use rightkit_agent_engine_protocol::ArtifactRow;
 use rightkit_db::rusqlite::OptionalExtension;
 use std::path::{Component, Path};
+use std::sync::OnceLock;
+
+/// `producer` written on browser evidence artifacts unless the host sets its own.
+pub const DEFAULT_BROWSER_ARTIFACT_PRODUCER: &str = "rightkit-browser";
+
+static BROWSER_ARTIFACT_PRODUCER: OnceLock<String> = OnceLock::new();
+
+/// Sets the `producer` value of browser artifacts the store records (for example `myapp-browser`).
+/// Call once at start-up; returns `false` when one was already set. Rows already stored keep
+/// the value they were written with.
+pub fn set_browser_artifact_producer(producer: &str) -> bool {
+    BROWSER_ARTIFACT_PRODUCER.set(producer.to_string()).is_ok()
+}
+
+/// The browser artifact producer in force.
+pub fn browser_artifact_producer() -> &'static str {
+    BROWSER_ARTIFACT_PRODUCER
+        .get()
+        .map(String::as_str)
+        .unwrap_or(DEFAULT_BROWSER_ARTIFACT_PRODUCER)
+}
 
 impl Storage {
     /// Record browser evidence in the existing artifact store. The primitive
@@ -61,7 +82,7 @@ impl Storage {
             kind: format!("browser-{kind}"),
             content_hash: format!("sha256:{digest}"),
             shippable: false,
-            producer: "rightkit-browser".to_string(),
+            producer: browser_artifact_producer().to_string(),
             provenance: format!(
                 "browser-session:{};observation-epoch:{}",
                 browser_session_id, observation_epoch
