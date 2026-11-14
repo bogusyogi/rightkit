@@ -31,6 +31,8 @@
       "types": "./dist/shell/index.d.ts",
       "import": "./dist/shell/index.js"
     },
+    "./onboarding.css": "./dist/onboarding/stepCount.css",
+    "./shell.css": "./dist/shell/settings-tabs.css",
     "./package.json": "./package.json"
   },
   "files": [

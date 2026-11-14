@@ -1439,14 +1439,19 @@ impl OwnedChild {
         // console leader. It is the leader's own console, not something the leader left running, so
         // it is never a member. A table that cannot be read excludes nothing: the host is then
         // listed, never hidden on a guess.
+        //
+        // The console host also exits a moment after the leader. The table is read after the job,
+        // so a member missing from a readable table, or one whose exit is seen while it is being
+        // identified, has already exited: it did not outlive the leader and is not listed either.
         #[cfg(windows)]
         if !pids.is_empty() {
             let table = crate::process_table().unwrap_or_default();
-            pids.retain(|pid| {
-                !table
-                    .iter()
-                    .any(|e| e.pid == *pid && e.parent_pid == leader && is_console_host(*pid))
-            });
+            if !table.is_empty() {
+                pids.retain(|pid| match table.iter().find(|e| e.pid == *pid) {
+                    None => false,
+                    Some(entry) => !is_leader_console_host(entry, leader),
+                });
+            }
         }
         pids.sort_unstable();
         pids.dedup();
@@ -1467,19 +1472,36 @@ impl OwnedChild {
         }
     }
 }
-/// Whether `pid` runs `conhost.exe` (compared without case). An unreadable process is not one.
+/// Whether a process-table entry is the leader's own console host (or exited while being read):
+/// a `conhost.exe` (compared without case) whose parent is the leader. The image is read from the
+/// process itself and, when that cannot be read, from its command line in the table. A process
+/// that cannot be identified is not one.
 #[cfg(windows)]
-fn is_console_host(pid: u32) -> bool {
-    NonZeroU32::new(pid)
-        .and_then(|pid| crate::AdoptedIdentity::capture(pid).ok().flatten())
-        .and_then(|identity| {
-            identity
-                .exe()
-                .and_then(|exe| exe.file_name())
-                .map(|name| name.eq_ignore_ascii_case("conhost.exe"))
-        })
-        .unwrap_or(false)
+fn is_leader_console_host(entry: &crate::ProcessEntry, leader: u32) -> bool {
+    if entry.parent_pid != leader {
+        return false;
+    }
+    match NonZeroU32::new(entry.pid).map(crate::AdoptedIdentity::capture) {
+        // Gone between the table and now: not a survivor.
+        Some(Ok(None)) => true,
+        Some(Ok(Some(identity))) => match identity.exe() {
+            Some(exe) => exe
+                .file_name()
+                .is_some_and(|name| name.eq_ignore_ascii_case("conhost.exe")),
+            None => command_line_is_console_host(entry),
+        },
+        _ => command_line_is_console_host(entry),
+    }
 }
+
+#[cfg(windows)]
+fn command_line_is_console_host(entry: &crate::ProcessEntry) -> bool {
+    entry.command_line.as_deref().is_some_and(|line| {
+        let line = line.trim_start_matches('"').to_ascii_lowercase();
+        line.starts_with("conhost.exe") || line.contains("\\conhost.exe")
+    })
+}
+
 /// A group listing that the host could not give (`None`: too large for one listing, or the
 /// enumeration failed while the group exists) is an error, never an empty tree: a caller that
 /// records survivors before a kill must not read "unknown" as "nobody".

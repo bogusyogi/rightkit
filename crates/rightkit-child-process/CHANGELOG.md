@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.13
+
+- Fixed (Windows): `OwnedChild::tree_members` no longer lists a member that has already exited. The member list is read from the job first and the console-host check ran afterwards, so a `conhost.exe` that exited in between was treated as unidentified and kept, and a caller recording survivors saw a false "descendant outlived the child" (`membrane where --json` on windows-2025, publish verify). A member missing from a readable process table, or gone while it is identified, is dropped; the leader's console host is also recognised by its table command line when its image cannot be read. A process table that cannot be read still excludes nothing. Source only: not compiled for a run or run on Windows.
+
 ## 0.5.12
 
 - Added `resolve_bundled`, `resolve_bundled_login_item` (with `LoginItemOptions`, an opt-in development fallback to a bare sibling executable, off by default) and `verify_team_signature` (`codesign --verify --strict` against a Developer ID team): the bundled-helper placement and signature checks that lived in `rightkit-credentials`, moved here unchanged. Added `launch_bundle(path, background, env)`: `open [-g] --env KEY=VALUE <app>` through LaunchServices (macOS; `Unsupported` elsewhere).
