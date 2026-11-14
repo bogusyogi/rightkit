@@ -63,8 +63,28 @@
 
 use axum::http::{HeaderMap, StatusCode};
 
+/// Name of the request header that carries the caller's source trust, unless the host sets its own.
+pub const DEFAULT_SOURCE_TRUST_HEADER: &str = "x-rightkit-agent-source-trust";
+
+static SOURCE_TRUST_HEADER: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+/// Sets the source-trust header name for the process (lower-case, a valid HTTP header name).
+/// Call once at start-up; returns `false` when the name is invalid or one was already set.
+pub fn set_source_trust_header(name: &str) -> bool {
+    axum::http::HeaderName::from_bytes(name.to_ascii_lowercase().as_bytes()).is_ok()
+        && SOURCE_TRUST_HEADER.set(name.to_ascii_lowercase()).is_ok()
+}
+
+/// The source-trust header name in force.
+pub fn source_trust_header() -> &'static str {
+    SOURCE_TRUST_HEADER
+        .get()
+        .map(String::as_str)
+        .unwrap_or(DEFAULT_SOURCE_TRUST_HEADER)
+}
+
 fn normalized_source_trust(headers: &HeaderMap) -> Result<Option<String>, StatusCode> {
-    let Some(source_trust) = headers.get("x-rightkit-agent-source-trust") else {
+    let Some(source_trust) = headers.get(source_trust_header()) else {
         return Ok(None);
     };
     let source_trust = source_trust.to_str().map_err(|_| StatusCode::BAD_REQUEST)?;
