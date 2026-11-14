@@ -1,4 +1,4 @@
-## Unreleased
+## 0.3.3
 
 Additive; existing exports and wire behaviour unchanged. `dist/appLicense.js` and `dist/appLicense.d.ts` join the published files.
 

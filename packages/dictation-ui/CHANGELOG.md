@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.5
 
 Added: `LicenseSettings` and `AccountSettings` in `@rightkit/dictation-ui/settings`, HeardRight's licence and account sections, so an app can delete its own copies. Markup, classes, wording and native calls equal HeardRight's shipped sections.
 
