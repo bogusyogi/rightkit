@@ -27,6 +27,10 @@
       "types": "./dist/tauri/index.d.ts",
       "import": "./dist/tauri/index.js"
     },
+    "./shell": {
+      "types": "./dist/shell/index.d.ts",
+      "import": "./dist/shell/index.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [

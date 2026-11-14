@@ -353,6 +353,8 @@ export interface DictationHostConfig {
   chordLabels?: Partial<Record<Platform, Record<string, string>>>;
   /** URL of the spoken-formatting guide linked from the Dictation page. */
   formattingGuideUrl?: string;
+  /** App shell (`@rightkit/dictation-ui/shell`): version and updater. */
+  shell?: DictationShellConfig;
   /** Replacement visual pieces; see `DictationComponents`. */
   components?: DictationComponents;
   /** Replacement class names; see `DictationClassNames`. */
@@ -385,6 +387,20 @@ export interface DictationOnboardingConfig {
   wakeWord: string;
   /** Written as `onboarding_version` when setup finishes. Default 3. */
   version?: number;
+}
+
+/** What the app shell (`@rightkit/dictation-ui/shell`) needs from the app's updater. Results are not read; rejections are swallowed by the shell where the app's code did. */
+export interface DictationShellConfig {
+  /** The installed version as shown, without the leading `v`. */
+  appVersion: string;
+  update: {
+    /** Manual update check (never installs). */
+    check(): Promise<unknown>;
+    /** Downloads the available update, waits for dictation work to finish, installs and relaunches. */
+    installAndRelaunch(): Promise<unknown>;
+    /** Restarts into the installed update. */
+    relaunch(): Promise<unknown>;
+  };
 }
 
 let config: DictationHostConfig = {};
@@ -440,6 +456,11 @@ export function hostOnboarding(): DictationOnboardingConfig {
 
 export function hostChordLabels(): NonNullable<DictationHostConfig["chordLabels"]> {
   return config.chordLabels ?? {};
+}
+
+export function hostShell(): DictationShellConfig {
+  if (!config.shell) throw new Error("@rightkit/dictation-ui: configureDictationHost({ shell }) was not called");
+  return config.shell;
 }
 
 export function hostComponents(): DictationComponents {

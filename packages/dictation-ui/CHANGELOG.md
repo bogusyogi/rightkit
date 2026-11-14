@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+Added: `@rightkit/dictation-ui/shell`, the app shell's sidebar status footer, so an app can delete its own copy. Markup, classes, wording, native calls and call order equal HeardRight's shipped sidebar footer.
+
+- Entry `./shell` (new): `SidebarStatusFooter({ updateStatus, onChange })` (Plan / Pro / Get Pro row, AI polish row, Apple sync row on macOS, update line) and `SidebarUpdateStatus` (also used by the narrow layout with `surface="narrow"`). `SidebarUpdateState` is the structural status type; `@rightkit/app-update`'s `AutoUpdateStatus` satisfies it, so this package takes no dependency on it.
+- Host contract, additive: `configureDictationHost({ shell: { appVersion, update: { check, installAndRelaunch, relaunch } } })` (`DictationShellConfig`, `hostShell()`). The footer also reads the existing `license.monitor`, `sync.cloudSyncStatus` and `hooks.useSettings` / default settings. Navigation data (labels, icons, ids) stays the host's.
+
 ## 0.2.6
 
 Added: `@rightkit/dictation-ui/onboarding`, HeardRight's first-run setup, so an app can delete its own copy. Markup, classes, wording, storage and native calls equal HeardRight's shipped setup.
