@@ -36,6 +36,12 @@ export const RUN_ENV_PROVIDERS = Object.freeze({
   cftSha256: { names: ["RK_R2_CFT_SHA256"], resolve: hexEnv("cftSha256", "RK_R2_CFT_SHA256") },
   // Only the Windows managed-CFT binding reads this name; elsewhere it is intentionally not set.
   headlessShellSha256: { names: ["RK_R2_HEADLESS_SHELL_SHA256"], platforms: ["win32"], resolve: hexEnv("headlessShellSha256", "RK_R2_HEADLESS_SHELL_SHA256") },
+  // Owner decision 2026-11-14: on a GitHub-hosted macOS runner nobody can answer the Keychain prompt Chrome raises for its
+  // Safe Storage item, so the rightkit-browser consumer runs Chrome with --use-mock-keychain there only. "0" everywhere else
+  // (a person's Mac, Windows): the crate and the apps always use the real keychain.
+  hostedMacMockKeychain: { names: ["RK_BROWSER_CI_MOCK_KEYCHAIN"], platforms: ["darwin"], resolve: ({ env }) => ({
+    RK_BROWSER_CI_MOCK_KEYCHAIN: env.GITHUB_ACTIONS === "true" && env.RUNNER_ENVIRONMENT === "github-hosted" ? "1" : "0",
+  }) },
   signedHelper: { names: ["RK_CONSUMER_HELPER_NAME", "RK_CONSUMER_HELPER_TEAM_ID"], platforms: ["darwin"], resolve: ({ env }) => {
     const name = env.RK_CONSUMER_HELPER_NAME; const team = env.RK_CONSUMER_HELPER_TEAM_ID;
     if (!/^[A-Za-z0-9._-]{1,64}$/.test(name ?? "") || !/^[A-Z0-9]{10}$/.test(team ?? "")) prerequisite("signedHelper", "workflow must provision the signed nested helper name & team id");
