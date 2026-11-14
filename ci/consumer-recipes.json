@@ -3898,7 +3898,7 @@
       "pkId": "PK175",
       "id": "ci/consumers/rightkit-clipboard-history/src/main.rs",
       "files": {
-        "Cargo.toml": "037c1619b3fd02c7430727a6df8e8ade68f4233513f3c745e942505659381dcc",
+        "Cargo.toml": "0dec35814eec40a7494f9261e9899ae5366dc6cca029b3f95409fcf2a7ca0a1b",
         "README.md": "03fc640729ef18cb032a0e1790f1360b99befaec06eb8ce01e1598950d18e3ce",
         "src/main.rs": "da06ffd0a22109dcf4f41e19b7ffb750eda055e2e5766a835fcc8509a8fe22b9"
       }

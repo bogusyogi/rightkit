@@ -10845,7 +10845,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-clipboard-history"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "rightkit-automation",
  "rightkit-child-process",
