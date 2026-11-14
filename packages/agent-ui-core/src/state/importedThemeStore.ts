@@ -1,7 +1,7 @@
 // the host app-only feature (VS Code theme import, activation, persistence): @rightkit/theme 0.3.1 has no imported-theme module, so nothing here duplicates a published RightKit capability.
 import { ensureContrast as ensureContrastHex, luminance, mix as mixHex, prefersDark, readableOn } from "@rightkit/theme";
 import { create } from "zustand";
-import { hostOption } from "../appName";
+import { hostOption } from "../appName.js";
 
 /**
  * Hermes lineage: themes/context.tsx + themes/install.ts.
