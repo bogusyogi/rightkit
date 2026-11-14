@@ -5,3 +5,7 @@ export { SidebarStatusFooter } from "./SidebarStatusFooter.js";
 export { default as SidebarUpdateStatus, type SidebarUpdateState } from "./SidebarUpdateStatus.js";
 export { default as FeatureReel, type FeatureReelImages } from "./FeatureReel.js";
 export * from "./featureReelState.js";
+export { SettingsTabs } from "./SettingsTabs.js";
+export * from "./settingsSync.js";
+export * from "./settingsRegistry.js";
+export { usePaletteCommands, usePaletteFocusRestore, type PaletteCommand } from "./palette.js";
