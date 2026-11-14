@@ -120,6 +120,24 @@ impl CompactionFederationDecisionV1 {
     }
 }
 
+/// Whether an `AssistantMessageCompleted` closes the turn or is followed by more
+/// work in the same turn (a steer, a blocking Stop hook, goal continuation).
+/// A turn ends only on `SessionTurnFinished` (issue 450), never on a completion.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AssistantMessagePhase {
+    Interim,
+    Final,
+}
+
+impl AssistantMessagePhase {
+    /// Phase of a stored row written before the field existed: each such row was
+    /// the visible answer of its turn.
+    pub fn legacy_default() -> Self {
+        Self::Final
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "$kind")]
 pub enum ProtocolEvent {
@@ -154,6 +172,11 @@ pub enum ProtocolEvent {
         seq: i64,
         created_at: String,
         message: TranscriptMessage,
+        /// `final` when the turn ends with this answer, `interim` when the turn
+        /// continues. Every emitter sets it. Rows stored before issue 450 carry
+        /// none and read as `final`, so rehydrated transcripts keep old replies.
+        #[serde(default = "AssistantMessagePhase::legacy_default")]
+        phase: AssistantMessagePhase,
     },
 
     #[serde(rename = "toolCallStarted", rename_all = "camelCase")]
