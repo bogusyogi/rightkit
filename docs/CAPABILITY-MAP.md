@@ -197,7 +197,7 @@ Capabilities: 222 (58 with fingerprints, 164 declaration-only). Internal owners 
 | social-analytics | `rightkit-social-analytics` | none | declaration-only | 0 | rightkit-social-analytics: staged 0.3.0, not published |
 | social-inbox | `rightkit-social-inbox` | none | declaration-only | 0 | rightkit-social-inbox: staged 0.3.1, not published |
 | social-publish | `rightkit-social-publish` | none | declaration-only | 0 | rightkit-social-publish: staged 0.2.0, not published |
-| social-ui | `@rightkit/social-ui` | none | declaration-only | 0 | @rightkit/social-ui: staged 0.2.0, not published |
+| social-ui | `@rightkit/social-ui` | none | declaration-only | 0 | @rightkit/social-ui: staged 0.2.1, not published |
 | speech-recognition | `rightkit-asr` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-asr: published 0.3.0 (crates.io) |
 | spend-ledger | `rightkit-spend` | none | declaration-only | 0 | rightkit-spend: published 0.2.0 (crates.io) |
 | spreadsheet | `rightkit-docs` | none | declaration-only | 0 | rightkit-docs: published 0.1.2 (crates.io) |

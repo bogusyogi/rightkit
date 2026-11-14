@@ -1,6 +1,6 @@
 {
   "name": "@rightkit/social-ui",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Social media management UI: accounts, drafts, approvals and analytics screens with their data layer.",
   "license": "MIT OR Apache-2.0",
   "type": "module",

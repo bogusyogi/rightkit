@@ -2,6 +2,7 @@
 // Invented inbox events for the first channel, one channel with none, and the unmatched events. Recipient ids,
 // sender ids, texts and event ids are fictional. Two texts look like markup and a link on purpose: the screens
 // must show them as plain text, inert. No event here was received from a real platform.
+import { hostAppName } from "../../appName.js";
 import type { InboxEvent, InboxStats, UnreadableRow } from "../types.js";
 import { SCOPE_ALPHA, SCOPE_GAMMA } from "./fixtures-optimise.js";
 
@@ -138,7 +139,9 @@ export const FIXTURE_INBOX: FixtureInboxRow[] = [
       recipientId: "fixture-fb-unknown",
       platformEventId: "fixture-comment-0005",
       senderId: "fixture-sender-0005",
-      text: "Fixture comment on a page App does not hold",
+      get text() {
+        return `Fixture comment on a page ${hostAppName()} does not hold`;
+      },
       eventTimeAsGiven: "2026-10-12T12:00:00Z",
       oversize: false,
       receivedAtUtc: "2026-10-12T12:00:20Z",

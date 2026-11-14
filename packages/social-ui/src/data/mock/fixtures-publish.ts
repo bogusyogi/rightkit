@@ -1,6 +1,7 @@
 // RIGHTKIT-PENDING #383: ported version saved in /Volumes/D/scratch/postright/port-wip/full-port.patch
 // Invented publish jobs for the first channel. Job ids, entry ids, post ids, links and error text are fictional.
 // No job here reached a real platform. The second and third channels have no publish jobs.
+import { hostAppName } from "../../appName.js";
 import type { PublishJobRecord } from "../types.js";
 import { SCOPE_ALPHA } from "./fixtures-optimise.js";
 
@@ -38,7 +39,9 @@ export const FIXTURE_PUBLISH_JOBS: PublishJobRecord[] = [
     attempts: 2,
     nextAttemptAtUtc: "2026-10-12T19:05:00Z",
     errorCode: "rate_limited",
-    errorMessage: "The platform asked App to wait before the next call. Nothing was posted yet.",
+    get errorMessage() {
+      return `The platform asked ${hostAppName()} to wait before the next call. Nothing was posted yet.`;
+    },
     resolution: null,
     createdAtUtc: "2026-10-11T07:00:00Z",
     updatedAtUtc: "2026-10-12T18:20:00Z",
