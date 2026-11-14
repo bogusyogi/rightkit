@@ -97,17 +97,18 @@ pub(crate) fn is_host_name(name: &str) -> bool {
         .is_some_and(|id| prefix_match(name, &id.name_prefix))
 }
 
-#[cfg(unix)]
-/// The account's home folder: `HOME` (`USERPROFILE` on Windows); on Unix the password database's
-/// home when `HOME` is unset or `/`.
 /// Resolve the account's home folder with the host's own rule (for example, a host whose shells run with a
 /// `HOME` inside a per-profile folder and must scan the real account's `~/Applications` and `~/Library`).
-/// Called on every lookup. Once set, it replaces the default (`HOME` / `USERPROFILE`, falling back to the
-/// password database when that is `/`). The first call wins; it returns false if a resolver was already set.
+/// Called on every lookup on macOS and Linux (the Windows inventory does not read a home folder). Once set, it
+/// replaces the default (`HOME`, falling back to the password database when that is `/`). The first call wins;
+/// it returns false if a resolver was already set.
 pub fn set_account_home_resolver(resolver: impl Fn() -> PathBuf + Send + Sync + 'static) -> bool {
     HOME_RESOLVER.set(Box::new(resolver)).is_ok()
 }
 
+#[cfg(unix)]
+/// The account's home folder: `HOME` (`USERPROFILE` on Windows); on Unix the password database's
+/// home when `HOME` is unset or `/`.
 pub(crate) fn account_home() -> PathBuf {
     if let Some(resolve) = HOME_RESOLVER.get() {
         return resolve();
