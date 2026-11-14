@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.3
+
+- `release_identity::target_triple()` also names `x86_64-unknown-linux-gnu` and `aarch64-unknown-linux-gnu` (it reported `unsupported` on Linux). Status JSON `target` and the installation manifest record the real target there; Windows and macOS are unchanged.
+
 ## 0.1.2
 
 - Requires `rightkit-repo-graph` 0.3 (was 0.2): its `framework_intelligence::FiFile` now borrows its text. No source change in this crate (#1572).

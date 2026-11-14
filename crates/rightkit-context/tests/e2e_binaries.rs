@@ -776,12 +776,10 @@ fn g01_identity_enrolment_push_pull_fault_and_recovery() {
         status.describe()
     );
     let target = rightkit_context::runtime::release_identity::target_triple();
-    if target == "unsupported" {
-        // The release identity names native release targets only (Windows MSVC, macOS); the rest of the journey
-        // binds to it. The steps above still ran on this host.
-        eprintln!("SKIP g01 enrolment journey: {target} host has no native release target");
-        return;
-    }
+    assert_ne!(
+        target, "unsupported",
+        "the journey runs only on a known release target"
+    );
     for (name, doc) in [("where", &where_doc), ("status", &status_doc)] {
         assert_eq!(doc["target"].as_str(), Some(target), "{name}: {doc}");
     }
