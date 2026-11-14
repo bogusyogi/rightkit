@@ -7,7 +7,10 @@ mod types;
 mod validation;
 
 pub use checksum::{recipe_checksum, stable_recipe_id};
-pub use deeplink::{build_recipe_deeplink, parse_recipe_deeplink};
+pub use deeplink::{
+    build_recipe_deeplink, deeplink_scheme, parse_recipe_deeplink, set_deeplink_scheme,
+    DEFAULT_DEEPLINK_SCHEME,
+};
 pub use render::{render_recipe, RecipeRenderError};
 pub use response_schema::{
     compile_response_schema, validate_recipe_run_output, validate_response, CompiledResponseSchema,
