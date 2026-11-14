@@ -16,6 +16,8 @@
   "files": [
     "dist/index.js",
     "dist/index.d.ts",
+    "dist/appLicense.js",
+    "dist/appLicense.d.ts",
     "dist/lifecycle.js",
     "dist/lifecycle.d.ts",
     "dist/proBridge.js",
