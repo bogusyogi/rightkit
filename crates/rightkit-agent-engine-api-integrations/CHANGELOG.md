@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- The plugin directory variable is `<prefix>_PLUGIN_DIR` with the prefix of `rightkit_agent_config::env_prefix()` (default `RIGHTKIT`, so `RIGHTKIT_PLUGIN_DIR` unchanged; a host calls `rightkit_agent_config::set_env_prefix`). Requires the `rightkit-agent-config` release with `env_name`.
+
 ## 0.1.3
 
 - Ships what changed after 0.1.2 was published under a new version, so the repository never differs from the published 0.1.2 (#1572). Dependency requirements: `rightkit-agent-config` 0.1 (new), `rightkit-app-settings` (dropped).

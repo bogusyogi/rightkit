@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 pub fn default_plugin_dir() -> PathBuf {
     // An explicit directory is already the catalog root; only home-derived
     // defaults need the plugins suffix.
-    if let Some(dir) = std::env::var_os("RIGHTKIT_PLUGIN_DIR") {
+    if let Some(dir) = std::env::var_os(rightkit_agent_config::env_name("PLUGIN_DIR")) {
         return PathBuf::from(dir);
     }
     // No fallback location: a missing state root fails, it never redirects plugins into the
