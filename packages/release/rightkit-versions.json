@@ -25,7 +25,7 @@
     "@rightkit/blender-worker": "0.1.1",
     "@rightkit/ci": "0.3.2",
     "@rightkit/config": "0.1.1",
-    "@rightkit/dictation-ui": "0.2.5",
+    "@rightkit/dictation-ui": "0.2.6",
     "@rightkit/doc-render": "0.2.2",
     "@rightkit/document-core": "0.2.0",
     "@rightkit/document-workspace": "0.2.1",

@@ -1,0 +1,15 @@
+/* The RightKit frame's "Step N of M" eyebrow counts its hidden Agreement stand-in ("Step 2 of 9" on Welcome).
+   Every step here carries the corrected count as its description (flow.ts stepProgressLabel), drawn in the
+   eyebrow's position and style, and the frame's own eyebrow is removed from the layout and the accessibility tree. */
+.hr-rightkit-onboarding .rk-onboarding__eyebrow {
+  display: none;
+}
+.hr-rightkit-onboarding .rk-onboarding__description {
+  margin: 0 0 8px;
+  max-width: none;
+  color: var(--rk-accent, #7040c4);
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}

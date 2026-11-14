@@ -1,6 +1,6 @@
 {
   "name": "@rightkit/dictation-ui",
-  "version": "0.2.5",
+  "version": "0.2.6",
   "description": "Dictation pill (event/command interface) and dictation pages over a host-supplied DictationClient.",
   "license": "MIT OR Apache-2.0",
   "type": "module",
@@ -14,6 +14,10 @@
     "./pill": {
       "types": "./dist/pill/index.d.ts",
       "import": "./dist/pill/index.js"
+    },
+    "./onboarding": {
+      "types": "./dist/onboarding/index.d.ts",
+      "import": "./dist/onboarding/index.js"
     },
     "./settings": {
       "types": "./dist/settings/index.d.ts",
@@ -46,9 +50,16 @@
     "@tauri-apps/plugin-dialog": "^2.8.3"
   },
   "peerDependencies": {
+    "@rightkit/onboarding": ">=0.6.5 <1",
     "react": ">=18 <21"
   },
+  "peerDependenciesMeta": {
+    "@rightkit/onboarding": {
+      "optional": true
+    }
+  },
   "devDependencies": {
+    "@rightkit/onboarding": "workspace:*",
     "@types/node": "^26.6.6",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",

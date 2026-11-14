@@ -14,6 +14,7 @@ Dictation pill (event/command interface) and dictation pages over a host-supplie
 |---|---|
 | `@rightkit/dictation-ui` | Host configuration and the `DictationClient` contract; the pages (`HomePage`, `DictationPage`, `VocabularyPage`, `PolishPage`, `TranscribeSurface`, `DictationHistory`) and their parts (banners, replacements, snippets, API keys); delivery-record mapping for the library (`deliveryRow`); hooks (`useSettings`, `useHomeDashboard`, `useMicDevices`, `useDictationEvent`). |
 | `@rightkit/dictation-ui/settings` | The settings sections with no `@rightkit/settings-ui` counterpart and their controls: `MicAudioSettings`, `MicDevicePicker`, `ApplicationSettings`, `SyncProviderSettings`, `DeveloperSettings`, `SpeechRecognitionSettings` (with `ModelCard` parts), `AppleSyncSettings`, `DeviceManagementSettings`, `LicenseSettings`, `AccountSettings`, the model-update store, `Toggle`, `SegmentedControl`. Read the same host configuration as the pages. |
+| `@rightkit/dictation-ui/onboarding` | The first-run setup: `DictationOnboarding` (the whole flow over `@rightkit/onboarding`), its steps (`WelcomeStep`, `MicSetupStep`, `ControlsStep`, `CommandsStep`, `TrialStep`, `AppLivesStep`, `RecognitionSetupStep`, model intro and extras), the permission, microphone, shortcut, recognition-check and trial hooks, and the pure step rules in `flow`. |
 | `@rightkit/dictation-ui/pill` | The recording pill and its popups (`PillOverlay`, `HintPopup`, `MiniClipboardPopup`) over the `PillClient` contract. Imports nothing from the pages. |
 
 ## Host configuration
@@ -126,9 +127,63 @@ New events on `DictationClient.on`: `localAsrModel` (`local-asr-model`) and `whi
   the switch they render. Tailwind hosts add `node_modules/@rightkit/dictation-ui/dist/settings/**/*.js` to their
   content globs.
 
+## First-run setup
+
+`@rightkit/dictation-ui/onboarding` renders HeardRight's setup for any host: legal gate, Welcome, Model (download with
+progress), Microphone (Keychain on macOS, microphone permission, device choice, live meter), Shortcuts (accessibility on
+macOS, push-to-talk, middle-click, chord test), Commands, Pro trial, Where it lives and the voice check. The frame and
+the legal gate are `@rightkit/onboarding`'s (a peer; optional unless this entry is used).
+
+```tsx
+<DictationOnboarding
+  onComplete={() => setOnboarded(true)}
+  legal={{ theme, documents, agreementStatement, onQuit }}          // the agreement; `trustLine` defaults to the setup's privacy line
+  acceptance={{ version, documentsHash, isCurrent: (values) => boolean }}  // the stored receipt the gate compares with
+  titlebar={<CaptionButtons />}                                      // optional strip content (Windows)
+/>
+```
+
+The host configures it through `configureDictationHost`:
+
+| Option | Meaning |
+|---|---|
+| `onboarding.model` | `{ id, label, size: { macos, other }, credit: { name, licenseLabel, licenseUrl } }`: the speech model setup installs, selects (`asr_backend`, `dictation_language: "auto"`) and warms up |
+| `onboarding.wakeWord` | the word the voice-command examples start with (`<word> send`) |
+| `onboarding.version` | written as `onboarding_version` when setup finishes (default 3) |
+| `chordLabels` | key labels that replace the platform's default in drawn chords, by platform (`{ macos: { esc: "esc" } }`) |
+| `components.AppMark` | brand mark in the "where it lives" step (default: none) |
+| `components.ModelReel` | reel under the download row while the model is missing; pass a `React.lazy` component (default: none) |
+| `components.RecognitionSetupStep`, `hooks.useRecognitionSetup` | the voice check, also used by the Developer tools: pass this entry's `RecognitionSetupStep` and `useOnboardingRecognitionSetup` |
+| `client.license` | the trial step: `loadLicense`, `viewShowsPro`, `requestTrialKey`, `activateLicense`, `licenseText`, `words?`, `refreshEntitlements?` and `trialDays` |
+| `client.speech` | `localAsrModelStatus`, `downloadLocalAsrModel`, `prewarmEngine`; the `localAsrModel` event carries the install progress |
+| `client.accessibilityGranted`, `activateShortcuts`, `openAccessibilitySettings`, `registerHotkeys` | required by the setup (macOS accessibility, the final hotkey registration) |
+
+New group `DictationClient.onboarding` (`OnboardingClient`); `tauriDictationClient` implements it:
+
+| Method | Native call |
+|---|---|
+| `microphoneAccessStatus()`, `requestMicrophoneAccess()` | `microphone_access_status`, `request_microphone_access` (macOS `authorized` / `denied` / `restricted`; Windows one of eight statuses) |
+| `openMicrophoneSettings()` | `open_macos_microphone_settings` |
+| `databaseKeyPresent()`, `ensureDatabaseKey()` | `ensure_private_database_key { checkOnly: true }`, `ensure_private_database_key` |
+| `startMicMeter(deviceSetting)`, `stopMicMeter()` | `start_onboarding_mic_meter { deviceSetting }`, `stop_onboarding_mic_meter` |
+| `setShortcutsActive(active, previewOnly?)` | `set_onboarding_shortcuts_active { active, previewOnly }` |
+| `startRecognitionSetup()`, `stopRecognitionSetup(sessionId)`, `cancelRecognitionSetup(sessionId)` | `start_onboarding_recognition_setup`, `stop_onboarding_recognition_setup { sessionId }`, `cancel_onboarding_recognition_setup { sessionId }` |
+| `applySettingsPatch(patch)`, `revealPill()`, `parkIdleHub()`, `resizeHubForSurface()` | `apply_settings_patch { patch }`, `reveal_pill`, `park_idle_hub`, `resize_hub_for_current_surface` |
+
+Events of `onboarding.on`: `micLevel` (`onboarding-mic-level`), `micMeterError`, `micMeterStatus`, `shortcut`, `fn`, `ptt`,
+`middleClick` (`onboarding-mic-meter-error`, `-mic-meter-status`, `-shortcut`, `-fn`, `-ptt`, `-middle-click`),
+`microphonePermissionGranted` (`microphone-permission-granted`) and `recognitionSetupProgress`
+(`onboarding-recognition-setup-progress`).
+
+The step markup uses the host's theme variables (`--paper`, `--accent`, `--surface-*`, `--line`, ...) and the `hr-step`
+and `hr-stagger` classes the host stylesheet defines. The entry imports `stepCount.css`, which replaces the frame's
+"Step n of N" eyebrow with the visible-step count and styles it on the frame class `hr-rightkit-onboarding` (set by
+`DictationOnboarding`). Tailwind hosts add `node_modules/@rightkit/dictation-ui/dist/onboarding/*.js` to their content
+globs.
+
 ## Peer dependencies
 
-`react`
+`react`; `@rightkit/onboarding` (optional: only the `./onboarding` entry needs it)
 
 ## Host contract
 

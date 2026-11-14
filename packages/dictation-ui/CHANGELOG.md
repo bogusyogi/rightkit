@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.6
+
+Added: `@rightkit/dictation-ui/onboarding`, HeardRight's first-run setup, so an app can delete its own copy. Markup, classes, wording, storage and native calls equal HeardRight's shipped setup.
+
+- Entry `./onboarding` (new): `DictationOnboarding` (the flow over `@rightkit/onboarding`: legal gate, Welcome, Model with download progress and auto-advance, Microphone, Shortcuts, Commands, Pro trial, Where it lives, Voice check), the steps (`WelcomeStep`, `MicSetupStep`, `ControlsStep`, `CommandsStep`, `TrialStep`, `AppLivesStep`, `RecognitionSetupStep`, `ModelIntro`, `ModelDownloadExtras`, `PermissionBadge`, `ShortcutCard`, `ControlCard`, `MicMeter`), the hooks (`useOnboardingPermissions`, `useOnboardingRecording`, `useOnboardingRecognitionSetup`, `useOnboardingTrial`) and the pure step rules (`ONBOARDING_STEPS`, `stepProgressLabel`, `hardwareReady`, `controlsReady`, `nextModelProgress`, `modelAdvancePatch`, `trackModelInstall`, push-to-talk key matching). `PRIVACY_LINE` is the setup's one privacy sentence.
+- Host contract, additive: new optional group `DictationClient.onboarding` (`OnboardingClient`; `tauriDictationClient` implements it with the setup's native commands and events); `configureDictationHost` options `onboarding` (`model`, `wakeWord`, `version`) and `chordLabels`; `components.AppMark` and `components.ModelReel`; `LicenseSettingsClient.refreshEntitlements?`; `DictationEventMap.localAsrModel.message?`. The setup also needs the existing `speech`, `license` and accessibility members and `registerHotkeys`.
+- `stepCount.css` ships with the entry (copied to `dist`, imported by the entry) and is the same rule set HeardRight shipped.
+- New optional peer dependency `@rightkit/onboarding` (`>=0.6.5 <1`), used by the `./onboarding` entry only.
+
 ## 0.2.5
 
 Added: `LicenseSettings` and `AccountSettings` in `@rightkit/dictation-ui/settings`, HeardRight's licence and account sections, so an app can delete its own copies. Markup, classes, wording and native calls equal HeardRight's shipped sections.
