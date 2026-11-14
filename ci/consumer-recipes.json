@@ -3997,9 +3997,9 @@
       "pkId": "PK186",
       "id": "ci/consumers/rightkit-notch-ui/src/main.rs",
       "files": {
-        "Cargo.toml": "96d185fa83c82005dae2088bad4d55cdc13f558f9c76125642bbb97a009e91da",
-        "README.md": "6f25c9af856534c9beb4a6e3d13502f2847aa98af1796cc2aca9e6f20c8a96ca",
-        "src/main.rs": "b8a7325d6111d4cfcd3f96163794e5d7bfa85750f4ef308e2120f1609bd52fc8"
+        "Cargo.toml": "88d079a3362c1bc844893d1860e4d0a265aa0733cbecf960ef456b8e14d5e933",
+        "README.md": "0ae91da2643716eb844823762dbbb00adf34651a34fb7aea72dad820e542080f",
+        "src/main.rs": "f0dfdf2f6e892ec4cbff475c62de1cb294d1aac8f6c14c09902a1d0df4726493"
       }
     },
     "rightkit-prompt-recipes": {

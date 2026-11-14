@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.1
+
+- `layout::headline_outside()`: whether `draw_headline_outside` was called (the headline window drawn outside whatever the switches say). Default `false` until it is called, as before; the flag was private, so a host building its own `CellView`s could not read it. Pulse's `views` reads it where `weeklyHeadline` would swap the rings.
+
 ## 0.2.0
 
 - Breaking: the cells are the host's. `layout::Cell` is a host-defined value (`Cell::new(id, glyph, section)`: the host's id, the ring's glyph key and what a click opens) instead of Pulse's fixed set (`Cpu`, `Disk`, `Claude`, `Codex`, `Profile`, `Account`, `Send`, `Tools`); `Cell::ALL` and `CELL_COUNT` are gone, `set_shown` gives the cells (nothing is shown until it is called; `count()` is at least 1). The cell kept when the notch is minimised is the host's too: `set_anchor(Some(cell))` (Pulse: its Send cell), and `send_cell()` is `anchor_cell()`.

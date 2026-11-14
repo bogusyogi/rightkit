@@ -1,4 +1,4 @@
-// rightkit-notch-ui 0.2.0 consumed by exact registry pin (`=0.2.0`), outside the workspace.
+// rightkit-notch-ui 0.2.1 consumed by exact registry pin (`=0.2.1`), outside the workspace.
 //
 // Proves, through the public API only, the cross-platform layout and motion values:
 // - the cells are the host's: before any are set the notch counts one place; the host's cells
@@ -71,5 +71,5 @@ fn main() {
         "a step toward a higher target moves the spring up",
     );
     check(EMPHASIS_SCALE == 1.12, "the hover emphasis scale is 1.12");
-    println!("OK rightkit-notch-ui 0.2.0 (registry consumer)");
+    println!("OK rightkit-notch-ui 0.2.1 (registry consumer)");
 }
