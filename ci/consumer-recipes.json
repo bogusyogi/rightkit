@@ -952,7 +952,7 @@
       },
       "files": {
         "ci/consumers/npm/agent-ui-core/README.md": "80128c86df54e0d298c40f89690e108d4c5fbf0ab0e43a064ad2df1aaf8bbde9",
-        "ci/consumers/npm/agent-ui-core/consumer.mjs": "381058b521739d663e08a4951ef94f140aa821709b13197f6b2438bad2c14e78",
+        "ci/consumers/npm/agent-ui-core/consumer.mjs": "dbf03977682a09f7ff267b16bc0bf414c8ad38e14ee63be905156dcb6b116ca5",
         "ci/consumers/npm/agent-ui-core/package.json": "d6edeaca79eaaae1e061ff97ae716236b3e80ae35df4ea8deca533e015431caf",
         "ci/consumers/npm/agent-ui-core/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "fc160695e1dc97dc7e32e746c9e4471e2d85168b097623de818befeb00ee438c"
