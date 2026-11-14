@@ -428,6 +428,9 @@ export function TranscriptEmptyState() {
 
 interface TranscriptStreamProps {
   events: ProtocolEvent[];
+  /** The conversation already shows messages (history rendered above), so an
+   * empty live stream must not say "No messages yet". */
+  hasHistory?: boolean;
   config?: DaemonConfig | null;
   sessionId?: string | null;
   workspaceRoot?: string | null;
@@ -479,6 +482,7 @@ export default function TranscriptStream({
   onReviewEditedFiles,
   onUndoEditedFiles,
   lastError,
+  hasHistory = false,
 }: TranscriptStreamProps) {
   const d = resolveStreamDensity(density);
   const dens = STREAM_DENSITY[d];
@@ -487,7 +491,7 @@ export default function TranscriptStream({
     return (
       <>
         <DurabilityErrorBanner lastError={lastError} />
-        <TranscriptEmptyState />
+        {hasHistory ? null : <TranscriptEmptyState />}
       </>
     );
   }

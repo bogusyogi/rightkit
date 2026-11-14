@@ -1,6 +1,6 @@
 {
   "name": "@rightkit/agent-ui-hooks",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "React hooks for coding-agent UIs: sessions, composer, workspace files, approvals and runtime.",
   "license": "MIT OR Apache-2.0",
   "type": "module",

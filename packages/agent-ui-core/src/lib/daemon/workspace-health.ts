@@ -15,7 +15,8 @@ import type {
   ToolsetProfile,
 } from "../types.js";
 import { requestDaemonApi } from "../generated/daemon-openapi.js";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "../../host/tauriHost.js";
+import { IncompatibleDaemonError, isCompatibleDaemon } from "../connection/connectionErrorProjection.js";
 
 export interface WorkspaceMention {
   kind: "file" | "symbol";
@@ -45,6 +46,9 @@ export async function getHealth(config: DaemonConfig): Promise<HealthResponse> {
   const health = await requestDaemonApi<HealthResponse>(config, "getHealth");
   if (health.service !== "coderight-daemon") {
     throw new Error(`unexpected daemon service: ${health.service}`);
+  }
+  if (!isCompatibleDaemon(health)) {
+    throw new IncompatibleDaemonError(health.contractVersion, health.protocolVersion);
   }
   return health;
 }

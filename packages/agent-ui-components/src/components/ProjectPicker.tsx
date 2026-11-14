@@ -1,5 +1,5 @@
 import { open } from "@tauri-apps/plugin-dialog";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   groupProjectRecents,
   normalizeProjectPath,
@@ -39,6 +39,17 @@ export default function ProjectPicker({
   const [typedPath, setTypedPath] = useState("");
 
   const groups = useMemo(() => groupProjectRecents(projects), [projects]);
+  // A project reached by opening one of its sessions is a recent project too. Only folders opened through
+  // this picker were recorded, so the list said "No recent projects yet" while a project was open (screen
+  // audit 2026-11-11, fault 9).
+  useEffect(() => {
+    const current = workspaceRoot?.trim();
+    if (!current) return;
+    const known = projects.some(
+      (project) => normalizeProjectPath(project.path) === normalizeProjectPath(current),
+    );
+    if (!known) addOrTouch(current);
+  }, [workspaceRoot, projects, addOrTouch]);
   const active = normalizeProjectPath(activePath ?? workspaceRoot);
 
   async function openProjectDirectory() {
@@ -126,6 +137,7 @@ export default function ProjectPicker({
         <input
           id="project-picker-path"
           data-testid="project-picker-path"
+          aria-label="Project folder path"
           type="text"
           value={typedPath}
           onChange={(event) => setTypedPath(event.target.value)}
@@ -154,7 +166,10 @@ export default function ProjectPicker({
           No recent projects yet.
         </p>
       ) : (
-        <div className="flex max-h-[360px] flex-col gap-3 overflow-y-auto" data-testid="project-picker-groups">
+        <div
+          className="flex max-h-[360px] flex-col gap-3 overflow-y-auto"
+          data-testid="project-picker-groups"
+        >
           {groups.map((group) => (
             <section key={group.name} aria-label={group.name}>
               <h3 className="px-1 pb-1 text-[10px] font-medium uppercase tracking-wide text-text-3">
@@ -228,6 +243,10 @@ export { openProjectDirectoryForPicker };
 
 /** Small exported seam for callers that only need Aethon's picker behavior. */
 async function openProjectDirectoryForPicker(): Promise<string | null> {
-  const picked = await open({ directory: true, multiple: false, title: "Choose project directory" });
+  const picked = await open({
+    directory: true,
+    multiple: false,
+    title: "Choose project directory",
+  });
   return typeof picked === "string" && picked.trim() ? picked : null;
 }

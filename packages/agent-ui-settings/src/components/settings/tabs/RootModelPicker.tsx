@@ -34,12 +34,15 @@ function modelSubtitle(group: CatalogGroup, model: CatalogGroup["models"][number
 
 /** Authority-first selector shared by Settings & composer. */
 export default function RootModelPicker({
-  catalogGroups,
+  catalogGroups: allCatalogGroups,
   value,
   onSelect,
   error,
   compact = false,
 }: RootModelPickerProps) {
+  // Settings saves an inference selection, which names an in-app connection; a config-route
+  // group (authority "config") is chosen on the session instead.
+  const catalogGroups = allCatalogGroups.filter((group) => group.authority !== "config");
   const current = inferenceSelectionKey(value);
   const valid = catalogGroups.some((group) =>
     group.models.some(

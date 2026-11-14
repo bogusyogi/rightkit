@@ -8,6 +8,7 @@ import type {
   CliTransportKind,
   HarnessIsolationMode,
 } from "../types/cliProviders.js";
+import { daemonFetch } from "./transport.js";
 
 export interface DaemonCliProvider {
   providerId: CliProviderId;
@@ -78,7 +79,7 @@ async function daemonRequest<T>(
   method = "GET",
   body?: unknown,
 ): Promise<T> {
-  const response = await fetch(daemonUrl(config, path), {
+  const response = await daemonFetch(config, daemonUrl(config, path), {
     method,
     headers: {
       ...(config.token ? { authorization: `Bearer ${config.token}` } : {}),

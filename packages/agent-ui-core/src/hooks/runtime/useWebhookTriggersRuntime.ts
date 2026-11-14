@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { hostOption } from "../../appName.js";
 import {
   createWebhookTrigger,
   deleteWebhookTrigger,
@@ -34,7 +35,7 @@ function emptyDraft(workspaceRoot: string): WebhookTriggerDraft {
     workspaceRoot: workspaceRoot.trim(),
     title: "",
     prompt: "Review this webhook event and report the safest next action.",
-    secretEnv: "RIGHTKIT_WEBHOOK_SECRET",
+    secretEnv: hostOption("webhookSecretEnv"),
     enabled: true,
   };
 }

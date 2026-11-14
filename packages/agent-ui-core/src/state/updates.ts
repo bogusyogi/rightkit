@@ -1,5 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { getAppVersion, invoke, listen, relaunchApp } from "../host/tauriHost.js";
 import {
   deriveUpdateOverlay,
   fetchReleaseStatus,
@@ -31,7 +30,7 @@ export type UpdateState =
 let appVersionCache: Promise<string> | null = null;
 /** The running build's version from the native shell (`getVersion`), never a literal. */
 export function appVersion(): Promise<string> {
-  appVersionCache ??= import("@tauri-apps/api/app").then(({ getVersion }) => getVersion());
+  appVersionCache ??= getAppVersion();
   return appVersionCache;
 }
 export const RELEASE_STATUS_URL = "https://api.coderight.cc/releases/status.json";
@@ -322,8 +321,7 @@ function defaultController(): UpdateController {
     beginBootProbation,
     abandonBootProbation: () => bootProbation.acknowledgeHealthy(),
     relaunch: async () => {
-      const { relaunch } = await import("@tauri-apps/plugin-process");
-      await relaunch();
+      await relaunchApp();
     },
     publish: publishUpdateStatus,
   });

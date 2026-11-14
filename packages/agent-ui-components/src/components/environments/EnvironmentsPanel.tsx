@@ -77,11 +77,17 @@ export default function EnvironmentsPanel({ config, workspaceRoot }: Environment
   const loadRunLogs = useEnvironmentsStore((state) => state.loadRunLogs);
 
   const [expandedRunId, setExpandedRunId] = useState<string | null>(null);
-  const environments = list?.environments ?? [];
+  const allEnvironments = list?.environments ?? [];
+  // Kinds the runtime cannot run yet (SSH, WSL, a configured remote) are named in one line, not offered as
+  // cards with internal setup notes (screen audit 2026-11-11, fault 11).
+  const notYetAvailable = allEnvironments.filter(
+    (environment) => !environment.runtimeSupported && environment.setupState === "unsupported",
+  );
+  const environments = allEnvironments.filter((environment) => !notYetAvailable.includes(environment));
   const selectedEnvironment = environments.find((environment) => environment.id === selectedId);
   const fallbackEnvironment = environments.find((environment) => environment.id === fallbackId);
   const fallbackRequired = Boolean(
-    fallbackEnvironment && !selectedEnvironment?.runtimeSupported,
+    fallbackEnvironment && selectedEnvironment && !selectedEnvironment.runtimeSupported,
   );
 
   useEffect(() => {
@@ -145,6 +151,11 @@ export default function EnvironmentsPanel({ config, workspaceRoot }: Environment
         </div>
       ) : null}
 
+      {notYetAvailable.length > 0 ? (
+        <p className="text-[12px] text-text-3" data-testid="environments-not-yet-available">
+          Not available yet: {notYetAvailable.map((environment) => environment.label).join(", ")}.
+        </p>
+      ) : null}
       <ul className="grid gap-2" data-testid="environment-list">
         {environments.map((env) => {
           const testResult = testResults[env.id];

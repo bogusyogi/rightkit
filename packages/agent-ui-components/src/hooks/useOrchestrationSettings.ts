@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { setVisibleInterval } from "@rightkit/agent-ui-core/lib/visibleInterval";
 import {
   getOrchestrationSettings,
   getSettingsConfigStatus,
@@ -241,13 +242,13 @@ export function useOrchestrationSettings({
         // Polling is best-effort; manual refresh surfaces errors.
       }
     };
-    const timer = window.setInterval(() => {
+    const stopTimer = setVisibleInterval(() => {
       void poll();
     }, 5000);
     void poll();
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
+      stopTimer();
     };
   }, [config, onStatus, settingsDirty, workspaceRoot]);
 

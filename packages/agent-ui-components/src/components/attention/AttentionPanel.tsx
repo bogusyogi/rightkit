@@ -14,6 +14,7 @@ import { Checkbox } from "@rightkit/react-shell/react";
 // WorkbenchContent, TitleBar, or Settings.
 
 import { useEffect, useState } from "react";
+import { hostOption } from "../../appName.js";
 
 import { useAttentionStore } from "@rightkit/agent-ui-core/state/attentionStore";
 import type {
@@ -298,7 +299,7 @@ export default function AttentionPanel({ config, workspaceRoot }: AttentionPanel
             {list?.quietHoursActive
               ? "quiet hours active"
               : density?.durableHistory
-                ? "history preserved"
+                ? hostOption("attentionHistoryLabel")
                 : ""}
           </span>
         </summary>

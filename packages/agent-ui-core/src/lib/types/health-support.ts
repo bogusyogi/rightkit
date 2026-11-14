@@ -7,6 +7,10 @@ export interface HealthResponse {
   port: number;
   databasePath: string;
   utcNow: string;
+  /** Newer daemons answer `GET /health` with exactly `ok`, `service`, `version`, `contractVersion`, `protocolVersion`. */
+  version?: string;
+  contractVersion?: number;
+  protocolVersion?: number;
 }
 
 export type DiagnosticsStatus = "pass" | "warn" | "block";

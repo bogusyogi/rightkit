@@ -1,6 +1,7 @@
 import type { TranscriptDensity, TranscriptMessage, UserQuestion } from "../types.js";
 import { groupTranscriptMessages } from "../transcriptGroups.js";
 import type { TranscriptGroup } from "../transcriptGroups.js";
+import { assistantToolCalls } from "../transcriptMessages.js";
 
 /**
  * Waku's transcript list is virtualized, but its row projection is also
@@ -70,8 +71,9 @@ export function transcriptRenderFingerprint(input: TranscriptRenderInput): numbe
       hash = mix(hash, message.content.trim().length === 0 ? 1 : 0);
     }
     if (message.$kind === "assistant") {
-      hash = mix(hash, message.toolCalls.length);
-      for (const call of message.toolCalls) {
+      const toolCalls = assistantToolCalls(message);
+      hash = mix(hash, toolCalls.length);
+      for (const call of toolCalls) {
         hash = mixString(hash, call.id);
         hash = mixString(hash, call.name);
         hash = mix(hash, call.argumentsJson.length);

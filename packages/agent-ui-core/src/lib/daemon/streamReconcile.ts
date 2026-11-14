@@ -1,5 +1,5 @@
 import type { ProtocolEvent, TranscriptMessage } from "../types.js";
-import { isInternalTranscriptMessage } from "../transcriptMessages.js";
+import { isInternalTranscriptMessage, normalizeTranscriptMessage } from "../transcriptMessages.js";
 
 /**
  * Append a transcript row without allowing replay to duplicate it.
@@ -13,9 +13,12 @@ export function appendTranscriptMessage(
   message: TranscriptMessage,
 ): TranscriptMessage[] {
   if (isInternalTranscriptMessage(message)) return rows;
-  return rows.some((row) => row.id === message.id)
+  // The engine omits `toolCalls` on an assistant message without tool calls;
+  // every reader of a transcript row expects the array.
+  const row = normalizeTranscriptMessage(message);
+  return rows.some((existing) => existing.id === row.id)
     ? rows
-    : [...rows.filter((row) => row.id !== message.id), message];
+    : [...rows.filter((existing) => existing.id !== row.id), row];
 }
 
 /** Event identity is its durable sequence number, so replayed frames are ignored. */

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { invoke } from "@rightkit/agent-ui-core/host/tauriHost";
+import { listen } from "@rightkit/agent-ui-core/host/tauriHost";
 
 /** Element information emitted by the in-page picker. Page-controlled fields
  * are untrusted and are sanitized by buildDesignModePrompt before messaging. */

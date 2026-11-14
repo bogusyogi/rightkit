@@ -1,6 +1,7 @@
 // Shell surfaces — header, sidebar, and workspace-trust prop assembly.
 // Pure forwarding into the lib/appSurfaceProps builders; no effects.
 
+import { sessionDisplayTitle } from "@rightkit/agent-ui-core/lib/sessionTitle";
 import {
   buildHeaderProps,
   buildSidebarProps,
@@ -59,7 +60,7 @@ export function buildShellSurfaces(a: AppSurfaceInputs): ShellSurfaces {
 
   const headerProps = buildHeaderProps({
     pane,
-    selectedTitle: selected?.title ?? null,
+    selectedTitle: selected ? sessionDisplayTitle(selected) : null,
     selectedWorkspaceRoot: selected?.workspaceRoot ?? null,
     workspaceRoot,
     engineReady,

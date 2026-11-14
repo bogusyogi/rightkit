@@ -501,9 +501,22 @@ export default function ComposerIsland(props: ComposerIslandProps) {
       (candidate) => candidate.toLowerCase().replace(/[^a-z0-9.]/g, "") === normalizedPrimaryModel,
     );
   });
+  // The active inference or config-route selection names a model the catalog
+  // lists: show it (a config.toml route session has no entry in modelOptions).
+  const activeCatalogModelId =
+    activeSelection &&
+    catalogGroups.some(
+      (group) =>
+        group.authority === activeSelection.authority &&
+        group.connectionId === activeSelection.connectionId &&
+        group.models.some((model) => model.id === activeSelection.modelId),
+    )
+      ? activeSelection.modelId
+      : null;
   const modelStateLabel =
     driverModelLabel ??
     activeModel?.label ??
+    activeCatalogModelId ??
     (modelUnavailable
       ? "Model unavailable"
       : modelOptions.length === 0
@@ -515,7 +528,10 @@ export default function ComposerIsland(props: ComposerIslandProps) {
   // agrees with a nearby healthy/connected indicator. Render it as an explicit
   // amber state, not plain muted text.
   const modelStateUnavailable =
-    !driverModelLabel && !activeModel && (modelUnavailable || modelOptions.length === 0);
+    !driverModelLabel &&
+    !activeModel &&
+    !activeCatalogModelId &&
+    (modelUnavailable || modelOptions.length === 0);
   const activeConductorOption = conductorOptions.find((option) => option.kind === activeConductor);
   const hasConcreteCatalogModels = catalogGroups.some((group) =>
     group.models.some((model) => !model.id.startsWith("auto/")),

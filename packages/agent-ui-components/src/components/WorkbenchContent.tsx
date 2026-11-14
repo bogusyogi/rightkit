@@ -28,6 +28,7 @@ import {
 import TasksPane from "@rightkit/agent-ui-workbench/components/workbench/TasksPane";
 import QueuedMessageRow from "@rightkit/agent-ui-workbench/components/workbench/QueuedMessageRow";
 import TranscriptGroupView from "@rightkit/agent-ui-workbench/components/workbench/TranscriptBubble";
+import { resolveConductorRuntimeModelId } from "@rightkit/agent-ui-core/lib/conductorModels";
 import TranscriptStream from "@rightkit/agent-ui-workbench/components/workbench/TranscriptStream";
 import type { WorkbenchContentProps } from "@rightkit/agent-ui-workbench/components/workbench/WorkbenchContentProps";
 import { useConversationFind } from "@rightkit/agent-ui-workbench/components/workbench/useConversationFind";
@@ -229,6 +230,19 @@ export default function WorkbenchContent(props: WorkbenchContentProps) {
     props.pendingPlan,
     props.queuedMessages,
   ]);
+  // Content that grows after the transcript renders (the edited-files card loads the run's changes, code blocks
+  // measure themselves) used to land below the fold, so a finished session opened with its last card cut off
+  // under the composer. Follow any growth of the content while stuck to the bottom.
+  useEffect(() => {
+    const el = scrollRef.current;
+    const content = el?.firstElementChild;
+    if (!el || !content || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => {
+      if (stickToBottomRef.current) el.scrollTop = el.scrollHeight;
+    });
+    observer.observe(content);
+    return () => observer.disconnect();
+  }, []);
 
   // Reset the dismiss state when the user switches sessions — a fresh session
   // deserves a fresh digest card regardless of how the previous one ended.
@@ -299,6 +313,17 @@ export default function WorkbenchContent(props: WorkbenchContentProps) {
       </div>
     );
   }
+  // The Conductor selector shows the model this session runs on. It used to show the first model in the list
+  // whatever the session used. A session model that is not in the list is shown as it is, not swapped for another.
+  const conductorChoice = (() => {
+    const options = props.conductorModelOptions;
+    const sessionModel = props.selected?.model?.trim() ?? "";
+    if (!sessionModel) return { options, value: "" };
+    const resolved = resolveConductorRuntimeModelId(sessionModel);
+    const match = options.find((option) => option.id === resolved || option.id === sessionModel);
+    if (match) return { options, value: match.id };
+    return { options: [{ id: sessionModel, label: sessionModel }, ...options], value: sessionModel };
+  })();
   const streamDensityClass =
     density === "summary" ? "gap-1" : density === "verbose" ? "gap-4" : "gap-2";
   return (
@@ -310,7 +335,11 @@ export default function WorkbenchContent(props: WorkbenchContentProps) {
         const el = e.currentTarget;
         stickToBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 96;
       }}
-      className="cr-transcript-scroll min-h-0 w-full flex-1 overflow-y-auto"
+      // The minimap is pinned top right (w-28, from xl up). Reserve its strip so the transcript never runs
+      // underneath it; on a wide window the centred column only shifts left.
+      className={`cr-transcript-scroll min-h-0 w-full flex-1 overflow-y-auto ${
+        props.selected && props.messages.length > 0 ? "xl:pr-32" : ""
+      }`}
       data-density={density}
     >
       <div
@@ -521,6 +550,7 @@ export default function WorkbenchContent(props: WorkbenchContentProps) {
               </div>
             ) : null}
             <TranscriptStream
+              hasHistory={props.messages.length > 0}
               events={props.events}
               config={props.config}
               sessionId={props.selected?.id ?? null}
@@ -558,9 +588,9 @@ export default function WorkbenchContent(props: WorkbenchContentProps) {
                 selected={props.selected}
                 dispatchDecision={props.dispatchDecision}
                 showConductorModelSelect={props.conductorModelOptions.length > 0}
-                conductorModelOptions={props.conductorModelOptions}
+                conductorModelOptions={conductorChoice.options}
                 conductorModelPending={props.conductorModelPending}
-                conductorModelValue={props.conductorModelOptions[0]?.id ?? ""}
+                conductorModelValue={conductorChoice.value}
                 messagesLength={props.messages.length}
                 awaySummaryPending={props.awaySummaryPending}
                 sessionExportPending={props.sessionExportPending}

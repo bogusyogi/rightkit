@@ -17,6 +17,7 @@ import type {
   StoredAnnotation,
   ViewportInfo,
 } from "../../types/browserWorkspace.js";
+import { daemonFetch } from "./transport.js";
 
 export interface BrowserWorkspaceClient {
   getWorkspace(sessionId: string): Promise<BrowserWorkspaceSummary>;
@@ -104,7 +105,7 @@ export function createBrowserWorkspaceClient(
       .join("/")}`;
 
   async function call<T>(path: string, init?: RequestInit): Promise<T> {
-    const res = await fetch(url(path), {
+    const res = await daemonFetch({ url: opts.baseUrl, token: opts.token }, url(path), {
       ...init,
       headers: { ...headers(), ...(init?.headers ?? {}) },
     });

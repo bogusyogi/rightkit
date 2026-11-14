@@ -6,6 +6,7 @@
 // inside the right-side pane rail, no central/AppBody/TitleBar edits.
 
 import { useEffect, useMemo, useState } from "react";
+import { setVisibleInterval } from "@rightkit/agent-ui-core/lib/visibleInterval";
 import { ActionDialog, Select } from "@rightkit/react-shell/react";
 import {
   useBrowserWorkspace,
@@ -109,8 +110,7 @@ export function BrowserPane(props: BrowserPaneProps) {
     // A human lease turns captured daemon frames into a live desktop surface.
     // No browser state lives in React; every frame is read from BrowserSession.
     void ws.refreshLive(selectedSession);
-    const timer = window.setInterval(() => void ws.refreshLive(selectedSession), 750);
-    return () => window.clearInterval(timer);
+    return setVisibleInterval(() => void ws.refreshLive(selectedSession), 750);
   }, [humanLease, selectedSession, ws.refreshLive]);
 
   useEffect(() => {

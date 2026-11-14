@@ -1,6 +1,6 @@
 {
   "name": "@rightkit/agent-ui-core",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Coding-agent UI core: daemon client, session and transcript types, stores and helpers.",
   "license": "MIT OR Apache-2.0",
   "type": "module",
@@ -10,6 +10,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./appName": {
+      "types": "./dist/appName.d.ts",
+      "import": "./dist/appName.js"
     },
     "./components/CommandPalette": {
       "types": "./dist/components/CommandPalette.d.ts",
@@ -74,6 +78,10 @@
     "./hooks/useSubAgents": {
       "types": "./dist/hooks/useSubAgents.d.ts",
       "import": "./dist/hooks/useSubAgents.js"
+    },
+    "./host/tauriHost": {
+      "types": "./dist/host/tauriHost.d.ts",
+      "import": "./dist/host/tauriHost.js"
     },
     "./lib/accounts/accounts": {
       "types": "./dist/lib/accounts/accounts.d.ts",
@@ -175,6 +183,10 @@
       "types": "./dist/lib/daemon/streamReconcile.d.ts",
       "import": "./dist/lib/daemon/streamReconcile.js"
     },
+    "./lib/daemon/transport": {
+      "types": "./dist/lib/daemon/transport.d.ts",
+      "import": "./dist/lib/daemon/transport.js"
+    },
     "./lib/daemon/workflows": {
       "types": "./dist/lib/daemon/workflows.d.ts",
       "import": "./dist/lib/daemon/workflows.js"
@@ -242,6 +254,10 @@
     "./lib/sessionShareCode": {
       "types": "./dist/lib/sessionShareCode.d.ts",
       "import": "./dist/lib/sessionShareCode.js"
+    },
+    "./lib/sessionTitle": {
+      "types": "./dist/lib/sessionTitle.d.ts",
+      "import": "./dist/lib/sessionTitle.js"
     },
     "./lib/shellWindow": {
       "types": "./dist/lib/shellWindow.d.ts",
@@ -330,6 +346,10 @@
     "./lib/utils": {
       "types": "./dist/lib/utils.d.ts",
       "import": "./dist/lib/utils.js"
+    },
+    "./lib/visibleInterval": {
+      "types": "./dist/lib/visibleInterval.d.ts",
+      "import": "./dist/lib/visibleInterval.js"
     },
     "./lib/worktrees/worktreeProjectionManager": {
       "types": "./dist/lib/worktrees/worktreeProjectionManager.d.ts",

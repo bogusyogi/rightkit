@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { setVisibleInterval } from "@rightkit/agent-ui-core/lib/visibleInterval";
 
 import { getDriverStatus } from "@rightkit/agent-ui-core/lib/daemon";
 import {
@@ -224,8 +225,7 @@ export default function DriverLifecycleStrip({
     setJustResumed(false);
     previousSnapshotRef.current = null;
     void refresh();
-    const timer = window.setInterval(() => void refresh(), POLL_MS);
-    return () => window.clearInterval(timer);
+    return setVisibleInterval(() => void refresh(), POLL_MS);
   }, [refresh]);
 
   const recoveryReason = describeDriverRecovery(binding, error ? errorStatus : null);

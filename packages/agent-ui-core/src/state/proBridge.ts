@@ -10,7 +10,7 @@
 // driven by launch, activation and the opt-in toggle only. A licence stored by a redemption or an
 // exchange reaches the app through the owner's change event (`licenseClient.onChange`).
 
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "../host/tauriHost.js";
 import { createProBridgeClient, type ProBridgeStatus as BridgeStatus } from "@rightkit/license";
 import type { LicenseView } from "./license.js";
 

@@ -4,7 +4,7 @@ import type { WebhookTrigger, WebhookTriggerDeliveryAuditRow } from "@rightkit/a
 import type { WebhookTriggerDraft } from "@rightkit/agent-ui-hooks/hooks/useRuntimeAggregates";
 import { ActionDialog, Checkbox, Select } from "@rightkit/react-shell/react";
 import Icon from "@rightkit/agent-ui-core/components/Icon";
-import { hostAppName } from "../../appName.js";
+import { hostAppName, hostOption } from "../../appName.js";
 
 function deliveryEndpoint(daemonUrl: string, trigger: WebhookTrigger): string {
   const base = daemonUrl.replace(/\/+$/, "");
@@ -190,7 +190,7 @@ export default function WebhookTriggersRuntimePanel({
               placeholder={
                 draft.editingId
                   ? "Leave blank to keep the current binding"
-                  : "RIGHTKIT_WEBHOOK_SECRET"
+                  : hostOption("webhookSecretEnv")
               }
               autoComplete="off"
               spellCheck={false}

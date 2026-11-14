@@ -1,6 +1,6 @@
 # @rightkit/agent-ui-settings npm consumer (npm.@rightkit/agent-ui-settings)
 
-Packed-archive consumer for `@rightkit/agent-ui-settings` 0.1.0 (the workspace version). The unit is installed only from the sealed `file:` archive; the reviewed closure pins `react` 19.3.1, `react-dom` 19.3.1, `@rightkit/app-update` 0.4.2, `@rightkit/doc-render` 0.2.1, `@rightkit/react-shell` 0.7.2, `@rightkit/settings-ui` 0.7.0. Declared-only dependencies: `@rightkit/agent-ui-core`, `@rightkit/agent-ui-hooks`, `@tauri-apps/api`.
+Packed-archive consumer for `@rightkit/agent-ui-settings` 0.1.1 (the workspace version). The unit is installed only from the sealed `file:` archive; the reviewed closure pins `react` 19.3.1, `react-dom` 19.3.1, `@rightkit/app-update` 0.4.2, `@rightkit/doc-render` 0.2.1, `@rightkit/react-shell` 0.7.2, `@rightkit/settings-ui` 0.7.0. Declared-only dependencies: `@rightkit/agent-ui-core`, `@rightkit/agent-ui-hooks`, `@tauri-apps/api`.
 
 Surface (exact `exports` keys): `.`, `./*`, `./*.css`, `./*.json`.
 

@@ -2,7 +2,7 @@ import {
   createLogsClient,
   installWindowCrashCapture,
 } from "@rightkit/logs";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "../host/tauriHost.js";
 
 export const logs = createLogsClient({
   invoke,

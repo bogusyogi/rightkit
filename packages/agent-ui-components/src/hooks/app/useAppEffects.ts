@@ -1,5 +1,5 @@
-import { listen } from "@tauri-apps/api/event";
-import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@rightkit/agent-ui-core/host/tauriHost";
+import { invoke } from "@rightkit/agent-ui-core/host/tauriHost";
 import { useDismiss } from "@rightkit/platform-ui/headless";
 import { useEffect } from "react";
 import { registerShortcut } from "@rightkit/agent-ui-core/lib/shortcuts/dispatcher";
@@ -20,6 +20,20 @@ import type {
   HealthResponse,
 } from "@rightkit/agent-ui-core/lib/types";
 import { usePermissionsStore } from "../../state/permissionsStore.js";
+import { setVisibleInterval } from "@rightkit/agent-ui-core/lib/visibleInterval";
+
+/**
+ * Escape interrupts a running turn, except while an approval or a question is
+ * pending: a question is declined by its own card, never by cancelling the turn.
+ */
+export function shouldInterruptOnEscape(state: {
+  key: string;
+  isWorking: boolean;
+  pendingApproval: unknown | null;
+  pendingQuestion?: unknown | null;
+}): boolean {
+  return state.key === "Escape" && state.isWorking && !state.pendingApproval && !state.pendingQuestion;
+}
 
 export function useAppEffects(params: {
   config: DaemonConfig | null;
@@ -72,6 +86,8 @@ export function useAppEffects(params: {
   setUsageCacheCreationTokens: (value: number) => void;
   isWorking: boolean;
   pendingApproval: PendingApproval | null;
+  /** Escape on a pending question declines it and never interrupts the turn. Optional: unset keeps the old behaviour. */
+  pendingQuestion?: unknown | null;
   showRunMenu: boolean;
   showWorkspaceMenu: boolean;
   showBranchMenu: boolean;
@@ -134,6 +150,7 @@ export function useAppEffects(params: {
     setUsageCacheCreationTokens,
     isWorking,
     pendingApproval,
+    pendingQuestion = null,
     showRunMenu,
     showWorkspaceMenu,
     showBranchMenu,
@@ -268,19 +285,17 @@ export function useAppEffects(params: {
   useEffect(() => {
     if (pane !== "terminal" || !config) return;
     void loadTerminalProcesses();
-    const interval = window.setInterval(() => {
+    return setVisibleInterval(() => {
       void loadTerminalProcesses();
     }, 1500);
-    return () => window.clearInterval(interval);
   }, [config?.url, loadTerminalProcesses, pane, config]);
 
   useEffect(() => {
     if (pane !== "terminal" || !config || !selectedTerminalProcessId) return;
     void loadTerminalLogs(selectedTerminalProcessId);
-    const interval = window.setInterval(() => {
+    return setVisibleInterval(() => {
       void loadTerminalLogs(selectedTerminalProcessId);
     }, 1000);
-    return () => window.clearInterval(interval);
   }, [config?.url, loadTerminalLogs, pane, selectedTerminalProcessId, config]);
 
   useEffect(() => {
@@ -381,12 +396,12 @@ export function useAppEffects(params: {
   // the same press, and the shortcut registry runs only the first matching binding.
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape" && isWorking && !pendingApproval) {
+      if (shouldInterruptOnEscape({ key: e.key, isWorking, pendingApproval, pendingQuestion })) {
         e.preventDefault();
         void interrupt();
       }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [interrupt, isWorking, pendingApproval]);
+  }, [interrupt, isWorking, pendingApproval, pendingQuestion]);
 }

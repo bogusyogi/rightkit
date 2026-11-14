@@ -30,6 +30,68 @@ function safeMessage(error: unknown): string {
     .replace(/(https?:\/\/)([^\s/@:]+):([^\s/@]+)@/gi, "$1REDACTED:REDACTED@");
 }
 
+/** Inclusive contract and protocol version range a host's client speaks (client API R15). */
+export interface SupportedDaemonContract {
+  contractVersion: { min: number; max: number };
+  protocolVersion: { min: number; max: number };
+}
+
+export interface DaemonCompatibility {
+  contractVersion?: unknown;
+  protocolVersion?: unknown;
+}
+
+let supportedContract: SupportedDaemonContract | null = null;
+
+/**
+ * Opt in to the incompatible-daemon check: `getHealth` then rejects a daemon whose `/health` body reports a
+ * contract or protocol version outside this range. With no range configured (the default) no version is
+ * compared, as before. Pass `null` to switch the check off again.
+ */
+export function configureSupportedDaemonContract(contract: SupportedDaemonContract | null): void {
+  supportedContract = contract;
+}
+
+export function getSupportedDaemonContract(): SupportedDaemonContract | null {
+  return supportedContract;
+}
+
+function inRange(value: unknown, range: { min: number; max: number }): boolean {
+  return Number.isInteger(value) && (value as number) >= range.min && (value as number) <= range.max;
+}
+
+/** True when no range is configured, or both versions sit inside it. App `version` is never compared. */
+export function isCompatibleDaemon(health: DaemonCompatibility): boolean {
+  if (!supportedContract) return true;
+  return (
+    inRange(health.contractVersion, supportedContract.contractVersion) &&
+    inRange(health.protocolVersion, supportedContract.protocolVersion)
+  );
+}
+
+/** Thrown when `/health` reports versions outside the configured range; classified `incompatible` by type, never by text. */
+export class IncompatibleDaemonError extends Error {
+  readonly incompatible = true;
+  constructor(
+    readonly contractVersion: unknown,
+    readonly protocolVersion: unknown,
+  ) {
+    const range = supportedContract;
+    super(
+      `Server Update Required: the daemon speaks contract ${String(contractVersion)} and protocol ${String(protocolVersion)}${
+        range
+          ? `; this app supports contract ${range.contractVersion.min}-${range.contractVersion.max} and protocol ${range.protocolVersion.min}-${range.protocolVersion.max}.`
+          : "."
+      }`,
+    );
+    this.name = "IncompatibleDaemonError";
+  }
+}
+
+export function isIncompatibleDaemonError(error: unknown): boolean {
+  return error instanceof IncompatibleDaemonError;
+}
+
 export function isAuthRejectionError(error: unknown): boolean {
   return /^40[13]:/.test(rawMessage(error));
 }
@@ -95,7 +157,7 @@ export function projectConnectionError(
         ? "wrong-service"
         : isMissingHealthEndpointError(error)
           ? "missing"
-          : status === 426 || status === 409 || lower.includes("incompatible") || lower.includes("version")
+          : status === 426 || status === 409 || isIncompatibleDaemonError(error) || lower.includes("incompatible") || lower.includes("version")
             ? "incompatible"
             : lower.includes("econnrefused") || lower.includes("timed out") || lower.includes("timeout") || lower.includes("fetch failed") || lower.includes("network")
               ? "unreachable"

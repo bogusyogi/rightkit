@@ -10,6 +10,7 @@ import type {
   SessionRow,
 } from "@rightkit/agent-ui-core/lib/types";
 import type { DriverKind } from "@rightkit/agent-ui-core/lib/types";
+import { hostOption } from "../appName.js";
 import EditedFilesSection from "./EditedFilesSection.js";
 import { encodeSessionShareCode } from "@rightkit/agent-ui-core/lib/sessionShareCode";
 import type { SessionShareStatus } from "@rightkit/agent-ui-core/lib/sessionShareCode";
@@ -40,6 +41,11 @@ export default function Sidebar({
   sessions,
   selectedId,
   newSessionControls,
+  executionBackendRegistry,
+  executionWorkspaces,
+  executionWorkspacePending,
+  onNewSessionControls,
+  onCreateExecutionWorkspace,
   onSelect,
   onDelete,
   onNewSession,
@@ -77,6 +83,12 @@ export default function Sidebar({
   // so the built prop bag stays valid without threading it through.
   onOpenSettings?: () => void;
 }) {
+  const showSessionOptions = hostOption("newSessionOptionsPanel");
+  const defaultBackend = executionBackendRegistry?.defaultBackend ?? "local";
+  const selectedBackend = newSessionControls.executionBackend || defaultBackend;
+  const matchingExecutionWorkspaces = executionWorkspaces.filter(
+    (workspace) => workspace.backendId === selectedBackend,
+  );
   const [pendingDelete, setPendingDelete] = useState<{ id: string; title: string } | null>(null);
   const { resolved: theme, setChoice } = useTheme();
   const toggleTheme = () => setChoice(theme === "dark" ? "light" : "dark");
@@ -141,6 +153,143 @@ export default function Sidebar({
           onClick={() => onNewSession(newSessionControls.driverKind)}
         />
       </nav>
+
+      {showSessionOptions ? (
+        <details className="mt-1 px-1 text-[12px] text-text-3" data-testid="new-session-options">
+          <summary className="cursor-pointer select-none rounded px-1 py-0.5 hover:text-text-2">
+            Session options
+          </summary>
+          <div className="mt-1.5 grid gap-1.5 px-1 pb-1">
+            <label className="grid gap-0.5">
+              <span>Effort</span>
+              <select
+                className="rounded border border-line bg-bg px-1.5 py-1 text-text"
+                value={newSessionControls.effort}
+                onChange={(event) =>
+                  onNewSessionControls({
+                    ...newSessionControls,
+                    effort: event.target.value as NewSessionControls["effort"],
+                  })
+                }
+              >
+                <option value="">Default</option>
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+              </select>
+            </label>
+            <label className="grid gap-0.5">
+              <span>Thinking budget (tokens)</span>
+              <input
+                type="number"
+                min="1"
+                inputMode="numeric"
+                placeholder="Model default"
+                className="rounded border border-line bg-bg px-1.5 py-1 text-text"
+                value={newSessionControls.thinkingBudgetTokens}
+                disabled={newSessionControls.disableThinking}
+                onChange={(event) =>
+                  onNewSessionControls({
+                    ...newSessionControls,
+                    thinkingBudgetTokens: event.target.value,
+                  })
+                }
+              />
+            </label>
+            <label className="flex items-center gap-1.5">
+              <input
+                type="checkbox"
+                checked={newSessionControls.disableThinking}
+                onChange={(event) =>
+                  onNewSessionControls({
+                    ...newSessionControls,
+                    disableThinking: event.target.checked,
+                  })
+                }
+              />
+              <span>Disable thinking</span>
+            </label>
+            <label className="grid gap-0.5">
+              <span>Execution backend</span>
+              <select
+                className="rounded border border-line bg-bg px-1.5 py-1 text-text"
+                value={newSessionControls.executionBackend}
+                onChange={(event) =>
+                  onNewSessionControls({
+                    ...newSessionControls,
+                    executionBackend: event.target.value,
+                    executionWorkspaceId: "",
+                  })
+                }
+              >
+                <option value="">Default ({defaultBackend})</option>
+                {(executionBackendRegistry?.backends ?? [])
+                  .filter((backend) => backend.enabled)
+                  .map((backend) => (
+                    <option key={backend.id} value={backend.id}>
+                      {backend.name}
+                    </option>
+                  ))}
+              </select>
+            </label>
+            <label className="grid gap-0.5">
+              <span>Execution workspace</span>
+              <select
+                className="rounded border border-line bg-bg px-1.5 py-1 text-text"
+                value={newSessionControls.executionWorkspaceId}
+                onChange={(event) =>
+                  onNewSessionControls({
+                    ...newSessionControls,
+                    executionWorkspaceId: event.target.value,
+                  })
+                }
+              >
+                <option value="">A fresh workspace for the session</option>
+                {matchingExecutionWorkspaces.map((workspace) => (
+                  <option key={workspace.id} value={workspace.id}>
+                    {workspace.name} ({workspace.status})
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button
+              type="button"
+              className="justify-self-start rounded border border-line px-2 py-0.5 text-text-2 hover:text-text disabled:opacity-50"
+              disabled={executionWorkspacePending}
+              onClick={onCreateExecutionWorkspace}
+            >
+              {executionWorkspacePending ? "Creating workspace…" : "Create execution workspace"}
+            </button>
+            <label className="grid gap-0.5">
+              <span>Allowed tools (comma-separated)</span>
+              <input
+                type="text"
+                spellCheck={false}
+                className="rounded border border-line bg-bg px-1.5 py-1 font-mono text-text"
+                value={newSessionControls.allowedTools}
+                onChange={(event) =>
+                  onNewSessionControls({ ...newSessionControls, allowedTools: event.target.value })
+                }
+              />
+            </label>
+            <label className="grid gap-0.5">
+              <span>Disallowed tools (comma-separated)</span>
+              <input
+                type="text"
+                spellCheck={false}
+                className="rounded border border-line bg-bg px-1.5 py-1 font-mono text-text"
+                value={newSessionControls.disallowedTools}
+                onChange={(event) =>
+                  onNewSessionControls({
+                    ...newSessionControls,
+                    disallowedTools: event.target.value,
+                  })
+                }
+              />
+            </label>
+          </div>
+        </details>
+      ) : null}
 
       <search className="px-2 pb-1" aria-label="Session search">
         <label className="relative flex min-h-8 items-center gap-2 rounded-md border border-line bg-bg px-2 text-text-3 focus-within:border-accent focus-within:text-text">
@@ -217,7 +366,10 @@ export default function Sidebar({
         }
       />
 
-      <section className="min-h-0 flex-1 pb-2" aria-label="Recent sessions">
+      <section
+        className={showSessionOptions ? "flex min-h-0 flex-1 flex-col pb-2" : "min-h-0 flex-1 pb-2"}
+        aria-label="Recent sessions"
+      >
         {totalCount === 0 ? (
           <div
             className="grid gap-2 px-4 py-3 text-text-3 text-[13px]"
