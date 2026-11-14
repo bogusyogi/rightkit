@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.2
+
+- `strip::drag::{Drag, Landing, Outcome, run}` are `pub` (were `pub(crate)`) and `strip::drag::ole_init()` is new: a once-per-process OLE initialisation for a host's own drag of files out of the notch (Pulse's Send card drag), which carries no strip items and so never goes through the strip's own `init`. Nothing calls it unless the host does; the strip's behaviour is unchanged.
+- `strip::{shot, stub}` under the existing `qa-views` feature (off by default, never in a shipped build): the strip as a picture for a host's CI view renderer, and the plain notch stub it hangs from. Nothing changes without the feature.
+
 ## 0.3.1
 
 - `Host::product_name` (default `RightKit`): the application's name in the history's window class names (`<name>ClipboardListener`, `<name>ClipStrip`, `<name>ClipPreview`), window titles (`<name> clipboard`, `<name> Clipboard`, `<name> Clipboard Preview`) and thread names (`<name lower case>-clip-...`). The two paste threads were named `pulse-clip-paste` and `pulse-clip-restore` whatever the host; they now follow the product name like the others (`rightkit-clip-paste` by default).

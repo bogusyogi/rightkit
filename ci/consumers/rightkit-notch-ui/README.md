@@ -1,7 +1,7 @@
-# rightkit-notch-ui 0.2.0 registry consumer
+# rightkit-notch-ui 0.2.1 registry consumer
 
 Standalone package outside the RightKit workspace. It depends on `rightkit-notch-ui` by exact registry pin
-(`=0.2.0`) with default features. It has no path, Git, workspace or patch dependency and no
+(`=0.2.1`) with default features. It has no path, Git, workspace or patch dependency and no
 committed `Cargo.lock`.
 
 Host-defined cells (order, glyph, section, the anchor a minimised notch keeps, an empty list ignored), spring rest and step, and the hover emphasis scale. Windows modules are not used and no window or timer is created.

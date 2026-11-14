@@ -21,8 +21,12 @@ pub mod drag;
 mod draw;
 pub mod kinds;
 mod popover;
+#[cfg(feature = "qa-views")]
+mod shot;
 
 pub use kinds::{Place, draw as kind_mark};
+#[cfg(feature = "qa-views")]
+pub use shot::{shot, stub};
 
 use crate::host;
 use crate::json;

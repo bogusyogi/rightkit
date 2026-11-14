@@ -10845,7 +10845,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-clipboard-history"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "rightkit-automation",
  "rightkit-child-process",
@@ -12339,7 +12339,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-notch-ui"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "rightkit-win-ui",
  "windows 0.62.2",

@@ -102,7 +102,7 @@ unsafe extern "system" {
 
 /// What a drag carries and where it may land inside the strip (screen rectangles as
 /// `left, top, right, bottom`).
-pub(crate) struct Drag {
+pub struct Drag {
     pub formats: Vec<(u32, Vec<u8>)>,
     /// The board tabs, History and Pinned, by id (`history`, `pinned`, a board's id).
     pub tabs: Vec<([i32; 4], String)>,
@@ -111,12 +111,12 @@ pub(crate) struct Drag {
 }
 
 /// Where a drag landed inside the strip.
-pub(crate) enum Landing {
+pub enum Landing {
     Tab(String),
     Card(usize),
 }
 
-pub(crate) struct Outcome {
+pub struct Outcome {
     pub landing: Option<Landing>,
     /// Another app took the card.
     pub accepted: bool,
@@ -127,6 +127,18 @@ type TabTargets = Vec<([i32; 4], String)>;
 type CardTargets = Vec<([i32; 4], usize)>;
 static TARGETS: Mutex<(TabTargets, CardTargets)> = Mutex::new((Vec::new(), Vec::new()));
 static LANDED: Mutex<Option<Landing>> = Mutex::new(None);
+
+/// Makes the calling thread an OLE one once per process; a no-op after the first call. For a
+/// drag that carries no strip items (a host's file drag), which never empties the folder.
+pub fn ole_init() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        // SAFETY: OLE initialisation of the calling (UI) thread, which keeps its apartment.
+        unsafe {
+            OleInitialize(std::ptr::null_mut());
+        }
+    });
+}
 
 /// Makes the thread an OLE one, and empties the folder the last run left file promises in.
 pub(super) fn init() {
@@ -560,7 +572,7 @@ unsafe extern "system" fn source_give_feedback(_this: *mut DropSource, _effect: 
 // ---- running a drag -----------------------------------------------------------------------
 
 /// Drags `carried` until the button is let go, and says where it landed.
-pub(crate) fn run(carried: Drag) -> Outcome {
+pub fn run(carried: Drag) -> Outcome {
     *TARGETS.lock().unwrap_or_else(PoisonError::into_inner) = (carried.tabs, carried.cards);
     *LANDED.lock().unwrap_or_else(PoisonError::into_inner) = None;
     let formats: Vec<(u16, Vec<u8>)> = carried

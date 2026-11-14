@@ -457,6 +457,13 @@ pub fn draw_headline_outside() {
     no_minimise_room();
 }
 
+/// Whether `draw_headline_outside` was called: the headline window is drawn outside whatever the
+/// switches say. A host that builds its own `CellView`s reads it where its switches would put the
+/// weekly window outside.
+pub fn headline_outside() -> bool {
+    HEADLINE_OUTSIDE.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 static WARNING: Mutex<Option<String>> = Mutex::new(None);
 
 /// Sets the warning line (or clears it); true when it changed.
