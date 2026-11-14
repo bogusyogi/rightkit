@@ -26,3 +26,4 @@ export { ModelIntro, ModelDownloadExtras, type ModelStateSource } from "./ModelS
 export { RecognitionSetupStep } from "./RecognitionSetupStep.js";
 export { WelcomeStep, CommandsStep, AppLivesStep } from "./StaticSteps.js";
 export { TrialStep } from "./TrialStep.js";
+export { DictationOnboarding, type DictationOnboardingProps } from "./DictationOnboarding.js";
