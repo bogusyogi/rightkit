@@ -1073,18 +1073,28 @@
           "@rightkit/doc-render": "0.2.1",
           "@rightkit/react-shell": "0.7.2",
           "@rightkit/settings-ui": "0.7.0",
-          "@rightkit/theme": "0.3.3"
+          "@rightkit/theme": "0.3.3",
+          "@rightkit/agent-ui-core": "0.1.4",
+          "@rightkit/ci": "0.3.2",
+          "@rightkit/legal": "0.6.3",
+          "@rightkit/legal-ui": "0.4.2",
+          "@rightkit/license": "0.3.2",
+          "@rightkit/logs": "0.1.6",
+          "@rightkit/onboarding": "0.6.5",
+          "@rightkit/outdated": "0.3.1",
+          "@rightkit/platform-ui": "0.4.1",
+          "@rightkit/release": "0.6.52",
+          "@rightkit/tauri-shell": "0.1.4",
+          "@rightkit/agent-ui-hooks": "0.1.1"
         },
         "declaredOnly": [
-          "@rightkit/agent-ui-core",
-          "@rightkit/agent-ui-hooks",
           "@tauri-apps/api"
         ]
       },
       "files": {
         "ci/consumers/npm/agent-ui-settings/README.md": "e3d0f4d185bcd9df825a3b30b00ea3011ba213f302d0908a532210b6e965a7a7",
         "ci/consumers/npm/agent-ui-settings/consumer.mjs": "1f2d273882cc6a1223fef8f16bb4cff47b2e9b300602903e2f9be2757872b247",
-        "ci/consumers/npm/agent-ui-settings/package.json": "0b789ea6039af9f1406d15234d5adf36bac8064157528406370819733c1c2abc",
+        "ci/consumers/npm/agent-ui-settings/package.json": "fe4dfb8ae103455fe4f096f2561402b4c2dac03f92009c89a68b7bf2ac94a6db",
         "ci/consumers/npm/agent-ui-settings/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "fc160695e1dc97dc7e32e746c9e4471e2d85168b097623de818befeb00ee438c"
       }
@@ -1166,18 +1176,28 @@
           "@rightkit/doc-render": "0.2.1",
           "@rightkit/platform-ui": "0.4.0",
           "@rightkit/react-shell": "0.7.2",
-          "@rightkit/theme": "0.3.3"
+          "@rightkit/theme": "0.3.3",
+          "@rightkit/app-update": "0.4.2",
+          "@rightkit/agent-ui-core": "0.1.4",
+          "@rightkit/ci": "0.3.2",
+          "@rightkit/legal": "0.6.3",
+          "@rightkit/legal-ui": "0.4.2",
+          "@rightkit/license": "0.3.2",
+          "@rightkit/logs": "0.1.6",
+          "@rightkit/onboarding": "0.6.5",
+          "@rightkit/outdated": "0.3.1",
+          "@rightkit/release": "0.6.52",
+          "@rightkit/tauri-shell": "0.1.4",
+          "@rightkit/agent-ui-hooks": "0.1.1"
         },
         "declaredOnly": [
-          "@rightkit/agent-ui-core",
-          "@rightkit/agent-ui-hooks",
           "@tauri-apps/api"
         ]
       },
       "files": {
         "ci/consumers/npm/agent-ui-workbench/README.md": "df66748f3c4b99d37094dd8c79fefcffd9056c5ccc7bbd204c599214ea2c5e26",
         "ci/consumers/npm/agent-ui-workbench/consumer.mjs": "85ae35f2526a85d4b24c1f5fcc253873a94e43131ec180509ba172a6961ea325",
-        "ci/consumers/npm/agent-ui-workbench/package.json": "84048167bb7680ba6994f78cb1b35363702ddcb3f5421043f499e9317b6d06fd",
+        "ci/consumers/npm/agent-ui-workbench/package.json": "094ff227d58dfe6c7a67e7392156e6ef4eb3ca622b79a84d5235d3dcb30e7d6a",
         "ci/consumers/npm/agent-ui-workbench/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "fc160695e1dc97dc7e32e746c9e4471e2d85168b097623de818befeb00ee438c"
       }
