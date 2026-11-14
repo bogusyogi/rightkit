@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.6
 
 Added: `@rightkit/dictation-ui/onboarding`, HeardRight's first-run setup, so an app can delete its own copy. Markup, classes, wording, storage and native calls equal HeardRight's shipped setup.
 
