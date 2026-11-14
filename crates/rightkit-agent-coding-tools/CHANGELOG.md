@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.2
+
+- Breaking for dependents: a dependency requirement was raised to a semver-breaking version.
+
 ## 0.1.1
 
 - Builds against `rightkit-agent-engine-protocol` 0.4.0: `attach_verdict` leaves `ArtifactVerdict::confidence` unset. No behaviour change.
