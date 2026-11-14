@@ -29,9 +29,10 @@ impl ConfigSource {
             .map(|root| root.join("config.toml"))
             .and_then(|path| std::fs::read_to_string(path).ok())
             .and_then(|content| loader.load_str(&content).ok());
-        let workspace = std::fs::read_to_string(workspace.join(".rightkit").join("config.toml"))
-            .ok()
-            .and_then(|content| loader.load_str(&content).ok());
+        let workspace =
+            std::fs::read_to_string(workspace.join(crate::state_dir_name()).join("config.toml"))
+                .ok()
+                .and_then(|content| loader.load_str(&content).ok());
 
         if workspace
             .as_ref()

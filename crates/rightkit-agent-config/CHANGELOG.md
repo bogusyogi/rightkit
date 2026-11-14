@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Host naming options, defaults unchanged: `set_state_dir_name` / `state_dir_name()` (default `.rightkit`; the workspace config, presets, agents folder, trust-store fallback) and `set_env_prefix` / `env_prefix()` / `env_name(suffix)` (default `RIGHTKIT`; the model, permission-mode, web-search, Telegram and CLI-acquisition overrides in `apply_env`), beside the existing `set_app_name`. Call once at start-up. The licence and trust-store variables keep their `RIGHTKIT_` names.
+
 ## 0.1.0 (unpublished)
 
 - New crate. The agent host configuration (layered TOML `HostConfig`, `ConfigLoader`, state root and app name, workspace trust store, instructions, presets, accounts, licence environment names, session secrets, OKF bundles) moved here from `rightkit-app-settings` 0.3.5, where it was the `agent_config` module behind the `agent_config` feature (added in 0.3.1, moved from CodeRight `coderight-config`). The 2026-11-11 shape review (docs/audits/2026-11-11-shape-matrix/reports/family-foundation-shell-ui.md) found it is agent product configuration, not app settings, and that it pulled `rightkit-daemon` and `rightkit-agent-policy` into a crate every desktop app adopts.

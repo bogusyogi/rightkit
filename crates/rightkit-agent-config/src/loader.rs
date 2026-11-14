@@ -63,7 +63,7 @@ impl ConfigLoader {
         }
 
         // Workspace config (<workspace>/<state-dir>/config.toml).
-        let ws_path = workspace.join(".rightkit").join("config.toml");
+        let ws_path = workspace.join(crate::state_dir_name()).join("config.toml");
         if let Some(cfg) = self.load_layer_file(&ws_path) {
             layers.push(cfg);
         }
@@ -122,38 +122,38 @@ impl ConfigLoader {
     /// function is fully testable. Recognized keys:
     /// `RIGHTKIT_MODEL`, `RIGHTKIT_PERMISSION_MODE`,
     /// `RIGHTKIT_WEB_SEARCH_PROVIDER`, `RIGHTKIT_WEB_SEARCH_API_KEY`,
-    /// and `RIGHTKIT_TELEGRAM_TOKEN`.
+    /// and `RIGHTKIT_TELEGRAM_TOKEN` (the `RIGHTKIT` prefix is [`crate::env_prefix`]).
     pub fn apply_env(
         &self,
         mut config: HostConfig,
         env_vars: &HashMap<String, String>,
     ) -> HostConfig {
-        if let Some(v) = env_vars.get("RIGHTKIT_MODEL") {
+        if let Some(v) = env_vars.get(&crate::env_name("MODEL")) {
             if !v.is_empty() {
                 config.model.default_model = v.clone();
             }
         }
-        if let Some(v) = env_vars.get("RIGHTKIT_PERMISSION_MODE") {
+        if let Some(v) = env_vars.get(&crate::env_name("PERMISSION_MODE")) {
             if !v.is_empty() {
                 config.permissions.mode = v.clone();
             }
         }
-        if let Some(v) = env_vars.get("RIGHTKIT_WEB_SEARCH_PROVIDER") {
+        if let Some(v) = env_vars.get(&crate::env_name("WEB_SEARCH_PROVIDER")) {
             if !v.is_empty() {
                 config.tools.web_search_provider = Some(v.clone());
             }
         }
-        if let Some(v) = env_vars.get("RIGHTKIT_WEB_SEARCH_API_KEY") {
+        if let Some(v) = env_vars.get(&crate::env_name("WEB_SEARCH_API_KEY")) {
             if !v.is_empty() {
                 config.tools.web_search_api_key = Some(v.clone());
             }
         }
-        if let Some(v) = env_vars.get("RIGHTKIT_TELEGRAM_TOKEN") {
+        if let Some(v) = env_vars.get(&crate::env_name("TELEGRAM_TOKEN")) {
             if !v.is_empty() {
                 config.remote.telegram_token = Some(v.clone());
             }
         }
-        if let Some(v) = env_vars.get("RIGHTKIT_CLI_ACQUISITION_V1") {
+        if let Some(v) = env_vars.get(&crate::env_name("CLI_ACQUISITION_V1")) {
             if let Some(enabled) = parse_bool(v) {
                 config.features.cli_acquisition_v1 = Some(enabled);
             }
@@ -231,7 +231,7 @@ impl ConfigLoader {
         base: impl FnOnce() -> Result<HostConfig, ConfigError>,
         edit: impl FnOnce(&mut HostConfig),
     ) -> Result<HostConfig, ConfigError> {
-        let dir = workspace.join(".rightkit");
+        let dir = workspace.join(crate::state_dir_name());
         std::fs::create_dir_all(&dir).map_err(|e| ConfigError::Io(e.to_string()))?;
         let _lock = lock_config(&dir, wait)?;
         let mut config = base()?;
@@ -248,7 +248,7 @@ impl ConfigLoader {
         workspace: &std::path::Path,
         config: &HostConfig,
     ) -> Result<(), ConfigError> {
-        let dir = workspace.join(".rightkit");
+        let dir = workspace.join(crate::state_dir_name());
         std::fs::create_dir_all(&dir).map_err(|e| ConfigError::Io(e.to_string()))?;
         let path = dir.join("config.toml");
         let content =
