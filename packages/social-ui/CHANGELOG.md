@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.1
+
+- Fixed: three mock fixtures (a draft body, an inbox comment, a publish error message) named "App" instead of the host app name; they read `hostAppName()` when used now. Mock data source only (dev and QA builds).
+
 ## 0.2.0
 
 Breaking (one export renamed).

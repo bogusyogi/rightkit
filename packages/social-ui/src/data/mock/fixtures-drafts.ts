@@ -1,6 +1,7 @@
 // RIGHTKIT-PENDING #383: ported version saved in /Volumes/D/scratch/postright/port-wip/full-port.patch
 // Invented manual drafts for the mock. Every URL uses a real allowed host with an obviously fake path.
 // bodyChars is filled in by MockDataSource from the body text, so it cannot drift from the body.
+import { hostAppName } from "../../appName.js";
 import type { ManualDraft } from "../types.js";
 
 export const FIXTURE_DRAFTS: ManualDraft[] = [
@@ -11,7 +12,10 @@ export const FIXTURE_DRAFTS: ManualDraft[] = [
     kind: "comment",
     target: "https://www.reddit.com/r/example/comments/mock0001/",
     title: null,
-    body: "Disclosure: I run App, so take this with that in mind. The setup in the thread is simple: start with one channel and one account.",
+    // Read when used, so the host's name (set at startup) is in it.
+    get body() {
+      return `Disclosure: I run ${hostAppName()}, so take this with that in mind. The setup in the thread is simple: start with one channel and one account.`;
+    },
     bodyChars: 0,
     disclosureRequired: true,
     state: "drafted",
