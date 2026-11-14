@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Host naming options, defaults unchanged: `agent_hooks::set_env_prefix` / `env_prefix()` (default `RIGHTKIT`: the `<prefix>_HOOKS_JSON` variable read, and every `<prefix>_HOOK_*` variable a hook command receives, including `_REASON`) and `set_state_dir_name` / `state_dir_name()` (default `.rightkit`; `chain::project_hook_file()` is the project hook file). `PROJECT_HOOK_FILE` and `HOOKS_JSON_ENV` remain the defaults. Call once at start-up.
+
 ## 0.2.5 (unpublished)
 
 - Requires `rightkit-agent-engine-protocol` 0.2.0, whose approval records carry the approvals core's `Binding` (mandatory digest) instead of an optional `payload_digest`. Decision 4 of the 2026-11-11 shape review (docs/audits/2026-11-11-shape-matrix/README.md, "Agent engine") taken on the recommended option, pending the owner's confirmation; design note: docs/audits/2026-11-11-shape-matrix/reports/agent-engine-contract-design.md.
