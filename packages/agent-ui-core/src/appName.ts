@@ -28,6 +28,8 @@ export interface HostOptions {
   newSessionOptionsPanel: boolean;
   /** Name of the operator sandbox-tier environment variable shown in the sandbox tier panel. */
   sandboxTierEnv: string;
+  /** Imported VS Code themes also retint `--color-brand-red` / `--color-brand-red-2`; false leaves both variables untouched (neither set nor cleared). */
+  importedThemeRetintsBrandRed: boolean;
 }
 
 const DEFAULT_HOST_OPTIONS: Readonly<HostOptions> = {
@@ -37,6 +39,7 @@ const DEFAULT_HOST_OPTIONS: Readonly<HostOptions> = {
   assistantExportLabel: "Assistant",
   newSessionOptionsPanel: false,
   sandboxTierEnv: "RIGHTKIT_SANDBOX_TIER",
+  importedThemeRetintsBrandRed: true,
 };
 
 let options: HostOptions = { ...DEFAULT_HOST_OPTIONS };

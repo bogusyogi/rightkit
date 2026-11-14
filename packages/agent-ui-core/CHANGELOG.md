@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.4
+
+- New host option `importedThemeRetintsBrandRed` (default `true`, the previous output). When a host sets it to `false` with `setHostOptions({ importedThemeRetintsBrandRed: false })`, `applyImportedTheme` neither sets nor clears `--color-brand-red` and `--color-brand-red-2`; it retints only `--color-accent`, `--color-focus` and `--color-on-accent`.
+
 ## 0.1.3
 
 Lets the host app replace more of its own frontend with this package. Every default is the previous behaviour; a host opts in.

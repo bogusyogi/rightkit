@@ -1,6 +1,7 @@
 // the host app-only feature (VS Code theme import, activation, persistence): @rightkit/theme 0.3.1 has no imported-theme module, so nothing here duplicates a published RightKit capability.
 import { ensureContrast as ensureContrastHex, luminance, mix as mixHex, prefersDark, readableOn } from "@rightkit/theme";
 import { create } from "zustand";
+import { hostOption } from "../appName";
 
 /**
  * Hermes lineage: themes/context.tsx + themes/install.ts.
@@ -240,14 +241,16 @@ function activeColors(theme: ImportedTheme, mode: ThemeMode): ImportedThemeColor
   return mode === "dark" && theme.darkColors ? theme.darkColors : theme.colors;
 }
 
-const RETINT_KEYS = ["--color-accent", "--color-focus", "--color-brand-red", "--color-brand-red-2", "--color-on-accent"];
+const BRAND_RED_KEYS = ["--color-brand-red", "--color-brand-red-2"];
+const RETINT_KEYS = ["--color-accent", "--color-focus", "--color-on-accent"];
 const IMPORTED_COLOR_KEYS = Object.keys(DEFAULT_IMPORTED_COLORS);
 
 /** Paint only imported retint variables; the locked neutral base is untouched. */
 export function applyImportedTheme(theme: ImportedTheme | null, mode: ThemeMode): void {
   if (typeof document === "undefined") return;
   const root = document.documentElement;
-  for (const key of RETINT_KEYS) root.style.removeProperty(key);
+  const retintsBrandRed = hostOption("importedThemeRetintsBrandRed");
+  for (const key of retintsBrandRed ? [...RETINT_KEYS, ...BRAND_RED_KEYS] : RETINT_KEYS) root.style.removeProperty(key);
   for (const key of IMPORTED_COLOR_KEYS) root.style.removeProperty(`--cr-imported-${key}`);
   if (!theme) {
     root.removeAttribute("data-imported-theme");
@@ -259,13 +262,13 @@ export function applyImportedTheme(theme: ImportedTheme | null, mode: ThemeMode)
   root.dataset.importedThemeMode = renderedModeFor(colors, mode);
   root.style.setProperty("--color-accent", colors.accent);
   root.style.setProperty("--color-focus", colors.accent);
-  root.style.setProperty("--color-brand-red", colors.accent);
+  if (retintsBrandRed) root.style.setProperty("--color-brand-red", colors.accent);
   try {
     // The published colour maths throws on a non-hex stored value; the retint then stays on the locked base.
-    root.style.setProperty("--color-brand-red-2", mix(colors.accent, colors.background, 0.2));
+    if (retintsBrandRed) root.style.setProperty("--color-brand-red-2", mix(colors.accent, colors.background, 0.2));
     root.style.setProperty("--color-on-accent", readableOn(colors.accent, "#ffffff", "#161616"));
   } catch {
-    root.style.removeProperty("--color-brand-red-2");
+    if (retintsBrandRed) root.style.removeProperty("--color-brand-red-2");
     root.style.removeProperty("--color-on-accent");
   }
   for (const [key, value] of Object.entries(colors)) root.style.setProperty(`--cr-imported-${key}`, value);
