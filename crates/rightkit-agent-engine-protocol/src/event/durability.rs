@@ -17,6 +17,7 @@ impl ProtocolEvent {
         match self {
             Self::AssistantDelta { .. }
             | Self::ToolOutputDelta { .. }
+            | Self::ToolArgumentsPartial { .. }
             | Self::StreamResyncRequired { .. }
             | Self::PersistenceFailed { .. } => EventDurability::LiveProjection,
             _ => EventDurability::DurableFact,

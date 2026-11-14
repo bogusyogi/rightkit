@@ -50,6 +50,7 @@ pub(crate) fn persist_tool_invocation_event(
             proposed_change,
             policy_source,
             middleware_decisions,
+            ..
         } => {
             let mut row = store
                 .get_tool_invocation(&call.id)

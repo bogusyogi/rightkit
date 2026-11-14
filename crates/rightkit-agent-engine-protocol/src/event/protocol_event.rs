@@ -1,6 +1,6 @@
 use super::{
     types::{
-        AgentRosterRow, MiddlewareDecisionEvidence, ModelRouteDecisionPayload,
+        AgentRosterMain, AgentRosterRow, MiddlewareDecisionEvidence, ModelRouteDecisionPayload,
         OrchestrationObservation, ProtocolEventMeta, SelfReviewProposalDraft,
     },
     UserQuestion, VerificationIssue,
@@ -11,6 +11,23 @@ use crate::tool::ToolCall;
 use crate::trust::TrustEnvelope;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+
+/// The rate-limit budget a provider reported on the response headers of one request (A193-1).
+/// Every field is optional: a route reports only the axes it knows.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct RateLimitObserved {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remaining_requests: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remaining_tokens: Option<u64>,
+    /// Seconds from the response until the request window resets.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reset_requests_secs: Option<u64>,
+    /// Seconds from the response until the token window resets.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reset_tokens_secs: Option<u64>,
+}
 
 /// A verified, daemon-owned step in a goal plan.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -198,6 +215,10 @@ pub enum ProtocolEvent {
         policy_source: Option<String>,
         #[serde(default)]
         middleware_decisions: Vec<MiddlewareDecisionEvidence>,
+        /// What the call changes, whether it leaves the sandbox and whether it can be undone.
+        /// Absent on events stored before this field existed.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        effects: Option<crate::approvals::ApprovalEffects>,
     },
 
     #[serde(rename = "toolApprovalResolved", rename_all = "camelCase")]
@@ -236,7 +257,8 @@ pub enum ProtocolEvent {
 
     /// A stored policy fact about one tool call that is not an approval card (tools rule 31): a
     /// session grant was installed, a hook blocked the call, or the sandbox refused the launch.
-    /// `kind` is `grant_installed`, `hook_block` or `sandbox_refusal`; `policy_source` names what
+    /// `kind` is `grant_installed`, `hook_block`, `sandbox_refusal` or `allowed` (a call let through
+    /// without a card by an ABAC rule, a permission rule or the auto-approval seam); `policy_source` names what
     /// decided (a rule id, a hook id such as `PreToolUse#0`, a sandbox tier or profile); `cause`
     /// is a short redacted reason, never command text, arguments or a secret.
     #[serde(rename = "toolPolicyEvent", rename_all = "camelCase")]
@@ -482,6 +504,10 @@ pub enum ProtocolEvent {
         /// preserve their existing (assumed-correct) cost display.
         #[serde(default = "default_cost_known")]
         cost_known: bool,
+        /// True when every priced request so far carried the provider's own charge (billed),
+        /// not a price-table estimate. Left out of the JSON when false.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        cost_billed: bool,
     },
 
     /// Per-model-call usage for live prompt-cache / context displays. Emitted
@@ -518,6 +544,20 @@ pub enum ProtocolEvent {
         /// 0.0-100.0: cache reads / (uncached + cache reads + cache writes).
         #[serde(default)]
         session_cache_hit_pct: f64,
+        /// Milliseconds from the provider request to the first streamed delta,
+        /// and to the end of the response. Absent when the reply was not streamed.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        ttft_ms: Option<u64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        total_ms: Option<u64>,
+        /// The rate-limit budget the provider reported on this response's headers; absent when it
+        /// sent none (A193-1).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        rate_limit: Option<RateLimitObserved>,
+        /// Milliseconds the provider keeps this request's cached prefix after this response, as
+        /// the request asked for it; absent when the route has no cache lifetime (A193-2).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cache_ttl_ms: Option<u64>,
     },
 
     /// A provider response whose cache read fell materially below what the
@@ -564,6 +604,21 @@ pub enum ProtocolEvent {
         /// `stdout` or `stderr`.
         stream: String,
         text: String,
+    },
+
+    /// Live view of a tool call whose arguments are still streaming: the top-level string
+    /// fields read so far (a JSON object, values cut short), so a screen can name the file a
+    /// `write_file` call is about to write before its content has finished. Live-only and
+    /// never a dispatch input: the call runs only from `toolCallStarted`, after the complete
+    /// generation.
+    #[serde(rename = "toolArgumentsPartial", rename_all = "camelCase")]
+    ToolArgumentsPartial {
+        session_id: String,
+        seq: i64,
+        created_at: String,
+        call_id: String,
+        name: String,
+        arguments_json: String,
     },
 
     /// A background shell reached a terminal state. Emitted once per shell,
@@ -753,6 +808,37 @@ pub enum ProtocolEvent {
         sub_session_id: String,
         role: String,
         task_title: String,
+        /// The id of the parent's `spawn_subagent` tool call that started this child, so a consumer can
+        /// tell which call a child belongs to when one turn spawns several. Absent for a child that
+        /// no model call started (an orchestrator spawn) and for rows written before this field.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        tool_call_id: Option<String>,
+    },
+
+    /// Emitted on the **parent** session for what a running sub-agent says and does, so a consumer of the
+    /// parent's stream (`run --stream-json`, a client) sees the child's work as it happens and can tie it to the
+    /// `spawn_subagent` call that started it. `output_kind` is `text` (an assistant text delta in `text`),
+    /// `toolCall` (the child began the tool named in `tool_name`, call id `child_call_id`) or `toolResult` (that
+    /// call finished). Reasoning text and tool arguments are never forwarded. A display and
+    /// log event only: it is not part of any provider request.
+    #[serde(rename = "subAgentOutput", rename_all = "camelCase")]
+    SubAgentOutput {
+        session_id: String,
+        seq: i64,
+        created_at: String,
+        sub_session_id: String,
+        role: String,
+        /// The id of the parent's `spawn_subagent` call that started this child; absent for an
+        /// orchestrator spawn no model call started.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        tool_call_id: Option<String>,
+        output_kind: String,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        text: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        tool_name: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        child_call_id: Option<String>,
     },
 
     /// Emitted on the parent session when a sub-agent finishes (success or failure).
@@ -777,6 +863,9 @@ pub enum ProtocolEvent {
         /// the provider/API error text. Empty for a clean completion.
         #[serde(default)]
         outcome_detail: String,
+        /// The parent's `spawn_subagent` tool call that started this child (see `subAgentSpawned`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        tool_call_id: Option<String>,
     },
 
     /// Emitted on the parent session when a sub-agent is stopped before completing.
@@ -882,6 +971,19 @@ pub enum ProtocolEvent {
         seq: i64,
         created_at: String,
         agents: Vec<AgentRosterRow>,
+        /// The main agent's own entry, kept apart from `agents` so clients that
+        /// treat every row as a child keep working.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        main: Option<AgentRosterMain>,
+        /// Sum of the known costs of the main agent and every sub-agent.
+        #[serde(default, skip_serializing_if = "crate::wire::omit_none")]
+        total_cost_usd: Option<f64>,
+        /// False when any part's cost is unknown (left out of the total).
+        #[serde(
+            default = "default_cost_known",
+            skip_serializing_if = "crate::wire::omit_true"
+        )]
+        cost_known: bool,
     },
 
     /// A deterministic pre-gate check finished (F3). `jury_skipped` is true when

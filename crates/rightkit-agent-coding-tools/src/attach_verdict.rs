@@ -85,6 +85,7 @@ impl AttachVerdictTool {
             juror: ctx.session_id.clone(),
             bound_hash: String::new(),
             summary: reasoning,
+            confidence: None,
         };
 
         let store =

@@ -21,26 +21,30 @@ pub mod task;
 pub mod time;
 pub mod tool;
 pub mod tool_output;
+pub mod tool_step;
 pub mod traits;
 pub mod trust;
+pub mod wire;
 
 // ── Most-used re-exports ──────────────────────────────────────────────────────
 pub use approvals::{
-    effect_binding, ElicitationAction, ElicitationRequest, ElicitationRequestEvent,
-    ExecApprovalKind, ExecApprovalRequestEvent, ExecPolicyAmendment, GuardianAssessmentAction,
-    GuardianAssessmentDecisionSource, GuardianAssessmentEvent, GuardianAssessmentOutcome,
-    GuardianAssessmentStatus, GuardianCommandSource, GuardianRiskLevel, GuardianUserAuthorization,
-    NetworkApprovalContext, NetworkApprovalProtocol, NetworkPolicyAmendment,
-    NetworkPolicyRuleAction, PendingApprovalContext, PermissionDecision, PermissionDecisionResult,
-    PermissionGateRequest, PermissionGateResponse, ReviewDecision,
+    effect_binding, ApprovalEffects, ApprovalFact, ApprovalFactValue, ElicitationAction,
+    ElicitationRequest, ElicitationRequestEvent, ExecApprovalKind, ExecApprovalRequestEvent,
+    ExecPolicyAmendment, GuardianAssessmentAction, GuardianAssessmentDecisionSource,
+    GuardianAssessmentEvent, GuardianAssessmentOutcome, GuardianAssessmentStatus,
+    GuardianCommandSource, GuardianRiskLevel, GuardianUserAuthorization, NetworkApprovalContext,
+    NetworkApprovalProtocol, NetworkPolicyAmendment, NetworkPolicyRuleAction,
+    PendingApprovalContext, PermissionDecision, PermissionDecisionResult, PermissionGateRequest,
+    PermissionGateResponse, ReviewDecision,
 };
 pub use artifact::{ArtifactApproval, ArtifactRow, ArtifactVerdict};
 pub use effect_settlement::ExternalEffectSettlement;
 pub use event::{
-    AgentRosterRow, AssistantMessagePhase, CompactionFederationDecisionV1,
-    CompactionFederationSelectionReceiptV1, MiddlewareDecisionEvidence, ModelRouteDecisionPayload,
-    OrchestrationObservation, PriceSnapshot, ProtocolEvent, ProtocolEventMeta, RunBudgetExhausted,
-    RunBudgetKind, RunFailureKind, RunOriginFailure, RunOwnershipAction, RunOwnershipFailure,
+    roster_total_cost, AgentRosterMain, AgentRosterRow, AssistantMessagePhase,
+    CompactionFederationDecisionV1, CompactionFederationSelectionReceiptV1,
+    MiddlewareDecisionEvidence, ModelRouteDecisionPayload, OrchestrationObservation, PriceSnapshot,
+    ProtocolEvent, ProtocolEventMeta, RateLimitObserved, RunBudgetExhausted, RunBudgetKind,
+    RunFailureKind, RunOriginFailure, RunOwnershipAction, RunOwnershipFailure,
     SelfReviewProposalDraft, SelfReviewProposalKind, SessionUsageRollup, ShellExitStatus,
     UserQuestion, UserQuestionOption, VerificationIssue, COMPACTION_FEDERATION_SCHEMA_V1,
 };
@@ -69,6 +73,8 @@ pub use tool::ToolCall;
 pub use tool_output::{ToolOutputNotifier, ToolOutputStream};
 pub use traits::{ArtifactTrustStore, SessionConduit};
 pub use trust::{
-    neutralize_boundary_tags, set_untrusted_context_tag, untrusted_context_tag, ContentTrust,
+    neutralize_boundary_tags, set_untrusted_context_header_style, set_untrusted_context_tag,
+    untrusted_context_header_style, untrusted_context_tag, ContentTrust, HeaderStyle,
     TrustEnvelope, DEFAULT_UNTRUSTED_CONTEXT_TAG,
 };
+pub use wire::{set_wire_shape, wire_shape, WireShape};

@@ -151,6 +151,7 @@ fn builders_from_events(
                 proposed_change,
                 policy_source,
                 middleware_decisions,
+                ..
             } => {
                 let builder = out
                     .entry(call.id.clone())

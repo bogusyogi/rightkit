@@ -756,6 +756,7 @@ impl DaemonState {
                     sub_session_id: sub_id.clone(),
                     role: role.clone(),
                     task_title: handoff_task_title(&task_text),
+                    tool_call_id: None,
                 });
                 // Carry the child's resolved model onto the rail so the user can
                 // see which model each agent ran on — the difference Pro's
@@ -983,6 +984,7 @@ impl DaemonState {
                         .collect(),
                     outcome: outcome_label,
                     outcome_detail,
+                    tool_call_id: None,
                 });
                 set_parent_agent_status(
                     &parent,

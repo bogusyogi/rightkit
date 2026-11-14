@@ -177,6 +177,7 @@ impl DaemonState {
                     juror: "code-reviewer".to_string(),
                     bound_hash: result_hash,
                     summary: format!("gate_ok={gate_ok} review_ok={review_ok}"),
+                    confidence: None,
                 }),
                 approvals: vec![],
                 meta: format!("gate_ok={gate_ok} review_ok={review_ok}"),

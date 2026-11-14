@@ -51,8 +51,9 @@ pub struct PermissionGateRequest {
     pub description: String,
     pub input: Value,
     /// Read as an empty binding when absent, so a record written without one (an app's own
-    /// protocol copy) still reads.
-    #[serde(default)]
+    /// protocol copy) still reads. Left out of the JSON while empty under
+    /// [`WireShape::Flat`](crate::wire::WireShape).
+    #[serde(default, skip_serializing_if = "crate::wire::omit_binding")]
     pub binding: Binding,
 }
 
@@ -108,7 +109,14 @@ pub struct NetworkPolicyAmendment {
 }
 
 /// Exact effect context bound to a pending approval callback.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+///
+/// Two hosts persist this record in two shapes and both read back here. The binding shape
+/// (`binding`, written by RightKit hosts) carries the approvals core's binding; the flat shape
+/// (`payload_digest` plus `effects`, `arguments_json`, `requested_at`, `reason`, `policy_source`
+/// and `proposed_change`) carries the digest as one string. A host fills the fields of its own
+/// shape and leaves the rest at [`Default`]; unset optional fields are not written, an empty
+/// `binding` is left out under [`WireShape::Flat`](crate::wire::WireShape).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PendingApprovalContext {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub request_id: Option<String>,
@@ -122,8 +130,77 @@ pub struct PendingApprovalContext {
     /// destination the call reaches, the expiry and the revision. Session
     /// grants bind to [`PendingApprovalContext::payload_digest`]. Read as an empty binding when
     /// absent, so a record written without one (an app's own protocol copy) still reads.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "crate::wire::omit_binding")]
     pub binding: Binding,
+    /// Flat shape: digest of the final post-transform payload shown to the approver, as one
+    /// string. Session grants bind to it. Optional for back-compat; read it through
+    /// [`PendingApprovalContext::payload_digest`]. Not written by hosts of the binding shape.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub payload_digest: Option<String>,
+    /// What the call changes, whether it leaves the sandbox and whether it can be undone, as
+    /// worked out when the request was raised. Absent on data stored before this field existed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effects: Option<ApprovalEffects>,
+    /// The tool call's arguments as the model sent them (JSON text), so a client that reloaded can
+    /// draw the same card the live event drew. Absent on data stored before this field existed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub arguments_json: Option<String>,
+    /// When the request was raised (ISO 8601).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub requested_at: Option<String>,
+    /// Why the policy asked, in the policy's own words.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    /// The policy source that raised the ask (for example `mode:ask`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub policy_source: Option<String>,
+    /// Preview of what the call would change (a diff for edit tools), when there is one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub proposed_change: Option<String>,
+}
+
+/// A yes, no or not-known answer shown on an approval card.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ApprovalFactValue {
+    Yes,
+    No,
+    #[default]
+    Unknown,
+}
+
+/// One yes/no/unknown answer with a short plain reason.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ApprovalFact {
+    #[serde(default)]
+    pub value: ApprovalFactValue,
+    #[serde(default)]
+    pub reason: String,
+}
+
+impl ApprovalFact {
+    pub fn new(value: ApprovalFactValue, reason: impl Into<String>) -> Self {
+        Self {
+            value,
+            reason: reason.into(),
+        }
+    }
+}
+
+/// The three facts an approval card shows: what the call changes, whether it leaves the sandbox
+/// and whether it can be undone. `changes` holds the paths the call names (workspace-relative
+/// when inside the workspace) and is empty when the call names none.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApprovalEffects {
+    #[serde(default)]
+    pub changes: Vec<String>,
+    #[serde(default)]
+    pub changes_summary: String,
+    #[serde(default)]
+    pub leaves_sandbox: ApprovalFact,
+    #[serde(default)]
+    pub can_be_undone: ApprovalFact,
 }
 
 /// Prefix of an effect payload digest (`sha256:<hex>`); the binding holds the hex.
@@ -146,7 +223,15 @@ pub fn effect_binding(effect_digest: &str, destination: &str) -> Binding {
 impl PendingApprovalContext {
     /// The effect payload digest in the engine's form, `sha256:<hex>`, the
     /// key session payload grants are stored under.
+    ///
+    /// Taken from the binding; a record of the flat shape (empty binding) answers with its
+    /// `payload_digest` field as stored.
     pub fn payload_digest(&self) -> String {
+        if self.binding.args.is_empty() {
+            if let Some(digest) = self.payload_digest.as_deref().filter(|d| !d.is_empty()) {
+                return digest.to_string();
+            }
+        }
         format!("{EFFECT_DIGEST_PREFIX}{}", self.binding.args)
     }
 }

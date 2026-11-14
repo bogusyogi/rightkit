@@ -166,6 +166,12 @@ macro_rules! match_event_meta {
                 created_at: $created_at,
                 ..
             }
+            | ProtocolEvent::ToolArgumentsPartial {
+                session_id: $session_id,
+                seq: $seq,
+                created_at: $created_at,
+                ..
+            }
             | ProtocolEvent::BackgroundShellExited {
                 session_id: $session_id,
                 seq: $seq,
@@ -227,6 +233,12 @@ macro_rules! match_event_meta {
                 ..
             }
             | ProtocolEvent::SubAgentSpawned {
+                session_id: $session_id,
+                seq: $seq,
+                created_at: $created_at,
+                ..
+            }
+            | ProtocolEvent::SubAgentOutput {
                 session_id: $session_id,
                 seq: $seq,
                 created_at: $created_at,
@@ -372,6 +384,7 @@ fn assign_seq(event: &mut ProtocolEvent, new_seq: i64) {
         | ProtocolEvent::TurnUsage { seq, .. }
         | ProtocolEvent::PromptCacheBreak { seq, .. }
         | ProtocolEvent::ToolOutputDelta { seq, .. }
+        | ProtocolEvent::ToolArgumentsPartial { seq, .. }
         | ProtocolEvent::BackgroundShellExited { seq, .. }
         | ProtocolEvent::BudgetExceeded { seq, .. }
         | ProtocolEvent::ProviderRouteUpdated { seq, .. }
@@ -383,6 +396,7 @@ fn assign_seq(event: &mut ProtocolEvent, new_seq: i64) {
         | ProtocolEvent::AgentQueryResponded { seq, .. }
         | ProtocolEvent::HumanSteeringInjected { seq, .. }
         | ProtocolEvent::SubAgentSpawned { seq, .. }
+        | ProtocolEvent::SubAgentOutput { seq, .. }
         | ProtocolEvent::SubAgentCompleted { seq, .. }
         | ProtocolEvent::SubAgentCancelled { seq, .. }
         | ProtocolEvent::UserMessageSubmitted { seq, .. }

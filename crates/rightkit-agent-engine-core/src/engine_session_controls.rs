@@ -1804,6 +1804,7 @@ impl SessionEngine {
             cache_read_tokens: self.usage.cache_read_tokens as i32,
             cache_creation_tokens: self.usage.cache_creation_tokens as i32,
             cost_known: self.usage.is_priced(),
+            cost_billed: false,
         });
         // The summarizer is a real model call. If it pushes this session over
         // its ceiling, surface that immediately; the updated UsageAccount then
@@ -1962,6 +1963,10 @@ impl SessionEngine {
                 u64::from(cache_creation),
             ),
             session_cache_hit_pct: self.usage.cache_hit_rate_pct(),
+            ttft_ms: None,
+            total_ms: None,
+            rate_limit: None,
+            cache_ttl_ms: None,
         });
     }
 }
