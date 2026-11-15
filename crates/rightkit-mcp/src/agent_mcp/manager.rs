@@ -880,7 +880,7 @@ impl McpManager {
         self.server_runtime
             .get(server_name)
             .and_then(|runtime| runtime.filter.as_ref())
-            .map_or(true, |filter| filter.selects(&tool.name))
+            .is_none_or(|filter| filter.selects(&tool.name))
             && self.is_tool_allowed_by_mutating_policy(server_name, tool)
             && self.is_tool_allowed_by_trust_policy(server_name, tool)
     }
