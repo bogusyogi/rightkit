@@ -418,7 +418,13 @@ pub fn settle(ctx: &Context, w: &mut Value) -> GenResult<Value> {
         "actual_usd": actual, "reserved_usd": reserved, "overrun_usd": overrun,
         "settled_on_declared_budget": unknown_basis,
         "estimated_end": estimated_end,
-        "note": "cost is elapsed x dph_total; storage/bandwidth beyond dph_total are not known here and are not added",
+        "note": format!(
+            "cost is elapsed x dph_total; storage/bandwidth beyond dph_total are not known {} and are not added",
+            match rightkit_media_gen::host::media_config().app_name.as_deref() {
+                Some(name) => format!("to {name}"),
+                None => "here".to_string(),
+            }
+        ),
     }))
 }
 
@@ -439,6 +445,24 @@ pub const FORCE_NOTE: &str =
 
 /// Stated verbatim in the `rentals` and `rentals_enforce` output.
 pub const HONEST_LIMITS: &str = "enforcement runs only while the host app runs: at engine sidecar start, every 60 s while the app is open, at the start of each CLI command that touches workers or generation, and on studio.models.rentals_enforce. When neither the app nor a CLI command is running nothing enforces any limit, and the instance keeps billing until the next engine start or until you destroy it at the provider. Destroying needs the Vast API key saved in the app (a rental is only created while one is saved) or VAST_API_KEY in the enforcing process. The real fix is an instance-side maximum lifetime or auto-stop in the create request; it needs the provider's documented field name from a fetched source, which has not been verified, so none is sent";
+
+/// [`HONEST_LIMITS`] worded for the host: with `MediaHostConfig::app_name` set, the app is named
+/// ("enforcement runs only while GenRight runs ...", "saved in GenRight"); by default this is
+/// [`HONEST_LIMITS`] unchanged. What the rental and enforcement commands return.
+pub fn honest_limits() -> String {
+    use rightkit_media_gen::host::app_or;
+    HONEST_LIMITS
+        .replacen(
+            "while the host app runs",
+            &format!("while {} runs", app_or("the host app")),
+            1,
+        )
+        .replacen(
+            "saved in the app (",
+            &format!("saved in {} (", app_or("the app")),
+            1,
+        )
+}
 
 /// Why a rental is due for destruction.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -605,7 +629,13 @@ impl RentalLock {
             Err(rightkit_fs::FsError::Locked { .. } | rightkit_fs::FsError::LockTimeout { .. }) => {
                 Err(GenError::new(
                     "rentals_busy",
-                    "another process is changing the rented-worker records; try again",
+                    match rightkit_media_gen::host::media_config().app_name.as_deref() {
+                        Some(name) => {
+                            format!("another {name} process is changing the rented-worker records; try again")
+                        }
+                        None => "another process is changing the rented-worker records; try again"
+                            .to_string(),
+                    },
                 ))
             }
             Err(e) => Err(GenError::new("io", format!("lock {}: {e}", path.display()))),
@@ -672,7 +702,7 @@ fn resolve_unknown(ctx: &Context, now: f64, have_key: bool, report: &mut Value) 
                 "blocked",
                 json!({
                     "worker_id": w["worker_id"], "reason": "unknown_outcome", "detail": "the create's outcome is unknown and must be looked up by label",
-                    "error": "no Vast API key is stored for this app and VAST_API_KEY is not set in this process, so the instance cannot be looked up from here",
+                    "error": format!("no Vast API key is stored for {} and VAST_API_KEY is not set in this process, so the instance cannot be looked up from here", rightkit_media_gen::host::app_or("this app")),
                     "billing_warning": "an instance may exist and be billing",
                 }),
             );
@@ -793,7 +823,7 @@ pub fn enforce_rentals(ctx: &Context) -> GenResult<Value> {
     let mut report = json!({
         "at_epoch": now, "destroyed": [], "failed": [], "blocked": [], "unresolved": [],
         "in_progress": [], "settled_only": [], "auto_resolved": [], "persist_errors": [], "busy": false,
-        "limits": HONEST_LIMITS,
+        "limits": honest_limits(),
     });
     let push = |report: &mut Value, key: &str, v: Value| {
         if let Some(a) = report[key].as_array_mut() {
@@ -901,7 +931,7 @@ pub fn enforce_rentals(ctx: &Context) -> GenResult<Value> {
                     "blocked",
                     json!({
                         "worker_id": wid, "reason": reason, "detail": detail,
-                        "error": "no Vast API key is stored for this app and VAST_API_KEY is not set in this process, so the instance cannot be destroyed from here",
+                        "error": format!("no Vast API key is stored for {} and VAST_API_KEY is not set in this process, so the instance cannot be destroyed from here", rightkit_media_gen::host::app_or("this app")),
                         "billing_warning": "the instance is past a limit and may still be billing",
                     }),
                 );
@@ -1110,6 +1140,6 @@ pub fn list(ctx: &Context) -> GenResult<Value> {
     }
     Ok(json!({
         "now_epoch": now, "clock_overridden": false,
-        "rentals": rentals, "enforcement": HONEST_LIMITS,
+        "rentals": rentals, "enforcement": honest_limits(),
     }))
 }

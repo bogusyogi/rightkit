@@ -1,4 +1,4 @@
-# rightkit-remote-compute 0.2.0 registry consumer
+# rightkit-remote-compute 0.2.1 registry consumer
 
 Standalone consumer, outside the workspace, pinning `rightkit-remote-compute =0.2.0` exactly with its default features. It installs the crate from the sealed archive through the offline directory registry and runs `src/main.rs`, which prints `ok:` lines and exits 1 on the first failed check.
 

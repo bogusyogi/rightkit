@@ -314,7 +314,10 @@ impl RemoteDriver for SshDriver {
             .ok_or_else(|| {
                 GenError::new(
                     "invalid_spec",
-                    "spec.remote_command required — this crate never invents a remote workload",
+                    format!(
+                        "spec.remote_command required — {} never invents a remote workload",
+                        rightkit_media_gen::host::app_or("this crate")
+                    ),
                 )
             })?;
         // Detached: log to run.log, pid echoed back for reconnect/diagnostics.
@@ -493,7 +496,10 @@ pub fn resolve_key(ctx: &Context, input: Option<&Value>) -> GenResult<String> {
     }
     Err(GenError::new(
         "no_credentials",
-        "no Vast API key: save it in the app Settings (worker.action set_vast_key), or set VAST_API_KEY; an api_key input is accepted for a create or an offer search only and is never stored",
+        format!(
+            "no Vast API key: save it in {} Settings (worker.action set_vast_key), or set VAST_API_KEY; an api_key input is accepted for a create or an offer search only and is never stored",
+            rightkit_media_gen::host::app_or("the app")
+        ),
     ))
 }
 
@@ -501,7 +507,7 @@ impl VastDriver {
     pub fn new(ctx: &Context) -> Self {
         Self {
             base: rightkit_media_gen::providers::base_url_override(
-                "VAST_API_BASE",
+                "RIGHTKIT_VAST_BASE",
                 "https://console.vast.ai",
             ),
             ctx: ctx.clone(),
@@ -513,8 +519,8 @@ impl VastDriver {
         resolve_key(&self.ctx, input)
     }
 
-    /// The API base is `VAST_API_BASE` in development builds only (production always uses
-    /// `https://console.vast.ai`). A base without a parseable host falls back to the public-web policy.
+    /// The API base is always `https://console.vast.ai`: [`rightkit_media_gen::providers::base_url_override`]
+    /// ignores its environment-variable argument. A base without a parseable host falls back to the public-web policy.
     /// The Vast API is a public host; loopback (the e2e mock) is already allowed.
     fn http_for(_base: &str) -> Http {
         Http::new(Duration::from_secs(10), Duration::from_secs(30))
@@ -661,7 +667,10 @@ impl VastDriver {
         if !key_is_stored(ctx) {
             return Err(GenError::new(
                 "no_stored_key",
-                "refused before anything was reserved or sent: a rental needs the Vast API key saved in the app first, so the app can always destroy what it rents. Save the Vast key in Settings first (worker.action set_vast_key), then rent again",
+                format!(
+                    "refused before anything was reserved or sent: a rental needs the Vast API key saved in {} first, so the app can always destroy what it rents. Save the Vast key in Settings first (worker.action set_vast_key), then rent again",
+                    rightkit_media_gen::host::app_or("the app")
+                ),
             ));
         }
         let key = resolve_key(ctx, Some(input))?;
@@ -1019,9 +1028,13 @@ pub fn lease_seconds(max_min: f64) -> u64 {
 /// into this image is verified only by a live run.
 pub fn lease_onstart(user: Option<&str>, max_min: f64) -> String {
     let secs = lease_seconds(max_min);
+    let label = match namespace() {
+        "rightkit" => "RightKit remote-compute".to_string(),
+        other => format!("{other} remote"),
+    };
     let lease = format!(
         "#!/bin/bash
-# RightKit remote-compute lease: self-destruct after {secs}s
+# {label} lease: self-destruct after {secs}s
 (nohup setsid bash -c 'sleep {secs}; vastai destroy instance \"$CONTAINER_ID\" --api-key \"$CONTAINER_API_KEY\" || curl -s -X DELETE -H \"Authorization: Bearer $CONTAINER_API_KEY\" \"https://console.vast.ai/api/v0/instances/$CONTAINER_ID/\"' >/dev/null 2>&1 &)
 "
     );

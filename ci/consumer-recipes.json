@@ -3397,9 +3397,9 @@
       "pkId": "PK112",
       "id": "ci/consumers/rightkit-remote-compute/src/main.rs",
       "files": {
-        "Cargo.toml": "59448017a2bc494abe310297b64a34503f1d22b7d102a4376a96f6ddb2fc31a5",
-        "README.md": "69a4d2f742a85422b82c07cb5365adfd69e86becacf014a1832ea9d8901bd46d",
-        "src/main.rs": "754430247588944bd09dacdb0921ed85e26bf73619b41cedd138de1258e4faba"
+        "Cargo.toml": "27be6609471e83b0ec3e0f0865d22a64778054b283f6545998372a3f70e2953d",
+        "README.md": "8ffd5890483a52d3e81ac189ae3da896f1e7ab1f1db87b42318473b347fc5ca9",
+        "src/main.rs": "1d81e4a37a14b1dafc2cc838af540db3f55b425f480becbad64299402934d639"
       }
     },
     "rightkit-repo-graph-grammars": {
