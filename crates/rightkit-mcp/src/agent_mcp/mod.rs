@@ -29,9 +29,10 @@ mod types;
 pub use crate::{parse_qualified_name, sanitize_tool_name};
 pub use crate::{McpError as RightKitMcpError, RequestContext, ToolDescriptor};
 pub use config::{
-    attach_stored_oauth_tokens, expand_config_env, expand_server_env, load_for_session,
-    load_with_config_path_pool_and_process_launcher, load_with_pool, load_with_trust_gate,
-    load_with_trust_gate_and_project_trust, load_with_trust_gate_pooled, ProjectTrust,
+    attach_stored_oauth_tokens, expand_config_env, expand_server_env, expand_server_env_in_scope,
+    load_for_session, load_with_config_path_pool_and_process_launcher, load_with_pool,
+    load_with_trust_gate, load_with_trust_gate_and_project_trust, load_with_trust_gate_pooled,
+    resolve_http_bearer, resolve_http_bearer_with_command, PlaceholderScope, ProjectTrust,
 };
 pub use error::McpError;
 pub use host::{
