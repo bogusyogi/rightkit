@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-media-gen-approvals"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Media-generation approvals on the rightkit-approvals core: launch-secret approval tokens minted by the app shell and verified by the engine, parent binding, host-registered draft kinds, the Blender finish confirmation and the human-eyes release of assets."

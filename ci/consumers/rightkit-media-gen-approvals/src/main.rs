@@ -1,4 +1,4 @@
-// rightkit-media-gen-approvals 0.1.0 consumed by exact registry pin (default features), outside the workspace.
+// rightkit-media-gen-approvals 0.1.1 consumed by exact registry pin (default features), outside the workspace.
 use rightkit_media_gen::{Context, GenResult};
 use rightkit_media_gen_approvals::{handle, input_hash, parent_is_app, register_kind};
 use serde_json::{json, Value};

@@ -641,7 +641,7 @@
     "rightkit-mcp": "0.8.0",
     "rightkit-media-fetch": "0.2.0",
     "rightkit-media-gen": "0.2.2",
-    "rightkit-media-gen-approvals": "0.1.0",
+    "rightkit-media-gen-approvals": "0.1.1",
     "rightkit-media-gen-client": "0.1.0",
     "rightkit-media-gen-models": "0.1.0",
     "rightkit-media-pipeline": "0.2.0",
