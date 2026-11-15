@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.4
+
+HeardRight's cleanup transport is compared with this crate and every difference in its output is taken; nothing changes for a host that makes no call below.
+
+- `l3_cleanup::configure_wire_identity(WireIdentity)` (once per process; returns `false` when already installed) sets the names this crate puts on the wire: the `User-Agent` of provider calls, the prompt-version request header and the prefix of the one-line JSON runtime diagnostic written to stderr. `wire_identity()` returns the ones in force. `WireIdentity::DEFAULT` is the old behaviour (`rightkit-dictation/0.1`, `X-RightKit-AI-Prompt-Version`, `RIGHTKIT_RUNTIME_DIAGNOSTIC_JSON=`). HeardRight's are `heardright-engine/0.1`, `X-HeardRight-AI-Prompt-Version`, `HR_RUNTIME_DIAGNOSTIC_JSON=`.
+- Compared and kept: HeardRight's `l3_cleanup/overrides.rs` answers "no override" for every environment lever in a release build, so the provider roster (Groq only), timeouts, circuit breaker and OpenRouter routing it leaves are the constants this crate already uses; its live-evaluation hooks are release stubs.
+
 ## 0.2.3
 
 - Breaking for dependents: a dependency requirement was raised to a semver-breaking version.

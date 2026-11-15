@@ -70,7 +70,7 @@ impl RuntimeApp {
                                 if let Some(session_id) = session {
                                     let _ = event_tx.send(EngineEvent::EngineError {
                                         session_id,
-                                        message: "engine crashed".to_string(),
+                                        message: crate::host::engine_crash_message().to_string(),
                                     });
                                 }
                             }

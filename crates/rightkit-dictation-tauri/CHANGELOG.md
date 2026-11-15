@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.1
+
+HeardRight's runtime is compared with this crate and every difference in its output is taken; nothing changes for a host that makes no call below.
+
+- `host::set_product_name(&str)` (once per process; returns `false` when already set) names the product in the pill label shown when Windows refuses microphone access ("Microphone access is off for `<name>` in Windows Settings"; default "this app"). `host::product_name()` returns it.
+- `host::set_engine_name(&str)` (once per process) names the engine process in the message logged when it crashes ("`<name>` crashed"; default "engine crashed").
+- Compared and kept: the final-delivery policy, focus pins and start-field capture that HeardRight's runtime holds inline stay in the host (`DictationHost::deliver_final` and the `capture_*` methods).
+
 ## 0.2.0
 
 - Breaking for dependents: dependency requirements `rightkit-dictation-app-runtime` 0.1 -> 0.2, `rightkit-dictation-command-host` 0.1 -> 0.2, `rightkit-dictation-core` 0.2 -> 0.3, `rightkit-dictation-models` 0.1 -> 0.2, `rightkit-dictation-telemetry` 0.1 -> 0.2. 0.1.1 was published before these requirements were raised; a semver-breaking dependency is a breaking change, so they ship as 0.2.0 instead of changing 0.1.1 in place (#1572). No source change in this crate since 0.1.1.

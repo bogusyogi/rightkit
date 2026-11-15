@@ -118,7 +118,8 @@ pub(crate) fn capture_open_error(detail: String) -> String {
         || detail.contains("-2147024891")
     {
         format!(
-            "capture open: {detail} (the app's microphone permission may still be denied in Windows Settings)"
+            "capture open: {detail} ({} microphone permission may still be denied in Windows Settings)",
+            crate::host::identity().microphone_permission_owner
         )
     } else {
         format!("capture open: {detail}")

@@ -38,7 +38,7 @@ impl EngineRuntime {
         EngineInfo {
             mode: "sidecar".to_string(),
             cold_load_s: None,
-            engine_version: Some(format!("rightkit-engine/{}", env!("CARGO_PKG_VERSION"))),
+            engine_version: Some(crate::host::identity().engine_version.to_string()),
         }
     }
 

@@ -7,7 +7,7 @@ pub const MICROPHONE_ACCESS_OFF_LABEL: &str =
 
 pub fn label_for_error(message: &str) -> &'static str {
     if is_microphone_access_denied_error(message) {
-        MICROPHONE_ACCESS_OFF_LABEL
+        crate::host::microphone_off_label().unwrap_or(MICROPHONE_ACCESS_OFF_LABEL)
     } else if is_explicit_microphone_mute_error(message) {
         "Microphone muted. Unmute it and try again."
     } else if is_no_microphone_audio_error(message) {

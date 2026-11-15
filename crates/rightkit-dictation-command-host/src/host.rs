@@ -44,3 +44,17 @@ pub fn is_own_process(process_name: &str) -> bool {
             .to_ascii_lowercase()
             .starts_with(&prefix.to_ascii_lowercase())
 }
+
+static PASTE_OWNER_NAME: OnceLock<&'static str> = OnceLock::new();
+
+/// Name the paste's owner in the undo refusal "Undo skipped: no recent `<name>` paste to undo".
+/// Default `dictation`. Once per process; returns false when a name was already set (the first
+/// one stays). Call before the first command.
+pub fn set_paste_owner_name(name: &'static str) -> bool {
+    PASTE_OWNER_NAME.set(name).is_ok()
+}
+
+/// The paste owner name in force.
+pub fn paste_owner_name() -> &'static str {
+    PASTE_OWNER_NAME.get().copied().unwrap_or("dictation")
+}

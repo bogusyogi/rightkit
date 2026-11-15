@@ -44,7 +44,7 @@ pub(super) fn engine_version() -> String {
         .unwrap_or_else(crate::settings::asr_backend);
     format!(
         "{}/{}",
-        crate::ipc::ENGINE_VERSION,
+        crate::ipc::engine_version(),
         model_label(&backend, &choice)
     )
 }

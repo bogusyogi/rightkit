@@ -97,7 +97,6 @@ pub(crate) const POST_SPEECH_SILENCE_STOP_MS: u64 = 60_000;
 pub(crate) const MAX_RECORDING_SECONDS: u64 = 30 * 60;
 pub(crate) const MAX_RECORDING_SAMPLES: usize =
     MAX_RECORDING_SECONDS as usize * SAMPLE_RATE as usize;
-pub(crate) const WAKE_DIAGNOSTICS_PREFIX: &str = "RIGHTKIT_WAKE_DIAGNOSTICS_JSON=";
 pub(crate) const WAKE_DIAGNOSTICS_INTERVAL: Duration = Duration::from_secs(1);
 
 /// Cross-lane wakeup used while the coordinator is otherwise idle.  The
@@ -258,7 +257,10 @@ impl WakeDiagnostics {
     ) {
         let payload = self.payload(phase, result, severity, code);
         if let Ok(serialized) = serde_json::to_string(&payload) {
-            eprintln!("{WAKE_DIAGNOSTICS_PREFIX}{serialized}");
+            eprintln!(
+                "{}{serialized}",
+                crate::host::identity().wake_diagnostics_prefix
+            );
         }
         self.last_emit = Instant::now();
     }

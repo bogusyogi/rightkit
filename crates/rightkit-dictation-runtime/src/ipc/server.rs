@@ -43,7 +43,9 @@ pub(crate) use crate::delivery::DeliveryRecord;
 pub(crate) use crate::runtime::{EngineRuntime, FinalizeOutcome};
 
 /// Build identity, independent of whichever ASR model the worker loads.
-pub(crate) const ENGINE_VERSION: &str = concat!("rightkit-engine/", env!("CARGO_PKG_VERSION"));
+pub(crate) fn engine_version() -> &'static str {
+    crate::host::identity().engine_version
+}
 
 /// Run the sidecar's read loop. Blocks until EOF on stdin (shell quit) or
 /// a `Request::Shutdown`.
@@ -79,7 +81,8 @@ pub fn run(runtime: Arc<Mutex<EngineRuntime>>) -> anyhow::Result<()> {
     write_wire_frame(&writer, &hello_envelope())
         .map_err(|err| anyhow::anyhow!("hello frame write failed: {err}"))?;
     tracing::info!(
-        "rightkit-engine ready: protocol {}.{}, schema {}, contract {}",
+        "{} ready: protocol {}.{}, schema {}, contract {}",
+        crate::host::identity().engine_name,
         PROTOCOL_MAJOR,
         PROTOCOL_MINOR,
         CURRENT_SCHEMA_VERSION,

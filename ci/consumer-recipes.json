@@ -3595,7 +3595,7 @@
       "pkId": "PK141",
       "id": "ci/consumers/rightkit-dictation-command-host/src/main.rs",
       "files": {
-        "Cargo.toml": "3fa83adb45924e8eb20e6b2cc588899b354852da03abf27640f477eed9e26966",
+        "Cargo.toml": "6708b7fb6efb0cb9033f9d53a67066356e995ffe423d4df542f575851c76e3b1",
         "README.md": "87bb5a18330267d23b7bacf026a37a70d5f5cb642dfb28ebd1ee1e89d8ea7f93",
         "src/main.rs": "bf1d1a83945e1844dc0a41762e23bb4a42794fcc0201041be7202d32a882f59d"
       }
@@ -3631,7 +3631,7 @@
       "pkId": "PK145",
       "id": "ci/consumers/rightkit-dictation-runtime/src/main.rs",
       "files": {
-        "Cargo.toml": "239c2e7c39e1cf2d77305403ebc92d2f2652ecb66a276f0b5ee6d67641ffd410",
+        "Cargo.toml": "79f2fac42098dffa8c8cfa7876e1440588352ca6a2c83615ba7f2391637a9f90",
         "README.md": "5c5d15313087a1644b9180193a9ad68f0277b0445d710e5330ed40833cea7f6b",
         "src/main.rs": "a0034cee9bf7df975f1593bb7e83fc7b60ff0af3547e9391c5de79170179a493"
       }
@@ -3649,7 +3649,7 @@
       "pkId": "PK147",
       "id": "ci/consumers/rightkit-dictation-text-pipeline/src/main.rs",
       "files": {
-        "Cargo.toml": "dfb0568653bf07c5e3e10533c2a89f76026e2ca13eff71363eca44c446345543",
+        "Cargo.toml": "cb696d846da830d03ae21864a0357e43a924066e260ccf9f799f0d5e2fef94f0",
         "README.md": "de8bb2a52c0ec97b08dba01753129658b62b60fcb487d46ddc54098fc7a89cca",
         "src/main.rs": "7e1ff4091a3d2e1d897454c6cb44fa9fc6e2bcfedcd46227076f8754a890365b"
       }
@@ -3982,7 +3982,7 @@
       "pkId": "PK181",
       "id": "ci/consumers/rightkit-dictation-tauri/src/main.rs",
       "files": {
-        "Cargo.toml": "e99e37741231c709f53542f7a8f55226d446956ced634aa6c1a61359d7a32058",
+        "Cargo.toml": "9ad6c2ad9d089e28caf9341d465a6c77a7f0a5c30cf0c660794862845d2fd288",
         "README.md": "4c0bce30ffc938f0539c838e39a3c469e248ef9215d93f45f5745059cda996fe",
         "src/main.rs": "65d6808153f4591e0d723e0f18175e625f50063f966917bcda82067a22fd93be"
       }

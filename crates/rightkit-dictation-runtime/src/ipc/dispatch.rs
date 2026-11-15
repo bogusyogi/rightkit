@@ -578,7 +578,10 @@ pub(crate) fn write_wire_frame<T: serde::Serialize>(
 /// revokes and restarts this process.
 fn exit_on_write_failure(result: Result<(), String>) {
     if let Err(error) = result {
-        eprintln!("rightkit-engine fatal IPC output failure: {error}");
+        eprintln!(
+            "{} fatal IPC output failure: {error}",
+            crate::host::identity().engine_name
+        );
         std::process::exit(1);
     }
 }
@@ -690,8 +693,8 @@ pub(crate) fn accepted_response(id: u64) -> WireFrame {
 pub(crate) fn hello_envelope() -> Value {
     json!({
         "type": "hello",
-        "engine": "rightkit-engine",
-        "version": ENGINE_VERSION,
+        "engine": crate::host::identity().engine_name,
+        "version": engine_version(),
         "contract_version": CONTRACT_VERSION,
         "instance": engine_instance(),
     })
