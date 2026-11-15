@@ -4,13 +4,14 @@
 //! and error classification are unchanged; only the module boundary is new.
 //! See `.audit/20260901-daemon-deep-r3/architect/decomposition-plans.md`.
 
-use super::breaker::{breaker_record_outcome, is_breaker_relevant_failure};
+use super::breaker::{is_breaker_relevant_failure, BreakerAdmission};
 use super::{ProviderResponseStream, ProviderStreamEvent};
 use crate::agent_providers::transport::{ProviderError, RateLimitMetadata};
 use futures::StreamExt;
 
-/// A deterministic doubling ladder as a `rightkit_http::RetryPolicy` (no jitter, no
-/// Retry-After handling: the ladders own those). Only its `backoff(retry)` delay is used; the
+/// A doubling ladder as a `rightkit_http::RetryPolicy` with the host's `connection_backoff_jitter`
+/// (none by default; ±10% as Codex `codex-client` `retry.rs` when set, so concurrent clients do not
+/// retry in lockstep; no Retry-After handling: the ladders own that). Only its `backoff(retry)` delay is used; the
 /// attempt counting, notices and stream-phase reconnects stay in the ladders.
 fn ladder_policy(
     initial: std::time::Duration,
@@ -20,7 +21,7 @@ fn ladder_policy(
         initial_backoff: initial,
         max_backoff: max,
         multiplier: 2.0,
-        jitter: 0.0,
+        jitter: crate::agent_providers::host::host_options().connection_backoff_jitter,
         ..rightkit_http::RetryPolicy::none()
     }
 }
@@ -49,18 +50,11 @@ pub(crate) fn notify_retry(
     });
 }
 
-/// Reconnect-with-backoff for pure connection failures (P2-4 / P0-C 2g):
-/// 5s, 10s, 20s, ... doubling, capped at 60s — distinct from the faster
-/// generic `backoff` above, matching
+/// Reconnect-with-backoff delay for pure connection failures (P2-4 / P0-C 2g):
+/// 5s, 10s, 20s, ... doubling, capped at 60s, with the host's jitter (none by default) — matching
 /// repos/cli/codex/codex-rs/core/src/responses_retry.rs's
-/// `INITIAL_CONNECTION_RETRY_DELAY` / `MAX_CONNECTION_RETRY_DELAY` shape.
-pub(crate) async fn connection_backoff(attempt: u32) {
-    tokio::time::sleep(connection_backoff_duration(attempt)).await;
-}
-
-/// Pure duration formula behind [`connection_backoff`], split out so the
-/// 5s/10s/20s/.../60s-cap shape is unit-testable without waiting on a real
-/// sleep (this crate has no `tokio` `test-util` feature to pause the clock).
+/// `INITIAL_CONNECTION_RETRY_DELAY` / `MAX_CONNECTION_RETRY_DELAY` shape. Jitter is drawn per
+/// call: compute once and use the value for both the notice and the sleep.
 pub(crate) fn connection_backoff_duration(attempt: u32) -> std::time::Duration {
     ladder_policy(
         std::time::Duration::from_secs(5),
@@ -116,14 +110,14 @@ pub(crate) fn parse_openai_rate_limit_headers(
 /// retry helper has already normalized transport and HTTP failures into the
 /// shared [`ProviderError`] taxonomy by this point.
 pub(crate) fn record_stream_establishment_outcome(
-    base_url: &str,
+    admission: &mut BreakerAdmission,
     result: Result<crate::agent_providers::http::ProviderHttpResponse, ProviderError>,
 ) -> Result<crate::agent_providers::http::ProviderHttpResponse, ProviderError> {
     match result {
         Ok(response) => Ok(response),
         Err(error) => {
             let counts_as_success = !is_breaker_relevant_failure(Some(&error));
-            breaker_record_outcome(base_url, counts_as_success);
+            admission.record(counts_as_success);
             Err(error)
         }
     }
@@ -138,8 +132,12 @@ pub(crate) fn record_stream_establishment_outcome(
 /// `complete_with_tools_metadata`'s `is_breaker_relevant_failure` scoping
 /// already closed for the non-streaming path. This closes it for streaming
 /// too, identically for both providers, instead of drifting per-file.
+///
+/// The admission moves into the stream: `Finished` is recorded before it is yielded (a consumer
+/// that stops polling after `Finished` still closes the probe), and a stream dropped before it
+/// finishes releases a half-open probe through the admission's drop guard.
 pub(crate) fn observe_stream_breaker_outcome(
-    base_url: String,
+    mut admission: BreakerAdmission,
     inner: ProviderResponseStream,
 ) -> ProviderResponseStream {
     Box::pin(async_stream::stream! {
@@ -147,15 +145,14 @@ pub(crate) fn observe_stream_breaker_outcome(
         while let Some(item) = inner.next().await {
             match item {
                 Ok(event) => {
-                    let finished = matches!(event, ProviderStreamEvent::Finished(_));
-                    yield Ok(event);
-                    if finished {
-                        breaker_record_outcome(&base_url, true);
+                    if matches!(event, ProviderStreamEvent::Finished(_)) {
+                        admission.record(true);
                     }
+                    yield Ok(event);
                 }
                 Err(error) => {
                     let counts_as_success = !is_breaker_relevant_failure(Some(&error));
-                    breaker_record_outcome(&base_url, counts_as_success);
+                    admission.record(counts_as_success);
                     yield Err(error);
                     return;
                 }

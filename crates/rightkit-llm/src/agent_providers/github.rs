@@ -176,7 +176,10 @@ impl GitHubClient {
         let request = request
             .secret_header("Authorization", self.auth_header())
             .header("Accept", "application/vnd.github.v3+json")
-            .header("User-Agent", "rightkit-agent-providers/0.1");
+            .header(
+                "User-Agent",
+                format!("{}-providers/0.1", super::host::keychain_service()),
+            );
         let resp = self.client.send_any(&request).await?;
         if resp.status == 401 {
             return Err(ProviderError::Auth);

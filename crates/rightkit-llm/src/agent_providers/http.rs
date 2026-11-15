@@ -98,11 +98,15 @@ pub(crate) fn provider_client_with_ceiling(
         Route::NoProxy | Route::Pinned(_) => ProxyMode::None,
     };
     let config = ClientConfig {
-        user_agent: "Agent/0.1".into(),
+        user_agent: format!("{}/0.1", super::host::user_agent_product()),
         connect_timeout: Some(CONNECT_TIMEOUT),
         request_timeout: ceiling,
         response_timeout: Some(ceiling),
-        stream_timeout: Some(ceiling),
+        stream_timeout: if super::host::host_options().uncapped_stream_lifetime {
+            None
+        } else {
+            Some(ceiling)
+        },
         retry: RetryPolicy::none(),
         address_policy: policy,
         proxy,

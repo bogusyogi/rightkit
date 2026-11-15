@@ -1546,6 +1546,7 @@ impl ProviderLlmClient {
             context_fingerprint: metadata.context_fingerprint.clone(),
             tool_catalog_generation: Some(catalog_snapshot.generation),
             tool_catalog_digest: Some(catalog_snapshot.digest_hex),
+            response_schema: None,
             retry_notifier: metadata.retry_notifier.clone(),
         };
         *lock_recover(&self.request_lineage, "provider request lineage") =
@@ -2576,6 +2577,8 @@ fn provider_error_allows_model_fallback(error: &ProviderError) -> bool {
     match error {
         ProviderError::Http { status, .. } => matches!(*status, 400 | 401 | 403),
         ProviderError::NotDelivered(_) | ProviderError::Auth => true,
+        // A quota or billing refusal is a definite refusal: the request was answered at once, unbilled.
+        ProviderError::QuotaExceeded(_) => true,
         // The request reached the provider before these, or the refusal is not definite: never replay it.
         ProviderError::RateLimited { .. }
         | ProviderError::Provider(_)
@@ -2886,6 +2889,12 @@ fn normalize_provider_stream(
                 rightkit_llm::agent_providers::ProviderStreamEvent::UsageDetail { reasoning_tokens } => {
                     yield rightkit_llm::agent_providers::ProviderStreamEvent::UsageDetail { reasoning_tokens };
                 }
+                // Produced only when a host turns on `usage_and_rate_limit_events` or
+                // `partial_tool_argument_events`; this client turns neither on and the engine stream
+                // has no event for them.
+                rightkit_llm::agent_providers::ProviderStreamEvent::UsageCost { .. }
+                | rightkit_llm::agent_providers::ProviderStreamEvent::RateLimit(_)
+                | rightkit_llm::agent_providers::ProviderStreamEvent::ToolArgumentsPartial { .. } => {}
                 rightkit_llm::agent_providers::ProviderStreamEvent::Finished(reason) => {
                     let (text, reasoning) = normalizer.finish()?;
                     if !text.is_empty() {
@@ -3212,37 +3221,44 @@ impl LlmClient for ProviderLlmClient {
         };
 
         let provider_stream = normalize_provider_stream(provider_stream);
-        Ok(Box::pin(provider_stream.map(|event| {
-            event
-                .map(|event| match event {
+        Ok(Box::pin(provider_stream.filter_map(|event| {
+            std::future::ready(match event {
+                Err(error) => Some(Err(error.to_string())),
+                Ok(event) => match event {
                     rightkit_llm::agent_providers::ProviderStreamEvent::Text(text) => {
-                        LlmStreamEvent::Text(text)
+                        Some(Ok(LlmStreamEvent::Text(text)))
                     }
                     rightkit_llm::agent_providers::ProviderStreamEvent::Reasoning(text) => {
-                        LlmStreamEvent::Reasoning(text)
+                        Some(Ok(LlmStreamEvent::Reasoning(text)))
                     }
                     rightkit_llm::agent_providers::ProviderStreamEvent::ToolCall(call) => {
-                        LlmStreamEvent::ToolCall(call)
+                        Some(Ok(LlmStreamEvent::ToolCall(call)))
                     }
                     rightkit_llm::agent_providers::ProviderStreamEvent::Usage {
                         prompt_tokens,
                         completion_tokens,
                         cache_read_tokens,
                         cache_creation_tokens,
-                    } => LlmStreamEvent::Usage {
+                    } => Some(Ok(LlmStreamEvent::Usage {
                         prompt_tokens,
                         completion_tokens,
                         cache_read_tokens,
                         cache_creation_tokens,
-                    },
+                    })),
                     rightkit_llm::agent_providers::ProviderStreamEvent::UsageDetail {
                         reasoning_tokens,
-                    } => LlmStreamEvent::UsageDetail { reasoning_tokens },
+                    } => Some(Ok(LlmStreamEvent::UsageDetail { reasoning_tokens })),
                     rightkit_llm::agent_providers::ProviderStreamEvent::Finished(reason) => {
-                        LlmStreamEvent::Finished(reason)
+                        Some(Ok(LlmStreamEvent::Finished(reason)))
                     }
-                })
-                .map_err(|error| error.to_string())
+                    // Dropped by `normalize_provider_stream`; no engine event carries them.
+                    rightkit_llm::agent_providers::ProviderStreamEvent::UsageCost { .. }
+                    | rightkit_llm::agent_providers::ProviderStreamEvent::RateLimit(_)
+                    | rightkit_llm::agent_providers::ProviderStreamEvent::ToolArgumentsPartial {
+                        ..
+                    } => None,
+                },
+            })
         })))
     }
 

@@ -39,19 +39,18 @@ pub use catalog::{
     token_plan_provider_for_base_url, ProviderInfo, PROVIDERS,
 };
 pub use credentials::{
-    account_key_name, account_key_present_with, delete_account_key_with, load_account_key_with,
-    store_account_key_with, ACCOUNT_KEY_SERVICE,
+    account_key_name, account_key_present_with, account_key_service, delete_account_key_with,
+    load_account_key_with, store_account_key_with, ACCOUNT_KEY_SERVICE,
 };
 #[cfg(feature = "agent_providers-os-keyring")]
 pub use credentials::{
     account_key_present, delete_account_key, load_account_key, store_account_key,
 };
 pub use credentials::{env_api_key, load_api_key};
+pub use transport::url_is_openrouter;
 pub use wire::{strip_think_tags, transcript_to_wire};
 
-pub(crate) use breaker::{
-    breaker_allows_request, breaker_record_outcome, is_breaker_relevant_failure,
-};
+pub(crate) use breaker::{breaker_admit, is_breaker_relevant_failure};
 pub(crate) use retry::{
     observe_stream_breaker_outcome, record_stream_establishment_outcome, retry_after_secs,
 };
@@ -73,15 +72,29 @@ pub(crate) async fn wait_connection_retry(
     attempt: u32,
     max_retries: u32,
 ) {
+    let delay = retry::connection_backoff_duration(attempt);
     retry::notify_retry(
         notifier,
         base_url,
         "connection error",
         attempt,
         max_retries,
-        retry::connection_backoff_duration(attempt),
+        delay,
     );
-    retry::connection_backoff(attempt).await;
+    tokio::time::sleep(delay).await;
+}
+
+/// Announce and wait out one retry of an HTTP error status that arrived before any generation.
+pub(crate) async fn wait_status_retry(
+    notifier: &rightkit_agent_engine_protocol::RetryNotifier,
+    base_url: &str,
+    reason: String,
+    attempt: u32,
+    max_retries: u32,
+    delay: std::time::Duration,
+) {
+    retry::notify_retry(notifier, base_url, reason, attempt, max_retries, delay);
+    tokio::time::sleep(delay).await;
 }
 
 pub(crate) use wire::{
@@ -134,7 +147,26 @@ pub enum ProviderStreamEvent {
     UsageDetail {
         reasoning_tokens: u32,
     },
+    /// What the provider itself charged for the preceding `Usage` event's request, in USD
+    /// (billed, as against a price-table estimate). Only emitted when the host set
+    /// `usage_and_rate_limit_events`.
+    UsageCost {
+        cost_usd: f64,
+    },
+    /// The rate-limit budget the provider reported in the response headers of this request
+    /// (remaining requests and tokens, seconds to reset). Yielded once, before the first output.
+    /// Only emitted when the host set `usage_and_rate_limit_events`.
+    RateLimit(RateLimitMetadata),
     Finished(Option<String>),
+    /// Live view of a tool call whose arguments are still streaming: the top-level string
+    /// fields read so far, as a JSON object. For display only; the call itself arrives as
+    /// `ToolCall` once the generation is complete, and only then may it run. Only emitted when
+    /// the host set `partial_tool_argument_events`.
+    ToolArgumentsPartial {
+        id: String,
+        name: String,
+        arguments_json: String,
+    },
 }
 
 pub type ProviderResponseStream =
@@ -296,11 +328,22 @@ pub mod capacity {
         }
     }
 
+    fn capacity_unavailable_label() -> &'static str {
+        if crate::agent_providers::host::host_options().neutral_capacity_wording {
+            "model"
+        } else {
+            "CRA-10"
+        }
+    }
+
     /// CRA-10 typed failure modes. None of these are silently downgraded to
     /// a best-effort send.
     #[derive(Debug, Clone, thiserror::Error)]
     pub enum CapacityError {
-        #[error("CRA-10 capacity unavailable for route {route_id}: {reason}")]
+        #[error(
+            "{} capacity unavailable for route {route_id}: {reason}",
+            capacity_unavailable_label()
+        )]
         CapacityUnavailable { route_id: String, reason: String },
         #[error(
             "CRA-10 final insertion over budget: measured {measured_tokens} tokens exceeds effective budget {effective_budget_tokens} tokens"
@@ -659,6 +702,85 @@ pub fn prepare_authorized_request(
     Ok(prepared)
 }
 
+/// `response_format` for a chat-completions request carrying `schema`. `strict` is on only
+/// when the schema already meets strict mode's rules (every object closed and fully
+/// required); an arbitrary user schema under `strict` would be refused by the provider.
+pub fn chat_response_format(schema: &serde_json::Value) -> serde_json::Value {
+    let name: String = schema
+        .get("title")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("output")
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '_' || c == '-' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .take(64)
+        .collect();
+    let name = if name.is_empty() {
+        "output".to_string()
+    } else {
+        name
+    };
+    serde_json::json!({
+        "type": "json_schema",
+        "json_schema": {
+            "name": name,
+            "schema": schema,
+            "strict": schema_meets_strict_mode(schema, true),
+        }
+    })
+}
+
+/// `text.format` for a Responses request carrying `schema`: the chat route's `json_schema`
+/// object (same name and `strict` rule) with its fields at the top level.
+pub fn responses_text_format(schema: &serde_json::Value) -> serde_json::Value {
+    let mut format = chat_response_format(schema)["json_schema"].clone();
+    format["type"] = serde_json::Value::String("json_schema".into());
+    format
+}
+
+fn schema_meets_strict_mode(schema: &serde_json::Value, root: bool) -> bool {
+    let Some(object) = schema.as_object() else {
+        return !root;
+    };
+    if root && object.get("type").and_then(serde_json::Value::as_str) != Some("object") {
+        return false;
+    }
+    if let Some(properties) = object
+        .get("properties")
+        .and_then(serde_json::Value::as_object)
+    {
+        let required: std::collections::HashSet<&str> = object
+            .get("required")
+            .and_then(serde_json::Value::as_array)
+            .map(|items| items.iter().filter_map(serde_json::Value::as_str).collect())
+            .unwrap_or_default();
+        if object.get("additionalProperties") != Some(&serde_json::Value::Bool(false))
+            || !properties.keys().all(|key| required.contains(key.as_str()))
+            || !properties
+                .values()
+                .all(|child| schema_meets_strict_mode(child, false))
+        {
+            return false;
+        }
+    } else if object.get("type").and_then(serde_json::Value::as_str) == Some("object") {
+        return false;
+    }
+    if let Some(items) = object.get("items") {
+        if !schema_meets_strict_mode(items, false) {
+            return false;
+        }
+    }
+    // References, combinators and open-ended maps are outside what strict mode promises here.
+    !["$ref", "anyOf", "oneOf", "allOf", "patternProperties"]
+        .iter()
+        .any(|key| object.contains_key(*key))
+}
+
 /// Stable request metadata supplied by the engine. These values belong on the
 /// provider wire request, never in the persisted transcript.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -674,8 +796,47 @@ pub struct ProviderRequestMetadata {
     /// diagnostics/attribution; it is not serialized as provider content.
     pub tool_catalog_generation: Option<u64>,
     pub tool_catalog_digest: Option<String>,
+    /// JSON Schema the final answer must satisfy (`run --output-schema`). Sent as the
+    /// chat route's native `response_format`; routes without one ignore it.
+    pub response_schema: Option<serde_json::Value>,
     /// Receives one notice per transient-failure retry/backoff.
     pub retry_notifier: rightkit_agent_engine_protocol::RetryNotifier,
+}
+
+/// When a chat route sends `prompt_cache_key`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum CacheKeyMode {
+    /// Only to api.openai.com, which accepts the field (the default).
+    #[default]
+    Auto,
+    /// To any host: OpenAI-compatible proxies that route or cache on it.
+    Always,
+    /// Never.
+    Never,
+}
+
+impl CacheKeyMode {
+    /// `auto`, `always` or `never` (any case); anything else is `auto`.
+    pub fn parse(value: Option<&str>) -> Self {
+        match value.map(|v| v.trim().to_ascii_lowercase()).as_deref() {
+            Some("always") => Self::Always,
+            Some("never") => Self::Never,
+            _ => Self::Auto,
+        }
+    }
+}
+
+/// Per-route compatibility flags of an OpenAI-compatible endpoint (`[provider-routes.<id>]`).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct RouteCompat {
+    pub prompt_cache_key_mode: CacheKeyMode,
+    /// Send `content: ""` instead of `null` on an assistant message that only carries tool calls.
+    pub requires_non_null_assistant_content: bool,
+    /// The model has no native tool calling: tools go in the prompt, tool calls come back as text
+    /// (see `tool_emulation`).
+    pub emulate_tool_calls: bool,
+    /// Keep `parallel_tool_calls` off the request (`parallel-tool-calls = false` on the route).
+    pub no_parallel_tool_calls: bool,
 }
 
 /// OpenAI-compatible streaming client.
@@ -703,6 +864,62 @@ pub struct OpenAiCompatClient {
     direct_dispatch: bool,
     /// Test seam for the semantic-progress deadline; `None` uses the default.
     semantic_progress_limit: Option<std::time::Duration>,
+    compat: RouteCompat,
+}
+
+/// Encrypted reasoning items of Responses turns, for replay with the turn's tool calls.
+static CODEX_REASONING: crate::agent_providers::reasoning_store::ReasoningStore =
+    crate::agent_providers::reasoning_store::ReasoningStore::new("codex-reasoning.jsonl", 256);
+
+/// Key of one Responses turn: its first tool call id, else its answer text.
+fn codex_reasoning_key(model: &str, first_call_id: Option<&str>, text: &str) -> Option<String> {
+    match first_call_id.map(str::trim).filter(|id| !id.is_empty()) {
+        Some(id) => Some(format!("{model}\u{1f}call:{id}")),
+        None => {
+            let text = text.trim();
+            (!text.is_empty()).then(|| format!("{model}\u{1f}text:{text}"))
+        }
+    }
+}
+
+pub(crate) fn remember_codex_reasoning(
+    model: &str,
+    first_call_id: Option<&str>,
+    text: &str,
+    items: Vec<serde_json::Value>,
+) {
+    if !super::host::host_options().replay_codex_reasoning {
+        return;
+    }
+    if let Some(key) = codex_reasoning_key(model, first_call_id, text) {
+        CODEX_REASONING.remember(key, items);
+    }
+}
+
+/// The reasoning items to send before a replayed turn. The item id is dropped: the turn was
+/// sent with `store: false`, so the provider holds nothing under it.
+fn recall_codex_reasoning(
+    model: &str,
+    first_call_id: Option<&str>,
+    text: &str,
+) -> Vec<serde_json::Value> {
+    if !super::host::host_options().replay_codex_reasoning {
+        return Vec::new();
+    }
+    let Some(key) = codex_reasoning_key(model, first_call_id, text) else {
+        return Vec::new();
+    };
+    CODEX_REASONING
+        .recall(&key)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|mut item| {
+            if let Some(object) = item.as_object_mut() {
+                object.remove("id");
+            }
+            item
+        })
+        .collect()
 }
 
 /// Text marker for a failed tool result on wire shapes without an error flag.
@@ -836,6 +1053,7 @@ impl OpenAiCompatClient {
             request_authority: None,
             direct_dispatch: false,
             semantic_progress_limit: None,
+            compat: RouteCompat::default(),
         }
     }
 
@@ -893,6 +1111,7 @@ impl OpenAiCompatClient {
             request_authority: None,
             direct_dispatch: false,
             semantic_progress_limit: None,
+            compat: RouteCompat::default(),
         }
     }
 
@@ -935,15 +1154,26 @@ impl OpenAiCompatClient {
         self
     }
 
+    /// Set the per-route compatibility flags (`[provider-routes.<id>]`). The default
+    /// [`RouteCompat`] is the behaviour of a client that never calls this.
+    pub fn with_compat(mut self, compat: RouteCompat) -> Self {
+        self.compat = compat;
+        self
+    }
+
     fn build_chat_request(
         &self,
-        mut wire_messages: Vec<serde_json::Value>,
+        wire_messages: Vec<serde_json::Value>,
         mut tools: Vec<serde_json::Value>,
         metadata: &ProviderRequestMetadata,
     ) -> ChatRequest {
+        let mut wire_messages = self.transform_history_for_route(wire_messages);
         // Chat-completions has no error flag on tool messages: keep the
         // failure visible as a text marker and drop the non-standard key.
         mark_failed_tool_messages(&mut wire_messages);
+        if self.compat.requires_non_null_assistant_content {
+            fill_null_assistant_content(&mut wire_messages);
+        }
         if self.supports_prompt_cache_control() {
             // Wrap system message content as a cacheable array block.
             for msg in wire_messages.iter_mut() {
@@ -992,10 +1222,11 @@ impl OpenAiCompatClient {
                 .or_else(|| self.max_completion_tokens()),
             reasoning: self.reasoning_request(),
             prompt_cache_key: self
-                .is_official_openai_api()
+                .sends_prompt_cache_key()
                 .then(|| metadata.stable_prefix_key.clone())
                 .flatten(),
             parallel_tool_calls,
+            response_format: metadata.response_schema.as_ref().map(chat_response_format),
         }
     }
 
@@ -1040,6 +1271,7 @@ impl OpenAiCompatClient {
         tools: Vec<serde_json::Value>,
         metadata: &ProviderRequestMetadata,
     ) -> serde_json::Value {
+        let wire_messages = self.transform_history_for_route(wire_messages);
         let mut instructions = Vec::new();
         let mut input = Vec::new();
         let mut history_started = false;
@@ -1112,6 +1344,11 @@ impl OpenAiCompatClient {
                             "content": message.get("content").cloned().unwrap_or_default(),
                         }));
                     }
+                    let first_call_id = tool_calls
+                        .first()
+                        .and_then(|call| call.get("id"))
+                        .and_then(serde_json::Value::as_str);
+                    input.extend(recall_codex_reasoning(&self.model_id, first_call_id, ""));
                     for call in tool_calls {
                         let function = call.get("function");
                         let mut function_call = serde_json::json!({
@@ -1164,6 +1401,7 @@ impl OpenAiCompatClient {
             if role == Some("assistant") {
                 let content = message.get("content").cloned().unwrap_or_default();
                 if let Some(text) = content.as_str().filter(|text| !text.is_empty()) {
+                    input.extend(recall_codex_reasoning(&self.model_id, None, text));
                     input.push(serde_json::json!({
                         "type":"message",
                         "role":"assistant",
@@ -1184,8 +1422,10 @@ impl OpenAiCompatClient {
             "text": {"verbosity": "low"},
             "include": ["reasoning.encrypted_content"],
             "tool_choice": "auto",
-            "parallel_tool_calls": true,
         });
+        if self.supports_parallel_tool_calls() {
+            body["parallel_tool_calls"] = serde_json::Value::Bool(true);
+        }
         if let Some(key) = &metadata.stable_prefix_key {
             body["prompt_cache_key"] = serde_json::Value::String(key.clone());
         }
@@ -1206,12 +1446,49 @@ impl OpenAiCompatClient {
                     .collect(),
             );
         }
+        if let Some(schema) = &metadata.response_schema {
+            body["text"]["format"] = responses_text_format(schema);
+        }
         body["reasoning"] = match self.effort.as_deref() {
             Some(effort) => serde_json::json!({"effort": effort, "summary": "auto"}),
             // Reasoning models still stream summaries when only they are asked for.
             None => serde_json::json!({"summary": "auto"}),
         };
         body
+    }
+
+    /// Cross-vendor history repair (`history_transform`) for this route's model, when the host
+    /// enabled `history_repair`. Images are only downgraded when the model catalog says the model
+    /// takes none; an unknown model keeps them.
+    fn transform_history_for_route(
+        &self,
+        wire_messages: Vec<serde_json::Value>,
+    ) -> Vec<serde_json::Value> {
+        if !super::host::host_options().history_repair {
+            return wire_messages;
+        }
+        crate::agent_providers::history_transform::transform_history(
+            wire_messages,
+            &crate::agent_providers::history_transform::TransformTarget {
+                model: &self.model_id,
+                accepts_reasoning: self.supports_reasoning_request(),
+                accepts_images: crate::agent_providers::model_metadata::capability_of(
+                    &self.model_id,
+                )
+                .map(|capability| capability.vision)
+                .filter(|vision| !vision),
+            },
+        )
+    }
+
+    /// Whether this chat route sends `prompt_cache_key`: the route's `prompt-cache-key-mode`, where
+    /// `auto` means only the first-party OpenAI host.
+    fn sends_prompt_cache_key(&self) -> bool {
+        match self.compat.prompt_cache_key_mode {
+            CacheKeyMode::Always => true,
+            CacheKeyMode::Never => false,
+            CacheKeyMode::Auto => self.is_official_openai_api(),
+        }
     }
 
     fn is_official_openai_api(&self) -> bool {
@@ -1228,7 +1505,8 @@ impl OpenAiCompatClient {
     /// automatically and strictly validates request bodies, so the marker is
     /// omitted there (it would be an unknown parameter).
     fn supports_prompt_cache_control(&self) -> bool {
-        !self.is_official_openai_api()
+        crate::agent_providers::cache_rules::chat_route_rules(self.is_official_openai_api())
+            .takes_markers()
     }
 
     fn reasoning_request(&self) -> Option<ReasoningRequest> {
@@ -1248,13 +1526,24 @@ impl OpenAiCompatClient {
             });
         }
         self.effort.as_ref().map(|effort| ReasoningRequest {
-            effort: Some(effort.clone()),
+            effort: Some(
+                if effort == "max" && super::host::host_options().chat_request_rules {
+                    "xhigh".to_string()
+                } else {
+                    effort.clone()
+                },
+            ),
             max_tokens: None,
         })
     }
 
     fn supports_reasoning_request(&self) -> bool {
-        true
+        if !super::host::host_options().chat_request_rules {
+            return true;
+        }
+        reasoning_supported(crate::agent_providers::model_metadata::capability_of(
+            &self.model_id,
+        ))
     }
 
     /// CR-10: whether this route's wire protocol recognizes
@@ -1265,6 +1554,30 @@ impl OpenAiCompatClient {
     /// field has one place to override it, the same pattern used by
     /// `supports_prompt_cache_control`/`supports_reasoning_request`.
     fn supports_parallel_tool_calls(&self) -> bool {
-        true
+        !self.compat.no_parallel_tool_calls
+    }
+}
+
+fn reasoning_supported(
+    capability: Option<&crate::agent_providers::model_metadata::ModelCapability>,
+) -> bool {
+    capability.is_none_or(|row| row.reasoning > 0)
+}
+
+fn fill_null_assistant_content(messages: &mut [serde_json::Value]) {
+    for message in messages {
+        let is_assistant = message.get("role").and_then(|r| r.as_str()) == Some("assistant");
+        if is_assistant
+            && message
+                .get("tool_calls")
+                .is_some_and(|calls| !calls.is_null())
+        {
+            let missing = message
+                .get("content")
+                .is_none_or(serde_json::Value::is_null);
+            if missing {
+                message["content"] = serde_json::Value::String(String::new());
+            }
+        }
     }
 }

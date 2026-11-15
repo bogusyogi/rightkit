@@ -58,6 +58,16 @@ pub struct ModelCapability {
     pub supported_efforts: Option<Vec<String>>,
     pub tool_schema_class: String,
     pub vision: bool,
+    /// Prompt size, in tokens, above which the long-context rates apply (a price tier of some
+    /// models). `None` when the model has no such tier.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub long_context_threshold_tokens: Option<u64>,
+    /// USD per million prompt tokens beyond the long-context threshold.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub long_prompt_per_m: Option<f64>,
+    /// USD per million completion tokens beyond the long-context threshold.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub long_completion_per_m: Option<f64>,
 }
 
 impl ModelCapability {
@@ -156,6 +166,9 @@ pub enum ModelMetadataError {
 /// depends on a file existing on disk.
 const EMBEDDED_METADATA_TOML: &str = include_str!("../../assets/model-metadata.toml");
 
+/// Rows added to the embedded table when the host sets `extra_model_rows` (Claude 5.x models).
+const EXTRA_METADATA_TOML: &str = include_str!("../../assets/model-metadata-extra.toml");
+
 /// Parse a `model-metadata.toml` document into a flat list of rows.
 fn parse(toml_str: &str) -> Result<Vec<ModelCapability>, ModelMetadataError> {
     let parsed: ModelMetadataFile =
@@ -166,7 +179,16 @@ fn parse(toml_str: &str) -> Result<Vec<ModelCapability>, ModelMetadataError> {
 /// Load the embedded default table. Panics only if the bundled asset itself
 /// fails to parse — that is a build-time defect, never a runtime/user one.
 fn load_embedded() -> Vec<ModelCapability> {
-    parse(EMBEDDED_METADATA_TOML).expect("bundled model-metadata.toml must parse")
+    let mut models = parse(EMBEDDED_METADATA_TOML).expect("bundled model-metadata.toml must parse");
+    if super::host::host_options().extra_model_rows {
+        for row in parse(EXTRA_METADATA_TOML).expect("bundled model-metadata-extra.toml must parse")
+        {
+            if !models.iter().any(|existing| existing.slug == row.slug) {
+                models.push(row);
+            }
+        }
+    }
+    models
 }
 
 fn catalog_payload(models: &[ModelCapability], version: &str, issued_at: &str) -> Vec<u8> {
@@ -369,7 +391,36 @@ fn capability_from_rows<'a>(
         "gpt-6.1-sol" => "openai/gpt-6.1-sol",
         _ => slug,
     };
-    models.iter().find(|m| m.slug == canonical_slug)
+    if let Some(found) = models.iter().find(|m| m.slug == canonical_slug) {
+        return Some(found);
+    }
+    if !super::host::host_options().lenient_model_lookup {
+        return None;
+    }
+    // A hyphenated Claude id (`claude-sonnet-4-5`) names the dotted row (`anthropic/claude-sonnet-4.5`).
+    if let Some((family, minor)) = canonical_slug.rsplit_once('-') {
+        if canonical_slug.starts_with("claude-")
+            && minor.len() == 1
+            && minor.chars().all(|c| c.is_ascii_digit())
+            && family.rsplit_once('-').is_some_and(|(_, major)| {
+                major.len() == 1 && major.chars().all(|c| c.is_ascii_digit())
+            })
+        {
+            let dotted = format!("/{family}.{minor}");
+            if let Some(found) = models.iter().find(|m| m.slug.ends_with(&dotted)) {
+                return Some(found);
+            }
+        }
+    }
+    // A bare model name names the one provider-prefixed row that ends with it; an ambiguous name
+    // and a name that already carries a provider prefix stay unknown.
+    if canonical_slug.contains('/') {
+        return None;
+    }
+    let suffix = format!("/{canonical_slug}");
+    let mut matches = models.iter().filter(|m| m.slug.ends_with(&suffix));
+    let first = matches.next()?;
+    matches.next().is_none().then_some(first)
 }
 
 pub fn catalog_status() -> &'static CatalogLoad {
@@ -379,4 +430,44 @@ pub fn catalog_status() -> &'static CatalogLoad {
 /// Look up a model's full capability row by slug.
 pub fn capability_of(slug: &str) -> Option<&'static ModelCapability> {
     capability_from_rows(table(), slug)
+}
+
+/// The capacity profile for a send on `route_id`: the model's catalog row, or, when the host set
+/// `lenient_model_lookup` and the model has no row, the context window the host's
+/// [`crate::agent_providers::host::set_context_window_resolver`] returns (a tenth of it reserved).
+#[allow(clippy::result_large_err)]
+pub(crate) fn send_capacity_profile(
+    model_id: &str,
+    route_id: &str,
+) -> Result<crate::agent_providers::client::CapacityProfileV1, crate::agent_providers::ProviderError>
+{
+    if let Some(capability) = capability_of(model_id) {
+        return Ok(capability.capacity_profile(route_id, Some(catalog_status().version.clone())));
+    }
+    if !super::host::host_options().lenient_model_lookup {
+        return Err(crate::agent_providers::ProviderError::Capacity(
+            crate::agent_providers::client::CapacityError::CapacityUnavailable {
+                route_id: route_id.to_string(),
+                reason: format!("no loaded model metadata for {model_id}"),
+            },
+        ));
+    }
+    let window = super::host::context_window_for(model_id);
+    match window {
+        Some(window) => Ok(crate::agent_providers::client::CapacityProfileV1::new(
+            window,
+            (window / 10).max(1),
+            model_id,
+            route_id,
+            None,
+        )),
+        None => Err(crate::agent_providers::ProviderError::Capacity(
+            crate::agent_providers::client::CapacityError::CapacityUnavailable {
+                route_id: route_id.to_string(),
+                reason: format!(
+                    "model `{model_id}` has no entry in the model metadata table and no context window is configured, so its context window is unknown; set `context-window` under `[model-limits.<route or model>]`"
+                ),
+            },
+        )),
+    }
 }

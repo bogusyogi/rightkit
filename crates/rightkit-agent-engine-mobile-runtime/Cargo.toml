@@ -20,7 +20,7 @@ rightkit-agent-engine-protocol = {version = "0.4.0", path = "../rightkit-agent-e
 rightkit-agent-policy = {version = "0.2.0", path = "../rightkit-agent-policy"}
 rightkit-agent-engine-core = {version = "0.1.1", path = "../rightkit-agent-engine-core", default-features = false}
 rightkit-agent-coding-tools = { version = "0.1.1", path = "../rightkit-agent-coding-tools" }
-rightkit-llm = {version = "0.5.0", path = "../rightkit-llm", features = ["agent_providers"]}
+rightkit-llm = {version = "0.6.0", path = "../rightkit-llm", features = ["agent_providers"]}
 rightkit-agent-engine-history = {version = "0.1.1", path = "../rightkit-agent-engine-history"}
 rightkit-memory-client = { version = "0.1.0", path = "../rightkit-memory-client"}
 rightkit-mcp = {version = "0.9.0", path = "../rightkit-mcp", features = ["agent_mcp"]}

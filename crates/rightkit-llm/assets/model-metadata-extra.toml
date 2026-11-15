@@ -1,0 +1,83 @@
+[[model]]
+slug = "anthropic/claude-fable-5-2"
+prompt_per_m = 8.00
+completion_per_m = 40.00
+context_window_tokens = 1000000
+compaction_trigger_percent = 70
+compaction_reserve_tokens = 65536
+compaction_max_output_tokens = 32768
+tier = "capable"
+reasoning = 3
+tool_schema_class = "openai-tools"
+vision = true
+# Source: https://platform.claude.com/docs/en/about-claude/pricing (fetched 2026-11-09): $8/$40 per MTok,
+# 5m cache write $10, 1h $16, cache read $0.20 (0.025x, pricing.rs). Models API (GET /v1/models/claude-fable-5-2,
+# 2026-11-09): 1M input, 128K output, effort low..max.
+
+[[model]]
+slug = "anthropic/claude-fable-5-1"
+prompt_per_m = 10.00
+completion_per_m = 50.00
+context_window_tokens = 1000000
+compaction_trigger_percent = 70
+compaction_reserve_tokens = 65536
+compaction_max_output_tokens = 32768
+tier = "capable"
+reasoning = 3
+tool_schema_class = "openai-tools"
+vision = true
+# Source: Claude API reference model table (cached 2026-10-06), not re-fetched
+# from https://platform.claude.com/docs/en/about-claude/pricing this pass:
+# $10/$50 per MTok, 1M context, 128K output; cache reads 0.025x (pricing.rs).
+
+[[model]]
+slug = "anthropic/claude-opus-5-5"
+prompt_per_m = 4.00
+completion_per_m = 20.00
+context_window_tokens = 1000000
+compaction_trigger_percent = 70
+compaction_reserve_tokens = 65536
+compaction_max_output_tokens = 32768
+tier = "capable"
+reasoning = 3
+tool_schema_class = "openai-tools"
+vision = true
+# Source: Claude API reference model table (cached 2026-10-06), not re-fetched
+# from https://platform.claude.com/docs/en/about-claude/pricing this pass:
+# $4/$20 per MTok, 1M context, 128K output.
+
+[[model]]
+slug = "anthropic/claude-sonnet-5-5"
+prompt_per_m = 2.00
+completion_per_m = 10.00
+context_window_tokens = 1000000
+compaction_trigger_percent = 70
+compaction_reserve_tokens = 65536
+compaction_max_output_tokens = 32768
+tier = "capable"
+reasoning = 3
+tool_schema_class = "openai-tools"
+vision = true
+# Source: Claude API reference model table (cached 2026-10-06), not re-fetched
+# from https://platform.claude.com/docs/en/about-claude/pricing this pass:
+# $2/$10 per MTok, 1M context, 128K output.
+
+[[model]]
+slug = "anthropic/claude-haiku-5-5"
+prompt_per_m = 0.10
+completion_per_m = 0.50
+context_window_tokens = 1000000
+long_context_threshold_tokens = 100000
+long_prompt_per_m = 0.50
+long_completion_per_m = 2.50
+compaction_trigger_percent = 70
+compaction_reserve_tokens = 65536
+compaction_max_output_tokens = 32768
+tier = "cheap"
+reasoning = 2
+tool_schema_class = "openai-tools"
+vision = true
+# Source: Claude API reference model table (cached 2026-10-06), not re-fetched
+# from https://platform.claude.com/docs/en/about-claude/pricing this pass:
+# $0.10/$0.50 per MTok for prompts up to 100K tokens
+# ($0.50/$2.50 beyond; this row carries the base rate), 1M context, 128K output.

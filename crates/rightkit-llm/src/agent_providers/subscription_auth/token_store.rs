@@ -35,14 +35,31 @@ use crate::agent_providers::subscription_auth::native_oauth::{
     SubscriptionLogin,
 };
 
-/// Keychain service of the subscription sign-ins.
+/// Keychain service of the subscription sign-ins until the host calls
+/// `crate::agent_providers::host::set_keychain_service`; [`subscription_keychain_service`] is the
+/// one in force (`<service>.subscription_auth`).
 pub const SUBSCRIPTION_KEYCHAIN_SERVICE: &str = "rightkit-agent.subscription_auth";
+
+/// The keychain service the subscription sign-ins are stored under now.
+pub fn subscription_keychain_service() -> String {
+    format!(
+        "{}.subscription_auth",
+        crate::agent_providers::host::keychain_service()
+    )
+}
 
 // Windows credential blobs are capped at 2,560 bytes; 1,000 UTF-16 units (two bytes each at
 // worst) leaves margin below that native limit.
 const MAX_CHUNK_UTF16: usize = 1000;
 const MAX_CHUNKS: usize = 64;
-const CHUNK_PREFIX: &str = "__rightkit_token_chunks_v1:";
+/// Prefix of the manifest entry of a chunked token: `__<prefix>_token_chunks_v1:` with the host's
+/// lower-cased environment prefix (`rightkit` until the host sets one).
+fn chunk_prefix() -> String {
+    format!(
+        "__{}_token_chunks_v1:",
+        rightkit_agent_config::env_prefix().to_ascii_lowercase()
+    )
+}
 
 #[derive(serde::Serialize, serde::Deserialize)]
 struct Manifest {
@@ -55,7 +72,8 @@ fn storage(error: impl std::fmt::Display) -> OAuthError {
 }
 
 fn parse_manifest(raw: &str) -> Option<Manifest> {
-    let manifest: Manifest = serde_json::from_str(raw.strip_prefix(CHUNK_PREFIX)?).ok()?;
+    let manifest: Manifest =
+        serde_json::from_str(raw.strip_prefix(chunk_prefix().as_str())?).ok()?;
     (manifest.chunks > 0
         && manifest.chunks <= MAX_CHUNKS
         && !manifest.generation.is_empty()
@@ -207,7 +225,8 @@ fn write_value(store: &Store, account: &str, value: &str) -> Result<(), OAuthErr
             }
         }
         let manifest = format!(
-            "{CHUNK_PREFIX}{}",
+            "{}{}",
+            chunk_prefix(),
             serde_json::to_string(&Manifest {
                 generation: generation.clone(),
                 chunks: chunks.len(),
@@ -355,7 +374,7 @@ impl TokenStore for KeychainTokenStore {
 /// suppressed under `cargo test` and by `RIGHTKIT_DISABLE_OS_KEYCHAIN=1`
 /// (see `crate::agent_providers::keystore`).
 pub fn open_subscription_store() -> Result<Store, KeyStoreError> {
-    crate::agent_providers::keystore::secret_store(SUBSCRIPTION_KEYCHAIN_SERVICE)
+    crate::agent_providers::keystore::secret_store(&subscription_keychain_service())
 }
 
 fn oauth_client(config: OAuthConfig) -> Result<OAuthClient, OAuthError> {

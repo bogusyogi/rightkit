@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.9
+
+- Breaking for dependents: a dependency requirement was raised to a semver-breaking version.
+
 ## 0.2.8
 
 - Depends on `rightkit-agent-engine-protocol` 0.4.0 (additive events and fields, see its changelog).

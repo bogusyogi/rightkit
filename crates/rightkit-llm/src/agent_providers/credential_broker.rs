@@ -80,6 +80,10 @@ pub enum CredentialSourceKind {
     SecureStore,
     Command,
     Extension,
+    /// A no-store host's `<state root>/.env` (providers R4), resolved only through
+    /// [`CredentialBroker::with_host_credentials`]. It sits between `SecureStore` and `Command`
+    /// in the order of resolution; [`CredentialSourceKind::PRECEDENCE`] is unchanged.
+    DotEnvFile,
 }
 
 impl CredentialSourceKind {
@@ -101,6 +105,7 @@ impl CredentialSourceKind {
             CredentialSourceKind::SecureStore => "secure_store",
             CredentialSourceKind::Command => "command",
             CredentialSourceKind::Extension => "extension",
+            CredentialSourceKind::DotEnvFile => "dotenv_file",
         }
     }
 }
@@ -414,6 +419,9 @@ pub struct CredentialBroker {
     key_store_service: String,
     command_resolver: Option<Arc<dyn CommandCredentialResolver>>,
     auth_context: Arc<dyn AuthContext>,
+    /// Where keys live on a host with no OS credential store (process environment and `.env`).
+    #[cfg(feature = "agent_providers-os-keyring")]
+    host: Option<Arc<crate::agent_providers::host_credentials::HostCredentials>>,
     /// Lifecycle states the broker itself observed (authenticating, failed, revoked, ...),
     /// per provider. Process-lifetime only; the stored sign-in itself is the durable truth
     /// and `status` derives signed-out / ready / expired from it.
@@ -432,8 +440,27 @@ impl CredentialBroker {
             key_store_service: key_store_service.into(),
             command_resolver: None,
             auth_context,
+            #[cfg(feature = "agent_providers-os-keyring")]
+            host: None,
             auth_states: Mutex::new(HashMap::new()),
         }
+    }
+
+    /// Resolve, save and remove provider keys through `host` when it has no OS credential store
+    /// (process environment, then `.env`); on a host with a store nothing changes. Without this
+    /// call the broker reads the key store only.
+    #[cfg(feature = "agent_providers-os-keyring")]
+    pub fn with_host_credentials(
+        mut self,
+        host: Arc<crate::agent_providers::host_credentials::HostCredentials>,
+    ) -> Self {
+        self.host = Some(host);
+        self
+    }
+
+    #[cfg(feature = "agent_providers-os-keyring")]
+    fn no_store_host(&self) -> Option<&crate::agent_providers::host_credentials::HostCredentials> {
+        self.host.as_deref().filter(|host| !host.has_store())
     }
 
     pub fn with_command_resolver(mut self, resolver: Arc<dyn CommandCredentialResolver>) -> Self {
@@ -559,6 +586,60 @@ impl CredentialBroker {
         result
     }
 
+    /// The configured key of `provider_id`: from the host's environment and `.env` when a
+    /// no-store host is attached, else from the key store.
+    fn resolve_host_key(
+        &self,
+        provider_id: &str,
+        key_name: &str,
+    ) -> Result<Option<BrokerResolution>, AuthError> {
+        #[cfg(feature = "agent_providers-os-keyring")]
+        if let Some(host) = self.no_store_host() {
+            return match host.provider_key(provider_id) {
+                Ok(Some(found)) => {
+                    let (source, label) = match found.source {
+                        crate::agent_providers::host_credentials::HostKeySource::Environment => {
+                            (CredentialSourceKind::Environment, "environment")
+                        }
+                        crate::agent_providers::host_credentials::HostKeySource::DotEnv => {
+                            (CredentialSourceKind::DotEnvFile, ".env")
+                        }
+                    };
+                    Ok(Some(BrokerResolution {
+                        auth: ModelAuth::api_key(found.value),
+                        source,
+                        label: Some(label.to_string()),
+                    }))
+                }
+                Ok(None) => Ok(None),
+                Err(reason) => Err(AuthError::new(
+                    AuthErrorCode::Storage,
+                    format!("key file read failed for {provider_id}: {reason}"),
+                )),
+            };
+        }
+        self.read_secure_store(provider_id, key_name)
+    }
+
+    fn read_secure_store(
+        &self,
+        provider_id: &str,
+        key_name: &str,
+    ) -> Result<Option<BrokerResolution>, AuthError> {
+        match self.key_store.get(&self.key_store_service, key_name) {
+            Ok(value) => Ok(Some(BrokerResolution {
+                auth: ModelAuth::api_key(value),
+                source: CredentialSourceKind::SecureStore,
+                label: Some("keychain".to_string()),
+            })),
+            Err(KeyStoreError::NotFound { .. }) => Ok(None),
+            Err(error) => Err(AuthError::new(
+                AuthErrorCode::Storage,
+                format!("secure store read failed for {provider_id}: {error}"),
+            )),
+        }
+    }
+
     async fn resolve_inner(
         &self,
         provider_id: &str,
@@ -605,21 +686,8 @@ impl CredentialBroker {
         // 4. SecureStore (OS keychain).
         if let Some(key_name) = &config.secure_store_key {
             signal.check()?;
-            match self.key_store.get(&self.key_store_service, key_name) {
-                Ok(value) => {
-                    return Ok(Some(BrokerResolution {
-                        auth: ModelAuth::api_key(value),
-                        source: CredentialSourceKind::SecureStore,
-                        label: Some("keychain".to_string()),
-                    }));
-                }
-                Err(KeyStoreError::NotFound { .. }) => {}
-                Err(error) => {
-                    return Err(AuthError::new(
-                        AuthErrorCode::Storage,
-                        format!("secure store read failed for {provider_id}: {error}"),
-                    ));
-                }
+            if let Some(resolution) = self.resolve_host_key(provider_id, key_name)? {
+                return Ok(Some(resolution));
             }
         }
 
@@ -761,6 +829,17 @@ impl CredentialBroker {
         value: &str,
     ) -> Result<(), AuthError> {
         let config = self.provider(provider_id)?;
+        #[cfg(feature = "agent_providers-os-keyring")]
+        if let Some(host) = self.no_store_host() {
+            return host
+                .save_provider_key(provider_id, value)
+                .map_err(|reason| {
+                    AuthError::new(
+                        AuthErrorCode::Storage,
+                        format!("key file write failed for {provider_id}: {reason}"),
+                    )
+                });
+        }
         let key_name = config.secure_store_key.as_deref().unwrap_or(provider_id);
         self.key_store
             .set(&self.key_store_service, key_name, value)
@@ -792,6 +871,15 @@ impl CredentialBroker {
         }
         #[cfg(not(feature = "agent_providers-os-keyring"))]
         let _ = &signal;
+        #[cfg(feature = "agent_providers-os-keyring")]
+        if let Some(host) = self.no_store_host() {
+            return host.remove_provider_key(provider_id).map_err(|reason| {
+                AuthError::new(
+                    AuthErrorCode::Storage,
+                    format!("key file delete failed for {provider_id}: {reason}"),
+                )
+            });
+        }
         if let Some(key_name) = &config.secure_store_key {
             match self.key_store.delete(&self.key_store_service, key_name) {
                 Ok(()) | Err(KeyStoreError::NotFound { .. }) => {}

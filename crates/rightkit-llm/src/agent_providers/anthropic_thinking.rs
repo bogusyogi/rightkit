@@ -248,6 +248,18 @@ pub(crate) struct ThinkingPlan {
     pub max_tokens: u32,
 }
 
+/// Output ceiling of the older Claude models whose limit is below the engine's
+/// raised retry cap; `None` for newer or unknown ids (no clamp).
+fn known_max_output_tokens(model_id: &str) -> Option<u32> {
+    let m = parse_model(model_id)?;
+    match (m.family, m.major, m.minor) {
+        (Family::Opus, 4, 0 | 1) => Some(32_000),
+        (_, 3, 7) => Some(64_000),
+        (_, 3, _) => Some(8_192),
+        _ => None,
+    }
+}
+
 /// Decide `thinking`, `output_config.effort` and `max_tokens`.
 ///
 /// `caller_max_tokens` is the engine's explicit ceiling, never raised past
@@ -262,6 +274,16 @@ pub(crate) fn plan(
     caller_max_tokens: Option<u32>,
     tool_loop_lacks_thinking: bool,
 ) -> ThinkingPlan {
+    // A raised cap (the engine doubles it after a truncated reply) must not pass what an older
+    // model accepts, or the request is rejected outright.
+    let caller_max_tokens = if super::host::host_options().anthropic_request_hygiene {
+        match (caller_max_tokens, known_max_output_tokens(model_id)) {
+            (Some(cap), Some(max)) => Some(cap.min(max)),
+            (cap, _) => cap,
+        }
+    } else {
+        caller_max_tokens
+    };
     let default_max = caller_max_tokens.unwrap_or(PLAIN_DEFAULT_MAX_TOKENS);
     let plain = ThinkingPlan {
         thinking: None,

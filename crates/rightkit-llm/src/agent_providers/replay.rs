@@ -243,7 +243,7 @@ pub fn is_record_mode() -> bool {
 pub fn corpus_dir() -> PathBuf {
     #[cfg(feature = "agent_providers-host-env")]
     {
-        if let Ok(dir) = std::env::var(CORPUS_ENV_DIR_OVERRIDE) {
+        if let Ok(dir) = std::env::var(rightkit_agent_config::env_name("REPLAY_CORPUS_DIR")) {
             let t = dir.trim();
             if !t.is_empty() {
                 return PathBuf::from(t);
@@ -287,7 +287,8 @@ fn redact_content_str(s: &str) -> String {
     // helper for free-form text deltas.
     let mut out = s.to_string();
     // Bearer token redaction (case-insensitive prefix)
-    let lower = out.to_lowercase();
+    // ASCII lower-casing keeps every byte offset of `out` valid in `lower`.
+    let lower = out.to_ascii_lowercase();
     if lower.contains("bearer ") {
         // Replace Bearer <token> with Bearer [REDACTED]
         let mut redacted = String::new();

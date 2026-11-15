@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.1
+
+- Requires `rightkit-llm` 0.6.0 for the `agent_mcp` credential-name defaults (0.9.0 required llm 0.5.0, which cannot share a build with the 0.6 host settings). No other change.
+
 ## 0.9.0
 
 `agent_mcp` now carries CodeRight's `crates/mcp` (feature `agent_mcp`), so CodeRight can delete its own copy. Breaking for dependents: `StdioConfig`, `HttpConfig` and `SseConfig` gain public fields (`options`, and on `HttpConfig` the bearer and header fields), `McpConfigFile` gains `http_bearer` and its `Debug` output is redacted, so a struct literal of any of them no longer compiles; the serde shapes are unchanged for existing files. The agent MCP tests are not carried over (owner rule D7).

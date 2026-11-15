@@ -3,6 +3,7 @@
 ## 0.2.0 (unpublished)
 
 - Requires `rightkit-mcp` 0.9.0 (agent MCP server options, bearer config, prompts and the CodeRight sync; see its changelog).
+- Requires `rightkit-llm` 0.6.0 (provider host settings; see its changelog). Handles the new `ProviderError::QuotaExceeded` (a definite refusal, so a model fallback is allowed), drops the stream events that only a host option produces (`UsageCost`, `RateLimit`, `ToolArgumentsPartial`; this client turns none on), sets `ProviderRequestMetadata::response_schema` to `None`, and reads the key-store service through `key_migration::service()`. No behaviour change.
 - Builds against `rightkit-agent-engine-protocol` 0.4.0: events it emits leave the new optional fields unset (`tool_call_id`, `AgentRosterRow` `provider`/`cost_usd`, roster `main`/`total_cost_usd`/`cost_known`, `ArtifactVerdict::confidence`), and the event matches handle `ToolArgumentsPartial` and `SubAgentOutput`. No behaviour change.
 
 - Builds against the protocol's new `origin` and `phase` fields: assistant messages and completion events it emits carry `origin: None` and `phase: final`. No behaviour change.

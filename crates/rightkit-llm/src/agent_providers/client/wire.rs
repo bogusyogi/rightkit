@@ -36,6 +36,11 @@ pub(crate) struct ChatRequest {
     /// OpenAI-compatible backends reject an unrecognized value.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) parallel_tool_calls: Option<bool>,
+    /// Native structured output (`response_format: json_schema`), set only when the request
+    /// metadata carries a response schema. The prompt text and the final validation stay as
+    /// they are, so a route that ignores the field still works.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) response_format: Option<serde_json::Value>,
 }
 
 #[derive(Serialize, Clone)]
@@ -264,6 +269,16 @@ pub(crate) struct UsageSummary {
     /// OpenAI Chat Completions: `usage.completion_tokens_details`.
     #[serde(default)]
     pub(crate) completion_tokens_details: Option<CompletionTokensDetails>,
+    /// Gateways that bill per request (OpenRouter-style) report the charge in USD here.
+    #[serde(default)]
+    pub(crate) cost: Option<f64>,
+}
+
+impl UsageSummary {
+    /// The provider's own charge for this request, when it reported a finite, non-negative one.
+    pub(crate) fn provider_cost_usd(&self) -> Option<f64> {
+        self.cost.filter(|cost| cost.is_finite() && *cost >= 0.0)
+    }
 }
 
 #[derive(Deserialize, Default)]
@@ -346,7 +361,10 @@ impl UsageSummary {
 /// text and the concatenated thoughts (if any). Case-insensitive on the tag
 /// name; tolerant of an unclosed `<think>` (strips to end of string).
 pub fn strip_think_tags(s: &str) -> (String, Option<String>) {
-    let lower = s.to_lowercase();
+    // ASCII lower-casing keeps every byte offset of `s` valid in `lower`; Unicode lower-casing can
+    // change the byte length (`İ` grows, `K` shrinks), which misaligned the offsets and panicked on
+    // slicing.
+    let lower = s.to_ascii_lowercase();
     if !lower.contains("<think>") {
         // Some OpenAI-compatible providers put reasoning in a dedicated field
         // but still prefix visible content with the orphaned closing tag.
@@ -390,7 +408,7 @@ pub fn strip_think_tags(s: &str) -> (String, Option<String>) {
 fn remove_orphan_think_closers(s: &str) -> String {
     let mut clean = s.to_string();
     loop {
-        let lower = clean.to_lowercase();
+        let lower = clean.to_ascii_lowercase();
         let Some(index) = lower.find("</think>") else {
             return clean.trim().to_string();
         };
@@ -436,9 +454,20 @@ pub fn transcript_to_wire(msg: &TranscriptMessage) -> Option<serde_json::Value> 
             content,
             reasoning_content,
             tool_calls,
+            origin,
             ..
         } => {
             let mut m = serde_json::json!({ "role": "assistant", "content": content });
+            // Internal marker, never sent: the history transform reads it to tell another
+            // model's turns from the target's own, then removes it. Only written when the host
+            // enabled `history_repair`, which is also what removes it.
+            if let Some(origin) = origin
+                .as_ref()
+                .filter(|_| crate::agent_providers::host::host_options().history_repair)
+            {
+                m["origin"] =
+                    serde_json::json!({"provider": origin.provider, "model": origin.model});
+            }
             if !tool_calls.is_empty() {
                 let tcs: Vec<serde_json::Value> = tool_calls
                     .iter()

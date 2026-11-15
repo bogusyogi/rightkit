@@ -1,5 +1,62 @@
 # Changelog
 
+## 0.6.0
+
+CodeRight's `providers` and `router` crates are compared with `agent_providers` and `agent_router` and every difference is taken. Nothing changes for a host that makes no call below: each behaviour sits behind a once-per-process setting whose default is what the crate did before. A scratch program (not committed) linked CodeRight's old crates and this crate with the settings applied and compared 32 271 pure-function lines (1 148 strings through 28 functions, history repair, tool emulation, host credentials, key store) and 533 lines of 73 scripted request, stream and breaker scenarios against a local server (request line, headers and body, events, errors, retry notices, persisted state) byte for byte: no difference. The same corpus with no setting applied gives the output of 0.5.0 (22 046 lines, no difference).
+
+### Host settings (module `agent_providers::host`)
+
+Each setter returns `false` when a value was already installed. Call them once, before the first request or lookup.
+
+- `set_app_label(&str)`: product name in the `User-Agent` (`<label>/0.1`), the OpenRouter `X-Title` and the "this build of ... cannot open it" text. Default `Agent` / `Host`.
+- `set_keychain_service(&str)`: OS keychain service of provider keys, API-key account secrets, `<service>.subscription_auth` tokens and the command-code sign-in entry; the GitHub client sends `<service>-providers/0.1`. Default `rightkit-agent`. The pub consts `key_migration::SERVICE`, `client::ACCOUNT_KEY_SERVICE` and `subscription_auth::SUBSCRIPTION_KEYCHAIN_SERVICE` keep their old values; `key_migration::service()`, `client::account_key_service()` and `subscription_auth::subscription_keychain_service()` are the ones in force.
+- `set_openrouter_attribution(referer, title)`: the `HTTP-Referer` and `X-Title` headers. Default `https://github.com/adrdsouza/rightkit-agent` and the label.
+- `set_context_window_resolver(fn(&str) -> Option<u64>)`: context window of a model with no table row (CodeRight wires its `[model-limits]` configuration); used only with `lenient_model_lookup`.
+- `set_host_options(ProviderHostOptions)`: the behaviour rules below. `ProviderHostOptions::DEFAULT` is the old behaviour; `ProviderHostOptions::ALL` is every rule on with CodeRight's connection jitter.
+- Environment names this layer reads or protects follow `rightkit_agent_config::set_env_prefix`: `<PREFIX>_DISABLE_OS_KEYCHAIN`, `<PREFIX>_REPLAY_CORPUS_DIR`, `<PREFIX>_DUMP_REQUEST_DIR` (feature `agent_providers-host-env`), route keys `<PREFIX>_<NAME>_API_KEY`, `<PREFIX>_WEB_SEARCH_API_KEY`, the daemon secrets, `<PREFIX>_ACCOUNT_..._API_KEY`, the licence prefixes and the `__<prefix>_token_chunks_v1:` manifest. `host_credentials::web_search_key_name()` and `daemon_secret_names()` return the names in force; the consts keep the `RIGHTKIT_` values. With no prefix set nothing changes.
+
+### `ProviderHostOptions` (all default off)
+
+- `status_retries`: stream establishment re-sends a 429 (not an exhausted quota), 500, 502, 503, 504 or 529 up to three times (1 s, 2 s, 4 s with 10 % jitter, at most 30 s; `Retry-After` for a 429), telling the retry notifier; an Anthropic stream that fails with a transient error event before any content is re-sent (5 s doubling). A re-sent 5xx is reported as `Rejected` to the submission observer.
+- `quota_errors`: a 402, or a 400/429 whose body names an exhausted quota, is `ProviderError::QuotaExceeded` on every route and an Anthropic `billing_error` event maps to it; it is not retried and not counted by the circuit breaker. Anthropic stream error events are typed (overloaded, api, rate limit, authentication) when this or `status_retries` is on.
+- `extended_overflow_markers`: `transport::is_context_overflow_message` knows 21 more vendor phrasings and ignores throttling bodies; Anthropic `model_context_window_exceeded` becomes a provider error instead of a finished turn.
+- `breaker_per_model`: the breaker key is `<base URL>#<model>`.
+- `connection_backoff_jitter` (`0.0`): spread of the connection-error backoff; the delay is drawn once and used for both the notice and the sleep.
+- `uncapped_stream_lifetime`: no 180 s whole-stream cap on provider streams (the semantic-progress idle limit still applies).
+- `idle_timeout_everywhere`: the 120 s idle limit also covers the Codex Responses collector and the Anthropic body collector.
+- `large_sse_limit`: Anthropic SSE bodies up to 64 MiB (default 4 MiB, with the matching error text).
+- `usage_and_rate_limit_events`: `ProviderStreamEvent::UsageCost` (provider-reported USD) and `ProviderStreamEvent::RateLimit`.
+- `partial_tool_argument_events`: `ProviderStreamEvent::ToolArgumentsPartial` previews of a call's top-level string arguments on all three streaming routes.
+- `truncated_tool_call_recovery`: a chat call cut by a length finish reason is dropped and reported as incomplete; an Anthropic call that streamed no arguments is sent as `{}`.
+- `ordered_codex_tool_calls`: Codex tool calls in arrival order (default: sorted by call id).
+- `persist_reasoning` and `replay_codex_reasoning`: signed Anthropic thinking and encrypted Codex reasoning items are kept in `signed-thinking.jsonl` and `codex-reasoning.jsonl` under the state root (owner-only), and Codex items are replayed before their tool calls with the item id dropped. Anthropic thinking replay in memory is unchanged by default.
+- `history_repair`: `history_transform::transform_history` runs on chat and Codex requests (foreign reasoning dropped, call ids normalised, unanswered calls closed with an interrupted result, images replaced for a model with `vision = false`) and Anthropic requests normalise call ids; assistant wire messages then carry the internal `origin` marker that the transform removes.
+- `anthropic_request_hygiene`: Anthropic requests drop blank text blocks and trailing thinking of an assistant turn, merge top-level `oneOf`/`anyOf`/`allOf` tool schemas into one object schema, keep the first of duplicate tool names, put the rolling breakpoint on the last stable message (not a mid-conversation system reminder) with a second one when the four-marker budget allows, and cap `max_tokens` at the known maximum of Claude 3.x and Opus 4.0/4.1.
+- `chat_request_rules`: effort `max` is sent as `xhigh` on chat routes; no reasoning request for a model whose row says `reasoning = 0`.
+- `attribution_for_openrouter_only`: the referer and title headers go to `openrouter.ai` hosts only.
+- `lenient_model_lookup`: `claude-sonnet-4-5` finds `anthropic/claude-sonnet-4.5`, a bare name finds its one provider-prefixed row, and a model with no row takes the resolver's context window (reserve a tenth) instead of failing.
+- `extra_model_rows`: `assets/model-metadata-extra.toml` (Claude fable-5-2, fable-5-1, opus-5-5, sonnet-5-5, haiku-5-5 with long-context tiers) joins the embedded table.
+- `host_credential_store`: `client::load_api_key` and the API-key account functions go through `host_credentials` (OS store, or process environment then `<state root>/.env` on a host with none; no environment fallback after a store miss). The first use probes the OS store and removes credential variables from this process's environment.
+- `ignore_keychain_disable_env`: `keystore::keychain_disabled()` is always `false`.
+- `neutral_capacity_wording`: `model capacity unavailable for route ...` instead of `CRA-10 capacity unavailable ...`.
+- `lenient_policy_names` (`agent_router`): `RoutingPolicy::preset_by_name` ignores case and surrounding whitespace.
+
+### Additions without a setting
+
+- New modules: `cache_rules` (prompt-cache semantics per route), `history_transform`, `tool_emulation` (tool calls for a model without them). New builders: `OpenAiCompatClient::with_compat(RouteCompat)` (`CacheKeyMode`, non-null assistant content, tool emulation, no parallel tool calls), `AnthropicCompatClient::with_cache_retention(CacheRetention)`, `with_deferred_tools` (inline tool additions behind `anthropic-beta: inline-tools-2026-09-15`), `with_retry_notifier`. New functions: `client::chat_response_format`, `responses_text_format`, `url_is_openrouter`, `pricing::cache_price_per_1k`, `long_context_tier`, `transport::is_quota_exhausted_body`, `REASONING_ONLY_MESSAGE`, `keystore::keychain_disabled`, `keystore::disable_env_name`, `host_credentials` (`HostCredentials`, `HostKeyStore`, `CredentialStoreState`, `probe_credential_store`, `host`, `initialize`, `store_provider_key`, `remove_provider_key`, `dotenv_name_for_entry`), `CredentialBroker::with_host_credentials`.
+- Breaking for dependents: `ProviderError::QuotaExceeded`, `ProviderStreamEvent::{UsageCost, RateLimit, ToolArgumentsPartial}`, `key_migration::KeySource::{Environment, DotEnv}`, `CredentialSourceKind::DotEnvFile` are new variants; `ModelCapability` gains `long_context_threshold_tokens`, `long_prompt_per_m`, `long_completion_per_m`; `ProviderRequestMetadata` gains `response_schema`; `KeyStoreBackend` gains `found_in` (defaults to `KeySource::Keychain`). None of the new variants is produced without the matching setting.
+
+### Behaviour change for every host
+
+- `strip_think_tags` and the replay redaction lower-case with ASCII rules, so an input such as `İ` or the Kelvin sign no longer misaligns byte offsets (it panicked on slicing before). Output for other input is unchanged.
+- The circuit breaker admission is a guard: a half-open probe that is dropped without an outcome (cancelled turn, abandoned stream) is released instead of leaving the host refused, and a stream's `Finished` is recorded before it is yielded.
+- Pricing rows carry the Anthropic cache read and write multipliers; `estimate_cost` (no cache tokens) is unchanged.
+
+### Not carried
+
+- CodeRight's `#[cfg(test)]` modules (owner rule D7) and its `InMemoryKeyStore` (removed from this crate on purpose in 0.3.4; a test that needs a fake implements `KeyStoreBackend`).
+- CodeRight's removal of `AuthMode::TokenPlan`, `token_plan_auth`, `EnvMapAuthContext`, the replay record switch and the callback-host override: kept, as RightKit-only code.
+
 ## 0.5.0
 
 - Depends on `rightkit-agent-engine-protocol` 0.4.0 (additive events and fields, see its changelog). Breaking for dependents: the crate exposes protocol types in its public API, so those types are now the 0.4 ones.
