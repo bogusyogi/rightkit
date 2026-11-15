@@ -84,3 +84,23 @@ pub fn set_never_expanded_env_names(rule: fn(&str) -> bool) -> bool {
 pub fn set_credential_env_names(rule: fn(&str) -> bool) -> bool {
     CREDENTIAL_NAME.set(rule).is_ok()
 }
+
+/// Whether `name` may never be read by an MCP config, in any scope.
+pub(crate) fn is_never_expanded_env_name(name: &str) -> bool {
+    match NEVER_EXPAND.get() {
+        Some(rule) => rule(name),
+        None => {
+            rightkit_agent_config::licence_env::is_licence_env_name(name)
+                || rightkit_llm::agent_providers::host_credentials::DAEMON_SECRET_NAMES
+                    .contains(&name)
+        }
+    }
+}
+
+/// Whether `name` is a credential a repository-supplied MCP config may not read.
+pub(crate) fn is_credential_env_name(name: &str) -> bool {
+    match CREDENTIAL_NAME.get() {
+        Some(rule) => rule(name),
+        None => rightkit_llm::agent_providers::host_credentials::is_credential_env_name(name),
+    }
+}

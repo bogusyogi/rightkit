@@ -12,10 +12,10 @@
 //! ```
 //!
 //! Merge order (later entries have higher precedence):
-//! 1. `~/.config/host app/mcp.json`
+//! 1. `~/.config/<config-dir-segment>/mcp.json` (see [`crate::agent_mcp::set_config_dir_segment`])
 //! 2. `{workspace_root}/.mcp.json`
 //! 3. `{workspace_root}/<state-dir>/mcp.json`
-//! 4. Path from `RIGHTKIT_MCP_CONFIG` (explicit operator override)
+//! 4. Path from `<PREFIX>_MCP_CONFIG` (explicit operator override)
 //!
 //! All found files are merged; later files override earlier ones for the same server name.
 
@@ -34,7 +34,9 @@ use crate::agent_mcp::transport::{
 use crate::agent_mcp::trust_gate::{
     default_trust_store_path, gate_workspace_stdio_servers, load_trust_store,
 };
-use crate::agent_mcp::types::{McpConfigFile, McpServerConfig, StdioConfig};
+use crate::agent_mcp::types::{
+    HttpConfig, McpConfigFile, McpServerConfig, McpServerOptions, StdioConfig,
+};
 
 /// Whether project-scoped MCP declarations (`.mcp.json`,
 /// `<state-dir>/mcp.json`) may take effect.
@@ -74,7 +76,9 @@ pub fn default_mcp_servers() -> Vec<(String, McpServerConfig)> {
     // Test-wide knob: hermetic e2e runs must not spawn `npx` on every session.
     #[cfg(feature = "agent_mcp-host-env")]
     {
-        if std::env::var("RIGHTKIT_DISABLE_DEFAULT_MCP").is_ok_and(|v| v == "1") {
+        if std::env::var(rightkit_agent_config::env_name("DISABLE_DEFAULT_MCP"))
+            .is_ok_and(|v| v == "1")
+        {
             return Vec::new();
         }
     }
@@ -84,7 +88,7 @@ pub fn default_mcp_servers() -> Vec<(String, McpServerConfig)> {
             command: "npx".to_string(),
             args: vec!["-y".to_string(), "@upstash/context7-mcp".to_string()],
             env: HashMap::new(),
-            options: Default::default(),
+            options: McpServerOptions::default(),
         }),
     )]
 }
@@ -278,12 +282,20 @@ async fn load_with_trust_gate_pooled_impl(
 
     let workspace_config_paths = workspace_root
         .map(|root| {
-            [root.join(".mcp.json"), root.join(".rightkit/mcp.json")]
-                .into_iter()
-                .collect::<std::collections::HashSet<_>>()
+            [
+                root.join(".mcp.json"),
+                root.join(rightkit_agent_config::state_dir_name())
+                    .join("mcp.json"),
+            ]
+            .into_iter()
+            .collect::<std::collections::HashSet<_>>()
         })
         .unwrap_or_default();
     let mut workspace_stdio_servers: HashMap<String, StdioConfig> = HashMap::new();
+    // Names whose merged entry came from a repository file (`.mcp.json`,
+    // `<state-dir>/mcp.json`); the credential-name block applies only to those.
+    let mut workspace_sourced_servers: std::collections::HashSet<String> =
+        std::collections::HashSet::new();
 
     let mut paths = config_paths(workspace_root);
     if let Some(path) = explicit_config_path {
@@ -292,30 +304,39 @@ async fn load_with_trust_gate_pooled_impl(
     for path in paths {
         let is_workspace_file = workspace_config_paths.contains(&path);
         if let Ok(text) = tokio::fs::read_to_string(&path).await {
-            match serde_json::from_str::<McpConfigFile>(&text) {
-                Ok(file) if is_workspace_file && !project_config_allowed => {
+            match McpConfigFile::from_json_lenient(&text) {
+                Ok((file, _)) if is_workspace_file && !project_config_allowed => {
                     // Fail closed: an untrusted workspace contributes nothing
                     // (servers, channel permissions, trust presets, OAuth) and
                     // cannot shadow a user-level server of the same name.
                     for name in file.mcp_servers.keys() {
                         tracing::info!(event = "mcp.server.load", server = %name, outcome = "refused_untrusted_workspace");
                         eprintln!(
-                            "[mcp] workspace server '{name}' needs trust approval before it can run — project config in {} is ignored until the workspace is trusted (run `rightkit-agent trust`); not spawned",
-                            path.display()
+                            "[mcp] workspace server '{name}' needs trust approval before it can run — project config in {} is ignored until the workspace is trusted (run `{} trust`); not spawned",
+                            path.display(),
+                            crate::agent_mcp::client_name()
                         );
                     }
                 }
-                Ok(file) => {
+                Ok((file, skipped)) => {
+                    for message in &skipped {
+                        eprintln!("[mcp] {}: {message}", path.display());
+                    }
                     for (name, cfg) in file.mcp_servers {
                         // Track workspace-sourced stdio servers by name BEFORE
-                        // merging, so a later (env override / user config) file
-                        // overriding the same name still gates the workspace's
-                        // own declaration correctly — the gate gets the config
-                        // that was actually LOADED from the workspace file.
+                        // merging, so the gate checks the config that was actually
+                        // LOADED from the workspace file. A later non-workspace file
+                        // (explicit --mcp-config / env override) replaces the entry,
+                        // so the workspace declaration is no longer gated or stubbed.
                         if is_workspace_file {
                             if let McpServerConfig::Stdio(stdio) = &cfg {
                                 workspace_stdio_servers.insert(name.clone(), stdio.clone());
                             }
+                            workspace_sourced_servers.insert(name.clone());
+                        } else {
+                            // A later user-scope file replaced the entry: the operator wrote it.
+                            workspace_sourced_servers.remove(&name);
+                            workspace_stdio_servers.remove(&name);
                         }
                         merged.mcp_servers.insert(name, cfg);
                     }
@@ -343,17 +364,55 @@ async fn load_with_trust_gate_pooled_impl(
     let env_vars = std::env::vars().collect::<HashMap<_, _>>();
     #[cfg(not(feature = "agent_mcp-host-env"))]
     let env_vars = HashMap::<String, String>::new();
-    expand_config_env(&mut merged, &env_vars);
+    for (name, server) in merged.mcp_servers.iter_mut() {
+        let scope = if workspace_sourced_servers.contains(name) {
+            PlaceholderScope::Repository
+        } else {
+            PlaceholderScope::User
+        };
+        expand_server_env_in_scope(server, &env_vars, scope);
+    }
     refresh_and_attach_oauth_tokens(&mut merged).await;
+
+    // Resolve each HTTP server's bearer now that stored OAuth credentials are attached.
+    let mut http_bearer = HashMap::new();
+    for (name, server) in merged.mcp_servers.iter() {
+        let McpServerConfig::Http(http) = server else {
+            continue;
+        };
+        let scope = if workspace_sourced_servers.contains(name) {
+            PlaceholderScope::Repository
+        } else {
+            PlaceholderScope::User
+        };
+        let oauth = merged
+            .mcp_oauth_tokens
+            .get(name)
+            .map(|stored| stored.access_token.as_str());
+        http_bearer.insert(
+            name.clone(),
+            resolve_http_bearer_with_command(name, http, oauth, &env_vars, scope).await,
+        );
+    }
+    merged.http_bearer = http_bearer;
 
     // Contract R4 / D16: a stdio server whose script no longer exists is not spawned; its name
     // still resolves to a zero-tool stub so the settings list can show why.
     let mut unreachable_names: Vec<String> = Vec::new();
+    // `required` servers that will run as zero-tool stubs, as (server, reason).
+    let mut required_failures: Vec<(String, String, McpServerOptions)> = Vec::new();
     for (name, cfg) in merged.mcp_servers.iter() {
         if let McpServerConfig::Stdio(stdio) = cfg {
             if let Some(reason) = crate::agent_mcp::stale::stdio_unreachable_reason(stdio) {
                 tracing::info!(event = "mcp.server.load", server = %name, outcome = "unreachable");
                 eprintln!("[mcp] server '{name}' {reason}; not spawned");
+                if stdio.options.required {
+                    required_failures.push((
+                        name.clone(),
+                        reason.to_string(),
+                        stdio.options.clone(),
+                    ));
+                }
                 unreachable_names.push(name.clone());
             }
         }
@@ -366,6 +425,7 @@ async fn load_with_trust_gate_pooled_impl(
         let mut manager =
             build_manager_pooled(merged, pool, workspace_root, process_launcher.as_ref()).await;
         register_unreachable_stubs(&mut manager, &unreachable_names);
+        record_required_stub_failures(&mut manager, &required_failures);
         return manager;
     }
 
@@ -403,6 +463,16 @@ async fn load_with_trust_gate_pooled_impl(
     for name in workspace_stdio_servers.keys() {
         if !approved.contains(name.as_str()) {
             merged.mcp_servers.remove(name);
+            if let Some(stdio) = workspace_stdio_servers
+                .get(name)
+                .filter(|stdio| stdio.options.required)
+            {
+                required_failures.push((
+                    name.clone(),
+                    "workspace server needs trust approval before it can run".to_string(),
+                    stdio.options.clone(),
+                ));
+            }
             gated_names.push(name.clone());
         }
     }
@@ -414,7 +484,19 @@ async fn load_with_trust_gate_pooled_impl(
         manager.register(&name, stub);
     }
     register_unreachable_stubs(&mut manager, &unreachable_names);
+    record_required_stub_failures(&mut manager, &required_failures);
     manager
+}
+
+/// A required server replaced by a zero-tool stub still counts as failed to start.
+fn record_required_stub_failures(
+    manager: &mut McpManager,
+    failures: &[(String, String, McpServerOptions)],
+) {
+    for (name, message, options) in failures {
+        manager.register_server_options(name, options.clone());
+        manager.note_required_failure(name, message);
+    }
 }
 
 fn register_unreachable_stubs(manager: &mut McpManager, names: &[String]) {
@@ -477,6 +559,9 @@ async fn refresh_and_attach_oauth_tokens(config: &mut McpConfigFile) {
     let mut tokens = load_stored_oauth_tokens(server_names);
     let now = unix_timestamp_seconds();
 
+    // Refresh every due token at once, each bounded: several slow token endpoints must not
+    // add up and hold session creation (a token that misses the bound keeps its old value).
+    let mut due = Vec::new();
     for name in config.mcp_servers.keys() {
         let Some(existing) = tokens.get(name).cloned() else {
             continue;
@@ -494,17 +579,34 @@ async fn refresh_and_attach_oauth_tokens(config: &mut McpConfigFile) {
             );
             continue;
         }
-        match refresh_oauth_tokens(oauth, &existing).await {
-            Ok(refreshed) => {
+        due.push((name.clone(), oauth.clone(), existing));
+    }
+    let outcomes =
+        futures::future::join_all(due.iter().map(|(name, oauth, existing)| async move {
+            let result = tokio::time::timeout(
+                crate::agent_mcp::limits::MCP_OAUTH_REFRESH_BOUND,
+                refresh_oauth_tokens(oauth, existing),
+            )
+            .await;
+            (name, result)
+        }))
+        .await;
+    for (name, result) in outcomes {
+        match result {
+            Ok(Ok(refreshed)) => {
                 tracing::info!(event = "mcp.oauth.refresh", server = %name, outcome = "ok");
                 if let Err(e) = McpOAuthCredentialStore::set(name, &refreshed) {
                     eprintln!("[mcp] failed to persist refreshed OAuth token for '{name}': {e}");
                 }
                 tokens.insert(name.clone(), refreshed);
             }
-            Err(e) => {
+            Ok(Err(e)) => {
                 tracing::info!(event = "mcp.oauth.refresh", server = %name, outcome = "failed");
                 eprintln!("[mcp] OAuth refresh failed for '{name}': {e}")
+            }
+            Err(_) => {
+                tracing::info!(event = "mcp.oauth.refresh", server = %name, outcome = "timed_out");
+                eprintln!("[mcp] OAuth refresh for '{name}' did not finish in time; keeping the old token");
             }
         }
     }
@@ -512,18 +614,83 @@ async fn refresh_and_attach_oauth_tokens(config: &mut McpConfigFile) {
     attach_stored_oauth_tokens(config, &tokens);
 }
 
-/// Expand `${ENV_VAR}` placeholders in one MCP server config.
-pub fn expand_server_env(config: &mut McpServerConfig, env_vars: &HashMap<String, String>) {
-    let McpServerConfig::Stdio(stdio) = config else {
-        return;
-    };
+/// Who wrote an MCP server entry, which decides which `${VAR}` names it may read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlaceholderScope {
+    /// A file the repository supplies (`.mcp.json`, `<state-dir>/mcp.json`), or any caller that
+    /// cannot tell: the strict rule.
+    Repository,
+    /// The operator's own file (`~/.config/<config-dir-segment>/mcp.json`, `<PREFIX>_MCP_CONFIG`).
+    User,
+}
 
-    for value in stdio.env.values_mut() {
-        *value = expand_env_placeholders(value, env_vars);
+/// Expand `${ENV_VAR}` placeholders in one MCP server config under the strict
+/// [`PlaceholderScope::Repository`] rule. A caller that knows the entry is the operator's own
+/// uses [`expand_server_env_in_scope`] with [`PlaceholderScope::User`].
+pub fn expand_server_env(config: &mut McpServerConfig, env_vars: &HashMap<String, String>) {
+    expand_server_env_in_scope(config, env_vars, PlaceholderScope::Repository);
+}
+
+/// Expand `${ENV_VAR}` placeholders in one MCP server config written in `scope`.
+pub fn expand_server_env_in_scope(
+    config: &mut McpServerConfig,
+    env_vars: &HashMap<String, String>,
+    scope: PlaceholderScope,
+) {
+    // `command`, `args` and `url` expand too, so `"--token", "${TOKEN}"` and a templated URL reach the
+    // server resolved; the same scope rule applies as for `env`.
+    match config {
+        McpServerConfig::Stdio(stdio) => {
+            // The command too, so `"command": "${HOME}/bin/server"` resolves; the stale-script
+            // check and the launcher both see the expanded text.
+            stdio.command = expand_env_placeholders_in_scope(&stdio.command, env_vars, scope);
+            for value in stdio.env.values_mut() {
+                *value = expand_env_placeholders_in_scope(value, env_vars, scope);
+            }
+            for arg in stdio.args.iter_mut() {
+                *arg = expand_env_placeholders_in_scope(arg, env_vars, scope);
+            }
+        }
+        McpServerConfig::Http(http) => {
+            http.url = expand_env_placeholders_in_scope(&http.url, env_vars, scope);
+        }
+        McpServerConfig::Sse(sse) => {
+            sse.url = expand_env_placeholders_in_scope(&sse.url, env_vars, scope);
+        }
     }
 }
 
-fn expand_env_placeholders(value: &str, env_vars: &HashMap<String, String>) -> String {
+/// Whether a `${name}` placeholder written in `scope` may expand.
+///
+/// Rule (audit 2026-11-05 M3, narrowed in round 2 finding 2):
+/// - Licence and device material and the daemon's own secrets (the daemon token, the
+///   gateway and driver secrets) never expand, in any scope: no MCP server needs them, and R46
+///   says no child receives them.
+/// - A repository-supplied entry cannot name any other credential the launcher scrubs (vendor
+///   API keys, `CLAUDE_CODE_OAUTH_TOKEN`, `GITHUB_TOKEN`, route keys): a cloned repository must
+///   not rename a scrubbed secret (`"T": "${CLAUDE_CODE_OAUTH_TOKEN}"`) past the name-based scrub.
+/// - The operator's own config may name those credentials. Writing `"${GITHUB_TOKEN}"` in their
+///   own file is the operator handing that secret to a server they chose; blocking it only broke
+///   the standard GitHub/OpenAI MCP entries with a bogus literal token and no stated cause. The
+///   scope is decided by where the merged entry was loaded from, so a repository file cannot
+///   claim user scope.
+///   (Allow-listing by the server's declared env was rejected: the declared env is the very map
+///   a repository file writes, so it would let a repository allow-list itself.)
+fn placeholder_may_expand(name: &str, scope: PlaceholderScope) -> bool {
+    if !is_env_placeholder_name(name) || crate::agent_mcp::host::is_never_expanded_env_name(name) {
+        return false;
+    }
+    match scope {
+        PlaceholderScope::User => true,
+        PlaceholderScope::Repository => !crate::agent_mcp::host::is_credential_env_name(name),
+    }
+}
+
+fn expand_env_placeholders_in_scope(
+    value: &str,
+    env_vars: &HashMap<String, String>,
+    scope: PlaceholderScope,
+) -> String {
     let mut expanded = String::with_capacity(value.len());
     let mut rest = value;
 
@@ -535,19 +702,33 @@ fn expand_env_placeholders(value: &str, env_vars: &HashMap<String, String>) -> S
             return expanded;
         };
 
-        let name = &after_start[..end];
-        let placeholder = &rest[start..start + 3 + name.len()];
-        // A repository-supplied MCP config must never read licence or device material through
-        // `${VAR}`, whatever map the caller built from the process environment: such a name is
-        // left as the literal placeholder, exactly like an unset one.
-        if is_env_placeholder_name(name)
-            && !rightkit_agent_config::licence_env::is_licence_env_name(name)
-        {
-            match env_vars.get(name) {
-                Some(replacement) => expanded.push_str(replacement),
-                None => expanded.push_str(placeholder),
+        let full_name = &after_start[..end];
+        let placeholder = &rest[start..start + 3 + full_name.len()];
+        // `${VAR:-default}`: the default applies when VAR is unset or empty.
+        let (name, default) = match full_name.split_once(":-") {
+            Some((name, default)) => (name, Some(default)),
+            None => (full_name, None),
+        };
+        // A name the scope may not read stays the literal placeholder, exactly like an unset
+        // one, and is logged (by name only) so the cause is visible.
+        if placeholder_may_expand(name, scope) {
+            match (env_vars.get(name), default) {
+                (Some(replacement), Some(_)) if replacement.is_empty() => {
+                    expanded.push_str(default.unwrap_or_default())
+                }
+                (Some(replacement), _) => expanded.push_str(replacement),
+                (None, Some(default)) => expanded.push_str(default),
+                (None, None) => expanded.push_str(placeholder),
             }
         } else {
+            if is_env_placeholder_name(name) {
+                tracing::warn!(
+                    event = "mcp.config.placeholder",
+                    variable = %name,
+                    ?scope,
+                    outcome = "blocked_credential_name"
+                );
+            }
             expanded.push_str(placeholder);
         }
         rest = &after_start[end + 1..];
@@ -564,6 +745,242 @@ fn is_env_placeholder_name(name: &str) -> bool {
             .all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
 }
 
+/// Names only, never values: the text lands in logs and in the server's failure line.
+fn read_credential_env(
+    server: &str,
+    kind: &str,
+    var: &str,
+    env: &HashMap<String, String>,
+    scope: PlaceholderScope,
+) -> Result<String, String> {
+    if !is_env_placeholder_name(var) {
+        // Not echoed: a secret pasted into a name field must not reach a log.
+        return Err(format!(
+            "MCP server '{server}': {kind} does not name a valid environment variable"
+        ));
+    }
+    if !placeholder_may_expand(var, scope) {
+        return Err(format!(
+            "MCP server '{server}': {var} is a credential a repository MCP config may not read"
+        ));
+    }
+    let found = env.get(var);
+    // Windows environment names are case-insensitive; the map is built verbatim.
+    #[cfg(windows)]
+    let found = found.or_else(|| {
+        env.iter()
+            .find(|(key, _)| key.eq_ignore_ascii_case(var))
+            .map(|(_, value)| value)
+    });
+    match found.map(|value| value.trim()) {
+        Some(value) if !value.is_empty() => Ok(value.to_string()),
+        _ => Err(format!("MCP server '{server}': {kind} {var} is not set")),
+    }
+}
+
+/// Expand `${VAR}` placeholders in an `Authorization` header value, failing (by variable name
+/// only) on a placeholder that is blocked, unset or malformed.
+fn expand_authorization_value(
+    server: &str,
+    value: &str,
+    env: &HashMap<String, String>,
+    scope: PlaceholderScope,
+) -> Result<String, String> {
+    let unresolved = || {
+        format!(
+            "MCP server '{server}': Authorization header has an unresolved ${{VAR}} placeholder"
+        )
+    };
+    let mut rest = value;
+    while let Some(start) = rest.find("${") {
+        let after = &rest[start + 2..];
+        let Some(end) = after.find('}') else {
+            return Err(unresolved());
+        };
+        let name = &after[..end];
+        if is_env_placeholder_name(name) {
+            if !placeholder_may_expand(name, scope) {
+                return Err(format!(
+                    "MCP server '{server}': {name} is a credential a repository MCP config may not read"
+                ));
+            }
+            if !env.contains_key(name) {
+                return Err(format!(
+                    "MCP server '{server}': Authorization header variable {name} is not set"
+                ));
+            }
+        }
+        rest = &after[end + 1..];
+    }
+    let expanded = expand_env_placeholders_in_scope(value, env, scope);
+    if expanded.contains("${") {
+        return Err(unresolved());
+    }
+    Ok(expanded)
+}
+
+fn bearer_from_authorization(server: &str, value: &str) -> Result<String, String> {
+    let value = value.trim();
+    let (scheme, rest) = value.split_once(char::is_whitespace).unwrap_or((value, ""));
+    let rest = rest.trim();
+    if scheme.eq_ignore_ascii_case("bearer") && !rest.is_empty() {
+        Ok(rest.to_string())
+    } else {
+        Err(format!(
+            "MCP server '{server}': Authorization must be 'Bearer <token>'"
+        ))
+    }
+}
+
+/// Resolve the bearer credential an HTTP server sends.
+///
+/// Precedence: `bearer_token_env_var`; an `Authorization` header from `http_headers`
+/// (placeholders expanded) or `env_http_headers`; then the stored OAuth credential `oauth`.
+/// Any other header is an error: this build's transport cannot send it, and dropping it
+/// silently would send requests the operator did not configure. Errors name variables, never
+/// values. `scope` decides which credential names a `${VAR}`/env reference may read.
+pub fn resolve_http_bearer(
+    server: &str,
+    cfg: &HttpConfig,
+    oauth: Option<&str>,
+    env: &HashMap<String, String>,
+    scope: PlaceholderScope,
+) -> Result<Option<String>, String> {
+    let mut unsupported: Vec<&String> = cfg
+        .http_headers
+        .keys()
+        .chain(cfg.env_http_headers.keys())
+        .filter(|name| !name.eq_ignore_ascii_case("authorization"))
+        .collect();
+    unsupported.sort();
+    if let Some(header) = unsupported.first() {
+        return Err(format!(
+            "MCP server '{server}': header '{header}' is not supported: this build's MCP HTTP transport (rightkit-mcp 0.7.2) sends no custom headers; only Authorization: Bearer is supported"
+        ));
+    }
+    if let Some(var) = cfg.bearer_token_env_var.as_deref() {
+        return read_credential_env(server, "bearer_token_env_var", var, env, scope).map(Some);
+    }
+    if let Some((_, value)) = cfg
+        .http_headers
+        .iter()
+        .find(|(name, _)| name.eq_ignore_ascii_case("authorization"))
+    {
+        let expanded = expand_authorization_value(server, value, env, scope)?;
+        return bearer_from_authorization(server, &expanded).map(Some);
+    }
+    if let Some((_, var)) = cfg
+        .env_http_headers
+        .iter()
+        .find(|(name, _)| name.eq_ignore_ascii_case("authorization"))
+    {
+        let value = read_credential_env(server, "env_http_headers", var, env, scope)?;
+        return bearer_from_authorization(server, &value).map(Some);
+    }
+    Ok(oauth.map(str::to_string))
+}
+
+/// Longest a `bearer_token_command` may run.
+#[cfg(feature = "agent_mcp-host-env")]
+const BEARER_COMMAND_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+/// Most output a `bearer_token_command` may print.
+#[cfg(feature = "agent_mcp-host-env")]
+const BEARER_COMMAND_MAX_OUTPUT: usize = 16 * 1024;
+
+/// [`resolve_http_bearer`], plus the `bearer_token_command` of a user-scope server: when the
+/// server names one and no `bearer_token_env_var` outranks it, the command's first output line
+/// is the bearer (any other configuration error, such as an unsupported header, still wins).
+/// Errors name the server and the failure, never the command's output.
+pub async fn resolve_http_bearer_with_command(
+    server: &str,
+    cfg: &HttpConfig,
+    oauth: Option<&str>,
+    env: &HashMap<String, String>,
+    scope: PlaceholderScope,
+) -> Result<Option<String>, String> {
+    let base = resolve_http_bearer(server, cfg, oauth, env, scope);
+    match (&cfg.bearer_token_command, &cfg.bearer_token_env_var, &base) {
+        (Some(command), None, Ok(_)) => run_bearer_token_command(server, &command.argv(), scope)
+            .await
+            .map(Some),
+        _ => base,
+    }
+}
+
+#[cfg(feature = "agent_mcp-host-env")]
+async fn run_bearer_token_command(
+    server: &str,
+    argv: &[String],
+    scope: PlaceholderScope,
+) -> Result<String, String> {
+    if scope == PlaceholderScope::Repository {
+        return Err(format!(
+            "MCP server '{server}': a repository MCP config may not run bearer_token_command; declare the server in your user config"
+        ));
+    }
+    let Some((program, args)) = argv.split_first() else {
+        return Err(format!(
+            "MCP server '{server}': bearer_token_command names no program"
+        ));
+    };
+    let mut command = tokio::process::Command::new(program);
+    command
+        .args(args)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .kill_on_drop(true);
+    let output = match tokio::time::timeout(BEARER_COMMAND_TIMEOUT, command.output()).await {
+        Err(_) => {
+            return Err(format!(
+                "MCP server '{server}': bearer_token_command did not finish within {} seconds",
+                BEARER_COMMAND_TIMEOUT.as_secs()
+            ))
+        }
+        Ok(Err(error)) => {
+            return Err(format!(
+                "MCP server '{server}': bearer_token_command could not start ({})",
+                error.kind()
+            ))
+        }
+        Ok(Ok(output)) => output,
+    };
+    if !output.status.success() {
+        return Err(format!(
+            "MCP server '{server}': bearer_token_command failed ({})",
+            output.status.code().map_or_else(
+                || "killed by a signal".to_string(),
+                |code| format!("exit status {code}")
+            )
+        ));
+    }
+    if output.stdout.len() > BEARER_COMMAND_MAX_OUTPUT {
+        return Err(format!(
+            "MCP server '{server}': bearer_token_command printed more than {BEARER_COMMAND_MAX_OUTPUT} bytes"
+        ));
+    }
+    let printed = String::from_utf8_lossy(&output.stdout);
+    let token = printed.lines().next().unwrap_or("").trim();
+    if token.is_empty() {
+        return Err(format!(
+            "MCP server '{server}': bearer_token_command printed no token"
+        ));
+    }
+    Ok(token.to_string())
+}
+
+/// The command runs only in the host build; the portable graph never spawns one.
+#[cfg(not(feature = "agent_mcp-host-env"))]
+async fn run_bearer_token_command(
+    server: &str,
+    _argv: &[String],
+    _scope: PlaceholderScope,
+) -> Result<String, String> {
+    Err(format!(
+        "MCP server '{server}': bearer_token_command needs the desktop host build"
+    ))
+}
+
 /// Ordered MCP declaration sources. The context inspector uses this same list
 /// so discovery and runtime loading cannot silently disagree.
 pub fn config_paths(workspace_root: Option<&Path>) -> Vec<PathBuf> {
@@ -578,17 +995,20 @@ pub fn config_paths(workspace_root: Option<&Path>) -> Vec<PathBuf> {
         );
     }
 
-    // Workspace declarations override user defaults. the host app-local config
+    // Workspace declarations override user defaults. The host's own config
     // is deliberately later than the compatibility `.mcp.json`.
     if let Some(root) = workspace_root {
         paths.push(root.join(".mcp.json"));
-        paths.push(root.join(".rightkit").join("mcp.json"));
+        paths.push(
+            root.join(rightkit_agent_config::state_dir_name())
+                .join("mcp.json"),
+        );
     }
 
     // Highest precedence: the explicit operator-selected file.
     #[cfg(feature = "agent_mcp-host-env")]
     {
-        if let Ok(p) = std::env::var("RIGHTKIT_MCP_CONFIG") {
+        if let Ok(p) = std::env::var(rightkit_agent_config::env_name("MCP_CONFIG")) {
             paths.push(PathBuf::from(p));
         }
     }
@@ -623,23 +1043,39 @@ fn build_transport_with_launcher(
     )>,
 ) -> Arc<dyn McpTransport> {
     match cfg {
-        McpServerConfig::Http(c) => Arc::new(HttpTransport::with_access_token(
-            c.url.clone(),
-            config
-                .mcp_oauth_tokens
-                .get(name)
-                .map(|tokens| tokens.access_token.clone()),
-        )),
-        McpServerConfig::Sse(c) => Arc::new(SseTransport::with_access_token_and_origin_policy(
-            c.url.clone(),
-            config
-                .mcp_oauth_tokens
-                .get(name)
-                .map(|tokens| tokens.access_token.clone()),
-            c.allow_cross_origin_endpoint,
-        )),
+        McpServerConfig::Http(c) => {
+            // A resolved bearer (env var / header / OAuth) wins; a resolution error
+            // yields a transport that fails with that message instead of connecting
+            // unauthenticated.
+            let transport = match config.http_bearer.get(name) {
+                Some(Err(message)) => {
+                    HttpTransport::with_configuration_error(c.url.clone(), message.clone())
+                }
+                Some(Ok(bearer)) => HttpTransport::with_access_token(c.url.clone(), bearer.clone()),
+                None => HttpTransport::with_access_token(
+                    c.url.clone(),
+                    config
+                        .mcp_oauth_tokens
+                        .get(name)
+                        .map(|stored| stored.access_token.clone()),
+                ),
+            };
+            Arc::new(transport.with_timeouts(c.options.startup_timeout(), c.options.tool_timeout()))
+        }
+        McpServerConfig::Sse(c) => Arc::new(
+            SseTransport::with_access_token_and_origin_policy(
+                c.url.clone(),
+                config
+                    .mcp_oauth_tokens
+                    .get(name)
+                    .map(|tokens| tokens.access_token.clone()),
+                c.allow_cross_origin_endpoint,
+            )
+            .with_timeouts(c.options.startup_timeout(), c.options.tool_timeout()),
+        ),
         McpServerConfig::Stdio(c) => {
-            let transport = StdioTransport::new(c.command.clone(), c.args.clone(), c.env.clone());
+            let transport = StdioTransport::new(c.command.clone(), c.args.clone(), c.env.clone())
+                .with_timeouts(c.options.startup_timeout(), c.options.tool_timeout());
             match process_launcher {
                 Some((launcher, context)) => Arc::new(
                     transport
@@ -650,6 +1086,70 @@ fn build_transport_with_launcher(
             }
         }
     }
+}
+
+/// The launch settings that decide how a pooled stdio server's process is started and confined
+/// (audit 2026-11-05 M1). HTTP and SSE servers start no process, so they carry none.
+fn launch_pool_extras(
+    kind: &str,
+    process_launcher: Option<&(
+        Arc<dyn rightkit_sandbox::execution::ProcessLaunchAdapter>,
+        rightkit_sandbox::execution::ProcessLaunchContext,
+    )>,
+) -> Vec<(&'static str, String)> {
+    if kind != "stdio" {
+        return Vec::new();
+    }
+    match process_launcher {
+        None => vec![("launcher", "direct".to_string())],
+        Some((_, context)) => vec![
+            ("launcher", "managed".to_string()),
+            ("launch_root", context.workspace_root.clone()),
+            // The profile only changes the launch when confinement is enforced; keying on it
+            // otherwise would split unconfined sessions over a label alone.
+            (
+                "sandbox_profile",
+                if context.sandbox_required {
+                    format!("{:?}", context.sandbox_profile)
+                } else {
+                    String::new()
+                },
+            ),
+            ("sandbox_required", context.sandbox_required.to_string()),
+            ("network_required", context.network_required.to_string()),
+        ],
+    }
+}
+
+/// Settings that change what a pooled transport does without changing its endpoint: the resolved
+/// HTTP credential (hashed by `pool_key`, never kept in the clear) and the per-server timeouts.
+fn option_pool_extras(
+    cfg: &McpServerConfig,
+    config: &McpConfigFile,
+    name: &str,
+) -> Vec<(&'static str, String)> {
+    let mut extras = Vec::new();
+    if matches!(cfg, McpServerConfig::Http(_)) {
+        let bearer = match config.http_bearer.get(name) {
+            Some(Ok(Some(value))) => value.clone(),
+            Some(Ok(None)) => String::new(),
+            Some(Err(message)) => format!("error:{message}"),
+            None => config
+                .mcp_oauth_tokens
+                .get(name)
+                .map(|stored| stored.access_token.clone())
+                .unwrap_or_default(),
+        };
+        extras.push(("bearer", bearer));
+    }
+    let options = cfg.options();
+    if let Some(startup) = options.startup_timeout() {
+        extras.push(("startup_timeout_ms", startup.as_millis().to_string()));
+    }
+    if let Some(request) = options.tool_timeout() {
+        extras.push(("tool_timeout_ms", request.as_millis().to_string()));
+    }
+    extras
 }
 
 async fn build_manager_pooled(
@@ -672,6 +1172,7 @@ async fn build_manager_pooled(
     });
 
     for (name, cfg) in &config.mcp_servers {
+        manager.register_server_options(name, cfg.options().clone());
         // Pooling identity is derived BEFORE the config is consumed by the
         // transport constructor.
         let (kind, endpoint, args, env) = match cfg {
@@ -697,13 +1198,21 @@ async fn build_manager_pooled(
         // the host app's existing leasing layer (`McpTransportPool`).
         let transport: Arc<dyn McpTransport> = match (pool, scope.as_ref()) {
             (Some(pool), Some(scope)) => {
+                // M1: launch and sandbox settings are part of the identity, so a safe-mode
+                // session never leases a process another session spawned unconfined.
+                let mut launch = launch_pool_extras(kind, process_launcher);
+                launch.extend(option_pool_extras(cfg, &config, name));
+                let launch_refs: Vec<(&str, &str)> = launch
+                    .iter()
+                    .map(|(name, value)| (*name, value.as_str()))
+                    .collect();
                 let key = crate::agent_mcp::pool::pool_key(
                     scope.clone(),
                     kind,
                     &endpoint,
                     &args,
                     &env,
-                    &[],
+                    &launch_refs,
                 );
                 let sf_key = format!("{key:?}");
                 let shared_pool = crate::agent_mcp::shared_pool::get_or_init_shared_pool().await;
