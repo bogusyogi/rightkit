@@ -2745,7 +2745,7 @@
       "pkId": "PK37",
       "id": "ci/consumers/rightkit-mcp/src/main.rs",
       "files": {
-        "Cargo.toml": "e7e0bd4703e64addc92353ef42d5f0f14eda8f5eb8338d4fa4c001e1a57e384a",
+        "Cargo.toml": "a90dc661054e12712f3b1d5e61861741db266bc07bc8ae0216c53a3adc8b5d69",
         "README.md": "00380008eab8b972a86e80df704bbfbc2bbeb1361744e1e857409148c751139a",
         "src/main.rs": "01e99b7fdf687797cb1cfa605b26bfa725caee47718d4b0e98db08c36ad9ff94"
       }
