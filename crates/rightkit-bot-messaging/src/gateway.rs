@@ -250,17 +250,24 @@ async fn reject_private_delivery_host(
         })
 }
 
+/// Webhook providers (Slack, Discord, ntfy, ...) carry the secret in the URL
+/// path, so only scheme, host and port survive. A short digest of the full
+/// target keeps distinct targets distinguishable without revealing them.
 fn redact_delivery_target(target: &str) -> String {
-    match url::Url::parse(target) {
-        Ok(mut url) => {
-            url.set_query(None);
-            url.set_fragment(None);
-            let _ = url.set_username("");
-            let _ = url.set_password(None);
-            url.to_string()
-        }
-        Err(_) => "<invalid-url>".to_string(),
-    }
+    let Ok(url) = url::Url::parse(target) else {
+        return "<invalid-url>".to_string();
+    };
+    let digest = rightkit_crypto::hex_encode(&rightkit_crypto::sha256(target.as_bytes()));
+    let host = url.host_str().unwrap_or("");
+    let port = url
+        .port()
+        .map(|port| format!(":{port}"))
+        .unwrap_or_default();
+    format!(
+        "{}://{host}{port}/<redacted:{}>",
+        url.scheme(),
+        &digest[..12]
+    )
 }
 
 fn current_epoch_nanos() -> u128 {
@@ -412,7 +419,10 @@ pub fn telegram_channel_descriptor(
         recent_deliveries: Vec::new(),
         notes: vec![
             "Secrets, raw chat ids, and message bodies are intentionally omitted.".to_string(),
-            "Telegram messages enter the host as remote untrusted content.".to_string(),
+            format!(
+                "Telegram messages enter {} as remote untrusted content.",
+                crate::host::product_name()
+            ),
         ],
     }
 }

@@ -11,6 +11,7 @@ pub mod bridge;
 pub mod channels;
 pub mod daemon;
 pub mod gateway;
+pub mod host;
 pub mod openclaw;
 pub mod telegram;
 pub mod telegram_poll;

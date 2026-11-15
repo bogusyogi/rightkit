@@ -6,7 +6,7 @@
 
 use crate::auth::AuthGate;
 use crate::daemon::{event_seq, DaemonClient, DaemonError};
-use rightkit_agent_engine_protocol::{ProtocolEvent, TranscriptMessage};
+use rightkit_agent_engine_protocol::{AssistantMessagePhase, ProtocolEvent, TranscriptMessage};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -369,8 +369,13 @@ impl<D: DaemonClient> TelegramBot<D> {
                             tool_calls,
                             ..
                         },
+                    phase,
                     ..
-                } if !content.trim().is_empty() && tool_calls.is_empty() => {
+                } if !content.trim().is_empty()
+                    && tool_calls.is_empty()
+                    && (!crate::host::final_replies_only()
+                        || *phase == AssistantMessagePhase::Final) =>
+                {
                     replies.push(TelegramReply::text(chat_id, format!("✅ {content}")));
                 }
                 ProtocolEvent::RunInterrupted { reason, .. } => {
@@ -424,7 +429,18 @@ impl<D: DaemonClient> TelegramBot<D> {
             call, risk_label, ..
         } = event
         {
-            let text = format!("⚠️ Approve tool `{}`? (risk: {})", call.name, risk_label);
+            let text = if crate::host::approval_arguments() {
+                // Show what is being approved, as the terminal does. Replies are
+                // sent as plain text (no parse mode), so only bound the length and
+                // drop control characters from the untrusted arguments.
+                let args = approval_args_summary(&call.arguments_json);
+                format!(
+                    "⚠️ Approve tool `{}`? (risk: {})\n{}",
+                    call.name, risk_label, args
+                )
+            } else {
+                format!("⚠️ Approve tool `{}`? (risk: {})", call.name, risk_label)
+            };
             let buttons = vec![
                 InlineButton {
                     label: "Allow".into(),
@@ -458,5 +474,26 @@ impl<D: DaemonClient> TelegramBot<D> {
             }
         }
         Ok(buf)
+    }
+}
+
+fn approval_args_summary(arguments_json: &str) -> String {
+    const MAX_CHARS: usize = 800;
+    let raw = match serde_json::from_str::<serde_json::Value>(arguments_json) {
+        Ok(value) => match value.get("command").and_then(|c| c.as_str()) {
+            Some(command) => command.to_string(),
+            None => value.to_string(),
+        },
+        Err(_) => arguments_json.to_string(),
+    };
+    let cleaned: String = raw
+        .chars()
+        .filter(|c| !c.is_control() || *c == '\n')
+        .collect();
+    if cleaned.chars().count() > MAX_CHARS {
+        let head: String = cleaned.chars().take(MAX_CHARS).collect();
+        format!("{head}… (truncated)")
+    } else {
+        cleaned
     }
 }
