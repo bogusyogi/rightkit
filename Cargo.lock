@@ -12102,6 +12102,7 @@ dependencies = [
  "rightkit-credentials",
  "rightkit-fs",
  "rightkit-http",
+ "rightkit-llm",
  "rightkit-oauth",
  "rightkit-sandbox",
  "serde",

@@ -13,6 +13,7 @@
 
 pub mod config;
 mod error;
+mod host;
 pub mod limits;
 pub mod lsp_bridge;
 mod manager;
@@ -33,6 +34,11 @@ pub use config::{
     load_with_trust_gate_and_project_trust, load_with_trust_gate_pooled, ProjectTrust,
 };
 pub use error::McpError;
+pub use host::{
+    client_name, client_version, keyring_service, set_client_name, set_client_version,
+    set_credential_env_names, set_keyring_service, set_never_expanded_env_names,
+    DEFAULT_CLIENT_NAME, DEFAULT_KEYRING_SERVICE,
+};
 pub use lsp_bridge::{
     lsp_mcp_tool_definitions, Diagnostic, GotoDefinitionResult, HoverResult, LspBridgeError,
     LspMcpBridge, LspPosition, LspServerConfig,
@@ -65,7 +71,8 @@ pub use trust_gate::{
     DEFAULT_CONFIG_DIR_SEGMENT,
 };
 pub use types::{
-    HttpConfig, McpChannelPermissions, McpConfigFile, McpOAuthConfig, McpResourceContent,
-    McpResourceDef, McpServerConfig, McpToolAnnotations, McpToolDef, McpToolResult, McpTrustPolicy,
-    SseConfig, StdioConfig,
+    BearerTokenCommand, HttpConfig, McpChannelPermissions, McpConfigFile, McpExpose,
+    McpOAuthConfig, McpPromptDef, McpResourceContent, McpResourceDef, McpServerConfig,
+    McpServerOptions, McpToolAnnotations, McpToolDef, McpToolResult, McpTrustPolicy, SseConfig,
+    StdioConfig,
 };

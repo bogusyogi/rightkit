@@ -84,6 +84,7 @@ pub fn default_mcp_servers() -> Vec<(String, McpServerConfig)> {
             command: "npx".to_string(),
             args: vec!["-y".to_string(), "@upstash/context7-mcp".to_string()],
             env: HashMap::new(),
+            options: Default::default(),
         }),
     )]
 }
