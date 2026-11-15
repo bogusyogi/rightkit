@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.6.0
 
 CodeRight's `providers` and `router` crates are compared with `agent_providers` and `agent_router` and every difference is taken. Nothing changes for a host that makes no call below: each behaviour sits behind a once-per-process setting whose default is what the crate did before. A scratch program (not committed) linked CodeRight's old crates and this crate with the settings applied and compared 32 271 pure-function lines (1 148 strings through 28 functions, history repair, tool emulation, host credentials, key store) and 533 lines of 73 scripted request, stream and breaker scenarios against a local server (request line, headers and body, events, errors, retry notices, persisted state) byte for byte: no difference. The same corpus with no setting applied gives the output of 0.5.0 (22 046 lines, no difference).
 

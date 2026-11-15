@@ -31,7 +31,7 @@ rightkit-onnx = { version = "0.3.0", path = "../rightkit-onnx", features = ["age
 rightkit-agent-engine-protocol = { version = "0.4.0", path = "../rightkit-agent-engine-protocol" }
 rightkit-agent-engine-core = { version = "0.1.1", path = "../rightkit-agent-engine-core" }
 rightkit-hooks = { version = "0.2.7", path = "../rightkit-hooks", features = ["agent_hooks", "agent_hooks-host-env"] }
-rightkit-llm = { version = "0.5.0", path = "../rightkit-llm", features = ["agent_providers", "agent_providers-host-env", "agent_router"] }
+rightkit-llm = { version = "0.6.0", path = "../rightkit-llm", features = ["agent_providers", "agent_providers-host-env", "agent_router"] }
 rightkit-memory-client = { version = "0.1.0", path = "../rightkit-memory-client", features = ["agent_host"] }
 rightkit-agent-policy = { version = "0.2.0", path = "../rightkit-agent-policy" }
 rightkit-logs = { version = "0.4.0", path = "../rightkit-logs", features = ["tracing"], default-features = false }
