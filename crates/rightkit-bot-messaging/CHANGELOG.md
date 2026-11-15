@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.1
+
+- Fix: a webhook delivery record's `target_redacted` keeps only scheme, host and port plus a 12-hex-digit SHA-256 prefix of the full target (`https://discord.com/<redacted:1beb230cad8c>`). Before, the path stayed, and Slack, Discord and ntfy carry their secret in the path. Records written earlier keep the old text. Taken for every host.
+- New `host` module, each value fixed once at start-up, defaults unchanged: `set_product_name` (names the host in the Telegram channel note: "Telegram messages enter <name> as remote untrusted content."; default `the host`), `set_final_replies_only` (Telegram forwards only the assistant message that ends the turn, phase `final`, instead of every completed message without tool calls; default off) and `set_approval_arguments` (the approval prompt adds the command, or the arguments, bounded to 800 characters with control characters dropped; default off). CodeRight calls `set_product_name("CodeRight")`, `set_final_replies_only(true)` and `set_approval_arguments(true)`.
+- Synced with CodeRight's `coderight-remote`; its `#[cfg(test)]` module is not carried (no unit tests here).
+
 ## 0.3.0
 
 - Depends on `rightkit-agent-engine-protocol` 0.4.0 (additive events and fields, see its changelog). Breaking for dependents: the crate exposes protocol types in its public API, so those types are now the 0.4 ones. `event_seq` handles the new `ToolArgumentsPartial` and `SubAgentOutput` events.

@@ -158,7 +158,7 @@ fn default_worktree_path(repo_root: &Path, branch: &str) -> PathBuf {
         })
         .collect();
     repo_root
-        .join(".rightkit")
+        .join(rightkit_agent_policy::state_dir_name())
         .join("worktrees")
         .join(safe_branch)
 }

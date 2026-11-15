@@ -95,7 +95,7 @@ impl RosterRouterAdapter {
 #[async_trait::async_trait]
 impl RosterRouterUnderTest for RosterRouterAdapter {
     fn name(&self) -> &'static str {
-        "rightkit-agent-router (L2 roster heuristic)"
+        crate::coding::host::roster_router_name()
     }
 
     async fn route(&self, sig: &TaskSignal) -> ModelChoice {

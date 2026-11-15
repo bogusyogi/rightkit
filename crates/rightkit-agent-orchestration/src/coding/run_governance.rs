@@ -186,6 +186,8 @@ pub struct GovernedArbiter {
     /// Itemized per-task gate (FM-188). Delegates per-(run,task) attempts to
     /// `UnbackedWorkGate` so sibling tasks do not poison each other.
     itemized_gate: UnbackedWorkGate,
+    /// The goal each run's attempt counters belong to (see [`Self::begin_goal`]).
+    goal_keys: std::collections::HashMap<String, String>,
 }
 
 impl Default for GovernedArbiter {
@@ -203,12 +205,33 @@ impl GovernedArbiter {
             ),
             policy,
             unbacked_attempts: std::collections::HashMap::new(),
+            goal_keys: std::collections::HashMap::new(),
         }
     }
 
+    /// Bind `run_id`'s attempt counters to `goal_key`. When the goal differs
+    /// from the one the counters were built for, they are reset and `true` is
+    /// returned, so a new goal never inherits an earlier goal's unbacked
+    /// attempts through reused task ids such as `t2` (audit 2026-11-05
+    /// orchestration M2). Re-running the same goal keeps its counters, so the
+    /// unbacked-work cap still applies across retries.
+    pub fn begin_goal(&mut self, run_id: &str, goal_key: &str) -> bool {
+        if self.goal_keys.get(run_id).map(String::as_str) == Some(goal_key) {
+            return false;
+        }
+        self.reset(run_id);
+        self.goal_keys
+            .insert(run_id.to_string(), goal_key.to_string());
+        true
+    }
+
+    /// Forget everything held for `run_id`: attempt counters and the goal
+    /// binding, so the map cannot grow without bound across runs and a later
+    /// `begin_goal` for this run always starts fresh.
     pub fn reset(&mut self, run_id: &str) {
         self.unbacked_attempts.remove(run_id);
         self.itemized_gate.reset_run(run_id);
+        self.goal_keys.remove(run_id);
     }
 
     pub fn reset_task(&mut self, run_id: &str, task_id: &str) {

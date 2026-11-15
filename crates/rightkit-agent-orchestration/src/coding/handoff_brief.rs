@@ -40,8 +40,13 @@ pub struct HandoffArchiveConfig {
 impl HandoffArchiveConfig {
     pub fn for_workspace(workspace_root: &Path) -> Self {
         Self {
-            directory: workspace_root.join(".rightkit").join("handoff-results"),
-            virtual_prefix: ".rightkit/handoff-results".to_string(),
+            directory: workspace_root
+                .join(rightkit_agent_policy::state_dir_name())
+                .join("handoff-results"),
+            virtual_prefix: format!(
+                "{}/handoff-results",
+                rightkit_agent_policy::state_dir_name()
+            ),
             max_item_bytes: MAX_HANDOFF_SIDECAR_BYTES,
             max_total_bytes: MAX_HANDOFF_SIDECAR_TOTAL_BYTES,
             max_entries: MAX_HANDOFF_SIDECAR_ENTRIES,

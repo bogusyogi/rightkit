@@ -114,9 +114,28 @@ impl GraphCheckpointStore {
         let Some(snapshot) = self.load(run_id)? else {
             return Ok(());
         };
-        for saved in snapshot.graph {
-            if let Some(node) = graph.get_mut(&saved.id) {
-                *node = saved;
+        if crate::coding::host::strict_checkpoint_resume() {
+            // Only carry over work that is safe to skip: a node that finished
+            // `Done` in the checkpoint AND still describes the same task in the
+            // freshly planned (and already validated) graph. Every other saved
+            // state, Failed/Cancelled included, is dropped so a retry re-runs it,
+            // and the planned node's title, role and deps always win.
+            for saved in snapshot.graph {
+                if saved.state != TaskState::Done {
+                    continue;
+                }
+                if let Some(node) = graph.get_mut(&saved.id) {
+                    if checkpoint_node_matches(node, &saved) {
+                        node.state = TaskState::Done;
+                        node.updated_at = saved.updated_at;
+                    }
+                }
+            }
+        } else {
+            for saved in snapshot.graph {
+                if let Some(node) = graph.get_mut(&saved.id) {
+                    *node = saved;
+                }
             }
         }
         graph.recompute_states();
@@ -195,6 +214,20 @@ impl GraphCheckpointStore {
     }
 }
 
+/// A checkpointed node may stand in for a planned node only when both
+/// describe the same unit of work; ids such as `t1` are reused by the planner
+/// across unrelated plans.
+fn checkpoint_node_matches(planned: &TaskNode, saved: &TaskNode) -> bool {
+    let mut planned_deps = planned.deps.clone();
+    let mut saved_deps = saved.deps.clone();
+    planned_deps.sort();
+    saved_deps.sort();
+    planned.title == saved.title
+        && planned.assigned_role == saved.assigned_role
+        && planned.done_when == saved.done_when
+        && planned_deps == saved_deps
+}
+
 #[allow(clippy::too_many_arguments)]
 pub async fn run_graph_resumable(
     run_id: &str,
@@ -241,6 +274,15 @@ pub async fn run_graph_resumable_with_conductor_and_handoff_archive(
 ) -> Result<RunOutcome, CheckpointError> {
     store.restore_graph(run_id, graph)?;
     let mut outputs = store.outputs(run_id)?;
+    if crate::coding::host::strict_checkpoint_resume() {
+        // Outputs of nodes that were not carried over (failed, re-planned or
+        // reshaped) are stale; drop them so they never back a restored result.
+        outputs.retain(|task_id, _| {
+            graph
+                .get(task_id)
+                .is_some_and(|node| node.state == TaskState::Done)
+        });
+    }
     let restored_results = outputs
         .iter()
         .filter_map(|(task_id, output)| {
