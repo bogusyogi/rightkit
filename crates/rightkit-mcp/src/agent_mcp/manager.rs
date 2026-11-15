@@ -24,8 +24,8 @@ use crate::agent_mcp::server_mode::{
 };
 use crate::agent_mcp::transport::McpTransport;
 use crate::agent_mcp::types::{
-    McpChannelPermissions, McpResourceContent, McpResourceDef, McpToolDef, McpToolResult,
-    McpTrustPolicy,
+    McpChannelPermissions, McpResourceContent, McpResourceDef, McpServerOptions, McpToolDef,
+    McpToolResult, McpTrustPolicy,
 };
 
 #[derive(Debug, Clone)]
@@ -70,6 +70,18 @@ pub struct CanonicalMembraneCaller {
     pub scope_descriptor: Option<serde_json::Value>,
 }
 
+/// Served-invocation audit rows kept in memory per manager (newest win).
+const MAX_INVOCATION_AUDIT_ROWS: usize = 1024;
+
+/// Per-server runtime options derived from [`McpServerOptions`].
+struct ServerRuntime {
+    filter: Option<McpToolNameFilter>,
+    startup_timeout: Option<std::time::Duration>,
+    tool_timeout: Option<std::time::Duration>,
+    required: bool,
+    expose: crate::agent_mcp::types::McpExpose,
+}
+
 /// Holds multiple named MCP connections and proxies their tools.
 pub struct McpManager {
     transports: HashMap<String, Arc<dyn McpTransport>>,
@@ -103,6 +115,10 @@ pub struct McpManager {
     /// Per-run `--tools` / `--exclude-tools` selection over qualified
     /// `mcp__server__tool` names. `None` selects every tool.
     tool_name_filter: Option<McpToolNameFilter>,
+    /// Per-server options registered from config (timeouts, tool filter, `required`).
+    server_runtime: HashMap<String, ServerRuntime>,
+    /// `required` servers whose startup failed, as (server, error).
+    required_errors: Mutex<Vec<(String, String)>>,
     /// Last `tools_list_changed_seq` observed per server (A067).
     list_changed_seen: Mutex<HashMap<String, u64>>,
     /// Outcome of the last completed tool listing per server; read by
@@ -214,6 +230,8 @@ impl McpManager {
             call_deadline: crate::agent_mcp::limits::MCP_CALL_DEADLINE,
             inflight_listings: Mutex::new(HashMap::new()),
             tool_name_filter: None,
+            server_runtime: HashMap::new(),
+            required_errors: Mutex::new(Vec::new()),
             list_changed_seen: Mutex::new(HashMap::new()),
             listing_outcomes: Mutex::new(HashMap::new()),
         }
@@ -240,6 +258,123 @@ impl McpManager {
     /// Override the per-server discovery bound (default 3s).
     pub fn set_startup_bound(&mut self, bound: std::time::Duration) {
         self.startup_bound = bound;
+    }
+
+    /// Discovery bound for one server: its `startup_timeout_sec`, else the manager default.
+    fn startup_bound_for(&self, server: &str) -> std::time::Duration {
+        self.server_runtime
+            .get(server)
+            .and_then(|runtime| runtime.startup_timeout)
+            .unwrap_or(self.startup_bound)
+    }
+
+    /// Bound for a server the caller named on purpose (a call, or a listing of that one server):
+    /// its own `startup_timeout_sec`, else the longer explicit bound, so a cold `npx` start does
+    /// not cost the model a "still starting" turn. Session-start discovery keeps the short bound.
+    fn explicit_startup_bound_for(&self, server: &str) -> std::time::Duration {
+        self.server_runtime
+            .get(server)
+            .and_then(|runtime| runtime.startup_timeout)
+            .unwrap_or_else(|| {
+                self.startup_bound
+                    .max(crate::agent_mcp::limits::MCP_EXPLICIT_STARTUP_BOUND)
+            })
+    }
+
+    /// Whether the last listing showed this tool with `readOnlyHint: true`. Reads the routing
+    /// cache only (no I/O), so a tool not listed yet is not known to be read-only; the engine
+    /// uses it to run such calls side by side.
+    pub fn is_listed_read_only(&self, qualified_name: &str) -> bool {
+        if !self.is_tool_name_selected(qualified_name) {
+            return false;
+        }
+        self.registry
+            .lock()
+            .ok()
+            .and_then(|registry| {
+                registry
+                    .get(qualified_name)
+                    .map(|entry| entry.def.is_read_only_hint())
+            })
+            .unwrap_or(false)
+    }
+
+    /// Wait for the named server to be ready (up to its explicit bound) before a listing that
+    /// asked for it. Errors are left for the listing itself to report.
+    pub async fn wait_for_server(&self, server_fragment: &str) {
+        for (orig, transport) in &self.transports {
+            let sanitized = sanitize_tool_name(orig, "");
+            let fragment = sanitized
+                .strip_prefix("mcp__")
+                .and_then(|rest| rest.strip_suffix("__"))
+                .unwrap_or(orig);
+            if fragment.eq_ignore_ascii_case(server_fragment)
+                || orig.eq_ignore_ascii_case(server_fragment)
+            {
+                let _ = self
+                    .list_server_bounded_for(orig, transport, self.explicit_startup_bound_for(orig))
+                    .await;
+            }
+        }
+    }
+
+    /// Total call deadline for a qualified tool name: the larger of the owning
+    /// server's `tool_timeout_sec` and the manager default, so a short
+    /// per-server timeout (applied to the transport request) never shrinks the
+    /// whole-invoke bound below the manager default.
+    fn call_deadline_for(&self, qualified_name: &str) -> std::time::Duration {
+        let Some((server_part, _tool_part)) = parse_qualified_name(qualified_name) else {
+            return self.call_deadline;
+        };
+        let prefix = format!("mcp__{server_part}__");
+        let mut matched = self
+            .transports
+            .keys()
+            .filter(|orig| sanitize_tool_name(orig.as_str(), "") == prefix);
+        match (matched.next(), matched.next()) {
+            (Some(server), None) => self
+                .server_runtime
+                .get(server)
+                .and_then(|runtime| runtime.tool_timeout)
+                .map_or(self.call_deadline, |tool_timeout| {
+                    tool_timeout.max(self.call_deadline)
+                }),
+            _ => self.call_deadline,
+        }
+    }
+
+    /// The tools of every server configured with `expose = "direct"`, ready to go into the
+    /// model's tool list. Waits for each such server up to the discovery bound; a server that is
+    /// not ready by then adds its tools on a later call. Empty when no server is direct.
+    pub async fn direct_tools(&self) -> Vec<McpToolDef> {
+        let direct: Vec<String> = self
+            .transports
+            .keys()
+            .filter(|server| {
+                self.server_runtime.get(*server).is_some_and(|runtime| {
+                    runtime.expose == crate::agent_mcp::types::McpExpose::Direct
+                })
+            })
+            .cloned()
+            .collect();
+        if direct.is_empty() {
+            return Vec::new();
+        }
+        for server in &direct {
+            self.wait_for_server(server).await;
+        }
+        let prefixes: Vec<String> = direct
+            .iter()
+            .map(|server| sanitize_tool_name(server, ""))
+            .collect();
+        let mut tools: Vec<McpToolDef> = self
+            .discover_all()
+            .await
+            .into_iter()
+            .filter(|tool| prefixes.iter().any(|prefix| tool.name.starts_with(prefix)))
+            .collect();
+        tools.sort_by(|a, b| a.name.cmp(&b.name));
+        tools
     }
 
     /// Servers whose tool listing has not completed yet ("still starting").
@@ -620,6 +755,62 @@ impl McpManager {
             .insert(server_name.to_string(), permissions);
     }
 
+    /// Register the per-server options (timeouts, tool filter, `required`) for a
+    /// logical server name.
+    pub fn register_server_options(&mut self, server_name: &str, options: McpServerOptions) {
+        self.server_runtime.insert(
+            server_name.to_string(),
+            ServerRuntime {
+                filter: options.tool_filter(),
+                startup_timeout: options.startup_timeout(),
+                tool_timeout: options.tool_timeout(),
+                required: options.required,
+                expose: options.expose,
+            },
+        );
+    }
+
+    /// `required` servers that failed to start, as (server, error). Empty when
+    /// every required server listed its tools. The caller decides whether to abort.
+    pub fn required_server_errors(&self) -> Vec<(String, String)> {
+        self.required_errors
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+    }
+
+    /// Record that `server` failed to start. Only a server registered as
+    /// `required` is recorded; the line is printed once per distinct error.
+    pub fn note_required_failure(&self, server: &str, error: &str) {
+        if !self
+            .server_runtime
+            .get(server)
+            .is_some_and(|runtime| runtime.required)
+        {
+            return;
+        }
+        let mut errors = self
+            .required_errors
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if errors
+            .iter()
+            .any(|(name, last)| name == server && last == error)
+        {
+            return;
+        }
+        eprintln!("[mcp] required server '{server}' failed to start: {error}");
+        errors.retain(|(name, _)| name != server);
+        errors.push((server.to_string(), error.to_string()));
+    }
+
+    fn clear_required_failure(&self, server: &str) {
+        self.required_errors
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .retain(|(name, _)| name != server);
+    }
+
     /// Register the configured trust policy for a logical server name.
     pub fn register_trust_policy(&mut self, server_name: &str, policy: McpTrustPolicy) {
         self.trust_policies.insert(server_name.to_string(), policy);
@@ -672,14 +863,25 @@ impl McpManager {
         let Some(policy) = self.trust_policy(server_name) else {
             return true;
         };
-        let server_policy =
-            McpServerModePolicy::new(&policy.preset, self.is_mutating_allowed(server_name));
+        // The presets written by `mcp add`/`mcp install`/desktop are not the tier names the
+        // policy parser knows; map the reviewed ones to Trusted. Read-only and unreviewed
+        // remote presets, and anything unknown, stay Untrusted (read-only tools only).
+        let tier = match policy.preset.trim().to_ascii_lowercase().as_str() {
+            "local_process" | "local_dev" | "remote_full" => "trusted".to_string(),
+            _ => policy.preset.clone(),
+        };
+        let server_policy = McpServerModePolicy::new(&tier, self.is_mutating_allowed(server_name));
         let summary = McpServerToolSummary::new(&tool.name, tool.is_read_only_hint());
         server_policy.exposes_tool(&summary)
     }
 
     fn is_tool_exposed(&self, server_name: &str, tool: &McpToolDef) -> bool {
-        self.is_tool_allowed_by_mutating_policy(server_name, tool)
+        // Per-server `enabled_tools` / `disabled_tools` over the raw tool name.
+        self.server_runtime
+            .get(server_name)
+            .and_then(|runtime| runtime.filter.as_ref())
+            .map_or(true, |filter| filter.selects(&tool.name))
+            && self.is_tool_allowed_by_mutating_policy(server_name, tool)
             && self.is_tool_allowed_by_trust_policy(server_name, tool)
     }
 
@@ -711,7 +913,11 @@ impl McpManager {
             .get(&server_original)
             .ok_or_else(|| McpError::ToolNotFound(server_original.clone()))?;
         let tools = self
-            .list_server_bounded(&server_original, transport)
+            .list_server_bounded_for(
+                &server_original,
+                transport,
+                self.explicit_startup_bound_for(&server_original),
+            )
             .await?;
         let mut found: Option<McpToolDef> = None;
         let mut collision = false;
@@ -742,6 +948,16 @@ impl McpManager {
         server: &str,
         transport: &Arc<dyn McpTransport>,
     ) -> Result<Vec<McpToolDef>, McpError> {
+        self.list_server_bounded_for(server, transport, self.startup_bound_for(server))
+            .await
+    }
+
+    async fn list_server_bounded_for(
+        &self,
+        server: &str,
+        transport: &Arc<dyn McpTransport>,
+        bound: std::time::Duration,
+    ) -> Result<Vec<McpToolDef>, McpError> {
         let existing = self
             .inflight_listings
             .lock()
@@ -751,20 +967,26 @@ impl McpManager {
             let transport = Arc::clone(transport);
             tokio::spawn(async move { transport.list_tools().await })
         });
-        match tokio::time::timeout(self.startup_bound, &mut handle).await {
+        match tokio::time::timeout(bound, &mut handle).await {
             Ok(joined) => {
                 let listing = joined.unwrap_or_else(|e| Err(McpError::Serde(e.to_string())));
                 match &listing {
-                    Ok(tools) => self.record_listing(
-                        server,
-                        ListingOutcome::Listed {
-                            tools: tools
-                                .iter()
-                                .filter(|tool| self.is_tool_exposed(server, tool))
-                                .count(),
-                        },
-                    ),
-                    Err(_) => self.record_listing(server, ListingOutcome::Failed),
+                    Ok(tools) => {
+                        self.record_listing(
+                            server,
+                            ListingOutcome::Listed {
+                                tools: tools
+                                    .iter()
+                                    .filter(|tool| self.is_tool_exposed(server, tool))
+                                    .count(),
+                            },
+                        );
+                        self.clear_required_failure(server);
+                    }
+                    Err(e) => {
+                        self.record_listing(server, ListingOutcome::Failed);
+                        self.note_required_failure(server, &e.to_string());
+                    }
                 }
                 listing
             }
@@ -773,10 +995,12 @@ impl McpManager {
                     .lock()
                     .unwrap_or_else(|e| e.into_inner())
                     .insert(server.to_string(), handle);
-                Err(McpError::Transport(format!(
+                let message = format!(
                     "MCP server '{server}' is still starting (not ready within {} ms); retry shortly",
-                    self.startup_bound.as_millis()
-                )))
+                    bound.as_millis()
+                );
+                self.note_required_failure(server, &message);
+                Err(McpError::Transport(message))
             }
         }
     }
@@ -831,7 +1055,7 @@ impl McpManager {
                     let transport = Arc::clone(transport);
                     tokio::spawn(async move { transport.list_tools().await })
                 });
-                match tokio::time::timeout(self.startup_bound, &mut handle).await {
+                match tokio::time::timeout(self.startup_bound_for(server), &mut handle).await {
                     Ok(joined) => (
                         server,
                         Some(joined.unwrap_or_else(|e| Err(McpError::Serde(e.to_string())))),
@@ -859,15 +1083,24 @@ impl McpManager {
                                 .count(),
                         },
                     );
+                    self.clear_required_failure(server);
                     t
                 }
                 Some(Err(e)) => {
                     self.record_listing(server, ListingOutcome::Failed);
                     eprintln!("[mcp] list_tools failed for server '{server}': {e}");
+                    self.note_required_failure(server, &e.to_string());
                     continue;
                 }
                 None => {
                     eprintln!("[mcp] server '{server}' still starting; its tools join when ready");
+                    self.note_required_failure(
+                        server,
+                        &format!(
+                            "not ready within {} ms",
+                            self.startup_bound_for(server).as_millis()
+                        ),
+                    );
                     continue;
                 }
             };
@@ -1014,8 +1247,9 @@ impl McpManager {
         }
         // One deadline bounds the whole call (listing, collision scan, the
         // call and its retries); dropping the future aborts every stage.
+        let call_deadline = self.call_deadline_for(qualified_name);
         match tokio::time::timeout(
-            self.call_deadline,
+            call_deadline,
             self.invoke_unbounded(qualified_name, args, session_id, cancel_rx),
         )
         .await
@@ -1023,7 +1257,7 @@ impl McpManager {
             Ok(result) => result,
             Err(_) => Err(McpError::Timeout {
                 tool: qualified_name.to_string(),
-                limit_ms: self.call_deadline.as_millis() as u64,
+                limit_ms: call_deadline.as_millis() as u64,
             }),
         }
     }
@@ -1064,7 +1298,11 @@ impl McpManager {
         // Lazy connect: only the owning server is contacted, bounded by the
         // startup bound; unrelated servers stay unconnected.
         let tools = self
-            .list_server_bounded(&server_original, transport)
+            .list_server_bounded_for(
+                &server_original,
+                transport,
+                self.explicit_startup_bound_for(&server_original),
+            )
             .await?;
 
         // Find the unique tool whose sanitized qualified name matches.
@@ -1141,6 +1379,12 @@ impl McpManager {
                 .unwrap_or(true),
         };
         if let Ok(mut rows) = self.invocation_audit.lock() {
+            // Most recent rows only, so a long session cannot grow this without limit
+            // (audit 2026-11-05 L6).
+            if rows.len() >= MAX_INVOCATION_AUDIT_ROWS {
+                let excess = rows.len() + 1 - MAX_INVOCATION_AUDIT_ROWS;
+                rows.drain(..excess);
+            }
             rows.push(audit);
         }
     }
@@ -1173,6 +1417,32 @@ impl McpManager {
             .get(server)
             .ok_or_else(|| McpError::ToolNotFound(server.to_string()))?;
         transport.read_resource(uri).await
+    }
+
+    /// The prompt templates the named server offers.
+    pub async fn list_prompts(
+        &self,
+        server: &str,
+    ) -> Result<Vec<crate::agent_mcp::types::McpPromptDef>, McpError> {
+        let transport = self
+            .transports
+            .get(server)
+            .ok_or_else(|| McpError::ToolNotFound(server.to_string()))?;
+        transport.list_prompts().await
+    }
+
+    /// Render one prompt of the named server to text.
+    pub async fn get_prompt(
+        &self,
+        server: &str,
+        name: &str,
+        args: serde_json::Value,
+    ) -> Result<String, McpError> {
+        let transport = self
+            .transports
+            .get(server)
+            .ok_or_else(|| McpError::ToolNotFound(server.to_string()))?;
+        transport.get_prompt(name, args).await
     }
 
     /// Names of all registered servers.
