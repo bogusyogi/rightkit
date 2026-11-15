@@ -97,11 +97,11 @@ struct Lib {
 }
 
 macro_rules! lib {
-    ($name:ident, $file:literal) => {
+    ($name:ident, $file:literal, $path:literal) => {
         fn $name() -> &'static Lib {
             static CELL: OnceLock<Lib> = OnceLock::new();
             CELL.get_or_init(|| {
-                let src: &'static str = include_str!(concat!("../data/video_templates/", $file));
+                let src: &'static str = include_str!($path);
                 let json = serde_json::from_str(src).expect(concat!($file, " is valid JSON"));
                 let stem = $file.strip_suffix(".json").unwrap_or($file);
                 Lib {
@@ -113,21 +113,77 @@ macro_rules! lib {
     };
 }
 
-lib!(camera_moves_lib, "camera_moves.json");
-lib!(ad_patterns_lib, "ad_patterns.json");
-lib!(aesthetics_lib, "aesthetics.json");
-lib!(audio_lib, "audio.json");
-lib!(transitions_lib, "transitions.json");
-lib!(text_overlays_lib, "text_overlays.json");
-lib!(qa_rubrics_lib, "qa_rubrics.json");
-lib!(subject_motion_lib, "subject_motion.json");
-lib!(scene_motion_lib, "scene_motion.json");
-lib!(continuity_lib, "continuity.json");
-lib!(quirks_lib, "per_model_quirks.json");
+lib!(
+    camera_moves_lib,
+    "camera_moves.json",
+    "../data/video_templates/camera_moves.json"
+);
+lib!(
+    ad_patterns_lib,
+    "ad_patterns.json",
+    "../data/video_templates/ad_patterns.json"
+);
+lib!(
+    aesthetics_lib,
+    "aesthetics.json",
+    "../data/video_templates/aesthetics.json"
+);
+lib!(
+    audio_lib,
+    "audio.json",
+    "../data/video_templates/audio.json"
+);
+lib!(
+    transitions_lib,
+    "transitions.json",
+    "../data/video_templates/transitions.json"
+);
+lib!(
+    text_overlays_lib,
+    "text_overlays.json",
+    "../data/video_templates/text_overlays.json"
+);
+lib!(
+    qa_rubrics_lib,
+    "qa_rubrics.json",
+    "../data/video_templates/qa_rubrics.json"
+);
+lib!(
+    subject_motion_lib,
+    "subject_motion.json",
+    "../data/video_templates/subject_motion.json"
+);
+lib!(
+    scene_motion_lib,
+    "scene_motion.json",
+    "../data/video_templates/scene_motion.json"
+);
+lib!(
+    continuity_lib,
+    "continuity.json",
+    "../data/video_templates/continuity.json"
+);
+lib!(
+    quirks_lib,
+    "per_model_quirks.json",
+    "../data/video_templates/per_model_quirks.json"
+);
 #[cfg(feature = "commands")]
-lib!(templates_lib, "shot_contract_templates.json");
-lib!(routes_lib, "model_routes.json");
-lib!(camera_params_lib, "camera_params.json");
+lib!(
+    templates_lib,
+    "shot_contract_templates.json",
+    "../data/video_templates/shot_contract_templates.json"
+);
+lib!(
+    routes_lib,
+    "model_routes.json",
+    "../data/video_templates/model_routes.json"
+);
+lib!(
+    camera_params_lib,
+    "camera_params.json",
+    "../data/video_templates/camera_params.json"
+);
 
 #[cfg(feature = "commands")]
 type LibraryEntry = (&'static str, &'static str, fn() -> &'static Lib);
