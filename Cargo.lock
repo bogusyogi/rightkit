@@ -12131,7 +12131,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-media-gen"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "image",
  "rightkit-app-settings",
@@ -12159,7 +12159,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-media-gen-approvals"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "rightkit-approvals",
  "rightkit-child-process",
@@ -12185,7 +12185,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-media-gen-models"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "rightkit-child-process",
  "rightkit-local-gen",
@@ -12196,7 +12196,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-media-pipeline"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "image",
  "rightkit-audio",
@@ -12671,7 +12671,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-remote-compute"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "rightkit-child-process",
  "rightkit-crypto",

@@ -2,7 +2,7 @@
 //! probing, whisper.cpp CLI discovery. All operations are subprocess calls on
 //! resolved binaries — no Node/Python. FFmpeg/ffprobe discovery is
 //! `crate::ffmpeg` (rightkit-ffmpeg: dev env override, bundled externalBin, dev PATH);
-//! whisper-cli keeps its own bundled -> `RIGHTKIT_WHISPER` -> PATH order.
+//! whisper-cli keeps its own bundled -> `<PREFIX>_WHISPER` (`RIGHTKIT_WHISPER`) -> PATH order.
 
 use std::path::{Path, PathBuf};
 
@@ -22,8 +22,9 @@ pub struct Tools {
     pub whisper: Option<PathBuf>,
 }
 
-fn from_env(var: &str) -> Option<PathBuf> {
-    std::env::var_os(var)
+/// A file named by the environment override `suffix` (`<PREFIX>_<suffix>`, then `RIGHTKIT_<suffix>`).
+fn from_env(suffix: &str) -> Option<PathBuf> {
+    crate::env_os(suffix)
         .map(PathBuf::from)
         .filter(|p| p.is_file())
 }
@@ -80,9 +81,9 @@ pub fn tools() -> &'static Tools {
             ffprobe: ffprobe.ok(),
             // whisper-cli ships as a Tauri externalBin (built by
             // scripts/build-whisper-for-tauri.mjs): bundled first, then the
-            // RIGHTKIT_WHISPER dev override, then PATH.
+            // <PREFIX>_WHISPER dev override (RIGHTKIT_WHISPER by default), then PATH.
             whisper: bundled("whisper-cli")
-                .or_else(|| from_env("RIGHTKIT_WHISPER"))
+                .or_else(|| from_env("WHISPER"))
                 .or_else(|| on_path("whisper-cli"))
                 .or_else(|| on_path("whisper-cpp"))
                 .or_else(|| on_path("whisper"))
@@ -415,14 +416,14 @@ pub fn loudness(ffmpeg: &impl FfmpegBinary, path: &Path) -> GenResult<Value> {
     }
 }
 
-/// Locate a whisper model: explicit path, `RIGHTKIT_WHISPER_MODEL`, then the largest
+/// Locate a whisper model: explicit path, `<PREFIX>_WHISPER_MODEL` (`RIGHTKIT_WHISPER_MODEL`), then the largest
 /// of the store-installed model and any `*.bin` in `<data_dir>/models/whisper`.
 pub fn whisper_model(data_dir: &Path, explicit: Option<&str>) -> Option<PathBuf> {
     if let Some(p) = explicit.filter(|s| !s.is_empty()) {
         let pb = PathBuf::from(p);
         return pb.is_file().then_some(pb);
     }
-    if let Some(p) = std::env::var_os("RIGHTKIT_WHISPER_MODEL") {
+    if let Some(p) = crate::env_os("WHISPER_MODEL") {
         let pb = PathBuf::from(p);
         if pb.is_file() {
             return Some(pb);

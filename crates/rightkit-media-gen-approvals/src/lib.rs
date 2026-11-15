@@ -113,10 +113,35 @@ pub enum Arm {
     ParentRefused,
 }
 
+/// "the app", or "the <name> app" when the host named itself (`MediaHostConfig::app_name`).
+pub(crate) fn in_the_app() -> String {
+    match rightkit_media_gen::host::media_config().app_name.as_deref() {
+        Some(name) => format!("the {name} app"),
+        None => "the app".to_string(),
+    }
+}
+
+static ENGINE_STEM_PREFIX: OnceLock<String> = OnceLock::new();
+
+/// Name the host's engine executables once at startup: with a prefix set (lower case, such as
+/// `genright-engine`), a parent whose file stem starts with it is refused as an engine, and the
+/// default rule's extra refusal of every stem ending in `-engine` no longer applies (an app shell
+/// or another product's engine that is not named like this host's is accepted, as long as it sits
+/// beside the engine binary). Default: unset, so the rule refuses stems that start with this
+/// engine's own stem and stems that end in `-engine`. Returns the rejected prefix when one is
+/// already set, or when `prefix` is empty.
+pub fn set_engine_stem_prefix(prefix: &str) -> Result<(), String> {
+    let prefix = prefix.trim().to_lowercase();
+    if prefix.is_empty() {
+        return Err(prefix);
+    }
+    ENGINE_STEM_PREFIX.set(prefix)
+}
+
 /// True when `parent_exe` is the app shell: an executable in the same folder as this engine binary
 /// (the app bundles its sidecar next to its own executable) that is not itself an engine or a
 /// command interpreter. An unreadable parent is not the app. Pure, so it is tested without a
-/// process tree.
+/// process tree. The engine-name refusal follows [`set_engine_stem_prefix`].
 pub fn parent_is_app(parent_exe: Option<&str>, engine_exe: &Path) -> bool {
     let Some(parent) = parent_exe
         .map(str::trim)
@@ -155,9 +180,14 @@ pub fn parent_is_app(parent_exe: Option<&str>, engine_exe: &Path) -> bool {
         "perl",
         "ruby",
     ];
+    let prefix = ENGINE_STEM_PREFIX.get();
+    let engine_named = match prefix {
+        Some(prefix) => stem.starts_with(prefix.as_str()),
+        None => stem.ends_with("-engine"),
+    };
     !(stem.is_empty()
         || (!engine_stem.is_empty() && stem.starts_with(&engine_stem))
-        || stem.ends_with("-engine")
+        || engine_named
         || denied.contains(&stem.as_str()))
 }
 
@@ -286,7 +316,10 @@ pub fn gate(input: &Value) -> GenResult<Gate> {
     let refusal = || {
         GenError::new(
             "approval_requires_app",
-            "Approval is a user action in the app. Approve this draft in the app; an agent, the plain engine CLI or `operator_approved: true` cannot approve it.",
+            format!(
+                "Approval is a user action in {}. Approve this draft in the app; an agent, the plain engine CLI or `operator_approved: true` cannot approve it.",
+                in_the_app()
+            ),
         )
     };
     let (secret, channel, origin) = active_secret().ok_or_else(refusal)?;

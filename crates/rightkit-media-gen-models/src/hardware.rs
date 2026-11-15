@@ -1,8 +1,8 @@
 //! Host hardware detection and model fit, delegated to `rightkit-models`
 //! (macOS `sysctl` + `system_profiler`, Windows kernel32/`reg.exe`, Linux
-//! `/proc/meminfo`). `RIGHTKIT_HW_JSON` injects a full profile for tests or
-//! hardware reported by another machine (it wins over the shared
-//! `RIGHTKIT_HW_JSON`).
+//! `/proc/meminfo`). `<PREFIX>_HW_JSON` injects a full profile for tests or hardware reported by
+//! another machine: the host's environment prefix first, then `RIGHTKIT_HW_JSON` (so
+//! `RIGHTKIT_HW_JSON` with the default prefix).
 
 use rightkit_models::{
     Hardware, HardwareOverride, Measurement, ProfileAlias, RemoteRoute, Requirements,
@@ -10,7 +10,7 @@ use rightkit_models::{
 use serde_json::{json, Value};
 
 pub fn probe() -> Hardware {
-    let raw = std::env::var("RIGHTKIT_HW_JSON").ok();
+    let raw = rightkit_media_gen::host::env_var("HW_JSON");
     let mut hw = Hardware::probe_with(raw.as_deref().map(HardwareOverride::Json))
         .unwrap_or_else(|_| Hardware::probe());
     // The recorded RTX 4070 laptop measurements are filed under this profile.

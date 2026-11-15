@@ -1,4 +1,4 @@
-// rightkit-media-gen-models 0.1.0 consumed by exact registry pin (default features), outside the workspace.
+// rightkit-media-gen-models 0.1.1 consumed by exact registry pin (default features), outside the workspace.
 // The command table and the route settings on a temp Context; no download, no network, no model.
 use rightkit_media_gen::Context;
 use rightkit_media_gen_models::{handle, COMMANDS};

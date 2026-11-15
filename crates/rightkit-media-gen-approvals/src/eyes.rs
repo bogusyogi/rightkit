@@ -74,6 +74,31 @@ const MEDIA_EXTS: &[&str] = &[
     "flac", "m4a",
 ];
 
+/// The stage a decision records when the caller names none, until [`set_default_stage`].
+pub const DEFAULT_STAGE: &str = "app ui";
+
+static DEFAULT_STAGE_OVERRIDE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+/// Set once at startup the `stage` that `studio.eyes.*` records in the `.eyes.json` sidecar when
+/// the input has none (default [`DEFAULT_STAGE`], `app ui`). A host with sidecars already on disk
+/// passes the value it has always written (GenRight: `genright ui`). Returns the rejected value
+/// when one is already set or `stage` is blank.
+pub fn set_default_stage(stage: &str) -> Result<(), String> {
+    let stage = stage.trim().to_string();
+    if stage.is_empty() {
+        return Err(stage);
+    }
+    DEFAULT_STAGE_OVERRIDE.set(stage)
+}
+
+/// The stage in force: [`set_default_stage`]'s, else [`DEFAULT_STAGE`].
+pub fn default_stage() -> &'static str {
+    DEFAULT_STAGE_OVERRIDE
+        .get()
+        .map(String::as_str)
+        .unwrap_or(DEFAULT_STAGE)
+}
+
 /// `<artifact>.eyes.json`
 pub fn sidecar_path(artifact: &Path) -> PathBuf {
     let mut s = artifact.as_os_str().to_os_string();
@@ -335,9 +360,10 @@ pub fn ensure_exportable(artifacts: &[PathBuf], stage: &str) -> GenResult<Vec<Va
     Err(GenError::new(
         "eyes_approval_required",
         format!(
-            "{} of {} assets need human-eyes approval in the app before delivery: {}",
+            "{} of {} assets need human-eyes approval in {} before delivery: {}",
             blocked.len(),
             states.len(),
+            crate::in_the_app(),
             names.join(", ")
         ),
     )
@@ -535,7 +561,7 @@ pub fn handle(ctx: &Context, name: &str, input: &Value) -> GenResult<Value> {
         .get("stage")
         .and_then(Value::as_str)
         .filter(|s| !s.is_empty())
-        .unwrap_or("app ui");
+        .unwrap_or(default_stage());
     match name {
         "studio.eyes.status" => Ok(gate_state(&resolve_artifact(ctx, input)?)),
         // Halt-and-resume: make sure the artifact carries a PENDING request,

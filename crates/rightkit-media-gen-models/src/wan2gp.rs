@@ -17,7 +17,10 @@ fn setup() -> Value {
         "models": ["wan2gp-t2v", "wan2gp-i2v"],
         "cost": "free_local",
         "documented_python": ["3.10", "3.11"],
-        "install_recipe": "git clone https://github.com/deepbeepmeep/Wan2GP.git, create a Python 3.11 (RTX 20XX to 50XX) or 3.10 (GTX 10XX) environment, install torch and requirements.txt, then point RIGHTKIT_WAN2GP_DIR at the clone.",
+        "install_recipe": format!(
+            "git clone https://github.com/deepbeepmeep/Wan2GP.git, create a Python 3.11 (RTX 20XX to 50XX) or 3.10 (GTX 10XX) environment, install torch and requirements.txt, then point {} at the clone.",
+            dir_env()
+        ),
     })
 }
 
@@ -71,7 +74,10 @@ pub fn install_guidance(id: &str) -> Value {
         "id": id,
         "state": "external",
         "installable": false,
-        "message": "Wan2GP is a user-managed external Python checkout; this crate does not download or bundle it.",
+        "message": format!(
+            "Wan2GP is a user-managed external Python checkout; {} does not download or bundle it.",
+            rightkit_media_gen::host::app_or("this crate")
+        ),
         "setup": setup(),
     })
 }

@@ -231,7 +231,7 @@ pub fn launch(
     std::thread::Builder::new()
         .name(format!("model-install-{id}"))
         .spawn(move || {
-            let ctx = Context::new(data_dir);
+            let ctx = Context::production_in(data_dir);
             let result = run(&ctx, &id_owned, &sess);
             match result {
                 Ok(dir) => {

@@ -28,6 +28,8 @@ use serde_json::{json, Value};
 use crate::{GenError, GenResult};
 
 const TICKS_PER_SECOND: f64 = 705_600_000.0;
+/// Id prefix of the Vox workflow's per-cue SFX steps (`sfx_1`, `sfx_2`, ...).
+const SFX_STEP_PREFIX: &str = "sfx_";
 const PRESETS: &[&str] = &["youtube", "reels", "tiktok", "square"];
 
 fn s(v: &Value, k: &str) -> String {
@@ -56,6 +58,22 @@ pub fn set_engine_resolver(resolver: EngineResolver) -> Result<(), EngineResolve
     ENGINE_RESOLVER.set(resolver)
 }
 
+/// The finishing app's display name from [`crate::PipelineHostConfig::finishing_app`], or `neutral`.
+pub(crate) fn finishing_app_or(neutral: &str) -> &str {
+    crate::pipeline_config()
+        .finishing_app
+        .as_ref()
+        .map_or(neutral, |a| a.app.as_str())
+}
+
+/// The finishing engine binary's name, or `neutral` ("finishing engine").
+fn engine_or(neutral: &str) -> &str {
+    crate::pipeline_config()
+        .finishing_app
+        .as_ref()
+        .map_or(neutral, |a| a.engine.as_str())
+}
+
 /// The installed finishing engine, or why there is none.
 fn resolve_engine(input: &Value) -> Result<PathBuf, String> {
     let given = s(input, "engine_path");
@@ -72,17 +90,31 @@ fn resolve_engine(input: &Value) -> Result<PathBuf, String> {
         .and_then(|resolve| resolve())
         .filter(|p| p.is_file())
         .ok_or_else(|| {
-            "the finishing engine is not installed (no installed app found by discovery)"
-                .to_string()
+            format!(
+                "{} is not installed (no installed app found by discovery)",
+                finishing_app_or("the finishing engine")
+            )
         })
 }
 
 fn not_installed(reason: String) -> Value {
     json!({
         "status": "not_installed",
-        "app": "finishing-engine",
+        "app": finishing_app_or("finishing-engine"),
         "reason": reason,
-        "hint": "Install the finishing app to finish through its engine; the native composition is unchanged.",
+        "hint": match &crate::pipeline_config().finishing_app {
+            Some(a) => format!(
+                "Install {} to finish through {}; the native {}composition is unchanged.",
+                a.app,
+                a.engine,
+                rightkit_media_gen::host::media_config()
+                    .app_name
+                    .as_deref()
+                    .map(|n| format!("{n} "))
+                    .unwrap_or_default()
+            ),
+            None => "Install the finishing app to finish through its engine; the native composition is unchanged.".to_string(),
+        },
     })
 }
 
@@ -128,13 +160,19 @@ fn call(engine: &Path, args: &[String], timeout: Duration, what: &str) -> GenRes
             .unwrap_or_default();
         return Err(GenError::new(
             "cutright_failed",
-            format!("finishing engine {what} failed ({code}): {detail}"),
+            format!(
+                "{} {what} failed ({code}): {detail}",
+                engine_or("finishing engine")
+            ),
         ));
     }
     parsed.ok_or_else(|| {
         GenError::new(
             "cutright_bad_output",
-            format!("finishing engine {what} printed no JSON result"),
+            format!(
+                "{} {what} printed no JSON result",
+                engine_or("finishing engine")
+            ),
         )
     })
 }
@@ -251,9 +289,10 @@ pub fn finish(_ctx: &crate::Context, input: &Value) -> GenResult<Value> {
 
     let dir = s(input, "project_dir");
     if dir.is_empty() {
-        return Err(bad(
-            "cutright_finish needs project_dir (a folder for the finishing project)",
-        ));
+        return Err(bad(format!(
+            "cutright_finish needs project_dir (a folder for the {} project)",
+            finishing_app_or("finishing")
+        )));
     }
     let timeout = Duration::from_secs(
         input
@@ -390,20 +429,47 @@ pub fn step_asset(ctx: &crate::Context, run: &Value, step: &Value, dir: &Path) -
             _ => Vec::new(),
         };
     }
+    // Narration is the first audio the run produced outside the `sfx_<n>` cue steps.
     let voice = run["steps"]
         .as_array()
         .into_iter()
         .flatten()
+        .filter(|x| !s(x, "id").starts_with(SFX_STEP_PREFIX))
         .flat_map(|x| x["assets"].as_array().into_iter().flatten())
         .find(|a| a["kind"] == "audio" && Path::new(&s(a, "path")).is_file())
         .map(|a| s(a, "path"))
         .unwrap_or_else(|| s(inputs, "audio_path"));
+    // Explicit `inputs.sfx` entries first, then each succeeded `sfx_<n>` step's generated file at
+    // the time and level its cue named (a skipped or failed cue step adds nothing).
+    let mut sfx: Vec<Value> = inputs
+        .get("sfx")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    for x in run["steps"].as_array().into_iter().flatten() {
+        if !s(x, "id").starts_with(SFX_STEP_PREFIX) || x["status"] != "succeeded" {
+            continue;
+        }
+        let Some(a) = x["assets"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|a| a["kind"] == "audio" && Path::new(&s(a, "path")).is_file())
+        else {
+            continue;
+        };
+        sfx.push(json!({
+            "path": s(a, "path"),
+            "at_s": x["params"]["at_s"].as_f64().unwrap_or(0.0),
+            "gain_db": x["params"]["gain_db"].as_f64().unwrap_or(-6.0),
+        }));
+    }
     let out_name = format!("{}-{}", run_id, s(step, "id"));
     let result = finish(
         ctx,
         &json!({
             "shots": shots, "voice_path": voice, "music_path": s(inputs, "music_path"),
-            "sfx": inputs.get("sfx").cloned().unwrap_or(json!([])),
+            "sfx": sfx,
             "preset": s(inputs, "cutright_preset"), "fps": s(inputs, "fps"),
             "engine_path": s(inputs, "cutright_engine"),
             "project_dir": dir.join(format!("{out_name}-project")).to_string_lossy(),
