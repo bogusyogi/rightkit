@@ -139,6 +139,11 @@ pub struct MediaHostConfig {
     /// File name, under the locks folder, of the lock that serialises attaching the spend ledger
     /// to the job database. Hosts that already have lock files in place pass the name they use.
     pub spend_attach_lock_name: String,
+    /// Whether the host credential store honours the `<PREFIX>_NO_KEYCHAIN` deny guard
+    /// ([`keychain::store_for`]). Default `true`. A host whose release build must have no switch
+    /// that disables the credential store passes `false`; the store is then the plain OS store
+    /// (the crate-wide universal guard of `rightkit-credentials` still applies).
+    pub keychain_guard: bool,
 }
 
 impl Default for MediaHostConfig {
@@ -148,6 +153,7 @@ impl Default for MediaHostConfig {
             log_prefix: "rightkit-media-gen".into(),
             user_agent: "RightKit-media-gen/0.1 (asset acquisition)".into(),
             spend_attach_lock_name: "spend-attach.lock".into(),
+            keychain_guard: true,
         }
     }
 }

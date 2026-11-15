@@ -34,6 +34,31 @@ pub trait CredentialSource: Send + Sync + std::fmt::Debug {
     }
 }
 
+/// The host OS credential store as a [`CredentialSource`]: [`crate::host::keychain::keychain_store`]
+/// (service = the host app identifier; the `<PREFIX>_NO_KEYCHAIN` guard unless the host set
+/// [`MediaHostConfig::keychain_guard`](crate::host::MediaHostConfig::keychain_guard) to `false`).
+/// For a host's context factory: `credentials: Some(Arc::new(KeychainKeys::open()))`.
+pub struct KeychainKeys(Store);
+
+impl std::fmt::Debug for KeychainKeys {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("KeychainKeys(OS credential store)")
+    }
+}
+
+impl KeychainKeys {
+    /// The key source over the host store, opened now.
+    pub fn open() -> Self {
+        Self(crate::host::keychain::keychain_store())
+    }
+}
+
+impl CredentialSource for KeychainKeys {
+    fn store(&self) -> &Store {
+        &self.0
+    }
+}
+
 fn kerr(e: rightkit_credentials::Error) -> GenError {
     GenError::new("keychain", format!("keychain error: {e}"))
 }
