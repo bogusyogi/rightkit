@@ -11,7 +11,6 @@ use crate::agent_mcp::error::McpError;
 #[cfg(feature = "agent_mcp-os-keyring")]
 use crate::agent_mcp::types::McpOAuthConfig;
 
-const KEYRING_SERVICE: &str = "rightkit-agent";
 const REFRESH_SKEW_SECONDS: u64 = 60;
 #[cfg(feature = "agent_mcp-os-keyring")]
 const OAUTH_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
@@ -241,9 +240,10 @@ fn oauth_account(server: &str) -> String {
 
 #[cfg(feature = "agent_mcp-os-keyring")]
 fn oauth_store() -> Result<rightkit_credentials::Store, McpError> {
-    let namespace = rightkit_credentials::Namespace::new(KEYRING_SERVICE)
+    let namespace = rightkit_credentials::Namespace::new(crate::agent_mcp::keyring_service())
         .map_err(|e| McpError::Keyring(e.to_string()))?;
-    let disabled = std::env::var_os("RIGHTKIT_DISABLE_OS_KEYCHAIN").is_some_and(|v| v == "1");
+    let disabled = std::env::var_os(rightkit_agent_config::env_name("DISABLE_OS_KEYCHAIN"))
+        .is_some_and(|v| v == "1");
     let config = rightkit_credentials::Config::new(namespace)
         .guard_when(disabled, rightkit_credentials::GuardMode::Deny)
         .timeout(Duration::from_secs(5));

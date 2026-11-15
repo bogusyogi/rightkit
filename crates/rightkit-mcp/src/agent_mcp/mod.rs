@@ -13,6 +13,7 @@
 
 pub mod config;
 mod error;
+mod host;
 pub mod limits;
 pub mod lsp_bridge;
 mod manager;
@@ -28,11 +29,17 @@ mod types;
 pub use crate::{parse_qualified_name, sanitize_tool_name};
 pub use crate::{McpError as RightKitMcpError, RequestContext, ToolDescriptor};
 pub use config::{
-    attach_stored_oauth_tokens, expand_config_env, expand_server_env, load_for_session,
-    load_with_config_path_pool_and_process_launcher, load_with_pool, load_with_trust_gate,
-    load_with_trust_gate_and_project_trust, load_with_trust_gate_pooled, ProjectTrust,
+    attach_stored_oauth_tokens, expand_config_env, expand_server_env, expand_server_env_in_scope,
+    load_for_session, load_with_config_path_pool_and_process_launcher, load_with_pool,
+    load_with_trust_gate, load_with_trust_gate_and_project_trust, load_with_trust_gate_pooled,
+    resolve_http_bearer, resolve_http_bearer_with_command, PlaceholderScope, ProjectTrust,
 };
 pub use error::McpError;
+pub use host::{
+    client_name, client_version, keyring_service, set_client_name, set_client_version,
+    set_credential_env_names, set_keyring_service, set_never_expanded_env_names,
+    DEFAULT_CLIENT_NAME, DEFAULT_KEYRING_SERVICE,
+};
 pub use lsp_bridge::{
     lsp_mcp_tool_definitions, Diagnostic, GotoDefinitionResult, HoverResult, LspBridgeError,
     LspMcpBridge, LspPosition, LspServerConfig,
@@ -65,7 +72,8 @@ pub use trust_gate::{
     DEFAULT_CONFIG_DIR_SEGMENT,
 };
 pub use types::{
-    HttpConfig, McpChannelPermissions, McpConfigFile, McpOAuthConfig, McpResourceContent,
-    McpResourceDef, McpServerConfig, McpToolAnnotations, McpToolDef, McpToolResult, McpTrustPolicy,
-    SseConfig, StdioConfig,
+    BearerTokenCommand, HttpConfig, McpChannelPermissions, McpConfigFile, McpExpose,
+    McpOAuthConfig, McpPromptDef, McpResourceContent, McpResourceDef, McpServerConfig,
+    McpServerOptions, McpToolAnnotations, McpToolDef, McpToolResult, McpTrustPolicy, SseConfig,
+    StdioConfig,
 };

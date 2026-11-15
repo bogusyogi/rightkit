@@ -2,6 +2,7 @@
 
 ## 0.1.1 (unpublished)
 
+- Requires `rightkit-mcp` 0.9.0 (agent MCP server options, bearer config, prompts and the CodeRight sync; see its changelog).
 - Builds against `rightkit-agent-engine-protocol` 0.4.0: the events and approval records it emits leave the new optional fields unset (`effects`, `cost_billed`, `ttft_ms`, `total_ms`, `rate_limit`, `cache_ttl_ms`, `PendingApprovalContext` flat-shape fields), and `seq_of` handles `ToolArgumentsPartial` and `SubAgentOutput`. No behaviour change.
 
 - A tool call that waits for approval is bound by the approvals core's rule: its `PendingApprovalContext` carries

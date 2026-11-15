@@ -2298,7 +2298,7 @@
       "pkId": "PK15",
       "id": "ci/consumers/rightkit-agent-tools/src/main.rs",
       "files": {
-        "Cargo.toml": "b93c2f741cfa7b44ea217e5ee1717f0a52cad955bc203649a62f20d2e9568e3e",
+        "Cargo.toml": "a676d19d6dd05a0455a75f0ac0336054f76a5acc3b6f51e46210441d72ca311a",
         "README.md": "aa7dbfb189d496b1407d4cac1a2404fcb167103e60f6fc5c1a3e22ab7c89fb3b",
         "src/main.rs": "246ff9cedf046c152af85101359688c37e1152696985b24b2f7b094963137c2d"
       }
@@ -2646,7 +2646,7 @@
       "pkId": "PK28",
       "id": "ci/consumers/rightkit-agents/src/main.rs",
       "files": {
-        "Cargo.toml": "f8bc5ff976b8e2bf5072bee32cd27e539ae60c8ae6cc371c024cd027c1a5d41e",
+        "Cargo.toml": "623e1c15305b9dc7a20e4003c39dd74becabf60c3806018b7d8f2461c84ff390",
         "README.md": "a67aa3abc0e051a43df83f7379b20291d9187b0b1f89454ef8f471ed292668d3",
         "src/main.rs": "ecefa9a7d508dfb7efa7ffd77f10ac4bee2332a5ee827cf03cde6aecb5f58fee"
       }
@@ -2745,7 +2745,7 @@
       "pkId": "PK37",
       "id": "ci/consumers/rightkit-mcp/src/main.rs",
       "files": {
-        "Cargo.toml": "7cfb96f4b99f6a097ed7f7182f5537a00ed3e0c427f4dea0835e6e12064f5b71",
+        "Cargo.toml": "e7e0bd4703e64addc92353ef42d5f0f14eda8f5eb8338d4fa4c001e1a57e384a",
         "README.md": "00380008eab8b972a86e80df704bbfbc2bbeb1361744e1e857409148c751139a",
         "src/main.rs": "01e99b7fdf687797cb1cfa605b26bfa725caee47718d4b0e98db08c36ad9ff94"
       }
@@ -4297,9 +4297,9 @@
       "pkId": "PK251",
       "id": "ci/consumers/rightkit-agent-coding-tools/src/main.rs",
       "files": {
-        "Cargo.toml": "32bda58275c04477092af72046b1403aeef604d3cfb0ab9736ef0e38fab4627a",
-        "README.md": "46c9b9349d242eb0a54e732aa30c4ece6d414baddd27d7f6513c3743b6b6cc1b",
-        "src/main.rs": "bfa9d3db52a95d6361760ad18806ccd944c6833a280d9e5cdd7b610376fdd35b"
+        "Cargo.toml": "e5560db712af53b60c48e180cc5bbc96178be2555d468c94847eb25570bdaa54",
+        "README.md": "2f33df06bab28f97bc2d0d824c07eb952fbfab9b5f60485b0fc0521ba8157182",
+        "src/main.rs": "2940556b9ff68b88ca1eeb5e1ebeaeec6ee7ed69e8969ed59ad535e3baaf9299"
       }
     }
   }

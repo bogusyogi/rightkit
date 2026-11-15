@@ -15,7 +15,9 @@ pub type ElicitationHandler = Arc<
 >;
 
 use crate::agent_mcp::error::McpError;
-use crate::agent_mcp::types::{McpResourceContent, McpResourceDef, McpToolDef, McpToolResult};
+use crate::agent_mcp::types::{
+    McpPromptDef, McpResourceContent, McpResourceDef, McpToolDef, McpToolResult,
+};
 
 use crate::{
     CallOptions, CancellationToken, ClientExtensions, ClientOptions, EndpointOriginPolicy,
@@ -24,6 +26,9 @@ use crate::{
 };
 use std::io::{Read, Write};
 use std::sync::{Condvar, Mutex};
+
+/// Same window as `SharedPool`'s reconnect cooldown.
+const CONNECT_RETRY_COOLDOWN: std::time::Duration = std::time::Duration::from_secs(30);
 
 /// Keep RightKit failures behind the host app's existing public error boundary.
 pub fn map_rightkit_error(error: crate::McpError) -> McpError {
@@ -79,11 +84,27 @@ struct ClientAdapter {
     adapter: Option<Arc<dyn rightkit_sandbox::execution::ProcessLaunchAdapter>>,
     launch_context: Option<rightkit_sandbox::execution::ProcessLaunchContext>,
     configuration_error: Option<String>,
+    /// Last failed connect (spawn/initialize). Within `CONNECT_RETRY_COOLDOWN`
+    /// the error is returned without starting the server again.
+    connect_failure: Mutex<Option<(std::time::Instant, String)>>,
     /// Count of `notifications/tools/list_changed` seen from the server.
     tools_list_changed: Arc<std::sync::atomic::AtomicU64>,
 }
 
 impl ClientAdapter {
+    fn apply_timeouts(
+        &mut self,
+        startup: Option<std::time::Duration>,
+        request: Option<std::time::Duration>,
+    ) {
+        if let Some(startup) = startup {
+            self.options.connect_timeout = Some(startup);
+        }
+        if let Some(request) = request {
+            self.options.request_timeout = request;
+        }
+    }
+
     fn new(spec: ServerSpec, access_token: Option<String>, legacy_sse: bool) -> Self {
         let stdio = matches!(&spec, ServerSpec::Stdio { .. });
         let tools_list_changed = Arc::new(std::sync::atomic::AtomicU64::new(0));
@@ -100,8 +121,8 @@ impl ClientAdapter {
                 auth: access_token.map(|token| {
                     Arc::new(BearerToken(crate::Secret::new(token))) as Arc<dyn crate::AuthProvider>
                 }),
-                client_name: "rightkit-agent".into(),
-                client_version: env!("CARGO_PKG_VERSION").into(),
+                client_name: crate::agent_mcp::client_name().into(),
+                client_version: crate::agent_mcp::client_version().into(),
                 on_event: Some(Arc::new(
                     |event| tracing::debug!(event = ?event, "MCP lifecycle"),
                 )),
@@ -120,9 +141,7 @@ impl ClientAdapter {
                 // rightkit-mcp 0.7.0 (rightkit#165): literal localhost/127.0.0.1/[::1] HTTP servers
                 // are reachable; names resolving to loopback and private ranges stay refused.
                 allow_loopback: !stdio,
-                protocol_versions: Some(
-                    MCP_SUPPORTED_VERSIONS.iter().map(|v| (*v).into()).collect(),
-                ),
+                protocol_versions: Some(MCP_CLIENT_VERSIONS.iter().map(|v| (*v).into()).collect()),
                 response_limits: ResponseLimits {
                     max_response_bytes: 8 * 1024 * 1024,
                     max_frame_bytes: if stdio || legacy_sse {
@@ -138,6 +157,7 @@ impl ClientAdapter {
             adapter: None,
             launch_context: None,
             configuration_error: None,
+            connect_failure: Mutex::new(None),
             tools_list_changed,
         }
     }
@@ -159,6 +179,19 @@ impl ClientAdapter {
         if let Some(client) = slot.as_ref() {
             return Ok(client.clone());
         }
+        if let Some((at, message)) = self
+            .connect_failure
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .as_ref()
+        {
+            if at.elapsed() < CONNECT_RETRY_COOLDOWN {
+                return Err(McpError::Transport(format!(
+                    "{message} (not restarted for {}s after a failed start)",
+                    CONNECT_RETRY_COOLDOWN.as_secs()
+                )));
+            }
+        }
         let mut extensions = self.extensions.clone();
         if matches!(&self.spec, ServerSpec::Stdio { .. }) {
             let adapter = self.adapter.clone().ok_or_else(|| {
@@ -179,20 +212,50 @@ impl ClientAdapter {
         // exempt by design. RightKit's `ServerSource::User` is the same exemption; a
         // `Workspace` source here would need records in RightKit's fingerprint format
         // and would deny every server (empty store), so it is not used.
-        let client = Arc::new(
-            McpClient::connect_with_extensions_cancellable(
-                "rightkit-agent",
-                &ServerSource::User,
-                &TrustStore::new(),
-                self.spec.clone(),
-                self.options.clone(),
-                extensions,
-                cancellation,
-            )
-            .map_err(map_rightkit_error)?,
-        );
+        let client = match McpClient::connect_with_extensions_cancellable(
+            crate::agent_mcp::client_name(),
+            &ServerSource::User,
+            &TrustStore::new(),
+            self.spec.clone(),
+            self.options.clone(),
+            extensions,
+            cancellation,
+        )
+        .map_err(map_rightkit_error)
+        {
+            Ok(client) => Arc::new(client),
+            Err(error) => {
+                if !matches!(error, McpError::Cancelled) {
+                    *self
+                        .connect_failure
+                        .lock()
+                        .unwrap_or_else(|error| error.into_inner()) =
+                        Some((std::time::Instant::now(), error.to_string()));
+                }
+                return Err(error);
+            }
+        };
+        *self
+            .connect_failure
+            .lock()
+            .unwrap_or_else(|error| error.into_inner()) = None;
         *slot = Some(client.clone());
         Ok(client)
+    }
+
+    /// Drop a cached client whose connection closed so the next call starts
+    /// the server again instead of failing with `NotConnected` forever.
+    fn forget_client(&self, client: &Arc<McpClient>) {
+        let mut slot = self
+            .client
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        if slot
+            .as_ref()
+            .is_some_and(|cached| Arc::ptr_eq(cached, client))
+        {
+            *slot = None;
+        }
     }
 
     fn callback(&self, runtime: tokio::runtime::Handle) -> crate::ElicitationHandler {
@@ -269,7 +332,11 @@ impl ClientAdapter {
                     .set_elicitation_handler(&session, state.callback(runtime.clone()))
                     .map_err(map_rightkit_error)?;
             }
-            operation(&client, &options)
+            let result = operation(&client, &options);
+            if matches!(result, Err(McpError::NotConnected)) {
+                state.forget_client(&client);
+            }
+            result
         });
         tokio::select! {
             result = &mut task => result.map_err(|error| McpError::Transport(error.to_string()))?,
@@ -383,6 +450,26 @@ impl HttpTransport {
             false,
         )))
     }
+    /// A transport whose credential could not be resolved: every connect fails
+    /// with `message`, so the server reports the cause instead of running
+    /// unauthenticated.
+    pub fn with_configuration_error(url: impl Into<String>, message: impl Into<String>) -> Self {
+        let mut adapter = ClientAdapter::new(ServerSpec::Http { url: url.into() }, None, false);
+        adapter.configuration_error = Some(message.into());
+        Self(Arc::new(adapter))
+    }
+    /// Per-server `startup_timeout_sec` / `tool_timeout_sec`.
+    pub fn with_timeouts(
+        mut self,
+        startup: Option<std::time::Duration>,
+        request: Option<std::time::Duration>,
+    ) -> Self {
+        // Invariant: only called on a freshly built transport, so the Arc is unshared.
+        Arc::get_mut(&mut self.0)
+            .expect("unshared transport builder")
+            .apply_timeouts(startup, request);
+        self
+    }
     pub async fn negotiated_version(&self) -> Option<String> {
         self.0.version().await
     }
@@ -413,6 +500,18 @@ impl SseTransport {
             );
         }
         Self(Arc::new(adapter))
+    }
+    /// Per-server `startup_timeout_sec` / `tool_timeout_sec`.
+    pub fn with_timeouts(
+        mut self,
+        startup: Option<std::time::Duration>,
+        request: Option<std::time::Duration>,
+    ) -> Self {
+        // Invariant: only called on a freshly built transport, so the Arc is unshared.
+        Arc::get_mut(&mut self.0)
+            .expect("unshared transport builder")
+            .apply_timeouts(startup, request);
+        self
     }
     /// Explicit origins are enforced by RightKit before credentials are sent.
     pub fn with_endpoint_origin_policy(mut self, policy: EndpointOriginPolicy) -> Self {
@@ -466,6 +565,18 @@ impl StdioTransport {
             .adapter = Some(launcher);
         self
     }
+    /// Per-server `startup_timeout_sec` / `tool_timeout_sec`.
+    pub fn with_timeouts(
+        mut self,
+        startup: Option<std::time::Duration>,
+        request: Option<std::time::Duration>,
+    ) -> Self {
+        // Invariant: only called on a freshly built transport, so the Arc is unshared.
+        Arc::get_mut(&mut self.0)
+            .expect("unshared transport builder")
+            .apply_timeouts(startup, request);
+        self
+    }
     pub async fn negotiated_version(&self) -> Option<String> {
         self.0.version().await
     }
@@ -512,15 +623,23 @@ macro_rules! rightkit_transport {
                     // page; typed legacy list methods have no CallOptions.
                     let mut tools = Vec::new();
                     let mut params = serde_json::json!({});
+                    let mut seen_cursors = std::collections::HashSet::new();
+                    let mut pages_read = 0usize;
                     loop {
+                        pages_read += 1;
                         let result = client.request_with_options("tools/list", params, options).map_err(map_rightkit_error)?;
                         let page: Vec<crate::ToolDescriptor> = serde_json::from_value(
                             result.get("tools").cloned().ok_or_else(|| McpError::Serde("expected 'tools' array".into()))?,
                         ).map_err(|error| McpError::Serde(error.to_string()))?;
                         tools.extend(page.into_iter().map(tool_definition).collect::<Result<Vec<_>, _>>()?);
-                        match result.get("nextCursor").and_then(Value::as_str).filter(|s| !s.is_empty()) {
-                            Some(cursor) => params = serde_json::json!({"cursor": cursor}),
-                            None => return Ok(tools),
+                        match next_tools_cursor(&result, &mut seen_cursors, pages_read)? {
+                            ToolsPage::Next(cursor) => params = serde_json::json!({"cursor": cursor}),
+                            ToolsPage::Done => return Ok(tools),
+                            ToolsPage::Truncated => {
+                                tracing::warn!(event = "mcp.tools.list", pages = pages_read, tools = tools.len(), outcome = "truncated");
+                                eprintln!("[mcp] tools/list still had more pages after {MAX_TOOL_LIST_PAGES}; using the first {} tools", tools.len());
+                                return Ok(tools);
+                            }
                         }
                     }
                 }, None).await
@@ -534,6 +653,27 @@ macro_rules! rightkit_transport {
                     let result = client.request_with_options("tools/call", serde_json::json!({"name": name, "arguments": args}), options).map_err(map_rightkit_error)?;
                     parse_tool_result(result)
                 }, session.map(str::to_string)).await
+            }
+            async fn list_prompts(&self) -> Result<Vec<McpPromptDef>, McpError> {
+                self.0.execute(None, |client, options| {
+                    let result = client.request_with_options("prompts/list", serde_json::json!({}), options).map_err(map_rightkit_error)?;
+                    let prompts: Vec<crate::PromptDescriptor> = serde_json::from_value(
+                        result.get("prompts").cloned().ok_or_else(|| McpError::Serde("expected 'prompts' array".into()))?,
+                    ).map_err(|error| McpError::Serde(error.to_string()))?;
+                    Ok(prompts.into_iter().map(|p| McpPromptDef {
+                        name: p.name,
+                        description: p.description,
+                        arguments: p.arguments.into_iter().map(|a| (a.name, a.required)).collect(),
+                    }).collect())
+                }, None).await
+            }
+            async fn get_prompt(&self, name: &str, args: Value) -> Result<String, McpError> {
+                let name = name.to_string();
+                self.0.execute(None, move |client, options| {
+                    let result = client.request_with_options("prompts/get", serde_json::json!({"name": name, "arguments": args}), options).map_err(map_rightkit_error)?;
+                    let messages = result.get("messages").and_then(Value::as_array).ok_or_else(|| McpError::Serde("expected 'messages' array".into()))?;
+                    Ok(messages.iter().map(|m| crate::PromptMessage::from_value(m).text).filter(|t| !t.is_empty()).collect::<Vec<_>>().join("\n\n"))
+                }, None).await
             }
             async fn list_resources(&self) -> Result<Vec<McpResourceDef>, McpError> {
                 self.0.execute(None, |client, options| {
@@ -612,6 +752,12 @@ pub fn rightkit_process_launcher(
                 }
             };
             let pid = child.pid().unwrap_or(0);
+            // The launcher pipes stderr; an unread pipe fills (~64 KiB) and
+            // the server blocks in write(2) forever. Drain it continuously.
+            let stderr_tail = Arc::new(Mutex::new(StderrTail::default()));
+            if let Some(stderr) = child.take_stderr() {
+                runtime.spawn(drain_stderr(stderr, stderr_tail.clone()));
+            }
             let state = Arc::new(ManagedExit {
                 outcome: Mutex::new(None),
                 changed: Condvar::new(),
@@ -632,6 +778,15 @@ pub fn rightkit_process_launcher(
                     }
                 }
                 .map_err(|error| format!("managed MCP wait: {error:?}"));
+                if !matches!(result, Ok(0)) {
+                    let tail = stderr_tail
+                        .lock()
+                        .unwrap_or_else(|error| error.into_inner())
+                        .text();
+                    if !tail.is_empty() {
+                        tracing::warn!(pid, outcome = ?result, stderr_tail = %tail, "managed MCP server exited");
+                    }
+                }
                 *monitor
                     .completion
                     .outcome
@@ -656,6 +811,93 @@ pub fn rightkit_process_launcher(
             })
         },
     )
+}
+
+/// Bytes of server stderr kept for diagnostics; everything older is discarded.
+const STDERR_TAIL_BYTES: usize = 8 * 1024;
+
+/// Bounded rolling tail of a managed MCP server's stderr.
+#[derive(Default)]
+struct StderrTail {
+    bytes: std::collections::VecDeque<u8>,
+}
+
+impl StderrTail {
+    fn push(&mut self, chunk: &[u8]) {
+        let chunk = &chunk[chunk.len().saturating_sub(STDERR_TAIL_BYTES)..];
+        let overflow = (self.bytes.len() + chunk.len()).saturating_sub(STDERR_TAIL_BYTES);
+        self.bytes.drain(..overflow);
+        self.bytes.extend(chunk);
+    }
+
+    fn text(&self) -> String {
+        let (front, back) = self.bytes.as_slices();
+        let mut joined = Vec::with_capacity(self.bytes.len());
+        joined.extend_from_slice(front);
+        joined.extend_from_slice(back);
+        String::from_utf8_lossy(&joined).trim().to_string()
+    }
+}
+
+/// Read a child's stderr until EOF or error, keeping only a bounded tail, so
+/// the server never blocks on a full stderr pipe.
+async fn drain_stderr(
+    mut pipe: Pin<Box<dyn tokio::io::AsyncRead + Send>>,
+    tail: Arc<Mutex<StderrTail>>,
+) {
+    use tokio::io::AsyncReadExt;
+    let mut buffer = [0u8; 4096];
+    loop {
+        match pipe.read(&mut buffer).await {
+            Ok(0) | Err(_) => return,
+            Ok(read) => tail
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .push(&buffer[..read]),
+        }
+    }
+}
+
+/// Upper bound on `tools/list` pages; a well-behaved server needs a handful.
+const MAX_TOOL_LIST_PAGES: usize = 64;
+
+/// What `tools/list` paging does after one page.
+#[derive(Debug, PartialEq, Eq)]
+enum ToolsPage {
+    /// Read the page this cursor names.
+    Next(String),
+    /// The server listed everything.
+    Done,
+    /// The page cap was reached with more pages left: keep the tools read so far and warn,
+    /// rather than losing every tool of a legitimate server that pages finely (audit
+    /// 2026-11-05 round 2, finding 9).
+    Truncated,
+}
+
+/// Decide whether `tools/list` paging continues. A repeated cursor fails (the server is
+/// looping, and its pages would repeat tools); once `MAX_TOOL_LIST_PAGES` pages have been read
+/// the listing stops with what it has, so a buggy or hostile server cannot loop it forever.
+fn next_tools_cursor(
+    result: &Value,
+    seen: &mut std::collections::HashSet<String>,
+    pages_read: usize,
+) -> Result<ToolsPage, McpError> {
+    let Some(cursor) = result
+        .get("nextCursor")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+    else {
+        return Ok(ToolsPage::Done);
+    };
+    if !seen.insert(cursor.to_string()) {
+        return Err(McpError::Transport(format!(
+            "tools/list repeated nextCursor {cursor:?}"
+        )));
+    }
+    if pages_read >= MAX_TOOL_LIST_PAGES {
+        return Ok(ToolsPage::Truncated);
+    }
+    Ok(ToolsPage::Next(cursor.to_string()))
 }
 
 struct ManagedInput {
@@ -854,6 +1096,18 @@ pub trait McpTransport: Send + Sync {
 
     async fn list_resources(&self) -> Result<Vec<McpResourceDef>, McpError>;
     async fn read_resource(&self, uri: &str) -> Result<McpResourceContent, McpError>;
+
+    /// The prompt templates the server offers; none for a transport that has no prompts.
+    async fn list_prompts(&self) -> Result<Vec<McpPromptDef>, McpError> {
+        Ok(Vec::new())
+    }
+
+    /// Render one prompt with string arguments to its message text (roles dropped, joined by a blank line).
+    async fn get_prompt(&self, _name: &str, _args: Value) -> Result<String, McpError> {
+        Err(McpError::Transport(
+            "this server does not offer prompts".into(),
+        ))
+    }
 }
 
 // ── Stub (tests / offline) ─────────────────────────────────────────────────
@@ -940,12 +1194,16 @@ pub use crate::PROTOCOL_VERSION as MCP_PROTOCOL_VERSION;
 /// Supported protocol versions for negotiation (newest first).
 pub const MCP_SUPPORTED_VERSIONS: &[&str] = &["2025-03-26", "2024-11-05", "2024-10-07"];
 
+/// Versions the client offers to servers (newest first). The client advertises
+/// the newest, so a server that speaks 2025-06-18 is not turned away.
+pub const MCP_CLIENT_VERSIONS: &[&str] = &["2025-06-18", "2025-03-26", "2024-11-05", "2024-10-07"];
+
 /// Build the `initialize` params object per MCP spec.
 pub fn initialize_params() -> serde_json::Value {
     serde_json::json!({
         "protocolVersion": MCP_PROTOCOL_VERSION,
         "capabilities": {},
-        "clientInfo": {"name": "rightkit-agent", "version": "0.1.0"}
+        "clientInfo": {"name": crate::agent_mcp::client_name(), "version": "0.1.0"}
     })
 }
 
@@ -987,11 +1245,13 @@ pub(super) fn parse_tool_result(val: Value) -> Result<McpToolResult, McpError> {
     } else {
         // the host app also accepts legacy blocks with a text field but no type.
         // Keep that application projection instead of RightKit's typed-only text_content().
+        // Blocks that are not text (image, audio, resource_link, embedded resource)
+        // become a short typed line, so an image-only result is never an empty string.
         val.get("content")
             .and_then(|c| c.as_array())
             .map(|arr| {
                 arr.iter()
-                    .filter_map(|item| item.get("text").and_then(|t| t.as_str()))
+                    .filter_map(content_block_text)
                     .collect::<Vec<_>>()
                     .join("\n")
             })
@@ -1000,16 +1260,45 @@ pub(super) fn parse_tool_result(val: Value) -> Result<McpToolResult, McpError> {
     Ok(McpToolResult { content, is_error })
 }
 
+/// Text for one MCP content block; `None` only for a block with nothing to show.
+fn content_block_text(item: &Value) -> Option<String> {
+    if let Some(text) = item.get("text").and_then(Value::as_str) {
+        return Some(text.to_string());
+    }
+    let field = |key: &str| item.get(key).and_then(Value::as_str);
+    match item.get("type").and_then(Value::as_str)? {
+        kind @ ("image" | "audio") => {
+            let mime = field("mimeType").unwrap_or("unknown type");
+            let bytes = field("data").map(str::len).unwrap_or(0) / 4 * 3;
+            Some(format!("[{kind}: {mime}, about {bytes} bytes, not shown]"))
+        }
+        "resource_link" => {
+            let uri = field("uri").unwrap_or("");
+            Some(match field("name").or_else(|| field("title")) {
+                Some(name) => format!("[resource_link: {name} {uri}]"),
+                None => format!("[resource_link: {uri}]"),
+            })
+        }
+        "resource" => {
+            let resource = item.get("resource")?;
+            let uri = resource.get("uri").and_then(Value::as_str).unwrap_or("");
+            match resource.get("text").and_then(Value::as_str) {
+                Some(text) => Some(format!("[resource: {uri}]\n{text}")),
+                None => Some(format!("[resource: {uri}, binary, not shown]")),
+            }
+        }
+        other => Some(format!("[{other} content, not shown]")),
+    }
+}
+
 fn parse_elicitation_request(
     server_name: &str,
     request_id: String,
     params: &Value,
 ) -> Result<rightkit_agent_engine_protocol::ElicitationRequestEvent, String> {
     use rightkit_agent_engine_protocol::ElicitationRequest;
-    let mode = params
-        .get("mode")
-        .and_then(Value::as_str)
-        .ok_or_else(|| "elicitation mode is missing".to_string())?;
+    // Servers on 2025-06-18 send a form request with no mode; form is the default.
+    let mode = params.get("mode").and_then(Value::as_str).unwrap_or("form");
     let message = params
         .get("message")
         .and_then(Value::as_str)
