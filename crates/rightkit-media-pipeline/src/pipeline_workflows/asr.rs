@@ -1,6 +1,6 @@
 //! Native ASR via a whisper.cpp CLI binary (`whisper-cli`). The binary is
 //! resolved by `media::tools()` (env/bundled/PATH); models are resolved from
-//! an explicit path, `RIGHTKIT_WHISPER_MODEL`, a store-installed model
+//! an explicit path, `<PREFIX>_WHISPER_MODEL` (`RIGHTKIT_WHISPER_MODEL`), a store-installed model
 //! (`asr_provision`, a free Hugging Face download through `rightkit_models`
 //! into `<data_dir>/models/whisper`), or a flat `*.bin` in that folder. When no
 //! binary or model is available the command reports `asr_unavailable` — it
@@ -122,11 +122,22 @@ pub fn transcribe(ctx: &Context, input: &Value) -> GenResult<Value> {
     let whisper = t.whisper.clone().ok_or_else(|| {
         GenError::new(
             "asr_unavailable",
-            "no whisper.cpp binary (set RIGHTKIT_WHISPER or install whisper-cli)",
+            format!(
+                "no whisper.cpp binary (set {} or install whisper-cli)",
+                rightkit_media_gen::host::env_name("WHISPER")
+            ),
         )
     })?;
     let model = media::whisper_model(&ctx.data_dir, input.get("model").and_then(Value::as_str))
-        .ok_or_else(|| GenError::new("asr_unavailable", "no whisper model (set RIGHTKIT_WHISPER_MODEL or provision one into <data>/models/whisper)"))?;
+        .ok_or_else(|| {
+            GenError::new(
+                "asr_unavailable",
+                format!(
+                    "no whisper model (set {} or provision one into <data>/models/whisper)",
+                    rightkit_media_gen::host::env_name("WHISPER_MODEL")
+                ),
+            )
+        })?;
     let audio = PathBuf::from(s(input, "audio_path"));
     if !audio.is_file() {
         return Err(GenError::new(

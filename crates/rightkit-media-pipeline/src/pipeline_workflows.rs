@@ -94,7 +94,18 @@ const WORKFLOW_KIND: &str = "pipeline_workflow";
 const RUN_KIND: &str = "pipeline_run";
 /// Rough narration speech rate (chars per second) for clock estimates.
 const SPEECH_CPS: f64 = 15.0;
-const MEDIA_KINDS: &[&str] = &["image", "video", "voice", "avatar"];
+const MEDIA_KINDS: &[&str] = &["image", "video", "voice", "avatar", "sfx"];
+/// Most SFX cues one Vox run carries: each cue is its own step with its own job (a step attaches
+/// one job), so the cap bounds the number of paid generations a single workflow can plan.
+const MAX_SFX_CUES: usize = 6;
+/// The catalogued text-to-SFX route (`crates/genright-gen/data/catalogue/models.json`, flat price
+/// recorded there). Its job is reserved in the ledger by the engine's generate path, not here.
+const SFX_PROVIDER: &str = "fal";
+const SFX_MODEL: &str = "fal-ai/stable-audio-3/small/sfx/text-to-audio";
+/// Cue length (seconds) when a cue names none; the catalogue accepts 1 to 120.
+const SFX_DEFAULT_DURATION_S: f64 = 4.0;
+/// Mix level (dB) when a cue names none; matches `cutright_finish`'s own default.
+const SFX_DEFAULT_GAIN_DB: f64 = -6.0;
 
 pub fn handle(ctx: &Context, name: &str, input: &Value) -> GenResult<Value> {
     match name {
@@ -311,7 +322,10 @@ fn templates() -> Vec<Value> {
     native(&mut captions, "compose_video");
     let mut finish = step(
         "finish",
-        "Timeline finishing (optional)",
+        &format!(
+            "{} finishing (optional)",
+            finish::finishing_app_or("Timeline")
+        ),
         "video",
         &["captions"],
         "video",
@@ -320,10 +334,10 @@ fn templates() -> Vec<Value> {
     native(&mut finish, "cutright_finish");
     out.push(json!({
         "id": "vox_director", "label": "Vox-style explainer",
-        "summary": "Topic → beats/script → keyframes → motion scenes → narration → captions/composition → playable video → optional timeline-app finishing (reports not_installed when absent).",
+        "summary": format!("Topic → beats/script → keyframes → motion scenes → narration → captions/composition → playable video → optional {} finishing (reports not_installed when absent).", finish::finishing_app_or("timeline-app")),
         "source": source("Vox Director", "https://github.com/Alisa0808/vox-director",
             "beats.json + poster-first flow; stage execution ported natively, models via existing adapters"),
-        "inputs": ["topic", "script", "aspect", "hook_image_prompt", "scene_video_prompt", "asset_paths", "audio_path", "music_path", "subtitles_path", "ken_burns", "voice_id"],
+        "inputs": ["topic", "script", "aspect", "hook_image_prompt", "scene_video_prompt", "asset_paths", "audio_path", "music_path", "subtitles_path", "ken_burns", "voice_id", "sfx_cues"],
         "steps": [script, beats, keyframes, narration, scenes, captions, finish],
     }));
 
@@ -836,6 +850,109 @@ fn est_usd(ctx: &Context, provider: &str, model: &str) -> Option<f64> {
         .and_then(|m| m["est_usd"].as_f64())
 }
 
+/// The `sfx_cues` workflow input: a JSON array (or a string holding one) of
+/// `{ "prompt": text, "at_s": seconds into the final video, "gain_db"?: mix level, "duration_s"?: length }`.
+fn sfx_cues(inputs: &Value) -> GenResult<Vec<Value>> {
+    let parsed;
+    let raw = match inputs.get("sfx_cues") {
+        None | Some(Value::Null) => return Ok(Vec::new()),
+        Some(Value::String(t)) if t.trim().is_empty() => return Ok(Vec::new()),
+        Some(Value::String(t)) => {
+            parsed = serde_json::from_str::<Value>(t)
+                .map_err(|e| invalid(format!("sfx_cues must be a JSON array of cues: {e}")))?;
+            &parsed
+        }
+        Some(v) => v,
+    };
+    let cues = raw
+        .as_array()
+        .ok_or_else(|| invalid("sfx_cues must be an array of cues"))?;
+    if cues.len() > MAX_SFX_CUES {
+        return Err(invalid(format!(
+            "sfx_cues has {} cues; a Vox run takes at most {MAX_SFX_CUES} (one paid job per cue)",
+            cues.len()
+        )));
+    }
+    let mut out = Vec::with_capacity(cues.len());
+    for (i, cue) in cues.iter().enumerate() {
+        let n = i + 1;
+        let prompt = field(cue, "prompt");
+        if prompt.is_empty() {
+            return Err(invalid(format!("sfx cue {n}: prompt is required")));
+        }
+        let at_s = cue
+            .get("at_s")
+            .and_then(Value::as_f64)
+            .filter(|v| v.is_finite() && *v >= 0.0)
+            .ok_or_else(|| invalid(format!("sfx cue {n}: at_s must be seconds >= 0")))?;
+        let gain_db = match cue.get("gain_db") {
+            None | Some(Value::Null) => SFX_DEFAULT_GAIN_DB,
+            Some(v) => v
+                .as_f64()
+                .filter(|g| g.is_finite() && (-60.0..=12.0).contains(g))
+                .ok_or_else(|| invalid(format!("sfx cue {n}: gain_db must be -60 to 12")))?,
+        };
+        let duration_s = match cue.get("duration_s") {
+            None | Some(Value::Null) => SFX_DEFAULT_DURATION_S,
+            Some(v) => v
+                .as_f64()
+                .filter(|d| d.is_finite() && (1.0..=120.0).contains(d))
+                .ok_or_else(|| invalid(format!("sfx cue {n}: duration_s must be 1 to 120")))?,
+        };
+        out.push(
+            json!({ "prompt": prompt, "at_s": at_s, "gain_db": gain_db, "duration_s": duration_s }),
+        );
+    }
+    Ok(out)
+}
+
+/// Insert one `sfx_<n>` step per cue after `narration` and make `finish` wait on all of them.
+/// Each step is a single catalogued text-to-SFX request (one job per step); its mix time and
+/// level ride in `params` for `cutright_finish`. They run after `captions`, so no SFX is
+/// generated for a run whose earlier paid steps failed.
+fn expand_sfx_cues(steps: &mut Vec<Value>, inputs: &Value) -> GenResult<()> {
+    let cues = sfx_cues(inputs)?;
+    if cues.is_empty() {
+        return Ok(());
+    }
+    let after = steps
+        .iter()
+        .position(|s| tstr(s, "id") == "narration")
+        .ok_or_else(|| invalid("vox workflow has no narration step"))?;
+    let mut ids: Vec<String> = Vec::with_capacity(cues.len());
+    for (i, cue) in cues.iter().enumerate() {
+        let id = format!("sfx_{}", i + 1);
+        let mut st = step(
+            &id,
+            &format!("SFX cue {} of {}", i + 1, cues.len()),
+            "voice",
+            &["captions"],
+            "audio",
+            20.0,
+        );
+        st["optional"] = json!(true);
+        st["params"] = json!({ "at_s": cue["at_s"], "gain_db": cue["gain_db"] });
+        req(
+            &mut st,
+            "sfx",
+            SFX_PROVIDER,
+            SFX_MODEL,
+            cue["prompt"].as_str().unwrap_or_default(),
+            json!({ "duration": cue["duration_s"] }),
+        );
+        steps.insert(after + 1 + i, st);
+        ids.push(id);
+    }
+    let fin = steps
+        .iter_mut()
+        .find(|s| tstr(s, "id") == "finish")
+        .ok_or_else(|| invalid("vox workflow has no finish step"))?;
+    let mut deps = strings(fin, "depends_on");
+    deps.extend(ids);
+    fin["depends_on"] = json!(deps);
+    Ok(())
+}
+
 /// Build a workflow document from a template + inputs (pure; no writes).
 fn build_workflow(ctx: &Context, template: &Value, input: &Value) -> GenResult<Value> {
     let tid = tstr(template, "id");
@@ -921,6 +1038,11 @@ fn build_workflow(ctx: &Context, template: &Value, input: &Value) -> GenResult<V
                     .unwrap_or_default());
             }
         }
+    }
+
+    // Vox: one SFX step per cue (none when the run names no cues, so a cue-less run is unchanged).
+    if tid == "vox_director" {
+        expand_sfx_cues(&mut steps, &inputs)?;
     }
 
     apply_routes(
@@ -1009,7 +1131,10 @@ fn refresh_support(ctx: &Context, steps: &mut [Value]) {
                         if ok {
                             "ffmpeg resolved".into()
                         } else {
-                            "no ffmpeg (bundled, RIGHTKIT_FFMPEG, or PATH)".into()
+                            format!(
+                                "no ffmpeg (bundled, {}, or PATH)",
+                                rightkit_media_gen::host::env_name("FFMPEG")
+                            )
                         },
                     ))
                 }
@@ -1481,7 +1606,10 @@ impl RunLock {
             Ok(lock) => Ok(Self { _held: lock }),
             Err(rightkit_fs::FsError::Locked { .. } | rightkit_fs::FsError::LockTimeout { .. }) => Err(GenError::new(
                 "run_busy",
-                format!("another process is changing pipeline run {run_id}; nothing was changed, try again"),
+                match rightkit_media_gen::host::media_config().app_name.as_deref() {
+                    Some(name) => format!("another {name} process is changing pipeline run {run_id}; nothing was changed, try again"),
+                    None => format!("another process is changing pipeline run {run_id}; nothing was changed, try again"),
+                },
             )),
             Err(e) => Err(GenError::new("io", format!("lock {}: {e}", path.display()))),
         }
@@ -2226,7 +2354,7 @@ fn stamp_pipeline_facts(ctx: &Context, run: &Value, step: &Value, mut asset: Val
         }
     }
     let facts = prov::derived_facts(
-        "rightkit-media-pipeline",
+        &crate::pipeline_config().producer,
         &format!("native:{action}"),
         &tstr(run, "run_id"),
         &parents,

@@ -58,9 +58,17 @@ use rightkit_media_gen::providers::Provider;
 use rightkit_media_gen::{api, library, Context, GenError, GenResult};
 use serde_json::{json, Value};
 
-/// Whether the host QA marker (`<PREFIX>_QA`) is set (non-empty, not `0`).
+/// Whether the host QA marker (`<PREFIX>_QA`, then `RIGHTKIT_QA`) is set (non-empty, not `0`).
+/// Always false when the host turned the guard off (`PipelineHostConfig::qa_guard`, default on):
+/// the variable is then not read.
 pub fn qa_marked() -> bool {
-    rightkit_media_gen::host::env_var("QA").is_some_and(|v| !v.is_empty() && v != "0")
+    crate::pipeline_config().qa_guard
+        && rightkit_media_gen::host::env_var("QA").is_some_and(|v| !v.is_empty() && v != "0")
+}
+
+/// The host's display name, or `neutral` (`MediaHostConfig::app_name`).
+fn app_or(neutral: &str) -> &str {
+    rightkit_media_gen::host::app_or(neutral)
 }
 
 /// The per-project state folder name: `.` plus the host settings namespace.
@@ -68,8 +76,19 @@ fn project_state_dir_name() -> String {
     format!(".{}", rightkit_media_gen::host::config().settings_namespace)
 }
 
+/// The `brief run` usage text with the neutral `<engine>` placeholder; [`usage`] names the host's
+/// engine.
 pub const USAGE: &str = "\
 usage: <engine> brief run --project <dir> --input <content-brief.json> [--timeout-secs <n>] [--dry-run] [--use-user-library] [--caller <name>] [--budget-project <id> --budget-remaining <usd>]";
+
+/// [`USAGE`] with the host's engine binary name ([`crate::PipelineHostConfig::engine_name`]) in place
+/// of `<engine>`.
+pub fn usage() -> String {
+    match &crate::pipeline_config().engine_name {
+        Some(name) => USAGE.replacen("<engine>", name, 1),
+        None => USAGE.to_string(),
+    }
+}
 
 /// The only provider `brief run` may use: keyless, local, 0 USD.
 const LOCAL_PROVIDER: &str = "local-image";
@@ -163,11 +182,11 @@ pub fn run_cli(args: &[String]) -> i32 {
     let args = match parse_args(args) {
         Ok(Some(args)) => args,
         Ok(None) => {
-            eprintln!("{USAGE}");
+            eprintln!("{}", usage());
             return 0;
         }
         Err(message) => {
-            eprintln!("{USAGE}");
+            eprintln!("{}", usage());
             println!(
                 "{}",
                 json!({"error": {"code": "bad_usage", "message": message}})
@@ -178,7 +197,7 @@ pub fn run_cli(args: &[String]) -> i32 {
     let caller = match rightkit_media_gen::host::resolve_caller(args.caller.as_deref()) {
         Ok(caller) => caller,
         Err(message) => {
-            eprintln!("{USAGE}");
+            eprintln!("{}", usage());
             println!(
                 "{}",
                 json!({"error": {"code": "bad_usage", "message": message}})
@@ -195,7 +214,7 @@ pub fn run_cli(args: &[String]) -> i32 {
     ) {
         Ok(budget) => budget,
         Err(e) => {
-            eprintln!("{USAGE}");
+            eprintln!("{}", usage());
             println!(
                 "{}",
                 json!({"error": {"code": e.code, "message": e.message}})
@@ -411,7 +430,7 @@ fn register_image(target: &LibraryTarget, p: &Produced, bytes: &[u8], aspect: &s
             if qa_marked() {
                 return skipped("qa_or_debug");
             }
-            let ctx = Context::new(rightkit_media_gen::host::user_data_root());
+            let ctx = Context::production_in(rightkit_media_gen::host::user_data_root());
             let text = |key: &str| p.provenance[key].as_str().unwrap_or("").to_string();
             let (provider, model, job_id) = (text("provider"), text("model"), text("job_id"));
             let asset = library::CallerAsset {
@@ -821,14 +840,20 @@ fn execute(
             Deliverable::Carousel => items.push((deliverable, carousel_images(&brief))),
             Deliverable::Video | Deliverable::Text => skipped.push(json!({
                 "item": format!("deliverable:{}", label(deliverable)),
-                "reason": "not produced by this engine (its envelope payloads are stills and carousel)",
+                "reason": match rightkit_media_gen::host::media_config().app_name.as_deref() {
+                    Some(name) => format!("not produced by {name} (envelope payloads from {name} are stills and carousel)"),
+                    None => "not produced by this engine (its envelope payloads are stills and carousel)".to_string(),
+                },
             })),
         }
     }
     if items.is_empty() {
         return Err(GenError::new(
             "bad_input",
-            "brief requests no deliverable this engine produces (stills, carousel)",
+            format!(
+                "brief requests no deliverable {} produces (stills, carousel)",
+                app_or("this engine")
+            ),
         ));
     }
 
@@ -856,7 +881,13 @@ fn execute(
         let outcome = match (images, model.as_deref()) {
             (Err(e), _) => Err(Fail::new("refused", e.clone())),
             (Ok(_), None) => Err(spend_refusal(
-                "no keyless local image model is installed (the only 0 USD image route), and every other image route is paid",
+                &format!(
+                    "no keyless local image model is installed ({} only 0 USD image route), and every other image route is paid",
+                    match rightkit_media_gen::host::media_config().app_name.as_deref() {
+                        Some(name) => format!("{name}'s"),
+                        None => "the".to_string(),
+                    }
+                ),
             )),
             (Ok(images), Some(model)) => {
                 let aspect = aspect_for(deliverable, &brief.platforms);
@@ -1144,7 +1175,10 @@ fn deliver(
             return Err(fail(
                 "failed",
                 "internal",
-                format!("{name} is not a deliverable of this engine"),
+                match rightkit_media_gen::host::media_config().app_name.as_deref() {
+                    Some(app) => format!("{name} is not a {app} deliverable"),
+                    None => format!("{name} is not a deliverable of this engine"),
+                },
             ))
         }
     };
