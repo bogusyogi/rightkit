@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.2
+
+- Added `Context::production_in(data_dir)`: the host's context (the `set_context_factory` one: its job database file name and credential store) rooted at a given data folder, library override cleared. Default (no factory): `Context::new(data_dir)`, as before. `rightkit-media-gen-models`'s install step and `rightkit-media-pipeline`'s brief caller registration call it instead of `Context::new`, so a host's database is the one they open. GenRight needs no extra call beyond its existing `set_context_factory(genright_protocol::media_context)`; it replaces `media_context_in(dir)` with `Context::production_in(dir)`.
+
 ## 0.2.1
 
 Taken from GenRight's shipped behaviour so it can drop its own copies. Every default keeps RightKit's behaviour; each option is additive.

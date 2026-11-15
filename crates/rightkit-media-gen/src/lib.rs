@@ -90,6 +90,19 @@ impl Context {
             db_file_name: DEFAULT_DB_FILE_NAME.to_string(),
         }
     }
+    /// The host's context rooted at `data_dir`: [`Context::production`] (the registered
+    /// [`set_context_factory`] context, so the host's job database file name and credential
+    /// store) with `data_dir` replaced and any library override cleared (a moved library belongs
+    /// to the host's own root). With no factory it is [`Context::new`]`(data_dir)`. For code that
+    /// is handed a data folder (an install under a chosen folder, a CLI's `--user-root`) and must
+    /// still open the host's database.
+    pub fn production_in(data_dir: PathBuf) -> Self {
+        Self {
+            data_dir,
+            library_override: None,
+            ..Self::production()
+        }
+    }
     /// A context rooted at `data_dir` using the OS keychain.
     pub fn new(data_dir: PathBuf) -> Self {
         Self {
