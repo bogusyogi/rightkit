@@ -95,7 +95,7 @@ fn resolve_provider_credential_with<B: rightkit_llm::agent_providers::KeyStoreBa
     let resolved = match status {
         rightkit_llm::agent_providers::KeySource::Keychain => {
             match backend.get(
-                rightkit_llm::agent_providers::key_migration::SERVICE,
+                rightkit_llm::agent_providers::key_migration::service(),
                 provider,
             ) {
                 Ok(value) if !value.trim().is_empty() => ResolvedProviderCredential::Present {
