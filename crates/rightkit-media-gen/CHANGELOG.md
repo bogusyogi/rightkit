@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.3
+
+- Added `host::MediaHostConfig::keychain_guard` (default `true`) and `credentials::KeychainKeys`, so GenRight can drop its last in-tree keychain copy (`genright_protocol::keychain`). With the default, `host::keychain::store_for` denies every operation when `<PREFIX>_NO_KEYCHAIN` is set, as before. `keychain_guard: false` removes that guard: the store is the plain OS store, and the host environment cannot disable it (the universal guard of `rightkit-credentials` still applies, as it does in GenRight's copy). It governs `store_for`, `keychain_store`, the default (no injected source) `Context` store and `KeychainKeys`. `KeychainKeys` is a `CredentialSource` over `host::keychain::keychain_store()` (`KeychainKeys::open()`, service = the host app identifier). Every default keeps RightKit's behaviour; `MediaHostConfig` has one new public field, so a host that builds it without `..Default::default()` adds it.
+- GenRight's call: add `keychain_guard: false` to its `MediaHostConfig` in `configure_media`; in `media_context` use `credentials: Some(std::sync::Arc::new(rightkit_media_gen::credentials::KeychainKeys::open()))`; use this crate's `rightkit_media_gen::host::keychain::{store_for, keychain_store, DEVICE_ACCOUNT}` for its other stores; then delete `genright-protocol/src/keychain.rs` (`Keys`, `store_for`, `keychain_store`, `DEVICE_ACCOUNT`).
+
 ## 0.2.2
 
 - Added `Context::production_in(data_dir)`: the host's context (the `set_context_factory` one: its job database file name and credential store) rooted at a given data folder, library override cleared. Default (no factory): `Context::new(data_dir)`, as before. `rightkit-media-gen-models`'s install step and `rightkit-media-pipeline`'s brief caller registration call it instead of `Context::new`, so a host's database is the one they open. GenRight needs no extra call beyond its existing `set_context_factory(genright_protocol::media_context)`; it replaces `media_context_in(dir)` with `Context::production_in(dir)`.
