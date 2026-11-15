@@ -51,8 +51,9 @@ pub use denial_tracking::{
     DenialRecord, DenialTracker, Rule, RuleError, RuleSource, RuleStore, ToolRuleTarget,
 };
 pub use deny_globs::{
-    shell_withholds_read, shell_withholds_read_in, DenyGlobError, DenyGlobSet, DEFAULT_READ_DENY,
-    DEFAULT_WRITE_DENY,
+    default_read_deny, default_write_deny, set_state_dir_name, shell_withholds_read,
+    shell_withholds_read_in, state_dir_name, DenyGlobError, DenyGlobSet, DEFAULT_READ_DENY,
+    DEFAULT_STATE_DIR_NAME, DEFAULT_WRITE_DENY,
 };
 pub use destructive::catastrophic_reason;
 pub use engine::{is_test_file, PermissionEngine};
@@ -62,11 +63,12 @@ pub use net_guard::{
 };
 pub use owning_process::{
     owning_process_kill_reason, protected_process_name, register_daemon_lock_path,
-    set_protected_process_name, OwningProcess, DEFAULT_PROTECTED_PROCESS_NAME,
+    set_host_product_name, set_protected_process_name, OwningProcess, DEFAULT_HOST_PRODUCT_NAME,
+    DEFAULT_PROTECTED_PROCESS_NAME,
 };
 pub use pdp::{
-    Attribute, CondOp, Condition, PolicyDecisionPoint, PolicyRequest, PolicyRule,
-    POLICY_INVALID_RULE_PREFIX,
+    fail_closed_hint, set_fail_closed_hint, Attribute, CondOp, Condition, PolicyDecisionPoint,
+    PolicyRequest, PolicyRule, POLICY_INVALID_RULE_PREFIX,
 };
 pub use provenance::{
     durable_write_is_authorized, durable_write_requires_approval, enforce_durable_write_provenance,

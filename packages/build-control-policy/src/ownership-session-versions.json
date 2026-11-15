@@ -523,7 +523,7 @@
     "rightkit-agent-orchestration": "0.1.2",
     "rightkit-agent-orchestration-handoff": "0.1.2",
     "rightkit-agent-plugins": "0.1.2",
-    "rightkit-agent-policy": "0.2.0",
+    "rightkit-agent-policy": "0.2.1",
     "rightkit-agent-recipes": "0.1.2",
     "rightkit-agent-server": "0.2.0",
     "rightkit-agent-skills": "0.1.0",

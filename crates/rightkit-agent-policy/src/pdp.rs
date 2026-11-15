@@ -605,15 +605,33 @@ impl PolicyDecisionPoint {
                 );
             }
         }
+        let hint = fail_closed_hint()
+            .map(|hint| format!(" {hint}"))
+            .unwrap_or_default();
         pdp.add_rule(PolicyRule::new(
             format!(
-                "{POLICY_INVALID_RULE_PREFIX}: {source} could not be loaded ({error}); every tool call is denied. Fix {fix_target}, then start a new session (the policy is read only when a session starts)."
+                "{POLICY_INVALID_RULE_PREFIX}: {source} could not be loaded ({error}); every tool call is denied. Fix {fix_target}, then start a new session (the policy is read only when a session starts).{hint}"
             ),
             PermissionDecision::Deny,
             "*",
         ));
         pdp
     }
+}
+
+static FAIL_CLOSED_HINT: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+/// Set a host hint that [`PolicyDecisionPoint::fail_closed`] appends to the deny rule's text,
+/// after one space (for example ``Run `myapp doctor` to check it``; write its own closing
+/// punctuation, none is added). Unset, the text ends at "...starts)." Call once at startup;
+/// returns `false` (and changes nothing) if a hint was already set or `hint` is empty.
+pub fn set_fail_closed_hint(hint: &str) -> bool {
+    !hint.is_empty() && FAIL_CLOSED_HINT.set(hint.to_string()).is_ok()
+}
+
+/// The host hint in effect, if any.
+pub fn fail_closed_hint() -> Option<&'static str> {
+    FAIL_CLOSED_HINT.get().map(String::as_str)
 }
 
 /// The only tools a broken-policy recovery rule may ask for.
