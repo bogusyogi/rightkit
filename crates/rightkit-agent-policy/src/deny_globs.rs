@@ -1,7 +1,60 @@
 use globset::{GlobBuilder, GlobSet, GlobSetBuilder};
 use serde::{Deserialize, Serialize};
 
-/// Default paths that are always denied for reads. This is the *only*
+/// Workspace state folder name (with its leading dot) until the host calls
+/// [`set_state_dir_name`]. The folder's `runtime` subdirectory holds the daemon discovery file
+/// (it carries the API token), so `**/<state-dir>/runtime/**` is denied for read and write.
+pub const DEFAULT_STATE_DIR_NAME: &str = ".rightkit";
+
+static HOST_STATE_DIR_NAME: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+/// Set the host's workspace state folder name, with its leading dot (for example `.myapp`).
+/// Call once at startup before any engine or [`DenyGlobSet`] is built; returns `false` (and
+/// changes nothing) if a name was already set or `name` is empty. Hosts that also use
+/// `rightkit-agent-config` set the same name there through its own `set_state_dir_name`.
+pub fn set_state_dir_name(name: &str) -> bool {
+    !name.is_empty() && HOST_STATE_DIR_NAME.set(name.to_string()).is_ok()
+}
+
+/// The workspace state folder name in effect.
+pub fn state_dir_name() -> &'static str {
+    HOST_STATE_DIR_NAME
+        .get()
+        .map(String::as_str)
+        .unwrap_or(DEFAULT_STATE_DIR_NAME)
+}
+
+/// The glob that denies the state folder's `runtime` directory (`**/<state-dir>/runtime/**`).
+fn runtime_deny_glob() -> String {
+    format!("**/{}/runtime/**", state_dir_name())
+}
+
+/// [`DEFAULT_READ_DENY`] with the runtime glob of the state folder in effect
+/// ([`state_dir_name`]). Equal to [`DEFAULT_READ_DENY`] until the host sets a name.
+pub fn default_read_deny() -> Vec<String> {
+    with_runtime_glob(DEFAULT_READ_DENY)
+}
+
+/// [`DEFAULT_WRITE_DENY`] with the runtime glob of the state folder in effect
+/// ([`state_dir_name`]). Equal to [`DEFAULT_WRITE_DENY`] until the host sets a name.
+pub fn default_write_deny() -> Vec<String> {
+    with_runtime_glob(DEFAULT_WRITE_DENY)
+}
+
+fn with_runtime_glob(list: &[&str]) -> Vec<String> {
+    list.iter()
+        .map(|s| {
+            if *s == "**/.rightkit/runtime/**" {
+                runtime_deny_glob()
+            } else {
+                s.to_string()
+            }
+        })
+        .collect()
+}
+
+/// Default paths that are always denied for reads (with the default state folder
+/// `.rightkit`; see [`default_read_deny`] for the list in effect). This is the *only*
 /// filesystem protection on macOS/Windows (Landlock is Linux-only), so the list
 /// covers the common cloud/package/key credential stores, not just `.ssh`/`.env`.
 pub const DEFAULT_READ_DENY: &[&str] = &[
@@ -27,13 +80,14 @@ pub const DEFAULT_READ_DENY: &[&str] = &[
     "**/*.p12",
     "**/*.pfx",
     "**/*.jks",
-    // Host runtime credentials (hosts with their own state dir add `**/<state-dir>/runtime/**` via `with_additional_patterns`) (daemon discovery file carries the API token)
+    // Host runtime credentials (daemon discovery file carries the API token); the last entry follows `set_state_dir_name`
     "**/daemon.port",
     "**/daemon.lock",
     "**/.rightkit/runtime/**",
 ];
 
-/// Default paths that are always denied for writes. Beyond VCS/build internals,
+/// Default paths that are always denied for writes (with the default state folder
+/// `.rightkit`; see [`default_write_deny`] for the list in effect). Beyond VCS/build internals,
 /// this blocks shell-init and auth files an agent could use to persist itself.
 pub const DEFAULT_WRITE_DENY: &[&str] = &[
     ".git/**",
@@ -48,7 +102,7 @@ pub const DEFAULT_WRITE_DENY: &[&str] = &[
     "**/.bash_profile",
     "**/.gitconfig",
     "**/authorized_keys",
-    // Host runtime credentials (hosts with their own state dir add `**/<state-dir>/runtime/**` via `with_additional_patterns`) / owning-process state
+    // Host runtime credentials / owning-process state; the last entry follows `set_state_dir_name`
     "**/daemon.port",
     "**/daemon.lock",
     "**/.rightkit/runtime/**",
@@ -56,15 +110,16 @@ pub const DEFAULT_WRITE_DENY: &[&str] = &[
 
 /// The subset of [`DEFAULT_READ_DENY`] the Linux shell sandbox withholds from the
 /// Landlock ruleset, matched on a workspace-relative path: `.env`, `*.pem`,
-/// `daemon.port`, `daemon.lock` (files) and `.rightkit/runtime` (directory).
-/// Names compare case-insensitively, like the globs. A host with its own state
-/// folder calls [`shell_withholds_read_in`] with that folder's name.
+/// `daemon.port`, `daemon.lock` (files) and `<state-dir>/runtime` (directory), where the
+/// state folder is `.rightkit` until the host calls [`set_state_dir_name`].
+/// Names compare case-insensitively, like the globs. The state folder is the one in
+/// effect ([`state_dir_name`]); [`shell_withholds_read_in`] takes the name explicitly.
 ///
 /// `*secret*`, `*credential*` and `*.key` are excluded on purpose: they match source
 /// files and directories (`secrets.rs`, `credentials.go`, `foo.key` fixtures), and
 /// withholding those would break compilers and test runners.
 pub fn shell_withholds_read(rel: &std::path::Path, is_dir: bool) -> bool {
-    shell_withholds_read_in(rel, is_dir, ".rightkit")
+    shell_withholds_read_in(rel, is_dir, state_dir_name())
 }
 
 /// [`shell_withholds_read`] for a host whose runtime directory lives under
@@ -126,11 +181,8 @@ pub struct DenyGlobSet {
 impl DenyGlobSet {
     /// Build with the default deny lists.
     pub fn new() -> Self {
-        Self::with_patterns(
-            DEFAULT_READ_DENY.iter().map(|s| s.to_string()),
-            DEFAULT_WRITE_DENY.iter().map(|s| s.to_string()),
-        )
-        .expect("default deny globs are always valid")
+        Self::with_patterns(default_read_deny(), default_write_deny())
+            .expect("default deny globs are always valid")
     }
 
     /// Default lists extended with user-configured patterns (`[permissions]
@@ -140,14 +192,8 @@ impl DenyGlobSet {
         extra_write: impl IntoIterator<Item = String>,
     ) -> Result<Self, DenyGlobError> {
         Self::with_patterns(
-            DEFAULT_READ_DENY
-                .iter()
-                .map(|s| s.to_string())
-                .chain(extra_read),
-            DEFAULT_WRITE_DENY
-                .iter()
-                .map(|s| s.to_string())
-                .chain(extra_write),
+            default_read_deny().into_iter().chain(extra_read),
+            default_write_deny().into_iter().chain(extra_write),
         )
     }
 

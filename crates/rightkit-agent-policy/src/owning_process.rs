@@ -77,6 +77,32 @@ pub fn protected_process_name() -> String {
         .unwrap_or_else(|| DEFAULT_PROTECTED_PROCESS_NAME.to_string())
 }
 
+/// Name the denial reasons use for the host until the host calls [`set_host_product_name`].
+pub const DEFAULT_HOST_PRODUCT_NAME: &str = "host";
+
+static HOST_PRODUCT_NAME: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+/// Set the host's product name as denial reasons spell it (for example `MyApp`). Reasons read
+/// "the MyApp runtime itself", "myapp stop/serve/restart/service control" and "target is the
+/// myapp process by name": the name as given, then lower-cased. Unset, all three say `host`.
+/// Wording only, the protected set comes from [`set_protected_process_name`]. Call once at
+/// startup; returns `false` (and changes nothing) if a name was already set or `name` is empty.
+pub fn set_host_product_name(name: &str) -> bool {
+    let name = name.trim();
+    !name.is_empty() && HOST_PRODUCT_NAME.set(name.to_string()).is_ok()
+}
+
+fn host_display_name() -> &'static str {
+    HOST_PRODUCT_NAME
+        .get()
+        .map(String::as_str)
+        .unwrap_or(DEFAULT_HOST_PRODUCT_NAME)
+}
+
+fn host_lower_name() -> String {
+    host_display_name().to_ascii_lowercase()
+}
+
 fn protected_names() -> Vec<String> {
     let base = protected_process_name();
     ["", "d", "-daemon", "-cli", "-tui", "-host"]
@@ -285,7 +311,10 @@ fn check_lifecycle_stage(stage: &[String]) -> Option<String> {
             let a = clean(arg).to_ascii_lowercase();
             if CLI_LIFECYCLE_VERBS.contains(&a.as_str()) && !(a == "service" && service_status_only)
             {
-                return Some(deny("host stop/serve/restart/service control"));
+                return Some(deny(&format!(
+                    "{} stop/serve/restart/service control",
+                    host_lower_name()
+                )));
             }
         }
     }
@@ -315,8 +344,9 @@ fn check_lifecycle_stage(stage: &[String]) -> Option<String> {
 
 fn deny(what: &str) -> String {
     format!(
-        "refusing to signal or terminate the host runtime itself ({what}); \
-         owning-process protection cannot be approved or bypassed"
+        "refusing to signal or terminate the {} runtime itself ({what}); \
+         owning-process protection cannot be approved or bypassed",
+        host_display_name()
     )
 }
 
@@ -373,7 +403,10 @@ fn check_target_tokens(args: &[String], owner: &OwningProcess, allow_ppid: bool)
                 return Some(reason);
             }
             if is_protected_name(&candidate) {
-                return Some(deny("target is the host process by name"));
+                return Some(deny(&format!(
+                    "target is the {} process by name",
+                    host_lower_name()
+                )));
             }
         }
     }

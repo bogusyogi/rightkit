@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.1
+
+Additive: every setting below is once per process, set by the host at startup, and the default behaviour is unchanged for hosts that set none. They let CodeRight's `crates/policy` copy be replaced by this crate with byte-identical decisions.
+
+- New `set_state_dir_name(name) -> bool` (default `.rightkit`, `DEFAULT_STATE_DIR_NAME`), `state_dir_name()`, `default_read_deny()` and `default_write_deny()`. Safety: the runtime-folder deny glob `**/<state-dir>/runtime/**` (the folder holds the daemon discovery file with the API token) was hard-coded to `.rightkit`; it now follows the setting in `DenyGlobSet::new`, `with_additional_patterns`, `PermissionEngine::new`, `PermissionEngine::with_pdp` and `shell_withholds_read`. `DEFAULT_READ_DENY` and `DEFAULT_WRITE_DENY` stay as they were (default state folder); the two functions return the lists in effect. The setting is separate from `rightkit-agent-config`'s `set_state_dir_name` (this crate cannot depend on it), so a host using both sets both. CodeRight calls `set_state_dir_name(".coderight")`.
+- New `set_host_product_name(name) -> bool` (default `host`, `DEFAULT_HOST_PRODUCT_NAME`): wording of the owning-process denial reasons. Reasons read "the <name> runtime itself", "<name lower-cased> stop/serve/restart/service control" and "target is the <name lower-cased> process by name". The outcome is unchanged and the protected set still comes from `set_protected_process_name`. CodeRight calls `set_protected_process_name("coderight")` and `set_host_product_name("CodeRight")`.
+- New `set_fail_closed_hint(hint) -> bool` (default none) and `fail_closed_hint()`: `PolicyDecisionPoint::fail_closed` appends the hint to the deny rule's text after one space. CodeRight calls `set_fail_closed_hint("Run `coderight doctor` to check it")`, which gives its text "...(the policy is read only when a session starts). Run `coderight doctor` to check it".
+- Not changed: CodeRight's policy has no `list_mcp_sources` capability class (this crate classes it read-only); a host with no such tool is unaffected.
+
 ## 0.2.0
 
 - Depends on `rightkit-agent-engine-protocol` 0.4.0 (additive events and fields, see its changelog). Breaking for dependents: the crate exposes protocol types in its public API, so those types are now the 0.4 ones.

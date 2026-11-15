@@ -10301,7 +10301,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-agent-policy"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "globset",
  "libc 0.2.191",
