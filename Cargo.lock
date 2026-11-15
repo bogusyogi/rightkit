@@ -10252,6 +10252,7 @@ dependencies = [
  "rightkit-agent-engine-protocol",
  "rightkit-agent-engine-tasks",
  "rightkit-agent-host-traits",
+ "rightkit-agent-policy",
  "rightkit-agent-telemetry",
  "rightkit-cache",
  "rightkit-code-audit-provider-sdk",

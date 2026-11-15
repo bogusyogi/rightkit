@@ -5,7 +5,6 @@ use serde::{Deserialize, Serialize};
 use crate::coding::failure::FailureKind;
 
 const REPORT_SCHEMA_VERSION: &str = "coderight.executed-bakeoff.v1";
-const TASK_ID_DOMAIN: &[u8] = b"rightkit-agent/r1b/task-id/v1";
 
 /// Opaque, non-sequential task identifier safe to include in reports.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -37,7 +36,7 @@ impl TaskIdentity<'_> {
         }
 
         let mut message = Vec::new();
-        message.extend_from_slice(TASK_ID_DOMAIN);
+        message.extend_from_slice(crate::coding::host::task_id_domain().as_bytes());
         append_framed(&mut message, self.suite_namespace.as_bytes());
         append_framed(&mut message, self.case_nonce.as_bytes());
         let digest = rightkit_crypto::hmac_sha256(self.private_corpus_secret, &message);
