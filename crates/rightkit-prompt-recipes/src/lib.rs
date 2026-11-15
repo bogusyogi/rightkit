@@ -4,7 +4,7 @@
 //! crate ships none.
 //!
 //! The default build is the pure library: no engine, no database, no network. Feature
-//! `commands` adds the `studio.<area>.*` command handlers ([`commands`], [`dispatch`]), a thin
+//! `commands` adds the `studio.<area>.*` command handlers (`commands`, `dispatch`), a thin
 //! adapter that runs them against a `rightkit_media_gen::Context` (drafts under its data folder,
 //! dry runs and model lists through its API) and the approval gate of
 //! `rightkit-media-gen-approvals`. Swap templates and the recipe catalogue join the engine's model
