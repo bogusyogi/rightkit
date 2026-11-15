@@ -90,6 +90,15 @@ impl RoutingPolicy {
     /// Resolve a named preset, defaulting to conservative for any unknown
     /// name (fail safe, never fail aggressive).
     pub fn preset_by_name(name: &str) -> Self {
+        // With the host's `lenient_policy_names`, case and surrounding whitespace do not matter
+        // (`" Balanced"` is balanced); by default only the exact lower-case name is a preset.
+        let lenient;
+        let name = if crate::agent_providers::host::host_options().lenient_policy_names {
+            lenient = name.trim().to_ascii_lowercase();
+            lenient.as_str()
+        } else {
+            name
+        };
         match name {
             "balanced" => Self::balanced(),
             "aggressive" => Self::aggressive(),

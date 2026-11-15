@@ -5,8 +5,14 @@
 use crate::agent_providers::keystore::{KeyStoreBackend, KeyStoreError};
 use std::sync::atomic::{AtomicBool, Ordering};
 
-/// The service name provider keys are stored under in the OS keychain.
+/// The service name provider keys are stored under in the OS keychain until the host calls
+/// [`crate::agent_providers::host::set_keychain_service`]; [`service`] is the one in force.
 pub const SERVICE: &str = "rightkit-agent";
+
+/// The keychain service provider keys are stored under now.
+pub fn service() -> &'static str {
+    super::host::keychain_service()
+}
 
 static KEYCHAIN_FAILURE_OBSERVED: AtomicBool = AtomicBool::new(false);
 
@@ -29,6 +35,12 @@ pub fn provider_key_storage_health() -> ProviderKeyStorageHealth {
 pub enum KeySource {
     /// Value came from a process environment variable.
     Env,
+    /// Value came from the process environment on a host with no credential store (reported as
+    /// `environment`; only a [`KeyStoreBackend::found_in`] override produces it).
+    Environment,
+    /// Value came from the key file in the state root (reported as `dotenv`; only a
+    /// [`KeyStoreBackend::found_in`] override produces it).
+    DotEnv,
     /// Value came from the OS keychain.
     Keychain,
     /// No key configured anywhere.
@@ -49,6 +61,8 @@ impl KeySource {
     pub fn as_str(self) -> &'static str {
         match self {
             KeySource::Env => "env",
+            KeySource::Environment => "environment",
+            KeySource::DotEnv => "dotenv",
             KeySource::Keychain => "keychain",
             KeySource::Missing => "missing",
             KeySource::Unreadable => "unreadable",
@@ -58,10 +72,16 @@ impl KeySource {
     /// Guidance for the user, or `None` when nothing is wrong.
     pub fn remedy(self) -> Option<&'static str> {
         match self {
-            KeySource::Unreadable => Some(
-                "A saved key exists but this build of Host cannot open it. \
-                 Re-enter it in Settings > Providers to rebind it to this build.",
-            ),
+            KeySource::Unreadable => {
+                static REMEDY: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+                Some(REMEDY.get_or_init(|| {
+                    format!(
+                        "A saved key exists but this build of {} cannot open it. \
+                         Re-enter it in Settings > Providers to rebind it to this build.",
+                        super::host::message_label()
+                    )
+                }))
+            }
             _ => None,
         }
     }
@@ -70,7 +90,7 @@ impl KeySource {
 /// Read a provider key from the keychain. `None` when absent, blank, or unreadable (a keychain
 /// error is recorded in [`provider_key_storage_health`]). Never logs the key value.
 pub fn read_key<B: KeyStoreBackend>(backend: &B, provider_id: &str) -> Option<String> {
-    match backend.get(SERVICE, provider_id) {
+    match backend.get(service(), provider_id) {
         Ok(value) if !value.trim().is_empty() => Some(value),
         Err(KeyStoreError::Keyring(_)) => {
             KEYCHAIN_FAILURE_OBSERVED.store(true, Ordering::Relaxed);
@@ -87,10 +107,10 @@ pub fn write_key<B: KeyStoreBackend>(
     provider_id: &str,
     value: &str,
 ) -> Result<(), String> {
-    let set_result = backend.set(SERVICE, provider_id, value);
+    let set_result = backend.set(service(), provider_id, value);
     let verified = set_result.is_ok()
         && backend
-            .get(SERVICE, provider_id)
+            .get(service(), provider_id)
             .map(|got| got == value)
             .unwrap_or(false);
     if verified {
@@ -110,7 +130,7 @@ pub fn write_key<B: KeyStoreBackend>(
 /// Remove a provider key from the keychain. Reports success if the key is gone, whether or not
 /// it was there.
 pub fn remove_key<B: KeyStoreBackend>(backend: &B, provider_id: &str) -> Result<(), String> {
-    match backend.delete(SERVICE, provider_id) {
+    match backend.delete(service(), provider_id) {
         Ok(()) => Ok(()),
         // Nothing to remove is the desired end state, not a failure.
         Err(KeyStoreError::NotFound { .. }) => Ok(()),
@@ -122,8 +142,8 @@ pub fn remove_key<B: KeyStoreBackend>(backend: &B, provider_id: &str) -> Result<
 pub fn status_source<B: KeyStoreBackend>(backend: &B, provider_id: &str) -> KeySource {
     // Distinguish "no item" from "item exists but the OS refused us": collapsing both into
     // Missing reported a key the user had definitely saved as never entered.
-    match backend.get(SERVICE, provider_id) {
-        Ok(value) if !value.trim().is_empty() => KeySource::Keychain,
+    match backend.get(service(), provider_id) {
+        Ok(value) if !value.trim().is_empty() => backend.found_in(service(), provider_id),
         // An empty stored value is indistinguishable from none.
         Ok(_) | Err(KeyStoreError::NotFound { .. }) => KeySource::Missing,
         // A real error from the keychain (typically errSecAuthFailed /

@@ -564,6 +564,9 @@ impl ExtensionProviderRegistration {
             supported_efforts: None,
             tool_schema_class: model.tool_schema_class.clone(),
             vision: model.vision,
+            long_context_threshold_tokens: None,
+            long_prompt_per_m: None,
+            long_completion_per_m: None,
         })
     }
 

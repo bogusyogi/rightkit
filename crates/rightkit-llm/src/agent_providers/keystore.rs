@@ -5,6 +5,8 @@
 //! [`KeyStoreBackend`] is a trait seam so callers can inject an in-memory
 //! fake in tests without touching a real OS credential store.
 
+use super::key_migration::KeySource;
+
 /// Errors from the key store.
 #[derive(Debug, thiserror::Error)]
 pub enum KeyStoreError {
@@ -60,6 +62,13 @@ pub trait KeyStoreBackend {
     ) -> Result<KeyDelete, KeyStoreError> {
         Ok(KeyDelete::Unsupported)
     }
+
+    /// Which store served `key`, for [`crate::agent_providers::key_migration::status_source`] when the
+    /// item is present. A backend that fronts more than one store (a key file beside the keychain)
+    /// overrides this; the default answers [`KeySource::Keychain`].
+    fn found_in(&self, _service: &str, _key: &str) -> KeySource {
+        KeySource::Keychain
+    }
 }
 
 /// Zero-sized handle onto the real OS keychain, so it can be passed wherever
@@ -112,7 +121,14 @@ pub struct KeyStore;
 /// can never stick.
 pub const DISABLE_ENV: &str = "RIGHTKIT_DISABLE_OS_KEYCHAIN";
 
-/// Whether OS-keychain access is suppressed for this process.
+/// The name of the kill-switch variable in force: `<PREFIX>_DISABLE_OS_KEYCHAIN` for the host's
+/// `rightkit_agent_config::env_prefix` (equal to [`DISABLE_ENV`] until the host sets one).
+pub fn disable_env_name() -> String {
+    rightkit_agent_config::env_name("DISABLE_OS_KEYCHAIN")
+}
+
+/// Whether OS-keychain access is suppressed for this process. Always `false` when the host set
+/// [`crate::agent_providers::host::ProviderHostOptions::ignore_keychain_disable_env`].
 ///
 /// Under `cargo test` this is unconditionally true. Every rebuilt test binary
 /// has a fresh hash, so macOS treats it as a new application and re-prompts;
@@ -125,8 +141,11 @@ pub const DISABLE_ENV: &str = "RIGHTKIT_DISABLE_OS_KEYCHAIN";
 ///
 /// The env var lets a developer running the daemon locally opt out of keychain access.
 #[cfg(feature = "agent_providers-os-keyring")]
-fn keychain_disabled() -> bool {
-    std::env::var_os(DISABLE_ENV).is_some_and(|v| v == "1")
+pub fn keychain_disabled() -> bool {
+    if super::host::host_options().ignore_keychain_disable_env {
+        return false;
+    }
+    std::env::var_os(disable_env_name()).is_some_and(|v| v == "1")
 }
 
 /// Per-call cap for background keychain operations. macOS blocks a keychain
@@ -151,7 +170,7 @@ pub(crate) fn secret_store(service: &str) -> Result<rightkit_credentials::Store,
 fn secret_error(error: rightkit_credentials::Error) -> KeyStoreError {
     match error {
         rightkit_credentials::Error::Guarded { .. } => {
-            KeyStoreError::Keyring(format!("os keychain disabled via {DISABLE_ENV}"))
+            KeyStoreError::Keyring(format!("os keychain disabled via {}", disable_env_name()))
         }
         other => KeyStoreError::Keyring(other.to_string()),
     }
@@ -159,8 +178,6 @@ fn secret_error(error: rightkit_credentials::Error) -> KeyStoreError {
 
 #[cfg(feature = "agent_providers-os-keyring")]
 impl KeyStore {
-    const SERVICE: &'static str = "rightkit-agent";
-
     /// Retrieve a value from the key store.
     pub fn get(service: &str, key: &str) -> Result<String, KeyStoreError> {
         let secret = secret_store(service)?
@@ -235,22 +252,22 @@ impl KeyStore {
 
     /// Get the default service name used by the host app.
     pub fn default_service() -> &'static str {
-        Self::SERVICE
+        super::host::keychain_service()
     }
 
     /// Convenience: get a provider API key using the default service.
     pub fn get_api_key(provider_slug: &str) -> Result<String, KeyStoreError> {
-        Self::get(Self::SERVICE, provider_slug)
+        Self::get(super::host::keychain_service(), provider_slug)
     }
 
     /// Convenience: set a provider API key using the default service.
     pub fn set_api_key(provider_slug: &str, value: &str) -> Result<(), KeyStoreError> {
-        Self::set(Self::SERVICE, provider_slug, value)
+        Self::set(super::host::keychain_service(), provider_slug, value)
     }
 
     /// Convenience: delete a provider API key using the default service.
     pub fn delete_api_key(provider_slug: &str) -> Result<(), KeyStoreError> {
-        Self::delete(Self::SERVICE, provider_slug)
+        Self::delete(super::host::keychain_service(), provider_slug)
     }
 }
 

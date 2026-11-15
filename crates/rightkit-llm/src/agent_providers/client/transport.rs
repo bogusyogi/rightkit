@@ -7,7 +7,7 @@
 //! unchanged; only the module boundary is new.
 //! See `.audit/20260901-daemon-deep-r3/architect/decomposition-plans.md`.
 
-use super::breaker::{breaker_allows_request, breaker_record_outcome, is_breaker_relevant_failure};
+use super::breaker::{breaker_admit, is_breaker_relevant_failure};
 use super::retry::{
     observe_stream_breaker_outcome, parse_openai_rate_limit_headers,
     record_stream_establishment_outcome, retry_after_secs,
@@ -27,6 +27,16 @@ use crate::agent_providers::transport::{
 use crate::reassembler::ToolCallChunkReassembler;
 use futures::StreamExt;
 use rightkit_agent_engine_protocol::ToolCall;
+
+/// Id for a tool call recovered from model text (`tool_emulation`).
+fn next_emulated_call_id() -> String {
+    static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_nanos());
+    format!("emul_{nanos:x}_{n}")
+}
 
 use super::{
     CapacityError, CapacityProfileV1, PreparedModalityV1, PreparedProviderRequestV1,
@@ -72,13 +82,49 @@ struct CodexStreamAccum {
     text: String,
     reasoning: String,
     tool_calls: std::collections::BTreeMap<String, (String, String)>,
+    /// Call ids in the order the stream announced them.
+    call_order: Vec<String>,
     item_to_call: std::collections::BTreeMap<String, String>,
+    /// Model the turn ran on; keys the replayed reasoning items.
+    model_key: String,
+    /// Encrypted reasoning items of the turn, kept for replay with its tool calls.
+    reasoning_items: Vec<serde_json::Value>,
     finish_reason: Option<String>,
     prompt_tokens: u32,
     completion_tokens: u32,
     cache_read_tokens: u32,
     reasoning_tokens: u32,
     got_terminal: bool,
+}
+
+impl CodexStreamAccum {
+    /// The completed calls: in arrival order when the host set `ordered_codex_tool_calls`,
+    /// else sorted by call id.
+    fn ordered_tool_calls(&self) -> Vec<ToolCall> {
+        let make = |id: &String, name: &String, arguments_json: &String| ToolCall {
+            id: id.clone(),
+            name: name.clone(),
+            arguments_json: if arguments_json.trim().is_empty() {
+                "{}".into()
+            } else {
+                arguments_json.clone()
+            },
+        };
+        if crate::agent_providers::host::host_options().ordered_codex_tool_calls {
+            self.call_order
+                .iter()
+                .filter_map(|id| {
+                    let (name, arguments_json) = self.tool_calls.get(id)?;
+                    Some(make(id, name, arguments_json))
+                })
+                .collect()
+        } else {
+            self.tool_calls
+                .iter()
+                .map(|(id, (name, arguments_json))| make(id, name, arguments_json))
+                .collect()
+        }
+    }
 }
 
 fn apply_codex_event(
@@ -115,6 +161,9 @@ fn apply_codex_event(
                     .unwrap_or_default()
                     .to_string();
                 if !id.is_empty() {
+                    if !accum.tool_calls.contains_key(&id) {
+                        accum.call_order.push(id.clone());
+                    }
                     accum.tool_calls.entry(id).or_insert((name, String::new()));
                 }
                 if let (Some(item_id), Some(call_id)) = (
@@ -189,6 +238,11 @@ fn apply_codex_event(
             let item = event.get("item").unwrap_or(&serde_json::Value::Null);
             // Some backends deliver the summary only on the completed
             // reasoning item, with no summary-text deltas.
+            if item.get("type").and_then(serde_json::Value::as_str) == Some("reasoning")
+                && item.get("encrypted_content").is_some()
+            {
+                accum.reasoning_items.push(item.clone());
+            }
             if item.get("type").and_then(serde_json::Value::as_str) == Some("reasoning")
                 && accum.reasoning.trim().is_empty()
             {
@@ -265,6 +319,14 @@ fn apply_codex_event(
                         .and_then(|value| value.get("reasoning_tokens")),
                 );
             }
+            if !accum.reasoning_items.is_empty() {
+                super::remember_codex_reasoning(
+                    &accum.model_key,
+                    accum.call_order.first().map(String::as_str),
+                    &accum.text,
+                    std::mem::take(&mut accum.reasoning_items),
+                );
+            }
             accum.got_terminal = true;
         }
         "response.failed" | "error" => {
@@ -296,15 +358,18 @@ fn apply_codex_event(
 
 fn codex_responses_event_stream(
     response: crate::agent_providers::http::ProviderHttpResponse,
+    model_key: String,
 ) -> ProviderResponseStream {
     codex_responses_event_stream_with_deadline(
         response,
+        model_key,
         std::time::Duration::from_secs(SEMANTIC_PROGRESS_SECS),
     )
 }
 
 fn codex_responses_event_stream_with_deadline(
     response: crate::agent_providers::http::ProviderHttpResponse,
+    model_key: String,
     progress_limit: std::time::Duration,
 ) -> ProviderResponseStream {
     let output = async_stream::try_stream! {
@@ -312,7 +377,9 @@ fn codex_responses_event_stream_with_deadline(
         let mut last_progress = std::time::Instant::now();
         let mut progress_mark = 0usize;
         let mut decoder = rightkit_http::SseDecoder::eager();
-        let mut accum = CodexStreamAccum::default();
+        let mut accum = CodexStreamAccum { model_key, ..Default::default() };
+        let mut previews = crate::agent_providers::partial_tool_args::ToolArgsPreviews::default();
+        let preview_events = crate::agent_providers::host::host_options().partial_tool_argument_events;
         let mut emitted = std::collections::HashSet::new();
         let mut delivered_text_bytes = 0;
         let mut delivered_reasoning_bytes = 0;
@@ -330,6 +397,14 @@ fn codex_responses_event_stream_with_deadline(
                 let event: serde_json::Value = serde_json::from_str(payload)
                     .map_err(|_| ProviderError::Sse("invalid Codex Responses SSE JSON".into()))?;
                 let event_type = event.get("type").and_then(serde_json::Value::as_str).unwrap_or("");
+                if preview_events && event_type == "response.function_call_arguments.delta" {
+                    let raw_id = event.get("item_id").or_else(|| event.get("call_id")).and_then(serde_json::Value::as_str).unwrap_or_default();
+                    let id = accum.item_to_call.get(raw_id).map(String::as_str).unwrap_or(raw_id);
+                    if let Some((name, _)) = accum.tool_calls.get(id) {
+                        let fragment = event.get("delta").and_then(serde_json::Value::as_str).unwrap_or_default();
+                        if let Some(preview) = previews.push(id, id, name, fragment) { yield preview; }
+                    }
+                }
                 apply_codex_event(event.clone(), &mut accum)?;
                 let mark = accum.text.len()
                     + accum.reasoning.len()
@@ -362,9 +437,7 @@ fn codex_responses_event_stream_with_deadline(
                     _ => {}
                 }
                 if accum.got_terminal {
-                    let calls = accum.tool_calls.iter().map(|(id, (name, arguments_json))| ToolCall {
-                        id: id.clone(), name: name.clone(), arguments_json: if arguments_json.trim().is_empty() { "{}".into() } else { arguments_json.clone() },
-                    }).collect::<Vec<_>>();
+                    let calls = accum.ordered_tool_calls();
                     validate_complete_tool_calls(&calls)?;
                     for call in calls {
                         if emitted.insert(call.id.clone()) { yield ProviderStreamEvent::ToolCall(call); }
@@ -396,23 +469,10 @@ fn prepare_actual_chat_request(
     metadata: &ProviderRequestMetadata,
     continuation: bool,
 ) -> Result<PreparedProviderRequestV1, ProviderError> {
-    let Some(capability) = crate::agent_providers::model_metadata::capability_of(&client.model_id)
-    else {
-        return Err(ProviderError::Capacity(
-            CapacityError::CapacityUnavailable {
-                route_id: client.base_url.clone(),
-                reason: format!("no loaded model metadata for {}", client.model_id),
-            },
-        ));
-    };
-    let profile = capability.capacity_profile(
-        client.base_url.clone(),
-        Some(
-            crate::agent_providers::model_metadata::catalog_status()
-                .version
-                .clone(),
-        ),
-    );
+    let profile = crate::agent_providers::model_metadata::send_capacity_profile(
+        &client.model_id,
+        &client.base_url,
+    )?;
     let draft_body = serde_json::to_value(body).map_err(|error| {
         super::RequestAuthorityErrorV1::InvalidResponse {
             reason: error.to_string(),
@@ -473,6 +533,14 @@ fn with_headers(
     request
 }
 
+/// Whether `url` names OpenRouter (`openrouter.ai` or a subdomain).
+pub fn url_is_openrouter(url: &str) -> bool {
+    url::Url::parse(url)
+        .ok()
+        .and_then(|parsed| parsed.host_str().map(str::to_ascii_lowercase))
+        .is_some_and(|host| host == "openrouter.ai" || host.ends_with(".openrouter.ai"))
+}
+
 impl OpenAiCompatClient {
     pub(super) fn request_builder(&self, url: &str) -> rightkit_http::Request {
         let mut request = rightkit_http::Request::post(url).header("Accept-Encoding", "identity");
@@ -485,13 +553,17 @@ impl OpenAiCompatClient {
             }
             request
         } else {
-            request
-                .bearer(&self.api_key)
-                .header(
-                    "HTTP-Referer",
-                    "https://github.com/adrdsouza/rightkit-agent",
-                )
-                .header("X-Title", "Agent")
+            let request = request.bearer(&self.api_key);
+            if !crate::agent_providers::host::host_options().attribution_for_openrouter_only
+                || url_is_openrouter(url)
+            {
+                let (referer, title) = crate::agent_providers::host::openrouter_attribution();
+                request
+                    .header("HTTP-Referer", referer)
+                    .header("X-Title", title)
+            } else {
+                request
+            }
         }
     }
 
@@ -540,12 +612,28 @@ impl OpenAiCompatClient {
         tools: Vec<serde_json::Value>,
         metadata: &ProviderRequestMetadata,
     ) -> Result<CompletedTurn, ProviderError> {
-        if !breaker_allows_request(&self.base_url) {
+        if self.compat.emulate_tool_calls && !tools.is_empty() {
+            let emulation = crate::agent_providers::tool_emulation::Emulation::new(&tools);
+            let messages = emulation.rewrite_messages(wire_messages);
+            let mut plain = self.clone();
+            plain.compat.emulate_tool_calls = false;
+            let mut turn =
+                Box::pin(plain.complete_with_tools_metadata(messages, Vec::new(), metadata))
+                    .await?;
+            let (text, calls) = emulation.parse_reply(&turn.text, next_emulated_call_id);
+            if !calls.is_empty() {
+                turn.text = text;
+                turn.tool_calls.extend(calls);
+                turn.finish_reason = Some("tool_calls".to_string());
+            }
+            return Ok(turn);
+        }
+        let Some(mut admission) = breaker_admit(&self.base_url, &self.model_id) else {
             return Err(ProviderError::Provider(format!(
                 "circuit breaker open for {}: provider has been failing repeatedly, refusing this request to avoid hammering it",
                 self.base_url
             )));
-        }
+        };
         let result = match self
             .complete_with_tools_metadata_inner(
                 wire_messages.clone(),
@@ -616,7 +704,7 @@ impl OpenAiCompatClient {
         // (429/5xx/network) as failures for either wire protocol.
         let counts_as_success =
             result.is_ok() || !is_breaker_relevant_failure(result.as_ref().err());
-        breaker_record_outcome(&self.base_url, counts_as_success);
+        admission.record(counts_as_success);
         result
     }
 
@@ -629,8 +717,56 @@ impl OpenAiCompatClient {
         tools: Vec<serde_json::Value>,
         metadata: &ProviderRequestMetadata,
     ) -> Result<ProviderResponseStream, ProviderError> {
+        if self.compat.emulate_tool_calls && !tools.is_empty() {
+            let emulation = crate::agent_providers::tool_emulation::Emulation::new(&tools);
+            let messages = emulation.rewrite_messages(wire_messages);
+            let mut plain = self.clone();
+            plain.compat.emulate_tool_calls = false;
+            let mut inner =
+                Box::pin(plain.stream_with_tools_metadata(messages, Vec::new(), metadata)).await?;
+            // The reply is read whole: a `$ command` line is only a call once the line is complete,
+            // and the markup must not reach the screen as text.
+            let output = async_stream::try_stream! {
+                let mut text = String::new();
+                let mut finished: Option<Option<String>> = None;
+                while let Some(event) = inner.next().await {
+                    match event? {
+                        ProviderStreamEvent::Text(delta) => text.push_str(&delta),
+                        ProviderStreamEvent::Finished(reason) => finished = Some(reason),
+                        other => yield other,
+                    }
+                }
+                let (clean, calls) = emulation.parse_reply(&text, next_emulated_call_id);
+                let reason = finished.unwrap_or(None);
+                if calls.is_empty() {
+                    if !text.is_empty() {
+                        yield ProviderStreamEvent::Text(text);
+                    }
+                    yield ProviderStreamEvent::Finished(reason);
+                } else {
+                    if !clean.is_empty() {
+                        yield ProviderStreamEvent::Text(clean);
+                    }
+                    for call in calls {
+                        yield ProviderStreamEvent::ToolCall(call);
+                    }
+                    yield ProviderStreamEvent::Finished(Some("tool_calls".to_string()));
+                }
+            };
+            return Ok(Box::pin(output));
+        }
+        // Set when a call cut mid-arguments at the output limit was dropped:
+        // the reply must then end with the limit reason (the engine re-asks
+        // with a larger cap), never be continued as plain text.
+        let dropped_tool = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let mut first = self
-            .stream_once(wire_messages.clone(), tools.clone(), metadata, false)
+            .stream_once(
+                wire_messages.clone(),
+                tools.clone(),
+                metadata,
+                false,
+                dropped_tool.clone(),
+            )
             .await?;
         let client = self.clone();
         let metadata = metadata.clone();
@@ -655,13 +791,16 @@ impl OpenAiCompatClient {
             }
             let reason = finished.unwrap_or(None);
             let truncated = reason.as_deref().is_some_and(is_incomplete_finish_reason);
-            if truncated && !saw_tool_call && !text.trim().is_empty() {
+            let tool_cut = saw_tool_call
+                || dropped_tool.load(std::sync::atomic::Ordering::SeqCst);
+            if truncated && !tool_cut && !text.trim().is_empty() {
                 let mut second = client
                     .stream_once(
                         continuation_messages(wire_messages, &text),
                         tools,
                         &metadata,
                         true,
+                        std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
                     )
                     .await?;
                 while let Some(event) = second.next().await {
@@ -680,6 +819,7 @@ impl OpenAiCompatClient {
         tools: Vec<serde_json::Value>,
         metadata: &ProviderRequestMetadata,
         continuation: bool,
+        dropped_tool: std::sync::Arc<std::sync::atomic::AtomicBool>,
     ) -> Result<ProviderResponseStream, ProviderError> {
         if self.is_codex_responses_route() {
             let body = self.build_codex_request_body(wire_messages, tools, metadata);
@@ -700,7 +840,7 @@ impl OpenAiCompatClient {
                 )
                 .await;
             (self.submission_observer)(
-                crate::agent_providers::transport::observe_submission_attempt(
+                crate::agent_providers::transport::observe_stream_establishment_attempt(
                     &prepared,
                     prepared
                         .measured_tokens
@@ -711,24 +851,28 @@ impl OpenAiCompatClient {
             );
             let response = result.map_err(|error| ProviderError::from_send_error(&error))?;
             if !response.is_success() {
-                return Err(ProviderError::Http {
-                    status: response.status(),
-                    body: response.text().await.unwrap_or_default(),
-                });
+                let status = response.status();
+                let body = response.text().await.unwrap_or_default();
+                return Err(crate::agent_providers::transport::status_error(
+                    status, body,
+                ));
             }
-            return Ok(codex_responses_event_stream(response));
+            return Ok(codex_responses_event_stream(
+                response,
+                self.model_id.clone(),
+            ));
         }
         let body = self.build_chat_request(wire_messages, tools, metadata);
         let prepared = prepare_actual_chat_request(self, &body, metadata, continuation)?;
         let url = format!("{}/chat/completions", self.base_url.trim_end_matches('/'));
-        if !breaker_allows_request(&self.base_url) {
+        let Some(mut admission) = breaker_admit(&self.base_url, &self.model_id) else {
             return Err(ProviderError::Provider(format!(
                 "circuit breaker open for {}: provider has been failing repeatedly, refusing this request to avoid hammering it",
                 self.base_url
             )));
-        }
+        };
         let response = record_stream_establishment_outcome(
-            &self.base_url,
+            &mut admission,
             crate::agent_providers::transport::send_observed_stream_request_with_retry(
                 &self.http,
                 || {
@@ -743,17 +887,28 @@ impl OpenAiCompatClient {
             )
             .await,
         )?;
-        let base_url = self.base_url.clone();
         let progress_limit = self
             .semantic_progress_limit
             .unwrap_or(std::time::Duration::from_secs(SEMANTIC_PROGRESS_SECS));
+        let reported_rate_limit =
+            if crate::agent_providers::host::host_options().usage_and_rate_limit_events {
+                parse_openai_rate_limit_headers(response.headers())
+            } else {
+                None
+            };
         let output = async_stream::try_stream! {
+            if let Some(rate_limit) = reported_rate_limit {
+                yield ProviderStreamEvent::RateLimit(rate_limit);
+            }
             let mut bytes = response.bytes_stream();
             // CR-13: byte-oriented decoder — never `from_utf8_lossy` a raw
             // chunk directly, which corrupts a multibyte codepoint split
             // across a chunk boundary.
             let mut decoder = rightkit_http::SseDecoder::eager();
             let mut reassembler = ToolCallChunkReassembler::new();
+            let mut previews = crate::agent_providers::partial_tool_args::ToolArgsPreviews::default();
+            let mut preview_names: std::collections::HashMap<usize, (String, String)> = std::collections::HashMap::new();
+            let options = *crate::agent_providers::host::host_options();
             let mut emitted_tool_call_ids = std::collections::HashSet::new();
             let mut partial = CompletedTurn::default();
             // Complete tool calls are held until a terminal signal
@@ -784,6 +939,7 @@ impl OpenAiCompatClient {
                     let chunk: Chunk = serde_json::from_str(payload)
                         .map_err(|error| ProviderError::Sse(error.to_string()))?;
                     if let Some(usage) = chunk.usage {
+                        let provider_cost = usage.provider_cost_usd();
                         let normalized = usage.normalize();
                         let prompt_tokens = normalized.input_tokens;
                         let completion_tokens = normalized.output_tokens;
@@ -798,6 +954,11 @@ impl OpenAiCompatClient {
                         yield ProviderStreamEvent::UsageDetail {
                             reasoning_tokens: normalized.reasoning_tokens,
                         };
+                        if options.usage_and_rate_limit_events {
+                            if let Some(cost_usd) = provider_cost {
+                                yield ProviderStreamEvent::UsageCost { cost_usd };
+                            }
+                        }
                         partial.prompt_tokens = prompt_tokens;
                         partial.completion_tokens = completion_tokens;
                         partial.cache_read_tokens = cache_read_tokens;
@@ -838,6 +999,24 @@ impl OpenAiCompatClient {
                     }
                     if let Some(tool_calls) = &delta.tool_calls {
                         for raw in tool_calls {
+                            if options.partial_tool_argument_events {
+                                // A live view of the call's arguments for the screen; the call still
+                                // dispatches only from the completed generation.
+                                let slot = raw.index.to_string();
+                                let (call_id, call_name) = preview_names.entry(raw.index).or_default();
+                                if let Some(id) = raw.id.as_deref().filter(|id| !id.is_empty()) {
+                                    *call_id = id.to_string();
+                                }
+                                if let Some(name) = raw.function.as_ref().and_then(|f| f.name.as_deref()) {
+                                    if call_name.is_empty() {
+                                        call_name.push_str(name);
+                                    }
+                                }
+                                let fragment = raw.function.as_ref().and_then(|f| f.arguments.as_deref()).unwrap_or("");
+                                if let Some(preview) = previews.push(&slot, call_id, call_name, fragment) {
+                                    yield preview;
+                                }
+                            }
                             reassembler
                                 .process_delta(
                                     raw.index as u64,
@@ -877,9 +1056,19 @@ impl OpenAiCompatClient {
             // RightKit's end-of-stream drain releases whatever is still pending in
             // index order and fails on a call with no id/name or with arguments
             // that are not JSON.
-            let leftover = reassembler
-                .drain_completed()
-                .map_err(|error| ProviderError::Sse(error.to_string()))?;
+            // With the host's `truncated_tool_call_recovery`, a reply cut at the output limit can
+            // end inside a call's arguments; that call is dropped so the engine's larger-cap
+            // retry is reached.
+            let cut_at_limit = options.truncated_tool_call_recovery
+                && finish_reason.as_deref().is_some_and(is_incomplete_finish_reason);
+            let leftover = match reassembler.drain_completed() {
+                Ok(ready) => ready,
+                Err(_) if cut_at_limit => {
+                    dropped_tool.store(true, std::sync::atomic::Ordering::SeqCst);
+                    Vec::new()
+                }
+                Err(error) => Err(ProviderError::Sse(error.to_string()))?,
+            };
             for ready in leftover {
                 let call = ToolCall {
                     id: ready.id,
@@ -913,7 +1102,7 @@ impl OpenAiCompatClient {
             // final completeness gate after adapter delivery.
             yield ProviderStreamEvent::Finished(finish_reason);
         };
-        Ok(observe_stream_breaker_outcome(base_url, Box::pin(output)))
+        Ok(observe_stream_breaker_outcome(admission, Box::pin(output)))
     }
 
     pub(super) async fn complete_with_tools_metadata_inner(
@@ -968,11 +1157,31 @@ impl OpenAiCompatClient {
                     // (carrying the real `Retry-After` when the route sent one, else the default
                     // transient hint), not a bare `Http`, so `retry_after_hint` /
                     // `classify_provider_error` work without callers re-parsing status codes.
-                    if code == 429 {
-                        let retry_after_secs = retry_after_secs(&r).unwrap_or(2);
-                        return Err(ProviderError::RateLimited { retry_after_secs });
+                    if !crate::agent_providers::host::host_options().quota_errors {
+                        if code == 429 {
+                            let retry_after_secs = retry_after_secs(&r).unwrap_or(2);
+                            return Err(ProviderError::RateLimited { retry_after_secs });
+                        }
+                        let body = r.text().await.unwrap_or_default();
+                        return Err(ProviderError::Http { status: code, body });
                     }
+                    let hint = if code == 429 {
+                        retry_after_secs(&r)
+                    } else {
+                        None
+                    };
                     let body = r.text().await.unwrap_or_default();
+                    if code == 402
+                        || (matches!(code, 400 | 429)
+                            && crate::agent_providers::transport::is_quota_exhausted_body(&body))
+                    {
+                        return Err(ProviderError::QuotaExceeded(body));
+                    }
+                    if code == 429 {
+                        return Err(ProviderError::RateLimited {
+                            retry_after_secs: hint.unwrap_or(2),
+                        });
+                    }
                     return Err(ProviderError::Http { status: code, body });
                 }
                 Err(e) => {
@@ -1155,8 +1364,19 @@ impl OpenAiCompatClient {
             });
         };
 
-        // If finish_reason triggered but reassembler wasn't drained via delta:
-        accum.drain_reassembled()?;
+        // If finish_reason triggered but reassembler wasn't drained via delta (with the host's
+        // `truncated_tool_call_recovery`, a reply cut at the output limit is reported as
+        // incomplete below instead of failing on its half-written call):
+        if crate::agent_providers::host::host_options().truncated_tool_call_recovery
+            && accum
+                .finish_reason
+                .as_deref()
+                .is_some_and(is_incomplete_finish_reason)
+        {
+            let _ = accum.drain_reassembled();
+        } else {
+            accum.drain_reassembled()?;
+        }
 
         // Some models inline chain-of-thought as <think>...</think> in the
         // content rather than a separate reasoning field. Strip it out of the
@@ -1247,7 +1467,7 @@ impl OpenAiCompatClient {
             )
             .await;
         (self.submission_observer)(
-            crate::agent_providers::transport::observe_submission_attempt(
+            crate::agent_providers::transport::observe_stream_establishment_attempt(
                 &prepared,
                 prepared
                     .measured_tokens
@@ -1258,16 +1478,30 @@ impl OpenAiCompatClient {
         );
         let response = result.map_err(|error| ProviderError::from_send_error(&error))?;
         if !response.is_success() {
-            return Err(ProviderError::Http {
-                status: response.status(),
-                body: response.text().await.unwrap_or_default(),
-            });
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            return Err(crate::agent_providers::transport::status_error(
+                status, body,
+            ));
         }
         let rate_limit_metadata = parse_openai_rate_limit_headers(response.headers());
         let mut bytes_stream = response.bytes_stream();
         let mut decoder = rightkit_http::SseDecoder::eager();
-        let mut accum = CodexStreamAccum::default();
-        while let Some(chunk) = bytes_stream.next().await {
+        let mut accum = CodexStreamAccum {
+            model_key: self.model_id.clone(),
+            ..Default::default()
+        };
+        let idle = std::time::Duration::from_secs(SEMANTIC_PROGRESS_SECS);
+        let idle_everywhere = crate::agent_providers::host::host_options().idle_timeout_everywhere;
+        loop {
+            let next = if idle_everywhere {
+                tokio::time::timeout(idle, bytes_stream.next())
+                    .await
+                    .map_err(|_elapsed| semantic_progress_error(idle))?
+            } else {
+                bytes_stream.next().await
+            };
+            let Some(chunk) = next else { break };
             let chunk = chunk.map_err(|error| ProviderError::Network(error.to_string()))?;
             for frame in decoder
                 .push(&chunk)
@@ -1290,19 +1524,7 @@ impl OpenAiCompatClient {
                 "Codex Responses stream ended before completion".into(),
             ));
         }
-        let tool_calls = accum
-            .tool_calls
-            .into_iter()
-            .map(|(id, (name, arguments_json))| ToolCall {
-                id,
-                name,
-                arguments_json: if arguments_json.trim().is_empty() {
-                    "{}".into()
-                } else {
-                    arguments_json
-                },
-            })
-            .collect::<Vec<_>>();
+        let tool_calls = accum.ordered_tool_calls();
         let (text, inline_reasoning) = strip_think_tags(&accum.text);
         let mut reasoning = accum.reasoning;
         if let Some(inline) = inline_reasoning {

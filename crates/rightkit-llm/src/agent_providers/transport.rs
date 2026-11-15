@@ -115,6 +115,40 @@ fn record_context_inspection(prepared: &crate::agent_providers::client::Prepared
         .and_then(|bytes| std::fs::write(path, bytes));
 }
 
+/// Whether a status is retried at stream establishment (see
+/// `ProviderHostOptions::status_retries`).
+fn is_retryable_stream_status(status: u16) -> bool {
+    matches!(status, 429 | 500 | 502 | 503 | 504 | 529)
+}
+
+/// A retryable 5xx at stream establishment is `Rejected` rather than `SubmissionUnknown`: the
+/// status line precedes any generation, so nothing was produced or billed.
+fn stream_establishment_state(status: u16, base: SubmissionState) -> SubmissionState {
+    if super::host::host_options().status_retries
+        && (500..=599).contains(&status)
+        && is_retryable_stream_status(status)
+    {
+        SubmissionState::Rejected
+    } else {
+        base
+    }
+}
+
+/// [`observe_submission_attempt`] for a stream-establishment attempt. Identical unless the host
+/// set `status_retries`, which makes a retryable 5xx `Rejected` (it is re-sent, never billed).
+pub(crate) fn observe_stream_establishment_attempt(
+    prepared: &crate::agent_providers::client::PreparedProviderRequestV1,
+    measured_tokens: u64,
+    attempt: u32,
+    result: Result<&crate::agent_providers::http::ProviderHttpResponse, &rightkit_http::HttpError>,
+) -> ProviderSubmissionObservation {
+    let mut observation = observe_submission_attempt(prepared, measured_tokens, attempt, result);
+    if let Ok(response) = result {
+        observation.state = stream_establishment_state(response.status(), observation.state);
+    }
+    observation
+}
+
 /// One counter spans every transport ladder for this prepared request.
 #[derive(Default)]
 pub(crate) struct PhysicalAttemptCounter(u32);
@@ -139,17 +173,26 @@ pub(crate) async fn send_observed_stream_request_with_retry(
     notifier: &rightkit_agent_engine_protocol::RetryNotifier,
     base_url: &str,
 ) -> Result<crate::agent_providers::http::ProviderHttpResponse, ProviderError> {
+    dump_request_body(&prepared.bytes);
     let mut physical = PhysicalAttemptCounter::default();
     let mut connection_retries = 0u32;
+    let mut status_retries = 0u32;
     // Replay policy of the published attempt-delivery semantics (`rightkit-http`
     // `AttemptDelivery`): this is a paid, non-idempotent POST, so an HTTP answer (429, 5xx, any
     // status) is surfaced as typed and never re-sent here, and only a failure before the request
     // left (`NotSent`: connect phase) is retried. A 429 carries its real `Retry-After` in the
     // typed error for the caller to act on.
+    //
+    // With the host's `status_retries`, a 429 or retryable 5xx at stream establishment is also
+    // re-sent, up to MAX_STATUS_RETRIES: the status line precedes any SSE event and a streamed
+    // generation answers 200 then streams, so a retryable error status means nothing was produced
+    // or billed. With `quota_errors`, a quota or billing refusal (402, a 429 or 400 whose body says
+    // credit is exhausted) is the exception: it is surfaced as `QuotaExceeded` at once, since the
+    // same account cannot succeed.
     loop {
         let attempt = physical.next();
         let result = crate::agent_providers::http::send(http, build()).await;
-        observer(observe_submission_attempt(
+        observer(observe_stream_establishment_attempt(
             prepared,
             prepared
                 .measured_tokens
@@ -161,18 +204,84 @@ pub(crate) async fn send_observed_stream_request_with_retry(
             Ok(response) if response.is_success() => return Ok(response),
             Ok(response) => {
                 let status = response.status();
-                if status == 429 {
-                    return Err(ProviderError::RateLimited {
-                        retry_after_secs: crate::agent_providers::client::retry_after_secs(
-                            &response,
+                let options = super::host::host_options();
+                // A 429 or retryable 5xx at stream establishment arrives before any generation, so
+                // nothing was billed: a transient overload or rate limit must not end a long run.
+                // 429 honours the provider's `Retry-After` (capped, not jittered); the rest back
+                // off about 1s, 2s, 4s (±10%). Anything longer than the cap is surfaced.
+                if options.status_retries
+                    && status != 429
+                    && is_retryable_stream_status(status)
+                    && status_retries < MAX_STATUS_RETRIES
+                {
+                    let delay = jittered(std::time::Duration::from_secs(1u64 << status_retries));
+                    if delay <= MAX_STATUS_RETRY_DELAY {
+                        // A 5xx that is re-sent never needs its body (often a large proxy page):
+                        // drop it unread.
+                        drop(response);
+                        status_retries += 1;
+                        crate::agent_providers::client::wait_status_retry(
+                            notifier,
+                            base_url,
+                            format!("HTTP {status}"),
+                            status_retries,
+                            MAX_STATUS_RETRIES,
+                            delay,
                         )
-                        .unwrap_or(2),
+                        .await;
+                        continue;
+                    }
+                }
+                if !options.status_retries && !options.quota_errors {
+                    if status == 429 {
+                        return Err(ProviderError::RateLimited {
+                            retry_after_secs: crate::agent_providers::client::retry_after_secs(
+                                &response,
+                            )
+                            .unwrap_or(2),
+                        });
+                    }
+                    return Err(ProviderError::Http {
+                        status,
+                        body: response.text().await.unwrap_or_default(),
                     });
                 }
-                return Err(ProviderError::Http {
-                    status,
-                    body: response.text().await.unwrap_or_default(),
-                });
+                // The `Retry-After` header must be read before `text()` consumes the response. A
+                // 429 body is read before any retry because it decides between a rate limit and an
+                // exhausted quota.
+                let hint = if status == 429 {
+                    crate::agent_providers::client::retry_after_secs(&response)
+                } else {
+                    None
+                };
+                let body = response.text().await.unwrap_or_default();
+                if status == 429 && !(options.quota_errors && is_quota_exhausted_body(&body)) {
+                    if options.status_retries {
+                        let delay = match hint {
+                            Some(secs) => std::time::Duration::from_secs(secs),
+                            None => {
+                                jittered(std::time::Duration::from_secs(1u64 << status_retries))
+                            }
+                        };
+                        if status_retries < MAX_STATUS_RETRIES && delay <= MAX_STATUS_RETRY_DELAY {
+                            status_retries += 1;
+                            crate::agent_providers::client::wait_status_retry(
+                                notifier,
+                                base_url,
+                                "rate limited".to_string(),
+                                status_retries,
+                                MAX_STATUS_RETRIES,
+                                delay,
+                            )
+                            .await;
+                            continue;
+                        }
+                    }
+                    return Err(ProviderError::RateLimited {
+                        retry_after_secs: hint.unwrap_or(2),
+                    });
+                }
+                return Err(status_error(status, body));
             }
             Err(error) => {
                 if crate::agent_providers::client::is_connect_phase_failure(&error)
@@ -194,8 +303,65 @@ pub(crate) async fn send_observed_stream_request_with_retry(
     }
 }
 
+/// `delay` with a random spread of ±10%, so concurrent clients do not retry in lockstep.
+fn jittered(delay: std::time::Duration) -> std::time::Duration {
+    use std::hash::{BuildHasher, Hasher};
+    let mut hasher = std::collections::hash_map::RandomState::new().build_hasher();
+    hasher.write_u128(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |elapsed| elapsed.as_nanos()),
+    );
+    let draw = hasher.finish() % 2001;
+    delay.mul_f64(0.9 + draw as f64 / 10_000.0)
+}
+
+/// Writes the exact request body to `<PREFIX>_DUMP_REQUEST_DIR` when that variable names a
+/// directory (a debugging switch, owner-only files). Present only with the `host-env` feature.
+#[cfg(feature = "agent_providers-host-env")]
+fn dump_request_body(bytes: &[u8]) {
+    static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let Some(dir) = std::env::var_os(rightkit_agent_config::env_name("DUMP_REQUEST_DIR"))
+        .filter(|dir| !dir.is_empty())
+    else {
+        return;
+    };
+    let millis = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_millis())
+        .unwrap_or_default();
+    let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let _ = write_request_dump(
+        std::path::Path::new(&dir),
+        &format!("{millis}-{n}.json"),
+        bytes,
+    );
+}
+
+#[cfg(not(feature = "agent_providers-host-env"))]
+fn dump_request_body(_bytes: &[u8]) {}
+
+#[cfg(feature = "agent_providers-host-env")]
+fn write_request_dump(dir: &std::path::Path, name: &str, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    let mut builder = std::fs::DirBuilder::new();
+    builder.recursive(true);
+    #[cfg(unix)]
+    std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+    builder.create(dir)?;
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    options.open(dir.join(name))?.write_all(bytes)
+}
+
 /// Most connect-phase re-sends of one stream request (nothing had reached the server).
 const MAX_CONNECTION_RETRIES: u32 = 3;
+/// Most status re-sends of one stream request with `status_retries`.
+const MAX_STATUS_RETRIES: u32 = 3;
+/// Longest wait before a status re-send; a longer delay is surfaced to the caller.
+const MAX_STATUS_RETRY_DELAY: std::time::Duration = std::time::Duration::from_secs(30);
 
 /// Wire protocol family a provider route speaks. `S:M2`/`S:M3` amendment
 /// (`docs/canon/daemon-master-canon-atoms.md` ~line 156): the normalized
@@ -279,6 +445,11 @@ pub enum ProviderError {
     #[error("auth failed")]
     Auth,
 
+    /// The account is out of quota or credit (HTTP 402, or a 400/429 whose body says so). Only
+    /// produced when the host set `quota_errors`; not retried and not counted by the breaker.
+    #[error("provider quota or billing limit reached: {0}")]
+    QuotaExceeded(String),
+
     /// A transport failure at or after the request was (possibly) sent: the provider may have received, run and
     /// billed it. Never a reason to send the same paid request to another route.
     #[error("network error: {0}")]
@@ -324,6 +495,47 @@ pub enum ProviderError {
         continuation_error: Option<String>,
     },
 }
+
+/// Whether an error body says the account is out of quota or credit, as opposed to a transient rate limit.
+/// "exceeded your current quota" alone is deliberately not a signal: Gemini per-minute 429s use that
+/// phrase and are retryable, so a body that mentions a retry delay or a per-minute limit is never quota
+/// exhaustion.
+pub fn is_quota_exhausted_body(body: &str) -> bool {
+    let body = body.to_lowercase();
+    if body.contains("retry in") || body.contains("perminute") || body.contains("per minute") {
+        return false;
+    }
+    [
+        "insufficient_quota",
+        "billing_error",
+        "credit balance is too low",
+        "billing hard limit",
+        "out of credits",
+        "billing_hard_limit_reached",
+    ]
+    .iter()
+    .any(|marker| body.contains(*marker))
+}
+
+/// A non-success HTTP answer as a typed error, shared by every client: with the host's
+/// `quota_errors`, a 402, or a 400/429 whose body says credit or quota is exhausted, is
+/// [`ProviderError::QuotaExceeded`]; anything else is [`ProviderError::Http`]. Callers that retry a
+/// transient 429 or map it to [`ProviderError::RateLimited`] do so before calling this.
+pub(crate) fn status_error(status: u16, body: String) -> ProviderError {
+    if super::host::host_options().quota_errors
+        && (status == 402 || (matches!(status, 400 | 429) && is_quota_exhausted_body(&body)))
+    {
+        ProviderError::QuotaExceeded(body)
+    } else {
+        ProviderError::Http { status, body }
+    }
+}
+
+/// The provider client's error text for an answer that carried only reasoning (no visible text, no tool
+/// calls). The engine loop matches the substring "no visible content or tool calls" to retry such an
+/// answer, so this text must stay stable.
+pub const REASONING_ONLY_MESSAGE: &str =
+    "provider returned no visible content or tool calls after reasoning was separated";
 
 impl ProviderError {
     /// A failed send as a typed error: a connect-phase failure (`NotSent`, nothing reached the provider) is
@@ -415,6 +627,19 @@ pub fn retry_after_hint(error: &ProviderError) -> Option<u64> {
 /// stays consistent.
 pub fn is_context_overflow_message(message: &str) -> bool {
     let lower = message.to_ascii_lowercase();
+    let extended = super::host::host_options().extended_overflow_markers;
+    if extended
+        && [
+            "throttling",
+            "rate limit",
+            "too many requests",
+            "service unavailable",
+        ]
+        .iter()
+        .any(|needle| lower.contains(needle))
+    {
+        return false;
+    }
     let explicit_context = lower.contains("context_length_exceeded")
         || lower.contains("context window")
         || lower.contains("context length")
@@ -424,7 +649,30 @@ pub fn is_context_overflow_message(message: &str) -> bool {
         || lower.contains("prompt_too_long")
         || lower.contains("prompt is too long")
         || lower.contains("input is too long");
+    let extended_context = extended
+        && (lower.contains("input is too long")
+            || lower.contains("prompt too long")
+            || lower.contains("prompt exceeds max length")
+            || lower.contains("request_too_large")
+            || lower.contains("exceeds the context window")
+            || lower.contains("context window exceeded")
+            || lower.contains("maximum prompt length is")
+            || lower.contains("reduce the length of the messages")
+            || lower.contains("maximum allowed input length")
+            || lower.contains("exceeds the limit of")
+            || lower.contains("is longer than the model's context length")
+            || lower.contains("exceeds the available context size")
+            || lower.contains("greater than the context length")
+            || lower.contains("context window exceeds limit")
+            || lower.contains("exceeded model token limit")
+            || lower.contains("maximum context length")
+            || lower.contains("model_context_window_exceeded")
+            || lower.contains("range of input length should be")
+            || lower.contains("token limit exceeded")
+            || lower.contains("but the configured context size is")
+            || (lower.contains("input token count") && lower.contains("exceeds the maximum")));
     explicit_context
+        || extended_context
         || (lower.contains("413")
             && (lower.contains("prompt") || lower.contains("context") || lower.contains("token")))
 }

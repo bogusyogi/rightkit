@@ -16,9 +16,26 @@ pub fn load_api_key(provider_id: &str) -> Option<String> {
     // Without an OS keychain there is no store to consult, so the env var is
     // the only source. A host that supplies its key directly (the mobile
     // runtime passes it in `RuntimeConfig`) never reaches this at all.
+    //
+    // With the host's `host_credential_store`, the key comes from the host's credential layer
+    // alone (`host_credentials`): the OS store on a desktop, the process environment and `.env` on
+    // a host with no store; nothing falls back to the environment afterwards.
     #[cfg(feature = "agent_providers-os-keyring")]
-    if let Some(value) = load_api_key_from_store(provider_id) {
-        return Some(value);
+    {
+        if crate::agent_providers::host::host_options().host_credential_store {
+            let host = crate::agent_providers::host_credentials::host();
+            return if host.has_store() {
+                load_api_key_from_store(provider_id)
+            } else {
+                host.provider_key(provider_id)
+                    .ok()
+                    .flatten()
+                    .map(|found| found.value)
+            };
+        }
+        if let Some(value) = load_api_key_from_store(provider_id) {
+            return Some(value);
+        }
     }
     env_api_key(provider_id)
 }
@@ -69,8 +86,14 @@ fn load_api_key_from_store(provider_id: &str) -> Option<String> {
 
 use crate::agent_providers::keystore::{KeyStoreBackend, KeyStoreError};
 
-/// Credential-store service name for API-key accounts.
+/// Credential-store service name for API-key accounts until the host calls
+/// `crate::agent_providers::host::set_keychain_service`; [`account_key_service`] is the one in force.
 pub const ACCOUNT_KEY_SERVICE: &str = "rightkit-agent";
+
+/// The credential-store service API-key account secrets are stored under now.
+pub fn account_key_service() -> &'static str {
+    crate::agent_providers::host::keychain_service()
+}
 
 /// Credential-store entry name for an account id such as
 /// `api_key/openai/work`. Returns `None` for any id that is not a well-formed
@@ -100,7 +123,7 @@ pub fn store_account_key_with(
     if trimmed.is_empty() {
         return Err(KeyStoreError::Keyring("API key is empty".into()));
     }
-    backend.set(ACCOUNT_KEY_SERVICE, &name, trimmed)
+    backend.set(account_key_service(), &name, trimmed)
 }
 
 /// Load the secret for an API-key account. `Ok(None)` when none is stored.
@@ -109,7 +132,7 @@ pub fn load_account_key_with(
     account_id: &str,
 ) -> Result<Option<String>, KeyStoreError> {
     let name = account_key_name(account_id).ok_or_else(|| bad_account(account_id))?;
-    match backend.get(ACCOUNT_KEY_SERVICE, &name) {
+    match backend.get(account_key_service(), &name) {
         Ok(v) => Ok(Some(v)),
         Err(KeyStoreError::NotFound { .. }) => Ok(None),
         Err(e) => Err(e),
@@ -130,32 +153,40 @@ pub fn delete_account_key_with(
     account_id: &str,
 ) -> Result<(), KeyStoreError> {
     let name = account_key_name(account_id).ok_or_else(|| bad_account(account_id))?;
-    match backend.delete(ACCOUNT_KEY_SERVICE, &name) {
+    match backend.delete(account_key_service(), &name) {
         Ok(()) | Err(KeyStoreError::NotFound { .. }) => Ok(()),
         Err(e) => Err(e),
     }
 }
 
+/// Runs `op` against the backend the account functions use: the OS keychain, or, with the host's
+/// `host_credential_store`, the host's credential layer (OS store, or the key file on a host
+/// with none).
+#[cfg(feature = "agent_providers-os-keyring")]
+fn with_account_backend<T>(op: impl FnOnce(&dyn KeyStoreBackend) -> T) -> T {
+    if crate::agent_providers::host::host_options().host_credential_store {
+        op(&crate::agent_providers::host_credentials::HostKeyStore::current())
+    } else {
+        op(&crate::agent_providers::keystore::OsKeyStore)
+    }
+}
+
 #[cfg(feature = "agent_providers-os-keyring")]
 pub fn store_account_key(account_id: &str, key: &str) -> Result<(), KeyStoreError> {
-    store_account_key_with(
-        &crate::agent_providers::keystore::OsKeyStore,
-        account_id,
-        key,
-    )
+    with_account_backend(|backend| store_account_key_with(backend, account_id, key))
 }
 
 #[cfg(feature = "agent_providers-os-keyring")]
 pub fn load_account_key(account_id: &str) -> Result<Option<String>, KeyStoreError> {
-    load_account_key_with(&crate::agent_providers::keystore::OsKeyStore, account_id)
+    with_account_backend(|backend| load_account_key_with(backend, account_id))
 }
 
 #[cfg(feature = "agent_providers-os-keyring")]
 pub fn account_key_present(account_id: &str) -> Result<bool, KeyStoreError> {
-    account_key_present_with(&crate::agent_providers::keystore::OsKeyStore, account_id)
+    with_account_backend(|backend| account_key_present_with(backend, account_id))
 }
 
 #[cfg(feature = "agent_providers-os-keyring")]
 pub fn delete_account_key(account_id: &str) -> Result<(), KeyStoreError> {
-    delete_account_key_with(&crate::agent_providers::keystore::OsKeyStore, account_id)
+    with_account_backend(|backend| delete_account_key_with(backend, account_id))
 }

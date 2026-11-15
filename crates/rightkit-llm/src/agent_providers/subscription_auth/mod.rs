@@ -49,8 +49,8 @@ pub use native_oauth::{
 };
 #[cfg(feature = "agent_providers-os-keyring")]
 pub use token_store::{
-    open_subscription_store, subscription_leg, subscription_resolver, KeychainTokenStore,
-    SUBSCRIPTION_KEYCHAIN_SERVICE,
+    open_subscription_store, subscription_keychain_service, subscription_leg,
+    subscription_resolver, KeychainTokenStore, SUBSCRIPTION_KEYCHAIN_SERVICE,
 };
 pub use types::{
     account_fingerprint, expand_tilde, now_ms, ApiKeyAuth, ApiKeyCredential, AuthContext,

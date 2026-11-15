@@ -54,7 +54,10 @@ pub fn openai_oauth_config() -> OAuthConfig {
 /// URL below exist only to satisfy `OAuthClient::new` validation and are never contacted.
 pub fn commandcode_oauth_config() -> OAuthConfig {
     OAuthConfig::new(
-        "rightkit-agent-commandcode-api-key",
+        format!(
+            "{}-commandcode-api-key",
+            crate::agent_providers::host::keychain_service()
+        ),
         format!("{COMMAND_CODE_STUDIO_BASE}/studio/auth/cli"),
         format!("{COMMAND_CODE_API_BASE}/oauth/token"),
     )
