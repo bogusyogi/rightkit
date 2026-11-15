@@ -1,4 +1,4 @@
-# rightkit-media-gen-models 0.1.0 registry consumer
+# rightkit-media-gen-models 0.1.1 registry consumer
 
 Standalone consumer, outside the workspace, pinning `rightkit-media-gen-models =0.1.0` exactly with its default features, beside `rightkit-media-gen =0.2.0` (the crate runs against its `Context`). It installs the crate from the sealed archive through the offline directory registry and runs `src/main.rs`, which prints `ok:` lines and exits 1 on the first failed check.
 

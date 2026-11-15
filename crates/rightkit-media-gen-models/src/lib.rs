@@ -8,7 +8,7 @@
 //!
 //! Commands (all `studio.models.<verb>`):
 //! - `hardware`  → detected host profile `{os, arch, memory_gb, gpus, profile}`.
-//!   `RIGHTKIT_HW_JSON` injects a profile (tests, remote reports).
+//!   `<PREFIX>_HW_JSON` (then `RIGHTKIT_HW_JSON`) injects a profile (tests, remote reports).
 //! - `catalog`   → unified entries joined with readiness + fit summary.
 //! - `describe`  `{id}` → one entry: revision, quantization, capabilities,
 //!   requirements, measured vs estimated fit evidence, licence.

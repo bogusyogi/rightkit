@@ -3802,9 +3802,9 @@
       "pkId": "PK240",
       "id": "ci/consumers/rightkit-media-gen-models/src/main.rs",
       "files": {
-        "Cargo.toml": "f1eeef268296d5a6994885403f1701482f0304dcde685577d920da2600997796",
-        "README.md": "68ec762cef1123c648f375ec5b6dbcda5f83f68b43eb31f0d0bc613aed9e382a",
-        "src/main.rs": "bb2948a06fd515efe8192168fb931dcfc9356b2e8f1d125592d00334370faffd"
+        "Cargo.toml": "8829e9cd3f5feca508c854283b125f3f47cea4508d25bc6692230e18c2273d9a",
+        "README.md": "c84a733f00458c68b51d6d890327cdce6bb21c19484360280cf82742c7115e4e",
+        "src/main.rs": "9de58a932accb693c225b262a01b529fb8374bad277869fc01905f09f363a427"
       }
     },
     "rightkit-agent-task-contract": {

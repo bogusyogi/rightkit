@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.1
+
+Taken from GenRight's shipped `model_management` so it can delete its copies. Every default keeps RightKit's behaviour; each option is additive and set once at startup. Requires `rightkit-media-gen` 0.2.2.
+
+- Changed: the hardware profile override is read as `<PREFIX>_HW_JSON` (the host prefix of `rightkit_media_gen::host::configure`), then `RIGHTKIT_HW_JSON` (`hardware::probe`). Default prefix: `RIGHTKIT_HW_JSON`, as before. With GenRight's prefix `GENRIGHT` it reads `GENRIGHT_HW_JSON`, GenRight's name (`RIGHTKIT_HW_JSON` is also read as the fallback).
+- Changed: the model install thread opens its context with `Context::production_in(data_dir)` (`rightkit-media-gen` 0.2.2) instead of `Context::new(data_dir)`. A host that registered `set_context_factory` now gets its own job database file name (GenRight: `genright.sqlite3`) and credential store in the install record, not a second `media-gen.sqlite3`. With no factory it is `Context::new(data_dir)`, as before. GenRight needs no call beyond its existing `set_context_factory`.
+- Changed: user-visible text names the host through `MediaHostConfig::app_name` (`rightkit_media_gen::host::configure_media`): the Blender `gpu_qualification.via` ("host generation job" by default, "GenRight generation job" with `app_name` `GenRight`), the Blender install-guidance message ("this crate does not download or bundle them" / "GenRight does not download or bundle them") and the Wan2GP message. The Wan2GP install recipe names `rightkit_media_gen::providers::local_wan2gp::dir_env()` (`RIGHTKIT_WAN2GP_DIR` by default, `GENRIGHT_WAN2GP_DIR` under GenRight's prefix) and the row's `wan2gp_dir_env` / `python_env` carry the same host-prefixed names.
+- Fixed (taken from the comparison with GenRight): the Wan2GP setup row's `wan2gp_dir_env` and `python_env` report the variable that is actually read (`GENRIGHT_WAN2GP_DIR` / `GENRIGHT_WAN2GP_PYTHON` under GenRight's prefix); GenRight's copy reported the `RIGHTKIT_` constants beside a recipe that named `GENRIGHT_WAN2GP_DIR`. A host that shows the row now sees the name its users must set.
+- Added `blender::set_worker_install_recipe(text)` and `blender::DEFAULT_WORKER_INSTALL_RECIPE`: the `worker_install_recipe` sentence of the Blender setup block (default: "Install Blender and the RenderRight worker separately, then point these paths at them."). GenRight calls `rightkit_media_gen_models::blender::set_worker_install_recipe("Install Blender, then install the RenderRight worker (the @rightkit/blender-worker package) at the default folder.")`.
+- Rented-worker commands (`studio.models.workers`, `rental.search`, `worker.action`, `rentals`, `rentals_enforce`) are not in this crate: they are `rightkit_remote_compute::commands` (0.2.0), as GenRight's `model_management/mod.rs` held them; a host dispatches both crates, nothing to port here.
+
 ## 0.1.0
 
 - The Blender and Wan2GP setup rows name the environment variables under the host prefix (`<PREFIX>_BLENDER_PATH`, `<PREFIX>_WAN2GP_DIR`, `<PREFIX>_WAN2GP_PYTHON`), as `rightkit-media-gen` now reads them. With the default prefix the names are the same as before. The Blender `worker_path_env` field is gone: `rightkit-media-gen` no longer reads a worker-folder variable.
