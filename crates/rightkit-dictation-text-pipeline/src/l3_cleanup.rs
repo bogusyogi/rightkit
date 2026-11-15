@@ -24,6 +24,7 @@ pub use lanes::{
 };
 pub use ops::{health, record_local_fallback};
 pub use state::{CleanupHealth, CleanupOutcome, PolishContext};
+pub use transport::{configure_wire_identity, wire_identity, WireIdentity};
 
 // Crate-internal surface: `guardrail_replay` resolves acceptance's pub(crate) fns through this glob.
 pub(crate) use acceptance::*;

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.1
+
+HeardRight's engine runtime is compared with this crate and every difference in its output is taken; nothing changes for a host that makes no call below.
+
+- New module `host`, once-per-process settings (each returns `false` when already installed). `configure_identity(EngineIdentity)` sets the engine name (hello envelope, ready log line, fatal IPC message, diagnostics JSON), the build identity string (hello envelope, engine info, speech-service response), the product name in "repair the `<name>` installation", the owner in the microphone-permission hint, the wake diagnostics stderr prefix and an optional environment variable that turns on calibration diagnostics in the `calibrate` one-shot as `--collect-diagnostics` does. `EngineIdentity::DEFAULT` is the old behaviour. `identity()` returns the one in force.
+- `host::configure_cli(CliIdentity)` turns on the installed command line taken from HeardRight (#309): `<program> transcribe <file> [--format txt|srt|vtt|json] [--out <path>]`, `help`, `--version`, a speech client that queues behind dictation and, with the app closed, starts this executable as a headless speech host. Exit codes 0, 1, 2, 3, 4, 5 and 130. Without the call the engine has no command line and every argument belongs to its other roles. New module `cli` (macOS and Windows, like `entry`).
+- Compared and kept: HeardRight's `perf_levers` and `ipc/l3_live.rs` read no environment in a shipped build (every lever is its default; `ReconfigureL3` answers "not enabled"), which this crate already does. Its hand-written Windows and macOS peer verification is `rightkit_daemon::verify_peer` here.
+
 ## 0.2.0
 
 - Breaking for dependents: dependency requirements `rightkit-automation` 0.6 -> 0.7, `rightkit-crash` 0.3 -> 0.4, `rightkit-daemon` 0.5 -> 0.8, `rightkit-dictation-command-host` 0.1 -> 0.2, `rightkit-dictation-core` 0.2 -> 0.3, `rightkit-dictation-inference` 0.1 -> 0.2, `rightkit-dictation-models` 0.1 -> 0.2, `rightkit-dictation-text-pipeline` 0.1 -> 0.2, `rightkit-job-queue` 0.5 -> 0.6, `rightkit-logs` 0.3 -> 0.4, `rightkit-onnx` 0.2 -> 0.3, `rightkit-speech-client` 0.4 -> 0.5. 0.1.0 was published before these requirements were raised and before the change below; a semver-breaking dependency is a breaking change, so they ship as 0.2.0 instead of changing 0.1.0 in place (#1572).

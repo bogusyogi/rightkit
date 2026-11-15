@@ -156,7 +156,10 @@ fn verify_last_paste_before_undo(last_text: Option<&str>) -> Result<(), Dispatch
         UndoVerdict::Safe => Ok(()),
         UndoVerdict::NoRecordedPaste => Err(DispatchError::new(
             "E_UNDO_NO_RECORDED_PASTE",
-            "Undo skipped: no recent dictation paste to undo",
+            format!(
+                "Undo skipped: no recent {} paste to undo",
+                crate::host::paste_owner_name()
+            ),
         )),
         UndoVerdict::FieldUnreadable => Err(DispatchError::new(
             "E_UNDO_FIELD_UNREADABLE",

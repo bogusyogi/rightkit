@@ -90,13 +90,13 @@ Capabilities: 222 (58 with fingerprints, 164 declaration-only). Internal owners 
 | device-mesh | `rightkit-mesh` | none | declaration-only | 0 | rightkit-mesh: staged 0.2.2, not published |
 | dictation | `rightkit-dictation-core` | none | declaration-only | 0 | rightkit-dictation-core: staged 0.3.0, not published |
 | dictation-app-runtime | `rightkit-dictation-app-runtime` | none | declaration-only | 0 | rightkit-dictation-app-runtime: staged 0.2.0, not published |
-| dictation-command-host | `rightkit-dictation-command-host` | none | declaration-only | 0 | rightkit-dictation-command-host: staged 0.2.0, not published |
+| dictation-command-host | `rightkit-dictation-command-host` | none | declaration-only | 0 | rightkit-dictation-command-host: staged 0.2.1, not published |
 | dictation-engine | `rightkit-dictation-engine` | none | declaration-only | 0 | rightkit-dictation-engine: staged 0.2.0, not published |
 | dictation-inference | `rightkit-dictation-inference` | none | declaration-only | 0 | rightkit-dictation-inference: staged 0.2.0, not published |
 | dictation-models | `rightkit-dictation-models` | none | declaration-only | 0 | rightkit-dictation-models: staged 0.2.0, not published |
-| dictation-runtime | `rightkit-dictation-runtime` | none | declaration-only | 0 | rightkit-dictation-runtime: staged 0.2.0, not published |
+| dictation-runtime | `rightkit-dictation-runtime` | none | declaration-only | 0 | rightkit-dictation-runtime: staged 0.2.1, not published |
 | dictation-telemetry | `rightkit-dictation-telemetry` | none | declaration-only | 0 | rightkit-dictation-telemetry: staged 0.2.0, not published |
-| dictation-text-pipeline | `rightkit-dictation-text-pipeline` | none | declaration-only | 0 | rightkit-dictation-text-pipeline: staged 0.2.3, not published |
+| dictation-text-pipeline | `rightkit-dictation-text-pipeline` | none | declaration-only | 0 | rightkit-dictation-text-pipeline: staged 0.2.4, not published |
 | dictation-ui | `@rightkit/dictation-ui` | none | declaration-only | 0 | @rightkit/dictation-ui: staged 0.2.7, not published |
 | disk-cache | `rightkit-cache` | advise | fingerprinted | 1 (0 block, 1 advise) | rightkit-cache: published 0.2.3 (crates.io) |
 | disk-cleanup | `rightkit-disk-cleanup` | none | declaration-only | 0 | rightkit-disk-cleanup: staged 0.2.0, not published |

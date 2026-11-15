@@ -13,11 +13,14 @@
 // polish contexts under the same gate. Those modules, and the roots only they use, carry the same
 // gate; Linux builds and lints the portable remainder (crash capture, owner diagnostics, the
 // lifecycle stub and the re-exports).
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+pub mod cli;
 pub mod crash_capture;
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 pub mod engine_paths;
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 pub mod entry;
+pub mod host;
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 pub mod ipc;
 pub mod owner_diagnostics;

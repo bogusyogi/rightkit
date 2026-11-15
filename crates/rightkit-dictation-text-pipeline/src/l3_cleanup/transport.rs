@@ -19,8 +19,44 @@ use rightkit_transcript_library::net::host_of_url;
 
 use super::state::{CachedAgent, Provider, ProviderSpec, AGENTS};
 
-/// User agent the former `ureq` calls sent explicitly.
+/// User agent the former `ureq` calls sent explicitly (the default of [`WireIdentity::user_agent`]).
 const USER_AGENT: &str = "rightkit-dictation/0.1";
+
+/// Names this crate puts on the wire and on stderr. The default is what the crate always sent;
+/// a host that shipped other names installs its own once with [`configure_wire_identity`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WireIdentity {
+    /// `User-Agent` of every provider call. Default `rightkit-dictation/0.1`.
+    pub user_agent: &'static str,
+    /// Name of the request header that carries the prompt version. Default
+    /// `X-RightKit-AI-Prompt-Version`.
+    pub prompt_version_header: &'static str,
+    /// Prefix of the one-line JSON runtime diagnostic written to stderr. Default
+    /// `RIGHTKIT_RUNTIME_DIAGNOSTIC_JSON=`.
+    pub diagnostic_prefix: &'static str,
+}
+
+impl WireIdentity {
+    /// The names of earlier releases of this crate.
+    pub const DEFAULT: Self = Self {
+        user_agent: USER_AGENT,
+        prompt_version_header: "X-RightKit-AI-Prompt-Version",
+        diagnostic_prefix: "RIGHTKIT_RUNTIME_DIAGNOSTIC_JSON=",
+    };
+}
+
+static WIRE_IDENTITY: std::sync::OnceLock<WireIdentity> = std::sync::OnceLock::new();
+
+/// Install the host's wire names once, before the first cleanup call. Returns `false` when a
+/// value was already installed (the first one stays).
+pub fn configure_wire_identity(identity: WireIdentity) -> bool {
+    WIRE_IDENTITY.set(identity).is_ok()
+}
+
+/// The wire names in force.
+pub fn wire_identity() -> &'static WireIdentity {
+    WIRE_IDENTITY.get().unwrap_or(&WireIdentity::DEFAULT)
+}
 /// `ureq`'s default `read_to_string` body limit.
 const MAX_RESPONSE_BYTES: usize = 10 * 1024 * 1024;
 /// Hosts the provider roster reaches by default. Any other host is a base-URL
@@ -136,7 +172,7 @@ fn send_chat(
         (*client).clone(),
         Arc::new(SpecKey(Secret::new(spec.api_key.clone()))),
     )
-    .with_header("X-RightKit-AI-Prompt-Version", prompt_version)
+    .with_header(wire_identity().prompt_version_header, prompt_version)
     // Keep the whole body the transport read: the ledger parses it as JSON and caps it in
     // characters afterwards, as before the port. A smaller byte cap here would cut the JSON.
     .with_raw_capture(MAX_RESPONSE_BYTES)
@@ -257,7 +293,6 @@ fn log_payload_if_enabled(
 
 const MAX_PAYLOAD_TEXT_CHARS: usize = 16 * 1024;
 const MAX_PAYLOAD_LOG_BYTES: u64 = 2 * 1024 * 1024;
-const RUNTIME_DIAGNOSTICS_PREFIX: &str = "RIGHTKIT_RUNTIME_DIAGNOSTIC_JSON=";
 
 fn next_payload_id() -> String {
     use std::sync::atomic::{AtomicU64, Ordering};
@@ -299,7 +334,7 @@ pub(crate) fn emit_runtime_diagnostic(
     };
     use std::io::Write as _;
     let _ = std::io::stderr()
-        .write_all(format!("{RUNTIME_DIAGNOSTICS_PREFIX}{serialized}\n").as_bytes());
+        .write_all(format!("{}{serialized}\n", wire_identity().diagnostic_prefix).as_bytes());
 }
 
 fn scrub_payload_text(value: &str) -> String {
@@ -348,7 +383,7 @@ fn parity_client(timeout: Duration, private_host: Option<&str>) -> Client {
         request_timeout: timeout,
         stream_timeout: Some(timeout),
         max_response_bytes: MAX_RESPONSE_BYTES,
-        ..ClientConfig::legacy_ureq_parity(USER_AGENT)
+        ..ClientConfig::legacy_ureq_parity(wire_identity().user_agent)
     }
     .address_policy(policy)
     .proxy(ProxyMode::Environment)

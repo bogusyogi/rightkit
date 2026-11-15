@@ -20,6 +20,13 @@ pub fn run() -> anyhow::Result<()> {
     // First, before any thread or ORT use: an inherited ORT_DYLIB_PATH must not steer the
     // engine.
     rightkit_onnx::clear_inherited_runtime_for_release();
+    // The installed command line (`transcribe`, `help`, `--version`), when the host turned it on
+    // with `host::configure_cli`, is a speech client: it loads no model, needs no ORT, tracing
+    // or launch frame, and exits here. Any other first argument is one of the roles below.
+    let argv: Vec<std::ffi::OsString> = std::env::args_os().skip(1).collect();
+    if let Some(code) = crate::cli::dispatch(&argv) {
+        std::process::exit(code);
+    }
     init_tracing();
     // Sidecar postmortem: the shell can only dump its own process when it
     // notices the engine died. Install our own panic hook so a real dump of
@@ -48,7 +55,10 @@ pub fn run() -> anyhow::Result<()> {
     if first.as_deref() == Some("calibrate") {
         let pcm = args.next().unwrap_or_default();
         // Explicit option from the shell: `calibrate <pcm> --collect-diagnostics`.
-        let collect_diagnostics = args.any(|arg| arg == "--collect-diagnostics");
+        let collect_diagnostics = args.any(|arg| arg == "--collect-diagnostics")
+            || crate::host::identity()
+                .calibration_diagnostics_env
+                .is_some_and(|name| std::env::var_os(name).is_some());
         let path = std::path::PathBuf::from(&pcm);
         let bytes = std::fs::read(&path)
             .map_err(|error| anyhow::anyhow!("read calibration PCM {}: {error}", path.display()))?;
@@ -314,7 +324,7 @@ fn resolve_parakeet_dir() -> Option<std::path::PathBuf> {
 /// Ready shared-store Ultra copy is served directly, as the d8304432 fix did; the shell's own
 /// resolver is the fallback. The calibration one-shots keep the shell's resolver alone, so
 /// calibration never passes on a directory the resident engine would refuse.
-fn resolve_speech_service_parakeet_dir() -> Option<std::path::PathBuf> {
+pub(crate) fn resolve_speech_service_parakeet_dir() -> Option<std::path::PathBuf> {
     use rightkit_dictation_models::shared::store;
     let dir = store::resolve_ready_dir(
         &store::paths::models_root(),
@@ -444,7 +454,10 @@ fn configure_ort_dylib() -> Result<(), String> {
         }
         Err(error) => {
             tracing::warn!(reason = %error, "ORT runtime binding failed");
-            return Err("Bundled ONNX runtime is missing; repair the app installation.".into());
+            return Err(format!(
+                "Bundled ONNX runtime is missing; repair the {} installation.",
+                crate::host::identity().product_name
+            ));
         }
     }
     Ok(())

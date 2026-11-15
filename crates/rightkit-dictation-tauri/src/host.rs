@@ -219,6 +219,56 @@ pub fn install_host(host: Arc<dyn DictationHost>) -> bool {
     HOST.set(host).is_ok()
 }
 
+static PRODUCT_NAME: OnceLock<&'static str> = OnceLock::new();
+static ENGINE_NAME: OnceLock<&'static str> = OnceLock::new();
+static MICROPHONE_OFF_LABEL: OnceLock<&'static str> = OnceLock::new();
+static ENGINE_CRASH_MESSAGE: OnceLock<&'static str> = OnceLock::new();
+
+/// Name the product in the pill label shown when Windows refuses microphone access ("Microphone
+/// access is off for `<name>` in Windows Settings"). Default: "this app". Once per process;
+/// returns false when a name was already set. Call before the first dictation.
+pub fn set_product_name(name: &str) -> bool {
+    if PRODUCT_NAME
+        .set(Box::leak(name.to_owned().into_boxed_str()))
+        .is_err()
+    {
+        return false;
+    }
+    let _ = MICROPHONE_OFF_LABEL.set(Box::leak(
+        format!("Microphone access is off for {name} in Windows Settings").into_boxed_str(),
+    ));
+    true
+}
+
+/// The product name set by [`set_product_name`], if any.
+pub fn product_name() -> Option<&'static str> {
+    PRODUCT_NAME.get().copied()
+}
+
+pub(crate) fn microphone_off_label() -> Option<&'static str> {
+    MICROPHONE_OFF_LABEL.get().copied()
+}
+
+/// Name the engine process in the message logged when it crashes ("`<name>` crashed"). Default:
+/// "engine". Once per process; returns false when a name was already set.
+pub fn set_engine_name(name: &str) -> bool {
+    if ENGINE_NAME
+        .set(Box::leak(name.to_owned().into_boxed_str()))
+        .is_err()
+    {
+        return false;
+    }
+    let _ = ENGINE_CRASH_MESSAGE.set(Box::leak(format!("{name} crashed").into_boxed_str()));
+    true
+}
+
+pub(crate) fn engine_crash_message() -> &'static str {
+    ENGINE_CRASH_MESSAGE
+        .get()
+        .copied()
+        .unwrap_or("engine crashed")
+}
+
 /// The installed host.
 ///
 /// # Panics
