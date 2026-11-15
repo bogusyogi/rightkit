@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.2
+
+- Breaking for dependents: a dependency requirement was raised to a semver-breaking version.
+
 ## 0.4.1
 
 - Requires `rightkit-mcp` 0.8.0 (dependency requirement raised; no API change here).

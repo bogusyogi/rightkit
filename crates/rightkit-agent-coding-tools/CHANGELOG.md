@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.3
+
+- Breaking for dependents: a dependency requirement was raised to a semver-breaking version.
+
 ## 0.1.2
 
 - Breaking for dependents: a dependency requirement was raised to a semver-breaking version.

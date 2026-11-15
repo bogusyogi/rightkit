@@ -2,6 +2,7 @@
 
 ## 0.2.0 (unpublished)
 
+- Requires `rightkit-mcp` 0.9.0 (agent MCP server options, bearer config, prompts and the CodeRight sync; see its changelog).
 - Builds against `rightkit-agent-engine-protocol` 0.4.0: events it emits leave the new optional fields unset (`tool_call_id`, `AgentRosterRow` `provider`/`cost_usd`, roster `main`/`total_cost_usd`/`cost_known`, `ArtifactVerdict::confidence`), and the event matches handle `ToolArgumentsPartial` and `SubAgentOutput`. No behaviour change.
 
 - Builds against the protocol's new `origin` and `phase` fields: assistant messages and completion events it emits carry `origin: None` and `phase: final`. No behaviour change.
