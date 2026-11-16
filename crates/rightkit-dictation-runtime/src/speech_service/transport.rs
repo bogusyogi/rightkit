@@ -62,13 +62,24 @@ pub fn listen(ctx: Arc<Ctx>, endpoint: &str, stop: Arc<AtomicBool>) -> io::Resul
                         tracing::warn!(event = "service_peer_rejected", %reason);
                     }
                     Ok(Accepted::Unidentified(refusal)) => {
-                        tracing::warn!(
-                            event = "service_peer_unidentified",
-                            pid = ?refusal.pid,
-                            image = ?refusal.image,
-                            kind = ?refusal.kind,
-                            reason = %refusal.reason,
-                        );
+                        let names = crate::host::service_log_names();
+                        if names.unidentified_peer_reason_first {
+                            tracing::warn!(
+                                event = names.unidentified_peer_event,
+                                reason = %refusal.reason,
+                                pid = ?refusal.pid,
+                                image = ?refusal.image,
+                                kind = ?refusal.kind,
+                            );
+                        } else {
+                            tracing::warn!(
+                                event = names.unidentified_peer_event,
+                                pid = ?refusal.pid,
+                                image = ?refusal.image,
+                                kind = ?refusal.kind,
+                                reason = %refusal.reason,
+                            );
+                        }
                     }
                     Ok(Accepted::Vanished) => {}
                     Err(error) => {

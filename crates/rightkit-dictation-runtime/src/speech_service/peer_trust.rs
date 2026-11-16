@@ -37,7 +37,11 @@ pub(super) fn admit(peer: &PeerIdentity) -> bool {
     match verify_peer(peer, &policy()) {
         Ok(_) => true,
         Err(error) => {
-            tracing::warn!(event = "service_peer_untrusted", pid = ?peer.pid, %error);
+            if crate::host::service_log_names().untrusted_peer_field_is_reason {
+                tracing::warn!(event = "service_peer_untrusted", pid = ?peer.pid, reason = %error);
+            } else {
+                tracing::warn!(event = "service_peer_untrusted", pid = ?peer.pid, %error);
+            }
             false
         }
     }

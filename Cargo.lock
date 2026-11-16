@@ -11336,7 +11336,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-dictation-core"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "rightkit-credentials",
  "rightkit-fs",
@@ -11437,7 +11437,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-dictation-runtime"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "anyhow",
  "libloading 0.9.0",
