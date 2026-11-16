@@ -6,6 +6,12 @@ use std::path::{Path, PathBuf};
 /// Directory inside a session's history holding the stash of the last undo.
 const REDO_DIR: &str = "redo";
 
+/// Why a rewind leaves a path that became a symlink after its snapshot.
+const SYMLINK_REFUSED: &str = "target is a symlink; left as it is";
+/// Why a rewind leaves a path whose parent directory now leaves the workspace.
+const PARENT_ESCAPES_REFUSED: &str =
+    "a parent directory is a symlink that leaves the workspace; left as it is";
+
 /// Error code a write fails with when no restore point can be stored.
 pub const HISTORY_UNAVAILABLE: &str = "history_unavailable";
 
@@ -28,6 +34,22 @@ pub struct HistorySnapshot {
 }
 
 impl HistorySnapshot {
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+}
+
+/// [`HistorySnapshot`] for a snapshot read as raw bytes: whatever was stored
+/// comes back exactly, UTF-8 or not.
+///
+/// The file remains in history until [`HistoryStore::consume_snapshot_bytes`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HistorySnapshotBytes {
+    path: PathBuf,
+    pub content: Vec<u8>,
+}
+
+impl HistorySnapshotBytes {
     pub fn path(&self) -> &Path {
         &self.path
     }
@@ -107,6 +129,30 @@ impl HistoryStore {
         self.write_entry(path, "snap", content.as_bytes())
     }
 
+    /// Snapshot the raw `bytes` as the pre-edit state of `path`. A snapshot
+    /// is a `.snap` file holding the bytes as they are (the same file
+    /// [`Self::snapshot`] writes for text), so content that is not valid UTF-8
+    /// gets a restore point too and comes back exactly. Read it back with
+    /// [`Self::peek_latest_bytes`] or [`Self::restore_since`]; the text readers
+    /// ([`Self::peek_latest`], [`Self::restore_latest`]) fail on such a file.
+    pub fn snapshot_bytes(&self, path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+        self.write_entry(path, "snap", bytes)
+    }
+
+    /// Whether `path` can be recorded in this store without sharing a slot with
+    /// another file. The slot key is flat (`/` and other separators become
+    /// `_`), so `a/b_c` and `a_b/c` name one slot, which remembers only the
+    /// first of them; a rewind would then write one file's old content over the
+    /// other. `false` means that slot belongs to a different path: record
+    /// nothing for `path` (a caller that must not lose data reports it as having
+    /// no restore point).
+    pub fn can_record(&self, path: &Path) -> bool {
+        match std::fs::read_to_string(self.slot_dir(path).join("PATH")) {
+            Ok(owner) => owner == path.to_string_lossy(),
+            Err(_) => true,
+        }
+    }
+
     /// Record that `path` did not exist before the edit (the edit created it).
     /// Rewinding past this entry deletes the file again.
     pub fn snapshot_absent(&self, path: &Path) -> std::io::Result<()> {
@@ -117,6 +163,28 @@ impl HistoryStore {
     /// deleted it) against the newest entry for `path`, so a later rewind can
     /// tell that another process changed the file since.
     pub fn record_after(&self, path: &Path, content: Option<&str>) -> std::io::Result<()> {
+        self.record_after_bytes(path, content.map(str::as_bytes))
+    }
+
+    /// [`Self::record_after`] for raw bytes (any encoding). A text record and a
+    /// byte record of the same content are the same record.
+    pub fn record_after_bytes(&self, path: &Path, content: Option<&[u8]>) -> std::io::Result<()> {
+        self.record_after_fingerprint(path, fingerprint(content))
+    }
+
+    /// [`Self::record_after_bytes`] for the file as it is on disk now, read in
+    /// bounded chunks instead of into memory (a file that does not exist is
+    /// recorded as deleted). For a file too large to hold.
+    pub fn record_after_file(&self, path: &Path) -> std::io::Result<()> {
+        let now = match fingerprint_file(path) {
+            Ok(now) => now,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => fingerprint(None),
+            Err(error) => return Err(error),
+        };
+        self.record_after_fingerprint(path, now)
+    }
+
+    fn record_after_fingerprint(&self, path: &Path, now: String) -> std::io::Result<()> {
         let dir = self.slot_dir(path);
         let Some((stem, _)) = Self::entries_in_dir(&dir)?.pop() else {
             return Err(std::io::Error::new(
@@ -124,10 +192,7 @@ impl HistoryStore {
                 "no history entry to attach the post-edit state to",
             ));
         };
-        write_private(
-            &dir.join(format!("{stem}.after")),
-            fingerprint(content).as_bytes(),
-        )
+        write_private(&dir.join(format!("{stem}.after")), now.as_bytes())
     }
 
     fn write_entry(&self, path: &Path, ext: &str, bytes: &[u8]) -> std::io::Result<()> {
@@ -204,7 +269,7 @@ impl HistoryStore {
                 }
             };
             if let Ok(recorded) = std::fs::read_to_string(dir.join(format!("{}.after", last.0))) {
-                let now = fingerprint(std::fs::read_to_string(&target).ok().as_deref());
+                let now = fingerprint_or_absent(&target);
                 if recorded.trim() != now {
                     report.failed.push((
                         origin,
@@ -213,11 +278,21 @@ impl HistoryStore {
                     continue;
                 }
             }
+            if is_symlink(&target) {
+                report.failed.push((origin, SYMLINK_REFUSED.to_string()));
+                continue;
+            }
+            if parent_escapes_workspace(&target, workspace_root) {
+                report
+                    .failed
+                    .push((origin, PARENT_ESCAPES_REFUSED.to_string()));
+                continue;
+            }
             // The undone state is stashed first so `redo_since` can put it back.
             let stash = redo_root.join(dir.file_name().unwrap_or_default());
             let restored_fingerprint = match first.1 {
                 EntryKind::Snap => fingerprint(
-                    std::fs::read_to_string(dir.join(format!("{}.snap", first.0)))
+                    std::fs::read(dir.join(format!("{}.snap", first.0)))
                         .ok()
                         .as_deref(),
                 ),
@@ -244,13 +319,14 @@ impl HistoryStore {
                 continue;
             }
             let outcome = match first.1 {
-                EntryKind::Snap => std::fs::read_to_string(dir.join(format!("{}.snap", first.0)))
-                    .and_then(|content| {
+                EntryKind::Snap => {
+                    std::fs::read(dir.join(format!("{}.snap", first.0))).and_then(|content| {
                         if let Some(parent) = target.parent() {
                             std::fs::create_dir_all(parent)?;
                         }
                         std::fs::write(&target, content)
-                    }),
+                    })
+                }
                 EntryKind::New => match std::fs::remove_file(&target) {
                     Err(error) if error.kind() != std::io::ErrorKind::NotFound => Err(error),
                     _ => Ok(()),
@@ -355,11 +431,21 @@ impl HistoryStore {
                 }
             };
             let expected = std::fs::read_to_string(stash.join("restored.fp")).unwrap_or_default();
-            let now = fingerprint(std::fs::read_to_string(&target).ok().as_deref());
+            let now = fingerprint_or_absent(&target);
             if expected.trim() != now {
                 report
                     .failed
                     .push((origin, "changed since the undo; left as it is".to_string()));
+                continue;
+            }
+            if is_symlink(&target) {
+                report.failed.push((origin, SYMLINK_REFUSED.to_string()));
+                continue;
+            }
+            if parent_escapes_workspace(&target, &self.workspace_root()) {
+                report
+                    .failed
+                    .push((origin, PARENT_ESCAPES_REFUSED.to_string()));
                 continue;
             }
             let outcome = if stash.join("current.absent").exists() {
@@ -453,6 +539,60 @@ impl HistoryStore {
         }))
     }
 
+    /// [`Self::peek_latest`] as raw bytes, for a snapshot of any encoding.
+    ///
+    /// When the newest entry of the slot records that an edit created the file
+    /// and an older snapshot lies beneath it (from before the file was deleted
+    /// and created again), that snapshot is not returned, since writing it over
+    /// the created file would destroy it: that is an error. A created-file entry
+    /// with no snapshot beneath it is `Ok(None)`, as for [`Self::peek_latest`].
+    pub fn peek_latest_bytes(&self, path: &Path) -> std::io::Result<Option<HistorySnapshotBytes>> {
+        let dir = self.slot_dir(path);
+        let Some(latest) = Self::latest_entry_in_dir(&dir)? else {
+            return Ok(None);
+        };
+        if latest.extension().and_then(|x| x.to_str()) == Some("new") {
+            if Self::latest_path_in_dir(&dir)?.is_none() {
+                return Ok(None);
+            }
+            return Err(std::io::Error::other(
+                "the newest edit created this file; there is no earlier content to restore",
+            ));
+        }
+        Ok(Some(HistorySnapshotBytes {
+            content: std::fs::read(&latest)?,
+            path: latest,
+        }))
+    }
+
+    /// [`Self::consume_snapshot`] for a snapshot from [`Self::peek_latest_bytes`].
+    pub fn consume_snapshot_bytes(&self, snapshot: &HistorySnapshotBytes) -> std::io::Result<()> {
+        let missing = || {
+            std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "history snapshot no longer exists",
+            )
+        };
+        let dir = snapshot.path().parent().ok_or_else(missing)?;
+        let latest = Self::latest_entry_in_dir(dir)?.ok_or_else(missing)?;
+        if latest != snapshot.path() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::WouldBlock,
+                "a newer history snapshot exists",
+            ));
+        }
+        std::fs::remove_file(snapshot.path())
+    }
+
+    /// [`Self::restore_latest`] as raw bytes.
+    pub fn restore_latest_bytes(&self, path: &Path) -> std::io::Result<Option<Vec<u8>>> {
+        let Some(snapshot) = self.peek_latest_bytes(path)? else {
+            return Ok(None);
+        };
+        self.consume_snapshot_bytes(&snapshot)?;
+        Ok(Some(snapshot.content))
+    }
+
     /// Consume exactly the snapshot previously returned by `peek_latest`.
     /// Refuse to remove it if a newer snapshot has appeared meanwhile.
     pub fn consume_snapshot(&self, snapshot: &HistorySnapshot) -> std::io::Result<()> {
@@ -502,6 +642,20 @@ impl HistoryStore {
             .filter_map(|e| e.ok())
             .map(|e| e.path())
             .filter(|p| p.extension().and_then(|x| x.to_str()) == Some("snap"))
+            .collect();
+        entries.sort_unstable_by(|a, b| b.cmp(a));
+        Ok(entries.into_iter().next())
+    }
+
+    /// The newest `.snap` or `.new` file of a slot.
+    fn latest_entry_in_dir(dir: &Path) -> std::io::Result<Option<PathBuf>> {
+        if !dir.exists() {
+            return Ok(None);
+        }
+        let mut entries: Vec<PathBuf> = std::fs::read_dir(dir)?
+            .filter_map(|e| e.ok())
+            .map(|e| e.path())
+            .filter(|p| matches!(p.extension().and_then(|x| x.to_str()), Some("snap" | "new")))
             .collect();
         entries.sort_unstable_by(|a, b| b.cmp(a));
         Ok(entries.into_iter().next())
@@ -574,16 +728,75 @@ pub struct RestoreReport {
 
 /// Stable content fingerprint (FNV-1a 64): not a security primitive, only an
 /// equality check between "what the engine wrote" and "what is on disk now".
-fn fingerprint(content: Option<&str>) -> String {
+///
+/// Hashed over raw bytes, so a UTF-8 file fingerprints exactly as it did when
+/// this took `&str`, and the `.after` and `restored.fp` records written before
+/// stay valid.
+fn fingerprint(content: Option<&[u8]>) -> String {
     let Some(content) = content else {
         return "absent".to_string();
     };
-    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
-    for byte in content.as_bytes() {
-        hash ^= u64::from(*byte);
-        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
-    }
+    let mut hash = FNV_OFFSET;
+    fnv_update(&mut hash, content);
     format!("{hash:016x}")
+}
+
+const FNV_OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
+
+fn fnv_update(hash: &mut u64, bytes: &[u8]) {
+    for byte in bytes {
+        *hash ^= u64::from(*byte);
+        *hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+}
+
+/// [`fingerprint`] of a file read in bounded chunks. An error is the caller's
+/// to judge: `NotFound` means the file is absent.
+fn fingerprint_file(path: &Path) -> std::io::Result<String> {
+    use std::io::Read as _;
+    let mut file = std::fs::File::open(path)?;
+    let mut hash = FNV_OFFSET;
+    let mut chunk = vec![0u8; 64 * 1024];
+    loop {
+        let n = file.read(&mut chunk)?;
+        if n == 0 {
+            break;
+        }
+        fnv_update(&mut hash, &chunk[..n]);
+    }
+    Ok(format!("{hash:016x}"))
+}
+
+/// What a rewind compares a record with: the fingerprint of the file now, and
+/// `absent` for one that is missing or cannot be read.
+fn fingerprint_or_absent(path: &Path) -> String {
+    fingerprint_file(path).unwrap_or_else(|_| fingerprint(None))
+}
+
+fn is_symlink(path: &Path) -> bool {
+    std::fs::symlink_metadata(path).is_ok_and(|meta| meta.file_type().is_symlink())
+}
+
+/// Whether a target lexically inside the workspace resolves, through a symlinked
+/// parent directory, to somewhere outside it. Fails closed when a path cannot be
+/// resolved. Targets lexically outside the workspace are not judged here.
+fn parent_escapes_workspace(target: &Path, workspace_root: &Path) -> bool {
+    if !target.starts_with(workspace_root) {
+        return false;
+    }
+    let Some(mut ancestor) = target.parent() else {
+        return false;
+    };
+    while std::fs::symlink_metadata(ancestor).is_err() {
+        match ancestor.parent() {
+            Some(parent) => ancestor = parent,
+            None => return true,
+        }
+    }
+    match (ancestor.canonicalize(), workspace_root.canonicalize()) {
+        (Ok(ancestor), Ok(root)) => !ancestor.starts_with(root),
+        _ => true,
+    }
 }
 
 /// Owner-only on Unix (sessions rule 41); other platforms keep the default

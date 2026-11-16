@@ -18,6 +18,7 @@ use std::path::PathBuf;
 
 use crate::coding::conductor::WorkerResult;
 use crate::coding::registry::AgentDescriptor;
+#[cfg(feature = "coding-repo-graph")]
 use crate::coding::repo_map::{RepositoryMap, RepositoryMapEvalProof, RepositoryMapSource};
 use rightkit_agent_engine_protocol::TaskNode;
 
@@ -64,6 +65,7 @@ pub struct HandoffBrief {
     /// Relevant context items from completed dependency tasks.
     pub context_items: Vec<ContextItem>,
     /// Ranked, skeletonized repository context for survey or synthesis work.
+    #[cfg(feature = "coding-repo-graph")]
     pub repository_map: Option<RepositoryMap>,
     /// The agent's charter / system prompt excerpt.
     pub agent_charter: String,
@@ -88,6 +90,7 @@ pub struct ContextItem {
 }
 
 /// Configuration for task-conditioned skeletonization of oversized code content.
+#[cfg(feature = "coding-repo-graph")]
 #[derive(Debug, Clone)]
 pub struct SkeletonizeConfig {
     /// The task text used to determine which function bodies to keep.
@@ -98,6 +101,7 @@ pub struct SkeletonizeConfig {
     pub task_source_paths: HashMap<String, String>,
 }
 
+#[cfg(feature = "coding-repo-graph")]
 impl SkeletonizeConfig {
     /// Build the production handoff policy for a task.
     ///
@@ -131,6 +135,7 @@ impl SkeletonizeConfig {
     }
 }
 
+#[cfg(feature = "coding-repo-graph")]
 fn is_survey_or_synthesis(node: &TaskNode) -> bool {
     let category = node.category.trim().to_ascii_lowercase();
     matches!(
@@ -139,6 +144,7 @@ fn is_survey_or_synthesis(node: &TaskNode) -> bool {
     )
 }
 
+#[cfg(feature = "coding-repo-graph")]
 fn requires_exact_dependency_bytes(node: &TaskNode) -> bool {
     format!("{} {}", node.title, node.done_when)
         .split(|character: char| !character.is_ascii_alphanumeric())
@@ -160,6 +166,7 @@ fn requires_exact_dependency_bytes(node: &TaskNode) -> bool {
         })
 }
 
+#[cfg(feature = "coding-repo-graph")]
 fn explicit_source_path(output: &str) -> Option<&str> {
     let first = output.lines().next()?.trim();
     let path = first.strip_prefix("Source path:")?.trim();
@@ -179,8 +186,11 @@ pub struct HandoffBriefBuilder<'a> {
     completed_results: &'a [WorkerResult],
     agent: Option<&'a AgentDescriptor>,
     max_context_items: usize,
+    #[cfg(feature = "coding-repo-graph")]
     skeletonize_config: Option<SkeletonizeConfig>,
+    #[cfg(feature = "coding-repo-graph")]
     repository_map_enabled: bool,
+    #[cfg(feature = "coding-repo-graph")]
     repository_map_proof: Option<RepositoryMapEvalProof>,
     archive_config: Option<HandoffArchiveConfig>,
 }
@@ -193,8 +203,11 @@ impl<'a> HandoffBriefBuilder<'a> {
             completed_results,
             agent: None,
             max_context_items: 5,
+            #[cfg(feature = "coding-repo-graph")]
             skeletonize_config: None,
+            #[cfg(feature = "coding-repo-graph")]
             repository_map_enabled: false,
+            #[cfg(feature = "coding-repo-graph")]
             repository_map_proof: None,
             archive_config: None,
         }
@@ -214,6 +227,7 @@ impl<'a> HandoffBriefBuilder<'a> {
     ///
     /// When enabled, context items with oversized code output will be skeletonized
     /// (signatures-only with task-relevant bodies kept) instead of blindly truncated.
+    #[cfg(feature = "coding-repo-graph")]
     pub fn with_skeletonization(mut self, config: SkeletonizeConfig) -> Self {
         self.skeletonize_config = Some(config);
         self
@@ -221,6 +235,7 @@ impl<'a> HandoffBriefBuilder<'a> {
 
     /// Enable repository-map projection only after its held-out evaluation gate
     /// has passed. Production handoffs keep this off until that evidence exists.
+    #[cfg(feature = "coding-repo-graph")]
     pub fn with_repository_map(mut self) -> Self {
         // Map projection is proof-gated; callers must provide evaluator output.
         self.repository_map_enabled = false;
@@ -229,6 +244,7 @@ impl<'a> HandoffBriefBuilder<'a> {
 
     /// Enable repository-map projection using an evaluator-produced proof.
     /// Invalid or failed evidence leaves map projection disabled.
+    #[cfg(feature = "coding-repo-graph")]
     pub fn with_repository_map_after(mut self, proof: RepositoryMapEvalProof) -> Self {
         if proof.is_usable() {
             self.repository_map_enabled = true;
@@ -250,6 +266,7 @@ impl<'a> HandoffBriefBuilder<'a> {
         let goal_summary = summarize_goal(self.goal);
         let task_description = build_task_description(self.node);
         let context_items = self.collect_context_items();
+        #[cfg(feature = "coding-repo-graph")]
         let repository_map = self.collect_repository_map();
         let agent_charter = self
             .agent
@@ -262,6 +279,7 @@ impl<'a> HandoffBriefBuilder<'a> {
             task_description,
             goal_summary,
             context_items,
+            #[cfg(feature = "coding-repo-graph")]
             repository_map,
             agent_charter,
             constraints,
@@ -281,12 +299,15 @@ impl<'a> HandoffBriefBuilder<'a> {
             .filter(|r| dep_ids.contains(r.task_id.as_str()))
             .take(self.max_context_items)
             .map(|r| {
+                #[cfg(feature = "coding-repo-graph")]
                 let summary = match &self.skeletonize_config {
                     Some(config) => {
                         compact_code_context(&r.output, &r.task_id, config, MAX_CONTEXT_ITEM_CHARS)
                     }
                     None => truncate_and_summarize(&r.output, MAX_CONTEXT_ITEM_CHARS),
                 };
+                #[cfg(not(feature = "coding-repo-graph"))]
+                let summary = truncate_and_summarize(&r.output, MAX_CONTEXT_ITEM_CHARS);
                 let archive = if r.output.chars().count() > MAX_CONTEXT_ITEM_CHARS {
                     self.archive_config
                         .as_ref()
@@ -316,6 +337,7 @@ impl<'a> HandoffBriefBuilder<'a> {
     /// Build a bounded repository map only from dependency sources already
     /// admitted by task-conditioned skeletonization. This keeps map discovery
     /// out of handoff construction: no filesystem walk, cache, or index exists.
+    #[cfg(feature = "coding-repo-graph")]
     fn collect_repository_map(&self) -> Option<RepositoryMap> {
         if !self.repository_map_enabled {
             return None;
@@ -377,6 +399,7 @@ impl std::fmt::Display for HandoffBrief {
             }
         }
 
+        #[cfg(feature = "coding-repo-graph")]
         if let Some(repository_map) = &self.repository_map {
             writeln!(f, "\n### Repository Map\n{repository_map}")?;
         }
@@ -596,6 +619,7 @@ fn truncate_and_summarize(output: &str, max_chars: usize) -> String {
 /// If the task has a mapped source path and the output exceeds the skeletonization
 /// threshold, applies tree-sitter skeletonization (signatures-only with task-relevant
 /// bodies kept). Otherwise falls back to truncation.
+#[cfg(feature = "coding-repo-graph")]
 fn compact_code_context(
     output: &str,
     task_id: &str,
@@ -630,6 +654,7 @@ fn compact_code_context(
     }
 }
 
+#[cfg(feature = "coding-repo-graph")]
 fn source_body(output: &str) -> &str {
     output
         .lines()
@@ -642,7 +667,8 @@ fn source_body(output: &str) -> &str {
 /// Estimate token count for a brief. Uses `chars / 4` as a reasonable
 /// approximation for English text (1 token ≈ 4 chars ≈ 0.75 words).
 fn estimate_tokens(brief: &HandoffBrief) -> usize {
-    let total_chars = brief.task_description.len()
+    #[allow(unused_mut)]
+    let mut total_chars = brief.task_description.len()
         + brief.goal_summary.len()
         + brief.agent_charter.len()
         + brief
@@ -650,13 +676,16 @@ fn estimate_tokens(brief: &HandoffBrief) -> usize {
             .iter()
             .map(|c| c.summary.len())
             .sum::<usize>()
-        + brief
+        + brief.constraints.iter().map(|c| c.len()).sum::<usize>()
+        + 100; // overhead for markdown formatting
+    #[cfg(feature = "coding-repo-graph")]
+    {
+        total_chars += brief
             .repository_map
             .as_ref()
             .map(|map| format!("{map}").len())
-            .unwrap_or_default()
-        + brief.constraints.iter().map(|c| c.len()).sum::<usize>()
-        + 100; // overhead for markdown formatting
+            .unwrap_or_default();
+    }
 
     total_chars.div_ceil(4) // ceiling division
 }

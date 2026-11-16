@@ -1,5 +1,7 @@
 use crate::coding::conductor::{WorkerOutcome, WorkerResult, WorkerTask};
-use crate::coding::handoff_brief::{HandoffArchiveConfig, HandoffBriefBuilder, SkeletonizeConfig};
+#[cfg(feature = "coding-repo-graph")]
+use crate::coding::handoff_brief::SkeletonizeConfig;
+use crate::coding::handoff_brief::{HandoffArchiveConfig, HandoffBriefBuilder};
 use crate::coding::registry::{AgentDescriptor, AgentRegistry};
 use serde_json::{json, Value};
 
@@ -31,6 +33,7 @@ pub(super) fn handoff_brief_payload(
     if let Some(config) = archive_config {
         builder = builder.with_archive(config.clone());
     }
+    #[cfg(feature = "coding-repo-graph")]
     if let Some(config) = SkeletonizeConfig::for_handoff(node, completed_results) {
         builder = builder.with_skeletonization(config);
     }

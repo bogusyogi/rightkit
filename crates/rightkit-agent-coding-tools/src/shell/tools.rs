@@ -314,6 +314,18 @@ pub(crate) async fn execute_shell(
     ctx: &ToolContext,
     flavor: ShellFlavor,
 ) -> ToolResult {
+    if shell_change_diff() {
+        execute_shell_tracked(args, ctx, flavor).await
+    } else {
+        execute_shell_protected(args, ctx, flavor).await
+    }
+}
+
+async fn execute_shell_protected(
+    args: Value,
+    ctx: &ToolContext,
+    flavor: ShellFlavor,
+) -> ToolResult {
     if shell_protect_config_files() {
         execute_shell_guarded(args, ctx, flavor).await
     } else {
