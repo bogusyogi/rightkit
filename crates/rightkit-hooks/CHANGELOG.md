@@ -3,6 +3,7 @@
 ## 0.2.11 (2026-11-16)
 
 - Breaking for a host outside this repository that relied on the implied OS keyring: with `agent_hooks` the crate no longer names `rightkit-llm`'s `agent_providers-os-keyring`, so the OS credential store (`rightkit-credentials`) is no longer linked. New feature `agent_hooks-os-keyring` adds it (implies `agent_hooks`); a host that needs the keyring names it. Nothing in the crate's own code needs the keyring, so no item changes.
+- Removed four source files under `src/guard/` (4,480 lines) that no module declared, so they were never compiled but were shipped in the package. They were a host's hook-binary source and are not part of this crate; `agent_hooks::guard` (the destructive-action guard) is a different file and is unchanged. No compiled code changes.
 
 ## 0.2.10 (2026-11-16)
 

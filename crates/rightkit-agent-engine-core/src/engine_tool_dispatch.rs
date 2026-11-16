@@ -95,6 +95,7 @@ pub(super) fn max_concurrent_tool_calls() -> usize {
 // Interactive terminals are operator-owned sessions (`api_execution`
 // spawns them with no cancel receiver); turn cancellation must never
 // reach them regardless of when they were created.
+#[cfg(feature = "host")]
 const INTERACTIVE_TERMINAL_PROCESS_KIND: &str = "terminalSession";
 
 /// Per-session baselines of background-shell ids that predate the current
