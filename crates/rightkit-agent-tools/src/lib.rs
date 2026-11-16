@@ -30,7 +30,8 @@ mod toolbox;
 
 pub use applicability::{AgentRole, ApplicabilityError, ApplicabilityRecord, APPLICABILITY_KEY};
 pub use backends::control::{
-    control_tools, serve_commands, AppProfile, CommandPolicy, CLIENT_APP, CONTROL_METHODS,
+    control_tools, serve_commands, serve_commands_with, AppProfile, CommandPolicy,
+    CommandServiceOptions, EmptyCommandName, CLIENT_APP, CONTROL_METHODS,
 };
 pub use backends::http::HttpEndpoint;
 pub use journal::JsonlJournal;

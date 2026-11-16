@@ -12,6 +12,7 @@ use crate::mode_location::{resolve_location, EngineCache, ModeLocation};
 use crate::models;
 use crate::protocol::{Mode, Reply, Request, REPLY_PREFIX};
 use crate::wav;
+use crate::worker_args;
 use qts::{
     ModeModelPaths, ModeSynthesizeRequest, ModelPaths, PresetSpeaker, QtsMode, Qwen3TtsEngine,
     SynthesizeRequest, TensorF32, VoiceClonePromptV2, VOICE_CLONE_PROMPT_V2_SCHEMA_VERSION,
@@ -142,6 +143,68 @@ fn load_engine(cfg: &WorkerConfig, mode: Mode) -> Result<Qwen3TtsEngine, String>
 fn model_missing(mode: Mode, missing: &[PathBuf]) -> String {
     let paths: Vec<String> = missing.iter().map(|p| p.display().to_string()).collect();
     format!("model_missing: {}: {}", mode.as_str(), paths.join(", "))
+}
+
+/// The environment variable the default worker names when it cannot resolve a model folder.
+pub const DEFAULT_MODEL_DIR_ENV: &str = "RIGHTKIT_TTS_MODEL_DIR";
+
+/// The whole worker `main` for the process arguments `args` (without the program name): parse
+/// them, resolve the model folder, vocoder and backend, then [`run`]. Never returns. A bad
+/// argument or an unresolvable model folder prints one line to stderr and exits 64 (fail closed).
+/// The crate's own `rightkit-tts-worker` binary is this call and nothing else; a host that ships
+/// the worker under its own name calls it from its `main` after any start-up of its own.
+pub fn worker_main<I>(args: I) -> !
+where
+    I: IntoIterator<Item = String>,
+{
+    worker_main_with(args, DEFAULT_MODEL_DIR_ENV)
+}
+
+/// [`worker_main`] naming `model_dir_env` (a host's own variable, for example
+/// `<PREFIX>_TTS_MODEL_DIR`) in the "cannot resolve the model folder" message. Only the message
+/// changes: which variables are read is [`models`]' rule.
+pub fn worker_main_with<I>(args: I, model_dir_env: &str) -> !
+where
+    I: IntoIterator<Item = String>,
+{
+    // Fail closed: unknown arguments, a bad `--mode`, or an unresolvable model folder exit 64.
+    let args = match worker_args::parse(args) {
+        Ok(args) => args,
+        Err(message) => {
+            eprintln!("{message}");
+            std::process::exit(64);
+        }
+    };
+    // `--idle-secs` wins over the idle-window environment variables.
+    let idle_timeout = args.idle_timeout();
+    let model_dir = match args.model_dir {
+        Some(dir) => dir,
+        None => match models::model_dir_in(args.data_root.as_deref()) {
+            Ok(dir) if !dir.as_os_str().is_empty() => dir,
+            _ => {
+                eprintln!(
+                    "cannot resolve the model folder: pass --model-dir or set {model_dir_env}"
+                );
+                std::process::exit(64);
+            }
+        },
+    };
+    let vocoder = args
+        .vocoder
+        .unwrap_or_else(|| model_dir.join("qwen3-tts-vocoder.onnx"));
+    let backend = args
+        .backend
+        .unwrap_or_else(|| models::default_backend().to_string());
+    run(&WorkerConfig {
+        model_dir,
+        backend,
+        mode: args.mode,
+        vocoder,
+        data_root: args.data_root,
+        ort_runtime: args.ort_runtime,
+        mode_locations: args.mode_locations,
+        idle_timeout,
+    })
 }
 
 /// Run until `quit`, stdin EOF (parent gone), or idle timeout.

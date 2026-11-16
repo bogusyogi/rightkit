@@ -87,6 +87,14 @@ const LIB_SOURCES: &[(&str, &str)] = &[
     ),
 ];
 
+/// The embedded JSON text of recipe library `name`, for validating a host overlay.
+pub(crate) fn embedded_source(name: &str) -> Option<&'static str> {
+    LIB_SOURCES
+        .iter()
+        .find(|(n, _)| *n == name)
+        .map(|(_, t)| *t)
+}
+
 /// The libraries a person picks from, in picker order.
 const PICKER_LIBS: &[&str] = &[
     "aesthetics",
@@ -106,8 +114,10 @@ fn libs() -> &'static Vec<(&'static str, Value)> {
         LIB_SOURCES
             .iter()
             .map(|(name, text)| {
-                let v = serde_json::from_str(text)
-                    .unwrap_or_else(|e| panic!("embedded recipe library {name}: {e}"));
+                let v = crate::host::load_library(&format!("recipes/{name}"), || {
+                    serde_json::from_str(text)
+                        .unwrap_or_else(|e| panic!("embedded recipe library {name}: {e}"))
+                });
                 (
                     *name,
                     crate::brands::with_defaults(&format!("recipes/{name}"), v),
@@ -1567,6 +1577,13 @@ fn approval_inputs_of(draft: &Value) -> (Value, String) {
 }
 
 #[cfg(feature = "commands")]
+/// Approval inputs of a stored draft and its displayed hash, for an approval challenge
+/// (`studio.approvals.challenge`, kind `recipes`): what a host's approval registration binds.
+pub fn approval_inputs(ctx: &Context, id: &str) -> RecipeResult<(Value, String)> {
+    Ok(approval_inputs_of(&read_draft(ctx, id)?))
+}
+
+#[cfg(feature = "commands")]
 /// Preflight plus the single-use approval challenge (returned with the response, not stored in the draft).
 fn preflight_with_challenge(ctx: &Context, input: &Value) -> RecipeResult<Value> {
     let mut draft = make_draft(ctx, input, true)?;
@@ -2460,6 +2477,13 @@ fn tpl_approval_inputs_of(doc: &Value) -> (Value, String) {
         inputs,
         doc["request_hash"].as_str().unwrap_or_default().to_string(),
     )
+}
+
+#[cfg(feature = "commands")]
+/// Approval inputs of a stored template draft and its displayed hash, for an approval challenge
+/// (`studio.approvals.challenge`, kind `recipe_templates`).
+pub fn tpl_approval_inputs(ctx: &Context, id: &str) -> RecipeResult<(Value, String)> {
+    Ok(tpl_approval_inputs_of(&tpl_read(ctx, id)?))
 }
 
 #[cfg(feature = "commands")]

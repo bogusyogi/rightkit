@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-prompt-recipes"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Prompt contracts and validator, recipe composer, image workflow catalogue, character and LoRA lock data and video shot-contract templates over embedded JSON; host-supplied brands; optional studio command adapter over rightkit-media-gen."

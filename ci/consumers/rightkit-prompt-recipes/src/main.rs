@@ -1,4 +1,4 @@
-// rightkit-prompt-recipes 0.2.0 consumed by exact registry pin (`=0.2.0`), outside the workspace.
+// rightkit-prompt-recipes 0.2.1 consumed by exact registry pin (`=0.2.1`), outside the workspace.
 //
 // Proves, through the public API of the default (pure library) build:
 // - catalog::reference_limit is a positive count and an unknown intent has no model;
@@ -48,5 +48,5 @@ fn main() {
             && video_templates::normalize_venture("zz").is_err(),
         "a video venture is a host brand",
     );
-    println!("OK rightkit-prompt-recipes 0.2.0 (registry consumer)");
+    println!("OK rightkit-prompt-recipes 0.2.1 (registry consumer)");
 }

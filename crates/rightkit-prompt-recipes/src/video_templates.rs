@@ -96,9 +96,74 @@ struct Lib {
     json: Value,
 }
 
-fn load_lib(file: &'static str, src: &'static str) -> Lib {
-    let json = serde_json::from_str(src).unwrap_or_else(|_| panic!("{file} is valid JSON"));
+/// The embedded JSON text of every video library, by file stem.
+const SOURCES: &[(&str, &str)] = &[
+    (
+        "camera_moves",
+        include_str!("../data/video_templates/camera_moves.json"),
+    ),
+    (
+        "ad_patterns",
+        include_str!("../data/video_templates/ad_patterns.json"),
+    ),
+    (
+        "aesthetics",
+        include_str!("../data/video_templates/aesthetics.json"),
+    ),
+    ("audio", include_str!("../data/video_templates/audio.json")),
+    (
+        "transitions",
+        include_str!("../data/video_templates/transitions.json"),
+    ),
+    (
+        "text_overlays",
+        include_str!("../data/video_templates/text_overlays.json"),
+    ),
+    (
+        "qa_rubrics",
+        include_str!("../data/video_templates/qa_rubrics.json"),
+    ),
+    (
+        "subject_motion",
+        include_str!("../data/video_templates/subject_motion.json"),
+    ),
+    (
+        "scene_motion",
+        include_str!("../data/video_templates/scene_motion.json"),
+    ),
+    (
+        "continuity",
+        include_str!("../data/video_templates/continuity.json"),
+    ),
+    (
+        "per_model_quirks",
+        include_str!("../data/video_templates/per_model_quirks.json"),
+    ),
+    (
+        "shot_contract_templates",
+        include_str!("../data/video_templates/shot_contract_templates.json"),
+    ),
+    (
+        "model_routes",
+        include_str!("../data/video_templates/model_routes.json"),
+    ),
+    (
+        "camera_params",
+        include_str!("../data/video_templates/camera_params.json"),
+    ),
+];
+
+/// The embedded JSON text of video library `name`, for validating a host overlay.
+pub(crate) fn embedded_source(name: &str) -> Option<&'static str> {
+    SOURCES.iter().find(|(n, _)| *n == name).map(|(_, t)| *t)
+}
+
+fn load_lib(file: &'static str) -> Lib {
     let stem = file.strip_suffix(".json").unwrap_or(file);
+    let src = embedded_source(stem).unwrap_or_else(|| panic!("{file} is embedded"));
+    let json = crate::host::load_library(&format!("video/{stem}"), || {
+        serde_json::from_str(src).unwrap_or_else(|_| panic!("{file} is valid JSON"))
+    });
     Lib {
         src,
         json: crate::brands::with_defaults(&format!("video/{stem}"), json),
@@ -107,130 +172,60 @@ fn load_lib(file: &'static str, src: &'static str) -> Lib {
 
 fn camera_moves_lib() -> &'static Lib {
     static CELL: OnceLock<Lib> = OnceLock::new();
-    CELL.get_or_init(|| {
-        load_lib(
-            "camera_moves.json",
-            include_str!("../data/video_templates/camera_moves.json"),
-        )
-    })
+    CELL.get_or_init(|| load_lib("camera_moves.json"))
 }
 fn ad_patterns_lib() -> &'static Lib {
     static CELL: OnceLock<Lib> = OnceLock::new();
-    CELL.get_or_init(|| {
-        load_lib(
-            "ad_patterns.json",
-            include_str!("../data/video_templates/ad_patterns.json"),
-        )
-    })
+    CELL.get_or_init(|| load_lib("ad_patterns.json"))
 }
 fn aesthetics_lib() -> &'static Lib {
     static CELL: OnceLock<Lib> = OnceLock::new();
-    CELL.get_or_init(|| {
-        load_lib(
-            "aesthetics.json",
-            include_str!("../data/video_templates/aesthetics.json"),
-        )
-    })
+    CELL.get_or_init(|| load_lib("aesthetics.json"))
 }
 fn audio_lib() -> &'static Lib {
     static CELL: OnceLock<Lib> = OnceLock::new();
-    CELL.get_or_init(|| {
-        load_lib(
-            "audio.json",
-            include_str!("../data/video_templates/audio.json"),
-        )
-    })
+    CELL.get_or_init(|| load_lib("audio.json"))
 }
 fn transitions_lib() -> &'static Lib {
     static CELL: OnceLock<Lib> = OnceLock::new();
-    CELL.get_or_init(|| {
-        load_lib(
-            "transitions.json",
-            include_str!("../data/video_templates/transitions.json"),
-        )
-    })
+    CELL.get_or_init(|| load_lib("transitions.json"))
 }
 fn text_overlays_lib() -> &'static Lib {
     static CELL: OnceLock<Lib> = OnceLock::new();
-    CELL.get_or_init(|| {
-        load_lib(
-            "text_overlays.json",
-            include_str!("../data/video_templates/text_overlays.json"),
-        )
-    })
+    CELL.get_or_init(|| load_lib("text_overlays.json"))
 }
 fn qa_rubrics_lib() -> &'static Lib {
     static CELL: OnceLock<Lib> = OnceLock::new();
-    CELL.get_or_init(|| {
-        load_lib(
-            "qa_rubrics.json",
-            include_str!("../data/video_templates/qa_rubrics.json"),
-        )
-    })
+    CELL.get_or_init(|| load_lib("qa_rubrics.json"))
 }
 fn subject_motion_lib() -> &'static Lib {
     static CELL: OnceLock<Lib> = OnceLock::new();
-    CELL.get_or_init(|| {
-        load_lib(
-            "subject_motion.json",
-            include_str!("../data/video_templates/subject_motion.json"),
-        )
-    })
+    CELL.get_or_init(|| load_lib("subject_motion.json"))
 }
 fn scene_motion_lib() -> &'static Lib {
     static CELL: OnceLock<Lib> = OnceLock::new();
-    CELL.get_or_init(|| {
-        load_lib(
-            "scene_motion.json",
-            include_str!("../data/video_templates/scene_motion.json"),
-        )
-    })
+    CELL.get_or_init(|| load_lib("scene_motion.json"))
 }
 fn continuity_lib() -> &'static Lib {
     static CELL: OnceLock<Lib> = OnceLock::new();
-    CELL.get_or_init(|| {
-        load_lib(
-            "continuity.json",
-            include_str!("../data/video_templates/continuity.json"),
-        )
-    })
+    CELL.get_or_init(|| load_lib("continuity.json"))
 }
 fn quirks_lib() -> &'static Lib {
     static CELL: OnceLock<Lib> = OnceLock::new();
-    CELL.get_or_init(|| {
-        load_lib(
-            "per_model_quirks.json",
-            include_str!("../data/video_templates/per_model_quirks.json"),
-        )
-    })
+    CELL.get_or_init(|| load_lib("per_model_quirks.json"))
 }
 #[cfg(feature = "commands")]
 fn templates_lib() -> &'static Lib {
     static CELL: OnceLock<Lib> = OnceLock::new();
-    CELL.get_or_init(|| {
-        load_lib(
-            "shot_contract_templates.json",
-            include_str!("../data/video_templates/shot_contract_templates.json"),
-        )
-    })
+    CELL.get_or_init(|| load_lib("shot_contract_templates.json"))
 }
 fn routes_lib() -> &'static Lib {
     static CELL: OnceLock<Lib> = OnceLock::new();
-    CELL.get_or_init(|| {
-        load_lib(
-            "model_routes.json",
-            include_str!("../data/video_templates/model_routes.json"),
-        )
-    })
+    CELL.get_or_init(|| load_lib("model_routes.json"))
 }
 fn camera_params_lib() -> &'static Lib {
     static CELL: OnceLock<Lib> = OnceLock::new();
-    CELL.get_or_init(|| {
-        load_lib(
-            "camera_params.json",
-            include_str!("../data/video_templates/camera_params.json"),
-        )
-    })
+    CELL.get_or_init(|| load_lib("camera_params.json"))
 }
 
 #[cfg(feature = "commands")]
@@ -430,12 +425,12 @@ fn normalize_template_slug(slug: &str) -> RecipeResult<String> {
 }
 
 #[cfg(feature = "commands")]
-/// Input `content_root`, else `RIGHTKIT_CONTENT_ROOT`, else `<data_dir>/Content`.
+/// Input `content_root`, else the host's `content_root_env` (default `RIGHTKIT_CONTENT_ROOT`), else `<data_dir>/Content`.
 fn content_root(ctx: &Context, input: &Value) -> PathBuf {
     if let Some(p) = nonblank(input.get("content_root")) {
         return PathBuf::from(p);
     }
-    if let Some(p) = std::env::var_os("RIGHTKIT_CONTENT_ROOT").filter(|p| !p.is_empty()) {
+    if let Some(p) = std::env::var_os(crate::host::content_root_env()).filter(|p| !p.is_empty()) {
         return PathBuf::from(p);
     }
     ctx.data_dir.join("Content")
@@ -709,6 +704,29 @@ fn merge_plain(template: Option<&Value>, over: Option<&Value>) -> Option<Value> 
         }
         _ => Some(over.clone()),
     }
+}
+
+/// Validate every built-in shot contract template of `lib` (the `shot_contract_templates`
+/// library, possibly overlaid by the host) with [`validate_shot_contract`].
+pub(crate) fn validate_builtin_templates(lib: &Value) -> Result<(), String> {
+    let list = lib
+        .get("templates")
+        .and_then(Value::as_array)
+        .ok_or("templates must be an array")?;
+    for (i, t) in list.iter().enumerate() {
+        let slug = t
+            .get("slug")
+            .and_then(Value::as_str)
+            .filter(|s| !s.trim().is_empty())
+            .ok_or_else(|| format!("templates[{i}] needs a slug"))?;
+        let contract = match t.get("shot_contract") {
+            Some(c) if truthy(Some(c)) => c,
+            _ => t,
+        };
+        validate_shot_contract(contract, slug)
+            .map_err(|e| format!("templates[{i}] {slug}: {e}"))?;
+    }
+    Ok(())
 }
 
 pub fn merge_shot_contract(template: &Value, over: &Value) -> RecipeResult<Value> {
@@ -2090,7 +2108,7 @@ fn compose_for_request(request: &Value, contract: &Value) -> RecipeResult<(Strin
         );
     }
     let (prompt, mut meta) = compose_prompt(&p).map_err(|m| bad("invalid_input", m))?;
-    meta["source"] = json!("video_preflight");
+    meta["source"] = json!(crate::host::preflight_source());
     meta["defaults_used"] = Value::Object(defaults_used);
     Ok((prompt, meta))
 }
@@ -2104,7 +2122,7 @@ fn normalize_request(input: &Value) -> RecipeResult<Value> {
             "invalid_input",
             format!(
                 "brand must be one of: {}",
-                crate::brands::codes().join(", ")
+                crate::host::video_brand_codes().join(", ")
             ),
         ));
     }
@@ -2381,6 +2399,14 @@ fn approval_inputs_of(draft: &Value) -> (Value, String) {
             .unwrap_or_default()
             .to_string(),
     )
+}
+
+#[cfg(feature = "commands")]
+/// Approval inputs of a stored draft and its displayed hash, for an approval challenge
+/// (`studio.approvals.challenge`, kind `video_templates`): what a host's approval registration
+/// binds.
+pub fn approval_inputs(ctx: &Context, id: &str) -> RecipeResult<(Value, String)> {
+    Ok(approval_inputs_of(&read_draft(ctx, id)?))
 }
 
 #[cfg(feature = "commands")]

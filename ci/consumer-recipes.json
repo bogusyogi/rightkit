@@ -2298,7 +2298,7 @@
       "pkId": "PK15",
       "id": "ci/consumers/rightkit-agent-tools/src/main.rs",
       "files": {
-        "Cargo.toml": "d80a2a44e57b0357e192e854d34d874ee62329301eb85aba8f864c91358526b8",
+        "Cargo.toml": "8b1503527704790a455a2d3d238111b6104c50236831c6dc780df3f3f7555b8b",
         "README.md": "aa7dbfb189d496b1407d4cac1a2404fcb167103e60f6fc5c1a3e22ab7c89fb3b",
         "src/main.rs": "246ff9cedf046c152af85101359688c37e1152696985b24b2f7b094963137c2d"
       }
@@ -2827,7 +2827,7 @@
       "pkId": "PK18",
       "id": "ci/consumers/rightkit-tts/src/main.rs",
       "files": {
-        "Cargo.toml": "8f70a29ca87a819e3c27ab41a9d730b411f639d279a3587e58af9cd4c23c3588",
+        "Cargo.toml": "4d767ba47ab9fbf4c9e2e466cc6bec5956b0d61a4a24ac49f25ceba74e605f6c",
         "README.md": "57738f5d663d06fd9218ddb332e25eb06bf8e61b43679c293a566ac7b9a0bc2b",
         "src/main.rs": "cc257282104f31005111638d25c32a1be62ed29aa72010c0f136d180ac4daa29"
       }
@@ -3352,9 +3352,9 @@
       "pkId": "PK107",
       "id": "ci/consumers/rightkit-media-pipeline/src/main.rs",
       "files": {
-        "Cargo.toml": "1060c0f91179b9d10e6169dd309ffce68add0df0408e320688b89f436c67b6fb",
-        "README.md": "313dc7125ea97d59e89fb88771340970525f7d856dbf82c28199261788d414b0",
-        "src/main.rs": "5565cd34218f94d7814867efc2728d336924cb8dc2f69e5f8776f178373cc304"
+        "Cargo.toml": "1e0f65a80a53953250871f7017829b9320213be32234557d2dfe6a6d77f92fef",
+        "README.md": "31b50647f1a49dbcd62a0b11d8c40544267cff9900d41c67498284432b07acd4",
+        "src/main.rs": "e48ecb8152602862edaeb79f169be99903ad26ba2470aabff9ed5c68ff38a5ce"
       }
     },
     "rightkit-memory-core": {
@@ -4036,9 +4036,9 @@
       "pkId": "PK187",
       "id": "ci/consumers/rightkit-prompt-recipes/src/main.rs",
       "files": {
-        "Cargo.toml": "7a9b3d08552116868565bf980bbb977d73951b0f74adbc68c56698bb1387d014",
-        "README.md": "eed35fa585bb4194d2e0163648e8f09f32e808de6ff2752960e53331573b4c58",
-        "src/main.rs": "69ba60728ee875c5a2f23bb59934d2e5e19b2b4510dd208afcc2ecc251458fbc"
+        "Cargo.toml": "81775895e5236702193e205c349085d868b15d0c5bade07253e1ac5991e53395",
+        "README.md": "58fa17b7d65310a19d5f3eabe300a1b2f725ae431080bb21c7c0cc77e5e63e2e",
+        "src/main.rs": "16d5bd2a1db77af76809e8fa618a9eaad03072be12b4cd7d97e5e1e33084593f"
       }
     },
     "rightkit-win-ui": {

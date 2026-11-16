@@ -3,6 +3,10 @@
 All notable changes to `rightkit-tts`. Versions follow Cargo semver; while the
 version is `0.x`, a minor bump may carry breaking changes.
 
+## 0.3.1 (2026-11-16)
+
+- Added (feature `engine`) `worker::worker_main(args) -> !` and `worker::worker_main_with(args, model_dir_env) -> !`: the whole worker `main` (parse the arguments, resolve the model folder, vocoder and backend, run the engine loop; a bad argument or an unresolvable model folder exits 64). The crate's own `rightkit-tts-worker` binary is now `worker_main(std::env::args().skip(1))` and behaves as before; a host that ships the worker under its own name calls the same function from its `main`, after any start-up of its own. `worker_main_with` names the host's own variable in the "cannot resolve the model folder" message; which variables are read is unchanged.
+
 ## 0.3.0
 
 - Breaking for dependents: dependency requirements `rightkit-onnx` 0.2 -> 0.3, `rightkit-tts-qwen` 0.2 -> 0.3. 0.2.5 was published before these requirements were raised; a semver-breaking dependency is a breaking change, so they ship as 0.3.0 instead of changing 0.2.5 in place (#1572). No source change in this crate since 0.2.5.
