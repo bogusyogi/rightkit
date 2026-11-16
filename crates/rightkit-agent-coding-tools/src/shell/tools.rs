@@ -446,6 +446,14 @@ pub(crate) async fn execute_shell(
     // daemon's controlling terminal.
     rightkit_child_process::tokio_support::lead_session(&mut command);
 
+    // Die with the host when it asked for that. Before `confine`: seccomp must not see prctl.
+    #[cfg(target_os = "linux")]
+    let anchored = anchor_children_to_parent();
+    #[cfg(target_os = "linux")]
+    if anchored {
+        parent_death::kill_on_parent_exit(&mut command);
+    }
+
     // Apply sandbox restrictions on Linux: RightKit prepares Landlock/seccomp in the
     // parent and registers a syscall-only `pre_exec` hook. A failure refuses the launch.
     #[cfg(target_os = "linux")]
@@ -459,12 +467,19 @@ pub(crate) async fn execute_shell(
         }
     }
 
-    let child = match command
+    command
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-    {
+        .stderr(std::process::Stdio::piped());
+    #[cfg(target_os = "linux")]
+    let spawned = if anchored {
+        parent_death::spawn_anchored(command).await
+    } else {
+        command.spawn()
+    };
+    #[cfg(not(target_os = "linux"))]
+    let spawned = command.spawn();
+    let child = match spawned {
         Ok(c) => c,
         Err(e) => return ToolResult::error(format!("Failed to spawn command: {}", e)),
     };

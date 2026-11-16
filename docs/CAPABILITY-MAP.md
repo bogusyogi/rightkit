@@ -28,7 +28,7 @@ Capabilities: 222 (58 with fingerprints, 164 declaration-only). Internal owners 
 | agent-host-traits | `rightkit-agent-host-traits` | none | declaration-only | 0 | rightkit-agent-host-traits: staged 0.1.3, not published |
 | agent-memory | `rightkit-memory` | none | declaration-only | 0 | rightkit-memory: staged 0.3.0, not published |
 | agent-mobile-runtime | `rightkit-agent-engine-mobile-runtime` | none | declaration-only | 0 | rightkit-agent-engine-mobile-runtime: staged 0.1.1, not published |
-| agent-orchestration | `rightkit-agent-orchestration` | none | declaration-only | 0 | rightkit-agent-orchestration: staged 0.1.4, not published |
+| agent-orchestration | `rightkit-agent-orchestration` | none | declaration-only | 0 | rightkit-agent-orchestration: staged 0.1.5, not published |
 | agent-orchestration-handoff | `rightkit-agent-orchestration-handoff` | none | declaration-only | 0 | rightkit-agent-orchestration-handoff: staged 0.1.2, not published |
 | agent-plugins | `rightkit-agent-plugins` | none | declaration-only | 0 | rightkit-agent-plugins: staged 0.1.2, not published |
 | agent-policy | `rightkit-agent-policy` | none | declaration-only | 0 | rightkit-agent-policy: staged 0.2.1, not published |
@@ -179,7 +179,7 @@ Capabilities: 222 (58 with fingerprints, 164 declaration-only). Internal owners 
 | release-tooling | `@rightkit/release` | advise | fingerprinted | 10 (0 block, 10 advise) | @rightkit/release: published 0.6.13 (npm) |
 | remote-agent-gateway | `rightkit-remote-gateway` | none | declaration-only | 0 | rightkit-remote-gateway: staged 0.1.3, not published |
 | remote-compute | `rightkit-remote-compute` | none | declaration-only | 0 | rightkit-remote-compute: staged 0.2.1, not published |
-| repo-graph | `rightkit-repo-graph` | none | declaration-only | 0 | rightkit-repo-graph: staged 0.3.0, not published |
+| repo-graph | `rightkit-repo-graph` | none | declaration-only | 0 | rightkit-repo-graph: staged 0.3.1, not published |
 | repo-graph-grammars | `rightkit-repo-graph-grammars` | none | declaration-only | 0 | rightkit-repo-graph-grammars: staged 0.1.1, not published |
 | research | `rightkit-research` | none | declaration-only | 0 | rightkit-research: staged 0.1.2, not published |
 | right-suite-api | `rightkit-license` | none | declaration-only | 0 | rightkit-license: published 0.2.5 (crates.io) |

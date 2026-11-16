@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.5 (2026-11-16)
+
+- New `shell::set_anchor_children_to_parent` / `shell::anchor_children_to_parent` (feature `host`), fixed once at start-up, off by default. Off, every launch is exactly as before. On, on Linux, children of `NativeCommandSandboxAdapter` (pipe launches) and of the shell tool die with the host process: the kernel SIGKILLs each one (`PR_SET_PDEATHSIG`, registered before the sandbox hooks) and every such spawn is made from one process-lifetime thread, because the signal is tied to the thread that forked. Grandchildren are not covered (the session-wide tree kill reaches them). If that thread cannot start, the launch fails instead of running unanchored. macOS and Windows launches are unchanged. A host that restarts and reattaches background processes must leave it off. A host (CodeRight) turns it on.
+
 ## 0.1.4 (2026-11-16)
 
 - Requires rightkit-llm 0.7.0 and rightkit-mcp 0.10.0. Names `agent_mcp-os-keyring` and `agent_providers-os-keyring` explicitly, so the build is unchanged. No behaviour change.

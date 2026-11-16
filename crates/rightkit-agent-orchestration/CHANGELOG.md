@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.5 (2026-11-16)
+
+- Requires rightkit-repo-graph 0.3.1. New `coding::host::set_skeleton_variant` / `skeleton_variant`, fixed once at start-up: `SkeletonVariant::Standard` (the default) keeps the output of `coding::handoff_brief` and `coding::repo_map` exactly as before; `SkeletonVariant::Extended` makes both use the extended skeletonizer of rightkit-repo-graph. A host (CodeRight) calls `set_skeleton_variant(SkeletonVariant::Extended)`.
+
 ## 0.1.4 (2026-11-16)
 
 - Requires rightkit-llm 0.7.0. Names `agent_providers-os-keyring` and `agent_router-os-keyring` explicitly, so the build is unchanged. No behaviour change.

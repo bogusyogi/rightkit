@@ -9914,7 +9914,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-agent-coding-tools"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -10243,7 +10243,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-agent-orchestration"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "async-trait",
  "hex",
@@ -12715,7 +12715,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-repo-graph"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "arborium-rescript",
  "getrandom 0.4.3",

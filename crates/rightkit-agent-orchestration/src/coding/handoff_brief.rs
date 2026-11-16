@@ -608,7 +608,8 @@ fn compact_code_context(
 
     let path = Path::new(source_path);
     let code = source_body(output);
-    let result = rightkit_repo_graph::skeletonize_for_task(
+    let result = rightkit_repo_graph::skeletonize_for_task_with(
+        crate::coding::host::skeleton_variant(),
         path,
         code,
         &config.task_text,
