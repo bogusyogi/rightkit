@@ -25,6 +25,24 @@
 //!
 //! All tools implement [`tool_trait::Tool`] and are registered in [`registry::ToolRegistry`].
 
+// Once-per-process host options (see `shell/host_options.rs` and `tool_options.rs`): a bool that is
+// `false` until the host sets it, set at most once, the first call winning.
+macro_rules! host_option {
+    ($(#[$doc:meta])* $once:ident, $setter:ident, $getter:ident) => {
+        static $once: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+
+        $(#[$doc])*
+        pub fn $setter(enabled: bool) -> bool {
+            $once.set(enabled).is_ok()
+        }
+
+        /// Whether the option of the same name is on (see its setter).
+        pub fn $getter() -> bool {
+            $once.get().copied().unwrap_or(false)
+        }
+    };
+}
+
 pub mod apply_patch;
 pub mod artifact_crud;
 pub mod ask_user;
@@ -122,6 +140,7 @@ pub mod team_tools;
 pub mod time;
 pub mod tinyfish;
 pub mod todo_write;
+pub mod tool_options;
 pub mod tool_search;
 pub mod tool_trait;
 pub mod tunnel;

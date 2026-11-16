@@ -3613,7 +3613,7 @@
       "pkId": "PK143",
       "id": "ci/consumers/rightkit-dictation-inference/src/main.rs",
       "files": {
-        "Cargo.toml": "0889dd8051918c73d3f19a746d7ec388bc89e7ae9e8266870bfc88c11912c970",
+        "Cargo.toml": "ab1f06b9f26c26654cfd282f487227365f44218af083df7fe75a944cc93fb813",
         "README.md": "89cd6b543c65c2c41f57858e5c509ac1b6ccf1b6203962a630c557029f9dc0a6",
         "src/main.rs": "0cacc582546eab94785a38b3920ee28457c3c0bdc9c0fefad6e42038a282f2b4"
       }
@@ -4297,9 +4297,9 @@
       "pkId": "PK251",
       "id": "ci/consumers/rightkit-agent-coding-tools/src/main.rs",
       "files": {
-        "Cargo.toml": "08a54b24792d4cfd4d55bc0b9d8dfb7408919a6f9ad3b5706ecb595e9e6bad76",
-        "README.md": "ae4a44e8d9f4f3ffe66a4f68d5aa143c55eb751ee82c624438f04a65dd41b7a2",
-        "src/main.rs": "288dae9b308cae130257495c85d674e023d0f2677d27a1115dd9c83ff0d081e0"
+        "Cargo.toml": "a52653dab66cc47b759f314969bf3eeff7b066a28ef3245539531938adac6112",
+        "README.md": "d23646250482b44c1314577d1d95d28996a6a43ec9f1f184f75da1e5d8d3bbcf",
+        "src/main.rs": "d163fbaaac971b98b8673015893e4defd69e2eb8e30c1b669f569c2f73adfe09"
       }
     }
   }

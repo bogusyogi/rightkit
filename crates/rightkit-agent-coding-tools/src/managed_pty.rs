@@ -114,6 +114,12 @@ fn spawn_portable(
     for (key, value) in &spec.env {
         command.env(key, value);
     }
+    // `CommandBuilder` starts from this process's environment: drop every inherited credential,
+    // daemon token or licence variable the launch did not set itself. Empty unless the host
+    // turned on `shell::set_scrub_inherited_credentials`.
+    for name in crate::process_launch::inherited_scrubbed_env_names(&spec.env) {
+        command.env_remove(name);
+    }
     // portable-pty uses this to create the controlling terminal/session on
     // Unix. That gives cancellation a process-group boundary rather than a
     // single child PID; on Windows the same descendant ownership is reinforced

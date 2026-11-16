@@ -24,7 +24,13 @@ const FAIL_TAIL_LINES: usize = 200;
 /// Reduce raw combined stdout+stderr for context.
 /// `success` = the process exited 0. `command` selects a per-command rule.
 pub fn reduce_output(raw: &str, success: bool, command: &str) -> String {
-    let stripped = strip_ansi(raw);
+    // With `set_output_keeps_tail`, progress bars that redraw with `\r` keep only each line's
+    // final state.
+    let stripped = if crate::tool_options::output_keeps_tail() {
+        collapse_carriage_returns(&strip_ansi(raw))
+    } else {
+        strip_ansi(raw)
+    };
     let ruled = apply_command_rule(&stripped, command);
     // 7b: mask secrets before the head/tail cap runs, so a secret that would
     // otherwise land in the elided middle is still caught if it happens to
@@ -140,7 +146,26 @@ fn cap_bytes(s: String, success: bool) -> String {
         return s;
     }
     let original_bytes = s.len();
-    if success {
+    if success && crate::tool_options::output_keeps_tail() {
+        // The summary of a build or test run is at the end, so keep the tail too.
+        let half = MAX_OUTPUT_BYTES / 2;
+        let mut end = half;
+        while end > 0 && !s.is_char_boundary(end) {
+            end -= 1;
+        }
+        let mut start = s.len() - half;
+        while start < s.len() && !s.is_char_boundary(start) {
+            start += 1;
+        }
+        let dropped = start - end;
+        let mut out = s[..end].to_string();
+        out.push_str(&format!(
+            "\n[… {dropped} bytes dropped from the middle; full {original_bytes}B, shown {}B …]\n",
+            end + (s.len() - start)
+        ));
+        out.push_str(&s[start..]);
+        out
+    } else if success {
         let mut end = MAX_OUTPUT_BYTES;
         while end > 0 && !s.is_char_boundary(end) {
             end -= 1;
@@ -159,6 +184,23 @@ fn cap_bytes(s: String, success: bool) -> String {
         out.push_str(&s[start..]);
         out
     }
+}
+
+/// Collapse `\r`-overwritten text to the last non-empty segment of each line,
+/// so a progress bar does not become one enormous line.
+fn collapse_carriage_returns(s: &str) -> String {
+    if !s.contains('\r') {
+        return s.to_string();
+    }
+    let mut out = String::with_capacity(s.len());
+    for (i, line) in s.split('\n').enumerate() {
+        if i > 0 {
+            out.push('\n');
+        }
+        let line = line.trim_end_matches('\r');
+        out.push_str(line.rsplit('\r').find(|seg| !seg.is_empty()).unwrap_or(""));
+    }
+    out
 }
 
 /// Remove ANSI escape sequences (CSI color codes etc.). UTF-8 safe.

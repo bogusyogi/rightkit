@@ -1,3 +1,67 @@
+/// Per-session scratch directory for shell commands, exported as `TMPDIR` (and `TEMP`/`TMP`) when
+/// the host turned on `set_session_scratch_tmpdir`. The sandbox only writes inside the workspace,
+/// so `/tmp` is denied and `mktemp -d` fails. The directory is
+/// `<workspace>/.rightkit/tmp/<session>`; a `.gitignore` holding `*` is written beside it so
+/// nothing under `.rightkit/tmp` shows in `git status`, in a plain checkout or a worktree alike.
+/// Nothing is written inside `.git`. Created on first use; `None` when the option is off or the
+/// directory cannot be created.
+pub(crate) fn session_scratch_dir(ctx: &ToolContext) -> Option<std::path::PathBuf> {
+    if !session_scratch_tmpdir() {
+        return None;
+    }
+    let session: String = ctx
+        .session_id
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .take(64)
+        .collect();
+    let session = if session.is_empty() {
+        "session".to_string()
+    } else {
+        session
+    };
+    scratch_dir_in(&ctx.workspace_root, &session)
+}
+
+/// `<workspace>/.rightkit/tmp/<name>`, created on demand, with the ignore file beside it, when the
+/// host turned on `set_session_scratch_tmpdir`; `None` otherwise. Background shells have no
+/// session in scope and share the name `background`.
+pub(crate) fn scratch_dir_in(
+    workspace_root: &std::path::Path,
+    name: &str,
+) -> Option<std::path::PathBuf> {
+    if !session_scratch_tmpdir() {
+        return None;
+    }
+    let base = workspace_root.join(".rightkit").join("tmp");
+    let dir = base.join(name);
+    std::fs::create_dir_all(&dir).ok()?;
+    let ignore = base.join(".gitignore");
+    if !ignore.exists() {
+        // Best effort: a failure only means the scratch files show as untracked.
+        let _ = std::fs::write(&ignore, "*\n");
+    }
+    Some(dir)
+}
+
+/// The `TMPDIR`, `TEMP` and `TMP` entries for `dir`, or none.
+pub(crate) fn scratch_env(dir: Option<std::path::PathBuf>) -> Vec<(String, String)> {
+    dir.map(|dir| {
+        let dir = dir.display().to_string();
+        ["TMPDIR", "TEMP", "TMP"]
+            .iter()
+            .map(|name| (name.to_string(), dir.clone()))
+            .collect()
+    })
+    .unwrap_or_default()
+}
+
 /// Native policy adapter used by daemon process producers. It prepares the
 /// executable/argv at the platform seam; child configuration (pre-exec,
 /// Seatbelt, or AppContainer) remains owned by the concrete caller.
@@ -92,6 +156,11 @@ impl rightkit_sandbox::execution::ProcessLaunchAdapter for NativeCommandSandboxA
             command.env_clear();
         }
         command.envs(spec.env.clone());
+        // No scrubbed variable reaches the child by inheritance. Empty unless the host turned on
+        // `set_scrub_inherited_credentials`.
+        for name in crate::process_launch::inherited_scrubbed_env_names(&spec.env) {
+            command.env_remove(name);
+        }
         // Own session, so cancel can stop the whole tree (see `cancel`).
         rightkit_child_process::tokio_support::lead_session(&mut command);
         // Die with the host when it asked for that. Before `confine`: seccomp
@@ -100,6 +169,9 @@ impl rightkit_sandbox::execution::ProcessLaunchAdapter for NativeCommandSandboxA
         if anchored {
             parent_death::kill_on_parent_exit(&mut command);
         }
+        // Harden the child (a no-op unless the host turned on `set_harden_children`) before
+        // `confine` installs the sandbox hooks.
+        crate::process_launch::harden_child(command.as_std_mut());
         let mut enforced = false;
         let mut network_enforced = false;
         if spec.context.sandbox_required {
@@ -107,28 +179,36 @@ impl rightkit_sandbox::execution::ProcessLaunchAdapter for NativeCommandSandboxA
                 return Err(rightkit_sandbox::execution::EffectExecutionError::SandboxMissing);
             }
             let root = std::path::PathBuf::from(&spec.context.workspace_root);
-            // Network-required producers (for example cloudflared) retain
-            // filesystem confinement but must not inherit strict seccomp's
-            // network denial. Default launches remain strict/fail-closed.
-            let config = if spec.context.network_required {
-                crate::shell::local_sandbox_config_for_tier(
-                    &root,
-                    crate::sandbox::SandboxTier::WorkspaceWrite,
-                )
-            } else {
-                crate::shell::local_sandbox_config(&root)
-            };
-            network_enforced = config.network_denied;
-            // The launched program must be readable and executable (see process_launch).
-            let config = crate::process_launch::program_dirs(&spec)
-                .into_iter()
-                .fold(config, |config, dir| config.allow_read(dir));
-            // RightKit prepares the confinement in the parent; a failure is a
-            // refused launch, never an unconfined one.
-            config
-                .confine(command.as_std_mut())
-                .map_err(|_| rightkit_sandbox::execution::EffectExecutionError::SandboxMissing)?;
-            enforced = true;
+            // With `set_honour_disabled_sandbox_tier` the tier comes from `native_launch_tier`
+            // and an operator-disabled tier runs unconfined on every OS.
+            let honoured_tier = crate::shell::honour_disabled_sandbox_tier()
+                .then(|| crate::shell::native_launch_tier(&root, spec.context.network_required));
+            if !honoured_tier.is_some_and(|tier| tier.is_disabled()) {
+                // Network-required producers (for example cloudflared) retain
+                // filesystem confinement but must not inherit strict seccomp's
+                // network denial. Default launches remain strict/fail-closed.
+                let config = if let Some(tier) = honoured_tier {
+                    crate::shell::local_sandbox_config_for_tier(&root, tier)
+                } else if spec.context.network_required {
+                    crate::shell::local_sandbox_config_for_tier(
+                        &root,
+                        crate::sandbox::SandboxTier::WorkspaceWrite,
+                    )
+                } else {
+                    crate::shell::local_sandbox_config(&root)
+                };
+                network_enforced = config.network_denied;
+                // The launched program must be readable and executable (see process_launch).
+                let config = crate::process_launch::program_dirs(&spec)
+                    .into_iter()
+                    .fold(config, |config, dir| config.allow_read(dir));
+                // RightKit prepares the confinement in the parent; a failure is a
+                // refused launch, never an unconfined one.
+                config.confine(command.as_std_mut()).map_err(|_| {
+                    rightkit_sandbox::execution::EffectExecutionError::SandboxMissing
+                })?;
+                enforced = true;
+            }
         }
         let spawned = if anchored {
             parent_death::spawn_anchored(command).await
@@ -223,7 +303,16 @@ impl rightkit_sandbox::execution::ProcessLaunchAdapter for NativeCommandSandboxA
         Box<dyn rightkit_sandbox::execution::ManagedChild>,
         rightkit_sandbox::execution::EffectExecutionError,
     > {
-        if !spec.context.sandbox_required {
+        // A launch that requires a sandbox must name its profile, as on Linux and macOS.
+        if spec.context.sandbox_required && spec.context.sandbox_profile.is_none() {
+            return Err(rightkit_sandbox::execution::EffectExecutionError::SandboxMissing);
+        }
+        let root = std::path::PathBuf::from(&spec.context.workspace_root);
+        // With `set_honour_disabled_sandbox_tier` the tier comes from `native_launch_tier`: an
+        // operator-disabled tier runs unconfined and network access follows the tier.
+        let honoured_tier = crate::shell::honour_disabled_sandbox_tier()
+            .then(|| crate::shell::native_launch_tier(&root, spec.context.network_required));
+        if !spec.context.sandbox_required || honoured_tier.is_some_and(|tier| tier.is_disabled()) {
             // Typed opt-out (e.g. user lifecycle hooks outside safe mode): run
             // through the local adapter, which records an unenforced proof.
             return <crate::process_launch::LocalProcessLaunchAdapter as rightkit_sandbox::execution::ProcessLaunchAdapter>::spawn(
@@ -232,7 +321,6 @@ impl rightkit_sandbox::execution::ProcessLaunchAdapter for NativeCommandSandboxA
             )
             .await;
         }
-        let root = std::path::PathBuf::from(&spec.context.workspace_root);
         // Run in the requested cwd when it lies inside the sandbox root (e.g.
         // git inside a pooled worktree); never silently substitute the root,
         // which would retarget commands at the enclosing repository.
@@ -253,13 +341,16 @@ impl rightkit_sandbox::execution::ProcessLaunchAdapter for NativeCommandSandboxA
         // Profile preparation grants ACLs (recursive on the workspace) and
         // creates the process synchronously; run it on the blocking pool so it
         // never stalls an async runtime worker serving other requests.
-        let network_required = spec.context.network_required;
+        let network_allowed = match honoured_tier {
+            Some(tier) => !tier.denies_network(),
+            None => spec.context.network_required,
+        };
         let program = spec.program.clone();
         let argv = spec.argv.clone();
         let env = spec.env.clone();
         let confined = tokio::task::spawn_blocking(move || {
             crate::sandbox::AppContainerProfile::for_workspace(&root).and_then(|profile| {
-                let profile = profile.with_network(network_required);
+                let profile = profile.with_network(network_allowed);
                 crate::sandbox::spawn_confined_piped_with_env(
                     &profile, &program, &argv, &cwd, true, &env,
                 )
@@ -270,7 +361,7 @@ impl rightkit_sandbox::execution::ProcessLaunchAdapter for NativeCommandSandboxA
         match confined {
             Ok(child) => Ok(Box::new(WindowsManagedChild {
                 child,
-                network_enforced: !spec.context.network_required,
+                network_enforced: !network_allowed,
             })),
             Err(error) => {
                 tracing::warn!(%error, program = %spec.program, "AppContainer launch refused");
@@ -376,12 +467,21 @@ impl rightkit_sandbox::execution::ProcessLaunchAdapter for NativeCommandSandboxA
         let mut enforced = false;
         let mut network_enforced = false;
         let starts_from_empty_env = spec.starts_from_empty_env();
-        let (program, argv) = if spec.context.sandbox_required {
-            let tier = if spec.context.network_required {
-                crate::sandbox::SandboxTier::WorkspaceWrite
-            } else {
-                crate::shell::effective_sandbox_tier(&root, None)
-            };
+        let scrubbed_inherited = crate::process_launch::inherited_scrubbed_env_names(&spec.env);
+        // With `set_honour_disabled_sandbox_tier` an operator-disabled tier runs unconfined, as on
+        // Linux and Windows; without it the launch is refused here.
+        let honoured_tier = crate::shell::honour_disabled_sandbox_tier()
+            .then(|| crate::shell::native_launch_tier(&root, spec.context.network_required));
+        let (program, argv) = if spec.context.sandbox_required
+            && !honoured_tier.is_some_and(|tier| tier.is_disabled())
+        {
+            let tier = honoured_tier.unwrap_or_else(|| {
+                if spec.context.network_required {
+                    crate::sandbox::SandboxTier::WorkspaceWrite
+                } else {
+                    crate::shell::effective_sandbox_tier(&root, None)
+                }
+            });
             let wrapped =
                 crate::shell::macos_sandbox_wrap_for_tier(&spec.program, &spec.argv, &root, tier)
                     .ok_or(rightkit_sandbox::execution::EffectExecutionError::SandboxMissing)?;
@@ -406,8 +506,16 @@ impl rightkit_sandbox::execution::ProcessLaunchAdapter for NativeCommandSandboxA
             command.env_clear();
         }
         command.envs(spec.env.clone());
+        // No scrubbed variable reaches the child by inheritance (empty unless the host turned on
+        // `set_scrub_inherited_credentials`).
+        for name in scrubbed_inherited {
+            command.env_remove(name);
+        }
         // Own session, so cancel can stop the whole tree (see `cancel`).
         rightkit_child_process::tokio_support::lead_session(&mut command);
+        // macOS: drops DYLD_INSERT_LIBRARIES only, and only when the host turned on
+        // `set_harden_children` (see `harden_child`).
+        crate::process_launch::harden_child(command.as_std_mut());
         command
             .spawn()
             .map(|child| {
@@ -510,6 +618,10 @@ fn selected_execution_backend(ctx: &ToolContext) -> ShellExecutionBackend<'_> {
 /// pipe is always drained to EOF (a full pipe would stall the child), but bytes
 /// past the cap are counted and discarded, never buffered.
 const STREAM_INGRESS_CAP_BYTES: usize = 64 * 1024 * 1024;
+/// With `set_shell_head_tail_capture`: the ceiling is the first half and the last half of this
+/// many bytes. It sits just under the 8 MiB recovery copy, so the copy keeps the whole capture,
+/// end included.
+const STREAM_HEAD_TAIL_CAP_BYTES: usize = 8 * 1024 * 1024 - 8 * 1024;
 /// Live deltas are coalesced: flushed at this size or age, whichever is first.
 const DELTA_FLUSH_BYTES: usize = 8 * 1024;
 const DELTA_FLUSH_INTERVAL: Duration = Duration::from_millis(40);
@@ -518,6 +630,58 @@ const DELTA_FLUSH_INTERVAL: Duration = Duration::from_millis(40);
 /// output notifier while accumulating a bounded copy for the final tool result.
 /// Aborted on drop so an early return (timeout/cancel) never leaks the task.
 struct StreamDrain(tokio::task::JoinHandle<Vec<u8>>);
+
+/// What a foreground command's output readers report to the password-prompt handler: that the
+/// output now ends in a prompt, and the secrets that must never appear in what they forward.
+#[derive(Clone)]
+struct DrainWatch {
+    prompt_tx: tokio::sync::mpsc::UnboundedSender<()>,
+    secrets: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
+}
+
+/// Bytes of recent output a prompt is looked for in.
+const PROMPT_WINDOW_BYTES: usize = 256;
+
+/// Whether `tail` (the last bytes a command printed) ends in a password prompt: a line that names a
+/// password, passphrase or passcode and ends with a colon, with nothing after it but blanks. A
+/// prompt that is followed by a newline is output, not a question.
+fn ends_in_password_prompt(tail: &[u8]) -> bool {
+    static PROMPT: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    let pattern = PROMPT.get_or_init(|| {
+        regex::Regex::new(r"(?i)(password|passphrase|passcode)[^\n]{0,80}:[ \t]*$")
+            .expect("password prompt pattern is valid")
+    });
+    pattern.is_match(&String::from_utf8_lossy(tail))
+}
+
+/// `bytes` with every supplied secret replaced by `<redacted>`.
+fn redact_secret_bytes(bytes: &mut Vec<u8>, secrets: &std::sync::Mutex<Vec<String>>) {
+    let secrets = secrets
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    for secret in secrets.iter().filter(|secret| !secret.is_empty()) {
+        let needle = secret.as_bytes();
+        let mut out = Vec::with_capacity(bytes.len());
+        let mut index = 0;
+        while index < bytes.len() {
+            if bytes[index..].starts_with(needle) {
+                out.extend_from_slice(b"<redacted>");
+                index += needle.len();
+            } else {
+                out.push(bytes[index]);
+                index += 1;
+            }
+        }
+        *bytes = out;
+    }
+}
+
+/// Redacted text for a message built from command output.
+fn redact_secret_text(text: String, secrets: &std::sync::Mutex<Vec<String>>) -> String {
+    let mut bytes = text.into_bytes();
+    redact_secret_bytes(&mut bytes, secrets);
+    String::from_utf8_lossy(&bytes).into_owned()
+}
 
 impl StreamDrain {
     fn spawn<R>(
@@ -528,7 +692,20 @@ impl StreamDrain {
     where
         R: tokio::io::AsyncRead + Unpin + Send + 'static,
     {
-        Self::spawn_capped(stream, kind, notifier, STREAM_INGRESS_CAP_BYTES)
+        Self::spawn_capped(stream, kind, notifier, default_stream_cap(), None)
+    }
+
+    /// [`spawn`](Self::spawn) with a password-prompt watch and secret redaction.
+    fn spawn_watched<R>(
+        stream: Option<R>,
+        kind: rightkit_agent_engine_protocol::ToolOutputStream,
+        notifier: rightkit_agent_engine_protocol::ToolOutputNotifier,
+        watch: DrainWatch,
+    ) -> Self
+    where
+        R: tokio::io::AsyncRead + Unpin + Send + 'static,
+    {
+        Self::spawn_capped(stream, kind, notifier, default_stream_cap(), Some(watch))
     }
 
     fn spawn_capped<R>(
@@ -536,6 +713,7 @@ impl StreamDrain {
         kind: rightkit_agent_engine_protocol::ToolOutputStream,
         notifier: rightkit_agent_engine_protocol::ToolOutputNotifier,
         cap: usize,
+        watch: Option<DrainWatch>,
     ) -> Self
     where
         R: tokio::io::AsyncRead + Unpin + Send + 'static,
@@ -546,11 +724,21 @@ impl StreamDrain {
             let Some(mut stream) = stream else {
                 return all;
             };
+            // With head/tail capture `all` keeps the head and `tail` rolls over the most recent bytes
+            // (a failing build's error is at the end); otherwise `all` keeps the head up to `cap`.
+            let head_tail = shell_head_tail_capture();
+            let half = if head_tail { cap / 2 } else { cap };
+            let mut tail: std::collections::VecDeque<u8> = std::collections::VecDeque::new();
             let live = notifier.is_set();
             let mut carry: Vec<u8> = Vec::new();
             let mut dropped: u64 = 0;
             let mut last_flush = tokio::time::Instant::now();
             let mut buf = [0u8; 4096];
+            // The last bytes read, for the password-prompt watch, and how many bytes were read when
+            // the last prompt was reported (one report per prompt).
+            let mut window: Vec<u8> = Vec::new();
+            let mut total_read: u64 = 0;
+            let mut reported_at: u64 = 0;
             loop {
                 // With pending live bytes, wait only until the flush deadline
                 // so a stalled producer never strands the tail of a delta.
@@ -565,10 +753,31 @@ impl StreamDrain {
                 match read {
                     Some(Ok(0)) | Some(Err(_)) => break,
                     Some(Ok(n)) => {
-                        let room = cap.saturating_sub(all.len());
+                        if let Some(watch) = &watch {
+                            total_read += n as u64;
+                            window.extend_from_slice(&buf[..n]);
+                            if window.len() > PROMPT_WINDOW_BYTES {
+                                let excess = window.len() - PROMPT_WINDOW_BYTES;
+                                window.drain(..excess);
+                            }
+                            if total_read != reported_at && ends_in_password_prompt(&window) {
+                                reported_at = total_read;
+                                let _ = watch.prompt_tx.send(());
+                            }
+                        }
+                        let room = half.saturating_sub(all.len());
                         let keep = n.min(room);
                         all.extend_from_slice(&buf[..keep]);
-                        dropped += (n - keep) as u64;
+                        if head_tail {
+                            tail.extend(&buf[keep..n]);
+                            if tail.len() > cap - half {
+                                let excess = tail.len() - (cap - half);
+                                tail.drain(..excess);
+                                dropped += excess as u64;
+                            }
+                        } else {
+                            dropped += (n - keep) as u64;
+                        }
                         if live {
                             carry.extend_from_slice(&buf[..n]);
                         }
@@ -580,27 +789,48 @@ impl StreamDrain {
                     && (carry.len() >= DELTA_FLUSH_BYTES
                         || last_flush.elapsed() >= DELTA_FLUSH_INTERVAL)
                 {
+                    if let Some(watch) = &watch {
+                        redact_secret_bytes(&mut carry, &watch.secrets);
+                    }
                     notify_utf8(&notifier, kind, &mut carry);
                     last_flush = tokio::time::Instant::now();
                 }
             }
             if live && !carry.is_empty() {
+                if let Some(watch) = &watch {
+                    redact_secret_bytes(&mut carry, &watch.secrets);
+                }
                 notifier.notify(kind, &String::from_utf8_lossy(&carry));
             }
             if dropped > 0 {
-                all.extend_from_slice(
+                let note = if head_tail {
+                    format!(
+                        "\n[output truncated: {dropped} bytes between the first {half} and the last {} bytes were discarded]\n",
+                        cap - half
+                    )
+                } else {
                     format!(
                         "\n[output truncated: {dropped} bytes beyond the {cap}-byte capture limit were discarded]\n"
                     )
-                    .as_bytes(),
-                );
+                };
+                all.extend_from_slice(note.as_bytes());
             }
+            all.extend(tail);
             all
         }))
     }
 
     async fn finish(mut self) -> Vec<u8> {
         (&mut self.0).await.unwrap_or_default()
+    }
+}
+
+/// The per-stream capture ceiling in force.
+fn default_stream_cap() -> usize {
+    if shell_head_tail_capture() {
+        STREAM_HEAD_TAIL_CAP_BYTES
+    } else {
+        STREAM_INGRESS_CAP_BYTES
     }
 }
 
@@ -657,6 +887,291 @@ fn with_exit_status(
     format!("{message}\n[status: {}]", status.label())
 }
 
+/// How long a command's stdin stays open for a password prompt that has not come yet, and again
+/// after each answered prompt. Past it the pipe is closed, so a command that reads stdin to its
+/// end sees EOF after this long, not at once.
+const PASSWORD_STDIN_IDLE_GRACE: Duration = Duration::from_secs(3);
+/// A prompt is acted on only after output has been quiet this long and the command is still
+/// running, so a line that merely ends in `password:` does not open a card.
+const PASSWORD_PROMPT_SETTLE: Duration = Duration::from_millis(400);
+
+/// The time a command spent waiting for its operator to answer a password prompt, so the
+/// command's timeout does not run while a person is typing.
+#[derive(Default)]
+struct PromptClock {
+    completed_ms: std::sync::atomic::AtomicU64,
+    taken_ms: std::sync::atomic::AtomicU64,
+    since: std::sync::Mutex<Option<std::time::Instant>>,
+}
+
+impl PromptClock {
+    fn begin_wait(&self) {
+        *self.since.lock().unwrap_or_else(|p| p.into_inner()) = Some(std::time::Instant::now());
+    }
+
+    fn end_wait(&self) {
+        if let Some(start) = self.since.lock().unwrap_or_else(|p| p.into_inner()).take() {
+            self.completed_ms.fetch_add(
+                start.elapsed().as_millis() as u64,
+                std::sync::atomic::Ordering::SeqCst,
+            );
+        }
+    }
+
+    /// Waiting time not yet handed back, including a wait still going on.
+    fn take_waited(&self) -> Duration {
+        use std::sync::atomic::Ordering::SeqCst;
+        let current = self
+            .since
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .map_or(0, |start| start.elapsed().as_millis() as u64);
+        let total = self.completed_ms.load(SeqCst) + current;
+        let before = self.taken_ms.swap(total, SeqCst);
+        Duration::from_millis(total.saturating_sub(before))
+    }
+}
+
+/// Resolves when a command has run for `timeout_ms` not counting the time its operator spent
+/// answering password prompts. Without a clock it is a plain sleep.
+async fn command_deadline(timeout_ms: u64, clock: Option<std::sync::Arc<PromptClock>>) {
+    let mut allowed = Duration::from_millis(timeout_ms);
+    loop {
+        tokio::time::sleep(allowed).await;
+        match clock.as_ref().map(|clock| clock.take_waited()) {
+            Some(extra) if !extra.is_zero() => allowed = extra,
+            _ => return,
+        }
+    }
+}
+
+/// The password-prompt handler of one foreground command: a task that, whenever the output ends
+/// in a prompt, asks the operator through the masked credential card, writes the answer and a
+/// newline to the command's stdin and remembers the secret so it is redacted from everything the
+/// command prints afterwards. Aborted when dropped.
+struct PasswordPrompts {
+    task: tokio::task::JoinHandle<()>,
+    watch: DrainWatch,
+    clock: std::sync::Arc<PromptClock>,
+    exited: std::sync::Arc<std::sync::atomic::AtomicBool>,
+}
+
+impl PasswordPrompts {
+    fn start(
+        requester: std::sync::Arc<dyn crate::context::CredentialRequester>,
+        tool_call_id: String,
+        mut stdin: tokio::process::ChildStdin,
+    ) -> Self {
+        let (prompt_tx, mut prompt_rx) = tokio::sync::mpsc::unbounded_channel::<()>();
+        let secrets = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+        let clock = std::sync::Arc::new(PromptClock::default());
+        let exited = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let task = {
+            let (secrets, clock, exited) = (secrets.clone(), clock.clone(), exited.clone());
+            tokio::spawn(async move {
+                use tokio::io::AsyncWriteExt;
+                loop {
+                    tokio::select! {
+                        prompt = prompt_rx.recv() => {
+                            if prompt.is_none() {
+                                break;
+                            }
+                            tokio::time::sleep(PASSWORD_PROMPT_SETTLE).await;
+                            if exited.load(std::sync::atomic::Ordering::SeqCst) {
+                                break;
+                            }
+                            while prompt_rx.try_recv().is_ok() {}
+                            clock.begin_wait();
+                            let answer = requester
+                                .request(
+                                    tool_call_id.clone(),
+                                    crate::context::CredentialPrompt {
+                                        provider: "shell password".to_string(),
+                                        reason: "A command is asking for a password.".to_string(),
+                                    },
+                                )
+                                .await;
+                            clock.end_wait();
+                            match answer {
+                                Ok(Some(secret)) => {
+                                    let value = secret.expose().to_string();
+                                    secrets
+                                        .lock()
+                                        .unwrap_or_else(|p| p.into_inner())
+                                        .push(value.clone());
+                                    let written = async {
+                                        stdin.write_all(value.as_bytes()).await?;
+                                        stdin.write_all(b"\n").await?;
+                                        stdin.flush().await
+                                    }
+                                    .await;
+                                    if written.is_err() {
+                                        break;
+                                    }
+                                }
+                                // Declined, cancelled or nobody to ask: the command sees EOF.
+                                Ok(None) | Err(_) => break,
+                            }
+                        }
+                        _ = tokio::time::sleep(PASSWORD_STDIN_IDLE_GRACE) => break,
+                    }
+                }
+                drop(stdin);
+            })
+        };
+        Self {
+            task,
+            watch: DrainWatch { prompt_tx, secrets },
+            clock,
+            exited,
+        }
+    }
+
+    fn mark_exited(&self) {
+        self.exited.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+impl Drop for PasswordPrompts {
+    fn drop(&mut self) {
+        self.task.abort();
+    }
+}
+
+fn spawn_foreground_drain<R>(
+    stream: Option<R>,
+    kind: rightkit_agent_engine_protocol::ToolOutputStream,
+    ctx: &ToolContext,
+    watch: &Option<DrainWatch>,
+) -> StreamDrain
+where
+    R: tokio::io::AsyncRead + Unpin + Send + 'static,
+{
+    match watch {
+        Some(watch) => {
+            StreamDrain::spawn_watched(stream, kind, ctx.output_notifier.clone(), watch.clone())
+        }
+        None => StreamDrain::spawn(stream, kind, ctx.output_notifier.clone()),
+    }
+}
+
+/// How much of each stream a killed command reports back to the model.
+const KILLED_OUTPUT_TAIL_BYTES: usize = 8 * 1024;
+
+/// With `set_shell_report_output_on_kill`: a command killed by its timeout or a cancel still
+/// produced output the model needs to see (the failing test, the prompt it hung on). The tree is
+/// already terminated, so the drains get [`POST_EXIT_DRAIN_GRACE`] to finish; the tail of each
+/// stream is appended to the kill message.
+async fn append_partial_output(
+    mut message: String,
+    stdout_drain: StreamDrain,
+    stderr_drain: StreamDrain,
+) -> String {
+    let drains = async move {
+        let stdout = stdout_drain.finish().await;
+        let stderr = stderr_drain.finish().await;
+        (stdout, stderr)
+    };
+    let Ok((stdout, stderr)) = tokio::time::timeout(POST_EXIT_DRAIN_GRACE, drains).await else {
+        message.push_str("\n[output before the kill could not be collected]");
+        return message;
+    };
+    for (label, bytes) in [("stdout", stdout), ("stderr", stderr)] {
+        if bytes.is_empty() {
+            continue;
+        }
+        let start = bytes.len().saturating_sub(KILLED_OUTPUT_TAIL_BYTES);
+        let tail = String::from_utf8_lossy(&bytes[start..]);
+        if start > 0 {
+            message.push_str(&format!(
+                "\n--- {label} before the kill (last {KILLED_OUTPUT_TAIL_BYTES} of {} bytes) ---\n",
+                bytes.len()
+            ));
+        } else {
+            message.push_str(&format!("\n--- {label} before the kill ---\n"));
+        }
+        message.push_str(tail.trim_end());
+    }
+    message
+}
+
+/// Appended to a timeout message with `set_shell_report_output_on_kill`: tells the model how to get
+/// past a timeout instead of just reporting it.
+const TIMEOUT_HINT: &str =
+    "Raise timeout_ms (max 300000) or set run_in_background=true for long commands.";
+
+/// What follows `(pid N)` in a timeout message.
+fn timeout_message_suffix() -> String {
+    if shell_report_output_on_kill() {
+        format!(". {TIMEOUT_HINT}")
+    } else {
+        String::new()
+    }
+}
+
+/// Appended to stderr when processes the command left running were stopped because they kept its
+/// output open past the timeout or a cancel (`set_shell_stop_leftover_processes`).
+fn leftover_processes_note() -> String {
+    format!(
+        "\n[{}: the command exited but processes it left running kept its output open; they were stopped at the timeout or cancel. Use run_in_background for long-running processes.]\n",
+        shell_notice_label()
+    )
+}
+
+/// How long the output pipes get to close after leftover processes were stopped.
+const POST_EXIT_DRAIN_GRACE: Duration = Duration::from_secs(2);
+
+/// Collect both output streams after the shell itself exited. A process it left running
+/// (`server &`) can hold the pipes open indefinitely, so the wait ends at the command's remaining
+/// timeout or an operator cancel; then `kill_leftovers` stops the tree and the drains get
+/// [`POST_EXIT_DRAIN_GRACE`]. Returns `(stdout, stderr, killed)`.
+async fn finish_drains_after_exit<K, KF>(
+    stdout_drain: StreamDrain,
+    stderr_drain: StreamDrain,
+    remaining: Duration,
+    cancel_rx: Option<tokio::sync::watch::Receiver<bool>>,
+    kill_leftovers: K,
+) -> (Vec<u8>, Vec<u8>, bool)
+where
+    K: FnOnce() -> KF,
+    KF: std::future::Future<Output = ()>,
+{
+    let drains = async move {
+        let stdout = stdout_drain.finish().await;
+        let stderr = stderr_drain.finish().await;
+        (stdout, stderr)
+    };
+    tokio::pin!(drains);
+    tokio::select! {
+        (stdout, stderr) = &mut drains => return (stdout, stderr, false),
+        _ = tokio::time::sleep(remaining) => {}
+        _ = cancel_requested(cancel_rx) => {}
+    }
+    kill_leftovers().await;
+    match tokio::time::timeout(POST_EXIT_DRAIN_GRACE, &mut drains).await {
+        Ok((stdout, stderr)) => (stdout, stderr, true),
+        // A descendant that left the tree still holds the pipe; give up on its output rather
+        // than hang (dropping the drains aborts them).
+        Err(_) => (Vec::new(), Vec::new(), true),
+    }
+}
+
+/// Resolves once the operator cancels; never resolves without a cancel channel or after its
+/// sender is gone.
+async fn cancel_requested(cancel_rx: Option<tokio::sync::watch::Receiver<bool>>) {
+    let Some(mut rx) = cancel_rx else {
+        return std::future::pending().await;
+    };
+    loop {
+        if *rx.borrow_and_update() {
+            return;
+        }
+        if rx.changed().await.is_err() {
+            return std::future::pending().await;
+        }
+    }
+}
+
 async fn collect_child_output(
     mut child: tokio::process::Child,
     timeout_ms: u64,
@@ -664,10 +1179,28 @@ async fn collect_child_output(
     cmd: &str,
 ) -> ToolResult {
     let mut cancel_rx_cloned = ctx.cancel_rx.clone();
+    let started = tokio::time::Instant::now();
     let pid_hint = child.id();
+    // A command whose stdin is a pipe (an attended session, `set_shell_password_prompts`) may ask
+    // for a password.
+    let prompts = if shell_password_prompts() {
+        match (ctx.credential_requester.clone(), child.stdin.take()) {
+            (Some(requester), Some(stdin)) => Some(PasswordPrompts::start(
+                requester,
+                ctx.tool_call_id.clone(),
+                stdin,
+            )),
+            _ => None,
+        }
+    } else {
+        None
+    };
+    let command_clock = prompts.as_ref().map(|prompts| prompts.clock.clone());
+    let prompt_watch = prompts.as_ref().map(|prompts| prompts.watch.clone());
+
     let process_id = pid_hint.map(|p| p.to_string());
     #[cfg(windows)]
-    let _windows_job = match assign_windows_job_to_child(&child) {
+    let windows_job = match assign_windows_job_to_child(&child) {
         Ok(job) => job,
         Err(e) => {
             let _ = child.kill().await;
@@ -687,27 +1220,32 @@ async fn collect_child_output(
         }
     };
 
-    let stdout_drain = StreamDrain::spawn(
+    let stdout_drain = spawn_foreground_drain(
         child.stdout.take(),
         rightkit_agent_engine_protocol::ToolOutputStream::Stdout,
-        ctx.output_notifier.clone(),
+        ctx,
+        &prompt_watch,
     );
-    let stderr_drain = StreamDrain::spawn(
+    let stderr_drain = spawn_foreground_drain(
         child.stderr.take(),
         rightkit_agent_engine_protocol::ToolOutputStream::Stderr,
-        ctx.output_notifier.clone(),
+        ctx,
+        &prompt_watch,
     );
     let mut wait_status = None;
     if let Some(ref mut cancel_rx) = cancel_rx_cloned {
         let cancel_result = tokio::select! {
-            _ = tokio::time::sleep(Duration::from_millis(timeout_ms)) => {
+            _ = command_deadline(timeout_ms, command_clock.clone()) => {
                 // Kill the whole process group, then reap to release the PID and
                 // update the process-id column. Without the reap the OS can
                 // leave a zombie until the next wait/kill on the same child.
                 terminate_owned_tree(&mut child).await;
                 let message = format!(
-                    "Command timed out after {}ms: {} (pid {:?})",
-                    timeout_ms, cmd, pid_hint
+                    "Command timed out after {}ms: {} (pid {:?}){}",
+                    timeout_ms,
+                    cmd,
+                    pid_hint,
+                    timeout_message_suffix()
                 );
                 let message = with_exit_status(
                     message,
@@ -720,7 +1258,7 @@ async fn collect_child_output(
                     crate::background_shell::BgStatus::Killed,
                     process_id.clone(),
                 );
-                Some(ToolResult::error(message).with_process_id(process_id.clone()))
+                Some(message)
             }
             _ = async {
                 // A cancel that landed before this select (watch clones mark
@@ -746,23 +1284,35 @@ async fn collect_child_output(
                     crate::background_shell::BgStatus::Killed,
                     process_id.clone(),
                 );
-                Some(ToolResult::error(message).with_process_id(process_id.clone()))
+                Some(message)
             }
             status = child.wait() => {
                 wait_status = status.ok();
                 None
             },
         };
-        if let Some(result) = cancel_result {
-            return result;
+        if let Some(message) = cancel_result {
+            let message = if shell_report_output_on_kill() {
+                append_partial_output(message, stdout_drain, stderr_drain).await
+            } else {
+                message
+            };
+            let message = match &prompt_watch {
+                Some(watch) => redact_secret_text(message, &watch.secrets),
+                None => message,
+            };
+            return ToolResult::error(message).with_process_id(process_id);
         }
     } else {
         let cancel_result = tokio::select! {
-            _ = tokio::time::sleep(Duration::from_millis(timeout_ms)) => {
+            _ = command_deadline(timeout_ms, command_clock.clone()) => {
                 terminate_owned_tree(&mut child).await;
                 let message = format!(
-                    "Command timed out after {}ms: {} (pid {:?})",
-                    timeout_ms, cmd, pid_hint
+                    "Command timed out after {}ms: {} (pid {:?}){}",
+                    timeout_ms,
+                    cmd,
+                    pid_hint,
+                    timeout_message_suffix()
                 );
                 let message = with_exit_status(
                     message,
@@ -775,21 +1325,80 @@ async fn collect_child_output(
                     crate::background_shell::BgStatus::Killed,
                     process_id.clone(),
                 );
-                Some(ToolResult::error(message).with_process_id(process_id.clone()))
+                Some(message)
             }
             status = child.wait() => {
                 wait_status = status.ok();
                 None
             },
         };
-        if let Some(result) = cancel_result {
-            return result;
+        if let Some(message) = cancel_result {
+            let message = if shell_report_output_on_kill() {
+                append_partial_output(message, stdout_drain, stderr_drain).await
+            } else {
+                message
+            };
+            let message = match &prompt_watch {
+                Some(watch) => redact_secret_text(message, &watch.secrets),
+                None => message,
+            };
+            return ToolResult::error(message).with_process_id(process_id);
         }
     }
 
-    // Process exited normally — collect output.
-    let stdout_buf = stdout_drain.finish().await;
-    let stderr_buf = stderr_drain.finish().await;
+    if let Some(prompts) = &prompts {
+        prompts.mark_exited();
+    }
+    // Process exited normally — collect output. With `set_shell_stop_leftover_processes`, a
+    // process the command left running can still hold the pipes, so the wait stays bounded by the
+    // command's timeout and the operator's cancel.
+    #[cfg(unix)]
+    let kill_leftovers = move || async move {
+        // The shell led its own session (`lead_session`), so its pid names the group; the id
+        // stays valid while a leftover member lives.
+        if let Some(pgid) = pid_hint.and_then(std::num::NonZeroU32::new) {
+            let _ = rightkit_child_process::tokio_support::terminate_process_group(
+                pgid,
+                rightkit_child_process::TerminationOptions::default()
+                    .with_grace(Duration::from_secs(2)),
+            )
+            .await;
+        }
+    };
+    #[cfg(windows)]
+    let kill_leftovers = move || async move {
+        if let Some(job) = windows_job {
+            let _ = job.terminate();
+        }
+    };
+    #[cfg(not(any(unix, windows)))]
+    let kill_leftovers = || async {};
+    let (stdout_buf, mut stderr_buf) = if shell_stop_leftover_processes() {
+        // A shell that exits right at its deadline still gets a moment for its own pipes to
+        // reach EOF before anything is stopped.
+        let remaining = Duration::from_millis(timeout_ms)
+            .saturating_sub(started.elapsed())
+            .max(Duration::from_millis(500));
+        let (stdout_buf, mut stderr_buf, killed_leftovers) = finish_drains_after_exit(
+            stdout_drain,
+            stderr_drain,
+            remaining,
+            ctx.cancel_rx.clone(),
+            kill_leftovers,
+        )
+        .await;
+        if killed_leftovers {
+            stderr_buf.extend_from_slice(leftover_processes_note().as_bytes());
+        }
+        (stdout_buf, stderr_buf)
+    } else {
+        (stdout_drain.finish().await, stderr_drain.finish().await)
+    };
+    let mut stdout_buf = stdout_buf;
+    if let Some(watch) = &prompt_watch {
+        redact_secret_bytes(&mut stdout_buf, &watch.secrets);
+        redact_secret_bytes(&mut stderr_buf, &watch.secrets);
+    }
     let output = std::process::Output {
         status: wait_status.unwrap_or_default(),
         stdout: stdout_buf,
@@ -1038,6 +1647,39 @@ pub fn effective_sandbox_tier(
         };
     }
     resolved
+}
+
+/// The tier a [`NativeCommandSandboxAdapter`] launch runs under when the host turned on
+/// `set_honour_disabled_sandbox_tier`, one rule on every OS:
+/// - an operator-disabled tier stays disabled: the launch runs unconfined, as the foreground and
+///   background shells already do;
+/// - a network-requiring launch keeps filesystem confinement but never the Strict network denial
+///   (WorkspaceWrite);
+/// - otherwise the workspace's resolved tier applies.
+///
+/// Callers derive network access from the returned tier (`!tier.denies_network()`), never from
+/// `network_required` alone, so a WorkspaceWrite workspace has network on Windows as it does
+/// elsewhere.
+#[cfg_attr(not(feature = "host"), allow(dead_code))]
+pub(crate) fn native_launch_tier(
+    workspace_root: &Path,
+    network_required: bool,
+) -> crate::sandbox::SandboxTier {
+    native_launch_tier_from(sandbox_tier_for_workspace(workspace_root), network_required)
+}
+
+#[cfg_attr(not(feature = "host"), allow(dead_code))]
+pub(crate) fn native_launch_tier_from(
+    resolved: crate::sandbox::SandboxTier,
+    network_required: bool,
+) -> crate::sandbox::SandboxTier {
+    if resolved.is_disabled() {
+        resolved
+    } else if network_required {
+        crate::sandbox::SandboxTier::WorkspaceWrite
+    } else {
+        resolved
+    }
 }
 
 pub(crate) fn sandbox_policy_for_workspace(

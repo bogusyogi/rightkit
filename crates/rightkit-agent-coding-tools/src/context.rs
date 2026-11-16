@@ -42,6 +42,14 @@ pub trait CredentialRequester: Send + Sync {
         tool_call_id: String,
         prompt: CredentialPrompt,
     ) -> Pin<Box<dyn std::future::Future<Output = Result<Option<SecretString>, String>> + Send>>;
+
+    /// Whether a person is attached right now to answer a prompt. A host that cannot tell says
+    /// `false` (the default): a tool that would only start a prompt-capable path for an attended
+    /// session (a shell command that may ask for a password, with
+    /// `shell::set_shell_password_prompts`) then keeps its unattended behaviour.
+    fn attended(&self) -> bool {
+        false
+    }
 }
 
 /// Process-wide, session-keyed store for a Cloudflare credential refreshed
@@ -485,6 +493,18 @@ pub trait PlanExit: Send + Sync {
         &self,
         plan: String,
     ) -> Pin<Box<dyn std::future::Future<Output = Result<bool, String>> + Send>>;
+
+    /// When the operator chose "approve and clear context" for the plan just presented, the plan
+    /// text the engine must continue from; taken once, `None` otherwise (the default).
+    fn take_context_reset(&self) -> Option<String> {
+        None
+    }
+
+    /// Whether `take_context_reset` would return a plan, without taking it. `false` by default;
+    /// when `true`, `exit_plan_mode` tells the model the earlier conversation was cleared.
+    fn context_reset_pending(&self) -> bool {
+        false
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -893,6 +913,31 @@ impl ToolContext {
         }
         Some(format!(
             "{surface} networkProfile '{profile}' is not enforced by local host execution; refusing to run until backend routing applies the selected profile"
+        ))
+    }
+
+    /// Resource caps (cpu, memory, disk) that local host execution cannot enforce: no rlimit,
+    /// cgroup or Job Object limit is applied to the child, so a configured cap can be refused
+    /// rather than silently ignored, as an unenforced network profile is. The shell tool refuses
+    /// only with `shell::set_shell_refuse_unenforced_resource_limits`.
+    pub fn unenforced_resource_limits_error(&self, surface: &str) -> Option<String> {
+        let limits = self.execution_resource_limits.as_ref()?;
+        let mut set = Vec::new();
+        if let Some(cpu) = limits.cpu {
+            set.push(format!("cpu={cpu}"));
+        }
+        if let Some(memory_mb) = limits.memory_mb {
+            set.push(format!("memoryMb={memory_mb}"));
+        }
+        if let Some(disk_mb) = limits.disk_mb {
+            set.push(format!("diskMb={disk_mb}"));
+        }
+        if set.is_empty() {
+            return None;
+        }
+        Some(format!(
+            "{surface} resourceLimits ({}) are not enforced by local host execution; refusing to run until backend routing applies the selected limits",
+            set.join(", ")
         ))
     }
 
