@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-agent-coding-tools"
-version = "0.1.7"
+version = "0.1.8"
 edition = "2021"
 rust-version = "1.98.0"
 description = "The coding agent's host tools (files, edit and patch, shell and PTY, git, browser, MCP, LSP, tasks, checkpoints, sandboxing) behind an async `Tool` trait and a `ToolRegistry`."
@@ -13,8 +13,10 @@ include = ["src/**", "licenses/**", "assets/**", "README.md", "CHANGELOG.md", "L
 
 [features]
 default = []
-# The host-process tools: browser, OCR, media, plugins, PTY, OS keyring and host-environment overrides. Was `rightkit-agent-tools` `coding_tools-host`.
-host = ["code-mode", "dep:rightkit-browser", "dep:rightkit-ocr", "dep:rightkit-ffmpeg", "dep:rightkit-agent-plugins", "dep:portable-pty", "rightkit-mcp/agent_mcp-os-keyring", "rightkit-llm/agent_providers-os-keyring", "rightkit-agent-config/host-env", "rightkit-mcp/agent_mcp-host-env", "rightkit-llm/agent_providers-host-env"]
+# The OS credential store for the MCP and provider secrets. Off by default; a host without one (an iOS app) leaves it out.
+os-keyring = ["rightkit-mcp/agent_mcp-os-keyring", "rightkit-llm/agent_providers-os-keyring"]
+# The host-process tools: browser, OCR, media, plugins, PTY, OS keyring (`os-keyring`) and host-environment overrides. Was `rightkit-agent-tools` `coding_tools-host`.
+host = ["code-mode", "dep:rightkit-browser", "dep:rightkit-ocr", "dep:rightkit-ffmpeg", "dep:rightkit-agent-plugins", "dep:portable-pty", "os-keyring", "rightkit-agent-config/host-env", "rightkit-mcp/agent_mcp-host-env", "rightkit-llm/agent_providers-host-env"]
 # The QuickJS code-mode tool. Was `coding_tools-code-mode`.
 code-mode = ["dep:rquickjs"]
 # Local embedding inference. Was `coding_tools-embeddings`.
@@ -38,11 +40,11 @@ rightkit-crypto = { version = "0.1.0", path = "../rightkit-crypto" }
 rightkit-time = { version = "0.1.1", path = "../rightkit-time" }
 rightkit-agent-policy = { version = "0.2.0", path = "../rightkit-agent-policy" }
 rightkit-agent-config = { version = "0.1.3", path = "../rightkit-agent-config" }
-rightkit-mcp = { version = "0.10.0", path = "../rightkit-mcp", features = ["agent_mcp", "agent_mcp-os-keyring"] }
+rightkit-mcp = { version = "0.10.0", path = "../rightkit-mcp", features = ["agent_mcp"] }
 rightkit-agent-engine-history = { version = "0.1.3", path = "../rightkit-agent-engine-history" }
 rightkit-agent-host-traits = { version = "0.1.0", path = "../rightkit-agent-host-traits" }
 rightkit-sandbox = { version = "0.6.2", path = "../rightkit-sandbox", features = ["execution"] }
-rightkit-llm = { version = "0.7.0", path = "../rightkit-llm", features = ["agent_providers", "agent_providers-os-keyring"] }
+rightkit-llm = { version = "0.7.0", path = "../rightkit-llm", features = ["agent_providers"] }
 rightkit-agent-telemetry = { version = "0.1.0", path = "../rightkit-agent-telemetry" }
 thiserror = "2"
 tracing = "0.1"

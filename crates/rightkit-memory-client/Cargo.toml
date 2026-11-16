@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-memory-client"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Client of the RightKit memory engine: the typed MemoryBackend over the external membrane CLI, durable-write screening and a small in-memory store, on the engine's own types."
@@ -20,7 +20,7 @@ agent_host = ["dep:axum", "dep:rightkit-agent-engine-runtime-resources", "dep:ri
 axum = { version = "0.8", optional = true }
 rightkit-agent-engine-runtime-resources = { version = "0.1.0", path = "../rightkit-agent-engine-runtime-resources", optional = true }
 rightkit-agent-policy = { version = "0.2.0", path = "../rightkit-agent-policy", optional = true }
-rightkit-agent-coding-tools = { version = "0.1.1", path = "../rightkit-agent-coding-tools", optional = true }
+rightkit-agent-coding-tools = { version = "0.1.8", path = "../rightkit-agent-coding-tools", features = ["os-keyring"], optional = true }
 tracing = { version = "0.1", optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1" }

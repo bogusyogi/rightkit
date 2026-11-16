@@ -150,6 +150,21 @@ host_option!(
     shell_change_diff
 );
 
+host_option!(
+    /// Linux only: the Strict tier's shell also withholds the workspace-internal secret files the file
+    /// tools withhold (`.env`, `*.pem`, `daemon.port`, `daemon.lock` and `<state dir>/runtime`), so
+    /// `cat .env` is a sandbox denial. The environment variable `<prefix>_SHELL_WITHHOLD_SECRETS=1`
+    /// (the prefix of `rightkit_agent_config::set_env_prefix`) turns it on too. `false` (the default)
+    /// leaves the Strict grant as it was. Landlock cannot deny beneath an allowed folder: every
+    /// folder on the path to a withheld file loses read and execute for the folder itself, so a file
+    /// a command creates there cannot be read back by that command, and a bounded walk (8 folders
+    /// deep, 20,000 entries, `.git`, `node_modules` and `target` skipped) finds the files, so a
+    /// secret beyond those bounds stays readable to the shell. macOS and Windows are unaffected.
+    SHELL_WITHHOLD_SECRETS,
+    set_shell_withhold_secrets,
+    shell_withhold_secrets
+);
+
 static SHELL_NOTICE_LABEL: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
 /// Names the host in the bracketed notices the options above add to a result, for example

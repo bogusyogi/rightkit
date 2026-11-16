@@ -25,6 +25,9 @@ pub struct SandboxConfig {
     pub allowed_read_paths: Vec<std::path::PathBuf>,
     /// Filesystem paths the sandboxed process may write to.
     pub allowed_write_paths: Vec<std::path::PathBuf>,
+    /// Existing paths beneath an allowed root that the Linux Landlock ruleset must not make
+    /// readable. Ignored by other backends.
+    pub withheld_read_paths: Vec<std::path::PathBuf>,
     /// Whether to apply the strict seccomp allowlist (Linux). The allowlist omits
     /// the network syscalls, so it also denies egress.
     pub seccomp_enabled: bool,
@@ -38,6 +41,7 @@ impl Default for SandboxConfig {
         Self {
             allowed_read_paths: Vec::new(),
             allowed_write_paths: Vec::new(),
+            withheld_read_paths: Vec::new(),
             seccomp_enabled: false, // off by default; enabled by the `strict` tier
             network_denied: false,
         }
@@ -58,6 +62,12 @@ impl SandboxConfig {
     /// Allow writing to the given path.
     pub fn allow_write(mut self, path: impl Into<std::path::PathBuf>) -> Self {
         self.allowed_write_paths.push(path.into());
+        self
+    }
+
+    /// Withhold reading `path` (see [`SandboxConfig::withheld_read_paths`]).
+    pub fn withhold_read(mut self, path: impl Into<std::path::PathBuf>) -> Self {
+        self.withheld_read_paths.push(path.into());
         self
     }
 
@@ -118,6 +128,7 @@ impl SandboxConfig {
         let landlock = super::landlock::PreparedLandlock::new(
             &self.allowed_read_paths,
             &self.allowed_write_paths,
+            &self.withheld_read_paths,
         )?;
         // SAFETY: `apply` performs only prctl and landlock_restrict_self on state prepared
         // above; nothing allocates in the child.

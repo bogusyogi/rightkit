@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.6 (2026-11-16)
+
+- Breaking for a host outside this repository that relied on the implied OS keyring: the optional `rightkit-llm` dependency no longer names `agent_providers-os-keyring` and `agent_router-os-keyring`, so `coding-core`, `coding-repo-graph`, `coding-tools` and `coding` no longer link the OS credential store (`rightkit-credentials`); the coding tools' `rightkit-agent-coding-tools` dependency no longer implies it either. `coding-os-keyring` (still implies `coding`) adds `rightkit-llm`'s `agent_providers-os-keyring` and `agent_router-os-keyring` and `rightkit-agent-coding-tools/os-keyring`, and `coding-host` now implies `coding-os-keyring`, so a host that named `coding-host` or `coding-os-keyring` builds exactly as before. A host that named only `coding` and relied on the keyring adds `coding-os-keyring`. Nothing in the crate's own code needs the keyring, so no item changes.
+- Requires rightkit-agent-coding-tools 0.1.8 (its keyring is now a feature of its own).
+- `coding::orchestrator::run_graph_with_checkpoint_hook` is `pub` (and re-exported from `coding`), with a doc comment, so a host that keeps its own checkpoint module can drive a graph with a checkpoint callback. Its signature uses only public types; behaviour is unchanged.
+
 ## 0.1.5 (2026-11-16)
 
 - Requires rightkit-repo-graph 0.3.1. New `coding::host::set_skeleton_variant` / `skeleton_variant`, fixed once at start-up: `SkeletonVariant::Standard` (the default) keeps the output of `coding::handoff_brief` and `coding::repo_map` exactly as before; `SkeletonVariant::Extended` makes both use the extended skeletonizer of rightkit-repo-graph. A host (CodeRight) calls `set_skeleton_variant(SkeletonVariant::Extended)`.

@@ -57,8 +57,13 @@ pub(crate) struct PreparedLandlock {
 
 impl PreparedLandlock {
     /// Build the ruleset for `read_paths` (read + execute) and `write_paths` (everything).
-    /// With no path at all there is no ruleset (a network-only request).
-    pub(crate) fn new(read_paths: &[PathBuf], write_paths: &[PathBuf]) -> io::Result<Self> {
+    /// With no path at all there is no ruleset (a network-only request). `withheld` lists existing
+    /// paths beneath those roots that must stay unreadable (see [`add_root`]).
+    pub(crate) fn new(
+        read_paths: &[PathBuf],
+        write_paths: &[PathBuf],
+        withheld: &[PathBuf],
+    ) -> io::Result<Self> {
         if read_paths.is_empty() && write_paths.is_empty() {
             return Ok(Self { ruleset: None });
         }
@@ -120,13 +125,21 @@ impl PreparedLandlock {
         let ruleset = unsafe { std::fs::File::from_raw_fd(fd as i32) };
         let raw = ruleset.as_raw_fd();
 
+        let withheld: Vec<PathBuf> = withheld
+            .iter()
+            .filter_map(|path| std::fs::canonicalize(path).ok())
+            .collect();
+        // One rule budget per pass: the workspace is both a read and a write root, so a shared
+        // budget would count every entry of a split folder twice.
+        let mut read_budget = 0usize;
         let read_rights = FS_READ_FILE | FS_READ_DIR | FS_EXECUTE;
         for path in read_paths {
-            add_rule(raw, path, read_rights, abi)?;
+            add_root(raw, path, read_rights, abi, &withheld, &mut read_budget)?;
         }
+        let mut write_budget = 0usize;
         let write_rights = handled;
         for path in write_paths {
-            add_rule(raw, path, write_rights, abi)?;
+            add_root(raw, path, write_rights, abi, &withheld, &mut write_budget)?;
         }
         Ok(Self {
             ruleset: Some(ruleset),
@@ -158,6 +171,60 @@ fn file_rights(abi: i64) -> u64 {
         rights |= FS_TRUNCATE;
     }
     rights
+}
+
+/// Most rules one ruleset may carry when withheld paths force a directory to be split.
+const MAX_RULES: usize = 4096;
+
+/// Add the rule for root `path`, keeping every `withheld` path beneath it unreadable.
+///
+/// Landlock rights are a union across ancestor rules, so a withheld file cannot be carved
+/// out of a granted directory. Instead the directory keeps its rights minus
+/// `READ_FILE | EXECUTE` and each of its entries gets a rule of its own with the full rights
+/// (recursively, down to the directory holding the withheld path, which is simply left
+/// without a rule). Rules are bound to inodes, so a rename or hard link of a withheld file
+/// stays unreadable. Files created during the command in a split folder are writable but not
+/// readable until the next launch. The split directory keeps WRITE_FILE, TRUNCATE and
+/// REMOVE_FILE, so the shell can still truncate or delete the withheld file; file tools deny
+/// that separately. Symlink entries get no rule: `add_rule` opens with `O_PATH` and would
+/// follow a link to the withheld file. A directory that cannot be listed gets nothing
+/// beneath it (fail closed). With no `withheld` path this is exactly one `add_rule`.
+fn add_root(
+    ruleset: i32,
+    path: &Path,
+    rights: u64,
+    abi: i64,
+    withheld: &[PathBuf],
+    budget: &mut usize,
+) -> io::Result<()> {
+    if withheld.is_empty() {
+        return add_rule(ruleset, path, rights, abi);
+    }
+    let path = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    if withheld.contains(&path) {
+        return Ok(());
+    }
+    *budget += 1;
+    if *budget > MAX_RULES {
+        return Err(io::Error::other(
+            "too many entries beside withheld secret files to confine; refusing the launch",
+        ));
+    }
+    if !withheld.iter().any(|w| w.starts_with(&path)) {
+        return add_rule(ruleset, &path, rights, abi);
+    }
+    add_rule(ruleset, &path, rights & !(FS_READ_FILE | FS_EXECUTE), abi)?;
+    let Ok(entries) = std::fs::read_dir(&path) else {
+        return Ok(());
+    };
+    for entry in entries.flatten() {
+        match entry.file_type() {
+            Ok(kind) if !kind.is_symlink() => {}
+            _ => continue,
+        }
+        add_root(ruleset, &entry.path(), rights, abi, withheld, budget)?;
+    }
+    Ok(())
 }
 
 fn add_rule(ruleset: i32, path: &Path, access: u64, abi: i64) -> io::Result<()> {

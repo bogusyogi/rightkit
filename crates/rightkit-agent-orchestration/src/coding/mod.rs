@@ -124,7 +124,7 @@ pub use handoff_brief::{
 pub use info_flow::{E2RTreeSearch, InfoFlowRouter, RoutingMode, SkillBankRouter};
 pub use jury::{JurorVerdict, JuryDecision, JurySystem};
 pub use orchestrator::{
-    recovering_worker, run_graph, run_graph_with_conductor,
+    recovering_worker, run_graph, run_graph_with_checkpoint_hook, run_graph_with_conductor,
     run_graph_with_conductor_and_handoff_archive, run_graph_with_recovery, RunOutcome,
 };
 pub use predicate::{PredicateContext, PredicateEvaluator};

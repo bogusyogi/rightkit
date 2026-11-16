@@ -2718,7 +2718,7 @@
       "pkId": "PK34",
       "id": "ci/consumers/rightkit-hooks/src/main.rs",
       "files": {
-        "Cargo.toml": "80b4634bca081d56f49bea751318045742cc794f6bbf3fa7935da1e759c35abf",
+        "Cargo.toml": "07bee0bb0741e7527f033cfe815f546e48d3571b05ae0a2ae03546cf93e6195e",
         "README.md": "7b92ba222bcda5c0a6a37ab7de9c0433cdaa220a0c21ba576b81945ec9b0e8b9",
         "src/main.rs": "81b3c522d503e3cd84fc0be1efef048e20a4c99ab09f663df910f03b042d1e5b"
       }
@@ -3098,7 +3098,7 @@
       "pkId": "PK75",
       "id": "ci/consumers/rightkit-agent-orchestration/src/main.rs",
       "files": {
-        "Cargo.toml": "4bc4aaa729fd9c65762a5741226afe8fce92b44f1c2f75e98a48b1c54122e4eb",
+        "Cargo.toml": "df1b8cccec29291410957a18961786a5443ec1365b3ecc83cade6c94c0f0e412",
         "README.md": "8c11cf6b00919b37e1490c56b1775e887be2c3107f473ba18748b47f94261687",
         "src/main.rs": "c9d49582aa1bcb19eb54d17ed826da3e9419db931901eb92af08ba744a7c793f"
       }
@@ -3694,7 +3694,7 @@
       "pkId": "PK154",
       "id": "ci/consumers/rightkit-agent-engine-core/src/main.rs",
       "files": {
-        "Cargo.toml": "2796a2af33199119efa65d1739b26d8bbaccb5a7167db4312a57f334c1af08b6",
+        "Cargo.toml": "2431be4a3f2df20e662a014d32c95c52fb9e329cb4621b31a1c2575ca3a436fd",
         "README.md": "fec1f84333d677725e9c5f37281264f6e94f98573a36c1c71bd61f3af940d318",
         "src/main.rs": "02b9514066b4ac2d5bc5f6a2b43592073330373b8e14d3f06046ca2422c18da8"
       }
@@ -4261,8 +4261,8 @@
       "pkId": "PK220",
       "id": "ci/consumers/rightkit-memory-client/src/main.rs",
       "files": {
-        "Cargo.toml": "470ba3df289c50c560cc20ebc50ccadaf4d61f10d387c3cddfa038b2bbd36f02",
-        "README.md": "5a714cdf930a8a465f8f9d9465786826c59f9934b5fe6a7ff65d5f5a0dae5cec",
+        "Cargo.toml": "cbba1c3a510f989272b68691d92355dd9bf2d9e80b499ddc863861c939df1f18",
+        "README.md": "4c56e1dc850843d829c5e2f09af259d27c9034805104c0ff79b51d2831bc29f5",
         "src/main.rs": "95155bd8bc2f971295aede340b64f452b4741a1a40fe9ad0694720b769a70da1"
       }
     },
@@ -4297,9 +4297,9 @@
       "pkId": "PK251",
       "id": "ci/consumers/rightkit-agent-coding-tools/src/main.rs",
       "files": {
-        "Cargo.toml": "5ec1ebe5e7a14acfbfa8244799445748a474de7f953fb769961ae1d09ac165bc",
-        "README.md": "a681183a20ff2760ac8adc0e2228e0c046142a5a7d0a43c2e2f2615ca34b7b5c",
-        "src/main.rs": "16f495589a52e9f2f0523979ee9e23ba70d168944c2aa57794adae4f91dd50cc"
+        "Cargo.toml": "5f98d6d8e52d1dc8468dde01c8197cfd2e173f8bc608612907959dade8c203f9",
+        "README.md": "db4c880eb62b6a4af8da73e0253f448917cfac4fdc792ee071bf69036c120462",
+        "src/main.rs": "d058e1c592ae7f912a7febbe260e7e0439e4cbd68e9cd0d01682fe134b6b81d0"
       }
     }
   }

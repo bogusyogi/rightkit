@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.3 (2026-11-16)
+
+- Breaking for a host outside this repository that took `default-features = false` and relied on the implied OS keyring: the `rightkit-mcp` dependency no longer names `agent_mcp-os-keyring`, so a build without `host` no longer links the OS credential store (`rightkit-credentials`). New feature `os-keyring` (`rightkit-agent-coding-tools/os-keyring`, `rightkit-mcp/agent_mcp-os-keyring`, `rightkit-hooks/agent_hooks-os-keyring`); `host` implies it, so a default-features user is unchanged.
+- Requires rightkit-agent-coding-tools 0.1.8 and rightkit-hooks 0.2.11.
+
 ## 0.1.2 (2026-11-16)
 
 - Requires rightkit-mcp 0.10.0. Names `agent_mcp-os-keyring` explicitly, so the build is unchanged. No behaviour change.

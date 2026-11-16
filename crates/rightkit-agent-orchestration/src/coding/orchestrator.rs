@@ -240,8 +240,17 @@ pub async fn run_graph_with_conductor_and_handoff_archive(
     .expect("infallible checkpoint hook cannot fail")
 }
 
+/// Drives a [`TaskGraph`] like [`run_graph_with_conductor_and_handoff_archive`], and calls
+/// `checkpoint` whenever the graph changes state: after tasks are dispatched (with an empty slice),
+/// after a round of worker results (with that round's results) and after a forced pivot or an
+/// unroutable round (with an empty slice). A host that persists run state (see
+/// [`checkpoint`](crate::coding::checkpoint)) writes its resumable snapshot from it.
+/// `initial_results` seeds the run's results with those of an earlier attempt when a run resumes.
+///
+/// A `checkpoint` error stops the run and is returned as `Err`; the graph keeps the state it had
+/// reached. The hook runs on the driving task, so it must not block for long.
 #[allow(clippy::too_many_arguments)]
-pub(crate) async fn run_graph_with_checkpoint_hook<E>(
+pub async fn run_graph_with_checkpoint_hook<E>(
     goal: &str,
     graph: &mut TaskGraph,
     registry: &AgentRegistry,

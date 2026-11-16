@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.1 (2026-11-16)
+
+- Requires rightkit-agent-coding-tools 0.1.8 and names its `os-keyring` feature for `agent_host`, so the build is unchanged (coding-tools no longer implies the OS keyring). No behaviour change.
+
 ## 0.1.0 (renamed from `rightkit-memory` 0.1.1)
 
 - Renamed from `rightkit-memory` (library `rightkit_memory_client`): the crate is the client of the memory engine, and the `rightkit-memory` name now belongs to the engine (0.2.0, a facade over `rightkit-memory-core` and `rightkit-memory-store`). Replace `rightkit_memory::` with `rightkit_memory_client::`.
