@@ -91,6 +91,12 @@ package containing a product name, a colour literal or an app-prefixed class; an
 that fails on logic outside composition and configuration files; and a check that each
 component renders correctly in `desktop-app-template` under a second theme.
 
+## How the earlier reading went wrong
+
+The full analysis, with the timeline, the root causes, every app checked against the
+mandatory packages and the audit data behind it, is in
+`docs/audits/2026-11-16-app-boundary/ANALYSIS.md`.
+
 ## Where this came from
 
 The owner, in session `session_01QWpjiWBTssha215BSFHDHg` on 2026-11-16, after finding that

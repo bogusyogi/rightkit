@@ -1,0 +1,9541 @@
+{
+ "heardright": {
+  "main": {
+   "npm": {
+    "@rightkit/issues-tracker": [
+     "0.1.0"
+    ],
+    "@rightkit/app-update": [
+     "0.4.2"
+    ],
+    "@rightkit/legal": [
+     "0.6.3"
+    ],
+    "@rightkit/legal-ui": [
+     "0.4.1"
+    ],
+    "@rightkit/license": [
+     "0.3.0"
+    ],
+    "@rightkit/logs": [
+     "0.1.6"
+    ],
+    "@rightkit/onboarding": [
+     "0.6.3"
+    ],
+    "@rightkit/platform-ui": [
+     "0.4.0"
+    ],
+    "@rightkit/react-shell": [
+     "0.7.2"
+    ],
+    "@rightkit/settings-ui": [
+     "0.7.0"
+    ],
+    "@rightkit/tauri": [
+     "0.3.0"
+    ],
+    "@rightkit/theme": [
+     "0.3.1"
+    ],
+    "@rightkit/qa": [
+     "0.6.1"
+    ],
+    "@rightkit/qa-chrome": [
+     "0.1.12"
+    ],
+    "@rightkit/release": [
+     "0.6.46"
+    ]
+   },
+   "cargo": {
+    "rightkit-daemon": [
+     "=0.5.1"
+    ],
+    "rightkit-fs": [
+     "=0.4.12"
+    ],
+    "rightkit-logs": [
+     "=0.3.7"
+    ],
+    "rightkit-job-queue": [
+     "=0.5.1"
+    ],
+    "rightkit-child-process": [
+     "=0.5.7"
+    ],
+    "rightkit-automation": [
+     "=0.6.7"
+    ],
+    "rightkit-overlay": [
+     "=0.2.0"
+    ],
+    "rightkit-crash": [
+     "=0.3.6"
+    ],
+    "rightkit-speech-client": [
+     "=0.4.2"
+    ],
+    "rightkit-audio": [
+     "=0.3.1"
+    ],
+    "rightkit-onnx": [
+     "=0.2.9"
+    ],
+    "rightkit-transcript": [
+     "=0.4.0"
+    ],
+    "rightkit-ffmpeg": [
+     "=0.2.13"
+    ],
+    "rightkit-vad": [
+     "=0.1.2"
+    ],
+    "rightkit-asr": [
+     "=0.4.0"
+    ],
+    "rightkit-models": [
+     "=0.5.3"
+    ],
+    "rightkit-http": [
+     "=0.3.9"
+    ],
+    "rightkit-sidecar": [
+     "=0.3.0"
+    ],
+    "rightkit-credentials": [
+     "=0.5.0"
+    ],
+    "rightkit-llm": [
+     "=0.3.2"
+    ],
+    "rightkit-dictation-core": [
+     "=0.2.3"
+    ],
+    "rightkit-crypto": [
+     "=0.1.0"
+    ],
+    "rightkit-time": [
+     "=0.1.1"
+    ],
+    "rightkit-transcript-library": [
+     "=0.1.2"
+    ],
+    "rightkit-text-polish": [
+     "=0.1.0"
+    ],
+    "rightkit-voice-commands": [
+     "=0.1.0"
+    ],
+    "rightkit-qa": [
+     "=0.10.4"
+    ],
+    "rightkit-license": [
+     "=0.2.8"
+    ],
+    "rightkit-app-settings": [
+     "=0.3.1"
+    ],
+    "rightkit-device": [
+     "=0.4.2"
+    ],
+    "rightkit-hotkeys": [
+     "=0.1.2"
+    ],
+    "rightkit-tauri-shell": [
+     "=0.7.0"
+    ],
+    "rightkit-db": [
+     "=0.5.5"
+    ],
+    "rightkit-overlay-win": [
+     "=0.1.0"
+    ],
+    "rightkit-sync": [
+     "=0.2.2"
+    ]
+   },
+   "rows": {
+    "M1": [
+     {
+      "owner": "rightkit-tauri-shell",
+      "declared": true,
+      "ver": [
+       "=0.7.0"
+      ],
+      "use_lines": 36,
+      "use_files": 7
+     },
+     {
+      "owner": "rightkit-device",
+      "declared": true,
+      "ver": [
+       "=0.4.2"
+      ],
+      "use_lines": 4,
+      "use_files": 2
+     },
+     {
+      "owner": "@rightkit/tauri",
+      "declared": true,
+      "ver": [
+       "0.3.0"
+      ],
+      "use_lines": 0,
+      "use_files": 0
+     }
+    ],
+    "M2": [
+     {
+      "owner": "@rightkit/react-shell",
+      "declared": true,
+      "ver": [
+       "0.7.2"
+      ],
+      "use_lines": 16,
+      "use_files": 14
+     },
+     {
+      "owner": "@rightkit/platform-ui",
+      "declared": true,
+      "ver": [
+       "0.4.0"
+      ],
+      "use_lines": 5,
+      "use_files": 5
+     },
+     {
+      "owner": "@rightkit/theme",
+      "declared": true,
+      "ver": [
+       "0.3.1"
+      ],
+      "use_lines": 2,
+      "use_files": 2
+     }
+    ],
+    "M3": [
+     {
+      "owner": "rightkit-job-queue",
+      "declared": true,
+      "ver": [
+       "=0.5.1"
+      ],
+      "use_lines": 9,
+      "use_files": 6
+     },
+     {
+      "owner": "rightkit-child-process",
+      "declared": true,
+      "ver": [
+       "=0.5.7"
+      ],
+      "use_lines": 37,
+      "use_files": 22
+     }
+    ],
+    "M4": [
+     {
+      "owner": "rightkit-job-queue",
+      "declared": true,
+      "ver": [
+       "=0.5.1"
+      ],
+      "use_lines": 9,
+      "use_files": 6
+     },
+     {
+      "owner": "rightkit-sidecar",
+      "declared": true,
+      "ver": [
+       "=0.3.0"
+      ],
+      "use_lines": 5,
+      "use_files": 3
+     }
+    ],
+    "M5": [
+     {
+      "owner": "rightkit-child-process",
+      "declared": true,
+      "ver": [
+       "=0.5.7"
+      ],
+      "use_lines": 37,
+      "use_files": 22
+     }
+    ],
+    "M6": [
+     {
+      "owner": "rightkit-daemon",
+      "declared": true,
+      "ver": [
+       "=0.5.1"
+      ],
+      "use_lines": 4,
+      "use_files": 4
+     }
+    ],
+    "M7": [
+     {
+      "owner": "rightkit-daemon",
+      "declared": true,
+      "ver": [
+       "=0.5.1"
+      ],
+      "use_lines": 4,
+      "use_files": 4
+     }
+    ],
+    "M8": [
+     {
+      "owner": "rightkit-fs",
+      "declared": true,
+      "ver": [
+       "=0.4.12"
+      ],
+      "use_lines": 53,
+      "use_files": 31
+     }
+    ],
+    "M9": [
+     {
+      "owner": "rightkit-db",
+      "declared": true,
+      "ver": [
+       "=0.5.5"
+      ],
+      "use_lines": 21,
+      "use_files": 6
+     }
+    ],
+    "M10": [
+     {
+      "owner": "rightkit-app-settings",
+      "declared": true,
+      "ver": [
+       "=0.3.1"
+      ],
+      "use_lines": 1,
+      "use_files": 1
+     },
+     {
+      "owner": "@rightkit/settings-ui",
+      "declared": true,
+      "ver": [
+       "0.7.0"
+      ],
+      "use_lines": 8,
+      "use_files": 8
+     }
+    ],
+    "M11": [
+     {
+      "owner": "rightkit-credentials",
+      "declared": true,
+      "ver": [
+       "=0.5.0"
+      ],
+      "use_lines": 9,
+      "use_files": 3
+     }
+    ],
+    "M12": [
+     {
+      "owner": "rightkit-license",
+      "declared": true,
+      "ver": [
+       "=0.2.8"
+      ],
+      "use_lines": 15,
+      "use_files": 9
+     },
+     {
+      "owner": "rightkit-device",
+      "declared": true,
+      "ver": [
+       "=0.4.2"
+      ],
+      "use_lines": 4,
+      "use_files": 2
+     },
+     {
+      "owner": "@rightkit/license",
+      "declared": true,
+      "ver": [
+       "0.3.0"
+      ],
+      "use_lines": 4,
+      "use_files": 4
+     }
+    ],
+    "M13": [
+     {
+      "owner": "rightkit-license",
+      "declared": true,
+      "ver": [
+       "=0.2.8"
+      ],
+      "use_lines": 15,
+      "use_files": 9
+     }
+    ],
+    "M14": [
+     {
+      "owner": "@rightkit/legal",
+      "declared": true,
+      "ver": [
+       "0.6.3"
+      ],
+      "use_lines": 2,
+      "use_files": 2
+     },
+     {
+      "owner": "@rightkit/legal-ui",
+      "declared": true,
+      "ver": [
+       "0.4.1"
+      ],
+      "use_lines": 1,
+      "use_files": 1
+     },
+     {
+      "owner": "@rightkit/onboarding",
+      "declared": true,
+      "ver": [
+       "0.6.3"
+      ],
+      "use_lines": 4,
+      "use_files": 3
+     }
+    ],
+    "M15": [
+     {
+      "owner": "rightkit-logs",
+      "declared": true,
+      "ver": [
+       "=0.3.7"
+      ],
+      "use_lines": 33,
+      "use_files": 10
+     },
+     {
+      "owner": "@rightkit/logs",
+      "declared": true,
+      "ver": [
+       "0.1.6"
+      ],
+      "use_lines": 3,
+      "use_files": 3
+     }
+    ],
+    "M16": [
+     {
+      "owner": "rightkit-crash",
+      "declared": true,
+      "ver": [
+       "=0.3.6"
+      ],
+      "use_lines": 26,
+      "use_files": 6
+     }
+    ],
+    "M17": [
+     {
+      "owner": "rightkit-http",
+      "declared": true,
+      "ver": [
+       "=0.3.9"
+      ],
+      "use_lines": 8,
+      "use_files": 8
+     }
+    ],
+    "M18": [
+     {
+      "owner": "@rightkit/app-update",
+      "declared": true,
+      "ver": [
+       "0.4.2"
+      ],
+      "use_lines": 5,
+      "use_files": 5
+     }
+    ],
+    "M19": [
+     {
+      "owner": "@rightkit/release",
+      "declared": true,
+      "ver": [
+       "0.6.46"
+      ],
+      "use_lines": 2,
+      "use_files": 2
+     }
+    ],
+    "M20": [
+     {
+      "owner": "rightkit-qa",
+      "declared": true,
+      "ver": [
+       "=0.10.4"
+      ],
+      "use_lines": 28,
+      "use_files": 11
+     },
+     {
+      "owner": "@rightkit/qa",
+      "declared": true,
+      "ver": [
+       "0.6.1"
+      ],
+      "use_lines": 0,
+      "use_files": 0
+     },
+     {
+      "owner": "@rightkit/qa-chrome",
+      "declared": true,
+      "ver": [
+       "0.1.12"
+      ],
+      "use_lines": 0,
+      "use_files": 0
+     }
+    ],
+    "M22": [
+     {
+      "owner": "rightkit-agent-tools",
+      "declared": false,
+      "ver": [],
+      "use_lines": 0,
+      "use_files": 0
+     }
+    ]
+   },
+   "own_ts_files": 140,
+   "other_rightkit_npm": {
+    "@rightkit/issues-tracker": 0
+   }
+  },
+  "work": {
+   "npm": {
+    "@rightkit/issues-tracker": [
+     "0.1.0"
+    ],
+    "@rightkit/app-update": [
+     "0.4.4"
+    ],
+    "@rightkit/dictation-ui": [
+     "0.2.7"
+    ],
+    "@rightkit/legal": [
+     "0.6.3"
+    ],
+    "@rightkit/legal-ui": [
+     "0.4.2"
+    ],
+    "@rightkit/library-ui": [
+     "0.2.3"
+    ],
+    "@rightkit/license": [
+     "0.3.3"
+    ],
+    "@rightkit/logs": [
+     "0.1.6"
+    ],
+    "@rightkit/onboarding": [
+     "0.6.5"
+    ],
+    "@rightkit/platform-ui": [
+     "0.4.1"
+    ],
+    "@rightkit/react-shell": [
+     "0.7.4"
+    ],
+    "@rightkit/settings-ui": [
+     "0.7.3"
+    ],
+    "@rightkit/tauri": [
+     "0.4.2"
+    ],
+    "@rightkit/theme": [
+     "0.3.3"
+    ],
+    "@rightkit/qa": [
+     "0.7.0"
+    ],
+    "@rightkit/qa-chrome": [
+     "0.1.12"
+    ],
+    "@rightkit/release": [
+     "0.6.57"
+    ]
+   },
+   "cargo": {
+    "rightkit-daemon": [
+     "=0.9.0"
+    ],
+    "rightkit-fs": [
+     "=0.4.15"
+    ],
+    "rightkit-logs": [
+     "=0.4.1"
+    ],
+    "rightkit-job-queue": [
+     "=0.6.0"
+    ],
+    "rightkit-child-process": [
+     "=0.5.12"
+    ],
+    "rightkit-automation": [
+     "=0.7.0"
+    ],
+    "rightkit-overlay": [
+     "=0.2.3"
+    ],
+    "rightkit-crash": [
+     "=0.4.1"
+    ],
+    "rightkit-speech-client": [
+     "=0.5.0"
+    ],
+    "rightkit-audio": [
+     "=0.3.4"
+    ],
+    "rightkit-onnx": [
+     "=0.3.0"
+    ],
+    "rightkit-transcript": [
+     "=0.4.2"
+    ],
+    "rightkit-ffmpeg": [
+     "=0.3.1"
+    ],
+    "rightkit-vad": [
+     "=0.2.0"
+    ],
+    "rightkit-asr": [
+     "=0.5.0"
+    ],
+    "rightkit-models": [
+     "=0.7.1"
+    ],
+    "rightkit-http": [
+     "=0.4.0"
+    ],
+    "rightkit-sidecar": [
+     "=0.3.4"
+    ],
+    "rightkit-credentials": [
+     "=0.5.4"
+    ],
+    "rightkit-llm": [
+     "=0.3.6"
+    ],
+    "rightkit-dictation-core": [
+     "=0.3.0"
+    ],
+    "rightkit-crypto": [
+     "=0.1.3"
+    ],
+    "rightkit-time": [
+     "=0.1.4"
+    ],
+    "rightkit-transcript-library": [
+     "=0.1.2"
+    ],
+    "rightkit-text-polish": [
+     "=0.1.1"
+    ],
+    "rightkit-voice-commands": [
+     "=0.1.1"
+    ],
+    "rightkit-roots": [
+     "=0.2.0"
+    ],
+    "rightkit-qa": [
+     "=0.10.4"
+    ],
+    "rightkit-license": [
+     "=0.3.1"
+    ],
+    "rightkit-app-settings": [
+     "=0.4.1"
+    ],
+    "rightkit-device": [
+     "=0.5.0"
+    ],
+    "rightkit-hotkeys": [
+     "=0.1.4"
+    ],
+    "rightkit-tauri-shell": [
+     "=0.8.0"
+    ],
+    "rightkit-db": [
+     "=0.5.8"
+    ],
+    "rightkit-overlay-win": [
+     "=0.1.5"
+    ],
+    "rightkit-sync": [
+     "=0.3.0"
+    ]
+   },
+   "rows": {
+    "M1": [
+     {
+      "owner": "rightkit-tauri-shell",
+      "declared": true,
+      "ver": [
+       "=0.8.0"
+      ],
+      "use_lines": 42,
+      "use_files": 8
+     },
+     {
+      "owner": "rightkit-device",
+      "declared": true,
+      "ver": [
+       "=0.5.0"
+      ],
+      "use_lines": 3,
+      "use_files": 1
+     },
+     {
+      "owner": "@rightkit/tauri",
+      "declared": true,
+      "ver": [
+       "0.4.2"
+      ],
+      "use_lines": 1,
+      "use_files": 1
+     }
+    ],
+    "M2": [
+     {
+      "owner": "@rightkit/react-shell",
+      "declared": true,
+      "ver": [
+       "0.7.4"
+      ],
+      "use_lines": 13,
+      "use_files": 11
+     },
+     {
+      "owner": "@rightkit/platform-ui",
+      "declared": true,
+      "ver": [
+       "0.4.1"
+      ],
+      "use_lines": 3,
+      "use_files": 3
+     },
+     {
+      "owner": "@rightkit/theme",
+      "declared": true,
+      "ver": [
+       "0.3.3"
+      ],
+      "use_lines": 2,
+      "use_files": 2
+     }
+    ],
+    "M3": [
+     {
+      "owner": "rightkit-job-queue",
+      "declared": true,
+      "ver": [
+       "=0.6.0"
+      ],
+      "use_lines": 9,
+      "use_files": 6
+     },
+     {
+      "owner": "rightkit-child-process",
+      "declared": true,
+      "ver": [
+       "=0.5.12"
+      ],
+      "use_lines": 37,
+      "use_files": 22
+     }
+    ],
+    "M4": [
+     {
+      "owner": "rightkit-job-queue",
+      "declared": true,
+      "ver": [
+       "=0.6.0"
+      ],
+      "use_lines": 9,
+      "use_files": 6
+     },
+     {
+      "owner": "rightkit-sidecar",
+      "declared": true,
+      "ver": [
+       "=0.3.4"
+      ],
+      "use_lines": 4,
+      "use_files": 2
+     }
+    ],
+    "M5": [
+     {
+      "owner": "rightkit-child-process",
+      "declared": true,
+      "ver": [
+       "=0.5.12"
+      ],
+      "use_lines": 37,
+      "use_files": 22
+     }
+    ],
+    "M6": [
+     {
+      "owner": "rightkit-daemon",
+      "declared": true,
+      "ver": [
+       "=0.9.0"
+      ],
+      "use_lines": 7,
+      "use_files": 4
+     }
+    ],
+    "M7": [
+     {
+      "owner": "rightkit-daemon",
+      "declared": true,
+      "ver": [
+       "=0.9.0"
+      ],
+      "use_lines": 7,
+      "use_files": 4
+     }
+    ],
+    "M8": [
+     {
+      "owner": "rightkit-fs",
+      "declared": true,
+      "ver": [
+       "=0.4.15"
+      ],
+      "use_lines": 50,
+      "use_files": 29
+     }
+    ],
+    "M9": [
+     {
+      "owner": "rightkit-db",
+      "declared": true,
+      "ver": [
+       "=0.5.8"
+      ],
+      "use_lines": 21,
+      "use_files": 6
+     }
+    ],
+    "M10": [
+     {
+      "owner": "rightkit-app-settings",
+      "declared": true,
+      "ver": [
+       "=0.4.1"
+      ],
+      "use_lines": 1,
+      "use_files": 1
+     },
+     {
+      "owner": "@rightkit/settings-ui",
+      "declared": true,
+      "ver": [
+       "0.7.3"
+      ],
+      "use_lines": 4,
+      "use_files": 4
+     }
+    ],
+    "M11": [
+     {
+      "owner": "rightkit-credentials",
+      "declared": true,
+      "ver": [
+       "=0.5.4"
+      ],
+      "use_lines": 9,
+      "use_files": 3
+     }
+    ],
+    "M12": [
+     {
+      "owner": "rightkit-license",
+      "declared": true,
+      "ver": [
+       "=0.3.1"
+      ],
+      "use_lines": 15,
+      "use_files": 7
+     },
+     {
+      "owner": "rightkit-device",
+      "declared": true,
+      "ver": [
+       "=0.5.0"
+      ],
+      "use_lines": 3,
+      "use_files": 1
+     },
+     {
+      "owner": "@rightkit/license",
+      "declared": true,
+      "ver": [
+       "0.3.3"
+      ],
+      "use_lines": 4,
+      "use_files": 4
+     }
+    ],
+    "M13": [
+     {
+      "owner": "rightkit-license",
+      "declared": true,
+      "ver": [
+       "=0.3.1"
+      ],
+      "use_lines": 15,
+      "use_files": 7
+     }
+    ],
+    "M14": [
+     {
+      "owner": "@rightkit/legal",
+      "declared": true,
+      "ver": [
+       "0.6.3"
+      ],
+      "use_lines": 2,
+      "use_files": 2
+     },
+     {
+      "owner": "@rightkit/legal-ui",
+      "declared": true,
+      "ver": [
+       "0.4.2"
+      ],
+      "use_lines": 1,
+      "use_files": 1
+     },
+     {
+      "owner": "@rightkit/onboarding",
+      "declared": true,
+      "ver": [
+       "0.6.5"
+      ],
+      "use_lines": 2,
+      "use_files": 2
+     }
+    ],
+    "M15": [
+     {
+      "owner": "rightkit-logs",
+      "declared": true,
+      "ver": [
+       "=0.4.1"
+      ],
+      "use_lines": 32,
+      "use_files": 10
+     },
+     {
+      "owner": "@rightkit/logs",
+      "declared": true,
+      "ver": [
+       "0.1.6"
+      ],
+      "use_lines": 3,
+      "use_files": 3
+     }
+    ],
+    "M16": [
+     {
+      "owner": "rightkit-crash",
+      "declared": true,
+      "ver": [
+       "=0.4.1"
+      ],
+      "use_lines": 24,
+      "use_files": 6
+     }
+    ],
+    "M17": [
+     {
+      "owner": "rightkit-http",
+      "declared": true,
+      "ver": [
+       "=0.4.0"
+      ],
+      "use_lines": 8,
+      "use_files": 7
+     }
+    ],
+    "M18": [
+     {
+      "owner": "@rightkit/app-update",
+      "declared": true,
+      "ver": [
+       "0.4.4"
+      ],
+      "use_lines": 3,
+      "use_files": 3
+     }
+    ],
+    "M19": [
+     {
+      "owner": "@rightkit/release",
+      "declared": true,
+      "ver": [
+       "0.6.57"
+      ],
+      "use_lines": 2,
+      "use_files": 2
+     }
+    ],
+    "M20": [
+     {
+      "owner": "rightkit-qa",
+      "declared": true,
+      "ver": [
+       "=0.10.4"
+      ],
+      "use_lines": 28,
+      "use_files": 11
+     },
+     {
+      "owner": "@rightkit/qa",
+      "declared": true,
+      "ver": [
+       "0.7.0"
+      ],
+      "use_lines": 0,
+      "use_files": 0
+     },
+     {
+      "owner": "@rightkit/qa-chrome",
+      "declared": true,
+      "ver": [
+       "0.1.12"
+      ],
+      "use_lines": 0,
+      "use_files": 0
+     }
+    ],
+    "M22": [
+     {
+      "owner": "rightkit-agent-tools",
+      "declared": false,
+      "ver": [],
+      "use_lines": 0,
+      "use_files": 0
+     }
+    ]
+   },
+   "own_ts_files": 49,
+   "other_rightkit_npm": {
+    "@rightkit/dictation-ui": 50,
+    "@rightkit/issues-tracker": 0,
+    "@rightkit/library-ui": 0
+   }
+  }
+ },
+ "viewright": {
+  "main": {
+   "npm": {
+    "@rightkit/app-update": [
+     "0.4.2"
+    ],
+    "@rightkit/doc-render": [
+     "0.2.1"
+    ],
+    "@rightkit/legal": [
+     "0.6.3"
+    ],
+    "@rightkit/legal-ui": [
+     "0.4.1"
+    ],
+    "@rightkit/license": [
+     "0.3.0"
+    ],
+    "@rightkit/logs": [
+     "0.1.6"
+    ],
+    "@rightkit/media-ui": [
+     "0.3.4"
+    ],
+    "@rightkit/onboarding": [
+     "0.6.3"
+    ],
+    "@rightkit/pdf-ui": [
+     "0.2.0"
+    ],
+    "@rightkit/platform-ui": [
+     "0.4.0"
+    ],
+    "@rightkit/react-shell": [
+     "0.7.2"
+    ],
+    "@rightkit/settings-ui": [
+     "0.7.0"
+    ],
+    "@rightkit/tauri": [
+     "0.3.0"
+    ],
+    "@rightkit/tauri-shell": [
+     "0.1.3"
+    ],
+    "@rightkit/theme": [
+     "0.3.1"
+    ],
+    "@rightkit/qa": [
+     "0.6.1"
+    ],
+    "@rightkit/qa-chrome": [
+     "0.1.12"
+    ],
+    "@rightkit/release": [
+     "0.6.29"
+    ],
+    "@rightkit/waitlist-worker": [
+     "0.1.0"
+    ]
+   },
+   "cargo": {
+    "rightkit-fs": [
+     "=0.4.9"
+    ],
+    "rightkit-qa": [
+     "=0.10.0"
+    ],
+    "rightkit-document-workspace": [
+     "=0.1.1"
+    ],
+    "rightkit-docs": [
+     "=0.1.3"
+    ],
+    "rightkit-crash": [
+     "=0.3.6"
+    ],
+    "rightkit-file-watch": [
+     "=0.4.2"
+    ],
+    "rightkit-tauri-shell": [
+     "=0.7.0"
+    ],
+    "rightkit-logs": [
+     "=0.3.7"
+    ],
+    "rightkit-daemon": [
+     "=0.5.1"
+    ],
+    "rightkit-license": [
+     "=0.2.6"
+    ],
+    "rightkit-child-process": [
+     "=0.5.7"
+    ],
+    "rightkit-device": [
+     "=0.4.0"
+    ],
+    "rightkit-credentials": [
+     "=0.4.3"
+    ],
+    "rightkit-ocr": [
+     "=0.2.3"
+    ],
+    "rightkit-pdf": [
+     "=0.3.4"
+    ],
+    "rightkit-db": [
+     "=0.5.3"
+    ]
+   },
+   "rows": {
+    "M1": [
+     {
+      "owner": "rightkit-tauri-shell",
+      "declared": true,
+      "ver": [
+       "=0.7.0"
+      ],
+      "use_lines": 58,
+      "use_files": 18
+     },
+     {
+      "owner": "rightkit-device",
+      "declared": true,
+      "ver": [
+       "=0.4.0"
+      ],
+      "use_lines": 2,
+      "use_files": 1
+     },
+     {
+      "owner": "@rightkit/tauri",
+      "declared": true,
+      "ver": [
+       "0.3.0"
+      ],
+      "use_lines": 1,
+      "use_files": 1
+     }
+    ],
+    "M2": [
+     {
+      "owner": "@rightkit/react-shell",
+      "declared": true,
+      "ver": [
+       "0.7.2"
+      ],
+      "use_lines": 38,
+      "use_files": 36
+     },
+     {
+      "owner": "@rightkit/platform-ui",
+      "declared": true,
+      "ver": [
+       "0.4.0"
+      ],
+      "use_lines": 59,
+      "use_files": 55
+     },
+     {
+      "owner": "@rightkit/theme",
+      "declared": true,
+      "ver": [
+       "0.3.1"
+      ],
+      "use_lines": 3,
+      "use_files": 3
+     }
+    ],
+    "M3": [
+     {
+      "owner": "rightkit-job-queue",
+      "declared": false,
+      "ver": [],
+      "use_lines": 0,
+      "use_files": 0
+     },
+     {
+      "owner": "rightkit-child-process",
+      "declared": true,
+      "ver": [
+       "=0.5.7"
+      ],
+      "use_lines": 11,
+      "use_files": 3
+     }
+    ],
+    "M4": [
+     {
+      "owner": "rightkit-job-queue",
+      "declared": false,
+      "ver": [],
+      "use_lines": 0,
+      "use_files": 0
+     },
+     {
+      "owner": "rightkit-sidecar",
+      "declared": false,
+      "ver": [],
+      "use_lines": 0,
+      "use_files": 0
+     }
+    ],
+    "M5": [
+     {
+      "owner": "rightkit-child-process",
+      "declared": true,
+      "ver": [
+       "=0.5.7"
+      ],
+      "use_lines": 11,
+      "use_files": 3
+     }
+    ],
+    "M6": [
+     {
+      "owner": "rightkit-daemon",
+      "declared": true,
+      "ver": [
+       "=0.5.1"
+      ],
+      "use_lines": 5,
+      "use_files": 2
+     }
+    ],
+    "M7": [
+     {
+      "owner": "rightkit-daemon",
+      "declared": true,
+      "ver": [
+       "=0.5.1"
+      ],
+      "use_lines": 5,
+      "use_files": 2
+     }
+    ],
+    "M8": [
+     {
+      "owner": "rightkit-fs",
+      "declared": true,
+      "ver": [
+       "=0.4.9"
+      ],
+      "use_lines": 2,
+      "use_files": 2
+     }
+    ],
+    "M9": [
+     {
+      "owner": "rightkit-db",
+      "declared": true,
+      "ver": [
+       "=0.5.3"
+      ],
+      "use_lines": 7,
+      "use_files": 1
+     }
+    ],
+    "M10": [
+     {
+      "owner": "rightkit-app-settings",
+      "declared": false,
+      "ver": [],
+      "use_lines": 0,
+      "use_files": 0
+     },
+     {
+      "owner": "@rightkit/settings-ui",
+      "declared": true,
+      "ver": [
+       "0.7.0"
+      ],
+      "use_lines": 8,
+      "use_files": 8
+     }
+    ],
+    "M11": [
+     {
+      "owner": "rightkit-credentials",
+      "declared": true,
+      "ver": [
+       "=0.4.3"
+      ],
+      "use_lines": 2,
+      "use_files": 1
+     }
+    ],
+    "M12": [
+     {
+      "owner": "rightkit-license",
+      "declared": true,
+      "ver": [
+       "=0.2.6"
+      ],
+      "use_lines": 2,
+      "use_files": 1
+     },
+     {
+      "owner": "rightkit-device",
+      "declared": true,
+      "ver": [
+       "=0.4.0"
+      ],
+      "use_lines": 2,
+      "use_files": 1
+     },
+     {
+      "owner": "@rightkit/license",
+      "declared": true,
+      "ver": [
+       "0.3.0"
+      ],
+      "use_lines": 6,
+      "use_files": 5
+     }
+    ],
+    "M13": [
+     {
+      "owner": "rightkit-license",
+      "declared": true,
+      "ver": [
+       "=0.2.6"
+      ],
+      "use_lines": 2,
+      "use_files": 1
+     }
+    ],
+    "M14": [
+     {
+      "owner": "@rightkit/legal",
+      "declared": true,
+      "ver": [
+       "0.6.3"
+      ],
+      "use_lines": 3,
+      "use_files": 3
+     },
+     {
+      "owner": "@rightkit/legal-ui",
+      "declared": true,
+      "ver": [
+       "0.4.1"
+      ],
+      "use_lines": 1,
+      "use_files": 1
+     },
+     {
+      "owner": "@rightkit/onboarding",
+      "declared": true,
+      "ver": [
+       "0.6.3"
+      ],
+      "use_lines": 3,
+      "use_files": 2
+     }
+    ],
+    "M15": [
+     {
+      "owner": "rightkit-logs",
+      "declared": true,
+      "ver": [
+       "=0.3.7"
+      ],
+      "use_lines": 14,
+      "use_files": 8
+     },
+     {
+      "owner": "@rightkit/logs",
+      "declared": true,
+      "ver": [
+       "0.1.6"
+      ],
+      "use_lines": 1,
+      "use_files": 1
+     }
+    ],
+    "M16": [
+     {
+      "owner": "rightkit-crash",
+      "declared": true,
+      "ver": [
+       "=0.3.6"
+      ],
+      "use_lines": 3,
+      "use_files": 2
+     }
+    ],
+    "M17": [
+     {
+      "owner": "rightkit-http",
+      "declared": false,
+      "ver": [],
+      "use_lines": 0,
+      "use_files": 0
+     }
+    ],
+    "M18": [
+     {
+      "owner": "@rightkit/app-update",
+      "declared": true,
+      "ver": [
+       "0.4.2"
+      ],
+      "use_lines": 4,
+      "use_files": 2
+     }
+    ],
+    "M19": [
+     {
+      "owner": "@rightkit/release",
+      "declared": true,
+      "ver": [
+       "0.6.29"
+      ],
+      "use_lines": 1,
+      "use_files": 1
+     }
+    ],
+    "M20": [
+     {
+      "owner": "rightkit-qa",
+      "declared": true,
+      "ver": [
+       "=0.10.0"
+      ],
+      "use_lines": 22,
+      "use_files": 6
+     },
+     {
+      "owner": "@rightkit/qa",
+      "declared": true,
+      "ver": [
+       "0.6.1"
+      ],
+      "use_lines": 9,
+      "use_files": 9
+     },
+     {
+      "owner": "@rightkit/qa-chrome",
+      "declared": true,
+      "ver": [
+       "0.1.12"
+      ],
+      "use_lines": 3,
+      "use_files": 3
+     }
+    ],
+    "M22": [
+     {
+      "owner": "rightkit-agent-tools",
+      "declared": false,
+      "ver": [],
+      "use_lines": 0,
+      "use_files": 0
+     }
+    ]
+   },
+   "own_ts_files": 423,
+   "other_rightkit_npm": {
+    "@rightkit/doc-render": 15,
+    "@rightkit/media-ui": 14,
+    "@rightkit/pdf-ui": 11,
+    "@rightkit/tauri-shell": 3,
+    "@rightkit/waitlist-worker": 1
+   }
+  },
+  "work": {
+   "npm": {
+    "@rightkit/app-update": [
+     "0.4.4"
+    ],
+    "@rightkit/doc-render": [
+     "0.2.2"
+    ],
+    "@rightkit/legal": [
+     "0.6.3"
+    ],
+    "@rightkit/legal-ui": [
+     "0.4.2"
+    ],
+    "@rightkit/license": [
+     "0.3.2"
+    ],
+    "@rightkit/logs": [
+     "0.1.6"
+    ],
+    "@rightkit/media-ui": [
+     "0.3.6"
+    ],
+    "@rightkit/onboarding": [
+     "0.6.5"
+    ],
+    "@rightkit/pdf-ui": [
+     "0.3.1"
+    ],
+    "@rightkit/platform-ui": [
+     "0.4.1"
+    ],
+    "@rightkit/react-shell": [
+     "0.7.4"
+    ],
+    "@rightkit/settings-ui": [
+     "0.7.2"
+    ],
+    "@rightkit/tauri": [
+     "0.4.2"
+    ],
+    "@rightkit/tauri-shell": [
+     "0.1.4"
+    ],
+    "@rightkit/theme": [
+     "0.3.4"
+    ],
+    "@rightkit/qa": [
+     "0.7.0"
+    ],
+    "@rightkit/qa-chrome": [
+     "0.1.12"
+    ],
+    "@rightkit/release": [
+     "0.6.57"
+    ],
+    "@rightkit/waitlist-worker": [
+     "0.1.0"
+    ]
+   },
+   "cargo": {
+    "rightkit-fs": [
+     "=0.4.15"
+    ],
+    "rightkit-qa": [
+     "=0.10.0",
+     "=0.10.6"
+    ],
+    "rightkit-document-workspace": [
+     "=0.2.0"
+    ],
+    "rightkit-docs": [
+     "=0.1.4"
+    ],
+    "rightkit-crash": [
+     "=0.4.1"
+    ],
+    "rightkit-file-watch": [
+     "=0.4.4"
+    ],
+    "rightkit-tauri-shell": [
+     "=0.8.2"
+    ],
+    "rightkit-logs": [
+     "=0.4.1"
+    ],
+    "rightkit-daemon": [
+     "=0.9.0"
+    ],
+    "rightkit-roots": [
+     "=0.2.0"
+    ],
+    "rightkit-license": [
+     "=0.3.1"
+    ],
+    "rightkit-child-process": [
+     "=0.5.12"
+    ],
+    "rightkit-device": [
+     "=0.5.0"
+    ],
+    "rightkit-credentials": [
+     "=0.5.3"
+    ],
+    "rightkit-ocr": [
+     "=0.3.0"
+    ],
+    "rightkit-pdf": [
+     "=0.3.5"
+    ],
+    "rightkit-db": [
+     "=0.5.8"
+    ]
+   },
+   "rows": {
+    "M1": [
+     {
+      "owner": "rightkit-tauri-shell",
+      "declared": true,
+      "ver": [
+       "=0.8.2"
+      ],
+      "use_lines": 65,
+      "use_files": 19
+     },
+     {
+      "owner": "rightkit-device",
+      "declared": true,
+      "ver": [
+       "=0.5.0"
+      ],
+      "use_lines": 1,
+      "use_files": 1
+     },
+     {
+      "owner": "@rightkit/tauri",
+      "declared": true,
+      "ver": [
+       "0.4.2"
+      ],
+      "use_lines": 1,
+      "use_files": 1
+     }
+    ],
+    "M2": [
+     {
+      "owner": "@rightkit/react-shell",
+      "declared": true,
+      "ver": [
+       "0.7.4"
+      ],
+      "use_lines": 38,
+      "use_files": 36
+     },
+     {
+      "owner": "@rightkit/platform-ui",
+      "declared": true,
+      "ver": [
+       "0.4.1"
+      ],
+      "use_lines": 59,
+      "use_files": 55
+     },
+     {
+      "owner": "@rightkit/theme",
+      "declared": true,
+      "ver": [
+       "0.3.4"
+      ],
+      "use_lines": 3,
+      "use_files": 3
+     }
+    ],
+    "M3": [
+     {
+      "owner": "rightkit-job-queue",
+      "declared": false,
+      "ver": [],
+      "use_lines": 0,
+      "use_files": 0
+     },
+     {
+      "owner": "rightkit-child-process",
+      "declared": true,
+      "ver": [
+       "=0.5.12"
+      ],
+      "use_lines": 10,
+      "use_files": 3
+     }
+    ],
+    "M4": [
+     {
+      "owner": "rightkit-job-queue",
+      "declared": false,
+      "ver": [],
+      "use_lines": 0,
+      "use_files": 0
+     },
+     {
+      "owner": "rightkit-sidecar",
+      "declared": false,
+      "ver": [],
+      "use_lines": 0,
+      "use_files": 0
+     }
+    ],
+    "M5": [
+     {
+      "owner": "rightkit-child-process",
+      "declared": true,
+      "ver": [
+       "=0.5.12"
+      ],
+      "use_lines": 10,
+      "use_files": 3
+     }
+    ],
+    "M6": [
+     {
+      "owner": "rightkit-daemon",
+      "declared": true,
+      "ver": [
+       "=0.9.0"
+      ],
+      "use_lines": 0,
+      "use_files": 0
+     }
+    ],
+    "M7": [
+     {
+      "owner": "rightkit-daemon",
+      "declared": true,
+      "ver": [
+       "=0.9.0"
+      ],
+      "use_lines": 0,
+      "use_files": 0
+     }
+    ],
+    "M8": [
+     {
+      "owner": "rightkit-fs",
+      "declared": true,
+      "ver": [
+       "=0.4.15"
+      ],
+      "use_lines": 2,
+      "use_files": 2
+     }
+    ],
+    "M9": [
+     {
+      "owner": "rightkit-db",
+      "declared": true,
+      "ver": [
+       "=0.5.8"
+      ],
+      "use_lines": 7,
+      "use_files": 1
+     }
+    ],
+    "M10": [
+     {
+      "owner": "rightkit-app-settings",
+      "declared": false,
+      "ver": [],
+      "use_lines": 0,
+      "use_files": 0
+     },
+     {
+      "owner": "@rightkit/settings-ui",
+      "declared": true,
+      "ver": [
+       "0.7.2"
+      ],
+      "use_lines": 8,
+      "use_files": 8
+     }
+    ],
+    "M11": [
+     {
+      "owner": "rightkit-credentials",
+      "declared": true,
+      "ver": [
+       "=0.5.3"
+      ],
+      "use_lines": 1,
+      "use_files": 1
+     }
+    ],
+    "M12": [
+     {
+      "owner": "rightkit-license",
+      "declared": true,
+      "ver": [
+       "=0.3.1"
+      ],
+      "use_lines": 2,
+      "use_files": 1
+     },
+     {
+      "owner": "rightkit-device",
+      "declared": true,
+      "ver": [
+       "=0.5.0"
+      ],
+      "use_lines": 1,
+      "use_files": 1
+     },
+     {
+      "owner": "@rightkit/license",
+      "declared": true,
+      "ver": [
+       "0.3.2"
+      ],
+      "use_lines": 2,
+      "use_files": 2
+     }
+    ],
+    "M13": [
+     {
+      "owner": "rightkit-license",
+      "declared": true,
+      "ver": [
+       "=0.3.1"
+      ],
+      "use_lines": 2,
+      "use_files": 1
+     }
+    ],
+    "M14": [
+     {
+      "owner": "@rightkit/legal",
+      "declared": true,
+      "ver": [
+       "0.6.3"
+      ],
+      "use_lines": 3,
+      "use_files": 3
+     },
+     {
+      "owner": "@rightkit/legal-ui",
+      "declared": true,
+      "ver": [
+       "0.4.2"
+      ],
+      "use_lines": 2,
+      "use_files": 2
+     },
+     {
+      "owner": "@rightkit/onboarding",
+      "declared": true,
+      "ver": [
+       "0.6.5"
+      ],
+      "use_lines": 3,
+      "use_files": 2
+     }
+    ],
+    "M15": [
+     {
+      "owner": "rightkit-logs",
+      "declared": true,
+      "ver": [
+       "=0.4.1"
+      ],
+      "use_lines": 13,
+      "use_files": 8
+     },
+     {
+      "owner": "@rightkit/logs",
+      "declared": true,
+      "ver": [
+       "0.1.6"
+      ],
+      "use_lines": 1,
+      "use_files": 1
+     }
+    ],
+    "M16": [
+     {
+      "owner": "rightkit-crash",
+      "declared": true,
+      "ver": [
+       "=0.4.1"
+      ],
+      "use_lines": 3,
+      "use_files": 2
+     }
+    ],
+    "M17": [
+     {
+      "owner": "rightkit-http",
+      "declared": false,
+      "ver": [],
+      "use_lines": 0,
+      "use_files": 0
+     }
+    ],
+    "M18": [
+     {
+      "owner": "@rightkit/app-update",
+      "declared": true,
+      "ver": [
+       "0.4.4"
+      ],
+      "use_lines": 4,
+      "use_files": 2
+     }
+    ],
+    "M19": [
+     {
+      "owner": "@rightkit/release",
+      "declared": true,
+      "ver": [
+       "0.6.57"
+      ],
+      "use_lines": 1,
+      "use_files": 1
+     }
+    ],
+    "M20": [
+     {
+      "owner": "rightkit-qa",
+      "declared": true,
+      "ver": [
+       "=0.10.0",
+       "=0.10.6"
+      ],
+      "use_lines": 23,
+      "use_files": 6
+     },
+     {
+      "owner": "@rightkit/qa",
+      "declared": true,
+      "ver": [
+       "0.7.0"
+      ],
+      "use_lines": 9,
+      "use_files": 9
+     },
+     {
+      "owner": "@rightkit/qa-chrome",
+      "declared": true,
+      "ver": [
+       "0.1.12"
+      ],
+      "use_lines": 3,
+      "use_files": 3
+     }
+    ],
+    "M22": [
+     {
+      "owner": "rightkit-agent-tools",
+      "declared": false,
+      "ver": [],
+      "use_lines": 0,
+      "use_files": 0
+     }
+    ]
+   },
+   "own_ts_files": 422,
+   "other_rightkit_npm": {
+    "@rightkit/doc-render": 15,
+    "@rightkit/media-ui": 14,
+    "@rightkit/pdf-ui": 13,
+    "@rightkit/tauri-shell": 3,
+    "@rightkit/waitlist-worker": 1
+   }
+  }
+ },
+ "pulse": {
+  "main": {
+   "npm": {
+    "@rightkit/app-update": [
+     "0.4.2"
+    ],
+    "@rightkit/i18n": [
+     "0.2.0"
+    ],
+    "@rightkit/legal": [
+     "0.6.3"
+    ],
+    "@rightkit/legal-ui": [
+     "0.4.1"
+    ],
+    "@rightkit/license": [
+     "0.3.0"
+    ],
+    "@rightkit/logs": [
+     "0.1.6"
+    ],
+    "@rightkit/onboarding": [
+     "0.6.3"
+    ],
+    "@rightkit/platform-ui": [
+     "0.4.0"
+    ],
+    "@rightkit/react-shell": [
+     "0.7.2"
+    ],
+    "@rightkit/settings-ui": [
+     "0.7.0"
+    ],
+    "@rightkit/tauri": [
+     "0.3.0"
+    ],
+    "@rightkit/tauri-shell": [
+     "0.1.3"
+    ],
+    "@rightkit/theme": [
+     "0.3.1"
+    ],
+    "@rightkit/qa": [
+     "0.6.1"
+    ],
+    "@rightkit/issues-tracker": [
+     "0.1.0"
+    ],
+    "@rightkit/release": [
+     "0.6.47"
+    ],
+    "@rightkit/qa-chrome": [
+     "0.1.12"
+    ]
+   },
+   "cargo": {
+    "rightkit-time": [
+     "=0.1.1"
+    ],
+    "rightkit-disk-cleanup": [
+     "=0.1.0"
+    ],
+    "rightkit-system-monitor": [
+     "=0.1.0"
+    ],
+    "rightkit-fs": [
+     "=0.4.12",
+     "=0.4.9"
+    ],
+    "rightkit-credentials": [
+     "=0.4.6"
+    ],
+    "rightkit-crypto": [
+     "=0.1.0"
+    ],
+    "rightkit-crash": [
+     "=0.3.6"
+    ],
+    "rightkit-logs": [
+     "=0.3.7"
+    ],
+    "rightkit-docs": [
+     "=0.1.3"
+    ],
+    "rightkit-hooks": [
+     "=0.2.1"
+    ],
+    "rightkit-child-process": [
+     "=0.5.7"
+    ],
+    "rightkit-sidecar": [
+     "=0.3.0"
+    ],
+    "rightkit-daemon": [
+     "=0.4.0",
+     "=0.5.1"
+    ],
+    "rightkit-automation": [
+     "=0.6.7"
+    ],
+    "rightkit-http": [
+     "=0.3.9"
+    ],
+    "rightkit-db": [
+     "=0.5.3",
+     "=0.5.5"
+    ],
+    "rightkit-spend": [
+     "=0.2.0"
+    ],
+    "rightkit-send": [
+     "=0.3.0"
+    ],
+    "rightkit-ai-accounts": [
+     "=0.1.0"
+    ],
+    "rightkit-app-host": [
+     "=0.1.0"
+    ],
+    "rightkit-app-settings": [
+     "=0.3.1"
+    ],
+    "rightkit-job-queue": [
+     "=0.5.1"
+    ],
+    "rightkit-browser": [
+     "=0.3.6"
+    ],
+    "rightkit-file-watch": [
+     "=0.4.2"
+    ],
+    "rightkit-mcp": [
+     "=0.7.2"
+    ],
+    "rightkit-agent-tools": [
+     "=0.3.0"
+    ],
+    "rightkit-llm": [
+     "=0.3.2"
+    ],
+    "rightkit-ffmpeg": [
+     "=0.2.16"
+    ],
+    "rightkit-fsindex": [
+     "=0.6.0"
+    ],
+    "rightkit-qa": [
+     "=0.10.3"
+    ],
+    "rightkit-tauri-shell": [
+     "=0.7.0"
+    ],
+    "rightkit-device": [
+     "=0.4.0"
+    ],
+    "rightkit-license": [
+     "=0.2.6"
+    ],
+    "rightkit-embed": [
+     "=0.6.4"
+    ],
+    "rightkit-context-protocol": [
+     "=0.1.0"
+    ],
+    "rightkit-onnx": [
+     "=0.2.9"
+    ],
+    "rightkit-context-core": [
+     "=0.1.0"
+    ],
+    "rightkit-context-provider-sdk": [
+     "=0.1.0"
+    ],
+    "rightkit-adapt-taste": [
+     "=0.1.0"
+    ],
+    "rightkit-agent-transcript": [
+     "=0.1.0"
+    ],
+    "rightkit-sync": [
+     "=0.2.2"
+    ],
+    "rightkit-context-client": [
+     "=0.1.0"
+    ],
+    "rightkit-hotkeys": [
+     "=0.1.2"
+    ],
+    "rightkit-overlay": [
+     "=0.2.0"
+    ]
+   },
+   "rows": {
+    "M1": [
+     {
+      "owner": "rightkit-tauri-shell",
+      "declared": true,
+      "ver": [
+       "=0.7.0"
+      ],
+      "use_lines": 17,
+      "use_files": 5
+     },
+     {
+      "owner": "rightkit-device",
+      "declared": true,
+      "ver": [
+       "=0.4.0"
+      ],
+      "use_lines": 2,
+      "use_files": 2
+     },
+     {
+      "owner": "@rightkit/tauri",
+      "declared": true,
+      "ver": [
+       "0.3.0"
+      ],
+      "use_lines": 1,
+      "use_files": 1
+     }
+    ],
+    "M2": [
+     {
+      "owner": "@rightkit/react-shell",
+      "declared": true,
+      "ver": [
+       "0.7.2"
+      ],
+      "use_lines": 28,
+      "use_files": 26
+     },
+     {
+      "owner": "@rightkit/platform-ui",
+      "declared": true,
+      "ver": [
+       "0.4.0"
+      ],
+      "use_lines": 4,
+      "use_files": 4
+     },
+     {
+      "owner": "@rightkit/theme",
+      "declared": true,
+      "ver": [
+       "0.3.1"
+      ],
+      "use_lines": 2,
+      "use_files": 2
+     }
+    ],
+    "M3": [
+     {
+      "owner": "rightkit-job-queue",
+      "declared": true,
+      "ver": [
+       "=0.5.1"
+      ],
+      "use_lines": 29,
+      "use_files": 15
+     },
+     {
+      "owner": "rightkit-child-process",
+      "declared": true,
+      "ver": [
+       "=0.5.7"
+      ],
+      "use_lines": 218,
+      "use_files": 68
+     }
+    ],
+    "M4": [
+     {
+      "owner": "rightkit-job-queue",
+      "declared": true,
+      "ver": [
+       "=0.5.1"
+      ],
+      "use_lines": 29,
+      "use_files": 15
+     },
+     {
+      "owner": "rightkit-sidecar",
+      "declared": true,
+      "ver": [
+       "=0.3.0"
+      ],
+      "use_lines": 31,
+      "use_files": 3
+     }
+    ],
+    "M5": [
+     {
+      "owner": "rightkit-child-process",
+      "declared": true,
+      "ver": [
+       "=0.5.7"
+      ],
+      "use_lines": 218,
+      "use_files": 68
+     }
+    ],
+    "M6": [
+     {
+      "owner": "rightkit-daemon",
+      "declared": true,
+      "ver": [
+       "=0.4.0",
+       "=0.5.1"
+      ],
+      "use_lines": 103,
+      "use_files": 24
+     }
+    ],
+    "M7": [
+     {
+      "owner": "rightkit-daemon",
+      "declared": true,
+      "ver": [
+       "=0.4.0",
+       "=0.5.1"
+      ],
+      "use_lines": 103,
+      "use_files": 24
+     }
+    ],
+    "M8": [
+     {
+      "owner": "rightkit-fs",
+      "declared": true,
+      "ver": [
+       "=0.4.12",
+       "=0.4.9"
+      ],
+      "use_lines": 464,
+      "use_files": 163
+     }
+    ],
+    "M9": [
+     {
+      "owner": "rightkit-db",
+      "declared": true,
+      "ver": [
+       "=0.5.3",
+       "=0.5.5"
+      ],
+      "use_lines": 115,
+      "use_files": 54
+     }
+    ],
+    "M10": [
+     {
+      "owner": "rightkit-app-settings",
+      "declared": true,
+      "ver": [
+       "=0.3.1"
+      ],
+      "use_lines": 30,
+      "use_files": 6
+     },
+     {
+      "owner": "@rightkit/settings-ui",
+      "declared": true,
+      "ver": [
+       "0.7.0"
+      ],
+      "use_lines": 17,
+      "use_files": 14
+     }
+    ],
+    "M11": [
+     {
+      "owner": "rightkit-credentials",
+      "declared": true,
+      "ver": [
+       "=0.4.6"
+      ],
+      "use_lines": 53,
+      "use_files": 11
+     }
+    ],
+    "M12": [
+     {
+      "owner": "rightkit-license",
+      "declared": true,
+      "ver": [
+       "=0.2.6"
+      ],
+      "use_lines": 1,
+      "use_files": 1
+     },
+     {
+      "owner": "rightkit-device",
+      "declared": true,
+      "ver": [
+       "=0.4.0"
+      ],
+      "use_lines": 2,
+      "use_files": 2
+     },
+     {
+      "owner": "@rightkit/license",
+      "declared": true,
+      "ver": [
+       "0.3.0"
+      ],
+      "use_lines": 1,
+      "use_files": 1
+     }
+    ],
+    "M13": [
+     {
+      "owner": "rightkit-license",
+      "declared": true,
+      "ver": [
+       "=0.2.6"
+      ],
+      "use_lines": 1,
+      "use_files": 1
+     }
+    ],
+    "M14": [
+     {
+      "owner": "@rightkit/legal",
+      "declared": true,
+      "ver": [
+       "0.6.3"
+      ],
+      "use_lines": 2,
+      "use_files": 1
+     },
+     {
+      "owner": "@rightkit/legal-ui",
+      "declared": true,
+      "ver": [
+       "0.4.1"
+      ],
+      "use_lines": 3,
+      "use_files": 3
+     },
+     {
+      "owner": "@rightkit/onboarding",
+      "declared": true,
+      "ver": [
+       "0.6.3"
+      ],
+      "use_lines": 7,
+      "use_files": 6
+     }
+    ],
+    "M15": [
+     {
+      "owner": "rightkit-logs",
+      "declared": true,
+      "ver": [
+       "=0.3.7"
+      ],
+      "use_lines": 79,
+      "use_files": 29
+     },
+     {
+      "owner": "@rightkit/logs",
+      "declared": true,
+      "ver": [
+       "0.1.6"
+      ],
+      "use_lines": 1,
+      "use_files": 1
+     }
+    ],
+    "M16": [
+     {
+      "owner": "rightkit-crash",
+      "declared": true,
+      "ver": [
+       "=0.3.6"
+      ],
+      "use_lines": 6,
+      "use_files": 4
+     }
+    ],
+    "M17": [
+     {
+      "owner": "rightkit-http",
+      "declared": true,
+      "ver": [
+       "=0.3.9"
+      ],
+      "use_lines": 5,
+      "use_files": 4
+     }
+    ],
+    "M18": [
+     {
+      "owner": "@rightkit/app-update",
+      "declared": true,
+      "ver": [
+       "0.4.2"
+      ],
+      "use_lines": 1,
+      "use_files": 1
+     }
+    ],
+    "M19": [
+     {
+      "owner": "@rightkit/release",
+      "declared": true,
+      "ver": [
+       "0.6.47"
+      ],
+      "use_lines": 2,
+      "use_files": 2
+     }
+    ],
+    "M20": [
+     {
+      "owner": "rightkit-qa",
+      "declared": true,
+      "ver": [
+       "=0.10.3"
+      ],
+      "use_lines": 6,
+      "use_files": 2
+     },
+     {
+      "owner": "@rightkit/qa",
+      "declared": true,
+      "ver": [
+       "0.6.1"
+      ],
+      "use_lines": 2,
+      "use_files": 2
+     },
+     {
+      "owner": "@rightkit/qa-chrome",
+      "declared": true,
+      "ver": [
+       "0.1.12"
+      ],
+      "use_lines": 0,
+      "use_files": 0
+     }
+    ],
+    "M22": [
+     {
+      "owner": "rightkit-agent-tools",
+      "declared": true,
+      "ver": [
+       "=0.3.0"
+      ],
+      "use_lines": 1,
+      "use_files": 1
+     }
+    ]
+   },
+   "own_ts_files": 48,
+   "other_rightkit_npm": {
+    "@rightkit/i18n": 1,
+    "@rightkit/issues-tracker": 0,
+    "@rightkit/tauri-shell": 2
+   }
+  },
+  "work": {
+   "npm": {
+    "@rightkit/app-update": [
+     "0.4.4"
+    ],
+    "@rightkit/i18n": [
+     "0.2.1"
+    ],
+    "@rightkit/legal": [
+     "0.6.3"
+    ],
+    "@rightkit/legal-ui": [
+     "0.4.2"
+    ],
+    "@rightkit/license": [
+     "0.3.2"
+    ],
+    "@rightkit/logs": [
+     "0.1.6"
+    ],
+    "@rightkit/onboarding": [
+     "0.6.5"
+    ],
+    "@rightkit/platform-ui": [
+     "0.4.1"
+    ],
+    "@rightkit/react-shell": [
+     "0.7.4"
+    ],
+    "@rightkit/settings-ui": [
+     "0.7.2"
+    ],
+    "@rightkit/tauri": [
+     "0.4.2"
+    ],
+    "@rightkit/tauri-shell": [
+     "0.1.4"
+    ],
+    "@rightkit/theme": [
+     "0.3.3"
+    ],
+    "@rightkit/qa": [
+     "0.7.0"
+    ],
+    "@rightkit/issues-tracker": [
+     "0.1.0"
+    ],
+    "@rightkit/release": [
+     "0.6.57"
+    ],
+    "@rightkit/qa-chrome": [
+     "0.1.12"
+    ]
+   },
+   "cargo": {
+    "rightkit-time": [
+     "=0.1.4"
+    ],
+    "rightkit-disk-cleanup": [
+     "=0.2.0"
+    ],
+    "rightkit-system-monitor": [
+     "=0.3.0"
+    ],
+    "rightkit-fs": [
+     "=0.4.15"
+    ],
+    "rightkit-credentials": [
+     "=0.5.5"
+    ],
+    "rightkit-crypto": [
+     "=0.1.3"
+    ],
+    "rightkit-crash": [
+     "=0.4.1"
+    ],
+    "rightkit-logs": [
+     "=0.4.1"
+    ],
+    "rightkit-docs": [
+     "=0.1.4"
+    ],
+    "rightkit-hooks": [
+     "=0.2.5"
+    ],
+    "rightkit-app-manager": [
+     "=0.2.2"
+    ],
+    "rightkit-agent-task-contract": [
+     "=0.1.1"
+    ],
+    "rightkit-child-process": [
+     "=0.5.12"
+    ],
+    "rightkit-sidecar": [
+     "=0.3.4"
+    ],
+    "rightkit-daemon": [
+     "=0.9.0"
+    ],
+    "rightkit-roots": [
+     "=0.2.0"
+    ],
+    "rightkit-automation": [
+     "=0.7.0"
+    ],
+    "rightkit-http": [
+     "=0.4.0"
+    ],
+    "rightkit-db": [
+     "=0.5.8"
+    ],
+    "rightkit-spend": [
+     "=0.2.3"
+    ],
+    "rightkit-send": [
+     "=0.4.0"
+    ],
+    "rightkit-ai-accounts": [
+     "=0.1.1"
+    ],
+    "rightkit-app-host": [
+     "=0.1.2"
+    ],
+    "rightkit-app-settings": [
+     "=0.4.1"
+    ],
+    "rightkit-job-queue": [
+     "=0.6.0"
+    ],
+    "rightkit-browser": [
+     "=0.3.7"
+    ],
+    "rightkit-file-watch": [
+     "=0.4.4"
+    ],
+    "rightkit-privileged-helper": [
+     "=0.2.0"
+    ],
+    "rightkit-mcp": [
+     "=0.7.6"
+    ],
+    "rightkit-agent-tools": [
+     "=0.3.4"
+    ],
+    "rightkit-mesh": [
+     "=0.2.1"
+    ],
+    "rightkit-llm": [
+     "=0.3.6"
+    ],
+    "rightkit-ffmpeg": [
+     "=0.3.1"
+    ],
+    "rightkit-fsindex": [
+     "=0.6.2"
+    ],
+    "rightkit-qa": [
+     "=0.10.6"
+    ],
+    "rightkit-tauri-shell": [
+     "=0.8.0"
+    ],
+    "rightkit-device": [
+     "=0.5.0"
+    ],
+    "rightkit-license": [
+     "=0.3.1"
+    ],
+    "rightkit-context-protocol": [
+     "=0.2.0"
+    ],
+    "rightkit-repo-graph-grammars": [
+     "=0.1.1"
+    ],
+    "rightkit-repo-graph": [
+     "alias"
+    ],
+    "rightkit-context-core": [
+     "=0.2.0"
+    ],
+    "rightkit-context-provider-sdk": [
+     "=0.2.0"
+    ],
+    "rightkit-adapt": [
+     "=0.2.0"
+    ],
+    "rightkit-agent-transcript": [
+     "=0.1.3"
+    ],
+    "rightkit-embed": [
+     "=0.7.0"
+    ],
+    "rightkit-sync": [
+     "=0.3.0"
+    ],
+    "rightkit-onnx": [
+     "=0.3.0"
+    ],
+    "rightkit-memory-core": [
+     "alias"
+    ],
+    "rightkit-context-federation": [
+     "alias"
+    ],
+    "rightkit-context-client": [
+     "=0.2.0"
+    ],
+    "rightkit-hotkeys": [
+     "=0.1.4"
+    ],
+    "rightkit-overlay": [
+     "=0.2.3"
+    ],
+    "rightkit-win-ui": [
+     "=0.1.1"
+    ],
+    "rightkit-notch-ui": [
+     "=0.2.1"
+    ],
+    "rightkit-clipboard-history": [
+     "=0.3.2"
+    ],
+    "rightkit-overlay-win": [
+     "=0.1.5"
+    ]
+   },
+   "rows": {
+    "M1": [
+     {
+      "owner": "rightkit-tauri-shell",
+      "declared": true,
+      "ver": [
+       "=0.8.0"
+      ],
+      "use_lines": 17,
+      "use_files": 5
+     },
+     {
+      "owner": "rightkit-device",
+      "declared": true,
+      "ver": [
+       "=0.5.0"
+      ],
+      "use_lines": 2,
+      "use_files": 2
+     },
+     {
+      "owner": "@rightkit/tauri",
+      "declared": true,
+      "ver": [
+       "0.4.2"
+      ],
+      "use_lines": 1,
+      "use_files": 1
+     }
+    ],
+    "M2": [
+     {
+      "owner": "@rightkit/react-shell",
+      "declared": true,
+      "ver": [
+       "0.7.4"
+      ],
+      "use_lines": 28,
+      "use_files": 26
+     },
+     {
+      "owner": "@rightkit/platform-ui",
+      "declared": true,
+      "ver": [
+       "0.4.1"
+      ],
+      "use_lines": 4,
+      "use_files": 4
+     },
+     {
+      "owner": "@rightkit/theme",
+      "declared": true,
+      "ver": [
+       "0.3.3"
+      ],
+      "use_lines": 2,
+      "use_files": 2
+     }
+    ],
+    "M3": [
+     {
+      "owner": "rightkit-job-queue",
+      "declared": true,
+      "ver": [
+       "=0.6.0"
+      ],
+      "use_lines": 29,
+      "use_files": 15
+     },
+     {
+      "owner": "rightkit-child-process",
+      "declared": true,
+      "ver": [
+       "=0.5.12"
+      ],
+      "use_lines": 175,
+      "use_files": 58
+     }
+    ],
+    "M4": [
+     {
+      "owner": "rightkit-job-queue",
+      "declared": true,
+      "ver": [
+       "=0.6.0"
+      ],
+      "use_lines": 29,
+      "use_files": 15
+     },
+     {
+      "owner": "rightkit-sidecar",
+      "declared": true,
+      "ver": [
+       "=0.3.4"
+      ],
+      "use_lines": 31,
+      "use_files": 3
+     }
+    ],
+    "M5": [
+     {
+      "owner": "rightkit-child-process",
+      "declared": true,
+      "ver": [
+       "=0.5.12"
+      ],
+      "use_lines": 175,
+      "use_files": 58
+     }
+    ],
+    "M6": [
+     {
+      "owner": "rightkit-daemon",
+      "declared": true,
+      "ver": [
+       "=0.9.0"
+      ],
+      "use_lines": 103,
+      "use_files": 25
+     }
+    ],
+    "M7": [
+     {
+      "owner": "rightkit-daemon",
+      "declared": true,
+      "ver": [
+       "=0.9.0"
+      ],
+      "use_lines": 103,
+      "use_files": 25
+     }
+    ],
+    "M8": [
+     {
+      "owner": "rightkit-fs",
+      "declared": true,
+      "ver": [
+       "=0.4.15"
+      ],
+      "use_lines": 399,
+      "use_files": 123
+     }
+    ],
+    "M9": [
+     {
+      "owner": "rightkit-db",
+      "declared": true,
+      "ver": [
+       "=0.5.8"
+      ],
+      "use_lines": 91,
+      "use_files": 43
+     }
+    ],
+    "M10": [
+     {
+      "owner": "rightkit-app-settings",
+      "declared": true,
+      "ver": [
+       "=0.4.1"
+      ],
+      "use_lines": 30,
+      "use_files": 6
+     },
+     {
+      "owner": "@rightkit/settings-ui",
+      "declared": true,
+      "ver": [
+       "0.7.2"
+      ],
+      "use_lines": 17,
+      "use_files": 14
+     }
+    ],
+    "M11": [
+     {
+      "owner": "rightkit-credentials",
+      "declared": true,
+      "ver": [
+       "=0.5.5"
+      ],
+      "use_lines": 55,
+      "use_files": 12
+     }
+    ],
+    "M12": [
+     {
+      "owner": "rightkit-license",
+      "declared": true,
+      "ver": [
+       "=0.3.1"
+      ],
+      "use_lines": 1,
+      "use_files": 1
+     },
+     {
+      "owner": "rightkit-device",
+      "declared": true,
+      "ver": [
+       "=0.5.0"
+      ],
+      "use_lines": 2,
+      "use_files": 2
+     },
+     {
+      "owner": "@rightkit/license",
+      "declared": true,
+      "ver": [
+       "0.3.2"
+      ],
+      "use_lines": 1,
+      "use_files": 1
+     }
+    ],
+    "M13": [
+     {
+      "owner": "rightkit-license",
+      "declared": true,
+      "ver": [
+       "=0.3.1"
+      ],
+      "use_lines": 1,
+      "use_files": 1
+     }
+    ],
+    "M14": [
+     {
+      "owner": "@rightkit/legal",
+      "declared": true,
+      "ver": [
+       "0.6.3"
+      ],
+      "use_lines": 2,
+      "use_files": 1
+     },
+     {
+      "owner": "@rightkit/legal-ui",
+      "declared": true,
+      "ver": [
+       "0.4.2"
+      ],
+      "use_lines": 3,
+      "use_files": 3
+     },
+     {
+      "owner": "@rightkit/onboarding",
+      "declared": true,
+      "ver": [
+       "0.6.5"
+      ],
+      "use_lines": 7,
+      "use_files": 6
+     }
+    ],
+    "M15": [
+     {
+      "owner": "rightkit-logs",
+      "declared": true,
+      "ver": [
+       "=0.4.1"
+      ],
+      "use_lines": 77,
+      "use_files": 27
+     },
+     {
+      "owner": "@rightkit/logs",
+      "declared": true,
+      "ver": [
+       "0.1.6"
+      ],
+      "use_lines": 1,
+      "use_files": 1
+     }
+    ],
+    "M16": [
+     {
+      "owner": "rightkit-crash",
+      "declared": true,
+      "ver": [
+       "=0.4.1"
+      ],
+      "use_lines": 6,
+      "use_files": 4
+     }
+    ],
+    "M17": [
+     {
+      "owner": "rightkit-http",
+      "declared": true,
+      "ver": [
+       "=0.4.0"
+      ],
+      "use_lines": 4,
+      "use_files": 3
+     }
+    ],
+    "M18": [
+     {
+      "owner": "@rightkit/app-update",
+      "declared": true,
+      "ver": [
+       "0.4.4"
+      ],
+      "use_lines": 1,
+      "use_files": 1
+     }
+    ],
+    "M19": [
+     {
+      "owner": "@rightkit/release",
+      "declared": true,
+      "ver": [
+       "0.6.57"
+      ],
+      "use_lines": 2,
+      "use_files": 2
+     }
+    ],
+    "M20": [
+     {
+      "owner": "rightkit-qa",
+      "declared": true,
+      "ver": [
+       "=0.10.6"
+      ],
+      "use_lines": 6,
+      "use_files": 2
+     },
+     {
+      "owner": "@rightkit/qa",
+      "declared": true,
+      "ver": [
+       "0.7.0"
+      ],
+      "use_lines": 2,
+      "use_files": 2
+     },
+     {
+      "owner": "@rightkit/qa-chrome",
+      "declared": true,
+      "ver": [
+       "0.1.12"
+      ],
+      "use_lines": 0,
+      "use_files": 0
+     }
+    ],
+    "M22": [
+     {
+      "owner": "rightkit-agent-tools",
+      "declared": true,
+      "ver": [
+       "=0.3.4"
+      ],
+      "use_lines": 1,
+      "use_files": 1
+     }
+    ]
+   },
+   "own_ts_files": 48,
+   "other_rightkit_npm": {
+    "@rightkit/i18n": 1,
+    "@rightkit/issues-tracker": 0,
+    "@rightkit/tauri-shell": 2
+   }
+  }
+ },
+ "coderight": {
+  "main": {
+   "npm": {
+    "@rightkit/app-update": [
+     "0.4.2"
+    ],
+    "@rightkit/doc-render": [
+     "0.2.1"
+    ],
+    "@rightkit/i18n": [
+     "0.2.0"
+    ],
+    "@rightkit/legal": [
+     "0.6.3"
+    ],
+    "@rightkit/legal-ui": [
+     "0.4.1"
+    ],
+    "@rightkit/license": [
+     "0.3.0"
+    ],
+    "@rightkit/logs": [
+     "0.1.6"
+    ],
+    "@rightkit/onboarding": [
+     "0.6.3"
+    ],
+    "@rightkit/platform-ui": [
+     "0.4.0"
+    ],
+    "@rightkit/react-shell": [
+     "0.7.2"
+    ],
+    "@rightkit/settings-ui": [
+     "0.7.0"
+    ],
+    "@rightkit/tauri": [
+     "0.3.0"
+    ],
+    "@rightkit/tauri-shell": [
+     "0.1.3"
+    ],
+    "@rightkit/theme": [
+     "0.3.1"
+    ],
+    "@rightkit/qa": [
+     "0.6.1"
+    ],
+    "@rightkit/qa-chrome": [
+     "0.1.12"
+    ],
+    "@rightkit/release": [
+     "0.6.29"
+    ]
+   },
+   "cargo": {
+    "rightkit-qa": [
+     "=0.10.4"
+    ],
+    "rightkit-http": [
+     "=0.3.9",
+     "ws"
+    ],
+    "rightkit-license": [
+     "=0.2.6",
+     "ws"
+    ],
+    "rightkit-time": [
+     "=0.1.1",
+     "ws"
+    ],
+    "rightkit-credentials": [
+     "=0.4.3",
+     "ws"
+    ],
+    "rightkit-logs": [
+     "=0.3.7",
+     "ws"
+    ],
+    "rightkit-crash": [
+     "=0.3.6",
+     "ws"
+    ],
+    "rightkit-device": [
+     "=0.4.0",
+     "ws"
+    ],
+    "rightkit-child-process": [
+     "=0.5.7",
+     "=0.5.9",
+     "ws"
+    ],
+    "rightkit-sidecar": [
+     "=0.3.0",
+     "ws"
+    ],
+    "rightkit-app-settings": [
+     "=0.3.1",
+     "ws"
+    ],
+    "rightkit-fs": [
+     "=0.4.9",
+     "ws"
+    ],
+    "rightkit-tauri-shell": [
+     "=0.7.0"
+    ],
+    "rightkit-onnx": [
+     "=0.2.7"
+    ],
+    "rightkit-crypto": [
+     "=0.1.0",
+     "ws"
+    ],
+    "rightkit-daemon": [
+     "=0.5.3",
+     "ws"
+    ],
+    "rightkit-speech-client": [
+     "=0.4.1"
+    ],
+    "rightkit-audio": [
+     "=0.3.1"
+    ],
+    "rightkit-workflow": [
+     "=0.2.1",
+     "ws"
+    ],
+    "rightkit-doctor": [
+     "=0.1.0",
+     "ws"
+    ],
+    "rightkit-memory": [
+     "=0.1.0",
+     "ws"
+    ],
+    "rightkit-evidence": [
+     "=0.1.0",
+     "ws"
+    ],
+    "rightkit-agent-engine-cli": [
+     "=0.1.0",
+     "ws"
+    ],
+    "rightkit-agent-engine-runtime-resources": [
+     "=0.1.0",
+     "ws"
+    ],
+    "rightkit-file-watch": [
+     "=0.4.2",
+     "ws"
+    ],
+    "rightkit-oauth": [
+     "=0.10.0",
+     "ws"
+    ],
+    "rightkit-models": [
+     "=0.5.8",
+     "ws"
+    ],
+    "rightkit-mcp": [
+     "=0.7.2",
+     "ws"
+    ],
+    "rightkit-cache": [
+     "=0.2.3",
+     "ws"
+    ],
+    "rightkit-search": [
+     "=0.4.1",
+     "ws"
+    ],
+    "rightkit-db": [
+     "=0.5.3",
+     "ws"
+    ],
+    "rightkit-browser": [
+     "=0.3.6",
+     "ws"
+    ],
+    "rightkit-job-queue": [
+     "=0.5.1",
+     "ws"
+    ],
+    "rightkit-llm": [
+     "=0.3.2",
+     "ws"
+    ],
+    "rightkit-agents": [
+     "=0.2.0"
+    ],
+    "rightkit-ffmpeg": [
+     "=0.2.10"
+    ],
+    "rightkit-ocr": [
+     "=0.2.3"
+    ],
+    "rightkit-sandbox": [
+     "=0.6.2"
+    ]
+   },
+   "rows": {
+    "M1": [
+     {
+      "owner": "rightkit-tauri-shell",
+      "declared": true,
+      "ver": [
+       "=0.7.0"
+      ],
+      "use_lines": 45,
+      "use_files": 10
+     },
+     {
+      "owner": "rightkit-device",
+      "declared": true,
+      "ver": [
+       "=0.4.0",
+       "ws"
+      ],
+      "use_lines": 6,
+      "use_files": 2
+     },
+     {
+      "owner": "@rightkit/tauri",
+      "declared": true,
+      "ver": [
+       "0.3.0"
+      ],
+      "use_lines": 0,
+      "use_files": 0
+     }
+    ],
+    "M2": [
+     {
+      "owner": "@rightkit/react-shell",
+      "declared": true,
+      "ver": [
+       "0.7.2"
+      ],
+      "use_lines": 89,
+      "use_files": 81
+     },
+     {
+      "owner": "@rightkit/platform-ui",
+      "declared": true,
+      "ver": [
+       "0.4.0"
+      ],
+      "use_lines": 12,
+      "use_files": 11
+     },
+     {
+      "owner": "@rightkit/theme",
+      "declared": true,
+      "ver": [
+       "0.3.1"
+      ],
+      "use_lines": 3,
+      "use_files": 3
+     }
+    ],
+    "M3": [
+     {
+      "owner": "rightkit-job-queue",
+      "declared": true,
+      "ver": [
+       "=0.5.1",
+       "ws"
+      ],
+      "use_lines": 4,
+      "use_files": 2
+     },
+     {
+      "owner": "rightkit-child-process",
+      "declared": true,
+      "ver": [
+       "=0.5.7",
+       "=0.5.9",
+       "ws"
+      ],
+      "use_lines": 122,
+      "use_files": 42
+     }
+    ],
+    "M4": [
+     {
+      "owner": "rightkit-job-queue",
+      "declared": true,
+      "ver": [
+       "=0.5.1",
+       "ws"
+      ],
+      "use_lines": 4,
+      "use_files": 2
+     },
+     {
+      "owner": "rightkit-sidecar",
+      "declared": true,
+      "ver": [
+       "=0.3.0",
+       "ws"
+      ],
+      "use_lines": 12,
+      "use_files": 5
+     }
+    ],
+    "M5": [
+     {
+      "owner": "rightkit-child-process",
+      "declared": true,
+      "ver": [
+       "=0.5.7",
+       "=0.5.9",
+       "ws"
+      ],
+      "use_lines": 122,
+      "use_files": 42
+     }
+    ],
+    "M6": [
+     {
+      "owner": "rightkit-daemon",
+      "declared": true,
+      "ver": [
+       "=0.5.3",
+       "ws"
+      ],
+      "use_lines": 22,
+      "use_files": 11
+     }
+    ],
+    "M7": [
+     {
+      "owner": "rightkit-daemon",
+      "declared": true,
+      "ver": [
+       "=0.5.3",
+       "ws"
+      ],
+      "use_lines": 22,
+      "use_files": 11
+     }
+    ],
+    "M8": [
+     {
+      "owner": "rightkit-fs",
+      "declared": true,
+      "ver": [
+       "=0.4.9",
+       "ws"
+      ],
+      "use_lines": 299,
+      "use_files": 135
+     }
+    ],
+    "M9": [
+     {
+      "owner": "rightkit-db",
+      "declared": true,
+      "ver": [
+       "=0.5.3",
+       "ws"
+      ],
+      "use_lines": 171,
+      "use_files": 56
+     }
+    ],
+    "M10": [
+     {
+      "owner": "rightkit-app-settings",
+      "declared": true,
+      "ver": [
+       "=0.3.1",
+       "ws"
+      ],
+      "use_lines": 5,
+      "use_files": 4
+     },
+     {
+      "owner": "@rightkit/settings-ui",
+      "declared": true,
+      "ver": [
+       "0.7.0"
+      ],
+      "use_lines": 5,
+      "use_files": 4
+     }
+    ],
+    "M11": [
+     {
+      "owner": "rightkit-credentials",
+      "declared": true,
+      "ver": [
+       "=0.4.3",
+       "ws"
+      ],
+      "use_lines": 38,
+      "use_files": 8
+     }
+    ],
+    "M12": [
+     {
+      "owner": "rightkit-license",
+      "declared": true,
+      "ver": [
+       "=0.2.6",
+       "ws"
+      ],
+      "use_lines": 8,
+      "use_files": 4
+     },
+     {
+      "owner": "rightkit-device",
+      "declared": true,
+      "ver": [
+       "=0.4.0",
+       "ws"
+      ],
+      "use_lines": 6,
+      "use_files": 2
+     },
+     {
+      "owner": "@rightkit/license",
+      "declared": true,
+      "ver": [
+       "0.3.0"
+      ],
+      "use_lines": 3,
+      "use_files": 1
+     }
+    ],
+    "M13": [
+     {
+      "owner": "rightkit-license",
+      "declared": true,
+      "ver": [
+       "=0.2.6",
+       "ws"
+      ],
+      "use_lines": 8,
+      "use_files": 4
+     }
+    ],
+    "M14": [
+     {
+      "owner": "@rightkit/legal",
+      "declared": true,
+      "ver": [
+       "0.6.3"
+      ],
+      "use_lines": 3,
+      "use_files": 2
+     },
+     {
+      "owner": "@rightkit/legal-ui",
+      "declared": true,
+      "ver": [
+       "0.4.1"
+      ],
+      "use_lines": 2,
+      "use_files": 1
+     },
+     {
+      "owner": "@rightkit/onboarding",
+      "declared": true,
+      "ver": [
+       "0.6.3"
+      ],
+      "use_lines": 3,
+      "use_files": 2
+     }
+    ],
+    "M15": [
+     {
+      "owner": "rightkit-logs",
+      "declared": true,
+      "ver": [
+       "=0.3.7",
+       "ws"
+      ],
+      "use_lines": 182,
+      "use_files": 32
+     },
+     {
+      "owner": "@rightkit/logs",
+      "declared": true,
+      "ver": [
+       "0.1.6"
+      ],
+      "use_lines": 1,
+      "use_files": 1
+     }
+    ],
+    "M16": [
+     {
+      "owner": "rightkit-crash",
+      "declared": true,
+      "ver": [
+       "=0.3.6",
+       "ws"
+      ],
+      "use_lines": 19,
+      "use_files": 4
+     }
+    ],
+    "M17": [
+     {
+      "owner": "rightkit-http",
+      "declared": true,
+      "ver": [
+       "=0.3.9",
+       "ws"
+      ],
+      "use_lines": 257,
+      "use_files": 70
+     }
+    ],
+    "M18": [
+     {
+      "owner": "@rightkit/app-update",
+      "declared": true,
+      "ver": [
+       "0.4.2"
+      ],
+      "use_lines": 8,
+      "use_files": 5
+     }
+    ],
+    "M19": [
+     {
+      "owner": "@rightkit/release",
+      "declared": true,
+      "ver": [
+       "0.6.29"
+      ],
+      "use_lines": 4,
+      "use_files": 3
+     }
+    ],
+    "M20": [
+     {
+      "owner": "rightkit-qa",
+      "declared": true,
+      "ver": [
+       "=0.10.4"
+      ],
+      "use_lines": 6,
+      "use_files": 2
+     },
+     {
+      "owner": "@rightkit/qa",
+      "declared": true,
+      "ver": [
+       "0.6.1"
+      ],
+      "use_lines": 6,
+      "use_files": 6
+     },
+     {
+      "owner": "@rightkit/qa-chrome",
+      "declared": true,
+      "ver": [
+       "0.1.12"
+      ],
+      "use_lines": 1,
+      "use_files": 1
+     }
+    ],
+    "M22": [
+     {
+      "owner": "rightkit-agent-tools",
+      "declared": false,
+      "ver": [],
+      "use_lines": 0,
+      "use_files": 0
+     }
+    ]
+   },
+   "own_ts_files": 475,
+   "other_rightkit_npm": {
+    "@rightkit/doc-render": 2,
+    "@rightkit/i18n": 0,
+    "@rightkit/tauri-shell": 3
+   }
+  },
+  "work": {
+   "npm": {
+    "@rightkit/agent-ui-components": [
+     "0.1.2"
+    ],
+    "@rightkit/agent-ui-core": [
+     "0.1.4"
+    ],
+    "@rightkit/agent-ui-hooks": [
+     "0.1.1"
+    ],
+    "@rightkit/agent-ui-settings": [
+     "0.1.1"
+    ],
+    "@rightkit/agent-ui-workbench": [
+     "0.1.1"
+    ],
+    "@rightkit/app-update": [
+     "0.4.4"
+    ],
+    "@rightkit/doc-render": [
+     "0.2.2"
+    ],
+    "@rightkit/i18n": [
+     "0.2.1"
+    ],
+    "@rightkit/legal": [
+     "0.6.3"
+    ],
+    "@rightkit/legal-ui": [
+     "0.4.2"
+    ],
+    "@rightkit/license": [
+     "0.3.3"
+    ],
+    "@rightkit/logs": [
+     "0.1.6"
+    ],
+    "@rightkit/onboarding": [
+     "0.6.5"
+    ],
+    "@rightkit/platform-ui": [
+     "0.4.1"
+    ],
+    "@rightkit/react-shell": [
+     "0.7.4"
+    ],
+    "@rightkit/settings-ui": [
+     "0.7.3"
+    ],
+    "@rightkit/tauri": [
+     "0.4.2"
+    ],
+    "@rightkit/tauri-shell": [
+     "0.1.4"
+    ],
+    "@rightkit/theme": [
+     "0.3.4"
+    ],
+    "@rightkit/qa": [
+     "0.7.0"
+    ],
+    "@rightkit/qa-chrome": [
+     "0.1.12"
+    ],
+    "@rightkit/release": [
+     "0.6.57"
+    ]
+   },
+   "cargo": {
+    "rightkit-qa": [
+     "=0.10.6"
+    ],
+    "rightkit-http": [
+     "=0.4.0",
+     "ws"
+    ],
+    "rightkit-license": [
+     "=0.3.1",
+     "ws"
+    ],
+    "rightkit-time": [
+     "=0.1.4",
+     "ws"
+    ],
+    "rightkit-credentials": [
+     "=0.5.4",
+     "ws"
+    ],
+    "rightkit-logs": [
+     "=0.4.1",
+     "ws"
+    ],
+    "rightkit-crash": [
+     "=0.4.1",
+     "ws"
+    ],
+    "rightkit-device": [
+     "=0.5.0",
+     "ws"
+    ],
+    "rightkit-child-process": [
+     "=0.5.12",
+     "ws"
+    ],
+    "rightkit-sidecar": [
+     "=0.3.4",
+     "ws"
+    ],
+    "rightkit-app-settings": [
+     "=0.4.1",
+     "ws"
+    ],
+    "rightkit-fs": [
+     "=0.4.15",
+     "ws"
+    ],
+    "rightkit-tauri-shell": [
+     "=0.8.0"
+    ],
+    "rightkit-onnx": [
+     "=0.3.0"
+    ],
+    "rightkit-crypto": [
+     "=0.1.3",
+     "ws"
+    ],
+    "rightkit-daemon": [
+     "=0.9.0",
+     "ws"
+    ],
+    "rightkit-speech-client": [
+     "=0.5.0"
+    ],
+    "rightkit-audio": [
+     "=0.3.4"
+    ],
+    "rightkit-workflow": [
+     "=0.2.3",
+     "ws"
+    ],
+    "rightkit-doctor": [
+     "=0.2.0",
+     "ws"
+    ],
+    "rightkit-memory": [
+     "=0.1.0",
+     "ws"
+    ],
+    "rightkit-evidence": [
+     "=0.1.1",
+     "ws"
+    ],
+    "rightkit-agent-engine-cli": [
+     "=0.1.1",
+     "ws"
+    ],
+    "rightkit-agent-engine-runtime-resources": [
+     "=0.1.1",
+     "ws"
+    ],
+    "rightkit-agent-engine-runtime-middleware": [
+     "=0.1.3",
+     "ws"
+    ],
+    "rightkit-agent-engine-api-platform": [
+     "=0.1.3",
+     "ws"
+    ],
+    "rightkit-sandbox": [
+     "=0.6.5",
+     "ws"
+    ],
+    "rightkit-file-watch": [
+     "=0.4.4",
+     "ws"
+    ],
+    "rightkit-oauth": [
+     "=0.11.0",
+     "ws"
+    ],
+    "rightkit-models": [
+     "=0.7.1",
+     "ws"
+    ],
+    "rightkit-mcp": [
+     "=0.9.1",
+     "ws"
+    ],
+    "rightkit-cache": [
+     "=0.2.4",
+     "ws"
+    ],
+    "rightkit-search": [
+     "=0.4.5"
+    ],
+    "rightkit-db": [
+     "=0.5.8",
+     "ws"
+    ],
+    "rightkit-browser": [
+     "=0.3.6",
+     "ws"
+    ],
+    "rightkit-agent-telemetry": [
+     "=0.1.0",
+     "ws"
+    ],
+    "rightkit-job-queue": [
+     "=0.6.0",
+     "ws"
+    ],
+    "rightkit-llm": [
+     "=0.6.0",
+     "ws"
+    ],
+    "rightkit-agent-config": [
+     "=0.1.2",
+     "ws"
+    ],
+    "rightkit-agent-daemon": [
+     "=0.2.0",
+     "ws"
+    ],
+    "rightkit-roots": [
+     "=0.2.0",
+     "ws"
+    ],
+    "rightkit-agent-engine-protocol": [
+     "alias"
+    ],
+    "rightkit-agent-engine-storage": [
+     "alias"
+    ],
+    "rightkit-agent-engine-tasks": [
+     "alias"
+    ],
+    "rightkit-agent-policy": [
+     "alias"
+    ],
+    "rightkit-agents": [
+     "=0.2.4"
+    ],
+    "rightkit-ffmpeg": [
+     "=0.3.1"
+    ],
+    "rightkit-ocr": [
+     "=0.3.0"
+    ]
+   },
+   "rows": {
+    "M1": [
+     {
+      "owner": "rightkit-tauri-shell",
+      "declared": true,
+      "ver": [
+       "=0.8.0"
+      ],
+      "use_lines": 45,
+      "use_files": 10
+     },
+     {
+      "owner": "rightkit-device",
+      "declared": true,
+      "ver": [
+       "=0.5.0",
+       "ws"
+      ],
+      "use_lines": 6,
+      "use_files": 2
+     },
+     {
+      "owner": "@rightkit/tauri",
+      "declared": true,
+      "ver": [
+       "0.4.2"
+      ],
+      "use_lines": 0,
+      "use_files": 0
+     }
+    ],
+    "M2": [
+     {
+      "owner": "@rightkit/react-shell",
+      "declared": true,
+      "ver": [
+       "0.7.4"
+      ],
+      "use_lines": 71,
+      "use_files": 65
+     },
+     {
+      "owner": "@rightkit/platform-ui",
+      "declared": true,
+      "ver": [
+       "0.4.1"
+      ],
+      "use_lines": 9,
+      "use_files": 9
+     },
+     {
+      "owner": "@rightkit/theme",
+      "declared": true,
+      "ver": [
+       "0.3.4"
+      ],
+      "use_lines": 2,
+      "use_files": 2
+     }
+    ],
+    "M3": [
+     {
+      "owner": "rightkit-job-queue",
+      "declared": true,
+      "ver": [
+       "=0.6.0",
+       "ws"
+      ],
+      "use_lines": 4,
+      "use_files": 2
+     },
+     {
+      "owner": "rightkit-child-process",
+      "declared": true,
+      "ver": [
+       "=0.5.12",
+       "ws"
+      ],
+      "use_lines": 117,
+      "use_files": 41
+     }
+    ],
+    "M4": [
+     {
+      "owner": "rightkit-job-queue",
+      "declared": true,
+      "ver": [
+       "=0.6.0",
+       "ws"
+      ],
+      "use_lines": 4,
+      "use_files": 2
+     },
+     {
+      "owner": "rightkit-sidecar",
+      "declared": true,
+      "ver": [
+       "=0.3.4",
+       "ws"
+      ],
+      "use_lines": 12,
+      "use_files": 5
+     }
+    ],
+    "M5": [
+     {
+      "owner": "rightkit-child-process",
+      "declared": true,
+      "ver": [
+       "=0.5.12",
+       "ws"
+      ],
+      "use_lines": 117,
+      "use_files": 41
+     }
+    ],
+    "M6": [
+     {
+      "owner": "rightkit-daemon",
+      "declared": true,
+      "ver": [
+       "=0.9.0",
+       "ws"
+      ],
+      "use_lines": 15,
+      "use_files": 9
+     }
+    ],
+    "M7": [
+     {
+      "owner": "rightkit-daemon",
+      "declared": true,
+      "ver": [
+       "=0.9.0",
+       "ws"
+      ],
+      "use_lines": 15,
+      "use_files": 9
+     }
+    ],
+    "M8": [
+     {
+      "owner": "rightkit-fs",
+      "declared": true,
+      "ver": [
+       "=0.4.15",
+       "ws"
+      ],
+      "use_lines": 276,
+      "use_files": 122
+     }
+    ],
+    "M9": [
+     {
+      "owner": "rightkit-db",
+      "declared": true,
+      "ver": [
+       "=0.5.8",
+       "ws"
+      ],
+      "use_lines": 58,
+      "use_files": 23
+     }
+    ],
+    "M10": [
+     {
+      "owner": "rightkit-app-settings",
+      "declared": true,
+      "ver": [
+       "=0.4.1",
+       "ws"
+      ],
+      "use_lines": 5,
+      "use_files": 4
+     },
+     {
+      "owner": "@rightkit/settings-ui",
+      "declared": true,
+      "ver": [
+       "0.7.3"
+      ],
+      "use_lines": 5,
+      "use_files": 4
+     }
+    ],
+    "M11": [
+     {
+      "owner": "rightkit-credentials",
+      "declared": true,
+      "ver": [
+       "=0.5.4",
+       "ws"
+      ],
+      "use_lines": 15,
+      "use_files": 4
+     }
+    ],
+    "M12": [
+     {
+      "owner": "rightkit-license",
+      "declared": true,
+      "ver": [
+       "=0.3.1",
+       "ws"
+      ],
+      "use_lines": 8,
+      "use_files": 4
+     },
+     {
+      "owner": "rightkit-device",
+      "declared": true,
+      "ver": [
+       "=0.5.0",
+       "ws"
+      ],
+      "use_lines": 6,
+      "use_files": 2
+     },
+     {
+      "owner": "@rightkit/license",
+      "declared": true,
+      "ver": [
+       "0.3.3"
+      ],
+      "use_lines": 0,
+      "use_files": 0
+     }
+    ],
+    "M13": [
+     {
+      "owner": "rightkit-license",
+      "declared": true,
+      "ver": [
+       "=0.3.1",
+       "ws"
+      ],
+      "use_lines": 8,
+      "use_files": 4
+     }
+    ],
+    "M14": [
+     {
+      "owner": "@rightkit/legal",
+      "declared": true,
+      "ver": [
+       "0.6.3"
+      ],
+      "use_lines": 3,
+      "use_files": 2
+     },
+     {
+      "owner": "@rightkit/legal-ui",
+      "declared": true,
+      "ver": [
+       "0.4.2"
+      ],
+      "use_lines": 2,
+      "use_files": 1
+     },
+     {
+      "owner": "@rightkit/onboarding",
+      "declared": true,
+      "ver": [
+       "0.6.5"
+      ],
+      "use_lines": 3,
+      "use_files": 2
+     }
+    ],
+    "M15": [
+     {
+      "owner": "rightkit-logs",
+      "declared": true,
+      "ver": [
+       "=0.4.1",
+       "ws"
+      ],
+      "use_lines": 34,
+      "use_files": 10
+     },
+     {
+      "owner": "@rightkit/logs",
+      "declared": true,
+      "ver": [
+       "0.1.6"
+      ],
+      "use_lines": 1,
+      "use_files": 1
+     }
+    ],
+    "M16": [
+     {
+      "owner": "rightkit-crash",
+      "declared": true,
+      "ver": [
+       "=0.4.1",
+       "ws"
+      ],
+      "use_lines": 19,
+      "use_files": 4
+     }
+    ],
+    "M17": [
+     {
+      "owner": "rightkit-http",
+      "declared": true,
+      "ver": [
+       "=0.4.0",
+       "ws"
+      ],
+      "use_lines": 200,
+      "use_files": 56
+     }
+    ],
+    "M18": [
+     {
+      "owner": "@rightkit/app-update",
+      "declared": true,
+      "ver": [
+       "0.4.4"
+      ],
+      "use_lines": 5,
+      "use_files": 3
+     }
+    ],
+    "M19": [
+     {
+      "owner": "@rightkit/release",
+      "declared": true,
+      "ver": [
+       "0.6.57"
+      ],
+      "use_lines": 4,
+      "use_files": 3
+     }
+    ],
+    "M20": [
+     {
+      "owner": "rightkit-qa",
+      "declared": true,
+      "ver": [
+       "=0.10.6"
+      ],
+      "use_lines": 6,
+      "use_files": 2
+     },
+     {
+      "owner": "@rightkit/qa",
+      "declared": true,
+      "ver": [
+       "0.7.0"
+      ],
+      "use_lines": 6,
+      "use_files": 6
+     },
+     {
+      "owner": "@rightkit/qa-chrome",
+      "declared": true,
+      "ver": [
+       "0.1.12"
+      ],
+      "use_lines": 1,
+      "use_files": 1
+     }
+    ],
+    "M22": [
+     {
+      "owner": "rightkit-agent-tools",
+      "declared": false,
+      "ver": [],
+      "use_lines": 0,
+      "use_files": 0
+     }
+    ]
+   },
+   "own_ts_files": 339,
+   "other_rightkit_npm": {
+    "@rightkit/agent-ui-components": 13,
+    "@rightkit/agent-ui-core": 239,
+    "@rightkit/agent-ui-hooks": 23,
+    "@rightkit/agent-ui-settings": 32,
+    "@rightkit/agent-ui-workbench": 22,
+    "@rightkit/doc-render": 2,
+    "@rightkit/i18n": 0,
+    "@rightkit/tauri-shell": 1
+   }
+  }
+ },
+ "genright": {
+  "main": {
+   "npm": {
+    "@rightkit/app-update": [
+     "0.4.2"
+    ],
+    "@rightkit/legal": [
+     "0.6.3"
+    ],
+    "@rightkit/legal-ui": [
+     "0.4.1"
+    ],
+    "@rightkit/license": [
+     "0.3.0"
+    ],
+    "@rightkit/logs": [
+     "0.1.6"
+    ],
+    "@rightkit/media-ui": [
+     "0.3.4"
+    ],
+    "@rightkit/onboarding": [
+     "0.6.3"
+    ],
+    "@rightkit/platform-ui": [
+     "0.4.0"
+    ],
+    "@rightkit/react-shell": [
+     "0.7.2"
+    ],
+    "@rightkit/settings-ui": [
+     "0.7.0"
+    ],
+    "@rightkit/tauri": [
+     "0.3.0"
+    ],
+    "@rightkit/tauri-shell": [
+     "0.1.3"
+    ],
+    "@rightkit/theme": [
+     "0.3.1"
+    ],
+    "@rightkit/blender-worker": [
+     "0.1.1"
+    ],
+    "@rightkit/qa": [
+     "0.6.1"
+    ],
+    "@rightkit/qa-chrome": [
+     "0.1.12"
+    ],
+    "@rightkit/release": [
+     "0.6.40"
+    ]
+   },
+   "cargo": {
+    "rightkit-fs": [
+     "=0.4.9"
+    ],
+    "rightkit-daemon": [
+     "=0.5.1"
+    ],
+    "rightkit-local-gen": [
+     "=0.1.0"
+    ],
+    "rightkit-contracts": [
+     "=0.1.8"
+    ],
+    "rightkit-crash": [
+     "=0.3.6"
+    ],
+    "rightkit-crypto": [
+     "=0.1.0"
+    ],
+    "rightkit-app-settings": [
+     "=0.3.1"
+    ],
+    "rightkit-time": [
+     "=0.1.1"
+    ],
+    "rightkit-http": [
+     "=0.3.9"
+    ],
+    "rightkit-browser": [
+     "=0.3.6"
+    ],
+    "rightkit-ffmpeg": [
+     "=0.2.13"
+    ],
+    "rightkit-motion": [
+     "=0.2.0"
+    ],
+    "rightkit-child-process": [
+     "=0.5.7"
+    ],
+    "rightkit-logs": [
+     "=0.3.7"
+    ],
+    "rightkit-license": [
+     "=0.2.6"
+    ],
+    "rightkit-device": [
+     "=0.4.0"
+    ],
+    "rightkit-credentials": [
+     "=0.4.3"
+    ],
+    "rightkit-job-queue": [
+     "=0.5.1"
+    ],
+    "rightkit-sidecar": [
+     "=0.3.0"
+    ],
+    "rightkit-db": [
+     "=0.5.3"
+    ],
+    "rightkit-spend": [
+     "=0.2.0"
+    ],
+    "rightkit-search": [
+     "=0.4.1"
+    ],
+    "rightkit-onnx": [
+     "=0.2.7"
+    ],
+    "rightkit-models": [
+     "=0.5.3"
+    ],
+    "rightkit-tts": [
+     "=0.2.3"
+    ],
+    "rightkit-audio": [
+     "=0.3.1"
+    ],
+    "rightkit-transcript": [
+     "=0.4.0"
+    ],
+    "rightkit-tauri-shell": [
+     "=0.7.0"
+    ],
+    "rightkit-agent-tools": [
+     "=0.3.0"
+    ],
+    "rightkit-qa": [
+     "=0.10.0"
+    ]
+   },
+   "rows": {
+    "M1": [
+     {
+      "owner": "rightkit-tauri-shell",
+      "declared": true,
+      "ver": [
+       "=0.7.0"
+      ],
+      "use_lines": 8,
+      "use_files": 3
+     },
+     {
+      "owner": "rightkit-device",
+      "declared": true,
+      "ver": [
+       "=0.4.0"
+      ],
+      "use_lines": 4,
+      "use_files": 3
+     },
+     {
+      "owner": "@rightkit/tauri",
+      "declared": true,
+      "ver": [
+       "0.3.0"
+      ],
+      "use_lines": 0,
+      "use_files": 0
+     }
+    ],
+    "M2": [
+     {
+      "owner": "@rightkit/react-shell",
+      "declared": true,
+      "ver": [
+       "0.7.2"
+      ],
+      "use_lines": 44,
+      "use_files": 43
+     },
+     {
+      "owner": "@rightkit/platform-ui",
+      "declared": true,
+      "ver": [
+       "0.4.0"
+      ],
+      "use_lines": 5,
+      "use_files": 4
+     },
+     {
+      "owner": "@rightkit/theme",
+      "declared": true,
+      "ver": [
+       "0.3.1"
+      ],
+      "use_lines": 1,
+      "use_files": 1
+     }
+    ],
+    "M3": [
+     {
+      "owner": "rightkit-job-queue",
+      "declared": true,
+      "ver": [
+       "=0.5.1"
+      ],
+      "use_lines": 10,
+      "use_files": 7
+     },
+     {
+      "owner": "rightkit-child-process",
+      "declared": true,
+      "ver": [
+       "=0.5.7"
+      ],
+      "use_lines": 40,
+      "use_files": 13
+     }
+    ],
+    "M4": [
+     {
+      "owner": "rightkit-job-queue",
+      "declared": true,
+      "ver": [
+       "=0.5.1"
+      ],
+      "use_lines": 10,
+      "use_files": 7
+     },
+     {
+      "owner": "rightkit-sidecar",
+      "declared": true,
+      "ver": [
+       "=0.3.0"
+      ],
+      "use_lines": 1,
+      "use_files": 1
+     }
+    ],
+    "M5": [
+     {
+      "owner": "rightkit-child-process",
+      "declared": true,
+      "ver": [
+       "=0.5.7"
+      ],
+      "use_lines": 40,
+      "use_files": 13
+     }
+    ],
+    "M6": [
+     {
+      "owner": "rightkit-daemon",
+      "declared": true,
+      "ver": [
+       "=0.5.1"
+      ],
+      "use_lines": 7,
+      "use_files": 4
+     }
+    ],
+    "M7": [
+     {
+      "owner": "rightkit-daemon",
+      "declared": true,
+      "ver": [
+       "=0.5.1"
+      ],
+      "use_lines": 7,
+      "use_files": 4
+     }
+    ],
+    "M8": [
+     {
+      "owner": "rightkit-fs",
+      "declared": true,
+      "ver": [
+       "=0.4.9"
+      ],
+      "use_lines": 155,
+      "use_files": 40
+     }
+    ],
+    "M9": [
+     {
+      "owner": "rightkit-db",
+      "declared": true,
+      "ver": [
+       "=0.5.3"
+      ],
+      "use_lines": 25,
+      "use_files": 5
+     }
+    ],
+    "M10": [
+     {
+      "owner": "rightkit-app-settings",
+      "declared": true,
+      "ver": [
+       "=0.3.1"
+      ],
+      "use_lines": 8,
+      "use_files": 3
+     },
+     {
+      "owner": "@rightkit/settings-ui",
+      "declared": true,
+      "ver": [
+       "0.7.0"
+      ],
+      "use_lines": 3,
+      "use_files": 2
+     }
+    ],
+    "M11": [
+     {
+      "owner": "rightkit-credentials",
+      "declared": true,
+      "ver": [
+       "=0.4.3"
+      ],
+      "use_lines": 8,
+      "use_files": 2
+     }
+    ],
+    "M12": [
+     {
+      "owner": "rightkit-license",
+      "declared": true,
+      "ver": [
+       "=0.2.6"
+      ],
+      "use_lines": 7,
+      "use_files": 3
+     },
+     {
+      "owner": "rightkit-device",
+      "declared": true,
+      "ver": [
+       "=0.4.0"
+      ],
+      "use_lines": 4,
+      "use_files": 3
+     },
+     {
+      "owner": "@rightkit/license",
+      "declared": true,
+      "ver": [
+       "0.3.0"
+      ],
+      "use_lines": 2,
+      "use_files": 2
+     }
+    ],
+    "M13": [
+     {
+      "owner": "rightkit-license",
+      "declared": true,
+      "ver": [
+       "=0.2.6"
+      ],
+      "use_lines": 7,
+      "use_files": 3
+     }
+    ],
+    "M14": [
+     {
+      "owner": "@rightkit/legal",
+      "declared": true,
+      "ver": [
+       "0.6.3"
+      ],
+      "use_lines": 3,
+      "use_files": 3
+     },
+     {
+      "owner": "@rightkit/legal-ui",
+      "declared": true,
+      "ver": [
+       "0.4.1"
+      ],
+      "use_lines": 1,
+      "use_files": 1
+     },
+     {
+      "owner": "@rightkit/onboarding",
+      "declared": true,
+      "ver": [
+       "0.6.3"
+      ],
+      "use_lines": 4,
+      "use_files": 3
+     }
+    ],
+    "M15": [
+     {
+      "owner": "rightkit-logs",
+      "declared": true,
+      "ver": [
+       "=0.3.7"
+      ],
+      "use_lines": 53,
+      "use_files": 27
+     },
+     {
+      "owner": "@rightkit/logs",
+      "declared": true,
+      "ver": [
+       "0.1.6"
+      ],
+      "use_lines": 2,
+      "use_files": 2
+     }
+    ],
+    "M16": [
+     {
+      "owner": "rightkit-crash",
+      "declared": true,
+      "ver": [
+       "=0.3.6"
+      ],
+      "use_lines": 4,
+      "use_files": 3
+     }
+    ],
+    "M17": [
+     {
+      "owner": "rightkit-http",
+      "declared": true,
+      "ver": [
+       "=0.3.9"
+      ],
+      "use_lines": 4,
+      "use_files": 2
+     }
+    ],
+    "M18": [
+     {
+      "owner": "@rightkit/app-update",
+      "declared": true,
+      "ver": [
+       "0.4.2"
+      ],
+      "use_lines": 2,
+      "use_files": 2
+     }
+    ],
+    "M19": [
+     {
+      "owner": "@rightkit/release",
+      "declared": true,
+      "ver": [
+       "0.6.40"
+      ],
+      "use_lines": 0,
+      "use_files": 0
+     }
+    ],
+    "M20": [
+     {
+      "owner": "rightkit-qa",
+      "declared": true,
+      "ver": [
+       "=0.10.0"
+      ],
+      "use_lines": 1,
+      "use_files": 1
+     },
+     {
+      "owner": "@rightkit/qa",
+      "declared": true,
+      "ver": [
+       "0.6.1"
+      ],
+      "use_lines": 1,
+      "use_files": 1
+     },
+     {
+      "owner": "@rightkit/qa-chrome",
+      "declared": true,
+      "ver": [
+       "0.1.12"
+      ],
+      "use_lines": 0,
+      "use_files": 0
+     }
+    ],
+    "M22": [
+     {
+      "owner": "rightkit-agent-tools",
+      "declared": true,
+      "ver": [
+       "=0.3.0"
+      ],
+      "use_lines": 2,
+      "use_files": 1
+     }
+    ]
+   },
+   "own_ts_files": 114,
+   "other_rightkit_npm": {
+    "@rightkit/blender-worker": 0,
+    "@rightkit/media-ui": 12,
+    "@rightkit/tauri-shell": 1
+   }
+  },
+  "work": {
+   "npm": {
+    "@rightkit/app-update": [
+     "0.4.4"
+    ],
+    "@rightkit/legal": [
+     "0.6.3"
+    ],
+    "@rightkit/legal-ui": [
+     "0.4.2"
+    ],
+    "@rightkit/license": [
+     "0.3.2"
+    ],
+    "@rightkit/logs": [
+     "0.1.6"
+    ],
+    "@rightkit/media-ui": [
+     "0.3.6"
+    ],
+    "@rightkit/onboarding": [
+     "0.6.5"
+    ],
+    "@rightkit/platform-ui": [
+     "0.4.1"
+    ],
+    "@rightkit/react-shell": [
+     "0.7.4"
+    ],
+    "@rightkit/settings-ui": [
+     "0.7.2"
+    ],
+    "@rightkit/tauri": [
+     "0.4.2"
+    ],
+    "@rightkit/tauri-shell": [
+     "0.1.4"
+    ],
+    "@rightkit/theme": [
+     "0.3.4"
+    ],
+    "@rightkit/blender-worker": [
+     "0.1.1"
+    ],
+    "@rightkit/qa": [
+     "0.7.0"
+    ],
+    "@rightkit/qa-chrome": [
+     "0.1.12"
+    ],
+    "@rightkit/release": [
+     "0.6.57"
+    ]
+   },
+   "cargo": {
+    "rightkit-fs": [
+     "=0.4.15"
+    ],
+    "rightkit-daemon": [
+     "=0.9.0"
+    ],
+    "rightkit-media-gen": [
+     "=0.2.3"
+    ],
+    "rightkit-media-pipeline": [
+     "=0.2.1"
+    ],
+    "rightkit-local-gen": [
+     "=0.1.3"
+    ],
+    "rightkit-crash": [
+     "=0.4.1"
+    ],
+    "rightkit-crypto": [
+     "=0.1.3"
+    ],
+    "rightkit-app-settings": [
+     "=0.4.1"
+    ],
+    "rightkit-time": [
+     "=0.1.4"
+    ],
+    "rightkit-http": [
+     "=0.4.0"
+    ],
+    "rightkit-browser": [
+     "=0.3.6"
+    ],
+    "rightkit-ffmpeg": [
+     "=0.3.1"
+    ],
+    "rightkit-motion": [
+     "=0.3.0"
+    ],
+    "rightkit-child-process": [
+     "=0.5.12"
+    ],
+    "rightkit-logs": [
+     "=0.4.1"
+    ],
+    "rightkit-license": [
+     "=0.3.1"
+    ],
+    "rightkit-device": [
+     "=0.5.0"
+    ],
+    "rightkit-credentials": [
+     "=0.5.4"
+    ],
+    "rightkit-job-queue": [
+     "=0.6.0"
+    ],
+    "rightkit-sidecar": [
+     "=0.3.4"
+    ],
+    "rightkit-compose": [
+     "=0.2.3"
+    ],
+    "rightkit-media-gen-approvals": [
+     "=0.1.1"
+    ],
+    "rightkit-media-gen-models": [
+     "=0.1.1"
+    ],
+    "rightkit-engine-host": [
+     "=0.2.0"
+    ],
+    "rightkit-tts": [
+     "=0.3.0"
+    ],
+    "rightkit-remote-compute": [
+     "=0.2.1"
+    ],
+    "rightkit-contracts": [
+     "=0.1.11"
+    ],
+    "rightkit-tauri-shell": [
+     "=0.8.0"
+    ],
+    "rightkit-agent-tools": [
+     "=0.3.4"
+    ],
+    "rightkit-qa": [
+     "=0.10.6"
+    ]
+   },
+   "rows": {
+    "M1": [
+     {
+      "owner": "rightkit-tauri-shell",
+      "declared": true,
+      "ver": [
+       "=0.8.0"
+      ],
+      "use_lines": 8,
+      "use_files": 3
+     },
+     {
+      "owner": "rightkit-device",
+      "declared": true,
+      "ver": [
+       "=0.5.0"
+      ],
+      "use_lines": 2,
+      "use_files": 2
+     },
+     {
+      "owner": "@rightkit/tauri",
+      "declared": true,
+      "ver": [
+       "0.4.2"
+      ],
+      "use_lines": 0,
+      "use_files": 0
+     }
+    ],
+    "M2": [
+     {
+      "owner": "@rightkit/react-shell",
+      "declared": true,
+      "ver": [
+       "0.7.4"
+      ],
+      "use_lines": 44,
+      "use_files": 43
+     },
+     {
+      "owner": "@rightkit/platform-ui",
+      "declared": true,
+      "ver": [
+       "0.4.1"
+      ],
+      "use_lines": 5,
+      "use_files": 4
+     },
+     {
+      "owner": "@rightkit/theme",
+      "declared": true,
+      "ver": [
+       "0.3.4"
+      ],
+      "use_lines": 1,
+      "use_files": 1
+     }
+    ],
+    "M3": [
+     {
+      "owner": "rightkit-job-queue",
+      "declared": true,
+      "ver": [
+       "=0.6.0"
+      ],
+      "use_lines": 4,
+      "use_files": 3
+     },
+     {
+      "owner": "rightkit-child-process",
+      "declared": true,
+      "ver": [
+       "=0.5.12"
+      ],
+      "use_lines": 2,
+      "use_files": 2
+     }
+    ],
+    "M4": [
+     {
+      "owner": "rightkit-job-queue",
+      "declared": true,
+      "ver": [
+       "=0.6.0"
+      ],
+      "use_lines": 4,
+      "use_files": 3
+     },
+     {
+      "owner": "rightkit-sidecar",
+      "declared": true,
+      "ver": [
+       "=0.3.4"
+      ],
+      "use_lines": 1,
+      "use_files": 1
+     }
+    ],
+    "M5": [
+     {
+      "owner": "rightkit-child-process",
+      "declared": true,
+      "ver": [
+       "=0.5.12"
+      ],
+      "use_lines": 2,
+      "use_files": 2
+     }
+    ],
+    "M6": [
+     {
+      "owner": "rightkit-daemon",
+      "declared": true,
+      "ver": [
+       "=0.9.0"
+      ],
+      "use_lines": 6,
+      "use_files": 3
+     }
+    ],
+    "M7": [
+     {
+      "owner": "rightkit-daemon",
+      "declared": true,
+      "ver": [
+       "=0.9.0"
+      ],
+      "use_lines": 6,
+      "use_files": 3
+     }
+    ],
+    "M8": [
+     {
+      "owner": "rightkit-fs",
+      "declared": true,
+      "ver": [
+       "=0.4.15"
+      ],
+      "use_lines": 35,
+      "use_files": 10
+     }
+    ],
+    "M9": [
+     {
+      "owner": "rightkit-db",
+      "declared": false,
+      "ver": [],
+      "use_lines": 0,
+      "use_files": 0
+     }
+    ],
+    "M10": [
+     {
+      "owner": "rightkit-app-settings",
+      "declared": true,
+      "ver": [
+       "=0.4.1"
+      ],
+      "use_lines": 5,
+      "use_files": 2
+     },
+     {
+      "owner": "@rightkit/settings-ui",
+      "declared": true,
+      "ver": [
+       "0.7.2"
+      ],
+      "use_lines": 3,
+      "use_files": 2
+     }
+    ],
+    "M11": [
+     {
+      "owner": "rightkit-credentials",
+      "declared": true,
+      "ver": [
+       "=0.5.4"
+      ],
+      "use_lines": 0,
+      "use_files": 0
+     }
+    ],
+    "M12": [
+     {
+      "owner": "rightkit-license",
+      "declared": true,
+      "ver": [
+       "=0.3.1"
+      ],
+      "use_lines": 7,
+      "use_files": 3
+     },
+     {
+      "owner": "rightkit-device",
+      "declared": true,
+      "ver": [
+       "=0.5.0"
+      ],
+      "use_lines": 2,
+      "use_files": 2
+     },
+     {
+      "owner": "@rightkit/license",
+      "declared": true,
+      "ver": [
+       "0.3.2"
+      ],
+      "use_lines": 2,
+      "use_files": 2
+     }
+    ],
+    "M13": [
+     {
+      "owner": "rightkit-license",
+      "declared": true,
+      "ver": [
+       "=0.3.1"
+      ],
+      "use_lines": 7,
+      "use_files": 3
+     }
+    ],
+    "M14": [
+     {
+      "owner": "@rightkit/legal",
+      "declared": true,
+      "ver": [
+       "0.6.3"
+      ],
+      "use_lines": 3,
+      "use_files": 3
+     },
+     {
+      "owner": "@rightkit/legal-ui",
+      "declared": true,
+      "ver": [
+       "0.4.2"
+      ],
+      "use_lines": 1,
+      "use_files": 1
+     },
+     {
+      "owner": "@rightkit/onboarding",
+      "declared": true,
+      "ver": [
+       "0.6.5"
+      ],
+      "use_lines": 4,
+      "use_files": 3
+     }
+    ],
+    "M15": [
+     {
+      "owner": "rightkit-logs",
+      "declared": true,
+      "ver": [
+       "=0.4.1"
+      ],
+      "use_lines": 2,
+      "use_files": 1
+     },
+     {
+      "owner": "@rightkit/logs",
+      "declared": true,
+      "ver": [
+       "0.1.6"
+      ],
+      "use_lines": 2,
+      "use_files": 2
+     }
+    ],
+    "M16": [
+     {
+      "owner": "rightkit-crash",
+      "declared": true,
+      "ver": [
+       "=0.4.1"
+      ],
+      "use_lines": 4,
+      "use_files": 3
+     }
+    ],
+    "M17": [
+     {
+      "owner": "rightkit-http",
+      "declared": true,
+      "ver": [
+       "=0.4.0"
+      ],
+      "use_lines": 0,
+      "use_files": 0
+     }
+    ],
+    "M18": [
+     {
+      "owner": "@rightkit/app-update",
+      "declared": true,
+      "ver": [
+       "0.4.4"
+      ],
+      "use_lines": 2,
+      "use_files": 2
+     }
+    ],
+    "M19": [
+     {
+      "owner": "@rightkit/release",
+      "declared": true,
+      "ver": [
+       "0.6.57"
+      ],
+      "use_lines": 0,
+      "use_files": 0
+     }
+    ],
+    "M20": [
+     {
+      "owner": "rightkit-qa",
+      "declared": true,
+      "ver": [
+       "=0.10.6"
+      ],
+      "use_lines": 1,
+      "use_files": 1
+     },
+     {
+      "owner": "@rightkit/qa",
+      "declared": true,
+      "ver": [
+       "0.7.0"
+      ],
+      "use_lines": 1,
+      "use_files": 1
+     },
+     {
+      "owner": "@rightkit/qa-chrome",
+      "declared": true,
+      "ver": [
+       "0.1.12"
+      ],
+      "use_lines": 0,
+      "use_files": 0
+     }
+    ],
+    "M22": [
+     {
+      "owner": "rightkit-agent-tools",
+      "declared": true,
+      "ver": [
+       "=0.3.4"
+      ],
+      "use_lines": 2,
+      "use_files": 1
+     }
+    ]
+   },
+   "own_ts_files": 114,
+   "other_rightkit_npm": {
+    "@rightkit/blender-worker": 0,
+    "@rightkit/media-ui": 12,
+    "@rightkit/tauri-shell": 1
+   }
+  }
+ },
+ "mailright": {
+  "main": {
+   "npm": {
+    "@rightkit/agent-ui-approvals": [
+     "0.1.0"
+    ],
+    "@rightkit/app-update": [
+     "0.4.2"
+    ],
+    "@rightkit/legal": [
+     "0.6.3"
+    ],
+    "@rightkit/legal-ui": [
+     "0.4.1"
+    ],
+    "@rightkit/license": [
+     "0.3.0"
+    ],
+    "@rightkit/logs": [
+     "0.1.6"
+    ],
+    "@rightkit/mail-ui": [
+     "0.1.0"
+    ],
+    "@rightkit/onboarding": [
+     "0.6.3"
+    ],
+    "@rightkit/platform-ui": [
+     "0.4.0"
+    ],
+    "@rightkit/react-shell": [
+     "0.7.2"
+    ],
+    "@rightkit/settings-ui": [
+     "0.7.0"
+    ],
+    "@rightkit/tauri": [
+     "0.3.0"
+    ],
+    "@rightkit/theme": [
+     "0.3.1"
+    ],
+    "@rightkit/workspace-ui": [
+     "0.1.0"
+    ],
+    "@rightkit/issues-tracker": [
+     "0.1.0"
+    ],
+    "@rightkit/qa": [
+     "0.6.1"
+    ],
+    "@rightkit/qa-chrome": [
+     "0.1.12"
+    ],
+    "@rightkit/release": [
+     "0.6.40"
+    ]
+   },
+   "cargo": {
+    "rightkit-qa": [
+     "=0.10.0"
+    ],
+    "rightkit-time": [
+     "=0.1.1"
+    ],
+    "rightkit-onnx": [
+     "=0.2.9"
+    ],
+    "rightkit-db": [
+     "=0.5.3"
+    ],
+    "rightkit-search": [
+     "=0.4.1"
+    ],
+    "rightkit-license": [
+     "=0.2.6"
+    ],
+    "rightkit-logs": [
+     "=0.3.7"
+    ],
+    "rightkit-device": [
+     "=0.4.0"
+    ],
+    "rightkit-embed": [
+     "=0.6.2"
+    ],
+    "rightkit-models": [
+     "=0.5.3"
+    ],
+    "rightkit-cache": [
+     "=0.2.3"
+    ],
+    "rightkit-crash": [
+     "=0.3.6"
+    ],
+    "rightkit-fs": [
+     "=0.4.9"
+    ],
+    "rightkit-crypto": [
+     "=0.1.0"
+    ],
+    "rightkit-app-settings": [
+     "=0.3.1"
+    ],
+    "rightkit-credentials": [
+     "=0.4.3"
+    ],
+    "rightkit-oauth": [
+     "=0.10.0"
+    ],
+    "rightkit-http": [
+     "=0.3.9"
+    ],
+    "rightkit-daemon": [
+     "=0.5.1"
+    ],
+    "rightkit-child-process": [
+     "=0.5.7"
+    ],
+    "rightkit-job-queue": [
+     "=0.5.1"
+    ],
+    "rightkit-sidecar": [
+     "=0.3.0"
+    ],
+    "rightkit-llm": [
+     "=0.3.2"
+    ],
+    "rightkit-mail": [
+     "=0.1.1"
+    ],
+    "rightkit-agent-gateway": [
+     "=0.1.0"
+    ],
+    "rightkit-google-apis": [
+     "=0.1.0"
+    ],
+    "rightkit-tauri-shell": [
+     "=0.7.0"
+    ],
+    "rightkit-doctor": [
+     "=0.1.0"
+    ]
+   },
+   "rows": {
+    "M1": [
+     {
+      "owner": "rightkit-tauri-shell",
+      "declared": true,
+      "ver": [
+       "=0.7.0"
+      ],
+      "use_lines": 45,
+      "use_files": 11
+     },
+     {
+      "owner": "rightkit-device",
+      "declared": true,
+      "ver": [
+       "=0.4.0"
+      ],
+      "use_lines": 6,
+      "use_files": 2
+     },
+     {
+      "owner": "@rightkit/tauri",
+      "declared": true,
+      "ver": [
+       "0.3.0"
+      ],
+      "use_lines": 1,
+      "use_files": 1
+     }
+    ],
+    "M2": [
+     {
+      "owner": "@rightkit/react-shell",
+      "declared": true,
+      "ver": [
+       "0.7.2"
+      ],
+      "use_lines": 28,
+      "use_files": 25
+     },
+     {
+      "owner": "@rightkit/platform-ui",
+      "declared": true,
+      "ver": [
+       "0.4.0"
+      ],
+      "use_lines": 4,
+      "use_files": 4
+     },
+     {
+      "owner": "@rightkit/theme",
+      "declared": true,
+      "ver": [
+       "0.3.1"
+      ],
+      "use_lines": 0,
+      "use_files": 0
+     }
+    ],
+    "M3": [
+     {
+      "owner": "rightkit-job-queue",
+      "declared": true,
+      "ver": [
+       "=0.5.1"
+      ],
+      "use_lines": 3,
+      "use_files": 3
+     },
+     {
+      "owner": "rightkit-child-process",
+      "declared": true,
+      "ver": [
+       "=0.5.7"
+      ],
+      "use_lines": 8,
+      "use_files": 5
+     }
+    ],
+    "M4": [
+     {
+      "owner": "rightkit-job-queue",
+      "declared": true,
+      "ver": [
+       "=0.5.1"
+      ],
+      "use_lines": 3,
+      "use_files": 3
+     },
+     {
+      "owner": "rightkit-sidecar",
+      "declared": true,
+      "ver": [
+       "=0.3.0"
+      ],
+      "use_lines": 1,
+      "use_files": 1
+     }
+    ],
+    "M5": [
+     {
+      "owner": "rightkit-child-process",
+      "declared": true,
+      "ver": [
+       "=0.5.7"
+      ],
+      "use_lines": 8,
+      "use_files": 5
+     }
+    ],
+    "M6": [
+     {
+      "owner": "rightkit-daemon",
+      "declared": true,
+      "ver": [
+       "=0.5.1"
+      ],
+      "use_lines": 42,
+      "use_files": 21
+     }
+    ],
+    "M7": [
+     {
+      "owner": "rightkit-daemon",
+      "declared": true,
+      "ver": [
+       "=0.5.1"
+      ],
+      "use_lines": 42,
+      "use_files": 21
+     }
+    ],
+    "M8": [
+     {
+      "owner": "rightkit-fs",
+      "declared": true,
+      "ver": [
+       "=0.4.9"
+      ],
+      "use_lines": 23,
+      "use_files": 11
+     }
+    ],
+    "M9": [
+     {
+      "owner": "rightkit-db",
+      "declared": true,
+      "ver": [
+       "=0.5.3"
+      ],
+      "use_lines": 105,
+      "use_files": 44
+     }
+    ],
+    "M10": [
+     {
+      "owner": "rightkit-app-settings",
+      "declared": true,
+      "ver": [
+       "=0.3.1"
+      ],
+      "use_lines": 4,
+      "use_files": 3
+     },
+     {
+      "owner": "@rightkit/settings-ui",
+      "declared": true,
+      "ver": [
+       "0.7.0"
+      ],
+      "use_lines": 24,
+      "use_files": 20
+     }
+    ],
+    "M11": [
+     {
+      "owner": "rightkit-credentials",
+      "declared": true,
+      "ver": [
+       "=0.4.3"
+      ],
+      "use_lines": 5,
+      "use_files": 3
+     }
+    ],
+    "M12": [
+     {
+      "owner": "rightkit-license",
+      "declared": true,
+      "ver": [
+       "=0.2.6"
+      ],
+      "use_lines": 6,
+      "use_files": 3
+     },
+     {
+      "owner": "rightkit-device",
+      "declared": true,
+      "ver": [
+       "=0.4.0"
+      ],
+      "use_lines": 6,
+      "use_files": 2
+     },
+     {
+      "owner": "@rightkit/license",
+      "declared": true,
+      "ver": [
+       "0.3.0"
+      ],
+      "use_lines": 1,
+      "use_files": 1
+     }
+    ],
+    "M13": [
+     {
+      "owner": "rightkit-license",
+      "declared": true,
+      "ver": [
+       "=0.2.6"
+      ],
+      "use_lines": 6,
+      "use_files": 3
+     }
+    ],
+    "M14": [
+     {
+      "owner": "@rightkit/legal",
+      "declared": true,
+      "ver": [
+       "0.6.3"
+      ],
+      "use_lines": 0,
+      "use_files": 0
+     },
+     {
+      "owner": "@rightkit/legal-ui",
+      "declared": true,
+      "ver": [
+       "0.4.1"
+      ],
+      "use_lines": 1,
+      "use_files": 1
+     },
+     {
+      "owner": "@rightkit/onboarding",
+      "declared": true,
+      "ver": [
+       "0.6.3"
+      ],
+      "use_lines": 2,
+      "use_files": 1
+     }
+    ],
+    "M15": [
+     {
+      "owner": "rightkit-logs",
+      "declared": true,
+      "ver": [
+       "=0.3.7"
+      ],
+      "use_lines": 11,
+      "use_files": 5
+     },
+     {
+      "owner": "@rightkit/logs",
+      "declared": true,
+      "ver": [
+       "0.1.6"
+      ],
+      "use_lines": 2,
+      "use_files": 2
+     }
+    ],
+    "M16": [
+     {
+      "owner": "rightkit-crash",
+      "declared": true,
+      "ver": [
+       "=0.3.6"
+      ],
+      "use_lines": 5,
+      "use_files": 2
+     }
+    ],
+    "M17": [
+     {
+      "owner": "rightkit-http",
+      "declared": true,
+      "ver": [
+       "=0.3.9"
+      ],
+      "use_lines": 5,
+      "use_files": 3
+     }
+    ],
+    "M18": [
+     {
+      "owner": "@rightkit/app-update",
+      "declared": true,
+      "ver": [
+       "0.4.2"
+      ],
+      "use_lines": 2,
+      "use_files": 1
+     }
+    ],
+    "M19": [
+     {
+      "owner": "@rightkit/release",
+      "declared": true,
+      "ver": [
+       "0.6.40"
+      ],
+      "use_lines": 0,
+      "use_files": 0
+     }
+    ],
+    "M20": [
+     {
+      "owner": "rightkit-qa",
+      "declared": true,
+      "ver": [
+       "=0.10.0"
+      ],
+      "use_lines": 11,
+      "use_files": 4
+     },
+     {
+      "owner": "@rightkit/qa",
+      "declared": true,
+      "ver": [
+       "0.6.1"
+      ],
+      "use_lines": 2,
+      "use_files": 2
+     },
+     {
+      "owner": "@rightkit/qa-chrome",
+      "declared": true,
+      "ver": [
+       "0.1.12"
+      ],
+      "use_lines": 1,
+      "use_files": 1
+     }
+    ],
+    "M22": [
+     {
+      "owner": "rightkit-agent-tools",
+      "declared": false,
+      "ver": [],
+      "use_lines": 0,
+      "use_files": 0
+     }
+    ]
+   },
+   "own_ts_files": 40,
+   "other_rightkit_npm": {
+    "@rightkit/agent-ui-approvals": 4,
+    "@rightkit/issues-tracker": 0,
+    "@rightkit/mail-ui": 116,
+    "@rightkit/workspace-ui": 5
+   }
+  },
+  "work": {
+   "npm": {
+    "@rightkit/agent-ui-approvals": [
+     "0.2.1"
+    ],
+    "@rightkit/app-update": [
+     "0.4.4"
+    ],
+    "@rightkit/legal": [
+     "0.6.3"
+    ],
+    "@rightkit/legal-ui": [
+     "0.4.2"
+    ],
+    "@rightkit/license": [
+     "0.3.2"
+    ],
+    "@rightkit/logs": [
+     "0.1.6"
+    ],
+    "@rightkit/mail-ui": [
+     "0.2.1"
+    ],
+    "@rightkit/onboarding": [
+     "0.6.5"
+    ],
+    "@rightkit/platform-ui": [
+     "0.4.1"
+    ],
+    "@rightkit/react-shell": [
+     "0.7.4"
+    ],
+    "@rightkit/settings-ui": [
+     "0.7.2"
+    ],
+    "@rightkit/tauri": [
+     "0.4.2"
+    ],
+    "@rightkit/theme": [
+     "0.3.3"
+    ],
+    "@rightkit/workspace-ui": [
+     "0.2.1"
+    ],
+    "@rightkit/issues-tracker": [
+     "0.1.0"
+    ],
+    "@rightkit/qa": [
+     "0.7.0"
+    ],
+    "@rightkit/qa-chrome": [
+     "0.1.12"
+    ],
+    "@rightkit/release": [
+     "0.6.57"
+    ]
+   },
+   "cargo": {
+    "rightkit-qa": [
+     "=0.10.6"
+    ],
+    "rightkit-time": [
+     "=0.1.4"
+    ],
+    "rightkit-onnx": [
+     "=0.3.0"
+    ],
+    "rightkit-db": [
+     "=0.5.8"
+    ],
+    "rightkit-mail-store": [
+     "=0.2.1"
+    ],
+    "rightkit-search": [
+     "=0.4.5"
+    ],
+    "rightkit-app-lock": [
+     "=0.1.0"
+    ],
+    "rightkit-license": [
+     "=0.3.1"
+    ],
+    "rightkit-logs": [
+     "=0.4.1"
+    ],
+    "rightkit-device": [
+     "=0.5.1"
+    ],
+    "rightkit-embed": [
+     "=0.7.0"
+    ],
+    "rightkit-models": [
+     "=0.7.1"
+    ],
+    "rightkit-cache": [
+     "=0.2.4"
+    ],
+    "rightkit-crash": [
+     "=0.4.1"
+    ],
+    "rightkit-fs": [
+     "=0.4.16"
+    ],
+    "rightkit-crypto": [
+     "=0.1.3"
+    ],
+    "rightkit-app-settings": [
+     "=0.4.1"
+    ],
+    "rightkit-credentials": [
+     "=0.5.4"
+    ],
+    "rightkit-oauth": [
+     "=0.11.0"
+    ],
+    "rightkit-http": [
+     "=0.4.0"
+    ],
+    "rightkit-daemon": [
+     "=0.9.0"
+    ],
+    "rightkit-roots": [
+     "=0.2.0"
+    ],
+    "rightkit-child-process": [
+     "=0.5.12"
+    ],
+    "rightkit-job-queue": [
+     "=0.6.0"
+    ],
+    "rightkit-sidecar": [
+     "=0.3.4"
+    ],
+    "rightkit-llm": [
+     "=0.3.6"
+    ],
+    "rightkit-mail": [
+     "=0.1.2"
+    ],
+    "rightkit-mail-gateway": [
+     "=0.1.0"
+    ],
+    "rightkit-google-apis": [
+     "=0.2.0"
+    ],
+    "rightkit-tauri-shell": [
+     "=0.8.2"
+    ],
+    "rightkit-doctor": [
+     "=0.2.0"
+    ]
+   },
+   "rows": {
+    "M1": [
+     {
+      "owner": "rightkit-tauri-shell",
+      "declared": true,
+      "ver": [
+       "=0.8.2"
+      ],
+      "use_lines": 48,
+      "use_files": 11
+     },
+     {
+      "owner": "rightkit-device",
+      "declared": true,
+      "ver": [
+       "=0.5.1"
+      ],
+      "use_lines": 4,
+      "use_files": 1
+     },
+     {
+      "owner": "@rightkit/tauri",
+      "declared": true,
+      "ver": [
+       "0.4.2"
+      ],
+      "use_lines": 1,
+      "use_files": 1
+     }
+    ],
+    "M2": [
+     {
+      "owner": "@rightkit/react-shell",
+      "declared": true,
+      "ver": [
+       "0.7.4"
+      ],
+      "use_lines": 28,
+      "use_files": 25
+     },
+     {
+      "owner": "@rightkit/platform-ui",
+      "declared": true,
+      "ver": [
+       "0.4.1"
+      ],
+      "use_lines": 4,
+      "use_files": 4
+     },
+     {
+      "owner": "@rightkit/theme",
+      "declared": true,
+      "ver": [
+       "0.3.3"
+      ],
+      "use_lines": 0,
+      "use_files": 0
+     }
+    ],
+    "M3": [
+     {
+      "owner": "rightkit-job-queue",
+      "declared": true,
+      "ver": [
+       "=0.6.0"
+      ],
+      "use_lines": 0,
+      "use_files": 0
+     },
+     {
+      "owner": "rightkit-child-process",
+      "declared": true,
+      "ver": [
+       "=0.5.12"
+      ],
+      "use_lines": 4,
+      "use_files": 3
+     }
+    ],
+    "M4": [
+     {
+      "owner": "rightkit-job-queue",
+      "declared": true,
+      "ver": [
+       "=0.6.0"
+      ],
+      "use_lines": 0,
+      "use_files": 0
+     },
+     {
+      "owner": "rightkit-sidecar",
+      "declared": true,
+      "ver": [
+       "=0.3.4"
+      ],
+      "use_lines": 1,
+      "use_files": 1
+     }
+    ],
+    "M5": [
+     {
+      "owner": "rightkit-child-process",
+      "declared": true,
+      "ver": [
+       "=0.5.12"
+      ],
+      "use_lines": 4,
+      "use_files": 3
+     }
+    ],
+    "M6": [
+     {
+      "owner": "rightkit-daemon",
+      "declared": true,
+      "ver": [
+       "=0.9.0"
+      ],
+      "use_lines": 29,
+      "use_files": 16
+     }
+    ],
+    "M7": [
+     {
+      "owner": "rightkit-daemon",
+      "declared": true,
+      "ver": [
+       "=0.9.0"
+      ],
+      "use_lines": 29,
+      "use_files": 16
+     }
+    ],
+    "M8": [
+     {
+      "owner": "rightkit-fs",
+      "declared": true,
+      "ver": [
+       "=0.4.16"
+      ],
+      "use_lines": 24,
+      "use_files": 10
+     }
+    ],
+    "M9": [
+     {
+      "owner": "rightkit-db",
+      "declared": true,
+      "ver": [
+       "=0.5.8"
+      ],
+      "use_lines": 37,
+      "use_files": 17
+     }
+    ],
+    "M10": [
+     {
+      "owner": "rightkit-app-settings",
+      "declared": true,
+      "ver": [
+       "=0.4.1"
+      ],
+      "use_lines": 2,
+      "use_files": 2
+     },
+     {
+      "owner": "@rightkit/settings-ui",
+      "declared": true,
+      "ver": [
+       "0.7.2"
+      ],
+      "use_lines": 24,
+      "use_files": 20
+     }
+    ],
+    "M11": [
+     {
+      "owner": "rightkit-credentials",
+      "declared": true,
+      "ver": [
+       "=0.5.4"
+      ],
+      "use_lines": 5,
+      "use_files": 3
+     }
+    ],
+    "M12": [
+     {
+      "owner": "rightkit-license",
+      "declared": true,
+      "ver": [
+       "=0.3.1"
+      ],
+      "use_lines": 7,
+      "use_files": 3
+     },
+     {
+      "owner": "rightkit-device",
+      "declared": true,
+      "ver": [
+       "=0.5.1"
+      ],
+      "use_lines": 4,
+      "use_files": 1
+     },
+     {
+      "owner": "@rightkit/license",
+      "declared": true,
+      "ver": [
+       "0.3.2"
+      ],
+      "use_lines": 1,
+      "use_files": 1
+     }
+    ],
+    "M13": [
+     {
+      "owner": "rightkit-license",
+      "declared": true,
+      "ver": [
+       "=0.3.1"
+      ],
+      "use_lines": 7,
+      "use_files": 3
+     }
+    ],
+    "M14": [
+     {
+      "owner": "@rightkit/legal",
+      "declared": true,
+      "ver": [
+       "0.6.3"
+      ],
+      "use_lines": 0,
+      "use_files": 0
+     },
+     {
+      "owner": "@rightkit/legal-ui",
+      "declared": true,
+      "ver": [
+       "0.4.2"
+      ],
+      "use_lines": 1,
+      "use_files": 1
+     },
+     {
+      "owner": "@rightkit/onboarding",
+      "declared": true,
+      "ver": [
+       "0.6.5"
+      ],
+      "use_lines": 2,
+      "use_files": 1
+     }
+    ],
+    "M15": [
+     {
+      "owner": "rightkit-logs",
+      "declared": true,
+      "ver": [
+       "=0.4.1"
+      ],
+      "use_lines": 11,
+      "use_files": 5
+     },
+     {
+      "owner": "@rightkit/logs",
+      "declared": true,
+      "ver": [
+       "0.1.6"
+      ],
+      "use_lines": 2,
+      "use_files": 2
+     }
+    ],
+    "M16": [
+     {
+      "owner": "rightkit-crash",
+      "declared": true,
+      "ver": [
+       "=0.4.1"
+      ],
+      "use_lines": 5,
+      "use_files": 2
+     }
+    ],
+    "M17": [
+     {
+      "owner": "rightkit-http",
+      "declared": true,
+      "ver": [
+       "=0.4.0"
+      ],
+      "use_lines": 5,
+      "use_files": 3
+     }
+    ],
+    "M18": [
+     {
+      "owner": "@rightkit/app-update",
+      "declared": true,
+      "ver": [
+       "0.4.4"
+      ],
+      "use_lines": 2,
+      "use_files": 1
+     }
+    ],
+    "M19": [
+     {
+      "owner": "@rightkit/release",
+      "declared": true,
+      "ver": [
+       "0.6.57"
+      ],
+      "use_lines": 0,
+      "use_files": 0
+     }
+    ],
+    "M20": [
+     {
+      "owner": "rightkit-qa",
+      "declared": true,
+      "ver": [
+       "=0.10.6"
+      ],
+      "use_lines": 11,
+      "use_files": 4
+     },
+     {
+      "owner": "@rightkit/qa",
+      "declared": true,
+      "ver": [
+       "0.7.0"
+      ],
+      "use_lines": 2,
+      "use_files": 2
+     },
+     {
+      "owner": "@rightkit/qa-chrome",
+      "declared": true,
+      "ver": [
+       "0.1.12"
+      ],
+      "use_lines": 1,
+      "use_files": 1
+     }
+    ],
+    "M22": [
+     {
+      "owner": "rightkit-agent-tools",
+      "declared": false,
+      "ver": [],
+      "use_lines": 0,
+      "use_files": 0
+     }
+    ]
+   },
+   "own_ts_files": 40,
+   "other_rightkit_npm": {
+    "@rightkit/agent-ui-approvals": 4,
+    "@rightkit/issues-tracker": 0,
+    "@rightkit/mail-ui": 121,
+    "@rightkit/workspace-ui": 0
+   }
+  }
+ },
+ "scraperight": {
+  "main": {
+   "npm": {
+    "@rightkit/react-shell": [
+     "0.7.2"
+    ],
+    "@rightkit/license": [
+     "0.3.0"
+    ],
+    "@rightkit/logs": [
+     "0.1.6"
+    ],
+    "@rightkit/media-ui": [
+     "0.3.4"
+    ],
+    "@rightkit/legal-ui": [
+     "0.4.1"
+    ],
+    "@rightkit/onboarding": [
+     "0.6.3"
+    ],
+    "@rightkit/platform-ui": [
+     "0.4.0"
+    ],
+    "@rightkit/settings-ui": [
+     "0.7.0"
+    ],
+    "@rightkit/tauri-shell": [
+     "0.1.3"
+    ],
+    "@rightkit/tauri": [
+     "0.3.0"
+    ],
+    "@rightkit/theme": [
+     "0.3.1"
+    ],
+    "@rightkit/app-update": [
+     "0.4.2"
+    ],
+    "@rightkit/doc-render": [
+     "0.2.1"
+    ],
+    "@rightkit/legal": [
+     "0.6.3"
+    ],
+    "@rightkit/qa": [
+     "0.6.1"
+    ],
+    "@rightkit/qa-chrome": [
+     "0.1.12"
+    ],
+    "@rightkit/release": [
+     "0.6.29"
+    ],
+    "@rightkit/issues-tracker": [
+     "0.1.0"
+    ]
+   },
+   "cargo": {
+    "rightkit-bench": [
+     "=0.1.0"
+    ],
+    "rightkit-ffmpeg": [
+     "=0.2.10"
+    ],
+    "rightkit-child-process": [
+     "=0.5.7"
+    ],
+    "rightkit-http": [
+     "=0.3.9"
+    ],
+    "rightkit-sidecar": [
+     "=0.3.0"
+    ],
+    "rightkit-crash": [
+     "=0.3.6"
+    ],
+    "rightkit-daemon": [
+     "=0.5.1"
+    ],
+    "rightkit-fs": [
+     "=0.4.9"
+    ],
+    "rightkit-job-queue": [
+     "=0.5.1"
+    ],
+    "rightkit-search": [
+     "=0.4.1"
+    ],
+    "rightkit-asr": [
+     "=0.3.0"
+    ],
+    "rightkit-playback": [
+     "=0.3.0"
+    ],
+    "rightkit-onnx": [
+     "=0.2.7"
+    ],
+    "rightkit-browser": [
+     "=0.3.6"
+    ],
+    "rightkit-transcript": [
+     "=0.4.0"
+    ],
+    "rightkit-audio": [
+     "=0.3.1"
+    ],
+    "rightkit-models": [
+     "=0.5.3"
+    ],
+    "rightkit-web-extract": [
+     "=0.1.1"
+    ],
+    "rightkit-logs": [
+     "=0.3.7"
+    ],
+    "rightkit-credentials": [
+     "=0.4.3"
+    ],
+    "rightkit-license": [
+     "=0.2.6"
+    ],
+    "rightkit-sync": [
+     "=0.2.2"
+    ],
+    "rightkit-ocr": [
+     "=0.2.3"
+    ],
+    "rightkit-app-settings": [
+     "=0.3.1"
+    ],
+    "rightkit-qa": [
+     "=0.10.0"
+    ],
+    "rightkit-speech-client": [
+     "=0.4.1"
+    ],
+    "rightkit-db": [
+     "=0.5.3"
+    ],
+    "rightkit-device": [
+     "=0.4.0"
+    ],
+    "rightkit-time": [
+     "=0.1.1"
+    ],
+    "rightkit-tauri-shell": [
+     "=0.7.0"
+    ]
+   },
+   "rows": {
+    "M1": [
+     {
+      "owner": "rightkit-tauri-shell",
+      "declared": true,
+      "ver": [
+       "=0.7.0"
+      ],
+      "use_lines": 11,
+      "use_files": 4
+     },
+     {
+      "owner": "rightkit-device",
+      "declared": true,
+      "ver": [
+       "=0.4.0"
+      ],
+      "use_lines": 4,
+      "use_files": 2
+     },
+     {
+      "owner": "@rightkit/tauri",
+      "declared": true,
+      "ver": [
+       "0.3.0"
+      ],
+      "use_lines": 0,
+      "use_files": 0
+     }
+    ],
+    "M2": [
+     {
+      "owner": "@rightkit/react-shell",
+      "declared": true,
+      "ver": [
+       "0.7.2"
+      ],
+      "use_lines": 28,
+      "use_files": 24
+     },
+     {
+      "owner": "@rightkit/platform-ui",
+      "declared": true,
+      "ver": [
+       "0.4.0"
+      ],
+      "use_lines": 6,
+      "use_files": 6
+     },
+     {
+      "owner": "@rightkit/theme",
+      "declared": true,
+      "ver": [
+       "0.3.1"
+      ],
+      "use_lines": 3,
+      "use_files": 3
+     }
+    ],
+    "M3": [
+     {
+      "owner": "rightkit-job-queue",
+      "declared": true,
+      "ver": [
+       "=0.5.1"
+      ],
+      "use_lines": 18,
+      "use_files": 8
+     },
+     {
+      "owner": "rightkit-child-process",
+      "declared": true,
+      "ver": [
+       "=0.5.7"
+      ],
+      "use_lines": 23,
+      "use_files": 12
+     }
+    ],
+    "M4": [
+     {
+      "owner": "rightkit-job-queue",
+      "declared": true,
+      "ver": [
+       "=0.5.1"
+      ],
+      "use_lines": 18,
+      "use_files": 8
+     },
+     {
+      "owner": "rightkit-sidecar",
+      "declared": true,
+      "ver": [
+       "=0.3.0"
+      ],
+      "use_lines": 5,
+      "use_files": 4
+     }
+    ],
+    "M5": [
+     {
+      "owner": "rightkit-child-process",
+      "declared": true,
+      "ver": [
+       "=0.5.7"
+      ],
+      "use_lines": 23,
+      "use_files": 12
+     }
+    ],
+    "M6": [
+     {
+      "owner": "rightkit-daemon",
+      "declared": true,
+      "ver": [
+       "=0.5.1"
+      ],
+      "use_lines": 3,
+      "use_files": 1
+     }
+    ],
+    "M7": [
+     {
+      "owner": "rightkit-daemon",
+      "declared": true,
+      "ver": [
+       "=0.5.1"
+      ],
+      "use_lines": 3,
+      "use_files": 1
+     }
+    ],
+    "M8": [
+     {
+      "owner": "rightkit-fs",
+      "declared": true,
+      "ver": [
+       "=0.4.9"
+      ],
+      "use_lines": 72,
+      "use_files": 21
+     }
+    ],
+    "M9": [
+     {
+      "owner": "rightkit-db",
+      "declared": true,
+      "ver": [
+       "=0.5.3"
+      ],
+      "use_lines": 6,
+      "use_files": 1
+     }
+    ],
+    "M10": [
+     {
+      "owner": "rightkit-app-settings",
+      "declared": true,
+      "ver": [
+       "=0.3.1"
+      ],
+      "use_lines": 13,
+      "use_files": 2
+     },
+     {
+      "owner": "@rightkit/settings-ui",
+      "declared": true,
+      "ver": [
+       "0.7.0"
+      ],
+      "use_lines": 8,
+      "use_files": 7
+     }
+    ],
+    "M11": [
+     {
+      "owner": "rightkit-credentials",
+      "declared": true,
+      "ver": [
+       "=0.4.3"
+      ],
+      "use_lines": 13,
+      "use_files": 4
+     }
+    ],
+    "M12": [
+     {
+      "owner": "rightkit-license",
+      "declared": true,
+      "ver": [
+       "=0.2.6"
+      ],
+      "use_lines": 11,
+      "use_files": 3
+     },
+     {
+      "owner": "rightkit-device",
+      "declared": true,
+      "ver": [
+       "=0.4.0"
+      ],
+      "use_lines": 4,
+      "use_files": 2
+     },
+     {
+      "owner": "@rightkit/license",
+      "declared": true,
+      "ver": [
+       "0.3.0"
+      ],
+      "use_lines": 2,
+      "use_files": 2
+     }
+    ],
+    "M13": [
+     {
+      "owner": "rightkit-license",
+      "declared": true,
+      "ver": [
+       "=0.2.6"
+      ],
+      "use_lines": 11,
+      "use_files": 3
+     }
+    ],
+    "M14": [
+     {
+      "owner": "@rightkit/legal",
+      "declared": true,
+      "ver": [
+       "0.6.3"
+      ],
+      "use_lines": 1,
+      "use_files": 1
+     },
+     {
+      "owner": "@rightkit/legal-ui",
+      "declared": true,
+      "ver": [
+       "0.4.1"
+      ],
+      "use_lines": 0,
+      "use_files": 0
+     },
+     {
+      "owner": "@rightkit/onboarding",
+      "declared": true,
+      "ver": [
+       "0.6.3"
+      ],
+      "use_lines": 6,
+      "use_files": 4
+     }
+    ],
+    "M15": [
+     {
+      "owner": "rightkit-logs",
+      "declared": true,
+      "ver": [
+       "=0.3.7"
+      ],
+      "use_lines": 15,
+      "use_files": 10
+     },
+     {
+      "owner": "@rightkit/logs",
+      "declared": true,
+      "ver": [
+       "0.1.6"
+      ],
+      "use_lines": 1,
+      "use_files": 1
+     }
+    ],
+    "M16": [
+     {
+      "owner": "rightkit-crash",
+      "declared": true,
+      "ver": [
+       "=0.3.6"
+      ],
+      "use_lines": 8,
+      "use_files": 2
+     }
+    ],
+    "M17": [
+     {
+      "owner": "rightkit-http",
+      "declared": true,
+      "ver": [
+       "=0.3.9"
+      ],
+      "use_lines": 23,
+      "use_files": 6
+     }
+    ],
+    "M18": [
+     {
+      "owner": "@rightkit/app-update",
+      "declared": true,
+      "ver": [
+       "0.4.2"
+      ],
+      "use_lines": 3,
+      "use_files": 3
+     }
+    ],
+    "M19": [
+     {
+      "owner": "@rightkit/release",
+      "declared": true,
+      "ver": [
+       "0.6.29"
+      ],
+      "use_lines": 5,
+      "use_files": 4
+     }
+    ],
+    "M20": [
+     {
+      "owner": "rightkit-qa",
+      "declared": true,
+      "ver": [
+       "=0.10.0"
+      ],
+      "use_lines": 8,
+      "use_files": 4
+     },
+     {
+      "owner": "@rightkit/qa",
+      "declared": true,
+      "ver": [
+       "0.6.1"
+      ],
+      "use_lines": 6,
+      "use_files": 6
+     },
+     {
+      "owner": "@rightkit/qa-chrome",
+      "declared": true,
+      "ver": [
+       "0.1.12"
+      ],
+      "use_lines": 2,
+      "use_files": 2
+     }
+    ],
+    "M22": [
+     {
+      "owner": "rightkit-agent-tools",
+      "declared": false,
+      "ver": [],
+      "use_lines": 0,
+      "use_files": 0
+     }
+    ]
+   },
+   "own_ts_files": 76,
+   "other_rightkit_npm": {
+    "@rightkit/doc-render": 3,
+    "@rightkit/issues-tracker": 0,
+    "@rightkit/media-ui": 4,
+    "@rightkit/tauri-shell": 1
+   }
+  },
+  "work": {
+   "npm": {
+    "@rightkit/react-shell": [
+     "0.7.4"
+    ],
+    "@rightkit/license": [
+     "0.3.2"
+    ],
+    "@rightkit/logs": [
+     "0.1.6"
+    ],
+    "@rightkit/media-ui": [
+     "0.3.6"
+    ],
+    "@rightkit/legal-ui": [
+     "0.4.2"
+    ],
+    "@rightkit/onboarding": [
+     "0.6.5"
+    ],
+    "@rightkit/platform-ui": [
+     "0.4.1"
+    ],
+    "@rightkit/settings-ui": [
+     "0.7.2"
+    ],
+    "@rightkit/tauri-shell": [
+     "0.1.4"
+    ],
+    "@rightkit/tauri": [
+     "0.4.2"
+    ],
+    "@rightkit/theme": [
+     "0.3.3"
+    ],
+    "@rightkit/app-update": [
+     "0.4.4"
+    ],
+    "@rightkit/doc-render": [
+     "0.2.2"
+    ],
+    "@rightkit/legal": [
+     "0.6.3"
+    ],
+    "@rightkit/qa": [
+     "0.7.0"
+    ],
+    "@rightkit/qa-chrome": [
+     "0.1.12"
+    ],
+    "@rightkit/release": [
+     "0.6.57"
+    ],
+    "@rightkit/issues-tracker": [
+     "0.1.0"
+    ]
+   },
+   "cargo": {
+    "rightkit-bench": [
+     "=0.2.1"
+    ],
+    "rightkit-sidecar": [
+     "=0.3.4"
+    ],
+    "rightkit-crash": [
+     "=0.4.1"
+    ],
+    "rightkit-daemon": [
+     "=0.9.0"
+    ],
+    "rightkit-fs": [
+     "=0.4.16"
+    ],
+    "rightkit-job-queue": [
+     "=0.6.0"
+    ],
+    "rightkit-search": [
+     "=0.4.5"
+    ],
+    "rightkit-asr": [
+     "=0.5.0"
+    ],
+    "rightkit-ffmpeg": [
+     "=0.3.1"
+    ],
+    "rightkit-playback": [
+     "=0.3.1"
+    ],
+    "rightkit-onnx": [
+     "=0.3.2"
+    ],
+    "rightkit-child-process": [
+     "=0.5.12"
+    ],
+    "rightkit-browser": [
+     "=0.3.6"
+    ],
+    "rightkit-transcript": [
+     "=0.4.2"
+    ],
+    "rightkit-audio": [
+     "=0.3.4"
+    ],
+    "rightkit-models": [
+     "=0.7.1"
+    ],
+    "rightkit-media-fetch": [
+     "=0.2.0"
+    ],
+    "rightkit-library": [
+     "=0.3.0"
+    ],
+    "rightkit-http": [
+     "=0.4.0"
+    ],
+    "rightkit-web-extract": [
+     "=0.1.2"
+    ],
+    "rightkit-logs": [
+     "=0.4.2"
+    ],
+    "rightkit-credentials": [
+     "=0.5.4"
+    ],
+    "rightkit-license": [
+     "=0.3.1"
+    ],
+    "rightkit-sync": [
+     "=0.3.0"
+    ],
+    "rightkit-ocr": [
+     "=0.3.0"
+    ],
+    "rightkit-app-settings": [
+     "=0.4.1"
+    ],
+    "rightkit-qa": [
+     "=0.10.7"
+    ],
+    "rightkit-speech-client": [
+     "=0.5.0"
+    ],
+    "rightkit-roots": [
+     "=0.2.0"
+    ],
+    "rightkit-device": [
+     "=0.5.0"
+    ],
+    "rightkit-time": [
+     "=0.1.4"
+    ],
+    "rightkit-tauri-shell": [
+     "=0.8.0"
+    ]
+   },
+   "rows": {
+    "M1": [
+     {
+      "owner": "rightkit-tauri-shell",
+      "declared": true,
+      "ver": [
+       "=0.8.0"
+      ],
+      "use_lines": 11,
+      "use_files": 4
+     },
+     {
+      "owner": "rightkit-device",
+      "declared": true,
+      "ver": [
+       "=0.5.0"
+      ],
+      "use_lines": 3,
+      "use_files": 2
+     },
+     {
+      "owner": "@rightkit/tauri",
+      "declared": true,
+      "ver": [
+       "0.4.2"
+      ],
+      "use_lines": 0,
+      "use_files": 0
+     }
+    ],
+    "M2": [
+     {
+      "owner": "@rightkit/react-shell",
+      "declared": true,
+      "ver": [
+       "0.7.4"
+      ],
+      "use_lines": 28,
+      "use_files": 24
+     },
+     {
+      "owner": "@rightkit/platform-ui",
+      "declared": true,
+      "ver": [
+       "0.4.1"
+      ],
+      "use_lines": 6,
+      "use_files": 6
+     },
+     {
+      "owner": "@rightkit/theme",
+      "declared": true,
+      "ver": [
+       "0.3.3"
+      ],
+      "use_lines": 3,
+      "use_files": 3
+     }
+    ],
+    "M3": [
+     {
+      "owner": "rightkit-job-queue",
+      "declared": true,
+      "ver": [
+       "=0.6.0"
+      ],
+      "use_lines": 17,
+      "use_files": 7
+     },
+     {
+      "owner": "rightkit-child-process",
+      "declared": true,
+      "ver": [
+       "=0.5.12"
+      ],
+      "use_lines": 17,
+      "use_files": 8
+     }
+    ],
+    "M4": [
+     {
+      "owner": "rightkit-job-queue",
+      "declared": true,
+      "ver": [
+       "=0.6.0"
+      ],
+      "use_lines": 17,
+      "use_files": 7
+     },
+     {
+      "owner": "rightkit-sidecar",
+      "declared": true,
+      "ver": [
+       "=0.3.4"
+      ],
+      "use_lines": 5,
+      "use_files": 4
+     }
+    ],
+    "M5": [
+     {
+      "owner": "rightkit-child-process",
+      "declared": true,
+      "ver": [
+       "=0.5.12"
+      ],
+      "use_lines": 17,
+      "use_files": 8
+     }
+    ],
+    "M6": [
+     {
+      "owner": "rightkit-daemon",
+      "declared": true,
+      "ver": [
+       "=0.9.0"
+      ],
+      "use_lines": 0,
+      "use_files": 0
+     }
+    ],
+    "M7": [
+     {
+      "owner": "rightkit-daemon",
+      "declared": true,
+      "ver": [
+       "=0.9.0"
+      ],
+      "use_lines": 0,
+      "use_files": 0
+     }
+    ],
+    "M8": [
+     {
+      "owner": "rightkit-fs",
+      "declared": true,
+      "ver": [
+       "=0.4.16"
+      ],
+      "use_lines": 59,
+      "use_files": 18
+     }
+    ],
+    "M9": [
+     {
+      "owner": "rightkit-db",
+      "declared": false,
+      "ver": [],
+      "use_lines": 0,
+      "use_files": 0
+     }
+    ],
+    "M10": [
+     {
+      "owner": "rightkit-app-settings",
+      "declared": true,
+      "ver": [
+       "=0.4.1"
+      ],
+      "use_lines": 13,
+      "use_files": 2
+     },
+     {
+      "owner": "@rightkit/settings-ui",
+      "declared": true,
+      "ver": [
+       "0.7.2"
+      ],
+      "use_lines": 8,
+      "use_files": 7
+     }
+    ],
+    "M11": [
+     {
+      "owner": "rightkit-credentials",
+      "declared": true,
+      "ver": [
+       "=0.5.4"
+      ],
+      "use_lines": 12,
+      "use_files": 4
+     }
+    ],
+    "M12": [
+     {
+      "owner": "rightkit-license",
+      "declared": true,
+      "ver": [
+       "=0.3.1"
+      ],
+      "use_lines": 13,
+      "use_files": 3
+     },
+     {
+      "owner": "rightkit-device",
+      "declared": true,
+      "ver": [
+       "=0.5.0"
+      ],
+      "use_lines": 3,
+      "use_files": 2
+     },
+     {
+      "owner": "@rightkit/license",
+      "declared": true,
+      "ver": [
+       "0.3.2"
+      ],
+      "use_lines": 2,
+      "use_files": 2
+     }
+    ],
+    "M13": [
+     {
+      "owner": "rightkit-license",
+      "declared": true,
+      "ver": [
+       "=0.3.1"
+      ],
+      "use_lines": 13,
+      "use_files": 3
+     }
+    ],
+    "M14": [
+     {
+      "owner": "@rightkit/legal",
+      "declared": true,
+      "ver": [
+       "0.6.3"
+      ],
+      "use_lines": 1,
+      "use_files": 1
+     },
+     {
+      "owner": "@rightkit/legal-ui",
+      "declared": true,
+      "ver": [
+       "0.4.2"
+      ],
+      "use_lines": 0,
+      "use_files": 0
+     },
+     {
+      "owner": "@rightkit/onboarding",
+      "declared": true,
+      "ver": [
+       "0.6.5"
+      ],
+      "use_lines": 6,
+      "use_files": 4
+     }
+    ],
+    "M15": [
+     {
+      "owner": "rightkit-logs",
+      "declared": true,
+      "ver": [
+       "=0.4.2"
+      ],
+      "use_lines": 15,
+      "use_files": 9
+     },
+     {
+      "owner": "@rightkit/logs",
+      "declared": true,
+      "ver": [
+       "0.1.6"
+      ],
+      "use_lines": 1,
+      "use_files": 1
+     }
+    ],
+    "M16": [
+     {
+      "owner": "rightkit-crash",
+      "declared": true,
+      "ver": [
+       "=0.4.1"
+      ],
+      "use_lines": 8,
+      "use_files": 2
+     }
+    ],
+    "M17": [
+     {
+      "owner": "rightkit-http",
+      "declared": true,
+      "ver": [
+       "=0.4.0"
+      ],
+      "use_lines": 18,
+      "use_files": 5
+     }
+    ],
+    "M18": [
+     {
+      "owner": "@rightkit/app-update",
+      "declared": true,
+      "ver": [
+       "0.4.4"
+      ],
+      "use_lines": 3,
+      "use_files": 3
+     }
+    ],
+    "M19": [
+     {
+      "owner": "@rightkit/release",
+      "declared": true,
+      "ver": [
+       "0.6.57"
+      ],
+      "use_lines": 5,
+      "use_files": 4
+     }
+    ],
+    "M20": [
+     {
+      "owner": "rightkit-qa",
+      "declared": true,
+      "ver": [
+       "=0.10.7"
+      ],
+      "use_lines": 9,
+      "use_files": 4
+     },
+     {
+      "owner": "@rightkit/qa",
+      "declared": true,
+      "ver": [
+       "0.7.0"
+      ],
+      "use_lines": 6,
+      "use_files": 6
+     },
+     {
+      "owner": "@rightkit/qa-chrome",
+      "declared": true,
+      "ver": [
+       "0.1.12"
+      ],
+      "use_lines": 2,
+      "use_files": 2
+     }
+    ],
+    "M22": [
+     {
+      "owner": "rightkit-agent-tools",
+      "declared": false,
+      "ver": [],
+      "use_lines": 0,
+      "use_files": 0
+     }
+    ]
+   },
+   "own_ts_files": 76,
+   "other_rightkit_npm": {
+    "@rightkit/doc-render": 3,
+    "@rightkit/issues-tracker": 0,
+    "@rightkit/media-ui": 4,
+    "@rightkit/tauri-shell": 1
+   }
+  }
+ },
+ "cutright": {
+  "main": {
+   "npm": {
+    "@rightkit/app-update": [
+     "0.4.2"
+    ],
+    "@rightkit/legal": [
+     "0.6.3"
+    ],
+    "@rightkit/legal-ui": [
+     "0.4.1"
+    ],
+    "@rightkit/license": [
+     "0.3.0"
+    ],
+    "@rightkit/logs": [
+     "0.1.6"
+    ],
+    "@rightkit/media-ui": [
+     "0.3.4"
+    ],
+    "@rightkit/onboarding": [
+     "0.6.3"
+    ],
+    "@rightkit/platform-ui": [
+     "0.4.0"
+    ],
+    "@rightkit/qa": [
+     "0.6.1"
+    ],
+    "@rightkit/react-shell": [
+     "0.7.2"
+    ],
+    "@rightkit/settings-ui": [
+     "0.7.0"
+    ],
+    "@rightkit/tauri": [
+     "0.3.0"
+    ],
+    "@rightkit/tauri-shell": [
+     "0.1.3"
+    ],
+    "@rightkit/theme": [
+     "0.3.1"
+    ],
+    "@rightkit/video-ui": [
+     "0.1.0"
+    ],
+    "@rightkit/config": [
+     "0.1.1"
+    ],
+    "@rightkit/qa-chrome": [
+     "0.1.12"
+    ],
+    "@rightkit/release": [
+     "0.6.40"
+    ]
+   },
+   "cargo": {
+    "rightkit-qa": [
+     "=0.10.0"
+    ],
+    "rightkit-logs": [
+     "=0.3.7"
+    ],
+    "rightkit-fs": [
+     "=0.4.9"
+    ],
+    "rightkit-child-process": [
+     "=0.5.7"
+    ],
+    "rightkit-app-settings": [
+     "=0.3.1"
+    ],
+    "rightkit-device": [
+     "=0.4.0"
+    ],
+    "rightkit-credentials": [
+     "=0.4.3"
+    ],
+    "rightkit-license": [
+     "=0.2.6"
+    ],
+    "rightkit-crash": [
+     "=0.3.6"
+    ],
+    "rightkit-sidecar": [
+     "=0.3.0"
+    ],
+    "rightkit-daemon": [
+     "=0.5.1"
+    ],
+    "rightkit-audio": [
+     "=0.3.1"
+    ],
+    "rightkit-tauri-shell": [
+     "=0.7.0"
+    ],
+    "rightkit-job-queue": [
+     "=0.5.1"
+    ],
+    "rightkit-playback": [
+     "=0.3.0"
+    ],
+    "rightkit-ffmpeg": [
+     "=0.2.13"
+    ],
+    "rightkit-agent-tools": [
+     "=0.3.0"
+    ],
+    "rightkit-automation": [
+     "=0.6.4"
+    ],
+    "rightkit-record": [
+     "=0.3.3"
+    ],
+    "rightkit-hotkeys": [
+     "=0.1.2"
+    ],
+    "rightkit-overlay": [
+     "=0.2.0"
+    ],
+    "rightkit-contracts": [
+     "=0.1.8"
+    ],
+    "rightkit-compose": [
+     "=0.2.2"
+    ],
+    "rightkit-video-project": [
+     "=0.1.0"
+    ],
+    "rightkit-timeline": [
+     "=0.1.0"
+    ],
+    "rightkit-ocr": [
+     "=0.2.3"
+    ],
+    "rightkit-search": [
+     "=0.4.1"
+    ],
+    "rightkit-cache": [
+     "=0.2.3"
+    ],
+    "rightkit-captions": [
+     "=0.1.0"
+    ],
+    "rightkit-autoedit": [
+     "=0.1.1"
+    ],
+    "rightkit-motion": [
+     "=0.2.1"
+    ],
+    "rightkit-pipeline": [
+     "=0.1.1"
+    ],
+    "rightkit-models": [
+     "=0.5.3"
+    ],
+    "rightkit-engine-host": [
+     "=0.1.1"
+    ],
+    "rightkit-doctor": [
+     "=0.1.0"
+    ],
+    "rightkit-reframe": [
+     "=0.1.0"
+    ],
+    "rightkit-shorts": [
+     "=0.1.0"
+    ],
+    "rightkit-color": [
+     "=0.1.0"
+    ],
+    "rightkit-transcript": [
+     "=0.4.0"
+    ],
+    "rightkit-review": [
+     "=0.4.1"
+    ],
+    "rightkit-speech-client": [
+     "=0.4.1"
+    ],
+    "rightkit-vad": [
+     "=0.1.2"
+    ],
+    "rightkit-onnx": [
+     "=0.2.7"
+    ]
+   },
+   "rows": {
+    "M1": [
+     {
+      "owner": "rightkit-tauri-shell",
+      "declared": true,
+      "ver": [
+       "=0.7.0"
+      ],
+      "use_lines": 24,
+      "use_files": 8
+     },
+     {
+      "owner": "rightkit-device",
+      "declared": true,
+      "ver": [
+       "=0.4.0"
+      ],
+      "use_lines": 1,
+      "use_files": 1
+     },
+     {
+      "owner": "@rightkit/tauri",
+      "declared": true,
+      "ver": [
+       "0.3.0"
+      ],
+      "use_lines": 0,
+      "use_files": 0
+     }
+    ],
+    "M2": [
+     {
+      "owner": "@rightkit/react-shell",
+      "declared": true,
+      "ver": [
+       "0.7.2"
+      ],
+      "use_lines": 4,
+      "use_files": 2
+     },
+     {
+      "owner": "@rightkit/platform-ui",
+      "declared": true,
+      "ver": [
+       "0.4.0"
+      ],
+      "use_lines": 0,
+      "use_files": 0
+     },
+     {
+      "owner": "@rightkit/theme",
+      "declared": true,
+      "ver": [
+       "0.3.1"
+      ],
+      "use_lines": 1,
+      "use_files": 1
+     }
+    ],
+    "M3": [
+     {
+      "owner": "rightkit-job-queue",
+      "declared": true,
+      "ver": [
+       "=0.5.1"
+      ],
+      "use_lines": 9,
+      "use_files": 5
+     },
+     {
+      "owner": "rightkit-child-process",
+      "declared": true,
+      "ver": [
+       "=0.5.7"
+      ],
+      "use_lines": 7,
+      "use_files": 5
+     }
+    ],
+    "M4": [
+     {
+      "owner": "rightkit-job-queue",
+      "declared": true,
+      "ver": [
+       "=0.5.1"
+      ],
+      "use_lines": 9,
+      "use_files": 5
+     },
+     {
+      "owner": "rightkit-sidecar",
+      "declared": true,
+      "ver": [
+       "=0.3.0"
+      ],
+      "use_lines": 0,
+      "use_files": 0
+     }
+    ],
+    "M5": [
+     {
+      "owner": "rightkit-child-process",
+      "declared": true,
+      "ver": [
+       "=0.5.7"
+      ],
+      "use_lines": 7,
+      "use_files": 5
+     }
+    ],
+    "M6": [
+     {
+      "owner": "rightkit-daemon",
+      "declared": true,
+      "ver": [
+       "=0.5.1"
+      ],
+      "use_lines": 17,
+      "use_files": 11
+     }
+    ],
+    "M7": [
+     {
+      "owner": "rightkit-daemon",
+      "declared": true,
+      "ver": [
+       "=0.5.1"
+      ],
+      "use_lines": 17,
+      "use_files": 11
+     }
+    ],
+    "M8": [
+     {
+      "owner": "rightkit-fs",
+      "declared": true,
+      "ver": [
+       "=0.4.9"
+      ],
+      "use_lines": 113,
+      "use_files": 30
+     }
+    ],
+    "M9": [
+     {
+      "owner": "rightkit-db",
+      "declared": false,
+      "ver": [],
+      "use_lines": 0,
+      "use_files": 0
+     }
+    ],
+    "M10": [
+     {
+      "owner": "rightkit-app-settings",
+      "declared": true,
+      "ver": [
+       "=0.3.1"
+      ],
+      "use_lines": 10,
+      "use_files": 3
+     },
+     {
+      "owner": "@rightkit/settings-ui",
+      "declared": true,
+      "ver": [
+       "0.7.0"
+      ],
+      "use_lines": 0,
+      "use_files": 0
+     }
+    ],
+    "M11": [
+     {
+      "owner": "rightkit-credentials",
+      "declared": true,
+      "ver": [
+       "=0.4.3"
+      ],
+      "use_lines": 3,
+      "use_files": 2
+     }
+    ],
+    "M12": [
+     {
+      "owner": "rightkit-license",
+      "declared": true,
+      "ver": [
+       "=0.2.6"
+      ],
+      "use_lines": 1,
+      "use_files": 1
+     },
+     {
+      "owner": "rightkit-device",
+      "declared": true,
+      "ver": [
+       "=0.4.0"
+      ],
+      "use_lines": 1,
+      "use_files": 1
+     },
+     {
+      "owner": "@rightkit/license",
+      "declared": true,
+      "ver": [
+       "0.3.0"
+      ],
+      "use_lines": 0,
+      "use_files": 0
+     }
+    ],
+    "M13": [
+     {
+      "owner": "rightkit-license",
+      "declared": true,
+      "ver": [
+       "=0.2.6"
+      ],
+      "use_lines": 1,
+      "use_files": 1
+     }
+    ],
+    "M14": [
+     {
+      "owner": "@rightkit/legal",
+      "declared": true,
+      "ver": [
+       "0.6.3"
+      ],
+      "use_lines": 0,
+      "use_files": 0
+     },
+     {
+      "owner": "@rightkit/legal-ui",
+      "declared": true,
+      "ver": [
+       "0.4.1"
+      ],
+      "use_lines": 1,
+      "use_files": 1
+     },
+     {
+      "owner": "@rightkit/onboarding",
+      "declared": true,
+      "ver": [
+       "0.6.3"
+      ],
+      "use_lines": 0,
+      "use_files": 0
+     }
+    ],
+    "M15": [
+     {
+      "owner": "rightkit-logs",
+      "declared": true,
+      "ver": [
+       "=0.3.7"
+      ],
+      "use_lines": 2,
+      "use_files": 2
+     },
+     {
+      "owner": "@rightkit/logs",
+      "declared": true,
+      "ver": [
+       "0.1.6"
+      ],
+      "use_lines": 1,
+      "use_files": 1
+     }
+    ],
+    "M16": [
+     {
+      "owner": "rightkit-crash",
+      "declared": true,
+      "ver": [
+       "=0.3.6"
+      ],
+      "use_lines": 4,
+      "use_files": 2
+     }
+    ],
+    "M17": [
+     {
+      "owner": "rightkit-http",
+      "declared": false,
+      "ver": [],
+      "use_lines": 0,
+      "use_files": 0
+     }
+    ],
+    "M18": [
+     {
+      "owner": "@rightkit/app-update",
+      "declared": true,
+      "ver": [
+       "0.4.2"
+      ],
+      "use_lines": 0,
+      "use_files": 0
+     }
+    ],
+    "M19": [
+     {
+      "owner": "@rightkit/release",
+      "declared": true,
+      "ver": [
+       "0.6.40"
+      ],
+      "use_lines": 2,
+      "use_files": 2
+     }
+    ],
+    "M20": [
+     {
+      "owner": "rightkit-qa",
+      "declared": true,
+      "ver": [
+       "=0.10.0"
+      ],
+      "use_lines": 28,
+      "use_files": 16
+     },
+     {
+      "owner": "@rightkit/qa",
+      "declared": true,
+      "ver": [
+       "0.6.1"
+      ],
+      "use_lines": 0,
+      "use_files": 0
+     },
+     {
+      "owner": "@rightkit/qa-chrome",
+      "declared": true,
+      "ver": [
+       "0.1.12"
+      ],
+      "use_lines": 0,
+      "use_files": 0
+     }
+    ],
+    "M22": [
+     {
+      "owner": "rightkit-agent-tools",
+      "declared": true,
+      "ver": [
+       "=0.3.0"
+      ],
+      "use_lines": 6,
+      "use_files": 4
+     }
+    ]
+   },
+   "own_ts_files": 4,
+   "other_rightkit_npm": {
+    "@rightkit/config": 0,
+    "@rightkit/media-ui": 2,
+    "@rightkit/tauri-shell": 0,
+    "@rightkit/video-ui": 7
+   }
+  },
+  "work": {
+   "npm": {
+    "@rightkit/app-update": [
+     "0.4.4"
+    ],
+    "@rightkit/legal": [
+     "0.6.3"
+    ],
+    "@rightkit/legal-ui": [
+     "0.4.2"
+    ],
+    "@rightkit/license": [
+     "0.3.2"
+    ],
+    "@rightkit/logs": [
+     "0.1.6"
+    ],
+    "@rightkit/media-ui": [
+     "0.3.6"
+    ],
+    "@rightkit/onboarding": [
+     "0.6.5"
+    ],
+    "@rightkit/platform-ui": [
+     "0.4.1"
+    ],
+    "@rightkit/qa": [
+     "0.7.0"
+    ],
+    "@rightkit/react-shell": [
+     "0.7.4"
+    ],
+    "@rightkit/settings-ui": [
+     "0.7.2"
+    ],
+    "@rightkit/tauri": [
+     "0.4.2"
+    ],
+    "@rightkit/tauri-shell": [
+     "0.1.4"
+    ],
+    "@rightkit/theme": [
+     "0.3.4"
+    ],
+    "@rightkit/video-ui": [
+     "0.2.1"
+    ],
+    "@rightkit/config": [
+     "0.1.1"
+    ],
+    "@rightkit/qa-chrome": [
+     "0.1.12"
+    ],
+    "@rightkit/release": [
+     "0.6.57"
+    ]
+   },
+   "cargo": {
+    "rightkit-qa": [
+     "=0.10.6"
+    ],
+    "rightkit-logs": [
+     "=0.4.2"
+    ],
+    "rightkit-fs": [
+     "=0.4.16"
+    ],
+    "rightkit-child-process": [
+     "=0.5.13"
+    ],
+    "rightkit-app-settings": [
+     "=0.4.1"
+    ],
+    "rightkit-device": [
+     "=0.5.1"
+    ],
+    "rightkit-credentials": [
+     "=0.5.4"
+    ],
+    "rightkit-license": [
+     "=0.3.1"
+    ],
+    "rightkit-crash": [
+     "=0.4.1"
+    ],
+    "rightkit-sidecar": [
+     "=0.3.4"
+    ],
+    "rightkit-daemon": [
+     "=0.9.0"
+    ],
+    "rightkit-roots": [
+     "=0.2.0"
+    ],
+    "rightkit-audio": [
+     "=0.3.4"
+    ],
+    "rightkit-tauri-shell": [
+     "=0.8.2"
+    ],
+    "rightkit-job-queue": [
+     "=0.6.0"
+    ],
+    "rightkit-playback": [
+     "=0.3.1"
+    ],
+    "rightkit-ffmpeg": [
+     "=0.3.1"
+    ],
+    "rightkit-agent-demo": [
+     "=0.2.0"
+    ],
+    "rightkit-agent-tools": [
+     "=0.4.0"
+    ],
+    "rightkit-compose": [
+     "=0.2.3"
+    ],
+    "rightkit-video-project": [
+     "=0.1.3"
+    ],
+    "rightkit-timeline": [
+     "=0.1.1"
+    ],
+    "rightkit-contracts": [
+     "=0.1.11"
+    ],
+    "rightkit-cache": [
+     "=0.2.4"
+    ],
+    "rightkit-captions": [
+     "=0.1.1"
+    ],
+    "rightkit-autoedit": [
+     "=0.2.0"
+    ],
+    "rightkit-motion": [
+     "=0.4.0"
+    ],
+    "rightkit-media-gen-client": [
+     "=0.1.0"
+    ],
+    "rightkit-models": [
+     "=0.7.1"
+    ],
+    "rightkit-engine-host": [
+     "=0.2.0"
+    ],
+    "rightkit-doctor": [
+     "=0.2.0"
+    ],
+    "rightkit-review": [
+     "=0.6.0"
+    ],
+    "rightkit-reframe": [
+     "=0.2.0"
+    ],
+    "rightkit-shorts": [
+     "=0.2.0"
+    ],
+    "rightkit-color": [
+     "=0.1.1"
+    ],
+    "rightkit-transcript": [
+     "=0.4.2"
+    ],
+    "rightkit-speech-client": [
+     "=0.5.0"
+    ],
+    "rightkit-vad": [
+     "=0.2.0"
+    ],
+    "rightkit-onnx": [
+     "=0.3.2"
+    ]
+   },
+   "rows": {
+    "M1": [
+     {
+      "owner": "rightkit-tauri-shell",
+      "declared": true,
+      "ver": [
+       "=0.8.2"
+      ],
+      "use_lines": 20,
+      "use_files": 5
+     },
+     {
+      "owner": "rightkit-device",
+      "declared": true,
+      "ver": [
+       "=0.5.1"
+      ],
+      "use_lines": 1,
+      "use_files": 1
+     },
+     {
+      "owner": "@rightkit/tauri",
+      "declared": true,
+      "ver": [
+       "0.4.2"
+      ],
+      "use_lines": 0,
+      "use_files": 0
+     }
+    ],
+    "M2": [
+     {
+      "owner": "@rightkit/react-shell",
+      "declared": true,
+      "ver": [
+       "0.7.4"
+      ],
+      "use_lines": 4,
+      "use_files": 2
+     },
+     {
+      "owner": "@rightkit/platform-ui",
+      "declared": true,
+      "ver": [
+       "0.4.1"
+      ],
+      "use_lines": 0,
+      "use_files": 0
+     },
+     {
+      "owner": "@rightkit/theme",
+      "declared": true,
+      "ver": [
+       "0.3.4"
+      ],
+      "use_lines": 1,
+      "use_files": 1
+     }
+    ],
+    "M3": [
+     {
+      "owner": "rightkit-job-queue",
+      "declared": true,
+      "ver": [
+       "=0.6.0"
+      ],
+      "use_lines": 9,
+      "use_files": 5
+     },
+     {
+      "owner": "rightkit-child-process",
+      "declared": true,
+      "ver": [
+       "=0.5.13"
+      ],
+      "use_lines": 3,
+      "use_files": 2
+     }
+    ],
+    "M4": [
+     {
+      "owner": "rightkit-job-queue",
+      "declared": true,
+      "ver": [
+       "=0.6.0"
+      ],
+      "use_lines": 9,
+      "use_files": 5
+     },
+     {
+      "owner": "rightkit-sidecar",
+      "declared": true,
+      "ver": [
+       "=0.3.4"
+      ],
+      "use_lines": 0,
+      "use_files": 0
+     }
+    ],
+    "M5": [
+     {
+      "owner": "rightkit-child-process",
+      "declared": true,
+      "ver": [
+       "=0.5.13"
+      ],
+      "use_lines": 3,
+      "use_files": 2
+     }
+    ],
+    "M6": [
+     {
+      "owner": "rightkit-daemon",
+      "declared": true,
+      "ver": [
+       "=0.9.0"
+      ],
+      "use_lines": 2,
+      "use_files": 1
+     }
+    ],
+    "M7": [
+     {
+      "owner": "rightkit-daemon",
+      "declared": true,
+      "ver": [
+       "=0.9.0"
+      ],
+      "use_lines": 2,
+      "use_files": 1
+     }
+    ],
+    "M8": [
+     {
+      "owner": "rightkit-fs",
+      "declared": true,
+      "ver": [
+       "=0.4.16"
+      ],
+      "use_lines": 84,
+      "use_files": 22
+     }
+    ],
+    "M9": [
+     {
+      "owner": "rightkit-db",
+      "declared": false,
+      "ver": [],
+      "use_lines": 0,
+      "use_files": 0
+     }
+    ],
+    "M10": [
+     {
+      "owner": "rightkit-app-settings",
+      "declared": true,
+      "ver": [
+       "=0.4.1"
+      ],
+      "use_lines": 10,
+      "use_files": 3
+     },
+     {
+      "owner": "@rightkit/settings-ui",
+      "declared": true,
+      "ver": [
+       "0.7.2"
+      ],
+      "use_lines": 0,
+      "use_files": 0
+     }
+    ],
+    "M11": [
+     {
+      "owner": "rightkit-credentials",
+      "declared": true,
+      "ver": [
+       "=0.5.4"
+      ],
+      "use_lines": 1,
+      "use_files": 1
+     }
+    ],
+    "M12": [
+     {
+      "owner": "rightkit-license",
+      "declared": true,
+      "ver": [
+       "=0.3.1"
+      ],
+      "use_lines": 1,
+      "use_files": 1
+     },
+     {
+      "owner": "rightkit-device",
+      "declared": true,
+      "ver": [
+       "=0.5.1"
+      ],
+      "use_lines": 1,
+      "use_files": 1
+     },
+     {
+      "owner": "@rightkit/license",
+      "declared": true,
+      "ver": [
+       "0.3.2"
+      ],
+      "use_lines": 0,
+      "use_files": 0
+     }
+    ],
+    "M13": [
+     {
+      "owner": "rightkit-license",
+      "declared": true,
+      "ver": [
+       "=0.3.1"
+      ],
+      "use_lines": 1,
+      "use_files": 1
+     }
+    ],
+    "M14": [
+     {
+      "owner": "@rightkit/legal",
+      "declared": true,
+      "ver": [
+       "0.6.3"
+      ],
+      "use_lines": 0,
+      "use_files": 0
+     },
+     {
+      "owner": "@rightkit/legal-ui",
+      "declared": true,
+      "ver": [
+       "0.4.2"
+      ],
+      "use_lines": 1,
+      "use_files": 1
+     },
+     {
+      "owner": "@rightkit/onboarding",
+      "declared": true,
+      "ver": [
+       "0.6.5"
+      ],
+      "use_lines": 0,
+      "use_files": 0
+     }
+    ],
+    "M15": [
+     {
+      "owner": "rightkit-logs",
+      "declared": true,
+      "ver": [
+       "=0.4.2"
+      ],
+      "use_lines": 1,
+      "use_files": 1
+     },
+     {
+      "owner": "@rightkit/logs",
+      "declared": true,
+      "ver": [
+       "0.1.6"
+      ],
+      "use_lines": 1,
+      "use_files": 1
+     }
+    ],
+    "M16": [
+     {
+      "owner": "rightkit-crash",
+      "declared": true,
+      "ver": [
+       "=0.4.1"
+      ],
+      "use_lines": 4,
+      "use_files": 2
+     }
+    ],
+    "M17": [
+     {
+      "owner": "rightkit-http",
+      "declared": false,
+      "ver": [],
+      "use_lines": 0,
+      "use_files": 0
+     }
+    ],
+    "M18": [
+     {
+      "owner": "@rightkit/app-update",
+      "declared": true,
+      "ver": [
+       "0.4.4"
+      ],
+      "use_lines": 0,
+      "use_files": 0
+     }
+    ],
+    "M19": [
+     {
+      "owner": "@rightkit/release",
+      "declared": true,
+      "ver": [
+       "0.6.57"
+      ],
+      "use_lines": 2,
+      "use_files": 2
+     }
+    ],
+    "M20": [
+     {
+      "owner": "rightkit-qa",
+      "declared": true,
+      "ver": [
+       "=0.10.6"
+      ],
+      "use_lines": 28,
+      "use_files": 16
+     },
+     {
+      "owner": "@rightkit/qa",
+      "declared": true,
+      "ver": [
+       "0.7.0"
+      ],
+      "use_lines": 0,
+      "use_files": 0
+     },
+     {
+      "owner": "@rightkit/qa-chrome",
+      "declared": true,
+      "ver": [
+       "0.1.12"
+      ],
+      "use_lines": 0,
+      "use_files": 0
+     }
+    ],
+    "M22": [
+     {
+      "owner": "rightkit-agent-tools",
+      "declared": true,
+      "ver": [
+       "=0.4.0"
+      ],
+      "use_lines": 0,
+      "use_files": 0
+     }
+    ]
+   },
+   "own_ts_files": 4,
+   "other_rightkit_npm": {
+    "@rightkit/config": 0,
+    "@rightkit/media-ui": 2,
+    "@rightkit/tauri-shell": 0,
+    "@rightkit/video-ui": 9
+   }
+  }
+ },
+ "postright": {
+  "main": {
+   "npm": {
+    "@rightkit/app-update": [
+     "0.4.2"
+    ],
+    "@rightkit/logs": [
+     "0.1.6"
+    ],
+    "@rightkit/platform-ui": [
+     "0.4.0"
+    ],
+    "@rightkit/react-shell": [
+     "0.7.2"
+    ],
+    "@rightkit/tauri": [
+     "0.3.0"
+    ],
+    "@rightkit/tauri-shell": [
+     "0.1.3"
+    ],
+    "@rightkit/theme": [
+     "0.3.1"
+    ],
+    "@rightkit/settings-ui": [
+     "0.7.0"
+    ],
+    "@rightkit/license": [
+     "0.3.0"
+    ],
+    "@rightkit/legal": [
+     "0.6.3"
+    ],
+    "@rightkit/legal-ui": [
+     "0.4.1"
+    ],
+    "@rightkit/onboarding": [
+     "0.6.3"
+    ],
+    "@rightkit/release": [
+     "0.6.29"
+    ],
+    "@rightkit/qa": [
+     "0.6.1"
+    ],
+    "@rightkit/qa-chrome": [
+     "0.1.12"
+    ],
+    "@rightkit/issues-tracker": [
+     "0.1.0"
+    ]
+   },
+   "cargo": {
+    "rightkit-db": [
+     "=0.5.3"
+    ],
+    "rightkit-job-queue": [
+     "=0.5.1"
+    ],
+    "rightkit-credentials": [
+     "=0.4.3"
+    ],
+    "rightkit-app-settings": [
+     "=0.3.1"
+    ],
+    "rightkit-logs": [
+     "=0.3.7"
+    ],
+    "rightkit-crash": [
+     "=0.3.6"
+    ],
+    "rightkit-child-process": [
+     "=0.5.7"
+    ],
+    "rightkit-fs": [
+     "=0.4.9"
+    ],
+    "rightkit-http": [
+     "=0.3.9"
+    ],
+    "rightkit-channel-memory": [
+     "=0.2.2"
+    ],
+    "rightkit-review": [
+     "=0.4.1"
+    ],
+    "rightkit-contracts": [
+     "=0.1.8"
+    ],
+    "rightkit-spend": [
+     "=0.2.0"
+    ],
+    "rightkit-platform-rules": [
+     "=0.1.0"
+    ],
+    "rightkit-time": [
+     "=0.1.1"
+    ],
+    "rightkit-daemon": [
+     "=0.5.1"
+    ],
+    "rightkit-crypto": [
+     "=0.1.0"
+    ],
+    "rightkit-cache": [
+     "=0.2.3"
+    ],
+    "rightkit-social-publish": [
+     "=0.1.1"
+    ],
+    "rightkit-qa": [
+     "=0.10.0"
+    ],
+    "rightkit-sidecar": [
+     "=0.3.0"
+    ],
+    "rightkit-tauri-shell": [
+     "=0.7.0"
+    ],
+    "rightkit-device": [
+     "=0.4.0"
+    ],
+    "rightkit-license": [
+     "=0.2.6"
+    ]
+   },
+   "rows": {
+    "M1": [
+     {
+      "owner": "rightkit-tauri-shell",
+      "declared": true,
+      "ver": [
+       "=0.7.0"
+      ],
+      "use_lines": 6,
+      "use_files": 2
+     },
+     {
+      "owner": "rightkit-device",
+      "declared": true,
+      "ver": [
+       "=0.4.0"
+      ],
+      "use_lines": 2,
+      "use_files": 1
+     },
+     {
+      "owner": "@rightkit/tauri",
+      "declared": true,
+      "ver": [
+       "0.3.0"
+      ],
+      "use_lines": 0,
+      "use_files": 0
+     }
+    ],
+    "M2": [
+     {
+      "owner": "@rightkit/react-shell",
+      "declared": true,
+      "ver": [
+       "0.7.2"
+      ],
+      "use_lines": 27,
+      "use_files": 27
+     },
+     {
+      "owner": "@rightkit/platform-ui",
+      "declared": true,
+      "ver": [
+       "0.4.0"
+      ],
+      "use_lines": 4,
+      "use_files": 4
+     },
+     {
+      "owner": "@rightkit/theme",
+      "declared": true,
+      "ver": [
+       "0.3.1"
+      ],
+      "use_lines": 0,
+      "use_files": 0
+     }
+    ],
+    "M3": [
+     {
+      "owner": "rightkit-job-queue",
+      "declared": true,
+      "ver": [
+       "=0.5.1"
+      ],
+      "use_lines": 7,
+      "use_files": 5
+     },
+     {
+      "owner": "rightkit-child-process",
+      "declared": true,
+      "ver": [
+       "=0.5.7"
+      ],
+      "use_lines": 4,
+      "use_files": 3
+     }
+    ],
+    "M4": [
+     {
+      "owner": "rightkit-job-queue",
+      "declared": true,
+      "ver": [
+       "=0.5.1"
+      ],
+      "use_lines": 7,
+      "use_files": 5
+     },
+     {
+      "owner": "rightkit-sidecar",
+      "declared": true,
+      "ver": [
+       "=0.3.0"
+      ],
+      "use_lines": 0,
+      "use_files": 0
+     }
+    ],
+    "M5": [
+     {
+      "owner": "rightkit-child-process",
+      "declared": true,
+      "ver": [
+       "=0.5.7"
+      ],
+      "use_lines": 4,
+      "use_files": 3
+     }
+    ],
+    "M6": [
+     {
+      "owner": "rightkit-daemon",
+      "declared": true,
+      "ver": [
+       "=0.5.1"
+      ],
+      "use_lines": 25,
+      "use_files": 8
+     }
+    ],
+    "M7": [
+     {
+      "owner": "rightkit-daemon",
+      "declared": true,
+      "ver": [
+       "=0.5.1"
+      ],
+      "use_lines": 25,
+      "use_files": 8
+     }
+    ],
+    "M8": [
+     {
+      "owner": "rightkit-fs",
+      "declared": true,
+      "ver": [
+       "=0.4.9"
+      ],
+      "use_lines": 38,
+      "use_files": 12
+     }
+    ],
+    "M9": [
+     {
+      "owner": "rightkit-db",
+      "declared": true,
+      "ver": [
+       "=0.5.3"
+      ],
+      "use_lines": 168,
+      "use_files": 25
+     }
+    ],
+    "M10": [
+     {
+      "owner": "rightkit-app-settings",
+      "declared": true,
+      "ver": [
+       "=0.3.1"
+      ],
+      "use_lines": 3,
+      "use_files": 3
+     },
+     {
+      "owner": "@rightkit/settings-ui",
+      "declared": true,
+      "ver": [
+       "0.7.0"
+      ],
+      "use_lines": 3,
+      "use_files": 3
+     }
+    ],
+    "M11": [
+     {
+      "owner": "rightkit-credentials",
+      "declared": true,
+      "ver": [
+       "=0.4.3"
+      ],
+      "use_lines": 8,
+      "use_files": 3
+     }
+    ],
+    "M12": [
+     {
+      "owner": "rightkit-license",
+      "declared": true,
+      "ver": [
+       "=0.2.6"
+      ],
+      "use_lines": 1,
+      "use_files": 1
+     },
+     {
+      "owner": "rightkit-device",
+      "declared": true,
+      "ver": [
+       "=0.4.0"
+      ],
+      "use_lines": 2,
+      "use_files": 1
+     },
+     {
+      "owner": "@rightkit/license",
+      "declared": true,
+      "ver": [
+       "0.3.0"
+      ],
+      "use_lines": 1,
+      "use_files": 1
+     }
+    ],
+    "M13": [
+     {
+      "owner": "rightkit-license",
+      "declared": true,
+      "ver": [
+       "=0.2.6"
+      ],
+      "use_lines": 1,
+      "use_files": 1
+     }
+    ],
+    "M14": [
+     {
+      "owner": "@rightkit/legal",
+      "declared": true,
+      "ver": [
+       "0.6.3"
+      ],
+      "use_lines": 1,
+      "use_files": 1
+     },
+     {
+      "owner": "@rightkit/legal-ui",
+      "declared": true,
+      "ver": [
+       "0.4.1"
+      ],
+      "use_lines": 3,
+      "use_files": 3
+     },
+     {
+      "owner": "@rightkit/onboarding",
+      "declared": true,
+      "ver": [
+       "0.6.3"
+      ],
+      "use_lines": 4,
+      "use_files": 4
+     }
+    ],
+    "M15": [
+     {
+      "owner": "rightkit-logs",
+      "declared": true,
+      "ver": [
+       "=0.3.7"
+      ],
+      "use_lines": 7,
+      "use_files": 4
+     },
+     {
+      "owner": "@rightkit/logs",
+      "declared": true,
+      "ver": [
+       "0.1.6"
+      ],
+      "use_lines": 1,
+      "use_files": 1
+     }
+    ],
+    "M16": [
+     {
+      "owner": "rightkit-crash",
+      "declared": true,
+      "ver": [
+       "=0.3.6"
+      ],
+      "use_lines": 4,
+      "use_files": 3
+     }
+    ],
+    "M17": [
+     {
+      "owner": "rightkit-http",
+      "declared": true,
+      "ver": [
+       "=0.3.9"
+      ],
+      "use_lines": 7,
+      "use_files": 5
+     }
+    ],
+    "M18": [
+     {
+      "owner": "@rightkit/app-update",
+      "declared": true,
+      "ver": [
+       "0.4.2"
+      ],
+      "use_lines": 1,
+      "use_files": 1
+     }
+    ],
+    "M19": [
+     {
+      "owner": "@rightkit/release",
+      "declared": true,
+      "ver": [
+       "0.6.29"
+      ],
+      "use_lines": 2,
+      "use_files": 2
+     }
+    ],
+    "M20": [
+     {
+      "owner": "rightkit-qa",
+      "declared": true,
+      "ver": [
+       "=0.10.0"
+      ],
+      "use_lines": 4,
+      "use_files": 4
+     },
+     {
+      "owner": "@rightkit/qa",
+      "declared": true,
+      "ver": [
+       "0.6.1"
+      ],
+      "use_lines": 0,
+      "use_files": 0
+     },
+     {
+      "owner": "@rightkit/qa-chrome",
+      "declared": true,
+      "ver": [
+       "0.1.12"
+      ],
+      "use_lines": 0,
+      "use_files": 0
+     }
+    ],
+    "M22": [
+     {
+      "owner": "rightkit-agent-tools",
+      "declared": false,
+      "ver": [],
+      "use_lines": 0,
+      "use_files": 0
+     }
+    ]
+   },
+   "own_ts_files": 69,
+   "other_rightkit_npm": {
+    "@rightkit/issues-tracker": 0,
+    "@rightkit/tauri-shell": 3
+   }
+  },
+  "work": {
+   "npm": {
+    "@rightkit/app-update": [
+     "0.4.4"
+    ],
+    "@rightkit/logs": [
+     "0.1.6"
+    ],
+    "@rightkit/platform-ui": [
+     "0.4.1"
+    ],
+    "@rightkit/react-shell": [
+     "0.7.4"
+    ],
+    "@rightkit/tauri": [
+     "0.4.2"
+    ],
+    "@rightkit/tauri-shell": [
+     "0.1.4"
+    ],
+    "@rightkit/theme": [
+     "0.3.4"
+    ],
+    "@rightkit/settings-ui": [
+     "0.7.2"
+    ],
+    "@rightkit/social-ui": [
+     "0.2.0"
+    ],
+    "@rightkit/license": [
+     "0.3.2"
+    ],
+    "@rightkit/legal": [
+     "0.6.3"
+    ],
+    "@rightkit/legal-ui": [
+     "0.4.2"
+    ],
+    "@rightkit/onboarding": [
+     "0.6.5"
+    ],
+    "@rightkit/release": [
+     "0.6.57"
+    ],
+    "@rightkit/qa": [
+     "0.7.0"
+    ],
+    "@rightkit/qa-chrome": [
+     "0.1.12"
+    ],
+    "@rightkit/issues-tracker": [
+     "0.1.0"
+    ]
+   },
+   "cargo": {
+    "rightkit-db": [
+     "=0.5.8"
+    ],
+    "rightkit-job-queue": [
+     "=0.6.0"
+    ],
+    "rightkit-credentials": [
+     "=0.5.4"
+    ],
+    "rightkit-app-settings": [
+     "=0.4.1"
+    ],
+    "rightkit-logs": [
+     "=0.4.1"
+    ],
+    "rightkit-crash": [
+     "=0.4.1"
+    ],
+    "rightkit-child-process": [
+     "=0.5.12"
+    ],
+    "rightkit-fs": [
+     "=0.4.15"
+    ],
+    "rightkit-http": [
+     "=0.4.0"
+    ],
+    "rightkit-channel-memory": [
+     "=0.2.3"
+    ],
+    "rightkit-review": [
+     "=0.5.0"
+    ],
+    "rightkit-contracts": [
+     "=0.1.11"
+    ],
+    "rightkit-spend": [
+     "=0.2.3"
+    ],
+    "rightkit-platform-rules": [
+     "=0.1.1"
+    ],
+    "rightkit-time": [
+     "=0.1.4"
+    ],
+    "rightkit-daemon": [
+     "=0.9.0"
+    ],
+    "rightkit-roots": [
+     "=0.2.0"
+    ],
+    "rightkit-crypto": [
+     "=0.1.3"
+    ],
+    "rightkit-cache": [
+     "=0.2.4"
+    ],
+    "rightkit-content-plan": [
+     "=0.2.1"
+    ],
+    "rightkit-social-inbox": [
+     "=0.3.1"
+    ],
+    "rightkit-social-analytics": [
+     "=0.3.0"
+    ],
+    "rightkit-content-proof": [
+     "=0.1.1"
+    ],
+    "rightkit-social-publish": [
+     "=0.2.0"
+    ],
+    "rightkit-qa": [
+     "=0.10.6"
+    ],
+    "rightkit-sidecar": [
+     "=0.3.4"
+    ],
+    "rightkit-tauri-shell": [
+     "=0.8.0"
+    ],
+    "rightkit-device": [
+     "=0.5.0"
+    ],
+    "rightkit-license": [
+     "=0.3.1"
+    ]
+   },
+   "rows": {
+    "M1": [
+     {
+      "owner": "rightkit-tauri-shell",
+      "declared": true,
+      "ver": [
+       "=0.8.0"
+      ],
+      "use_lines": 6,
+      "use_files": 2
+     },
+     {
+      "owner": "rightkit-device",
+      "declared": true,
+      "ver": [
+       "=0.5.0"
+      ],
+      "use_lines": 2,
+      "use_files": 1
+     },
+     {
+      "owner": "@rightkit/tauri",
+      "declared": true,
+      "ver": [
+       "0.4.2"
+      ],
+      "use_lines": 0,
+      "use_files": 0
+     }
+    ],
+    "M2": [
+     {
+      "owner": "@rightkit/react-shell",
+      "declared": true,
+      "ver": [
+       "0.7.4"
+      ],
+      "use_lines": 5,
+      "use_files": 5
+     },
+     {
+      "owner": "@rightkit/platform-ui",
+      "declared": true,
+      "ver": [
+       "0.4.1"
+      ],
+      "use_lines": 2,
+      "use_files": 2
+     },
+     {
+      "owner": "@rightkit/theme",
+      "declared": true,
+      "ver": [
+       "0.3.4"
+      ],
+      "use_lines": 0,
+      "use_files": 0
+     }
+    ],
+    "M3": [
+     {
+      "owner": "rightkit-job-queue",
+      "declared": true,
+      "ver": [
+       "=0.6.0"
+      ],
+      "use_lines": 7,
+      "use_files": 5
+     },
+     {
+      "owner": "rightkit-child-process",
+      "declared": true,
+      "ver": [
+       "=0.5.12"
+      ],
+      "use_lines": 4,
+      "use_files": 3
+     }
+    ],
+    "M4": [
+     {
+      "owner": "rightkit-job-queue",
+      "declared": true,
+      "ver": [
+       "=0.6.0"
+      ],
+      "use_lines": 7,
+      "use_files": 5
+     },
+     {
+      "owner": "rightkit-sidecar",
+      "declared": true,
+      "ver": [
+       "=0.3.4"
+      ],
+      "use_lines": 0,
+      "use_files": 0
+     }
+    ],
+    "M5": [
+     {
+      "owner": "rightkit-child-process",
+      "declared": true,
+      "ver": [
+       "=0.5.12"
+      ],
+      "use_lines": 4,
+      "use_files": 3
+     }
+    ],
+    "M6": [
+     {
+      "owner": "rightkit-daemon",
+      "declared": true,
+      "ver": [
+       "=0.9.0"
+      ],
+      "use_lines": 3,
+      "use_files": 1
+     }
+    ],
+    "M7": [
+     {
+      "owner": "rightkit-daemon",
+      "declared": true,
+      "ver": [
+       "=0.9.0"
+      ],
+      "use_lines": 3,
+      "use_files": 1
+     }
+    ],
+    "M8": [
+     {
+      "owner": "rightkit-fs",
+      "declared": true,
+      "ver": [
+       "=0.4.15"
+      ],
+      "use_lines": 41,
+      "use_files": 14
+     }
+    ],
+    "M9": [
+     {
+      "owner": "rightkit-db",
+      "declared": true,
+      "ver": [
+       "=0.5.8"
+      ],
+      "use_lines": 131,
+      "use_files": 19
+     }
+    ],
+    "M10": [
+     {
+      "owner": "rightkit-app-settings",
+      "declared": true,
+      "ver": [
+       "=0.4.1"
+      ],
+      "use_lines": 3,
+      "use_files": 3
+     },
+     {
+      "owner": "@rightkit/settings-ui",
+      "declared": true,
+      "ver": [
+       "0.7.2"
+      ],
+      "use_lines": 3,
+      "use_files": 3
+     }
+    ],
+    "M11": [
+     {
+      "owner": "rightkit-credentials",
+      "declared": true,
+      "ver": [
+       "=0.5.4"
+      ],
+      "use_lines": 8,
+      "use_files": 3
+     }
+    ],
+    "M12": [
+     {
+      "owner": "rightkit-license",
+      "declared": true,
+      "ver": [
+       "=0.3.1"
+      ],
+      "use_lines": 1,
+      "use_files": 1
+     },
+     {
+      "owner": "rightkit-device",
+      "declared": true,
+      "ver": [
+       "=0.5.0"
+      ],
+      "use_lines": 2,
+      "use_files": 1
+     },
+     {
+      "owner": "@rightkit/license",
+      "declared": true,
+      "ver": [
+       "0.3.2"
+      ],
+      "use_lines": 1,
+      "use_files": 1
+     }
+    ],
+    "M13": [
+     {
+      "owner": "rightkit-license",
+      "declared": true,
+      "ver": [
+       "=0.3.1"
+      ],
+      "use_lines": 1,
+      "use_files": 1
+     }
+    ],
+    "M14": [
+     {
+      "owner": "@rightkit/legal",
+      "declared": true,
+      "ver": [
+       "0.6.3"
+      ],
+      "use_lines": 1,
+      "use_files": 1
+     },
+     {
+      "owner": "@rightkit/legal-ui",
+      "declared": true,
+      "ver": [
+       "0.4.2"
+      ],
+      "use_lines": 3,
+      "use_files": 3
+     },
+     {
+      "owner": "@rightkit/onboarding",
+      "declared": true,
+      "ver": [
+       "0.6.5"
+      ],
+      "use_lines": 4,
+      "use_files": 4
+     }
+    ],
+    "M15": [
+     {
+      "owner": "rightkit-logs",
+      "declared": true,
+      "ver": [
+       "=0.4.1"
+      ],
+      "use_lines": 6,
+      "use_files": 4
+     },
+     {
+      "owner": "@rightkit/logs",
+      "declared": true,
+      "ver": [
+       "0.1.6"
+      ],
+      "use_lines": 1,
+      "use_files": 1
+     }
+    ],
+    "M16": [
+     {
+      "owner": "rightkit-crash",
+      "declared": true,
+      "ver": [
+       "=0.4.1"
+      ],
+      "use_lines": 4,
+      "use_files": 3
+     }
+    ],
+    "M17": [
+     {
+      "owner": "rightkit-http",
+      "declared": true,
+      "ver": [
+       "=0.4.0"
+      ],
+      "use_lines": 5,
+      "use_files": 5
+     }
+    ],
+    "M18": [
+     {
+      "owner": "@rightkit/app-update",
+      "declared": true,
+      "ver": [
+       "0.4.4"
+      ],
+      "use_lines": 1,
+      "use_files": 1
+     }
+    ],
+    "M19": [
+     {
+      "owner": "@rightkit/release",
+      "declared": true,
+      "ver": [
+       "0.6.57"
+      ],
+      "use_lines": 2,
+      "use_files": 2
+     }
+    ],
+    "M20": [
+     {
+      "owner": "rightkit-qa",
+      "declared": true,
+      "ver": [
+       "=0.10.6"
+      ],
+      "use_lines": 4,
+      "use_files": 4
+     },
+     {
+      "owner": "@rightkit/qa",
+      "declared": true,
+      "ver": [
+       "0.7.0"
+      ],
+      "use_lines": 0,
+      "use_files": 0
+     },
+     {
+      "owner": "@rightkit/qa-chrome",
+      "declared": true,
+      "ver": [
+       "0.1.12"
+      ],
+      "use_lines": 0,
+      "use_files": 0
+     }
+    ],
+    "M22": [
+     {
+      "owner": "rightkit-agent-tools",
+      "declared": false,
+      "ver": [],
+      "use_lines": 0,
+      "use_files": 0
+     }
+    ]
+   },
+   "own_ts_files": 14,
+   "other_rightkit_npm": {
+    "@rightkit/issues-tracker": 0,
+    "@rightkit/social-ui": 9,
+    "@rightkit/tauri-shell": 2
+   }
+  }
+ }
+}
