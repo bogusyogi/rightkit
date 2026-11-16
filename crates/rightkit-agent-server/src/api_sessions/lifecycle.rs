@@ -137,7 +137,10 @@ pub(crate) async fn list_sessions(
                     // Patch the live entry with persisted metadata. Live engine
                     // ownership is authoritative for runtime handles, while
                     // storage is authoritative for operator-edited labels.
-                    if let Some(entry) = out.iter_mut().find(|e| e["id"].as_str() == Some(&r.id)) {
+                    if let Some(entry) = out
+                        .iter_mut()
+                        .find(|e| e["id"].as_str() == Some(r.id.as_str()))
+                    {
                         let cfg: serde_json::Value =
                             serde_json::from_str(&r.config_json).unwrap_or(serde_json::Value::Null);
                         entry["title"] = serde_json::json!(r.title);
@@ -288,13 +291,13 @@ pub(crate) async fn list_sessions(
         out.retain(|s| {
             s["tags"]
                 .as_array()
-                .map(|arr| arr.iter().any(|v| v.as_str() == Some(tag)))
+                .map(|arr| arr.iter().any(|v| v.as_str() == Some(tag.as_str())))
                 .unwrap_or(false)
         });
     }
     // Apply optional status filter.
     if let Some(ref status) = query.status {
-        out.retain(|s| s["status"].as_str() == Some(status));
+        out.retain(|s| s["status"].as_str() == Some(status.as_str()));
     }
     if let Some(q) = query.q.as_deref().map(str::trim).filter(|q| !q.is_empty()) {
         let q = q.to_lowercase();

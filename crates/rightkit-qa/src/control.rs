@@ -8,6 +8,7 @@
 //! orders without it; the environment carries only the file's path. The harness never searches for
 //! processes by name to kill them: it records the pid it started and kills that
 //! tree only.
+#![allow(clippy::result_large_err)] // rightkit_daemon::ServiceError carries structured diagnostic context by design, and that crate allows this lint for it; its size passes the threshold only when a sibling enables a larger serde_json::Value
 use crate::process::{is_alive, kill_tree, Tracker};
 use crate::util::{err, new_id, sleep_ms, Error, Result};
 use crate::workspace::QaWorkspace;

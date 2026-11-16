@@ -396,6 +396,11 @@ fn membrane_pids(journey: &G01) -> BTreeSet<u32> {
                 None => continue,
             }
         };
+        // Where the listing gives a full path (macOS), only this test's own binary counts: another `membrane` on the machine (a different
+        // build, another agent's call) starting or ending during the journey is not something this journey left behind.
+        if name.contains('/') && Path::new(&name) != Path::new(env!("CARGO_BIN_EXE_membrane")) {
+            continue;
+        }
         let image = Path::new(&name)
             .file_name()
             .map(|file| file.to_string_lossy().to_ascii_lowercase())
