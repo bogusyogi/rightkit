@@ -7,7 +7,7 @@
 
 use crate::context::ToolContext;
 use crate::tool_trait::{Tool, ToolResult};
-use globset::{Glob, GlobMatcher};
+use globset::{Glob, GlobBuilder, GlobMatcher};
 use ignore::WalkBuilder;
 use serde_json::{json, Value};
 
@@ -21,8 +21,24 @@ const HARD_MAX: usize = 5000;
 /// workspace-relative path (`src/**/*.rs`); a bare pattern (`*.rs`) is matched
 /// against the file name only. Returns the matcher and whether it's path-scoped.
 pub(crate) fn build_matcher(pattern: &str) -> Result<(GlobMatcher, bool), String> {
+    build_matcher_with(pattern, false)
+}
+
+/// [`build_matcher`], with `literal_separator` `*` and `?` stop at `/`, so `src/*.rs` lists the
+/// files of `src` and not those nested below it (`**` still crosses it).
+fn build_matcher_with(
+    pattern: &str,
+    literal_separator: bool,
+) -> Result<(GlobMatcher, bool), String> {
     let path_scoped = pattern.contains('/') || pattern.contains("**");
-    let glob = Glob::new(pattern).map_err(|e| format!("Invalid glob '{pattern}': {e}"))?;
+    let glob = if literal_separator {
+        GlobBuilder::new(pattern)
+            .literal_separator(true)
+            .build()
+            .map_err(|e| format!("Invalid glob '{pattern}': {e}"))?
+    } else {
+        Glob::new(pattern).map_err(|e| format!("Invalid glob '{pattern}': {e}"))?
+    };
     Ok((glob.compile_matcher(), path_scoped))
 }
 
@@ -81,21 +97,24 @@ pub fn discover_workspace_files_filtered(
         return Ok((Vec::new(), false));
     }
     let deadline = budget.map(|duration| std::time::Instant::now() + duration);
+    let newer = crate::tool_options::list_files_newer();
     let matcher = match glob {
-        Some(g) => Some(build_matcher(g)?),
+        Some(g) => Some(build_matcher_with(g, newer)?),
         None => None,
     };
     let mut out: Vec<String> = Vec::new();
     let mut truncated = false;
-    for entry in WalkBuilder::new(root)
-        .hidden(false)
+    let mut walk = WalkBuilder::new(root);
+    walk.hidden(false)
         .git_ignore(true)
         .git_global(true)
         .require_git(false)
-        .filter_entry(crate::search::not_noise_dir)
-        .build()
-        .flatten()
-    {
+        .filter_entry(crate::search::not_noise_dir);
+    if newer {
+        // Walk in path order so a listing cut at `max` is the same first `max` files every time.
+        walk.sort_by_file_path(|a, b| a.cmp(b));
+    }
+    for entry in walk.build().flatten() {
         if deadline.is_some_and(|limit| std::time::Instant::now() >= limit) {
             truncated = true;
             break;
@@ -125,7 +144,11 @@ pub fn discover_workspace_files_filtered(
             break;
         }
     }
-    out.sort();
+    if newer {
+        out.sort_by(|a, b| std::path::Path::new(a).cmp(std::path::Path::new(b)));
+    } else {
+        out.sort();
+    }
     Ok((out, truncated))
 }
 
@@ -180,7 +203,7 @@ impl Tool for ListFilesTool {
             },
         };
         if let Some(g) = args["glob"].as_str() {
-            if let Err(e) = build_matcher(g) {
+            if let Err(e) = build_matcher_with(g, crate::tool_options::list_files_newer()) {
                 return ToolResult::error(format!("invalid_glob: {e}"));
             }
         }
@@ -220,6 +243,9 @@ impl Tool for ListFilesTool {
             // itself is the actionable number here: raise `max` or narrow
             // `glob`.
             body.push_str(&format!("\n[truncated at {max} files]"));
+            if crate::tool_options::list_files_newer() {
+                body.push_str("\nNarrow with `glob` or `path`, or raise `max`.");
+            }
         }
         ToolResult::ok(body)
     }

@@ -9914,7 +9914,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-agent-coding-tools"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -9924,6 +9924,7 @@ dependencies = [
  "git2",
  "globset",
  "ignore",
+ "image",
  "libc 0.2.191",
  "portable-pty",
  "regex",

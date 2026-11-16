@@ -13,6 +13,36 @@ pub(crate) const MAX_NOTEBOOK_CELLS: usize = 10_000;
 pub(crate) const MAX_PDF_BYTES: usize = 32 * 1024 * 1024;
 const MAX_PDF_PAGES: usize = 2_000;
 const MAX_PDF_PAGE_WINDOW: usize = 50;
+/// Byte ceiling of one read that passes `allow_large: true` (host option `read_file_windows`); the
+/// line cap is lifted for it.
+const ALLOW_LARGE_OUTPUT_BYTES: usize = 1024 * 1024;
+/// Windows at or above this keep the full caps; smaller ones scale down in proportion, so one read
+/// cannot fill a small model's context (host option `read_file_windows`).
+const FULL_CAP_WINDOW_TOKENS: u64 = 131_072;
+/// Longest edge sent to the provider; larger images are downscaled first (host option
+/// `images_downscaled`).
+#[cfg(feature = "host")]
+const PROVIDER_IMAGE_MAX_EDGE: u32 = 2000;
+/// Most memory the image decoder may allocate for one downscale (host option `images_downscaled`).
+#[cfg(feature = "host")]
+const DOWNSCALE_MAX_ALLOC: u64 = 256 * 1024 * 1024;
+
+/// (default line cap, byte cap) for a model window in tokens; `None` keeps the full caps.
+fn read_caps(window_tokens: Option<u64>) -> (usize, usize) {
+    match window_tokens {
+        Some(window) if window > 0 && window < FULL_CAP_WINDOW_TOKENS => {
+            let scale = |full: usize, floor: usize| {
+                ((full as u128 * window as u128 / FULL_CAP_WINDOW_TOKENS as u128) as usize)
+                    .max(floor)
+            };
+            (
+                scale(DEFAULT_LINE_CAP, 100),
+                scale(MAX_TEXT_OUTPUT_BYTES, 8 * 1024),
+            )
+        }
+        _ => (DEFAULT_LINE_CAP, MAX_TEXT_OUTPUT_BYTES),
+    }
+}
 
 pub(crate) fn read_bounded_bytes(
     path: &Path,
@@ -55,10 +85,45 @@ impl Tool for ReadFileTool {
     }
 
     fn description(&self) -> &str {
+        if crate::tool_options::read_file_windows() {
+            return "Read file content with hashline prefixes (e.g., '     1:a3f: fn main() {'). Each call returns at most 2000 lines or 128 KB; for a larger file page with offset/limit (limit up to 2000), starting at line 1 and continuing from the offset the result names, or pass allow_large=true to read up to 1 MiB in one call. Reading every range from line 1 to the end counts as reading the whole file. A path must resolve inside the workspace root: an absolute path inside it works, one outside it, or one that climbs with ../ past the root, fails.";
+        }
         "Read file content with hashline prefixes (e.g., '     1:a3f: fn main() {'). Use offset/limit to page through large files (default cap: 2000 lines). Fail: passes absolute path outside workspace root, or path climbs with ../ past root."
     }
 
     fn input_schema(&self) -> Value {
+        if crate::tool_options::read_file_windows() {
+            return json!({
+                "type": "object",
+                "required": ["path"],
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Path to the file to read (relative to the workspace root, or absolute inside it)"
+                    },
+                    "offset": {
+                        "type": "integer",
+                        "description": "Line number to start reading from (1-based, inclusive)"
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Maximum number of lines to read"
+                    },
+                    "allow_large": {
+                        "type": "boolean",
+                        "description": "Lift the 2000-line cap and raise the byte cap from 128 KB to 1 MiB for this read (a bigger file still pages with offset)"
+                    },
+                    "page": {
+                        "type": "integer",
+                        "description": "For PDFs, 1-based page number to extract"
+                    },
+                    "page_limit": {
+                        "type": "integer",
+                        "description": "For PDFs, maximum number of pages to extract starting at page"
+                    }
+                }
+            });
+        }
         json!({
             "type": "object",
             "required": ["path"],
@@ -159,12 +224,47 @@ impl Tool for ReadFileTool {
             return result;
         }
 
+        let windows = crate::tool_options::read_file_windows();
+        // A NUL byte in the first 8 KiB means binary: lossy text with hashlines would be noise and
+        // would wrongly count as a read, so answer with the size and record no receipt. (Latin-1
+        // text has no NUL.)
+        if windows {
+            if let Ok(mut probe) = std::fs::File::open(&path) {
+                let mut head = [0_u8; 8 * 1024];
+                if let Ok(read) = probe.read(&mut head) {
+                    if head[..read].contains(&0) {
+                        let bytes = probe.metadata().map(|m| m.len()).unwrap_or(read as u64);
+                        return ToolResult::ok(format!(
+                            "'{}' is a binary file ({bytes} bytes), not shown as text. Inspect it with a shell command (xxd, file).",
+                            path.display()
+                        ));
+                    }
+                }
+            }
+        }
+
         let offset = args["offset"].as_u64().map(|v| v as usize);
         let limit = args["limit"].as_u64().map(|v| v as usize);
+        let allow_large = windows && args["allow_large"].as_bool().unwrap_or(false);
 
-        match read_text_file_window(&path, offset, limit) {
+        match read_text_file_window(
+            &path,
+            offset,
+            limit,
+            windows.then_some((ctx.model_window_tokens, allow_large)),
+        ) {
             Ok(output) => {
-                if let Err(error) = ctx.file_service.record_read(&path, output.complete) {
+                let recorded = if crate::tool_options::edit_read_discipline() {
+                    ctx.file_service.record_read_window(
+                        &path,
+                        output.start,
+                        output.shown_end,
+                        output.reached_eof,
+                    )
+                } else {
+                    ctx.file_service.record_read(&path, output.complete)
+                };
+                if let Err(error) = recorded {
                     return ToolResult::error(error);
                 }
                 ToolResult::ok(output.rendered)
@@ -177,20 +277,37 @@ impl Tool for ReadFileTool {
 struct TextWindow {
     rendered: String,
     complete: bool,
+    /// 0-based first line of the window and 0-based end (exclusive) of the real lines shown;
+    /// truncation marker rows are not counted.
+    start: usize,
+    shown_end: usize,
+    reached_eof: bool,
 }
 
+/// Read one window of `path`. `windows` is `Some((model window tokens, allow_large))` under host
+/// option `read_file_windows` (scaled caps, exact line counts and the corrected resume offset),
+/// `None` for the fixed caps.
 fn read_text_file_window(
     path: &Path,
     offset: Option<usize>,
     limit: Option<usize>,
+    windows: Option<(Option<u64>, bool)>,
 ) -> std::io::Result<TextWindow> {
     let file = std::fs::File::open(path)?;
     let mut reader = BufReader::new(file);
     let start = offset.map(|o| o.saturating_sub(1)).unwrap_or(0);
-    let requested_limit = limit.unwrap_or(DEFAULT_LINE_CAP);
+    let newer = windows.is_some();
+    let (line_cap, byte_cap) = match windows {
+        Some((_, true)) => (usize::MAX, ALLOW_LARGE_OUTPUT_BYTES),
+        Some((window_tokens, false)) => read_caps(window_tokens),
+        None => (DEFAULT_LINE_CAP, MAX_TEXT_OUTPUT_BYTES),
+    };
+    let requested_limit = limit.unwrap_or(line_cap);
     let mut line_number = 0usize;
     let mut selected = Vec::new();
     let mut output_bytes = 0usize;
+    let mut shown_lines = 0usize;
+    let mut reached_eof = true;
 
     while let Some((line, line_was_truncated)) = read_text_line(&mut reader)? {
         let line_index = line_number;
@@ -198,14 +315,18 @@ fn read_text_file_window(
         if line_index < start {
             continue;
         }
-        if selected.len() >= requested_limit {
+        // The newer count leaves the truncation marker rows out of the limit.
+        if (if newer { shown_lines } else { selected.len() }) >= requested_limit {
+            reached_eof = false;
             break;
         }
         let rendered = format_hashline(line_index + 1, &line);
-        if output_bytes.saturating_add(rendered.len() + 1) > MAX_TEXT_OUTPUT_BYTES {
+        if output_bytes.saturating_add(rendered.len() + 1) > byte_cap {
+            reached_eof = false;
             break;
         }
         output_bytes += rendered.len() + 1;
+        shown_lines += 1;
         selected.push(rendered);
         if line_was_truncated {
             selected.push("[line truncated at 2,000 Unicode scalars]".to_string());
@@ -215,9 +336,13 @@ fn read_text_file_window(
     let mut output = selected.join("\n");
     let explicit_window = offset.is_some() || limit.is_some();
     let shown_from = start.saturating_add(1);
-    let shown_to = start + selected.len();
+    let shown_to = start + if newer { shown_lines } else { selected.len() };
+    // Older rule: a window that ends at end of file is complete wherever it began. Newer rule: only
+    // a read that began at line 1 (or continued one) counts, which the file service decides from
+    // the recorded window.
     let complete = line_number == shown_to;
-    let window_was_capped = !complete;
+    let window_was_capped = if newer { !reached_eof } else { !complete };
+    let resume_at = if newer { shown_to + 1 } else { shown_to };
 
     if window_was_capped {
         if !output.is_empty() {
@@ -226,16 +351,25 @@ fn read_text_file_window(
         if explicit_window {
             if limit.is_none() {
                 output.push_str(&format!(
-                    "[read is bounded; showing lines {shown_from}-{shown_to}. Use offset/limit to read more; resume at offset {shown_to}.]"
+                    "[read is bounded; showing lines {shown_from}-{shown_to}. Use offset/limit to read more; resume at offset {resume_at}.]"
                 ));
             } else {
                 output.push_str(&format!(
-                    "[read is bounded; showing lines {shown_from}-{shown_to}. Resume at offset {shown_to}.]"
+                    "[read is bounded; showing lines {shown_from}-{shown_to}. Resume at offset {resume_at}.]"
                 ));
             }
         } else {
             output.push_str(&format!(
-                "[read is bounded; showing first {DEFAULT_LINE_CAP} lines. Resume at offset {shown_to}.]"
+                "[read is bounded; showing first {} lines. Resume at offset {resume_at}.]",
+                if newer {
+                    if line_cap == usize::MAX {
+                        shown_lines
+                    } else {
+                        line_cap
+                    }
+                } else {
+                    DEFAULT_LINE_CAP
+                }
             ));
         }
     } else if output.is_empty() && start >= line_number {
@@ -247,6 +381,9 @@ fn read_text_file_window(
     Ok(TextWindow {
         rendered: output,
         complete,
+        start,
+        shown_end: start + shown_lines,
+        reached_eof,
     })
 }
 
@@ -356,6 +493,8 @@ fn read_image_file(path: &Path) -> ToolResult {
         ));
     }
     let mime = actual.mime();
+    let (bytes, width, height) =
+        downscale_for_provider(&bytes, mime, width, height).unwrap_or((bytes, width, height));
     let encoded = rightkit_crypto::base64_encode(&bytes);
     ToolResult::ok(format!(
         "Image file: {}\nsize: {} bytes\nmime: {}\ndimensions: {width}x{height}\ndata_url: data:{};base64,{}",
@@ -365,6 +504,56 @@ fn read_image_file(path: &Path) -> ToolResult {
         mime,
         encoded
     ))
+}
+
+/// A PNG or JPEG whose longest edge is over the provider limit, scaled to fit it and re-encoded in
+/// the same format, with its new dimensions. `None` when the host option `images_downscaled` is
+/// off, no scaling is needed, the format is not PNG or JPEG, the declared size is over
+/// `MAX_IMAGE_PIXELS` (decoding it could need gigabytes), the image cannot be decoded within the
+/// decoder's memory limit, or this build has no decoder (no `host` feature): the caller then sends
+/// the original bytes.
+pub(crate) fn downscale_for_provider(
+    bytes: &[u8],
+    mime: &str,
+    width: u32,
+    height: u32,
+) -> Option<(Vec<u8>, u32, u32)> {
+    if !crate::tool_options::images_downscaled() {
+        return None;
+    }
+    #[cfg(feature = "host")]
+    {
+        if width.max(height) <= PROVIDER_IMAGE_MAX_EDGE {
+            return None;
+        }
+        if u64::from(width).saturating_mul(u64::from(height)) > MAX_IMAGE_PIXELS {
+            return None;
+        }
+        let format = match mime {
+            "image/png" => image::ImageFormat::Png,
+            "image/jpeg" => image::ImageFormat::Jpeg,
+            _ => return None,
+        };
+        let mut reader = image::ImageReader::with_format(std::io::Cursor::new(bytes), format);
+        let mut limits = image::Limits::default();
+        limits.max_alloc = Some(DOWNSCALE_MAX_ALLOC);
+        reader.limits(limits);
+        let decoded = reader.decode().ok()?;
+        let scaled = decoded.resize(
+            PROVIDER_IMAGE_MAX_EDGE,
+            PROVIDER_IMAGE_MAX_EDGE,
+            image::imageops::FilterType::Triangle,
+        );
+        let (w, h) = (scaled.width(), scaled.height());
+        let mut out = std::io::Cursor::new(Vec::new());
+        scaled.write_to(&mut out, format).ok()?;
+        Some((out.into_inner(), w, h))
+    }
+    #[cfg(not(feature = "host"))]
+    {
+        let _ = (bytes, mime, width, height);
+        None
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

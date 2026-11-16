@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-agent-coding-tools"
-version = "0.1.8"
+version = "0.1.9"
 edition = "2021"
 rust-version = "1.98.0"
 description = "The coding agent's host tools (files, edit and patch, shell and PTY, git, browser, MCP, LSP, tasks, checkpoints, sandboxing) behind an async `Tool` trait and a `ToolRegistry`."
@@ -16,7 +16,7 @@ default = []
 # The OS credential store for the MCP and provider secrets. Off by default; a host without one (an iOS app) leaves it out.
 os-keyring = ["rightkit-mcp/agent_mcp-os-keyring", "rightkit-llm/agent_providers-os-keyring"]
 # The host-process tools: browser, OCR, media, plugins, PTY, OS keyring (`os-keyring`) and host-environment overrides. Was `rightkit-agent-tools` `coding_tools-host`.
-host = ["code-mode", "dep:rightkit-browser", "dep:rightkit-ocr", "dep:rightkit-ffmpeg", "dep:rightkit-agent-plugins", "dep:portable-pty", "os-keyring", "rightkit-agent-config/host-env", "rightkit-mcp/agent_mcp-host-env", "rightkit-llm/agent_providers-host-env"]
+host = ["code-mode", "dep:image", "dep:rightkit-browser", "dep:rightkit-ocr", "dep:rightkit-ffmpeg", "dep:rightkit-agent-plugins", "dep:portable-pty", "os-keyring", "rightkit-agent-config/host-env", "rightkit-mcp/agent_mcp-host-env", "rightkit-llm/agent_providers-host-env"]
 # The QuickJS code-mode tool. Was `coding_tools-code-mode`.
 code-mode = ["dep:rquickjs"]
 # Local embedding inference. Was `coding_tools-embeddings`.
@@ -66,6 +66,7 @@ rightkit-ocr = { version = "0.3.0", path = "../rightkit-ocr", default-features =
 rightkit-ffmpeg = { version = "0.3.0", path = "../rightkit-ffmpeg", features = ["agent_media"], optional = true }
 rightkit-agent-plugins = { version = "0.1.0", path = "../rightkit-agent-plugins", optional = true }
 portable-pty = { version = "0.9", optional = true }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"], optional = true }
 rquickjs = { version = "=0.14.0", features = ["futures"], optional = true }
 
 # One Cargo workspace and lock per crate (rightkit#1285).

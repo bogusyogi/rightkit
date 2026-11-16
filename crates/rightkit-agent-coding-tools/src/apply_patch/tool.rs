@@ -11,6 +11,9 @@ impl Tool for ApplyPatchTool {
     }
 
     fn description(&self) -> &str {
+        if crate::tool_options::apply_patch_newer() {
+            return "Apply a custom patch to files. Format: lines starting with '*** ' set the target file, '--- ' remove a line, '+++ ' add a line, and bare lines are context that must match. A Codex patch (`*** Begin Patch` with `*** Update File: path` / `*** Add File: path` headers, `@@` markers, and ` `/`-`/`+` prefixed lines) is also accepted.";
+        }
         "Apply a custom patch to files. Format: lines starting with '*** ' set the target file, '--- ' remove a line, '+++ ' add a line, and bare lines are context that must match."
     }
 
@@ -32,7 +35,18 @@ impl Tool for ApplyPatchTool {
             return Vec::new();
         };
         let mut targets: Vec<PathBuf> = Vec::new();
-        for line in parse_patch(patch) {
+        // A Codex envelope names its files differently; read the targets from its translation.
+        let translated = if crate::tool_options::apply_patch_newer() {
+            match translate_codex_envelope(patch) {
+                Some(Ok(translated)) => Some(translated),
+                // The call is refused, so no file is written and none needs a restore point.
+                Some(Err(_)) => return Vec::new(),
+                None => None,
+            }
+        } else {
+            None
+        };
+        for line in parse_patch(translated.as_ref().map_or(patch, |t| t.native.as_str())) {
             if let PatchLine::FilePath(path) = line {
                 if let Ok(resolved) =
                     crate::read_file::resolve_in_workspace(&path, &ctx.workspace_root)
@@ -52,38 +66,91 @@ impl Tool for ApplyPatchTool {
             None => return ToolResult::error("Missing required argument: patch"),
         };
 
+        let newer = crate::tool_options::apply_patch_newer();
+        let discipline = crate::tool_options::edit_read_discipline();
+        // A Codex `*** Begin Patch` envelope is translated to the native format first.
+        let translated = if newer {
+            match translate_codex_envelope(patch_str) {
+                Some(Ok(native)) => Some(native),
+                Some(Err(error)) => return ToolResult::error(error),
+                None => None,
+            }
+        } else {
+            None
+        };
+        let added_files: &[String] = translated.as_ref().map_or(&[], |t| &t.added_files);
+        let patch_str = translated.as_ref().map_or(patch_str, |t| t.native.as_str());
+
         let patch_lines = parse_patch(patch_str);
 
-        // Split into per-file hunks
-        let mut hunks: Vec<(PathBuf, Vec<PatchLine>)> = Vec::new();
-        let mut current_file: Option<PathBuf> = None;
+        // Split into per-file hunks. With host option `apply_patch_newer`, fail closed on anything
+        // that used to be dropped silently: body lines before the first header, a header with no
+        // body, and Codex envelope markers such as `*** Begin Patch`, which would otherwise become
+        // a bogus target path.
+        let mut hunks: Vec<(PathBuf, Vec<PatchLine>, bool)> = Vec::new();
+        let mut current_file: Option<(String, PathBuf)> = None;
         let mut current_lines: Vec<PatchLine> = Vec::new();
 
-        for line in &patch_lines {
+        for (index, line) in patch_lines.iter().enumerate() {
             match line {
                 PatchLine::FilePath(path_str) => {
-                    if let Some(file) = current_file.take() {
-                        if !current_lines.is_empty() {
-                            hunks.push((file, std::mem::take(&mut current_lines)));
+                    if newer {
+                        let marker = path_str.trim();
+                        if matches!(marker, "Begin Patch" | "End Patch" | "End of File")
+                            || ["Update File:", "Add File:", "Delete File:", "Move to:"]
+                                .iter()
+                                .any(|prefix| marker.starts_with(prefix))
+                        {
+                            return ToolResult::error(format!(
+                                "Patch line {}: '*** {marker}' is a Codex patch envelope marker, not a file path. This tool's format: '*** path' sets the file, '--- ' removes a line, '+++ ' adds a line, and bare lines are context.",
+                                index + 1
+                            ));
+                        }
+                    }
+                    if let Some((name, file)) = current_file.take() {
+                        if current_lines.is_empty() {
+                            if newer {
+                                return ToolResult::error(format!(
+                                    "No patch lines for '{name}'. Give each '*** path' header at least one '--- ', '+++ ' or context line (use write_file to create an empty file)."
+                                ));
+                            }
+                        } else {
+                            let is_added = added_files.contains(&name);
+                            hunks.push((file, std::mem::take(&mut current_lines), is_added));
                         }
                     }
                     current_file =
                         match crate::read_file::resolve_in_workspace(path_str, &ctx.workspace_root)
                         {
-                            Ok(path) => Some(path),
+                            Ok(path) => Some((path_str.clone(), path)),
                             Err(error) => return ToolResult::error(error),
                         };
                 }
                 other => {
                     if current_file.is_some() {
                         current_lines.push(other.clone());
+                    } else if newer
+                        && !matches!(other, PatchLine::Context(text) if text.trim().is_empty())
+                    {
+                        return ToolResult::error(format!(
+                            "Patch line {} appears before the first '*** path' header: {:?}. Start the patch with '*** path/to/file'.",
+                            index + 1,
+                            patch_str.lines().nth(index).unwrap_or_default()
+                        ));
                     }
                 }
             }
         }
-        if let Some(file) = current_file.take() {
-            if !current_lines.is_empty() {
-                hunks.push((file, current_lines));
+        if let Some((name, file)) = current_file.take() {
+            if current_lines.is_empty() {
+                if newer {
+                    return ToolResult::error(format!(
+                        "No patch lines for '{name}'. Give each '*** path' header at least one '--- ', '+++ ' or context line (use write_file to create an empty file)."
+                    ));
+                }
+            } else {
+                let is_added = added_files.contains(&name);
+                hunks.push((file, current_lines, is_added));
             }
         }
 
@@ -95,7 +162,19 @@ impl Tool for ApplyPatchTool {
 
         // Preflight every target before writing any hunk so a later sensitive
         // target cannot leave an earlier non-sensitive hunk partially applied.
-        for (path, _) in &hunks {
+        for (path, _, is_added) in &hunks {
+            if *is_added && path.exists() {
+                return ToolResult::error(format!(
+                    "'{}' already exists; an '*** Add File:' section creates a new file. Use '*** Update File:' to change it, or write_file to replace it.",
+                    path.display()
+                ));
+            }
+            if newer {
+                // The patch holds the whole file and edits copies of it in memory.
+                if let Some(refusal) = crate::edit_helpers::oversize_file_refusal(path) {
+                    return ToolResult::error(refusal);
+                }
+            }
             if let Err(error) = crate::durable_write::require_path_authorization(path, ctx) {
                 return ToolResult::error(error);
             }
@@ -117,19 +196,23 @@ impl Tool for ApplyPatchTool {
             original: String,
             modified: String,
             intent: crate::file_service::MutationIntent,
+            /// A line of the patch only fit through the whitespace/punctuation tolerance.
+            inexact: bool,
         }
 
         // Prepare every file completely before the FileService batch is
         // journaled or any ordinary workspace byte is mutated. Repeated hunks
         // for the same file stage against the prior staged result.
         let mut prepared: Vec<PreparedPatch> = Vec::new();
-        for (path, lines) in &hunks {
-            let path_str_for_check = path.to_string_lossy();
+        for (path, lines, _) in &hunks {
+            // Evaluate the canonical workspace-relative target, like the other edit tools, so a
+            // symlink alias cannot hide a protected (e.g. test) file from the policy rules.
+            let policy_path = crate::read_file::policy_target_path(path, &ctx.workspace_root);
             let verdict = engine.evaluate(
                 CapabilityClass::WriteFile,
                 ctx.permission_mode,
                 ctx.workspace_trust,
-                Some(&path_str_for_check),
+                Some(&policy_path),
                 false,
             );
             if verdict.decision == PermissionDecision::Deny {
@@ -149,6 +232,9 @@ impl Tool for ApplyPatchTool {
             }
 
             if let Some(existing) = prepared.iter_mut().find(|item| item.path == *path) {
+                if discipline {
+                    existing.inexact |= !patch_old_lines_are_exact(&existing.modified, lines);
+                }
                 existing.modified = match apply_to_content(&existing.modified, lines) {
                     Ok(modified) => modified,
                     Err(error) => {
@@ -162,7 +248,21 @@ impl Tool for ApplyPatchTool {
             }
 
             let existed = path.exists();
-            let intent = if existed {
+            let intent = if existed && discipline {
+                // The current revision is observed (before the content is read), not recorded as
+                // a read the model never made.
+                let revision = match ctx.file_service.observe_preimage(path) {
+                    Ok(crate::file_service::ExpectedPreimage::Revision(revision)) => revision,
+                    Ok(crate::file_service::ExpectedPreimage::Missing) => {
+                        return ToolResult::error(format!(
+                            "'{}' disappeared before the patch",
+                            path.display()
+                        ))
+                    }
+                    Err(error) => return ToolResult::error(error.to_string()),
+                };
+                crate::file_service::MutationIntent::update(path, revision)
+            } else if existed {
                 let receipt = match ctx.file_service.record_read(path, true) {
                     Ok(receipt) => receipt,
                     Err(error) => return ToolResult::error(error),
@@ -192,13 +292,34 @@ impl Tool for ApplyPatchTool {
                     ));
                 }
             };
+            let inexact = discipline && existed && !patch_old_lines_are_exact(&original, lines);
             prepared.push(PreparedPatch {
                 path: path.clone(),
                 existed,
                 original,
                 modified,
                 intent,
+                inexact,
             });
+        }
+
+        // A patch whose lines only matched through the tolerance needs the whole file read first,
+        // as an inexact `edit_file` does; the read must still be current.
+        for item in prepared
+            .iter_mut()
+            .filter(|item| item.inexact && item.existed)
+        {
+            match ctx.file_service.require_read_receipt(&item.path) {
+                Ok(revision) => {
+                    item.intent = crate::file_service::MutationIntent::update(&item.path, revision)
+                }
+                Err(error) => {
+                    return ToolResult::error(format!(
+                        "Patch for '{}' matched only through whitespace or punctuation tolerance, so the file must be read first: {error}",
+                        item.path.display()
+                    ))
+                }
+            }
         }
 
         let entries = prepared

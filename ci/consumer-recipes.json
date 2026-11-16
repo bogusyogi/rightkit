@@ -4297,9 +4297,9 @@
       "pkId": "PK251",
       "id": "ci/consumers/rightkit-agent-coding-tools/src/main.rs",
       "files": {
-        "Cargo.toml": "5f98d6d8e52d1dc8468dde01c8197cfd2e173f8bc608612907959dade8c203f9",
-        "README.md": "db4c880eb62b6a4af8da73e0253f448917cfac4fdc792ee071bf69036c120462",
-        "src/main.rs": "d058e1c592ae7f912a7febbe260e7e0439e4cbd68e9cd0d01682fe134b6b81d0"
+        "Cargo.toml": "417a6b9b358cca2d0606bab411725d692325d01c2976a3188f287558dfcca51c",
+        "README.md": "869a94a5e9d713d8a403923427381947e95f3b61ab0ebea9ec8d28a851b036b7",
+        "src/main.rs": "84a6ef8ee020b776525e6efd185c1e649458f162e44450a3d5df504951d37273"
       }
     }
   }
