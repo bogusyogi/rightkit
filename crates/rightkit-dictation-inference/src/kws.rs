@@ -52,6 +52,13 @@ pub const FRESH_CONFIRMATION_TAIL_SAMPLES: usize = SAMPLE_RATE as usize / 5;
 const CONFIRM_CONTEXT_SAMPLES: usize = SAMPLE_RATE as usize * 2;
 pub const CONFIRM_STEP_SAMPLES: usize = SAMPLE_RATE as usize / 20;
 pub const CONFIRM_TIMEOUT_SAMPLES: usize = SAMPLE_RATE as usize * 3 / 2;
+/// How far before the wake candidate's start a cut or first-token sample may fall and still be
+/// plausible for that candidate (0.6 s). A temporal plausibility window, not an occurrence
+/// identity test. Used only by a non-default [`KwsCutSource`].
+const CONFIRM_ALIGNED_GUARD_LEAD_SAMPLES: usize = SAMPLE_RATE as usize * 3 / 5;
+/// `KwsCutSource::WakeWithinConfirm`: the wake candidate's cut is kept only when it lies within
+/// this many samples (400 ms) of the confirmed command path's own cut.
+const WAKE_CONFIRM_AGREE_SAMPLES: usize = SAMPLE_RATE as usize * 2 / 5;
 /// A real two-word command completed in 0.72-1.12s across the 14-clip
 /// production corpus. Reject paths spanning more than 2s so the spotter cannot
 /// combine an old wake-like prefix with a much later action word.
@@ -177,6 +184,61 @@ impl KwsOnsetMethod {
     }
 }
 
+/// Where a confirmed command's cut starts. Only [`KwsCutSource::WakeCandidate`] (the default)
+/// keeps the wake candidate's cut ([`KwsSwitches::onset`]); the others re-decide it from the
+/// confirm path's own first-token sample when the command latches, and are a host option, not a
+/// qualified default. A confirm sample outside the wake candidate's plausibility window (see
+/// the guard in [`guarded_confirm_cut`]) is not trusted for that candidate.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum KwsCutSource {
+    /// The wake candidate's chosen onset ([`KwsSwitches::onset`]): today's cut.
+    WakeCandidate,
+    /// The confirm path's forced-alignment first-token frame, shifted by
+    /// [`KwsSwitches::cut_source_shift_ms`]. Falls back to the wake candidate's cut when that
+    /// estimate or its stream origin is missing or outside the candidate's plausibility window.
+    ConfirmAligned,
+    /// The confirm path's forced-alignment first-token sample with ZERO shift
+    /// (`cut_source_shift_ms` is ignored). A missing estimate or one outside the candidate's
+    /// plausibility window yields NO trusted boundary (the command keeps its text and carries
+    /// no timed token, so the worker attempts no audio cut), never the wake candidate's cut.
+    ConfirmFirstToken,
+    /// The earlier of the confirm first-token sample (aligned, zero shift) and the wake
+    /// candidate's cut. Abstains like `ConfirmFirstToken`.
+    ConfirmEarlier,
+    /// The wake candidate's cut when it lies within 400 ms of the confirm first-token sample
+    /// (aligned, zero shift), else the confirm sample. Abstains like `ConfirmFirstToken`.
+    WakeWithinConfirm,
+    /// Like `ConfirmFirstToken` with the confirm path's first-token EMISSION timestamp (stream
+    /// origin + first keyword timestamp, a missing origin, missing or negative or non-finite
+    /// timestamp being "no estimate") instead of the aligned estimate.
+    ConfirmFirstTokenEmission,
+    /// `ConfirmEarlier` with the emission confirm sample.
+    ConfirmEarlierEmission,
+    /// `WakeWithinConfirm` with the emission confirm sample.
+    WakeWithinConfirmEmission,
+}
+
+/// Which timestamp of the confirm path a cut source reads.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ConfirmTimestamp {
+    /// The forced-alignment first-token estimate (`onset.aligned`).
+    Aligned,
+    /// The confirm stream's first keyword timestamp (emission), independent of the optional
+    /// onset estimators.
+    Emission,
+}
+
+impl KwsCutSource {
+    fn confirm_timestamp(self) -> ConfirmTimestamp {
+        match self {
+            KwsCutSource::ConfirmFirstTokenEmission
+            | KwsCutSource::ConfirmEarlierEmission
+            | KwsCutSource::WakeWithinConfirmEmission => ConfirmTimestamp::Emission,
+            _ => ConfirmTimestamp::Aligned,
+        }
+    }
+}
+
 /// Switches for the Rust keyword spotter. No environment is read; every build uses
 /// [`KwsSwitches::default`], which is today's behaviour. The onset switches move
 /// only the cut; decoder switches can change detections and require qualification.
@@ -256,6 +318,24 @@ pub struct KwsSwitches {
     /// `transcribe_continuous_full_command_result` has no wake stream and REJECTS it before it
     /// changes any state. Default `0`.
     pub shared_front_end: bool,
+    /// Where a confirmed command's cut starts. Default [`KwsCutSource::WakeCandidate`] (today's
+    /// cut). Any other source needs [`KwsSwitches::onset`] estimation for the aligned sources,
+    /// cannot be combined with `fricative_strict` or `shared_front_end` (checked by
+    /// [`KwsSwitches::validate`]), and changes only the cut, never what is detected.
+    pub cut_source: KwsCutSource,
+    /// Milliseconds added to the [`KwsCutSource::ConfirmAligned`] cut only; every other source
+    /// ignores it. Default -200.
+    pub cut_source_shift_ms: i32,
+    /// A wake detection whose START is less than this many samples after the START of the
+    /// previous ACCEPTED wake detection is dropped, whether or not that candidate is still
+    /// held (it survives candidate expiry), until the clock resets (`reset_stream` or a cascade
+    /// invalidation). Applied before the overlap rule, which still runs. Default 0 = off
+    /// (overlap-only debounce, today's rule). 16_000 = 1 s.
+    pub wake_refractory_samples: usize,
+    /// Also drop a wake detection whose start is within this many samples, either side, of the
+    /// HELD candidate's start, on top of the overlap rule. Only acts while a candidate is held.
+    /// Default 0 = off.
+    pub wake_start_proximity_samples: usize,
 }
 
 /// Which trace records to keep. Default off (`KwsSwitches::trace` `None`); every value is
@@ -367,6 +447,10 @@ impl Default for KwsSwitches {
             encoder_state_reuse: tuning.encoder_state_reuse,
             decoder_table: tuning.decoder_table,
             shared_front_end: tuning.shared_front_end,
+            cut_source: KwsCutSource::WakeCandidate,
+            cut_source_shift_ms: -200,
+            wake_refractory_samples: 0,
+            wake_start_proximity_samples: 0,
         }
     }
 }
@@ -387,6 +471,17 @@ impl KwsSwitches {
         }
         if self.gap_guard.is_some_and(|gap| !(1..=1000).contains(&gap)) {
             return Err("gap_guard must be 1 to 1000 encoder frames".into());
+        }
+        if self.cut_source != KwsCutSource::WakeCandidate {
+            if self.fricative_strict {
+                return Err(
+                    "cut_source needs the wake candidate to carry a cut: not with fricative_strict"
+                        .into(),
+                );
+            }
+            if self.shared_front_end {
+                return Err("cut_source is not qualified with shared_front_end".into());
+            }
         }
         if let Some(trace) = self.trace {
             if !trace.firing && trace.window_frames == 0 {
@@ -817,9 +912,48 @@ struct CascadeClock {
     candidate: Option<WakeCandidate>,
     /// Last id handed out by [`CascadeClock::observe_wake`].
     last_id: u64,
+    /// Start of the previous ACCEPTED wake detection; survives candidate expiry, cleared with
+    /// the clock.
+    last_accepted_start: Option<usize>,
+    /// [`KwsSwitches::wake_refractory_samples`]; 0 = off.
+    refractory_samples: usize,
+    /// [`KwsSwitches::wake_start_proximity_samples`]; 0 = off.
+    proximity_samples: usize,
+}
+
+/// Refractory: true when `next_start` is less than `refractory_samples` after the previous
+/// accepted detection's start. Off (false) when 0 or when nothing was accepted yet.
+fn refractory_blocks(
+    last_accepted_start: Option<usize>,
+    next_start: usize,
+    refractory_samples: usize,
+) -> bool {
+    refractory_samples > 0
+        && last_accepted_start
+            .is_some_and(|last| next_start < last.saturating_add(refractory_samples))
+}
+
+/// True when `next` repeats the held `current`: overlapping intervals (always), or, with a
+/// proximity window, starting within `proximity_samples` of its start.
+fn wake_is_duplicate(
+    current: WakeCandidate,
+    next: WakeCandidate,
+    proximity_samples: usize,
+) -> bool {
+    (current.start_sample <= next.end_sample && next.start_sample <= current.end_sample)
+        || (proximity_samples > 0
+            && next.start_sample.abs_diff(current.start_sample) < proximity_samples)
 }
 
 impl CascadeClock {
+    fn with_switches(switches: &KwsSwitches) -> Self {
+        Self {
+            refractory_samples: switches.wake_refractory_samples,
+            proximity_samples: switches.wake_start_proximity_samples,
+            ..Self::default()
+        }
+    }
+
     fn observe_wake(
         &mut self,
         start_sample: usize,
@@ -838,13 +972,22 @@ impl CascadeClock {
         // A fixed start-time refractory window is unsafe: a user can say a
         // second Zephyr shortly after an unconfirmed first one, and that
         // second command must own the cut boundary.
-        if self.candidate.is_some_and(|current| {
-            current.start_sample <= next.end_sample && next.start_sample <= current.end_sample
-        }) {
+        if refractory_blocks(
+            self.last_accepted_start,
+            next.start_sample,
+            self.refractory_samples,
+        ) {
+            return None;
+        }
+        if self
+            .candidate
+            .is_some_and(|current| wake_is_duplicate(current, next, self.proximity_samples))
+        {
             return None;
         }
         self.last_id = next.id;
         self.candidate = Some(next);
+        self.last_accepted_start = Some(next.start_sample);
         Some(next.id)
     }
 
@@ -866,6 +1009,7 @@ impl CascadeClock {
     /// never reused across `clear`.
     fn clear(&mut self) {
         self.candidate = None;
+        self.last_accepted_start = None;
     }
 }
 
@@ -954,7 +1098,7 @@ impl Kws {
             hey_wake_available,
             hey_wake_threshold: None,
             idle_wake_stream: None,
-            clock: CascadeClock::default(),
+            clock: CascadeClock::with_switches(&switches),
             wake_stream: None,
             confirmation_stream: None,
             shared_confirmation: None,
@@ -1253,6 +1397,54 @@ impl Kws {
             emission_start,
             candidate,
         )
+    }
+
+    /// The candidate a latched command cuts with, under [`KwsSwitches::cut_source`]. The
+    /// default source returns `candidate` unchanged (cut and source label included). Another
+    /// source returns it with the cut and label re-decided from the confirm result
+    /// (`origin` is the confirm stream's absolute origin); no trusted boundary is a candidate
+    /// with no cut, so the command carries no timed token and the worker attempts no cut.
+    fn latched_candidate(
+        &self,
+        candidate: WakeCandidate,
+        result: &KeywordResult,
+        origin: Option<usize>,
+    ) -> WakeCandidate {
+        if self.switches.cut_source == KwsCutSource::WakeCandidate {
+            return candidate;
+        }
+        let aligned = result
+            .detection
+            .as_ref()
+            .and_then(|detection| detection.onset.as_ref())
+            .and_then(|onset| onset.aligned);
+        // One stream clock: both timestamp methods map through the confirm stream origin.
+        let estimate = match self.switches.cut_source.confirm_timestamp() {
+            ConfirmTimestamp::Emission => {
+                emission_confirm_sample(origin, result.timestamps.first().copied()).1
+            }
+            ConfirmTimestamp::Aligned => origin
+                .zip(aligned)
+                .map(|(origin, aligned)| onset_sample(origin, aligned)),
+        };
+        match decide_latched_cut(
+            self.switches.cut_source,
+            candidate,
+            origin.is_some(),
+            estimate,
+            self.switches.cut_source_shift_ms,
+        ) {
+            LatchedCut::Cut(cut, label) => WakeCandidate {
+                cut_start_sample: Some(cut),
+                cut_source: label,
+                ..candidate
+            },
+            LatchedCut::NoTrustedBoundary(label) => WakeCandidate {
+                cut_start_sample: None,
+                cut_source: label,
+                ..candidate
+            },
+        }
     }
 
     /// Log one detection's onset candidates (`kws_onset_candidates`) and keep the
@@ -1702,6 +1894,11 @@ impl Kws {
             return Ok((empty_result(), None));
         };
         let latch = command_text(&result.keyword).is_some_and(|text| text != "zephyr");
+        let candidate = if latch {
+            self.latched_candidate(candidate, &result, snapshot_start_sample)
+        } else {
+            candidate
+        };
         self.report_onset(
             "fresh_confirm",
             &result,
@@ -1874,6 +2071,11 @@ impl Kws {
                         .shared_confirmation
                         .as_ref()
                         .map(|shared| shared.origin_sample));
+                let candidate = if latch {
+                    self.latched_candidate(candidate, &result, origin)
+                } else {
+                    candidate
+                };
                 self.report_onset(
                     "confirm",
                     &result,
@@ -2686,6 +2888,180 @@ fn select_cut(
     };
     let shift = i64::from(shift_ms) * i64::from(SAMPLE_RATE) / 1_000;
     (Some((base as i64 + shift).max(0) as usize), source)
+}
+
+/// Seconds to samples for a keyword timestamp, `None` for a non-finite, negative or
+/// implausibly large value (one hour of audio is the ceiling).
+fn checked_seconds_to_samples(seconds: f32) -> Option<usize> {
+    (seconds.is_finite() && (0.0..=3_600.0).contains(&seconds))
+        .then(|| (seconds * SAMPLE_RATE as f32).round() as usize)
+}
+
+/// Emission confirm evidence: the stream-relative RAW sample of the first keyword
+/// timestamp and its sample on the outer clock (`origin` + raw). The raw value is
+/// `None` when the timestamp is missing or invalid; the mapped value is `None` when
+/// the raw value is `None` OR the stream origin is missing (the raw value is still
+/// returned without an origin). Never origin 0 or a default timestamp.
+fn emission_confirm_sample(
+    origin: Option<usize>,
+    first_timestamp: Option<f32>,
+) -> (Option<usize>, Option<usize>) {
+    let raw = first_timestamp.and_then(checked_seconds_to_samples);
+    let mapped = origin
+        .zip(raw)
+        .map(|(origin, raw)| origin.saturating_add(raw));
+    (raw, mapped)
+}
+
+/// The cut a non-default [`KwsCutSource`] picks from the wake candidate's cut and the (already
+/// guarded and shifted) confirm-path cut, with its source label. Pure: the temporal
+/// plausibility guard has run before this is called. The same choice code serves the aligned
+/// and the emission timestamp; only the label differs.
+fn resolve_cut(source: KwsCutSource, wake_cut: usize, confirm_cut: usize) -> (usize, &'static str) {
+    let emission = source.confirm_timestamp() == ConfirmTimestamp::Emission;
+    let label = |aligned: &'static str, emission_label: &'static str| {
+        if emission {
+            emission_label
+        } else {
+            aligned
+        }
+    };
+    match source {
+        KwsCutSource::WakeCandidate => (wake_cut, "wake_candidate"),
+        KwsCutSource::ConfirmAligned => (confirm_cut, "confirm_aligned"),
+        KwsCutSource::ConfirmFirstToken | KwsCutSource::ConfirmFirstTokenEmission => (
+            confirm_cut,
+            label("confirm_first_token", "confirm_first_token_emission"),
+        ),
+        KwsCutSource::ConfirmEarlier | KwsCutSource::ConfirmEarlierEmission => {
+            if confirm_cut <= wake_cut {
+                (
+                    confirm_cut,
+                    label("confirm_earlier", "confirm_earlier_emission"),
+                )
+            } else {
+                (wake_cut, label("wake_earlier", "wake_earlier_emission"))
+            }
+        }
+        KwsCutSource::WakeWithinConfirm | KwsCutSource::WakeWithinConfirmEmission => {
+            // Agreement filter only: the two cuts being close is not a proof that either is
+            // right.
+            if wake_cut.abs_diff(confirm_cut) <= WAKE_CONFIRM_AGREE_SAMPLES {
+                (
+                    wake_cut,
+                    label("wake_within_400ms", "wake_within_400ms_emission"),
+                )
+            } else {
+                (
+                    confirm_cut,
+                    label("confirm_beyond_400ms", "confirm_beyond_400ms_emission"),
+                )
+            }
+        }
+    }
+}
+
+/// The confirm-path cut for one latched command, or `None` when the command path's first token
+/// (`estimate`, absolute sample) lies outside the wake candidate's span (allowing
+/// [`CONFIRM_ALIGNED_GUARD_LEAD_SAMPLES`] before its start). A temporal PLAUSIBILITY window
+/// only: outside it the estimate is not trusted for this candidate, inside it is not proof of
+/// the same occurrence. Nothing here identifies which occurrence a token belongs to.
+fn guarded_confirm_cut(candidate: WakeCandidate, estimate: usize, shift_ms: i32) -> Option<usize> {
+    if estimate + CONFIRM_ALIGNED_GUARD_LEAD_SAMPLES < candidate.start_sample
+        || estimate > candidate.end_sample
+    {
+        return None;
+    }
+    let shift = i64::from(shift_ms) * i64::from(SAMPLE_RATE) / 1_000;
+    Some((estimate as i64 + shift).max(0) as usize)
+}
+
+/// True when a cut sample is plausible for `candidate`: the same temporal window
+/// [`guarded_confirm_cut`] applies to the confirm estimate. Plausibility only, not provenance.
+fn cut_is_plausible(candidate: WakeCandidate, cut: usize) -> bool {
+    cut.saturating_add(CONFIRM_ALIGNED_GUARD_LEAD_SAMPLES) >= candidate.start_sample
+        && cut <= candidate.end_sample
+}
+
+/// What a latched command cuts at.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum LatchedCut {
+    /// A cut sample with its source label.
+    Cut(usize, &'static str),
+    /// The command is known but this source has no trustworthy boundary: it still fires, with
+    /// no timed token and no cut.
+    NoTrustedBoundary(&'static str),
+}
+
+/// The cut a latched command takes under a non-default `source`. Pure. `origin_known` and
+/// `estimate` (the confirm sample the source uses on the outer clock, only computable with an
+/// origin: the aligned first-token sample, or for the `*Emission` sources the first-token
+/// emission sample) describe the confirm evidence. `ConfirmAligned` falls back to the wake
+/// cut; the other sources use zero shift and abstain instead of falling back. A wake candidate
+/// without a cut (strict D4; [`KwsSwitches::validate`] rejects that combination) has no
+/// trusted boundary under any source.
+fn decide_latched_cut(
+    source: KwsCutSource,
+    candidate: WakeCandidate,
+    origin_known: bool,
+    estimate: Option<usize>,
+    legacy_shift_ms: i32,
+) -> LatchedCut {
+    let Some(wake_cut) = candidate.cut_start_sample else {
+        return LatchedCut::NoTrustedBoundary("no_trusted_boundary_no_wake_cut");
+    };
+    match source {
+        KwsCutSource::WakeCandidate => LatchedCut::Cut(wake_cut, "wake_candidate"),
+        KwsCutSource::ConfirmAligned => match estimate {
+            None => LatchedCut::Cut(wake_cut, "fallback_no_aligned_onset"),
+            Some(estimate) => match guarded_confirm_cut(candidate, estimate, legacy_shift_ms) {
+                Some(cut) => LatchedCut::Cut(cut, "confirm_aligned"),
+                None => LatchedCut::Cut(wake_cut, "fallback_occurrence_mismatch"),
+            },
+        },
+        KwsCutSource::ConfirmFirstToken
+        | KwsCutSource::ConfirmEarlier
+        | KwsCutSource::WakeWithinConfirm
+        | KwsCutSource::ConfirmFirstTokenEmission
+        | KwsCutSource::ConfirmEarlierEmission
+        | KwsCutSource::WakeWithinConfirmEmission => {
+            if !origin_known {
+                return LatchedCut::NoTrustedBoundary("no_trusted_boundary_no_origin");
+            }
+            let emission = source.confirm_timestamp() == ConfirmTimestamp::Emission;
+            let Some(estimate) = estimate else {
+                return LatchedCut::NoTrustedBoundary(if emission {
+                    "no_trusted_boundary_no_emission_timestamp"
+                } else {
+                    "no_trusted_boundary_no_estimate"
+                });
+            };
+            match guarded_confirm_cut(candidate, estimate, 0) {
+                Some(confirm_cut) => {
+                    // The sources that can select the wake cut need the same plausibility
+                    // check; a guard-passing confirm estimate does not vouch for it. The
+                    // first-token sources never select it.
+                    if !matches!(
+                        source,
+                        KwsCutSource::ConfirmFirstToken | KwsCutSource::ConfirmFirstTokenEmission
+                    ) && !cut_is_plausible(candidate, wake_cut)
+                    {
+                        return LatchedCut::NoTrustedBoundary(
+                            "no_trusted_boundary_wake_cut_out_of_range",
+                        );
+                    }
+                    let (cut, label) = resolve_cut(source, wake_cut, confirm_cut);
+                    LatchedCut::Cut(cut, label)
+                }
+                // A failed guard never falls back to the wake cut.
+                None => LatchedCut::NoTrustedBoundary(if emission {
+                    "no_trusted_boundary_outside_candidate_window"
+                } else {
+                    "no_trusted_boundary_occurrence_mismatch"
+                }),
+            }
+        }
+    }
 }
 
 /// The timed `zephyr` token a wake or command result carries, relative to the snapshot; no

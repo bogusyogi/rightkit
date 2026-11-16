@@ -92,7 +92,7 @@ Capabilities: 222 (58 with fingerprints, 164 declaration-only). Internal owners 
 | dictation-app-runtime | `rightkit-dictation-app-runtime` | none | declaration-only | 0 | rightkit-dictation-app-runtime: staged 0.2.0, not published |
 | dictation-command-host | `rightkit-dictation-command-host` | none | declaration-only | 0 | rightkit-dictation-command-host: staged 0.2.1, not published |
 | dictation-engine | `rightkit-dictation-engine` | none | declaration-only | 0 | rightkit-dictation-engine: staged 0.2.0, not published |
-| dictation-inference | `rightkit-dictation-inference` | none | declaration-only | 0 | rightkit-dictation-inference: staged 0.2.1, not published |
+| dictation-inference | `rightkit-dictation-inference` | none | declaration-only | 0 | rightkit-dictation-inference: staged 0.2.2, not published |
 | dictation-models | `rightkit-dictation-models` | none | declaration-only | 0 | rightkit-dictation-models: staged 0.2.0, not published |
 | dictation-runtime | `rightkit-dictation-runtime` | none | declaration-only | 0 | rightkit-dictation-runtime: staged 0.2.2, not published |
 | dictation-telemetry | `rightkit-dictation-telemetry` | none | declaration-only | 0 | rightkit-dictation-telemetry: staged 0.2.0, not published |

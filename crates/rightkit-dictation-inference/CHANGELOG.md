@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.2 (2026-11-16)
+
+Host switches for the wake detector's cut policy and debounce, so a host that runs its own fork of `kws.rs` can move onto this crate. Additive and default-equal: a host that sets none of the new `KwsSwitches` fields gets the 0.2.1 behaviour, cut samples and labels.
+
+- New `KwsSwitches::cut_source` (`KwsCutSource`: `WakeCandidate` default, `ConfirmAligned`, `ConfirmFirstToken`, `ConfirmEarlier`, `WakeWithinConfirm` and the three `*Emission` variants) and `KwsSwitches::cut_source_shift_ms` (default -200, read by `ConfirmAligned` only). With a non-default source a latched command's cut is re-decided from the confirm path's first-token sample (aligned estimate or emission timestamp) behind a temporal plausibility guard; the sources other than `ConfirmAligned` return no boundary (the command keeps its text, carries no timed token, no audio cut is attempted) instead of falling back to the wake candidate's cut. The default source returns the wake candidate untouched, so the cut and its source label are exactly as before.
+- New `KwsSwitches::wake_refractory_samples` (default 0, off) and `KwsSwitches::wake_start_proximity_samples` (default 0, off): drop a wake detection that starts within the window after the previous accepted detection's start (refractory, survives candidate expiry, cleared by a reset), or within the window of the held candidate's start (proximity), before the overlap rule, which still runs.
+- `KwsSwitches::validate` rejects a non-default `cut_source` combined with `fricative_strict` (the wake candidate then carries no cut) or `shared_front_end` (not qualified together).
+- Not ported, still different from a host's fork: configurable threads, beam width, trailing-blank, decode step, confirm context, confirm timeout, fresh-confirmation tail, keyword-span and onset-history parameters (constants here); the onset report's cut-evidence fields; the text of three stream error messages.
+
 ## 0.2.1 (2026-11-16)
 
 HeardRight's fork of this crate (`heardright-inference`) is compared with it again, so the fork can be replaced by this crate. Everything below is additive; a host that makes none of these calls gets exactly the behaviour, output and stderr text of 0.2.0.
