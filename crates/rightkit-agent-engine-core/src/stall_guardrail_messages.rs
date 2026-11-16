@@ -1,4 +1,4 @@
-// Sibling fragment of stall_guardrail.rs — included via `include!()`. Pure
+// Sibling fragment of stall_guardrail.rs — pulled in by an include of its parent module. Pure
 // helpers: the model-facing and operator-facing text of the `repeated_call` Ask.
 
 /// Reason (and policy source) of the Ask raised for a repeated call.

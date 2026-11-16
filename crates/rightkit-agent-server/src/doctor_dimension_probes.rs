@@ -1,5 +1,5 @@
 // Five security / runtime dimension probe functions + helpers.
-// Included from `doctor.rs` via include! (the dispatcher in
+// Pulled into `doctor.rs` as an included sibling module (the dispatcher in
 // `doctor_dimensions.rs` references these).
 //
 // Each probe pulls a real runtime source (construct an instance of the engine
