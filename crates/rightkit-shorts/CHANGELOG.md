@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.4 (2026-11-16)
+
+- Requires rightkit-llm 0.7.0. No behaviour change.
+
 ## 0.2.3
 
 - Breaking for dependents: a dependency requirement was raised to a semver-breaking version.

@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-llm"
-version = "0.6.0"
+version = "0.7.0"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Brand-neutral BYOK LLM clients: Anthropic Messages and OpenAI-compatible chat, streaming, tool use, route failover with circuit breaker, pricing, and prompt-cache discipline, plus an opt-in provider for installed command-line assistants."
@@ -19,9 +19,9 @@ agent_providers-os-keyring = ["agent_providers", "dep:rightkit-credentials", "ri
 agent_providers-host-env = ["agent_providers", "rightkit-agent-config/host-env"]
 agent_providers-replay-record = ["agent_providers", "agent_providers-host-env"]
 tokens = ["dep:tiktoken-rs"]
-agent_providers = ["dep:rightkit-logs", "dep:rightkit-agent-engine-protocol", "dep:rightkit-agent-policy", "dep:rightkit-agent-config", "dep:thiserror", "dep:tokio", "dep:futures", "dep:rightkit-oauth", "rightkit-http/untrusted", "rightkit-http/async", "dep:rightkit-crypto", "dep:rightkit-fs", "dep:rightkit-time", "dep:url", "dep:bytes", "dep:async-stream", "dep:toml", "dep:dirs", "dep:tiktoken-rs", "agent_providers-os-keyring"]
+agent_providers = ["dep:rightkit-logs", "dep:rightkit-agent-engine-protocol", "dep:rightkit-agent-policy", "dep:rightkit-agent-config", "dep:thiserror", "dep:tokio", "dep:futures", "dep:rightkit-oauth", "rightkit-http/untrusted", "rightkit-http/async", "dep:rightkit-crypto", "dep:rightkit-fs", "dep:rightkit-time", "dep:url", "dep:bytes", "dep:async-stream", "dep:toml", "dep:dirs", "dep:tiktoken-rs"]
 agent_router-os-keyring = ["agent_router", "agent_providers-os-keyring"]
-agent_router = ["agent_providers", "dep:thiserror", "dep:toml", "agent_router-os-keyring"]
+agent_router = ["agent_providers", "dep:thiserror", "dep:toml"]
 
 [dependencies]
 rightkit-http = { version = "0.4.0", path = "../rightkit-http", features = ["gzip"] }
@@ -31,7 +31,7 @@ serde_json = "1.0.154"
 rightkit-logs = {version = "0.4.0", default-features = false, features = ["tracing"], path = "../rightkit-logs", optional = true}
 rightkit-agent-engine-protocol = {version = "0.4.0", path = "../rightkit-agent-engine-protocol", optional = true}
 rightkit-agent-policy = {version = "0.2.0", path = "../rightkit-agent-policy", optional = true}
-rightkit-agent-config = { version = "0.1.0", path = "../rightkit-agent-config", optional = true }
+rightkit-agent-config = { version = "0.1.3", path = "../rightkit-agent-config", optional = true }
 thiserror = {version = "2", optional = true}
 tokio = {version = "1", features = ["full"], optional = true}
 futures = {version = "0.3", optional = true}

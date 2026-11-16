@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.3 (2026-11-16)
+
+- `set_workspace_trust_rule(fn(&Path) -> bool)` (once per process, returns `false` if already set): a host with no trust-store file supplies the workspace-trust decision, which replaces the persisted-store lookup in `is_workspace_trusted`. Default unchanged. `is_workspace_trusted_in` still reads the store it is given.
+
 ## 0.1.2
 
 - Requires `rightkit-agent-policy` 0.2.0 (dependency requirement raised; no API change here).

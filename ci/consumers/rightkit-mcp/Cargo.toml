@@ -7,5 +7,5 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-mcp = { version = "=0.9.1" }
+rightkit-mcp = { version = "=0.10.0" }
 serde_json = "1"

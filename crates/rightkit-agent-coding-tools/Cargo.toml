@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-agent-coding-tools"
-version = "0.1.3"
+version = "0.1.4"
 edition = "2021"
 rust-version = "1.98.0"
 description = "The coding agent's host tools (files, edit and patch, shell and PTY, git, browser, MCP, LSP, tasks, checkpoints, sandboxing) behind an async `Tool` trait and a `ToolRegistry`."
@@ -37,12 +37,12 @@ rightkit-fs = { version = "0.4.9", features = ["fs", "lock", "json", "digest", "
 rightkit-crypto = { version = "0.1.0", path = "../rightkit-crypto" }
 rightkit-time = { version = "0.1.1", path = "../rightkit-time" }
 rightkit-agent-policy = { version = "0.2.0", path = "../rightkit-agent-policy" }
-rightkit-agent-config = { version = "0.1.0", path = "../rightkit-agent-config" }
-rightkit-mcp = { version = "0.9.0", path = "../rightkit-mcp", features = ["agent_mcp"] }
+rightkit-agent-config = { version = "0.1.3", path = "../rightkit-agent-config" }
+rightkit-mcp = { version = "0.10.0", path = "../rightkit-mcp", features = ["agent_mcp", "agent_mcp-os-keyring"] }
 rightkit-agent-engine-history = { version = "0.1.0", path = "../rightkit-agent-engine-history" }
 rightkit-agent-host-traits = { version = "0.1.0", path = "../rightkit-agent-host-traits" }
 rightkit-sandbox = { version = "0.6.2", path = "../rightkit-sandbox", features = ["execution"] }
-rightkit-llm = { version = "0.6.0", path = "../rightkit-llm", features = ["agent_providers"] }
+rightkit-llm = { version = "0.7.0", path = "../rightkit-llm", features = ["agent_providers", "agent_providers-os-keyring"] }
 rightkit-agent-telemetry = { version = "0.1.0", path = "../rightkit-agent-telemetry" }
 thiserror = "2"
 tracing = "0.1"

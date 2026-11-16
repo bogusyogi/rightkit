@@ -293,7 +293,7 @@ async fn openai_callback(state: &str, cancel: CancelToken) -> Option<String> {
     });
     #[cfg(feature = "agent_providers-host-env")]
     {
-        if let Some(ip) = std::env::var("RIGHTKIT_OAUTH_CALLBACK_HOST")
+        if let Some(ip) = std::env::var(rightkit_agent_config::env_name("OAUTH_CALLBACK_HOST"))
             .ok()
             .and_then(|value| value.trim().parse::<std::net::IpAddr>().ok())
         {

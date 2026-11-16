@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.3 (2026-11-16)
+
+- Requires rightkit-mcp 0.10.0. No behaviour change.
+
 ## 0.4.2
 
 - Breaking for dependents: a dependency requirement was raised to a semver-breaking version.

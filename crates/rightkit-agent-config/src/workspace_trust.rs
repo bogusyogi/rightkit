@@ -61,8 +61,26 @@ pub fn is_workspace_trusted_in(store_path: &Path, workspace_root: &str) -> bool 
         .is_some_and(|trust| trust.trim().eq_ignore_ascii_case("trusted"))
 }
 
-/// Whether `workspace_root` is trusted in the default persisted store.
+/// A host-supplied replacement for the default persisted-store lookup.
+pub type WorkspaceTrustRule = fn(&Path) -> bool;
+
+static HOST_TRUST_RULE: std::sync::OnceLock<WorkspaceTrustRule> = std::sync::OnceLock::new();
+
+/// Set the host's workspace-trust rule, which replaces the default persisted-store lookup in
+/// [`is_workspace_trusted`] (for a host with no trust-store file, such as an iOS app that keeps
+/// the decision in its own settings). Call once at startup; returns `false` if a rule was
+/// already set. Until it is called the persisted store decides, as before. The rule runs on
+/// every check and must fail closed. [`is_workspace_trusted_in`] still reads the store it is given.
+pub fn set_workspace_trust_rule(rule: WorkspaceTrustRule) -> bool {
+    HOST_TRUST_RULE.set(rule).is_ok()
+}
+
+/// Whether `workspace_root` is trusted: by the host's rule when one was set with
+/// [`set_workspace_trust_rule`], otherwise in the default persisted store.
 pub fn is_workspace_trusted(workspace_root: &Path) -> bool {
+    if let Some(rule) = HOST_TRUST_RULE.get() {
+        return rule(workspace_root);
+    }
     is_workspace_trusted_in(
         &workspace_trust_store_path(),
         &workspace_root.to_string_lossy(),

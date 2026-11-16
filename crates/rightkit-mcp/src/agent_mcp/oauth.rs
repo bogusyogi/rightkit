@@ -327,6 +327,7 @@ pub async fn login_oauth(
     })
 }
 
+#[cfg(feature = "agent_mcp-os-keyring")]
 type MpOAuthLoginResultAlias = McpOAuthLoginResult;
 
 #[cfg(feature = "agent_mcp-os-keyring")]

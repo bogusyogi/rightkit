@@ -43,5 +43,6 @@ pub use types::{
     ValidationError, WorkflowImportTrustedPublicKey,
 };
 pub use workspace_trust::{
-    is_workspace_trusted, is_workspace_trusted_in, workspace_trust_key, workspace_trust_store_path,
+    is_workspace_trusted, is_workspace_trusted_in, set_workspace_trust_rule, workspace_trust_key,
+    workspace_trust_store_path, WorkspaceTrustRule,
 };
