@@ -1,4 +1,4 @@
-// rightkit-qa 0.10.0 registry consumer, outside the workspace, pinning `rightkit-qa =0.10.0`
+// rightkit-qa 0.10.8 registry consumer, outside the workspace, pinning `rightkit-qa =0.10.8`
 // exactly with default features only: no `control`, `browser`, `android` or `wv2-*` feature.
 //
 // Proves the pure public surface a suite author uses without a browser, Tauri window, Android
@@ -141,6 +141,6 @@ fn main() -> Result<(), Box<dyn Error>> {
         "a clean output has no leak"
     );
 
-    println!("OK rightkit-qa 0.10.0 (registry consumer, pure public API)");
+    println!("OK rightkit-qa 0.10.8 (registry consumer, pure public API)");
     Ok(())
 }

@@ -2470,9 +2470,9 @@
       "gateEvidence": "no assets needed; in-memory values only; default features only; no ci/asset-gated.json entry needed",
       "consumes": "PK14-4 named QA glue consumers per 01-packages.md: MailRight tauri_run.rs:109 QA registration, HeardRight and ScrapeRight journey runners; exercised modules: scenario, config, settings, check, storage, util (crates/rightkit-qa/src/lib.rs)",
       "files": {
-        "Cargo.toml": "abb14f05865ad4e2b3bc3d7c699da49ad7fde76978773401288ef17fbb94ae33",
-        "README.md": "d5b3c9c5f502f2e2f9280ca0b946ef3159fcbe912ba7cd1eaea71432e163c231",
-        "src/main.rs": "54f47a8ce81f6de0adda7336320487ee8d70039a03a03e57c5bb05c3c1858817"
+        "Cargo.toml": "92d01b136c5135a5e471b221deb31491e1a5020d0f0c6ad9bea6caf6fab6fc62",
+        "README.md": "1510ddc757e66da523b6692b2602845a2d6dd4afd97ea862ad8713b75acdd5bd",
+        "src/main.rs": "96871db3b9700255f9838aaa483e9629be0f4b3e0839fc8d46f378fe95ab1ffa"
       },
       "aggregateSha256": "e7e23f007ccee54fee15cbf3c97ff62eed581b3f2e2ddfad8f6fe7ac4c8904b9"
     },
@@ -3035,7 +3035,7 @@
       "pkId": "PK68",
       "id": "ci/consumers/rightkit-agent-engine-history/src/main.rs",
       "files": {
-        "Cargo.toml": "b28db87db8e059c073b0a84647bde356e381dac536fc852a5588be778c4f97e7",
+        "Cargo.toml": "164bf5ce7da5de620a51ea305692e182f0148961911d315b60b8400a6dcf9b40",
         "README.md": "792d487a563eb985a94bf339938bc8f3d658eaa5d13c04fca0ade259cd1c49e3",
         "src/main.rs": "bf24f1c0a20ec358d107769d0f90cff46736a18304dcbe2543b8b419f300c452"
       }
@@ -3107,9 +3107,9 @@
       "pkId": "PK76",
       "id": "ci/consumers/rightkit-agent-policy/src/main.rs",
       "files": {
-        "Cargo.toml": "1cb543689ffadbddec4b0b1fc090485705ac2e43b9215e0aefdfa0879bf76de1",
-        "README.md": "e4f1eb75be4deae10a24ef6ef4731cb7091b22eb077bf9b0a9b47653daa6cd26",
-        "src/main.rs": "65479ebc6ae3773c840dc611cb0fa2c0763a2a44aeefab1339ecc44effb719e4"
+        "Cargo.toml": "63cb366a687e5816f36db445712a38c7330bc8fff6e6563bd3fafa914eaa90ef",
+        "README.md": "0d56bc71f8d661798528b7155ef64b35aa5aeb57eb2989dbf4e5e61e06f3e8da",
+        "src/main.rs": "9c3d91141942b148bd5c04aeee1c469ceb7b7fe7f934f60436ffd9e8685599b3"
       }
     },
     "rightkit-agent-transcript": {
@@ -3415,9 +3415,9 @@
       "pkId": "PK114",
       "id": "ci/consumers/rightkit-repo-graph/src/main.rs",
       "files": {
-        "Cargo.toml": "a140c3166405099824ccb9099af65b44e676511ddd656d6e9200daf2117342b4",
-        "README.md": "57059f1aeb4507d1ed91ab93e3989a6952bffdaf9625fcdd726d5d75861b6c87",
-        "src/main.rs": "c3989bf60b108fa42fb3da14fdc2a17f80605615326a8c8e28ba443ff2fb426d"
+        "Cargo.toml": "652cfb6798457580b88185b92747b95016e74965d1cd2f61f12e2c50bb3ce0e8",
+        "README.md": "321eaf58cb9fa06a9aee4fdf1221e2b6cf3c5265da0d5ac1faab77e24fa9f8fd",
+        "src/main.rs": "0c90af4d8b554a5d9bb7a3497620241f021889bae3a4389cca7b0b89928fef4c"
       }
     },
     "rightkit-research": {
@@ -3460,9 +3460,9 @@
       "pkId": "PK119",
       "id": "ci/consumers/rightkit-terminal-ui/src/main.rs",
       "files": {
-        "Cargo.toml": "53e1fa8dfa6a295aaef3f2665337f200855edf125cd4f7dc4a753b80b6f867e2",
-        "README.md": "e1f0e33d1b6bf82f9158e0a4cc618c918e2d0c733a1d49e4897e3deaca807a51",
-        "src/main.rs": "2d092695ddb71c31b21d3de9cef94dd9be318c28e2f4d0a466813327ca71e74d"
+        "Cargo.toml": "07b5e035e8a33aa324e92460256dfdcfb176cf70a27bb2caa8f1117208c2bab5",
+        "README.md": "e76b805aff8f58bf541d4bdbf4f09d376673115f77ba4b479241df4107cc3335",
+        "src/main.rs": "088859e4a5f4473575e8980cb07d25b618c4e907d636ed7f8884b710c0fae7c5"
       }
     },
     "rightkit-text-polish": {
@@ -3721,9 +3721,9 @@
       "pkId": "PK161",
       "id": "ci/consumers/rightkit-context-runtime/src/main.rs",
       "files": {
-        "Cargo.toml": "3e04832d4ac009740681b275db9d0d4930a35416f5704c3da4c2c5d7b507a438",
-        "README.md": "e1f26f6f4aa66c302698146a3a34c885789820a3ebd28635fe5fbd84385d7cb3",
-        "src/main.rs": "16f32c564cebea16f3b8fe8b660f9de282f948d5e4fef7bac42609543c39dbe3"
+        "Cargo.toml": "47c4eba7a9021365a9c42a0e19f3571e0da0880e828b3f3d3f8f0b486fdfb0e2",
+        "README.md": "66deff3409de939166dd2f03549f57dde45aab554bdd05d81c8f77290e28f410",
+        "src/main.rs": "e23e4e9fac6278a9b19869530c1853b8817b851ffc54f6287332e442b7b6bfd6"
       }
     },
     "rightkit-context": {

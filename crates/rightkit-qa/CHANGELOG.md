@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.10.8 (2026-11-16)
+
+- The package no longer ships `src/embedded/in_view.rs` (a one-newline file nothing declared). No public item, feature or behaviour changes; the compiled library is unchanged.
+
 ## 0.10.7 (unpublished)
 
 - Embedded `wait` and `eval` take an opt-in `finishHiddenAnimations: true` (client: `Control::eval_with`, `Control::wait_eval_with`): while the window is hidden they finish every FINITE running animation (never an infinite one) before the script, and `wait` before every predicate check, so a hidden window's finite CSS animations no longer hang a wait. Off by default; `screenshot` shares the same code and now finishes only finite running animations.

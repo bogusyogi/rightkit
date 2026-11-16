@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.2 (2026-11-16)
+
+- The package no longer ships `src/trusted-update-keys.json` (an empty key list nothing read). No public item, feature or behaviour changes; the compiled library is unchanged.
+
 ## 0.3.1 (2026-11-16)
 
 - New `skeletonization::SkeletonVariant` (`Standard`, the default and today's behaviour, unchanged; `Extended`), `skeletonize_for_task_with` and `expand_region_with`, and the module `skeletonization_extended`. `Extended` is a host's newer skeletonizer: TSX parsed with the TSX grammar and `.mts`/`.cts` as TypeScript, imports kept verbatim, Python decorated definitions and JS/TS `export` wrappers unwrapped (the decorator or `export` text is kept), `union` items, Rust impls named `Trait for Type` (an impl is kept in full when its type or trait is task-relevant), `#2`, `#3`, ... suffixes on repeated region names, `expand_region` refusing the empty name, a first-line fallback for every other named top-level node, and a stricter relevance match (an unnamed item is never relevant; names and terms under three characters match only a whole identifier part). `skeletonize`, `skeletonize_for_task` and `expand_region` are unchanged. Every grammar `Extended` uses was already a dependency.

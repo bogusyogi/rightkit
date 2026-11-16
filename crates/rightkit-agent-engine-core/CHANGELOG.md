@@ -3,6 +3,7 @@
 ## 0.1.2 (2026-11-16)
 
 - Requires rightkit-mcp 0.10.0. Names `agent_mcp-os-keyring` explicitly, so the build is unchanged. No behaviour change.
+- The package no longer ships `src/steering.rs` (the live steering queue is `api_sessions/steering.rs` in rightkit-agent-server) and `src/evidence_replay.rs`, neither of which `src/lib.rs` declared nor anything called. No public item, feature or behaviour changes; the compiled library is unchanged.
 
 ## 0.1.1 (unpublished)
 

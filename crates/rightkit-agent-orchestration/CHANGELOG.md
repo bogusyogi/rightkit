@@ -8,6 +8,8 @@
 
 - The package no longer ships 87 source files (19,789 lines) that were never compiled: stale copies sitting directly under `src/` (`checkpoint.rs`, `handoff_brief.rs`, `jury.rs`, `conductor/`, `executed_bakeoff/`, `mechanism/`, `teams/`, `orchestrator_tests/` and the rest of the old flat layout) of modules that now live under `src/coding/`. `src/lib.rs` never declared them and each was either identical to its `src/coding/` counterpart or an older form of it (import paths, pre-split `cfg`, older docs). No public item, feature or behaviour changes; the compiled library's dependency-info file list is unchanged.
 
+- The package no longer ships `src/coding/orchestrator_tests/contracts.rs`, `execution.rs` and `predicates.rs`: no `mod` declared the directory (two of the files were a single line, the third a test-helper worker with no tests). No public item, feature or behaviour changes; the compiled library is unchanged.
+
 ## 0.1.4 (2026-11-16)
 
 - Requires rightkit-llm 0.7.0. Names `agent_providers-os-keyring` and `agent_router-os-keyring` explicitly, so the build is unchanged. No behaviour change.

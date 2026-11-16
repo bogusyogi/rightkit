@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.2 (2026-11-16)
+
+- The package no longer ships `src/auto_approval.rs`, a tool-call approval classifier (`AutoApprovalClassifier`, `AutoApprovalCache`) that `src/lib.rs` never declared and nothing called. No public item, feature or behaviour changes; the compiled library is unchanged.
+
 ## 0.2.1
 
 Additive: every setting below is once per process, set by the host at startup, and the default behaviour is unchanged for hosts that set none. They let CodeRight's `crates/policy` copy be replaced by this crate with byte-identical decisions.
