@@ -153,10 +153,51 @@ export function parseResultLine(stderr) {
   if (!nullableString(r.outputDir) || (typeof r.outputDir === "string" && !path.isAbsolute(r.outputDir))) bad.push("outputDir");
   if (!nullableString(r.receipt) || (typeof r.receipt === "string" && !path.isAbsolute(r.receipt))) bad.push("receipt");
   if (typeof r.receiptPersisted !== "boolean") bad.push("receiptPersisted");
-  if (r.code !== undefined && (typeof r.code !== "string" || !/^[A-Z]{2,3}_[A-Z0-9_]+$/.test(r.code))) bad.push("code"); // RK_ today; any short upper-case prefix the broker documents
+  if (r.code !== undefined && (typeof r.code !== "string" || !BROKER_CODE.test(r.code))) bad.push("code");
   if (r.message !== undefined && typeof r.message !== "string") bad.push("message");
   if (bad.length) throw new SeamError("BAD_RESULT_LINE", `the rustright-result line has invalid field(s): ${bad.join(", ")}`);
   return r;
+}
+
+/**
+ * A code as the broker writes one: upper-case words joined by underscores (RK_SNAPSHOT_LOCK, CACHE_ADMISSION_BLOCKED, TOOL_CHANGED). The
+ * earlier pattern allowed a two or three letter first word only, so a result line carrying either of the last two was rejected whole.
+ */
+export const BROKER_CODE = /^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+$/;
+
+/**
+ * What the broker recorded about a job, from the receipt fields its producer writes (rustright finish_impl.rs): `status`, `reason`,
+ * `error`, `code`, `postChecks.failed` and `reap`. Returns { status, reason, error, code, failed, unreaped, reap }; every field is null,
+ * empty or false when the receipt does not carry it. `code` is the receipt's own code, or its reason when the reason is a code (a job
+ * refused after admission carries its code only there: service.rs Details::rejected).
+ */
+export function brokerVerdict(receipt) {
+  const text = (v) => (typeof v === "string" && v.trim() ? v.split(/\r?\n/).join(" ").trim().slice(0, 600) : null);
+  const reap = receipt?.reap && typeof receipt.reap === "object" ? receipt.reap : null;
+  const reason = text(receipt?.reason);
+  const own = text(receipt?.code);
+  return {
+    status: text(receipt?.status), reason, error: text(receipt?.error),
+    code: own && BROKER_CODE.test(own) ? own : reason && BROKER_CODE.test(reason) ? reason : null,
+    failed: Array.isArray(receipt?.postChecks?.failed) ? receipt.postChecks.failed.filter((x) => typeof x === "string") : [],
+    unreaped: reap?.reaped === false, reap,
+  };
+}
+
+const ENDED_BY_BROKER = new Set(["CANCELLED", "TIMED_OUT", "REJECTED"]);
+const brokerWords = (v) => [v.error, v.reason && v.reason !== v.error ? `reason ${v.reason}` : null].filter(Boolean).join("; ");
+
+/**
+ * Why `gate.snapshotUnchanged` is not true, in the broker's own terms. The broker clears that flag in three cases and only one of them is
+ * a changed snapshot: it could not prove the job's process tree stopped (so it did not look), it ended the job itself (cancelled, timed
+ * out, rejected), or the tree really differs. The gate used to say "the snapshot changed" for all three (Mac, 2026-11-17: a failed process
+ * listing after a compile that exited 0 was reported that way for 1,232 rows).
+ */
+export function snapshotNotConfirmed(receipt) {
+  const v = brokerVerdict(receipt); const said = brokerWords(v);
+  if (v.unreaped) return { code: "RK_PROCESS_REAP_PENDING", detail: `the broker could not prove the job's process tree stopped (reap ${typeof v.reap.status === "string" ? v.reap.status : "not complete"}${typeof v.reap.reason === "string" && v.reap.reason ? `: ${v.reap.reason}` : ""}), so it did not verify the snapshot; nothing here says the snapshot changed${said ? ` (broker: ${said})` : ""}` };
+  if (ENDED_BY_BROKER.has(v.status)) return { code: v.code ?? `RK_JOB_${v.status}`, detail: `the broker ended the job ${v.status}${said ? ` (${said})` : ""} and did not verify the snapshot` };
+  return { code: "RK_SNAPSHOT_CHANGED", detail: `the broker found the snapshot changed during the job${said ? ` (broker: ${said})` : ""}` };
 }
 
 /**
@@ -176,7 +217,7 @@ export function readSeamReceipt(file, { commit, tree, classA = null, expect = nu
     // `tree: null` means the caller does not know the tree (a stage child that has only the commit): the commit binding stands, the tree is not compared.
     if (tree !== null && g.tree !== tree) problems.push(`receipt gate.tree ${JSON.stringify(g.tree)} is not this run's ${tree}`);
     if (classA !== null && !samePath(g.classA, classA)) problems.push(`receipt gate.classA ${JSON.stringify(g.classA)} is not the verdict this request named`);
-    if (g.snapshotUnchanged !== true) problems.push("the broker found the snapshot changed during the job (gate.snapshotUnchanged is not true)");
+    if (g.snapshotUnchanged !== true) problems.push(`${snapshotNotConfirmed(receipt).detail} (gate.snapshotUnchanged is not true)`);
   }
   if (receipt && Object.hasOwn(receipt, "testExecutables") && receipt.testExecutables !== null && !Array.isArray(receipt.testExecutables)) problems.push("receipt testExecutables is neither a list nor null");
   // The request the broker admitted, from the fields its producer already writes (provenance.payload: jobId and request.{requestedArgv, workspace, adapter}; no second copy
@@ -206,7 +247,22 @@ export function readSeamReceipt(file, { commit, tree, classA = null, expect = nu
 export function judgeSeamOutcome({ child, stderr, commit, tree, classA = null, expect = null, fsApi = fs }) {
   let result;
   try { result = parseResultLine(stderr); } catch (e) { return { status: "fail", code: e.code, detail: e.message, result: null, evidence: null }; }
-  if (result.code) return { status: "fail", code: result.code, detail: result.requestId === null ? `the broker refused or the client failed before anything was admitted: ${result.message ?? result.code}` : `the client failed after request ${result.requestId} was admitted (${result.message ?? result.code}); the job's state in the broker is unknown`, result, evidence: null };
+  if (result.code) {
+    if (result.requestId === null) return { status: "fail", code: result.code, detail: `the broker refused or the client failed before anything was admitted: ${result.message ?? result.code}`, result, evidence: null };
+    // Admitted, then ended without an executed command. The client puts a code on the line only when the terminal event or the receipt has a
+    // `code` field, and falls back to RK_CLIENT_ERROR otherwise (rustright-cli cli.rs gate_result); the broker writes the code of a job it
+    // refused after admission into the receipt's `reason`. So the receipt is read here: it names the real code, and when it is the terminal
+    // record of this request the job is over and the caller may release what it holds.
+    if (result.receiptPersisted && typeof result.receipt === "string") {
+      const named = readSeamReceipt(result.receipt, { commit, tree: null, fsApi });
+      if (named.receipt) {
+        const v = brokerVerdict(named.receipt); const said = brokerWords(v);
+        const receiptRead = receiptIsTerminalFor(named.receipt, result.requestId) && receiptProvesTreeGone(named.receipt);
+        return { status: "fail", code: v.code ?? result.code, detail: `the broker ended request ${result.requestId}${v.status ? ` ${v.status}` : ""} without running the command: ${said || (result.message ?? result.code)}`, result, evidence: null, receiptRead };
+      }
+    }
+    return { status: "fail", code: result.code, detail: `the client failed after request ${result.requestId} was admitted (${result.message ?? result.code}); the job's state in the broker is unknown`, result, evidence: null };
+  }
   if (result.exit === NOT_EXECUTED_EXIT && result.requestId === null) return { status: "fail", code: "RK_NOT_EXECUTED", detail: "the client reported exit 125 with no request admitted and no code", result, evidence: null };
   // A client the gate killed (its own timeout, a cancel) proves nothing whatever its line says: the line may predate the kill or belong to a job the broker went on to cancel.
   if (child && typeof child.signal === "string" && child.signal) return { status: "fail", code: "CLIENT_KILLED", detail: `the client was stopped by ${child.signal} before the row completed`, result, evidence: null };
@@ -215,8 +271,12 @@ export function judgeSeamOutcome({ child, stderr, commit, tree, classA = null, e
   // `receiptRead`: the receipt is the terminal record of THIS request's job (receiptIsTerminalFor): then the job is over even when its postconditions fail (the evidence
   // is withheld, the row is settled). A receipt that merely parses, or names another job, proves nothing about the job this client submitted.
   const receiptRead = receiptIsTerminalFor(read.receipt, result.requestId) && receiptProvesTreeGone(read.receipt);
-  if (read.problems.length) return { status: "fail", code: read.receipt?.gate && read.receipt.gate.snapshotUnchanged === false ? "RK_SNAPSHOT_CHANGED" : "RECEIPT_MISMATCH", detail: read.problems.join("; "), result, evidence: null, receiptRead };
+  if (read.problems.length) return { status: "fail", code: read.receipt?.gate && read.receipt.gate.snapshotUnchanged === false ? snapshotNotConfirmed(read.receipt).code : "RECEIPT_MISMATCH", detail: read.problems.join("; "), result, evidence: null, receiptRead };
   const evidence = { receiptSha256: read.sha256, receiptPath: result.receipt, requestId: result.requestId, outputDir: result.outputDir, targetTriple: typeof read.receipt.targetTriple === "string" && read.receipt.targetTriple ? read.receipt.targetTriple : null, testExecutables: Array.isArray(read.receipt.testExecutables) ? read.receipt.testExecutables : null, testExecutablesReason: typeof read.receipt.testExecutablesReason === "string" ? read.receipt.testExecutablesReason : null, receiptStatus: typeof read.receipt.status === "string" ? read.receipt.status : null, gate: read.receipt.gate };
+  // A job the broker failed on a check of its own after the command exited (its toolchain identity, for one) keeps the command's exit in
+  // the receipt while the client exits 125. That is the broker's verdict, not a disagreement between the client and its line.
+  const post = brokerVerdict(read.receipt);
+  if (post.failed.length) return { status: "fail", code: post.code ?? "RK_BROKER_POST_CHECK", detail: `the broker failed the job on its own check(s) ${post.failed.join(", ")} after the command exited ${result.exit}${brokerWords(post) ? `: ${brokerWords(post)}` : ""}`, result, evidence: null, receiptRead };
   if (child && Number.isInteger(child.status) && result.exit !== null && child.status !== result.exit) return { status: "fail", code: "RESULT_EXIT_MISMATCH", detail: `the client exited ${child.status} but its result line says ${result.exit}`, result, evidence, receiptRead };
   if (result.exit !== 0 || result.signal) return { status: "fail", code: "EXIT", detail: result.signal ? `the command was stopped by signal ${result.signal}` : `exit ${result.exit}`, result, evidence, receiptRead };
   // An exit 0 is a pass only for a job the broker finished as SUCCEEDED: a job cancelled or timed out after its process exited 0 keeps that observed exit in its receipt

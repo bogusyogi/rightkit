@@ -5,7 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { CLASS_A_ENV, CLASS_A_VERDICT_SCHEMA, GATE_COMMIT_ENV, classAVerdict, judgeSeamOutcome, normalizeWorkspace, parseIdentity, parseResultLine, processIdentity, readSeamReceipt, samePath, seamEnv, snapshotLockBody, verdictFileName, verdictForRun, writeClassAVerdict } from "./gate-seam.mjs";
+import { BROKER_CODE, CLASS_A_ENV, CLASS_A_VERDICT_SCHEMA, GATE_COMMIT_ENV, brokerVerdict, classAVerdict, judgeSeamOutcome, normalizeWorkspace, parseIdentity, parseResultLine, processIdentity, readSeamReceipt, samePath, seamEnv, snapshotLockBody, verdictFileName, verdictForRun, writeClassAVerdict } from "./gate-seam.mjs";
 import { SNAPSHOT_STATUS_SCHEMA, snapshotStatusAllowsReclaim, snapshotStatusMessage, snapshotStatusSync } from "./gate-seam.mjs";
 import { spawn } from "node:child_process";
 import { RECLAIM_QUERY_MS, snapshotReclaimJudge } from "./seam-broker.mjs";
@@ -481,4 +481,39 @@ test("the bundle-marker patch accepts an already patched tauri-utils 2.10 binary
   assert.throws(() => patchTauriBundleType(at("none.exe", "MZ..")), /refusing to guess/);
   assert.throws(() => patchTauriBundleType(at("three.exe", `MZ${m("NSS")}${m("NSS")}${m("NSS")}`)), /refusing to guess/);
   assert.throws(() => patchTauriBundleType(at("twounk.exe", `MZ${m("UNK")}${m("UNK")}`)), /exactly one Tauri unknown bundle marker/);
+});
+
+test("a broker failure is reported in the broker's own terms: an unproven process tree, a job the broker ended, a failed check of its own, a refusal after admission (matrix B1 to B4)", () => {
+  const dir = tmp();
+  const receipt = (body) => { const f = path.join(dir, `${Math.random().toString(16).slice(2)}.json`); fs.writeFileSync(f, JSON.stringify(body)); return f; };
+  const line = (o) => `rustright-result ${JSON.stringify({ requestId: "r1", exit: 0, signal: null, outputDir: "/t/out", receiptPersisted: true, ...o })}\n`;
+  const good = { commit, tree, snapshot: "/snap", classA: "/v/class-a.json", snapshotUnchanged: true };
+  // B1, the Mac receipt of 2026-11-17 (3b1f1364): cargo exited 0, the broker could not list the job's process session and so did not verify the snapshot.
+  const unreaped = judgeSeamOutcome({ child: { status: 125 }, stderr: line({ receipt: receipt({ status: "FAILED", exitCode: 0, error: "snapshot cannot be verified until its complete process tree is stopped", code: "RK_SNAPSHOT_CHANGED", postChecks: { ran: true, failed: ["snapshot"] }, reap: { reaped: false, status: "REAP_PENDING", reason: "process-session-enumeration-unavailable", escalated: false }, gate: { ...good, snapshotUnchanged: false } }) }), commit, tree });
+  assert.equal(unreaped.status, "fail"); assert.equal(unreaped.code, "RK_PROCESS_REAP_PENDING");
+  assert.match(unreaped.detail, /could not prove the job's process tree stopped \(reap REAP_PENDING: process-session-enumeration-unavailable\)/);
+  assert.match(unreaped.detail, /nothing here says the snapshot changed/);
+  assert.doesNotMatch(unreaped.detail, /found the snapshot changed/);
+  // B1: a job the broker cancelled or timed out is not a changed snapshot either.
+  const timedOut = judgeSeamOutcome({ child: { status: 125 }, stderr: line({ receipt: receipt({ status: "TIMED_OUT", reason: "stalled", gate: { ...good, snapshotUnchanged: false } }) }), commit, tree });
+  assert.equal(timedOut.code, "RK_JOB_TIMED_OUT"); assert.match(timedOut.detail, /the broker ended the job TIMED_OUT \(reason stalled\) and did not verify the snapshot/);
+  // B1: a real change keeps its code and now carries what the broker wrote.
+  const changed = judgeSeamOutcome({ child: { status: 125 }, stderr: line({ receipt: receipt({ status: "FAILED", error: "snapshot no longer matches the admitted tree", postChecks: { ran: true, failed: ["snapshot"] }, reap: { reaped: true }, gate: { ...good, snapshotUnchanged: false } }) }), commit, tree });
+  assert.equal(changed.code, "RK_SNAPSHOT_CHANGED"); assert.match(changed.detail, /snapshot no longer matches the admitted tree/);
+  // B4: the broker's toolchain check failed after the command exited 0; the client exits 125. Not an exit mismatch.
+  const toolchain = judgeSeamOutcome({ child: { status: 125 }, stderr: line({ receipt: receipt({ status: "FAILED", exitCode: 0, code: "RK_TOOLCHAIN_IDENTITY_UNAVAILABLE", error: "the toolchain changed after admission", postChecks: { ran: true, failed: ["toolchainIdentity"] }, reap: { reaped: true }, gate: good }) }), commit, tree });
+  assert.equal(toolchain.code, "RK_TOOLCHAIN_IDENTITY_UNAVAILABLE"); assert.match(toolchain.detail, /own check\(s\) toolchainIdentity after the command exited 0: the toolchain changed after admission/);
+  // B3: the broker's codes that do not start with a two or three letter word are codes.
+  for (const code of ["CACHE_ADMISSION_BLOCKED", "TOOL_CHANGED", "RK_SNAPSHOT_LOCK"]) assert.equal(parseResultLine(`rustright-result ${JSON.stringify({ requestId: null, exit: 125, signal: null, outputDir: null, receipt: null, receiptPersisted: false, code })}`).code, code);
+  assert.equal(BROKER_CODE.test("bad code"), false); assert.equal(BROKER_CODE.test("LOWER_case"), false);
+  // B2: refused after admission. The line says RK_CLIENT_ERROR; the receipt's reason is the code, and the row is settled when the receipt is this request's terminal record.
+  const refused = receipt({ id: "r1", status: "REJECTED", state: "REJECTED", reason: "RK_ADAPTER_DIGEST_MISMATCH", error: "adapter script sha256 differs from the pinned digest", reap: { reaped: true }, provenance: { payload: { jobId: "r1" } }, gate: { ...good, snapshotUnchanged: false } });
+  const afterAdmission = judgeSeamOutcome({ child: { status: 125 }, stderr: line({ exit: 125, outputDir: null, receipt: refused, code: "RK_CLIENT_ERROR", message: "gate request ended without an executed command" }), commit, tree });
+  assert.equal(afterAdmission.status, "fail"); assert.equal(afterAdmission.code, "RK_ADAPTER_DIGEST_MISMATCH");
+  assert.match(afterAdmission.detail, /the broker ended request r1 REJECTED without running the command: adapter script sha256 differs/);
+  assert.equal(typeof afterAdmission.receiptRead, "boolean");
+  // B2: with no receipt to read, the old sentence stands and nothing is claimed about the job.
+  const noReceipt = judgeSeamOutcome({ child: { status: 125 }, stderr: line({ exit: 125, outputDir: null, receipt: null, receiptPersisted: false, code: "RK_CLIENT_ERROR", message: "transport closed" }), commit, tree });
+  assert.equal(noReceipt.code, "RK_CLIENT_ERROR"); assert.match(noReceipt.detail, /job's state in the broker is unknown/); assert.equal(noReceipt.receiptRead, undefined);
+  assert.deepEqual(brokerVerdict(null), { status: null, reason: null, error: null, code: null, failed: [], unreaped: false, reap: null });
 });
