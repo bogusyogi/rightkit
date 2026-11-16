@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.4 (2026-11-16)
+
+- Requires rightkit-llm 0.7.0 and rightkit-mcp 0.10.0. Names `agent_mcp-os-keyring` and `agent_providers-os-keyring` explicitly, so the build is unchanged. No behaviour change.
+
 ## 0.1.3
 
 - Breaking for dependents: a dependency requirement was raised to a semver-breaking version.

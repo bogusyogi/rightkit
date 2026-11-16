@@ -14,6 +14,7 @@
 //! quota-exhausted behavior when a plan cannot cover a request.
 
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "agent_providers-os-keyring")]
 use std::sync::LazyLock;
 use std::time::Duration;
 
@@ -267,6 +268,7 @@ pub enum DaemonTextTokenPlanError {
 // Keychain read/refresh/save must remain one critical section so concurrent
 // daemon turns cannot both spend a final plan unit. The refresh client has a
 // bounded timeout; this lock is only held while a selected plan is reconciled.
+#[cfg(feature = "agent_providers-os-keyring")]
 static DAEMON_TEXT_PLAN_LOCK: LazyLock<tokio::sync::Mutex<()>> =
     LazyLock::new(|| tokio::sync::Mutex::new(()));
 

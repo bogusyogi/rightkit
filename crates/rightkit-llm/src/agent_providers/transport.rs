@@ -92,10 +92,11 @@ fn record_context_inspection(
 #[cfg(feature = "agent_providers-host-env")]
 fn record_context_inspection(prepared: &crate::agent_providers::client::PreparedProviderRequestV1) {
     // Explicit fixture opt-in only: no ordinary prompt log or shadow history.
-    let Some(path) = std::env::var_os("RIGHTKIT_CONTEXT_INSPECTION_PATH") else {
+    let Some(path) = std::env::var_os(rightkit_agent_config::env_name("CONTEXT_INSPECTION_PATH"))
+    else {
         return;
     };
-    let Ok(key) = std::env::var("RIGHTKIT_CONTEXT_INSPECTION_KEY") else {
+    let Ok(key) = std::env::var(rightkit_agent_config::env_name("CONTEXT_INSPECTION_KEY")) else {
         return;
     };
     if key.len() < 32 {

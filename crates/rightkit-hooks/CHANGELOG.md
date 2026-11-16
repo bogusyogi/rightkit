@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.10 (2026-11-16)
+
+- Requires rightkit-llm 0.7.0. Names `agent_providers-os-keyring` explicitly, so the build is unchanged. No behaviour change.
+
 ## 0.2.9
 
 - Breaking for dependents: a dependency requirement was raised to a semver-breaking version.

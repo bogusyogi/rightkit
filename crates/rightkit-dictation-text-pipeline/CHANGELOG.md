@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.5 (2026-11-16)
+
+- Requires rightkit-llm 0.7.0. No behaviour change.
+
 ## 0.2.4
 
 HeardRight's cleanup transport is compared with this crate and every difference in its output is taken; nothing changes for a host that makes no call below.

@@ -31,13 +31,13 @@ rightkit-onnx = { version = "0.3.0", path = "../rightkit-onnx", features = ["age
 rightkit-agent-engine-protocol = { version = "0.4.0", path = "../rightkit-agent-engine-protocol" }
 rightkit-agent-engine-core = { version = "0.1.1", path = "../rightkit-agent-engine-core" }
 rightkit-hooks = { version = "0.2.7", path = "../rightkit-hooks", features = ["agent_hooks", "agent_hooks-host-env"] }
-rightkit-llm = { version = "0.6.0", path = "../rightkit-llm", features = ["agent_providers", "agent_providers-host-env", "agent_router"] }
+rightkit-llm = { version = "0.7.0", path = "../rightkit-llm", features = ["agent_providers", "agent_providers-os-keyring", "agent_providers-host-env", "agent_router", "agent_router-os-keyring"] }
 rightkit-memory-client = { version = "0.1.0", path = "../rightkit-memory-client", features = ["agent_host"] }
 rightkit-agent-policy = { version = "0.2.0", path = "../rightkit-agent-policy" }
 rightkit-logs = { version = "0.4.0", path = "../rightkit-logs", features = ["tracing"], default-features = false }
 rightkit-agent-telemetry = { version = "0.1.0", path = "../rightkit-agent-telemetry" }
 rightkit-agent-coding-tools = { version = "0.1.1", path = "../rightkit-agent-coding-tools" }
-rightkit-agent-config = { version = "0.1.0", path = "../rightkit-agent-config", features = ["host-env"] }
+rightkit-agent-config = { version = "0.1.3", path = "../rightkit-agent-config", features = ["host-env"] }
 rightkit-agent-orchestration = { version = "0.1.1", path = "../rightkit-agent-orchestration" , features = ["coding", "coding-host"] }
 rightkit-agent-learning = { version = "0.1.0", path = "../rightkit-agent-learning" }
 rightkit-terminal-ui = { version = "0.1.0", path = "../rightkit-terminal-ui" }
@@ -68,7 +68,7 @@ rightkit-github = { version = "0.2.0", path = "../rightkit-github" }
 rightkit-scheduler = { version = "0.3.0", path = "../rightkit-scheduler" }
 rightkit-context-protocol = { version = "0.2.0", path = "../rightkit-context-protocol" }
 rightkit-bot-messaging = { version = "0.3.1", path = "../rightkit-bot-messaging" }
-rightkit-mcp = { version = "0.9.0", path = "../rightkit-mcp", features = ["agent_mcp", "agent_mcp-host-env"] }
+rightkit-mcp = { version = "0.10.0", path = "../rightkit-mcp", features = ["agent_mcp", "agent_mcp-os-keyring", "agent_mcp-host-env"] }
 rightkit-agents = { version = "0.2.4", path = "../rightkit-agents", features = ["agent_acp", "agent_host"] }
 rightkit-agent-engine-attention = { version = "0.1.0", path = "../rightkit-agent-engine-attention" }
 rightkit-agent-engine-api-sessions = { version = "0.1.0", path = "../rightkit-agent-engine-api-sessions" }

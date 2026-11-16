@@ -1279,6 +1279,7 @@ async fn build_manager_pooled(
     manager
 }
 
+#[cfg(feature = "agent_mcp-os-keyring")]
 fn unix_timestamp_seconds() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

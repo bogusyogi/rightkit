@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.2 (2026-11-16)
+
+- Requires rightkit-mcp 0.10.0. Names `agent_mcp-os-keyring` explicitly, so the build is unchanged. No behaviour change.
+
 ## 0.1.1 (unpublished)
 
 - Requires `rightkit-mcp` 0.9.0 (agent MCP server options, bearer config, prompts and the CodeRight sync; see its changelog).

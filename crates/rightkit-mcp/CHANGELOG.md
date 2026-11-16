@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.10.0 (2026-11-16)
+
+Breaking for hosts that relied on the implied OS keyring: the feature `agent_mcp` no longer enables `agent_mcp-os-keyring`. A host that wants stored MCP OAuth tokens in the OS credential store names `agent_mcp-os-keyring` itself (it also enables `rightkit-llm/agent_providers-os-keyring`); without it there are no stored OAuth tokens to attach or refresh and the OAuth login functions are not built. The `rightkit-sandbox` dependency now builds with `default-features = false` and only `execution`. Requires `rightkit-llm` 0.7.0 and `rightkit-agent-config` 0.1.3.
+
 ## 0.9.1
 
 - Requires `rightkit-llm` 0.6.0 for the `agent_mcp` credential-name defaults (0.9.0 required llm 0.5.0, which cannot share a build with the 0.6 host settings). No other change.

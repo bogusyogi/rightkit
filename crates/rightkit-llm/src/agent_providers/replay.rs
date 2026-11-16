@@ -72,8 +72,8 @@ pub const CORPUS_VERSION: u32 = 1;
 pub const CORPUS_MAX_AGE_DAYS: u64 = 90;
 pub const CORPUS_MAX_AGE_SECS: u64 = CORPUS_MAX_AGE_DAYS * 24 * 3600;
 
-/// Env var that enables live capture. Mirrors the contract value
-/// `RIGHTKIT_RECORD_REPLAY=1`.
+/// Env var that enables live capture under the default prefix (`RIGHTKIT_RECORD_REPLAY=1`);
+/// the name in force is `<PREFIX>_RECORD_REPLAY` for the host's `rightkit_agent_config::env_prefix`.
 #[cfg(feature = "agent_providers-replay-record")]
 pub const CORPUS_ENV_RECORD: &str = "RIGHTKIT_RECORD_REPLAY";
 /// Shipped builds (desktop and mobile) never record a replay corpus, so they carry no switch name.
@@ -219,7 +219,7 @@ fn now_epoch_secs() -> u64 {
 /// (`replay-record`): a shipped desktop build never writes provider traffic to disk.
 #[cfg(feature = "agent_providers-replay-record")]
 pub fn is_record_mode() -> bool {
-    std::env::var(CORPUS_ENV_RECORD)
+    std::env::var(rightkit_agent_config::env_name("RECORD_REPLAY"))
         .map(|v| {
             let t = v.trim().to_ascii_lowercase();
             t == "1" || t == "true" || t == "yes" || t == "on"

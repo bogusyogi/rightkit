@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.7.0 (2026-11-16)
+
+Breaking for hosts that relied on the implied OS keyring: the features `agent_providers` and `agent_router` no longer enable `agent_providers-os-keyring` / `agent_router-os-keyring`. A host that wants the OS credential store (desktop) names `agent_providers-os-keyring` (and `agent_router-os-keyring` for the router) itself; a host without one (iOS) can use the providers and router with no OS credential store. Without the keyring feature, subscription sign-in reports that the provider has no subscription login, token plans fall back to the API-key route and host credential probes report no credential store, as before for builds without it. `RIGHTKIT_OAUTH_CALLBACK_HOST`, `RIGHTKIT_CONTEXT_INSPECTION_PATH`, `RIGHTKIT_CONTEXT_INSPECTION_KEY` and the replay-record switch now follow `rightkit_agent_config::set_env_prefix` (default names unchanged). Requires `rightkit-agent-config` 0.1.3.
+
 ## 0.6.0
 
 CodeRight's `providers` and `router` crates are compared with `agent_providers` and `agent_router` and every difference is taken. Nothing changes for a host that makes no call below: each behaviour sits behind a once-per-process setting whose default is what the crate did before. A scratch program (not committed) linked CodeRight's old crates and this crate with the settings applied and compared 32 271 pure-function lines (1 148 strings through 28 functions, history repair, tool emulation, host credentials, key store) and 533 lines of 73 scripted request, stream and breaker scenarios against a local server (request line, headers and body, events, errors, retry notices, persisted state) byte for byte: no difference. The same corpus with no setting applied gives the output of 0.5.0 (22 046 lines, no difference).

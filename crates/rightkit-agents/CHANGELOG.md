@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.7 (2026-11-16)
+
+- Requires rightkit-mcp 0.10.0 and rightkit-agent-config 0.1.3. No behaviour change.
+
 ## 0.2.6
 
 - Breaking for dependents: a dependency requirement was raised to a semver-breaking version.
