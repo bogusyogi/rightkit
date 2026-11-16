@@ -15,6 +15,7 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 use serde_json::{json, Map, Value};
 
@@ -279,10 +280,25 @@ fn delete(ctx: &Context, input: &Value) -> RecipeResult<Value> {
     Ok(json!({"ok": true, "id": id, "deleted": existed}))
 }
 
-/// URL import needs a downloader the host provides; this crate ships none, so a URL import
-/// is a typed refusal rather than a guessed invocation. Callers inject their own downloader
-/// through `import_with`.
-fn url_download(_url: &str) -> Result<PathBuf, RecipeError> {
+/// A host's URL downloader for `templates.import`: given the URL, the downloaded local file, or a
+/// typed error. The error's `code`, `message` and `details` reach the caller unchanged, so the
+/// host words its own refusals (for example a `not_installed` when the downloader app is absent).
+pub type Downloader = Box<dyn Fn(&str) -> Result<PathBuf, RecipeError> + Send + Sync>;
+
+static DOWNLOADER: OnceLock<Downloader> = OnceLock::new();
+
+/// Install the host's URL downloader once (first call wins; the rejected one comes back). Without
+/// one, a URL import is the typed refusal `downloader_contract_unavailable`.
+pub fn set_downloader(downloader: Downloader) -> Result<(), Downloader> {
+    DOWNLOADER.set(downloader)
+}
+
+/// The host's downloader when it installed one; else this crate ships none, so a URL import is a
+/// typed refusal rather than a guessed invocation.
+fn url_download(url: &str) -> Result<PathBuf, RecipeError> {
+    if let Some(download) = DOWNLOADER.get() {
+        return download(url);
+    }
     Err(RecipeError::new(
         "downloader_contract_unavailable",
         "URL import needs a downloader this host does not provide. Import a local file instead.",

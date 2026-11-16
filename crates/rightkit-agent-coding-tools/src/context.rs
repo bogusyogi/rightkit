@@ -559,6 +559,9 @@ pub struct ExecutionResourceLimits {
 /// Everything a tool needs to know about its execution environment.
 pub struct ToolContext {
     pub session_id: String,
+    /// The model's context window in tokens, when known. Read only with the host option
+    /// `tool_options::set_read_file_windows`: `read_file` scales its caps down for a small window.
+    pub model_window_tokens: Option<u64>,
     /// Exact active tool call identity used to bind credential prompts.
     pub tool_call_id: String,
     pub workspace_root: PathBuf,
@@ -669,6 +672,7 @@ impl ToolContext {
     ) -> Self {
         Self {
             session_id: session_id.into(),
+            model_window_tokens: None,
             tool_call_id: String::new(),
             workspace_root: workspace_root.into(),
             permission_mode,

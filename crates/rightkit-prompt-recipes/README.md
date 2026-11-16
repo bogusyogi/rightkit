@@ -10,6 +10,17 @@ The crate ships no brands. A host installs its brand codes and their per-library
 start with `brands::set_brands(Brands { codes, defaults })`; `NA` (no brand) is always accepted.
 Without brands a request names its model and items explicitly.
 
+## Host options
+
+`host::set_options(HostOptions { .. })` installs, once per process and before the first composition,
+the few places a host's behaviour differs from the defaults: the app's display name in two character
+messages, the first segment of the character-training approval basis, the content-root variable and
+the preflight `source` of the video templates, the order of the video brand message, whether the
+recipe catalogue reports `depends_on`, and a JSON overlay merged over the embedded recipe and video
+libraries (objects merge by key, arrays replace whole, `null` deletes; the result is validated).
+`swap_templates::set_downloader` (feature `commands`) installs the host's URL downloader. Every
+option defaults to the crate's own behaviour.
+
 ## Features
 
 | Feature | Adds |

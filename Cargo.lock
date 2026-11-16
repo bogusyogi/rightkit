@@ -9914,7 +9914,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-agent-coding-tools"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -9924,6 +9924,7 @@ dependencies = [
  "git2",
  "globset",
  "ignore",
+ "image",
  "libc 0.2.191",
  "portable-pty",
  "regex",
@@ -10453,7 +10454,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-agent-tools"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "rightkit-automation",
  "rightkit-browser",
@@ -12199,7 +12200,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-media-pipeline"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "image",
  "rightkit-audio",
@@ -12577,7 +12578,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-prompt-recipes"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "regex",
  "rightkit-fs",
@@ -13152,7 +13153,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-tts"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "libc 0.2.191",
  "rightkit-child-process",

@@ -64,12 +64,15 @@ impl Tool for UndoEditTool {
             return ToolResult::error(error);
         }
 
+        // Evaluate the canonical workspace-relative target, as write_file does, so a symlink alias
+        // or a `..` spelling cannot hide a protected file from the policy rules.
+        let policy_path = crate::read_file::policy_target_path(&path, &ctx.workspace_root);
         let engine = PermissionEngine::new();
         let verdict = engine.evaluate(
             CapabilityClass::WriteFile,
             ctx.permission_mode,
             ctx.workspace_trust,
-            Some(path_str),
+            Some(&policy_path),
             false,
         );
         if verdict.decision == PermissionDecision::Deny {

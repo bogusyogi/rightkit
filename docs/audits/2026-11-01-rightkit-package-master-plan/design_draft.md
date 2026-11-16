@@ -1,5 +1,7 @@
 # Design: all suite capabilities in RightKit packages
 
+> **Superseded in part, 2026-11-16.** `docs/APP-BOUNDARY.md` is the locked decision on what lives in RightKit and what stays in the app. The 2% figure in this document counts code only (not CSS, theme, copy or composition), and any row that sends an app's pages, shell, onboarding flow, settings layout, styling or wording into a RightKit package no longer applies.
+
 | Field | Value |
 |---|---|
 | Status | Draft v6. Revised after the EGM Goldfish review (v3), by Adrian's 2026-11-01 rulings (v4, v5), and by a file-level shell pass (v6: at most 2% stays per app) (`consolidated_review_report.md`) |

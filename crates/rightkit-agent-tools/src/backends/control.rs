@@ -495,8 +495,49 @@ impl AppProfile {
     }
 }
 
+/// How [`serve_commands_with`] answers an empty (or missing) command name.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum EmptyCommandName {
+    /// Refuse it as bad arguments (`invalid_arguments`, "missing 'name'") before the command
+    /// policy is consulted. The default.
+    #[default]
+    InvalidArguments,
+    /// Treat it like any other name: the command policy decides, so a policy that lists no empty
+    /// name refuses it as "command `` is not exposed for the app" with the not-allowed code.
+    Policy,
+}
+
+/// Host options of [`serve_commands_with`]. `CommandServiceOptions::default()` is what
+/// [`serve_commands`] does: the reply and error codes of the shared profile, unchanged.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CommandServiceOptions {
+    /// Extra fields of the `health` reply, after `ok` and `app` (which are always the crate's: an
+    /// extra named `ok` or `app` is ignored). Default none, so the reply is `{ok, app}`.
+    pub health_extra: Vec<(String, Value)>,
+    /// Code of every refusal the service itself makes (method, command or empty name not
+    /// exposed). Default [`ERR_NOT_ALLOWED`] (`tool_not_allowed`).
+    pub not_allowed_code: String,
+    /// Code of the service's own bad-arguments refusal (a missing command name). Default
+    /// [`ERR_INVALID_ARGS`] (`invalid_arguments`).
+    pub invalid_args_code: String,
+    /// How an empty command name is answered. Default [`EmptyCommandName::InvalidArguments`].
+    pub empty_command_name: EmptyCommandName,
+}
+
+impl Default for CommandServiceOptions {
+    fn default() -> Self {
+        Self {
+            health_extra: Vec::new(),
+            not_allowed_code: ERR_NOT_ALLOWED.to_string(),
+            invalid_args_code: ERR_INVALID_ARGS.to_string(),
+            empty_command_name: EmptyCommandName::default(),
+        }
+    }
+}
+
 struct CommandService<F> {
     profile: AppProfile,
+    options: CommandServiceOptions,
     handler: F,
 }
 
@@ -512,9 +553,10 @@ where
         _emit: &Emit,
     ) -> Result<Value, ServiceError> {
         let profile = &self.profile;
+        let options = &self.options;
         let refuse = |what: &str| {
             ServiceError::new(
-                ERR_NOT_ALLOWED,
+                options.not_allowed_code.as_str(),
                 format!("{what} is not exposed for {}", profile.app),
             )
         };
@@ -522,11 +564,24 @@ where
             return Err(refuse(&format!("method `{method}`")));
         }
         match method {
-            "health" => Ok(json!({"ok": true, "app": profile.app})),
+            "health" => {
+                let mut reply = json!({"ok": true, "app": profile.app});
+                for (key, value) in &options.health_extra {
+                    if key != "ok" && key != "app" {
+                        reply[key.as_str()] = value.clone();
+                    }
+                }
+                Ok(reply)
+            }
             "command" => {
                 let name = params["name"].as_str().unwrap_or_default();
-                if name.is_empty() {
-                    return Err(ServiceError::new(ERR_INVALID_ARGS, "missing 'name'"));
+                if name.is_empty()
+                    && options.empty_command_name == EmptyCommandName::InvalidArguments
+                {
+                    return Err(ServiceError::new(
+                        options.invalid_args_code.as_str(),
+                        "missing 'name'",
+                    ));
                 }
                 if !profile.command_permitted(name) {
                     return Err(refuse(&format!("command `{name}`")));
@@ -553,6 +608,7 @@ where
 /// the command's JSON result or a [`ServiceError`]. Pair it with [`AppProfile::service_config`].
 /// A profile that enables the webview methods (`click`, `eval`, ...) gets them refused here: this
 /// service does not implement them, so the QA control server stays their only host.
+/// [`serve_commands_with`] takes host options for the reply and error codes.
 // `HostError::Held` carries the incumbent's record by value (as `rightkit_daemon::host` returns it).
 #[allow(clippy::result_large_err)]
 pub fn serve_commands<F>(
@@ -564,11 +620,36 @@ pub fn serve_commands<F>(
 where
     F: Fn(&CallContext, &str, &str) -> Result<Value, ServiceError> + Send + Sync + 'static,
 {
+    serve_commands_with(
+        suite,
+        profile,
+        config,
+        CommandServiceOptions::default(),
+        handler,
+    )
+}
+
+/// [`serve_commands`] with host options: extra `health` fields, the codes of the service's own
+/// refusals and the empty-name rule ([`CommandServiceOptions`]), for a host whose existing
+/// service answers with its own wire output.
+// `HostError::Held` carries the incumbent's record by value (as `rightkit_daemon::host` returns it).
+#[allow(clippy::result_large_err)]
+pub fn serve_commands_with<F>(
+    suite: &Suite,
+    profile: &AppProfile,
+    config: ServiceConfig,
+    options: CommandServiceOptions,
+    handler: F,
+) -> Result<Hosted, HostError>
+where
+    F: Fn(&CallContext, &str, &str) -> Result<Value, ServiceError> + Send + Sync + 'static,
+{
     rightkit_daemon::host(
         suite,
         config,
         Arc::new(CommandService {
             profile: profile.clone(),
+            options,
             handler,
         }),
     )

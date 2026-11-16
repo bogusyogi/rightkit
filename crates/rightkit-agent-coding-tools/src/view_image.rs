@@ -218,9 +218,20 @@ impl Tool for ViewImageTool {
             ));
         }
 
+        let mut bytes = bytes;
+        let mut dimensions = image_dimensions(&path, &bytes);
+        // Over the provider's longest edge: scale down before it is encoded and sent.
+        if let Some((w, h)) = dimensions {
+            if let Some((scaled, w, h)) =
+                crate::read_file::downscale_for_provider(&bytes, mime, w, h)
+            {
+                bytes = scaled;
+                dimensions = Some((w, h));
+            }
+        }
         let size = bytes.len();
         let encoded = rightkit_crypto::base64_encode(&bytes);
-        let dimensions = image_dimensions(&path, &bytes)
+        let dimensions = dimensions
             .map(|(w, h)| format!("{w}x{h}"))
             .unwrap_or_else(|| "unknown".to_string());
 

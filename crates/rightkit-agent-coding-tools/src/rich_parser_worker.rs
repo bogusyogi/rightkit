@@ -17,6 +17,10 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 
 const WORKER_ENV: &str = "RIGHTKIT_INTERNAL_RICH_PARSER_WORKER";
 const WORKER_TOKEN: &str = "v1:8f6c1d98f6a8465eb77b6efc9bb62a51";
+/// Set in the worker's environment when the host turned on `tool_options::set_images_downscaled`,
+/// so the worker (a separate process, where the host's once-per-process choice was never made)
+/// scales an image it reads.
+const DOWNSCALE_ENV: &str = "RIGHTKIT_INTERNAL_RICH_PARSER_DOWNSCALE";
 const RESPONSE_PREFIX: &str = "RIGHTKIT_RICH_PARSER_RESPONSE_V1:";
 const MAX_REQUEST_BYTES: usize = 16 * 1024;
 const MAX_RESPONSE_BYTES: usize = 24 * 1024 * 1024;
@@ -228,13 +232,20 @@ fn worker_launch_adapter() -> Arc<dyn ProcessLaunchAdapter> {
     Arc::new(crate::shell::NativeCommandSandboxAdapter)
 }
 
-fn configure_worker_args(_args: &mut Vec<String>, _env: &mut Vec<(String, String)>) {}
+fn configure_worker_args(_args: &mut Vec<String>, env: &mut Vec<(String, String)>) {
+    if crate::tool_options::images_downscaled() {
+        env.push((DOWNSCALE_ENV.to_string(), "1".to_string()));
+    }
+}
 
 /// Run the private worker protocol when invoked by the daemon's pre-CLI gate.
 /// Returns false for every ordinary invocation.
 pub fn run_if_requested() -> bool {
     if std::env::var(WORKER_ENV).as_deref() != Ok(WORKER_TOKEN) {
         return false;
+    }
+    if std::env::var(DOWNSCALE_ENV).as_deref() == Ok("1") {
+        crate::tool_options::set_images_downscaled(true);
     }
     run_worker_stdio();
     true

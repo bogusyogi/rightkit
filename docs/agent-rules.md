@@ -6,6 +6,7 @@ RightKit owns shared packages, crates, QA, licensing, logging, & release tooling
 ## Canonical sources
 - Read `docs/PIPELINE-ARCHITECTURE.md` before changing any check, build, qualification or release path; keep its section 5 green.
 - Read `rightkit/README.md` for package contracts.
+- Read `docs/APP-BOUNDARY.md` before moving any app code into RightKit or changing any UI package; it is the locked decision on what lives in RightKit and what stays in the app, and it overrides any plan, mapping table, changelog or handoff.
 - Read `docs/RIGHTKIT-SHARED-PACKAGES.md` before package boundaries change.
 - Read `docs/RIGHT-SUITE-RELEASE-PIPELINE.md` before release tooling changes.
 - Read `docs/RIGHT-SUITE-UPDATE-TIER-ROUTING.md` before tier changes.
@@ -21,6 +22,8 @@ RightKit owns shared packages, crates, QA, licensing, logging, & release tooling
 
 ## Locked invariants
 - Keep shared source only under `rightkit/`.
+- Code goes to RightKit as mandatory packages and customizable components; an app's look, theme, copy and composition stay in the app. Never move an app's screens, styling or wording into a RightKit package, and never wrap a mandatory package in an app-shaped one: add the missing generic piece to the mandatory package (`docs/APP-BOUNDARY.md`).
+- Measure adoption by whether an app composes the mandatory packages directly, never by lines deleted from the app or by a percentage.
 - Make apps consume published `@rightkit/*` without Git, link, file, or workspace specs.
 - Pin RightKitSwift by repository URL & version tag, never local path.
 - Run every release from a selected commit through the gate.

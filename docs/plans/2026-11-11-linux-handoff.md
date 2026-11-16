@@ -1,5 +1,7 @@
 # RightKit crates on Linux: state at hand-off, 2026-11-10 22:20 UTC
 
+> **Superseded in part, 2026-11-16.** `docs/APP-BOUNDARY.md` is the locked decision on what lives in RightKit and what stays in the app. The 2% figure in this document counts code only (not CSS, theme, copy or composition), and any row that sends an app's pages, shell, onboarding flow, settings layout, styling or wording into a RightKit package no longer applies.
+
 Written by fabdell (Claude, Dell) for whoever continues on a Linux cloud box. Adrian, 2026-11-10: "i need to move this work remote which means rightkit crates need to be buildable via the gate on linux".
 
 ## What is proven

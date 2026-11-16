@@ -392,11 +392,12 @@ fn assert_loras_hosted(loras: &[Value], whose: &str) -> RecipeResult<()> {
     for l in loras {
         let path = l["path"].as_str().unwrap_or("");
         if !path.starts_with("https://") {
+            let app = crate::host::app_subject();
             return Err(err(
                 "lora_not_hosted",
                 format!(
                     "The LoRA for {whose} is \"{path}\", not an https URL the provider can fetch, so it cannot be sent. \
-                     This app does not upload LoRA weights: the app's only upload (a lock with upload:true) sends reference images to your own fal storage, and character training already returns a hosted URL. \
+                     {app} does not upload LoRA weights: the app's only upload (a lock with upload:true) sends reference images to your own fal storage, and character training already returns a hosted URL. \
                      Host the file yourself on your own fal storage or another https host, put that https URL in the character's lora/{LORA_MANIFEST}, and lock again."
                 ),
             ));
@@ -1596,7 +1597,8 @@ fn plan(ctx: &Context, input: &Value) -> RecipeResult<Value> {
     };
 
     let token_src = format!(
-        "rightkit-train-v1|{}|{}|{steps}|{}|{cost:.2}|{cap:.2}|{override_cap}|{trigger}",
+        "{}|{}|{}|{steps}|{}|{cost:.2}|{cap:.2}|{override_cap}|{trigger}",
+        crate::host::training_approval_prefix(),
         character.id,
         trainer["id"].as_str().unwrap_or(""),
         ds.hash
@@ -1628,7 +1630,7 @@ fn plan(ctx: &Context, input: &Value) -> RecipeResult<Value> {
         "blockers": blockers,
         "ready": blockers.is_empty(),
         "plan_id": plan_id,
-        "approval_note": "Training spends predicted_cost_usd on fal. Only the app can approve it: approval_challenge is the single-use challenge for this exact plan, and the engine starts training only with the token the app mints for it.",
+        "approval_note": format!("Training spends predicted_cost_usd on fal. Only {} can approve it: approval_challenge is the single-use challenge for this exact plan, and the engine starts training only with the token the app mints for it.", crate::host::the_app()),
     }))
 }
 

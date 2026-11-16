@@ -202,7 +202,7 @@
         "reason": "ci/asset-gated.json: ONNX Runtime and the Silero model; the publish workflow does not provision them, so those tests print SKIP markers recorded in the receipts and the crate's own compile, clippy, doc and remaining tests still qualify it."
       },
       "rightkit-tts": {
-        "version": "0.3.0",
+        "version": "0.3.1",
         "allow": [
           "allow_missing_assets"
         ],

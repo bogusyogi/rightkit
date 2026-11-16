@@ -21,6 +21,9 @@ impl Tool for WriteFileTool {
     }
 
     fn description(&self) -> &str {
+        if crate::tool_options::edit_read_discipline() {
+            return "Write content to a file (creates or overwrites). Auto-creates parent directories. Overwriting an existing file requires a complete read_file of it in this session first; otherwise it is refused. Fail if path escapes workspace or permission denied.";
+        }
         "Write content to a file (creates or overwrites). Auto-creates parent directories. Fail if path escapes workspace or permission denied."
     }
 

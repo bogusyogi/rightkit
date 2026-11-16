@@ -487,7 +487,9 @@ fn validate(graph: &Value) -> Value {
         st["id"] = json!(nid);
         st["kind"] = json!(kind);
         st["output"] = json!(out_type.get(nid).cloned().flatten());
-        st["depends_on"] = n.get("depends_on").cloned().unwrap_or_else(|| json!([]));
+        if crate::host::report_node_depends_on() {
+            st["depends_on"] = n.get("depends_on").cloned().unwrap_or_else(|| json!([]));
+        }
         statuses.push(st);
     }
 

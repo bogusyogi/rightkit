@@ -1,5 +1,7 @@
 # Desktop app template (Rust + Tauri + React)
 
+This template is the reference for the rule in `docs/APP-BOUNDARY.md`: an app composes the mandatory packages directly and keeps only its theme, copy, composition and configuration.
+
 The starting point of a Right Suite desktop app: a small, buildable skeleton of the pattern the mature apps share
 (ScrapeRight is the reference). It carries **no product behaviour and no real brand**, and it never copies shared code:
 every RightKit capability it uses is an exact pin from the published set (`packages/release/rightkit-versions.json` `registry`), and the app

@@ -1,7 +1,8 @@
 //! Prompt contracts and their validator, the recipe composer, the image workflow catalogue, the
 //! character and LoRA lock data, and the video shot-contract templates: a library over JSON data
 //! embedded at compile time (`data/<area>/`). Brands are the host's ([`brands::set_brands`]); the
-//! crate ships none.
+//! crate ships none. The other host differences (app name, approval basis, content-root variable,
+//! data overlay, URL downloader) are options with defaults: [`host::set_options`].
 //!
 //! The default build is the pure library: no engine, no database, no network. Feature
 //! `commands` adds the `studio.<area>.*` command handlers (`commands`, `dispatch`), a thin
@@ -17,6 +18,7 @@ pub mod brands;
 pub mod catalog;
 pub mod characters;
 pub mod contracts;
+pub mod host;
 #[cfg(feature = "commands")]
 pub mod recipe_catalogue;
 pub mod recipes;

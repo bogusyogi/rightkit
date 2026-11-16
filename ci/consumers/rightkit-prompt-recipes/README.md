@@ -1,7 +1,7 @@
-# rightkit-prompt-recipes 0.2.0 registry consumer
+# rightkit-prompt-recipes 0.2.1 registry consumer
 
 Standalone package outside the RightKit workspace. It depends on `rightkit-prompt-recipes` by exact registry pin
-(`=0.2.0`) with default features, the pure library (no `rightkit-media-gen` in the build). It has no path, Git,
+(`=0.2.1`) with default features, the pure library (no `rightkit-media-gen` in the build). It has no path, Git,
 workspace or patch dependency and no committed `Cargo.lock`.
 
 Catalogue lookups, the contract list and the host's brands: before `brands::set_brands` only `NA` is a brand; after

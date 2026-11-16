@@ -1,5 +1,7 @@
 ## Decisions (resolved 2026-11-01 by Adrian, except where marked)
 
+> **Superseded in part, 2026-11-16.** `docs/APP-BOUNDARY.md` is the locked decision on what lives in RightKit and what stays in the app. The 2% figure in this document counts code only (not CSS, theme, copy or composition), and any row that sends an app's pages, shell, onboarding flow, settings layout, styling or wording into a RightKit package no longer applies.
+
 1. **Scope.** Every capability goes to RightKit, including ones a single app uses today. That way a new app can find it. "Product-specific" means only how each app looks & composes the shared shell, plus declared per-app exceptions. Example: ViewRight's devtools in the HTML iframe is an app declaration over a `rightkit-tauri-shell` option. Everything is public on crates.io/npm.
 2. **DOCX (eigenpal).** Do not fork the 171k lines.
    - `core` and `i18n` are identical to the published npm 1.9.0, so use those packages.

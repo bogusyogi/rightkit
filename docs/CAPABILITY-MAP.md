@@ -151,7 +151,7 @@ Capabilities: 222 (58 with fingerprints, 164 declaration-only). Internal owners 
 | media-gen-ui | `@rightkit/media-gen-ui` | none | declaration-only | 0 | @rightkit/media-gen-ui: staged 0.2.1, not published |
 | media-pipelines | `rightkit-ffmpeg` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-ffmpeg: published 0.2.10 (crates.io) |
 | media-playback | `rightkit-playback` | advise | fingerprinted | 1 (0 block, 1 advise) | rightkit-playback: published 0.3.0 (crates.io) |
-| media-production-pipelines | `rightkit-media-pipeline` | none | declaration-only | 0 | rightkit-media-pipeline: staged 0.2.1, not published |
+| media-production-pipelines | `rightkit-media-pipeline` | none | declaration-only | 0 | rightkit-media-pipeline: staged 0.2.2, not published |
 | media-ui | `@rightkit/media-ui` | advise | fingerprinted | 1 (0 block, 1 advise) | @rightkit/media-ui: published 0.3.4 (npm) |
 | model-installation | `rightkit-models` | advise | fingerprinted | 1 (0 block, 1 advise) | rightkit-models: published 0.5.1 (crates.io) |
 | motion-beat-sync | `rightkit-motion` | none | declaration-only | 0 | rightkit-motion: published 0.2.0 (crates.io) |

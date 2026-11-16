@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.2 (2026-11-16)
+
+- `motion` (feature `motion`): the `ffmpeg_missing` message names the host's variable, `rightkit_media_gen::host::env_name("FFMPEG")` (`<PREFIX>_FFMPEG` under the host's `env_prefix`), instead of a hard-coded `RIGHTKIT_FFMPEG`. The default prefix still gives `RIGHTKIT_FFMPEG`. No build reads that variable (the verified ffmpeg is the only one), so only the message changes. The default output folder already follows `HostConfig::content_subdir` and the served GSAP build is `motion::set_gsap`.
+
 ## 0.2.1
 
 Taken from GenRight's shipped pipeline (`pipeline_workflows`, `brief.rs`, `caller_tag`) so it can delete its copies. Every default keeps RightKit's behaviour; each option is additive. Requires `rightkit-media-gen` 0.2.2.

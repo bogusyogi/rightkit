@@ -8,7 +8,7 @@
 //! never a partial write.
 
 use crate::context::ToolContext;
-use crate::edit_helpers::apply_single_edit;
+use crate::edit_helpers::{apply_single_edit, apply_single_edit_counted};
 use crate::tool_trait::{Tool, ToolResult, WorkspaceMutation, WorkspaceMutationKind};
 use rightkit_agent_engine_history::unified_diff;
 use rightkit_agent_policy::{CapabilityClass, PermissionDecision, PermissionEngine};
@@ -29,6 +29,15 @@ impl Tool for MultiEditTool {
     }
 
     fn description(&self) -> &str {
+        if crate::tool_options::edit_file_newer() && crate::tool_options::edit_read_discipline() {
+            return "Apply multiple edits atomically to one file. An exact old_string match needs no prior read. An inexact (tolerant) match needs the whole file read with read_file first. Edits array: each {old_string, new_string, replace_all?} runs on prior result. Hashline-prefixed old_string values from read_file are validated against their line anchors. With no exact match for an old_string, a whitespace- or punctuation-tolerant match is used. Newlines in new_string become CRLF where the matched text or the whole file uses CRLF; otherwise new_string is written verbatim. All succeed or none written.";
+        }
+        if crate::tool_options::edit_file_newer() {
+            return "Apply multiple edits atomically to one file. Edits array: each {old_string, new_string, replace_all?} runs on prior result. Hashline-prefixed old_string values from read_file are validated against their line anchors. With no exact match for an old_string, a whitespace- or punctuation-tolerant match is used. Newlines in new_string become CRLF where the matched text or the whole file uses CRLF; otherwise new_string is written verbatim. All succeed or none written.";
+        }
+        if crate::tool_options::edit_read_discipline() {
+            return "Apply multiple edits atomically to one file. An exact old_string match needs no prior read. An inexact (tolerant) match needs the whole file read with read_file first. Edits array: each {old_string, new_string, replace_all?} runs on prior result. Hashline-prefixed old_string values from read_file are validated against their line anchors. All succeed or none written.";
+        }
         "Apply multiple edits atomically to one file. Edits array: each {old_string, new_string, replace_all?} runs on prior result. Hashline-prefixed old_string values from read_file are validated against their line anchors. All succeed or none written."
     }
 
@@ -91,12 +100,15 @@ impl Tool for MultiEditTool {
             return ToolResult::error(error);
         }
 
+        // Evaluate the canonical workspace-relative target, as write_file does, so a symlink alias
+        // or a `..` spelling cannot hide a protected file from the policy rules.
+        let policy_path = crate::read_file::policy_target_path(&path, &ctx.workspace_root);
         let engine = PermissionEngine::new();
         let verdict = engine.evaluate(
             CapabilityClass::WriteFile,
             ctx.permission_mode,
             ctx.workspace_trust,
-            Some(path_str),
+            Some(&policy_path),
             false,
         );
         if verdict.decision == PermissionDecision::Deny {
@@ -105,13 +117,30 @@ impl Tool for MultiEditTool {
                 verdict.reason, verdict.policy_source
             ));
         }
-        if verdict.decision == PermissionDecision::Ask {
+        // Test-file protection guards existing test text; with host option
+        // `edit_test_file_additions` insert-only edits keep all of it.
+        let test_addition = crate::tool_options::edit_test_file_additions()
+            && verdict.policy_source == "test-file:protected"
+            && crate::edit_helpers::edits_only_insert(edits);
+        if verdict.decision == PermissionDecision::Ask && !test_addition {
             return ToolResult::error(format!(
                 "Tool requires approval before proceeding: {} (policy: {})",
                 verdict.reason, verdict.policy_source
             ));
         }
+        let newer = crate::tool_options::edit_file_newer();
+        let discipline = crate::tool_options::edit_read_discipline();
+        if let Some(refusal) = crate::edit_helpers::oversize_refusal(&path) {
+            return ToolResult::error(refusal);
+        }
 
+        // With no read receipt, the revision is taken BEFORE the content is read, so the write is
+        // refused if the file changed in between.
+        let observed = if discipline {
+            ctx.file_service.observe_when_unread(&path)
+        } else {
+            None
+        };
         let original = match std::fs::read_to_string(&path) {
             Ok(c) => c,
             Err(e) => {
@@ -125,9 +154,31 @@ impl Tool for MultiEditTool {
 
         let mut content = original.clone();
         let mut hashline_validated = false;
+        // Anchored: every edit was located in the current text by a HashLine anchor or by an exact
+        // old_string match (never a tolerant one). `exact_text`: every edit matched exact text.
+        let mut all_anchored = true;
+        let mut exact_text = true;
         for (i, edit) in edits.iter().enumerate() {
-            let old_string = edit["old_string"].as_str().unwrap_or("");
-            let new_string = edit["new_string"].as_str().unwrap_or("");
+            let (old_string, new_string) = if newer {
+                // A missing or non-string field is an error, never "": an absent new_string must
+                // not turn into a silent deletion of the matched text.
+                let Some(old_string) = edit["old_string"].as_str() else {
+                    return ToolResult::error(format!(
+                        "edits[{i}]: missing required field old_string"
+                    ));
+                };
+                let Some(new_string) = edit["new_string"].as_str() else {
+                    return ToolResult::error(format!(
+                        "edits[{i}]: missing required field new_string"
+                    ));
+                };
+                (old_string, new_string)
+            } else {
+                (
+                    edit["old_string"].as_str().unwrap_or(""),
+                    edit["new_string"].as_str().unwrap_or(""),
+                )
+            };
             let replace_all = edit["replace_all"].as_bool().unwrap_or(false);
 
             if old_string.is_empty() {
@@ -141,30 +192,48 @@ impl Tool for MultiEditTool {
             content = match crate::read_file::resolve_hashline_block(old_string, &content) {
                 Ok(Some(anchor)) => {
                     hashline_validated = true;
+                    exact_text = false;
                     crate::read_file::replace_hashline_block(&content, &anchor, new_string)
                 }
-                Ok(None) => match apply_single_edit(
+                Ok(None) => match apply_single_edit_counted(
                     &content,
                     old_string,
                     new_string,
                     replace_all,
                     &format!("edits[{i}] (after applying {i} earlier edit(s)); no changes written"),
                 ) {
-                    Ok(c) => c,
+                    Ok((c, _, rung)) => {
+                        all_anchored &= rung.is_none();
+                        exact_text &= rung.is_none();
+                        c
+                    }
                     Err(e) => return ToolResult::error(e),
                 },
                 Err(e) => return ToolResult::error(format!("edits[{i}]: {e}")),
             };
         }
 
+        // Insert-only edits of a test file keep the existing text only when every match was exact.
+        if verdict.decision == PermissionDecision::Ask && !exact_text {
+            return ToolResult::error(format!(
+                "Tool requires approval before proceeding: {} (policy: {})",
+                verdict.reason, verdict.policy_source
+            ));
+        }
+
         // The restore point was written by the engine before this call ran
         // (`write_targets`, sessions rule 41).
 
-        match ctx.file_service.write_with_receipt_intent(
+        match ctx.file_service.write_with_receipt_intent_from(
             crate::file_service::MutationIntentKind::Update,
             &path,
             content.as_bytes(),
-            hashline_validated,
+            if discipline {
+                all_anchored
+            } else {
+                hashline_validated
+            },
+            observed.as_ref(),
         ) {
             Ok(_) => {
                 let diff = unified_diff(&original, &content, path_str);

@@ -56,8 +56,12 @@ pub fn pixel_format(kind: Option<EncoderKind>) -> &'static str {
 /// The owner's handle for the located ffmpeg (an `FfmpegBinary`: the encoder probe and the runner take
 /// it, and it keeps the verified/development trust class).
 pub fn ffmpeg_bin() -> Result<FfmpegHandle, String> {
-    rightkit_media_gen::host::ffmpeg::resolve_ffmpeg()
-        .map_err(|e| format!("ffmpeg_missing: no verified ffmpeg (bundled; RIGHTKIT_FFMPEG or PATH in development builds): {e}"))
+    rightkit_media_gen::host::ffmpeg::resolve_ffmpeg().map_err(|e| {
+        format!(
+            "ffmpeg_missing: no verified ffmpeg (bundled; {} or PATH in development builds): {e}",
+            rightkit_media_gen::host::env_name("FFMPEG")
+        )
+    })
 }
 
 /// The located ffmpeg's path, for messages and status only; spawns take [`ffmpeg_bin`].

@@ -444,6 +444,10 @@ fn canonical_workspace_generation() -> &'static AtomicU64 {
 #[derive(Default)]
 pub struct FileService {
     receipts: Mutex<HashMap<PathBuf, ReadReceipt>>,
+    /// Per path: the revision last read and how many leading lines have been read contiguously
+    /// from line 1 under it. Kept only by `record_read_window` (host option
+    /// `edit_read_discipline`).
+    read_prefix: Mutex<HashMap<PathBuf, (FileRevision, usize)>>,
     mutation_receipts: Mutex<Vec<MutationReceipt>>,
     batch_sequence: AtomicU64,
 }
@@ -463,6 +467,65 @@ impl FileService {
             .map_err(|_| "file receipt ledger is unavailable; retry read_file".to_string())?
             .insert(path.to_path_buf(), receipt.clone());
         Ok(receipt)
+    }
+
+    /// Record a text window read as 0-based lines `start..shown_end`. Reads that continue
+    /// contiguously from line 1 under an unchanged revision accumulate, so reading a large file in
+    /// successive windows counts as a complete read once the last window reaches end of file. A
+    /// window that starts past the covered prefix never completes the read.
+    pub fn record_read_window(
+        &self,
+        path: &Path,
+        start: usize,
+        shown_end: usize,
+        reached_eof: bool,
+    ) -> Result<ReadReceipt, String> {
+        let current = revision(path)?;
+        let unavailable = || "file receipt ledger is unavailable; retry read_file".to_string();
+        let mut prefixes = self.read_prefix.lock().map_err(|_| unavailable())?;
+        let mut covered = match prefixes.get(path) {
+            Some((seen, lines)) if *seen == current => *lines,
+            _ => 0,
+        };
+        let contiguous = start <= covered;
+        if contiguous {
+            covered = covered.max(shown_end);
+        }
+        prefixes.insert(path.to_path_buf(), (current.clone(), covered));
+        drop(prefixes);
+        let mut receipts = self.receipts.lock().map_err(|_| unavailable())?;
+        let already_complete = receipts
+            .get(path)
+            .is_some_and(|prior| prior.complete && prior.revision == current);
+        let receipt = ReadReceipt {
+            revision: current,
+            complete: already_complete || (contiguous && reached_eof),
+        };
+        receipts.insert(path.to_path_buf(), receipt.clone());
+        Ok(receipt)
+    }
+
+    /// The path's revision as it is now, when no read receipt exists for it: take it BEFORE reading
+    /// the file's content for an edit that needs no read, and hand it to
+    /// `write_with_receipt_intent_from`, so the write is refused if the file changed between that
+    /// read and the write. `None` when a receipt exists (the receipt's revision binds the write) or
+    /// the file cannot be observed.
+    pub fn observe_when_unread(&self, path: &Path) -> Option<FileRevision> {
+        let has_receipt = self
+            .receipts
+            .lock()
+            .map(|receipts| receipts.contains_key(path))
+            .unwrap_or(true);
+        if has_receipt {
+            return None;
+        }
+        revision(path).ok()
+    }
+
+    /// The revision the model last read in full, when the file is still at it: what an inexact edit
+    /// (one that did not match the text exactly) may be applied against.
+    pub fn require_read_receipt(&self, path: &Path) -> Result<FileRevision, String> {
+        self.current_receipt_revision(path)
     }
 
     pub fn observe_preimage(&self, path: &Path) -> Result<ExpectedPreimage, MutationError> {
@@ -504,19 +567,45 @@ impl FileService {
         bytes: &[u8],
         hashline_validated: bool,
     ) -> Result<MutationReceipt, MutationError> {
+        self.write_with_receipt_intent_from(kind, path, bytes, hashline_validated, None)
+    }
+
+    /// [`Self::write_with_receipt_intent`] for a caller that took `observed` (see
+    /// [`Self::observe_when_unread`]) before computing `bytes` from the file's content. Only with
+    /// host option `edit_read_discipline` on, an anchored edit (`hashline_validated`) of a file the
+    /// session has no read receipt for is bound to `observed`; with none, it is refused as before.
+    ///
+    /// The writer knows the whole new content, so with that option a write made on top of a
+    /// complete read (or a create) leaves a complete read receipt for the new revision.
+    pub fn write_with_receipt_intent_from(
+        &self,
+        kind: MutationIntentKind,
+        path: &Path,
+        bytes: &[u8],
+        hashline_validated: bool,
+        observed: Option<&FileRevision>,
+    ) -> Result<MutationReceipt, MutationError> {
+        let grant_after = crate::tool_options::edit_read_discipline()
+            && (kind == MutationIntentKind::Create
+                || self
+                    .receipts
+                    .lock()
+                    .ok()
+                    .and_then(|receipts| receipts.get(path).map(|receipt| receipt.complete))
+                    .unwrap_or(false));
         let intent = match kind {
             MutationIntentKind::Create => MutationIntent::create(path),
             MutationIntentKind::Replace => MutationIntent::replace(
                 path,
-                self.expected_revision_from_receipt(path, hashline_validated)?,
+                self.expected_revision_from_receipt(path, hashline_validated, observed)?,
             ),
             MutationIntentKind::Update => MutationIntent::update(
                 path,
-                self.expected_revision_from_receipt(path, hashline_validated)?,
+                self.expected_revision_from_receipt(path, hashline_validated, observed)?,
             ),
             MutationIntentKind::Restore => MutationIntent::restore(
                 path,
-                self.expected_revision_from_receipt(path, hashline_validated)?,
+                self.expected_revision_from_receipt(path, hashline_validated, observed)?,
             ),
             MutationIntentKind::Move | MutationIntentKind::Delete => {
                 return Err(MutationError::InvalidIntent(format!(
@@ -525,7 +614,19 @@ impl FileService {
                 )))
             }
         };
-        self.apply_byte_intent(intent, bytes)
+        let receipt = self.apply_byte_intent(intent, bytes)?;
+        if grant_after {
+            if let (Some(after), Ok(mut receipts)) = (receipt.after.clone(), self.receipts.lock()) {
+                receipts.insert(
+                    path.to_path_buf(),
+                    ReadReceipt {
+                        revision: after,
+                        complete: true,
+                    },
+                );
+            }
+        }
+        Ok(receipt)
     }
 
     /// Apply an explicit typed byte mutation. This is the qualification-facing
@@ -1368,25 +1469,62 @@ impl FileService {
         &self,
         path: &Path,
         hashline_validated: bool,
+        observed: Option<&FileRevision>,
     ) -> Result<FileRevision, MutationError> {
-        let expected = self
+        let discipline = crate::tool_options::edit_read_discipline();
+        let receipt = self
             .receipts
             .lock()
             .map_err(|_| {
                 MutationError::Io("file receipt ledger is unavailable; re-read file".to_string())
             })?
             .get(path)
-            .cloned()
-            .ok_or_else(|| {
-                MutationError::InvalidIntent(format!(
+            .cloned();
+        let Some(expected) = receipt else {
+            if !discipline {
+                return Err(MutationError::InvalidIntent(format!(
                     "Refusing mutation of '{}': read the complete current file first, then retry.",
                     path.display()
-                ))
-            })?;
-        if !expected.complete && !hashline_validated {
+                )));
+            }
+            // No read receipt. An anchored edit (an exact old_string match, or a HashLine anchor,
+            // found in the file as the caller read it) proves the caller knows the text of the
+            // span it changes, however it came to know it. The write is bound to the revision
+            // observed before that content was read, so a change in between is a conflict. A
+            // whole-file overwrite carries no anchor and is still refused.
+            if hashline_validated {
+                if let Some(observed) = observed {
+                    return Ok(observed.clone());
+                }
+            }
             return Err(MutationError::InvalidIntent(format!(
-                "Refusing mutation of '{}': current read was partial. Re-read full file or use fresh HashLine anchors.",
+                "Refusing mutation of '{}': read the complete current file with read_file first, then retry (a file shown by the shell or by search does not count for a whole-file write or an inexact edit). A file over 2000 lines or 128 KB is read in ranges: read_file with offset 1 and limit 2000, then offset 2001, and so on to the end. Or edit with an exact old_string, which needs no read.",
                 path.display()
+            )));
+        };
+        if !expected.complete && !hashline_validated {
+            if !discipline {
+                return Err(MutationError::InvalidIntent(format!(
+                    "Refusing mutation of '{}': current read was partial. Re-read full file or use fresh HashLine anchors.",
+                    path.display()
+                )));
+            }
+            let covered = self
+                .read_prefix
+                .lock()
+                .ok()
+                .and_then(|prefixes| {
+                    prefixes
+                        .get(path)
+                        .filter(|(seen, _)| *seen == expected.revision)
+                        .map(|(_, lines)| *lines)
+                })
+                .unwrap_or(0);
+            return Err(MutationError::InvalidIntent(format!(
+                "Refusing mutation of '{}': the file has not been read completely. Call read_file with path '{}', offset {} and limit 2000 to read the next range (ranges from line 1 add up; a file over 2000 lines or 128 KB needs several), or use fresh HashLine anchors or an exact old_string.",
+                path.display(),
+                path.display(),
+                covered + 1,
             )));
         }
         Ok(expected.revision)
@@ -1394,7 +1532,7 @@ impl FileService {
 
     fn current_receipt_revision(&self, path: &Path) -> Result<FileRevision, String> {
         let expected = self
-            .expected_revision_from_receipt(path, false)
+            .expected_revision_from_receipt(path, false, None)
             .map_err(|error| error.to_string())?;
         let current = revision(path)?;
         if current != expected {
