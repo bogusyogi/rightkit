@@ -76,3 +76,37 @@ pub fn configure_cli(identity: CliIdentity) -> bool {
 pub fn cli_identity() -> Option<&'static CliIdentity> {
     CLI.get()
 }
+
+/// Names in the speech service's log lines, for a host whose log consumers expect other names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ServiceLogNames {
+    /// `event` of the warning for a peer the OS would not identify. Default
+    /// `service_peer_unidentified`.
+    pub unidentified_peer_event: &'static str,
+    /// Put the `reason` field right after `event` in that warning (default: after the peer's
+    /// `pid`, `image` and `kind`).
+    pub unidentified_peer_reason_first: bool,
+    /// Name the refusal in the `service_peer_untrusted` warning `reason` (default: `error`).
+    pub untrusted_peer_field_is_reason: bool,
+}
+
+impl ServiceLogNames {
+    /// The names of earlier releases of this crate.
+    pub const DEFAULT: Self = Self {
+        unidentified_peer_event: "service_peer_unidentified",
+        unidentified_peer_reason_first: false,
+        untrusted_peer_field_is_reason: false,
+    };
+}
+
+static SERVICE_LOG_NAMES: OnceLock<ServiceLogNames> = OnceLock::new();
+
+/// Install the speech service's log names once. Returns `false` when already installed.
+pub fn configure_service_log_names(names: ServiceLogNames) -> bool {
+    SERVICE_LOG_NAMES.set(names).is_ok()
+}
+
+/// The speech service's log names in force.
+pub fn service_log_names() -> &'static ServiceLogNames {
+    SERVICE_LOG_NAMES.get().unwrap_or(&ServiceLogNames::DEFAULT)
+}

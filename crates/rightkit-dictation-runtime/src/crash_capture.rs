@@ -27,6 +27,41 @@ pub fn configure_crash_identity(product: &'static str, version: &'static str) ->
     CRASH_IDENTITY.set((product, version)).is_ok()
 }
 
+/// How the sidecar's crash hook is wired. The defaults are what earlier releases of this crate did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CrashOptions {
+    /// File name of the Windows dump helper shipped beside the engine. Default
+    /// `rightkit-dump-helper.exe`.
+    pub dump_helper: &'static str,
+    /// End the process from inside `rightkit-crash`'s own hook (`CrashConfig::abort_after_report`),
+    /// which skips the abort for a panic an app catches on purpose (`CaughtPanicScope`), instead of
+    /// wrapping the installed hook so every panic aborts. Default `false`.
+    pub abort_in_report_hook: bool,
+}
+
+impl CrashOptions {
+    /// What earlier releases of this crate did.
+    pub const DEFAULT: Self = Self {
+        dump_helper: "rightkit-dump-helper.exe",
+        abort_in_report_hook: false,
+    };
+}
+
+static CRASH_OPTIONS: std::sync::OnceLock<CrashOptions> = std::sync::OnceLock::new();
+
+/// Install the crash hook options once, before [`install_panic_hook`]. Returns false when options
+/// were already installed (the first ones stay).
+pub fn configure_crash_options(options: CrashOptions) -> bool {
+    CRASH_OPTIONS.set(options).is_ok()
+}
+
+fn crash_options() -> CrashOptions {
+    CRASH_OPTIONS
+        .get()
+        .copied()
+        .unwrap_or(CrashOptions::DEFAULT)
+}
+
 fn crash_identity() -> (&'static str, &'static str) {
     CRASH_IDENTITY.get().copied().unwrap_or_else(|| {
         (
@@ -43,11 +78,12 @@ fn crash_dir() -> PathBuf {
 /// Install the sidecar panic hook. Records the report, then aborts the process so the shell
 /// restarts the engine. Call once, early in `main`.
 pub fn install_panic_hook() {
-    rightkit_crash::set_dump_helper("rightkit-dump-helper.exe");
+    rightkit_crash::set_dump_helper(crash_options().dump_helper);
     install_at(crash_dir(), NativeCapture::Auto);
 }
 
 fn install_at(dir: PathBuf, native_capture: NativeCapture) {
+    let options = crash_options();
     let mut config =
         CrashConfig::new(crash_identity().0, crash_identity().1, dir).with_sink(|report| {
             let field = |name: &str| report.get(name).and_then(|v| v.as_str()).unwrap_or("");
@@ -59,8 +95,13 @@ fn install_at(dir: PathBuf, native_capture: NativeCapture) {
             );
         });
     config.native_capture = native_capture;
+    if options.abort_in_report_hook {
+        config = config.abort_after_report(true);
+    }
     rightkit_crash::install_process_hook(ProcessKind::Engine, config);
-    abort_after_hook();
+    if !options.abort_in_report_hook {
+        abort_after_hook();
+    }
 }
 
 /// Wrap the installed hook so the process ends once the report and native capture have run.

@@ -11,8 +11,10 @@
 //! | macOS | `$HOME/Library/Application Support/<name>` |
 //! | other Unix | `$XDG_DATA_HOME` (else `$HOME/.local/share`) `/<name>` |
 //!
-//! There is no override variable, no test root and no test-binary guard: every build resolves
-//! the real per-user folder (rightkit#1437; Adrian, 2026-11-03: "dev mode, is mine ... real data.
+//! A host may hand the process a different root once with [`set_app_data_root`] (a dev tool's
+//! temp folder, or the production root resolved by the host itself); without that call every build
+//! resolves the real per-user folder. There is no override variable, no test root and no
+//! test-binary guard (rightkit#1437; Adrian, 2026-11-03: "dev mode, is mine ... real data.
 //! snapshot and restore.").
 
 use std::path::PathBuf;
@@ -20,6 +22,20 @@ use std::path::PathBuf;
 use rightkit_fs::app_dirs::{AppDirs, AppId, Options};
 
 static APP_DATA_DIR_NAME: std::sync::OnceLock<&'static str> = std::sync::OnceLock::new();
+static INJECTED_ROOT: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+
+/// Hand this process its app-data root, once, before anything reads it (a host's `main` passes
+/// [`production_data_root`] or a dev tool's temp directory). Returns false when a different root
+/// was already injected (the first one stays); the same root again returns true. Without a call,
+/// [`app_data_root`] is [`production_data_root`].
+pub fn set_app_data_root(root: PathBuf) -> bool {
+    INJECTED_ROOT.set(root.clone()).is_ok() || INJECTED_ROOT.get() == Some(&root)
+}
+
+/// True once [`set_app_data_root`] has handed this process a root.
+pub fn app_data_root_is_injected() -> bool {
+    INJECTED_ROOT.get().is_some()
+}
 
 /// Name the app's data folder (for example `MyAppNext`). Call once, before anything resolves a
 /// path. Returns false when a different name was already configured (the first one stays).
@@ -66,6 +82,10 @@ fn resolve_production_data_root() -> PathBuf {
         })
 }
 
+/// The root the host injected with [`set_app_data_root`]; [`production_data_root`] until then.
 pub fn app_data_root() -> PathBuf {
-    production_data_root()
+    match INJECTED_ROOT.get() {
+        Some(root) => root.clone(),
+        None => production_data_root(),
+    }
 }

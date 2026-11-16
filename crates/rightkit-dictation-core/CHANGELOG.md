@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.1 (2026-11-16)
+
+HeardRight's `heardright_core::app_paths` is compared with this crate; nothing changes for a host that makes no call below.
+
+- New: `app_paths::set_app_data_root(PathBuf) -> bool` hands the process its app-data root once, before anything reads it (a host's `main` passes `production_data_root()`, a dev tool its temp folder). The first root stays: the same root again returns `true`, a different one `false`. `app_paths::app_data_root_is_injected()` says whether one was handed in. Without a call `app_data_root()` is `production_data_root()`, as before. Every crate that resolves the root through `app_data_root()` (telemetry, settings, the engine runtime) follows it.
+- Compared and kept different: HeardRight's setter replaces the root on each call (tests in one process set it in turn) and, with no call, answers a per-process temp folder; here the first call wins and no call means the real per-user folder. A host that wants either keeps passing the root itself.
+
 ## 0.3.0
 
 - `DEFAULT_APP_FONT` is `"system"` (was `"hanken"`), and a settings patch accepts `"system"` for `app_font`. The settings screen already offers and defaults to the system font; the Rust default disagreed, so a fresh blob named a font the screen did not show as selected, and choosing the system font was refused by the patch check (#1572).
