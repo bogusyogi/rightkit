@@ -1,5 +1,7 @@
 # RightKit package master plan
 
+> **Superseded in part, 2026-11-16.** `docs/APP-BOUNDARY.md` is the locked decision on what lives in RightKit and what stays in the app. The 2% figure in this document counts code only (not CSS, theme, copy or composition), and any row that sends an app's pages, shell, onboarding flow, settings layout, styling or wording into a RightKit package no longer applies.
+
 Date: 2026-11-01. Built by going through all 10 app repositories file by file (every tracked code file on `main`), mapping each to the RightKit package it should become or use, then merging overlaps across apps. Per-app tables: `docs/rightkit-inventory/<app>-rightkit-mapping.md` in each app repo (plus a JSON with every file).
 
 Goal: no app code outside RightKit except a thin app shell (entry points, command tables, wiring). Package names are product-neutral; a package used by only one app today is still a RightKit package.

@@ -1,5 +1,7 @@
 # ScrapeRight: RightKit mapping
 
+> **Superseded in part, 2026-11-16.** `docs/APP-BOUNDARY.md` is the locked decision on what lives in RightKit and what stays in the app. The 2% figure in this document counts code only (not CSS, theme, copy or composition), and any row that sends an app's pages, shell, onboarding flow, settings layout, styling or wording into a RightKit package no longer applies.
+
 Repo `scraperight` at `859298e` (main). Generated 2026-11-01. Every tracked code file (Rust, TS/JS, Swift, Kotlin, Python, shell, CSS/HTML, TOML, SQL) is assigned to exactly one target. Full per-file list: [`scraperight-rightkit-files.json`](scraperight-rightkit-files.json).
 
 Package names are final, after cross-app merging (see master plan in RightKit `docs/audits/2026-11-01-rightkit-package-master-plan.md`).

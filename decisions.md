@@ -1,5 +1,13 @@
 # Decisions
 
+## 2026-11-16 — LOCKED: what lives in RightKit and what stays in the app
+
+- **Authorization:** the owner, in session `session_01QWpjiWBTssha215BSFHDHg`: "i want all apps code in rightkit, yes ... that doesn't mean that exactly how HerdWrite looks will come out of HerdWrite and go into Right Kit ... Each app will maintain its own thin customization ... the theming, the colors, and how HerdWrite looks belong in HerdWrite, not in Right Kit"; "any component, across anything, can be customized visually"; "i asked for the % to be low, but that didn't mean css and theming. it meant code"; then: "write that rule into rightkit's docs so no session repeats this".
+- **Decision:** `docs/APP-BOUNDARY.md` is the authority. All apps' code lives in RightKit: mandatory packages M1 to M23 as every app's base, and app-specific or shared capability as components any app can restyle. An app's look, theme, copy and composition stay in the app. The rule is by kind of code, not a percentage.
+- **Supersedes:** "Shell. At most 2% per app" and the per-app percentages of the 2026-11-01 master plan; every per-app mapping row that sends an app's pages, shell, onboarding flow, settings layout, styling or wording into a RightKit package; any justification of the form "so an app can delete its own copy".
+- **Why it was needed:** between 2026-11-03 and 2026-11-15 the screens of five apps were moved into RightKit packages (`video-ui`, `mail-ui`, `dictation-ui`, `agent-ui-*`, `social-ui`); CutRight and MailRight consume theirs on `main`. The 2% figure was about code and was applied to look.
+- **Scope:** documentation only. No package is changed by this entry. The packages that do not yet meet the decision are listed in `docs/APP-BOUNDARY.md`.
+
 ## 2026-10-29 — Rust keyword spotting lives in `rightkit-asr::kws`
 
 - **Authorization:** Adrian's 2026-10-29 dispatch ("replace Sherpa-ONNX keyword spotting with a Rust implementation"), placement decided by his lead chat: generic streaming KWS runtime in `rightkit-asr`, command policy stays in HeardRight.

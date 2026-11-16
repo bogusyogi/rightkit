@@ -1,5 +1,7 @@
 # Decisions, mandates and relayed answers (addendum to DECISIONS.md)
 
+> **Superseded in part, 2026-11-16.** `docs/APP-BOUNDARY.md` is the locked decision on what lives in RightKit and what stays in the app. The 2% figure in this document counts code only (not CSS, theme, copy or composition), and any row that sends an app's pages, shell, onboarding flow, settings layout, styling or wording into a RightKit package no longer applies.
+
 Written 2026-11-03 so nothing lives only in chat. Source: the cloud session `session_015S2ZYoFiiRAYE5gG7hFQxD`.
 
 ## Standing mandates (Adrian)

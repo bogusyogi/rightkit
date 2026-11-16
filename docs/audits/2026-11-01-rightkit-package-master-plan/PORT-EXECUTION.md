@@ -1,5 +1,7 @@
 # Port execution: the commission, so it is not lost again
 
+> **Superseded in part, 2026-11-16.** `docs/APP-BOUNDARY.md` is the locked decision on what lives in RightKit and what stays in the app. The 2% figure in this document counts code only (not CSS, theme, copy or composition), and any row that sends an app's pages, shell, onboarding flow, settings layout, styling or wording into a RightKit package no longer applies.
+
 **Commission (Adrian, 2026-11-01):** survey every app, find all code that is not in RightKit, and bring it into RightKit. Every capability goes to RightKit, single-app ones included. After the port an app keeps only: a thin shell (entry points, command tables, wiring; at most 2%), declared per-app exceptions, app recipes/skills, and its own journey/e2e tests. Unit tests move with their code. See `DECISIONS.md` (resolved 2026-11-01) and the master plan `../2026-11-01-rightkit-package-master-plan.md`.
 
 **Scale (master plan):** 3,873,978 lines across 10 apps; ~3.0M lines move (NEW 2.04M, EXTEND 0.83M, ADOPT 0.10M, to Legion 0.07M, vendor 0.36M, DROP 0.09M). 86 new packages: 64 crates, 16 npm, 6 Swift (`plan-86-packages.txt`).
