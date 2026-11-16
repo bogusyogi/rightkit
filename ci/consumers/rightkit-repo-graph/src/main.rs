@@ -1,4 +1,4 @@
-// rightkit-repo-graph 0.1.0 consumed by exact registry pin: skeletonization passthrough and expansion. No I/O.
+// rightkit-repo-graph 0.3.2 consumed by exact registry pin: skeletonization passthrough and expansion. No I/O.
 use rightkit_repo_graph::{expand_region, skeletonize};
 use std::path::Path;
 

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.4 (2026-11-16)
+
+- The package no longer ships `src/push/mod.rs`, a module root that nothing declared (the crate's `push` is `pull`, which reaches the other `src/push/*.rs` files by `#[path]`; those stay). No public item, feature or behaviour changes; the compiled library is unchanged.
+
 ## 0.1.3
 
 - `release_identity::target_triple()` also names `x86_64-unknown-linux-gnu` and `aarch64-unknown-linux-gnu` (it reported `unsupported` on Linux). Status JSON `target` and the installation manifest record the real target there; Windows and macOS are unchanged.

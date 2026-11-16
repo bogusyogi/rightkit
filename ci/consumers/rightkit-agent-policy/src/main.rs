@@ -1,4 +1,4 @@
-// rightkit-agent-policy 0.1.0 consumed by exact registry pin: owning-process protection, deny globs,
+// rightkit-agent-policy 0.2.2 consumed by exact registry pin: owning-process protection, deny globs,
 // destructive-command guard and prompt-injection scan. No I/O.
 use rightkit_agent_policy::{
     catastrophic_reason, owning_process_kill_reason, scan_prompt_injection,

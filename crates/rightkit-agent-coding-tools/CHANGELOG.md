@@ -6,6 +6,7 @@
 - Bounded reads: the files the change record compares and records after a command are read at most 1 MiB; a larger file is named as too large to diff and its post-command state is recorded by streaming.
 - `undo_edit` restores a snapshot's bytes exactly (a snapshot that is not valid UTF-8 restores instead of failing to read), and refuses to restore an older snapshot over a file the newest edit created. For valid UTF-8 snapshots with no created-file marker above them the result is what 0.1.6 produced.
 - Requires `rightkit-agent-engine-history` 0.1.3.
+- The package no longer ships `src/browser_control.rs` and `src/mcp_auth.rs`, two tool files that `src/lib.rs` never declared and the registry never registered. No public item, feature or behaviour changes; the compiled library is unchanged.
 
 ## 0.1.6 (2026-11-16)
 

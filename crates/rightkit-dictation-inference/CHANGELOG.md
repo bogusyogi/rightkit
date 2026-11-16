@@ -8,6 +8,7 @@ Host switches for the wake detector's cut policy and debounce, so a host that ru
 - New `KwsSwitches::wake_refractory_samples` (default 0, off) and `KwsSwitches::wake_start_proximity_samples` (default 0, off): drop a wake detection that starts within the window after the previous accepted detection's start (refractory, survives candidate expiry, cleared by a reset), or within the window of the held candidate's start (proximity), before the overlap rule, which still runs.
 - `KwsSwitches::validate` rejects a non-default `cut_source` combined with `fricative_strict` (the wake candidate then carries no cut) or `shared_front_end` (not qualified together).
 - Not ported, still different from a host's fork: configurable threads, beam width, trailing-blank, decode step, confirm context, confirm timeout, fresh-confirmation tail, keyword-span and onset-history parameters (constants here); the onset report's cut-evidence fields; the text of three stream error messages.
+- The package no longer ships `src/asr_stage_timing.rs`, a benchmark stage-timing type that `src/lib.rs` never declared and nothing used (the `rightkit_asr_stage_timing` tracing target is unrelated). No public item, feature or behaviour changes; the compiled library is unchanged.
 
 ## 0.2.1 (2026-11-16)
 
