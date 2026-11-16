@@ -463,14 +463,22 @@ impl Store {
         s.committed_event = event_id;
         s.committed_at = saved_at;
         s.legacy_clone_keys = &hdr[0..8] == LEGACY_MAGIC;
+        // A live slot naming a string the header's name count does not cover means the header
+        // is older than the columns (another writer committed its own header over a newer
+        // state): the store is torn, so it is rebuilt like a dirty one, never indexed past
+        // `names.len()` (rightkit#1534).
         s.hdr = Some(hdr);
-        s.rebuild_aux();
+        if !s.rebuild_aux() {
+            return Ok(None);
+        }
         s.trim();
         Ok(Some((s, OpenInfo { event_id, saved_at })))
     }
 
     /// Rebuild resident helpers (free lists, hard-link and clone groups) from the columns. Rollups are not touched.
-    fn rebuild_aux(&mut self) {
+    /// Returns `false` (leaving the helpers incomplete) when a live slot's name id is not
+    /// below the name count the header recorded: the columns and the header disagree.
+    fn rebuild_aux(&mut self) -> bool {
         self.live = 0;
         self.free.clear();
         self.name_refs = vec![0; self.names.len()];
@@ -478,8 +486,12 @@ impl Store {
         self.live_name_bytes = 0;
         for s in (0..self.nslots).rev() {
             if self.c_meta.get(s) & LIVE != 0 {
+                let name = self.c_name.get(s);
+                if name as usize >= self.names.len() {
+                    return false;
+                }
                 self.live += 1;
-                self.retain_name(self.c_name.get(s));
+                self.retain_name(name);
             } else {
                 self.free.push(s as u32);
             }
@@ -517,6 +529,7 @@ impl Store {
             let d = self.entry(s).d;
             self.clone_join(s, d.alloc - d.private, false);
         }
+        true
     }
 
     /// (hard-link groups, clone groups, clone members) held resident.
