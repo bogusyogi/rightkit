@@ -163,6 +163,56 @@ pub fn expand_region(src: &str, regions: &[Region], region_name: &str) -> Option
         .map(|s| s.to_string())
 }
 
+/// Which skeletonizer implementation a caller selects.
+///
+/// [`SkeletonVariant::Standard`] (the default) is this module's own behaviour, unchanged.
+/// [`SkeletonVariant::Extended`] is [`crate::skeletonization_extended`]: TSX and `.mts`/`.cts`
+/// support, verbatim imports, decorated Python definitions and JS/TS `export` wrappers,
+/// `Trait for Type` impl names, `#n` suffixes for repeated region names, a fallback line for
+/// unrecognised top-level nodes and a stricter relevance match.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SkeletonVariant {
+    /// The original behaviour.
+    #[default]
+    Standard,
+    /// The extended behaviour.
+    Extended,
+}
+
+/// [`skeletonize_for_task`] with the implementation chosen by `variant`.
+pub fn skeletonize_for_task_with(
+    variant: SkeletonVariant,
+    path: &Path,
+    src: &str,
+    task_text: &str,
+    size_threshold: usize,
+) -> SkeletonResult {
+    match variant {
+        SkeletonVariant::Standard => skeletonize_for_task(path, src, task_text, size_threshold),
+        SkeletonVariant::Extended => crate::skeletonization_extended::skeletonize_for_task(
+            path,
+            src,
+            task_text,
+            size_threshold,
+        ),
+    }
+}
+
+/// [`expand_region`] with the implementation chosen by `variant`.
+pub fn expand_region_with(
+    variant: SkeletonVariant,
+    src: &str,
+    regions: &[Region],
+    region_name: &str,
+) -> Option<String> {
+    match variant {
+        SkeletonVariant::Standard => expand_region(src, regions, region_name),
+        SkeletonVariant::Extended => {
+            crate::skeletonization_extended::expand_region(src, regions, region_name)
+        }
+    }
+}
+
 struct ProcessedItem {
     name: String,
     text: String,

@@ -18,6 +18,7 @@ pub const DEFAULT_ROSTER_ROUTER_NAME: &str = "rightkit-agent-router (L2 roster h
 
 static TASK_ID_DOMAIN: OnceLock<String> = OnceLock::new();
 static ROSTER_ROUTER_NAME: OnceLock<String> = OnceLock::new();
+static SKELETON_VARIANT: OnceLock<rightkit_repo_graph::SkeletonVariant> = OnceLock::new();
 static STRICT_CHECKPOINT_RESUME: OnceLock<bool> = OnceLock::new();
 
 /// Sets the domain string of stable task ids (for example `myapp/r1b/task-id/v1`). Ids derived
@@ -61,4 +62,20 @@ pub fn set_strict_checkpoint_resume(strict: bool) -> bool {
 /// Whether strict checkpoint resume is in force.
 pub fn strict_checkpoint_resume() -> bool {
     STRICT_CHECKPOINT_RESUME.get().copied().unwrap_or(false)
+}
+
+/// Chooses the skeletonizer that `handoff_brief` and `repo_map` use. [`SkeletonVariant::Standard`]
+/// (the default) keeps the output this crate always produced; [`SkeletonVariant::Extended`]
+/// selects the extended skeletonizer of `rightkit-repo-graph`. Call once at start-up; returns
+/// `false` (and changes nothing) when one was already set.
+///
+/// [`SkeletonVariant::Standard`]: rightkit_repo_graph::SkeletonVariant::Standard
+/// [`SkeletonVariant::Extended`]: rightkit_repo_graph::SkeletonVariant::Extended
+pub fn set_skeleton_variant(variant: rightkit_repo_graph::SkeletonVariant) -> bool {
+    SKELETON_VARIANT.set(variant).is_ok()
+}
+
+/// The skeletonizer variant in force.
+pub fn skeleton_variant() -> rightkit_repo_graph::SkeletonVariant {
+    SKELETON_VARIANT.get().copied().unwrap_or_default()
 }

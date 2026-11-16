@@ -220,7 +220,8 @@ impl RepositoryMap {
             .zip(term_scores)
             .zip(pagerank_scores)
             .map(|((source, term_score), pagerank_score)| {
-                let skeleton = rightkit_repo_graph::skeletonize_for_task(
+                let skeleton = rightkit_repo_graph::skeletonize_for_task_with(
+                    crate::coding::host::skeleton_variant(),
                     Path::new(&source.path),
                     &source.content,
                     task_text,

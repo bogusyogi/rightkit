@@ -37,6 +37,7 @@ mod refresh_view;
 pub mod security;
 pub mod service;
 pub mod skeletonization;
+pub mod skeletonization_extended;
 pub mod store;
 pub mod watch;
 
@@ -61,8 +62,8 @@ pub use service::{
     ServiceError, ServiceStatus, Supervisor,
 };
 pub use skeletonization::{
-    expand_region, skeletonize, skeletonize_for_task, Region, SkeletonResult,
-    DEFAULT_SIZE_THRESHOLD,
+    expand_region, expand_region_with, skeletonize, skeletonize_for_task,
+    skeletonize_for_task_with, Region, SkeletonResult, SkeletonVariant, DEFAULT_SIZE_THRESHOLD,
 };
 
 /// Map a stable error code to lifecycle degradation without requiring callers

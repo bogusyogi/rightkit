@@ -94,6 +94,12 @@ impl rightkit_sandbox::execution::ProcessLaunchAdapter for NativeCommandSandboxA
         command.envs(spec.env.clone());
         // Own session, so cancel can stop the whole tree (see `cancel`).
         rightkit_child_process::tokio_support::lead_session(&mut command);
+        // Die with the host when it asked for that. Before `confine`: seccomp
+        // must not see prctl.
+        let anchored = crate::shell::anchor_children_to_parent();
+        if anchored {
+            parent_death::kill_on_parent_exit(&mut command);
+        }
         let mut enforced = false;
         let mut network_enforced = false;
         if spec.context.sandbox_required {
@@ -124,8 +130,12 @@ impl rightkit_sandbox::execution::ProcessLaunchAdapter for NativeCommandSandboxA
                 .map_err(|_| rightkit_sandbox::execution::EffectExecutionError::SandboxMissing)?;
             enforced = true;
         }
-        command
-            .spawn()
+        let spawned = if anchored {
+            parent_death::spawn_anchored(command).await
+        } else {
+            command.spawn()
+        };
+        spawned
             .map(|child| {
                 Box::new(LinuxManagedChild {
                     child,
