@@ -88,16 +88,52 @@ export function newestInstalledGate({ platform = process.platform, root = platfo
     if (typeof version !== 'string' || !SEMVER.test(version)) continue;
     candidates.push({ version, entry, install: name, files: lines });
   }
-  // Newest first; the chosen install's every file must still match its manifest (the entry imports its sibling modules), else the next.
-  candidates.sort((a, b) => (newer(a.version, b.version) ? -1 : newer(b.version, a.version) ? 1 : 0));
+  // Newest first; two installs of one version are ordered by folder name, so the choice never depends on the directory listing.
+  // The chosen install's every file must still match its manifest, else the next (named in `skipped`). An intact install is also
+  // checked for modules its entry loads that the package does not contain (0.6.57 was published without its gate/ folder): those are
+  // returned in `missing` and said aloud by trustedGate at every launch. Such an install is still the one that runs: it starts, and only
+  // the code path that needs the missing module fails; the version before it may be one the host's broker refuses outright (0.6.52 on
+  // both hosts, 2026-11-17), so falling back would trade a named defect for an unnamed one. Which version runs stays one rule: the newest.
+  candidates.sort((a, b) => (newer(a.version, b.version) ? -1 : newer(b.version, a.version) ? 1 : a.install < b.install ? -1 : a.install > b.install ? 1 : 0));
+  const skipped = [];
   for (const c of candidates) {
     let intact = true;
     for (const [rel, digest] of c.files) {
       try { if (sha(read(join2(root, c.install, ...rel.replace(/^\.\//, '').split('/')))) !== digest) { intact = false; break; } } catch { intact = false; break; }
     }
-    if (intact) return { version: c.version, entry: c.entry, install: c.install };
+    if (!intact) { skipped.push({ version: c.version, install: c.install, reason: 'a file no longer matches its manifest' }); continue; }
+    const missing = missingModules(c.files, (rel) => String(read(join2(root, c.install, ...rel.replace(/^\.\//, '').split('/')))));
+    return { version: c.version, entry: c.entry, install: c.install, skipped, missing };
   }
-  return null;
+  return skipped.length ? { version: null, entry: null, install: null, skipped } : null;
+}
+
+const PACKAGE_PREFIX = './node_modules/@rightkit/release/';
+/**
+ * Modules the gate entry loads, directly or through what it loads, that are not files of the install. `files`: the manifest's
+ * `./path -> sha256` map; `text(rel)`: a manifest file's text. Follows `from '...'`, `import '...'` and `import('...')` with a relative
+ * specifier that names its extension (Node resolves no other kind), from bin/rightkit-gate.mjs. Paths that leave the package are another
+ * package's and are not judged here.
+ */
+export function missingModules(files, text) {
+  const seen = new Set(); const queue = ['bin/rightkit-gate.mjs']; const missing = [];
+  while (queue.length) {
+    const file = queue.pop();
+    if (seen.has(file)) continue;
+    seen.add(file);
+    if (!files.has(PACKAGE_PREFIX + file)) { missing.push(file); continue; }
+    if (!/\.m?js$/.test(file)) continue;
+    let source;
+    try { source = text(PACKAGE_PREFIX + file); } catch { missing.push(file); continue; }
+    for (const re of [/\bfrom\s+["'](\.{1,2}\/[^"']+)["']/g, /\bimport\s+["'](\.{1,2}\/[^"']+)["']/g, /\bimport\(\s*["'](\.{1,2}\/[^"']+)["']\s*\)/g]) {
+      for (const m of source.matchAll(re)) {
+        if (!/\.(?:mjs|cjs|js|json)$/.test(m[1])) continue;
+        const target = posix.normalize(posix.join(posix.dirname(file), m[1]));
+        if (!target.startsWith('..')) queue.push(target);
+      }
+    }
+  }
+  return missing.sort();
 }
 export function pinnedGate({ platform = process.platform, home = homedir(), read = readFileSync, realpath = realpathSync, treeHash = packageDigest, cwd, gitTop } = {}) {
   if (platform === 'linux') return linuxGate({ cwd, read, realpath, ...(gitTop ? { gitTop } : {}) });
@@ -123,6 +159,11 @@ export function pinnedGate({ platform = process.platform, home = homedir(), read
 
 export function trustedGate(options = {}) {
   const newest = newestInstalledGate(options);
+  // Every install passed over is said out loud, once per launch: a host silently running an older gate than the newest installed is
+  // the state nobody noticed for a week.
+  for (const s of newest?.skipped ?? []) (options.warn ?? ((line) => console.error(line)))(`rightkit-host-gate: installed gate ${s.version} (${s.install.slice(0, 12)}) is not used: ${s.reason}`);
+  if (newest?.missing?.length) (options.warn ?? ((line) => console.error(line)))(`rightkit-host-gate: installed gate ${newest.version} is INCOMPLETE: it loads ${newest.missing.slice(0, 3).join(', ')}${newest.missing.length > 3 ? ` and ${newest.missing.length - 3} more` : ''}, which its package does not contain; whatever needs that will fail. Install a fixed @rightkit/release (rustright-install trusted-gate).`);
+  if (newest && !newest.entry) throw new Error(`no installed gate is intact (${newest.skipped.length} install(s) passed over, listed above); install a published @rightkit/release with rustright-install trusted-gate`);
   return newest ? newest.entry : pinnedGate(options);
 }
 

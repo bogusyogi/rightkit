@@ -383,3 +383,29 @@ test("a call the seam marks EXIT (Cargo ran and failed) is read as a build resul
   assert.deepEqual(outcomes[0].results.map((r) => [r.crate, r.result]), [["a", "failed"], ["c", "passed"], ["d", "passed"]]);
   assert.equal(counts.greenReruns, 1); assert.equal(outcomes[0].evidence.requestId, "job-2");
 });
+
+test("a test program never inherits a credential-named variable; assets are required unless the crate is asset-gated (loop review 11, D1)", async () => {
+  const { EventEmitter } = await import("node:events");
+  const { testProgramEnv, CREDENTIAL_NAME } = await import("../test-env.mjs");
+  const seen = [];
+  const spawn = (file, args, options) => {
+    seen.push({ file, env: options.env });
+    const child = new EventEmitter(); child.stdout = new EventEmitter(); child.stderr = new EventEmitter(); child.kill = () => {};
+    setImmediate(() => { child.stdout.emit("data", "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out\n"); child.emit("close", 0, null); });
+    return child;
+  };
+  const exe = (name) => ({ path: `/t/${name}`, sha256: "ab".repeat(32), package_id: `path+file:///s/crates/${name}#0.1.0`, target: name, kind: "lib" });
+  const env = { PATH: "/bin", CARGO_REGISTRY_TOKEN: "x", AZURE_CLIENT_SECRET: "x", MY_PASSWORD: "x", OPENAI_API_KEY: "x", SIGNING_PRIVATE_KEY: "x", github_token: "x", HOME: "/h" };
+  const ran = await runTests({ executables: [exe("a"), exe("b")], crates: [{ name: "a", dir: "/s/crates/a" }, { name: "b", dir: "/s/crates/b", assetGated: true }], env, jobs: 1, spawn, hashOf: () => "ab".repeat(32) });
+  assert.equal(ran.byCrate.a.result, "passed"); assert.equal(ran.byCrate.b.result, "passed"); assert.equal(seen.length, 2);
+  for (const s of seen) {
+    for (const name of Object.keys(s.env)) assert.equal(CREDENTIAL_NAME.test(name), false, `${name} reached ${s.file}`);
+    assert.equal(s.env.PATH, "/bin"); assert.equal(s.env.HOME, "/h"); assert.equal(s.env.RIGHTKIT_ISOLATED_CHECKOUT, "1"); assert.equal(s.env.CARGO_TERM_COLOR, "never");
+  }
+  assert.equal(seen.find((s) => s.file === "/t/a").env.RIGHTKIT_REQUIRE_ASSETS, "1");
+  assert.equal(seen.find((s) => s.file === "/t/b").env.RIGHTKIT_REQUIRE_ASSETS, "0");
+  assert.equal(seen.find((s) => s.file === "/t/a").env.CARGO_MANIFEST_DIR, "/s/crates/a");
+  // The per-crate rows use the same function (local-publish.mjs), so the two paths cannot differ again.
+  assert.deepEqual(Object.keys(testProgramEnv({ A_TOKEN: "1", B: "2" }, false)).sort(), ["B", "CARGO_TERM_COLOR", "RIGHTKIT_ISOLATED_CHECKOUT", "RIGHTKIT_REQUIRE_ASSETS"]);
+  assert.match(fs.readFileSync(new URL("../local-publish.mjs", import.meta.url), "utf8"), /const testEnv = \(deps, isAssetGated\) => testProgramEnv\(/);
+});

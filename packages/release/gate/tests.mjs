@@ -7,6 +7,7 @@ import fs from "node:fs";
 import os from "node:os";
 import { spawn as nodeSpawn } from "node:child_process";
 import { packageNameOf } from "./crate-results.mjs";
+import { testProgramEnv } from "../test-env.mjs";
 
 /** Sum of the `test result:` lines a libtest program printed; null when it printed none. */
 export function libtestSummary(text) {
@@ -38,8 +39,9 @@ function runOne({ file, args, cwd, env, timeoutMs, spawn }) {
 /**
  * Runs every listed program and returns { byCrate: { crate: { result: "passed"|"failed"|"unknown", detail, programs, passed, failed, ignored } }, counts: { programs, ran, cached } }.
  * `executables`: the receipt list (null means the broker listed none: every crate in `crates` is unknown).
- * `crates`: [{ name, dir, quiet?: boolean, serialToo?: boolean, allowIgnored?: boolean }] the crates whose tests are owed; `dir` is the crate's directory in the snapshot.
+ * `crates`: [{ name, dir, quiet?: boolean, serialToo?: boolean, allowIgnored?: boolean, assetGated?: boolean }] the crates whose tests are owed; `dir` is the crate's directory in the snapshot.
  * `store`: run-calls.mjs fileStore or null; a passed program is remembered under its sha256 and arguments.
+ * Each program runs in testProgramEnv (test-env.mjs): no credential-named variable, assets required unless the crate is `assetGated`.
  * Quiet crates run last, one program at a time. `serialToo` crates run a second time with one test thread.
  */
 export async function runTests({ executables, crates, env = process.env, jobs = Math.max(1, os.availableParallelism?.() ?? os.cpus().length), timeoutMs = 30 * 60 * 1000, store = null, spawn = nodeSpawn, hashOf = sha256File }) {
@@ -68,7 +70,7 @@ export async function runTests({ executables, crates, env = process.env, jobs = 
     if (!run && actual !== exe.sha256) run = { ok: false, program: exe.target, detail: "the program on disk is not the one the receipt lists (sha256 differs)" };
     if (!run) {
       counts.ran += 1;
-      const r = await runOne({ file: exe.path, args, cwd: crate.dir, env: { ...env, CARGO_MANIFEST_DIR: crate.dir }, timeoutMs, spawn });
+      const r = await runOne({ file: exe.path, args, cwd: crate.dir, env: { ...testProgramEnv(env, crate.assetGated === true), CARGO_MANIFEST_DIR: crate.dir }, timeoutMs, spawn });
       const sum = libtestSummary(r.output);
       run = { ok: r.exit === 0, program: exe.target, args, passed: sum?.passed ?? 0, failed: sum?.failed ?? 0, ignored: sum?.ignored ?? 0, detail: r.exit === 0 ? "" : (r.error ?? `exit ${r.exit}${r.signal ? ` (${r.signal})` : ""}: ${r.output.slice(-1500)}`) };
       if (run.ok) store?.put(key, { run: { ok: true, program: run.program, args, passed: run.passed, failed: 0, ignored: run.ignored, detail: "" } });

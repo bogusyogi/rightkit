@@ -49,7 +49,10 @@ const STAGES = ["lint", "test-build", "docs"];
  * Returns { code, byCrate: { name: { result, stages: { lint, "test-build", docs, tests } } }, counts, notes, calls }.
  */
 export async function compileTogether({ snapshot, commit, crates, rustConfig = {}, platform = process.platform, arch = process.arch, client = "rustright", env = process.env, verdictFile, storeDir, out = () => {}, onUnsettled = () => {}, send = null, runTestsWith = runTests }) {
-  const infos = crates.map((name) => crateInfo(snapshot, name, rustConfig));
+  // ci/asset-gated.json of the commit: a listed crate runs its tests with RIGHTKIT_REQUIRE_ASSETS=0, every other with 1, as on the per-crate rows.
+  let gated = {};
+  try { gated = JSON.parse(fs.readFileSync(path.join(snapshot, "ci", "asset-gated.json"), "utf8")).crates ?? {}; } catch { gated = {}; }
+  const infos = crates.map((name) => ({ ...crateInfo(snapshot, name, rustConfig), assetGated: Object.hasOwn(gated, name) }));
   const { hostTriple, otherTriples } = targetsFor(platform, arch);
   const calls = planCalls({ crates: infos, host: platform, hostTriple, otherTriples });
   const notes = planNotes({ crates: infos, host: platform });

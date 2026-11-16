@@ -35,6 +35,7 @@ import { exclusionsFor, npmContentDigest } from "./pack-digest.mjs";
 import { requireDoorRun, gateStateDir } from "./gate-stages.mjs";
 import { crateRunsOn, crossCompileEnv, crossTargetsFor, oneOutput, scopedCrossTargets } from "./cross-targets.mjs";
 import { crossFeatureSets, defaultCheckFeatureSets, hostFeatureSets } from "./feature-sets.mjs";
+import { testProgramEnv } from "./test-env.mjs";
 
 export const LOCAL_OPERATOR = "agent (local-build grant)";
 export const LOCAL_HOST_POLICY_REASON = "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run";
@@ -668,10 +669,7 @@ const tail = (text, lines = 40) => String(text ?? "").split(/\r?\n/).slice(-line
 
 // Tests run under hosted-CI conditions: no inherited credentials (a managed host refuses a token from the
 // environment) and no sibling product checkouts (CI holds rightkit alone).
-function testEnv(deps, isAssetGated) {
-  const inherited = Object.fromEntries(Object.entries(deps.env ?? process.env).filter(([key]) => !/(TOKEN|SECRET|PASSWORD|API_KEY|PRIVATE_KEY)/i.test(key)));
-  return { ...inherited, RIGHTKIT_REQUIRE_ASSETS: isAssetGated ? "0" : "1", RIGHTKIT_ISOLATED_CHECKOUT: "1", CARGO_TERM_COLOR: "never" };
-}
+const testEnv = (deps, isAssetGated) => testProgramEnv(deps.env ?? process.env, isAssetGated);
 
 function assertLocalHost(deps, workspaceRoot, kind, { qualifyOnly = false, unit = null } = {}) {
   const platform = deps.platform ?? process.platform;
