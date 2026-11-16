@@ -1,4 +1,4 @@
-// rightkit-terminal-ui 0.1.0 consumed by exact registry pin: command-effect resolution, notification
+// rightkit-terminal-ui 0.1.3 consumed by exact registry pin: command-effect resolution, notification
 // escape sequences with a host app name, history path and composer text. No terminal is opened.
 use rightkit_terminal_ui::command_effects::CommandEffect;
 use rightkit_terminal_ui::composer::{default_history_path, Composer};

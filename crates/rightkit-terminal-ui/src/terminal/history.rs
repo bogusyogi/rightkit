@@ -41,7 +41,8 @@ use ratatui::text::{Line, Span};
 use super::hyperlinks::{HyperlinkLine, decorate_spans, remap_wrapped_line};
 use crate::terminal::line_utils::line_to_static;
 use crate::transcript::wrapping::{
-    RtOptions, adaptive_wrap_line, line_contains_url_like, line_has_mixed_url_and_non_url_tokens,
+    RtOptions, adaptive_wrap_line_to_width, line_contains_url_like,
+    line_has_mixed_url_and_non_url_tokens,
 };
 
 /// How to get lines into scrollback.
@@ -459,21 +460,25 @@ pub fn wrap_history_hyperlink_lines(
     for line in lines {
         let line_wrapped = match wrap_policy {
             HistoryLineWrapPolicy::Terminal => vec![line.clone()],
+            // A bare URL stays whole so a terminal can match it as one link across its own soft wrap. A line that
+            // is wider than the terminal and already carries an OSC 8 link needs no such help (the link is
+            // explicit), and left whole it is a row written past the last column: it is wrapped like any text.
             HistoryLineWrapPolicy::PreWrap
                 if line_contains_url_like(&line.line)
-                    && !line_has_mixed_url_and_non_url_tokens(&line.line) =>
+                    && !line_has_mixed_url_and_non_url_tokens(&line.line)
+                    && (line.hyperlinks.is_empty() || line.width() <= wrap_width) =>
             {
                 vec![line.clone()]
             }
             HistoryLineWrapPolicy::PreWrap => remap_wrapped_line(
                 line,
-                adaptive_wrap_line(
+                adaptive_wrap_line_to_width(
                     &line.line,
                     RtOptions::new(wrap_width)
-                        .subsequent_indent(leading_whitespace_prefix(&line.line)),
+                        .subsequent_indent(continuation_indent(&line.line, wrap_width)),
                 )
                 .into_iter()
-                .map(|line| line_to_static(&line))
+                .map(|row| line_to_static(&row.line))
                 .collect(),
             ),
         };
@@ -485,6 +490,18 @@ pub fn wrap_history_hyperlink_lines(
     }
 
     (wrapped, wrapped_rows)
+}
+
+/// The continuation indent of a wrapped history line: its own leading whitespace, unless that takes half the
+/// terminal or more (a list nested thirty deep on a narrow terminal), where an indent that wide would leave a
+/// column or two for text and every character would land on a row of its own.
+fn continuation_indent(line: &Line<'_>, wrap_width: usize) -> Line<'static> {
+    let prefix = leading_whitespace_prefix(line);
+    if prefix.width() * 2 >= wrap_width {
+        Line::default()
+    } else {
+        prefix
+    }
 }
 
 /// The leading whitespace of `line` as a styled `Line`, used as the

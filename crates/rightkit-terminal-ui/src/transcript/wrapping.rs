@@ -10,7 +10,7 @@
 //! - **Standard** (`word_wrap_line`, `word_wrap_lines`): delegates to
 //!   `textwrap` with the caller's options unchanged. Used when the
 //!   content is known to be plain prose.
-//! - **Adaptive** (`adaptive_wrap_line`, `adaptive_wrap_lines`):
+//! - **Adaptive** (`adaptive_wrap_line_with_source`, `adaptive_wrap_line_to_width`):
 //!   inspects the line for URL-like tokens; if any are found, the
 //!   wrapping keeps URL tokens intact. Mixed URL/prose lines still wrap
 //!   ordinary prose at word boundaries, only splitting a non-URL token
@@ -697,22 +697,6 @@ pub(crate) fn url_preserving_wrap_options<'a>(opts: RtOptions<'a>) -> RtOptions<
         .break_words(/*break_words*/ false)
 }
 
-/// Wraps a single ratatui `Line`, automatically switching to
-/// URL-preserving options when the line contains a URL-like token.
-///
-/// When no URL is detected, wrapping behavior is identical to
-/// [`word_wrap_line`]. URL-only lines use [`url_preserving_wrap_options`]
-/// so terminal link detection keeps seeing one intact token. Mixed URL/prose
-/// lines use a token-aware wrapper so ordinary prose still moves as whole words
-/// while a genuinely overlong non-URL token can still split if needed.
-#[must_use]
-pub(crate) fn adaptive_wrap_line<'a>(line: &'a Line<'a>, base: RtOptions<'a>) -> Vec<Line<'a>> {
-    adaptive_wrap_line_with_source(line, base)
-        .into_iter()
-        .map(|wrapped| wrapped.line)
-        .collect()
-}
-
 /// A display row and the exact source fragment used to build it.
 pub(crate) struct WrappedLine<'a> {
     pub(crate) line: Line<'a>,
@@ -747,6 +731,26 @@ pub(crate) fn adaptive_wrap_line_with_source<'a>(
         mixed_url_wrap_line(line, &flat, &span_bounds, base)
     } else {
         word_wrap_flattened_line(line, &flat, &span_bounds, url_preserving_wrap_options(base))
+    }
+}
+
+/// Preserve fitting URL tokens while splitting oversized tokens within the requested width.
+/// Source ranges and hanging indents survive the fallback, without terminal autowrap.
+pub(crate) fn adaptive_wrap_line_to_width<'a>(
+    line: &'a Line<'a>,
+    options: RtOptions<'a>,
+) -> Vec<WrappedLine<'a>> {
+    let wrapped = adaptive_wrap_line_with_source(line, options.clone());
+    if wrapped
+        .iter()
+        .any(|row| line_width(&row.line) > options.width)
+    {
+        word_wrap_line_with_source(
+            line,
+            url_preserving_wrap_options(options).break_words(/*break_words*/ true),
+        )
+    } else {
+        wrapped
     }
 }
 
