@@ -594,7 +594,10 @@ impl CoreMlParakeet {
                         elapsed_ms,
                     );
                     if let Ok(stats_json) = serde_json::to_string(&envelope) {
-                        eprintln!("RIGHTKIT_ASR_WINDOW_STATS_JSON={stats_json}");
+                        eprintln!(
+                            "{}WINDOW_STATS_JSON={stats_json}",
+                            crate::asr_stderr_prefix()
+                        );
                     }
                     tracing::info!(
                         event = "asr_window_stats",
@@ -611,7 +614,8 @@ impl CoreMlParakeet {
             }
             if detailed {
                 eprintln!(
-                    "RIGHTKIT_ASR_DECODER_CALLS predictor={predictor_calls} joint={joint_calls} cache={predictor_cache_enabled}"
+                    "{}DECODER_CALLS predictor={predictor_calls} joint={joint_calls} cache={predictor_cache_enabled}",
+                    crate::asr_stderr_prefix()
                 );
             }
             hits.extend(best.hits);

@@ -593,7 +593,7 @@
     "rightkit-dictation-core": "0.3.1",
     "rightkit-dictation-engine": "0.2.0",
     "rightkit-dictation-ffi": "0.2.0",
-    "rightkit-dictation-inference": "0.2.0",
+    "rightkit-dictation-inference": "0.2.1",
     "rightkit-dictation-models": "0.2.0",
     "rightkit-dictation-runtime": "0.2.2",
     "rightkit-dictation-tauri": "0.2.1",

@@ -1,5 +1,6 @@
 //! Cleanup of a confirmed terminal control, retaining original ASR context.
 //! Call only after KWS stop/send; manual stops & spoken cancel use their own paths.
+use crate::trigger_audio_cut::CutResolverSwitches;
 use crate::{TimedToken, TranscriptionResult};
 use rightkit_text_polish::text_pipeline::{strip_fired_control_tail, ControlIntent};
 
@@ -24,9 +25,13 @@ pub struct CleanupResult {
 // A word that starts that close before the boundary and runs past it is the
 // misrecognised first command word ("Zachary send" field case: word 35.38-36.02 s,
 // boundary 35.42 s), so the cut moves to its start.
-const STRADDLE_START_TOLERANCE_SEC: f32 = 0.16;
+pub(crate) const STRADDLE_START_TOLERANCE_SEC: f32 = 0.16;
 
-fn snap_boundary_to_straddling_word(tokens: &[TimedToken], boundary: f32) -> f32 {
+fn snap_boundary_to_straddling_word(
+    tokens: &[TimedToken],
+    boundary: f32,
+    tolerance_sec: f32,
+) -> f32 {
     let mut words: Vec<(f32, f32)> = Vec::new();
     for token in tokens {
         if !token.start.is_finite() || !token.end.is_finite() || token.end < token.start {
@@ -41,9 +46,7 @@ fn snap_boundary_to_straddling_word(tokens: &[TimedToken], boundary: f32) -> f32
     words
         .iter()
         .find(|(start, end)| {
-            *start < boundary
-                && boundary - *start <= STRADDLE_START_TOLERANCE_SEC
-                && *end > boundary
+            *start < boundary && boundary - *start <= tolerance_sec && *end > boundary
         })
         .map_or(boundary, |(start, _)| *start)
 }
@@ -53,12 +56,18 @@ fn cleaned_text(
     tokens: &[TimedToken],
     intent: ControlIntent,
     boundary: f32,
+    switches: &CutResolverSwitches,
 ) -> String {
-    let boundary = snap_boundary_to_straddling_word(tokens, boundary);
+    let boundary =
+        snap_boundary_to_straddling_word(tokens, boundary, switches.straddle_tolerance_sec);
     let trimmed = crate::trigger_audio_cut::drop_words_from_boundary(original, tokens, boundary)
         .map(|(text, _)| text)
         .unwrap_or_else(|| original.to_string());
-    let cleaned = strip_fired_control_tail(&trimmed, intent);
+    let cleaned = if switches.residue_strip {
+        strip_fired_control_tail(&trimmed, intent)
+    } else {
+        trimmed
+    };
     recover_rendering(original, tokens, intent, boundary).unwrap_or(cleaned)
 }
 
@@ -129,9 +138,14 @@ fn cleanup_confirmed_control_impl(
     onset: usize,
     mut align: impl FnMut(&[f32], &str, f32, bool) -> Result<Alignment, String>,
     allow_exact_retry: bool,
+    switches: &CutResolverSwitches,
 ) -> CleanupResult {
     let original = full.text.clone();
-    let stripped = strip_fired_control_tail(&original, intent);
+    let stripped = if switches.residue_strip {
+        strip_fired_control_tail(&original, intent)
+    } else {
+        original.clone()
+    };
     let mut outcome = CleanupResult {
         transcript: TranscriptionResult {
             text: String::new(),
@@ -145,6 +159,12 @@ fn cleanup_confirmed_control_impl(
     };
     if words(&stripped) != words(&original) || matches!(intent, ControlIntent::Cancel) {
         replace_text(&mut full, stripped);
+        outcome.transcript = full;
+        return outcome;
+    }
+    if !switches.cleanup_first_alignment {
+        replace_text(&mut full, stripped);
+        outcome.method = "alignment_disabled";
         outcome.transcript = full;
         return outcome;
     }
@@ -182,7 +202,7 @@ fn cleanup_confirmed_control_impl(
                 && found.boundary_sec <= audio.len() as f32 / 16_000.0;
             if found.accepted && valid {
                 outcome.boundary_sec = Some(boundary);
-                let mut cleaned = cleaned_text(&original, &full.tokens, intent, boundary);
+                let mut cleaned = cleaned_text(&original, &full.tokens, intent, boundary, switches);
                 let recovered_command =
                     recover_rendering(&original, &full.tokens, intent, boundary).is_some();
                 if allow_exact_retry
@@ -205,8 +225,13 @@ fn cleanup_confirmed_control_impl(
                                 && exact.boundary_sec >= 0.0
                                 && exact.boundary_sec <= audio.len() as f32 / 16_000.0;
                             if exact.accepted && exact_valid {
-                                let exact_cleaned =
-                                    cleaned_text(&original, &full.tokens, intent, exact_boundary);
+                                let exact_cleaned = cleaned_text(
+                                    &original,
+                                    &full.tokens,
+                                    intent,
+                                    exact_boundary,
+                                    switches,
+                                );
                                 if words(&exact_cleaned) != words(&original) {
                                     found = exact;
                                     outcome.method = found.method;
@@ -253,6 +278,7 @@ pub fn cleanup_confirmed_control(
         onset,
         |audio, command, earliest, _| align(audio, command, earliest),
         false,
+        &CutResolverSwitches::default(),
     )
 }
 
@@ -263,7 +289,38 @@ pub fn cleanup_confirmed_control_with_exact_retry(
     onset: usize,
     align: impl FnMut(&[f32], &str, f32, bool) -> Result<Alignment, String>,
 ) -> CleanupResult {
-    cleanup_confirmed_control_impl(full, raw_audio, intent, onset, align, true)
+    cleanup_confirmed_control_impl(
+        full,
+        raw_audio,
+        intent,
+        onset,
+        align,
+        true,
+        &CutResolverSwitches::default(),
+    )
+}
+
+/// `cleanup_confirmed_control_with_exact_retry` (or, with
+/// `allow_exact_retry == false`, the fast-only policy of
+/// `cleanup_confirmed_control`) with explicit experiment switches.
+pub fn cleanup_confirmed_control_with_switches(
+    full: TranscriptionResult,
+    raw_audio: &[f32],
+    intent: ControlIntent,
+    onset: usize,
+    align: impl FnMut(&[f32], &str, f32, bool) -> Result<Alignment, String>,
+    allow_exact_retry: bool,
+    switches: &CutResolverSwitches,
+) -> CleanupResult {
+    cleanup_confirmed_control_impl(
+        full,
+        raw_audio,
+        intent,
+        onset,
+        align,
+        allow_exact_retry,
+        switches,
+    )
 }
 
 // Frozen whole-command renderings from the 310-recording experiment. Never
