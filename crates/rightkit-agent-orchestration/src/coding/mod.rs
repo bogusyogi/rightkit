@@ -50,6 +50,7 @@ pub mod prompt_version;
 pub mod proposal_activation;
 pub mod recovery;
 pub mod registry;
+#[cfg(feature = "coding-repo-graph")]
 pub mod repo_map;
 pub mod review_panel;
 pub mod role_pack;
@@ -115,9 +116,10 @@ pub use executed_bakeoff::{
 pub use failure::{FailureDimension, FailureKind};
 pub use governance::rules::{BudgetRule, ConcurrencyRule, GovernanceRule, TrustRule};
 pub use governance::{GateDecision, GovernanceContext, GovernanceVerdict, OrchestrationGovernance};
+#[cfg(feature = "coding-repo-graph")]
+pub use handoff_brief::SkeletonizeConfig;
 pub use handoff_brief::{
     estimate_baseline_tokens, ContextItem, HandoffArchiveConfig, HandoffBrief, HandoffBriefBuilder,
-    SkeletonizeConfig,
 };
 pub use info_flow::{E2RTreeSearch, InfoFlowRouter, RoutingMode, SkillBankRouter};
 pub use jury::{JurorVerdict, JuryDecision, JurySystem};
@@ -131,6 +133,7 @@ pub use prompt_version::{PromptRegistry, PromptVersion, WorkflowVariant, Workflo
 pub use proposal_activation::{ActivatableProposal, ProposalActivator, ProposalStatus};
 pub use recovery::{RecoveringWorker, RecoveryNote, StepLocator};
 pub use registry::{AgentDescriptor, AgentRegistry};
+#[cfg(feature = "coding-repo-graph")]
 pub use repo_map::{
     RepositoryMap, RepositoryMapEntry, RepositoryMapSource, DEFAULT_REPOSITORY_MAP_TOKENS,
 };

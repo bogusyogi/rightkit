@@ -4,6 +4,8 @@
 
 - Requires rightkit-repo-graph 0.3.1. New `coding::host::set_skeleton_variant` / `skeleton_variant`, fixed once at start-up: `SkeletonVariant::Standard` (the default) keeps the output of `coding::handoff_brief` and `coding::repo_map` exactly as before; `SkeletonVariant::Extended` makes both use the extended skeletonizer of rightkit-repo-graph. A host (CodeRight) calls `set_skeleton_variant(SkeletonVariant::Extended)`.
 
+- `coding` is split into finer features so a host can take the light core without the heavy parts; `coding` is their union and keeps every module, dependency and behaviour it had. `coding-core` is every `coding` module except what needs `rightkit-repo-graph` (tree-sitter grammars and the embedding runtime behind it). `coding-repo-graph` (implies `coding-core`) adds `rightkit-repo-graph` and gates `coding::repo_map` and its re-exports, `SkeletonizeConfig`, `HandoffBriefBuilder::with_skeletonization`, `with_repository_map`, `with_repository_map_after`, `HandoffBrief::repository_map` and `coding::host::set_skeleton_variant` / `skeleton_variant`; without it a handoff brief carries no repository map and its dependency outputs are truncated, never skeletonized. `coding-tools` (implies `coding-core`) adds the `rightkit-agent-coding-tools` and `rightkit-sandbox` dependencies, whose only user, `coding::supervision`, stays behind `coding-host`. `coding-host` and `coding-os-keyring` still imply `coding`. No item is renamed or moved.
+
 ## 0.1.4 (2026-11-16)
 
 - Requires rightkit-llm 0.7.0. Names `agent_providers-os-keyring` and `agent_router-os-keyring` explicitly, so the build is unchanged. No behaviour change.

@@ -45,7 +45,14 @@ default = []
 # Multi-agent orchestration for coding agents (module `coding`): registry, router, conductor,
 # jury, governance, teams, recovery and the proof harnesses. Skills come from the host through
 # `rightkit-agent-host-traits`, never from this crate.
-coding = [
+#
+# `coding` is the union of the three features below. A host that needs only the light core takes
+# `coding-core`; the repository-map and skeletonization surface (`repo_map`, `SkeletonizeConfig`,
+# the handoff brief's repository map, `host::set_skeleton_variant`) and the tree-sitter grammars
+# behind it come with `coding-repo-graph`; the coding-tools and sandbox dependency edge comes
+# with `coding-tools` (its only user, `supervision`, stays behind `coding-host`).
+coding = ["coding-core", "coding-repo-graph", "coding-tools"]
+coding-core = [
     "dep:toml",
     "dep:rightkit-crypto",
     "dep:rightkit-agent-engine-tasks",
@@ -54,12 +61,11 @@ coding = [
     "dep:rightkit-agent-policy",
     "dep:rightkit-agent-host-traits",
     "dep:rightkit-llm",
-    "dep:rightkit-repo-graph",
     "dep:rightkit-agent-telemetry",
-    "dep:rightkit-sandbox",
-    "dep:rightkit-agent-coding-tools",
     "dep:rightkit-db",
     "dep:rightkit-fs",
 ]
+coding-repo-graph = ["coding-core", "dep:rightkit-repo-graph"]
+coding-tools = ["coding-core", "dep:rightkit-agent-coding-tools", "dep:rightkit-sandbox"]
 coding-host = ["coding", "rightkit-agent-coding-tools/host"]
 coding-os-keyring = ["coding", "rightkit-llm/agent_providers-os-keyring", "rightkit-llm/agent_router-os-keyring"]

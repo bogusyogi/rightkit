@@ -18,6 +18,7 @@ pub const DEFAULT_ROSTER_ROUTER_NAME: &str = "rightkit-agent-router (L2 roster h
 
 static TASK_ID_DOMAIN: OnceLock<String> = OnceLock::new();
 static ROSTER_ROUTER_NAME: OnceLock<String> = OnceLock::new();
+#[cfg(feature = "coding-repo-graph")]
 static SKELETON_VARIANT: OnceLock<rightkit_repo_graph::SkeletonVariant> = OnceLock::new();
 static STRICT_CHECKPOINT_RESUME: OnceLock<bool> = OnceLock::new();
 
@@ -71,11 +72,13 @@ pub fn strict_checkpoint_resume() -> bool {
 ///
 /// [`SkeletonVariant::Standard`]: rightkit_repo_graph::SkeletonVariant::Standard
 /// [`SkeletonVariant::Extended`]: rightkit_repo_graph::SkeletonVariant::Extended
+#[cfg(feature = "coding-repo-graph")]
 pub fn set_skeleton_variant(variant: rightkit_repo_graph::SkeletonVariant) -> bool {
     SKELETON_VARIANT.set(variant).is_ok()
 }
 
 /// The skeletonizer variant in force.
+#[cfg(feature = "coding-repo-graph")]
 pub fn skeleton_variant() -> rightkit_repo_graph::SkeletonVariant {
     SKELETON_VARIANT.get().copied().unwrap_or_default()
 }
