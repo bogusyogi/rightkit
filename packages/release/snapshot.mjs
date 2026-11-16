@@ -255,8 +255,14 @@ export function snapshotTree({ checkout, dir, baseTree, repo = repositoryOf(chec
       throw e instanceof SnapshotError ? e : new SnapshotError("error", e.message);
     }
   });
+  // The stored index is a cache of the last run's stat data. Its answer is taken only when it is the tree the caller expects (`baseTree`):
+  // on Windows a file's executable bit lives in the index alone (core.fileMode=false), so a path that became 100755 since the stored index
+  // was written is hashed as 100644 and the id is wrong though every byte is right (Dell, 2026-11-17: rightkit 09aaf01e1 -> 4b23c9870, two
+  // files renamed and made executable; the run stopped with "is tree 26f549d1 after sync, not tree 2df67580"). Any other id is recomputed
+  // from the commit's own tree, which is the contract's method, and that result is the one returned.
   if (indexStore && fs.existsSync(indexStore)) {
-    try { return once(indexStore); } catch { try { fs.rmSync(indexStore, { force: true }); } catch { /* best effort */ } }
+    try { const id = once(indexStore); if (id === baseTree) return id; } catch { /* recomputed below */ }
+    try { fs.rmSync(indexStore, { force: true }); } catch { /* best effort */ }
   }
   return once(null);
 }

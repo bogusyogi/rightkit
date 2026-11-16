@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.58
+
+- **The package carries its `gate` folder.** `files` did not list `gate`, so the published tarball had no `gate/compile.mjs` and an installed gate on a broker host failed every unit-list compile with `ERR_MODULE_NOT_FOUND` before a single broker job (Mac and Dell, 2026-11-17, installed 0.6.57; every earlier proof of that path ran from a checkout). `gate` is listed, its tests are excluded like the others, and `package-files.test.mjs` fails when any module the package's entry points import, statically or by `import()`, is a file the published list leaves out.
+- **A stored snapshot index that gives another tree than the commit's is recomputed, not believed.** On Windows the executable bit of a file lives only in the index, so a path that became `100755` after the stored index was written was hashed as `100644` and the run stopped with "is tree ... after sync, not tree ..." though every byte matched (Dell, rightkit `09aaf01e1` to `4b23c9870`). `snapshotTree` now returns the stored index's answer only when it is the expected tree, and otherwise computes the tree from the commit's own tree.
+
 ## 0.6.57
 
 - **A crate scoped away from the Linux direct origin no longer fails the publication gate on `features`.** `localTestPlan` planned no feature set for rightkit-tts-qwen-sys on Linux (every `featureSets` entry is host-scoped to darwin and win32), so the Linux run receipt carried `features: []` and `validatePublicationEvidence` refused it (`Linux run receipt 0 invalid: features`). The receipt now names `not built on linux (ci/gate.config.json platforms)` when `crateRunsOn` is false and no set is planned; the validator is unchanged, so a crate that runs on the host and plans no set is still refused.
