@@ -1755,6 +1755,66 @@ const LINUX_HOME_READ_FILES: &[&str] = &[
     ".config/git/attributes",
 ];
 
+/// Linux only: whether the Strict shell withholds the workspace secret files, from the host option
+/// (`shell_withhold_secrets`) or from the
+/// environment variable `<prefix>_SHELL_WITHHOLD_SECRETS` set to exactly `1`.
+#[cfg(target_os = "linux")]
+fn withhold_secrets_enabled() -> bool {
+    shell_withhold_secrets()
+        || std::env::var_os(rightkit_agent_config::env_name("SHELL_WITHHOLD_SECRETS"))
+            .is_some_and(|value| value == "1")
+}
+
+/// Linux only: workspace-internal paths the file tools withhold from reads (`.env`, `*.pem`,
+/// the host's runtime folder), found by a bounded walk that does not follow symlinks. A matching
+/// entry is recorded and not descended into. Bounds, by policy: `.git`, `node_modules` and
+/// `target` are skipped, nothing deeper than 8 folders is withheld, and the walk stops after
+/// 20 000 entries with a warning (failing closed there would refuse every command in a large
+/// monorepo). A secret beyond these bounds stays readable to the shell; the file tools still
+/// deny it. macOS and Windows are unaffected.
+#[cfg(target_os = "linux")]
+fn linux_withheld_reads(workspace_root: &Path) -> Vec<std::path::PathBuf> {
+    const MAX_DEPTH: usize = 8;
+    const MAX_ENTRIES: usize = 20_000;
+    let root =
+        std::fs::canonicalize(workspace_root).unwrap_or_else(|_| workspace_root.to_path_buf());
+    let mut withheld = Vec::new();
+    let mut visited = 0usize;
+    let mut stack = vec![(root.clone(), 0usize)];
+    while let Some((dir, depth)) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            visited += 1;
+            if visited > MAX_ENTRIES {
+                tracing::warn!(
+                    root = %root.display(),
+                    limit = MAX_ENTRIES,
+                    "workspace secret-glob walk stopped at the entry cap"
+                );
+                return withheld;
+            }
+            // `file_type` does not follow symlinks, so a symlinked dir is never descended.
+            let is_dir = entry.file_type().is_ok_and(|kind| kind.is_dir());
+            let name = entry.file_name();
+            if is_dir && matches!(name.to_str(), Some(".git" | "node_modules" | "target")) {
+                continue;
+            }
+            let absolute = entry.path();
+            let Ok(relative) = absolute.strip_prefix(&root) else {
+                continue;
+            };
+            if rightkit_agent_policy::deny_globs::shell_withholds_read(relative, is_dir) {
+                withheld.push(absolute);
+            } else if is_dir && depth < MAX_DEPTH {
+                stack.push((absolute, depth + 1));
+            }
+        }
+    }
+    withheld
+}
+
 pub(crate) fn local_sandbox_config_with_home(
     workspace_root: &Path,
     tier: crate::sandbox::SandboxTier,
@@ -1792,6 +1852,20 @@ pub(crate) fn local_sandbox_config_with_home(
     };
     #[cfg(not(target_os = "linux"))]
     let _ = home;
+    // Opt-in (`shell_withhold_secrets`): Strict also withholds the workspace-internal secret files
+    // the file tools withhold. Off by default because Landlock cannot deny beneath an allowed
+    // folder: every folder on the path to a withheld file loses read and execute, so files a
+    // command creates there cannot be read back by that command (a first cargo build in a fresh
+    // clone, `echo x > f && cat f`).
+    #[cfg(target_os = "linux")]
+    let config =
+        if matches!(tier, crate::sandbox::SandboxTier::Strict) && withhold_secrets_enabled() {
+            linux_withheld_reads(workspace_root)
+                .into_iter()
+                .fold(config, |config, path| config.withhold_read(path))
+        } else {
+            config
+        };
     match tier {
         crate::sandbox::SandboxTier::Strict => config.with_seccomp().deny_network(),
         _ => config,

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.11 (2026-11-16)
+
+- Breaking for a host outside this repository that relied on the implied OS keyring: with `agent_hooks` the crate no longer names `rightkit-llm`'s `agent_providers-os-keyring`, so the OS credential store (`rightkit-credentials`) is no longer linked. New feature `agent_hooks-os-keyring` adds it (implies `agent_hooks`); a host that needs the keyring names it. Nothing in the crate's own code needs the keyring, so no item changes.
+
 ## 0.2.10 (2026-11-16)
 
 - Requires rightkit-llm 0.7.0. Names `agent_providers-os-keyring` explicitly, so the build is unchanged. No behaviour change.

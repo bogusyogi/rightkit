@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-agent-orchestration"
-version = "0.1.5"
+version = "0.1.6"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Agent orchestration runtime: plans, routes, tasks, budgets, grants, escalation, scheduling, delivery, inventories and platform layers"
@@ -32,11 +32,11 @@ rightkit-cache = { version = "0.2.3", path = "../rightkit-cache", optional = tru
 rightkit-agent-engine-protocol = { version = "0.4.0", path = "../rightkit-agent-engine-protocol", optional = true }
 rightkit-agent-policy = { version = "0.2.1", path = "../rightkit-agent-policy", optional = true }
 rightkit-agent-host-traits = { version = "0.1.0", path = "../rightkit-agent-host-traits", optional = true }
-rightkit-llm = { version = "0.7.0", path = "../rightkit-llm", features = ["agent_providers", "agent_providers-os-keyring", "agent_router", "agent_router-os-keyring"], optional = true }
+rightkit-llm = { version = "0.7.0", path = "../rightkit-llm", features = ["agent_providers", "agent_router"], optional = true }
 rightkit-repo-graph = { version = "0.3.1", path = "../rightkit-repo-graph", optional = true }
 rightkit-agent-telemetry = { version = "0.1.0", path = "../rightkit-agent-telemetry", optional = true }
 rightkit-sandbox = { version = "0.6.3", path = "../rightkit-sandbox", features = ["execution"], optional = true }
-rightkit-agent-coding-tools = { version = "0.1.1", path = "../rightkit-agent-coding-tools", optional = true }
+rightkit-agent-coding-tools = { version = "0.1.8", path = "../rightkit-agent-coding-tools", optional = true }
 rightkit-db = { version = "0.5.3", path = "../rightkit-db", features = ["bundled", "statement-cache"], optional = true }
 rightkit-fs = { version = "0.4.9", path = "../rightkit-fs", features = ["fs", "lock", "json", "digest", "transaction"], optional = true }
 
@@ -67,5 +67,8 @@ coding-core = [
 ]
 coding-repo-graph = ["coding-core", "dep:rightkit-repo-graph"]
 coding-tools = ["coding-core", "dep:rightkit-agent-coding-tools", "dep:rightkit-sandbox"]
-coding-host = ["coding", "rightkit-agent-coding-tools/host"]
-coding-os-keyring = ["coding", "rightkit-llm/agent_providers-os-keyring", "rightkit-llm/agent_router-os-keyring"]
+coding-host = ["coding", "coding-os-keyring", "rightkit-agent-coding-tools/host"]
+# The OS credential store for the providers, the router and the MCP and provider secrets of the coding tools. Off by default: a host
+# without one (an iOS app) takes `coding-core` and never links it. Implies the full `coding`, and `coding-host` implies it, so a host that
+# named either before is unchanged.
+coding-os-keyring = ["coding", "rightkit-agent-coding-tools/os-keyring", "rightkit-llm/agent_providers-os-keyring", "rightkit-llm/agent_router-os-keyring"]

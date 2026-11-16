@@ -16,7 +16,8 @@ use rightkit_agent_coding_tools::registry::ToolRegistry;
 
 | Feature | Adds |
 |---|---|
-| `host` | Browser, OCR, media, plugin and PTY tools, the OS keyring and host-environment overrides (implies `code-mode`) |
+| `os-keyring` | The OS credential store for the MCP and provider secrets (`rightkit-mcp` `agent_mcp-os-keyring`, `rightkit-llm` `agent_providers-os-keyring`). Off by default |
+| `host` | Browser, OCR, media, plugin and PTY tools and host-environment overrides (implies `code-mode` and `os-keyring`) |
 | `code-mode` | The QuickJS code-mode tool |
 | `embeddings` | Local embedding inference |
 | `test-support` | Test doubles for dependents |

@@ -18,14 +18,14 @@ crate-type = ["staticlib", "rlib"]
 [dependencies]
 rightkit-agent-engine-protocol = {version = "0.4.0", path = "../rightkit-agent-engine-protocol"}
 rightkit-agent-policy = {version = "0.2.0", path = "../rightkit-agent-policy"}
-rightkit-agent-engine-core = {version = "0.1.1", path = "../rightkit-agent-engine-core", default-features = false}
-rightkit-agent-coding-tools = { version = "0.1.1", path = "../rightkit-agent-coding-tools" }
-rightkit-llm = {version = "0.7.0", path = "../rightkit-llm", features = ["agent_providers", "agent_providers-os-keyring"]}
+rightkit-agent-engine-core = {version = "0.1.3", path = "../rightkit-agent-engine-core", default-features = false}
+rightkit-agent-coding-tools = { version = "0.1.8", path = "../rightkit-agent-coding-tools" }
+rightkit-llm = {version = "0.7.0", path = "../rightkit-llm", features = ["agent_providers"]}
 rightkit-agent-engine-history = {version = "0.1.1", path = "../rightkit-agent-engine-history"}
 rightkit-memory-client = { version = "0.1.0", path = "../rightkit-memory-client"}
-rightkit-mcp = {version = "0.10.0", path = "../rightkit-mcp", features = ["agent_mcp", "agent_mcp-os-keyring"]}
+rightkit-mcp = {version = "0.10.0", path = "../rightkit-mcp", features = ["agent_mcp"]}
 rightkit-agent-host-traits = {version = "0.1.0", path = "../rightkit-agent-host-traits"}
-rightkit-agent-orchestration = {version = "0.1.1", path = "../rightkit-agent-orchestration", default-features = false, features = ["coding-core"]}
+rightkit-agent-orchestration = {version = "0.1.6", path = "../rightkit-agent-orchestration", default-features = false, features = ["coding-core"]}
 async-trait = {version = "0.1"}
 serde = {version = "1", features = ["derive"]}
 serde_json = {version = "1"}
@@ -40,3 +40,5 @@ wuff = {version = "0.2.9"}
 
 [features]
 default = []
+# The OS credential store for provider, router and MCP secrets. Off by default: an iOS app has no host credential store to link.
+os-keyring = ["rightkit-llm/agent_providers-os-keyring", "rightkit-llm/agent_router-os-keyring", "rightkit-mcp/agent_mcp-os-keyring", "rightkit-agent-engine-core/os-keyring"]
