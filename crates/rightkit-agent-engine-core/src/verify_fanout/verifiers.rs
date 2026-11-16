@@ -26,6 +26,7 @@
 //!   touched path matches its extension list; output parsed from the
 //!   standard `path:line:col: severity: message` diagnostic shape.
 
+#[cfg(feature = "host")]
 use std::collections::HashMap;
 use std::fmt;
 use std::future::Future;
@@ -43,7 +44,9 @@ use super::budget::VerifyBudgets;
 use super::finding::{
     FindingCategory, FindingFixability, FindingRange, FindingSeverity, VerifiedFinding,
 };
-use super::staleness::{content_hash, content_hash_text, content_hashes};
+use super::staleness::content_hash_text;
+#[cfg(feature = "host")]
+use super::staleness::{content_hash, content_hashes};
 
 // ─── Verifier identity & status ─────────────────────────────────────────────
 
@@ -463,6 +466,7 @@ fn resolve_in_workspace(workspace_root: &Path, path: &Path) -> PathBuf {
 /// `{uri}:{line_1based}:{character} severity={n} {message}`. The URI is
 /// ignored — findings are attributed to the queried path, exactly like the
 /// existing post-edit diagnostics seam.
+#[cfg(feature = "host")]
 pub(crate) fn parse_lsp_finding_line(
     line: &str,
 ) -> Option<(FindingRange, FindingSeverity, String)> {
@@ -824,6 +828,7 @@ pub(crate) fn expand_command_args(argv: &[String], paths: &[PathBuf]) -> Vec<Str
 }
 
 /// One parsed diagnostic line from a command verifier's output.
+#[cfg(feature = "host")]
 pub(crate) struct ParsedCompilerLine {
     pub path: String,
     /// 1-based, exactly as emitted by the producer.
@@ -835,6 +840,7 @@ pub(crate) struct ParsedCompilerLine {
 
 /// Split `path:line[:col]` out of the left-of-`": "` head. Handles Windows
 /// drive-letter paths by re-joining the single-letter first component.
+#[cfg(feature = "host")]
 pub(crate) fn split_location_head(head: &str) -> Option<(String, u32, Option<u32>)> {
     let mut components: Vec<String> = head.split(':').map(str::to_string).collect();
     if components.len() >= 3 && components[0].chars().count() == 1 {
@@ -872,6 +878,7 @@ pub(crate) fn split_location_head(head: &str) -> Option<(String, u32, Option<u32
     Some((path, line, column))
 }
 
+#[cfg(feature = "host")]
 fn classify_severity(rest: &str) -> (FindingSeverity, String) {
     let lowered = rest.to_ascii_lowercase();
     let (severity, consumed) = if lowered.starts_with("error") {
@@ -907,6 +914,7 @@ fn classify_severity(rest: &str) -> (FindingSeverity, String) {
 
 /// Parse one diagnostic line in the standard compiler shape:
 /// `path:line:col: severity: message` (column and severity word optional).
+#[cfg(feature = "host")]
 pub(crate) fn parse_compiler_line(line: &str) -> Option<ParsedCompilerLine> {
     let (head, rest) = line.split_once(": ")?;
     let (path, line_no, column) = split_location_head(head)?;
@@ -1079,11 +1087,11 @@ pub(crate) async fn run_command_unit(
     #[cfg(not(feature = "host"))]
     {
         let _ = (program, workspace_root, spec);
-        return VerifierOutcome::unavailable(
+        VerifierOutcome::unavailable(
             verifier,
             None,
             "command verifiers require the host feature; process launch is unavailable in the portable profile".into(),
-        );
+        )
     }
     #[cfg(feature = "host")]
     {

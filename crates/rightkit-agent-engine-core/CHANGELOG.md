@@ -4,6 +4,7 @@
 
 - Breaking for a host outside this repository that took `default-features = false` and relied on the implied OS keyring: the `rightkit-mcp` dependency no longer names `agent_mcp-os-keyring`, so a build without `host` no longer links the OS credential store (`rightkit-credentials`). New feature `os-keyring` (`rightkit-agent-coding-tools/os-keyring`, `rightkit-mcp/agent_mcp-os-keyring`, `rightkit-hooks/agent_hooks-os-keyring`); `host` implies it, so a default-features user is unchanged.
 - Requires rightkit-agent-coding-tools 0.1.8 and rightkit-hooks 0.2.11.
+- Lint clean without `host`: the Sentinel launch imports, the command-verifier output parsers (`parse_compiler_line` and its helpers, `parse_lsp_finding_line`), `interpreter_read_roots` and the interactive-terminal process kind are compiled only under the `host` feature, the one configuration that uses them, and two `return` statements that only existed for the host-off branch became tail expressions. `cargo clippy --no-default-features --all-targets -- -D warnings` (the build an iOS host links through rightkit-agent-engine-mobile-runtime) now passes. All gated items are crate-private; no public item, feature or behaviour changes.
 
 ## 0.1.2 (2026-11-16)
 

@@ -3,12 +3,14 @@
 //! One client process serves a session.  Calls are serialized over its stdio
 //! transport; no tool event creates a child process.
 
-use rightkit_mcp::{
-    CallOptions, CancellationToken, ClientExtensions, ClientOptions, McpClient, ServerSource,
-    ServerSpec, TrustStore,
-};
+use rightkit_mcp::{CallOptions, CancellationToken, McpClient};
+// Only the host spawn path below builds a launch spec and connects.
+#[cfg(feature = "host")]
+use rightkit_mcp::{ClientExtensions, ClientOptions, ServerSource, ServerSpec, TrustStore};
+#[cfg(feature = "host")]
 use rightkit_sandbox::execution::ProcessLaunchContext;
 use serde_json::Value;
+#[cfg(feature = "host")]
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -21,9 +23,9 @@ impl SentinelClient {
         #[cfg(not(feature = "host"))]
         {
             let _ = (node, server);
-            return Err(std::io::Error::other(
+            Err(std::io::Error::other(
                 "Sentinel requires the host feature; process launch is unavailable in the portable profile",
-            ));
+            ))
         }
         #[cfg(feature = "host")]
         {

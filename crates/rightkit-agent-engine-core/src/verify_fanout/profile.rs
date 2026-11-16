@@ -400,6 +400,7 @@ fn find_python_in(dirs: &std::ffi::OsStr, accept: impl Fn(&Path) -> bool) -> Opt
 /// library lives beside it) and, for a venv, the base interpreter directory
 /// named by `pyvenv.cfg` `home =`. Nothing broader is ever returned; non-Python
 /// programs yield no roots.
+#[cfg(feature = "host")]
 pub(crate) fn interpreter_read_roots(program: &Path) -> Vec<PathBuf> {
     let is_python = program
         .file_stem()
