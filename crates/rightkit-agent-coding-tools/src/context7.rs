@@ -129,7 +129,12 @@ impl Tool for Context7Tool {
                     }
                 };
                 let topic = args.get("topic").and_then(|v| v.as_str());
-                let tokens = args.get("tokens").and_then(|v| v.as_u64()).unwrap_or(5000) as u32;
+                let tokens = args.get("tokens").and_then(|v| v.as_u64()).unwrap_or(5000);
+                let tokens = if crate::tool_options::context7_untrusted_docs() {
+                    tokens.min(20_000)
+                } else {
+                    tokens
+                } as u32;
                 get_library_docs(lib_id, topic, tokens).await
             }
             other => ToolResult::error(format!(
@@ -173,7 +178,14 @@ async fn get_library_docs(lib_id: &str, topic: Option<&str>, tokens: u32) -> Too
                 .unwrap_or_else(|| {
                     serde_json::to_string_pretty(&val).unwrap_or_else(|_| val.to_string())
                 });
-            ToolResult::ok(content)
+            if crate::tool_options::context7_untrusted_docs() {
+                // Community documentation is untrusted external content, like web fetch results.
+                ToolResult::ok(crate::browser_fetch::wrap_untrusted_web_text(
+                    "context7", &content,
+                ))
+            } else {
+                ToolResult::ok(content)
+            }
         }
         Err(e) => ToolResult::error(format!("context7 docs fetch failed: {e}")),
     }

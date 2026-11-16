@@ -446,7 +446,12 @@ fn spawn_background_program_with_kind_and_target_using(
                     && !crate::shell::sandbox_disabled_for_workspace(&workspace_root_owned),
                 network_required: false,
             },
-            env: Vec::new(),
+            // The scratch space the foreground shell gets (empty unless the host turned on
+            // `set_session_scratch_tmpdir`): `/tmp` is denied by the sandbox.
+            env: crate::shell::scratch_env(crate::shell::scratch_dir_in(
+                &workspace_root_owned,
+                "background",
+            )),
         };
         let mut child =
             match rightkit_sandbox::execution::ProcessLaunchAdapter::spawn(&adapter, spec).await {

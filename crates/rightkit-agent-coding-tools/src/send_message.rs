@@ -69,6 +69,13 @@ impl Tool for SendMessageTool {
         };
         let session_id = args["session_id"].as_str();
         let channel = args["channel"].as_str().unwrap_or("notification");
+        // `schedule` and `followup_task` are the daemon's own channels; a model naming them would
+        // slip past the workspace and lineage scope (with `set_send_message_reserved_channels`).
+        if crate::tool_options::send_message_reserved_channels()
+            && (channel == "schedule" || channel == "followup_task")
+        {
+            return ToolResult::error(format!("send_message: channel '{channel}' is reserved"));
+        }
 
         if let Some(dispatcher) = &ctx.message_dispatcher {
             let dispatch = MessageDispatch {

@@ -104,7 +104,10 @@ impl Tool for WriteFileTool {
 
         // The restore point was written by the engine before this call ran
         // (`write_targets`); the tool only reads the prior content.
-        let prior = if path.exists() {
+        // With `set_write_file_replace_non_utf8`, `existed` comes from the filesystem, not from a
+        // successful text read: a non-UTF-8 file still exists and must be replaced, not "created".
+        let on_disk = path.exists();
+        let prior = if on_disk {
             std::fs::read_to_string(&path).ok()
         } else {
             None
@@ -119,7 +122,11 @@ impl Tool for WriteFileTool {
         };
 
         // Write file under its receipt and per-path mutation lock.
-        let existed = prior.is_some();
+        let existed = if crate::tool_options::write_file_replace_non_utf8() {
+            on_disk
+        } else {
+            prior.is_some()
+        };
         match ctx.file_service.write_with_receipt_intent(
             if existed {
                 crate::file_service::MutationIntentKind::Replace

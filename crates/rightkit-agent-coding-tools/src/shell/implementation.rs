@@ -19,6 +19,7 @@ pub fn anchor_children_to_parent() -> bool {
     ANCHOR_CHILDREN_TO_PARENT.get().copied().unwrap_or(false)
 }
 
+include!("host_options.rs");
 include!("tools.rs");
 include!("execution_helpers.rs");
 include!("result_sandbox.rs");

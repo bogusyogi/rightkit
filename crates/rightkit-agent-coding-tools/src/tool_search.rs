@@ -16,6 +16,17 @@ const SHORTLIST_MAX: usize = 9;
 /// Byte cap on the no-query catalog index so an uncapped catalog can never
 /// dump itself wholesale into the prompt.
 const CATALOG_DUMP_MAX_BYTES: usize = 2048;
+/// The cap with `set_tool_search_full_index`: above the built-in index (about 4.2 KB), which a
+/// 2 KB cap cut after about half the names.
+const CATALOG_FULL_INDEX_MAX_BYTES: usize = 8192;
+
+fn catalog_dump_cap() -> usize {
+    if crate::tool_options::tool_search_full_index() {
+        CATALOG_FULL_INDEX_MAX_BYTES
+    } else {
+        CATALOG_DUMP_MAX_BYTES
+    }
+}
 const QUERY_RESULT_MAX_BYTES: usize = 8192;
 const MAX_QUERY_BYTES: usize = 1024;
 
@@ -272,7 +283,7 @@ impl Tool for ToolSearchTool {
                 let cap = if self.detailed {
                     QUERY_RESULT_MAX_BYTES
                 } else {
-                    CATALOG_DUMP_MAX_BYTES
+                    catalog_dump_cap()
                 };
                 ToolResult::ok(serialize_bounded(results, cap))
             }
@@ -367,5 +378,5 @@ fn compact_catalog_index(descriptors: &[CapabilityDescriptor]) -> String {
             entries.push(json!({"category": category, "name": name}));
         }
     }
-    serialize_bounded(entries, CATALOG_DUMP_MAX_BYTES)
+    serialize_bounded(entries, catalog_dump_cap())
 }

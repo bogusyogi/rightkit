@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.1.6 (2026-11-16)
+
+Takes the shell and sandbox-adapter behaviour of a host's newer in-tree tools crate. Every item is behind a once-per-process host option that is `false` until the host sets it (setters return `false` and change nothing when a choice was already made, as with `set_anchor_children_to_parent`), so with no option set every launch, schema and result is what 0.1.5 produced. Set them once at start-up, before the first tool call. A host that wants the newer behaviour turns them on.
+
+Launch adapters and the shell tool (`rightkit_agent_coding_tools::shell`):
+
+- `set_scrub_inherited_credentials`: children of `NativeCommandSandboxAdapter` (Linux and macOS), the shell tool's foreground command and the non-Linux PTY launch no longer inherit a credential, daemon-token or licence variable from this process's environment; a variable the launch sets itself stays.
+- `set_harden_children`: Linux children lose `LD_PRELOAD` and `LD_AUDIT` and get a core-dump limit of 0 before exec (macOS drops `DYLD_INSERT_LIBRARIES`), registered before the sandbox hooks. Also applied to launches through `process_launch`.
+- `set_honour_disabled_sandbox_tier`: one tier rule for `NativeCommandSandboxAdapter` on every OS (an operator-disabled tier runs unconfined; a network-requiring launch keeps filesystem confinement without the Strict network denial; Windows network access follows the tier).
+- `set_session_scratch_tmpdir`: shell commands (foreground, PTY and background) get `TMPDIR`, `TEMP` and `TMP` pointing at `<workspace>/.rightkit/tmp/<session>` (`background` for background shells), with a `.gitignore` of `*` beside it.
+- `set_shell_workdir` (a `workdir` argument in the `shell` schema), `set_shell_strict_timeout` (a zero, negative, fractional or non-numeric `timeout_ms` is an `invalid_request` error), `set_shell_report_output_on_kill` (the last 8 KiB of each stream and a hint on a timeout or cancel), `set_shell_stop_leftover_processes` (a bounded wait for pipes held open by processes the command left running), `set_shell_head_tail_capture` (first and last 4 MiB of a stream instead of the first 64 MiB), `set_shell_password_prompts` (with a person attached, a password prompt is answered through the masked credential card and redacted from the output; the command's timeout does not run meanwhile), `set_shell_protect_config_files` (changes a command makes to hook, config, MCP, policy, rule, skill and instruction files are undone when the session's content is not the user's, and remote content alone requires durable-write approval), `set_shell_verifier_read_only` (a `verifier` toolset gets a read-only shell), `set_shell_refuse_unenforced_resource_limits`.
+- `set_shell_notice_label`: names the host in the bracketed notices the options above add (default `rightkit`).
+- Unconditional: `NativeCommandSandboxAdapter` on Windows refuses a launch that requires a sandbox but names no profile (`SandboxMissing`), as Linux and macOS already did.
+
+Individual tools (`rightkit_agent_coding_tools::tool_options`): `set_send_message_reserved_channels`, `set_write_file_replace_non_utf8`, `set_context7_untrusted_docs`, `set_tool_search_full_index`, `set_finalize_requires_passing_verdict`, `set_output_keeps_tail` (reduced output of a successful command keeps head and tail, and progress-bar `\r` redraws are collapsed).
+
+Traits: `CredentialRequester::attended` (default `false`) and `PlanExit::take_context_reset` / `PlanExit::context_reset_pending` (defaults `None` / `false`) are new provided methods, so existing implementations compile and behave as before. `ToolContext::unenforced_resource_limits_error` is new.
+
 ## 0.1.5 (2026-11-16)
 
 - New `shell::set_anchor_children_to_parent` / `shell::anchor_children_to_parent` (feature `host`), fixed once at start-up, off by default. Off, every launch is exactly as before. On, on Linux, children of `NativeCommandSandboxAdapter` (pipe launches) and of the shell tool die with the host process: the kernel SIGKILLs each one (`PR_SET_PDEATHSIG`, registered before the sandbox hooks) and every such spawn is made from one process-lifetime thread, because the signal is tied to the thread that forked. Grandchildren are not covered (the session-wide tree kill reaches them). If that thread cannot start, the launch fails instead of running unanchored. macOS and Windows launches are unchanged. A host that restarts and reattaches background processes must leave it off. A host (CodeRight) turns it on.

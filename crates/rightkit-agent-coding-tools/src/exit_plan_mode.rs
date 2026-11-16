@@ -58,6 +58,12 @@ impl Tool for ExitPlanModeTool {
             }
         };
         match plan_exit.present(plan).await {
+            // The operator chose "approve and clear context": the engine replaces the earlier chat
+            // with the plan before the next request, so this result says so. A host that does not
+            // implement `PlanExit::context_reset_pending` never takes this branch.
+            Ok(true) if plan_exit.context_reset_pending() => ToolResult::ok(
+                "Plan approved — leaving Plan mode. The earlier conversation was cleared: continue from the approved plan only. You may now make changes.",
+            ),
             Ok(true) => {
                 ToolResult::ok("Plan approved — leaving Plan mode. You may now make changes.")
             }

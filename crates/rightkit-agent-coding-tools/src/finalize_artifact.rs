@@ -57,6 +57,17 @@ impl FinalizeArtifactTool {
             };
 
         let mut store = store.lock().unwrap();
+        // A rejected artifact is not shippable: it needs a passing verdict first (with
+        // `set_finalize_requires_passing_verdict`).
+        if crate::tool_options::finalize_requires_passing_verdict() {
+            if let Some(verdict) = store.get_artifact(&artifact_id).and_then(|row| row.verdict) {
+                if !verdict.passed {
+                    return ToolResult::error(format!(
+                        "Artifact '{artifact_id}' was rejected, so it cannot be finalized. Attach a passing (approved) verdict first."
+                    ));
+                }
+            }
+        }
         match store.finalize_artifact(&artifact_id) {
             Some(artifact) => ToolResult::ok(format!(
                 "Artifact '{}' finalized. shippable={}",

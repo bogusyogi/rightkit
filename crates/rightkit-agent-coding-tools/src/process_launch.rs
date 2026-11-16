@@ -165,6 +165,100 @@ fn is_driver_gateway_name(name: &str) -> bool {
     )
 }
 
+/// Scrubbed variables the child would only get by inheriting this process's environment: every
+/// scrubbed name present there that the launch does not set itself. The native sandbox adapter
+/// removes these on Linux and macOS (Windows forwards an allowlist and never inherits), so a
+/// vendor driver, background shell or LSP child cannot pick up a provider token, a daemon token
+/// or a licence locator. Names the launch sets explicitly are the caller's deliberate choice and
+/// stay. Empty unless the host turned on [`crate::shell::set_scrub_inherited_credentials`].
+pub(crate) fn inherited_scrubbed_env_names(
+    explicit: &[(String, String)],
+) -> Vec<std::ffi::OsString> {
+    if !crate::shell::scrub_inherited_credentials() {
+        return Vec::new();
+    }
+    inherited_scrubbed_from(std::env::vars_os().map(|(name, _)| name), explicit)
+}
+
+/// Drop from `command` every scrubbed variable it would inherit from this process. No-op unless the
+/// host turned on [`crate::shell::set_scrub_inherited_credentials`].
+pub(crate) fn remove_inherited_scrubbed_env(command: &mut std::process::Command) {
+    if crate::shell::scrub_inherited_credentials() {
+        remove_scrubbed_from(command, std::env::vars_os().map(|(name, _)| name));
+    }
+}
+
+/// Linux child hardening: drop `LD_PRELOAD`/`LD_AUDIT` and set `RLIMIT_CORE` to 0 in the child
+/// before exec. No-op unless the host turned on [`crate::shell::set_harden_children`].
+///
+/// Must be called before Landlock/seccomp `confine`: `pre_exec` hooks run in registration order
+/// and the seccomp allowlist could block `prlimit64` if it were installed first. `PR_SET_DUMPABLE`
+/// is not set here because `execve` resets it for an ordinary binary. `LD_LIBRARY_PATH` is kept on
+/// purpose (toolchains need it).
+#[cfg(target_os = "linux")]
+pub(crate) fn harden_child(command: &mut std::process::Command) {
+    use std::os::unix::process::CommandExt;
+    if !crate::shell::harden_children() {
+        return;
+    }
+    command.env_remove("LD_PRELOAD");
+    command.env_remove("LD_AUDIT");
+    // SAFETY: the hook only calls `setrlimit` (a thin prlimit64 syscall wrapper) on a stack
+    // value: no allocation, locks or formatting.
+    unsafe {
+        command.pre_exec(|| {
+            let lim = libc::rlimit {
+                rlim_cur: 0,
+                rlim_max: 0,
+            };
+            if libc::setrlimit(libc::RLIMIT_CORE, &lim) < 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
+}
+
+/// See the Linux variant. macOS drops `DYLD_INSERT_LIBRARIES`, the `LD_PRELOAD` counterpart;
+/// Windows has nothing to do.
+#[cfg(not(target_os = "linux"))]
+pub(crate) fn harden_child(command: &mut std::process::Command) {
+    #[cfg(target_os = "macos")]
+    if crate::shell::harden_children() {
+        command.env_remove("DYLD_INSERT_LIBRARIES");
+    }
+    let _ = command;
+}
+
+fn remove_scrubbed_from(
+    command: &mut std::process::Command,
+    inherited: impl Iterator<Item = std::ffi::OsString>,
+) {
+    let explicit: Vec<(String, String)> = command
+        .get_envs()
+        .filter_map(|(name, value)| {
+            Some((name.to_str()?.to_string(), value?.to_str()?.to_string()))
+        })
+        .collect();
+    for name in inherited_scrubbed_from(inherited, &explicit) {
+        command.env_remove(name);
+    }
+}
+
+fn inherited_scrubbed_from(
+    inherited: impl Iterator<Item = std::ffi::OsString>,
+    explicit: &[(String, String)],
+) -> Vec<std::ffi::OsString> {
+    inherited
+        .filter(|name| name.to_str().is_some_and(is_scrubbed_env_name))
+        .filter(|name| {
+            !explicit
+                .iter()
+                .any(|(set, _)| std::ffi::OsStr::new(set) == name.as_os_str())
+        })
+        .collect()
+}
+
 /// Every scrubbed variable in the inherited environment or in `spec.env`.
 fn licence_env_names(spec: &CommandLaunchSpec) -> Vec<std::ffi::OsString> {
     std::env::vars_os()
@@ -238,6 +332,9 @@ fn build_command(
     // Own session (setsid), not just a group: the child must not keep the
     // daemon's controlling terminal.
     rightkit_child_process::tokio_support::lead_session(&mut command);
+    // Registered here, before any `confine` in `spawn_enforced`, so the rlimit hook runs first.
+    // A no-op unless the host turned on `set_harden_children`.
+    harden_child(command.as_std_mut());
     command
 }
 
