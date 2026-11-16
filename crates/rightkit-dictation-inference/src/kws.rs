@@ -188,7 +188,7 @@ impl KwsOnsetMethod {
 /// keeps the wake candidate's cut ([`KwsSwitches::onset`]); the others re-decide it from the
 /// confirm path's own first-token sample when the command latches, and are a host option, not a
 /// qualified default. A confirm sample outside the wake candidate's plausibility window (see
-/// the guard in [`guarded_confirm_cut`]) is not trusted for that candidate.
+/// the guard in `guarded_confirm_cut`) is not trusted for that candidate.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum KwsCutSource {
     /// The wake candidate's chosen onset ([`KwsSwitches::onset`]): today's cut.

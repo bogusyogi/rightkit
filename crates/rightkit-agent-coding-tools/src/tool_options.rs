@@ -1,7 +1,7 @@
 //! Once-per-process host options for individual tools. Every option is `false` until the host sets
 //! it, and every setter returns `false` (changing nothing) when a choice was already made. With all
 //! of them at their default each tool behaves exactly as before. The shell tool's options are in
-//! [`crate::shell`]. A host sets these once at start-up, before the first tool call.
+//! the `shell` module (feature `host`). A host sets these once at start-up, before the first tool call.
 
 host_option!(
     /// `send_message` refuses the channel names `schedule` and `followup_task` with
