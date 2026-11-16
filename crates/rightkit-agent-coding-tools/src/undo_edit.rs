@@ -106,7 +106,7 @@ impl Tool for UndoEditTool {
         }
 
         let store = HistoryStore::new(&ctx.workspace_root, ".rightkit", &ctx.session_id);
-        match store.peek_latest(&path) {
+        match store.peek_latest_bytes(&path) {
             Err(e) => ToolResult::error(format!(
                 "Failed to access history for '{}': {}",
                 path.display(),
@@ -155,20 +155,22 @@ impl Tool for UndoEditTool {
                 let intent = crate::file_service::MutationIntent::restore(&path, expected);
                 match ctx
                     .file_service
-                    .apply_byte_intent(intent, snapshot.content.as_bytes())
+                    .apply_byte_intent(intent, &snapshot.content)
                 {
                     Err(e) => {
                         ToolResult::error(format!("Failed to restore '{}': {}", path.display(), e))
                     }
                     Ok(_) => {
-                        if let Err(error) = store.consume_snapshot(&snapshot) {
+                        if let Err(error) = store.consume_snapshot_bytes(&snapshot) {
                             return ToolResult::error(format!(
                                 "Restored '{}' but could not consume its history snapshot: {}",
                                 path.display(),
                                 error
                             ));
                         }
-                        let diff = unified_diff(&current, &snapshot.content, path_str);
+                        // The restore above is byte-exact; the diff shown is of the text view.
+                        let restored = String::from_utf8_lossy(&snapshot.content);
+                        let diff = unified_diff(&current, &restored, path_str);
                         let mut msg = format!(
                             "Reverted '{}' to previous snapshot ({} bytes).",
                             path.display(),

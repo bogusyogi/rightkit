@@ -133,6 +133,23 @@ host_option!(
     shell_refuse_unenforced_resource_limits
 );
 
+host_option!(
+    /// Records what a shell command changes in the workspace. The workspace's files (up to 20,000,
+    /// each up to 1 MiB, 256 MiB in all; `.git`, `node_modules`, `target`, `.venv`, `__pycache__`
+    /// and `.rightkit` are skipped, and so is what the workspace's ignore files exclude) are read
+    /// before a command and compared after it. Each file it changed, created or deleted gets a
+    /// restore point in the session's history (`rightkit-agent-engine-history`, the same store the
+    /// edit tools use, byte for byte), a file with no restore point is named in the result, and a
+    /// `[<label>: changed by this command]` notice with the unified diffs (at most 5 files and
+    /// 4 KiB; `.env*` files, binary files and files over 1 MiB are named, not shown) is appended
+    /// to the result. A `run_in_background` command is recorded when it exits or when the host
+    /// calls `settle_background_file_tracking` (`host` feature) at the end of a turn or before a
+    /// rewind. `false` (the default) reads nothing and records nothing; the result is unchanged.
+    SHELL_CHANGE_DIFF,
+    set_shell_change_diff,
+    shell_change_diff
+);
+
 static SHELL_NOTICE_LABEL: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
 /// Names the host in the bracketed notices the options above add to a result, for example

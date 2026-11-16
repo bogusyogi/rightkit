@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.7 (2026-11-16)
+
+- New host option `shell::set_shell_change_diff` / `shell::shell_change_diff`, once per process, `false` until the host sets it (the setter returns `false` and changes nothing when a choice was already made). Off, the shell tool's output, schema and file effects are exactly 0.1.6's. On, the workspace is read before each shell command and compared after it (up to 20,000 files of at most 1 MiB, 256 MiB in all; `.git`, `node_modules`, `target`, `.venv`, `__pycache__` and `.rightkit` are skipped, as are files the workspace's ignore files exclude): every file the command changed, created or deleted gets a restore point in the session's history (`rightkit-agent-engine-history` 0.1.3 byte snapshots, so a rewind restores it exactly), a file that could not get one is named in a `[<label>: no restore point could be stored for ...]` notice, and a `[<label>: changed by this command]` notice with the unified diffs (at most 5 files and 4 KiB; `.env*`, binary and over-1 MiB files are named, not shown) is appended. `<label>` is `set_shell_notice_label`. A `run_in_background` command is recorded when it exits or when the host calls the new `shell::settle_background_file_tracking(session_id)` (feature `host`) at the end of a turn or before a rewind.
+- Bounded reads: the files the change record compares and records after a command are read at most 1 MiB; a larger file is named as too large to diff and its post-command state is recorded by streaming.
+- `undo_edit` restores a snapshot's bytes exactly (a snapshot that is not valid UTF-8 restores instead of failing to read), and refuses to restore an older snapshot over a file the newest edit created. For valid UTF-8 snapshots with no created-file marker above them the result is what 0.1.6 produced.
+- Requires `rightkit-agent-engine-history` 0.1.3.
+
 ## 0.1.6 (2026-11-16)
 
 Takes the shell and sandbox-adapter behaviour of a host's newer in-tree tools crate. Every item is behind a once-per-process host option that is `false` until the host sets it (setters return `false` and change nothing when a choice was already made, as with `set_anchor_children_to_parent`), so with no option set every launch, schema and result is what 0.1.5 produced. Set them once at start-up, before the first tool call. A host that wants the newer behaviour turns them on.
