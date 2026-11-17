@@ -4,7 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
-import { APPROVED_ARTIFACTS_FILE, REPOSITORY, sha, linuxRequiredFor, loadSealed, checkReceipts, checkLocalReceipts, checkApprovedArtifacts, checkUploadPayloads, executeUpload, childEnv, authenticatedArchiveScanResolver, RUNTIME_PROOF_WORKLOADS, localRuntimeProofSha256 } from "./upload.mjs";
+import { APPROVED_ARTIFACTS_FILE, REPOSITORY, gateAdmissionProblem, sha, linuxRequiredFor, loadSealed, checkReceipts, checkLocalReceipts, checkApprovedArtifacts, checkUploadPayloads, executeUpload, childEnv, authenticatedArchiveScanResolver, RUNTIME_PROOF_WORKLOADS, localRuntimeProofSha256 } from "./upload.mjs";
 import { validateSupplementPin, verifyArchiveSupplement } from "./supplemental-proof.mjs";
 
 const HEX = /^[0-9a-f]{64}$/;
@@ -783,6 +783,9 @@ export async function prepareQualified({ env, fetchImpl = fetch, spawn = spawnSy
   try { plan = JSON.parse(fs.readFileSync(path.join(packDir, "manifest.json"), "utf8")); } catch { plan = null; }
   requireThat(plan && ["npm", "crates"].includes(plan.registry) && Array.isArray(plan.units) && plan.units.length > 0 && plan.units.every((unit) => typeof unit?.name === "string" && UNIT_NAME.test(unit.name)), "sealed manifest names no registry or units");
   const registry = plan.registry, units = plan.units.map((unit) => unit.name);
+  // GATE-CONTRACT NN31 in the step that holds no registry credential: a qualified run that sealed the gate package goes no further without its
+  // admission record, so the credentialed step never starts for it (the scheduled relay retries a refused upload; each retry now ends here).
+  for (const unit of plan.units) { const refusal = gateAdmissionProblem({ unit, commit: plan.commit, env }); requireThat(refusal === null, refusal ?? ""); }
   // Runtime-proof owners (RUNTIME_PROOF_WORKLOADS) publish on CI green like every other unit. publish.yml carries no runtime
   // workload, so their resource budgets are not proven by this route; Adrian 2026-10-22 ("those can have exceptions"): the
   // budget measurement is a separate, non-blocking report (local-runtime or qualify-runtime.yml), not a publication gate.
