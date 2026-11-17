@@ -6,9 +6,9 @@ import type { ThreadRef } from "../lib/ipc.js";
 import { useAppStore, APP_OF } from "../store/index.js";
 import { CalendarNav, ContactsNav, DriveNav, TasksNav } from "@rightkit/workspace-ui";
 import { MailWorkspaceProvider } from "../workspaceViews.js";
-import { buildLabelTree, useSidebarModel } from "./useSidebarModel.js";
-export { buildLabelTree, useSidebarModel } from "./useSidebarModel.js";
-export type { SidebarModelOptions } from "./useSidebarModel.js";
+import { buildLabelTree, selectSidebarFolder, sidebarViewQueries, useSidebarModel } from "./useSidebarModel.js";
+export { buildLabelTree, selectSidebarFolder, sidebarViewQueries, useSidebarModel } from "./useSidebarModel.js";
+export type { SidebarFolderActions, SidebarModelOptions } from "./useSidebarModel.js";
 
 interface Props {
   unreadFor: (id: string) => number;
@@ -46,12 +46,6 @@ export function Sidebar({
 
   const unreadAll = counts.total;
 
-  function todayStr() {
-    const d = new Date();
-    const mm = String(d.getMonth() + 1).padStart(2, "0");
-    const dd = String(d.getDate()).padStart(2, "0");
-    return `${d.getFullYear()}/${mm}/${dd}`;
-  }
   // User labels, minus hidden, sorted so children sit under parents.
   const userLabels = userLabelsOf(labels);
   const { visibleLabels, parentNames, treeLabels } = buildLabelTree(userLabels, hiddenLabels, collapsedLabels);
@@ -62,20 +56,12 @@ export function Sidebar({
     transferType: "application/mailright-thread",
     onDrop: dropThreadOnLabel,
     onInvalidDrop: () => setErr("Could not read the dragged thread."),
-    onSelectFolder: (id: string) => {
-      setFolder(id as typeof folder);
-      setActiveLabel(null);
-      setCategory(null);
-      setView("inbox");
-      setOpenThread(null);
-    },
+    onSelectFolder: (id: string) => selectSidebarFolder(id as typeof folder, {
+      setFolder, setActiveLabel, setCategory, setView, setOpenThread,
+    }),
   });
 
-  const viewQueries: Record<string, string> = {
-    unread: "is:unread",
-    attachments: "has:attachment",
-    today: `after:${todayStr()}`,
-  };
+  const viewQueries = sidebarViewQueries();
   const folderGroups: NavGroup[] = [
     {
       items: [

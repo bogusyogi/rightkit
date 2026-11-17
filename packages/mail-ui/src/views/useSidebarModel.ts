@@ -22,6 +22,31 @@ export function buildLabelTree<T extends { id: string; name: string }>(
   return { visibleLabels, parentNames, treeLabels };
 }
 
+/** Search predicates for the sidebar views, using the host's local calendar date. */
+export function sidebarViewQueries(date = new Date()): Record<string, string> {
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return { unread: "is:unread", attachments: "has:attachment", today: `after:${date.getFullYear()}/${month}/${day}` };
+}
+
+/** State setters used when opening any folder, including drafts. */
+export interface SidebarFolderActions<T> {
+  setFolder: (folder: T) => void;
+  setActiveLabel: (label: null) => void;
+  setCategory: (category: null) => void;
+  setView: (view: "inbox") => void;
+  setOpenThread: (thread: null) => void;
+}
+
+/** Select a folder and clear the previous inbox selection in order. */
+export function selectSidebarFolder<T>(folder: T, actions: SidebarFolderActions<T>): void {
+  actions.setFolder(folder);
+  actions.setActiveLabel(null);
+  actions.setCategory(null);
+  actions.setView("inbox");
+  actions.setOpenThread(null);
+}
+
 /** The host owns presentation, selection policy, storage and transfer format. */
 export interface SidebarModelOptions<T> {
   setCollapsedLabels: (update: (previous: Set<string>) => Set<string>) => void;

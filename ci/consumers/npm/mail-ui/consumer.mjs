@@ -37,8 +37,18 @@ try {
     assert.deepEqual(Object.keys(manifest.exports ?? {}).sort(), surface);
     const mod = await import(provenance.entries['@rightkit/mail-ui']);
     const sidebarMod = await import(provenance.entries['@rightkit/mail-ui/sidebar']);
-    for (const key of ['useSidebarModel', 'buildLabelTree']) assert.equal(typeof sidebarMod[key], 'function', `missing sidebar export ${key}`);
+    for (const key of ['useSidebarModel', 'buildLabelTree', 'sidebarViewQueries', 'selectSidebarFolder']) assert.equal(typeof sidebarMod[key], 'function', `missing sidebar export ${key}`);
     assert.equal(sidebarMod.useSidebarModel, mod.useSidebarModel);
+    assert.deepEqual(sidebarMod.sidebarViewQueries(new Date(2026, 0, 2)), { unread: 'is:unread', attachments: 'has:attachment', today: 'after:2026/01/02' });
+    const folderSteps = [];
+    sidebarMod.selectSidebarFolder('drafts', {
+      setFolder: value => folderSteps.push(['folder', value]),
+      setActiveLabel: value => folderSteps.push(['label', value]),
+      setCategory: value => folderSteps.push(['category', value]),
+      setView: value => folderSteps.push(['view', value]),
+      setOpenThread: value => folderSteps.push(['thread', value]),
+    });
+    assert.deepEqual(folderSteps, [['folder', 'drafts'], ['label', null], ['category', null], ['view', 'inbox'], ['thread', null]]);
     for (const key of expected) assert.ok(key in mod, `missing root export ${key}`);
     // The workspace views and navs left mail-ui for @rightkit/workspace-ui; mail-ui supplies their host.
     for (const gone of ["useDrive", "CalendarNav", "DriveNav", "rangeFor"]) assert.ok(!(gone in mod), `${gone} must come from @rightkit/workspace-ui`);
