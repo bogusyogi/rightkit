@@ -11,7 +11,7 @@ const pluginOpen: OpenFn = options => open(options);
 const pluginSave: SaveFn = options => save(options);
 const pluginAskFn: AskFn = (message, options) => pluginAsk(message, options);
 
-/** Pick one folder. Resolves `null` when the person cancels. Options pass to the plugin unchanged. */
+/** Pick one folder. Resolves `null` when the person cancels. Plugin options pass through; `invalidResult` is handled by the wrapper. */
 export function pickFolder(options?: PickOptions): Promise<string | null> {
   return pickFolderWith(pluginOpen, options);
 }

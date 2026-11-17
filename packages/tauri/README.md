@@ -78,7 +78,7 @@ const target = await pickSavePath({ defaultPath: "history.json" }); // string | 
 const sure = await ask("Delete this export?", { kind: "warning" }); // boolean; true only on confirm
 ```
 
-Thin wrappers over `@tauri-apps/plugin-dialog` (install it in the app; it is an optional peer). Options pass to the plugin unchanged except `directory` and `multiple`, which the function decides. Cancel is `null` for the pickers and `pickSavePath`; `ask` resolves `false` on cancel. `pickSavePath` only chooses a path: the app writes the file. Titles, extensions and button labels stay in the app.
+Thin wrappers over `@tauri-apps/plugin-dialog` (install it in the app; it is an optional peer). Options pass to the plugin unchanged except `directory` and `multiple`, which the function decides, and the wrapper-only `invalidResult`. Set `invalidResult: "cancel"` to treat an empty string or non-string single-pick result as cancellation; for `pickFiles`, only a lone empty string is additionally treated as cancellation. Arrays in multiple picks and native errors retain their normal handling. The default remains strict. Cancel is `null` for the pickers and `pickSavePath`; `ask` resolves `false` on cancel. `pickSavePath` only chooses a path: the app writes the file. Titles, extensions and button labels stay in the app.
 
 There is no QA variant of this entry: the unpublished `dialog-qa` module was removed before 0.3.0 because no consumer is named for the rightkit-qa `dialog` module. An app's QA answers its native pickers in its own native code or test seam, not through this import.
 

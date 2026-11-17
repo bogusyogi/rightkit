@@ -15,26 +15,29 @@ function describe(value: unknown): string {
   return value === undefined ? 'undefined' : typeof value;
 }
 
-/** Pick one folder through `open`. `directory` and `multiple` are forced; every other option passes through. */
+/** Pick one folder through `open`. `directory` and `multiple` are forced; wrapper options are not forwarded. */
 export async function pickFolderWith(open: OpenFn, options?: PickOptions): Promise<string | null> {
-  const result = await open({ ...options, directory: true, multiple: false });
-  if (result === null) return null;
+  const { invalidResult, ...nativeOptions } = options ?? {};
+  const result = await open({ ...nativeOptions, directory: true, multiple: false });
+  if (result === null || (invalidResult === 'cancel' && (typeof result !== 'string' || result === ''))) return null;
   if (typeof result === 'string') return result;
   return badResult('pickFolder', 'a path or null', result);
 }
 
 /** Pick one file through `open`. */
 export async function pickFileWith(open: OpenFn, options?: PickOptions): Promise<string | null> {
-  const result = await open({ ...options, directory: false, multiple: false });
-  if (result === null) return null;
+  const { invalidResult, ...nativeOptions } = options ?? {};
+  const result = await open({ ...nativeOptions, directory: false, multiple: false });
+  if (result === null || (invalidResult === 'cancel' && (typeof result !== 'string' || result === ''))) return null;
   if (typeof result === 'string') return result;
   return badResult('pickFile', 'a path or null', result);
 }
 
 /** Pick one or more files through `open`. A lone string (a plugin that ignores `multiple`) is a one-item list. */
 export async function pickFilesWith(open: OpenFn, options?: PickOptions): Promise<string[] | null> {
-  const result = await open({ ...options, directory: false, multiple: true });
-  if (result === null) return null;
+  const { invalidResult, ...nativeOptions } = options ?? {};
+  const result = await open({ ...nativeOptions, directory: false, multiple: true });
+  if (result === null || (invalidResult === 'cancel' && result === '')) return null;
   if (typeof result === 'string') return [result];
   if (Array.isArray(result) && result.every(item => typeof item === 'string')) return result as string[];
   return badResult('pickFiles', 'a list of paths or null', result);

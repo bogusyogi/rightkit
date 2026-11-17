@@ -55,7 +55,7 @@
     "@rightkit/settings-ui": "0.7.3",
     "@rightkit/social-ui": "0.2.1",
     "@rightkit/system-ui": "0.2.1",
-    "@rightkit/tauri": "0.4.2",
+    "@rightkit/tauri": "0.4.3",
     "@rightkit/tauri-shell": "0.1.4",
     "@rightkit/terminal-ui": "0.1.0",
     "@rightkit/theme": "0.3.4",
@@ -454,7 +454,8 @@
       "0.2.1",
       "0.2.2",
       "0.2.3",
-      "0.3.0"
+      "0.3.0",
+      "0.4.2"
     ],
     "@rightkit/tauri-shell": [
       "0.1.1",

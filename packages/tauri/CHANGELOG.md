@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.3
+
+- Added opt-in `invalidResult: 'cancel'` for native open pickers. Empty single or lone plural strings & non-string single results resolve to `null`; native errors still propagate.
+
 ## 0.4.2
 
 - Added: `@rightkit/tauri/window` entry with `tauriWindowControls(current)`, the minimise / toggle-maximise / close adapter for a Tauri window, shaped as `@rightkit/platform-ui`'s `WindowControlAdapter` so it feeds the `@rightkit/react-shell` caption buttons directly. The app passes how to reach its window (`async () => (await import("@tauri-apps/api/window")).getCurrentWindow()`), so the package adds no dependency on `@tauri-apps/api`; window errors are not swallowed (#1572).

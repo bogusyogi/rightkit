@@ -10,9 +10,12 @@ export interface DialogFilter {
 /**
  * The options of the dialog plugin's `open()` that an app may set. `directory` and
  * `multiple` are decided by the function you call, never by the options. Options not named here are
- * passed to the plugin unchanged (the plugin's own option type is wider than this one).
+ * passed to the plugin unchanged (the plugin's own option type is wider than this one), except
+ * `invalidResult`, which is handled by the wrapper.
  */
 export interface PickOptions {
+  /** Treat an empty string or a non-string single-pick result as cancellation; for multiple picks, only a lone empty string is treated as cancellation. */
+  invalidResult?: 'cancel';
   /** Dialog title (desktop). */
   title?: string;
   filters?: DialogFilter[];
