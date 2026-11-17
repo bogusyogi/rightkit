@@ -299,6 +299,7 @@ export function DesktopWorkspace() {
             <AutoEditView
               dir={dir}
               onChanged={refresh}
+              refreshChangedProject={refreshChangedProject}
               onNavigate={(to) => setTab(to === "recipe" ? "recipe" : "finished")}
             />
           ) : tab === "finished" ? (
