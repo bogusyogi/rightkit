@@ -1335,3 +1335,14 @@ test("release check: a receipt must state its unchecked clauses; a missing list 
   for (const bad of [undefined, null, "GC-A01", {}]) assert.match(verifyReleaseReceipts(receipt({ uncheckedClauses: bad })).problems.join(" | "), /does not state which operative clauses were left unchecked/, JSON.stringify(bad));
   assert.match(verifyReleaseReceipts(receipt({ uncheckedClauses: ["GC-A01"] })).problems.join(" | "), /1 operative clause\(s\) unchecked and not waived by Adrian/);
 });
+
+test("the runner finds the coverage report in the line the gate prints today, on both hosts' path forms", async () => {
+  const { coveragePaths } = await import("./gate-acceptance.mjs");
+  // Copied from real logs of 2026-11-17 (Dell S1_check.log of the 0.6.58 candidate; the Mac's form of the same line).
+  const dell = "2026-11-17T16:51:52.388Z rightkit-gate: coverage report D:\\.rightkit-managed\\runs\\rightkit-gate-coverage\\rk-witness-fixture-2026-11-17T16-51-52-387Z-52172.json: 46 scan(s) in this pass (class A), 15 hit, 31 ran, 0 skipped; 88 belong to the other pass; scans took 3.6s";
+  const mac = "2026-11-17T16:20:01.000Z rightkit-gate: coverage report /Volumes/D/.rightkit-managed/runs/rightkit-gate-coverage/rk-witness-fixture-2026-11-17T16-20-00-999Z-4242.json: 83 scan(s) in this pass (class B), 45 hit, 38 ran, 0 skipped; 28 belong to the other pass; scans took 116.8s";
+  assert.deepEqual(coveragePaths(`${dell}\n${mac}\n`), ["D:\\.rightkit-managed\\runs\\rightkit-gate-coverage\\rk-witness-fixture-2026-11-17T16-51-52-387Z-52172.json", "/Volumes/D/.rightkit-managed/runs/rightkit-gate-coverage/rk-witness-fixture-2026-11-17T16-20-00-999Z-4242.json"]);
+  // The older wording still reads, and a line that only mentions the words does not.
+  assert.deepEqual(coveragePaths("rightkit-gate: coverage report /r/a.json: 3 planned scan(s), 3 hit, 0 ran, 0 skipped\n"), ["/r/a.json"]);
+  assert.deepEqual(coveragePaths("rightkit-gate: no coverage report was written\n"), []);
+});

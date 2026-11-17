@@ -198,7 +198,10 @@ export function stageTimings(text) {
 
 /** Coverage report paths a log names: "coverage report <file>: N planned scan(s), ...". */
 export function coveragePaths(text) {
-  return [...String(text).matchAll(/coverage report (.+?): \d+ planned scan/g)].map((m) => m[1]);
+  // Two wordings: "<file>: N planned scan(s), ..." (before 2026-11-06) and "<file>: N scan(s) in this pass (class A), ..." (since dba665bde, which
+  // split the count by pass). The runner knew only the first, so from that day no run's coverage report was found and every rule that reads one
+  // failed with "wrote no readable coverage report", whatever gate was under test (found by the first real contract tests, 2026-11-17).
+  return [...String(text).matchAll(/coverage report (.+?): \d+ (?:planned scan|scan\(s\) in this pass)/g)].map((m) => m[1]);
 }
 
 /** The reclaim line of a gate: "snapshot lock held <token> (reclaimed from <owner>: <proof>)". null when the run reclaimed nothing. */
