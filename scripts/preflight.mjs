@@ -324,6 +324,7 @@ const SHARED_BEHAVIOR = new Set([
   "packages/video-ui/src/app/hooks/useVideoWorkspace.ts",
   "packages/video-ui/src/app/lib/progressViewModel.ts",
   "packages/video-ui/src/workspace.ts",
+  "packages/video-ui/src/editor/useVideoTimelineEditor.ts",
 ]);
 const PRODUCT_NAME = /\b(?:HeardRight|ViewRight|Pulse|CodeRight|GenRight|CutRight|ScrapeRight|MailRight|PostRight)\b/;
 const PRODUCT_CLASS = /["'`](?:hr|vr|cr|gr|sr|mr|pr|pulse)-[a-z][\w-]*/i;

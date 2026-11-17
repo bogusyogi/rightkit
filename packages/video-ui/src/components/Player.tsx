@@ -1,5 +1,5 @@
 import { Button, IconButton, Select, Slider } from "@rightkit/react-shell/react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { errorMessage } from "../lib/engine.js";
 import {
   type PlaybackMeta,
@@ -274,6 +274,17 @@ export function useTimelinePreview(dir: string | null, revision: number) {
   return host;
 }
 
+type StageSession = { opened: boolean; ready: boolean };
+
+// Native playback is a single session. Finish submitted controls and close the
+// previous stage before opening its replacement, even across tab remounts.
+let stageCommands = Promise.resolve();
+function queueStageCommand<T>(run: () => Promise<T>): Promise<T> {
+  const command = stageCommands.then(run);
+  stageCommands = command.then(() => undefined, () => undefined);
+  return command;
+}
+
 /**
  * Stage player for the Finished edit screen (§3.4): a letterboxed canvas fed
  * by the Rust compositor playback session for the CURRENT project revision,
@@ -312,17 +323,18 @@ export function StagePlayer({
   const [muted, setMuted] = useState(false);
   /** Bumped by the Retry control to reopen the playback session for the same revision. */
   const [attempt, setAttempt] = useState(0);
-  const drawing = useRef(false);
+  const session = useRef<StageSession | null>(null);
+  const drawing = useRef<StageSession | null>(null);
 
-  const draw = useCallback(async () => {
-    if (drawing.current) return;
-    drawing.current = true;
+  const draw = useCallback(async (owner = session.current) => {
+    if (!owner?.ready || session.current !== owner || drawing.current === owner) return;
+    drawing.current = owner;
     try {
       const buf = await playbackFrame();
       const canvas = canvasRef.current;
-      if (canvas) drawFrame(canvas, buf);
+      if (session.current === owner && canvas) drawFrame(canvas, buf);
     } finally {
-      drawing.current = false;
+      if (drawing.current === owner) drawing.current = null;
     }
   }, []);
 
@@ -356,98 +368,103 @@ export function StagePlayer({
     }
   };
 
-  // One session per (dir, revision, attempt): an applied edit changes the programme,
-  // and Retry reopens the session after a playback error.
-  useEffect(() => {
-    let cancelled = false;
+  useLayoutEffect(() => {
+    const owner: StageSession = { opened: false, ready: false };
+    session.current = owner;
     setState("loading");
     setError(null);
-    (async () => {
-      try {
-        const m = await playbackOpen({ dir, height: 720 });
-        if (cancelled) return;
-        apply(m);
-        setState("ready");
-        await draw();
-      } catch (e) {
-        if (!cancelled) {
-          setError(errorMessage(e));
-          setState("error");
-        }
+    void queueStageCommand(async () => {
+      if (session.current !== owner) return null;
+      const meta = await playbackOpen({ dir, height: 720 });
+      owner.opened = true;
+      return meta;
+    }).then(async (meta) => {
+      if (!meta || session.current !== owner) return;
+      owner.ready = true;
+      apply(meta);
+      setState("ready");
+      await draw(owner);
+    }).catch((e) => {
+      if (session.current === owner) {
+        owner.ready = false;
+        setError(errorMessage(e));
+        setState("error");
       }
-    })();
+    });
     return () => {
-      cancelled = true;
-      void playbackClose().catch(() => undefined);
+      if (session.current === owner) session.current = null;
+      void queueStageCommand(async () => { if (owner.opened) await playbackClose(); }).catch(() => undefined);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dir, revision, attempt]);
 
-  // Seeks run in request order, and only the newest one's reply moves the playhead:
-  // a late reply from an earlier keystroke must not snap it back.
-  const seekChain = useRef<Promise<unknown>>(Promise.resolve());
-  const latestSeek = useRef<unknown>(null);
-  useEffect(() => {
-    if (!seekRequest || state !== "ready") return;
-    latestSeek.current = seekRequest;
-    seekChain.current = seekChain.current
-      .catch(() => undefined)
-      .then(() => playbackControl("seek", seekRequest.ms))
-      .then(async (m) => {
-        if (latestSeek.current !== seekRequest) return;
-        apply(m);
-        await draw();
+  useLayoutEffect(() => {
+    const owner = session.current;
+    if (!seekRequest || !owner?.ready) return;
+    let live = true;
+    const current = () => live && session.current === owner && owner.ready;
+    void queueStageCommand(async () => current() ? playbackControl("seek", seekRequest.ms) : null)
+      .then(async (meta) => {
+        if (!meta || !current()) return;
+        apply(meta);
+        await draw(owner);
       })
-      .catch((e) => setError(errorMessage(e)));
+      .catch((e) => { if (current()) setError(errorMessage(e)); });
+    return () => { live = false; };
   }, [seekRequest, state, apply, draw]);
 
   // The session was rebuilt under a paused player (a colour grade changed): repaint.
   useEffect(() => {
-    if (state !== "ready") return;
-    const repaint = () => void draw().catch((e) => setError(errorMessage(e)));
+    const owner = session.current;
+    if (state !== "ready" || !owner?.ready) return;
+    const repaint = () => void draw(owner).catch((e) => { if (session.current === owner) setError(errorMessage(e)); });
     window.addEventListener(PLAYBACK_REFRESHED, repaint);
     return () => window.removeEventListener(PLAYBACK_REFRESHED, repaint);
   }, [state, draw]);
 
   // Frame pump while playing.
   useEffect(() => {
-    if (state !== "ready" || !meta?.playing) return;
+    const owner = session.current;
+    if (!owner?.ready || state !== "ready" || !meta?.playing) return;
     let live = true;
+    const current = () => live && session.current === owner && owner.ready;
     const pump = async () => {
       const { playbackStatus } = await import("../lib/media.js");
-      while (live) {
+      while (current()) {
         try {
-          await draw();
+          await draw(owner);
         } catch (e) {
-          // A persistent decode failure (e.g. missing media) is honest UI:
-          // surface it rather than leaving a black canvas.
-          if (live) {
+          if (current()) {
+            owner.ready = false;
             setError(errorMessage(e));
             setState("error");
           }
           return;
         }
-        const still = await playbackStatus().catch(() => null);
-        if (!still || !still.playing) {
-          if (still) apply(still);
-          return;
-        }
-        apply(still);
-        if (!live) return;
-        await new Promise((r) => setTimeout(r, 8));
+        if (!current()) return;
+        const status = await playbackStatus().catch(() => null);
+        if (!current() || !status) return;
+        apply(status);
+        if (!status.playing) return;
+        await new Promise((resolve) => setTimeout(resolve, 8));
       }
     };
     void pump();
-    return () => {
-      live = false;
-    };
+    return () => { live = false; };
   }, [state, meta?.playing, draw, apply]);
 
-  const control = (cmd: string, value?: number, value2?: number) =>
-    playbackControl(cmd, value, value2)
-      .then(apply)
-      .then(() => draw())
-      .catch((e) => setError(errorMessage(e)));
+  const control = (cmd: string, value?: number, value2?: number) => {
+    const owner = session.current;
+    if (!owner?.ready) return;
+    const current = () => session.current === owner && owner.ready;
+    void queueStageCommand(async () => current() ? playbackControl(cmd, value, value2) : null)
+      .then(async (meta) => {
+        if (!meta || !current()) return;
+        apply(meta);
+        await draw(owner);
+      })
+      .catch((e) => { if (current()) setError(errorMessage(e)); });
+  };
 
   const pos = (meta?.position_ms ?? 0) / 1000;
   const dur = (meta?.duration_ms ?? 0) / 1000;

@@ -34,3 +34,4 @@ export { useVideoBundleExport } from "./app/hooks/useVideoBundleExport.js";
 export { useVideoBatchDelivery } from "./app/hooks/useVideoBatchDelivery.js";
 export { useVideoPrompt, videoPromptOptions, videoPromptTitleHasSubtitle, type VideoPromptShot, type VideoPromptDuration } from "./app/hooks/useVideoPrompt.js";
 export { useVideoSources, type VideoSourceIntent, type VideoSourceRow, type VideoMicState } from "./app/hooks/useVideoSources.js";
+export { useVideoTimelineEditor, type VideoTimelineTab, type VideoTimelineMode, type VideoTimelinePreviewHost } from "./editor/useVideoTimelineEditor.js";
