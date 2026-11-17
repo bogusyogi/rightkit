@@ -137,7 +137,8 @@ export function PromptPanel({
   const check = useCallback(async () => {
     setGr({ state: "checking" });
     try {
-      setGr(interpretHost(await engineCall("genright.status", {})));
+      const host = interpretHost(await engineCall("genright.status", {}));
+      setGr(host.malformedStatus ? { ...host, detail: `${hostAppName()} did not report ready.` } : host);
     } catch (e) {
       setGr(genRightCallFailed(errorMessage(e)));
     }

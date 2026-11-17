@@ -12,9 +12,14 @@ export function useVideoWorkspace(progressController: ReturnType<typeof useProgr
   const currentSelection = useRef(selection);
   const mounted = useRef(false);
   const requestEpoch = useRef(0);
+  const selectionEpoch = useRef(0);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const dir = selection?.dir ?? null;
   const isCurrentSelection = useCallback(() => mounted.current && selection !== null && currentSelection.current === selection, [selection]);
+  const captureSelection = useCallback(() => {
+    const captured = selectionEpoch.current;
+    return () => mounted.current && selectionEpoch.current === captured;
+  }, []);
   const [show, setShow] = useState<ProjectShow | null>(null);
   const [exportsCount, setExportsCount] = useState(0);
   const [jobError, setJobError] = useState<string | null>(null);
@@ -62,6 +67,7 @@ export function useVideoWorkspace(progressController: ReturnType<typeof useProgr
   }, [progress.output, progress.done, progress.error, refresh, isCurrentSelection]);
 
   const open = useCallback((next: string, navigate: () => void, clearRecovery: () => void, onRecentError: (e: unknown) => void) => {
+    selectionEpoch.current += 1;
     const nextSelection = { dir: next };
     currentSelection.current = nextSelection;
     setShow(null); setExportsCount(0); setOutput(null); setJobError(null);
@@ -72,6 +78,7 @@ export function useVideoWorkspace(progressController: ReturnType<typeof useProgr
     });
   }, [reset]);
   const close = useCallback((navigate: () => void) => {
+    selectionEpoch.current += 1;
     currentSelection.current = null;
     reset(); setOutput(null);
     setSelection(null); setShow(null); setExportsCount(0); setImportMissing(null); setImportUnverified(null); navigate();
@@ -86,11 +93,13 @@ export function useVideoWorkspace(progressController: ReturnType<typeof useProgr
       ...(report.unverified_assets ?? []).map((path) => baseName(path)),
       ...(report.unverified_generated_sources ?? []).map((g) => baseName(g.path)),
     ];
-    if (unverified.length) setImportUnverified(unverified);
-    if (missing.length) setImportMissing(missing);
+    if (currentSelection.current?.dir === report.dir) {
+      if (unverified.length) setImportUnverified(unverified);
+      if (missing.length) setImportMissing(missing);
+    }
     return { missing, unverified };
   }, []);
-  return { dir, isCurrentSelection, show, exportsCount, jobError, setJobError, output, setOutput, importMissing, setImportMissing, importUnverified, setImportUnverified, refresh, refreshChangedProject, open, close, applyBundleReport };
+  return { dir, isCurrentSelection, captureSelection, show, exportsCount, jobError, setJobError, output, setOutput, importMissing, setImportMissing, importUnverified, setImportUnverified, refresh, refreshChangedProject, open, close, applyBundleReport };
 }
 
 /** Publish busy state while mounted and clear it on change or unmount. */

@@ -84,6 +84,15 @@ try {
     assert.equal(typeof workspaceMod.useVideoFramingReview, 'function');
     assert.equal(typeof workspaceMod.useVideoRecipeLibrary, 'function');
     assert.equal(typeof workspaceMod.useVideoRecipe, 'function');
+    for (const key of ['useVideoAssets', 'useVideoAssetPlacement', 'useVideoAssetGeneration']) {
+      assert.equal(typeof workspaceMod[key], 'function', `missing workspace export ${key}`);
+    }
+    assert.equal(workspaceMod.videoAssetPath('D:/project', { path: 'D:\\media\\take.wav' }), 'D:\\media\\take.wav');
+    assert.equal(workspaceMod.videoAssetPath('D:/project', { path: 'media/take.wav' }), 'D:/project/media/take.wav');
+    assert.equal(workspaceMod.videoAssetMatches('Narration', 'voice'), true);
+    assert.equal(workspaceMod.videoAssetMatches('Narration', 'sfx'), false);
+    assert.equal(workspaceMod.videoAssetJobAction({ state: 'ready' }), 'import');
+    assert.equal(workspaceMod.videoAssetJobAction({ state: 'done' }), null);
     for (const key of ['useVideoSettings', 'useVideoSettingsPickers', 'useVideoStorageSettings', 'useVideoGenerationSettings']) {
       assert.equal(typeof workspaceMod[key], 'function', `missing workspace export ${key}`);
     }

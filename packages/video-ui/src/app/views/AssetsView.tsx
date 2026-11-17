@@ -1,42 +1,27 @@
 // Assets — docs/design/app-ui.md §3.7. Generated media library + the host app jobs.
 import { Badge, Button, EmptyState, Field, IconButton, Input, PageShell, SegmentedControl, Select, useToast } from "@rightkit/react-shell/react";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { engineCall, errorMessage, revealPath } from "../../lib/engine.js";
-import { type CaptionCue, captionsShow } from "../../lib/media.js";
-import {
-  type GeneratedAsset,
-  type HostInfo,
-  type HostJob,
-  type PlaceMode,
-  genRightCallFailed,
-  interpretAssetLibrary,
-  interpretHost,
-  interpretJobs,
-  interpretRecover,
-  placeModesFor,
-} from "../lib/genright.js";
-import { type ModelRow, durationControl, formatUsd, ofKind, parseCatalog, pickModel } from "../lib/models.js";
-import { settingsSet } from "../../lib/media.js";
+import { useState } from "react";
 import { assetUrl } from "../../lib/asset.js";
-import { pickFile } from "../lib/dialog.js";
+import type { GeneratedAsset, HostJob, PlaceMode } from "../lib/genright.js";
+import { formatUsd, type CatalogKind } from "../lib/models.js";
+import {
+  useVideoAssetGeneration,
+  useVideoAssetPlacement,
+  useVideoAssets,
+  videoAssetIsAudio as isAudio,
+  videoAssetIsImage as isImage,
+  videoAssetJobAction,
+  videoAssetPath as fullPath,
+  type VideoAssetFilter,
+} from "../hooks/useVideoAssets.js";
 import { MediaPlayer } from "@rightkit/media-ui";
 import { ImageViewer } from "@rightkit/media-ui/image";
-import { useMediaPlaybackId } from "../../lib/mediaAdapters.js";
 import { Drawer, ErrorPanel, Icon, ProgressRow, Thumbnail, fileSize } from "../ui/index.js";
 import { hostAppName } from "../appName.js";
 
-export function jobActionLabel(j: HostJob): "Cancel" | "Import now" | "Retry" | null {
-  switch (j.state) {
-    case "queued":
-    case "running":
-      return "Cancel";
-    case "ready":
-      return "Import now";
-    case "failed":
-      return "Retry";
-    default:
-      return null;
-  }
+export function jobActionLabel(job: HostJob): "Cancel" | "Import now" | "Retry" | null {
+  const action = videoAssetJobAction(job);
+  return action ? ({ cancel: "Cancel", import: "Import now", retry: "Retry" } as const)[action] : null;
 }
 
 const JOB_TONE: Record<string, "neutral" | "ok" | "warn" | "danger" | "info"> = {
@@ -50,8 +35,7 @@ const JOB_TONE: Record<string, "neutral" | "ok" | "warn" | "danger" | "info"> = 
   unknown: "warn",
 };
 
-type Filter = "all" | "broll" | "image" | "voice" | "music" | "sfx";
-const FILTERS: { value: Filter; label: string }[] = [
+const FILTERS: { value: VideoAssetFilter; label: string }[] = [
   { value: "all", label: "All" },
   { value: "broll", label: "B-roll" },
   { value: "image", label: "Images" },
@@ -59,22 +43,6 @@ const FILTERS: { value: Filter; label: string }[] = [
   { value: "music", label: "Music" },
   { value: "sfx", label: "SFX" },
 ];
-
-function filterMatch(kind: string | null, f: Filter): boolean {
-  if (f === "all") return true;
-  const k = (kind ?? "").toLowerCase();
-  if (f === "image") return k === "image" || k === "still";
-  if (f === "voice") return k === "voice" || k === "narration";
-  if (f === "music") return k === "music" || k === "song";
-  if (f === "sfx") return k === "sfx" || k === "sound";
-  if (f === "broll") return k === "broll" || k === "video";
-  return true;
-}
-
-const isAudio = (a: GeneratedAsset) => /^audio\//.test(a.mime) || /\.(wav|mp3|m4a|flac|aac|ogg)$/i.test(a.path);
-const isImage = (a: GeneratedAsset) => /^image\//.test(a.mime) || /\.(png|jpe?g|webp)$/i.test(a.path);
-
-const fullPath = (dir: string, a: GeneratedAsset) => (a.path.startsWith("/") ? a.path : `${dir}/${a.path}`);
 
 /** Library tile: real image/video frame for visuals, waveform-style tile for audio. */
 function AssetTile({ dir, asset }: { dir: string; asset: GeneratedAsset }) {
@@ -111,94 +79,26 @@ const PLACE_LABEL: Record<PlaceMode, string> = {
 };
 
 /** Place-on-timeline menu + the fields the chosen mode needs. */
-function PlaceMenu({ dir, asset, onPlaced }: { dir: string; asset: GeneratedAsset; onPlaced: () => void }) {
-  const toast = useToast();
-  const modes = placeModesFor(asset.kind);
-  const [open, setOpen] = useState(false);
-  const [mode, setMode] = useState<PlaceMode | null>(null);
-  const [start, setStart] = useState("");
-  const [link, setLink] = useState("");
-  const [gain, setGain] = useState("");
-  const [busy, setBusy] = useState(false);
-  // B-roll range: caption cues of the timeline, and the anchor/last indices picked from them.
-  const [cues, setCues] = useState<CaptionCue[] | null>(null);
-  const [cueSel, setCueSel] = useState<{ a: number; b: number } | null>(null);
-  const ref = useRef<HTMLDivElement | null>(null);
-  useEffect(() => {
-    if (mode !== "broll") return;
-    let live = true;
-    setCues(null);
-    setCueSel(null);
-    captionsShow(dir)
-      .then((r) => live && setCues(r.cues))
-      .catch((e) => {
-        if (!live) return;
-        setCues([]);
-        toast(errorMessage(e), { kind: "error", ttl: 0 });
-      });
-    return () => {
-      live = false;
-    };
-    // toast is stable per provider; the cue list reloads only when the mode or project changes.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, dir]);
-  useEffect(() => {
-    if (!open) return;
-    const close = (e: MouseEvent) => {
-      if (!ref.current?.contains(e.target as Node)) {
-        setOpen(false);
-        setMode(null);
-      }
-    };
-    window.addEventListener("mousedown", close);
-    return () => window.removeEventListener("mousedown", close);
-  }, [open]);
-
-  const num = (s: string) => {
-    const n = Number(s);
-    return s.trim() !== "" && Number.isFinite(n) ? n : undefined;
-  };
-  // The contiguous run of cues picked for B-roll, as timeline seconds (start of first, end of last).
-  const cueRange = (): { start: number; end: number } | null => {
-    if (!cues || !cueSel) return null;
-    const lo = Math.min(cueSel.a, cueSel.b);
-    const hi = Math.max(cueSel.a, cueSel.b);
-    return { start: cues[lo].start_ms / 1000, end: cues[hi].end_ms / 1000 };
-  };
-  const place = (m: PlaceMode) => {
-    const range = m === "broll" ? cueRange() : null;
-    setBusy(true);
-    engineCall("assets.place", {
-      dir,
-      asset_id: asset.assetId,
-      mode: m,
-      ...(range ? { start_s: range.start, end_s: range.end } : {}),
-      ...(!range && num(start) !== undefined ? { start_s: num(start) } : {}),
-      ...(link.trim() ? { link_clip: link.trim() } : {}),
-      ...(num(gain) !== undefined ? { gain_db: num(gain) } : {}),
-    })
-      .then(() => {
-        toast("Placed on the timeline", { kind: "success" });
-        setOpen(false);
-        setMode(null);
-        onPlaced();
-      })
-      .catch((e) => toast(errorMessage(e), { kind: "error", ttl: 0 }))
-      .finally(() => setBusy(false));
-  };
-
-  const needsRange = mode === "broll";
-  const needsLink = mode === "narration";
+function PlaceMenu({ dir, asset, onChanged, onPlaced, onError }: {
+  dir: string;
+  asset: GeneratedAsset;
+  onChanged: (dir: string) => void | Promise<void>;
+  onPlaced: () => void;
+  onError: (error: string) => void;
+}) {
+  const { open, container, toggle, modes, mode, chooseMode, back, start, setStart, link, setLink, gain, setGain,
+    cues, selectCue, isCueSelected, range, needsRange, needsLink, needsGain, canPlace, busy, placeSelected } =
+    useVideoAssetPlacement({ dir, asset, onChanged, onPlaced, onError });
   return (
-    <div className="assets-place" ref={ref}>
-      <Button size="sm" variant="secondary" onClick={() => setOpen((v) => !v)}>
+    <div className="assets-place" ref={container}>
+      <Button size="sm" variant="secondary" disabled={busy} onClick={toggle}>
         Place on timeline
       </Button>
       {open && (
         <div className="assets-place__pop">
           {!mode ? (
             modes.map((m) => (
-              <button key={m} type="button" onClick={() => (m === "append" ? place(m) : setMode(m))}>
+              <button key={m} type="button" disabled={busy} onClick={() => void chooseMode(m)}>
                 {PLACE_LABEL[m]}
               </button>
             ))
@@ -210,9 +110,6 @@ function PlaceMenu({ dir, asset, onPlaced }: { dir: string; asset: GeneratedAsse
                   {cues === null && <span className="assets-cues__meta">Loading caption cues…</span>}
                   {cues?.length === 0 && <span className="assets-cues__meta">No caption cues on the timeline yet.</span>}
                   {cues?.map((c, i) => {
-                    const lo = cueSel ? Math.min(cueSel.a, cueSel.b) : -1;
-                    const hi = cueSel ? Math.max(cueSel.a, cueSel.b) : -1;
-                    const on = i >= lo && i <= hi;
                     return (
                       <button
                         key={`${c.start_ms}-${i}`}
@@ -221,11 +118,9 @@ function PlaceMenu({ dir, asset, onPlaced }: { dir: string; asset: GeneratedAsse
                         data-index={i}
                         data-start-ms={c.start_ms}
                         data-end-ms={c.end_ms}
-                        aria-pressed={on}
+                        aria-pressed={isCueSelected(i)}
                         title="Click the first cue, then shift-click the last"
-                        onClick={(e) =>
-                          setCueSel((prev) => (e.shiftKey && prev ? { a: prev.a, b: i } : { a: i, b: i }))
-                        }
+                        onClick={(e) => selectCue(i, e.shiftKey)}
                       >
                         <span className="assets-cues__time">
                           {(c.start_ms / 1000).toFixed(2)}–{(c.end_ms / 1000).toFixed(2)} s
@@ -235,10 +130,7 @@ function PlaceMenu({ dir, asset, onPlaced }: { dir: string; asset: GeneratedAsse
                     );
                   })}
                   <span className="assets-cues__meta" data-testid="broll-range">
-                    {(() => {
-                      const r = cueRange();
-                      return r ? `B-roll ${r.start.toFixed(2)} s to ${r.end.toFixed(2)} s` : "Pick a start cue, then shift-click an end cue.";
-                    })()}
+                    {range ? `B-roll ${range.start.toFixed(2)} s to ${range.end.toFixed(2)} s` : "Pick a start cue, then shift-click an end cue."}
                   </span>
                 </div>
               )}
@@ -254,21 +146,21 @@ function PlaceMenu({ dir, asset, onPlaced }: { dir: string; asset: GeneratedAsse
                   <Input value={link} onChange={(e) => setLink(e.target.value)} placeholder="clip id" />
                 </label>
               )}
-              {mode === "music" && (
+              {needsGain && (
                 <label>
                   Bed level (dB under)
                   <Input value={gain} onChange={(e) => setGain(e.target.value)} placeholder="24" />
                 </label>
               )}
               <div className="assets-place__actions">
-                <Button size="sm" variant="ghost" onClick={() => setMode(null)}>
+                <Button size="sm" variant="ghost" disabled={busy} onClick={back}>
                   Back
                 </Button>
                 <Button
                   size="sm"
                   variant="primary"
-                  onClick={() => place(mode)}
-                  disabled={(needsRange && cueRange() === null) || (busy)}
+                  onClick={() => void placeSelected()}
+                  disabled={!canPlace}
                   aria-busy={(busy) || undefined}
                 >
                   {busy ? "Placing…" : "Place"}
@@ -282,9 +174,7 @@ function PlaceMenu({ dir, asset, onPlaced }: { dir: string; asset: GeneratedAsse
   );
 }
 
-/** The eight the host app media kinds; each value is the `kind` string `generate` takes. */
-type GenKind = "image" | "video" | "voice" | "music" | "sfx" | "avatar" | "upscale" | "lipsync";
-const GEN_KINDS: { value: GenKind; label: string }[] = [
+const GEN_KINDS: { value: CatalogKind; label: string }[] = [
   { value: "video", label: "Video" },
   { value: "image", label: "Image" },
   { value: "voice", label: "Voice" },
@@ -294,65 +184,21 @@ const GEN_KINDS: { value: GenKind; label: string }[] = [
   { value: "upscale", label: "Upscale" },
   { value: "lipsync", label: "Lipsync" },
 ];
-/** Transform kinds re-process an existing source; the engine request has no input-reference field yet. */
-const NEEDS_SOURCE: ReadonlySet<GenKind> = new Set<GenKind>(["upscale", "lipsync"]);
-
-function GenerateDrawer({ dir, open, onClose, onDone }: { dir: string; open: boolean; onClose: () => void; onDone: () => void }) {
-  const toast = useToast();
-  const [kind, setKind] = useState<GenKind>("video");
-  const [prompt, setPrompt] = useState("");
-  const [models, setModels] = useState<ModelRow[] | null>(null);
-  const [model, setModel] = useState<ModelRow | null>(null);
-  const [duration, setDuration] = useState<number | undefined>(undefined);
-  const [busy, setBusy] = useState(false);
-  const reqSeq = useRef(0);
-
-  useEffect(() => {
-    if (!open) return;
-    engineCall("genright.models", {})
-      .then((r) => setModels(parseCatalog(r).models))
-      .catch(() => setModels([]));
-  }, [open]);
-
-  // Models are listed per kind from the host app own catalog; a kind with no rows has no model.
-  useEffect(() => {
-    const wanted = models ? pickModel({ models, structuredDurations: true }, kind) : undefined;
-    setModel(wanted ?? null);
-    setDuration(wanted ? durationControl(wanted).initial : undefined);
-  }, [kind, models]);
-
-  const dur = durationControl(model ?? undefined);
-  const needsSource = NEEDS_SOURCE.has(kind);
-  const submit = async () => {
-    if (!model || !prompt.trim() || needsSource) return;
-    setBusy(true);
-    reqSeq.current += 1;
-    const requestId = `ui-gen-${Date.now().toString(36)}-${reqSeq.current}`;
-    try {
-      await engineCall("generate", {
-        dir,
-        kind,
-        input: {
-          provider: model.provider,
-          model: model.model,
-          prompt: prompt.trim(),
-          request_id: requestId,
-          ...(duration !== undefined ? { duration_s: duration } : {}),
-        },
-      });
-      toast("Generation finished and imported", { kind: "success" });
-      setPrompt("");
-      onClose();
-      onDone();
-    } catch (e) {
-      toast(errorMessage(e), { kind: "error", ttl: 0 });
-      onDone();
-    } finally {
-      setBusy(false);
-    }
+function GenerateDrawer({ dir, open, onClose, onChanged, onSucceeded, onError }: {
+  dir: string;
+  open: boolean;
+  onClose: () => void;
+  onChanged: (dir: string) => void | Promise<void>;
+  onSucceeded: () => void;
+  onError: (error: string) => void;
+}) {
+  const { kind, setKind, prompt, setPrompt, models, model, chooseModel, shownModels: shown, duration, setDuration,
+    durationControl: dur, needsSource, busy, canSubmit, submit } =
+    useVideoAssetGeneration({ dir, open, onChanged, onSucceeded, onError });
+  const submitAsset = async () => {
+    if (await submit()) onClose();
   };
 
-  const shown = models ? ofKind({ models, structuredDurations: true }, kind) : [];
   const kindLabel = GEN_KINDS.find((k) => k.value === kind)?.label.toLowerCase() ?? kind;
   const modelHelp =
     models === null
@@ -373,8 +219,8 @@ function GenerateDrawer({ dir, open, onClose, onDone }: { dir: string; open: boo
       footer={
         <Button
           variant="primary"
-          onClick={() => void submit()}
-          disabled={(!model || !prompt.trim() || needsSource) || (busy)}
+          onClick={() => void submitAsset()}
+          disabled={!canSubmit}
           aria-busy={(busy) || undefined}
         >{!(busy) && <Icon name="sparkles" />}
           {busy ? "Generating…" : "Generate"}
@@ -391,11 +237,7 @@ function GenerateDrawer({ dir, open, onClose, onDone }: { dir: string; open: boo
       <Field label="Model" note={modelHelp}>{(ids) => (<select {...ids}
           className="rk-input cr-select"
           value={model ? `${model.provider}/${model.model}` : ""}
-          onChange={(e) => {
-            const m = shown.find((x) => `${x.provider}/${x.model}` === e.target.value) ?? null;
-            setModel(m);
-            setDuration(m ? durationControl(m).initial : undefined);
-          }}
+          onChange={(e) => chooseModel(e.target.value)}
         >
           {shown.map((m) => (
             <option key={`${m.provider}/${m.model}`} value={`${m.provider}/${m.model}`}>
@@ -419,7 +261,7 @@ function GenerateDrawer({ dir, open, onClose, onDone }: { dir: string; open: boo
               max={dur.type === "range" ? dur.max : 600}
               step={dur.type === "range" ? 1 : 0.5}
               value={duration ?? dur.initial}
-              onChange={(e) => setDuration(Number(e.target.value))}
+              onChange={(e) => setDuration(e.target.value === "" ? undefined : Number(e.target.value))}
             />
           ))}</Field>
       )}
@@ -427,114 +269,34 @@ function GenerateDrawer({ dir, open, onClose, onDone }: { dir: string; open: boo
   );
 }
 
-export function AssetsView({ dir, onNewVideo }: { dir?: string; onNewVideo?: () => void }) {
+interface AssetsViewProps {
+  dir?: string;
+  onNewVideo?: () => void;
+  captureSelection?: () => () => boolean;
+  refreshChangedProject?: (dir: string) => void | Promise<void>;
+}
+
+const skipProjectRefresh = () => {};
+
+export function AssetsView(props: AssetsViewProps) {
+  return <ProjectAssetsView key={props.dir} {...props} />;
+}
+
+function ProjectAssetsView({ dir, captureSelection, refreshChangedProject = skipProjectRefresh }: AssetsViewProps) {
   const toast = useToast();
-  const [gr, setGr] = useState<HostInfo>({ state: "checking" });
-  const [jobs, setJobs] = useState<HostJob[] | null>(null);
-  const [assets, setAssets] = useState<GeneratedAsset[] | null>(null);
-  const [filter, setFilter] = useState<Filter>("all");
   const [genOpen, setGenOpen] = useState(false);
-  const [preview, setPreview] = useState<GeneratedAsset | null>(null);
-  const previewPath = dir && preview && !isImage(preview) ? fullPath(dir, preview) : null;
-  const previewPlaybackId = useMediaPlaybackId(previewPath);
-  const [busy, setBusy] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [recovered, setRecovered] = useState<Set<string>>(new Set());
-  void onNewVideo;
-
-  const checkStatus = useCallback(() => {
-    engineCall("genright.status", {})
-      .then((r) => setGr(interpretHost(r)))
-      .catch((e) => setGr(genRightCallFailed(errorMessage(e))));
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    engineCall("genright.status", {})
-      .then((r) => !cancelled && setGr(interpretHost(r)))
-      .catch((e) => !cancelled && setGr(genRightCallFailed(errorMessage(e))));
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const refresh = useCallback(() => {
-    if (!dir) return;
-    engineCall("genright.jobs", { dir, live: gr.state === "ready" })
-      .then((r) => setJobs(interpretJobs(r)))
-      .catch((e) => setError(errorMessage(e)));
-    engineCall("assets.list", { dir })
-      .then((r) => setAssets(interpretAssetLibrary(r).assets))
-      .catch((e) => setError(errorMessage(e)));
-  }, [dir, gr.state]);
-
-  useEffect(() => {
-    refresh();
-  }, [refresh]);
-
-  // Poll while jobs are in flight.
-  const jobsActive = (jobs ?? []).some((j) => j.state === "queued" || j.state === "running");
-  useEffect(() => {
-    if (!jobsActive) return;
-    const t = window.setInterval(refresh, 3000);
-    return () => window.clearInterval(t);
-  }, [jobsActive, refresh]);
-
-  const locate = async () => {
-    const file = await pickFile(`Locate the ${hostAppName()} engine`, []);
-    if (!file) return;
-    try {
-      await settingsSet({ genright_engine_path: file });
-      toast(`${hostAppName()} path saved — checking…`, { kind: "success" });
-      checkStatus();
-    } catch (e) {
-      toast(errorMessage(e), { kind: "error", ttl: 0 });
-    }
-  };
-
-  const jobAction = (j: HostJob) => {
-    if (!dir) return;
-    const label = jobActionLabel(j);
-    if (!label) return;
-    setBusy(j.requestId);
-    const call =
-      label === "Cancel"
-        ? engineCall("genright.cancel", { dir, request_id: j.requestId })
-        : engineCall("genright.recover", { dir, request_id: j.requestId, retry_failed: label === "Retry" });
-    call
-      .then(() => refresh())
-      .catch((e) => setError(errorMessage(e)))
-      .finally(() => setBusy(null));
-  };
-
-  const relink = (a: GeneratedAsset) => {
-    if (!dir) return;
-    setBusy(a.assetId);
-    engineCall("assets.relink", { dir, asset_id: a.assetId })
-      .then(() => refresh())
-      .catch((e) => setError(errorMessage(e)))
-      .finally(() => setBusy(null));
-  };
-
-  // Recover interrupted jobs once per project open; recovered request ids get
-  // the `Recovered` chip in the jobs list.
-  const recoveredOnce = useRef<string | null>(null);
-  useEffect(() => {
-    if (!dir || gr.state !== "ready" || recoveredOnce.current === dir) return;
-    recoveredOnce.current = dir;
-    engineCall("genright.recover", { dir })
-      .then((r) => {
-        const done = interpretRecover(r);
-        setRecovered(new Set(done.map((d) => d.requestId)));
-        const n = done.filter((d) => d.state === "done").length;
-        if (n > 0) toast(`Recovered ${n} interrupted job${n === 1 ? "" : "s"}`, { kind: "success" });
-        refresh();
-      })
-      .catch(() => undefined);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per dir
-  }, [dir, gr.state]);
-
-  const shown = (assets ?? []).filter((a) => filterMatch(a.kind, filter));
+  const { host: gr, jobs, assets, filter, setFilter, shown, preview, setPreview, previewPath, previewPlaybackId, busy,
+    error, recovered, locate, jobAction, relink, reveal, isActive } = useVideoAssets({
+    dir,
+    onChanged: refreshChangedProject,
+    captureSelection,
+    onLocated: () => toast(`${hostAppName()} path saved — checking…`, { kind: "success" }),
+    onActionError: (error) => toast(error, { kind: "error", ttl: 0 }),
+    onRecovered: (n) => toast(`Recovered ${n} interrupted job${n === 1 ? "" : "s"}`, { kind: "success" }),
+  });
+  const canNotify = captureSelection?.() ?? isActive;
+  const notify = (message: string) => { if (canNotify()) toast(message, { kind: "success" }); };
+  const notifyError = (error: string) => { if (canNotify()) toast(error, { kind: "error", ttl: 0 }); };
 
   return (
     <PageShell
@@ -608,19 +370,25 @@ export function AssetsView({ dir, onNewVideo }: { dir?: string; onNewVideo?: () 
                     <Button
                       size="sm"
                       variant="secondary"
-                      onClick={() => relink(a)}
-                      disabled={(busy === a.assetId)}
+                      onClick={() => void relink(a)}
+                      disabled={busy !== null}
                       aria-busy={(busy === a.assetId) || undefined}
                     >
                       {busy === a.assetId ? "Working…" : a.recovery === "relink" ? "Relink" : "Retry import"}
                     </Button>
                   ) : (
-                    a.exists && <PlaceMenu dir={dir} asset={a} onPlaced={refresh} />
+                    a.exists && <PlaceMenu
+                      dir={dir}
+                      asset={a}
+                      onChanged={refreshChangedProject}
+                      onPlaced={() => notify("Placed on the timeline")}
+                      onError={notifyError}
+                    />
                   )}
                   {a.exists && (
                     <IconButton
                       label="Reveal"
-                      onClick={() => void revealPath(fullPath(dir, a)).catch((e) => toast(errorMessage(e), { kind: "error", ttl: 0 }))}
+                      onClick={() => void reveal(a)}
                     ><Icon name="folder-open" /></IconButton>
                   )}
                 </div>
@@ -635,9 +403,9 @@ export function AssetsView({ dir, onNewVideo }: { dir?: string; onNewVideo?: () 
         {gr.state !== "ready" && gr.state !== "checking" && (
           <ErrorPanel
             title={gr.state === "missing" ? `${hostAppName()} not found` : `${hostAppName()} unavailable`}
-            detail={gr.detail}
+            detail={gr.malformedStatus ? `${hostAppName()} did not report ready.` : gr.detail}
             actions={
-              <Button size="sm" variant="secondary" onClick={() => void locate()}>
+              <Button size="sm" variant="secondary" onClick={() => void locate(`Locate the ${hostAppName()} engine`)}>
                 Locate…
               </Button>
             }
@@ -655,7 +423,7 @@ export function AssetsView({ dir, onNewVideo }: { dir?: string; onNewVideo?: () 
                   tone={JOB_TONE[j.state] ?? "neutral"}
                   fraction={j.state === "queued" || j.state === "running" ? undefined : null}
                   error={j.error?.message ?? undefined}
-                  onRetry={j.state === "failed" ? () => jobAction(j) : undefined}
+                  onRetry={j.state === "failed" && busy === null ? () => void jobAction(j) : undefined}
                 />
                 {recovered.has(j.requestId) && <Badge tone="accent">Recovered</Badge>}
                 {(j.actualUsd ?? j.estUsd) !== null && (
@@ -667,8 +435,8 @@ export function AssetsView({ dir, onNewVideo }: { dir?: string; onNewVideo?: () 
                   <Button
                     size="sm"
                     variant="ghost"
-                    onClick={() => jobAction(j)}
-                    disabled={(busy === j.requestId)}
+                    onClick={() => void jobAction(j)}
+                    disabled={busy !== null}
                     aria-busy={(busy === j.requestId) || undefined}
                   >
                     {busy === j.requestId ? "Working…" : jobActionLabel(j)}
@@ -680,17 +448,26 @@ export function AssetsView({ dir, onNewVideo }: { dir?: string; onNewVideo?: () 
         )}
       </div>
 
-      {dir && <GenerateDrawer dir={dir} open={genOpen} onClose={() => setGenOpen(false)} onDone={refresh} />}
-      {dir && preview && (
+      {dir && (
+        <GenerateDrawer
+          dir={dir}
+          open={genOpen}
+          onClose={() => setGenOpen(false)}
+          onChanged={refreshChangedProject}
+          onSucceeded={() => notify("Generation finished and imported")}
+          onError={notifyError}
+        />
+      )}
+      {previewPath && preview && (
         <Drawer title={preview.prompt ?? preview.assetId} open onClose={() => setPreview(null)}>
           {isImage(preview) ? (
             <div className="assets-image-viewer">
-              <ImageViewer path={fullPath(dir, preview)} src={assetUrl(fullPath(dir, preview))} displayName={preview.prompt ?? preview.assetId} readOnly />
+              <ImageViewer path={previewPath} src={assetUrl(previewPath)} displayName={preview.prompt ?? preview.assetId} readOnly />
             </div>
           ) : (
             <MediaPlayer
               key={previewPlaybackId ?? "pending"}
-              src={fullPath(dir, preview)}
+              src={previewPath}
               playbackId={previewPlaybackId}
               kind={isAudio(preview) ? "audio" : "video"}
               title={preview.prompt ?? preview.assetId}

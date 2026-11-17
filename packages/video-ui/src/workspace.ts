@@ -15,3 +15,16 @@ export { framingStatus } from "./lib/media.js";
 export * from "./app/hooks/useVideoSettings.js";
 export * from "./app/hooks/useVideoRecipeLibrary.js";
 export { useVideoRecipe, type VideoRecipe } from "./app/hooks/useVideoRecipe.js";
+export {
+  useVideoAssets,
+  useVideoAssetGeneration,
+  useVideoAssetPlacement,
+  videoAssetIsAudio,
+  videoAssetIsImage,
+  videoAssetJobAction,
+  videoAssetMatches,
+  videoAssetPath,
+  type VideoAssetFilter,
+} from "./app/hooks/useVideoAssets.js";
+export type { GeneratedAsset, HostJob, PlaceMode } from "./app/lib/genright.js";
+export { formatUsd, type CatalogKind } from "./app/lib/models.js";

@@ -5,9 +5,7 @@ import { useProgress } from "../hooks/useProgress.js";
 import { useVideoAssembly } from "../hooks/useVideoAssembly.js";
 import { useVideoProjects } from "../hooks/useVideoProjects.js";
 import { useVideoUpdateBusy, useVideoWorkspace } from "../hooks/useVideoWorkspace.js";
-import { pickFolder } from "../lib/dialog.js";
 import { errorMessage } from "../../lib/engine.js";
-import type { BundleImportResult } from "../../lib/media.js";
 import { baseName } from "../../lib/project.js";
 import { Home } from "../views/Home.js";
 import { ProgressView } from "../views/ProgressView.js";
@@ -65,7 +63,7 @@ export function DesktopWorkspace() {
   const { status, doctor, doctorError, statusError } = useEngine();
   const progressController = useProgress();
   const { progress } = progressController;
-  const { dir, isCurrentSelection, show, exportsCount, jobError, setJobError, output, setOutput, importMissing, setImportMissing, importUnverified, setImportUnverified, refresh, refreshChangedProject, open: openWorkspace, close: closeWorkspace, applyBundleReport } = useVideoWorkspace(progressController);
+  const { dir, isCurrentSelection, captureSelection, show, exportsCount, jobError, setJobError, output, setOutput, importMissing, setImportMissing, importUnverified, setImportUnverified, refresh, refreshChangedProject, open: openWorkspace, close: closeWorkspace, applyBundleReport } = useVideoWorkspace(progressController);
   const [tab, setTab] = useState<Tab>("projects");
   // Exports ⋯ → Import retention… routes here with the render preselected (R5).
   const [retentionPreselect, setRetentionPreselect] = useState<string | undefined>(undefined);
@@ -90,8 +88,8 @@ export function DesktopWorkspace() {
   }, [openWorkspace, toast, clearRecovery]);
   const closeProject = useCallback(() => closeWorkspace(() => setTab("projects")), [closeWorkspace]);
 
-  const { recents, recentInfo, dropActive, openExisting, createProjectAt, importBundleAt, openFiles } = useVideoProjects({
-    dir, ready: status?.state === "ready", recentRefreshKey: tab === "projects", fallbackName: "Untitled",
+  const { recents, recentInfo, dropActive, pickCreateProject, pickOpenProject, importBundle: importPickedBundle, openFiles } = useVideoProjects({
+    dir, ready: status?.state === "ready", recentRefreshKey: tab === "projects", fallbackName: "Untitled", captureSelection,
     callbacks: {
       onOpen: (path) => open(path),
       onRecentError: (error) => setJobError(errorMessage(error)),
@@ -102,45 +100,28 @@ export function DesktopWorkspace() {
   });
 
   const createProject = useCallback(async () => {
-    const path = await pickFolder("Choose or create a folder for the new project");
-    if (!path) return;
-    try { await createProjectAt(path); }
-    catch (e) { toast(errorMessage(e), { kind: "error", ttl: 0 }); }
-  }, [createProjectAt, toast]);
+    const result = await pickCreateProject("Choose or create a folder for the new project");
+    if (result.status === "error") toast(errorMessage(result.error), { kind: "error", ttl: 0 });
+  }, [pickCreateProject, toast]);
 
   const openFolder = useCallback(async () => {
-    const picked = await pickFolder(`Open a ${hostAppName()} project folder`);
-    if (!picked) return;
-    try {
-      await openExisting(picked);
-    } catch (e) {
-      toast(errorMessage(e), { kind: "error", ttl: 0 });
-    }
-  }, [openExisting, toast]);
+    const result = await pickOpenProject(`Open a ${hostAppName()} project folder`);
+    if (result.status === "error") toast(errorMessage(result.error), { kind: "error", ttl: 0 });
+  }, [pickOpenProject, toast]);
 
-  /** Two folder picks (bundle, then new project folder), `bundle.import`, then the Open folder… path.
-   *  Resolves with the error to show on Home, or null when nothing failed. */
   const importBundle = useCallback(async (): Promise<string | null> => {
-    const bundle = await pickFolder("Choose the bundle folder to import");
-    if (!bundle) return null;
-    const target = await pickFolder("Choose an empty folder for the imported project");
-    if (!target) return null;
-    let report: BundleImportResult;
-    try {
-      report = await importBundleAt(bundle, target);
-    } catch (e) {
-      return errorMessage(e);
+    const result = await importPickedBundle({
+      bundleTitle: "Choose the bundle folder to import",
+      targetTitle: "Choose an empty folder for the imported project",
+      applyReport: applyBundleReport,
+    });
+    if (result.status === "import-error") return errorMessage(result.error);
+    if (result.status === "open-error") toast(errorMessage(result.error), { kind: "error", ttl: 0 });
+    if (result.status === "imported" && !result.missing.length && !result.unverified.length) {
+      toast("Bundle imported", { kind: "success" });
     }
-    try {
-      await openExisting(report.dir);
-    } catch (e) {
-      toast(errorMessage(e), { kind: "error", ttl: 0 });
-      return null;
-    }
-    const { missing, unverified } = applyBundleReport(report);
-    if (missing.length === 0 && unverified.length === 0) toast("Bundle imported", { kind: "success" });
     return null;
-  }, [openExisting, toast, importBundleAt, applyBundleReport]);
+  }, [importPickedBundle, applyBundleReport, toast]);
 
   // Global keyboard (§2): the shell's shortcut registry owns the chords, the help overlay and dispatch.
   // Project tabs apply only with a project open; a skipped binding leaves the key to the page.
@@ -342,7 +323,7 @@ export function DesktopWorkspace() {
               preselectRender={retentionPreselect}
             />
           ) : tab === "assets" ? (
-            <AssetsView dir={dir} onNewVideo={() => setTab("prompt")} />
+            <AssetsView dir={dir} captureSelection={captureSelection} refreshChangedProject={refreshChangedProject} />
           ) : tab === "prompt" ? (
             <PromptPanel
               busy={assembling}

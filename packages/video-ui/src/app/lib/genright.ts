@@ -6,11 +6,11 @@
 //             code "genright_outdated" carries `contract version <found> is not supported (need <required>)`
 //             or `lacks capability <name> v<n>` in its message; anything else means the engine failed to run.
 
-import { hostAppName } from "../appName.js";
 export type HostState = "checking" | "ready" | "missing" | "outdated" | "unavailable";
 
 export type HostInfo = {
   state: HostState;
+  malformedStatus?: boolean;
   /** Engine error message, as reported. */
   detail?: string;
   enginePath?: string;
@@ -59,7 +59,7 @@ export function interpretHost(result: unknown): HostInfo {
   if (r.ready === false) {
     return { state: "unavailable", detail, enginePath, action: action ?? "update" };
   }
-  return { state: "unavailable", detail: detail ?? `${hostAppName()} did not report ready.`, enginePath };
+  return { state: "unavailable", detail, enginePath, malformedStatus: detail === undefined };
 }
 
 /** Status used when the call itself failed (engine down, timeout). */
