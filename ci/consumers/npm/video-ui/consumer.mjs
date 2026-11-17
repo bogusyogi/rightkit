@@ -82,6 +82,7 @@ try {
     assert.equal(typeof workspaceMod.useVideoRetention, 'function');
     assert.equal(typeof workspaceMod.useVideoShorts, 'function');
     assert.equal(typeof workspaceMod.useVideoFramingReview, 'function');
+    assert.equal(typeof workspaceMod.useVideoRecipeLibrary, 'function');
     for (const key of ['useVideoSettings', 'useVideoSettingsPickers', 'useVideoStorageSettings', 'useVideoGenerationSettings']) {
       assert.equal(typeof workspaceMod[key], 'function', `missing workspace export ${key}`);
     }

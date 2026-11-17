@@ -13,3 +13,4 @@ export * from "./app/hooks/useVideoShorts.js";
 export { useVideoFramingReview, type FramingPlanView } from "./app/hooks/useVideoFramingReview.js";
 export { framingStatus } from "./lib/media.js";
 export * from "./app/hooks/useVideoSettings.js";
+export * from "./app/hooks/useVideoRecipeLibrary.js";

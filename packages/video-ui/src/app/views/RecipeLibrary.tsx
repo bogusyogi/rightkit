@@ -1,79 +1,33 @@
-// Channel recipe — the app-wide recipe library applied to one project (recipes.* engine methods).
 import { Button, Field, Input, useToast } from "@rightkit/react-shell/react";
+import { useVideoRecipeLibrary, type VideoRecipeLibraryOptions } from "../hooks/useVideoRecipeLibrary.js";
 import { Icon } from "../ui/index.js";
-import { useCallback, useEffect, useState } from "react";
-import { errorMessage } from "../../lib/engine.js";
-import {
-  RECIPE_ID_RULE,
-  type RecipeStatusResult,
-  type RecipeSummary,
-  recipesApply,
-  recipesDelete,
-  recipesList,
-  recipesSaveFromProject,
-  recipesStatus,
-} from "../../lib/media.js";
-
 
 const ID_RULE_TEXT = "Use 1–64 lowercase letters, digits or hyphens.";
 
-/** Panel on the Edit recipe screen: apply a saved recipe here, or save this project's recipe to the library. */
-export function RecipeLibrary({
-  dir,
-  onApplied,
-  onBeforeSave,
-}: {
-  dir: string;
-  onApplied?: () => void;
-  /** Writes what the Edit recipe screen shows into the project, so that is what gets saved. */
-  onBeforeSave?: () => Promise<void>;
-}) {
+/** Apply a saved recipe or save this project's recipe to the library. */
+export function RecipeLibrary(props: Omit<VideoRecipeLibraryOptions, "onComplete">) {
   const toast = useToast();
-  const [library, setLibrary] = useState<RecipeSummary[]>([]);
-  const [status, setStatus] = useState<RecipeStatusResult | null>(null);
-  const [selected, setSelected] = useState("");
-  const [saveId, setSaveId] = useState("");
-  const [saveName, setSaveName] = useState("");
-  const [armed, setArmed] = useState(false);
-  const [busy, setBusy] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  const refresh = useCallback(async () => {
-    const [list, st] = await Promise.all([recipesList(), recipesStatus(dir)]);
-    setLibrary(list.recipes);
-    setStatus(st);
-    setSelected((cur) => (list.recipes.some((r) => r.id === cur) ? cur : ""));
-  }, [dir]);
-
-  useEffect(() => {
-    refresh().catch((e) => setError(errorMessage(e)));
-  }, [refresh]);
-
-  // A pending delete never survives a change of selection.
-  useEffect(() => {
-    setArmed(false);
-  }, [selected]);
-
-  /** Runs one write, then the caller's reload; failures stay visible inline. */
-  const act = async (tag: string, fn: () => Promise<void>) => {
-    setBusy(tag);
-    setError(null);
-    try {
-      await fn();
-    } catch (e) {
-      setError(errorMessage(e));
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const applied = status?.ref ?? null;
-  const appliedName = applied ? (library.find((r) => r.id === applied.id)?.name ?? applied.id) : "";
-  const selectedRow = library.find((r) => r.id === selected);
-  const idError = saveId !== "" && !RECIPE_ID_RULE.test(saveId) ? ID_RULE_TEXT : null;
-  const existing = idError === null ? library.find((r) => r.id === saveId) : undefined;
+  const {
+    library, status, applied, appliedName, selected, selectedRow, saveId, saveName, busy, error,
+    armed, invalidId, existing, canSave, select, setSaveId, setSaveName, disarm, disarmOnEscape, apply, save, remove,
+  } = useVideoRecipeLibrary({
+    ...props,
+    onComplete: (result) => {
+      switch (result.kind) {
+        case "applied":
+          toast(`Applied ${result.name} to this project`, { kind: "success" });
+          break;
+        case "saved":
+          toast(`Saved ${result.name} as ${result.id}`, { kind: "success" });
+          break;
+        case "deleted":
+          toast(`Deleted ${result.name}`, { kind: "success" });
+          break;
+      }
+    },
+  });
+  const idError = invalidId ? ID_RULE_TEXT : null;
   const saveLabel = existing ? `Update ${existing.id} to v${existing.version + 1}` : "Save recipe";
-  const canSave = busy === null && saveId !== "" && idError === null && saveName.trim() !== "";
 
   const statusText = !status
     ? "Checking the applied recipe…"
@@ -90,41 +44,6 @@ export function RecipeLibrary({
         ]
           .filter(Boolean)
           .join(" · ");
-
-  const apply = () =>
-    void act("apply", async () => {
-      await recipesApply(dir, selected);
-      toast(`Applied ${selectedRow?.name ?? selected} to this project`, { kind: "success" });
-      await refresh();
-      onApplied?.();
-    });
-
-  const save = () =>
-    void act("save", async () => {
-      const name = saveName.trim();
-      await onBeforeSave?.();
-      await recipesSaveFromProject({ dir, id: saveId, name });
-      toast(`Saved ${name} as ${saveId}`, { kind: "success" });
-      setSelected(saveId);
-      setSaveId("");
-      setSaveName("");
-      await refresh();
-    });
-
-  const remove = () => {
-    if (!selectedRow) return;
-    if (!armed) {
-      setArmed(true);
-      return;
-    }
-    setArmed(false);
-    void act("delete", async () => {
-      await recipesDelete(selectedRow.id);
-      toast(`Deleted ${selectedRow.name}`, { kind: "success" });
-      setSelected("");
-      await refresh();
-    });
-  };
 
   return (
     <section className="recipe-library" data-testid="recipe-library" aria-label="Channel recipe">
@@ -146,7 +65,7 @@ export function RecipeLibrary({
             data-testid="recipe-select"
             value={selected}
             disabled={library.length === 0}
-            onChange={(e) => setSelected(e.target.value)}
+            onChange={(e) => select(e.target.value)}
           >
             <option value="">{library.length === 0 ? "No saved recipes yet" : "Choose a recipe…"}</option>
             {library.map((r) => (
@@ -171,10 +90,8 @@ export function RecipeLibrary({
             size="sm"
             data-testid="recipe-delete"
             onClick={remove}
-            onKeyDown={(e) => {
-              if (e.key === "Escape") setArmed(false);
-            }}
-            onBlur={() => setArmed(false)}
+            onKeyDown={disarmOnEscape}
+            onBlur={disarm}
             disabled={(!selectedRow || (busy !== null && busy !== "delete")) || (busy === "delete")}
             aria-busy={(busy === "delete") || undefined}
           >{!(busy === "delete") && <Icon name="trash-2" />}
