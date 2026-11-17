@@ -43,6 +43,16 @@ paths, non-hex digests, two entries writing the same file, and bare `cargo` in a
 | `resource` | Copies one file `from` to `to` (both inside the app) and verifies the optional `sha256`. `from` may also be a directory: it is copied recursively into `to` and every file is hashed into the receipt (one row per file; `sha256` and `machO` are refused for a directory). |
 | `remote` | `{ name, url, sha256, dest \| to, size? }`: an https download pinned by digest. See "Placement, remote files" below. |
 
+### Optional catalog and capability probe
+
+`probe: true` retains the existing LGPL probe. For stricter catalog and capability checks, use an object:
+
+```js
+probe: { filters: ["zscale"], encoders: ["h264_mf"], forbidConfigureFlags: ["--enable-version3"] }
+```
+
+Each field is optional. Both tools must report the selected catalog version and every required configure flag as an exact token. The ffmpeg listing must contain each named filter and encoder in its name column, and its configure line must omit the forbidden flags. Choose platform-specific declarations where capabilities differ. The existing LGPL checks remain active. Cross-target tools are recorded as `skipped-cross-target`; a universal macOS binary is checked against the host slice's catalog row. `--if-stale` reuses an object-policy result only when the catalog, policy, target, host and recorded pass or skip still match.
+
 ### ffmpeg in a resource directory (`resourceDir`)
 
 Tauri's `externalBin` layout names the tools `ffmpeg-<triple>` and Tauri strips the triple in the bundle. Apps that load ffmpeg and

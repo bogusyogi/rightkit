@@ -6,7 +6,7 @@
 //
 //   sidecars: [
 //     { kind: "cargo-bin", package: "mailright-engine", bin?, name?, profile?: "release" | { dev, release }, features?, manifestPath? (app-relative, or ../.. to a Cargo.toml inside the same repository), sha256?, dest?, clean?, platforms? },
-//     { kind: "ffmpeg", variant?, variants?, tools?, notices: { dir, sourceOfferContact }, catalog, stage?, bundleDir?, resourceDir?, sources?, probe? },
+//     { kind: "ffmpeg", variant?, variants?, tools?, notices: { dir, sourceOfferContact }, catalog, stage?, bundleDir?, resourceDir?, sources?, probe?: boolean | { filters?, encoders?, forbidConfigureFlags? } },
 //     { kind: "onnxruntime", version, catalog, resourceDir?: "src-tauri/resources/runtime", as?, licenseDir?, cacheDir?, companions? },   // the alias of native-library { library: "onnxruntime" }
 //     { kind: "native-library", library: "onnxruntime" | "directml" | "pdfium" | "whisper-cpp" | "ggml" | "sherpa-onnx", version, catalog, resourceDir?, licenseDir?, cacheDir?, as?, files?, companions?, source?: { dir }, platforms? },
 //     { kind: "resource", from, to, sha256?, machO?, clean?, platforms? },   // `from` may be a directory (copied recursively, every file hashed)
@@ -461,8 +461,21 @@ export function validateSidecarManifest(raw, { target, mode = "release" } = {}) 
       if (rest.stage !== undefined && isObject(rest.stage) && rest.stage.cmd === "rightkit") errors.push(`${where}: stage.cmd "rightkit" is the retired name of the RustRight client (rustright#91); use { cmd: "rustright", args: ["cargo", ...] }`);
       const catalogSpec = parseCatalogSpec(rawCatalog, `${where}: catalog`, errors, "ffmpeg");
       if (catalogSpec) entry.catalogSpec = catalogSpec;
-      if (rawProbe !== undefined && typeof rawProbe !== "boolean") errors.push(`${where}: probe must be a boolean`);
+      if (rawProbe !== undefined && typeof rawProbe !== "boolean" && !isObject(rawProbe)) errors.push(`${where}: probe must be a boolean or a probe policy`);
       if (rawProbe === true) entry.probe = true;
+      if (isObject(rawProbe)) {
+        const policy = {};
+        for (const key of Object.keys(rawProbe)) if (!["filters", "encoders", "forbidConfigureFlags"].includes(key)) errors.push(`${where}: probe has unknown key ${JSON.stringify(key)}`);
+        for (const key of ["filters", "encoders", "forbidConfigureFlags"]) {
+          if (rawProbe[key] === undefined) continue;
+          const list = rawProbe[key];
+          const pattern = key === "forbidConfigureFlags" ? /^--[a-z0-9][a-z0-9-]*$/ : /^[A-Za-z0-9_]+$/;
+          if (!Array.isArray(list) || list.some((value) => typeof value !== "string" || !pattern.test(value)) || new Set(list).size !== list.length) errors.push(`${where}: probe.${key} must contain unique, valid names`);
+          else policy[key] = [...list];
+        }
+        if (["filters", "encoders", "forbidConfigureFlags"].some((key) => policy[key]?.length) && Array.isArray(item.tools) && !item.tools.includes("ffmpeg")) errors.push(`${where}: probe capability and forbidden-flag checks require ffmpeg in tools`);
+        entry.probe = policy;
+      }
       // A row the platform filter skips (a Windows ffmpeg in a Mac universal staging) is not judged for universal slices, as the prebuilt rows are not (HeardRight Mac package, 2026-11-02).
       const sources = parseFfmpegSources(rawSources, where, errors, { universal: !skipped && t.arch === "universal" });
       if (sources) entry.sources = sources;
@@ -1216,14 +1229,22 @@ async function fetchFfmpegSources(entry, ctx, plan, arch) {
  * encoders; ffmpeg's `-encoders` list must not carry libx264, libx265, libxvid or libfdk_aac. A binary built for another
  * architecture or OS than this host is not run: the row says `skipped-cross-target`. Returns "passed" or "skipped-cross-target".
  */
-function probeFfmpegBinary(ctx, { file, tool, target }) {
+function probeFfmpegBinary(ctx, { file, tool, target, policy, row }) {
   if (!canRunTarget(ctx, target)) return "skipped-cross-target";
   const text = (result, what) => {
     if (result?.error || result?.status !== 0) fail("STAGE_SIDECAR_FFMPEG_PROBE_FAILED", `${tool} ${what} failed (${result?.error?.message ?? `exit ${result?.status}`})`, { file });
     return String(result.stdout ?? "");
   };
   const version = text(ctx.run(file, ["-version"], { cwd: ctx.appRoot, env: ctx.env }), "-version");
-  const configuration = /^configuration:(.*)$/m.exec(version)?.[1] ?? "";
+  const configuration = (isObject(policy) ? /^\s*configuration:(.*)$/m : /^configuration:(.*)$/m).exec(version)?.[1] ?? "";
+  if (isObject(policy)) {
+    if (!row || typeof row.version !== "string" || !row.version || !Array.isArray(row.requiredConfigureFlags) || !row.requiredConfigureFlags.length || row.requiredConfigureFlags.some((flag) => typeof flag !== "string" || !/^--[a-z0-9][a-z0-9-]*$/.test(flag))) fail("STAGE_SIDECAR_FFMPEG_PROBE_FAILED", `${tool} has no valid selected catalog probe requirements`, { file });
+    const headline = version.split(/\r?\n/).find((line) => line.startsWith(`${tool} version `));
+    if (!headline || headline.slice(`${tool} version `.length).split(/\s+/)[0] !== row.version) fail("STAGE_SIDECAR_FFMPEG_PROBE_FAILED", `${tool} version does not match catalog ${row.version}`, { file });
+    const tokens = new Set(configuration.trim().split(/\s+/));
+    for (const flag of row.requiredConfigureFlags) if (!tokens.has(flag)) fail("STAGE_SIDECAR_FFMPEG_PROBE_FAILED", `${tool} lacks catalog configure flag ${flag}`, { file });
+    if (tool === "ffmpeg") for (const flag of policy.forbidConfigureFlags ?? []) if (tokens.has(flag)) fail("STAGE_SIDECAR_FFMPEG_PROBE_FAILED", `${tool} has forbidden configure flag ${flag}`, { file });
+  }
   for (const flag of ["--disable-gpl", "--disable-nonfree"]) if (!configuration.includes(flag)) fail("STAGE_SIDECAR_FFMPEG_PROBE_FAILED", `${tool} was not built with ${flag}; the LGPL redistribution terms do not hold`, { file });
   const enabled = /--enable-(gpl|nonfree|libx264|libx265|libxvid|libfdk-aac)\b/.exec(configuration);
   if (enabled) fail("STAGE_SIDECAR_FFMPEG_PROBE_FAILED", `${tool} was built with --enable-${enabled[1]}; it cannot ship under the LGPL`, { file });
@@ -1231,6 +1252,15 @@ function probeFfmpegBinary(ctx, { file, tool, target }) {
     const encoders = text(ctx.run(file, ["-hide_banner", "-encoders"], { cwd: ctx.appRoot, env: ctx.env }), "-encoders");
     const gpl = /\b(libx264|libx264rgb|libx265|libxvid|libfdk_aac)\b/.exec(encoders);
     if (gpl) fail("STAGE_SIDECAR_FFMPEG_PROBE_FAILED", `ffmpeg lists the ${gpl[1]} encoder; it cannot ship under the LGPL`, { file });
+    if (isObject(policy)) {
+      const names = new Set(encoders.split(/\r?\n/).map((line) => line.trim().split(/\s+/)).filter(([flags, name]) => /^[VAS][A-Z.]{5}$/.test(flags ?? "") && name !== "=").map((columns) => columns[1]));
+      for (const name of policy.encoders ?? []) if (!names.has(name)) fail("STAGE_SIDECAR_FFMPEG_PROBE_FAILED", `ffmpeg lacks encoder ${name}`, { file });
+      if (policy.filters?.length) {
+        const filters = text(ctx.run(file, ["-hide_banner", "-filters"], { cwd: ctx.appRoot, env: ctx.env }), "-filters");
+        const names = new Set(filters.split(/\r?\n/).map((line) => line.trim().split(/\s+/)).filter(([flags, name]) => /^[TSC.]{3}$/.test(flags ?? "") && name !== "=").map((columns) => columns[1]));
+        for (const name of policy.filters) if (!names.has(name)) fail("STAGE_SIDECAR_FFMPEG_PROBE_FAILED", `ffmpeg lacks filter ${name}`, { file });
+      }
+    }
   }
   return "passed";
 }
@@ -1263,8 +1293,8 @@ async function stageFfmpegSlice(entry, ctx, resolved, { config, t, writeNotices,
     // Catalog rows pin the signature-independent content digest; preSignSha256 stays whole-file signing evidence.
     const contentDigest = catalogContentDigest(fs.readFileSync(file.stagedPath), t.arch);
     if (contentDigest !== file.contentSha256) fail("STAGE_SIDECAR_HASH_MISMATCH", `${file.tool} staged with content digest ${contentDigest}, the approved catalog row ${file.artifactId} says ${file.contentSha256}`, { expected: file.contentSha256, actual: contentDigest });
-    const probe = entry.probe ? probeFfmpegBinary(ctx, { file: file.stagedPath, tool: file.tool, target: t }) : undefined;
-    return { kind: "ffmpeg", name: file.tool, path: rel(ctx, file.stagedPath), sha256: file.preSignSha256, sizeBytes: file.preSignSizeBytes, changed: null, catalogRow: file.artifactId, version: file.version, catalogContentSha256: file.contentSha256, ...(file.variant ? { variant: file.variant } : {}), externalBin: !flat, license: "LGPL-2.1-or-later", notices, ...(probe ? { probe } : {}) };
+    const probe = entry.probe ? probeFfmpegBinary(ctx, { file: file.stagedPath, tool: file.tool, target: t, policy: entry.probe, row: plan.rows.find((row) => row.tool === file.tool) }) : undefined;
+    return { kind: "ffmpeg", name: file.tool, path: rel(ctx, file.stagedPath), sha256: file.preSignSha256, sizeBytes: file.preSignSizeBytes, changed: null, catalogRow: file.artifactId, version: file.version, catalogContentSha256: file.contentSha256, ...(file.variant ? { variant: file.variant } : {}), externalBin: !flat, license: "LGPL-2.1-or-later", notices, ...(probe ? { probe } : {}), ...(isObject(entry.probe) ? { probePolicySha256: ctx.strictProbeDigests.get(entry.index) } : {}) };
   });
   return { plan, rows };
 }
@@ -1299,10 +1329,12 @@ async function stageFfmpegUniversal(entry, ctx, resolved) {
     const parts = results.map(({ slice, rows }) => ({ slice, row: rows.find((row) => row.name === tool) }));
     const dest = path.resolve(appRoot, ffmpegOutput(entry, ctx.stageDir, tool, ctx.target));
     const merged = lipoMergeInto(ctx, parts.map(({ row }) => path.resolve(appRoot, row.path)), dest, `ffmpeg sidecar ${tool}`, { executable: true });
-    const probe = entry.probe ? probeFfmpegBinary(ctx, { file: dest, tool, target: ctx.target }) : undefined;
+    const hostSlice = results.find(({ slice }) => slice.arch === ctx.host.arch);
+    const row = hostSlice?.plan.rows.find((item) => item.tool === tool);
+    const probe = entry.probe ? probeFfmpegBinary(ctx, { file: dest, tool, target: ctx.target, policy: entry.probe, row }) : undefined;
     return {
       kind: "ffmpeg", name: tool, path: rel(ctx, dest), ...merged, sourceSha256: merged.sha256, catalogRow: parts.map(({ row }) => row.catalogRow).join("+"), version: parts[0].row.version,
-      externalBin: !entry.resourceDir, license: "LGPL-2.1-or-later", notices, ...(probe ? { probe } : {}),
+      externalBin: !entry.resourceDir, license: "LGPL-2.1-or-later", notices, ...(probe ? { probe } : {}), ...(isObject(entry.probe) ? { probePolicySha256: ctx.strictProbeDigests.get(entry.index) } : {}),
       slices: parts.map(({ slice, row }) => ({ triple: slice.triple, sha256: row.sha256, catalogRow: row.catalogRow, catalogContentSha256: row.catalogContentSha256 })),
     };
   });
@@ -2273,6 +2305,11 @@ export async function stageSidecars({ appRoot, manifest, target, cacheRoot, ifSt
   // nested-broker refusal, which guards only a step that would build.
   // Opt-in (`ifStale`, `stage-sidecar --if-stale`): only a Mac package recipe's own prepare step asks for it. The check is structural (no source hash), so every
   // other caller, the gate's staging step included, builds as before.
+  ctx.strictProbeDigests = new Map();
+  for (const entry of plan.entries.filter((item) => !item.skipped && item.kind === "ffmpeg" && isObject(item.probe))) {
+    const loaded = await loadMediaCatalogOf(entry, ctx);
+    ctx.strictProbeDigests.set(entry.index, sha256Of(Buffer.from(JSON.stringify({ policy: entry.probe, catalog: loaded.catalog, target: plan.target.triple, host: ctx.host, media: entry.media }))));
+  }
   const runtimeRows = new Map();
   if (plan.entries.some((entry) => !entry.skipped && entry.kind === "runtime-manifest")) {
     const catalogs = [];
@@ -2401,6 +2438,13 @@ function currentStageReceipt(plan, ctx, runtimeRows = new Map()) {
     if (JSON.stringify(skipped) !== JSON.stringify(receipt.skipped ?? [])) return null;
     if (receipt.files.length < planned.length) return null;
     for (const entry of planned) if (typeof entry.name === "string" && ["cargo-bin", "command", "cmake", "prebuilt", "remote"].includes(entry.kind) && !receipt.files.some((file) => file.kind === entry.kind && file.name === entry.name)) return null;
+    for (const entry of planned.filter((item) => item.kind === "ffmpeg" && isObject(item.probe))) {
+      for (const tool of entry.media.tools) {
+        const expectedPath = ffmpegOutput(entry, plan.stageDir, tool, plan.target);
+        const matches = receipt.files.filter((file) => file.kind === "ffmpeg" && file.name === tool && file.path === expectedPath);
+        if (matches.length !== 1 || matches[0].probePolicySha256 !== ctx.strictProbeDigests.get(entry.index) || matches[0].probe !== (canRunTarget(ctx, plan.target) ? "passed" : "skipped-cross-target")) return null;
+      }
+    }
     const named = new Set();
     for (const file of receipt.files) {
       const full = path.resolve(appRoot, file.path);
