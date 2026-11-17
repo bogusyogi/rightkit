@@ -1004,7 +1004,14 @@ test("contract-nn.json, which the installer reads from a sealed gate, is exactly
   const contractSha256 = createHash("sha256").update(fs.readFileSync(new URL("../../docs/GATE-CONTRACT.md", import.meta.url))).digest("hex");
   // The contract document is not in the package. Its hash is, so an installer can require that a receipt was judged against this contract.
   assert.equal(listed.contractSha256, contractSha256, "docs/GATE-CONTRACT.md changed: write its sha256 into packages/release/contract-nn.json (contractSha256)");
-  assert.deepEqual(listed, { schema: "rightkit.contract-nn/1", contractSha256, ids: [...NN_ALL_IDS] });
+  const { runnerFileHashes, BUDGETS_FILE } = await import("./gate-acceptance.mjs");
+  const budgetsSha256 = createHash("sha256").update(fs.readFileSync(BUDGETS_FILE)).digest("hex");
+  assert.equal(listed.budgetsSha256, budgetsSha256, "ci/gate-acceptance-budgets.json changed: write its sha256 into packages/release/contract-nn.json (budgetsSha256)");
+  // The sealed list of the runner's files, names only: the installer requires a receipt to name exactly these and hashes the sealed copies itself,
+  // so a receipt that leaves a file out is refused. The list is computed here, from the imports, not taken from any receipt.
+  assert.deepEqual(listed.runnerFiles, runnerFileHashes().map((f) => f.name), "the runner's imports changed: write the new list into packages/release/contract-nn.json (runnerFiles)");
+  assert.deepEqual(Object.keys(listed), ["schema", "contractSha256", "budgetsSha256", "runnerFiles", "ids"]);
+  assert.deepEqual(listed.ids, [...NN_ALL_IDS]); assert.equal(listed.schema, "rightkit.contract-nn/1");
   assert.equal(new Set(listed.ids).size, listed.ids.length);
   for (const id of listed.ids) assert.match(id, /^NN\d+$/);
   const files = JSON.parse(fs.readFileSync(new URL("./package.json", import.meta.url), "utf8")).files;
@@ -1025,6 +1032,10 @@ test("a contract-test receipt lists every file the runner is made of, so a seale
   assert.equal(files.find((f) => f.name === "gate-acceptance.mjs").sha256, createHash("sha256").update(fs.readFileSync(RUNNER_FILE)).digest("hex"));
   const receipt = buildContractReceipt({ host: "dell", commit: "c".repeat(40), gate: {}, result: { nonNegotiables: [], clauses: [] } });
   assert.deepEqual(receipt.runnerFiles, files);
+  // The broker facts stay apart: what ran, and what this host has enrolled. Absent facts are null, never copied from each other.
+  assert.deepEqual(receipt.broker, { runtimeDigest: null, runtimeVersion: null, enrolledDigest: null });
+  const withBroker = buildContractReceipt({ host: "dell", commit: "c".repeat(40), gate: {}, result: { nonNegotiables: [], clauses: [] }, broker: { runtimeDigest: "991d", runtimeVersion: "rustright-18c1f534", enrolledDigest: "de18" } });
+  assert.deepEqual(withBroker.broker, { runtimeDigest: "991d", runtimeVersion: "rustright-18c1f534", enrolledDigest: "de18" });
   // The closure follows imports to the end and refuses a file it cannot read.
   const src = { "/p/a.mjs": 'import "./b.mjs";', "/p/b.mjs": 'export * from "./sub/c.mjs";', "/p/sub/c.mjs": "" };
   const read = (f) => { const k = f.split(path.sep).join("/").replace(/^[A-Za-z]:/, ""); if (!(k in src)) throw new Error(`no ${k}`); return src[k]; };

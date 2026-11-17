@@ -1587,8 +1587,13 @@ export const CONTRACT_RECEIPT_SCHEMA = "rightkit.contract-test-receipt/1";
 export function runnerFileHashes({ entry = RUNNER_FILE, base = here, readFile = (f) => fs.readFileSync(f, "utf8") } = {}) {
   return codeClosure([entry], base, { readFile }).map((f) => ({ name: f.name, sha256: sha256(Buffer.from(f.text, "utf8")) }));
 }
-export function buildContractReceipt({ host, commit, gate, contractSha256, runnerSha256, budgetsSha256, fixtureCommit, result, runnerFiles = runnerFileHashes() }) {
-  return { schema: CONTRACT_RECEIPT_SCHEMA, host, commit, gate, contractSha256, runnerSha256, runnerFiles, budgetsSha256, fixtureCommit, startedAt: result.startedAt, endedAt: result.endedAt, verdict: result.verdict, ok: result.ok, nn: Object.fromEntries(result.nonNegotiables.map((n) => [n.id, n.status])), uncheckedClauses: result.clauses.filter((c) => c.status === "unchecked").map((c) => c.id), waivers: result.waivers ?? [] };
+/**
+ * `broker`: the broker the run used, as two separate facts that are never merged: { runtimeDigest, runtimeVersion } from the installed runtime's
+ * manifest and { enrolledDigest } from this host's enrolled record. They can disagree (loop matrix C9); a reader sees both and decides.
+ */
+export function buildContractReceipt({ host, commit, gate, contractSha256, runnerSha256, budgetsSha256, fixtureCommit, result, runnerFiles = runnerFileHashes(), broker = null }) {
+  const brokerFacts = { runtimeDigest: broker?.runtimeDigest ?? null, runtimeVersion: broker?.runtimeVersion ?? null, enrolledDigest: broker?.enrolledDigest ?? null };
+  return { schema: CONTRACT_RECEIPT_SCHEMA, host, commit, gate, broker: brokerFacts, contractSha256, runnerSha256, runnerFiles, budgetsSha256, fixtureCommit, startedAt: result.startedAt, endedAt: result.endedAt, verdict: result.verdict, ok: result.ok, nn: Object.fromEntries(result.nonNegotiables.map((n) => [n.id, n.status])), uncheckedClauses: result.clauses.filter((c) => c.status === "unchecked").map((c) => c.id), waivers: result.waivers ?? [] };
 }
 export const validWaiver = (w) => isObject(w) && typeof w.clause === "string" && /^GC-/.test(w.clause) && w.by === "Adrian" && typeof w.words === "string" && w.words.trim().length > 0;
 /** `--verify-release`: the receipt of the host that releases or installs passes, for the gate commit and sealed gate, with the contract and runner it was
@@ -3103,7 +3108,7 @@ async function executeRun({ fixture, host, wanted, gate, gateArg, budgetsFile, o
   let receiptPath = null;
   if (result.ok && !development) {
     const entry = findInstalledGate(managedRoot);
-    const receipt = buildContractReceipt({ host, commit: gateCommit, gate: { kind: "installed", version: entry?.version ?? probe.version, sealedPath: entry?.entry ?? null, sealedSha256: entry?.sealedSha256 ?? null }, contractSha256: ctx.contractSha256, runnerSha256: ctx.runnerSha256, budgetsSha256: fileSha(budgetsFile ?? BUDGETS_FILE), fixtureCommit: commit, result });
+    const receipt = buildContractReceipt({ host, commit: gateCommit, gate: { kind: "installed", version: entry?.version ?? probe.version, sealedPath: entry?.entry ?? null, sealedSha256: entry?.sealedSha256 ?? null }, contractSha256: ctx.contractSha256, runnerSha256: ctx.runnerSha256, budgetsSha256: fileSha(budgetsFile ?? BUDGETS_FILE), fixtureCommit: commit, result, broker: { runtimeDigest: ctx.broker.manifest?.brokerDigest ?? null, runtimeVersion: ctx.broker.manifest?.version ?? null, enrolledDigest: ctx.broker.pins?.brokerDigest ?? null } });
     receiptPath = path.join(outDir, `contract-test-receipt.${host}.json`); fs.writeFileSync(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`);
   }
   result.receipt = receiptPath ?? (development ? "none: a development run writes no receipt" : "none: the run did not pass");
