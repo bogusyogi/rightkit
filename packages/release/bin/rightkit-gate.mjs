@@ -94,7 +94,7 @@ import { buildCoverageReport, seconds, writeCoverageReport } from "../gate-cover
 import { renderViews, renderViewsOf } from "../render-views.mjs";
 import { LINUX_BROKER_ROUTE, NO_BROKER_ENV, directCargoPath, directPlatform, managedRuntimeClient, realCargoOf, runCargoSync } from "../managed-cargo.mjs";
 import { createBrokerLive } from "../broker-admission.mjs";
-import { bindingOf, compileOutputsRecord, compileReuseProblem, endRun, readReceipt, RECEIPT_SCHEMA, receiptKey, sameBinding, sameSource, sealedFor, stagesTo, startRun, STAGES, STAGE_SOURCES, writeReceipt } from "../gate-stages.mjs";
+import { bindingOf, builtBinsOfRun, compileOutputsRecord, compileReuseProblem, endRun, readReceipt, RECEIPT_SCHEMA, receiptKey, sameBinding, sameSource, sealedFor, stagesTo, startRun, STAGES, STAGE_SOURCES, writeReceipt } from "../gate-stages.mjs";
 import { spawnSync as spawnInherit } from "../background-process.mjs";
 // GC-A21: a run that stamps its own lines also stamps its inherited-output children's lines, through stamp-relay.mjs in front of the child
 // (the launch stays synchronous and the output still streams). Set by main() when the run stamps; off for machine-readable runs.
@@ -5291,23 +5291,17 @@ export async function main(argv, io = {}) {
       // rebuilds or proves fresh for this commit. A unit only checked, linted, documented, deferred to CI or without such a target counts for nothing.
       const unitByName = new Map(rust.units.map((u) => [u.name, u]));
       const known = new Set(unitByName.keys());
-      const builtBins = {};
-      // Where Cargo put them: `<dir>/debug` on a direct host, `<dir>/<triple>/debug` on a broker host, whose jobs build with --target <triple> (the receipt
-      // names it, `targetTriple`). A broker row with no triple records nothing for its directory: a guessed path could vouch for a stale binary.
-      const addBins = (dir, unit, profile) => {
-        if (!dir || !profile || !unit?.testLinksBins || !unit.bins?.length) return;
-        const prior = builtBins[dir];
-        if (prior && prior.profile !== profile) { builtBins[dir] = { profile: null, bins: [] }; return; }
-        builtBins[dir] = { profile, bins: [...new Set([...(prior?.bins ?? []), ...unit.bins])].sort() };
-      };
-      for (const r of scanResult.scans) {
-        // A row answered from the scan cache compiled nothing in this run: the bytes in the target are not vouched for by it.
-        if (r.status !== "pass" || r.cached === true || !/^test:rust(?:-serial)?:/.test(String(r.id))) continue;
-        const unit = unitByName.get(rustUnitOfScanId(r.id, known));
-        // Every compile is release for the host target (GC-A15, cross-targets.mjs oneOutput): the test executables are under <triple>/release.
-        if (snapshotBroker) addBins(r.snapshotEvidence?.outputDir, unit, r.snapshotEvidence?.targetTriple ? `${r.snapshotEvidence.targetTriple}/release` : null);
-        else addBins(targetDirs?.[unit?.cargoDir ?? "."], unit, `${hostTarget()}/release`);
-      }
+      // Where Cargo put them: `<dir>/<triple>/release` (every compile is release for the host target, GC-A15, cross-targets.mjs oneOutput); on a broker
+      // host the signed receipt names the directory and the triple, and a row with no triple vouches for nothing: a guessed path could vouch for a stale
+      // binary. A row answered from the cache vouches for its programs only while they are still the bytes it linked (gate-stages.mjs builtBinsOfRun).
+      const builtBins = builtBinsOfRun({
+        rows: scanResult.scans,
+        unitOf: (r) => unitByName.get(rustUnitOfScanId(r.id, known)),
+        placeOf: (r) => { const unit = unitByName.get(rustUnitOfScanId(r.id, known)); return snapshotBroker ? { dir: r.snapshotEvidence?.outputDir, profile: r.snapshotEvidence?.targetTriple ? `${r.snapshotEvidence.targetTriple}/release` : null } : { dir: targetDirs?.[unit?.cargoDir ?? "."], profile: `${hostTarget()}/release` }; },
+        keyOf: (r) => { const full = scanKeys.get(r.id); return typeof full === "string" && full ? createHash("sha256").update(`built-bins/1\n${full}`).digest("hex") : null; },
+        store: cache,
+        note: (text) => o.out(`${tag} built programs: ${text}`),
+      });
       const outputWorkspaces = (snapshotBroker ? scanResult.scans.map((r) => r.snapshotEvidence?.outputDir) : Object.values(targetDirs ?? {})).filter(Boolean).map((dir) => [dir]);
       o.onCompileOutputs?.(outputWorkspaces.map(([dir]) => dir), builtBins);
       o.out(`${tag} class B keying: ${ROW_DIGEST_STATS.misses} row digest(s) computed in ${(ROW_DIGEST_STATS.ms / 1000).toFixed(1)} s, ${ROW_DIGEST_STATS.hits} reused`);

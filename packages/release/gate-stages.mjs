@@ -268,6 +268,65 @@ export function compiledBinaries(builtBins = {}, { platform = process.platform, 
   return out;
 }
 
+/** What is remembered beside a passed test row that linked programs: where they were written and each one's digest. */
+export const BUILT_BINS_RECORD = "rightkit.built-bins/1";
+
+/**
+ * The programs a compile run can vouch for: `{ [output dir]: { profile, bins } }`, the input of compiledBinaries.
+ *
+ * A program is linked only by a PASSED `cargo test -p <crate>` row of a package with a selected integration test. A row that RAN in this run vouches
+ * for its unit's programs where the broker's signed receipt says they were written (`placeOf(row)`: { dir, profile }).
+ *
+ * A row answered from the cache built nothing in this run. Until 2026-11-17 it therefore vouched for nothing, and a receipt whose unit was cached
+ * could not be installed from: an installer that needs four programs found three (RustRight, the watchdog's unit; every install after a commit that
+ * did not touch that unit was blocked). The row's pass is for the same key, so the same inputs: the programs it linked when it ran are the programs of
+ * this commit. So when a row runs, each program's digest is remembered under the row's key (`store.write`), and when the row is later answered from
+ * the cache its programs are vouched for only if every one of them is still on disk with exactly that digest. A program that is missing or has
+ * other bytes (another commit built over it) is not vouched for, and `note` says so; nothing is guessed.
+ *
+ * `rows`: the run's scan rows. `unitOf(row)`: the unit ({ bins, testLinksBins }) or undefined. `keyOf(row)`: the 64-hex name the record is filed
+ * under, or null when the row has no cache key. `store`: { read(key), write(key, record) } (the result cache). A directory two rows name with
+ * different profiles vouches for nothing, as before.
+ */
+export function builtBinsOfRun({ rows = [], unitOf, placeOf, keyOf = () => null, store = null, binaries = compiledBinaries, note = () => {} }) {
+  const built = {};
+  const add = (dir, bins, profile) => {
+    const prior = built[dir];
+    if (prior && prior.profile !== profile) { built[dir] = { profile: null, bins: [] }; return; }
+    built[dir] = { profile, bins: [...new Set([...(prior?.bins ?? []), ...bins])].sort() };
+  };
+  for (const row of rows) {
+    if (row?.status !== "pass" || !/^test:rust(?:-serial)?:/.test(String(row.id))) continue;
+    const unit = unitOf(row);
+    if (!unit?.testLinksBins || !unit.bins?.length) continue;
+    const key = keyOf(row);
+    if (row.cached !== true) {
+      const place = placeOf(row) ?? {};
+      if (!place.dir || !place.profile) continue;
+      add(place.dir, unit.bins, place.profile);
+      if (!key || !store) continue;
+      const digests = binaries({ [place.dir]: { profile: place.profile, bins: unit.bins } });
+      // Only a complete set is remembered: a program that is not there now cannot be recognised later.
+      if (digests.length === new Set(unit.bins).size && digests.every((d) => typeof d.sha256 === "string")) {
+        store.write(key, { schema: BUILT_BINS_RECORD, id: String(row.id), dir: place.dir, profile: place.profile, bins: [...new Set(unit.bins)].sort(), sha256: Object.fromEntries(digests.map((d) => [d.name, d.sha256])) });
+      }
+      continue;
+    }
+    const record = key && store ? store.read(key)?.row : null;
+    if (record?.schema !== BUILT_BINS_RECORD || typeof record.dir !== "string" || typeof record.profile !== "string" || !Array.isArray(record.bins)) {
+      note(`${row.id} was answered from the cache and no record of the programs it linked is stored: its programs are not vouched for in this run`);
+      continue;
+    }
+    // The unit's programs today must be the ones the record names: a program added since is not covered by it.
+    if ([...new Set(unit.bins)].sort().join("\n") !== [...record.bins].sort().join("\n")) { note(`${row.id}: the stored record names other programs than the unit has now; not vouched for`); continue; }
+    const now = binaries({ [record.dir]: { profile: record.profile, bins: record.bins } });
+    const changed = now.filter((d) => typeof d.sha256 !== "string" || d.sha256 !== record.sha256?.[d.name]);
+    if (now.length !== record.bins.length || changed.length) { note(`${row.id} was answered from the cache and ${changed.map((d) => d.name).join(", ") || "a program"} in ${record.dir} is missing or is not the bytes it linked; not vouched for`); continue; }
+    add(record.dir, record.bins, record.profile);
+  }
+  return built;
+}
+
 /** What a passed compile stage records about its outputs: the directories, their census, the built binaries' digests and the key of the compile environment. */
 export function compileOutputsRecord({ dirs = [], env = {}, builtBins = null, census = outputCensus, binaries = compiledBinaries }) {
   const c = census(dirs);

@@ -11,6 +11,15 @@ import { spawn } from "node:child_process";
 import { RECLAIM_QUERY_MS, snapshotReclaimJudge } from "./seam-broker.mjs";
 import { acquireSnapshotLock } from "./snapshot.mjs";
 
+// Wait until a fake broker started in another process listens. On a machine the gate itself keeps busy (a build using 80% of the cores) a node child can
+// take longer than 5 s to start (Mac, 2026-11-17: the wait ran out, the query met no socket, and the test failed as a wrong ANSWER). The wait is long, ends
+// at once when the child has died, and failing it says what failed.
+const listening = async (sock, child, name) => {
+  const until = Date.now() + 60_000;
+  while (!fs.existsSync(sock) && child.exitCode === null && child.signalCode === null && Date.now() < until) await new Promise((r) => setTimeout(r, 50));
+  assert.ok(fs.existsSync(sock), `${name} did not listen (${child.exitCode === null && child.signalCode === null ? "still starting after 60 s" : `it ended: exit ${child.exitCode}, signal ${child.signalCode}`})`);
+};
+
 test("only an exact SNAPSHOT_STATUS echo with state IDLE proves a dead holder's snapshot idle; the query crosses a real socket", async () => {
   const owner = { pid: 4242, identity: "darwin:4242:Sun Nov  9 10:00:00 2026", commit: "a".repeat(40), token: "t-1" };
   const snapshot = "/Volumes/D/.rightkit-managed/snapshots/abc";
@@ -32,8 +41,7 @@ test("only an exact SNAPSHOT_STATUS echo with state IDLE proves a dead holder's 
   const serverScript = `const net=require("node:net"),fs=require("node:fs");const [sock,seen,reply]=process.argv.slice(1);net.createServer((c)=>{c.write(JSON.stringify({type:"HANDSHAKE",runtime:{},capabilities:[]})+"\\n");c.on("data",(d)=>{fs.writeFileSync(seen,String(d));c.write(JSON.stringify({type:"NOTE",text:"unrelated"})+"\\n"+reply+"\\n");});}).listen(sock);`;
   const server = spawn(process.execPath, ["-e", serverScript, sock, seenFile, JSON.stringify(idle)], { stdio: "ignore" });
   try {
-    for (let i = 0; i < 100 && !fs.existsSync(sock); i += 1) await new Promise((r) => setTimeout(r, 50));
-    assert.ok(fs.existsSync(sock), "the fake broker listens");
+    await listening(sock, server, "the fake broker");
     const reply = snapshotStatusSync({ endpoint: sock, message, timeoutMs: 5000 });
     assert.deepEqual(reply, idle);
     const seen = JSON.parse(fs.readFileSync(seenFile, "utf8").trim());
@@ -61,7 +69,7 @@ test("only an exact SNAPSHOT_STATUS echo with state IDLE proves a dead holder's 
     const rejectSock = path.join(dir, "reject.sock");
     const rejecting = spawn(process.execPath, ["-e", `const net=require("node:net");net.createServer((c)=>{c.write(JSON.stringify({type:"HANDSHAKE"})+"\\n");c.on("data",()=>c.write(JSON.stringify({type:"RESULT",exitCode:125,status:"REJECTED",error:"unknown request type",code:"RK_UNKNOWN_REQUEST"})+"\\n"));}).listen(process.argv[1]);`, rejectSock], { stdio: "ignore" });
     try {
-      for (let i = 0; i < 100 && !fs.existsSync(rejectSock); i += 1) await new Promise((r) => setTimeout(r, 50));
+      await listening(rejectSock, rejecting, "the rejecting fake broker");
       const rejected = snapshotStatusSync({ endpoint: rejectSock, message, timeoutMs: 5000 });
       assert.equal(rejected?.status, "REJECTED", "the refusal frame is returned as the answer");
       assert.equal(snapshotStatusAllowsReclaim(rejected, { snapshot, owner }), false);
@@ -71,7 +79,7 @@ test("only an exact SNAPSHOT_STATUS echo with state IDLE proves a dead holder's 
     const silentSock = path.join(dir, "silent.sock");
     const silent = spawn(process.execPath, ["-e", `const net=require("node:net");net.createServer((c)=>{c.write(JSON.stringify({type:"HANDSHAKE"})+"\\n");}).listen(process.argv[1]);`, silentSock], { stdio: "ignore" });
     try {
-      for (let i = 0; i < 100 && !fs.existsSync(silentSock); i += 1) await new Promise((r) => setTimeout(r, 50));
+      await listening(silentSock, silent, "the silent fake broker");
       assert.equal(snapshotStatusSync({ endpoint: silentSock, message, timeoutMs: 1500 }), null, "HANDSHAKE alone is not an answer");
     } finally { silent.kill(); }
   } finally { server.kill(); }
@@ -357,7 +365,7 @@ test("the door's lock step resolves the judge's client as the seam does (absolut
   const serverScript = `const net=require("node:net"),fs=require("node:fs");const [sock,seen,reply]=process.argv.slice(1);net.createServer((c)=>{c.write(JSON.stringify({type:"HANDSHAKE",runtime:{},capabilities:[]})+"\\n");c.on("data",(d)=>{fs.writeFileSync(seen,String(d));c.write(reply+"\\n");});}).listen(sock);`;
   const server = spawn(process.execPath, ["-e", serverScript, sock, seenFile, JSON.stringify(idle)], { stdio: "ignore" });
   try {
-    for (let i = 0; i < 100 && !fs.existsSync(sock); i += 1) await new Promise((r) => setTimeout(r, 50));
+    await listening(sock, server, "the fake broker");
     const o = {
       platform: process.platform, env: { PATH: "/usr/bin:/bin", RUSTRIGHT_BUILD_BROKER_SOCKET: sock }, exists: fs.existsSync, readFile: (f) => fs.readFileSync(f, "utf8"), err: () => {},
       // `which rustright` answers the installed client by absolute path; everything else (the identity's `ps`) runs for real.
