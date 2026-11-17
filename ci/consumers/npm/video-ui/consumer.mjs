@@ -84,7 +84,7 @@ try {
     assert.equal(typeof workspaceMod.useVideoFramingReview, 'function');
     assert.equal(typeof workspaceMod.useVideoRecipeLibrary, 'function');
     assert.equal(typeof workspaceMod.useVideoRecipe, 'function');
-    for (const key of ['useVideoExports', 'useVideoExportThumbnail', 'useVideoExportPackage', 'useVideoBundleExport', 'useVideoBatchDelivery']) {
+    for (const key of ['useVideoExports', 'useVideoExportThumbnail', 'useVideoExportPackage', 'useVideoBundleExport', 'useVideoBatchDelivery', 'useVideoPrompt']) {
       assert.equal(typeof workspaceMod[key], 'function', 'missing workspace export ' + key);
     }
     for (const key of ['useVideoAssets', 'useVideoAssetPlacement', 'useVideoAssetGeneration']) {
