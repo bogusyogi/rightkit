@@ -1363,3 +1363,13 @@ test("a lock left by a holder that is gone is not a reason to stop the run; a li
   assert.equal(lockHolderState({ pid: process.pid }), "alive");
   assert.equal(lockHolderState({ pid: 2 ** 30 }), "gone");
 });
+
+test("NN42 blames the broker only when the broker refused; a split the gate made itself is named as the gate's", async () => {
+  const { assertCrossTargetsOneCommand, NN42_MISSING, NN42_GATE_SPLIT } = await import("./gate-acceptance.mjs");
+  const line = (target) => ({ pid: 1, at: "2026-11-17T19:30:00.000Z", ms: 100, sync: false, cmd: "rustright", args: ["cargo", "clippy", "-p", "witness_app", "--locked", "--target", target, "--", "-D", "warnings"], cwd: "/snap/app/src-tauri", status: 101 });
+  const entries = [line("x86_64-unknown-linux-gnu"), line("x86_64-pc-windows-gnu")];
+  const split = assertCrossTargetsOneCommand("rightkit-gate: clippy failed", entries, null);
+  assert.equal(split.ok, false); assert.ok(split.problems[0].includes(NN42_GATE_SPLIT), split.problems[0]); assert.ok(!split.problems[0].includes(NN42_MISSING));
+  const refused = assertCrossTargetsOneCommand("rustright: RK_TARGET_INVALID several --target", entries, null);
+  assert.ok(refused.problems.every((x) => x.includes(NN42_MISSING)));
+});

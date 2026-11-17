@@ -1924,6 +1924,7 @@ export function assertDocOneCommand(rows, entries, { label = "" } = {}) {
 const targetsOf = (args) => { const t = []; for (let i = 0; i < args.length; i += 1) { if (args[i] === "--target" && args[i + 1]) { t.push(args[i + 1]); i += 1; } else if (/^--target=./.test(args[i])) t.push(args[i].slice(9)); } return t; };
 const withoutTargets = (args) => { const out = []; for (let i = 0; i < args.length; i += 1) { if (args[i] === "--target") { i += 1; continue; } if (/^--target=/.test(args[i])) continue; out.push(args[i]); } return out; };
 export const NN42_MISSING = "installed broker refuses several --target per invocation (RK_TARGET_INVALID)";
+export const NN42_GATE_SPLIT = "the gate sent the cross targets of one stage as several commands, one per target (the broker refused nothing: no RK_TARGET_INVALID)";
 /**
  * NN42: the cross targets of one stage go in one broker command naming every `--target`. Fails when the log carries RK_TARGET_INVALID (the broker
  * refused several), or when one stage sends one command per cross target (same unit selection and configuration, a different single target each).
@@ -1942,7 +1943,9 @@ export function assertCrossTargetsOneCommand(log, entries, rows, { label = "" } 
   }
   for (const [key, list] of groups) {
     const all = [...new Set(list.flat())];
-    if (list.length > 1 && all.length > 1 && list.every((t) => t.length === 1)) problems.push(`${p}${NN42_MISSING}: the stage sent ${list.length} commands for the cross targets ${all.join(", ")} (${key.split("\u0000")[1]} in ${key.split("\u0000")[0]}), one per target; one broker command naming every --target is missing`);
+    // Without RK_TARGET_INVALID in the log the broker refused nothing: the split is the gate's own (on the Mac, 2026-11-17, the gate split a failed
+    // cross group of witness_app into one command per target, and this line blamed the broker). The finding names the gate then.
+    if (list.length > 1 && all.length > 1 && list.every((t) => t.length === 1)) problems.push(`${p}${/RK_TARGET_INVALID/.test(String(log)) ? NN42_MISSING : NN42_GATE_SPLIT}: the stage sent ${list.length} commands for the cross targets ${all.join(", ")} (${key.split("\u0000")[1]} in ${key.split("\u0000")[0]}), one per target; one broker command naming every --target is missing`);
   }
   return { ok: problems.length === 0, problems, crossRan, groups: groups.size };
 }
