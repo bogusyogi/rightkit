@@ -98,18 +98,19 @@ export async function compileTogether({ snapshot, commit, crates, rustConfig = {
     // A test program that could not be proven stopped may still write in the snapshot: the caller keeps the snapshot lock, as for an unsettled broker job.
     if (ran.counts.unreaped) onUnsettled(o.call, { settled: false, reason: `${ran.counts.unreaped} test program(s) timed out and are not proven stopped` });
   };
-  const outcomes = []; const counts = { calls: calls.length, ran: 0, skipped: 0, jobs: 0, greenReruns: 0 };
+  const outcomes = []; const counts = { calls: calls.length, ran: 0, skipped: 0, jobs: 0, greenReruns: 0, notRemembered: 0 };
   let stopped = null;
   for (const call of calls) {
     const one = runCalls({
-      calls: [call], send: sendCall, store, identity, hostTriple,
+      calls: [call], send: sendCall, store, identity, hostTriple, env: seamEnv,
       onCall: (o) => {
+        if (o.notRemembered) out(`not remembered ${o.call.id}: ${o.notRemembered}`);
         const red = o.results.filter((r) => r.result !== "passed");
         out(`${o.state === "skipped" ? "skipped" : red.length ? "red    " : "passed "} ${o.call.id} (${o.call.crates.length} crate(s)${o.jobs.length > 1 ? ", green rerun sent" : ""})${red.length ? `: ${red.slice(0, 8).map((r) => `${r.crate} ${r.result}`).join(", ")}${red.length > 8 ? `, +${red.length - 8} more` : ""}` : ""}`);
       },
     });
     outcomes.push(...one.outcomes);
-    for (const k of ["ran", "skipped", "jobs", "greenReruns"]) counts[k] += one.counts[k];
+    for (const k of ["ran", "skipped", "jobs", "greenReruns", "notRemembered"]) counts[k] += one.counts[k];
     if (call.stage === "test-build") for (const o of one.outcomes) await runTestsOf(o);
     // A test program not proven stopped may still be reading or writing the shared build folder: no further Cargo call is sent into it.
     if (testCounts.unreaped) { stopped = `stopped after ${call.id}: ${testCounts.unreaped} test program(s) timed out and are not proven stopped; ${calls.length - calls.indexOf(call) - 1} call(s) not sent`; out(stopped); break; }
