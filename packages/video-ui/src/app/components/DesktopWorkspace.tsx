@@ -1,14 +1,15 @@
 import { Button, IconButton, Notice, useToast } from "@rightkit/react-shell/react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { useEngine } from "../../hooks/useEngine.js";
 import { useProgress } from "../hooks/useProgress.js";
 import { useVideoAssembly } from "../hooks/useVideoAssembly.js";
 import { useVideoProjects } from "../hooks/useVideoProjects.js";
+import { useVideoUpdateBusy, useVideoWorkspace } from "../hooks/useVideoWorkspace.js";
 import { pickFolder } from "../lib/dialog.js";
 import { errorMessage } from "../../lib/engine.js";
-import { type BundleImportResult, rendersList } from "../../lib/media.js";
-import { type ProjectShow, baseName, projectShow } from "../../lib/project.js";
-import { Home, rememberProject } from "../views/Home.js";
+import type { BundleImportResult } from "../../lib/media.js";
+import { baseName } from "../../lib/project.js";
+import { Home } from "../views/Home.js";
 import { ProgressView } from "../views/ProgressView.js";
 import { PromptPanel } from "../views/PromptPanel.js";
 import { TimelineView } from "../views/TimelineView.js";
@@ -23,7 +24,6 @@ import { SettingsView } from "../views/SettingsView.js";
 import { AppShell, StatusRow, useShortcuts, type Command, type NavGroup } from "@rightkit/react-shell/react";
 import { shellBridge } from "../lib/shell.js";
 import { setUpdateBusy } from "../lib/services.js";
-import { mediaScopeAllow } from "../../lib/media.js";
 import { editorShortcuts } from "../../editor/keys.js";
 import { useTimelinePreview } from "../../components/Player.js";
 import { Icon } from "../ui/index.js";
@@ -64,56 +64,15 @@ export function DesktopWorkspace() {
   const toast = useToast();
   const { status, doctor, doctorError, statusError } = useEngine();
   const progressController = useProgress();
-  const { progress, reset } = progressController;
-  const [dir, setDir] = useState<string | null>(null);
-  const [show, setShow] = useState<ProjectShow | null>(null);
-  const [exportsCount, setExportsCount] = useState(0);
+  const { progress } = progressController;
+  const { dir, show, exportsCount, jobError, setJobError, output, setOutput, importMissing, setImportMissing, importUnverified, setImportUnverified, refresh, open: openWorkspace, close: closeWorkspace, applyBundleReport } = useVideoWorkspace(progressController);
   const [tab, setTab] = useState<Tab>("projects");
   // Exports ⋯ → Import retention… routes here with the render preselected (R5).
   const [retentionPreselect, setRetentionPreselect] = useState<string | undefined>(undefined);
   /** Settings section to land on (status dot → Models). */
   const [settingsSection, setSettingsSection] = useState<string | undefined>(undefined);
-  const [jobError, setJobError] = useState<string | null>(null);
-  const [output, setOutput] = useState<string | null>(null);
-  /** Names missing on this computer after a bundle import; shown until dismissed. */
-  const [importMissing, setImportMissing] = useState<string[] | null>(null);
-  const [importUnverified, setImportUnverified] = useState<string[] | null>(null);
   const error = statusError ?? status?.last_error ?? doctorError;
   const previewHost = useTimelinePreview(dir, show?.revision.cursor ?? 0);
-
-  // Dynamic asset scope: project dir + its renders/media dirs. The scope glob skips
-  // dot-directories unless named, so the thumbnail cache (.cache/thumbs) is listed.
-  useEffect(() => {
-    if (!dir) return;
-    void mediaScopeAllow([dir, `${dir}/media`, `${dir}/renders`, `${dir}/variants`, `${dir}/.cache`], true).catch(
-      () => undefined,
-    );
-  }, [dir]);
-
-  const refresh = useCallback(async () => {
-    if (!dir) return;
-    setShow(await projectShow(dir));
-    rendersList(dir)
-      .then((r) => setExportsCount(r.renders.filter((x) => x.name.endsWith(".mp4")).length))
-      .catch(() => undefined);
-  }, [dir]);
-  useEffect(() => {
-    if (!dir) return;
-    let cancelled = false;
-    projectShow(dir)
-      .then((s) => !cancelled && setShow(s))
-      .catch((e) => !cancelled && setJobError(errorMessage(e)));
-    rendersList(dir)
-      .then((r) => !cancelled && setExportsCount(r.renders.filter((x) => x.name.endsWith(".mp4")).length))
-      .catch(() => undefined);
-    return () => {
-      cancelled = true;
-    };
-  }, [dir]);
-  useEffect(() => {
-    if (progress.output) setOutput(progress.output);
-    if (progress.done || progress.error) void refresh().catch(() => undefined);
-  }, [progress.output, progress.done, progress.error, refresh]);
 
   const { pending, resumable, renderMissing, assembling, rendering, submit, resume, render, cancel, clearRecovery } = useVideoAssembly({
     dir, progressController, refresh, setError: setJobError, setOutput,
@@ -124,32 +83,12 @@ export function DesktopWorkspace() {
     },
   });
 
-  useEffect(() => {
-    setUpdateBusy(dir !== null || assembling || rendering || progress.running);
-    return () => setUpdateBusy(false);
-  }, [dir, assembling, rendering, progress.running]);
+  useVideoUpdateBusy(dir, assembling, rendering, progress.running, setUpdateBusy);
 
   const open = useCallback((next: string, firstTab: Tab = "media") => {
-    setShow(null);
-    setOutput(null);
-    setJobError(null);
-    // importBundle calls open before it sets its own notice, so the notice it shows survives this clear.
-    setImportMissing(null);
-    setImportUnverified(null);
-    reset();
-    setTab(firstTab);
-    clearRecovery();
-    setDir(next);
-    void rememberProject(next).catch((e) => toast(errorMessage(e), { kind: "error", ttl: 0 }));
-  }, [reset, toast, clearRecovery]);
-
-  const closeProject = useCallback(() => {
-    setDir(null);
-    setShow(null);
-    setImportMissing(null);
-    setImportUnverified(null);
-    setTab("projects");
-  }, []);
+    openWorkspace(next, () => setTab(firstTab), clearRecovery, (e) => toast(errorMessage(e), { kind: "error", ttl: 0 }));
+  }, [openWorkspace, toast, clearRecovery]);
+  const closeProject = useCallback(() => closeWorkspace(() => setTab("projects")), [closeWorkspace]);
 
   const { recents, recentInfo, dropActive, openExisting, createProjectAt, importBundleAt, openFiles } = useVideoProjects({
     dir, ready: status?.state === "ready", recentRefreshKey: tab === "projects", fallbackName: "Untitled",
@@ -198,20 +137,10 @@ export function DesktopWorkspace() {
       toast(errorMessage(e), { kind: "error", ttl: 0 });
       return null;
     }
-    const missing = [
-      ...report.missing_media.map((m) => m.name ?? baseName(m.path)),
-      ...report.missing_assets.map((path) => baseName(path)),
-      ...(report.missing_generated_sources ?? []).map((g) => baseName(g.path)),
-    ];
-    const unverified = [
-      ...(report.unverified_assets ?? []).map((path) => baseName(path)),
-      ...(report.unverified_generated_sources ?? []).map((g) => baseName(g.path)),
-    ];
-    if (unverified.length > 0) setImportUnverified(unverified);
-    if (missing.length > 0) setImportMissing(missing);
-    else if (unverified.length === 0) toast("Bundle imported", { kind: "success" });
+    const { missing, unverified } = applyBundleReport(report);
+    if (missing.length === 0 && unverified.length === 0) toast("Bundle imported", { kind: "success" });
     return null;
-  }, [openExisting, toast, importBundleAt]);
+  }, [openExisting, toast, importBundleAt, applyBundleReport]);
 
   // Global keyboard (§2): the shell's shortcut registry owns the chords, the help overlay and dispatch.
   // Project tabs apply only with a project open; a skipped binding leaves the key to the page.

@@ -304,6 +304,7 @@ const SHARED_BEHAVIOR = new Set([
   "packages/video-ui/src/app/hooks/useProgress.ts",
   "packages/video-ui/src/app/hooks/useVideoAssembly.ts",
   "packages/video-ui/src/app/hooks/useVideoProjects.ts",
+  "packages/video-ui/src/app/hooks/useVideoWorkspace.ts",
   "packages/video-ui/src/workspace.ts",
 ]);
 const PRODUCT_NAME = /\b(?:HeardRight|ViewRight|Pulse|CodeRight|GenRight|CutRight|ScrapeRight|MailRight|PostRight)\b/;

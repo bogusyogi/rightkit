@@ -64,7 +64,7 @@ try {
     // host's app part.
     const appMod = await import(provenance.entries['@rightkit/video-ui/app']);
     const workspaceMod = await import(provenance.entries['@rightkit/video-ui/workspace']);
-    for (const key of ['useVideoProjects', 'useVideoAssembly', 'useProgress']) {
+    for (const key of ['useVideoProjects', 'useVideoAssembly', 'useProgress', 'useVideoWorkspace', 'useVideoUpdateBusy']) {
       assert.equal(typeof workspaceMod[key], 'function', `missing workspace export ${key}`);
       assert.equal(workspaceMod[key], appMod[key]);
     }

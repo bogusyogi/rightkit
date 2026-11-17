@@ -71,3 +71,5 @@ export * from "../editor/vendor/hyperframes/PlayheadIndicator.js";
 export * from "../editor/vendor/hyperframes/audioWaveformPeaks.js";
 export * from "../editor/vendor/hyperframes/rulerGeometry.js";
 export * from "../editor/vendor/hyperframes/useInspectorGestureTransaction.js";
+
+export * from "./hooks/useVideoWorkspace.js";
