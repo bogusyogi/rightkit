@@ -1923,7 +1923,7 @@
       },
       "files": {
         "ci/consumers/npm/video-ui/README.md": "0e5cb292a347610536a5c607fa116041fd24c6f408d139b0b574e4e7d1216464",
-        "ci/consumers/npm/video-ui/consumer.mjs": "262d0c34210da25efecf201ae92244729598c4d05f26eb6fd9d7a1c6120d2895",
+        "ci/consumers/npm/video-ui/consumer.mjs": "58d1e06b6ade740d4b472eb674cc2431d68a58280e07e945c63049d3398464ad",
         "ci/consumers/npm/video-ui/package.json": "23f7b2ebcd494d62baf7023f35727edcc2666771890f9880e50242dd453c3331",
         "ci/consumers/npm/video-ui/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "fc160695e1dc97dc7e32e746c9e4471e2d85168b097623de818befeb00ee438c"

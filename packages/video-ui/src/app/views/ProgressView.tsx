@@ -2,6 +2,7 @@ import { Badge, Button, Card, EmptyState, PageShell } from "@rightkit/react-shel
 import { type ProgressState } from "../hooks/useProgress.js";
 import { ErrorPanel, ProgressRow, timecode, Icon } from "../ui/index.js";
 import { hostAppName } from "../appName.js";
+import { progressViewModel, renderFraction } from "../lib/progressViewModel.js";
 
 function elapsedOf(progress: ProgressState): string | undefined {
   // Frames don't carry start times; show the render's out-time as elapsed.
@@ -14,10 +15,7 @@ function elapsedOf(progress: ProgressState): string | undefined {
 export function RenderBar({ progress }: { progress: ProgressState }) {
   const r = progress.render;
   if (!r) return null;
-  const pct =
-    r.total_ms && r.out_time_ms !== undefined
-      ? Math.max(0, Math.min(1, r.out_time_ms / r.total_ms))
-      : undefined;
+  const pct = renderFraction(progress);
   return (
     <ProgressRow
       label="Render"
@@ -52,20 +50,8 @@ export function ProgressView({
   recovered?: string[];
   onResume: () => void;
 }) {
-  const jobs = Object.values(progress.jobs);
-  const error = progress.error?.message ?? jobError;
-  const running = progress.running || assembling;
-  // Recovered run: resumable and not currently executing (owner review: show
-  // recovered jobs as ProgressRows with a `Recovered` chip, never "Nothing
-  // running" + a floating Resume).
-  const showRecovered = resumable && !running && !progress.done;
-  const recoveredLabels = jobs.length > 0 ? jobs.map((j) => j.label) : (recovered ?? []);
-  const idle =
-    !running && !showRecovered && jobs.length === 0 && !progress.render && !error && !progress.done && !progress.cancelled;
-  const renderPct =
-    progress.render?.total_ms && progress.render.out_time_ms !== undefined
-      ? Math.max(0, Math.min(1, progress.render.out_time_ms / progress.render.total_ms))
-      : undefined;
+  const { jobs, error, running, showRecovered, recoveredLabels, idle, stages, canResume, showRenderMissing, renderFraction: renderPct } =
+    progressViewModel(progress, jobError, assembling, resumable, recovered, renderMissing);
 
   return (
     <PageShell title="Progress" actions={
@@ -99,7 +85,7 @@ export function ProgressView({
             )}
           </Card>
         )}
-        {renderMissing && !running && (
+        {showRenderMissing && (
           <ErrorPanel
             title="This render is missing"
             detail="The export file no longer exists. Resume to render it again."
@@ -110,7 +96,7 @@ export function ProgressView({
             title="The job failed"
             detail={error}
             actions={
-              resumable && !running ? (
+              canResume ? (
                 <Button variant="secondary" onClick={onResume}><Icon name="rotate-ccw" />
                   Resume
                 </Button>
@@ -136,13 +122,13 @@ export function ProgressView({
         )}
         {progress.stages.length > 0 && (
           <Card>
-            {progress.stages.map((s, i) => (
+            {stages.map((stage) => (
               <ProgressRow
-                key={s}
-                label={s}
-                status={i === progress.stages.length - 1 && running ? "Running" : "Done"}
-                tone={i === progress.stages.length - 1 && running ? "info" : "ok"}
-                fraction={i === progress.stages.length - 1 && running ? undefined : null}
+                key={stage.label}
+                label={stage.label}
+                status={stage.running ? "Running" : "Done"}
+                tone={stage.running ? "info" : "ok"}
+                fraction={stage.running ? undefined : null}
               />
             ))}
           </Card>
@@ -153,10 +139,10 @@ export function ProgressView({
               <ProgressRow
                 key={j.id}
                 label={j.label}
-                status={j.status ?? j.request ?? "queued"}
-                tone={j.status === "failed" ? "danger" : j.imported ? "ok" : "info"}
+                status={j.displayStatus ?? "queued"}
+                tone={j.failed ? "danger" : j.imported ? "ok" : "info"}
                 elapsed={j.stage ?? undefined}
-                error={j.status === "failed" ? (j.message ?? "failed") : undefined}
+                error={j.failed ? (j.message ?? "failed") : undefined}
               />
             ))}
           </Card>

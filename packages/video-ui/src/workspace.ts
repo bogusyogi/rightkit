@@ -5,3 +5,4 @@ export * from "./app/hooks/useProgress.js";
 export type { AssembleForm, ShotInput, NarrationInput, TitleInput, TitleDraft, AssembleInput, AssembleStatus, PendingAssemble } from "./app/lib/assemble.js";
 
 export * from "./app/hooks/useVideoWorkspace.js";
+export * from "./app/lib/progressViewModel.js";
