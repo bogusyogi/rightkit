@@ -3735,6 +3735,13 @@ async function runDevTest(o, args, root, git, io, to, appRoot, appDir) {
   const tree = ds ? ds.tree : text(git("rev-parse", "HEAD^{tree}")).trim();
   const common = text(git("rev-parse", "--git-common-dir")).trim();
   if (!/^[0-9a-f]{40}$/.test(commit) || !common) { o.err(`${tag} cannot read HEAD and the git directory`); return 2; }
+  // `--to dev|test|render` hand an app to right-release, which reads the app's right-release.config. A repository with none (RustRight) had its
+  // test stage fail in 0.3 s inside right-release with ERR_MODULE_NOT_FOUND after a full class A (Mac, 2026-11-17). Said here, before any work.
+  { const at = (f) => (appDir === "." ? f : `${appDir}/${f}`);
+    if (!["right-release.config.json", "right-release.config.mjs"].some((f) => !failed(git("cat-file", "-e", `${commit}:${at(f)}`)))) {
+      o.err(`${tag} --to ${to} runs an app's own ${to} through right-release, and ${appDir === "." ? "this repository" : appDir} has no right-release.config.json or .mjs at ${commit.slice(0, 12)}; nothing ran. A Cargo workspace's own tests run in --to compile (its test:rust rows).`);
+      return 2;
+    } }
   // Hosted CI's runner checkout is the commit; anywhere else the snapshot is, and the checkout may hold anything.
   if (!ds) {
     const dirty = git("status", "--porcelain", "--untracked-files=no");
