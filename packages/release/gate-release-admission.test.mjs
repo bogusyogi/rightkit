@@ -155,3 +155,41 @@ test("the archive is tied to the tested gate by the seal itself, not by what the
     const jobs = [["S11:check", 3], ["S12:compile", 5]].map(([step, n]) => job(step, n, { nonce: contractJobNonce({ runId: RUN, sealedSha256: seal2, step, call: String(n).repeat(32) }) }));
     has(admit(fixture(jobs, { gate: { kind: "candidate", version: "0.6.58", sealedSha256: seal2, archiveSha256: archive.sha256, archiveIntegrity: archive.integrity } }), { manifestBytes: m, sourceBytes: b }), /source record is for version 0\.6\.57, the receipt says 0\.6\.58/); }
 });
+
+test("NN31 at the publication entries: the gate package is refused without an admitting receipt; every other package is untouched", async () => {
+  const { gateReleaseGuard, admitFromFiles, GATE_PACKAGE, GATE_RECEIPT_ENV } = await import("./gate-release-admission.mjs");
+  assert.equal(GATE_PACKAGE, "@rightkit/release"); assert.equal(GATE_RECEIPT_ENV, "RK_GATE_CONTRACT_RECEIPT");
+  // Any other package: nothing is asked, nothing is read.
+  let asked = 0; const never = () => { asked += 1; return { ok: false, problems: ["x"] }; };
+  assert.deepEqual(gateReleaseGuard({ name: "@rightkit/theme", archiveFile: "/p/t.tgz", commit: COMMIT, env: {}, admit: never }), { required: false }); assert.equal(asked, 0);
+  // The gate package with no receipt handed over: refused, by name, before any admission is tried. An empty value is no receipt.
+  for (const env of [{}, { RK_GATE_CONTRACT_RECEIPT: "" }, null]) assert.throws(() => gateReleaseGuard({ name: GATE_PACKAGE, archiveFile: "/p/r.tgz", commit: COMMIT, env, admit: never }), /@rightkit\/release is not published without a passing contract-test receipt for this exact archive \(GATE-CONTRACT NN31\): RK_GATE_CONTRACT_RECEIPT names no receipt/);
+  assert.equal(asked, 0);
+  // A receipt that does not admit this archive: refused with the problems; the exact file and commit were what was judged.
+  const seen = [];
+  assert.throws(() => gateReleaseGuard({ name: GATE_PACKAGE, archiveFile: "/p/r.tgz", commit: COMMIT, env: { RK_GATE_CONTRACT_RECEIPT: "/h/receipt.json" }, admit: (a) => { seen.push(a); return { ok: false, problems: ["seal to archive: the tested gate was installed from another archive", "step S12 shows no verified broker job"] }; } }),
+    /does not admit this archive \(2 problem\(s\)\): seal to archive: the tested gate was installed from another archive; step S12 shows no verified broker job/);
+  assert.deepEqual(seen[0], { receiptFile: "/h/receipt.json", archiveFile: "/p/r.tgz", commit: COMMIT, pipelineFile: null });
+  // Admitted: the facts are returned for the entry to log.
+  assert.deepEqual(gateReleaseGuard({ name: GATE_PACKAGE, archiveFile: "/p/r.tgz", commit: COMMIT, env: { RK_GATE_CONTRACT_RECEIPT: "/h/receipt.json" }, admit: () => ({ ok: true, problems: [], facts: { host: "dell" } }) }), { required: true, facts: { host: "dell" } });
+  // The real admission behind it, on files: a receipt that is not there, and a bad commit, are refusals, never exceptions.
+  const missing = admitFromFiles({ receiptFile: path.join(os.tmpdir(), "rk-no-such-receipt.json"), archiveFile: path.join(os.tmpdir(), "rk-no-such.tgz"), commit: COMMIT });
+  assert.equal(missing.ok, false); assert.match(missing.problems.join(" | "), /the receipt .* cannot be read \(ENOENT\)/); assert.match(missing.problems.join(" | "), /the archive .* cannot be read \(ENOENT\)/);
+  assert.match(admitFromFiles({ receiptFile: "x", archiveFile: "y", commit: "short" }).problems.join(" | "), /no 40-hex release commit was given/);
+  // With the real guard and no injected admission: a receipt path that does not exist refuses the gate package.
+  assert.throws(() => gateReleaseGuard({ name: GATE_PACKAGE, archiveFile: path.join(os.tmpdir(), "rk-no-such.tgz"), commit: COMMIT, env: { RK_GATE_CONTRACT_RECEIPT: path.join(os.tmpdir(), "rk-no-such-receipt.json") } }), /does not admit this archive/);
+
+  // Each actual entry calls the guard on the exact file, before npm is started. (Their publish steps are inline scripts with no seam to run them
+  // in a test; this checks the order in their source and that the hand-started workflow no longer publishes the gate package. It is not a run.)
+  const src = (rel) => fs.readFileSync(new URL(rel, import.meta.url), "utf8");
+  const upload = src("../../scripts/ci/upload.mjs");
+  const guardAt = upload.indexOf("gateReleaseGuard({ name: unit.name, archiveFile: file, commit: manifest.commit, env })");
+  assert.ok(guardAt > 0, "scripts/ci/upload.mjs calls the guard on the sealed file");
+  assert.ok(guardAt < upload.indexOf('if (dryRun) { log(`dry run: would run npm'), "before the dry-run branch"); assert.ok(guardAt < upload.indexOf('const result = spawn("npm", args,'), "before npm is started");
+  const local = src("./publish-local-npm.mjs");
+  const localAt = local.indexOf("gateReleaseGuard({ name: o.pkg, archiveFile: path.join(work, tgz), commit })");
+  assert.ok(localAt > 0, "publish-local-npm.mjs calls the guard on the packed file"); assert.ok(localAt < local.indexOf("const token = readToken();"), "before the token is read"); assert.ok(localAt < local.indexOf('run("npm", ["publish", path.join(work, tgz)'), "before npm is started");
+  const owner = src("../../.github/workflows/publish-npm-owner.yml");
+  const refuseAt = owner.indexOf('if [[ "$PACKAGE" == "packages/release" ]]; then echo "::error::packages/release');
+  assert.ok(refuseAt > 0 && refuseAt < owner.indexOf("          npm publish --provenance --access public --ignore-scripts"), "the hand-started workflow refuses packages/release before it publishes");
+});

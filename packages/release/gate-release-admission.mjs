@@ -85,37 +85,63 @@ export function admitGateRelease({ receipt, readJob, archiveBytes, commit, pipel
   return { ok: problems.length === 0, problems, facts };
 }
 
-/** `node gate-release-admission.mjs --receipt <file> --archive <package archive> --commit <sha> [--pipeline <ci/rk-pipeline.json>]`: exit 0 only when admitted. The folder `job-envelopes` must sit beside the receipt. */
+/**
+ * Admission from files on disk: the receipt, the archive in question, the release commit and the committed pipeline file. The folders
+ * `job-envelopes` and `gate-seal` must sit beside the receipt. Returns { ok, problems, facts }; never throws for a missing or bad input.
+ */
+export function admitFromFiles({ receiptFile, archiveFile, commit, pipelineFile = null }) {
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const problems = [];
+  if (!receiptFile) problems.push("no contract-test receipt was named");
+  if (!archiveFile) problems.push("no package archive was named");
+  if (!commit || !/^[0-9a-f]{40}$/.test(commit)) problems.push("no 40-hex release commit was given");
+  const read = (label, f, parse) => { try { const b = fs.readFileSync(f); return parse ? JSON.parse(String(b)) : b; } catch (e) { problems.push(`${label} ${f} cannot be read (${e.code ?? e.message})`); return null; } };
+  const receipt = receiptFile ? read("the receipt", receiptFile, true) : null;
+  const archiveBytes = archiveFile ? read("the archive", archiveFile, false) : null;
+  const pipeline = read("the pipeline file", pipelineFile ?? path.resolve(here, "..", "..", "ci", "rk-pipeline.json"), true);
+  const sealed = read("contract-nn.json", path.join(here, "contract-nn.json"), true);
+  const budgets = read("the budgets file", BUDGETS_FILE, true);
+  if (problems.length) return { ok: false, problems, facts: null };
+  if (receipt.jobEnvelopes !== "job-envelopes") return { ok: false, problems: [`the receipt names its job envelopes folder as ${JSON.stringify(receipt.jobEnvelopes)}, expected "job-envelopes"`], facts: null };
+  const beside = path.dirname(path.resolve(receiptFile));
+  const readOrNull = (f) => { try { return fs.readFileSync(f); } catch { return null; } };
+  const fileSha = (f) => sha256(fs.readFileSync(f));
+  const seal = receipt.gateSeal === "gate-seal" ? path.join(beside, "gate-seal") : null;
+  const result = admitGateRelease({ manifestBytes: seal ? readOrNull(path.join(seal, "manifest.txt")) : null, sourceBytes: seal ? readOrNull(path.join(seal, "trusted-gate-source.json")) : null, receipt,
+    readJob: (id) => fs.readFileSync(path.join(beside, "job-envelopes", `${id}.json`)), archiveBytes, commit, pipeline, sealed, contractSha256: fileSha(CONTRACT_FILE), budgetsSha256: fileSha(BUDGETS_FILE), runnerSha256: fileSha(RUNNER_FILE), runnerFiles: runnerFileHashes(),
+    waivers: (Array.isArray(budgets?.waivers) ? budgets.waivers : []).filter(validWaiver) });
+  return result;
+}
+
+/** The package this rule is about, and the variable a publish entry is handed the receipt through. */
+export const GATE_PACKAGE = "@rightkit/release";
+export const GATE_RECEIPT_ENV = "RK_GATE_CONTRACT_RECEIPT";
+/**
+ * NN31 at a publication entry point. Every place that is about to publish an npm archive calls this with the package name, the exact file it
+ * is about to publish and the commit it was packed from, BEFORE it starts npm. For any other package it does nothing. For the gate package it
+ * throws unless a contract-test receipt was handed over (RK_GATE_CONTRACT_RECEIPT names it; `job-envelopes` and `gate-seal` sit beside it) and
+ * admits exactly that file. There is no flag that skips it.
+ */
+export function gateReleaseGuard({ name, archiveFile, commit, env = process.env, admit = admitFromFiles, pipelineFile = null }) {
+  if (name !== GATE_PACKAGE) return { required: false };
+  const receiptFile = env?.[GATE_RECEIPT_ENV];
+  if (typeof receiptFile !== "string" || !receiptFile) throw new Error(`${GATE_PACKAGE} is not published without a passing contract-test receipt for this exact archive (GATE-CONTRACT NN31): ${GATE_RECEIPT_ENV} names no receipt`);
+  const result = admit({ receiptFile, archiveFile, commit, pipelineFile });
+  if (!result.ok) throw new Error(`${GATE_PACKAGE} is not published: its contract-test receipt does not admit this archive (${result.problems.length} problem(s)): ${result.problems.slice(0, 6).join("; ")}${result.problems.length > 6 ? "; ..." : ""}`);
+  return { required: true, facts: result.facts };
+}
+
+/** `node gate-release-admission.mjs --receipt <file> --archive <package archive> --commit <sha> [--pipeline <ci/rk-pipeline.json>]`: exit 0 only when admitted. The folders `job-envelopes` and `gate-seal` must sit beside the receipt. */
 export function main(argv = process.argv.slice(2), { out = console.log } = {}) {
   const opt = (name) => { const i = argv.indexOf(name); return i < 0 ? undefined : argv[i + 1]; };
   const known = new Set(["--receipt", "--archive", "--commit", "--pipeline"]);
   for (const a of argv) if (a.startsWith("--") && !known.has(a)) { out(`gate-release-admission REFUSED: unknown option ${a}`); return 64; }
-  const receiptFile = opt("--receipt"); const archiveFile = opt("--archive"); const commit = opt("--commit");
-  const here = path.dirname(fileURLToPath(import.meta.url));
-  const pipelineFile = opt("--pipeline") ?? path.resolve(here, "..", "..", "ci", "rk-pipeline.json");
   const problems = [];
-  if (!receiptFile) problems.push("--receipt <contract-test receipt> is required");
-  if (!archiveFile) problems.push("--archive <package archive in question> is required");
-  if (!commit || !/^[0-9a-f]{40}$/.test(commit)) problems.push("--commit <40-hex release commit> is required");
-  const read = (label, f, parse) => { try { const b = fs.readFileSync(f); return parse ? JSON.parse(String(b)) : b; } catch (e) { problems.push(`${label} ${f} cannot be read (${e.code ?? e.message})`); return null; } };
-  const receipt = receiptFile ? read("the receipt", receiptFile, true) : null;
-  const archiveBytes = archiveFile ? read("the archive", archiveFile, false) : null;
-  const pipeline = read("the pipeline file", pipelineFile, true);
-  const sealed = read("contract-nn.json", path.join(here, "contract-nn.json"), true);
-  const budgets = read("the budgets file", BUDGETS_FILE, true);
+  if (!opt("--receipt")) problems.push("--receipt <contract-test receipt> is required");
+  if (!opt("--archive")) problems.push("--archive <package archive in question> is required");
+  if (!opt("--commit") || !/^[0-9a-f]{40}$/.test(opt("--commit"))) problems.push("--commit <40-hex release commit> is required");
   let result = null;
-  if (!problems.length) {
-    const folder = receipt.jobEnvelopes;
-    if (folder !== "job-envelopes") problems.push(`the receipt names its job envelopes folder as ${JSON.stringify(folder)}, expected "job-envelopes"`);
-    else {
-      const bundle = path.join(path.dirname(path.resolve(receiptFile)), "job-envelopes");
-      const fileSha = (f) => sha256(fs.readFileSync(f));
-      const sealDir = path.join(path.dirname(path.resolve(receiptFile)), "gate-seal");
-      const readOrNull = (f) => { try { return fs.readFileSync(f); } catch { return null; } };
-      result = admitGateRelease({ manifestBytes: receipt.gateSeal === "gate-seal" ? readOrNull(path.join(sealDir, "manifest.txt")) : null, sourceBytes: receipt.gateSeal === "gate-seal" ? readOrNull(path.join(sealDir, "trusted-gate-source.json")) : null, receipt, readJob: (id) => fs.readFileSync(path.join(bundle, `${id}.json`)), archiveBytes, commit, pipeline, sealed, contractSha256: fileSha(CONTRACT_FILE), budgetsSha256: fileSha(BUDGETS_FILE), runnerSha256: fileSha(RUNNER_FILE), runnerFiles: runnerFileHashes(), waivers: (Array.isArray(budgets?.waivers) ? budgets.waivers : []).filter(validWaiver) });
-      problems.push(...result.problems);
-    }
-  }
+  if (!problems.length || opt("--receipt") || opt("--archive")) { result = admitFromFiles({ receiptFile: opt("--receipt"), archiveFile: opt("--archive"), commit: opt("--commit"), pipelineFile: opt("--pipeline") ?? null }); if (!problems.length) problems.push(...result.problems); else problems.push(...result.problems.filter((p) => /cannot be read/.test(p))); }
   if (problems.length) { out(`gate-release-admission REFUSED (${problems.length} problem(s))`); for (const p of problems) out(`  ${p}`); return 1; }
   const f = result.facts;
   out(`gate-release-admission OK: host ${f.host}, sealed gate ${f.sealedSha256}, archive ${f.archiveSha256}; ${f.jobsVerified} of ${f.jobsListed} listed broker job(s) verified, in step(s) ${f.signedSteps.join(", ")}`);

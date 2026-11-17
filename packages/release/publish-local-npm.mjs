@@ -20,6 +20,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { NPM_KEYCHAIN_SERVICE, readKeychainToken } from "./publication-gate.mjs";
+import { gateReleaseGuard } from "./gate-release-admission.mjs";
 
 const REGISTRY = "https://registry.npmjs.org/";
 const GATE = fileURLToPath(new URL("./bin/rightkit-gate.mjs", import.meta.url));
@@ -116,6 +117,8 @@ export function publishLocalNpm(argv, { run = spawnSync, log = console.log, plat
     const sha1 = crypto.createHash("sha1").update(bytes).digest("hex");
     log(`publish-local: packed ${tgz} sha1 ${sha1}`);
 
+    // GATE-CONTRACT NN31: the gate package is published only with a passing contract-test receipt for this exact file. Before the token is read.
+    try { gateReleaseGuard({ name: o.pkg, archiveFile: path.join(work, tgz), commit }); } catch (error) { fail(error.message); }
     const token = readToken();
     const userconfig = path.join(work, "npmrc");
     fs.writeFileSync(userconfig, "//registry.npmjs.org/:_authToken=${RIGHTKIT_NPM_TOKEN}\n", { mode: 0o600 });

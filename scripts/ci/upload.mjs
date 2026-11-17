@@ -26,6 +26,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { shippedDependencyProblems } from "./registry-spec.mjs";
+import { gateReleaseGuard } from "../../packages/release/gate-release-admission.mjs";
 
 // The two success outcomes of a publication row. packages/release/publication-outcomes.mjs is their one definition (the consumer, unit-gate.mjs,
 // reads it); the credentialed upload jobs' sparse checkouts (publish-reviewed.yml, publish-direct.yml) carry no packages/ path by contract, so this
@@ -847,6 +848,9 @@ export async function executeUpload({ env, packDir, receiptsDir, approvedFile, p
         const file = path.join(packDir, unit.file);
         const args = ["publish", file, "--ignore-scripts", "--access", "public", "--provenance", "--registry", NPM_REGISTRY_URL, "--userconfig", userconfig];
         const base = { unit: unit.name, version: unit.version, artifact: unit.file, sha256: unit.sha256, sha1: unit.sha1 };
+        // GATE-CONTRACT NN31: the gate package is published only with a passing contract-test receipt for this exact file. Before npm, dry run included.
+        try { gateReleaseGuard({ name: unit.name, archiveFile: file, commit: manifest.commit, env }); }
+        catch (error) { receipt.record({ ...base, published: false, registryVerified: false, outcome: "refused", error: redact(error.message).slice(0, 300) }); throw error; }
         if (dryRun) { log(`dry run: would run npm ${args.map((a) => (a === file ? unit.file : a === userconfig ? "<userconfig>" : a)).join(" ")}`); receipt.record({ ...base, published: false, registryVerified: false }); continue; }
         if (done.has(unit.name)) continue;
         let published = false;
