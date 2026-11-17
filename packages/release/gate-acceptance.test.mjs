@@ -1227,3 +1227,34 @@ test("a proof counts a release-check refusal only when it is the refusal being p
   assert.match(src, /runRunner\(\["--verify-release", file, "--host", host, "--commit", "a"\.repeat\(40\), "--sealed", sealed\]/);
   assert.doesNotMatch(src, /"--verify-release", a, "--host", "mac"/);
 });
+
+test("release check with an archive: the receipt must name exactly the archive in question; the real command reads the file", async () => {
+  const { verifyReleaseReceipts, archiveIdentity, NN_ALL_IDS, CONTRACT_RECEIPT_SCHEMA } = await import("./gate-acceptance.mjs");
+  const { createHash } = await import("node:crypto");
+  const { spawnSync } = await import("node:child_process");
+  const { fileURLToPath } = await import("node:url");
+  const bytes = Buffer.from("the packed archive"); const id = archiveIdentity(bytes);
+  assert.equal(id.sha256, createHash("sha256").update(bytes).digest("hex")); assert.equal(id.integrity, `sha512-${createHash("sha512").update(bytes).digest("base64")}`);
+  const nn = Object.fromEntries(NN_ALL_IDS.map((x) => [x, "pass"]));
+  const receipt = (gate) => ({ schema: CONTRACT_RECEIPT_SCHEMA, host: "dell", commit: "c".repeat(40), gate: { kind: "candidate", sealedSha256: "a".repeat(64), ...gate }, verdict: "PASS 42/42", ok: true, nn, uncheckedClauses: [] });
+  const problems = (r, archive) => verifyReleaseReceipts(r, null, { archive }).problems.join(" | ");
+  assert.equal(problems(receipt({ archiveSha256: id.sha256, archiveIntegrity: id.integrity }), id), "");
+  // Another archive, by either value; a receipt that names none (an installed gate's, or an older candidate's).
+  const other = archiveIdentity(Buffer.from("other bytes"));
+  assert.match(problems(receipt({ archiveSha256: other.sha256, archiveIntegrity: other.integrity }), id), /is for the archive [a-f0-9]{64}, the archive in question is [a-f0-9]{64}/);
+  assert.match(problems(receipt({ archiveSha256: id.sha256, archiveIntegrity: other.integrity }), id), /is for the archive/);
+  assert.match(problems(receipt({}), id), /does not say which archive its gate was installed from/);
+  // Without an archive in question nothing about archives is asked (promotion makes that comparison itself).
+  assert.equal(problems(receipt({}), null), "");
+
+  const script = fileURLToPath(new URL("./gate-acceptance.mjs", import.meta.url));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rk-arch-"));
+  try {
+    const file = path.join(dir, "pkg.tgz"); fs.writeFileSync(file, bytes);
+    const rf = path.join(dir, "r.json"); fs.writeFileSync(rf, JSON.stringify(receipt({ archiveSha256: other.sha256, archiveIntegrity: other.integrity })));
+    const run = (...extra) => { const r = spawnSync(process.execPath, [script, "--verify-release", rf, "--host", "dell", "--commit", "c".repeat(40), "--sealed", "a".repeat(64), ...extra], { encoding: "utf8", timeout: 60000, windowsHide: true }); return `${r.status}\n${r.stdout}${r.stderr}`; };
+    assert.match(run("--archive", file), new RegExp(`^1\\n[\\s\\S]*is for the archive ${other.sha256}, the archive in question is ${id.sha256}`));
+    assert.match(run("--archive", path.join(dir, "missing.tgz")), /--archive .*missing\.tgz cannot be read \(ENOENT\)/);
+    assert.doesNotMatch(run("--archive", file), /unknown option/);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});

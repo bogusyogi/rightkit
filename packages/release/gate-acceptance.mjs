@@ -1638,7 +1638,9 @@ export const validWaiver = (w) => isObject(w) && typeof w.clause === "string" &&
 // The same bindings the installer's promotion makes (rustright-install trusted-gate promote, GB-98), so the two checks cannot disagree about a receipt:
 // `budgetsSha256` the budgets it was judged against, `runnerFiles` every file of the runner ([{ name, sha256 }], exact set), `brokerRuntimeDigest` the
 // broker installed on this host. Each is compared when given; the command line always gives all of them.
-export function verifyReleaseReceipts(a, b = null, { commit = null, contractSha256 = null, runnerSha256 = null, waivers = [], host = null, sealedSha256 = null, budgetsSha256 = null, runnerFiles = null, brokerRuntimeDigest = null } = {}) {
+// `archive`: { sha256, integrity } of a package archive (archiveIdentity). When given, the receipt must be a candidate's and must name exactly that
+// archive: this is the comparison a publication makes between the bytes it is about to publish and the bytes that were tested.
+export function verifyReleaseReceipts(a, b = null, { commit = null, contractSha256 = null, runnerSha256 = null, waivers = [], host = null, sealedSha256 = null, budgetsSha256 = null, runnerFiles = null, brokerRuntimeDigest = null, archive = null } = {}) {
   const problems = [];
   if (host && a?.host !== host) problems.push(`the receipt is from ${a?.host ?? "no host"}, this host is ${host}`);
   for (const [name, r] of (b ? [["first", a], ["second", b]] : [["the", a]])) {
@@ -1667,9 +1669,17 @@ export function verifyReleaseReceipts(a, b = null, { commit = null, contractSha2
       const missing = [...want.keys()].filter((n) => !got.has(n)); const extra = [...got.keys()].filter((n) => !want.has(n)); const differ = [...want.keys()].filter((n) => got.has(n) && got.get(n) !== want.get(n));
       if (missing.length || extra.length || differ.length) problems.push(`the ${r.host} receipt's runner files are not this runner's${missing.length ? `; not listed: ${missing.join(", ")}` : ""}${extra.length ? `; not part of this runner: ${extra.join(", ")}` : ""}${differ.length ? `; changed: ${differ.join(", ")}` : ""}`);
     }
+    if (archive) {
+      if (!isSha(r.gate?.archiveSha256) || typeof r.gate?.archiveIntegrity !== "string") problems.push(`the ${r.host} receipt does not say which archive its gate was installed from, so it cannot be matched to the archive in question`);
+      else if (r.gate.archiveSha256 !== archive.sha256 || r.gate.archiveIntegrity !== archive.integrity) problems.push(`the ${r.host} receipt is for the archive ${r.gate.archiveSha256}, the archive in question is ${archive.sha256}`);
+    }
     if (brokerRuntimeDigest && r.broker?.runtimeDigest !== brokerRuntimeDigest) problems.push(`the ${r.host} receipt was made with the broker ${r.broker?.runtimeDigest ?? "(not stated)"}, this host runs ${brokerRuntimeDigest}`);
   }
   return { ok: problems.length === 0, problems };
+}
+/** The identity of a package archive as a receipt states it: sha256 of its bytes (hex) and the npm integrity (sha512, base64). */
+export function archiveIdentity(bytes) {
+  return { sha256: createHash("sha256").update(bytes).digest("hex"), integrity: `sha512-${createHash("sha512").update(bytes).digest("base64")}` };
 }
 /**
  * Whether a `--verify-release` run ({ code, out }) is the refusal a proof is after: it exited 1, said REFUSED, gave the reason `want`, and was not
@@ -2773,7 +2783,7 @@ export function coldControls({ cold, warmPrev, warmRows, crate, ws, coldCompileR
 
 async function main(argv) {
   const opt = (name) => { const i = argv.indexOf(name); return i < 0 ? undefined : argv[i + 1]; };
-  const known = new Set(["--fixture", "--host", "--steps", "--out", "--plan", "--gate", "--commit", "--leaf-file", "--manifest-file", "--kill-after-ms", "--allow-install", "--budgets", "--help", "--prove", "--verify-release", "--other-receipt", "--contract-file", "--pulse-compile", "--prove-out", "--nn", "--checks-only", "--s11-checks-only", "--kills", "--candidate", "--sealed"]);
+  const known = new Set(["--fixture", "--host", "--steps", "--out", "--plan", "--gate", "--commit", "--leaf-file", "--manifest-file", "--kill-after-ms", "--allow-install", "--budgets", "--help", "--prove", "--verify-release", "--other-receipt", "--contract-file", "--pulse-compile", "--prove-out", "--nn", "--checks-only", "--s11-checks-only", "--kills", "--candidate", "--sealed", "--archive"]);
   for (const a of argv) if (a.startsWith("--") && !known.has(a)) { console.error(`gate-acceptance: unknown option ${a} (no cache bypass or other gate flag is ever passed)`); return 64; }
   if (argv.includes("--verify-release")) return verifyReleaseCli(argv);
   const host = opt("--host") ?? (process.platform === "win32" ? "dell" : "mac");
@@ -3231,7 +3241,7 @@ async function executeRun({ fixture, host, wanted, gate, gateArg, budgetsFile, o
 function verifyReleaseCli(argv) {
   const i = argv.indexOf("--verify-release");
   const files = [argv[i + 1]];
-  if (!files[0] || files[0].startsWith("--")) { console.error("usage: node gate-acceptance.mjs --verify-release <receipt> --host mac|dell --commit <gate commit sha> --sealed <sha256 of the gate in question>"); return 64; }
+  if (!files[0] || files[0].startsWith("--")) { console.error("usage: node gate-acceptance.mjs --verify-release <receipt> --host mac|dell --commit <gate commit sha> --sealed <sha256 of the gate in question> [--archive <package archive in question>]"); return 64; }
   const read = files.map((f) => readJson(f));
   const problems = read.filter((r) => r.error).map((r) => r.error);
   const j = argv.indexOf("--commit");
@@ -3240,6 +3250,9 @@ function verifyReleaseCli(argv) {
     const waivers = (Array.isArray(budgets?.waivers) ? budgets.waivers : []).filter(validWaiver);
     const h = argv.indexOf("--host"); const sl = argv.indexOf("--sealed");
     if (sl >= 0 && !/^[a-f0-9]{64}$/.test(String(argv[sl + 1]))) problems.push("--sealed needs the 64-hex sha256 that names the sealed gate");
+    // --archive <file>: the package archive in question (the one about to be published). Unreadable is a refusal, never a skip.
+    const ar = argv.indexOf("--archive"); let archive = null;
+    if (ar >= 0) { try { archive = archiveIdentity(fs.readFileSync(String(argv[ar + 1]))); } catch (e) { problems.push(`--archive ${argv[ar + 1]} cannot be read (${e.code ?? e.message})`); } }
     // Which host, which commit and which gate are never left open: a receipt that passes "for some gate on some host" proves nothing about this release.
     if (h < 0 || !["mac", "dell"].includes(argv[h + 1])) problems.push("--host mac|dell is required: the receipt must be this host's");
     if (j < 0 || !/^[a-f0-9]{40}$/.test(String(argv[j + 1]))) problems.push("--commit <40-hex sha> is required: the receipt must be for the gate commit being released");
@@ -3251,7 +3264,7 @@ function verifyReleaseCli(argv) {
       brokerRuntimeDigest = live.digest;
       if (!brokerRuntimeDigest) problems.push(`this host's running broker cannot be identified: ${live.problem}`);
     }
-    problems.push(...verifyReleaseReceipts(read[0].value, null, { commit: j < 0 ? null : argv[j + 1], contractSha256: fileSha(CONTRACT_FILE), runnerSha256: fileSha(RUNNER_FILE), waivers, host: h < 0 ? null : argv[h + 1], sealedSha256: sl < 0 ? null : argv[sl + 1], budgetsSha256: fileSha(BUDGETS_FILE), runnerFiles: runnerFileHashes(), brokerRuntimeDigest }).problems);
+    problems.push(...verifyReleaseReceipts(read[0].value, null, { commit: j < 0 ? null : argv[j + 1], contractSha256: fileSha(CONTRACT_FILE), runnerSha256: fileSha(RUNNER_FILE), waivers, host: h < 0 ? null : argv[h + 1], sealedSha256: sl < 0 ? null : argv[sl + 1], budgetsSha256: fileSha(BUDGETS_FILE), runnerFiles: runnerFileHashes(), brokerRuntimeDigest, archive }).problems);
   }
   console.log(problems.length ? `verify-release REFUSED (${problems.length} problem(s))` : "verify-release OK: this host's receipt passes for the gate commit");
   for (const p of problems) console.log(`  ${p}`);
