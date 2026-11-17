@@ -93,7 +93,7 @@ function runOne({ file, args, cwd, env, timeoutMs, spawn, platform = process.pla
  * `executables`: the receipt list (null means the broker listed none: every crate in `crates` is unknown).
  * `crates`: [{ name, dir, quiet?: boolean, serialToo?: boolean, allowIgnored?: boolean, assetGated?: boolean }] the crates whose tests are owed; `dir` is the crate's directory in the snapshot.
  * `store`: run-calls.mjs fileStore or null; a passed program is remembered under `scope`, its crate, its sha256, its arguments and the
- *   named part of its environment (test-env.mjs TEST_KEY_ENV, which carries the asset rule). `scope` is required with a store: the caller's
+ *   whole environment it is given (test-env.mjs testKeyEnv, which carries the asset rule). `scope` is required with a store: the caller's
  *   hash of commit, toolchain, host, broker and gate code. A pass is therefore never reused on another commit: the files a test reads at
  *   run time, the binaries it starts and the crates it depends on are all fixed by the commit, and nothing narrower is known here.
  * Each program runs in testProgramEnv (test-env.mjs): no credential-named variable, assets required unless the crate is `assetGated`.

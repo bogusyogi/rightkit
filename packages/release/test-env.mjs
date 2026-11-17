@@ -15,10 +15,9 @@ export function testProgramEnv(env = process.env, assetGated = false) {
 }
 
 /**
- * The variables of a test program's environment that go into the key a passed program is remembered under (gate/tests.mjs).
- * A fixed list, on purpose: the whole environment in a key was the cache-miss loop (RUST_LOG, TERM and CARGO differ by launcher).
- * Anything not named here can change without voiding a remembered pass; within one commit only, because the key also carries the commit.
+ * The environment part of the key a passed test program is remembered under (gate/tests.mjs): every variable the program will really
+ * get, name and value, sorted. Nothing is left out. A test may read any of them (TEMP decides where rightkit-sandbox's tests work), and a
+ * shorter list was a guess about which ones matter. The cost is known: a rerun of the same commit from another terminal or session differs
+ * in some variable and runs the test programs again. That reruns programs, not Cargo: the remembered broker calls have their own key.
  */
-export const TEST_KEY_ENV = ["CI", "LANG", "LC_ALL", "RIGHTKIT_ISOLATED_CHECKOUT", "RIGHTKIT_REQUIRE_ASSETS", "RUST_TEST_THREADS", "TZ"];
-/** [[name, value-or-null]] for TEST_KEY_ENV, read from the environment the program will really get. */
-export const testKeyEnv = (programEnv) => TEST_KEY_ENV.map((name) => [name, typeof programEnv?.[name] === "string" ? programEnv[name] : null]);
+export const testKeyEnv = (programEnv) => Object.entries(programEnv ?? {}).filter(([, value]) => typeof value === "string").sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
