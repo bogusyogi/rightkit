@@ -824,6 +824,7 @@ const qaWindowLabel = perApp(({ app, root }) => {
       // Follow only methods called directly on this constructor. The statement search
       // can stop at a preceding cfg block before it reaches the constructor.
       let label;
+      let chainedWindow = false;
       let cursor = m.index + m[0].length;
       for (;;) {
         const method = /^\s*\.\s*([A-Za-z_]\w*)\s*\(/.exec(f.skel.slice(cursor));
@@ -832,16 +833,15 @@ const qaWindowLabel = perApp(({ app, root }) => {
         const close = matchClose(f.skel, open);
         if (close < 0) break;
         if (method[1] === "window") {
+          chainedWindow = true;
           const [arg] = callArgs(f.skel, open);
           const literal = arg && /^\s*"([^"]*)"\s*$/.exec(f.code.slice(arg[0], arg[1]));
-          if (literal) label = literal[1];
-          break;
+          label = literal?.[1];
         }
         cursor = close + 1;
       }
-      if (label === undefined) label = /\.\s*window\s*\(\s*"([^"]*)"\s*\)/.exec(f.code.slice(m.index, end))?.[1];
       const bound = /^\s*let\s+(?:mut\s+)?([A-Za-z_]\w*)\b/.exec(statement)?.[1];
-      if (label === undefined && bound && fn) label = new RegExp(`\\b${bound}\\s*\\.\\s*window\\s*\\(\\s*"([^"]*)"\\s*\\)`).exec(f.code.slice(m.index, fn.bodyEnd))?.[1];
+      if (!chainedWindow && bound && fn) label = new RegExp(`\\b${bound}\\s*\\.\\s*window\\s*\\(\\s*"([^"]*)"\\s*\\)`).exec(f.code.slice(m.index, fn.bodyEnd))?.[1];
       const mismatch = label === undefined ? shellLabel !== "main" : label !== shellLabel;
       if (!mismatch) continue;
       const bind = label === undefined ? 'no .window(..), so it binds "main"' : `.window("${label}")`;
