@@ -140,14 +140,18 @@ export function repoRoot(dir) {
 function eolPolicy({ root, commit, repo = process.cwd() }) {
   // CR-bearing text blobs of the commit, then the commit's own attributes (the exported tree holds its .gitattributes).
   const grep = spawnSync("git", ["grep", "-z", "-l", "-I", "-e", "\r", commit, "--"], { cwd: repo, env: gitEnv(), encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+  if (grep.error) throw new Error(`git grep failed: ${grep.error.message}`);
+  if (grep.stderr.trim()) throw new Error(`git grep failed: ${grep.stderr.trim()}`);
   if (grep.status === 1) return []; // git grep: 1 = no match
-  if (grep.error || grep.status !== 0) throw new Error(`git grep failed: ${grep.error?.message ?? grep.stderr.trim()}`);
+  if (grep.status !== 0) throw new Error(`git grep failed with status ${grep.status}`);
   const files = grep.stdout.split("\0").filter(Boolean).map((f) => f.slice(commit.length + 1));
   // `-text` (or binary) turns conversion off whatever `eol` says: those bytes are kept as committed (pinned evidence, licence texts).
   const attrs = git(["--work-tree", root, "check-attr", "-z", "--stdin", "text", "eol"], { cwd: repo, input: files.join("\0") }).split("\0");
   const seen = new Map();
   for (let i = 0; i + 2 < attrs.length; i += 3) seen.set(attrs[i], { ...seen.get(attrs[i]), [attrs[i + 1]]: attrs[i + 2] });
-  const bad = [...seen].filter(([, a]) => a.eol === "lf" && a.text !== "unset").map(([file]) => file);
+  const eligible = [...seen].filter(([, a]) => a.eol === "lf" && a.text !== "unset").map(([file]) => file);
+  // A CR alone is not CRLF. Read committed bytes, not checkout bytes, after attribute filtering.
+  const bad = eligible.filter((file) => git(["cat-file", "blob", `${commit}:${file}`], { cwd: repo, encoding: null }).includes(Buffer.from("\r\n")));
   return bad.length ? [{
     problem: `${bad.length} file(s) committed with CRLF although .gitattributes says eol=lf (a fresh checkout shows them modified; hashed and byte-compared copies differ on Windows): ${bad.join(", ")}`,
     fix: `git add --renormalize -- ${bad.join(" ")} && git commit`,

@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generatedAt": "2026-11-17T03:14:54Z",
-  "rightkitHead": "87091532c5896473fff8376c5b91f5fbb3c571f8",
+  "generatedAt": "2026-11-17T03:21:36Z",
+  "rightkitHead": "133294a733a3464e9c3e3f02a1b6044c74ad15d1",
   "legend": [
     {
       "state": "current",
@@ -3095,7 +3095,7 @@
       "group": "mandatory-set app",
       "dir": "D:\\Claude\\postright",
       "present": true,
-      "head": "1cc8de36f3a5c13c0b1fca93c73eba3e369222a2",
+      "head": "67594e5c2d5f9f4d218eed99cab3f08b92734c54",
       "profile": "desktop",
       "inMandatorySet": true,
       "declaration": {
@@ -4029,7 +4029,7 @@
       "group": "mandatory-set app",
       "dir": "D:\\Claude\\scraperight",
       "present": true,
-      "head": "67b75d52501f3ea45f5531058478132d4123479a",
+      "head": "f6a093b5b3dac5ed470cb1cf3c8b025ef97afde4",
       "profile": "desktop",
       "inMandatorySet": true,
       "declaration": {
