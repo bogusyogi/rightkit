@@ -8,7 +8,7 @@ const recipeId = 'video-ui-root-export-consumer';
 const result = { recipeId, schemaVersion: 1, ok: false, host: { platform: process.platform, arch: process.arch, node: process.version }, artifact: null, scenarios: [], errors: [], nativeHostQualified: false };
 const failure = error => ({ name: error?.name ?? 'Error', message: String(error?.message ?? error) });
 const required = name => { assert(process.env[name], `${name} is required`); return process.env[name]; };
-const surface = [".", "./app", "./app.css", "./package.json", "./styles.css", "./tauri"];
+const surface = [".", "./app", "./app.css", "./package.json", "./styles.css", "./tauri", "./workspace"];
 const expected = ["installVideoHost", "videoHost", "TimelineEditorView", "Timeline", "NativePlayer", "engineCall", "projectShow", "timecode"];
 const appExpected = ["DesktopWorkspace", "Home", "SettingsView", "SourcesView", "AutoEditView", "ShortsView", "ExportsView", "OnboardingGate", "configureLegal", "setHostAppName", "hostAppName", "themeStore", "shellBridge", "mediaAdapters", "logs", "licenseClient", "updates", "useDemo", "demoStatus", "pickFolder", "videoAppHost", "installVideoHost", "TimelineEditorView"];
 
@@ -23,7 +23,8 @@ try {
   const root = import.meta.resolve('@rightkit/video-ui');
   const app = import.meta.resolve('@rightkit/video-ui/app');
   const tauri = import.meta.resolve('@rightkit/video-ui/tauri');
-  const provenance = validateInstalledArtifact({ fixtureUrl: import.meta.url, archive, sha256, version, resolution, packageName: '@rightkit/video-ui', rootResolvedUrl: root, entries: { '@rightkit/video-ui': root, '@rightkit/video-ui/app': app, '@rightkit/video-ui/tauri': tauri } });
+  const workspace = import.meta.resolve('@rightkit/video-ui/workspace');
+  const provenance = validateInstalledArtifact({ fixtureUrl: import.meta.url, archive, sha256, version, resolution, packageName: '@rightkit/video-ui', rootResolvedUrl: root, entries: { '@rightkit/video-ui': root, '@rightkit/video-ui/app': app, '@rightkit/video-ui/tauri': tauri, '@rightkit/video-ui/workspace': workspace } });
   result.artifact = provenance.artifact;
   const manifest = JSON.parse(readFileSync(path.join(path.dirname(provenance.artifact.modulePath), '..', 'package.json'), 'utf8'));
 
@@ -62,6 +63,11 @@ try {
     // The app entry is a superset of the root (one module instance) with CutRight's pages and services over the
     // host's app part.
     const appMod = await import(provenance.entries['@rightkit/video-ui/app']);
+    const workspaceMod = await import(provenance.entries['@rightkit/video-ui/workspace']);
+    for (const key of ['useVideoProjects', 'useVideoAssembly', 'useProgress']) {
+      assert.equal(typeof workspaceMod[key], 'function', `missing workspace export ${key}`);
+      assert.equal(workspaceMod[key], appMod[key]);
+    }
     for (const key of appExpected) assert.ok(key in appMod, `missing app export ${key}`);
     assert.equal(appMod.installVideoHost, mod.installVideoHost);
     assert.throws(() => appMod.videoAppHost(), /no `app` part/);

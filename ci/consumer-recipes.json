@@ -1602,6 +1602,7 @@
         "./lib/preferences",
         "./lib/visibleText",
         "./package.json",
+        "./sidebar",
         "./store/index",
         "./store/types",
         "./styles.css"
@@ -1643,7 +1644,7 @@
       },
       "files": {
         "ci/consumers/npm/mail-ui/README.md": "cd4d361cbdae6c78311945d184a25779c9c05e5938aaa72a6bf6719122c8dfd2",
-        "ci/consumers/npm/mail-ui/consumer.mjs": "87c6aed178db9d3421ba09fc42c538086c7b13d3667acb669469525b963d701f",
+        "ci/consumers/npm/mail-ui/consumer.mjs": "6336b1e4754536f80bc0208e782f04643bf04ba2cf4b13d44d6e5fc50530f29f",
         "ci/consumers/npm/mail-ui/package.json": "544112e3d934d15ece73936de8179acaf5686f96b75e635be677ddae2bf570b0",
         "ci/consumers/npm/mail-ui/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "fc160695e1dc97dc7e32e746c9e4471e2d85168b097623de818befeb00ee438c"
@@ -1889,7 +1890,8 @@
         "./app.css",
         "./package.json",
         "./styles.css",
-        "./tauri"
+        "./tauri",
+        "./workspace"
       ],
       "closure": {
         "install": {
@@ -1921,7 +1923,7 @@
       },
       "files": {
         "ci/consumers/npm/video-ui/README.md": "0e5cb292a347610536a5c607fa116041fd24c6f408d139b0b574e4e7d1216464",
-        "ci/consumers/npm/video-ui/consumer.mjs": "69fc7ef0dc87eaf406f11b3698820b040deff65bbcd8d0992a3702d5825c2f4a",
+        "ci/consumers/npm/video-ui/consumer.mjs": "65ad72a8e9cb685af0db9f51dcebda2e2cae83ba3b1b4516b998c20af4a5564c",
         "ci/consumers/npm/video-ui/package.json": "23f7b2ebcd494d62baf7023f35727edcc2666771890f9880e50242dd453c3331",
         "ci/consumers/npm/video-ui/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "fc160695e1dc97dc7e32e746c9e4471e2d85168b097623de818befeb00ee438c"

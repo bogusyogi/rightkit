@@ -11,6 +11,10 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
+    "./sidebar": {
+      "types": "./dist/views/useSidebarModel.d.ts",
+      "import": "./dist/views/useSidebarModel.js"
+    },
     "./styles.css": "./dist/styles.css",
     "./components/AccountSwitcher": {
       "types": "./dist/components/AccountSwitcher.d.ts",

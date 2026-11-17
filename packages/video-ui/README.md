@@ -23,6 +23,7 @@ legal gate, agent demo mode and the app's services, over the same host. Its Taur
 |---|---|
 | `@rightkit/video-ui` | The components, the host contract, the typed video engine client and the hooks (a deliberate list in `src/index.ts`). No Tauri import. |
 | `@rightkit/video-ui/app` | Everything the root exports, plus the app: `DesktopWorkspace`, the pages (`Home`, `SourcesView`, `AutoEditView`, `ShortsView`, `PhrasesView`, `RetentionView`, `AssetsView`, `ExportsView`, `BatchDelivery`, `BundleExport`, `RecipeLibrary`, `PromptPanel`, `ProgressView`, `SettingsView`, `TimelineView`), `OnboardingGate`, `configureLegal`, `setHostAppName`/`hostAppName`, demo mode (`useDemo`, `demo*` bindings, `DemoSettings`), the services (`logs`, `licenseClient`, `updates`, `themeStore`, `shellBridge`, `quitNow`, `mediaAdapters`, pickers, GenRight and model helpers) and `videoAppHost`. No Tauri import: it runs over the installed host's `app` part. |
+| `@rightkit/video-ui/workspace` | Headless `useVideoProjects`, `useVideoAssembly` and `useProgress` hooks and their types for host-composed workspaces. |
 | `@rightkit/video-ui/tauri` | `tauriVideoHost()`: the Tauri `VideoHost`, `app` part included, making exactly the native calls 0.1.x made (and `shell`, the app's `@rightkit/tauri-shell` instance). The one entry that imports Tauri. |
 | `@rightkit/video-ui/styles.css` | Every stylesheet the components use; import once. |
 | `@rightkit/video-ui/app.css` | The app's stylesheets plus `styles.css`; an app host imports this instead of `styles.css`. |

@@ -33,6 +33,10 @@ User-facing copy reads the product name from `hostAppName()` (default `"App"`). 
 `setHostAppName("Your App")` (exported from the root and from `appName`) once at startup, before
 rendering.
 
+## Sidebar behavior
+
+Import `useSidebarModel`, `buildLabelTree` and `SidebarModelOptions` from `@rightkit/mail-ui/sidebar` to compose a sidebar without importing the legacy view. The host supplies presentation, storage and transfer decoding.
+
 ## Workspace views
 
 The calendar, contacts, Drive, tasks and Meet views and their navs are `@rightkit/workspace-ui`'s, and they throw

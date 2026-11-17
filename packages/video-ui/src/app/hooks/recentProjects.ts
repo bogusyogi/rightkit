@@ -1,7 +1,9 @@
-import { errorCode } from "../../lib/engine.js";
-import { createHostSettingsBackend } from "../lib/settingsBackend.js";
+import { errorCode, errorMessage } from "../../lib/engine.js";
+import { settingsGet, settingsSet } from "../../lib/media.js";
 
-const recentSettings = createHostSettingsBackend();
+const asError = (error: unknown): never => {
+  throw error instanceof Error ? error : Object.assign(new Error(errorMessage(error)), { code: errorCode(error) });
+};
 let recentQueue: Promise<unknown> = Promise.resolve();
 const recentDirs = (value: unknown): string[] =>
   Array.isArray(value) ? value.filter((dir): dir is string => typeof dir === "string").slice(0, 8) : [];
@@ -9,12 +11,12 @@ const recentDirs = (value: unknown): string[] =>
 function recentProjects(update?: (dirs: string[]) => string[]): Promise<string[]> {
   const run = recentQueue.then(async () => {
     for (let attempt = 0; ; attempt += 1) {
-      const snapshot = await recentSettings.load();
-      let dirs = recentDirs(snapshot.values.recent_projects);
+      const snapshot = await settingsGet().catch(asError);
+      let dirs = recentDirs(snapshot.app.recent_projects);
       if (!update) return dirs;
       dirs = update(dirs);
       try {
-        await recentSettings.patch({ recent_projects: dirs }, snapshot.revision);
+        await settingsSet({ recent_projects: dirs }, undefined, snapshot.revision).catch(asError);
         return dirs;
       } catch (error) {
         if (attempt > 0 || errorCode(error) !== "revision_conflict") throw error;

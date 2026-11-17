@@ -15,6 +15,10 @@
       "types": "./dist/app/index.d.ts",
       "import": "./dist/app/index.js"
     },
+    "./workspace": {
+      "types": "./dist/workspace.d.ts",
+      "import": "./dist/workspace.js"
+    },
     "./tauri": {
       "types": "./dist/tauri/index.d.ts",
       "import": "./dist/tauri/index.js"

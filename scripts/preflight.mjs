@@ -301,8 +301,10 @@ function generatedDocs({ root, files }) {
 const SHARED_BEHAVIOR = new Set([
   "packages/mail-ui/src/views/useSidebarModel.ts",
   "packages/video-ui/src/app/hooks/recentProjects.ts",
+  "packages/video-ui/src/app/hooks/useProgress.ts",
   "packages/video-ui/src/app/hooks/useVideoAssembly.ts",
   "packages/video-ui/src/app/hooks/useVideoProjects.ts",
+  "packages/video-ui/src/workspace.ts",
 ]);
 const PRODUCT_NAME = /\b(?:HeardRight|ViewRight|Pulse|CodeRight|GenRight|CutRight|ScrapeRight|MailRight|PostRight)\b/;
 const PRODUCT_CLASS = /["'`](?:hr|vr|cr|gr|sr|mr|pr|pulse)-[a-z][\w-]*/i;

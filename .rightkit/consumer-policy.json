@@ -1,0 +1,27 @@
+{
+  "schema": 1,
+  "layerBoundaries": [
+    {
+      "id": "mail-sidebar-behavior",
+      "root": "packages/mail-ui/src",
+      "from": {
+        "include": ["views/useSidebarModel.ts"]
+      },
+      "forbid": {
+        "include": ["**/*.tsx", "**/*.jsx", "**/*.css", "lib/theme.ts"]
+      },
+      "extensions": [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".mts", ".cts", ".css"]
+    },
+    {
+      "id": "video-workspace-behavior",
+      "root": "packages/video-ui/src",
+      "from": {
+        "include": ["workspace.ts"]
+      },
+      "forbid": {
+        "include": ["**/*.tsx", "**/*.jsx", "**/*.css", "app/lib/shell.ts"]
+      },
+      "extensions": [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".mts", ".cts", ".css"]
+    }
+  ]
+}

@@ -86,12 +86,14 @@ These packages hold an app's look or composition and do not yet meet this file:
 `document-workspace` (ViewRight), `library-ui` queue screens (ScrapeRight) and
 `system-ui` (Pulse). CutRight and MailRight consume theirs on `main`.
 
-`node scripts/preflight.mjs --only shared-behavior-presentation` guards the extracted
-video project and assembly modules and the mail sidebar model. It flags product names,
-app-prefixed classes and common colour literals in those files. Extend coverage as
-more wrappers are split. The `desktop-app-template` first-run scenario checks that the
-rendered legal gate and shell respond to two host palettes. Run it on an installed
-template artifact to qualify that coverage. The general app logic check remains open.
+`node scripts/preflight.mjs --only shared-behavior-presentation,layer-reach` checks
+the extracted video workspace and mail sidebar behavior. It flags product names,
+app-prefixed classes and common colour literals in the extracted files. The layer
+policy checks that local runtime imports from the new entry points stay clear of
+legacy page markup, CSS and app theme stores. Extend coverage as more wrappers are
+split. The `desktop-app-template` first-run scenario checks that the rendered legal
+gate and shell respond to two host palettes. Run it on an installed template artifact
+to qualify that coverage. The general app logic check remains open.
 
 ## Active migration scope
 
