@@ -904,7 +904,9 @@ const within = (dir, p) => dir === "." || p === dir || p.startsWith(`${dir}/`);
 // current directory, a bare ".." segment, or the manifest directory's parent. Its tests may read anything in the repository.
 // A comparison with ".." (`name != ".."`), a method whose name only ends in current_dir (`get_current_dir()`), `.ancestors()` of a runtime path and
 // comment text do not leave the crate; they keyed whole crates' tests on the whole tree (rightkit-fs, rightkit-child-process; NN20, 2026-11-06).
-const TEST_LEAVES_CRATE = /CARGO_WORKSPACE_DIR|workspace_root|(?<![A-Za-z0-9_])current_dir\s*\(|(?<![=!]=\s{0,4})"\.\.\/?"|CARGO_MANIFEST_DIR[^;\n]{0,120}\.(?:parent|ancestors)\s*\(/;
+// A literal made only of parent steps ("..", "../", "../..", "../../") is such a walk, however many steps; one handed to a string test
+// (`starts_with("../")`, `contains("..")`) or compared with == or != is not.
+const TEST_LEAVES_CRATE = /CARGO_WORKSPACE_DIR|workspace_root|(?<![A-Za-z0-9_])current_dir\s*\(|(?<![=!]=\s{0,4})(?<!\b(?:starts_with|ends_with|contains|strip_prefix|strip_suffix)\s{0,2}\(\s{0,4})"\.\.(?:[\\/]{1,2}\.\.)*(?:[\\/]{1,2})?"|CARGO_MANIFEST_DIR[^;\n]{0,120}\.(?:parent|ancestors)\s*\(/;
 
 export function externalInputs({ dir, files, readBlob, exists, includeRuntimePaths = true }) {
   const paths = new Set(); let unresolved = null; let leavesCrate = null;
@@ -920,6 +922,11 @@ export function externalInputs({ dir, files, readBlob, exists, includeRuntimePat
       const resolved = path.posix.normalize(path.posix.join(base, raw)).replace(/\/+$/, "");
       if (resolved === ".." || resolved.startsWith("../")) { escapes += 1; continue; }
       if (within(dir, resolved) || paths.has(resolved)) continue;
+      // A literal that resolves to a directory the crate itself is inside ("../", "../.." from the crate or one of its files) names no file. It is string
+      // handling (`clean.starts_with("../")`) or the start of a path completed elsewhere. Taken as an input it is the tree id of the whole repository, or of
+      // crates/, so every commit changed the key: six RustRight crates reran 38 rows per commit for this (Mac and Dell, 2026-11-17). Compile rows read
+      // files only through include macros, #[path] and build scripts, all followed above. A TEST that walks up this way is caught by TEST_LEAVES_CRATE.
+      if (resolved === "." || dir.startsWith(`${resolved}/`)) continue;
       if (exists(resolved)) { paths.add(resolved); if (resolved.endsWith(".rs")) enqueue(resolved, { external: true }); }
     }
     if (escapes === bases.length) stop(`${from}: ${JSON.stringify(rel)} leaves the repository`);
