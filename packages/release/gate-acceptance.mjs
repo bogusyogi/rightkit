@@ -1662,6 +1662,14 @@ export function verifyReleaseReceipts(a, b = null, { commit = null, contractSha2
   }
   return { ok: problems.length === 0, problems };
 }
+/**
+ * Whether a `--verify-release` run ({ code, out }) is the refusal a proof is after: it exited 1, said REFUSED, gave the reason `want`, and was not
+ * refused for a missing or malformed argument. Without the last part a call that left out the commit or the sealed gate would "prove" any refusal.
+ */
+export function releaseRefusal(run, want) {
+  const out = String(run?.out ?? "");
+  return run?.code === 1 && /verify-release REFUSED/.test(out) && want.test(out) && !/ is required: |--sealed needs /.test(out);
+}
 /** NN31: release, upload and trusted-gate install tooling must call `gate-acceptance.mjs --verify-release`. Reads the tooling's own files. */
 export function releaseToolingCallsVerify(files) {
   const calling = Object.entries(files).filter(([, text]) => /gate-acceptance(\.mjs)?\b[^\n]*--verify-release|--verify-release[^\n]*gate-acceptance/.test(text)).map(([f]) => f);
@@ -3407,15 +3415,25 @@ async function proveMain({ fixture, host, out }) {
     const budgets = loadBudgets().budgets;
     const mk = (h, over = {}) => ({ ...buildContractReceipt({ host: h, commit: "a".repeat(40), gate: { kind: "installed", version: inst?.version ?? "0", sealedPath: inst?.entry ?? null, sealedSha256: inst?.sealedSha256 ?? "b".repeat(64) }, contractSha256: fileSha(CONTRACT_FILE), runnerSha256: fileSha(RUNNER_FILE), budgetsSha256: fileSha(BUDGETS_FILE), fixtureCommit: budgets?.fixture?.commit ?? "c".repeat(40), result: cres }), ...over });
     const w = (name, r) => { const f = path.join(root, `receipt-${name}.json`); fs.writeFileSync(f, `${JSON.stringify(r, null, 2)}\n`); return f; };
-    const verify = async (a) => runRunner(["--verify-release", a, "--host", "mac"], { cwd: here });
-    const real1 = await verify(w("dell-for-mac", mk("dell")));
-    note("NN30", "--verify-release on the mac with a receipt from another host", real1.code === 1 && /this host is mac/.test(real1.out), real1.out.split("\n").slice(0, 2).join(" | ").slice(0, 200));
-    const real2 = await verify(w("mac-fail", mk("mac")));
-    note("NN30", "--verify-release with this host's failing receipt (the real run's NOT PASSED result)", real2.code === 1 && /not a PASS/.test(real2.out), (real2.out.split("\n")[1] ?? "").trim().slice(0, 200));
-    note("NN31", "--verify-release refuses a release whose receipts are not passes (what release, upload and promotion must call)", real2.code === 1 && /REFUSED/.test(real2.out), (real2.out.split("\n")[0] ?? "").slice(0, 200));
+    // The release check is called exactly as a release would call it: this host, the receipt's own commit and sealed gate. A refusal counts as proof
+    // only when it is the refusal being proven (releaseRefusal): a run refused for a missing argument proves nothing about receipts.
+    const other = host === "mac" ? "dell" : "mac";
+    const sealed = inst?.sealedSha256 ?? "b".repeat(64);
+    const listing = () => fs.readdirSync(root).sort().join("\n");
+    const verify = async (file) => {
+      const before = { listing: listing(), bytes: fs.readFileSync(file) };
+      const r = await runRunner(["--verify-release", file, "--host", host, "--commit", "a".repeat(40), "--sealed", sealed], { cwd: here });
+      // The check only reads: the receipt it was given and the folder it sits in are as they were.
+      return { ...r, untouched: listing() === before.listing && Buffer.compare(fs.readFileSync(file), before.bytes) === 0 };
+    };
+    const real1 = await verify(w(`${other}-for-${host}`, mk(other)));
+    note("NN30", `--verify-release on the ${host} with a receipt from another host`, releaseRefusal(real1, new RegExp(`this host is ${host}`)), real1.out.split("\n").slice(0, 2).join(" | ").slice(0, 200));
+    const real2 = await verify(w(`${host}-fail`, mk(host)));
+    note("NN30", "--verify-release with this host's failing receipt (the real run's NOT PASSED result)", releaseRefusal(real2, /is not a PASS/), (real2.out.split("\n")[1] ?? "").trim().slice(0, 200));
+    note("NN31", "--verify-release, called with the host, commit and sealed gate, refuses a receipt that is not a pass and changes nothing (the call itself is proven here; that release tooling makes it is not)", releaseRefusal(real2, /is not a PASS/) && real2.untouched, (real2.out.split("\n")[0] ?? "").slice(0, 200));
     const allPass = Object.fromEntries(NN_ALL_IDS.map((id) => [id, "pass"]));
-    const unw = await verify(w("mac-unchecked", mk("mac", { ok: true, verdict: "PASS (forced for the proof)", nn: allPass })));
-    note("NN35", "--verify-release with passing receipts that leave operative clauses unchecked and unwaived", unw.code === 1 && /unchecked and not waived by Adrian/.test(unw.out), (unw.out.split("\n")[1] ?? "").trim().slice(0, 200));
+    const unw = await verify(w(`${host}-unchecked`, mk(host, { ok: true, verdict: "PASS (forced for the proof)", nn: allPass })));
+    note("NN35", "--verify-release with passing receipts that leave operative clauses unchecked and unwaived", releaseRefusal(unw, /unchecked and not waived by Adrian/), (unw.out.split("\n")[1] ?? "").trim().slice(0, 200));
   }
   // NN36 and NN37: real commits in a scratch clone of rightkit.
   {

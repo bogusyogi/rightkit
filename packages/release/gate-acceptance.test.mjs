@@ -1198,3 +1198,23 @@ test("a trust decision finds the installed client and asks the broker with sessi
   assert.match(askRunningBroker("dell", "D:\\m", { env, identity, run: () => ({ status: 0, stdout: "not json" }) }).problem, /not JSON/);
   for (const bad of [() => ({ status: 0, stdout: "x" }), () => ({ status: 0, stdout: JSON.stringify({ answeringBroker: { answered: false } }) })]) assert.equal(askRunningBroker("dell", "D:\\m", { env, identity, run: bad }).digest, null);
 });
+
+test("a proof counts a release-check refusal only when it is the refusal being proven, never one caused by a missing argument", async () => {
+  const { releaseRefusal } = await import("./gate-acceptance.mjs");
+  const refused = (lines) => ({ code: 1, out: ["verify-release REFUSED (n problem(s))", ...lines.map((l) => `  ${l}`)].join("\n") });
+  assert.equal(releaseRefusal(refused(['the receipt (dell): verdict "NOT PASSED" is not a PASS']), /is not a PASS/), true);
+  // The same text, but the call left out the commit or the gate: that run proves nothing about receipts (the proof used to accept it).
+  assert.equal(releaseRefusal(refused(["--commit <40-hex sha> is required: the receipt must be for the gate commit being released", 'the receipt (dell): verdict "NOT PASSED" is not a PASS']), /is not a PASS/), false);
+  assert.equal(releaseRefusal(refused(["--sealed <sha256> is required: the receipt must be for the sealed gate in question", "x is not a PASS"]), /is not a PASS/), false);
+  assert.equal(releaseRefusal(refused(["--host mac|dell is required: the receipt must be this host's", "x is not a PASS"]), /is not a PASS/), false);
+  assert.equal(releaseRefusal(refused(["--sealed needs the 64-hex sha256 that names the sealed gate", "x is not a PASS"]), /is not a PASS/), false);
+  // Refused for another reason than the one wanted, not refused, or a crash: no proof.
+  assert.equal(releaseRefusal(refused(["the receipt is from dell, this host is mac"]), /is not a PASS/), false);
+  assert.equal(releaseRefusal({ code: 0, out: "verify-release OK" }, /is not a PASS/), false);
+  assert.equal(releaseRefusal({ code: 64, out: "usage: ... is not a PASS" }, /is not a PASS/), false);
+  assert.equal(releaseRefusal(null, /x/), false);
+  // The proof run calls the check the way a release would: this host, a commit and the sealed gate; never a fixed host name.
+  const src = fs.readFileSync(new URL("./gate-acceptance.mjs", import.meta.url), "utf8");
+  assert.match(src, /runRunner\(\["--verify-release", file, "--host", host, "--commit", "a"\.repeat\(40\), "--sealed", sealed\]/);
+  assert.doesNotMatch(src, /"--verify-release", a, "--host", "mac"/);
+});
