@@ -7,7 +7,7 @@ import path from "node:path";
 import test from "node:test";
 import { BROKER_CODE, CLASS_A_ENV, CLASS_A_VERDICT_SCHEMA, GATE_COMMIT_ENV, brokerVerdict, classAVerdict, judgeSeamOutcome, normalizeWorkspace, parseIdentity, parseResultLine, processIdentity, readSeamReceipt, samePath, seamEnv, snapshotLockBody, verdictFileName, verdictForRun, writeClassAVerdict } from "./gate-seam.mjs";
 import { SNAPSHOT_STATUS_SCHEMA, snapshotStatusAllowsReclaim, snapshotStatusMessage, snapshotStatusSync } from "./gate-seam.mjs";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { RECLAIM_QUERY_MS, snapshotReclaimJudge } from "./seam-broker.mjs";
 import { acquireSnapshotLock } from "./snapshot.mjs";
 
@@ -15,10 +15,12 @@ import { acquireSnapshotLock } from "./snapshot.mjs";
 // take longer than 5 s to start (Mac, 2026-11-17: the wait ran out, the query met no socket, and the test failed as a wrong ANSWER). The wait is long, ends
 // at once when the child has died, and failing it says what failed.
 const listening = async (sock, child, name) => {
-  const until = Date.now() + 60_000;
+  const until = Date.now() + 60_000; let said = ""; child.stderr?.on("data", (d) => { said += d; });
   while (!fs.existsSync(sock) && child.exitCode === null && child.signalCode === null && Date.now() < until) await new Promise((r) => setTimeout(r, 50));
-  assert.ok(fs.existsSync(sock), `${name} did not listen (${child.exitCode === null && child.signalCode === null ? "still starting after 60 s" : `it ended: exit ${child.exitCode}, signal ${child.signalCode}`})`);
+  assert.ok(fs.existsSync(sock), `${name} did not listen at ${sock} (${child.exitCode === null && child.signalCode === null ? "still starting after 60 s" : `it ended: exit ${child.exitCode}, signal ${child.signalCode}`}; it said: ${said.trim().slice(0, 600) || "nothing"})`);
 };
+// One query run by hand with its exit code and error output kept: what snapshotStatusSync hides when it answers null (it must: null is "no proof").
+const queryByHand = (sock, message, timeoutMs) => { const r = spawnSync(process.execPath, ["-e", `const net=require("node:net");const [e,m,t]=process.argv.slice(1);const c=net.connect({path:e});const k=setTimeout(()=>{console.error("deadline");process.exit(3)},Number(t));let b="";c.on("connect",()=>{console.error("connected");c.write(m+"\\n")});c.on("data",(d)=>{b+=d;console.error("data "+JSON.stringify(String(d)).slice(0,200))});c.on("error",(x)=>{console.error("error "+x.code+" "+x.message);process.exit(2)});c.on("close",()=>{console.error("closed");clearTimeout(k);process.exit(4)});`, sock, JSON.stringify(message), String(timeoutMs)], { encoding: "utf8" }); return `exit ${r.status}, signal ${r.signal}, said: ${String(r.stderr ?? "").trim().slice(0, 600) || "nothing"}${r.error ? `, spawn error ${r.error.message}` : ""}`; };
 
 test("only an exact SNAPSHOT_STATUS echo with state IDLE proves a dead holder's snapshot idle; the query crosses a real socket", async () => {
   const owner = { pid: 4242, identity: "darwin:4242:Sun Nov  9 10:00:00 2026", commit: "a".repeat(40), token: "t-1" };
@@ -67,11 +69,11 @@ test("only an exact SNAPSHOT_STATUS echo with state IDLE proves a dead holder's 
     assert.equal(snapshotReclaimJudge({ o: { ...o, discoverEndpoint: () => `${sock}.missing` }, client, snapshotPath: snapshot })(owner), false, "no broker: no proof");
     // A broker that greets and then REJECTS the query (its refusal frame is a RESULT with status REJECTED): the refusal is the answer, and the judge says no.
     const rejectSock = path.join(dir, "reject.sock");
-    const rejecting = spawn(process.execPath, ["-e", `const net=require("node:net");net.createServer((c)=>{c.write(JSON.stringify({type:"HANDSHAKE"})+"\\n");c.on("data",()=>c.write(JSON.stringify({type:"RESULT",exitCode:125,status:"REJECTED",error:"unknown request type",code:"RK_UNKNOWN_REQUEST"})+"\\n"));}).listen(process.argv[1]);`, rejectSock], { stdio: "ignore" });
+    const rejecting = spawn(process.execPath, ["-e", `const net=require("node:net");net.createServer((c)=>{c.write(JSON.stringify({type:"HANDSHAKE"})+"\\n");c.on("data",()=>c.write(JSON.stringify({type:"RESULT",exitCode:125,status:"REJECTED",error:"unknown request type",code:"RK_UNKNOWN_REQUEST"})+"\\n"));}).listen(process.argv[1]);`, rejectSock], { stdio: ["ignore", "ignore", "pipe"] });
     try {
       await listening(rejectSock, rejecting, "the rejecting fake broker");
       const rejected = snapshotStatusSync({ endpoint: rejectSock, message, timeoutMs: 5000 });
-      assert.equal(rejected?.status, "REJECTED", "the refusal frame is returned as the answer");
+      assert.equal(rejected?.status, "REJECTED", `the refusal frame is returned as the answer (got ${JSON.stringify(rejected)}${rejected ? "" : `; the same query by hand: ${queryByHand(rejectSock, message, 5000)}`})`);
       assert.equal(snapshotStatusAllowsReclaim(rejected, { snapshot, owner }), false);
       assert.equal(snapshotReclaimJudge({ o: { ...o, discoverEndpoint: () => rejectSock }, client, snapshotPath: snapshot })(owner), false, "a rejected query is no proof");
     } finally { rejecting.kill(); }
