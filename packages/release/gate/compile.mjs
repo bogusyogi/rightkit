@@ -76,6 +76,8 @@ export async function compileTogether({ snapshot, commit, crates, rustConfig = {
   const notes = planNotes({ crates: infos, host: platform });
   const identity = gateIdentity({ commit, snapshot, platform, client });
   const store = storeDir ? fileStore(storeDir) : null;
+  // What a remembered test pass belongs to: this commit on this toolchain, host, broker and gate code, the same identity a remembered call has.
+  const testScope = crypto.createHash("sha256").update(JSON.stringify(["commit", "toolchain", "host", "broker", "gate"].map((k) => identity[k]))).digest("hex");
   const seamEnv = { ...env, RUSTRIGHT_GATE_COMMIT: commit, RUSTRIGHT_CLASS_A: verdictFile };
   const sendCall = send ?? ((call) => {
     const { result, ledger } = runSeamCargoCall(call.args, { cwd: path.join(snapshot, call.cwd ?? "."), env: seamEnv, client });
@@ -94,7 +96,7 @@ export async function compileTogether({ snapshot, commit, crates, rustConfig = {
     if (!green.length) return;
     let executables = null;
     try { executables = JSON.parse(fs.readFileSync(o.evidence.receipt, "utf8")).testExecutables ?? null; } catch { executables = null; }
-    const ran = await runTestsWith({ executables, crates: green, env, store });
+    const ran = await runTestsWith({ executables, crates: green, env, store, scope: testScope });
     for (const [name, r] of Object.entries(ran.byCrate)) {
       const cur = tests[name];
       if (!cur || (cur.result === "passed" && r.result !== "passed")) tests[name] = { ...r, round: o.call.round };

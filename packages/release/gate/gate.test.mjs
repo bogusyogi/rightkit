@@ -508,3 +508,32 @@ test("G17: after a test program that is not proven stopped, no further Cargo cal
     assert.ok(lines.some((l) => /^stopped after /.test(l)));
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+test("G16: a remembered test pass belongs to one commit and gate, one crate, the asset rule and the named environment", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rk-g16-"));
+  try {
+    const { EventEmitter } = await import("node:events");
+    const { TEST_KEY_ENV } = await import("../test-env.mjs");
+    let ran = 0;
+    const spawn = () => { ran += 1; const c = new EventEmitter(); c.pid = 1; c.stdout = new EventEmitter(); c.stderr = new EventEmitter(); setImmediate(() => { c.stdout.emit("data", "test result: ok. 1 passed; 0 failed; 0 ignored\n"); c.emit("close", 0, null); }); return c; };
+    const exe = { path: "/t/a", sha256: "ab".repeat(32), package_id: "path+file:///s/crates/a#0.1.0", target: "a", kind: "lib" };
+    const store = fileStore(dir);
+    const go = (over = {}) => runTests({ executables: [exe], crates: [{ name: "a", dir: "/s/crates/a", ...(over.crate ?? {}) }], env: { PATH: "/bin", RUST_LOG: "x", TERM: "y", ...(over.env ?? {}) }, jobs: 1, hashOf: () => "ab".repeat(32), store, scope: over.scope ?? "commit-1", spawn, record: (c) => c });
+    const runs = async (over) => { const before = ran; const r = await go(over); assert.equal(r.byCrate.a.result, "passed"); return ran - before; };
+    assert.equal(await runs(), 1, "first run");
+    assert.equal(await runs(), 0, "same commit again: remembered");
+    // What differs by launcher does not void it (the cache-miss loop): RUST_LOG, TERM, and anything else not on the list.
+    assert.equal(await runs({ env: { RUST_LOG: "debug", TERM: "dumb", CARGO: "/elsewhere/cargo", SOMETHING: "1" } }), 0);
+    // Another commit (same program bytes, a changed fixture or dependency): runs again. So does another gate or broker, through the scope.
+    assert.equal(await runs({ scope: "commit-2" }), 1);
+    // The asset rule and each named variable are in the key.
+    assert.equal(await runs({ crate: { assetGated: true } }), 1);
+    assert.equal(await runs({ env: { TZ: "Asia/Bangkok" } }), 1);
+    assert.equal(await runs({ env: { CI: "true" } }), 1);
+    assert.deepEqual(TEST_KEY_ENV, ["CI", "LANG", "LC_ALL", "RIGHTKIT_ISOLATED_CHECKOUT", "RIGHTKIT_REQUIRE_ASSETS", "RUST_TEST_THREADS", "TZ"]);
+    // A store without a scope is refused: nothing is ever remembered commit-less again.
+    await assert.rejects(() => runTests({ executables: [exe], crates: [{ name: "a", dir: "/s/crates/a" }], env: {}, store, spawn }), /a store needs a scope/);
+    // The build-together path hands the runner the scope of its own identity.
+    assert.match(fs.readFileSync(new URL("./compile.mjs", import.meta.url), "utf8"), /runTestsWith\(\{ executables, crates: green, env, store, scope: testScope \}\)/);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});

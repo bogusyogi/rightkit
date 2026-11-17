@@ -7,7 +7,7 @@ import fs from "node:fs";
 import os from "node:os";
 import { spawn as nodeSpawn, spawnSync } from "node:child_process";
 import { packageNameOf } from "./crate-results.mjs";
-import { testProgramEnv } from "../test-env.mjs";
+import { testKeyEnv, testProgramEnv } from "../test-env.mjs";
 import { recordLockChild } from "../snapshot.mjs";
 
 /** Sum of the `test result:` lines a libtest program printed; null when it printed none. */
@@ -92,12 +92,16 @@ function runOne({ file, args, cwd, env, timeoutMs, spawn, platform = process.pla
  * Runs every listed program and returns { byCrate: { crate: { result: "passed"|"failed"|"unknown", detail, programs, passed, failed, ignored } }, counts: { programs, ran, cached, unreaped } }.
  * `executables`: the receipt list (null means the broker listed none: every crate in `crates` is unknown).
  * `crates`: [{ name, dir, quiet?: boolean, serialToo?: boolean, allowIgnored?: boolean, assetGated?: boolean }] the crates whose tests are owed; `dir` is the crate's directory in the snapshot.
- * `store`: run-calls.mjs fileStore or null; a passed program is remembered under its sha256 and arguments.
+ * `store`: run-calls.mjs fileStore or null; a passed program is remembered under `scope`, its crate, its sha256, its arguments and the
+ *   named part of its environment (test-env.mjs TEST_KEY_ENV, which carries the asset rule). `scope` is required with a store: the caller's
+ *   hash of commit, toolchain, host, broker and gate code. A pass is therefore never reused on another commit: the files a test reads at
+ *   run time, the binaries it starts and the crates it depends on are all fixed by the commit, and nothing narrower is known here.
  * Each program runs in testProgramEnv (test-env.mjs): no credential-named variable, assets required unless the crate is `assetGated`.
  * A program past `timeoutMs` is asked to stop as a tree and is always counted in `unreaped`; after that no further program starts.
  * Quiet crates run last, one program at a time. `serialToo` crates run a second time with one test thread.
  */
-export async function runTests({ executables, crates, env = process.env, jobs = Math.max(1, os.availableParallelism?.() ?? os.cpus().length), timeoutMs = 30 * 60 * 1000, store = null, spawn = nodeSpawn, hashOf = sha256File, platform = process.platform, stop = stopTree, gone = treeGone, record = recordLockChild, reapMs = 15000, pollMs = 100 }) {
+export async function runTests({ executables, crates, env = process.env, jobs = Math.max(1, os.availableParallelism?.() ?? os.cpus().length), timeoutMs = 30 * 60 * 1000, store = null, scope = null, spawn = nodeSpawn, hashOf = sha256File, platform = process.platform, stop = stopTree, gone = treeGone, record = recordLockChild, reapMs = 15000, pollMs = 100 }) {
+  if (store && (typeof scope !== "string" || !scope)) throw new TypeError("runTests: a store needs a scope; a test pass cannot be remembered without the commit and gate it belongs to");
   const byCrate = {}; const counts = { programs: 0, ran: 0, cached: 0, unreaped: 0 };
   if (!Array.isArray(executables)) {
     for (const c of crates) byCrate[c.name] = { result: "unknown", detail: "the test build's receipt listed no test programs", programs: 0, passed: 0, failed: 0, ignored: 0 };
@@ -114,7 +118,8 @@ export async function runTests({ executables, crates, env = process.env, jobs = 
   counts.programs = work.length;
   const runs = new Map(crates.map((c) => [c.name, []]));
   const one = async ({ exe, crate, args }) => {
-    const key = `test-${exe.sha256}-${crypto.createHash("sha256").update(args.join("\0")).digest("hex").slice(0, 12)}`;
+    const programEnv = { ...testProgramEnv(env, crate.assetGated === true), CARGO_MANIFEST_DIR: crate.dir };
+    const key = `test-${crypto.createHash("sha256").update(JSON.stringify({ v: 2, scope, crate: crate.name, program: exe.sha256, args, env: testKeyEnv(programEnv) })).digest("hex")}`;
     // After a program that is not proven stopped, no further program is started: it may still be using the shared build folder.
     if (counts.unreaped) { runs.get(crate.name).push({ ok: false, skipped: true, program: exe.target, detail: "not run: an earlier test program is not proven stopped" }); return; }
     const remembered = store?.get(key);
@@ -125,7 +130,7 @@ export async function runTests({ executables, crates, env = process.env, jobs = 
     if (!run && actual !== exe.sha256) run = { ok: false, program: exe.target, detail: "the program on disk is not the one the receipt lists (sha256 differs)" };
     if (!run) {
       counts.ran += 1;
-      const r = await runOne({ file: exe.path, args, cwd: crate.dir, env: { ...testProgramEnv(env, crate.assetGated === true), CARGO_MANIFEST_DIR: crate.dir }, timeoutMs, spawn, platform, stop, gone, record, reapMs, pollMs });
+      const r = await runOne({ file: exe.path, args, cwd: crate.dir, env: programEnv, timeoutMs, spawn, platform, stop, gone, record, reapMs, pollMs });
       if (r.unreaped) counts.unreaped += 1;
       const sum = libtestSummary(r.output);
       run = { ok: r.exit === 0, program: exe.target, args, passed: sum?.passed ?? 0, failed: sum?.failed ?? 0, ignored: sum?.ignored ?? 0, detail: r.exit === 0 ? "" : (r.error ?? `exit ${r.exit}${r.signal ? ` (${r.signal})` : ""}: ${r.output.slice(-1500)}`) };
