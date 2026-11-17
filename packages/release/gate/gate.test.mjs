@@ -773,3 +773,19 @@ test("a test program's summary is counted over its whole output, whatever follow
     assert.equal(named.byCrate.a.result, "passed"); assert.equal(named.byCrate.a.ignored, 1);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+test("test programs at once on the build-together path: cores minus 2, the same rule as the per-crate rows, and never more at a time", async () => {
+  const { testProgramsAtOnce } = await import("./tests.mjs");
+  const { testRunConcurrency } = await import("../deterministic-scans.mjs");
+  for (const cpus of [1, 2, 3, 8, 20, 64]) assert.equal(testProgramsAtOnce({ cpus }), testRunConcurrency({ cpus }), `cpus ${cpus}`);
+  assert.equal(testProgramsAtOnce({ cpus: 20 }), 18); assert.equal(testProgramsAtOnce({ cpus: 1 }), 1);
+  assert.equal(testProgramsAtOnce(), testRunConcurrency());
+  // The runner holds to the width it is given: with jobs 3 and 12 programs, never more than 3 are running.
+  const { EventEmitter } = await import("node:events");
+  let running = 0; let peak = 0;
+  const spawn = () => { running += 1; peak = Math.max(peak, running); const c = new EventEmitter(); c.pid = 1; c.stdout = new EventEmitter(); c.stderr = new EventEmitter(); setTimeout(() => { running -= 1; c.emit("close", 0, null); }, 5); return c; };
+  const names = Array.from({ length: 12 }, (_, i) => `c${i}`);
+  const r = await runTests({ executables: names.map((n) => ({ path: `/t/${n}`, sha256: "ab".repeat(32), package_id: `path+file:///s/crates/${n}#0.1.0`, target: n })), crates: names.map((name) => ({ name, dir: "/s" })), env: {}, jobs: 3, hashOf: () => "ab".repeat(32), spawn, record: (c) => c });
+  assert.equal(peak, 3); assert.equal(r.counts.ran, 12);
+  assert.match(fs.readFileSync(new URL("./tests.mjs", import.meta.url), "utf8"), /jobs = testProgramsAtOnce\(\),/);
+});

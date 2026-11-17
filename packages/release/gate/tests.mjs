@@ -138,6 +138,13 @@ function runOne({ file, args, cwd, env, timeoutMs, spawn, platform = process.pla
 }
 
 /**
+ * How many test programs run at once: the host's cores minus 2, at least 1. The same rule as the per-crate rows (deterministic-scans.mjs
+ * testRunConcurrency; ADR-001 C2, kept by Adrian 2026-11-02; a test keeps the two equal). Before this the build-together path started one
+ * program per core, and each program runs its own tests on as many threads as there are cores.
+ */
+export function testProgramsAtOnce({ cpus = os.cpus().length } = {}) { return Math.max(1, cpus - 2); }
+
+/**
  * Runs every listed program and returns { byCrate: { crate: { result: "passed"|"failed"|"unknown", detail, programs, passed, failed, ignored } }, counts: { programs, ran, cached, unreaped } }.
  * `executables`: the receipt list (null means the broker listed none: every crate in `crates` is unknown).
  * `crates`: [{ name, dir, quiet?: boolean, serialToo?: boolean, allowIgnored?: boolean, assetGated?: boolean }] the crates whose tests are owed; `dir` is the crate's directory in the snapshot.
@@ -149,7 +156,7 @@ function runOne({ file, args, cwd, env, timeoutMs, spawn, platform = process.pla
  * A program past `timeoutMs` is asked to stop as a tree and is always counted in `unreaped`; after that no further program starts.
  * Quiet crates run last, one program at a time. `serialToo` crates run a second time with one test thread.
  */
-export async function runTests({ executables, crates, env = process.env, jobs = Math.max(1, os.availableParallelism?.() ?? os.cpus().length), timeoutMs = 30 * 60 * 1000, store = null, scope = null, spawn = nodeSpawn, hashOf = sha256File, platform = process.platform, stop = stopTree, gone = treeGone, record = recordLockChild, reapMs = 15000, pollMs = 100 }) {
+export async function runTests({ executables, crates, env = process.env, jobs = testProgramsAtOnce(), timeoutMs = 30 * 60 * 1000, store = null, scope = null, spawn = nodeSpawn, hashOf = sha256File, platform = process.platform, stop = stopTree, gone = treeGone, record = recordLockChild, reapMs = 15000, pollMs = 100 }) {
   if (store && (typeof scope !== "string" || !scope)) throw new TypeError("runTests: a store needs a scope; a test pass cannot be remembered without the commit and gate it belongs to");
   const byCrate = {}; const counts = { programs: 0, ran: 0, cached: 0, unreaped: 0 };
   if (!Array.isArray(executables)) {
