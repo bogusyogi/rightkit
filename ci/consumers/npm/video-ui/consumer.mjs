@@ -72,6 +72,7 @@ try {
       assert.equal(typeof workspaceMod[key], 'function', `missing project list export ${key}`);
     }
     assert.equal(typeof workspaceMod.useVideoPhrases, 'function');
+    assert.equal(typeof workspaceMod.useVideoRetention, 'function');
     assert.deepEqual(workspaceMod.phraseHighlight('the Phrase here', 'phrase'), { before: 'the ', match: 'Phrase', after: ' here' });
     assert.equal(workspaceMod.phraseHighlight('the Phrase here', '  '), null);
     for (const key of appExpected) assert.ok(key in appMod, `missing app export ${key}`);

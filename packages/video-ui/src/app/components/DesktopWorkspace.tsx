@@ -336,7 +336,8 @@ export function DesktopWorkspace() {
             <RetentionView
               dir={dir}
               onChanged={refresh}
-              onExportRevised={() => setTab("exports")}
+              refreshChangedProject={refreshChangedProject}
+              onExportRevised={() => { if (isCurrentSelection()) setTab("exports"); }}
               preselectRender={retentionPreselect}
             />
           ) : tab === "assets" ? (

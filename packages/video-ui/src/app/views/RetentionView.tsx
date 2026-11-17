@@ -1,24 +1,9 @@
 // Retention — docs/design/app-ui.md §3.6. Audience-retention CSV bound to one
 // exact render; drop-offs become cut proposals applied as one revision.
 import { Badge, Button, Card, Checkbox, EmptyState, Field, PageShell, useToast } from "@rightkit/react-shell/react";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { errorMessage } from "../../lib/engine.js";
-import {
-  type DropOff,
-  type RenderFile,
-  type RetentionShow,
-  mediaScopeAllow,
-  rendersList,
-  retentionApply,
-  retentionImport,
-  retentionList,
-  retentionShow,
-} from "../../lib/media.js";
-import { assetUrl } from "../../lib/asset.js";
-import { pickFile } from "../lib/dialog.js";
+import { useState } from "react";
+import { type DropOff, useVideoRetention } from "../hooks/useVideoRetention.js";
 import { ErrorPanel, timecode, Icon } from "../ui/index.js";
-
-type RetentionRow = { name: string; render?: string; points: number; drop_offs?: number; revision?: number };
 
 /** Retention % line chart, inline SVG on tokens (spec §3.6). 160px tall. */
 function RetentionChart({ points, drops }: { points: { out_ms: number; retention: number }[]; drops: DropOff[] }) {
@@ -81,118 +66,24 @@ function RetentionChart({ points, drops }: { points: { out_ms: number; retention
 export function RetentionView({
   dir,
   onChanged,
+  refreshChangedProject,
   onExportRevised,
   preselectRender,
 }: {
   dir: string;
   onChanged: () => Promise<void>;
+  refreshChangedProject?: (dir: string) => Promise<void>;
   onExportRevised?: () => void;
   /** R5: Exports "Import retention…" routes here with this render preselected. */
   preselectRender?: string;
 }) {
   const toast = useToast();
-  const [renders, setRenders] = useState<RenderFile[]>([]);
-  const [imports, setImports] = useState<RetentionRow[]>([]);
-  const [active, setActive] = useState<RetentionShow | null>(null);
-  const [csv, setCsv] = useState("");
-  const [render, setRender] = useState("");
-  const [checked, setChecked] = useState<Set<string>>(new Set());
-  const [busy, setBusy] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const dirty = useRef(false);
-
-  const refresh = useCallback(async () => {
-    const [r, ret] = await Promise.all([rendersList(dir), retentionList(dir)]);
-    const mp4s = r.renders.filter((f) => f.name.endsWith(".mp4"));
-    setRenders(mp4s);
-    setImports(ret.retention);
-    setRender((cur) => cur || mp4s[0]?.name || "");
-  }, [dir]);
-
-  useEffect(() => {
-    refresh().catch((e) => setError(errorMessage(e)));
-  }, [refresh]);
-
-  // Route in from Exports with a specific render preselected.
-  useEffect(() => {
-    if (preselectRender) setRender(preselectRender);
-  }, [preselectRender]);
-
-  const open = useCallback(
-    async (name: string) => {
-      setBusy(`show-${name}`);
-      setError(null);
-      try {
-        const s = await retentionShow(dir, name);
-        setActive(s);
-        setChecked(new Set((s.drop_offs ?? []).map((d) => d.id)));
-      } catch (e) {
-        setError(errorMessage(e));
-      } finally {
-        setBusy(null);
-      }
-    },
-    [dir],
-  );
-
-  // Auto-open the newest import (but don't clobber the user's selection).
-  useEffect(() => {
-    if (!active && !dirty.current && imports.length > 0) {
-      void open(imports[imports.length - 1].name);
-    }
-  }, [imports, active, open]);
-
-  const doImport = async (text: string) => {
-    if (!text.trim() || !render) return;
-    setBusy("import");
-    setError(null);
-    try {
-      const r = await retentionImport(dir, text, render);
-      toast(`Imported ${r.points} retention points — ${r.drop_offs} drop-off proposals`, { kind: "success" });
-      setCsv("");
-      await refresh();
-      await open(r.name);
-    } catch (e) {
-      setError(errorMessage(e));
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const importFile = async () => {
-    const file = await pickFile("Import retention CSV", ["csv", "txt"]);
-    if (!file) return;
-    setBusy("import");
-    try {
-      await mediaScopeAllow([file]);
-      const text = await fetch(assetUrl(file)).then((r) => {
-        if (!r.ok) throw new Error(`could not read ${file}`);
-        return r.text();
-      });
-      await doImport(text);
-    } catch (e) {
-      setError(errorMessage(e));
-      setBusy(null);
-    }
-  };
-
-  const apply = async () => {
-    if (!active) return;
-    setBusy("apply");
-    setError(null);
-    try {
-      const res = await retentionApply(dir, active.name, [...checked]);
-      toast(`Applied ${res.cuts} cut${res.cuts === 1 ? "" : "s"} — re-export to deliver`, { kind: "success", action: onExportRevised ? { label: "Export revised", run: onExportRevised } : undefined });
-      dirty.current = true;
-      setActive(null);
-      await refresh();
-      await onChanged();
-    } catch (e) {
-      setError(errorMessage(e));
-    } finally {
-      setBusy(null);
-    }
-  };
+  const { renders, imports, active, csv, setCsv, render, setRender, checked, setDropChecked, busy, error, open, doImport, importFile, apply } = useVideoRetention({
+    dir, preselectRender, pickTitle: "Import retention CSV", readFileError: (file) => `could not read ${file}`,
+    refreshChangedProject: refreshChangedProject ?? (() => onChanged()),
+    onImported: (r) => toast(`Imported ${r.points} retention points — ${r.drop_offs} drop-off proposals`, { kind: "success" }),
+    onApplied: (res) => toast(`Applied ${res.cuts} cut${res.cuts === 1 ? "" : "s"} — re-export to deliver`, { kind: "success", action: onExportRevised ? { label: "Export revised", run: onExportRevised } : undefined }),
+  });
 
   const drops = active?.drop_offs ?? [];
 
@@ -200,7 +91,7 @@ export function RetentionView({
     <PageShell title="Retention" maxWidth={0} subtitle={"Audience drop-offs mapped onto your exports"}>
       <div className="retention-body">
         <div className="retention-controls">
-          <Field label="Export">{(ids) => (<select {...ids} className="rk-input cr-select" value={render} onChange={(e) => setRender(e.target.value)}>
+          <Field label="Export">{(ids) => (<select {...ids} className="rk-input cr-select" value={render} disabled={busy !== null} onChange={(e) => setRender(e.target.value)}>
               {renders.length === 0 && <option value="">No exports yet</option>}
               {renders.map((r) => (
                 <option key={r.path} value={r.name}>
@@ -223,7 +114,7 @@ export function RetentionView({
           <Button
             variant="secondary"
             onClick={() => void doImport(csv)}
-            disabled={(!csv.trim() || !render) || (busy === "import")}
+            disabled={(!csv.trim() || !render) || (busy !== null)}
             aria-busy={(busy === "import") || undefined}
           >
             {busy === "import" ? "Importing…" : "Import"}
@@ -235,7 +126,7 @@ export function RetentionView({
         {imports.length > 0 && (
           <div className="retention-imports">
             {imports.map((r) => (
-              <Button variant="ghost" size="sm" className="cr-chip-btn" key={r.name} onClick={() => void open(r.name)} title={`${r.points} points${r.drop_offs != null ? ` · ${r.drop_offs} drop-offs` : ""}`}><Badge
+              <Button variant="ghost" size="sm" className="cr-chip-btn" key={r.name} disabled={busy !== null} onClick={() => void open(r.name)} title={`${r.points} points${r.drop_offs != null ? ` · ${r.drop_offs} drop-offs` : ""}`}><Badge
                 tone={active?.name === r.name ? "accent" : "neutral"}
               >
                 {r.name}
@@ -269,14 +160,7 @@ export function RetentionView({
                 key={d.id}
                 className="retention-drop"
                 checked={checked.has(d.id)}
-                onChange={(checked) =>
-                  setChecked((s) => {
-                    const n = new Set(s);
-                    if (checked) n.add(d.id);
-                    else n.delete(d.id);
-                    return n;
-                  })
-                }
+                onChange={(checked) => setDropChecked(d.id, checked)}
                 label={
                   <span style={{ display: "flex", alignItems: "center", gap: "var(--s3)" }}>
                     <span className="cr-mono cr-muted">
@@ -295,7 +179,7 @@ export function RetentionView({
               <Button
                 variant="primary"
                 onClick={() => void apply()}
-                disabled={(checked.size === 0 || active.stale) || (busy === "apply")}
+                disabled={(checked.size === 0 || active.stale) || (busy !== null)}
                 aria-busy={(busy === "apply") || undefined}
               >
                 {busy === "apply" ? "Applying…" : <>Apply {checked.size} cut{checked.size === 1 ? "" : "s"}</>}

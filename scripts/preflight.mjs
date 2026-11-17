@@ -308,6 +308,7 @@ const SHARED_BEHAVIOR = new Set([
   "packages/video-ui/src/app/hooks/useVideoHome.ts",
   "packages/video-ui/src/app/hooks/useVideoPhrases.ts",
   "packages/video-ui/src/app/hooks/useVideoProjects.ts",
+  "packages/video-ui/src/app/hooks/useVideoRetention.ts",
   "packages/video-ui/src/app/hooks/useVideoWorkspace.ts",
   "packages/video-ui/src/app/lib/progressViewModel.ts",
   "packages/video-ui/src/workspace.ts",
