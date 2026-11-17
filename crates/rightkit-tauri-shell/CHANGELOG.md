@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.8.3
+
+- Added a fallible, retryable legacy legal receipt importer that retains well-formed historical receipts without treating them as current acceptance.
+
 ## 0.8.2
 
 - New: `windows::route_new_windows_with(window, handler)`, the per-window form of `route_new_windows` for an app that sets no app-wide `on_new_window` hook because its windows route differently (ViewRight: the main window opens `target=_blank` links as tabs, the HTML inspector leaves them to the system browser). Additive.

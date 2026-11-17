@@ -34,6 +34,8 @@ Mismatched `wv2` features put two copies of `windows` or `webview2-com` beside T
 
 With `host-services` (and `license`, `update`, `logs`, `models`, `pdf-host`, `crash` as needed), the shell registers settings, API-key, legal-receipt, licence, update, log, model, PDF and renderer-error commands. An app lists them through `rightkit_tauri_shell::handler![...]`, and the installed host caller policy decides which windows may call them. Until the app installs the service it needs, its commands answer `permission_denied` or `unsupported`.
 
+`LegalReceiptService::with_fallible_legacy_import` accepts an app-bound reader returning `Result<Option<LegalRecord>, HostError>`. It retries read or native-store failures, imports a well-formed historical record atomically when the native document is missing, and reports it as historical unless version and document hash match the current manifest. The caller verifies the legacy source belongs to the app; an existing native document wins.
+
 The native updater verifies minisign signatures, accepts only https URLs with no redirects, refuses downgrades, and ties each update to the licence binding captured at check. Licence views never carry a token. The shell's own `rk_shell_*` commands are checked against the caller policy only after the app enables `HostServicesBuilder::guard_shell_commands`. Full list and file references: `CHANGELOG.md`, 0.5.0.
 
 ## Platform support

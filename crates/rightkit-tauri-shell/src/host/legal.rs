@@ -450,6 +450,8 @@ impl LegalReceiptStore for DocumentReceiptStore {
 
 /// A legacy receipt, read from wherever the app used to keep it and mapped to a [`LegalRecord`].
 pub type LegacyImporter = Arc<dyn Fn() -> Option<LegalRecord> + Send + Sync>;
+/// An app-bound legacy reader whose transient failures must be retried on the next read.
+pub type FallibleLegacyImporter = Arc<dyn Fn() -> Result<Option<LegalRecord>, HostError> + Send + Sync>;
 
 /// The native legal receipt service. Register it with
 /// `HostServicesBuilder::service(ServiceId::LEGAL, trust, service)` ([`HostServicesBuilder::legal`]).
@@ -460,6 +462,7 @@ pub struct LegalReceiptService {
     store: Box<dyn LegalReceiptStore>,
     clock: Arc<dyn LegalClock>,
     legacy: Option<LegacyImporter>,
+    retryable_legacy: Option<FallibleLegacyImporter>,
     import_tried: AtomicBool,
     /// One writer at a time: a `create` and a `reset` never interleave.
     gate: Mutex<()>,
@@ -483,6 +486,7 @@ impl LegalReceiptService {
             store: Box::new(store),
             clock: Arc::new(SystemLegalClock),
             legacy: None,
+            retryable_legacy: None,
             import_tried: AtomicBool::new(false),
             gate: Mutex::new(()),
         }
@@ -500,6 +504,18 @@ impl LegalReceiptService {
         importer: impl Fn() -> Option<LegalRecord> + Send + Sync + 'static,
     ) -> Self {
         self.legacy = Some(Arc::new(importer));
+        self.retryable_legacy = None;
+        self
+    }
+
+    /// Import an app-bound legacy record, retaining historical versions without granting them.
+    /// The reader must verify the source belongs to this app. Errors are retried on the next read.
+    pub fn with_fallible_legacy_import(
+        mut self,
+        importer: impl Fn() -> Result<Option<LegalRecord>, HostError> + Send + Sync + 'static,
+    ) -> Self {
+        self.legacy = None;
+        self.retryable_legacy = Some(Arc::new(importer));
         self
     }
 
@@ -538,6 +554,30 @@ impl LegalReceiptService {
             } else {
                 None
             });
+        }
+        if let Some(importer) = &self.retryable_legacy {
+            if self.import_tried.load(Ordering::SeqCst) {
+                return Ok(None);
+            }
+            let mut failure = None;
+            let imported = self.store.import_once(&mut || match importer() {
+                Ok(record) => record.filter(LegalRecord::is_well_formed),
+                Err(error) => {
+                    failure = Some(error);
+                    None
+                }
+            })?;
+            if let Some(error) = failure {
+                return Err(error);
+            }
+            self.import_tried.store(true, Ordering::SeqCst);
+            return Ok(imported.filter(LegalRecord::is_well_formed).map(|record| {
+                if self.matches_manifest(&record) {
+                    LegalRead::Current(record)
+                } else {
+                    LegalRead::Historical { record, current: false }
+                }
+            }));
         }
         let Some(importer) = &self.legacy else {
             return Ok(None);
