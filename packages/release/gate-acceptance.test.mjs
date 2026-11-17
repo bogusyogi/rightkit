@@ -996,3 +996,13 @@ test("release check: a receipt must carry exactly the contract's non-negotiables
   assert.match(verifyReleaseReceipts(receipt({ ...all, NN07: "fail" })).problems.join(" | "), /NN07 is fail/);
   assert.match(verifyReleaseReceipts(receipt(null)).problems.join(" | "), /missing NN01/);
 });
+
+test("contract-nn.json, which the installer reads from a sealed gate, is exactly the contract test's rule list and ships in the package", async () => {
+  const { NN_ALL_IDS } = await import("./gate-acceptance.mjs");
+  const listed = JSON.parse(fs.readFileSync(new URL("./contract-nn.json", import.meta.url), "utf8"));
+  assert.deepEqual(listed, { schema: "rightkit.contract-nn/1", ids: [...NN_ALL_IDS] });
+  assert.equal(new Set(listed.ids).size, listed.ids.length);
+  for (const id of listed.ids) assert.match(id, /^NN\d+$/);
+  const files = JSON.parse(fs.readFileSync(new URL("./package.json", import.meta.url), "utf8")).files;
+  assert.ok(files.includes("*.json") && files.includes("*.mjs") && files.includes("gate"), "the package must carry contract-nn.json, gate-acceptance.mjs and gate/");
+});
