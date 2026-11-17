@@ -1646,7 +1646,7 @@
       },
       "files": {
         "ci/consumers/npm/mail-ui/README.md": "cd4d361cbdae6c78311945d184a25779c9c05e5938aaa72a6bf6719122c8dfd2",
-        "ci/consumers/npm/mail-ui/consumer.mjs": "c66fbc0c8aa1703308fedb2a6c8c1a2e78afe954038c72c993aec03a06341345",
+        "ci/consumers/npm/mail-ui/consumer.mjs": "4dce40eb44d5be9fb556cc5ed1d33380178a74926d7d55a6e8b9dd217d4d08b5",
         "ci/consumers/npm/mail-ui/package.json": "544112e3d934d15ece73936de8179acaf5686f96b75e635be677ddae2bf570b0",
         "ci/consumers/npm/mail-ui/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "fc160695e1dc97dc7e32e746c9e4471e2d85168b097623de818befeb00ee438c"

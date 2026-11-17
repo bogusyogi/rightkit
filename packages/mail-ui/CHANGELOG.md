@@ -5,6 +5,7 @@
 - Export the sidebar interaction model used by the existing Sidebar. Hosts can compose label trees, collapse and saved searches, selection and drag targets with their own presentation.
 - Export compose settings behavior from `@rightkit/mail-ui/compose-settings`. Hosts supply outbox, signature and snippet presentation.
 - Export storage status and confirmed compaction behavior from `@rightkit/mail-ui/storage-settings`. Hosts supply the confirmation and result presentation.
+- Configure appearance with host-owned presets, fonts and storage keys before the mail store starts. Replace the old product palette and theme exports with `configureMailAppearance`.
 
 ## 0.2.1
 

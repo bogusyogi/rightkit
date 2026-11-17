@@ -18,6 +18,7 @@ import { createFields } from "./fields.js";
 import { uiActions } from "./actions/ui.js";
 import { composeActions } from "./actions/compose.js";
 import { mailActions } from "./actions/mail.js";
+import { subscribeThemeChoice } from "../lib/theme.js";
 
 export { APP_OF, UNDO_TOAST_MS } from "./types.js";
 export type { AppState, BulkAction, View } from "./types.js";
@@ -33,13 +34,21 @@ export const composeEditorRef: { current: ComposeEditorHandle | null } = { curre
 // reads preferences. The exported hook keeps zustand's whole API (call it as a hook, or getState/setState/subscribe).
 type AppStore = UseBoundStore<StoreApi<AppState>>;
 let store: AppStore | null = null;
-const appStore = (): AppStore =>
-  (store ??= create<AppState>((set, get) => ({
+const appStore = (): AppStore => {
+  if (store) return store;
+  const created = create<AppState>((set, get) => ({
     ...createFields(set),
     ...uiActions(set, get),
     ...composeActions(get),
     ...mailActions(get),
-  })));
+  }));
+  subscribeThemeChoice((id) => {
+    const state = created.getState();
+    if (state.themeChoice !== id) state.setThemeChoice(id);
+  });
+  store = created;
+  return created;
+};
 
 export const useAppStore = new Proxy(function useAppStore() {} as unknown as AppStore, {
   apply: (_target, _this, args: Parameters<AppStore>) => (appStore() as (...a: unknown[]) => unknown)(...args),

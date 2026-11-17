@@ -299,6 +299,7 @@ function generatedDocs({ root, files }) {
 // APP-BOUNDARY.md: behavior modules extracted from the legacy desktop wrappers
 // must remain usable without product copy, visual tokens or a rendered layout.
 const SHARED_BEHAVIOR = new Set([
+  "packages/mail-ui/src/lib/theme.ts",
   "packages/mail-ui/src/views/useComposeSettingsModel.ts",
   "packages/mail-ui/src/views/useSidebarModel.ts",
   "packages/mail-ui/src/views/useStorageSettingsModel.ts",

@@ -85,7 +85,44 @@ try {
       assert.equal(row.scope, 'me@example.com');
       assert.equal(row.account_id, 'me@example.com');
     }
-    return { checked: expected, exportKeys: surface.length, providerSuppliesHost: true, agentWires: 2 };
+    const storage = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+    const values = new Map([['fixture.mode', 'custom-light'], ['fixture.font', 'custom-font']]);
+    Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: {
+      getItem: key => values.get(key) ?? null,
+      setItem: (key, value) => {
+        if (key === 'fixture.preset') throw new Error('preset write refused');
+        values.set(key, value);
+      },
+    } });
+    try {
+      await mod.initPreferences({ load: async () => ({ revision: 0, values: {} }) });
+      const { themeStore, bootTheme } = mod.configureMailAppearance({
+        presets: [{ id: 'base-dark', mode: 'dark', tokens: {} }, { id: 'custom-light', mode: 'light', tokens: {} }],
+        fonts: [{ id: 'base-font', stack: 'sans-serif' }, { id: 'custom-font', stack: 'serif' }],
+        defaults: { dark: 'base-dark', light: 'custom-light', font: 'base-font' },
+        storageKeys: { mode: 'fixture.mode', preset: 'fixture.preset', font: 'fixture.font' },
+      });
+      try {
+        bootTheme();
+        assert.equal(themeStore.read(), 'light');
+        assert.equal(mod.useAppStore.getState().themeChoice, 'custom-light');
+        assert.equal(mod.useAppStore.getState().fontChoice, 'custom-font');
+        assert.equal(values.get('fixture.mode'), 'custom-light', 'failed migration must preserve the legacy value');
+        themeStore.save('dark');
+        assert.equal(themeStore.read(), 'dark');
+        assert.equal(mod.useAppStore.getState().themeChoice, 'base-dark');
+        mod.useAppStore.getState().pickTheme('auto');
+        assert.equal(themeStore.read(), 'system');
+        assert.equal(mod.useAppStore.getState().themeChoice, 'auto');
+        assert.equal(values.get('fixture.mode'), 'custom-light', 'failed saves must leave the prior persisted choice intact');
+      } finally {
+        themeStore.dispose();
+      }
+    } finally {
+      if (storage) Object.defineProperty(globalThis, 'localStorage', storage);
+      else delete globalThis.localStorage;
+    }
+    return { checked: expected, exportKeys: surface.length, providerSuppliesHost: true, agentWires: 2, hostAppearanceChoices: true };
   });
 
   assert.equal(result.scenarios.length, 1);

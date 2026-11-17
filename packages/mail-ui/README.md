@@ -5,7 +5,7 @@ Mail client UI: inbox, reader, compose editor, recipients, attachments, account 
 | Item | Value |
 |---|---|
 | Where it runs | App webview UI (React) |
-| Version | 0.2.1 |
+| Version | 0.2.2 |
 | License | MIT OR Apache-2.0 |
 
 ## Entry points
@@ -36,6 +36,10 @@ rendering.
 ## Sidebar behavior
 
 Import `useSidebarModel`, `buildLabelTree` and `SidebarModelOptions` from `@rightkit/mail-ui/sidebar` to compose a sidebar without importing the legacy view. The host supplies presentation, storage and transfer decoding.
+
+## Appearance
+
+Call `configureMailAppearance` once, alongside `initPreferences` and before any use of the shared mail store. Pass the host's presets, fonts, default IDs and storage keys. Apply the returned `bootTheme` before rendering and pass the returned `themeStore` to the shell. Keep preset names and picker presentation in the host. The shared store handles saved choices, legacy migration, system changes and native window appearance.
 
 ## Workspace views
 

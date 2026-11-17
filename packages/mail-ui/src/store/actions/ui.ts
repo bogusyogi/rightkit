@@ -1,6 +1,6 @@
 // UI/shell store actions: the undo toast, the generic busy-wrapped runner, theme
 // + font pickers, and the hidden-labels toggle.
-import { setThemeChoice, applyFont, saveFontChoice } from "../../lib/theme.js";
+import { setThemeChoice, setFontChoice } from "../../lib/theme.js";
 import { setPref } from "../../lib/preferences.js";
 import type { AppState } from "../types.js";
 import { UNDO_TOAST_MS } from "../types.js";
@@ -40,14 +40,9 @@ export function uiActions(set: StoreSet, get: StoreGet): UiActions {
         s.setBusy(null);
       }
     },
-    pickTheme: (id) => {
-      setThemeChoice(id);
-      get().setThemeChoice(id);
-    },
+    pickTheme: setThemeChoice,
     pickFont: (id) => {
-      applyFont(id);
-      saveFontChoice(id);
-      get().setFontChoice(id);
+      get().setFontChoice(setFontChoice(id));
     },
     toggleLabelHidden: (id) => {
       get().setHiddenLabels((prev) => {

@@ -13,6 +13,17 @@
       "extensions": [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".mts", ".cts", ".css"]
     },
     {
+      "id": "mail-appearance-behavior",
+      "root": "packages/mail-ui/src",
+      "from": {
+        "include": ["lib/theme.ts"]
+      },
+      "forbid": {
+        "include": ["**/*.tsx", "**/*.jsx", "**/*.css"]
+      },
+      "extensions": [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".mts", ".cts", ".css"]
+    },
+    {
       "id": "video-workspace-behavior",
       "root": "packages/video-ui/src",
       "from": {
