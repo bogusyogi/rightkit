@@ -294,6 +294,8 @@ export interface OnboardingProps {
   signIn?: SignInBackend;
   /** The document set declared to `legalReceipt.create`. Default: the gate's documents as `{ title, url }`. */
   receiptDocuments?: readonly DeclaredLegalDocument[];
+  /** Awaited after acceptance is saved, for both first acceptance and re-acceptance. Callback errors are reported without undoing acceptance. */
+  onLegalAccepted?: (record: LegalAcceptanceRecord, reacceptance: boolean) => void | Promise<void>;
   /** Called once when setup finishes, with the completed and skipped step ids and the step results. */
   onComplete: (result: OnboardingResult) => void | Promise<void>;
   onSkip?: () => void | Promise<void>;

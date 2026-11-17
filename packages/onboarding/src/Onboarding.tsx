@@ -151,7 +151,7 @@ function NoticeList({ documents }: { documents: readonly LegalGateDocument[] }) 
   return <ul className="rk-onboarding__notices">{documents.map((d) => <li key={d.title}>{d.onOpen ? <button type="button" onClick={d.onOpen}>{d.title}</button> : d.url ? <a href={d.url} target="_blank" rel="noreferrer">{d.title}</a> : d.title}</li>)}</ul>;
 }
 
-export function Onboarding({ settings, legal, legalMode = "gate", appName, steps = [], permissions, models, license, signIn, receiptDocuments, onComplete, onSkip, className, layout = "window", requiredVersion, requiredDocumentsHash, isAccepted, documentsHash, beforeLegalGate, requireModel, autoStartDownload, shouldAutoStart, onModelsStepEnter, modelsIntro, allowSkip = true, titlebar, dragRegion, legalDragRegion = false, legalReceipt, labels: labelOverrides, frame = "rail", density = "default", trafficLightInset = false }: OnboardingProps) {
+export function Onboarding({ settings, legal, legalMode = "gate", appName, steps = [], permissions, models, license, signIn, receiptDocuments, onLegalAccepted, onComplete, onSkip, className, layout = "window", requiredVersion, requiredDocumentsHash, isAccepted, documentsHash, beforeLegalGate, requireModel, autoStartDownload, shouldAutoStart, onModelsStepEnter, modelsIntro, allowSkip = true, titlebar, dragRegion, legalDragRegion = false, legalReceipt, labels: labelOverrides, frame = "rail", density = "default", trafficLightInset = false }: OnboardingProps) {
   if (legalMode === "gate" && !legal) throw new Error("Onboarding: `legal` is required when legalMode is \"gate\"");
   const L: OnboardingLabels = { ...DEFAULT_LABELS, ...labelOverrides };
   const gated = legalMode === "gate";
@@ -167,6 +167,8 @@ export function Onboarding({ settings, legal, legalMode = "gate", appName, steps
   /** Values passed to `ctx.setResult`, keyed by step id; handed to `onComplete`. */
   const stepResults = useRef<Record<string, unknown>>({});
   const [continuing, setContinuing] = useState(false);
+  const [legalCallbackPending, setLegalCallbackPending] = useState(false);
+  const legalCallbackLock = useRef(false);
   /** A receipt the native service already created for this agreement when saving the settings failed; a retry reuses it instead of stamping a second one. */
   const createdReceipt = useRef<{ key: string; record: LegalAcceptanceRecord } | null>(null);
   /** Persists a patch; throws when the settings backend rejects it. */
@@ -284,6 +286,7 @@ export function Onboarding({ settings, legal, legalMode = "gate", appName, steps
     frame === "card" && "rk-onboarding--card",
     className,
   );
+  if (legalCallbackPending && !needsGate) return <div className={rootClass} aria-busy="true"><TitleStrip titlebar={titlebar} dragRegion={legalDragRegion} /><p className="rk-onboarding__muted">{L.loading}</p></div>;
   if (error && !state) return <div className={rootClass}><p className="rk-onboarding__error" role="alert">{error}</p><Button onClick={() => window.location.reload()}>Retry</Button></div>;
   if (state && !active) return <main className={rootClass} data-testid="onboarding"><p className="rk-onboarding__muted">Nothing to set up.</p><Button variant="primary" onClick={() => void runCallback(() => onComplete(resultOf(activeState.completed, activeState.skippedSteps ?? [])))}>{L.finish}</Button></main>;
   if (!state || !active) return <div className={rootClass} aria-busy="true"><p className="rk-onboarding__muted">{L.loading}</p></div>;
@@ -295,6 +298,9 @@ export function Onboarding({ settings, legal, legalMode = "gate", appName, steps
     const recordAcceptance = async (gate: LegalStepConfig, basis: EligibilityBasis): Promise<LegalAcceptanceRecord> => {
       const version = requiredVersion ?? "1";
       const hash = documentsHash ?? requiredDocumentsHash ?? await hashDocuments(gate.documents);
+      if (onLegalAccepted && requiredDocumentsHash !== undefined && hash !== requiredDocumentsHash) {
+        throw new Error("The legal receipt does not match the agreement that was shown.");
+      }
       if (legalReceipt?.create) {
         // Native path: the service stamps the time and stores the receipt; nothing is built in the renderer.
         const key = [version, hash, basis].join("\n");
@@ -311,6 +317,7 @@ export function Onboarding({ settings, legal, legalMode = "gate", appName, steps
       }
       // LEGACY: the renderer builds the record with the webview clock. Deprecated; implement `legalReceipt.create`.
       const record: LegalAcceptanceRecord = { version, documentsHash: hash, acceptedAt: new Date().toISOString(), eligibilityBasis: basis };
+      if (onLegalAccepted && !readAcceptance(record)) throw new Error("The legal acceptance record is invalid.");
       if (legalReceipt) {
         if (!legalReceipt.write) throw new Error("The legal receipt can neither create nor write an acceptance.");
         await legalReceipt.write(record);
@@ -318,12 +325,19 @@ export function Onboarding({ settings, legal, legalMode = "gate", appName, steps
       return record;
     };
     return <div className={cx("rk-onboarding rk-onboarding--legal", layout === "contained" && "rk-onboarding--contained", className)} data-testid="onboarding-legal" data-variant={reacceptance ? "re-acceptance" : "first-run"}><TitleStrip titlebar={titlebar} dragRegion={legalDragRegion} /><LegalGate {...legal} layout={layout} variant={reacceptance ? "re-acceptance" : "first-run"} onQuit={() => void legal.onQuit?.()} onAgree={async ({ eligibilityBasis }) => {
-      let legalAcceptance: LegalAcceptanceRecord;
-      try { legalAcceptance = await recordAcceptance(legal, eligibilityBasis); } catch (e) { setError(e instanceof Error ? e.message : String(e)); throw e; }
-      const progress = reacceptance ? {} : { completed: ["legal"], currentStep: builtins.length > 1 ? 1 : 0 };
-      await persist({ legalAccepted: true, legalReopened: false, eligibilityBasis, legalAcceptance, ...progress });
-      createdReceipt.current = null;
-      if (!reacceptance && builtins.length === 1) await onComplete(resultOf(["legal"], []));
+      if (onLegalAccepted && legalCallbackLock.current) return;
+      if (onLegalAccepted) { legalCallbackLock.current = true; setLegalCallbackPending(true); }
+      try {
+        let legalAcceptance: LegalAcceptanceRecord;
+        try { legalAcceptance = await recordAcceptance(legal, eligibilityBasis); } catch (e) { setError(e instanceof Error ? e.message : String(e)); throw e; }
+        const progress = reacceptance ? {} : { completed: ["legal"], currentStep: builtins.length > 1 ? 1 : 0 };
+        await persist({ legalAccepted: true, legalReopened: false, eligibilityBasis, legalAcceptance, ...progress });
+        createdReceipt.current = null;
+        if (onLegalAccepted) await runCallback(() => onLegalAccepted(legalAcceptance, reacceptance));
+        if (!reacceptance && builtins.length === 1) await onComplete(resultOf(["legal"], []));
+      } finally {
+        if (onLegalAccepted) { legalCallbackLock.current = false; setLegalCallbackPending(false); }
+      }
     }} /></div>;
   }
   const body: ReactNode = active.render(context);

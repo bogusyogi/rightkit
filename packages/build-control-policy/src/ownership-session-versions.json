@@ -43,7 +43,7 @@
     "@rightkit/markdown-editor": "0.2.0",
     "@rightkit/media-gen-ui": "0.2.1",
     "@rightkit/media-ui": "0.3.6",
-    "@rightkit/onboarding": "0.6.5",
+    "@rightkit/onboarding": "0.6.6",
     "@rightkit/outdated": "0.3.1",
     "@rightkit/pdf-ui": "0.3.1",
     "@rightkit/platform-ui": "0.4.1",
@@ -220,7 +220,8 @@
       "0.6.0",
       "0.6.1",
       "0.6.2",
-      "0.6.3"
+      "0.6.3",
+      "0.6.5"
     ],
     "@rightkit/pdf-ui": [
       "0.1.0",

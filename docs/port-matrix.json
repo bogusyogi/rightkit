@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generatedAt": "2026-11-17T02:35:50Z",
-  "rightkitHead": "d42fd46",
+  "generatedAt": "2026-11-17T02:42:19Z",
+  "rightkitHead": "e52d8a5",
   "legend": [
     {
       "state": "current",
@@ -2642,7 +2642,7 @@
       "group": "mandatory-set app",
       "dir": "D:\\Claude\\mailright",
       "present": true,
-      "head": "2b05f8e",
+      "head": "224e3d2",
       "profile": "desktop",
       "inMandatorySet": true,
       "declaration": {
@@ -3971,7 +3971,7 @@
       "group": "mandatory-set app",
       "dir": "D:\\Claude\\scraperight",
       "present": true,
-      "head": "e799768",
+      "head": "d51393d",
       "profile": "desktop",
       "inMandatorySet": true,
       "declaration": {
@@ -7638,9 +7638,9 @@
         "onboarding-ui"
       ],
       "private": false,
-      "source": "0.6.5",
+      "source": "0.6.6",
       "registry": "0.6.5",
-      "staged": "0.6.5",
+      "staged": "0.6.6",
       "dir": "packages/onboarding",
       "toMoveFrom": {},
       "cells": {

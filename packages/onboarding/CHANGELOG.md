@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.6
+
+- Added optional `onLegalAccepted`, awaited after a first acceptance or re-acceptance is saved. It receives the acceptance record and re-acceptance flag; callback failures are reported without undoing the saved acceptance.
+
 ## 0.6.5
 
 - Fixed: the rail frame's "Step n of N" eyebrow counts the steps the user sees. In gate mode the hidden Agreement stand-in was counted, so the first setup step read "Step 2 of 9" instead of "Step 1 of 8". Apps that drew their own label to hide the eyebrow can drop it.
