@@ -102,3 +102,43 @@ export function verifyProvenanceSignature(receipt, pins, jobId) {
   if (typeof jobId !== "string" || payload.jobId !== jobId || receipt.id !== jobId) refuse("job", "the receipt is for another job");
   return payload;
 }
+
+// ---- the publication claim (rustright GB-104; loop matrix G27) ---------------------------------------------------------------------------------
+// Beside the full envelope the broker signs a second, small payload made to leave the host: nothing in it names a path or an environment variable.
+// It is signed with the same key over its own first line, so a claim can never be passed off as a full envelope or the reverse.
+export const PUBLICATION_CLAIM_SCHEMA = "rustright.publication-claim.v1";
+export const PUBLICATION_CLAIM_DOMAIN = "rustright-publication-claim-v1";
+/** The exact bytes the broker signs for a publication claim's payload. */
+export function claimSignedBytes(payload) {
+  return Buffer.from(`${PUBLICATION_CLAIM_DOMAIN}\n${canonicalJson(payload)}`, "utf8");
+}
+const CLAIM_KEYS = ["broker", "command", "gate", "host", "jobId", "keyId", "nonce", "payloadSha256", "result", "schema"];
+/**
+ * Verifies `doc.publication` ({ schema, payload, signature }) against the pins the caller holds and the job it expects; `doc` is { id, publication }.
+ * Fails closed with a ProvenanceError and returns the signed payload. The payload may carry exactly the agreed fields and nothing else: a claim
+ * with any other key is refused, so nothing private can ride along under a valid signature.
+ */
+export function verifyPublicationClaim(doc, pins, jobId) {
+  const claim = doc?.publication;
+  if (!isRecord(claim)) refuse("legacy", "the job has no publication claim (its broker makes none)");
+  if (claim.schema !== PUBLICATION_CLAIM_SCHEMA) refuse("schema", "unknown publication claim schema");
+  const payload = claim.payload; const signature = claim.signature;
+  if (!isRecord(payload)) refuse("malformed", "payload is missing");
+  if (!isRecord(signature)) refuse("malformed", "signature is missing");
+  if (payload.schema !== PUBLICATION_CLAIM_SCHEMA) refuse("schema", "the signed payload is not a publication claim");
+  const extra = Object.keys(payload).filter((k) => !CLAIM_KEYS.includes(k));
+  if (extra.length) refuse("malformed", `the claim carries fields it may not: ${extra.slice(0, 6).join(", ")}`);
+  if (signature.alg !== "ES256") refuse("alg", "signature algorithm must be ES256");
+  if (!isRecord(pins) || typeof pins.publicKey !== "string" || !HEX.test(pins.publicKey)) refuse("pin", "pinned public key is not hex");
+  if (sha256Hex(Buffer.from(pins.publicKey, "hex")) !== pins.keyId) refuse("pin", "pinned key id does not match the pinned public key");
+  if (signature.keyId !== pins.keyId || payload.keyId !== pins.keyId) refuse("key", "the claim was not signed by the pinned key");
+  const key = keyFromSec1(pins.publicKey);
+  if (typeof signature.value !== "string" || !/^[0-9a-fA-F]+$/.test(signature.value) || signature.value.length !== 128) refuse("signature", "signature is not 64 bytes r||s in hex");
+  let good = false;
+  try { good = verify("sha256", claimSignedBytes(payload), { key, dsaEncoding: "ieee-p1363" }, Buffer.from(signature.value, "hex")); } catch (error) { if (error instanceof ProvenanceError) throw error; }
+  if (!good) refuse("signature", "signature does not verify");
+  if (payload.host !== pins.host) refuse("host", "signed for another host");
+  if (payload.broker?.brokerDigest !== pins.brokerDigest) refuse("runtime", "signed by another broker runtime");
+  if (typeof jobId !== "string" || payload.jobId !== jobId || doc.id !== jobId) refuse("job", "the claim is for another job");
+  return payload;
+}

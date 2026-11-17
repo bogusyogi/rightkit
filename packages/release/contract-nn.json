@@ -19,8 +19,33 @@
     "snapshot.mjs"
   ],
   "signedSteps": [
-    "S11",
     "S12"
+  ],
+  "signedLaunches": [
+    {
+      "label": "S12:crate",
+      "commands": [
+        "clippy",
+        "test",
+        "build",
+        "check",
+        "doc"
+      ],
+      "exitCode": 0,
+      "commit": "any"
+    },
+    {
+      "label": "S12:manifest",
+      "commands": [
+        "clippy",
+        "test",
+        "build",
+        "check",
+        "doc"
+      ],
+      "exitCode": 0,
+      "commit": "any"
+    }
   ],
   "ids": [
     "NN01",

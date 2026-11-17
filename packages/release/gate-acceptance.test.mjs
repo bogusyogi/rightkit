@@ -1010,7 +1010,14 @@ test("contract-nn.json, which the installer reads from a sealed gate, is exactly
   // The sealed list of the runner's files, names only: the installer requires a receipt to name exactly these and hashes the sealed copies itself,
   // so a receipt that leaves a file out is refused. The list is computed here, from the imports, not taken from any receipt.
   assert.deepEqual(listed.runnerFiles, runnerFileHashes().map((f) => f.name), "the runner's imports changed: write the new list into packages/release/contract-nn.json (runnerFiles)");
-  assert.deepEqual(Object.keys(listed), ["schema", "contractSha256", "budgetsSha256", "runnerFiles", "signedSteps", "ids"]);
+  assert.deepEqual(Object.keys(listed), ["schema", "contractSha256", "budgetsSha256", "runnerFiles", "signedSteps", "signedLaunches", "ids"]);
+  // The launches a verifier requires signed jobs in, with what each must show, sealed with the gate so a receipt cannot choose them. Each is a
+  // real launch of the runner, and it is a launch that compiles: the cold run (S11) stops before anything runs and is deliberately not here.
+  { const { CONTRACT_SIGNED_LAUNCHES } = await import("./gate-acceptance.mjs"); const src = fs.readFileSync(new URL("./gate-acceptance.mjs", import.meta.url), "utf8");
+    assert.deepEqual(listed.signedLaunches, CONTRACT_SIGNED_LAUNCHES.map((l) => ({ label: l.label, commands: [...l.commands], exitCode: l.exitCode, commit: l.commit })));
+    assert.deepEqual(listed.signedLaunches.map((l) => l.label), ["S12:crate", "S12:manifest"]);
+    for (const l of listed.signedLaunches) { assert.match(src, new RegExp(`doRun\\(\\{ label: "${l.label}", stage: "compile",`), `${l.label} is a compile launch of the runner`); assert.ok(listed.signedSteps.includes(l.label.split(":")[0])); }
+    assert.equal(listed.signedSteps.includes("S11"), false); }
   // The steps a verifier requires signed broker jobs in, sealed with the gate so a receipt cannot choose them; each is a real step of the test.
   { const { CONTRACT_SIGNED_STEPS, STEPS } = await import("./gate-acceptance.mjs"); assert.deepEqual(listed.signedSteps, [...CONTRACT_SIGNED_STEPS]); assert.ok(listed.signedSteps.length > 0); for (const id of listed.signedSteps) assert.ok(STEPS.some((x) => x.id === id), id); }
   assert.deepEqual(listed.ids, [...NN_ALL_IDS]); assert.equal(listed.schema, "rightkit.contract-nn/1");
@@ -1275,36 +1282,41 @@ test("G26: a contract-test run tags its gate launches, lists its broker jobs, ke
 
     // The gate filed three jobs: two with signed receipts, one refused before it existed.
     const receiptFile = (name, text) => { const f = path.join(dir, name); fs.writeFileSync(f, text); return { file: f, sha: createHash("sha256").update(text).digest("hex") }; };
-    const whole = (id) => JSON.stringify({ id, provenance: { schema: "rustright.provenance.v1", payload: { jobId: id }, signature: { alg: "ES256" } }, environment: { dropped: ["A_PRIVATE_NAME"] }, diagnosticsPath: "D:\\private\\path" });
+    const whole = (id) => JSON.stringify({ id, provenance: { schema: "rustright.provenance.v1", payload: { jobId: id, br19Evidence: { environment: { dropped: ["A_PRIVATE_NAME"] } }, outputDir: "D:\\private\\path" }, signature: { alg: "ES256" } }, publication: { schema: "rustright.publication-claim.v1", payload: { jobId: id, command: "clippy" }, signature: { alg: "ES256" } }, environment: { dropped: ["A_PRIVATE_NAME"] }, diagnosticsPath: "D:\\private\\path" });
     const r1 = receiptFile("r1.json", whole("job-1")); const r2 = receiptFile("r2.json", whole("job-2"));
     const line = (step, call, over = {}) => JSON.stringify({ schema: "rightkit.contract-job/1", step, call, nonce: contractJobNonce({ runId: run.runId, sealedSha256: run.sealedSha256, step, call }), argv: ["cargo", "clippy"], cwd: "/s", requestId: null, receipt: null, receiptSha256: null, status: 0, ...over });
     const c = (n) => String(n).repeat(32);
-    const good = [line("S11:check", c(3), { requestId: "job-1", receipt: r1.file, receiptSha256: r1.sha }), line("S12:compile", c(4), { requestId: "job-2", receipt: r2.file, receiptSha256: r2.sha, status: 101 }), line("S7:neg", c(5), { status: 125 })];
+    const good = [line("S12:crate", c(3), { requestId: "job-1", receipt: r1.file, receiptSha256: r1.sha }), line("S12:manifest", c(4), { requestId: "job-2", receipt: r2.file, receiptSha256: r2.sha, status: 101 }), line("S7:neg", c(5), { status: 125 })];
     fs.writeFileSync(run.jobsFile, `${good.join("\n")}\n`);
     const bundle = path.join(dir, "job-receipts");
     const got = collectContractJobs(run, bundle);
     assert.deepEqual(got.problems, []);
-    assert.deepEqual(got.jobs.map((j) => [j.step, j.requestId, j.receiptSha256, j.status]), [["S11:check", "job-1", r1.sha, 0], ["S12:compile", "job-2", r2.sha, 101], ["S7:neg", null, null, 125]]);
+    assert.deepEqual(got.jobs.map((j) => [j.step, j.requestId, j.receiptSha256, j.status]), [["S12:crate", "job-1", r1.sha, 0], ["S12:manifest", "job-2", r2.sha, 101], ["S7:neg", null, null, 125]]);
     assert.equal(fs.readFileSync(path.join(bundle, "job-1.json"), "utf8"), whole("job-1")); assert.ok(fs.existsSync(path.join(bundle, "job-2.json")));
-    // The signed part alone, in its own folder, with its own hash: nothing of the host beyond what the broker signed.
-    const env1 = fs.readFileSync(path.join(dir, "job-envelopes", "job-1.json"), "utf8");
-    assert.deepEqual(Object.keys(JSON.parse(env1)), ["id", "provenance"]); assert.doesNotMatch(env1, /A_PRIVATE_NAME|private/);
-    assert.equal(got.jobs[0].envelopeSha256, createHash("sha256").update(env1).digest("hex")); assert.equal(got.jobs[2].envelopeSha256, null);
-    assert.deepEqual(stepsWithSignedJobs(got.jobs), ["S11", "S12"]);
+    // The broker's publication claim alone, in its own folder, with its own hash: neither the whole receipt nor its full signed part leaves the host.
+    const claim1 = fs.readFileSync(path.join(dir, "job-claims", "job-1.json"), "utf8");
+    assert.deepEqual(Object.keys(JSON.parse(claim1)), ["id", "publication"]); assert.doesNotMatch(claim1, /A_PRIVATE_NAME|private|provenance/);
+    assert.equal(got.jobs[0].claimSha256, createHash("sha256").update(claim1).digest("hex")); assert.equal(got.jobs[2].claimSha256, null);
+    assert.equal(fs.existsSync(path.join(dir, "job-envelopes")), false);
+    assert.deepEqual(stepsWithSignedJobs(got.jobs), ["S12"]);
+    // A job whose broker made no claim is still kept whole for promotion, with no claim to hand over.
+    { const old = receiptFile("old.json", JSON.stringify({ id: "job-7", provenance: { payload: { jobId: "job-7" } } })); fs.writeFileSync(run.jobsFile, `${line("S12:crate", c(8), { requestId: "job-7", receipt: old.file, receiptSha256: old.sha })}\n`);
+      const o = collectContractJobs(run, path.join(dir, "old-bundle"), { claimDir: path.join(dir, "old-claims") }); assert.deepEqual(o.problems, []); assert.equal(o.jobs[0].receiptSha256, old.sha); assert.equal(o.jobs[0].claimSha256, null); assert.equal(fs.existsSync(path.join(dir, "old-claims", "job-7.json")), false);
+      fs.writeFileSync(run.jobsFile, `${good.join("\n")}\n`); }
 
     // The receipt: the run id, the jobs, the folder, which steps have signed jobs, and that every rule still rests on the runner's own judgement.
     const receipt = buildContractReceipt({ host: "dell", commit: "c".repeat(40), gate: {}, result: { nonNegotiables: [], clauses: [] }, contractRun: { ...run, jobs: got.jobs, bundle: "job-receipts" } });
-    assert.equal(receipt.runId, run.runId); assert.equal(receipt.jobs.length, 3); assert.equal(receipt.jobReceipts, "job-receipts"); assert.equal(receipt.jobEnvelopes, "job-envelopes"); assert.deepEqual(receipt.signedSteps, ["S11", "S12"]); assert.equal(receipt.nnBasis, "runner-claim");
+    assert.equal(receipt.runId, run.runId); assert.equal(receipt.jobs.length, 3); assert.equal(receipt.jobReceipts, "job-receipts"); assert.equal(receipt.jobClaims, "job-claims"); assert.equal(receipt.jobEnvelopes, undefined); assert.deepEqual(receipt.signedSteps, ["S12"]); assert.equal(receipt.nnBasis, "runner-claim");
     assert.equal(buildContractReceipt({ host: "dell", commit: "c".repeat(40), gate: {}, result: { nonNegotiables: [], clauses: [] } }).runId, undefined);
 
     // Anything that does not hold together is a problem, and the job is not listed.
     const problemsOf = (lines) => { fs.writeFileSync(run.jobsFile, `${lines.join("\n")}\n`); return collectContractJobs(run, path.join(dir, `b${Math.random()}`)); };
     fs.writeFileSync(r1.file, `${whole("job-1")} `);
     assert.match(problemsOf([good[0]]).problems[0], /its receipt changed after the gate read it/);
-    assert.match(problemsOf([line("S11:check", c(6), { requestId: "job-9", receipt: path.join(dir, "gone.json"), receiptSha256: "0".repeat(64) })]).problems[0], /cannot be read/);
-    const foreign = JSON.stringify({ ...JSON.parse(good[1]), nonce: contractJobNonce({ runId: "9".repeat(64), sealedSha256: run.sealedSha256, step: "S12:compile", call: c(4) }) });
+    assert.match(problemsOf([line("S12:crate", c(6), { requestId: "job-9", receipt: path.join(dir, "gone.json"), receiptSha256: "0".repeat(64) })]).problems[0], /cannot be read/);
+    const foreign = JSON.stringify({ ...JSON.parse(good[1]), nonce: contractJobNonce({ runId: "9".repeat(64), sealedSha256: run.sealedSha256, step: "S12:manifest", call: c(4) }) });
     assert.match(problemsOf([foreign]).problems[0], /its nonce is not this run's/);
-    assert.match(problemsOf([line("S11:check", c(7), { requestId: "../escape", receipt: r2.file, receiptSha256: r2.sha })]).problems[0], /cannot name a file/);
+    assert.match(problemsOf([line("S12:crate", c(7), { requestId: "../escape", receipt: r2.file, receiptSha256: r2.sha })]).problems[0], /cannot name a file/);
     assert.match(problemsOf(["not json"]).problems[0], /is not JSON/);
     assert.match(problemsOf([JSON.stringify({ schema: "other/1" })]).problems[0], /has schema/);
     assert.equal(problemsOf([foreign]).jobs.length, 0);

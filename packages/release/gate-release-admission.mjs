@@ -1,9 +1,10 @@
 // Admission of a gate-package release (docs/GATE-CONTRACT.md NN31: no gate is released without a passing contract test; loop matrix G21, G26).
 //
 // Run where the package archive is about to be published. It has no broker and is not the host that ran the test, so it judges only what it is
-// handed: the host's contract-test receipt, the folder of signed job envelopes beside it, the archive in question, and this checkout at the
-// release commit. An envelope is the signed part of a job's receipt alone ({ id, provenance }). The whole receipts stay on the host: they name
-// every environment variable the broker dropped and the host's paths, and this repository and its CI are public. It refuses unless every one of the following holds.
+// handed: the host's contract-test receipt, the folder of job claims beside it, the archive in question, and this checkout at the release
+// commit. A job claim is the small statement the broker signs to leave the host ({ id, publication }; rustright GB-104): the key, the host name,
+// the broker build, the job id, the nonce, the commit, the result and the kind of command. The whole receipts and their full signed part name
+// the environment variables the broker dropped and the host's paths; they stay on the host. This repository and its CI are public. It refuses unless every one of the following holds.
 //   1. The receipt passes the release check (gate-acceptance.mjs verifyReleaseReceipts) for this commit, with the contract, budgets and runner
 //      files of this checkout, the exact rule set, and names exactly the archive in question. It is a candidate's receipt.
 //  1b. The archive is tied to the tested gate by the seal itself, not by the receipt's statement: the manifest handed over hashes to the seal (and the
@@ -11,10 +12,13 @@
 //      line and names exactly the archive in question (gate-acceptance.mjs archiveOfSeal).
 //   2. The host is one this repository trusts: ci/rk-pipeline.json attestation.<platform> gives its key, host name and broker build. The receipt's
 //      broker is that build (loop matrix C9: a host whose installed broker is not the committed one cannot be admitted until that list is updated).
-//   3. The run's broker jobs: the list is not empty; every listed job's receipt is in the bundle with the listed hash, carries the broker's
+//   3. The run's broker jobs: the list is not empty; every listed job's claim is in the bundle with the listed hash, carries the broker's
 //      signature for that key, host and broker build, is for that job id, and its signed nonce is the one computed from the run id, the sealed gate,
-//      the step and the call (gate-seam.mjs contractJobNonce); and every step this checkout's contract-nn.json names in `signedSteps` (the steps
-//      that cannot be cache hits) has at least one such job.
+//      the step and the call (gate-seam.mjs contractJobNonce).
+//   4. The launches this checkout's contract-nn.json seals in `signedLaunches` (the launches that cannot be cache hits): each must show a
+//      verified job of one of its commands; every verified job of the launch must have the expected signed result and name one same signed
+//      commit, which is not the fixture commit when the launch runs on a commit the runner made. A job filed under a launch's label that is
+//      another kind of work, another result or another commit does not count and is a problem.
 // What this proves, and no more (rustright attested-runs.md section 5): real jobs of this run, for this gate, went through that host's broker.
 // The key is readable by the account the broker runs as, so this is not a defence against a hostile program on that host. The receipt's verdict
 // itself is the runner's own judgement (`nnBasis`), and the result says so.
@@ -24,14 +28,14 @@ import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
 import { BUDGETS_FILE, CONTRACT_FILE, RUNNER_FILE, archiveIdentity, archiveOfSeal, runnerFileHashes, validWaiver, verifyReleaseReceipts } from "./gate-acceptance.mjs";
 import { contractJobNonce } from "./gate-seam.mjs";
-import { verifyProvenanceSignature } from "./receipt-signature.mjs";
+import { verifyPublicationClaim } from "./receipt-signature.mjs";
 
 const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const PLATFORM_OF = Object.freeze({ mac: "darwin", dell: "win32" });
 const stepIdOf = (label) => String(label).split(":")[0];
 
 /**
- * `receipt`: the contract-test receipt (parsed). `readJob(requestId)`: the bytes of that job's signed envelope from the bundle (throws when absent).
+ * `receipt`: the contract-test receipt (parsed). `readJob(requestId)`: the bytes of that job's claim from the bundle (throws when absent).
  * `archiveBytes`: the package archive in question. `commit`: the release commit. `pipeline`: ci/rk-pipeline.json (parsed). `sealed`: this
  * checkout's contract-nn.json (parsed). `contractSha256`, `budgetsSha256`, `runnerSha256`, `runnerFiles`: of this checkout. `waivers`: valid waivers.
  * Returns { ok, problems, facts }.
@@ -62,32 +66,51 @@ export function admitGateRelease({ receipt, readJob, archiveBytes, commit, pipel
   if (typeof receipt?.runId !== "string" || !/^[0-9a-f]{64}$/.test(receipt.runId)) problems.push("the receipt carries no run id, so its jobs cannot be tied to it");
   if (!jobs) problems.push("the receipt lists no broker jobs (jobs is missing)");
   else if (jobs.length === 0) problems.push("the receipt lists no broker job at all: nothing in it is signed");
-  const verifiedSteps = new Set();
+  const verified = []; // { label, payload } of every job whose claim verified for this run, gate, step and call
   for (const [i, job] of (jobs ?? []).entries()) {
     facts.jobsListed += 1;
     const name = `job ${job?.requestId ?? `#${i + 1}`} (${job?.step})`;
     if (typeof job?.requestId !== "string" || !job.requestId) continue; // refused before it existed: proves nothing, counts for nothing
     if (!/^[A-Za-z0-9._-]{1,128}$/.test(job.requestId)) { problems.push(`${name}: its job id cannot name a file`); continue; }
-    let bytes; try { bytes = readJob(job.requestId); } catch (e) { problems.push(`${name}: its signed envelope is not in the bundle (${e.code ?? e.message})`); continue; }
-    if (typeof job.envelopeSha256 !== "string" || sha256(bytes) !== job.envelopeSha256) { problems.push(`${name}: the envelope in the bundle is not the one listed (sha256 differs)`); continue; }
-    let jobReceipt; try { jobReceipt = JSON.parse(String(bytes)); } catch { problems.push(`${name}: its envelope is not JSON`); continue; }
-    if (Object.keys(jobReceipt ?? {}).some((k) => k !== "id" && k !== "provenance")) { problems.push(`${name}: the bundle holds more than the signed part (only id and provenance may be handed over)`); continue; }
+    if (typeof job.claimSha256 !== "string") { problems.push(`${name}: it carries no publication claim (its broker made none), so nothing about it may be checked here`); continue; }
+    let bytes; try { bytes = readJob(job.requestId); } catch (e) { problems.push(`${name}: its claim is not in the bundle (${e.code ?? e.message})`); continue; }
+    if (sha256(bytes) !== job.claimSha256) { problems.push(`${name}: the claim in the bundle is not the one listed (sha256 differs)`); continue; }
+    let doc; try { doc = JSON.parse(String(bytes)); } catch { problems.push(`${name}: its claim is not JSON`); continue; }
+    if (Object.keys(doc ?? {}).some((k) => k !== "id" && k !== "publication")) { problems.push(`${name}: the bundle holds more than the claim (only id and publication may be handed over)`); continue; }
     let payload;
-    try { payload = verifyProvenanceSignature(jobReceipt, pins, job.requestId); } catch (e) { problems.push(`${name}: ${e.code ? `${e.code}: ` : ""}${e.message}`); continue; }
+    try { payload = verifyPublicationClaim(doc, pins, job.requestId); } catch (e) { problems.push(`${name}: ${e.code ? `${e.code}: ` : ""}${e.message}`); continue; }
     let want = null; try { want = contractJobNonce({ runId: receipt.runId, sealedSha256: receipt.gate?.sealedSha256, step: job.step, call: job.call }); } catch { /* reported next */ }
     if (want === null || payload.nonce !== want) { problems.push(`${name}: the nonce the broker signed is not this run's for this gate, step and call`); continue; }
-    facts.jobsVerified += 1; verifiedSteps.add(stepIdOf(job.step));
+    facts.jobsVerified += 1; verified.push({ label: job.step, name, payload });
   }
-  facts.signedSteps = [...verifiedSteps].sort();
-  const required = Array.isArray(sealed?.signedSteps) ? sealed.signedSteps : null;
-  if (!required || required.length === 0) problems.push("this checkout's contract-nn.json names no steps that must show signed jobs (signedSteps)");
-  else for (const id of required) if (!verifiedSteps.has(id)) problems.push(`step ${id} cannot be served from a cache and shows no verified broker job`);
+  facts.signedSteps = [...new Set(verified.map((v) => stepIdOf(v.label)))].sort();
+  // 4: the sealed launches. What each must show comes from this checkout's sealed list, never from the receipt.
+  const launches = Array.isArray(sealed?.signedLaunches) ? sealed.signedLaunches : null;
+  facts.launchesProven = [];
+  if (!launches || launches.length === 0) problems.push("this checkout's contract-nn.json seals no launches that must show signed jobs (signedLaunches)");
+  else for (const launch of launches) {
+    const mine = verified.filter((v) => v.label === launch.label);
+    const where = `launch ${launch.label}`;
+    if (!mine.length) { problems.push(`${where} cannot be served from a cache and shows no verified broker job`); continue; }
+    const bad = [];
+    for (const v of mine) {
+      const exit = v.payload.result?.exitCode;
+      if (exit !== launch.exitCode) bad.push(`${v.name} ended with exit ${exit ?? "(not stated)"}, the launch requires ${launch.exitCode}`);
+      if (typeof v.payload.gate?.commit !== "string" || !/^[0-9a-f]{40}$/.test(v.payload.gate.commit)) bad.push(`${v.name} names no commit`);
+    }
+    const commits = [...new Set(mine.map((v) => v.payload.gate?.commit ?? null))];
+    if (commits.length !== 1) bad.push(`its jobs name ${commits.length} different commits`);
+    else if (launch.commit === "any" && commits[0] === receipt?.fixtureCommit) bad.push("its jobs ran on the fixture commit, not on a commit made for this launch");
+    else if (launch.commit === "fixture" && commits[0] !== receipt?.fixtureCommit) bad.push("its jobs did not run on the fixture commit the receipt states");
+    if (!mine.some((v) => Array.isArray(launch.commands) && launch.commands.includes(v.payload.command))) bad.push(`none of its jobs is one of ${(launch.commands ?? []).join(", ")} (found: ${[...new Set(mine.map((v) => String(v.payload.command)))].join(", ")})`);
+    if (bad.length) problems.push(...bad.map((b) => `${where}: ${b}`)); else facts.launchesProven.push(launch.label);
+  }
   return { ok: problems.length === 0, problems, facts };
 }
 
 /**
  * Admission from files on disk: the receipt, the archive in question, the release commit and the committed pipeline file. The folders
- * `job-envelopes` and `gate-seal` must sit beside the receipt. Returns { ok, problems, facts }; never throws for a missing or bad input.
+ * `job-claims` and `gate-seal` must sit beside the receipt. Returns { ok, problems, facts }; never throws for a missing or bad input.
  */
 export function admitFromFiles({ receiptFile, archiveFile, commit, pipelineFile = null }) {
   const here = path.dirname(fileURLToPath(import.meta.url));
@@ -102,13 +125,13 @@ export function admitFromFiles({ receiptFile, archiveFile, commit, pipelineFile 
   const sealed = read("contract-nn.json", path.join(here, "contract-nn.json"), true);
   const budgets = read("the budgets file", BUDGETS_FILE, true);
   if (problems.length) return { ok: false, problems, facts: null };
-  if (receipt.jobEnvelopes !== "job-envelopes") return { ok: false, problems: [`the receipt names its job envelopes folder as ${JSON.stringify(receipt.jobEnvelopes)}, expected "job-envelopes"`], facts: null };
+  if (receipt.jobClaims !== "job-claims") return { ok: false, problems: [`the receipt names its job claims folder as ${JSON.stringify(receipt.jobClaims)}, expected "job-claims"`], facts: null };
   const beside = path.dirname(path.resolve(receiptFile));
   const readOrNull = (f) => { try { return fs.readFileSync(f); } catch { return null; } };
   const fileSha = (f) => sha256(fs.readFileSync(f));
   const seal = receipt.gateSeal === "gate-seal" ? path.join(beside, "gate-seal") : null;
   const result = admitGateRelease({ manifestBytes: seal ? readOrNull(path.join(seal, "manifest.txt")) : null, sourceBytes: seal ? readOrNull(path.join(seal, "trusted-gate-source.json")) : null, receipt,
-    readJob: (id) => fs.readFileSync(path.join(beside, "job-envelopes", `${id}.json`)), archiveBytes, commit, pipeline, sealed, contractSha256: fileSha(CONTRACT_FILE), budgetsSha256: fileSha(BUDGETS_FILE), runnerSha256: fileSha(RUNNER_FILE), runnerFiles: runnerFileHashes(),
+    readJob: (id) => fs.readFileSync(path.join(beside, "job-claims", `${id}.json`)), archiveBytes, commit, pipeline, sealed, contractSha256: fileSha(CONTRACT_FILE), budgetsSha256: fileSha(BUDGETS_FILE), runnerSha256: fileSha(RUNNER_FILE), runnerFiles: runnerFileHashes(),
     waivers: (Array.isArray(budgets?.waivers) ? budgets.waivers : []).filter(validWaiver) });
   return result;
 }
@@ -119,7 +142,7 @@ export const GATE_RECEIPT_ENV = "RK_GATE_CONTRACT_RECEIPT";
 /**
  * NN31 at a publication entry point. Every place that is about to publish an npm archive calls this with the package name, the exact file it
  * is about to publish and the commit it was packed from, BEFORE it starts npm. For any other package it does nothing. For the gate package it
- * throws unless a contract-test receipt was handed over (RK_GATE_CONTRACT_RECEIPT names it; `job-envelopes` and `gate-seal` sit beside it) and
+ * throws unless a contract-test receipt was handed over (RK_GATE_CONTRACT_RECEIPT names it; `job-claims` and `gate-seal` sit beside it) and
  * admits exactly that file. There is no flag that skips it.
  */
 export function gateReleaseGuard({ name, archiveFile, commit, env = process.env, admit = admitFromFiles, pipelineFile = null }) {
@@ -131,7 +154,7 @@ export function gateReleaseGuard({ name, archiveFile, commit, env = process.env,
   return { required: true, facts: result.facts };
 }
 
-/** `node gate-release-admission.mjs --receipt <file> --archive <package archive> --commit <sha> [--pipeline <ci/rk-pipeline.json>]`: exit 0 only when admitted; with `--record <file>` it then writes the admission record a credentialed upload step requires. The folders `job-envelopes` and `gate-seal` must sit beside the receipt. */
+/** `node gate-release-admission.mjs --receipt <file> --archive <package archive> --commit <sha> [--pipeline <ci/rk-pipeline.json>]`: exit 0 only when admitted; with `--record <file>` it then writes the admission record a credentialed upload step requires. The folders `job-claims` and `gate-seal` must sit beside the receipt. */
 export function main(argv = process.argv.slice(2), { out = console.log } = {}) {
   const opt = (name) => { const i = argv.indexOf(name); return i < 0 ? undefined : argv[i + 1]; };
   const known = new Set(["--receipt", "--archive", "--commit", "--pipeline", "--record"]);
@@ -146,8 +169,8 @@ export function main(argv = process.argv.slice(2), { out = console.log } = {}) {
   const f = result.facts;
   // --record <file>: the record a credentialed upload step reads (scripts/ci/upload.mjs gateAdmissionProblem). Written only here, only when admitted.
   if (opt("--record")) fs.writeFileSync(opt("--record"), `${JSON.stringify({ schema: "rightkit.gate-release-admission/1", ok: true, unit: GATE_PACKAGE, version: f.version, archiveSha256: f.archiveSha256, commit: opt("--commit"), host: f.host, sealedSha256: f.sealedSha256, jobsVerified: f.jobsVerified, signedSteps: f.signedSteps, nnBasis: f.nnBasis }, null, 2)}\n`);
-  out(`gate-release-admission OK: host ${f.host}, sealed gate ${f.sealedSha256}, archive ${f.archiveSha256}; ${f.jobsVerified} of ${f.jobsListed} listed broker job(s) verified, in step(s) ${f.signedSteps.join(", ")}`);
-  out(`  the verdict itself rests on: ${f.nnBasis ?? "not stated"} (signed jobs prove the run happened on that host's broker for this gate; they do not re-derive the verdict)`);
+  out(`gate-release-admission OK: host ${f.host}, sealed gate ${f.sealedSha256}, archive ${f.archiveSha256}; ${f.jobsVerified} of ${f.jobsListed} listed broker job(s) verified, in step(s) ${f.signedSteps.join(", ")}; sealed launch(es) proven from signed claims: ${f.launchesProven.join(", ")}`);
+  out(`  every other assertion of the verdict rests on: ${f.nnBasis ?? "not stated"} (the signed claims prove those launches ran on that host's broker for this gate, with that command, result and commit; they do not re-derive the rest)`);
   return 0;
 }
 

@@ -1631,7 +1631,7 @@ export function runnerFileHashes({ entry = RUNNER_FILE, base = here, readFile = 
 export function buildContractReceipt({ host, commit, gate, contractSha256, runnerSha256, budgetsSha256, fixtureCommit, result, runnerFiles = runnerFileHashes(), broker = null, contractRun = null }) {
   // G26: the run's id and its broker jobs. `jobReceipts` is the folder beside this receipt holding each listed job's signed receipt, named by job id.
   // `nnBasis` says plainly what each rule rests on today: the runner's own judgement. No rule is yet re-derived from the signed jobs by a verifier.
-  const runFacts = contractRun ? { runId: contractRun.runId, jobs: contractRun.jobs, jobReceipts: contractRun.bundle, jobEnvelopes: "job-envelopes", ...(contractRun.gateSeal ? { gateSeal: contractRun.gateSeal } : {}), signedSteps: stepsWithSignedJobs(contractRun.jobs), nnBasis: "runner-claim" } : {};
+  const runFacts = contractRun ? { runId: contractRun.runId, jobs: contractRun.jobs, jobReceipts: contractRun.bundle, jobClaims: "job-claims", ...(contractRun.gateSeal ? { gateSeal: contractRun.gateSeal } : {}), signedSteps: stepsWithSignedJobs(contractRun.jobs), nnBasis: "runner-claim" } : {};
   const brokerFacts = { runtimeDigest: broker?.runtimeDigest ?? null, runtimeVersion: broker?.runtimeVersion ?? null, enrolledDigest: broker?.enrolledDigest ?? null };
   return { schema: CONTRACT_RECEIPT_SCHEMA, host, commit, gate, broker: brokerFacts, ...runFacts, contractSha256, runnerSha256, runnerFiles, budgetsSha256, fixtureCommit, startedAt: result.startedAt, endedAt: result.endedAt, verdict: result.verdict, ok: result.ok, nn: Object.fromEntries(result.nonNegotiables.map((n) => [n.id, n.status])), uncheckedClauses: result.clauses.filter((c) => c.status === "unchecked").map((c) => c.id), waivers: result.waivers ?? [] };
 }
@@ -1694,22 +1694,23 @@ export function contractRunEnv(run, label) {
  * Reads the jobs the gate filed during the run and copies each job's signed receipt into `bundleDir` (named by job id). Returns
  * { jobs: [{ step, call, nonce, requestId, receiptSha256, argv, status }], problems }. A job is listed only with a receipt whose bytes hash to what
  * the gate recorded and whose nonce is the one this run computes for it; anything else is a problem and the run cannot produce a passing receipt.
- * Beside each whole receipt it writes the signed part alone to `envelopeDir` ({ id, provenance }) and lists its hash (`envelopeSha256`). The whole
- * receipt names every environment variable the broker dropped and the host's paths; it stays on the host, for promotion. Only the signed part is
- * what a publication check on a public repository is handed.
+ * Beside each whole receipt it writes the broker's publication claim alone to `claimDir` ({ id, publication }) and lists its hash (`claimSha256`).
+ * The whole receipt, and the full signed part of it, name the environment variables the broker dropped and the host's paths; they stay on the
+ * host, for promotion. The claim is the small statement the broker signs to leave the host (rustright GB-104) and is all a publication check on a
+ * public repository is handed. A job whose broker made no claim is listed with claimSha256 null: it can be promoted on, never published on.
  * A job the broker refused before it existed (no job id) is listed with requestId null and no receipt: it proves nothing and is counted apart.
  */
-export function collectContractJobs(run, bundleDir, { read = (f) => fs.readFileSync(f), write = (f, b) => fs.writeFileSync(f, b), mkdir = (d) => fs.mkdirSync(d, { recursive: true }), exists = (f) => fs.existsSync(f), envelopeDir = path.join(path.dirname(bundleDir), "job-envelopes") } = {}) {
+export function collectContractJobs(run, bundleDir, { read = (f) => fs.readFileSync(f), write = (f, b) => fs.writeFileSync(f, b), mkdir = (d) => fs.mkdirSync(d, { recursive: true }), exists = (f) => fs.existsSync(f), claimDir = path.join(path.dirname(bundleDir), "job-claims") } = {}) {
   const jobs = []; const problems = [];
   if (!exists(run.jobsFile)) return { jobs, problems };
   const lines = String(read(run.jobsFile)).split(/\r?\n/).filter((l) => l.trim());
-  mkdir(bundleDir); mkdir(envelopeDir);
+  mkdir(bundleDir); mkdir(claimDir);
   lines.forEach((line, i) => {
     let j; try { j = JSON.parse(line); } catch { problems.push(`contract job line ${i + 1} is not JSON`); return; }
     if (j?.schema !== "rightkit.contract-job/1") { problems.push(`contract job line ${i + 1} has schema ${JSON.stringify(j?.schema)}`); return; }
     let want = null; try { want = contractJobNonce({ runId: run.runId, sealedSha256: run.sealedSha256, step: j.step, call: j.call }); } catch { /* reported below */ }
     if (want === null || j.nonce !== want) { problems.push(`contract job ${j.requestId ?? `line ${i + 1}`} (${j.step}): its nonce is not this run's`); return; }
-    const entry = { step: j.step, call: j.call, nonce: j.nonce, requestId: j.requestId ?? null, receiptSha256: null, envelopeSha256: null, argv: Array.isArray(j.argv) ? j.argv : [], status: j.status ?? null };
+    const entry = { step: j.step, call: j.call, nonce: j.nonce, requestId: j.requestId ?? null, receiptSha256: null, claimSha256: null, argv: Array.isArray(j.argv) ? j.argv : [], status: j.status ?? null };
     if (typeof j.requestId === "string" && j.requestId && typeof j.receipt === "string" && j.receipt) {
       if (!/^[A-Za-z0-9._-]{1,128}$/.test(j.requestId)) { problems.push(`contract job ${JSON.stringify(j.requestId)} has a job id that cannot name a file`); return; }
       let bytes; try { bytes = read(j.receipt); } catch (e) { problems.push(`contract job ${j.requestId} (${j.step}): its receipt ${j.receipt} cannot be read (${e.code ?? e.message})`); return; }
@@ -1717,21 +1718,31 @@ export function collectContractJobs(run, bundleDir, { read = (f) => fs.readFileS
       if (got !== j.receiptSha256) { problems.push(`contract job ${j.requestId} (${j.step}): its receipt changed after the gate read it (${got}, recorded ${j.receiptSha256})`); return; }
       let parsed; try { parsed = JSON.parse(String(bytes)); } catch { problems.push(`contract job ${j.requestId} (${j.step}): its receipt is not JSON`); return; }
       if (!isObject(parsed.provenance)) { problems.push(`contract job ${j.requestId} (${j.step}): its receipt carries no signed part (provenance)`); return; }
-      const envelope = Buffer.from(`${JSON.stringify({ id: parsed.id ?? null, provenance: parsed.provenance })}\n`);
       write(path.join(bundleDir, `${j.requestId}.json`), bytes);
-      write(path.join(envelopeDir, `${j.requestId}.json`), envelope);
-      entry.receiptSha256 = got; entry.envelopeSha256 = sha256(envelope);
+      entry.receiptSha256 = got;
+      if (isObject(parsed.publication)) { const claim = Buffer.from(`${JSON.stringify({ id: parsed.id ?? null, publication: parsed.publication })}\n`); write(path.join(claimDir, `${j.requestId}.json`), claim); entry.claimSha256 = sha256(claim); }
     }
     jobs.push(entry);
   });
   return { jobs, problems };
 }
 /**
- * The steps that cannot be served from a cache, so a run that really happened shows broker jobs in them: S11 runs with the gate's cache moved
- * aside, S12 compiles a commit nothing has compiled before. Shipped in the sealed gate (contract-nn.json `signedSteps`); a verifier requires each
- * of them to list at least one job whose signed receipt verifies. A warm step sends few or no jobs and is not on this list.
+ * The step whose launches cannot be served from a cache, so a run that really happened shows broker jobs in it: S12 compiles commits the runner
+ * has just made, which nothing compiled before. Shipped in the sealed gate (contract-nn.json `signedSteps`). S11, the run with the cache moved
+ * aside, is NOT such a step: by design it stops for approval before anything runs and sends no broker job (I had listed it without reading it).
+ * A warm step sends few or no jobs and is not here either.
  */
-export const CONTRACT_SIGNED_STEPS = Object.freeze(["S11", "S12"]);
+export const CONTRACT_SIGNED_STEPS = Object.freeze(["S12"]);
+/**
+ * The same, by exact launch, with what the broker's signed claim for it must say (contract-nn.json `signedLaunches`). `label` is the launch's
+ * step label as the nonce carries it; `commands`: the stage words of which at least one job must have run in it; `exitCode`: the expected
+ * result of every job of the launch; `commit`: "any" means the runner made the commit for that launch (an edit): every job of the launch must
+ * name one same 40-hex commit, and it must not be the fixture commit the receipt states.
+ */
+export const CONTRACT_SIGNED_LAUNCHES = Object.freeze([
+  Object.freeze({ label: "S12:crate", commands: Object.freeze(["clippy", "test", "build", "check", "doc"]), exitCode: 0, commit: "any" }),
+  Object.freeze({ label: "S12:manifest", commands: Object.freeze(["clippy", "test", "build", "check", "doc"]), exitCode: 0, commit: "any" }),
+]);
 /** The step ids (the part of a job's label before ":") that have at least one job with a kept signed receipt. */
 export const stepsWithSignedJobs = (jobs) => [...new Set(jobs.filter((j) => j.receiptSha256).map((j) => String(j.step).split(":")[0]))].sort();
 
