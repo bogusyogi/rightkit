@@ -108,6 +108,12 @@ export function deterministicScansEnabled(config) {
   return config?.deterministicScans?.enabled === true;
 }
 
+// A tool's version, once it has answered, for the life of the process (NN07, NN25). A check looks every row up in the cache first and then runs
+// what missed: two passes, and each asked every tool its version again (13 tools twice in one check, Dell 2026-11-17). Kept per spawn function, so
+// a test that supplies its own sees only its own answers. Only a successful answer is kept; a missing or busy tool is asked again.
+const PROBE_ANSWERS = new WeakMap();
+const probeAnswersOf = (spawnFn) => { if (typeof spawnFn !== "function") return new Map(); let m = PROBE_ANSWERS.get(spawnFn); if (!m) { m = new Map(); PROBE_ANSWERS.set(spawnFn, m); } return m; };
+
 let neutralDir = null;
 /** An empty directory outside every repository, for tool version probes. */
 function probeDir() {
@@ -3240,7 +3246,10 @@ export async function runScans(plan, options = {}) {
     const command = trust ? (trust.ok ? trust.identity.path : null) : toolCommand(tool);
     const cwd = (tool === "rustright" || (tool === "cargo" && cargoLiveRoot)) && scanDir ? scanDir : (deps.probeDir ?? probeDir());
     const key = sha256(canonicalJson({ tool, command, cwd, args: PROBES[tool] ?? ["--version"], env: deps.env }));
+    const answers = probeAnswersOf(deps.spawn); const remembered = answers.get(key);
+    if (remembered) { toolVersions[tool] = remembered.version; if (remembered.identity) toolIdentities[tool] = { ...remembered.identity, probed: remembered.version }; return remembered; }
     const outcome = await probeFlight(key, tool, scanDir);
+    if (outcome?.ok) answers.set(key, outcome);
     if (tool === "rustright" && outcome?.ok && !outcome.pinProblem) rustrightAnswer = outcome;
     return outcome;
   };
