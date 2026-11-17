@@ -5,7 +5,7 @@
       "id": "mail-behavior",
       "root": "packages/mail-ui/src",
       "from": {
-        "include": ["views/useSidebarModel.ts", "views/useComposeSettingsModel.ts"]
+        "include": ["views/useSidebarModel.ts", "views/useComposeSettingsModel.ts", "views/useStorageSettingsModel.ts"]
       },
       "forbid": {
         "include": ["**/*.tsx", "**/*.jsx", "**/*.css", "lib/theme.ts"]

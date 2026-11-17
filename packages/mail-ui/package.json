@@ -11,6 +11,10 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
+    "./storage-settings": {
+      "types": "./dist/views/useStorageSettingsModel.d.ts",
+      "import": "./dist/views/useStorageSettingsModel.js"
+    },
     "./compose-settings": {
       "types": "./dist/views/useComposeSettingsModel.d.ts",
       "import": "./dist/views/useComposeSettingsModel.js"

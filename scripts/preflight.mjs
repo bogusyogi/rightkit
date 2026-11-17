@@ -301,6 +301,7 @@ function generatedDocs({ root, files }) {
 const SHARED_BEHAVIOR = new Set([
   "packages/mail-ui/src/views/useComposeSettingsModel.ts",
   "packages/mail-ui/src/views/useSidebarModel.ts",
+  "packages/mail-ui/src/views/useStorageSettingsModel.ts",
   "packages/video-ui/src/app/hooks/recentProjects.ts",
   "packages/video-ui/src/app/hooks/useProgress.ts",
   "packages/video-ui/src/app/hooks/useVideoAssembly.ts",
