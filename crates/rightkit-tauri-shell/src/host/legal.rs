@@ -560,18 +560,21 @@ impl LegalReceiptService {
                 return Ok(None);
             }
             let mut failure = None;
-            let imported = self.store.import_once(&mut || match importer() {
-                Ok(record) => record.filter(LegalRecord::is_well_formed),
-                Err(error) => {
-                    failure = Some(error);
-                    None
-                }
-            })?;
-            if let Some(error) = failure {
+            let imported = self
+                .store
+                .import_once(&mut || match importer() {
+                    Ok(record) => record.filter(LegalRecord::is_well_formed),
+                    Err(error) => {
+                        failure = Some(error);
+                        None
+                    }
+                })?
+                .filter(LegalRecord::is_well_formed);
+            if let (None, Some(error)) = (&imported, failure) {
                 return Err(error);
             }
             self.import_tried.store(true, Ordering::SeqCst);
-            return Ok(imported.filter(LegalRecord::is_well_formed).map(|record| {
+            return Ok(imported.map(|record| {
                 if self.matches_manifest(&record) {
                     LegalRead::Current(record)
                 } else {
