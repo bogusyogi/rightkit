@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generatedAt": "2026-11-17T04:18:07Z",
-  "rightkitHead": "857e6d45dfd62308c59d2664dc5593cd9af016c6",
+  "generatedAt": "2026-11-17T04:37:05Z",
+  "rightkitHead": "ae5e109383c726312d3ff02c70c79315f85b3d84",
   "legend": [
     {
       "state": "current",
@@ -137,7 +137,7 @@
       "group": "mandatory-set app",
       "dir": "D:\\Claude\\coderight",
       "present": true,
-      "head": "8e1f8a4bae5d49b731bd0540ae57f102d39f6eff",
+      "head": "bd79c109147a5282176b0f71fd8aba0f4de6249a",
       "profile": "desktop",
       "inMandatorySet": true,
       "declaration": {
@@ -599,7 +599,7 @@
       "group": "mandatory-set app",
       "dir": "D:\\Claude\\cutright",
       "present": true,
-      "head": "f720f3ff3277edff626c6b63927cff81fac8e18e",
+      "head": "235781e872087416c9a7f42cb5ffb42b24b2d1e6",
       "profile": "desktop",
       "inMandatorySet": true,
       "declaration": {
@@ -4511,7 +4511,7 @@
       "group": "mandatory-set app",
       "dir": "D:\\Claude\\viewright",
       "present": true,
-      "head": "9a813a1b25b8a470642d8bccf65365d61b7b6584",
+      "head": "f4103f3afa2d291112da898c29090af04165a968",
       "profile": "desktop",
       "inMandatorySet": true,
       "declaration": {
