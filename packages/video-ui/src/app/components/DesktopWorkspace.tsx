@@ -65,7 +65,7 @@ export function DesktopWorkspace() {
   const { status, doctor, doctorError, statusError } = useEngine();
   const progressController = useProgress();
   const { progress } = progressController;
-  const { dir, isCurrentSelection, show, exportsCount, jobError, setJobError, output, setOutput, importMissing, setImportMissing, importUnverified, setImportUnverified, refresh, open: openWorkspace, close: closeWorkspace, applyBundleReport } = useVideoWorkspace(progressController);
+  const { dir, isCurrentSelection, show, exportsCount, jobError, setJobError, output, setOutput, importMissing, setImportMissing, importUnverified, setImportUnverified, refresh, refreshChangedProject, open: openWorkspace, close: closeWorkspace, applyBundleReport } = useVideoWorkspace(progressController);
   const [tab, setTab] = useState<Tab>("projects");
   // Exports ⋯ → Import retention… routes here with the render preselected (R5).
   const [retentionPreselect, setRetentionPreselect] = useState<string | undefined>(undefined);
@@ -331,7 +331,7 @@ export function DesktopWorkspace() {
           ) : tab === "shorts" ? (
             <ShortsView dir={dir} onChanged={refresh} />
           ) : tab === "phrases" ? (
-            <PhrasesView dir={dir} onChanged={refresh} />
+            <PhrasesView dir={dir} onChanged={refresh} refreshChangedProject={refreshChangedProject} />
           ) : tab === "retention" ? (
             <RetentionView
               dir={dir}

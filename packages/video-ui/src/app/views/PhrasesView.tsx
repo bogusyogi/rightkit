@@ -1,13 +1,9 @@
 // Find phrases — docs/design/app-ui.md §3.6.
 import { Badge, Button, EmptyState, Field, IconButton, Input, PageShell, SearchIcon, useShortcuts, useToast } from "@rightkit/react-shell/react";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { errorMessage } from "../../lib/engine.js";
-import { clipExport, type PhraseMatch, phraseSearch, sourceList } from "../../lib/media.js";
-import { appendClip } from "../../lib/project.js";
+import { useRef } from "react";
+import { useVideoPhrases, phraseHighlight } from "../hooks/useVideoPhrases.js";
 import { RangePreview } from "../../components/RangePreview.js";
 import { ErrorPanel, timecode, Icon } from "../ui/index.js";
-
-type SourceRow = { id: string; name: string; path: string; exists: boolean; has_transcript: boolean };
 
 /** Inline preview popover: plays the match's context range on the real file. */
 function PreviewPop({ path, startMs, endMs, onClose }: { path: string; startMs: number; endMs: number; onClose: () => void }) {
@@ -24,33 +20,20 @@ function PreviewPop({ path, startMs, endMs, onClose }: { path: string; startMs: 
 
 /** Highlight the query inside the context sentence (`--accent-soft` mark). */
 function Context({ text, query }: { text: string; query: string }) {
-  const i = text.toLowerCase().indexOf(query.toLowerCase());
-  if (i < 0 || !query.trim()) return <span>{text}</span>;
-  return (
-    <span>
-      {text.slice(0, i)}
-      <mark className="phrases-mark">{text.slice(i, i + query.length)}</mark>
-      {text.slice(i + query.length)}
-    </span>
-  );
+  const parts = phraseHighlight(text, query);
+  if (!parts) return <span>{text}</span>;
+  return <span>{parts.before}<mark className="phrases-mark">{parts.match}</mark>{parts.after}</span>;
 }
 
-export function PhrasesView({ dir, onChanged }: { dir: string; onChanged: () => Promise<void> }) {
+export function PhrasesView({ dir, onChanged, refreshChangedProject }: { dir: string; onChanged: () => Promise<void>; refreshChangedProject?: (dir: string) => Promise<void> }) {
   const toast = useToast();
-  const [sources, setSources] = useState<SourceRow[]>([]);
-  const [filter, setFilter] = useState("");
-  const [query, setQuery] = useState("");
-  const [matches, setMatches] = useState<PhraseMatch[] | null>(null);
-  const [busy, setBusy] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [preview, setPreview] = useState<PhraseMatch | null>(null);
+  const { sources, filter, setFilter, query, setQuery, matches, searching, isInserting, isExporting, error, preview, setPreview, search, insert, exportClip, srcById, shown } = useVideoPhrases({
+    dir, refreshChangedProject: refreshChangedProject ?? (() => onChanged()),
+    onInserted: () => toast("Added to the timeline", { kind: "success" }),
+    onExported: (name) => toast(`Exported ${name} — find it under Exports`, { kind: "success" }),
+    onActionError: (message) => toast(message, { kind: "error", ttl: 0 }),
+  });
   const inputRef = useRef<HTMLInputElement | null>(null);
-
-  useEffect(() => {
-    sourceList(dir)
-      .then((s) => setSources(s.sources as SourceRow[]))
-      .catch((e) => setError(errorMessage(e)));
-  }, [dir]);
 
   // ⌘F focuses the search field.
   useShortcuts([
@@ -66,52 +49,6 @@ export function PhrasesView({ dir, onChanged }: { dir: string; onChanged: () => 
     },
   ]);
 
-  const search = useCallback(async () => {
-    if (!query.trim()) return;
-    setBusy("search");
-    setError(null);
-    try {
-      const r = await phraseSearch(dir, query.trim());
-      setMatches(r.matches);
-    } catch (e) {
-      setError(errorMessage(e));
-    } finally {
-      setBusy(null);
-    }
-  }, [dir, query]);
-
-  const insert = async (m: PhraseMatch) => {
-    setBusy(`${m.source}:${m.word_index}`);
-    try {
-      await appendClip(dir, m.source, m.context.start_ms, m.context.end_ms);
-      toast("Added to the timeline", { kind: "success" });
-      await onChanged();
-    } catch (e) {
-      toast(errorMessage(e), { kind: "error", ttl: 0 });
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const exportClip = async (m: PhraseMatch) => {
-    setBusy(`export-${m.source}:${m.word_index}`);
-    try {
-      const r = await clipExport(dir, {
-        source: m.source,
-        start_ms: m.context.start_ms,
-        end_ms: m.context.end_ms,
-      });
-      toast(`Exported ${r.name} — find it under Exports`, { kind: "success" });
-      await onChanged();
-    } catch (e) {
-      toast(errorMessage(e), { kind: "error", ttl: 0 });
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const srcById = new Map(sources.map((s) => [s.id, s]));
-  const shown = (matches ?? []).filter((m) => !filter || m.source === filter);
 
   return (
     <PageShell title="Find phrases" maxWidth={0} subtitle={"Search spoken words across this project's transcripts"}>
@@ -136,10 +73,10 @@ export function PhrasesView({ dir, onChanged }: { dir: string; onChanged: () => 
           <Button
             variant="primary"
             onClick={() => void search()}
-            disabled={(!query.trim()) || (busy === "search")}
-            aria-busy={(busy === "search") || undefined}
-          >{!(busy === "search") && <span className="cr-glyph"><SearchIcon /></span>}
-            {busy === "search" ? "Searching…" : "Search"}
+            disabled={(!query.trim()) || searching}
+            aria-busy={searching || undefined}
+          >{!searching && <span className="cr-glyph"><SearchIcon /></span>}
+            {searching ? "Searching…" : "Search"}
           </Button>
         </div>
 
@@ -176,19 +113,19 @@ export function PhrasesView({ dir, onChanged }: { dir: string; onChanged: () => 
                     variant="ghost"
                     title="Render this phrase range to Exports"
                     onClick={() => void exportClip(m)}
-                    disabled={(busy === `export-${m.source}:${m.word_index}`)}
-                    aria-busy={(busy === `export-${m.source}:${m.word_index}`) || undefined}
+                    disabled={isExporting(m)}
+                    aria-busy={isExporting(m) || undefined}
                   >
-                    {busy === `export-${m.source}:${m.word_index}` ? "Exporting…" : "Export clip"}
+                    {isExporting(m) ? "Exporting…" : "Export clip"}
                   </Button>
                   <Button
                     size="sm"
                     variant="secondary"
                     onClick={() => void insert(m)}
-                    disabled={(busy === `${m.source}:${m.word_index}`)}
-                    aria-busy={(busy === `${m.source}:${m.word_index}`) || undefined}
+                    disabled={isInserting(m)}
+                    aria-busy={isInserting(m) || undefined}
                   >
-                    {busy === `${m.source}:${m.word_index}` ? "Adding…" : "Add to timeline"}
+                    {isInserting(m) ? "Adding…" : "Add to timeline"}
                   </Button>
                 </div>
                 <p className="phrases-row__ctx cr-muted">

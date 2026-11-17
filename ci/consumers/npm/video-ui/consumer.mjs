@@ -71,6 +71,9 @@ try {
     for (const key of ['useVideoHome', 'useVideoHomeThumbnail']) {
       assert.equal(typeof workspaceMod[key], 'function', `missing project list export ${key}`);
     }
+    assert.equal(typeof workspaceMod.useVideoPhrases, 'function');
+    assert.deepEqual(workspaceMod.phraseHighlight('the Phrase here', 'phrase'), { before: 'the ', match: 'Phrase', after: ' here' });
+    assert.equal(workspaceMod.phraseHighlight('the Phrase here', '  '), null);
     for (const key of appExpected) assert.ok(key in appMod, `missing app export ${key}`);
     assert.equal(appMod.installVideoHost, mod.installVideoHost);
     assert.throws(() => appMod.videoAppHost(), /no `app` part/);

@@ -7,3 +7,4 @@ export type { AssembleForm, ShotInput, NarrationInput, TitleInput, TitleDraft, A
 export * from "./app/hooks/useVideoWorkspace.js";
 export * from "./app/lib/progressViewModel.js";
 export * from "./app/hooks/useVideoHome.js";
+export * from "./app/hooks/useVideoPhrases.js";
