@@ -620,3 +620,38 @@ test("G22: a docs call denies rustdoc warnings as CI does, and a pass made witho
   assert.match(compile, /env: callEnv\(seamEnv, call\), client/); assert.match(compile, /env: \(c\) => callEnv\(seamEnv, c\),/);
   assert.match(fs.readFileSync(new URL("../deterministic-scans.mjs", import.meta.url), "utf8"), /id: rustScanId\.doc\(name\), class: B, batchUnit: name, \.\.\.scan, env: \{ \.\.\.\(scan\.env \?\? \{\}\), RUSTDOCFLAGS: DOC_RUSTDOCFLAGS \} \}/);
 });
+
+test("G7: when the broker dropped part of a job's output, crates are judged from the whole job log, or are unknown when it cannot be read", async () => {
+  const { fullOutputOf } = await import("./run-calls.mjs");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rk-g7-"));
+  try {
+    const identity = { commit: "c".repeat(40), toolchain: "t", host: "win32", broker: "b", gate: "g" };
+    const T = "x86_64-pc-windows-msvc";
+    const call = { id: "lint:default:win32", stage: "lint", round: "default", crates: ["a", "b", "c"].map((name) => ({ name, targets: [T] })), args: ["clippy", "-p", "a", "-p", "b", "-p", "c"] };
+    const art = (n) => JSON.stringify({ reason: "compiler-artifact", package_id: `path+file:///s/crates/${n}#0.1.0`, target: { kind: ["lib"], name: n }, filenames: [`/t/${T}/lib${n}.rlib`] });
+    const err = (n) => JSON.stringify({ reason: "compiler-message", package_id: `path+file:///s/crates/${n}#0.1.0`, message: { level: "error", rendered: `error in ${n}` } });
+    const done = (ok) => JSON.stringify({ reason: "build-finished", success: ok });
+    const whole = [art("a"), art("b"), art("c"), done(true)].join("\n");
+    const partial = [art("a"), done(true)].join("\n"); // the middle (b and c) was dropped
+    const log = path.join(dir, "job.log"); fs.writeFileSync(log, whole);
+    const receipt = (name, body) => { const f = path.join(dir, name); fs.writeFileSync(f, JSON.stringify({ environment: { forwarded: [] }, ...body })); return f; };
+    const run = (file, stdout, status = 0) => runCalls({ calls: [call], send: () => ({ status, stdout, stderr: "", requestId: "r", receipt: file, receiptSha256: "x" }), store: null, identity, hostTriple: T });
+    const words = (r) => Object.fromEntries(r.outcomes[0].results.map((x) => [x.crate, x.result]));
+
+    // fullOutputOf: nothing dropped, dropped with a readable log, dropped with no log, a receipt that does not say.
+    assert.deepEqual(fullOutputOf({ receipt: receipt("none.json", { outputDroppedBytes: 0, diagnosticsPath: log }) }), { dropped: 0, full: null });
+    assert.deepEqual(fullOutputOf({ receipt: receipt("log.json", { outputDroppedBytes: 5000, diagnosticsPath: log }) }), { dropped: 5000, full: whole });
+    assert.deepEqual(fullOutputOf({ receipt: receipt("nolog.json", { outputDroppedBytes: 5000, diagnosticsPath: path.join(dir, "gone.log") }) }), { dropped: 5000, full: null });
+    assert.deepEqual(fullOutputOf({ receipt: receipt("silent.json", {}) }), { dropped: null, full: null });
+
+    // Nothing dropped: the stream is judged as it is (b and c really have no artifact).
+    assert.deepEqual(words(run(path.join(dir, "none.json"), partial)), { a: "passed", b: "not-built", c: "not-built" });
+    // Dropped, log readable: all three passed, from the whole log. Before this change b and c were reported not built.
+    assert.deepEqual(words(run(path.join(dir, "log.json"), partial)), { a: "passed", b: "passed", c: "passed" });
+    // Dropped, log unreadable: nothing is passed or called not built from the partial stream; an error that was seen still fails its crate.
+    const blind = run(path.join(dir, "nolog.json"), [art("a"), err("b"), done(false)].join("\n"), 101);
+    assert.deepEqual(words(blind), { a: "unknown", b: "failed", c: "unknown" });
+    assert.match(blind.outcomes[0].results[0].detail, /dropped 5000 bytes of this job's output and its full log cannot be read/);
+    assert.equal(blind.counts.greenReruns, 0, "no green rerun is built on a partial stream");
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});

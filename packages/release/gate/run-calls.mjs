@@ -44,6 +44,19 @@ export const CALL_DISPLAY_ENV = Object.freeze(["CARGO_TERM_COLOR", "NO_COLOR", "
 export function forwardedOf(job, { readFile = (f) => fs.readFileSync(f, "utf8") } = {}) {
   try { const f = JSON.parse(readFile(job.receipt)).environment?.forwarded; return Array.isArray(f) && f.every((n) => typeof n === "string") ? f : null; } catch { return null; }
 }
+/**
+ * Whether the output the client handed back for `job` is all of it. The broker drops the middle of a large job's output and says how much in its
+ * receipt (`outputDroppedBytes`); the whole output is in the job log the receipt names (`diagnosticsPath`).
+ * Returns { dropped: <bytes, 0 when none, null when the receipt does not say>, full: <the whole output, or null when it cannot be read> }.
+ */
+export function fullOutputOf(job, { readFile = (f) => fs.readFileSync(f, "utf8") } = {}) {
+  let receipt; try { receipt = JSON.parse(readFile(job.receipt)); } catch { return { dropped: null, full: null }; }
+  const dropped = Number.isSafeInteger(receipt?.outputDroppedBytes) && receipt.outputDroppedBytes >= 0 ? receipt.outputDroppedBytes : null;
+  if (!dropped) return { dropped, full: null };
+  let full = null; try { if (typeof receipt.diagnosticsPath === "string" && receipt.diagnosticsPath) full = readFile(receipt.diagnosticsPath); } catch { full = null; }
+  return { dropped, full };
+}
+
 /** Why a passed job must not be remembered, or null. Fails closed: no statement of what was forwarded is a reason. */
 export function unrememberable(forwarded) {
   if (!Array.isArray(forwarded)) return "its receipt does not say which environment variables the broker forwarded";
@@ -82,12 +95,14 @@ const jobOf = (sent) => ({ exit: sent.status ?? null, requestId: sent.requestId 
  * `send(call)`: sends one call and returns { status, stdout, stderr, requestId?, receipt?, receiptSha256?, refusal?: { code, message } }
  *   (seam-broker.mjs runSeamCargoCall's `result` on the Mac and the Dell; the direct wrapper on Linux).
  * `store`: fileStore(dir) or null (nothing remembered). `identity`: see callKey. `hostTriple`: this host's target.
+ * `output(job)`: see fullOutputOf. When the broker dropped part of a job's output, the crates are judged from the whole job log; when that log
+ *   cannot be read, no crate is passed or called not built from the partial stream (a crate with an error that was seen still failed).
  * `env`: the environment `send` sends a call with, or a function (call) => that environment when calls differ (a doc call carries RUSTDOCFLAGS).
  *   Its CALL_KEY_ENV values are in the key, read before the store is looked up. `forwarded(job)`: see forwardedOf.
  * Returns { outcomes: [{ call, state: "skipped"|"ran", results, jobs, evidence, notRemembered? }], counts: { calls, ran, skipped, jobs, greenReruns, notRemembered } }.
  * `evidence` is the job that proves each passed crate: for a clean call its one job, after a green rerun the second job.
  */
-export function runCalls({ calls, send, store = null, identity, hostTriple, onCall = () => {}, env = {}, forwarded = forwardedOf }) {
+export function runCalls({ calls, send, store = null, identity, hostTriple, onCall = () => {}, env = {}, forwarded = forwardedOf, output = fullOutputOf }) {
   const outcomes = [];
   const counts = { calls: calls.length, ran: 0, skipped: 0, jobs: 0, greenReruns: 0, notRemembered: 0 };
   const envOf = (which) => (typeof env === "function" ? env(which) : env);
@@ -99,7 +114,18 @@ export function runCalls({ calls, send, store = null, identity, hostTriple, onCa
     store.put(callKey(which, identity, envOf(which)), { call: { id: which.id, cwd: which.cwd ?? ".", args: which.args }, job, crates: which.crates.map((c) => c.name) });
     return null;
   };
-  const judge = (call, sent) => {
+  const judge = (call, sent0) => {
+    // The stream the client handed back may have a hole in it. Judge from the whole job log, or say plainly that the result is not known.
+    let sent = sent0; let hole = null;
+    if (sent0.receipt) {
+      const o = output(jobOf(sent0));
+      if (o.dropped > 0 && typeof o.full === "string") sent = { ...sent0, stdout: o.full };
+      else if (o.dropped > 0) hole = `the broker dropped ${o.dropped} bytes of this job's output and its full log cannot be read; this crate's result is not known`;
+    }
+    const judged = judgeWhole(call, sent);
+    return hole ? judged.map((r) => (r.result === "failed" ? r : { crate: r.crate, result: "unknown", detail: hole })) : judged;
+  };
+  const judgeWhole = (call, sent) => {
     // The seam marks every non-passing call with a code. "EXIT" means Cargo ran and exited non-zero: that is a build result to read, not a refusal
     // (Dell planted-failure run, 2026-11-10: treating it as a refusal made every crate of a red call unknown and sent no green rerun).
     const refusal = refusalOf(sent) ? `${sent.refusal.code}: ${sent.refusal.message}` : null;
