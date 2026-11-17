@@ -2115,8 +2115,8 @@
       "pkId": "PK06",
       "id": "ci/consumers/rightkit-job-queue/src/main.rs",
       "files": {
-        "Cargo.toml": "0baff088604af7dd00d5cbfaf8c31ffd97aba1714fa15d44759b11553883ad68",
-        "src/main.rs": "81b25e5b25c8eeaa7fb961b257c3810001bfed9dc7c0c1897ad82963068b532b"
+        "Cargo.toml": "0b6ede94cac0719841f805e9240e27eb37f68875c3f7c473bf9ca5a8c5615369",
+        "src/main.rs": "c55a5816820a8018a0f32724321c67f26c0dcfcf0f2cf3aad7d33cf26c61fe80"
       }
     },
     "rightkit-browser": {

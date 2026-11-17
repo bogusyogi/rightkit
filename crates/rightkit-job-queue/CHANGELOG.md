@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.1
+
+- Added the opt-in `input-file` feature for CLI input from a regular UTF-8 file of at most 1 MiB. Expansion keeps text in memory, preserves option values, and refuses conflicting inputs and the stdin sentinel.
+
 ## 0.6.0
 
 - Changed: the dispatcher builds its hello, event and response frames through `rightkit_sidecar::wire::Frame` instead of `json!` literals. The bytes on the wire are unchanged.

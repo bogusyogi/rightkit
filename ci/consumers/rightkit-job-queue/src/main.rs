@@ -1,6 +1,6 @@
 use rightkit_job_queue::{
-    ActivityOptions, ActivityRegistry, EngineSupervisor, HandshakeCall, HandshakeMode,
-    InitialFailure, Lifecycle, OwnedCommand, SupervisorConfig, Zeroizing,
+    expand_input_file, ActivityOptions, ActivityRegistry, EngineSupervisor, HandshakeCall,
+    HandshakeMode, InitialFailure, Lifecycle, OwnedCommand, SupervisorConfig, Zeroizing,
 };
 use serde_json::{json, Value};
 use std::io::{BufRead, Write};
@@ -57,6 +57,12 @@ fn main() {
         engine();
         return;
     }
+    let args = vec![
+        "status".to_owned(),
+        "--request-id".to_owned(),
+        "--input-file".to_owned(),
+    ];
+    assert_eq!(expand_input_file(args.clone()).unwrap(), args);
     let registry = ActivityRegistry::new();
     let (export, flag) = registry
         .register_with(

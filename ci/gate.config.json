@@ -53,6 +53,11 @@
         [
           "--no-default-features",
           "--features",
+          "input-file"
+        ],
+        [
+          "--no-default-features",
+          "--features",
           "supervisor"
         ],
         [

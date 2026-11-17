@@ -827,6 +827,117 @@ impl Dispatcher {
 
 // ---------------------------------------------------------------- CLI ----
 
+/// Maximum byte length accepted by [`expand_input_file`].
+#[cfg(feature = "input-file")]
+pub const INPUT_FILE_MAX: u64 = 1024 * 1024;
+
+/// Expand an optional `--input-file <path>` into in-memory `--input <text>` arguments.
+/// Call after application mode selection and before both `parse_flags` and `run_cli`.
+/// Returns `(code, message)`, with `usage` for option conflicts and `bad_input` for file errors.
+/// The returned arguments must not be placed in a subprocess argument vector or diagnostic.
+#[cfg(feature = "input-file")]
+pub fn expand_input_file(args: Vec<String>) -> Result<Vec<String>, (&'static str, String)> {
+    let mut file_index = None;
+    let mut has_input = false;
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--input" | "--request-id" | "--wait-timeout" => {
+                has_input |= args[i] == "--input";
+                i += 1;
+                if i < args.len() {
+                    i += 1;
+                }
+            }
+            "--input-file" => {
+                if i + 1 >= args.len() {
+                    return Err(("usage", "--input-file needs a path".into()));
+                }
+                if file_index.is_some() {
+                    return Err(("usage", "give one of --input or --input-file, once".into()));
+                }
+                file_index = Some(i);
+                i += 2;
+            }
+            _ => i += 1,
+        }
+    }
+    let Some(index) = file_index else {
+        return Ok(args);
+    };
+    if has_input {
+        return Err(("usage", "give one of --input or --input-file, once".into()));
+    }
+    let path = &args[index + 1];
+    let too_large = || {
+        (
+            "bad_input",
+            format!("--input-file {path} must be a file of at most {INPUT_FILE_MAX} bytes"),
+        )
+    };
+    let meta = std::fs::metadata(path)
+        .map_err(|e| ("bad_input", format!("--input-file {path}: {e}")))?;
+    if !meta.is_file() || meta.len() > INPUT_FILE_MAX {
+        return Err(too_large());
+    }
+    let canonical = std::fs::canonicalize(path)
+        .map_err(|e| ("bad_input", format!("--input-file {path}: {e}")))?;
+    let file = rightkit_fs::handle::open_read_nofollow(
+        &canonical,
+        &rightkit_fs::handle::ReadOptions::new(),
+    )
+    .map_err(|e| match e {
+        rightkit_fs::FsError::NotAFile(_) => too_large(),
+        _ => ("bad_input", format!("--input-file {path}: {e}")),
+    })?;
+    let meta = file
+        .metadata()
+        .map_err(|e| ("bad_input", format!("--input-file {path}: {e}")))?;
+    if !meta.is_file() || meta.len() > INPUT_FILE_MAX {
+        return Err(too_large());
+    }
+    let unreadable = || {
+        ("bad_input", format!("--input-file {path} cannot be read as text"))
+    };
+    let mut bytes = Vec::new();
+    file.take(INPUT_FILE_MAX + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|_| unreadable())?;
+    if bytes.len() as u64 > INPUT_FILE_MAX {
+        return Err(too_large());
+    }
+    let text = String::from_utf8(bytes).map_err(|_| unreadable())?;
+    if text == "-" {
+        return Err(("bad_input", "input is not JSON".into()));
+    }
+    let mut out = args;
+    out[index] = "--input".into();
+    out[index + 1] = text;
+    Ok(out)
+}
+
+#[cfg(all(test, feature = "input-file"))]
+mod input_file_tests {
+    use super::expand_input_file;
+
+    #[test]
+    fn option_values_are_not_expanded() {
+        for option in ["--input", "--request-id", "--wait-timeout"] {
+            let args = vec![option.into(), "--input-file".into()];
+            assert_eq!(expand_input_file(args.clone()).unwrap(), args);
+        }
+    }
+
+    #[test]
+    fn file_stdin_sentinel_is_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("input");
+        std::fs::write(&path, "-").unwrap();
+        let args = vec!["--input-file".into(), path.to_string_lossy().into_owned()];
+        assert_eq!(expand_input_file(args).unwrap_err().0, "bad_input");
+    }
+}
+
 #[derive(Debug, Default, PartialEq)]
 pub struct Flags {
     pub dry_run: bool,

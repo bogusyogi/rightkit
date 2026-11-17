@@ -636,7 +636,7 @@
     "rightkit-i18n": "0.1.0",
     "rightkit-identity": "0.1.2",
     "rightkit-instance": "0.2.0",
-    "rightkit-job-queue": "0.6.0",
+    "rightkit-job-queue": "0.6.1",
     "rightkit-launcher": "0.2.0",
     "rightkit-launcher-win": "0.1.0",
     "rightkit-library": "0.3.0",
@@ -1087,7 +1087,8 @@
       "0.3.2",
       "0.4.0",
       "0.5.0",
-      "0.5.1"
+      "0.5.1",
+      "0.6.0"
     ],
     "rightkit-jobs": [
       "0.2.1",

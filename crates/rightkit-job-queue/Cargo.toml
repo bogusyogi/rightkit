@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-job-queue"
-version = "0.6.0"
+version = "0.6.1"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Persistent job store, runner, and stdio/CLI command contract for Right Suite engines."
@@ -26,6 +26,8 @@ protocol = ["dep:rightkit-sidecar"]
 # loop, oversize reply, shutdown), `serve`, `serve_report`, `run_cli`, `CommandSet`, `EventEmitter`.
 # Implies `protocol` only: an engine with its own persistence serves the contract without a database.
 serve = ["protocol"]
+# Opt-in bounded CLI file input, with no database dependency.
+input-file = ["serve", "dep:rightkit-fs"]
 # The stdio/CLI command contract with the shared `job.*` commands: everything in `serve` plus
 # `JobCommands` and `PayloadMapper` (which drive a `JobStore`/`Runner`). Implies `serve` and `store`.
 contract = ["serve", "store"]

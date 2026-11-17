@@ -64,6 +64,8 @@ pub use contract::{
     parse_flags, run_cli, serve, serve_report, CommandSet, Dispatcher, DoctorFn, ErrorRedactor,
     EventEmitter, Flags, Outcome, ReadinessFn, ServeReport, Sink,
 };
+#[cfg(feature = "input-file")]
+pub use contract::{expand_input_file, INPUT_FILE_MAX};
 #[cfg(feature = "doctor")]
 pub use doctor_probe::{
     parse_doctor, run_doctor, DoctorOptions, DoctorProbe, DEFAULT_DOCTOR_TIMEOUT,
