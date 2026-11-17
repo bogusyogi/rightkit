@@ -5,6 +5,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { spawnSync as nodeSpawnSync } from "node:child_process";
 import { DOC_DENY, osOfTriple, planCalls, planNotes } from "./calls.mjs";
 import { fileStore, resultsByCrate, runCalls } from "./run-calls.mjs";
 import { runTests } from "./tests.mjs";
@@ -51,6 +52,21 @@ export function gateIdentity({ commit, snapshot, platform, client, readFile = (f
 }
 
 /**
+ * The build of the broker that is RUNNING and that this run's jobs will reach, asked once through the client's read-only health command
+ * (`<client> doctor --json --no-scan`: a STATUS probe) with the same environment the jobs are sent with, so it is the broker those jobs meet.
+ * The answering broker's handshake digest, or null when the client cannot be run, prints no JSON, or no broker answered. The command's exit
+ * code is not read (it is non-zero for unrelated health findings), and what the manifest on disk expects is not read as "running".
+ */
+export function runningBrokerDigest({ client, env, spawnSync = nodeSpawnSync }) {
+  if (!client) return null;
+  let r; try { r = spawnSync(client, ["doctor", "--json", "--no-scan"], { encoding: "utf8", timeout: 60_000, windowsHide: true, env }); } catch { return null; }
+  if (!r || r.error) return null;
+  let doctor; try { doctor = JSON.parse(String(r.stdout)); } catch { return null; }
+  const a = doctor?.answeringBroker; const d = a?.handshakeRuntime?.brokerDigest;
+  return a?.answered === true && typeof d === "string" && /^[0-9a-f]{64}$/.test(d) ? d : null;
+}
+
+/**
  * The environment one call is sent with. A docs call denies rustdoc warnings, as CI does: the broker adds nothing itself and admits exactly this
  * value on doc calls. Every other call is sent without RUSTDOCFLAGS, whatever the launching session had set.
  */
@@ -73,7 +89,7 @@ const STAGES = ["lint", "test-build", "docs"];
  * `send`: optional replacement for the broker call (tests). `onUnsettled`: called for a broker job that ended without a settled outcome (the caller keeps the snapshot lock).
  * Returns { code, byCrate: { name: { result, stages: { lint, "test-build", docs, tests } } }, counts, notes, calls }.
  */
-export async function compileTogether({ snapshot, commit, crates, rustConfig = {}, platform = process.platform, arch = process.arch, client = "rustright", env = process.env, verdictFile, storeDir, out = () => {}, onUnsettled = () => {}, send = null, runTestsWith = runTests, identityOf = gateIdentity }) {
+export async function compileTogether({ snapshot, commit, crates, rustConfig = {}, platform = process.platform, arch = process.arch, client = "rustright", env = process.env, verdictFile, storeDir, out = () => {}, onUnsettled = () => {}, send = null, runTestsWith = runTests, identityOf = gateIdentity, askBroker = runningBrokerDigest }) {
   // ci/asset-gated.json of the commit: a listed crate runs its tests with RIGHTKIT_REQUIRE_ASSETS=0, every other with 1, as on the per-crate rows.
   let gated = {};
   try { gated = JSON.parse(fs.readFileSync(path.join(snapshot, "ci", "asset-gated.json"), "utf8")).crates ?? {}; } catch { gated = {}; }
@@ -83,11 +99,15 @@ export async function compileTogether({ snapshot, commit, crates, rustConfig = {
   const notes = planNotes({ crates: infos, host: platform });
   const identity = identityOf({ commit, snapshot, platform, client });
   // Without the broker's exact build there is nothing sound to remember a pass under, and no remembered pass can be shown to be this broker's.
-  const store = storeDir && identity.brokerKnown ? fileStore(storeDir) : null;
-  if (storeDir && !identity.brokerKnown) out("nothing is remembered or reused in this run: the installed broker's build (brokerDigest of its runtime manifest) cannot be read");
+  const seamEnv = { ...env, RUSTRIGHT_GATE_COMMIT: commit, RUSTRIGHT_CLASS_A: verdictFile };
+  // Once per run, before anything is looked up: the broker that is running must be the installed build the key names. The key's digest is read
+  // from disk; a broker replaced or started from elsewhere answers with another one. Unknown or different: no store for this run.
+  let storeOff = !storeDir ? "no store was asked for" : !identity.brokerKnown ? "the installed broker's build (brokerDigest of its runtime manifest) cannot be read" : null;
+  if (!storeOff) { const live = askBroker({ client, env: seamEnv }); if (live !== identity.broker) storeOff = live ? `the running broker is ${live}, the installed runtime is ${identity.broker}` : "the running broker did not state its build"; }
+  let store = storeOff ? null : fileStore(storeDir);
+  if (storeDir && storeOff) out(`nothing is remembered or reused in this run: ${storeOff}`);
   // What a remembered test pass belongs to: this commit on this toolchain, host, broker and gate code, the same identity a remembered call has.
   const testScope = crypto.createHash("sha256").update(JSON.stringify(["commit", "toolchain", "host", "broker", "gate"].map((k) => identity[k]))).digest("hex");
-  const seamEnv = { ...env, RUSTRIGHT_GATE_COMMIT: commit, RUSTRIGHT_CLASS_A: verdictFile };
   const sendCall = send ?? ((call) => {
     const { result, ledger } = runSeamCargoCall(call.args, { cwd: path.join(snapshot, call.cwd ?? "."), env: callEnv(seamEnv, call), client });
     if (ledger?.settled === false) onUnsettled(call, ledger);
@@ -128,6 +148,8 @@ export async function compileTogether({ snapshot, commit, crates, rustConfig = {
     });
     outcomes.push(...one.outcomes);
     for (const k of ["ran", "skipped", "jobs", "greenReruns", "notRemembered"]) counts[k] += one.counts[k];
+    // A job of this run was signed by another broker build than the key names: the broker changed under the run. Nothing more is remembered or reused.
+    if (store && one.outcomes.some((o) => o.brokerChanged)) { store = null; out("the broker's build changed during this run: nothing further is remembered or reused"); }
     if (call.stage === "test-build") for (const o of one.outcomes) await runTestsOf(o);
     // A test program not proven stopped may still be reading or writing the shared build folder: no further Cargo call is sent into it.
     if (testCounts.unreaped) { stopped = `stopped after ${call.id}: ${testCounts.unreaped} test program(s) timed out and are not proven stopped; ${calls.length - calls.indexOf(call) - 1} call(s) not sent`; out(stopped); break; }

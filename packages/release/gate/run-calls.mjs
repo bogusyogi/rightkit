@@ -140,12 +140,14 @@ export function runCalls({ calls, send, store = null, identity, hostTriple, onCa
   const outcomes = [];
   const counts = { calls: calls.length, ran: 0, skipped: 0, jobs: 0, greenReruns: 0, notRemembered: 0 };
   const envOf = (which) => (typeof env === "function" ? env(which) : env);
+  let brokerChanged = false;
   // Remembers a passed job, unless its receipt shows the key is too narrow for what the broker forwarded. Returns the reason it was not remembered, or null.
   const remember = (which, job) => {
     if (!store) return null;
     // The key names a broker build; the pass is filed under it only when the job's own signed receipt says that build ran it.
     const ranBy = signedBroker(job, identity);
-    const why = ranBy !== identity.broker ? `its receipt says broker ${ranBy ?? "(not stated)"} ran it, the key names ${identity.broker}` : unrememberable(forwarded(job));
+    if (ranBy !== identity.broker) { counts.notRemembered += 1; brokerChanged = true; return `its receipt says broker ${ranBy ?? "(not stated)"} ran it, the key names ${identity.broker}`; }
+    const why = unrememberable(forwarded(job));
     if (why) { counts.notRemembered += 1; return why; }
     store.put(callKey(which, identity, envOf(which)), { call: { id: which.id, cwd: which.cwd ?? ".", args: which.args }, job, crates: which.crates.map((c) => c.name) });
     return null;
@@ -179,7 +181,7 @@ export function runCalls({ calls, send, store = null, identity, hostTriple, onCa
   for (const call of calls) {
     const key = callKey(call, identity, envOf(call));
     const remembered = store?.get(key) ?? null;
-    let notRemembered = null;
+    let notRemembered = null; brokerChanged = false;
     if (remembered) {
       counts.skipped += 1;
       const outcome = { call, state: "skipped", results: call.crates.map((c) => ({ crate: c.name, result: "passed", detail: "" })), jobs: [], evidence: remembered.job };
@@ -216,7 +218,7 @@ export function runCalls({ calls, send, store = null, identity, hostTriple, onCa
         results = results.map((r) => (r.result === "passed" ? { crate: r.crate, result: "unknown", detail: `the job exited ${first.status} with no failure attributed to a crate; nothing is proven` } : r));
       }
     }
-    const outcome = { call, state: "ran", results, jobs, evidence, ...(notRemembered ? { notRemembered } : {}) };
+    const outcome = { call, state: "ran", results, jobs, evidence, ...(notRemembered ? { notRemembered } : {}), ...(brokerChanged ? { brokerChanged: true } : {}) };
     outcomes.push(outcome); onCall(outcome);
   }
   return { outcomes, counts };

@@ -274,7 +274,7 @@ function fakeSeam({ red = [], deps = {} } = {}) {
 const fakeTests = ({ failing = [] } = {}) => async ({ executables, crates }) => ({ byCrate: Object.fromEntries(crates.map((c) => [c.name, Array.isArray(executables) && executables.some((e) => e.target === c.name) ? (failing.includes(c.name) ? { result: "failed", detail: "1 test failed", programs: 1, passed: 0, failed: 1, ignored: 0 } : { result: "passed", detail: "", programs: 1, passed: 3, failed: 0, ignored: 0 }) : { result: "unknown", detail: "no program listed", programs: 0, passed: 0, failed: 0, ignored: 0 }])), counts: { programs: crates.length, ran: crates.length, cached: 0 } });
 const TEST_BROKER = "f".repeat(64);
 const testIdentity = (o) => ({ ...gateIdentityReal(o), broker: TEST_BROKER, brokerKnown: true });
-const compile = (snapshot, crates, seam, extra = {}) => compileTogether({ identityOf: testIdentity, snapshot, commit: "c".repeat(40), crates, platform: "win32", arch: "x64", client: null, verdictFile: path.join(snapshot, "verdict.json"), storeDir: path.join(snapshot, ".calls"), send: seam.send, runTestsWith: fakeTests(extra.tests), ...extra });
+const compile = (snapshot, crates, seam, extra = {}) => compileTogether({ identityOf: testIdentity, askBroker: () => TEST_BROKER, snapshot, commit: "c".repeat(40), crates, platform: "win32", arch: "x64", client: null, verdictFile: path.join(snapshot, "verdict.json"), storeDir: path.join(snapshot, ".calls"), send: seam.send, runTestsWith: fakeTests(extra.tests), ...extra });
 
 test("crate facts are read from the snapshot: library, declared features, config", () => {
   const snap = fakeSnapshot({ a: {}, b: { lib: false, features: 'default = []\nextra = []' } });
@@ -298,7 +298,7 @@ test("a test build's programs run before the next call is sent (a later build of
   const snap = fakeSnapshot({ a: {} }); const seam = fakeSeam(); const order = [];
   const send = (call) => { order.push(call.id); return seam.send(call); };
   const tests = fakeTests();
-  const run = await compileTogether({ identityOf: testIdentity, snapshot: snap, commit: "c".repeat(40), crates: ["a"], platform: "win32", arch: "x64", client: null, verdictFile: path.join(snap, "verdict.json"), storeDir: path.join(snap, ".calls"), send, runTestsWith: async (input) => { order.push("tests"); return tests(input); } });
+  const run = await compileTogether({ identityOf: testIdentity, askBroker: () => TEST_BROKER, snapshot: snap, commit: "c".repeat(40), crates: ["a"], platform: "win32", arch: "x64", client: null, verdictFile: path.join(snap, "verdict.json"), storeDir: path.join(snap, ".calls"), send, runTestsWith: async (input) => { order.push("tests"); return tests(input); } });
   assert.equal(run.code, 0);
   const at = order.indexOf("tests");
   assert.ok(at > 0 && order[at - 1].startsWith("test-build:"), order.join(" > "));
@@ -829,5 +829,50 @@ test("a remembered call is filed under the broker's exact build, only when the j
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   // The build-together path keeps no store when the broker's build is unknown, and says so.
   const src = fs.readFileSync(new URL("./compile.mjs", import.meta.url), "utf8");
-  assert.match(src, /const store = storeDir && identity\.brokerKnown \? fileStore\(storeDir\) : null;/);
+  assert.match(src, /let store = storeOff \? null : fileStore\(storeDir\);/);
+});
+
+test("G30: the running broker is asked once per run before any lookup; unknown, different, or changed during the run means no reuse and no storing", async () => {
+  const { runningBrokerDigest } = await import("./compile.mjs");
+  const d = "f".repeat(64);
+  // The read path: the client's read-only health command, judged from its JSON, never from its exit code.
+  const doctor = (answering) => JSON.stringify({ healthy: false, runtime: { expectedBrokerDigest: d }, answeringBroker: answering });
+  const run = (stdout, status = 1) => { const seen = []; const out = runningBrokerDigest({ client: "/c/rustright", env: { X: "1" }, spawnSync: (f, a, o) => { seen.push([f, a, o.env]); return { status, stdout }; } }); return { out, seen }; };
+  const ok = run(doctor({ answered: true, handshakeRuntime: { brokerDigest: d } }));
+  assert.equal(ok.out, d); assert.deepEqual(ok.seen[0].slice(0, 2), ["/c/rustright", ["doctor", "--json", "--no-scan"]]); assert.deepEqual(ok.seen[0][2], { X: "1" });
+  assert.equal(run(doctor({ answered: false, handshakeRuntime: { brokerDigest: d } })).out, null);
+  assert.equal(run(doctor({ answered: true, handshakeRuntime: {} })).out, null);
+  assert.equal(run(JSON.stringify({ runtime: { expectedBrokerDigest: d } }), 0).out, null, "what is on disk is not what is running");
+  assert.equal(run("not json", 0).out, null);
+  assert.equal(runningBrokerDigest({ client: null, env: {} }), null);
+  assert.equal(runningBrokerDigest({ client: "/c/x", env: {}, spawnSync: () => { throw new Error("EACCES"); } }), null);
+  assert.equal(runningBrokerDigest({ client: "/c/x", env: {}, spawnSync: () => ({ error: new Error("timeout") }) }), null);
+
+  // Through the build-together run: asked exactly once, before the first call; a matching answer reuses, anything else does not.
+  const snap = fs.mkdtempSync(path.join(os.tmpdir(), "rk-g30-"));
+  try {
+    for (const name of ["a"]) { fs.mkdirSync(path.join(snap, "crates", name, "src"), { recursive: true }); fs.writeFileSync(path.join(snap, "crates", name, "Cargo.toml"), `[package]\nname = "${name}"\nversion = "0.1.0"\n`); fs.writeFileSync(path.join(snap, "crates", name, "src", "lib.rs"), ""); }
+    const T = targetsFor("win32", "x64").hostTriple;
+    const mk = (signedBy) => { let sent = 0; let asked = 0; const order = [];
+      const send = (call) => { sent += 1; order.push("send"); const file = path.join(snap, `r-${sent}-${Math.random()}.json`);
+        fs.writeFileSync(file, JSON.stringify({ id: `job-${sent}`, testExecutables: [], environment: { forwarded: call.stage === "docs" ? ["RUSTDOCFLAGS"] : [] }, provenance: { payload: { broker: { brokerDigest: typeof signedBy === "function" ? signedBy(sent) : signedBy } } } }));
+        const lines = []; for (const c of call.crates) for (const t of c.targets) lines.push(JSON.stringify({ reason: "compiler-artifact", package_id: `path+file:///s/crates/${c.name}#0.1.0`, target: { kind: ["lib"], name: c.name }, filenames: [`/t/${t}/lib${c.name}.rlib`] }));
+        lines.push(JSON.stringify({ reason: "build-finished", success: true }));
+        return { status: 0, stdout: lines.join("\n"), stderr: "", requestId: `job-${sent}`, receipt: file, receiptSha256: "x" }; };
+      return { send, sent: () => sent, asked: () => asked, order, ask: (answer) => () => { asked += 1; order.push("ask"); return answer; } }; };
+    const go = (m, answer, storeName, lines = []) => compileTogether({ snapshot: snap, commit: "c".repeat(40), crates: ["a"], platform: "win32", arch: "x64", client: null, env: {}, verdictFile: path.join(snap, "v.json"), storeDir: path.join(snap, storeName), send: m.send, identityOf: testIdentity, askBroker: m.ask(answer), out: (l) => lines.push(l), runTestsWith: async ({ crates }) => ({ byCrate: Object.fromEntries(crates.map((c) => [c.name, { result: "passed", detail: "", programs: 0, passed: 0, failed: 0, ignored: 0 }])), counts: { programs: 0, ran: 0, cached: 0, unreaped: 0 } }) });
+    // The running broker is the installed one: first run sends, second run reuses everything; asked once each time and before the first send.
+    const a = mk(TEST_BROKER); const first = await go(a, TEST_BROKER, "s-ok"); const n = a.sent(); assert.ok(n > 0); assert.equal(first.code, 0);
+    assert.equal(a.asked(), 1); assert.equal(a.order[0], "ask");
+    await go(a, TEST_BROKER, "s-ok"); assert.equal(a.sent(), n, "reused"); assert.equal(a.asked(), 2);
+    // Another broker is answering, or none states its build: every call is sent again and nothing is stored, even though passes are on disk.
+    for (const [answer, why] of [["9".repeat(64), /the running broker is 9{64}, the installed runtime is f{64}/], [null, /the running broker did not state its build/]]) {
+      const lines = []; const b = mk(TEST_BROKER); b.send; await go({ ...b, send: a.send, ask: b.ask }, answer, "s-ok", lines);
+      assert.equal(a.sent(), n * (answer ? 2 : 3), "sent again"); assert.ok(lines.some((l) => why.test(l)), lines.join(" | "));
+    }
+    // The broker changes during the run: the first job is signed by another build. Nothing is filed, and nothing further is looked up or stored.
+    const c = mk((i) => (i === 1 ? "9".repeat(64) : TEST_BROKER)); const lines = []; await go(c, TEST_BROKER, "s-changed", lines); const sentOnce = c.sent();
+    assert.ok(lines.some((l) => /the broker's build changed during this run/.test(l)), lines.join(" | "));
+    await go(c, TEST_BROKER, "s-changed"); assert.equal(c.sent(), sentOnce * 2, "nothing of the changed run was remembered");
+  } finally { fs.rmSync(snap, { recursive: true, force: true }); }
 });
