@@ -876,3 +876,34 @@ test("G30: the running broker is asked once per run before any lookup; unknown, 
     await go(c, TEST_BROKER, "s-changed"); assert.equal(c.sent(), sentOnce * 2, "nothing of the changed run was remembered");
   } finally { fs.rmSync(snap, { recursive: true, force: true }); }
 });
+
+test("test work stays inside 80% of the machine: programs at once times threads each", async () => {
+  const { testWidth, testProgramsAtOnce } = await import("./tests.mjs");
+  const { testKeyEnv } = await import("../test-env.mjs");
+  // The Dell (20 cores): budget 16. 46 crates side by side: 16 programs, one thread each. Four: 4 programs, 4 threads each. One alone: all 16.
+  assert.deepEqual(testWidth({ cpus: 20, programs: 46 }), { budget: 16, atOnce: 16, threads: 1 });
+  assert.deepEqual(testWidth({ cpus: 20, programs: 4 }), { budget: 16, atOnce: 4, threads: 4 });
+  assert.deepEqual(testWidth({ cpus: 20, programs: 1 }), { budget: 16, atOnce: 1, threads: 16 });
+  assert.deepEqual(testWidth({ cpus: 20, programs: 3 }), { budget: 16, atOnce: 3, threads: 5 });
+  // Never over the budget, whatever the machine or the list; never fewer than one of each.
+  for (const cpus of [1, 2, 4, 8, 10, 20, 64]) for (const programs of [0, 1, 2, 7, 46, 216]) { const w = testWidth({ cpus, programs }); assert.ok(w.atOnce * w.threads <= w.budget, `${cpus}/${programs}`); assert.ok(w.atOnce >= 1 && w.threads >= 1); assert.equal(w.budget, Math.max(1, Math.floor(cpus * 0.8))); assert.ok(w.atOnce <= testProgramsAtOnce({ cpus })); }
+  assert.deepEqual(testWidth({ cpus: 20, programs: 46, jobs: 3 }), { budget: 16, atOnce: 3, threads: 5 });
+
+  // Through the runner on a 20-core machine: 6 programs side by side get 2 threads each and never more than 6 run; a quiet crate runs alone with 16.
+  const { EventEmitter } = await import("node:events");
+  let running = 0; let peak = 0; const seen = [];
+  const spawn = (file, args, opts) => { running += 1; peak = Math.max(peak, running); seen.push([path.posix.basename(file), opts.env.RUST_TEST_THREADS, args]); const c = new EventEmitter(); c.pid = 1; c.stdout = new EventEmitter(); c.stderr = new EventEmitter(); setTimeout(() => { running -= 1; c.emit("close", 0, null); }, 5); return c; };
+  const names = ["a", "b", "c", "d", "e", "f"];
+  const crates = [...names.map((name) => ({ name, dir: "/s" })), { name: "q", dir: "/s", quiet: true }, { name: "s", dir: "/s", serialToo: true }];
+  const r = await runTests({ executables: crates.map((c) => ({ path: `/t/${c.name}`, sha256: "ab".repeat(32), package_id: `path+file:///s/crates/${c.name}#0.1.0`, target: c.name })), crates, env: {}, cpus: 20, hashOf: () => "ab".repeat(32), spawn, record: (c) => c });
+  assert.equal(r.counts.ran, 9);
+  const of = (name) => seen.filter((x) => x[0] === name);
+  for (const n of names) assert.equal(of(n)[0][1], "2", `${n}: 8 side-by-side programs on a budget of 16`);
+  assert.equal(of("q")[0][1], "16", "a quiet crate runs alone with the whole budget");
+  // A run that names one thread in its arguments keeps it, and gets no variable that could contradict it.
+  const serial = of("s").find((x) => x[2].includes("--test-threads=1")); assert.equal(serial[1], undefined);
+  assert.ok(peak <= 8, `peak ${peak}`);
+  // The gate's own thread setting is not part of what a remembered pass is filed under: one more crate on the list loses nothing.
+  assert.deepEqual(testKeyEnv({ A: "1", RUST_TEST_THREADS: "2" }), testKeyEnv({ A: "1", RUST_TEST_THREADS: "16" }));
+  assert.deepEqual(testKeyEnv({ A: "1", RUST_TEST_THREADS: "2" }), [["A", "1"]]);
+});

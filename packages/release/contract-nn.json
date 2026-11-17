@@ -18,9 +18,6 @@
     "snapshot-root-config.mjs",
     "snapshot.mjs"
   ],
-  "signedSteps": [
-    "S12"
-  ],
   "signedLaunches": [
     {
       "label": "S12:crate",

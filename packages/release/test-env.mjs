@@ -20,4 +20,7 @@ export function testProgramEnv(env = process.env, assetGated = false) {
  * shorter list was a guess about which ones matter. The cost is known: a rerun of the same commit from another terminal or session differs
  * in some variable and runs the test programs again. That reruns programs, not Cargo: the remembered broker calls have their own key.
  */
-export const testKeyEnv = (programEnv) => Object.entries(programEnv ?? {}).filter(([, value]) => typeof value === "string").sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+// One variable is left out: RUST_TEST_THREADS. The gate sets it itself from the size of the machine and of the list (gate/tests.mjs testWidth), so it
+// would change the key whenever one more crate is on the list and every remembered pass would be lost for no reason. It is a share of the
+// machine, not an input of the test. A run that needs one thread says so in its arguments, and those are in the key.
+export const testKeyEnv = (programEnv) => Object.entries(programEnv ?? {}).filter(([name, value]) => typeof value === "string" && name !== "RUST_TEST_THREADS").sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));

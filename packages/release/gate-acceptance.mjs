@@ -1727,14 +1727,9 @@ export function collectContractJobs(run, bundleDir, { read = (f) => fs.readFileS
   return { jobs, problems };
 }
 /**
- * The step whose launches cannot be served from a cache, so a run that really happened shows broker jobs in it: S12 compiles commits the runner
- * has just made, which nothing compiled before. Shipped in the sealed gate (contract-nn.json `signedSteps`). S11, the run with the cache moved
- * aside, is NOT such a step: by design it stops for approval before anything runs and sends no broker job (I had listed it without reading it).
- * A warm step sends few or no jobs and is not here either.
- */
-export const CONTRACT_SIGNED_STEPS = Object.freeze(["S12"]);
-/**
- * The same, by exact launch, with what the broker's signed claim for it must say (contract-nn.json `signedLaunches`). `label` is the launch's
+ * The launches that cannot be served from a cache, so a run that really happened shows broker jobs in them: the two S12 compiles of commits
+ * the runner has just made. S11, the run with the cache moved aside, is NOT one: by design it stops for approval before anything runs and
+ * sends no broker job. Sealed with the gate, with what the broker's signed claim for each must say (contract-nn.json `signedLaunches`). `label` is the launch's
  * step label as the nonce carries it; `commands`: the stage words of which at least one job must have run in it; `exitCode`: the expected
  * result of every job of the launch; `commit`: "any" means the runner made the commit for that launch (an edit): every job of the launch must
  * name one same 40-hex commit, and it must not be the fixture commit the receipt states.

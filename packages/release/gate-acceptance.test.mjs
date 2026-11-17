@@ -1010,16 +1010,14 @@ test("contract-nn.json, which the installer reads from a sealed gate, is exactly
   // The sealed list of the runner's files, names only: the installer requires a receipt to name exactly these and hashes the sealed copies itself,
   // so a receipt that leaves a file out is refused. The list is computed here, from the imports, not taken from any receipt.
   assert.deepEqual(listed.runnerFiles, runnerFileHashes().map((f) => f.name), "the runner's imports changed: write the new list into packages/release/contract-nn.json (runnerFiles)");
-  assert.deepEqual(Object.keys(listed), ["schema", "contractSha256", "budgetsSha256", "runnerFiles", "signedSteps", "signedLaunches", "ids"]);
+  assert.deepEqual(Object.keys(listed), ["schema", "contractSha256", "budgetsSha256", "runnerFiles", "signedLaunches", "ids"]);
   // The launches a verifier requires signed jobs in, with what each must show, sealed with the gate so a receipt cannot choose them. Each is a
   // real launch of the runner, and it is a launch that compiles: the cold run (S11) stops before anything runs and is deliberately not here.
   { const { CONTRACT_SIGNED_LAUNCHES } = await import("./gate-acceptance.mjs"); const src = fs.readFileSync(new URL("./gate-acceptance.mjs", import.meta.url), "utf8");
     assert.deepEqual(listed.signedLaunches, CONTRACT_SIGNED_LAUNCHES.map((l) => ({ label: l.label, commands: [...l.commands], exitCode: l.exitCode, commit: l.commit })));
     assert.deepEqual(listed.signedLaunches.map((l) => l.label), ["S12:crate", "S12:manifest"]);
-    for (const l of listed.signedLaunches) { assert.match(src, new RegExp(`doRun\\(\\{ label: "${l.label}", stage: "compile",`), `${l.label} is a compile launch of the runner`); assert.ok(listed.signedSteps.includes(l.label.split(":")[0])); }
-    assert.equal(listed.signedSteps.includes("S11"), false); }
-  // The steps a verifier requires signed broker jobs in, sealed with the gate so a receipt cannot choose them; each is a real step of the test.
-  { const { CONTRACT_SIGNED_STEPS, STEPS } = await import("./gate-acceptance.mjs"); assert.deepEqual(listed.signedSteps, [...CONTRACT_SIGNED_STEPS]); assert.ok(listed.signedSteps.length > 0); for (const id of listed.signedSteps) assert.ok(STEPS.some((x) => x.id === id), id); }
+    for (const l of listed.signedLaunches) { assert.match(src, new RegExp(`doRun\\(\\{ label: "${l.label}", stage: "compile",`), `${l.label} is a compile launch of the runner`); }
+    assert.equal(listed.signedLaunches.some((l) => l.label.startsWith("S11")), false); assert.equal(listed.signedSteps, undefined); }
   assert.deepEqual(listed.ids, [...NN_ALL_IDS]); assert.equal(listed.schema, "rightkit.contract-nn/1");
   assert.equal(new Set(listed.ids).size, listed.ids.length);
   for (const id of listed.ids) assert.match(id, /^NN\d+$/);

@@ -145,6 +145,20 @@ function runOne({ file, args, cwd, env, timeoutMs, spawn, platform = process.pla
 export function testProgramsAtOnce({ cpus = os.cpus().length } = {}) { return Math.max(1, cpus - 2); }
 
 /**
+ * The test work of one run, held to 80% of the machine (the owner's rule of 2026-11-04 for how much of a host builds may use, so the
+ * machine stays usable). A test program runs its own tests on as many threads as there are cores unless told otherwise, so programs at once
+ * times threads each is what has to stay inside the budget.
+ * `programs`: how many are waiting to run side by side. Returns { budget, atOnce, threads }: budget = 80% of the cores (at least 1); atOnce = the
+ * programs run side by side (never more than the budget, nor than cores minus 2, nor than `jobs` when given); threads = the test threads each of
+ * them gets, so that atOnce * threads <= budget. One program alone gets the whole budget.
+ */
+export function testWidth({ cpus = os.cpus().length, programs, jobs = testProgramsAtOnce({ cpus }) } = {}) {
+  const budget = Math.max(1, Math.floor(cpus * 0.8));
+  const atOnce = Math.max(1, Math.min(budget, jobs, Math.max(1, programs ?? budget)));
+  return { budget, atOnce, threads: Math.max(1, Math.floor(budget / atOnce)) };
+}
+
+/**
  * Runs every listed program and returns { byCrate: { crate: { result: "passed"|"failed"|"unknown", detail, programs, passed, failed, ignored } }, counts: { programs, ran, cached, unreaped } }.
  * `executables`: the receipt list (null means the broker listed none: every crate in `crates` is unknown).
  * `crates`: [{ name, dir, quiet?: boolean, serialToo?: boolean, allowIgnored?: boolean, assetGated?: boolean }] the crates whose tests are owed; `dir` is the crate's directory in the snapshot.
@@ -156,7 +170,7 @@ export function testProgramsAtOnce({ cpus = os.cpus().length } = {}) { return Ma
  * A program past `timeoutMs` is asked to stop as a tree and is always counted in `unreaped`; after that no further program starts.
  * Quiet crates run last, one program at a time. `serialToo` crates run a second time with one test thread.
  */
-export async function runTests({ executables, crates, env = process.env, jobs = testProgramsAtOnce(), timeoutMs = 30 * 60 * 1000, store = null, scope = null, spawn = nodeSpawn, hashOf = sha256File, platform = process.platform, stop = stopTree, gone = treeGone, record = recordLockChild, reapMs = 15000, pollMs = 100 }) {
+export async function runTests({ executables, crates, env = process.env, jobs = testProgramsAtOnce(), cpus = os.cpus().length, timeoutMs = 30 * 60 * 1000, store = null, scope = null, spawn = nodeSpawn, hashOf = sha256File, platform = process.platform, stop = stopTree, gone = treeGone, record = recordLockChild, reapMs = 15000, pollMs = 100 }) {
   if (store && (typeof scope !== "string" || !scope)) throw new TypeError("runTests: a store needs a scope; a test pass cannot be remembered without the commit and gate it belongs to");
   const byCrate = {}; const counts = { programs: 0, ran: 0, cached: 0, unreaped: 0 };
   if (!Array.isArray(executables)) {
@@ -173,8 +187,11 @@ export async function runTests({ executables, crates, env = process.env, jobs = 
   }
   counts.programs = work.length;
   const runs = new Map(crates.map((c) => [c.name, []]));
+  // Threads per program for the side-by-side part and for the one-at-a-time part (testWidth). A run that names its own thread count keeps it.
+  const sideBySide = testWidth({ cpus, programs: work.filter((w) => !w.crate.quiet).length, jobs }); const alone = testWidth({ cpus, programs: 1, jobs: 1 });
   const one = async ({ exe, crate, args }) => {
-    const programEnv = { ...testProgramEnv(env, crate.assetGated === true), CARGO_MANIFEST_DIR: crate.dir };
+    const threads = args.some((a) => a.startsWith("--test-threads")) ? null : (crate.quiet ? alone.threads : sideBySide.threads);
+    const programEnv = { ...testProgramEnv(env, crate.assetGated === true), CARGO_MANIFEST_DIR: crate.dir, ...(threads === null ? {} : { RUST_TEST_THREADS: String(threads) }) };
     const key = `test-${crypto.createHash("sha256").update(JSON.stringify({ v: 2, scope, crate: crate.name, program: exe.sha256, args, env: testKeyEnv(programEnv) })).digest("hex")}`;
     // After a program that is not proven stopped, no further program is started: it may still be using the shared build folder.
     if (counts.unreaped) { runs.get(crate.name).push({ ok: false, skipped: true, program: exe.target, detail: "not run: an earlier test program is not proven stopped" }); return; }
@@ -199,7 +216,7 @@ export async function runTests({ executables, crates, env = process.env, jobs = 
   // Loud crates in parallel, then quiet crates one program at a time.
   const loud = work.filter((w) => !w.crate.quiet); const quiet = work.filter((w) => w.crate.quiet);
   let next = 0;
-  await Promise.all(Array.from({ length: Math.min(jobs, loud.length) }, async () => { while (next < loud.length) { const w = loud[next]; next += 1; await one(w); } }));
+  await Promise.all(Array.from({ length: Math.min(sideBySide.atOnce, loud.length) }, async () => { while (next < loud.length) { const w = loud[next]; next += 1; await one(w); } }));
   for (const w of quiet) await one(w);
   for (const c of crates) {
     const list = runs.get(c.name);
