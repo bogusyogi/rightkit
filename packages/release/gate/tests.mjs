@@ -170,7 +170,7 @@ export function testWidth({ cpus = os.cpus().length, programs, jobs = testProgra
  * A program past `timeoutMs` is asked to stop as a tree and is always counted in `unreaped`; after that no further program starts.
  * Quiet crates run last, one program at a time. `serialToo` crates run a second time with one test thread.
  */
-export async function runTests({ executables, crates, env = process.env, jobs = testProgramsAtOnce(), cpus = os.cpus().length, timeoutMs = 30 * 60 * 1000, store = null, scope = null, spawn = nodeSpawn, hashOf = sha256File, platform = process.platform, stop = stopTree, gone = treeGone, record = recordLockChild, reapMs = 15000, pollMs = 100 }) {
+export async function runTests({ executables, crates, env = process.env, cpus = os.cpus().length, jobs = testProgramsAtOnce({ cpus }), timeoutMs = 30 * 60 * 1000, store = null, scope = null, spawn = nodeSpawn, hashOf = sha256File, platform = process.platform, stop = stopTree, gone = treeGone, record = recordLockChild, reapMs = 15000, pollMs = 100 }) {
   if (store && (typeof scope !== "string" || !scope)) throw new TypeError("runTests: a store needs a scope; a test pass cannot be remembered without the commit and gate it belongs to");
   const byCrate = {}; const counts = { programs: 0, ran: 0, cached: 0, unreaped: 0 };
   if (!Array.isArray(executables)) {

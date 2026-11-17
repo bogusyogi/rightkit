@@ -787,9 +787,9 @@ test("test programs at once on the build-together path: cores minus 2, the same 
   let running = 0; let peak = 0;
   const spawn = () => { running += 1; peak = Math.max(peak, running); const c = new EventEmitter(); c.pid = 1; c.stdout = new EventEmitter(); c.stderr = new EventEmitter(); setTimeout(() => { running -= 1; c.emit("close", 0, null); }, 5); return c; };
   const names = Array.from({ length: 12 }, (_, i) => `c${i}`);
-  const r = await runTests({ executables: names.map((n) => ({ path: `/t/${n}`, sha256: "ab".repeat(32), package_id: `path+file:///s/crates/${n}#0.1.0`, target: n })), crates: names.map((name) => ({ name, dir: "/s" })), env: {}, jobs: 3, hashOf: () => "ab".repeat(32), spawn, record: (c) => c });
+  const r = await runTests({ executables: names.map((n) => ({ path: `/t/${n}`, sha256: "ab".repeat(32), package_id: `path+file:///s/crates/${n}#0.1.0`, target: n })), crates: names.map((name) => ({ name, dir: "/s" })), env: {}, jobs: 3, cpus: 20, hashOf: () => "ab".repeat(32), spawn, record: (c) => c });
   assert.equal(peak, 3); assert.equal(r.counts.ran, 12);
-  assert.match(fs.readFileSync(new URL("./tests.mjs", import.meta.url), "utf8"), /jobs = testProgramsAtOnce\(\),/);
+  assert.match(fs.readFileSync(new URL("./tests.mjs", import.meta.url), "utf8"), /jobs = testProgramsAtOnce\(\{ cpus \}\),/);
 });
 
 test("a remembered call is filed under the broker's exact build, only when the job's signed receipt names that build, and never when the build is unknown", async () => {
