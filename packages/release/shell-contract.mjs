@@ -821,7 +821,25 @@ const qaWindowLabel = perApp(({ app, root }) => {
         else if (depth === 0 && (c === ";" || c === "{")) { end = k; break; }
       }
       const statement = f.code.slice(start, end);
-      let label = /\.\s*window\s*\(\s*"([^"]*)"\s*\)/.exec(f.code.slice(m.index, end))?.[1];
+      // Follow only methods called directly on this constructor. The statement search
+      // can stop at a preceding cfg block before it reaches the constructor.
+      let label;
+      let cursor = m.index + m[0].length;
+      for (;;) {
+        const method = /^\s*\.\s*([A-Za-z_]\w*)\s*\(/.exec(f.skel.slice(cursor));
+        if (!method) break;
+        const open = cursor + method[0].length - 1;
+        const close = matchClose(f.skel, open);
+        if (close < 0) break;
+        if (method[1] === "window") {
+          const [arg] = callArgs(f.skel, open);
+          const literal = arg && /^\s*"([^"]*)"\s*$/.exec(f.code.slice(arg[0], arg[1]));
+          if (literal) label = literal[1];
+          break;
+        }
+        cursor = close + 1;
+      }
+      if (label === undefined) label = /\.\s*window\s*\(\s*"([^"]*)"\s*\)/.exec(f.code.slice(m.index, end))?.[1];
       const bound = /^\s*let\s+(?:mut\s+)?([A-Za-z_]\w*)\b/.exec(statement)?.[1];
       if (label === undefined && bound && fn) label = new RegExp(`\\b${bound}\\s*\\.\\s*window\\s*\\(\\s*"([^"]*)"\\s*\\)`).exec(f.code.slice(m.index, fn.bodyEnd))?.[1];
       const mismatch = label === undefined ? shellLabel !== "main" : label !== shellLabel;
