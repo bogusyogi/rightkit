@@ -393,10 +393,19 @@ export type FramingApproval = "review" | "auto";
 export const framingApproval = (settings: { app: Record<string, unknown>; project: Record<string, unknown> }): FramingApproval =>
   (settings.project.framing_approval ?? settings.app.framing_approval ?? "review") === "auto" ? "auto" : "review";
 
-export const framingLabel = (plan: ReframeSummary | undefined, auto: boolean): string =>
+export const framingStatus = (plan: ReframeSummary | undefined, auto: boolean) =>
   plan?.approved
-    ? plan.approval?.approver === "policy:auto" ? "Approved automatically" : "Framing approved"
-    : auto ? "Framing: automatic" : "Needs framing approval";
+    ? plan.approval?.approver === "policy:auto" ? "approved_automatically" : "approved"
+    : auto ? "automatic" : "needs_approval";
+
+const framingLabels = {
+  approved_automatically: "Approved automatically",
+  approved: "Framing approved",
+  automatic: "Framing: automatic",
+  needs_approval: "Needs framing approval",
+};
+export const framingLabel = (plan: ReframeSummary | undefined, auto: boolean): string =>
+  framingLabels[framingStatus(plan, auto)];
 
 export const settingsGet = (dir?: string) =>
   engineCall<{ app: Record<string, unknown>; project: Record<string, unknown>; revision: string }>(
@@ -580,6 +589,10 @@ export const reframeShow = (dir: string, source: string, aspect?: string) =>
     source,
     ...(aspect ? { aspect } : {}),
   });
+
+/** Create the first plan or read the plan another writer saved in the meantime. */
+export const reframeAnalyzeMissing = (dir: string, source: string, aspect: string, tag?: string) =>
+  engineCall<ReframeSummary>("reframe.analyze_missing", { dir, source, aspect }, tag);
 
 export const reframeApprove = (
   dir: string,

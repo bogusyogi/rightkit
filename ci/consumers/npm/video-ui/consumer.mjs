@@ -52,9 +52,13 @@ try {
     mod.installVideoHost(host);
     assert.deepEqual(await mod.engineCall('project.show', { dir: '/p' }), { ok: true });
     assert.deepEqual(calls, [['project.show', { dir: '/p' }]]);
+    await mod.reframeAnalyzeMissing('/p', 'source-one', '9:16');
     const reviewedHash = 'a'.repeat(64);
     await mod.reframeApproveChecked('/p', 'source-one', { aspect: '9:16', expected_plan_hash: reviewedHash, approver: 'ui' });
-    assert.deepEqual(calls.slice(1), [['reframe.approve_checked', { dir: '/p', source: 'source-one', all: true, aspect: '9:16', expected_plan_hash: reviewedHash, approver: 'ui' }]]);
+    assert.deepEqual(calls.slice(1), [
+      ['reframe.analyze_missing', { dir: '/p', source: 'source-one', aspect: '9:16' }],
+      ['reframe.approve_checked', { dir: '/p', source: 'source-one', all: true, aspect: '9:16', expected_plan_hash: reviewedHash, approver: 'ui' }],
+    ]);
     assert.equal(mod.assetUrl('/a.png'), 'asset:///a.png');
     assert.equal(mod.timecode(61000), '01:01');
     // Generation progress folds both event spellings: media_gen.* (rightkit-media-gen-client) and genright.* (0.1.x engines).
@@ -78,6 +82,22 @@ try {
     assert.equal(typeof workspaceMod.useVideoRetention, 'function');
     assert.equal(typeof workspaceMod.useVideoShorts, 'function');
     assert.equal(typeof workspaceMod.useVideoFramingReview, 'function');
+    for (const key of ['useVideoSettings', 'useVideoSettingsPickers', 'useVideoStorageSettings', 'useVideoGenerationSettings']) {
+      assert.equal(typeof workspaceMod[key], 'function', `missing workspace export ${key}`);
+    }
+    assert.deepEqual(workspaceMod.videoEncoderSettings('macos', 'nvenc'), { choices: ['auto', 'videotoolbox'], value: 'auto' });
+    assert.deepEqual(workspaceMod.videoEncoderSettings('windows', 'mf'), { choices: ['auto', 'nvenc', 'mf'], value: 'mf' });
+    const settingWrites = [];
+    const set = async (...args) => { settingWrites.push(args); };
+    const editing = workspaceMod.videoEditingSettings({}, set);
+    assert.deepEqual(editing.formats, ['16:9']);
+    await editing.toggleFormat('9:16');
+    await workspaceMod.videoFinishingSettings({}, set).setAutoFraming(true);
+    assert.deepEqual(settingWrites, [['default_formats', ['16:9', '9:16']], ['framing_approval', 'auto']]);
+    assert.equal(workspaceMod.framingStatus({ approved: true, approval: { approver: 'policy:auto' } }, false), 'approved_automatically');
+    assert.equal(workspaceMod.framingStatus({ approved: true }, true), 'approved');
+    assert.equal(workspaceMod.framingStatus(undefined, true), 'automatic');
+    assert.equal(workspaceMod.framingStatus(undefined, false), 'needs_approval');
     assert.equal(typeof workspaceMod.useShortThumbnail, 'function');
     assert.equal(typeof workspaceMod.useShortTrimDrag, 'function');
     const proposal = { start_ms: 3000, end_ms: 6000 };

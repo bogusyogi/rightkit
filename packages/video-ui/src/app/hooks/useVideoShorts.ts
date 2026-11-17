@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { errorMessage } from "../../lib/engine.js";
-import { type ShortProposal, type ShortsResult, type ReframeSummary, framingApproval, settingsGet, shortsAccept, shortsPropose, sourceList, thumbnails } from "../../lib/media.js";
-import { readCurrentFraming, useFramingPlanChanges } from "./useVideoFramingReview.js";
+import { type ShortProposal, type ShortsResult, framingApproval, settingsGet, shortsAccept, shortsPropose, sourceList, thumbnails } from "../../lib/media.js";
+import { framingReadFailure, publishFramingPlan, readCurrentFraming, useFramingPlanChanges, type FramingPlanState } from "./useVideoFramingReview.js";
 import { assetUrl } from "../../lib/asset.js";
 import { appendClip, projectShow, type ProjectShow } from "../../lib/project.js";
 export type { ShortProposal, ShortsResult, ReframeSummary } from "../../lib/media.js";
@@ -33,7 +33,7 @@ export function useVideoShorts({dir, onChanged, refreshChangedProject, onExporte
   const [trim, setTrim] = useState<{ start: number; end: number } | null>(null);
   const [searched, setSearched] = useState(false);
   const [show, setShow] = useState<ProjectShow | null>(null);
-  const [plan, setPlan] = useState<ReframeSummary | "none" | undefined>(undefined);
+  const [plan, setPlan] = useState<FramingPlanState>();
   const [autoFraming, setAutoFraming] = useState(false);
   const [framing, setFraming] = useState(false);
   const [framingScope, setFramingScope] = useState<object | null>(null);
@@ -101,14 +101,14 @@ export function useVideoShorts({dir, onChanged, refreshChangedProject, onExporte
     const current = () => live && !!token && lifetime.current === token && token.generation === generation && token.dir === dir;
     void readCurrentFraming(dir, source, SHORT_ASPECT,
       (plan) => { if (current()) setPlan(plan); },
-      () => { if (current()) setPlan("none"); },
+      (error) => { if (current()) setPlan(framingReadFailure(error, source, SHORT_ASPECT)); },
     );
     return () => {
       live = false;
     };
   }, [dir, source, framingNeeded]);
 
-  const framingApproved = !framingNeeded || (plan !== undefined && plan !== "none" && plan.approved);
+  const framingApproved = !framingNeeded || (typeof plan === "object" && plan.approved);
   const framingAllowed = autoFraming || framingApproved;
 
   const propose = async () => {
@@ -152,14 +152,18 @@ export function useVideoShorts({dir, onChanged, refreshChangedProject, onExporte
         bounds && (bounds.start !== p.start_ms || bounds.end !== p.end_ms)
           ? { start_ms: bounds.start, end_ms: bounds.end }
           : undefined;
-      const r = await shortsAccept(dir, source, p.id, trimmed);
-      written = true;
-      if (!current()) return false;
-      onExported(r);
-      if (framingNeeded) {
-        await readCurrentFraming(dir, source, SHORT_ASPECT, (plan) => { if (current()) setPlan(plan); });
-        if (!current()) return false;
+      try {
+        const result = await shortsAccept(dir, source, p.id, trimmed);
+        written = true;
+        if (current()) onExported(result);
+      } finally {
+        // Auto framing can save an approved plan before rendering, even if the render fails.
+        // Update the project-scoped listeners even if this tab has closed.
+        await readCurrentFraming(dir, source, SHORT_ASPECT,
+          (latest) => publishFramingPlan(dir, source, SHORT_ASPECT, latest),
+          (error) => publishFramingPlan(dir, source, SHORT_ASPECT, framingReadFailure(error, source, SHORT_ASPECT)));
       }
+      if (!current()) return false;
       await refresh();
       if (!current()) return false;
       succeeded = current();
@@ -223,7 +227,7 @@ export function useVideoShorts({dir, onChanged, refreshChangedProject, onExporte
     }
   };
 
-  const framingChanged = useCallback((value: ReframeSummary | "none" | undefined) => {
+  const framingChanged = useCallback((value: FramingPlanState | undefined) => {
     const token = lifetime.current;
     if (token && token.dir === dir && token.source === source && framingScope === scopeRef.current) setPlan(value);
   }, [dir, source, framingScope]);
@@ -277,11 +281,14 @@ export function useShortThumbnail(dir: string, source: string, atMs: number) {
   return src;
 }
 
+function shortTrimContext(proposal: ShortProposal) {
+  return { startMs: Math.max(0, proposal.start_ms - 5000), endMs: proposal.end_ms + 5000 };
+}
+
 /** Clamp a pointer position to a proposal's context window and minimum duration. */
 export function shortTrimBounds(proposal: ShortProposal, start: number, end: number, which: "in" | "out", fraction: number) {
-  const lo = Math.max(0, proposal.start_ms - 5000);
-  const hi = proposal.end_ms + 5000;
-  const ms = Math.round(lo + Math.max(0, Math.min(1, fraction)) * (hi - lo));
+  const context = shortTrimContext(proposal);
+  const ms = Math.round(context.startMs + Math.max(0, Math.min(1, fraction)) * (context.endMs - context.startMs));
   return which === "in" ? { start: Math.min(ms, end - 250), end } : { start, end: Math.max(ms, start + 250) };
 }
 
@@ -319,5 +326,5 @@ export function useShortTrimDrag(proposal: ShortProposal, start: number, end: nu
     target.addEventListener("pointercancel", stop);
     target.addEventListener("lostpointercapture", stop);
   };
-  return { track, drag };
+  return { track, drag, context: shortTrimContext(proposal) };
 }

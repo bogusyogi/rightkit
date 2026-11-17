@@ -1,6 +1,5 @@
 import { Badge, Button, Dialog, SegmentedControl, Input, Select, Toggle, useShell, useToast } from "@rightkit/react-shell/react";
-import { Suspense, lazy, useEffect, useMemo, useState, useSyncExternalStore } from "react";
-import { videoAppHost } from "../../host.js";
+import { Suspense, lazy, useEffect, useState, useSyncExternalStore } from "react";
 import {
   SettingRow,
   SettingsGroup,
@@ -19,10 +18,9 @@ import {
 } from "@rightkit/settings-ui";
 import { Kbd } from "@rightkit/react-shell/react";
 import type { DoctorReport, EngineStatus } from "../../lib/engine.js";
-import { engineCall, errorMessage } from "../../lib/engine.js";
-import { CAPTION_STYLES, DEFAULT_CAPTION_STYLE, storageClear, storageStatus } from "../../lib/media.js";
+
+import { CAPTION_STYLES, DEFAULT_CAPTION_STYLE } from "../../lib/media.js";
 import { type HostInfo, genRightCallFailed, interpretHost } from "../lib/genright.js";
-import { pickFile, pickFolder } from "../lib/dialog.js";
 import { createModelsBackend } from "../lib/modelsBackend.js";
 import { createHostSettingsBackend } from "../lib/settingsBackend.js";
 import { themeStore } from "../lib/shell.js";
@@ -31,6 +29,7 @@ import { LEGAL_GATE_DOCUMENTS, legalDocumentText, type LegalDocumentText } from 
 import { LegalDocumentBody } from "@rightkit/legal-ui";
 import { usePlatform } from "@rightkit/platform-ui/react";
 
+import { useVideoSettings, useVideoStorageSettings, useVideoGenerationSettings, useVideoSettingsPickers, videoEditingSettings, videoFinishingSettings, videoEncoderSettings } from "../hooks/useVideoSettings.js";
 import { HDR_COLOR_PRESETS, HDR_UNAVAILABLE_NOTICE, useHdrToSdr } from "../../hooks/useHdrToSdr.js";
 import { hostAppName } from "../appName.js";
 
@@ -101,7 +100,7 @@ function colourOptions(hdr: boolean | undefined) {
 const str = (v: unknown, fallback = "") => (v === undefined || v === null ? fallback : String(v));
 
 function EditingSection({ ctx }: { ctx: SettingsContext }) {
-  const formats = (ctx.values.default_formats as string[] | undefined) ?? ["16:9"];
+  const { formats, toggleFormat } = videoEditingSettings(ctx.values, ctx.set);
   return (
     <SettingsGroup>
       <SettingRow id="cut-style" label="Cut style" description="Seeds the edit recipe for new projects.">
@@ -120,7 +119,7 @@ function EditingSection({ ctx }: { ctx: SettingsContext }) {
         <span className="cr-settings-chips">
           {["16:9", "9:16", "1:1"].map((f) => (
             <Button variant="ghost" size="sm" className="cr-chip-btn" key={f} onClick={() =>
-                void ctx.set("default_formats", formats.includes(f) ? formats.filter((x) => x !== f) : [...formats, f])}><Badge
+                void toggleFormat(f)}><Badge
               tone={formats.includes(f) ? "accent" : "neutral"}
             >
               {f}
@@ -132,7 +131,10 @@ function EditingSection({ ctx }: { ctx: SettingsContext }) {
   );
 }
 
-function FinishingSection({ ctx }: { ctx: SettingsContext }) {
+function FinishingSection({ ctx, dir }: { ctx: SettingsContext; dir: string | null }) {
+  const toast = useToast();
+  const { pickLut, clearLut } = useVideoSettingsPickers(dir, ctx.set, (message) => toast(message, { kind: "error", ttl: 0 }));
+  const { autoFraming, setAutoFraming, setLutIntensity } = videoFinishingSettings(ctx.values, ctx.set);
   const lut = str(ctx.values.lut_path);
   const hdr = useHdrToSdr();
   const preset = str(ctx.values.color_preset, "neutral");
@@ -156,14 +158,12 @@ function FinishingSection({ ctx }: { ctx: SettingsContext }) {
             <Button
               size="sm"
               variant="secondary"
-              onClick={() => void pickFile("Choose a LUT file", ["cube", "3dl"]).then((f) => {
-              if (f) void ctx.set("lut_path", f);
-            })}
+              onClick={() => void pickLut("Choose a LUT file")}
             >
               Choose…
             </Button>
             {lut && (
-              <Button size="sm" variant="ghost" onClick={() => void ctx.set("lut_path", null)}>
+              <Button size="sm" variant="ghost" onClick={() => void clearLut()}>
                 Clear
               </Button>
             )}
@@ -179,7 +179,7 @@ function FinishingSection({ ctx }: { ctx: SettingsContext }) {
               max={100}
               step={5}
               value={str(ctx.values.lut_intensity, "100")}
-              onChange={(e) => void ctx.set("lut_intensity", Number(e.target.value))}
+              onChange={(e) => void setLutIntensity(e.target.value)}
             />
           </SettingRow>
         )}
@@ -195,8 +195,8 @@ function FinishingSection({ ctx }: { ctx: SettingsContext }) {
         <SettingRow id="framing-approval" label="Approve framing automatically" description="Approve analysed framing using saved policy; turn off to review each plan.">
           <Toggle
             label="Approve framing automatically"
-            checked={ctx.values.framing_approval === "auto"}
-            onChange={(v) => void ctx.set("framing_approval", v ? "auto" : "review")}
+            checked={autoFraming}
+            onChange={(v) => void setAutoFraming(v)}
           />
         </SettingRow>
       </SettingsGroup>
@@ -226,29 +226,24 @@ function FinishingSection({ ctx }: { ctx: SettingsContext }) {
   );
 }
 
-/** Encoder choices per platform; ids must match the engine's encoder names. */
-const ENCODER_OPTIONS_MAC: readonly (readonly [string, string])[] = [
-  ["auto", "Auto"],
-  ["videotoolbox", "VideoToolbox"],
-];
-const ENCODER_OPTIONS_WINDOWS: readonly (readonly [string, string])[] = [
-  ["auto", "Auto"],
-  ["nvenc", "NVIDIA NVENC"],
-  ["mf", "Media Foundation"],
-];
+const encoderLabels: Record<string, string> = {
+  auto: "Auto",
+  videotoolbox: "VideoToolbox",
+  nvenc: "NVIDIA NVENC",
+  mf: "Media Foundation",
+};
 
-function OutputSection({ ctx }: { ctx: SettingsContext }) {
-  const encoderOptions = usePlatform() === "macos" ? ENCODER_OPTIONS_MAC : ENCODER_OPTIONS_WINDOWS;
-  const savedEncoder = str(ctx.values.encoder, "auto");
-  // A saved value that this platform does not offer (e.g. legacy "libx264") shows as Auto.
-  const encoderValue = encoderOptions.some(([v]) => v === savedEncoder) ? savedEncoder : "auto";
+function OutputSection({ ctx, dir }: { ctx: SettingsContext; dir: string | null }) {
+  const toast = useToast();
+  const { pickExportFolder } = useVideoSettingsPickers(dir, ctx.set, (message) => toast(message, { kind: "error", ttl: 0 }));
+  const { choices, value: encoderValue } = videoEncoderSettings(usePlatform(), ctx.values.encoder);
   return (
     <SettingsGroup>
       <SettingRow id="encoder" label="Encoder" description="The system H.264 encoder for exports.">
         <Select
           label="Encoder"
           value={encoderValue}
-          options={encoderOptions.map(([value, label]) => ({ value, label }))}
+          options={choices.map((value) => ({ value, label: encoderLabels[value] ?? value }))}
           onChange={(v) => void ctx.set("encoder", v)}
         />
       </SettingRow>
@@ -256,9 +251,7 @@ function OutputSection({ ctx }: { ctx: SettingsContext }) {
         <Button
           size="sm"
           variant="secondary"
-          onClick={() => void pickFolder("Default export folder").then((d) => {
-              if (d) void ctx.set("export_dir", d);
-            })}
+          onClick={() => void pickExportFolder("Default export folder")}
         >
           Choose…
         </Button>
@@ -269,10 +262,9 @@ function OutputSection({ ctx }: { ctx: SettingsContext }) {
 
 function StorageSection({ ctx, dir }: { ctx: SettingsContext; dir: string | null }) {
   const toast = useToast();
-  const [storage, setStorage] = useState<{ cache_bytes: number; default_project_root?: string } | null>(null);
-  useEffect(() => {
-    storageStatus(dir ?? undefined).then(setStorage).catch(() => setStorage(null));
-  }, [dir]);
+  const { storage, chooseProjectFolder, clear } = useVideoStorageSettings(dir, ctx.set,
+    (bytes) => toast(`Cleared ${formatBytes(bytes)}`, { kind: "success" }),
+    (message) => toast(message, { kind: "error", ttl: 0 }));
   return (
     <SettingsGroup>
       <SettingRow
@@ -283,9 +275,7 @@ function StorageSection({ ctx, dir }: { ctx: SettingsContext; dir: string | null
         <Button
           size="sm"
           variant="secondary"
-          onClick={() => void pickFolder("Project folder").then((d) => {
-              if (d) void ctx.set("project_root", d);
-            })}
+          onClick={() => void chooseProjectFolder("Project folder")}
         >
           Choose…
         </Button>
@@ -297,14 +287,7 @@ function StorageSection({ ctx, dir }: { ctx: SettingsContext; dir: string | null
             size="sm"
             variant="secondary"
             disabled={!storage || storage.cache_bytes === 0}
-            onClick={() =>
-              void storageClear(dir ?? undefined)
-                .then((r) => {
-                  setStorage((s) => (s ? { ...s, cache_bytes: 0 } : s));
-                  toast(`Cleared ${formatBytes(r.freed_bytes)}`, { kind: "success" });
-                })
-                .catch((e) => toast(errorMessage(e), { kind: "error", ttl: 0 }))
-            }
+            onClick={() => void clear()}
           >
             Clear
           </Button>
@@ -315,13 +298,10 @@ function StorageSection({ ctx, dir }: { ctx: SettingsContext; dir: string | null
 }
 
 function HostSection({ ctx }: { ctx: SettingsContext }) {
-  const [gr, setGr] = useState<HostInfo>({ state: "checking" });
-  const [path, setPath] = useState(str(ctx.values.genright_engine_path));
-  const check = () =>
-    void engineCall("genright.status", {})
-      .then((r) => setGr(interpretHost(r)))
-      .catch((e) => setGr(genRightCallFailed(errorMessage(e))));
-  useEffect(check, []);
+  const toast = useToast();
+  const { host: gr, path, setPath, check, commitPath, pickPath, setBudget } = useVideoGenerationSettings<HostInfo>(
+    str(ctx.values.genright_engine_path), ctx.set, interpretHost, genRightCallFailed, { state: "checking" },
+    (message) => toast(message, { kind: "error", ttl: 0 }));
   return (
     <SettingsGroup>
       <SettingRow id="genright-path" label="Engine location" description={`Path to the ${hostAppName()} engine; empty means auto-detect.`} stacked>
@@ -332,19 +312,12 @@ function HostSection({ ctx }: { ctx: SettingsContext }) {
             value={path}
             placeholder="Auto-detect"
             onChange={(e) => setPath(e.target.value)}
-            onBlur={() => void ctx.set("genright_engine_path", path.trim() === "" ? null : path.trim())}
+            onBlur={() => void commitPath()}
           />
           <Button
             size="sm"
             variant="secondary"
-            onClick={() =>
-              void pickFile(`Locate the ${hostAppName()} engine`, null).then((f) => {
-                if (f) {
-                  setPath(f);
-                  void ctx.set("genright_engine_path", f);
-                }
-              })
-            }
+            onClick={() => void pickPath(`Locate the ${hostAppName()} engine`)}
           >
             Locate…
           </Button>
@@ -369,7 +342,7 @@ function HostSection({ ctx }: { ctx: SettingsContext }) {
           step={1}
           value={str(ctx.values.genright_budget_usd)}
           placeholder="No cap"
-          onChange={(e) => void ctx.set("genright_budget_usd", e.target.value === "" ? null : Number(e.target.value))}
+          onChange={(e) => void setBudget(e.target.value)}
         />
       </SettingRow>
     </SettingsGroup>
@@ -455,17 +428,9 @@ export function SettingsView({
   /** Land on this section (engine status → "engine"). */
   section?: string;
 }) {
-  const backend = useMemo(() => createHostSettingsBackend(), []);
-  const models = useMemo(() => createModelsBackend(), []);
-  const [version, setVersion] = useState("");
+  const { backend, models, version } = useVideoSettings(createHostSettingsBackend, createModelsBackend);
   const [active, setActive] = useState<string | undefined>(section);
   const [reading, setReading] = useState<LegalDocumentText | null>(null);
-  useEffect(() => {
-    Promise.resolve()
-      .then(() => videoAppHost().appVersion())
-      .then(setVersion)
-      .catch(() => setVersion(""));
-  }, []);
   useEffect(() => {
     if (section) setActive(section === "models" ? "engine" : section);
   }, [section]);
@@ -506,9 +471,9 @@ export function SettingsView({
           { id: "burn-captions", label: "Burn captions" },
           { id: "caption-style", label: "Caption style" },
         ],
-        render: (ctx) => <FinishingSection ctx={ctx} />,
+        render: (ctx) => <FinishingSection ctx={ctx} dir={dir} />,
       },
-      { id: "output", label: "Output", group: "Editing", order: 320, keywords: ["encoder", "export"], render: (ctx) => <OutputSection ctx={ctx} /> },
+      { id: "output", label: "Output", group: "Editing", order: 320, keywords: ["encoder", "export"], render: (ctx) => <OutputSection ctx={ctx} dir={dir} /> },
       { id: "storage", label: "Storage", group: "App", order: 400, keywords: ["cache", "project folder"], render: (ctx) => <StorageSection ctx={ctx} dir={dir} /> },
       { id: "genright", label: "Media generation", group: "App", order: 410, keywords: ["generate", "assets", "budget"], render: (ctx) => <HostSection ctx={ctx} /> },
       { id: "engine", label: "Engine", group: "App", order: 420, keywords: ["diagnostics", "ffmpeg", "doctor"], render: () => <EngineSection doctor={doctor} error={error} /> },

@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { errorMessage } from "../../lib/engine.js";
-import { reframeAnalyze, reframeApproveChecked, reframeShow, thumbnails, type ReframeSummary } from "../../lib/media.js";
+import { errorCode, errorMessage } from "../../lib/engine.js";
+import { reframeAnalyzeMissing, reframeApproveChecked, reframeShow, thumbnails, type ReframeSummary } from "../../lib/media.js";
 import { assetUrl } from "../../lib/asset.js";
 
 type AnchorView = { mid_ms: number; approved: boolean; crop: { x: number; y: number; w: number; h: number } };
@@ -39,19 +39,28 @@ function anchorViews(plan: ReframeSummary): AnchorView[] {
   return out;
 }
 
+export type FramingPlanState = ReframeSummary | "none" | "error";
+export type FramingPlanView = FramingPlanState | "loading";
 type FramingEvent = {
   key: string;
   dir: string;
   source: string;
   aspect: string;
   busy: string | null;
-  result?: ReframeSummary;
+  result?: FramingPlanState;
   error?: string;
 };
 const mutations = new Map<string, string>();
 const listeners = new Set<(event: FramingEvent) => void>();
 const reads = new Map<string, Set<{ valid: boolean }>>();
 const framingKey = (dir: string, source: string, aspect: string) => JSON.stringify([dir, source, aspect]);
+
+export function framingReadFailure(error: unknown, source: string, aspect: string): "none" | "error" {
+  return errorCode(error) === "bad_input"
+    && errorMessage(error) === `source ${source} has no reframe plan for ${aspect}; run reframe.analyze first`
+    ? "none"
+    : "error";
+}
 
 export async function readCurrentFraming(
   dir: string,
@@ -84,7 +93,14 @@ export async function readCurrentFraming(
 }
 function emit(event: FramingEvent) { for (const listener of listeners) listener(event); }
 
-export function useFramingPlanChanges(dir: string, apply: (source: string, aspect: string, plan: ReframeSummary) => void) {
+/** Publish a stored plan to every view of the same project, source and aspect. */
+export function publishFramingPlan(dir: string, source: string, aspect: string, result: FramingPlanState, error?: string) {
+  const key = framingKey(dir, source, aspect);
+  for (const read of reads.get(key) ?? []) read.valid = false;
+  emit({ key, dir, source, aspect, busy: mutations.get(key) ?? null, result, error });
+}
+
+export function useFramingPlanChanges(dir: string, apply: (source: string, aspect: string, plan: FramingPlanState) => void) {
   const callback = useRef(apply);
   useLayoutEffect(() => { callback.current = apply; }, [apply]);
   useLayoutEffect(() => {
@@ -98,7 +114,7 @@ export function useFramingPlanChanges(dir: string, apply: (source: string, aspec
 
 export function useVideoFramingReview({ dir, source, aspect, plan, onChanged }: {
   dir: string; source: { id: string }; aspect: string;
-  plan?: ReframeSummary | "none" | "error";
+  plan?: FramingPlanView;
   onChanged: (plan: ReframeSummary) => void;
 }) {
   const [busy, setBusy] = useState<string | null>(null);
@@ -120,7 +136,7 @@ export function useVideoFramingReview({ dir, source, aspect, plan, onChanged }: 
     const listener = (event: FramingEvent) => {
       if (event.key !== key || scope.current !== token) return;
       setBusy(event.busy);
-      if (event.result) callback.current(event.result);
+      if (typeof event.result === "object") callback.current(event.result);
       setMutationError((previous) => event.error ?? (event.busy === null ? previous : null));
     };
     listeners.add(listener);
@@ -138,7 +154,7 @@ export function useVideoFramingReview({ dir, source, aspect, plan, onChanged }: 
   }, [dir, source.id, aspect, plan]);
   useEffect(() => {
     const request = previewRequest.current;
-    if (!request || !plan || plan === "none" || plan === "error") return;
+    if (!request || typeof plan !== "object") return;
     const current = () => previewRequest.current === request;
     const views = anchorViews(plan);
     thumbnails(dir, { source: source.id }, { times_ms: views.map((v) => v.mid_ms), width: 640 })
@@ -149,35 +165,42 @@ export function useVideoFramingReview({ dir, source, aspect, plan, onChanged }: 
       })
       .catch((e) => { if (current()) setPreviewError(errorMessage(e)); });
   }, [dir, source.id, aspect, plan]);
-  const approvalInvalidReason = !plan || plan === "none" || plan === "error" || !plan.plan_hash?.trim() ? "missing_plan_hash" : previewPlan !== plan ? "preview_not_ready" : null;
-  const mutate = async (kind: "analyse" | "approve") => {
+  const approvalInvalidReason = typeof plan !== "object" || !plan.plan_hash?.trim() ? "missing_plan_hash" : previewPlan !== plan ? "preview_not_ready" : null;
+  const mutate = async (kind: "analyse" | "approve" | "read") => {
     const token = scope.current;
     const key = framingKey(dir, source.id, aspect);
-    if (!token || mutations.has(key) || (kind === "approve" && approvalInvalidReason)) return;
+    if (!token || mutations.has(key) || (kind === "approve" && approvalInvalidReason) || (kind === "analyse" && plan !== "none")) return;
     const notify = callback.current;
     const event = { key, dir, source: source.id, aspect, busy: kind };
     const publish = (result: ReframeSummary, error?: string) => {
-      for (const read of reads.get(key) ?? []) read.valid = false;
+      publishFramingPlan(dir, source.id, aspect, result, error);
       if (scope.current !== token) notify(result);
-      emit({ ...event, result, error });
     };
     mutations.set(key, kind);
     emit(event);
     try {
+      if (kind === "read") {
+        await readCurrentFraming(dir, source.id, aspect, publish, (error) => {
+          const state = framingReadFailure(error, source.id, aspect);
+          publishFramingPlan(dir, source.id, aspect, state, state === "error" ? errorMessage(error) : undefined);
+        });
+        return;
+      }
       const result = kind === "analyse"
-        ? await reframeAnalyze(dir, source.id, aspect, `frame-${source.id.slice(0, 8)}`)
+        ? await reframeAnalyzeMissing(dir, source.id, aspect, `frame-${source.id.slice(0, 8)}`)
         : await reframeApproveChecked(dir, source.id, { approver: "ui", aspect, expected_plan_hash: (plan as ReframeSummary).plan_hash });
       publish(result);
     } catch (e) {
       const error = errorMessage(e);
       emit({ ...event, error });
-      if (kind === "approve") {
-        await readCurrentFraming(dir, source.id, aspect, (latest) => publish(latest, error), () => {});
-      }
+      await readCurrentFraming(dir, source.id, aspect, (latest) => publish(latest, error), () => {});
     } finally {
       mutations.delete(key);
       emit({ ...event, busy: null });
     }
   };
-  return { busy, error: mutationError ?? previewError, shots, approvalInvalidReason, analyze: () => mutate("analyse"), approve: () => mutate("approve") };
+  return {
+    busy, error: mutationError ?? previewError, shots, approvalInvalidReason,
+    analyze: () => mutate("analyse"), approve: () => mutate("approve"), reload: () => mutate("read"),
+  };
 }

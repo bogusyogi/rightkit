@@ -20,9 +20,7 @@ function BoundaryTrim({
   endMs: number;
   onChange: (start: number, end: number) => void;
 }) {
-  const { track, drag } = useShortTrimDrag(proposal, startMs, endMs, onChange);
-  const lo = Math.max(0, proposal.start_ms - 5000);
-  const hi = proposal.end_ms + 5000;
+  const { track, drag, context: { startMs: lo, endMs: hi } } = useShortTrimDrag(proposal, startMs, endMs, onChange);
   const span = hi - lo;
   const pct = (ms: number) => `${(((ms - lo) / span) * 100).toFixed(2)}%`;
 
@@ -102,7 +100,9 @@ export function ShortsView({ dir, onChanged, refreshChangedProject }: { dir: str
         {error && <ErrorPanel title="Shorts failed" detail={error} />}
         {framingNeeded && (autoFraming || plan !== undefined) && (
           <div className="shorts-framing">
-            <Badge tone={framingAllowed ? "ok" : "warn"}>{framingLabel(plan && plan !== "none" ? plan : undefined, autoFraming)}</Badge>
+            <Badge tone={framingAllowed && plan !== "error" ? "ok" : "warn"}>
+              {plan === "error" ? "Framing could not be loaded" : framingLabel(typeof plan === "object" ? plan : undefined, autoFraming)}
+            </Badge>
             <span className="cr-muted">{autoFraming ? "Shorts render 9:16; saved policy approves tracked framing during export." : "Shorts render 9:16; approve how this source is cropped before exporting."}</span>
             <Button variant="secondary" onClick={() => setFraming(true)}>
               Review framing

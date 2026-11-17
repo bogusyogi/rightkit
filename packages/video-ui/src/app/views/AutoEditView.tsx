@@ -28,7 +28,7 @@ import {
 } from "../../lib/media.js";
 import { Drawer, ErrorPanel, ProgressRow, Thumbnail, timecode, Icon } from "../ui/index.js";
 import { RecipeLibrary } from "./RecipeLibrary.js";
-import { readCurrentFraming, useFramingPlanChanges, useVideoFramingReview } from "../hooks/useVideoFramingReview.js";
+import { framingReadFailure, readCurrentFraming, useFramingPlanChanges, useVideoFramingReview, type FramingPlanView } from "../hooks/useVideoFramingReview.js";
 import { HDR_COLOR_PRESETS, HDR_UNAVAILABLE_NOTICE, useHdrToSdr } from "../../hooks/useHdrToSdr.js";
 
 type Style = "natural" | "tight" | "punchy";
@@ -120,7 +120,7 @@ export function AutoEditView({
   const [show, setShow] = useState<ProjectShow | null>(null);
   const [recipe, setRecipe] = useState<Recipe | null>(null);
   const [thumbs, setThumbs] = useState<Record<string, string>>({});
-  const [plans, setPlans] = useState<Record<string, ReframeSummary | "none" | "error">>({});
+  const [plans, setPlans] = useState<Record<string, FramingPlanView>>({});
   const [autoFraming, setAutoFraming] = useState(false);
   const [framingFor, setFramingFor] = useState<{ dir: string; s: SourceRow; aspect: string } | null>(null);
   useLayoutEffect(() => {
@@ -315,12 +315,12 @@ export function AutoEditView({
       for (const aspect of reframeAspects) {
         const k = planKey(s.id, aspect);
         if (!needsReframe(s, aspect) || plans[k] !== undefined) continue;
-        setPlans((m) => ({ ...m, [k]: "none" }));
+        setPlans((m) => ({ ...m, [k]: "loading" }));
         const scope = projectScope.current;
         const current = () => scope !== null && projectScope.current === scope;
         void readCurrentFraming(dir, s.id, aspect,
           (plan) => { if (current()) setPlans((m) => ({ ...m, [k]: plan })); },
-          () => { if (current()) setPlans((m) => ({ ...m, [k]: "none" })); },
+          (error) => { if (current()) setPlans((m) => ({ ...m, [k]: framingReadFailure(error, s.id, aspect) })); },
         );
       }
     }
@@ -336,7 +336,7 @@ export function AutoEditView({
   );
   const unapproved = framingPairs.filter(({ s, aspect }) => {
     const p = plans[planKey(s.id, aspect)];
-    return !(p && p !== "none" && p !== "error" && p.approved);
+    return !(typeof p === "object" && p.approved);
   });
 
   const run = useCallback(async () => {
@@ -498,14 +498,14 @@ export function AutoEditView({
               ) : (
                 framingPairs.map(({ s, aspect }) => {
                   const p = plans[planKey(s.id, aspect)];
-                  const approved = p !== undefined && p !== "none" && p !== "error" && p.approved;
+                  const approved = typeof p === "object" && p.approved;
                   return (
                     <div className="recipe-frame-row" key={planKey(s.id, aspect)}>
                       <Thumbnail src={thumbs[s.id] || undefined} />
                       <span className="recipe-frame-row__name">{s.name || s.id.slice(0, 8)}</span>
                       <Badge tone="neutral">{aspect}</Badge>
                       <Badge tone={approved || autoFraming ? "ok" : "warn"}>
-                        {framingLabel(p && p !== "none" && p !== "error" ? p : undefined, autoFraming)}
+                        {p === "error" ? "Framing could not be loaded" : framingLabel(typeof p === "object" ? p : undefined, autoFraming)}
                       </Badge>
                       <Button
                         size="sm"
@@ -770,7 +770,7 @@ export type FramingDrawerProps = {
   dir: string;
   source: SourceRow;
   aspect: string;
-  plan?: ReframeSummary | "none" | "error";
+  plan?: FramingPlanView;
   autoFraming?: boolean;
   onClose: () => void;
   onChanged: (p: ReframeSummary) => void;
@@ -785,9 +785,9 @@ export function FramingDrawer({
   onClose,
   onChanged,
 }: FramingDrawerProps) {
-  const { busy, error: err, shots, analyze, approve, approvalInvalidReason } = useVideoFramingReview({ dir, source, aspect, plan, onChanged });
+  const { busy, error: err, shots, analyze, approve, reload, approvalInvalidReason } = useVideoFramingReview({ dir, source, aspect, plan, onChanged });
 
-  const ready = plan && plan !== "none" && plan !== "error";
+  const ready = typeof plan === "object";
   return (
     <Drawer
       title={`Framing — ${source.name || source.id.slice(0, 8)}`}
@@ -809,7 +809,7 @@ export function FramingDrawer({
               {busy === "approve" ? "Approving…" : "Approve framing"}
             </Button>
           )
-        ) : (
+        ) : plan === "none" ? (
           <Button
             variant="primary"
             onClick={() => void analyze()}
@@ -818,12 +818,19 @@ export function FramingDrawer({
           >
             {busy === "analyse" ? "Analysing…" : <>Analyse framing for {aspect}</>}
           </Button>
+        ) : (
+          <Button variant="secondary" onClick={() => void reload()} disabled={busy !== null} aria-busy={busy === "read" || undefined}>
+            {busy === "read" ? "Loading…" : "Reload framing"}
+          </Button>
         )
       }
     >
       <p className="recipe__desc" style={{ margin: 0 }}>
         The {aspect} crop over sampled moments of this source. {autoFraming ? "Saved policy approves tracked framing during delivery; review is optional." : "Approve it to unblock vertical output."}
       </p>
+      {plan === "error" && !err && (
+        <p role="alert">Framing could not be loaded. Reload to check the saved plan.</p>
+      )}
       {err && (
         <p role="alert" style={{ margin: 0, color: "var(--rk-bad)", fontSize: 13 }}>
           {err}
