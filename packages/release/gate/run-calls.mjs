@@ -46,15 +46,31 @@ export function forwardedOf(job, { readFile = (f) => fs.readFileSync(f, "utf8") 
 }
 /**
  * Whether the output the client handed back for `job` is all of it. The broker drops the middle of a large job's output and says how much in its
- * receipt (`outputDroppedBytes`); the whole output is in the job log the receipt names (`diagnosticsPath`).
- * Returns { dropped: <bytes, 0 when none, null when the receipt does not say>, full: <the whole output, or null when it cannot be read> }.
+ * receipt (`outputDroppedBytes`). The job log the receipt names (`diagnosticsPath`) is written before anything is dropped, but it is usable as the
+ * whole output only when the receipt shows it is complete and it can be read as Cargo's records (rustright-broker job.rs, read 2026-11-17):
+ *   - `output.log.truncated` is false (the log has its own cap), `output.log.bytes` equals `output.bytes`, and the file holds at least that many
+ *     bytes; only the first `output.log.bytes` bytes are read (late output is appended after them);
+ *   - the log holds stdout and stderr interleaved chunk by chunk with no tag, so a Cargo record can have other text written into it. A line that
+ *     carries the start of a record and is not valid JSON means records cannot be trusted from this log: it is not repaired, it is refused.
+ * Returns { dropped: <bytes, 0 when none, null when the receipt does not say>, full: <the whole output, or null>, why: <why there is no full output> }.
  */
-export function fullOutputOf(job, { readFile = (f) => fs.readFileSync(f, "utf8") } = {}) {
-  let receipt; try { receipt = JSON.parse(readFile(job.receipt)); } catch { return { dropped: null, full: null }; }
+export function fullOutputOf(job, { readFile = (f) => fs.readFileSync(f, "utf8"), readBytes = (f) => fs.readFileSync(f) } = {}) {
+  let receipt; try { receipt = JSON.parse(readFile(job.receipt)); } catch { return { dropped: null, full: null, why: "the receipt cannot be read" }; }
   const dropped = Number.isSafeInteger(receipt?.outputDroppedBytes) && receipt.outputDroppedBytes >= 0 ? receipt.outputDroppedBytes : null;
-  if (!dropped) return { dropped, full: null };
-  let full = null; try { if (typeof receipt.diagnosticsPath === "string" && receipt.diagnosticsPath) full = readFile(receipt.diagnosticsPath); } catch { full = null; }
-  return { dropped, full };
+  if (!dropped) return { dropped, full: null, why: null };
+  const no = (why) => ({ dropped, full: null, why });
+  const log = receipt.output?.log;
+  if (typeof receipt.diagnosticsPath !== "string" || !receipt.diagnosticsPath || !log) return no("the receipt names no job log");
+  if (log.truncated !== false) return no("the job log was itself cut at its size limit");
+  if (!Number.isSafeInteger(log.bytes) || log.bytes !== receipt.output?.bytes) return no("the job log does not hold every byte the job wrote");
+  let bytes; try { bytes = readBytes(receipt.diagnosticsPath); } catch { return no("the job log cannot be read (logs are removed after 7 days)"); }
+  if (bytes.length < log.bytes) return no("the job log on disk is shorter than the receipt says");
+  const full = Buffer.from(bytes).subarray(0, log.bytes).toString("utf8");
+  for (const raw of full.split(/\r?\n/)) {
+    if (!raw.includes('{"reason":')) continue;
+    try { JSON.parse(raw.trim()); } catch { return no("the job log has other output written into one of Cargo's records (the log mixes both output streams)"); }
+  }
+  return { dropped, full, why: null };
 }
 
 /** Why a passed job must not be remembered, or null. Fails closed: no statement of what was forwarded is a reason. */
@@ -120,7 +136,7 @@ export function runCalls({ calls, send, store = null, identity, hostTriple, onCa
     if (sent0.receipt) {
       const o = output(jobOf(sent0));
       if (o.dropped > 0 && typeof o.full === "string") sent = { ...sent0, stdout: o.full };
-      else if (o.dropped > 0) hole = `the broker dropped ${o.dropped} bytes of this job's output and its full log cannot be read; this crate's result is not known`;
+      else if (o.dropped > 0) hole = `the broker dropped ${o.dropped} bytes of this job's output and its log cannot stand in for it (${o.why}); this crate's result is not known`;
     }
     const judged = judgeWhole(call, sent);
     return hole ? judged.map((r) => (r.result === "failed" ? r : { crate: r.crate, result: "unknown", detail: hole })) : judged;

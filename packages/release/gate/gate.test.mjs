@@ -621,7 +621,7 @@ test("G22: a docs call denies rustdoc warnings as CI does, and a pass made witho
   assert.match(fs.readFileSync(new URL("../deterministic-scans.mjs", import.meta.url), "utf8"), /id: rustScanId\.doc\(name\), class: B, batchUnit: name, \.\.\.scan, env: \{ \.\.\.\(scan\.env \?\? \{\}\), RUSTDOCFLAGS: DOC_RUSTDOCFLAGS \} \}/);
 });
 
-test("G7: when the broker dropped part of a job's output, crates are judged from the whole job log, or are unknown when it cannot be read", async () => {
+test("G7: when the broker dropped part of a job's output, crates are judged from the job log only when the receipt shows the log is whole and its records are intact", async () => {
   const { fullOutputOf } = await import("./run-calls.mjs");
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rk-g7-"));
   try {
@@ -631,27 +631,45 @@ test("G7: when the broker dropped part of a job's output, crates are judged from
     const art = (n) => JSON.stringify({ reason: "compiler-artifact", package_id: `path+file:///s/crates/${n}#0.1.0`, target: { kind: ["lib"], name: n }, filenames: [`/t/${T}/lib${n}.rlib`] });
     const err = (n) => JSON.stringify({ reason: "compiler-message", package_id: `path+file:///s/crates/${n}#0.1.0`, message: { level: "error", rendered: `error in ${n}` } });
     const done = (ok) => JSON.stringify({ reason: "build-finished", success: ok });
-    const whole = [art("a"), art("b"), art("c"), done(true)].join("\n");
-    const partial = [art("a"), done(true)].join("\n"); // the middle (b and c) was dropped
-    const log = path.join(dir, "job.log"); fs.writeFileSync(log, whole);
+    const whole = [art("a"), "   Compiling b v0.1.0 (stderr text between records is fine)", art("b"), art("c"), done(true)].join("\n");
+    const partial = [art("a"), done(true)].join("\n"); // the middle (b and c) was dropped from the stream
+    const size = Buffer.byteLength(whole);
+    const logFile = (name, text) => { const f = path.join(dir, name); fs.writeFileSync(f, text); return f; };
     const receipt = (name, body) => { const f = path.join(dir, name); fs.writeFileSync(f, JSON.stringify({ environment: { forwarded: [] }, ...body })); return f; };
+    const good = (over = {}, logOver = {}) => ({ outputDroppedBytes: 5000, diagnosticsPath: logFile("job.log", whole), output: { bytes: size, log: { bytes: size, truncated: false, ...logOver } }, ...over });
     const run = (file, stdout, status = 0) => runCalls({ calls: [call], send: () => ({ status, stdout, stderr: "", requestId: "r", receipt: file, receiptSha256: "x" }), store: null, identity, hostTriple: T });
     const words = (r) => Object.fromEntries(r.outcomes[0].results.map((x) => [x.crate, x.result]));
 
-    // fullOutputOf: nothing dropped, dropped with a readable log, dropped with no log, a receipt that does not say.
-    assert.deepEqual(fullOutputOf({ receipt: receipt("none.json", { outputDroppedBytes: 0, diagnosticsPath: log }) }), { dropped: 0, full: null });
-    assert.deepEqual(fullOutputOf({ receipt: receipt("log.json", { outputDroppedBytes: 5000, diagnosticsPath: log }) }), { dropped: 5000, full: whole });
-    assert.deepEqual(fullOutputOf({ receipt: receipt("nolog.json", { outputDroppedBytes: 5000, diagnosticsPath: path.join(dir, "gone.log") }) }), { dropped: 5000, full: null });
-    assert.deepEqual(fullOutputOf({ receipt: receipt("silent.json", {}) }), { dropped: null, full: null });
-
-    // Nothing dropped: the stream is judged as it is (b and c really have no artifact).
+    // Nothing dropped: no log is read; the stream is judged as it is.
+    assert.deepEqual(fullOutputOf({ receipt: receipt("none.json", good({ outputDroppedBytes: 0 })) }), { dropped: 0, full: null, why: null });
     assert.deepEqual(words(run(path.join(dir, "none.json"), partial)), { a: "passed", b: "not-built", c: "not-built" });
-    // Dropped, log readable: all three passed, from the whole log. Before this change b and c were reported not built.
+    // Dropped, and the receipt shows the log is whole: all three passed, from the log. Late output appended after the counted bytes is not read.
+    assert.deepEqual(fullOutputOf({ receipt: receipt("log.json", good()) }), { dropped: 5000, full: whole, why: null });
     assert.deepEqual(words(run(path.join(dir, "log.json"), partial)), { a: "passed", b: "passed", c: "passed" });
-    // Dropped, log unreadable: nothing is passed or called not built from the partial stream; an error that was seen still fails its crate.
-    const blind = run(path.join(dir, "nolog.json"), [art("a"), err("b"), done(false)].join("\n"), 101);
+    assert.equal(fullOutputOf({ receipt: receipt("late.json", good({ diagnosticsPath: logFile("late.log", `${whole}\n${err("a")}\n`) })) }).full, whole);
+
+    // Every way the log cannot stand in for the output: each one a named reason and no text.
+    const refused = [
+      ["no log named", good({ diagnosticsPath: null }), /names no job log/],
+      ["no log record", { outputDroppedBytes: 5000, diagnosticsPath: logFile("job.log", whole), output: { bytes: size } }, /names no job log/],
+      ["log capped", good({}, { truncated: true }), /cut at its size limit/],
+      ["truncated not stated", good({}, { truncated: undefined }), /cut at its size limit/],
+      ["bytes differ", good({}, { bytes: size - 1 }), /does not hold every byte/],
+      ["swept", good({ diagnosticsPath: path.join(dir, "gone.log") }), /cannot be read/],
+      ["short file", good({ diagnosticsPath: logFile("short.log", whole.slice(0, 20)) }), /shorter than the receipt says/],
+    ];
+    for (const [label, body, why] of refused) { const o = fullOutputOf({ receipt: receipt(`${label.replace(/ /g, "-")}.json`, body) }); assert.equal(o.full, null, label); assert.match(o.why, why, label); assert.equal(o.dropped, 5000, label); }
+    // The log mixes both streams: stderr text written into a record makes the log unusable; it is not repaired.
+    const cut = art("b"); const mixed = [art("a"), `${cut.slice(0, 40)}warning: unused variable\n${cut.slice(40)}`, art("c"), done(true)].join("\n");
+    const m = fullOutputOf({ receipt: receipt("mixed.json", { outputDroppedBytes: 5000, diagnosticsPath: logFile("mixed.log", mixed), output: { bytes: Buffer.byteLength(mixed), log: { bytes: Buffer.byteLength(mixed), truncated: false } } }) });
+    assert.equal(m.full, null); assert.match(m.why, /other output written into one of Cargo's records/);
+    const glued = [art("a"), `warning: no newline${art("b")}`, done(true)].join("\n");
+    assert.equal(fullOutputOf({ receipt: receipt("glued.json", { outputDroppedBytes: 5000, diagnosticsPath: logFile("glued.log", glued), output: { bytes: Buffer.byteLength(glued), log: { bytes: Buffer.byteLength(glued), truncated: false } } }) }).full, null);
+
+    // Without a usable log: nothing is passed or called not built from the partial stream; an error that was seen still fails; no green rerun.
+    const blind = run(path.join(dir, "mixed.json"), [art("a"), err("b"), done(false)].join("\n"), 101);
     assert.deepEqual(words(blind), { a: "unknown", b: "failed", c: "unknown" });
-    assert.match(blind.outcomes[0].results[0].detail, /dropped 5000 bytes of this job's output and its full log cannot be read/);
+    assert.match(blind.outcomes[0].results[0].detail, /dropped 5000 bytes of this job's output and its log cannot stand in for it \(the job log has other output written into one of Cargo's records/);
     assert.equal(blind.counts.greenReruns, 0, "no green rerun is built on a partial stream");
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
