@@ -817,6 +817,13 @@ export async function executeUpload({ env, packDir, receiptsDir, approvedFile, p
   const local = candidateContext?.candidate.source === "local";
   const run = local ? {} : candidateContext ? { runId: candidateContext.candidate.runId, runAttempt: candidateContext.candidate.runAttempt } : promotionRun;
   const { manifest, manifestSha256, problems } = loadSealed({ packDir, registry, unitsText: env.PUBLISH_UNITS, run });
+  // GATE-CONTRACT NN31, first: a sealed set that holds the gate package is refused here, before any other check, any registry lookup or any token
+  // is read, unless its admission record names this exact archive. The same check stands again just before npm is called. (2026-11-17: an upload
+  // of an untested gate was started by the scheduled relay; this check, untested through this function, was all that stood before npm.)
+  for (const unit of manifest?.units ?? []) {
+    const refusal = gateAdmissionProblem({ unit, commit: manifest.commit, env });
+    if (refusal) throw new Error(refusal);
+  }
   if (manifest) {
     const sourceSha = candidateContext?.candidate.sourceSha ?? env.GITHUB_SHA;
     if (manifest.commit !== sourceSha) problems.push(`sealed commit ${manifest.commit} is not the dispatched commit ${sourceSha}`);
