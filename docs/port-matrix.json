@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generatedAt": "2026-11-17T03:51:43Z",
-  "rightkitHead": "7a0f31dd0b5d0b3d5a8a41184603702e49011492",
+  "generatedAt": "2026-11-17T03:58:37Z",
+  "rightkitHead": "7bcef5b9ae1a8264b6e56759d0b8752ed9b3ddf8",
   "legend": [
     {
       "state": "current",
@@ -3095,7 +3095,7 @@
       "group": "mandatory-set app",
       "dir": "D:\\Claude\\postright",
       "present": true,
-      "head": "21e2c1105c49ae2163f4960f6dc2273947e80616",
+      "head": "1a51b7633cb31b3aeabc1bd23540b0817f3880dc",
       "profile": "desktop",
       "inMandatorySet": true,
       "declaration": {
