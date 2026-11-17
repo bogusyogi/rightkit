@@ -666,6 +666,20 @@ test("G7: when the broker dropped part of a job's output, crates are judged from
     const glued = [art("a"), `warning: no newline${art("b")}`, done(true)].join("\n");
     assert.equal(fullOutputOf({ receipt: receipt("glued.json", { outputDroppedBytes: 5000, diagnosticsPath: logFile("glued.log", glued), output: { bytes: Buffer.byteLength(glued), log: { bytes: Buffer.byteLength(glued), truncated: false } } }) }).full, null);
 
+    // A broker that keeps the build's own output stream alone (output.stdout): that log is used, and the mixed one is not consulted.
+    const so = (over = {}, logOver = {}) => ({ outputDroppedBytes: 5000, diagnosticsPath: logFile("mixed2.log", mixed), output: { bytes: 99999, log: { bytes: 1, truncated: true }, stdout: { bytes: size, log: { path: logFile("job.stdout.log", `${whole}\n${err("a")}`), bytes: size, truncated: false, ...logOver }, ...over } } });
+    assert.deepEqual(fullOutputOf({ receipt: receipt("so.json", so()) }), { dropped: 5000, full: whole, why: null });
+    assert.deepEqual(words(run(path.join(dir, "so.json"), partial)), { a: "passed", b: "passed", c: "passed" });
+    // Present but not whole: unknown. It never falls back to the mixed log, even a usable one.
+    const fallback = { outputDroppedBytes: 5000, diagnosticsPath: logFile("job.log", whole) };
+    for (const [label, body, why] of [
+      ["so no log", { ...fallback, output: { bytes: size, log: { bytes: size, truncated: false }, stdout: { bytes: size } } }, /kept no log of the build's own output stream/],
+      ["so cut", so({}, { truncated: true }), /own output stream was cut/],
+      ["so bytes", so({ bytes: size + 1 }), /does not hold every byte of it/],
+      ["so gone", so({}, { path: path.join(dir, "gone.stdout.log") }), /own output stream cannot be read/],
+      ["so short", so({}, { path: logFile("short.stdout.log", whole.slice(0, 10)) }), /shorter on disk/],
+    ]) { const o = fullOutputOf({ receipt: receipt(`${label.replace(/ /g, "-")}.json`, body) }); assert.equal(o.full, null, label); assert.match(o.why, why, label); }
+
     // Without a usable log: nothing is passed or called not built from the partial stream; an error that was seen still fails; no green rerun.
     const blind = run(path.join(dir, "mixed.json"), [art("a"), err("b"), done(false)].join("\n"), 101);
     assert.deepEqual(words(blind), { a: "unknown", b: "failed", c: "unknown" });

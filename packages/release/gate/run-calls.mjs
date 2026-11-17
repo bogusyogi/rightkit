@@ -52,6 +52,7 @@ export function forwardedOf(job, { readFile = (f) => fs.readFileSync(f, "utf8") 
  *     bytes; only the first `output.log.bytes` bytes are read (late output is appended after them);
  *   - the log holds stdout and stderr interleaved chunk by chunk with no tag, so a Cargo record can have other text written into it. A line that
  *     carries the start of a record and is not valid JSON means records cannot be trusted from this log: it is not repaired, it is refused.
+ * A newer broker also keeps the first stream alone (`output.stdout.log`); that file is preferred and needs no such refusal (see below).
  * Returns { dropped: <bytes, 0 when none, null when the receipt does not say>, full: <the whole output, or null>, why: <why there is no full output> }.
  */
 export function fullOutputOf(job, { readFile = (f) => fs.readFileSync(f, "utf8"), readBytes = (f) => fs.readFileSync(f) } = {}) {
@@ -59,6 +60,18 @@ export function fullOutputOf(job, { readFile = (f) => fs.readFileSync(f, "utf8")
   const dropped = Number.isSafeInteger(receipt?.outputDroppedBytes) && receipt.outputDroppedBytes >= 0 ? receipt.outputDroppedBytes : null;
   if (!dropped) return { dropped, full: null, why: null };
   const no = (why) => ({ dropped, full: null, why });
+  // A broker that keeps a log of the first output stream alone says so in `output.stdout` (rustright GB-100). That file holds Cargo's records whole
+  // and in order, so no record can have other text in it. When the receipt has `output.stdout` it is the only log used: whole, or the result is unknown.
+  const so = receipt.output?.stdout;
+  if (so !== undefined && so !== null) {
+    const sl = so.log;
+    if (!sl || typeof sl.path !== "string" || !sl.path) return no("the broker kept no log of the build's own output stream");
+    if (sl.truncated !== false) return no("the log of the build's own output stream was cut at its size limit");
+    if (!Number.isSafeInteger(sl.bytes) || sl.bytes !== so.bytes) return no("the log of the build's own output stream does not hold every byte of it");
+    let sb; try { sb = readBytes(sl.path); } catch { return no("the log of the build's own output stream cannot be read (logs are removed after 7 days)"); }
+    if (sb.length < sl.bytes) return no("the log of the build's own output stream is shorter on disk than the receipt says");
+    return { dropped, full: Buffer.from(sb).subarray(0, sl.bytes).toString("utf8"), why: null };
+  }
   const log = receipt.output?.log;
   if (typeof receipt.diagnosticsPath !== "string" || !receipt.diagnosticsPath || !log) return no("the receipt names no job log");
   if (log.truncated !== false) return no("the job log was itself cut at its size limit");
