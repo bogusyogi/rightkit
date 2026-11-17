@@ -10,7 +10,10 @@ export function useVideoWorkspace(progressController: ReturnType<typeof useProgr
   const { progress, reset } = progressController;
   const [selection, setSelection] = useState<{ dir: string } | null>(null);
   const currentSelection = useRef(selection);
+  const mounted = useRef(false);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const dir = selection?.dir ?? null;
+  const isCurrentSelection = useCallback(() => mounted.current && selection !== null && currentSelection.current === selection, [selection]);
   const [show, setShow] = useState<ProjectShow | null>(null);
   const [exportsCount, setExportsCount] = useState(0);
   const [jobError, setJobError] = useState<string | null>(null);
@@ -23,34 +26,37 @@ export function useVideoWorkspace(progressController: ReturnType<typeof useProgr
     void mediaScopeAllow([dir, `${dir}/media`, `${dir}/renders`, `${dir}/variants`, `${dir}/.cache`], true).catch(() => undefined);
   }, [dir]);
   const refresh = useCallback(async () => {
-    if (!selection || currentSelection.current !== selection) return;
+    if (!selection || !isCurrentSelection()) return;
+    const selectedDir = selection.dir;
     let result: ProjectShow;
     try {
-      result = await projectShow(selection.dir);
+      result = await projectShow(selectedDir);
     } catch (error) {
-      if (currentSelection.current !== selection) return;
+      if (!isCurrentSelection()) return;
       throw error;
     }
-    if (currentSelection.current !== selection) return;
+    if (!isCurrentSelection()) return;
     setShow(result);
-    rendersList(selection.dir)
+    rendersList(selectedDir)
       .then((r) => {
-        if (currentSelection.current === selection) setExportsCount(r.renders.filter((x) => x.name.endsWith(".mp4")).length);
+        if (isCurrentSelection()) setExportsCount(r.renders.filter((x) => x.name.endsWith(".mp4")).length);
       })
       .catch(() => undefined);
-  }, [selection]);
+  }, [selection, isCurrentSelection]);
   useEffect(() => {
     if (!selection) return;
+    const selectedDir = selection.dir;
     let cancelled = false;
-    const current = () => !cancelled && currentSelection.current === selection;
-    projectShow(selection.dir).then((s) => current() && setShow(s)).catch((e) => current() && setJobError(errorMessage(e)));
-    rendersList(selection.dir).then((r) => current() && setExportsCount(r.renders.filter((x) => x.name.endsWith(".mp4")).length)).catch(() => undefined);
+    const current = () => !cancelled && isCurrentSelection();
+    projectShow(selectedDir).then((s) => current() && setShow(s)).catch((e) => current() && setJobError(errorMessage(e)));
+    rendersList(selectedDir).then((r) => current() && setExportsCount(r.renders.filter((x) => x.name.endsWith(".mp4")).length)).catch(() => undefined);
     return () => { cancelled = true; };
-  }, [selection]);
+  }, [selection, isCurrentSelection]);
   useEffect(() => {
+    if (!isCurrentSelection()) return;
     if (progress.output) setOutput(progress.output);
     if (progress.done || progress.error) void refresh().catch(() => undefined);
-  }, [progress.output, progress.done, progress.error, refresh]);
+  }, [progress.output, progress.done, progress.error, refresh, isCurrentSelection]);
 
   const open = useCallback((next: string, navigate: () => void, clearRecovery: () => void, onRecentError: (e: unknown) => void) => {
     const nextSelection = { dir: next };
@@ -58,12 +64,15 @@ export function useVideoWorkspace(progressController: ReturnType<typeof useProgr
     setShow(null); setExportsCount(0); setOutput(null); setJobError(null);
     setImportMissing(null); setImportUnverified(null);
     reset(); navigate(); clearRecovery(); setSelection(nextSelection);
-    void rememberProject(next).catch(onRecentError);
+    void rememberProject(next).catch((error) => {
+      if (mounted.current && currentSelection.current === nextSelection) onRecentError(error);
+    });
   }, [reset]);
   const close = useCallback((navigate: () => void) => {
     currentSelection.current = null;
+    reset(); setOutput(null);
     setSelection(null); setShow(null); setExportsCount(0); setImportMissing(null); setImportUnverified(null); navigate();
-  }, []);
+  }, [reset]);
   const applyBundleReport = useCallback((report: BundleImportResult) => {
     const missing = [
       ...report.missing_media.map((m) => m.name ?? baseName(m.path)),
@@ -78,7 +87,7 @@ export function useVideoWorkspace(progressController: ReturnType<typeof useProgr
     if (missing.length) setImportMissing(missing);
     return { missing, unverified };
   }, []);
-  return { dir, show, exportsCount, jobError, setJobError, output, setOutput, importMissing, setImportMissing, importUnverified, setImportUnverified, refresh, open, close, applyBundleReport };
+  return { dir, isCurrentSelection, show, exportsCount, jobError, setJobError, output, setOutput, importMissing, setImportMissing, importUnverified, setImportUnverified, refresh, open, close, applyBundleReport };
 }
 
 /** Publish busy state while mounted and clear it on change or unmount. */

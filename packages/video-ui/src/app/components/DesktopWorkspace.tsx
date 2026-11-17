@@ -65,7 +65,7 @@ export function DesktopWorkspace() {
   const { status, doctor, doctorError, statusError } = useEngine();
   const progressController = useProgress();
   const { progress } = progressController;
-  const { dir, show, exportsCount, jobError, setJobError, output, setOutput, importMissing, setImportMissing, importUnverified, setImportUnverified, refresh, open: openWorkspace, close: closeWorkspace, applyBundleReport } = useVideoWorkspace(progressController);
+  const { dir, isCurrentSelection, show, exportsCount, jobError, setJobError, output, setOutput, importMissing, setImportMissing, importUnverified, setImportUnverified, refresh, open: openWorkspace, close: closeWorkspace, applyBundleReport } = useVideoWorkspace(progressController);
   const [tab, setTab] = useState<Tab>("projects");
   // Exports ⋯ → Import retention… routes here with the render preselected (R5).
   const [retentionPreselect, setRetentionPreselect] = useState<string | undefined>(undefined);
@@ -75,7 +75,7 @@ export function DesktopWorkspace() {
   const previewHost = useTimelinePreview(dir, show?.revision.cursor ?? 0);
 
   const { pending, resumable, renderMissing, assembling, rendering, submit, resume, render, cancel, clearRecovery } = useVideoAssembly({
-    dir, progressController, refresh, setError: setJobError, setOutput,
+    dir, isCurrentSelection, progressController, refresh, setError: setJobError, setOutput,
     callbacks: {
       onRecovered: () => setTab("jobs"),
       onStarted: () => setTab("jobs"),
