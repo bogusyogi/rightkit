@@ -35,15 +35,19 @@ export function gateCodeFiles(dir = HERE, { readFile = (f) => fs.readFileSync(f,
   return codeClosure(list(dir).filter((n) => n.endsWith(".mjs") && !n.endsWith(".test.mjs")).map((n) => path.join(dir, n)), dir, { readFile });
 }
 
-/** The identity a passed call is remembered under: the commit, the toolchain the snapshot pins, the host, the installed broker and this gate code. */
+/**
+ * The identity a passed call is remembered under: the commit, the toolchain the snapshot pins, the host, the installed broker and this gate code.
+ * The broker is named by its exact build (`brokerDigest` of the runtime manifest beside the client), never by a version label, which two builds
+ * can share. `brokerKnown` is false when that digest cannot be read; then nothing is remembered and nothing remembered is reused.
+ */
 export function gateIdentity({ commit, snapshot, platform, client, readFile = (f) => fs.readFileSync(f, "utf8") }) {
   let toolchain = "unpinned";
   for (const file of ["rust-toolchain.toml", "rust-toolchain"]) { try { toolchain = crypto.createHash("sha256").update(readFile(path.join(snapshot, file))).digest("hex").slice(0, 16); break; } catch { /* next */ } }
   let broker = "none";
-  if (client) { try { const m = JSON.parse(readFile(path.join(path.dirname(client), "runtime-manifest.json"))); broker = String(m.version ?? m.sourceRevision ?? "unknown"); } catch { broker = "unknown"; } }
+  if (client) { try { const m = JSON.parse(readFile(path.join(path.dirname(client), "runtime-manifest.json"))); broker = typeof m.brokerDigest === "string" && /^[0-9a-f]{64}$/.test(m.brokerDigest) ? m.brokerDigest : "unknown"; } catch { broker = "unknown"; } }
   const code = crypto.createHash("sha256");
   for (const f of gateCodeFiles(HERE)) code.update(f.name).update("\0").update(f.text).update("\0");
-  return { commit, toolchain, host: platform, broker, gate: code.digest("hex").slice(0, 16) };
+  return { commit, toolchain, host: platform, broker, brokerKnown: /^[0-9a-f]{64}$/.test(broker), gate: code.digest("hex").slice(0, 16) };
 }
 
 /**
@@ -69,7 +73,7 @@ const STAGES = ["lint", "test-build", "docs"];
  * `send`: optional replacement for the broker call (tests). `onUnsettled`: called for a broker job that ended without a settled outcome (the caller keeps the snapshot lock).
  * Returns { code, byCrate: { name: { result, stages: { lint, "test-build", docs, tests } } }, counts, notes, calls }.
  */
-export async function compileTogether({ snapshot, commit, crates, rustConfig = {}, platform = process.platform, arch = process.arch, client = "rustright", env = process.env, verdictFile, storeDir, out = () => {}, onUnsettled = () => {}, send = null, runTestsWith = runTests }) {
+export async function compileTogether({ snapshot, commit, crates, rustConfig = {}, platform = process.platform, arch = process.arch, client = "rustright", env = process.env, verdictFile, storeDir, out = () => {}, onUnsettled = () => {}, send = null, runTestsWith = runTests, identityOf = gateIdentity }) {
   // ci/asset-gated.json of the commit: a listed crate runs its tests with RIGHTKIT_REQUIRE_ASSETS=0, every other with 1, as on the per-crate rows.
   let gated = {};
   try { gated = JSON.parse(fs.readFileSync(path.join(snapshot, "ci", "asset-gated.json"), "utf8")).crates ?? {}; } catch { gated = {}; }
@@ -77,8 +81,10 @@ export async function compileTogether({ snapshot, commit, crates, rustConfig = {
   const { hostTriple, otherTriples } = targetsFor(platform, arch);
   const calls = planCalls({ crates: infos, host: platform, hostTriple, otherTriples });
   const notes = planNotes({ crates: infos, host: platform });
-  const identity = gateIdentity({ commit, snapshot, platform, client });
-  const store = storeDir ? fileStore(storeDir) : null;
+  const identity = identityOf({ commit, snapshot, platform, client });
+  // Without the broker's exact build there is nothing sound to remember a pass under, and no remembered pass can be shown to be this broker's.
+  const store = storeDir && identity.brokerKnown ? fileStore(storeDir) : null;
+  if (storeDir && !identity.brokerKnown) out("nothing is remembered or reused in this run: the installed broker's build (brokerDigest of its runtime manifest) cannot be read");
   // What a remembered test pass belongs to: this commit on this toolchain, host, broker and gate code, the same identity a remembered call has.
   const testScope = crypto.createHash("sha256").update(JSON.stringify(["commit", "toolchain", "host", "broker", "gate"].map((k) => identity[k]))).digest("hex");
   const seamEnv = { ...env, RUSTRIGHT_GATE_COMMIT: commit, RUSTRIGHT_CLASS_A: verdictFile };

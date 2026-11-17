@@ -86,6 +86,10 @@ export function fullOutputOf(job, { readFile = (f) => fs.readFileSync(f, "utf8")
   return { dropped, full, why: null };
 }
 
+/** The build of the broker that ran `job`, from the signed part of its receipt (`provenance.payload.broker.brokerDigest`); null when the receipt does not say. */
+export function signedBrokerOf(job, { readFile = (f) => fs.readFileSync(f, "utf8") } = {}) {
+  try { const d = JSON.parse(readFile(job.receipt)).provenance?.payload?.broker?.brokerDigest; return typeof d === "string" && d ? d : null; } catch { return null; }
+}
 /** Why a passed job must not be remembered, or null. Fails closed: no statement of what was forwarded is a reason. */
 export function unrememberable(forwarded) {
   if (!Array.isArray(forwarded)) return "its receipt does not say which environment variables the broker forwarded";
@@ -126,19 +130,22 @@ const jobOf = (sent) => ({ exit: sent.status ?? null, requestId: sent.requestId 
  * `store`: fileStore(dir) or null (nothing remembered). `identity`: see callKey. `hostTriple`: this host's target.
  * `output(job)`: see fullOutputOf. When the broker dropped part of a job's output, the crates are judged from the whole job log; when that log
  *   cannot be read, no crate is passed or called not built from the partial stream (a crate with an error that was seen still failed).
+ * `signedBroker(job)`: see signedBrokerOf. A pass is remembered only when the job's signed receipt names the broker build the key names.
  * `env`: the environment `send` sends a call with, or a function (call) => that environment when calls differ (a doc call carries RUSTDOCFLAGS).
  *   Its CALL_KEY_ENV values are in the key, read before the store is looked up. `forwarded(job)`: see forwardedOf.
  * Returns { outcomes: [{ call, state: "skipped"|"ran", results, jobs, evidence, notRemembered? }], counts: { calls, ran, skipped, jobs, greenReruns, notRemembered } }.
  * `evidence` is the job that proves each passed crate: for a clean call its one job, after a green rerun the second job.
  */
-export function runCalls({ calls, send, store = null, identity, hostTriple, onCall = () => {}, env = {}, forwarded = forwardedOf, output = fullOutputOf }) {
+export function runCalls({ calls, send, store = null, identity, hostTriple, onCall = () => {}, env = {}, forwarded = forwardedOf, output = fullOutputOf, signedBroker = signedBrokerOf }) {
   const outcomes = [];
   const counts = { calls: calls.length, ran: 0, skipped: 0, jobs: 0, greenReruns: 0, notRemembered: 0 };
   const envOf = (which) => (typeof env === "function" ? env(which) : env);
   // Remembers a passed job, unless its receipt shows the key is too narrow for what the broker forwarded. Returns the reason it was not remembered, or null.
   const remember = (which, job) => {
     if (!store) return null;
-    const why = unrememberable(forwarded(job));
+    // The key names a broker build; the pass is filed under it only when the job's own signed receipt says that build ran it.
+    const ranBy = signedBroker(job, identity);
+    const why = ranBy !== identity.broker ? `its receipt says broker ${ranBy ?? "(not stated)"} ran it, the key names ${identity.broker}` : unrememberable(forwarded(job));
     if (why) { counts.notRemembered += 1; return why; }
     store.put(callKey(which, identity, envOf(which)), { call: { id: which.id, cwd: which.cwd ?? ".", args: which.args }, job, crates: which.crates.map((c) => c.name) });
     return null;

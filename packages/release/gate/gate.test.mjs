@@ -189,9 +189,9 @@ const tmpStore = () => fileStore(fs.mkdtempSync(path.join(os.tmpdir(), "gate-cal
 test("a clean run sends each call once; the same commit again sends nothing", () => {
   const calls = plan([crate("a"), crate("b"), crate("c")]);
   const store = tmpStore(); const broker = fakeBroker();
-  const first = runCalls({ forwarded: () => [], calls, send: broker.send, store, identity: IDENT, hostTriple: WIN });
+  const first = runCalls({ forwarded: () => [], signedBroker: (job, id) => id.broker, calls, send: broker.send, store, identity: IDENT, hostTriple: WIN });
   assert.deepEqual(first.counts, { calls: 5, ran: 5, skipped: 0, jobs: 5, greenReruns: 0, notRemembered: 0 });
-  const second = runCalls({ forwarded: () => [], calls, send: broker.send, store, identity: IDENT, hostTriple: WIN });
+  const second = runCalls({ forwarded: () => [], signedBroker: (job, id) => id.broker, calls, send: broker.send, store, identity: IDENT, hostTriple: WIN });
   assert.deepEqual(second.counts, { calls: 5, ran: 0, skipped: 5, jobs: 0, greenReruns: 0, notRemembered: 0 });
   assert.equal(broker.sent.length, 5, "the rerun reached the broker zero times");
   assert.ok(second.outcomes.every((o) => o.results.every((r) => r.result === "passed") && o.evidence?.requestId));
@@ -199,8 +199,8 @@ test("a clean run sends each call once; the same commit again sends nothing", ()
 
 test("a new commit sends every call again: evidence is never reused across commits", () => {
   const calls = plan([crate("a")]); const store = tmpStore(); const broker = fakeBroker();
-  runCalls({ forwarded: () => [], calls, send: broker.send, store, identity: IDENT, hostTriple: WIN });
-  const next = runCalls({ forwarded: () => [], calls, send: broker.send, store, identity: { ...IDENT, commit: "b".repeat(40) }, hostTriple: WIN });
+  runCalls({ forwarded: () => [], signedBroker: (job, id) => id.broker, calls, send: broker.send, store, identity: IDENT, hostTriple: WIN });
+  const next = runCalls({ forwarded: () => [], signedBroker: (job, id) => id.broker, calls, send: broker.send, store, identity: { ...IDENT, commit: "b".repeat(40) }, hostTriple: WIN });
   assert.equal(next.counts.ran, 5);
   assert.notEqual(callKey(calls[0], IDENT), callKey(calls[0], { ...IDENT, gate: "0.7.1" }), "a gate change is a different key");
   assert.throws(() => callKey(calls[0], { ...IDENT, broker: "" }), /identity\.broker/);
@@ -209,7 +209,7 @@ test("a new commit sends every call again: evidence is never reused across commi
 test("one red crate fails alone: its dependent is not built, every other crate passes with signed evidence from a job that exited 0", () => {
   const calls = plan([crate("a"), crate("b"), crate("c"), crate("d")]).filter((c) => c.id === "lint:default:win32");
   const broker = fakeBroker({ red: ["a"], deps: { b: ["a"] } });
-  const { outcomes, counts } = runCalls({ forwarded: () => [], calls, send: broker.send, store: tmpStore(), identity: IDENT, hostTriple: WIN });
+  const { outcomes, counts } = runCalls({ forwarded: () => [], signedBroker: (job, id) => id.broker, calls, send: broker.send, store: tmpStore(), identity: IDENT, hostTriple: WIN });
   assert.deepEqual(outcomes[0].results.map((r) => [r.crate, r.result]), [["a", "failed"], ["b", "not-built"], ["c", "passed"], ["d", "passed"]]);
   assert.deepEqual(counts, { calls: 1, ran: 1, skipped: 0, jobs: 2, greenReruns: 1, notRemembered: 0 });
   assert.deepEqual(broker.sent[1].crates.map((c) => c.name), ["c", "d"], "the second job names only the crates that passed");
@@ -223,18 +223,18 @@ test("one red crate fails alone: its dependent is not built, every other crate p
 test("a red call is never remembered: the next run sends it again; the green rerun is remembered under its own key", () => {
   const calls = plan([crate("a"), crate("c")]).filter((c) => c.id === "lint:default:win32");
   const store = tmpStore();
-  runCalls({ forwarded: () => [], calls, send: fakeBroker({ red: ["a"] }).send, store, identity: IDENT, hostTriple: WIN });
+  runCalls({ forwarded: () => [], signedBroker: (job, id) => id.broker, calls, send: fakeBroker({ red: ["a"] }).send, store, identity: IDENT, hostTriple: WIN });
   const fixed = fakeBroker();
-  const after = runCalls({ forwarded: () => [], calls, send: fixed.send, store, identity: IDENT, hostTriple: WIN });
+  const after = runCalls({ forwarded: () => [], signedBroker: (job, id) => id.broker, calls, send: fixed.send, store, identity: IDENT, hostTriple: WIN });
   assert.equal(after.counts.ran, 1, "the call that had a red crate runs again");
   assert.ok(store.get(callKey(restrictCall(calls[0], ["c"]), IDENT)), "the green-only call was remembered");
 });
 
 test("a refused call and a job that exits non-zero with nothing attributed prove nothing", () => {
   const calls = plan([crate("a")]).filter((c) => c.id === "lint:default:win32");
-  const refused = runCalls({ forwarded: () => [], calls, send: () => ({ status: 125, stdout: "", stderr: "", refusal: { code: "RK_APP_BUILD_IN_PROGRESS", message: "busy" } }), store: tmpStore(), identity: IDENT, hostTriple: WIN });
+  const refused = runCalls({ forwarded: () => [], signedBroker: (job, id) => id.broker, calls, send: () => ({ status: 125, stdout: "", stderr: "", refusal: { code: "RK_APP_BUILD_IN_PROGRESS", message: "busy" } }), store: tmpStore(), identity: IDENT, hostTriple: WIN });
   assert.equal(refused.outcomes[0].results[0].result, "unknown"); assert.equal(refused.outcomes[0].evidence, null);
-  const odd = runCalls({ forwarded: () => [], calls, send: (c) => ({ status: 101, stdout: [...c.crates.flatMap((x) => x.targets.map((t) => artifact(x.name, t))), finished(false)].join("\n"), stderr: "" }), store: tmpStore(), identity: IDENT, hostTriple: WIN });
+  const odd = runCalls({ forwarded: () => [], signedBroker: (job, id) => id.broker, calls, send: (c) => ({ status: 101, stdout: [...c.crates.flatMap((x) => x.targets.map((t) => artifact(x.name, t))), finished(false)].join("\n"), stderr: "" }), store: tmpStore(), identity: IDENT, hostTriple: WIN });
   assert.equal(odd.outcomes[0].results[0].result, "unknown");
 });
 
@@ -247,7 +247,7 @@ test("restricting a call keeps everything but the dropped crates, including what
 });
 
 // ---- the compile stage end to end (fake broker, real files) ---------------------------------------------------
-import { compileTogether, crateInfo, targetsFor, unitResult, UNIT_RESULT_SCHEMA } from "./compile.mjs";
+import { compileTogether, crateInfo, gateIdentity as gateIdentityReal, targetsFor, unitResult, UNIT_RESULT_SCHEMA } from "./compile.mjs";
 import { libtestSummary, runTests } from "./tests.mjs";
 
 function fakeSnapshot(crates) {
@@ -266,13 +266,15 @@ function fakeSeam({ red = [], deps = {} } = {}) {
     const r = base.send(call);
     const file = path.join(dir, `${r.requestId}.json`);
     const built = call.stage === "test-build" && r.status === 0 ? call.crates.map((c) => ({ path: path.join(dir, `${c.name}.exe`), sha256: "ab".repeat(32), package_id: `path+file:///s/crates/${c.name}#0.1.0`, target: c.name, kind: "lib" })) : null;
-    fs.writeFileSync(file, JSON.stringify({ id: r.requestId, testExecutables: built, environment: { forwarded: [] } }));
+    fs.writeFileSync(file, JSON.stringify({ id: r.requestId, testExecutables: built, environment: { forwarded: [] }, provenance: { payload: { broker: { brokerDigest: TEST_BROKER } } } }));
     return { ...r, receipt: file };
   };
   return { send, sent: base.sent };
 }
 const fakeTests = ({ failing = [] } = {}) => async ({ executables, crates }) => ({ byCrate: Object.fromEntries(crates.map((c) => [c.name, Array.isArray(executables) && executables.some((e) => e.target === c.name) ? (failing.includes(c.name) ? { result: "failed", detail: "1 test failed", programs: 1, passed: 0, failed: 1, ignored: 0 } : { result: "passed", detail: "", programs: 1, passed: 3, failed: 0, ignored: 0 }) : { result: "unknown", detail: "no program listed", programs: 0, passed: 0, failed: 0, ignored: 0 }])), counts: { programs: crates.length, ran: crates.length, cached: 0 } });
-const compile = (snapshot, crates, seam, extra = {}) => compileTogether({ snapshot, commit: "c".repeat(40), crates, platform: "win32", arch: "x64", client: null, verdictFile: path.join(snapshot, "verdict.json"), storeDir: path.join(snapshot, ".calls"), send: seam.send, runTestsWith: fakeTests(extra.tests), ...extra });
+const TEST_BROKER = "f".repeat(64);
+const testIdentity = (o) => ({ ...gateIdentityReal(o), broker: TEST_BROKER, brokerKnown: true });
+const compile = (snapshot, crates, seam, extra = {}) => compileTogether({ identityOf: testIdentity, snapshot, commit: "c".repeat(40), crates, platform: "win32", arch: "x64", client: null, verdictFile: path.join(snapshot, "verdict.json"), storeDir: path.join(snapshot, ".calls"), send: seam.send, runTestsWith: fakeTests(extra.tests), ...extra });
 
 test("crate facts are read from the snapshot: library, declared features, config", () => {
   const snap = fakeSnapshot({ a: {}, b: { lib: false, features: 'default = []\nextra = []' } });
@@ -296,7 +298,7 @@ test("a test build's programs run before the next call is sent (a later build of
   const snap = fakeSnapshot({ a: {} }); const seam = fakeSeam(); const order = [];
   const send = (call) => { order.push(call.id); return seam.send(call); };
   const tests = fakeTests();
-  const run = await compileTogether({ snapshot: snap, commit: "c".repeat(40), crates: ["a"], platform: "win32", arch: "x64", client: null, verdictFile: path.join(snap, "verdict.json"), storeDir: path.join(snap, ".calls"), send, runTestsWith: async (input) => { order.push("tests"); return tests(input); } });
+  const run = await compileTogether({ identityOf: testIdentity, snapshot: snap, commit: "c".repeat(40), crates: ["a"], platform: "win32", arch: "x64", client: null, verdictFile: path.join(snap, "verdict.json"), storeDir: path.join(snap, ".calls"), send, runTestsWith: async (input) => { order.push("tests"); return tests(input); } });
   assert.equal(run.code, 0);
   const at = order.indexOf("tests");
   assert.ok(at > 0 && order[at - 1].startsWith("test-build:"), order.join(" > "));
@@ -378,10 +380,10 @@ test("the same consumer manifest declared by three crates is one call; it is jud
   assert.equal(calls.length, 1); assert.deepEqual(calls[0].crates.map((c) => c.name), ["qa", "qa-driver", "shell"]);
   // The consumer's own package fails; the named crates built fine. The call still fails for all of them.
   const stdout = [artifact("qa", WIN), artifact("qa-driver", WIN), artifact("shell", WIN), error("wv2-0_39-consumer", "unused import"), finished(false)].join("\n");
-  const red = runCalls({ forwarded: () => [], calls, send: () => ({ status: 101, stdout, stderr: "", requestId: "j1", receiptSha256: "0".repeat(64) }), store: null, identity: IDENT, hostTriple: WIN });
+  const red = runCalls({ forwarded: () => [], signedBroker: (job, id) => id.broker, calls, send: () => ({ status: 101, stdout, stderr: "", requestId: "j1", receiptSha256: "0".repeat(64) }), store: null, identity: IDENT, hostTriple: WIN });
   assert.deepEqual(red.outcomes[0].results.map((r) => r.result), ["failed", "failed", "failed"]);
   assert.match(red.outcomes[0].results[0].detail, /wv2-0_39-consumer/);
-  const ok = runCalls({ forwarded: () => [], calls, send: () => ({ status: 0, stdout: finished(true), stderr: "", requestId: "j2", receiptSha256: "0".repeat(64) }), store: null, identity: IDENT, hostTriple: WIN });
+  const ok = runCalls({ forwarded: () => [], signedBroker: (job, id) => id.broker, calls, send: () => ({ status: 0, stdout: finished(true), stderr: "", requestId: "j2", receiptSha256: "0".repeat(64) }), store: null, identity: IDENT, hostTriple: WIN });
   assert.deepEqual(ok.outcomes[0].results.map((r) => r.result), ["passed", "passed", "passed"]);
   assert.equal(ok.outcomes[0].evidence.requestId, "j2");
 });
@@ -390,7 +392,7 @@ test("a call the seam marks EXIT (Cargo ran and failed) is read as a build resul
   const calls = plan([crate("a"), crate("c"), crate("d")]).filter((c) => c.id === "lint:default:win32");
   const base = fakeBroker({ red: ["a"] });
   const send = (call) => { const r = base.send(call); return r.status === 0 ? r : { ...r, refusal: { code: "EXIT", message: `exit ${r.status}` } }; };
-  const { outcomes, counts } = runCalls({ forwarded: () => [], calls, send, store: tmpStore(), identity: IDENT, hostTriple: WIN });
+  const { outcomes, counts } = runCalls({ forwarded: () => [], signedBroker: (job, id) => id.broker, calls, send, store: tmpStore(), identity: IDENT, hostTriple: WIN });
   assert.deepEqual(outcomes[0].results.map((r) => [r.crate, r.result]), [["a", "failed"], ["c", "passed"], ["d", "passed"]]);
   assert.equal(counts.greenReruns, 1); assert.equal(outcomes[0].evidence.requestId, "job-2");
 });
@@ -577,7 +579,7 @@ test("G18: a remembered call carries the variables the broker forwards to Cargo,
     // End to end through runCalls with real receipts on disk.
     const lines = (c) => [...c.crates.map((x) => JSON.stringify({ reason: "compiler-artifact", package_id: `path+file:///s/crates/${x.name}#0.1.0`, target: { kind: ["lib"], name: x.name }, filenames: [`/t/x86_64-pc-windows-msvc/lib${x.name}.rlib`] })), JSON.stringify({ reason: "build-finished", success: true })].join("\n");
     const sender = (file) => { let sent = 0; return { send: (c) => { sent += 1; return { status: 0, stdout: lines(c), stderr: "", requestId: "r", receipt: file, receiptSha256: "x" }; }, sent: () => sent }; };
-    const go = (s, env, storeDir) => runCalls({ calls: [call], send: s.send, store: fileStore(storeDir), identity, hostTriple: "x86_64-pc-windows-msvc", env });
+    const go = (s, env, storeDir) => runCalls({ signedBroker: (job, id) => id.broker, calls: [call], send: s.send, store: fileStore(storeDir), identity, hostTriple: "x86_64-pc-windows-msvc", env });
     // Remembered: same environment again sends nothing; a changed TZ sends it again; a changed TERM does not.
     const a = sender(receipt("a.json", { environment: { forwarded: ["TZ", "TERM"] } })); const sa = path.join(dir, "sa");
     assert.equal(go(a, { TZ: "UTC", TERM: "xterm" }, sa).counts.notRemembered, 0);
@@ -618,7 +620,7 @@ test("G22: a docs call denies rustdoc warnings as CI does, and a pass made witho
     const seen = [];
     const send = (c) => { seen.push(c.id); return { status: 0, stdout: [JSON.stringify({ reason: "compiler-artifact", package_id: "path+file:///s/crates/a#0.1.0", target: { kind: ["lib"], name: "a" }, filenames: ["/t/x86_64-pc-windows-msvc/liba.rlib"] }), JSON.stringify({ reason: "build-finished", success: true })].join("\n"), stderr: "", requestId: "r", receipt, receiptSha256: "x" }; };
     const store = fileStore(path.join(dir, "store"));
-    const go = (env) => runCalls({ calls: [call], send, store, identity, hostTriple: "x86_64-pc-windows-msvc", env });
+    const go = (env) => runCalls({ signedBroker: (job, id) => id.broker, calls: [call], send, store, identity, hostTriple: "x86_64-pc-windows-msvc", env });
     // A pass remembered from a run that sent no flag (the gate before this change)...
     assert.equal(go({}).counts.ran, 1);
     assert.equal(go({}).counts.skipped, 1);
@@ -648,7 +650,7 @@ test("G7: when the broker dropped part of a job's output, crates are judged from
     const logFile = (name, text) => { const f = path.join(dir, name); fs.writeFileSync(f, text); return f; };
     const receipt = (name, body) => { const f = path.join(dir, name); fs.writeFileSync(f, JSON.stringify({ environment: { forwarded: [] }, ...body })); return f; };
     const good = (over = {}, logOver = {}) => ({ outputDroppedBytes: 5000, diagnosticsPath: logFile("job.log", whole), output: { bytes: size, log: { bytes: size, truncated: false, ...logOver } }, ...over });
-    const run = (file, stdout, status = 0) => runCalls({ calls: [call], send: () => ({ status, stdout, stderr: "", requestId: "r", receipt: file, receiptSha256: "x" }), store: null, identity, hostTriple: T });
+    const run = (file, stdout, status = 0) => runCalls({ signedBroker: (job, id) => id.broker, calls: [call], send: () => ({ status, stdout, stderr: "", requestId: "r", receipt: file, receiptSha256: "x" }), store: null, identity, hostTriple: T });
     const words = (r) => Object.fromEntries(r.outcomes[0].results.map((x) => [x.crate, x.result]));
 
     // Nothing dropped: no log is read; the stream is judged as it is.
@@ -788,4 +790,44 @@ test("test programs at once on the build-together path: cores minus 2, the same 
   const r = await runTests({ executables: names.map((n) => ({ path: `/t/${n}`, sha256: "ab".repeat(32), package_id: `path+file:///s/crates/${n}#0.1.0`, target: n })), crates: names.map((name) => ({ name, dir: "/s" })), env: {}, jobs: 3, hashOf: () => "ab".repeat(32), spawn, record: (c) => c });
   assert.equal(peak, 3); assert.equal(r.counts.ran, 12);
   assert.match(fs.readFileSync(new URL("./tests.mjs", import.meta.url), "utf8"), /jobs = testProgramsAtOnce\(\),/);
+});
+
+test("a remembered call is filed under the broker's exact build, only when the job's signed receipt names that build, and never when the build is unknown", async () => {
+  const { gateIdentity } = await import("./compile.mjs");
+  const { signedBrokerOf } = await import("./run-calls.mjs");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rk-bk-"));
+  try {
+    // The identity: the digest of the runtime manifest beside the client; a version label, a missing or unreadable manifest, or no client is "not known".
+    const client = path.join(dir, "rt", "rustright"); fs.mkdirSync(path.dirname(client), { recursive: true });
+    const manifest = (m) => fs.writeFileSync(path.join(dir, "rt", "runtime-manifest.json"), JSON.stringify(m));
+    const id = (c = client) => gateIdentity({ commit: "c".repeat(40), snapshot: dir, platform: "win32", client: c });
+    const d1 = "1".repeat(64);
+    manifest({ version: "rustright-18c1f534", brokerDigest: d1 }); assert.equal(id().broker, d1); assert.equal(id().brokerKnown, true);
+    manifest({ version: "rustright-18c1f534" }); assert.equal(id().broker, "unknown"); assert.equal(id().brokerKnown, false);
+    manifest({ version: "rustright-18c1f534", brokerDigest: "short" }); assert.equal(id().brokerKnown, false);
+    fs.rmSync(path.join(dir, "rt", "runtime-manifest.json")); assert.equal(id().brokerKnown, false);
+    assert.equal(id(null).broker, "none"); assert.equal(id(null).brokerKnown, false);
+    // Two builds that share a version label no longer share a key.
+    manifest({ version: "same-label", brokerDigest: d1 }); const a = id().broker; manifest({ version: "same-label", brokerDigest: "2".repeat(64) }); assert.notEqual(id().broker, a);
+
+    // signedBrokerOf reads the signed part of the job's receipt.
+    const receipt = (name, body) => { const f = path.join(dir, name); fs.writeFileSync(f, JSON.stringify({ environment: { forwarded: [] }, ...body })); return f; };
+    const by = (digest) => ({ provenance: { payload: { broker: { brokerDigest: digest } } } });
+    assert.equal(signedBrokerOf({ receipt: receipt("a.json", by(d1)) }), d1); assert.equal(signedBrokerOf({ receipt: receipt("b.json", {}) }), null); assert.equal(signedBrokerOf({ receipt: path.join(dir, "gone.json") }), null);
+
+    // Remembering: the receipt's broker must be the key's broker.
+    const identity = { commit: "c".repeat(40), toolchain: "t", host: "win32", broker: d1, gate: "g" };
+    const T = "x86_64-pc-windows-msvc";
+    const call = { id: "lint:default:win32", stage: "lint", round: "default", crates: [{ name: "a", targets: [T] }], args: ["clippy", "-p", "a"] };
+    const out = [JSON.stringify({ reason: "compiler-artifact", package_id: "path+file:///s/crates/a#0.1.0", target: { kind: ["lib"], name: "a" }, filenames: [`/t/${T}/liba.rlib`] }), JSON.stringify({ reason: "build-finished", success: true })].join("\n");
+    const go = (file, storeDir) => runCalls({ calls: [call], send: () => ({ status: 0, stdout: out, stderr: "", requestId: "r", receipt: file, receiptSha256: "x" }), store: fileStore(storeDir), identity, hostTriple: T });
+    const same = path.join(dir, "s1"); assert.equal(go(receipt("same.json", by(d1)), same).counts.notRemembered, 0); assert.equal(go(receipt("same.json", by(d1)), same).counts.skipped, 1);
+    for (const [name, body, why] of [["other.json", by("9".repeat(64)), /its receipt says broker 9{64} ran it, the key names 1{64}/], ["silent.json", {}, /its receipt says broker \(not stated\) ran it/]]) {
+      const sdir = path.join(dir, `s-${name}`); const first = go(receipt(name, body), sdir);
+      assert.equal(first.outcomes[0].results[0].result, "passed"); assert.match(first.outcomes[0].notRemembered, why); assert.equal(go(receipt(name, body), sdir).counts.skipped, 0);
+    }
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  // The build-together path keeps no store when the broker's build is unknown, and says so.
+  const src = fs.readFileSync(new URL("./compile.mjs", import.meta.url), "utf8");
+  assert.match(src, /const store = storeDir && identity\.brokerKnown \? fileStore\(storeDir\) : null;/);
 });
