@@ -2,7 +2,7 @@
 
 ## 0.4.4 (2026-11-16)
 
-- Added a read-only CLI entry handler for contract JSON and help before engine initialization; it does not dispatch or authorize tools.
+- Added a read-only CLI entry handler for contract JSON before engine initialization; it does not dispatch or authorize tools.
 - Added the typed app CLI contract declaration, embedded JSON Schema and effect approval-floor validation. This validates declarations, not runtime behavior.
 - Added a typed completed-call journal backed by the required-lock JSONL store.
 
