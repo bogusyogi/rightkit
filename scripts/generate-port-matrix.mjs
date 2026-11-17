@@ -16,7 +16,7 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
 import path from "node:path";
-import { loadAppDeclaration, ratifyNotApplicable } from "../packages/release/ownership-mandatory-set.mjs";
+import { loadAppDeclaration, ratifyNotApplicable, validateApplicabilityRecord } from "../packages/release/ownership-mandatory-set.mjs";
 import {
   DEFAULT_WORKSPACE, cmp, loadInventory, manifestsUnder, parseToml, partsOf, pinStatus, publishedOf, readJson,
   readManifestEntries, satisfies, stagedOf, unquote,
@@ -157,11 +157,11 @@ function git(dir, args) {
 }
 const realOrSelf = (file) => { try { return realpathSync(file); } catch { return path.resolve(file); } };
 
-// Short HEAD of the repository rooted at `dir`; null when `dir` is not itself a git repository root with a commit.
+// Exact HEAD of the repository rooted at `dir`; null when `dir` is not itself a git repository root with a commit.
 export function gitHead(dir) {
   const top = git(dir, ["rev-parse", "--show-toplevel"]);
   if (!top || realOrSelf(top) !== realOrSelf(dir)) return null;
-  return git(dir, ["rev-parse", "--short=7", "HEAD"]) || null;
+  return git(dir, ["rev-parse", "HEAD^{commit}"]) || null;
 }
 
 function hookState(dir) {
@@ -621,10 +621,19 @@ const pinPiece = (token, pin, latest) => {
   return pin.source === "other-registry" ? "other registry" : `unresolved ${req}`;
 };
 
-function scanPins(appDir, packageIndex) {
+function scanPins(appDir, packageIndex, head) {
   const pins = new Map();
   let manifests = 0, parseErrors = 0, matched = 0, vendored = 0;
-  for (const file of manifestsUnder(appDir)) {
+  const tracked = head ? git(appDir, ["ls-tree", "-r", "--name-only", "-z", head]) : null;
+  if (head && tracked === null) throw new Error(`${appDir}: cannot list manifests at ${head}`);
+  // Keep untracked installs and backups out of the matrix for a Git checkout.
+  const files = tracked === null ? manifestsUnder(appDir) : tracked.split("\0").filter((file) => {
+    const parts = file.split("/");
+    const name = parts.pop();
+    return (name === "Cargo.toml" || name === "package.json")
+      && !parts.some((part) => part.startsWith(".") || part === "node_modules" || part === "target");
+  }).map((file) => path.join(appDir, file));
+  for (const file of files) {
     manifests++;
     let manifest;
     try { manifest = readManifestEntries(file); } catch { parseErrors++; continue; }
@@ -666,7 +675,11 @@ function scanApp(app, ctx) {
     : (data.defaultApps ?? []).includes(app.name) || declaration.present;
   const profile = inSet ? declaration.profile : null;
   const rows = inSet ? profileRows(data, profile) : [];
-  const scan = scanPins(app.dir, packageIndex);
+  const agentSurface = rows.some((row) => row.id === "M22") ? validateApplicabilityRecord(
+    "M22", declaration.records?.M22, { spec: data.applicabilityRecords?.M22, root: app.dir },
+  ) : null;
+  const head = gitHead(app.dir);
+  const scan = scanPins(app.dir, packageIndex, head);
   const apple = scanAppleTargets(app.dir, ctx.swiftLatest);
   if (swift && apple.length) {
     scan.pins.set(keyOf("swift", swift.name), apple.map((t) => ({
@@ -705,7 +718,7 @@ function scanApp(app, ctx) {
   const check = options.withCheck ? options.runCheck(ctx.root, app.dir, { app: app.name })
     : hasCarriedCheck ? hasCarriedCheck : notRun("--with-check not passed");
   return {
-    ...base, head: carriedApp ? carriedApp.head : gitHead(app.dir), inSet, profile, declaration, rows, owners: ownerMap, pins: scan.pins,
+    ...base, head: carriedApp ? carriedApp.head : head, inSet, profile, declaration, agentSurface, rows, owners: ownerMap, pins: scan.pins,
     ratified: ruled,
     scan: { manifests: scan.manifests, parseErrors: scan.parseErrors, pins: scan.matched, vendored: scan.vendored },
     exceptions: { file: exceptionFile, summary: exceptionSummary(exceptionFile.entries, today, matched) },
@@ -925,6 +938,7 @@ export function buildPortMatrixModel(options = {}) {
         notApplicable: Object.entries(app.declaration.notApplicable).sort(([a], [b]) => rowOrder(a, b)).map(([row]) => ({ row, ratified: row in app.ratified })),
         ignored: app.declaration.ignored,
       } : null,
+      agentSurface: app.agentSurface ?? null,
       scan: app.scan, progress: app.present ? progressOf(app, packages, rowEval, latestOf) : null, flags: app.flags,
       foundationRows: rowEval, appleTargets: app.apple, rkReady: app.rkReady, toMove: toMoveOf(app.name),
     };
@@ -983,8 +997,8 @@ export const DRIFT_COMMAND = "node scripts/generate-index.mjs --check-adoption -
 export const LOCAL_CHECK_COMMAND = "node scripts/generate-index.mjs --check";
 
 export function stampLine(model) {
-  const heads = model.apps.map((a) => `${a.name} ${!a.present ? "not present" : a.head ?? "not a git repo"}`).join(", ");
-  return `Stamp: generated ${model.generatedAt} from RightKit ${model.rightkitHead ?? "not a git repo"}; apps: ${heads}.`;
+  const heads = model.apps.map((a) => `${a.name} ${!a.present ? "not present" : a.head?.slice(0, 12) ?? "not a git repo"}`).join(", ");
+  return `Stamp: generated ${model.generatedAt} from RightKit ${model.rightkitHead?.slice(0, 12) ?? "not a git repo"}; apps: ${heads}.`;
 }
 
 const percentText = (p) => (p === null || p === undefined ? "n/a" : `${p}%`);
@@ -1016,6 +1030,7 @@ export function renderJson(model) {
 const mdCell = (text) => String(text ?? "").replace(/\|/g, "\\|").replace(/\s+/g, " ").trim();
 const mdState = (cell) => mdCell(cell.detail ? `${cell.state} (${cell.detail})` : cell.state);
 const mdTable = (head, rows) => [`| ${head.join(" | ")} |`, `|${head.map(() => "---").join("|")}|`, ...rows.map((r) => `| ${r.join(" | ")} |`)];
+const agentRoleText = (record) => !record ? "-" : record.status === "recorded" ? record.role : record.status;
 
 export function renderMarkdown(model) {
   const apps = model.apps;
@@ -1042,18 +1057,18 @@ export function renderMarkdown(model) {
 
   out.push("## Per-app summary", "");
   const summaryRows = apps.map((a) => {
-    if (!a.present) return [mdCell(a.name), mdCell(a.group), "-", "not present", "-", "-", "-", "-", "-", "-", "-", "-", "-"];
+    if (!a.present) return [mdCell(a.name), mdCell(a.group), "-", "not present", "-", "-", "-", "-", "-", "-", "-", "-", "-", "-"];
     const p = a.progress, f = p.foundation, x = p.exceptions;
     const figure = f.ownersRequired ? `${percentText(f.percent)} (${f.ownersCurrent}/${f.ownersRequired} owners current)` : "n/a (no foundation rows for this app)";
     return [
-      mdCell(a.name), mdCell(a.group), mdCell(a.profile ?? "-"), mdCell(figure), f.rowsTotal ? rowCoverage(f) : "-",
+      mdCell(a.name), mdCell(a.group), mdCell(a.profile ?? "-"), mdCell(figure), f.rowsTotal ? rowCoverage(f) : "-", mdCell(agentRoleText(a.agentSurface)),
       `${p.addons.pinned}/${p.addons.total} (${p.addons.current} current, ${p.addons.stale} stale)`,
       a.progress.exceptions.total || a.declaration ? `${x.open} / ${x.expired} / ${x.withoutIssueOrExpiry}` : "-",
       mdCell(releasePinText(p.releasePin)), mdCell(hookText(a.flags.prePushHook)), yesNo(a.flags.switches), yesNo(a.flags.journeys),
       mdCell(releaseConfigText(a.flags.releaseConfig)), mdCell(checkText(p.check)),
     ];
   });
-  out.push(...mdTable(["App", "Group", "Profile", "Progress", "Rows declared or ruled", "Add-ons pinned (current, stale)", "Exceptions open / expired / no issue or expiry",
+  out.push(...mdTable(["App", "Group", "Profile", "Progress", "Rows declared or ruled", "M22 declared role", "Add-ons pinned (current, stale)", "Exceptions open / expired / no issue or expiry",
     "@rightkit/release", "pre-push hook", "switches.json", "journeys.toml", "right-release.config", "Check (preflight)"], summaryRows), "");
   const open = apps.filter((a) => a.present && a.progress.foundation.openRows.length);
   if (open.length) {
@@ -1239,6 +1254,7 @@ function htmlCard(a) {
   const dl = [
     ["Profile", a.profile ?? "none"],
     ["Rows declared or ruled", f.rowsTotal ? `${rowCoverage(f)}${f.rowsOpen ? `; open: ${f.openRows.map((r) => r.id).join(", ")}` : ""}` : "-"],
+    ["M22 declared role", agentRoleText(a.agentSurface)],
     ["Add-ons pinned", `${p.addons.pinned}/${p.addons.total} (${p.addons.current} current, ${p.addons.stale} stale)`],
     ["Exceptions", `${x.open} open, ${x.expired} expired, ${x.withoutIssueOrExpiry} without issue or expiry`],
     ["@rightkit/release", releasePinText(p.releasePin)],
