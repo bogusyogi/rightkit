@@ -109,7 +109,8 @@
           "availability": {
             "enum": [
               "engine",
-              "host"
+              "host",
+              "approval"
             ]
           },
           "licence": {

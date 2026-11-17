@@ -48,13 +48,14 @@ pub enum AppEffect { Read, Write, External, Spend, Destroy }
 pub enum AppApproval { None, Yes, InApp }
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum AppAvailability { Engine, Host }
+pub enum AppAvailability { Engine, Host, Approval }
 
 impl AppContract {
     /// Parse a size-bounded declaration and enforce its structural and policy rules.
     pub fn parse(json: &str) -> Result<Self, String> {
         if json.len() > APP_CONTRACT_MAX_BYTES { return Err("contract exceeds size limit".into()); }
-        let contract: Self = serde_json::from_str(json).map_err(|_| "invalid contract JSON".to_string())?;
+        let checked: CheckedValue = serde_json::from_str(json).map_err(|_| "invalid contract JSON".to_string())?;
+        let contract: Self = serde_json::from_value(checked.0).map_err(|_| "invalid contract JSON".to_string())?;
         contract.validate()?;
         Ok(contract)
     }
@@ -70,12 +71,15 @@ impl AppContract {
             || !self.exit_codes.is_object() || !self.conventions.is_object() {
             return Err("invalid contract metadata".into());
         }
+        let profile = crate::AppProfile::for_app(&self.app.to_ascii_lowercase());
         let mut names = HashSet::new();
         for tool in &self.tools {
             if tool.name.trim().is_empty() || tool.summary.trim().is_empty() || tool.licence.trim().is_empty()
                 || !tool.input_schema.is_object() || !tool.output_schema.is_object()
                 || tool.events_schema.as_ref().is_some_and(|s| !s.is_object())
-                || !names.insert(&tool.name) || crate::exposure::forbidden(&tool.name).is_some() {
+                || !names.insert(&tool.name) || profile.command_forbidden(&tool.name)
+                || (profile.sensitive && tool.name.split(|c: char| !c.is_ascii_alphanumeric())
+                    .any(|part| crate::exposure::GENERIC_READ_METHODS.iter().any(|m| part.eq_ignore_ascii_case(m)))) {
                 return Err("invalid or forbidden tool declaration".into());
             }
             let allowed = match tool.effect {
@@ -94,5 +98,45 @@ impl AppContract {
         let json = serde_json::to_string(self).map_err(|_| "cannot encode contract".to_string())?;
         if json.len() > APP_CONTRACT_MAX_BYTES { return Err("contract exceeds size limit".into()); }
         Ok(json)
+    }
+}
+
+// Decode every object through this visitor before interpreting the typed contract, so duplicate
+// members cannot be hidden in a nested schema or in metadata.
+struct CheckedValue(Value);
+impl<'de> Deserialize<'de> for CheckedValue {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        use serde::de::{Error, MapAccess, SeqAccess, Visitor};
+        struct CheckedVisitor;
+        impl<'de> Visitor<'de> for CheckedVisitor {
+            type Value = CheckedValue;
+            fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str("JSON without duplicate object members")
+            }
+            fn visit_bool<E: Error>(self, v: bool) -> Result<Self::Value, E> { Ok(CheckedValue(Value::Bool(v))) }
+            fn visit_i64<E: Error>(self, v: i64) -> Result<Self::Value, E> { Ok(CheckedValue(v.into())) }
+            fn visit_u64<E: Error>(self, v: u64) -> Result<Self::Value, E> { Ok(CheckedValue(v.into())) }
+            fn visit_f64<E: Error>(self, v: f64) -> Result<Self::Value, E> {
+                serde_json::Number::from_f64(v).map(|n| CheckedValue(Value::Number(n))).ok_or_else(|| E::custom("invalid number"))
+            }
+            fn visit_str<E: Error>(self, v: &str) -> Result<Self::Value, E> { Ok(CheckedValue(Value::String(v.into()))) }
+            fn visit_string<E: Error>(self, v: String) -> Result<Self::Value, E> { Ok(CheckedValue(Value::String(v))) }
+            fn visit_none<E: Error>(self) -> Result<Self::Value, E> { Ok(CheckedValue(Value::Null)) }
+            fn visit_unit<E: Error>(self) -> Result<Self::Value, E> { Ok(CheckedValue(Value::Null)) }
+            fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
+                let mut values = Vec::new();
+                while let Some(value) = seq.next_element::<CheckedValue>()? { values.push(value.0); }
+                Ok(CheckedValue(Value::Array(values)))
+            }
+            fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
+                let mut values = serde_json::Map::new();
+                while let Some(key) = map.next_key::<String>()? {
+                    if values.contains_key(&key) { return Err(A::Error::custom("duplicate object member")); }
+                    values.insert(key, map.next_value::<CheckedValue>()?.0);
+                }
+                Ok(CheckedValue(Value::Object(values)))
+            }
+        }
+        deserializer.deserialize_any(CheckedVisitor)
     }
 }
