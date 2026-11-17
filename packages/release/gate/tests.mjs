@@ -150,7 +150,9 @@ export async function runTests({ executables, crates, env = process.env, jobs = 
     let result = "passed"; let detail = "";
     if (bad.length && bad.every((r) => r.skipped)) { result = "unknown"; detail = bad[0].detail; }
     else if (bad.length) { result = "failed"; detail = bad.map((r) => `${r.program}: ${r.detail}`).join(" | ").slice(0, 4000); }
-    else if (list.length && passed === 0 && ignored > 0 && !c.allowIgnored) { result = "failed"; detail = `no test passed: ${ignored} ignored of ${ignored} (summed over ${list.length} program run(s))`; }
+    // GATE-CONTRACT GC-A08: an ignored test blocks its unit unless the unit is named (ci/gate.config.json rust.<crate>.allowIgnored, a written reason),
+    // whatever else passed. A unit with no test at all, and none ignored, qualifies. The per-crate rows judge the same way (local-publish.mjs judgeUnit).
+    else if (ignored > 0 && !c.allowIgnored) { result = "failed"; detail = `${ignored} test(s) ignored and this crate is not named as allowed to ignore tests (${passed} passed; summed over ${list.length} program run(s))`; }
     byCrate[c.name] = { result, detail, programs: list.length, passed, failed, ignored };
   }
   return { byCrate, counts };

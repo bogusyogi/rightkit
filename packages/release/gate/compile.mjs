@@ -22,7 +22,8 @@ export function crateInfo(snapshot, name, rustConfig = {}, { readFile = (f) => f
   const features = /^\[features\]\s*$([\s\S]*?)(?=^\[|(?![\s\S]))/m.exec(manifest)?.[1] ?? "";
   const declaresFeatures = features.split(/\r?\n/).some((l) => /^\s*[A-Za-z0-9_-]+\s*=/.test(l) && !/^\s*default\s*=/.test(l));
   const cfg = rustConfig[name];
-  return { name, dir, hasLib: exists(path.join(dir, "src", "lib.rs")) || /^\[lib\]/m.test(manifest), declaresFeatures, platforms: cfg?.platforms, config: cfg, quiet: cfg?.quietTests === true, serialToo: cfg?.alsoSerial === true, allowIgnored: Boolean(cfg?.allowIgnored) };
+  return { name, dir, hasLib: exists(path.join(dir, "src", "lib.rs")) || /^\[lib\]/m.test(manifest), declaresFeatures, platforms: cfg?.platforms, config: cfg, quiet: cfg?.quietTests === true, serialToo: cfg?.alsoSerial === true, // Named only by a written reason, as on the per-crate rows: `true` or an empty string names nothing.
+    allowIgnored: typeof cfg?.allowIgnored === "string" && cfg.allowIgnored.trim() !== "" };
 }
 
 /**

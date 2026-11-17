@@ -333,7 +333,18 @@ test("test programs: the receipt's sha256 must match the file; ignored-only crat
   const crates = ["ok", "ign", "bad", "tampered"].map((name) => ({ name, dir }));
   const r = await runTests({ executables: ["ok", "ign", "bad", "tampered"].map(exe), crates, spawn, hashOf: (f) => (f.includes("tampered") ? "22".repeat(32) : "11".repeat(32)) });
   assert.deepEqual(Object.fromEntries(Object.entries(r.byCrate).map(([k, v]) => [k, v.result])), { ok: "passed", ign: "failed", bad: "failed", tampered: "failed" });
-  assert.match(r.byCrate.ign.detail, /no test passed/); assert.match(r.byCrate.tampered.detail, /sha256 differs/);
+  assert.match(r.byCrate.ign.detail, /2 test\(s\) ignored and this crate is not named as allowed to ignore tests \(0 passed/); assert.match(r.byCrate.tampered.detail, /sha256 differs/);
+  // GC-A08: an ignored test blocks its unit whatever else passed (4 passed, 1 ignored was a pass before this was fixed); a unit with no test at all qualifies.
+  const more = { mixed: "test result: ok. 4 passed; 0 failed; 1 ignored; 0 measured\n", empty: "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured\n" };
+  const spawn2 = (file) => { const name = path.basename(file, ".exe"); return { stdout: { on: (_, f) => f(more[name] ?? "") }, stderr: { on: () => {} }, on: (ev, f) => { if (ev === "close") setImmediate(() => f(0, null)); }, kill: () => {} }; };
+  const m = await runTests({ executables: ["mixed", "empty"].map(exe), crates: ["mixed", "empty"].map((name) => ({ name, dir })), spawn: spawn2, hashOf: () => "11".repeat(32) });
+  assert.equal(m.byCrate.mixed.result, "failed"); assert.match(m.byCrate.mixed.detail, /1 test\(s\) ignored .* \(4 passed/); assert.equal(m.byCrate.mixed.ignored, 1);
+  assert.equal(m.byCrate.empty.result, "passed");
+  const named = await runTests({ executables: [exe("mixed")], crates: [{ name: "mixed", dir, allowIgnored: true }], spawn: spawn2, hashOf: () => "11".repeat(32) });
+  assert.equal(named.byCrate.mixed.result, "passed"); assert.equal(named.byCrate.mixed.ignored, 1, "the count stays in the result");
+  // A crate is named only by a written reason in ci/gate.config.json, as on the per-crate rows: true or an empty string names nothing.
+  const info = (allowIgnored) => crateInfo("/s", "a", { a: { allowIgnored } }, { readFile: () => "[package]\nname = 'a'\n", exists: () => true }).allowIgnored;
+  assert.equal(info("needs a signed-in account; rightkit#1"), true); assert.equal(info(true), false); assert.equal(info("  "), false); assert.equal(info(undefined), false);
   const allowed = await runTests({ executables: [exe("ign")], crates: [{ name: "ign", dir, allowIgnored: true }], spawn, hashOf: () => "11".repeat(32) });
   assert.equal(allowed.byCrate.ign.result, "passed");
   const none = await runTests({ executables: null, crates: [{ name: "ok", dir }] });
