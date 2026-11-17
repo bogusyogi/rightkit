@@ -240,7 +240,7 @@
       "host": "Adrians-Mac-Mini.local",
       "keyId": "325f2a62844637131c2678eec6f1c15215863d540fbba0a823329e5e26e4f4d6",
       "publicKey": "0415170e128cfaa2007f87cbcff0ba9559b11c66436b9335c3dfd8eceab20c6e7d9f70e908426b3c5805db5a23873b18c4fec909efdda02d4dd7961a9b40b6338b",
-      "brokerDigest": "432061044472bed833d103bf40cce533bec6d7f920e4713ec4d736a614ec889a",
+      "brokerDigest": "626e7d67ec5a32cf1c2a409df53534ae0ab3e43af8ed19a764d534a5a1328799",
       "note": "Enrollment of this host's installed broker for receipt verification (attested-runs.md 'Verifying a receipt'): public key, key id and broker digest read from the control root and runtime manifest, never from a receipt. npm rows run through the broker adapter `rightkit-pnpm` (node + pinned pnpm.mjs, both in the broker tool registry); nodeSha256 and pnpmScriptSha256 are read from that registry, never from a receipt.",
       "cargoSha256": "1de2e84c15443b70444eecfa959ff9099dd8c1a5606b6d9ef5bc0ea9c25bc7f9",
       "cargoPath": "/Volumes/D/.build-home/adrdsouza/rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -248,15 +248,15 @@
       "nodePath": "/Users/adrdsouza/.nvm/versions/node/v26.8.1/bin/node",
       "pnpmScriptSha256": "ff3224d46b47fbb24a7e9fe15fededef7e00892d07d4e376b6762d4899906bfd",
       "pnpmScriptPath": "/Users/adrdsouza/.nvm/versions/node/v26.8.1/lib/node_modules/pnpm/bin/pnpm.mjs",
-      "brokerVersion": "rustright-86f7b2f",
-      "brokerSourceRevision": "86f7b2f89f9476aeb9a7a734c5ce3f309c95f64d"
+      "brokerVersion": "rustright-2d9ef2e",
+      "brokerSourceRevision": "2d9ef2e75883c6a0f09a92d75e654f2d62b369c1"
     },
     "win32": {
       "clientPath": "D:\\.rustright\\runtime\\rustright.exe",
       "host": "BOGUS-DELL",
       "keyId": "5feb907f576bf36569e336f025623f6710759ee3571da9bd30e6af8be370a0c6",
       "publicKey": "04404cf79f43f03b8d0d442360f3561d2119c3783eeb6eb09ae566a29da15373ff2a461a50fe9d5317142ccf1305a8072beddecd12a20ce1301a45503fc383cf2e",
-      "brokerDigest": "77e39160c739fe769d138ac7e2f4fd4a03b1ab97e839afe002e549150ec53d7b",
+      "brokerDigest": "a8999efe0ed61b39a711a6858b76c78e25a69d1e184a13119a96f7bdc0188430",
       "note": "Enrollment of the Dell's installed broker for receipt verification, read from its control root and runtime manifest by RightBoss D (2026-10-28); host and broker taken verbatim from the broker-signed receipt c81f945d-2d07-4aa9-9244-e6e2efcd3853 (D:\\scratch\\rk-069-accept\\pin8-dell-verify\\attest-status.json).",
       "cargoSha256": "197c9f582da4994c585b13366abc12e810de2708ce14ddcf0873a8f377f3954e",
       "cargoPath": "C:\\Users\\adrds\\.rustup\\toolchains\\1.98.0-x86_64-pc-windows-msvc\\bin\\cargo.exe",
@@ -264,8 +264,8 @@
       "nodePath": "C:\\Users\\adrds\\AppData\\Local\\nvm\\v24.20.0\\node.exe",
       "pnpmScriptSha256": "ff3224d46b47fbb24a7e9fe15fededef7e00892d07d4e376b6762d4899906bfd",
       "pnpmScriptPath": "C:\\Users\\adrds\\AppData\\Local\\pnpm\\global\\v11\\111e0-1a10cfc30ad-3ad110e50015eb2b\\node_modules\\pnpm\\bin\\pnpm.mjs",
-      "brokerVersion": "rustright-86f7b2f",
-      "brokerSourceRevision": "86f7b2f89f9476aeb9a7a734c5ce3f309c95f64d"
+      "brokerVersion": "rustright-2d9ef2e",
+      "brokerSourceRevision": "2d9ef2e75883c6a0f09a92d75e654f2d62b369c1"
     }
   }
 }
