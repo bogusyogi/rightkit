@@ -423,7 +423,7 @@ test("G19: the gate-code hash covers every file the build-together path imports,
   assert.throws(() => gateCodeFiles(path.resolve("/g"), { readFile: read, list: () => ["a.mjs"] }), /no \/gone\.mjs/);
 });
 
-test("G17: a test program past its time limit is stopped as a tree; without proof the tree is gone it is unreaped and nothing more starts", async () => {
+test("G17: a test program past its time limit is asked to stop as a tree, is always unreaped, and nothing more starts", async () => {
   const { EventEmitter } = await import("node:events");
   const { stopTree, treeGone } = await import("./tests.mjs");
   const exe = (name) => ({ path: `/t/${name}`, sha256: "ab".repeat(32), package_id: `path+file:///s/crates/${name}#0.1.0`, target: name, kind: "lib" });
@@ -434,11 +434,18 @@ test("G17: a test program past its time limit is stopped as a tree; without proo
   const base = { executables: [exe("a"), exe("b")], crates: [{ name: "a", dir: "/s/crates/a" }, { name: "b", dir: "/s/crates/b" }], env: { PATH: "/bin" }, jobs: 1, hashOf: () => "ab".repeat(32), timeoutMs: 15, reapMs: 60, pollMs: 5 };
   const okStop = () => ({ ok: true, detail: "" });
 
-  // POSIX, the group answers "no such process" after the stop: proven stopped, the next program still runs (it hangs too, and is proven too).
+  // POSIX, the group answers "no such process" after the stop: still unreaped, because a process can leave the group. b never starts.
   const p = fake();
   const proven = await runTests({ ...base, spawn: p.spawn, stop: okStop, gone: () => true, platform: "linux" });
-  assert.equal(p.options[0].detached, true); assert.deepEqual(p.started, ["/t/a", "/t/b"]);
-  assert.equal(proven.byCrate.a.result, "failed"); assert.match(proven.byCrate.a.detail, /timed out after 0 s; the program and everything it started are proven stopped/); assert.equal(proven.counts.unreaped, 0);
+  assert.equal(p.options[0].detached, true); assert.deepEqual(p.started, ["/t/a"]);
+  assert.equal(proven.byCrate.a.result, "failed"); assert.match(proven.byCrate.a.detail, /timed out after 0 s; what it started is not proven stopped \(its process group is gone, but a process that left the group cannot be ruled out\)/);
+  assert.equal(proven.counts.unreaped, 1); assert.equal(proven.byCrate.b.result, "unknown");
+
+  // The record beside the snapshot lock cannot be written: the program is asked to stop and is unreaped, even when the stop says ok. b never starts.
+  const r = fake(); const asked = [];
+  const unrecorded = await runTests({ ...base, spawn: r.spawn, stop: (c) => { asked.push(c.pid); return { ok: true, detail: "" }; }, record: () => { throw new Error("the child record cannot be written"); }, platform: "linux" });
+  assert.deepEqual(asked, [4242]); assert.deepEqual(r.started, ["/t/a"]); assert.equal(unrecorded.counts.unreaped, 1);
+  assert.match(unrecorded.byCrate.a.detail, /the child record cannot be written; it is not proven stopped/); assert.equal(unrecorded.byCrate.b.result, "unknown");
 
   // POSIX, a surviving descendant: the program itself closed, the group still answers. Not proven: unreaped, and b is never started.
   const d = fake();
@@ -472,7 +479,7 @@ test("G17: a test program past its time limit is stopped as a tree; without proo
   const err = (code) => () => { throw Object.assign(new Error(code), { code }); };
   assert.equal(stopTree({ pid: 7 }, { platform: "linux", kill: err("ESRCH") }).ok, true);
   assert.match(stopTree({ pid: 7 }, { platform: "linux", kill: err("EPERM") }).detail, /could not be signalled \(EPERM\)/);
-  // treeGone: only "no such process" is proof; a live group and a refused signal are not; Windows never has proof here.
+  // treeGone: only "no such process" says the group is gone; a live group and a refused signal do not; Windows has no answer here.
   assert.equal(treeGone({ pid: 7 }, { platform: "linux", kill: err("ESRCH") }), true);
   assert.equal(treeGone({ pid: 7 }, { platform: "linux", kill: err("EPERM") }), false);
   assert.equal(treeGone({ pid: 7 }, { platform: "linux", kill: () => true }), false);

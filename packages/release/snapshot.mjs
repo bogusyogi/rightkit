@@ -683,7 +683,8 @@ const statKey = (s) => `${s.size}:${s.mtimeNs}:${s.ctimeNs}:${s.ino}`;
 // and the broker's SNAPSHOT_STATUS proof covers only broker jobs. So while this process holds a snapshot lock, every detached child it starts is recorded beside
 // the lock (`<lock>.children/group-<pid>.json`, removed only once the whole group is gone), and a dead holder's lock is never reclaimed while a recorded group still answers.
 // Windows children are contained by the lock holder's named job instead (below). Residual, named: a crash between the spawn returning and the record being written
-// leaves that one group unrecorded.
+// leaves that one group unrecorded. Second residual, named: the record follows the group, not the tree. A process that leaves the group (setsid, setpgid)
+// is not seen by it, so "the group is gone" is never proof that everything the child started is gone (gate/tests.mjs treats a timed-out program as unreaped for this reason).
 let heldLockFile = null;
 const childrenDirOf = (lockFile) => `${lockFile}.children`;
 /** The variable that hands the held lock's record directory to this process's own children (right-release, heavy-command), which record their detached children there. */
@@ -694,7 +695,7 @@ export function recordLockChild(child, { platform = process.platform, env = proc
   if (!dir || platform === "win32" || !child || !Number.isInteger(child.pid) || child.pid <= 0) return child;
   const file = path.join(dir, `group-${child.pid}.json`);
   try { fs.mkdirSync(dir, { recursive: true, mode: 0o700 }); fs.writeFileSync(file, JSON.stringify({ group: child.pid, by: process.pid, at: new Date().toISOString() }), { mode: 0o600 }); }
-  catch (error) { try { process.kill(-child.pid, "SIGKILL"); } catch { /* already gone */ } throw new SnapshotError("error", `the snapshot lock's child record ${file} cannot be written (${error.message}); the child was stopped`); }
+  catch (error) { try { process.kill(-child.pid, "SIGKILL"); } catch { /* already gone */ } throw new SnapshotError("error", `the snapshot lock's child record ${file} cannot be written (${error.message}); a stop was sent to its group and is not confirmed`); }
   // The root's exit does not end the group: a descendant it started (a backgrounded process with its own stdio) can outlive it in the same group.
   // The record goes only on proof the whole group is gone (kill(-group, 0) is ESRCH); otherwise it stays and liveLockChildren keeps seeing the group.
   const forget = () => {

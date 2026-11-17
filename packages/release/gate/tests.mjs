@@ -39,7 +39,9 @@ export function stopTree(child, { platform = process.platform, run = spawnSync, 
 }
 
 /**
- * Whether everything `child` started is proven gone. POSIX: true only when signalling its process group answers "no such process".
+ * Whether the process group `child` leads is gone. POSIX: true only when signalling the group answers "no such process".
+ * That is not proof for the whole tree: a process it started can leave the group (setsid, setpgid) and nothing here follows it.
+ * So no answer of this function lets a timed-out program count as stopped; it only says how far the stop is known to have got.
  * Windows: null, always. The end of the program and a clean taskkill do not prove that a process it started (one that left the tree) is gone,
  * and nothing here can ask. The gate's lock-holder job (snapshot.mjs) is what proves it later, when the lock is reclaimed.
  */
@@ -49,10 +51,11 @@ export function treeGone(child, { platform = process.platform, kill = (pid, sig)
 }
 
 /**
- * Runs one program. On a timeout its whole process tree is stopped and the result waits (up to `reapMs`) for proof that nothing of it is left.
- * `unreaped: true` means there is no such proof: something it started may still be running in the snapshot.
+ * Runs one program. On a timeout its process tree is asked to stop and the result waits (up to `reapMs`) for the group to go.
+ * A timed-out program is always `unreaped: true`: on no host can this code prove that nothing it started is left (a process can
+ * leave the group on POSIX and the tree on Windows). The same when its record beside the snapshot lock cannot be written.
  */
-function runOne({ file, args, cwd, env, timeoutMs, spawn, platform = process.platform, stop = stopTree, gone = treeGone, reapMs = 15000, pollMs = 100 }) {
+function runOne({ file, args, cwd, env, timeoutMs, spawn, platform = process.platform, stop = stopTree, gone = treeGone, record = recordLockChild, reapMs = 15000, pollMs = 100 }) {
   return new Promise((resolve) => {
     let out = ""; let done = false; let timedOut = false; let closed = false; let poll = null;
     const finish = (r) => { if (!done) { done = true; clearInterval(poll); resolve({ ...r, output: out.slice(-20000) }); } };
@@ -61,7 +64,9 @@ function runOne({ file, args, cwd, env, timeoutMs, spawn, platform = process.pla
     try { child = spawn(file, args, { cwd, env, stdio: ["ignore", "pipe", "pipe"], windowsHide: true, ...(platform === "win32" ? {} : { detached: true }) }); }
     catch (error) { finish({ exit: null, error: String(error.message ?? error) }); return; }
     // A detached group no longer dies with the gate: it is recorded beside the held snapshot lock, so a crashed gate's leftover keeps the lock (snapshot.mjs).
-    try { recordLockChild(child, { platform }); } catch (error) { finish({ exit: null, error: String(error.message ?? error) }); return; }
+    // If that record cannot be written the program is running unrecorded: it is asked to stop, and it is unreaped whatever the stop answers.
+    try { record(child, { platform }); }
+    catch (error) { const asked = stop(child, { platform }); finish({ exit: null, unreaped: true, error: `${String(error.message ?? error)}; it is not proven stopped${asked.ok ? "" : ` (${asked.detail})`}` }); return; }
     const timer = setTimeout(() => {
       timedOut = true;
       const deadline = Date.now() + reapMs; // the clock starts before the stop request, so a slow taskkill is inside it
@@ -70,7 +75,7 @@ function runOne({ file, args, cwd, env, timeoutMs, spawn, platform = process.pla
       const look = () => {
         if (!asked.ok) { unproven(asked.detail); return; }
         const empty = gone(child, { platform });
-        if (empty === true) { finish({ exit: null, error: `${late}; the program and everything it started are proven stopped` }); return; }
+        if (empty === true) { unproven("its process group is gone, but a process that left the group cannot be ruled out"); return; }
         if (empty === null && closed) { unproven("the program ended, and Windows gives no proof for the processes it started"); return; }
         if (Date.now() >= deadline) unproven(empty === null ? `the program had not ended ${Math.round(reapMs / 1000)} s after the stop` : `its process group still answered ${Math.round(reapMs / 1000)} s after the stop`);
       };
@@ -89,10 +94,10 @@ function runOne({ file, args, cwd, env, timeoutMs, spawn, platform = process.pla
  * `crates`: [{ name, dir, quiet?: boolean, serialToo?: boolean, allowIgnored?: boolean, assetGated?: boolean }] the crates whose tests are owed; `dir` is the crate's directory in the snapshot.
  * `store`: run-calls.mjs fileStore or null; a passed program is remembered under its sha256 and arguments.
  * Each program runs in testProgramEnv (test-env.mjs): no credential-named variable, assets required unless the crate is `assetGated`.
- * A program past `timeoutMs` is stopped as a tree; when nothing proves the tree gone it is counted in `unreaped` and no further program starts.
+ * A program past `timeoutMs` is asked to stop as a tree and is always counted in `unreaped`; after that no further program starts.
  * Quiet crates run last, one program at a time. `serialToo` crates run a second time with one test thread.
  */
-export async function runTests({ executables, crates, env = process.env, jobs = Math.max(1, os.availableParallelism?.() ?? os.cpus().length), timeoutMs = 30 * 60 * 1000, store = null, spawn = nodeSpawn, hashOf = sha256File, platform = process.platform, stop = stopTree, gone = treeGone, reapMs = 15000, pollMs = 100 }) {
+export async function runTests({ executables, crates, env = process.env, jobs = Math.max(1, os.availableParallelism?.() ?? os.cpus().length), timeoutMs = 30 * 60 * 1000, store = null, spawn = nodeSpawn, hashOf = sha256File, platform = process.platform, stop = stopTree, gone = treeGone, record = recordLockChild, reapMs = 15000, pollMs = 100 }) {
   const byCrate = {}; const counts = { programs: 0, ran: 0, cached: 0, unreaped: 0 };
   if (!Array.isArray(executables)) {
     for (const c of crates) byCrate[c.name] = { result: "unknown", detail: "the test build's receipt listed no test programs", programs: 0, passed: 0, failed: 0, ignored: 0 };
@@ -120,7 +125,7 @@ export async function runTests({ executables, crates, env = process.env, jobs = 
     if (!run && actual !== exe.sha256) run = { ok: false, program: exe.target, detail: "the program on disk is not the one the receipt lists (sha256 differs)" };
     if (!run) {
       counts.ran += 1;
-      const r = await runOne({ file: exe.path, args, cwd: crate.dir, env: { ...testProgramEnv(env, crate.assetGated === true), CARGO_MANIFEST_DIR: crate.dir }, timeoutMs, spawn, platform, stop, gone, reapMs, pollMs });
+      const r = await runOne({ file: exe.path, args, cwd: crate.dir, env: { ...testProgramEnv(env, crate.assetGated === true), CARGO_MANIFEST_DIR: crate.dir }, timeoutMs, spawn, platform, stop, gone, record, reapMs, pollMs });
       if (r.unreaped) counts.unreaped += 1;
       const sum = libtestSummary(r.output);
       run = { ok: r.exit === 0, program: exe.target, args, passed: sum?.passed ?? 0, failed: sum?.failed ?? 0, ignored: sum?.ignored ?? 0, detail: r.exit === 0 ? "" : (r.error ?? `exit ${r.exit}${r.signal ? ` (${r.signal})` : ""}: ${r.output.slice(-1500)}`) };
