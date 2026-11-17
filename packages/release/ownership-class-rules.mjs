@@ -261,10 +261,13 @@ function checkAppRoot({ root, dir, evaluator, data, owners = true }) {
     }
     if (owner.status !== "missing") continue;
     const devOnly = owner.evidence.some((line) => line.includes("dev-dependencies"));
+    const agentSurfaceRequired = owner.rows.includes("M22") && requiresDesktopAgentSurface(app, declaration.profile, data);
     out.push({
       file, subject: owner.owner,
-      problem: `profile "${report.profile}" requires the foundation owner ${owner.owner} (${owner.ecosystem}, row${owner.rows.length > 1 ? "s" : ""} ${owner.rows.join(", ")}) and the app does not use it${devOnly ? " (declared only as a dev dependency)" : ""}`,
-      fix: `depend on ${owner.owner} >= ${owner.required} from the registry and use it, or, when the row truly does not apply, declare it under notApplicable in ${file} with the reason RightKit ratified for the app`,
+      problem: `profile "${report.profile}" requires the foundation owner ${owner.owner} (${owner.ecosystem}, row${owner.rows.length > 1 ? "s" : ""} ${owner.rows.join(", ")}) and lacks a qualifying runtime dependency declaration${devOnly ? " (declared only as a dev dependency)" : ""}`,
+      fix: agentSurfaceRequired
+        ? `use ${owner.owner} >= ${owner.required} from the registry to expose the release headless CLI through right-ctl (RightKit #1658)`
+        : `depend on ${owner.owner} >= ${owner.required} from the registry and use it, or, when the row truly does not apply, declare it under notApplicable in ${file} with the reason RightKit ratified for the app`,
     });
   }
   return out;

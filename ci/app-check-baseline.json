@@ -4,8 +4,7 @@
   "known": {
     "rightkit": [],
     "mailright": [
-      "engine-record-store|src-tauri/src/pro_gate.rs|from_record_store",
-      "suite-key-literal|src-tauri/src/pro_gate.rs|licence-key:bytes"
+      "engine-record-store|src-tauri/src/pro_gate.rs|from_record_store"
     ]
   }
 }
