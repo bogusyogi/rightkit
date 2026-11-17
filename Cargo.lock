@@ -10459,6 +10459,7 @@ dependencies = [
  "rightkit-automation",
  "rightkit-browser",
  "rightkit-daemon",
+ "rightkit-logs",
  "rightkit-mcp",
  "rightkit-speech-client",
  "serde",
@@ -12024,7 +12025,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-logs"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "getrandom 0.4.3",
  "libc 0.2.191",

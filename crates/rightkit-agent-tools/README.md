@@ -41,7 +41,11 @@ Every app declares its role for the agent surface in `rightkit-mandatory.json`, 
 { "M22": { "role": "client", "entrypoints": ["src-tauri/src/agent.rs#register_tools"] } }
 ```
 
-`role` is `client` (the app calls a toolbox), `host` (the app serves agent calls), `both`, or `absent` (no agent surface, no entrypoints, and the row declared not applicable with a reason). An entrypoint is a relative file, optionally followed by `#symbol` or `::symbol`; a bare token with no path separator or extension is a symbol and is recorded unverified. `right-release ownership-mandatory` reads and reports the record. `ApplicabilityRecord::from_manifest` parses the same record in Rust with the same rules, and `missing_entrypoint_files(app_root)` checks the file entrypoints on disk, so an app test can verify its own record. The record is report-only: it never grants an agent capability and the toolbox gate does not read it.
+`role` is `client` (the app calls a toolbox), `host` (the app serves agent calls), `both`, or `absent` (no agent surface, no entrypoints). For the active desktop apps, `absent` records a gap in the required headless release CLI. See [RightKit #994](https://github.com/bogusyogi/rightkit/issues/994). An entrypoint is a relative file, optionally followed by `#symbol` or `::symbol`; a bare token with no path separator or extension is a symbol and is recorded unverified. `right-release ownership-mandatory` reads and reports the record. `ApplicabilityRecord::from_manifest` parses the same record in Rust, and `missing_entrypoint_files(app_root)` checks the file entrypoints on disk. The record is report-only and grants no agent capability.
+
+## Completed-call journal
+
+Use `CompletedCallJournal` for the single v1 record written when a CLI call finishes. The app supplies its state root and schema identifier. The journal appends to `cli-journal.jsonl`, rotates at 1 MiB and retains four predecessors. A lock or write failure returns an error so the app can preserve the call's original exit status. Supply only metadata from the command contract and content-free caller and request labels.
 
 ## Cargo features
 

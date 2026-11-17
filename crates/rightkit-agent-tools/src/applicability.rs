@@ -11,8 +11,8 @@
 //! * `host`: the app serves agent calls (a hosted surface behind daemon approvals and service
 //!   registration).
 //! * `both`: it does both.
-//! * `absent`: the app has no agent surface; it lists no entrypoints and declares the row not
-//!   applicable with a reason.
+//! * `absent`: the app has no agent surface and lists no entrypoints. For an active desktop app
+//!   this records a missing required release CLI (#994).
 //!
 //! `right-release ownership-mandatory` reads the same record from Node and reports it. This module
 //! is the Rust side: the same schema and the same rules, so an app (or its tests) can parse and

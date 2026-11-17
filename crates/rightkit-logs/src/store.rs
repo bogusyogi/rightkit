@@ -91,6 +91,7 @@ pub struct JsonlStore {
     rotate_before_overflow: bool,
     owner_only: bool,
     cross_process_lock: bool,
+    require_process_lock: bool,
     append_lock: Mutex<()>,
     failures: Mutex<StoreStatus>,
 }
@@ -115,6 +116,7 @@ impl JsonlStore {
             rotate_before_overflow: false,
             owner_only: false,
             cross_process_lock: false,
+            require_process_lock: false,
             append_lock: Mutex::new(()),
             failures: Mutex::new(StoreStatus::default()),
         }
@@ -147,6 +149,14 @@ impl JsonlStore {
     /// same log does not share that lock.
     pub fn with_cross_process_lock(mut self) -> Self {
         self.cross_process_lock = true;
+        self
+    }
+
+    /// Require the cross-process lock for the size check, rotation and append. A timeout or
+    /// lock error refuses the write instead of using the best-effort unlocked fallback.
+    pub fn with_required_cross_process_lock(mut self) -> Self {
+        self.cross_process_lock = true;
+        self.require_process_lock = true;
         self
     }
 
@@ -313,6 +323,13 @@ impl JsonlStore {
         let lock = if self.cross_process_lock {
             match self.acquire_rotation_lock() {
                 Ok(Some(lock)) => Some(lock),
+                Ok(None) if self.require_process_lock => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::WouldBlock,
+                        "log lock timed out",
+                    ));
+                }
+                Err(error) if self.require_process_lock => return Err(error),
                 Ok(None) => {
                     self.record_rotation_failure("rotation lock held by another process");
                     self.refuse_at_hard_cap()?;

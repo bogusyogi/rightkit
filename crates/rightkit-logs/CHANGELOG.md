@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.3
+
+- Added an opt-in required cross-process lock for JSONL size checks, rotation, and appends.
+
 ## 0.4.2
 
 - `ScrubOptions::key_value_min_len` now also ends a token at `;` and accepts any key (everything before the first `=`), so a cookie list (`a=…; b=…`) and keys with other characters are redacted too. ScrapeRight's shipped subprocess-detail rule; it redacts strictly more than 0.4.1 did. Output is unchanged while the option is `None` (the default).

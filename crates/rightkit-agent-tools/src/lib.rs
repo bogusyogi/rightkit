@@ -34,7 +34,7 @@ pub use backends::control::{
     CommandServiceOptions, EmptyCommandName, CLIENT_APP, CONTROL_METHODS,
 };
 pub use backends::http::HttpEndpoint;
-pub use journal::JsonlJournal;
+pub use journal::{CompletedCall, CompletedCallJournal, JsonlJournal};
 #[cfg(feature = "mcp-provider")]
 pub use mcp_provider::ToolboxProvider;
 pub use peer::CallContextExt;
