@@ -820,9 +820,8 @@ const qaWindowLabel = perApp(({ app, root }) => {
         else if (c === ")" || c === "]") depth = Math.max(0, depth - 1);
         else if (depth === 0 && (c === ";" || c === "{")) { end = k; break; }
       }
-      const statement = f.code.slice(start, end);
-      // Follow only methods called directly on this constructor. The statement search
-      // can stop at a preceding cfg block before it reaches the constructor.
+      // Read this constructor's own balanced receiver chain. A previous cfg
+      // block can make the surrounding statement end before the constructor.
       let label;
       let chainedWindow = false;
       let cursor = m.index + m[0].length;
@@ -840,8 +839,12 @@ const qaWindowLabel = perApp(({ app, root }) => {
         }
         cursor = close + 1;
       }
+      // Retain existing named-binding lookup while its full Rust scope analysis
+      // remains outside this direct receiver repair.
+      const statement = f.code.slice(start, end);
       const bound = /^\s*let\s+(?:mut\s+)?([A-Za-z_]\w*)\b/.exec(statement)?.[1];
-      if (!chainedWindow && bound && fn) label = new RegExp(`\\b${bound}\\s*\\.\\s*window\\s*\\(\\s*"([^"]*)"\\s*\\)`).exec(f.code.slice(m.index, fn.bodyEnd))?.[1];
+      if (!chainedWindow && bound) label = /\.\s*window\s*\(\s*"([^"]*)"\s*\)/.exec(f.code.slice(m.index, end))?.[1];
+      if (!chainedWindow && label === undefined && bound && fn) label = new RegExp(`\\b${bound}\\s*\\.\\s*window\\s*\\(\\s*"([^"]*)"\\s*\\)`).exec(f.code.slice(m.index, fn.bodyEnd))?.[1];
       const mismatch = label === undefined ? shellLabel !== "main" : label !== shellLabel;
       if (!mismatch) continue;
       const bind = label === undefined ? 'no .window(..), so it binds "main"' : `.window("${label}")`;
