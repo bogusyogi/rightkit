@@ -8,7 +8,7 @@ import { createHash, generateKeyPairSync, sign } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { admitGateRelease } from "./gate-release-admission.mjs";
-import { NN_ALL_IDS, CONTRACT_RECEIPT_SCHEMA, CONTRACT_SIGNED_STEPS, archiveIdentity } from "./gate-acceptance.mjs";
+import { NN_ALL_IDS, CONTRACT_RECEIPT_SCHEMA, CONTRACT_SIGNED_STEPS, archiveIdentity, archiveOfSeal } from "./gate-acceptance.mjs";
 import { contractJobNonce } from "./gate-seam.mjs";
 import { signedBytes } from "./receipt-signature.mjs";
 
@@ -22,8 +22,12 @@ function makeKey(host, brokerDigest) {
 }
 const BROKER = "d".repeat(64); const HOST = "BOGUS-DELL";
 const key = makeKey(HOST, BROKER);
-const RUN = "1".repeat(64); const SEALED = "2".repeat(64); const COMMIT = "c".repeat(40);
+const RUN = "1".repeat(64); const COMMIT = "c".repeat(40);
 const archiveBytes = Buffer.from("the packed gate archive"); const archive = archiveIdentity(archiveBytes);
+// The sealed gate: its source record names the archive, its manifest lists that record, and the seal is the manifest's sha256.
+const sourceOf = (over = {}) => Buffer.from(JSON.stringify({ schema: "rustright.trusted-gate-source/1", package: "@rightkit/release", version: "0.6.58", integrity: archive.integrity, sha256: archive.sha256, origin: "ci-archive", ...over }));
+const manifestOf = (source, extra = "") => Buffer.from(`./node_modules/@rightkit/release/package.json\tfile\t-\t${"3".repeat(64)}\n./trusted-gate-source.json\tfile\t-\t${sha(source)}\n${extra}`);
+const sourceBytes = sourceOf(); const manifestBytes = manifestOf(sourceBytes); const SEALED = sha(manifestBytes);
 const hashes = { contractSha256: "a".repeat(64), budgetsSha256: "b".repeat(64), runnerSha256: "e".repeat(64), runnerFiles: [{ name: "gate-acceptance.mjs", sha256: "e".repeat(64) }] };
 const sealed = { signedSteps: [...CONTRACT_SIGNED_STEPS] };
 const pipeline = { attestation: { win32: key.pin } };
@@ -45,7 +49,7 @@ function fixture(jobs, receiptOver = {}) {
   const readJob = (id) => { if (!bundle.has(id)) throw Object.assign(new Error("absent"), { code: "ENOENT" }); return bundle.get(id); };
   return { receipt, readJob, bundle };
 }
-const admit = (f, over = {}) => admitGateRelease({ receipt: f.receipt, readJob: f.readJob, archiveBytes, commit: COMMIT, pipeline, sealed, ...hashes, ...over });
+const admit = (f, over = {}) => admitGateRelease({ receipt: f.receipt, readJob: f.readJob, archiveBytes, commit: COMMIT, pipeline, sealed, manifestBytes, sourceBytes, ...hashes, ...over });
 const goodJobs = () => [job("S11:check", 3), job("S11:compile", 4), job("S12:compile__crate_edit_", 5)];
 
 test("a gate release is admitted when the receipt, the archive, the committed host and every signed job agree", () => {
@@ -123,4 +127,31 @@ test("the real command: admitted only with every input present, and refused by n
     fs.writeFileSync(receiptFile, JSON.stringify({ ...f.receipt, jobEnvelopes: "../elsewhere" }));
     assert.match(run("--receipt", receiptFile, "--archive", archiveFile, "--commit", COMMIT, "--pipeline", pipelineFile).text, /names its job envelopes folder as "\.\.\/elsewhere"/);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("the archive is tied to the tested gate by the seal itself, not by what the receipt says", () => {
+  const has = (r, re) => { assert.equal(r.ok, false); assert.match(r.problems.join(" | "), re); };
+  // The rule alone.
+  assert.deepEqual(archiveOfSeal({ sealedSha256: SEALED, manifestBytes, sourceBytes }), { ok: true, problems: [], archive: { sha256: archive.sha256, integrity: archive.integrity, version: "0.6.58" } });
+  // Nothing handed over: the receipt's own statement is not enough.
+  has(admit(fixture(goodJobs()), { manifestBytes: null, sourceBytes: null }), /nothing ties the archive to the seal but the receipt's own statement/);
+  // A receipt that claims the archive in question for a gate that was really installed from another archive. Its claim matches; the seal does not.
+  const otherSource = sourceOf({ sha256: "9".repeat(64) });
+  has(admit(fixture(goodJobs()), { sourceBytes: otherSource }), /seal to archive: the source record handed over is not the one under the seal/);
+  // The same forgery done consistently (a manifest listing the other record) no longer hashes to the tested seal, which every signed nonce carries.
+  has(admit(fixture(goodJobs()), { sourceBytes: otherSource, manifestBytes: manifestOf(otherSource) }), /seal to archive: the manifest handed over hashes to [0-9a-f]{64}, the tested gate's seal is/);
+  // A gate really sealed from another archive, tested for real: every signature verifies for that seal, and the archive in question is refused.
+  { const m = manifestOf(otherSource); const seal2 = sha(m);
+    const jobs = [["S11:check", 3], ["S12:compile", 5]].map(([step, n]) => { const call = String(n).repeat(32); return job(step, n, { nonce: contractJobNonce({ runId: RUN, sealedSha256: seal2, step, call }) }); });
+    const f = fixture(jobs, { gate: { kind: "candidate", version: "0.6.58", sealedSha256: seal2, archiveSha256: archive.sha256, archiveIntegrity: archive.integrity } });
+    has(admit(f, { manifestBytes: m, sourceBytes: otherSource }), /seal to archive: the tested gate was installed from the archive 9{64}, the archive in question is/); }
+  // A manifest without the record (a gate sealed by an older installer), with it twice, or with a line that is not a file.
+  has(admit(fixture(goodJobs()), { manifestBytes: Buffer.from("./a\tfile\t-\t" + "3".repeat(64) + "\n") }), /lists trusted-gate-source\.json 0 time\(s\)/);
+  assert.match(archiveOfSeal({ sealedSha256: SEALED, manifestBytes: manifestOf(sourceBytes, `./trusted-gate-source.json\tfile\t-\t${sha(sourceBytes)}\n`), sourceBytes }).problems.join(" | "), /2 time\(s\)/);
+  assert.match(archiveOfSeal({ sealedSha256: SEALED, manifestBytes: Buffer.from("./trusted-gate-source.json\tdir\t-\t-\n"), sourceBytes }).problems.join(" | "), /not a file with a sha256/);
+  // A record that is not one, or for another package or version.
+  for (const bad of [{ schema: "x/1" }, { package: "@rightkit/other" }, { integrity: "md5-x" }]) { const b = sourceOf(bad); assert.match(archiveOfSeal({ sealedSha256: sha(manifestOf(b)), manifestBytes: manifestOf(b), sourceBytes: b }).problems.join(" | "), /is not a rustright\.trusted-gate-source\/1/, JSON.stringify(bad)); }
+  { const b = sourceOf({ version: "0.6.57" }); const m = manifestOf(b); const seal2 = sha(m);
+    const jobs = [["S11:check", 3], ["S12:compile", 5]].map(([step, n]) => job(step, n, { nonce: contractJobNonce({ runId: RUN, sealedSha256: seal2, step, call: String(n).repeat(32) }) }));
+    has(admit(fixture(jobs, { gate: { kind: "candidate", version: "0.6.58", sealedSha256: seal2, archiveSha256: archive.sha256, archiveIntegrity: archive.integrity } }), { manifestBytes: m, sourceBytes: b }), /source record is for version 0\.6\.57, the receipt says 0\.6\.58/); }
 });

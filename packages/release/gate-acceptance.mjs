@@ -1631,7 +1631,7 @@ export function runnerFileHashes({ entry = RUNNER_FILE, base = here, readFile = 
 export function buildContractReceipt({ host, commit, gate, contractSha256, runnerSha256, budgetsSha256, fixtureCommit, result, runnerFiles = runnerFileHashes(), broker = null, contractRun = null }) {
   // G26: the run's id and its broker jobs. `jobReceipts` is the folder beside this receipt holding each listed job's signed receipt, named by job id.
   // `nnBasis` says plainly what each rule rests on today: the runner's own judgement. No rule is yet re-derived from the signed jobs by a verifier.
-  const runFacts = contractRun ? { runId: contractRun.runId, jobs: contractRun.jobs, jobReceipts: contractRun.bundle, jobEnvelopes: "job-envelopes", signedSteps: stepsWithSignedJobs(contractRun.jobs), nnBasis: "runner-claim" } : {};
+  const runFacts = contractRun ? { runId: contractRun.runId, jobs: contractRun.jobs, jobReceipts: contractRun.bundle, jobEnvelopes: "job-envelopes", ...(contractRun.gateSeal ? { gateSeal: contractRun.gateSeal } : {}), signedSteps: stepsWithSignedJobs(contractRun.jobs), nnBasis: "runner-claim" } : {};
   const brokerFacts = { runtimeDigest: broker?.runtimeDigest ?? null, runtimeVersion: broker?.runtimeVersion ?? null, enrolledDigest: broker?.enrolledDigest ?? null };
   return { schema: CONTRACT_RECEIPT_SCHEMA, host, commit, gate, broker: brokerFacts, ...runFacts, contractSha256, runnerSha256, runnerFiles, budgetsSha256, fixtureCommit, startedAt: result.startedAt, endedAt: result.endedAt, verdict: result.verdict, ok: result.ok, nn: Object.fromEntries(result.nonNegotiables.map((n) => [n.id, n.status])), uncheckedClauses: result.clauses.filter((c) => c.status === "unchecked").map((c) => c.id), waivers: result.waivers ?? [] };
 }
@@ -1734,6 +1734,27 @@ export function collectContractJobs(run, bundleDir, { read = (f) => fs.readFileS
 export const CONTRACT_SIGNED_STEPS = Object.freeze(["S11", "S12"]);
 /** The step ids (the part of a job's label before ":") that have at least one job with a kept signed receipt. */
 export const stepsWithSignedJobs = (jobs) => [...new Set(jobs.filter((j) => j.receiptSha256).map((j) => String(j.step).split(":")[0]))].sort();
+
+/**
+ * Which package archive a sealed gate folder was installed from, worked out from the seal itself and not from anyone's statement.
+ * The seal is the sha256 of the folder's manifest (one line per file: path, a tab, kind, a tab, "-", a tab, sha256). The installer writes
+ * `trusted-gate-source.json` at the folder's root before sealing, so the manifest has a line for it. So: the manifest must hash to `sealedSha256`;
+ * it must list that file exactly once; `sourceBytes` must hash to the listed value; and the record must be for @rightkit/release.
+ * Returns { ok, problems, archive: { sha256, integrity, version } | null }.
+ */
+export function archiveOfSeal({ sealedSha256, manifestBytes, sourceBytes }) {
+  const problems = [];
+  if (!isSha(sealedSha256)) problems.push("no seal to check the manifest against");
+  else if (sha256(manifestBytes) !== sealedSha256) problems.push(`the manifest handed over hashes to ${sha256(manifestBytes)}, the tested gate's seal is ${sealedSha256}`);
+  const lines = String(manifestBytes).split("\n").filter((l) => l.split("\t")[0] === "./trusted-gate-source.json");
+  if (lines.length !== 1) problems.push(`the manifest lists trusted-gate-source.json ${lines.length} time(s); a gate sealed with its source record lists it once`);
+  const [, kind, , listed] = (lines[0] ?? "").split("\t");
+  if (lines.length === 1 && (kind !== "file" || !isSha(String(listed ?? "").trim()))) problems.push("the manifest's line for trusted-gate-source.json is not a file with a sha256");
+  else if (lines.length === 1 && sha256(sourceBytes) !== String(listed).trim()) problems.push("the source record handed over is not the one under the seal (sha256 differs from the manifest's line)");
+  let src = null; try { src = JSON.parse(String(sourceBytes)); } catch { problems.push("the source record is not JSON"); }
+  if (src && (src.schema !== "rustright.trusted-gate-source/1" || src.package !== "@rightkit/release" || !isSha(src.sha256) || typeof src.integrity !== "string" || !/^sha512-[A-Za-z0-9+/]+=*$/.test(src.integrity) || typeof src.version !== "string")) { problems.push("the source record is not a rustright.trusted-gate-source/1 for @rightkit/release with a sha256 and an integrity"); src = null; }
+  return { ok: problems.length === 0, problems, archive: problems.length === 0 ? { sha256: src.sha256, integrity: src.integrity, version: src.version } : null };
+}
 
 /** The identity of a package archive as a receipt states it: sha256 of its bytes (hex) and the npm integrity (sha512, base64). */
 export function archiveIdentity(bytes) {
@@ -3286,9 +3307,22 @@ async function executeRun({ fixture, host, wanted, gate, gateArg, budgetsFile, o
     const entry = candidateArg !== null ? candidate : findInstalledGate(managedRoot);
     // G26: every broker job of the run, with its signed receipt kept beside this receipt. A job that cannot be kept as recorded refuses the receipt.
     const collected = contractRun ? collectContractJobs(contractRun, path.join(outDir, "job-receipts")) : { jobs: [], problems: ["the run was not tagged"] };
+    // The seal's own account of which archive it was installed from: the manifest that hashes to the seal and the source record it lists. Kept beside the
+    // receipt (gate-seal/) so a publication check can work out the archive from the seal, not from this receipt's say-so. Candidates only.
+    let gateSeal = null;
+    if (candidateArg !== null && candidate) {
+      try {
+        const candRoot = path.join(managedRoot, "trusted-gates", "candidates");
+        const manifestBytes = fs.readFileSync(path.join(candRoot, `${candidate.sealedSha256}.manifest.txt`)); const sourceBytes = fs.readFileSync(path.join(candRoot, candidate.sealedSha256, "trusted-gate-source.json"));
+        const linked = archiveOfSeal({ sealedSha256: candidate.sealedSha256, manifestBytes, sourceBytes });
+        if (!linked.ok) collected.problems.push(`the candidate's seal does not account for its archive: ${linked.problems[0]}`);
+        else if (linked.archive.sha256 !== candidate.archiveSha256 || linked.archive.integrity !== candidate.archiveIntegrity) collected.problems.push("the candidate's source record changed during the run");
+        else { const dir = path.join(outDir, "gate-seal"); fs.mkdirSync(dir, { recursive: true }); fs.writeFileSync(path.join(dir, "manifest.txt"), manifestBytes); fs.writeFileSync(path.join(dir, "trusted-gate-source.json"), sourceBytes); gateSeal = "gate-seal"; }
+      } catch (e) { collected.problems.push(`the candidate's manifest or source record cannot be read (${e.code ?? e.message})`); }
+    }
     if (collected.problems.length) { result.ok = false; result.verdict = `NOT PASSED: the run's broker jobs cannot be listed (${collected.problems[0]})`; result.contractJobProblems = collected.problems; }
     if (result.ok) {
-    const receipt = buildContractReceipt({ host, commit: gateCommit, gate: { kind: candidateArg !== null ? "candidate" : "installed", version: entry?.version ?? probe.version, sealedPath: entry?.entry ?? null, sealedSha256: entry?.sealedSha256 ?? null, ...(candidateArg !== null ? { archiveSha256: entry?.archiveSha256 ?? null, archiveIntegrity: entry?.archiveIntegrity ?? null } : {}) }, contractSha256: ctx.contractSha256, runnerSha256: ctx.runnerSha256, budgetsSha256: fileSha(budgetsFile ?? BUDGETS_FILE), fixtureCommit: commit, result, contractRun: contractRun ? { ...contractRun, jobs: collected.jobs, bundle: "job-receipts" } : null, broker: { runtimeDigest: ctx.broker.manifest?.brokerDigest ?? null, runtimeVersion: ctx.broker.manifest?.version ?? null, enrolledDigest: ctx.broker.pins?.brokerDigest ?? null } });
+    const receipt = buildContractReceipt({ host, commit: gateCommit, gate: { kind: candidateArg !== null ? "candidate" : "installed", version: entry?.version ?? probe.version, sealedPath: entry?.entry ?? null, sealedSha256: entry?.sealedSha256 ?? null, ...(candidateArg !== null ? { archiveSha256: entry?.archiveSha256 ?? null, archiveIntegrity: entry?.archiveIntegrity ?? null } : {}) }, contractSha256: ctx.contractSha256, runnerSha256: ctx.runnerSha256, budgetsSha256: fileSha(budgetsFile ?? BUDGETS_FILE), fixtureCommit: commit, result, contractRun: contractRun ? { ...contractRun, jobs: collected.jobs, bundle: "job-receipts", gateSeal } : null, broker: { runtimeDigest: ctx.broker.manifest?.brokerDigest ?? null, runtimeVersion: ctx.broker.manifest?.version ?? null, enrolledDigest: ctx.broker.pins?.brokerDigest ?? null } });
     receiptPath = path.join(outDir, `contract-test-receipt.${host}.json`); fs.writeFileSync(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`);
     }
   }

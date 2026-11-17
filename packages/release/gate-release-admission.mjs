@@ -6,6 +6,9 @@
 // every environment variable the broker dropped and the host's paths, and this repository and its CI are public. It refuses unless every one of the following holds.
 //   1. The receipt passes the release check (gate-acceptance.mjs verifyReleaseReceipts) for this commit, with the contract, budgets and runner
 //      files of this checkout, the exact rule set, and names exactly the archive in question. It is a candidate's receipt.
+//  1b. The archive is tied to the tested gate by the seal itself, not by the receipt's statement: the manifest handed over hashes to the seal (and the
+//      seal is inside every signed job nonce, rule 3); that manifest lists the installer's source record; the record handed over hashes to that
+//      line and names exactly the archive in question (gate-acceptance.mjs archiveOfSeal).
 //   2. The host is one this repository trusts: ci/rk-pipeline.json attestation.<platform> gives its key, host name and broker build. The receipt's
 //      broker is that build (loop matrix C9: a host whose installed broker is not the committed one cannot be admitted until that list is updated).
 //   3. The run's broker jobs: the list is not empty; every listed job's receipt is in the bundle with the listed hash, carries the broker's
@@ -19,7 +22,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
-import { BUDGETS_FILE, CONTRACT_FILE, RUNNER_FILE, archiveIdentity, runnerFileHashes, validWaiver, verifyReleaseReceipts } from "./gate-acceptance.mjs";
+import { BUDGETS_FILE, CONTRACT_FILE, RUNNER_FILE, archiveIdentity, archiveOfSeal, runnerFileHashes, validWaiver, verifyReleaseReceipts } from "./gate-acceptance.mjs";
 import { contractJobNonce } from "./gate-seam.mjs";
 import { verifyProvenanceSignature } from "./receipt-signature.mjs";
 
@@ -33,7 +36,7 @@ const stepIdOf = (label) => String(label).split(":")[0];
  * checkout's contract-nn.json (parsed). `contractSha256`, `budgetsSha256`, `runnerSha256`, `runnerFiles`: of this checkout. `waivers`: valid waivers.
  * Returns { ok, problems, facts }.
  */
-export function admitGateRelease({ receipt, readJob, archiveBytes, commit, pipeline, sealed, contractSha256, budgetsSha256, runnerSha256, runnerFiles, waivers = [] }) {
+export function admitGateRelease({ receipt, readJob, archiveBytes, commit, pipeline, sealed, contractSha256, budgetsSha256, runnerSha256, runnerFiles, waivers = [], manifestBytes = null, sourceBytes = null }) {
   const problems = [];
   const facts = { host: receipt?.host ?? null, sealedSha256: receipt?.gate?.sealedSha256 ?? null, archiveSha256: null, jobsListed: 0, jobsVerified: 0, signedSteps: [], nnBasis: receipt?.nnBasis ?? null };
   const platform = PLATFORM_OF[receipt?.host];
@@ -45,6 +48,14 @@ export function admitGateRelease({ receipt, readJob, archiveBytes, commit, pipel
   if (receipt?.gate?.kind !== "candidate") problems.push(`the receipt is a ${JSON.stringify(receipt?.gate?.kind)} gate's, not a candidate's: only a candidate's receipt names the archive it was installed from`);
   // 1 and the broker half of 2: the release check, with everything this checkout and the committed list know.
   problems.push(...verifyReleaseReceipts(receipt, null, { commit, contractSha256, runnerSha256, budgetsSha256, runnerFiles, waivers, sealedSha256: receipt?.gate?.sealedSha256 ?? null, brokerRuntimeDigest: pins?.brokerDigest ?? null, archive: archive ?? { sha256: null, integrity: null } }).problems);
+  // 1b: the seal accounts for the archive.
+  if (!manifestBytes || !sourceBytes) problems.push("the tested gate's manifest and source record were not handed over, so nothing ties the archive to the seal but the receipt's own statement");
+  else {
+    const linked = archiveOfSeal({ sealedSha256: receipt?.gate?.sealedSha256, manifestBytes, sourceBytes });
+    for (const p of linked.problems) problems.push(`seal to archive: ${p}`);
+    if (linked.ok && archive && (linked.archive.sha256 !== archive.sha256 || linked.archive.integrity !== archive.integrity)) problems.push(`seal to archive: the tested gate was installed from the archive ${linked.archive.sha256}, the archive in question is ${archive.sha256}`);
+    if (linked.ok && receipt?.gate?.version !== undefined && linked.archive.version !== receipt.gate.version) problems.push(`seal to archive: the source record is for version ${linked.archive.version}, the receipt says ${receipt.gate.version}`);
+  }
   if (!commit) problems.push("no release commit was given");
   // 3: the run's broker jobs.
   const jobs = Array.isArray(receipt?.jobs) ? receipt.jobs : null;
@@ -99,7 +110,9 @@ export function main(argv = process.argv.slice(2), { out = console.log } = {}) {
     else {
       const bundle = path.join(path.dirname(path.resolve(receiptFile)), "job-envelopes");
       const fileSha = (f) => sha256(fs.readFileSync(f));
-      result = admitGateRelease({ receipt, readJob: (id) => fs.readFileSync(path.join(bundle, `${id}.json`)), archiveBytes, commit, pipeline, sealed, contractSha256: fileSha(CONTRACT_FILE), budgetsSha256: fileSha(BUDGETS_FILE), runnerSha256: fileSha(RUNNER_FILE), runnerFiles: runnerFileHashes(), waivers: (Array.isArray(budgets?.waivers) ? budgets.waivers : []).filter(validWaiver) });
+      const sealDir = path.join(path.dirname(path.resolve(receiptFile)), "gate-seal");
+      const readOrNull = (f) => { try { return fs.readFileSync(f); } catch { return null; } };
+      result = admitGateRelease({ manifestBytes: receipt.gateSeal === "gate-seal" ? readOrNull(path.join(sealDir, "manifest.txt")) : null, sourceBytes: receipt.gateSeal === "gate-seal" ? readOrNull(path.join(sealDir, "trusted-gate-source.json")) : null, receipt, readJob: (id) => fs.readFileSync(path.join(bundle, `${id}.json`)), archiveBytes, commit, pipeline, sealed, contractSha256: fileSha(CONTRACT_FILE), budgetsSha256: fileSha(BUDGETS_FILE), runnerSha256: fileSha(RUNNER_FILE), runnerFiles: runnerFileHashes(), waivers: (Array.isArray(budgets?.waivers) ? budgets.waivers : []).filter(validWaiver) });
       problems.push(...result.problems);
     }
   }
