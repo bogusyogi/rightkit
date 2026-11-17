@@ -1000,9 +1000,35 @@ test("release check: a receipt must carry exactly the contract's non-negotiables
 test("contract-nn.json, which the installer reads from a sealed gate, is exactly the contract test's rule list and ships in the package", async () => {
   const { NN_ALL_IDS } = await import("./gate-acceptance.mjs");
   const listed = JSON.parse(fs.readFileSync(new URL("./contract-nn.json", import.meta.url), "utf8"));
-  assert.deepEqual(listed, { schema: "rightkit.contract-nn/1", ids: [...NN_ALL_IDS] });
+  const { createHash } = await import("node:crypto");
+  const contractSha256 = createHash("sha256").update(fs.readFileSync(new URL("../../docs/GATE-CONTRACT.md", import.meta.url))).digest("hex");
+  // The contract document is not in the package. Its hash is, so an installer can require that a receipt was judged against this contract.
+  assert.equal(listed.contractSha256, contractSha256, "docs/GATE-CONTRACT.md changed: write its sha256 into packages/release/contract-nn.json (contractSha256)");
+  assert.deepEqual(listed, { schema: "rightkit.contract-nn/1", contractSha256, ids: [...NN_ALL_IDS] });
   assert.equal(new Set(listed.ids).size, listed.ids.length);
   for (const id of listed.ids) assert.match(id, /^NN\d+$/);
   const files = JSON.parse(fs.readFileSync(new URL("./package.json", import.meta.url), "utf8")).files;
   assert.ok(files.includes("*.json") && files.includes("*.mjs") && files.includes("gate"), "the package must carry contract-nn.json, gate-acceptance.mjs and gate/");
+});
+
+test("a contract-test receipt lists every file the runner is made of, so a sealed gate's copies can be compared file for file", async () => {
+  const { runnerFileHashes, buildContractReceipt, RUNNER_FILE } = await import("./gate-acceptance.mjs");
+  const { codeClosure } = await import("./code-closure.mjs");
+  const { createHash } = await import("node:crypto");
+  const files = runnerFileHashes();
+  const names = files.map((f) => f.name);
+  // This file, and the code it uses to find the repository (snapshot.mjs), the broker (broker-client.mjs, managed-roots.mjs, seam-broker.mjs).
+  for (const want of ["gate-acceptance.mjs", "snapshot.mjs", "seam-broker.mjs", "broker-client.mjs", "managed-roots.mjs", "code-closure.mjs"]) assert.ok(names.includes(want), `${want} is not listed`);
+  assert.deepEqual(names, [...names].sort()); assert.equal(names.some((n) => n.startsWith("..") || n.endsWith(".test.mjs")), false);
+  // Each hash is the hash of the file's bytes on disk: the same number an installer gets from the sealed copy.
+  for (const f of files) assert.equal(f.sha256, createHash("sha256").update(fs.readFileSync(new URL(`./${f.name}`, import.meta.url))).digest("hex"), f.name);
+  assert.equal(files.find((f) => f.name === "gate-acceptance.mjs").sha256, createHash("sha256").update(fs.readFileSync(RUNNER_FILE)).digest("hex"));
+  const receipt = buildContractReceipt({ host: "dell", commit: "c".repeat(40), gate: {}, result: { nonNegotiables: [], clauses: [] } });
+  assert.deepEqual(receipt.runnerFiles, files);
+  // The closure follows imports to the end and refuses a file it cannot read.
+  const src = { "/p/a.mjs": 'import "./b.mjs";', "/p/b.mjs": 'export * from "./sub/c.mjs";', "/p/sub/c.mjs": "" };
+  const read = (f) => { const k = f.split(path.sep).join("/").replace(/^[A-Za-z]:/, ""); if (!(k in src)) throw new Error(`no ${k}`); return src[k]; };
+  assert.deepEqual(codeClosure([path.resolve("/p/a.mjs")], path.resolve("/p"), { readFile: read }).map((f) => f.name), ["a.mjs", "b.mjs", "sub/c.mjs"]);
+  src["/p/sub/c.mjs"] = 'import "../gone.mjs";';
+  assert.throws(() => codeClosure([path.resolve("/p/a.mjs")], path.resolve("/p"), { readFile: read }), /no \/p\/gone\.mjs/);
 });

@@ -29,6 +29,7 @@ import { keyPath, repoKey } from "./snapshot.mjs";
 import { RUNTIME_MANIFEST_FILE } from "./seam-broker.mjs";
 import { resolveBrokerClient } from "./broker-client.mjs";
 import { managedRuntimeClient } from "./managed-roots.mjs";
+import { codeClosure } from "./code-closure.mjs";
 
 export const RESULT_SCHEMA = "rightkit.gate-acceptance/1";
 export const COVERAGE_SCHEMA = "rightkit.gate-coverage/1";
@@ -1577,8 +1578,17 @@ export const REQUIRED_CELLS = Object.freeze([["fixture", "warm-check"], ["fixtur
 
 // ---- NN19 / NN30 / NN31: the receipt ---------------------------------------------------------------------------------------------------------------
 export const CONTRACT_RECEIPT_SCHEMA = "rightkit.contract-test-receipt/1";
-export function buildContractReceipt({ host, commit, gate, contractSha256, runnerSha256, budgetsSha256, fixtureCommit, result }) {
-  return { schema: CONTRACT_RECEIPT_SCHEMA, host, commit, gate, contractSha256, runnerSha256, budgetsSha256, fixtureCommit, startedAt: result.startedAt, endedAt: result.endedAt, verdict: result.verdict, ok: result.ok, nn: Object.fromEntries(result.nonNegotiables.map((n) => [n.id, n.status])), uncheckedClauses: result.clauses.filter((c) => c.status === "unchecked").map((c) => c.id), waivers: result.waivers ?? [] };
+/**
+ * Every file the contract test is made of, with its sha256: this file and all it imports by a relative path, followed to the end; names are
+ * relative to the package root. An installer compares each with the copy inside the sealed gate being promoted (and this file's own hash,
+ * runnerSha256, with its copy there), so the test that judged a gate is proven to be, file for file, the one that gate ships: its judgements,
+ * and the code it uses to find the repository, the broker and the gate.
+ */
+export function runnerFileHashes({ entry = RUNNER_FILE, base = here, readFile = (f) => fs.readFileSync(f, "utf8") } = {}) {
+  return codeClosure([entry], base, { readFile }).map((f) => ({ name: f.name, sha256: sha256(Buffer.from(f.text, "utf8")) }));
+}
+export function buildContractReceipt({ host, commit, gate, contractSha256, runnerSha256, budgetsSha256, fixtureCommit, result, runnerFiles = runnerFileHashes() }) {
+  return { schema: CONTRACT_RECEIPT_SCHEMA, host, commit, gate, contractSha256, runnerSha256, runnerFiles, budgetsSha256, fixtureCommit, startedAt: result.startedAt, endedAt: result.endedAt, verdict: result.verdict, ok: result.ok, nn: Object.fromEntries(result.nonNegotiables.map((n) => [n.id, n.status])), uncheckedClauses: result.clauses.filter((c) => c.status === "unchecked").map((c) => c.id), waivers: result.waivers ?? [] };
 }
 export const validWaiver = (w) => isObject(w) && typeof w.clause === "string" && /^GC-/.test(w.clause) && w.by === "Adrian" && typeof w.words === "string" && w.words.trim().length > 0;
 /** `--verify-release`: the receipt of the host that releases or installs passes, for the gate commit and sealed gate, with the contract and runner it was

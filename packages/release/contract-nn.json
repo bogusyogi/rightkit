@@ -1,5 +1,6 @@
 {
   "schema": "rightkit.contract-nn/1",
+  "contractSha256": "9caf9c473dc5d949c4a0c5a9a8ba590be870482c566c997f418b2c3af00d873b",
   "ids": [
     "NN01",
     "NN02",

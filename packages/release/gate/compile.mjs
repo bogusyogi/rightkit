@@ -10,6 +10,7 @@ import { fileStore, resultsByCrate, runCalls } from "./run-calls.mjs";
 import { runTests } from "./tests.mjs";
 import { CROSS_TARGETS, hostTarget } from "../cross-targets.mjs";
 import { runSeamCargoCall } from "../seam-broker.mjs";
+import { codeClosure } from "../code-closure.mjs";
 
 export const UNIT_RESULT_SCHEMA = "rightkit.unit-result/1";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -30,16 +31,7 @@ export function crateInfo(snapshot, name, rustConfig = {}, { readFile = (f) => f
  * An import that cannot be read throws: a pass is never remembered under a hash that skipped a file.
  */
 export function gateCodeFiles(dir = HERE, { readFile = (f) => fs.readFileSync(f, "utf8"), list = (d) => fs.readdirSync(d) } = {}) {
-  const seen = new Map();
-  const todo = list(dir).filter((n) => n.endsWith(".mjs") && !n.endsWith(".test.mjs")).map((n) => path.join(dir, n));
-  while (todo.length) {
-    const file = todo.pop();
-    if (seen.has(file)) continue;
-    const text = readFile(file);
-    seen.set(file, text);
-    for (const m of text.matchAll(/(?:\bfrom\s*|\bimport\s*\(?\s*)["'](\.{1,2}\/[^"']+)["']/g)) todo.push(path.resolve(path.dirname(file), m[1]));
-  }
-  return [...seen].map(([file, text]) => ({ name: path.relative(dir, file).split(path.sep).join("/"), text })).sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+  return codeClosure(list(dir).filter((n) => n.endsWith(".mjs") && !n.endsWith(".test.mjs")).map((n) => path.join(dir, n)), dir, { readFile });
 }
 
 /** The identity a passed call is remembered under: the commit, the toolchain the snapshot pins, the host, the installed broker and this gate code. */
