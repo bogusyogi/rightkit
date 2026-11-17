@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generatedAt": "2026-11-17T04:37:05Z",
-  "rightkitHead": "ae5e109383c726312d3ff02c70c79315f85b3d84",
+  "generatedAt": "2026-11-17T04:38:27Z",
+  "rightkitHead": "c5e542ba10c53c438d4b2c57aeb021533f4a7e1e",
   "legend": [
     {
       "state": "current",
@@ -4511,7 +4511,7 @@
       "group": "mandatory-set app",
       "dir": "D:\\Claude\\viewright",
       "present": true,
-      "head": "f4103f3afa2d291112da898c29090af04165a968",
+      "head": "d75ae3f9991b09b7336a10a4d8c33fb2d111d76b",
       "profile": "desktop",
       "inMandatorySet": true,
       "declaration": {
