@@ -2932,9 +2932,9 @@
       "pkId": "PK56",
       "id": "ci/consumers/rightkit-video-project/src/main.rs",
       "files": {
-        "Cargo.toml": "923be205277ae38149216d04d412e272ac121455866a137a80ef73ad5db3f90e",
-        "README.md": "d2398d3aec981300f72458f3b3d029de46cc7f56755e59916ecfc4f51fdca176",
-        "src/main.rs": "2bfd3a2ebad61bee50492805f659c4365b42dc74a42ce42a6dcebd4d79b1f2ec"
+        "Cargo.toml": "00274e979891edb4d1d882874192735f3049d0a9b746bc22671a458f98ac03bd",
+        "README.md": "091fcdf702be270365d6051dcd003549dc086f625f6f6a9fc288cc8ef1699c2c",
+        "src/main.rs": "bef56cb1cd4b243b5b8e4fa7079c946a3c05b8a6d13f94cba35805104890c2d4"
       }
     },
     "rightkit-autoedit": {

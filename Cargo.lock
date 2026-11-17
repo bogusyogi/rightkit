@@ -13225,7 +13225,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-video-project"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "chrono",
  "rightkit-app-settings",

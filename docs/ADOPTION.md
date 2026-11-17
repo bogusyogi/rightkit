@@ -17,7 +17,7 @@ Status values compare each pin with the latest published version (registry-recor
 
 - Packages in RightKit: 280 (228 crates, 52 npm packages).
 - Packages with at least one app pin: 150.
-- App pins: 674. Stale: 168. Ahead of published: 131. Unpublished: 122. Local: 54. Git: 0. Unparsed: 0.
+- App pins: 674. Stale: 168. Ahead of published: 131. Unpublished: 119. Local: 54. Git: 0. Unparsed: 0.
 - Vendored copies of RightKit packages inside app repos: 40.
 - App and package pairs with more than one requirement: 13.
 
@@ -247,7 +247,7 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-typeset` | crates.io | 0.1.2 | 0.1.0 | 0 | none | - |
 | `rightkit-vad` | crates.io | 0.2.0 | 0.1.2 | 2 | cutright, heardright | 1 vendored copy; 3 ahead of published |
 | `rightkit-vault` | crates.io | 0.3.0 | 0.2.0 | 0 | none | - |
-| `rightkit-video-project` | crates.io | 0.1.3 | none recorded | 1 | cutright | - |
+| `rightkit-video-project` | crates.io | 0.1.4 | 0.1.3 | 1 | cutright | - |
 | `rightkit-voice-commands` | crates.io | 0.1.1 | none recorded | 1 | heardright | - |
 | `rightkit-web-extract` | crates.io | 0.1.2 | none recorded | 1 | scraperight | - |
 | `rightkit-web-session` | crates.io | 0.1.1 | none recorded | 0 | none | - |
@@ -832,9 +832,9 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-vad` | heardright | `heardright/rk-snapshot/crates/rightkit-asr/Cargo.toml` | dependencies | `0.1.0` | 0.1.2 | local |
 | `rightkit-vad` | heardright | `heardright/rk-snapshot/crates/rightkit-asr/Cargo.toml` | dev-dependencies | `0.1.0` | 0.1.2 | local |
 | `rightkit-vad` | heardright | `heardright/tauri-app-next/heardright-inference/Cargo.toml` | dependencies | `=0.2.0` | 0.1.2 | ahead |
-| `rightkit-video-project` | cutright | `cutright/apps/cutright/src-tauri/Cargo.toml` | dependencies | `=0.1.3` | none recorded | unpublished |
-| `rightkit-video-project` | cutright | `cutright/crates/cutright-engine/Cargo.toml` | dependencies | `=0.1.3` | none recorded | unpublished |
-| `rightkit-video-project` | cutright | `cutright/crates/cutright-ledger/Cargo.toml` | dependencies | `=0.1.3` | none recorded | unpublished |
+| `rightkit-video-project` | cutright | `cutright/apps/cutright/src-tauri/Cargo.toml` | dependencies | `=0.1.3` | 0.1.3 | current |
+| `rightkit-video-project` | cutright | `cutright/crates/cutright-engine/Cargo.toml` | dependencies | `=0.1.3` | 0.1.3 | current |
+| `rightkit-video-project` | cutright | `cutright/crates/cutright-ledger/Cargo.toml` | dependencies | `=0.1.3` | 0.1.3 | current |
 | `rightkit-voice-commands` | heardright | `heardright/tauri-app-next/heardright_core/Cargo.toml` | dependencies | `=0.1.1` | none recorded | unpublished |
 | `rightkit-web-extract` | scraperight | `scraperight/crates/engine/Cargo.toml` | dependencies | `=0.1.2` | none recorded | unpublished |
 | `rightkit-workflow` | coderight | `coderight/engine/Cargo.toml` | workspace.dependencies | `=0.2.3` | 0.2.0 | ahead |

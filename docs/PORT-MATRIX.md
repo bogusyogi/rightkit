@@ -56,18 +56,18 @@ Active migration scope is nine apps; Ember is deferred, SellRight is not applica
 
 | App | Group | Profile | Progress | Rows declared or ruled | M22 declared role | Add-ons pinned (current, stale) | Exceptions open / expired / no issue or expiry | @rightkit/release | pre-push hook | switches.json | journeys.toml | right-release.config | Check (preflight) |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| coderight | mandatory-set app | desktop | 67% (20/30 owners current) | 20/21 | host | 22/62 (1 current, 1 stale) | 66 / 0 / 0 | 0.6.57: latest 0.6.57 | absent | no | no | none | FAIL 142, KNOWN 0 |
-| cutright | mandatory-set app | desktop | 77% (23/30 owners current) | 19/21 | absent | 16/62 (1 current, 0 stale) | 4 / 0 / 0 | 0.6.57: latest 0.6.57 | absent | no | no | none | FAIL 17, KNOWN 0 |
-| genright | mandatory-set app | desktop | 67% (20/30 owners current) | 20/21 | host | 11/62 (2 current, 0 stale) | 0 / 0 / 0 | 0.6.57: latest 0.6.57 | committed | yes | no | code (.mjs) | FAIL 3, KNOWN 1 |
-| heardright | mandatory-set app | desktop | 40% (12/30 owners current) | 20/21 | absent | 17/62 (1 current, 1 stale) | 12 / 0 / 0 | 0.6.52: stale (latest 0.6.57) | absent | no | no | none | FAIL 22, KNOWN 4 |
-| mailright | mandatory-set app | desktop | 73% (22/30 owners current) | 20/21 | both | 11/62 (2 current, 0 stale) | 11 / 0 / 0 | 0.6.57: latest 0.6.57 | absent | yes | no | data (.json) | FAIL 27, KNOWN 1 |
-| postright | mandatory-set app | desktop | 37% (11/30 owners current) | 20/21 | unrecorded | 9/62 (2 current, 0 stale) | 0 / 0 / 0 | 0.6.40: stale (latest 0.6.57) | absent | yes | yes | data (.json) | FAIL 1, KNOWN 1 |
-| pulse | mandatory-set app | desktop | 67% (20/30 owners current) | 21/21 | host | 24/62 (1 current, 2 stale) | 22 / 0 / 0 | 0.6.57: latest 0.6.57 | absent | yes | no | code (.mjs) | FAIL 22, KNOWN 0 |
-| scraperight | mandatory-set app | desktop | 17% (5/30 owners current) | 18/21 | host | 15/62 (6 current, 1 stale) | 15 / 0 / 0 | 0.6.38: stale (latest 0.6.57) | absent | yes | no | code (.mjs) | FAIL 37, KNOWN 0 |
-| viewright | mandatory-set app | desktop | 17% (5/30 owners current) | 16/21 | absent | 8/62 (4 current, 0 stale) | 21 / 0 / 0 | 0.6.40: stale (latest 0.6.57) | absent | yes | no | code (.mjs) | FAIL 55, KNOWN 0 |
-| ember | deferred app | - | n/a (no foundation rows for this app) | - | - | 36/92 (5 current, 31 stale) | 21 / 0 / 21 | 0.4.0: stale (latest 0.6.57) | absent | no | no | code (.mjs) | not run (deferred app) |
-| sellright | release consumer | - | n/a (no foundation rows for this app) | - | - | 3/92 (1 current, 2 stale) | 2 / 0 / 2 | 0.6.29: stale (latest 0.6.57) | absent | yes | no | code (.mjs) | not run (release consumer) |
-| legion | tool consumer | - | n/a (no foundation rows for this app) | - | - | 11/92 (4 current, 5 stale) | 0 / 0 / 0 | 0.6.52: stale (latest 0.6.57) | absent | yes | no | code (.mjs) | not run (tool consumer) |
+| coderight | mandatory-set app | desktop | 67% (20/30 owners current) | 20/21 | host | 22/63 (1 current, 1 stale) | 66 / 0 / 0 | 0.6.57: latest 0.6.57 | absent | no | no | none | FAIL 142, KNOWN 0 |
+| cutright | mandatory-set app | desktop | 77% (23/30 owners current) | 19/21 | absent | 17/63 (2 current, 0 stale) | 4 / 0 / 0 | 0.6.57: latest 0.6.57 | absent | no | no | none | FAIL 17, KNOWN 0 |
+| genright | mandatory-set app | desktop | 67% (20/30 owners current) | 20/21 | host | 11/63 (2 current, 0 stale) | 0 / 0 / 0 | 0.6.57: latest 0.6.57 | committed | yes | no | code (.mjs) | FAIL 3, KNOWN 1 |
+| heardright | mandatory-set app | desktop | 40% (12/30 owners current) | 20/21 | absent | 17/63 (1 current, 1 stale) | 12 / 0 / 0 | 0.6.52: stale (latest 0.6.57) | absent | no | no | none | FAIL 22, KNOWN 4 |
+| mailright | mandatory-set app | desktop | 73% (22/30 owners current) | 20/21 | both | 11/63 (2 current, 0 stale) | 11 / 0 / 0 | 0.6.57: latest 0.6.57 | absent | yes | no | data (.json) | FAIL 27, KNOWN 1 |
+| postright | mandatory-set app | desktop | 37% (11/30 owners current) | 20/21 | unrecorded | 9/63 (2 current, 0 stale) | 0 / 0 / 0 | 0.6.40: stale (latest 0.6.57) | absent | yes | yes | data (.json) | FAIL 1, KNOWN 1 |
+| pulse | mandatory-set app | desktop | 67% (20/30 owners current) | 21/21 | host | 24/63 (1 current, 2 stale) | 22 / 0 / 0 | 0.6.57: latest 0.6.57 | absent | yes | no | code (.mjs) | FAIL 22, KNOWN 0 |
+| scraperight | mandatory-set app | desktop | 17% (5/30 owners current) | 18/21 | host | 15/63 (6 current, 1 stale) | 15 / 0 / 0 | 0.6.38: stale (latest 0.6.57) | absent | yes | no | code (.mjs) | FAIL 37, KNOWN 0 |
+| viewright | mandatory-set app | desktop | 17% (5/30 owners current) | 16/21 | absent | 8/63 (4 current, 0 stale) | 21 / 0 / 0 | 0.6.40: stale (latest 0.6.57) | absent | yes | no | code (.mjs) | FAIL 55, KNOWN 0 |
+| ember | deferred app | - | n/a (no foundation rows for this app) | - | - | 36/93 (5 current, 31 stale) | 21 / 0 / 21 | 0.4.0: stale (latest 0.6.57) | absent | no | no | code (.mjs) | not run (deferred app) |
+| sellright | release consumer | - | n/a (no foundation rows for this app) | - | - | 3/93 (1 current, 2 stale) | 2 / 0 / 2 | 0.6.29: stale (latest 0.6.57) | absent | yes | no | code (.mjs) | not run (release consumer) |
+| legion | tool consumer | - | n/a (no foundation rows for this app) | - | - | 11/93 (4 current, 5 stale) | 0 / 0 / 0 | 0.6.52: stale (latest 0.6.57) | absent | yes | no | code (.mjs) | not run (tool consumer) |
 
 Open foundation rows (rows an app has neither declared nor ruled):
 
@@ -433,7 +433,7 @@ Not-applicable declarations. Only current ratified rulings remove a mandatory re
 | `rightkit-theme` | tool | - | none recorded (staged 0.1.0) | unused | unused | unused | unused | unused | unused | unused | unused | unused | unused | unused | unused | - |
 | `rightkit-timeline` | tool | - | none recorded (staged 0.1.1) | unused | ahead (0.1.1 (no published version), 4 pins) | unused | unused | unused | unused | unused | unused | unused | unused | unused | unused | - |
 | `rightkit-transcript-library` | tool | - | none recorded (staged 0.1.2) | unused | unused | unused | ahead (0.1.2 (no published version)) | unused | unused | unused | unused | unused | unused | unused | unused | - |
-| `rightkit-video-project` | tool | - | none recorded (staged 0.1.3) | unused | ahead (0.1.3 (no published version), 3 pins) | unused | unused | unused | unused | unused | unused | unused | unused | unused | unused | - |
+| `rightkit-video-project` | add-on | - | 0.1.3 (staged 0.1.4) | unused | current (=0.1.3, 3 pins) | unused | unused | unused | unused | unused | unused | unused | unused | unused | unused | - |
 | `rightkit-voice-commands` | tool | - | none recorded (staged 0.1.1) | unused | unused | unused | ahead (0.1.1 (no published version)) | unused | unused | unused | unused | unused | unused | unused | unused | - |
 | `rightkit-web-extract` | tool | - | none recorded (staged 0.1.2) | unused | unused | unused | unused | unused | unused | unused | ahead (0.1.2 (no published version)) | unused | unused | unused | unused | - |
 | `rightkit-web-session` | tool | - | none recorded (staged 0.1.1) | unused | unused | unused | unused | unused | unused | unused | unused | unused | unused | unused | unused | - |

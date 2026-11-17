@@ -145,13 +145,6 @@
         ],
         "reason": "ci/asset-gated.json: editing FFmpeg and ffprobe (RIGHTKIT_FFMPEG, RIGHTKIT_FFPROBE) for tests/ffmpeg.rs; a missing build prints SKIP, RIGHTKIT_REQUIRE_ASSETS=1 makes it fail; the publish workflow does not provision them, so those tests print SKIP markers recorded in the receipts and the crate's own compile, clippy, doc and remaining tests still qualify it."
       },
-      "rightkit-video-project": {
-        "version": "0.1.3",
-        "allow": [
-          "allow_missing_assets"
-        ],
-        "reason": "ci/asset-gated.json: editing FFmpeg and ffprobe (RIGHTKIT_FFMPEG, RIGHTKIT_FFPROBE) and a talking-head clip (RIGHTKIT_TALKING_HEAD_CLIP) for tests/ingest.rs, tests/render_polish.rs and tests/audio_processing_real.rs; missing assets print SKIP, RIGHTKIT_REQUIRE_ASSETS=1 makes them fail; the publish workflow does not provision them, so those tests print SKIP markers recorded in the receipts and the crate's own compile, clippy, doc and remaining tests still qualify it."
-      },
       "rightkit-autoedit": {
         "version": "0.2.0",
         "allow": [

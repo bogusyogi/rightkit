@@ -11,6 +11,7 @@
 //! - [`loudness`]: two-pass loudnorm measurement for final renders.
 //! - [`reframe_track`]: portable crop-path smoothing (anchor points in, typed path out).
 //! - [`render`]: render orchestration (source reverification, encoder choice, partial rename).
+//! - `batch` (feature `engine-commands`): durable delivery, resume, finishing pins, and covers.
 //! - `engine` (feature `engine-commands`): the support layer engine command modules share (JSON and
 //!   transcript files, analysis layout, clip ranges, flat settings files, project font, media tools).
 //! - `channel_recipe` (feature `channel-recipe`): the typed check of a channel recipe body.
@@ -18,6 +19,8 @@
 //!   `storage.clear` handlers.
 
 pub mod audio_sync;
+#[cfg(feature = "engine-commands")]
+pub mod batch;
 #[cfg(feature = "channel-recipe")]
 pub mod channel_recipe;
 #[cfg(feature = "engine-commands")]

@@ -222,7 +222,7 @@ Capabilities: 222 (58 with fingerprints, 164 declaration-only). Internal owners 
 | video-captions | `rightkit-captions` | none | declaration-only | 0 | rightkit-captions: staged 0.1.1, not published |
 | video-color | `rightkit-color` | none | declaration-only | 0 | rightkit-color: staged 0.1.1, not published |
 | video-compositor | `rightkit-compositor` | none | declaration-only | 0 | rightkit-compositor: staged 0.2.1, not published |
-| video-project | `rightkit-video-project` | none | declaration-only | 0 | rightkit-video-project: staged 0.1.3, not published |
+| video-project | `rightkit-video-project` | none | declaration-only | 0 | rightkit-video-project: published 0.1.3 (crates.io) |
 | video-reframe | `rightkit-reframe` | none | declaration-only | 0 | rightkit-reframe: staged 0.2.0, not published |
 | video-shorts | `rightkit-shorts` | none | declaration-only | 0 | rightkit-shorts: staged 0.2.4, not published |
 | video-timeline | `rightkit-timeline` | none | declaration-only | 0 | rightkit-timeline: staged 0.1.1, not published |

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.4 (unpublished)
+
+- `batch` under `engine-commands` owns delivery state, resume, finishing pins, QA evidence matching, and covers. Hosts keep their existing schema string and supply settings, render, QA, and thumbnail integrations. Manifests written before finishing pins still load.
+
 ## 0.1.3 (unpublished)
 
 Taken on the recommended option of the shape review (`docs/audits/2026-11-11-shape-matrix/reports/cut-post-redraw.md`), pending the owner's confirmation.
