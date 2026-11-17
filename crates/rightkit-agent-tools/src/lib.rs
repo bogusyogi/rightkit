@@ -19,6 +19,7 @@
 //! delivery, pasteboard or history tool can be registered or called ([`exposure`]).
 
 pub mod applicability;
+pub mod app_contract;
 pub mod backends;
 pub mod exposure;
 mod journal;

@@ -2,6 +2,7 @@
 
 ## 0.4.4 (2026-11-16)
 
+- Added the typed app CLI contract declaration, embedded JSON Schema and effect approval-floor validation. This validates declarations, not runtime behavior.
 - Added a typed completed-call journal backed by the required-lock JSONL store.
 
 - Added `serve_commands_with(suite, &AppProfile, ServiceConfig, CommandServiceOptions, handler)`: `serve_commands` with host options for the wire output of the hosted service. `CommandServiceOptions { health_extra, not_allowed_code, invalid_args_code, empty_command_name }`: `health_extra` adds fields after `ok` and `app` in the `health` reply (default none; `ok` and `app` stay the crate's); `not_allowed_code` is the code of every refusal the service makes itself (default `tool_not_allowed`); `invalid_args_code` is the code of its bad-arguments refusal, a missing command name (default `invalid_arguments`); `empty_command_name` is `EmptyCommandName::InvalidArguments` (default: refused as bad arguments before the command policy) or `EmptyCommandName::Policy` (an empty name is judged by the command policy like any other, so a policy that lists no empty name refuses it as not exposed). Codes the handler returns pass through unchanged. `serve_commands` is `serve_commands_with` with the defaults, byte for byte as before.
