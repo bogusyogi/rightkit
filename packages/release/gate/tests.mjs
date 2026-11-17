@@ -10,39 +10,60 @@ import { packageNameOf } from "./crate-results.mjs";
 import { testKeyEnv, testProgramEnv } from "../test-env.mjs";
 import { recordLockChild } from "../snapshot.mjs";
 
-/** Sum of the `test result:` lines a libtest program printed; null when it printed none. */
-export function libtestSummary(text) {
-  const sum = { passed: 0, failed: 0, ignored: 0, lines: 0 };
-  for (const line of String(text ?? "").split(/\r?\n/)) {
-    const m = /^test result: (?:ok|FAILED)\. (\d+) passed; (\d+) failed; (\d+) ignored/.exec(line.trim());
-    if (m) { sum.passed += Number(m[1]); sum.failed += Number(m[2]); sum.ignored += Number(m[3]); sum.lines += 1; }
-  }
-  return sum.lines ? sum : null;
+/**
+ * Reads a test program's output as it arrives and counts what the standard harness says, over the WHOLE stream: nothing is decided from a kept
+ * tail, so an ignored or failed count, or a run that started and never reported, cannot disappear behind later output. One scanner per stream
+ * (stdout and stderr interleave by chunk, not by line). `push(chunk)` takes text in any chunking; `stats()` closes the last line and returns
+ * { started, results, unread, failedWord, passed, failed, ignored }.
+ */
+export function libtestScanner() {
+  const st = { started: 0, results: 0, unread: 0, failedWord: false, passed: 0, failed: 0, ignored: 0 };
+  let rest = "";
+  const line = (raw) => {
+    const text = raw.trim();
+    if (/^running \d+ tests?$/.test(text)) { st.started += 1; return; }
+    if (!text.startsWith("test result:")) return;
+    st.results += 1;
+    const m = /^test result: (ok|FAILED)\. (\d+) passed; (\d+) failed; (\d+) ignored/.exec(text);
+    if (!m) { st.unread += 1; return; }
+    if (m[1] === "FAILED") st.failedWord = true;
+    st.passed += Number(m[2]); st.failed += Number(m[3]); st.ignored += Number(m[4]);
+  };
+  return {
+    push(chunk) {
+      rest += String(chunk);
+      let at;
+      while ((at = rest.indexOf("\n")) >= 0) { line(rest.slice(0, at)); rest = rest.slice(at + 1); }
+      // A line with no end yet: the patterns are at the start of a line, so its first 4096 characters are all that is ever needed.
+      if (rest.length > 8192) rest = rest.slice(0, 4096);
+    },
+    stats() { if (rest) { line(rest); rest = ""; } return { ...st }; },
+  };
+}
+const scanText = (text) => { const sc = libtestScanner(); sc.push(String(text ?? "")); return sc.stats(); };
+const addStats = (a, b) => ({ started: a.started + b.started, results: a.results + b.results, unread: a.unread + b.unread, failedWord: a.failedWord || b.failedWord, passed: a.passed + b.passed, failed: a.failed + b.failed, ignored: a.ignored + b.ignored });
+
+/** Sum of the `test result:` lines a libtest program printed; null when it printed none. Takes the output text or a scanner's stats. */
+export function libtestSummary(textOrStats) {
+  const st = typeof textOrStats === "object" && textOrStats !== null ? textOrStats : scanText(textOrStats);
+  const lines = st.results - st.unread;
+  return lines ? { passed: st.passed, failed: st.failed, ignored: st.ignored, lines } : null;
 }
 
 /**
- * Why a program that exited 0 still cannot be counted as passed, from what it printed; null when nothing contradicts the exit code.
+ * Why a program that exited 0 still cannot be counted as passed, from what it printed (the output text or a scanner's stats); null when
+ * nothing contradicts the exit code.
  *   - a `test result:` line that cannot be read (its counts are unknown, so they are not taken as zero);
- *   - more `running N tests` headers than `test result:` lines (a run started and never reported: the output ended early);
+ *   - more `running N tests` headers than `test result:` lines (a run started and never reported);
  *   - a summary that says FAILED or reports failed tests.
  * A program that prints neither a header nor a result line (a custom harness, or one with nothing to say) is judged by its exit code alone, and a
  * libtest run of zero tests prints its own "0 passed" line: both still qualify.
  */
-export function libtestProblem(text) {
-  let started = 0; let results = 0; let unread = 0; let failedWord = false; let failed = 0;
-  for (const raw of String(text ?? "").split(/\r?\n/)) {
-    const line = raw.trim();
-    if (/^running \d+ tests?$/.test(line)) { started += 1; continue; }
-    if (!line.startsWith("test result:")) continue;
-    results += 1;
-    const m = /^test result: (ok|FAILED)\. (\d+) passed; (\d+) failed; (\d+) ignored/.exec(line);
-    if (!m) { unread += 1; continue; }
-    if (m[1] === "FAILED") failedWord = true;
-    failed += Number(m[3]);
-  }
-  if (unread) return `${unread} "test result:" line(s) could not be read, so the counts are not known`;
-  if (failedWord || failed) return `its summary reports ${failed} failed test(s)${failedWord ? " (FAILED)" : ""} although it exited 0`;
-  if (started > results) return `${started} test run(s) started and ${results} reported a result: the output ended before the summary`;
+export function libtestProblem(textOrStats) {
+  const st = typeof textOrStats === "object" && textOrStats !== null ? textOrStats : scanText(textOrStats);
+  if (st.unread) return `${st.unread} "test result:" line(s) could not be read, so the counts are not known`;
+  if (st.failedWord || st.failed) return `its summary reports ${st.failed} failed test(s)${st.failedWord ? " (FAILED)" : ""} although it exited 0`;
+  if (st.started > st.results) return `${st.started} test run(s) started and ${st.results} reported a result: the output ended before the summary`;
   return null;
 }
 
@@ -84,7 +105,9 @@ export function treeGone(child, { platform = process.platform, kill = (pid, sig)
 function runOne({ file, args, cwd, env, timeoutMs, spawn, platform = process.platform, stop = stopTree, gone = treeGone, record = recordLockChild, reapMs = 15000, pollMs = 100 }) {
   return new Promise((resolve) => {
     let out = ""; let done = false; let timedOut = false; let closed = false; let poll = null;
-    const finish = (r) => { if (!done) { done = true; clearInterval(poll); resolve({ ...r, output: out.slice(-20000) }); } };
+    // `output` is the kept tail, for a person to read. `summary` is counted over everything the program wrote.
+    const scanOut = libtestScanner(); const scanErr = libtestScanner();
+    const finish = (r) => { if (!done) { done = true; clearInterval(poll); resolve({ ...r, output: out.slice(-20000), summary: addStats(scanOut.stats(), scanErr.stats()) }); } };
     const late = `timed out after ${Math.round(timeoutMs / 1000)} s`;
     let child;
     try { child = spawn(file, args, { cwd, env, stdio: ["ignore", "pipe", "pipe"], windowsHide: true, ...(platform === "win32" ? {} : { detached: true }) }); }
@@ -107,8 +130,8 @@ function runOne({ file, args, cwd, env, timeoutMs, spawn, platform = process.pla
       };
       poll = setInterval(look, pollMs); look();
     }, timeoutMs);
-    child.stdout.on("data", (d) => { out += d; if (out.length > 400000) out = out.slice(-200000); });
-    child.stderr.on("data", (d) => { out += d; if (out.length > 400000) out = out.slice(-200000); });
+    child.stdout.on("data", (d) => { scanOut.push(d); out += d; if (out.length > 400000) out = out.slice(-200000); });
+    child.stderr.on("data", (d) => { scanErr.push(d); out += d; if (out.length > 400000) out = out.slice(-200000); });
     child.on("error", (error) => { clearTimeout(timer); closed = true; if (!timedOut) finish({ exit: null, error: String(error.message ?? error) }); });
     child.on("close", (code, signal) => { clearTimeout(timer); closed = true; if (!timedOut) finish({ exit: code, signal }); });
   });
@@ -158,9 +181,9 @@ export async function runTests({ executables, crates, env = process.env, jobs = 
       counts.ran += 1;
       const r = await runOne({ file: exe.path, args, cwd: crate.dir, env: programEnv, timeoutMs, spawn, platform, stop, gone, record, reapMs, pollMs });
       if (r.unreaped) counts.unreaped += 1;
-      const sum = libtestSummary(r.output);
+      const sum = libtestSummary(r.summary);
       // Exit 0 is not enough: what the program printed must not contradict it (libtestProblem). Only a run with no such contradiction is remembered.
-      const contradiction = r.exit === 0 ? libtestProblem(r.output) : null;
+      const contradiction = r.exit === 0 ? libtestProblem(r.summary) : null;
       run = { ok: r.exit === 0 && !contradiction, program: exe.target, args, passed: sum?.passed ?? 0, failed: sum?.failed ?? 0, ignored: sum?.ignored ?? 0, detail: r.exit !== 0 ? (r.error ?? `exit ${r.exit}${r.signal ? ` (${r.signal})` : ""}: ${r.output.slice(-1500)}`) : contradiction ? `exited 0 but ${contradiction}` : "" };
       if (run.ok) store?.put(key, { run: { ok: true, program: run.program, args, passed: run.passed, failed: run.failed, ignored: run.ignored, detail: "" } });
     }

@@ -1311,3 +1311,12 @@ test("G26: a contract-test run tags its gate launches, lists its broker jobs, ke
   assert.equal((src.match(/contractRunEnv\(contractRun, /g) ?? []).length, 4, "the main launch, the two no-cache negatives and the kill cases");
   assert.doesNotMatch(src, /launch\(\{ gate, args, cwd, env: process\.env \}\)/);
 });
+
+test("release check: a receipt must state its unchecked clauses; a missing list is not read as none", async () => {
+  const { verifyReleaseReceipts, NN_ALL_IDS, CONTRACT_RECEIPT_SCHEMA } = await import("./gate-acceptance.mjs");
+  const nn = Object.fromEntries(NN_ALL_IDS.map((x) => [x, "pass"]));
+  const receipt = (over) => ({ schema: CONTRACT_RECEIPT_SCHEMA, host: "dell", commit: "c".repeat(40), gate: { kind: "candidate", sealedSha256: "a".repeat(64) }, verdict: "PASS 42/42", ok: true, nn, uncheckedClauses: [], ...over });
+  assert.deepEqual(verifyReleaseReceipts(receipt({})).problems, []);
+  for (const bad of [undefined, null, "GC-A01", {}]) assert.match(verifyReleaseReceipts(receipt({ uncheckedClauses: bad })).problems.join(" | "), /does not state which operative clauses were left unchecked/, JSON.stringify(bad));
+  assert.match(verifyReleaseReceipts(receipt({ uncheckedClauses: ["GC-A01"] })).problems.join(" | "), /1 operative clause\(s\) unchecked and not waived by Adrian/);
+});

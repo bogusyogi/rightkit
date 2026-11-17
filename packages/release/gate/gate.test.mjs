@@ -738,3 +738,38 @@ test("a test program that exited 0 is not passed when what it printed contradict
     assert.equal(second.byCrate.cut.result, "failed"); assert.equal(second.counts.cached, 2);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+test("a test program's summary is counted over its whole output, whatever follows it and however it is chunked", async () => {
+  const { libtestScanner, libtestProblem, libtestSummary } = await import("./tests.mjs");
+  const feed = (text, size) => { const sc = libtestScanner(); for (let i = 0; i < text.length; i += size) sc.push(text.slice(i, i + size)); return sc.stats(); };
+  const noise = "note: trailing diagnostic line that says nothing\n".repeat(900); // about 44 KB, more than the 20 KB kept for reading
+  // An ignored count, then far more than the kept tail of other output: still counted.
+  const ignored = `running 5 tests\ntest result: ok. 4 passed; 0 failed; 1 ignored; 0 measured\n${noise}`;
+  for (const size of [1, 7, 4096, ignored.length]) assert.deepEqual(libtestSummary(feed(ignored, size)), { passed: 4, failed: 0, ignored: 1, lines: 1 }, `chunk ${size}`);
+  // A failure, a run that never reported, and an unreadable summary, each followed by the same trailing output.
+  assert.match(libtestProblem(feed(`running 2 tests\ntest result: FAILED. 1 passed; 1 failed; 0 ignored\n${noise}`, 4096)), /reports 1 failed/);
+  assert.match(libtestProblem(feed(`running 9 tests\ntest a ... ok\n${noise}`, 4096)), /1 test run\(s\) started and 0 reported a result/);
+  assert.match(libtestProblem(feed(`running 3 tests\ntest result: garbled\n${noise}`, 4096)), /could not be read/);
+  // A summary split across chunks at every position reads the same; a last line with no line end is still read.
+  const tail = "running 1 test\ntest result: ok. 1 passed; 0 failed; 0 ignored";
+  for (let cut = 1; cut < tail.length; cut += 1) { const sc = libtestScanner(); sc.push(tail.slice(0, cut)); sc.push(tail.slice(cut)); assert.equal(libtestProblem(sc.stats()), null, `cut ${cut}`); }
+  // A very long line with no end does not hide what follows it.
+  assert.deepEqual(libtestSummary(feed(`${"x".repeat(50000)}\ntest result: ok. 2 passed; 0 failed; 0 ignored\n`, 1000)), { passed: 2, failed: 0, ignored: 0, lines: 1 });
+  // Still legitimate: zero tests, and a harness that prints no such lines.
+  assert.equal(libtestProblem(feed(`running 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored\n${noise}`, 4096)), null);
+  assert.equal(libtestProblem(feed(noise, 4096)), null); assert.equal(libtestSummary(feed(noise, 4096)), null);
+
+  // Through the runner, with real chunks: a crate whose program printed an ignored test and then 44 KB more is blocked, and nothing is remembered.
+  const { EventEmitter } = await import("node:events");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rk-scan-"));
+  try {
+    const exe = { path: "/t/a", sha256: "ab".repeat(32), package_id: "path+file:///s/crates/a#0.1.0", target: "a", kind: "lib" };
+    let ran = 0;
+    const spawn = () => { ran += 1; const c = new EventEmitter(); c.pid = 1; c.stdout = new EventEmitter(); c.stderr = new EventEmitter(); setImmediate(() => { for (let i = 0; i < ignored.length; i += 3000) c.stdout.emit("data", ignored.slice(i, i + 3000)); c.emit("close", 0, null); }); return c; };
+    const go = () => runTests({ executables: [exe], crates: [{ name: "a", dir: "/s" }], env: {}, jobs: 1, hashOf: () => "ab".repeat(32), store: fileStore(dir), scope: "s", spawn, record: (c) => c });
+    const first = await go();
+    assert.equal(first.byCrate.a.result, "failed"); assert.equal(first.byCrate.a.ignored, 1); assert.match(first.byCrate.a.detail, /1 test\(s\) ignored/);
+    const named = await runTests({ executables: [exe], crates: [{ name: "a", dir: "/s", allowIgnored: true }], env: {}, jobs: 1, hashOf: () => "ab".repeat(32), spawn, record: (c) => c });
+    assert.equal(named.byCrate.a.result, "passed"); assert.equal(named.byCrate.a.ignored, 1);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
