@@ -2618,22 +2618,50 @@ function killDuring({ gate, cwd, args, signal, waitFor, afterMs }) {
 function readJson(file) { try { return { value: JSON.parse(fs.readFileSync(file, "utf8")) }; } catch (e) { return { error: `${file}: ${e.message}` }; } }
 const readOrNull = (file) => { try { return fs.readFileSync(file); } catch { return null; } };
 
+/**
+ * The identity of the broker that is RUNNING on this host, judged from the installed client's `doctor --json --no-scan` output (a read-only STATUS
+ * probe; rustright-cli doctor.rs). `{ digest, problem }`: a digest only when the broker answered, its handshake states a digest, and that digest is
+ * the one the installed runtime's manifest states. The command's exit code says nothing here (it is non-zero for unrelated health findings) and
+ * `runtime.expectedBrokerDigest` is only what is on disk; neither is read as "running".
+ */
+export function liveBrokerDigest(doctor, manifestDigest) {
+  const a = isObject(doctor) ? doctor.answeringBroker : null;
+  if (!isObject(a)) return { digest: null, problem: "the client's doctor output has no answeringBroker record" };
+  if (a.answered !== true) return { digest: null, problem: "no broker answered the read-only status probe" };
+  const live = a.handshakeRuntime?.brokerDigest;
+  if (!isSha(live)) return { digest: null, problem: "the answering broker's handshake states no broker digest" };
+  if (!isSha(manifestDigest)) return { digest: null, problem: "the installed runtime's manifest states no broker digest to compare the running broker with" };
+  if (live !== manifestDigest) return { digest: null, problem: `the running broker is ${live}, the installed runtime is ${manifestDigest}: a broker other than the installed one is answering` };
+  return { digest: live, problem: null };
+}
+/** Asks the running broker through the installed client. RIGHTKIT_ and RUSTRIGHT_ variables are dropped first, so the host's own roots are used (as promotion does). */
+function askRunningBroker(host, managedRoot, { run = spawnSync } = {}) {
+  const id = brokerIdentity(host, managedRoot);
+  if (!id.clientPath) return { digest: null, problem: id.problem ?? "the installed client was not found" };
+  const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^(RIGHTKIT_|RUSTRIGHT_)/i.test(k)));
+  let r; try { r = run(id.clientPath, ["doctor", "--json", "--no-scan"], { encoding: "utf8", timeout: 60_000, windowsHide: true, env }); } catch (e) { return { digest: null, problem: `the installed client could not be started (${e.message})` }; }
+  if (r.error) return { digest: null, problem: `the installed client did not answer (${r.error.code ?? r.error.message})` };
+  let doctor; try { doctor = JSON.parse(String(r.stdout)); } catch { return { digest: null, problem: "the installed client's doctor output is not JSON" }; }
+  return liveBrokerDigest(doctor, id.manifest?.brokerDigest ?? null);
+}
+
 /** The installed broker's runtime manifest and the gate's pins record. The client and its manifest are found the way the gate finds them (seam-broker.mjs brokerControlTarget): `managedRuntimeClient`, the agent shim resolved, the manifest beside the real client. */
 function brokerIdentity(host, managedRoot) {
   const platform = host === "dell" ? "win32" : "darwin";
   const pinsPath = path.join(managedRoot, "pins", `broker-${platform}.json`);
   const pins = readJson(pinsPath);
-  let manifestPath = null; const problems = [];
+  let manifestPath = null; let clientPath = null; const problems = [];
   try {
     const client = managedRuntimeClient(process.env, platform);
     if (!client) throw new Error("no installed RustRight client was found");
     const exe = resolveBrokerClient(client, { platform }).file;
     const real = platform === "win32" ? exe : fs.realpathSync.native(exe);
+    clientPath = real;
     const paths = platform === "win32" ? path.win32 : path.posix;
     manifestPath = paths.join(paths.dirname(real), RUNTIME_MANIFEST_FILE);
   } catch (e) { problems.push(`cannot locate the installed client's runtime manifest: ${e.message}`); }
   const manifest = manifestPath ? readJson(manifestPath) : { error: problems.join("; ") };
-  return { pinsPath, pins: pins.value ?? null, manifestPath, manifest: manifest.value ?? null, problem: [pins.error, manifest.error].filter(Boolean).join("; ") || undefined };
+  return { pinsPath, pins: pins.value ?? null, manifestPath, clientPath, manifest: manifest.value ?? null, problem: [pins.error, manifest.error].filter(Boolean).join("; ") || undefined };
 }
 
 /** The fixture's hooks as GC-T20 reads them: `{ dir, hooksPath, files }`. */
@@ -3184,12 +3212,12 @@ function verifyReleaseCli(argv) {
     if (h < 0 || !["mac", "dell"].includes(argv[h + 1])) problems.push("--host mac|dell is required: the receipt must be this host's");
     if (j < 0 || !/^[a-f0-9]{40}$/.test(String(argv[j + 1]))) problems.push("--commit <40-hex sha> is required: the receipt must be for the gate commit being released");
     if (sl < 0) problems.push("--sealed <sha256> is required: the receipt must be for the sealed gate in question");
-    // The broker installed on this host now, found the way the contract test finds it. Unknown is a refusal, never a skip.
+    // The broker RUNNING on this host now, asked through the installed client, and agreeing with the installed runtime. Unknown is a refusal, never a skip.
     let brokerRuntimeDigest = null;
     if (h >= 0 && ["mac", "dell"].includes(argv[h + 1])) {
-      const id = brokerIdentity(argv[h + 1], managedRootOf(argv[h + 1]));
-      brokerRuntimeDigest = typeof id.manifest?.brokerDigest === "string" && id.manifest.brokerDigest ? id.manifest.brokerDigest : null;
-      if (!brokerRuntimeDigest) problems.push(`this host's installed broker cannot be identified (${id.problem ?? "its runtime manifest states no brokerDigest"})`);
+      const live = askRunningBroker(argv[h + 1], managedRootOf(argv[h + 1]));
+      brokerRuntimeDigest = live.digest;
+      if (!brokerRuntimeDigest) problems.push(`this host's running broker cannot be identified: ${live.problem}`);
     }
     problems.push(...verifyReleaseReceipts(read[0].value, null, { commit: j < 0 ? null : argv[j + 1], contractSha256: fileSha(CONTRACT_FILE), runnerSha256: fileSha(RUNNER_FILE), waivers, host: h < 0 ? null : argv[h + 1], sealedSha256: sl < 0 ? null : argv[sl + 1], budgetsSha256: fileSha(BUDGETS_FILE), runnerFiles: runnerFileHashes(), brokerRuntimeDigest }).problems);
   }

@@ -1149,3 +1149,20 @@ test("release check binds what the installer's promotion binds: budgets, every r
     assert.equal(bad.status, 1); assert.match(`${bad.stdout}${bad.stderr}`, /--host mac\|dell is required/); assert.match(`${bad.stdout}${bad.stderr}`, /--commit <40-hex sha> is required/);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+test("the running broker's identity is its handshake digest, only when it answered and agrees with the installed runtime", async () => {
+  const { liveBrokerDigest } = await import("./gate-acceptance.mjs");
+  const d = "9".repeat(64); const other = "8".repeat(64);
+  // The shape the installed client printed on the Dell on 2026-11-17 (rustright-18c1f534), reduced.
+  const doctor = (over = {}) => ({ healthy: false, runtime: { expectedBrokerDigest: d }, answeringBroker: { answered: true, handshakeRuntime: { brokerDigest: d, version: "rustright-18c1f534" }, ...over } });
+  assert.deepEqual(liveBrokerDigest(doctor(), d), { digest: d, problem: null });
+  // Not answered, no digest in the handshake, no record at all: unknown. What is on disk (expectedBrokerDigest) is never read as running.
+  assert.match(liveBrokerDigest(doctor({ answered: false }), d).problem, /no broker answered/);
+  assert.match(liveBrokerDigest(doctor({ handshakeRuntime: {} }), d).problem, /states no broker digest/);
+  assert.match(liveBrokerDigest({ runtime: { expectedBrokerDigest: d } }, d).problem, /no answeringBroker record/);
+  assert.match(liveBrokerDigest(null, d).problem, /no answeringBroker record/);
+  // A broker other than the installed one is answering, or the installed runtime cannot be read: refused, with both values named.
+  assert.match(liveBrokerDigest(doctor(), other).problem, /the running broker is 9{64}, the installed runtime is 8{64}/);
+  assert.match(liveBrokerDigest(doctor(), null).problem, /manifest states no broker digest/);
+  for (const bad of [doctor({ answered: false }), doctor({ handshakeRuntime: {} }), null]) assert.equal(liveBrokerDigest(bad, d).digest, null);
+});
