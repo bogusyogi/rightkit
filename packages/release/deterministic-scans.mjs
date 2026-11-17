@@ -114,6 +114,28 @@ export function deterministicScansEnabled(config) {
 const PROBE_ANSWERS = new WeakMap();
 const probeAnswersOf = (spawnFn) => { if (typeof spawnFn !== "function") return new Map(); let m = PROBE_ANSWERS.get(spawnFn); if (!m) { m = new Map(); PROBE_ANSWERS.set(spawnFn, m); } return m; };
 
+// The same answer across runs (NN25: "a warm run starts no ... version probe"; NN01: a row answered from the cache starts no process of its tool,
+// and `rustfmt --version` was the process). Remembered in the result cache under the tool's program file as it is on disk: its absolute path,
+// size and modification time. A program that changed in any of those is asked again. A command that is not an absolute path to a file (a name
+// found on PATH), or a .cmd/.bat shim whose answer depends on what it points at, is never remembered across runs.
+export const PROBE_RECORD = "rightkit.tool-probe/1";
+const defaultStat = (f) => fs.statSync(f);
+function probeIdentity(tool, command, key, statFile = defaultStat) {
+  if (typeof command !== "string" || !path.isAbsolute(command) || /\.(cmd|bat)$/i.test(command)) return null;
+  let st; try { st = statFile(command); } catch { return null; }
+  if (!st?.isFile?.()) return null;
+  return sha256(canonicalJson({ schema: PROBE_RECORD, tool, command, size: st.size, mtimeMs: Math.trunc(st.mtimeMs), key }));
+}
+export function storedProbe(cache, tool, command, key, statFile) {
+  if (!cache) return null; const id = probeIdentity(tool, command, key, statFile); if (!id) return null;
+  const row = cache.read(id)?.row;
+  return row?.schema === PROBE_RECORD && row.tool === tool && row.command === command && row.outcome?.ok === true ? row.outcome : null;
+}
+export function storeProbe(cache, tool, command, key, outcome, statFile) {
+  if (!cache || !outcome?.ok) return; const id = probeIdentity(tool, command, key, statFile); if (!id) return;
+  cache.write(id, { schema: PROBE_RECORD, tool, command, outcome });
+}
+
 let neutralDir = null;
 /** An empty directory outside every repository, for tool version probes. */
 function probeDir() {
@@ -3246,10 +3268,14 @@ export async function runScans(plan, options = {}) {
     const command = trust ? (trust.ok ? trust.identity.path : null) : toolCommand(tool);
     const cwd = (tool === "rustright" || (tool === "cargo" && cargoLiveRoot)) && scanDir ? scanDir : (deps.probeDir ?? probeDir());
     const key = sha256(canonicalJson({ tool, command, cwd, args: PROBES[tool] ?? ["--version"], env: deps.env }));
-    const answers = probeAnswersOf(deps.spawn); const remembered = answers.get(key);
-    if (remembered) { toolVersions[tool] = remembered.version; if (remembered.identity) toolIdentities[tool] = { ...remembered.identity, probed: remembered.version }; return remembered; }
+    // Across runs the probe's directory is a fresh temporary one and the environment carries per-run values, so the stored answer is keyed by what
+    // can change a version answer: the program, its arguments, a scan directory when the probe runs in one, and the toolchain variables.
+    const neutral = cwd === (deps.probeDir ?? neutralDir);
+    const lasting = sha256(canonicalJson({ tool, command, args: PROBES[tool] ?? ["--version"], cwd: neutral ? "(neutral)" : cwd, env: Object.fromEntries(Object.entries(deps.env ?? {}).filter(([k]) => /^(PATH|Path|RUSTUP_TOOLCHAIN|RUSTUP_HOME|CARGO_HOME|RUSTC|COREPACK_HOME|PNPM_HOME)$/.test(k)).sort()) }));
+    const answers = probeAnswersOf(deps.spawn); const remembered = answers.get(key) ?? storedProbe(cache, tool, command, lasting, deps.statFile);
+    if (remembered) { answers.set(key, remembered); toolVersions[tool] = remembered.version; if (remembered.identity) toolIdentities[tool] = { ...remembered.identity, probed: remembered.version }; return remembered; }
     const outcome = await probeFlight(key, tool, scanDir);
-    if (outcome?.ok) answers.set(key, outcome);
+    if (outcome?.ok) { answers.set(key, outcome); storeProbe(cache, tool, command, lasting, outcome, deps.statFile); }
     if (tool === "rustright" && outcome?.ok && !outcome.pinProblem) rustrightAnswer = outcome;
     return outcome;
   };
