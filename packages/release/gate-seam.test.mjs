@@ -11,6 +11,12 @@ import { spawn, spawnSync } from "node:child_process";
 import { RECLAIM_QUERY_MS, snapshotReclaimJudge } from "./seam-broker.mjs";
 import { acquireSnapshotLock } from "./snapshot.mjs";
 
+// A Unix socket path may be at most 104 bytes on macOS (sun_path). A test that runs as a broker job gets the job's own temp folder, 74 characters
+// on the Mac (/Volumes/D/.rightkit-managed/tmp/jobs/<job id>), which leaves 30: "rk-seam-sock-XXXXXX/reject.sock" is 31, and the helper died with
+// "listen EINVAL" only when the gate ran the suite (Mac, 2026-11-17). So: a short folder, one-letter names, and a check that says the number.
+const sockDir = () => fs.mkdtempSync(path.join(os.tmpdir(), "rk-"));
+const sockAt = (dir, name) => { const p = path.join(dir, name); assert.ok(process.platform === "win32" || Buffer.byteLength(p) <= 96, `socket path is ${Buffer.byteLength(p)} bytes (limit 104, and tests append up to 8): ${p}`); return p; };
+
 // Wait until a fake broker started in another process listens. On a machine the gate itself keeps busy (a build using 80% of the cores) a node child can
 // take longer than 5 s to start (Mac, 2026-11-17: the wait ran out, the query met no socket, and the test failed as a wrong ANSWER). The wait is long, ends
 // at once when the child has died, and failing it says what failed.
@@ -38,7 +44,7 @@ test("only an exact SNAPSHOT_STATUS echo with state IDLE proves a dead holder's 
   if (process.platform === "win32") return;
   // A real unix socket answering the query from ANOTHER process (the client is synchronous and would block a server in this one): the client gets exactly the first line,
   // and the server saw the query with this owner.
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rk-seam-sock-")); const sock = path.join(dir, "b.sock"); const seenFile = path.join(dir, "seen.json");
+  const dir = sockDir(); const sock = sockAt(dir, "b"); const seenFile = path.join(dir, "seen.json");
   // Like the real broker (service.rs: HANDSHAKE emitted on connect, before any answer), the fake greets first, then answers the query after an unrelated frame.
   const serverScript = `const net=require("node:net"),fs=require("node:fs");const [sock,seen,reply]=process.argv.slice(1);net.createServer((c)=>{c.write(JSON.stringify({type:"HANDSHAKE",runtime:{},capabilities:[]})+"\\n");c.on("data",(d)=>{fs.writeFileSync(seen,String(d));c.write(JSON.stringify({type:"NOTE",text:"unrelated"})+"\\n"+reply+"\\n");});}).listen(sock);`;
   const server = spawn(process.execPath, ["-e", serverScript, sock, seenFile, JSON.stringify(idle)], { stdio: "ignore" });
@@ -68,7 +74,7 @@ test("only an exact SNAPSHOT_STATUS echo with state IDLE proves a dead holder's 
     assert.equal(snapshotReclaimJudge({ o, client: null, snapshotPath: snapshot })(owner), false, "no client: no proof");
     assert.equal(snapshotReclaimJudge({ o: { ...o, discoverEndpoint: () => `${sock}.missing` }, client, snapshotPath: snapshot })(owner), false, "no broker: no proof");
     // A broker that greets and then REJECTS the query (its refusal frame is a RESULT with status REJECTED): the refusal is the answer, and the judge says no.
-    const rejectSock = path.join(dir, "reject.sock");
+    const rejectSock = sockAt(dir, "r");
     const rejecting = spawn(process.execPath, ["-e", `const net=require("node:net");net.createServer((c)=>{c.write(JSON.stringify({type:"HANDSHAKE"})+"\\n");c.on("data",()=>c.write(JSON.stringify({type:"RESULT",exitCode:125,status:"REJECTED",error:"unknown request type",code:"RK_UNKNOWN_REQUEST"})+"\\n"));}).listen(process.argv[1]);`, rejectSock], { stdio: ["ignore", "ignore", "pipe"] });
     try {
       await listening(rejectSock, rejecting, "the rejecting fake broker");
@@ -78,7 +84,7 @@ test("only an exact SNAPSHOT_STATUS echo with state IDLE proves a dead holder's 
       assert.equal(snapshotReclaimJudge({ o: { ...o, discoverEndpoint: () => rejectSock }, client, snapshotPath: snapshot })(owner), false, "a rejected query is no proof");
     } finally { rejecting.kill(); }
     // A broker that greets and then never answers: the deadline ends the query with no proof, not a hang.
-    const silentSock = path.join(dir, "silent.sock");
+    const silentSock = sockAt(dir, "s");
     const silent = spawn(process.execPath, ["-e", `const net=require("node:net");net.createServer((c)=>{c.write(JSON.stringify({type:"HANDSHAKE"})+"\\n");}).listen(process.argv[1]);`, silentSock], { stdio: "ignore" });
     try {
       await listening(silentSock, silent, "the silent fake broker");
@@ -357,7 +363,7 @@ test("the door's lock step resolves the judge's client as the seam does (absolut
   if (process.platform === "win32") return;
   const { seamLockFor } = await import("./bin/rightkit-gate.mjs");
   const { spawnSync } = await import("node:child_process");
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rk-lockfor-")); const sock = path.join(dir, "b.sock"); const seenFile = path.join(dir, "seen.json");
+  const dir = sockDir(); const sock = sockAt(dir, "b"); const seenFile = path.join(dir, "seen.json");
   const clientDir = path.join(dir, "runtime"); fs.mkdirSync(clientDir); const client = path.join(clientDir, "rustright");
   fs.writeFileSync(client, "#!/bin/sh\n", { mode: 0o755 });
   fs.writeFileSync(path.join(clientDir, "runtime-manifest.json"), JSON.stringify({ schema: "rustright.build-control.runtime.v2", version: "0.1.1", clientDigest: "a".repeat(64), brokerDigest: "b".repeat(64) }));
