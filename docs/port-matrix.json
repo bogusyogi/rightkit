@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generatedAt": "2026-11-17T05:14:55Z",
-  "rightkitHead": "b74928c6eff072eaea9f6c0e76009b8278099b5e",
+  "generatedAt": "2026-11-17T05:22:50Z",
+  "rightkitHead": "df86c7d4beed023169153fa818b62ec2eb79c671",
   "legend": [
     {
       "state": "current",
@@ -2670,7 +2670,7 @@
       "group": "mandatory-set app",
       "dir": "D:\\Claude\\mailright",
       "present": true,
-      "head": "3c6e51a64024b0b852970d9967a8040bd324ed8d",
+      "head": "11ff9a8a5a63882ab705d20183fa0943c5ef3258",
       "profile": "desktop",
       "inMandatorySet": true,
       "declaration": {
