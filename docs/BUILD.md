@@ -102,7 +102,7 @@ The 42 GC-A27 non-negotiables are named checks of `packages/release/gate-accepta
 | NN16 | A unit list shares one Class A and runs no per-unit format check |
 | NN17 | Class A lanes equal the host's cores; Class B batches compatible rows |
 | NN18 | Warm time stays inside the host's budget |
-| NN19 | The gate under test is the installed sealed gate |
+| NN19 | The gate under test is the installed sealed gate, or the sealed candidate that NN31 tests before promotion (`--candidate`) |
 | NN20 | One edited crate recompiles only that crate and its dependents |
 | NN21 | One edited lockfile reruns only the rows that read it |
 | NN22 | A warm snapshot sync writes and removes nothing |

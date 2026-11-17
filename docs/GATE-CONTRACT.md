@@ -288,7 +288,7 @@ Adrian, 2026-11-03: "i wnat all dev completely gone. all debug too. completely g
 
 | Id | Property | Fails when |
 |---|---|---|
-| NN19 | The gate under test is the installed sealed gate | the run uses any other gate; a checkout gate run is development evidence and never counts |
+| NN19 | The gate under test is the installed sealed gate, or the sealed candidate that NN31 tests before promotion (`--candidate`) | the run uses any other gate; a checkout gate run is development evidence and never counts; a candidate that is not sealed, or is not the gate that actually ran, never counts (test: "NN31 candidate mode") |
 | NN30 | The releasing host passes (per host; Adrian 2026-11-07: "why would both machines be tied to each other in such a way for anything?") | a release lacks a passing run from the host that performs it; one host's result never stands for or blocks another |
 | NN31 | No gate is released or installed as trusted without a passing contract test | publish, upload or trusted-gate install on a host proceeds without a passing receipt for that exact commit from that host; a candidate is installed beside the trusted gate, tested, then promoted |
 

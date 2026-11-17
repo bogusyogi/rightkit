@@ -594,6 +594,7 @@ export function dirtyProof({ commitBytes, checkoutBytes, snapshotBytes, untracke
  * with verbatim arguments. Every argument and the launcher path must be free of cmd metacharacters (`" % ^ & | < > CR LF`); one that is not throws.
  */
 export function launchSpec(gate, args, { platform = process.platform, comspec = process.env.ComSpec || "cmd.exe" } = {}) {
+  if (/\.mjs$/i.test(gate)) return { command: process.execPath, args: [gate, ...args], options: {} }; // as the host launcher starts a sealed gate: node <entry> <args>
   if (platform !== "win32" || !/\.(cmd|bat)$/i.test(gate)) return { command: gate, args, options: {} };
   const unsafe = /["%^&|<>\r\n]/;
   for (const a of [gate, ...args]) if (unsafe.test(a)) throw new Error(`argument ${JSON.stringify(a)} is not safe to pass through cmd.exe`);
@@ -1198,6 +1199,22 @@ export function assertBudget({ host, budgets, runs }) {
 
 /** The newest sealed install under `<managed root>/trusted-gates` (a folder named by the sha256 of its manifest, as agent-bin/rightkit-host-gate trusts it): `{ version, entry }` or null. */
 export function findInstalledGate(managedRoot, io = {}) { return listInstalledGates(managedRoot, io)[0] ?? null; }
+/**
+ * NN31: the sealed candidate `sealed` under `<managed root>/trusted-gates/candidates` (where `rustright-install trusted-gate` puts a gate that is
+ * not yet trusted): a folder named by the sha256 of the manifest beside it. `{ version, sealedSha256, entry }` or null. The host launcher never
+ * lists this folder, so a candidate is run only when the contract test names it.
+ */
+export function findCandidateGate(managedRoot, sealed, { read = (f) => fs.readFileSync(f) } = {}) {
+  if (typeof sealed !== "string" || !/^[a-f0-9]{64}$/.test(sealed)) return null;
+  const root = path.join(managedRoot, "trusted-gates", "candidates");
+  try {
+    if (sha256(read(path.join(root, `${sealed}.manifest.txt`))) !== sealed) return null;
+    const pkgDir = path.join(root, sealed, "node_modules", "@rightkit", "release");
+    const pkg = JSON.parse(String(read(path.join(pkgDir, "package.json"))));
+    if (pkg?.name !== "@rightkit/release" || !/^\d+\.\d+\.\d+$/.test(pkg.version)) return null;
+    return { version: pkg.version, sealedSha256: sealed, entry: path.join(pkgDir, "bin", "rightkit-gate.mjs") };
+  } catch { return null; }
+}
 /** Every sealed install, newest version first. */
 export function listInstalledGates(managedRoot, { read = (f) => fs.readFileSync(f), list = (d) => fs.readdirSync(d) } = {}) {
   const root = path.join(managedRoot, "trusted-gates");
@@ -1219,9 +1236,19 @@ export function listInstalledGates(managedRoot, { read = (f) => fs.readFileSync(
 /**
  * NN19: the gate that runs is the installed sealed gate. Without `--gate` the default launcher must exist, report the newest sealed install's version
  * and not exec the checkout's gate; a checkout gate is accepted only when `--gate` names it (and the result then says so: `kind: "named"`).
+ * With `--candidate <sealed>` (`candidateArg`) the gate under test is that sealed candidate (NN31: installed beside the trusted gate, tested, then
+ * promoted): `kind: "candidate"`. It must exist sealed, the gate that runs must be its own entry, and it must report the candidate's version.
  */
-export function gateIdentityProblems({ gateArg, defaultGate, launcherExists, launcherVersion, launcherText = "", installed, checkoutRoot }) {
+export function gateIdentityProblems({ gateArg, defaultGate, launcherExists, launcherVersion, launcherText = "", installed, checkoutRoot, candidateArg = null, candidate = null }) {
   const problems = [];
+  if (candidateArg !== null && candidateArg !== undefined) {
+    if (!candidate) return { ok: false, kind: "candidate", problems: [`no sealed candidate ${candidateArg} under trusted-gates/candidates (a 64-hex folder whose manifest beside it hashes to its name)`] };
+    if (gateArg === undefined || gateArg === null || path.normalize(gateArg) !== path.normalize(candidate.entry)) problems.push(`the gate that runs is ${gateArg ?? defaultGate}, not the candidate's own entry ${candidate.entry}`);
+    if (!launcherExists) problems.push(`the candidate's entry ${candidate.entry} does not exist`);
+    if (!launcherVersion) problems.push("`--version` of the candidate printed no version");
+    else if (launcherVersion !== candidate.version) problems.push(`the candidate reports ${launcherVersion}, its sealed package says ${candidate.version}`);
+    return { ok: problems.length === 0, problems, kind: "candidate" };
+  }
   const named = gateArg !== undefined && gateArg !== null && path.normalize(gateArg) !== path.normalize(defaultGate);
   if (!launcherExists) problems.push(`the launcher ${named ? gateArg : defaultGate} does not exist`);
   if (!launcherVersion) problems.push("`--version` of the launcher printed no version");
@@ -1599,7 +1626,7 @@ export const validWaiver = (w) => isObject(w) && typeof w.clause === "string" &&
 /** `--verify-release`: the receipt of the host that releases or installs passes, for the gate commit and sealed gate, with the contract and runner it was
  * judged by. Per host (Adrian 2026-11-07: "why would both machines be tied to each other in such a way for anything?"): one host's receipt never
  * stands for or blocks the other. `b` is optional; when given, each receipt is judged on its own. */
-export function verifyReleaseReceipts(a, b = null, { commit = null, contractSha256 = null, runnerSha256 = null, waivers = [], host = null } = {}) {
+export function verifyReleaseReceipts(a, b = null, { commit = null, contractSha256 = null, runnerSha256 = null, waivers = [], host = null, sealedSha256 = null } = {}) {
   const problems = [];
   if (host && a?.host !== host) problems.push(`the receipt is from ${a?.host ?? "no host"}, this host is ${host}`);
   for (const [name, r] of (b ? [["first", a], ["second", b]] : [["the", a]])) {
@@ -1607,7 +1634,10 @@ export function verifyReleaseReceipts(a, b = null, { commit = null, contractSha2
     if (!isObject(r) || r.schema !== CONTRACT_RECEIPT_SCHEMA) { problems.push(`${w}: not a ${CONTRACT_RECEIPT_SCHEMA}`); continue; }
     if (r.ok !== true || !/^PASS /.test(String(r.verdict))) problems.push(`${w}: verdict ${JSON.stringify(r.verdict)} is not a PASS`);
     if (!isCommit(r.commit)) problems.push(`${w}: commit is not a 40-hex sha`);
-    if (r.gate?.kind !== "installed" || !isSha(r.gate?.sealedSha256)) problems.push(`${w}: not the installed sealed gate (kind ${JSON.stringify(r.gate?.kind)})`);
+    // A candidate's receipt is what promotion keeps (NN31: tested as a candidate, then promoted), so both kinds are a sealed gate's receipt.
+    if (!["installed", "candidate"].includes(r.gate?.kind) || !isSha(r.gate?.sealedSha256)) problems.push(`${w}: not a sealed gate's receipt (kind ${JSON.stringify(r.gate?.kind)})`);
+    // The receipt must be for the very gate being released or installed, not for some other gate of the same commit.
+    else if (sealedSha256 !== null && r.gate.sealedSha256 !== sealedSha256) problems.push(`${w}: it is for the sealed gate ${r.gate.sealedSha256}, the gate in question is ${sealedSha256}`);
     for (const id of Object.keys(r.nn ?? {})) if (r.nn[id] !== "pass") problems.push(`${w}: ${id} is ${r.nn[id]}`);
     // The exact set, by name: a count let a receipt with other or fewer rules through (the list had grown to 42 while this line still said 38).
     const have = Object.keys(isObject(r.nn) ? r.nn : {}); const missing = NN_ALL_IDS.filter((id) => !have.includes(id)); const unknown = have.filter((id) => !NN_ALL_IDS.includes(id));
@@ -2685,7 +2715,11 @@ async function main(argv) {
   if (argv.includes("--plan")) { console.log(formatPlan(buildPlan({ steps: wanted, allowInstall }))); return 0; }
   const fixture = opt("--fixture");
   if (argv.includes("--prove")) return proveMain({ fixture, host, out: opt("--prove-out"), argv });
-  if (!fixture) { console.error("usage: node gate-acceptance.mjs --fixture <dir> [--host mac|dell] [--steps S0,S1,...] [--out <dir>] [--plan] [--gate <path>] [--commit <sha>] [--allow-install]"); return 64; }
+  if (!fixture) { console.error("usage: node gate-acceptance.mjs --fixture <dir> [--host mac|dell] [--steps S0,S1,...] [--out <dir>] [--plan] [--gate <path> | --candidate <sealed sha256>] [--commit <sha>] [--allow-install]"); return 64; }
+  const candidateArg = opt("--candidate") ?? null;
+  if (candidateArg !== null && opt("--gate")) { console.error("--candidate and --gate cannot be given together: a candidate is run by its own sealed entry"); return 64; }
+  const candidate = candidateArg === null ? null : findCandidateGate(managedRootOf(host), candidateArg);
+  if (candidateArg !== null) return execute({ fixture, host, wanted, gate: candidate?.entry ?? path.join(managedRootOf(host), "trusted-gates", "candidates", String(candidateArg), "node_modules", "@rightkit", "release", "bin", "rightkit-gate.mjs"), gateArg: candidate?.entry ?? null, candidateArg, candidate, budgetsFile: opt("--budgets"), out: opt("--out"), commitArg: opt("--commit"), leafFile: opt("--leaf-file"), manifestFile: opt("--manifest-file"), killAfterMs: Number(opt("--kill-after-ms") ?? 3000), allowInstall, otherReceiptFile: opt("--other-receipt"), contractFile: opt("--contract-file"), pulseCompile: argv.includes("--pulse-compile"), forceNN: opt("--nn")?.split(",").filter(Boolean), checksOnly: argv.includes("--checks-only"), s11ChecksOnly: argv.includes("--s11-checks-only"), killsFilter: opt("--kills")?.split(",").filter(Boolean) });
   return execute({ fixture, host, wanted, gate: opt("--gate") ?? defaultGate(host), gateArg: opt("--gate"), budgetsFile: opt("--budgets"), out: opt("--out"), commitArg: opt("--commit"), leafFile: opt("--leaf-file"), manifestFile: opt("--manifest-file"), killAfterMs: Number(opt("--kill-after-ms") ?? 3000), allowInstall, otherReceiptFile: opt("--other-receipt"), contractFile: opt("--contract-file"), pulseCompile: argv.includes("--pulse-compile"), forceNN: opt("--nn")?.split(",").filter(Boolean), checksOnly: argv.includes("--checks-only"), s11ChecksOnly: argv.includes("--s11-checks-only"), killsFilter: opt("--kills")?.split(",").filter(Boolean) });
 }
 
@@ -2699,7 +2733,7 @@ async function execute(options) {
   }
 }
 
-async function executeRun({ fixture, host, wanted, gate, gateArg, budgetsFile, out, commitArg, leafFile, manifestFile, killAfterMs, allowInstall, otherReceiptFile, contractFile, pulseCompile, forceNN, checksOnly, s11ChecksOnly, killsFilter, g, scratch }) {
+async function executeRun({ fixture, host, wanted, gate, gateArg, budgetsFile, out, commitArg, leafFile, manifestFile, killAfterMs, allowInstall, otherReceiptFile, contractFile, pulseCompile, forceNN, checksOnly, s11ChecksOnly, killsFilter, g, scratch, candidateArg = null, candidate = null }) {
   const startedAt = new Date().toISOString();
   const platform = host === "dell" ? "win32" : "darwin";
   const managedRoot = managedRootOf(host);
@@ -2730,8 +2764,8 @@ async function executeRun({ fixture, host, wanted, gate, gateArg, budgetsFile, o
   };
   const probe = launcherProbe();
   const installedGate = findInstalledGate(managedRoot);
-  ctx.gateIdentity = gateIdentityProblems({ gateArg, defaultGate: defaultGate(host), launcherExists: probe.exists, launcherVersion: probe.version, launcherText: probe.text, installed: installedGate, checkoutRoot: workspaceRootOf() });
-  ctx.gateIdentityEvidence = `${gate} --version -> ${probe.version ?? "(none)"}; newest sealed install ${installedGate ? installedGate.version : "(none)"}`;
+  ctx.gateIdentity = gateIdentityProblems({ gateArg, defaultGate: defaultGate(host), launcherExists: probe.exists, launcherVersion: probe.version, launcherText: probe.text, installed: installedGate, checkoutRoot: workspaceRootOf(), candidateArg, candidate });
+  ctx.gateIdentityEvidence = `${gate} --version -> ${probe.version ?? "(none)"}; newest sealed install ${installedGate ? installedGate.version : "(none)"}${candidateArg !== null ? `; candidate ${candidateArg} ${candidate ? candidate.version : "(not found sealed)"}` : ""}`;
   gateIdentity.kind = ctx.gateIdentity.kind; gateIdentity.version = probe.version; gateIdentity.installedVersion = installedGate?.version ?? null;
   Object.assign(ctx, { wanted, host, budgets: budgetLoad.budgets, budgetProblem: budgetLoad.problem, cores: typeof os.availableParallelism === "function" ? os.availableParallelism() : os.cpus().length, jobsEnv: process.env.RK_GATE_JOBS });
 
@@ -3107,8 +3141,8 @@ async function executeRun({ fixture, host, wanted, gate, gateArg, budgetsFile, o
   result.proofs = { ...ctx.proofs, ...(development ? { NN19: { kind: "real-condition control: a checkout gate run is a development run", caught: nonNegotiables.find((n) => n.id === "NN19")?.status === "fail" && !result.ok } } : {}), ...(result.partial ? { NN34: { kind: "real-condition control: a partial run", caught: !result.ok } } : {}) };
   let receiptPath = null;
   if (result.ok && !development) {
-    const entry = findInstalledGate(managedRoot);
-    const receipt = buildContractReceipt({ host, commit: gateCommit, gate: { kind: "installed", version: entry?.version ?? probe.version, sealedPath: entry?.entry ?? null, sealedSha256: entry?.sealedSha256 ?? null }, contractSha256: ctx.contractSha256, runnerSha256: ctx.runnerSha256, budgetsSha256: fileSha(budgetsFile ?? BUDGETS_FILE), fixtureCommit: commit, result, broker: { runtimeDigest: ctx.broker.manifest?.brokerDigest ?? null, runtimeVersion: ctx.broker.manifest?.version ?? null, enrolledDigest: ctx.broker.pins?.brokerDigest ?? null } });
+    const entry = candidateArg !== null ? candidate : findInstalledGate(managedRoot);
+    const receipt = buildContractReceipt({ host, commit: gateCommit, gate: { kind: candidateArg !== null ? "candidate" : "installed", version: entry?.version ?? probe.version, sealedPath: entry?.entry ?? null, sealedSha256: entry?.sealedSha256 ?? null }, contractSha256: ctx.contractSha256, runnerSha256: ctx.runnerSha256, budgetsSha256: fileSha(budgetsFile ?? BUDGETS_FILE), fixtureCommit: commit, result, broker: { runtimeDigest: ctx.broker.manifest?.brokerDigest ?? null, runtimeVersion: ctx.broker.manifest?.version ?? null, enrolledDigest: ctx.broker.pins?.brokerDigest ?? null } });
     receiptPath = path.join(outDir, `contract-test-receipt.${host}.json`); fs.writeFileSync(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`);
   }
   result.receipt = receiptPath ?? (development ? "none: a development run writes no receipt" : "none: the run did not pass");
@@ -3127,15 +3161,16 @@ async function executeRun({ fixture, host, wanted, gate, gateArg, budgetsFile, o
 function verifyReleaseCli(argv) {
   const i = argv.indexOf("--verify-release");
   const files = [argv[i + 1]];
-  if (!files[0] || files[0].startsWith("--")) { console.error("usage: node gate-acceptance.mjs --verify-release <receipt> [--host mac|dell|linux] [--commit <sha>]"); return 64; }
+  if (!files[0] || files[0].startsWith("--")) { console.error("usage: node gate-acceptance.mjs --verify-release <receipt> [--host mac|dell|linux] [--commit <sha>] [--sealed <sha256 of the gate in question>]"); return 64; }
   const read = files.map((f) => readJson(f));
   const problems = read.filter((r) => r.error).map((r) => r.error);
   const j = argv.indexOf("--commit");
   if (!problems.length) {
     const budgets = loadBudgets().budgets;
     const waivers = (Array.isArray(budgets?.waivers) ? budgets.waivers : []).filter(validWaiver);
-    const h = argv.indexOf("--host");
-    problems.push(...verifyReleaseReceipts(read[0].value, null, { commit: j < 0 ? null : argv[j + 1], contractSha256: fileSha(CONTRACT_FILE), runnerSha256: fileSha(RUNNER_FILE), waivers, host: h < 0 ? null : argv[h + 1] }).problems);
+    const h = argv.indexOf("--host"); const sl = argv.indexOf("--sealed");
+    if (sl >= 0 && !/^[a-f0-9]{64}$/.test(String(argv[sl + 1]))) problems.push("--sealed needs the 64-hex sha256 that names the sealed gate");
+    problems.push(...verifyReleaseReceipts(read[0].value, null, { commit: j < 0 ? null : argv[j + 1], contractSha256: fileSha(CONTRACT_FILE), runnerSha256: fileSha(RUNNER_FILE), waivers, host: h < 0 ? null : argv[h + 1], sealedSha256: sl < 0 ? null : argv[sl + 1] }).problems);
   }
   console.log(problems.length ? `verify-release REFUSED (${problems.length} problem(s))` : "verify-release OK: this host's receipt passes for the gate commit");
   for (const p of problems) console.log(`  ${p}`);

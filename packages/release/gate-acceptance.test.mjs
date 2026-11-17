@@ -1043,3 +1043,51 @@ test("a contract-test receipt lists every file the runner is made of, so a seale
   src["/p/sub/c.mjs"] = 'import "../gone.mjs";';
   assert.throws(() => codeClosure([path.resolve("/p/a.mjs")], path.resolve("/p"), { readFile: read }), /no \/p\/gone\.mjs/);
 });
+
+test("NN31 candidate mode: a sealed candidate is found only when sealed, is the gate that runs, and its receipt is checked against the gate in question", async () => {
+  const { findCandidateGate, gateIdentityProblems, launchSpec, verifyReleaseReceipts, NN_ALL_IDS, CONTRACT_RECEIPT_SCHEMA } = await import("./gate-acceptance.mjs");
+  const { createHash } = await import("node:crypto");
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "rk-cand-"));
+  try {
+    const manifest = "node_modules/@rightkit/release/package.json abc\n";
+    const sealed = createHash("sha256").update(manifest).digest("hex");
+    const cands = path.join(root, "trusted-gates", "candidates");
+    const pkgDir = path.join(cands, sealed, "node_modules", "@rightkit", "release");
+    fs.mkdirSync(path.join(pkgDir, "bin"), { recursive: true });
+    fs.writeFileSync(path.join(pkgDir, "package.json"), JSON.stringify({ name: "@rightkit/release", version: "0.6.58" }));
+    fs.writeFileSync(path.join(cands, `${sealed}.manifest.txt`), manifest);
+    const found = findCandidateGate(root, sealed);
+    assert.deepEqual(found, { version: "0.6.58", sealedSha256: sealed, entry: path.join(pkgDir, "bin", "rightkit-gate.mjs") });
+    // Not sealed (the manifest does not hash to the folder name), not a sha, not there, or a trusted gate's folder: no candidate.
+    fs.writeFileSync(path.join(cands, `${sealed}.manifest.txt`), `${manifest}x`);
+    assert.equal(findCandidateGate(root, sealed), null);
+    fs.writeFileSync(path.join(cands, `${sealed}.manifest.txt`), manifest);
+    assert.equal(findCandidateGate(root, "not-a-sha"), null); assert.equal(findCandidateGate(root, "f".repeat(64)), null);
+    assert.equal(findCandidateGate(path.join(root, "elsewhere"), sealed), null);
+
+    // Identity: the candidate's own entry runs and reports the sealed version. Anything else is a problem, and the kind is always "candidate".
+    const base = { defaultGate: "/m/agent-bin/rightkit-host-gate", launcherExists: true, launcherVersion: "0.6.58", installed: { version: "0.6.57" }, checkoutRoot: "/w/rightkit", candidateArg: sealed, candidate: found, gateArg: found.entry };
+    assert.deepEqual(gateIdentityProblems(base), { ok: true, problems: [], kind: "candidate" });
+    assert.match(gateIdentityProblems({ ...base, candidate: null }).problems.join(), /no sealed candidate [a-f0-9]{64} under trusted-gates\/candidates/);
+    assert.equal(gateIdentityProblems({ ...base, candidate: null }).kind, "candidate");
+    assert.match(gateIdentityProblems({ ...base, gateArg: "/w/rightkit/packages/release/bin/rightkit-gate.mjs" }).problems.join(), /not the candidate's own entry/);
+    assert.match(gateIdentityProblems({ ...base, gateArg: null }).problems.join(), /not the candidate's own entry/);
+    assert.match(gateIdentityProblems({ ...base, launcherVersion: "0.6.57" }).problems.join(), /reports 0\.6\.57, its sealed package says 0\.6\.58/);
+    assert.match(gateIdentityProblems({ ...base, launcherVersion: null }).problems.join(), /printed no version/);
+    assert.match(gateIdentityProblems({ ...base, launcherExists: false }).problems.join(), /does not exist/);
+    // Without --candidate nothing changed: a named checkout gate is still a development run.
+    assert.equal(gateIdentityProblems({ ...base, candidateArg: null, candidate: null }).kind, "named");
+
+    // A sealed gate's entry is started with Node on every host, as the host launcher starts it.
+    for (const platform of ["win32", "darwin"]) assert.deepEqual(launchSpec(found.entry, ["--version"], { platform }), { command: process.execPath, args: [found.entry, "--version"], options: {} });
+
+    // The release check: a candidate's receipt is a sealed gate's receipt; it must be for the gate in question.
+    const nn = Object.fromEntries(NN_ALL_IDS.map((id) => [id, "pass"]));
+    const receipt = (gate) => ({ schema: CONTRACT_RECEIPT_SCHEMA, host: "dell", commit: "c".repeat(40), gate, verdict: "PASS 42/42", ok: true, nn, uncheckedClauses: [] });
+    assert.deepEqual(verifyReleaseReceipts(receipt({ kind: "candidate", sealedSha256: sealed }), null, { sealedSha256: sealed }).problems, []);
+    assert.deepEqual(verifyReleaseReceipts(receipt({ kind: "installed", sealedSha256: sealed }), null, { sealedSha256: sealed }).problems, []);
+    assert.match(verifyReleaseReceipts(receipt({ kind: "candidate", sealedSha256: "e".repeat(64) }), null, { sealedSha256: sealed }).problems.join(), /it is for the sealed gate e{64}, the gate in question is/);
+    assert.match(verifyReleaseReceipts(receipt({ kind: "named", sealedSha256: sealed })).problems.join(), /not a sealed gate's receipt \(kind "named"\)/);
+    assert.match(verifyReleaseReceipts(receipt({ kind: "candidate", sealedSha256: null })).problems.join(), /not a sealed gate's receipt/);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
