@@ -550,7 +550,9 @@ function noticeLockDigest({ root, files }) {
       const [, ref, recorded] = m;
       consumed.add(m.index + m[0].lastIndexOf(recorded));
       const line = lineOf(text, m.index);
-      const lock = declared.find((f) => f === ref || f.endsWith(`/${ref}`)) ?? upward(dirOf(file)).map((d) => join(d, ref)).find((f) => set.has(f));
+      // A repository-relative lock path takes precedence over an app-relative suffix.
+      const lock = declared.includes(ref) ? ref
+        : declared.find((f) => f.endsWith(`/${ref}`)) ?? upward(dirOf(file)).map((d) => join(d, ref)).find((f) => set.has(f));
       if (!lock || !set.has(lock)) {
         out.push({ file, subject: `${ref}:unresolved`, problem: `${file}:${line} UNSUPPORTED: records ${ref} sha256 ${recorded}, but no committed ${ref} at or above ${dirOf(file) || "."} (nor in a legal-snapshot notices.hashes entry) can be compared, so its freshness is not proven`, fix: `commit the lock the notice was generated from beside the app, or regenerate the notice from the lock that is committed` });
         continue;
