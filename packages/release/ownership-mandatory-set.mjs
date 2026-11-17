@@ -24,10 +24,14 @@
 // raising minimums is the separate activation step (PK17.activation). The M22 applicability record (PK15-2) is validated and
 // reported under `applicability.M22`; an invalid or contradictory record is a `problem`, which never changes the exit code.
 import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
+import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { parse as parseToml } from "smol-toml";
 import { requiresDesktopAgentSurface } from "./ownership-applicability.mjs";
+
+// Generated-docs preflight imports the declaration helpers before dependencies are installed.
+let smolTomlParse;
+const parseToml = (text) => (smolTomlParse ??= createRequire(import.meta.url)("smol-toml").parse)(text);
 
 const packageRoot = path.dirname(fileURLToPath(import.meta.url));
 export const DATA_FILE = "ownership-mandatory-set.json";
