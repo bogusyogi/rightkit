@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generatedAt": "2026-11-17T05:22:50Z",
-  "rightkitHead": "df86c7d4beed023169153fa818b62ec2eb79c671",
+  "generatedAt": "2026-11-17T05:49:45Z",
+  "rightkitHead": "3f33c346f0b9df73e68cd875feb287d94f0fc3f9",
   "legend": [
     {
       "state": "current",
@@ -599,7 +599,7 @@
       "group": "mandatory-set app",
       "dir": "D:\\Claude\\cutright",
       "present": true,
-      "head": "72601358e553450b3c19d482a4870edb1292dd80",
+      "head": "abc195206f99306a0015a3e5789c4c83daa3710a",
       "profile": "desktop",
       "inMandatorySet": true,
       "declaration": {
@@ -1464,7 +1464,7 @@
       "group": "mandatory-set app",
       "dir": "D:\\Claude\\heardright",
       "present": true,
-      "head": "45d6f671c5b4c8e8f986287d0c06a9d62caf0310",
+      "head": "d24f3fab4573ffc9bee8571c612cf726e5032495",
       "profile": "desktop",
       "inMandatorySet": true,
       "declaration": {
@@ -1505,8 +1505,8 @@
           ],
           "ownersRequired": 30,
           "ownersPinned": 29,
-          "ownersCurrent": 11,
-          "percent": 37
+          "ownersCurrent": 12,
+          "percent": 40
         },
         "addons": {
           "total": 62,
@@ -1561,7 +1561,7 @@
             },
             {
               "name": "@rightkit/tauri",
-              "state": "stale"
+              "state": "current"
             }
           ],
           "missing": []
@@ -2670,7 +2670,7 @@
       "group": "mandatory-set app",
       "dir": "D:\\Claude\\mailright",
       "present": true,
-      "head": "11ff9a8a5a63882ab705d20183fa0943c5ef3258",
+      "head": "cf3632dc3557651c2fc65ed5f50f7b611387bf0c",
       "profile": "desktop",
       "inMandatorySet": true,
       "declaration": {
@@ -4511,7 +4511,7 @@
       "group": "mandatory-set app",
       "dir": "D:\\Claude\\viewright",
       "present": true,
-      "head": "d75ae3f9991b09b7336a10a4d8c33fb2d111d76b",
+      "head": "b64cecc3a6538284577d1da32f2e55606e391402",
       "profile": "desktop",
       "inMandatorySet": true,
       "declaration": {
@@ -8908,9 +8908,9 @@
         "tauri-host-adapters"
       ],
       "private": false,
-      "source": "0.4.2",
+      "source": "0.4.3",
       "registry": "0.4.2",
-      "staged": "0.4.2",
+      "staged": "0.4.3",
       "dir": "packages/tauri",
       "toMoveFrom": {},
       "cells": {
@@ -8946,8 +8946,8 @@
           ]
         },
         "heardright": {
-          "state": "stale",
-          "detail": "0.3.0→0.4.2",
+          "state": "current",
+          "detail": "0.4.2",
           "rows": [
             "M1"
           ]

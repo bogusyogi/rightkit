@@ -17,7 +17,7 @@ Status values compare each pin with the latest published version (registry-recor
 
 - Packages in RightKit: 280 (228 crates, 52 npm packages).
 - Packages with at least one app pin: 150.
-- App pins: 674. Stale: 169. Ahead of published: 131. Unpublished: 122. Local: 54. Git: 0. Unparsed: 0.
+- App pins: 674. Stale: 168. Ahead of published: 131. Unpublished: 122. Local: 54. Git: 0. Unparsed: 0.
 - Vendored copies of RightKit packages inside app repos: 40.
 - App and package pairs with more than one requirement: 13.
 
@@ -298,7 +298,7 @@ Status values compare each pin with the latest published version (registry-recor
 | `@rightkit/social-ui` | npm | 0.2.1 | none recorded | 0 | none | - |
 | `@rightkit/sync-worker` | private | 0.1.0 | none recorded | 0 | none | - |
 | `@rightkit/system-ui` | npm | 0.2.1 | none recorded | 0 | none | - |
-| `@rightkit/tauri` | npm | 0.4.2 | 0.4.2 | 8 | coderight, cutright, genright, heardright, mailright, postright, scraperight, viewright | 4 stale |
+| `@rightkit/tauri` | npm | 0.4.3 | 0.4.2 | 8 | coderight, cutright, genright, heardright, mailright, postright, scraperight, viewright | 3 stale |
 | `@rightkit/tauri-shell` | npm | 0.1.4 | 0.1.3 | 6 | coderight, cutright, genright, postright, scraperight, viewright | 3 ahead of published |
 | `@rightkit/terminal-ui` | npm | 0.1.0 | none recorded | 0 | none | - |
 | `@rightkit/theme` | npm | 0.3.4 | 0.3.4 | 8 | coderight, cutright, genright, heardright, mailright, postright, scraperight, viewright | 4 stale |
@@ -962,7 +962,7 @@ Status values compare each pin with the latest published version (registry-recor
 | `@rightkit/tauri` | coderight | `coderight/apps/coderight-tauri/package.json` | dependencies | `0.4.2` | 0.4.2 | current |
 | `@rightkit/tauri` | cutright | `cutright/apps/cutright/package.json` | dependencies | `0.4.2` | 0.4.2 | current |
 | `@rightkit/tauri` | genright | `genright/package.json` | dependencies | `0.4.2` | 0.4.2 | current |
-| `@rightkit/tauri` | heardright | `heardright/tauri-app-next/package.json` | dependencies | `0.3.0` | 0.4.2 | stale |
+| `@rightkit/tauri` | heardright | `heardright/tauri-app-next/package.json` | dependencies | `0.4.2` | 0.4.2 | current |
 | `@rightkit/tauri` | mailright | `mailright/package.json` | dependencies | `0.4.2` | 0.4.2 | current |
 | `@rightkit/tauri` | postright | `postright/package.json` | dependencies | `0.3.0` | 0.4.2 | stale |
 | `@rightkit/tauri` | scraperight | `scraperight/package.json` | dependencies | `0.3.0` | 0.4.2 | stale |
