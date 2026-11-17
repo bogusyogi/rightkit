@@ -1,38 +1,12 @@
 // Shorts — docs/design/app-ui.md §3.6.
 import { Badge, Button, Checkbox, EmptyState, Field, PageShell, useToast } from "@rightkit/react-shell/react";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { errorMessage } from "../../lib/engine.js";
-import {
-  type ShortProposal,
-  type ShortsResult,
-  type ReframeSummary,
-  framingApproval,
-  framingLabel,
-  settingsGet,
-  reframeShow,
-  shortsAccept,
-  shortsPropose,
-  sourceList,
-  thumbnails,
-} from "../../lib/media.js";
+import { framingLabel } from "../../lib/media.js";
 import { assetUrl } from "../../lib/asset.js";
-import { appendClip, projectShow, type ProjectShow } from "../../lib/project.js";
+import { useVideoShorts, useShortThumbnail, useShortTrimDrag, SHORT_ASPECT, type ShortProposal } from "../hooks/useVideoShorts.js";
 import { FramingDrawer } from "./AutoEditView.js";
 import { RangePreview } from "../../components/RangePreview.js";
 import { Drawer, ErrorPanel, ProgressRow, Thumbnail, timecode, Icon } from "../ui/index.js";
 import { hostAppName } from "../appName.js";
-
-type SourceRow = { id: string; name: string; path: string; exists: boolean; has_transcript: boolean };
-
-/** Shorts render vertical: the engine requires an approved plan for this aspect. */
-const SHORT_ASPECT = "9:16";
-
-/** Mirrors the engine's rule: a source within 5% of 9:16 renders full-frame without a plan. */
-function needsFraming(show: ProjectShow | null, source: string): boolean {
-  const v = show?.timeline.sources.find((t) => t.id === source)?.video;
-  if (!v) return false;
-  return Math.abs(v.width / v.height / (9 / 16) - 1) >= 0.05;
-}
 
 /** Two-handle boundary trim over a ±5s context window around the proposal. */
 function BoundaryTrim({
@@ -46,35 +20,17 @@ function BoundaryTrim({
   endMs: number;
   onChange: (start: number, end: number) => void;
 }) {
-  const track = useRef<HTMLDivElement | null>(null);
+  const { track, drag } = useShortTrimDrag(proposal, startMs, endMs, onChange);
   const lo = Math.max(0, proposal.start_ms - 5000);
   const hi = proposal.end_ms + 5000;
   const span = hi - lo;
   const pct = (ms: number) => `${(((ms - lo) / span) * 100).toFixed(2)}%`;
 
-  const drag = (which: "in" | "out") => (e: React.PointerEvent) => {
-    e.preventDefault();
-    const el = track.current;
-    if (!el) return;
-    const rect = el.getBoundingClientRect();
-    const move = (ev: PointerEvent) => {
-      const frac = Math.max(0, Math.min(1, (ev.clientX - rect.left) / rect.width));
-      const ms = lo + frac * span;
-      if (which === "in") onChange(Math.min(ms, endMs - 250), endMs);
-      else onChange(startMs, Math.max(ms, startMs + 250));
-    };
-    const up = () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
-    };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
-  };
 
   return (
-    <div className="shorts-trim" ref={track}>
+    <div className="shorts-trim">
       <span className="shorts-trim__time cr-mono">{timecode(lo)}</span>
-      <div className="shorts-trim__track">
+      <div className="shorts-trim__track" ref={track}>
         <div className="shorts-trim__sel" style={{ left: pct(startMs), right: `calc(100% - ${pct(endMs)})` }} />
         <button
           type="button"
@@ -97,17 +53,7 @@ function BoundaryTrim({
 }
 
 function ShortThumb({ dir, source, atMs, videoPath }: { dir: string; source: string; atMs: number; videoPath?: string }) {
-  const [src, setSrc] = useState<string | undefined>();
-  useEffect(() => {
-    let cancelled = false;
-    setSrc(undefined);
-    thumbnails(dir, { source }, { at_ms: atMs, width: 360 })
-      .then((r) => !cancelled && setSrc(r.frames[0] ? assetUrl(r.frames[0].path) : undefined))
-      .catch(() => undefined);
-    return () => {
-      cancelled = true;
-    };
-  }, [dir, source, atMs]);
+  const src = useShortThumbnail(dir, source, atMs);
   return <Thumbnail src={src} aspect="9 / 16" video={videoPath ? `${assetUrl(videoPath)}#t=${atMs / 1000}` : undefined} />;
 }
 
@@ -120,124 +66,14 @@ function platformLabel(id: string): string {
   return id.charAt(0).toUpperCase() + id.slice(1);
 }
 
-export function ShortsView({ dir, onChanged }: { dir: string; onChanged: () => Promise<void> }) {
+export function ShortsView({ dir, onChanged, refreshChangedProject }: { dir: string; onChanged: () => Promise<void>; refreshChangedProject?: (dir: string) => Promise<void> }) {
   const toast = useToast();
-  const [sources, setSources] = useState<SourceRow[]>([]);
-  const [source, setSource] = useState("");
-  const [busy, setBusy] = useState<string | null>(null);
-  // Which operation `busy` (a short id) stands for, so each button shows its own busy text.
-  const [busyOp, setBusyOp] = useState<"add" | "export" | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [shorts, setShorts] = useState<ShortsResult | null>(null);
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [open, setOpen] = useState<ShortProposal | null>(null);
-  const [trim, setTrim] = useState<{ start: number; end: number } | null>(null);
-  const [searched, setSearched] = useState(false);
-  const [show, setShow] = useState<ProjectShow | null>(null);
-  const [plan, setPlan] = useState<ReframeSummary | "none" | undefined>(undefined);
-  const [autoFraming, setAutoFraming] = useState(false);
-  const [framing, setFraming] = useState(false);
-
-  const refresh = useCallback(async () => {
-    const [s, p, settings] = await Promise.all([sourceList(dir), projectShow(dir), settingsGet(dir)]);
-    setAutoFraming(framingApproval(settings) === "auto");
-    const rows = s.sources as SourceRow[];
-    setSources(rows);
-    setShow(p);
-    setSource((cur) => cur || rows.find((x) => x.has_transcript)?.id || rows[0]?.id || "");
-  }, [dir]);
-
-  useEffect(() => {
-    refresh().catch((e) => setError(errorMessage(e)));
-  }, [refresh]);
-
-  const selectedSource = sources.find((s) => s.id === source);
-  const framingNeeded = needsFraming(show, source);
-
-  // The vertical plan for the chosen source; "none" until one is analysed.
-  useEffect(() => {
-    setPlan(undefined);
-    if (!source || !framingNeeded) return;
-    let live = true;
-    reframeShow(dir, source, SHORT_ASPECT)
-      .then((r) => live && setPlan(r))
-      .catch(() => live && setPlan("none"));
-    return () => {
-      live = false;
-    };
-  }, [dir, source, framingNeeded]);
-
-  const framingApproved = !framingNeeded || (plan !== undefined && plan !== "none" && plan.approved);
-  const framingAllowed = autoFraming || framingApproved;
+  const { sources, source, setSource, busy, busyOp, error, shorts, selected, setSelected, open, setOpen, trim, setTrim, searched, plan, framingChanged, autoFraming, framing, setFraming, selectedSource, framingNeeded, framingAllowed, propose, exportShort, exportSelected, addToTimeline, openDrawer } = useVideoShorts({
+    dir, onChanged, refreshChangedProject,
+    onExported: (r) => toast(`Short ${r.variant} exported`, { kind: "success" }),
+    onAdded: (p) => toast(`Added “${p.title}” to the timeline`, { kind: "success" }),
+  });
   const framingBlock = framingAllowed ? undefined : "Approve this source's 9:16 framing first";
-
-  const propose = async () => {
-    setBusy("propose");
-    setError(null);
-    try {
-      const r = await shortsPropose(dir, source, 6);
-      setShorts(r);
-      setSelected(new Set());
-      setSearched(true);
-    } catch (e) {
-      setError(errorMessage(e));
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const exportShort = async (p: ShortProposal, bounds?: { start: number; end: number }) => {
-    setBusy(p.id);
-    setBusyOp("export");
-    setError(null);
-    try {
-      const trimmed =
-        bounds && (bounds.start !== p.start_ms || bounds.end !== p.end_ms)
-          ? { start_ms: bounds.start, end_ms: bounds.end }
-          : undefined;
-      const r = await shortsAccept(dir, source, p.id, trimmed);
-      toast(`Short ${r.variant} exported`, { kind: "success" });
-      if (framingNeeded) setPlan(await reframeShow(dir, source, SHORT_ASPECT));
-      await refresh();
-      await onChanged();
-      return true;
-    } catch (e) {
-      setError(errorMessage(e));
-      return false;
-    } finally {
-      setBusy(null);
-      setBusyOp(null);
-    }
-  };
-
-  const exportSelected = async () => {
-    const list = (shorts?.proposals ?? []).filter((p) => selected.has(p.id));
-    for (const p of list) {
-      // eslint-disable-next-line no-await-in-loop -- sequential: one render worker
-      if (!(await exportShort(p))) break;
-    }
-  };
-
-  const addToTimeline = async (p: ShortProposal, startMs: number, endMs: number) => {
-    setBusy(p.id);
-    setBusyOp("add");
-    setError(null);
-    try {
-      await appendClip(dir, source, startMs, endMs);
-      toast(`Added “${p.title}” to the timeline`, { kind: "success" });
-      await onChanged();
-    } catch (e) {
-      setError(errorMessage(e));
-    } finally {
-      setBusy(null);
-      setBusyOp(null);
-    }
-  };
-
-  const openDrawer = (p: ShortProposal) => {
-    setOpen(p);
-    setTrim({ start: p.start_ms, end: p.end_ms });
-  };
 
   return (
     <PageShell title="Shorts" actions={
@@ -254,7 +90,7 @@ export function ShortsView({ dir, onChanged }: { dir: string; onChanged: () => P
             variant="primary"
             title={selectedSource?.has_transcript ? undefined : "Transcribe this source first"}
             onClick={() => void propose()}
-            disabled={(!selectedSource?.has_transcript) || (busy === "propose")}
+            disabled={(!selectedSource?.has_transcript) || (busy !== null)}
             aria-busy={(busy === "propose") || undefined}
           >{!(busy === "propose") && <Icon name="scissors" />}
             {busy === "propose" ? "Finding…" : "Find shorts"}
@@ -382,7 +218,7 @@ export function ShortsView({ dir, onChanged }: { dir: string; onChanged: () => P
               <Button
                 variant="secondary"
                 onClick={() => void addToTimeline(open, trim?.start ?? open.start_ms, trim?.end ?? open.end_ms)}
-                disabled={(busy === open.id)}
+                disabled={busy !== null}
                 aria-busy={(busy === open.id) || undefined}
               >
                 {busyOp === "add" && busy === open.id ? "Adding…" : "Add to timeline"}
@@ -396,11 +232,11 @@ export function ShortsView({ dir, onChanged }: { dir: string; onChanged: () => P
                 variant="primary"
                 onClick={() =>
                   void exportShort(open, trim ? { start: trim.start, end: trim.end } : undefined).then(
-                    (ok) => ok && setOpen(null),
+                    (ok) => ok && setOpen((current) => current === open ? null : current),
                   )
                 }
                 title={framingBlock ?? "Renders the trimmed range (bounds snap to word edges)"}
-                disabled={(!framingAllowed) || (busy === open.id)}
+                disabled={(!framingAllowed) || (busy !== null)}
                 aria-busy={(busy === open.id) || undefined}
               >
                 {busyOp === "export" && busy === open.id ? "Exporting…" : "Export"}
@@ -418,6 +254,7 @@ export function ShortsView({ dir, onChanged }: { dir: string; onChanged: () => P
               endMs={trim?.end ?? open.end_ms}
             />
             <Field label="Boundaries" note={`${timecode(trim?.start ?? open.start_ms)} – ${timecode(trim?.end ?? open.end_ms)}`}>{() => (<BoundaryTrim
+                key={open.id}
                 proposal={open}
                 startMs={trim?.start ?? open.start_ms}
                 endMs={trim?.end ?? open.end_ms}
@@ -440,7 +277,7 @@ export function ShortsView({ dir, onChanged }: { dir: string; onChanged: () => P
           plan={plan}
           autoFraming={autoFraming}
           onClose={() => setFraming(false)}
-          onChanged={setPlan}
+          onChanged={framingChanged}
         />
       )}
     </PageShell>

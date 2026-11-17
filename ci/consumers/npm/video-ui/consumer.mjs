@@ -73,6 +73,15 @@ try {
     }
     assert.equal(typeof workspaceMod.useVideoPhrases, 'function');
     assert.equal(typeof workspaceMod.useVideoRetention, 'function');
+    assert.equal(typeof workspaceMod.useVideoShorts, 'function');
+    assert.equal(typeof workspaceMod.useShortThumbnail, 'function');
+    assert.equal(typeof workspaceMod.useShortTrimDrag, 'function');
+    const proposal = { start_ms: 3000, end_ms: 6000 };
+    assert.deepEqual(workspaceMod.shortTrimBounds(proposal, 3000, 6000, 'in', -1), { start: 0, end: 6000 });
+    assert.deepEqual(workspaceMod.shortTrimBounds(proposal, 3000, 6000, 'in', 1), { start: 5750, end: 6000 });
+    assert.deepEqual(workspaceMod.shortTrimBounds(proposal, 3000, 6000, 'out', 0), { start: 3000, end: 3250 });
+    assert.deepEqual(workspaceMod.shortTrimBounds(proposal, 3000, 6000, 'out', 2), { start: 3000, end: 11000 });
+    assert.deepEqual(workspaceMod.shortTrimBounds(proposal, 3000, 6000, 'in', 1 / 3), { start: 3667, end: 6000 });
     assert.deepEqual(workspaceMod.phraseHighlight('the Phrase here', 'phrase'), { before: 'the ', match: 'Phrase', after: ' here' });
     assert.equal(workspaceMod.phraseHighlight('the Phrase here', '  '), null);
     for (const key of appExpected) assert.ok(key in appMod, `missing app export ${key}`);

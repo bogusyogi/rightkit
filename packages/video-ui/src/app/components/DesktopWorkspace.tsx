@@ -329,7 +329,7 @@ export function DesktopWorkspace() {
               }}
             />
           ) : tab === "shorts" ? (
-            <ShortsView dir={dir} onChanged={refresh} />
+            <ShortsView dir={dir} onChanged={refresh} refreshChangedProject={refreshChangedProject} />
           ) : tab === "phrases" ? (
             <PhrasesView dir={dir} onChanged={refresh} refreshChangedProject={refreshChangedProject} />
           ) : tab === "retention" ? (
