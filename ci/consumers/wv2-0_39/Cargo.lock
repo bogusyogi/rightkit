@@ -3129,7 +3129,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-job-queue"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "rightkit-child-process",
  "rightkit-sidecar",
