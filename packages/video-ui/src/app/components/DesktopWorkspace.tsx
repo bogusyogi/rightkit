@@ -151,7 +151,7 @@ export function DesktopWorkspace() {
     setTab("projects");
   }, []);
 
-  const { recents, recentInfo, dropActive, openExisting, createProjectAt, importBundleAt } = useVideoProjects({
+  const { recents, recentInfo, dropActive, openExisting, createProjectAt, importBundleAt, openFiles } = useVideoProjects({
     dir, ready: status?.state === "ready", recentRefreshKey: tab === "projects", fallbackName: "Untitled",
     callbacks: {
       onOpen: (path) => open(path),
