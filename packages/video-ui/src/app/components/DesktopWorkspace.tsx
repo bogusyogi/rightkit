@@ -305,6 +305,8 @@ export function DesktopWorkspace() {
               outputPath={output}
               onRender={(p) => void render(p)}
               onChanged={refresh}
+              refreshChangedProject={refreshChangedProject}
+              captureSelection={captureSelection}
               onImportRetention={(render) => {
                 setRetentionPreselect(render);
                 setTab("retention");
