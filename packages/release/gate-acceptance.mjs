@@ -1594,7 +1594,9 @@ export function verifyReleaseReceipts(a, b = null, { commit = null, contractSha2
     if (!isCommit(r.commit)) problems.push(`${w}: commit is not a 40-hex sha`);
     if (r.gate?.kind !== "installed" || !isSha(r.gate?.sealedSha256)) problems.push(`${w}: not the installed sealed gate (kind ${JSON.stringify(r.gate?.kind)})`);
     for (const id of Object.keys(r.nn ?? {})) if (r.nn[id] !== "pass") problems.push(`${w}: ${id} is ${r.nn[id]}`);
-    if (!r.nn || Object.keys(r.nn).length < 38) problems.push(`${w}: covers ${Object.keys(r.nn ?? {}).length} non-negotiables, expected 38`);
+    // The exact set, by name: a count let a receipt with other or fewer rules through (the list had grown to 42 while this line still said 38).
+    const have = Object.keys(isObject(r.nn) ? r.nn : {}); const missing = NN_ALL_IDS.filter((id) => !have.includes(id)); const unknown = have.filter((id) => !NN_ALL_IDS.includes(id));
+    if (missing.length || unknown.length) problems.push(`${w}: its non-negotiables are not the contract's ${NN_ALL_IDS.length}${missing.length ? `; missing ${missing.join(", ")}` : ""}${unknown.length ? `; unknown ${unknown.join(", ")}` : ""}`);
     const open = (r.uncheckedClauses ?? []).filter((id) => !waivers.some((x) => validWaiver(x) && x.clause === id));
     if (open.length) problems.push(`${w}: ${open.length} operative clause(s) unchecked and not waived by Adrian by name (${open.slice(0, 8).join(", ")}${open.length > 8 ? ", ..." : ""})`);
   }

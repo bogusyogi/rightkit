@@ -981,3 +981,18 @@ test("NN36: a budget number changed to null counts as a change; a null that was 
   assert.equal(risenBudgets(was, { hosts: { mac: { a: null, b: null, c: 3 } } }).length, 1);
   assert.equal(risenBudgets(was, { hosts: { mac: { a: 5, b: null, c: 3 } } }).length, 0);
 });
+
+test("release check: a receipt must carry exactly the contract's non-negotiables, each a pass", async () => {
+  const { verifyReleaseReceipts, NN_ALL_IDS, CONTRACT_RECEIPT_SCHEMA } = await import("./gate-acceptance.mjs");
+  const receipt = (nn) => ({ schema: CONTRACT_RECEIPT_SCHEMA, host: "dell", commit: "c".repeat(40), gate: { kind: "installed", sealedSha256: "a".repeat(64) }, verdict: "PASS 42/42", ok: true, nn, uncheckedClauses: [] });
+  const all = Object.fromEntries(NN_ALL_IDS.map((id) => [id, "pass"]));
+  assert.deepEqual(verifyReleaseReceipts(receipt(all)).problems, []);
+  // A passing subset is not a pass (the installer fixture that carried only NN01 and NN31).
+  assert.match(verifyReleaseReceipts(receipt({ NN01: "pass", NN31: "pass" })).problems.join(" | "), /not the contract's \d+; missing NN02, .*NN30/);
+  const { NN30: _dropped, ...without30 } = all;
+  assert.match(verifyReleaseReceipts(receipt(without30)).problems.join(" | "), /missing NN30$/);
+  // Thirty-eight or more keys of the wrong names do not pass either, and an unknown rule is named.
+  assert.match(verifyReleaseReceipts(receipt({ ...without30, NN99: "pass" })).problems.join(" | "), /missing NN30; unknown NN99/);
+  assert.match(verifyReleaseReceipts(receipt({ ...all, NN07: "fail" })).problems.join(" | "), /NN07 is fail/);
+  assert.match(verifyReleaseReceipts(receipt(null)).problems.join(" | "), /missing NN01/);
+});
