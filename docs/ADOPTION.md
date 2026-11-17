@@ -233,7 +233,7 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-sync-keys` | private | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-sysmem` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-system-monitor` | crates.io | 0.3.0 | none recorded | 0 | none | - |
-| `rightkit-tauri-shell` | crates.io | 0.8.2 | 0.8.2 | 8 | coderight, cutright, genright, heardright, mailright, postright, scraperight, viewright | 6 stale |
+| `rightkit-tauri-shell` | crates.io | 0.8.3 | 0.8.2 | 8 | coderight, cutright, genright, heardright, mailright, postright, scraperight, viewright | 6 stale |
 | `rightkit-terminal-ui` | crates.io | 0.1.3 | none recorded | 0 | none | - |
 | `rightkit-text-polish` | crates.io | 0.1.1 | none recorded | 1 | heardright | - |
 | `rightkit-theme` | crates.io | 0.1.0 | none recorded | 0 | none | - |

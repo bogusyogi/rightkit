@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generatedAt": "2026-11-17T03:58:37Z",
-  "rightkitHead": "7bcef5b9ae1a8264b6e56759d0b8752ed9b3ddf8",
+  "generatedAt": "2026-11-17T04:18:07Z",
+  "rightkitHead": "857e6d45dfd62308c59d2664dc5593cd9af016c6",
   "legend": [
     {
       "state": "current",
@@ -137,7 +137,7 @@
       "group": "mandatory-set app",
       "dir": "D:\\Claude\\coderight",
       "present": true,
-      "head": "3bc6c39fe8f05c6aab6123642bd52a12bc9004e6",
+      "head": "8e1f8a4bae5d49b731bd0540ae57f102d39f6eff",
       "profile": "desktop",
       "inMandatorySet": true,
       "declaration": {
@@ -187,12 +187,12 @@
           "total": 62,
           "pinned": 22,
           "current": 1,
-          "stale": 0,
+          "stale": 1,
           "local": 0
         },
         "exceptions": {
-          "total": 67,
-          "open": 67,
+          "total": 66,
+          "open": 66,
           "expired": 0,
           "withoutIssueOrExpiry": 0,
           "unmatched": 0
@@ -573,8 +573,8 @@
             "RightKitStore",
             "RightKitUI"
           ],
-          "state": "ahead",
-          "detail": "0.8.1 (no version recorded)"
+          "state": "stale",
+          "detail": "0.8.1→0.9.0"
         },
         {
           "file": "apps/coderight-tauri/macos-native/CodeRightMac/Package.swift",
@@ -587,8 +587,8 @@
           "products": [
             "RightKitAppleCredentials"
           ],
-          "state": "ahead",
-          "detail": "0.8.1 (no version recorded)"
+          "state": "stale",
+          "detail": "0.8.1→0.9.0"
         }
       ],
       "rkReady": [],
@@ -1512,7 +1512,7 @@
           "total": 62,
           "pinned": 17,
           "current": 1,
-          "stale": 0,
+          "stale": 1,
           "local": 0
         },
         "exceptions": {
@@ -1901,8 +1901,8 @@
             "RightKitUI",
             "RightKitWatchBridge"
           ],
-          "state": "ahead",
-          "detail": "0.8.1 (no version recorded)"
+          "state": "stale",
+          "detail": "0.8.1→0.9.0"
         },
         {
           "file": "tauri-app-next/macos-native/HeardRightPillMac/Package.swift",
@@ -1916,8 +1916,8 @@
             "RightKitAppleCredentials",
             "RightKitOverlay"
           ],
-          "state": "ahead",
-          "detail": "0.9.0 (no version recorded)"
+          "state": "current",
+          "detail": "=0.9.0"
         }
       ],
       "rkReady": [
@@ -3560,7 +3560,7 @@
           "total": 62,
           "pinned": 24,
           "current": 1,
-          "stale": 1,
+          "stale": 2,
           "local": 0
         },
         "exceptions": {
@@ -3940,8 +3940,8 @@
             "RightKitPulse",
             "RightKitStore"
           ],
-          "state": "ahead",
-          "detail": "0.8.1 (no version recorded)"
+          "state": "stale",
+          "detail": "0.8.1→0.9.0"
         },
         {
           "file": "mac/Hub/Package.swift",
@@ -3955,8 +3955,8 @@
             "RightKitAccessibility",
             "RightKitFS"
           ],
-          "state": "ahead",
-          "detail": "0.8.1 (no version recorded)"
+          "state": "stale",
+          "detail": "0.8.1→0.9.0"
         },
         {
           "file": "mac/Notch/project.yml",
@@ -3976,8 +3976,8 @@
             "RightKitOverlay",
             "RightKitWatch"
           ],
-          "state": "ahead",
-          "detail": "0.8.1 (no version recorded)"
+          "state": "stale",
+          "detail": "0.8.1→0.9.0"
         },
         {
           "file": "swift/MeshLink/Package.swift",
@@ -3990,8 +3990,8 @@
           "products": [
             "RightKitCredentials"
           ],
-          "state": "ahead",
-          "detail": "0.8.1 (no version recorded)"
+          "state": "stale",
+          "detail": "0.8.1→0.9.0"
         }
       ],
       "rkReady": [
@@ -4017,9 +4017,9 @@
           "publish": "n/a (SwiftPM, tag-based)",
           "status": "duplicate",
           "owner": "RightKitSwift",
-          "ownerVersion": "0.9.1",
-          "ownerPublished": false,
-          "statusText": "duplicate of owner RightKitSwift product RightKitHub (source 0.9.1, not published)"
+          "ownerVersion": "0.9.0",
+          "ownerPublished": true,
+          "statusText": "duplicate of published owner RightKitSwift product RightKitHub 0.9.0"
         }
       ],
       "toMove": []
@@ -4094,7 +4094,7 @@
           "total": 62,
           "pinned": 15,
           "current": 6,
-          "stale": 0,
+          "stale": 1,
           "local": 0
         },
         "exceptions": {
@@ -4485,8 +4485,8 @@
             "RightKitSpeech",
             "RightKitStore"
           ],
-          "state": "ahead",
-          "detail": "0.8.1 (no version recorded)"
+          "state": "stale",
+          "detail": "0.8.1→0.9.0"
         },
         {
           "file": "macos-native/ScrapeRightAppleCredentials/Package.swift",
@@ -4499,8 +4499,8 @@
           "products": [
             "RightKitAppleCredentials"
           ],
-          "state": "ahead",
-          "detail": "0.8.1 (no version recorded)"
+          "state": "stale",
+          "detail": "0.8.1→0.9.0"
         }
       ],
       "rkReady": [],
@@ -5054,7 +5054,7 @@
           "total": 92,
           "pinned": 36,
           "current": 5,
-          "stale": 30,
+          "stale": 31,
           "local": 0
         },
         "exceptions": {
@@ -5102,8 +5102,8 @@
             "RightKitLicense",
             "RightKitStore"
           ],
-          "state": "ahead",
-          "detail": "0.8.1 (no version recorded)"
+          "state": "stale",
+          "detail": "0.8.1→0.9.0"
         }
       ],
       "rkReady": [],
@@ -5147,7 +5147,7 @@
           "total": 92,
           "pinned": 3,
           "current": 1,
-          "stale": 1,
+          "stale": 2,
           "local": 0
         },
         "exceptions": {
@@ -5194,8 +5194,8 @@
             "RightKitDiagnostics",
             "RightKitUI"
           ],
-          "state": "ahead",
-          "detail": "0.8.1 (no version recorded)"
+          "state": "stale",
+          "detail": "0.8.1→0.9.0"
         }
       ],
       "rkReady": [],
@@ -9538,8 +9538,8 @@
       ],
       "private": false,
       "source": "0.9.1",
-      "registry": "",
-      "staged": "0.8.1",
+      "registry": "0.9.0",
+      "staged": "0.9.1",
       "dir": "swift/RightKitSwift",
       "products": [
         "RightKitAccessibility",
@@ -9585,8 +9585,8 @@
       "toMoveFrom": {},
       "cells": {
         "coderight": {
-          "state": "ahead",
-          "detail": "0.8.1 (no version recorded), 2 pins; 4 exceptions: bogusyogi/rightkit#1127/bogusyogi/rightkit#1134+, expires 2026-11-30",
+          "state": "stale",
+          "detail": "0.8.1→0.9.0, 2 pins; 4 exceptions: bogusyogi/rightkit#1127/bogusyogi/rightkit#1134+, expires 2026-11-30",
           "exceptions": {
             "count": 4,
             "expired": 0,
@@ -9610,8 +9610,8 @@
           "detail": ""
         },
         "heardright": {
-          "state": "ahead",
-          "detail": "0.8.1 (no version recorded), 0.9.0 (no version recorded), 2 pins"
+          "state": "stale",
+          "detail": "0.8.1→0.9.0; also 1 current"
         },
         "mailright": {
           "state": "unused",
@@ -9622,8 +9622,8 @@
           "detail": ""
         },
         "pulse": {
-          "state": "ahead",
-          "detail": "0.8.1 (no version recorded), 4 pins; 2 exceptions: bogusyogi/rightkit#1038, expires 2026-11-30",
+          "state": "stale",
+          "detail": "0.8.1→0.9.0, 4 pins; 2 exceptions: bogusyogi/rightkit#1038, expires 2026-11-30",
           "exceptions": {
             "count": 2,
             "expired": 0,
@@ -9636,20 +9636,20 @@
           }
         },
         "scraperight": {
-          "state": "ahead",
-          "detail": "0.8.1 (no version recorded), 2 pins"
+          "state": "stale",
+          "detail": "0.8.1→0.9.0, 2 pins"
         },
         "viewright": {
           "state": "unused",
           "detail": ""
         },
         "ember": {
-          "state": "ahead",
-          "detail": "0.8.1 (no version recorded)"
+          "state": "stale",
+          "detail": "0.8.1→0.9.0"
         },
         "sellright": {
-          "state": "ahead",
-          "detail": "0.8.1 (no version recorded)"
+          "state": "stale",
+          "detail": "0.8.1→0.9.0"
         },
         "legion": {
           "state": "unused",
@@ -18864,12 +18864,12 @@
       "cells": {
         "coderight": {
           "state": "current",
-          "detail": "=0.4.0, 4 pins; 2 exceptions: bogusyogi/rightkit#1139, expires 2026-11-30",
+          "detail": "=0.4.0, 4 pins; 1 exception: bogusyogi/rightkit#1139, expires 2026-11-30",
           "rows": [
             "M17"
           ],
           "exceptions": {
-            "count": 2,
+            "count": 1,
             "expired": 0,
             "withoutIssue": 0,
             "withoutExpiry": 0,
@@ -24493,9 +24493,9 @@
         "desktop-shell"
       ],
       "private": false,
-      "source": "0.8.2",
+      "source": "0.8.3",
       "registry": "0.8.2",
-      "staged": "0.8.2",
+      "staged": "0.8.3",
       "dir": "crates/rightkit-tauri-shell",
       "toMoveFrom": {},
       "cells": {

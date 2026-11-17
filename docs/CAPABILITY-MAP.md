@@ -162,7 +162,7 @@ Capabilities: 222 (58 with fingerprints, 164 declaration-only). Internal owners 
 | ocr | `rightkit-ocr` | advise | fingerprinted | 3 (0 block, 3 advise) | rightkit-ocr: published 0.2.3 (crates.io) |
 | onboarding-ui | `@rightkit/onboarding` | advise | fingerprinted | 7 (0 block, 7 advise) | @rightkit/onboarding: published 0.6.5 (npm) |
 | onnx-runtime | `rightkit-onnx` | advise | fingerprinted | 4 (0 block, 4 advise) | rightkit-onnx: published 0.2.7 (crates.io) |
-| os-credential-store | `RightKitSwift`, `rightkit-credentials` | advise | fingerprinted | 7 (0 block, 7 advise) | RightKitSwift: published 0.4.0 (SwiftPM); rightkit-credentials: published 0.5.5 (crates.io) |
+| os-credential-store | `RightKitSwift`, `rightkit-credentials` | advise | fingerprinted | 7 (0 block, 7 advise) | RightKitSwift: published 0.9.0 (SwiftPM); rightkit-credentials: published 0.5.5 (crates.io) |
 | os-sandbox | `rightkit-sandbox` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-sandbox: published 0.6.1 (crates.io) |
 | owned-processes | `rightkit-child-process` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-child-process: published 0.5.13 (crates.io) |
 | owner-approvals | `rightkit-owner-approvals` | none | declaration-only | 0 | rightkit-owner-approvals: staged 0.1.2, not published |
