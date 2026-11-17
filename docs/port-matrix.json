@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generatedAt": "2026-11-17T05:49:45Z",
-  "rightkitHead": "3f33c346f0b9df73e68cd875feb287d94f0fc3f9",
+  "generatedAt": "2026-11-17T06:08:30Z",
+  "rightkitHead": "7a1b72801f78ea3773c6db42bb883bccf44923da",
   "legend": [
     {
       "state": "current",
@@ -4029,7 +4029,7 @@
       "group": "mandatory-set app",
       "dir": "D:\\Claude\\scraperight",
       "present": true,
-      "head": "0ac8dba1c9c1567aad3fc1fd39f13f42f83f0aad",
+      "head": "8d146e6fc75ececbb91fde153df00468503ab014",
       "profile": "desktop",
       "inMandatorySet": true,
       "declaration": {
@@ -4511,7 +4511,7 @@
       "group": "mandatory-set app",
       "dir": "D:\\Claude\\viewright",
       "present": true,
-      "head": "b64cecc3a6538284577d1da32f2e55606e391402",
+      "head": "e2e99f605ad966f633108cb2f1dec7b49a61c82a",
       "profile": "desktop",
       "inMandatorySet": true,
       "declaration": {
