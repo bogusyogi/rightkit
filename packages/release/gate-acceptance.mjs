@@ -2636,11 +2636,16 @@ export function liveBrokerDigest(doctor, manifestDigest) {
 }
 /**
  * The environment a trust decision reads this host through: no RIGHTKIT_ or RUSTRIGHT_ variable (a session can point those anywhere), and the home
- * folder of the operating-system account, not the one the session exports (an agent session's HOME is redirected). Matches what promotion does.
+ * folder of the operating-system account, not the one the session exports (an agent session's HOME is redirected), and on Windows that
+ * account's own application-data folders.
  */
-export function hostAuthoritativeEnv(env = process.env, home = os.userInfo().homedir) {
-  const out = Object.fromEntries(Object.entries(env ?? {}).filter(([k]) => !/^(RIGHTKIT_|RUSTRIGHT_)/i.test(k) && !/^(HOME|USERPROFILE)$/i.test(k)));
-  return { ...out, HOME: home, USERPROFILE: home };
+export function hostAuthoritativeEnv(env = process.env, home = os.userInfo().homedir, platform = process.platform) {
+  const out = Object.fromEntries(Object.entries(env ?? {}).filter(([k]) => !/^(RIGHTKIT_|RUSTRIGHT_)/i.test(k) && !/^(HOME|USERPROFILE|LOCALAPPDATA|APPDATA)$/i.test(k)));
+  // On Windows the managed roots are looked for under LOCALAPPDATA first (managed-roots.mjs). A session can export its own, so the account's
+  // folders are derived from the account's home: <home>\AppData\Local and <home>\AppData\Roaming, the places Windows gives an account by default.
+  // An account whose folders were moved elsewhere is then not found, and the check refuses; it never follows the session's value.
+  const windows = platform === "win32" ? { LOCALAPPDATA: path.win32.join(home, "AppData", "Local"), APPDATA: path.win32.join(home, "AppData", "Roaming") } : {};
+  return { ...out, HOME: home, USERPROFILE: home, ...windows };
 }
 /**
  * Asks the running broker through the installed client. One environment (hostAuthoritativeEnv) is used for all three steps: finding the installed

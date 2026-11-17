@@ -1172,12 +1172,15 @@ test("a trust decision finds the installed client and asks the broker with sessi
   const { managedRuntimeClient } = await import("./managed-roots.mjs");
   const home = process.platform === "win32" ? "C:\\Users\\owner" : "/Users/owner";
   const session = { PATH: "/bin", HOME: "/sessions/agent/home", USERPROFILE: "C:\\sessions\\agent", home: "/lowercase/home", RUSTRIGHT_RUNTIME_ROOT: "/nowhere", RUSTRIGHT_BUILD_BROKER_SOCKET: "/nowhere.sock", RIGHTKIT_MANAGED_ROOT: "/nowhere", rightkit_lower: "x", LOCALAPPDATA: "C:\\Users\\owner\\AppData\\Local" };
-  const env = hostAuthoritativeEnv(session, home);
-  assert.deepEqual(Object.keys(env).sort(), ["HOME", "LOCALAPPDATA", "PATH", "USERPROFILE"]);
+  const env = hostAuthoritativeEnv({ ...session, LOCALAPPDATA: "C:\sessions\agent\AppData\Local", APPDATA: "C:\sessions\agent\AppData\Roaming", LocalAppData: "C:\sessions\other" }, home, "win32");
+  assert.deepEqual(Object.keys(env).sort(), ["APPDATA", "HOME", "LOCALAPPDATA", "PATH", "USERPROFILE"]);
   assert.equal(env.HOME, home); assert.equal(env.USERPROFILE, home);
+  // Windows: the session's own application-data folders are not followed; the account's are derived from the account's home.
+  assert.equal(env.LOCALAPPDATA, path.win32.join(home, "AppData", "Local")); assert.equal(env.APPDATA, path.win32.join(home, "AppData", "Roaming"));
+  assert.deepEqual(Object.keys(hostAuthoritativeEnv(session, "/Users/owner", "darwin")).sort(), ["HOME", "PATH", "USERPROFILE"]);
   // Root selection: the client found under the session's overrides is the one found with none of them set.
   for (const platform of ["win32", "darwin"]) {
-    const clean = hostAuthoritativeEnv({ PATH: "/bin", LOCALAPPDATA: session.LOCALAPPDATA }, home);
+    const clean = hostAuthoritativeEnv({ PATH: "/bin" }, home, "win32");
     const order = (e) => { const asked = []; managedRuntimeClient(e, platform, (f) => { asked.push(f); return false; }); return asked; };
     assert.deepEqual(order(env), order(clean), platform);
     assert.ok(order(env).length > 0 && order(env).every((f) => !/nowhere|sessions/.test(f)), `${platform}: ${order(env).join(" | ")}`);
