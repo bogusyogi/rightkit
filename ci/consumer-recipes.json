@@ -2934,7 +2934,7 @@
       "files": {
         "Cargo.toml": "00274e979891edb4d1d882874192735f3049d0a9b746bc22671a458f98ac03bd",
         "README.md": "091fcdf702be270365d6051dcd003549dc086f625f6f6a9fc288cc8ef1699c2c",
-        "src/main.rs": "bef56cb1cd4b243b5b8e4fa7079c946a3c05b8a6d13f94cba35805104890c2d4"
+        "src/main.rs": "4e4aa0e429b5619e48c8e8fa98d18259c8e3993f6cf308db86b0394eaf4dacd3"
       }
     },
     "rightkit-autoedit": {
