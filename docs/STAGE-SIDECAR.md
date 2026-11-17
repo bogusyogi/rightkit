@@ -91,6 +91,20 @@ the externalBin layout. Without `resourceDir` nothing changes.
   lipo-merged file is written to `<resourceDir>/<tool>`. Bytes the command wrote are verified against the row, but stage-sidecar
   does not delete a file the command itself wrote.
 
+### Mixed runtime manifest (`runtime-manifest`)
+
+Place this entry after every active sidecar entry, with exactly one earlier ONNX producer in the same directory:
+
+```js
+{ kind: "runtime-manifest", dir: "src-tauri/resources/runtime",
+  onnxruntime: { version: "1.30.0", variant: "cpu", catalogRow: "onnxruntime-1.30.0-macos-universal2" },
+  platforms: ["mac"] }
+```
+
+It writes the strict `rightkit-onnx` schema 1 `manifest.json` from this staging run's verified file and notice receipt rows. The ONNX version, row and target must match the selected serving catalog row; DirectML requires its exact catalog companion staged beside it. `variant` is a caller declaration where the catalog has no typed variant. Stage installed attribution as an earlier resource within the directory: it is included in the manifest. Configure `sign.runtimeManifests` (or `install.runtimeManifests` for macOS dev installs) to refresh listed hashes after signing, before sealing; staging does not configure signing automatically.
+
+The directory must contain only receipt-backed regular files plus `manifest.json`. Unsafe path components, symlinks, conflicting outputs or notices, and unlisted files refuse staging; remove obsolete files deliberately before retrying. No directory sweep runs. `--if-stale` checks the declaration, catalog and notice fingerprints, receipt hashes, manifest bytes and exact directory membership before reuse.
+
 ### Native libraries (`native-library`, and its alias `onnxruntime`)
 
 ```js

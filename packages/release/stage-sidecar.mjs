@@ -33,6 +33,7 @@
 //
 // It never signs (release.mjs signs staged files) and never calls bare cargo. Every effect goes through `deps`.
 import { createHash } from "node:crypto";
+import { checkRuntimeBundleOutput, checkRuntimeBundlePath, planRuntimeBundle, runtimeBundleRelative } from "./runtime-bundle-stage.mjs";
 import nodeFs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -81,7 +82,7 @@ export class StageSidecarError extends Error {
 const fail = (code, message, details) => { throw new StageSidecarError(code, message, details); };
 const isObject = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
 const SHA256 = /^[0-9a-f]{64}$/;
-const KINDS = new Set(["cargo-bin", "ffmpeg", "onnxruntime", "native-library", "resource", "command", "remote", "cmake", "prebuilt"]);
+const KINDS = new Set(["cargo-bin", "ffmpeg", "onnxruntime", "native-library", "resource", "command", "remote", "cmake", "prebuilt", "runtime-manifest"]);
 export const NESTED_BROKER_CODE = "STAGE_SIDECAR_NESTED_BROKER";
 export const REMOTE_CACHE_DIR = ".right-release/cache/remote";
 /** Per-arch staging for a universal ffmpeg or onnxruntime entry: `<SLICE_ROOT>/<triple>/...`, merged with lipo afterwards. */
@@ -123,6 +124,7 @@ const NATIVE_OTHER_ROUTE = Object.freeze({ ffmpeg: "has its own kind: use { kind
 /** A catalog version token (1.24.4, chromium/8021): only compared with the rows, never used as a path. */
 const NATIVE_VERSION = /^[A-Za-z0-9][A-Za-z0-9._+/-]{0,63}$/;
 const KEYS = Object.freeze({
+  "runtime-manifest": ["kind", "dir", "onnxruntime", "platforms"],
   "cargo-bin": ["kind", "package", "bin", "name", "profile", "features", "devFeatures", "manifestPath", "sha256", "dest", "clean", "platforms"],
   ffmpeg: ["kind", "variant", "variants", "tools", "notices", "catalog", "stage", "bundleDir", "resourceDir", "sources", "probe", "platforms"],
   onnxruntime: ["kind", "version", "catalog", "resourceDir", "as", "licenseDir", "cacheDir", "companions", "platforms"],
@@ -425,7 +427,14 @@ export function validateSidecarManifest(raw, { target, mode = "release" } = {}) 
       return item.clean === true;
     };
     const stagedClaim = (name) => `${stageDir}/${stagedName(name, t)}`;
-    if (item.kind === "cargo-bin") {
+    if (item.kind === "runtime-manifest") {
+      const dir = relativePath(item.dir, `${where}: dir`, errors);
+      if (dir && !runtimeBundleRelative(dir)) errors.push(`${where}: dir contains a non-portable or reserved path component`);
+      const identity = item.onnxruntime;
+      if (!isObject(identity) || Object.keys(identity).some((key) => !["version", "variant", "catalogRow"].includes(key)) || [identity.version, identity.variant, identity.catalogRow].some((value) => typeof value !== "string" || !value || value.trim() !== value)) errors.push(`${where}: onnxruntime must be exactly { version, variant, catalogRow } with nonblank strings`);
+      if (!skipped && dir) claim(`${dir}/manifest.json`, where);
+      Object.assign(entry, { dir, onnxruntime: identity });
+    } else if (item.kind === "cargo-bin") {
       if (typeof item.package !== "string" || !NAME.test(item.package)) errors.push(`${where}: package must be a Cargo package name`);
       const bin = item.bin ?? item.package;
       if (typeof bin !== "string" || !NAME.test(bin)) errors.push(`${where}: bin must be a binary target name`);
@@ -651,6 +660,13 @@ export function validateSidecarManifest(raw, { target, mode = "release" } = {}) 
       Object.assign(entry, { from, to, ...(clean ? { clean } : {}),...(item.sha256 ? { sha256: item.sha256 } : {}), ...(item.machO ? { machO: true } : {}) });
     }
     entries.push(entry);
+  }
+  for (const entry of entries.filter((item) => item.kind === "runtime-manifest" && !item.skipped)) {
+    const dir = entry.dir && canonicalOutput(entry.dir);
+    if (dir && [receiptPath, stageDir].filter(Boolean).some((output) => { const key = canonicalOutput(output); return key === dir || key.startsWith(`${dir}/`) || dir.startsWith(`${key}/`); })) errors.push(`sidecars[${entry.index}] (runtime-manifest) cannot overlap the stage directory or receipt`);
+    if (entries.some((item) => !item.skipped && item.index > entry.index)) errors.push(`sidecars[${entry.index}] (runtime-manifest) must follow every active staging entry`);
+    const producers = entries.filter((item) => !item.skipped && item.index < entry.index && (item.kind === "onnxruntime" || (item.kind === "native-library" && item.library === "onnxruntime")) && item.resourceDir === entry.dir);
+    if (producers.length !== 1) errors.push(`sidecars[${entry.index}] (runtime-manifest) needs exactly one earlier ONNX producer in its directory`);
   }
   const protectedPaths = protectedOutputPaths({ stageDir, receiptPath, entries });
   for (const { key, output, label } of claimed) {
@@ -1292,15 +1308,93 @@ async function stageFfmpegUniversal(entry, ctx, resolved) {
   });
 }
 
+async function loadMediaCatalogOf(entry, ctx) {
+  if (ctx.mediaCatalogs.has(entry)) return ctx.mediaCatalogs.get(entry);
+  let loaded = await ctx.loadMediaCatalog({ config: entry.media, appRoot: ctx.appRoot, entry });
+  if (!loaded) {
+    if (!entry.catalogSpec) fail("STAGE_SIDECAR_CATALOG_UNREADABLE", "ffmpeg needs a catalog (the rightkit-ffmpeg artifacts.json: a path, { crate } or { npm }) or deps.loadMediaCatalog");
+    loaded = readJsonCatalog(resolveCatalogFile(entry.catalogSpec, ctx, "ffmpeg"), ctx.appRoot, ctx.fs, "rightkit-ffmpeg");
+  }
+  ctx.mediaCatalogs.set(entry, loaded);
+  return loaded;
+}
+
+// Before a mixed runtime writes anything, claim catalog-generated notices too.
+// Shared notices are allowed only when their source bytes agree.
+async function claimRuntimeNotices(plan, ctx) {
+  const runtimeDirs = plan.entries.filter((entry) => !entry.skipped && entry.kind === "runtime-manifest").map((entry) => canonicalOutput(entry.dir));
+  const notices = new Map();
+  const prefixes = new Map();
+  const register = (output) => {
+    const parts = output.split("/");
+    for (let index = 1; index <= parts.length; index += 1) {
+      const spelling = parts.slice(0, index).join("/");
+      const key = canonicalOutput(spelling);
+      if (prefixes.has(key) && prefixes.get(key) !== spelling) fail("STAGE_SIDECAR_CONFIG_INVALID", `case-colliding runtime path ${spelling}`);
+      prefixes.set(key, spelling);
+    }
+  };
+  const outputs = [...plan.claims];
+  for (const claim of outputs) if (runtimeDirs.some((dir) => claim.key.startsWith(`${dir}/`))) { register(claim.output); checkRuntimeBundleOutput(ctx.appRoot, claim.output, ctx.fs); }
+  for (const entry of plan.entries.filter((item) => !item.skipped && (item.kind === "onnxruntime" || item.kind === "native-library"))) {
+    const loaded = await loadNativeCatalogOf(entry, ctx);
+    const targets = plan.target.arch === "universal" ? SLICES.map((triple) => parseTargetTriple(triple)) : [plan.target];
+    for (const target of targets) for (const item of planNativeSet(entry, ctx, loaded, target)) {
+      const output = `${entry.resourceDir}/${item.outName}`;
+      const key = canonicalOutput(output);
+      if (runtimeDirs.some((dir) => key.startsWith(`${dir}/`))) { register(output); checkRuntimeBundleOutput(ctx.appRoot, output, ctx.fs); }
+      if (!outputs.some((claim) => claim.key === key)) outputs.push({ key, output, label: `sidecars[${entry.index}]` });
+    }
+  }
+  const add = (dest, bytes, label) => {
+    const output = rel(ctx, dest);
+    const key = canonicalOutput(output);
+    if (!runtimeDirs.some((dir) => key.startsWith(`${dir}/`))) return;
+    register(output);
+    checkRuntimeBundleOutput(ctx.appRoot, output, ctx.fs);
+    const digest = sha256Of(bytes);
+    const previous = notices.get(key);
+    if (previous && (previous.output !== output || previous.digest !== digest)) fail("STAGE_SIDECAR_CONFIG_INVALID", `conflicting notices write ${output}`);
+    const noticeClaims = [...notices.entries()].map(([noticeKey, notice]) => ({ key: noticeKey, output: notice.output, label: "another notice" }));
+    const clash = findClaimClash([...outputs, ...noticeClaims], key);
+    if (clash && !(previous && clash.key === key && clash.label === "another notice")) fail("STAGE_SIDECAR_CONFIG_INVALID", `${label} notice ${output} overlaps ${clash.label} output ${clash.output}`);
+    notices.set(key, { output, digest });
+  };
+  for (const entry of plan.entries.filter((item) => !item.skipped)) {
+    if (entry.kind === "onnxruntime" || entry.kind === "native-library") {
+      const loaded = await loadNativeCatalogOf(entry, ctx);
+      const targets = plan.target.arch === "universal" ? SLICES.map((triple) => parseTargetTriple(triple)) : [plan.target];
+      for (const target of targets) for (const item of planNativeSet(entry, ctx, loaded, target)) {
+        if (!Array.isArray(item.row.noticeFiles) || !item.row.noticeFiles.length) fail("STAGE_SIDECAR_NOTICE_MISSING", `${item.row.id} has no notices`);
+        for (const notice of item.row.noticeFiles) {
+          const normalized = String(notice).replaceAll("\\", "/");
+          if (path.isAbsolute(notice) || normalized.split("/").includes("..")) fail("STAGE_SIDECAR_NOTICE_MISSING", `notice escapes catalog: ${notice}`);
+          const source = path.join(loaded.crateDir, ...normalized.split("/"));
+          add(path.resolve(ctx.appRoot, entry.licenseDir, path.posix.basename(normalized)), ctx.fs.readFileSync(source), item.row.id);
+        }
+      }
+    } else if (entry.kind === "ffmpeg") {
+      const loaded = await loadMediaCatalogOf(entry, ctx);
+      const configs = plan.target.arch === "universal" ? entry.slices.map((slice) => slice.media) : [entry.media];
+      const plans = configs.map((config) => planMediaSidecar({ config, catalog: loaded.catalog, crateDir: loaded.crateDir, crateVersion: loaded.crateVersion, catalogBytes: loaded.catalogBytes, root: ctx.appRoot }));
+      const rows = new Map();
+      for (const part of plans) {
+        for (const notice of part.notices) add(notice.dest, ctx.fs.readFileSync(notice.source), "ffmpeg");
+        for (const row of part.rows) rows.set(row.id, row);
+      }
+      const offer = plan.target.arch === "universal" ? sourceOfferText({ rows: [...rows.values()], contact: entry.media.notices.sourceOfferContact, crateVersion: loaded.crateVersion }) : plans[0].offer;
+      add(plans[0].offerPath, Buffer.from(offer), "ffmpeg");
+    }
+  }
+  ctx.runtimeNotices = notices;
+  ctx.runtimeNoticeDigest = sha256Of(Buffer.from(JSON.stringify([...notices.entries()].sort())));
+}
+
 async function stageFfmpeg(entry, ctx) {
   const { appRoot, fs, target } = ctx;
   const config = entry.media;
   try {
-    let resolved = await ctx.loadMediaCatalog({ config, appRoot, entry });
-    if (!resolved) {
-      if (!entry.catalogSpec) fail("STAGE_SIDECAR_CATALOG_UNREADABLE", "ffmpeg needs a catalog (the rightkit-ffmpeg artifacts.json: a path, { crate } or { npm }) or deps.loadMediaCatalog");
-      resolved = readJsonCatalog(resolveCatalogFile(entry.catalogSpec, ctx, "ffmpeg"), appRoot, fs, "rightkit-ffmpeg");
-    }
+    const resolved = await loadMediaCatalogOf(entry, ctx);
     if (target.arch === "universal") return await stageFfmpegUniversal(entry, ctx, resolved);
     return (await stageFfmpegSlice(entry, ctx, resolved, { config, t: target, writeNotices: true, flat: Boolean(entry.resourceDir) })).rows;
   } catch (error) {
@@ -2114,6 +2208,7 @@ export function planSidecarStaging({ manifest, target, env = process.env } = {})
   const plan = validateSidecarManifest(manifest, { target, mode: resolveBuildMode(env) });
   const t = plan.target;
   const outputsOf = (entry) => {
+    if (entry.kind === "runtime-manifest") return [`${entry.dir}/manifest.json`];
     if (["cargo-bin", "command", "cmake", "prebuilt"].includes(entry.kind)) return [entry.dest ?? `${plan.stageDir}/${stagedName(entry.name, t)}`];
     if (entry.kind === "remote") return [entry.dest];
     if (entry.kind === "resource") return [entry.to];
@@ -2162,6 +2257,7 @@ export async function stageSidecars({ appRoot, manifest, target, cacheRoot, ifSt
     // Warnings (a never-run row, a row left out) go to deps.warn; without one they join the progress log, so a caller that sets only `log` still sees them.
     warn: deps.warn ?? deps.log ?? (() => {}),
     nativeCatalogs: new Map(),
+    mediaCatalogs: new Map(),
     fetchBytes: deps.fetchBytes ?? defaultFetchBytes,
     fetch: deps.fetch ?? ((...args) => globalThis.fetch(...args)),
     extractMember: deps.extractMember ?? ((args) => defaultExtractMember({ ...args, run })),
@@ -2177,15 +2273,40 @@ export async function stageSidecars({ appRoot, manifest, target, cacheRoot, ifSt
   // nested-broker refusal, which guards only a step that would build.
   // Opt-in (`ifStale`, `stage-sidecar --if-stale`): only a Mac package recipe's own prepare step asks for it. The check is structural (no source hash), so every
   // other caller, the gate's staging step included, builds as before.
-  const current = ifStale ? currentStageReceipt(plan, ctx) : null;
+  const runtimeRows = new Map();
+  if (plan.entries.some((entry) => !entry.skipped && entry.kind === "runtime-manifest")) {
+    const catalogs = [];
+    for (const entry of plan.entries.filter((item) => !item.skipped)) {
+      if (entry.kind === "onnxruntime" || entry.kind === "native-library") catalogs.push([entry.index, (await loadNativeCatalogOf(entry, ctx)).catalog]);
+      if (entry.kind === "ffmpeg") catalogs.push([entry.index, (await loadMediaCatalogOf(entry, ctx)).catalog]);
+    }
+    ctx.runtimeCatalogDigest = sha256Of(Buffer.from(JSON.stringify(catalogs)));
+  }
+  for (const entry of plan.entries.filter((item) => !item.skipped && item.kind === "runtime-manifest")) {
+    checkRuntimeBundlePath(appRoot, entry.dir, fs);
+    const producer = plan.entries.find((item) => !item.skipped && item.index < entry.index && (item.kind === "onnxruntime" || (item.kind === "native-library" && item.library === "onnxruntime")) && item.resourceDir === entry.dir);
+    const catalog = await loadNativeCatalogOf(producer, ctx);
+    const targets = plan.target.arch === "universal" ? SLICES.map((triple) => parseTargetTriple(triple)) : [plan.target];
+    const selected = targets.map((target) => planNativeSet(producer, ctx, catalog, target).filter((item) => !item.companionOf));
+    if (selected.some((items) => items.length !== 1) || selected.some((items) => items[0].row.id !== selected[0][0].row.id)) fail("STAGE_SIDECAR_NOT_APPROVED", "runtime-manifest requires one shared ONNX catalog row for its target");
+    runtimeRows.set(entry.index, selected[0][0].row);
+  }
+  if (runtimeRows.size) {
+    checkRuntimeBundleOutput(appRoot, plan.stageDir, fs);
+    checkRuntimeBundleOutput(appRoot, plan.receiptPath, fs);
+    await claimNativeOutputs(plan, ctx);
+    await claimRuntimeNotices(plan, ctx);
+  }
+  const current = ifStale ? currentStageReceipt(plan, ctx, runtimeRows) : null;
   if (current) return { receipt: current, receiptPath: path.resolve(appRoot, plan.receiptPath), files: current.files, externalBinNames: current.files.filter((file) => file.externalBin).map((file) => file.name), unchanged: true };
   assertNotNested(plan, env);
-  await claimNativeOutputs(plan, ctx);
+  if (!runtimeRows.size) await claimNativeOutputs(plan, ctx);
   const files = [];
   const skipped = [];
   for (const entry of plan.entries) {
     if (entry.skipped) { skipped.push({ kind: entry.kind, index: entry.index, platforms: entry.platforms }); continue; }
-    const staged = entry.kind === "cargo-bin" ? stageCargoBin(entry, ctx)
+    const staged = entry.kind === "runtime-manifest" ? stageRuntimeManifest(entry, ctx, plan, files, runtimeRows.get(entry.index))
+      : entry.kind === "cargo-bin" ? stageCargoBin(entry, ctx)
       : entry.kind === "ffmpeg" ? await stageFfmpeg(entry, ctx)
         : entry.kind === "onnxruntime" || entry.kind === "native-library" ? await stageNativeLibrary(entry, ctx)
           : entry.kind === "command" ? stageCommand(entry, ctx)
@@ -2195,6 +2316,7 @@ export async function stageSidecars({ appRoot, manifest, target, cacheRoot, ifSt
                   : stageResource(entry, ctx);
     files.push(...staged);
   }
+  if (runtimeRows.size) checkRuntimeBundleOutput(appRoot, plan.stageDir, fs);
   const wiped = plan.wipeStageDir ? wipeStaleStageDir(ctx, plan, files.map((file) => path.resolve(appRoot, file.path))) : [];
   const receipt = {
     schema: 1,
@@ -2217,11 +2339,49 @@ export async function stageSidecars({ appRoot, manifest, target, cacheRoot, ifSt
   const stable = (r) => { const { stagedAt: _t, wiped: _w, files, ...rest } = r; return JSON.stringify({ ...rest, files: (files ?? []).map(({ changed: _c, cached: _k, ...file }) => file) }); };
   const sameAs = (old) => stable(old) === stable(receipt);
   let previous = null;
+  if (runtimeRows.size) checkRuntimeBundleOutput(appRoot, plan.receiptPath, fs);
   try { previous = JSON.parse(fs.readFileSync(receiptFile, "utf8")); } catch { previous = null; }
   if (previous && sameAs(previous)) return { receipt: previous, receiptPath: receiptFile, files: previous.files, externalBinNames: previous.files.filter((file) => file.externalBin).map((file) => file.name), unchanged: true };
+  if (runtimeRows.size) checkRuntimeBundleOutput(appRoot, plan.receiptPath, fs);
   fs.mkdirSync(path.dirname(receiptFile), { recursive: true });
   fs.writeFileSync(receiptFile, `${JSON.stringify(receipt, null, 2)}\n`);
   return { receipt, receiptPath: receiptFile, files, externalBinNames: files.filter((file) => file.externalBin).map((file) => file.name) };
+}
+
+/** Configuration binding for runtime-manifest reuse; the selected catalog row is checked separately. */
+const runtimePlanDigest = (plan, ctx) => sha256Of(Buffer.from(JSON.stringify({ target: plan.target.triple, mode: plan.mode, entries: plan.entries, catalogDigest: ctx.runtimeCatalogDigest, noticeDigest: ctx.runtimeNoticeDigest })));
+
+/** The notices actually recorded must equal the preclaimed source bytes. */
+function validateRuntimeNotices(entry, ctx, rows) {
+  const prefix = `${canonicalOutput(entry.dir)}/`;
+  const expected = new Map([...ctx.runtimeNotices].filter(([key]) => key.startsWith(prefix)));
+  const actual = new Map();
+  for (const row of rows) for (const notice of row.notices ?? []) {
+    const key = canonicalOutput(notice.path);
+    if (!key.startsWith(prefix)) continue;
+    const previous = actual.get(key);
+    if (previous && (previous.output !== notice.path || previous.digest !== notice.sha256)) fail("STAGE_SIDECAR_HASH_MISMATCH", `conflicting notice receipt ${notice.path}`);
+    actual.set(key, { output: notice.path, digest: notice.sha256 });
+  }
+  if (expected.size !== actual.size || [...expected].some(([key, value]) => actual.get(key)?.output !== value.output || actual.get(key)?.digest !== value.digest)) fail("STAGE_SIDECAR_HASH_MISMATCH", `runtime notices changed after planning: ${entry.dir}`);
+}
+
+/** Construct only from this run's staged receipt rows, then atomically install the manifest. */
+function stageRuntimeManifest(entry, ctx, plan, files, catalogRow) {
+  validateRuntimeNotices(entry, ctx, files);
+  const manifest = planRuntimeBundle({ root: ctx.appRoot, dir: entry.dir, target: plan.target, identity: entry.onnxruntime, catalogRow, rows: files, io: ctx.fs });
+  const dest = path.resolve(ctx.appRoot, entry.dir, "manifest.json");
+  const bytes = Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`);
+  checkRuntimeBundlePath(ctx.appRoot, entry.dir, ctx.fs);
+  const temp = `${dest}.${ctx.pid}.${Math.random().toString(16).slice(2)}.tmp`;
+  let created = false;
+  try {
+    ctx.fs.writeFileSync(temp, bytes, { flag: "wx" });
+    created = true;
+    ctx.fs.renameSync(temp, dest);
+    created = false;
+  } finally { if (created) ctx.fs.rmSync(temp, { force: true }); }
+  return [{ kind: "runtime-manifest", name: "manifest.json", path: `${entry.dir}/manifest.json`, sha256: sha256Of(bytes), sizeBytes: bytes.length, planSha256: runtimePlanDigest(plan, ctx), externalBin: false }];
 }
 
 /**
@@ -2229,7 +2389,7 @@ export async function stageSidecars({ appRoot, manifest, target, cacheRoot, ifSt
  * same kind and name for every named row the plan stages, and whose every file is on disk, a regular file, with its recorded sha256 (and, for a plan that wipes its stage
  * directory, nothing else in that directory). A receipt that cannot be read or does not match is not current; nothing is ever written.
  */
-function currentStageReceipt(plan, ctx) {
+function currentStageReceipt(plan, ctx, runtimeRows = new Map()) {
   const { fs, appRoot } = ctx;
   try {
     const receiptFile = path.resolve(appRoot, plan.receiptPath);
@@ -2247,6 +2407,14 @@ function currentStageReceipt(plan, ctx) {
       const meta = fs.statSync(full);
       if (!meta.isFile() || sha256Of(fs.readFileSync(full)) !== file.sha256) return null;
       named.add(full.toLowerCase());
+    }
+    for (const entry of planned.filter((item) => item.kind === "runtime-manifest")) {
+      const manifestRows = receipt.files.filter((file) => file.kind === "runtime-manifest" && file.path === `${entry.dir}/manifest.json`);
+      if (manifestRows.length !== 1 || manifestRows[0].planSha256 !== runtimePlanDigest(plan, ctx)) return null;
+      const stagedRows = receipt.files.filter((file) => file !== manifestRows[0]);
+      validateRuntimeNotices(entry, ctx, stagedRows);
+      const expected = planRuntimeBundle({ root: appRoot, dir: entry.dir, target: plan.target, identity: entry.onnxruntime, catalogRow: runtimeRows.get(entry.index), rows: stagedRows, io: fs });
+      if (String(fs.readFileSync(path.resolve(appRoot, manifestRows[0].path))) !== `${JSON.stringify(expected, null, 2)}\n`) return null;
     }
     if (plan.wipeStageDir) {
       named.add(receiptFile.toLowerCase());
