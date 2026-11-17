@@ -112,6 +112,7 @@ import { BUILD_CONTROL_PROTOCOL, HANDSHAKE_PROBE_ID, RUNTIME_MANIFEST_FILE, pars
 import { snapshotReclaimJudge } from "../seam-broker.mjs";
 import net from "node:net";
 import { installSpawnLedger } from "../spawn-ledger.mjs";
+import { installProbeMemo } from "../probe-memo.mjs";
 import { processIdentity, snapshotLockBody, verdictFileName } from "../gate-seam.mjs";
 
 const PRIVATE_SCOPED_COMPILE = Symbol("private scoped compile");
@@ -5415,6 +5416,8 @@ export const callingGatePath = () => fs.realpathSync(fileURLToPath(import.meta.u
 if (invokedDirectly) {
   // GC-A27 NN07-NN12: with RK_GATE_SPAWN_LEDGER set, every child process of this run is recorded (spawn-ledger.mjs). Off otherwise.
   installSpawnLedger();
+  // NN07: a fixed question about the checkout (git top level, object format, whether an id names a commit, where a tool is) is asked once per process.
+  installProbeMemo();
   // Every child this run starts that can reach rustright (scans, unit stages, right-release dev/test, their builds) inherits it.
   process.env.RUSTRIGHT_CALLING_GATE = callingGatePath();
   delete process.env.RIGHTKIT_CALLING_GATE; // one spelling, never both
