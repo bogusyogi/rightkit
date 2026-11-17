@@ -185,11 +185,11 @@ const RECORD_STORE_CALL = new RegExp(literal(`${RECORD_STORE_READER}(`), "g");
 // The crate that defines the reader, and the one place that may call it.
 const RECORD_STORE_OWNER = "crates/rightkit-license/";
 
-/** A tracked non-test file outside the licence crate that calls the engine's record-store reader. */
+/** A tracked non-test Rust source file outside the licence crate that calls the engine's record-store reader. */
 export function engineRecordStore(root, files) {
   const out = [];
   for (const file of files) {
-    if (!scanned(file) || file.startsWith(RECORD_STORE_OWNER)) continue;
+    if (path.posix.extname(file) !== ".rs" || !scanned(file) || file.startsWith(RECORD_STORE_OWNER)) continue;
     const text = textOf(root, file);
     if (text === null || !text.includes(`${RECORD_STORE_READER}(`)) continue;
     out.push({ file, subject: RECORD_STORE_READER, problem: `${file}:${listed(matchLines(text, RECORD_STORE_CALL))} calls ${RECORD_STORE_READER}: the engine reads the owner's record store itself`, fix: 'have the owner binary hand the engine a snapshot through rightkit_credentials::handoff instead (rightkit-credentials README "Helpers, sidecars and CLIs")' });
