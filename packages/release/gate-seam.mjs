@@ -15,6 +15,42 @@ import path from "node:path";
 export const CLASS_A_VERDICT_SCHEMA = "rightkit.class-a-verdict/1";
 export const GATE_COMMIT_ENV = "RUSTRIGHT_GATE_COMMIT";
 export const CLASS_A_ENV = "RUSTRIGHT_CLASS_A";
+
+// ---- a contract-test run tags its broker jobs (loop matrix G26; rustright GB-101) -----------------------------------------------------------------
+// The contract test (gate-acceptance.mjs) launches the gate with these four variables. Every broker job the gate then sends carries a nonce the
+// broker signs into the job's receipt, computed from the run, the gate under test, the test step and a random value per call:
+//   nonce = sha256( UTF-8 of  runId + "\n" + sealedSha256 + "\n" + step + "\n" + call ), lowercase hex.
+// A verifier that holds the contract receipt (which lists runId, sealedSha256 and, per job, step and call) recomputes it and requires it to be
+// the nonce the broker signed, so a job receipt from another run or for another gate cannot be passed off as this run's. The names start with
+// RK_GATE_ so that no cache key takes them in (deterministic-scans.mjs BUILD_ENV_EXCLUDED): a tagged run hits the same cache as an untagged one.
+export const CONTRACT_RUN_ID_ENV = "RK_GATE_CONTRACT_RUN_ID";   // 64 lowercase hex, fresh per contract-test run
+export const CONTRACT_SEALED_ENV = "RK_GATE_CONTRACT_SEALED";   // 64 lowercase hex: the sealed gate under test
+export const CONTRACT_STEP_ENV = "RK_GATE_CONTRACT_STEP";       // the step label of this gate launch
+export const CONTRACT_JOBS_ENV = "RK_GATE_CONTRACT_JOBS";       // absolute path of the file each tagged job is appended to, one JSON line each
+export const RECEIPT_NONCE_ENV = "RUSTRIGHT_RECEIPT_NONCE";     // what the broker client reads and the broker signs (GB-101)
+const HEX64 = /^[0-9a-f]{64}$/; const STEP = /^[A-Za-z0-9][A-Za-z0-9:._-]{0,63}$/;
+/** The nonce of one job of a contract-test run; the single definition both the gate and every verifier use. */
+export function contractJobNonce({ runId, sealedSha256, step, call }) {
+  if (typeof runId !== "string" || !HEX64.test(runId) || typeof sealedSha256 !== "string" || !HEX64.test(sealedSha256) || typeof step !== "string" || !STEP.test(step) || typeof call !== "string" || !/^[0-9a-f]{32}$/.test(call)) throw new TypeError("contractJobNonce: runId and sealedSha256 are 64 hex, step is a label, call is 32 hex");
+  return crypto.createHash("sha256").update(Buffer.from([runId, sealedSha256, step, call].join("\n"), "utf8")).digest("hex");
+}
+/**
+ * The tag for the next broker job when `env` is a contract-test run's: { runId, sealedSha256, step, call, nonce, jobsFile }. null when the run id is
+ * not set (an ordinary gate run: nothing changes). A run id with any of the other three missing or malformed throws: a contract-test run never
+ * sends an untagged job.
+ */
+export function contractJobTag(env, { random = () => crypto.randomBytes(16).toString("hex") } = {}) {
+  const runId = env?.[CONTRACT_RUN_ID_ENV];
+  if (runId === undefined || runId === "") return null;
+  const sealedSha256 = env[CONTRACT_SEALED_ENV]; const step = env[CONTRACT_STEP_ENV]; const jobsFile = env[CONTRACT_JOBS_ENV];
+  if (!HEX64.test(String(runId)) || !HEX64.test(String(sealedSha256)) || typeof step !== "string" || !STEP.test(step) || typeof jobsFile !== "string" || !path.isAbsolute(jobsFile)) throw new Error(`a contract-test run must name its run id, the sealed gate, the step and an absolute jobs file (${CONTRACT_RUN_ID_ENV}, ${CONTRACT_SEALED_ENV}, ${CONTRACT_STEP_ENV}, ${CONTRACT_JOBS_ENV})`);
+  const call = random();
+  return { runId, sealedSha256, step, call, nonce: contractJobNonce({ runId, sealedSha256, step, call }), jobsFile };
+}
+/** Files one tagged job for the contract test to list: appended as one JSON line. `sent` is what was sent (argv, cwd); `outcome` what came back. */
+export function recordContractJob(tag, { argv, cwd, requestId = null, receipt = null, receiptSha256 = null, status = null }, { fsApi = fs } = {}) {
+  fsApi.appendFileSync(tag.jobsFile, `${JSON.stringify({ schema: "rightkit.contract-job/1", step: tag.step, call: tag.call, nonce: tag.nonce, argv, cwd, requestId, receipt, receiptSha256, status })}\n`);
+}
 export const RESULT_LINE_PREFIX = "rustright-result ";
 /** The exit the client reports when nothing was executed (a refusal, a client failure); an executed command keeps its own exit. */
 export const NOT_EXECUTED_EXIT = 125;

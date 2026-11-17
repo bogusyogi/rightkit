@@ -4,7 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { resolveBrokerClient } from "./broker-client.mjs";
 import { discoverBrokerSocket } from "./managed-roots.mjs";
-import { CLASS_A_ENV, CLASS_A_VERDICT_SCHEMA, GATE_COMMIT_ENV, classAVerdict, judgeSeamOutcome, seamSettled, snapshotStatusAllowsReclaim, snapshotStatusMessage, snapshotStatusSync, writeClassAVerdict } from "./gate-seam.mjs";
+import { CLASS_A_ENV, CLASS_A_VERDICT_SCHEMA, GATE_COMMIT_ENV, classAVerdict, judgeSeamOutcome, seamSettled, snapshotStatusAllowsReclaim, snapshotStatusMessage, snapshotStatusSync, writeClassAVerdict, contractJobTag, recordContractJob, RECEIPT_NONCE_ENV } from "./gate-seam.mjs";
 import { spawnSync as nodeSpawnSync } from "node:child_process";
 
 /** `rustright_protocol::BUILD_CONTROL_PROTOCOL`: carried in every request envelope, the seam's SNAPSHOT_STATUS query included. */
@@ -54,6 +54,12 @@ function runSeamCall(argv, { cwd, env, stdio = "pipe", client = "rustright", spa
   try { classA = verdictForCwd(env, cwd, { fsApi }); }
   catch (error) { const message = `the Class A verdict for ${cwd} cannot be named (${error.message}); nothing was submitted`; return { result: { status: 125, signal: null, stdout: "", stderr: `rightkit-gate: RK_SEAM_VERDICT: ${message}\n`, error: null, refusal: { code: "RK_SEAM_VERDICT", message } }, ledger: { status: "refused", settled: true, code: "RK_SEAM_VERDICT", message } }; }
   env = { ...env, [CLASS_A_ENV]: classA };
+  // A contract-test run tags this job (gate-seam.mjs contractJobTag). An inherited nonce is never reused: each job gets its own or none.
+  let tag = null;
+  try { tag = contractJobTag(env); }
+  catch (error) { const message = `${error.message}; nothing was submitted`; return { result: { status: 125, signal: null, stdout: "", stderr: `rightkit-gate: RK_CONTRACT_RUN: ${message}\n`, error: null, refusal: { code: "RK_CONTRACT_RUN", message } }, ledger: { status: "refused", settled: true, code: "RK_CONTRACT_RUN", message } }; }
+  delete env[RECEIPT_NONCE_ENV];
+  if (tag) env[RECEIPT_NONCE_ENV] = tag.nonce;
   const r = spawnSync(client, argv, { cwd, env, stdio: stdio === "inherit" ? ["ignore", "inherit", "pipe"] : "pipe", encoding: "utf8", maxBuffer });
   if (r.error) return { result: { status: 1, signal: null, stdout: "", stderr: String(r.error.message ?? r.error), error: r.error, refusal: { code: "SPAWN_ERROR", message: String(r.error.message ?? r.error) } }, ledger: { status: "unsettled", settled: false, code: "SPAWN_ERROR" } };
   const judged = judgeSeamOutcome({ child: r, stderr: r.stderr ?? "", commit: env[GATE_COMMIT_ENV], tree: null, classA, expect });
@@ -62,6 +68,7 @@ function runSeamCall(argv, { cwd, env, stdio = "pipe", client = "rustright", spa
   const settled = seamSettled(judged);
   const status = pass ? (r.status ?? 0) : (Number.isInteger(r.status) && r.status !== 0 ? r.status : (preAdmissionRefusal ? 125 : 1));
   const evidence = judged.evidence ? { outputDir: judged.evidence.outputDir, targetTriple: judged.evidence.targetTriple, requestId: judged.evidence.requestId, receipt: judged.evidence.receiptPath, receiptSha256: judged.evidence.receiptSha256 } : {};
+  if (tag) { try { recordContractJob(tag, { argv, cwd, requestId: evidence.requestId ?? judged.result?.requestId ?? null, receipt: evidence.receipt ?? null, receiptSha256: evidence.receiptSha256 ?? null, status }, { fsApi }); } catch { /* the contract test finds the job missing from its list and fails the run */ } }
   return {
     result: { status, signal: r.signal ?? null, stdout: r.stdout ?? "", stderr: r.stderr ?? "", error: null, ...evidence, ...(pass ? {} : { refusal: { code: judged.code, message: judged.detail } }) },
     ledger: { status: pass ? "verified" : !settled ? "unsettled" : preAdmissionRefusal ? "refused" : "failed", settled, ...(pass ? {} : { code: judged.code, message: String(judged.detail ?? "").slice(0, 2000) }), ...evidence },

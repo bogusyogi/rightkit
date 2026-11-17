@@ -517,3 +517,47 @@ test("a broker failure is reported in the broker's own terms: an unproven proces
   assert.equal(noReceipt.code, "RK_CLIENT_ERROR"); assert.match(noReceipt.detail, /job's state in the broker is unknown/); assert.equal(noReceipt.receiptRead, undefined);
   assert.deepEqual(brokerVerdict(null), { status: null, reason: null, error: null, code: null, failed: [], unreaped: false, reap: null });
 });
+
+test("G26: a contract-test run tags each broker job with a nonce computed from the run, the gate under test, the step and the call", async () => {
+  const { contractJobNonce, contractJobTag, recordContractJob, CONTRACT_RUN_ID_ENV, CONTRACT_SEALED_ENV, CONTRACT_STEP_ENV, CONTRACT_JOBS_ENV, RECEIPT_NONCE_ENV } = await import("./gate-seam.mjs");
+  const { createHash } = await import("node:crypto");
+  const { buildEnvName } = await import("./deterministic-scans.mjs");
+  const fsm = await import("node:fs"); const osm = await import("node:os"); const pathm = await import("node:path");
+  const runId = "1".repeat(64); const sealedSha256 = "2".repeat(64); const call = "3".repeat(32);
+  // The one definition: sha256 of the UTF-8 of the four values joined by a line feed, lowercase hex.
+  const want = createHash("sha256").update(Buffer.from(`${runId}\n${sealedSha256}\nS2:check\n${call}`, "utf8")).digest("hex");
+  assert.equal(contractJobNonce({ runId, sealedSha256, step: "S2:check", call }), want);
+  // Any of the four changes it: another run, another gate, another step, another call.
+  for (const over of [{ runId: "9".repeat(64) }, { sealedSha256: "9".repeat(64) }, { step: "S3" }, { call: "9".repeat(32) }]) assert.notEqual(contractJobNonce({ runId, sealedSha256, step: "S2:check", call, ...over }), want);
+  for (const bad of [{ runId: "x" }, { sealedSha256: "A".repeat(64) }, { step: "has space" }, { step: "a\nb" }, { call: "short" }]) assert.throws(() => contractJobNonce({ runId, sealedSha256, step: "S2", call, ...bad }), /contractJobNonce/);
+
+  const dir = fsm.mkdtempSync(pathm.join(osm.tmpdir(), "rk-g26-"));
+  try {
+    const jobsFile = pathm.join(dir, "jobs.jsonl");
+    const env = { [CONTRACT_RUN_ID_ENV]: runId, [CONTRACT_SEALED_ENV]: sealedSha256, [CONTRACT_STEP_ENV]: "S2:check", [CONTRACT_JOBS_ENV]: jobsFile };
+    // An ordinary gate run: no tag, nothing changes.
+    assert.equal(contractJobTag({ PATH: "/bin" }), null); assert.equal(contractJobTag({ [CONTRACT_RUN_ID_ENV]: "" }), null);
+    // A contract-test run: a fresh call value per job, so two jobs never share a nonce; the nonce is the definition above.
+    const a = contractJobTag(env); const b = contractJobTag(env);
+    assert.match(a.call, /^[0-9a-f]{32}$/); assert.notEqual(a.call, b.call); assert.notEqual(a.nonce, b.nonce);
+    assert.equal(a.nonce, contractJobNonce({ runId, sealedSha256, step: "S2:check", call: a.call })); assert.match(a.nonce, /^[0-9a-f]{64}$/);
+    assert.equal(contractJobTag(env, { random: () => call }).nonce, want);
+    // A run id with anything else missing or malformed is refused: a contract-test run never sends an untagged job.
+    for (const drop of [CONTRACT_SEALED_ENV, CONTRACT_STEP_ENV, CONTRACT_JOBS_ENV]) { const e = { ...env }; delete e[drop]; assert.throws(() => contractJobTag(e), /a contract-test run must name/, drop); }
+    assert.throws(() => contractJobTag({ ...env, [CONTRACT_JOBS_ENV]: "relative.jsonl" }), /absolute jobs file/);
+    assert.throws(() => contractJobTag({ ...env, [CONTRACT_RUN_ID_ENV]: "nothex" }), /a contract-test run must name/);
+    // Each tagged job is filed as one line the contract test reads back.
+    recordContractJob(a, { argv: ["cargo", "clippy"], cwd: "/s", requestId: "r1", receipt: "/receipts/r1.json", receiptSha256: "4".repeat(64), status: 0 });
+    recordContractJob(b, { argv: ["cargo", "doc"], cwd: "/s" });
+    const lines = fsm.readFileSync(jobsFile, "utf8").trim().split("\n").map((l) => JSON.parse(l));
+    assert.equal(lines.length, 2);
+    assert.deepEqual(lines[0], { schema: "rightkit.contract-job/1", step: "S2:check", call: a.call, nonce: a.nonce, argv: ["cargo", "clippy"], cwd: "/s", requestId: "r1", receipt: "/receipts/r1.json", receiptSha256: "4".repeat(64), status: 0 });
+    assert.equal(lines[1].requestId, null); assert.equal(lines[1].receipt, null);
+  } finally { fsm.rmSync(dir, { recursive: true, force: true }); }
+  // None of the five variables enters a cache key: a tagged run hits the same cache as an untagged one (the contract test measures warm runs).
+  for (const name of [CONTRACT_RUN_ID_ENV, CONTRACT_SEALED_ENV, CONTRACT_STEP_ENV, CONTRACT_JOBS_ENV, RECEIPT_NONCE_ENV]) assert.equal(Boolean(buildEnvName(name)), false, name);
+  // Both places the gate sends a broker job tag it, and the nonce is never inherited from the caller.
+  const src = (f) => fsm.readFileSync(new URL(f, import.meta.url), "utf8");
+  assert.match(src("./seam-broker.mjs"), /delete env\[RECEIPT_NONCE_ENV\];\n\s+if \(tag\) env\[RECEIPT_NONCE_ENV\] = tag\.nonce;/);
+  assert.match(src("./deterministic-scans.mjs"), /if \(contractTag\) seamVars = \{ \.\.\.seamVars, \[RECEIPT_NONCE_ENV\]: contractTag\.nonce \};/);
+});

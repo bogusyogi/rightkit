@@ -42,7 +42,7 @@ import { SCAN_TOKEN_ENV, readLedger, scanTokenOf, unclaimedLedgers } from "./car
 import { ADMISSION_POLL_MS, CARRIED_CANCEL_GRACE_MS, QUEUED_CEILING_FACTOR, createRunClock, createStatusPoller, watchBrokerAdmission } from "./broker-admission.mjs";
 import { CANCEL_WAIT_ENV, operationDeadlineEnv } from "./broker-admission.mjs";
 import { meetPartitions, partitionByFeatures, partitionCacheKey, splitNote, stripSelectors, treeArgs, workspaceManifestDigest } from "./feature-partition.mjs";
-import { CLASS_A_ENV, NOT_EXECUTED_EXIT, judgeSeamOutcome, normalizeWorkspace, seamEnv, seamSettled, verdictForRun } from "./gate-seam.mjs";
+import { CLASS_A_ENV, NOT_EXECUTED_EXIT, RECEIPT_NONCE_ENV, contractJobTag, judgeSeamOutcome, normalizeWorkspace, recordContractJob, seamEnv, seamSettled, verdictForRun } from "./gate-seam.mjs";
 
 export const SCAN_RESULT_SCHEMA = "rightkit.deterministic-scans/1";
 // The seam's run state for the door's lock release (reset plan section 3): a seam row whose client the gate killed, that timed out or was cancelled may have
@@ -175,7 +175,7 @@ const BUILD_ENV_PREFIXES = ["CARGO_", "RUST", "SCCACHE_", "RK_", "RIGHTKIT_", "R
 // explicitly made 171 rows miss with no input change (rightkit#1552, Mac 2026-11-09, inheritedEnv [RUSTRIGHT_BUILD_BROKER_SOCKET] only).
 // A network proxy (NPM_CONFIG_HTTPS_PROXY, NPM_CONFIG_NOPROXY, ...) changes how a download is routed, never what a scan proves, and a
 // cloud host sets it per session (measured 2026-11-06: the cloud's NPM_CONFIG_HTTPS_PROXY moved between two runs and 1,115 rows missed).
-const BUILD_ENV_EXCLUDED = /^(RK_GATE_|RUSTRIGHT_QUIET_LEASE$|RIGHTKIT_BUILD_OWNERSHIP$|RIGHTKIT_CARRIED_CARGO_MAP$|RUSTRIGHT_ATTEST_NONCE$|RUSTRIGHT_REQUEST_ID_FILE$|RUSTRIGHT_SNAPSHOT_REQUEST$|RK_DIRECT_RECEIPT$|RUSTRIGHT_BUILD_BROKER_SOCKET$|RIGHTKIT_CROSS_CC_DIR$|.*PROXY)/;
+const BUILD_ENV_EXCLUDED = /^(RK_GATE_|RUSTRIGHT_QUIET_LEASE$|RIGHTKIT_BUILD_OWNERSHIP$|RIGHTKIT_CARRIED_CARGO_MAP$|RUSTRIGHT_ATTEST_NONCE$|RUSTRIGHT_RECEIPT_NONCE$|RUSTRIGHT_REQUEST_ID_FILE$|RUSTRIGHT_SNAPSHOT_REQUEST$|RK_DIRECT_RECEIPT$|RUSTRIGHT_BUILD_BROKER_SOCKET$|RIGHTKIT_CROSS_CC_DIR$|.*PROXY)/;
 // PNPM_HOME (where pnpm keeps its own binaries; the calling app profile picks it) is not an input of any scan and is to leave this key once every row's stored index carries
 // its environment shape (a row that only hits never refreshed its index; excluding it first made 74 rows that had no shape miss; Mac 2026-11-07).
 // RIGHTKIT_CROSS_CC_DIR is where the zig wrappers live, not what they are: a cross clippy row keys on its own CC_/CXX_/AR_ variables
@@ -4002,6 +4002,14 @@ export async function runScans(plan, options = {}) {
             try { seamVars = seamEnv({ commit: deps.gateSeam.commit, classA: await ensureVerdict(viaSeam ? (s.cwd ?? ".") : ".") }); }
             catch (e) { stopClock(); advisory?.cleanup?.(); return { ...row, status: "fail", code: "CLASS_A_VERDICT", detail: `${s.id}: ${e.message}` }; }
           }
+          // A contract-test run tags the broker job this row sends (gate-seam.mjs contractJobTag; loop matrix G26). A row that only starts a suite which
+          // reaches the broker itself gets no nonce here: each of that suite's calls is tagged where it is sent (seam-broker.mjs runSeamCall).
+          let contractTag = null;
+          if (viaSeam) {
+            try { contractTag = contractJobTag({ ...deps.env, ...s.env, ...(extraEnv ?? {}) }); }
+            catch (e) { stopClock(); advisory?.cleanup?.(); return { ...row, status: "fail", code: "RK_CONTRACT_RUN", detail: `${s.id}: ${e.message}` }; }
+            if (contractTag) seamVars = { ...seamVars, [RECEIPT_NONCE_ENV]: contractTag.nonce };
+          }
           if (swiftSeam) {
             // The adapter through the seam: one `rustright run rightkit-swift -- <argv>` in the snapshot; the result line and receipt are judged below exactly as a cargo row's.
             const client = toolCommand("rustright");
@@ -4097,6 +4105,7 @@ export async function runScans(plan, options = {}) {
             const judged = judgeSeamOutcome({ child: r, stderr: r?.stderr ?? "", commit: deps.gateSeam.commit, tree: deps.gateSeam.tree, classA: seamVars[CLASS_A_ENV] ?? null, expect: { argv: sentArgv, cwd: path.join(deps.gateSeam.snapshot, s.cwd ?? ""), adapter: swiftSeam ? "rightkit-swift" : null } });
             // The receipt's test executable list is always recorded, a null one with the broker's reason, so every listing is judged against it (GC-A08: an executable runs only when
             // it is on the compile receipt's signed list; a seam receipt with no list runs nothing).
+            if (contractTag) { try { recordContractJob(contractTag, { argv: sentArgv, cwd: path.join(deps.gateSeam.snapshot, s.cwd ?? ""), requestId: judged.evidence?.requestId ?? judged.result?.requestId ?? null, receipt: judged.evidence?.receiptPath ?? null, receiptSha256: judged.evidence?.receiptSha256 ?? null, status: r?.status ?? null }); } catch { /* the contract test finds the job missing from its list and fails the run */ } }
             if (judged.evidence) row.snapshotEvidence = { receiptSha256: judged.evidence.receiptSha256, receiptPath: judged.evidence.receiptPath, requestId: judged.evidence.requestId, outputDir: judged.evidence.outputDir, targetTriple: judged.evidence.targetTriple ?? null, cargoDir: s.cwd ?? ".", seam: true, testExecutables: judged.evidence.testExecutables ?? null, testExecutablesReason: judged.evidence.testExecutablesReason ?? null, receiptStatus: judged.evidence.receiptStatus ?? null };
             // Settled, for the door's lock release (seamRunState): positive evidence only. A parsed result line AND either a durable receipt read (the job reached its
             // terminal state) or an explicit before-execution refusal (a code, or exit 125 with nothing admitted). A missing or malformed line, a missing receipt, a killed
