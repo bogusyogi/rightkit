@@ -1056,8 +1056,17 @@ test("NN31 candidate mode: a sealed candidate is found only when sealed, is the 
     fs.mkdirSync(path.join(pkgDir, "bin"), { recursive: true });
     fs.writeFileSync(path.join(pkgDir, "package.json"), JSON.stringify({ name: "@rightkit/release", version: "0.6.58" }));
     fs.writeFileSync(path.join(cands, `${sealed}.manifest.txt`), manifest);
+    // No source record yet: the candidate is found, with no archive identity, and the test refuses it.
+    const bare = findCandidateGate(root, sealed);
+    assert.deepEqual(bare, { version: "0.6.58", sealedSha256: sealed, entry: path.join(pkgDir, "bin", "rightkit-gate.mjs"), archiveSha256: null, archiveIntegrity: null });
+    assert.match(gateIdentityProblems({ defaultGate: "/m/g", launcherExists: true, launcherVersion: "0.6.58", checkoutRoot: "/w", candidateArg: sealed, candidate: bare, gateArg: bare.entry }).problems.join(), /does not state the archive it was installed from/);
+    // The installer's source record at the folder's root: the archive this folder was installed from.
+    const source = { schema: "rustright.trusted-gate-source/1", package: "@rightkit/release", version: "0.6.58", integrity: "sha512-AAAA+/==", sha256: "7".repeat(64), tarball: "https://registry.example/x.tgz" };
+    const writeSource = (over) => fs.writeFileSync(path.join(cands, sealed, "trusted-gate-source.json"), JSON.stringify({ ...source, ...over }));
+    for (const wrong of [{ schema: "other/1" }, { package: "@rightkit/other" }, { version: "0.6.57" }, { sha256: "short" }, { integrity: "md5-x" }]) { writeSource(wrong); assert.equal(findCandidateGate(root, sealed).archiveSha256, null, JSON.stringify(wrong)); assert.equal(findCandidateGate(root, sealed).archiveIntegrity, null); }
+    writeSource({});
     const found = findCandidateGate(root, sealed);
-    assert.deepEqual(found, { version: "0.6.58", sealedSha256: sealed, entry: path.join(pkgDir, "bin", "rightkit-gate.mjs") });
+    assert.deepEqual(found, { version: "0.6.58", sealedSha256: sealed, entry: path.join(pkgDir, "bin", "rightkit-gate.mjs"), archiveSha256: "7".repeat(64), archiveIntegrity: "sha512-AAAA+/==" });
     // Not sealed (the manifest does not hash to the folder name), not a sha, not there, or a trusted gate's folder: no candidate.
     fs.writeFileSync(path.join(cands, `${sealed}.manifest.txt`), `${manifest}x`);
     assert.equal(findCandidateGate(root, sealed), null);

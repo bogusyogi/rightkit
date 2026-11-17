@@ -1201,8 +1201,11 @@ export function assertBudget({ host, budgets, runs }) {
 export function findInstalledGate(managedRoot, io = {}) { return listInstalledGates(managedRoot, io)[0] ?? null; }
 /**
  * NN31: the sealed candidate `sealed` under `<managed root>/trusted-gates/candidates` (where `rustright-install trusted-gate` puts a gate that is
- * not yet trusted): a folder named by the sha256 of the manifest beside it. `{ version, sealedSha256, entry }` or null. The host launcher never
- * lists this folder, so a candidate is run only when the contract test names it.
+ * not yet trusted): a folder named by the sha256 of the manifest beside it. `{ version, sealedSha256, entry, archiveSha256, archiveIntegrity }` or
+ * null. The host launcher never lists this folder, so a candidate is run only when the contract test names it.
+ * The archive fields come from `trusted-gate-source.json`, which the installer writes at the folder's root before sealing (so it is under the seal):
+ * the sha256 and the npm integrity of the package archive this folder was installed from. The seal names one install; the archive names the gate's
+ * bytes, and is what joins a receipt to a release. Both are null when that file is absent or not as expected; the test then refuses the candidate.
  */
 export function findCandidateGate(managedRoot, sealed, { read = (f) => fs.readFileSync(f) } = {}) {
   if (typeof sealed !== "string" || !/^[a-f0-9]{64}$/.test(sealed)) return null;
@@ -1212,7 +1215,12 @@ export function findCandidateGate(managedRoot, sealed, { read = (f) => fs.readFi
     const pkgDir = path.join(root, sealed, "node_modules", "@rightkit", "release");
     const pkg = JSON.parse(String(read(path.join(pkgDir, "package.json"))));
     if (pkg?.name !== "@rightkit/release" || !/^\d+\.\d+\.\d+$/.test(pkg.version)) return null;
-    return { version: pkg.version, sealedSha256: sealed, entry: path.join(pkgDir, "bin", "rightkit-gate.mjs") };
+    let archiveSha256 = null; let archiveIntegrity = null;
+    try {
+      const src = JSON.parse(String(read(path.join(root, sealed, "trusted-gate-source.json"))));
+      if (src?.schema === "rustright.trusted-gate-source/1" && src.package === "@rightkit/release" && src.version === pkg.version && isSha(src.sha256) && typeof src.integrity === "string" && /^sha512-[A-Za-z0-9+/]+=*$/.test(src.integrity)) { archiveSha256 = src.sha256; archiveIntegrity = src.integrity; }
+    } catch { /* absent or unreadable: both stay null */ }
+    return { version: pkg.version, sealedSha256: sealed, entry: path.join(pkgDir, "bin", "rightkit-gate.mjs"), archiveSha256, archiveIntegrity };
   } catch { return null; }
 }
 /** Every sealed install, newest version first. */
@@ -1247,6 +1255,7 @@ export function gateIdentityProblems({ gateArg, defaultGate, launcherExists, lau
     if (!launcherExists) problems.push(`the candidate's entry ${candidate.entry} does not exist`);
     if (!launcherVersion) problems.push("`--version` of the candidate printed no version");
     else if (launcherVersion !== candidate.version) problems.push(`the candidate reports ${launcherVersion}, its sealed package says ${candidate.version}`);
+    if (!candidate.archiveSha256 || !candidate.archiveIntegrity) problems.push(`the candidate does not state the archive it was installed from (trusted-gate-source.json at its root is absent or is not for ${candidate.version}); a receipt for it could not be joined to a release`);
     return { ok: problems.length === 0, problems, kind: "candidate" };
   }
   const named = gateArg !== undefined && gateArg !== null && path.normalize(gateArg) !== path.normalize(defaultGate);
@@ -3203,7 +3212,7 @@ async function executeRun({ fixture, host, wanted, gate, gateArg, budgetsFile, o
   let receiptPath = null;
   if (result.ok && !development) {
     const entry = candidateArg !== null ? candidate : findInstalledGate(managedRoot);
-    const receipt = buildContractReceipt({ host, commit: gateCommit, gate: { kind: candidateArg !== null ? "candidate" : "installed", version: entry?.version ?? probe.version, sealedPath: entry?.entry ?? null, sealedSha256: entry?.sealedSha256 ?? null }, contractSha256: ctx.contractSha256, runnerSha256: ctx.runnerSha256, budgetsSha256: fileSha(budgetsFile ?? BUDGETS_FILE), fixtureCommit: commit, result, broker: { runtimeDigest: ctx.broker.manifest?.brokerDigest ?? null, runtimeVersion: ctx.broker.manifest?.version ?? null, enrolledDigest: ctx.broker.pins?.brokerDigest ?? null } });
+    const receipt = buildContractReceipt({ host, commit: gateCommit, gate: { kind: candidateArg !== null ? "candidate" : "installed", version: entry?.version ?? probe.version, sealedPath: entry?.entry ?? null, sealedSha256: entry?.sealedSha256 ?? null, ...(candidateArg !== null ? { archiveSha256: entry?.archiveSha256 ?? null, archiveIntegrity: entry?.archiveIntegrity ?? null } : {}) }, contractSha256: ctx.contractSha256, runnerSha256: ctx.runnerSha256, budgetsSha256: fileSha(budgetsFile ?? BUDGETS_FILE), fixtureCommit: commit, result, broker: { runtimeDigest: ctx.broker.manifest?.brokerDigest ?? null, runtimeVersion: ctx.broker.manifest?.version ?? null, enrolledDigest: ctx.broker.pins?.brokerDigest ?? null } });
     receiptPath = path.join(outDir, `contract-test-receipt.${host}.json`); fs.writeFileSync(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`);
   }
   result.receipt = receiptPath ?? (development ? "none: a development run writes no receipt" : "none: the run did not pass");
