@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generatedAt": "2026-11-17T06:34:53Z",
-  "rightkitHead": "2695ce3b076f676cdb3f170438c606a0ee61b829",
+  "generatedAt": "2026-11-17T08:26:23Z",
+  "rightkitHead": "c7c02cf8804b47b6b95f432a14afbde863e6ed88",
   "legend": [
     {
       "state": "current",
@@ -205,12 +205,41 @@
           "dev": true
         },
         "check": {
-          "status": "not run",
-          "reason": "--with-check not passed",
-          "fail": null,
-          "known": null,
-          "stale": null,
-          "byRule": {}
+          "status": "ran",
+          "reason": "",
+          "fail": 142,
+          "known": 0,
+          "stale": 0,
+          "byRule": {
+            "engine-record-store": {
+              "fail": 1,
+              "known": 0
+            },
+            "mandatory-foundation": {
+              "fail": 1,
+              "known": 0
+            },
+            "notice-lock-digest": {
+              "fail": 4,
+              "known": 0
+            },
+            "ownership-exceptions": {
+              "fail": 132,
+              "known": 0
+            },
+            "release-config-identity": {
+              "fail": 1,
+              "known": 0
+            },
+            "shell-window-hidden": {
+              "fail": 2,
+              "known": 0
+            },
+            "suite-key-literal": {
+              "fail": 1,
+              "known": 0
+            }
+          }
         }
       },
       "flags": {
@@ -599,7 +628,7 @@
       "group": "mandatory-set app",
       "dir": "D:\\Claude\\cutright",
       "present": true,
-      "head": "abc195206f99306a0015a3e5789c4c83daa3710a",
+      "head": "9e59a297ba6f6cfc156e4dec469f0439cd49b2ec",
       "profile": "desktop",
       "inMandatorySet": true,
       "declaration": {
@@ -681,12 +710,29 @@
           "dev": true
         },
         "check": {
-          "status": "not run",
-          "reason": "--with-check not passed",
-          "fail": null,
-          "known": null,
-          "stale": null,
-          "byRule": {}
+          "status": "ran",
+          "reason": "",
+          "fail": 17,
+          "known": 0,
+          "stale": 0,
+          "byRule": {
+            "mandatory-foundation": {
+              "fail": 4,
+              "known": 0
+            },
+            "notice-lock-digest": {
+              "fail": 4,
+              "known": 0
+            },
+            "ownership-exceptions": {
+              "fail": 8,
+              "known": 0
+            },
+            "release-config-identity": {
+              "fail": 1,
+              "known": 0
+            }
+          }
         }
       },
       "flags": {
@@ -1039,7 +1085,7 @@
       "group": "mandatory-set app",
       "dir": "D:\\Claude\\genright",
       "present": true,
-      "head": "2770bd8287371f89068d3085a58856943bb98b50",
+      "head": "d8e1b9d187aef773258b5d624719d9c535f674d2",
       "profile": "desktop",
       "inMandatorySet": true,
       "declaration": {
@@ -1108,12 +1154,25 @@
           "dev": true
         },
         "check": {
-          "status": "not run",
-          "reason": "--with-check not passed",
-          "fail": null,
-          "known": null,
-          "stale": null,
-          "byRule": {}
+          "status": "ran",
+          "reason": "",
+          "fail": 3,
+          "known": 1,
+          "stale": 0,
+          "byRule": {
+            "engine-record-store": {
+              "fail": 0,
+              "known": 1
+            },
+            "mandatory-foundation": {
+              "fail": 1,
+              "known": 0
+            },
+            "notice-lock-digest": {
+              "fail": 2,
+              "known": 0
+            }
+          }
         }
       },
       "flags": {
@@ -1530,12 +1589,33 @@
           "dev": true
         },
         "check": {
-          "status": "not run",
-          "reason": "--with-check not passed",
-          "fail": null,
-          "known": null,
-          "stale": null,
-          "byRule": {}
+          "status": "ran",
+          "reason": "",
+          "fail": 22,
+          "known": 4,
+          "stale": 0,
+          "byRule": {
+            "legal-receipt-native": {
+              "fail": 0,
+              "known": 2
+            },
+            "mandatory-foundation": {
+              "fail": 1,
+              "known": 0
+            },
+            "notice-lock-digest": {
+              "fail": 4,
+              "known": 0
+            },
+            "ownership-exceptions": {
+              "fail": 17,
+              "known": 0
+            },
+            "suite-key-literal": {
+              "fail": 0,
+              "known": 2
+            }
+          }
         }
       },
       "flags": {
@@ -2670,7 +2750,7 @@
       "group": "mandatory-set app",
       "dir": "D:\\Claude\\mailright",
       "present": true,
-      "head": "87e7a206f1a70d5f23bea6dbe3d3e2193449e3b9",
+      "head": "be69a57278223568581dd9983fda9c658443f712",
       "profile": "desktop",
       "inMandatorySet": true,
       "declaration": {
@@ -2739,12 +2819,33 @@
           "dev": true
         },
         "check": {
-          "status": "not run",
-          "reason": "--with-check not passed",
-          "fail": null,
-          "known": null,
-          "stale": null,
-          "byRule": {}
+          "status": "ran",
+          "reason": "",
+          "fail": 27,
+          "known": 1,
+          "stale": 0,
+          "byRule": {
+            "engine-record-store": {
+              "fail": 0,
+              "known": 1
+            },
+            "legal-receipt-native": {
+              "fail": 1,
+              "known": 0
+            },
+            "mandatory-foundation": {
+              "fail": 1,
+              "known": 0
+            },
+            "notice-lock-digest": {
+              "fail": 3,
+              "known": 0
+            },
+            "ownership-exceptions": {
+              "fail": 22,
+              "known": 0
+            }
+          }
         }
       },
       "flags": {
@@ -3095,7 +3196,7 @@
       "group": "mandatory-set app",
       "dir": "D:\\Claude\\postright",
       "present": true,
-      "head": "1a51b7633cb31b3aeabc1bd23540b0817f3880dc",
+      "head": "d0e3bfeb4d6969811a7ca7937607da55d240cf4f",
       "profile": "desktop",
       "inMandatorySet": true,
       "declaration": {
@@ -3161,12 +3262,21 @@
           "dev": true
         },
         "check": {
-          "status": "not run",
-          "reason": "--with-check not passed",
-          "fail": null,
-          "known": null,
-          "stale": null,
-          "byRule": {}
+          "status": "ran",
+          "reason": "",
+          "fail": 1,
+          "known": 1,
+          "stale": 0,
+          "byRule": {
+            "legal-receipt-native": {
+              "fail": 0,
+              "known": 1
+            },
+            "mandatory-foundation": {
+              "fail": 1,
+              "known": 0
+            }
+          }
         }
       },
       "flags": {
@@ -3578,12 +3688,17 @@
           "dev": true
         },
         "check": {
-          "status": "not run",
-          "reason": "--with-check not passed",
-          "fail": null,
-          "known": null,
-          "stale": null,
-          "byRule": {}
+          "status": "ran",
+          "reason": "",
+          "fail": 22,
+          "known": 0,
+          "stale": 0,
+          "byRule": {
+            "ownership-exceptions": {
+              "fail": 22,
+              "known": 0
+            }
+          }
         }
       },
       "flags": {
@@ -4112,12 +4227,33 @@
           "dev": true
         },
         "check": {
-          "status": "not run",
-          "reason": "--with-check not passed",
-          "fail": null,
-          "known": null,
-          "stale": null,
-          "byRule": {}
+          "status": "ran",
+          "reason": "",
+          "fail": 37,
+          "known": 0,
+          "stale": 0,
+          "byRule": {
+            "engine-record-store": {
+              "fail": 1,
+              "known": 0
+            },
+            "legal-receipt-native": {
+              "fail": 1,
+              "known": 0
+            },
+            "mandatory-foundation": {
+              "fail": 4,
+              "known": 0
+            },
+            "ownership-exceptions": {
+              "fail": 30,
+              "known": 0
+            },
+            "suite-key-literal": {
+              "fail": 1,
+              "known": 0
+            }
+          }
         }
       },
       "flags": {
@@ -4623,12 +4759,29 @@
           "dev": true
         },
         "check": {
-          "status": "not run",
-          "reason": "--with-check not passed",
-          "fail": null,
-          "known": null,
-          "stale": null,
-          "byRule": {}
+          "status": "ran",
+          "reason": "",
+          "fail": 55,
+          "known": 0,
+          "stale": 0,
+          "byRule": {
+            "mandatory-foundation": {
+              "fail": 9,
+              "known": 0
+            },
+            "notice-lock-digest": {
+              "fail": 3,
+              "known": 0
+            },
+            "ownership-exceptions": {
+              "fail": 42,
+              "known": 0
+            },
+            "release-config-identity": {
+              "fail": 1,
+              "known": 0
+            }
+          }
         }
       },
       "flags": {
@@ -5073,7 +5226,7 @@
         },
         "check": {
           "status": "not run",
-          "reason": "--with-check not passed",
+          "reason": "deferred app",
           "fail": null,
           "known": null,
           "stale": null,
@@ -5166,7 +5319,7 @@
         },
         "check": {
           "status": "not run",
-          "reason": "--with-check not passed",
+          "reason": "release consumer",
           "fail": null,
           "known": null,
           "stale": null,
@@ -5258,7 +5411,7 @@
         },
         "check": {
           "status": "not run",
-          "reason": "--with-check not passed",
+          "reason": "tool consumer",
           "fail": null,
           "known": null,
           "stale": null,
