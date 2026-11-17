@@ -173,6 +173,23 @@ export function classifyUnitResults({ selected, inventory, outcomes }) {
   });
 }
 
+/**
+ * One unit's word on the per-crate rows path, from its own rows and the run they were part of.
+ * `rows`: its requirement and coverage rows ({ status }); `expected`: how many it must have; `exit`: the run's exit code; `verified`: the run's evidence was verified.
+ * failed: a row failed, or rows are missing. blocked: a row was blocked or not run. passed: every row passed AND the run exited 0 and was verified.
+ * A unit whose rows all passed on a run that did not is still "failed" (nothing passes on such a run), and says so: `ownRows: "all-passed"` with
+ * the reason in `why`, so it is not read as a unit with a failure of its own.
+ */
+export function classifyUnitRows({ rows, expected, exit, verified }) {
+  const green = (r) => r.status === "passed" || r.status === "pass";
+  const failed = !expected || rows.length !== expected || rows.some((r) => r.status === "failed" || r.status === "fail");
+  const blocked = !failed && rows.some((r) => r.status === "blocked" || r.status === "not-run");
+  const ownGreen = !failed && !blocked && rows.every(green);
+  const status = failed ? "failed" : blocked ? "blocked" : exit === 0 && verified && ownGreen ? "passed" : "failed";
+  const onlyRun = status === "failed" && ownGreen;
+  return { status, ...(status === "failed" ? { code: exit || 1 } : {}), ...(onlyRun ? { ownRows: "all-passed", why: `every one of this unit's ${rows.length} row(s) passed; it is not passed because the run as a whole did not (exit ${exit}${verified ? "" : ", evidence not verified"})` } : {}) };
+}
+
 /** The aggregate report object (UNIT_LIST_REPORT_SCHEMA): selection reasons and classified results in run order. */
 export function unitListReport({ commit, stage, base = null, selected, results, unmatched = [] }) {
   const bySelector = new Map(results.map((r) => [r.selector, r]));

@@ -106,7 +106,7 @@ const inheritLaunch = (cmd, a, opts) => (stampChildLines
 import { readDiskPolicy, scratchRoots } from "../disk-policy.mjs";
 import { buildDirectReceipt, directVerdict, resolveTargetDirectory, verifyDirectReceipt, writeDirectDiagnostics } from "../direct-receipt.mjs";
 import { platformDirOf } from "../platform-dir.mjs";
-import { buildInventory, classifyUnitResults, dependencyFirstOrder, selectAffectedAcrossInventories, unitListReport } from "../affected-units.mjs";
+import { buildInventory, classifyUnitResults, dependencyFirstOrder, selectAffectedAcrossInventories, classifyUnitRows, unitListReport } from "../affected-units.mjs";
 import { createRequire } from "node:module";
 import { BUILD_CONTROL_PROTOCOL, HANDSHAKE_PROBE_ID, RUNTIME_MANIFEST_FILE, parseRuntimeIdentity } from "../seam-broker.mjs";
 import { snapshotReclaimJudge } from "../seam-broker.mjs";
@@ -1655,12 +1655,9 @@ export async function runSharedUnitList({ o, io, stage, commit, selected, invent
       const internal = union.internal.filter((r) => r.selector === unit.selector);
       const expected = union.expected?.get(unit.selector);
       const all = [...internal, ...evidence];
-      const failed = !expected || all.length !== expected || all.some((r) => r.status === "failed" || r.status === "fail");
-      const blocked = !failed && all.some((r) => r.status === "blocked" || r.status === "not-run");
       // A unit passes only on a run that exited 0: a scheduler or stage exception never leaves earlier evidence standing as a pass (cloud 2026-11-06:
-      // a lookup's coverage was reported as 132 passed after "scheduleClassB: invalid projection").
-      const status = failed ? "failed" : blocked ? "blocked" : exit === 0 && union.verified && all.every((r) => r.status === "passed" || r.status === "pass") ? "passed" : "failed";
-      return { selector: unit.selector, status, ...(status === "failed" ? { code: exit || 1 } : {}) };
+      // a lookup's coverage was reported as 132 passed after "scheduleClassB: invalid projection"). The word and its reason: affected-units.mjs.
+      return { selector: unit.selector, ...classifyUnitRows({ rows: all, expected, exit, verified: union.verified }) };
     });
     const report = unitListReport({ commit, stage, base, selected: ordered, results, unmatched }); report.runId = union.runId;
     for (const row of report.units) {
@@ -1671,9 +1668,10 @@ export async function runSharedUnitList({ o, io, stage, commit, selected, invent
         const data = `${JSON.stringify(evidence, null, 2)}\n`; o.writeFile(path.join(receiptDir, name), data);
         row.receipt = { status: "written", file: name, sha256: createHash("sha256").update(data).digest("hex") };
       }
-      o.out(`${tag} unit ${row.selector}: ${row.status}`);
+      o.out(`${tag} unit ${row.selector}: ${row.status}${row.ownRows === "all-passed" ? " (its own rows all passed; the run did not)" : ""}`);
     }
-    o.out(`${tag} unit report: ${report.counts.passed} passed, ${report.counts.failed} failed, ${report.counts.blocked} blocked, ${report.counts["not-run"]} not-run of ${ordered.length} on ${commit.slice(0, 12)}`);
+    const onlyRunCount = report.units.filter((u) => u.ownRows === "all-passed").length;
+    o.out(`${tag} unit report: ${report.counts.passed} passed, ${report.counts.failed} failed, ${report.counts.blocked} blocked, ${report.counts["not-run"]} not-run of ${ordered.length} on ${commit.slice(0, 12)}${onlyRunCount ? `; ${onlyRunCount} of the failed had every row of their own passed and ${report.counts.failed - onlyRunCount} had a failure of their own` : ""}`);
     if (receiptDir !== undefined) o.writeFile(path.join(receiptDir, "units-report.json"), `${JSON.stringify(report, null, 2)}\n`);
     return report.ok ? 0 : (exit || 1);
   }

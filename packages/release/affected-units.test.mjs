@@ -119,3 +119,26 @@ test("generic scoped planner keeps private unit Class B rows and excludes unrela
   const { scans: selected } = scopeScans(scans, closure, { rustUnits, npmUnits });
   assert.deepEqual(selected.map((s) => s.id), ["check:rightkit-align", "test:npm:rightkit-sync-worker"]);
 });
+
+
+test("G23: a unit whose own rows all passed on a run that did not pass is still failed, and says its rows passed", async () => {
+  const { classifyUnitRows, unitListReport } = await import("./affected-units.mjs");
+  const pass = { status: "pass" }; const fail = { status: "fail" }; const blocked = { status: "blocked" };
+  // The run passed: passed.
+  assert.deepEqual(classifyUnitRows({ rows: [pass, pass], expected: 2, exit: 0, verified: true }), { status: "passed" });
+  // The Dell case: this unit's rows all passed, another unit's row failed, the run exited 1. Still failed (the rule is unchanged), with the reason.
+  const only = classifyUnitRows({ rows: [pass, pass], expected: 2, exit: 1, verified: true });
+  assert.equal(only.status, "failed"); assert.equal(only.code, 1); assert.equal(only.ownRows, "all-passed");
+  assert.match(only.why, /every one of this unit's 2 row\(s\) passed; it is not passed because the run as a whole did not \(exit 1\)/);
+  assert.match(classifyUnitRows({ rows: [pass], expected: 1, exit: 0, verified: false }).why, /exit 0, evidence not verified/);
+  // A failure of its own, missing rows, no expectation: failed with no such mark.
+  for (const own of [{ rows: [pass, fail], expected: 2 }, { rows: [pass], expected: 2 }, { rows: [pass], expected: undefined }]) {
+    const r = classifyUnitRows({ ...own, exit: 1, verified: true });
+    assert.equal(r.status, "failed"); assert.equal(r.ownRows, undefined); assert.equal(r.why, undefined);
+  }
+  assert.deepEqual(classifyUnitRows({ rows: [pass, blocked], expected: 2, exit: 1, verified: true }), { status: "blocked" });
+  // The report keeps the mark and counts stay by word: admission (ok) is unchanged.
+  const report = unitListReport({ commit: "c".repeat(40), stage: "compile", selected: [{ selector: "cargo:a", reason: "listed" }, { selector: "cargo:b", reason: "listed" }], results: [{ selector: "cargo:a", ...only }, { selector: "cargo:b", ...classifyUnitRows({ rows: [fail], expected: 1, exit: 1, verified: true }) }] });
+  assert.equal(report.ok, false); assert.deepEqual(report.counts, { passed: 0, failed: 2, blocked: 0, "not-run": 0 });
+  assert.equal(report.units[0].ownRows, "all-passed"); assert.equal(report.units[1].ownRows, undefined);
+});
