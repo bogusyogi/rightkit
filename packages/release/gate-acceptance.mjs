@@ -19,7 +19,7 @@
 //    file). Every gate invocation is started with RK_GATE_SPAWN_LEDGER naming a per-run file under --out. A selected non-negotiable with missing evidence
 //    FAILS; it is never "unchecked". Wall time is judged only by NN18 against ci/gate-acceptance-budgets.json (a null budget fails: "no budget measured").
 // The pure assertion functions are exported and tested by gate-acceptance.test.mjs; `--plan` prints the steps and clause mapping and runs nothing.
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -30,6 +30,7 @@ import { RUNTIME_MANIFEST_FILE } from "./seam-broker.mjs";
 import { resolveBrokerClient } from "./broker-client.mjs";
 import { managedRuntimeClient } from "./managed-roots.mjs";
 import { codeClosure } from "./code-closure.mjs";
+import { CONTRACT_JOBS_ENV, CONTRACT_RUN_ID_ENV, CONTRACT_SEALED_ENV, CONTRACT_STEP_ENV, contractJobNonce } from "./gate-seam.mjs";
 
 export const RESULT_SCHEMA = "rightkit.gate-acceptance/1";
 export const COVERAGE_SCHEMA = "rightkit.gate-coverage/1";
@@ -1627,9 +1628,12 @@ export function runnerFileHashes({ entry = RUNNER_FILE, base = here, readFile = 
  * `broker`: the broker the run used, as two separate facts that are never merged: { runtimeDigest, runtimeVersion } from the installed runtime's
  * manifest and { enrolledDigest } from this host's enrolled record. They can disagree (loop matrix C9); a reader sees both and decides.
  */
-export function buildContractReceipt({ host, commit, gate, contractSha256, runnerSha256, budgetsSha256, fixtureCommit, result, runnerFiles = runnerFileHashes(), broker = null }) {
+export function buildContractReceipt({ host, commit, gate, contractSha256, runnerSha256, budgetsSha256, fixtureCommit, result, runnerFiles = runnerFileHashes(), broker = null, contractRun = null }) {
+  // G26: the run's id and its broker jobs. `jobReceipts` is the folder beside this receipt holding each listed job's signed receipt, named by job id.
+  // `nnBasis` says plainly what each rule rests on today: the runner's own judgement. No rule is yet re-derived from the signed jobs by a verifier.
+  const runFacts = contractRun ? { runId: contractRun.runId, jobs: contractRun.jobs, jobReceipts: contractRun.bundle, signedSteps: stepsWithSignedJobs(contractRun.jobs), nnBasis: "runner-claim" } : {};
   const brokerFacts = { runtimeDigest: broker?.runtimeDigest ?? null, runtimeVersion: broker?.runtimeVersion ?? null, enrolledDigest: broker?.enrolledDigest ?? null };
-  return { schema: CONTRACT_RECEIPT_SCHEMA, host, commit, gate, broker: brokerFacts, contractSha256, runnerSha256, runnerFiles, budgetsSha256, fixtureCommit, startedAt: result.startedAt, endedAt: result.endedAt, verdict: result.verdict, ok: result.ok, nn: Object.fromEntries(result.nonNegotiables.map((n) => [n.id, n.status])), uncheckedClauses: result.clauses.filter((c) => c.status === "unchecked").map((c) => c.id), waivers: result.waivers ?? [] };
+  return { schema: CONTRACT_RECEIPT_SCHEMA, host, commit, gate, broker: brokerFacts, ...runFacts, contractSha256, runnerSha256, runnerFiles, budgetsSha256, fixtureCommit, startedAt: result.startedAt, endedAt: result.endedAt, verdict: result.verdict, ok: result.ok, nn: Object.fromEntries(result.nonNegotiables.map((n) => [n.id, n.status])), uncheckedClauses: result.clauses.filter((c) => c.status === "unchecked").map((c) => c.id), waivers: result.waivers ?? [] };
 }
 export const validWaiver = (w) => isObject(w) && typeof w.clause === "string" && /^GC-/.test(w.clause) && w.by === "Adrian" && typeof w.words === "string" && w.words.trim().length > 0;
 /** `--verify-release`: the receipt of the host that releases or installs passes, for the gate commit and sealed gate, with the contract and runner it was
@@ -1677,6 +1681,51 @@ export function verifyReleaseReceipts(a, b = null, { commit = null, contractSha2
   }
   return { ok: problems.length === 0, problems };
 }
+// ---- G26: the broker jobs of a contract-test run, listed in its receipt with their signed receipts kept beside it -----------------------------------
+/** The step label a gate launch is tagged with: the run's own label made safe for the nonce (gate-seam.mjs contractJobNonce allows no other character). */
+export const contractStepLabel = (label) => { const s = String(label).replace(/[^A-Za-z0-9:._-]/g, "_").slice(0, 64); return /^[A-Za-z0-9]/.test(s) ? s : `x${s}`.slice(0, 64); };
+/** The environment one gate launch of a contract-test run gets ({} when the run is not tagged: a named development gate has no seal to bind). */
+export function contractRunEnv(run, label) {
+  return run ? { [CONTRACT_RUN_ID_ENV]: run.runId, [CONTRACT_SEALED_ENV]: run.sealedSha256, [CONTRACT_STEP_ENV]: contractStepLabel(label), [CONTRACT_JOBS_ENV]: run.jobsFile } : {};
+}
+/**
+ * Reads the jobs the gate filed during the run and copies each job's signed receipt into `bundleDir` (named by job id). Returns
+ * { jobs: [{ step, call, nonce, requestId, receiptSha256, argv, status }], problems }. A job is listed only with a receipt whose bytes hash to what
+ * the gate recorded and whose nonce is the one this run computes for it; anything else is a problem and the run cannot produce a passing receipt.
+ * A job the broker refused before it existed (no job id) is listed with requestId null and no receipt: it proves nothing and is counted apart.
+ */
+export function collectContractJobs(run, bundleDir, { read = (f) => fs.readFileSync(f), write = (f, b) => fs.writeFileSync(f, b), mkdir = (d) => fs.mkdirSync(d, { recursive: true }), exists = (f) => fs.existsSync(f) } = {}) {
+  const jobs = []; const problems = [];
+  if (!exists(run.jobsFile)) return { jobs, problems };
+  const lines = String(read(run.jobsFile)).split(/\r?\n/).filter((l) => l.trim());
+  mkdir(bundleDir);
+  lines.forEach((line, i) => {
+    let j; try { j = JSON.parse(line); } catch { problems.push(`contract job line ${i + 1} is not JSON`); return; }
+    if (j?.schema !== "rightkit.contract-job/1") { problems.push(`contract job line ${i + 1} has schema ${JSON.stringify(j?.schema)}`); return; }
+    let want = null; try { want = contractJobNonce({ runId: run.runId, sealedSha256: run.sealedSha256, step: j.step, call: j.call }); } catch { /* reported below */ }
+    if (want === null || j.nonce !== want) { problems.push(`contract job ${j.requestId ?? `line ${i + 1}`} (${j.step}): its nonce is not this run's`); return; }
+    const entry = { step: j.step, call: j.call, nonce: j.nonce, requestId: j.requestId ?? null, receiptSha256: null, argv: Array.isArray(j.argv) ? j.argv : [], status: j.status ?? null };
+    if (typeof j.requestId === "string" && j.requestId && typeof j.receipt === "string" && j.receipt) {
+      if (!/^[A-Za-z0-9._-]{1,128}$/.test(j.requestId)) { problems.push(`contract job ${JSON.stringify(j.requestId)} has a job id that cannot name a file`); return; }
+      let bytes; try { bytes = read(j.receipt); } catch (e) { problems.push(`contract job ${j.requestId} (${j.step}): its receipt ${j.receipt} cannot be read (${e.code ?? e.message})`); return; }
+      const got = sha256(bytes);
+      if (got !== j.receiptSha256) { problems.push(`contract job ${j.requestId} (${j.step}): its receipt changed after the gate read it (${got}, recorded ${j.receiptSha256})`); return; }
+      write(path.join(bundleDir, `${j.requestId}.json`), bytes);
+      entry.receiptSha256 = got;
+    }
+    jobs.push(entry);
+  });
+  return { jobs, problems };
+}
+/**
+ * The steps that cannot be served from a cache, so a run that really happened shows broker jobs in them: S11 runs with the gate's cache moved
+ * aside, S12 compiles a commit nothing has compiled before. Shipped in the sealed gate (contract-nn.json `signedSteps`); a verifier requires each
+ * of them to list at least one job whose signed receipt verifies. A warm step sends few or no jobs and is not on this list.
+ */
+export const CONTRACT_SIGNED_STEPS = Object.freeze(["S11", "S12"]);
+/** The step ids (the part of a job's label before ":") that have at least one job with a kept signed receipt. */
+export const stepsWithSignedJobs = (jobs) => [...new Set(jobs.filter((j) => j.receiptSha256).map((j) => String(j.step).split(":")[0]))].sort();
+
 /** The identity of a package archive as a receipt states it: sha256 of its bytes (hex) and the npm integrity (sha512, base64). */
 export function archiveIdentity(bytes) {
   return { sha256: createHash("sha256").update(bytes).digest("hex"), integrity: `sha512-${createHash("sha512").update(bytes).digest("base64")}` };
@@ -2625,10 +2674,10 @@ function runGate({ gate, cwd, args, env = process.env, timeoutMs = 3_600_000 }) 
 }
 
 /** Starts the gate, waits for `waitFor()` to return truthy (the snapshot lock) plus `afterMs`, then signals its process group. */
-function killDuring({ gate, cwd, args, signal, waitFor, afterMs }) {
+function killDuring({ gate, cwd, args, signal, waitFor, afterMs, env = process.env }) {
   return new Promise((resolve) => {
     let log = ""; let done = false; let child;
-    try { child = launch({ gate, args, cwd, env: process.env }); } catch (e) { resolve({ exit: null, signal: null, log: `spawn error: ${e.message}` }); return; }
+    try { child = launch({ gate, args, cwd, env }); } catch (e) { resolve({ exit: null, signal: null, log: `spawn error: ${e.message}` }); return; }
     child.stdout.on("data", (d) => { log += d; }); child.stderr.on("data", (d) => { log += d; });
     child.on("close", (exit, sig) => { done = true; clearInterval(poll); clearTimeout(cap); resolve({ exit, signal: sig, log }); });
     child.on("error", (e) => { done = true; clearInterval(poll); clearTimeout(cap); resolve({ exit: null, signal: null, log: `${log}\nspawn error: ${e.message}` }); });
@@ -2818,6 +2867,7 @@ async function executeRun({ fixture, host, wanted, gate, gateArg, budgetsFile, o
   const platform = host === "dell" ? "win32" : "darwin";
   const managedRoot = managedRootOf(host);
   const outDir = out ?? path.join(scratch, "runs", `${host}-${startedAt.replace(/[:.]/g, "-")}`);
+  let contractRun = null;
   fs.mkdirSync(outDir, { recursive: true });
   const budgetLoad = loadBudgets(budgetsFile ?? BUDGETS_FILE);
   const commit = commitArg ?? budgetLoad.budgets?.fixture?.commit ?? g.head();
@@ -2844,6 +2894,9 @@ async function executeRun({ fixture, host, wanted, gate, gateArg, budgetsFile, o
   };
   const probe = launcherProbe();
   const installedGate = findInstalledGate(managedRoot);
+  // G26: a run of a sealed gate tags its broker jobs. The seal is the candidate's, or the newest trusted install's; a named development gate has none.
+  { const sealedUnderTest = candidateArg !== null ? candidate?.sealedSha256 : (gateArg === undefined || gateArg === null ? installedGate?.sealedSha256 : null);
+    if (isSha(sealedUnderTest)) { contractRun = { runId: randomBytes(32).toString("hex"), sealedSha256: sealedUnderTest, jobsFile: path.join(outDir, "contract-jobs.jsonl") }; fs.rmSync(contractRun.jobsFile, { force: true }); } }
   ctx.gateIdentity = gateIdentityProblems({ gateArg, defaultGate: defaultGate(host), launcherExists: probe.exists, launcherVersion: probe.version, launcherText: probe.text, installed: installedGate, checkoutRoot: workspaceRootOf(), candidateArg, candidate });
   ctx.gateIdentityEvidence = `${gate} --version -> ${probe.version ?? "(none)"}; newest sealed install ${installedGate ? installedGate.version : "(none)"}${candidateArg !== null ? `; candidate ${candidateArg} ${candidate ? candidate.version : "(not found sealed)"}` : ""}`;
   gateIdentity.kind = ctx.gateIdentity.kind; gateIdentity.version = probe.version; gateIdentity.installedVersion = installedGate?.version ?? null;
@@ -2869,7 +2922,7 @@ async function executeRun({ fixture, host, wanted, gate, gateArg, budgetsFile, o
     // Every gate invocation writes its own spawn ledger (GC-A27 NN07-NN12, NN16). RK_GATE_* never enters a cache key, so this changes no result.
     const ledgerPath = path.join(outDir, `${label.replace(/[^\w.-]/g, "_")}.ledger.jsonl`);
     fs.rmSync(ledgerPath, { force: true });
-    const res = await runGate({ gate: gateCmd, cwd, args: [...gateArgs, ...full], env: { ...process.env, ...env, RK_GATE_SPAWN_LEDGER: ledgerPath } });
+    const res = await runGate({ gate: gateCmd, cwd, args: [...gateArgs, ...full], env: { ...process.env, ...env, RK_GATE_SPAWN_LEDGER: ledgerPath, ...contractRunEnv(contractRun, label) } });
     return finishRun({ label, stage, commit: c, full, res, receiptPath, ladder, step, extra: { ledgerPath, workload, ...(profile ? { profile } : {}), ...(cwd !== g.canonical ? { noTree: true } : {}), ...extra } });
   }
   function finishRun({ label, stage, commit: c, full, res, receiptPath, ladder = false, step, extra = {} }) {
@@ -2986,8 +3039,8 @@ async function executeRun({ fixture, host, wanted, gate, gateArg, budgetsFile, o
     const recipe = recipes[n.build];
     let c = commit;
     if (n.build === "bypass") {
-      const a = await runGate({ gate, cwd: g.canonical, args: ["--to", "check", "--commit", commit, "--no-cache"] });
-      const envRun = await runGate({ gate, cwd: g.canonical, args: ["--to", "check", "--commit", commit], env: { ...process.env, RK_GATE_CACHE: "0" } });
+      const a = await runGate({ gate, cwd: g.canonical, args: ["--to", "check", "--commit", commit, "--no-cache"], env: { ...process.env, ...contractRunEnv(contractRun, "S7:no-cache-flag") } });
+      const envRun = await runGate({ gate, cwd: g.canonical, args: ["--to", "check", "--commit", commit], env: { ...process.env, RK_GATE_CACHE: "0", ...contractRunEnv(contractRun, "S7:no-cache-env") } });
       const r1 = finishRun({ label: "N13:flag", stage: "check", commit, full: ["--no-cache"], res: a, receiptPath: null, step: "S7", extra: { negative: "N13", negativeResult: bypassRefused({ exit: a.exit, text: a.log }) } });
       const r2 = finishRun({ label: "N13:env", stage: "check", commit, full: ["RK_GATE_CACHE=0"], res: envRun, receiptPath: null, step: "S7", extra: { negative: "N13", negativeResult: bypassRefused({ exit: envRun.exit, text: envRun.log }) } });
       check("S7", "N13 --no-cache refused", r1.negativeResult); check("S7", "N13 RK_GATE_CACHE=0 refused", r2.negativeResult);
@@ -3006,7 +3059,7 @@ async function executeRun({ fixture, host, wanted, gate, gateArg, budgetsFile, o
   if (wanted.includes("S8")) for (const k of KILLS.filter((x) => !killsFilter || killsFilter.includes(x.id))) {
     const label = `S8:${k.id}`; const logPath = path.join(outDir, `${label.replace(/[^\w.-]/g, "_")}.log`);
     const stage = k.id.startsWith("K02") ? "check" : "compile"; const receiptPath = path.join(outDir, `${label.replace(/[^\w.-]/g, "_")}.receipt.json`);
-    const killed = await killDuring({ gate, cwd: g.canonical, args: ["--to", stage, "--commit", commit, "--receipt-out", receiptPath], signal: k.signal, waitFor: readLock, afterMs: killAfterMs });
+    const killed = await killDuring({ env: { ...process.env, ...contractRunEnv(contractRun, `S8:${k.id}`) }, gate, cwd: g.canonical, args: ["--to", stage, "--commit", commit, "--receipt-out", receiptPath], signal: k.signal, waitFor: readLock, afterMs: killAfterMs });
     fs.writeFileSync(logPath, killed.log);
     const before = readLock();
     const next = await doRun({ label: `${label}:next`, stage, ladder: true, step: "S8" });
@@ -3222,8 +3275,13 @@ async function executeRun({ fixture, host, wanted, gate, gateArg, budgetsFile, o
   let receiptPath = null;
   if (result.ok && !development) {
     const entry = candidateArg !== null ? candidate : findInstalledGate(managedRoot);
-    const receipt = buildContractReceipt({ host, commit: gateCommit, gate: { kind: candidateArg !== null ? "candidate" : "installed", version: entry?.version ?? probe.version, sealedPath: entry?.entry ?? null, sealedSha256: entry?.sealedSha256 ?? null, ...(candidateArg !== null ? { archiveSha256: entry?.archiveSha256 ?? null, archiveIntegrity: entry?.archiveIntegrity ?? null } : {}) }, contractSha256: ctx.contractSha256, runnerSha256: ctx.runnerSha256, budgetsSha256: fileSha(budgetsFile ?? BUDGETS_FILE), fixtureCommit: commit, result, broker: { runtimeDigest: ctx.broker.manifest?.brokerDigest ?? null, runtimeVersion: ctx.broker.manifest?.version ?? null, enrolledDigest: ctx.broker.pins?.brokerDigest ?? null } });
+    // G26: every broker job of the run, with its signed receipt kept beside this receipt. A job that cannot be kept as recorded refuses the receipt.
+    const collected = contractRun ? collectContractJobs(contractRun, path.join(outDir, "job-receipts")) : { jobs: [], problems: ["the run was not tagged"] };
+    if (collected.problems.length) { result.ok = false; result.verdict = `NOT PASSED: the run's broker jobs cannot be listed (${collected.problems[0]})`; result.contractJobProblems = collected.problems; }
+    if (result.ok) {
+    const receipt = buildContractReceipt({ host, commit: gateCommit, gate: { kind: candidateArg !== null ? "candidate" : "installed", version: entry?.version ?? probe.version, sealedPath: entry?.entry ?? null, sealedSha256: entry?.sealedSha256 ?? null, ...(candidateArg !== null ? { archiveSha256: entry?.archiveSha256 ?? null, archiveIntegrity: entry?.archiveIntegrity ?? null } : {}) }, contractSha256: ctx.contractSha256, runnerSha256: ctx.runnerSha256, budgetsSha256: fileSha(budgetsFile ?? BUDGETS_FILE), fixtureCommit: commit, result, contractRun: contractRun ? { ...contractRun, jobs: collected.jobs, bundle: "job-receipts" } : null, broker: { runtimeDigest: ctx.broker.manifest?.brokerDigest ?? null, runtimeVersion: ctx.broker.manifest?.version ?? null, enrolledDigest: ctx.broker.pins?.brokerDigest ?? null } });
     receiptPath = path.join(outDir, `contract-test-receipt.${host}.json`); fs.writeFileSync(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`);
+    }
   }
   result.receipt = receiptPath ?? (development ? "none: a development run writes no receipt" : "none: the run did not pass");
   result.timings = Object.fromEntries(Object.entries(runs).map(([k, v]) => [k, { ms: v.ms, stages: v.timings }]));

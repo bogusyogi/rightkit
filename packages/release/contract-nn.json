@@ -18,6 +18,10 @@
     "snapshot-root-config.mjs",
     "snapshot.mjs"
   ],
+  "signedSteps": [
+    "S11",
+    "S12"
+  ],
   "ids": [
     "NN01",
     "NN02",
