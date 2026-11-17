@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generatedAt": "2026-11-17T09:04:42Z",
-  "rightkitHead": "6f6296c28683e27e66dbeb60ebd1d660a97dba9e",
+  "generatedAt": "2026-11-17T10:07:05Z",
+  "rightkitHead": "a90942fa203f9556cf6b03b9763ddb0b8df196af",
   "legend": [
     {
       "state": "current",
@@ -137,7 +137,7 @@
       "group": "mandatory-set app",
       "dir": "D:\\Claude\\coderight",
       "present": true,
-      "head": "bd79c109147a5282176b0f71fd8aba0f4de6249a",
+      "head": "5f06fbefe895a82537c2469accaaceff33ec9462",
       "profile": "desktop",
       "inMandatorySet": true,
       "declaration": {
