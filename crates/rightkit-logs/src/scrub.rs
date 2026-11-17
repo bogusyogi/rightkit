@@ -203,6 +203,83 @@ pub fn redact_json_pairs(text: &str, keys: &[&str]) -> String {
     out
 }
 
+/// Redacts quoted string values for exact ASCII-case-insensitive keys. A matched value
+/// without a closing quote is redacted through the end of the input. Non-string values
+/// and unmatched pairs are preserved. The caller supplies the replacement marker.
+pub fn redact_json_pairs_with_marker(text: &str, keys: &[&str], marker: &str) -> String {
+    let bytes = text.as_bytes();
+    let encoded = serde_json::to_string(marker).expect("serializing a string cannot fail");
+    let escaped_marker = &encoded[1..encoded.len() - 1];
+    let mut out = String::with_capacity(text.len());
+    let mut flushed = 0;
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] != b'"' {
+            i += 1;
+            continue;
+        }
+        let Some(key_end) = closing_quote(bytes, i) else {
+            break;
+        };
+        let key = &text[i + 1..key_end];
+        i = key_end + 1;
+        if !keys
+            .iter()
+            .any(|candidate| candidate.eq_ignore_ascii_case(key))
+        {
+            continue;
+        }
+        let mut value = skip_ws(bytes, i);
+        if bytes.get(value) != Some(&b':') {
+            continue;
+        }
+        value = skip_ws(bytes, value + 1);
+        if bytes.get(value) != Some(&b'"') {
+            continue;
+        }
+        let end = closing_quote(bytes, value);
+        out.push_str(&text[flushed..=value]);
+        out.push_str(escaped_marker);
+        flushed = end.unwrap_or(bytes.len());
+        match end {
+            Some(end) => i = end + 1,
+            None => break,
+        }
+    }
+    out.push_str(&text[flushed..]);
+    out
+}
+
+/// Replaces non-null values at exact ASCII-case-insensitive object keys, recursively.
+/// Other string leaves are transformed with `transform`; other values stay unchanged.
+pub fn redact_value_with_keys<F>(value: &mut Value, keys: &[&str], marker: &str, transform: &F)
+where
+    F: Fn(&str) -> String,
+{
+    match value {
+        Value::String(text) => *text = transform(text),
+        Value::Array(items) => {
+            for item in items {
+                redact_value_with_keys(item, keys, marker, transform);
+            }
+        }
+        Value::Object(map) => {
+            for (key, item) in map {
+                if !item.is_null()
+                    && keys
+                        .iter()
+                        .any(|candidate| candidate.eq_ignore_ascii_case(key))
+                {
+                    *item = Value::String(marker.to_owned());
+                } else {
+                    redact_value_with_keys(item, keys, marker, transform);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
 /// Replaces the value of each `key=value` pair in free text whose key is one of `keys` with a
 /// stable token, `key=tok_<24 hex>` (rightkit#520). The token is the first 12 bytes of
 /// HMAC-SHA256 under `salt` over `key`, a NUL and the value, so the same account or label always

@@ -2,6 +2,8 @@
 
 ## 0.4.3
 
+- Added opt-in exact-key JSON value and quote-aware text redaction with caller-provided markers.
+
 - Added an opt-in required cross-process lock for JSONL size checks, rotation, and appends.
 
 ## 0.4.2

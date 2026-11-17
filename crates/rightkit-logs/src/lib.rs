@@ -54,9 +54,9 @@ pub use rotate::RotatedNaming;
 #[cfg(feature = "token-hash")]
 pub use scrub::redact_key_tokens;
 pub use scrub::{
-    redact_json_pairs, redact_quoted, redact_url_text, scrub_text, scrub_text_counted,
-    scrub_text_report, scrub_text_with, scrub_value, scrub_value_counted, RedactionCounts,
-    ScrubOptions,
+    redact_json_pairs, redact_json_pairs_with_marker, redact_quoted, redact_url_text,
+    redact_value_with_keys, scrub_text, scrub_text_counted, scrub_text_report, scrub_text_with,
+    scrub_value, scrub_value_counted, RedactionCounts, ScrubOptions,
 };
 pub use series::{
     MetricsConfig, MetricsStore, Point, Sample, SeriesKind, Tier, LATENCY_BUCKETS_MS,
