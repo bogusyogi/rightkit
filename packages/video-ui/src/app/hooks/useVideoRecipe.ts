@@ -3,6 +3,7 @@ import { engineCall, errorCode, errorMessage } from "../../lib/engine.js";
 import { projectShow, type ProjectShow } from "../../lib/project.js";
 import { assetUrl } from "../../lib/asset.js";
 import { captionsPreview, DEFAULT_CAPTION_STYLE, framingApproval, modelsStatus, recipeCancel, recipeRun, recipeStatus, recipesApply, recipesSave, settingsGet, settingsSet, sourceList, thumbnails, type CaptionPreview, type RecipeStageEvent, type RecipeStatus, type SourceRow } from "../../lib/media.js";
+import type { EngineEvent } from "../../lib/progress.js";
 import { interpretAssetLibrary, type GeneratedAsset } from "../lib/genright.js";
 import { onEngineRaw } from "../lib/engineRaw.js";
 import { pickFile } from "../lib/dialog.js";
@@ -16,17 +17,25 @@ export type VideoRecipe = {
   [key: string]: unknown;
 };
 type Stage = { state: "running" | "done" | "failed" | "skipped"; fraction?: number; error?: string };
-type Operation = { kind: "run" | "apply" | "save"; job?: string; tag?: string; phase?: "preparing" | "running" | "refreshing"; cancelling?: boolean; registered?: boolean; cancelRequest?: () => void; stages?: Record<string, Stage>; warning?: string; done?: Promise<void> };
+type RecipeTranscription = { source: string; message?: string; fraction?: number };
+type Operation = { kind: "run" | "apply" | "save"; job?: string; tag?: string; phase?: "preparing" | "running" | "refreshing"; cancelling?: boolean; registered?: boolean; cancelRequest?: () => void; stages?: Record<string, Stage>; transcription?: RecipeTranscription; warning?: string; done?: Promise<void> };
 type RunResult = { stages: Record<string, Stage>; error: string | null; cancelled: boolean; refreshError?: string };
 type RecipeDraft = { recipe: Record<string, unknown>; overrides: Record<string, unknown> };
 const results = new Map<string, RunResult>();
 const operations = new Map<string, Operation>();
+const transcriptReadbacks = new Map<string, { source: string }>();
 const operationListeners = new Set<() => void>();
 let operationSnapshot: ReadonlyMap<string, Operation> = new Map();
 const subscribeOperations = (listener: () => void) => { operationListeners.add(listener); return () => { operationListeners.delete(listener); }; };
 function publishOperations() { operationSnapshot = new Map(operations); for (const listener of operationListeners) listener(); }
+const readOperations = () => operationSnapshot;
 const writes = new Map<string, Promise<void>>();
 export const videoRecipePlanKey = (id: string, aspect: string) => `${id}|${aspect}`;
+
+export function useVideoRecipeTranscription(dir: string) {
+  const snapshot = useSyncExternalStore(subscribeOperations, readOperations, readOperations);
+  return { current: snapshot.get(dir)?.transcription, readback: transcriptReadbacks.get(dir) };
+}
 
 /** Recipe state and engine interactions; presentation and notification copy stay with the host. */
 export function useVideoRecipe({ dir, onFinished, refreshChangedProject }: {
@@ -44,7 +53,7 @@ export function useVideoRecipe({ dir, onFinished, refreshChangedProject }: {
   const [speechReady, setSpeechReady] = useState<boolean | null>(null);
   const [swatch, setSwatch] = useState<CaptionPreview | "loading" | "error" | null>(null);
 
-  const operation = useSyncExternalStore(subscribeOperations, () => operationSnapshot, () => operationSnapshot).get(dir) ?? null;
+  const operation = useSyncExternalStore(subscribeOperations, readOperations, readOperations).get(dir) ?? null;
   const running = operation?.kind === "run" ? operation.job ?? null : null;
   const observedOperation = useRef<{ dir: string; operation: Operation | null }>({ dir, operation });
   const [framingFor, setFramingFor] = useState<{ dir: string; s: SourceRow; aspect: string } | null>(null);
@@ -252,12 +261,39 @@ export function useVideoRecipe({ dir, onFinished, refreshChangedProject }: {
         }
       }
       record.cancelRequest = () => { void attemptCancel(); };
-      off = await onEngineRaw((payload) => {
-        const frame = payload as unknown as { tag?: string | null; event?: RecipeStageEvent };
-        if (operations.get(dir) !== record || frame.tag !== record.tag || frame.event?.event !== "recipe.stage") return;
-        const event = frame.event;
+      off = await onEngineRaw((frame) => {
+        if (operations.get(dir) !== record || frame.tag !== record.tag) return;
+        const progress = frame.event as EngineEvent | null;
+        if (!progress) return;
+        if (progress.event !== "recipe.stage") {
+          if (progress.job !== `${job}-stage`) return;
+          const transcription = record.transcription;
+          if (progress.event === "transcribe.started" && typeof progress.source === "string") {
+            record.transcription = { source: progress.source };
+          } else if (progress.event === "transcribe.progress" && transcription && progress.source === transcription.source) {
+            record.transcription = {
+              source: transcription.source,
+              message: typeof progress.message === "string" ? progress.message : undefined,
+              fraction: typeof progress.fraction === "number" ? progress.fraction : undefined,
+            };
+          } else if (progress.event === "transcribe.done" && transcription) {
+            // The native job transcribes sources serially and its completion frame omits the source.
+            transcriptReadbacks.set(dir, { source: transcription.source });
+            record.transcription = undefined;
+          } else {
+            return;
+          }
+          publishOperations();
+          return;
+        }
+        const event = progress as RecipeStageEvent;
         const firstStage = !record.registered;
         record.registered = true;
+        if (event.stage === "transcribe" && event.state !== "running" && record.transcription) {
+          // A transcript may be saved even when the later envelope write fails.
+          transcriptReadbacks.set(dir, { source: record.transcription.source });
+          record.transcription = undefined;
+        }
         record.stages = { ...record.stages, [event.stage]: { state: event.state, fraction: event.fraction, error: event.error } };
         publishOperations();
         if (firstStage && record.cancelling) void attemptCancel();
@@ -289,7 +325,10 @@ export function useVideoRecipe({ dir, onFinished, refreshChangedProject }: {
       const wasCancelled = (record.phase === "preparing" && record.cancelling) || code === "cancelled" || code === "render_cancelled";
       results.set(dir, { stages: record.stages ?? {}, error: wasCancelled ? null : errorMessage(e), cancelled: wasCancelled });
     } finally {
-      if (operations.get(dir) === record) operations.delete(dir);
+      if (operations.get(dir) === record) {
+        if (record.transcription) transcriptReadbacks.set(dir, { source: record.transcription.source });
+        operations.delete(dir);
+      }
       publishOperations();
       off?.();
     }

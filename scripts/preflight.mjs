@@ -311,6 +311,7 @@ const SHARED_BEHAVIOR = new Set([
   "packages/video-ui/src/app/hooks/useVideoBundleExport.ts",
   "packages/video-ui/src/app/hooks/useVideoExports.ts",
   "packages/video-ui/src/app/hooks/useVideoPrompt.ts",
+  "packages/video-ui/src/app/hooks/useVideoSources.ts",
   "packages/video-ui/src/app/hooks/useVideoFramingReview.ts",
   "packages/video-ui/src/app/hooks/useVideoHome.ts",
   "packages/video-ui/src/app/hooks/useVideoPhrases.ts",

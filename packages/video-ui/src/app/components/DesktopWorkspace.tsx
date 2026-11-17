@@ -274,6 +274,7 @@ export function DesktopWorkspace() {
             <SourcesView
               dir={dir}
               onChanged={refresh}
+              refreshChangedProject={refreshChangedProject}
               onNavigate={(to) => setTab(to === "recipe" ? "recipe" : "finished")}
             />
           ) : tab === "recipe" ? (

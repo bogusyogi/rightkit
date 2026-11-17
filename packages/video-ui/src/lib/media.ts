@@ -221,7 +221,7 @@ export const sourceVerify = (dir: string, tag?: string) =>
   }>("source.verify", { dir }, tag);
 
 export const sourceRelink = (dir: string, source: string, path: string) =>
-  engineCall<{ status: string }>("source.relink", { dir, source, path });
+  engineCall<{ status: string; relinks: { source_id: string; applied: boolean; matches: boolean; reason?: string }[] }>("source.relink", { dir, source, path });
 
 export const transcribe = (dir: string, source: string, job?: string, install?: boolean, tag?: string) =>
   engineCall<TranscribeResult>(
