@@ -96,6 +96,10 @@ export function admitGateRelease({ receipt, readJob, archiveBytes, commit, pipel
     for (const v of mine) {
       const exit = v.payload.result?.exitCode;
       if (exit !== launch.exitCode) bad.push(`${v.name} ended with exit ${exit ?? "(not stated)"}, the launch requires ${launch.exitCode}`);
+      // The broker's own word for how the job ended (rustright job.rs JobState::wire). Exit 0 with another word exists: a check after the process
+      // did not let the result stand. Cancelled and timed-out jobs never satisfy a launch.
+      const word = launch.exitCode === 0 ? "SUCCEEDED" : "FAILED";
+      if (v.payload.result?.status !== word) bad.push(`${v.name} ended as ${v.payload.result?.status ?? "(not stated)"}, expected ${word}`);
       if (typeof v.payload.gate?.commit !== "string" || !/^[0-9a-f]{40}$/.test(v.payload.gate.commit)) bad.push(`${v.name} names no commit`);
     }
     const commits = [...new Set(mine.map((v) => v.payload.gate?.commit ?? null))];

@@ -35,7 +35,7 @@ const pipeline = { attestation: { win32: key.pin } };
 function job(step, n, { signer = key, nonce, sealedSha256 = SEALED, over = {}, payloadOver = {}, command = "clippy", exitCode = 0, commit = EDIT1 } = {}) {
   const requestId = `job-${n}`; const call = String(n).repeat(32).slice(0, 32);
   const payload = { schema: PUBLICATION_CLAIM_SCHEMA, keyId: signer.pin.keyId, host: signer.pin.host, broker: { brokerDigest: signer.pin.brokerDigest, version: "rustright-x" }, jobId: requestId,
-    nonce: nonce ?? contractJobNonce({ runId: RUN, sealedSha256, step, call }), gate: { commit, tree: "9".repeat(40) }, result: { status: exitCode === 0 ? "succeeded" : "failed", exitCode }, command, payloadSha256: "5".repeat(64), ...payloadOver };
+    nonce: nonce ?? contractJobNonce({ runId: RUN, sealedSha256, step, call }), gate: { commit, tree: "9".repeat(40) }, result: { status: exitCode === 0 ? "SUCCEEDED" : "FAILED", exitCode }, command, payloadSha256: "5".repeat(64), ...payloadOver };
   const doc = { id: requestId, publication: { schema: PUBLICATION_CLAIM_SCHEMA, payload, signature: { alg: "ES256", keyId: signer.pin.keyId, value: sign("sha256", claimSignedBytes(payload), { key: signer.privateKey, dsaEncoding: "ieee-p1363" }).toString("hex") } } };
   const bytes = Buffer.from(JSON.stringify(doc));
   return { bytes, doc, entry: { step, call, nonce: payload.nonce, requestId, receiptSha256: "f".repeat(64), claimSha256: sha(bytes), argv: ["cargo", command], status: exitCode, ...over } };
@@ -128,6 +128,8 @@ test("the sealed launches: each must show its own kind of work, its expected res
   has(admit(fixture([job("S12:crate", 3, { command: "metadata" }), job("S12:manifest", 5, { commit: EDIT2 })])), /launch S12:crate: none of its jobs is one of clippy, test, build, check, doc \(found: metadata\)/);
   // A compile that failed: the broker signed a non-zero exit.
   has(admit(fixture([job("S12:crate", 3), job("S12:crate", 4, { command: "test", exitCode: 101 }), job("S12:manifest", 5, { commit: EDIT2 })])), /launch S12:crate: job job-4 \(S12:crate\) ended with exit 101, the launch requires 0/);
+  // Exit 0 is not enough: the broker must have signed the job as succeeded. A job a later check did not let stand, a cancelled or a timed-out one never counts.
+  for (const status of ["FAILED", "CANCELLED", "TIMED_OUT", "succeeded", null]) has(admit(fixture([job("S12:crate", 3, { payloadOver: { result: { status, exitCode: 0 } } }), job("S12:manifest", 5, { commit: EDIT2 })])), /launch S12:crate: job job-3 \(S12:crate\) ended as .*, expected SUCCEEDED/);
   // Not on a commit made for the launch: on the fixture commit, on two commits, or on none.
   has(admit(fixture([job("S12:crate", 3, { commit: FIXTURE }), job("S12:manifest", 5, { commit: EDIT2 })])), /launch S12:crate: its jobs ran on the fixture commit, not on a commit made for this launch/);
   has(admit(fixture([job("S12:crate", 3), job("S12:crate", 4, { commit: EDIT2 }), job("S12:manifest", 5, { commit: EDIT2 })])), /launch S12:crate: its jobs name 2 different commits/);
