@@ -20,6 +20,32 @@ export function libtestSummary(text) {
   return sum.lines ? sum : null;
 }
 
+/**
+ * Why a program that exited 0 still cannot be counted as passed, from what it printed; null when nothing contradicts the exit code.
+ *   - a `test result:` line that cannot be read (its counts are unknown, so they are not taken as zero);
+ *   - more `running N tests` headers than `test result:` lines (a run started and never reported: the output ended early);
+ *   - a summary that says FAILED or reports failed tests.
+ * A program that prints neither a header nor a result line (a custom harness, or one with nothing to say) is judged by its exit code alone, and a
+ * libtest run of zero tests prints its own "0 passed" line: both still qualify.
+ */
+export function libtestProblem(text) {
+  let started = 0; let results = 0; let unread = 0; let failedWord = false; let failed = 0;
+  for (const raw of String(text ?? "").split(/\r?\n/)) {
+    const line = raw.trim();
+    if (/^running \d+ tests?$/.test(line)) { started += 1; continue; }
+    if (!line.startsWith("test result:")) continue;
+    results += 1;
+    const m = /^test result: (ok|FAILED)\. (\d+) passed; (\d+) failed; (\d+) ignored/.exec(line);
+    if (!m) { unread += 1; continue; }
+    if (m[1] === "FAILED") failedWord = true;
+    failed += Number(m[3]);
+  }
+  if (unread) return `${unread} "test result:" line(s) could not be read, so the counts are not known`;
+  if (failedWord || failed) return `its summary reports ${failed} failed test(s)${failedWord ? " (FAILED)" : ""} although it exited 0`;
+  if (started > results) return `${started} test run(s) started and ${results} reported a result: the output ended before the summary`;
+  return null;
+}
+
 const sha256File = (file) => crypto.createHash("sha256").update(fs.readFileSync(file)).digest("hex");
 
 /**
@@ -133,8 +159,10 @@ export async function runTests({ executables, crates, env = process.env, jobs = 
       const r = await runOne({ file: exe.path, args, cwd: crate.dir, env: programEnv, timeoutMs, spawn, platform, stop, gone, record, reapMs, pollMs });
       if (r.unreaped) counts.unreaped += 1;
       const sum = libtestSummary(r.output);
-      run = { ok: r.exit === 0, program: exe.target, args, passed: sum?.passed ?? 0, failed: sum?.failed ?? 0, ignored: sum?.ignored ?? 0, detail: r.exit === 0 ? "" : (r.error ?? `exit ${r.exit}${r.signal ? ` (${r.signal})` : ""}: ${r.output.slice(-1500)}`) };
-      if (run.ok) store?.put(key, { run: { ok: true, program: run.program, args, passed: run.passed, failed: 0, ignored: run.ignored, detail: "" } });
+      // Exit 0 is not enough: what the program printed must not contradict it (libtestProblem). Only a run with no such contradiction is remembered.
+      const contradiction = r.exit === 0 ? libtestProblem(r.output) : null;
+      run = { ok: r.exit === 0 && !contradiction, program: exe.target, args, passed: sum?.passed ?? 0, failed: sum?.failed ?? 0, ignored: sum?.ignored ?? 0, detail: r.exit !== 0 ? (r.error ?? `exit ${r.exit}${r.signal ? ` (${r.signal})` : ""}: ${r.output.slice(-1500)}`) : contradiction ? `exited 0 but ${contradiction}` : "" };
+      if (run.ok) store?.put(key, { run: { ok: true, program: run.program, args, passed: run.passed, failed: run.failed, ignored: run.ignored, detail: "" } });
     }
     runs.get(crate.name).push(run);
   };

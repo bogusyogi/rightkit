@@ -698,3 +698,43 @@ test("G7: when the broker dropped part of a job's output, crates are judged from
     assert.equal(blind.counts.greenReruns, 0, "no green rerun is built on a partial stream");
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+test("a test program that exited 0 is not passed when what it printed contradicts that; zero tests and a custom harness still qualify", async () => {
+  const { libtestProblem } = await import("./tests.mjs");
+  const ok = "running 3 tests\ntest a ... ok\ntest result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out\n";
+  assert.equal(libtestProblem(ok), null);
+  assert.equal(libtestProblem("running 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured\n"), null, "a real zero-test run");
+  assert.equal(libtestProblem("custom harness: all good\n"), null, "a harness that prints no libtest lines is judged by its exit code");
+  assert.equal(libtestProblem(""), null);
+  // The header survived and the summary did not: the run did not finish reporting.
+  assert.match(libtestProblem("running 12 tests\ntest a ... ok\n"), /1 test run\(s\) started and 0 reported a result/);
+  assert.match(libtestProblem(`${ok}running 5 tests\ntest b ... ok\n`), /2 test run\(s\) started and 1 reported a result/);
+  // A summary line that cannot be read is not taken as zero.
+  assert.match(libtestProblem("running 3 tests\ntest result: ok. 3 pas"), /could not be read/);
+  assert.match(libtestProblem("test result: weird\n"), /could not be read/);
+  // The summary itself says tests failed.
+  assert.match(libtestProblem("running 2 tests\ntest result: FAILED. 1 passed; 1 failed; 0 ignored\n"), /reports 1 failed test\(s\) \(FAILED\) although it exited 0/);
+  assert.match(libtestProblem("running 2 tests\ntest result: ok. 1 passed; 1 failed; 0 ignored\n"), /reports 1 failed/);
+  // A head cut off by the kept-tail limit (no header, summary present) is fine.
+  assert.equal(libtestProblem("test z ... ok\ntest result: ok. 900 passed; 0 failed; 0 ignored\n"), null);
+
+  // Through the runner: such a program fails its crate, and is not remembered; a clean one is.
+  const { EventEmitter } = await import("node:events");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rk-sum-"));
+  try {
+    const exe = (name) => ({ path: `/t/${name}`, sha256: "ab".repeat(32), package_id: `path+file:///s/crates/${name}#0.1.0`, target: name, kind: "lib" });
+    const printed = { cut: "running 12 tests\ntest a ... ok\n", lying: "running 2 tests\ntest result: FAILED. 1 passed; 1 failed; 0 ignored\n", fine: ok, harness: "done\n" };
+    let ran = 0;
+    const spawn = (file) => { ran += 1; const c = new EventEmitter(); c.pid = 1; c.stdout = new EventEmitter(); c.stderr = new EventEmitter(); setImmediate(() => { c.stdout.emit("data", printed[path.posix.basename(file)]); c.emit("close", 0, null); }); return c; };
+    const names = ["cut", "lying", "fine", "harness"];
+    const go = () => runTests({ executables: names.map(exe), crates: names.map((name) => ({ name, dir: "/s" })), env: {}, jobs: 1, hashOf: () => "ab".repeat(32), store: fileStore(dir), scope: "s", spawn, record: (c) => c });
+    const first = await go();
+    assert.deepEqual(Object.fromEntries(names.map((n) => [n, first.byCrate[n].result])), { cut: "failed", lying: "failed", fine: "passed", harness: "passed" });
+    assert.match(first.byCrate.cut.detail, /exited 0 but 1 test run\(s\) started and 0 reported a result/);
+    assert.match(first.byCrate.lying.detail, /exited 0 but its summary reports 1 failed/);
+    assert.equal(first.byCrate.lying.failed, 1, "the reported failures are counted, not zeroed");
+    const before = ran; const second = await go();
+    assert.equal(ran - before, 2, "only the two contradicted programs run again; the clean ones were remembered");
+    assert.equal(second.byCrate.cut.result, "failed"); assert.equal(second.counts.cached, 2);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
