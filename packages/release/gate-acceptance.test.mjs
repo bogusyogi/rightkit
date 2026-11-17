@@ -1346,3 +1346,20 @@ test("the runner finds the coverage report in the line the gate prints today, on
   assert.deepEqual(coveragePaths("rightkit-gate: coverage report /r/a.json: 3 planned scan(s), 3 hit, 0 ran, 0 skipped\n"), ["/r/a.json"]);
   assert.deepEqual(coveragePaths("rightkit-gate: no coverage report was written\n"), []);
 });
+
+test("a lock left by a holder that is gone is not a reason to stop the run; a live holder's is", async () => {
+  const { lockHolderState } = await import("./gate-acceptance.mjs");
+  const esrch = () => { const e = new Error("no such process"); e.code = "ESRCH"; throw e; };
+  const eperm = () => { const e = new Error("not permitted"); e.code = "EPERM"; throw e; };
+  const alive = () => true;
+  assert.equal(lockHolderState({ pid: 258, identity: "darwin:258:Tue Nov 17 23:25:12 2026" }, { kill: esrch }), "gone");
+  assert.equal(lockHolderState({ pid: 258, identity: "darwin:258:A" }, { kill: alive, identityOf: () => "darwin:258:A" }), "alive");
+  assert.equal(lockHolderState({ pid: 258, identity: "darwin:258:A" }, { kill: alive, identityOf: () => "darwin:258:B" }), "gone", "the pid was reused");
+  assert.equal(lockHolderState({ pid: 258, identity: "darwin:258:A" }, { kill: alive, identityOf: () => null }), "unknown");
+  assert.equal(lockHolderState({ pid: 258, identity: "darwin:258:A" }, { kill: eperm }), "unknown");
+  assert.equal(lockHolderState({ pid: 258 }, { kill: alive }), "alive", "no identity to compare: a live pid is taken as the holder");
+  assert.equal(lockHolderState({ token: "t" }, { kill: alive }), "unknown");
+  // The real check on this host: our own pid is alive; a pid that cannot exist is gone.
+  assert.equal(lockHolderState({ pid: process.pid }), "alive");
+  assert.equal(lockHolderState({ pid: 2 ** 30 }), "gone");
+});

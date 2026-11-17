@@ -30,7 +30,7 @@ import { RUNTIME_MANIFEST_FILE } from "./seam-broker.mjs";
 import { resolveBrokerClient } from "./broker-client.mjs";
 import { managedRuntimeClient } from "./managed-roots.mjs";
 import { codeClosure } from "./code-closure.mjs";
-import { CONTRACT_JOBS_ENV, CONTRACT_RUN_ID_ENV, CONTRACT_SEALED_ENV, CONTRACT_STEP_ENV, contractJobNonce } from "./gate-seam.mjs";
+import { CONTRACT_JOBS_ENV, CONTRACT_RUN_ID_ENV, CONTRACT_SEALED_ENV, CONTRACT_STEP_ENV, contractJobNonce, processIdentity } from "./gate-seam.mjs";
 
 export const RESULT_SCHEMA = "rightkit.gate-acceptance/1";
 export const COVERAGE_SCHEMA = "rightkit.gate-coverage/1";
@@ -1245,6 +1245,18 @@ export function listInstalledGates(managedRoot, { read = (f) => fs.readFileSync(
   found.sort((a, b) => { const x = key(a.version); const y = key(b.version); for (let i = 0; i < 3; i += 1) if (x[i] !== y[i]) return y[i] - x[i]; return 0; });
   return found;
 }
+/** Whether a snapshot lock's holder is "gone" (no process with that pid, or the pid now belongs to a process of another birth identity), "alive" or
+ * "unknown" (cannot be told). The same proof the gate's own reclaim needs before it asks the broker (snapshot.mjs takeSnapshotLock). */
+export function lockHolderState(lock, { kill = (pid) => process.kill(pid, 0), identityOf = (pid) => processIdentity(pid) } = {}) {
+  if (!Number.isInteger(lock?.pid) || lock.pid <= 0) return "unknown";
+  try { kill(lock.pid); } catch (e) { return e?.code === "ESRCH" ? "gone" : "unknown"; }
+  const born = typeof lock.identity === "string" ? lock.identity : typeof lock.birth === "string" ? lock.birth : null;
+  if (!born) return "alive";
+  let now = null; try { now = identityOf(lock.pid); } catch { now = null; }
+  if (typeof now !== "string" || !now) return "unknown";
+  return now === born ? "alive" : "gone";
+}
+
 /**
  * NN19: the gate that runs is the installed sealed gate. Without `--gate` the default launcher must exist, report the newest sealed install's version
  * and not exec the checkout's gate; a checkout gate is accepted only when `--gate` names it (and the result then says so: `kind: "named"`).
@@ -2989,7 +3001,15 @@ async function executeRun({ fixture, host, wanted, gate, gateArg, budgetsFile, o
   if (wanted.includes("S0")) {
     for (const id of ["GC-I22", "GC-I18", "GC-I01"]) { const r = CHECKS[id](ctx); for (const c of Array.isArray(r) ? r : [r]) { clauseChecks[id].push(c); if (id !== "GC-I01") { stepOf("S0").checks.push(c.status === "unchecked" ? "unchecked" : c.status); stepChecks.push({ step: "S0", name: id, ok: c.status === "pass", problems: c.problems }); } } }
     check("S0", "the fixture checkout is clean", ctx.s0.status.trim() === "" ? { ok: true, problems: [] } : { ok: false, problems: [`fixture checkout is not clean: ${ctx.s0.status.trim().split("\n")[0]}`] });
-    check("S0", "no snapshot lock stands before the run", ctx.s0.lock ? { ok: false, problems: [`a snapshot lock stands before the run: ${JSON.stringify({ token: ctx.s0.lock.token, pid: ctx.s0.lock.pid })}`] } : { ok: true, problems: [] });
+    // A lock left by a holder that is gone (the S8 kill of an earlier run leaves one by design) is not a blocker: the gate reclaims it on the broker's
+    // proof at its first run, and that run's log says so. Only a lock whose holder still lives blocks the run (Mac, 2026-11-17: every run after an
+    // S8 kill started with an S0 failure the gate itself then cleared).
+    check("S0", "no live snapshot lock stands before the run", (() => {
+      const lock = ctx.s0.lock; if (!lock) return { ok: true, problems: [] };
+      const state = lockHolderState(lock);
+      if (state === "gone") { ctx.s0.lockNote = `S0: a snapshot lock of a holder that is gone stood before the run (pid ${lock.pid}); the gate's first run must reclaim it`; return { ok: true, problems: [] }; }
+      return { ok: false, problems: [`a snapshot lock stands before the run and its holder is ${state}: ${JSON.stringify({ token: lock.token, pid: lock.pid })}`] };
+    })());
   }
 
   // S1 --------------------------------------------------------------------------------------------------------------------------------------
@@ -3293,6 +3313,7 @@ async function executeRun({ fixture, host, wanted, gate, gateArg, budgetsFile, o
   Object.assign(ctx, { forceNN, warmLabels: checksOnly ? ["S2:check", "S2:check2"] : undefined, extended: true, nnSet: NN_ALL, contractText, contractFile: contractPath, rootDir, runnerSha256: fileSha(RUNNER_FILE), contractSha256: fileSha(contractPath), fixtureCommit: commit, gateCommit, otherReceipt, otherReceiptPath: otherReceiptFile, tooling: collectTooling(rootDir, managedRoot) });
   let nonNegotiables = evaluateNonNegotiables(ctx);
   const notes = [`out ${outDir}`, "wall time is judged only by the NN18 budgets in ci/gate-acceptance-budgets.json"];
+  if (ctx.s0?.lockNote) notes.push(ctx.s0.lockNote);
   if (ctx.gateIdentity.kind === "named") notes.push(`the gate under test is ${gate}, named by --gate: NOT the installed sealed gate; acceptance of the installed gate is still owed`);
   if (!allowInstall) notes.push(`--to ${INSTALL_STAGES.join(" and --to ")} not run: ${NEEDS_INSTALL_APPROVAL}`);
   const development = ctx.gateIdentity.kind === "named";
