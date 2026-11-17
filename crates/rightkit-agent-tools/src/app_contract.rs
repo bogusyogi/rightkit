@@ -6,6 +6,8 @@ use serde_json::Value;
 pub const APP_CONTRACT_SCHEMA_ID: &str = "rightkit-agent-tools/app-contract/1";
 pub const APP_CONTRACT_VERSION: u32 = 2;
 pub const APP_CONTRACT_MAX_BYTES: usize = 1024 * 1024;
+/// Structural schema only. Qualification must also use [`AppContract::parse`] for cross-field,
+/// exposure and duplicate-member checks; neither validates the implementation behind a contract.
 pub const APP_CONTRACT_SCHEMA: &str = include_str!("app-contract.schema.json");
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "rightkit-agent-tools/app-contract/1",
+  "$id": "urn:rightkit:agent-tools:app-contract:1",
   "type": "object",
   "additionalProperties": false,
   "required": [
