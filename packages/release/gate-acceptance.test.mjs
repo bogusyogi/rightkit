@@ -1166,3 +1166,32 @@ test("the running broker's identity is its handshake digest, only when it answer
   assert.match(liveBrokerDigest(doctor(), null).problem, /manifest states no broker digest/);
   for (const bad of [doctor({ answered: false }), doctor({ handshakeRuntime: {} }), null]) assert.equal(liveBrokerDigest(bad, d).digest, null);
 });
+
+test("a trust decision finds the installed client and asks the broker with session overrides dropped, and refuses when it cannot", async () => {
+  const { hostAuthoritativeEnv, askRunningBroker } = await import("./gate-acceptance.mjs");
+  const { managedRuntimeClient } = await import("./managed-roots.mjs");
+  const home = process.platform === "win32" ? "C:\\Users\\owner" : "/Users/owner";
+  const session = { PATH: "/bin", HOME: "/sessions/agent/home", USERPROFILE: "C:\\sessions\\agent", home: "/lowercase/home", RUSTRIGHT_RUNTIME_ROOT: "/nowhere", RUSTRIGHT_BUILD_BROKER_SOCKET: "/nowhere.sock", RIGHTKIT_MANAGED_ROOT: "/nowhere", rightkit_lower: "x", LOCALAPPDATA: "C:\\Users\\owner\\AppData\\Local" };
+  const env = hostAuthoritativeEnv(session, home);
+  assert.deepEqual(Object.keys(env).sort(), ["HOME", "LOCALAPPDATA", "PATH", "USERPROFILE"]);
+  assert.equal(env.HOME, home); assert.equal(env.USERPROFILE, home);
+  // Root selection: the client found under the session's overrides is the one found with none of them set.
+  for (const platform of ["win32", "darwin"]) {
+    const clean = hostAuthoritativeEnv({ PATH: "/bin", LOCALAPPDATA: session.LOCALAPPDATA }, home);
+    const order = (e) => { const asked = []; managedRuntimeClient(e, platform, (f) => { asked.push(f); return false; }); return asked; };
+    assert.deepEqual(order(env), order(clean), platform);
+    assert.ok(order(env).length > 0 && order(env).every((f) => !/nowhere|sessions/.test(f)), `${platform}: ${order(env).join(" | ")}`);
+  }
+  // One environment for all three steps: the locating step and the probe's child get the same object.
+  const d = "9".repeat(64); const seen = {};
+  const identity = (host, root, e) => { seen.identityEnv = e; return { clientPath: "/c/rustright", manifest: { brokerDigest: d } }; };
+  const run = (file, args, opts) => { seen.run = [file, args]; seen.childEnv = opts.env; return { status: 1, stdout: JSON.stringify({ answeringBroker: { answered: true, handshakeRuntime: { brokerDigest: d } } }) }; };
+  assert.deepEqual(askRunningBroker("dell", "D:\\m", { run, env, identity }), { digest: d, problem: null });
+  assert.equal(seen.identityEnv, env); assert.equal(seen.childEnv, env); assert.deepEqual(seen.run, ["/c/rustright", ["doctor", "--json", "--no-scan"]]);
+  // Fails closed: no client, a client that cannot start, no answer, output that is not JSON.
+  assert.match(askRunningBroker("dell", "D:\\m", { run, env, identity: () => ({ clientPath: null, problem: "no installed RustRight client was found" }) }).problem, /no installed RustRight client/);
+  assert.match(askRunningBroker("dell", "D:\\m", { env, identity, run: () => { throw new Error("EACCES"); } }).problem, /could not be started \(EACCES\)/);
+  assert.match(askRunningBroker("dell", "D:\\m", { env, identity, run: () => ({ error: Object.assign(new Error("t"), { code: "ETIMEDOUT" }) }) }).problem, /did not answer \(ETIMEDOUT\)/);
+  assert.match(askRunningBroker("dell", "D:\\m", { env, identity, run: () => ({ status: 0, stdout: "not json" }) }).problem, /not JSON/);
+  for (const bad of [() => ({ status: 0, stdout: "x" }), () => ({ status: 0, stdout: JSON.stringify({ answeringBroker: { answered: false } }) })]) assert.equal(askRunningBroker("dell", "D:\\m", { env, identity, run: bad }).digest, null);
+});

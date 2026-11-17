@@ -2634,11 +2634,21 @@ export function liveBrokerDigest(doctor, manifestDigest) {
   if (live !== manifestDigest) return { digest: null, problem: `the running broker is ${live}, the installed runtime is ${manifestDigest}: a broker other than the installed one is answering` };
   return { digest: live, problem: null };
 }
-/** Asks the running broker through the installed client. RIGHTKIT_ and RUSTRIGHT_ variables are dropped first, so the host's own roots are used (as promotion does). */
-function askRunningBroker(host, managedRoot, { run = spawnSync } = {}) {
-  const id = brokerIdentity(host, managedRoot);
+/**
+ * The environment a trust decision reads this host through: no RIGHTKIT_ or RUSTRIGHT_ variable (a session can point those anywhere), and the home
+ * folder of the operating-system account, not the one the session exports (an agent session's HOME is redirected). Matches what promotion does.
+ */
+export function hostAuthoritativeEnv(env = process.env, home = os.userInfo().homedir) {
+  const out = Object.fromEntries(Object.entries(env ?? {}).filter(([k]) => !/^(RIGHTKIT_|RUSTRIGHT_)/i.test(k) && !/^(HOME|USERPROFILE)$/i.test(k)));
+  return { ...out, HOME: home, USERPROFILE: home };
+}
+/**
+ * Asks the running broker through the installed client. One environment (hostAuthoritativeEnv) is used for all three steps: finding the installed
+ * client, finding the manifest beside it, and running the probe. A session override therefore cannot choose which client or manifest is trusted.
+ */
+export function askRunningBroker(host, managedRoot, { run = spawnSync, env = hostAuthoritativeEnv(), identity = brokerIdentity } = {}) {
+  const id = identity(host, managedRoot, env);
   if (!id.clientPath) return { digest: null, problem: id.problem ?? "the installed client was not found" };
-  const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^(RIGHTKIT_|RUSTRIGHT_)/i.test(k)));
   let r; try { r = run(id.clientPath, ["doctor", "--json", "--no-scan"], { encoding: "utf8", timeout: 60_000, windowsHide: true, env }); } catch (e) { return { digest: null, problem: `the installed client could not be started (${e.message})` }; }
   if (r.error) return { digest: null, problem: `the installed client did not answer (${r.error.code ?? r.error.message})` };
   let doctor; try { doctor = JSON.parse(String(r.stdout)); } catch { return { digest: null, problem: "the installed client's doctor output is not JSON" }; }
@@ -2646,13 +2656,13 @@ function askRunningBroker(host, managedRoot, { run = spawnSync } = {}) {
 }
 
 /** The installed broker's runtime manifest and the gate's pins record. The client and its manifest are found the way the gate finds them (seam-broker.mjs brokerControlTarget): `managedRuntimeClient`, the agent shim resolved, the manifest beside the real client. */
-function brokerIdentity(host, managedRoot) {
+function brokerIdentity(host, managedRoot, env = process.env) {
   const platform = host === "dell" ? "win32" : "darwin";
   const pinsPath = path.join(managedRoot, "pins", `broker-${platform}.json`);
   const pins = readJson(pinsPath);
   let manifestPath = null; let clientPath = null; const problems = [];
   try {
-    const client = managedRuntimeClient(process.env, platform);
+    const client = managedRuntimeClient(env, platform);
     if (!client) throw new Error("no installed RustRight client was found");
     const exe = resolveBrokerClient(client, { platform }).file;
     const real = platform === "win32" ? exe : fs.realpathSync.native(exe);
