@@ -1275,7 +1275,8 @@ test("G26: a contract-test run tags its gate launches, lists its broker jobs, ke
 
     // The gate filed three jobs: two with signed receipts, one refused before it existed.
     const receiptFile = (name, text) => { const f = path.join(dir, name); fs.writeFileSync(f, text); return { file: f, sha: createHash("sha256").update(text).digest("hex") }; };
-    const r1 = receiptFile("r1.json", '{"id":"job-1"}'); const r2 = receiptFile("r2.json", '{"id":"job-2"}');
+    const whole = (id) => JSON.stringify({ id, provenance: { schema: "rustright.provenance.v1", payload: { jobId: id }, signature: { alg: "ES256" } }, environment: { dropped: ["A_PRIVATE_NAME"] }, diagnosticsPath: "D:\\private\\path" });
+    const r1 = receiptFile("r1.json", whole("job-1")); const r2 = receiptFile("r2.json", whole("job-2"));
     const line = (step, call, over = {}) => JSON.stringify({ schema: "rightkit.contract-job/1", step, call, nonce: contractJobNonce({ runId: run.runId, sealedSha256: run.sealedSha256, step, call }), argv: ["cargo", "clippy"], cwd: "/s", requestId: null, receipt: null, receiptSha256: null, status: 0, ...over });
     const c = (n) => String(n).repeat(32);
     const good = [line("S11:check", c(3), { requestId: "job-1", receipt: r1.file, receiptSha256: r1.sha }), line("S12:compile", c(4), { requestId: "job-2", receipt: r2.file, receiptSha256: r2.sha, status: 101 }), line("S7:neg", c(5), { status: 125 })];
@@ -1284,17 +1285,21 @@ test("G26: a contract-test run tags its gate launches, lists its broker jobs, ke
     const got = collectContractJobs(run, bundle);
     assert.deepEqual(got.problems, []);
     assert.deepEqual(got.jobs.map((j) => [j.step, j.requestId, j.receiptSha256, j.status]), [["S11:check", "job-1", r1.sha, 0], ["S12:compile", "job-2", r2.sha, 101], ["S7:neg", null, null, 125]]);
-    assert.equal(fs.readFileSync(path.join(bundle, "job-1.json"), "utf8"), '{"id":"job-1"}'); assert.ok(fs.existsSync(path.join(bundle, "job-2.json")));
+    assert.equal(fs.readFileSync(path.join(bundle, "job-1.json"), "utf8"), whole("job-1")); assert.ok(fs.existsSync(path.join(bundle, "job-2.json")));
+    // The signed part alone, in its own folder, with its own hash: nothing of the host beyond what the broker signed.
+    const env1 = fs.readFileSync(path.join(dir, "job-envelopes", "job-1.json"), "utf8");
+    assert.deepEqual(Object.keys(JSON.parse(env1)), ["id", "provenance"]); assert.doesNotMatch(env1, /A_PRIVATE_NAME|private/);
+    assert.equal(got.jobs[0].envelopeSha256, createHash("sha256").update(env1).digest("hex")); assert.equal(got.jobs[2].envelopeSha256, null);
     assert.deepEqual(stepsWithSignedJobs(got.jobs), ["S11", "S12"]);
 
     // The receipt: the run id, the jobs, the folder, which steps have signed jobs, and that every rule still rests on the runner's own judgement.
     const receipt = buildContractReceipt({ host: "dell", commit: "c".repeat(40), gate: {}, result: { nonNegotiables: [], clauses: [] }, contractRun: { ...run, jobs: got.jobs, bundle: "job-receipts" } });
-    assert.equal(receipt.runId, run.runId); assert.equal(receipt.jobs.length, 3); assert.equal(receipt.jobReceipts, "job-receipts"); assert.deepEqual(receipt.signedSteps, ["S11", "S12"]); assert.equal(receipt.nnBasis, "runner-claim");
+    assert.equal(receipt.runId, run.runId); assert.equal(receipt.jobs.length, 3); assert.equal(receipt.jobReceipts, "job-receipts"); assert.equal(receipt.jobEnvelopes, "job-envelopes"); assert.deepEqual(receipt.signedSteps, ["S11", "S12"]); assert.equal(receipt.nnBasis, "runner-claim");
     assert.equal(buildContractReceipt({ host: "dell", commit: "c".repeat(40), gate: {}, result: { nonNegotiables: [], clauses: [] } }).runId, undefined);
 
     // Anything that does not hold together is a problem, and the job is not listed.
     const problemsOf = (lines) => { fs.writeFileSync(run.jobsFile, `${lines.join("\n")}\n`); return collectContractJobs(run, path.join(dir, `b${Math.random()}`)); };
-    fs.writeFileSync(r1.file, '{"id":"job-1","edited":true}');
+    fs.writeFileSync(r1.file, `${whole("job-1")} `);
     assert.match(problemsOf([good[0]]).problems[0], /its receipt changed after the gate read it/);
     assert.match(problemsOf([line("S11:check", c(6), { requestId: "job-9", receipt: path.join(dir, "gone.json"), receiptSha256: "0".repeat(64) })]).problems[0], /cannot be read/);
     const foreign = JSON.stringify({ ...JSON.parse(good[1]), nonce: contractJobNonce({ runId: "9".repeat(64), sealedSha256: run.sealedSha256, step: "S12:compile", call: c(4) }) });

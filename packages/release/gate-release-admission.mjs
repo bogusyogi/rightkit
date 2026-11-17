@@ -1,8 +1,9 @@
 // Admission of a gate-package release (docs/GATE-CONTRACT.md NN31: no gate is released without a passing contract test; loop matrix G21, G26).
 //
 // Run where the package archive is about to be published. It has no broker and is not the host that ran the test, so it judges only what it is
-// handed: the host's contract-test receipt, the folder of signed job receipts beside it, the archive in question, and this checkout at the
-// release commit. It refuses unless every one of the following holds.
+// handed: the host's contract-test receipt, the folder of signed job envelopes beside it, the archive in question, and this checkout at the
+// release commit. An envelope is the signed part of a job's receipt alone ({ id, provenance }). The whole receipts stay on the host: they name
+// every environment variable the broker dropped and the host's paths, and this repository and its CI are public. It refuses unless every one of the following holds.
 //   1. The receipt passes the release check (gate-acceptance.mjs verifyReleaseReceipts) for this commit, with the contract, budgets and runner
 //      files of this checkout, the exact rule set, and names exactly the archive in question. It is a candidate's receipt.
 //   2. The host is one this repository trusts: ci/rk-pipeline.json attestation.<platform> gives its key, host name and broker build. The receipt's
@@ -27,7 +28,7 @@ const PLATFORM_OF = Object.freeze({ mac: "darwin", dell: "win32" });
 const stepIdOf = (label) => String(label).split(":")[0];
 
 /**
- * `receipt`: the contract-test receipt (parsed). `readJob(requestId)`: the bytes of that job's receipt from the bundle (throws when absent).
+ * `receipt`: the contract-test receipt (parsed). `readJob(requestId)`: the bytes of that job's signed envelope from the bundle (throws when absent).
  * `archiveBytes`: the package archive in question. `commit`: the release commit. `pipeline`: ci/rk-pipeline.json (parsed). `sealed`: this
  * checkout's contract-nn.json (parsed). `contractSha256`, `budgetsSha256`, `runnerSha256`, `runnerFiles`: of this checkout. `waivers`: valid waivers.
  * Returns { ok, problems, facts }.
@@ -56,9 +57,10 @@ export function admitGateRelease({ receipt, readJob, archiveBytes, commit, pipel
     const name = `job ${job?.requestId ?? `#${i + 1}`} (${job?.step})`;
     if (typeof job?.requestId !== "string" || !job.requestId) continue; // refused before it existed: proves nothing, counts for nothing
     if (!/^[A-Za-z0-9._-]{1,128}$/.test(job.requestId)) { problems.push(`${name}: its job id cannot name a file`); continue; }
-    let bytes; try { bytes = readJob(job.requestId); } catch (e) { problems.push(`${name}: its signed receipt is not in the bundle (${e.code ?? e.message})`); continue; }
-    if (sha256(bytes) !== job.receiptSha256) { problems.push(`${name}: the receipt in the bundle is not the one listed (sha256 differs)`); continue; }
-    let jobReceipt; try { jobReceipt = JSON.parse(String(bytes)); } catch { problems.push(`${name}: its receipt is not JSON`); continue; }
+    let bytes; try { bytes = readJob(job.requestId); } catch (e) { problems.push(`${name}: its signed envelope is not in the bundle (${e.code ?? e.message})`); continue; }
+    if (typeof job.envelopeSha256 !== "string" || sha256(bytes) !== job.envelopeSha256) { problems.push(`${name}: the envelope in the bundle is not the one listed (sha256 differs)`); continue; }
+    let jobReceipt; try { jobReceipt = JSON.parse(String(bytes)); } catch { problems.push(`${name}: its envelope is not JSON`); continue; }
+    if (Object.keys(jobReceipt ?? {}).some((k) => k !== "id" && k !== "provenance")) { problems.push(`${name}: the bundle holds more than the signed part (only id and provenance may be handed over)`); continue; }
     let payload;
     try { payload = verifyProvenanceSignature(jobReceipt, pins, job.requestId); } catch (e) { problems.push(`${name}: ${e.code ? `${e.code}: ` : ""}${e.message}`); continue; }
     let want = null; try { want = contractJobNonce({ runId: receipt.runId, sealedSha256: receipt.gate?.sealedSha256, step: job.step, call: job.call }); } catch { /* reported next */ }
@@ -72,7 +74,7 @@ export function admitGateRelease({ receipt, readJob, archiveBytes, commit, pipel
   return { ok: problems.length === 0, problems, facts };
 }
 
-/** `node gate-release-admission.mjs --receipt <file> --archive <package archive> --commit <sha> [--pipeline <ci/rk-pipeline.json>]`: exit 0 only when admitted. */
+/** `node gate-release-admission.mjs --receipt <file> --archive <package archive> --commit <sha> [--pipeline <ci/rk-pipeline.json>]`: exit 0 only when admitted. The folder `job-envelopes` must sit beside the receipt. */
 export function main(argv = process.argv.slice(2), { out = console.log } = {}) {
   const opt = (name) => { const i = argv.indexOf(name); return i < 0 ? undefined : argv[i + 1]; };
   const known = new Set(["--receipt", "--archive", "--commit", "--pipeline"]);
@@ -92,10 +94,10 @@ export function main(argv = process.argv.slice(2), { out = console.log } = {}) {
   const budgets = read("the budgets file", BUDGETS_FILE, true);
   let result = null;
   if (!problems.length) {
-    const folder = receipt.jobReceipts;
-    if (folder !== "job-receipts") problems.push(`the receipt names its job receipts folder as ${JSON.stringify(folder)}, expected "job-receipts"`);
+    const folder = receipt.jobEnvelopes;
+    if (folder !== "job-envelopes") problems.push(`the receipt names its job envelopes folder as ${JSON.stringify(folder)}, expected "job-envelopes"`);
     else {
-      const bundle = path.join(path.dirname(path.resolve(receiptFile)), "job-receipts");
+      const bundle = path.join(path.dirname(path.resolve(receiptFile)), "job-envelopes");
       const fileSha = (f) => sha256(fs.readFileSync(f));
       result = admitGateRelease({ receipt, readJob: (id) => fs.readFileSync(path.join(bundle, `${id}.json`)), archiveBytes, commit, pipeline, sealed, contractSha256: fileSha(CONTRACT_FILE), budgetsSha256: fileSha(BUDGETS_FILE), runnerSha256: fileSha(RUNNER_FILE), runnerFiles: runnerFileHashes(), waivers: (Array.isArray(budgets?.waivers) ? budgets.waivers : []).filter(validWaiver) });
       problems.push(...result.problems);

@@ -32,14 +32,15 @@ const pipeline = { attestation: { win32: key.pin } };
 function job(step, n, { signer = key, nonce, over = {}, payloadOver = {} } = {}) {
   const requestId = `job-${n}`; const call = String(n).repeat(32).slice(0, 32);
   const payload = { jobId: requestId, host: signer.pin.host, keyId: signer.pin.keyId, broker: { brokerDigest: signer.pin.brokerDigest }, nonce: nonce ?? contractJobNonce({ runId: RUN, sealedSha256: SEALED, step, call }), ...payloadOver };
+  // What is handed over is the signed part alone: { id, provenance }. The whole receipt (receiptSha256) stays on the host.
   const receipt = { id: requestId, provenance: { schema: "rustright.provenance.v1", payload, signature: { alg: "ES256", keyId: signer.pin.keyId, value: sign("sha256", signedBytes(payload), { key: signer.privateKey, dsaEncoding: "ieee-p1363" }).toString("hex") } } };
   const bytes = Buffer.from(JSON.stringify(receipt));
-  return { bytes, entry: { step, call, nonce: payload.nonce, requestId, receiptSha256: sha(bytes), argv: ["cargo", "clippy"], status: 0, ...over } };
+  return { bytes, entry: { step, call, nonce: payload.nonce, requestId, receiptSha256: "f".repeat(64), envelopeSha256: sha(bytes), argv: ["cargo", "clippy"], status: 0, ...over } };
 }
 function fixture(jobs, receiptOver = {}) {
   const bundle = new Map(jobs.map((j) => [j.entry.requestId, j.bytes]));
   const receipt = { schema: CONTRACT_RECEIPT_SCHEMA, host: "dell", commit: COMMIT, gate: { kind: "candidate", version: "0.6.58", sealedSha256: SEALED, archiveSha256: archive.sha256, archiveIntegrity: archive.integrity },
-    broker: { runtimeDigest: BROKER, runtimeVersion: "v", enrolledDigest: BROKER }, runId: RUN, jobs: jobs.map((j) => j.entry), jobReceipts: "job-receipts", signedSteps: [], nnBasis: "runner-claim",
+    broker: { runtimeDigest: BROKER, runtimeVersion: "v", enrolledDigest: BROKER }, runId: RUN, jobs: jobs.map((j) => j.entry), jobReceipts: "job-receipts", jobEnvelopes: "job-envelopes", signedSteps: [], nnBasis: "runner-claim",
     ...hashes, verdict: "PASS 42/42", ok: true, nn: Object.fromEntries(NN_ALL_IDS.map((id) => [id, "pass"])), uncheckedClauses: [], ...receiptOver };
   const readJob = (id) => { if (!bundle.has(id)) throw Object.assign(new Error("absent"), { code: "ENOENT" }); return bundle.get(id); };
   return { receipt, readJob, bundle };
@@ -85,8 +86,10 @@ test("the run's broker jobs: none listed, a step without one, and every way one 
   has(admit(fixture([job("S11:check", 3)], { signedSteps: ["S11", "S12"] })), /step S12 cannot be served/);
   // One job at a time.
   const one = (bad) => fixture([job("S11:check", 3), bad, job("S12:compile", 5)]);
-  { const f = one(job("S11:compile", 4)); f.bundle.delete("job-4"); has(admit(f), /job job-4 \(S11:compile\): its signed receipt is not in the bundle \(ENOENT\)/); }
+  { const f = one(job("S11:compile", 4)); f.bundle.delete("job-4"); has(admit(f), /job job-4 \(S11:compile\): its signed envelope is not in the bundle \(ENOENT\)/); }
   { const f = one(job("S11:compile", 4)); f.bundle.set("job-4", Buffer.from('{"id":"job-4","edited":true}')); has(admit(f), /not the one listed \(sha256 differs\)/); }
+  // A whole receipt handed over in place of the signed part (it would carry the host's dropped variable names): refused, even with a matching hash and a valid signature.
+  { const f = one(job("S11:compile", 4)); const whole = Buffer.from(JSON.stringify({ ...JSON.parse(String(f.bundle.get("job-4"))), environment: { dropped: ["SOME_SECRET_NAME"] } })); f.bundle.set("job-4", whole); f.receipt.jobs[1].envelopeSha256 = sha(whole); has(admit(f), /holds more than the signed part/); }
   has(admit(one(job("S11:compile", 4, { signer: makeKey(HOST, BROKER) }))), /job job-4 .*not signed by the pinned key/);
   has(admit(one(job("S11:compile", 4, { signer: { ...key, pin: { ...key.pin, host: "OTHER-HOST" } } }))), /job job-4 .*signed for another host/);
   has(admit(one(job("S11:compile", 4, { signer: { ...key, pin: { ...key.pin, brokerDigest: "7".repeat(64) } } }))), /job job-4 .*signed by another broker runtime/);
@@ -97,7 +100,7 @@ test("the run's broker jobs: none listed, a step without one, and every way one 
   has(admit(one(job("S11:compile", 4, { over: { step: "S12:compile" } }))), /nonce the broker signed is not this run's/);
   has(admit(one(job("S11:compile", 4, { over: { requestId: "../x" } }))), /cannot name a file/);
   // A tampered payload under a real signature.
-  { const f = one(job("S11:compile", 4)); const j = JSON.parse(String(f.bundle.get("job-4"))); j.provenance.payload.exitCode = 0; const b = Buffer.from(JSON.stringify(j)); f.bundle.set("job-4", b); f.receipt.jobs[1].receiptSha256 = sha(b); has(admit(f), /job job-4 .*signature does not verify/); }
+  { const f = one(job("S11:compile", 4)); const j = JSON.parse(String(f.bundle.get("job-4"))); j.provenance.payload.exitCode = 0; const b = Buffer.from(JSON.stringify(j)); f.bundle.set("job-4", b); f.receipt.jobs[1].envelopeSha256 = sha(b); has(admit(f), /job job-4 .*signature does not verify/); }
 });
 
 test("the real command: admitted only with every input present, and refused by name otherwise", () => {
@@ -110,14 +113,14 @@ test("the real command: admitted only with every input present, and refused by n
     // A receipt for another archive, read from disk with its bundle folder, against this checkout: refused, and it names the archive.
     const f = fixture(goodJobs());
     const receiptFile = path.join(dir, "contract-test-receipt.dell.json"); fs.writeFileSync(receiptFile, JSON.stringify(f.receipt));
-    fs.mkdirSync(path.join(dir, "job-receipts")); for (const [id, bytes] of f.bundle) fs.writeFileSync(path.join(dir, "job-receipts", `${id}.json`), bytes);
+    fs.mkdirSync(path.join(dir, "job-envelopes")); for (const [id, bytes] of f.bundle) fs.writeFileSync(path.join(dir, "job-envelopes", `${id}.json`), bytes);
     const archiveFile = path.join(dir, "pkg.tgz"); fs.writeFileSync(archiveFile, "other bytes");
     const pipelineFile = path.join(dir, "rk-pipeline.json"); fs.writeFileSync(pipelineFile, JSON.stringify(pipeline));
     const refused = run("--receipt", receiptFile, "--archive", archiveFile, "--commit", COMMIT, "--pipeline", pipelineFile);
     assert.equal(refused.code, 1); assert.match(refused.text, /gate-release-admission REFUSED/); assert.match(refused.text, /the archive in question is/);
-    assert.doesNotMatch(refused.text, /its signed receipt is not in the bundle/, "the bundle beside the receipt was read");
+    assert.doesNotMatch(refused.text, /its signed envelope is not in the bundle/, "the bundle beside the receipt was read");
     // A receipt that names another folder for its job receipts is refused before anything is read from it.
-    fs.writeFileSync(receiptFile, JSON.stringify({ ...f.receipt, jobReceipts: "../elsewhere" }));
-    assert.match(run("--receipt", receiptFile, "--archive", archiveFile, "--commit", COMMIT, "--pipeline", pipelineFile).text, /names its job receipts folder as "\.\.\/elsewhere"/);
+    fs.writeFileSync(receiptFile, JSON.stringify({ ...f.receipt, jobEnvelopes: "../elsewhere" }));
+    assert.match(run("--receipt", receiptFile, "--archive", archiveFile, "--commit", COMMIT, "--pipeline", pipelineFile).text, /names its job envelopes folder as "\.\.\/elsewhere"/);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });

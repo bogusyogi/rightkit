@@ -1631,7 +1631,7 @@ export function runnerFileHashes({ entry = RUNNER_FILE, base = here, readFile = 
 export function buildContractReceipt({ host, commit, gate, contractSha256, runnerSha256, budgetsSha256, fixtureCommit, result, runnerFiles = runnerFileHashes(), broker = null, contractRun = null }) {
   // G26: the run's id and its broker jobs. `jobReceipts` is the folder beside this receipt holding each listed job's signed receipt, named by job id.
   // `nnBasis` says plainly what each rule rests on today: the runner's own judgement. No rule is yet re-derived from the signed jobs by a verifier.
-  const runFacts = contractRun ? { runId: contractRun.runId, jobs: contractRun.jobs, jobReceipts: contractRun.bundle, signedSteps: stepsWithSignedJobs(contractRun.jobs), nnBasis: "runner-claim" } : {};
+  const runFacts = contractRun ? { runId: contractRun.runId, jobs: contractRun.jobs, jobReceipts: contractRun.bundle, jobEnvelopes: "job-envelopes", signedSteps: stepsWithSignedJobs(contractRun.jobs), nnBasis: "runner-claim" } : {};
   const brokerFacts = { runtimeDigest: broker?.runtimeDigest ?? null, runtimeVersion: broker?.runtimeVersion ?? null, enrolledDigest: broker?.enrolledDigest ?? null };
   return { schema: CONTRACT_RECEIPT_SCHEMA, host, commit, gate, broker: brokerFacts, ...runFacts, contractSha256, runnerSha256, runnerFiles, budgetsSha256, fixtureCommit, startedAt: result.startedAt, endedAt: result.endedAt, verdict: result.verdict, ok: result.ok, nn: Object.fromEntries(result.nonNegotiables.map((n) => [n.id, n.status])), uncheckedClauses: result.clauses.filter((c) => c.status === "unchecked").map((c) => c.id), waivers: result.waivers ?? [] };
 }
@@ -1694,26 +1694,33 @@ export function contractRunEnv(run, label) {
  * Reads the jobs the gate filed during the run and copies each job's signed receipt into `bundleDir` (named by job id). Returns
  * { jobs: [{ step, call, nonce, requestId, receiptSha256, argv, status }], problems }. A job is listed only with a receipt whose bytes hash to what
  * the gate recorded and whose nonce is the one this run computes for it; anything else is a problem and the run cannot produce a passing receipt.
+ * Beside each whole receipt it writes the signed part alone to `envelopeDir` ({ id, provenance }) and lists its hash (`envelopeSha256`). The whole
+ * receipt names every environment variable the broker dropped and the host's paths; it stays on the host, for promotion. Only the signed part is
+ * what a publication check on a public repository is handed.
  * A job the broker refused before it existed (no job id) is listed with requestId null and no receipt: it proves nothing and is counted apart.
  */
-export function collectContractJobs(run, bundleDir, { read = (f) => fs.readFileSync(f), write = (f, b) => fs.writeFileSync(f, b), mkdir = (d) => fs.mkdirSync(d, { recursive: true }), exists = (f) => fs.existsSync(f) } = {}) {
+export function collectContractJobs(run, bundleDir, { read = (f) => fs.readFileSync(f), write = (f, b) => fs.writeFileSync(f, b), mkdir = (d) => fs.mkdirSync(d, { recursive: true }), exists = (f) => fs.existsSync(f), envelopeDir = path.join(path.dirname(bundleDir), "job-envelopes") } = {}) {
   const jobs = []; const problems = [];
   if (!exists(run.jobsFile)) return { jobs, problems };
   const lines = String(read(run.jobsFile)).split(/\r?\n/).filter((l) => l.trim());
-  mkdir(bundleDir);
+  mkdir(bundleDir); mkdir(envelopeDir);
   lines.forEach((line, i) => {
     let j; try { j = JSON.parse(line); } catch { problems.push(`contract job line ${i + 1} is not JSON`); return; }
     if (j?.schema !== "rightkit.contract-job/1") { problems.push(`contract job line ${i + 1} has schema ${JSON.stringify(j?.schema)}`); return; }
     let want = null; try { want = contractJobNonce({ runId: run.runId, sealedSha256: run.sealedSha256, step: j.step, call: j.call }); } catch { /* reported below */ }
     if (want === null || j.nonce !== want) { problems.push(`contract job ${j.requestId ?? `line ${i + 1}`} (${j.step}): its nonce is not this run's`); return; }
-    const entry = { step: j.step, call: j.call, nonce: j.nonce, requestId: j.requestId ?? null, receiptSha256: null, argv: Array.isArray(j.argv) ? j.argv : [], status: j.status ?? null };
+    const entry = { step: j.step, call: j.call, nonce: j.nonce, requestId: j.requestId ?? null, receiptSha256: null, envelopeSha256: null, argv: Array.isArray(j.argv) ? j.argv : [], status: j.status ?? null };
     if (typeof j.requestId === "string" && j.requestId && typeof j.receipt === "string" && j.receipt) {
       if (!/^[A-Za-z0-9._-]{1,128}$/.test(j.requestId)) { problems.push(`contract job ${JSON.stringify(j.requestId)} has a job id that cannot name a file`); return; }
       let bytes; try { bytes = read(j.receipt); } catch (e) { problems.push(`contract job ${j.requestId} (${j.step}): its receipt ${j.receipt} cannot be read (${e.code ?? e.message})`); return; }
       const got = sha256(bytes);
       if (got !== j.receiptSha256) { problems.push(`contract job ${j.requestId} (${j.step}): its receipt changed after the gate read it (${got}, recorded ${j.receiptSha256})`); return; }
+      let parsed; try { parsed = JSON.parse(String(bytes)); } catch { problems.push(`contract job ${j.requestId} (${j.step}): its receipt is not JSON`); return; }
+      if (!isObject(parsed.provenance)) { problems.push(`contract job ${j.requestId} (${j.step}): its receipt carries no signed part (provenance)`); return; }
+      const envelope = Buffer.from(`${JSON.stringify({ id: parsed.id ?? null, provenance: parsed.provenance })}\n`);
       write(path.join(bundleDir, `${j.requestId}.json`), bytes);
-      entry.receiptSha256 = got;
+      write(path.join(envelopeDir, `${j.requestId}.json`), envelope);
+      entry.receiptSha256 = got; entry.envelopeSha256 = sha256(envelope);
     }
     jobs.push(entry);
   });
