@@ -875,8 +875,8 @@ pub fn expand_input_file(args: Vec<String>) -> Result<Vec<String>, (&'static str
             format!("--input-file {path} must be a file of at most {INPUT_FILE_MAX} bytes"),
         )
     };
-    let meta = std::fs::metadata(path)
-        .map_err(|e| ("bad_input", format!("--input-file {path}: {e}")))?;
+    let meta =
+        std::fs::metadata(path).map_err(|e| ("bad_input", format!("--input-file {path}: {e}")))?;
     if !meta.is_file() || meta.len() > INPUT_FILE_MAX {
         return Err(too_large());
     }
@@ -897,7 +897,10 @@ pub fn expand_input_file(args: Vec<String>) -> Result<Vec<String>, (&'static str
         return Err(too_large());
     }
     let unreadable = || {
-        ("bad_input", format!("--input-file {path} cannot be read as text"))
+        (
+            "bad_input",
+            format!("--input-file {path} cannot be read as text"),
+        )
     };
     let mut bytes = Vec::new();
     file.take(INPUT_FILE_MAX + 1)

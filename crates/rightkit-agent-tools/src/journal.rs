@@ -71,12 +71,22 @@ impl CompletedCallJournal {
         // These are command-table identifiers, never free-form tool arguments.
         if call.tool.is_empty()
             || call.tool.len() > 256
-            || !call.tool.bytes().all(|b| {
-                b.is_ascii_alphanumeric() || matches!(b, b' ' | b'-' | b'_' | b'.')
-            })
-            || !matches!(call.effect, "read" | "write" | "destroy" | "external" | "spend")
-            || !matches!(call.approval_state, "none" | "granted" | "dry_run" | "in_app")
-            || !matches!(call.host_route, "local" | "inline" | "service" | "service_projection")
+            || !call
+                .tool
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b' ' | b'-' | b'_' | b'.'))
+            || !matches!(
+                call.effect,
+                "read" | "write" | "destroy" | "external" | "spend"
+            )
+            || !matches!(
+                call.approval_state,
+                "none" | "granted" | "dry_run" | "in_app"
+            )
+            || !matches!(
+                call.host_route,
+                "local" | "inline" | "service" | "service_projection"
+            )
         {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
@@ -90,8 +100,14 @@ impl CompletedCallJournal {
             .filter(|c| !c.is_control())
             .take(64)
             .collect();
-        let caller = if caller.is_empty() { "unknown" } else { &caller };
-        let request_id = call.request_id.map(|id| id.chars().take(256).collect::<String>());
+        let caller = if caller.is_empty() {
+            "unknown"
+        } else {
+            &caller
+        };
+        let request_id = call
+            .request_id
+            .map(|id| id.chars().take(256).collect::<String>());
         let line = serde_json::json!({
             "schema_version": self.schema_version,
             "tool": call.tool,

@@ -105,10 +105,8 @@ pub struct BatchFinishing {
 pub trait BatchHost {
     type ActivityGuard;
 
-    fn register_job(
-        &self,
-        job: &str,
-    ) -> Result<(Self::ActivityGuard, Arc<AtomicBool>), BatchError>;
+    fn register_job(&self, job: &str)
+        -> Result<(Self::ActivityGuard, Arc<AtomicBool>), BatchError>;
     fn recipe_ref(&self, dir: &Path) -> Result<Value, BatchError>;
     fn finishing(&self, dir: &Path) -> Result<BatchFinishing, BatchError>;
     fn saved_variants(&self, dir: &Path) -> Result<Vec<String>, BatchError>;
@@ -368,9 +366,7 @@ fn save(dir: &Path, batch: &Batch) -> Result<(), BatchError> {
         },
         |file| file.write_all(&bytes),
     )
-    .map_err(|e| {
-        ProjectError::io(format!("writing {}", path.display()), e.into())
-    })?;
+    .map_err(|e| ProjectError::io(format!("writing {}", path.display()), e.into()))?;
     Ok(())
 }
 
@@ -1127,9 +1123,7 @@ fn make_cover(
         },
         |file| file.write_all(&bytes),
     )
-    .map_err(|e| {
-        ProjectError::io(format!("writing {}", path.display()), e.into())
-    })?;
+    .map_err(|e| ProjectError::io(format!("writing {}", path.display()), e.into()))?;
     Ok(Cover {
         at_ms,
         path: rel(ctx.dir, &path),

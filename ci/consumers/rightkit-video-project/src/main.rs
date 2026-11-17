@@ -19,7 +19,13 @@ fn check(ok: bool, what: &str) {
 fn main() {
     check(
         batch::METHODS
-            == ["batch.create", "batch.run", "batch.status", "batch.list", "batch.cover"],
+            == [
+                "batch.create",
+                "batch.run",
+                "batch.status",
+                "batch.list",
+                "batch.cover",
+            ],
         "the batch delivery command surface is available",
     );
     let root =

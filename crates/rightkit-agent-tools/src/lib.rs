@@ -18,8 +18,8 @@
 //! HeardRight's rules are built in and not configurable: no dictation, text
 //! delivery, pasteboard or history tool can be registered or called ([`exposure`]).
 
-pub mod applicability;
 pub mod app_contract;
+pub mod applicability;
 pub mod backends;
 pub mod contract_entry;
 pub mod exposure;

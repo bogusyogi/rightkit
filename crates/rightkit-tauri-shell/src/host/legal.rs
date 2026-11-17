@@ -451,7 +451,8 @@ impl LegalReceiptStore for DocumentReceiptStore {
 /// A legacy receipt, read from wherever the app used to keep it and mapped to a [`LegalRecord`].
 pub type LegacyImporter = Arc<dyn Fn() -> Option<LegalRecord> + Send + Sync>;
 /// An app-bound legacy reader whose transient failures must be retried on the next read.
-pub type FallibleLegacyImporter = Arc<dyn Fn() -> Result<Option<LegalRecord>, HostError> + Send + Sync>;
+pub type FallibleLegacyImporter =
+    Arc<dyn Fn() -> Result<Option<LegalRecord>, HostError> + Send + Sync>;
 
 /// The native legal receipt service. Register it with
 /// `HostServicesBuilder::service(ServiceId::LEGAL, trust, service)` ([`HostServicesBuilder::legal`]).
@@ -578,7 +579,10 @@ impl LegalReceiptService {
                 if self.matches_manifest(&record) {
                     LegalRead::Current(record)
                 } else {
-                    LegalRead::Historical { record, current: false }
+                    LegalRead::Historical {
+                        record,
+                        current: false,
+                    }
                 }
             }));
         }

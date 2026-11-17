@@ -49,7 +49,7 @@ export function useVideoRecipe({ dir, onFinished, refreshChangedProject }: {
   const [thumbs, setThumbs] = useState<Record<string, string>>({});
   const [plans, setPlans] = useState<Record<string, FramingPlanView>>({});
   const [autoFraming, setAutoFraming] = useState(false);
-  const [music, setMusic] = useState<GeneratedAsset[]>([]);
+  const [music, setMusicAssets] = useState<GeneratedAsset[]>([]);
   const [speechReady, setSpeechReady] = useState<boolean | null>(null);
   const [swatch, setSwatch] = useState<CaptionPreview | "loading" | "error" | null>(null);
 
@@ -69,7 +69,7 @@ export function useVideoRecipe({ dir, onFinished, refreshChangedProject }: {
   useLayoutEffect(() => {
     const token = { dir, reads: 0, framingGeneration: 0, draft: null as RecipeDraft | null, recipe: null as VideoRecipe | null, timer: null as ReturnType<typeof setTimeout> | null };
     owner.current = token;
-    setSources([]); setShow(null); setRecipe(null); setThumbs({}); setPlans({}); setMusic([]); setSwatch(null); setError(null); setSpeechReady(null); setAutoFraming(false); setLastRun(null); setFramingFor(null);
+    setSources([]); setShow(null); setRecipe(null); setThumbs({}); setPlans({}); setMusicAssets([]); setSwatch(null); setError(null); setSpeechReady(null); setAutoFraming(false); setLastRun(null); setFramingFor(null);
     return () => {
       if (token.timer) { clearTimeout(token.timer); token.timer = null; void enqueue(token).catch(() => undefined); }
       if (owner.current === token) owner.current = null;
@@ -191,9 +191,9 @@ export function useVideoRecipe({ dir, onFinished, refreshChangedProject }: {
   }, [dir, sources]);
   useEffect(() => {
     const token = owner.current;
-    void engineCall("assets.list", { dir }).then((r) => { if (token && owner.current === token) setMusic(interpretAssetLibrary(r).assets.filter((a) => a.kind === "music" && a.exists)); }).catch(() => { if (token && owner.current === token) setMusic([]); });
+    void engineCall("assets.list", { dir }).then((r) => { if (token && owner.current === token) setMusicAssets(interpretAssetLibrary(r).assets.filter((a) => a.kind === "music" && a.exists)); }).catch(() => { if (token && owner.current === token) setMusicAssets([]); });
   }, [dir]);
-  const swatchPreset = recipe?.formats.includes("9:16") ? "reels" : recipe?.formats.includes("1:1") ? "square" : "youtube";
+  const swatchPreset: "reels" | "square" | "youtube" = recipe?.formats.includes("9:16") ? "reels" : recipe?.formats.includes("1:1") ? "square" : "youtube";
   const captionStyle = recipe?.captions.on ? recipe.captions.style : null;
   const captionSource = recipe && sources.find((source) => recipe.sources.includes(source.id))?.id;
   const hasSources = sources.length > 0;
