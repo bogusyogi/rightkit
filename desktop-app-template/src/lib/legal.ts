@@ -25,4 +25,10 @@ export const legalGate: LegalStepConfig = {
   documents: legalDocuments,
   agreementStatement: "By continuing you agree to the documents above.",
   version: requiredVersion,
+  theme: {
+    bg: "var(--rk-plane)",
+    text: "var(--rk-ink)",
+    accent: "var(--rk-brand)",
+    accentContrast: "var(--rk-accent-ink)",
+  },
 };

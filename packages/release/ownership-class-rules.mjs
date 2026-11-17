@@ -30,6 +30,7 @@
 //                                text the app writes; an entry no ruling covers is a finding.
 import fs from "node:fs";
 import path from "node:path";
+import { requiresDesktopAgentSurface } from "./ownership-applicability.mjs";
 
 const readText = (root, rel) => { try { return fs.readFileSync(path.join(root, rel), "utf8"); } catch { return null; } };
 const readJson = (root, rel) => { const text = readText(root, rel); try { return text === null ? null : JSON.parse(text); } catch { return null; } };
@@ -216,7 +217,8 @@ export function ratifiedNotApplicable(declared, { app, profile, data, details = 
   const ratified = {}, unratified = {};
   for (const [id, reason] of Object.entries(declared ?? {})) {
     const expires = details[id]?.expires ?? null;
-    if (typeof rulings[id] === "string" && rulings[id].trim() === reason.trim() && !(expires && expires < today)) ratified[id] = reason;
+    const required = id === "M22" && requiresDesktopAgentSurface(app, profile, data);
+    if (!required && typeof rulings[id] === "string" && rulings[id].trim() === reason.trim() && !(expires && expires < today)) ratified[id] = reason;
     else unratified[id] = reason;
   }
   return { ratified, unratified, ruled: Boolean(amendment), proposed };
@@ -239,11 +241,17 @@ function checkAppRoot({ root, dir, evaluator, data, owners = true }) {
   const declaration = (evaluator ?? { loadAppDeclaration: declarationOf }).loadAppDeclaration(appRoot, data);
   const app = declaredApp(appRoot);
   const { ratified, unratified, ruled, proposed } = ratifiedNotApplicable(declaration.notApplicable, { app, profile: declaration.profile, data, details: declaration.notApplicableDetail });
-  for (const [row, reason] of Object.entries(unratified)) out.push({
-    file, subject: `notApplicable:${row}`,
-    problem: `notApplicable.${row} ("${reason.slice(0, 80)}${reason.length > 80 ? "..." : ""}") is not a ratified ruling: ${!app ? `${file} names no "app"` : !ruled ? `appAmendments has no entry for "${app}"` : proposed ? `appAmendments.${app} is a proposal (status "proposed") awaiting Adrian's ratification` : `appAmendments.${app} (profile ${data.appAmendments[app].profile}) has no ruling for ${row} with this reason verbatim for profile ${declaration.profile}`}; the row still applies`,
-    fix: `ratify the ruling in RightKit (appAmendments.${app ?? "<app>"}.notApplicable.${row}, rightkit#1140) and copy its reason verbatim, or adopt the row's owner`,
-  });
+  for (const [row, reason] of Object.entries(unratified)) {
+    if (row === "M22" && requiresDesktopAgentSurface(app, declaration.profile, data)) {
+      out.push({ file, subject: "notApplicable:M22", problem: "RightKit #994 requires a headless release CLI for every active desktop app", fix: `remove notApplicable.M22 in ${file} and adopt the release CLI route` });
+      continue;
+    }
+    out.push({
+      file, subject: `notApplicable:${row}`,
+      problem: `notApplicable.${row} ("${reason.slice(0, 80)}${reason.length > 80 ? "..." : ""}") is not a ratified ruling: ${!app ? `${file} names no "app"` : !ruled ? `appAmendments has no entry for "${app}"` : proposed ? `appAmendments.${app} is a proposal (status "proposed") awaiting Adrian's ratification` : `appAmendments.${app} (profile ${data.appAmendments[app].profile}) has no ruling for ${row} with this reason verbatim for profile ${declaration.profile}`}; the row still applies`,
+      fix: `ratify the ruling in RightKit (appAmendments.${app ?? "<app>"}.notApplicable.${row}, rightkit#1140) and copy its reason verbatim, or adopt the row's owner`,
+    });
+  }
   if (!owners) return out;
   const report = evaluator.checkApp(appRoot, { data, declaration: { ...declaration, notApplicable: ratified } });
   for (const owner of report.owners) {

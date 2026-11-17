@@ -27,6 +27,7 @@ import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from "n
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse as parseToml } from "smol-toml";
+import { requiresDesktopAgentSurface } from "./ownership-applicability.mjs";
 
 const packageRoot = path.dirname(fileURLToPath(import.meta.url));
 export const DATA_FILE = "ownership-mandatory-set.json";
@@ -341,7 +342,9 @@ export function ratifyNotApplicable(declaration, { data, now } = {}) {
   for (const [id, reason] of Object.entries(declaration.notApplicable)) {
     const expires = declaration.notApplicableDetail?.[id]?.expires ?? null;
     const ruling = live[id];
-    const why = !declaration.app ? `${data.appDeclarationFile} names no "app"`
+    const why = id === "M22" && requiresDesktopAgentSurface(declaration.app, declaration.profile, data)
+      ? "RightKit #994 requires a headless release CLI for every active desktop app"
+      : !declaration.app ? `${data.appDeclarationFile} names no "app"`
       : !amendment ? `appAmendments has no entry for "${declaration.app}"`
       : proposed ? `appAmendments.${declaration.app} is a proposal (status "proposed"), not a ratified ruling`
       : typeof ruling !== "string" || ruling.trim() !== reason.trim() ? `appAmendments.${declaration.app} (profile ${amendment.profile}) has no ruling for ${id} with this reason verbatim for profile ${declaration.profile}`
@@ -402,7 +405,11 @@ export function checkApp(root, { data = loadData(), profile, amendments = [], de
     applicability[id] = record;
     problems.push(...record.problems);
     const declaredNa = id in declaration.notApplicable;
-    if (record.role === "absent" && !declaredNa) problems.push(`${id}: applicability role is absent but notApplicable.${id} is not declared; the ${id} row still applies until the app declares it not applicable with a reason`);
+    if (id === "M22" && requiresDesktopAgentSurface(declaration.app ?? name, active, data)) {
+      if (record.role !== "host" && record.role !== "both") problems.push(`${id}: headless release CLI host is required (RightKit #994); current role is ${record.role ?? "unrecorded"}`);
+    } else if (record.role === "absent" && !declaredNa) {
+      problems.push(`${id}: applicability role is absent but notApplicable.${id} is not declared; the ${id} row still applies until the app declares it not applicable with a reason`);
+    }
     if (record.role && record.role !== "absent" && declaredNa) problems.push(`${id}: notApplicable.${id} is declared but the applicability record says role ${record.role}`);
   }
   const owners = [...requirements(applicable).values()].map((req) => { const result = judge(req, facts); return { ...result, declarationStatus: result.status }; });

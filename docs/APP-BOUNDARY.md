@@ -89,8 +89,9 @@ These packages hold an app's look or composition and do not yet meet this file:
 `node scripts/preflight.mjs --only shared-behavior-presentation` guards the extracted
 video project and assembly modules and the mail sidebar model. It flags product names,
 app-prefixed classes and common colour literals in those files. Extend coverage as
-more wrappers are split. The app logic check and installed second-theme check in
-`desktop-app-template` remain open.
+more wrappers are split. The `desktop-app-template` first-run scenario checks that the
+rendered legal gate and shell respond to two host palettes. Run it on an installed
+template artifact to qualify that coverage. The general app logic check remains open.
 
 ## Active migration scope
 
@@ -100,6 +101,12 @@ apps. Ember is deferred. SellRight is N/A. Legion remains independent and may us
 specific shared tools where they fit. The port matrix reports dependency currency
 against published versions. Use production call sites, removed code and installed
 qualification to establish adoption.
+
+M22 applies to all nine desktop apps. Each exposes its capabilities through a headless
+CLI in the release artifact, callable by `right-ctl` while the GUI is closed. Pulse calls
+apps through that route. [RightKit #994](https://github.com/bogusyogi/rightkit/issues/994)
+records the decision. [RightKit #1658](https://github.com/bogusyogi/rightkit/issues/1658)
+tracks the implementation. If an app lacks this route, record the gap and keep M22 applicable.
 
 ## How the earlier reading went wrong
 

@@ -16,6 +16,39 @@ label = "the first-run legal gate is shown"
 js = "return document.querySelector('[data-testid=\"onboarding-legal\"][data-variant=\"first-run\"] .rk-legal-gate__agree') !== null;"
 
 [[step]]
+kind = "ui_eval"
+label = "the rendered legal gate reads two host palettes"
+js = '''
+const root = document.documentElement;
+const gate = document.querySelector('[data-testid="onboarding-legal"] .rk-legal-gate');
+const originalStyle = root.getAttribute('style');
+const sample = (background, text, accent) => {
+  root.style.setProperty('--rk-plane', background);
+  root.style.setProperty('--rk-ink', text);
+  root.style.setProperty('--rk-brand', accent);
+  const gateStyle = getComputedStyle(gate);
+  const buttonStyle = getComputedStyle(gate.querySelector('.rk-legal-gate__agree'));
+  return gateStyle.backgroundColor === background && gateStyle.color === text
+    && buttonStyle.backgroundColor === accent;
+};
+try {
+  return {
+    firstPalette: sample('rgb(241, 245, 250)', 'rgb(29, 45, 60)', 'rgb(35, 90, 130)'),
+    secondPalette: sample('rgb(26, 32, 41)', 'rgb(224, 236, 246)', 'rgb(134, 182, 224)'),
+  };
+} finally {
+  if (originalStyle === null) root.removeAttribute('style');
+  else root.setAttribute('style', originalStyle);
+}
+'''
+  [[step.expect]]
+  path = "firstPalette"
+  eq = true
+  [[step.expect]]
+  path = "secondPalette"
+  eq = true
+
+[[step]]
 kind = "ui_wait_eval"
 label = "no receipt exists before the user agrees"
 js = "return window.__TAURI_INTERNALS__.invoke('rightkit_legal_receipt_read').then((r) => r === null);"
@@ -49,6 +82,36 @@ selector = "[data-testid=\"onboarding\"] footer button:last-child"
 kind = "ui_wait_eval"
 label = "the app is shown after setup"
 js = "return document.querySelector('[data-testid=\"platform\"]') !== null;"
+
+[[step]]
+kind = "ui_eval"
+label = "the rendered shell reads two host palettes"
+js = '''
+const root = document.documentElement;
+const shell = document.querySelector('.rk-shell');
+const originalStyle = root.getAttribute('style');
+const sample = (background, text) => {
+  root.style.setProperty('--rk-chrome', background);
+  root.style.setProperty('--rk-ink', text);
+  const style = getComputedStyle(shell);
+  return style.backgroundColor === background && style.color === text;
+};
+try {
+  return {
+    firstPalette: sample('rgb(241, 245, 250)', 'rgb(29, 45, 60)'),
+    secondPalette: sample('rgb(26, 32, 41)', 'rgb(224, 236, 246)'),
+  };
+} finally {
+  if (originalStyle === null) root.removeAttribute('style');
+  else root.setAttribute('style', originalStyle);
+}
+'''
+  [[step.expect]]
+  path = "firstPalette"
+  eq = true
+  [[step.expect]]
+  path = "secondPalette"
+  eq = true
 
 [[step]]
 kind = "ui_wait_eval"
