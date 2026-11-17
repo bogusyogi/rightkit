@@ -9,6 +9,7 @@ import { dirtyBuildInputs } from "./release-invocation.mjs";
 import { packageCommandOptional } from "./project-type.mjs";
 import { planMediaSidecar, validateMediaSidecarConfig } from "./media-sidecar.mjs";
 import { loadSidecarCatalog } from "./media-sidecar-catalog.mjs";
+import { winPackageUpdaterDisabled } from "./win-package-recipe.mjs";
 
 export const WINDOWS_NSIS_SIGNING_CONTRACT = "windows-raw-exe-authenticode-before-nsis-v1";
 export const DISTRIBUTION_PROVIDERS = Object.freeze(["r2-rightapps", "github-releases"]);
@@ -111,6 +112,7 @@ export const FILES_ROWS = Object.freeze([
     tier: "files",
     run(ctx) {
       if (!isNsis(ctx)) return { na: "not a Windows NSIS target" };
+      if (winPackageUpdaterDisabled(ctx.rawTarget, ctx.target)) return undefined;
       return asList(ctx.target.updater?.artifacts).length > 0 ? undefined : [`${app(ctx)} win must declare updater.artifacts for post-code-signing minisign`];
     },
   },

@@ -260,7 +260,7 @@ if (tier === "patch") {
       dryRun,
       keep: {
         public: installerKeepKeys(),
-        private: target.updater.artifacts.map((artifact) => artifact.key),
+        private: artifacts.map((artifact) => artifact.key),
       },
       retainPreviousVersions: installers.some((artifact) => artifact.versionedKey) ? 1 : 0,
     });

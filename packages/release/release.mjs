@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { expandPackageRecipeTarget } from "./package-recipe-targets.mjs";
+import { winPackageUpdaterDisabled } from "./win-package-recipe.mjs";
 import { access, readFile, readdir } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
@@ -860,9 +861,10 @@ if (opts.platform === "win" && target.signingContract === WINDOWS_NSIS_SIGNING_C
   await signWindows(files, "installer", root);
   if (target.postSign) await runCommands(target.postSign, root);
   const updaterFiles = [...new Set((target.updater?.artifacts ?? []).map((artifact) => resolveReleaseArtifactPath(root, artifact.file)))];
-  if (!updaterFiles.length) fail(`${config.app} win must declare updater.artifacts for post-code-signing minisign`);
+  const updaterDisabled = winPackageUpdaterDisabled(config.targets?.win, target);
+  if (!updaterFiles.length && !updaterDisabled) fail(`${config.app} win must declare updater.artifacts for post-code-signing minisign`);
   // The key comes from the OS credential provider inside sign-updater; targets.win.updater.keyFile is refused at config validation and never forwarded.
-  await run("node", [SIGN_UPDATER, ...(opts.dryRun ? ["--dry-run"] : []), ...updaterFiles.flatMap((file) => ["--file", file])], root);
+  if (updaterFiles.length) await run("node", [SIGN_UPDATER, ...(opts.dryRun ? ["--dry-run"] : []), ...updaterFiles.flatMap((file) => ["--file", file])], root);
 }
 
 if (target.postSign && opts.platform !== "win" && (opts.platform !== "mac" || runMacPhase("post-sign"))) {

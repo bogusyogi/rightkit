@@ -155,6 +155,10 @@ export function validateWinPackage({ appRoot, config = {}, target, env = process
     }
   }
   if (spec.updater === true && target.updater !== undefined && !isPlainObject(target.updater)) issues.push("target.updater must be an object when winPackage.updater is true");
+  if (spec.updater === false && target.updater?.artifacts !== undefined) {
+    if (!Array.isArray(target.updater.artifacts)) issues.push("target.updater.artifacts must be an array");
+    else if (target.updater.artifacts.length) issues.push("winPackage.updater false conflicts with updater.artifacts");
+  }
   if (isPlainObject(target.updater) && Object.prototype.hasOwnProperty.call(target.updater, "keyFile")) {
     issues.push("target.updater.keyFile is not supported: updater signing keys come from the OS credential provider (rightkit-credentials, namespace rightsuite-updater-key; see protected-credentials.mjs and sign-updater.mjs), never from a key file. Remove updater.keyFile");
   }
@@ -172,6 +176,13 @@ export function validateWinPackage({ appRoot, config = {}, target, env = process
     sidecars: Object.freeze(sidecars),
     tauriCwd,
   });
+}
+
+/** Only an expanded, explicitly disabled winPackage may omit updater signing. */
+export function winPackageUpdaterDisabled(rawTarget, expandedTarget) {
+  return rawTarget?.winPackage?.updater === false
+    && expandedTarget?.recipe?.kind === "winPackage"
+    && expandedTarget.recipe.updater === false;
 }
 
 function sha256File(file, read) {
