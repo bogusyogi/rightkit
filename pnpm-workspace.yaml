@@ -11,6 +11,13 @@ overrides:
   # GHSA-238p-pmpm-9mq7 (katex <0.18.2): micromark-extension-math 3.1.0 still asks for ^0.16.
   katex: ^0.18.2
 
+auditConfig:
+  ignoreGhsas:
+    # GHSA-fc5q-39xc-vjpf (picomatch <=4.0.7, ReDoS through a crafted extglob), published 2026-11-17 with no fixed version.
+    # Reached only through vite, a devDependency of packages/social-ui: build time on our own machines and CI, with patterns from
+    # our own config, nothing shipped. Accepted by Adrian, 2026-11-17. Remove this entry once a fixed picomatch is published.
+    - GHSA-fc5q-39xc-vjpf
+
 allowBuilds:
   # Transitive WDIO browser drivers. The native lane drives Tauri's own WebDriver,
   # never Edge or Firefox, so their download postinstalls stay off.
