@@ -24,6 +24,24 @@ export function crateInfo(snapshot, name, rustConfig = {}, { readFile = (f) => f
   return { name, dir, hasLib: exists(path.join(dir, "src", "lib.rs")) || /^\[lib\]/m.test(manifest), declaresFeatures, platforms: cfg?.platforms, config: cfg, quiet: cfg?.quietTests === true, serialToo: cfg?.alsoSerial === true, allowIgnored: Boolean(cfg?.allowIgnored) };
 }
 
+/**
+ * Every file of this package the build-together path loads: the files of `dir` (tests excluded) and every file they import by a
+ * relative path, followed to the end. A change to any of them (the broker seam, the test environment) must void remembered passes.
+ * An import that cannot be read throws: a pass is never remembered under a hash that skipped a file.
+ */
+export function gateCodeFiles(dir = HERE, { readFile = (f) => fs.readFileSync(f, "utf8"), list = (d) => fs.readdirSync(d) } = {}) {
+  const seen = new Map();
+  const todo = list(dir).filter((n) => n.endsWith(".mjs") && !n.endsWith(".test.mjs")).map((n) => path.join(dir, n));
+  while (todo.length) {
+    const file = todo.pop();
+    if (seen.has(file)) continue;
+    const text = readFile(file);
+    seen.set(file, text);
+    for (const m of text.matchAll(/(?:\bfrom\s*|\bimport\s*\(?\s*)["'](\.{1,2}\/[^"']+)["']/g)) todo.push(path.resolve(path.dirname(file), m[1]));
+  }
+  return [...seen].map(([file, text]) => ({ name: path.relative(dir, file).split(path.sep).join("/"), text })).sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+}
+
 /** The identity a passed call is remembered under: the commit, the toolchain the snapshot pins, the host, the installed broker and this gate code. */
 export function gateIdentity({ commit, snapshot, platform, client, readFile = (f) => fs.readFileSync(f, "utf8") }) {
   let toolchain = "unpinned";
@@ -31,7 +49,7 @@ export function gateIdentity({ commit, snapshot, platform, client, readFile = (f
   let broker = "none";
   if (client) { try { const m = JSON.parse(readFile(path.join(path.dirname(client), "runtime-manifest.json"))); broker = String(m.version ?? m.sourceRevision ?? "unknown"); } catch { broker = "unknown"; } }
   const code = crypto.createHash("sha256");
-  for (const f of fs.readdirSync(HERE).filter((n) => n.endsWith(".mjs") && !n.endsWith(".test.mjs")).sort()) code.update(f).update(readFile(path.join(HERE, f)));
+  for (const f of gateCodeFiles(HERE)) code.update(f.name).update("\0").update(f.text).update("\0");
   return { commit, toolchain, host: platform, broker, gate: code.digest("hex").slice(0, 16) };
 }
 
@@ -66,7 +84,7 @@ export async function compileTogether({ snapshot, commit, crates, rustConfig = {
   });
   out(`together compile: ${infos.length} crate(s), ${calls.length} call(s) planned (${calls.filter((c) => c.crates.length > 1).length} name more than one crate; the largest names ${Math.max(0, ...calls.map((c) => c.crates.length))})`);
   const started = Date.now();
-  const tests = {}; const testCounts = { programs: 0, ran: 0, cached: 0 };
+  const tests = {}; const testCounts = { programs: 0, ran: 0, cached: 0, unreaped: 0 };
   // Test programs: from the receipt of a test-build call's evidence job, for the crates that passed that call. They run as soon as that call
   // ends and before the next call is sent: a test that starts its crate's own binary (CARGO_BIN_EXE_<name>) reads it from the shared target
   // directory, where the next test build of the same crate with other features replaces it (Dell, 2026-11-11: rightkit-agent-tools'
@@ -82,7 +100,9 @@ export async function compileTogether({ snapshot, commit, crates, rustConfig = {
       if (!cur || (cur.result === "passed" && r.result !== "passed")) tests[name] = { ...r, round: o.call.round };
       else if (cur.result === "passed") tests[name] = { ...cur, programs: cur.programs + r.programs, passed: cur.passed + r.passed, ignored: cur.ignored + r.ignored };
     }
-    for (const k of Object.keys(testCounts)) testCounts[k] += ran.counts[k];
+    for (const k of Object.keys(testCounts)) testCounts[k] += ran.counts[k] ?? 0;
+    // A test program that could not be proven stopped may still write in the snapshot: the caller keeps the snapshot lock, as for an unsettled broker job.
+    if (ran.counts.unreaped) onUnsettled(o.call, { settled: false, reason: `${ran.counts.unreaped} test program(s) timed out and are not proven stopped` });
   };
   const outcomes = []; const counts = { calls: calls.length, ran: 0, skipped: 0, jobs: 0, greenReruns: 0 };
   for (const call of calls) {

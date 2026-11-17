@@ -5,9 +5,10 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
-import { spawn as nodeSpawn } from "node:child_process";
+import { spawn as nodeSpawn, spawnSync } from "node:child_process";
 import { packageNameOf } from "./crate-results.mjs";
 import { testProgramEnv } from "../test-env.mjs";
+import { recordLockChild } from "../snapshot.mjs";
 
 /** Sum of the `test result:` lines a libtest program printed; null when it printed none. */
 export function libtestSummary(text) {
@@ -21,31 +22,49 @@ export function libtestSummary(text) {
 
 const sha256File = (file) => crypto.createHash("sha256").update(fs.readFileSync(file)).digest("hex");
 
-function runOne({ file, args, cwd, env, timeoutMs, spawn }) {
+/** Stops `child` and everything it started: taskkill /T /F on Windows, the child's own process group elsewhere (it is spawned detached there). */
+export function stopTree(child, { platform = process.platform, run = spawnSync, kill = (pid, sig) => process.kill(pid, sig) } = {}) {
+  if (!child?.pid) return;
+  if (platform === "win32") { try { run("taskkill", ["/T", "/F", "/PID", String(child.pid)], { windowsHide: true, stdio: "ignore" }); } catch { /* already gone */ } return; }
+  try { kill(-child.pid, "SIGKILL"); } catch { try { child.kill("SIGKILL"); } catch { /* already gone */ } }
+}
+
+/**
+ * Runs one program. On a timeout its whole process tree is stopped and the result waits (up to `reapMs`) for the program to end.
+ * `unreaped: true` means it did not end in that time: something it started may still be running in the snapshot.
+ */
+function runOne({ file, args, cwd, env, timeoutMs, spawn, platform = process.platform, stop = stopTree, reapMs = 15000 }) {
   return new Promise((resolve) => {
-    let out = ""; let done = false;
-    const finish = (r) => { if (!done) { done = true; resolve({ ...r, output: out.slice(-20000) }); } };
+    let out = ""; let done = false; let timedOut = false; let reapTimer = null;
+    const finish = (r) => { if (!done) { done = true; clearTimeout(reapTimer); resolve({ ...r, output: out.slice(-20000) }); } };
+    const late = `timed out after ${Math.round(timeoutMs / 1000)} s`;
     let child;
-    try { child = spawn(file, args, { cwd, env, stdio: ["ignore", "pipe", "pipe"], windowsHide: true }); }
+    try { child = spawn(file, args, { cwd, env, stdio: ["ignore", "pipe", "pipe"], windowsHide: true, ...(platform === "win32" ? {} : { detached: true }) }); }
     catch (error) { finish({ exit: null, error: String(error.message ?? error) }); return; }
-    const timer = setTimeout(() => { try { child.kill(); } catch { /* gone */ } finish({ exit: null, error: `timed out after ${Math.round(timeoutMs / 1000)} s` }); }, timeoutMs);
+    // A detached group no longer dies with the gate: it is recorded beside the held snapshot lock, so a crashed gate's leftover keeps the lock (snapshot.mjs).
+    try { recordLockChild(child, { platform }); } catch (error) { finish({ exit: null, error: String(error.message ?? error) }); return; }
+    const timer = setTimeout(() => {
+      timedOut = true;
+      stop(child, { platform });
+      reapTimer = setTimeout(() => finish({ exit: null, unreaped: true, error: `${late}; its processes are not proven stopped after ${Math.round(reapMs / 1000)} s more` }), reapMs);
+    }, timeoutMs);
     child.stdout.on("data", (d) => { out += d; if (out.length > 400000) out = out.slice(-200000); });
     child.stderr.on("data", (d) => { out += d; if (out.length > 400000) out = out.slice(-200000); });
-    child.on("error", (error) => { clearTimeout(timer); finish({ exit: null, error: String(error.message ?? error) }); });
-    child.on("close", (code, signal) => { clearTimeout(timer); finish({ exit: code, signal }); });
+    child.on("error", (error) => { clearTimeout(timer); finish({ exit: null, error: timedOut ? `${late}; ${String(error.message ?? error)}` : String(error.message ?? error) }); });
+    child.on("close", (code, signal) => { clearTimeout(timer); finish(timedOut ? { exit: null, error: `${late}; the program and what it started were stopped` } : { exit: code, signal }); });
   });
 }
 
 /**
- * Runs every listed program and returns { byCrate: { crate: { result: "passed"|"failed"|"unknown", detail, programs, passed, failed, ignored } }, counts: { programs, ran, cached } }.
+ * Runs every listed program and returns { byCrate: { crate: { result: "passed"|"failed"|"unknown", detail, programs, passed, failed, ignored } }, counts: { programs, ran, cached, unreaped } }.
  * `executables`: the receipt list (null means the broker listed none: every crate in `crates` is unknown).
  * `crates`: [{ name, dir, quiet?: boolean, serialToo?: boolean, allowIgnored?: boolean, assetGated?: boolean }] the crates whose tests are owed; `dir` is the crate's directory in the snapshot.
  * `store`: run-calls.mjs fileStore or null; a passed program is remembered under its sha256 and arguments.
  * Each program runs in testProgramEnv (test-env.mjs): no credential-named variable, assets required unless the crate is `assetGated`.
  * Quiet crates run last, one program at a time. `serialToo` crates run a second time with one test thread.
  */
-export async function runTests({ executables, crates, env = process.env, jobs = Math.max(1, os.availableParallelism?.() ?? os.cpus().length), timeoutMs = 30 * 60 * 1000, store = null, spawn = nodeSpawn, hashOf = sha256File }) {
-  const byCrate = {}; const counts = { programs: 0, ran: 0, cached: 0 };
+export async function runTests({ executables, crates, env = process.env, jobs = Math.max(1, os.availableParallelism?.() ?? os.cpus().length), timeoutMs = 30 * 60 * 1000, store = null, spawn = nodeSpawn, hashOf = sha256File, platform = process.platform, stop = stopTree, reapMs = 15000 }) {
+  const byCrate = {}; const counts = { programs: 0, ran: 0, cached: 0, unreaped: 0 };
   if (!Array.isArray(executables)) {
     for (const c of crates) byCrate[c.name] = { result: "unknown", detail: "the test build's receipt listed no test programs", programs: 0, passed: 0, failed: 0, ignored: 0 };
     return { byCrate, counts };
@@ -70,7 +89,8 @@ export async function runTests({ executables, crates, env = process.env, jobs = 
     if (!run && actual !== exe.sha256) run = { ok: false, program: exe.target, detail: "the program on disk is not the one the receipt lists (sha256 differs)" };
     if (!run) {
       counts.ran += 1;
-      const r = await runOne({ file: exe.path, args, cwd: crate.dir, env: { ...testProgramEnv(env, crate.assetGated === true), CARGO_MANIFEST_DIR: crate.dir }, timeoutMs, spawn });
+      const r = await runOne({ file: exe.path, args, cwd: crate.dir, env: { ...testProgramEnv(env, crate.assetGated === true), CARGO_MANIFEST_DIR: crate.dir }, timeoutMs, spawn, platform, stop, reapMs });
+      if (r.unreaped) counts.unreaped += 1;
       const sum = libtestSummary(r.output);
       run = { ok: r.exit === 0, program: exe.target, args, passed: sum?.passed ?? 0, failed: sum?.failed ?? 0, ignored: sum?.ignored ?? 0, detail: r.exit === 0 ? "" : (r.error ?? `exit ${r.exit}${r.signal ? ` (${r.signal})` : ""}: ${r.output.slice(-1500)}`) };
       if (run.ok) store?.put(key, { run: { ok: true, program: run.program, args, passed: run.passed, failed: 0, ignored: run.ignored, detail: "" } });

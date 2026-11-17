@@ -409,3 +409,42 @@ test("a test program never inherits a credential-named variable; assets are requ
   assert.deepEqual(Object.keys(testProgramEnv({ A_TOKEN: "1", B: "2" }, false)).sort(), ["B", "CARGO_TERM_COLOR", "RIGHTKIT_ISOLATED_CHECKOUT", "RIGHTKIT_REQUIRE_ASSETS"]);
   assert.match(fs.readFileSync(new URL("../local-publish.mjs", import.meta.url), "utf8"), /const testEnv = \(deps, isAssetGated\) => testProgramEnv\(/);
 });
+
+test("G19: the gate-code hash covers every file the build-together path imports, not only gate/", async () => {
+  const { gateCodeFiles } = await import("./compile.mjs");
+  const names = gateCodeFiles().map((f) => f.name);
+  for (const want of ["compile.mjs", "tests.mjs", "run-calls.mjs", "../seam-broker.mjs", "../gate-seam.mjs", "../test-env.mjs", "../cross-targets.mjs"]) assert.ok(names.includes(want), `${want} is not in the hash`);
+  assert.equal(names.some((n) => n.endsWith(".test.mjs")), false);
+  // Followed to the end, each file once, in a fixed order; an unreadable import throws.
+  const files = { "/g/a.mjs": 'import { b } from "../b.mjs";', "/b.mjs": 'export * from "./c.mjs"; const x = await import("./g/a.mjs");', "/c.mjs": "export const c = 1;" };
+  const read = (f) => { const k = f.split(path.sep).join("/").replace(/^[A-Za-z]:/, ""); if (!(k in files)) throw new Error(`no ${k}`); return files[k]; };
+  assert.deepEqual(gateCodeFiles(path.resolve("/g"), { readFile: read, list: () => ["a.mjs", "a.test.mjs", "notes.txt"] }).map((f) => f.name), ["../b.mjs", "../c.mjs", "a.mjs"]);
+  files["/c.mjs"] = 'import "./gone.mjs";';
+  assert.throws(() => gateCodeFiles(path.resolve("/g"), { readFile: read, list: () => ["a.mjs"] }), /no \/gone\.mjs/);
+});
+
+test("G17: a test program past its time limit has its whole tree stopped, and one not proven stopped is counted", async () => {
+  const { EventEmitter } = await import("node:events");
+  const exe = { path: "/t/a", sha256: "ab".repeat(32), package_id: "path+file:///s/crates/a#0.1.0", target: "a", kind: "lib" };
+  const fake = (onStop) => { const stopped = []; const options = [];
+    const spawn = (file, args, opts) => { options.push(opts); const c = new EventEmitter(); c.pid = 4242; c.stdout = new EventEmitter(); c.stderr = new EventEmitter(); c.kill = () => { throw new Error("child.kill must not be the stop"); }; return c; };
+    return { spawn, stopped, options, stop: (child) => { stopped.push(child.pid); onStop(child); } };
+  };
+  const base = { executables: [exe], crates: [{ name: "a", dir: "/s/crates/a" }], env: { PATH: "/bin" }, jobs: 1, hashOf: () => "ab".repeat(32), timeoutMs: 20 };
+  // The tree stop ends the program: failed, reported as stopped, nothing left running.
+  const a = fake((child) => setImmediate(() => child.emit("close", null, "SIGKILL")));
+  const ended = await runTests({ ...base, spawn: a.spawn, stop: a.stop, reapMs: 5000, platform: "linux" });
+  assert.deepEqual(a.stopped, [4242]); assert.equal(a.options[0].detached, true);
+  assert.equal(ended.byCrate.a.result, "failed"); assert.match(ended.byCrate.a.detail, /timed out after 0 s; the program and what it started were stopped/); assert.equal(ended.counts.unreaped, 0);
+  // The program never ends: failed, counted as not proven stopped. On Windows the child is not detached (taskkill /T walks the tree).
+  const b = fake(() => {});
+  const stuck = await runTests({ ...base, spawn: b.spawn, stop: b.stop, reapMs: 20, platform: "win32" });
+  assert.equal(b.options[0].detached, undefined);
+  assert.equal(stuck.byCrate.a.result, "failed"); assert.match(stuck.byCrate.a.detail, /not proven stopped/); assert.equal(stuck.counts.unreaped, 1);
+  // stopTree: taskkill /T /F on Windows; the process group elsewhere.
+  const { stopTree } = await import("./tests.mjs");
+  const calls = []; stopTree({ pid: 7 }, { platform: "win32", run: (...x) => calls.push(x) });
+  assert.deepEqual(calls[0].slice(0, 2), ["taskkill", ["/T", "/F", "/PID", "7"]]);
+  const sig = []; stopTree({ pid: 7 }, { platform: "linux", kill: (pid, s) => sig.push([pid, s]) });
+  assert.deepEqual(sig, [[-7, "SIGKILL"]]);
+});
