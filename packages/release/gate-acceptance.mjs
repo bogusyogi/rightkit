@@ -2703,7 +2703,7 @@ export function coldControls({ cold, warmPrev, warmRows, crate, ws, coldCompileR
 
 async function main(argv) {
   const opt = (name) => { const i = argv.indexOf(name); return i < 0 ? undefined : argv[i + 1]; };
-  const known = new Set(["--fixture", "--host", "--steps", "--out", "--plan", "--gate", "--commit", "--leaf-file", "--manifest-file", "--kill-after-ms", "--allow-install", "--budgets", "--help", "--prove", "--verify-release", "--other-receipt", "--contract-file", "--pulse-compile", "--prove-out", "--nn", "--checks-only", "--s11-checks-only", "--kills"]);
+  const known = new Set(["--fixture", "--host", "--steps", "--out", "--plan", "--gate", "--commit", "--leaf-file", "--manifest-file", "--kill-after-ms", "--allow-install", "--budgets", "--help", "--prove", "--verify-release", "--other-receipt", "--contract-file", "--pulse-compile", "--prove-out", "--nn", "--checks-only", "--s11-checks-only", "--kills", "--candidate", "--sealed"]);
   for (const a of argv) if (a.startsWith("--") && !known.has(a)) { console.error(`gate-acceptance: unknown option ${a} (no cache bypass or other gate flag is ever passed)`); return 64; }
   if (argv.includes("--verify-release")) return verifyReleaseCli(argv);
   const host = opt("--host") ?? (process.platform === "win32" ? "dell" : "mac");

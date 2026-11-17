@@ -1091,3 +1091,27 @@ test("NN31 candidate mode: a sealed candidate is found only when sealed, is the 
     assert.match(verifyReleaseReceipts(receipt({ kind: "candidate", sealedSha256: null })).problems.join(), /not a sealed gate's receipt/);
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
+
+test("the real command line accepts --candidate and --sealed (they were refused as unknown options before reaching their code)", async () => {
+  const { spawnSync } = await import("node:child_process");
+  const { fileURLToPath } = await import("node:url");
+  const script = fileURLToPath(new URL("./gate-acceptance.mjs", import.meta.url));
+  const run = (...args) => { const r = spawnSync(process.execPath, [script, ...args], { encoding: "utf8", timeout: 60000, windowsHide: true }); return { code: r.status, text: `${r.stdout}${r.stderr}` }; };
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rk-cli-"));
+  try {
+    const sealed = "a".repeat(64);
+    // --candidate reaches its own code: given with --gate it is refused there, by name. No acceptance step runs.
+    const both = run("--fixture", dir, "--candidate", sealed, "--gate", path.join(dir, "g.mjs"));
+    assert.equal(both.code, 64); assert.match(both.text, /--candidate and --gate cannot be given together/); assert.doesNotMatch(both.text, /unknown option/);
+    // --sealed reaches the release check: a receipt for another gate is refused with that reason; a malformed value is named.
+    const receipt = path.join(dir, "r.json");
+    fs.writeFileSync(receipt, JSON.stringify({ schema: "rightkit.contract-test-receipt/1", host: "dell", commit: "c".repeat(40), gate: { kind: "candidate", sealedSha256: "e".repeat(64) }, verdict: "PASS 1/1", ok: true, nn: {}, uncheckedClauses: [] }));
+    const other = run("--verify-release", receipt, "--sealed", sealed);
+    assert.equal(other.code, 1); assert.match(other.text, /verify-release REFUSED/); assert.match(other.text, /it is for the sealed gate e{64}, the gate in question is a{64}/); assert.doesNotMatch(other.text, /unknown option/);
+    const malformed = run("--verify-release", receipt, "--sealed", "nope");
+    assert.equal(malformed.code, 1); assert.match(malformed.text, /--sealed needs the 64-hex sha256/);
+    // An option nobody defined is still refused.
+    const unknown = run("--fixture", dir, "--no-such-flag");
+    assert.equal(unknown.code, 64); assert.match(unknown.text, /unknown option --no-such-flag/);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
