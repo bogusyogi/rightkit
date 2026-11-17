@@ -7,4 +7,4 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-clipboard-history = { version = "=0.3.2" }
+rightkit-clipboard-history = { version = "=0.4.0" }

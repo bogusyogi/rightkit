@@ -296,6 +296,36 @@ function generatedDocs({ root, files }) {
   return [{ problem: drift.length ? drift.join("; ") : `scripts/generate-index.mjs --check failed: ${(r.stderr || r.stdout).trim()}`, fix: "node scripts/generate-index.mjs, then commit INDEX.md, docs/CAPABILITY-MAP.md and, for a port matrix drift, docs/PORT-MATRIX.md, docs/port-matrix.html and docs/port-matrix.json" }];
 }
 
+// APP-BOUNDARY.md: behavior modules extracted from the legacy desktop wrappers
+// must remain usable without product copy, visual tokens or a rendered layout.
+const SHARED_BEHAVIOR = new Set([
+  "packages/mail-ui/src/views/useSidebarModel.ts",
+  "packages/video-ui/src/app/hooks/recentProjects.ts",
+  "packages/video-ui/src/app/hooks/useVideoAssembly.ts",
+  "packages/video-ui/src/app/hooks/useVideoProjects.ts",
+]);
+const PRODUCT_NAME = /\b(?:HeardRight|ViewRight|Pulse|CodeRight|GenRight|CutRight|ScrapeRight|MailRight|PostRight)\b/;
+const PRODUCT_CLASS = /["'`](?:hr|vr|cr|gr|sr|mr|pr|pulse)-[a-z][\w-]*/i;
+const COLOR_LITERAL = /["'`]\s*(?:#(?:[\da-f]{3,4}|[\da-f]{6}|[\da-f]{8})\b|(?:rgba?|hsla?|oklch|oklab)\s*\()/i;
+
+function sharedBehaviorPresentation({ root, files }) {
+  const findings = [];
+  for (const file of files) {
+    if (!SHARED_BEHAVIOR.has(file)) continue;
+    const lines = (readText(root, file) ?? "").split("\n");
+    for (const [index, line] of lines.entries()) {
+      if (PRODUCT_NAME.test(line) || PRODUCT_CLASS.test(line) || COLOR_LITERAL.test(line)) {
+        findings.push({
+          file,
+          problem: `${file}:${index + 1} contains a product name, app-prefixed class or literal color in shared behavior`,
+          fix: "supply presentation through app composition, callbacks or theme tokens",
+        });
+      }
+    }
+  }
+  return findings;
+}
+
 // ---- G25 and G26: bugs that only a Windows or macOS runner showed, found from files alone ----------------------------------------
 // Both police RightKit's own tree (they switch on scripts/preflight.mjs being committed), so an app checked from here stays quiet.
 
@@ -511,6 +541,7 @@ export const RULES = Object.freeze([
   { id: "consumer-locks", gap: "G08", run: consumerLocks },
   appRule("file-url"),
   { id: "generated-docs", gap: "G10", run: generatedDocs },
+  { id: "shared-behavior-presentation", run: sharedBehaviorPresentation },
   { id: "tmpdir-realpath", gap: "G26", run: tmpdirRealpath },
   appRule("retired-alias"),
   // G13-G22, the app defects, in app-check's order.

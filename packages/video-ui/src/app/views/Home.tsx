@@ -1,7 +1,7 @@
 import { Badge, Button, Card, ContextMenu, EmptyState, IconButton, PageShell, cx } from "@rightkit/react-shell/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { pickFolder } from "../lib/dialog.js";
-import { errorCode, errorMessage, revealPath } from "../../lib/engine.js";
+import { errorMessage, revealPath } from "../../lib/engine.js";
 import {
   type ProjectCard,
   SETTINGS_CHANGED,
@@ -11,37 +11,10 @@ import {
 } from "../../lib/media.js";
 import { assetUrl } from "../../lib/asset.js";
 import { baseName, projectShow } from "../../lib/project.js";
-import { createHostSettingsBackend } from "../lib/settingsBackend.js";
+import { loadRecent, rememberProject, forgetProject } from "../hooks/recentProjects.js";
+export { loadRecent, rememberProject, forgetProject } from "../hooks/recentProjects.js";
 import { ErrorPanel, Thumbnail, timecode, Icon } from "../ui/index.js";
 
-
-const recentSettings = createHostSettingsBackend();
-let recentQueue: Promise<unknown> = Promise.resolve();
-const recentDirs = (value: unknown): string[] =>
-  Array.isArray(value) ? value.filter((dir): dir is string => typeof dir === "string").slice(0, 8) : [];
-
-function recentProjects(update?: (dirs: string[]) => string[]): Promise<string[]> {
-  const run = recentQueue.then(async () => {
-    for (let attempt = 0; ; attempt += 1) {
-      const snapshot = await recentSettings.load();
-      let dirs = recentDirs(snapshot.values.recent_projects);
-      if (!update) return dirs;
-      dirs = update(dirs);
-      try {
-        await recentSettings.patch({ recent_projects: dirs }, snapshot.revision);
-        return dirs;
-      } catch (error) {
-        if (attempt > 0 || errorCode(error) !== "revision_conflict") throw error;
-      }
-    }
-  });
-  recentQueue = run.catch(() => undefined);
-  return run;
-}
-
-export const loadRecent = () => recentProjects();
-export const rememberProject = (dir: string) => recentProjects((dirs) => [dir, ...dirs.filter((d) => d !== dir)].slice(0, 8));
-export const forgetProject = (dir: string) => recentProjects((dirs) => dirs.filter((d) => d !== dir));
 
 const STATUS: Record<string, { label: string; tone: "ok" | "accent" | "neutral" | "warn" }> = {
   finished: { label: "Finished", tone: "ok" },

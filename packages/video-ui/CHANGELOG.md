@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.2
+
+- Export project and assembly hooks from `@rightkit/video-ui/app`. The existing workspace uses them. Hosts can supply their own navigation, notices, copy and layout.
+
 ## 0.2.1
 
 The owner's decision on 0.2.0's redraw: CutRight's UI belongs in RightKit, not in the app. 0.2.0 deleted it

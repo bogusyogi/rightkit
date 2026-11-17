@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.0
+
+- Disabling default features leaves only the portable detection API. Enable `history` if a consumer disables defaults and uses the persisted model, search, host or native modules. Existing default-feature consumers keep the full API.
+
 ## 0.3.2
 
 - `strip::drag::{Drag, Landing, Outcome, run}` are `pub` (were `pub(crate)`) and `strip::drag::ole_init()` is new: a once-per-process OLE initialisation for a host's own drag of files out of the notch (Pulse's Send card drag), which carries no strip items and so never goes through the strip's own `init`. Nothing calls it unless the host does; the strip's behaviour is unchanged.

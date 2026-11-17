@@ -283,7 +283,11 @@ export function validateApplicabilityRecord(id, raw, { spec, root }) {
 }
 
 const REAL_DATE = /^\d{4}-\d{2}-\d{2}$/;
-const isRealDate = (text) => typeof text === "string" && REAL_DATE.test(text) && new Date(`${text}T00:00:00Z`).toISOString().slice(0, 10) === text;
+function isRealDate(text) {
+  if (typeof text !== "string" || !REAL_DATE.test(text)) return false;
+  const date = new Date(`${text}T00:00:00Z`);
+  return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === text;
+}
 const todayOf = (now) => (now instanceof Date ? now : new Date()).toISOString().slice(0, 10);
 
 /**

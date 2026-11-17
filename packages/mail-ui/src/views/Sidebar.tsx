@@ -1,14 +1,14 @@
-import { useState } from "react";
 import { IconButton, NavList, type NavGroup } from "@rightkit/react-shell/react";
-import type { DragEvent as ReactDragEvent } from "react";
 import Icon from "../components/Icons.js";
 import { FOLDERS, FOLDER_ICON, userLabelsOf } from "../lib/mail.js";
 import { setPref } from "../lib/preferences.js";
-import { removeSavedSearch as removeSavedSearchFrom, SAVED_SEARCHES_KEY } from "../lib/savedSearches.js";
 import type { ThreadRef } from "../lib/ipc.js";
 import { useAppStore, APP_OF } from "../store/index.js";
 import { CalendarNav, ContactsNav, DriveNav, TasksNav } from "@rightkit/workspace-ui";
 import { MailWorkspaceProvider } from "../workspaceViews.js";
+import { buildLabelTree, useSidebarModel } from "./useSidebarModel.js";
+export { buildLabelTree, useSidebarModel } from "./useSidebarModel.js";
+export type { SidebarModelOptions } from "./useSidebarModel.js";
 
 interface Props {
   unreadFor: (id: string) => number;
@@ -43,7 +43,6 @@ export function Sidebar({
   const setView = useAppStore((s) => s.setView);
   const view = useAppStore((s) => s.view);
   const app = APP_OF[view];
-  const [dropLabelId, setDropLabelId] = useState<string | null>(null);
 
   const unreadAll = counts.total;
 
@@ -55,75 +54,22 @@ export function Sidebar({
   }
   // User labels, minus hidden, sorted so children sit under parents.
   const userLabels = userLabelsOf(labels);
-  const visibleLabels = [...userLabels.filter((l) => !hiddenLabels.has(l.id))].sort((a, b) =>
-    a.name.localeCompare(b.name)
-  );
-  const parentNames = new Set<string>();
-  for (const l of visibleLabels) {
-    const parts = l.name.split("/");
-    for (let i = 1; i < parts.length; i++) parentNames.add(parts.slice(0, i).join("/"));
-  }
-  const hiddenByCollapse = (name: string): boolean => {
-    const parts = name.split("/");
-    for (let i = 1; i < parts.length; i++) {
-      if (collapsedLabels.has(parts.slice(0, i).join("/"))) return true;
-    }
-    return false;
-  };
-  const treeLabels = visibleLabels.filter((l) => !hiddenByCollapse(l.name));
-  function toggleLabelCollapsed(name: string) {
-    setCollapsedLabels((prev) => {
-      const n = new Set(prev);
-      if (n.has(name)) n.delete(name);
-      else n.add(name);
-      setPref("collapsedLabels", [...n]);
-      return n;
-    });
-  }
-
-  function removeSavedSearch(query: string) {
-    setSavedSearches((prev) => {
-      const next = removeSavedSearchFrom(prev, query);
-      setPref(SAVED_SEARCHES_KEY, next);
-      return next;
-    });
-  }
-
-  function labelDropHandlers(labelId: string, labelName: string) {
-    return {
-      onDragEnter: (e: ReactDragEvent<HTMLButtonElement>) => {
-        if (e.dataTransfer.types.includes("application/mailright-thread")) {
-          setDropLabelId(labelId);
-        }
-      },
-      onDragLeave: (e: ReactDragEvent<HTMLButtonElement>) => {
-        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
-          setDropLabelId((current) => (current === labelId ? null : current));
-        }
-      },
-      onDragOver: (e: ReactDragEvent<HTMLButtonElement>) => {
-        if (e.dataTransfer.types.includes("application/mailright-thread")) {
-          e.preventDefault();
-          e.dataTransfer.dropEffect = "move";
-        }
-      },
-      onDrop: (e: ReactDragEvent<HTMLButtonElement>) => {
-        const raw = e.dataTransfer.getData("application/mailright-thread");
-        if (!raw) return;
-        e.preventDefault();
-        e.stopPropagation();
-        let ref: ThreadRef;
-        try {
-          ref = JSON.parse(raw) as ThreadRef;
-        } catch {
-          setErr("Could not read the dragged thread.");
-          return;
-        }
-        setDropLabelId(null);
-        dropThreadOnLabel(ref, labelId, labelName);
-      },
-    };
-  }
+  const { visibleLabels, parentNames, treeLabels } = buildLabelTree(userLabels, hiddenLabels, collapsedLabels);
+  const { dropLabelId, toggleLabelCollapsed, removeSavedSearch, labelDropHandlers, openFolderItem } = useSidebarModel({
+    setCollapsedLabels, setSavedSearches,
+    persistCollapsedLabels: (value) => setPref("collapsedLabels", value),
+    persistSavedSearches: (value) => setPref("savedSearches", value),
+    transferType: "application/mailright-thread",
+    onDrop: dropThreadOnLabel,
+    onInvalidDrop: () => setErr("Could not read the dragged thread."),
+    onSelectFolder: (id: string) => {
+      setFolder(id as typeof folder);
+      setActiveLabel(null);
+      setCategory(null);
+      setView("inbox");
+      setOpenThread(null);
+    },
+  });
 
   const viewQueries: Record<string, string> = {
     unread: "is:unread",
@@ -161,13 +107,6 @@ export function Sidebar({
     },
   ];
   const folderActiveId = view === "inbox" && !activeLabel ? folder : "";
-  function openFolderItem(id: string) {
-    setFolder(id as typeof folder);
-    setActiveLabel(null);
-    setCategory(null);
-    setView("inbox");
-    setOpenThread(null);
-  }
   const viewGroups: NavGroup[] = [
     {
       items: [

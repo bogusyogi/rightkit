@@ -1,6 +1,6 @@
-//! Registry consumer for rightkit-app-manager 0.1.0: builds against the published API only.
+//! Registry consumer for rightkit-app-manager, built against the candidate registry archive.
 use rightkit_app_manager::apps::{compare_versions, valid_bundle_id, VersionComparison};
-use rightkit_app_manager::{set_host_identity, HostIdentity};
+use rightkit_app_manager::{set_account_home_resolver, set_host_identity, HostIdentity};
 
 fn check(ok: bool, what: &str) {
     if !ok {
@@ -29,5 +29,9 @@ fn main() {
         "the host app names itself once",
     );
     check(!set_host_identity(me), "a second identity is refused");
+    check(
+        set_account_home_resolver(std::path::PathBuf::new),
+        "the account-home resolver can be registered on this host",
+    );
     println!("rightkit-app-manager consumer: all checks passed");
 }

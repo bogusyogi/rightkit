@@ -46,6 +46,8 @@ export * from "./demo/useDemo.js";
 
 // The app's services, over the host.
 export * from "./hooks/useProgress.js";
+export * from "./hooks/useVideoAssembly.js";
+export * from "./hooks/useVideoProjects.js";
 export * from "./lib/assemble.js";
 export * from "./lib/dialog.js";
 export * from "./lib/engineRaw.js";

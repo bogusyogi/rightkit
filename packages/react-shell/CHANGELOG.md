@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.7.5
+
+- Textarea accepts `unstyled` for caller-owned presentation. The native element, ref, event handlers and optional auto-grow remain available.
+
 ## 0.7.4
 
 Additive. Existing props, defaults and markup are unchanged.

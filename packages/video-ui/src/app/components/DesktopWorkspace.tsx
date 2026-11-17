@@ -1,24 +1,14 @@
 import { Button, IconButton, Notice, useToast } from "@rightkit/react-shell/react";
 import { useCallback, useEffect, useState } from "react";
-import { videoAppHost } from "../../host.js";
 import { useEngine } from "../../hooks/useEngine.js";
 import { useProgress } from "../hooks/useProgress.js";
-import {
-  type AssembleForm,
-  type AssembleInput,
-  type AssembleStatus,
-  type PendingAssemble,
-  buildAssembleInput,
-  clearPending,
-  loadPending,
-  newAssembleId,
-  savePending,
-} from "../lib/assemble.js";
+import { useVideoAssembly } from "../hooks/useVideoAssembly.js";
+import { useVideoProjects } from "../hooks/useVideoProjects.js";
 import { pickFolder } from "../lib/dialog.js";
-import { engineCall, errorCode, errorMessage } from "../../lib/engine.js";
-import { type BundleImportResult, SETTINGS_CHANGED, bundleImport, projectsList, rendersList, settingsGet, storageStatus } from "../../lib/media.js";
-import { type ProjectShow, baseName, projectInit, projectShow } from "../../lib/project.js";
-import { Home, loadRecent, rememberProject } from "../views/Home.js";
+import { errorMessage } from "../../lib/engine.js";
+import { type BundleImportResult, rendersList } from "../../lib/media.js";
+import { type ProjectShow, baseName, projectShow } from "../../lib/project.js";
+import { Home, rememberProject } from "../views/Home.js";
 import { ProgressView } from "../views/ProgressView.js";
 import { PromptPanel } from "../views/PromptPanel.js";
 import { TimelineView } from "../views/TimelineView.js";
@@ -73,53 +63,23 @@ export function recentLabel(dir: string, name?: string | null): string {
 export function DesktopWorkspace() {
   const toast = useToast();
   const { status, doctor, doctorError, statusError } = useEngine();
-  const { progress, begin, patch, seed, reset } = useProgress();
-  const [pending, setPending] = useState<PendingAssemble | null>(null);
-  const [resumable, setResumable] = useState(false);
-  /** The recovered run's stored render file is gone; its render step must run again. */
-  const [renderMissing, setRenderMissing] = useState(false);
+  const progressController = useProgress();
+  const { progress, reset } = progressController;
   const [dir, setDir] = useState<string | null>(null);
   const [show, setShow] = useState<ProjectShow | null>(null);
   const [exportsCount, setExportsCount] = useState(0);
   const [tab, setTab] = useState<Tab>("projects");
   // Exports ⋯ → Import retention… routes here with the render preselected (R5).
   const [retentionPreselect, setRetentionPreselect] = useState<string | undefined>(undefined);
-  /** R16: where dropped-footage projects are created (never the footage dir). */
-  const [projectRoot, setProjectRoot] = useState<string | null>(null);
-  /** Recent rows: display names + missing-media state from `projects.list`. */
-  const [recentInfo, setRecentInfo] = useState<Record<string, { name?: string | null; missing?: boolean }>>({});
   /** Settings section to land on (status dot → Models). */
   const [settingsSection, setSettingsSection] = useState<string | undefined>(undefined);
-  const [assembling, setAssembling] = useState(false);
-  const [rendering, setRendering] = useState(false);
   const [jobError, setJobError] = useState<string | null>(null);
   const [output, setOutput] = useState<string | null>(null);
   /** Names missing on this computer after a bundle import; shown until dismissed. */
   const [importMissing, setImportMissing] = useState<string[] | null>(null);
   const [importUnverified, setImportUnverified] = useState<string[] | null>(null);
-  const [dropActive, setDropActive] = useState(false);
   const error = statusError ?? status?.last_error ?? doctorError;
   const previewHost = useTimelinePreview(dir, show?.revision.cursor ?? 0);
-  const [recents, setRecents] = useState<string[]>([]);
-
-  useEffect(() => {
-    if (status?.state !== "ready") return;
-    let live = true;
-    const load = () => void loadRecent()
-      .then((dirs) => { if (live) setRecents(dirs.slice(0, 5)); })
-      .catch((e) => { if (live) setJobError(errorMessage(e)); });
-    load();
-    window.addEventListener(SETTINGS_CHANGED, load);
-    return () => {
-      live = false;
-      window.removeEventListener(SETTINGS_CHANGED, load);
-    };
-  }, [dir, tab === "projects", status?.state]);
-
-  useEffect(() => {
-    setUpdateBusy(dir !== null || assembling || rendering || progress.running);
-    return () => setUpdateBusy(false);
-  }, [dir, assembling, rendering, progress.running]);
 
   // Dynamic asset scope: project dir + its renders/media dirs. The scope glob skips
   // dot-directories unless named, so the thumbnail cache (.cache/thumbs) is listed.
@@ -129,52 +89,6 @@ export function DesktopWorkspace() {
       () => undefined,
     );
   }, [dir]);
-
-  // R16: resolve the drop project folder once — the configured app setting,
-  // else the engine's platform default (~/Movies/the host app).
-  useEffect(() => {
-    let live = true;
-    (async () => {
-      try {
-        const [s, st] = await Promise.all([settingsGet(), storageStatus()]);
-        if (!live) return;
-        const configured = s.app.project_root;
-        setProjectRoot(
-          typeof configured === "string" && configured.trim()
-            ? configured
-            : st.default_project_root ?? null,
-        );
-      } catch {
-        /* engine still starting; drops are ignored until this resolves */
-      }
-    })();
-    return () => {
-      live = false;
-    };
-  }, []);
-
-  // Recent-project rows show the stored name and a warn dot for missing media.
-  useEffect(() => {
-    if (recents.length === 0) return;
-    let live = true;
-    projectsList(recents)
-      .then((r) => {
-        if (!live) return;
-        const info: Record<string, { name?: string | null; missing?: boolean }> = {};
-        for (const dir of recents) info[dir] = { missing: true };
-        for (const p of r.projects) {
-          info[p.dir] = {
-            name: p.name,
-            missing: (p.missing_sources ?? 0) > 0 || p.status === "missing_media",
-          };
-        }
-        setRecentInfo(info);
-      })
-      .catch(() => undefined);
-    return () => {
-      live = false;
-    };
-  }, [recents]);
 
   const refresh = useCallback(async () => {
     if (!dir) return;
@@ -201,6 +115,20 @@ export function DesktopWorkspace() {
     if (progress.done || progress.error) void refresh().catch(() => undefined);
   }, [progress.output, progress.done, progress.error, refresh]);
 
+  const { pending, resumable, renderMissing, assembling, rendering, submit, resume, render, cancel, clearRecovery } = useVideoAssembly({
+    dir, progressController, refresh, setError: setJobError, setOutput,
+    callbacks: {
+      onRecovered: () => setTab("jobs"),
+      onStarted: () => setTab("jobs"),
+      onSucceeded: () => { setTab("finished"); toast("Finished edit ready", { kind: "success" }); },
+    },
+  });
+
+  useEffect(() => {
+    setUpdateBusy(dir !== null || assembling || rendering || progress.running);
+    return () => setUpdateBusy(false);
+  }, [dir, assembling, rendering, progress.running]);
+
   const open = useCallback((next: string, firstTab: Tab = "media") => {
     setShow(null);
     setOutput(null);
@@ -210,12 +138,10 @@ export function DesktopWorkspace() {
     setImportUnverified(null);
     reset();
     setTab(firstTab);
-    setPending(null);
-    setResumable(false);
-    setRenderMissing(false);
+    clearRecovery();
     setDir(next);
     void rememberProject(next).catch((e) => toast(errorMessage(e), { kind: "error", ttl: 0 }));
-  }, [reset, toast]);
+  }, [reset, toast, clearRecovery]);
 
   const closeProject = useCallback(() => {
     setDir(null);
@@ -225,25 +151,23 @@ export function DesktopWorkspace() {
     setTab("projects");
   }, []);
 
-  const createProject = useCallback(async () => {
-    const dir = await pickFolder("Choose or create a folder for the new project");
-    if (!dir) return;
-    try {
-      await projectInit(dir, baseName(dir));
-      open(dir);
-    } catch (e) {
-      toast(errorMessage(e), { kind: "error", ttl: 0 });
-    }
-  }, [open, toast]);
-
-  /** Checks an existing project folder with the engine, then opens it. Shared by Open folder… and Import bundle. */
-  const openExisting = useCallback(
-    async (path: string) => {
-      await projectShow(path);
-      open(path);
+  const { recents, recentInfo, dropActive, openExisting, createProjectAt, importBundleAt } = useVideoProjects({
+    dir, ready: status?.state === "ready", recentRefreshKey: tab === "projects", fallbackName: "Untitled",
+    callbacks: {
+      onOpen: (path) => open(path),
+      onRecentError: (error) => setJobError(errorMessage(error)),
+      onDropCreateError: (error) => toast(`Could not create a project folder: ${errorMessage(error)}`, { kind: "error", ttl: 0 }),
+      onDropImportError: (error) => toast(errorMessage(error), { kind: "error", ttl: 0 }),
+      onFilesImported: (count) => toast(`Imported ${count} file${count === 1 ? "" : "s"}`, { kind: "success" }),
     },
-    [open],
-  );
+  });
+
+  const createProject = useCallback(async () => {
+    const path = await pickFolder("Choose or create a folder for the new project");
+    if (!path) return;
+    try { await createProjectAt(path); }
+    catch (e) { toast(errorMessage(e), { kind: "error", ttl: 0 }); }
+  }, [createProjectAt, toast]);
 
   const openFolder = useCallback(async () => {
     const picked = await pickFolder(`Open a ${hostAppName()} project folder`);
@@ -264,7 +188,7 @@ export function DesktopWorkspace() {
     if (!target) return null;
     let report: BundleImportResult;
     try {
-      report = await bundleImport({ bundle, dir: target });
+      report = await importBundleAt(bundle, target);
     } catch (e) {
       return errorMessage(e);
     }
@@ -287,61 +211,7 @@ export function DesktopWorkspace() {
     if (missing.length > 0) setImportMissing(missing);
     else if (unverified.length === 0) toast("Bundle imported", { kind: "success" });
     return null;
-  }, [openExisting, toast]);
-
-  /** §3.1 + R16: dropped media creates a project under the configured project
-   *  folder (Settings › Storage › Project folder; default ~/Movies/the host app) —
-   *  never inside the user's footage folder. The project is named after the
-   *  first dropped file's stem (`Interview`, then `Interview 2`, …) and the
-   *  originals are imported in place. */
-  const openFiles = useCallback(
-    async (paths: string[]) => {
-      const first = paths[0];
-      if (!first || !projectRoot) return;
-      const stem = baseName(first).replace(/\.[^.]+$/, "").replace(/[\\/]/g, "").trim() || "Untitled";
-      // `projects.create` picks `stem`, `stem 2`, … — never an occupied dir.
-      let created: string;
-      try {
-        const r = await engineCall<{ dir: string }>("projects.create", { root: projectRoot, name: stem });
-        created = r.dir;
-      } catch (e) {
-        toast(`Could not create a project folder: ${errorMessage(e)}`, { kind: "error", ttl: 0 });
-        return;
-      }
-      try {
-        open(created);
-        for (const file of paths) {
-          await engineCall("source.add", { dir: created, file });
-        }
-        toast(`Imported ${paths.length} file${paths.length === 1 ? "" : "s"}`, { kind: "success" });
-      } catch (e) {
-        toast(errorMessage(e), { kind: "error", ttl: 0 });
-      }
-    },
-    [open, toast, projectRoot],
-  );
-
-  // File drops land on the Projects screen only; inside a project the Media
-  // screen owns its own drop handling.
-  useEffect(() => {
-    let un: (() => void) | undefined;
-    // A missing app host takes the same silent path as a failed subscription, as before.
-    void Promise.resolve()
-      .then(() =>
-        videoAppHost().onDragDrop((e) => {
-          if (dir) return;
-          if (e.type === "enter" || e.type === "over") setDropActive(true);
-          else if (e.type === "leave") setDropActive(false);
-          else if (e.type === "drop") {
-            setDropActive(false);
-            void openFiles(e.paths);
-          }
-        }),
-      )
-      .then((u) => (un = u))
-      .catch(() => undefined);
-    return () => un?.();
-  }, [dir, openFiles]);
+  }, [openExisting, toast, importBundleAt]);
 
   // Global keyboard (§2): the shell's shortcut registry owns the chords, the help overlay and dispatch.
   // Project tabs apply only with a project open; a skipped binding leaves the key to the page.
@@ -359,120 +229,6 @@ export function DesktopWorkspace() {
     })),
     ...editorShortcuts(),
   ]);
-
-  // On open: if this project has an unfinished assemble, ask the engine where it stands.
-  useEffect(() => {
-    if (!dir) return;
-    const saved = loadPending(dir);
-    if (!saved) return;
-    let cancelled = false;
-    engineCall<AssembleStatus>("assemble.status", { dir, assemble_id: saved.assembleId })
-      .then((st) => {
-        if (cancelled) return;
-        // A stored render whose file is gone must run again, so the run is not cleared as finished.
-        const missing = !!st.render && st.render_exists === false;
-        if (st.status === "done" && !missing) {
-          clearPending(dir);
-          return;
-        }
-        setPending(saved);
-        setResumable(true);
-        setRenderMissing(missing);
-        seed(st);
-        // Recovered run: land on Progress so the user can resume it.
-        setTab("jobs");
-      })
-      .catch((e) => {
-        if (cancelled) return;
-        // not_found: the engine never recorded this run; the saved request can still be sent.
-        if (errorCode(e) === "not_found") {
-          setPending(saved);
-          setResumable(true);
-          setTab("jobs");
-        } else setJobError(errorMessage(e));
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [dir, seed]);
-
-  const run = async (record: PendingAssemble) => {
-    if (!dir) return;
-    setAssembling(true);
-    setResumable(false);
-    setRenderMissing(false);
-    setJobError(null);
-    setTab("jobs");
-    const tag = begin("assemble", record.assembleId);
-    try {
-      const result = await engineCall<{ render?: { output?: string } }>(
-        "assemble",
-        { dir, input: record.input },
-        tag,
-      );
-      if (result?.render?.output) setOutput(result.render.output);
-      patch({ running: false, done: true });
-      clearPending(dir);
-      setPending(null);
-      await refresh();
-      setTab("finished");
-      toast("Finished edit ready", { kind: "success" });
-    } catch (e) {
-      const code = errorCode(e);
-      if (code === "cancelled" || code === "render_cancelled") patch({ running: false, cancelled: true });
-      else {
-        setJobError(errorMessage(e));
-        patch({ running: false });
-      }
-      setResumable(true);
-      await refresh().catch(() => undefined);
-    } finally {
-      setAssembling(false);
-    }
-  };
-
-  const submit = (form: AssembleForm) => {
-    // The id is fixed here and persisted with the exact input: re-sending both resumes.
-    const assembleId = newAssembleId();
-    const input: AssembleInput = buildAssembleInput(form, assembleId);
-    const record: PendingAssemble = { assembleId, input, startedAt: Date.now() };
-    if (dir) savePending(dir, record);
-    setPending(record);
-    void run(record);
-  };
-
-  const resume = () => {
-    if (pending) void run(pending);
-  };
-
-  const render = async (preset: "youtube" | "reels" | "tiktok" | "square") => {
-    if (!dir) return;
-    setRendering(true);
-    setJobError(null);
-    const tag = begin("render");
-    const job = `ui-${tag}`;
-    patch({ render: { job }, running: true });
-    try {
-      const result = await engineCall<{ output?: string; status?: string }>("render", { dir, preset, job }, tag);
-      if (result?.output) setOutput(result.output);
-    } catch (e) {
-      setJobError(errorMessage(e));
-    } finally {
-      setRendering(false);
-      patch({ render: null, running: false });
-    }
-  };
-
-  // `assemble.cancel` also stops the assemble's in-flight render (engine side).
-  const cancel = () => {
-    const report = (e: unknown) => setJobError(errorMessage(e));
-    const aid = progress.assembleId;
-    if (aid) {
-      void engineCall("assemble.cancel", { assemble_id: aid }).catch(report);
-    } else if (progress.render?.job) {
-      void engineCall("render.cancel", { job: progress.render.job }).catch(report);
-    }
-  };
 
   const projectName = show?.project.name ?? (dir ? baseName(dir) : undefined);
   const mediaCount = show?.summary.sources ?? 0;

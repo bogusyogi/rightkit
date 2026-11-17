@@ -15,9 +15,13 @@
     "postright",
     "viewright",
     "mailright",
-    "pulse",
-    "ember"
+    "pulse"
   ],
+  "migrationExclusions": {
+    "ember": "deferred app",
+    "sellright": "release consumer",
+    "legion": "tool consumer"
+  },
   "appDeclarationFile": "rightkit-mandatory.json",
   "profiles": {
     "desktop": {

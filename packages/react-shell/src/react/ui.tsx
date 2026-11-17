@@ -70,10 +70,12 @@ export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputE
 export interface TextareaProps extends TextareaHTMLAttributes<HTMLTextAreaElement> {
   /** Grows with its content (no inner scrollbar) instead of staying at its `rows` height. */
   autoGrow?: boolean;
+  /** Omit shared styling classes so the host owns the field appearance. */
+  unstyled?: boolean;
 }
 
 /** Multi-line field in the `Input` look. Native attributes, `aria-*` and `data-*` pass through; the minimum height is `--rk-textarea-min-height`. */
-export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(function Textarea({ className, autoGrow = false, onInput, ...rest }, forwardedRef: ForwardedRef<HTMLTextAreaElement>) {
+export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(function Textarea({ className, autoGrow = false, unstyled = false, onInput, ...rest }, forwardedRef: ForwardedRef<HTMLTextAreaElement>) {
   const ref = useRef<HTMLTextAreaElement | null>(null);
   const setRef = (node: HTMLTextAreaElement | null) => {
     ref.current = node;
@@ -92,7 +94,7 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(function 
   return (
     <textarea
       ref={setRef}
-      className={cx("rk-input", "rk-textarea", autoGrow && "rk-textarea--grow", className)}
+      className={unstyled ? className : cx("rk-input", "rk-textarea", autoGrow && "rk-textarea--grow", className)}
       onInput={(event) => {
         grow();
         onInput?.(event);

@@ -16,6 +16,7 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
 import path from "node:path";
+import { loadAppDeclaration, ratifyNotApplicable } from "../packages/release/ownership-mandatory-set.mjs";
 import {
   DEFAULT_WORKSPACE, cmp, loadInventory, manifestsUnder, parseToml, partsOf, pinStatus, publishedOf, readJson,
   readManifestEntries, satisfies, stagedOf, unquote,
@@ -29,19 +30,14 @@ export const MANDATORY_SET_FILE = "packages/release/ownership-mandatory-set.json
 export const CATALOG_CONFIG_FILE = "packages/release/ownership-catalog-config.json";
 export const SCHEMA = 1;
 
-// Apps that are not in the mandatory set's defaultApps but are part of the matrix.
-export const EXTRA_APPS = [
-  { name: "sellright", group: "release consumer" },
-  { name: "legion", group: "tool consumer" },
-];
 const GROUP_MANDATORY = "mandatory-set app";
 const GROUP_TOOL = "tool consumer";
 
 // Cell states. These tokens and no others appear in a cell.
 export const STATES = [
-  { state: "adopted", meaning: "Exact pin equal to the latest published version." },
-  { state: "range", meaning: "Range pin that admits the latest published version." },
-  { state: "stale", meaning: "Pin behind the latest published version, shown as pinned→latest." },
+  { state: "current", meaning: "Exact pin equal to the latest recorded published version; pin currency does not prove adoption." },
+  { state: "range", meaning: "Range pin that admits the latest recorded published version." },
+  { state: "stale", meaning: "Pin behind the latest recorded published version, shown as pinned→latest." },
   { state: "ahead", meaning: "Pin newer than the latest published version (staged or unreleased), or no published version is recorded." },
   { state: "local", meaning: "Path, workspace or git dependency, or a requirement that cannot be resolved to a registry version." },
   { state: "missing", meaning: "Foundation owner required for the app's profile, with no pin and no N/A ruling." },
@@ -109,11 +105,11 @@ const isDirectory = (dir) => { try { return statSync(dir).isDirectory(); } catch
 // Pin statuses from generate-index.mjs onto the cell tokens. "unpublished" (no published version recorded) reads as ahead;
 // "git" and "unparsed" read as local.
 const TOKEN_OF_STATUS = {
-  current: "adopted", "range ok": "range", stale: "stale", ahead: "ahead", local: "local", git: "local", unparsed: "local", unpublished: "ahead",
+  current: "current", "range ok": "range", stale: "stale", ahead: "ahead", local: "local", git: "local", unparsed: "local", unpublished: "ahead",
 };
 // Worst first: the cell takes the worst token among an app's pins of one package.
-const SEVERITY = ["stale", "local", "ahead", "range", "adopted"];
-const CURRENT_TOKENS = new Set(["adopted", "range", "ahead"]);
+const SEVERITY = ["stale", "local", "ahead", "range", "current"];
+const CURRENT_TOKENS = new Set(["current", "range"]);
 const DEV_SECTION = /dev/i;
 
 // ---------- workspace and app directories ----------
@@ -135,7 +131,7 @@ export function parseAppDirArg(text) {
 
 // Directory of each app: an explicit --app-dir, else <workspace>/<app>; when that does not exist and the committed port-matrix.json
 // (carried) names a directory that does, that one.
-function resolveApps({ data, workspace, appDirs = {}, extraApps = EXTRA_APPS, carried = null }) {
+function resolveApps({ data, workspace, appDirs = {}, extraApps = [], carried = null }) {
   const apps = [];
   const seen = new Set();
   const add = (name, group) => {
@@ -144,9 +140,10 @@ function resolveApps({ data, workspace, appDirs = {}, extraApps = EXTRA_APPS, ca
     let dir = appDirs[name] ? path.resolve(appDirs[name]) : path.join(workspace, name);
     const recorded = carried?.apps?.[name]?.dir;
     if (!appDirs[name] && !isDirectory(dir) && typeof recorded === "string" && isDirectory(recorded)) dir = recorded;
-    apps.push({ name, group, dir });
+    apps.push({ name, group, dir, explicitlySelected: Object.hasOwn(appDirs, name) });
   };
   for (const name of [...(data.defaultApps ?? [])].sort(cmp)) add(name, GROUP_MANDATORY);
+  for (const [name, group] of Object.entries(data.migrationExclusions ?? {})) add(name, group);
   for (const extra of extraApps) add(extra.name, extra.group);
   for (const name of Object.keys(appDirs).sort(cmp)) add(name, "other app");
   return apps;
@@ -219,21 +216,15 @@ function profileRows(data, profile) {
   }));
 }
 
-// <app>/rightkit-mandatory.json, read the way ownership-mandatory-set.mjs reads it: a profile, and notApplicable rulings that carry
-// a reason of at least 10 characters (shorter ones are ignored).
+// Use the mandatory checker’s declaration parser, including structured reasons and expiry.
 function loadDeclaration(appDir, data) {
   const file = path.join(appDir, data.appDeclarationFile);
-  const base = { present: false, profile: data.defaultProfile, notApplicable: {}, ignored: [], error: "" };
-  if (!existsSync(file)) return base;
-  const doc = readJsonSafe(file);
-  if (!isObject(doc)) return { ...base, present: true, error: `${data.appDeclarationFile} is not valid JSON` };
-  const notApplicable = {};
-  const ignored = [];
-  for (const [id, reason] of Object.entries(isObject(doc.notApplicable) ? doc.notApplicable : {})) {
-    if (typeof reason === "string" && reason.trim().length >= 10) notApplicable[id] = reason.trim();
-    else ignored.push(id);
+  const present = existsSync(file);
+  if (present && !isObject(readJsonSafe(file))) {
+    return { present, profile: data.defaultProfile, app: null, notApplicable: {}, ignored: [], error: `${data.appDeclarationFile} is not a JSON object` };
   }
-  return { present: true, profile: str(doc.profile) || data.defaultProfile, notApplicable, ignored: ignored.sort(cmp), error: "" };
+  const declaration = loadAppDeclaration(appDir, data);
+  return { ...declaration, present, ignored: declaration.problems, error: "" };
 }
 
 // ---------- ownership exceptions ----------
@@ -410,7 +401,7 @@ export function applePinState(pin, latest) {
   if (!latest) return { state: "ahead", detail: `${pin.version} (no version recorded)` };
   const order = compareVersionText(pin.version, latest);
   if (pin.exactPin) {
-    if (order === 0) return { state: "adopted", detail: `=${pin.version}` };
+    if (order === 0) return { state: "current", detail: `=${pin.version}` };
     return order < 0 ? { state: "stale", detail: `${pin.version}→${latest}` } : { state: "ahead", detail: `${pin.version} > ${latest}` };
   }
   const upper = `${(partsOf(pin.version) ?? [0])[0] + 1}.0.0`;
@@ -622,7 +613,7 @@ function capabilityOwners(catalog, config) {
 
 const pinPiece = (token, pin, latest) => {
   const req = pin.req.trim() || "*";
-  if (token === "adopted" || token === "range") return req;
+  if (token === "current" || token === "range") return req;
   if (token === "stale") return `${req.replace(/^=/, "")}→${latest}`;
   if (token === "ahead") return latest ? `${req.replace(/^=/, "")} > ${latest}` : `${req.replace(/^=/, "")} (no published version)`;
   if (pin.source === "git") return "git";
@@ -668,7 +659,11 @@ function scanApp(app, ctx) {
       overlays: new Map(), flags: null, apple: [], rkReady: [], check: notRun("app directory not present") };
   }
   const declaration = loadDeclaration(app.dir, data);
-  const inSet = (data.defaultApps ?? []).includes(app.name) || declaration.present;
+  // These named exclusions apply only to this migration, not to other declared profiles.
+  const excluded = Object.hasOwn(data.migrationExclusions ?? {}, app.name);
+  const inSet = excluded
+    ? app.explicitlySelected && declaration.present && declaration.profile !== data.defaultProfile
+    : (data.defaultApps ?? []).includes(app.name) || declaration.present;
   const profile = inSet ? declaration.profile : null;
   const rows = inSet ? profileRows(data, profile) : [];
   const scan = scanPins(app.dir, packageIndex);
@@ -679,7 +674,7 @@ function scanApp(app, ctx) {
     })));
   }
   // Foundation owners of this app: per package key, the rows it belongs to, which of them are ruled N/A, and whether dev pins count.
-  const ruled = declaration.notApplicable;
+  const { ratified: ruled } = ratifyNotApplicable(declaration, { data, now: new Date(today) });
   const ownerMap = new Map();
   for (const row of rows) for (const o of row.owners) {
     const key = keyOf(o.ecosystem, o.name);
@@ -711,7 +706,7 @@ function scanApp(app, ctx) {
     : hasCarriedCheck ? hasCarriedCheck : notRun("--with-check not passed");
   return {
     ...base, head: carriedApp ? carriedApp.head : gitHead(app.dir), inSet, profile, declaration, rows, owners: ownerMap, pins: scan.pins,
-    ratified: data.appAmendments?.[app.name]?.notApplicable ?? {},
+    ratified: ruled,
     scan: { manifests: scan.manifests, parseErrors: scan.parseErrors, pins: scan.matched, vendored: scan.vendored },
     exceptions: { file: exceptionFile, summary: exceptionSummary(exceptionFile.entries, today, matched) },
     overlays,
@@ -749,11 +744,10 @@ function pinsCell(pins) {
 
 const overlayJson = (o) => ({ count: o.count, expired: o.expired, withoutIssue: o.withoutIssue, withoutExpiry: o.withoutExpiry, issues: o.issues, earliestExpiry: o.earliestExpiry });
 
-function evaluateRows(app, data) {
-  const ruled = app.declaration?.notApplicable ?? {};
-  const ratified = data.appAmendments?.[app.name]?.notApplicable ?? {};
+function evaluateRows(app) {
+  const ruled = app.ratified ?? {};
   return app.rows.map((row) => {
-    if (row.id in ruled) return { id: row.id, name: row.name, status: "ruled", ratified: row.id in ratified, owners: [], missing: [] };
+    if (row.id in ruled) return { id: row.id, name: row.name, status: "ruled", ratified: true, owners: [], missing: [] };
     const owners = row.owners.map((o) => {
       const key = keyOf(o.ecosystem, o.name);
       const counted = (app.pins.get(key) ?? []).filter((p) => !p.dev || o.allowDev);
@@ -814,13 +808,13 @@ function progressOf(app, packages, rowEval, latestOf) {
     rowsRuled: rowEval.filter((r) => r.status === "ruled").length, rowsOpen: openRows.length, openRows,
     ownersRequired: requiredKeys.length, ownersPinned: pinned, ownersCurrent: current, percent: percentOf(current, requiredKeys.length),
   };
-  const addons = { total: 0, adopted: 0, current: 0, stale: 0, local: 0 };
+  const addons = { total: 0, pinned: 0, current: 0, stale: 0, local: 0 };
   for (const pkg of packages) {
     if (app.owners.has(pkg.key) || pkg.class === "tool") continue;
     addons.total++;
     const pins = app.pins.get(pkg.key) ?? [];
     if (!pins.length) continue;
-    addons.adopted++;
+    addons.pinned++;
     const token = worstToken(pins);
     if (CURRENT_TOKENS.has(token)) addons.current++;
     if (token === "stale") addons.stale++;
@@ -870,7 +864,7 @@ export function buildPortMatrixModel(options = {}) {
   const packages = buildPackages(inventory, swift, domains, inventory.catalog);
   const packageIndex = new Map(packages.map((p) => [p.key, p]));
   const keyByName = new Map(packages.map((p) => [p.name, p.key]));
-  const swiftLatest = swift ? [swift.published, swift.staged].filter(Boolean).sort(compareVersionText).pop() ?? "" : "";
+  const swiftLatest = swift?.published ?? "";
   const latestOf = (key) => { const p = packageIndex.get(key); return p ? (p.kind === "swift" ? swiftLatest : p.published) : ""; };
   const owners = new Map();
   for (const pkg of packages) {
@@ -921,7 +915,7 @@ export function buildPortMatrixModel(options = {}) {
 
   // Apps.
   const apps = scanned.map((app) => {
-    const rowEval = app.present ? evaluateRows(app, ctx.data) : [];
+    const rowEval = app.present ? evaluateRows(app) : [];
     app.rowEval = rowEval;
     const entry = {
       name: app.name, group: app.group, dir: app.dir, present: app.present, head: app.present ? app.head : null,
@@ -1002,8 +996,8 @@ const latestText = (pkg) => {
   return `${parts[0]}${parts.length > 1 ? ` (${parts.slice(1).join(", ")})` : ""}`;
 };
 const releasePinText = (pin) => (!pin ? "none" : pin.current
-  ? `${pin.req}: ${pin.state === "adopted" ? "latest" : pin.state === "range" ? "admits latest" : "ahead of"} ${pin.latest}`
-  : `${pin.req}: behind ${pin.latest}`);
+  ? `${pin.req}: ${pin.state === "current" ? "latest" : pin.state === "range" ? "admits latest" : "ahead of"} ${pin.latest}`
+  : `${pin.req}: ${pin.state}${pin.latest ? ` (latest ${pin.latest})` : " (no published version)"}`);
 const hookText = (state) => ({ committed: "committed", uncommitted: "present, not committed", present: "present (not a git repo)", absent: "absent" })[state] ?? state;
 const releaseConfigText = (kind) => ({ code: "code (.mjs)", data: "data (.json)", "code+data": "code and data", none: "none" })[kind] ?? kind;
 const yesNo = (value) => (value ? "yes" : "no");
@@ -1037,13 +1031,13 @@ export function renderMarkdown(model) {
     DRIFT_COMMAND, "", "# local check, no app repos: the MD and HTML must be the rendering of port-matrix.json", LOCAL_CHECK_COMMAND, "```", "");
 
   out.push("## How to read", "");
-  out.push("Rows are RightKit packages, grouped by domain; columns are apps. A cell is a state token with the short detail in parentheses. `Rows` lists the mandatory-set rows (M1, M2, ...) a package owns for the default profile; `Latest` is the latest published version, with the staged version in parentheses when it differs; `To move from` counts the triage MOVE rows that name the package, per app.", "");
+  out.push("Active migration scope is nine apps; Ember is deferred, SellRight is not applicable, and Legion is permanently outside the blanket migration. Pin currency does not establish behavioral adoption. Rows are RightKit packages, grouped by domain; columns are apps. A cell is a state token with the short detail in parentheses. `Rows` lists the mandatory-set rows (M1, M2, ...) a package owns for the default profile; `Latest` is the latest published version, with the staged version in parentheses when it differs; `To move from` counts the triage MOVE rows that name the package, per app.", "");
   out.push("**Class** of a package (Adrian, 2026-10-24):", "");
   for (const c of model.classLegend) out.push(`- \`${c.class}\`: ${c.meaning}`);
   out.push("", "**Cell states** (these tokens and no others):", "", ...mdTable(["State", "Meaning"], model.legend.map((l) => [`\`${l.state}\``, mdCell(l.meaning)])), "");
-  out.push("**Progress figure.** One figure per app: foundation owners pinned current divided by foundation owners required for the app's profile. An owner is required unless every mandatory-set row it belongs to is ruled not applicable for the app; it is pinned current when the worst of its pins in that app is `adopted`, `range` or `ahead` (one `stale` or `local` pin makes it not current). A foundation row is declared when every one of its owners has a registry pin, ruled when the app rules it not applicable, and open otherwise; an open row lists the owners it still misses. Add-on adoption is reported next to the figure and never folded into it.", "");
+  out.push("**Progress figure.** One figure per app: foundation owners pinned current divided by foundation owners required for the app's profile. An owner is required unless every mandatory-set row it belongs to is ruled not applicable for the app; it is pinned current when the worst of its pins in that app is `current` or `range` (one `stale`, `local` or `ahead` pin makes it not current). A foundation row is declared when every one of its owners has a registry pin, ruled when the app rules it not applicable, and open otherwise; an open row lists the owners it still misses. Add-on pins are reported next to the figure and never folded into it.", "");
   out.push("**Exceptions** come from `.rightkit/ownership-exceptions.json`. One that names a package or its capability shows on that package's cell for that app: as the state `exception` when the app has no pin, as a note when it does. `EXPIRED`, `no issue` and `no expiry` are flags. Exceptions that name neither a RightKit package nor a catalog capability (the dependency allowlist, for example) count in the per-app totals and appear on no cell.", "");
-  out.push("**Domains** are a grouping kept in `scripts/generate-port-matrix.mjs`; the ownership catalog names capabilities but no domain. `RightKitSwift` is one row whose cell is the worst pin among the app's Apple targets (every `project.yml` and `Package.swift` that references it, test-only paths excluded); its latest version is the highest of the recorded published and staged versions in `rightkit-versions.json`. An Apple target's pin kind is `tag` (an exact or `from` version), `branch`, `path` or `revision` (url plus revision); only a tag can be `adopted`, `range`, `stale` or `ahead`, the others are `local`.", "");
+  out.push("**Domains** are a grouping kept in `scripts/generate-port-matrix.mjs`; the ownership catalog names capabilities but no domain. `RightKitSwift` is one row whose cell is the worst pin among the app's Apple targets (every `project.yml` and `Package.swift` that references it, test-only paths excluded); its latest version is the recorded published version in `rightkit-versions.json`. An Apple target's pin kind is `tag` (an exact or `from` version), `branch`, `path` or `revision` (url plus revision); only a tag can be `current`, `range`, `stale` or `ahead`, the others are `local`.", "");
   out.push("**RK-ready** packages are packages living inside an app repo whose package or directory name starts with `rightkit-`, `@rightkit/` or `RightKit`: built so they can be published. **To move** rows are the MOVE verdicts of the triage file, counted per target package.", "");
 
   out.push("## Per-app summary", "");
@@ -1053,7 +1047,7 @@ export function renderMarkdown(model) {
     const figure = f.ownersRequired ? `${percentText(f.percent)} (${f.ownersCurrent}/${f.ownersRequired} owners current)` : "n/a (no foundation rows for this app)";
     return [
       mdCell(a.name), mdCell(a.group), mdCell(a.profile ?? "-"), mdCell(figure), f.rowsTotal ? rowCoverage(f) : "-",
-      `${p.addons.adopted}/${p.addons.total} (${p.addons.current} current, ${p.addons.stale} stale)`,
+      `${p.addons.pinned}/${p.addons.total} (${p.addons.current} current, ${p.addons.stale} stale)`,
       a.progress.exceptions.total || a.declaration ? `${x.open} / ${x.expired} / ${x.withoutIssueOrExpiry}` : "-",
       mdCell(releasePinText(p.releasePin)), mdCell(hookText(a.flags.prePushHook)), yesNo(a.flags.switches), yesNo(a.flags.journeys),
       mdCell(releaseConfigText(a.flags.releaseConfig)), mdCell(checkText(p.check)),
@@ -1069,8 +1063,8 @@ export function renderMarkdown(model) {
   }
   const ruledApps = apps.filter((a) => a.declaration?.notApplicable.length);
   if (ruledApps.length) {
-    out.push("Not-applicable rulings (ratified = listed in `appAmendments` of the mandatory set; declared = only in the app's `rightkit-mandatory.json`):", "");
-    for (const a of ruledApps) out.push(`- **${a.name}**: ${a.declaration.notApplicable.map((n) => `${n.row} ${n.ratified ? "ratified" : "declared"}`).join(", ")}`);
+    out.push("Not-applicable declarations. Only current ratified rulings remove a mandatory requirement.", "");
+    for (const a of ruledApps) out.push(`- **${a.name}**: ${a.declaration.notApplicable.map((n) => `${n.row} ${n.ratified ? "ratified" : "unratified"}`).join(", ")}`);
     out.push("");
   }
 
@@ -1122,11 +1116,11 @@ const slug = (text) => String(text).toLowerCase().replace(/[^a-z0-9]+/g, "-").re
 
 const HTML_CSS = `
 :root{color-scheme:light dark;--bg:#fff;--fg:#1b1f24;--muted:#57606a;--line:#d0d7de;--panel:#f6f8fa;--accent:#0a58ca;--bar:#1a7f37;--barbg:#e6eaee;--flag:#b42318;
---adopted-bg:#d4f3dc;--adopted-fg:#0d3a1a;--range-bg:#cdeee8;--range-fg:#08362f;--stale-bg:#ffe7b0;--stale-fg:#533500;--ahead-bg:#d3e4ff;--ahead-fg:#0a2757;
+--current-bg:#d4f3dc;--current-fg:#0d3a1a;--range-bg:#cdeee8;--range-fg:#08362f;--stale-bg:#ffe7b0;--stale-fg:#533500;--ahead-bg:#d3e4ff;--ahead-fg:#0a2757;
 --local-bg:#e5d9ff;--local-fg:#331573;--missing-bg:#ffd2cf;--missing-fg:#650a04;--na-bg:#e4e7eb;--na-fg:#33383e;--exception-bg:#ffd6ea;--exception-fg:#650838;
 --unused-bg:transparent;--unused-fg:#59626b;--not-present-bg:#eceff2;--not-present-fg:#4b535b}
 @media (prefers-color-scheme:dark){:root{--bg:#0f1318;--fg:#e6e9ed;--muted:#a3adb8;--line:#2f3943;--panel:#171d24;--accent:#79b0ff;--bar:#3fb950;--barbg:#26303a;--flag:#ff8b82;
---adopted-bg:#123a1e;--adopted-fg:#bdf0c9;--range-bg:#0f3a34;--range-fg:#b6ece3;--stale-bg:#4a3500;--stale-fg:#ffe3a0;--ahead-bg:#112c57;--ahead-fg:#c4dcff;
+--current-bg:#123a1e;--current-fg:#bdf0c9;--range-bg:#0f3a34;--range-fg:#b6ece3;--stale-bg:#4a3500;--stale-fg:#ffe3a0;--ahead-bg:#112c57;--ahead-fg:#c4dcff;
 --local-bg:#2b1c58;--local-fg:#dccfff;--missing-bg:#5a1410;--missing-fg:#ffc9c4;--na-bg:#2a3038;--na-fg:#cfd5db;--exception-bg:#561034;--exception-fg:#ffcce4;
 --unused-bg:transparent;--unused-fg:#98a3ae;--not-present-bg:#1d242c;--not-present-fg:#9aa5b0}}
 *{box-sizing:border-box}
@@ -1182,9 +1176,9 @@ table#matrix{border-collapse:separate;border-spacing:0;font-size:.78rem;min-widt
 #matrix td.blank{background:var(--bg)}
 #matrix .other-group{border-left:3px double var(--muted)}
 #matrix th.apple,#matrix td.apple{border-left:2px dotted var(--line)}
-${["adopted", "range", "stale", "ahead", "local", "missing", "exception", "unused", "not-present"].map((s) => `.s-${s}{background:var(--${s}-bg)!important;color:var(--${s}-fg)}`).join("\n")}
+${["current", "range", "stale", "ahead", "local", "missing", "exception", "unused", "not-present"].map((s) => `.s-${s}{background:var(--${s}-bg)!important;color:var(--${s}-fg)}`).join("\n")}
 .s-n-a{background:var(--na-bg)!important;color:var(--na-fg)}
-.c-foundation{background:var(--adopted-bg);color:var(--adopted-fg)}
+.c-foundation{background:var(--current-bg);color:var(--current-fg)}
 .c-add-on{background:var(--ahead-bg);color:var(--ahead-fg)}
 .c-tool{background:var(--na-bg);color:var(--na-fg)}
 .table-plain{border-collapse:collapse;font-size:.82rem;margin:6px 0}
@@ -1245,7 +1239,7 @@ function htmlCard(a) {
   const dl = [
     ["Profile", a.profile ?? "none"],
     ["Rows declared or ruled", f.rowsTotal ? `${rowCoverage(f)}${f.rowsOpen ? `; open: ${f.openRows.map((r) => r.id).join(", ")}` : ""}` : "-"],
-    ["Add-ons pinned", `${p.addons.adopted}/${p.addons.total} (${p.addons.current} current, ${p.addons.stale} stale)`],
+    ["Add-ons pinned", `${p.addons.pinned}/${p.addons.total} (${p.addons.current} current, ${p.addons.stale} stale)`],
     ["Exceptions", `${x.open} open, ${x.expired} expired, ${x.withoutIssueOrExpiry} without issue or expiry`],
     ["@rightkit/release", releasePinText(p.releasePin)],
     ["pre-push hook", hookText(a.flags.prePushHook)],
@@ -1318,7 +1312,7 @@ export function renderHtml(model) {
 <main>
 <section aria-labelledby="h-progress">
 <h2 id="h-progress">Progress by app</h2>
-<p class="lede">The bar is foundation owners pinned current divided by foundation owners required for the app's profile. Add-on adoption is reported beside it and never folded into it.</p>
+<p class="lede">The bar is foundation owners pinned current divided by foundation owners required for the app's profile. Add-on pins are reported beside it and never folded into it.</p>
 <div class="cards">
 ${model.apps.map(htmlCard).join("\n")}
 </div>
@@ -1408,7 +1402,7 @@ export function summaryLines(model) {
     if (!a.present) { lines.push(`  ${a.name.padEnd(width)}  not present`); continue; }
     const f = a.progress.foundation, x = a.progress.exceptions, d = a.progress.addons;
     const figure = f.ownersRequired ? `${percentText(f.percent).padStart(4)} (${f.ownersCurrent}/${f.ownersRequired} owners current)` : "n/a (no foundation rows)";
-    lines.push(`  ${a.name.padEnd(width)}  ${figure}; rows ${f.rowsDeclared + f.rowsRuled}/${f.rowsTotal}; add-ons ${d.adopted}/${d.total} pinned (${d.current} current, ${d.stale} stale); exceptions ${x.total} (${x.expired} expired, ${x.withoutIssueOrExpiry} without issue or expiry); check ${checkText(a.progress.check)}`);
+    lines.push(`  ${a.name.padEnd(width)}  ${figure}; rows ${f.rowsDeclared + f.rowsRuled}/${f.rowsTotal}; add-ons ${d.pinned}/${d.total} pinned (${d.current} current, ${d.stale} stale); exceptions ${x.total} (${x.expired} expired, ${x.withoutIssueOrExpiry} without issue or expiry); check ${checkText(a.progress.check)}`);
   }
   const other = model.packages.filter((p) => p.domain === OTHER_DOMAIN.id).map((p) => p.name);
   if (other.length) lines.push(`  no domain assigned: ${other.join(", ")}`);

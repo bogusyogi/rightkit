@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.3
+
+- Export the account-home resolver setter on Windows as well as Unix. Windows keeps its existing home resolution.
+
 ## 0.2.2
 
 - New: `set_account_home_resolver(fn)`, the host's own rule for the account home folder, called on every lookup (default unchanged: `HOME` / `USERPROFILE`, then the password database when that is `/`). Pulse resolves a shell `HOME` inside its per-profile folder to the real account home, so the inventory scans the right `~/Applications` and `~/Library`.

@@ -86,10 +86,20 @@ These packages hold an app's look or composition and do not yet meet this file:
 `document-workspace` (ViewRight), `library-ui` queue screens (ScrapeRight) and
 `system-ui` (Pulse). CutRight and MailRight consume theirs on `main`.
 
-The checks that would enforce this file are not built yet: a RightKit gate that fails a
-package containing a product name, a colour literal or an app-prefixed class; an app gate
-that fails on logic outside composition and configuration files; and a check that each
-component renders correctly in `desktop-app-template` under a second theme.
+`node scripts/preflight.mjs --only shared-behavior-presentation` guards the extracted
+video project and assembly modules and the mail sidebar model. It flags product names,
+app-prefixed classes and common colour literals in those files. Extend coverage as
+more wrappers are split. The app logic check and installed second-theme check in
+`desktop-app-template` remain open.
+
+## Active migration scope
+
+The default mandatory check covers HeardRight, ViewRight, Pulse, CodeRight, GenRight,
+MailRight, ScrapeRight, CutRight and PostRight. Include applicable targets of those
+apps. Ember is deferred. SellRight is N/A. Legion remains independent and may use
+specific shared tools where they fit. The port matrix reports dependency currency
+against published versions. Use production call sites, removed code and installed
+qualification to establish adoption.
 
 ## How the earlier reading went wrong
 

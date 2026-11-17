@@ -10557,7 +10557,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-app-manager"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "libc 0.2.191",
  "rightkit-child-process",
@@ -10848,7 +10848,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-clipboard-history"
-version = "0.3.2"
+version = "0.4.0"
 dependencies = [
  "rightkit-automation",
  "rightkit-child-process",
@@ -12163,7 +12163,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-media-gen-approvals"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "rightkit-approvals",
  "rightkit-child-process",
@@ -12171,6 +12171,7 @@ dependencies = [
  "rightkit-daemon",
  "rightkit-fs",
  "rightkit-media-gen",
+ "serde",
  "serde_json",
  "time",
 ]

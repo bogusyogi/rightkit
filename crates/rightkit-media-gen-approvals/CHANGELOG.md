@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.2
+
+- Recover pending legacy media approval challenges with the original launch-secret proof, input binding, expiry & single-use marker. Preserve previously written receipts ([GenRight #305](https://github.com/bogusyogi/genright/issues/305)).
+
 ## 0.1.1
 
 Taken from GenRight's shipped behaviour so it can delete its own copy of `approvals.rs` and `eyes.rs`. Every default keeps RightKit's behaviour; each option is additive and set once at startup.

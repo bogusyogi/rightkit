@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.2
+
+- Export the sidebar interaction model used by the existing Sidebar. Hosts can compose label trees, collapse and saved searches, selection and drag targets with their own presentation.
+
 ## 0.2.1
 
 - Fix: the agent wire. rightkit-agent-gateway 0.3.0 renamed an agent's `accounts` to `scopes` and an audit row's `account_id` to `scope`; `lib/ipc/agents` read only the old names. `AgentRow` gains `scopes` and `AgentAuditRow` gains `scope`; `agentsList`, `agentPair`, `agentSetProfile` and `agentAuditList` normalize every row (`normalizeAgentRow`: `scopes ?? accounts`; `normalizeAgentAuditRow`: `scope ?? account_id`) and set both names, so code reading either works with hosts on both gateway versions. `agentPair` still sends `accounts`.

@@ -1,7 +1,7 @@
-# rightkit-app-manager 0.1.0 registry consumer
+# rightkit-app-manager registry consumer
 
-Standalone consumer, outside the workspace, pinning `rightkit-app-manager =0.1.0` exactly. It installs the crate from the sealed archive through the offline directory registry and runs `src/main.rs`, which exits non-zero on the first failed check.
+Standalone consumer, outside the workspace, with an exact registry pin. The offline registry serves the candidate archive. The consumer exits non-zero on the first failed check.
 
 ## What it proves
 
-That the published crate validates bundle ids, compares versions, and takes the host app's identity once. It installs, quits and removes nothing.
+The crate validates bundle IDs, compares versions, takes the host app's identity once and exports the account-home resolver setter on the host where the consumer runs.

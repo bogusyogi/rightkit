@@ -54,8 +54,7 @@
 //! the challenge's expiry; it is consumed by the core's single-use rule
 //! ([`rightkit_approvals::rules::take`] with the launch-secret token as its [`Proof`]), which
 //! creates a `.used` marker with `create_new` (atomic, so two racing approvals cannot both win).
-//! Challenge files written before this crate moved onto the core are not read; their 30-minute
-//! life means the app asks for a new one.
+//! Flat challenges issued before the core migration remain usable until their original expiry.
 
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
@@ -478,6 +477,91 @@ impl Proof for LaunchToken<'_> {
     }
 }
 
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LegacyChallenge {
+    kind: String,
+    draft_id: String,
+    nonce: String,
+    input_hash: String,
+    #[serde(rename = "legacy_hash")]
+    _legacy_hash: String,
+    created_at: String,
+    created_unix: u64,
+    expires_unix: u64,
+}
+
+// This format belongs to the media host, not the generic approval store. Both old and new
+// writers claim the same .used file exclusively, including across a rolling upgrade.
+fn consume_legacy(
+    path: &Path,
+    bytes: &[u8],
+    gate: &Gate,
+    kind: &str,
+    draft_id: &str,
+    current: &str,
+    now: u64,
+) -> GenResult<()> {
+    let mismatch = || {
+        GenError::new(
+            "approval_nonce_mismatch",
+            "Approval challenge is malformed or does not match this draft.",
+        )
+    };
+    let old: LegacyChallenge = serde_json::from_slice(bytes).map_err(|_| mismatch())?;
+    if old.kind != kind
+        || old.draft_id != draft_id
+        || old.nonce != gate.nonce
+        || old.created_at.is_empty()
+        || old.created_unix.checked_add(CHALLENGE_TTL_SECS) != Some(old.expires_unix)
+        || old.input_hash.len() != 64
+        || !old.input_hash.bytes().all(|b| b.is_ascii_hexdigit())
+    {
+        return Err(mismatch());
+    }
+    if !proto::token_matches(
+        &gate.secret,
+        kind,
+        draft_id,
+        &old.input_hash,
+        &gate.nonce,
+        &gate.token,
+    ) {
+        return Err(GenError::new(
+            "approval_token_invalid",
+            "The approval token does not match this draft, its challenge and the app's secret.",
+        ));
+    }
+    if old.input_hash != current {
+        return Err(GenError::new(
+            "approval_input_changed",
+            "The draft's inputs changed after the challenge was issued; preflight again.",
+        ));
+    }
+    if old.expires_unix < now / 1000 {
+        return Err(GenError::new(
+            "approval_expired",
+            "The approval challenge expired; ask the app for a new one.",
+        ));
+    }
+    let mut marker = path.as_os_str().to_os_string();
+    marker.push(".used");
+    let marker = PathBuf::from(marker);
+    match rightkit_fs::create_private_new(&marker) {
+        Ok(mut file) => {
+            use std::io::Write;
+            // The exclusive marker creation consumes the token. Its timestamp is diagnostic.
+            let _ = writeln!(file, "{}", iso_now());
+            Ok(())
+        }
+        Err(e) if e.kind() == Some(std::io::ErrorKind::AlreadyExists) => Err(GenError::new(
+            "approval_token_used",
+            "This approval token was already used; a token approves once.",
+        )),
+        Err(e) => Err(GenError::new("io", format!("{}: {e}", marker.display()))),
+    }
+}
+
 /// Verify the presented token against its challenge and the draft as it is now, then consume the
 /// challenge (the core's single-use rule, [`rightkit_approvals::rules::take`]). Call after the
 /// draft's own integrity checks. Returns the approval record to store.
@@ -498,35 +582,69 @@ pub fn consume(
     let current = input_hash(inputs);
     let presented = challenge_request(kind, draft_id, &gate.nonce, &current);
     let store = store(ctx);
-    store
+    let path = store
         .path_of(kind, draft_id, &gate.nonce)
         .map_err(core_error)?;
+    // Read the exact path first: a matching nonce in another draft is never a fallback.
+    let bytes = std::fs::read(&path).map_err(|_| mismatch())?;
+    let body: Value = serde_json::from_slice(&bytes).map_err(|_| mismatch())?;
+    let object = body.as_object().ok_or_else(mismatch)?;
+    let legacy = !object.contains_key("record");
+    if !legacy
+        && [
+            "kind",
+            "draft_id",
+            "legacy_hash",
+            "created_at",
+            "created_unix",
+            "expires_unix",
+        ]
+        .iter()
+        .any(|key| object.contains_key(*key))
+    {
+        return Err(mismatch());
+    }
+    if !legacy {
+        let request = &body["record"]["request"];
+        if body["nonce"].as_str() != Some(gate.nonce.as_str())
+            || request["id"].as_str() != Some(gate.nonce.as_str())
+            || request["kind"].as_str() != Some(kind)
+            || request["binding"]["destination"].as_str() != Some(draft_id)
+            || body["input_hash"] != request["binding"]["args"]
+        {
+            return Err(mismatch());
+        }
+    }
     // Only the challenge's own expiry counts (`Binding::check`); the presented one is ignored.
     let now = rightkit_approvals::now_ms();
-    rules::take(
-        &store,
-        &gate.nonce,
-        &presented,
-        Some(&LaunchToken(gate)),
-        false,
-        now,
-    )
-    .map_err(|e| match e {
-        Error::Unknown | Error::Different => mismatch(),
-        Error::Changed => GenError::new(
-            "approval_input_changed",
-            "The draft's inputs changed after the challenge was issued; preflight again.",
-        ),
-        Error::Expired => GenError::new(
-            "approval_expired",
-            "The approval challenge expired; ask the app for a new one.",
-        ),
-        Error::Used | Error::Denied => GenError::new(
-            "approval_token_used",
-            "This approval token was already used; a token approves once.",
-        ),
-        other => core_error(other.refusal()),
-    })?;
+    if legacy {
+        consume_legacy(&path, &bytes, gate, kind, draft_id, &current, now)?;
+    } else {
+        rules::take(
+            &store,
+            &gate.nonce,
+            &presented,
+            Some(&LaunchToken(gate)),
+            false,
+            now,
+        )
+        .map_err(|e| match e {
+            Error::Unknown | Error::Different => mismatch(),
+            Error::Changed => GenError::new(
+                "approval_input_changed",
+                "The draft's inputs changed after the challenge was issued; preflight again.",
+            ),
+            Error::Expired => GenError::new(
+                "approval_expired",
+                "The approval challenge expired; ask the app for a new one.",
+            ),
+            Error::Used | Error::Denied => GenError::new(
+                "approval_token_used",
+                "This approval token was already used; a token approves once.",
+            ),
+            other => core_error(other.refusal()),
+        })?;
+    }
     Ok(json!({
         "channel": gate.channel,
         "parent_pid": gate.origin.parent_pid,
@@ -771,5 +889,3 @@ pub fn approval_fields(record: &Value) -> Map<String, Value> {
     }
     map
 }
-
-// Test binaries must never reach the OS credential store or the user's real data folder.

@@ -1,6 +1,6 @@
 {
   "name": "@rightkit/video-ui",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Video editing components (timeline, inspector, colour and caption inspectors, transcript, changes, native preview player) over a host-supplied video engine and preview session; CutRight's application UI on ./app and its Tauri host on ./tauri.",
   "license": "MIT OR Apache-2.0",
   "type": "module",
