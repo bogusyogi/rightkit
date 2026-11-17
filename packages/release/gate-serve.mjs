@@ -22,6 +22,7 @@ import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { spawn, spawnSync } from "node:child_process";
+import { MessageChannel, Worker, receiveMessageOnPort } from "node:worker_threads";
 import { fileURLToPath } from "node:url";
 import { resolveManagedRoots } from "./managed-roots.mjs";
 
@@ -180,11 +181,46 @@ async function ask(req, timeoutMs) {
   });
 }
 
+// The caller is synchronous (verifySnapshotDir), and Node has no synchronous socket. Until 2026-11-17 each question therefore started a whole
+// `node gate-serve.mjs ask` process: six per check, against the contract's rule that the gate asks the resident gate over its socket in process
+// (NN26, and NN07 for the repeats). The question is now sent by one worker THREAD of this process, kept for its life, while the caller waits on
+// a shared flag: no process is started. The thread speaks the same line protocol as `ask` below.
+const ASK_THREAD = `
+const { parentPort } = require("node:worker_threads"); const net = require("node:net");
+parentPort.on("message", ({ sock, line, timeoutMs, port, flag }) => {
+  let out = ""; let done = false; let conn = null;
+  const finish = (res) => { if (done) return; done = true; clearTimeout(timer); try { conn && conn.destroy(); } catch {} port.postMessage(res); port.close(); Atomics.store(flag, 0, 1); Atomics.notify(flag, 0); };
+  const timer = setTimeout(() => finish({ ok: false, why: "timeout" }), timeoutMs);
+  try {
+    conn = net.connect(sock);
+    conn.on("connect", () => conn.write(line + "\\n"));
+    conn.on("data", (d) => { out += d; });
+    conn.on("end", () => { try { finish(JSON.parse(out)); } catch { finish({ ok: false, why: "bad reply" }); } });
+    conn.on("error", (error) => finish({ ok: false, why: (error && error.code) || "error", unreachable: true }));
+  } catch (error) { finish({ ok: false, why: String((error && error.message) || error), unreachable: true }); }
+});
+`;
+let askThread = null;
+/** One request over the server's socket from this process, synchronously. Returns the server's reply, or { ok: false, why } as `ask` does. */
+export function askInProcess(req, timeoutMs, { sock = socketPath() } = {}) {
+  if (!askThread) { askThread = new Worker(ASK_THREAD, { eval: true }); askThread.unref(); askThread.on("error", () => { askThread = null; }); askThread.on("exit", () => { askThread = null; }); }
+  const { port1, port2 } = new MessageChannel(); const flag = new Int32Array(new SharedArrayBuffer(4));
+  askThread.postMessage({ sock, line: JSON.stringify({ schema: SCHEMA, identity: IDENTITY, ...req }), timeoutMs, port: port2, flag }, [port2]);
+  Atomics.wait(flag, 0, 0, timeoutMs + 2000);
+  const got = receiveMessageOnPort(port1); port1.close();
+  return got?.message ?? { ok: false, why: "timeout" };
+}
+
 /** One synchronous request to the resident server; null when it is disabled, unreachable or did not answer. Starts it when absent. */
-export function serveRequest(req, { env = process.env, root = null, timeoutMs = 3000 } = {}) {
+export function serveRequest(req, { env = process.env, root = null, timeoutMs = 3000, sock = socketPath(env) } = {}) {
   if (env.RK_GATE_SERVE === "0") return null;
-  const r = spawnSync(process.execPath, [SELF, "ask", JSON.stringify(req), String(timeoutMs)], { encoding: "utf8", timeout: timeoutMs + 2000, maxBuffer: 1 << 28, env: { ...env } });
-  let res = null; try { res = JSON.parse(String(r.stdout ?? "").trim().split("\n").pop()); } catch { res = null; }
+  let res = null;
+  try { res = askInProcess(req, timeoutMs, { sock }); }
+  catch {
+    // A host where a worker thread cannot be made: the old way, one process per question, rather than no resident proof at all.
+    const r = spawnSync(process.execPath, [SELF, "ask", JSON.stringify(req), String(timeoutMs)], { encoding: "utf8", timeout: timeoutMs + 2000, maxBuffer: 1 << 28, env: { ...env } });
+    try { res = JSON.parse(String(r.stdout ?? "").trim().split("\n").pop()); } catch { res = null; }
+  }
   // Start a server only when none is listening; a bad reply or a timeout from a live one never starts a second.
   if (res?.unreachable && root) startServer({ root, env });
   return res && res.ok ? res : null;
