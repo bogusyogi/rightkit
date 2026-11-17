@@ -6,7 +6,7 @@
 
 use std::ffi::OsString;
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -14,6 +14,22 @@ use std::time::{Duration, Instant};
 use rightkit_child_process::{OutputCapture, OwnedChild, OwnedCommand};
 
 use crate::{JobError, JobResult};
+
+// Both doctor and one-shot calls use a hidden child with bounded stdout capture. Doctor discards
+// stderr; ordinary calls capture it. Their distinct drain and cleanup policies stay with callers.
+pub(crate) fn output_command(engine: &Path, capture_stderr: bool) -> OwnedCommand {
+    let mut command = OwnedCommand::new(engine);
+    command.windows_hide();
+    command
+        .command_mut()
+        .stdout(Stdio::piped())
+        .stderr(if capture_stderr {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        });
+    command
+}
 
 /// Default for [`OneShot::timeout`].
 pub const DEFAULT_ONE_SHOT_TIMEOUT: Duration = Duration::from_secs(60);
@@ -129,8 +145,7 @@ impl OneShot {
             return Err(timeout());
         }
         let via_stdin = input.is_some_and(|json| json.len() > self.max_arg_bytes);
-        let mut command = OwnedCommand::new(&self.engine);
-        command.windows_hide();
+        let mut command = output_command(&self.engine, true);
         {
             let c = command.command_mut();
             c.args(words);
@@ -153,9 +168,7 @@ impl OneShot {
                 Stdio::piped()
             } else {
                 Stdio::null()
-            })
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
+            });
         }
         let mut child = command.spawn().map_err(|e| {
             JobError::supervisor(

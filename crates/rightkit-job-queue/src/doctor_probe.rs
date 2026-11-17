@@ -6,7 +6,7 @@ use std::process::Stdio;
 use std::sync::Mutex;
 use std::time::{Duration, Instant, SystemTime};
 
-use rightkit_child_process::{OutputCapture, OwnedCommand};
+use rightkit_child_process::OutputCapture;
 use serde_json::{json, Value};
 
 use crate::{JobError, JobResult};
@@ -90,14 +90,8 @@ fn run_doctor_with(engine: &Path, options: DoctorOptions) -> JobResult<Value> {
     if options.timeout.is_zero() {
         return Err(timeout());
     }
-    let mut command = OwnedCommand::new(engine);
-    command.windows_hide();
-    command
-        .command_mut()
-        .arg("doctor")
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null());
+    let mut command = crate::one_shot::output_command(engine, false);
+    command.command_mut().arg("doctor").stdin(Stdio::null());
     let mut child = command.spawn().map_err(|e| {
         JobError::supervisor(
             "spawn_failed",
