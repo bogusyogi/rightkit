@@ -299,12 +299,15 @@ function generatedDocs({ root, files }) {
 // APP-BOUNDARY.md: behavior modules extracted from the legacy desktop wrappers
 // must remain usable without product copy, visual tokens or a rendered layout.
 const SHARED_BEHAVIOR = new Set([
+  "packages/mail-ui/src/views/useComposeSettingsModel.ts",
   "packages/mail-ui/src/views/useSidebarModel.ts",
   "packages/video-ui/src/app/hooks/recentProjects.ts",
   "packages/video-ui/src/app/hooks/useProgress.ts",
   "packages/video-ui/src/app/hooks/useVideoAssembly.ts",
+  "packages/video-ui/src/app/hooks/useVideoHome.ts",
   "packages/video-ui/src/app/hooks/useVideoProjects.ts",
   "packages/video-ui/src/app/hooks/useVideoWorkspace.ts",
+  "packages/video-ui/src/app/lib/progressViewModel.ts",
   "packages/video-ui/src/workspace.ts",
 ]);
 const PRODUCT_NAME = /\b(?:HeardRight|ViewRight|Pulse|CodeRight|GenRight|CutRight|ScrapeRight|MailRight|PostRight)\b/;

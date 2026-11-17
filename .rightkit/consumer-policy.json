@@ -2,10 +2,10 @@
   "schema": 1,
   "layerBoundaries": [
     {
-      "id": "mail-sidebar-behavior",
+      "id": "mail-behavior",
       "root": "packages/mail-ui/src",
       "from": {
-        "include": ["views/useSidebarModel.ts"]
+        "include": ["views/useSidebarModel.ts", "views/useComposeSettingsModel.ts"]
       },
       "forbid": {
         "include": ["**/*.tsx", "**/*.jsx", "**/*.css", "lib/theme.ts"]

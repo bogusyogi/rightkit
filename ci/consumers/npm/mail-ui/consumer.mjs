@@ -8,7 +8,7 @@ const recipeId = 'mail-ui-root-export-consumer';
 const result = { recipeId, schemaVersion: 1, ok: false, host: { platform: process.platform, arch: process.arch, node: process.version }, artifact: null, scenarios: [], errors: [], nativeHostQualified: false };
 const failure = error => ({ name: error?.name ?? 'Error', message: String(error?.message ?? error) });
 const required = name => { assert(process.env[name], `${name} is required`); return process.env[name]; };
-const surface = [".", "./components/AccountSwitcher", "./components/Icons", "./hooks/dialog", "./lib/ipc", "./lib/ipc/agentApprovals", "./lib/mail", "./lib/preferences", "./lib/visibleText", "./package.json", "./sidebar", "./store/index", "./store/types", "./styles.css"];
+const surface = [".", "./components/AccountSwitcher", "./components/Icons", "./compose-settings", "./hooks/dialog", "./lib/ipc", "./lib/ipc/agentApprovals", "./lib/mail", "./lib/preferences", "./lib/visibleText", "./package.json", "./sidebar", "./store/index", "./store/types", "./styles.css"];
 const expected = ["setHostAppName", "hostAppName", "AccountSwitcher", "mailWorkspaceHost", "mailWorkspaceClient", "MailWorkspaceProvider", "CalendarView", "TasksView", "DriveView", "ContactsView", "MeetView", "normalizeAgentRow", "normalizeAgentAuditRow"];
 
 try {
@@ -21,7 +21,8 @@ try {
   assert.equal(createHash('sha256').update(readFileSync(archive)).digest('hex'), sha256);
   const root = import.meta.resolve('@rightkit/mail-ui');
   const sidebar = import.meta.resolve('@rightkit/mail-ui/sidebar');
-  const provenance = validateInstalledArtifact({ fixtureUrl: import.meta.url, archive, sha256, version, resolution, packageName: '@rightkit/mail-ui', rootResolvedUrl: root, entries: { '@rightkit/mail-ui': root, '@rightkit/mail-ui/sidebar': sidebar } });
+  const composeSettings = import.meta.resolve('@rightkit/mail-ui/compose-settings');
+  const provenance = validateInstalledArtifact({ fixtureUrl: import.meta.url, archive, sha256, version, resolution, packageName: '@rightkit/mail-ui', rootResolvedUrl: root, entries: { '@rightkit/mail-ui': root, '@rightkit/mail-ui/sidebar': sidebar, '@rightkit/mail-ui/compose-settings': composeSettings } });
   result.artifact = provenance.artifact;
   const manifest = JSON.parse(readFileSync(path.join(path.dirname(provenance.artifact.modulePath), '..', 'package.json'), 'utf8'));
 
@@ -37,6 +38,8 @@ try {
     assert.deepEqual(Object.keys(manifest.exports ?? {}).sort(), surface);
     const mod = await import(provenance.entries['@rightkit/mail-ui']);
     const sidebarMod = await import(provenance.entries['@rightkit/mail-ui/sidebar']);
+    const composeSettingsMod = await import(provenance.entries['@rightkit/mail-ui/compose-settings']);
+    assert.equal(typeof composeSettingsMod.useComposeSettingsModel, 'function');
     for (const key of ['useSidebarModel', 'buildLabelTree', 'sidebarViewQueries', 'selectSidebarFolder']) assert.equal(typeof sidebarMod[key], 'function', `missing sidebar export ${key}`);
     assert.equal(sidebarMod.useSidebarModel, mod.useSidebarModel);
     assert.deepEqual(sidebarMod.sidebarViewQueries(new Date(2026, 0, 2)), { unread: 'is:unread', attachments: 'has:attachment', today: 'after:2026/01/02' });

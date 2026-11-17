@@ -1595,6 +1595,7 @@
         ".",
         "./components/AccountSwitcher",
         "./components/Icons",
+        "./compose-settings",
         "./hooks/dialog",
         "./lib/ipc",
         "./lib/ipc/agentApprovals",
@@ -1644,7 +1645,7 @@
       },
       "files": {
         "ci/consumers/npm/mail-ui/README.md": "cd4d361cbdae6c78311945d184a25779c9c05e5938aaa72a6bf6719122c8dfd2",
-        "ci/consumers/npm/mail-ui/consumer.mjs": "537a997da80bdca9771d54eb9e4c2b490287cb6f39aec74387cf8c8c667fd382",
+        "ci/consumers/npm/mail-ui/consumer.mjs": "ec887c68f34cb38f49a862b5ce7aa5b8f377be99b33ea818cf433d15c25af4d5",
         "ci/consumers/npm/mail-ui/package.json": "544112e3d934d15ece73936de8179acaf5686f96b75e635be677ddae2bf570b0",
         "ci/consumers/npm/mail-ui/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "fc160695e1dc97dc7e32e746c9e4471e2d85168b097623de818befeb00ee438c"
@@ -1923,7 +1924,7 @@
       },
       "files": {
         "ci/consumers/npm/video-ui/README.md": "0e5cb292a347610536a5c607fa116041fd24c6f408d139b0b574e4e7d1216464",
-        "ci/consumers/npm/video-ui/consumer.mjs": "58d1e06b6ade740d4b472eb674cc2431d68a58280e07e945c63049d3398464ad",
+        "ci/consumers/npm/video-ui/consumer.mjs": "009f92801ef1ee129c5d462d5620f31cf2ce8e5cb5a53ebc1b231da0cb01cfff",
         "ci/consumers/npm/video-ui/package.json": "23f7b2ebcd494d62baf7023f35727edcc2666771890f9880e50242dd453c3331",
         "ci/consumers/npm/video-ui/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "fc160695e1dc97dc7e32e746c9e4471e2d85168b097623de818befeb00ee438c"

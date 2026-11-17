@@ -68,6 +68,9 @@ try {
       assert.equal(typeof workspaceMod[key], 'function', `missing workspace export ${key}`);
       assert.equal(workspaceMod[key], appMod[key]);
     }
+    for (const key of ['useVideoHome', 'useVideoHomeThumbnail']) {
+      assert.equal(typeof workspaceMod[key], 'function', `missing project list export ${key}`);
+    }
     for (const key of appExpected) assert.ok(key in appMod, `missing app export ${key}`);
     assert.equal(appMod.installVideoHost, mod.installVideoHost);
     assert.throws(() => appMod.videoAppHost(), /no `app` part/);

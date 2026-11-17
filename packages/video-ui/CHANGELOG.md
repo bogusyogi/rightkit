@@ -3,6 +3,7 @@
 ## 0.2.2
 
 - Export project and assembly hooks from `@rightkit/video-ui/app`. The existing workspace uses them. Hosts can supply their own navigation, notices, copy and layout.
+- Export the project list and thumbnail hooks from `@rightkit/video-ui/workspace`. The existing Projects screen uses these hooks for recent projects, preview access and recovery actions.
 
 ## 0.2.1
 

@@ -3,6 +3,7 @@
 ## 0.2.2
 
 - Export the sidebar interaction model used by the existing Sidebar. Hosts can compose label trees, collapse and saved searches, selection and drag targets with their own presentation.
+- Export compose settings behavior from `@rightkit/mail-ui/compose-settings`. Hosts supply outbox, signature and snippet presentation.
 
 ## 0.2.1
 

@@ -87,7 +87,8 @@ These packages hold an app's look or composition and do not yet meet this file:
 `system-ui` (Pulse). CutRight and MailRight consume theirs on `main`.
 
 `node scripts/preflight.mjs --only shared-behavior-presentation,layer-reach` checks
-the extracted video workspace and mail sidebar behavior. It flags product names,
+the extracted video workspace, project list, progress, mail sidebar and compose
+settings behavior. It flags product names,
 app-prefixed classes and common colour literals in the extracted files. The layer
 policy checks that local runtime imports from the new entry points stay clear of
 legacy page markup, CSS and app theme stores. Extend coverage as more wrappers are

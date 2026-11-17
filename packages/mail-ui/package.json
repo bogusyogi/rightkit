@@ -11,6 +11,10 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
+    "./compose-settings": {
+      "types": "./dist/views/useComposeSettingsModel.d.ts",
+      "import": "./dist/views/useComposeSettingsModel.js"
+    },
     "./sidebar": {
       "types": "./dist/views/useSidebarModel.d.ts",
       "import": "./dist/views/useSidebarModel.js"
