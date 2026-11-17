@@ -159,7 +159,7 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-i18n` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-identity` | crates.io | 0.1.2 | 0.1.0 | 0 | none | - |
 | `rightkit-instance` | crates.io | 0.2.0 | none recorded | 0 | none | - |
-| `rightkit-job-queue` | crates.io | 0.6.0 | 0.6.0 | 7 | coderight, cutright, genright, heardright, mailright, postright, scraperight | 2 stale |
+| `rightkit-job-queue` | crates.io | 0.6.1 | 0.6.0 | 7 | coderight, cutright, genright, heardright, mailright, postright, scraperight | 2 stale |
 | `rightkit-launcher` | crates.io | 0.2.0 | none recorded | 0 | none | - |
 | `rightkit-launcher-win` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-library` | crates.io | 0.3.0 | none recorded | 1 | scraperight | - |

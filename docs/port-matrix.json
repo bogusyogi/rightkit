@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generatedAt": "2026-11-17T03:21:36Z",
-  "rightkitHead": "133294a733a3464e9c3e3f02a1b6044c74ad15d1",
+  "generatedAt": "2026-11-17T03:35:02Z",
+  "rightkitHead": "e12f4db4c12954143f7f00e723eea42c391e3bae",
   "legend": [
     {
       "state": "current",
@@ -137,7 +137,7 @@
       "group": "mandatory-set app",
       "dir": "D:\\Claude\\coderight",
       "present": true,
-      "head": "5cfdd306743fbb910664e57c16445369445040cc",
+      "head": "6797ed44dd4be3b87cb1cc8294d4505e83e596e7",
       "profile": "desktop",
       "inMandatorySet": true,
       "declaration": {
@@ -599,7 +599,7 @@
       "group": "mandatory-set app",
       "dir": "D:\\Claude\\cutright",
       "present": true,
-      "head": "f0b51757db7e37c8d198bd65ad5f01c1022274af",
+      "head": "f720f3ff3277edff626c6b63927cff81fac8e18e",
       "profile": "desktop",
       "inMandatorySet": true,
       "declaration": {
@@ -1039,7 +1039,7 @@
       "group": "mandatory-set app",
       "dir": "D:\\Claude\\genright",
       "present": true,
-      "head": "5e5dec2a2636c31004e4697badfd7ccfd196d0ef",
+      "head": "374e87854f3d8995b8f6895034d7011a755636bb",
       "profile": "desktop",
       "inMandatorySet": true,
       "declaration": {
@@ -1464,7 +1464,7 @@
       "group": "mandatory-set app",
       "dir": "D:\\Claude\\heardright",
       "present": true,
-      "head": "bf2277d4afb7a25adeee757c76545e9b35150aac",
+      "head": "96762c534a7a2bbf926ca16168669951d2ffbdb9",
       "profile": "desktop",
       "inMandatorySet": true,
       "declaration": {
@@ -3095,7 +3095,7 @@
       "group": "mandatory-set app",
       "dir": "D:\\Claude\\postright",
       "present": true,
-      "head": "67594e5c2d5f9f4d218eed99cab3f08b92734c54",
+      "head": "8431347d0beea94a3ec6a63f59015363f46d1963",
       "profile": "desktop",
       "inMandatorySet": true,
       "declaration": {
@@ -4029,7 +4029,7 @@
       "group": "mandatory-set app",
       "dir": "D:\\Claude\\scraperight",
       "present": true,
-      "head": "f6a093b5b3dac5ed470cb1cf3c8b025ef97afde4",
+      "head": "0ac8dba1c9c1567aad3fc1fd39f13f42f83f0aad",
       "profile": "desktop",
       "inMandatorySet": true,
       "declaration": {
@@ -4511,7 +4511,7 @@
       "group": "mandatory-set app",
       "dir": "D:\\Claude\\viewright",
       "present": true,
-      "head": "cecb7f8ea56a501132d76a7f092eab4d6a346050",
+      "head": "9a813a1b25b8a470642d8bccf65365d61b7b6584",
       "profile": "desktop",
       "inMandatorySet": true,
       "declaration": {
@@ -19160,9 +19160,9 @@
         "persistent-jobs"
       ],
       "private": false,
-      "source": "0.6.0",
+      "source": "0.6.1",
       "registry": "0.6.0",
-      "staged": "0.6.0",
+      "staged": "0.6.1",
       "dir": "crates/rightkit-job-queue",
       "toMoveFrom": {},
       "cells": {
