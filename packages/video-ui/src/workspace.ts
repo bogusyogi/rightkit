@@ -31,3 +31,4 @@ export { formatUsd, type CatalogKind } from "./app/lib/models.js";
 
 export { useVideoExports, useVideoExportThumbnail, useVideoExportPackage, type VideoExportPreset, type VideoExportJob } from "./app/hooks/useVideoExports.js";
 export { useVideoBundleExport } from "./app/hooks/useVideoBundleExport.js";
+export { useVideoBatchDelivery } from "./app/hooks/useVideoBatchDelivery.js";

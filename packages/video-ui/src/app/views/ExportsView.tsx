@@ -205,7 +205,7 @@ function ProjectExportsView({
     renders, mp4s, documents, loadError, hasSources, qaFor, preview, previewRender, closePreview,
     drawerOpen, openDrawer, closeDrawer, picked, setPreset, framingStatus, interchange, setInterchange,
     canStart, jobs, active, target, showQueue, queueError, interchangeFailures,
-    startExport, cancelJob, dismissJob, runQa, deleteRender, reveal, copyPath,
+    startExport, cancelJob, dismissJob, runQa, deleteRender, reveal, copyPath, notifyBatchChanged,
   } = useVideoExports({
     dir, progressDone: progress?.done, rendering, onChanged: refreshChangedProject ?? onChanged, captureSelection,
     onFeedback: (feedback) => {
@@ -380,7 +380,7 @@ function ProjectExportsView({
           </div>
         )}
 
-        <BatchDelivery dir={dir} />
+        <BatchDelivery dir={dir} onChanged={notifyBatchChanged} captureSelection={captureSelection} />
         <BundleExport dir={dir} />
       </div>
 

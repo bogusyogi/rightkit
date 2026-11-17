@@ -374,6 +374,10 @@ export function useVideoExports({ dir, progressDone, rendering, onChanged, captu
     jobs, showQueue: jobs.some((job) => job.status !== "done") || Boolean(rendering) || snapshot.active === "export",
     active: snapshot.active, target: snapshot.target, queueError: snapshot.queue?.error,
     interchangeFailures: snapshot.queue?.failures ?? [], startExport, cancelJob, dismissJob,
+    notifyBatchChanged: (changedDir: string) => {
+      update(changedDir, { revision: getSnapshot(changedDir).revision + 1 });
+      return onChanged(changedDir);
+    },
     runQa, deleteRender, reveal: revealPath, copyPath: (path: string) => navigator.clipboard.writeText(path),
   };
 }
