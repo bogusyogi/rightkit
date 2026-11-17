@@ -68,7 +68,7 @@ function platformLabel(id: string): string {
 
 export function ShortsView({ dir, onChanged, refreshChangedProject }: { dir: string; onChanged: () => Promise<void>; refreshChangedProject?: (dir: string) => Promise<void> }) {
   const toast = useToast();
-  const { sources, source, setSource, busy, busyOp, error, shorts, selected, setSelected, open, setOpen, trim, setTrim, searched, plan, framingChanged, autoFraming, framing, setFraming, selectedSource, framingNeeded, framingAllowed, propose, exportShort, exportSelected, addToTimeline, openDrawer } = useVideoShorts({
+  const { toggleSelection, closeDrawer, addOpenedToTimeline, exportOpenedShort, sources, source, setSource, busy, busyOp, error, shorts, selected, open, trim, setTrim, searched, plan, framingChanged, autoFraming, framing, setFraming, selectedSource, framingNeeded, framingAllowed, propose, exportSelected, openDrawer } = useVideoShorts({
     dir, onChanged, refreshChangedProject,
     onExported: (r) => toast(`Short ${r.variant} exported`, { kind: "success" }),
     onAdded: (p) => toast(`Added “${p.title}” to the timeline`, { kind: "success" }),
@@ -177,14 +177,7 @@ export function ShortsView({ dir, onChanged, refreshChangedProject }: { dir: str
                     className="shorts-card__pick"
                     label="Select"
                     checked={selected.has(p.id)}
-                    onChange={(checked) =>
-                      setSelected((s) => {
-                        const n = new Set(s);
-                        if (checked) n.add(p.id);
-                        else n.delete(p.id);
-                        return n;
-                      })
-                    }
+                    onChange={(checked) => toggleSelection(p.id, checked)}
                   />
                 </div>
               ))}
@@ -211,13 +204,13 @@ export function ShortsView({ dir, onChanged, refreshChangedProject }: { dir: str
       <Drawer
         title={open?.title ?? "Short"}
         open={open !== null && !framing}
-        onClose={() => setOpen(null)}
+        onClose={closeDrawer}
         footer={
           open && (
             <>
               <Button
                 variant="secondary"
-                onClick={() => void addToTimeline(open, trim?.start ?? open.start_ms, trim?.end ?? open.end_ms)}
+                onClick={() => void addOpenedToTimeline()}
                 disabled={busy !== null}
                 aria-busy={(busy === open.id) || undefined}
               >
@@ -230,11 +223,7 @@ export function ShortsView({ dir, onChanged, refreshChangedProject }: { dir: str
               )}
               <Button
                 variant="primary"
-                onClick={() =>
-                  void exportShort(open, trim ? { start: trim.start, end: trim.end } : undefined).then(
-                    (ok) => ok && setOpen((current) => current === open ? null : current),
-                  )
-                }
+                onClick={() => void exportOpenedShort()}
                 title={framingBlock ?? "Renders the trimmed range (bounds snap to word edges)"}
                 disabled={(!framingAllowed) || (busy !== null)}
                 aria-busy={(busy === open.id) || undefined}

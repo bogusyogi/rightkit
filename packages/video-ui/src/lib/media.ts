@@ -588,6 +588,11 @@ export const reframeApprove = (
 ) =>
   engineCall<ReframeSummary>("reframe.approve", { dir, source, ...opts });
 
+/** Compare-and-set approval of the displayed plan; errors never fall back to legacy approval. */
+export const reframeApproveChecked = (
+  dir: string, source: string, opts: { aspect: string; expected_plan_hash: string; approver: string },
+) => engineCall<ReframeSummary>("reframe.approve_checked", { dir, source, ...opts, all: true });
+
 export const reframeRender = (dir: string, source: string, aspect?: string, tag?: string) =>
   engineCall<{ status: string; output: string; receipt: unknown }>(
     "reframe.render",

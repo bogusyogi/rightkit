@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { errorMessage } from "../../lib/engine.js";
-import { type ShortProposal, type ShortsResult, type ReframeSummary, framingApproval, settingsGet, reframeShow, shortsAccept, shortsPropose, sourceList, thumbnails } from "../../lib/media.js";
+import { type ShortProposal, type ShortsResult, type ReframeSummary, framingApproval, settingsGet, shortsAccept, shortsPropose, sourceList, thumbnails } from "../../lib/media.js";
+import { readCurrentFraming, useFramingPlanChanges } from "./useVideoFramingReview.js";
 import { assetUrl } from "../../lib/asset.js";
 import { appendClip, projectShow, type ProjectShow } from "../../lib/project.js";
 export type { ShortProposal, ShortsResult, ReframeSummary } from "../../lib/media.js";
@@ -12,6 +13,7 @@ function needsFraming(show: ProjectShow | null, source: string): boolean {
   return !!v && Math.abs(v.width / v.height / (9 / 16) - 1) >= 0.05;
 }
 export function useVideoShorts({dir, onChanged, refreshChangedProject, onExported, onAdded}: {dir: string; onChanged: () => Promise<void>; refreshChangedProject?: (dir: string) => Promise<void>; onExported: (result: Awaited<ReturnType<typeof shortsAccept>>) => void; onAdded: (proposal: ShortProposal) => void}) {
+  const drawerSequence = useRef(0);
   const proposals = useRef<ReadonlySet<ShortProposal>>(new Set());
   const lifetime = useRef<{dir: string; source: string; generation: number} | null>(null);
   const [sources, setSources] = useState<SourceRow[]>([]);
@@ -97,9 +99,10 @@ export function useVideoShorts({dir, onChanged, refreshChangedProject, onExporte
     const token = lifetime.current;
     const generation = token?.generation;
     const current = () => live && !!token && lifetime.current === token && token.generation === generation && token.dir === dir;
-    reframeShow(dir, source, SHORT_ASPECT)
-      .then((r) => current() && setPlan(r))
-      .catch(() => current() && setPlan("none"));
+    void readCurrentFraming(dir, source, SHORT_ASPECT,
+      (plan) => { if (current()) setPlan(plan); },
+      () => { if (current()) setPlan("none"); },
+    );
     return () => {
       live = false;
     };
@@ -153,7 +156,10 @@ export function useVideoShorts({dir, onChanged, refreshChangedProject, onExporte
       written = true;
       if (!current()) return false;
       onExported(r);
-      if (framingNeeded) { const value = await reframeShow(dir, source, SHORT_ASPECT); if (!current()) return false; setPlan(value); }
+      if (framingNeeded) {
+        await readCurrentFraming(dir, source, SHORT_ASPECT, (plan) => { if (current()) setPlan(plan); });
+        if (!current()) return false;
+      }
       await refresh();
       if (!current()) return false;
       succeeded = current();
@@ -221,9 +227,13 @@ export function useVideoShorts({dir, onChanged, refreshChangedProject, onExporte
     const token = lifetime.current;
     if (token && token.dir === dir && token.source === source && framingScope === scopeRef.current) setPlan(value);
   }, [dir, source, framingScope]);
+  useFramingPlanChanges(dir, (changedSource, aspect, value) => {
+    if (changedSource === source && aspect === SHORT_ASPECT) framingChanged(value);
+  });
   const openDrawer = (p: ShortProposal) => {
     const token = lifetime.current;
     if (!token || token.dir !== dir || token.source !== source || !proposals.current.has(p)) return;
+    drawerSequence.current += 1;
     setOpen(p);
     setTrim({ start: p.start_ms, end: p.end_ms });
   };
@@ -233,7 +243,29 @@ export function useVideoShorts({dir, onChanged, refreshChangedProject, onExporte
     if (token && token.dir === dir && token.source === source && open && proposals.current.has(open)) setTrim(value);
   };
 
-  return { sources, source, setSource, busy, busyOp, error, shorts, selected, setSelected, open, setOpen, trim, setTrim: setCurrentTrim, searched, plan, framingChanged, autoFraming, framing, setFraming, selectedSource, framingNeeded, framingAllowed, propose, exportShort: exportOne, exportSelected, addToTimeline, openDrawer };
+  const toggleSelection = (id: string, checked: boolean) => {
+    const token = lifetime.current;
+    if (!token || token.dir !== dir || token.source !== source || ![...proposals.current].some((p) => p.id === id)) return;
+    setSelected((previous) => {
+      const next = new Set(previous);
+      if (checked) next.add(id); else next.delete(id);
+      return next;
+    });
+  };
+  const closeDrawer = () => { drawerSequence.current += 1; setOpen(null); };
+  const addOpenedToTimeline = () => {
+    if (open) return addToTimeline(open, trim?.start ?? open.start_ms, trim?.end ?? open.end_ms);
+  };
+  const exportOpenedShort = async () => {
+    const proposal = open;
+    const sequence = drawerSequence.current;
+    if (!proposal) return false;
+    const ok = await exportOne(proposal, trim ?? undefined);
+    if (ok && drawerSequence.current === sequence) setOpen((current) => current === proposal ? null : current);
+    return ok;
+  };
+
+  return { toggleSelection, closeDrawer, addOpenedToTimeline, exportOpenedShort, sources, source, setSource, busy, busyOp, error, shorts, selected, setSelected, open, setOpen, trim, setTrim: setCurrentTrim, searched, plan, framingChanged, autoFraming, framing, setFraming, selectedSource, framingNeeded, framingAllowed, propose, exportShort: exportOne, exportSelected, addToTimeline, openDrawer };
 }
 export function useShortThumbnail(dir: string, source: string, atMs: number) {
   const [src, setSrc] = useState<string | undefined>();

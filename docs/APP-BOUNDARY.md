@@ -88,7 +88,7 @@ These packages hold an app's look or composition and do not yet meet this file:
 
 `node scripts/preflight.mjs --only shared-behavior-presentation,layer-reach` checks
 the extracted video workspace, project list, progress, phrase search, Shorts actions,
-mail sidebar and compose settings behavior. It flags product names,
+framing review, mail sidebar and compose settings behavior. It flags product names,
 app-prefixed classes and common colour literals in the extracted files. The layer
 policy checks that local runtime imports from the new entry points stay clear of
 legacy page markup, CSS and app theme stores. Extend coverage as more wrappers are

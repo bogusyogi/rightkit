@@ -1,5 +1,5 @@
 import { Badge, Button, Card, Checkbox, EmptyState, Field, PageShell, SegmentedControl, Select, Slider, Toggle, useToast } from "@rightkit/react-shell/react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { engineCall, errorCode, errorMessage } from "../../lib/engine.js";
 import { onEngineRaw } from "../lib/engineRaw.js";
 import { assetUrl } from "../../lib/asset.js";
@@ -18,9 +18,6 @@ import {
   recipeCancel,
   recipeRun,
   recipeStatus,
-  reframeAnalyze,
-  reframeApprove,
-  reframeShow,
   framingApproval,
   framingLabel,
   settingsGet,
@@ -31,6 +28,7 @@ import {
 } from "../../lib/media.js";
 import { Drawer, ErrorPanel, ProgressRow, Thumbnail, timecode, Icon } from "../ui/index.js";
 import { RecipeLibrary } from "./RecipeLibrary.js";
+import { readCurrentFraming, useFramingPlanChanges, useVideoFramingReview } from "../hooks/useVideoFramingReview.js";
 import { HDR_COLOR_PRESETS, HDR_UNAVAILABLE_NOTICE, useHdrToSdr } from "../../hooks/useHdrToSdr.js";
 
 type Style = "natural" | "tight" | "punchy";
@@ -101,42 +99,6 @@ const STAGE_LABELS: [string, string][] = [
   ["music", "Music"],
 ];
 
-type AnchorView = { mid_ms: number; approved: boolean; crop: { x: number; y: number; w: number; h: number } };
-
-function anchorViews(plan: ReframeSummary): AnchorView[] {
-  const p = (plan.plan ?? {}) as {
-    anchors?: { start_ms?: number; end_ms?: number; approved?: boolean }[];
-    keyframes?: { t_ms?: number; x?: number; y?: number }[];
-    source_width?: number;
-    source_height?: number;
-  };
-  const anchors = p.anchors ?? [];
-  const keyframes = p.keyframes ?? [];
-  const [sw, sh] = [p.source_width ?? 0, p.source_height ?? 0];
-  const [cw, ch] = plan.crop ?? [0, 0];
-  const out: AnchorView[] = [];
-  const step = Math.max(1, Math.floor(anchors.length / 6) || 1);
-  for (let i = 0; i < anchors.length && out.length < 6; i += step) {
-    const a = anchors[i];
-    const mid = Math.round(((a.start_ms ?? 0) + (a.end_ms ?? 0)) / 2);
-    let k = keyframes[0];
-    for (const cand of keyframes) {
-      if (Math.abs((cand.t_ms ?? 0) - mid) < Math.abs((k?.t_ms ?? 0) - mid)) k = cand;
-    }
-    out.push({
-      mid_ms: mid,
-      approved: a.approved === true,
-      crop: {
-        x: sw ? (k?.x ?? 0) / sw : 0,
-        y: sh ? (k?.y ?? 0) / sh : 0,
-        w: sw ? cw / sw : 0,
-        h: sh ? ch / sh : 0,
-      },
-    });
-  }
-  return out;
-}
-
 /** §3.3 Edit recipe: persisted form + recipe.run stage panel + framing review drawer. */
 const SWATCH_ASPECT = { youtube: "16 / 9", reels: "9 / 16", square: "1 / 1" } as const;
 
@@ -144,11 +106,14 @@ export function AutoEditView({
   dir,
   onChanged,
   onNavigate,
+  renderFramingReview,
 }: {
   dir: string;
   onChanged: () => Promise<void>;
   onNavigate?: (to: "recipe" | "finished") => void;
+  renderFramingReview?: (props: FramingDrawerProps) => ReactNode;
 }) {
+  const projectScope = useRef<object | null>(null);
   const toast = useToast();
   const hdr = useHdrToSdr();
   const [sources, setSources] = useState<SourceRow[]>([]);
@@ -157,7 +122,14 @@ export function AutoEditView({
   const [thumbs, setThumbs] = useState<Record<string, string>>({});
   const [plans, setPlans] = useState<Record<string, ReframeSummary | "none" | "error">>({});
   const [autoFraming, setAutoFraming] = useState(false);
-  const [framingFor, setFramingFor] = useState<{ s: SourceRow; aspect: string } | null>(null);
+  const [framingFor, setFramingFor] = useState<{ dir: string; s: SourceRow; aspect: string } | null>(null);
+  useLayoutEffect(() => {
+    const token = {};
+    projectScope.current = token;
+    setFramingFor(null);
+    setPlans({});
+    return () => { if (projectScope.current === token) projectScope.current = null; };
+  }, [dir]);
   const [music, setMusic] = useState<GeneratedAsset[]>([]);
   const [speechReady, setSpeechReady] = useState<boolean | null>(null);
   const [swatch, setSwatch] = useState<CaptionPreview | "loading" | "error" | null>(null);
@@ -175,6 +147,7 @@ export function AutoEditView({
 
   // `reloadRecipe` re-reads the recipe from project settings (after a library apply) instead of keeping local edits.
   const refresh = useCallback(async (reloadRecipe = false) => {
+    const scope = projectScope.current;
     const [list, proj, settings, models, status] = await Promise.all([
       sourceList(dir),
       projectShow(dir).catch(() => null),
@@ -182,6 +155,7 @@ export function AutoEditView({
       modelsStatus().catch(() => null),
       recipeStatus(dir).catch(() => null),
     ]);
+    if (!scope || projectScope.current !== scope) return;
     setAutoFraming(settings ? framingApproval(settings) === "auto" : false);
     setPlans({});
     setSources(list.sources as SourceRow[]);
@@ -331,6 +305,9 @@ export function AutoEditView({
     [show],
   );
   const planKey = (id: string, aspect: string) => `${id}|${aspect}`;
+  useFramingPlanChanges(dir, (source, aspect, plan) => {
+    setPlans((current) => ({ ...current, [planKey(source, aspect)]: plan }));
+  });
 
   // Reframe approval state for each (source × aspect) that needs it.
   useEffect(() => {
@@ -339,9 +316,12 @@ export function AutoEditView({
         const k = planKey(s.id, aspect);
         if (!needsReframe(s, aspect) || plans[k] !== undefined) continue;
         setPlans((m) => ({ ...m, [k]: "none" }));
-        reframeShow(dir, s.id, aspect)
-          .then((r) => setPlans((m) => ({ ...m, [k]: r })))
-          .catch(() => setPlans((m) => ({ ...m, [k]: "none" })));
+        const scope = projectScope.current;
+        const current = () => scope !== null && projectScope.current === scope;
+        void readCurrentFraming(dir, s.id, aspect,
+          (plan) => { if (current()) setPlans((m) => ({ ...m, [k]: plan })); },
+          () => { if (current()) setPlans((m) => ({ ...m, [k]: "none" })); },
+        );
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -530,7 +510,7 @@ export function AutoEditView({
                       <Button
                         size="sm"
                         variant="secondary"
-                        onClick={() => setFramingFor({ s, aspect })}
+                        onClick={() => setFramingFor({ dir, s, aspect })}
                       >
                         Review framing
                       </Button>
@@ -768,24 +748,34 @@ export function AutoEditView({
         </div>
       </div>
 
-      {framingFor && (
-        <FramingDrawer
-          dir={dir}
-          source={framingFor.s}
-          aspect={framingFor.aspect}
-          plan={plans[planKey(framingFor.s.id, framingFor.aspect)]}
-          autoFraming={autoFraming}
-          onClose={() => setFramingFor(null)}
-          onChanged={(p) =>
-            setPlans((m) => ({ ...m, [planKey(framingFor.s.id, framingFor.aspect)]: p }))
-          }
-        />
-      )}
+      {framingFor?.dir === dir && (() => {
+        const scope = projectScope.current;
+        const selected = framingFor;
+        const props: FramingDrawerProps = {
+          dir, source: selected.s, aspect: selected.aspect,
+          plan: plans[planKey(selected.s.id, selected.aspect)], autoFraming,
+          onClose: () => setFramingFor(null),
+          onChanged: (p) => {
+            if (scope && projectScope.current === scope) setPlans((m) => ({ ...m, [planKey(selected.s.id, selected.aspect)]: p }));
+          },
+        };
+        return renderFramingReview ? renderFramingReview(props) : <FramingDrawer {...props} />;
+      })()}
     </PageShell>
   );
 }
 
 /** Framing review for one (source, aspect) plan; shared by Edit recipe and Shorts. */
+export type FramingDrawerProps = {
+  dir: string;
+  source: SourceRow;
+  aspect: string;
+  plan?: ReframeSummary | "none" | "error";
+  autoFraming?: boolean;
+  onClose: () => void;
+  onChanged: (p: ReframeSummary) => void;
+};
+
 export function FramingDrawer({
   dir,
   source,
@@ -794,69 +784,8 @@ export function FramingDrawer({
   autoFraming = false,
   onClose,
   onChanged,
-}: {
-  dir: string;
-  source: SourceRow;
-  aspect: string;
-  plan?: ReframeSummary | "none" | "error";
-  autoFraming?: boolean;
-  onClose: () => void;
-  onChanged: (p: ReframeSummary) => void;
-}) {
-  const [busy, setBusy] = useState<string | null>(null);
-  const [err, setErr] = useState<string | null>(null);
-  const [shots, setShots] = useState<{ mid_ms: number; src?: string; crop: AnchorView["crop"]; approved: boolean }[]>([]);
-
-  const loadShots = useCallback(
-    async (p: ReframeSummary) => {
-      const views = anchorViews({ ...p, plan: p.plan ?? (p as ReframeSummary).plan });
-      const times = views.map((v) => v.mid_ms);
-      const t = await thumbnails(dir, { source: source.id }, { times_ms: times, width: 640 });
-      setShots(
-        views.map((v, i) => ({
-          mid_ms: v.mid_ms,
-          src: t.frames[i] ? assetUrl(t.frames[i].path) : undefined,
-          crop: v.crop,
-          approved: v.approved,
-        })),
-      );
-    },
-    [dir, source.id],
-  );
-
-  useEffect(() => {
-    if (plan && plan !== "none" && plan !== "error") {
-      loadShots(plan).catch((e) => setErr(errorMessage(e)));
-    } else {
-      setShots([]);
-    }
-  }, [plan, loadShots]);
-
-  const analyze = async () => {
-    setBusy("analyse");
-    setErr(null);
-    try {
-      const r = await reframeAnalyze(dir, source.id, aspect, `frame-${source.id.slice(0, 8)}`);
-      onChanged(r);
-    } catch (e) {
-      setErr(errorMessage(e));
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const approve = async () => {
-    setBusy("approve");
-    setErr(null);
-    try {
-      const r = await reframeApprove(dir, source.id, { all: true, approver: "ui", aspect });
-      onChanged(r);
-    } catch (e) {
-      setErr(errorMessage(e));
-    } finally {
-      setBusy(null);
-    }
-  };
+}: FramingDrawerProps) {
+  const { busy, error: err, shots, analyze, approve, approvalInvalidReason } = useVideoFramingReview({ dir, source, aspect, plan, onChanged });
 
   const ready = plan && plan !== "none" && plan !== "error";
   return (
@@ -874,7 +803,7 @@ export function FramingDrawer({
             <Button
               variant="primary"
               onClick={() => void approve()}
-              disabled={(busy === "approve")}
+              disabled={busy !== null || !!approvalInvalidReason}
               aria-busy={(busy === "approve") || undefined}
             >{!(busy === "approve") && <Icon name="check" />}
               {busy === "approve" ? "Approving…" : "Approve framing"}
@@ -884,7 +813,7 @@ export function FramingDrawer({
           <Button
             variant="primary"
             onClick={() => void analyze()}
-            disabled={(busy === "analyse")}
+            disabled={busy !== null}
             aria-busy={(busy === "analyse") || undefined}
           >
             {busy === "analyse" ? "Analysing…" : <>Analyse framing for {aspect}</>}
@@ -899,6 +828,12 @@ export function FramingDrawer({
         <p role="alert" style={{ margin: 0, color: "var(--rk-bad)", fontSize: 13 }}>
           {err}
         </p>
+      )}
+      {ready && !plan.approved && approvalInvalidReason === "missing_plan_hash" && (
+        <p role="alert" className="cr-muted">Reload framing before approving.</p>
+      )}
+      {ready && !plan.approved && !err && approvalInvalidReason === "preview_not_ready" && (
+        <p role="status" className="cr-muted">Loading framing preview…</p>
       )}
       {ready && (
         <div className="recipe-anchors">

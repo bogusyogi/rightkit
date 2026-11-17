@@ -10,3 +10,4 @@ export * from "./app/hooks/useVideoHome.js";
 export * from "./app/hooks/useVideoPhrases.js";
 export * from "./app/hooks/useVideoRetention.js";
 export * from "./app/hooks/useVideoShorts.js";
+export { useVideoFramingReview } from "./app/hooks/useVideoFramingReview.js";
