@@ -2868,7 +2868,7 @@ export function coldControls({ cold, warmPrev, warmRows, crate, ws, coldCompileR
 
 async function main(argv) {
   const opt = (name) => { const i = argv.indexOf(name); return i < 0 ? undefined : argv[i + 1]; };
-  const known = new Set(["--fixture", "--host", "--steps", "--out", "--plan", "--gate", "--commit", "--leaf-file", "--manifest-file", "--kill-after-ms", "--allow-install", "--budgets", "--help", "--prove", "--verify-release", "--other-receipt", "--contract-file", "--pulse-compile", "--prove-out", "--nn", "--checks-only", "--s11-checks-only", "--kills", "--candidate", "--sealed", "--archive"]);
+  const known = new Set(["--fixture", "--host", "--steps", "--out", "--plan", "--gate", "--commit", "--leaf-file", "--manifest-file", "--kill-after-ms", "--allow-install", "--budgets", "--help", "--prove", "--verify-release", "--other-receipt", "--contract-file", "--pulse-compile", "--prove-out", "--nn", "--checks-only", "--s11-checks-only", "--kills", "--candidate", "--sealed", "--archive", "--receipt-on-fail"]);
   for (const a of argv) if (a.startsWith("--") && !known.has(a)) { console.error(`gate-acceptance: unknown option ${a} (no cache bypass or other gate flag is ever passed)`); return 64; }
   if (argv.includes("--verify-release")) return verifyReleaseCli(argv);
   const host = opt("--host") ?? (process.platform === "win32" ? "dell" : "mac");
@@ -2880,12 +2880,12 @@ async function main(argv) {
   if (argv.includes("--plan")) { console.log(formatPlan(buildPlan({ steps: wanted, allowInstall }))); return 0; }
   const fixture = opt("--fixture");
   if (argv.includes("--prove")) return proveMain({ fixture, host, out: opt("--prove-out"), argv });
-  if (!fixture) { console.error("usage: node gate-acceptance.mjs --fixture <dir> [--host mac|dell] [--steps S0,S1,...] [--out <dir>] [--plan] [--gate <path> | --candidate <sealed sha256>] [--commit <sha>] [--allow-install]"); return 64; }
+  if (!fixture) { console.error("usage: node gate-acceptance.mjs --fixture <dir> [--host mac|dell] [--steps S0,S1,...] [--out <dir>] [--plan] [--gate <path> | --candidate <sealed sha256>] [--commit <sha>] [--allow-install] [--receipt-on-fail]"); return 64; }
   const candidateArg = opt("--candidate") ?? null;
   if (candidateArg !== null && opt("--gate")) { console.error("--candidate and --gate cannot be given together: a candidate is run by its own sealed entry"); return 64; }
   const candidate = candidateArg === null ? null : findCandidateGate(managedRootOf(host), candidateArg);
-  if (candidateArg !== null) return execute({ fixture, host, wanted, gate: candidate?.entry ?? path.join(managedRootOf(host), "trusted-gates", "candidates", String(candidateArg), "node_modules", "@rightkit", "release", "bin", "rightkit-gate.mjs"), gateArg: candidate?.entry ?? null, candidateArg, candidate, budgetsFile: opt("--budgets"), out: opt("--out"), commitArg: opt("--commit"), leafFile: opt("--leaf-file"), manifestFile: opt("--manifest-file"), killAfterMs: Number(opt("--kill-after-ms") ?? 3000), allowInstall, otherReceiptFile: opt("--other-receipt"), contractFile: opt("--contract-file"), pulseCompile: argv.includes("--pulse-compile"), forceNN: opt("--nn")?.split(",").filter(Boolean), checksOnly: argv.includes("--checks-only"), s11ChecksOnly: argv.includes("--s11-checks-only"), killsFilter: opt("--kills")?.split(",").filter(Boolean) });
-  return execute({ fixture, host, wanted, gate: opt("--gate") ?? defaultGate(host), gateArg: opt("--gate"), budgetsFile: opt("--budgets"), out: opt("--out"), commitArg: opt("--commit"), leafFile: opt("--leaf-file"), manifestFile: opt("--manifest-file"), killAfterMs: Number(opt("--kill-after-ms") ?? 3000), allowInstall, otherReceiptFile: opt("--other-receipt"), contractFile: opt("--contract-file"), pulseCompile: argv.includes("--pulse-compile"), forceNN: opt("--nn")?.split(",").filter(Boolean), checksOnly: argv.includes("--checks-only"), s11ChecksOnly: argv.includes("--s11-checks-only"), killsFilter: opt("--kills")?.split(",").filter(Boolean) });
+  if (candidateArg !== null) return execute({ fixture, host, wanted, gate: candidate?.entry ?? path.join(managedRootOf(host), "trusted-gates", "candidates", String(candidateArg), "node_modules", "@rightkit", "release", "bin", "rightkit-gate.mjs"), gateArg: candidate?.entry ?? null, candidateArg, candidate, budgetsFile: opt("--budgets"), out: opt("--out"), commitArg: opt("--commit"), leafFile: opt("--leaf-file"), manifestFile: opt("--manifest-file"), killAfterMs: Number(opt("--kill-after-ms") ?? 3000), allowInstall, otherReceiptFile: opt("--other-receipt"), contractFile: opt("--contract-file"), pulseCompile: argv.includes("--pulse-compile"), forceNN: opt("--nn")?.split(",").filter(Boolean), checksOnly: argv.includes("--checks-only"), s11ChecksOnly: argv.includes("--s11-checks-only"), killsFilter: opt("--kills")?.split(",").filter(Boolean), receiptOnFail: argv.includes("--receipt-on-fail") });
+  return execute({ fixture, host, wanted, gate: opt("--gate") ?? defaultGate(host), gateArg: opt("--gate"), budgetsFile: opt("--budgets"), out: opt("--out"), commitArg: opt("--commit"), leafFile: opt("--leaf-file"), manifestFile: opt("--manifest-file"), killAfterMs: Number(opt("--kill-after-ms") ?? 3000), allowInstall, otherReceiptFile: opt("--other-receipt"), contractFile: opt("--contract-file"), pulseCompile: argv.includes("--pulse-compile"), forceNN: opt("--nn")?.split(",").filter(Boolean), checksOnly: argv.includes("--checks-only"), s11ChecksOnly: argv.includes("--s11-checks-only"), killsFilter: opt("--kills")?.split(",").filter(Boolean), receiptOnFail: argv.includes("--receipt-on-fail") });
 }
 
 async function execute(options) {
@@ -2898,7 +2898,7 @@ async function execute(options) {
   }
 }
 
-async function executeRun({ fixture, host, wanted, gate, gateArg, budgetsFile, out, commitArg, leafFile, manifestFile, killAfterMs, allowInstall, otherReceiptFile, contractFile, pulseCompile, forceNN, checksOnly, s11ChecksOnly, killsFilter, g, scratch, candidateArg = null, candidate = null }) {
+async function executeRun({ fixture, host, wanted, gate, gateArg, budgetsFile, out, commitArg, leafFile, manifestFile, killAfterMs, allowInstall, otherReceiptFile, contractFile, pulseCompile, forceNN, checksOnly, s11ChecksOnly, killsFilter, g, scratch, candidateArg = null, candidate = null, receiptOnFail = false }) {
   const startedAt = new Date().toISOString();
   const platform = host === "dell" ? "win32" : "darwin";
   const managedRoot = managedRootOf(host);
@@ -3309,7 +3309,12 @@ async function executeRun({ fixture, host, wanted, gate, gateArg, budgetsFile, o
   result.unwaivedUnchecked = unwaived;
   result.proofs = { ...ctx.proofs, ...(development ? { NN19: { kind: "real-condition control: a checkout gate run is a development run", caught: nonNegotiables.find((n) => n.id === "NN19")?.status === "fail" && !result.ok } } : {}), ...(result.partial ? { NN34: { kind: "real-condition control: a partial run", caught: !result.ok } } : {}) };
   let receiptPath = null;
-  if (result.ok && !development) {
+  // `--receipt-on-fail`: a run that did not pass still writes what a passing run writes (the receipt, job-receipts/, job-claims/, gate-seal/), so the
+  // writer, the job bundle and the installer's check of them can be exercised without a pass (first real contract test of a candidate, 2026-11-17:
+  // "receipt: none: the run did not pass", so none of them had ever run on real data). Such a receipt says `ok: false` and carries the run's own
+  // NOT PASSED verdict, is named `.not-passed.json`, and is refused by --verify-release, by the publication check and by promotion like any failed one.
+  const passed = result.ok;
+  if ((passed || receiptOnFail) && !development) {
     const entry = candidateArg !== null ? candidate : findInstalledGate(managedRoot);
     // G26: every broker job of the run, with its signed receipt kept beside this receipt. A job that cannot be kept as recorded refuses the receipt.
     const collected = contractRun ? collectContractJobs(contractRun, path.join(outDir, "job-receipts")) : { jobs: [], problems: ["the run was not tagged"] };
@@ -3326,13 +3331,14 @@ async function executeRun({ fixture, host, wanted, gate, gateArg, budgetsFile, o
         else { const dir = path.join(outDir, "gate-seal"); fs.mkdirSync(dir, { recursive: true }); fs.writeFileSync(path.join(dir, "manifest.txt"), manifestBytes); fs.writeFileSync(path.join(dir, "trusted-gate-source.json"), sourceBytes); gateSeal = "gate-seal"; }
       } catch (e) { collected.problems.push(`the candidate's manifest or source record cannot be read (${e.code ?? e.message})`); }
     }
-    if (collected.problems.length) { result.ok = false; result.verdict = `NOT PASSED: the run's broker jobs cannot be listed (${collected.problems[0]})`; result.contractJobProblems = collected.problems; }
-    if (result.ok) {
+    if (collected.problems.length) { result.contractJobProblems = collected.problems; if (passed) { result.ok = false; result.verdict = `NOT PASSED: the run's broker jobs cannot be listed (${collected.problems[0]})`; } }
+    if (result.ok || (receiptOnFail && !passed)) {
     const receipt = buildContractReceipt({ host, commit: gateCommit, gate: { kind: candidateArg !== null ? "candidate" : "installed", version: entry?.version ?? probe.version, sealedPath: entry?.entry ?? null, sealedSha256: entry?.sealedSha256 ?? null, ...(candidateArg !== null ? { archiveSha256: entry?.archiveSha256 ?? null, archiveIntegrity: entry?.archiveIntegrity ?? null } : {}) }, contractSha256: ctx.contractSha256, runnerSha256: ctx.runnerSha256, budgetsSha256: fileSha(budgetsFile ?? BUDGETS_FILE), fixtureCommit: commit, result, contractRun: contractRun ? { ...contractRun, jobs: collected.jobs, bundle: "job-receipts", gateSeal } : null, broker: { runtimeDigest: ctx.broker.manifest?.brokerDigest ?? null, runtimeVersion: ctx.broker.manifest?.version ?? null, enrolledDigest: ctx.broker.pins?.brokerDigest ?? null } });
-    receiptPath = path.join(outDir, `contract-test-receipt.${host}.json`); fs.writeFileSync(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`);
+    receiptPath = path.join(outDir, passed ? `contract-test-receipt.${host}.json` : `contract-test-receipt.${host}.not-passed.json`); fs.writeFileSync(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`);
     }
   }
   result.receipt = receiptPath ?? (development ? "none: a development run writes no receipt" : "none: the run did not pass");
+  if (receiptPath && !passed) result.receiptNote = "written by --receipt-on-fail for a run that did NOT pass: ok false; it admits nothing";
   result.timings = Object.fromEntries(Object.entries(runs).map(([k, v]) => [k, { ms: v.ms, stages: v.timings }]));
   fs.writeFileSync(path.join(outDir, "result.json"), `${JSON.stringify(result, null, 2)}\n`);
   const summary = formatSummary(result); fs.writeFileSync(path.join(outDir, "summary.txt"), `${summary}\n`);
