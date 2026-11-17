@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { errorMessage } from "../../lib/engine.js";
 import { mediaScopeAllow, rendersList, type BundleImportResult } from "../../lib/media.js";
 import { baseName, projectShow, type ProjectShow } from "../../lib/project.js";
@@ -8,7 +8,9 @@ import type { useProgress } from "./useProgress.js";
 /** Project state and effects; navigation and error presentation stay with the host. */
 export function useVideoWorkspace(progressController: ReturnType<typeof useProgress>) {
   const { progress, reset } = progressController;
-  const [dir, setDir] = useState<string | null>(null);
+  const [selection, setSelection] = useState<{ dir: string } | null>(null);
+  const currentSelection = useRef(selection);
+  const dir = selection?.dir ?? null;
   const [show, setShow] = useState<ProjectShow | null>(null);
   const [exportsCount, setExportsCount] = useState(0);
   const [jobError, setJobError] = useState<string | null>(null);
@@ -21,30 +23,46 @@ export function useVideoWorkspace(progressController: ReturnType<typeof useProgr
     void mediaScopeAllow([dir, `${dir}/media`, `${dir}/renders`, `${dir}/variants`, `${dir}/.cache`], true).catch(() => undefined);
   }, [dir]);
   const refresh = useCallback(async () => {
-    if (!dir) return;
-    setShow(await projectShow(dir));
-    rendersList(dir).then((r) => setExportsCount(r.renders.filter((x) => x.name.endsWith(".mp4")).length)).catch(() => undefined);
-  }, [dir]);
+    if (!selection || currentSelection.current !== selection) return;
+    let result: ProjectShow;
+    try {
+      result = await projectShow(selection.dir);
+    } catch (error) {
+      if (currentSelection.current !== selection) return;
+      throw error;
+    }
+    if (currentSelection.current !== selection) return;
+    setShow(result);
+    rendersList(selection.dir)
+      .then((r) => {
+        if (currentSelection.current === selection) setExportsCount(r.renders.filter((x) => x.name.endsWith(".mp4")).length);
+      })
+      .catch(() => undefined);
+  }, [selection]);
   useEffect(() => {
-    if (!dir) return;
+    if (!selection) return;
     let cancelled = false;
-    projectShow(dir).then((s) => !cancelled && setShow(s)).catch((e) => !cancelled && setJobError(errorMessage(e)));
-    rendersList(dir).then((r) => !cancelled && setExportsCount(r.renders.filter((x) => x.name.endsWith(".mp4")).length)).catch(() => undefined);
+    const current = () => !cancelled && currentSelection.current === selection;
+    projectShow(selection.dir).then((s) => current() && setShow(s)).catch((e) => current() && setJobError(errorMessage(e)));
+    rendersList(selection.dir).then((r) => current() && setExportsCount(r.renders.filter((x) => x.name.endsWith(".mp4")).length)).catch(() => undefined);
     return () => { cancelled = true; };
-  }, [dir]);
+  }, [selection]);
   useEffect(() => {
     if (progress.output) setOutput(progress.output);
     if (progress.done || progress.error) void refresh().catch(() => undefined);
   }, [progress.output, progress.done, progress.error, refresh]);
 
   const open = useCallback((next: string, navigate: () => void, clearRecovery: () => void, onRecentError: (e: unknown) => void) => {
-    setShow(null); setOutput(null); setJobError(null);
+    const nextSelection = { dir: next };
+    currentSelection.current = nextSelection;
+    setShow(null); setExportsCount(0); setOutput(null); setJobError(null);
     setImportMissing(null); setImportUnverified(null);
-    reset(); navigate(); clearRecovery(); setDir(next);
+    reset(); navigate(); clearRecovery(); setSelection(nextSelection);
     void rememberProject(next).catch(onRecentError);
   }, [reset]);
   const close = useCallback((navigate: () => void) => {
-    setDir(null); setShow(null); setImportMissing(null); setImportUnverified(null); navigate();
+    currentSelection.current = null;
+    setSelection(null); setShow(null); setExportsCount(0); setImportMissing(null); setImportUnverified(null); navigate();
   }, []);
   const applyBundleReport = useCallback((report: BundleImportResult) => {
     const missing = [
