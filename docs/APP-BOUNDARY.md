@@ -108,6 +108,12 @@ apps through that route. [RightKit #994](https://github.com/bogusyogi/rightkit/i
 records the decision. [RightKit #1658](https://github.com/bogusyogi/rightkit/issues/1658)
 tracks the implementation. If an app lacks this route, record the gap and keep M22 applicable.
 
+The [preserved CLI design](https://github.com/bogusyogi/mailright/blob/e97c9e1533904df99d91f445c33ca8fada228c4b/docs/contracts/design/SHAPE.md)
+defines the contract, host-first routing and installed proof journeys. Apply the
+active app scope above. Installed-path and signature checks must bind the executable
+to trusted product signing identity before it runs. The user-writable discovery
+record is a locator. Keep each app's existing licence, pairing and approval gates.
+
 ## How the earlier reading went wrong
 
 The full analysis, with the timeline, the root causes, every app checked against the

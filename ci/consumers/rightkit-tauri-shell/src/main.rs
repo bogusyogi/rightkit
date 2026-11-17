@@ -1,4 +1,4 @@
-// rightkit-tauri-shell 0.5.1 consumed by exact registry pin, outside the workspace.
+// rightkit-tauri-shell 0.8.3 consumed by exact registry pin, outside the workspace.
 //
 // Proves, through public API only and with default features:
 // * navigation scheme rules: external_scheme_allowed admits only http, https and mailto, and
