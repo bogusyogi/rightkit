@@ -21,6 +21,7 @@
 pub mod applicability;
 pub mod app_contract;
 pub mod backends;
+pub mod contract_entry;
 pub mod exposure;
 mod journal;
 #[cfg(feature = "mcp-provider")]
