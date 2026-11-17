@@ -17,6 +17,7 @@
     "./cargo-contract.mjs": "./cargo-contract.mjs",
     "./cargo-target.mjs": "./cargo-target.mjs",
     "./cli/right-release.mjs": "./cli/right-release.mjs",
+    "./config-inspect.mjs": "./config-inspect.mjs",
     "./development.mjs": "./development.mjs",
     "./direct-bootstrap.mjs": "./direct-bootstrap.mjs",
     "./disk-policy.mjs": "./disk-policy.mjs",

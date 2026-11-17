@@ -20,6 +20,7 @@ Plan item 2.10 (gaps C4-16, C4-17). `@rightkit/release` had no `exports` map, so
 | `./cargo-contract.mjs` | app-import | imported by heardright |
 | `./cargo-target.mjs` | app-import | imported by coderight, cutright, heardright, postright, pulse, scraperight, viewright |
 | `./cli/right-release.mjs` | bin | target of the `right-release` bin; `@rightkit/legal` resolves it with `createRequire().resolve`, scripts in four apps and Legion spawn it by path |
+| `./config-inspect.mjs` | sdk | README (Release config inspection): strict read-only M24 config inspection |
 | `./development.mjs` | app-import | imported by cutright, ember, mailright |
 | `./direct-bootstrap.mjs` | app-import | imported by coderight, legion |
 | `./disk-policy.mjs` | app-import | imported by pulse |
