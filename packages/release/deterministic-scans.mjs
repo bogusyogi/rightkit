@@ -1812,10 +1812,11 @@ export function planScans({
     }
     // NN40 (GC-A27): docs build as one command per workspace and configuration. The row is the doc subcommand with --no-deps, --lib, one `-p <crate>`,
     // the lint set and --locked, with a batchUnit, so class B batching groups the doc rows of one workspace and configuration into one invocation
-    // naming every crate. The request never sets RUSTDOCFLAGS: the broker sets "-D warnings" itself on doc and refuses any other value.
+    // naming every crate. The row sets RUSTDOCFLAGS to DOC_RUSTDOCFLAGS: the broker adds nothing itself (it only admits exactly this value on doc), so
+    // without it a rustdoc warning passed here and failed in CI (loop matrix G22, found from real receipts 2026-11-17).
     // A crate with no library has no API docs to check.
     if (exists(path.join(contentRoot, rustDir(name), "src", "lib.rs"))) {
-      add({ id: rustScanId.doc(name), class: B, batchUnit: name, ...cargoIn(ws, "doc", "--no-deps", "--lib", "-p", crate, ...lintSets[0], "--locked") });
+      { const scan = cargoIn(ws, "doc", "--no-deps", "--lib", "-p", crate, ...lintSets[0], "--locked"); add({ id: rustScanId.doc(name), class: B, batchUnit: name, ...scan, env: { ...(scan.env ?? {}), RUSTDOCFLAGS: DOC_RUSTDOCFLAGS } }); }
     }
   }
   // Class A, file-only (rightkit#1231): no feature of a crate's Cargo.toml may be left out of every planned feature set, so feature-gated code is never

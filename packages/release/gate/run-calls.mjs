@@ -35,7 +35,9 @@ export function restrictCall(call, names) {
  * makes every terminal a miss. The broker refuses any other name, and forwards cargo-ndk's compiler entries only when an NDK root is set; a
  * call that forwarded one of those, or any name not listed here, is never remembered (see `unrememberable`).
  */
-export const CALL_KEY_ENV = Object.freeze(["ANDROID_NDK_HOME", "CI", "IPHONEOS_DEPLOYMENT_TARGET", "NDK_HOME", "RUST_BACKTRACE", "RUST_LOG", "SOURCE_DATE_EPOCH", "TZ"]);
+// RUSTDOCFLAGS is the broker's one value-pinned extra: it admits exactly "-D warnings", on doc calls only, and only when the request carries it.
+// It is in the key, so a doc call that passed without it is never reused for one sent with it.
+export const CALL_KEY_ENV = Object.freeze(["ANDROID_NDK_HOME", "CI", "IPHONEOS_DEPLOYMENT_TARGET", "NDK_HOME", "RUSTDOCFLAGS", "RUST_BACKTRACE", "RUST_LOG", "SOURCE_DATE_EPOCH", "TZ"]);
 export const CALL_DISPLAY_ENV = Object.freeze(["CARGO_TERM_COLOR", "NO_COLOR", "TERM", "__CF_USER_TEXT_ENCODING"]);
 
 /** The names the broker forwarded for `job`, from its signed receipt (`environment.forwarded`); null when the receipt does not say. */
@@ -80,19 +82,21 @@ const jobOf = (sent) => ({ exit: sent.status ?? null, requestId: sent.requestId 
  * `send(call)`: sends one call and returns { status, stdout, stderr, requestId?, receipt?, receiptSha256?, refusal?: { code, message } }
  *   (seam-broker.mjs runSeamCargoCall's `result` on the Mac and the Dell; the direct wrapper on Linux).
  * `store`: fileStore(dir) or null (nothing remembered). `identity`: see callKey. `hostTriple`: this host's target.
- * `env`: the environment `send` sends the calls with (its CALL_KEY_ENV values are in the key). `forwarded(job)`: see forwardedOf.
+ * `env`: the environment `send` sends a call with, or a function (call) => that environment when calls differ (a doc call carries RUSTDOCFLAGS).
+ *   Its CALL_KEY_ENV values are in the key, read before the store is looked up. `forwarded(job)`: see forwardedOf.
  * Returns { outcomes: [{ call, state: "skipped"|"ran", results, jobs, evidence, notRemembered? }], counts: { calls, ran, skipped, jobs, greenReruns, notRemembered } }.
  * `evidence` is the job that proves each passed crate: for a clean call its one job, after a green rerun the second job.
  */
 export function runCalls({ calls, send, store = null, identity, hostTriple, onCall = () => {}, env = {}, forwarded = forwardedOf }) {
   const outcomes = [];
   const counts = { calls: calls.length, ran: 0, skipped: 0, jobs: 0, greenReruns: 0, notRemembered: 0 };
+  const envOf = (which) => (typeof env === "function" ? env(which) : env);
   // Remembers a passed job, unless its receipt shows the key is too narrow for what the broker forwarded. Returns the reason it was not remembered, or null.
   const remember = (which, job) => {
     if (!store) return null;
     const why = unrememberable(forwarded(job));
     if (why) { counts.notRemembered += 1; return why; }
-    store.put(callKey(which, identity, env), { call: { id: which.id, cwd: which.cwd ?? ".", args: which.args }, job, crates: which.crates.map((c) => c.name) });
+    store.put(callKey(which, identity, envOf(which)), { call: { id: which.id, cwd: which.cwd ?? ".", args: which.args }, job, crates: which.crates.map((c) => c.name) });
     return null;
   };
   const judge = (call, sent) => {
@@ -111,7 +115,7 @@ export function runCalls({ calls, send, store = null, identity, hostTriple, onCa
     return crateResults({ crates: call.crates, stdout: sent.stdout ?? "", stderr: sent.stderr ?? "", exit: sent.status ?? null, refusal, host: hostTriple });
   };
   for (const call of calls) {
-    const key = callKey(call, identity, env);
+    const key = callKey(call, identity, envOf(call));
     const remembered = store?.get(key) ?? null;
     let notRemembered = null;
     if (remembered) {

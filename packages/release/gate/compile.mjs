@@ -5,7 +5,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { osOfTriple, planCalls, planNotes } from "./calls.mjs";
+import { DOC_DENY, osOfTriple, planCalls, planNotes } from "./calls.mjs";
 import { fileStore, resultsByCrate, runCalls } from "./run-calls.mjs";
 import { runTests } from "./tests.mjs";
 import { CROSS_TARGETS, hostTarget } from "../cross-targets.mjs";
@@ -45,6 +45,16 @@ export function gateIdentity({ commit, snapshot, platform, client, readFile = (f
   return { commit, toolchain, host: platform, broker, gate: code.digest("hex").slice(0, 16) };
 }
 
+/**
+ * The environment one call is sent with. A docs call denies rustdoc warnings, as CI does: the broker adds nothing itself and admits exactly this
+ * value on doc calls. Every other call is sent without RUSTDOCFLAGS, whatever the launching session had set.
+ */
+export function callEnv(env, call) {
+  const out = { ...env }; delete out.RUSTDOCFLAGS;
+  if (call.stage === "docs") out.RUSTDOCFLAGS = DOC_DENY;
+  return out;
+}
+
 /** The targets linted on this host: its own triple and the other operating systems' cross targets. */
 export function targetsFor(platform = process.platform, arch = process.arch) {
   const hostTriple = hostTarget(platform, arch);
@@ -72,7 +82,7 @@ export async function compileTogether({ snapshot, commit, crates, rustConfig = {
   const testScope = crypto.createHash("sha256").update(JSON.stringify(["commit", "toolchain", "host", "broker", "gate"].map((k) => identity[k]))).digest("hex");
   const seamEnv = { ...env, RUSTRIGHT_GATE_COMMIT: commit, RUSTRIGHT_CLASS_A: verdictFile };
   const sendCall = send ?? ((call) => {
-    const { result, ledger } = runSeamCargoCall(call.args, { cwd: path.join(snapshot, call.cwd ?? "."), env: seamEnv, client });
+    const { result, ledger } = runSeamCargoCall(call.args, { cwd: path.join(snapshot, call.cwd ?? "."), env: callEnv(seamEnv, call), client });
     if (ledger?.settled === false) onUnsettled(call, ledger);
     return result;
   });
@@ -102,7 +112,7 @@ export async function compileTogether({ snapshot, commit, crates, rustConfig = {
   let stopped = null;
   for (const call of calls) {
     const one = runCalls({
-      calls: [call], send: sendCall, store, identity, hostTriple, env: seamEnv,
+      calls: [call], send: sendCall, store, identity, hostTriple, env: (c) => callEnv(seamEnv, c),
       onCall: (o) => {
         if (o.notRemembered) out(`not remembered ${o.call.id}: ${o.notRemembered}`);
         const red = o.results.filter((r) => r.result !== "passed");

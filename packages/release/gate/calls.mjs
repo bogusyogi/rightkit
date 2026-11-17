@@ -5,10 +5,15 @@
 // partition. A crate-specific feature set is the one thing that is a call of its own, because `--features` names one crate's features.
 //
 // Input crate: { name, platforms?: ["darwin"|"win32"|"linux"], hasLib: boolean, declaresFeatures: boolean, config?: <ci/gate.config.json rust.<name>> }
+// A docs call is sent with RUSTDOCFLAGS set to DOC_DENY (compile.mjs callEnv): a rustdoc warning fails here as it fails in CI.
 // Output call: { id, stage: "lint"|"test-build"|"docs", round, crates: [{ name, targets }], args: [...], cwd?: <dir for a consumer manifest> }
 import { featureSetEntries, unlintedFeatures } from "../feature-sets.mjs";
 
+/** What a docs call sets RUSTDOCFLAGS to. The same value CI uses (deterministic-scans.mjs DOC_RUSTDOCFLAGS; a test keeps them equal) and the only one the broker admits. */
+export const DOC_DENY = "-D warnings";
+
 /** process.platform word of a target triple. */
+
 export const osOfTriple = (triple) => (/-apple-/.test(triple) ? "darwin" : /-windows-/.test(triple) ? "win32" : /-linux-/.test(triple) ? "linux" : null);
 
 const runsOn = (crate, os) => !Array.isArray(crate.platforms) || crate.platforms.includes(os);

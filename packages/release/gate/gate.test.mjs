@@ -549,7 +549,7 @@ test("G18: a remembered call carries the variables the broker forwards to Cargo,
     assert.equal(callKey(call, identity, { TZ: "UTC", TERM: "dumb", NO_COLOR: "1", PATH: "/elsewhere", WT_SESSION: "x" }), base);
     for (const name of CALL_KEY_ENV) assert.notEqual(callKey(call, identity, { TZ: "UTC", [name]: "changed" }), base, name);
     assert.notEqual(callKey(call, identity, {}), base, "an unset variable is not the same as a set one");
-    assert.deepEqual([...CALL_KEY_ENV].sort(), ["ANDROID_NDK_HOME", "CI", "IPHONEOS_DEPLOYMENT_TARGET", "NDK_HOME", "RUST_BACKTRACE", "RUST_LOG", "SOURCE_DATE_EPOCH", "TZ"]);
+    assert.deepEqual([...CALL_KEY_ENV].sort(), ["ANDROID_NDK_HOME", "CI", "IPHONEOS_DEPLOYMENT_TARGET", "NDK_HOME", "RUSTDOCFLAGS", "RUST_BACKTRACE", "RUST_LOG", "SOURCE_DATE_EPOCH", "TZ"]);
     assert.deepEqual([...CALL_DISPLAY_ENV].sort(), ["CARGO_TERM_COLOR", "NO_COLOR", "TERM", "__CF_USER_TEXT_ENCODING"]);
 
     // What may be remembered.
@@ -580,6 +580,43 @@ test("G18: a remembered call carries the variables the broker forwards to Cargo,
       assert.equal(go(b, { TZ: "UTC" }, sb).counts.skipped, 0); assert.equal(b.sent(), 2);
     }
     // The build-together path sends the environment it really uses.
-    assert.match(fs.readFileSync(new URL("./compile.mjs", import.meta.url), "utf8"), /store, identity, hostTriple, env: seamEnv,/);
+    assert.match(fs.readFileSync(new URL("./compile.mjs", import.meta.url), "utf8"), /store, identity, hostTriple, env: \(c\) => callEnv\(seamEnv, c\),/);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("G22: a docs call denies rustdoc warnings as CI does, and a pass made without the flag is never reused for a call sent with it", async () => {
+  const { callEnv } = await import("./compile.mjs");
+  const { DOC_DENY } = await import("./calls.mjs");
+  const { DOC_RUSTDOCFLAGS } = await import("../deterministic-scans.mjs");
+  const { unrememberable } = await import("./run-calls.mjs");
+  assert.equal(DOC_DENY, DOC_RUSTDOCFLAGS); assert.equal(DOC_DENY, "-D warnings");
+  // The environment of each call: docs carry the pinned value whatever the session had; no other call carries the variable.
+  assert.equal(callEnv({ PATH: "/bin" }, { stage: "docs" }).RUSTDOCFLAGS, "-D warnings");
+  assert.equal(callEnv({ PATH: "/bin", RUSTDOCFLAGS: "--cfg x" }, { stage: "docs" }).RUSTDOCFLAGS, "-D warnings");
+  for (const stage of ["lint", "test-build"]) assert.equal(Object.hasOwn(callEnv({ RUSTDOCFLAGS: "-D warnings", PATH: "/bin" }, { stage }), "RUSTDOCFLAGS"), false);
+  assert.equal(callEnv({ PATH: "/bin" }, { stage: "docs" }).PATH, "/bin");
+  // A receipt that lists RUSTDOCFLAGS as forwarded is still rememberable.
+  assert.equal(unrememberable(["RUSTDOCFLAGS"]), null);
+
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rk-g22-"));
+  try {
+    const identity = { commit: "c".repeat(40), toolchain: "t", host: "win32", broker: "b", gate: "g" };
+    const call = { id: "docs:default", stage: "docs", round: "default", crates: [{ name: "a", targets: ["x86_64-pc-windows-msvc"] }], args: ["doc", "-p", "a"] };
+    assert.notEqual(callKey(call, identity, {}), callKey(call, identity, { RUSTDOCFLAGS: "-D warnings" }), "absent and present are different keys");
+    const receipt = path.join(dir, "r.json"); fs.writeFileSync(receipt, JSON.stringify({ environment: { forwarded: ["RUSTDOCFLAGS"] } }));
+    const seen = [];
+    const send = (c) => { seen.push(c.id); return { status: 0, stdout: [JSON.stringify({ reason: "compiler-artifact", package_id: "path+file:///s/crates/a#0.1.0", target: { kind: ["lib"], name: "a" }, filenames: ["/t/x86_64-pc-windows-msvc/liba.rlib"] }), JSON.stringify({ reason: "build-finished", success: true })].join("\n"), stderr: "", requestId: "r", receipt, receiptSha256: "x" }; };
+    const store = fileStore(path.join(dir, "store"));
+    const go = (env) => runCalls({ calls: [call], send, store, identity, hostTriple: "x86_64-pc-windows-msvc", env });
+    // A pass remembered from a run that sent no flag (the gate before this change)...
+    assert.equal(go({}).counts.ran, 1);
+    assert.equal(go({}).counts.skipped, 1);
+    // ...is not a hit for the call sent with the flag: it is decided before the store is looked up, per call.
+    assert.equal(go((c) => callEnv({}, c)).counts.ran, 1); assert.equal(seen.length, 2);
+    assert.equal(go((c) => callEnv({}, c)).counts.skipped, 1); assert.equal(seen.length, 2);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  // The build-together path sends and keys every call with callEnv; the per-crate doc row carries the same flag in its own environment.
+  const compile = fs.readFileSync(new URL("./compile.mjs", import.meta.url), "utf8");
+  assert.match(compile, /env: callEnv\(seamEnv, call\), client/); assert.match(compile, /env: \(c\) => callEnv\(seamEnv, c\),/);
+  assert.match(fs.readFileSync(new URL("../deterministic-scans.mjs", import.meta.url), "utf8"), /id: rustScanId\.doc\(name\), class: B, batchUnit: name, \.\.\.scan, env: \{ \.\.\.\(scan\.env \?\? \{\}\), RUSTDOCFLAGS: DOC_RUSTDOCFLAGS \} \}/);
 });
