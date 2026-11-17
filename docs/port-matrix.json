@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generatedAt": "2026-11-17T04:38:27Z",
-  "rightkitHead": "c5e542ba10c53c438d4b2c57aeb021533f4a7e1e",
+  "generatedAt": "2026-11-17T05:14:55Z",
+  "rightkitHead": "b74928c6eff072eaea9f6c0e76009b8278099b5e",
   "legend": [
     {
       "state": "current",
@@ -599,7 +599,7 @@
       "group": "mandatory-set app",
       "dir": "D:\\Claude\\cutright",
       "present": true,
-      "head": "235781e872087416c9a7f42cb5ffb42b24b2d1e6",
+      "head": "72601358e553450b3c19d482a4870edb1292dd80",
       "profile": "desktop",
       "inMandatorySet": true,
       "declaration": {
@@ -1464,7 +1464,7 @@
       "group": "mandatory-set app",
       "dir": "D:\\Claude\\heardright",
       "present": true,
-      "head": "96762c534a7a2bbf926ca16168669951d2ffbdb9",
+      "head": "45d6f671c5b4c8e8f986287d0c06a9d62caf0310",
       "profile": "desktop",
       "inMandatorySet": true,
       "declaration": {
