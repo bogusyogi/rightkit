@@ -423,28 +423,81 @@ test("G19: the gate-code hash covers every file the build-together path imports,
   assert.throws(() => gateCodeFiles(path.resolve("/g"), { readFile: read, list: () => ["a.mjs"] }), /no \/gone\.mjs/);
 });
 
-test("G17: a test program past its time limit has its whole tree stopped, and one not proven stopped is counted", async () => {
+test("G17: a test program past its time limit is stopped as a tree; without proof the tree is gone it is unreaped and nothing more starts", async () => {
   const { EventEmitter } = await import("node:events");
-  const exe = { path: "/t/a", sha256: "ab".repeat(32), package_id: "path+file:///s/crates/a#0.1.0", target: "a", kind: "lib" };
-  const fake = (onStop) => { const stopped = []; const options = [];
-    const spawn = (file, args, opts) => { options.push(opts); const c = new EventEmitter(); c.pid = 4242; c.stdout = new EventEmitter(); c.stderr = new EventEmitter(); c.kill = () => { throw new Error("child.kill must not be the stop"); }; return c; };
-    return { spawn, stopped, options, stop: (child) => { stopped.push(child.pid); onStop(child); } };
+  const { stopTree, treeGone } = await import("./tests.mjs");
+  const exe = (name) => ({ path: `/t/${name}`, sha256: "ab".repeat(32), package_id: `path+file:///s/crates/${name}#0.1.0`, target: name, kind: "lib" });
+  const fake = () => { const started = []; const options = [];
+    const spawn = (file, args, opts) => { started.push(file); options.push(opts); const c = new EventEmitter(); c.pid = 4242; c.stdout = new EventEmitter(); c.stderr = new EventEmitter(); c.kill = () => { throw new Error("child.kill must not be the stop"); }; return c; };
+    return { spawn, started, options };
   };
-  const base = { executables: [exe], crates: [{ name: "a", dir: "/s/crates/a" }], env: { PATH: "/bin" }, jobs: 1, hashOf: () => "ab".repeat(32), timeoutMs: 20 };
-  // The tree stop ends the program: failed, reported as stopped, nothing left running.
-  const a = fake((child) => setImmediate(() => child.emit("close", null, "SIGKILL")));
-  const ended = await runTests({ ...base, spawn: a.spawn, stop: a.stop, reapMs: 5000, platform: "linux" });
-  assert.deepEqual(a.stopped, [4242]); assert.equal(a.options[0].detached, true);
-  assert.equal(ended.byCrate.a.result, "failed"); assert.match(ended.byCrate.a.detail, /timed out after 0 s; the program and what it started were stopped/); assert.equal(ended.counts.unreaped, 0);
-  // The program never ends: failed, counted as not proven stopped. On Windows the child is not detached (taskkill /T walks the tree).
-  const b = fake(() => {});
-  const stuck = await runTests({ ...base, spawn: b.spawn, stop: b.stop, reapMs: 20, platform: "win32" });
-  assert.equal(b.options[0].detached, undefined);
-  assert.equal(stuck.byCrate.a.result, "failed"); assert.match(stuck.byCrate.a.detail, /not proven stopped/); assert.equal(stuck.counts.unreaped, 1);
-  // stopTree: taskkill /T /F on Windows; the process group elsewhere.
-  const { stopTree } = await import("./tests.mjs");
-  const calls = []; stopTree({ pid: 7 }, { platform: "win32", run: (...x) => calls.push(x) });
-  assert.deepEqual(calls[0].slice(0, 2), ["taskkill", ["/T", "/F", "/PID", "7"]]);
-  const sig = []; stopTree({ pid: 7 }, { platform: "linux", kill: (pid, s) => sig.push([pid, s]) });
+  const base = { executables: [exe("a"), exe("b")], crates: [{ name: "a", dir: "/s/crates/a" }, { name: "b", dir: "/s/crates/b" }], env: { PATH: "/bin" }, jobs: 1, hashOf: () => "ab".repeat(32), timeoutMs: 15, reapMs: 60, pollMs: 5 };
+  const okStop = () => ({ ok: true, detail: "" });
+
+  // POSIX, the group answers "no such process" after the stop: proven stopped, the next program still runs (it hangs too, and is proven too).
+  const p = fake();
+  const proven = await runTests({ ...base, spawn: p.spawn, stop: okStop, gone: () => true, platform: "linux" });
+  assert.equal(p.options[0].detached, true); assert.deepEqual(p.started, ["/t/a", "/t/b"]);
+  assert.equal(proven.byCrate.a.result, "failed"); assert.match(proven.byCrate.a.detail, /timed out after 0 s; the program and everything it started are proven stopped/); assert.equal(proven.counts.unreaped, 0);
+
+  // POSIX, a surviving descendant: the program itself closed, the group still answers. Not proven: unreaped, and b is never started.
+  const d = fake();
+  const closing = (file, args, opts) => { const c = d.spawn(file, args, opts); setTimeout(() => c.emit("close", null, "SIGKILL"), 25); return c; };
+  const survivor = await runTests({ ...base, spawn: closing, stop: okStop, gone: () => false, platform: "linux" });
+  assert.equal(survivor.counts.unreaped, 1); assert.deepEqual(d.started, ["/t/a"]);
+  assert.equal(survivor.byCrate.a.result, "failed"); assert.match(survivor.byCrate.a.detail, /not proven stopped \(its process group still answered/);
+  assert.equal(survivor.byCrate.b.result, "unknown"); assert.match(survivor.byCrate.b.detail, /not run: an earlier test program is not proven stopped/);
+
+  // Windows, the program ended after a clean taskkill: still no proof for what it started, so unreaped. The child is not detached there.
+  const w = fake();
+  const wClosing = (file, args, opts) => { const c = w.spawn(file, args, opts); setTimeout(() => c.emit("close", 1, null), 25); return c; };
+  const win = await runTests({ ...base, spawn: wClosing, stop: okStop, platform: "win32" });
+  assert.equal(w.options[0].detached, undefined); assert.equal(win.counts.unreaped, 1); assert.deepEqual(w.started, ["/t/a"]);
+  assert.match(win.byCrate.a.detail, /Windows gives no proof for the processes it started/);
+
+  // A stop request that failed or hung is unreaped at once, with the reason.
+  const f = fake();
+  const failed = await runTests({ ...base, spawn: f.spawn, stop: () => ({ ok: false, detail: "taskkill did not finish (ETIMEDOUT)" }), gone: () => true, platform: "win32" });
+  assert.equal(failed.counts.unreaped, 1); assert.match(failed.byCrate.a.detail, /not proven stopped \(taskkill did not finish \(ETIMEDOUT\)\)/);
+
+  // stopTree: taskkill /T /F with a deadline on Windows, its exit read; the process group elsewhere, its failure read.
+  const calls = [];
+  assert.deepEqual(stopTree({ pid: 7 }, { platform: "win32", killMs: 1234, run: (...x) => { calls.push(x); return { status: 0 }; } }), { ok: true, detail: "" });
+  assert.deepEqual(calls[0].slice(0, 2), ["taskkill", ["/T", "/F", "/PID", "7"]]); assert.equal(calls[0][2].timeout, 1234);
+  assert.equal(stopTree({ pid: 7 }, { platform: "win32", run: () => ({ status: 128 }) }).ok, true);
+  assert.match(stopTree({ pid: 7 }, { platform: "win32", run: () => ({ status: 1 }) }).detail, /taskkill exited 1/);
+  assert.match(stopTree({ pid: 7 }, { platform: "win32", run: () => ({ status: null, error: Object.assign(new Error("x"), { code: "ETIMEDOUT" }) }) }).detail, /did not finish \(ETIMEDOUT\)/);
+  const sig = []; assert.equal(stopTree({ pid: 7 }, { platform: "linux", kill: (pid, s) => sig.push([pid, s]) }).ok, true);
   assert.deepEqual(sig, [[-7, "SIGKILL"]]);
+  const err = (code) => () => { throw Object.assign(new Error(code), { code }); };
+  assert.equal(stopTree({ pid: 7 }, { platform: "linux", kill: err("ESRCH") }).ok, true);
+  assert.match(stopTree({ pid: 7 }, { platform: "linux", kill: err("EPERM") }).detail, /could not be signalled \(EPERM\)/);
+  // treeGone: only "no such process" is proof; a live group and a refused signal are not; Windows never has proof here.
+  assert.equal(treeGone({ pid: 7 }, { platform: "linux", kill: err("ESRCH") }), true);
+  assert.equal(treeGone({ pid: 7 }, { platform: "linux", kill: err("EPERM") }), false);
+  assert.equal(treeGone({ pid: 7 }, { platform: "linux", kill: () => true }), false);
+  assert.equal(treeGone({ pid: 7 }, { platform: "win32" }), null);
+});
+
+test("G17: after a test program that is not proven stopped, no further Cargo call is sent and no crate is called passed", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rk-g17-"));
+  try {
+    for (const name of ["a", "b"]) { fs.mkdirSync(path.join(dir, "crates", name, "src"), { recursive: true }); fs.writeFileSync(path.join(dir, "crates", name, "Cargo.toml"), `[package]\nname = "${name}"\nversion = "0.1.0"\n`); fs.writeFileSync(path.join(dir, "crates", name, "src", "lib.rs"), ""); }
+    const receipt = path.join(dir, "receipt.json"); fs.writeFileSync(receipt, JSON.stringify({ testExecutables: [] }));
+    const sent = [];
+    const send = (call) => { sent.push(call.stage);
+      const lines = []; for (const c of call.crates) for (const t of call.targets ?? [targetsFor().hostTriple]) lines.push(JSON.stringify({ reason: "compiler-artifact", package_id: `path+file:///s/crates/${c.name}#0.1.0`, target: { kind: ["lib"], name: c.name }, filenames: [`/t/${t}/lib${c.name}.rlib`] }));
+      lines.push(JSON.stringify({ reason: "build-finished", success: true }));
+      return { status: 0, stdout: lines.join("\n"), stderr: "", requestId: "r", receipt, receiptSha256: "x" };
+    };
+    const unsettled = []; const lines = [];
+    const run = await compileTogether({ snapshot: dir, commit: "c".repeat(40), crates: ["a", "b"], client: null, env: {}, verdictFile: path.join(dir, "v.json"), storeDir: null, send, out: (l) => lines.push(l), onUnsettled: (call, why) => unsettled.push(why),
+      runTestsWith: async ({ crates }) => ({ byCrate: Object.fromEntries(crates.map((c) => [c.name, { result: c.name === "a" ? "failed" : "unknown", detail: "x", programs: 1, passed: 0, failed: 0, ignored: 0 }])), counts: { programs: 2, ran: 1, cached: 0, unreaped: 1 } }) });
+    const at = sent.indexOf("test-build");
+    assert.ok(at >= 0, "a test build was sent"); assert.equal(sent.length, at + 1, `calls were sent after the unreaped test: ${sent.slice(at + 1).join(", ")}`);
+    assert.equal(unsettled.length, 1); assert.match(unsettled[0].reason, /not proven stopped/);
+    assert.equal(run.code, 1); assert.equal(run.counts.tests.unreaped, 1);
+    assert.equal(run.byCrate.a.result, "failed"); assert.equal(run.byCrate.b.result, "unknown"); assert.match(run.byCrate.b.detail, /stopped after .*not proven stopped; \d+ call\(s\) not sent/);
+    assert.ok(lines.some((l) => /^stopped after /.test(l)));
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });

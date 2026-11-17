@@ -22,21 +22,40 @@ export function libtestSummary(text) {
 
 const sha256File = (file) => crypto.createHash("sha256").update(fs.readFileSync(file)).digest("hex");
 
-/** Stops `child` and everything it started: taskkill /T /F on Windows, the child's own process group elsewhere (it is spawned detached there). */
-export function stopTree(child, { platform = process.platform, run = spawnSync, kill = (pid, sig) => process.kill(pid, sig) } = {}) {
-  if (!child?.pid) return;
-  if (platform === "win32") { try { run("taskkill", ["/T", "/F", "/PID", String(child.pid)], { windowsHide: true, stdio: "ignore" }); } catch { /* already gone */ } return; }
-  try { kill(-child.pid, "SIGKILL"); } catch { try { child.kill("SIGKILL"); } catch { /* already gone */ } }
+/**
+ * Asks the system to stop `child` and everything it started: taskkill /T /F on Windows (bounded to `killMs`), the child's own process
+ * group elsewhere (it is spawned detached there). Returns { ok, detail }: ok is true only when the request was accepted or the target was already gone.
+ */
+export function stopTree(child, { platform = process.platform, run = spawnSync, kill = (pid, sig) => process.kill(pid, sig), killMs = 10000 } = {}) {
+  if (!child?.pid) return { ok: false, detail: "the program has no process id" };
+  if (platform === "win32") {
+    let r;
+    try { r = run("taskkill", ["/T", "/F", "/PID", String(child.pid)], { windowsHide: true, stdio: "ignore", timeout: killMs }); } catch (error) { return { ok: false, detail: `taskkill could not be started (${error.message})` }; }
+    if (r?.error) return { ok: false, detail: `taskkill did not finish (${r.error.code ?? r.error.message})` };
+    return r?.status === 0 || r?.status === 128 ? { ok: true, detail: "" } : { ok: false, detail: `taskkill exited ${r?.status}` };
+  }
+  try { kill(-child.pid, "SIGKILL"); return { ok: true, detail: "" }; }
+  catch (error) { return error?.code === "ESRCH" ? { ok: true, detail: "" } : { ok: false, detail: `the process group could not be signalled (${error?.code ?? error?.message})` }; }
 }
 
 /**
- * Runs one program. On a timeout its whole process tree is stopped and the result waits (up to `reapMs`) for the program to end.
- * `unreaped: true` means it did not end in that time: something it started may still be running in the snapshot.
+ * Whether everything `child` started is proven gone. POSIX: true only when signalling its process group answers "no such process".
+ * Windows: null, always. The end of the program and a clean taskkill do not prove that a process it started (one that left the tree) is gone,
+ * and nothing here can ask. The gate's lock-holder job (snapshot.mjs) is what proves it later, when the lock is reclaimed.
  */
-function runOne({ file, args, cwd, env, timeoutMs, spawn, platform = process.platform, stop = stopTree, reapMs = 15000 }) {
+export function treeGone(child, { platform = process.platform, kill = (pid, sig) => process.kill(pid, sig) } = {}) {
+  if (platform === "win32") return null;
+  try { kill(-child.pid, 0); return false; } catch (error) { return error?.code === "ESRCH"; }
+}
+
+/**
+ * Runs one program. On a timeout its whole process tree is stopped and the result waits (up to `reapMs`) for proof that nothing of it is left.
+ * `unreaped: true` means there is no such proof: something it started may still be running in the snapshot.
+ */
+function runOne({ file, args, cwd, env, timeoutMs, spawn, platform = process.platform, stop = stopTree, gone = treeGone, reapMs = 15000, pollMs = 100 }) {
   return new Promise((resolve) => {
-    let out = ""; let done = false; let timedOut = false; let reapTimer = null;
-    const finish = (r) => { if (!done) { done = true; clearTimeout(reapTimer); resolve({ ...r, output: out.slice(-20000) }); } };
+    let out = ""; let done = false; let timedOut = false; let closed = false; let poll = null;
+    const finish = (r) => { if (!done) { done = true; clearInterval(poll); resolve({ ...r, output: out.slice(-20000) }); } };
     const late = `timed out after ${Math.round(timeoutMs / 1000)} s`;
     let child;
     try { child = spawn(file, args, { cwd, env, stdio: ["ignore", "pipe", "pipe"], windowsHide: true, ...(platform === "win32" ? {} : { detached: true }) }); }
@@ -45,13 +64,22 @@ function runOne({ file, args, cwd, env, timeoutMs, spawn, platform = process.pla
     try { recordLockChild(child, { platform }); } catch (error) { finish({ exit: null, error: String(error.message ?? error) }); return; }
     const timer = setTimeout(() => {
       timedOut = true;
-      stop(child, { platform });
-      reapTimer = setTimeout(() => finish({ exit: null, unreaped: true, error: `${late}; its processes are not proven stopped after ${Math.round(reapMs / 1000)} s more` }), reapMs);
+      const deadline = Date.now() + reapMs; // the clock starts before the stop request, so a slow taskkill is inside it
+      const asked = stop(child, { platform });
+      const unproven = (why) => finish({ exit: null, unreaped: true, error: `${late}; what it started is not proven stopped (${why})` });
+      const look = () => {
+        if (!asked.ok) { unproven(asked.detail); return; }
+        const empty = gone(child, { platform });
+        if (empty === true) { finish({ exit: null, error: `${late}; the program and everything it started are proven stopped` }); return; }
+        if (empty === null && closed) { unproven("the program ended, and Windows gives no proof for the processes it started"); return; }
+        if (Date.now() >= deadline) unproven(empty === null ? `the program had not ended ${Math.round(reapMs / 1000)} s after the stop` : `its process group still answered ${Math.round(reapMs / 1000)} s after the stop`);
+      };
+      poll = setInterval(look, pollMs); look();
     }, timeoutMs);
     child.stdout.on("data", (d) => { out += d; if (out.length > 400000) out = out.slice(-200000); });
     child.stderr.on("data", (d) => { out += d; if (out.length > 400000) out = out.slice(-200000); });
-    child.on("error", (error) => { clearTimeout(timer); finish({ exit: null, error: timedOut ? `${late}; ${String(error.message ?? error)}` : String(error.message ?? error) }); });
-    child.on("close", (code, signal) => { clearTimeout(timer); finish(timedOut ? { exit: null, error: `${late}; the program and what it started were stopped` } : { exit: code, signal }); });
+    child.on("error", (error) => { clearTimeout(timer); closed = true; if (!timedOut) finish({ exit: null, error: String(error.message ?? error) }); });
+    child.on("close", (code, signal) => { clearTimeout(timer); closed = true; if (!timedOut) finish({ exit: code, signal }); });
   });
 }
 
@@ -61,9 +89,10 @@ function runOne({ file, args, cwd, env, timeoutMs, spawn, platform = process.pla
  * `crates`: [{ name, dir, quiet?: boolean, serialToo?: boolean, allowIgnored?: boolean, assetGated?: boolean }] the crates whose tests are owed; `dir` is the crate's directory in the snapshot.
  * `store`: run-calls.mjs fileStore or null; a passed program is remembered under its sha256 and arguments.
  * Each program runs in testProgramEnv (test-env.mjs): no credential-named variable, assets required unless the crate is `assetGated`.
+ * A program past `timeoutMs` is stopped as a tree; when nothing proves the tree gone it is counted in `unreaped` and no further program starts.
  * Quiet crates run last, one program at a time. `serialToo` crates run a second time with one test thread.
  */
-export async function runTests({ executables, crates, env = process.env, jobs = Math.max(1, os.availableParallelism?.() ?? os.cpus().length), timeoutMs = 30 * 60 * 1000, store = null, spawn = nodeSpawn, hashOf = sha256File, platform = process.platform, stop = stopTree, reapMs = 15000 }) {
+export async function runTests({ executables, crates, env = process.env, jobs = Math.max(1, os.availableParallelism?.() ?? os.cpus().length), timeoutMs = 30 * 60 * 1000, store = null, spawn = nodeSpawn, hashOf = sha256File, platform = process.platform, stop = stopTree, gone = treeGone, reapMs = 15000, pollMs = 100 }) {
   const byCrate = {}; const counts = { programs: 0, ran: 0, cached: 0, unreaped: 0 };
   if (!Array.isArray(executables)) {
     for (const c of crates) byCrate[c.name] = { result: "unknown", detail: "the test build's receipt listed no test programs", programs: 0, passed: 0, failed: 0, ignored: 0 };
@@ -81,6 +110,8 @@ export async function runTests({ executables, crates, env = process.env, jobs = 
   const runs = new Map(crates.map((c) => [c.name, []]));
   const one = async ({ exe, crate, args }) => {
     const key = `test-${exe.sha256}-${crypto.createHash("sha256").update(args.join("\0")).digest("hex").slice(0, 12)}`;
+    // After a program that is not proven stopped, no further program is started: it may still be using the shared build folder.
+    if (counts.unreaped) { runs.get(crate.name).push({ ok: false, skipped: true, program: exe.target, detail: "not run: an earlier test program is not proven stopped" }); return; }
     const remembered = store?.get(key);
     if (remembered) { counts.cached += 1; runs.get(crate.name).push({ ...remembered.run, cached: true }); return; }
     let run;
@@ -89,7 +120,7 @@ export async function runTests({ executables, crates, env = process.env, jobs = 
     if (!run && actual !== exe.sha256) run = { ok: false, program: exe.target, detail: "the program on disk is not the one the receipt lists (sha256 differs)" };
     if (!run) {
       counts.ran += 1;
-      const r = await runOne({ file: exe.path, args, cwd: crate.dir, env: { ...testProgramEnv(env, crate.assetGated === true), CARGO_MANIFEST_DIR: crate.dir }, timeoutMs, spawn, platform, stop, reapMs });
+      const r = await runOne({ file: exe.path, args, cwd: crate.dir, env: { ...testProgramEnv(env, crate.assetGated === true), CARGO_MANIFEST_DIR: crate.dir }, timeoutMs, spawn, platform, stop, gone, reapMs, pollMs });
       if (r.unreaped) counts.unreaped += 1;
       const sum = libtestSummary(r.output);
       run = { ok: r.exit === 0, program: exe.target, args, passed: sum?.passed ?? 0, failed: sum?.failed ?? 0, ignored: sum?.ignored ?? 0, detail: r.exit === 0 ? "" : (r.error ?? `exit ${r.exit}${r.signal ? ` (${r.signal})` : ""}: ${r.output.slice(-1500)}`) };
@@ -107,7 +138,8 @@ export async function runTests({ executables, crates, env = process.env, jobs = 
     const passed = list.reduce((n, r) => n + (r.passed ?? 0), 0); const failed = list.reduce((n, r) => n + (r.failed ?? 0), 0); const ignored = list.reduce((n, r) => n + (r.ignored ?? 0), 0);
     const bad = list.filter((r) => !r.ok);
     let result = "passed"; let detail = "";
-    if (bad.length) { result = "failed"; detail = bad.map((r) => `${r.program}: ${r.detail}`).join(" | ").slice(0, 4000); }
+    if (bad.length && bad.every((r) => r.skipped)) { result = "unknown"; detail = bad[0].detail; }
+    else if (bad.length) { result = "failed"; detail = bad.map((r) => `${r.program}: ${r.detail}`).join(" | ").slice(0, 4000); }
     else if (list.length && passed === 0 && ignored > 0 && !c.allowIgnored) { result = "failed"; detail = `no test passed: ${ignored} ignored of ${ignored} (summed over ${list.length} program run(s))`; }
     byCrate[c.name] = { result, detail, programs: list.length, passed, failed, ignored };
   }

@@ -105,6 +105,7 @@ export async function compileTogether({ snapshot, commit, crates, rustConfig = {
     if (ran.counts.unreaped) onUnsettled(o.call, { settled: false, reason: `${ran.counts.unreaped} test program(s) timed out and are not proven stopped` });
   };
   const outcomes = []; const counts = { calls: calls.length, ran: 0, skipped: 0, jobs: 0, greenReruns: 0 };
+  let stopped = null;
   for (const call of calls) {
     const one = runCalls({
       calls: [call], send: sendCall, store, identity, hostTriple,
@@ -116,6 +117,8 @@ export async function compileTogether({ snapshot, commit, crates, rustConfig = {
     outcomes.push(...one.outcomes);
     for (const k of ["ran", "skipped", "jobs", "greenReruns"]) counts[k] += one.counts[k];
     if (call.stage === "test-build") for (const o of one.outcomes) await runTestsOf(o);
+    // A test program not proven stopped may still be reading or writing the shared build folder: no further Cargo call is sent into it.
+    if (testCounts.unreaped) { stopped = `stopped after ${call.id}: ${testCounts.unreaped} test program(s) timed out and are not proven stopped; ${calls.length - calls.indexOf(call) - 1} call(s) not sent`; out(stopped); break; }
   }
   const perStage = resultsByCrate(outcomes);
 
@@ -126,6 +129,8 @@ export async function compileTogether({ snapshot, commit, crates, rustConfig = {
     if (stages["test-build"]) stages.tests = stages["test-build"].result === "passed" ? (tests[info.name] ?? { result: "unknown", detail: "its tests were not run" }) : { result: "not-built", detail: "the test build did not pass" };
     const words = Object.values(stages).map((s) => s.result);
     const planned = words.length > 0;
+    // A stopped run did not send every call: a crate with nothing red is unknown, never passed.
+    if (stopped && planned && !words.includes("failed")) { byCrate[info.name] = { result: "unknown", detail: stopped, stages }; continue; }
     byCrate[info.name] = { result: !planned ? (notes.notOnThisHost.includes(info.name) ? "not-on-this-host" : "unknown") : words.every((w) => w === "passed") ? "passed" : words.includes("failed") ? "failed" : words.includes("not-built") ? "not-built" : "unknown", stages };
   }
   const allCounts = { ...counts, tests: testCounts, seconds: Math.round((Date.now() - started) / 1000) };
