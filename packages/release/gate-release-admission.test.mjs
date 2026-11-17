@@ -55,7 +55,7 @@ const goodJobs = () => [job("S11:check", 3), job("S11:compile", 4), job("S12:com
 test("a gate release is admitted when the receipt, the archive, the committed host and every signed job agree", () => {
   const r = admit(fixture(goodJobs()));
   assert.deepEqual(r.problems, []); assert.equal(r.ok, true);
-  assert.deepEqual(r.facts, { host: "dell", sealedSha256: SEALED, archiveSha256: archive.sha256, jobsListed: 3, jobsVerified: 3, signedSteps: ["S11", "S12"], nnBasis: "runner-claim" });
+  assert.deepEqual(r.facts, { host: "dell", version: "0.6.58", sealedSha256: SEALED, archiveSha256: archive.sha256, jobsListed: 3, jobsVerified: 3, signedSteps: ["S11", "S12"], nnBasis: "runner-claim" });
   // A job the broker refused before it existed is listed, proves nothing, and is not counted.
   const withRefused = fixture(goodJobs()); withRefused.receipt.jobs.push({ step: "S7:neg", call: "9".repeat(32), nonce: "0".repeat(64), requestId: null, receiptSha256: null, argv: [], status: 125 });
   const r2 = admit(withRefused); assert.equal(r2.ok, true); assert.equal(r2.facts.jobsListed, 4); assert.equal(r2.facts.jobsVerified, 3);
@@ -183,8 +183,10 @@ test("NN31 at the publication entries: the gate package is refused without an ad
   // in a test; this checks the order in their source and that the hand-started workflow no longer publishes the gate package. It is not a run.)
   const src = (rel) => fs.readFileSync(new URL(rel, import.meta.url), "utf8");
   const upload = src("../../scripts/ci/upload.mjs");
-  const guardAt = upload.indexOf("gateReleaseGuard({ name: unit.name, archiveFile: file, commit: manifest.commit, env })");
-  assert.ok(guardAt > 0, "scripts/ci/upload.mjs calls the guard on the sealed file");
+  const guardAt = upload.indexOf("const refusal = gateAdmissionProblem({ unit, commit: manifest.commit, env });");
+  assert.ok(guardAt > 0, "scripts/ci/upload.mjs requires the admission record for the sealed unit");
+  // Its credentialed checkouts carry no packages/ path: it must import nothing from there, or every upload fails to load.
+  assert.doesNotMatch(upload, /from "\.\.\/\.\.\/packages\//); assert.doesNotMatch(upload, /import\("\.\.\/\.\.\/packages\//);
   assert.ok(guardAt < upload.indexOf('if (dryRun) { log(`dry run: would run npm'), "before the dry-run branch"); assert.ok(guardAt < upload.indexOf('const result = spawn("npm", args,'), "before npm is started");
   const local = src("./publish-local-npm.mjs");
   const localAt = local.indexOf("gateReleaseGuard({ name: o.pkg, archiveFile: path.join(work, tgz), commit })");
@@ -192,4 +194,35 @@ test("NN31 at the publication entries: the gate package is refused without an ad
   const owner = src("../../.github/workflows/publish-npm-owner.yml");
   const refuseAt = owner.indexOf('if [[ "$PACKAGE" == "packages/release" ]]; then echo "::error::packages/release');
   assert.ok(refuseAt > 0 && refuseAt < owner.indexOf("          npm publish --provenance --access public --ignore-scripts"), "the hand-started workflow refuses packages/release before it publishes");
+});
+
+test("the upload entry reads an admission record: required for the gate package, bound to the exact sealed unit, and nothing is imported from packages/", async () => {
+  const { gateAdmissionProblem, GATE_ADMISSION_RECORD_ENV, GATE_ADMISSION_RECORD_SCHEMA } = await import("../../scripts/ci/upload.mjs");
+  const unit = { name: "@rightkit/release", version: "0.6.58", sha256: archive.sha256 };
+  const record = (over = {}) => JSON.stringify({ schema: GATE_ADMISSION_RECORD_SCHEMA, ok: true, unit: unit.name, version: unit.version, archiveSha256: unit.sha256, commit: COMMIT, host: "dell", ...over });
+  const check = (text, u = unit, env = { [GATE_ADMISSION_RECORD_ENV]: "/t/admission.json" }) => gateAdmissionProblem({ unit: u, commit: COMMIT, env, readFile: () => { if (text === null) throw Object.assign(new Error("absent"), { code: "ENOENT" }); return text; } });
+  // Every other package: nothing is required and nothing is read.
+  assert.equal(gateAdmissionProblem({ unit: { name: "@rightkit/theme", version: "1.0.0", sha256: "0".repeat(64) }, commit: COMMIT, env: {}, readFile: () => { throw new Error("must not read"); } }), null);
+  // The gate package.
+  assert.equal(check(record()), null);
+  assert.match(check(record(), unit, {}), /is not uploaded without a passing contract-test admission .* names no admission record/);
+  assert.match(check(null), /cannot be read \(ENOENT\)/);
+  assert.match(check("not json"), /cannot be read/);
+  assert.match(check(record({ ok: false })), /not a passing rightkit\.gate-release-admission\/1/);
+  assert.match(check(record({ schema: "other/1" })), /not a passing/);
+  assert.match(check(record({ archiveSha256: "9".repeat(64) })), /is for the archive 9{64}, the sealed archive is/);
+  assert.match(check(record({ version: "0.6.57" })), /is for @rightkit\/release@0\.6\.57, the sealed unit is @rightkit\/release@0\.6\.58/);
+  assert.match(check(record({ commit: "d".repeat(40) })), /is for commit d{40}, the sealed commit is c{40}/);
+
+  // The record is written only by an admitted run of the real command, and it names the exact archive, commit and version.
+  const script = fileURLToPath(new URL("./gate-release-admission.mjs", import.meta.url));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rk-rec-"));
+  try {
+    const f = fixture(goodJobs());
+    fs.writeFileSync(path.join(dir, "r.json"), JSON.stringify(f.receipt)); fs.writeFileSync(path.join(dir, "pkg.tgz"), "other bytes");
+    const recFile = path.join(dir, "admission.json");
+    const refused = spawnSync(process.execPath, [script, "--receipt", path.join(dir, "r.json"), "--archive", path.join(dir, "pkg.tgz"), "--commit", COMMIT, "--record", recFile], { encoding: "utf8", timeout: 60000, windowsHide: true });
+    assert.equal(refused.status, 1); assert.equal(fs.existsSync(recFile), false, "a refused admission writes no record");
+    assert.doesNotMatch(`${refused.stdout}${refused.stderr}`, /unknown option/);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });

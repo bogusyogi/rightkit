@@ -38,7 +38,7 @@ const stepIdOf = (label) => String(label).split(":")[0];
  */
 export function admitGateRelease({ receipt, readJob, archiveBytes, commit, pipeline, sealed, contractSha256, budgetsSha256, runnerSha256, runnerFiles, waivers = [], manifestBytes = null, sourceBytes = null }) {
   const problems = [];
-  const facts = { host: receipt?.host ?? null, sealedSha256: receipt?.gate?.sealedSha256 ?? null, archiveSha256: null, jobsListed: 0, jobsVerified: 0, signedSteps: [], nnBasis: receipt?.nnBasis ?? null };
+  const facts = { host: receipt?.host ?? null, version: receipt?.gate?.version ?? null, sealedSha256: receipt?.gate?.sealedSha256 ?? null, archiveSha256: null, jobsListed: 0, jobsVerified: 0, signedSteps: [], nnBasis: receipt?.nnBasis ?? null };
   const platform = PLATFORM_OF[receipt?.host];
   const pins = platform ? pipeline?.attestation?.[platform] : null;
   if (!platform) problems.push(`the receipt is from ${JSON.stringify(receipt?.host)}, not a host this repository names`);
@@ -131,10 +131,10 @@ export function gateReleaseGuard({ name, archiveFile, commit, env = process.env,
   return { required: true, facts: result.facts };
 }
 
-/** `node gate-release-admission.mjs --receipt <file> --archive <package archive> --commit <sha> [--pipeline <ci/rk-pipeline.json>]`: exit 0 only when admitted. The folders `job-envelopes` and `gate-seal` must sit beside the receipt. */
+/** `node gate-release-admission.mjs --receipt <file> --archive <package archive> --commit <sha> [--pipeline <ci/rk-pipeline.json>]`: exit 0 only when admitted; with `--record <file>` it then writes the admission record a credentialed upload step requires. The folders `job-envelopes` and `gate-seal` must sit beside the receipt. */
 export function main(argv = process.argv.slice(2), { out = console.log } = {}) {
   const opt = (name) => { const i = argv.indexOf(name); return i < 0 ? undefined : argv[i + 1]; };
-  const known = new Set(["--receipt", "--archive", "--commit", "--pipeline"]);
+  const known = new Set(["--receipt", "--archive", "--commit", "--pipeline", "--record"]);
   for (const a of argv) if (a.startsWith("--") && !known.has(a)) { out(`gate-release-admission REFUSED: unknown option ${a}`); return 64; }
   const problems = [];
   if (!opt("--receipt")) problems.push("--receipt <contract-test receipt> is required");
@@ -144,6 +144,8 @@ export function main(argv = process.argv.slice(2), { out = console.log } = {}) {
   if (!problems.length || opt("--receipt") || opt("--archive")) { result = admitFromFiles({ receiptFile: opt("--receipt"), archiveFile: opt("--archive"), commit: opt("--commit"), pipelineFile: opt("--pipeline") ?? null }); if (!problems.length) problems.push(...result.problems); else problems.push(...result.problems.filter((p) => /cannot be read/.test(p))); }
   if (problems.length) { out(`gate-release-admission REFUSED (${problems.length} problem(s))`); for (const p of problems) out(`  ${p}`); return 1; }
   const f = result.facts;
+  // --record <file>: the record a credentialed upload step reads (scripts/ci/upload.mjs gateAdmissionProblem). Written only here, only when admitted.
+  if (opt("--record")) fs.writeFileSync(opt("--record"), `${JSON.stringify({ schema: "rightkit.gate-release-admission/1", ok: true, unit: GATE_PACKAGE, version: f.version, archiveSha256: f.archiveSha256, commit: opt("--commit"), host: f.host, sealedSha256: f.sealedSha256, jobsVerified: f.jobsVerified, signedSteps: f.signedSteps, nnBasis: f.nnBasis }, null, 2)}\n`);
   out(`gate-release-admission OK: host ${f.host}, sealed gate ${f.sealedSha256}, archive ${f.archiveSha256}; ${f.jobsVerified} of ${f.jobsListed} listed broker job(s) verified, in step(s) ${f.signedSteps.join(", ")}`);
   out(`  the verdict itself rests on: ${f.nnBasis ?? "not stated"} (signed jobs prove the run happened on that host's broker for this gate; they do not re-derive the verdict)`);
   return 0;

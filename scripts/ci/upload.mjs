@@ -26,11 +26,31 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { shippedDependencyProblems } from "./registry-spec.mjs";
-import { gateReleaseGuard } from "../../packages/release/gate-release-admission.mjs";
 
 // The two success outcomes of a publication row. packages/release/publication-outcomes.mjs is their one definition (the consumer, unit-gate.mjs,
 // reads it); the credentialed upload jobs' sparse checkouts (publish-reviewed.yml, publish-direct.yml) carry no packages/ path by contract, so this
 // file may not import it. publish.test.mjs holds these equal to that module.
+// GATE-CONTRACT NN31 at this entry. The gate package is uploaded only when an earlier step of the same job, one that holds no registry credential,
+// ran the admission (packages/release/gate-release-admission.mjs --record) and wrote its record. This file may not import that module (see the
+// note above), so it reads the record and requires it to be for exactly the unit, version, sealed bytes and commit it is about to upload. A job
+// whose checkout cannot run the admission writes no record, so it cannot upload the gate package; every other package is untouched.
+export const GATE_PACKAGE = "@rightkit/release";
+export const GATE_ADMISSION_RECORD_ENV = "RK_GATE_ADMISSION_RECORD";
+export const GATE_ADMISSION_RECORD_SCHEMA = "rightkit.gate-release-admission/1";
+/** Why `unit` may not be uploaded for want of a gate admission record, or null. `unit`: { name, version, sha256 } of the sealed manifest. */
+export function gateAdmissionProblem({ unit, commit, env, readFile = (f) => fs.readFileSync(f, "utf8") }) {
+  if (unit?.name !== GATE_PACKAGE) return null;
+  const file = env?.[GATE_ADMISSION_RECORD_ENV];
+  const no = (why) => `${GATE_PACKAGE} is not uploaded without a passing contract-test admission for this exact archive (GATE-CONTRACT NN31): ${why}`;
+  if (typeof file !== "string" || !file) return no(`${GATE_ADMISSION_RECORD_ENV} names no admission record`);
+  let rec; try { rec = JSON.parse(readFile(file)); } catch (error) { return no(`the admission record ${file} cannot be read (${error.code ?? error.message})`); }
+  if (rec?.schema !== GATE_ADMISSION_RECORD_SCHEMA || rec.ok !== true) return no("the admission record is not a passing rightkit.gate-release-admission/1");
+  if (rec.unit !== unit.name || rec.version !== unit.version) return no(`the admission record is for ${rec.unit}@${rec.version}, the sealed unit is ${unit.name}@${unit.version}`);
+  if (rec.archiveSha256 !== unit.sha256) return no(`the admission record is for the archive ${rec.archiveSha256}, the sealed archive is ${unit.sha256}`);
+  if (rec.commit !== commit) return no(`the admission record is for commit ${rec.commit}, the sealed commit is ${commit}`);
+  return null;
+}
+
 export const PUBLISHED = "published";
 export const PUBLISHED_BY_EARLIER_ATTEMPT = "published-by-earlier-attempt";
 
@@ -849,8 +869,8 @@ export async function executeUpload({ env, packDir, receiptsDir, approvedFile, p
         const args = ["publish", file, "--ignore-scripts", "--access", "public", "--provenance", "--registry", NPM_REGISTRY_URL, "--userconfig", userconfig];
         const base = { unit: unit.name, version: unit.version, artifact: unit.file, sha256: unit.sha256, sha1: unit.sha1 };
         // GATE-CONTRACT NN31: the gate package is published only with a passing contract-test receipt for this exact file. Before npm, dry run included.
-        try { gateReleaseGuard({ name: unit.name, archiveFile: file, commit: manifest.commit, env }); }
-        catch (error) { receipt.record({ ...base, published: false, registryVerified: false, outcome: "refused", error: redact(error.message).slice(0, 300) }); throw error; }
+        { const refusal = gateAdmissionProblem({ unit, commit: manifest.commit, env });
+          if (refusal) { receipt.record({ ...base, published: false, registryVerified: false, outcome: "refused", error: redact(refusal).slice(0, 300) }); throw new Error(refusal); } }
         if (dryRun) { log(`dry run: would run npm ${args.map((a) => (a === file ? unit.file : a === userconfig ? "<userconfig>" : a)).join(" ")}`); receipt.record({ ...base, published: false, registryVerified: false }); continue; }
         if (done.has(unit.name)) continue;
         let published = false;
