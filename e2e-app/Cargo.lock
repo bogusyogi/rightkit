@@ -6111,6 +6111,7 @@ name = "rightkit-agent-tools"
 version = "0.4.4"
 dependencies = [
  "rightkit-daemon",
+ "rightkit-logs",
  "serde",
  "serde_json",
 ]
@@ -6486,7 +6487,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-job-queue"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "rightkit-child-process",
  "rightkit-db",
@@ -6523,7 +6524,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-logs"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "getrandom 0.4.3",
  "libc",
@@ -6875,7 +6876,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-tauri-shell"
-version = "0.8.2"
+version = "0.8.3"
 dependencies = [
  "block2",
  "objc2",
