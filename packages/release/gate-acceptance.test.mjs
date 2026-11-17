@@ -1115,3 +1115,37 @@ test("the real command line accepts --candidate and --sealed (they were refused 
     assert.equal(unknown.code, 64); assert.match(unknown.text, /unknown option --no-such-flag/);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+test("release check binds what the installer's promotion binds: budgets, every runner file, this host's broker; the command needs host, commit and gate", async () => {
+  const { verifyReleaseReceipts, NN_ALL_IDS, CONTRACT_RECEIPT_SCHEMA } = await import("./gate-acceptance.mjs");
+  const { spawnSync } = await import("node:child_process");
+  const { fileURLToPath } = await import("node:url");
+  const nn = Object.fromEntries(NN_ALL_IDS.map((id) => [id, "pass"]));
+  const files = [{ name: "gate-acceptance.mjs", sha256: "1".repeat(64) }, { name: "snapshot.mjs", sha256: "2".repeat(64) }];
+  const receipt = (over = {}) => ({ schema: CONTRACT_RECEIPT_SCHEMA, host: "dell", commit: "c".repeat(40), gate: { kind: "candidate", sealedSha256: "a".repeat(64) }, verdict: "PASS 42/42", ok: true, nn, uncheckedClauses: [], budgetsSha256: "b".repeat(64), runnerFiles: files, broker: { runtimeDigest: "d".repeat(64), runtimeVersion: "v", enrolledDigest: "e".repeat(64) }, ...over });
+  const want = { budgetsSha256: "b".repeat(64), runnerFiles: files, brokerRuntimeDigest: "d".repeat(64) };
+  const problems = (r) => verifyReleaseReceipts(r, null, want).problems.join(" | ");
+  assert.equal(problems(receipt()), "");
+  assert.match(problems(receipt({ budgetsSha256: "0".repeat(64) })), /judged against other budgets/);
+  assert.match(problems(receipt({ budgetsSha256: undefined })), /other budgets \(none stated\)/);
+  // The runner's files: one left out, one added, one changed, none at all.
+  assert.match(problems(receipt({ runnerFiles: [files[0]] })), /not listed: snapshot\.mjs/);
+  assert.match(problems(receipt({ runnerFiles: [...files, { name: "extra.mjs", sha256: "3".repeat(64) }] })), /not part of this runner: extra\.mjs/);
+  assert.match(problems(receipt({ runnerFiles: [files[0], { name: "snapshot.mjs", sha256: "9".repeat(64) }] })), /changed: snapshot\.mjs/);
+  assert.match(problems(receipt({ runnerFiles: undefined })), /not listed: gate-acceptance\.mjs, snapshot\.mjs/);
+  // The broker that ran must be the one this host runs; the enrolled value is not what is compared (loop matrix C9).
+  assert.match(problems(receipt({ broker: { runtimeDigest: "e".repeat(64), enrolledDigest: "d".repeat(64) } })), /made with the broker e{64}, this host runs d{64}/);
+  assert.match(problems(receipt({ broker: undefined })), /made with the broker \(not stated\)/);
+
+  // The real command: host, commit and gate are all required, by name.
+  const script = fileURLToPath(new URL("./gate-acceptance.mjs", import.meta.url));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rk-vr-"));
+  try {
+    const file = path.join(dir, "r.json"); fs.writeFileSync(file, JSON.stringify(receipt()));
+    const r = spawnSync(process.execPath, [script, "--verify-release", file], { encoding: "utf8", timeout: 60000, windowsHide: true });
+    const text = `${r.stdout}${r.stderr}`;
+    assert.equal(r.status, 1); assert.match(text, /--host mac\|dell is required/); assert.match(text, /--commit <40-hex sha> is required/); assert.match(text, /--sealed <sha256> is required/);
+    const bad = spawnSync(process.execPath, [script, "--verify-release", file, "--host", "linux", "--commit", "short", "--sealed", "a".repeat(64)], { encoding: "utf8", timeout: 60000, windowsHide: true });
+    assert.equal(bad.status, 1); assert.match(`${bad.stdout}${bad.stderr}`, /--host mac\|dell is required/); assert.match(`${bad.stdout}${bad.stderr}`, /--commit <40-hex sha> is required/);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
