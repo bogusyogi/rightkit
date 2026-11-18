@@ -10456,6 +10456,7 @@ dependencies = [
 name = "rightkit-agent-tools"
 version = "0.4.4"
 dependencies = [
+ "object",
  "rightkit-automation",
  "rightkit-browser",
  "rightkit-daemon",

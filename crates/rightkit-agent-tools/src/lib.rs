@@ -29,6 +29,7 @@ mod mcp_provider;
 mod peer;
 mod spec;
 mod toolbox;
+pub mod windows_identity;
 
 pub use applicability::{AgentRole, ApplicabilityError, ApplicabilityRecord, APPLICABILITY_KEY};
 pub use backends::control::{
