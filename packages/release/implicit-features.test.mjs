@@ -41,3 +41,26 @@ test("NN27: every consumer of a manifest's features reads the decoded table: lin
   // build_dependencies, the pre-2024 spelling.
   assert.deepEqual(allFeatureNamesOf("[build_dependencies]\ncc = { version = \"1\", optional = true }\n"), ["cc"]);
 });
+
+test("GC-A20: a crate whose features are implicit is clippy-linted with all features, in exactly one all-features pass, and coverage counts them (Adrian 2026-11-18)", async () => {
+  const { effectiveCrateFeatures, uncoveredFeatures, featureCoverageProblems } = await import("./feature-coverage.mjs");
+  const plan = (manifest, own = {}) => { const eff = effectiveCrateFeatures({ crateFeatures: { c: own }, units: ["c"], manifestOf: () => manifest }); return rustCratePlan(eff.c ?? {}, undefined, "c", allFeatureNamesOf(manifest)); };
+  const allPasses = (p) => [...p.lintSets, ...p.checkSets].filter((s) => s.includes("--all-features")).length;
+  // Implicit only (an optional build dependency, rightkit-audio's shape): clippy --all-features, no separate check.
+  const implicitOnly = "[package]\nname = \"c\"\n[build_dependencies]\ncodec = { version = \"1\", optional = true }\n";
+  const p1 = plan(implicitOnly);
+  assert.ok(p1.lintSets.some((s) => s.includes("--all-features")), JSON.stringify(p1.lintSets));
+  assert.equal(allPasses(p1), 1, "one all-features compiler pass");
+  assert.deepEqual(uncoveredFeatures(implicitOnly, [[]]), ["codec"], "default-only lint leaves it uncovered");
+  assert.deepEqual(uncoveredFeatures(implicitOnly, p1.lintSets), [], "the generated plan covers it");
+  // Mixed explicit and implicit, with one unlinted feature: the generated set lists the rest by name, implicit included.
+  const mixed = "[package]\nname = \"c\"\n[features]\njson = []\nslow = []\n[dependencies]\ncodec = { version = \"1\", optional = true }\n";
+  const own = { unlintedFeatures: { slow: "needs hardware" } };
+  const eff = effectiveCrateFeatures({ crateFeatures: { c: own }, units: ["c"], manifestOf: () => mixed });
+  assert.deepEqual(eff.c.autoFeatures, ["codec", "json"]);
+  const p2 = rustCratePlan(eff.c, undefined, "c", allFeatureNamesOf(mixed));
+  assert.deepEqual(featureCoverageProblems({ name: "c", manifestText: mixed, sets: p2.lintSets, unlinted: own.unlintedFeatures }), []);
+  // A crate with no features at all keeps its plain plan.
+  const none = "[package]\nname = \"c\"\n[dependencies]\nlibc = \"0.2\"\n";
+  assert.equal(plan(none).lintSets.some((s) => s.includes("--all-features")), false);
+});

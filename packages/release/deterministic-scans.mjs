@@ -1858,7 +1858,7 @@ export function planScans({
   }
   // Class A, file-only (rightkit#1231): no feature of a crate's Cargo.toml may be left out of every planned feature set, so feature-gated code is never
   // unchecked. Crates without Cargo features need no row.
-  const featureful = coverageCrates.filter((c) => { const t = manifestTextOf(c.name); return typeof t === "string" && (declaredFeatureNames(t).length > 0 || c.unlinted !== undefined); });
+  const featureful = coverageCrates.filter((c) => { const t = manifestTextOf(c.name); return typeof t === "string" && ((allFeatureNamesOf(t)?.length ?? 1) > 0 || c.unlinted !== undefined); }); // implicit features too; a manifest it cannot read is checked
   if (featureful.length) add({ id: "feature-coverage", class: A, internal: "feature-coverage", crates: featureful });
   if (clippyBatching && clippyEntries.length) {
     // One Clippy scan per batch (row 8.6): the independent batches first, the sidecar-bound ones after them (row 8.8; the compile lane

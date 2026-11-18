@@ -152,9 +152,22 @@ export function featuresEnabledBy(features, set) {
   return enabled;
 }
 
-/** A crate's features that none of `sets` enables and the crate does not list in `unlinted` (`unlintedFeatures`): `[]` when every declared feature is covered. */
+/**
+ * The features Cargo gives a crate: its [features] table plus each optional dependency that is its own implicit feature (as `name = ["dep:name"]`).
+ * Lint generation and feature coverage read this one model, so an implicit feature is linted by the generated --all-features set and an unlinted one
+ * is reported (GC-A20: default and all-features lint; Adrian 2026-11-18). `unknown` is true when the manifest cannot be read for its optional
+ * dependencies (allFeatureNamesOf null): lint generation then lints --all-features rather than assume none.
+ */
+export function crateFeatureModel(text) {
+  const features = new Map(manifestFeatures(text));
+  const all = allFeatureNamesOf(text);
+  if (all !== null) for (const name of all) if (!features.has(name)) features.set(name, [`dep:${name}`]);
+  return { features, unknown: all === null };
+}
+
+/** A crate's features that none of `sets` enables and the crate does not list in `unlinted` (`unlintedFeatures`): `[]` when every feature is covered, implicit ones included. */
 export function uncoveredFeatures(manifestText, sets, unlinted = {}) {
-  const features = manifestFeatures(manifestText);
+  const { features } = crateFeatureModel(manifestText);
   const declared = [...features.keys()].filter((name) => name !== "default" && !Object.hasOwn(unlinted, name));
   const covered = new Set();
   for (const set of sets) for (const f of featuresEnabledBy(features, set)) covered.add(f);
@@ -166,7 +179,7 @@ export function uncoveredFeatures(manifestText, sets, unlinted = {}) {
  * enabled by none of the planned sets, or the entry is stale and the gate would lint a feature the config says it never lints.
  */
 export function unlintedFeatureProblems({ name, manifestText, sets, unlinted = {} }) {
-  const features = manifestFeatures(manifestText);
+  const { features } = crateFeatureModel(manifestText);
   const enabled = new Set();
   for (const set of sets) for (const f of featuresEnabledBy(features, set)) enabled.add(f);
   const problems = [];
@@ -206,8 +219,10 @@ export function effectiveCrateFeatures({ crateFeatures = {}, units, manifestOf }
     let text = null;
     try { text = manifestOf(name); } catch { text = null; }
     if (typeof text !== "string") continue;
-    const declared = declaredFeatureNames(text);
-    if (!declared.length) continue;
+    // Declared and implicit features alike (crateFeatureModel); a manifest whose optional dependencies cannot be read is linted --all-features.
+    const model = crateFeatureModel(text);
+    const declared = [...model.features.keys()].filter((feature) => feature !== "default");
+    if (!declared.length && !model.unknown) continue;
     // A feature named in `unlintedFeatures` is never added to a generated set: the generated set lists every other feature instead of --all-features.
     if (unlinted.length) {
       const rest = declared.filter((feature) => !unlinted.includes(feature)).sort();
