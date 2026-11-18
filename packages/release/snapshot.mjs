@@ -237,7 +237,13 @@ export function resolveCommit(checkout, rev = "HEAD") {
  * object database and ignore rules; writes only objects (into the checkout's object database) and a temporary index kept outside the
  * checkout's `.git`, always removed.
  */
+/** How often this process hashed a snapshot's tree, walked it to verify it, and took the resident gate's proof instead (NN11): one line per run. */
+export const SNAPSHOT_PROOF_COUNTS = { treeHashes: 0, verifyWalks: 0, residentProofs: 0 };
+/** The `snapshot proof:` line the contract test reads (NN11, NN28). `changeSource`: how the resident gate learns of changes. */
+export const snapshotProofLine = (changeSource) => `snapshot proof: tree-hashes=${SNAPSHOT_PROOF_COUNTS.treeHashes} verify-walks=${SNAPSHOT_PROOF_COUNTS.verifyWalks} resident-proofs=${SNAPSHOT_PROOF_COUNTS.residentProofs} change-source=${changeSource}`;
+
 export function snapshotTree({ checkout, dir, baseTree, repo = repositoryOf(checkout), indexStore = treeIndexStoreOf(dir) }) {
+  SNAPSHOT_PROOF_COUNTS.treeHashes += 1;
   // The sealed runner (snapshot-git.mjs): a private git directory T holds the index and receives every object written; the
   // checkout's git directory is not written at all (row 5.13), and its configuration, attributes, hooks and filters cannot reach the id.
   const once = (stored) => withSealedGit({ commonDir: repo.commonDir, objectFormat: repo.objectFormat, snapshot: dir }, (git) => {

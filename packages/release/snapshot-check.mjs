@@ -23,7 +23,7 @@ import path from "node:path";
 import { serveRequest } from "./gate-serve.mjs";
 import { LIVE_SCAN_IDS, defaultSpawn, isLiveScan, isRegistryScan, launchGuardEnv, planScans, runScans } from "./deterministic-scans.mjs";
 import { compileLaunch } from "./class-a-launch-guard.mjs";
-import { SnapshotError, dependencyDirs, isInside, snapshotProblem, snapshotTree, treeEntries } from "./snapshot.mjs";
+import { SnapshotError, dependencyDirs, isInside, snapshotProblem, snapshotTree, treeEntries, SNAPSHOT_PROOF_COUNTS } from "./snapshot.mjs";
 import { discoveryRun, sealedRun } from "./snapshot-git.mjs";
 import { snapshotDependencyReuse } from "./snapshot-dependency-reuse.mjs";
 import { gateRunsRoot } from "./managed-roots.mjs";
@@ -132,13 +132,13 @@ export function verifySnapshotDir({ checkout, dir, commit, tree, when, ledger, a
   let generation = null;
   if (plain) {
     const c = serveRequest({ op: "check", dir, tree }, { root: path.dirname(path.resolve(dir)) });
-    if (c?.clean === true) { rows.push({ label: `${phase}-resident-proof`, ms: 0, count: 1 }); if (diagnosticDir) writePerformanceDiagnostic(diagnosticDir, 'snapshot-verify', rows); return tree; }
+    if (c?.clean === true) { SNAPSHOT_PROOF_COUNTS.residentProofs += 1; rows.push({ label: `${phase}-resident-proof`, ms: 0, count: 1 }); if (diagnosticDir) writePerformanceDiagnostic(diagnosticDir, 'snapshot-verify', rows); return tree; }
     if (Number.isInteger(c?.generation)) generation = c.generation;
   }
   try {
   const ledgerMode = ledger !== undefined || admitNew === true;
   let inspected;
-  try { const entries = timed('tree-entries', () => treeEntries(checkout, commit)); inspected = timed('walk', () => snapshotProblem({ dir, entries, checkout, commit, ledger, admitNew })); }
+  try { const entries = timed('tree-entries', () => treeEntries(checkout, commit)); SNAPSHOT_PROOF_COUNTS.verifyWalks += 1; inspected = timed('walk', () => snapshotProblem({ dir, entries, checkout, commit, ledger, admitNew })); }
   catch (e) { throw new CheckError(`cannot list snapshot ${dir} ${when}: ${e.message}`); }
   const extra = ledgerMode ? inspected.problem : inspected;
   if (extra) throw new CheckError(`snapshot ${dir} is not exactly commit ${commit}${ledgerMode ? " plus its stage-output ledger" : ""} ${when}: ${extra}`);
