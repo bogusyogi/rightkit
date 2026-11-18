@@ -7,7 +7,10 @@
 //!   scoped updates and deletes by origin) and an in-memory store. Disk-backed stores implement
 //!   the trait in the host.
 //! - [`net`]: host of an absolute URL.
+//! - [`export`]: JSON, Markdown, plain text and CSV exports with host-provided wording.
 
 pub mod delivery;
 pub mod history;
 pub mod net;
+
+pub mod export;

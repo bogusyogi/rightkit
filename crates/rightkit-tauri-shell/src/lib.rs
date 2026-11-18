@@ -45,6 +45,7 @@ pub mod harden;
 #[cfg(feature = "host-services")]
 pub mod host;
 pub mod idle;
+pub mod launch_origin;
 pub mod lifecycle;
 #[cfg(feature = "logs")]
 pub mod logs_commands;
@@ -66,6 +67,7 @@ pub mod preview;
 pub mod print;
 pub mod quit;
 pub mod recovery;
+pub mod relaunch;
 #[cfg(feature = "viewer")]
 pub mod site;
 pub mod startup_cache;

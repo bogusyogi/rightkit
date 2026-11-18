@@ -2305,10 +2305,10 @@
       "id": "ci/consumers/rightkit-tauri-shell/src/main.rs",
       "files": {
         "Cargo.toml": "588056121321f39fc0bfbda212024f232d6a925ae9e39882aa7c250fd1f00437",
-        "README.md": "c362a27fe92484cfa6cf6f78159fbcf9a977a59dcb05336bafb2173781aadb5d",
-        "src/main.rs": "89ec4ab224b95f4458d8f54f81c0311186b1981a818df7e44556a5abbe5afd72"
+        "README.md": "7a5d2e549d66201b004dbeca59ee69e394ffcc53125a0cb15493391017498604",
+        "src/main.rs": "1c9789d5229ac1727554ee4d5503ff63ef00bf9bf96c5597927edd8d4e0832d5"
       },
-      "aggregateSha256": "afcff68a346d01b25d3dbd8e3775480604ee7c330b52dc7f461c8d12ef64a877"
+      "aggregateSha256": "a687c34cdfa1af6e2fc6c2b80b3637fd587bc05f58fccfb5571c69f1b6ecc9f9"
     },
     "rightkit-oauth": {
       "pkId": "PK06",
@@ -2797,9 +2797,9 @@
       "pkId": "PK42",
       "id": "ci/consumers/rightkit-sync/src/main.rs",
       "files": {
-        "Cargo.toml": "7a3c27d170c2530e35df89ef305f154652ab2a701e4cf28df27514f8e41b3395",
-        "README.md": "495054a76d49765e6f165619abd7ff4a9212ba8b1c40f100364a3ab9c156bed3",
-        "src/main.rs": "dd95975036fd0ebd524cdda5ee57080df0ad97d5c658a7d4bca5d28739c46ec5"
+        "Cargo.toml": "c84552d3a3863193ad18b34829c57a3239181005a4f347c503d88030be9ffa8a",
+        "README.md": "7801ae607025a563de541c80f34115490c8eac84b5f4d04ea623960552c9e8af",
+        "src/main.rs": "09f43dd972a9884d16d430c6d69323c18648a4a352ff31bcf570251663a0bd5e"
       }
     },
     "rightkit-time": {
@@ -3475,9 +3475,9 @@
       "pkId": "PK121",
       "id": "ci/consumers/rightkit-transcript-library/src/main.rs",
       "files": {
-        "Cargo.toml": "ba1262d9a811991d63c417e3b08f96d517135593155b295b5e30aa37bc16fe40",
-        "README.md": "8e9a38c2280e9c8473f586effef1c20680d80a127d3ee3541e410efd36bd30ba",
-        "src/main.rs": "9c20ec667e1e3cff9b2a92d6c6fbedccb9f71324e060732ba3a6aef4741dcdfb"
+        "Cargo.toml": "63781a8fd250b552e3e844adc8ce275c3b61a935c4cec27a97f9a125d8be57fd",
+        "README.md": "159366c144e3f01d3cba114018148907e5393eeaf31965a4542d7f7571fdde39",
+        "src/main.rs": "fd3e22517cc641c80a336348e6ae80a6a8ea1c4f52cb057e362d4531b2f15ae7"
       }
     },
     "rightkit-voice-commands": {

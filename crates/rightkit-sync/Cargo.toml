@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-sync"
-version = "0.3.0"
+version = "0.3.1"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Brand-neutral desktop/mobile cloud sync engine: change tokens, tombstones, last-writer-wins conflicts, resumable batches, offline queue, retry/backoff."
@@ -34,6 +34,8 @@ http = ["dep:rightkit-http", "rightkit-fs/digest"]
 # `drive.appdata` scope (own-cloud sync: the user's own Drive quota, no service of ours). The
 # non-Apple own-cloud backend (CloudKit is the Apple one); `http` is the hosted-service client. Same `rightkit-http` client.
 drive = ["dep:rightkit-http", "rightkit-fs/digest"]
+# Transcript records, stable ids, durable local state, consent scope & legacy migration.
+transcripts = ["rightkit-fs/digest"]
 
 # `vault` module: conditional-object vault sync (immutable sealed state objects, one head swapped with
 # If-Match, a three-way merge policy, an encrypted ledger) for password-vault data that cannot use the
@@ -46,7 +48,7 @@ vault-s3 = ["vault", "dep:rightkit-http"]
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 rightkit-child-process = { version = "0.5.7", path = "../rightkit-child-process", optional = true }
-rightkit-fs = { version = "0.4.9", path = "../rightkit-fs", default-features = false, features = ["fs"] }
+rightkit-fs = { version = "0.4.15", path = "../rightkit-fs", default-features = false, features = ["fs"] }
 rightkit-http = { version = "0.4.0", path = "../rightkit-http", default-features = false, optional = true }
 ring = { version = "0.17", optional = true }
 zeroize = { version = "1.9", optional = true }
@@ -63,5 +65,9 @@ required-features = ["helper", "cloudkit-live"]
 [[test]]
 name = "vault_race_real_bucket"
 required-features = ["vault-s3"]
+
+[[test]]
+name = "transcripts_migration"
+required-features = ["transcripts"]
 
 # One Cargo workspace and lock per crate (rightkit#1285).

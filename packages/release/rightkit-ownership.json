@@ -2704,6 +2704,16 @@
       ]
     },
     {
+      "package": "rightkit-media-control",
+      "capability": "media-session-control",
+      "summary": "Session-owned pause and restore of external media playback, with Windows GSMTC and a host backend interface.",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "A dependency declaration alone does not establish installed pause and restore behavior."
+      ]
+    },
+    {
       "package": "rightkit-media-fetch",
       "capability": "media-fetch",
       "summary": "Media fetch: yt-dlp download and 16 kHz mono WAV normalize, playlist expansion, and a pure URL/file job classifier with a shared media-type table.; declaration-only detection (no precise implementation fingerprint)",

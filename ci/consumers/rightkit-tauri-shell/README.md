@@ -10,6 +10,9 @@ default features. It exercises, through public API only:
   no-sandbox arguments;
 - preview store (PK08-5): `PreviewStore` register/lookup/revoke under a declared kind, with an
   undeclared kind refused.
+- launch-origin (A4): pure login-origin decisions with explicit marker and uptime inputs.
+- relaunch (A1): compile-checks public dispatch/spawn/relaunch signatures only; no helper is
+  started and no live relaunch occurs.
 
 State: in-memory only; OS entropy is read for the preview token. No network, no files, no
 process spawn, no user data. Run only by the CI consumer lane. The crate compiles Tauri on the

@@ -17,6 +17,8 @@ mod record;
 mod schedule;
 mod storage;
 mod traits;
+#[cfg(feature = "transcripts")]
+pub mod transcripts;
 #[cfg(feature = "vault")]
 pub mod vault;
 pub mod wire;

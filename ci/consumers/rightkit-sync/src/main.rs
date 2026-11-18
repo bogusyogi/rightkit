@@ -14,6 +14,7 @@ use rightkit_sync::{
     ApplyOutcome, FieldValue, FileStorage, ItemHeader, LocalStore, NullObserver, PassOutcome,
     RawRecord, RecordMapper, SyncEngineBuilder, SyncResult,
 };
+use rightkit_sync::transcripts::{content_hash, TranscriptSyncProfile};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -100,5 +101,8 @@ fn the_public_surface_compiles(helper_program: PathBuf, ledger: PathBuf) -> Resu
 const _: fn(PathBuf, PathBuf) -> Result<(), String> = the_public_surface_compiles;
 
 fn main() {
+    let profile = TranscriptSyncProfile::default();
+    assert!(!profile.logical_cloud_id("consumer-id").is_empty());
+    assert_eq!(content_hash("transcript", "raw" ).len(), 64);
     println!("rightkit-sync consumer: the public surface compiles; nothing was run");
 }

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.1
+
+- Added optional `transcripts` feature: transcript mapper, stable logical ids, local edit versions, durable deletion outbox, consent scope gate, legacy ledger migration, CloudKit environment pin & retry classifiers, extracted from HeardRight.
+- `TranscriptSyncProfile` supplies record type, identity domains, default source, helper bundle names & state file names; `authorize_scope` accepts host account-change wording. Existing hosts retain their original values to preserve synced identity & on-disk formats.
+- Raised `rightkit-fs` minimum to `0.4.15` for atomic replacement options.
+- Legacy migration excludes unproven account data without blocking normal sync: ack seeds require matching nonempty scopes; tombstones, pending deletions & aliases require matching ack ownership or current account's scoped filenames. Existing version entries stay intact; proven seeds with unreadable/malformed versions return an error before destination writes, retaining retry after repair.
+
 ## 0.3.0
 
 - Requires `rightkit-http` 0.4.0 (a breaking release), so this release is breaking too.

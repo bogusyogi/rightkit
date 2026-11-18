@@ -38,6 +38,16 @@ With `host-services` (and `license`, `update`, `logs`, `models`, `pdf-host`, `cr
 
 The native updater verifies minisign signatures, accepts only https URLs with no redirects, refuses downgrades, and ties each update to the licence binding captured at check. Licence views never carry a token. The shell's own `rk_shell_*` commands are checked against the caller policy only after the app enables `HostServicesBuilder::guard_shell_commands`. Full list and file references: `CHANGELOG.md`, 0.5.0.
 
+## Relaunch & launch origin
+
+`relaunch::Protocol::new("--myapp-update-relaunch-helper")` defines reserved helper arguments. Call `relaunch::dispatch(&protocol)` before Tauri or single-instance setup; exit with its returned code when present. Native hosts call `relaunch::relaunch_self(&app, &protocol, reason, marker)` to spawn this executable's helper, release single-instance claims & request Tauri shutdown. `spawn(&protocol)` only spawns that helper. Requesting process & helper must use identical prefixes. Default parent wait is ten seconds; `parent_wait(Duration)` & `event_sink(fn(&str, &str))` customize it.
+
+Windows waits on a retained process handle; macOS polls parent PID. After timeout, replacement launches anyway. macOS `.app` bundles use `/usr/bin/open -a`; other executables launch directly through `rightkit-child-process`. Other platforms return `Unsupported`. No caller-selected launch target or forwarded argv is accepted.
+
+`launch_origin::StartupGate::new(login_arg)` defers heavy work for macOS login launches. Call `wait(skip_before_marker, skip_after_marker)` from a background thread. Public policy fields select boot window, polling interval, normalized load threshold, hard ceiling, slow-event threshold, optional restart marker & event sink. Defaults are 60 seconds, 2 seconds, 1.5, 20 seconds & 15 seconds respectively. Both skip callbacks precede load polling; restart marker consumption falls between them. Elsewhere, `wait` returns immediately.
+
+`is_login_launch(args, uptime, login_arg, boot_window)` & `consume_marker(path)` are available everywhere; `seconds_since_boot()` & `normalized_load_average()` are macOS-only. Markers are best-effort startup hints, never authorization. Pass only an app-owned marker path from trusted native code; successful deletion consumes it once. Helper arguments never supply marker paths.
+
 ## Platform support
 
 - macOS: native notifications and presence through `objc2` and related crates; `cfg(target_os = "macos")` in `src/` (for example `notify.rs`, `presence.rs`, `frameless.rs`).

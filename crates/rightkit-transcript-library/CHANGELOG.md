@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.3 (unreleased)
+
+- Add portable JSON, Markdown, plain text and CSV export for delivery records, with host-provided labels.
+
 ## 0.1.2 (unreleased)
 
 - Removed test-only code: `DeliveryRecord::for_test` and `TargetSnapshot::test_target` (Adrian, 2026-11-03: "make sure no debug assertions in their respective apps/ repos"; "My decision was no unit tests. Only e2e."; "dev mode, is mine. im the fucking owner, my data. no dummy data ... real data. snapshot and restore."). Release behaviour unchanged.

@@ -22,8 +22,11 @@ Generic cloud sync engine for Right Suite apps. It owns change cursors, tombston
 | `vault` | no | The `vault` module (implies `cipher`): conditional-object vault sync for password-vault data, which the last-writer-wins engine and its plaintext `pending_apply` cannot carry. See "Conditional-object vault" below. |
 | `vault-s3` | no | `vault::s3::S3ConditionalStore`: Cloudflare R2 and S3-compatible buckets, Signature V4 over `rightkit-http`; adds `vault` and `rightkit-http`. |
 | `drive` | no | The non-Apple backend (CloudKit is the Apple one): `drive::{DriveBackend, DriveAuth, DriveTokenSource, FnToken, DriveConfig}`, own-cloud sync through the user's Google Drive `appDataFolder` (scope `drive.appdata`), over `rightkit-http`'s blocking client. See "Google Drive backend" below. |
+| `transcripts` | no | `transcripts::{TranscriptSyncProfile, StateFileNames, CloudTranscript, TranscriptMapper, LocalVersions}`: transcript records, stable ids, durable deletion outbox, consent scope gate, legacy ledger migration, CloudKit environment pin & retry classifiers. Adds `rightkit-fs/digest`. Existing hosts must supply their original identity domains & file names through `TranscriptSyncProfile`. |
 
 Always: `serde`, `serde_json`, and `rightkit-fs` (`fs` feature, for the durable ledger write, `src/storage.rs`). The record wire encoding (`wire`) is shared by the helper and HTTP protocols.
+
+Transcript legacy migration imports ack seeds only with matching nonempty stored & consent-authorized scopes. Unscoped tombstones, pending deletions & aliases need matching ack ownership; scoped filenames must match current account's profile hash. Unproven sources stay intact & are excluded, allowing normal sync. Existing version entries retain their values. With proven seeds, unreadable or malformed versions return an error before destination writes, preserving migration retry after repair; missing versions start empty.
 
 A provider that encrypts (`HttpBackend` + `EncryptingBackend`) must run its engine with `SyncConfig::require_consent_on_scope_change` (`http::sync_config()` sets it) and an `account_scope` that includes the key id. Plaintext downloaded records the engine could not apply yet are kept in the ledger's `pending_apply`; the ledger file is owner-only but not encrypted.
 

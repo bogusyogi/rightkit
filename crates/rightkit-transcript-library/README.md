@@ -13,6 +13,8 @@ Moved into RightKit from HeardRight (`heardright_core`: `delivery`, `history`, `
   `HistoryFilter`, retention pruning, origin-scoped updates and deletes); `MemoryHistoryStore`
   implements it in memory.
 - `net::host_of_url`.
+- `export::format_history`: JSON, Markdown, plain text and CSV output from delivery records.
+  `ExportLabels` supplies user-visible wording; defaults are neutral English.
 
-The encrypted SQLCipher store and export are not in this release; they stay in the app until its
-credential vault, sync scheduler and telemetry hooks are parameters.
+The encrypted SQLCipher store remains in the app until its credential vault, sync scheduler and
+telemetry hooks are parameters.
