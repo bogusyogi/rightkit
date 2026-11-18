@@ -78,19 +78,56 @@ pub fn verify_held_windows_cli_identity(
     product_id: &str,
     role: WindowsCliRole,
 ) -> Result<(), rightkit_daemon::SignatureError> {
+    verify_held_windows_cli_image(file, publisher, product_id, role, None)
+}
+
+/// Authenticate the held CLI and require its signed PE32+ static import search flags and
+/// embedded process manifest. Supply the write-excluded file handle from trusted acquisition
+/// and retain it and its ancestors through launch. The publisher policy, product, role and
+/// exact audited manifest bytes must come from trusted configuration. The audited manifest
+/// must exclude private assembly and file redirection. Bind the suspended process to the
+/// held image before resuming. External redirection and effective DLL origins require
+/// separate checks.
+#[cfg(windows)]
+pub fn verify_held_windows_cli_identity_with_dependency_policy(
+    file: &std::fs::File,
+    publisher: &rightkit_daemon::WindowsPublisherPolicy<'_>,
+    product_id: &str,
+    role: WindowsCliRole,
+    approved_manifest: &[u8],
+) -> Result<(), rightkit_daemon::SignatureError> {
+    verify_held_windows_cli_image(file, publisher, product_id, role, Some(approved_manifest))
+}
+
+#[cfg(windows)]
+fn verify_held_windows_cli_image(
+    file: &std::fs::File,
+    publisher: &rightkit_daemon::WindowsPublisherPolicy<'_>,
+    product_id: &str,
+    role: WindowsCliRole,
+    approved_manifest: Option<&[u8]>,
+) -> Result<(), rightkit_daemon::SignatureError> {
     use object::read::ReadCache;
 
     rightkit_daemon::verify_held_windows_publisher(file, publisher)?;
     let cache = ReadCache::new(HeldFileReader { file, offset: 0 });
-    if cli_identity_section(&cache)
-        .is_some_and(|section| matches_windows_cli_identity(section, product_id, role))
-    {
-        Ok(())
-    } else {
-        Err(rightkit_daemon::SignatureError::NotSigned(
-            "signed executable has no matching CLI product and role".into(),
-        ))
+    let image = cli_pe(&cache)
+        .filter(|image| matches_windows_cli_identity(image.identity, product_id, role))
+        .ok_or_else(|| {
+            rightkit_daemon::SignatureError::NotSigned(
+                "signed executable has no matching CLI product and role".into(),
+            )
+        })?;
+    if let Some(approved) = approved_manifest {
+        image
+            .verify_dependency_policy(&cache, approved)
+            .ok_or_else(|| {
+                rightkit_daemon::SignatureError::NotSigned(
+                    "signed executable does not meet the CLI dependency policy".into(),
+                )
+            })?;
     }
+    Ok(())
 }
 
 #[cfg(windows)]
@@ -136,7 +173,18 @@ impl object::read::ReadCacheOps for HeldFileReader<'_> {
 }
 
 #[cfg(windows)]
-fn cli_identity_section<'data, R: object::read::ReadRef<'data>>(data: R) -> Option<&'data [u8]> {
+struct CliPe<'data> {
+    identity: &'data [u8],
+    sections: object::read::pe::SectionTable<'data>,
+    directories: object::read::pe::DataDirectories<'data>,
+    headers_end: u64,
+    file_alignment: u64,
+    section_alignment: u64,
+    image_end: u64,
+}
+
+#[cfg(windows)]
+fn cli_pe<'data, R: object::read::ReadRef<'data>>(data: R) -> Option<CliPe<'data>> {
     use object::pe;
     use object::read::pe::{ImageNtHeaders, ImageOptionalHeader};
     use object::LittleEndian as LE;
@@ -221,7 +269,170 @@ fn cli_identity_section<'data, R: object::read::ReadRef<'data>>(data: R) -> Opti
         return None;
     }
     let (offset, size) = identity_range?;
-    data.read_bytes_at(offset, size).ok()
+    Some(CliPe {
+        identity: data.read_bytes_at(offset, size).ok()?,
+        sections: table,
+        directories,
+        headers_end,
+        file_alignment: alignment,
+        section_alignment: u64::from(optional.section_alignment()),
+        image_end: u64::from(optional.size_of_image()),
+    })
+}
+
+#[cfg(windows)]
+impl<'data> CliPe<'data> {
+    fn verify_dependency_policy<R: object::read::ReadRef<'data>>(
+        &self,
+        data: R,
+        approved_manifest: &[u8],
+    ) -> Option<()> {
+        use object::LittleEndian as LE;
+        use object::pe;
+
+        const MAX_RESOURCE_DIRECTORY: u64 = 1024 * 1024;
+        const MAX_LOAD_CONFIG: u64 = 4096;
+        const SYSTEM32_ONLY: u16 = 0x0800;
+        const FLAGS_OFFSET: usize =
+            std::mem::offset_of!(pe::ImageLoadConfigDirectory64, dependent_load_flags);
+
+        self.validate_virtual_sections()?;
+        let config = self.directories.get(pe::IMAGE_DIRECTORY_ENTRY_LOAD_CONFIG)?;
+        let resources = self.directories.get(pe::IMAGE_DIRECTORY_ENTRY_RESOURCE)?;
+        let (config_rva, config_size) = config.address_range();
+        let (resource_rva, resource_size) = resources.address_range();
+        let config_rva = u64::from(config_rva);
+        let config_size = u64::from(config_size);
+        let resource_rva = u64::from(resource_rva);
+        let resource_size = u64::from(resource_size);
+        if !((FLAGS_OFFSET + 2) as u64..=MAX_LOAD_CONFIG).contains(&config_size)
+            || !(1..=MAX_RESOURCE_DIRECTORY).contains(&resource_size)
+            || config_rva % 8 != 0
+            || resource_rva % 4 != 0
+            || (config_rva < resource_rva + resource_size
+                && resource_rva < config_rva + config_size)
+        {
+            return None;
+        }
+        let config = self.read_backed_rva(data, config_rva, config_size)?;
+        let declared_size = u32::from_le_bytes(config[..4].try_into().ok()?);
+        let flags = u16::from_le_bytes(config[FLAGS_OFFSET..FLAGS_OFFSET + 2].try_into().ok()?);
+        if u64::from(declared_size) != config_size || flags != SYSTEM32_ONLY {
+            return None;
+        }
+
+        let resources = self.read_backed_rva(data, resource_rva, resource_size)?;
+        let manifest = process_manifest(resources, resource_rva)?;
+        (!manifest.is_empty() && manifest == approved_manifest).then_some(())
+    }
+
+    fn validate_virtual_sections(&self) -> Option<()> {
+        use object::LittleEndian as LE;
+
+        let alignment = self.section_alignment;
+        if alignment < 4096
+            || alignment < self.file_alignment
+            || !alignment.is_power_of_two()
+            || self.image_end % alignment != 0
+        {
+            return None;
+        }
+        let mut previous_end = self.headers_end.next_multiple_of(alignment);
+        for section in self.sections.iter() {
+            let start = u64::from(section.virtual_address.get(LE));
+            let virtual_size = section.virtual_size.get(LE);
+            let raw_size = section.size_of_raw_data.get(LE);
+            let size = u64::from(virtual_size.max(raw_size));
+            let end = start + size.next_multiple_of(alignment);
+            if start < previous_end || start % alignment != 0 || end > self.image_end {
+                return None;
+            }
+            previous_end = end;
+        }
+        Some(())
+    }
+
+    fn read_backed_rva<R: object::read::ReadRef<'data>>(
+        &self,
+        data: R,
+        rva: u64,
+        size: u64,
+    ) -> Option<&'data [u8]> {
+        use object::LittleEndian as LE;
+
+        // The virtual ranges have already been checked for overlaps. The full requested
+        // range must be inside both the virtual contents and raw bytes of one signed section.
+        for section in self.sections.iter() {
+            let start = u64::from(section.virtual_address.get(LE));
+            let virtual_size = section.virtual_size.get(LE);
+            let raw_size = section.size_of_raw_data.get(LE);
+            let backed = u64::from(virtual_size.min(raw_size));
+            if rva >= start && rva + size <= start + backed {
+                let offset = u64::from(section.pointer_to_raw_data.get(LE)) + (rva - start);
+                return data.read_bytes_at(offset, size).ok();
+            }
+        }
+        None
+    }
+}
+
+#[cfg(windows)]
+fn process_manifest(resources: &[u8], resource_rva: u64) -> Option<&[u8]> {
+    use object::LittleEndian as LE;
+    use object::pe;
+    use object::read::pe::{ResourceDirectory, ResourceDirectoryTable};
+
+    fn numeric_table_end(table: &ResourceDirectoryTable<'_>, offset: u32) -> Option<u64> {
+        let ids = table.entries.iter().map(|entry| entry.name_or_id.get(LE));
+        if offset % 4 != 0
+            || table.header.number_of_named_entries.get(LE) != 0
+            || ids.clone().any(|id| id > u32::from(u16::MAX))
+            || !ids.clone().zip(ids.skip(1)).all(|(left, right)| left < right)
+        {
+            return None;
+        }
+        Some(
+            u64::from(offset)
+                + std::mem::size_of::<pe::ImageResourceDirectory>() as u64
+                + std::mem::size_of_val(table.entries) as u64,
+        )
+    }
+
+    let directory = ResourceDirectory::new(resources);
+    let root = directory.root().ok()?;
+    let root_end = numeric_table_end(&root, 0)?;
+    let manifest_type = root
+        .entries
+        .iter()
+        .find(|entry| entry.name_or_id.get(LE) == u32::from(pe::RT_MANIFEST))?;
+    if u64::from(manifest_type.data_offset()) < root_end {
+        return None;
+    }
+    let names = manifest_type.data(directory).ok()?.table()?;
+    let names_end = numeric_table_end(&names, manifest_type.data_offset())?;
+    let [process] = names.entries else {
+        return None;
+    };
+    if process.name_or_id.get(LE) != 1 || u64::from(process.data_offset()) < names_end {
+        return None;
+    }
+    let languages = process.data(directory).ok()?.table()?;
+    let languages_end = numeric_table_end(&languages, process.data_offset())?;
+    let [language] = languages.entries else {
+        return None;
+    };
+    if language.data_offset() % 4 != 0 || u64::from(language.data_offset()) < languages_end {
+        return None;
+    }
+    let entry = language.data(directory).ok()?.data()?;
+    let entry_end = u64::from(language.data_offset())
+        + std::mem::size_of::<pe::ImageResourceDataEntry>() as u64;
+    let offset = u64::from(entry.offset_to_data.get(LE)).checked_sub(resource_rva)?;
+    if entry.reserved.get(LE) != 0 || offset % 4 != 0 || offset < entry_end {
+        return None;
+    }
+    let end = offset + u64::from(entry.size.get(LE));
+    resources.get(usize::try_from(offset).ok()?..usize::try_from(end).ok()?)
 }
 
 #[cfg(windows)]
