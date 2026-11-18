@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.1 (unpublished)
+
+- Windows installed-app discovery resolves the system registry tool by absolute path before the existing read-only queries. Query order and parser remain unchanged. (rightkit#1658)
+
 ## 0.9.0
 
 - Both `hello` frames (the accepted one and the refusal) are now built through `rightkit_sidecar::wire::ServiceHello` instead of `json!` literals; the bytes are unchanged.

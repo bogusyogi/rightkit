@@ -568,19 +568,31 @@ fn process_start_ms(pid: u32) -> Option<u128> {
 
 #[cfg(windows)]
 fn read_windows_uninstall_entries() -> Vec<UninstallEntry> {
+    use std::ffi::OsString;
+    use std::os::windows::ffi::OsStringExt;
+    use std::os::windows::process::CommandExt;
+    use windows_sys::Win32::System::SystemInformation::GetSystemDirectoryW;
+
+    // Win32 writes into the caller's UTF-16 buffer. A successful length excludes the NUL.
+    let mut buffer = vec![0_u16; 32_768];
+    let length = unsafe { GetSystemDirectoryW(buffer.as_mut_ptr(), buffer.len() as u32) } as usize;
+    if length == 0 || length >= buffer.len() {
+        return Vec::new();
+    }
+    let system_directory = PathBuf::from(OsString::from_wide(&buffer[..length]));
+    if !system_directory.is_absolute() {
+        return Vec::new();
+    }
+    let reg_path = system_directory.join("reg.exe");
     let mut all = String::new();
     for key in [
         r"HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall",
         r"HKLM\Software\Microsoft\Windows\CurrentVersion\Uninstall",
         r"HKLM\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall",
     ] {
-        let mut reg = std::process::Command::new("reg");
+        let mut reg = Command::new(&reg_path);
         reg.args(["query", key, "/s"]);
-        #[cfg(windows)]
-        {
-            use std::os::windows::process::CommandExt;
-            reg.creation_flags(0x0800_0000); // CREATE_NO_WINDOW: never flash a console from a GUI host
-        }
+        reg.creation_flags(0x0800_0000); // CREATE_NO_WINDOW: never flash a console from a GUI host
         if let Ok(output) = reg.output() {
             all.push_str(&String::from_utf8_lossy(&output.stdout));
             all.push('\n');
