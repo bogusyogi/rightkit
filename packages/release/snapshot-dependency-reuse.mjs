@@ -215,7 +215,7 @@ export function snapshotDependencyReuse({ checkout, snapshot, tree, root, dirs, 
     const executable = pnpmIdentity(env);
     if (!executable) { diagnostic.setup = 'pnpm-unresolved'; return null; }
     stage = 'git-common';
-    const git = spawn('git', ['rev-parse', '--git-common-dir'], { cwd: checkout, env });
+    const git = spawn('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], { cwd: checkout, env });
     if (git?.status !== 0) { diagnostic.setup = 'git-common-failed'; return null; }
     const common = String(git.stdout ?? '').trim();
     if (!common) { diagnostic.setup = 'git-common-empty'; return null; }

@@ -88,7 +88,8 @@ export const FINAL_ONLY = (cmd, out) => {
 };
 
 const keyOf = (cmd, args, options) => {
-  const env = options?.env && typeof options.env === "object" ? Object.entries(options.env).filter(([k]) => /^GIT_/i.test(k)).sort() : null;
+  // The git variables the child sees: its own env's, or this process's when it inherits (NN25: a call with an env and one without asked the same question twice).
+  const env = Object.entries(options?.env && typeof options.env === "object" ? options.env : process.env).filter(([k]) => /^GIT_/i.test(k)).sort();
   return JSON.stringify([cmd, args, typeof options?.cwd === "string" ? options.cwd : process.cwd(), options?.encoding ?? null, options?.input === undefined ? null : "has-input", env]);
 };
 const copy = (v) => (Buffer.isBuffer(v) ? Buffer.from(v) : v);
