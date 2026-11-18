@@ -1,0 +1,14 @@
+{
+  "package": "rightkit-media-control",
+  "capabilities": [
+    {
+      "capability": "media-session-control",
+      "summary": "Session-owned pause and restore of external media playback, with Windows GSMTC and a host backend interface.",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "A dependency declaration alone does not establish installed pause and restore behavior."
+      ]
+    }
+  ]
+}

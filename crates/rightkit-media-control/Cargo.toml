@@ -1,0 +1,21 @@
+[package]
+name = "rightkit-media-control"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.98.0"
+license = "MIT OR Apache-2.0"
+description = "Session-owned pause and resume of other media players while a recording runs: explicit pause only for players observed playing, explicit play only for players this session paused (GSMTC on Windows; other platforms through a host-installed backend)."
+readme = "README.md"
+repository = "https://github.com/bogusyogi/rightkit"
+keywords = ["media", "pause", "recording", "dictation"]
+categories = ["multimedia", "os"]
+include = ["src/**", "Cargo.toml", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+
+[dependencies]
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "0.62.2", features = ["Foundation", "Foundation_Collections", "Media_Control"] }
+
+[package.metadata.rightkit]
+continuous = false
+continuous_reason = "One worker thread blocked on a channel; it runs only when a host enqueues a begin or restore. No polling loop and no network."
