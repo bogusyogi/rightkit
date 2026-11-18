@@ -287,8 +287,8 @@ impl<'data> CliPe<'data> {
         data: R,
         approved_manifest: &[u8],
     ) -> Option<()> {
-        use object::LittleEndian as LE;
         use object::pe;
+        use object::LittleEndian as LE;
 
         const MAX_RESOURCE_DIRECTORY: u64 = 1024 * 1024;
         const MAX_LOAD_CONFIG: u64 = 4096;
@@ -297,7 +297,9 @@ impl<'data> CliPe<'data> {
             std::mem::offset_of!(pe::ImageLoadConfigDirectory64, dependent_load_flags);
 
         self.validate_virtual_sections()?;
-        let config = self.directories.get(pe::IMAGE_DIRECTORY_ENTRY_LOAD_CONFIG)?;
+        let config = self
+            .directories
+            .get(pe::IMAGE_DIRECTORY_ENTRY_LOAD_CONFIG)?;
         let resources = self.directories.get(pe::IMAGE_DIRECTORY_ENTRY_RESOURCE)?;
         let (config_rva, config_size) = config.address_range();
         let (resource_rva, resource_size) = resources.address_range();
@@ -378,16 +380,19 @@ impl<'data> CliPe<'data> {
 
 #[cfg(windows)]
 fn process_manifest(resources: &[u8], resource_rva: u64) -> Option<&[u8]> {
-    use object::LittleEndian as LE;
     use object::pe;
     use object::read::pe::{ResourceDirectory, ResourceDirectoryTable};
+    use object::LittleEndian as LE;
 
     fn numeric_table_end(table: &ResourceDirectoryTable<'_>, offset: u32) -> Option<u64> {
         let ids = table.entries.iter().map(|entry| entry.name_or_id.get(LE));
         if offset % 4 != 0
             || table.header.number_of_named_entries.get(LE) != 0
             || ids.clone().any(|id| id > u32::from(u16::MAX))
-            || !ids.clone().zip(ids.skip(1)).all(|(left, right)| left < right)
+            || !ids
+                .clone()
+                .zip(ids.skip(1))
+                .all(|(left, right)| left < right)
         {
             return None;
         }

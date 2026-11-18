@@ -210,7 +210,9 @@ fn png_error(error: png::DecodingError) -> PassiveImageError {
 fn sanitized_buffer(input_len: usize, limits: PassiveImageLimits) -> Result<Vec<u8>> {
     remaining(limits, Some(input_len))?;
     let mut bytes = Vec::new();
-    bytes.try_reserve_exact(input_len).map_err(|_| WorkingLimit)?;
+    bytes
+        .try_reserve_exact(input_len)
+        .map_err(|_| WorkingLimit)?;
     Ok(bytes)
 }
 
@@ -436,7 +438,11 @@ impl PngFormat {
 
     fn check_palette(&self, size: usize) -> Result<()> {
         let entries = size / 3;
-        let maximum = if self.color == 3 { 1 << self.depth } else { 256 };
+        let maximum = if self.color == 3 {
+            1 << self.depth
+        } else {
+            256
+        };
         if matches!(self.color, 0 | 4) || size % 3 != 0 || entries == 0 || entries > maximum {
             return Err(Malformed);
         }
@@ -472,20 +478,26 @@ impl PngFormat {
             (1, 0, 2, 2),
             (0, 1, 1, 2),
         ];
-        let passes: &[_] = if self.interlaced { &ADAM7 } else { &[(0, 0, 1, 1)] };
+        let passes: &[_] = if self.interlaced {
+            &ADAM7
+        } else {
+            &[(0, 0, 1, 1)]
+        };
         let bits = self.channels as u64 * u64::from(self.depth);
-        passes.iter().try_fold(0u64, |total, &(x, y, step_x, step_y)| {
-            let width = u64::from(canvas.width).saturating_sub(x).div_ceil(step_x);
-            let height = u64::from(canvas.height).saturating_sub(y).div_ceil(step_y);
-            if width == 0 || height == 0 {
-                return Ok(total);
-            }
-            // One filter byte precedes each packed row, separately per pass.
-            let row = (width * bits).div_ceil(8) + 1;
-            row.checked_mul(height)
-                .and_then(|size| total.checked_add(size))
-                .ok_or(WorkingLimit)
-        })
+        passes
+            .iter()
+            .try_fold(0u64, |total, &(x, y, step_x, step_y)| {
+                let width = u64::from(canvas.width).saturating_sub(x).div_ceil(step_x);
+                let height = u64::from(canvas.height).saturating_sub(y).div_ceil(step_y);
+                if width == 0 || height == 0 {
+                    return Ok(total);
+                }
+                // One filter byte precedes each packed row, separately per pass.
+                let row = (width * bits).div_ceil(8) + 1;
+                row.checked_mul(height)
+                    .and_then(|size| total.checked_add(size))
+                    .ok_or(WorkingLimit)
+            })
     }
 }
 
@@ -644,7 +656,10 @@ fn decode_jpeg(bytes: &[u8], limits: PassiveImageLimits) -> Result<(Raster, Orie
     ))
 }
 
-fn preflight_jpeg(bytes: &[u8], limits: PassiveImageLimits) -> Result<(Vec<u8>, Canvas, Orientation)> {
+fn preflight_jpeg(
+    bytes: &[u8],
+    limits: PassiveImageLimits,
+) -> Result<(Vec<u8>, Canvas, Orientation)> {
     let mut clean = sanitized_buffer(bytes.len(), limits)?;
     clean.extend_from_slice(JPEG_SIGNATURE);
     let mut rest = &bytes[2..];
@@ -796,7 +811,10 @@ impl JpegFrame {
 
 fn jpeg_scan_tail(mut bytes: &[u8]) -> Result<&[u8]> {
     loop {
-        let start = bytes.iter().position(|&byte| byte == 0xff).ok_or(Malformed)?;
+        let start = bytes
+            .iter()
+            .position(|&byte| byte == 0xff)
+            .ok_or(Malformed)?;
         let marker = &bytes[start..];
         let prefix = marker.iter().take_while(|&&byte| byte == 0xff).count();
         match marker.get(prefix).copied().ok_or(Malformed)? {
@@ -935,10 +953,7 @@ impl Write for BoundedOutput {
                 .saturating_mul(2)
                 .max(length)
                 .min(self.cap);
-            if let Err(error) = self
-                .bytes
-                .try_reserve_exact(capacity - self.bytes.len())
-            {
+            if let Err(error) = self.bytes.try_reserve_exact(capacity - self.bytes.len()) {
                 self.allocation_failed = true;
                 return Err(io::Error::other(error));
             }

@@ -60,7 +60,9 @@ impl fmt::Display for WindowsInstalledCliError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Discovery(error) => write!(f, "installed CLI discovery failed: {error}"),
-            Self::ProbeFailed(failure) => write!(f, "installed CLI probe failed: {}", failure.error),
+            Self::ProbeFailed(failure) => {
+                write!(f, "installed CLI probe failed: {}", failure.error)
+            }
             Self::Ambiguous => f.write_str("installed CLI discovery found multiple entries"),
             Self::Incomplete => f.write_str("installed CLI entry is incomplete"),
             Self::Pin(error) => write!(f, "could not pin installed CLI: {error}"),
@@ -104,7 +106,9 @@ pub fn verify_installed_windows_cli(
     }
     match candidate.state {
         InstalledCliCandidateState::Present => {}
-        InstalledCliCandidateState::ProbeFailed(failure) => return Err(Error::ProbeFailed(failure)),
+        InstalledCliCandidateState::ProbeFailed(failure) => {
+            return Err(Error::ProbeFailed(failure))
+        }
         _ => return Err(Error::Incomplete),
     }
 

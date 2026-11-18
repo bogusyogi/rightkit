@@ -4,8 +4,8 @@ use std::ops::Range;
 use super::{
     catch_unwind, next_png_chunk, png_error, png_header, record_exif, remaining, sanitized_buffer,
     zeroed, BoundedOutput, Canvas, Cursor, Decompress, Encoding, InputLimit, Malformed,
-    MediaTypeMismatch, Orientation, OutputLimit, PassiveImageLimits, PngChunk, PngFormat, PngStream,
-    Result, UnsupportedMediaType, WorkingLimit, CODEC_OVERHEAD, PNG_SIGNATURE,
+    MediaTypeMismatch, Orientation, OutputLimit, PassiveImageLimits, PngChunk, PngFormat,
+    PngStream, Result, UnsupportedMediaType, WorkingLimit, CODEC_OVERHEAD, PNG_SIGNATURE,
 };
 
 const PNG_MAX_INTEGER: u32 = 0x7fff_ffff;
@@ -299,7 +299,10 @@ fn frame_canvas(data: &[u8], canvas: Canvas, first_idat_frame: bool) -> Result<C
 
 fn start_stream(format: &PngFormat, canvas: Canvas, work: &mut StreamWork) -> Result<PngStream> {
     let expected = format.filtered_bytes(canvas)?;
-    work.filtered_total = work.filtered_total.checked_add(expected).ok_or(WorkingLimit)?;
+    work.filtered_total = work
+        .filtered_total
+        .checked_add(expected)
+        .ok_or(WorkingLimit)?;
     let bits = format.channels * format.depth as usize;
     work.decoder_rows = work
         .decoder_rows

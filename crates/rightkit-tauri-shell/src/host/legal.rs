@@ -292,7 +292,10 @@ impl LegalManifest {
         use sha2::{Digest, Sha256};
 
         let mut material = Vec::new();
-        for document in documents.iter().filter(|document| document.material == Some(true)) {
+        for document in documents
+            .iter()
+            .filter(|document| document.material == Some(true))
+        {
             let role = document.role.as_deref().unwrap_or_default();
             let line = format!(
                 "{role}|{}|{}|{}",

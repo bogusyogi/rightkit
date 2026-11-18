@@ -168,7 +168,10 @@ pub fn discover_installed_cli_candidates(
         if app_name.is_empty()
             || app_name.ends_with(".app")
             || app_name.as_bytes().contains(&0)
-            || Path::new(app_name).file_name().and_then(|name| name.to_str()) != Some(app_name)
+            || Path::new(app_name)
+                .file_name()
+                .and_then(|name| name.to_str())
+                != Some(app_name)
             || invalid_relative
         {
             return Err(io::Error::new(
@@ -697,7 +700,9 @@ mod windows_cli_discovery {
         }
 
         fn location_for(&self, app_name: &str, buffer: &mut [u16]) -> io::Result<Option<PathBuf>> {
-            if self.text(windows_sys::core::w!("DisplayName"), buffer)?.as_deref()
+            if self
+                .text(windows_sys::core::w!("DisplayName"), buffer)?
+                .as_deref()
                 != Some(app_name)
             {
                 return Ok(None);
@@ -711,7 +716,9 @@ mod windows_cli_discovery {
                     return Ok(Some(PathBuf::from(location)));
                 }
             }
-            Err(invalid_data("matching uninstall row requires InstallLocation"))
+            Err(invalid_data(
+                "matching uninstall row requires InstallLocation",
+            ))
         }
 
         fn text(&self, field: *const u16, buffer: &mut [u16]) -> io::Result<Option<String>> {
@@ -744,7 +751,9 @@ mod windows_cli_discovery {
             let units = &buffer[..bytes as usize / 2];
             let units = units.strip_suffix(&[0]).unwrap_or(units);
             if units.contains(&0) {
-                return Err(invalid_data("uninstall registry value contains an embedded NUL"));
+                return Err(invalid_data(
+                    "uninstall registry value contains an embedded NUL",
+                ));
             }
             let text = String::from_utf16(units)
                 .map_err(|_| invalid_data("uninstall registry value contains invalid UTF-16"))?;
@@ -764,14 +773,16 @@ mod windows_cli_discovery {
             .as_encoded_bytes()
             .split(|&byte| matches!(byte, b'\\' | b'/'))
             .all(|part| !matches!(part, b"" | b"." | b".."))
-            && path.components().all(|part| {
-                matches!(part, Component::Normal(name) if valid_path_component(name))
-            })
+            && path
+                .components()
+                .all(|part| matches!(part, Component::Normal(name) if valid_path_component(name)))
     }
 
     fn valid_path_component(component: &OsStr) -> bool {
         let bytes = component.as_encoded_bytes();
-        bytes.last().is_some_and(|&byte| !matches!(byte, b'.' | b' '))
+        bytes
+            .last()
+            .is_some_and(|&byte| !matches!(byte, b'.' | b' '))
             && !bytes.iter().any(|&byte| {
                 byte < b' '
                     || matches!(
@@ -786,9 +797,8 @@ mod windows_cli_discovery {
         relative_executable: &Path,
         seen: &mut BTreeSet<PathBuf>,
     ) -> io::Result<Option<InstalledCliCandidate>> {
-        let (drive, relative) = local_drive_path(location).ok_or_else(|| {
-            invalid_data("matching uninstall row has no absolute drive location")
-        })?;
+        let (drive, relative) = local_drive_path(location)
+            .ok_or_else(|| invalid_data("matching uninstall row has no absolute drive location"))?;
         // Use a verbatim DOS path so file probes cannot reinterpret a component as a device.
         let root = PathBuf::from(format!(r"\\?\{}:\", char::from(drive)));
         let installation = root.join(&relative);

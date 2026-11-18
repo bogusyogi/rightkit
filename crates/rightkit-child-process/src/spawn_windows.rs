@@ -29,12 +29,12 @@ use windows::{
             GetProcessMitigationPolicy, InitializeProcThreadAttributeList,
             ProcessExtensionPointDisablePolicy, ProcessImageLoadPolicy, ProcessSignaturePolicy,
             QueryFullProcessImageNameW, ResumeThread, TerminateProcess, UpdateProcThreadAttribute,
-            WaitForSingleObject,
-            CREATE_BREAKAWAY_FROM_JOB, CREATE_NEW_CONSOLE, CREATE_NO_WINDOW, CREATE_SUSPENDED,
-            CREATE_UNICODE_ENVIRONMENT, EXTENDED_STARTUPINFO_PRESENT, LPPROC_THREAD_ATTRIBUTE_LIST,
-            PROCESS_CREATION_FLAGS, PROCESS_INFORMATION, PROCESS_NAME_NATIVE,
-            PROC_THREAD_ATTRIBUTE_HANDLE_LIST, PROC_THREAD_ATTRIBUTE_MITIGATION_POLICY,
-            PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE, STARTF_USESTDHANDLES, STARTUPINFOEXW,
+            WaitForSingleObject, CREATE_BREAKAWAY_FROM_JOB, CREATE_NEW_CONSOLE, CREATE_NO_WINDOW,
+            CREATE_SUSPENDED, CREATE_UNICODE_ENVIRONMENT, EXTENDED_STARTUPINFO_PRESENT,
+            LPPROC_THREAD_ATTRIBUTE_LIST, PROCESS_CREATION_FLAGS, PROCESS_INFORMATION,
+            PROCESS_NAME_NATIVE, PROC_THREAD_ATTRIBUTE_HANDLE_LIST,
+            PROC_THREAD_ATTRIBUTE_MITIGATION_POLICY, PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE,
+            STARTF_USESTDHANDLES, STARTUPINFOEXW,
         },
     },
 };
@@ -752,8 +752,12 @@ fn explicit_executable_path(command: &Command) -> io::Result<PathBuf> {
             return false;
         };
         let bytes = name.as_encoded_bytes();
-        bytes.last().is_some_and(|&byte| !matches!(byte, b' ' | b'.'))
-            && !bytes.iter().any(|&byte| matches!(byte, b':' | b'/' | b'\\'))
+        bytes
+            .last()
+            .is_some_and(|&byte| !matches!(byte, b' ' | b'.'))
+            && !bytes
+                .iter()
+                .any(|&byte| matches!(byte, b':' | b'/' | b'\\'))
     });
     if disk
         && root
