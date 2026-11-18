@@ -112,6 +112,7 @@ import { BUILD_CONTROL_PROTOCOL, HANDSHAKE_PROBE_ID, RUNTIME_MANIFEST_FILE, pars
 import { snapshotReclaimJudge } from "../seam-broker.mjs";
 import net from "node:net";
 import { installSpawnLedger } from "../spawn-ledger.mjs";
+import { rememberedVersion } from "../tool-version-memo.mjs";
 import { installProbeMemo } from "../probe-memo.mjs";
 import { processIdentity, snapshotLockBody, verdictFileName } from "../gate-seam.mjs";
 
@@ -1928,7 +1929,9 @@ async function runStages(o, args, root, git, io) {
   const which = (cmd) => { const r = o.spawn(o.platform === "win32" ? "where" : "which", [cmd]); return failed(r) ? [] : text(r).split(/\r?\n/).map((l) => l.trim()).filter(Boolean); };
   const executor = (o.resolveExecutor ?? gateResolveExecutor)({ env: o.env, platform: o.platform, exists: o.exists, which, readFile: o.readFile }); applyExecutorEnv(o, executor);
   if (executor.kind === "refuse") { o.err(`${tag} BLOCKED: ${executor.problem}`); return 1; }
-  const version = (cmd, a) => { const r = o.spawn(cmd, a, { cwd: root }); return failed(r) ? null : text(r).trim().split(/\r?\n/)[0]; };
+  // NN01/NN25: a tool's version is remembered across runs while its program file is unchanged (tool-version-memo.mjs); a shim is asked each time.
+  const versionStore = (() => { try { return path.join(gateRunsRoot({ env: o.env, platform: o.platform }), "tool-versions.json"); } catch { return null; } })();
+  const version = (cmd, a) => rememberedVersion(cmd, a, { env: o.env, platform: o.platform, storeFile: o.spawn === defaultSpawn ? versionStore : null, run: (c, args) => { const r = o.spawn(c, args, { cwd: root }); return failed(r) ? null : text(r).trim().split(/\r?\n/)[0]; } });
   const listed = git("ls-tree", "-r", "--name-only", "-z", commit);
   const lockFiles = {};
   for (const f of failed(listed) ? [] : text(listed).split("\0").filter((x) => /(^|\/)(Cargo\.lock|pnpm-lock\.yaml)$/.test(x))) {
