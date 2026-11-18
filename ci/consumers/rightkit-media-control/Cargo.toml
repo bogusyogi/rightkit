@@ -1,0 +1,10 @@
+[package]
+name = "rightkit-media-control-registry-consumer"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+rightkit-media-control = { version = "=0.1.0" }
