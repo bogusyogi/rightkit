@@ -87,7 +87,7 @@ export function listNsisPayload(installer, { sevenZip = resolveSevenZip(), run =
  * Extract one payload entry to a temporary directory and return its bytes.
  * The caller owns nothing: the temporary directory is always removed.
  */
-export function extractNsisEntry(installer, entryName, { sevenZip = resolveSevenZip(), run = runSevenZip, tempRoot = os.tmpdir() } = {}) {
+export function extractNsisEntry(installer, entryName, { sevenZip = resolveSevenZip(), run = runSevenZip, tempRoot = os.tmpdir(), exactMember = false } = {}) {
   const resolvedInstaller = path.resolve(installer);
   const base = path.posix.basename(String(entryName).replace(/\\/g, "/"));
   if (!base || base === "." || base === "..") throw new Error(`invalid NSIS payload entry name: ${entryName}`);
@@ -100,7 +100,7 @@ export function extractNsisEntry(installer, entryName, { sevenZip = resolveSeven
     const requested = String(entryName).replace(/\\/g, "/");
     const members = listNsisPayload(resolvedInstaller, { sevenZip, run });
     const exact = members.filter((member) => member.name.toLowerCase() === requested.toLowerCase());
-    const matches = exact.length > 0
+    const matches = exactMember || exact.length > 0
       ? exact
       : members.filter((member) => path.posix.basename(member.name).toLowerCase() === base.toLowerCase());
     if (matches.length === 0) {
@@ -134,11 +134,12 @@ export function verifyNsisEmbeddedBinary({
   sevenZip = resolveSevenZip(),
   run = runSevenZip,
   tempRoot = os.tmpdir(),
+  exactMember = false,
 }) {
   if (!/^[0-9a-f]{64}$/i.test(String(expectedSha256 ?? ""))) {
     throw new Error(`expected a sha256 digest for the signed ${entryName}, received ${JSON.stringify(expectedSha256)}`);
   }
-  const { name, bytes } = extractNsisEntry(installer, entryName, { sevenZip, run, tempRoot });
+  const { name, bytes } = extractNsisEntry(installer, entryName, { sevenZip, run, tempRoot, exactMember });
   const embeddedSha256 = createHash("sha256").update(bytes).digest("hex");
   if (embeddedSha256.toLowerCase() !== String(expectedSha256).toLowerCase()) {
     throw new Error(

@@ -73,7 +73,7 @@ if (!dryRun || releaseId) {
   assertPrimaryReleaseCheckout(repoRoot);
   const commit = git(["rev-parse", "HEAD"]);
   assertCleanSource({ status: git(["status", "--porcelain=v1", "-z", "--untracked-files=all"]), commandId: "right-release publish-update" });
-  sealed = verifyPublicationRelease({ sealedDir: path.join(repoRoot, ".right-release", "sealed", releaseId, platformDirOf(platform)), repoRoot, appRoot: root, commit, app: config.app, version: versionForStorage, platform, configPath, releaseId });
+  sealed = verifyPublicationRelease({ sealedDir: path.join(repoRoot, ".right-release", "sealed", releaseId, platformDirOf(platform)), repoRoot, appRoot: root, commit, app: config.app, version: versionForStorage, platform, configPath, releaseId, target });
   const routes = sealed.manifest.routes?.[githubLane ? "update" : tier] ?? [];
   const configured = githubLane
     ? artifacts.map((item) => ({ ...item, key: githubKey(item), role: "updater" }))

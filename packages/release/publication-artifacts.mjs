@@ -3,7 +3,8 @@ import { readFileSync, statSync, openSync, fstatSync, readSync, closeSync } from
 import path from "node:path";
 import { verifySealedRelease } from "./release-state.mjs";
 import { verifyOwnershipEvidence } from "./ownership-evidence.mjs";
-import { validateMediaSidecarReceipt } from "./media-sidecar.mjs";
+import { bundledFileName, stagedFileName, validateMediaSidecarReceipt } from "./media-sidecar.mjs";
+import { validateExternalBinConfig } from "./external-bin.mjs";
 
 export class PublicationError extends Error {
   constructor(code, message) { super(`[${code}] ${message}`); this.name = "PublicationError"; this.code = code; }
@@ -43,7 +44,7 @@ export function assertArtifactUnchanged(artifact) {
 
 // `streamRoles`: sealed entries of these roles are hash-verified by a streamed read and returned WITHOUT their bytes (the caller reads
 // byte ranges of `file`), so a large IPA is never held in memory.
-export function verifyPublicationRelease({ sealedDir, repoRoot, appRoot, commit, app, version, platform, configPath, releaseId, streamRoles = [], ownershipScope = null }, deps = {}) {
+export function verifyPublicationRelease({ sealedDir, repoRoot, appRoot, commit, app, version, platform, configPath, releaseId, streamRoles = [], ownershipScope = null, target }, deps = {}) {
   let sealed;
   try { sealed = verifySealedRelease(sealedDir); }
   catch (error) {
@@ -68,6 +69,8 @@ export function verifyPublicationRelease({ sealedDir, repoRoot, appRoot, commit,
   let signed = false;
   let androidVerified = false;
   let iosVerified = false;
+  const windowsSignatures = [];
+  const windowsEmbedding = [];
   for (const receipt of receipts) {
     const artifact = readVerifiedArtifact(path.resolve(appRoot, receipt.file), receipt);
     let value;
@@ -82,10 +85,12 @@ export function verifyPublicationRelease({ sealedDir, repoRoot, appRoot, commit,
     if (Array.isArray(value.files)) {
       if (!value.files.length || value.files.some((item) => !/^[a-f0-9]{64}$/.test(item.after?.sha256 ?? "") || item.timestampPresent !== true
         || (platform === "win" ? item.authenticode !== "Valid" || item.subject !== "CN=Damned Ventures LLC" : item.codesign !== "strict-valid" || item.identity !== value.identity))) throw new PublicationError("PUBLICATION_SIGNATURE_INVALID", "sealed signature verification evidence rejected");
+      if (platform === "win") windowsSignatures.push(value.files);
       signed = true;
     } else if (Array.isArray(value.embedded)) {
       if (!value.embedded.length || !/^[a-f0-9]{64}$/.test(value.rawExe?.signedSha256 ?? "") || value.rawExe.signedSha256 !== value.rawExe.verifiedSha256
         || value.embedded.some((item) => item.sha256 !== value.rawExe.signedSha256)) throw new PublicationError("PUBLICATION_SIGNATURE_INVALID", "sealed installer embedding evidence rejected");
+      if (platform === "win") windowsEmbedding.push(value);
     } else if (!value.notarization) throw new PublicationError("PUBLICATION_SIGNATURE_INVALID", "unrecognized sealed signing receipt");
     if (value.notarization) {
       if (value.notarization.status !== "Accepted" || !value.stapling?.length || value.stapling.some((item) => item.validated !== true)) throw new PublicationError("PUBLICATION_NOTARIZATION_INVALID", "notarization/stapling evidence rejected");
@@ -95,6 +100,9 @@ export function verifyPublicationRelease({ sealedDir, repoRoot, appRoot, commit,
     }
   }
   if (!signed) throw new PublicationError("PUBLICATION_SIGNATURE_MISSING", "sealed native signing evidence is required");
+  if (platform === "win" && (target?.winPackage || target?.signingContract === "windows-raw-exe-authenticode-before-nsis-v1") && target.externalBin !== undefined) {
+    verifySidecarEmbedding(windowsEmbedding, windowsSignatures, manifest.files, target);
+  }
   if (platform === "mac" && !notarized) throw new PublicationError("PUBLICATION_NOTARIZATION_MISSING", "sealed notarization evidence is required");
   if (platform === "android" && !androidVerified) throw new PublicationError("PUBLICATION_SIGNATURE_MISSING", "sealed android AAB upload-key receipt is required");
   if (platform === "ios" && !iosVerified) throw new PublicationError("PUBLICATION_SIGNATURE_MISSING", "sealed iOS IPA build receipt is required");
@@ -105,6 +113,52 @@ export function verifyPublicationRelease({ sealedDir, repoRoot, appRoot, commit,
   }
   if (!artifacts.size) throw new PublicationError("PUBLICATION_SEAL_INVALID", "sealed release has no artifacts");
   return { ...sealed, artifacts };
+}
+
+function verifySidecarEmbedding(receipts, signatures, files, target) {
+  const fail = () => { throw new PublicationError("PUBLICATION_SIGNATURE_INVALID", "sealed installer sidecar embedding evidence rejected"); };
+  // Build seals these Authenticode receipts in phase order: raw executables, then installers.
+  if (receipts.length !== 1 || signatures.length !== 2) fail();
+  const [rawSignatures, installerSignatures] = signatures;
+  const { embedded, sidecars, rawExe, externalBinArch } = receipts[0];
+  if (typeof externalBinArch !== "string") fail();
+  let expected;
+  try {
+    const config = validateExternalBinConfig(target.externalBin, { platform: "win", hostArch: externalBinArch });
+    if (config.arch !== externalBinArch) fail();
+    expected = new Map(config.names.map((name) => [
+      bundledFileName(name, config.os).toLowerCase(),
+      path.win32.join(config.stageDir, stagedFileName(name, config.os, config.arch)).toLowerCase(),
+    ]));
+    if (expected.size !== config.names.length) fail();
+  } catch { fail(); }
+  if (!Array.isArray(sidecars) || sidecars.length !== expected.size) fail();
+  const signedFile = ({ file, signedSha256 }) => typeof file === "string" && rawSignatures.some((item) => item.file === file && item.after.sha256 === signedSha256);
+  if (!signedFile(rawExe)) fail();
+  const installers = new Map();
+  for (const copy of embedded) {
+    const signer = installerSignatures.find((item) => item.file === copy.installer && item.before?.sha256 === copy.installerSha256);
+    if (!signer || installers.has(copy.installer) || !/^[a-f0-9]{64}$/.test(copy.installerSha256 ?? "")) fail();
+    installers.set(copy.installer, signer);
+  }
+  const sealedInstallers = files.filter(({ role, name }) => /\.exe$/i.test(name) && role.split("+").some((label) => label === "installer" || label === "updater"));
+  if (!sealedInstallers.length || sealedInstallers.some(({ sha256 }) => ![...installers.values()].some(({ after }) => after.sha256 === sha256))) fail();
+  for (const sidecar of sidecars) {
+    const { entry, signedSha256, verifiedSha256, embedded: copies } = sidecar ?? {};
+    const key = typeof entry === "string" ? entry.toLowerCase() : null;
+    const stagedPath = expected.get(key);
+    if (!stagedPath || !signedFile(sidecar) || sidecar.file === rawExe.file
+      || !path.win32.normalize(sidecar.file).toLowerCase().endsWith(`\\${stagedPath}`)
+      || signedSha256 !== verifiedSha256 || !Array.isArray(copies) || copies.length !== installers.size) fail();
+    expected.delete(key);
+    const seen = new Set();
+    for (const copy of copies) {
+      const signer = installers.get(copy?.installer);
+      if (!signer || seen.has(copy.installer) || copy.installerSha256 !== signer.before.sha256
+        || copy.entry !== entry || copy.sha256 !== signedSha256) fail();
+      seen.add(copy.installer);
+    }
+  }
 }
 
 // Android AAB receipt (android-release.mjs: contract "android-aab-upload-key-v1"). The receipt was already read from the

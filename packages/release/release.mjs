@@ -684,6 +684,7 @@ await runConfiguredChecks({
 
 let nativeFinalization = null;
 let bundleMarkerReceipts = [];
+let windowsExternalBins = null;
 if (opts.platform === "win" && target.signingContract === MSIX_SIGNING_CONTRACT) {
   // MSIX order: prePackage builds + stages the payload; buildMsix signs inner PE files (DLLs, EXEs),
   // packs the exact signed bytes, signs the package through sign-windows, verifies signer == Publisher,
@@ -733,6 +734,7 @@ if (opts.platform === "win" && target.signingContract === MSIX_SIGNING_CONTRACT)
   if (externalPlan && !opts.dryRun) {
     const signed = Object.fromEntries(externalPre.map((file) => [file.tool, sidecarFileEvidence(file.stagedPath)]));
     writeExternalBinReceipt(root, buildExternalBinReceipt(externalPlan, externalPre, signed));
+    windowsExternalBins = { arch: externalPlan.config.arch, files: externalPre };
   }
   if (nativeAssembly?.packageHook && !hasNativeTargetSpecificPrePackage(target, nativeAssembly.packageHook)) {
     await runCommand(nativeAssembly.packageHook, root);
@@ -857,7 +859,7 @@ if (opts.platform === "win" && target.signingContract === WINDOWS_NSIS_SIGNING_C
   // Before the installer earns its own signature, prove it carries the bytes we
   // signed. An installer-only signature on a mutated payload verifies perfectly
   // and still installs a binary Windows rejects.
-  await verifyWindowsEmbedding({ root, target, files, markers: bundleMarkerReceipts });
+  await verifyWindowsEmbedding({ root, target, files, markers: bundleMarkerReceipts, externalBins: windowsExternalBins });
   await signWindows(files, "installer", root);
   if (target.postSign) await runCommands(target.postSign, root);
   const updaterFiles = [...new Set((target.updater?.artifacts ?? []).map((artifact) => resolveReleaseArtifactPath(root, artifact.file)))];
@@ -2007,47 +2009,61 @@ function verifyMacosNotarizationReceipt(receipt, archive) {
  * Only the third is proof the shipped artifact is correct; the first two name
  * the cause when it is not.
  */
-async function verifyWindowsEmbedding({ root, target, files, markers }) {
+async function verifyWindowsEmbedding({ root, target, files, markers, externalBins }) {
   if (opts.dryRun) {
-    console.log("dry-run: verify installer embeds the signed raw EXE");
+    console.log("dry-run: verify installer embeds the signed raw EXE and external binaries");
     return;
   }
   const rawFile = resolveDeclaredPath(root, target.sign.prePackageFiles[0]);
+  const payload = [
+    { file: rawFile, entry: path.basename(rawFile) },
+    ...(externalBins?.files ?? []).map(({ stagedPath, bundledName }) => ({ file: stagedPath, entry: bundledName, exactMember: true })),
+  ];
+  if (new Set(payload.map(({ entry }) => entry.toLowerCase())).size !== payload.length) {
+    fail("NSIS signed payload entries must have distinct bundled names");
+  }
   const rawReceiptPath = windowsReceiptPath(root, "raw-exe");
   let rawReceipt;
   try { rawReceipt = JSON.parse(readFileSync(rawReceiptPath, "utf8")); } catch { fail(`missing raw EXE signing receipt: ${rawReceiptPath}`); }
-  const signed = rawReceipt.files?.find((item) => path.resolve(item.file) === rawFile);
-  const signedSha256 = signed?.after?.sha256;
-  if (!signedSha256) fail(`raw EXE signing receipt does not record a signed digest for ${rawFile}`);
 
-  await mustExist(rawFile, `signed raw EXE disappeared before packaging completed: ${rawFile}`);
-  const currentSha256 = createHash("sha256").update(readFileSync(rawFile)).digest("hex");
-  if (currentSha256 !== signedSha256) {
-    fail(
-      `packaging rewrote the signed raw EXE: signed sha256 ${signedSha256}, on-disk sha256 ${currentSha256}. `
-      + "Its Authenticode signature is now invalid. Apply every deterministic byte patch before signing, never after.",
-    );
-  }
-  // signtool, not inference: a hash match proves the bytes, this proves the chain.
-  await run("node", [SIGN_WINDOWS, "--verify-only", rawFile], root);
-
-  const embedded = [];
-  for (const installer of files) {
-    let receipt;
-    try {
-      receipt = verifyNsisEmbeddedBinary({ installer, entryName: path.basename(rawFile), expectedSha256: signedSha256 });
-    } catch (error) {
-      fail(error.message);
+  const signedPayload = [];
+  for (const { file, entry, exactMember } of payload) {
+    const signedSha256 = rawReceipt.files?.find((item) => path.resolve(item.file) === file)?.after?.sha256;
+    if (!signedSha256) fail(`raw EXE signing receipt does not record a signed digest for ${file}`);
+    await mustExist(file, `signed executable disappeared before packaging completed: ${file}`);
+    const verifiedSha256 = createHash("sha256").update(readFileSync(file)).digest("hex");
+    if (verifiedSha256 !== signedSha256) {
+      fail(
+        `packaging rewrote the signed executable ${file}: signed sha256 ${signedSha256}, on-disk sha256 ${verifiedSha256}. `
+        + "Its Authenticode signature is now invalid. Apply every deterministic byte patch before signing, never after.",
+      );
     }
-    console.log(`right-release: ${path.basename(installer)} embeds the signed ${receipt.entry} (sha256 ${receipt.sha256.slice(0, 16)}…)`);
-    embedded.push(receipt);
+    signedPayload.push({ file, entry, exactMember, signedSha256, verifiedSha256 });
+  }
+  await run("node", [SIGN_WINDOWS, "--verify-only", ...signedPayload.map(({ file }) => file)], root);
+  const verified = [];
+  for (const { file, entry, exactMember, signedSha256, verifiedSha256 } of signedPayload) {
+    const embedded = [];
+    for (const installer of files) {
+      let receipt;
+      try {
+        receipt = verifyNsisEmbeddedBinary({ installer, entryName: entry, expectedSha256: signedSha256, exactMember });
+      } catch (error) {
+        fail(error.message);
+      }
+      console.log(`right-release: ${path.basename(installer)} embeds the signed ${receipt.entry} (sha256 ${receipt.sha256.slice(0, 16)}…)`);
+      embedded.push(receipt);
+    }
+    verified.push({ file, entry, signedSha256, verifiedSha256, embedded });
   }
 
+  const [{ embedded, entry: _rawEntry, ...rawExe }, ...sidecars] = verified;
   const receiptPath = windowsReceiptPath(root, "embedding");
   mkdirSync(path.dirname(receiptPath), { recursive: true });
   writeFileSync(receiptPath, `${JSON.stringify({
     schema: 1,
-    rawExe: { file: rawFile, signedSha256, verifiedSha256: currentSha256 },
+    rawExe,
+    ...(sidecars.length ? { sidecars, externalBinArch: externalBins.arch } : {}),
     bundleMarkers: markers ?? [],
     embedded,
     verifiedAt: new Date().toISOString(),
