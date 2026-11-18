@@ -114,7 +114,8 @@ import net from "node:net";
 import { installSpawnLedger } from "../spawn-ledger.mjs";
 import { rememberedVersion } from "../tool-version-memo.mjs";
 import { SNAPSHOT_PROOF_COUNTS, snapshotProofLine } from "../snapshot.mjs";
-import { installProbeMemo } from "../probe-memo.mjs";
+import { contentStore, installProbeMemo } from "../probe-memo.mjs";
+import { setTreeListingStore } from "../snapshot-git.mjs";
 import { processIdentity, snapshotLockBody, verdictFileName } from "../gate-seam.mjs";
 
 const PRIVATE_SCOPED_COMPILE = Symbol("private scoped compile");
@@ -846,20 +847,37 @@ export function lockScope({ changed, cargoDir = ".", unitNames, showBase, readLo
 const SHARED_RUST_INPUTS = ["Cargo.lock", "Cargo.toml", "rust-toolchain", "rust-toolchain.toml", ".cargo", "deny.toml", "clippy.toml", ".clippy.toml", "rustfmt.toml", ".rustfmt.toml", "vendor"];
 const GATE_CONFIG = "ci/gate.config.json";
 /**
- * The Cargo.toml files a workspace at `dir` reads: every one under `dir`, and every one reached through a `path = "..."` dependency of those,
- * transitively. `all`: the commit's file list; `readBlob(path)`: a file's text. A manifest that cannot be read is kept but not followed.
+ * The Cargo.toml files a workspace at `dir` reads (NN04: one edited manifest reruns only its workspace): every one under `dir`, and every one reached
+ * through a `path = "..."` or `path = '...'` dependency of those (dependencies, [dependencies.x] tables, [patch], [workspace.dependencies]),
+ * transitively. `all`: the commit's file list; `readBlob(path)`: a file's text.
+ * Whenever it cannot be sure it found every manifest the workspace reads, it answers EVERY Cargo.toml of the commit (GC-A19's key), never fewer:
+ * a manifest it cannot read, a `path =` it cannot parse (a multi-line or escaped string), a workspace member outside `dir` (`members` naming
+ * `..`), or a Cargo configuration of `dir` or an ancestor that overrides paths (`paths =` in .cargo/config[.toml]) (astra62 review, 2026-11-18).
  */
 export function cargoManifestsOfWorkspace({ dir, all, readBlob }) {
   const isManifest = (f) => /(^|\/)Cargo\.toml$/.test(f);
   const present = new Set(all.filter(isManifest));
+  const every = [...present].sort();
+  const read = (f) => { try { const t = readBlob(f); return typeof t === "string" ? t : null; } catch { return null; } };
+  const dirs = dir === "." ? ["."] : dir.split("/").map((_, i, parts) => parts.slice(0, i + 1).join("/")).concat(".");
+  for (const d of dirs) for (const name of [".cargo/config.toml", ".cargo/config"]) {
+    const p = d === "." ? name : `${d}/${name}`;
+    if (all.includes(p)) { const t = read(p); if (t === null || /^\s*paths\s*=/m.test(t)) return every; }
+  }
   const under = (f) => dir === "." || f.startsWith(`${dir}/`);
   const out = new Set([...present].filter(under)); const queue = [...out];
   while (queue.length) {
-    const m = queue.pop(); let text = null; try { text = readBlob(m); } catch { text = null; }
-    if (typeof text !== "string") continue;
+    const m = queue.pop(); const text = read(m);
+    if (text === null) return every;
+    // A workspace member named outside the workspace directory (members = ["../x"], on one line or several).
+    const members = /^\s*members\s*=\s*\[([^\]]*)\]/m.exec(text);
+    if (members && members[1].includes("..")) return every;
     const base = path.posix.dirname(m);
-    for (const hit of text.matchAll(/(?:^|[\s{,])path\s*=\s*"([^"\n]+)"/gm)) {
-      const target = path.posix.normalize(path.posix.join(base === "." ? "" : base, hit[1], "Cargo.toml"));
+    const declared = [...text.matchAll(/(?:^|[\s{,])path\s*=/gm)].length;
+    const hits = [...text.matchAll(/(?:^|[\s{,])path\s*=\s*(?:"([^"\\\n]+)"|'([^'\n]+)')/gm)];
+    if (hits.length !== declared) return every;
+    for (const hit of hits) {
+      const target = path.posix.normalize(path.posix.join(base === "." ? "" : base, hit[1] ?? hit[2], "Cargo.toml"));
       if (!target.startsWith("..") && present.has(target) && !out.has(target)) { out.add(target); queue.push(target); }
     }
   }
@@ -5467,7 +5485,12 @@ if (invokedDirectly) {
   installSpawnLedger();
   // NN07: a fixed question about the checkout (git top level, object format, whether an id names a commit, where a tool is) is asked once per process.
   // NN22: whole-tree listings of a full commit id are kept between gate processes (probe-memo.mjs treeListStore).
-  installProbeMemo({ storeDir: (() => { try { return path.join(gateRunsRoot({ env: process.env, platform: process.platform }), "tree-lists"); } catch { return null; } })() });
+  {
+    const treeLists = (() => { try { return path.join(gateRunsRoot({ env: process.env, platform: process.platform }), "tree-lists"); } catch { return null; } })();
+    installProbeMemo({ storeDir: treeLists });
+    // NN22: the sealed listing (snapshot.mjs treeEntries) runs in a fresh private directory, so it is kept by object database, not by working directory.
+    setTreeListingStore(treeLists ? contentStore(path.join(treeLists, "sealed")) : null);
+  }
   // NN11/NN28: how this run proved the snapshot, once, at the end (snapshot.mjs SNAPSHOT_PROOF_COUNTS).
   process.once("exit", () => { const c = SNAPSHOT_PROOF_COUNTS; if (c.treeHashes + c.verifyWalks + c.residentProofs > 0) { try { process.stdout.write(`rightkit-gate: ${snapshotProofLine("node-fs-watch")}\n`); } catch { /* stdout closed */ } } });
   // Every child this run starts that can reach rustright (scans, unit stages, right-release dev/test, their builds) inherits it.

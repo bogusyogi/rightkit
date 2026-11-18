@@ -176,13 +176,29 @@ export function sealedRun(checkout, args, options = {}) {
   // arguments and the output encoding; at most TREE_LISTING_MEMO_MAX listings are kept.
   const memoKey = immutableListingKey(info, args, options);
   if (memoKey !== null && treeListingMemo.has(memoKey)) return { ...treeListingMemo.get(memoKey) };
+  // NN22: and across gate processes, from the listing store (setTreeListingStore). Keyed like the memo, never on the working directory: a sealed
+  // call runs in a fresh private directory each time, so a key holding it never matched (astra62 review, 2026-11-18).
+  const kept = memoKey !== null && listingStore ? listingStore.get(memoKey) : null;
+  if (kept) {
+    const stdout = options.binary === true ? kept : kept.toString("utf8"); const stderr = options.binary === true ? Buffer.alloc(0) : "";
+    const stored = { pid: 0, status: 0, signal: null, stdout, stderr, output: [null, stdout, stderr] };
+    if (treeListingMemo.size >= TREE_LISTING_MEMO_MAX) treeListingMemo.delete(treeListingMemo.keys().next().value);
+    treeListingMemo.set(memoKey, stored); listingStats.stored += 1;
+    return { ...stored };
+  }
   const result = withSealedGit({ ...info, snapshot: options.snapshot }, (git) => git.run(args, options));
   if (memoKey !== null && result && result.status === 0 && !result.error) {
     if (treeListingMemo.size >= TREE_LISTING_MEMO_MAX) treeListingMemo.delete(treeListingMemo.keys().next().value);
     treeListingMemo.set(memoKey, result);
+    if (listingStore) listingStore.put(memoKey, Buffer.isBuffer(result.stdout) ? result.stdout : Buffer.from(String(result.stdout ?? ""), "utf8"));
   }
   return result;
 }
+
+let listingStore = null;
+const listingStats = { stored: 0 };
+/** Keep sealed whole-tree listings of a full object id between gate processes in `store` ({ get(key), put(key, bytes) }: probe-memo.mjs contentStore); null turns it off. Returns the counters. */
+export function setTreeListingStore(store) { listingStore = store && typeof store.get === "function" && typeof store.put === "function" ? store : null; listingStats.stored = 0; return listingStats; }
 
 const TREE_LISTING_MEMO_MAX = 4;
 const treeListingMemo = new Map();
@@ -192,5 +208,5 @@ function immutableListingKey(info, args, options) {
   const target = args[args.length - 1];
   if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(String(target))) return null;
   if (args.slice(1, -1).some((a) => !/^-/.test(String(a)))) return null;
-  return JSON.stringify([info.commonDir, info.objectFormat, args, options.encoding ?? null, options.maxBuffer ?? null]);
+  return JSON.stringify([info.commonDir, info.objectFormat, args, options.encoding ?? null, options.maxBuffer ?? null, options.binary === true]);
 }

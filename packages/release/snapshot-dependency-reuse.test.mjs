@@ -33,6 +33,18 @@ test('preparation inputs ignore only per-run ownership and approved scheduling c
   assert.notEqual(preparationInputComponents({ ...input, config: 'changed' }).config, before.config);
 });
 
+test('NN12: what changes between two gate launches of the same check does not change the preparation key (Dell 2026-11-18)', () => {
+  // The contract test's two warm launches (S1:check, S2:check) differ in exactly these; a new agent session (S16:ident) in the last three.
+  const input = { source: 'tree', toolchain: 'tool', config: 'config', store: 'store' };
+  const base = { Path: 'C:\\bin', USERPROFILE: 'C:\\Users\\u', NPM_CONFIG_REGISTRY: 'https://r', NODE_OPTIONS: '--x', RIGHTKIT_BUILD_OWNERSHIP_FILE: '/owned' };
+  const first = preparationInputComponents({ ...input, env: { ...base, RK_GATE_SPAWN_LEDGER: 'D:\\out\\S1_check.ledger.jsonl', RK_GATE_CONTRACT_STEP: 'S1:check', RK_GATE_CONTRACT_RUN_ID: 'a'.repeat(64), CODEX_TOOL_CALL_ID: 'one', TERM_SESSION_ID: 't1', TMPDIR: 'C:\\t1' } });
+  const second = preparationInputComponents({ ...input, env: { ...base, RK_GATE_SPAWN_LEDGER: 'D:\\out\\S2_check.ledger.jsonl', RK_GATE_CONTRACT_STEP: 'S2:check', RK_GATE_CONTRACT_RUN_ID: 'b'.repeat(64), CODEX_TOOL_CALL_ID: 'two', TERM_SESSION_ID: 't2', TMPDIR: 'C:\\t2' } });
+  assert.deepEqual(second, first);
+  // What pnpm reads still keys it, whatever its case.
+  assert.notEqual(preparationInputComponents({ ...input, env: { ...base, npm_config_registry: 'https://other' } }).environment, first.environment);
+  assert.notEqual(preparationInputComponents({ ...input, env: { ...base, PNPM_CONFIG_NODE_LINKER: 'hoisted' } }).environment, first.environment);
+});
+
 test('config identity ignores object order but binds values, array order and file hashes', () => {
   const files = [['user', 'hash-a'], ['global', 'hash-b']];
   const fingerprint = (config, ids = files) => canonicalConfigFingerprint(config, ids);

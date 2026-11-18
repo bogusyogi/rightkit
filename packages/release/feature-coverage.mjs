@@ -76,6 +76,32 @@ export function manifestFeatures(text) {
 /** The feature names (never `default`) a Cargo.toml declares. */
 export const declaredFeatureNames = (text) => [...manifestFeatures(text).keys()].filter((name) => name !== "default");
 
+/**
+ * NN27: every feature `--all-features` turns on for this crate, or null when the manifest cannot tell. That is the declared features plus each
+ * optional dependency that is its own implicit feature: Cargo gives an optional dependency a feature of its name unless some feature names it as
+ * `dep:<name>` (astra62 review, 2026-11-18: a crate whose only features come from optional dependencies looked featureless, so its
+ * `--all-features` check was dropped and those dependencies were never compiled). An optional dependency this reader cannot name (a form it does
+ * not parse) answers null, and a null drops no check.
+ */
+export function allFeatureNamesOf(text) {
+  const src = String(text ?? "");
+  const optionalCount = [...src.matchAll(/\boptional\s*=\s*true\b/g)].length;
+  const optional = new Set();
+  let section = null;
+  for (const line of src.split(/\r?\n/)) {
+    const header = /^\s*\[([^\[\]]+)\]\s*(?:#.*)?$/.exec(line);
+    if (header) { section = header[1].trim(); continue; }
+    const deps = section !== null && /(?:^|\.)(?:dependencies|build-dependencies)$/.test(section);
+    const inline = /^\s*("?)([A-Za-z0-9_-]+)\1\s*=\s*\{[^}]*\boptional\s*=\s*true\b[^}]*\}/.exec(line);
+    if (deps && inline) { optional.add(inline[2]); continue; }
+    const table = section !== null ? /(?:^|\.)(?:dependencies|build-dependencies)\.("?)([A-Za-z0-9_-]+)\1$/.exec(section) : null;
+    if (table && /^\s*optional\s*=\s*true\b/.test(line)) optional.add(table[2]);
+  }
+  if (optional.size !== optionalCount) return null;
+  const implicit = [...optional].filter((name) => !new RegExp(`["']dep:${name.replace(/[-]/g, "\\-")}["']`).test(src));
+  return [...new Set([...declaredFeatureNames(src), ...implicit])];
+}
+
 /** The features one cargo feature-flag set (`--all-features`, `--no-default-features`, `--features a,b`, `--features=a`, `-F a`) enables, closure included. */
 export function featuresEnabledBy(features, set) {
   const names = new Set(features.keys());

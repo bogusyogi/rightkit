@@ -6,6 +6,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { installIdentity } from './dependency-identity.mjs';
+import { inheritedEnvShape } from './deterministic-scans.mjs';
 
 const hash = (bytes) => crypto.createHash('sha256').update(bytes).digest('hex');
 const inside = (p, dir) => p === dir || p.startsWith(dir + path.sep);
@@ -204,10 +205,12 @@ export function pnpmConfigIdentity({ dir, env, spawn }) {
 }
 
 export function preparationInputComponents({ source, toolchain, config, store, env }) {
-  // The per-run ownership handle is a gate lock token, not pnpm input. Keep
-  // every other non-scheduling variable, including the ownership file path.
-  const excluded = new Set(['RK_GATE_JOBS', 'RK_GATE_CLASS_B_JOBS', 'RIGHTKIT_BUILD_OWNERSHIP']);
-  const environment = Object.entries(env).filter(([name]) => !excluded.has(name)).sort(([a], [b]) => a.localeCompare(b));
+  // The environment is keyed on the build-relevant variables only, by the same rule as every scan row's inherited environment (deterministic-scans.mjs
+  // inheritedEnvShape: npm/pnpm config, NODE_OPTIONS, CI, RK_/RIGHTKIT_/RUSTRIGHT_ switches, ...), less the gate's per-run bookkeeping (RK_GATE_*, the
+  // ownership handle, nonces). NN12, Dell 2026-11-18: the whole environment was hashed, and every gate launch carries its own RK_GATE_SPAWN_LEDGER and
+  // contract step, so no run's key ever matched the last one. pnpm's config files and `config list`, its executable, node, the store and the source are
+  // their own components; the installed bytes are checked against the record before any reuse (dependencyProof).
+  const environment = Object.entries(inheritedEnvShape(env ?? {}, null));
   return Object.fromEntries(Object.entries({ source, toolchain, config, store, environment }).map(([name, value]) => [name, hash(JSON.stringify(value))]));
 }
 

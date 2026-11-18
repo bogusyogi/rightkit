@@ -26,7 +26,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawn as spawnChild, spawnSync } from "./background-process.mjs";
 import { checkAdvisoryExceptions } from "./advisory-exceptions.mjs";
 import { crateRunsOn, crossCompileEnv, oneOutput, scopedCrossTargets } from "./cross-targets.mjs";
-import { declaredFeatureNames, effectiveCrateFeatures, featureCoverageProblems } from "./feature-coverage.mjs";
+import { allFeatureNamesOf, declaredFeatureNames, effectiveCrateFeatures, featureCoverageProblems } from "./feature-coverage.mjs";
 import { CLIPPY_UNIVERSAL_FEATURE_FLAGS, allFeaturesCheckIsRedundant, canonicalJson, clippyBatchPlan, clippySelectionOf, digestScanSet, requiredScanIds, rustCoverageSets, rustCratePlan, rustScanId } from "./scan-digest.mjs";
 import { unlintedFeatures } from "./feature-sets.mjs";
 import { reach } from "./lock-graph.mjs";
@@ -1819,7 +1819,7 @@ export function planScans({
     // all be on together (rightkit-db sqlcipher vs sqlcipher-system; qa-driver wv2 generations).
     const own = featuresOf(name);
     const crate = crateOf(name);
-    const declared = (() => { const t = manifestTextOf(name); return typeof t === "string" ? declaredFeatureNames(t) : null; })();
+    const declared = (() => { const t = manifestTextOf(name); return typeof t === "string" ? allFeatureNamesOf(t) : null; })();
     const { lintSets, baseSets, crossSets, defaultCheck, checkSets, none } = rustCratePlan(own, platform, crate, declared);
     // Every feature the crate declares must be enabled by one of the sets of ANY host (the feature-coverage scan below, rightkit#1231): a host-scoped set
     // is linted on the host whose plan has it. `unlintedFeatures` names the features the gate never lints, each with its reason.
@@ -3802,7 +3802,11 @@ export async function runScans(plan, options = {}) {
                 // NN41: a deterministic compile failure is keyed like the pass plus the tool version (the client's, its identity digest), the installed broker runtime
                 // identity (options.failureIdentity: version, clientDigest, brokerDigest) and the failure namespace; the digest already binds the unit closure, lock entries and toolchain files.
                 // No identity from the caller means no failure is ever stored or reused.
-                if (typeof options.failureIdentity === "string" && options.failureIdentity !== "" && (isFailureCacheableCompileId(s.id) || isRustTestRowId(s.id)) && !s.runOutside && !s.publisherRustTest && (s.tool === "rustright" || s.tool === "cargo")) failKey = scanCacheKey({ id: s.id, command: `${keyCommand({ command: s.command })} ;; ${FAILURE_KEY_SCHEMA}`, toolVersion: `${toolVersion} ;; broker-runtime ${options.failureIdentity}`, env: s.env ?? {}, inheritedEnv: inherited, digest });
+                // A Rust test row on a broker host compiles through the broker (--no-run) and runs its executables outside it (runOutside, GC-A08); a batched
+                // group (test:batch:) only ever forms from such rows. Its COMPILE failure is as deterministic as a clippy row's: the store condition below
+                // requires cargo's "could not compile" in the compile's own output, which a compile that succeeded and then had a failing test never carries
+                // (NN41, astra62 review 2026-11-18: excluding runOutside left every test row and group on the Dell unstorable).
+                if (typeof options.failureIdentity === "string" && options.failureIdentity !== "" && (isFailureCacheableCompileId(s.id) || isRustTestRowId(s.id)) && (!s.runOutside || isRustTestRowId(s.id)) && !s.publisherRustTest && (s.tool === "rustright" || s.tool === "cargo")) failKey = scanCacheKey({ id: s.id, command: `${keyCommand({ command: s.command })} ;; ${FAILURE_KEY_SCHEMA}`, toolVersion: `${toolVersion} ;; broker-runtime ${options.failureIdentity}`, env: s.env ?? {}, inheritedEnv: inherited, digest });
               }
             } catch (error) { cacheKey = null; row.cacheKeyError = String(error?.message ?? error).slice(0, 300); }
             let hit = cacheKey ? cache.read(cacheKey) : null;

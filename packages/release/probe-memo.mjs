@@ -60,15 +60,36 @@ function treeListOf(args) {
  * -z` and the sealed `ls-tree -r -z --full-tree`, Dell, 2026-11-17).
  */
 export function treeListStore(storeDir, { maxEntries = 256 } = {}) {
-  if (typeof storeDir !== "string" || !storeDir) return null;
-  const fileOf = (args, cwd) => { const q = treeListOf(args); return q ? path.join(storeDir, `${createHash("sha256").update(JSON.stringify([path.resolve(cwd ?? process.cwd()), q])).digest("hex")}.bin`) : null; };
+  const store = contentStore(storeDir, { maxEntries });
+  if (!store) return null;
+  const keyOfList = (args, cwd) => { const q = treeListOf(args); return q ? JSON.stringify([path.resolve(cwd ?? process.cwd()), q]) : null; };
   return {
-    get(args, cwd) { const f = fileOf(args, cwd); if (!f) return null; try { return fs.readFileSync(f); } catch { return null; } },
-    put(args, cwd, bytes) {
-      const f = fileOf(args, cwd); if (!f || !Buffer.isBuffer(bytes)) return;
+    get(args, cwd) { const k = keyOfList(args, cwd); return k ? store.get(k) : null; },
+    put(args, cwd, bytes) { const k = keyOfList(args, cwd); if (k) store.put(k, bytes); },
+  };
+}
+
+/**
+ * Bytes kept on disk under `storeDir` by a string key (one file per key, named by its sha256), for answers that cannot change: a tree listing of a
+ * full object id. Each file starts with the sha256 of the bytes it holds; a file whose bytes do not match (truncated, half-written, edited) is
+ * never returned. The store is the gate user's own state under the gate runs root, the same trust as the result cache beside it.
+ */
+export function contentStore(storeDir, { maxEntries = 256 } = {}) {
+  if (typeof storeDir !== "string" || !storeDir) return null;
+  const fileOf = (key) => path.join(storeDir, `${createHash("sha256").update(String(key)).digest("hex")}.bin`);
+  return {
+    get(key) {
+      try {
+        const raw = fs.readFileSync(fileOf(key)); const body = raw.subarray(65);
+        return raw.length >= 65 && raw[64] === 0x0a && raw.subarray(0, 64).toString("latin1") === createHash("sha256").update(body).digest("hex") ? Buffer.from(body) : null;
+      } catch { return null; }
+    },
+    put(key, bytes) {
+      if (!Buffer.isBuffer(bytes)) return;
+      const f = fileOf(key);
       try {
         fs.mkdirSync(storeDir, { recursive: true });
-        const tmp = `${f}.${process.pid}.tmp`; fs.writeFileSync(tmp, bytes); fs.renameSync(tmp, f);
+        const tmp = `${f}.${process.pid}.tmp`; fs.writeFileSync(tmp, Buffer.concat([Buffer.from(`${createHash("sha256").update(bytes).digest("hex")}\n`, "latin1"), bytes])); fs.renameSync(tmp, f);
         const names = fs.readdirSync(storeDir).filter((n) => n.endsWith(".bin"));
         if (names.length > maxEntries) {
           const aged = names.map((n) => { try { return [n, fs.statSync(path.join(storeDir, n)).mtimeMs]; } catch { return [n, 0]; } }).sort((a, b) => a[1] - b[1]);
