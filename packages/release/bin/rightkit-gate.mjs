@@ -115,6 +115,7 @@ import { installSpawnLedger } from "../spawn-ledger.mjs";
 import { rememberedVersion } from "../tool-version-memo.mjs";
 import { SNAPSHOT_PROOF_COUNTS, snapshotProofLine } from "../snapshot.mjs";
 import { contentStore, installProbeMemo } from "../probe-memo.mjs";
+import { manifestKeyText } from "../feature-coverage.mjs";
 import { setTreeListingStore } from "../snapshot-git.mjs";
 import { processIdentity, snapshotLockBody, verdictFileName } from "../gate-seam.mjs";
 
@@ -862,19 +863,21 @@ export function cargoManifestsOfWorkspace({ dir, all, readBlob }) {
   const dirs = dir === "." ? ["."] : dir.split("/").map((_, i, parts) => parts.slice(0, i + 1).join("/")).concat(".");
   for (const d of dirs) for (const name of [".cargo/config.toml", ".cargo/config"]) {
     const p = d === "." ? name : `${d}/${name}`;
-    if (all.includes(p)) { const t = read(p); if (t === null || /^\s*paths\s*=/m.test(t)) return every; }
+    if (all.includes(p)) { const t = read(p); if (t === null || /(?:^|[\s{,.])paths\s*=/m.test(manifestKeyText(t))) return every; }
   }
   const under = (f) => dir === "." || f.startsWith(`${dir}/`);
   const out = new Set([...present].filter(under)); const queue = [...out];
   while (queue.length) {
-    const m = queue.pop(); const text = read(m);
-    if (text === null) return every;
+    const m = queue.pop(); const raw = read(m);
+    if (raw === null) return every;
+    // Comments removed and quoted keys read ("path" = ..., y.path = ...), so no spelling of a path key goes unseen (astra62 review, 2026-11-18).
+    const text = manifestKeyText(raw);
     // A workspace member named outside the workspace directory (members = ["../x"], on one line or several).
     const members = /^\s*members\s*=\s*\[([^\]]*)\]/m.exec(text);
     if (members && members[1].includes("..")) return every;
     const base = path.posix.dirname(m);
-    const declared = [...text.matchAll(/(?:^|[\s{,])path\s*=/gm)].length;
-    const hits = [...text.matchAll(/(?:^|[\s{,])path\s*=\s*(?:"([^"\\\n]+)"|'([^'\n]+)')/gm)];
+    const declared = [...text.matchAll(/(?:^|[\s{,.])path\s*=/gm)].length;
+    const hits = [...text.matchAll(/(?:^|[\s{,.])path\s*=\s*(?:"([^"\\\n]+)"|'([^'\n]+)')/gm)];
     if (hits.length !== declared) return every;
     for (const hit of hits) {
       const target = path.posix.normalize(path.posix.join(base === "." ? "" : base, hit[1] ?? hit[2], "Cargo.toml"));

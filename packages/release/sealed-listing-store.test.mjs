@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -32,5 +33,18 @@ test("NN22: a sealed listing of a commit is kept between gate processes although
     const raw = fs.readFileSync(path.join(storeDir, file)); raw[raw.length - 1] ^= 1; fs.writeFileSync(path.join(storeDir, file), raw);
     const third = child(storeDir, sha);
     assert.equal(third.stored, 0); assert.notEqual(third.pid, 0); assert.equal(third.head, first.head);
+  } finally { fs.rmSync(storeDir, { recursive: true, force: true }); }
+});
+
+test("NN22: a stored answer is bound to its key: a valid file under another key's name is never returned (astra62 review 2)", async () => {
+  const { contentStore } = await import(memoModule);
+  const storeDir = fs.mkdtempSync(path.join(os.tmpdir(), "rk-content-store-"));
+  try {
+    const store = contentStore(storeDir);
+    store.put("listing-of-a", Buffer.from("a\0")); store.put("listing-of-b", Buffer.from("b\0"));
+    assert.equal(store.get("listing-of-a").toString(), "a\0");
+    const name = (k) => path.join(storeDir, `${createHash("sha256").update(k).digest("hex")}.bin`);
+    fs.copyFileSync(name("listing-of-a"), name("listing-of-b"));
+    assert.equal(store.get("listing-of-b"), null, "a's record under b's name");
   } finally { fs.rmSync(storeDir, { recursive: true, force: true }); }
 });

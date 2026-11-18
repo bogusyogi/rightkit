@@ -34,12 +34,14 @@ test('preparation inputs ignore only per-run ownership and approved scheduling c
 });
 
 test('NN12: what changes between two gate launches of the same check does not change the preparation key (Dell 2026-11-18)', () => {
-  // The contract test's two warm launches (S1:check, S2:check) differ in exactly these; a new agent session (S16:ident) in the last three.
+  // The contract test's two warm launches (S1:check, S2:check) differ in exactly these gate variables (gate-acceptance.mjs doRun, contractRunEnv).
   const input = { source: 'tree', toolchain: 'tool', config: 'config', store: 'store' };
   const base = { Path: 'C:\\bin', USERPROFILE: 'C:\\Users\\u', NPM_CONFIG_REGISTRY: 'https://r', NODE_OPTIONS: '--x', RIGHTKIT_BUILD_OWNERSHIP_FILE: '/owned' };
-  const first = preparationInputComponents({ ...input, env: { ...base, RK_GATE_SPAWN_LEDGER: 'D:\\out\\S1_check.ledger.jsonl', RK_GATE_CONTRACT_STEP: 'S1:check', RK_GATE_CONTRACT_RUN_ID: 'a'.repeat(64), CODEX_TOOL_CALL_ID: 'one', TERM_SESSION_ID: 't1', TMPDIR: 'C:\\t1' } });
-  const second = preparationInputComponents({ ...input, env: { ...base, RK_GATE_SPAWN_LEDGER: 'D:\\out\\S2_check.ledger.jsonl', RK_GATE_CONTRACT_STEP: 'S2:check', RK_GATE_CONTRACT_RUN_ID: 'b'.repeat(64), CODEX_TOOL_CALL_ID: 'two', TERM_SESSION_ID: 't2', TMPDIR: 'C:\\t2' } });
+  const first = preparationInputComponents({ ...input, env: { ...base, RK_GATE_SPAWN_LEDGER: 'D:\\out\\S1_check.ledger.jsonl', RK_GATE_CONTRACT_STEP: 'S1:check', RK_GATE_CONTRACT_RUN_ID: 'a'.repeat(64), RK_GATE_CONTRACT_JOBS: 'D:\\out\\jobs-1', RUSTRIGHT_ATTEST_NONCE: 'n1' } });
+  const second = preparationInputComponents({ ...input, env: { ...base, RK_GATE_SPAWN_LEDGER: 'D:\\out\\S2_check.ledger.jsonl', RK_GATE_CONTRACT_STEP: 'S2:check', RK_GATE_CONTRACT_RUN_ID: 'b'.repeat(64), RK_GATE_CONTRACT_JOBS: 'D:\\out\\jobs-2', RUSTRIGHT_ATTEST_NONCE: 'n2' } });
   assert.deepEqual(second, first);
+  // Anything else keys it, including variables nobody has shown an install ignores (astra62 review 2): a new session's TMPDIR prepares again.
+  assert.notEqual(preparationInputComponents({ ...input, env: { ...base, TMPDIR: 'C:\\t2' } }).environment, first.environment);
   // What pnpm reads still keys it, whatever its case.
   assert.notEqual(preparationInputComponents({ ...input, env: { ...base, npm_config_registry: 'https://other' } }).environment, first.environment);
   assert.notEqual(preparationInputComponents({ ...input, env: { ...base, PNPM_CONFIG_NODE_LINKER: 'hoisted' } }).environment, first.environment);

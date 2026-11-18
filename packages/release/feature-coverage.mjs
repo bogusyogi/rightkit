@@ -77,29 +77,59 @@ export function manifestFeatures(text) {
 export const declaredFeatureNames = (text) => [...manifestFeatures(text).keys()].filter((name) => name !== "default");
 
 /**
+ * A manifest's text with every comment removed (a `#` outside a string, to the end of its line) and quoted bare-word keys unquoted
+ * (`"path" =` and `'optional' =` read as `path =` and `optional =`, `"codec".optional` as `codec.optional`), so a key is matched however TOML
+ * spells it (astra62 review, 2026-11-18). Strings stay as they are; a multi-line string is not understood, and callers that count what they
+ * could not parse fall back to their safe answer.
+ */
+export function manifestKeyText(text) {
+  const lines = [];
+  for (const line of String(text ?? "").replace(/^﻿/, "").split(/\r?\n/)) {
+    let kept = ""; let quote = null;
+    for (let i = 0; i < line.length; i += 1) {
+      const ch = line[i];
+      if (quote) {
+        kept += ch;
+        if (quote === '"' && ch === "\\" && i + 1 < line.length) { kept += line[i + 1]; i += 1; } else if (ch === quote) quote = null;
+        continue;
+      }
+      if (ch === "#") break;
+      if (ch === '"' || ch === "'") quote = ch;
+      kept += ch;
+    }
+    lines.push(kept.replace(/(^|[\s{,.\[])(["'])([A-Za-z0-9_-]+)\2(?=\s*[=.\]])/g, "$1$3"));
+  }
+  return lines.join("\n");
+}
+
+/**
  * NN27: every feature `--all-features` turns on for this crate, or null when the manifest cannot tell. That is the declared features plus each
- * optional dependency that is its own implicit feature: Cargo gives an optional dependency a feature of its name unless some feature names it as
+ * optional dependency that is its own implicit feature: Cargo gives an optional dependency a feature of its name unless a feature names it as
  * `dep:<name>` (astra62 review, 2026-11-18: a crate whose only features come from optional dependencies looked featureless, so its
- * `--all-features` check was dropped and those dependencies were never compiled). An optional dependency this reader cannot name (a form it does
- * not parse) answers null, and a null drops no check.
+ * `--all-features` check was dropped and those dependencies were never compiled). Comments are ignored and quoted keys read (manifestKeyText);
+ * `dep:` references are read from the parsed feature values only. Every `optional = true` must belong to a dependency this reader names, else
+ * null, and a null drops no check.
  */
 export function allFeatureNamesOf(text) {
-  const src = String(text ?? "");
+  const src = manifestKeyText(text);
   const optionalCount = [...src.matchAll(/\boptional\s*=\s*true\b/g)].length;
-  const optional = new Set();
+  const optional = new Set(); let matched = 0;
   let section = null;
-  for (const line of src.split(/\r?\n/)) {
-    const header = /^\s*\[([^\[\]]+)\]\s*(?:#.*)?$/.exec(line);
+  for (const line of src.split("\n")) {
+    const header = /^\s*\[([^\[\]]+)\]\s*$/.exec(line);
     if (header) { section = header[1].trim(); continue; }
     const deps = section !== null && /(?:^|\.)(?:dependencies|build-dependencies)$/.test(section);
-    const inline = /^\s*("?)([A-Za-z0-9_-]+)\1\s*=\s*\{[^}]*\boptional\s*=\s*true\b[^}]*\}/.exec(line);
-    if (deps && inline) { optional.add(inline[2]); continue; }
-    const table = section !== null ? /(?:^|\.)(?:dependencies|build-dependencies)\.("?)([A-Za-z0-9_-]+)\1$/.exec(section) : null;
-    if (table && /^\s*optional\s*=\s*true\b/.test(line)) optional.add(table[2]);
+    const inline = /^\s*([A-Za-z0-9_-]+)\s*=\s*\{[^}]*\boptional\s*=\s*true\b[^}]*\}\s*$/.exec(line);
+    if (deps && inline) { optional.add(inline[1]); matched += 1; continue; }
+    const table = section !== null ? /(?:^|\.)(?:dependencies|build-dependencies)\.(["']?)([A-Za-z0-9_-]+)\1$/.exec(section) : null;
+    if (table && /^\s*optional\s*=\s*true\b/.test(line)) { optional.add(table[2]); matched += 1; }
   }
-  if (optional.size !== optionalCount) return null;
-  const implicit = [...optional].filter((name) => !new RegExp(`["']dep:${name.replace(/[-]/g, "\\-")}["']`).test(src));
-  return [...new Set([...declaredFeatureNames(src), ...implicit])];
+  // One dependency may be optional in several sections (a target table each): every occurrence must be one this reader named.
+  if (matched !== optionalCount) return null;
+  const features = manifestFeatures(text);
+  const referenced = new Set([...features.values()].flat().filter((v) => typeof v === "string" && v.startsWith("dep:")).map((v) => v.slice(4)));
+  const implicit = [...optional].filter((name) => !referenced.has(name));
+  return [...new Set([...declaredFeatureNames(text), ...implicit])];
 }
 
 /** The features one cargo feature-flag set (`--all-features`, `--no-default-features`, `--features a,b`, `--features=a`, `-F a`) enables, closure included. */

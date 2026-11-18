@@ -32,6 +32,12 @@ test("NN04: whenever it cannot be sure, a workspace keys on every Cargo.toml of 
   const plain = { "y/Cargo.toml": "[package]\n", "z/Cargo.toml": "[package]\n" };
   // A single-quoted path dependency is followed.
   assert.deepEqual(of({ ...plain, "x/Cargo.toml": "[dependencies]\ny = { path = '../y' }\n" }), ["x/Cargo.toml", "y/Cargo.toml"]);
+  // astra62 review 2: a quoted path key and a dotted path key are followed; a commented-out path is not counted.
+  assert.deepEqual(of({ ...plain, "x/Cargo.toml": "[dependencies]\ny = { \"path\" = \"../y\" }\n" }), ["x/Cargo.toml", "y/Cargo.toml"]);
+  assert.deepEqual(of({ ...plain, "x/Cargo.toml": "[dependencies]\ny.path = \"../y\"\ny.version = \"1\"\n" }), ["x/Cargo.toml", "y/Cargo.toml"]);
+  assert.deepEqual(of({ ...plain, "x/Cargo.toml": "[dependencies]\n# y = { path = \"../y\" }\n" }), ["x/Cargo.toml"]);
+  // A quoted paths override in a Cargo configuration: every one.
+  assert.deepEqual(of({ ...plain, "x/Cargo.toml": "[package]\n", "x/.cargo/config.toml": "\"paths\" = [\"../y\"]\n" }, ["x/.cargo/config.toml"]), [...all].sort());
   // An unreadable manifest: every one.
   assert.deepEqual(of({ ...plain }), all);
   // A path it cannot parse (escaped or multi-line string): every one.

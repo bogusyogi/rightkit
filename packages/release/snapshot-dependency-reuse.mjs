@@ -6,7 +6,8 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { installIdentity } from './dependency-identity.mjs';
-import { inheritedEnvShape } from './deterministic-scans.mjs';
+
+const PER_RUN_BOOKKEEPING = /^(?:RK_GATE_|RIGHTKIT_BUILD_OWNERSHIP$|RUSTRIGHT_QUIET_LEASE$|RIGHTKIT_CARRIED_CARGO_MAP$|RUSTRIGHT_ATTEST_NONCE$|RUSTRIGHT_RECEIPT_NONCE$|RUSTRIGHT_REQUEST_ID_FILE$|RUSTRIGHT_SNAPSHOT_REQUEST$|RK_DIRECT_RECEIPT$)/;
 
 const hash = (bytes) => crypto.createHash('sha256').update(bytes).digest('hex');
 const inside = (p, dir) => p === dir || p.startsWith(dir + path.sep);
@@ -205,12 +206,12 @@ export function pnpmConfigIdentity({ dir, env, spawn }) {
 }
 
 export function preparationInputComponents({ source, toolchain, config, store, env }) {
-  // The environment is keyed on the build-relevant variables only, by the same rule as every scan row's inherited environment (deterministic-scans.mjs
-  // inheritedEnvShape: npm/pnpm config, NODE_OPTIONS, CI, RK_/RIGHTKIT_/RUSTRIGHT_ switches, ...), less the gate's per-run bookkeeping (RK_GATE_*, the
-  // ownership handle, nonces). NN12, Dell 2026-11-18: the whole environment was hashed, and every gate launch carries its own RK_GATE_SPAWN_LEDGER and
-  // contract step, so no run's key ever matched the last one. pnpm's config files and `config list`, its executable, node, the store and the source are
-  // their own components; the installed bytes are checked against the record before any reuse (dependencyProof).
-  const environment = Object.entries(inheritedEnvShape(env ?? {}, null));
+  // The whole environment is keyed, less only the gate's own per-run bookkeeping, which no install reads: RK_GATE_* (the gate's and the contract
+  // test's switches, ledger path, run id and step: "RK_GATE_* never enters a cache key", gate-acceptance.mjs doRun) and the per-run identities the
+  // row cache already excludes as measured per-run (deterministic-scans.mjs BUILD_ENV_EXCLUDED: ownership handle, nonces, request files). NN12,
+  // Dell 2026-11-18: every gate launch carries its own RK_GATE_SPAWN_LEDGER and contract step, so no run's key ever matched the last one. Everything
+  // else stays keyed, so a variable an install hook might read can never be left out (astra62 review 2: an allowlist modelled pnpm, it did not prove it).
+  const environment = Object.entries(env ?? {}).filter(([name]) => !PER_RUN_BOOKKEEPING.test(String(name).toUpperCase())).sort(([a], [b]) => a.localeCompare(b));
   return Object.fromEntries(Object.entries({ source, toolchain, config, store, environment }).map(([name, value]) => [name, hash(JSON.stringify(value))]));
 }
 

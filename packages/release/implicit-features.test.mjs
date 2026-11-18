@@ -20,6 +20,17 @@ test("NN27: an optional dependency is a feature --all-features turns on, so its 
   const multi = "[dependencies]\nserde = {\n  version = \"1\",\n  optional = true,\n}\n";
   assert.equal(allFeatureNamesOf(multi), null);
   assert.equal(checkKept(multi), true);
+  // astra62 review 2: a comment naming "dep:codec" does not hide codec's implicit feature; a quoted key is read; a dotted key it cannot name keeps the check.
+  assert.deepEqual(allFeatureNamesOf("# see \"dep:codec\"\n[dependencies]\ncodec = { version = \"1\", optional = true }\n"), ["codec"]);
+  assert.deepEqual(allFeatureNamesOf("[dependencies]\ncodec = { version = \"1\", \"optional\" = true }\n"), ["codec"]);
+  assert.deepEqual(allFeatureNamesOf("[dependencies]\n\"codec\" = { version = \"1\", optional = true }\n"), ["codec"]);
+  assert.deepEqual(allFeatureNamesOf("[dependencies.'codec']\noptional = true\n"), ["codec"]);
+  const dotted = "[dependencies]\ncodec.version = \"1\"\ncodec.optional = true\n";
+  assert.equal(allFeatureNamesOf(dotted), null); assert.equal(checkKept(dotted), true);
+  // One dependency optional in several target tables (rightkit-onnx's ort, 2026-11-18): one implicit feature.
+  assert.deepEqual(allFeatureNamesOf("[dependencies]\nort = { version = \"2\", optional = true }\n[target.'cfg(target_os = \"windows\")'.dependencies]\nort = { version = \"2\", optional = true, features = [\"x\"] }\n"), ["ort"]);
+  // A comment saying optional = true is not a dependency.
+  assert.deepEqual(allFeatureNamesOf("[dependencies]\nlibc = \"0.2\" # optional = true later\n"), []);
   // A crate with no features and no optional dependency still drops its redundant check (NN27's intent).
   assert.deepEqual(allFeatureNamesOf("[package]\nname = \"c\"\n[dependencies]\nlibc = \"0.2\"\n"), []);
   assert.equal(checkKept("[package]\nname = \"c\"\n[dependencies]\nlibc = \"0.2\"\n"), false);
