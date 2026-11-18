@@ -2764,9 +2764,15 @@ export const workspaceRootOf = (dir = here) => path.resolve(dir, "..", "..", "..
 
 const listDirs = (dir) => { try { return fs.readdirSync(dir, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name).sort(); } catch { return []; } };
 
+let liveCandidateOutput = false;
 function launch({ gate, args, cwd, env }) {
   const spec = launchSpec(gate, args);
-  return spawn(spec.command, spec.args, { cwd, env, stdio: ["ignore", "pipe", "pipe"], detached: process.platform !== "win32", windowsHide: true, ...spec.options });
+  const child = spawn(spec.command, spec.args, { cwd, env, stdio: ["ignore", "pipe", "pipe"], detached: process.platform !== "win32", windowsHide: true, ...spec.options });
+  if (liveCandidateOutput) {
+    child.stdout.pipe(process.stdout, { end: false });
+    child.stderr.pipe(process.stdout, { end: false });
+  }
+  return child;
 }
 
 /** Signals the launcher and everything it started (its process group; taskkill /T on Windows, where only the kill variant exists). */
@@ -2948,8 +2954,10 @@ export function coldControls({ cold, warmPrev, warmRows, crate, ws, coldCompileR
 
 async function main(argv) {
   const opt = (name) => { const i = argv.indexOf(name); return i < 0 ? undefined : argv[i + 1]; };
-  const known = new Set(["--fixture", "--host", "--steps", "--out", "--plan", "--gate", "--commit", "--leaf-file", "--manifest-file", "--kill-after-ms", "--allow-install", "--budgets", "--help", "--prove", "--verify-release", "--other-receipt", "--contract-file", "--pulse-compile", "--prove-out", "--nn", "--checks-only", "--s11-checks-only", "--kills", "--candidate", "--sealed", "--archive", "--receipt-on-fail"]);
+  const known = new Set(["--fixture", "--host", "--steps", "--out", "--plan", "--gate", "--commit", "--leaf-file", "--manifest-file", "--kill-after-ms", "--allow-install", "--budgets", "--help", "--prove", "--verify-release", "--other-receipt", "--contract-file", "--pulse-compile", "--prove-out", "--nn", "--checks-only", "--s11-checks-only", "--kills", "--candidate", "--sealed", "--archive", "--receipt-on-fail", "--live-output"]);
   for (const a of argv) if (a.startsWith("--") && !known.has(a)) { console.error(`gate-acceptance: unknown option ${a} (no cache bypass or other gate flag is ever passed)`); return 64; }
+  liveCandidateOutput = argv.includes("--live-output");
+  if (liveCandidateOutput && !opt("--candidate")) { console.error("gate-acceptance: --live-output requires --candidate"); return 64; }
   if (argv.includes("--verify-release")) return verifyReleaseCli(argv);
   const host = opt("--host") ?? (process.platform === "win32" ? "dell" : "mac");
   if (!["mac", "dell"].includes(host)) { console.error("gate-acceptance: --host must be mac or dell"); return 64; }
