@@ -41,6 +41,7 @@ import { OutdatedUnavailableError, resolveOutdatedBin } from "./outdated-command
 import { SCAN_TOKEN_ENV, readLedger, scanTokenOf, unclaimedLedgers } from "./cargo-ledger.mjs";
 import { ADMISSION_POLL_MS, CARRIED_CANCEL_GRACE_MS, QUEUED_CEILING_FACTOR, createRunClock, createStatusPoller, watchBrokerAdmission } from "./broker-admission.mjs";
 import { CANCEL_WAIT_ENV, operationDeadlineEnv } from "./broker-admission.mjs";
+import { windowsPnpmIdentity } from "./snapshot-dependency-reuse.mjs";
 import { meetPartitions, partitionByFeatures, partitionCacheKey, splitNote, stripSelectors, treeArgs, workspaceManifestDigest } from "./feature-partition.mjs";
 import { CLASS_A_ENV, NOT_EXECUTED_EXIT, RECEIPT_NONCE_ENV, contractJobTag, judgeSeamOutcome, normalizeWorkspace, recordContractJob, seamEnv, seamSettled, verdictForRun } from "./gate-seam.mjs";
 
@@ -61,7 +62,7 @@ export const CHECKER_IDENTITY = (() => {
   try {
     const p = JSON.parse(fs.readFileSync(new URL("./package.json", import.meta.url), "utf8"));
     const h = crypto.createHash("sha256");
-    for (const f of ["./deterministic-scans.mjs", "./scan-digest.mjs", "./swift-lock.mjs", "./gradle-lock.mjs", "./python-lock.mjs", "./ghsa-audit.mjs"]) { h.update(f); h.update("\0"); h.update(fs.readFileSync(new URL(f, import.meta.url))); h.update("\0"); }
+    for (const f of ["./deterministic-scans.mjs", "./scan-digest.mjs", "./swift-lock.mjs", "./gradle-lock.mjs", "./python-lock.mjs", "./ghsa-audit.mjs", "./advisory-exceptions.mjs", "./feature-coverage.mjs", "./feature-sets.mjs", "./cargo-manifest-text.mjs", "./lock-graph.mjs"]) { h.update(f); h.update("\0"); h.update(fs.readFileSync(new URL(f, import.meta.url))); h.update("\0"); }
     return `${p.name}@${p.version}#${h.digest("hex").slice(0, 16)}`;
   } catch { return null; }
 })();
@@ -265,21 +266,47 @@ export function scanCacheKey({ id, command, toolVersion, env = {}, inheritedEnv,
   return sha256(canonicalJson({ id: String(id), command: String(command), toolVersion: String(toolVersion), env: { ...env }, inheritedEnv, digest: String(digest) }));
 }
 
+export function classACacheMismatch(expected, observed, fingerprint) {
+  if (observed.actual === expected.expected && (!expected.status || observed.status === expected.status)
+    && (expected.expected !== "hit" || !expected.key || expected.key === observed.key)) return null;
+  return {
+    id: fingerprint.id, expected: expected.expected, actual: observed.actual,
+    reason: observed.reason ?? "validated lookup differs from forecast",
+    key: fingerprint.key, failureKey: fingerprint.failureKey,
+    ...(expected.key ? { expectedKey: expected.key } : {}),
+    ...(observed.key ? { actualKey: observed.key } : {}),
+    ...(expected.status ? { expectedStatus: expected.status } : {}),
+    ...(observed.status ? { actualStatus: observed.status } : {}),
+  };
+}
+
 const CACHE_KEY_SHAPE = /^[0-9a-f]{64}$/;
 
 /** A cache directory (`<git dir>/rightkit-gate-cache`): { read(key) => entry | null, write(key, row) }. Never throws. */
 export function fileScanCache(dir, { now = () => new Date(), fsApi = fs } = {}) {
   const file = (key) => (CACHE_KEY_SHAPE.test(key) ? path.join(dir, `${key}.json`) : null);
+  const readOutcome = (key) => {
+    const f = file(key);
+    if (!f) return { entry: null, issue: "invalid cache key" };
+    let source;
+    try { source = fsApi.readFileSync(f, "utf8"); }
+    catch (error) { return { entry: null, issue: error.code === "ENOENT" ? "expected entry absent; removal cause unknown" : "cache entry unreadable" }; }
+    try {
+      const { checksum, ...entry } = JSON.parse(source);
+      if (checksum !== undefined && checksum !== sha256(JSON.stringify(entry))) return { entry: null, issue: "cache entry checksum failed" };
+      return { entry, issue: null };
+    } catch { return { entry: null, issue: "cache entry is malformed" }; }
+  };
   return {
-    read(key) {
-      try { const f = file(key); return f ? JSON.parse(fsApi.readFileSync(f, "utf8")) : null; } catch { return null; }
-    },
+    read(key) { return readOutcome(key).entry; },
+    readOutcome,
     write(key, row) {
       try {
         const f = file(key); if (!f) return;
         fsApi.mkdirSync(dir, { recursive: true });
         const tmp = `${f}.${process.pid}.${crypto.randomBytes(4).toString("hex")}.tmp`;
-        fsApi.writeFileSync(tmp, JSON.stringify({ key, at: now().toISOString(), row }));
+        const entry = { key, at: now().toISOString(), row };
+        fsApi.writeFileSync(tmp, JSON.stringify({ ...entry, checksum: sha256(JSON.stringify(entry)) }));
         fsApi.renameSync(tmp, f);
       } catch { /* a cache that cannot be written is only a miss next time */ }
     },
@@ -2280,14 +2307,14 @@ export function killProcessTree(child, { platform = process.platform, run = spaw
  * With `options.stdoutFile`, stdout is written to that file whole instead of kept in memory.
  */
 export function defaultSpawnAsync(command, args, options = {}) {
-  const { signal, stdoutFile, onSpawn, ...rest } = options;
+  const { signal, stdoutFile, stdoutKeep = OUTPUT_KEEP, onSpawn, ...rest } = options;
   const inv = resolveInvocation(command, args, { env: rest.env ?? process.env });
   if (inv.error) return Promise.resolve({ status: null, stdout: "", stderr: "", error: inv.error });
   if (signal?.aborted) return Promise.resolve({ status: null, stdout: "", stderr: "", error: new Error("cancelled"), cancelled: true });
   return new Promise((resolve) => {
     let stdout = ""; let stderr = ""; let error = null;
     let truncated = false;
-    const keep = (buf, chunk) => { const next = buf + chunk; if (next.length > OUTPUT_KEEP) { truncated = true; return next.slice(-OUTPUT_KEEP); } return next; };
+    const keep = (buf, chunk, limit) => { const next = buf + chunk; if (next.length > limit) { truncated = true; return next.slice(-limit); } return next; };
     let child;
     try {
       // stdin is closed: no scan reads it, and an open pipe nobody writes can block a tool that probes it (Windows).
@@ -2301,8 +2328,8 @@ export function defaultSpawnAsync(command, args, options = {}) {
     signal?.addEventListener("abort", onAbort, { once: true });
     child.stdout.setEncoding("utf8"); child.stderr.setEncoding("utf8");
     const sink = stdoutFile ? fs.createWriteStream(stdoutFile) : null;
-    if (sink) child.stdout.pipe(sink); else child.stdout.on("data", (c) => { stdout = keep(stdout, c); });
-    child.stderr.on("data", (c) => { stderr = keep(stderr, c); });
+    if (sink) child.stdout.pipe(sink); else child.stdout.on("data", (c) => { stdout = keep(stdout, c, stdoutKeep); });
+    child.stderr.on("data", (c) => { stderr = keep(stderr, c, OUTPUT_KEEP); });
     child.on("error", (e) => { error = e; });
     child.on("close", async (status) => {
       if (sink) await new Promise((done) => (sink.writableFinished ? done() : sink.on("finish", done).on("error", done)));
@@ -3201,6 +3228,10 @@ export async function runScans(plan, options = {}) {
   const probeScans = new WeakSet(); // scans looked up for runGroup's per-crate cache (answered like a lookup, never run)
   const cache = options.cache && typeof options.cache.read === "function" && typeof options.cache.write === "function" && typeof options.cache.digest === "function" ? options.cache : null;
   const cacheHits = [];
+  const classACacheDecision = typeof options.classACacheForecast === "function" ? { fingerprints: [], forecast: [], actual: [], mismatches: [], dispatchedRows: [], retained: [] } : null;
+  const admittedA = new Map();
+  const admissionToolFiles = new Map();
+  const admissionTrusts = new Map();
   // The GitHub advisory scan's same-UTC-day answers live beside the pinned RustSec checkout; a run with no cache (the door's live-scans refresh) asks again.
   if (cache) { try { ctx.ghsaCacheDir = path.join(deps.advisoryCacheRoot ?? advisoryCacheRoot({ env: deps.env, platform: deps.platform }), "ghsa-audit"); } catch { ctx.ghsaCacheDir = null; } }
   let classAFailed = false;
@@ -3225,10 +3256,48 @@ export async function runScans(plan, options = {}) {
   const classBBlocked = !inCallA && !priorClassAValid && options.classAEarlier !== true;
 
   const toolCommand = (tool) => (tool === "node" ? deps.execPath : tool === "rustfmt" ? deps.findRustfmt({ env: deps.env, exists: deps.exists, readdir: deps.readdir, platform: deps.platform, spawn: deps.lookupSpawn }) : tool);
+  const trustOf = (tool) => {
+    if (!TRUSTED_SCAN_TOOLS.includes(tool)) return null;
+    if (classACacheDecision && admissionTrusts.has(tool)) return admissionTrusts.get(tool);
+    const trust = resolveTrustedScanTool(tool, { policy: options.toolPolicy, platform: deps.platform, ops: options.toolOps });
+    if (classACacheDecision) admissionTrusts.set(tool, trust);
+    return trust;
+  };
+  const observedCommand = (tool, command) => options.classAToolPaths?.[tool] ?? (["node", "rustfmt"].includes(tool) && path.isAbsolute(command ?? "") ? command : null);
+  const commandStat = (file) => {
+    const real = fs.realpathSync.native(file);
+    const st = fs.statSync(real, { bigint: true });
+    if (!st.isFile()) throw new Error(`${file} is not a regular tool file`);
+    return `${real}\0${st.dev}:${st.ino}:${st.size}:${st.mtimeNs}:${st.ctimeNs}`;
+  };
+  const commandIdentity = (file) => {
+    if (!admissionToolFiles.has(file)) {
+      const stat = commandStat(file);
+      const sha256 = sha256OfFile(file);
+      if (commandStat(file) !== stat) throw new Error(`${file} changed while its tool identity was read`);
+      admissionToolFiles.set(file, { stat, sha256 });
+    }
+    return admissionToolFiles.get(file).sha256;
+  };
+  const pnpmToolFiles = new Map();
+  let pnpmIdentity = null;
+  const currentPnpmIdentity = () => {
+    const components = windowsPnpmIdentity(deps.env, { execPath: deps.execPath, readFile: (file) => {
+      const stat = commandStat(file);
+      const prior = pnpmToolFiles.get(file);
+      if (prior?.stat === stat) return prior.bytes;
+      const bytes = fs.readFileSync(file);
+      if (commandStat(file) !== stat) throw new Error(`${file} changed while its tool identity was read`);
+      pnpmToolFiles.set(file, { stat, bytes });
+      return bytes;
+    } });
+    if (!components) throw new Error("actual pnpm executable cannot be bound to Windows launcher bytes");
+    return { digest: sha256(canonicalJson(components)), program: components.find(([file]) => !/\.(cmd|bat)$/i.test(file))?.[0] ?? null };
+  };
   const probeFlight = singleFlightProbe(async (tool, scanDir = null) => {
     let outcome;
     // A trusted analyzer is resolved ONCE, from its enrolment (never PATH), and its bytes verified before this probe runs it.
-    const trust = TRUSTED_SCAN_TOOLS.includes(tool) ? resolveTrustedScanTool(tool, { policy: options.toolPolicy, platform: deps.platform, ops: options.toolOps }) : null;
+    const trust = trustOf(tool);
     const command = trust ? (trust.ok ? trust.identity.path : null) : toolCommand(tool);
     if (trust && !trust.ok) outcome = { ok: false, code: trust.code, why: trust.why };
     else if (!command) outcome = { ok: false, why: "not found" };
@@ -3273,18 +3342,23 @@ export async function runScans(plan, options = {}) {
   let rustrightAnswer = null;
   const probe = async (tool, scanDir = null) => {
     if (tool === "rustright" && rustrightAnswer) return rustrightAnswer;
-    const trust = TRUSTED_SCAN_TOOLS.includes(tool) ? resolveTrustedScanTool(tool, { policy: options.toolPolicy, platform: deps.platform, ops: options.toolOps }) : null;
+    const trust = trustOf(tool);
     const command = trust ? (trust.ok ? trust.identity.path : null) : toolCommand(tool);
+    const observed = classACacheDecision ? observedCommand(tool, command) : null;
+    const windowsPnpm = classACacheDecision && tool === "pnpm" && deps.platform === "win32";
+    if (windowsPnpm) pnpmIdentity ??= currentPnpmIdentity();
+    const bytes = classACacheDecision ? trust?.identity?.sha256 ?? (observed ? commandIdentity(observed) : windowsPnpm ? pnpmIdentity.digest : null) : undefined;
     const cwd = (tool === "rustright" || (tool === "cargo" && cargoLiveRoot)) && scanDir ? scanDir : (deps.probeDir ?? probeDir());
-    const key = sha256(canonicalJson({ tool, command, cwd, args: PROBES[tool] ?? ["--version"], env: deps.env }));
+    const key = sha256(canonicalJson({ tool, command, cwd, args: PROBES[tool] ?? ["--version"], env: deps.env, ...(bytes ? { bytes } : {}) }));
     // Across runs the probe's directory is a fresh temporary one and the environment carries per-run values, so the stored answer is keyed by what
     // can change a version answer: the program, its arguments, a scan directory when the probe runs in one, and the toolchain variables.
     const neutral = cwd === (deps.probeDir ?? neutralDir);
-    const lasting = sha256(canonicalJson({ tool, command, args: PROBES[tool] ?? ["--version"], cwd: neutral ? "(neutral)" : cwd, env: Object.fromEntries(Object.entries(deps.env ?? {}).filter(([k]) => /^(PATH|Path|RUSTUP_TOOLCHAIN|RUSTUP_HOME|CARGO_HOME|RUSTC|COREPACK_HOME|PNPM_HOME)$/.test(k)).sort()) }));
-    const answers = probeAnswersOf(deps.spawn); const remembered = answers.get(key) ?? storedProbe(cache, tool, command, lasting, deps.statFile);
+    const lasting = sha256(canonicalJson({ tool, command, args: PROBES[tool] ?? ["--version"], cwd: neutral ? "(neutral)" : cwd, env: Object.fromEntries(Object.entries(deps.env ?? {}).filter(([k]) => /^(PATH|Path|RUSTUP_TOOLCHAIN|RUSTUP_HOME|CARGO_HOME|RUSTC|COREPACK_HOME|PNPM_HOME)$/.test(k)).sort()), ...(bytes ? { bytes } : {}) }));
+    const probeFile = observed ?? (windowsPnpm ? pnpmIdentity.program : null) ?? command;
+    const answers = probeAnswersOf(deps.spawn); const remembered = answers.get(key) ?? storedProbe(cache, tool, probeFile, lasting, deps.statFile);
     if (remembered) { answers.set(key, remembered); toolVersions[tool] = remembered.version; if (remembered.identity) toolIdentities[tool] = { ...remembered.identity, probed: remembered.version }; return remembered; }
     const outcome = await probeFlight(key, tool, scanDir);
-    if (outcome?.ok) { answers.set(key, outcome); storeProbe(cache, tool, command, lasting, outcome, deps.statFile); }
+    if (outcome?.ok) { answers.set(key, outcome); storeProbe(cache, tool, probeFile, lasting, outcome, deps.statFile); }
     if (tool === "rustright" && outcome?.ok && !outcome.pinProblem) rustrightAnswer = outcome;
     return outcome;
   };
@@ -3305,13 +3379,14 @@ export async function runScans(plan, options = {}) {
   }
   async function runOneBody(s, extraEnv = null) {
     if (signal?.aborted) return { id: s.id, class: s.class, command: s.command, tool: s.tool ?? null, toolVersion: null, status: "not-run", code: "CANCELLED", detail: "cancelled before it started" };
+    if (s.class === SCAN_CLASS.A && classACacheDecision?.mismatches.length) return { id: s.id, class: s.class, command: s.command, tool: s.tool ?? null, toolVersion: null, status: "not-run", code: "CLASS_A_CACHE_DISAGREEMENT", detail: "Class A cache admission refused before dispatch" };
     const started = Date.now();
     const scanStarted = performance.now();
     let row = await scanRow(s, extraEnv);
     // rightkit#1459: a class A scan that timed out is run once more before it fails Class A (a hung tool, e.g. actionlint on 2026-11-02, ran
     // 27 min and failed a run whose rerun passed in 1 s). Class B and carried scans are not retried: a compile that times out is a real failure.
     // Test suites are not retried either: a slow test is a finding, not a hung tool.
-    if (row.status === "fail" && row.code === "TIMEOUT" && s.class === SCAN_CLASS.A && s.kind !== "test" && !signal?.aborted) {
+    if (row.status === "fail" && row.code === "TIMEOUT" && s.class === SCAN_CLASS.A && s.kind !== "test" && !signal?.aborted && !classACacheDecision) {
       const first = row;
       row = await scanRow(s, extraEnv);
       row = { ...row, retried: { code: first.code, detail: first.detail, timing: first.timing ?? null } };
@@ -3350,11 +3425,13 @@ export async function runScans(plan, options = {}) {
   // Class A scans are independent content checks (and short broker calls: metadata, package list, deny, audit): they run
   // `classAJobs` at a time (default: `jobs`); the rows keep plan order. Class B starts only once every class A row is in.
   const aJobs = Math.max(1, Number(options.classAJobs ?? jobs) || jobs);
+  if (classACacheDecision) await admitClassACache();
   {
     // Class A is everything mechanical and deterministic that does not compile (Adrian, 2026-10-27): the content checks first,
     // `classAJobs` at a time, then the class A tests (kind "test"), `testJobs` at a time, then the quiet ones alone under the
     // broker's quiet lease. A failed content check stops the tests: they run on content class A already judged.
     const slots = new Array(aScans.length);
+    if (classACacheDecision?.mismatches.length) classAFailed = true;
     const content = []; const tests = []; const quietTests = [];
     aScans.forEach((s, i) => (s.kind === "test" ? (s.quiet === true ? quietTests : tests) : content).push(i));
     const drain = (queue, extraEnv = null) => async () => {
@@ -3375,6 +3452,10 @@ export async function runScans(plan, options = {}) {
           slots[i] = { id: aScans[i].id, class: aScans[i].class, command: aScans[i].command, tool: aScans[i].tool ?? null, toolVersion: null, status: "not-run", detail: signal?.aborted ? "cancelled" : "a class A check failed; the quiet suites start only on a green class A" };
           continue;
         }
+        if (admittedA.get(aScans[i].id)?.isHit) {
+          slots[i] = await runOne(aScans[i]);
+          continue;
+        }
         let lease = null;
         if (quietLane) { try { lease = (await quietLane.acquire({ ttlMs: QUIET_LEASE_MAX_MS })) ?? null; } catch { lease = null; } }
         if (!lease && options.requireQuietLease) {
@@ -3388,6 +3469,7 @@ export async function runScans(plan, options = {}) {
       }
     }
     results.push(...slots);
+    if (classACacheDecision) await Promise.all([...admittedA.values()].map((item) => item.scan.return()));
   }
   {
     const slots = new Array(bScans.length);
@@ -3667,20 +3749,148 @@ export async function runScans(plan, options = {}) {
   }
 
   // `extraEnv` (the quiet lease id) reaches the child but never the cache key: a lease changes nothing a scan proves.
+  function classAFingerprint(s, key, failureKey, keyParts, problem, uncacheableReason = null) {
+    return Object.freeze({ id: s.id, key, failureKey, inputs: keyParts?.raw.inputs ?? null, toolVersion: keyParts?.raw.toolVersion ?? null, environment: keyParts?.env ?? null, ...(problem ? { problem } : {}), ...(uncacheableReason ? { uncacheableReason } : {}) });
+  }
+  function cacheEntryIdentity(entry) { return entry === null || entry === undefined ? null : sha256(canonicalJson(entry)); }
+  function cacheReadOutcome(key) { return cache.readOutcome?.(key) ?? { entry: cache.read(key), issue: null }; }
+  function readRowCache(key, admission) {
+    if (!key) return null;
+    if (!admission) return cache.read(key);
+    const { entry, issue } = cacheReadOutcome(key);
+    admission.observed.set(key, { identity: cacheEntryIdentity(entry), issue });
+    return entry;
+  }
+  function classAObservation(s, key, failureKey, cached, admission, hadEntry = false) {
+    if (cached) return { id: s.id, actual: "hit", status: cached.status, key: cached.failureCached ? failureKey : key };
+    if (!key) return { id: s.id, actual: "uncacheable" };
+    const issues = [...admission.observed.values()].map((seen) => seen.issue).filter((issue) => issue && !issue.startsWith("expected entry absent"));
+    return { id: s.id, actual: "run", key, reason: issues[0] ?? (hadEntry ? "entry failed validation" : "expected entry absent; removal cause unknown") };
+  }
+  function storeScanOutcome(key, row, admission) {
+    cache.write(key, row);
+    if (admission) {
+      const stored = cache.read(key);
+      admission.stored = stored?.key === key && cacheEntryIdentity(stored.row) === cacheEntryIdentity(JSON.parse(JSON.stringify(row)));
+      if (!admission.stored) {
+        classAFailed = true;
+        classACacheDecision.mismatches.push({ id: row.id, key, expected: "retained", actual: "unavailable", reason: "reusable outcome could not be verified after writing the cache entry" });
+      }
+    }
+  }
+  function markScanDispatch(s, row, admission) {
+    if (!admission) return;
+    classACacheDecision.dispatchedRows.push(s.id);
+    row.dispatched = true;
+  }
+  async function admitClassACache() {
+    const decision = classACacheDecision;
+    const stage = await Promise.all(aScans.map(async (s) => {
+      const admission = { owned: { cargoReadTarget: null }, timing: { invocationId: crypto.randomUUID(), elapsedMs: null, cacheLookupMs: null, executionMs: null }, started: performance.now(), observed: new Map() };
+      const scan = s.kind === "test" && s.quiet === true ? { ...s, timeoutMs: Math.min(scanTimeoutMs(s, options), QUIET_SCAN_MAX_MS) } : s;
+      admission.scan = scanRowIn(scan, null, admission.owned, admission.timing, admission);
+      const first = await admission.scan.next();
+      admission.fingerprint = first.done ? classAFingerprint(s, null, null, null, first.value.detail ?? "row not available") : first.value;
+      return admission;
+    }));
+    decision.fingerprints = Object.freeze(stage.map((item) => item.fingerprint));
+    const mismatch = (id, expected, actual, reason, details = {}) => decision.mismatches.push({ id, expected, actual, reason, ...details });
+    const forecasts = new Map();
+    try {
+      const supplied = await options.classACacheForecast(decision.fingerprints);
+      if (!Array.isArray(supplied)) throw new TypeError("expected an array of row forecasts");
+      for (const entry of supplied) {
+        if (typeof entry?.id !== "string" || !["hit", "run", "uncacheable"].includes(entry.expected) || (entry.status !== undefined && !["pass", "fail"].includes(entry.status))) {
+          mismatch(entry?.id ?? "class-a", null, null, "invalid forecast row");
+        } else if (forecasts.has(entry.id)) {
+          mismatch(entry.id, entry.expected, null, "duplicate forecast row");
+        } else forecasts.set(entry.id, Object.freeze({ ...entry }));
+      }
+    } catch (error) { mismatch("class-a", null, null, String(error?.message ?? error)); }
+    decision.forecast = Object.freeze([...forecasts.values()]);
+    if (!stage.length) mismatch("class-a", null, null, "Class A stage selected no scan rows");
+    const identities = new Set();
+    for (const item of stage) {
+      const { id, problem } = item.fingerprint;
+      if (identities.has(id)) mismatch(id, forecasts.get(id)?.expected, null, "duplicate planned row");
+      identities.add(id);
+      if (!forecasts.has(id)) mismatch(id, null, null, "missing forecast row");
+      if (problem) mismatch(id, forecasts.get(id)?.expected, "blocked", problem);
+    }
+    for (const entry of decision.forecast) if (!identities.has(entry.id)) mismatch(entry.id, entry.expected, null, "unexpected forecast row");
+    if (!decision.mismatches.length) {
+      for (const item of stage) {
+        const { id } = item.fingerprint;
+        const lookup = await item.scan.next();
+        const actual = lookup.done ? { id, actual: "blocked", reason: lookup.value.detail ?? "lookup did not complete" } : lookup.value;
+        item.isHit = actual.actual === "hit";
+        decision.actual.push(actual);
+        const disagreement = classACacheMismatch(forecasts.get(id), actual, item.fingerprint);
+        if (disagreement) decision.mismatches.push(disagreement);
+      }
+      // Recheck the scan records as a single stage before releasing any row. The admitted
+      // results are held in memory, and execution never turns a disappearing hit into a run.
+      if (!decision.mismatches.length) for (const item of stage) {
+        const { id } = item.fingerprint;
+        for (const [key, observed] of item.observed) {
+          const current = cacheReadOutcome(key);
+          if (cacheEntryIdentity(current.entry) !== observed.identity || current.issue !== observed.issue) mismatch(id, forecasts.get(id).expected, "blocked", "cache entry changed between lookup and dispatch", { key, storeIssue: current.issue });
+        }
+      }
+      if (!decision.mismatches.length) {
+        const changes = new Map();
+        for (const [command, binding] of admissionToolFiles) {
+          try { if (commandStat(command) !== binding.stat) changes.set(command, `${command} changed between fingerprint and dispatch`); }
+          catch (error) { changes.set(command, String(error?.message ?? error)); }
+        }
+        for (const trust of admissionTrusts.values()) {
+          if (!trust.ok) continue;
+          const changed = trustedScanToolProblem(trust.identity, { ops: options.toolOps });
+          if (changed) changes.set(trust.identity.path, changed.detail);
+        }
+        if (pnpmIdentity) {
+          try { if (currentPnpmIdentity().digest !== pnpmIdentity.digest) changes.set("pnpm", "pnpm changed between fingerprint and dispatch"); }
+          catch (error) { changes.set("pnpm", String(error?.message ?? error)); }
+        }
+        for (const item of stage) for (const command of item.toolCommands ?? []) {
+          if (changes.has(command)) mismatch(item.fingerprint.id, forecasts.get(item.fingerprint.id).expected, "blocked", changes.get(command));
+        }
+      }
+    }
+    if (decision.mismatches.length) {
+      await Promise.all(stage.map((item) => item.scan.return()));
+      return;
+    }
+    for (const item of stage) admittedA.set(item.fingerprint.id, item);
+  }
   async function scanRow(s, extraEnv = null) {
+    const admitted = s.class === SCAN_CLASS.A && admittedA.get(s.id);
+    if (admitted) {
+      try {
+        const finished = await admitted.scan.next(extraEnv);
+        const row = finished.value;
+        const { key, failureKey } = admitted.fingerprint;
+        if (row.cached || admitted.stored) classACacheDecision.retained.push({ id: s.id, key: row.status === "fail" ? failureKey : key, status: row.status });
+        const out = { ...row, timing: { ...admitted.timing, elapsedMs: performance.now() - admitted.started } };
+        settle(s.id, out);
+        return out;
+      } finally {
+        if (admitted.owned.cargoReadTarget) fs.rmSync(admitted.owned.cargoReadTarget, { recursive: true, force: true });
+      }
+    }
     // One invocation owns one timing, including cache lookup, probes, execution and verification.
     const started = performance.now();
     const timing = { invocationId: crypto.randomUUID(), elapsedMs: null, cacheLookupMs: null, executionMs: null };
     const owned = { cargoReadTarget: null };
     try {
-      const row = await scanRowIn(s, extraEnv, owned, timing);
+      const { value: row } = await scanRowIn(s, extraEnv, owned, timing).next();
       const out = { ...row, timing: { ...timing, elapsedMs: performance.now() - started } };
       // A lookup or probe answer (lookupMiss present) says nothing ran: it settles nothing. A cache hit found by a probe is a real answer and does.
       if (out.lookupMiss === undefined) settle(s.id, out);
       return out;
     } finally { if (owned.cargoReadTarget) fs.rmSync(owned.cargoReadTarget, { recursive: true, force: true }); }
   }
-  async function scanRowIn(s, extraEnv, owned, timing) {
+  async function* scanRowIn(s, extraEnv, owned, timing, admission = null) {
     const row = { id: s.id, class: s.class, command: s.command, tool: s.tool ?? null, toolVersion: null, status: "fail" };
     const scanStartedAt = Date.now();
     if (s.class === SCAN_CLASS.B && classBBlocked) {
@@ -3703,40 +3913,47 @@ export async function runScans(plan, options = {}) {
         try {
           const digest = cache.digest(s, {});
           if (digest) {
-            // NN23: keyed on the internal rules' schema (bumped by hand when a rule's verdict changes), not on the checker's source bytes.
-            internalKey = scanCacheKey({ id: s.id, command: s.command ?? `internal:${s.internal}`, toolVersion: INTERNAL_RULES_SCHEMA, env: {}, inheritedEnv: inheritedEnvDigest({}), digest });
-            internalIndex = { key: sha256(`rk-row-index/1\0${s.id}`), inputs: sha256(String(digest)), env: INTERNAL_RULES_SCHEMA, raw: { inputs: String(digest), toolVersion: INTERNAL_RULES_SCHEMA, env: {}, inherited: null } };
+            const ruleIdentity = `${INTERNAL_RULES_SCHEMA}:${CHECKER_IDENTITY}`;
+            internalKey = scanCacheKey({ id: s.id, command: s.command ?? `internal:${s.internal}`, toolVersion: ruleIdentity, env: {}, inheritedEnv: inheritedEnvDigest({}), digest });
+            internalIndex = { key: sha256(`rk-row-index/1\0${s.id}`), inputs: sha256(String(digest)), env: ruleIdentity, raw: { inputs: String(digest), toolVersion: ruleIdentity, env: {}, inherited: null } };
             // NN41: a file-only rule's violation list is a function of the same inputs, so it is keyed like its pass plus the rule code (CHECKER_IDENTITY);
             // a rule whose answer depends on the day or a remote service (FAILURE_UNCACHEABLE_INTERNAL) never has its failure reused.
-            if (!FAILURE_UNCACHEABLE_INTERNAL.has(s.internal)) internalFailKey = scanCacheKey({ id: s.id, command: `${s.command ?? `internal:${s.internal}`} ;; ${FAILURE_KEY_SCHEMA}`, toolVersion: INTERNAL_RULES_SCHEMA, env: {}, inheritedEnv: inheritedEnvDigest({}), digest });
+            if (!FAILURE_UNCACHEABLE_INTERNAL.has(s.internal)) internalFailKey = scanCacheKey({ id: s.id, command: `${s.command ?? `internal:${s.internal}`} ;; ${FAILURE_KEY_SCHEMA}`, toolVersion: ruleIdentity, env: {}, inheritedEnv: inheritedEnvDigest({}), digest });
           }
         } catch (error) { internalKey = null; internalFailKey = null; row.cacheKeyError = String(error?.message ?? error).slice(0, 300); }
-        const hit = internalKey ? cache.read(internalKey) : null;
-        if (internalIndex) { const idx = cache.read(internalIndex.key)?.row ?? null; row.cacheMiss = { kind: !idx ? "new" : idx.inputs === internalIndex.inputs && idx.env === internalIndex.env ? "unchanged" : "changed", ...(idx ? { last: idx.at ?? null } : {}), ...(idx?.raw ? { why: explainKeyChange(idx.raw, internalIndex.raw) } : {}), now: { inputs: internalIndex.raw.inputs.slice(0, 4000) } }; }
-        if (hit && hit.key === internalKey && hit.row?.status === "pass" && hit.row.id === s.id) {
-          cacheHits.push(s.id);
-          return { ...row, status: "pass", cached: true, detail: `cached ${String(hit.at ?? "").slice(0, 10) || "earlier"}` };
+      }
+      if (s.internal) {
+        if (admission) {
+          const uncacheableReason = !internalKey ? cache?.uncacheableReason?.(s) ?? (!CACHEABLE_INTERNAL.has(s.internal) ? "internal rule is not eligible for reuse" : null) : null;
+          const problem = row.cacheKeyError ?? (!internalKey && !uncacheableReason ? "internal rule input or identity unavailable" : null);
+          yield classAFingerprint(s, internalKey, internalFailKey, internalIndex, problem, uncacheableReason);
         }
-        const failHit = internalFailKey ? cache.read(internalFailKey) : null;
-        if (failHit && failHit.key === internalFailKey && failHit.row?.status === "fail" && failHit.row.id === s.id && typeof failHit.row.detail === "string" && failHit.row.detail !== "") {
-          cacheHits.push(s.id);
-          if (s.class === SCAN_CLASS.A) classAFailed = true;
-          return { ...row, status: "fail", cached: true, failureCached: true, detail: failHit.row.detail };
-        }
+        const hit = readRowCache(internalKey, admission);
+        if (internalIndex && !admission) { const idx = cache.read(internalIndex.key)?.row ?? null; row.cacheMiss = { kind: !idx ? "new" : idx.inputs === internalIndex.inputs && idx.env === internalIndex.env ? "unchanged" : "changed", ...(idx ? { last: idx.at ?? null } : {}), ...(idx?.raw ? { why: explainKeyChange(idx.raw, internalIndex.raw) } : {}), now: { inputs: internalIndex.raw.inputs.slice(0, 4000) } }; }
+        const command = s.command ?? `internal:${s.internal}`;
+        const passHit = hit?.key === internalKey && hit.row?.status === "pass" && hit.row.id === s.id && hit.row.command === command;
+        const failHit = passHit ? null : readRowCache(internalFailKey, admission);
+        let cached = null;
+        if (passHit) cached = { ...row, status: "pass", cached: true, detail: `cached ${String(hit.at ?? "").slice(0, 10) || "earlier"}` };
+        else if (failHit?.key === internalFailKey && failHit.row?.status === "fail" && failHit.row.id === s.id && failHit.row.command === command && typeof failHit.row.detail === "string" && failHit.row.detail !== "") cached = { ...row, status: "fail", cached: true, failureCached: true, detail: failHit.row.detail };
+        if (admission) extraEnv = yield classAObservation(s, internalKey, internalFailKey, cached, admission, Boolean(hit || failHit));
+        if (cached) { cacheHits.push(s.id); return cached; }
       }
       if (options.cacheLookupOnly && s.internal) return { ...row, status: "not-run", lookupMiss: Boolean(internalKey), detail: internalKey ? "would miss the cache" : "has no cache key" };
       if (s.internal) {
+        markScanDispatch(s, row, admission);
         const out = await INTERNAL[s.internal](s, ctx);
         if (out && out.missing) { status = "fail"; code = "TOOL_MISSING"; detail = out.missing; }
         else if (out && !Array.isArray(out) && out.code) { status = "fail"; code = out.code; detail = out.detail; }
         else if (out && !Array.isArray(out) && typeof out.advice === "string") { advice = out.advice; }
         else if (out.length) { status = "fail"; detail = out.join("; "); }
         if (status === "pass" && internalKey && !advice && !signal?.aborted && internalIndex) cache.write(internalIndex.key, { id: s.id, inputs: internalIndex.inputs, env: internalIndex.env, raw: internalIndex.raw, at: new Date().toISOString() });
-        if (status === "pass" && internalKey && !advice && !signal?.aborted) cache.write(internalKey, { id: s.id, class: s.class, command: s.command ?? `internal:${s.internal}`, tool: null, toolVersion: CHECKER_IDENTITY, status: "pass" });
+        if (status === "pass" && internalKey && !advice && !signal?.aborted) storeScanOutcome(internalKey, { id: s.id, class: s.class, command: s.command ?? `internal:${s.internal}`, tool: null, toolVersion: CHECKER_IDENTITY, status: "pass" }, admission);
         // NN41: only a violation list (the rule ran and named what is wrong) is a deterministic failure; a missing tool or a coded refusal is the environment's.
-        else if (status === "fail" && !code && internalFailKey && Array.isArray(out) && out.length && !signal?.aborted) cache.write(internalFailKey, { id: s.id, class: s.class, command: s.command ?? `internal:${s.internal}`, tool: null, toolVersion: CHECKER_IDENTITY, status: "fail", detail });
+        else if (status === "fail" && !code && internalFailKey && Array.isArray(out) && out.length && !signal?.aborted) storeScanOutcome(internalFailKey, { id: s.id, class: s.class, command: s.command ?? `internal:${s.internal}`, tool: null, toolVersion: CHECKER_IDENTITY, status: "fail", detail }, admission);
       } else {
         const scanDir = path.join(rootDir(s.root), s.cwd ?? "");
+        const metadata = s.id === "cargo-metadata" || s.id.startsWith("cargo-metadata:");
         // The RustRight client's version probe starts in a Cargo workspace of the primary checkout; a class A cargo scan's own directory is
         // in the snapshot, so its probe uses the checkout's counterpart (reading no file of it), or the checkout when it has none.
         let probeAt = scanDir;
@@ -3776,8 +3993,10 @@ export async function runScans(plan, options = {}) {
           const viaSeam = Boolean(deps.gateSeam) && s.class === SCAN_CLASS.B && s.root === "cargoLive" && (s.tool === "rustright" || s.tool === "cargo" || (s.tool === "swift" && carriedScan));
           if (viaSeam) row.seam = true;
           // NN02: a publisher row (coverageKey) is cached too, with the signed broker receipt and test-run evidence its publisher verify needs.
+          const cacheStarted = performance.now();
+          const observed = admission ? observedCommand(s.tool, p.command) : null;
+          if (admission) admission.toolCommands = [...identities.map((identity) => identity.path), ...(observed ? [observed] : []), ...(s.tool === "pnpm" ? ["pnpm"] : [])];
           if (cache) {
-            const cacheStarted = performance.now();
             try {
               // A plain node --check row has no guard, carrier, advisory or
               // trusted-tool environment additions. Include its actual ledger
@@ -3786,7 +4005,8 @@ export async function runScans(plan, options = {}) {
               const nodeEnv = { ...deps.env, ...(nodeSentinel ? { CARGO_TARGET_DIR: nodeSentinel, CARGO_BUILD_TARGET_DIR: nodeSentinel } : {}), ...s.env, ...(extraEnv ?? {}), ...(cargoLedger ? { [SCAN_TOKEN_ENV]: scanTokenOf(s.id) } : {}) };
               const digest = cache.digest(s, { childEnv: nodeEnv, cwd: scanDir, command: p.command, shimProof: options.nodeCheckShimContext ?? null });
               // The analyzers a scan runs through (actionlint's shellcheck) judge it too, so their versions key it as well.
-              const toolVersion = [p.identity ? `${p.version}@${p.identity.sha256}` : p.version, ...depVersions].join(" + ");
+              const bytes = p.identity?.sha256 ?? (observed ? commandIdentity(observed) : s.tool === "pnpm" && admission ? pnpmIdentity?.digest : null);
+              const toolVersion = [bytes ? `${p.version}@${bytes}` : p.version, ...depVersions].join(" + ");
               // The narrow node-check digest already binds the complete actual
               // child environment (with its one explicit ownership exception).
               // NN29: a publisher row carries the gate's whole environment, per-run identities included (build ownership handle, carrier map, run markers):
@@ -3809,7 +4029,15 @@ export async function runScans(plan, options = {}) {
                 if (typeof options.failureIdentity === "string" && options.failureIdentity !== "" && (isFailureCacheableCompileId(s.id) || isRustTestRowId(s.id)) && (!s.runOutside || isRustTestRowId(s.id)) && !s.publisherRustTest && (s.tool === "rustright" || s.tool === "cargo")) failKey = scanCacheKey({ id: s.id, command: `${keyCommand({ command: s.command })} ;; ${FAILURE_KEY_SCHEMA}`, toolVersion: `${toolVersion} ;; broker-runtime ${options.failureIdentity}`, env: s.env ?? {}, inheritedEnv: inherited, digest });
               }
             } catch (error) { cacheKey = null; row.cacheKeyError = String(error?.message ?? error).slice(0, 300); }
-            let hit = cacheKey ? cache.read(cacheKey) : null;
+          }
+          if (admission) {
+            const uncacheableReason = !cacheKey ? cache?.uncacheableReason?.(s) ?? (metadata && s.cargoWorkspaceUncacheable === true ? "Cargo discovery inputs cannot be fully bound" : /^build-helpers(:|$)/.test(s.id) ? "host trace inputs cannot be bound" : null) : null;
+            const problem = row.cacheKeyError ?? (!cacheKey && !uncacheableReason ? "required scan cache input or identity unavailable" : null);
+            yield classAFingerprint(s, cacheKey, failKey, keyParts, problem, uncacheableReason);
+          }
+          let cached = null; let found = null;
+          if (cache) {
+            let hit = readRowCache(cacheKey, admission);
             // Adrian 2026-11-06: a rerun that misses the cache fails unless the miss is explained. Each stored pass leaves a per-row index
             // (its inputs digest and environment digest); a later miss is "unchanged" (inputs and environment the same: the cache failed),
             // "changed" (an input or the environment moved: a legitimate rerun) or "new" (no stored pass: a new row, or a cold run).
@@ -3817,11 +4045,11 @@ export async function runScans(plan, options = {}) {
               const rowIndexKey = sha256(`rk-row-index/1\0${s.id}`);
               const inputsDigest = keyParts.inputs;
               const envDigest = keyParts.env;
-              const idx = cache.read(rowIndexKey)?.row ?? null;
-              row.cacheMiss = { kind: !idx ? "new" : idx.inputs === inputsDigest && idx.env === envDigest ? "unchanged" : "changed", ...(idx ? { last: idx.at ?? null } : {}), ...(idx?.raw ? { why: explainKeyChange(idx.raw, keyParts.raw) } : {}), now: { inputs: keyParts.raw.inputs.slice(0, 4000), toolVersion: keyParts.raw.toolVersion, inherited: keyParts.raw.inherited } };
+              const idx = admission ? null : cache.read(rowIndexKey)?.row ?? null;
+              if (!admission) row.cacheMiss = { kind: !idx ? "new" : idx.inputs === inputsDigest && idx.env === envDigest ? "unchanged" : "changed", ...(idx ? { last: idx.at ?? null } : {}), ...(idx?.raw ? { why: explainKeyChange(idx.raw, keyParts.raw) } : {}), now: { inputs: keyParts.raw.inputs.slice(0, 4000), toolVersion: keyParts.raw.toolVersion, inherited: keyParts.raw.inherited } };
               row.rowIndex = { key: rowIndexKey, inputs: inputsDigest, env: envDigest, raw: keyParts.raw };
               // A hit refreshes a row index that lacks the environment shape (stored before the shape existed), so a later key change can carry this row over.
-              if (hit && hit.key === cacheKey && hit.row?.status === "pass" && !options.cacheLookupOnly && !probeScans.has(s) && !idx?.raw?.inheritedShape) {
+              if (!admission && hit && hit.key === cacheKey && hit.row?.status === "pass" && !options.cacheLookupOnly && !probeScans.has(s) && !idx?.raw?.inheritedShape) {
                 try { cache.write(rowIndexKey, { id: s.id, inputs: inputsDigest, env: envDigest, raw: keyParts.raw, at: new Date().toISOString() }); } catch { /* the hit stands */ }
               }
               // Carry-over (carryOverProof): a pass stored under an earlier key form, whose real inputs provably did not change, is this row's pass.
@@ -3848,19 +4076,26 @@ export async function runScans(plan, options = {}) {
             // One predicate for every stored pass (usableStoredPass; rightkit#1538): the row's own id and command, written by the invocation that ran it, with
             // the evidence its kind needs; a test group's hit carries each member's own run, so the members are judged exactly as on the run that stored it.
             if (usableStoredPass(hit, s, { cacheKey, viaSeam })) {
-              cacheHits.push(s.id);
-              return { ...row, status: "pass", cached: true, detail: `cached ${String(hit.at ?? "").slice(0, 10) || "earlier"}`, ...(s.kind === "test" || s.runOutside || s.coverageKey ? { results: hit.row.results } : {}), ...(s.coverageKey ? { snapshotEvidence: hit.row.snapshotEvidence ?? null, testRun: hit.row.testRun ?? null } : s.provesPublisher ? { snapshotEvidence: hit.row.snapshotEvidence ?? null, ...(hit.row.testRun ? { testRun: hit.row.testRun } : {}) } : hit.row.testRun ? { testRun: hit.row.testRun } : {}), ...(hit.row.memberRuns ? { memberRuns: hit.row.memberRuns } : {}), ...(hit.row.executableProof ? { executableProof: hit.row.executableProof } : {}), ...(row.seam ? { seamSettled: true } : {}) };
+              cached = { ...row, status: "pass", cached: true, detail: `cached ${String(hit.at ?? "").slice(0, 10) || "earlier"}`, ...(s.kind === "test" || s.runOutside || s.coverageKey ? { results: hit.row.results } : {}), ...(s.coverageKey ? { snapshotEvidence: hit.row.snapshotEvidence ?? null, testRun: hit.row.testRun ?? null } : s.provesPublisher ? { snapshotEvidence: hit.row.snapshotEvidence ?? null, ...(hit.row.testRun ? { testRun: hit.row.testRun } : {}) } : hit.row.testRun ? { testRun: hit.row.testRun } : {}), ...(hit.row.memberRuns ? { memberRuns: hit.row.memberRuns } : {}), ...(hit.row.executableProof ? { executableProof: hit.row.executableProof } : {}), ...(row.seam ? { seamSettled: true } : {}) };
             }
             // NN41: the same inputs, toolchain and broker runtime already failed this compile deterministically: report that failure, marked cached, without running it.
-            const failHit = failKey ? cache.read(failKey) : null;
+            const failHit = cached ? null : readRowCache(failKey, admission);
             if (failHit && failHit.key === failKey && failHit.row?.status === "fail" && failHit.row.id === s.id && sameCommand(failHit.row.command, s) && failHit.row.failureIdentity === options.failureIdentity && failHit.row.code === "EXIT" && typeof failHit.row.detail === "string" && failHit.row.detail !== "") {
-              cacheHits.push(s.id);
-              return { ...row, ...(row.seam ? { seamSettled: true } : {}), status: "fail", code: failHit.row.code, cached: true, failureCached: true, detail: `cached failure ${String(failHit.at ?? "").slice(0, 10) || "earlier"} (same inputs, toolchain and broker runtime): ${failHit.row.detail}`, ...(failHit.row.authenticatedFailure ? { authenticatedFailure: failHit.row.authenticatedFailure } : {}), ...(failHit.row.jsonSummary ? { jsonSummary: failHit.row.jsonSummary } : {}) };
+              cached = { ...row, ...(row.seam ? { seamSettled: true } : {}), status: "fail", code: failHit.row.code, cached: true, failureCached: true, detail: `cached failure ${String(failHit.at ?? "").slice(0, 10) || "earlier"} (same inputs, toolchain and broker runtime): ${failHit.row.detail}`, ...(failHit.row.authenticatedFailure ? { authenticatedFailure: failHit.row.authenticatedFailure } : {}), ...(failHit.row.jsonSummary ? { jsonSummary: failHit.row.jsonSummary } : {}) };
             }
+            found = hit ?? failHit;
+          }
+          if (admission && cached?.status === "pass" && metadata) options.cargoWorkspaceFactsFor?.(s, null, found.row.cargoWorkspaceFacts ?? null);
+          if (admission) extraEnv = yield classAObservation(s, cacheKey, failKey, cached, admission, Boolean(found));
+          if (cached) {
+            if (!admission && cached.status === "pass" && !options.cacheLookupOnly && !probeScans.has(s) && metadata) options.cargoWorkspaceFactsFor?.(s, null, found.row.cargoWorkspaceFacts ?? null);
+            cacheHits.push(s.id);
+            return cached;
           }
           // Adrian 2026-11-06: the cache is looked up for every planned row BEFORE anything runs (options.cacheLookupOnly): a miss is reported with its cause, never run.
           // A probe (runGroup's per-crate lookup) answers like a lookup.
           if (options.cacheLookupOnly || probeScans.has(s)) return { ...row, status: "not-run", lookupMiss: Boolean(cacheKey), uncacheable: !cacheKey, detail: cacheKey ? "would miss the cache" : "has no cache key", ...(row.seam ? { seamSettled: true } : {}) }; // nothing was submitted
+          markScanDispatch(s, row, admission);
           // rightkit#1539: a serial test row owns no compile while its plain row is in this run. It waits for the plain row of the same crate and configuration
           // (grouped or alone) and runs that row's accepted executables with --test-threads=1 under its own id, results and key; the plain row's compile verdict
           // is never stored under this key (store rule). One compile per crate and configuration, whatever happens:
@@ -3991,15 +4226,15 @@ export async function runScans(plan, options = {}) {
           // Without a live reader (no client to ask) the stopwatch simply runs, and every unwatched carried scan gives its client the scan's own limit as the operation deadline
           // (RUSTRIGHT_OPERATION_DEADLINE_MS, scanOperationEnv), so the client cancels by id before the gate stops it.
           const watched = carriedScan && s.class === SCAN_CLASS.B && s.quiet !== true && brokerLive !== null;
-          let admission = null; let graceTimer = null; let genRefDir = null; let clockExpired = false;
+          let brokerAdmission = null; let graceTimer = null; let genRefDir = null; let clockExpired = false;
           // A carried scan is cancelled by id first and its process tree stopped only after a grace; any other scan is stopped at once.
           const stopScan = () => {
             clockExpired = true;
-            if (admission) { admission.cancelKnown().catch(() => {}); graceTimer = setTimeout(() => timer.abort(), options.brokerCancelGraceMs ?? CARRIED_CANCEL_GRACE_MS); } else timer.abort();
+            if (brokerAdmission) { brokerAdmission.cancelKnown().catch(() => {}); graceTimer = setTimeout(() => timer.abort(), options.brokerCancelGraceMs ?? CARRIED_CANCEL_GRACE_MS); } else timer.abort();
           };
           // A watched scan also has ONE wall-clock ceiling, its own limit x QUEUED_CEILING_FACTOR: a safety stop for a wedged broker queue (the broker's job deadlines are off by default), not a count.
           const runClock = createRunClock({ limitMs, onExpire: stopScan, ...(watched ? { ceilingMs: limitMs * QUEUED_CEILING_FACTOR, onCeiling: stopScan } : {}) });
-          const stopClock = () => { runClock.stop(); admission?.stop(); if (graceTimer) clearTimeout(graceTimer); if (genRefDir) { fs.rmSync(genRefDir, { recursive: true, force: true }); genRefDir = null; } };
+          const stopClock = () => { runClock.stop(); brokerAdmission?.stop(); if (graceTimer) clearTimeout(graceTimer); if (genRefDir) { fs.rmSync(genRefDir, { recursive: true, force: true }); genRefDir = null; } };
           const scanSignal = signal ? AbortSignal.any([signal, timer.signal]) : timer.signal;
           // A class A test row runs under the launch guard (class-a-launch-guard.mjs): its Node processes may not launch a compile.
           // Every class A row that executes repository code (tests, lint/typecheck with repository config, generators) runs under the
@@ -4090,10 +4325,10 @@ export async function runScans(plan, options = {}) {
             let refFiles;
             if (s.tool === "rustright" || s.tool === "cargo") { genRefDir = fs.mkdtempSync(path.join(os.tmpdir(), "rk-scanreq-")); const file = path.join(genRefDir, "request.json"); refEnv = { RUSTRIGHT_REQUEST_ID_FILE: file }; refFiles = () => [file]; }
             else refFiles = () => { try { return ledgerToken && cargoLedger ? readLedger(cargoLedger.dir, ledgerToken).entries.filter((e) => e.status === "pending" && typeof e.requestRef === "string").map((e) => e.requestRef) : []; } catch { return []; } };
-            admission = watchBrokerAdmission({ clock: runClock, refFiles, live: brokerLive, poller: statusPoller });
-            admission.start();
+            brokerAdmission = watchBrokerAdmission({ clock: runClock, refFiles, live: brokerLive, poller: statusPoller });
+            brokerAdmission.start();
           }
-          try { r = await deps.spawn(p.command, spawnArgs, { cwd: viaSeam ? path.join(deps.gateSeam.snapshot, s.cwd ?? "") : path.join(rootDir(s.root), s.cwd ?? ""), env: seamSpawnEnv({ ...deps.env, ...sentinelEnv, ...readTargetEnv, ...s.env, ...(extraEnv ?? {}), ...guardEnv, ...ledgerEnv, ...refEnv, ...(carriedScan && !watched ? scanOperationEnv({ ...deps.env, ...s.env }, limitMs) : {}), ...trustEnv, ...seamVars }), signal: scanSignal, ...(listingFile ? { stdoutFile: listingFile } : {}), ...(watched ? {} : { timeout: limitMs }) }); } finally { stopClock(); advisory?.cleanup?.(); }
+          try { r = await deps.spawn(p.command, spawnArgs, { cwd: viaSeam ? path.join(deps.gateSeam.snapshot, s.cwd ?? "") : path.join(rootDir(s.root), s.cwd ?? ""), env: seamSpawnEnv({ ...deps.env, ...sentinelEnv, ...readTargetEnv, ...s.env, ...(extraEnv ?? {}), ...guardEnv, ...ledgerEnv, ...refEnv, ...(carriedScan && !watched ? scanOperationEnv({ ...deps.env, ...s.env }, limitMs) : {}), ...trustEnv, ...seamVars }), signal: scanSignal, ...(listingFile ? { stdoutFile: listingFile } : {}), ...(metadata && options.cargoWorkspaceFactsFor ? { stdoutKeep: 32 * OUTPUT_KEEP } : {}), ...(watched ? {} : { timeout: limitMs }) }); } finally { stopClock(); advisory?.cleanup?.(); }
           if ((s.runOutside || s.captureJson) && r && !r.error) {
             // The whole listing: the file the spawn streamed, else (a spawn that does not know stdoutFile) its stdout. What a reader sees of a failed compile is the rendered errors.
             let fromFile = false;
@@ -4106,7 +4341,7 @@ export async function runScans(plan, options = {}) {
           }
           if (signal?.aborted && (!r || r.error || r.status !== 0)) return { ...row, status: "not-run", code: "CANCELLED", detail: "cancelled while running" };
           if ((clockExpired || timer.signal.aborted || r?.error?.code === "ETIMEDOUT") && (!r || r.error || r.status !== 0)) {
-            const how = `was ${admission ? "cancelled at the broker by id and stopped" : "killed"} with its process tree; a scan that does not finish fails`;
+            const how = `was ${brokerAdmission ? "cancelled at the broker by id and stopped" : "killed"} with its process tree; a scan that does not finish fails`;
             if (runClock.ceilingHit) return { ...row, status: "fail", code: "TIMEOUT", detail: `${s.id} hit its wall-clock ceiling while it waited in the broker's queue (${spanText(limitMs * QUEUED_CEILING_FACTOR)}: ${QUEUED_CEILING_FACTOR} x its ${spanText(limitMs)} run limit, a safety stop for a wedged broker queue, not a count; it had waited ${spanText(runClock.queuedMs)} in the queue) and ${how}` };
             return { ...row, status: "fail", code: "TIMEOUT", detail: `${s.id} ran longer than its ${spanText(limitMs)} run limit${runClock.queuedMs > 0 ? ` (the ${spanText(runClock.queuedMs)} it waited in the broker's queue does not count)` : ""} and ${how}` };
           }
@@ -4280,10 +4515,16 @@ export async function runScans(plan, options = {}) {
           // NN41: store a deterministic compile failure only: the broker's authenticated compile failure, or a plain exit of a compile with compiler error diagnostics and no sign of
           // the environment failing. Never a timeout, abort, SCAN_ERROR, refusal, unverified receipt, ledger problem, test run or infrastructure error (those return or carry another code).
           if (status === "fail" && failKey && !signal?.aborted && !ledgerProblem && typeof detail === "string" && detail !== "" && (code === "EXIT" && (!carriedScan || (viaSeam && row.snapshotEvidence?.receiptStatus === "FAILED"))) && isDeterministicCompileDiagnostics(`${r?.stdout ?? ""}\n${r?.stderr ?? ""}`) && (!isRustTestRowId(s.id) || isTestCompileFailure(`${r?.stdout ?? ""}\n${r?.stderr ?? ""}`))) {
-            cache.write(failKey, { id: s.id, class: s.class, command: s.command, tool: s.tool ?? null, toolVersion: row.toolVersion, status: "fail", code, detail: detail.slice(0, 6000), failureIdentity: options.failureIdentity, ...(row.authenticatedFailure ? { authenticatedFailure: row.authenticatedFailure } : {}), ...(row.jsonSummary ? { jsonSummary: row.jsonSummary } : {}) });
+            storeScanOutcome(failKey, { id: s.id, class: s.class, command: s.command, tool: s.tool ?? null, toolVersion: row.toolVersion, status: "fail", code, detail: detail.slice(0, 6000), failureIdentity: options.failureIdentity, ...(row.authenticatedFailure ? { authenticatedFailure: row.authenticatedFailure } : {}), ...(row.jsonSummary ? { jsonSummary: row.jsonSummary } : {}) }, admission);
           }
-          if (status === "pass" && cacheKey && !signal?.aborted && row.rowIndex) cache.write(row.rowIndex.key, { id: s.id, inputs: row.rowIndex.inputs, env: row.rowIndex.env, raw: row.rowIndex.raw, at: new Date().toISOString() });
-          if (status === "pass" && cacheKey && !signal?.aborted) cache.write(cacheKey, storedPassRow(s, row));
+          if (status === "pass" && !signal?.aborted) {
+            if (metadata && options.cargoWorkspaceFactsFor && r?.truncated) throw new Error("Cargo workspace facts require complete metadata output");
+            const facts = metadata ? options.cargoWorkspaceFactsFor?.(s, r) : null;
+            if (cacheKey) {
+              storeScanOutcome(cacheKey, { ...storedPassRow(s, row), ...(facts ? { cargoWorkspaceFacts: facts } : {}) }, admission);
+              if (row.rowIndex) cache.write(row.rowIndex.key, { id: s.id, inputs: row.rowIndex.inputs, env: row.rowIndex.env, raw: row.rowIndex.raw, at: new Date().toISOString() });
+            }
+          }
         }
       }
     } catch (e) { status = "fail"; code = "SCAN_ERROR"; detail = e.message; }
@@ -4317,12 +4558,13 @@ export async function runScans(plan, options = {}) {
   // Positive evidence only: a seam row is settled when it carries seamSettled (a parsed result with a durable receipt or an explicit refusal, a cache hit, a lookup); every other seam row, whatever its code, keeps the lock.
   for (const r of results) if (r.seam === true) { seamRunState.rows += 1; if (r.seamSettled !== true || (cancelled && r.status !== "pass")) seamRunState.unsettled += 1; }
   if (deps.gateSeam) seamRunState.open -= 1;
-  const allPassed = !cancelled && verdictFailure === null && results.every((r) => r.status === "pass");
+  const allPassed = !cancelled && verdictFailure === null && !classACacheDecision?.mismatches.length && results.every((r) => r.status === "pass");
   return {
     schema: SCAN_RESULT_SCHEMA, ok: allPassed, complete: allPassed, classes, checker, ...(cancelled ? { cancelled: true } : {}), ...(verdictFailure ? { verdictFailure } : {}),
     inputDigest: plan.inputDigest ?? null,
     deferred: results.filter((r) => r.status === "deferred").map((r) => r.id),
     scans: results, toolVersions, toolIdentities, cacheHits: [...cacheHits].sort(), notes: [...(plan.notes ?? []), ...batchFailureNotes, ...partitionNotes, ...seamNotes, ...(cargoLedger ? [UNOBSERVED_NESTED_CARGO_NOTE] : [])],
+    ...(classACacheDecision ? { classACacheDecision } : {}),
     scanSetDigest: digestScanSet(results),
     classDigests: { A: digestScanSet(results.filter((r) => r.class === "A")), B: digestScanSet(results.filter((r) => r.class === "B")) },
   };

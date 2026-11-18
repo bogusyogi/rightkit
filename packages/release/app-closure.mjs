@@ -79,7 +79,9 @@ export function cargoMetadataFromManifests({ manifests, readFile }) {
     const cargoDir = owner(dir);
     const members = [...docs].filter(([d, m]) => m.package && owner(d) === cargoDir).map(([d, m]) => {
       if (typeof m.package.name !== "string" || !m.package.name) throw problem(`${d}/Cargo.toml has no package name`);
-      return { name: m.package.name, dir: d, manifest: manifestAt(d, "Cargo.toml"), publish: !(Array.isArray(m.package.publish) && m.package.publish.length === 0) };
+      const setting = m.package.publish;
+      const publish = setting?.workspace === true ? docs.get(cargoDir)?.workspace?.package?.publish : setting;
+      return { name: m.package.name, dir: d, manifest: manifestAt(d, "Cargo.toml"), publish: publish !== false && !(Array.isArray(publish) && publish.length === 0) };
     });
     return { cargoDir, members };
   };

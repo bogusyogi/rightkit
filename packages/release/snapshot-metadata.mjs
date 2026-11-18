@@ -18,6 +18,8 @@
 // the database directory audit reads are absolute, exist (a file; a directory) and lie outside the live checkout.
 import fs from "node:fs";
 import path from "node:path";
+import { createHash } from "node:crypto";
+import { createRequire } from "node:module";
 import { CARGO_REFUSAL_STATUS } from "./cargo-ledger.mjs";
 import { GATE_COMMIT_ENV } from "./gate-seam.mjs";
 
@@ -25,6 +27,146 @@ export const CARRIED_METADATA_REFUSED = "RK_SNAPSHOT_CARRIED_REFUSED";
 
 const real = (p) => { try { return fs.realpathSync.native(p); } catch { return path.resolve(p); } };
 const within = (child, parent) => { const rel = path.relative(parent, child); return rel === "" || !(rel === ".." || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel)); };
+
+/** Project Cargo's discovery answer onto snapshot-relative paths so another verified snapshot can use it. */
+export function cargoWorkspaceFacts({ root, stdout, realpath = fs.realpathSync }) {
+  const metadata = JSON.parse(stdout);
+  if (typeof metadata?.workspace_root !== "string" || !Array.isArray(metadata.packages)) throw new Error("cargo metadata lacks workspace_root or packages");
+  const resolve = (p) => { try { return realpath(p); } catch { return path.resolve(p); } };
+  const rootPath = resolve(root);
+  const relative = (absolute) => {
+    if (!path.isAbsolute(absolute)) throw new Error(`cargo metadata path ${absolute} is not absolute`);
+    const resolved = resolve(absolute);
+    if (!within(resolved, rootPath)) throw new Error(`cargo metadata path ${absolute} is outside the repository`);
+    return path.relative(rootPath, resolved).replaceAll(path.sep, "/") || ".";
+  };
+  const cargoDir = relative(metadata.workspace_root);
+  const members = metadata.packages.map((pkg) => {
+    if (typeof pkg?.name !== "string" || !pkg.name || typeof pkg.manifest_path !== "string") throw new Error("cargo metadata package lacks name or manifest_path");
+    const dir = relative(path.dirname(pkg.manifest_path));
+    const kinds = (t) => Array.isArray(t.kind) ? t.kind : [];
+    const unconditional = (t) => !(t["required-features"] ?? t.required_features ?? []).length;
+    const targets = pkg.targets ?? [];
+    const bins = targets.filter((t) => kinds(t).includes("bin") && unconditional(t)).map((t) => t.name).sort();
+    const testLinksBins = targets.some((t) => kinds(t).includes("test") && t.test !== false && unconditional(t));
+    return { name: pkg.name, dir, manifest: path.posix.join(dir, "Cargo.toml"), publish: !(Array.isArray(pkg.publish) && pkg.publish.length === 0), bins, testLinksBins };
+  }).sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+  return { cargoDir, members };
+}
+
+const load = createRequire(import.meta.url);
+
+/**
+ * Bind discovery to what Cargo can read under the snapshot. An exact local member or dependency has a finite
+ * read set. A member glob or path escaping the snapshot needs Cargo to discover its inputs, so leave it unproven.
+ */
+export function cargoWorkspaceTopology({ root, dir, cargoHome, fsApi = fs, parse = (source) => load("smol-toml").parse(source) }) {
+  try {
+    const base = fsApi.realpathSync(root);
+    const workspace = path.resolve(base, dir);
+    if (!within(workspace, base) || !path.isAbsolute(cargoHome ?? "")) return null;
+    const files = new Map();
+    const targetDirs = new Map();
+    const snapshotName = (absolute) => path.relative(base, absolute).replaceAll(path.sep, "/") || ".";
+    const stat = (absolute) => {
+      let entry;
+      try { entry = fsApi.lstatSync(absolute); } catch (error) { if (error.code === "ENOENT" || error.code === "ENOTDIR") return null; throw error; }
+      if (entry.isSymbolicLink() || path.relative(absolute, fsApi.realpathSync(absolute))) throw new Error("linked Cargo discovery input");
+      return entry;
+    };
+    const read = (absolute) => {
+      const key = within(absolute, base) ? snapshotName(absolute) : absolute;
+      const entry = stat(absolute);
+      if (entry && !entry.isFile()) throw new Error("Cargo discovery input is not a regular file");
+      const bytes = entry ? fsApi.readFileSync(absolute) : null;
+      files.set(key, bytes ? createHash("sha256").update(bytes).digest("hex") : null);
+      return bytes;
+    };
+    const local = (at, value) => {
+      if (typeof value !== "string" || !value || /[:\\\0]/.test(value) || path.isAbsolute(value)) throw new Error("nonportable Cargo path");
+      const resolved = path.resolve(at, value);
+      if (!within(resolved, base)) throw new Error("Cargo path escapes snapshot");
+      return resolved;
+    };
+    const inspectConfig = (configDir) => {
+      for (const name of ["config", "config.toml"]) {
+        const bytes = read(path.join(configDir, name));
+        if (!bytes) continue;
+        const config = parse(String(bytes));
+        if (config.paths !== undefined || config.patch !== undefined || config.include !== undefined) throw new Error("Cargo config extends the discovery read set");
+      }
+    };
+    for (let at = workspace; ; at = path.dirname(at)) {
+      inspectConfig(path.join(at, ".cargo"));
+      read(path.join(at, "rust-toolchain"));
+      read(path.join(at, "rust-toolchain.toml"));
+      if (within(at, base)) read(path.join(at, "Cargo.lock"));
+      else if (read(path.join(at, "Cargo.toml"))) return null;
+      if (path.dirname(at) === at) break;
+    }
+    inspectConfig(cargoHome);
+    const target = (absolute) => {
+      const entry = stat(absolute);
+      targetDirs.set(snapshotName(absolute), entry ? (entry.isDirectory() ? "dir" : entry.isFile() ? "file" : "other") : null);
+      return entry;
+    };
+    const manifests = new Set();
+    const includeAncestors = (start) => {
+      for (let at = start; within(at, base); at = path.dirname(at)) {
+        manifests.add(path.join(at, "Cargo.toml"));
+        if (at === base) break;
+      }
+    };
+    includeAncestors(workspace);
+    for (const absolute of manifests) {
+      const bytes = read(absolute);
+      if (!bytes) {
+        if (absolute === path.join(workspace, "Cargo.toml")) return null;
+        continue;
+      }
+      const at = path.dirname(absolute);
+      const doc = parse(String(bytes));
+      const follow = (parent, value) => {
+        const member = local(parent, value);
+        if (!stat(path.join(member, "Cargo.toml"))?.isFile()) throw new Error("Cargo dependency or member manifest is missing");
+        includeAncestors(member);
+      };
+      for (const name of ["members", "exclude", "default-members"]) {
+        const entries = doc.workspace?.[name] ?? [];
+        if (!Array.isArray(entries) || entries.some((item) => typeof item !== "string" || /[*?\[\]{}]/.test(item))) return null;
+        if (name !== "exclude") for (const member of entries) follow(at, member);
+        else for (const member of entries) local(at, member);
+      }
+      const dependencyTables = [doc.workspace?.dependencies, doc.replace, ...Object.values(doc.patch ?? {})];
+      for (const holder of [doc, ...Object.values(doc.target ?? {})]) {
+        for (const name of ["dependencies", "build-dependencies", "dev-dependencies", "build_dependencies", "dev_dependencies"]) dependencyTables.push(holder[name]);
+      }
+      for (const dependencies of dependencyTables) for (const spec of Object.values(dependencies ?? {})) {
+        if (spec?.path !== undefined) follow(at, spec.path);
+      }
+      if (!doc.package) continue;
+      if (doc.package.workspace !== undefined) follow(at, doc.package.workspace);
+      if (typeof doc.package.build === "string") target(local(at, doc.package.build));
+      for (const name of ["lib", "bin", "test", "bench", "example"]) {
+        for (const declared of [].concat(doc[name] ?? [])) if (declared.path !== undefined) target(local(at, declared.path));
+      }
+      for (const name of ["build.rs", "src/lib.rs", "src/main.rs"]) target(path.join(at, name));
+      for (const name of ["src/bin", "tests", "benches", "examples"]) {
+        const location = path.join(at, name);
+        if (!target(location)?.isDirectory()) continue;
+        for (const entry of fsApi.readdirSync(location, { withFileTypes: true })) {
+          const candidate = path.join(location, entry.name);
+          if (entry.name.endsWith(".rs")) target(candidate);
+          else if (entry.isDirectory() || entry.isSymbolicLink()) target(path.join(candidate, "main.rs"));
+        }
+      }
+    }
+    const sorted = (entries) => [...entries].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0);
+    return createHash("sha256").update(JSON.stringify([sorted(files), sorted(targetDirs)])).digest("hex");
+  } catch {
+    return null;
+  }
+}
 
 /** The flags of `rest` as a Map (flag to value, or true); null when one repeats, is unknown (`--flag=value` included) or lacks its value. */
 function flagsOf(rest, spec) {

@@ -73,6 +73,8 @@
 // SIGINT/SIGTERM stop scheduling, kill every running scan's process tree and exit non-zero listing the scans not run.
 import fs from "node:fs";
 import { createHash, randomUUID } from "node:crypto";
+import { openClassAHistory } from "../class-a-cache-history.mjs";
+import { writeFileAtomic } from "../atomic-write.mjs";
 import { envNamed, gateRunsRoot, resolveManagedRoots } from "../managed-roots.mjs";
 import { resolveBrokerClient, spawnBrokerClient } from "../broker-client.mjs";
 import os from "node:os";
@@ -119,6 +121,7 @@ import { setTreeListingStore } from "../snapshot-git.mjs";
 import { processIdentity, snapshotLockBody, verdictFileName } from "../gate-seam.mjs";
 
 const PRIVATE_SCOPED_COMPILE = Symbol("private scoped compile");
+const CLASS_A_HISTORY = Symbol("Class A cache history");
 const UNIT_LIST_UNION = Symbol("unit list union");
 // Class B row input digests per tree (see rowDigest in the compile stage); counted so the run summary shows the time keying took.
 const ROW_DIGEST_MEMO = new Map();
@@ -488,7 +491,7 @@ export function installedDependencyDigest({ root, files, includeCaches = true })
  * (node_modules/.modules.yaml) and the installed dependency bytes (installedDependencyDigest). The broker binds an admission ticket to it and recomputes it when the compile starts
  * (`rightkit-gate env-digest`), so a dependency or tool change while a compile waits invalidates the ticket.
  */
-export function classAEnvironmentDigest({ root, files, spawn = defaultSpawn, includeCaches = true, gatePackage = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..") }) {
+export function classAEnvironmentDigest({ root, files, spawn = defaultSpawn, includeCaches = true, gatePackage = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."), onRowEnvironment }) {
   // Only a file that does not exist is "absent"; any other read failure throws: an input whose bytes cannot be read is never
   // identified by a placeholder that would match the same failure later.
   // `optional`: only an install-state file may legitimately not exist; a gate file found by the walk must be readable.
@@ -510,7 +513,12 @@ export function classAEnvironmentDigest({ root, files, spawn = defaultSpawn, inc
     return text(r).trim();
   })();
   const installState = files.filter((f) => /(^|\/)package\.json$/.test(f)).map((f) => path.join(path.dirname(path.join(root, f)), "node_modules", ".modules.yaml")).map((m) => { let d; try { d = createHash("sha256").update(installStateBytes(".modules.yaml", fs.readFileSync(m))).digest("hex"); } catch (error) { d = fileDigest(m, { optional: true }); } return `${path.relative(root, m)}:${d}`; });
-  return createHash("sha256").update([`node ${process.version}`, `pnpm ${pnpmVersion}`, `platform ${process.platform}-${process.arch}`, ...gateFiles, ...installState, `installed ${installedDependencyDigest({ root, files, includeCaches })}`].join("\n")).digest("hex");
+  const installed = installedDependencyDigest({ root, files, includeCaches });
+  const bind = (gateInputs) => createHash("sha256").update([`node ${process.version}`, `pnpm ${pnpmVersion}`, `platform ${process.platform}-${process.arch}`, ...gateInputs, ...installState, `installed ${installed}`].join("\n")).digest("hex");
+  // The verdict binds all gate data. Only cargo-deny rows using the packaged
+  // policy read deny-default.toml. Their per-row digest binds its exact bytes.
+  if (onRowEnvironment) onRowEnvironment(bind(gateFiles.filter((entry) => !entry.startsWith("deny-default.toml:"))));
+  return bind(gateFiles);
 }
 
 /** The pnpm a package.json pins (`packageManager: "pnpm@12.16.1+sha512.."` -> `12.16.1`), or null for no pnpm pin. */
@@ -1105,7 +1113,7 @@ const plainRelative = (p) => typeof p === "string" && p !== "" && !path.posix.is
  *   package, whatever its spec, transitively, by package name) and the root npm inputs; (the scripts/ci self-test scan no longer exists: Adrian, 2026-11-03, end-to-end tests only). Every other class B scan (generated-docs, swift-build) uses the whole tree.
  * - Class A: pnpm-lockfile and advisory-exceptions are never cached (live answers). cargo-deny, cargo-audit and pnpm-audit are cached by
  *   their inputs and the identity of the advisory data they read (rightkit#1464, ADR-001 C5; advisoryKey below): a Cargo workspace's lock
- *   blob, every Cargo.toml of the commit, the deny and cargo configuration files, and the pinned RustSec commit (cargo-deny and cargo-audit
+ *   blob, the workspace's manifest closure, configuration, and the pinned RustSec commit (cargo-deny and cargo-audit
  *   read exactly that commit); a pnpm root's lock, manifests and npm configuration. cargo-deny also reads the crate index (yanked
  *   versions) and pnpm audit asks the registry, neither of which a commit pins, so those keys carry the UTC day: a rerun the same day is a
  *   hit, the next day is a run. A changed pin, lock, manifest or configuration is a different key; rustfmt,
@@ -1127,7 +1135,7 @@ function shardSoloOf(o, repo) {
   } catch { return []; }
 }
 
-export function buildCacheDigest({ objectId, headTree, rustUnits = [], npmUnits = [], cargoDir = ".", rustLock = null, rustLocks = null, crateFeatures = {}, listFiles = null, readBlob = null, today = () => new Date().toISOString().slice(0, 10), onKeyError = null }) {
+export function buildCacheDigest({ objectId, headTree, rustUnits = [], npmUnits = [], cargoDir = ".", rustLock = null, rustLocks = null, crateFeatures = {}, listFiles = null, readBlob = null, today = () => new Date().toISOString().slice(0, 10), onKeyError = null, shellcheckRoot = null, shellcheckEnv = process.env, onUncacheable = null }) {
   const memo = new Map(); const reachMemos = new Map(); const externalMemo = new Map();
   const idOf = (p) => { if (!memo.has(p)) memo.set(p, p === "." ? headTree : objectId(p)); return memo.get(p); };
   // npm: a package's test, tsc and eslint scans read the package, every workspace package it depends on (package.json
@@ -1201,6 +1209,7 @@ export function buildCacheDigest({ objectId, headTree, rustUnits = [], npmUnits 
   // The key of an advisory scan (rightkit#1464), or null when an input cannot be identified (the scan then runs). Every input that decides the
   // verdict and is not in the scan's id, command or environment is here; the advisory database's commit (cargo) is in the scan's own environment
   // (RK_ADVISORY_DB_COMMIT) and its pin object, the gate's code and advisory-db.json are in the environment digest the caller appends.
+  let defaultDenyId;
   const advisoryKey = (scan) => {
     if (typeof listFiles !== "function") return null;
     const dir = typeof scan.cwd === "string" && scan.cwd !== "" ? scan.cwd : ".";
@@ -1232,9 +1241,101 @@ export function buildCacheDigest({ objectId, headTree, rustUnits = [], npmUnits 
     // followed to a fixed point (a crate outside the workspace that it depends on still counts). A manifest edit in another workspace kept rerunning
     // every workspace's deny and audit rows (witness fixture, 2026-11-17: an edit in rk reran app/engine, app/src-tauri, rightkit-a, rightkit-b).
     const manifests = cargoManifestsOfWorkspace({ dir, all, readBlob });
-    return canonicalJson({ kind: scan.id.startsWith("cargo-deny") ? "cargo-deny" : "cargo-audit", id: scan.id, day: today(), pin: scan.advisoryPin ?? null, inputs: idsOf([lock, ...manifests, ...config]) });
+    const kind = scan.id.startsWith("cargo-deny") ? "cargo-deny" : "cargo-audit";
+    const inputs = idsOf([lock, ...manifests, ...config]);
+    if (kind === "cargo-deny") {
+      const policy = inWs(dir, "deny.toml");
+      if (!all.includes(policy)) {
+        if (idOf(policy) != null) throw new Error(policy + ": expected a policy file");
+        defaultDenyId ??= createHash("sha256").update(fs.readFileSync(new URL("../deny-default.toml", import.meta.url))).digest("hex");
+        inputs.push(["@rightkit/release/deny-default.toml", defaultDenyId]);
+      } else {
+        const contents = readBlob?.(policy);
+        if (typeof contents !== "string") throw new Error(policy + ": cannot read the workspace policy");
+        inputs.push(["workspace deny policy bytes", createHash("sha256").update(contents).digest("hex")]);
+      }
+    }
+    return canonicalJson({ kind, id: scan.id, day: today(), pin: scan.advisoryPin ?? null, inputs });
+  };
+  const boundShellcheckFiles = (scan) => {
+    const [format, sources, ...entries] = scan.args ?? [];
+    if (scan.root !== "content" || scan.cwd || format !== "--format=gcc" || sources !== "--external-sources" || !entries.length)
+      throw new Error("unsupported ShellCheck command");
+    const env = Object.fromEntries(Object.entries({ ...shellcheckEnv, ...scan.env }).map(([k, v]) => [k.toUpperCase(), v]));
+    if (String(env.SHELLCHECK_OPTS ?? "").trim()) throw new Error("SHELLCHECK_OPTS can add inputs outside the planned command");
+    const root = fs.realpathSync.native(shellcheckRoot);
+    const tracked = new Set(listFiles("."));
+    const inputs = new Set();
+    const present = (file) => {
+      try { fs.lstatSync(file); return true; }
+      catch (error) { if (error.code === "ENOENT" || error.code === "ENOTDIR") return false; throw error; }
+    };
+    const readInput = (relative) => {
+      if (!plainRelative(relative) || relative.startsWith("-") || !tracked.has(relative) || idOf(relative) == null)
+        throw new Error(relative + ": ShellCheck input is outside the tracked file set");
+      const file = path.join(root, relative);
+      if (!fs.lstatSync(file).isFile() || path.relative(file, fs.realpathSync.native(file)))
+        throw new Error(relative + ": ShellCheck input is a link or special file");
+      const content = readBlob(relative);
+      if (typeof content !== "string") throw new Error(relative + ": unreadable ShellCheck input");
+      inputs.add(relative);
+      return content.split(/\r\n|[\r\n]/).map((line) => line.trim());
+    };
+    const safeDirective = /^(?:(?:disable|enable|shell|extended-analysis|external-sources)=[\w,-]+[ \t]*)+$/;
+    const checkedRc = new Set();
+    let checkedHostRc = false;
+    const checkHostRc = () => {
+      if (checkedHostRc) return;
+      const candidates = [];
+      for (let dir = root; path.dirname(dir) !== dir;) {
+        dir = path.dirname(dir);
+        candidates.push(path.join(dir, ".shellcheckrc"), path.join(dir, "shellcheckrc"));
+      }
+      for (const home of new Set([env.HOME, env.USERPROFILE, os.homedir()].filter(Boolean))) {
+        candidates.push(path.resolve(root, home, ".shellcheckrc"), path.resolve(root, home, ".config", "shellcheckrc"));
+        if (process.platform === "win32") candidates.push(path.resolve(root, home, "AppData", "Roaming", "shellcheckrc"));
+      }
+      if (env.APPDATA) candidates.push(path.resolve(root, env.APPDATA, "shellcheckrc"));
+      if (env.XDG_CONFIG_HOME) candidates.push(path.resolve(root, env.XDG_CONFIG_HOME, "shellcheckrc"));
+      const external = candidates.find(present);
+      if (external) throw new Error(external + ": ShellCheck configuration comes from outside tracked content");
+      checkedHostRc = true;
+    };
+    for (const entry of entries) {
+      if (!plainRelative(entry)) throw new Error("unsupported ShellCheck entry path");
+      const candidates = ancestorDirsOf(path.posix.dirname(entry)).reverse().flatMap((d) => [inWs(d, ".shellcheckrc"), inWs(d, "shellcheckrc")]);
+      const rc = candidates.find((f) => tracked.has(f) || present(path.join(root, f)));
+      if (!rc) checkHostRc();
+      else if (!checkedRc.has(rc)) {
+        for (const [i, line] of readInput(rc).entries()) {
+          if (line && !line.startsWith("#") && !safeDirective.test(line)) throw new Error(rc + ":" + (i + 1) + ": unsupported ShellCheck configuration");
+        }
+        checkedRc.add(rc);
+      }
+    }
+    // Prove only complete, simple lines. Compound commands, substitutions and other
+    // source-resolution mechanisms are left to the real tool and receive no reusable key.
+    const safeWord = String.raw`(?:[-\w./:@%+,]+|'[^']*'|"[^"\\$\x60]*")`;
+    const safeLine = new RegExp(String.raw`^(?:(?:set|printf|echo|cd|exit|return|true|false|:)(?:[ \t]+${safeWord})*|[a-zA-Z_]\w*=${safeWord})$`);
+    const literalSource = /^(?:source|\.)[ \t]+(?:"([\w./@+-]+)"|'([\w./@+-]+)'|([\w./@+-]+))$/;
+    const queue = [...entries]; const visited = new Set(queue);
+    for (const file of queue) {
+      for (const [i, line] of readInput(file).entries()) {
+        const annotation = /^#[ \t\u00a0]*shellcheck(?:[ \t\u00a0]+(.*))?$/.exec(line);
+        if (!line || (line.startsWith("#") && !line.endsWith("\\") && (!annotation || safeDirective.test(annotation[1] ?? ""))) || safeLine.test(line)) continue;
+        const source = literalSource.exec(line);
+        const literal = source?.[1] ?? source?.[2] ?? source?.[3];
+        if (literal === "/dev/null") continue;
+        const relative = literal && path.posix.normalize(literal);
+        if (!plainRelative(relative) || literal.startsWith("-") || literal.split("/").includes("..") || !tracked.has(relative))
+          throw new Error(file + ":" + (i + 1) + ": ShellCheck read set is unproven" + (literal ? " for source " + literal : ""));
+        if (!visited.has(relative)) { visited.add(relative); queue.push(relative); }
+      }
+    }
+    return [...inputs];
   };
   const fileList = (scan) => {
+    if (scan.id === "shellcheck" && shellcheckRoot) return boundShellcheckFiles(scan);
     if (Array.isArray(scan.files) && scan.files.length) return scan.files;
     const args = Array.isArray(scan.args) ? scan.args : [];
     if (/^rustfmt:/.test(scan.id)) {
@@ -1281,7 +1382,11 @@ export function buildCacheDigest({ objectId, headTree, rustUnits = [], npmUnits 
       if (liveScan(scan.id) && !ADVISORY_SCAN.test(scan.id)) return null;
       try {
         if (ADVISORY_SCAN.test(scan.id)) return advisoryKey(scan);
-        const files = fileList(scan);
+        let files;
+        if (scan.id === "shellcheck" && shellcheckRoot) {
+          try { files = fileList(scan); }
+          catch (error) { onUncacheable?.(scan, error.message); return null; }
+        } else files = fileList(scan);
         // node --check reads a package.json above the file only for its "type" (module or commonjs): a version bump there is not an input (NN20; every
         // release reran 423 node-check rows). Any other read of the manifest, or an unreadable one, keys on its whole content as before.
         const nodeType = (p) => { if (!/^node-check:/.test(scan.id) || !/(^|\/)package\.json$/.test(p) || typeof readBlob !== "function") return null; try { const v = JSON.parse(String(readBlob(p))); return `type:${v?.type ?? "commonjs"}`; } catch { return null; } };
@@ -4144,6 +4249,15 @@ export async function main(argv, io = {}) {
     const appArgs = stripSnapshot(withoutScope.filter((a) => a !== "--full-a"));
     if (fullAdmission && !appArgs.includes("--rule-tier")) appArgs.push("--rule-tier", requestedTier);
     // GC-A24: a passing app-rule verdict of a snapshot is reused for the same commit tree, rule code, tier and arguments (ruleVerdictCache).
+    let history;
+    if (fullAdmission && snapshotDir && !o.runScans && o.classA !== false) {
+      try {
+        const common = o.spawn("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], { cwd: snapshotCheckout });
+        if (failed(common) || !text(common).trim()) throw new Error("cannot identify Class A cache location");
+        const storeDir = o.env.RK_GATE_CACHE_DIR || path.join(text(common).trim(), "rightkit-gate-cache");
+        history = openClassAHistory({ historyRoot: path.join(gateRunsRoot({ env: o.env, platform: o.platform }), "rightkit-class-a-history"), storeDir });
+      } catch (error) { o.err(`rightkit-gate: BLOCKED: ${error.message}`); return 1; }
+    }
     const ruleCache = snapshotDir && snapshotCommit && !args.includes("--worktree") && !o.appCheck ? ruleVerdictCache({ checkout: snapshotCheckout, spawn: o.spawn }) : null;
     const appKey = ruleCache ? ruleCache.key({ rule: "app-check", tree: snapshotCommit.tree, args: appArgs, gate: gatePackageIdentity(o.gatePackage) }) : null;
     const appCheck = appKey && ruleCache.passed(appKey)
@@ -4165,7 +4279,7 @@ export async function main(argv, io = {}) {
     const checkCwd = repoArg ? path.resolve(o.cwd, repoArg) : o.cwd;
     // The app rules' tier is the stage's (rightkit#1296); class A's deterministic scans are the same at either tier.
     const ruleTier = requestedTier;
-    const classA = await main(["--class-a", "--rule-tier", ruleTier, ...(args.includes("--full-a") ? ["--full-a"] : []), ...(args.includes("--worktree") ? ["--worktree"] : ["--commit", snapshotCommit?.commit ?? option("--commit") ?? "HEAD"]), ...(snapshotDir ? ["--snapshot", snapshotDir] : []), ...scopeForward], { ...io, cwd: checkCwd });
+    const classA = await main(["--class-a", "--rule-tier", ruleTier, ...(args.includes("--full-a") ? ["--full-a"] : []), ...(args.includes("--worktree") ? ["--worktree"] : ["--commit", snapshotCommit?.commit ?? option("--commit") ?? "HEAD"]), ...(snapshotDir ? ["--snapshot", snapshotDir] : []), ...scopeForward], { ...io, cwd: checkCwd, [CLASS_A_HISTORY]: history });
     // RightKit checking itself: its own rules (line endings, consumer recipes, npm surface, version copies and the version feed, dispatcher
     // pins, consumer locks, generated docs, temp paths: scripts/preflight.mjs) and its exports' import safety are class A for the RightKit repository.
     let selfRules = 0;
@@ -4525,6 +4639,11 @@ export async function main(argv, io = {}) {
     // On a broker host, the spawn every Class A Cargo scan of the snapshot runs through: a Cargo call inside the snapshot is a carried read-only
     // request of one of the exact admitted shapes (snapshot-metadata.mjs), anything else passes through (node, git, the client's probe).
     let scanSpawn = null;
+    // Freeze the snapshot's Class A forecast before its metadata rows start.
+    const guardCargoDiscovery = fullA && Boolean(snapshotA) && !o.runScans;
+    const cargoMetadata = guardCargoDiscovery ? await import("../snapshot-metadata.mjs") : null;
+    let authenticateCargoWorkspace = null;
+    let classACargoPath = null;
     if (snapshot && snapshotB) {
       // Direct host: no broker grant to satisfy, so no config-only .git; the snapshot is scanned and compiled in place.
       repo = snapshotB;
@@ -4592,6 +4711,7 @@ export async function main(argv, io = {}) {
         const { directReadSpawn } = await import("../snapshot-metadata.mjs");
         const pathKey = o.platform === "win32" ? (Object.keys(o.env).find((k) => k.toUpperCase() === "PATH") ?? "Path") : "PATH";
         const direct = directCargoPath({ env: { ...o.env, PATH: o.env[pathKey] }, exists: o.exists, platform: o.platform, gateWrappers: true });
+        classACargoPath = direct.cargo;
         const readOpts = { cargoCommand: planCargoCommand, snapshotRoot: repo, directPath: direct.path, pathKey, tmpRoot: gateTmpRoot({ env: o.env, platform: o.platform, exists: o.exists }), env: o.env, err: o.err };
         // One memo for the run (rightkit#1460): the unit discovery's `metadata --no-deps --locked` and the Class A `cargo-metadata` scan of the same
         // workspace are the same call on the same verified snapshot, so the scan reuses the discovery's result instead of running Cargo again.
@@ -4599,7 +4719,7 @@ export async function main(argv, io = {}) {
         // NN10: a metadata read is answered by the resident gate when it holds one for this unchanged snapshot (only for the real spawn: a test's
         // injected spawn sees every call). Asked with the direct cargo by its path and the same environment minus the per-call scratch target, so
         // the resident gate's key is the same from run to run.
-        const served = o.spawn === defaultSpawn && direct.cargo ? await (async () => {
+        const served = !guardCargoDiscovery && o.spawn === defaultSpawn && direct.cargo ? await (async () => {
           const { snapshotCargoMetadata } = await import("../gate-serve.mjs");
           const { snapshotRoot: snapshotRootOf } = await import("../snapshot.mjs");
           let rootDir = null; try { rootDir = snapshotRootOf({ env: o.env }); } catch { rootDir = null; }
@@ -4613,20 +4733,39 @@ export async function main(argv, io = {}) {
       npm = discoverNpmUnits({ root: repo, tracked, readFile: readSnap, exists: o.exists });
       npmRoots = discoverPnpmRoots({ root: repo, tracked, exists: o.exists });
       let metadata = null;
-      if (scopeDirs.length) {
+      if (scopeDirs.length || (guardCargoDiscovery && manifests.length)) {
         closureTools = await import("../app-closure.mjs");
+        const committed = new Set(files);
         const readCommitted = (file) => {
-          if (!files.includes(file)) throw new Error(`${file} is absent from the committed tree`);
+          if (!committed.has(file)) throw new Error(`${file} is absent from the committed tree`);
           return readSnap(path.join(repo, file));
         };
         const sourceMetadata = closureTools.cargoMetadataFromManifests({ manifests: manifests.filter((m) => !fixtures.some((d) => m.startsWith(`${d.replace(/\/$/, "")}/`))), readFile: readCommitted });
-        const inventory = discoverRustWorkspaces({ root: repo, tracked, fixtures, readFile: readSnap, metadata: sourceMetadata });
-        closure = closureTools.closureOf({ scopeDirs, npmUnits: npm, rustUnits: inventory.units, readFile: readCommitted });
-        const selectedWorkspaces = new Set(inventory.units.filter((u) => closure.rust.has(u.name)).map((u) => u.cargoDir));
-        metadata = (dir) => {
-          const source = sourceMetadata(dir);
-          return selectedWorkspaces.has(source.cargoDir) ? workspaceMetadata({ root: repo, spawn: snapshotSpawn, cargoCommand: planCargoCommand, dir, realpath: fs.realpathSync }) : source;
-        };
+        if (scopeDirs.length) {
+          const inventory = discoverRustWorkspaces({ root: repo, tracked, fixtures, readFile: readSnap, metadata: sourceMetadata });
+          closure = closureTools.closureOf({ scopeDirs, npmUnits: npm, rustUnits: inventory.units, readFile: readCommitted });
+          const selectedWorkspaces = new Set(inventory.units.filter((u) => closure.rust.has(u.name)).map((u) => u.cargoDir));
+          metadata = (dir) => {
+            const source = sourceMetadata(dir);
+            return !guardCargoDiscovery && selectedWorkspaces.has(source.cargoDir) ? workspaceMetadata({ root: repo, spawn: snapshotSpawn, cargoCommand: planCargoCommand, dir, realpath: fs.realpathSync }) : source;
+          };
+        } else {
+          metadata = sourceMetadata;
+        }
+        if (guardCargoDiscovery) {
+          // Cargo authenticates the workspace, committed members and publishability after admission.
+          const shape = (facts) => canonicalJson(facts.members.filter((m) => committed.has(m.manifest))
+            .map(({ name, dir, manifest, publish }) => ({ name, dir, manifest, publish }))
+            .sort((a, b) => a.manifest < b.manifest ? -1 : a.manifest > b.manifest ? 1 : 0));
+          authenticateCargoWorkspace = (scan, result, stored) => {
+            const dir = scan.cwd ?? ".";
+            const observed = result && !result.truncated ? cargoMetadata.cargoWorkspaceFacts({ root: repo, stdout: result.stdout }) : stored;
+            if (observed?.cargoDir !== dir || !Array.isArray(observed.members) || shape(observed) !== shape(sourceMetadata(dir))) {
+              throw new Error("RK_CARGO_DISCOVERY: " + scan.id + " has no matching authentic Cargo workspace & member inventory");
+            }
+            return observed;
+          };
+        }
       }
       rust = discoverRustWorkspaces({ root: repo, spawn: snapshotSpawn, cargoCommand: planCargoCommand, tracked, untracked, fixtures, readFile: readSnap, ...(metadata ? { metadata } : {}) });
       if (closure) {
@@ -4889,6 +5028,15 @@ export async function main(argv, io = {}) {
       const cargoExcluded = kept.dropped.filter((s) => closureTools.isCargoScan(s)).length;
       o.out(`${tag} scope ${closure.dirs.join(", ")}: dependency directories ${closure.dependencyDirs.join(", ")}; ${closure.npm.size} npm & ${closure.rust.size} Rust unit(s); Class A ${executing} executing scan(s) (${cargoRun} Cargo), ${classA.length - executing} repository file-only scan(s); ${kept.dropped.length} unrelated executing scan(s) excluded (${cargoExcluded} Cargo); ${plan.scans.length - classA.length} closure Class B scan(s) do not run in this check; install roots ${installRoots.join(", ") || "none"}; scope digest ${plan.scopeDigest}`);
     }
+    const cargoMetadataTopologies = new Map();
+    if (authenticateCargoWorkspace) {
+      const cargoHome = o.env.CARGO_HOME || path.join(o.env.USERPROFILE || o.env.HOME || os.homedir(), ".cargo");
+      for (const row of plan.scans.filter((scan) => scan.class === "A" && /^cargo-metadata(:|$)/.test(scan.id))) {
+        const proof = classACargoPath && cargoMetadata.cargoWorkspaceTopology({ root: repo, dir: row.cwd ?? ".", cargoHome });
+        if (proof) cargoMetadataTopologies.set(row.id, proof);
+        else row.cargoWorkspaceUncacheable = true;
+      }
+    }
     const unionContext = o[UNIT_LIST_UNION];
     if (unionContext && snapshotB) {
       try {
@@ -5027,6 +5175,7 @@ export async function main(argv, io = {}) {
     }
     // The result cache keys on the gated commit's object ids; the stdin check above made HEAD the pushed commit.
     let cache = null;
+    let classAHistory = null;
     const nodeCheckRejects = new Map();
     let nodeCheckDiagnosticId = null; let nodeCheckDiagnosticState = "not-seen";
     const countNodeCheckRejection = (reason, scanId) => {
@@ -5039,6 +5188,8 @@ export async function main(argv, io = {}) {
     // Why a scan got no cache key (a key builder that threw, or a cache that could not open): reported, never hidden (GC-A24).
     const keyErrors = new Map(); let cacheDisabled = null;
     const keyError = (scan, error) => keyErrors.set(scan.id, String(error?.message ?? error).slice(0, 300));
+    const uncacheableReasons = new Map();
+    const uncacheable = (scan, reason) => uncacheableReasons.set(scan.id, reason);
     // Full class A on the working tree (the door, and broker admission of the live checkout) caches on the LIVE bytes: every
     // tracked and untracked (not ignored) file is hashed raw, so the door's run and a repeat admission of the same bytes hit the
     // cache, and any edit misses it.
@@ -5106,7 +5257,7 @@ export async function main(argv, io = {}) {
     // changes while class A runs voids the verdict.
     // envStartWithCaches records, for audit, the tool caches as the run found them (what its checks could read); the pass line
     // carries it next to the env the verdict binds.
-    let envAtStart = null; let envStartWithCaches = null; let cachesAtStart = null;
+    let envAtStart = null; let envStartWithCaches = null; let cachesAtStart = null; let rowEnvironment = null;
     if (boundFullA) {
       const orphans = orphanedPnpmStores({ root: liveBase, files: live.files });
       if (orphans.length) { o.err(`${tag} BLOCKED: orphaned nested pnpm store(s) ${orphans.join(", ")}: left by a standalone install in a workspace member; they can hold stale dependencies and make concurrent vitest runs clear their shared module cache under each other. Move them aside (or reinstall) and run again.`); return 1; }
@@ -5115,7 +5266,11 @@ export async function main(argv, io = {}) {
       try { const f = JSON.parse(o.readFile(path.join(liveBase, GATE_CONFIG))).fixtures; if (Array.isArray(f)) pinFixtures = f.filter((d) => typeof d === "string"); } catch { /* no config: no fixtures */ }
       const pinProblem = pnpmPinProblem({ root: liveBase, files: live.files, spawn: o.spawn, readFile: o.readFile, fixtures: pinFixtures, platform: o.platform });
       if (pinProblem) { o.err(`${tag} BLOCKED: ${pinProblem.message}; no class A row ran`); return 1; }
-      try { envAtStart = classAEnvironmentDigest({ root: liveBase, gatePackage: o.gatePackage, files: live.files, spawn: o.spawn, includeCaches: false }); envStartWithCaches = classAEnvironmentDigest({ root: liveBase, gatePackage: o.gatePackage, files: live.files, spawn: o.spawn }); cachesAtStart = toolCacheManifest({ root: liveBase, files: live.files }); }
+      try {
+        envAtStart = classAEnvironmentDigest({ root: liveBase, gatePackage: o.gatePackage, files: live.files, spawn: o.spawn, includeCaches: false, onRowEnvironment: (value) => { rowEnvironment = value; } });
+        envStartWithCaches = envAtStart;
+        cachesAtStart = toolCacheManifest({ root: liveBase, files: live.files });
+      }
       catch (error) { o.err(`${tag} BLOCKED: ${error.message}`); return 1; }
     }
     if (boundFullA) {
@@ -5125,7 +5280,9 @@ export async function main(argv, io = {}) {
         const { files, ids, digestOf } = live;
         const under = (dir) => (dir === "." || dir === "" ? files : files.filter((f) => f === dir || f.startsWith(`${dir}/`)));
         const objectId = (p) => (ids.has(p) ? ids.get(p) : under(p).length ? digestOf(under(p)) : null);
-        const store = fileScanCache(o.env.RK_GATE_CACHE_DIR ? path.resolve(o.env.RK_GATE_CACHE_DIR) : path.join(path.resolve(root, text(common).trim()), "rightkit-gate-cache"));
+        const storeDir = o.env.RK_GATE_CACHE_DIR ? path.resolve(o.env.RK_GATE_CACHE_DIR) : path.join(path.resolve(root, text(common).trim()), "rightkit-gate-cache");
+        if (guardCargoDiscovery) classAHistory = o[CLASS_A_HISTORY] ?? openClassAHistory({ historyRoot: path.join(gateRunsRoot({ env: o.env, platform: o.platform }), "rightkit-class-a-history"), storeDir });
+        const store = fileScanCache(storeDir);
         const listFiles = (dir) => under(dir);
         const readBlob = (p) => fs.readFileSync(path.join(liveBase, p), "utf8");
         // The verdict also depends on what is not in the tree: the gate's own code and advisory data, the node and pnpm that run
@@ -5133,8 +5290,8 @@ export async function main(argv, io = {}) {
         // Tool caches (vitest, tsc build info, ...) are left out: the scans write them themselves, so keying on them made every rerun miss.
         // A6: the digest bound at the start of this run is this very computation (same root, gate package, files and tool-cache setting), so it is
         // reused: each call walks every installed dependency file, and the run made three of these walks before its first scan.
-        const environment = envAtStart ?? classAEnvironmentDigest({ root: liveBase, gatePackage: o.gatePackage, files, spawn: o.spawn, includeCaches: false });
-        const digest = buildCacheDigest({ objectId, headTree: digestOf(files), rustUnits: rust.units, npmUnits: npm, cargoDir: ".", rustLocks, crateFeatures, listFiles, readBlob, onKeyError: keyError });
+        const environment = rowEnvironment;
+        const digest = buildCacheDigest({ objectId, headTree: digestOf(files), rustUnits: rust.units, npmUnits: npm, cargoDir: ".", rustLocks, crateFeatures, listFiles, readBlob, onKeyError: keyError, shellcheckRoot: liveBase, shellcheckEnv: o.env, onUncacheable: uncacheable });
         // A row's key is its own inputs plus the environment; the run's scope and scan set are not inputs of one row, and keying on them
         // missed every row whenever one file joined or left the plan. build-helpers is never reused: it reads the host's trace list,
         // which is outside every key (and takes seconds).
@@ -5145,13 +5302,21 @@ export async function main(argv, io = {}) {
         const nodeCheckModule = null; // GC-A24: node-check rows use the generic file key (file, ancestor package.json, node identity)
         const nodeCheckDigest = nodeCheckModule ? nodeCheckModule.createNodeCheckCacheDigest({ snapshot: liveBase, tree: digestOf(files), files, gateIdentity: gateCodeIdentity(), gatePackage: o.gatePackage, nodePath: process.execPath, onReject: countNodeCheckRejection, ...(o.env.RIGHTKIT_PREPARATION_DIAGNOSTIC_DIR && nodeCheckDiagnosticId ? { onDiagnostic: (record) => { nodeCheckDiagnosticState = "eligible"; nodeCheckModule.writeNodeCheckDiagnostic(o.env.RIGHTKIT_PREPARATION_DIAGNOSTIC_DIR, record); }, diagnosticScanId: nodeCheckDiagnosticId } : {}) }) : null;
         // entryNow: a path's content id in this run's tree, for carryOverProof (a pass stored under an earlier key form is carried when its files are unchanged).
-        cache = { ...store, narrowNodeCheck: false, entryNow: (p) => objectId(p), digest: (scan, context) => {
-          if (/^build-helpers(:|$)/.test(scan.id)) return null;
+        cache = { ...store, narrowNodeCheck: false, uncacheableReason: (scan) => uncacheableReasons.get(scan.id), entryNow: (p) => objectId(p), digest: (scan, context) => {
+          if (/^build-helpers(:|$)/.test(scan.id) || scan.cargoWorkspaceUncacheable) return null;
           // This narrow key applies only to the helper's proven plain snapshot node --check.
           // Uncertain rows miss rather than falling back to a less specific key.
-          const key = digest(scan); const full = key === null ? null : `${key}:${classAEnvironmentBound(scan) ? environment : CLASS_A_KEY_SCHEMA}${rowShape(scan)}`; scanKeys.set(scan.id, full); return full;
+          const key = digest(scan);
+          const topology = cargoMetadataTopologies.get(scan.id);
+          const full = key === null ? null : key + ":" + (classAEnvironmentBound(scan) ? environment : CLASS_A_KEY_SCHEMA) + rowShape(scan) + (topology ? ":metadata=" + topology : "");
+          scanKeys.set(scan.id, full);
+          return full;
         } };
-      } catch (error) { cache = null; cacheDisabled = `class A result cache disabled: ${error?.message ?? error}`; o.err(`${tag} note: ${cacheDisabled}`); }
+      } catch (error) {
+        cacheDisabled = `class A cache preparation failed: ${error?.message ?? error}`;
+        o.err(`${tag} BLOCKED: ${cacheDisabled}`);
+        return 1;
+      }
     }
     if (!classAOnly) {
       try {
@@ -5231,6 +5396,8 @@ export async function main(argv, io = {}) {
     }
     directTiming.cargoStart = Date.now();
     const scanOptions = {
+      ...(authenticateCargoWorkspace ? { cargoWorkspaceFactsFor: authenticateCargoWorkspace } : {}),
+      ...(classACargoPath ? { classAToolPaths: { cargo: classACargoPath } } : {}),
       // The commit's own files (rightkit#1393): a snapshot is not a git toplevel, so the secret scan needs this list to judge tracked files only and never what a stage wrote there.
       ...(snapshot ? { trackedFiles: files } : {}),
       classes: classAOnly ? ["A"] : classAEarlier ? ["B"] : ["A", "B"], ...(classAEarlier ? { classAEarlier: true } : {}), jobs, classBJobs, classBBatching: !o[PRIVATE_SCOPED_COMPILE], groupTests: true, classBPipeline: 2, ...(brokerHost ? { brokerHost: true } : {}), ...(brokerLive ? { brokerLive } : {}), signal: ac.signal, ...(cache ? { cache } : {}),
@@ -5277,7 +5444,7 @@ export async function main(argv, io = {}) {
     // run stops with a miss report (each row, its cause and the evidence: changed inputs, tool or environment, no stored result, or nothing
     // changed at all). Every miss is explained in the report and the rows run; a miss where nothing changed is a cache bug to file with the
     // report, never a reason to stop the run or to ask Adrian (2026-11-08: explained invalidation replaces approval).
-    if (!o.runScans && cache) {
+    if (!o.runScans && cache && !classAHistory) {
       const lookup = await runScans(plan, { ...scanOptions, cacheLookupOnly: true, onResult: () => {} });
       const allMisses = lookup.scans.filter((r) => r.lookupMiss);
       // Adrian 2026-11-06: "when we change something, we know exactly which rows are going to be called. Anything other than that needs approval."
@@ -5309,7 +5476,29 @@ export async function main(argv, io = {}) {
         void prior;
       } else o.out(`${tag} cache lookup: ${lookup.scans.length} planned, ${lookup.scans.filter((r) => r.cached).length} hit, ${called.length} rerun for changed files, 0 unexpected; ${lookup.scans.filter((r) => r.uncacheable).length} uncacheable by design`);
     }
-    const scanResult = await (o.runScans ?? runScans)(plan, scanOptions);
+    let scanResult;
+    let decisionFile;
+    if (classAHistory) {
+      decisionFile = path.join(gateRunsRoot({ env: o.env, platform: o.platform }), "rightkit-class-a-decisions", randomUUID() + ".json");
+      const evidence = { stage: "class-a", host: os.hostname(), commit: snapshotCommitId?.commit ?? hostedCommitA?.commit ?? null, tree: liveSnapshot, baseline: classAHistory.file };
+      try {
+        scanOptions.classACacheForecast = (rows) => {
+          const forecast = classAHistory.forecast(rows);
+          writeFileAtomic(decisionFile, JSON.stringify({ ...evidence, phase: "forecast", forecast }), { mode: 0o600 });
+          return forecast;
+        };
+        scanResult = await runScans(plan, scanOptions);
+        const decision = scanResult.classACacheDecision;
+        if (!decision) throw new Error("Class A scanner returned no forecast decision");
+        writeFileAtomic(decisionFile, JSON.stringify({ ...evidence, ...decision, phase: "observed" }), { mode: 0o600 });
+        if (decision.mismatches.length) {
+          for (const row of decision.mismatches) o.err(`${tag} RK_CACHE_DIVERGENCE ${JSON.stringify(row)}`);
+          o.err(`${tag} BLOCKED: ${decision.dispatchedRows.length} row dispatches. Evidence: ${decisionFile}`);
+          return 1;
+        }
+        o.out(`${tag} Class A cache decision: ${decisionFile}`);
+      } catch (error) { o.err(`${tag} RK_CACHE_DIVERGENCE: ${error.message}`); return 1; }
+    } else scanResult = await (o.runScans ?? runScans)(plan, scanOptions);
     if (nodeCheckRejects.size) o.out(`${tag} node-check cache misses: ${[...nodeCheckRejects].sort(([a], [b]) => a.localeCompare(b)).map(([reason, count]) => `${reason}=${count}`).join(", ")}`);
     if (snapFullA && o.env.RIGHTKIT_PREPARATION_DIAGNOSTIC_DIR && nodeCheckDiagnosticId) o.out(`${tag} node-check diagnostic row: ${nodeCheckDiagnosticState}`);
     if (unionContext) {
@@ -5353,6 +5542,11 @@ export async function main(argv, io = {}) {
     // What a full class A verdict binds, green or red: the bytes it judged, unchanged from start to end, and the environment it judged
     // in (gate, tools, installed dependencies, tool caches), unchanged too. A verdict whose binding moved covers nothing: a green one is
     // refused and a red one names no reusable deterministic cause (rightkit#1257). Returns { env, notes } or { prefix, problem, exit }.
+    const recordClassAHistory = () => {
+      if (!classAHistory) return true;
+      try { classAHistory.record(scanResult.classACacheDecision); return true; }
+      catch (error) { o.err(`${tag} BLOCKED: cannot record verified Class A cache outcomes: ${error.message}`); return false; }
+    };
     const judgedBinding = async () => {
       if (hostedFullA) {
         try { await verifyCommittedCheckout({ git, root, ...hostedCommitA, when: "after class A" }); }
@@ -5369,7 +5563,7 @@ export async function main(argv, io = {}) {
       }
       if (!live) return { env: null, notes: [] };
       let envDigest; let envNoCaches;
-      try { envDigest = classAEnvironmentDigest({ root: liveBase, gatePackage: o.gatePackage, files: live.files, spawn: o.spawn }); envNoCaches = classAEnvironmentDigest({ root: liveBase, gatePackage: o.gatePackage, files: live.files, spawn: o.spawn, includeCaches: false }); }
+      try { envDigest = classAEnvironmentDigest({ root: liveBase, gatePackage: o.gatePackage, files: live.files, spawn: o.spawn }); envNoCaches = envDigest; }
       catch (error) { return { prefix: "BLOCKED", exit: 1, problem: error.message }; }
       const notes = [];
       if (cachesAtStart !== null) {
@@ -5460,6 +5654,7 @@ export async function main(argv, io = {}) {
           if (binding.exit === 2) return 2;
         } else {
           for (const n of binding.notes) o.out(`${tag} ${n}`);
+          if (!recordClassAHistory()) return 1;
           const marker = (await import("../snapshot-check.mjs")).deterministicMarker(scanResult, plan.scopeDigest ? createHash("sha256").update(`${binding.env}:${plan.scopeDigest}:${plan.scanSetDigest}`).digest("hex") : binding.env);
           if (marker) o.out(marker);
         }
@@ -5486,6 +5681,7 @@ export async function main(argv, io = {}) {
         try { await (await import("../snapshot-dependency-reuse.mjs")).capturePostClassADiagnostics({ checkout: root, snapshot: snapshotA, commit: snapshotCommitId.commit, roots: installRoots, diagnosticDir: o.env.RIGHTKIT_PREPARATION_DIAGNOSTIC_DIR }); }
         catch { /* Optional diagnostics never change the gate verdict. */ }
       }
+      if (!recordClassAHistory()) return 1;
       o.out(`${tag} class A ${plan.scopeDigest ? "scoped" : "full"} pass: ${scanResult.scans.length} deterministic check(s), the ones that execute repository code included, over ${changed.length} file(s) of ${base}`);
       return 0;
     }

@@ -10,6 +10,10 @@ This file tracks the current work order under [reset steps 4–8](2026-11-07-gat
 
 ## Evidence received
 
+**Active assignment — 5c.** Astra (this Codex chat) owns implementation for one Class A stage. Gate code derives expected row IDs before cache lookup, allows predicted changes to run, & refuses any row mismatch before dispatch. Existing 5b fixtures supply expected answers for verification.
+
+**Handoff.** Astra records one implementation commit & its evidence here. Fable then checks actual row executions & child starts against the ledger. Muse independently checks exact row identities, refusal diagnostics & zero dispatch against frozen 5b cases, including SC-1. Both review that same commit in parallel. Astra collects both verdicts. Adrian has no assignment or messages to relay.
+
 - [5a inventory](/D:/scratch/loop-review/inventory/5a-classA-S2.md), reviewed SHA-256 `5463eb8e8c27a18a577c740b045dd03b2c2358fd17e9cc19c6e4ae726b55775e`. All 46 Class A IDs reconcile in both warm reports. Fable applied Muse's three count corrections. Verified corrected SHA-256 `2897109153a78d888a7dac578a57c51beb8866a0109f62af7918f6df9b450c7d`. Step 5a is closed for this fixture.
 - [Muse verdict](/D:/scratch/loop-review/inventory/5a-muse-verdict.txt), received through Pulse as `d8730c5e-30fe-49f4-a044-7f6b7f9e397b`. The reverse exact-ID send failed. This file is the coordination fallback.
 - [5b v1](/D:/scratch/loop-review/inventory/5b-classA-S2-expected.md), SHA-256 `76ed817d30b18e78371a252f9863a6b994bdc0b7eaedd15578eb0a85031c5ebe`. Muse froze it before implementation after reviewing 5a. It provides independent authorship. The two existing artifacts cannot establish blind derivation.
@@ -33,3 +37,13 @@ Fable's held-out production prediction SHA-256 is `39b1dc51817caccb535e0e6f7b172
 The four behaviors are warm reuse with zero corresponding starts, expected changed rows executing, unexpected misses stopping before dispatch with row identity & diagnosis, & stale hits stopping even when aggregate counts match. Each needs a passing case & a control that must fail. Codex proposes done. Fable & Muse each give one verdict against the same revision. A block on an owned case fails the work order. Record unrelated findings separately. Escalate an actual disagreement once with both evidence files.
 
 Dell step 4 remains open; checkout work proceeds independently. Admission changes await Adrian's recorded floor decision. Step 6 waits for a named RustRight owner writing its own verdict. Mac steps 4 & 8 remain untouched until a Mac chat is named. Compile, gate tests, build, CI, install & publication retain their approval requirements.
+
+## 5c checkout handoff
+
+Astra implemented the snapshot Class A cache decision. Existing stores require matching independent history. A new store records first-use history before app checks create their verdict directory. History advances from verified retained rows after the end-of-stage binding check.
+
+Five file-only checks passed for history & ShellCheck input closure. [Checkout replay](/D:/scratch/loop-review/inventory/5c-checkout-replay.json) compared both sealed 46-row warm reports using the new production comparison function. The injected missing license entry yielded one mismatch. The equal-count swap yielded two, license & secret-scan. All six fixture workspaces produced metadata topology fingerprints. This replay never called the dispatcher.
+
+Fable owns installed execution evidence, including metadata starts & zero dispatch on refusal. Muse owns fixture coverage, including S1 vs a deliberately cold start. S11 currently moves an existing store aside at its original path; under the new rule that operation must produce a surprise-loss refusal. A true cold control needs a separately declared new store. The frozen S2b added `lib.sh` already enters the ShellCheck command directly; the new file-only regression additionally edits a transitively sourced `.inc` outside that command.
+
+**Status: awaiting installed evidence.** Existing Dell coverage records only layer-one keys & cannot initialize full-key history for the old cache. Use a separately identified cold store for the first approved acceptance sequence. Preserve the independent history for every subsequent warm, edit & store-loss case. The Dell batch wrapper is absent at its workspace-rule path. No new installed gate receipt exists from this change.
