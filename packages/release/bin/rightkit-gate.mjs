@@ -1928,7 +1928,7 @@ async function runStages(o, args, root, git, io) {
       let synced;
       try { synced = (o.syncSnapshot ?? snap.syncSnapshot)({ checkout: root, rev: selected.commit, root: snapshotsAt, lock: { held: taken.view } }); }
       catch (e) { o.err(`${tag} ${e.code === "error" ? "RK_CHECK_ERROR" : "BLOCKED"}: snapshot ${e.message}; nothing ran`); return e.code === "error" ? 2 : 1; }
-      o.out(`${tag} snapshot ${synced.path} is commit ${synced.commit} tree ${synced.tree} (written=${synced.written} removed=${synced.removed} unchanged=${synced.unchanged})`);
+      o.out(`${tag} snapshot ${synced.path} is commit ${synced.commit} tree ${synced.tree} (written=${synced.written} removed=${synced.removed} unchanged=${synced.unchanged})${synced.removedPaths?.length ? ` removed: ${synced.removedPaths.join(", ")}` : ""}`);
       if (synced.identity) o.out(`${tag} source identity ${synced.identity.file}: ${synced.identity.written ? "written" : synced.identity.kept ? "kept" : `not written (${synced.identity.reason})`}`);
       started = true;
       return await runStages({ ...o, snapshotLock: taken.view, doorSnapshot: { lock: taken.view, path: synced.path, commit: synced.commit, tree: synced.tree, root: snapshotsAt, ledger: { entries: [] } } }, args, root, git, { ...io, snapshotLock: taken.view });
@@ -3106,7 +3106,7 @@ async function runUnitSnapshot(o, args, root, git, io, option) {
     try { synced = (o.syncSnapshot ?? snap.syncSnapshot)({ checkout: root, rev: commit, root: snapshotsAt, lock: { held: taken.view } }); }
     catch (e) { o.err(`${tag} ${e.code === "error" ? "RK_CHECK_ERROR" : "BLOCKED"}: snapshot ${e.message}; nothing ran`); return e.code === "error" ? 2 : 1; }
     started = true;
-    o.out(`${tag} snapshot ${synced.path} is commit ${synced.commit} tree ${synced.tree} (written=${synced.written} removed=${synced.removed} unchanged=${synced.unchanged})`);
+    o.out(`${tag} snapshot ${synced.path} is commit ${synced.commit} tree ${synced.tree} (written=${synced.written} removed=${synced.removed} unchanged=${synced.unchanged})${synced.removedPaths?.length ? ` removed: ${synced.removedPaths.join(", ")}` : ""}`);
     if (synced.identity) o.out(`${tag} source identity ${synced.identity.file}: ${synced.identity.written ? "written" : synced.identity.kept ? "kept" : `not written (${synced.identity.reason})`}`);
     const ds = { lock: taken.view, path: synced.path, commit: synced.commit, tree: synced.tree, root: snapshotsAt, ledger: { entries: [] } };
     if (io[UNIT_LIST_UNION]) return await runUnionSnapshot({ o, io, root, git, ds, union: io[UNIT_LIST_UNION], unitListClassA: io.unitListClassA });
@@ -4019,7 +4019,7 @@ export async function main(argv, io = {}) {
       let synced;
       try { synced = (o.syncSnapshot ?? snap.syncSnapshot)({ checkout, rev: selected.commit, root: snapshotsAt, lock: { held: view } }); }
       catch (e) { o.err(`rightkit-gate: ${e.code === "error" ? sc.CHECK_ERROR : "BLOCKED"}: snapshot ${e.message}; nothing ran`); return e.code === "error" ? 2 : 1; }
-      o.out(`rightkit-gate: snapshot ${synced.path} is commit ${synced.commit} tree ${synced.tree} (written=${synced.written} removed=${synced.removed} unchanged=${synced.unchanged})`);
+      o.out(`rightkit-gate: snapshot ${synced.path} is commit ${synced.commit} tree ${synced.tree} (written=${synced.written} removed=${synced.removed} unchanged=${synced.unchanged})${synced.removedPaths?.length ? ` removed: ${synced.removedPaths.join(", ")}` : ""}`);
       if (synced.identity) o.out(`rightkit-gate: source identity ${synced.identity.file}: ${synced.identity.written ? "written" : synced.identity.kept ? "kept" : `not written (${synced.identity.reason})`}`);
       const next = [...argv]; const ci = next.indexOf("--commit");
       if (ci >= 0) next.splice(ci, 2, "--commit", synced.commit); else next.push("--commit", synced.commit);

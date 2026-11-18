@@ -357,3 +357,15 @@ test("Windows: a dead holder's job made before the host's last boot is gone (reg
   assert.match(windowsJobLive(lockFile, { query: dead, bootTime: () => { throw new Error("cim"); } })[0], /unknown/, "an unreadable boot time proves nothing");
   assert.equal(windowsJobLive(lockFile, { self: 1, query: () => ({ active: 2 }), bootTime: () => at + 1 }).length, 1, "the live holder's own release never uses the boot time");
 });
+
+test("NN22: a sync that removes anything names what it removed (a build output left in the snapshot)", () => {
+  const f = fixture();
+  const first = sync(f);
+  assert.deepEqual(first.removedPaths ?? [], []);
+  fs.mkdirSync(path.join(first.path, "app", "dist"), { recursive: true }); fs.writeFileSync(path.join(first.path, "app", "dist", "index.html"), "x");
+  fs.writeFileSync(path.join(first.path, "stray.txt"), "x");
+  const second = sync(f);
+  assert.equal(second.removed, 2);
+  assert.deepEqual([...second.removedPaths].sort(), ["app/", "stray.txt"]);
+  fs.rmSync(f.base, { recursive: true, force: true });
+});

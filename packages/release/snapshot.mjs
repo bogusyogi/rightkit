@@ -289,7 +289,7 @@ export function treeIndexStoreOf(dir) {
  * input even though the seeded tree id cannot see it. Never follows a link (only real directories are entered); names compare
  * case-insensitively where the host filesystem does (Mac, Windows; colliding names were refused before this runs).
  */
-function pruneToTree(dir, entries, platform = process.platform, keepRoot = new Set(), keepDirs = new Set()) {
+function pruneToTree(dir, entries, platform = process.platform, keepRoot = new Set(), keepDirs = new Set(), removedPaths = null) {
   const fold = platform === "darwin" || platform === "win32" ? (n) => n.toLowerCase() : (n) => n;
   const files = new Set(entries.map((e) => fold(e.path)));
   const dirs = new Set();
@@ -301,8 +301,8 @@ function pruneToTree(dir, entries, platform = process.platform, keepRoot = new S
       const p = path.join(d, e.name);
       // keepDirs: the commit's own generated pnpm dependency directories (dependencyDirs), real directories only, kept whole for the
       // dependency step, which reuses them only when every installed byte matches its last completed install and otherwise removes them.
-      if (e.isDirectory()) { if (keepDirs.has(fold(r))) continue; if (dirs.has(fold(r))) walk(p, r); else { fs.rmSync(p, { recursive: true, force: true }); removed++; } }
-      else if (!files.has(fold(r)) && !(rel === "" && keepRoot.has(fold(r)))) { fs.unlinkSync(p); removed++; }
+      if (e.isDirectory()) { if (keepDirs.has(fold(r))) continue; if (dirs.has(fold(r))) walk(p, r); else { fs.rmSync(p, { recursive: true, force: true }); removed++; removedPaths?.push(`${r}/`); } }
+      else if (!files.has(fold(r)) && !(rel === "" && keepRoot.has(fold(r)))) { fs.unlinkSync(p); removed++; removedPaths?.push(r); }
     }
   };
   walk(dir, "");
@@ -1264,7 +1264,9 @@ export function syncSnapshot({ checkout, rev = "HEAD", root = snapshotRoot(), ma
     })();
     const keepDeps = dependencyDirs(entries, process.platform);
     if (keepGit) keepDeps.add(foldFor(process.platform)(".git"));
-    removed += pruneToTree(dir, entries, process.platform, keepIdentity ? new Set([foldFor(process.platform)(SOURCE_IDENTITY_FILE)]) : new Set(), keepDeps);
+    // NN22: what was removed is named (the first 8), so a warm sync that removes anything says what (the sync line in rightkit-gate).
+    const removedPaths = [];
+    removed += pruneToTree(dir, entries, process.platform, keepIdentity ? new Set([foldFor(process.platform)(SOURCE_IDENTITY_FILE)]) : new Set(), keepDeps, removedPaths);
     if (identityBytes) {
       // Written only when the commit's own ignore rules ignore the name (they are in the snapshot now): an unignored file would change the
       // tree id the broker computes too, so the gate would break every build of that repository. Then nothing is written and the reason is reported.
@@ -1295,7 +1297,7 @@ export function syncSnapshot({ checkout, rev = "HEAD", root = snapshotRoot(), ma
     const actual = snapshotTree({ checkout: repo.checkout, dir, baseTree: tree, repo });
     if (actual !== tree) throw new SnapshotError("mismatch", `snapshot ${dir} is tree ${actual} after sync, not tree ${tree} of commit ${commit}`);
     writeState(stateFile, { schema: STATE_SCHEMA, repo: repo.checkout, repoKey: repo.key, commit, tree, paths: [...wanted.keys()], stat: nextStat, syncedAt: new Date(now()).toISOString() });
-    return { schema: SNAPSHOT_SCHEMA, path: dir, repoKey: repo.key, commit, tree, written, removed, modesFixed, unchanged, linksRemoved, hardLinksReplaced, casesFixed, identity, ms: now() - started };
+    return { schema: SNAPSHOT_SCHEMA, path: dir, repoKey: repo.key, commit, tree, written, removed, removedPaths: removedPaths.slice(0, 8), modesFixed, unchanged, linksRemoved, hardLinksReplaced, casesFixed, identity, ms: now() - started };
   } finally {
     // A lock the caller took is the caller's to release; a lock this sync took ends with it.
     if (!joined) release();
