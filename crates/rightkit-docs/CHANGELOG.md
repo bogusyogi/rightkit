@@ -4,6 +4,7 @@
 
 - Added opt-in `passive-image` canonicalization from static PNG or JPEG to fresh PNG with per-call size limits & EXIF orientation applied to pixels.
 - Added bounded APNG preview encoding with original frame controls, loop count & separate poster.
+- Added bounded GIF preview encoding with indexed pixels, transparency, frame controls & looping.
 
 ## 0.1.5
 

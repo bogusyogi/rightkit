@@ -25,7 +25,7 @@ default = []
 # `files`: text/binary document file IO for a viewer: format table, legacy-encoding decode and
 # re-encode, size limits, fingerprints, and conflict-checked atomic saves.
 files = ["dep:encoding_rs", "dep:chardetng", "dep:base64", "rightkit-fs/lock", "rightkit-fs/digest"]
-passive-image = ["dep:image", "dep:crc32fast", "dep:flate2", "dep:png", "dep:zune-core", "dep:zune-jpeg"]
+passive-image = ["dep:image", "dep:crc32fast", "dep:flate2", "dep:png", "dep:weezl", "dep:zune-core", "dep:zune-jpeg"]
 
 [dependencies]
 encoding_rs = { version = "0.8.42", optional = true }
@@ -35,6 +35,7 @@ image = { version = "=0.25.10", default-features = false, features = ["png"], op
 crc32fast = { version = "=1.5.4", optional = true }
 flate2 = { version = "=1.1.10", optional = true }
 png = { version = "=0.18.1", optional = true }
+weezl = { version = "=0.1.12", optional = true }
 zune-core = { version = "=0.5.3", optional = true }
 zune-jpeg = { version = "=0.5.15", optional = true }
 # PDF read and edit are rightkit-pdf's; this crate is the one-shot facade over it.

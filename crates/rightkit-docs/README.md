@@ -55,6 +55,13 @@ It masks unused high bits in grayscale & RGB transparency keys & discards bytes 
 complete, checksum-valid zlib stream in the final `IDAT` chunk.
 It rejects EXIF orientation that would require transforming the animation.
 
+For GIF, call `passive_image::canonicalize_gif(bytes, declared_mime, limits)` with
+`image/gif` & `GifPreviewLimits`. Render the returned bytes with `CanonicalGif::MIME`.
+Both static & animated files use the same frame & total canvas-pixel limits.
+The preview preserves palettes, background color, frame geometry, interlacing, transparency,
+delays, disposal & looping. It recompresses indexed pixels, drops source comments & application
+metadata except loop count, & rejects plain-text graphics.
+
 ### Reading
 
 | Format | Content | Renderings |

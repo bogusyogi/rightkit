@@ -12,8 +12,10 @@ use zune_core::{bytestream::ZCursor, colorspace::ColorSpace, options::DecoderOpt
 use zune_jpeg::JpegDecoder;
 
 mod apng;
+mod gif;
 
 pub use apng::{canonicalize_apng, ApngPreviewLimits, CanonicalApng};
+pub use gif::{canonicalize_gif, CanonicalGif, GifPreviewLimits};
 
 const PNG_SIGNATURE: &[u8] = b"\x89PNG\r\n\x1a\n";
 const PNG_END: &[u8] = b"\0\0\0\0IEND\xaeB\x60\x82";
@@ -58,13 +60,13 @@ pub enum PassiveImageError {
     CanvasLimit,
     #[error("passive image exceeds the working byte budget")]
     WorkingLimit,
-    #[error("canonical PNG exceeds the output byte limit")]
+    #[error("canonical image exceeds the output byte limit")]
     OutputLimit,
     #[error("animated or multi-picture images are unsupported")]
     MultipleImages,
     #[error("malformed or unsupported passive image")]
     Malformed,
-    #[error("failed to encode canonical PNG")]
+    #[error("failed to encode canonical image")]
     Encoding,
 }
 
@@ -924,7 +926,7 @@ impl Write for BoundedOutput {
         let length = self.bytes.len().checked_add(data.len());
         let Some(length) = length.filter(|&length| length <= self.cap) else {
             self.exhausted = true;
-            return Err(io::Error::other("canonical PNG byte limit"));
+            return Err(io::Error::other("canonical image byte limit"));
         };
         if length > self.bytes.capacity() {
             let capacity = self
