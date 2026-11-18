@@ -328,9 +328,10 @@ mod platform {
         };
         let mut requirements = signers.iter().filter_map(|s| match s {
             SigningIdentity::MacTeamId(team) => Some(mac_requirement(team)),
-            SigningIdentity::MacDeveloperId { team_id, identifier } => {
-                Some(mac_developer_id_requirement(team_id, identifier))
-            }
+            SigningIdentity::MacDeveloperId {
+                team_id,
+                identifier,
+            } => Some(mac_developer_id_requirement(team_id, identifier)),
             _ => None,
         });
         let Some(first) = requirements.next() else {
@@ -350,7 +351,10 @@ mod platform {
 
     /// `SecCodeCopyGuestWithAttributes(kSecGuestAttributeAudit)` then `SecCodeCheckValidity`
     /// against the configured requirement.
-    fn verify_audit_token(token: &[u32; 8], requirement: Option<&str>) -> Result<(), SignatureError> {
+    fn verify_audit_token(
+        token: &[u32; 8],
+        requirement: Option<&str>,
+    ) -> Result<(), SignatureError> {
         let Some(text) = requirement else {
             return Err(SignatureError::Unverifiable(
                 "the configured macOS signing identity is malformed".into(),
@@ -434,10 +438,9 @@ mod platform {
         WTHelperGetProvCertFromChain, WTHelperGetProvSignerFromChain,
         WTHelperProvDataFromStateData, WinVerifyTrust, CRYPT_PROVIDER_SGNR,
         WINTRUST_ACTION_GENERIC_VERIFY_V2, WINTRUST_DATA, WINTRUST_DATA_0, WINTRUST_FILE_INFO,
-        WINTRUST_SIGNATURE_SETTINGS, WSS_VERIFY_SPECIFIC,
-        WTD_CACHE_ONLY_URL_RETRIEVAL, WTD_CHOICE_FILE, WTD_REVOCATION_CHECK_CHAIN_EXCLUDE_ROOT,
-        WTD_REVOKE_NONE, WTD_REVOKE_WHOLECHAIN, WTD_STATEACTION_CLOSE, WTD_STATEACTION_VERIFY,
-        WTD_UI_NONE,
+        WINTRUST_SIGNATURE_SETTINGS, WSS_VERIFY_SPECIFIC, WTD_CACHE_ONLY_URL_RETRIEVAL,
+        WTD_CHOICE_FILE, WTD_REVOCATION_CHECK_CHAIN_EXCLUDE_ROOT, WTD_REVOKE_NONE,
+        WTD_REVOKE_WHOLECHAIN, WTD_STATEACTION_CLOSE, WTD_STATEACTION_VERIFY, WTD_UI_NONE,
     };
 
     pub(super) fn check(
@@ -530,9 +533,10 @@ mod platform {
             let outcome = if publisher.is_some()
                 && matches!(
                     status,
-                    CERT_E_REVOCATION_FAILURE | CRYPT_E_NO_REVOCATION_CHECK | CRYPT_E_REVOCATION_OFFLINE
-                )
-            {
+                    CERT_E_REVOCATION_FAILURE
+                        | CRYPT_E_NO_REVOCATION_CHECK
+                        | CRYPT_E_REVOCATION_OFFLINE
+                ) {
                 Err(SignatureError::Unverifiable(format!(
                     "WinVerifyTrust revocation status 0x{:08X}",
                     status as u32
@@ -649,13 +653,15 @@ mod platform {
             return false;
         }
         let revocation_failed = (0..3).any(|index| {
-            (*chain.rgpElement.add(index)).as_ref().is_none_or(|element| {
-                element.TrustStatus.dwErrorStatus & REVOCATION_ERROR != 0
-                    || element
-                        .pRevocationInfo
-                        .as_ref()
-                        .is_none_or(|info| info.dwRevocationResult != 0)
-            })
+            (*chain.rgpElement.add(index))
+                .as_ref()
+                .is_none_or(|element| {
+                    element.TrustStatus.dwErrorStatus & REVOCATION_ERROR != 0
+                        || element
+                            .pRevocationInfo
+                            .as_ref()
+                            .is_none_or(|info| info.dwRevocationResult != 0)
+                })
         });
         if revocation_failed {
             return false;
@@ -697,10 +703,7 @@ mod platform {
 
     unsafe fn publisher_ekus_match(cert: *const CERT_CONTEXT, identity: &str) -> bool {
         const CODE_SIGNING: &[u8] = b"1.3.6.1.5.5.7.3.3";
-        if identity.is_empty()
-            || identity.as_bytes() == CODE_SIGNING
-            || identity == "2.5.29.37.0"
-        {
+        if identity.is_empty() || identity.as_bytes() == CODE_SIGNING || identity == "2.5.29.37.0" {
             return false;
         }
         let flags = CERT_FIND_EXT_ONLY_ENHKEY_USAGE_FLAG;

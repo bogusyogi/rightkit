@@ -27,12 +27,12 @@ use windows::{
         System::Threading::{
             CreateProcessW, DeleteProcThreadAttributeList, GetExitCodeProcess,
             InitializeProcThreadAttributeList, QueryFullProcessImageNameW, ResumeThread,
-            TerminateProcess,
-            UpdateProcThreadAttribute, WaitForSingleObject, CREATE_BREAKAWAY_FROM_JOB,
-            CREATE_NEW_CONSOLE, CREATE_NO_WINDOW, CREATE_SUSPENDED, CREATE_UNICODE_ENVIRONMENT,
-            EXTENDED_STARTUPINFO_PRESENT, LPPROC_THREAD_ATTRIBUTE_LIST, PROCESS_CREATION_FLAGS,
-            PROCESS_INFORMATION, PROCESS_NAME_NATIVE, PROC_THREAD_ATTRIBUTE_HANDLE_LIST,
-            PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE, STARTF_USESTDHANDLES, STARTUPINFOEXW,
+            TerminateProcess, UpdateProcThreadAttribute, WaitForSingleObject,
+            CREATE_BREAKAWAY_FROM_JOB, CREATE_NEW_CONSOLE, CREATE_NO_WINDOW, CREATE_SUSPENDED,
+            CREATE_UNICODE_ENVIRONMENT, EXTENDED_STARTUPINFO_PRESENT, LPPROC_THREAD_ATTRIBUTE_LIST,
+            PROCESS_CREATION_FLAGS, PROCESS_INFORMATION, PROCESS_NAME_NATIVE,
+            PROC_THREAD_ATTRIBUTE_HANDLE_LIST, PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE,
+            STARTF_USESTDHANDLES, STARTUPINFOEXW,
         },
     },
 };
@@ -127,7 +127,9 @@ impl WindowsChild {
             )
         }
         .map_err(os_error)?;
-        Ok(PathBuf::from(OsString::from_wide(&buffer[..length as usize])))
+        Ok(PathBuf::from(OsString::from_wide(
+            &buffer[..length as usize],
+        )))
     }
 
     pub fn try_wait(&mut self) -> io::Result<Option<ExitStatus>> {

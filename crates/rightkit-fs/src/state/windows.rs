@@ -211,7 +211,10 @@ impl PinnedExecutable {
         let Some(Component::Normal(leaf)) = parts.next_back() else {
             return Err(bad_name());
         };
-        if !path.as_os_str().as_encoded_bytes().ends_with(leaf.as_encoded_bytes())
+        if !path
+            .as_os_str()
+            .as_encoded_bytes()
+            .ends_with(leaf.as_encoded_bytes())
             || !Path::new(leaf)
                 .extension()
                 .is_some_and(|ext| ext.eq_ignore_ascii_case("exe"))
@@ -261,8 +264,8 @@ impl PinnedExecutable {
         ancestors.push(current);
 
         const VOLUME_NAME_NT: u32 = 2;
-        let dos_path = crate::handle::final_path_verbatim(&file)
-            .map_err(|error| FsError::io(path, error))?;
+        let dos_path =
+            crate::handle::final_path_verbatim(&file).map_err(|error| FsError::io(path, error))?;
         let native_path = crate::handle::windows_final_path(&file, VOLUME_NAME_NT)
             .map_err(|error| FsError::io(path, error))?;
         Ok(Self {

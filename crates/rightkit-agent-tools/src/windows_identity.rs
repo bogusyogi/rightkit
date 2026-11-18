@@ -102,7 +102,10 @@ struct HeldFileReader<'a> {
 #[cfg(windows)]
 impl object::read::ReadCacheOps for HeldFileReader<'_> {
     fn len(&mut self) -> Result<u64, ()> {
-        self.file.metadata().map(|metadata| metadata.len()).map_err(|_| ())
+        self.file
+            .metadata()
+            .map(|metadata| metadata.len())
+            .map_err(|_| ())
     }
 
     fn seek(&mut self, offset: u64) -> Result<u64, ()> {
@@ -140,7 +143,8 @@ fn cli_identity_section<'data, R: object::read::ReadRef<'data>>(data: R) -> Opti
 
     let dos = pe::ImageDosHeader::parse(data).ok()?;
     let mut section_table_offset = u64::from(dos.nt_headers_offset());
-    if !(std::mem::size_of::<pe::ImageDosHeader>() as u64..=1_048_576).contains(&section_table_offset)
+    if !(std::mem::size_of::<pe::ImageDosHeader>() as u64..=1_048_576)
+        .contains(&section_table_offset)
     {
         return None;
     }
@@ -258,8 +262,16 @@ mod tests {
             .unwrap()
             .to_vec();
         section.resize(512, 0);
-        assert!(matches_windows_cli_identity(&section, product, WindowsCliRole::Command));
-        assert!(!matches_windows_cli_identity(&section, product, WindowsCliRole::Resident));
+        assert!(matches_windows_cli_identity(
+            &section,
+            product,
+            WindowsCliRole::Command
+        ));
+        assert!(!matches_windows_cli_identity(
+            &section,
+            product,
+            WindowsCliRole::Resident
+        ));
         assert!(!matches_windows_cli_identity(
             &section,
             "app.example.other",
@@ -271,10 +283,18 @@ mod tests {
             WindowsCliRole::Command,
         ));
         section[5] = 2;
-        assert!(!matches_windows_cli_identity(&section, product, WindowsCliRole::Command));
+        assert!(!matches_windows_cli_identity(
+            &section,
+            product,
+            WindowsCliRole::Command
+        ));
         section[5] = 1;
         section[129] = 1;
-        assert!(!matches_windows_cli_identity(&section, product, WindowsCliRole::Command));
+        assert!(!matches_windows_cli_identity(
+            &section,
+            product,
+            WindowsCliRole::Command
+        ));
         assert!(windows_cli_identity("bad/product", WindowsCliRole::Command).is_none());
     }
 }
