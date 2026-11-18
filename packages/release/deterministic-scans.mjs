@@ -826,8 +826,8 @@ export function explainKeyChange(before, after) {
   };
 }
 /** NN41: the compile scans whose failure can be deterministic: check, clippy and doc rows (single or batched, native or cross). Test runs are never among them. */
-/** A Rust test row (`test:rust:...`, `test:rust-serial:...`). */
-export const isRustTestRowId = (id) => /^test:rust(?:-serial)?:/.test(String(id));
+/** A Rust test row (`test:rust:...`, `test:rust-serial:...`) or a batched Rust test group (`test:batch:...`, S17 2026-11-18: the group is the row that runs). */
+export const isRustTestRowId = (id) => /^test:(?:rust(?:-serial)?|batch):/.test(String(id));
 /**
  * NN41 for a test row: its failure is stored only when the test build did not compile (cargo's "could not compile"), which is as deterministic as a
  * failed clippy row; a failing or flaky TEST is never stored, and is run again (witness fixture S17, 2026-11-17: test rows of crates with a real

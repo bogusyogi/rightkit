@@ -27,3 +27,12 @@ test("NN12: Windows pnpm is named by the shim and the program it starts", () => 
   assert.equal(windowsPnpmIdentity(env, files({ [`${bin}\\pnpm.cmd`]: shim, [exe]: "#!/bin/sh" })), null);
   assert.equal(windowsPnpmIdentity({ Path: "relative" }, files({ "relative\\pnpm.cmd": shim })), null);
 });
+
+test("NN12: with no HOME and pnpm's userconfig undefined, Windows takes ~/.npmrc from USERPROFILE (the Dell gate's environment)", async () => {
+  const { pnpmConfigIdentity } = await import("./snapshot-dependency-reuse.mjs");
+  const answers = { "list --json": "{}", "get userconfig": "undefined", "get globalconfig": process.platform === "win32" ? "C:\\nowhere\\pnpm\\config.yaml" : "/nowhere/pnpm/config.yaml" };
+  const spawn = (_cmd, args) => ({ status: 0, stdout: answers[args.slice(1).join(" ")] ?? "" });
+  const env = process.platform === "win32" ? { USERPROFILE: "C:\\nowhere\\home" } : { HOME: "/nowhere/home" };
+  assert.equal(typeof pnpmConfigIdentity({ dir: ".", env, spawn }), "string");
+  assert.throws(() => pnpmConfigIdentity({ dir: ".", env: {}, spawn }), /config-path-unknown/);
+});

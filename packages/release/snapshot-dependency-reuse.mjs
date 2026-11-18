@@ -179,7 +179,7 @@ export function canonicalConfigFingerprint(effective, files) {
   return hash(JSON.stringify({ effective: canonical(effective), files }));
 }
 
-function pnpmConfigIdentity({ dir, env, spawn }) {
+export function pnpmConfigIdentity({ dir, env, spawn }) {
   const fail = (code) => { const e = new Error(code); e.reuseCode = code; throw e; };
   const ask = (args) => {
     const r = spawn('pnpm', ['config', ...args], { cwd: dir, env, maxBuffer: 1 << 24 });
@@ -192,7 +192,9 @@ function pnpmConfigIdentity({ dir, env, spawn }) {
   try { parsed = JSON.parse(effective); } catch { fail('config-json-invalid'); }
   const user = ask(['get', 'userconfig']);
   const global = ask(['get', 'globalconfig']);
-  const userPath = user && user !== 'undefined' && user !== 'null' ? user : (env.HOME ? path.join(env.HOME, '.npmrc') : null);
+  // pnpm's default userconfig is ~/.npmrc, home being USERPROFILE on Windows (os.homedir): the Dell gate runs with no HOME (NN12, 2026-11-18: config-path-unknown).
+  const home = process.platform === 'win32' ? (env.USERPROFILE ?? env.HOME) : env.HOME;
+  const userPath = user && user !== 'undefined' && user !== 'null' ? user : (home ? path.join(home, '.npmrc') : null);
   if (!userPath || !path.isAbsolute(userPath) || !global || global === 'undefined' || global === 'null' || !path.isAbsolute(global)) fail('config-path-unknown');
   const file = (p) => {
     try { return [p, fs.realpathSync(p), hash(fs.readFileSync(p))]; }
