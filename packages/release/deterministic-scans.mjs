@@ -27,7 +27,7 @@ import { spawn as spawnChild, spawnSync } from "./background-process.mjs";
 import { checkAdvisoryExceptions } from "./advisory-exceptions.mjs";
 import { crateRunsOn, crossCompileEnv, oneOutput, scopedCrossTargets } from "./cross-targets.mjs";
 import { declaredFeatureNames, effectiveCrateFeatures, featureCoverageProblems } from "./feature-coverage.mjs";
-import { CLIPPY_UNIVERSAL_FEATURE_FLAGS, canonicalJson, clippyBatchPlan, clippySelectionOf, digestScanSet, requiredScanIds, rustCoverageSets, rustCratePlan, rustScanId } from "./scan-digest.mjs";
+import { CLIPPY_UNIVERSAL_FEATURE_FLAGS, allFeaturesCheckIsRedundant, canonicalJson, clippyBatchPlan, clippySelectionOf, digestScanSet, requiredScanIds, rustCoverageSets, rustCratePlan, rustScanId } from "./scan-digest.mjs";
 import { unlintedFeatures } from "./feature-sets.mjs";
 import { reach } from "./lock-graph.mjs";
 import { cargoManifestState } from "./cargo-manifest-text.mjs";
@@ -175,7 +175,7 @@ const sha256 = (value) => crypto.createHash("sha256").update(value).digest("hex"
 
 // canonicalJson and digestScanSet live in the dependency-free scan-digest.mjs, so credentialed CI code that verifies
 // scan receipts never loads this scanner.
-export { canonicalJson, digestScanSet, requiredScanIds };
+export { canonicalJson, digestScanSet, requiredScanIds, allFeaturesCheckIsRedundant };
 
 // ---- gate result cache --------------------------------------------------------------------------------
 // A passing class B scan is reused on a later run only when every input is identical: the key is the sha256 of the
@@ -1811,7 +1811,8 @@ export function planScans({
     // all be on together (rightkit-db sqlcipher vs sqlcipher-system; qa-driver wv2 generations).
     const own = featuresOf(name);
     const crate = crateOf(name);
-    const { lintSets, baseSets, crossSets, defaultCheck, checkSets, none } = rustCratePlan(own, platform, crate);
+    const declared = (() => { const t = manifestTextOf(name); return typeof t === "string" ? declaredFeatureNames(t) : null; })();
+    const { lintSets, baseSets, crossSets, defaultCheck, checkSets, none } = rustCratePlan(own, platform, crate, declared);
     // Every feature the crate declares must be enabled by one of the sets of ANY host (the feature-coverage scan below, rightkit#1231): a host-scoped set
     // is linted on the host whose plan has it. `unlintedFeatures` names the features the gate never lints, each with its reason.
     const unlinted = unlintedFeatures(own, crate);

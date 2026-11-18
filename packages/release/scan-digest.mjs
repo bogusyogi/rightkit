@@ -52,12 +52,35 @@ export const rustScanId = Object.freeze({
  * (feature-sets.mjs) is absent from every list; `none` is true when the crate declares sets and none of them is planned on this host.
  * `platform` may be left out only for a crate with no host-scoped set. Pure.
  */
-export function rustCratePlan(own = {}, platform = undefined, crate = "<crate>") {
+/**
+ * NN27: whether a planned `check` feature set compiles a configuration a clippy set of the same crate already compiles. Only the default
+ * `--all-features` check is judged (a set the crate's config names in checkFeatureSets is kept as written): it is redundant when some lint set turns
+ * on every feature the crate declares (no features at all, or all of them named). `declared`: the crate's declared feature names, or null when its
+ * manifest cannot be read (then nothing is dropped).
+ */
+export function allFeaturesCheckIsRedundant({ set, declared, lintSets, explicit = false }) {
+  if (explicit || !Array.isArray(declared) || !(set.length === 1 && set[0] === "--all-features")) return false;
+  const enabledBy = (l) => {
+    if (l.includes("--all-features")) return null;
+    const on = new Set();
+    for (let i = 0; i < l.length; i += 1) {
+      const v = l[i] === "--features" || l[i] === "-F" ? l[i + 1] : l[i].startsWith("--features=") ? l[i].slice(11) : null;
+      if (v) for (const f of v.split(/[\s,]+/).filter(Boolean)) on.add(f);
+    }
+    return on;
+  };
+  return lintSets.some((l) => { const on = enabledBy(l); return on !== null && declared.every((f) => on.has(f)); });
+}
+
+// `declaredFeatures`: the crate's declared Cargo feature names when the caller can read its manifest (the planner and requiredScanIds both pass them,
+// so the rows planned and the rows required agree); without them no check set is dropped.
+export function rustCratePlan(own = {}, platform = undefined, crate = "<crate>", declaredFeatures = null) {
   const configured = Array.isArray(own?.featureSets) && own.featureSets.length > 0;
   const declaredSets = configured ? hostFeatureSets(own, platform, "featureSets", crate) : [[]];
   const crossSets = configured ? crossFeatureSets(own, platform, "featureSets", crate) : declaredSets;
   const checkList = Array.isArray(own?.checkFeatureSets) ? hostFeatureSets(own, platform, "checkFeatureSets", crate) : null;
-  return planFrom(own, { configured, declaredSets, crossSets, checkList, crate });
+  const plan = planFrom(own, { configured, declaredSets, crossSets, checkList, crate });
+  return { ...plan, checkSets: plan.checkSets.filter((set) => !allFeaturesCheckIsRedundant({ set, declared: declaredFeatures, lintSets: plan.lintSets, explicit: checkList !== null })) };
 }
 
 /**
@@ -153,7 +176,8 @@ export const REQUIRED_SCAN_PREFIXES = Object.freeze(["rustfmt:"]);
  * `crateFeatures` is ci/gate.config.json `rust`. `includeTests` adds the per-feature-set test scans. Extra scans in a record are
  * allowed; a missing one is not. planScans builds its ids from the same helpers, and a test holds the two in agreement.
  */
-export function requiredScanIds({ units, crateFeatures = {}, platform = undefined, exists, includeTests = false, perCrateWorkspaces = undefined, clippyBatching = false, shardSolo = [], clippySeparate = new Map(), sidecarBound = new Set() }) {
+// `declaredFeaturesOf(name)`: the crate's declared Cargo feature names (rustCratePlan), so the required rows match the planned ones.
+export function requiredScanIds({ units, crateFeatures = {}, platform = undefined, exists, declaredFeaturesOf = () => null, includeTests = false, perCrateWorkspaces = undefined, clippyBatching = false, shardSolo = [], clippySeparate = new Map(), sidecarBound = new Set() }) {
   if (!Array.isArray(units) || units.length === 0 || !units.every((n) => typeof n === "string" && n)) throw new TypeError("requiredScanIds: units must be a non-empty array of names");
   if (typeof exists !== "function") throw new TypeError("requiredScanIds: exists(repoPath) is required");
   // One Cargo workspace and lock per crate (rightkit#1285): every unit has its own crates/<name>/Cargo.lock, so the per-workspace scans
@@ -168,7 +192,7 @@ export function requiredScanIds({ units, crateFeatures = {}, platform = undefine
   for (const name of units) {
     const own = crateFeatures?.[name] ?? {};
     // `platform`: the host that produced the record; a crate with host-scoped feature sets (feature-sets.mjs) owes that host's sets only.
-    const { lintSets, baseSets, defaultCheck, checkSets, none } = rustCratePlan(own, platform, name);
+    const { lintSets, baseSets, defaultCheck, checkSets, none } = rustCratePlan(own, platform, name, declaredFeaturesOf(name));
     if (perCrate) {
       for (const id of ["cargo-metadata", "cargo-deny", "cargo-audit"]) ids.add(`${id}:${name}`);
       if (exists(`crates/${name}/.rightkit/advisory-exceptions.json`)) ids.add(`advisory-exceptions:${name}`);

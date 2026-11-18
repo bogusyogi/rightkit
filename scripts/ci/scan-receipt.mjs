@@ -7,7 +7,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { digestScanSet, requiredScanIds, requiredScanProblems } from "../../packages/release/scan-digest.mjs";
-import { effectiveCrateFeatures } from "../../packages/release/feature-coverage.mjs";
+import { declaredFeatureNames, effectiveCrateFeatures } from "../../packages/release/feature-coverage.mjs";
 import { LOCAL_HOST_OS, LOCAL_SCAN_CLASSES, LOCAL_SCAN_SCHEMA, localScanShapeProblems } from "./upload.mjs";
 import { owningWorkspace } from "./crate-scan-workspaces.mjs";
 
@@ -252,7 +252,7 @@ export function localRequiredScanIds({ units, readText, platform = undefined }) 
   // The same generated lint plan the gate's planner uses (rightkit#1231): a crate with no declared featureSets and Cargo features is linted with --all-features too.
   const manifestOf = (name) => { try { return readText(`crates/${name}/Cargo.toml`); } catch { return null; } };
   // `platform`: the host that produced the record (a host-scoped feature set, ci/gate.config.json featureSets hosts, is required only from the hosts it names).
-  return requiredScanIds({ units, crateFeatures: effectiveCrateFeatures({ crateFeatures, units, manifestOf }), platform, exists });
+  return requiredScanIds({ units, crateFeatures: effectiveCrateFeatures({ crateFeatures, units, manifestOf }), platform, exists, declaredFeaturesOf: (name) => { let t = null; try { t = manifestOf(name); } catch { t = null; } return typeof t === "string" ? declaredFeatureNames(t) : null; } });
 }
 
 /** Throws unless the record shows a complete, passed local scan of exactly this source commit, lockfile and unit set,
