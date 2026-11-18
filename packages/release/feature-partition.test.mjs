@@ -24,6 +24,9 @@ test("a row's inherited environment is keyed on what its tool reads (rightkit#15
   // absent, present or different, the key is the same for every tool and for the union filter; a compiler variable beside it still moves the key.
   for (const tool of ["rustright", "cargo", "pnpm", "node", null]) {
     const without = inheritedEnvDigest(base, tool);
+    for (const label of ["dell-probe-first-cancel", "dell-probe-second-cancel"]) {
+      assert.equal(inheritedEnvDigest({ ...base, RUSTRIGHT_GATE_RUN: label }, tool), without, `${tool}: broker correlation label`);
+    }
     assert.equal(inheritedEnvDigest({ ...base, RUSTRIGHT_BUILD_BROKER_SOCKET: "/Users/a/Library/Application Support/RightKit/build-control/broker.sock" }, tool), without, `${tool}: socket present`);
     assert.equal(inheritedEnvDigest({ ...base, RUSTRIGHT_BUILD_BROKER_SOCKET: "/elsewhere/broker.sock" }, tool), without, `${tool}: socket moved`);
     assert.notEqual(inheritedEnvDigest({ ...base, RUSTRIGHT_BUILD_BROKER_SOCKET: "/elsewhere/broker.sock", RUSTFLAGS: "-C target-cpu=native" }, tool), without, `${tool}: compiler flag still keys`);

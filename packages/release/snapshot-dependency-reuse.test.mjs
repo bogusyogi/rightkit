@@ -27,6 +27,8 @@ test('preparation inputs ignore only per-run ownership and approved scheduling c
   const input = { source: 'tree', toolchain: 'tool', config: 'config', store: 'store', env: { RIGHTKIT_BUILD_OWNERSHIP: 'first', RIGHTKIT_BUILD_OWNERSHIP_FILE: '/owned', NODE_OPTIONS: 'same', RK_GATE_JOBS: '4' } };
   const fingerprint = (env) => preparationInputComponents({ ...input, env });
   const before = fingerprint(input.env);
+  assert.deepEqual(fingerprint({ ...input.env, RUSTRIGHT_GATE_RUN: 'dell-probe-first-cancel' }), before);
+  assert.deepEqual(fingerprint({ ...input.env, RUSTRIGHT_GATE_RUN: 'dell-probe-second-cancel' }), before);
   assert.deepEqual(fingerprint({ ...input.env, RIGHTKIT_BUILD_OWNERSHIP: 'second', RK_GATE_JOBS: '8' }), before);
   assert.notEqual(fingerprint({ ...input.env, NODE_OPTIONS: 'changed' }).environment, before.environment);
   assert.notEqual(fingerprint({ ...input.env, RIGHTKIT_BUILD_OWNERSHIP_FILE: '/other' }).environment, before.environment);

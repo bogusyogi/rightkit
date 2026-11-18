@@ -7,7 +7,7 @@ import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { installIdentity } from './dependency-identity.mjs';
 
-const PER_RUN_BOOKKEEPING = /^(?:RK_GATE_|RIGHTKIT_BUILD_OWNERSHIP$|RUSTRIGHT_QUIET_LEASE$|RIGHTKIT_CARRIED_CARGO_MAP$|RUSTRIGHT_ATTEST_NONCE$|RUSTRIGHT_RECEIPT_NONCE$|RUSTRIGHT_REQUEST_ID_FILE$|RUSTRIGHT_SNAPSHOT_REQUEST$|RK_DIRECT_RECEIPT$)/;
+const PER_RUN_BOOKKEEPING = /^(?:RK_GATE_|RIGHTKIT_BUILD_OWNERSHIP$|RUSTRIGHT_GATE_RUN$|RUSTRIGHT_QUIET_LEASE$|RIGHTKIT_CARRIED_CARGO_MAP$|RUSTRIGHT_ATTEST_NONCE$|RUSTRIGHT_RECEIPT_NONCE$|RUSTRIGHT_REQUEST_ID_FILE$|RUSTRIGHT_SNAPSHOT_REQUEST$|RK_DIRECT_RECEIPT$)/;
 
 const hash = (bytes) => crypto.createHash('sha256').update(bytes).digest('hex');
 const inside = (p, dir) => p === dir || p.startsWith(dir + path.sep);
