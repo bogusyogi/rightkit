@@ -1,5 +1,9 @@
 # Dell Class A pilot state
 
+**Reset progress: 3 of 8 steps finished. Next: step 4, Dell cutover. Astra owns coordination.** Step 4 closes when the installed gate & broker pass the probe & a real compile produces the matching receipt & full Class A verdict. [Reset status](../../../rustright/docs/audits/loop-2026-11-10/04-reset-plan-status.md) · [Step 4 acceptance](2026-11-07-gate-broker-reset.md#7-order-of-work).
+
+The historical labels 5a, 5b & 5c identify inventory, expected cache outcomes & implementation evidence. They add zero completed reset steps. Fable verifies observed execution. Muse verifies expected rows. Astra owns implementation & brings Adrian the approval packet.
+
 This file tracks the current work order under [reset steps 4–8](2026-11-07-gate-broker-reset.md) & the [acceptance design](2026-11-18-gate-acceptance-design.md). Codex writes this index. Fable owns the inventory & its evidence verdict. Muse owns the expected outcomes & its verdict. Owners supply their own artifacts. A successor takes the same role only after its chat ID & the artifact hash it received are recorded here.
 
 | Role | Chat ID | State |
