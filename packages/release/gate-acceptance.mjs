@@ -1790,10 +1790,26 @@ export function releaseRefusal(run, want) {
   const out = String(run?.out ?? "");
   return run?.code === 1 && /verify-release REFUSED/.test(out) && want.test(out) && !/ is required: |--sealed needs /.test(out);
 }
-/** NN31: release, upload and trusted-gate install tooling must call `gate-acceptance.mjs --verify-release`. Reads the tooling's own files. */
+/**
+ * NN31: release, upload and trusted-gate install tooling must call the release check (`gate-acceptance.mjs --verify-release`). Reads the tooling's own
+ * files. Two forms count:
+ *   - the command itself, `gate-acceptance.mjs ... --verify-release` (or the reverse order) on one line;
+ *   - the same check in process: a module that imports `verifyReleaseReceipts` from `./gate-acceptance.mjs` (gate-release-admission.mjs, which runs
+ *     where no broker is, so it cannot run the command, which asks this host's broker), counted only through a non-test file that imports that
+ *     module and so puts it on a release path (publish-local-npm.mjs gateReleaseGuard). A module nothing imports counts for nothing.
+ * Loop matrix T1 (2026-11-17): the admission built for G20/G21 was called in the second form, which this check did not recognise.
+ */
 export function releaseToolingCallsVerify(files) {
-  const calling = Object.entries(files).filter(([, text]) => /gate-acceptance(\.mjs)?\b[^\n]*--verify-release|--verify-release[^\n]*gate-acceptance/.test(text)).map(([f]) => f);
-  return { calling };
+  const entries = Object.entries(files);
+  const base = (f) => String(f).replaceAll("\\", "/").split("/").pop();
+  const isTest = (f) => /\.test\.m?js$/.test(base(f));
+  const calling = entries.filter(([, text]) => /gate-acceptance(\.mjs)?\b[^\n]*--verify-release|--verify-release[^\n]*gate-acceptance/.test(text)).map(([f]) => f);
+  const checkers = entries.filter(([f, text]) => !isTest(f) && /import\s*\{[^}]*\bverifyReleaseReceipts\b[^}]*\}\s*from\s*["']\.\/gate-acceptance\.mjs["']/.test(text)).map(([f]) => base(f));
+  for (const name of checkers) {
+    const quoted = new RegExp(`from\\s*["'][^"'\\n]*\\/${name.replace(/[.]/g, "\\.")}["']`);
+    for (const [f, text] of entries) if (!isTest(f) && base(f) !== name && quoted.test(text) && !calling.includes(f)) calling.push(f);
+  }
+  return { calling, inProcess: checkers };
 }
 
 // ---- NN36 / NN37: the lock and the review ----------------------------------------------------------------------------------------------------------
