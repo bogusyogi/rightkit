@@ -40,6 +40,8 @@ Dell step 4 remains open; checkout work proceeds independently. Admission change
 
 ## 5c checkout handoff
 
+**Review revision `ca2f25821024538527331822da50741f74c0a91b` (local, unpushed).** Fable's request was sent through Pulse as `3495d19d-5bca-4d51-befe-3babfb3aec83`. Pulse could not resolve Muse's chat on reply to its original handoff. Muse's work order is recorded here: check the same revision against frozen 5b expectations, supplement & SC-1, & write `5c-muse-verdict.txt` beside the checkout replay. Use installed evidence only for installed behavior.
+
 Astra implemented the snapshot Class A cache decision. Existing stores require matching independent history. A new store records first-use history before app checks create their verdict directory. History advances from verified retained rows after the end-of-stage binding check.
 
 Five file-only checks passed for history & ShellCheck input closure. [Checkout replay](/D:/scratch/loop-review/inventory/5c-checkout-replay.json) compared both sealed 46-row warm reports using the new production comparison function. The injected missing license entry yielded one mismatch. The equal-count swap yielded two, license & secret-scan. All six fixture workspaces produced metadata topology fingerprints. This replay never called the dispatcher.
