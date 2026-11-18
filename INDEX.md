@@ -8,7 +8,7 @@ Version columns: **Source** is the manifest version. **Published** is the latest
 
 Flags: `ok` means source, published and staged agree. `staged, not yet published` is in-flight work. `private` has no registry record by design. `MISMATCH` needs a release decision.
 
-Flagged mismatches: 3.
+Flagged mismatches: 2.
 
 The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `rustright`; its old `rightkit` alias is retired); it is not part of this inventory. `packages/build-control-policy` keeps the agent permission hooks.
 
@@ -289,7 +289,7 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 | `@rightkit/qa` | npm | 0.7.0 | 0.7.0 | 0.7.0 | ok | rightkit-qa-journeys | qa-evidence | Shared QA evidence, ownership, browser helpers, and release-backdoor guards for Right Suite apps. |
 | `@rightkit/qa-chrome` | npm | 0.1.12 | 0.1.12 | 0.1.12 | ok | rightkit-qa-chrome | browser-qa | Zero-dependency Chrome for Testing resolver, launcher and graceful close for Right Suite QA harnesses. |
 | `@rightkit/react-shell` | npm | 0.7.5 | 0.7.4 | 0.7.5 | staged, not yet published |  | app-shell-ui | Brand-neutral React frame for Right Suite desktop apps: optional fused sidebar+titlebar layout with slots, command palette, shortcut registry/help, toasts, modals, context menus, ui kit, theme hooks. |
-| `@rightkit/release` | npm | 0.6.59 | 0.6.57 | 0.6.58 | **MISMATCH staged 0.6.58 != source 0.6.59** | right-release, rightkit-gate, rightkit-linux-setup, rightkit-agent-hook | release-tooling | Portable release CLI/SDK with fail-closed public GitHub Releases and private R2 + RightApps distribution. |
+| `@rightkit/release` | npm | 0.6.59 | 0.6.57 | 0.6.59 | staged, not yet published | right-release, rightkit-gate, rightkit-linux-setup, rightkit-agent-hook | release-tooling | Portable release CLI/SDK with fail-closed public GitHub Releases and private R2 + RightApps distribution. |
 | `@rightkit/send-ui` | npm | 0.1.0 | none recorded | 0.1.0 | staged, never published |  |  | Nearby sharing UI for rightkit-send: devices, incoming requests, transfers and per-device trust, over the crate's JSON command surface. |
 | `@rightkit/settings-ui` | npm | 0.7.3 | 0.7.3 | 0.7.3 | ok |  | settings-ui | Settings panel frame, search and standard sections (appearance, updates, license, legal, diagnostics, models, API keys, about) persisted through rightkit-app-settings. The panel shell and primitives (/core) need only React. |
 | `@rightkit/social-ui` | npm | 0.2.1 | none recorded | 0.2.1 | staged, never published |  | social-ui | Social media management UI: accounts, drafts, approvals and analytics screens with their data layer. |
