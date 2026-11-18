@@ -211,6 +211,9 @@ export function preparationInputComponents({ source, toolchain, config, store, e
   // row cache already excludes as measured per-run (deterministic-scans.mjs BUILD_ENV_EXCLUDED: ownership handle, nonces, request files). NN12,
   // Dell 2026-11-18: every gate launch carries its own RK_GATE_SPAWN_LEDGER and contract step, so no run's key ever matched the last one. Everything
   // else stays keyed, so a variable an install hook might read can never be left out (astra62 review 2: an allowlist modelled pnpm, it did not prove it).
+  // Why RK_GATE_* as a whole is safe to leave out (astra62 review 3): the install runs with --ignore-scripts and --ignore-pnpmfile
+  // (snapshot-check.mjs installSnapshotDependencies), so no code of the repository or its packages runs during it, and pnpm reads its own
+  // npm_config_/pnpm_ variables, never the gate's namespace.
   const environment = Object.entries(env ?? {}).filter(([name]) => !PER_RUN_BOOKKEEPING.test(String(name).toUpperCase())).sort(([a], [b]) => a.localeCompare(b));
   return Object.fromEntries(Object.entries({ source, toolchain, config, store, environment }).map(([name, value]) => [name, hash(JSON.stringify(value))]));
 }

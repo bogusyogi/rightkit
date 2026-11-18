@@ -15,6 +15,11 @@
 //
 // Dependency-free by design (feature-sets.mjs imports nothing): scan-digest.mjs-style callers (the credentialed receipt verifiers) import it.
 import { hasHostScopedSets, unlintedFeatures } from "./feature-sets.mjs";
+import { createRequire } from "node:module";
+// smol-toml loads on first parse (as in cargo-contract.mjs), so a CI job whose closure only imports this module needs no install; when it cannot
+// load, every reader here answers "cannot tell" (null, or every manifest), never fewer checks or manifests.
+let smolTomlParse;
+const parseToml = (text) => (smolTomlParse ??= createRequire(import.meta.url)("smol-toml").parse)(text);
 
 /** The feature table of a Cargo.toml: a Map of feature name to its array of members ("other", "dep:x", "x/feat", "x?/feat"). `default` included. */
 export function manifestFeatures(text) {
@@ -77,59 +82,28 @@ export function manifestFeatures(text) {
 export const declaredFeatureNames = (text) => [...manifestFeatures(text).keys()].filter((name) => name !== "default");
 
 /**
- * A manifest's text with every comment removed (a `#` outside a string, to the end of its line) and quoted bare-word keys unquoted
- * (`"path" =` and `'optional' =` read as `path =` and `optional =`, `"codec".optional` as `codec.optional`), so a key is matched however TOML
- * spells it (astra62 review, 2026-11-18). Strings stay as they are; a multi-line string is not understood, and callers that count what they
- * could not parse fall back to their safe answer.
- */
-export function manifestKeyText(text) {
-  const lines = [];
-  for (const line of String(text ?? "").replace(/^﻿/, "").split(/\r?\n/)) {
-    let kept = ""; let quote = null;
-    for (let i = 0; i < line.length; i += 1) {
-      const ch = line[i];
-      if (quote) {
-        kept += ch;
-        if (quote === '"' && ch === "\\" && i + 1 < line.length) { kept += line[i + 1]; i += 1; } else if (ch === quote) quote = null;
-        continue;
-      }
-      if (ch === "#") break;
-      if (ch === '"' || ch === "'") quote = ch;
-      kept += ch;
-    }
-    lines.push(kept.replace(/(^|[\s{,.\[])(["'])([A-Za-z0-9_-]+)\2(?=\s*[=.\]])/g, "$1$3"));
-  }
-  return lines.join("\n");
-}
-
-/**
  * NN27: every feature `--all-features` turns on for this crate, or null when the manifest cannot tell. That is the declared features plus each
  * optional dependency that is its own implicit feature: Cargo gives an optional dependency a feature of its name unless a feature names it as
- * `dep:<name>` (astra62 review, 2026-11-18: a crate whose only features come from optional dependencies looked featureless, so its
- * `--all-features` check was dropped and those dependencies were never compiled). Comments are ignored and quoted keys read (manifestKeyText);
- * `dep:` references are read from the parsed feature values only. Every `optional = true` must belong to a dependency this reader names, else
- * null, and a null drops no check.
+ * `dep:<name>`. Read from the DECODED manifest (smol-toml), so every TOML spelling (quoted or escaped keys, quoted tables, dotted keys,
+ * multi-line values, comments) means what Cargo reads (astra62 reviews 2 and 3, 2026-11-18: hand-read text missed a quoted `["features"]` table and
+ * a Unicode-escaped `optional` key). A manifest that does not parse, or a feature whose value is not a list, answers null, and a null drops no check.
+ * Dev-dependencies cannot be optional (Cargo refuses it), so they are not read.
  */
 export function allFeatureNamesOf(text) {
-  const src = manifestKeyText(text);
-  const optionalCount = [...src.matchAll(/\boptional\s*=\s*true\b/g)].length;
-  const optional = new Set(); let matched = 0;
-  let section = null;
-  for (const line of src.split("\n")) {
-    const header = /^\s*\[([^\[\]]+)\]\s*$/.exec(line);
-    if (header) { section = header[1].trim(); continue; }
-    const deps = section !== null && /(?:^|\.)(?:dependencies|build-dependencies)$/.test(section);
-    const inline = /^\s*([A-Za-z0-9_-]+)\s*=\s*\{[^}]*\boptional\s*=\s*true\b[^}]*\}\s*$/.exec(line);
-    if (deps && inline) { optional.add(inline[1]); matched += 1; continue; }
-    const table = section !== null ? /(?:^|\.)(?:dependencies|build-dependencies)\.(["']?)([A-Za-z0-9_-]+)\1$/.exec(section) : null;
-    if (table && /^\s*optional\s*=\s*true\b/.test(line)) { optional.add(table[2]); matched += 1; }
+  let doc;
+  try { doc = parseToml(String(text ?? "")); } catch { return null; }
+  const isTable = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
+  const features = doc.features === undefined ? {} : doc.features;
+  if (!isTable(features) || Object.values(features).some((v) => !Array.isArray(v) || v.some((x) => typeof x !== "string"))) return null;
+  const referenced = new Set(Object.values(features).flat().filter((v) => v.startsWith("dep:")).map((v) => v.slice(4)));
+  const tables = [doc.dependencies, doc["build-dependencies"], ...(isTable(doc.target) ? Object.values(doc.target).flatMap((t) => (isTable(t) ? [t.dependencies, t["build-dependencies"]] : [null])) : [])];
+  const optional = new Set();
+  for (const t of tables) {
+    if (t === undefined) continue;
+    if (!isTable(t)) return null;
+    for (const [name, spec] of Object.entries(t)) if (isTable(spec) && spec.optional === true) optional.add(name);
   }
-  // One dependency may be optional in several sections (a target table each): every occurrence must be one this reader named.
-  if (matched !== optionalCount) return null;
-  const features = manifestFeatures(text);
-  const referenced = new Set([...features.values()].flat().filter((v) => typeof v === "string" && v.startsWith("dep:")).map((v) => v.slice(4)));
-  const implicit = [...optional].filter((name) => !referenced.has(name));
-  return [...new Set([...declaredFeatureNames(text), ...implicit])];
+  return [...new Set([...Object.keys(features).filter((n) => n !== "default"), ...[...optional].filter((n) => !referenced.has(n))])];
 }
 
 /** The features one cargo feature-flag set (`--all-features`, `--no-default-features`, `--features a,b`, `--features=a`, `-F a`) enables, closure included. */

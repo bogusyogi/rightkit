@@ -115,7 +115,6 @@ import { installSpawnLedger } from "../spawn-ledger.mjs";
 import { rememberedVersion } from "../tool-version-memo.mjs";
 import { SNAPSHOT_PROOF_COUNTS, snapshotProofLine } from "../snapshot.mjs";
 import { contentStore, installProbeMemo } from "../probe-memo.mjs";
-import { manifestKeyText } from "../feature-coverage.mjs";
 import { setTreeListingStore } from "../snapshot-git.mjs";
 import { processIdentity, snapshotLockBody, verdictFileName } from "../gate-seam.mjs";
 
@@ -855,34 +854,69 @@ const GATE_CONFIG = "ci/gate.config.json";
  * a manifest it cannot read, a `path =` it cannot parse (a multi-line or escaped string), a workspace member outside `dir` (`members` naming
  * `..`), or a Cargo configuration of `dir` or an ancestor that overrides paths (`paths =` in .cargo/config[.toml]) (astra62 review, 2026-11-18).
  */
+// smol-toml loads on first parse (as in cargo-contract.mjs), so a CI job whose closure only imports this module needs no install; when it cannot
+// load, every reader here answers "cannot tell" (null, or every manifest), never fewer checks or manifests.
+let manifestTomlParse;
+const parseManifestToml = (text) => (manifestTomlParse ??= createRequire(import.meta.url)("smol-toml").parse)(text);
 export function cargoManifestsOfWorkspace({ dir, all, readBlob }) {
   const isManifest = (f) => /(^|\/)Cargo\.toml$/.test(f);
   const present = new Set(all.filter(isManifest));
   const every = [...present].sort();
-  const read = (f) => { try { const t = readBlob(f); return typeof t === "string" ? t : null; } catch { return null; } };
+  const isTable = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
+  // Decoded TOML (smol-toml), so every spelling of a key means what Cargo reads (astra62 review 3: a Unicode-escaped "path" key). Null: unreadable or unparsable.
+  const docOf = (f) => { try { const t = readBlob(f); return typeof t === "string" ? parseManifestToml(t) : null; } catch { return null; } };
+  const inRepo = (p) => { const n = path.posix.normalize(p); return n.startsWith("..") ? null : n === "." ? "" : n; };
+  const join = (base, rel) => inRepo(path.posix.join(base === "." ? "" : base, rel));
+  // A Cargo configuration of the workspace or an ancestor that overrides or patches paths: every manifest.
   const dirs = dir === "." ? ["."] : dir.split("/").map((_, i, parts) => parts.slice(0, i + 1).join("/")).concat(".");
   for (const d of dirs) for (const name of [".cargo/config.toml", ".cargo/config"]) {
     const p = d === "." ? name : `${d}/${name}`;
-    if (all.includes(p)) { const t = read(p); if (t === null || /(?:^|[\s{,.])paths\s*=/m.test(manifestKeyText(t))) return every; }
+    if (!all.includes(p)) continue;
+    const doc = docOf(p);
+    if (doc === null || doc.paths !== undefined || doc.patch !== undefined) return every;
   }
-  const under = (f) => dir === "." || f.startsWith(`${dir}/`);
-  const out = new Set([...present].filter(under)); const queue = [...out];
-  while (queue.length) {
-    const m = queue.pop(); const raw = read(m);
-    if (raw === null) return every;
-    // Comments removed and quoted keys read ("path" = ..., y.path = ...), so no spelling of a path key goes unseen (astra62 review, 2026-11-18).
-    const text = manifestKeyText(raw);
-    // A workspace member named outside the workspace directory (members = ["../x"], on one line or several).
-    const members = /^\s*members\s*=\s*\[([^\]]*)\]/m.exec(text);
-    if (members && members[1].includes("..")) return every;
+  const out = new Set([...present].filter((f) => dir === "." || f.startsWith(`${dir}/`))); const queue = [...out];
+  const add = (m) => { if (m !== null && present.has(m) && !out.has(m)) { out.add(m); queue.push(m); } };
+  // The workspace root a member inherits from: `package.workspace`, else the nearest ancestor manifest with a [workspace] table.
+  const rootOf = (m, doc) => {
     const base = path.posix.dirname(m);
-    const declared = [...text.matchAll(/(?:^|[\s{,.])path\s*=/gm)].length;
-    const hits = [...text.matchAll(/(?:^|[\s{,.])path\s*=\s*(?:"([^"\\\n]+)"|'([^'\n]+)')/gm)];
-    if (hits.length !== declared) return every;
-    for (const hit of hits) {
-      const target = path.posix.normalize(path.posix.join(base === "." ? "" : base, hit[1] ?? hit[2], "Cargo.toml"));
-      if (!target.startsWith("..") && present.has(target) && !out.has(target)) { out.add(target); queue.push(target); }
+    if (isTable(doc.workspace)) return m;
+    if (isTable(doc.package) && doc.package.workspace !== undefined) return typeof doc.package.workspace === "string" ? join(base, `${doc.package.workspace}/Cargo.toml`) : undefined;
+    for (let d = base; d !== "." && d !== ""; d = path.posix.dirname(d)) {
+      const up = path.posix.dirname(d) === "." ? "Cargo.toml" : `${path.posix.dirname(d)}/Cargo.toml`;
+      if (!present.has(up)) continue;
+      const parent = docOf(up); if (parent === null) return undefined;
+      if (isTable(parent.workspace)) return up;
     }
+    return null;
+  };
+  while (queue.length) {
+    const m = queue.pop(); const doc = docOf(m);
+    if (doc === null) return every;
+    const base = path.posix.dirname(m);
+    const tables = [doc.dependencies, doc["dev-dependencies"], doc["build-dependencies"], doc.replace,
+      ...(isTable(doc.target) ? Object.values(doc.target).flatMap((t) => (isTable(t) ? [t.dependencies, t["dev-dependencies"], t["build-dependencies"]] : [null])) : []),
+      ...(isTable(doc.workspace) ? [doc.workspace.dependencies] : []),
+      ...(isTable(doc.patch) ? Object.values(doc.patch) : doc.patch === undefined ? [] : [null])];
+    let inherits = false;
+    for (const t of tables) {
+      if (t === undefined) continue;
+      if (!isTable(t)) return every;
+      for (const spec of Object.values(t)) {
+        if (!isTable(spec)) continue;
+        // A backslash is a separator to Cargo on Windows and a file-name character elsewhere: cannot tell which manifest, so every one.
+        if (spec.path !== undefined) { if (typeof spec.path !== "string" || spec.path.includes("\\")) return every; add(join(base, `${spec.path}/Cargo.toml`)); }
+        if (spec.workspace === true) inherits = true;
+      }
+    }
+    // Any `x.workspace = true` (a dependency or a package field) reads the workspace root's manifest: follow it to the root, wherever it is.
+    if (inherits || (isTable(doc.package) && Object.values(doc.package).some((v) => isTable(v) && v.workspace === true))) {
+      const root = rootOf(m, doc);
+      if (root === undefined || root === null) return every;
+      add(root);
+    }
+    // A member named outside the workspace directory: every manifest (members may be globs; only those inside are found by the directory rule).
+    if (isTable(doc.workspace) && Array.isArray(doc.workspace.members) && doc.workspace.members.some((x) => typeof x !== "string" || join(base, x) === null || (dir !== "." && !`${join(base, x)}/`.startsWith(`${dir}/`)))) return every;
   }
   return [...out].sort();
 }

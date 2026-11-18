@@ -20,33 +20,35 @@ test("a workspace's advisory rows read its own manifests and those its path depe
   assert.deepEqual(of("app/src-tauri"), ["app/engine/Cargo.toml", "app/src-tauri/Cargo.toml"], "a path dependency outside the workspace counts");
   assert.deepEqual(of("crates/rightkit-b"), ["crates/rightkit-a/Cargo.toml", "crates/rightkit-b/Cargo.toml"], "a [dependencies.x] table with path = counts too");
   assert.deepEqual(of(".").length, 7, "the root workspace reads every manifest");
-  // A path that leaves the repository, or names no manifest, is ignored.
+  // A path that leaves the repository is ignored; target paths ([lib], [[bin]]) are not dependencies.
   assert.deepEqual(cargoManifestsOfWorkspace({ dir: "x", all: ["x/Cargo.toml"], readBlob: () => "[dependencies]\na = { path = \"../../outside\" }\n" }), ["x/Cargo.toml"]);
-  // Target paths ([lib], [[bin]]) are parsed and name no manifest.
   assert.deepEqual(cargoManifestsOfWorkspace({ dir: "x", all: ["x/Cargo.toml", "y/Cargo.toml"], readBlob: () => "[lib]\npath = \"src/lib.rs\"\n[[bin]]\nname = \"b\"\npath = 'src/main.rs'\n" }), ["x/Cargo.toml"]);
 });
 
-test("NN04: whenever it cannot be sure, a workspace keys on every Cargo.toml of the commit (GC-A19), never fewer (astra62 review 2026-11-18)", () => {
+// Each expectation is what Cargo resolves for that manifest, written from Cargo's rules (and, for astra62's cases, checked by astra62 with Python's tomllib), not from this reader.
+test("NN04: every TOML spelling of a path is followed; inheritance reaches the workspace root; whenever it cannot tell, every Cargo.toml (astra62 reviews 2-3)", () => {
   const all = ["x/Cargo.toml", "y/Cargo.toml", "z/Cargo.toml"];
-  const of = (files, extra = []) => cargoManifestsOfWorkspace({ dir: "x", all: [...all, ...extra], readBlob: (f) => { if (!(f in files)) throw new Error(`ENOENT ${f}`); return files[f]; } });
+  const of = (files, extra = [], dir = "x") => cargoManifestsOfWorkspace({ dir, all: [...all, ...extra], readBlob: (f) => { if (!(f in files)) throw new Error(`ENOENT ${f}`); return files[f]; } });
   const plain = { "y/Cargo.toml": "[package]\n", "z/Cargo.toml": "[package]\n" };
-  // A single-quoted path dependency is followed.
-  assert.deepEqual(of({ ...plain, "x/Cargo.toml": "[dependencies]\ny = { path = '../y' }\n" }), ["x/Cargo.toml", "y/Cargo.toml"]);
-  // astra62 review 2: a quoted path key and a dotted path key are followed; a commented-out path is not counted.
-  assert.deepEqual(of({ ...plain, "x/Cargo.toml": "[dependencies]\ny = { \"path\" = \"../y\" }\n" }), ["x/Cargo.toml", "y/Cargo.toml"]);
-  assert.deepEqual(of({ ...plain, "x/Cargo.toml": "[dependencies]\ny.path = \"../y\"\ny.version = \"1\"\n" }), ["x/Cargo.toml", "y/Cargo.toml"]);
-  assert.deepEqual(of({ ...plain, "x/Cargo.toml": "[dependencies]\n# y = { path = \"../y\" }\n" }), ["x/Cargo.toml"]);
-  // A quoted paths override in a Cargo configuration: every one.
-  assert.deepEqual(of({ ...plain, "x/Cargo.toml": "[package]\n", "x/.cargo/config.toml": "\"paths\" = [\"../y\"]\n" }, ["x/.cargo/config.toml"]), [...all].sort());
-  // An unreadable manifest: every one.
-  assert.deepEqual(of({ ...plain }), all);
-  // A path it cannot parse (escaped or multi-line string): every one.
-  assert.deepEqual(of({ ...plain, "x/Cargo.toml": "[dependencies]\ny = { path = \"..\\\\y\" }\n" }), all);
-  assert.deepEqual(of({ ...plain, "x/Cargo.toml": "[dependencies.y]\npath = \"\"\"\n../y\"\"\"\n" }), all);
-  // A member outside the workspace directory, on one line or several: every one.
-  assert.deepEqual(of({ ...plain, "x/Cargo.toml": "[workspace]\nmembers = [\"../y\"]\n" }), all);
-  assert.deepEqual(of({ ...plain, "x/Cargo.toml": "[workspace]\nmembers = [\n  \"a\",\n  \"../z\",\n]\n" }), all);
-  // A Cargo configuration of the workspace or an ancestor that overrides paths: every one; one without paths changes nothing.
-  assert.deepEqual(of({ ...plain, "x/Cargo.toml": "[package]\n", ".cargo/config.toml": "paths = [\"y\"]\n" }, [".cargo/config.toml"]), [...all].sort());
-  assert.deepEqual(of({ ...plain, "x/Cargo.toml": "[package]\n", "x/.cargo/config.toml": "[build]\njobs = 2\n" }, ["x/.cargo/config.toml"]), ["x/Cargo.toml"]);
+  const xy = ["x/Cargo.toml", "y/Cargo.toml"];
+  assert.deepEqual(of({ ...plain, "x/Cargo.toml": "[dependencies]\ny = { path = '../y' }\n" }), xy, "single quotes");
+  assert.deepEqual(of({ ...plain, "x/Cargo.toml": "[dependencies]\ny = { \"path\" = \"../y\" }\n" }), xy, "quoted key");
+  assert.deepEqual(of({ ...plain, "x/Cargo.toml": "[dependencies]\ny = { \"\\u0070ath\" = \"../y\" }\n" }), xy, "Unicode-escaped key");
+  assert.deepEqual(of({ ...plain, "x/Cargo.toml": "[dependencies]\ny.path = \"../y\"\ny.version = \"1\"\n" }), xy, "dotted key");
+  assert.deepEqual(of({ ...plain, "x/Cargo.toml": "[\"dependencies\".'y']\npath = \"\"\"\n../y\"\"\"\n" }), xy, "quoted table, multi-line string");
+  assert.deepEqual(of({ ...plain, "x/Cargo.toml": "[target.'cfg(windows)'.dependencies]\ny = { path = \"../y\" }\n" }), xy, "target-specific");
+  assert.deepEqual(of({ ...plain, "x/Cargo.toml": "[dependencies]\n# y = { path = \"../y\" }\n" }), ["x/Cargo.toml"], "a comment is not a dependency");
+  // Inheritance: a member's `y.workspace = true` reads the root's [workspace.dependencies], which names y by path.
+  const root = "[workspace]\nmembers = [\"x\"]\n[workspace.dependencies]\ny = { path = \"y\" }\n";
+  assert.deepEqual(cargoManifestsOfWorkspace({ dir: "x", all: ["Cargo.toml", ...all], readBlob: (f) => ({ ...plain, "Cargo.toml": root, "x/Cargo.toml": "[package]\nname = \"x\"\n[dependencies]\ny.workspace = true\n" })[f] }), ["Cargo.toml", "x/Cargo.toml", "y/Cargo.toml"], "inherited sibling dependency");
+  assert.deepEqual(of({ ...plain, "z/Cargo.toml": "[workspace]\n[workspace.dependencies]\ny = { path = \"../y\" }\n", "x/Cargo.toml": "[package]\nworkspace = \"../z\"\nversion.workspace = true\n[dependencies]\ny = { workspace = true }\n" }), ["x/Cargo.toml", "y/Cargo.toml", "z/Cargo.toml"], "package.workspace names the root");
+  // Cannot tell: every one.
+  assert.deepEqual(of({ ...plain }), all, "unreadable");
+  assert.deepEqual(of({ ...plain, "x/Cargo.toml": "[dependencies\ny = 1\n" }), all, "not TOML");
+  assert.deepEqual(of({ ...plain, "x/Cargo.toml": "[dependencies]\ny = { path = \"..\\\\y\" }\n" }), all, "a backslash path");
+  assert.deepEqual(of({ ...plain, "x/Cargo.toml": "[package]\nversion.workspace = true\n" }), all, "inherits from a root it cannot find");
+  assert.deepEqual(of({ ...plain, "x/Cargo.toml": "[workspace]\nmembers = [\n  \"a\",\n  \"../z\",\n]\n" }), all, "a member outside the workspace");
+  assert.deepEqual(of({ ...plain, "x/Cargo.toml": "[package]\n", ".cargo/config.toml": "\"paths\" = [\"y\"]\n" }, [".cargo/config.toml"]), [...all].sort(), "a paths override");
+  assert.deepEqual(of({ ...plain, "x/Cargo.toml": "[package]\n", "x/.cargo/config.toml": "[patch.crates-io]\ny = { path = \"../y\" }\n" }, ["x/.cargo/config.toml"]), [...all].sort(), "a patch in Cargo configuration");
+  assert.deepEqual(of({ ...plain, "x/Cargo.toml": "[package]\n", "x/.cargo/config.toml": "[build]\njobs = 2\n" }, ["x/.cargo/config.toml"]), ["x/Cargo.toml"], "an unrelated configuration changes nothing");
 });
