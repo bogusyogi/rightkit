@@ -180,6 +180,20 @@ pub struct AuthenticodeSigner {
     pub common_name: String,
 }
 
+/// Expected Authenticode publisher whose short-lived leaf certificates rotate.
+/// All values must come from trusted caller policy, independently of the candidate file.
+#[derive(Debug, Clone, Copy)]
+pub struct WindowsPublisherPolicy<'a> {
+    /// Exact signer common name.
+    pub common_name: &'a str,
+    /// Publisher-specific OID in the signed leaf's enhanced key usage extension.
+    pub identity_eku: &'a str,
+    /// SHA-256 of the DER-encoded CA one level below the root.
+    pub parent_ca_sha256: [u8; 32],
+    /// SHA-256 of the DER-encoded trust root.
+    pub root_ca_sha256: [u8; 32],
+}
+
 /// Verify the Authenticode signature of the file at `path` (Windows, `WinVerifyTrust` with no UI
 /// and cached URL retrieval only) and return its signer (rightkit#405). With
 /// `expected_common_name` the signer's common name must equal it exactly. On other platforms
@@ -204,11 +218,39 @@ pub fn verify_held_authenticode(
         let path = rightkit_fs::handle::final_path_verbatim(file).map_err(|error| {
             SignatureError::Unverifiable(format!("cannot resolve held executable: {error}"))
         })?;
-        platform::authenticode_with_handle(&path, expected_common_name, Some(file))
+        platform::authenticode_with_handle(&path, expected_common_name, Some(file), None)
     }
     #[cfg(not(windows))]
     {
         let _ = (file, expected_common_name);
+        Err(SignatureError::Unsupported(
+            "Authenticode is a Windows signature",
+        ))
+    }
+}
+
+/// Verify a write-excluded, open Windows executable against trusted publisher policy.
+/// Require WinVerifyTrust revocation checks and a verified chain matching the explicit pins.
+/// The caller must retain the same file for product identity and launch binding.
+pub fn verify_held_windows_publisher(
+    file: &std::fs::File,
+    policy: &WindowsPublisherPolicy<'_>,
+) -> Result<AuthenticodeSigner, SignatureError> {
+    #[cfg(windows)]
+    {
+        let path = rightkit_fs::handle::final_path_verbatim(file).map_err(|error| {
+            SignatureError::Unverifiable(format!("cannot resolve held executable: {error}"))
+        })?;
+        platform::authenticode_with_handle(
+            &path,
+            Some(policy.common_name),
+            Some(file),
+            Some(policy),
+        )
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (file, policy);
         Err(SignatureError::Unsupported(
             "Authenticode is a Windows signature",
         ))
@@ -367,24 +409,34 @@ mod tests {
 
 #[cfg(windows)]
 mod platform {
-    use super::{signer_matches, AuthenticodeSigner, SignatureError, SigningIdentity};
+    use super::{
+        signer_matches, AuthenticodeSigner, SignatureError, SigningIdentity, WindowsPublisherPolicy,
+    };
     use crate::host_identity::HostProcess;
-    use std::ffi::{c_void, OsString};
+    use std::ffi::{c_void, CStr, OsString};
     use std::fs::File;
     use std::os::windows::ffi::{OsStrExt, OsStringExt};
     use std::os::windows::io::AsRawHandle;
     use std::path::Path;
-    use std::ptr::null_mut;
+    use std::ptr::{null, null_mut};
 
-    use windows_sys::Win32::Foundation::{HANDLE, INVALID_HANDLE_VALUE};
+    use windows_sys::Win32::Foundation::{
+        CERT_E_REVOCATION_FAILURE, CRYPT_E_NO_REVOCATION_CHECK, CRYPT_E_REVOCATION_OFFLINE, HANDLE,
+        INVALID_HANDLE_VALUE,
+    };
     use windows_sys::Win32::Security::Cryptography::{
-        szOID_COMMON_NAME, CertGetNameStringW, CERT_NAME_ATTR_TYPE,
+        szOID_COMMON_NAME, CertGetEnhancedKeyUsage, CertGetNameStringW, CryptHashCertificate2,
+        CERT_CONTEXT, CERT_FIND_EXT_ONLY_ENHKEY_USAGE_FLAG, CERT_NAME_ATTR_TYPE,
+        CERT_TRUST_IS_OFFLINE_REVOCATION, CERT_TRUST_IS_REVOKED,
+        CERT_TRUST_REVOCATION_STATUS_UNKNOWN, CTL_USAGE,
     };
     use windows_sys::Win32::Security::WinTrust::{
         WTHelperGetProvCertFromChain, WTHelperGetProvSignerFromChain,
-        WTHelperProvDataFromStateData, WinVerifyTrust, WINTRUST_ACTION_GENERIC_VERIFY_V2,
-        WINTRUST_DATA, WINTRUST_DATA_0, WINTRUST_FILE_INFO, WTD_CACHE_ONLY_URL_RETRIEVAL,
-        WTD_CHOICE_FILE, WTD_REVOKE_NONE, WTD_STATEACTION_CLOSE, WTD_STATEACTION_VERIFY,
+        WTHelperProvDataFromStateData, WinVerifyTrust, CRYPT_PROVIDER_SGNR,
+        WINTRUST_ACTION_GENERIC_VERIFY_V2, WINTRUST_DATA, WINTRUST_DATA_0, WINTRUST_FILE_INFO,
+        WINTRUST_SIGNATURE_SETTINGS, WSS_VERIFY_SPECIFIC,
+        WTD_CACHE_ONLY_URL_RETRIEVAL, WTD_CHOICE_FILE, WTD_REVOCATION_CHECK_CHAIN_EXCLUDE_ROOT,
+        WTD_REVOKE_NONE, WTD_REVOKE_WHOLECHAIN, WTD_STATEACTION_CLOSE, WTD_STATEACTION_VERIFY,
         WTD_UI_NONE,
     };
 
@@ -419,13 +471,14 @@ mod platform {
         path: &Path,
         expected: Option<&str>,
     ) -> Result<AuthenticodeSigner, SignatureError> {
-        authenticode_with_handle(path, expected, None)
+        authenticode_with_handle(path, expected, None, None)
     }
 
     pub(super) fn authenticode_with_handle(
         path: &Path,
         expected: Option<&str>,
         held: Option<&File>,
+        publisher: Option<&WindowsPublisherPolicy<'_>>,
     ) -> Result<AuthenticodeSigner, SignatureError> {
         let wide: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
         // SAFETY: structures are zero-initialised then filled; every pointer outlives the
@@ -438,14 +491,34 @@ mod platform {
                 hFile: held.map_or(null_mut(), File::as_raw_handle),
                 ..Default::default()
             };
+            let mut signature = WINTRUST_SIGNATURE_SETTINGS {
+                cbStruct: std::mem::size_of::<WINTRUST_SIGNATURE_SETTINGS>() as u32,
+                dwIndex: 0,
+                dwFlags: WSS_VERIFY_SPECIFIC,
+                dwVerifiedSigIndex: u32::MAX,
+                ..Default::default()
+            };
             let mut data = WINTRUST_DATA {
                 cbStruct: std::mem::size_of::<WINTRUST_DATA>() as u32,
                 dwUIChoice: WTD_UI_NONE,
-                fdwRevocationChecks: WTD_REVOKE_NONE,
+                fdwRevocationChecks: if publisher.is_some() {
+                    WTD_REVOKE_WHOLECHAIN
+                } else {
+                    WTD_REVOKE_NONE
+                },
                 dwUnionChoice: WTD_CHOICE_FILE,
                 Anonymous: WINTRUST_DATA_0 { pFile: &mut file },
                 dwStateAction: WTD_STATEACTION_VERIFY,
-                dwProvFlags: WTD_CACHE_ONLY_URL_RETRIEVAL,
+                dwProvFlags: if publisher.is_some() {
+                    WTD_REVOCATION_CHECK_CHAIN_EXCLUDE_ROOT
+                } else {
+                    WTD_CACHE_ONLY_URL_RETRIEVAL
+                },
+                pSignatureSettings: if publisher.is_some() {
+                    &mut signature
+                } else {
+                    null_mut()
+                },
                 ..Default::default()
             };
             let mut action = WINTRUST_ACTION_GENERIC_VERIFY_V2;
@@ -454,18 +527,37 @@ mod platform {
                 &mut action,
                 (&mut data as *mut WINTRUST_DATA).cast::<c_void>(),
             );
-            let outcome = if status != 0 {
+            let outcome = if publisher.is_some()
+                && matches!(
+                    status,
+                    CERT_E_REVOCATION_FAILURE | CRYPT_E_NO_REVOCATION_CHECK | CRYPT_E_REVOCATION_OFFLINE
+                )
+            {
+                Err(SignatureError::Unverifiable(format!(
+                    "WinVerifyTrust revocation status 0x{:08X}",
+                    status as u32
+                )))
+            } else if status != 0 {
                 Err(SignatureError::NotSigned(format!(
                     "WinVerifyTrust 0x{:08X}",
                     status as u32
                 )))
-            } else {
-                match signer_common_name(data.hWVTStateData) {
+            } else if publisher.is_some() && signature.dwVerifiedSigIndex != 0 {
+                Err(SignatureError::Unverifiable(
+                    "WinVerifyTrust did not verify the primary signature".into(),
+                ))
+            } else if let Some(signer) = verified_signer(data.hWVTStateData) {
+                match signer_common_name(signer) {
                     Some(name) => match expected {
                         Some(expected) if !signer_matches(&name, expected) => {
                             Err(SignatureError::NotSigned(format!(
                                 "signed by another publisher ({name})"
                             )))
+                        }
+                        _ if publisher.is_some_and(|policy| !matches_publisher(signer, policy)) => {
+                            Err(SignatureError::NotSigned(
+                                "signer's verified certificate chain or identity EKU differs from policy".into(),
+                            ))
                         }
                         _ => Ok(AuthenticodeSigner { common_name: name }),
                     },
@@ -473,6 +565,10 @@ mod platform {
                         "signer certificate unreadable".into(),
                     )),
                 }
+            } else {
+                Err(SignatureError::Unverifiable(
+                    "signer certificate unreadable".into(),
+                ))
             };
             data.dwStateAction = WTD_STATEACTION_CLOSE;
             WinVerifyTrust(
@@ -484,21 +580,17 @@ mod platform {
         }
     }
 
-    /// Common name of the leaf certificate of the first verified signer in the open
-    /// WinVerifyTrust state.
-    ///
-    /// # Safety
-    /// `state` must be the `hWVTStateData` of a `WTD_STATEACTION_VERIFY` call that has not been
-    /// closed.
-    unsafe fn signer_common_name(state: HANDLE) -> Option<String> {
+    // The caller keeps this successful WinVerifyTrust state open for all signer reads.
+    unsafe fn verified_signer(state: HANDLE) -> Option<*mut CRYPT_PROVIDER_SGNR> {
         let provider = WTHelperProvDataFromStateData(state);
         if provider.is_null() {
             return None;
         }
         let signer = WTHelperGetProvSignerFromChain(provider, 0, 0, 0);
-        if signer.is_null() {
-            return None;
-        }
+        (!signer.is_null()).then_some(signer)
+    }
+
+    unsafe fn signer_common_name(signer: *mut CRYPT_PROVIDER_SGNR) -> Option<String> {
         let cert = WTHelperGetProvCertFromChain(signer, 0);
         if cert.is_null() || (*cert).pCert.is_null() {
             return None;
@@ -526,6 +618,121 @@ mod platform {
                 .to_string_lossy()
                 .into_owned(),
         )
+    }
+
+    /// The signer points into the currently open, successful WinVerifyTrust state.
+    unsafe fn matches_publisher(
+        signer: *mut CRYPT_PROVIDER_SGNR,
+        policy: &WindowsPublisherPolicy<'_>,
+    ) -> bool {
+        const REVOCATION_ERROR: u32 = CERT_TRUST_IS_REVOKED
+            | CERT_TRUST_REVOCATION_STATUS_UNKNOWN
+            | CERT_TRUST_IS_OFFLINE_REVOCATION;
+        let Some(chain) = (*signer).pChainContext.as_ref() else {
+            return false;
+        };
+        if (*signer).dwError != 0
+            || chain.cChain != 1
+            || chain.rgpChain.is_null()
+            || chain.TrustStatus.dwErrorStatus & REVOCATION_ERROR != 0
+        {
+            return false;
+        }
+        let Some(chain) = (*chain.rgpChain).as_ref() else {
+            return false;
+        };
+        // Leaf, issuing CA, pinned parent CA, pinned root. Issuing certificates may rotate.
+        if chain.cElement != 4
+            || chain.rgpElement.is_null()
+            || chain.TrustStatus.dwErrorStatus & REVOCATION_ERROR != 0
+        {
+            return false;
+        }
+        let revocation_failed = (0..3).any(|index| {
+            (*chain.rgpElement.add(index)).as_ref().is_none_or(|element| {
+                element.TrustStatus.dwErrorStatus & REVOCATION_ERROR != 0
+                    || element
+                        .pRevocationInfo
+                        .as_ref()
+                        .is_none_or(|info| info.dwRevocationResult != 0)
+            })
+        });
+        if revocation_failed {
+            return false;
+        }
+        let cert_at = |index| {
+            (*chain.rgpElement.add(index))
+                .as_ref()
+                .map(|element| element.pCertContext)
+                .filter(|context| !context.is_null())
+        };
+        let (Some(leaf), Some(parent), Some(root)) = (cert_at(0), cert_at(2), cert_at(3)) else {
+            return false;
+        };
+        let verified_leaf = WTHelperGetProvCertFromChain(signer, 0);
+        if verified_leaf.is_null() || (*verified_leaf).pCert.is_null() {
+            return false;
+        }
+        certificate_sha256(leaf)
+            .is_some_and(|digest| certificate_sha256((*verified_leaf).pCert) == Some(digest))
+            && certificate_sha256(parent) == Some(policy.parent_ca_sha256)
+            && certificate_sha256(root) == Some(policy.root_ca_sha256)
+            && publisher_ekus_match(leaf, policy.identity_eku)
+    }
+
+    unsafe fn certificate_sha256(cert: *const CERT_CONTEXT) -> Option<[u8; 32]> {
+        let mut digest = [0u8; 32];
+        let mut size = digest.len() as u32;
+        let ok = CryptHashCertificate2(
+            windows_sys::core::w!("SHA256"),
+            0,
+            null(),
+            (*cert).pbCertEncoded,
+            (*cert).cbCertEncoded,
+            digest.as_mut_ptr(),
+            &mut size,
+        );
+        (ok != 0 && size as usize == digest.len()).then_some(digest)
+    }
+
+    unsafe fn publisher_ekus_match(cert: *const CERT_CONTEXT, identity: &str) -> bool {
+        const CODE_SIGNING: &[u8] = b"1.3.6.1.5.5.7.3.3";
+        if identity.is_empty()
+            || identity.as_bytes() == CODE_SIGNING
+            || identity == "2.5.29.37.0"
+        {
+            return false;
+        }
+        let flags = CERT_FIND_EXT_ONLY_ENHKEY_USAGE_FLAG;
+        let mut size = 0;
+        if CertGetEnhancedKeyUsage(cert, flags, null_mut(), &mut size) == 0
+            || !(std::mem::size_of::<CTL_USAGE>() as u32..=65_536).contains(&size)
+        {
+            return false;
+        }
+        let mut buffer = vec![0usize; (size as usize).div_ceil(std::mem::size_of::<usize>())];
+        let usage = buffer.as_mut_ptr().cast::<CTL_USAGE>();
+        if CertGetEnhancedKeyUsage(cert, flags, usage, &mut size) == 0
+            || (*usage).cUsageIdentifier == 0
+            || (*usage).rgpszUsageIdentifier.is_null()
+        {
+            return false;
+        }
+        let ids = std::slice::from_raw_parts(
+            (*usage).rgpszUsageIdentifier,
+            (*usage).cUsageIdentifier as usize,
+        );
+        let mut code_signing = false;
+        let mut publisher = false;
+        for &id in ids {
+            if id.is_null() {
+                return false;
+            }
+            let oid = CStr::from_ptr(id.cast()).to_bytes();
+            code_signing |= oid == CODE_SIGNING;
+            publisher |= oid == identity.as_bytes();
+        }
+        code_signing && publisher
     }
 }
 

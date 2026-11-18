@@ -68,20 +68,29 @@ pub fn matches_windows_cli_identity(
         .is_some_and(|padding| padding.iter().all(|&byte| byte == 0))
 }
 
-/// Read the CLI identity from an already authenticated, write-excluded Windows PE32+
-/// executable. Keep the same file handle open from signature verification through this call.
-/// Return false for malformed images, unrecognized layouts and identity mismatches.
+/// Authenticate a write-excluded Windows PE32+ executable and match its signed CLI identity.
+/// The signer policy, product and role must come from trusted configuration. Retain the same
+/// file and its ancestors through launch and bind the suspended process before resuming it.
 #[cfg(windows)]
-pub fn authenticated_windows_cli_identity_matches(
+pub fn verify_held_windows_cli_identity(
     file: &std::fs::File,
+    publisher: &rightkit_daemon::WindowsPublisherPolicy<'_>,
     product_id: &str,
     role: WindowsCliRole,
-) -> bool {
+) -> Result<(), rightkit_daemon::SignatureError> {
     use object::read::ReadCache;
 
+    rightkit_daemon::verify_held_windows_publisher(file, publisher)?;
     let cache = ReadCache::new(HeldFileReader { file, offset: 0 });
-    cli_identity_section(&cache)
+    if cli_identity_section(&cache)
         .is_some_and(|section| matches_windows_cli_identity(section, product_id, role))
+    {
+        Ok(())
+    } else {
+        Err(rightkit_daemon::SignatureError::NotSigned(
+            "signed executable has no matching CLI product and role".into(),
+        ))
+    }
 }
 
 #[cfg(windows)]
