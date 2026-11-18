@@ -43,6 +43,18 @@ The working budget caps buffers owned by this crate. It also gates estimated JPE
 & PNG encoder work and sets the PNG decoder's allocation limit. Codec-internal allocation
 accounting is best effort.
 
+For animated PNG, call `passive_image::canonicalize_apng(bytes, declared_mime, limits)`
+with `image/png` or `image/apng` & `ApngPreviewLimits`. Use `CanonicalApng::MIME`
+with the freshly encoded bytes. Set both an animation frame limit & a total canvas-pixel
+limit. The latter charges a full canvas for each frame & any separate poster.
+
+The APNG preview keeps frame samples, frame rectangles, delays, blend & disposal operations,
+loop count & any separate default poster. It preserves indexed transparency & 16-bit samples,
+re-encodes Adam7 input without interlacing, & drops source metadata such as color profiles.
+It masks unused high bits in grayscale & RGB transparency keys & discards bytes after the
+complete, checksum-valid zlib stream in the final `IDAT` chunk.
+It rejects EXIF orientation that would require transforming the animation.
+
 ### Reading
 
 | Format | Content | Renderings |

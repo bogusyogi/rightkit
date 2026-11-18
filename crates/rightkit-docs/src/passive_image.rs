@@ -1,4 +1,4 @@
-//! Decode declared static PNG and JPEG bytes and encode fresh PNG pixels.
+//! Decode declared passive image bytes and encode fresh PNG pixels.
 
 use std::io::{self, Cursor, Write};
 use std::panic::catch_unwind;
@@ -10,6 +10,10 @@ use image::{ColorType, ImageEncoder};
 use thiserror::Error;
 use zune_core::{bytestream::ZCursor, colorspace::ColorSpace, options::DecoderOptions};
 use zune_jpeg::JpegDecoder;
+
+mod apng;
+
+pub use apng::{canonicalize_apng, ApngPreviewLimits, CanonicalApng};
 
 const PNG_SIGNATURE: &[u8] = b"\x89PNG\r\n\x1a\n";
 const PNG_END: &[u8] = b"\0\0\0\0IEND\xaeB\x60\x82";
@@ -208,7 +212,7 @@ fn sanitized_buffer(input_len: usize, limits: PassiveImageLimits) -> Result<Vec<
     Ok(bytes)
 }
 
-fn decode_png(bytes: &[u8], limits: PassiveImageLimits) -> Result<(Raster, Orientation)> {
+fn png_header(bytes: &[u8]) -> Result<(&[u8], Canvas)> {
     // IHDR has a fixed size and must be first.
     let header = bytes.get(8..33).ok_or(Malformed)?;
     if !header.starts_with(b"\0\0\0\x0dIHDR") {
@@ -221,6 +225,43 @@ fn decode_png(bytes: &[u8], limits: PassiveImageLimits) -> Result<(Raster, Orien
     if canvas.width > 0x7fff_ffff || canvas.height > 0x7fff_ffff {
         return Err(Malformed);
     }
+    Ok((header, canvas))
+}
+
+struct PngChunk<'a> {
+    kind: &'a [u8],
+    data: &'a [u8],
+    bytes: &'a [u8],
+}
+
+fn next_png_chunk<'a>(chunks: &mut &'a [u8]) -> Result<PngChunk<'a>> {
+    let source = *chunks;
+    let header = source.get(..8).ok_or(Malformed)?;
+    let size = u32::from_be_bytes(header[..4].try_into().map_err(|_| Malformed)?) as usize;
+    let end = size.checked_add(12).ok_or(Malformed)?;
+    let chunk = source.get(..end).ok_or(Malformed)?;
+    let kind = &header[4..8];
+    let data = &chunk[8..end - 4];
+    if size > 0x7fff_ffff
+        || !kind.iter().all(u8::is_ascii_alphabetic)
+        || !kind[2].is_ascii_uppercase()
+    {
+        return Err(Malformed);
+    }
+    let crc = u32::from_be_bytes(chunk[end - 4..].try_into().map_err(|_| Malformed)?);
+    if crc32fast::hash(&chunk[4..end - 4]) != crc {
+        return Err(Malformed);
+    }
+    *chunks = &source[end..];
+    Ok(PngChunk {
+        kind,
+        data,
+        bytes: chunk,
+    })
+}
+
+fn decode_png(bytes: &[u8], limits: PassiveImageLimits) -> Result<(Raster, Orientation)> {
+    let (header, canvas) = png_header(bytes)?;
     let pixels = canvas.pixels(limits)?;
     let decoder_bytes = remaining(
         limits,
@@ -246,30 +287,18 @@ fn decode_png(bytes: &[u8], limits: PassiveImageLimits) -> Result<(Raster, Orien
     let mut transparency = None;
     let mut scratch = [0; 8192];
     loop {
-        let header = chunks.get(..8).ok_or(Malformed)?;
-        let size = u32::from_be_bytes(header[..4].try_into().map_err(|_| Malformed)?) as usize;
-        let end = size.checked_add(12).ok_or(Malformed)?;
-        let chunk = chunks.get(..end).ok_or(Malformed)?;
-        let kind = &header[4..8];
-        let data = &chunk[8..end - 4];
-        if size > 0x7fff_ffff
-            || !kind.iter().all(u8::is_ascii_alphabetic)
-            || !kind[2].is_ascii_uppercase()
-        {
-            return Err(Malformed);
-        }
-        let crc = u32::from_be_bytes(chunk[end - 4..].try_into().map_err(|_| Malformed)?);
-        if crc32fast::hash(&chunk[4..end - 4]) != crc {
-            return Err(Malformed);
-        }
-        chunks = &chunks[end..];
+        let PngChunk {
+            kind,
+            data,
+            bytes: chunk,
+        } = next_png_chunk(&mut chunks)?;
         if kind != b"IDAT" && in_data {
             data_ended = true;
         }
         match kind {
             b"IHDR" if clean.len() == PNG_SIGNATURE.len() => clean.extend_from_slice(chunk),
             b"PLTE" if !in_data && transparency.is_none() && palette.is_none() => {
-                format.check_palette(size)?;
+                format.check_palette(data.len())?;
                 palette = Some(data);
                 clean.extend_from_slice(chunk);
             }
@@ -286,7 +315,7 @@ fn decode_png(bytes: &[u8], limits: PassiveImageLimits) -> Result<(Raster, Orien
                 in_data = true;
                 clean.extend_from_slice(chunk);
             }
-            b"IEND" if size == 0 && in_data && chunks.is_empty() => {
+            b"IEND" if data.is_empty() && in_data && chunks.is_empty() => {
                 stream.consume(&[], &mut scratch)?;
                 if !stream.ended {
                     return Err(Malformed);
@@ -465,10 +494,16 @@ struct PngStream {
 }
 
 impl PngStream {
-    fn consume(&mut self, mut data: &[u8], scratch: &mut [u8]) -> Result<()> {
+    fn consume(&mut self, data: &[u8], scratch: &mut [u8]) -> Result<()> {
+        let consumed = self.consume_prefix(data, scratch)?;
+        (consumed == data.len()).then_some(()).ok_or(Malformed)
+    }
+
+    fn consume_prefix(&mut self, mut data: &[u8], scratch: &mut [u8]) -> Result<usize> {
         if self.ended {
-            return if data.is_empty() { Ok(()) } else { Err(Malformed) };
+            return Ok(0);
         }
+        let input_len = data.len();
         loop {
             let input_before = self.inflater.total_in();
             let output_before = self.inflater.total_out();
@@ -483,14 +518,18 @@ impl PngStream {
                 return Err(Malformed);
             }
             if status == Status::StreamEnd {
-                if !data.is_empty() || output != self.expected {
+                if output != self.expected {
                     return Err(Malformed);
                 }
                 self.ended = true;
-                return Ok(());
+                return Ok(input_len - data.len());
             }
             if consumed == 0 && output == output_before {
-                return if data.is_empty() { Ok(()) } else { Err(Malformed) };
+                return if data.is_empty() {
+                    Ok(input_len)
+                } else {
+                    Err(Malformed)
+                };
             }
         }
     }
