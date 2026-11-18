@@ -4,10 +4,8 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { gitFixture } from "./release-qa-fixtures.mjs";
 import { pureQuestion } from "./probe-memo.mjs";
-
-const here = path.dirname(fileURLToPath(import.meta.url));
 
 test("only questions whose answer cannot change during a run are remembered", () => {
   const c = ["-c", "safe.directory=D:/x", "-c", "core.fsmonitor=false"]; const sha = "3a017e99e2f69ab3c8cae9ca03a285b8de8cb5bf";
@@ -28,14 +26,17 @@ test("only questions whose answer cannot change during a run are remembered", ()
   assert.equal(pureQuestion("cargo", ["--version"]), false); assert.equal(pureQuestion("where", ["a", "b"]), false); assert.equal(pureQuestion("git", ["rev-parse", 1]), false);
 });
 
-test("in one process an identical pure question starts one child; other commands and failed questions start one each time", () => {
+test("in one process an identical pure question starts one child; other commands and failed questions start one each time", (t) => {
+  const repo = gitFixture();
+  t.after(() => fs.rmSync(repo, { recursive: true, force: true }));
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rk-memo-")); const ledger = path.join(dir, "ledger.jsonl");
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const script = `
     import { installSpawnLedger } from ${JSON.stringify(new URL("./spawn-ledger.mjs", import.meta.url).href)};
     import { installProbeMemo } from ${JSON.stringify(new URL("./probe-memo.mjs", import.meta.url).href)};
     installSpawnLedger(); const stats = installProbeMemo();
     const cp = await import("node:child_process");
-    const cwd = ${JSON.stringify(here)}; const out = [];
+    const cwd = ${JSON.stringify(repo)}; const out = [];
     for (let i = 0; i < 3; i += 1) out.push(cp.spawnSync("git", ["rev-parse", "--show-toplevel"], { cwd, encoding: "utf8" }).stdout.trim());
     for (let i = 0; i < 2; i += 1) out.push(String(cp.execFileSync("git", ["rev-parse", "--show-toplevel"], { cwd })).trim());
     for (let i = 0; i < 2; i += 1) cp.spawnSync("git", ["status", "--porcelain"], { cwd, encoding: "utf8" });
@@ -63,17 +64,19 @@ test("in one process an identical pure question starts one child; other commands
   assert.equal(got.stats.answered, 4);
 });
 
-test("NN22: a whole-tree listing of a full commit id is kept on disk and answers the next process without starting git", () => {
+test("NN22: a whole-tree listing of a full commit id is kept on disk and answers the next process without starting git", (t) => {
+  const repo = gitFixture();
+  t.after(() => fs.rmSync(repo, { recursive: true, force: true }));
   const sha = "3a017e99e2f69ab3c8cae9ca03a285b8de8cb5bf";
   assert.equal(pureQuestion("git", ["-c", "core.attributesFile=D:/tmp/rk-sealed-git-x/empty", "ls-tree", "-r", "-z", "--full-tree", sha]), true, "the sealed listing");
   for (const args of [["ls-tree", "-r", "-z", "--full-tree", "HEAD"], ["ls-tree", "-r", "-z", sha], ["ls-tree", "-z", "--full-tree", sha], ["ls-tree", "-r", "--name-only", sha]]) assert.equal(pureQuestion("git", args), false, args.join(" "));
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rk-trees-")); const store = path.join(dir, "tree-lists");
-  const head = spawnSync("git", ["rev-parse", "HEAD"], { cwd: here, encoding: "utf8" }).stdout.trim();
+  const head = spawnSync("git", ["rev-parse", "HEAD"], { cwd: repo, encoding: "utf8" }).stdout.trim();
   const script = (n) => `
     import { installSpawnLedger } from ${JSON.stringify(new URL("./spawn-ledger.mjs", import.meta.url).href)};
     import { installProbeMemo } from ${JSON.stringify(new URL("./probe-memo.mjs", import.meta.url).href)};
     installSpawnLedger(); const stats = installProbeMemo({ storeDir: ${JSON.stringify(store)} });
-    const cp = await import("node:child_process"); const cwd = ${JSON.stringify(here)};
+    const cp = await import("node:child_process"); const cwd = ${JSON.stringify(repo)};
     const a = cp.spawnSync("git", ["-c", "core.attributesFile=${n}", "ls-tree", "-r", "-z", "--full-tree", ${JSON.stringify(head)}], { cwd, encoding: "utf8", maxBuffer: 1 << 28 }).stdout;
     const b = cp.execFileSync("git", ["ls-tree", "-r", "--name-only", "-z", ${JSON.stringify(head)}], { cwd, maxBuffer: 1 << 28 });
     console.log(JSON.stringify({ a: a.length, aHash: a.slice(0, 200), b: b.length, isBuf: Buffer.isBuffer(b), stats }));
