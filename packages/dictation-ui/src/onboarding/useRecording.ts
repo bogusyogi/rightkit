@@ -15,15 +15,19 @@ import type {
   OS,
   PermissionState,
   ShortcutKind,
-  Step,
 } from "./types.js";
+
+export type RecordingSetupStatus =
+  | { kind: "stopped"; detail: string }
+  | { kind: "reopening" | "recovered" | "verified" | "no_signal" | "unavailable" };
 
 type Args = {
   micState: PermissionState;
   platform: OS;
   setError: Dispatch<SetStateAction<string>>;
-  setPermissionStatus: Dispatch<SetStateAction<string>>;
-  step: Step;
+  setPermissionStatus: (status: RecordingSetupStatus) => void;
+  /** Host selects which capability is active; no setup step order is assumed. */
+  phase: "microphone" | "shortcuts" | "inactive";
 };
 
 export function useOnboardingRecording({
@@ -31,8 +35,11 @@ export function useOnboardingRecording({
   platform,
   setError,
   setPermissionStatus,
-  step,
+  phase,
 }: Args) {
+  // Host callbacks may be inline functions. Read current callbacks without restarting capture.
+  const callbacks = useRef({ setError, setPermissionStatus });
+  callbacks.current = { setError, setPermissionStatus };
   const [micSignalSeen, setMicSignalSeen] = useState(false);
   // Authorized but capture dead — Continue must stay skippable (State B
   // "unavailability") even though micSignalSeen never flips.
@@ -72,7 +79,7 @@ export function useOnboardingRecording({
       (payload) => {
         setMicCaptureUnavailable(true);
         const detail = String(payload.message ?? "capture stopped");
-        setPermissionStatus(`Selected microphone stopped (${detail}). Restart microphone check.`);
+        callbacks.current.setPermissionStatus({ kind: "stopped", detail });
       },
     );
     const unlistenMicMeterStatus = onboardingClient().on(
@@ -81,28 +88,24 @@ export function useOnboardingRecording({
         switch (payload.status) {
           case "reopening":
             setMicCheckState("listening");
-            setPermissionStatus("Restarting selected microphone…");
+            callbacks.current.setPermissionStatus({ kind: "reopening" });
             break;
           case "recovered":
             setMicCheckState("listening");
-            setPermissionStatus("Selected microphone restarted. Speak once to confirm.");
+            callbacks.current.setPermissionStatus({ kind: "recovered" });
             break;
           case "verified":
             setMicCheckState("verified");
-            setPermissionStatus("Audio detected.");
+            callbacks.current.setPermissionStatus({ kind: "verified" });
             break;
           case "no_signal":
             setMicCheckState("no_signal");
-            setPermissionStatus(
-              "No signal was detected. Choose another input or retry; you can still continue.",
-            );
+            callbacks.current.setPermissionStatus({ kind: "no_signal" });
             break;
           case "unavailable":
             setMicCaptureUnavailable(true);
             setMicCheckState("unavailable");
-            setPermissionStatus(
-              "Selected microphone is unavailable. Choose another input or check system settings.",
-            );
+            callbacks.current.setPermissionStatus({ kind: "unavailable" });
             break;
         }
       },
@@ -139,12 +142,12 @@ export function useOnboardingRecording({
       void unlistenFn.then((fn) => fn());
       void unlistenPtt.then((fn) => fn());
     };
-  }, [setPermissionStatus]);
+  }, []);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: micProbeRevision is the retryMicCheck retrigger — bumping it must re-run this effect even though the body never reads it.
   useEffect(() => {
-    if (step !== 3 || micState !== "ready") {
-      if (step !== 3) {
+    if (phase !== "microphone" || micState !== "ready") {
+      if (phase !== "microphone") {
         setMicCaptureUnavailable(false);
         setMicCheckState("idle");
         void onboardingClient().stopMicMeter().catch(() => undefined);
@@ -158,15 +161,13 @@ export function useOnboardingRecording({
     void onboardingClient().startMicMeter(inputDevice).catch((e) => {
       setMicCaptureUnavailable(true);
       setMicCheckState("unavailable");
-      setPermissionStatus(
-        "Selected microphone is unavailable. Choose another input or check system settings, then retry.",
-      );
-      setError(String(e));
+      callbacks.current.setPermissionStatus({ kind: "unavailable" });
+      callbacks.current.setError(String(e));
     });
     return () => {
       void onboardingClient().stopMicMeter().catch(() => undefined);
     };
-  }, [inputDevice, micProbeRevision, micState, setError, setPermissionStatus, step]);
+  }, [inputDevice, micProbeRevision, micState, phase]);
 
   const selectMicDevice = useCallback(
     async (value: string) => {
@@ -179,20 +180,21 @@ export function useOnboardingRecording({
     setMicProbeRevision((current) => current + 1);
   }, []);
 
+  const pttKey =
+    platform === "macos"
+      ? (getSetting("mac_push_to_talk_key", "ctrl") as string) || "ctrl"
+      : (getSetting("push_to_talk_key", "ralt") as string) || "ralt";
+
   useEffect(() => {
-    const shortcutTestStep = step === 4;
-    if (!shortcutTestStep) {
+    const shortcutTestActive = phase === "shortcuts";
+    if (!shortcutTestActive) {
       void onboardingClient().setShortcutsActive(false, false).catch(() => undefined);
       setPressedShortcutKeys([]);
       return;
     }
-    void onboardingClient().setShortcutsActive(true, step === 4).catch((e) => {
-      setError(String(e));
+    void onboardingClient().setShortcutsActive(true, true).catch((e) => {
+      callbacks.current.setError(String(e));
     });
-    const pttKey =
-      platform === "macos"
-        ? (getSetting("mac_push_to_talk_key", "ctrl") as string) || "ctrl"
-        : (getSetting("push_to_talk_key", "ralt") as string) || "ralt";
     const isPttEvent = (event: KeyboardEvent) =>
       platform === "macos"
         ? isMacPttKeyEvent(event.code, pttKey)
@@ -256,7 +258,7 @@ export function useOnboardingRecording({
       setMiddleClickPulse(false);
       void onboardingClient().setShortcutsActive(false, false).catch(() => undefined);
     };
-  }, [getSetting, platform, setError, step]);
+  }, [platform, pttKey, phase]);
 
   const liveChordKeys = fnHeld ? [...pressedShortcutKeys, "fn"] : pressedShortcutKeys;
 

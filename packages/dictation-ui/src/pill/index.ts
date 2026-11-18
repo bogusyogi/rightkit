@@ -20,12 +20,16 @@ export { default as HintPopup } from "./HintPopup.js";
 export { default as MiniClipboardPopup } from "./MiniClipboardPopup.js";
 export { default as MiniClipboard } from "./MiniClipboard.js";
 export * from "./MiniClipboard.js";
-export * from "./PillIcon.js";
 export * from "./hoverTarget.js";
 export * from "./pillBars.js";
-export * from "./pillStyles.js";
 export * from "./pillTooltip.js";
 export * from "./usePillAnimation.js";
 export * from "./usePillEvents.js";
 export * from "./usePillGeometry.js";
 export { listenPill } from "./pillHost.js";
+
+export * from "./PillOverlay.js";
+export * from "./HintPopup.js";
+export * from "./MiniClipboardPopup.js";
+export type { PillElementRef } from "./usePillElementRef.js";
+export type { PillPopupSize, PillPopupGeometryOptions } from "./usePillPopupGeometry.js";

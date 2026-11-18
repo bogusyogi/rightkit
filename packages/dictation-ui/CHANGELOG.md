@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.0
+
+- Breaking: remove packaged app screens, settings panels, onboarding flow, shell, CSS and app-specific Tauri entry points.
+- Retain headless dictation and recording-pill behavior; host applications own rendering and copy.
+
 ## 0.2.7
 
 - Styles are exported, not imported from code: `@rightkit/dictation-ui/onboarding.css` (step counter) and `@rightkit/dictation-ui/shell.css` (settings tabs). A host imports them together with `@rightkit/onboarding/onboarding.css` (the onboarding entry no longer imports that one either). JavaScript that imports `.css` cannot be loaded by Node, which failed the publish import check of `./onboarding` and `./shell`.

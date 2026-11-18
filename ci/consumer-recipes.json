@@ -1239,13 +1239,9 @@
       "surface": [
         ".",
         "./onboarding",
-        "./onboarding.css",
         "./package.json",
         "./pill",
-        "./settings",
-        "./shell",
-        "./shell.css",
-        "./tauri"
+        "./settings"
       ],
       "closure": {
         "install": {
@@ -1266,15 +1262,11 @@
           "@rightkit/onboarding": "0.6.5",
           "@rightkit/legal-ui": "0.4.2"
         },
-        "declaredOnly": [
-          "@phosphor-icons/react",
-          "@tauri-apps/api",
-          "@tauri-apps/plugin-dialog"
-        ]
+        "declaredOnly": []
       },
       "files": {
-        "ci/consumers/npm/dictation-ui/README.md": "05cb356a734beb4c433cdf839e89583da8bc2ca694e112107a77bf02821bfde0",
-        "ci/consumers/npm/dictation-ui/consumer.mjs": "2e27ec58bca4da285e3e1a28dfec7966e6b40f42a58f224d180553f830cb1c94",
+        "ci/consumers/npm/dictation-ui/README.md": "550dd19f6c4f00d75358972c2968f7e4dec7096df2f9cf4130781a44a2f31269",
+        "ci/consumers/npm/dictation-ui/consumer.mjs": "858699843bd816b7a0eca0bc9a9d8137f9331d9447ce83bf260e93d3006819e5",
         "ci/consumers/npm/dictation-ui/package.json": "0513fec9e70cd73bb747ebef8a754c63644dfa11880d2a8459cbb075a9aa4427",
         "ci/consumers/npm/dictation-ui/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "fc160695e1dc97dc7e32e746c9e4471e2d85168b097623de818befeb00ee438c"

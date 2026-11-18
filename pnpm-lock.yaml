@@ -561,36 +561,15 @@ importers:
 
   packages/dictation-ui:
     dependencies:
-      '@phosphor-icons/react':
-        specifier: 2.1.10
-        version: 2.1.10(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
-      '@rightkit/legal-ui':
-        specifier: workspace:^
-        version: link:../legal-ui
       '@rightkit/library-ui':
         specifier: workspace:^
         version: link:../library-ui
-      '@rightkit/onboarding':
-        specifier: workspace:^
-        version: link:../onboarding
       '@rightkit/platform-ui':
         specifier: workspace:^
         version: link:../platform-ui
-      '@rightkit/react-shell':
-        specifier: workspace:^
-        version: link:../react-shell
       '@rightkit/settings-ui':
         specifier: workspace:^
         version: link:../settings-ui
-      '@rightkit/tauri':
-        specifier: workspace:^
-        version: link:../tauri
-      '@tauri-apps/api':
-        specifier: ^2.12.4
-        version: 2.12.4
-      '@tauri-apps/plugin-dialog':
-        specifier: ^2.8.3
-        version: 2.8.4
     devDependencies:
       '@types/node':
         specifier: ^26.6.6
@@ -598,21 +577,12 @@ importers:
       '@types/react':
         specifier: ^19.3.0
         version: 19.3.0
-      '@types/react-dom':
-        specifier: ^19.3.0
-        version: 19.3.0(@types/react@19.3.0)
       react:
         specifier: ^19.3.1
         version: 19.3.1
-      react-dom:
-        specifier: ^19.3.1
-        version: 19.3.1(react@19.3.1)
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
-      vite:
-        specifier: ^8.3.4
-        version: 8.3.5(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1)
 
   packages/doc-render:
     dependencies:

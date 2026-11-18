@@ -25,16 +25,3 @@ export function pushToTalkChord(os: OS = PLATFORM, pttKey: string = "ralt"): str
   if (os === "ios") return "record";
   return pttKey === "rctrl" ? "rctrl" : pttKey === "lalt" ? "lalt" : "ralt";
 }
-
-export function pushToTalkCopy(os: OS = PLATFORM, pttKey: string = "ralt"): string {
-  if (os === "macos") {
-    const key = pttKey === "lalt" ? "Left Option" : pttKey === "ralt" ? "Right Option" : "Control";
-    return `Hold ${key}, speak, release to paste. Press fn before releasing to paste + send.`;
-  }
-  if (os === "ios") return "Use the in-app record control.";
-  return pttKey === "rctrl"
-    ? "Hold Right Ctrl, speak, release to paste. Add Right Alt to paste + send."
-    : pttKey === "lalt"
-      ? "Hold Left Alt, speak, release to paste. Add Right Ctrl to paste + send."
-      : "Hold Right Alt, speak, release to paste. Add Right Ctrl to paste + send.";
-}

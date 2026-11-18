@@ -3,7 +3,7 @@
   "capabilities": [
     {
       "capability": "dictation-ui",
-      "summary": "Dictation UI: recording pill, microphone and hotkey hooks, voice conversation and dictation pages.",
+      "summary": "Headless dictation behavior and reusable recording-pill hooks for host-composed applications.",
       "fingerprints": [],
       "detection": "declaration-only",
       "policyNotes": [

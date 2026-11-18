@@ -1,41 +1,43 @@
-// Dictation delivery records in the library's shape. The list itself (filters, selection, export,
-// retention, edit and delete) is `@rightkit/library-ui`; this module holds only what is particular
-// to delivery records: how a record maps to a `LibraryRow`, the Dictations/Cancelled variants, the
-// device groups and the words the list uses.
+// Dictation delivery data adapted to library rows; hosts supply screens, groups & copy.
 
-import { createElement } from "react";
-import { Desktop, DeviceMobile, Laptop, Watch } from "@phosphor-icons/react";
-import { getPlatform } from "@rightkit/platform-ui";
-import { friendlyAppName, type LibraryGroup, type LibraryLabels, type LibraryOrigin, type LibraryQuery, type LibraryRow, type LibraryVariant } from "@rightkit/library-ui";
-import { hostAppName } from "../host.js";
+import { friendlyAppName, type LibraryQuery, type LibraryRow } from "@rightkit/library-ui";
 import type { HistoryItem } from "../lib/homeMetrics.js";
 
 /** Devices a record can come from. Records without provenance are this desktop's. */
-export type HistorySource = "mac" | "iphone" | "watch";
+export type HistorySource = string;
+
+/** Host controls provenance policy & visible labels. Defaults preserve legacy delivery records. */
+export interface DeliveryRowOptions {
+  localDevice?: string;
+  deviceLabels?: Record<string, string>;
+  outcomeLabel?: (item: HistoryItem) => string;
+  targetLabel?: (item: HistoryItem) => string;
+  cancelledLabel?: string;
+}
 
 const DEVICE_LABELS: Record<string, string> = { iphone: "iPhone", watch: "Watch" };
 
 /** Mac-local records predate cross-device provenance and carry no device; they count as "mac". */
-export function historyDevice(item: HistoryItem): HistorySource {
+export function historyDevice(item: HistoryItem, localDevice = "mac"): HistorySource {
   const device = item.source?.device?.trim().toLowerCase();
-  return device === "iphone" || device === "watch" || device === "mac" ? device : "mac";
+  return device || localDevice;
 }
 
 /**
  * This desktop may edit or delete only its own records. Records synced in from iPhone or Watch are
  * view-only here (the store refuses a foreign delete too).
  */
-export function isLocallyDeletable(item: HistoryItem): boolean {
+export function isLocallyDeletable(item: HistoryItem, localDevice = "mac"): boolean {
   const device = item.source?.device?.trim().toLowerCase();
   if (!device) return item.source?.kind !== "cloud_sync";
-  return device === "mac";
+  return device === localDevice;
 }
 
 /** Label for foreign-device provenance, or undefined for local rows. */
-export function deviceBadgeLabel(item: HistoryItem): string | undefined {
+export function deviceBadgeLabel(item: HistoryItem, options: DeliveryRowOptions = {}): string | undefined {
   const device = item.source?.device?.trim().toLowerCase();
-  if (!device || device === "mac") return undefined;
-  return DEVICE_LABELS[device] ?? item.source?.device?.trim();
+  if (!device || device === (options.localDevice ?? "mac")) return undefined;
+  return options.deviceLabels?.[device] ?? DEVICE_LABELS[device] ?? item.source?.device?.trim();
 }
 
 function outcomeLabel(kind: string, reason?: string) {
@@ -92,8 +94,10 @@ export function deliveryFilterKey(item: HistoryItem): string {
  * A delivery record as a library row. `origin.label` is the friendly app name, `origin.filterKey` the raw
  * key the store filters on (`deliveryFilterKey`), `origin.iconKey` the exe path, else the process name.
  */
-export function deliveryRow(item: HistoryItem): LibraryRow {
-  const { app, windowTitle } = targetDisplay(item);
+export function deliveryRow(item: HistoryItem, options: DeliveryRowOptions = {}): LibraryRow {
+  const target = targetDisplay(item);
+  const app = options.targetLabel?.(item) ?? target.app;
+  const windowTitle = target.windowTitle;
   const kind = item.source?.kind === "file_transcription" ? "file" : item.source?.kind === "cloud_sync" ? "synced" : "app";
   return {
     id: item.delivery_id,
@@ -110,80 +114,13 @@ export function deliveryRow(item: HistoryItem): LibraryRow {
       iconKey: kind === "app" ? item.target?.exe_path?.trim() || item.target?.process_name?.trim() || undefined : undefined,
       kind,
     },
-    status: historyOutcomeLabel(item),
+    status: options.outcomeLabel?.(item) ?? historyOutcomeLabel(item),
     // The device is the row's group glyph, not a badge: only "Cancelled" is.
-    badges: item.outcome.kind === "cancelled" ? ["Cancelled"] : [],
+    badges: item.outcome.kind === "cancelled" ? [options.cancelledLabel ?? "Cancelled"] : [],
     durationMs: item.recording_ms ?? null,
-    group: historyDevice(item),
-    groupLabel: deviceBadgeLabel(item),
-    readOnly: !isLocallyDeletable(item),
-  };
-}
-
-/** The variant keys `DELIVERY_VARIANTS` uses. */
-export type DeliveryVariant = "dictations" | "cancelled";
-
-/** "Dictations" excludes cancelled and draft records; "Cancelled" returns only cancelled ones. */
-export const DELIVERY_VARIANTS: readonly LibraryVariant[] = [
-  {
-    key: "dictations",
-    label: "Dictations",
-    emptyTitle: "No text inserts yet.",
-    emptyBody: "Delivered text appears here after dictation sends text into another app.",
-  },
-  {
-    key: "cancelled",
-    label: "Cancelled",
-    emptyTitle: "No cancelled recordings match your filters.",
-    emptyBody: "Recordings you cancel before delivery show up here.",
-  },
-];
-
-/** The device choices of a host's source-visibility control (a title bar's checkboxes), in group order. */
-export const HISTORY_SOURCES: readonly { key: HistorySource; label: string }[] = [
-  { key: "mac", label: "Mac" },
-  { key: "iphone", label: "iPhone" },
-  { key: "watch", label: "Watch" },
-];
-
-/**
- * Device groups: this desktop on by default, iPhone and Watch off. Windows has no Apple sync, so
- * hosts there pass `fixed: true` to `useGroupSelection` (or no groups).
- */
-export function deliveryGroups(): readonly LibraryGroup[] {
-  const mac = getPlatform() === "macos";
-  return [
-    { key: "mac", label: mac ? "this Mac" : "this PC", icon: createElement(mac ? Laptop : Desktop, { "aria-hidden": true }), defaultOn: true, local: true },
-    { key: "iphone", label: "iPhone", icon: createElement(DeviceMobile, { "aria-hidden": true }), defaultOn: false },
-    { key: "watch", label: "Watch", icon: createElement(Watch, { "aria-hidden": true }), defaultOn: false },
-  ];
-}
-
-/**
- * The "Export selected" text's origin line: the raw key the delivery store knows an app by (`filterKey`), and
- * the row's own label for file and synced rows.
- */
-function exportOrigin(origin: LibraryOrigin): string {
-  return origin.kind === "app" ? (origin.filterKey ?? origin.label) : origin.label;
-}
-
-export function deliveryLabels(): Partial<LibraryLabels> {
-  return {
-    item: "transcript",
-    items: "transcripts",
-    area: "History",
-    alt: ["Undo AI polish", "Redo AI polish", "AI", "original"],
-    editHint: `Correcting teaches ${hostAppName()}. The fixed text replaces this entry.`,
-    readOnly: {
-      title: "Foreign-device transcript is read-only here",
-      label: (rowContext) => `Transcript from another device is read-only, ${rowContext}`,
-    },
-    expandTitle: (expanded) => (expanded ? "Collapse transcript" : "Expand transcript"),
-    deleteAllHint: "Removes this device's transcripts in the current filters. Transcripts from other devices aren't affected.",
-    groupGlyph: (label) => `Recorded on ${label}`,
-    noMatch: "No history items match your search.",
-    deleteFailed: (failed, total) => `${failed} of ${total} transcript deletes failed.`,
-    exportFields: { origin: "Target", text: "Transcript", originValue: exportOrigin },
+    group: historyDevice(item, options.localDevice),
+    groupLabel: deviceBadgeLabel(item, options),
+    readOnly: !isLocallyDeletable(item, options.localDevice),
   };
 }
 

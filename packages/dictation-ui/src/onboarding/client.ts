@@ -48,11 +48,6 @@ export interface OnboardingClient {
   /** macOS only. */
   openMicrophoneSettings(): Promise<void>;
 
-  /** Whether the local database key is already stored; never creates it. */
-  databaseKeyPresent(): Promise<boolean>;
-  /** Creates (or reads) the local database key; the user's "Allow" click. */
-  ensureDatabaseKey(): Promise<void>;
-
   /** `deviceSetting` is the stored input-device choice (undefined: system default). */
   startMicMeter(deviceSetting: string | undefined): Promise<void>;
   stopMicMeter(): Promise<void>;
@@ -63,14 +58,6 @@ export interface OnboardingClient {
   startRecognitionSetup(): Promise<RecognitionSetupStart>;
   stopRecognitionSetup(sessionId: string): Promise<RecognitionSetupResult>;
   cancelRecognitionSetup(sessionId: string): Promise<void>;
-
-  /** The final settings write of the setup. */
-  applySettingsPatch(patch: Record<string, unknown>): Promise<unknown>;
-  revealPill(): Promise<void>;
-  /** Hides the hub window once the shortcuts are registered. */
-  parkIdleHub(): Promise<void>;
-  /** The hub opened at the agreement's size; resize it to the surface now showing. */
-  resizeHubForSurface(): Promise<void>;
 }
 
 /** The `onboarding` client group, or an error naming it. */

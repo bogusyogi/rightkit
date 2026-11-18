@@ -117,6 +117,10 @@ active app scope above. Installed-path and signature checks must bind the execut
 to trusted product signing identity before it runs. The user-writable discovery
 record is a locator. Keep each app's existing licence, pairing and approval gates.
 
+## Dictation UI cleanup
+
+The 0.3.0 source removes the app's pages, first-run flow, settings panels, shell, native command bindings and CSS from `@rightkit/dictation-ui`. It retains dictation capabilities and host-rendered pill controllers. The published 0.2.7 line contains the earlier UI extraction. App owners should compose their screens with the mandatory packages and select individual dictation capabilities after the cleaned package is published.
+
 ## How the earlier reading went wrong
 
 The full analysis, with the timeline, the root causes, every app checked against the

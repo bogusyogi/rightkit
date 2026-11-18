@@ -88,13 +88,3 @@ export function processingDisplayBars(buffer: number[]): number[] {
   const start = Math.max(0, Math.floor((buffer.length - PROCESSING_BAR_COUNT) / 2));
   return buffer.slice(start, start + PROCESSING_BAR_COUNT);
 }
-
-// Bar pixel heights — RecordingBars / ProcessingWaveform frame math
-// (PillRootView.swift:250-264, 266-285).
-export function recordingBarPixelHeight(level: number): number {
-  return Math.max(3.5, 3.5 + Math.min(1, Math.max(0, level)) * 16.5);
-}
-
-export function processingBarPixelHeight(level: number): number {
-  return Math.max(3, 3 + Math.min(1, Math.max(0, level)) * 16);
-}

@@ -73,7 +73,7 @@ export interface UseHomeDashboard {
   clearError: () => void;
 }
 
-export function useHomeDashboard(readySurface: "home" | "titlebar"): UseHomeDashboard {
+export function useHomeDashboard(readySurface: string): UseHomeDashboard {
   const [state, setState] = useState<AppState>({ state: "armed" });
   const [history, setHistory] = useState<HistoryItem[]>(() => sharedHistory);
   const [wakePulse, setWakePulse] = useState(false);

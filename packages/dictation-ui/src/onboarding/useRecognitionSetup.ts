@@ -13,9 +13,10 @@ type SetupPhase = "idle" | "recording" | "processing" | "passed" | "failed";
 type Args = {
   active: boolean;
   setError: (message: string) => void;
+  processingLabel?: string;
 };
 
-export function useOnboardingRecognitionSetup({ active, setError }: Args) {
+export function useOnboardingRecognitionSetup({ active, setError, processingLabel = "" }: Args) {
   const [phase, setPhase] = useState<SetupPhase>("idle");
   const [elapsed, setElapsed] = useState(0);
   const [minSeconds, setMinSeconds] = useState(30);
@@ -102,7 +103,7 @@ export function useOnboardingRecognitionSetup({ active, setError }: Args) {
     if (!sessionId || elapsed < minSeconds) return;
     setError("");
     setPhase("processing");
-    setProgress("Checking speech recognition…");
+    setProgress(processingLabel);
     try {
       const result = await onboardingClient().stopRecognitionSetup(sessionId);
       sessionIdRef.current = null;
