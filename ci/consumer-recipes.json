@@ -2044,7 +2044,7 @@
       "files": {
         "Cargo.toml": "1bb0e0b9483525b52f60d9620ceffa6649a06bc4c29659a8d69580171ff945cc",
         "README.md": "84de36e6f006b76d1094d62dc02790e0b0b04a8de6ee7d656b5184649dd7753a",
-        "src/main.rs": "92f14bd741bce11868c7ad657674f7fd9a6892a4336c235e3858abe473bafd54"
+        "src/main.rs": "aa82e086bd358b28b0be1df0c30b68c1ce97c7c1765e8c825735892bcd967af4"
       }
     },
     "rightkit-logs": {
@@ -2306,7 +2306,7 @@
       "files": {
         "Cargo.toml": "588056121321f39fc0bfbda212024f232d6a925ae9e39882aa7c250fd1f00437",
         "README.md": "7a5d2e549d66201b004dbeca59ee69e394ffcc53125a0cb15493391017498604",
-        "src/main.rs": "1c9789d5229ac1727554ee4d5503ff63ef00bf9bf96c5597927edd8d4e0832d5"
+        "src/main.rs": "890a176b1c12a142de0e54bf1925c54c48470a0190c455678690cbda52860b08"
       },
       "aggregateSha256": "a687c34cdfa1af6e2fc6c2b80b3637fd587bc05f58fccfb5571c69f1b6ecc9f9"
     },
@@ -2654,7 +2654,7 @@
       "files": {
         "Cargo.toml": "f7970c2cd64bb4f6d917765c61ea0aca6a93180204c9876ecb7c0a4b7296f214",
         "README.md": "0167c2a702239f810d959514f873259b74853e1b9f69a7b1452957de9e161f6e",
-        "src/main.rs": "d381ef63c0f9ceb05456bb535f20b775d975697e724768325655faace1b9084f"
+        "src/main.rs": "ec64f8be267faa915adc72d9fbf49f8b37ed291b2facdf55a9aa53405702fac3"
       }
     },
     "rightkit-cache": {
@@ -2726,7 +2726,7 @@
       "files": {
         "Cargo.toml": "643e50337730f5705baae4b86d1f237538ad26a05fea765ac5e9a1d684b2b44d",
         "README.md": "79b779ea0f7fc8f31f735215225cb30957e4e3ad581bb2cb26012f705a1ea6da",
-        "src/main.rs": "4dbf1ffed325e8b84c7945c227d155965fed604669715a82d16d3c76372d446c"
+        "src/main.rs": "9cd7d35905cd90d846032ed6294d4342c68bb67aa63b85499a645ee915f6972f"
       }
     },
     "rightkit-identity": {
@@ -2799,7 +2799,7 @@
       "files": {
         "Cargo.toml": "c84552d3a3863193ad18b34829c57a3239181005a4f347c503d88030be9ffa8a",
         "README.md": "7801ae607025a563de541c80f34115490c8eac84b5f4d04ea623960552c9e8af",
-        "src/main.rs": "09f43dd972a9884d16d430c6d69323c18648a4a352ff31bcf570251663a0bd5e"
+        "src/main.rs": "1d2d6225afc0811e45fb8a0b3532dc7bfcaee166d6d7390dd723bcbefbf52832"
       }
     },
     "rightkit-time": {
@@ -3468,7 +3468,7 @@
       "files": {
         "Cargo.toml": "16734ee5fa06b50b36776e1e337de389afcad537c32f6b4351ee66c6397e7333",
         "README.md": "ea69b6eb65f0335fe84ce65f56f36c08fb4a518bb1b98365f01c52e9cc042fa1",
-        "src/main.rs": "ab1e221ee8097f8af75dd7c15f5db0024055a470570a4c26f9c8c189c9e8ab7c"
+        "src/main.rs": "b8a75a1cd619f5c93075e4ae20da2184e52cc09c3f4a5b8ec84a243dd60dc4c9"
       }
     },
     "rightkit-transcript-library": {
@@ -3477,7 +3477,7 @@
       "files": {
         "Cargo.toml": "d403263debfa770521f34bd5f430fcabc0cd5d20021d462af1bf85abd5fab3ff",
         "README.md": "a2609b5cd24857cc56389197cd25e9fa45d8e232774282410105cb88a1a71ebe",
-        "src/main.rs": "a0b41ae20317bcdd9ea4bdb51f9c2fd811b9cb3c3e97f42a20934c5991d8965c"
+        "src/main.rs": "ecb3d91b7e744f77dd1f736dd54985be676b8555562433f537329f4aa20d2043"
       }
     },
     "rightkit-voice-commands": {
@@ -3972,7 +3972,7 @@
       "files": {
         "Cargo.toml": "334e6cec5e5c956f88bcfdbaa954d493b9ffe064ef6bfe119062da7f91edeaf3",
         "README.md": "216b8393e88e016cf60928075f8c268ccddcf215e18c4f55d217b0b5c958891a",
-        "src/main.rs": "f5644bbdf6951a74c3211ed76627ac46c68285fd4257636a7be4feb10041ee64"
+        "src/main.rs": "880df659883d834305c277ae09a2a88cb40bcd44d23061c3922d1ade53dbd46b"
       }
     },
     "rightkit-dictation-tauri": {
@@ -4305,7 +4305,7 @@
       "files": {
         "Cargo.toml": "f3e40ef2a22931c61a5b6e1230e4ea0b3ed9d7e7b6a6c088b2f16febfe6482ca",
         "README.md": "c7c77417ac53960cf9c6c847e4f1be2dbbcb71c319cb60c002ad84e8236ed546",
-        "src/main.rs": "dcc50aa60885d6db93186f200aa1ed52532214ff922e79865ad408bd0c54e940"
+        "src/main.rs": "a7a5ac9cfb9bfb880216e42b289ac80b71ea89172c58ca68c6e8f9c2f6e3bc31"
       }
     }
   }
