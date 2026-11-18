@@ -210,7 +210,8 @@ export function reclaimLine(text) {
   return m ? { token: m[1], from: m[2].trim(), proof: m[3] } : null;
 }
 
-const STAGE_FIELDS = ["ok", "at", "ruleTier", "direct", "qualifyOwed", "outputs", "snapshot", "snapshotLock", "platform", "sealed", "manifestSha256", "voided", "track", "qaReceiptDigest", "tier"];
+// `limitedEvidence`: the compile stage's list of type-check-only cross rows, which NN38 requires; the schema refused it until 2026-11-18, so NN38 could never pass.
+const STAGE_FIELDS = ["ok", "at", "ruleTier", "direct", "qualifyOwed", "limitedEvidence", "outputs", "snapshot", "snapshotLock", "platform", "sealed", "manifestSha256", "voided", "track", "qaReceiptDigest", "tier"];
 const BINDING_FIELDS = ["tree", "locks", "gate", "toolchain", "executor"];
 
 /**

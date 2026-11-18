@@ -20,6 +20,11 @@ function telemetryOf(row) {
  * The report for `plan` (the planned scans, `plan.scans`) and `scanResult` (runScans' rows). `keys` is a Map of scan id -> the input key the cache
  * looked the scan up under (null or absent: the scan is never cached or no key could be formed). `classes` are the classes this pass runs.
  */
+/** A cross-target row (id `<scan>@<target triple>`): a type check against stand-ins that never links, so limited evidence (GC-A14, NN38). */
+export const isCrossTargetRow = (id) => /@[^@:]+$/.test(String(id));
+/** The rows of a coverage report that are limited evidence, for the receipt's `stages.compile.limitedEvidence`. */
+export const limitedEvidenceOf = (report) => (report?.scans ?? []).filter((r) => r.evidence === "type-check-only").map((r) => ({ id: r.id, evidence: r.evidence }));
+
 export function buildCoverageReport({ plan, scanResult, keys = new Map(), keyErrors = new Map(), cacheDisabled = null, classes = ["A", "B"], commit = null, startedAt = null, endedAt = null }) {
   const rows = new Map((scanResult?.scans ?? []).map((row) => [row.id, row]));
   const scans = (plan?.scans ?? []).map((scan) => {
@@ -27,8 +32,9 @@ export function buildCoverageReport({ plan, scanResult, keys = new Map(), keyErr
     const key = keys.get(scan.id) ?? null;
     const telemetry = telemetryOf(row);
     if (row) {
-      if (row.cached === true) return { id: scan.id, class: scan.class, ...telemetry, coverage: "hit", status: row.status, key, reason: row.detail ?? "answered from the result cache" };
-      if (row.status === "pass" || row.status === "fail") return { id: scan.id, class: scan.class, ...telemetry, coverage: "ran", status: row.status, key, reason: key === null ? ((keyErrors.get(scan.id) ?? row.cacheKeyError) ? `no cache key: ${keyErrors.get(scan.id) ?? row.cacheKeyError}` : cacheDisabled ?? "no cache key (this scan is never cached, or no key could be formed)") : "no cached result for this key", ...(row.code ? { code: row.code } : {}) };
+      const limited = isCrossTargetRow(scan.id) ? { evidence: "type-check-only" } : {};
+      if (row.cached === true) return { id: scan.id, class: scan.class, ...telemetry, ...limited, coverage: "hit", status: row.status, key, reason: row.detail ?? "answered from the result cache" };
+      if (row.status === "pass" || row.status === "fail") return { id: scan.id, class: scan.class, ...telemetry, ...limited, coverage: "ran", status: row.status, key, reason: key === null ? ((keyErrors.get(scan.id) ?? row.cacheKeyError) ? `no cache key: ${keyErrors.get(scan.id) ?? row.cacheKeyError}` : cacheDisabled ?? "no cache key (this scan is never cached, or no key could be formed)") : "no cached result for this key", ...(row.code ? { code: row.code } : {}) };
       return { id: scan.id, class: scan.class, ...telemetry, coverage: "skipped", status: row.status, key, reason: row.detail ?? row.status };
     }
     return { id: scan.id, class: scan.class, ...telemetry, coverage: "skipped", status: "not-in-pass", key, reason: classes.includes(scan.class) ? "planned but no result was returned" : `class ${scan.class} is not part of this pass (classes ${classes.join("+")})` };

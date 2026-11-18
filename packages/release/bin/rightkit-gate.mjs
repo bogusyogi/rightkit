@@ -90,7 +90,7 @@ import { ALL_UNITS_ERRORS, ALL_UNITS_EXCEPTIONS_FILE, BROKER_EXCEPTIONS_FILE, BR
 import { SIGNING_REFUSAL_CODES, suiteSigningRefusals } from "../suite-signing-policy.mjs";
 import { gitListRustFiles } from "../signing-files.mjs";
 import { nativeHelpersFromConfig } from "../native-helpers.mjs";
-import { buildCoverageReport, seconds, writeCoverageReport } from "../gate-coverage.mjs";
+import { buildCoverageReport, limitedEvidenceOf, seconds, writeCoverageReport } from "../gate-coverage.mjs";
 import { renderViews, renderViewsOf } from "../render-views.mjs";
 import { LINUX_BROKER_ROUTE, NO_BROKER_ENV, directCargoPath, directPlatform, managedRuntimeClient, realCargoOf, runCargoSync } from "../managed-cargo.mjs";
 import { createBrokerLive } from "../broker-admission.mjs";
@@ -2120,12 +2120,14 @@ async function runStages(o, args, root, git, io) {
         if (ds.carriedOutputs?.size) ok = await admissionDryRun("after the sidecars were staged, before the app compiles");
         else o.out(`${tag} [compile] release admission dry-run skipped here: no broker receipt names the app's Cargo target yet; the package stage's build runs the same admission rows at its start`);
       }
-      let compiledDirs = []; let compiledBins = null; let qualifyOwed = [];
+      let compiledDirs = []; let compiledBins = null; let qualifyOwed = []; let limitedEvidence = [];
       const reportOutputs = (dirs, bins = null) => { compiledDirs = [...dirs]; compiledBins = bins; };
-      if (ok) ok = (await (o.runCompile ?? (() => main(ds ? ["--all", "--commit", commit, "--snapshot", ds.path] : ["--all"], { ...io, cwd: root, readStdin: () => "", ...(ds ? { snapshotLock: ds.lock, classAEarlier: true, seamScope: appDir === "." ? null : [appDir], snapshotLedger: ds.ledger?.entries ?? [], onCompileLedger: (entries) => { ds.compileAdmitted = entries; }, onDirectReceipt: (r) => { directReceipt = r; }, onCompileOutputs: reportOutputs, onQualifyOwed: (list) => { qualifyOwed = list; } } : {}) })))({ reportOutputs })) === 0;
+      if (ok) ok = (await (o.runCompile ?? (() => main(ds ? ["--all", "--commit", commit, "--snapshot", ds.path] : ["--all"], { ...io, cwd: root, readStdin: () => "", ...(ds ? { snapshotLock: ds.lock, classAEarlier: true, seamScope: appDir === "." ? null : [appDir], snapshotLedger: ds.ledger?.entries ?? [], onCompileLedger: (entries) => { ds.compileAdmitted = entries; }, onDirectReceipt: (r) => { directReceipt = r; }, onCompileOutputs: reportOutputs, onQualifyOwed: (list) => { qualifyOwed = list; }, onLimitedEvidence: (list) => { limitedEvidence = list; } } : {}) })))({ reportOutputs })) === 0;
       if (directReceipt) extra = { ...extra, direct: directReceipt };
       // What the plan left to the qualify stage is recorded with the compile, so qualification can prove it is not lost (rightkit#1332, #1333).
       if (qualifyOwed.length) extra = { ...extra, qualifyOwed };
+      // Cross-target rows type-check against stand-ins and never link: listed as limited evidence so no qualification can cite them (GC-A14, NN38).
+      if (limitedEvidence.length) extra = { ...extra, limitedEvidence };
       // What this compile produced, recorded with its result so a later run can prove the outputs are still there (GB-13).
       if (ok) extra = { ...extra, outputs: compileOutputsRecord({ dirs: compiledDirs, env: o.env, builtBins: compiledBins }) };
       // The cross-check with `.rightkit/compile-inputs.json`: a declared input that covers ledger entries must carry the digest of those
@@ -5243,6 +5245,7 @@ export async function main(argv, io = {}) {
     // rightkit#1463: the per-scan coverage report (hit / ran / skipped, with the cache key and the reason), written beside the scan logs; a cache that never hits shows here.
     try {
       const report = buildCoverageReport({ plan, scanResult, keys: scanKeys, keyErrors, cacheDisabled, classes: classAOnly ? ["A"] : classAEarlier ? ["B"] : ["A", "B"], commit: snapshotBCommit?.commit ?? snapshotCommitId?.commit ?? hostedCommitA?.commit ?? null, startedAt: new Date(directTiming.cargoStart).toISOString(), endedAt: new Date(directTiming.cargoEnd).toISOString() });
+      o.onLimitedEvidence?.(limitedEvidenceOf(report));
       const base = gateRunsRoot({ env: o.env, platform: o.platform });
       const file = (o.writeCoverage ?? writeCoverageReport)({ dir: path.join(base, "rightkit-gate-coverage"), name: `${path.basename(root)}-${new Date().toISOString().replace(/[:.]/g, "-")}-${process.pid}`, report });
       const otherPass = (report.scans ?? []).filter((s) => s.coverage === "skipped" && /is not part of this pass/.test(String(s.reason ?? ""))).length;
