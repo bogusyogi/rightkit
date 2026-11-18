@@ -102,9 +102,48 @@ export async function capturePostClassADiagnostics({ checkout, snapshot, commit,
   } catch { /* diagnostics never change the gate result */ }
 }
 
+/**
+ * NN12, Windows: the program `pnpm` starts, named by its bytes, or null when it cannot be named exactly (then preparation runs, as before).
+ * Found as the gate starts it (deterministic-scans.mjs resolveInvocation: PATH and PATHEXT, never the current directory). Recognised:
+ *   - a cmd shim whose one `%*` line runs `"%~dp0\<path>"`: the path as written when it has an extension, else what cmd runs for it, the
+ *     first of `<path>.exe` / `<path>.com` beside it (pnpm 11+'s global install: `pnpm.CMD` runs `...\node_modules\pnpm\pnpm`, which cmd
+ *     completes to the native `pnpm.exe`). A `.js`/`.cjs`/`.mjs` target counts with the node that runs it (this process's).
+ *   - a `pnpm.exe` / `pnpm.com` found directly.
+ * Anything else (corepack, a version manager, a shim with several commands or a variable) is not named. Every file is hashed in full.
+ * Exported for its test; `platform`, `exists`, `readFile` and `execPath` are injectable.
+ */
+export function windowsPnpmIdentity(env, { exists = (f) => { try { return fs.statSync(f).isFile(); } catch { return false; } }, readFile = (f) => fs.readFileSync(f), execPath = process.execPath } = {}) {
+  const w = path.win32;
+  const pathKey = Object.keys(env ?? {}).find((k) => k.toLowerCase() === 'path');
+  const exts = String(env?.PATHEXT || '.COM;.EXE;.BAT;.CMD').split(';').filter(Boolean).map((e) => e.toLowerCase());
+  let found = null;
+  for (const dir of String(env?.[pathKey] ?? '').split(';').filter(Boolean)) {
+    if (!w.isAbsolute(dir)) continue;
+    for (const ext of exts) { const f = w.join(dir, `pnpm${ext}`); if (exists(f)) { found = f; break; } }
+    if (found) break;
+  }
+  if (!found) return null;
+  const named = (f) => [f, hash(readFile(f))];
+  if (/\.(exe|com)$/i.test(found)) return [named(found)];
+  if (!/\.(cmd|bat)$/i.test(found)) return null;
+  const text = readFile(found).toString('utf8');
+  const runs = text.split(/\r?\n/).filter((l) => l.includes('%*'));
+  if (runs.length !== 1) return null;
+  const m = /^\s*@?"%~dp0\\?([^"%]+)"\s+%\*\s*$/.exec(runs[0]);
+  if (!m) return null;
+  const target = w.resolve(w.dirname(found), m[1]);
+  if (/\.(m?js|cjs)$/i.test(target)) return exists(target) ? [named(found), named(target), named(execPath)] : null;
+  if (w.extname(target)) return null;
+  for (const ext of ['.exe', '.com']) {
+    if (!exists(target + ext)) continue;
+    const bytes = readFile(target + ext);
+    return bytes.subarray(0, 2).toString('latin1') === 'MZ' ? [named(found), [target + ext, hash(bytes)]] : null;
+  }
+  return null;
+}
+
 function pnpmIdentity(env) {
-  // Do not infer Windows cmd/corepack dispatch or arbitrary shell programs.
-  if (process.platform === 'win32') return null;
+  if (process.platform === 'win32') return windowsPnpmIdentity(env);
   for (const dir of String(env.PATH ?? '').split(path.delimiter)) {
     if (!dir || !path.isAbsolute(dir)) continue;
     const p = path.join(dir, 'pnpm');
