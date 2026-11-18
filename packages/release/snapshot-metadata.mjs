@@ -123,7 +123,13 @@ export const carriedReadOnlyScan = (words, options) => carriedScanRefusal(words,
  * second run can only repeat the first. Only a successful call that streams to no file is kept (a failure is never replayed), keyed on the snapshot
  * directory it ran in and its exact words; every other call (fetch, deny, audit, package, fmt) always runs.
  */
-export function directReadSpawn({ spawn, cargoCommand, snapshotRoot, directPath, pathKey = "PATH", tmpRoot, env, err = () => {}, memo = null, isAsync = false }) {
+/**
+ * `served({ cwd, args })`: optional; asks the resident gate for a `cargo metadata` answer it holds for this snapshot while the snapshot is unchanged
+ * (gate-serve.mjs snapshotCargoMetadata). Returns `{ status, stdout, stderr }` when the resident gate answered, else null, and the call runs here as
+ * before. NN10: each warm run asked Cargo for every workspace's metadata again (6 `cargo metadata` starts per warm run of the witness fixture,
+ * 2026-11-17) although the resident gate keeps those answers.
+ */
+export function directReadSpawn({ spawn, cargoCommand, snapshotRoot, directPath, pathKey = "PATH", tmpRoot, env, err = () => {}, memo = null, isAsync = false, served = null }) {
   const prefix = cargoCommand.slice(1);
   const refused = (code, message) => { err(`rightkit-gate: ${code}: ${message}`); return { status: CARGO_REFUSAL_STATUS, signal: null, error: null, stdout: "", stderr: `rightkit-gate: ${code}: ${message}\n` }; };
   return (cmd, args, opts = {}) => {
@@ -138,6 +144,10 @@ export function directReadSpawn({ spawn, cargoCommand, snapshotRoot, directPath,
     const memoKey = memo && words[0] === "metadata" && opts.stdoutFile === undefined ? `${real(opts.cwd)}\0${words.join(" ")}` : null;
     if (memoKey !== null && memo.has(memoKey)) { const hit = { ...memo.get(memoKey) }; return isAsync ? Promise.resolve(hit) : hit; }
     const remember = (result) => { if (memoKey !== null && result && !result.error && result.status === 0 && typeof result.stdout === "string") memo.set(memoKey, { status: 0, signal: null, error: null, stdout: result.stdout, stderr: result.stderr ?? "" }); return result; };
+    if (typeof served === "function" && words[0] === "metadata" && opts.stdoutFile === undefined) {
+      let answer = null; try { answer = served({ cwd: opts.cwd, args: words }); } catch { answer = null; }
+      if (answer && answer.status === 0 && typeof answer.stdout === "string") { const r = remember({ status: 0, signal: null, error: null, stdout: answer.stdout, stderr: answer.stderr ?? "" }); return isAsync ? Promise.resolve(r) : r; }
+    }
     let scratch;
     try { fs.mkdirSync(tmpRoot, { recursive: true }); scratch = fs.mkdtempSync(path.join(tmpRoot, "rk-class-a-cargo-")); }
     catch (e) { return refused("RK_CLASS_A_SCRATCH", `cannot create a scratch target under ${tmpRoot}: ${e.message}`); }

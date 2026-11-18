@@ -4536,8 +4536,19 @@ export async function main(argv, io = {}) {
         // One memo for the run (rightkit#1460): the unit discovery's `metadata --no-deps --locked` and the Class A `cargo-metadata` scan of the same
         // workspace are the same call on the same verified snapshot, so the scan reuses the discovery's result instead of running Cargo again.
         const readMemo = new Map();
-        snapshotSpawn = directReadSpawn({ spawn: withDeclaredClient((c, a, opts) => o.spawn(c, a, opts)), ...readOpts, memo: readMemo });
-        scanSpawn = directReadSpawn({ spawn: withDeclaredClient(defaultSpawnAsync), ...readOpts, memo: readMemo, isAsync: true });
+        // NN10: a metadata read is answered by the resident gate when it holds one for this unchanged snapshot (only for the real spawn: a test's
+        // injected spawn sees every call). Asked with the direct cargo by its path and the same environment minus the per-call scratch target, so
+        // the resident gate's key is the same from run to run.
+        const served = o.spawn === defaultSpawn && direct.cargo ? await (async () => {
+          const { snapshotCargoMetadata } = await import("../gate-serve.mjs");
+          const { snapshotRoot: snapshotRootOf } = await import("../snapshot.mjs");
+          let rootDir = null; try { rootDir = snapshotRootOf({ env: o.env }); } catch { rootDir = null; }
+          if (!rootDir) return null;
+          const servedEnv = { ...o.env, [pathKey]: direct.path };
+          return ({ cwd, args }) => { const r = snapshotCargoMetadata({ cwd, args, cargo: direct.cargo, env: servedEnv, snapshotRootDir: rootDir, run: () => ({ status: null }) }); return r.served ? r : null; };
+        })() : null;
+        snapshotSpawn = directReadSpawn({ spawn: withDeclaredClient((c, a, opts) => o.spawn(c, a, opts)), ...readOpts, memo: readMemo, served });
+        scanSpawn = directReadSpawn({ spawn: withDeclaredClient(defaultSpawnAsync), ...readOpts, memo: readMemo, isAsync: true, served });
       }
       npm = discoverNpmUnits({ root: repo, tracked, readFile: readSnap, exists: o.exists });
       npmRoots = discoverPnpmRoots({ root: repo, tracked, exists: o.exists });
