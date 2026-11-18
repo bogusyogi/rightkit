@@ -16,7 +16,9 @@ This file tracks the current work order under [reset steps 4–8](2026-11-07-gat
 
 ## Before 5c
 
-Muse's held-out prediction SHA-256 is `9cf3ec3c24a581cb9738f6398799b96d29f2b15f996399da8fbf10d39e0ff0f2`. Codex verified the file digest without reading its row list. Muse reports deriving it from sealed baseline keys & fixture semantics before seeing Fable's held-out prediction. Its [warm metadata supplement](/D:/scratch/loop-review/inventory/5b-classA-S2-supplement.md) has SHA-256 `6a88dcb8703275b1dab597d3c97bfad9684acfd12f183942d76c72d6795991bf`. The 5b v1 digest is unchanged. Fable's held-out hash is pending.
+Muse's held-out prediction SHA-256 is `9cf3ec3c24a581cb9738f6398799b96d29f2b15f996399da8fbf10d39e0ff0f2`. Muse reports deriving it from sealed baseline keys & fixture semantics before seeing Fable's held-out prediction. Its [warm metadata supplement](/D:/scratch/loop-review/inventory/5b-classA-S2-supplement.md) has SHA-256 `6a88dcb8703275b1dab597d3c97bfad9684acfd12f183942d76c72d6795991bf`; 5b v1 is unchanged.
+
+Fable's held-out production prediction SHA-256 is `39b1dc51817caccb535e0e6f7b172457b62bb24276af51b2521948332441586d`. Fable reports it did not open Muse's prediction. Codex verified both file digests & recorded them here before opening either row list.
 
 1. Preserve both reviewed revisions. Fable records the corrected hash. Muse supplies a concrete paired control where the hit total stays correct, two identified rows swap dispositions, the report names both & stage dispatch stays zero. Give the corresponding matching case. Mark any unresolved control as a blocker for its own case.
 2. Reconcile warm reuse with the six planner metadata commands that repeat cached row work. Naming a command in the forecast accounts for its start. It does not establish that the work was reused. For multi-file fixture edits, specify exact dependent rows & collateral invalidations from the fixture graph.
