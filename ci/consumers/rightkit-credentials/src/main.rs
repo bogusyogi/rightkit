@@ -284,6 +284,7 @@ fn native_db() -> Result<()> {
 }
 
 fn main() -> Result<()> {
+    slots_surface();
     match std::env::args().nth(1).as_deref() {
         Some("core") => core(),
         Some("native-helper") => {
@@ -296,4 +297,31 @@ fn main() -> Result<()> {
         }
         _ => require(false, "usage: consumer core|native-helper|native-db"),
     }
+}
+
+fn slots_surface() {
+    use rightkit_credentials::slots::{Slot, SlotOutcome, SlotSnapshot, SlotStore};
+    use rightkit_credentials::Interaction;
+    let _slot = Slot::new("consumer-slot", "consumer-slot");
+    let _new = SlotStore::new;
+    let _slots = SlotStore::slots;
+    let _read = SlotStore::read;
+    let _read_with = SlotStore::read_with;
+    let _read_all = SlotStore::read_all;
+    let _read_all_with = SlotStore::read_all_with;
+    let _retry = SlotStore::read_all_retrying;
+    let _write = SlotStore::write;
+    let _clear = SlotStore::clear;
+    let _classify = SlotOutcome::classify;
+    let _present = SlotOutcome::is_present;
+    let _failure = SlotOutcome::is_failure;
+    let _text = SlotOutcome::text;
+    let _label = SlotOutcome::label;
+    let _snapshot = std::mem::size_of::<SlotSnapshot>();
+    let _get = SlotSnapshot::get;
+    let _iter = SlotSnapshot::iter;
+    let _any_failure = SlotSnapshot::any_failure;
+    let _take = SlotSnapshot::take;
+    let _interaction = Interaction::NonInteractive;
+    // No Store is opened and no credential slot is read or written.
 }

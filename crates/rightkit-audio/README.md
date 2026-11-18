@@ -10,6 +10,7 @@ Catalog capability: `audio`.
 - Measurement and offline renders (`measure`, `profile`). These run FFmpeg through `rightkit-ffmpeg`, so cancellation, timeout and process-tree ownership are uniform.
 - WAV I/O (`wav`): `read_wav_mono_f32`, `read_wav_16k_mono`, `write_wav_mono_i16`.
 - Live capture (`capture`, feature `capture`) and the Windows endpoint and power lifecycle (`lifecycle`).
+- Setup metering & calibration (`setup`, feature `capture`): epoch-owned microphone meter, bounded PCM recorder & restore-once host media guard.
 - Audio output (`playback`, feature `playback`): `list_output_devices`, `OutputSession` (push, pause, resume, flush, volume, mute, clock, counters, device-loss recovery) and the `OutputControl` handle for other threads.
 - One-shot playback (`playback::play_once`, feature `playback`): decode a WAV and play it to the default output device, blocking until it ends.
 - Mic-to-camera lag (`mic_align`: `align_mic`) and equal-power looped room-tone fill (`room_fill`: `room_tone_fill`, `room_tone_bed`).
@@ -92,3 +93,13 @@ A hosted runner has none of these assets, so each test prints `SKIP <test>: ...`
 
 - `tests/audio_e2e.rs`, `filter_graph_render_is_measurable_and_wav_round_trips` and `ducking_and_room_tone_render_have_content_changes`: a development FFmpeg, enabled by `RIGHTKIT_FFMPEG=<path>` or one of the candidate paths in `rightkit_ffmpeg::dev_resolve`.
 - `tests/audio_e2e.rs`, `resampler_and_capture_gate_are_explicit` (the capture half): a loopback input device (BlackHole, Loopback or Soundflower), enabled by installing one. The resampler assertions run on every host.
+
+## Setup metering & calibration
+
+`setup::mic_meter::{MicMeter, MeterConfig, MeterEvent, MeterStatus, MeterStartError, level}` provides metering with first-buffer probing, one reopen & stale-epoch protection. Use `begin` then `start`; call `stop` on setup exit, hide, suspend & close. Stop invalidates its epoch; worker drops its stream after its current bounded read. Reopen drops old stream before opening its replacement.
+
+`setup::calibration_capture::{Recorder, CaptureSettings, CaptureDevice, StartHooks, StartError, StopOutcome, CancelOutcome}` provides session-owned calibration capture. Start supersedes prior recording. Stop returns unconditioned mono f32 samples; cancel discards them. Stop, cancel, supersede & recorder drop stop & join workers. Sample ceiling, wall-clock deadline or capture failure releases microphone. Each blocking read waits at most 500 ms & at most remaining wall-clock budget; stalled callbacks cannot extend recording indefinitely. Media restoration uses `setup::media_guard::{MediaLifecycle, MediaPauseGuard}` & runs once per guard.
+
+Helpers: `selected_capture_device(choose)`, `f32le_bytes(samples)` & `sweep_files_with_extension(dir, extension)`. Host supplies device policy, settings, session ids, stale-file cleanup, media callbacks & renderer events. Callbacks must return normally & avoid re-entering their meter or recorder.
+
+Constructors open no microphone. Call `start` only for an explicit user action after verifying an existing OS microphone grant; host owns permission requests. This module never conditions calibration PCM or starts recognition. Cancel recording when setup exits or its window hides, suspends or closes.

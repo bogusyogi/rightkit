@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.14
+
+- Added `resolve_bundled_app` & `resolve_app_in_bundle` for canonical nested `.app` discovery inside host bundles, rejecting path traversal, symlink escapes, plain files & aliases to host bundle itself. Resolution verifies placement only & never launches a helper.
+- Added detection-only `probe_codesign(path, event_sink)`: macOS signature diagnostics use an owned process with twenty-second wait plus bounded cleanup; other platforms return immediately. Signature validity does not establish expected helper identity or authorize notification actions.
+
 ## 0.5.13
 
 - Fixed (Windows): `OwnedChild::tree_members` no longer lists a member that has already exited. The member list is read from the job first and the console-host check ran afterwards, so a `conhost.exe` that exited in between was treated as unidentified and kept, and a caller recording survivors saw a false "descendant outlived the child" (`membrane where --json` on windows-2025, publish verify). A member missing from a readable process table, or gone while it is identified, is dropped; the leader's console host is also recognised by its table command line when its image cannot be read. A process table that cannot be read still excludes nothing. Source only: not compiled for a run or run on Windows.

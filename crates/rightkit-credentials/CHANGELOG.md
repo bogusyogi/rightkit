@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.6
+
+- Added `slots`: explicit app-owned credential slots, per-read interaction policy,
+  distinct missing/refused/inaccessible outcomes & one optional read retry.
+- Added `SlotStore::clear_many` / `clear_all`: attempt remaining declared slots
+  after deletion failures & return every per-slot outcome. Deletion preserves OS
+  authorization & guards without imposing licence entitlement checks.
+
 ## 0.5.5
 
 - `secure_prompt::set_unsupported_message`: the host sets the error `secure_prompt::ask` returns on a system with no native prompt (default unchanged).

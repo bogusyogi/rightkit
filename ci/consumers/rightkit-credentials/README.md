@@ -1,6 +1,6 @@
-# Credentials R2 consumer
+# Credentials 0.5.6 R2 consumer
 
-Prepared source only. No Cargo command, native run, packaging, registry resolution or publication performed. `Cargo.toml` deliberately contains invalid version placeholders until publisher supplies exact qualified credentials & DB versions; no Cargo.lock supplied.
+Standalone source recipe pins `rightkit-credentials =0.5.6` with `db-adapter`. Added provider-slot surface references construct no store and read or write no secret values. Existing core, native DB & signed-helper checks remain unchanged.
 
 ## Coverage
 

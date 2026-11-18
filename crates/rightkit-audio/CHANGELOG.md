@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.5 (unpublished)
+
+- Added `setup` under feature `capture`: microphone metering, bounded calibration recording & host media restoration. Device policy, renderer events, settings & file ownership stay with host. Calibration PCM stays unconditioned.
+- Calibration deadline also caps elapsed time when callbacks stall; blocking reads use remaining budget, then release stream before restoring media.
+- Meter reopen drops prior stream first & serializes opens against stop. Recorder stop, cancel & supersede serialize worker teardown; recorder drop stops & joins its worker. Constructors open no device; hosts start only from user action with existing OS grants.
+
 ## 0.3.4 (unpublished)
 
 - Fixed: `prewarm_ring_storage` left an unused binding after the debug assertion it fed was removed, so `-D warnings` clippy failed the crate. Behaviour unchanged.

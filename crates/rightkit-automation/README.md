@@ -120,3 +120,13 @@ Published version: see [INDEX.md](../../INDEX.md). Changes are listed in [CHANGE
 - Dependency: `windows` 0.62 under `cfg(windows)`, with features Foundation, Graphics_Gdi, Security, Storage_FileSystem, Storage_Xps, System_Com, System_DataExchange, System_JobObjects, System_Memory, System_Ole, System_Threading, System_Variant, UI_Accessibility, UI_HiDpi, UI_Input_KeyboardAndMouse and UI_WindowsAndMessaging. Consumers enable no Windows features. `WinPlatform::new()` sets per-monitor DPI awareness v2 and joins the COM MTA on the calling thread; `WinPlatform::new_minimal()` does neither (see its doc comment for what that leaves to the host). 
 - Run on a Windows host: `rustright cargo test -p rightkit-automation --test e2e_win -- --nocapture`. The test header says it has not been run on Windows.
 - Raw input (`win::input`): `send_input_batch(&[RawInput])` is one `SendInput` call from typed key, Unicode and mouse items, with an optional `dwExtraInfo` tag (`SendOptions`). `ModifierSnapshot` records held modifiers so a caller that releases them can restore them. No policy, focus or receipt checks: it is for hosts that own their own policy. Unit tests build the `INPUT` array without injecting.
+
+## Paste evidence addition (0.7.1 partial candidate)
+
+Enable `desktop-context` for macOS `desktop::paste_event_probe`. `PasteEventProbe::start` observes one PID & one nonzero host-generated paste tag, records at most eight Cmd+V transitions for at most two seconds & returns no text content. Listen-only taps retain normal OS permission checks; unavailable evidence returns `None`. User-disabled tap state stops observation. `finish` or Drop stops & joins its run loop.
+
+Windows `uia_worker` & `wezterm` extraction remains withheld: synchronous provider calls cannot currently prove safe bounded teardown. Existing 0.7.0 Windows APIs remain unchanged. macOS compilation, permission refusal, event correlation & cleanup require installed-host qualification before adoption.
+
+### Windows link evidence prerequisite
+
+`win::uia::point_link_state(x, y, max_ancestors)` returns `PointLinkState::{Link, NotLink, Unknown}`. `NotLink` requires readable control types & successful root comparisons through desktop root. Lookup/read/parent/comparison errors, an unavailable root & exhausted ancestor limits return `Unknown`. `point_is_hyperlink` keeps its existing boolean behavior. Both calls are synchronous; neither adds cancellation or hook-thread latency guarantees.

@@ -7,4 +7,4 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-transcript-library = { version = "=0.1.3" }
+rightkit-transcript-library = { version = "=0.1.4", features = ["store"] }

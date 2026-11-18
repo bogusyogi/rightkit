@@ -1,8 +1,7 @@
 //! Vocabulary store — pure data + operations (no disk, no globals).
 //!
-//! The disk-backed singleton (load/save, `dirs` path, `Mutex<OnceLock>`) lives
-//! in the host application and delegates the actual mutations here so
-//! they can be unit-tested deterministically (time is passed in, not read).
+//! Feature `store` adds host-configured persistence through `vocabulary_store`.
+//! Pure mutations accept caller-supplied time.
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;

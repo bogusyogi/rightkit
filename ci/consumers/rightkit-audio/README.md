@@ -1,9 +1,10 @@
-# rightkit-audio 0.3.1 registry consumer
+# rightkit-audio 0.3.5 registry consumer
 
-Standalone consumer, outside the workspace, pinning `rightkit-audio =0.3.1` exactly with default
-features off. That is the feature set CutRight's engine and project crates, ScrapeRight's speech
+Standalone consumer, outside the workspace, pinning `rightkit-audio =0.3.5` exactly with default
+features off and `capture` enabled only to expose setup API. That is the feature set CutRight's engine and project crates, ScrapeRight's speech
 crate, GenRight's studio crate and HeardRight's inference crate use: the typed filter graphs,
-measurement maths, WAV and room-tone surface, with no cpal. It also depends on `serde_json = "1"` to
+measurement maths, WAV and room-tone surface. It enables `capture` solely to type-check setup APIs;
+it never opens a device or captures audio. It also depends on `serde_json = "1"` to
 read and write the preset and chain JSON. The crate's pure surface has no platform-specific code, so
 the same recipe runs on Windows and macOS in hosted qualification.
 
@@ -46,10 +47,11 @@ What it proves, in plain sentences, through the public API only:
 - The `Display` text of each `AudioError` variant that can be built without FFmpeg.
 
 What it deliberately does not prove: anything that starts FFmpeg (`AudioTools` loudness, `astats`,
-renders and `capture_room_tone`, which need an FFmpeg binary), the `capture` feature (cpal capture,
+renders and `capture_room_tone`, which need an FFmpeg binary), live `capture` behavior (cpal capture,
 `list_input_devices`, the CoreAudio probe and the Windows endpoint and power lifecycle) and the
-`playback` feature (`OutputSession`, `play_once`), because they need an audio device. Those features
-are off in this recipe and are covered by the crate's own device-gated tests. Numbers that go through
+`playback` feature (`OutputSession`, `play_once`), because they need an audio device. Playback stays
+off; capture is enabled only for public API coverage, and this consumer never starts a capture
+session. Numbers that go through
 `pow` or `log10` are compared to a tolerance, or are text whose digits are far from a rounding
 boundary, so the result does not depend on a platform math library.
 

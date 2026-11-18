@@ -33,6 +33,8 @@ pub mod preset;
 pub mod profile;
 pub mod room_fill;
 pub mod room_tone;
+#[cfg(feature = "capture")]
+pub mod setup;
 pub mod wav;
 
 pub use bus::{dialogue_bus_fragment, GraphFragment};

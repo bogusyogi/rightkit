@@ -2,6 +2,8 @@
 
 ## 0.4.17
 
+- Add `ordered_write::{OrderedWriteQueue, WriteTicket}` behind `fs`: ordered saves, queue-bound tickets, automatic cancellation on drop & turn release on errors or unwind. Refused-load state lets hosts protect unreadable files.
+
 - Add Windows executable pinning and held-handle path resolution for installed helper authentication.
 
 ## 0.4.16

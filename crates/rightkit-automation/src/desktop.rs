@@ -145,3 +145,6 @@ pub fn verify_last_paste_undoable(
         UndoVerdict::TextChanged
     }
 }
+
+#[cfg(target_os = "macos")]
+pub mod paste_event_probe;

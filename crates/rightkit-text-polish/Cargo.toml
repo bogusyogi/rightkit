@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-text-polish"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Transcript polish: deterministic L0 cleanup (numbers, dates, inline edits, formatting, casing), spoken control and AI-transform command parsing, vocabulary replacements and learning."
@@ -13,7 +13,23 @@ include = ["src/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE
 name = "rightkit_text_polish"
 path = "src/lib.rs"
 
+[features]
+default = []
+store = ["dep:rightkit-fs", "dep:serde_json"]
+
 [dependencies]
 regex = "1"
 serde = { version = "1", features = ["derive"] }
 rightkit-voice-commands = { version = "0.1.0", path = "../rightkit-voice-commands" }
+rightkit-fs = { version = "0.4.17", path = "../rightkit-fs", default-features = false, features = ["fs"], optional = true }
+serde_json = { version = "1", optional = true }
+
+[package.metadata.rightkit]
+continuous = "held-resource"
+
+[[package.metadata.rightkit.resources]]
+api = "vocabulary_store::PersistedVocabulary"
+file = "src/vocabulary_store.rs"
+holds = ["memory"]
+scale = "one lazy vocabulary per store, proportional to loaded entries, aliases & suggestions, plus snapshots held by concurrent saves; no background thread, task, timer or retained file handle"
+release = "store Drop; a host static lasts until process exit"

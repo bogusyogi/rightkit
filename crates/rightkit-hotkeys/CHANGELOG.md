@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.5 (unpublished; partial extraction)
+
+- Added configurable `tap_hold` chord registration & `macos::holders` for existing Fn/middle-mouse tap primitives.
+- Carbon registration/release stays on main thread; timed-out queued registration cannot install later. Failed chord-action thread creation does not panic inside OS dispatch.
+- Windows low-level input bundle withheld pending safe UIA mouse-worker shutdown. Builds & installed shortcut behavior require qualification.
+
 ## 0.1.4 (unpublished)
 
 - Added (Windows): `windows::hub`, the one process-wide keyboard and mouse hook shared by several features, with an ordered handler chain (`add_key_handler`, `add_mouse_handler`, `remove`). The hub tracks the modifiers (`KeyContext`: Ctrl, Shift, Windows, which Alt and Shift side, repeat) and `physically_down`, never hands modifier keys to handlers, swallows the repeats and release of a key a handler swallowed (`release_swallowed` ends that early), passes injected keys and anything tagged with `own_tag` untouched, installs each hook only while it has handlers and puts them in again on `reinstall`. It is Pulse's key-layer hub, moved here from `rightkit-desktop-tweaks` 0.1.0 (`keys.rs`), where it was wired to Pulse's screenshots, snippets, tool wheel, copy burst and strip; those features now register their own handlers. Additive. Taken on the recommended option of the 2026-11-11 shape review, pending the owner's confirmation.

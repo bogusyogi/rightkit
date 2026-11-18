@@ -1,4 +1,4 @@
-// rightkit-child-process 0.5.7 registry consumer, outside the workspace.
+// rightkit-child-process 0.5.14 registry consumer, outside the workspace.
 //
 // The child is this same executable, started through std::env::current_exe with a `--child <mode>`
 // argument, so it exists on every runner without a shell, a network fetch or a second binary.
@@ -58,6 +58,7 @@ fn main() -> Result<(), Failure> {
     }
 
     let exe = std::env::current_exe()?;
+    bundle_resolution()?;
     let deadline = Duration::from_secs(30);
 
     // run: a zero exit with bounded stdout.
@@ -140,6 +141,21 @@ fn main() -> Result<(), Failure> {
         );
     }
 
-    println!("rightkit-child-process 0.5.7 registry consumer passed");
+    println!("rightkit-child-process 0.5.14 registry consumer passed");
+    Ok(())
+}
+
+fn bundle_resolution() -> Result<(), Failure> {
+    use rightkit_child_process::bundled_app::resolve_app_in_bundle;
+    let root = std::env::temp_dir().join(format!("rk-bundle-consumer-{}", std::process::id()));
+    let host = root.join("Host.app/Contents/MacOS/host");
+    let nested = root.join("Host.app/Contents/Library/LoginItems/Helper.app");
+    std::fs::create_dir_all(host.parent().unwrap())?;
+    std::fs::write(&host, b"synthetic host")?;
+    std::fs::create_dir_all(nested.join("Contents"))?;
+    let resolved = resolve_app_in_bundle(&host, "Contents/Library/LoginItems/Helper.app")?;
+    assert_eq!(resolved, Some(nested.canonicalize()?));
+    assert!(resolve_app_in_bundle(&host, "../Escape.app").is_err());
+    std::fs::remove_dir_all(root)?;
     Ok(())
 }

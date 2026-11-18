@@ -8,9 +8,14 @@
 //!   the trait in the host.
 //! - [`net`]: host of an absolute URL.
 //! - [`export`]: JSON, Markdown, plain text and CSV exports with host-provided wording.
+//! - `store` (feature `store`): keyed-connection history store. The host owns key custody,
+//!   rotation and recovery.
 
 pub mod delivery;
 pub mod history;
 pub mod net;
 
 pub mod export;
+
+#[cfg(feature = "store")]
+pub mod store;

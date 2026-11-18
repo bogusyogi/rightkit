@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-hotkeys"
-version = "0.1.4"
+version = "0.1.5"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Global shortcuts and low-level input hooks for Right Suite apps: chord parsing, conflict detection, CGEventTap/WH_KEYBOARD_LL primitives, push-to-talk state."
@@ -97,3 +97,24 @@ scale = "one LowLevelKeyboardHook (one thread) plus the bound-chord table; no th
 release = "Drop"
 
 # One Cargo workspace and lock per crate (rightkit#1285).
+
+[[package.metadata.rightkit.resources]]
+api = "tap_hold::register"
+file = "src/tap_hold.rs"
+holds = ["thread", "memory"]
+scale = "one registered chord set; Windows registration loop & short-lived callbacks for requested actions"
+release = "tap_hold::unregister releases holder; macOS schedules release on main thread"
+
+[[package.metadata.rightkit.resources]]
+api = "FnHotkeyHolder::start"
+file = "src/macos/holders.rs"
+holds = ["thread", "memory"]
+scale = "at most one existing FnHotkeyTap per holder; callbacks & settings are host inputs"
+release = "Drop of holder drops owned tap & releases callbacks"
+
+[[package.metadata.rightkit.resources]]
+api = "MiddleMouseHolder::spawn"
+file = "src/macos/holders.rs"
+holds = ["thread", "memory"]
+scale = "at most one existing MiddleMouseTap per holder"
+release = "Drop of holder drops owned tap & releases callbacks"

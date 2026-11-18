@@ -7,6 +7,7 @@
 //!   [`FileLock::acquire_shared`] takes a shared (reader) lock. [`LockKind`] picks POSIX record
 //!   locks (`Fcntl`, the default) or `flock(2)` (`Flock`) on Unix; [`probe_owner`] reads the
 //!   owner record without locking.
+//! - [`ordered_write`] (feature `fs`): mutation-ordered write tickets with automatic cancellation.
 //! - [`write_locks`] (feature `lock`): [`KeyedWriteLocks`], in-process write locks keyed by destination
 //!   (directory identity plus name, nonexistent leaf allowed, no permanent map) with an optional
 //!   cross-process lock file, to be used with [`AtomicWriter`].
@@ -87,6 +88,8 @@ pub mod migrate;
 pub mod names;
 #[cfg(feature = "fs")]
 pub mod netfs;
+#[cfg(feature = "fs")]
+pub mod ordered_write;
 #[cfg(feature = "fs")]
 pub mod owned_temp;
 pub mod plain;

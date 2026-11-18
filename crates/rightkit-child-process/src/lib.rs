@@ -1,5 +1,6 @@
 //! `OwnedCommand::inherit_handles_only` restricts inheritance to caller handles/fds plus stdio (Unix children inherit no other descriptor by default, `inherit_fds` adds some, `inherit_all_descriptors(true)` opts out); Windows requires `windows_spawn_config` for opaque Command settings.
 
+mod bundled_app;
 mod bundled_helper;
 mod capture;
 mod child_usage;
@@ -45,6 +46,7 @@ mod usage_pid;
 #[cfg(windows)]
 pub mod windows_job;
 
+pub use bundled_app::{probe_codesign, resolve_app_in_bundle, resolve_bundled_app};
 pub use bundled_helper::{
     is_team_id, login_item_in_bundle, login_item_in_bundle_with, resolve_bundled,
     resolve_bundled_login_item, resolve_bundled_login_item_with, resolve_in_bundle,

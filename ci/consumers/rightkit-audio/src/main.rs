@@ -1,6 +1,5 @@
-// rightkit-audio 0.3.1 consumed by exact registry pin (default features off, which is the filter
-// graph, measurement-maths, WAV and room-tone surface that CutRight's engine, ScrapeRight's speech
-// crate and GenRight use), outside the workspace.
+// rightkit-audio 0.3.5 consumed by exact registry pin (default features off, capture API enabled;
+// no capture operation runs), outside the workspace.
 //
 // Proves, through the public API and with no FFmpeg and no audio device: the typed filter text and
 // number formatting; the dialogue chain (validation of every stage, filter text, JSON defaults);
@@ -1219,6 +1218,7 @@ fn error_text() {
 }
 
 fn main() {
+    setup_api_surface();
     let scratch = std::env::temp_dir().join(format!("rk-audio-consumer-{}", std::process::id()));
     std::fs::create_dir_all(&scratch).expect("create consumer temp dir");
     filter_text();
@@ -1235,5 +1235,30 @@ fn main() {
     room_tone_fill_and_bed();
     error_text();
     std::fs::remove_dir_all(&scratch).expect("remove consumer temp dir");
-    println!("OK rightkit-audio 0.3.1 (registry consumer)");
+    println!("OK rightkit-audio 0.3.5 (registry consumer)");
+}
+
+fn setup_api_surface() {
+    use rightkit_audio::setup::calibration_capture::{CaptureSettings, Recorder};
+    use rightkit_audio::setup::mic_meter::{level, MeterConfig, MeterEvent, MeterStartError, MicMeter};
+    use rightkit_audio::capture::DeviceInfo;
+    use std::time::Duration;
+    use std::sync::Arc;
+    fn sink(_: &str, _: &str) {}
+    let _meter = MicMeter::new(sink);
+    let _recorder = Recorder::new(sink);
+    let _settings = CaptureSettings { sample_rate: 16_000, min_seconds: 30, target_seconds: 35, max_seconds: 120 };
+    let _config = MeterConfig { sample_rate: 16_000, block_ms: 20, confirm_level: 0.08, probe_timeout: Duration::from_secs(3) };
+    let _meter_start: fn(
+        &'static MicMeter,
+        u64,
+        MeterConfig,
+        fn(&[DeviceInfo]) -> Result<Option<usize>, String>,
+        Arc<dyn Fn(MeterEvent) + Send + Sync>,
+    ) -> Result<(), MeterStartError> = MicMeter::start;
+    let _recorder_start = Recorder::start;
+    let _recorder_stop = Recorder::stop;
+    let _recorder_cancel = Recorder::cancel;
+    assert!(level(0.316_227_76) > 0.99);
+    // No start method is called; this covers setup APIs without capturing audio.
 }

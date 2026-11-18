@@ -5,6 +5,7 @@
 //!   lexicon, optional host-supplied brand homophone repair, visual chunking) and parsing of
 //!   spoken control tails and AI-transform commands.
 //! - [`vocabulary`]: user vocabulary terms and replacement rules, applied after polish.
+//! - `vocabulary_store` (feature `store`): lazy loading & atomic ordered persistence.
 //! - [`vocab_learn`]: learns vocabulary suggestions from the user's own corrections.
 //!
 //! Spoken standalone-command recognition lives in `rightkit-voice-commands`; this crate uses it
@@ -13,3 +14,6 @@
 pub mod text_pipeline;
 pub mod vocab_learn;
 pub mod vocabulary;
+
+#[cfg(feature = "store")]
+pub mod vocabulary_store;

@@ -16,5 +16,8 @@ Moved into RightKit from HeardRight (`heardright_core`: `delivery`, `history`, `
 - `export::format_history`: JSON, Markdown, plain text and CSV output from delivery records.
   `ExportLabels` supplies user-visible wording; defaults are neutral English.
 
-The encrypted SQLCipher store remains in the app until its credential vault, sync scheduler and
-telemetry hooks are parameters.
+The optional `store` feature provides `store::DeliveryHistoryStore` over a keyed SQLite
+connection. It owns the `delivery_history` schema, queries, in-memory mirror and legacy JSON import
+with verification. A verified import preserves the plaintext source and emits a pending-cleanup
+event; safe identity-bound cleanup is not implemented. The host opens and keys the connection and
+retains key custody, rotation and recovery.

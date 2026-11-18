@@ -15,6 +15,7 @@ fn check(ok: bool, what: &str) -> bool {
 }
 
 fn main() {
+    store_api_surface();
     let mut all = true;
     let mut store = MemoryHistoryStore::default();
     let upserted = store.upsert_draft("s1", "hello world".to_string()).is_ok();
@@ -37,4 +38,17 @@ fn main() {
     if !all {
         std::process::exit(1);
     }
+}
+
+fn store_api_surface() {
+    use rightkit_transcript_library::store::DeliveryHistoryStore;
+    use rightkit_transcript_library::history::HistoryStore;
+    let _open_connection = DeliveryHistoryStore::open_connection;
+    let _connection = DeliveryHistoryStore::connection;
+    let _push = HistoryStore::push;
+    let _push_batch = HistoryStore::push_batch;
+    let _update = HistoryStore::update_transcript;
+    let _delete_matching = HistoryStore::delete_matching;
+    let _prune = HistoryStore::prune_before;
+    let _clear = HistoryStore::clear;
 }

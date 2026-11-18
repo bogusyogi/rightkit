@@ -2043,8 +2043,8 @@
       "id": "ci/consumers/rightkit-fs/src/main.rs",
       "files": {
         "Cargo.toml": "1bb0e0b9483525b52f60d9620ceffa6649a06bc4c29659a8d69580171ff945cc",
-        "README.md": "1e8c1f28c4b7e9d594c89bf23b6881c9b51a3d226091823cda07971d3e3da1bf",
-        "src/main.rs": "457e4dbf3385980a7e39f91b020318df0c44a3159c155cfdffceda2b8c6c6794"
+        "README.md": "84de36e6f006b76d1094d62dc02790e0b0b04a8de6ee7d656b5184649dd7753a",
+        "src/main.rs": "92f14bd741bce11868c7ad657674f7fd9a6892a4336c235e3858abe473bafd54"
       }
     },
     "rightkit-logs": {
@@ -2059,14 +2059,14 @@
       "pkId": "PK03",
       "id": "ci/consumers/rightkit-credentials/src/main.rs",
       "files": {
-        "Cargo.toml": "58eb5efade3267b4f529b30c33a3338b329fa6c213d7016c47e66f97fd4220b9",
+        "Cargo.toml": "a56f5408288e7407208910567cfa3872fddaebf6d263267799fbdea17b9f0c7d",
         "prepare_signed_helper.py": "5416b80b5b81ef50528033bbc9b91131a73c421a66764b3390331dd80fa0cd6c",
         "qualification-helper/entitlements.plist": "a6aa6260390ae45abe50cc5bed4d0dd2b922a67ac93f69bd58b86419666f123c",
         "qualification-helper/Info.plist": "8a865dfac7975ff5b0bd3315625676af43490ed611e3e31d2a823debc7b664ad",
         "qualification-helper/main.swift": "e1598bfca1122aa38060e09f95abce58b367023cfee8b9d43c1375b80f4b15a1",
         "qualification-helper/README.md": "99fea95aa2c38cd5ba15b373a77bbfb0de9f0746e8687a2a4a08f8fdd131e549",
-        "README.md": "8aae0e4630500f529171dd6399138807955ff55df50239cc749f277d5c26b32b",
-        "src/main.rs": "3732cd23cced5c6490d0caa2d45f478e94ecb54338090f883465e9004f18b577"
+        "README.md": "71380dfd989620b50cf21673258c90fea66d1847a225d7e694647278a3500e23",
+        "src/main.rs": "6e97140fa7dd9cdca6322141c713d684c8e87788a97881147f840fe5ba06e7a4"
       },
       "runs": [
         {
@@ -2106,7 +2106,7 @@
           }
         }
       ],
-      "aggregateSha256": "18c93d5a24c041e27374915240c5c3127e26938aa9fa5283cf4bf6504801b4b9"
+      "aggregateSha256": "f73e44dc886e6520b385ce4c1355e82168062834af12ed626df91b4ba016b94c"
     },
     "rightkit-job-queue": {
       "pkId": "PK06",
@@ -2286,9 +2286,9 @@
       "pkId": "PK15",
       "id": "ci/consumers/rightkit-automation/src/main.rs",
       "files": {
-        "Cargo.toml": "b1df2ddb5233d5368ac62b2df7f41a45fe43caf834f84596c5ce27a0677e5909",
-        "README.md": "7e6256207f36119308357bc0ace7a3b0f9a696e92dcad2859597ca77188b9bbd",
-        "src/main.rs": "0dc6091e9811e1daac8b41a2d6fa4c2e214f11bb6b9f2227547fcc1789cc4754"
+        "Cargo.toml": "f922608e6cb88013cc82faf63cce58cf4e8581429f1ccbe96119efb55d47f5b6",
+        "README.md": "cd219e3c1f45a34107598dbac6e715c924b5b437ba119743afd7bc103bf22a26",
+        "src/main.rs": "d2fff8d400bbd7b85b4cb27bc37ed4ad35d04bc058f2c3777ebbe78a78e52d2a"
       }
     },
     "rightkit-agent-tools": {
@@ -2372,16 +2372,16 @@
     "rightkit-child-process": {
       "pkId": "PK02",
       "id": "ci/consumers/rightkit-child-process/src/main.rs",
-      "dependency": "rightkit-child-process = { version = \"=0.5.7\" }",
+      "dependency": "rightkit-child-process = { version = \"=0.5.14\" }",
       "extraDependencies": [],
-      "gateEvidence": "the child is the consumer executable itself (std::env::current_exe with a --child mode argument): no shell, network, files or ffmpeg; the strict incomplete-capture Err path is not exercised (not deterministic on a trivial child)",
-      "consumes": "PK02 plan (01-packages.md:116-129): ScrapeRight and CodeRight runners; public items exercised: run (crates/rightkit-child-process/src/run.rs:192), run_with_stdin (src/run.rs:173), run_command (src/run.rs:249), run_command_capture (src/run.rs:271), RunOptions (src/run.rs:64), CaptureOptions (src/run.rs:105), OwnedCommand::new and command_mut (src/owned.rs:167,216); 0.5.5 descriptor policy surface: OwnedCommand::inherit_all_descriptors and inherit_fd (src/owned.rs:255,273)",
+      "gateEvidence": "existing consumer runs the child as itself for process cases; bundle resolver case uses a synthetic temporary .app tree, never launches a child, and refuses an escaping relative path; no network or real user data",
+      "consumes": "PK02 plan (01-packages.md:116-129): ScrapeRight and CodeRight runners; public items exercised: run (crates/rightkit-child-process/src/run.rs:192), run_with_stdin (src/run.rs:173), run_command (src/run.rs:249), run_command_capture (src/run.rs:271), RunOptions (src/run.rs:64), CaptureOptions (src/run.rs:105), OwnedCommand::new and command_mut (src/owned.rs:167,216); 0.5.5 descriptor policy surface: OwnedCommand::inherit_all_descriptors and inherit_fd (src/owned.rs:255,273); 0.5.14 bundled_app::resolve_app_in_bundle resolves nested app placement and refuses escaping relative paths without child launch",
       "files": {
-        "Cargo.toml": "818dbf90a70003152469e0bb63a228ac93ac1293513c636a35f867f1f658469e",
-        "README.md": "1cd2a069b87285744a044a1ce292fdc83d41bd8eb3ab49fd6e3f7076960959a9",
-        "src/main.rs": "f755ebe9531d83e34b4ba70cbe6d3ec5d9d723840a2becd8b630320e00fcc450"
+        "Cargo.toml": "45fa969d0c1b1221feada3865f63f372e4dfefb8ef2669ff6be45ba13a90185d",
+        "README.md": "852edbc451881d88c9f3b3064200faaf1e973b5e09f11aef2e7e2c5d58509a71",
+        "src/main.rs": "27442d320cb3dff2cecdd69967cae04b9c122223a319d90dce1c49d184a05c37"
       },
-      "aggregateSha256": "3f1897f78ab772e21fb091531eeb402756b0fab2935af6412ed61f3b32c4b7f2"
+      "aggregateSha256": "01779ab6ecf5149d037f97996e0f5b6da855d3daec88900ee349a0be16a040e7"
     },
     "rightkit-onnx": {
       "pkId": "PK18",
@@ -2652,9 +2652,9 @@
       "pkId": "PK19",
       "id": "ci/consumers/rightkit-audio/src/main.rs",
       "files": {
-        "Cargo.toml": "f503019ad0e7bd42f9d5bfd875d5e21553aefe18e77a6a75423e9dbae9da6382",
-        "README.md": "42869e1224950fb899a3d0e3ae1d9c4f7f9dbb67d1a2e2c3fe4af5478d21f1da",
-        "src/main.rs": "4b72845c51037eb3321a5a5fc5dee303809a9bd2e756d6893b7890e6504e841c"
+        "Cargo.toml": "f7970c2cd64bb4f6d917765c61ea0aca6a93180204c9876ecb7c0a4b7296f214",
+        "README.md": "0167c2a702239f810d959514f873259b74853e1b9f69a7b1452957de9e161f6e",
+        "src/main.rs": "d381ef63c0f9ceb05456bb535f20b775d975697e724768325655faace1b9084f"
       }
     },
     "rightkit-cache": {
@@ -2724,9 +2724,9 @@
       "pkId": "PK35",
       "id": "ci/consumers/rightkit-hotkeys/src/main.rs",
       "files": {
-        "Cargo.toml": "23fbd2ee8a5b0557b7da3692d53b38513366d3b370550a0b277ab7f14d4ae098",
-        "README.md": "9c013887df32b301aea0e128e4c571baa71262b2bc71a101c28f7d6fe73dd7ea",
-        "src/main.rs": "5ddb47dc440dd937ac290529be595ecdbc4634e60eecc43cf4a6a669dcfbdbc9"
+        "Cargo.toml": "643e50337730f5705baae4b86d1f237538ad26a05fea765ac5e9a1d684b2b44d",
+        "README.md": "79b779ea0f7fc8f31f735215225cb30957e4e3ad581bb2cb26012f705a1ea6da",
+        "src/main.rs": "4dbf1ffed325e8b84c7945c227d155965fed604669715a82d16d3c76372d446c"
       }
     },
     "rightkit-identity": {
@@ -3466,18 +3466,18 @@
       "pkId": "PK120",
       "id": "ci/consumers/rightkit-text-polish/src/main.rs",
       "files": {
-        "Cargo.toml": "79d5dfe6158b7d98a1b16b184a7dccf9dbcf50c341eee59a8b04f31cffb536be",
-        "README.md": "d405f31e5181110a3aa92cb7c6dc5d8c90552dc3c61d8fbb58d1ef54e34d68a9",
-        "src/main.rs": "8326ee1e0190707e2a4cb4c92ddd6de198d135cbc77b428f7880075134f52a99"
+        "Cargo.toml": "16734ee5fa06b50b36776e1e337de389afcad537c32f6b4351ee66c6397e7333",
+        "README.md": "ea69b6eb65f0335fe84ce65f56f36c08fb4a518bb1b98365f01c52e9cc042fa1",
+        "src/main.rs": "ab1e221ee8097f8af75dd7c15f5db0024055a470570a4c26f9c8c189c9e8ab7c"
       }
     },
     "rightkit-transcript-library": {
       "pkId": "PK121",
       "id": "ci/consumers/rightkit-transcript-library/src/main.rs",
       "files": {
-        "Cargo.toml": "63781a8fd250b552e3e844adc8ce275c3b61a935c4cec27a97f9a125d8be57fd",
-        "README.md": "159366c144e3f01d3cba114018148907e5393eeaf31965a4542d7f7571fdde39",
-        "src/main.rs": "fd3e22517cc641c80a336348e6ae80a6a8ea1c4f52cb057e362d4531b2f15ae7"
+        "Cargo.toml": "d403263debfa770521f34bd5f430fcabc0cd5d20021d462af1bf85abd5fab3ff",
+        "README.md": "a2609b5cd24857cc56389197cd25e9fa45d8e232774282410105cb88a1a71ebe",
+        "src/main.rs": "a0b41ae20317bcdd9ea4bdb51f9c2fd811b9cb3c3e97f42a20934c5991d8965c"
       }
     },
     "rightkit-voice-commands": {
@@ -3637,8 +3637,8 @@
       "pkId": "PK146",
       "id": "ci/consumers/rightkit-dictation-telemetry/src/main.rs",
       "files": {
-        "Cargo.toml": "12dcafb1994de2131550b555078b1ab4a65105e03537b8a026591de72b9a7346",
-        "README.md": "52bc30f694b39eb31ba0ed2e19f0e92dfb72a9b9a391d634d168dcdf82237e96",
+        "Cargo.toml": "7652941e7005cf9db3ff83214817392b3281b9719b57e9af8bc709372f4cf2cf",
+        "README.md": "b59148dd1dd4ca405344f4c3f6b310c11861a4cc49aa2a08a5e8ba9e19fba07e",
         "src/main.rs": "928dd4e419d7c63baae490e069a538a302eef1c5bd53d848a55eda5f746cf3e5"
       }
     },
@@ -3970,9 +3970,9 @@
       "pkId": "PK180",
       "id": "ci/consumers/rightkit-dictation-ffi/src/main.rs",
       "files": {
-        "Cargo.toml": "cb8926870ddfb75e0684fb6bac7253736d7debd31905ad52238013c5ca15b817",
-        "README.md": "95c3fc807c0412f427de4b1fddfc87dd326d6711786bf97753c6e59d3d2689f8",
-        "src/main.rs": "46c5c667d730d8eaeeedf4a6be5be1c44d14cda29fa9e03ed06031b6cc425b73"
+        "Cargo.toml": "334e6cec5e5c956f88bcfdbaa954d493b9ffe064ef6bfe119062da7f91edeaf3",
+        "README.md": "216b8393e88e016cf60928075f8c268ccddcf215e18c4f55d217b0b5c958891a",
+        "src/main.rs": "f5644bbdf6951a74c3211ed76627ac46c68285fd4257636a7be4feb10041ee64"
       }
     },
     "rightkit-dictation-tauri": {

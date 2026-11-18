@@ -5,6 +5,20 @@ use rightkit_fs::{
 };
 use std::{fs, io::Write, path::Path, time::Duration};
 
+fn ordered_write_queue() {
+    use rightkit_fs::ordered_write::OrderedWriteQueue;
+    let queue = OrderedWriteQueue::new();
+    let first = queue.take_ticket();
+    let second = queue.take_ticket();
+    let mut order = Vec::new();
+    queue.write_in_turn(first, || { order.push(1); Ok::<_, ()>(()) }).unwrap();
+    queue.write_in_turn(second, || { order.push(2); Ok::<_, ()>(()) }).unwrap();
+    assert_eq!(order, [1, 2]);
+    assert!(!queue.persist_refused());
+    queue.refuse_persist();
+    assert!(queue.persist_refused());
+}
+
 fn entries(other: &Path) -> Vec<TransactionEntry> {
     vec![
         TransactionEntry::new("a", other.join("a")).private(),
@@ -233,6 +247,7 @@ fn transaction_checks(base: &Path) {
 }
 
 fn main() {
+    ordered_write_queue();
     assert_eq!(std::env::var("GITHUB_ACTIONS").unwrap(), "true");
     let temp = std::path::PathBuf::from(std::env::var_os("RUNNER_TEMP").unwrap());
     let plan: serde_json::Value =

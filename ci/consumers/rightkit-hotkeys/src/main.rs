@@ -1,4 +1,4 @@
-// rightkit-hotkeys 0.1.4 consumed by exact registry pin (no features: the crate has none, and the
+// rightkit-hotkeys 0.1.5 consumed by exact registry pin (no features: the crate has none, and the
 // apps use it that way), outside the workspace.
 //
 // Proves, through the public API only, the pure modules that compile and behave the same on
@@ -70,6 +70,9 @@ fn chord(text: &str) -> Chord {
 }
 
 fn main() {
+    #[cfg(target_os = "macos")]
+    macos_holder_surface();
+    tap_hold_surface();
     chord_parsing_and_keys();
     modifiers_platform_and_ptt_aliases();
     registry_and_conflicts();
@@ -81,7 +84,36 @@ fn main() {
     middle_click_machinery();
     arm_timer();
     platform_surface();
-    println!("OK rightkit-hotkeys 0.1.4 (registry consumer)");
+    println!("OK rightkit-hotkeys 0.1.5 (registry consumer)");
+}
+
+#[cfg(target_os = "macos")]
+fn macos_holder_surface() {
+    use rightkit_hotkeys::macos::holders::{FnHotkeyHolder, MiddleMouseHolder};
+    fn sink(_: &str, _: &str) {}
+    let _fn_holder = FnHotkeyHolder::new(sink);
+    let _mouse_holder = MiddleMouseHolder::new(sink);
+    // Holders remain dormant: no start/spawn call, so no global event tap is installed.
+}
+
+fn tap_hold_surface() {
+    use rightkit_hotkeys::tap_hold::{register, unregister, Action, Binding, ChordHost};
+    use std::sync::Arc;
+    fn sink(_: &str, _: &str) {}
+    let bindings = vec![Binding {
+        label: "consumer-probe",
+        chord: "Ctrl+Space",
+        optional_warning_event: None,
+        action: Action::Immediate { run: Arc::new(|| {}), log: None },
+    }];
+    let host = ChordHost {
+        event_sink: sink,
+        run_on_main: Arc::new(|task| { task(); Ok(()) }),
+    };
+    let _register = register;
+    let _unregister = unregister;
+    let _recipe_types = (bindings, host);
+    // Configuration and callback types only: register/unregister would touch global shortcuts.
 }
 
 // ---- chord parsing and keys ----------------------------------------------------------------

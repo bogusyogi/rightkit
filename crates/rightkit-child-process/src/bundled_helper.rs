@@ -171,12 +171,12 @@ pub fn login_item_in_bundle_with(
     }
 }
 
-fn missing(what: &str) -> BundledHelperError {
+pub(crate) fn missing(what: &str) -> BundledHelperError {
     BundledHelperError::NotFound(format!("login item helper {what}"))
 }
 
 /// The canonical root of the `.app` that contains `exe`.
-fn bundle_root(exe: &Path) -> Result<PathBuf, BundledHelperError> {
+pub(crate) fn bundle_root(exe: &Path) -> Result<PathBuf, BundledHelperError> {
     let exe = exe
         .canonicalize()
         .map_err(|_| missing("not found: the running executable cannot be resolved"))?;

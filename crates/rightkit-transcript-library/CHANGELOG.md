@@ -1,8 +1,11 @@
 # Changelog
 
-## 0.1.3 (unreleased)
+## 0.1.4 (unreleased)
 
 - Add portable JSON, Markdown, plain text and CSV export for delivery records, with host-provided labels.
+- Add optional `store` feature for the `delivery_history` keyed-connection store, schema migration,
+  history queries and legacy JSON import with verification. Plaintext cleanup remains pending;
+  key custody, recovery and rotation remain host-owned.
 
 ## 0.1.2 (unreleased)
 

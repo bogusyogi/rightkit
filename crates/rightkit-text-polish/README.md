@@ -15,5 +15,7 @@ Moved into RightKit from HeardRight (`heardright_core`: `text_pipeline`, `vocabu
 - `vocabulary`: user terms and replacement rules; `vocab_learn`: suggestions learned from the
   user's own edits.
 
-No models, no network, no disk. LLM cleanup (L1-L3), provider keys and screen-context vocabulary
+Default features add no disk access. Feature `store` adds `vocabulary_store::{PersistedVocabulary, VocabularyHost}`: host-supplied path & atomic replacement, lazy JSON load & ordered saves. Missing files start empty; unreadable or malformed files start empty & permanently refuse persistence. Failed saves return errors while keeping mutations in memory. Existing vocabulary JSON fields, defaulted aliases & suggestions, IDs & pretty serialization stay unchanged. Host callbacks must not reenter mutations on this store.
+
+No models or network. LLM cleanup (L1-L3), provider keys and screen-context vocabulary
 are not in this release; they stay in the app until their platform dependencies are published.

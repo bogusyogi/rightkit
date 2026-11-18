@@ -32,6 +32,7 @@ pub mod apple_helper;
 #[cfg(feature = "db-adapter")]
 pub mod db_adapter;
 pub mod handoff;
+pub mod slots;
 #[cfg(target_os = "linux")]
 mod linux;
 #[cfg(target_os = "macos")]

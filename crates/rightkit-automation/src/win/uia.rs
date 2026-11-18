@@ -557,11 +557,63 @@ pub fn element_at_point(x: i32, y: i32) -> Result<El> {
         .map_err(|e| win_err(e, "ElementFromPoint"))
 }
 
+/// Evidence from a UI Automation hyperlink hit test.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PointLinkState {
+    /// A visited element positively identified itself as a hyperlink.
+    Link,
+    /// Every visited control was readable & the walk reached the desktop root.
+    NotLink,
+    /// Lookup failed, tree completion was unproven, or the ancestor budget ended.
+    Unknown,
+}
+
+/// Classify the hit element plus at most `max_ancestors` control-view ancestors.
+/// Only a complete, readable walk to the desktop root proves `NotLink`.
+/// An ancestor limit, failed control read, failed parent lookup, unavailable
+/// root or failed root comparison returns `Unknown`; never infer absence from
+/// a truncated walk. UIA calls are synchronous: use off the input-hook thread.
+pub fn point_link_state(x: i32, y: i32, max_ancestors: usize) -> PointLinkState {
+    let Some(a) = automation() else { return PointLinkState::Unknown };
+    unsafe {
+        let Ok(mut current) = a.ElementFromPoint(POINT { x, y }) else {
+            return PointLinkState::Unknown;
+        };
+        let Ok(root) = a.GetRootElement() else {
+            return PointLinkState::Unknown;
+        };
+        let Ok(walker) = a.ControlViewWalker() else {
+            return PointLinkState::Unknown;
+        };
+        for level in 0..=max_ancestors {
+            match current.CurrentControlType() {
+                Ok(kind) if kind == UIA_HyperlinkControlTypeId => return PointLinkState::Link,
+                Ok(_) => {}
+                Err(_) => return PointLinkState::Unknown,
+            }
+            match a.CompareElements(&current, &root) {
+                Ok(same) if same.as_bool() => return PointLinkState::NotLink,
+                Ok(_) => {}
+                Err(_) => return PointLinkState::Unknown,
+            }
+            if level == max_ancestors {
+                return PointLinkState::Unknown;
+            }
+            match walker.GetParentElement(&current) {
+                Ok(parent) => current = parent,
+                Err(_) => return PointLinkState::Unknown,
+            }
+        }
+        PointLinkState::Unknown
+    }
+}
+
 /// Whether the element at `(x, y)`, or one of its first `max_ancestors` control-view ancestors,
 /// is a `Hyperlink`. A hit test usually lands on a text run inside the link, so the walk climbs.
 /// Joins the MTA on the calling thread and answers `false` on any failure, so it is safe to call
 /// from a helper thread (not from a low-level hook callback: UIA is slow). A walk of the hit
-/// node plus 3 ancestors is `max_ancestors = 3`.
+/// node plus 3 ancestors is `max_ancestors = 3`. Use [`point_link_state`] when
+/// callers must distinguish proven absence from unavailable evidence.
 pub fn point_is_hyperlink(x: i32, y: i32, max_ancestors: usize) -> bool {
     let Some(a) = automation() else { return false };
     unsafe {

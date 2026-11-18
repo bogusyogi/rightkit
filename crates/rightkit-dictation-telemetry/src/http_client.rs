@@ -14,9 +14,7 @@
 
 use std::time::Duration;
 
-use rightkit_http::{
-    AddressPolicy, Client, ClientConfig, HttpError, Phase, ProxyMode, Request, ResponseHead,
-};
+use rightkit_http::{AddressPolicy, Client, ClientConfig, HttpError, Phase, Request, ResponseHead};
 
 /// User agent ureq 3.4 sent when a call set none (`ureq/<crate version>`).
 const FORMER_USER_AGENT: &str = "ureq/3.4.2";
@@ -42,20 +40,13 @@ fn build(timeout: Duration, private_host: Option<&str>) -> Result<Client, String
         policy = policy.allow_if(vec![host.to_string()], |_| true);
     }
     let config = ClientConfig {
-        connect_timeout: None,
-        response_timeout: None,
-        recv_body_timeout: None,
-        request_timeout: timeout,
-        stream_timeout: Some(timeout),
         max_response_bytes: FORMER_MAX_BODY_BYTES,
         ..ClientConfig::legacy_ureq_parity(FORMER_USER_AGENT)
     }
+    .single_deadline(timeout)
     .address_policy(policy);
-    match Client::try_new(config.clone()) {
-        Ok(client) => Ok(client),
-        // ureq ignores an unusable proxy variable and connects directly.
-        Err(_) => Client::try_new(config.proxy(ProxyMode::None)).map_err(|error| error.to_string()),
-    }
+    // ureq ignores an unusable proxy variable and connects directly.
+    Client::try_new_or_direct(config).map_err(|error| error.to_string())
 }
 
 fn snake_case(name: &str) -> String {

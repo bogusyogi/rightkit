@@ -122,6 +122,44 @@ Only the owner binary reads the OS store. Cross-binary keychain sharing is settl
 - **Deadlines and buffers:** all reads are synchronous on a caller-owned reader and have no deadline; the transport owns it (a read timeout, or closing the transport from outside, as HeardRight's supervisor does with its 3 s acknowledgment timeout). Readers and writers you pass in must be unbuffered or wipe their buffers; this module zeroizes its own scratch buffers on every path. The encoder validates a message (names, count, strict replies Present-only, sizes) before writing anything.
 
 
+## Explicit credential slots (0.5.6)
+
+`slots::SlotStore` wraps one app-configured `Store` & explicitly declared
+`Slot::new(logical_name, account)` entries. It never discovers OS credentials.
+Namespace, accounts, Windows encoding, guards & OS authorization stay with `Store`.
+Only declare credentials owned by your app.
+
+- `read` / `read_all` preserve store interaction policy; `read_with` /
+  `read_all_with` select it explicitly. Background callers use `NonInteractive`.
+- `SlotOutcome` distinguishes `Present(Secret)`, `Missing`, `Refused(Error)` &
+  `Inaccessible(Error)`. Blank UTF-8 text counts as missing; invalid UTF-8 stays
+  inaccessible. `SlotSnapshot::take` moves values without copying secrets.
+- `read_all_retrying(delay)` retries once after any failed read, using caller's
+  policy for both attempts. Interactive callers may receive another OS prompt.
+- `write` replaces only its declared slot. `clear` removes only its declared
+  slot; absence succeeds. Neither method logs secret values.
+- `clear_many(&[names])` validates every name & rejects duplicates before touching
+  storage, then attempts every requested deletion. `clear_all()` attempts every
+  declared slot. Neither enumerates other credentials. Inspect `SlotClearReport`
+  with `iter`, `get` & `any_failure`: each result is `Removed`, `Missing`,
+  `Refused(Error)` or `Inaccessible(Error)`. `Ok(report)` validates only request
+  shape; partial failure must reach callers.
+
+Deletion has no licence prerequisite. Hosts must allow user-requested clears
+after downgrade, while preserving OS authorization & guard failures. For mixed
+save/clear requests, reject unauthorized writes separately, attempt requested
+clears & report every failure. Refresh downstream secret handoff after partial
+mutations as well as complete success.
+
+### Caller migration
+
+Hosts using individual store reads can retain their namespace/account mapping &
+construct one `SlotStore`. Preserve refused/inaccessible outcomes in status &
+diagnostics instead of reporting missing. Replace fail-fast bulk clears with
+`clear_many`; do not return status success when its report contains failures.
+Keep save-time validation, endpoint configuration & entitlement policy with
+caller configuration. Preserve original OS identities when adopting slots.
+
 ## Verification
 
 There are no unit tests and no test keychain: QA runs end to end against the real OS store under `rightkit-qa` snapshot and restore (Adrian, 2026-11-03).

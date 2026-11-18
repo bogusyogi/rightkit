@@ -1,0 +1,21 @@
+# Proposed generator for include/rightkit_dictation.h from `#[no_mangle]` items:
+#   cbindgen --config cbindgen.toml --crate rightkit-dictation-ffi --output include/rightkit_dictation.h
+# Owed to the RightKit owner (not run here): make the generated output match the committed
+# header (banner, RK_NULLABLE macro and per-parameter nullability need cbindgen `header`,
+# `after_includes` and `[fn] ... ` rules) and add a CI step that fails on any difference
+# (`cbindgen ... --verify`). Until then the committed header is the reviewed source.
+language = "C"
+include_guard = "RIGHTKIT_DICTATION_H"
+sys_includes = ["stdbool.h", "stddef.h", "stdint.h"]
+cpp_compat = true
+usize_is_size_t = true
+
+[parse]
+parse_deps = false
+
+[export]
+include = ["RightKitOwnedBytes"]
+
+# `#[cfg(feature = "kws")] pub mod kws;` surfaces as this macro in the header.
+[defines]
+"feature = kws" = "RIGHTKIT_DICTATION_KWS"

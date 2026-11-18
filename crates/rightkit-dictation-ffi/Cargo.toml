@@ -1,22 +1,30 @@
 [package]
 name = "rightkit-dictation-ffi"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Stable C surface for native shells over the dictation text pipeline, ASR audio conditioning and Parakeet detokenization."
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 repository = "https://github.com/bogusyogi/rightkit"
-include = ["src/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+include = ["src/**", "include/**", "cbindgen.toml", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [lib]
 name = "rightkit_dictation_ffi"
 path = "src/lib.rs"
 crate-type = ["rlib", "staticlib"]
 
+[features]
+# Streaming keyword-spotting C surface (`kws` module, `RIGHTKIT_DICTATION_KWS` section of the header).
+# On by default so 0.2.0 consumers keep the surface; a shell that never spots keywords builds
+# with `default-features = false` to omit KWS exports. Detokenization still needs
+# rightkit-asr, which retains transitive rightkit-onnx/session & ort dependencies.
+default = ["kws"]
+kws = ["dep:rightkit-onnx"]
+
 [dependencies]
 serde_json = "1"
 rightkit-text-polish = { version = "0.1.0", path = "../rightkit-text-polish" }
 rightkit-dictation-core = { version = "0.3.0", path = "../rightkit-dictation-core" }
 rightkit-asr = { version = "0.5.0", default-features = false, path = "../rightkit-asr" }
-rightkit-onnx = { version = "0.3.0", default-features = false, features = ["session"], path = "../rightkit-onnx" }
+rightkit-onnx = { version = "0.3.0", default-features = false, features = ["session"], optional = true, path = "../rightkit-onnx" }

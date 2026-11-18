@@ -1,6 +1,6 @@
-# rightkit-child-process 0.5.7 registry consumer (PK02)
+# rightkit-child-process 0.5.14 registry consumer (PK02)
 
-Standalone consumer, outside the workspace, pinning `rightkit-child-process =0.5.7` exactly with
+Standalone consumer, outside the workspace, pinning `rightkit-child-process =0.5.14` exactly with
 default features. The child is this same executable, started through `std::env::current_exe` with a
 `--child <mode>` argument. It needs no shell, no network fetch and no second binary, so it runs the
 same way on Windows and macOS runners.
@@ -12,7 +12,7 @@ execution deadline that terminates a sleeping child and reports `timed_out`. It 
 descriptor policy surface: `inherit_all_descriptors(true)` still runs a child, and on Unix combining it
 with `inherit_fd` is refused before spawn.
 
-State: no files, no network, no real user data. Run only by the CI consumer lane.
+The 0.5.14 bundle resolver is exercised against a synthetic temporary `.app` tree, including rejection of an escaping relative path. It resolves a directory and never launches a child. State: synthetic temporary files only; no network or real user data. Run only by the CI consumer lane.
 
 Not covered: the strict incomplete-capture `Err` path. It is not deterministic on a trivial child, so
 the PK02-1 stdio regression tests on each runner remain the proof for that path. `run_streaming` and

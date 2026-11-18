@@ -12,3 +12,5 @@ pub use fn_hotkey::{FnHotkeyCallbacks, FnHotkeyTap, PttKey};
 pub use global::{GlobalHotkeys, HotkeyId, HotkeyState, RegisterError};
 pub use middle_mouse::{ax_link_at, MiddleMouseTap};
 pub use tap::{EventTap, TapConfig, TapDecision, TapError, TapEvent, TapKind, TapLocation};
+
+pub mod holders;

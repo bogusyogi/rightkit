@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-audio"
-version = "0.3.4"
+version = "0.3.5"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Shared audio for Right Suite apps: typed FFmpeg filter graphs, loudness gates, room tone, ducking, WAV I/O, and cpal capture with resample/downmix/recovery."
@@ -109,3 +109,17 @@ scale = "one OutputSession (cpal output stream, its ring and callback thread) pl
 release = "function return (the OutputSession drops before play_once returns)"
 
 # One Cargo workspace and lock per crate (rightkit#1285).
+
+[[package.metadata.rightkit.resources]]
+api = "MicMeter::start"
+file = "src/setup/mic_meter.rs"
+holds = ["thread", "memory"]
+scale = "one onboarding-mic-meter thread and one CaptureSession per run, with at most 4096 RMS history entries; ends when its epoch is invalidated or capture fails"
+release = "MicMeter::stop invalidates the epoch; worker drops its CaptureSession on exit"
+
+[[package.metadata.rightkit.resources]]
+api = "Recorder::start"
+file = "src/setup/calibration_capture.rs"
+holds = ["thread", "memory"]
+scale = "one onboarding-recognition-capture thread and one CaptureSession, plus mono f32 samples bounded by sample_rate times max_seconds"
+release = "Recorder::stop, Recorder::cancel, superseding start, or Drop stops and joins the worker; capture error or length ceiling drops the stream"

@@ -41,3 +41,5 @@ pub use hook_chord::{AlreadyBound, HookChords, HookOutcome};
 pub use hook_detail::{is_thread_message, KeyEventDetail, MouseEvent, MouseKind};
 pub use register_status::RegisterFailure;
 pub use registration::{HotkeyApi, Registrations, UnregisterFailure};
+
+pub mod tap_hold;

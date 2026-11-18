@@ -72,3 +72,9 @@ Version: see [INDEX.md](../../INDEX.md). Changes are recorded in `CHANGELOG.md`.
 - Dependency: `windows-sys` 0.61.2 under `cfg(windows)` (`Cargo.toml:17`), with features `Win32_Foundation`, `Win32_System_LibraryLoader`, `Win32_System_Threading`, `Win32_UI_Input_KeyboardAndMouse` and `Win32_UI_WindowsAndMessaging`. Consumers enable no Windows features.
 - Not verified: the module header says it has not been built on the macOS host and must be checked on Windows before an app adopts it. Nothing here was compiled for Windows.
 
+
+## Chord/holder additions (0.1.5 partial candidate)
+
+`tap_hold` registers configurable tap/hold, debounced & immediate chords through existing OS registration primitives. Required-registration failure rolls back its holder. Call `unregister` during host cleanup; macOS Carbon creation/release stays on main thread. A queued registration cancelled after its response deadline cannot install later.
+
+`macos::holders::{FnHotkeyHolder, MiddleMouseHolder}` composes existing tap primitives with host callbacks, enabled state & telemetry. Existing OS permission handling stays intact. Windows `input_hooks`, `ptt_hook` & `mouse_hook` extraction remains withheld pending safe UIA mouse-worker shutdown; existing 0.1.4 Windows APIs remain unchanged. No new automation dependency is required. Windows/macOS installed shortcut journeys & cleanup require qualification before adoption.

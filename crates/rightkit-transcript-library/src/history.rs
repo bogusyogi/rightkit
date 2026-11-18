@@ -1,9 +1,9 @@
 //! History — pure store contract + in-memory store + helpers.
 //!
-//! Disk-backed stores (JSON file, SQLCipher) live in the host application and
-//! implement the `HistoryStore` trait
-//! defined here. The migration-gate decision (`migration_verified`) and the
-//! cap helper (`trim_records`) are pure and unit-tested here.
+//! The host may implement `HistoryStore` for app-specific disk stores; the
+//! optional `store` feature provides the keyed-connection SQLite implementation.
+//! The migration-gate decision (`migration_verified`) and cap helper
+//! (`trim_records`) are pure helpers.
 
 use crate::delivery::DeliveryRecord;
 use serde::{Deserialize, Serialize};
@@ -512,12 +512,9 @@ pub fn trim_records(records: &mut Vec<DeliveryRecord>) {
     }
 }
 
-/// Pure migration-gate decision. Returns true when it's safe to shred the
-/// plaintext `history.json`: the SQLCipher DB row count must equal the number
-/// of DISTINCT `delivery_id`s in the JSON. `INSERT OR IGNORE` collapses
-/// duplicate ids (and drops any record whose serialization failed), so compare
-/// against the distinct count — not `records.len()`. If any record failed to
-/// migrate, `row_count < distinct` and the caller keeps the `.bak`.
+/// Pure migration-gate decision. Returns true when the database row count
+/// equals the number of distinct `delivery_id`s in the JSON. Duplicate IDs
+/// collapse to one row; callers must preserve source data if this check fails.
 pub fn migration_verified(records: &[DeliveryRecord], db_row_count: i64) -> bool {
     let distinct: std::collections::HashSet<&str> =
         records.iter().map(|r| r.delivery_id.as_str()).collect();

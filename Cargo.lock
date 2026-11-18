@@ -10654,7 +10654,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-audio"
-version = "0.3.4"
+version = "0.3.5"
 dependencies = [
  "cpal",
  "hound",
@@ -10690,7 +10690,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-automation"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "core-foundation 0.10.1",
  "core-graphics",
@@ -10831,7 +10831,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-child-process"
-version = "0.5.13"
+version = "0.5.14"
 dependencies = [
  "libc 0.2.191",
  "tokio",
@@ -11167,7 +11167,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-credentials"
-version = "0.5.5"
+version = "0.5.6"
 dependencies = [
  "block2",
  "getrandom 0.4.3",
@@ -11378,7 +11378,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-dictation-ffi"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "rightkit-asr",
  "rightkit-dictation-core",
@@ -11491,7 +11491,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-dictation-telemetry"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "chrono",
  "dirs",
@@ -11858,7 +11858,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-hotkeys"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "windows-sys 0.61.2",
 ]
@@ -12125,6 +12125,13 @@ dependencies = [
  "tracing",
  "ureq",
  "url",
+]
+
+[[package]]
+name = "rightkit-media-control"
+version = "0.1.0"
+dependencies = [
+ "windows 0.62.2",
 ]
 
 [[package]]
@@ -12992,7 +12999,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-sync"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "rightkit-child-process",
  "rightkit-fs",
@@ -13041,6 +13048,7 @@ name = "rightkit-tauri-shell"
 version = "0.8.3"
 dependencies = [
  "block2",
+ "libc 0.2.191",
  "objc2",
  "objc2-app-kit",
  "objc2-foundation",
@@ -13080,6 +13088,7 @@ dependencies = [
  "webview2-com 0.39.1",
  "windows 0.61.3",
  "windows 0.62.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -13114,11 +13123,13 @@ dependencies = [
 
 [[package]]
 name = "rightkit-text-polish"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "regex",
+ "rightkit-fs",
  "rightkit-voice-commands",
  "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -13155,9 +13166,12 @@ dependencies = [
 
 [[package]]
 name = "rightkit-transcript-library"
-version = "0.1.2"
+version = "0.1.4"
 dependencies = [
  "http",
+ "rightkit-db",
+ "rightkit-fs",
+ "rightkit-time",
  "serde",
  "serde_json",
 ]

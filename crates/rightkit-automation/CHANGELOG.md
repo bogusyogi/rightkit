@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.7.1 (unpublished; partial extraction)
+
+- Added Windows `win::uia::{point_link_state, PointLinkState}`. Only complete, readable walks to desktop root prove `NotLink`; errors & ancestor limits return `Unknown`. Existing boolean helper behavior stays unchanged.
+- Added `desktop::paste_event_probe`: bounded, target-PID, listen-only evidence for host-tagged Cmd+V transitions on macOS, behind `desktop-context`.
+- Probe rejects zero tags, caps event count/lifetime & honors user-disabled tap state; Drop stops & joins its run loop.
+- Windows UIA worker & WezTerm extraction withheld pending safe provider cancellation. macOS build & installed behavior require qualification.
+
 ## 0.7.0
 
 - The `paths` feature depends on `rightkit-roots` (for `Suite`) instead of `rightkit-daemon`. No behaviour change.

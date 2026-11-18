@@ -9,6 +9,12 @@ It contains no app protocol, probe implementation, or business message.
 
 **Do not use it** to sandbox a process (use `rightkit-sandbox`), to adopt and kill arbitrary PIDs without an identity check, or to define an app's health probe.
 
+## Nested app discovery
+
+`resolve_bundled_app(relative)` resolves a nested `.app` under running executable's enclosing bundle. `resolve_app_in_bundle(exe, relative)` exposes identical filesystem logic for an explicit host executable. Both return `Result<Option<PathBuf>, BundledHelperError>`: `None` for missing bundle/app, `InvalidName` for invalid relative paths & errors for escaped or malformed app directories. Returned paths are canonical, strictly inside host bundle & contain `Contents`. Neither function launches an executable or establishes helper identity.
+
+`probe_codesign(path, event_sink: fn(&str, &str))` reports signature failures on macOS with a twenty-second wait followed by bounded cleanup; call it off main thread. Elsewhere it returns immediately. This diagnostic does not enforce an expected signer, bundle identifier, permission grant or transport identity. Use `verify_team_signature` separately when expected-team enforcement is required.
+
 ## Features
 
 One optional feature, off by default: `tokio` (adds `tokio` with `process`, `rt` and `time`): `NoWindow` for `tokio::process::Command`, `tokio_support::{command, lead_session, terminate_tree, terminate_process_group, terminate_session}`, and `OwnedCommand::spawn_tokio` returning an `OwnedTokioChild` (contained spawn with tokio stdio, `async wait`, `async terminate_tree`, staged kill on drop). Platform dependencies: `libc` (Unix) and `windows` 0.62 (Windows). Also without the feature: `NoWindow` for `std::process::Command`, `OutputCapture` / `read_bounded` (byte-exact bounded capture of a stream).
