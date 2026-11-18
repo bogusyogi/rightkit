@@ -88,6 +88,10 @@ pub use discovery::{
     try_plan_host, wait_for_claim_winner, AdoptOrSpawn, Completeness, DiscoverOptions, HostPlan,
     InstalledApp, SpawnClaim, SpawnClaimError, UninstallEntry,
 };
+pub use discovery::{
+    discover_installed_cli_candidates, InstalledCliCandidate, InstalledCliCandidateState,
+    InstalledCliDiscovery, InstalledCliProbeFailure,
+};
 pub use private::{
     exit_when_stdin_closes, watch_reader_eof, watch_stdin_eof, PrivateChild, PrivateSecret,
     SecretError, SECRET_BYTES, SECRET_HEX_LEN,

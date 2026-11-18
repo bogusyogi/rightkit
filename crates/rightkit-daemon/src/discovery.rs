@@ -105,6 +105,198 @@ pub fn discover_apps_in_with(
     }
 }
 
+/// Untrusted locations from one installed CLI discovery probe.
+#[derive(Debug, Default)]
+pub struct InstalledCliDiscovery {
+    /// Every observed install entry, including incomplete ones, in discovery order.
+    pub candidates: Vec<InstalledCliCandidate>,
+    /// Failed probes that could have hidden other candidates. A nonempty list cannot
+    /// establish that an install is absent or unique.
+    pub failures: Vec<InstalledCliProbeFailure>,
+}
+
+/// An install entry whose executable still needs independent authentication.
+#[derive(Debug)]
+pub struct InstalledCliCandidate {
+    /// Installation directory or app bundle reported by discovery.
+    pub installation: PathBuf,
+    /// Expected helper path, formed using the caller's relative path.
+    pub executable: PathBuf,
+    /// Whether discovery observed a complete filesystem entry.
+    pub state: InstalledCliCandidateState,
+}
+
+/// Filesystem observation only. This carries no signing or launch guarantees.
+#[derive(Debug)]
+#[non_exhaustive]
+pub enum InstalledCliCandidateState {
+    /// A directory and regular executable file were observed at the expected paths.
+    Present,
+    /// The install entry exists, but a required directory or file was missing or of
+    /// the wrong type (including a symbolic link at a probed path).
+    Incomplete,
+    /// Discovery observed the installation entry but could not finish probing it.
+    ProbeFailed(InstalledCliProbeFailure),
+}
+
+/// An installation discovery probe that could not be completed.
+#[derive(Debug)]
+pub struct InstalledCliProbeFailure {
+    /// Filesystem path or registry key that could not be probed, when available.
+    pub path: Option<PathBuf>,
+    /// Underlying probe error.
+    pub error: io::Error,
+}
+
+/// Probe installed CLI locations without selecting a winner. `app_name` is one macOS
+/// bundle name component without `.app`, or the exact Windows uninstall display name.
+/// `relative_executable` is the expected path inside the installation, including
+/// `Contents` on macOS. Both come from the caller's app catalogue.
+/// Unsupported platforms return [`io::ErrorKind::Unsupported`]. Indeterminate probes
+/// on a supported platform are preserved alongside any observed candidates.
+pub fn discover_installed_cli_candidates(
+    app_name: &str,
+    relative_executable: &Path,
+) -> io::Result<InstalledCliDiscovery> {
+    #[cfg(target_os = "macos")]
+    {
+        let invalid_relative = relative_executable
+            .as_os_str()
+            .as_encoded_bytes()
+            .split(|&byte| byte == b'/')
+            .any(|part| matches!(part, b"" | b"." | b"..") || part.contains(&0));
+        if app_name.is_empty()
+            || app_name.ends_with(".app")
+            || app_name.as_bytes().contains(&0)
+            || Path::new(app_name).file_name().and_then(|name| name.to_str()) != Some(app_name)
+            || invalid_relative
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "expected an app name and a relative CLI path",
+            ));
+        }
+
+        let mut discovery = InstalledCliDiscovery::default();
+        let bundle = format!("{app_name}.app");
+        probe_macos_cli_root(
+            Path::new("/Applications"),
+            &bundle,
+            relative_executable,
+            &mut discovery,
+        );
+        match rightkit_roots::passwd_home_dir() {
+            Ok(home) if home.is_absolute() => probe_macos_cli_root(
+                &home.join("Applications"),
+                &bundle,
+                relative_executable,
+                &mut discovery,
+            ),
+            Ok(home) => discovery.failures.push(InstalledCliProbeFailure {
+                path: Some(home),
+                error: io::Error::new(io::ErrorKind::InvalidData, "account home is not absolute"),
+            }),
+            Err(error) => discovery.failures.push(InstalledCliProbeFailure {
+                path: None,
+                error: io::Error::other(error),
+            }),
+        }
+        Ok(discovery)
+    }
+    #[cfg(windows)]
+    {
+        windows_cli_discovery::discover(app_name, relative_executable)
+    }
+    #[cfg(not(any(target_os = "macos", windows)))]
+    {
+        let _ = (app_name, relative_executable);
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "strict installed CLI discovery is unavailable on this platform",
+        ))
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn probe_macos_cli_root(
+    root: &Path,
+    bundle_name: &str,
+    relative_executable: &Path,
+    discovery: &mut InstalledCliDiscovery,
+) {
+    use std::fs::symlink_metadata;
+
+    let root_error = match symlink_metadata(root) {
+        Ok(metadata) if metadata.is_dir() => None,
+        Ok(_) => Some(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "application root is not a directory",
+        )),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return,
+        Err(error) => Some(error),
+    };
+    if let Some(error) = root_error {
+        discovery.failures.push(InstalledCliProbeFailure {
+            path: Some(root.to_path_buf()),
+            error,
+        });
+        return;
+    }
+
+    let installation = root.join(bundle_name);
+    let bundle = match symlink_metadata(&installation) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return,
+        Err(error) => {
+            discovery.failures.push(InstalledCliProbeFailure {
+                path: Some(installation),
+                error,
+            });
+            return;
+        }
+    };
+    let executable = installation.join(relative_executable);
+    let state = if bundle.is_dir() {
+        probe_cli_path(&installation, relative_executable)
+    } else {
+        InstalledCliCandidateState::Incomplete
+    };
+    discovery.candidates.push(InstalledCliCandidate {
+        installation,
+        executable,
+        state,
+    });
+}
+
+#[cfg(any(target_os = "macos", windows))]
+fn probe_cli_path(installation: &Path, relative_executable: &Path) -> InstalledCliCandidateState {
+    use InstalledCliCandidateState::{Incomplete, Present, ProbeFailed};
+
+    let mut path = installation.to_path_buf();
+    let mut components = relative_executable.components().peekable();
+    while let Some(component) = components.next() {
+        path.push(component.as_os_str());
+        let is_leaf = components.peek().is_none();
+        match std::fs::symlink_metadata(&path) {
+            #[cfg(windows)]
+            Ok(metadata) if windows_cli_discovery::is_reparse_point(&metadata) => {
+                return Incomplete;
+            }
+            Ok(metadata) if is_leaf && metadata.is_file() => return Present,
+            Ok(metadata) if !is_leaf && metadata.is_dir() => {}
+            Ok(_) => return Incomplete,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Incomplete,
+            Err(error) => {
+                return ProbeFailed(InstalledCliProbeFailure {
+                    path: Some(path),
+                    error,
+                });
+            }
+        }
+    }
+    Incomplete
+}
+
 #[cfg(target_os = "macos")]
 fn default_macos_roots() -> Vec<PathBuf> {
     let mut roots = vec![PathBuf::from("/Applications")];
@@ -353,6 +545,308 @@ pub fn discover_windows_with(
         }
     }
     found
+}
+
+#[cfg(windows)]
+mod windows_cli_discovery {
+    use super::{
+        probe_cli_path, InstalledCliCandidate, InstalledCliCandidateState, InstalledCliDiscovery,
+        InstalledCliProbeFailure,
+    };
+    use std::collections::BTreeSet;
+    use std::ffi::OsStr;
+    use std::fs::Metadata;
+    use std::io;
+    use std::os::windows::fs::MetadataExt;
+    use std::path::{Component, Path, PathBuf, Prefix};
+    use std::ptr::{null, null_mut};
+    use windows::core::PCWSTR;
+    use windows::Win32::Storage::FileSystem::{GetDriveTypeW, FILE_ATTRIBUTE_REPARSE_POINT};
+    use windows_sys::Win32::Foundation::{
+        ERROR_FILE_NOT_FOUND, ERROR_NO_MORE_ITEMS, ERROR_PATH_NOT_FOUND, ERROR_SUCCESS,
+    };
+    use windows_sys::Win32::System::Registry::{
+        RegCloseKey, RegEnumKeyExW, RegOpenKeyExW, RegQueryValueExW, HKEY, HKEY_CURRENT_USER,
+        HKEY_LOCAL_MACHINE, KEY_ENUMERATE_SUB_KEYS, KEY_QUERY_VALUE, KEY_WOW64_32KEY,
+        KEY_WOW64_64KEY, REG_SZ,
+    };
+
+    const UNINSTALL: &str = r"Software\Microsoft\Windows\CurrentVersion\Uninstall";
+    const MAX_ROWS: u32 = 8192;
+    const MAX_TEXT_UNITS: usize = 32_768;
+    const DRIVE_FIXED: u32 = 3;
+
+    pub(super) fn discover(
+        app_name: &str,
+        relative_executable: &Path,
+    ) -> io::Result<InstalledCliDiscovery> {
+        if app_name.trim().is_empty()
+            || app_name.as_bytes().contains(&0)
+            || !valid_relative_path(relative_executable)
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "expected an uninstall display name and a relative CLI path",
+            ));
+        }
+
+        let mut discovery = InstalledCliDiscovery::default();
+        let mut seen = BTreeSet::new();
+        for (hive, view, source) in [
+            (HKEY_CURRENT_USER, 0, "HKCU"),
+            (HKEY_LOCAL_MACHINE, KEY_WOW64_64KEY, "HKLM (64-bit)"),
+            (HKEY_LOCAL_MACHINE, KEY_WOW64_32KEY, "HKLM (32-bit)"),
+        ] {
+            let registry_path = PathBuf::from(format!(r"{source}\{UNINSTALL}"));
+            if let Err(error) = probe_view(
+                hive,
+                view,
+                &registry_path,
+                app_name,
+                relative_executable,
+                &mut discovery,
+                &mut seen,
+            ) {
+                discovery.failures.push(InstalledCliProbeFailure {
+                    path: Some(registry_path),
+                    error,
+                });
+            }
+        }
+        Ok(discovery)
+    }
+
+    fn probe_view(
+        hive: HKEY,
+        view: u32,
+        registry_path: &Path,
+        app_name: &str,
+        relative_executable: &Path,
+        discovery: &mut InstalledCliDiscovery,
+        seen: &mut BTreeSet<PathBuf>,
+    ) -> io::Result<()> {
+        let uninstall: Vec<_> = UNINSTALL.encode_utf16().chain([0]).collect();
+        let key = match Key::open(hive, &uninstall, KEY_ENUMERATE_SUB_KEYS | view) {
+            Ok(key) => key,
+            Err(error)
+                if error.raw_os_error().is_some_and(|status| {
+                    matches!(status as u32, ERROR_FILE_NOT_FOUND | ERROR_PATH_NOT_FOUND)
+                }) =>
+            {
+                return Ok(());
+            }
+            Err(error) => return Err(error),
+        };
+        let mut value_buffer = vec![0u16; MAX_TEXT_UNITS];
+        let mut name = [0u16; 256];
+        for index in 0..=MAX_ROWS {
+            let mut len = name.len() as u32;
+            // SAFETY: `name` has room for `len` units and unused out-pointers are null.
+            let status = unsafe {
+                RegEnumKeyExW(
+                    key.0,
+                    index,
+                    name.as_mut_ptr(),
+                    &mut len,
+                    null(),
+                    null_mut(),
+                    null_mut(),
+                    null_mut(),
+                )
+            };
+            match status {
+                ERROR_NO_MORE_ITEMS => return Ok(()),
+                ERROR_SUCCESS => {}
+                code => return Err(io::Error::from_raw_os_error(code as i32)),
+            }
+            let len = len as usize;
+            if index == MAX_ROWS || len == 0 || len >= name.len() {
+                return Err(invalid_data(
+                    "uninstall registry enumeration exceeded its bounds",
+                ));
+            }
+            name[len] = 0;
+            let result = Key::open(key.0, &name[..=len], KEY_QUERY_VALUE | view)
+                .and_then(|row| row.location_for(app_name, &mut value_buffer))
+                .and_then(|location| {
+                    location.map_or(Ok(None), |path| candidate(&path, relative_executable, seen))
+                });
+            match result {
+                Ok(Some(candidate)) => discovery.candidates.push(candidate),
+                Ok(None) => {}
+                Err(error) => discovery.failures.push(InstalledCliProbeFailure {
+                    path: Some(registry_path.join(String::from_utf16_lossy(&name[..len]))),
+                    error,
+                }),
+            }
+        }
+        Ok(())
+    }
+
+    struct Key(HKEY);
+
+    impl Key {
+        fn open(parent: HKEY, name: &[u16], access: u32) -> io::Result<Self> {
+            let mut key = null_mut();
+            // SAFETY: caller supplies a NUL-terminated key name & a live parent key.
+            let status = unsafe { RegOpenKeyExW(parent, name.as_ptr(), 0, access, &mut key) };
+            if status != ERROR_SUCCESS {
+                return Err(io::Error::from_raw_os_error(status as i32));
+            }
+            Ok(Self(key))
+        }
+
+        fn location_for(&self, app_name: &str, buffer: &mut [u16]) -> io::Result<Option<PathBuf>> {
+            if self.text(windows_sys::core::w!("DisplayName"), buffer)?.as_deref()
+                != Some(app_name)
+            {
+                return Ok(None);
+            }
+            if let Some(location) = self.text(windows_sys::core::w!("InstallLocation"), buffer)? {
+                let location = location
+                    .strip_prefix('"')
+                    .and_then(|unquoted| unquoted.strip_suffix('"'))
+                    .unwrap_or(&location);
+                if !location.is_empty() {
+                    return Ok(Some(PathBuf::from(location)));
+                }
+            }
+            Err(invalid_data("matching uninstall row requires InstallLocation"))
+        }
+
+        fn text(&self, field: *const u16, buffer: &mut [u16]) -> io::Result<Option<String>> {
+            let mut bytes = std::mem::size_of_val(buffer) as u32;
+            let mut kind = 0;
+            // SAFETY: `field` is a static NUL-terminated name; `buffer` is writable for `bytes`.
+            let status = unsafe {
+                RegQueryValueExW(
+                    self.0,
+                    field,
+                    null(),
+                    &mut kind,
+                    buffer.as_mut_ptr().cast(),
+                    &mut bytes,
+                )
+            };
+            match status {
+                ERROR_FILE_NOT_FOUND => return Ok(None),
+                ERROR_SUCCESS => {}
+                code => return Err(io::Error::from_raw_os_error(code as i32)),
+            }
+            if kind != REG_SZ
+                || !bytes.is_multiple_of(2)
+                || bytes as usize > std::mem::size_of_val(buffer)
+            {
+                return Err(invalid_data(
+                    "uninstall registry value must be bounded literal text",
+                ));
+            }
+            let units = &buffer[..bytes as usize / 2];
+            let units = units.strip_suffix(&[0]).unwrap_or(units);
+            if units.contains(&0) {
+                return Err(invalid_data("uninstall registry value contains an embedded NUL"));
+            }
+            let text = String::from_utf16(units)
+                .map_err(|_| invalid_data("uninstall registry value contains invalid UTF-16"))?;
+            Ok(Some(text))
+        }
+    }
+
+    impl Drop for Key {
+        fn drop(&mut self) {
+            // SAFETY: `self.0` belongs to this Key, which closes it exactly once.
+            unsafe { RegCloseKey(self.0) };
+        }
+    }
+
+    fn valid_relative_path(path: &Path) -> bool {
+        path.as_os_str()
+            .as_encoded_bytes()
+            .split(|&byte| matches!(byte, b'\\' | b'/'))
+            .all(|part| !matches!(part, b"" | b"." | b".."))
+            && path.components().all(|part| {
+                matches!(part, Component::Normal(name) if valid_path_component(name))
+            })
+    }
+
+    fn valid_path_component(component: &OsStr) -> bool {
+        let bytes = component.as_encoded_bytes();
+        bytes.last().is_some_and(|&byte| !matches!(byte, b'.' | b' '))
+            && !bytes.iter().any(|&byte| {
+                byte < b' '
+                    || matches!(
+                        byte,
+                        b'/' | b'\\' | b':' | b'"' | b'<' | b'>' | b'|' | b'?' | b'*'
+                    )
+            })
+    }
+
+    fn candidate(
+        location: &Path,
+        relative_executable: &Path,
+        seen: &mut BTreeSet<PathBuf>,
+    ) -> io::Result<Option<InstalledCliCandidate>> {
+        let (drive, relative) = local_drive_path(location).ok_or_else(|| {
+            invalid_data("matching uninstall row has no absolute drive location")
+        })?;
+        // Use a verbatim DOS path so file probes cannot reinterpret a component as a device.
+        let root = PathBuf::from(format!(r"\\?\{}:\", char::from(drive)));
+        let installation = root.join(&relative);
+        if !seen.insert(installation.clone()) {
+            return Ok(None);
+        }
+        let relative = relative.join(relative_executable);
+        let executable = root.join(&relative);
+        let drive_root = [u16::from(drive), u16::from(b':'), u16::from(b'\\'), 0];
+        // SAFETY: the fixed-size buffer is a NUL-terminated Windows drive root.
+        let drive_type = unsafe { GetDriveTypeW(PCWSTR(drive_root.as_ptr())) };
+        let state = if drive_type == DRIVE_FIXED {
+            probe_cli_path(&root, &relative)
+        } else {
+            InstalledCliCandidateState::ProbeFailed(InstalledCliProbeFailure {
+                path: Some(root),
+                error: invalid_data("install location requires a fixed local drive"),
+            })
+        };
+        Ok(Some(InstalledCliCandidate {
+            installation,
+            executable,
+            state,
+        }))
+    }
+
+    fn local_drive_path(location: &Path) -> Option<(u8, PathBuf)> {
+        let mut components = location.components();
+        let Component::Prefix(prefix) = components.next()? else {
+            return None;
+        };
+        let drive = match prefix.kind() {
+            Prefix::Disk(drive) | Prefix::VerbatimDisk(drive) => drive.to_ascii_uppercase(),
+            _ => return None,
+        };
+        if !matches!(components.next(), Some(Component::RootDir)) {
+            return None;
+        }
+        let mut relative = PathBuf::new();
+        for part in components {
+            let Component::Normal(name) = part else {
+                return None;
+            };
+            if !valid_path_component(name) {
+                return None;
+            }
+            relative.push(name);
+        }
+        Some((drive, relative))
+    }
+
+    pub(super) fn is_reparse_point(metadata: &Metadata) -> bool {
+        metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT.0 != 0
+    }
+
+    fn invalid_data(message: &'static str) -> io::Error {
+        io::Error::new(io::ErrorKind::InvalidData, message)
+    }
 }
 
 #[derive(Debug)]
