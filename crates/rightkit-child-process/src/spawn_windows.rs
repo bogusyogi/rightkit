@@ -5,7 +5,7 @@ use std::{
     fs::OpenOptions,
     io,
     os::windows::{
-        ffi::OsStrExt,
+        ffi::{OsStrExt, OsStringExt},
         io::{AsHandle, AsRawHandle, BorrowedHandle, FromRawHandle, OwnedHandle, RawHandle},
         process::ExitStatusExt,
     },
@@ -26,11 +26,12 @@ use windows::{
         },
         System::Threading::{
             CreateProcessW, DeleteProcThreadAttributeList, GetExitCodeProcess,
-            InitializeProcThreadAttributeList, ResumeThread, TerminateProcess,
+            InitializeProcThreadAttributeList, QueryFullProcessImageNameW, ResumeThread,
+            TerminateProcess,
             UpdateProcThreadAttribute, WaitForSingleObject, CREATE_BREAKAWAY_FROM_JOB,
             CREATE_NEW_CONSOLE, CREATE_NO_WINDOW, CREATE_SUSPENDED, CREATE_UNICODE_ENVIRONMENT,
             EXTENDED_STARTUPINFO_PRESENT, LPPROC_THREAD_ATTRIBUTE_LIST, PROCESS_CREATION_FLAGS,
-            PROCESS_INFORMATION, PROC_THREAD_ATTRIBUTE_HANDLE_LIST,
+            PROCESS_INFORMATION, PROCESS_NAME_NATIVE, PROC_THREAD_ATTRIBUTE_HANDLE_LIST,
             PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE, STARTF_USESTDHANDLES, STARTUPINFOEXW,
         },
     },
@@ -109,6 +110,26 @@ impl WindowsChild {
     pub fn id(&self) -> u32 {
         self.pid
     }
+
+    /// The kernel's native image path for this process handle, including before the first
+    /// instruction of a suspended child. The path can be compared with a still-held image
+    /// file's native path without relying on a DOS drive alias or reopening a PID.
+    pub fn native_image_path(&self) -> io::Result<PathBuf> {
+        let mut buffer = vec![0u16; 32_768];
+        let mut length = buffer.len() as u32;
+        // SAFETY: the process handle is live and the buffer holds `length` UTF-16 units.
+        unsafe {
+            QueryFullProcessImageNameW(
+                HANDLE(self.handle.as_raw_handle()),
+                PROCESS_NAME_NATIVE,
+                PWSTR(buffer.as_mut_ptr()),
+                &mut length,
+            )
+        }
+        .map_err(os_error)?;
+        Ok(PathBuf::from(OsString::from_wide(&buffer[..length as usize])))
+    }
+
     pub fn try_wait(&mut self) -> io::Result<Option<ExitStatus>> {
         self.wait_native(0)
     }
