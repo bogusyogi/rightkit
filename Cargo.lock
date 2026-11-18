@@ -10460,6 +10460,7 @@ dependencies = [
  "rightkit-automation",
  "rightkit-browser",
  "rightkit-daemon",
+ "rightkit-fs",
  "rightkit-logs",
  "rightkit-mcp",
  "rightkit-speech-client",
@@ -11763,7 +11764,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-fs"
-version = "0.4.16"
+version = "0.4.17"
 dependencies = [
  "blake3",
  "libc 0.2.191",

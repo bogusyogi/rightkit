@@ -23,6 +23,8 @@ pub mod applicability;
 pub mod backends;
 pub mod contract_entry;
 pub mod exposure;
+#[cfg(windows)]
+pub mod installed_windows;
 mod journal;
 #[cfg(feature = "mcp-provider")]
 mod mcp_provider;

@@ -6110,7 +6110,9 @@ dependencies = [
 name = "rightkit-agent-tools"
 version = "0.4.4"
 dependencies = [
+ "object",
  "rightkit-daemon",
+ "rightkit-fs",
  "rightkit-logs",
  "serde",
  "serde_json",
@@ -6322,7 +6324,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-daemon"
-version = "0.9.0"
+version = "0.9.1"
 dependencies = [
  "core-foundation 0.10.1",
  "getrandom 0.4.3",
@@ -6421,7 +6423,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-fs"
-version = "0.4.16"
+version = "0.4.17"
 dependencies = [
  "libc",
  "sha2 0.11.1",

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.17
+
+- Add Windows executable pinning and held-handle path resolution for installed helper authentication.
+
 ## 0.4.16
 
 - New `malware_scan::scan_file_with_timeout(path, Option<Duration>)` (also re-exported at the crate root): the caller chooses the scan time limit, `None` waits for the scanner's verdict. `scan_file` is unchanged (120 s).
