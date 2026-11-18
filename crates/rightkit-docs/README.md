@@ -21,7 +21,27 @@ write(path, &[Op::ReplaceText { find: "Q3".into(), replace: "Q4".into() }],
       &WriteOptions { expect_sha256: Some(doc.sha256), ..Default::default() })?;
 ```
 
-`read(source, &ReadOptions) -> DocumentRead` and `write(target, &[Op], &WriteOptions) -> WriteReceipt`. Every type is serde (camelCase, `kind`/`type` discriminators) and every error is a `DocsError` with a stable snake_case `code()` and a `{ code, message }` serialisation, like `rightkit-pdf`'s `PdfEditError`.
+`read(source, &ReadOptions) -> DocumentRead` and `write(target, &[Op], &WriteOptions) -> WriteReceipt`. Document read and write types use serde (camelCase, `kind`/`type` discriminators). `DocsError` has a stable snake_case `code()` and a `{ code, message }` serialisation, like `rightkit-pdf`'s `PdfEditError`.
+
+### Passive images
+
+Enable `passive-image` to call `passive_image::canonicalize(bytes, declared_mime, limits)`.
+Supply `image/png` or `image/jpeg` & per-call limits for input bytes, width, height, pixels,
+working bytes & output bytes. The result contains fresh static PNG bytes & oriented
+dimensions. Use `CanonicalPng::MIME` with those bytes when rendering.
+
+The decoder checks the file signature, container framing & canvas before pixel decode.
+PNG also requires a complete zlib stream with a valid checksum & the expected raster size.
+Indexed PNG samples must reference existing palette entries. Sequential JPEG must scan each
+frame component exactly once. The JPEG codec can recover some malformed entropy before PNG
+encoding. The decoder rejects animation, multi-picture JPEG, invalid EXIF orientation &
+bytes after the container's end marker.
+Valid EXIF orientation is applied to pixels. The output drops source metadata, including
+color profiles & transfer metadata, so color-managed appearance can differ.
+
+The working budget caps buffers owned by this crate. It also gates estimated JPEG decoder
+& PNG encoder work and sets the PNG decoder's allocation limit. Codec-internal allocation
+accounting is best effort.
 
 ### Reading
 

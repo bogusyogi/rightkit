@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.6 (unpublished)
+
+- Added opt-in `passive-image` canonicalization from static PNG or JPEG to fresh PNG with per-call size limits & EXIF orientation applied to pixels.
+
 ## 0.1.5
 
 - Fixed: the requirement on `rightkit-pdf` is `0.3.5` (was `0.3.4`). 0.1.4 uses API that first shipped in `rightkit-pdf` 0.3.5, so a lockfile still holding 0.3.4 failed to compile.

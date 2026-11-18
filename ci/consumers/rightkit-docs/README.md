@@ -1,9 +1,11 @@
-# rightkit-docs 0.1.3 registry consumer (draft, PK16)
+# rightkit-docs 0.1.6 registry consumer (draft, PK16)
 
-Standalone consumer, outside the workspace, pinning `rightkit-docs =0.1.3` exactly. It exercises the
+Standalone consumer, outside the workspace, pinning `rightkit-docs =0.1.6` exactly. It exercises the
 smallest pure DOCX family: `write` with `CreateDocx`, `read` by content, an edit through
 `expect_sha256` that publishes one replacement, and three refusals: `source_changed` (stale hash),
 `target_exists` (create over a file without `overwrite`) and `unsupported_format` (plain bytes).
+
+The passive-image check decodes a 1×1 PNG to fresh PNG and rejects the same raster with a corrupt zlib checksum.
 
 State: files only under a fresh temp directory, removed at the end. No network, no real user data.
 Pure Rust, so no Word, Excel or LibreOffice is needed. Run only by the CI consumer lane.

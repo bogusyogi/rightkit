@@ -36,6 +36,8 @@ pub mod files;
 mod limits;
 mod model;
 mod package;
+#[cfg(feature = "passive-image")]
+pub mod passive_image;
 mod pdf;
 mod xlsx;
 mod xmlutil;

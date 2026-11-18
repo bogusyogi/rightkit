@@ -1,4 +1,4 @@
-// rightkit-docs 0.1.3 consumed by exact registry pin, outside the workspace.
+// rightkit-docs 0.1.6 consumed by exact registry pin, outside the workspace.
 //
 // Proves the smallest pure DOCX family: a typed CreateDocx written into a temp directory; a read
 // by content (format from the bytes, text, and the SHA-256 of the exact bytes read); an edit made
@@ -18,6 +18,38 @@ fn refusal<T>(result: Result<T, DocsError>) -> &'static str {
         Ok(_) => panic!("expected the call to be refused"),
         Err(e) => e.code(),
     }
+}
+
+const PNG: &[u8] = b"\x89\x50\x4e\x47\x0d\x0a\x1a\x0a\x00\x00\x00\x0d\x49\x48\x44\x52\
+    \x00\x00\x00\x01\x00\x00\x00\x01\x08\x02\x00\x00\x00\x90\x77\x53\
+    \xde\x00\x00\x00\x0c\x49\x44\x41\x54\x78\x9c\x63\x90\x8e\xaa\x00\
+    \x00\x01\x81\x00\xee\xf1\x21\x4d\xbe\x00\x00\x00\x00\x49\x45\x4e\
+    \x44\xae\x42\x60\x82";
+const BAD_ADLER_PNG: &[u8] = b"\x89\x50\x4e\x47\x0d\x0a\x1a\x0a\x00\x00\x00\x0d\x49\x48\x44\x52\
+    \x00\x00\x00\x01\x00\x00\x00\x01\x08\x02\x00\x00\x00\x90\x77\x53\
+    \xde\x00\x00\x00\x0c\x49\x44\x41\x54\x78\x9c\x63\x90\x8e\xaa\x00\
+    \x00\x01\x81\x00\xef\x86\x26\x7d\x28\x00\x00\x00\x00\x49\x45\x4e\
+    \x44\xae\x42\x60\x82";
+
+fn passive_png() -> Result<(), Box<dyn std::error::Error>> {
+    use rightkit_docs::passive_image::{canonicalize, PassiveImageError, PassiveImageLimits};
+
+    let limits = PassiveImageLimits {
+        max_input_bytes: 1024,
+        max_width: 16,
+        max_height: 16,
+        max_pixels: 256,
+        max_working_bytes: 2 * 1024 * 1024,
+        max_output_bytes: 1024,
+    };
+    let image = canonicalize(PNG, "image/png", limits)?;
+    assert_eq!((image.width, image.height), (1, 1));
+    assert!(image.bytes.starts_with(b"\x89PNG\r\n\x1a\n"));
+    assert!(matches!(
+        canonicalize(BAD_ADLER_PNG, "image/png", limits),
+        Err(PassiveImageError::Malformed)
+    ));
+    Ok(())
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -113,6 +145,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     assert_eq!(not_office, "unsupported_format");
 
     fs::remove_dir_all(&dir)?;
-    println!("OK rightkit-docs 0.1.3 (registry consumer)");
+    passive_png()?;
+    println!("OK rightkit-docs 0.1.6 (registry consumer)");
     Ok(())
 }

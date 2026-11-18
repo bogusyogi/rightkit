@@ -11547,13 +11547,17 @@ dependencies = [
 
 [[package]]
 name = "rightkit-docs"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "base64 0.23.1",
  "calamine",
  "chardetng",
+ "crc32fast",
  "encoding_rs",
+ "flate2",
+ "image",
  "lopdf 0.47.0",
+ "png",
  "quick-xml",
  "rightkit-fs",
  "rightkit-pdf",
@@ -11562,6 +11566,8 @@ dependencies = [
  "sha2 0.11.1",
  "thiserror 2.0.21",
  "zip",
+ "zune-core",
+ "zune-jpeg",
 ]
 
 [[package]]

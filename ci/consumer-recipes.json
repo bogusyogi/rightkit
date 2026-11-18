@@ -2583,16 +2583,16 @@
     "rightkit-docs": {
       "pkId": "PK16",
       "id": "ci/consumers/rightkit-docs/src/main.rs",
-      "dependency": "rightkit-docs = { version = \"=0.1.3\" }",
+      "dependency": "rightkit-docs = { version = \"=0.1.6\", features = [\"passive-image\"] }",
       "extraDependencies": [],
       "gateEvidence": "no assets needed; deterministic, in-process; no ci/asset-gated.json entry needed",
       "consumes": "no app pins this version yet; publication unblocks adoption (recipe exercises the public API family named in its README)",
       "files": {
-        "Cargo.toml": "29880eefc23668163d25a1156c5ddc8a31ad39d4d684630bafbe9ccb73591a15",
-        "README.md": "22936b5da53124454311c8d2f4ee14ef03704b13b302a55cb7a1ca00e5e58c62",
-        "src/main.rs": "075d73ceb4a21180d830105d88a56428f637e8ef959ac0ba2ee893295f3b529e"
+        "Cargo.toml": "bf51c503c701fd9736d76afd5239101e30ca567cc327840c586be90ed25f3848",
+        "README.md": "7a52692ebbd8dface04b6f3c0318f9a055221bc9eabb2d923bbc308dc1c70688",
+        "src/main.rs": "4c675c6f52fc8a84fe516e3803bf1a916b0a0670126a46102defaa8087b2ade8"
       },
-      "aggregateSha256": "78022dbff56f794ca361241ab851ad08a2bf50b80a24c122f8033e26a45b287f"
+      "aggregateSha256": "95b79f086e4ca57a1667f541dd78c6a82c3bcceb6da6cfebd2d18a97b50ec277"
     },
     "rightkit-record": {
       "pkId": "PK17",
