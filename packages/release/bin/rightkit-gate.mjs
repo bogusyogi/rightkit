@@ -844,6 +844,27 @@ export function lockScope({ changed, cargoDir = ".", unitNames, showBase, readLo
 // The build inputs that change how every crate compiles, relative to the Cargo workspace root, plus the gate's own config.
 const SHARED_RUST_INPUTS = ["Cargo.lock", "Cargo.toml", "rust-toolchain", "rust-toolchain.toml", ".cargo", "deny.toml", "clippy.toml", ".clippy.toml", "rustfmt.toml", ".rustfmt.toml", "vendor"];
 const GATE_CONFIG = "ci/gate.config.json";
+/**
+ * The Cargo.toml files a workspace at `dir` reads: every one under `dir`, and every one reached through a `path = "..."` dependency of those,
+ * transitively. `all`: the commit's file list; `readBlob(path)`: a file's text. A manifest that cannot be read is kept but not followed.
+ */
+export function cargoManifestsOfWorkspace({ dir, all, readBlob }) {
+  const isManifest = (f) => /(^|\/)Cargo\.toml$/.test(f);
+  const present = new Set(all.filter(isManifest));
+  const under = (f) => dir === "." || f.startsWith(`${dir}/`);
+  const out = new Set([...present].filter(under)); const queue = [...out];
+  while (queue.length) {
+    const m = queue.pop(); let text = null; try { text = readBlob(m); } catch { text = null; }
+    if (typeof text !== "string") continue;
+    const base = path.posix.dirname(m);
+    for (const hit of text.matchAll(/(?:^|[\s{,])path\s*=\s*"([^"\n]+)"/gm)) {
+      const target = path.posix.normalize(path.posix.join(base === "." ? "" : base, hit[1], "Cargo.toml"));
+      if (!target.startsWith("..") && present.has(target) && !out.has(target)) { out.add(target); queue.push(target); }
+    }
+  }
+  return [...out].sort();
+}
+
 // What cargo, clippy, rustfmt and cargo-deny also read from EVERY ancestor directory of the workspace (the repository root and each
 // directory between it and the workspace: they search upward), relative to that directory.
 const ANCESTOR_RUST_INPUTS = [".cargo", "rust-toolchain", "rust-toolchain.toml", "clippy.toml", ".clippy.toml", "rustfmt.toml", ".rustfmt.toml", "deny.toml"];
@@ -1146,7 +1167,10 @@ export function buildCacheDigest({ objectId, headTree, rustUnits = [], npmUnits 
     if (idOf(lock) === null || idOf(lock) === undefined) return null;
     const ancestors = ancestorDirsOf(dir);
     const config = [dir, ...ancestors].flatMap((d) => [".cargo", "deny.toml", "audit.toml", "rust-toolchain", "rust-toolchain.toml"].map((f) => inWs(d, f)));
-    const manifests = all.filter((f) => /(^|\/)Cargo\.toml$/.test(f));
+    // NN04: the manifests this workspace reads, not every Cargo.toml of the commit: those under its directory and those its path dependencies reach,
+    // followed to a fixed point (a crate outside the workspace that it depends on still counts). A manifest edit in another workspace kept rerunning
+    // every workspace's deny and audit rows (witness fixture, 2026-11-17: an edit in rk reran app/engine, app/src-tauri, rightkit-a, rightkit-b).
+    const manifests = cargoManifestsOfWorkspace({ dir, all, readBlob });
     return canonicalJson({ kind: scan.id.startsWith("cargo-deny") ? "cargo-deny" : "cargo-audit", id: scan.id, day: today(), pin: scan.advisoryPin ?? null, inputs: idsOf([lock, ...manifests, ...config]) });
   };
   const fileList = (scan) => {
