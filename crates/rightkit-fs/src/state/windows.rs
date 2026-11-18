@@ -157,7 +157,7 @@ unsafe extern "system" {
 /// What a pinned directory remembers from its [`StateOptions`], inherited by children.
 #[derive(Clone, Copy, Debug)]
 struct Config {
-    /// Share mode for directory handles (`SHARE_READ_WRITE` or `SHARE_READ_WRITE_DELETE`).
+    /// Share mode for directory handles.
     directory_share: u32,
     /// Create without an explicit security descriptor, so the parent's ACL is inherited.
     inherit_acl: bool,
@@ -181,6 +181,112 @@ pub struct Dir {
     file: File,
     enumeration: Mutex<()>,
     config: Config,
+}
+
+/// An open Windows executable and all ancestors retained without write or delete sharing.
+/// This holds file and directory entries on the opened local volume. Callers still have to
+/// verify the executable's signature and identity, and check the image of a suspended child
+/// against [`Self::native_path`] before resuming it. A DOS drive alias may resolve elsewhere.
+#[derive(Debug)]
+pub struct PinnedExecutable {
+    file: File,
+    dos_path: PathBuf,
+    native_path: PathBuf,
+    _ancestors: Vec<Dir>,
+}
+
+impl PinnedExecutable {
+    /// Open an absolute local drive path to a single-link `.exe`, refusing reparse points.
+    pub fn open(path: &Path) -> Result<Self> {
+        let bad_name = || FsError::BadName(path.display().to_string());
+        let mut parts = path.components();
+        let Some(Component::Prefix(prefix)) = parts.next() else {
+            return Err(bad_name());
+        };
+        if !matches!(prefix.kind(), Prefix::Disk(_) | Prefix::VerbatimDisk(_))
+            || !matches!(parts.next(), Some(Component::RootDir))
+        {
+            return Err(bad_name());
+        }
+        let Some(Component::Normal(leaf)) = parts.next_back() else {
+            return Err(bad_name());
+        };
+        if !path.as_os_str().as_encoded_bytes().ends_with(leaf.as_encoded_bytes())
+            || !Path::new(leaf)
+                .extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("exe"))
+        {
+            return Err(bad_name());
+        }
+
+        let mut root = PathBuf::from(prefix.as_os_str());
+        root.push("\\");
+        let config = Config {
+            directory_share: FILE_SHARE_READ,
+            inherit_acl: true,
+        };
+        let mut current = Dir::open_path(&root, config, FILE_SHARE_READ)?;
+        const VOLUME_NAME_GUID: u32 = 1;
+        const VOLUME_NAME_NONE: u32 = 4;
+        // Refuse network mappings and drive aliases to a directory below the volume root.
+        // Starting below that root would leave ancestors outside this walk unheld.
+        crate::handle::windows_final_path(&current.file, VOLUME_NAME_GUID)
+            .map_err(|error| FsError::io(&root, error))?;
+        let volume_relative = crate::handle::windows_final_path(&current.file, VOLUME_NAME_NONE)
+            .map_err(|error| FsError::io(&root, error))?;
+        if volume_relative.as_os_str() != OsStr::new("\\") {
+            return Err(bad_name());
+        }
+        let mut ancestors = Vec::new();
+        for part in parts {
+            let Component::Normal(name) = part else {
+                return Err(bad_name());
+            };
+            let file = current.open_at(name, 1, FILE_OPEN, DIRECTORY_FILE)?;
+            let child = Dir::verified(file, Path::new(name), config)?;
+            ancestors.push(current);
+            current = child;
+        }
+        let file = current.open_at_with(
+            leaf,
+            1,
+            FILE_OPEN,
+            NON_DIRECTORY_FILE,
+            FILE_SHARE_READ,
+            Check::NoReparse,
+        )?;
+        if crate::handle::link_count(&file).map_err(|error| FsError::io(path, error))? != 1 {
+            return Err(FsError::HardLinked(path.to_path_buf()));
+        }
+        ancestors.push(current);
+
+        const VOLUME_NAME_NT: u32 = 2;
+        let dos_path = crate::handle::final_path_verbatim(&file)
+            .map_err(|error| FsError::io(path, error))?;
+        let native_path = crate::handle::windows_final_path(&file, VOLUME_NAME_NT)
+            .map_err(|error| FsError::io(path, error))?;
+        Ok(Self {
+            file,
+            dos_path,
+            native_path,
+            _ancestors: ancestors,
+        })
+    }
+
+    /// The held file for signature and product identity checks.
+    pub fn file(&self) -> &File {
+        &self.file
+    }
+
+    /// The OS-derived extended DOS path for creating a suspended process.
+    pub fn dos_path(&self) -> &Path {
+        &self.dos_path
+    }
+
+    /// The OS-derived native path to compare against the suspended process image.
+    pub fn native_path(&self) -> &Path {
+        &self.native_path
+    }
 }
 
 fn raw_attributes(file: &File, shown: &Path) -> Result<AttributeTagInfo> {

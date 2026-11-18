@@ -201,7 +201,7 @@ pub fn verify_held_authenticode(
 ) -> Result<AuthenticodeSigner, SignatureError> {
     #[cfg(windows)]
     {
-        let path = rightkit_fs::handle::final_path(file).map_err(|error| {
+        let path = rightkit_fs::handle::final_path_verbatim(file).map_err(|error| {
             SignatureError::Unverifiable(format!("cannot resolve held executable: {error}"))
         })?;
         platform::authenticode_with_handle(&path, expected_common_name, Some(file))

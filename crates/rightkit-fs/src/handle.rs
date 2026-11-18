@@ -112,6 +112,17 @@ fn final_path_impl(_file: &File) -> io::Result<PathBuf> {
 
 #[cfg(windows)]
 fn final_path_impl(file: &File) -> io::Result<PathBuf> {
+    final_path_verbatim(file).map(crate::plain::plain_path)
+}
+
+/// The normalized Windows path of a file handle with its verbatim prefix preserved.
+#[cfg(windows)]
+pub fn final_path_verbatim(file: &File) -> io::Result<PathBuf> {
+    windows_final_path(file, 0) // VOLUME_NAME_DOS
+}
+
+#[cfg(windows)]
+pub(crate) fn windows_final_path(file: &File, volume_name: u32) -> io::Result<PathBuf> {
     use std::ffi::OsString;
     use std::os::windows::ffi::OsStringExt;
     use std::os::windows::io::AsRawHandle;
@@ -133,7 +144,7 @@ fn final_path_impl(file: &File) -> io::Result<PathBuf> {
                 file.as_raw_handle().cast(),
                 buf.as_mut_ptr(),
                 buf.len() as u32,
-                0, // VOLUME_NAME_DOS | FILE_NAME_NORMALIZED
+                volume_name, // FILE_NAME_NORMALIZED with the requested volume format
             )
         };
         if n == 0 {
@@ -141,9 +152,7 @@ fn final_path_impl(file: &File) -> io::Result<PathBuf> {
         }
         if (n as usize) < buf.len() {
             buf.truncate(n as usize);
-            return Ok(crate::plain::plain_path(PathBuf::from(
-                OsString::from_wide(&buf),
-            )));
+            return Ok(PathBuf::from(OsString::from_wide(&buf)));
         }
         // Too small: `n` is the size needed including the terminator.
         buf.resize(n as usize + 1, 0);

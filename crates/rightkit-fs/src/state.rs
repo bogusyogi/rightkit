@@ -1147,6 +1147,9 @@ mod sys {
 #[path = "state/windows.rs"]
 mod sys;
 
+#[cfg(windows)]
+pub use sys::PinnedExecutable;
+
 #[cfg(not(any(unix, windows)))]
 mod sys {
     use super::{DirEntry, EntryKind, EntryStat, StateOptions};
