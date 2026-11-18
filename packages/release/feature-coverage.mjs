@@ -21,8 +21,25 @@ import { createRequire } from "node:module";
 let smolTomlParse;
 const parseToml = (text) => (smolTomlParse ??= createRequire(import.meta.url)("smol-toml").parse)(text);
 
-/** The feature table of a Cargo.toml: a Map of feature name to its array of members ("other", "dep:x", "x/feat", "x?/feat"). `default` included. */
+/**
+ * The feature table of a Cargo.toml: a Map of feature name to its array of members ("other", "dep:x", "x/feat", "x?/feat"). `default` included.
+ * Read from the decoded manifest (smol-toml), so lint generation, unlinted validation, feature coverage and check elision all see the features Cargo
+ * sees, however the file spells them (astra62 review 4, 2026-11-18: a quoted ["features"] table was invisible to this reader, so coverage reported
+ * no omission for a feature never linted). Only when the text does not parse, or the parser cannot load, does the older text walk answer.
+ */
 export function manifestFeatures(text) {
+  let doc = null;
+  try { doc = parseToml(String(text ?? "").replace(/^﻿/, "")); } catch { doc = null; }
+  if (doc !== null) {
+    const table = doc.features;
+    const out = new Map();
+    if (table !== null && typeof table === "object" && !Array.isArray(table)) for (const [name, members] of Object.entries(table)) if (Array.isArray(members)) out.set(name, members.filter((m) => typeof m === "string"));
+    return out;
+  }
+  return manifestFeaturesByText(text);
+}
+
+function manifestFeaturesByText(text) {
   const out = new Map();
   const src = String(text ?? "").replace(/^﻿/, "");
   let i = 0;
@@ -96,7 +113,8 @@ export function allFeatureNamesOf(text) {
   const features = doc.features === undefined ? {} : doc.features;
   if (!isTable(features) || Object.values(features).some((v) => !Array.isArray(v) || v.some((x) => typeof x !== "string"))) return null;
   const referenced = new Set(Object.values(features).flat().filter((v) => v.startsWith("dep:")).map((v) => v.slice(4)));
-  const tables = [doc.dependencies, doc["build-dependencies"], ...(isTable(doc.target) ? Object.values(doc.target).flatMap((t) => (isTable(t) ? [t.dependencies, t["build-dependencies"]] : [null])) : [])];
+  // build_dependencies is the spelling Cargo accepted before edition 2024 (astra62 review 4).
+  const tables = [doc.dependencies, doc["build-dependencies"], doc.build_dependencies, ...(isTable(doc.target) ? Object.values(doc.target).flatMap((t) => (isTable(t) ? [t.dependencies, t["build-dependencies"], t.build_dependencies] : [null])) : [])];
   const optional = new Set();
   for (const t of tables) {
     if (t === undefined) continue;

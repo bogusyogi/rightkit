@@ -28,3 +28,16 @@ test("NN27: --all-features turns on declared features and every optional depende
   assert.deepEqual(allFeatureNamesOf("[package]\nname = \"c\"\n[dependencies]\nlibc = \"0.2\"\n"), []);
   assert.equal(checkKept("[package]\nname = \"c\"\n[dependencies]\nlibc = \"0.2\"\n"), false);
 });
+
+test("NN27: every consumer of a manifest's features reads the decoded table: lint generation, coverage and the check elision agree (astra62 review 4)", async () => {
+  const { effectiveCrateFeatures, uncoveredFeatures, declaredFeatureNames } = await import("./feature-coverage.mjs");
+  const quoted = "[package]\nname = \"c\"\n[\"features\"]\ncodec = []\n";
+  assert.deepEqual(declaredFeatureNames(quoted), ["codec"]);
+  assert.deepEqual(allFeatureNamesOf(quoted), ["codec"]);
+  assert.equal(effectiveCrateFeatures({ units: ["c"], manifestOf: () => quoted }).c?.autoAllFeatures, true, "lint generation adds --all-features");
+  assert.deepEqual(uncoveredFeatures(quoted, [[]]), ["codec"], "a default-only lint leaves codec uncovered, and coverage says so");
+  // Text that does not parse falls back to the text walk, as before.
+  assert.deepEqual(declaredFeatureNames("[features]\na = []\n[broken\n"), ["a"]);
+  // build_dependencies, the pre-2024 spelling.
+  assert.deepEqual(allFeatureNamesOf("[build_dependencies]\ncc = { version = \"1\", optional = true }\n"), ["cc"]);
+});

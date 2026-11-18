@@ -52,3 +52,19 @@ test("NN04: every TOML spelling of a path is followed; inheritance reaches the w
   assert.deepEqual(of({ ...plain, "x/Cargo.toml": "[package]\n", "x/.cargo/config.toml": "[patch.crates-io]\ny = { path = \"../y\" }\n" }, ["x/.cargo/config.toml"]), [...all].sort(), "a patch in Cargo configuration");
   assert.deepEqual(of({ ...plain, "x/Cargo.toml": "[package]\n", "x/.cargo/config.toml": "[build]\njobs = 2\n" }, ["x/.cargo/config.toml"]), ["x/Cargo.toml"], "an unrelated configuration changes nothing");
 });
+
+test("NN04: a path dependency's inherited lints and the pre-2024 table names are followed (astra62 review 4)", () => {
+  // app depends on lib/codec by path; codec belongs to workspace lib and inherits its lints.
+  const files = {
+    "app/Cargo.toml": "[package]\nname = \"app\"\n[dependencies]\ncodec = { path = \"../lib/codec\" }\n",
+    "lib/Cargo.toml": "[workspace]\nmembers = [\"codec\"]\n[workspace.lints.rust]\nunsafe_code = \"forbid\"\n",
+    "lib/codec/Cargo.toml": "[package]\nname = \"codec\"\n[lints]\nworkspace = true\n",
+    "other/Cargo.toml": "[package]\n",
+  };
+  const of = (dir, map = files) => cargoManifestsOfWorkspace({ dir, all: Object.keys(map), readBlob: (f) => map[f] });
+  assert.deepEqual(of("app"), ["app/Cargo.toml", "lib/Cargo.toml", "lib/codec/Cargo.toml"]);
+  const old = { "x/Cargo.toml": "[build_dependencies]\ny = { path = \"../y\" }\n[dev_dependencies]\nz = { path = \"../z\" }\n", "y/Cargo.toml": "[package]\n", "z/Cargo.toml": "[package]\n", "w/Cargo.toml": "[package]\n" };
+  assert.deepEqual(of("x", old), ["x/Cargo.toml", "y/Cargo.toml", "z/Cargo.toml"]);
+  const target = { "x/Cargo.toml": "[target.'cfg(unix)'.build_dependencies]\ny = { path = \"../y\" }\n", "y/Cargo.toml": "[package]\n", "w/Cargo.toml": "[package]\n" };
+  assert.deepEqual(of("x", target), ["x/Cargo.toml", "y/Cargo.toml"]);
+});

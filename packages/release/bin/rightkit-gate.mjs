@@ -894,8 +894,9 @@ export function cargoManifestsOfWorkspace({ dir, all, readBlob }) {
     const m = queue.pop(); const doc = docOf(m);
     if (doc === null) return every;
     const base = path.posix.dirname(m);
-    const tables = [doc.dependencies, doc["dev-dependencies"], doc["build-dependencies"], doc.replace,
-      ...(isTable(doc.target) ? Object.values(doc.target).flatMap((t) => (isTable(t) ? [t.dependencies, t["dev-dependencies"], t["build-dependencies"]] : [null])) : []),
+    // dev_dependencies and build_dependencies are the spellings Cargo accepted before edition 2024 (astra62 review 4).
+    const tables = [doc.dependencies, doc["dev-dependencies"], doc["build-dependencies"], doc.dev_dependencies, doc.build_dependencies, doc.replace,
+      ...(isTable(doc.target) ? Object.values(doc.target).flatMap((t) => (isTable(t) ? [t.dependencies, t["dev-dependencies"], t["build-dependencies"], t.dev_dependencies, t.build_dependencies] : [null])) : []),
       ...(isTable(doc.workspace) ? [doc.workspace.dependencies] : []),
       ...(isTable(doc.patch) ? Object.values(doc.patch) : doc.patch === undefined ? [] : [null])];
     let inherits = false;
@@ -909,14 +910,18 @@ export function cargoManifestsOfWorkspace({ dir, all, readBlob }) {
         if (spec.workspace === true) inherits = true;
       }
     }
-    // Any `x.workspace = true` (a dependency or a package field) reads the workspace root's manifest: follow it to the root, wherever it is.
-    if (inherits || (isTable(doc.package) && Object.values(doc.package).some((v) => isTable(v) && v.workspace === true))) {
+    // Any `workspace = true` anywhere outside the [workspace] table (a dependency, a package field, `[lints] workspace = true`, whatever Cargo adds next)
+    // reads the workspace root's manifest: follow it to the root, wherever it is, for this manifest and every path dependency reached (astra62 review 4:
+    // a dependency's inherited lints come from its own workspace's root).
+    const inheritsAnywhere = (v, depth = 0) => isTable(v) && depth < 8 && (v.workspace === true || Object.entries(v).some(([k, x]) => !(depth === 0 && k === "workspace") && inheritsAnywhere(x, depth + 1)));
+    if (inherits || inheritsAnywhere(doc)) {
       const root = rootOf(m, doc);
       if (root === undefined || root === null) return every;
       add(root);
     }
     // A member named outside the workspace directory: every manifest (members may be globs; only those inside are found by the directory rule).
-    if (isTable(doc.workspace) && Array.isArray(doc.workspace.members) && doc.workspace.members.some((x) => typeof x !== "string" || join(base, x) === null || (dir !== "." && !`${join(base, x)}/`.startsWith(`${dir}/`)))) return every;
+    // Only the keyed workspace's own root: another workspace reached through a path dependency contributes its manifest, not its members.
+    if (m === (dir === "." ? "Cargo.toml" : `${dir}/Cargo.toml`) && isTable(doc.workspace) && Array.isArray(doc.workspace.members) && doc.workspace.members.some((x) => typeof x !== "string" || join(base, x) === null || (dir !== "." && !`${join(base, x)}/`.startsWith(`${dir}/`)))) return every;
   }
   return [...out].sort();
 }
