@@ -5466,7 +5466,8 @@ if (invokedDirectly) {
   // GC-A27 NN07-NN12: with RK_GATE_SPAWN_LEDGER set, every child process of this run is recorded (spawn-ledger.mjs). Off otherwise.
   installSpawnLedger();
   // NN07: a fixed question about the checkout (git top level, object format, whether an id names a commit, where a tool is) is asked once per process.
-  installProbeMemo();
+  // NN22: whole-tree listings of a full commit id are kept between gate processes (probe-memo.mjs treeListStore).
+  installProbeMemo({ storeDir: (() => { try { return path.join(gateRunsRoot({ env: process.env, platform: process.platform }), "tree-lists"); } catch { return null; } })() });
   // NN11/NN28: how this run proved the snapshot, once, at the end (snapshot.mjs SNAPSHOT_PROOF_COUNTS).
   process.once("exit", () => { const c = SNAPSHOT_PROOF_COUNTS; if (c.treeHashes + c.verifyWalks + c.residentProofs > 0) { try { process.stdout.write(`rightkit-gate: ${snapshotProofLine("node-fs-watch")}\n`); } catch { /* stdout closed */ } } });
   // Every child this run starts that can reach rustright (scans, unit stages, right-release dev/test, their builds) inherits it.

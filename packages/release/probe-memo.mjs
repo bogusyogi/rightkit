@@ -11,6 +11,8 @@
 // A failed call is never remembered (the thing asked about may appear later: an ephemeral commit, a tool being installed). Anything not listed runs
 // as before. The memo sits above the spawn ledger, so a remembered answer starts no process and writes no ledger line.
 import childProcess from "node:child_process";
+import { createHash } from "node:crypto";
+import fs from "node:fs";
 import module from "node:module";
 import path from "node:path";
 
@@ -38,10 +40,45 @@ export function pureQuestion(cmd, args) {
   // A file of a commit or tree named by its full id: content-addressed, the same bytes for ever (NN07: `git show <commit>:rk/Cargo.toml` 16 times in
   // one compile of the witness fixture, Dell, 2026-11-17).
   if (rest[0] === "show") return rest.length === 2 && /^[0-9a-f]{40}([0-9a-f]{24})?:[^\0]+$/.test(rest[1]) && !rest[1].includes("..");
-  // The file list of a tree named by its full id.
-  if (rest[0] === "ls-tree") return rest.length === 5 && rest[1] === "-r" && rest[2] === "--name-only" && rest[3] === "-z" && SHA.test(rest[4]);
+  // The file list of a tree named by its full id, names only or with modes and ids (snapshot.mjs treeEntries).
+  if (rest[0] === "ls-tree") return treeListOf(args) !== null;
   return false;
 }
+
+/** The `ls-tree` question of `args` with its leading `-c` pairs dropped, when it lists a whole tree named by its full id; else null. */
+function treeListOf(args) {
+  let rest = args; while (rest[0] === "-c" && typeof rest[1] === "string" && rest[1].includes("=")) rest = rest.slice(2);
+  if (rest[0] !== "ls-tree" || !SHA.test(rest[rest.length - 1] ?? "")) return null;
+  const flags = rest.slice(1, -1).join(" ");
+  return flags === "-r --name-only -z" || flags === "-r -z --full-tree" ? rest : null;
+}
+
+/**
+ * NN22: the file list of a commit named by its full id is the same for ever, so a gate process need not list it again when an earlier one did.
+ * Kept on disk under `storeDir` (one file per question, by working directory and the question without its `-c` pairs, which do not change a
+ * `-z` listing), only for the two whole-tree listings above. Every warm run listed the witness fixture's commit twice (`ls-tree -r --name-only
+ * -z` and the sealed `ls-tree -r -z --full-tree`, Dell, 2026-11-17).
+ */
+export function treeListStore(storeDir, { maxEntries = 256 } = {}) {
+  if (typeof storeDir !== "string" || !storeDir) return null;
+  const fileOf = (args, cwd) => { const q = treeListOf(args); return q ? path.join(storeDir, `${createHash("sha256").update(JSON.stringify([path.resolve(cwd ?? process.cwd()), q])).digest("hex")}.bin`) : null; };
+  return {
+    get(args, cwd) { const f = fileOf(args, cwd); if (!f) return null; try { return fs.readFileSync(f); } catch { return null; } },
+    put(args, cwd, bytes) {
+      const f = fileOf(args, cwd); if (!f || !Buffer.isBuffer(bytes)) return;
+      try {
+        fs.mkdirSync(storeDir, { recursive: true });
+        const tmp = `${f}.${process.pid}.tmp`; fs.writeFileSync(tmp, bytes); fs.renameSync(tmp, f);
+        const names = fs.readdirSync(storeDir).filter((n) => n.endsWith(".bin"));
+        if (names.length > maxEntries) {
+          const aged = names.map((n) => { try { return [n, fs.statSync(path.join(storeDir, n)).mtimeMs]; } catch { return [n, 0]; } }).sort((a, b) => a[1] - b[1]);
+          for (const [n] of aged.slice(0, names.length - maxEntries)) fs.rmSync(path.join(storeDir, n), { force: true });
+        }
+      } catch { /* a store that cannot be written only means the next run lists again */ }
+    },
+  };
+}
+const asEncoded = (bytes, encoding) => (encoding && encoding !== "buffer" ? bytes.toString(encoding) : Buffer.from(bytes));
 
 /** Whether a successful answer may be kept: always for a git question; for `rustright status` only when the receipt records the job's end. */
 export const FINAL_ONLY = (cmd, out) => {
@@ -57,11 +94,15 @@ const keyOf = (cmd, args, options) => {
 const copy = (v) => (Buffer.isBuffer(v) ? Buffer.from(v) : v);
 
 let installed = false;
-/** Wrap spawnSync and execFileSync once. Returns the counters object ({ asked, answered }) so a caller can report them; null when already installed. */
-export function installProbeMemo() {
+/**
+ * Wrap spawnSync and execFileSync once. Returns the counters object ({ asked, answered, stored }) so a caller can report them; null when already
+ * installed. `storeDir`: where whole-tree listings of a full commit id are kept between processes (treeListStore); none when absent.
+ */
+export function installProbeMemo({ storeDir = null } = {}) {
   if (installed) return null;
   installed = true;
-  const stats = { asked: 0, answered: 0 };
+  const stats = { asked: 0, answered: 0, stored: 0 };
+  const store = treeListStore(storeDir);
   const seenSpawn = new Map(); const seenExec = new Map();
   const spawnSync = childProcess.spawnSync;
   childProcess.spawnSync = function memoSpawnSync(cmd, args, options) {
@@ -69,8 +110,17 @@ export function installProbeMemo() {
     if (opts?.input !== undefined || opts?.shell || !pureQuestion(cmd, argv)) return spawnSync.apply(this, arguments);
     stats.asked += 1; const key = keyOf(cmd, argv, opts); const hit = seenSpawn.get(key);
     if (hit) { stats.answered += 1; const stdout = copy(hit.stdout); const stderr = copy(hit.stderr); return { ...hit, stdout, stderr, output: [null, stdout, stderr] }; }
+    const kept = store?.get(argv, opts?.cwd);
+    if (kept) {
+      stats.stored += 1; const stdout = asEncoded(kept, opts?.encoding); const stderr = asEncoded(Buffer.alloc(0), opts?.encoding);
+      const r = { pid: 0, status: 0, signal: null, stdout, stderr, output: [null, stdout, stderr] };
+      seenSpawn.set(key, { ...r, stdout: copy(stdout), stderr: copy(stderr) }); return r;
+    }
     const r = spawnSync.apply(this, arguments);
-    if (r && !r.error && r.status === 0 && r.signal === null && FINAL_ONLY(cmd, r.stdout)) seenSpawn.set(key, { ...r, stdout: copy(r.stdout), stderr: copy(r.stderr) });
+    if (r && !r.error && r.status === 0 && r.signal === null && FINAL_ONLY(cmd, r.stdout)) {
+      seenSpawn.set(key, { ...r, stdout: copy(r.stdout), stderr: copy(r.stderr) });
+      if (store) store.put(argv, opts?.cwd, Buffer.isBuffer(r.stdout) ? r.stdout : Buffer.from(String(r.stdout ?? ""), opts?.encoding && opts.encoding !== "buffer" ? opts.encoding : "utf8"));
+    }
     return r;
   };
   const execFileSync = childProcess.execFileSync;
@@ -79,8 +129,13 @@ export function installProbeMemo() {
     if (opts?.input !== undefined || opts?.shell || !pureQuestion(cmd, argv)) return execFileSync.apply(this, arguments);
     stats.asked += 1; const key = keyOf(cmd, argv, opts);
     if (seenExec.has(key)) { stats.answered += 1; return copy(seenExec.get(key)); }
+    const kept = store?.get(argv, opts?.cwd);
+    if (kept) { stats.stored += 1; const out = asEncoded(kept, opts?.encoding); seenExec.set(key, copy(out)); return out; }
     const out = execFileSync.apply(this, arguments); // throws on failure: a failure is never remembered
-    if (FINAL_ONLY(cmd, out)) seenExec.set(key, copy(out));
+    if (FINAL_ONLY(cmd, out)) {
+      seenExec.set(key, copy(out));
+      if (store) store.put(argv, opts?.cwd, Buffer.isBuffer(out) ? out : Buffer.from(String(out), opts?.encoding && opts.encoding !== "buffer" ? opts.encoding : "utf8"));
+    }
     return out;
   };
   module.syncBuiltinESMExports();

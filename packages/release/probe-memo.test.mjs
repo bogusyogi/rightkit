@@ -63,6 +63,35 @@ test("in one process an identical pure question starts one child; other commands
   assert.equal(got.stats.answered, 4);
 });
 
+test("NN22: a whole-tree listing of a full commit id is kept on disk and answers the next process without starting git", () => {
+  const sha = "3a017e99e2f69ab3c8cae9ca03a285b8de8cb5bf";
+  assert.equal(pureQuestion("git", ["-c", "core.attributesFile=D:/tmp/rk-sealed-git-x/empty", "ls-tree", "-r", "-z", "--full-tree", sha]), true, "the sealed listing");
+  for (const args of [["ls-tree", "-r", "-z", "--full-tree", "HEAD"], ["ls-tree", "-r", "-z", sha], ["ls-tree", "-z", "--full-tree", sha], ["ls-tree", "-r", "--name-only", sha]]) assert.equal(pureQuestion("git", args), false, args.join(" "));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rk-trees-")); const store = path.join(dir, "tree-lists");
+  const head = spawnSync("git", ["rev-parse", "HEAD"], { cwd: here, encoding: "utf8" }).stdout.trim();
+  const script = (n) => `
+    import { installSpawnLedger } from ${JSON.stringify(new URL("./spawn-ledger.mjs", import.meta.url).href)};
+    import { installProbeMemo } from ${JSON.stringify(new URL("./probe-memo.mjs", import.meta.url).href)};
+    installSpawnLedger(); const stats = installProbeMemo({ storeDir: ${JSON.stringify(store)} });
+    const cp = await import("node:child_process"); const cwd = ${JSON.stringify(here)};
+    const a = cp.spawnSync("git", ["-c", "core.attributesFile=${n}", "ls-tree", "-r", "-z", "--full-tree", ${JSON.stringify(head)}], { cwd, encoding: "utf8", maxBuffer: 1 << 28 }).stdout;
+    const b = cp.execFileSync("git", ["ls-tree", "-r", "--name-only", "-z", ${JSON.stringify(head)}], { cwd, maxBuffer: 1 << 28 });
+    console.log(JSON.stringify({ a: a.length, aHash: a.slice(0, 200), b: b.length, isBuf: Buffer.isBuffer(b), stats }));
+  `;
+  const run = (n) => {
+    const file = path.join(dir, `run${n}.mjs`); fs.writeFileSync(file, script(n)); const ledger = path.join(dir, `ledger${n}.jsonl`);
+    const r = spawnSync(process.execPath, [file], { encoding: "utf8", env: { ...process.env, RK_GATE_SPAWN_LEDGER: ledger } });
+    assert.equal(r.status, 0, r.stderr);
+    const rows = fs.existsSync(ledger) ? fs.readFileSync(ledger, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l)) : [];
+    return { got: JSON.parse(r.stdout.trim().split("\n").pop()), walks: rows.filter((x) => x.args.includes("ls-tree")).length };
+  };
+  const first = run(1); const second = run(2);
+  assert.equal(first.walks, 2); assert.equal(second.walks, 0, "the second process lists nothing: a different temp attributes file does not change the question");
+  assert.equal(second.got.stats.stored, 2);
+  assert.deepEqual([second.got.a, second.got.aHash, second.got.b, second.got.isBuf], [first.got.a, first.got.aHash, first.got.b, true], "the same bytes, in the encoding each caller asked for");
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
 test("a broker job's status is kept only once the receipt records the job's end; a git answer always", async () => {
   const { FINAL_ONLY } = await import("./probe-memo.mjs");
   const running = JSON.stringify({ receipt: { id: "x", terminalAt: null } }); const ended = JSON.stringify({ receipt: { id: "x", terminalAt: "2026-11-18T00:00:00Z" } });
