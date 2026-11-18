@@ -104,11 +104,17 @@ fn tap_hold_surface() {
         label: "consumer-probe",
         chord: "Ctrl+Space",
         optional_warning_event: None,
-        action: Action::Immediate { run: Arc::new(|| {}), log: None },
+        action: Action::Immediate {
+            run: Arc::new(|| {}),
+            log: None,
+        },
     }];
     let host = ChordHost {
         event_sink: sink,
-        run_on_main: Arc::new(|task| { task(); Ok(()) }),
+        run_on_main: Arc::new(|task| {
+            task();
+            Ok(())
+        }),
     };
     let _register = register;
     let _unregister = unregister;

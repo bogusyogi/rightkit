@@ -87,7 +87,9 @@ pub enum MeterEvent {
     Status(MeterStatus),
     /// Capture failed for good. `detail` is the failing outcome (`no_callbacks`, `stream_error`,
     /// ...) when there is one; the host words the message.
-    Error { detail: Option<String> },
+    Error {
+        detail: Option<String>,
+    },
 }
 
 /// Why `start` did not start a meter. The host words the message.
@@ -153,10 +155,7 @@ impl MicMeter {
     pub fn begin(&self) -> u64 {
         let (epoch, replacing_active_meter) = {
             let _transition = self.meter_transition();
-            let epoch = self
-                .epoch
-                .fetch_add(1, Ordering::SeqCst)
-                .wrapping_add(1);
+            let epoch = self.epoch.fetch_add(1, Ordering::SeqCst).wrapping_add(1);
             (epoch, self.active.swap(true, Ordering::SeqCst))
         };
         if replacing_active_meter {
@@ -189,9 +188,8 @@ impl MicMeter {
         resolve_device: impl FnOnce(&[DeviceInfo]) -> Result<Option<usize>, String>,
         emit: Arc<dyn Fn(MeterEvent) + Send + Sync>,
     ) -> Result<(), MeterStartError> {
-        let (device_id, device_platform_id) = self
-            .resolve_device(resolve_device)
-            .inspect_err(|_| {
+        let (device_id, device_platform_id) =
+            self.resolve_device(resolve_device).inspect_err(|_| {
                 self.release(epoch);
                 (self.event_sink)(
                     "onboarding_mic_meter_device_unavailable",
@@ -445,8 +443,8 @@ impl MicMeter {
         &self,
         resolve: impl FnOnce(&[DeviceInfo]) -> Result<Option<usize>, String>,
     ) -> Result<(Option<usize>, Option<String>), MeterStartError> {
-        let devices = crate::capture::list_input_devices()
-            .map_err(|_| MeterStartError::EnumerateDevices)?;
+        let devices =
+            crate::capture::list_input_devices().map_err(|_| MeterStartError::EnumerateDevices)?;
         let device_id = resolve(&devices).map_err(MeterStartError::DeviceUnavailable)?;
         let platform_id = device_id.and_then(|id| {
             devices

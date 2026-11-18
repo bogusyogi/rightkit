@@ -336,7 +336,11 @@ fn static_string(value: String) -> &'static str {
 }
 
 fn static_strings(values: Vec<String>) -> &'static [&'static str] {
-    values.into_iter().map(static_string).collect::<Vec<_>>().leak()
+    values
+        .into_iter()
+        .map(static_string)
+        .collect::<Vec<_>>()
+        .leak()
 }
 
 impl OwnedBrand {

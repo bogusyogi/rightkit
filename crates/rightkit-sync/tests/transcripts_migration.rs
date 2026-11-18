@@ -133,7 +133,11 @@ fn excluded_scope_can_retry_and_success_remains_one_time() {
     assert!(!files.ledger.exists());
     assert!(!files.versions.exists());
     assert_eq!(
-        files.migrate(Some("account-A")).unwrap().unwrap().seeded_versions,
+        files
+            .migrate(Some("account-A"))
+            .unwrap()
+            .unwrap()
+            .seeded_versions,
         1
     );
     let ledger = std::fs::read(&files.ledger).unwrap();
@@ -168,7 +172,11 @@ fn failed_ledger_write_retries_without_overwriting_saved_versions() {
     assert_eq!(std::fs::read(&files.legacy.acks).unwrap(), original);
     std::fs::remove_file(&blocked).unwrap();
     assert_eq!(
-        files.migrate(Some("account-A")).unwrap().unwrap().seeded_versions,
+        files
+            .migrate(Some("account-A"))
+            .unwrap()
+            .unwrap()
+            .seeded_versions,
         0
     );
     let versions: Value = serde_json::from_slice(&std::fs::read(&files.versions).unwrap()).unwrap();
@@ -206,7 +214,8 @@ fn mismatched_or_unscoped_acks_never_authorize_unscoped_deletions_or_aliases() {
         let files = Files::new();
         let acks = files.acks(scope);
         let tombstones = serde_json::to_vec(&json!([{ "id": ID, "deleted_at_ms": 23 }])).unwrap();
-        let aliases = serde_json::to_vec(&json!([{ "id": ID, "aliases": ["other-account"] }])).unwrap();
+        let aliases =
+            serde_json::to_vec(&json!([{ "id": ID, "aliases": ["other-account"] }])).unwrap();
         std::fs::write(&files.legacy.tombstones, &tombstones).unwrap();
         std::fs::write(&files.legacy.pending, &tombstones).unwrap();
         std::fs::write(&files.legacy.aliases, &aliases).unwrap();
@@ -226,13 +235,18 @@ fn current_scope_qualified_files_import_without_foreign_ack_seeds() {
     let acks = files.acks(Some("account-A"));
     let profile = TranscriptSyncProfile::default();
     files.legacy.tombstones = files.root.join(profile.legacy_scoped_file_name(
-        "account-B", Some("account-A"), &profile.files.legacy_tombstones,
+        "account-B",
+        Some("account-A"),
+        &profile.files.legacy_tombstones,
     ));
     files.legacy.aliases = files.root.join(profile.legacy_scoped_file_name(
-        "account-B", Some("account-A"), &profile.files.legacy_aliases,
+        "account-B",
+        Some("account-A"),
+        &profile.files.legacy_aliases,
     ));
     let tombstones = serde_json::to_vec(&json!([{ "id": ID, "deleted_at_ms": 23 }])).unwrap();
-    let aliases = serde_json::to_vec(&json!([{ "id": ID, "aliases": ["current-account"] }])).unwrap();
+    let aliases =
+        serde_json::to_vec(&json!([{ "id": ID, "aliases": ["current-account"] }])).unwrap();
     std::fs::write(&files.legacy.tombstones, &tombstones).unwrap();
     std::fs::write(&files.legacy.aliases, &aliases).unwrap();
     assert!(files.migrate(Some("account-C")).unwrap().is_none());
@@ -254,9 +268,17 @@ fn existing_newer_or_older_version_entries_are_never_overwritten() {
         let original = serde_json::to_vec_pretty(&json!({
             (ID): { "hash": "local-content", "updated_at_ms": timestamp },
             "unrelated": { "hash": "keep", "updated_at_ms": 99 }
-        })).unwrap();
+        }))
+        .unwrap();
         std::fs::write(&files.versions, &original).unwrap();
-        assert_eq!(files.migrate(Some("account-A")).unwrap().unwrap().seeded_versions, 0);
+        assert_eq!(
+            files
+                .migrate(Some("account-A"))
+                .unwrap()
+                .unwrap()
+                .seeded_versions,
+            0
+        );
         assert_eq!(std::fs::read(&files.versions).unwrap(), original);
     }
 }
@@ -267,7 +289,14 @@ fn valid_existing_versions_merge_only_missing_seed_ids() {
     files.acks(Some("account-A"));
     let original = json!({ "unrelated": { "hash": "keep", "updated_at_ms": 99 } });
     std::fs::write(&files.versions, serde_json::to_vec(&original).unwrap()).unwrap();
-    assert_eq!(files.migrate(Some("account-A")).unwrap().unwrap().seeded_versions, 1);
+    assert_eq!(
+        files
+            .migrate(Some("account-A"))
+            .unwrap()
+            .unwrap()
+            .seeded_versions,
+        1
+    );
     let versions: Value = serde_json::from_slice(&std::fs::read(&files.versions).unwrap()).unwrap();
     assert_eq!(versions["unrelated"], original["unrelated"]);
     assert_eq!(versions[ID]["updated_at_ms"], 42);
@@ -285,7 +314,14 @@ fn malformed_existing_versions_refuse_before_marker_and_retry_after_repair() {
     assert!(!files.ledger.exists());
     assert_eq!(std::fs::read(&files.legacy.acks).unwrap(), acks);
     std::fs::write(&files.versions, b"{}").unwrap();
-    assert_eq!(files.migrate(Some("account-A")).unwrap().unwrap().seeded_versions, 1);
+    assert_eq!(
+        files
+            .migrate(Some("account-A"))
+            .unwrap()
+            .unwrap()
+            .seeded_versions,
+        1
+    );
     let versions: Value = serde_json::from_slice(&std::fs::read(&files.versions).unwrap()).unwrap();
     assert_eq!(versions[ID]["updated_at_ms"], 42);
     assert!(files.ledger.exists());
@@ -306,7 +342,14 @@ fn unreadable_existing_versions_refuse_before_marker_and_retry_after_repair() {
     assert_eq!(std::fs::read(&files.legacy.acks).unwrap(), acks);
     let preserved = files.root.join("preserved-version-directory");
     std::fs::rename(&files.versions, &preserved).unwrap();
-    assert_eq!(files.migrate(Some("account-A")).unwrap().unwrap().seeded_versions, 1);
+    assert_eq!(
+        files
+            .migrate(Some("account-A"))
+            .unwrap()
+            .unwrap()
+            .seeded_versions,
+        1
+    );
     assert_eq!(std::fs::read(preserved.join("preserved")).unwrap(), b"keep");
     assert!(files.ledger.is_file());
 }

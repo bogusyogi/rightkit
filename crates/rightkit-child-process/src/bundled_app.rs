@@ -48,7 +48,10 @@ pub fn resolve_app_in_bundle(
             "must be a relative path of normal components".to_string(),
         ));
     }
-    if !rel.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("app")) {
+    if !rel
+        .extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("app"))
+    {
         return Err(BundledHelperError::InvalidName(
             "must name a nested .app bundle".to_string(),
         ));
@@ -59,7 +62,12 @@ pub fn resolve_app_in_bundle(
     let app = match bundle.join(rel).canonicalize() {
         Ok(app) => app,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(error) => return Err(missing(&format!("app cannot be resolved: {}", error.kind()))),
+        Err(error) => {
+            return Err(missing(&format!(
+                "app cannot be resolved: {}",
+                error.kind()
+            )))
+        }
     };
     if app == bundle || !app.starts_with(&bundle) {
         return Err(missing("app resolves outside the app bundle"));
@@ -67,7 +75,9 @@ pub fn resolve_app_in_bundle(
     if !app.is_dir() {
         return Err(missing("app is not a directory"));
     }
-    if !app.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("app"))
+    if !app
+        .extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("app"))
         || !app.join("Contents").is_dir()
     {
         return Err(missing("app is not an .app bundle directory"));

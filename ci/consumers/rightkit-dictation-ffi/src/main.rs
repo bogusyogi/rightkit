@@ -9,8 +9,8 @@
 // - the new brand table function rejects null/malformed input, accepts one valid table, and refuses replacement.
 // No model is loaded, no keyword spotter or stream is created, no audio is read, no file is opened.
 // No network, no process spawn. Exits 1 on the first failed check.
-use std::ptr;
 use std::ffi::CString;
+use std::ptr;
 
 use rightkit_dictation_ffi::kws::{ENCODER_FILE, TOKENS_FILE};
 use rightkit_dictation_ffi::{
@@ -52,14 +52,26 @@ fn main() {
 
     // Configure once at end: the API installs a process-wide table and never replaces it.
     // SAFETY: null is an explicitly supported input.
-    check(unsafe { rightkit_dictation_configure_brand_homophones_json(ptr::null()) } == 1, "null table is refused");
+    check(
+        unsafe { rightkit_dictation_configure_brand_homophones_json(ptr::null()) } == 1,
+        "null table is refused",
+    );
     let malformed = CString::new("{").unwrap();
     // SAFETY: CString provides a valid NUL-terminated buffer for the call.
-    check(unsafe { rightkit_dictation_configure_brand_homophones_json(malformed.as_ptr()) } == 2, "malformed table is refused");
+    check(
+        unsafe { rightkit_dictation_configure_brand_homophones_json(malformed.as_ptr()) } == 2,
+        "malformed table is refused",
+    );
     let valid = CString::new(r#"{"brand":"Example","context_terms":[],"phrases":[{"phrase":"example phrase","guard":"always"}]}"#).unwrap();
     // SAFETY: CString provides a valid NUL-terminated UTF-8 buffer for the call.
-    check(unsafe { rightkit_dictation_configure_brand_homophones_json(valid.as_ptr()) } == 0, "valid table is installed");
+    check(
+        unsafe { rightkit_dictation_configure_brand_homophones_json(valid.as_ptr()) } == 0,
+        "valid table is installed",
+    );
     // SAFETY: the same valid buffer remains alive; the already-installed table is retained.
-    check(unsafe { rightkit_dictation_configure_brand_homophones_json(valid.as_ptr()) } == 3, "second table is refused");
+    check(
+        unsafe { rightkit_dictation_configure_brand_homophones_json(valid.as_ptr()) } == 3,
+        "second table is refused",
+    );
     println!("OK rightkit-dictation-ffi 0.2.1 (registry consumer)");
 }

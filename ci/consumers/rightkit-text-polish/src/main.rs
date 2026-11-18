@@ -49,8 +49,12 @@ fn main() {
 fn persisted_store_surface() {
     use rightkit_text_polish::vocabulary_store::{PersistedVocabulary, VocabularyHost};
     use std::path::{Path, PathBuf};
-    fn path() -> PathBuf { std::env::temp_dir().join("rightkit-vocabulary-consumer.json") }
-    fn write(_: &Path, _: &[u8]) -> std::io::Result<()> { Ok(()) }
+    fn path() -> PathBuf {
+        std::env::temp_dir().join("rightkit-vocabulary-consumer.json")
+    }
+    fn write(_: &Path, _: &[u8]) -> std::io::Result<()> {
+        Ok(())
+    }
 
     let _store = PersistedVocabulary::new(VocabularyHost { path, write });
     let _list = PersistedVocabulary::list;

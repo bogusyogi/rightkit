@@ -17,15 +17,25 @@
 use std::time::Instant;
 
 use rightkit_tauri_shell::caller_gate::is_content_label;
+use rightkit_tauri_shell::launch_origin::is_login_launch;
 use rightkit_tauri_shell::nav::{external_scheme_allowed, validate_internal_scheme};
 use rightkit_tauri_shell::preview::{PreviewStore, TOKEN_HEX_LEN};
-use rightkit_tauri_shell::webview2_env::{plan, ProfileEnv, ENV_ADDITIONAL_BROWSER_ARGUMENTS};
-use rightkit_tauri_shell::launch_origin::is_login_launch;
 use rightkit_tauri_shell::relaunch::{dispatch, relaunch_self, spawn, Protocol};
+use rightkit_tauri_shell::webview2_env::{plan, ProfileEnv, ENV_ADDITIONAL_BROWSER_ARGUMENTS};
 
 fn main() {
-    assert!(is_login_launch(["--login"], None, "--login", std::time::Duration::from_secs(60)));
-    assert!(!is_login_launch(["--manual"], None, "--login", std::time::Duration::from_secs(60)));
+    assert!(is_login_launch(
+        ["--login"],
+        None,
+        "--login",
+        std::time::Duration::from_secs(60)
+    ));
+    assert!(!is_login_launch(
+        ["--manual"],
+        None,
+        "--login",
+        std::time::Duration::from_secs(60)
+    ));
     // A1 public signatures only: never dispatch, spawn, or relaunch a live process here.
     let _dispatch = dispatch;
     let _spawn = spawn;

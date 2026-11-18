@@ -120,7 +120,10 @@ impl Recorder {
     /// putting a mismatched capture back later let a Start that ran in between
     /// be overwritten by the restored capture.
     fn take_active_capture(&self, session_id: &str) -> TakeCapture {
-        let mut slot = self.active.lock().unwrap_or_else(|error| error.into_inner());
+        let mut slot = self
+            .active
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
         match slot.as_ref() {
             None => TakeCapture::Idle,
             Some(capture) if capture.setup_id != session_id => TakeCapture::Mismatch,
@@ -166,7 +169,10 @@ impl Recorder {
             .transition
             .lock()
             .unwrap_or_else(|error| error.into_inner());
-        let mut active = self.active.lock().unwrap_or_else(|error| error.into_inner());
+        let mut active = self
+            .active
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
         self.supersede_active_capture(&mut active);
         (hooks.sweep_stale)();
         let setup_id = (hooks.new_session_id)();
@@ -284,7 +290,9 @@ impl Recorder {
         };
         capture.stop.store(true, Ordering::Release);
         let _ = capture.worker.join();
-        let _ = capture.media.restore_for_session(session_id, restore_reason);
+        let _ = capture
+            .media
+            .restore_for_session(session_id, restore_reason);
         capture
             .samples
             .lock()
@@ -312,7 +320,9 @@ impl Recorder {
         };
         capture.stop.store(true, Ordering::Release);
         let _ = capture.worker.join();
-        let _ = capture.media.restore_for_session(session_id, restore_reason);
+        let _ = capture
+            .media
+            .restore_for_session(session_id, restore_reason);
         if let Some(error) = capture
             .error
             .lock()
@@ -384,7 +394,6 @@ pub fn selected_capture_device(
         .or_else(|| devices.iter().find(|device| device.is_default));
     Ok(CaptureDevice {
         device_id,
-        platform_id: selected
-            .and_then(|device| device_id.and_then(|_| device.platform_id.clone())),
+        platform_id: selected.and_then(|device| device_id.and_then(|_| device.platform_id.clone())),
     })
 }

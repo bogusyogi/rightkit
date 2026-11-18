@@ -11,8 +11,18 @@ fn ordered_write_queue() {
     let first = queue.take_ticket();
     let second = queue.take_ticket();
     let mut order = Vec::new();
-    queue.write_in_turn(first, || { order.push(1); Ok::<_, ()>(()) }).unwrap();
-    queue.write_in_turn(second, || { order.push(2); Ok::<_, ()>(()) }).unwrap();
+    queue
+        .write_in_turn(first, || {
+            order.push(1);
+            Ok::<_, ()>(())
+        })
+        .unwrap();
+    queue
+        .write_in_turn(second, || {
+            order.push(2);
+            Ok::<_, ()>(())
+        })
+        .unwrap();
     assert_eq!(order, [1, 2]);
     assert!(!queue.persist_refused());
     queue.refuse_persist();

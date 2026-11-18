@@ -32,7 +32,6 @@ pub mod apple_helper;
 #[cfg(feature = "db-adapter")]
 pub mod db_adapter;
 pub mod handoff;
-pub mod slots;
 #[cfg(target_os = "linux")]
 mod linux;
 #[cfg(target_os = "macos")]
@@ -41,6 +40,7 @@ pub mod macos;
 pub mod os_auth;
 #[cfg(feature = "protected-key")]
 pub mod protected_key;
+pub mod slots;
 #[cfg(windows)]
 mod windows;
 

@@ -1,9 +1,9 @@
 // rightkit-transcript-library consumed by the exact registry pin in Cargo.toml, outside the workspace.
 // Public API only; in-memory values only.
 use rightkit_transcript_library::delivery::draft_delivery_id;
+use rightkit_transcript_library::export::{format_history, ExportLabels, HistoryExportFormat};
 use rightkit_transcript_library::history::{HistoryQuery, HistoryStore, MemoryHistoryStore};
 use rightkit_transcript_library::net::host_of_url;
-use rightkit_transcript_library::export::{format_history, ExportLabels, HistoryExportFormat};
 
 fn check(ok: bool, what: &str) -> bool {
     if ok {
@@ -33,16 +33,23 @@ fn main() {
         host_of_url("https://API.Example.COM:8443/v1").as_deref() == Some("api.example.com"),
         "host_of_url lower-cases and strips the port",
     );
-    let exported = format_history(&[], HistoryExportFormat::PlainText, &ExportLabels::default());
-    all &= check(exported.is_ok_and(|text| text.contains("Transcript history")), "history export formats empty history");
+    let exported = format_history(
+        &[],
+        HistoryExportFormat::PlainText,
+        &ExportLabels::default(),
+    );
+    all &= check(
+        exported.is_ok_and(|text| text.contains("Transcript history")),
+        "history export formats empty history",
+    );
     if !all {
         std::process::exit(1);
     }
 }
 
 fn store_api_surface() {
-    use rightkit_transcript_library::store::DeliveryHistoryStore;
     use rightkit_transcript_library::history::HistoryStore;
+    use rightkit_transcript_library::store::DeliveryHistoryStore;
     let _open_connection = DeliveryHistoryStore::open_connection;
     let _connection = DeliveryHistoryStore::connection;
     let _push = HistoryStore::push;

@@ -574,7 +574,9 @@ pub enum PointLinkState {
 /// root or failed root comparison returns `Unknown`; never infer absence from
 /// a truncated walk. UIA calls are synchronous: use off the input-hook thread.
 pub fn point_link_state(x: i32, y: i32, max_ancestors: usize) -> PointLinkState {
-    let Some(a) = automation() else { return PointLinkState::Unknown };
+    let Some(a) = automation() else {
+        return PointLinkState::Unknown;
+    };
     unsafe {
         let Ok(mut current) = a.ElementFromPoint(POINT { x, y }) else {
             return PointLinkState::Unknown;

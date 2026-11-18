@@ -156,9 +156,10 @@ fn outcome(record: &DeliveryRecord, labels: &ExportLabels) -> String {
             &labels.copied_fallback,
             &[("reason", reason.to_string().as_str())],
         ),
-        DeliveryOutcome::Error { code, message } => {
-            fill(&labels.error, &[("code", code.as_str()), ("message", message.as_str())])
-        }
+        DeliveryOutcome::Error { code, message } => fill(
+            &labels.error,
+            &[("code", code.as_str()), ("message", message.as_str())],
+        ),
         DeliveryOutcome::Cancelled => labels.cancelled.clone(),
         DeliveryOutcome::Draft => labels.draft.clone(),
     }
@@ -167,9 +168,10 @@ fn outcome(record: &DeliveryRecord, labels: &ExportLabels) -> String {
 fn source(record: &DeliveryRecord, labels: &ExportLabels) -> String {
     match record.source.as_ref() {
         None | Some(DeliverySource::Dictation) => labels.source_dictation.clone(),
-        Some(DeliverySource::FileTranscription { file_name }) => {
-            fill(&labels.source_file_transcription, &[("file_name", file_name.as_str())])
-        }
+        Some(DeliverySource::FileTranscription { file_name }) => fill(
+            &labels.source_file_transcription,
+            &[("file_name", file_name.as_str())],
+        ),
         Some(DeliverySource::CloudSync { device }) => {
             fill(&labels.source_cloud_sync, &[("device", device.as_str())])
         }
@@ -226,7 +228,10 @@ fn format_markdown(records: &[DeliveryRecord], labels: &ExportLabels) -> String 
             record.elapsed_ms,
         ));
         if let Some(recording_ms) = record.recording_ms {
-            output.push_str(&format!("- {}: {} ms\n", labels.recording_time, recording_ms));
+            output.push_str(&format!(
+                "- {}: {} ms\n",
+                labels.recording_time, recording_ms
+            ));
         }
         if index + 1 < records.len() {
             output.push('\n');

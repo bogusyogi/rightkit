@@ -232,7 +232,10 @@ impl SlotStore {
                     reason: "name must be non-empty without control characters".into(),
                 });
             }
-            if slots[..index].iter().any(|earlier| earlier.name == slot.name) {
+            if slots[..index]
+                .iter()
+                .any(|earlier| earlier.name == slot.name)
+            {
                 return Err(Error::Invalid {
                     what: "slot",
                     reason: format!("duplicate slot name {}", slot.name),

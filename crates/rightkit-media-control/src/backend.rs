@@ -177,35 +177,23 @@ impl<B: Backend> Lifecycle<B> {
                 // user resumed it. Pending ownership is also abandoned here
                 // because this stop path has used its bounded follow-up probe.
                 Some(observed) if observed.playing => {
-                    crate::event(
-                        "media_restore_outcome",
-                        "already_playing",
-                    );
+                    crate::event("media_restore_outcome", "already_playing");
                     continue;
                 }
                 Some(_) => match self.backend.play(&record.player) {
                     CommandOutcome::Confirmed => {
-                        crate::event(
-                            "media_restore_outcome",
-                            "play_confirmed",
-                        );
+                        crate::event("media_restore_outcome", "play_confirmed");
                     }
                     // A restore command is one-shot. Retrying after an
                     // ambiguous global command could undo a user's pause.
                     outcome @ (CommandOutcome::Ambiguous | CommandOutcome::Rejected) => {
-                        crate::event(
-                            "media_restore_outcome",
-                            &format!("play_{outcome:?}"),
-                        );
+                        crate::event("media_restore_outcome", &format!("play_{outcome:?}"));
                     }
                 },
                 // A pending pause that cannot be positively matched is
                 // abandoned after this bounded stop reconciliation.
                 None => {
-                    crate::event(
-                        "media_restore_outcome",
-                        "owned_player_not_observed",
-                    );
+                    crate::event("media_restore_outcome", "owned_player_not_observed");
                 }
             }
         }

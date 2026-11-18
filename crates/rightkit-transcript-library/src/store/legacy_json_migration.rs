@@ -35,7 +35,9 @@ pub(super) fn migrate_legacy_json_if_present(
     }
 
     let count: i64 = conn
-        .query_row("SELECT COUNT(*) FROM delivery_history", [], |row| row.get(0))
+        .query_row("SELECT COUNT(*) FROM delivery_history", [], |row| {
+            row.get(0)
+        })
         .map_err(|e| HistoryError::new(format!("count history before migration: {e}")))?;
     if count != 0 {
         events(
@@ -95,7 +97,9 @@ pub(super) fn migrate_legacy_json_if_present(
                 .map_err(|e| HistoryError::new(format!("insert migrated record: {e}")))?;
         }
         let row_count: i64 = tx
-            .query_row("SELECT COUNT(*) FROM delivery_history", [], |row| row.get(0))
+            .query_row("SELECT COUNT(*) FROM delivery_history", [], |row| {
+                row.get(0)
+            })
             .map_err(|e| HistoryError::new(format!("count history after migration: {e}")))?;
         if !migration_verified(&records, row_count) {
             events(
@@ -122,7 +126,10 @@ pub(super) fn migrate_legacy_json_if_present(
     // cleanup protocol. Never overwrite a path that may have been replaced.
     events(
         "history_migration_cleanup_pending",
-        &format!("migrated legacy history; preserving plaintext at {}", legacy_json.display()),
+        &format!(
+            "migrated legacy history; preserving plaintext at {}",
+            legacy_json.display()
+        ),
     );
     Ok(())
 }
@@ -267,7 +274,9 @@ mod tests {
         assert!(result.is_err());
         assert_eq!(synchronous(&conn), previous_sync);
         let row_count: i64 = conn
-            .query_row("SELECT COUNT(*) FROM delivery_history", [], |row| row.get(0))
+            .query_row("SELECT COUNT(*) FROM delivery_history", [], |row| {
+                row.get(0)
+            })
             .expect("count rolled-back rows");
         assert_eq!(row_count, 0);
         assert_eq!(fs::read(&legacy).expect("read preserved source"), bytes);
@@ -292,7 +301,9 @@ mod tests {
         assert!(CLEANUP_PENDING.load(Ordering::SeqCst));
         assert_eq!(fs::read(&legacy).expect("read retained plaintext"), bytes);
         let row_count: i64 = conn
-            .query_row("SELECT COUNT(*) FROM delivery_history", [], |row| row.get(0))
+            .query_row("SELECT COUNT(*) FROM delivery_history", [], |row| {
+                row.get(0)
+            })
             .expect("count migrated row");
         assert_eq!(row_count, 1);
     }
@@ -302,8 +313,8 @@ mod tests {
         let temp = TempDir::new();
         let legacy = temp.path().join("history.json");
         let backup = temp.path().join("history.json.bak");
-        let source_bytes = serde_json::to_vec(&vec![record("ignored")])
-            .expect("serialize test record");
+        let source_bytes =
+            serde_json::to_vec(&vec![record("ignored")]).expect("serialize test record");
         let backup_bytes = b"unrelated existing file";
         fs::write(&legacy, &source_bytes).expect("write test source");
         fs::write(&backup, backup_bytes).expect("write unrelated backup path");
@@ -317,10 +328,18 @@ mod tests {
         let result = migrate_legacy_json_if_present(&mut conn, &legacy, event_sink);
 
         assert!(result.is_err());
-        assert_eq!(fs::read(&legacy).expect("read preserved source"), source_bytes);
-        assert_eq!(fs::read(&backup).expect("read untouched backup"), backup_bytes);
+        assert_eq!(
+            fs::read(&legacy).expect("read preserved source"),
+            source_bytes
+        );
+        assert_eq!(
+            fs::read(&backup).expect("read untouched backup"),
+            backup_bytes
+        );
         let row_count: i64 = conn
-            .query_row("SELECT COUNT(*) FROM delivery_history", [], |row| row.get(0))
+            .query_row("SELECT COUNT(*) FROM delivery_history", [], |row| {
+                row.get(0)
+            })
             .expect("count rolled-back rows");
         assert_eq!(row_count, 0);
     }

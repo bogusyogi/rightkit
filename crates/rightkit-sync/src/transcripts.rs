@@ -554,21 +554,24 @@ impl TranscriptSyncProfile {
                 })
             })
         };
-        let tombs: Option<Vec<LegacyTombstone>> = if proven(&files.tombstones, &self.files.legacy_tombstones) {
-            read_legacy(&files.tombstones, "tombstones")?
-        } else {
-            None
-        };
-        let pending: Option<Vec<LegacyTombstone>> = if proven(&files.pending, &self.files.legacy_pending) {
-            read_legacy(&files.pending, "pending tombstones")?
-        } else {
-            None
-        };
-        let aliases: Option<Vec<LegacyAlias>> = if proven(&files.aliases, &self.files.legacy_aliases) {
-            read_legacy(&files.aliases, "aliases")?
-        } else {
-            None
-        };
+        let tombs: Option<Vec<LegacyTombstone>> =
+            if proven(&files.tombstones, &self.files.legacy_tombstones) {
+                read_legacy(&files.tombstones, "tombstones")?
+            } else {
+                None
+            };
+        let pending: Option<Vec<LegacyTombstone>> =
+            if proven(&files.pending, &self.files.legacy_pending) {
+                read_legacy(&files.pending, "pending tombstones")?
+            } else {
+                None
+            };
+        let aliases: Option<Vec<LegacyAlias>> =
+            if proven(&files.aliases, &self.files.legacy_aliases) {
+                read_legacy(&files.aliases, "aliases")?
+            } else {
+                None
+            };
         if tombs.is_none() && pending.is_none() && aliases.is_none() && acks.is_none() {
             return Ok(None);
         }

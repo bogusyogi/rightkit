@@ -14,9 +14,9 @@ use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
+use crate::desktop::macos::CG_EVENT_SOURCE_USER_DATA_FIELD;
 use core_foundation::base::TCFType;
 use core_foundation::runloop::{kCFRunLoopDefaultMode, CFRunLoop};
-use crate::desktop::macos::CG_EVENT_SOURCE_USER_DATA_FIELD;
 
 const CG_EVENT_KEY_DOWN: u32 = 10;
 const CG_EVENT_KEY_UP: u32 = 11;
@@ -158,7 +158,9 @@ impl PasteEventProbe {
             max_events: limits.max_events.min(8),
             ready_timeout: limits.ready_timeout.min(Duration::from_millis(250)),
             max_lifetime: limits.max_lifetime.min(Duration::from_secs(2)),
-            poll_interval: limits.poll_interval.clamp(Duration::from_millis(1), Duration::from_millis(10)),
+            poll_interval: limits
+                .poll_interval
+                .clamp(Duration::from_millis(1), Duration::from_millis(10)),
         };
         let state = Arc::new(ProbeState {
             stopped: AtomicBool::new(false),
@@ -211,7 +213,8 @@ impl PasteEventProbe {
                 let deadline = Instant::now() + bounded_lifetime;
                 let state = &(*context_ptr).state;
                 while !state.stopped.load(Ordering::Acquire) && Instant::now() < deadline {
-                    let _ = CFRunLoop::run_in_mode(kCFRunLoopDefaultMode, limits.poll_interval, false);
+                    let _ =
+                        CFRunLoop::run_in_mode(kCFRunLoopDefaultMode, limits.poll_interval, false);
                 }
 
                 state.stopped.store(true, Ordering::Release);
@@ -296,7 +299,9 @@ unsafe extern "C" fn paste_event_tap_callback(
         return event;
     }
 
-    if context.state.stopped.load(Ordering::Acquire) { return event; }
+    if context.state.stopped.load(Ordering::Acquire) {
+        return event;
+    }
     let keycode = CGEventGetIntegerValueField(event, CG_KEYBOARD_EVENT_KEYCODE);
     let flags = CGEventGetFlags(event);
     let token = CGEventGetIntegerValueField(event, CG_EVENT_SOURCE_USER_DATA_FIELD);

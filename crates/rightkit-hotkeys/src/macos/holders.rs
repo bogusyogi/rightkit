@@ -59,8 +59,15 @@ impl FnHotkeyHolder {
             Some((toggle, stop_send, cancel, fn_change));
     }
 
-    pub fn set_ptt_callbacks(&self, start: Action, stop: Action, stop_send: Action, cancel: Action) {
-        *self.ptt.lock().unwrap_or_else(|e| e.into_inner()) = Some((start, stop, stop_send, cancel));
+    pub fn set_ptt_callbacks(
+        &self,
+        start: Action,
+        stop: Action,
+        stop_send: Action,
+        cancel: Action,
+    ) {
+        *self.ptt.lock().unwrap_or_else(|e| e.into_inner()) =
+            Some((start, stop, stop_send, cancel));
     }
 
     /// Spawns the tap once both callback sets are registered. Idempotent.
@@ -166,7 +173,12 @@ impl MiddleMouseHolder {
         if self.tap.get().is_some() {
             return;
         }
-        let Some(cb) = self.callback.lock().unwrap_or_else(|e| e.into_inner()).clone() else {
+        let Some(cb) = self
+            .callback
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+        else {
             return;
         };
         match MiddleMouseTap::spawn(TapLocation::Hid, move || cb(), ax_link_at) {

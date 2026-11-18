@@ -458,8 +458,7 @@ fn clear_mirror_then_checkpoint<E: std::fmt::Display>(
     checkpoint: impl FnOnce() -> Result<rightkit_db::CheckpointStatus, E>,
 ) -> Result<(), HistoryError> {
     records.clear();
-    let status = checkpoint()
-        .map_err(|e| HistoryError::new(format!("clear checkpoint: {e}")))?;
+    let status = checkpoint().map_err(|e| HistoryError::new(format!("clear checkpoint: {e}")))?;
     if !checkpoint_is_complete(&status) {
         return Err(HistoryError::new(format!(
             "clear checkpoint incomplete: busy={} log_frames={} checkpointed_frames={}",

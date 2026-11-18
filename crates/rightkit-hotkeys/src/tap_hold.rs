@@ -185,7 +185,9 @@ fn debounce_ok(slot: &Mutex<Option<Instant>>, guard_ms: u64) -> bool {
 /// thread, where these actions have always run inline.
 fn run_action(work: impl FnOnce() + Send + 'static) {
     if cfg!(target_os = "windows") {
-        let _ = std::thread::Builder::new().name("rk-chord-action".into()).spawn(work);
+        let _ = std::thread::Builder::new()
+            .name("rk-chord-action".into())
+            .spawn(work);
     } else {
         work();
     }
@@ -199,13 +201,17 @@ fn log(sink: EventSink, line: Option<LogLine>) {
 
 #[cfg(target_os = "macos")]
 fn on_main_thread() -> bool {
-    extern "C" { fn pthread_main_np() -> i32; }
+    extern "C" {
+        fn pthread_main_np() -> i32;
+    }
     unsafe { pthread_main_np() != 0 }
 }
 
 fn install(bindings: Vec<Binding>, event_sink: EventSink) -> Result<(), String> {
     #[cfg(target_os = "macos")]
-    if !on_main_thread() { return Err("hotkey registration requires main thread".into()); }
+    if !on_main_thread() {
+        return Err("hotkey registration requires main thread".into());
+    }
     if HOLDER.lock().unwrap_or_else(|e| e.into_inner()).is_some() {
         return Err("hotkeys already registered".into());
     }
@@ -250,7 +256,9 @@ fn install(bindings: Vec<Binding>, event_sink: EventSink) -> Result<(), String> 
                     }
                     log(event_sink, *press_log);
                     let on_tap = on_tap.clone();
-                    let _ = std::thread::Builder::new().name("rk-chord-tap".into()).spawn(move || on_tap());
+                    let _ = std::thread::Builder::new()
+                        .name("rk-chord-tap".into())
+                        .spawn(move || on_tap());
                 }
                 (
                     Action::TapHold {
@@ -270,7 +278,9 @@ fn install(bindings: Vec<Binding>, event_sink: EventSink) -> Result<(), String> 
                     if delta >= *hold_threshold {
                         log(event_sink, *release_log);
                         let on_release_hold = on_hold_release.clone();
-                        let _ = std::thread::Builder::new().name("rk-chord-release".into()).spawn(move || on_release_hold());
+                        let _ = std::thread::Builder::new()
+                            .name("rk-chord-release".into())
+                            .spawn(move || on_release_hold());
                     }
                 }
                 (Action::Debounced { run, guard_ms }, HotkeyState::Pressed) => {
@@ -292,7 +302,8 @@ fn install(bindings: Vec<Binding>, event_sink: EventSink) -> Result<(), String> 
     let mut holder = os::create(dispatch)?;
     for (binding, slot) in bindings.iter().zip(slots) {
         let label = binding.label;
-        let chord = parse_chord(binding.chord).map_err(|e| format!("register {label} failed: {e}"))?;
+        let chord =
+            parse_chord(binding.chord).map_err(|e| format!("register {label} failed: {e}"))?;
         match os::register(&mut holder, &chord) {
             Ok(id) => table
                 .lock()
@@ -328,14 +339,19 @@ pub fn register(bindings: Vec<Binding>, host: ChordHost) -> Result<(), String> {
 
     #[cfg(target_os = "macos")]
     {
-        if on_main_thread() { return install(bindings, event_sink); }
+        if on_main_thread() {
+            return install(bindings, event_sink);
+        }
         // A timed-out queued job must not install registrations later.
         use std::sync::atomic::{AtomicU8, Ordering};
         let phase = Arc::new(AtomicU8::new(0)); // queued, running, cancelled
         let worker_phase = Arc::clone(&phase);
         let (tx, rx) = std::sync::mpsc::channel();
         run_on_main(Box::new(move || {
-            if worker_phase.compare_exchange(0, 1, Ordering::AcqRel, Ordering::Acquire).is_err() {
+            if worker_phase
+                .compare_exchange(0, 1, Ordering::AcqRel, Ordering::Acquire)
+                .is_err()
+            {
                 return;
             }
             let _ = tx.send(install(bindings, event_sink));
@@ -343,11 +359,17 @@ pub fn register(bindings: Vec<Binding>, host: ChordHost) -> Result<(), String> {
         .map_err(|e| format!("register hotkeys failed: main thread unavailable: {e}"))?;
         match rx.recv_timeout(Duration::from_secs(10)) {
             Ok(result) => result,
-            Err(_) if phase.compare_exchange(0, 2, Ordering::AcqRel, Ordering::Acquire).is_ok() => {
+            Err(_)
+                if phase
+                    .compare_exchange(0, 2, Ordering::AcqRel, Ordering::Acquire)
+                    .is_ok() =>
+            {
                 Err("register hotkeys failed: main thread did not respond".into())
             }
             // An installation already executing owns resources; await its actual result.
-            Err(_) => rx.recv().map_err(|_| "register hotkeys failed: dispatcher ended".to_string())?,
+            Err(_) => rx
+                .recv()
+                .map_err(|_| "register hotkeys failed: dispatcher ended".to_string())?,
         }
     }
     #[cfg(not(target_os = "macos"))]

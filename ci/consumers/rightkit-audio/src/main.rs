@@ -1239,16 +1239,28 @@ fn main() {
 }
 
 fn setup_api_surface() {
-    use rightkit_audio::setup::calibration_capture::{CaptureSettings, Recorder};
-    use rightkit_audio::setup::mic_meter::{level, MeterConfig, MeterEvent, MeterStartError, MicMeter};
     use rightkit_audio::capture::DeviceInfo;
-    use std::time::Duration;
+    use rightkit_audio::setup::calibration_capture::{CaptureSettings, Recorder};
+    use rightkit_audio::setup::mic_meter::{
+        level, MeterConfig, MeterEvent, MeterStartError, MicMeter,
+    };
     use std::sync::Arc;
+    use std::time::Duration;
     fn sink(_: &str, _: &str) {}
     let _meter = MicMeter::new(sink);
     let _recorder = Recorder::new(sink);
-    let _settings = CaptureSettings { sample_rate: 16_000, min_seconds: 30, target_seconds: 35, max_seconds: 120 };
-    let _config = MeterConfig { sample_rate: 16_000, block_ms: 20, confirm_level: 0.08, probe_timeout: Duration::from_secs(3) };
+    let _settings = CaptureSettings {
+        sample_rate: 16_000,
+        min_seconds: 30,
+        target_seconds: 35,
+        max_seconds: 120,
+    };
+    let _config = MeterConfig {
+        sample_rate: 16_000,
+        block_ms: 20,
+        confirm_level: 0.08,
+        probe_timeout: Duration::from_secs(3),
+    };
     let _meter_start: fn(
         &'static MicMeter,
         u64,

@@ -10,11 +10,11 @@
 // `tests/helper_e2e.rs` and `benches/budget.rs` against the signed helper and the app's real CloudKit
 // container, which need a Mac, an entitled helper and an iCloud account.
 use rightkit_sync::helper::{CloudKitHelper, HelperConfig};
+use rightkit_sync::transcripts::{content_hash, TranscriptSyncProfile};
 use rightkit_sync::{
     ApplyOutcome, FieldValue, FileStorage, ItemHeader, LocalStore, NullObserver, PassOutcome,
     RawRecord, RecordMapper, SyncEngineBuilder, SyncResult,
 };
-use rightkit_sync::transcripts::{content_hash, TranscriptSyncProfile};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -103,6 +103,6 @@ const _: fn(PathBuf, PathBuf) -> Result<(), String> = the_public_surface_compile
 fn main() {
     let profile = TranscriptSyncProfile::default();
     assert!(!profile.logical_cloud_id("consumer-id").is_empty());
-    assert_eq!(content_hash("transcript", "raw" ).len(), 64);
+    assert_eq!(content_hash("transcript", "raw").len(), 64);
     println!("rightkit-sync consumer: the public surface compiles; nothing was run");
 }

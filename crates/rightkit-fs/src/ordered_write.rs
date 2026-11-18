@@ -74,7 +74,9 @@ impl OrderedWriteQueue {
     pub fn take_ticket(&self) -> WriteTicket<'_> {
         let mut order = self.order.lock().unwrap_or_else(|e| e.into_inner());
         let sequence = order.next;
-        order.next = sequence.checked_add(1).expect("write ticket space exhausted");
+        order.next = sequence
+            .checked_add(1)
+            .expect("write ticket space exhausted");
         WriteTicket {
             queue: self,
             sequence,
@@ -91,7 +93,10 @@ impl OrderedWriteQueue {
         ticket: WriteTicket<'_>,
         write: impl FnOnce() -> Result<(), E>,
     ) -> Result<(), E> {
-        assert!(std::ptr::eq(self, ticket.queue), "ticket belongs to another queue");
+        assert!(
+            std::ptr::eq(self, ticket.queue),
+            "ticket belongs to another queue"
+        );
         {
             let mut order = self.order.lock().unwrap_or_else(|e| e.into_inner());
             while order.turn != ticket.sequence {
