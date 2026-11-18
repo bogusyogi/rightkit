@@ -5,6 +5,7 @@ use rightkit_dictation_core::engine::{
     validate_frame, EngineFrame, EnginePayload, EngineSchemaName,
 };
 use rightkit_dictation_core::mic_selection::{resolve_mic_selection, MicDeviceSnapshot};
+use rightkit_dictation_core::pill::PillEvent;
 
 fn check(ok: bool, what: &str) -> bool {
     if ok {
@@ -17,6 +18,14 @@ fn check(ok: bool, what: &str) -> bool {
 
 fn main() {
     let mut all = true;
+    let status = PillEvent::Status {
+        label: "Saved".to_string(),
+    };
+    all &= check(
+        serde_json::to_string(&status)
+            .is_ok_and(|json| json == r#"{"kind":"status","label":"Saved"}"#),
+        "status event serializes to source-derived wire shape",
+    );
     let request = EngineFrame::base(
         EngineSchemaName::FileTranscriptionRequest,
         "r1",

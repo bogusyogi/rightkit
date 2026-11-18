@@ -3203,11 +3203,11 @@
       "pkId": "PK91",
       "id": "ci/consumers/rightkit-dictation-core/src/main.rs",
       "files": {
-        "Cargo.toml": "81fa1654eb444b0cb921c47116818c7a3d160646a60ab1818a8080ed261617c0",
-        "README.md": "6071748ecee178108a87c8accff14a7e3d7a196bf2f56216fca6215703501019",
-        "src/main.rs": "4dc52b7301f7f32ab0e1809b1c8844c54843ca9f9d8e66efbb35731013a355b2"
+        "Cargo.toml": "c9a7a27042e0d0d6f8bba3f842bd08540c3911061f41e61bd47f9acc9f798470",
+        "README.md": "66aa4c3923ab9d33006a174e93581496c4d77014210870496fbe8b532b5b8f8d",
+        "src/main.rs": "0a0e886e9002827a062a9f39827677cee43a1a86c31ac2453161cd3f3f87b43b"
       },
-      "aggregateSha256": "35c8faed61453432e99af1cb9486245cd08b213800312e47ed23e45a75a40ba9"
+      "aggregateSha256": "28a0f60b9a01d398455d5330302267798959dd6c09fe61d5f5c4212f1de8c552"
     },
     "rightkit-disk-cleanup": {
       "pkId": "PK92",

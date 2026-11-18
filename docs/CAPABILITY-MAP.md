@@ -88,7 +88,7 @@ Capabilities: 223 (58 with fingerprints, 165 declaration-only). Internal owners 
 | desktop-shell | `@rightkit/tauri-shell`, `rightkit-tauri-shell` | advise | declaration-only, fingerprinted | 6 (0 block, 6 advise) | @rightkit/tauri-shell: published 0.1.3 (npm); rightkit-tauri-shell: published 0.8.2 (crates.io) |
 | device-link-types | `rightkit-device-link-types` | none | declaration-only | 0 | rightkit-device-link-types: staged 0.1.2, not published |
 | device-mesh | `rightkit-mesh` | none | declaration-only | 0 | rightkit-mesh: staged 0.2.2, not published |
-| dictation | `rightkit-dictation-core` | none | declaration-only | 0 | rightkit-dictation-core: staged 0.3.1, not published |
+| dictation | `rightkit-dictation-core` | none | declaration-only | 0 | rightkit-dictation-core: published 0.3.1 (crates.io) |
 | dictation-app-runtime | `rightkit-dictation-app-runtime` | none | declaration-only | 0 | rightkit-dictation-app-runtime: staged 0.2.0, not published |
 | dictation-command-host | `rightkit-dictation-command-host` | none | declaration-only | 0 | rightkit-dictation-command-host: staged 0.2.1, not published |
 | dictation-engine | `rightkit-dictation-engine` | none | declaration-only | 0 | rightkit-dictation-engine: staged 0.2.0, not published |

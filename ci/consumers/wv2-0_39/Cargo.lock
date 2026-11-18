@@ -3036,7 +3036,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-automation"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "windows 0.62.2",
 ]
@@ -3052,7 +3052,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-child-process"
-version = "0.5.13"
+version = "0.5.14"
 dependencies = [
  "libc",
  "windows 0.62.2",
@@ -3071,7 +3071,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-credentials"
-version = "0.5.5"
+version = "0.5.6"
 dependencies = [
  "getrandom 0.4.3",
  "rightkit-child-process",
@@ -3211,6 +3211,7 @@ name = "rightkit-tauri-shell"
 version = "0.8.3"
 dependencies = [
  "block2",
+ "libc",
  "objc2",
  "objc2-app-kit",
  "objc2-foundation",
@@ -3219,6 +3220,7 @@ dependencies = [
  "rightkit-clipboard",
  "rightkit-daemon",
  "rightkit-deep-link",
+ "rightkit-fs",
  "rightkit-instance",
  "rightkit-job-queue",
  "rightkit-notifications",
@@ -3229,6 +3231,7 @@ dependencies = [
  "tauri",
  "webview2-com",
  "windows 0.62.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

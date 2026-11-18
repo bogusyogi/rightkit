@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.2 (unpublished)
+
+- Add `pill`: shared `PillEvent`, render-state mapping, visibility, hit-testing & event-driven hover scheduling. Serde derives, tags, variants & fields match HeardRight commit `28acb588^`; labels remain host inputs.
+- Include ten source-derived JSON fixtures & wire compatibility checks. Fixtures were handwritten from serde rules; no serialization run is claimed.
+
 ## 0.3.1 (2026-11-16)
 
 HeardRight's `heardright_core::app_paths` is compared with this crate; nothing changes for a host that makes no call below.

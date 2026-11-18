@@ -11,6 +11,7 @@ package, split along the app's crate boundaries.
   `validate_frame`, the launch frame, recording delivery policy, `SecretString`, and the provider
   key handoff (`provider_handoff`) that scrubs ambient key variables from the engine process.
 - `state`: the recording session state machine.
+- `pill`: shared `PillEvent` (`kind` tag, snake-case variants), render-state mapping, visibility, hit-testing & event-driven hover scheduling. Text, painters & layout remain host inputs. Ten JSON fixtures derive from checked-in host serde rules; they are compatibility expectations, with execution evidence still required.
 - `settings`, `app_paths`: the settings document and the data root for the folder name the host
   configures with `app_paths::configure_app_data_dir_name`.
 - `redact_diagnostic_event` / `redact_payload_*`.

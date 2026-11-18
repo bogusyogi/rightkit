@@ -11341,7 +11341,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-dictation-core"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "rightkit-credentials",
  "rightkit-fs",
@@ -13170,7 +13170,6 @@ version = "0.1.4"
 dependencies = [
  "http",
  "rightkit-db",
- "rightkit-fs",
  "rightkit-time",
  "serde",
  "serde_json",

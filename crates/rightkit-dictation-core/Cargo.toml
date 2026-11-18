@@ -1,13 +1,13 @@
 [package]
 name = "rightkit-dictation-core"
-version = "0.3.1"
+version = "0.3.2"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Dictation core: engine wire protocol and validation, provider key handoff, recording session state machine, wake word state, mic selection and audio conditioning."
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 repository = "https://github.com/bogusyogi/rightkit"
-include = ["src/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+include = ["src/**", "tests/**", "fixtures/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [lib]
 name = "rightkit_dictation_core"

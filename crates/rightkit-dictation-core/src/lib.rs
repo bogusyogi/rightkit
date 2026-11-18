@@ -6,6 +6,7 @@
 //! - [`state`]: the recording session state machine.
 //! - [`wake`]: wake word listener state.
 //! - [`mic_selection`]: choosing a capture device from the available inputs.
+//! - [`pill`]: shared pill events, render-state mapping, visibility & hover scheduling.
 //! - [`audio_conditioning`]: capture-side conditioning of PCM before ASR.
 //!
 //! - [`settings`]: the versioned settings document (schema, defaults, migration, patches).
@@ -20,6 +21,7 @@ pub mod app_paths;
 pub mod audio_conditioning;
 pub mod engine;
 pub mod mic_selection;
+pub mod pill;
 mod redact;
 pub mod settings;
 pub mod state;
