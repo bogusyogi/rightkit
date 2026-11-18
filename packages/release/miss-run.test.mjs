@@ -1,49 +1,81 @@
 // The contract test's judgement of a cold run (S11) and a run after a toolchain change (S17's third run), on the gate's real output lines
-// (bin/rightkit-gate.mjs: "cache lookup: ... report <file> (digest <64 hex>)" and "RK_CACHE_MISS: N row(s) miss the cache ...; they run now").
-// Adrian 2026-11-08: a miss runs the row, explained, and never stops the run (replacing 2026-11-07 "Test checks the stop"; astra62, 2026-11-18).
+// (bin/rightkit-gate.mjs: "cache lookup: P planned, H hit, M unexpected miss(es) (...), U uncacheable by design; report <file> (digest <64 hex>)" and
+// "RK_CACHE_MISS: M row(s) miss the cache ...; they run now"). Adrian 2026-11-08: a miss runs the row, explained, and never stops the run
+// (replacing 2026-11-07 "Test checks the stop"; decided by astra62 under Adrian's delegation, 2026-11-18). The negative cases are astra62's review 7.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { assertMissRun, missReportOf } from "./gate-acceptance.mjs";
 
-const digest = "a".repeat(64);
-const logOf = (misses, extra = "") => `rightkit-gate: cache lookup: 3 planned, 0 hit, ${misses} unexpected miss(es) (${misses} no stored result (a new row, or the cache is empty)), 0 uncacheable by design; report D:/runs/rightkit-gate-misses/x.json (digest ${digest})\nrightkit-gate: RK_CACHE_MISS: ${misses} row(s) miss the cache without a change to their own files; they run now. Each miss is explained in the report; a miss where nothing changed is a cache bug: file it with the report\n${extra}`;
-const report = (rows, hit = 0) => (file) => ({ file, schema: "rightkit.gate-miss-report/1", hit, rows });
-const rowsOf = (entries) => new Map(entries.map(([id, coverage, status]) => [id, { id, class: "B", coverage, status }]));
+const NEW = "no stored result (a new row, or the cache is empty)";
+const CHANGED = "inputs or environment changed";
+const lookupLine = (file, { planned, hit, misses }) => `rightkit-gate: cache lookup: ${planned} planned, ${hit} hit, ${misses} unexpected miss(es) (${misses} x), 0 uncacheable by design; report ${file} (digest ${"a".repeat(64)})`;
+const announce = (n) => `rightkit-gate: RK_CACHE_MISS: ${n} row(s) miss the cache without a change to their own files; they run now. Each miss is explained in the report`;
+// A run: `lookups` = [{ file, planned, hit, rows: [{ id, cause, evidence? }] }], `coverage` = [[id, class, coverage, status, key?]].
+function rig({ lookups, coverage, exit, announced = null, extraLog = "" }) {
+  const log = [...lookups.map((l, i) => `${lookupLine(l.file, { planned: l.planned, hit: l.hit, misses: l.lineMisses ?? l.rows.length })}\n${announce((announced ?? lookups.map((x) => x.lineMisses ?? x.rows.length))[i])}`), extraLog].join("\n");
+  const files = Object.fromEntries(lookups.map((l) => [l.file, { planned: l.planned, hit: l.hit, misses: l.reportMisses ?? l.rows.length, rows: l.rows }]));
+  const reports = missReportOf(log, (f) => { if (!files[f] || lookups.find((l) => l.file === f)?.unreadable) throw new Error(`ENOENT ${f}`); return files[f]; });
+  const rows = coverage === null ? null : new Map(coverage.map(([id, cls, cov, status, key = `k-${id}`]) => [id, { id, class: cls, coverage: cov, status, key }]));
+  return { run: { log, exit, rows }, reports };
+}
+const judge = (r, opts) => assertMissRun(r.run, r.reports, opts);
+const text = (v) => v.problems.join("\n");
 
-test("a cold run that ran every miss, each 'no stored result', passes", () => {
-  const log = logOf(2);
-  const r = missReportOf(log, report([{ id: "a", cause: "no stored result (a new row, or the cache is empty)" }, { id: "b", cause: "no stored result (a new row, or the cache is empty)" }]));
-  assert.deepEqual(assertMissRun({ log, exit: 0, rows: rowsOf([["a", "ran", "pass"], ["b", "ran", "pass"]]) }, r, { cause: "new" }), { ok: true, problems: [] });
+test("cold: every eligible row missed with 'no stored result', ran, nothing hit: passes", () => {
+  const r = rig({ lookups: [{ file: "a.json", planned: 2, hit: 0, rows: [{ id: "a", cause: NEW }, { id: "b", cause: NEW }] }], coverage: [["a", "A", "ran", "pass"], ["b", "A", "ran", "pass"]], exit: 0 });
+  assert.deepEqual(judge(r, { cause: "new" }), { ok: true, problems: [] });
 });
 
-test("a stop, a hit, a miss that did not run, a missing announcement or an exit that disagrees with the rows each fail", () => {
-  const cold = (rows) => missReportOf(logOf(1), report(rows));
-  const one = [{ id: "a", cause: "no stored result (a new row, or the cache is empty)" }];
-  const stopped = assertMissRun({ log: "rightkit-gate: BLOCKED: RK_CACHE_MISS", exit: 1, rows: rowsOf([["a", "skipped", "not-run"]]) }, cold(one), { cause: "new" });
-  assert.match(stopped.problems.join("\n"), /stopped on RK_CACHE_MISS/); assert.match(stopped.problems.join("\n"), /did not announce/); assert.match(stopped.problems.join("\n"), /a: a miss that did not run/);
-  assert.match(assertMissRun({ log: logOf(1), exit: 0, rows: rowsOf([["a", "hit", "pass"]]) }, cold(one), { cause: "new" }).problems.join("\n"), /a: a miss that did not run \(coverage hit\)/);
-  assert.match(assertMissRun({ log: logOf(1), exit: 0, rows: rowsOf([["a", "ran", "pass"]]) }, missReportOf(logOf(1), report(one, 2)), { cause: "new" }).problems.join("\n"), /2 row\(s\) hit on a run whose cache was moved aside/);
-  assert.match(assertMissRun({ log: logOf(1), exit: 0, rows: rowsOf([["a", "ran", "fail"]]) }, cold(one), { cause: "new" }).problems.join("\n"), /exit 0 does not agree with the rows \(a row failed\)/);
-  assert.match(assertMissRun({ log: logOf(1), exit: 1, rows: rowsOf([["a", "ran", "pass"]]) }, cold(one), { cause: "new" }).problems.join("\n"), /exit 1 does not agree/);
-  assert.match(assertMissRun({ log: logOf(1), exit: 0, rows: null }, cold(one), { cause: "new" }).problems.join("\n"), /no readable coverage/);
+test("cold, astra62 case 1: two misses announced and run, the report holds one row: fails", () => {
+  const r = rig({ lookups: [{ file: "a.json", planned: 2, hit: 0, lineMisses: 2, reportMisses: 1, rows: [{ id: "a", cause: NEW }] }], coverage: [["a", "A", "ran", "pass"], ["b", "A", "ran", "pass"]], exit: 0 });
+  const v = judge(r, { cause: "new" });
+  assert.equal(v.ok, false); assert.match(text(v), /lookup 1: the report says 2 planned, 0 hit, 1 misses and holds 1 rows; the line says 2, 0, 2/); assert.match(text(v), /b: ran with a cache key but no miss report names it/);
 });
 
-test("after a toolchain change, every failing row is named with cause 'changed' and runs again", () => {
-  const changed = "inputs or environment changed";
-  const log = logOf(1);
-  const ok = assertMissRun({ log, exit: 1, rows: rowsOf([["test:rust:rk:rk-core:2", "ran", "fail"]]) }, missReportOf(log, report([{ id: "test:rust:rk:rk-core:2", cause: changed }])), { cause: "changed", ids: ["test:rust:rk:rk-core:2"] });
-  assert.deepEqual(ok, { ok: true, problems: [] });
-  const reused = assertMissRun({ log, exit: 1, rows: rowsOf([["test:rust:rk:rk-core:2", "hit", "fail"], ["x", "ran", "fail"]]) }, missReportOf(log, report([{ id: "x", cause: changed }])), { cause: "changed", ids: ["test:rust:rk:rk-core:2"] });
-  assert.match(reused.problems.join("\n"), /rk-core:2: not in the miss report: the gate would have reused it/);
-  assert.match(reused.problems.join("\n"), /rk-core:2: a miss that did not run \(coverage hit\)/);
+test("cold: an empty report, an unreadable report, an announcement that differs, a hit, a stop: each fails", () => {
+  const empty = rig({ lookups: [{ file: "a.json", planned: 1, hit: 0, lineMisses: 1, reportMisses: 0, rows: [] }], coverage: [["a", "A", "ran", "pass"]], exit: 0 });
+  assert.match(text(judge(empty, { cause: "new" })), /a: ran with a cache key but no miss report names it/);
+  const unreadable = rig({ lookups: [{ file: "a.json", planned: 1, hit: 0, unreadable: true, rows: [{ id: "a", cause: NEW }] }], coverage: [["a", "A", "ran", "pass"]], exit: 0 });
+  assert.match(text(judge(unreadable, { cause: "new" })), /lookup 1: the report a\.json cannot be read/);
+  const misannounced = rig({ lookups: [{ file: "a.json", planned: 1, hit: 0, rows: [{ id: "a", cause: NEW }] }], announced: [3], coverage: [["a", "A", "ran", "pass"]], exit: 0 });
+  assert.match(text(judge(misannounced, { cause: "new" })), /announcements \(3\) do not match the lookups' misses \(1\)/);
+  const hit = rig({ lookups: [{ file: "a.json", planned: 2, hit: 1, rows: [{ id: "a", cause: NEW }] }], coverage: [["a", "A", "ran", "pass"], ["b", "A", "hit", "pass"]], exit: 0 });
+  assert.match(text(judge(hit, { cause: "new" })), /hit on a run whose cache was moved aside/);
+  const stopped = { run: { log: "rightkit-gate: BLOCKED: RK_CACHE_MISS", exit: 1, rows: new Map() }, reports: [] };
+  assert.match(text(judge(stopped, { cause: "new" })), /stopped on RK_CACHE_MISS/); assert.match(text(judge(stopped, { cause: "new" })), /no cache lookup names a miss report/);
 });
 
-test("a run that looks the cache up twice (a compile's check rows, then its compile rows) is judged on every report it names", () => {
-  const line = (file) => `rightkit-gate: cache lookup: 9 planned, 1 hit, 1 unexpected miss(es) (1 inputs or environment changed), 0 uncacheable by design; report ${file} (digest ${"b".repeat(64)})`;
-  const log = `${line("D:/r/one.json")}\n${line("D:/r/two.json")}\nrightkit-gate: RK_CACHE_MISS: 1 row(s) miss the cache without a change to their own files; they run now.\n`;
-  const reports = { "D:/r/one.json": { hit: 1, rows: [{ id: "clippy:a", cause: "inputs or environment changed" }] }, "D:/r/two.json": { hit: 2, rows: [{ id: "test:rust:a", cause: "no stored result (a new row, or the cache is empty)" }] } };
-  const merged = missReportOf(log, (f) => reports[f]);
-  assert.deepEqual(merged.files, ["D:/r/one.json", "D:/r/two.json"]); assert.equal(merged.hit, 3); assert.deepEqual(merged.rows.map((r) => r.id), ["clippy:a", "test:rust:a"]);
-  const v = assertMissRun({ log, exit: 1, rows: new Map([["clippy:a", { coverage: "ran", status: "pass" }], ["test:rust:a", { coverage: "ran", status: "fail" }]]) }, merged, { cause: "changed", ids: ["test:rust:a"] });
-  assert.deepEqual(v, { ok: true, problems: [] });
+// The real shape of S17's third run (Dell, 2026-11-18): class A misses explained by the changed toolchain variable, class B members "no stored result"
+// and then answered by their group's key, the rows that failed before ran again.
+const changedRun = (over = {}) => rig({
+  lookups: [
+    { file: "a.json", planned: 2, hit: 1, rows: over.aRows ?? [{ id: "cargo-deny:rk", cause: CHANGED, evidence: { inputs: [], inheritedEnv: ["RUSTUP_TOOLCHAIN"] } }] },
+    { file: "b.json", planned: 3, hit: 1, rows: over.bRows ?? [{ id: "clippy:rk:rk-core", cause: NEW }, { id: "test:rust:rk:rk-core", cause: NEW }] },
+  ],
+  coverage: over.coverage ?? [["cargo-deny:rk", "A", "ran", "pass"], ["tsc:x", "A", "hit", "pass"], ["clippy:rk:rk-core", "B", "hit", "pass"], ["test:rust:rk:rk-core", "B", "ran", "fail"], ["fmt:rk", "B", "hit", "pass"]],
+  exit: 1,
+});
+const S17 = { cause: "changed", ids: ["test:rust:rk:rk-core"], priorFailed: ["test:rust:rk:rk-core"], changedVar: "RUSTUP_TOOLCHAIN" };
+
+test("toolchain change: evidenced class A misses, group members answered by their group, the failing row ran again: passes", () => {
+  assert.deepEqual(judge(changedRun(), S17), { ok: true, problems: [] });
+});
+
+test("toolchain change, astra62 case 2: a blank cause and an 'unknown' cause fail", () => {
+  const v = judge(changedRun({ aRows: [{ id: "cargo-deny:rk", cause: "" }, { id: "x", cause: "unknown" }], coverage: [["cargo-deny:rk", "A", "ran", "pass"], ["x", "A", "ran", "pass"], ["clippy:rk:rk-core", "B", "hit", "pass"], ["test:rust:rk:rk-core", "B", "ran", "fail"]] }), S17);
+  assert.match(text(v), /cargo-deny:rk: cause "\(blank\)" is not an evidenced explanation/); assert.match(text(v), /x: cause "unknown" is not an evidenced explanation/);
+});
+
+test("toolchain change: an unrelated change, a cause without evidence, an unsupported 'no stored result', a failing row reused: each fails", () => {
+  const unrelated = judge(changedRun({ aRows: [{ id: "cargo-deny:rk", cause: CHANGED, evidence: { inheritedEnv: ["PATH"] } }] }), S17);
+  assert.match(text(unrelated), /no miss names RUSTUP_TOOLCHAIN as changed/);
+  const noEvidence = judge(changedRun({ aRows: [{ id: "cargo-deny:rk", cause: CHANGED, evidence: {} }] }), S17);
+  assert.match(text(noEvidence), /cargo-deny:rk: cause "inputs or environment changed" is not an evidenced explanation/);
+  const classANew = judge(changedRun({ aRows: [{ id: "cargo-deny:rk", cause: NEW }, { id: "pnpm-audit:app", cause: CHANGED, evidence: { inheritedEnv: ["RUSTUP_TOOLCHAIN"] } }], coverage: [["cargo-deny:rk", "A", "ran", "pass"], ["pnpm-audit:app", "A", "ran", "pass"], ["clippy:rk:rk-core", "B", "hit", "pass"], ["test:rust:rk:rk-core", "B", "ran", "fail"]] }), S17);
+  assert.match(text(classANew), /cargo-deny:rk: cause "no stored result[^"]*" is not an evidenced explanation/);
+  const reused = judge(changedRun({ coverage: [["cargo-deny:rk", "A", "ran", "pass"], ["clippy:rk:rk-core", "B", "hit", "pass"], ["test:rust:rk:rk-core", "B", "hit", "fail"]] }), S17);
+  assert.match(text(reused), /test:rust:rk:rk-core: failed before and did not run again \(coverage hit\)/);
+  const base = changedRun();
+  assert.match(text(judge({ ...base, run: { ...base.run, exit: 0 } }, S17)), /exit 0 does not agree with the rows \(a row failed\)/);
+  assert.match(text(judge({ ...base, run: { ...base.run, rows: null } }, S17)), /no readable coverage report/);
 });
