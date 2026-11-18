@@ -3229,6 +3229,8 @@ export async function runScans(plan, options = {}) {
   const cache = options.cache && typeof options.cache.read === "function" && typeof options.cache.write === "function" && typeof options.cache.digest === "function" ? options.cache : null;
   const cacheHits = [];
   const classACacheDecision = typeof options.classACacheForecast === "function" ? { fingerprints: [], forecast: [], actual: [], mismatches: [], dispatchedRows: [], retained: [] } : null;
+  const classBCacheDecision = typeof options.classBCacheForecast === "function" ? { fingerprints: [], forecast: [], actual: [], mismatches: [], dispatchedRows: [], retained: [] } : null;
+  const admittedB = new Map();
   const admittedA = new Map();
   const admissionToolFiles = new Map();
   const admissionTrusts = new Map();
@@ -3380,6 +3382,7 @@ export async function runScans(plan, options = {}) {
   async function runOneBody(s, extraEnv = null) {
     if (signal?.aborted) return { id: s.id, class: s.class, command: s.command, tool: s.tool ?? null, toolVersion: null, status: "not-run", code: "CANCELLED", detail: "cancelled before it started" };
     if (s.class === SCAN_CLASS.A && classACacheDecision?.mismatches.length) return { id: s.id, class: s.class, command: s.command, tool: s.tool ?? null, toolVersion: null, status: "not-run", code: "CLASS_A_CACHE_DISAGREEMENT", detail: "Class A cache admission refused before dispatch" };
+    if (s.class === SCAN_CLASS.B && classBCacheDecision?.mismatches.length) return { id: s.id, class: s.class, command: s.command, status: "not-run", code: "CLASS_B_CACHE_DISAGREEMENT", detail: "Class B cache admission refused before dispatch" };
     const started = Date.now();
     const scanStarted = performance.now();
     let row = await scanRow(s, extraEnv);
@@ -3555,6 +3558,14 @@ export async function runScans(plan, options = {}) {
     // (2026-11-07: 296 conflicting pairs across 28 crates; a member's projected pass hid its own error). The group's row is stored under the
     // group's own key by its own scanRow; a member hits alone only after it ran alone (store rule, Adrian 2026-11-08). In a cache lookup the members are reported one by one, each with its own cause.
     const runGroup = async (idx, extraEnv, budget, probed = false) => {
+      if (classBCacheDecision && !classAFailed && !classBBlocked && !signal?.aborted) {
+        const ready = bPreparedGroups.get(idx[0]);
+        for (const i of ready.hits) slots[i] = await runOne(bScans[i], extraEnv);
+        await Promise.all(ready.parts.map((part) => part.length === 1
+          ? runOne(bScans[part[0]], extraEnv).then((row) => { slots[part[0]] = row; })
+          : runGroupBody(part, extraEnv)));
+        return;
+      }
       if (probed || !cache || idx.length < 2 || signal?.aborted) return runParts(idx, extraEnv, budget);
       const started = Date.now();
       const looked = await Promise.all(idx.map(async (i) => { const copy = { ...bScans[i] }; probeScans.add(copy); try { return [i, await scanRow(copy, extraEnv)]; } catch (error) { return [i, { ...failedRow(i, error) }]; } }));
@@ -3658,7 +3669,7 @@ export async function runScans(plan, options = {}) {
         // NN42: cargo's messages name the crate, not the target. A crate that failed in an invocation naming several targets runs each of its
         // targets alone, so the verdict names the target that fails and the others pass on their own.
         const multi = new Set(idx.map((i) => bScans[i].batchable.target).filter(Boolean)).size > 1;
-        if (multi && !signal?.aborted) {
+        if (multi && !signal?.aborted && !classBCacheDecision) {
           const redo = idx.filter((i) => slots[i]?.status === "fail");
           await Promise.all(redo.map(async (i) => { const alone = await runOne(bScans[i], extraEnv).catch((error) => failedRow(i, error)); slots[i] = { ...alone, batchFailure: { id: bs.id, units: bs.batch.units, command: row.command, detail: "the multi-target invocation failed for this crate; this target ran alone" } }; }));
         }
@@ -3694,7 +3705,127 @@ export async function runScans(plan, options = {}) {
         running.add(job);
       }
     };
-    if (brokerHost) {
+    const bPreparedGroups = new Map();
+    if (classBCacheDecision && !classAFailed && !classBBlocked && !signal?.aborted) {
+      await admitClassBCache();
+    }
+    async function admitClassBCache() {
+      const decision = classBCacheDecision;
+      const staged = [];
+      const stage = async (scan, members) => {
+        const item = { decision, members, owned: { cargoReadTarget: null }, timing: { invocationId: crypto.randomUUID(), elapsedMs: null, cacheLookupMs: null, executionMs: null }, started: performance.now(), observed: new Map() };
+        const prepared = scan.quiet === true ? { ...scan, timeoutMs: Math.min(scanTimeoutMs(scan, options), QUIET_SCAN_MAX_MS) } : scan;
+        item.scan = scanRowIn(prepared, null, item.owned, item.timing, item);
+        const first = await item.scan.next();
+        item.fingerprint = first.done ? classAFingerprint(scan, null, null, null, first.value.detail ?? "row not available") : first.value;
+        item.done = first.done;
+        if (first.done) item.actual = { id: scan.id, actual: "blocked", reason: first.value.detail ?? "row not available" };
+        staged.push(item);
+        return item;
+      };
+      const lookup = async (item) => {
+        if (!item.done) {
+          const next = await item.scan.next();
+          item.actual = next.done ? { id: item.fingerprint.id, actual: "blocked", reason: next.value.detail ?? "lookup did not complete" } : next.value;
+        }
+      };
+      const selected = [];
+      let memberPredictions = new Map();
+      try {
+        const singles = await Promise.all(bScans.map((scan, i) => stage(scan, [i])));
+        decision.memberFingerprints = Object.freeze(singles.map((item) => Object.freeze({ ...item.fingerprint, invocationId: item.fingerprint.id })));
+        const supplied = await options.classBCacheForecast(decision.memberFingerprints, { phase: "members" });
+        if (!Array.isArray(supplied)) throw new TypeError("expected an array of member forecasts");
+        const predicted = new Map();
+        for (const row of supplied) {
+          if (typeof row?.id !== "string" || !["hit", "run", "uncacheable"].includes(row.expected) || (row.status !== undefined && !["pass", "fail"].includes(row.status)) || predicted.has(row.id)) throw new Error("invalid or duplicate member forecast: " + row?.id);
+          predicted.set(row.id, Object.freeze({ ...row }));
+        }
+        if (predicted.size !== singles.length || singles.some((item) => !predicted.has(item.fingerprint.id))) throw new Error("member forecast differs from complete selected row set");
+        decision.memberForecast = Object.freeze([...predicted.values()]);
+        // Independent history chooses expected grouping before any scan outcome is looked up.
+        memberPredictions = predicted;
+        const seen = new Set();
+        for (let i = 0; i < bScans.length; i++) {
+          const group = groupOf.get(i);
+          if (!group) { selected.push(singles[i]); continue; }
+          if (seen.has(group)) continue;
+          seen.add(group);
+          const hits = group.members.filter((n) => predicted.get(bScans[n].id).expected === "hit");
+          const missing = group.members.filter((n) => predicted.get(bScans[n].id).expected !== "hit");
+          selected.push(...hits.map((n) => singles[n]));
+          const parts = missing.length > 1 ? await featurePartition(missing) : missing.length ? [missing] : [];
+          for (const part of parts) {
+            const item = part.length === 1 ? singles[part[0]] : await stage(batchScanOf(part), part);
+            selected.push(item);
+          }
+          const prepared = { hits, parts };
+          for (const n of group.members) bPreparedGroups.set(n, prepared);
+        }
+      } catch (error) {
+        decision.mismatches.push({ id: "class-b", expected: null, actual: "blocked", reason: String(error?.message ?? error) });
+      }
+      const logical = selected.flatMap((item) => item.members.map((i) => ({ item, fingerprint: Object.freeze({ ...item.fingerprint, id: bScans[i].id, invocationId: item.fingerprint.id, ...(item.members.length > 1 ? { coveredBy: item.fingerprint.id } : {}) }) })));
+      decision.fingerprints = Object.freeze(logical.map(({ fingerprint }) => fingerprint));
+      const forecasts = new Map();
+      const mismatch = (id, expected, actual, reason, more = {}) => decision.mismatches.push({ id, expected, actual, reason, ...more });
+      try {
+        const supplied = await options.classBCacheForecast(decision.fingerprints, { phase: "invocations" });
+        if (!Array.isArray(supplied)) throw new TypeError("expected an array of row forecasts");
+        for (const entry of supplied) {
+          if (typeof entry?.id !== "string" || !["hit", "run", "uncacheable"].includes(entry.expected) || (entry.status !== undefined && !["pass", "fail"].includes(entry.status))) mismatch(entry?.id ?? "class-b", null, null, "invalid forecast row");
+          else if (forecasts.has(entry.id)) mismatch(entry.id, entry.expected, null, "duplicate forecast row");
+          else forecasts.set(entry.id, Object.freeze({ ...entry }));
+        }
+      } catch (error) { mismatch("class-b", null, null, String(error?.message ?? error)); }
+      decision.forecast = Object.freeze([...forecasts.values()]);
+      // Both independent predictions are frozen before any outcome lookup.
+      await Promise.all(staged.map(lookup));
+      const singles = staged.filter((item) => item.members.length === 1 && !item.fingerprint.id.includes(":batch:"));
+      decision.memberActual = singles.map((item) => ({ ...item.actual }));
+      for (const item of singles) {
+        const expected = memberPredictions.get(item.fingerprint.id);
+        if (!expected) continue;
+        const issue = classACacheMismatch(expected, item.actual, item.fingerprint);
+        if (issue) decision.mismatches.push({ ...issue, phase: "members" });
+      }
+      const ids = new Set();
+      for (const { item, fingerprint } of logical) {
+        const { id, problem } = fingerprint;
+        if (ids.has(id)) mismatch(id, forecasts.get(id)?.expected, null, "duplicate planned row");
+        ids.add(id);
+        if (problem) mismatch(id, forecasts.get(id)?.expected, "blocked", problem);
+        const actual = { ...item.actual, id, invocationId: item.fingerprint.id };
+        decision.actual.push(actual);
+        if (!forecasts.has(id)) mismatch(id, null, actual.actual, "missing forecast row");
+        else {
+          const expected = forecasts.get(id);
+          const issue = classACacheMismatch(expected, actual, fingerprint); if (issue) decision.mismatches.push(issue);
+          for (const field of ["invocationId", "coveredBy"]) if (Object.hasOwn(expected, field) && expected[field] !== fingerprint[field]) mismatch(id, expected[field], fingerprint[field], `${field} differs from forecast`);
+        }
+      }
+      for (const entry of decision.forecast) if (!ids.has(entry.id)) mismatch(entry.id, entry.expected, null, "unexpected forecast row");
+      // Include member lookups that determined grouping: a late hit/miss there changes workload too.
+      if (!decision.mismatches.length) for (const item of staged) for (const [key, observed] of item.observed) {
+        const current = cacheReadOutcome(key);
+        if (cacheEntryIdentity(current.entry) !== observed.identity || current.issue !== observed.issue) mismatch(item.fingerprint.id, null, "blocked", "cache entry changed between lookup and dispatch", { key, storeIssue: current.issue });
+      }
+      if (!decision.mismatches.length) for (const [command, binding] of admissionToolFiles) {
+        try { if (commandStat(command) !== binding.stat) mismatch("class-b", null, "blocked", `${command} changed between fingerprint and dispatch`); }
+        catch (error) { mismatch("class-b", null, "blocked", String(error?.message ?? error)); }
+      }
+      if (!decision.mismatches.length) for (const item of staged) for (const identity of item.toolIdentities ?? []) {
+        const changed = trustedScanToolProblem(identity, { ops: options.toolOps });
+        if (changed) mismatch(item.fingerprint.id, null, "blocked", changed.detail);
+      }
+      for (const item of staged) {
+        if (!decision.mismatches.length && selected.includes(item)) admittedB.set(item.fingerprint.id, item);
+        else await item.scan.return();
+      }
+    }
+    if (classBCacheDecision?.mismatches.length) {
+      bScans.forEach((scan, i) => { slots[i] = { id: scan.id, class: scan.class, command: scan.command, status: "not-run", code: "CLASS_B_CACHE_DISAGREEMENT", detail: "Class B cache admission refused before dispatch" }; });
+    } else if (brokerHost) {
       await scheduleBrokerHostClassB({
         scans: bScans, lanes, localJobs: bJobs, carried: (scan) => isBrokerScheduledScan(scan, carriedCtx), pipeline: options.classBPipeline ?? 1,
         run: async (i) => { try { slots[i] = await runB(i); } catch (error) { slots[i] = failedRow(i, error); } },
@@ -3707,7 +3838,7 @@ export async function runScans(plan, options = {}) {
     if (lanes.quiet.length) {
       // One lease per quiet suite, as in class A above.
       for (const i of lanes.quiet) {
-        if (classAFailed || classBBlocked || signal?.aborted) {
+        if (classAFailed || classBBlocked || classBCacheDecision?.mismatches.length || signal?.aborted) {
           slots[i] = { id: bScans[i].id, class: bScans[i].class, command: bScans[i].command, tool: bScans[i].tool ?? null, toolVersion: null, status: "not-run", detail: signal?.aborted ? "cancelled" : classAFailed ? "class A is red; nothing in class B starts" : "class B is blocked" };
           continue;
         }
@@ -3723,6 +3854,7 @@ export async function runScans(plan, options = {}) {
       }
     }
     results.push(...slots);
+    if (classBCacheDecision) await Promise.all([...admittedB.values()].map((item) => item.scan.return()));
   }
 
   // The pinned advisory database, materialised once per run on first use (a failure is remembered and refuses every advisory scan).
@@ -3773,14 +3905,15 @@ export async function runScans(plan, options = {}) {
       const stored = cache.read(key);
       admission.stored = stored?.key === key && cacheEntryIdentity(stored.row) === cacheEntryIdentity(JSON.parse(JSON.stringify(row)));
       if (!admission.stored) {
-        classAFailed = true;
-        classACacheDecision.mismatches.push({ id: row.id, key, expected: "retained", actual: "unavailable", reason: "reusable outcome could not be verified after writing the cache entry" });
+        if (!admission.decision) classAFailed = true;
+        (admission.decision ?? classACacheDecision).mismatches.push({ id: row.id, key, expected: "retained", actual: "unavailable", reason: "reusable outcome could not be verified after writing the cache entry" });
       }
     }
   }
   function markScanDispatch(s, row, admission) {
     if (!admission) return;
-    classACacheDecision.dispatchedRows.push(s.id);
+    const decision = admission.decision ?? classACacheDecision;
+    decision.dispatchedRows.push(...(admission.members ? admission.members.map((i) => bScans[i].id) : [s.id]));
     row.dispatched = true;
   }
   async function admitClassACache() {
@@ -3864,13 +3997,20 @@ export async function runScans(plan, options = {}) {
     for (const item of stage) admittedA.set(item.fingerprint.id, item);
   }
   async function scanRow(s, extraEnv = null) {
-    const admitted = s.class === SCAN_CLASS.A && admittedA.get(s.id);
+    const admitted = s.class === SCAN_CLASS.A ? admittedA.get(s.id) : admittedB.get(s.id);
+    if (s.class === SCAN_CLASS.B && classBCacheDecision && !admitted && !classAFailed && !classBBlocked && !signal?.aborted) {
+      classBCacheDecision.mismatches.push({ id: s.id, expected: "forecast invocation", actual: "unplanned invocation", reason: "Class B invocation was not admitted before dispatch" });
+      return { id: s.id, class: s.class, command: s.command, status: "not-run", code: "CLASS_B_CACHE_DISAGREEMENT", detail: "Class B invocation was not admitted before dispatch" };
+    }
     if (admitted) {
       try {
         const finished = await admitted.scan.next(extraEnv);
         const row = finished.value;
         const { key, failureKey } = admitted.fingerprint;
-        if (row.cached || admitted.stored) classACacheDecision.retained.push({ id: s.id, key: row.status === "fail" ? failureKey : key, status: row.status });
+        if (row.cached || admitted.stored) {
+          const decision = admitted.decision ?? classACacheDecision;
+          for (const id of admitted.members ? admitted.members.map((i) => bScans[i].id) : [s.id]) decision.retained.push({ id, key: row.status === "fail" ? failureKey : key, status: row.status });
+        }
         const out = { ...row, timing: { ...admitted.timing, elapsedMs: performance.now() - admitted.started } };
         settle(s.id, out);
         return out;
@@ -3994,8 +4134,13 @@ export async function runScans(plan, options = {}) {
           if (viaSeam) row.seam = true;
           // NN02: a publisher row (coverageKey) is cached too, with the signed broker receipt and test-run evidence its publisher verify needs.
           const cacheStarted = performance.now();
-          const observed = admission ? observedCommand(s.tool, p.command) : null;
-          if (admission) admission.toolCommands = [...identities.map((identity) => identity.path), ...(observed ? [observed] : []), ...(s.tool === "pnpm" ? ["pnpm"] : [])];
+          const observedBinding = admission ? observedCommand(s.tool, p.command) : null;
+          if (observedBinding && s.class === SCAN_CLASS.B) commandIdentity(observedBinding);
+          const observed = s.class === SCAN_CLASS.A ? observedBinding : null;
+          if (admission) {
+            admission.toolCommands = [...identities.map((identity) => identity.path), ...(observedBinding ? [observedBinding] : []), ...(s.tool === "pnpm" ? ["pnpm"] : [])];
+            if (s.class === SCAN_CLASS.B) admission.toolIdentities = identities;
+          }
           if (cache) {
             try {
               // A plain node --check row has no guard, carrier, advisory or
@@ -4045,8 +4190,9 @@ export async function runScans(plan, options = {}) {
               const rowIndexKey = sha256(`rk-row-index/1\0${s.id}`);
               const inputsDigest = keyParts.inputs;
               const envDigest = keyParts.env;
-              const idx = admission ? null : cache.read(rowIndexKey)?.row ?? null;
-              if (!admission) row.cacheMiss = { kind: !idx ? "new" : idx.inputs === inputsDigest && idx.env === envDigest ? "unchanged" : "changed", ...(idx ? { last: idx.at ?? null } : {}), ...(idx?.raw ? { why: explainKeyChange(idx.raw, keyParts.raw) } : {}), now: { inputs: keyParts.raw.inputs.slice(0, 4000), toolVersion: keyParts.raw.toolVersion, inherited: keyParts.raw.inherited } };
+              const strictA = admission && s.class === SCAN_CLASS.A;
+              const idx = strictA ? null : readRowCache(rowIndexKey, admission)?.row ?? null;
+              if (!strictA) row.cacheMiss = { kind: !idx ? "new" : idx.inputs === inputsDigest && idx.env === envDigest ? "unchanged" : "changed", ...(idx ? { last: idx.at ?? null } : {}), ...(idx?.raw ? { why: explainKeyChange(idx.raw, keyParts.raw) } : {}), now: { inputs: keyParts.raw.inputs.slice(0, 4000), toolVersion: keyParts.raw.toolVersion, inherited: keyParts.raw.inherited } };
               row.rowIndex = { key: rowIndexKey, inputs: inputsDigest, env: envDigest, raw: keyParts.raw };
               // A hit refreshes a row index that lacks the environment shape (stored before the shape existed), so a later key change can carry this row over.
               if (!admission && hit && hit.key === cacheKey && hit.row?.status === "pass" && !options.cacheLookupOnly && !probeScans.has(s) && !idx?.raw?.inheritedShape) {
@@ -4060,11 +4206,11 @@ export async function runScans(plan, options = {}) {
                 if (!proof.ok && proof.edited?.length && row.cacheMiss.why) row.cacheMiss.why = { ...row.cacheMiss.why, contentOnly: true, formChangesProven: proof.carried };
                 if (proof.ok) {
                   const oldKey = scanCacheKey({ id: s.id, command: keyCommand(s), toolVersion: idx.raw.toolVersion, env: idx.raw.env ?? {}, inheritedEnv: idx.raw.inherited, digest: idx.raw.inputs });
-                  const old = cache.read(oldKey);
+                  const old = readRowCache(oldKey, admission);
                   if (usableStoredPass(old, s, { cacheKey: oldKey, viaSeam })) {
                     hit = { ...old, key: cacheKey };
                     row.carriedOver = { from: oldKey.slice(0, 16), files: proof.carried };
-                    if (!options.cacheLookupOnly) { try { cache.write(cacheKey, old.row); cache.write(rowIndexKey, { id: s.id, inputs: inputsDigest, env: envDigest, raw: keyParts.raw, at: new Date().toISOString() }); } catch { /* the pass stands; the next run carries it again */ } }
+                    if (!admission && !options.cacheLookupOnly) { try { cache.write(cacheKey, old.row); cache.write(rowIndexKey, { id: s.id, inputs: inputsDigest, env: envDigest, raw: keyParts.raw, at: new Date().toISOString() }); } catch { /* the pass stands; the next run carries it again */ } }
                   }
                 }
               }
@@ -4558,13 +4704,14 @@ export async function runScans(plan, options = {}) {
   // Positive evidence only: a seam row is settled when it carries seamSettled (a parsed result with a durable receipt or an explicit refusal, a cache hit, a lookup); every other seam row, whatever its code, keeps the lock.
   for (const r of results) if (r.seam === true) { seamRunState.rows += 1; if (r.seamSettled !== true || (cancelled && r.status !== "pass")) seamRunState.unsettled += 1; }
   if (deps.gateSeam) seamRunState.open -= 1;
-  const allPassed = !cancelled && verdictFailure === null && !classACacheDecision?.mismatches.length && results.every((r) => r.status === "pass");
+  const allPassed = !cancelled && verdictFailure === null && !classACacheDecision?.mismatches.length && !classBCacheDecision?.mismatches.length && results.every((r) => r.status === "pass");
   return {
     schema: SCAN_RESULT_SCHEMA, ok: allPassed, complete: allPassed, classes, checker, ...(cancelled ? { cancelled: true } : {}), ...(verdictFailure ? { verdictFailure } : {}),
     inputDigest: plan.inputDigest ?? null,
     deferred: results.filter((r) => r.status === "deferred").map((r) => r.id),
     scans: results, toolVersions, toolIdentities, cacheHits: [...cacheHits].sort(), notes: [...(plan.notes ?? []), ...batchFailureNotes, ...partitionNotes, ...seamNotes, ...(cargoLedger ? [UNOBSERVED_NESTED_CARGO_NOTE] : [])],
     ...(classACacheDecision ? { classACacheDecision } : {}),
+    ...(classBCacheDecision ? { classBCacheDecision } : {}),
     scanSetDigest: digestScanSet(results),
     classDigests: { A: digestScanSet(results.filter((r) => r.class === "A")), B: digestScanSet(results.filter((r) => r.class === "B")) },
   };

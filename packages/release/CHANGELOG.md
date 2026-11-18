@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.59
+
+- Snapshot compiles compare each Class B row & grouped invocation with verified cache history before dispatch. An unexpected hit or miss blocks Class B & records the row, key & observed cause. Missing entries with no known removal cause are identified as such.
+
 ## 0.6.58
 
 - **A test program never inherits a credential-named variable on either compile path (loop review 11, D1).** The build-together path ran test programs with the gate's whole environment; the per-crate rows removed variables named TOKEN, SECRET, PASSWORD, API_KEY or PRIVATE_KEY and set `RIGHTKIT_REQUIRE_ASSETS`, `RIGHTKIT_ISOLATED_CHECKOUT` and `CARGO_TERM_COLOR`. Both now call one function, `testProgramEnv` (`test-env.mjs`); the build-together path reads `ci/asset-gated.json` of the commit for the assets setting. Test: `gate/gate.test.mjs` "a test program never inherits a credential-named variable".
