@@ -40,6 +40,14 @@ pub enum SigningIdentity {
     /// never matches (the value is spliced into a requirement string, so it is refused rather
     /// than escaped).
     MacTeamId(String),
+    /// macOS: a Developer ID Application signature with this exact team and code-signing
+    /// identifier. Use this identity alone when a same-team executable must not be admitted.
+    MacDeveloperId {
+        /// Apple Developer team identifier.
+        team_id: String,
+        /// The signed executable's code-signing identifier.
+        identifier: String,
+    },
     /// Windows: the common name of the Authenticode leaf signer certificate, compared exactly
     /// and case-sensitively. An empty name never matches.
     WindowsCommonName(String),
@@ -194,6 +202,24 @@ pub(crate) fn mac_requirement(team_id: &str) -> Option<String> {
     valid.then(|| format!("anchor apple generic and certificate leaf[subject.OU] = \"{team_id}\""))
 }
 
+#[cfg(any(target_os = "macos", test))]
+fn mac_developer_id_requirement(team_id: &str, identifier: &str) -> Option<String> {
+    if identifier.is_empty()
+        || !identifier
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-'))
+    {
+        return None;
+    }
+    let team = mac_requirement(team_id)?;
+    // Match the Developer ID Application certificate requirements used by RightKitUpdate.
+    Some(format!(
+        "{team} and identifier \"{identifier}\" \
+         and certificate 1[field.1.2.840.113635.100.6.2.6] \
+         and certificate leaf[field.1.2.840.113635.100.6.1.13]"
+    ))
+}
+
 /// Exact, case-sensitive signer common-name match. An empty name never matches.
 #[cfg_attr(not(windows), allow(dead_code))]
 pub(crate) fn signer_matches(found: &str, expected: &str) -> bool {
@@ -202,7 +228,10 @@ pub(crate) fn signer_matches(found: &str, expected: &str) -> bool {
 
 #[cfg(target_os = "macos")]
 mod platform {
-    use super::{mac_requirement, AuthenticodeSigner, SignatureError, SigningIdentity};
+    use super::{
+        mac_developer_id_requirement, mac_requirement, AuthenticodeSigner, SignatureError,
+        SigningIdentity,
+    };
     use crate::host_identity::HostProcess;
     use core_foundation::base::TCFType;
     use core_foundation::data::CFData;
@@ -231,31 +260,34 @@ mod platform {
                 "the kernel gave no audit token for the peer".into(),
             ));
         };
-        let mut teams = signers.iter().filter_map(|s| match s {
-            SigningIdentity::MacTeamId(team) => Some(team.as_str()),
+        let mut requirements = signers.iter().filter_map(|s| match s {
+            SigningIdentity::MacTeamId(team) => Some(mac_requirement(team)),
+            SigningIdentity::MacDeveloperId { team_id, identifier } => {
+                Some(mac_developer_id_requirement(team_id, identifier))
+            }
             _ => None,
         });
-        let Some(first) = teams.next() else {
+        let Some(first) = requirements.next() else {
             return Err(SignatureError::Unsupported(
                 "the policy names no macOS team identifier",
             ));
         };
-        let mut last = verify_audit_token(&token, first);
-        for team in teams {
+        let mut last = verify_audit_token(&token, first.as_deref());
+        for requirement in requirements {
             if last.is_ok() {
                 break;
             }
-            last = verify_audit_token(&token, team);
+            last = verify_audit_token(&token, requirement.as_deref());
         }
         last
     }
 
     /// `SecCodeCopyGuestWithAttributes(kSecGuestAttributeAudit)` then `SecCodeCheckValidity`
-    /// against the team requirement.
-    fn verify_audit_token(token: &[u32; 8], team_id: &str) -> Result<(), SignatureError> {
-        let Some(text) = mac_requirement(team_id) else {
+    /// against the configured requirement.
+    fn verify_audit_token(token: &[u32; 8], requirement: Option<&str>) -> Result<(), SignatureError> {
+        let Some(text) = requirement else {
             return Err(SignatureError::Unverifiable(
-                "the configured team identifier is malformed".into(),
+                "the configured macOS signing identity is malformed".into(),
             ));
         };
         let requirement: SecRequirement = text.parse().map_err(|error| {
@@ -284,6 +316,28 @@ mod platform {
                     error.code()
                 ))
             })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::mac_developer_id_requirement;
+
+    #[test]
+    fn developer_id_requirement_binds_team_identifier_and_certificate() {
+        let requirement = mac_developer_id_requirement("ABC1234567", "com.example.app.cli");
+        assert_eq!(
+            requirement.as_deref(),
+            Some(
+                "anchor apple generic and certificate leaf[subject.OU] = \"ABC1234567\" \
+                 and identifier \"com.example.app.cli\" \
+                 and certificate 1[field.1.2.840.113635.100.6.2.6] \
+                 and certificate leaf[field.1.2.840.113635.100.6.1.13]"
+            )
+        );
+        assert!(mac_developer_id_requirement("bad", "com.example.app.cli").is_none());
+        assert!(mac_developer_id_requirement("ABC1234567", "").is_none());
+        assert!(mac_developer_id_requirement("ABC1234567", "x\" or true").is_none());
     }
 }
 
