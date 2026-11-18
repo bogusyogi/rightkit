@@ -730,7 +730,8 @@
     "rightkit-web-extract": "0.1.2",
     "rightkit-web-session": "0.1.1",
     "rightkit-win-ui": "0.1.1",
-    "rightkit-workflow": "0.2.3"
+    "rightkit-workflow": "0.2.3",
+    "rightkit-media-control": "0.1.0"
   },
   "swift": {
     "rightkit-swift": {

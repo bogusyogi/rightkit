@@ -8,7 +8,7 @@ Version columns: **Source** is the manifest version. **Published** is the latest
 
 Flags: `ok` means source, published and staged agree. `staged, not yet published` is in-flight work. `private` has no registry record by design. `MISMATCH` needs a release decision.
 
-Flagged mismatches: 3.
+Flagged mismatches: 2.
 
 The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `rustright`; its old `rightkit` alias is retired); it is not part of this inventory. `packages/build-control-policy` keeps the agent permission hooks.
 
@@ -162,7 +162,7 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 | `rightkit-mail-gateway` | crates.io | 0.1.0 | none recorded | 0.1.0 | staged, never published |  | The mail adapter of the agent gateway: mail verbs (search, thread, draft, send with approval, forward, label, archive, move, delete, attachments) and their profiles, approvals and policy, on the rightkit-agent-gateway core. |
 | `rightkit-mail-store` | crates.io | 0.2.1 | none recorded | 0.2.1 | staged, never published |  | Mail store over SQLCipher: encrypted open with key candidates and lifetime lock, versioned schema and migration gate with backup, accounts, labels, threads, search adapter, outbox and pending queues, sync apply and the local semantic index. |
 | `rightkit-mcp` | crates.io | 0.10.0 | 0.7.0 | 0.10.0 | staged, not yet published | mcp | Shared MCP client (stdio + streamable HTTP, trust gate, pool, OAuth hook) and server host (stdio + loopback HTTP, per-tool admission) for Right Suite apps. |
-| `rightkit-media-control` | crates.io | 0.1.0 | none recorded |  | **MISMATCH public package has no release record** |  | Session-owned pause and resume of other media players while a recording runs: explicit pause only for players observed playing, explicit play only for players this session paused (GSMTC on Windows; other platforms through a host-installed backend). |
+| `rightkit-media-control` | crates.io | 0.1.0 | none recorded | 0.1.0 | staged, never published |  | Session-owned pause and resume of other media players while a recording runs: explicit pause only for players observed playing, explicit play only for players this session paused (GSMTC on Windows; other platforms through a host-installed backend). |
 | `rightkit-media-fetch` | crates.io | 0.2.0 | none recorded | 0.2.0 | staged, never published | media-fetch | Media fetch: yt-dlp download and 16 kHz mono WAV normalize, playlist expansion, and a pure URL/file job classifier with a shared media-type table. |
 | `rightkit-media-gen` | crates.io | 0.2.3 | none recorded | 0.2.3 | staged, never published | generative-media | Generative media providers (fal, WaveSpeed, Veo/Gemini, OpenAI Images, ElevenLabs, HeyGen, EvoLink, Higgsfield, Muapi, NanoBanana, Replicate, Wan2GP, Blender, local), model catalogue and facts, routing, durable generation jobs, result descriptors, library and spend ledger |
 | `rightkit-media-gen-approvals` | crates.io | 0.1.2 | 0.1.1 | 0.1.2 | staged, not yet published |  | Media-generation approvals on the rightkit-approvals core: launch-secret approval tokens minted by the app shell and verified by the engine, parent binding, host-registered draft kinds, the Blender finish confirmation and the human-eyes release of assets. |
