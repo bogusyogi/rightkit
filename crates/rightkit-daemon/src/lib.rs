@@ -122,8 +122,8 @@ pub use peer::{
     ACCESS_GENERIC_ALL, ACCESS_PIPE_OWNER_RW,
 };
 pub use peer_signature::{
-    verify_authenticode, verify_peer, AuthenticodeSigner, PeerPolicy, SignatureError,
-    SigningIdentity, LICENSE_SNAPSHOT_METHOD,
+    verify_authenticode, verify_held_authenticode, verify_peer, AuthenticodeSigner, PeerPolicy,
+    SignatureError, SigningIdentity, LICENSE_SNAPSHOT_METHOD,
 };
 pub use record::{
     clear_takeover_if_owner, read_live_record, read_record, read_takeover, record_path,

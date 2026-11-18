@@ -191,6 +191,30 @@ pub fn verify_authenticode(
     platform::authenticode(path, expected_common_name)
 }
 
+/// Verify Authenticode against an already open executable. Windows derives the provider
+/// path from the handle and supplies that same handle to WinVerifyTrust. The caller must
+/// keep writes excluded and independently bind product identity and launch to the file.
+/// Other platforms return [`SignatureError::Unsupported`].
+pub fn verify_held_authenticode(
+    file: &std::fs::File,
+    expected_common_name: Option<&str>,
+) -> Result<AuthenticodeSigner, SignatureError> {
+    #[cfg(windows)]
+    {
+        let path = rightkit_fs::handle::final_path(file).map_err(|error| {
+            SignatureError::Unverifiable(format!("cannot resolve held executable: {error}"))
+        })?;
+        platform::authenticode_with_handle(&path, expected_common_name, Some(file))
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (file, expected_common_name);
+        Err(SignatureError::Unsupported(
+            "Authenticode is a Windows signature",
+        ))
+    }
+}
+
 /// The macOS code requirement for `team_id`, or `None` when it is not a ten-character
 /// upper-case alphanumeric team identifier.
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
@@ -346,7 +370,9 @@ mod platform {
     use super::{signer_matches, AuthenticodeSigner, SignatureError, SigningIdentity};
     use crate::host_identity::HostProcess;
     use std::ffi::{c_void, OsString};
+    use std::fs::File;
     use std::os::windows::ffi::{OsStrExt, OsStringExt};
+    use std::os::windows::io::AsRawHandle;
     use std::path::Path;
     use std::ptr::null_mut;
 
@@ -393,6 +419,14 @@ mod platform {
         path: &Path,
         expected: Option<&str>,
     ) -> Result<AuthenticodeSigner, SignatureError> {
+        authenticode_with_handle(path, expected, None)
+    }
+
+    pub(super) fn authenticode_with_handle(
+        path: &Path,
+        expected: Option<&str>,
+        held: Option<&File>,
+    ) -> Result<AuthenticodeSigner, SignatureError> {
         let wide: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
         // SAFETY: structures are zero-initialised then filled; every pointer outlives the
         // WinVerifyTrust calls; the state opened by VERIFY is released by the CLOSE call below
@@ -401,6 +435,7 @@ mod platform {
             let mut file = WINTRUST_FILE_INFO {
                 cbStruct: std::mem::size_of::<WINTRUST_FILE_INFO>() as u32,
                 pcwszFilePath: wide.as_ptr(),
+                hFile: held.map_or(null_mut(), File::as_raw_handle),
                 ..Default::default()
             };
             let mut data = WINTRUST_DATA {
