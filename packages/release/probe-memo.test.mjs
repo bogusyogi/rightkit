@@ -19,6 +19,12 @@ test("only questions whose answer cannot change during a run are remembered", ()
   // Anything that reads the working tree, a moving name, or changes something is asked every time.
   for (const args of [["status", "--porcelain"], ["rev-parse", "HEAD"], ["rev-parse", "--verify", "--quiet", "main^{commit}"], ["rev-parse", "--verify", "--quiet", "HEAD^{tree}"], ["ls-tree", "-r", "--name-only", "-z", "HEAD"],
     ["config", "--get", "user.name"], ["config", "remote.origin.url", "x"], ["diff", "--quiet"], ["add", "-A"], ["rev-parse", "--show-toplevel", "--show-prefix"], ["ls-files"]]) assert.equal(pureQuestion("git", args), false, args.join(" "));
+  // A blob of a commit named by its full id, and a broker job's status by id (kept only when final, tested below).
+  assert.equal(pureQuestion("git", ["show", `${sha}:rk/Cargo.toml`]), true);
+  assert.equal(pureQuestion("C:\\Program Files\\Git\\cmd\\git.exe", ["show", `${sha}:app/pnpm-lock.yaml`]), true);
+  for (const args of [["show", "HEAD:rk/Cargo.toml"], ["show", sha], ["show", `${sha}:a`, "--stat"], ["show", `main:${sha}`]]) assert.equal(pureQuestion("git", args), false, args.join(" "));
+  assert.equal(pureQuestion("D:\\.rightkit-managed\\agent-bin\\rustright.cmd", ["status", "ccc54925-c162-420c-917c-816b4577656d"]), true);
+  assert.equal(pureQuestion("rustright", ["status"]), false); assert.equal(pureQuestion("rustright", ["cargo", "build"]), false);
   assert.equal(pureQuestion("cargo", ["--version"]), false); assert.equal(pureQuestion("where", ["a", "b"]), false); assert.equal(pureQuestion("git", ["rev-parse", 1]), false);
 });
 
@@ -55,4 +61,14 @@ test("in one process an identical pure question starts one child; other commands
   assert.equal(count((a) => a.startsWith("rev-parse --verify --quiet 0000")), 2, "a failed question is asked again");
   assert.equal(count((a) => a === "rev-parse --show-object-format"), 1);
   assert.equal(got.stats.answered, 4);
+});
+
+test("a broker job's status is kept only once the receipt records the job's end; a git answer always", async () => {
+  const { FINAL_ONLY } = await import("./probe-memo.mjs");
+  const running = JSON.stringify({ receipt: { id: "x", terminalAt: null } }); const ended = JSON.stringify({ receipt: { id: "x", terminalAt: "2026-11-18T00:00:00Z" } });
+  assert.equal(FINAL_ONLY("rustright", Buffer.from(running)), false);
+  assert.equal(FINAL_ONLY("D:\\.rightkit-managed\\agent-bin\\rustright.cmd", ended), true);
+  assert.equal(FINAL_ONLY("rustright", JSON.stringify({ id: "x", terminalAt: "2026-11-18T00:00:00Z" })), true, "a bare receipt");
+  assert.equal(FINAL_ONLY("rustright", "not json"), false);
+  assert.equal(FINAL_ONLY("git", "anything"), true);
 });

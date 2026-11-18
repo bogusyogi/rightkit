@@ -22,6 +22,8 @@ export function pureQuestion(cmd, args) {
   if (typeof cmd !== "string" || !Array.isArray(args) || !args.every((a) => typeof a === "string")) return false;
   const name = path.basename(cmd.replaceAll("\\", "/")).toLowerCase().replace(/\.(exe|cmd|bat)$/, "");
   if (name === "where" || name === "which") return args.length === 1 && /^[A-Za-z0-9._-]+$/.test(args[0]);
+  // A broker job's status, by its id: remembered only once the answer is final (see FINAL_ONLY), never while the job may still change.
+  if (name === "rustright") return args.length === 2 && args[0] === "status" && /^[0-9a-f-]{36}$/.test(args[1]);
   if (name !== "git") return false;
   // Leading `-c key=value` pairs configure the call, they are part of the question (and of the key), not a different question.
   let rest = args; while (rest[0] === "-c" && typeof rest[1] === "string" && rest[1].includes("=")) rest = rest.slice(2);
@@ -33,10 +35,20 @@ export function pureQuestion(cmd, args) {
     return false;
   }
   if (rest[0] === "config") return rest.length === 3 && rest[1] === "--get" && rest[2] === "remote.origin.url";
+  // A file of a commit or tree named by its full id: content-addressed, the same bytes for ever (NN07: `git show <commit>:rk/Cargo.toml` 16 times in
+  // one compile of the witness fixture, Dell, 2026-11-17).
+  if (rest[0] === "show") return rest.length === 2 && /^[0-9a-f]{40}([0-9a-f]{24})?:[^\0]+$/.test(rest[1]) && !rest[1].includes("..");
   // The file list of a tree named by its full id.
   if (rest[0] === "ls-tree") return rest.length === 5 && rest[1] === "-r" && rest[2] === "--name-only" && rest[3] === "-z" && SHA.test(rest[4]);
   return false;
 }
+
+/** Whether a successful answer may be kept: always for a git question; for `rustright status` only when the receipt records the job's end. */
+export const FINAL_ONLY = (cmd, out) => {
+  const name = path.basename(String(cmd).replaceAll("\\", "/")).toLowerCase().replace(/\.(exe|cmd|bat)$/, "");
+  if (name !== "rustright") return true;
+  try { const doc = JSON.parse(Buffer.isBuffer(out) ? out.toString("utf8") : String(out)); const r = doc?.receipt ?? doc; return typeof r?.terminalAt === "string" && r.terminalAt.length > 0; } catch { return false; }
+};
 
 const keyOf = (cmd, args, options) => {
   const env = options?.env && typeof options.env === "object" ? Object.entries(options.env).filter(([k]) => /^GIT_/i.test(k)).sort() : null;
@@ -58,7 +70,7 @@ export function installProbeMemo() {
     stats.asked += 1; const key = keyOf(cmd, argv, opts); const hit = seenSpawn.get(key);
     if (hit) { stats.answered += 1; const stdout = copy(hit.stdout); const stderr = copy(hit.stderr); return { ...hit, stdout, stderr, output: [null, stdout, stderr] }; }
     const r = spawnSync.apply(this, arguments);
-    if (r && !r.error && r.status === 0 && r.signal === null) seenSpawn.set(key, { ...r, stdout: copy(r.stdout), stderr: copy(r.stderr) });
+    if (r && !r.error && r.status === 0 && r.signal === null && FINAL_ONLY(cmd, r.stdout)) seenSpawn.set(key, { ...r, stdout: copy(r.stdout), stderr: copy(r.stderr) });
     return r;
   };
   const execFileSync = childProcess.execFileSync;
@@ -68,7 +80,7 @@ export function installProbeMemo() {
     stats.asked += 1; const key = keyOf(cmd, argv, opts);
     if (seenExec.has(key)) { stats.answered += 1; return copy(seenExec.get(key)); }
     const out = execFileSync.apply(this, arguments); // throws on failure: a failure is never remembered
-    seenExec.set(key, copy(out));
+    if (FINAL_ONLY(cmd, out)) seenExec.set(key, copy(out));
     return out;
   };
   module.syncBuiltinESMExports();
