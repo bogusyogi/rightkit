@@ -36,8 +36,8 @@ test("NN27: every consumer of a manifest's features reads the decoded table: lin
   assert.deepEqual(allFeatureNamesOf(quoted), ["codec"]);
   assert.equal(effectiveCrateFeatures({ units: ["c"], manifestOf: () => quoted }).c?.autoAllFeatures, true, "lint generation adds --all-features");
   assert.deepEqual(uncoveredFeatures(quoted, [[]]), ["codec"], "a default-only lint leaves codec uncovered, and coverage says so");
-  // Text that does not parse falls back to the text walk, as before.
-  assert.deepEqual(declaredFeatureNames("[features]\na = []\n[broken\n"), ["a"]);
+  // Text that does not parse is an explicit error, never a guess (astra62 review 6).
+  assert.throws(() => declaredFeatureNames("[features]\na = []\n[broken\n"), /FEATURE_MANIFEST_MALFORMED/);
   // build_dependencies, the pre-2024 spelling.
   assert.deepEqual(allFeatureNamesOf("[build_dependencies]\ncc = { version = \"1\", optional = true }\n"), ["cc"]);
 });
@@ -63,4 +63,41 @@ test("GC-A20: a crate whose features are implicit is clippy-linted with all feat
   // A crate with no features at all keeps its plain plan.
   const none = "[package]\nname = \"c\"\n[dependencies]\nlibc = \"0.2\"\n";
   assert.equal(plan(none).lintSets.some((s) => s.includes("--all-features")), false);
+});
+
+test("dependency features: a strong x/feat turns on x's implicit feature, a weak x?/feat does not, through feature closures, coverage and unlinted checks (astra62 review 6)", async () => {
+  const { uncoveredFeatures, featureCoverageProblems, featuresEnabledBy, crateFeatureModel } = await import("./feature-coverage.mjs");
+  const strong = "[package]\nname = \"c\"\n[features]\nexport = [\"codec/fast\"]\n[dependencies]\ncodec = { version = \"1\", optional = true }\n";
+  assert.deepEqual(uncoveredFeatures(strong, [["--features", "export"]]), [], "export enables codec");
+  const weak = strong.replace("codec/fast", "codec?/fast");
+  assert.deepEqual(uncoveredFeatures(weak, [["--features", "export"]]), ["codec"], "a weak feature does not");
+  // Transitive: full -> export -> codec/fast.
+  const chain = strong.replace("[features]\n", "[features]\nfull = [\"export\"]\n");
+  const m = crateFeatureModel(chain);
+  assert.ok(featuresEnabledBy(m.features, ["--features", "full"], m.implicit).has("codec"));
+  // dep:codec suppresses the implicit feature; codec/fast then enables only the dependency, no feature named codec exists.
+  const suppressed = "[package]\nname = \"c\"\n[features]\nexport = [\"codec/fast\"]\nraw = [\"dep:codec\"]\n[dependencies]\ncodec = { version = \"1\", optional = true }\n";
+  assert.equal(crateFeatureModel(suppressed).features.has("codec"), false);
+  assert.deepEqual(uncoveredFeatures(suppressed, [["--features", "export,raw"]]), []);
+  // An unlinted entry for a feature a strong dependency feature enables is stale.
+  assert.ok(featureCoverageProblems({ name: "c", manifestText: strong, sets: [["--features", "export"]], unlinted: { codec: "slow" } }).some((p) => /UNLINTED_FEATURE_ENABLED c: .*"codec"/.test(p)));
+  // Explicit diagnostics: malformed or missing manifests are problems, never an empty verdict; planning refuses them by crate.
+  assert.match(featureCoverageProblems({ name: "c", manifestText: "[features\n", sets: [[]] }).join("\n"), /FEATURE_MANIFEST_MALFORMED: crate c Cargo.toml/);
+  assert.match(featureCoverageProblems({ name: "c", manifestText: null, sets: [[]] }).join("\n"), /FEATURE_MANIFEST_MISSING: crate c Cargo.toml/);
+  const { effectiveCrateFeatures } = await import("./feature-coverage.mjs");
+  assert.throws(() => effectiveCrateFeatures({ units: ["c"], manifestOf: () => null }), /FEATURE_MANIFEST_MISSING: crate c/);
+  assert.throws(() => effectiveCrateFeatures({ units: ["c"], manifestOf: () => { throw new Error("ENOENT"); } }), /FEATURE_MANIFEST_MISSING: crate c Cargo.toml could not be read \(ENOENT\)/);
+});
+
+test("a parser that cannot load is an explicit error naming the crate, not a fallback (astra62 review 6)", async () => {
+  const fs = await import("node:fs"); const os = await import("node:os"); const path = await import("node:path"); const { pathToFileURL, fileURLToPath } = await import("node:url");
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rk-no-toml-"));
+  try {
+    for (const f of ["feature-coverage.mjs", "feature-sets.mjs"]) fs.copyFileSync(path.join(here, f), path.join(dir, f));
+    const mod = await import(pathToFileURL(path.join(dir, "feature-coverage.mjs")).href);
+    assert.match(mod.featureCoverageProblems({ name: "c", manifestText: "[package]\n", sets: [[]] }).join("\n"), /FEATURE_MANIFEST_PARSER_MISSING: crate c Cargo.toml/);
+    assert.throws(() => mod.effectiveCrateFeatures({ units: ["c"], manifestOf: () => "[package]\n" }), /FEATURE_MANIFEST_PARSER_MISSING/);
+    assert.equal(mod.allFeatureNamesOf("[package]\n"), null, "and the NN27 elision drops no check");
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });

@@ -1971,32 +1971,59 @@ export function assertCrossTargetsOneCommand(log, entries, rows, { label = "" } 
  * NN41: run 1 and run 2 are the same commit; every row that really failed in run 1 must be a cache hit that still says fail in run 2. Run 3 changes the
  * toolchain identity; every such row must run again (a cached failure is never reused after the identity changed, an environment fix must rerun it).
  */
-/** The miss report a gate run names when it stops on RK_CACHE_MISS (its log line "report <file> (digest ...)"), parsed; null when none. */
+/**
+ * The miss reports a gate run names when it misses the cache (each log line "report <file> (digest ...)"), parsed and merged: one stage can look
+ * the cache up more than once (a compile looks up its check rows and its compile rows; Dell S17, 2026-11-18: two reports, 16 and 34 rows), so
+ * `rows` holds every report's rows, `hit` their sum and `files` every file. null when none; `error` names the first report that cannot be read.
+ */
 export function missReportOf(log, read = (f) => JSON.parse(fs.readFileSync(f, "utf8"))) {
-  const m = /cache lookup: [^\n]*?report (\S+\.json) \(digest [0-9a-f]{64}\)/.exec(String(log ?? ""));
-  if (!m) return null;
-  try { return { file: m[1], ...read(m[1]) }; } catch (e) { return { file: m[1], error: e.message }; }
+  const files = [...String(log ?? "").matchAll(/cache lookup: [^\n]*?report (\S+\.json) \(digest [0-9a-f]{64}\)/g)].map((m) => m[1]);
+  if (!files.length) return null;
+  const merged = { file: files[0], files, rows: [], hit: 0 };
+  for (const file of files) {
+    let one;
+    try { one = read(file); } catch (e) { return { file, files, error: e.message }; }
+    merged.rows.push(...(one.rows ?? [])); merged.hit += one.hit ?? 0;
+    for (const [k, v] of Object.entries(one)) if (!(k in merged)) merged[k] = v;
+  }
+  return merged;
 }
 /**
- * Adrian 2026-11-07 ("Test checks the stop"): a cold run (S11) and a run after a toolchain change (S17's third run) must stop on RK_CACHE_MISS before
- * anything runs, every miss with the expected cause, and the rows named in `ids` must be in the report (a failure reused across a toolchain change would
- * be a hit instead). `cause` is "new" (no stored result) or "changed" (inputs or environment changed).
+ * Adrian 2026-11-08 ("explained invalidation replaces approval"; matrix 00-loop-review.md section 6: "A cache miss runs the row; it is a bug to file,
+ * never a reason to stop or to ask Adrian"), which replaced his 2026-11-07 "Test checks the stop"; applied to this test by astra62 under Adrian's
+ * delegation of 2026-11-18. A cold run (S11) and a run after a toolchain change (S17's third run) do NOT stop: the gate announces its misses
+ * ("RK_CACHE_MISS: ... they run now"), writes a miss report, and runs them. Asserted: no stop; the announcement; the report, readable, every miss with
+ * the expected cause ("new": no stored result, and nothing hit; "changed": inputs or environment changed); every row named in `ids` is in the report;
+ * every row the report names actually ran (coverage "ran", never a hit); and the exit agrees with the rows (non-zero exactly when a row failed).
  */
-export function assertMissStop(run, report, { cause, ids = [] } = {}) {
-  const problems = []; const log = String(run?.log ?? "");
+export function assertMissRun(run, report, { cause, ids = [] } = {}) {
   if (!run) return { ok: false, problems: ["the run did not happen"] };
-  if (run.exit === 0) problems.push("the run exited 0: it did not stop for Adrian's approval");
-  if (!/BLOCKED: RK_CACHE_MISS/.test(log)) problems.push("the run did not stop on RK_CACHE_MISS");
-  if (/\] (pass|fail) +\S+ \(\d+s\)/.test(log)) problems.push("rows ran before or despite the stop");
+  const problems = []; const log = String(run.log ?? "");
+  if (/BLOCKED: RK_CACHE_MISS/.test(log)) problems.push("the run stopped on RK_CACHE_MISS: a miss runs the row, explained, and never stops the run (Adrian 2026-11-08)");
+  if (!/RK_CACHE_MISS: \d+ row\(s\) miss the cache[^\n]*they run now/.test(log)) problems.push("the gate did not announce its misses (\"RK_CACHE_MISS: ... they run now\")");
+  const named = new Set();
   if (!report) problems.push("no miss report is named in the run's output");
   else if (report.error) problems.push(`the miss report ${report.file} cannot be read (${report.error})`);
   else {
     const want = cause === "new" ? /^no stored result/ : /^inputs or environment changed/;
     const wrong = (report.rows ?? []).filter((r) => !want.test(String(r.cause)));
     if (cause === "new" && wrong.length) problems.push(`${wrong.length} miss(es) are not "no stored result" on a cold run (first: ${wrong[0].id}: ${wrong[0].cause})`);
-    const named = new Set((report.rows ?? []).filter((r) => want.test(String(r.cause))).map((r) => r.id));
-    for (const id of ids) if (!named.has(id)) problems.push(`${id}: not in the stop report with cause ${cause}: the gate would have reused it`);
+    // Every miss counts as explained whatever its cause: a batched group's member never has a stored result of its own (store rule, 2026-11-08), so
+    // after a toolchain change its miss reads "no stored result" while the group's key changed (Dell S17, 2026-11-18). "new" still requires every cause new.
+    for (const r of report.rows ?? []) named.add(r.id);
+    for (const id of ids) if (!named.has(id)) problems.push(`${id}: not in the miss report: the gate would have reused it`);
     if (cause === "new" && (report.hit ?? 0) > 0) problems.push(`${report.hit} row(s) hit on a run whose cache was moved aside`);
+  }
+  const rows = run.rows instanceof Map ? run.rows : null;
+  if (!rows) problems.push("the run wrote no readable coverage report, so whether the misses ran cannot be judged");
+  else {
+    for (const id of new Set([...named, ...ids])) {
+      const r = rows.get(id);
+      if (!r) problems.push(`${id}: a miss that is absent from the run's coverage`);
+      else if (r.coverage !== "ran") problems.push(`${id}: a miss that did not run (coverage ${r.coverage})`);
+    }
+    const failed = [...rows.values()].some((r) => r.status === "fail");
+    if ((run.exit === 0) === failed) problems.push(`exit ${run.exit} does not agree with the rows (${failed ? "a row failed" : "no row failed"})`);
   }
   return { ok: problems.length === 0, problems };
 }
@@ -2083,11 +2110,12 @@ const NN_EVAL_EXT = {
   NN41: (ctx) => {
     const a = usableRun(ctx, "S17:fail1", RED); const b = usableRun(ctx, "S17:fail2", RED); if (a.fail || b.fail) return [a.fail ?? b.fail];
     const c = ctx.runs["S17:fail3"] ? usableRun(ctx, "S17:fail3", RED) : null; if (c?.fail) return [c.fail];
-    // The third run stops for Adrian's approval (a toolchain change); its miss report must name every failing row (none reused).
-    const stop = ctx.runs["S17:fail3-stop"];
+    // The third run (a changed toolchain) runs its misses, explained (assertMissRun): every failing row is named in its miss report and runs again.
     const failedIds = [...(a.run.rows?.values() ?? [])].filter((r) => r.class === "B" && r.coverage === "ran" && r.status === "fail").map((r) => r.id);
-    const thirdStop = stop ? assertMissStop(stop, missReportOf(stop.log), { cause: "changed", ids: failedIds }) : null;
-    return [checkFor("S17", assertCachedFailure(a.run.rows, b.run.rows, c?.run.rows ?? null, { identity: ctx.identityChange ?? "", thirdStop }), [...a.run.coveragePaths, ...b.run.coveragePaths, ...(c?.run.coveragePaths ?? [])])];
+    const reuse = assertCachedFailure(a.run.rows, b.run.rows, c?.run.rows ?? null, { identity: ctx.identityChange ?? "" });
+    const explained = c ? assertMissRun(c.run, missReportOf(c.run.log), { cause: "changed", ids: failedIds }) : null;
+    const verdict = { ok: reuse.ok && (explained?.ok ?? true), problems: [...reuse.problems, ...(explained?.problems ?? []).map((p) => `third run (${ctx.identityChange ?? ""}): ${p}`)] };
+    return [checkFor("S17", verdict, [...a.run.coveragePaths, ...b.run.coveragePaths, ...(c?.run.coveragePaths ?? [])])];
   },
   NN42: (ctx) => {
     const labels = Object.keys(ctx.runs).filter((l) => ctx.runs[l].stage === "compile" && ctx.runs[l].ladder && !ctx.runs[l].kill && /^(S1|S2|S11):compile\d?$/.test(l));
@@ -3183,12 +3211,14 @@ async function executeRun({ fixture, host, wanted, gate, gateArg, budgetsFile, o
     try {
       if (fs.existsSync(cacheDir)) { fs.renameSync(cacheDir, aside); moved = true; }
       check("S11", `the gate cache dir ${cacheDir} was moved aside to ${aside}`, { ok: moved, problems: moved ? [] : [`${cacheDir} does not exist: the run is not proven cold`] });
-      // Adrian 2026-11-07 ("Test checks the stop"): a cold run is a miss nothing explains, so the gate stops it for his approval before anything runs;
-      // the test proves that stop (every row "no stored result", nothing ran). Cold budgets and cold parallelism are measured from cold runs he approves.
+      // Adrian 2026-11-08 (explained invalidation replaces approval; matrix section 6): a cold run is not stopped. Each stage starts from an empty cache
+      // (what an earlier stage of this step stored is moved aside too, never deleted), runs, and every miss is "no stored result" (assertMissRun).
+      let previous = null;
       for (const stage of (s11ChecksOnly ? ["check"] : ["check", "compile"])) {
-        const r = await doRun({ label: `S11:${stage}-stop`, stage, ladder: false, step: "S11" });
-        check("S11", `cold --to ${stage} stops on RK_CACHE_MISS with every row "no stored result" and nothing run`, assertMissStop(r, missReportOf(r.log), { cause: "new" }));
-        ctx.cellWhy[`fixture:cold-${stage}`] = "a cold run stops for Adrian's approval (Adrian 2026-11-07: \"Test checks the stop\"); its budget is measured from a cold run he approves, not from this test";
+        if (previous && fs.existsSync(cacheDir)) fs.renameSync(cacheDir, path.join(asideRoot, `created-during-${previous}`));
+        const r = await doRun({ label: `S11:${stage}`, stage, ladder: true, step: "S11" });
+        check("S11", `cold --to ${stage} runs every row, each miss "no stored result" and explained, nothing hit`, assertMissRun(r, missReportOf(r.log), { cause: "new" }));
+        previous = stage;
       }
     } finally {
       let restored = !moved;
@@ -3297,9 +3327,10 @@ async function executeRun({ fixture, host, wanted, gate, gateArg, budgetsFile, o
       if (!other) { ctx.identityChange = "no second installed toolchain found under RUSTUP_HOME/toolchains"; check("S17", "a second installed toolchain exists to change the identity", { ok: false, problems: [ctx.identityChange] }); }
       else {
         ctx.identityChange = `RUSTUP_TOOLCHAIN=${other}`;
-        // A toolchain change is not the run's own files: the gate stops it for Adrian's approval (Adrian 2026-11-07: "Test checks the stop").
-        const f3 = await doRun({ label: "S17:fail3-stop", stage: "compile", commit: cf, ladder: false, step: "S17", env: { RUSTUP_TOOLCHAIN: other } });
-        check("S17", "the run with a changed toolchain stops on RK_CACHE_MISS before anything runs", { ok: f3.exit !== 0 && /BLOCKED: RK_CACHE_MISS/.test(String(f3.log ?? "")), problems: [`exit ${f3.exit}; the run did not stop on RK_CACHE_MISS`] });
+        // A toolchain change is not the run's own files: the misses run, explained (Adrian 2026-11-08), and the failing rows run again (no reuse).
+        const f3 = await doRun({ label: "S17:fail3", stage: "compile", commit: cf, ladder: true, step: "S17", profile: "edited-compile", env: { RUSTUP_TOOLCHAIN: other } });
+        const f1Failed = [...(f1.rows?.values() ?? [])].filter((r) => r.class === "B" && r.coverage === "ran" && r.status === "fail").map((r) => r.id);
+        check("S17", "the run with a changed toolchain runs its misses, each explained, and the failing rows run again", assertMissRun(f3, missReportOf(f3.log), { cause: "changed", ids: f1Failed }));
       }
     }
   }
