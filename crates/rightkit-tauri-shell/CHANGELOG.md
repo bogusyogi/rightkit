@@ -3,6 +3,7 @@
 ## 0.8.3
 
 - Added a fallible, retryable legacy legal receipt importer that retains well-formed historical receipts without treating them as current acceptance.
+- #1138: `LegalManifest::from_browser_manifest_json` reads the bundled acceptance version and six required browser declaration fields, preserving order and the native material digest. Optional display metadata stays outside the declaration. Existing `from_json` behavior is unchanged.
 
 ## 0.8.2
 

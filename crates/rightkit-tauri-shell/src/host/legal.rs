@@ -217,7 +217,6 @@ impl LegalManifest {
     /// the native receipt service and the webview agree on the digest. `version` is the acceptance
     /// version the app requires.
     pub fn from_json(version: impl Into<String>, json: &str) -> Result<Self, HostError> {
-        use sha2::{Digest, Sha256};
         let bad = |what: &str| HostError::invalid(format!("the legal manifest {what}"));
         let value: serde_json::Value =
             serde_json::from_str(json).map_err(|_| bad("is not JSON"))?;
@@ -231,9 +230,8 @@ impl LegalManifest {
                 .map(str::to_owned)
         };
         let mut documents = Vec::with_capacity(entries.len());
-        let mut material: Vec<(String, String)> = Vec::new();
         for entry in entries {
-            let declared = DeclaredDocument {
+            documents.push(DeclaredDocument {
                 id: text(entry, "id"),
                 role: text(entry, "role"),
                 title: text(entry, "title"),
@@ -242,24 +240,69 @@ impl LegalManifest {
                 sha256: text(entry, "sha256"),
                 treatment: text(entry, "treatment"),
                 material: entry.get("material").and_then(serde_json::Value::as_bool),
-            };
-            if entry.get("material").and_then(serde_json::Value::as_bool) == Some(true) {
-                let line = format!(
-                    "{}|{}|{}|{}",
-                    declared.role.clone().unwrap_or_default(),
-                    declared.id.clone().unwrap_or_default(),
-                    declared.version.clone().unwrap_or_default(),
-                    declared
-                        .sha256
-                        .clone()
-                        .unwrap_or_default()
-                        .to_ascii_lowercase(),
-                );
-                material.push((declared.role.clone().unwrap_or_default(), line));
-            }
-            documents.push(declared);
+            });
         }
-        material.sort_by(|a, b| a.0.cmp(&b.0));
+        Self::with_material_digest(version, documents, str::to_ascii_lowercase)
+    }
+
+    /// Build from the bundled manifest used by `@rightkit/legal/browser`. Read its
+    /// `acceptanceVersion` and the six required fields that `acceptanceDeclaration` copies
+    /// from each document, in manifest order.
+    pub fn from_browser_manifest_json(json: &str) -> Result<Self, HostError> {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct BundledManifest {
+            acceptance_version: String,
+            documents: Vec<BundledDocument>,
+        }
+
+        #[derive(Deserialize)]
+        struct BundledDocument {
+            id: String,
+            role: String,
+            version: String,
+            sha256: String,
+            treatment: String,
+            material: bool,
+        }
+
+        let bundled: BundledManifest = serde_json::from_str(json)
+            .map_err(|_| HostError::invalid("the bundled legal manifest is unreadable"))?;
+        let documents = bundled
+            .documents
+            .into_iter()
+            .map(|document| DeclaredDocument {
+                id: Some(document.id),
+                role: Some(document.role),
+                version: Some(document.version),
+                sha256: Some(document.sha256),
+                treatment: Some(document.treatment),
+                material: Some(document.material),
+                ..DeclaredDocument::default()
+            })
+            .collect();
+        Self::with_material_digest(bundled.acceptance_version, documents, str::to_lowercase)
+    }
+
+    fn with_material_digest(
+        version: impl Into<String>,
+        documents: Vec<DeclaredDocument>,
+        lowercase_hash: fn(&str) -> String,
+    ) -> Result<Self, HostError> {
+        use sha2::{Digest, Sha256};
+
+        let mut material = Vec::new();
+        for document in documents.iter().filter(|document| document.material == Some(true)) {
+            let role = document.role.as_deref().unwrap_or_default();
+            let line = format!(
+                "{role}|{}|{}|{}",
+                document.id.as_deref().unwrap_or_default(),
+                document.version.as_deref().unwrap_or_default(),
+                lowercase_hash(document.sha256.as_deref().unwrap_or_default()),
+            );
+            material.push((role, line));
+        }
+        material.sort_by_key(|(role, _)| *role);
         let input = material
             .into_iter()
             .map(|(_, line)| line)
