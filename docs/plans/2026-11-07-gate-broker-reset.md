@@ -77,7 +77,7 @@ Signing, notarization, DMG, MSIX, NSIS, iOS, Android, updater, R2, ownership-cat
 | `legion-freeze-consumer.mjs`, `direct-origin.mjs`, `linux-qualifier.mjs`, `handle-revocation.mjs`, `owner-process-proof.mjs`, `ownership-recover.mjs` | 623 | proposed, never activated |
 | `stage-ledger.mjs`, `compile-inputs.mjs`, `rustright-stage.mjs`, `candidate-build-receipt.mjs`, `direct-receipt.mjs` | 725 | declared inputs and receipt projections |
 | `unit-list-compile.mjs`, `cargo-width.mjs`, `clippy-equivalence.mjs` | 687 | the grouped publisher scheduler, the `--cargo-jobs` matrix and the batch-equivalence prover (section 8) |
-| `missApproval` and the `RK_GATE_MISS_APPROVAL` file (`bin/rightkit-gate.mjs`), the twelve `RK_GATE_*` benchmark switches | inside the gate | a cache miss is a cache miss, never an approval request (section 8) |
+| `missApproval` and the `RK_GATE_MISS_APPROVAL` file (`bin/rightkit-gate.mjs`), the twelve `RK_GATE_*` benchmark switches | inside the gate | Known change-driven misses need no extra approval. An unexpected miss stops dispatch & must be explained under the [18 November acceptance decision](2026-11-18-gate-acceptance-design.md#cache-decision-before-execution). |
 
 **Step 5 status (prepared, 2026-11-09; uncommitted diff on `ce0201965`; nothing compiled, run or pushed; the package suite passes).** Section 6's rule applied: a module goes only where its replacement is in the tree.
 
@@ -163,7 +163,7 @@ This is the direct product of two contract lines: "every optimization measured i
 
 **Rule for the reset.** A row is stored under a key only when the invocation that produced it ran exactly that row's command. A grouped invocation stores one row, under the group's key, and a member is reported from it only when the member's resolved feature set in the group equals its own. Until the planner computes that from `cargo metadata` and splits groups on conflict, class B runs per crate. The warm target directory already shares every compiled dependency between invocations, so per-crate rows cost process start-up, not compile time. NN17 and NN40 wait for that planner; they are not deleted.
 
-**Deleted with it.** The miss-approval mechanism: about 12 approval requests in 3 hours on 2026-11-06, most caused by the gate's own key edits, with 5 of 9 admitted wasted. A miss runs the row. The benchmark switch matrix. The grouped publisher scheduler.
+**Deleted with it.** The miss-approval mechanism: about 12 approval requests in 3 hours on 2026-11-06, most caused by the gate's own key edits, with 5 of 9 admitted wasted. The 8 November policy ran misses after reporting them. Adrian refined that policy on 18 November: forecast the affected row set first, run predicted misses, stop on divergence & account for it before retry. The benchmark switch matrix & grouped publisher scheduler were also retired.
 
 **Process findings the reports make, restated once.** Tests used mocks shaped like the change, not the runner's real `project`, `issued` and key functions. Fixes went in one per real run, each run costing a release and an install. The gate was published and installed four times with the contract test failing 31 of 38. Section 2's tests rule and section 6's one-sentence-one-test rule are the answer to all three.
 
@@ -202,6 +202,8 @@ ETA: unmeasured. Step 1 is settled; the first measured step is the broker seam p
 The requirement. Class A first. Commit-only builds from one warm snapshot. One target per app (decided 2026-11-07, section 8). Release profile only, no debug, no dev profile. Tests compile in the broker and run outside it. Every failure reported in one run. Linux direct. The broker alone decides count and order. Signing identity per product. Publication routes. The 42 non-negotiables.
 
 ## 11. Evidence at handoff
+
+For GC-A27, use the [acceptance design](2026-11-18-gate-acceptance-design.md) & its [42-rule and 45-clause audit](../../../rustright/docs/audits/loop-2026-11-10/07-acceptance-audit-2026-11-18.md). They define the final verdict & expose gaps to resolve within the existing steps. A designed assertion has no qualification value until it runs on the required target.
 
 **Dell, 18 November 2026, step 4 open.** The managed configuration on disk names trusted gate 0.6.29 (`admission.trustedEntry`, sealed directory `1868ab3f…`). The 0.6.58 staging record names a different candidate (`31e57e32…`). That candidate compiled fixture commit `34788a913ffc` through the broker with a full Class A verdict & five verified signed job receipts. Its Dell acceptance run recorded 19/42 & wrote a failed receipt. Checkout head `97ad48b01` later scored 21/42 in development mode. Preserve all three identities. Only a matching host, published artifact, installed pair, probe & successful compile receipt can close step 4. Mac has its own evidence. [Run records & review history](../../../rustright/docs/audits/loop-2026-11-10/00-loop-review.md#17-november-18-regressions)
 

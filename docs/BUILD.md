@@ -36,6 +36,8 @@ One entry: `rightkit-gate --to <check|compile|dev|test|package|qualify|release> 
 
 ### Gate
 
+**GAP — predicted cache reuse (Adrian, 2026-11-18).** Freeze expected row identities, hits & known change-driven misses before lookup. Matching misses proceed under existing operation authority. An unexpected miss, expected miss answered by an unexpected hit, or mismatched row set/count fails the gate at the earliest observable boundary. Report exactly which row differed, why, supporting evidence & any unknown cause. An explanation after executing the work cannot satisfy this decision. Current production lookup still reports unexpected misses & runs them. [Required witnesses & release acceptance](plans/2026-11-18-gate-acceptance-design.md#cache-decision-before-execution)
+
 Each line names the test that holds it (`<file>`: the test's name) or the refusal code.
 
 1. A Class A verdict exists only for a complete, green plan and binds commit, tree, repository, workspace and scope. `packages/release/gate-seam.test.mjs`: "the Class A verdict exists only for a complete green plan and binds commit, tree, repository and workspace"; "a verdict is bound to the scope its class A covered".
