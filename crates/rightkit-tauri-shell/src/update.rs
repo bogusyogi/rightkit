@@ -363,10 +363,6 @@ impl From<UpdateRefusal> for InstallReason {
     }
 }
 
-/// Relaunch the app after a completed install (#1132): releases the single-instance claims so the
-/// relaunched process is not refused as a second instance, then restarts. Refused unless an install
-/// has finished on this host, so the renderer cannot restart the app on its own. Never returns on
-/// success.
 /// The app's busy flag for the install gate (#1019). Trusted update-service callers only (the host's
 /// caller gate applies), like the other update commands.
 #[tauri::command]
@@ -376,6 +372,9 @@ pub fn rightkit_update_set_busy(webview: Webview<Wry>, busy: bool) -> Result<(),
     Ok(())
 }
 
+/// Request a relaunch after a completed install (#1132). Run the registered release hooks and
+/// free the single-instance claims before the new process starts. Requesting restart preserves
+/// the normal Tauri exit lifecycle when the command runs on the main thread.
 #[tauri::command]
 pub fn rightkit_update_relaunch(webview: Webview<Wry>) -> Result<(), UpdateHostError> {
     let host = update_host(&webview, "relaunch")?;
@@ -386,7 +385,8 @@ pub fn rightkit_update_relaunch(webview: Webview<Wry>) -> Result<(), UpdateHostE
         ));
     }
     crate::single_instance::SingleInstance::destroy();
-    webview.app_handle().restart()
+    webview.app_handle().request_restart();
+    Ok(())
 }
 
 /// The answer to `rightkit_update_install`.

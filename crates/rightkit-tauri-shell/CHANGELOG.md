@@ -2,6 +2,7 @@
 
 ## 0.8.3
 
+- Request native update relaunch through Tauri's exit loop so app shutdown callbacks can run on the main-thread path. The trusted-caller and completed-install checks and registered instance-release hooks still apply.
 - Added a fallible, retryable legacy legal receipt importer that retains well-formed historical receipts without treating them as current acceptance.
 - #1138: `LegalManifest::from_browser_manifest_json` reads the bundled acceptance version and six required browser declaration fields, preserving order and the native material digest. Optional display metadata stays outside the declaration. Existing `from_json` behavior is unchanged.
 
