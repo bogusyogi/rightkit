@@ -141,6 +141,8 @@ pub struct OwnedCommand {
     kill_on_parent_exit: bool,
     // Set by `spawn_suspended`: Windows leaves the child suspended until `OwnedChild::resume`.
     hold_suspended: bool,
+    #[cfg(windows)]
+    restrict_windows_image_load: bool,
     // None preserves the existing unbounded partial-spawn reap.
     partial_spawn_cleanup_timeout: Option<Duration>,
     inherited_handles: Option<Vec<InheritedValue>>,
@@ -222,6 +224,8 @@ impl OwnedCommand {
             process_priority: ProcessPriority::Normal,
             kill_on_parent_exit: false,
             hold_suspended: false,
+            #[cfg(windows)]
+            restrict_windows_image_load: false,
             partial_spawn_cleanup_timeout: None,
             inherited_handles: None,
             #[cfg(unix)]
@@ -542,6 +546,31 @@ impl OwnedCommand {
         self.hold_suspended = true;
         self.spawn_inner(false, false, None)
     }
+    /// Start a Windows executable by absolute path and return it suspended only after the
+    /// kernel reports Microsoft-only image signatures, disabled extension points, and
+    /// blocked remote and low-integrity images. Uses the native handle-allowlisted spawn.
+    /// An installed CLI caller must authenticate the held executable, compare its native
+    /// path with the child's before resuming, and enforce its dependency policy separately.
+    /// Setup failures reap the child synchronously, so a partial-spawn cleanup timeout is
+    /// incompatible with this entry point.
+    #[cfg(windows)]
+    pub fn spawn_suspended_with_image_restrictions(mut self) -> io::Result<OwnedChild> {
+        if self.inherit_all_descriptors || self.windows_spawn_config.is_none() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "restricted Windows spawn requires native allowlisted spawn settings",
+            ));
+        }
+        if self.partial_spawn_cleanup_timeout.is_some() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "restricted Windows spawn requires synchronous partial-spawn cleanup",
+            ));
+        }
+        self.hold_suspended = true;
+        self.restrict_windows_image_load = true;
+        self.spawn_inner(false, false, None)
+    }
     /// Shared launch with no owner job or terminate-on-drop. Unix uses setsid.
     /// Stdio follows Command: dropping piped stdin can still deliver EOF.
     ///
@@ -820,6 +849,7 @@ impl OwnedCommand {
                     self.partial_spawn_cleanup_timeout,
                     in_job_fallback,
                     self.windows_pseudoconsole,
+                    self.restrict_windows_image_load,
                 )?
             }
         };
@@ -874,6 +904,12 @@ impl OwnedCommand {
         #[cfg(windows)]
         {
             let owned = partial.child.as_ref().expect("partial child is present");
+            if self.restrict_windows_image_load {
+                let verified = owned.child().verify_image_load_restrictions();
+                if let Err(error) = verified {
+                    return Err(partial.fail(error));
+                }
+            }
             if self.process_priority == ProcessPriority::Efficient {
                 // Best effort: EcoQoS is a hint and older Windows builds lack it.
                 let _ = crate::process_windows::apply_efficiency(&*owned.child());

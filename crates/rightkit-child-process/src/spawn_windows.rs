@@ -9,7 +9,7 @@ use std::{
         io::{AsHandle, AsRawHandle, BorrowedHandle, FromRawHandle, OwnedHandle, RawHandle},
         process::ExitStatusExt,
     },
-    path::{Path, PathBuf},
+    path::{Component, Path, PathBuf, Prefix},
     process::{Child, ChildStderr, ChildStdin, ChildStdout, Command, ExitStatus},
     sync::{
         atomic::{AtomicU64, Ordering},
@@ -26,16 +26,24 @@ use windows::{
         },
         System::Threading::{
             CreateProcessW, DeleteProcThreadAttributeList, GetExitCodeProcess,
-            InitializeProcThreadAttributeList, QueryFullProcessImageNameW, ResumeThread,
-            TerminateProcess, UpdateProcThreadAttribute, WaitForSingleObject,
+            GetProcessMitigationPolicy, InitializeProcThreadAttributeList,
+            ProcessExtensionPointDisablePolicy, ProcessImageLoadPolicy, ProcessSignaturePolicy,
+            QueryFullProcessImageNameW, ResumeThread, TerminateProcess, UpdateProcThreadAttribute,
+            WaitForSingleObject,
             CREATE_BREAKAWAY_FROM_JOB, CREATE_NEW_CONSOLE, CREATE_NO_WINDOW, CREATE_SUSPENDED,
             CREATE_UNICODE_ENVIRONMENT, EXTENDED_STARTUPINFO_PRESENT, LPPROC_THREAD_ATTRIBUTE_LIST,
             PROCESS_CREATION_FLAGS, PROCESS_INFORMATION, PROCESS_NAME_NATIVE,
-            PROC_THREAD_ATTRIBUTE_HANDLE_LIST, PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE,
-            STARTF_USESTDHANDLES, STARTUPINFOEXW,
+            PROC_THREAD_ATTRIBUTE_HANDLE_LIST, PROC_THREAD_ATTRIBUTE_MITIGATION_POLICY,
+            PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE, STARTF_USESTDHANDLES, STARTUPINFOEXW,
         },
     },
 };
+
+// DWORD64 creation flags from winbase.h. The attribute borrows its value through list destruction.
+static IMAGE_LOAD_MITIGATION_POLICY: u64 = (1 << 32) // EXTENSION_POINT_DISABLE_ALWAYS_ON
+    | (1 << 44) // BLOCK_NON_MICROSOFT_BINARIES_ALWAYS_ON
+    | (1 << 52) // IMAGE_LOAD_NO_REMOTE_ALWAYS_ON
+    | (1 << 56); // IMAGE_LOAD_NO_LOW_LABEL_ALWAYS_ON
 
 /// Stdio configuration for a stable native Windows spawn.
 #[derive(Debug, Default)]
@@ -130,6 +138,36 @@ impl WindowsChild {
         Ok(PathBuf::from(OsString::from_wide(
             &buffer[..length as usize],
         )))
+    }
+
+    pub(crate) fn verify_image_load_restrictions(&self) -> io::Result<()> {
+        // SignaturePolicy: enforce MicrosoftSignedOnly and exclude StoreSignedOnly and
+        // MitigationOptIn. ImageLoadPolicy: enforce NoRemoteImages and NoLowMandatoryLabelImages.
+        for (policy, mask, required, label) in [
+            (ProcessSignaturePolicy, 0b111, 0b001, "signature"),
+            (ProcessExtensionPointDisablePolicy, 1, 1, "extension point"),
+            (ProcessImageLoadPolicy, 0b11, 0b11, "image load"),
+        ] {
+            let mut flags = 0u32;
+            // SAFETY: all three selectors write a policy structure containing one DWORD.
+            // The initialized, aligned buffer and the owned process handle live through the call.
+            unsafe {
+                GetProcessMitigationPolicy(
+                    HANDLE(self.handle.as_raw_handle()),
+                    policy,
+                    (&mut flags as *mut u32).cast(),
+                    std::mem::size_of_val(&flags),
+                )
+            }
+            .map_err(os_error)?;
+            if flags & mask != required {
+                return Err(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    format!("Windows suspended child lacks required {label} policy"),
+                ));
+            }
+        }
+        Ok(())
     }
 
     pub fn try_wait(&mut self) -> io::Result<Option<ExitStatus>> {
@@ -263,17 +301,22 @@ struct AttributeStorage {
     _bytes: [u8; 16],
 }
 impl Attributes {
-    /// With `pseudoconsole` (an `HPCON`) the one attribute is the pseudoconsole and there is no
+    /// With `pseudoconsole` (an `HPCON`) its attribute replaces the handle list. There is no
     /// handle list: a ConPTY child gets its console from the pseudoconsole and inherits nothing.
-    fn new(handles: &[HANDLE], pseudoconsole: Option<isize>) -> io::Result<Self> {
+    fn new(
+        handles: &[HANDLE],
+        pseudoconsole: Option<isize>,
+        restrict_image_load: bool,
+    ) -> io::Result<Self> {
+        let count = if restrict_image_load { 2 } else { 1 };
         let mut bytes = 0;
-        let _ = unsafe { InitializeProcThreadAttributeList(None, 1, None, &mut bytes) };
+        let _ = unsafe { InitializeProcThreadAttributeList(None, count, None, &mut bytes) };
         if bytes == 0 {
             return Err(io::Error::last_os_error());
         }
         let mut storage = vec![AttributeStorage { _bytes: [0; 16] }; bytes.div_ceil(16)];
         let list = LPPROC_THREAD_ATTRIBUTE_LIST(storage.as_mut_ptr().cast());
-        unsafe { InitializeProcThreadAttributeList(Some(list), 1, None, &mut bytes) }
+        unsafe { InitializeProcThreadAttributeList(Some(list), count, None, &mut bytes) }
             .map_err(os_error)?;
         let attributes = Self {
             _storage: storage,
@@ -305,6 +348,21 @@ impl Attributes {
             },
         }
         .map_err(os_error)?;
+        if restrict_image_load {
+            // SAFETY: the aligned DWORD64 lives through deletion of the attribute list.
+            unsafe {
+                UpdateProcThreadAttribute(
+                    list,
+                    0,
+                    PROC_THREAD_ATTRIBUTE_MITIGATION_POLICY as usize,
+                    Some((&IMAGE_LOAD_MITIGATION_POLICY as *const u64).cast()),
+                    std::mem::size_of_val(&IMAGE_LOAD_MITIGATION_POLICY),
+                    None,
+                    None,
+                )
+            }
+            .map_err(os_error)?;
+        }
         Ok(attributes)
     }
 }
@@ -407,6 +465,7 @@ pub(crate) fn spawn(
     cleanup_timeout: Option<Duration>,
     in_job_fallback: bool,
     pseudoconsole: Option<isize>,
+    restrict_image_load: bool,
 ) -> io::Result<(WindowsChild, bool)> {
     if env_cleared {
         config.inherit_environment = false;
@@ -423,7 +482,11 @@ pub(crate) fn spawn(
         config.stderr = WindowsStdio::Null;
     }
     let environment = environment(command, config.inherit_environment)?;
-    let program = resolve_program(command, &environment)?;
+    let program = if restrict_image_load {
+        explicit_executable_path(command)?
+    } else {
+        resolve_program(command, &environment)?
+    };
     let (program_wide, mut line) = if program.extension().is_some_and(|extension| {
         extension.eq_ignore_ascii_case("bat") || extension.eq_ignore_ascii_case("cmd")
     }) {
@@ -472,7 +535,7 @@ pub(crate) fn spawn(
     handles.dedup();
     let _lock = spawn_guard();
     let mut inheritable = Inheritable::new(&handles)?;
-    let attributes = Attributes::new(&handles, pseudoconsole)?;
+    let attributes = Attributes::new(&handles, pseudoconsole, restrict_image_load)?;
     let mut startup = STARTUPINFOEXW::default();
     startup.StartupInfo.cb = std::mem::size_of::<STARTUPINFOEXW>() as u32;
     if !pty {
@@ -673,6 +736,45 @@ fn environment_block(env: &[(OsString, OsString)]) -> io::Result<Vec<u16>> {
     }
     block.push(0);
     Ok(block)
+}
+
+fn explicit_executable_path(command: &Command) -> io::Result<PathBuf> {
+    let program = Path::new(command.get_program());
+    let mut parts = program.components();
+    let disk = matches!(
+        parts.next(),
+        Some(Component::Prefix(prefix))
+            if matches!(prefix.kind(), Prefix::Disk(_) | Prefix::VerbatimDisk(_))
+    );
+    let root = matches!(parts.next(), Some(Component::RootDir));
+    let clean_components = parts.all(|part| {
+        let Component::Normal(name) = part else {
+            return false;
+        };
+        let bytes = name.as_encoded_bytes();
+        bytes.last().is_some_and(|&byte| !matches!(byte, b' ' | b'.'))
+            && !bytes.iter().any(|&byte| matches!(byte, b':' | b'/' | b'\\'))
+    });
+    if disk
+        && root
+        && clean_components
+        && program.file_name().is_some_and(|name| {
+            program
+                .as_os_str()
+                .as_encoded_bytes()
+                .ends_with(name.as_encoded_bytes())
+        })
+        && program
+            .extension()
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("exe"))
+    {
+        Ok(program.to_path_buf())
+    } else {
+        Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "restricted Windows spawn requires an absolute DOS path to an .exe image",
+        ))
+    }
 }
 
 fn resolve_program(command: &Command, env: &[(OsString, OsString)]) -> io::Result<PathBuf> {
