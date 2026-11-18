@@ -826,6 +826,14 @@ export function explainKeyChange(before, after) {
   };
 }
 /** NN41: the compile scans whose failure can be deterministic: check, clippy and doc rows (single or batched, native or cross). Test runs are never among them. */
+/** A Rust test row (`test:rust:...`, `test:rust-serial:...`). */
+export const isRustTestRowId = (id) => /^test:rust(?:-serial)?:/.test(String(id));
+/**
+ * NN41 for a test row: its failure is stored only when the test build did not compile (cargo's "could not compile"), which is as deterministic as a
+ * failed clippy row; a failing or flaky TEST is never stored, and is run again (witness fixture S17, 2026-11-17: test rows of crates with a real
+ * compile error reran with unchanged inputs).
+ */
+export const isTestCompileFailure = (text) => /could not compile `[^`]+`/.test(String(text ?? "")) && !/test result: FAILED|panicked at/.test(String(text ?? ""));
 export const isFailureCacheableCompileId = (id) => /^(?:check|check-features|check-dependent|clippy|doc)(?::|$)/.test(String(id));
 /** NN41: a plain (non-broker) compile exit whose output carries compiler error diagnostics and no sign of the environment failing (network, disk, signal, internal compiler error). */
 export function isDeterministicCompileDiagnostics(text) {
@@ -3794,7 +3802,7 @@ export async function runScans(plan, options = {}) {
                 // NN41: a deterministic compile failure is keyed like the pass plus the tool version (the client's, its identity digest), the installed broker runtime
                 // identity (options.failureIdentity: version, clientDigest, brokerDigest) and the failure namespace; the digest already binds the unit closure, lock entries and toolchain files.
                 // No identity from the caller means no failure is ever stored or reused.
-                if (typeof options.failureIdentity === "string" && options.failureIdentity !== "" && isFailureCacheableCompileId(s.id) && !s.runOutside && s.kind !== "test" && !s.publisherRustTest && (s.tool === "rustright" || s.tool === "cargo")) failKey = scanCacheKey({ id: s.id, command: `${keyCommand({ command: s.command })} ;; ${FAILURE_KEY_SCHEMA}`, toolVersion: `${toolVersion} ;; broker-runtime ${options.failureIdentity}`, env: s.env ?? {}, inheritedEnv: inherited, digest });
+                if (typeof options.failureIdentity === "string" && options.failureIdentity !== "" && (isFailureCacheableCompileId(s.id) || isRustTestRowId(s.id)) && !s.runOutside && !s.publisherRustTest && (s.tool === "rustright" || s.tool === "cargo")) failKey = scanCacheKey({ id: s.id, command: `${keyCommand({ command: s.command })} ;; ${FAILURE_KEY_SCHEMA}`, toolVersion: `${toolVersion} ;; broker-runtime ${options.failureIdentity}`, env: s.env ?? {}, inheritedEnv: inherited, digest });
               }
             } catch (error) { cacheKey = null; row.cacheKeyError = String(error?.message ?? error).slice(0, 300); }
             let hit = cacheKey ? cache.read(cacheKey) : null;
@@ -4267,7 +4275,7 @@ export async function runScans(plan, options = {}) {
           // whose status is FAILED: a TIMED_OUT or CANCELLED job keeps its observed exit (it may be cargo's own) but its failure is the stop, never the source.
           // NN41: store a deterministic compile failure only: the broker's authenticated compile failure, or a plain exit of a compile with compiler error diagnostics and no sign of
           // the environment failing. Never a timeout, abort, SCAN_ERROR, refusal, unverified receipt, ledger problem, test run or infrastructure error (those return or carry another code).
-          if (status === "fail" && failKey && !signal?.aborted && !ledgerProblem && typeof detail === "string" && detail !== "" && (code === "EXIT" && (!carriedScan || (viaSeam && row.snapshotEvidence?.receiptStatus === "FAILED"))) && isDeterministicCompileDiagnostics(`${r?.stdout ?? ""}\n${r?.stderr ?? ""}`)) {
+          if (status === "fail" && failKey && !signal?.aborted && !ledgerProblem && typeof detail === "string" && detail !== "" && (code === "EXIT" && (!carriedScan || (viaSeam && row.snapshotEvidence?.receiptStatus === "FAILED"))) && isDeterministicCompileDiagnostics(`${r?.stdout ?? ""}\n${r?.stderr ?? ""}`) && (!isRustTestRowId(s.id) || isTestCompileFailure(`${r?.stdout ?? ""}\n${r?.stderr ?? ""}`))) {
             cache.write(failKey, { id: s.id, class: s.class, command: s.command, tool: s.tool ?? null, toolVersion: row.toolVersion, status: "fail", code, detail: detail.slice(0, 6000), failureIdentity: options.failureIdentity, ...(row.authenticatedFailure ? { authenticatedFailure: row.authenticatedFailure } : {}), ...(row.jsonSummary ? { jsonSummary: row.jsonSummary } : {}) });
           }
           if (status === "pass" && cacheKey && !signal?.aborted && row.rowIndex) cache.write(row.rowIndex.key, { id: s.id, inputs: row.rowIndex.inputs, env: row.rowIndex.env, raw: row.rowIndex.raw, at: new Date().toISOString() });
