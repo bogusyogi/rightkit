@@ -2,6 +2,8 @@
 
 ## 0.9.1 (unpublished)
 
+- On macOS, `SigningIdentity::MacDeveloperId` verifies the connected peer's exact Developer ID signing identifier & team. Hosts can allow multiple exact identities with `or_signed_by`. (rightkit#1658)
+
 - Windows installed-app discovery resolves the system registry tool by absolute path before the existing read-only queries. Query order and parser remain unchanged. (rightkit#1658)
 
 ## 0.9.0
