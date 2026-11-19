@@ -519,6 +519,7 @@ mod native {
     /// anchor, then destroy the shell. Under any other mode no shell is created and nothing is
     /// drawn: the window is only hidden (hiding reveals nothing) and `before_start` does not run.
     /// Event: `morph_suppressed` (`direction=to_anchor ..`).
+    #[allow(clippy::too_many_arguments)] // Keep the public call shape paired with `from_anchor`.
     pub fn to_anchor<R: Runtime>(
         win: &Window<R>,
         style: &Arc<ShellStyle>,
