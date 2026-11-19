@@ -46,6 +46,11 @@ in history for explicit recovery; it causes no second paste or clipboard write. 
 uses host last-delivery/history state & remains independent of engine availability.
 Hosts own recovery wording, UI triggers & emission after a repaste error.
 
+Last-paste casing requests from the engine reset the session and surface a command
+failure through the host. Support requires the destination editor to verify and
+replace the prior insertion in one operation. This release leaves the text in
+place and retains the original delivery in history.
+
 Streaming hosts return `host::StreamingFinal`: `NothingWritten` allows normal delivery;
 `Reconciled { remainder }` inserts only missing text; `Stopped { tag, cause }` records
 full-transcript recovery with clipboard preserved, skipping final delivery & Return.

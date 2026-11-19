@@ -12,7 +12,8 @@
 - Add host-configured final delivery, destination capture, focus coverage, state decisions & serialized state emission modules. App copy, theme & composition remain host-owned.
 - Repaste uses host delivery backend once, persists its returned outcome & succeeds only for a confirmed paste. Copy reads host last-delivery/history state directly. Cancelled, draft, synced & file rows remain excluded from restored manual delivery.
 - Default final delivery preserves clipboard & returns a recovery record until host supplies delivery policy. It never calls insertion callback.
-- Raise command-host/models floors to 0.3.0, core to 0.3.2, app-runtime/telemetry to 0.2.2 & transcript-library to 0.1.4; add automation 0.7.1 for platform destination proofs.
+- Raise command-host, models & app-runtime floors to 0.3.0, core to 0.3.2, telemetry to 0.2.2 & transcript-library to 0.1.4. Add automation 0.7.1 for platform destination proofs.
+- Last-paste casing requests return a command failure. The shell needs an editor-authoritative, conditional replacement of the prior insertion before it can support this operation.
 
 ## 0.2.2
 
