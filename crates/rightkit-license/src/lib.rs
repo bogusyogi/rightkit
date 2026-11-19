@@ -79,6 +79,7 @@ mod gate;
 mod lease;
 mod lifecycle;
 mod native_engine;
+mod native_verdict;
 mod record_text;
 mod refresh;
 mod revocation;
@@ -110,7 +111,7 @@ pub use client::{
     LicenseInvalidation, LicenseMode, LicenseSetup, LicenseView, LinkCodeView, LinkRequestOutcome,
     MessageCode, NativeRefusal, PendingLicenseRelease, PendingReleaseEntry, PendingReleaseId,
     PendingReleaseQueue, RefreshView, RefreshViewOutcome, RejectReason, RevisionState,
-    SecretString, TrialEmailRule, TrialView, ViewKind, ViewStage, ViewStatus,
+    SecretString, TrialEmailRule, TrialView, UnavailableDeviceId, ViewKind, ViewStage, ViewStatus,
     ACCOUNT_SESSION_TTL_SECS, DEFAULT_RECORD_ACCOUNT, DEFAULT_SESSION_ACCOUNT, ENGINE_BUSY_TEXT,
     ENGINE_STORE_TEXT, ENGINE_UNRESOLVED_TEXT,
 };
@@ -122,6 +123,10 @@ pub use client::{
 pub use native_engine::{
     NativeCredential, NativeEngineEntitlements, NativeEntitlementError, NativeEntitlementSource,
     NativeSignedCredential, NativeSourceError,
+};
+pub use native_verdict::{
+    ObservedEntitlements, RefusalCode as NativeRefusalCode, EVENT_REFUSED as PRO_EVENT_REFUSED,
+    EVENT_VERDICT as PRO_EVENT_VERDICT,
 };
 pub use record_text::stored_signed_token;
 

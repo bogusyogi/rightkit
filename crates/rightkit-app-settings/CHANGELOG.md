@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.2 (unpublished)
+
+- Added `StoreHandle` & `HandleConfig` for lazy bounded opens, retry after refusal, snapshots & host change notifications. Host settings paths, defaults, migration & recovery options remain inputs; event & change callbacks run outside handle locks.
+- Added `Store::update_with_revision` & `update_at_with_revision`, pairing transaction results with their own committed revision even when another writer commits before return. Existing `update` & `update_at` return values remain unchanged.
+
 ## 0.4.1
 
 - Added (#1572): `Document::open_flat_path` / `open_flat_path_with` / `is_flat`: a frontend-owned document over a FLAT file (the settings object itself, other readers keep working, unknown top-level keys kept as written). No version or namespace (`DocumentState::version` is `0`, a write's `version` is ignored); the revision is the file's 64-bit content hash, comparable for equality only. Envelope behaviour is unchanged.

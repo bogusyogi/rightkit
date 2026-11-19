@@ -2250,9 +2250,9 @@
       "pkId": "PK04",
       "id": "ci/consumers/rightkit-app-settings/src/main.rs",
       "files": {
-        "Cargo.toml": "0b78e8b73686302a00e42e0e5bf2ab464a6e10a7a7b3f58f8aad93e0107ebea4",
-        "README.md": "75e2e12ae1e87db79963dd30e3abc390ef56bdb19a1266ac89a66212367dec68",
-        "src/main.rs": "c2195cd984890cf581bc05ee81c73134f2dbd24084a26b485fde8c0ec540d2d6"
+        "Cargo.toml": "88b05386bd0b804975c839f48cb9dc930112237caf3b6f1c65626b3cc0b5be5e",
+        "README.md": "d04715c60bc17f93254375ddff629e2acc170cd7ad46241f325943ed688152b5",
+        "src/main.rs": "acb605e873cb4d2d819eee90e4047cebfbd3ac1d7f9a3095053658c522e9fcfa"
       }
     },
     "rightkit-crash": {
@@ -2358,16 +2358,16 @@
     "rightkit-license": {
       "pkId": "PK05",
       "id": "ci/consumers/rightkit-license/src/main.rs",
-      "dependency": "rightkit-license = { version = \"=0.2.9\" }",
+      "dependency": "rightkit-license = { version = \"=0.3.2\", features = [\"client\"] }",
       "extraDependencies": [],
       "gateEvidence": "pure and offline: public keys and vectors copied verbatim from crates/rightkit-license/test-vectors (public material, verified byte-equal); clock ledger in a temp directory; client feature enabled for explicitly disabled LicenseClient status with synthetic device id; no network, no OS keychain or real user data; configured client operations, update-auth, engine-gate and subject-entitlement not exercised",
       "consumes": "PK05 plan (01-packages.md:167-183): every app licence migration; public items exercised: verify_token (crates/rightkit-license/src/lib.rs:514), VerifyError (src/lib.rs:390), verify_lease_envelope (src/lease.rs:168), FileClockStore (src/file_store.rs:184), ClockStore::load (src/clock.rs:305), MemoryClockStore (src/clock.rs:348), ProcessAnchor::new (src/clock.rs:243), NativeEntitlementSource (src/native_engine.rs:42), NativeEngineEntitlements::new and current_at (src/native_engine.rs:158,208), LifecyclePolicy (src/lifecycle.rs:118), LicenseClient::new/status/is_disabled (src/client/mod.rs:108,157,140) in Disabled mode only",
       "files": {
-        "Cargo.toml": "45eab835c1458a5ece1f977cf402ce30a8252b1a0e85c9648a75c88d6be42b17",
-        "README.md": "4abd6869451076b56d9822016fc48733da706836d6f7cb4c2a7d51edb0bfe7a0",
-        "src/main.rs": "d1a40968811a8ca407cf74c9902fa93cbf63821e680cf2c1f2410284b082a33c"
+        "Cargo.toml": "749eb5299822ba07b0f3fae93175a4f858878fbee4c96289a23740d6c84be9fc",
+        "README.md": "bdec489d10d8c58acbaa1a78657e14fbec6551fe16ca039ee01fea457630a204",
+        "src/main.rs": "73db4df80345ba3af88db0161b4898d9896a7c641de81ca4221cbb40fc5e1afc"
       },
-      "aggregateSha256": "69891b2b4eeb615fa655b63d71d2bb2555153c1b35849acc517b304769b8b5dc"
+      "aggregateSha256": "a459920aff1315ea5003c044c9df5eaabbb7e5323f46b2f48d4fa1eea1412010"
     },
     "rightkit-child-process": {
       "pkId": "PK02",

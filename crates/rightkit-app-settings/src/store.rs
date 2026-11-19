@@ -608,6 +608,16 @@ impl<T: Serialize + DeserializeOwned + Default + Clone> Store<T> {
     /// other stores or processes are therefore never lost. On any failure the
     /// in-memory value is unchanged. Subscribers fire after the save, outside the lock.
     pub fn update<R>(&self, f: impl FnOnce(&mut T) -> Result<R, Error>) -> Result<R, Error> {
+        self.update_with_revision(f).map(|(out, _)| out)
+    }
+
+    /// [`Store::update`], returning its result paired with its committed revision. A no-op
+    /// returns the revision read under backend exclusion. Later writers, including subscribers
+    /// that write before this call returns, cannot change the returned revision.
+    pub fn update_with_revision<R>(
+        &self,
+        f: impl FnOnce(&mut T) -> Result<R, Error>,
+    ) -> Result<(R, u64), Error> {
         self.transact(None, &[], |t, _| f(t))
     }
 
@@ -619,6 +629,17 @@ impl<T: Serialize + DeserializeOwned + Default + Clone> Store<T> {
         expected: u64,
         f: impl FnOnce(&mut T) -> Result<R, Error>,
     ) -> Result<R, Error> {
+        self.update_at_with_revision(expected, f)
+            .map(|(out, _)| out)
+    }
+
+    /// [`Store::update_at`], returning its result paired with its committed revision. Conflict,
+    /// validation, edit & backend failures retain the same error behavior as `update_at`.
+    pub fn update_at_with_revision<R>(
+        &self,
+        expected: u64,
+        f: impl FnOnce(&mut T) -> Result<R, Error>,
+    ) -> Result<(R, u64), Error> {
         self.transact(Some(expected), &[], |t, _| f(t))
     }
 
@@ -629,7 +650,7 @@ impl<T: Serialize + DeserializeOwned + Default + Clone> Store<T> {
         expected: Option<u64>,
         nulls: &[String],
         f: impl FnOnce(&mut T, &mut Map<String, Value>) -> Result<R, Error>,
-    ) -> Result<R, Error> {
+    ) -> Result<(R, u64), Error> {
         if self.read_only {
             return Err(Error::Invalid("settings store is read-only".into()));
         }
@@ -706,12 +727,13 @@ impl<T: Serialize + DeserializeOwned + Default + Clone> Store<T> {
             out, next, change, ..
         } = p;
         g.value = next;
-        g.revision = committed.unwrap_or(base);
+        let revision = committed.unwrap_or(base);
+        g.revision = revision;
         // The stamp of our own write is not known here; the next get() re-reads once.
         g.stamp = None;
         drop(g);
         self.emit(change);
-        Ok(out)
+        Ok((out, revision))
     }
 
     /// The document to commit for the open-time flat migration: the one `assemble` migrated, or,

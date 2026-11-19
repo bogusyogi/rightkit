@@ -61,6 +61,7 @@ mod release_queue;
 mod snapshot;
 mod time;
 mod types;
+mod unavailable_device;
 #[cfg(feature = "update-auth")]
 mod update_auth;
 mod view;
@@ -89,6 +90,7 @@ pub use types::{
     DeviceIdError, DeviceIdSource, LicenseClientConfig, LicenseSetup, PendingLicenseRelease,
     SecretString, TrialEmailRule, DEFAULT_RECORD_ACCOUNT,
 };
+pub use unavailable_device::UnavailableDeviceId;
 #[cfg(feature = "update-auth")]
 pub use update_auth::{
     AuthorizedHeaders, LicenseRevision, StagedIdentity, UpdateAuthConfig, UpdateAuthError,

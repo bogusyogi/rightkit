@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.2
+
+- Added `ObservedEntitlements`: native paid-command checks retain refusal causes & emit verdict transitions through host event sinks. Checks use `NativeEngineEntitlements::current()` & grant only when its verified report grants access; errors fail closed. Observation updates remain serialized; event sinks run after locks are released.
+- Added `NativeRefusalCode`, `PRO_EVENT_REFUSED` & `PRO_EVENT_VERDICT` exports.
+- Added `UnavailableDeviceId` (feature `client`): both identity reads return `DeviceIdError` for hosts without device identity.
+
 ## 0.3.1
 
 - **New: trial request options on `LicenseClientConfig`, so an app can keep the trial behaviour it already ships (all default to today's behaviour).** `with_trial_email_rule(TrialEmailRule)` (`Lenient`, the default, is the 254 character check; `DottedDomain` is the HeardRight rule: at most 320 characters, no whitespace or control characters, exactly one `@`, a non-empty local part, a domain with a `.` that neither starts nor ends with one, so `user@localhost` is refused before any request). `with_unlocked_trial(bool)`: the trial request skips the operation lock, so it never answers `Busy` during a renew or an activation (a trial issues no credential and writes no record). `with_trial_timeout(Duration)`: the trial request's own timeout instead of the client's 15 s. `TrialEmailRule` is exported from the crate root and `client`.

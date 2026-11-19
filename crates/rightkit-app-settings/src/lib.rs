@@ -5,6 +5,7 @@ mod backend;
 #[cfg(feature = "credentials-probe")]
 mod credentials_probe;
 mod document;
+mod handle;
 mod manifest;
 mod options;
 mod request;
@@ -19,6 +20,10 @@ pub use sql::{SqlError, SqlSettings};
 pub use atomic::{atomic_write, atomic_write_with};
 pub use backend::{Edit, FileBackend, KeyLayout, SettingsBackend, Stored};
 pub use document::{Document, DocumentState};
+pub use handle::{
+    error_tag, EventSink, HandleConfig, StoreHandle, EVENT_LOCK_ERROR, EVENT_UNREADABLE_AT_LOAD,
+    MAX_OPEN_ATTEMPTS, MAX_OPEN_RETRY_DELAY, REVISION_CONFLICT_PREFIX,
+};
 pub use manifest::{Kind, Manifest, ManifestError, Mismatch, Setting, Target};
 pub use options::{
     DefaultsProvider, FileFormat, FlatMigration, KeyOrder, KeyValidator, NullMeans, OnCorrupt,
