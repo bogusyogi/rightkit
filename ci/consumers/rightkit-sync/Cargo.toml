@@ -7,4 +7,4 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-sync = { version = "=0.3.1", features = ["transcripts"] }
+rightkit-sync = { version = "=0.4.0", features = ["transcript-host"] }

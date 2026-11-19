@@ -44,12 +44,15 @@ pub mod frameless;
 pub mod harden;
 #[cfg(feature = "host-services")]
 pub mod host;
+pub mod hub_window;
 pub mod idle;
 pub mod launch_origin;
 pub mod lifecycle;
 #[cfg(feature = "logs")]
 pub mod logs_commands;
 pub mod menu;
+#[cfg(all(feature = "menubar-helper", target_os = "macos"))]
+pub mod menubar_helper;
 pub mod modules;
 pub mod nav;
 pub mod notify;
@@ -76,6 +79,7 @@ pub mod startup_error;
 pub mod stream;
 pub mod surface;
 pub mod tray;
+pub mod tray_state;
 #[cfg(feature = "update")]
 pub mod update;
 pub mod watchdog;

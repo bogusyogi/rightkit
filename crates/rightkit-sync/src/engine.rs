@@ -216,6 +216,8 @@ pub struct SyncEngine<M: RecordMapper> {
     /// Set by `bind_account` for the pass in flight when it stopped on a consent gate.
     gate: Option<ConsentRequest>,
     local_page_size: usize,
+    /// Most uploads one pass holds and sends; 0 = no limit.
+    max_uploads: usize,
 }
 
 pub struct SyncEngineBuilder<M: RecordMapper> {
@@ -230,6 +232,7 @@ pub struct SyncEngineBuilder<M: RecordMapper> {
     hooks: Arc<dyn PassHooks>,
     config: SyncConfig,
     local_page_size: usize,
+    max_uploads: usize,
 }
 
 impl<M: RecordMapper + 'static> SyncEngineBuilder<M> {
@@ -254,11 +257,22 @@ impl<M: RecordMapper + 'static> SyncEngineBuilder<M> {
             hooks: Arc::new(NoHooks),
             config: SyncConfig::default(),
             local_page_size: LOCAL_PAGE_SIZE,
+            max_uploads: 0,
         }
     }
     /// Items requested per `LocalStore::list_page` call during a pass (default 1000, minimum 1).
     pub fn local_page_size(mut self, n: usize) -> Self {
         self.local_page_size = n.max(1);
+        self
+    }
+    /// Most items one pass keeps in memory to upload (default 0 = no limit). The pass keeps the
+    /// `n` that sort first by (origin time, record name), the order uploads already use, and
+    /// leaves the rest for a later pass: they are not marked as published, so the next scan finds
+    /// them again. When any were left, the pass reports the event `uploads_deferred` with their
+    /// count, so the host can run another pass at once. Without a limit a first sync of a large
+    /// store holds every item to publish at the same time.
+    pub fn max_uploads_per_pass(mut self, n: usize) -> Self {
+        self.max_uploads = n;
         self
     }
     pub fn auth(mut self, v: Arc<dyn AuthProvider>) -> Self {
@@ -306,6 +320,7 @@ impl<M: RecordMapper + 'static> SyncEngineBuilder<M> {
             counters: Counters::default(),
             gate: None,
             local_page_size: self.local_page_size,
+            max_uploads: self.max_uploads,
         })
     }
 }
@@ -436,6 +451,95 @@ where
             l.bury(&id, now);
             l.pending_tombstones.insert(id);
         })
+    }
+
+    /// [`SyncEngine::note_deleted`] for many ids with one durable ledger write. The ledger is
+    /// serialized and replaced in full on every write, so a caller with many deletions must not
+    /// call `note_deleted` in a loop. Nothing is written when no id is queued.
+    ///
+    /// An id is in one of three states: (a) not buried; (b) buried and confirmed (in
+    /// `tombstones`, not in `pending_tombstones`: the remote already holds the deletion); (c)
+    /// buried and pending. A state (b) id is a no-op: it is not queued again and its tombstone
+    /// value is not rewritten, so a later withdrawal can never lift a confirmed deletion. The one
+    /// exception is an id in `unconfirmed`, which the caller cannot vouch the remote holds (a
+    /// tombstone kept after its queued write was withdrawn without proof); it is queued again.
+    /// An id that already has a tombstone keeps that tombstone's value; only an id with none is
+    /// buried (now). Returns how many ids were queued.
+    pub fn note_deleted_many(
+        &mut self,
+        ids: &[String],
+        unconfirmed: &BTreeSet<String>,
+    ) -> SyncResult<usize> {
+        let now = self.clock.now_ms();
+        let queue: Vec<String> = {
+            let ledger = self.store.ledger();
+            ids.iter()
+                .filter(|id| {
+                    let confirmed = ledger.tombstones.contains_key(*id)
+                        && !ledger.pending_tombstones.contains(*id);
+                    !confirmed || unconfirmed.contains(*id)
+                })
+                .cloned()
+                .collect()
+        };
+        if queue.is_empty() {
+            return Ok(0);
+        }
+        self.store.mutate(|l| {
+            for id in &queue {
+                if !l.tombstones.contains_key(id) {
+                    l.bury(id, now);
+                }
+                l.pending_tombstones.insert(id.clone());
+            }
+        })?;
+        Ok(queue.len())
+    }
+
+    /// Withdraw queued tombstones the caller can no longer vouch for. Every id of `lift` and
+    /// `keep` that is in `pending_tombstones` leaves the queue, so it is not written to the
+    /// zone. `lift` names ids whose tombstone the caller proves it created (no tombstone existed
+    /// before it queued them): that local tombstone is lifted with the queue entry, so the stale
+    /// deletion neither reaches the remote nor keeps suppressing the record. `keep` names every
+    /// other queued id (prior state unknown): its tombstone stays, so local suppression is not
+    /// lifted; an id in both lists is kept. Ids that are not queued are left alone: a tombstone
+    /// the remote already acknowledged (in `tombstones`, not in `pending_tombstones`) is never
+    /// touched, so a confirmed deletion survives a requeue followed by a withdrawal. One durable
+    /// ledger write; nothing is written when no id is queued. Returns how many ids left the
+    /// queue. A failed write rolls the change back.
+    pub fn withdraw_pending_tombstones(
+        &mut self,
+        lift: &[String],
+        keep: &[String],
+    ) -> SyncResult<usize> {
+        let (queued, lifted): (BTreeSet<String>, BTreeSet<String>) = {
+            let ledger = self.store.ledger();
+            let kept: BTreeSet<&String> = keep.iter().collect();
+            let queued: BTreeSet<String> = lift
+                .iter()
+                .chain(keep.iter())
+                .filter(|id| ledger.pending_tombstones.contains(*id))
+                .cloned()
+                .collect();
+            let lifted: BTreeSet<String> = lift
+                .iter()
+                .filter(|id| queued.contains(*id) && !kept.contains(id))
+                .cloned()
+                .collect();
+            (queued, lifted)
+        };
+        if queued.is_empty() {
+            return Ok(0);
+        }
+        self.store.mutate(|l| {
+            for id in &queued {
+                l.pending_tombstones.remove(id);
+            }
+            for id in &lifted {
+                l.tombstones.remove(id);
+            }
+        })?;
+        Ok(queued.len())
     }
 
     /// Replay the whole zone once for `flag` (one-shot repair migrations).
@@ -919,6 +1023,49 @@ where
             base: Option<RawRecord>,
             is_new: bool,
         }
+        /// An upload with the key uploads are ordered by, so that a bounded queue keeps the
+        /// same items a full sort would put first.
+        struct Queued<I> {
+            key: (i64, String),
+            upload: Upload<I>,
+        }
+        impl<I> PartialEq for Queued<I> {
+            fn eq(&self, other: &Self) -> bool {
+                self.key == other.key
+            }
+        }
+        impl<I> Eq for Queued<I> {}
+        impl<I> PartialOrd for Queued<I> {
+            fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+                Some(self.cmp(other))
+            }
+        }
+        impl<I> Ord for Queued<I> {
+            fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+                self.key.cmp(&other.key)
+            }
+        }
+        /// At most `cap` uploads (0 = no limit): a max-heap on the key, so the top is the newest
+        /// kept and is the one a newcomer replaces.
+        struct UploadQueue<I> {
+            cap: usize,
+            heap: std::collections::BinaryHeap<Queued<I>>,
+            held_back: usize,
+        }
+        impl<I> UploadQueue<I> {
+            fn offer(&mut self, key: (i64, String), upload: Upload<I>) {
+                if self.cap == 0 || self.heap.len() < self.cap {
+                    self.heap.push(Queued { key, upload });
+                    return;
+                }
+                self.held_back += 1;
+                let replaces = self.heap.peek().is_some_and(|top| key < top.key);
+                if replaces {
+                    self.heap.pop();
+                    self.heap.push(Queued { key, upload });
+                }
+            }
+        }
         let infer = self.config.infer_local_deletions;
         let mut gone_candidates: HashSet<String> = if infer {
             let l = self.store.ledger();
@@ -939,7 +1086,11 @@ where
             .cloned()
             .collect();
         let mut matched: HashMap<String, ItemHeader> = HashMap::new();
-        let mut uploads: Vec<Upload<M::Item>> = Vec::new();
+        let mut queue: UploadQueue<M::Item> = UploadQueue {
+            cap: self.max_uploads,
+            heap: std::collections::BinaryHeap::new(),
+            held_back: 0,
+        };
         let mut failed_uploads = 0usize;
         self.scan_local(|item| {
             let header = self.mapper.header(&item);
@@ -976,12 +1127,16 @@ where
                             .policy
                             .upload_local_over_remote(&header, &item, rh, &remote_item)
                         {
-                            uploads.push(Upload {
-                                header,
-                                item,
-                                base: Some(record.clone()),
-                                is_new: false,
-                            });
+                            let key = (header.created_at_ms, self.mapper.record_name(&header.id));
+                            queue.offer(
+                                key,
+                                Upload {
+                                    header,
+                                    item,
+                                    base: Some(record.clone()),
+                                    is_new: false,
+                                },
+                            );
                         }
                     }
                 }
@@ -993,12 +1148,19 @@ where
                         // Cursor delta did not include it: unchanged remotely.
                         if known.updated_at_ms < header.updated_at_ms || queued {
                             match self.backend.fetch_record(&known.record_name) {
-                                Ok(base) => uploads.push(Upload {
-                                    header,
-                                    item,
-                                    base,
-                                    is_new: false,
-                                }),
+                                Ok(base) => {
+                                    let key =
+                                        (header.created_at_ms, self.mapper.record_name(&header.id));
+                                    queue.offer(
+                                        key,
+                                        Upload {
+                                            header,
+                                            item,
+                                            base,
+                                            is_new: false,
+                                        },
+                                    );
+                                }
                                 Err(e) => {
                                     failed_uploads += 1;
                                     self.observer.event("record_fetch_failed", &e.to_string());
@@ -1006,17 +1168,24 @@ where
                             }
                         }
                     } else {
-                        uploads.push(Upload {
-                            header,
-                            item,
-                            base: None,
-                            is_new: true,
-                        });
+                        let key = (header.created_at_ms, self.mapper.record_name(&header.id));
+                        queue.offer(
+                            key,
+                            Upload {
+                                header,
+                                item,
+                                base: None,
+                                is_new: true,
+                            },
+                        );
                     }
                 }
             }
             Ok(())
         })?;
+        let held_back_uploads = queue.held_back;
+        let mut uploads: Vec<Upload<M::Item>> =
+            queue.heap.into_iter().map(|queued| queued.upload).collect();
 
         // Inferred deletions (desktop): published item vanished locally.
         if infer {
@@ -1173,6 +1342,10 @@ where
         }
         if failed_uploads > 0 {
             pending.push(format!("{failed_uploads} upload(s) pending"));
+        }
+        if held_back_uploads > 0 {
+            self.observer
+                .event("uploads_deferred", &held_back_uploads.to_string());
         }
 
         // ---- Downloads ----

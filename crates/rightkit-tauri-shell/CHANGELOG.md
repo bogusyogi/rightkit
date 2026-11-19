@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.8.4
+
+- Added opt-in macOS `menubar-helper`: supervised nested helper launch, state notifications & authenticated menu/Shortcuts action transport. Exact host-configured Developer ID identities use `rightkit-daemon` 0.9.1 exclusively; role-specific actions, per-connection nonces, sequence checks, bounded replay history & connection/frame limits reject untrusted or repeated requests. Requires bundled-app helpers from `rightkit-child-process` 0.5.14.
+
+- Added `hub_window` for guarded window creation, reveal, rendering suspension, surface sizing, work-area fitting, title-bar configuration & overlay retirement. Window appearance, geometry, reveal source & callbacks remain host inputs. Native Windows anchor morphs require `overlay`; timing & frame constructors enforce bounds.
+- Added `tray_state::{IconSet, TrayAlert, set_state_icon, listen_clicks}` for state icons, tooltip overrides & host-handled tray clicks. Icons use one no-follow handle, a 1 MiB read cap & PNG/ICO dimension checks before decoding those bytes.
+
 ## 0.8.3
 
 - Added `relaunch::{Protocol, spawn, dispatch, relaunch_self}` for PID-ordered self-restarts on macOS & Windows, plus `launch_origin::{is_login_launch, consume_marker, StartupGate}` for bounded macOS login-start deferral. Helper arguments select only this executable & parent PID; optional restart markers remain native-host supplied. Configurable waits preserve finite timeouts & cap each polling sleep at remaining time.

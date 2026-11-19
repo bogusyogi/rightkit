@@ -18,6 +18,8 @@ use crate::error::{SyncError, SyncResult};
 
 /// Largest accepted response line. A line over the cap kills the helper.
 const MAX_LINE_BYTES: usize = 128 * 1024 * 1024;
+/// Largest piece of one helper stderr line kept in memory; the tail keeps the last 20 pieces.
+const MAX_STDERR_LINE_BYTES: usize = 64 * 1024;
 
 #[derive(Debug, Clone)]
 pub struct HelperConfig {
@@ -114,7 +116,10 @@ impl HelperProcess {
         let stdin = child.stdin.take().expect("piped stdin");
         let stdout = child.stdout.take().expect("piped stdout");
         let stderr = child.stderr.take().expect("piped stderr");
-        let (tx, rx) = mpsc::channel();
+        // One line of queue: the reader waits for the caller before it reads further, so a helper
+        // that keeps writing cannot queue response lines without bound (at most two lines of at
+        // most `MAX_LINE_BYTES` are held: one queued, one being read).
+        let (tx, rx) = mpsc::sync_channel(1);
         std::thread::spawn(move || {
             let mut reader = BufReader::new(stdout);
             loop {
@@ -146,12 +151,25 @@ impl HelperProcess {
         });
         let tail = Arc::clone(&self.stderr_tail);
         std::thread::spawn(move || {
-            for line in BufReader::new(stderr).lines().map_while(Result::ok) {
-                let mut t = tail.lock().unwrap();
-                if t.len() >= 20 {
-                    t.pop_front();
+            // Bounded like the stdout reader: a line longer than the cap is read as several
+            // lines, so a helper that never writes a newline cannot grow this buffer.
+            let mut reader = BufReader::new(stderr);
+            loop {
+                let mut line = String::new();
+                match reader
+                    .by_ref()
+                    .take(MAX_STDERR_LINE_BYTES as u64)
+                    .read_line(&mut line)
+                {
+                    Ok(0) | Err(_) => return,
+                    Ok(_) => {
+                        let mut t = tail.lock().unwrap();
+                        if t.len() >= 20 {
+                            t.pop_front();
+                        }
+                        t.push_back(line.trim_end_matches(['\r', '\n']).to_string());
+                    }
                 }
-                t.push_back(line);
             }
         });
         Ok(Live {

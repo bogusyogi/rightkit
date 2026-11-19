@@ -200,3 +200,11 @@ the local merge).
 2. A stale conditional save is refused, returning the server record and a new change tag.
 
 Real CloudKit: manual gate in `swift/RightKitSwift/docs/cloudkit-helper/README.md`.
+
+## Transcript host (`transcript-host`, 0.4.0)
+
+Public entry points live in `transcript_host`: `TranscriptSync`, `TranscriptSyncConfig`, `SchedulerPolicy`, `TranscriptHost`, `HistorySession`, `HistoryKey`, `HistoryRow`, `KeyWindow`, `SyncTransport`, `NativeObserver`, `Spawner`, `StatusReport`, `DeleteOutcome` & `DeletionBacklog`. macOS adds `cloudkit::{CloudKitConfig, CloudKitTransport}`. Trait methods, field bounds & threading contracts are documented beside their definitions. Enable feature with `rightkit-sync = { version = "=0.4.0", features = ["transcript-host"] }`; supply Tokio runtime with time enabled.
+
+`SyncEngineBuilder::max_uploads_per_pass(n)` bounds uploads held per pass; zero preserves unlimited behavior. Deferred uploads produce `uploads_deferred` event & remain eligible for later passes. `SyncEngine::note_deleted_many(ids, unconfirmed)` queues batch with one durable ledger write while preserving acknowledged tombstones. `withdraw_pending_tombstones(lift, keep)` withdraws queued entries in one write, lifts only caller-proven new tombstones & preserves every acknowledged deletion. `LocalVersions::load_capped(path, max_bytes, max_entries)` provides bounded no-follow reads for host version book; existing `load` remains available.
+
+`FileStorage::save` & `TranscriptSyncProfile::migrate_legacy_once` now acquire adjacent ledger lock for up to ten seconds & return existing error type on lock failure. Migration holds lock from absence check through final ledger publication. Transcript host holds same lock across generation/account validation & replacement, without recursive acquisition. No existing public signature changes. Generic byte-store writes remain unconditional once locked; callers needing account authority use transcript host.

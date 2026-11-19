@@ -17,6 +17,8 @@ mod record;
 mod schedule;
 mod storage;
 mod traits;
+#[cfg(feature = "transcript-host")]
+pub mod transcript_host;
 #[cfg(feature = "transcripts")]
 pub mod transcripts;
 #[cfg(feature = "vault")]

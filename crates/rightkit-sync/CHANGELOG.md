@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.0
+
+- Added `transcript-host`: consent/account authority, guarded ledger, scoped deletion outbox, windowed history, event-driven scheduler & macOS CloudKit transport; host retains product values, history storage & UI copy.
+- Disable & activation rollback verify final helper stop under transition serialization, independently attempt durable revocation & preserve combined failure status. Poisoned outbox mutex & exhausted epoch no longer bypass revoked-fence persistence; no fresh consent epoch is issued on exhaustion.
+- Added shared locking across built-in ledger writers, migration absence checks & guarded generation/account checks. Generic `FileStorage` keeps unconditional-byte-store semantics after lock acquisition.
+- Added bounded no-follow transcript state reads, scoped-outbox protection, bounded helper queues/response entries, batched deletion hand-over/withdrawal & capped uploads per pass. Existing transcript migration provenance & version-store preservation remain intact.
+- Raised `rightkit-child-process` floor to `0.5.12`; retained `rightkit-fs` floor `0.4.15` & enabled `lock`. Optional host feature adds Tokio `sync`, `time` & `rt`.
+
 ## 0.3.1
 
 - Added optional `transcripts` feature: transcript mapper, stable logical ids, local edit versions, durable deletion outbox, consent scope gate, legacy ledger migration, CloudKit environment pin & retry classifiers, extracted from HeardRight.

@@ -38,6 +38,12 @@ With `host-services` (and `license`, `update`, `logs`, `models`, `pdf-host`, `cr
 
 The native updater verifies minisign signatures, accepts only https URLs with no redirects, refuses downgrades, and ties each update to the licence binding captured at check. Licence views never carry a token. The shell's own `rk_shell_*` commands are checked against the caller policy only after the app enables `HostServicesBuilder::guard_shell_commands`. Full list and file references: `CHANGELOG.md`, 0.5.0.
 
+## Window presentation & tray state
+
+`hub_window` builds hidden windows through `windows::builder`, then reveals requested visible windows through shell policy. `show_only`, `show_and_focus`, `unminimize` & macOS order/focus helpers take `RevealSource`; forbidden reveals stay hidden & background reveals avoid activation. Hosts supply `WindowBuild`, `SurfaceSize`, `WorkAreaFit`, `macos::TitlebarPolicy`, event sink & callbacks. Rendering hooks, `PillOrigin` & `retire_overlay` cover hidden-window lifecycle. `hub_window::morph` provides bounded frame/timing constructors & host-selected easing; native Windows anchor morphs require `overlay`.
+
+`tray_state::IconSet` selects host-named state icons from bundle resources or beside executable. Reads use one no-follow handle with a 1 MiB cap; PNG/ICO dimensions are limited to 256 pixels per side & 65,536 pixels before those bytes decode. `TrayAlert` changes tooltips; `listen_clicks` pairs with `tray::LeftClick::Emit` & returns an event id for host cleanup. Feature defaults stay unchanged.
+
 ## Relaunch & launch origin
 
 `relaunch::Protocol::new("--myapp-update-relaunch-helper")` defines reserved helper arguments. Call `relaunch::dispatch(&protocol)` before Tauri or single-instance setup; exit with its returned code when present. Native hosts call `relaunch::relaunch_self(&app, &protocol, reason, marker)` to spawn this executable's helper, release single-instance claims & request Tauri shutdown. `spawn(&protocol)` only spawns that helper. Requesting process & helper must use identical prefixes. Default parent wait is ten seconds; `parent_wait(Duration)` & `event_sink(fn(&str, &str))` customize it.

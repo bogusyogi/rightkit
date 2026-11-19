@@ -6,7 +6,7 @@
 //! [`TranscriptSyncProfile`].
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::io::{self, Write};
+use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -130,6 +130,37 @@ fn replace_file_atomically(path: &Path, bytes: &[u8]) -> io::Result<()> {
             | rightkit_fs::FsError::ReplacedButDirSyncFailed { source, .. } => source,
             other => io::Error::other(other.to_string()),
         })
+}
+
+/// Largest legacy file, version book (read by the migration) or version-1 outbox this module
+/// reads. A file over it is an error, never a truncated success.
+const MAX_STATE_FILE_BYTES: u64 = 64 * 1024 * 1024;
+
+/// Read a whole state file through one no-follow handle (`O_NOFOLLOW` on Unix, the reparse point
+/// itself on Windows; only a regular file opens). `max_bytes` is checked on the open handle before
+/// any byte is read and again while reading, and a file over it is an `InvalidData` error. A
+/// missing file is `NotFound`. The error text carries no path.
+fn read_state_file(path: &Path, max_bytes: u64) -> io::Result<Vec<u8>> {
+    let too_large = || io::Error::new(io::ErrorKind::InvalidData, "state file larger than its cap");
+    let file = rightkit_fs::open_read_nofollow(path, &rightkit_fs::ReadOptions::new()).map_err(
+        |error| match error {
+            rightkit_fs::FsError::Io { source, .. } => source,
+            _ => io::Error::new(
+                io::ErrorKind::InvalidData,
+                "state file is a link or not a regular file",
+            ),
+        },
+    )?;
+    if file.metadata()?.len() > max_bytes {
+        return Err(too_large());
+    }
+    let mut bytes = Vec::new();
+    file.take(max_bytes.saturating_add(1))
+        .read_to_end(&mut bytes)?;
+    if bytes.len() as u64 > max_bytes {
+        return Err(too_large());
+    }
+    Ok(bytes)
 }
 
 pub struct TranscriptMapper {
@@ -327,6 +358,35 @@ impl LocalVersions {
         }
     }
 
+    /// Like [`LocalVersions::load`], but bounded and strict about what it cannot read. A missing
+    /// file starts empty and a file that does not decode starts empty (the book is rebuilt from
+    /// history). A file that cannot be read, is a link or not a regular file, is over `max_bytes`,
+    /// or holds more than `max_entries` entries is an `Err`, so a caller that stops there never
+    /// rewrites it. The byte cap is enforced before the file is read into memory; the entry count
+    /// is checked after decoding, so decoding is bounded by `max_bytes`.
+    pub fn load_capped(
+        path: impl Into<PathBuf>,
+        max_bytes: u64,
+        max_entries: usize,
+    ) -> Result<Self, String> {
+        let path = path.into();
+        let entries = match read_state_file(&path, max_bytes) {
+            Ok(bytes) => {
+                serde_json::from_slice::<BTreeMap<String, VersionEntry>>(&bytes).unwrap_or_default()
+            }
+            Err(error) if error.kind() == io::ErrorKind::NotFound => BTreeMap::new(),
+            Err(error) => return Err(format!("read cloud sync versions: {error}")),
+        };
+        if entries.len() > max_entries {
+            return Err("cloud sync versions hold more entries than the cap".to_string());
+        }
+        Ok(Self {
+            path,
+            entries,
+            dirty: false,
+        })
+    }
+
     pub fn observe(&mut self, id: &str, hash: &str, created_ms: u64, now_ms: u64) -> u64 {
         match self.entries.get_mut(id) {
             None => {
@@ -398,17 +458,43 @@ impl LocalVersions {
 // Deletion outbox (durable, engine-lock-free)
 // ---------------------------------------------------------------------------
 
+/// The version-1 deletion outbox: a bare `{logical id: enqueued ms}` object with no account
+/// scope. The transcript host (`transcript_host`) writes the scoped version-2 file instead (see
+/// its `outbox` module). These two functions remain only for a caller that still holds the old
+/// shape; they refuse a version-2 file (`{"v":2,"partitions":[...]}`) instead of misreading it as
+/// empty or replacing it, because that would drop deletions queued for an account.
 pub fn read_outbox(path: &Path) -> Result<BTreeMap<String, u64>, String> {
-    match std::fs::read(path) {
-        Ok(b) => serde_json::from_slice(&b).map_err(|e| format!("parse deletion outbox: {e}")),
+    match read_state_file(path, MAX_STATE_FILE_BYTES) {
+        Ok(b) => {
+            if outbox_is_versioned(&b) {
+                return Err("deletion outbox is in the scoped format; not readable as v1".into());
+            }
+            serde_json::from_slice(&b).map_err(|e| format!("parse deletion outbox: {e}"))
+        }
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(BTreeMap::new()),
         Err(e) => Err(format!("read deletion outbox: {e}")),
     }
 }
 
+/// Refuses to overwrite a version-2 file; see [`read_outbox`].
 pub fn write_outbox(path: &Path, entries: &BTreeMap<String, u64>) -> Result<(), String> {
+    match read_state_file(path, MAX_STATE_FILE_BYTES) {
+        Ok(b) if outbox_is_versioned(&b) => {
+            return Err("deletion outbox is in the scoped format; not overwritten as v1".into());
+        }
+        Ok(_) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return Err(format!("read deletion outbox: {e}")),
+    }
     let bytes = serde_json::to_vec(entries).map_err(|e| e.to_string())?;
     replace_file_atomically(path, &bytes).map_err(|e| format!("write deletion outbox: {e}"))
+}
+
+/// A legacy outbox has only logical-id keys (UUID-shaped), never `v`.
+fn outbox_is_versioned(bytes: &[u8]) -> bool {
+    serde_json::from_slice::<serde_json::Value>(bytes)
+        .ok()
+        .is_some_and(|value| value.get("v").is_some())
 }
 
 // ---------------------------------------------------------------------------
@@ -510,7 +596,7 @@ fn read_legacy<T: serde::de::DeserializeOwned>(
     path: &Path,
     what: &str,
 ) -> Result<Option<T>, String> {
-    match std::fs::read(path) {
+    match read_state_file(path, MAX_STATE_FILE_BYTES) {
         Ok(b) => serde_json::from_slice(&b)
             .map(Some)
             .map_err(|e| format!("parse legacy {what}: {e}")),
@@ -631,6 +717,7 @@ impl TranscriptSyncProfile {
         ledger_path: &Path,
         versions_path: &Path,
     ) -> Result<Option<MigrationReport>, String> {
+        let _ledger_lock = crate::storage::ledger_file_lock(ledger_path)?;
         if ledger_path.exists() {
             return Ok(None);
         }
@@ -639,7 +726,7 @@ impl TranscriptSyncProfile {
         };
         report.seeded_versions = 0;
         if !seeds.is_empty() {
-            let entries = match std::fs::read(versions_path) {
+            let entries = match read_state_file(versions_path, MAX_STATE_FILE_BYTES) {
                 Ok(bytes) => serde_json::from_slice::<BTreeMap<String, VersionEntry>>(&bytes)
                     .map_err(|error| format!("parse existing cloud sync versions: {error}"))?,
                 Err(error) if error.kind() == io::ErrorKind::NotFound => BTreeMap::new(),

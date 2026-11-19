@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-tauri-shell"
-version = "0.8.3"
+version = "0.8.4"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Shared Tauri desktop shell for Right Suite apps: webview hardening, window state, native menu, tray, single instance, deep links, autostart, rich clipboard, watchdog and engine wiring."
@@ -53,12 +53,14 @@ models = ["host-services", "dep:rightkit-models"]
 # found on macOS). Adds `rightkit-credentials`; `rightkit-fs` also serves restart markers.
 pro-bridge = ["license", "dep:rightkit-credentials"]
 app-lock = ["host-services", "dep:rightkit-credentials", "rightkit-credentials/os-auth"]
+# Authenticated macOS menu-helper & Shortcuts action transport; host supplies identities & actions.
+menubar-helper = []
 
 [dependencies]
 tauri = { version = "2", features = ["tray-icon", "image-png", "image-ico"] }
-rightkit-daemon = { version = "0.9.0", path = "../rightkit-daemon" }
+rightkit-daemon = { version = "0.9.1", path = "../rightkit-daemon" }
 rightkit-job-queue = { version = "0.6.0", path = "../rightkit-job-queue", default-features = false, features = ["supervisor"], optional = true }
-rightkit-child-process = { version = "0.5.0", path = "../rightkit-child-process" }
+rightkit-child-process = { version = "0.5.14", path = "../rightkit-child-process" }
 rightkit-app-settings = { version = "0.4.0", path = "../rightkit-app-settings", default-features = false, optional = true }
 rightkit-logs = { version = "0.4.0", path = "../rightkit-logs", default-features = false, optional = true }
 rightkit-crash = { version = "0.4.0", path = "../rightkit-crash", default-features = false, features = ["window-errors"], optional = true }
@@ -92,12 +94,12 @@ url = { version = "2", optional = true }
 [target.'cfg(target_os = "macos")'.dependencies]
 libc = "0.2"
 objc2 = "0.6"
-objc2-foundation = { version = "0.3", features = ["NSArray", "NSData", "NSString", "NSURL", "NSValue", "NSGeometry", "NSObject", "NSBundle", "NSDictionary", "NSError"] }
+objc2-foundation = { version = "0.3", features = ["NSArray", "NSData", "NSString", "NSURL", "NSValue", "NSGeometry", "NSObject", "NSBundle", "NSDictionary", "NSError", "NSNotification", "NSDistributedNotificationCenter"] }
 block2 = "0.6"
-objc2-app-kit = { version = "0.3", features = ["NSWindow", "NSButton", "NSControl", "NSView", "NSResponder", "NSPasteboard", "NSPasteboardItem"] }
+objc2-app-kit = { version = "0.3", features = ["NSWindow", "NSButton", "NSControl", "NSView", "NSResponder", "NSPasteboard", "NSPasteboardItem", "NSApplication"] }
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Threading"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Threading", "Win32_Graphics_Gdi", "Win32_System_LibraryLoader", "Win32_UI_WindowsAndMessaging"] }
 windows_061 = { package = "windows", version = "0.61", optional = true, features = [
   "Win32_Foundation",
   "Win32_Graphics_Dwm",

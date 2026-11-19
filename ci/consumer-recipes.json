@@ -2304,11 +2304,11 @@
       "pkId": "PK08",
       "id": "ci/consumers/rightkit-tauri-shell/src/main.rs",
       "files": {
-        "Cargo.toml": "588056121321f39fc0bfbda212024f232d6a925ae9e39882aa7c250fd1f00437",
-        "README.md": "7a5d2e549d66201b004dbeca59ee69e394ffcc53125a0cb15493391017498604",
-        "src/main.rs": "890a176b1c12a142de0e54bf1925c54c48470a0190c455678690cbda52860b08"
+        "Cargo.toml": "7331cd583f111ad9d2e6083ac33b0a0d293e4122f1e52b1a3b9df2bc1e0bf0e5",
+        "README.md": "f1985211e1f00c25fef3bd7dea686e2874f8259c75bbaec85db12ee3ef15e639",
+        "src/main.rs": "a02b7ce992d7450271f80f7eb67c9404524b83d28f525e7fb73945cd91718778"
       },
-      "aggregateSha256": "a687c34cdfa1af6e2fc6c2b80b3637fd587bc05f58fccfb5571c69f1b6ecc9f9"
+      "aggregateSha256": "2f90fe53e162091b2b2204c17ad2f83820f854cf774d16dc48d8e66f692e718f"
     },
     "rightkit-oauth": {
       "pkId": "PK06",
@@ -2797,9 +2797,9 @@
       "pkId": "PK42",
       "id": "ci/consumers/rightkit-sync/src/main.rs",
       "files": {
-        "Cargo.toml": "c84552d3a3863193ad18b34829c57a3239181005a4f347c503d88030be9ffa8a",
-        "README.md": "7801ae607025a563de541c80f34115490c8eac84b5f4d04ea623960552c9e8af",
-        "src/main.rs": "1d2d6225afc0811e45fb8a0b3532dc7bfcaee166d6d7390dd723bcbefbf52832"
+        "Cargo.toml": "5c79b46670ca458eca6b03db983502049bd323f19f64e4ed6b826392825d55c9",
+        "README.md": "388a4203225ae95e77a0f3fb9e4d0a30a4281d7525c7ab5ce9c050f832f0d5ac",
+        "src/main.rs": "db3db2ceda4483eae351d826128844fa5c911819d1a724b535b663791f47aca1"
       }
     },
     "rightkit-time": {

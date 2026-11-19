@@ -1,7 +1,7 @@
-# rightkit-tauri-shell 0.8.3 registry consumer (PK08)
+# rightkit-tauri-shell 0.8.4 registry consumer (PK08)
 
-Standalone consumer, outside the workspace, pinning `rightkit-tauri-shell =0.8.3` exactly with
-default features. It exercises, through public API only:
+Standalone consumer, outside the workspace, pinning `rightkit-tauri-shell =0.8.4` exactly with
+default features and `menubar-helper`. It exercises, through public API only:
 
 - navigation scheme rules: `external_scheme_allowed`, `validate_internal_scheme`;
 - caller/window ACL label rules (PK04/PK08): `caller_gate::is_content_label` exact and

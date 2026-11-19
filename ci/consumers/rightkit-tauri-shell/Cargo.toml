@@ -7,4 +7,4 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-tauri-shell = { version = "=0.8.3" }
+rightkit-tauri-shell = { version = "=0.8.4", features = ["menubar-helper"] }

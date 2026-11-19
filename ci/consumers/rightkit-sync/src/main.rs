@@ -1,4 +1,4 @@
-// rightkit-sync 0.3.0 consumed by exact registry pin (default features: helper, process-usage), outside
+// rightkit-sync 0.4.0 consumed by exact registry pin with transcript-host, outside
 // the workspace.
 //
 // Compile-only (Adrian, 2026-11-03: "no dummy data, no fucking made up shit. real data."; "My decision was no
@@ -101,6 +101,7 @@ fn the_public_surface_compiles(helper_program: PathBuf, ledger: PathBuf) -> Resu
 const _: fn(PathBuf, PathBuf) -> Result<(), String> = the_public_surface_compiles;
 
 fn main() {
+    let _ = rightkit_sync::transcript_host::SchedulerPolicy::new(30, 300, 3);
     let profile = TranscriptSyncProfile::default();
     assert!(!profile.logical_cloud_id("consumer-id").is_empty());
     assert_eq!(content_hash("transcript", "raw").len(), 64);

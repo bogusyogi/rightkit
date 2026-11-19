@@ -21,6 +21,11 @@ use crate::traits::{AuthProvider, Backend, ChangePage, RecordOutcome, SavePolicy
 /// failures and the helper gave no guidance (iOS busy hint).
 const FAILED_FETCH_RETRY_SECS: f64 = 30.0;
 
+/// Most entries one array of a helper response may hold (records, deleted names, failed and
+/// undecodable names, save outcomes). A longer array is a malformed response. The response line is
+/// already capped in bytes; this bounds what is copied out of it.
+const MAX_RESPONSE_ENTRIES: usize = 100_000;
+
 struct Shared {
     process: HelperProcess,
     scope: Mutex<Option<String>>,
@@ -164,19 +169,29 @@ pub struct HelperBackend {
     shared: Arc<Shared>,
 }
 
-fn strings(body: &Map<String, Value>, key: &str) -> Vec<String> {
-    body.get(key)
-        .and_then(Value::as_array)
+fn malformed(what: &str) -> SyncError {
+    SyncError::Transient(format!("malformed helper response: {what}"))
+}
+
+/// The array at `key`, `None` when absent or not an array; more than `MAX_RESPONSE_ENTRIES`
+/// entries is an error.
+fn array<'a>(body: &'a Map<String, Value>, key: &str) -> SyncResult<Option<&'a Vec<Value>>> {
+    match body.get(key).and_then(Value::as_array) {
+        Some(entries) if entries.len() > MAX_RESPONSE_ENTRIES => {
+            Err(malformed("array over the entry cap"))
+        }
+        other => Ok(other),
+    }
+}
+
+fn strings(body: &Map<String, Value>, key: &str) -> SyncResult<Vec<String>> {
+    Ok(array(body, key)?
         .map(|a| {
             a.iter()
                 .filter_map(|v| v.as_str().map(str::to_string))
                 .collect()
         })
-        .unwrap_or_default()
-}
-
-fn malformed(what: &str) -> SyncError {
-    SyncError::Transient(format!("malformed helper response: {what}"))
+        .unwrap_or_default())
 }
 
 impl HelperBackend {
@@ -213,7 +228,7 @@ impl Backend for HelperBackend {
         // H13: a per-record fetch failure inside an otherwise good page must
         // fail the page, or the cursor would advance past a record the feed
         // never lists again.
-        let failed = strings(&body, "failed_records");
+        let failed = strings(&body, "failed_records")?;
         if !failed.is_empty() {
             let secs = body
                 .get("failed_retry_after_secs")
@@ -225,18 +240,14 @@ impl Backend for HelperBackend {
                 detail: format!("{} record(s) failed to fetch", failed.len()),
             });
         }
-        let undecodable = strings(&body, "undecodable_records");
+        let undecodable = strings(&body, "undecodable_records")?;
         if !undecodable.is_empty() {
             self.shared
                 .observer
                 .event("records_undecodable", &undecodable.join(","));
         }
         let mut records = Vec::new();
-        for v in body
-            .get("records")
-            .and_then(Value::as_array)
-            .ok_or_else(|| malformed("records"))?
-        {
+        for v in array(&body, "records")?.ok_or_else(|| malformed("records"))? {
             let wire: WireRecord =
                 serde_json::from_value(v.clone()).map_err(|e| malformed(&e.to_string()))?;
             records.push(wire.into_raw().map_err(|e| malformed(&e))?);
@@ -247,7 +258,7 @@ impl Backend for HelperBackend {
         };
         Ok(ChangePage {
             records,
-            deleted_record_names: strings(&body, "deleted"),
+            deleted_record_names: strings(&body, "deleted")?,
             new_token,
             more_coming: body
                 .get("more_coming")
@@ -280,10 +291,7 @@ impl Backend for HelperBackend {
         let wire: Vec<WireRecord> = records.iter().map(WireRecord::from).collect();
         let body =
             self.call_scoped("save_records", json!({ "policy": policy, "records": wire }))?;
-        let outcomes = body
-            .get("outcomes")
-            .and_then(Value::as_array)
-            .ok_or_else(|| malformed("outcomes"))?;
+        let outcomes = array(&body, "outcomes")?.ok_or_else(|| malformed("outcomes"))?;
         let mut out = Vec::with_capacity(outcomes.len());
         for o in outcomes {
             let name = o
