@@ -18,8 +18,13 @@
 //!   fullscreen verdict `fullscreen_mac`; the Windows verdict is
 //!   `rightkit_overlay::windows::foreground_fullscreen_on`), the generation-stamped event queue
 //!   (`dispatch_queue`), the capsule hitbox and frame store (`frame`) and the generic bounds and
-//!   validation helpers for a native pill view's C ABI (`bridge`: text cut and log filters, name
-//!   and id alphabets, integer-code tables; no wire encoding and no splash logic)
+//!   validation helpers for a native pill view's C ABI (`bridge`: bounded C-string reads, the
+//!   callback panic guard, text cut and log filters, name and id alphabets, integer-code tables;
+//!   no wire encoding), the splash hand-off latch (`splash_handoff`: the state machine only, the
+//!   host supplies its backstop duration and engine-ready check), the single-flight
+//!   reveal-after-splash retry thread (`reveal_retry`), the one-guardian slot
+//!   (`guardian_worker::GuardianSlot`) and, on Windows, restart-on-dictation-start
+//!   (`supervisor`) and the title-based no-activate sweep (`noactivate`)
 //!
 //! What the host supplies, always: the look ([`look::Painters`], required, no default), the
 //! interaction regions each painter returns, [`config::HostInputs`] (status words, timings,
@@ -29,20 +34,20 @@
 //! and [`guardian::EdgeTolerance`] and [`config::Callbacks`]: none of them has a `Default`, so
 //! nothing a product would choose is chosen here. Whether a pill shows at all (a splash in front,
 //! onboarding, a full-screen application, the "always show the resting pill" setting), which tips
-//! exist and when they are offered, what a dictation target counts as, how a splash hand-off is
-//! timed and which numbers a native view's wire event uses are the host's policy and live in the
-//! host. The crate has no palette, no layout size, no label, no easing curve, no timing, no
+//! exist and when they are offered, what a dictation target counts as, the splash hand-off's
+//! backstop duration and which numbers a native view's wire event uses are the host's policy and
+//! live in the host. The crate has no palette, no layout size, no label, no easing curve, no timing, no
 //! tolerance, no persisted key, no file name and no tip logic of its own.
 //!
 //! Usage: build a [`config::Config`] from your `Painters`, `HostInputs` and `Callbacks`, call
 //! [`config::install`] once (it validates every host number, string and list), then
-//! `ensure_installed` on Windows (the only call that starts the driver, and the only one besides
+//! `ensure_installed` (the only call that starts the driver, and the only one besides
 //! `shutdown` that blocks; it answers an `Install`, and `RetirementPending` means a thread of an
 //! earlier generation (owner, window, forwarder or worker) is still running: nothing was created,
 //! retry later),
 //! then feed events with `apply_event` and `voice_level`.
-//! `shutdown` destroys the overlays. Until `install` has run, every driver call does nothing;
-//! after `install`, a call made while no generation is running is dropped and reported once.
+//! `shutdown` destroys the overlays. Until `install` has run, every driver call does nothing.
+//! After `install`, a call made while no generation is running is dropped and reported once.
 //!
 //! `PillEvent` is `rightkit_dictation_core::pill::PillEvent` (wire form pinned there).
 //!
@@ -78,6 +83,8 @@ pub(crate) mod pending;
 pub mod pill;
 pub mod regions;
 pub(crate) mod retire;
+pub mod reveal_retry;
+pub mod splash_handoff;
 pub mod text;
 pub mod visibility;
 
@@ -87,6 +94,10 @@ mod driver;
 mod gfx;
 #[cfg(target_os = "windows")]
 mod guardian_win;
+#[cfg(target_os = "windows")]
+pub mod noactivate;
+#[cfg(target_os = "windows")]
+pub mod supervisor;
 
 #[cfg(target_os = "macos")]
 pub mod fullscreen_mac;
@@ -99,7 +110,7 @@ pub use config::{
     Limits, PayloadPolicy, PayloadSide, PlacementPolicy, StatusLabels, Timings,
 };
 pub use guardian::{EdgeTolerance, GuardianTimings};
-pub use guardian_worker::{GuardianHandle, GuardianNames, GuardianStartError};
+pub use guardian_worker::{GuardianHandle, GuardianNames, GuardianSlot, GuardianStartError};
 pub use look::{
     AuxFrame, ClipView, HintView, Metrics, Motion, Painters, Pass, PillFrame, PillScene,
     PrevContent,
@@ -108,7 +119,9 @@ pub use regions::{
     cursor_at, Action, ActionTag, Activation, Cursor, HotSet, HoverRole, Region, RegionId, Shape,
     Surface,
 };
+pub use reveal_retry::RevealRetry;
 pub use rightkit_dictation_core::pill::PillEvent;
+pub use splash_handoff::{HandoffAction, HandoffState, SplashHandoff};
 pub use visibility::Visibility;
 
 #[cfg(target_os = "windows")]
@@ -120,3 +133,5 @@ pub use driver::{
 };
 #[cfg(target_os = "windows")]
 pub(crate) use driver::{Cmd, CmdTx, Shared, Surf};
+#[cfg(target_os = "windows")]
+pub use supervisor::{apply_event_supervised, ensure_installed_supervised, shutdown_supervised};

@@ -2,6 +2,8 @@
 
 ## 0.1.0 (unreleased)
 
+- Add native bridge C-string bounds, callback panic guard & host-configured splash handoff/reveal retry.
+- Add guardian start/stop slot, Windows restart supervision & host-title no-activate sweep; retain existing guardian panic containment & bounded drains.
 - Add Windows pill, hint & clipboard overlay controllers with host-supplied painters, labels, geometry, motion & policy.
 - Add generation-scoped startup, cancellation, retained-thread retirement & bounded command queues.
 - Add completion tokens & deadlines for clipboard & host actions.

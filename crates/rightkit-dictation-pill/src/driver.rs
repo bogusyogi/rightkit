@@ -334,6 +334,12 @@ fn wait_last_owner(bound: Duration) -> bool {
 /// shared with the wait for the previous owner); when it runs out nothing is created and the
 /// answer is [`Install::RetirementPending`], so a retry never accumulates threads or windows.
 pub fn ensure_installed() -> Install {
+    ensure_installed_if(|| true)
+}
+
+/// Evaluate admission under LIFE before every begin, including after a concurrent start settles.
+/// The predicate must be nonblocking, callback-free, and must not take a supervisor lock.
+pub(crate) fn ensure_installed_if(admit: impl Fn() -> bool) -> Install {
     if on_owner_thread() {
         config::report(
             "call_refused",
@@ -341,7 +347,7 @@ pub fn ensure_installed() -> Install {
         );
         return Install::Failed;
     }
-    match explicit_controller() {
+    match explicit_controller(admit) {
         Ok(_) => Install::Running,
         Err(refusal) => refusal,
     }
@@ -427,7 +433,7 @@ fn wait_until_settled(bound: Duration) -> bool {
 
 /// The running controller for an explicit `ensure_installed`: starts one when allowed and waits
 /// (bounded) for another caller's start.
-fn explicit_controller() -> Result<Arc<Controller>, Install> {
+fn explicit_controller(admit: impl Fn() -> bool) -> Result<Arc<Controller>, Install> {
     // No look, no pill: nothing starts before `config::install`.
     let Some(config) = config::try_get() else {
         return Err(Install::Failed);
@@ -437,7 +443,13 @@ fn explicit_controller() -> Result<Arc<Controller>, Install> {
         .saturating_add(Duration::from_millis(1500));
     let deadline = after_duration(Instant::now(), wait_bound);
     loop {
-        let decision = lock(&LIFE).begin(true);
+        let decision = {
+            let mut life = lock(&LIFE);
+            if !admit() {
+                return Err(Install::Failed);
+            }
+            life.begin(true)
+        };
         match decision {
             Begin::Run(controller) => return Ok(controller),
             Begin::Refuse => return Err(Install::Failed),
@@ -465,24 +477,52 @@ fn explicit_controller() -> Result<Arc<Controller>, Install> {
 /// full drops it and reports once per burst (`reason=queue_full`); an owner that ended reports
 /// `reason=owner_gone`. A caller that must not act as if the command ran checks the answer.
 fn send(cmd: Cmd) -> bool {
-    match running() {
-        Some(controller) => match controller.tx.push(cmd) {
-            Push::Queued => true,
-            Push::Dropped { first_of_burst } => {
-                if first_of_burst {
-                    config::report("call_dropped", "reason=queue_full");
-                }
+    send_deferred(cmd).report()
+}
+
+/// Queue outcome whose diagnostics must be emitted after the caller releases its own locks.
+pub(crate) enum Dispatch {
+    Accepted,
+    SilentDrop,
+    QueueFull,
+    NotRunning,
+    OwnerGone,
+}
+
+impl Dispatch {
+    pub(crate) fn report(self) -> bool {
+        match self {
+            Self::Accepted => true,
+            Self::SilentDrop => false,
+            Self::QueueFull => {
+                config::report("call_dropped", "reason=queue_full");
                 false
             }
-            Push::Closed => {
+            Self::NotRunning => {
+                report_dropped("not_running");
+                false
+            }
+            Self::OwnerGone => {
                 report_dropped("owner_gone");
                 false
             }
-        },
-        None => {
-            report_dropped("not_running");
-            false
         }
+    }
+}
+
+fn send_deferred(cmd: Cmd) -> Dispatch {
+    match running() {
+        Some(controller) => match controller.tx.push(cmd) {
+            Push::Queued => Dispatch::Accepted,
+            Push::Dropped {
+                first_of_burst: true,
+            } => Dispatch::QueueFull,
+            Push::Dropped {
+                first_of_burst: false,
+            } => Dispatch::SilentDrop,
+            Push::Closed => Dispatch::OwnerGone,
+        },
+        None => Dispatch::NotRunning,
     }
 }
 
@@ -686,21 +726,33 @@ pub fn voice_level(level: f32) {
 /// `Limits::max_label_bytes` on the caller's thread, so the queue never carries an unbounded
 /// string. Dropped (and reported once) when no generation is running.
 pub fn apply_event(event: &PillEvent, vis: Visibility) {
-    if let PillEvent::Voice { level } = event {
-        voice_level(*level);
-        return;
-    }
-    let Some(config) = config::try_get() else {
-        return;
-    };
-    let max = config.limits.max_label_bytes;
+    apply_event_deferred(event, vis).report();
+}
+
+/// Bound labels before retaining an event in either the driver or supervisor queue.
+pub(crate) fn bounded_event(event: &PillEvent) -> PillEvent {
+    let max = config::try_get().map_or(0, |config| config.limits.max_label_bytes);
     let cut = |label: &str| crate::text::cut_bytes(label, max).to_string();
-    let event = match event {
+    match event {
         PillEvent::Status { label } => PillEvent::Status { label: cut(label) },
         PillEvent::Error { label } => PillEvent::Error { label: cut(label) },
         other => other.clone(),
-    };
-    send(Cmd::Apply { event, vis });
+    }
+}
+
+/// Nonblocking and callback-free: callers may serialize enqueue with their own short state lock.
+pub(crate) fn apply_event_deferred(event: &PillEvent, vis: Visibility) -> Dispatch {
+    if let PillEvent::Voice { level } = event {
+        voice_level(*level);
+        return Dispatch::Accepted;
+    }
+    if config::try_get().is_none() {
+        return Dispatch::SilentDrop;
+    }
+    send_deferred(Cmd::Apply {
+        event: bounded_event(event),
+        vis,
+    })
 }
 
 pub fn set_visibility(vis: Visibility) {

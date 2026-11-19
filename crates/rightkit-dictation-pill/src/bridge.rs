@@ -1,10 +1,11 @@
 //! Bounds and validation for what a native pill view (a framework panel linked into the same
 //! process, reached through a C ABI the host declares) hands back. Platform-free: the host owns
-//! the `extern "C"` symbols, their names, the wire encoding of its events (which numbers mean
-//! which event, how a state it does not draw is shown) and the unsafe pointer handling; this
-//! module owns the generic checks that are easy to get subtly wrong: cutting text at a character
-//! boundary, a log-safe filter, a name and an id alphabet, and mapping an integer code to a fixed
-//! table.
+//! the `extern "C"` symbols, their names, the callback table's layout and the wire encoding of its
+//! events (which numbers mean which event, how a state it does not draw is shown); this module
+//! owns the generic mechanism that is easy to get subtly wrong: bounded reads of a C string
+//! ([`string_from_c`], [`prefix_from_c`]), building one for the view ([`c_string`]), the panic
+//! guard for a callback ([`guarded`]), cutting text at a character boundary, a log-safe filter, a
+//! name and an id alphabet, and mapping an integer code to a fixed table.
 //!
 //! # Who may cause an action
 //!
@@ -23,6 +24,104 @@
 //! becomes a route, a path or a command), and the action itself stays the host's own call. A
 //! sender that must be authenticated *across* processes needs the host's signed-helper check,
 //! which this module does not provide and the host must not route through it.
+
+use std::ffi::{c_char, CString};
+use std::panic::{catch_unwind, AssertUnwindSafe};
+
+/// A label for a native view: at most `max_bytes` bytes, cut at a character boundary, a NUL replaced
+/// by U+FFFD (a C string cannot carry it, and the surrounding text stays readable). Unlike
+/// [`bounded_text`] the NUL is replaced, not dropped, and the replacement counts against the
+/// bound. Reads no more than the bytes it keeps, so an unbounded label costs no more than a short
+/// one.
+pub fn bounded_label(raw: &str, max_bytes: usize) -> String {
+    let mut out = String::with_capacity(raw.len().min(max_bytes));
+    for ch in raw.chars() {
+        let ch = if ch == '\0' { '\u{FFFD}' } else { ch };
+        if out.len() + ch.len_utf8() > max_bytes {
+            break;
+        }
+        out.push(ch);
+    }
+    out
+}
+
+/// A C string for a native view. A NUL cannot be represented, so it becomes U+FFFD (the
+/// surrounding text stays readable); the conversion never panics.
+pub fn c_string(value: &str) -> CString {
+    CString::new(value).unwrap_or_else(|_| {
+        CString::new(
+            value
+                .chars()
+                .map(|ch| if ch == '\0' { '\u{FFFD}' } else { ch })
+                .collect::<String>(),
+        )
+        .unwrap_or_default()
+    })
+}
+
+/// Copy a NUL-terminated string a native view passed, at most `max_bytes` bytes long. `None` when it
+/// is longer: nothing past `max_bytes + 1` bytes is ever read, so a huge string or a missing
+/// terminator can neither make this scan nor allocate without limit, and the size check happens
+/// before the copy. A null pointer is the empty string. Invalid UTF-8 becomes U+FFFD.
+///
+/// # Safety
+/// `value` is null or points at a NUL-terminated string that stays valid for the whole call (what
+/// a native view guarantees for the duration of a callback).
+pub unsafe fn string_from_c(value: *const c_char, max_bytes: usize) -> Option<String> {
+    if value.is_null() {
+        return Some(String::new());
+    }
+    let mut len = 0usize;
+    while len <= max_bytes {
+        // SAFETY: the string is NUL-terminated, and the scan stops at the terminator or after
+        // `max_bytes + 1` bytes, which exist whenever the string is longer than `max_bytes`.
+        if unsafe { *value.add(len) } == 0 {
+            break;
+        }
+        len += 1;
+    }
+    if len > max_bytes {
+        return None;
+    }
+    // SAFETY: `len` bytes before the terminator were just read.
+    let bytes = unsafe { std::slice::from_raw_parts(value.cast::<u8>(), len) };
+    Some(String::from_utf8_lossy(bytes).into_owned())
+}
+
+/// As [`string_from_c`], but a longer string is cut at `max_bytes` instead of refused (for text
+/// that is only logged).
+///
+/// # Safety
+/// Same as [`string_from_c`].
+pub unsafe fn prefix_from_c(value: *const c_char, max_bytes: usize) -> String {
+    if value.is_null() {
+        return String::new();
+    }
+    let mut len = 0usize;
+    while len < max_bytes {
+        // SAFETY: as in `string_from_c`; the scan never passes the terminator or `max_bytes`.
+        if unsafe { *value.add(len) } == 0 {
+            break;
+        }
+        len += 1;
+    }
+    // SAFETY: `len` bytes before the terminator (or the bound) were just read.
+    let bytes = unsafe { std::slice::from_raw_parts(value.cast::<u8>(), len) };
+    String::from_utf8_lossy(bytes).into_owned()
+}
+
+/// Run a native-view callback body and return `default` if it panics: a panic must not unwind
+/// across the C boundary. `on_panic` is the host's report (a fixed tag, never the panic's text); it
+/// runs under its own `catch_unwind`, so a panic in it cannot cross the boundary either.
+pub fn guarded<R>(default: R, on_panic: impl FnOnce(), body: impl FnOnce() -> R) -> R {
+    match catch_unwind(AssertUnwindSafe(body)) {
+        Ok(value) => value,
+        Err(_) => {
+            let _ = catch_unwind(AssertUnwindSafe(on_panic));
+            default
+        }
+    }
+}
 
 /// Truncate `raw` to at most `max_bytes` bytes without splitting a character, and drop NUL
 /// characters (a C string cannot carry them). This is for text that is shown (a capsule label);

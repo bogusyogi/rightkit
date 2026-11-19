@@ -162,6 +162,63 @@ impl Drop for GuardianHandle {
     }
 }
 
+/// The one guardian a host runs, kept where start and stop can both reach it. Keep it in a
+/// `static`. [`GuardianSlot::start_once`] starts a guardian unless one is already held;
+/// [`GuardianSlot::stop`] takes it out and waits (bounded) for the worker, after which a new one
+/// can be started. The slot holds its lock for the whole of a start, so two racing starts make one
+/// guardian.
+pub struct GuardianSlot {
+    handle: Mutex<Option<GuardianHandle>>,
+}
+
+impl Default for GuardianSlot {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl GuardianSlot {
+    pub const fn new() -> GuardianSlot {
+        GuardianSlot {
+            handle: Mutex::new(None),
+        }
+    }
+
+    /// Whether a guardian is held.
+    pub fn is_running(&self) -> bool {
+        self.handle
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .is_some()
+    }
+
+    /// [`start`], unless a guardian is already held. `Ok(true)` when this call started one,
+    /// `Ok(false)` when one already ran. The error says why none runs; the host reports it.
+    pub fn start_once(
+        &self,
+        names: GuardianNames,
+        timings: GuardianTimings,
+        ready: impl Fn() -> bool + Send + 'static,
+        apply: impl Fn(Due) + Send + 'static,
+        log: fn(&str, &str),
+    ) -> Result<bool, GuardianStartError> {
+        let mut slot = self.handle.lock().unwrap_or_else(|e| e.into_inner());
+        if slot.is_some() {
+            return Ok(false);
+        }
+        *slot = Some(start(names, timings, ready, apply, log)?);
+        Ok(true)
+    }
+
+    /// Take the guardian out and [`GuardianHandle::stop`] it, waiting at most `timeout`. `None`
+    /// when none was held; otherwise whether the worker finished in time (when it did not, it
+    /// still exits once the host's `apply` returns). The lock is not held while waiting.
+    pub fn stop(&self, timeout: Duration) -> Option<bool> {
+        let handle = self.handle.lock().unwrap_or_else(|e| e.into_inner()).take();
+        handle.map(|handle| handle.stop(timeout))
+    }
+}
+
 /// Start the worker. `ready` says whether the host can run a batch yet; `apply` runs one coalesced
 /// batch on the worker thread; `log` is the host event sink (`(event, detail)`, the detail made
 /// only of crate-controlled values). Errors say why no guardian runs; the host reports them.
