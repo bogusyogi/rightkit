@@ -49,7 +49,7 @@
 //! host is never told to stop something it was never told to start. And it never runs ahead of its
 //! tap: `on_tap` calls of one chord run one at a time (`Slot::tap_run`), and a release that arrives
 //! while `on_tap` is still executing is run by that same start job right after `on_tap` returns
-//! ([`request_release`]); otherwise it runs on an end job. An end job still counts against
+//! (`request_release`); otherwise it runs on an end job. An end job still counts against
 //! [`MAX_END_JOBS`], a release run by a start job against [`MAX_START_JOBS`] (it is part of that
 //! job). A hung `on_tap` therefore also holds back later starts of the same chord and the release of
 //! the one that is hung. `register` and `unregister`
@@ -769,7 +769,7 @@ pub fn register(bindings: Vec<Binding>, host: ChordHost) -> Result<(), String> {
 }
 
 /// End every registration made by [`register`]: no chord starts anything afterwards, a chord held
-/// at this moment is released once (see [`flush_held`]), and the OS registrations are dropped. On
+/// at this moment is released once (see `flush_held`), and the OS registrations are dropped. On
 /// macOS they are released on the main thread, where they were made; the error is the scheduling
 /// error text, for the host to word. Does not wait for host callbacks that are already running.
 pub fn unregister(run_on_main: &RunOnMain) -> Result<(), String> {
