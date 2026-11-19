@@ -341,7 +341,7 @@
         [
           "--no-default-features",
           "--features",
-          "wv2-0_39,host-services,license,update,update-license,pro-bridge"
+          "wv2-0_39,host-services,license,update,update-license,pro-bridge,menubar-helper"
         ],
         [
           "--no-default-features",

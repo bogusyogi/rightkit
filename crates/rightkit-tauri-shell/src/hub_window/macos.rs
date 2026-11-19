@@ -11,9 +11,9 @@
 
 use tauri::{AppHandle, Manager, Runtime, WebviewWindow};
 
-use super::{EventSink, RevealSource};
 #[cfg(target_os = "macos")]
 use super::{reveal_mode, RevealMode};
+use super::{EventSink, RevealSource};
 
 /// What [`configure_titlebar`] applies to the window's native title bar. All fields are the host's;
 /// there is no `Default`.
@@ -53,7 +53,10 @@ fn order_front_on_main<R: Runtime>(
         return;
     }
     let Some(mtm) = MainThreadMarker::new() else {
-        sink(&format!("{prefix}_appkit_order_skipped"), "not on main thread");
+        sink(
+            &format!("{prefix}_appkit_order_skipped"),
+            "not on main thread",
+        );
         return;
     };
     let app = NSApplication::sharedApplication(mtm);
@@ -131,7 +134,10 @@ pub fn focus_on_main<R: Runtime>(
         }
         order_front_on_main(&win, source, &prefix, sink);
         if let Err(err) = win.set_focus() {
-            sink(&format!("{prefix}_main_thread_focus_error"), &err.to_string());
+            sink(
+                &format!("{prefix}_main_thread_focus_error"),
+                &err.to_string(),
+            );
         }
     });
 }
@@ -157,7 +163,10 @@ fn configure_titlebar_on_main<R: Runtime>(
     use objc2_app_kit::{NSWindow, NSWindowStyleMask, NSWindowTitleVisibility};
 
     let Ok(ptr) = win.ns_window() else {
-        sink(&format!("{prefix}_titlebar_config_error"), "missing ns_window");
+        sink(
+            &format!("{prefix}_titlebar_config_error"),
+            "missing ns_window",
+        );
         return;
     };
     if ptr.is_null() {
@@ -198,10 +207,7 @@ fn configure_titlebar_on_main<R: Runtime>(
         applied.push("transparent_titlebar");
     }
     ns_window.setMovableByWindowBackground(policy.movable_by_background);
-    sink(
-        &format!("{prefix}_titlebar_configured"),
-        &applied.join(" "),
-    );
+    sink(&format!("{prefix}_titlebar_configured"), &applied.join(" "));
 }
 
 /// Apply `policy` to the window's native title bar, on the main thread. `source` is the guard source

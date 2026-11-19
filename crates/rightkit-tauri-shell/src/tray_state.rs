@@ -131,7 +131,10 @@ impl IconSet {
         match read_checked(&path) {
             Ok(bytes) => Some(bytes),
             Err(err) => {
-                sink("tray_icon_load_failed", &format!("{}: {err}", path.display()));
+                sink(
+                    "tray_icon_load_failed",
+                    &format!("{}: {err}", path.display()),
+                );
                 None
             }
         }
@@ -151,14 +154,20 @@ impl IconSet {
         let bytes = match read_checked(&path) {
             Ok(bytes) => bytes,
             Err(err) => {
-                sink("tray_icon_load_failed", &format!("{}: {err}", path.display()));
+                sink(
+                    "tray_icon_load_failed",
+                    &format!("{}: {err}", path.display()),
+                );
                 return None;
             }
         };
         match Image::from_bytes(&bytes) {
             Ok(img) => Some(img),
             Err(err) => {
-                sink("tray_icon_load_failed", &format!("{}: {err}", path.display()));
+                sink(
+                    "tray_icon_load_failed",
+                    &format!("{}: {err}", path.display()),
+                );
                 None
             }
         }
@@ -323,7 +332,13 @@ impl TrayAlert {
 
     /// Set the state. A change is reported as `<event>` (`blocked=<bool>`) and applied to the tray
     /// tooltip; setting the state it already has does nothing.
-    pub fn set<R: Runtime>(&self, app: &AppHandle<R>, tray_id: &str, active: bool, sink: EventSink) {
+    pub fn set<R: Runtime>(
+        &self,
+        app: &AppHandle<R>,
+        tray_id: &str,
+        active: bool,
+        sink: EventSink,
+    ) {
         if self.active.swap(active, Ordering::SeqCst) == active {
             return;
         }

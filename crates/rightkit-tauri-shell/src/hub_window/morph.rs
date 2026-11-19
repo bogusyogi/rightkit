@@ -306,7 +306,9 @@ mod native {
                 return Err("morph shell class name must be 1..=256 characters, no NUL".into());
             }
             if self.window_name.contains('\0') || self.window_name.encode_utf16().count() > 256 {
-                return Err("morph shell window name must be at most 256 characters, no NUL".into());
+                return Err(
+                    "morph shell window name must be at most 256 characters, no NUL".into(),
+                );
             }
             if self.fill_colorref > 0x00FF_FFFF {
                 return Err("morph shell fill is not a COLORREF".into());
@@ -326,7 +328,10 @@ mod native {
 
     fn ensure_class(style: &ShellStyle) -> Result<(), String> {
         let mut registered = REGISTERED.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some((_, result)) = registered.iter().find(|(name, _)| *name == style.class_name) {
+        if let Some((_, result)) = registered
+            .iter()
+            .find(|(name, _)| *name == style.class_name)
+        {
             return result.clone();
         }
         if registered.len() >= MAX_SHELL_CLASSES {
@@ -380,8 +385,7 @@ mod native {
         unsafe {
             // The region is owned by Windows after SetWindowRgn succeeds.
             let corner = frame.corner_radius(style.max_corner_px);
-            let region =
-                CreateRoundRectRgn(0, 0, frame.width(), frame.height(), corner, corner);
+            let region = CreateRoundRectRgn(0, 0, frame.width(), frame.height(), corner, corner);
             if !region.is_null() {
                 let _ = SetWindowRgn(shell as HWND, region, 1);
             }
@@ -470,7 +474,10 @@ mod native {
         let shell = create(style, anchor.frame, anchor.hwnd)?;
 
         // Position the hidden, warm window before the hand-over.
-        let _ = win.set_position(tauri::PhysicalPosition::new(destination.x(), destination.y()));
+        let _ = win.set_position(tauri::PhysicalPosition::new(
+            destination.x(),
+            destination.y(),
+        ));
         let _ = win.set_size(tauri::PhysicalSize::new(
             destination.width() as u32,
             destination.height() as u32,
@@ -490,8 +497,14 @@ mod native {
                 if let Some(win) = completion_app.get_webview_window(&label) {
                     // The policy is asked again at the moment of the show: it may have changed
                     // since the morph began.
-                    let applied =
-                        crate::hub_window::show_and_focus(&completion_app, &win, source, "morph", "morph", sink);
+                    let applied = crate::hub_window::show_and_focus(
+                        &completion_app,
+                        &win,
+                        source,
+                        "morph",
+                        "morph",
+                        sink,
+                    );
                     if applied != RevealMode::Forbidden {
                         on_shown(&win);
                     }

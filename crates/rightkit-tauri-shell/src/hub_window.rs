@@ -263,7 +263,12 @@ const SURFACE_SIZE_TOLERANCE_PX: f64 = 2.0;
 /// geometry only; it never shows a window. Events, each with `surface=<name>` in the detail:
 /// `{prefix}_resizable_error`, `{prefix}_maximizable_error`, `{prefix}_resize_error` (also with
 /// `error=..`) and `{prefix}_resized` (`w=.. h=..`).
-pub fn apply_surface_size<R: Runtime>(win: &WebviewWindow<R>, shape: SurfaceSize<'_>, prefix: &str, sink: EventSink) {
+pub fn apply_surface_size<R: Runtime>(
+    win: &WebviewWindow<R>,
+    shape: SurfaceSize<'_>,
+    prefix: &str,
+    sink: EventSink,
+) {
     let name = shape.name;
     if !size_ok(shape.size) {
         sink(
@@ -281,7 +286,10 @@ pub fn apply_surface_size<R: Runtime>(win: &WebviewWindow<R>, shape: SurfaceSize
     if let Err(err) = win.set_maximizable(shape.maximizable) {
         sink(
             &format!("{prefix}_maximizable_error"),
-            &format!("surface={name} maximizable={} error={err}", shape.maximizable),
+            &format!(
+                "surface={name} maximizable={} error={err}",
+                shape.maximizable
+            ),
         );
     }
     let (w, h) = shape.size;
@@ -533,7 +541,10 @@ pub fn build_window<R: Runtime>(
         if mode == RevealMode::Forbidden {
             sink(
                 "window_build_reveal_suppressed",
-                &format!("label={} mode=Forbidden source={:?}", spec.label, spec.reveal_source),
+                &format!(
+                    "label={} mode=Forbidden source={:?}",
+                    spec.label, spec.reveal_source
+                ),
             );
         } else if let Err(err) =
             crate::windows::show_window(wry_app, &win, spec.reveal_source, RevealStyle::ShowOnly)
