@@ -21,8 +21,8 @@
 //!   crate creates enabled, or a setting changed while a lookup was in flight, cannot run a start the
 //!   holder disabled); callbacks that END something (stop, send, cancel) are never gated;
 //! - the fn tap's `diag` callback runs INSIDE the crate's tap callback ("must return quickly"); the
-//!   holder gives it a bounded lane of fixed-size lines (copied, truncated to [`DIAG_EVENT_BYTES`] and
-//!   [`DIAG_MESSAGE_BYTES`]) and a `rk-fn-tap-diag` thread that calls the host's sink, so a slow sink
+//!   holder gives it a bounded lane of fixed-size lines (copied, truncated to `DIAG_EVENT_BYTES` and
+//!   `DIAG_MESSAGE_BYTES`) and a `rk-fn-tap-diag` thread that calls the host's sink, so a slow sink
 //!   cannot stall the tap and the holder's callback allocates no `String` (lines past the lane's
 //!   depth are dropped; what the channel itself may allocate, and the crate's own formatting before
 //!   it calls `diag`, are described at `make_diag_lane`);

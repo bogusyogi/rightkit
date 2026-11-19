@@ -26,7 +26,7 @@
 //!   setters (`set_ptt_enabled(false)`, `set_ptt_key`, `set_recording_active(false)`,
 //!   `set_onboarding_test_active`) reset the gesture from the host's thread. The arm timer only POSTS
 //!   a message to the hook thread (`WM_APP + 0x41`); the thread then runs
-//!   [`KeyboardState::on_arm_elapsed`] between key events. The timer thread never starts a recording.
+//!   `KeyboardState::on_arm_elapsed` between key events. The timer thread never starts a recording.
 //! - Begin and end are paired for the host: a `PttEvent::Start` that was queued is followed by exactly
 //!   one of `Stop`, `Send` or `Cancel` (`KeyboardState::ptt_open`, taken with one `swap`, so a hook
 //!   thread and a host thread cannot both end it), and the end uses the lane's reserve so it is
@@ -74,7 +74,7 @@ pub enum HookCommand {
 }
 
 /// A telemetry event queued from the hook procedure: plain data, formatted into text by
-/// [`HookTelemetryEvent::message`] on the drain thread.
+/// `HookTelemetryEvent::message` on the drain thread.
 pub struct HookTelemetryEvent {
     pub(crate) event: &'static str,
     pub(crate) body: TelemetryBody,
@@ -541,7 +541,7 @@ impl KeyboardState {
     ///
     /// The gesture must not be changed from this thread: the key-up the hook thread is deciding at
     /// this very moment would be judged against a recording that has not started yet. So the timer
-    /// only POSTS a message to the hook thread, which runs [`KeyboardState::on_arm_elapsed`] between
+    /// only POSTS a message to the hook thread, which runs `KeyboardState::on_arm_elapsed` between
     /// key events. It never starts the recording itself, and without a known hook thread it posts
     /// nothing.
     ///
@@ -758,7 +758,7 @@ impl KeyboardState {
 
     /// Queue a telemetry event whose text the CALLER built. Kept for hosts; the text was built on
     /// the calling thread, so do not call it from a hook procedure. The hook's own events use
-    /// [`Self::push_telemetry`] and are formatted on the drain thread.
+    /// `Self::push_telemetry` and are formatted on the drain thread.
     pub fn enqueue_hook_telemetry(&self, event: &'static str, message: String) {
         self.push_telemetry(event, TelemetryBody::Owned(message));
     }

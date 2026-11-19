@@ -17,7 +17,7 @@
 //!
 //! A click the hook holds ends in exactly ONE of three outcomes, on every path that reaches the
 //! worker (a panic is settled by `PendingClick::drop`, reported as `settle_failed` if settling itself
-//! panics); the decision table and the exact effect sequence are the pure [`crate::held_click`]
+//! panics); the decision table and the exact effect sequence are the pure `held_click`
 //! module:
 //!
 //! 1. DELIVERED: replayed at the ORIGINAL press point as ONE `SendInput` batch (absolute move to the
@@ -86,11 +86,11 @@
 //!
 //! # Lifecycle (HANDOFF.md, "Lifecycle")
 //!
-//! One [`MiddleClickState::start_worker`] begins one generation (`lifecycle::Liveness`): the queue
+//! One `MiddleClickState::start_worker` begins one generation (`lifecycle::Liveness`): the queue
 //! worker, the toggle lane thread, the report thread and every resolver it starts belong to it.
-//! [`MiddleClickState::quiesce`] (first step of `InputHooks`' teardown) stops the hook from holding
-//! new presses; [`MiddleClickState::stop_worker`] ends the generation and closes the queue; both are
-//! non-blocking, and nothing is joined. [`MiddleClickState::on_hook_removed`] drops the owed
+//! `MiddleClickState::quiesce` (first step of `InputHooks`' teardown) stops the hook from holding
+//! new presses; `MiddleClickState::stop_worker` ends the generation and closes the queue; both are
+//! non-blocking, and nothing is joined. `MiddleClickState::on_hook_removed` drops the owed
 //! button-up once the hook thread is gone.
 //! - Held clicks still queued, or in flight, are settled without resolving: replayed if the target
 //!   still verifies, otherwise dropped and reported. A settle that is blocked inside `SendInput`,
@@ -242,7 +242,7 @@ static POINTER_EFFECTS: Mutex<()> = Mutex::new(());
 /// The shared `IDC_HAND` cursor handle, loaded off the hook thread when a worker starts.
 static HAND_CURSOR: OnceLock<usize> = OnceLock::new();
 
-/// Why [`MiddleClickState::start_worker`] did not start.
+/// Why `MiddleClickState::start_worker` did not start.
 #[derive(Debug)]
 pub(crate) enum StartError {
     /// A worker of this state is still live (one install per state object).
