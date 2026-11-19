@@ -65,7 +65,7 @@ Capabilities: 224 (58 with fingerprints, 166 declaration-only). Internal owners 
 | browser-qa | `@rightkit/qa-chrome` | advise | fingerprinted | 5 (0 block, 5 advise) | @rightkit/qa-chrome: published 0.1.12 (npm) |
 | channel-memory | `rightkit-channel-memory` | none | declaration-only | 0 | rightkit-channel-memory: published 0.2.1 (crates.io) |
 | chat-bridge | `rightkit-chat-bridge` | none | declaration-only | 0 | rightkit-chat-bridge: staged 0.2.0, not published |
-| cloud-sync | `rightkit-sync` | none | declaration-only | 0 | rightkit-sync: published 0.3.0 (crates.io) |
+| cloud-sync | `rightkit-sync` | none | declaration-only | 0 | rightkit-sync: published 0.4.0 (crates.io) |
 | code-audit-provider-sdk | `rightkit-code-audit-provider-sdk` | none | declaration-only | 0 | rightkit-code-audit-provider-sdk: staged 0.1.1, not published |
 | composition-model | `rightkit-compose` | none | declaration-only | 0 | rightkit-compose: published 0.2.0 (crates.io) |
 | content-contracts | `rightkit-contracts` | none | declaration-only | 0 | rightkit-contracts: published 0.1.7 (crates.io) |
@@ -96,7 +96,7 @@ Capabilities: 224 (58 with fingerprints, 166 declaration-only). Internal owners 
 | dictation-inference | `rightkit-dictation-inference` | none | declaration-only | 0 | rightkit-dictation-inference: published 0.2.3 (crates.io) |
 | dictation-models | `rightkit-dictation-models` | none | declaration-only | 0 | rightkit-dictation-models: staged 0.3.0, not published |
 | dictation-runtime | `rightkit-dictation-runtime` | none | declaration-only | 0 | rightkit-dictation-runtime: staged 0.2.3, not published |
-| dictation-telemetry | `rightkit-dictation-telemetry` | none | declaration-only | 0 | rightkit-dictation-telemetry: published 0.2.0 (crates.io) |
+| dictation-telemetry | `rightkit-dictation-telemetry` | none | declaration-only | 0 | rightkit-dictation-telemetry: published 0.2.2 (crates.io) |
 | dictation-text-pipeline | `rightkit-dictation-text-pipeline` | none | declaration-only | 0 | rightkit-dictation-text-pipeline: staged 0.2.5, not published |
 | dictation-ui | `@rightkit/dictation-ui` | none | declaration-only | 0 | @rightkit/dictation-ui: published 0.2.7 (npm) |
 | disk-cache | `rightkit-cache` | advise | fingerprinted | 1 (0 block, 1 advise) | rightkit-cache: published 0.2.3 (crates.io) |
