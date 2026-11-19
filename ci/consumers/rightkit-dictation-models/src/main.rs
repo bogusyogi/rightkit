@@ -1,6 +1,6 @@
 // rightkit-dictation-models consumed by the exact registry pin in Cargo.toml, outside the
 // workspace. Public API only; no network, no files.
-use rightkit_dictation_models::{ane_cache_prune, model_paths, shared};
+use rightkit_dictation_models::{ane_cache_prune, model_flow, model_paths, shared};
 
 fn check(ok: bool, what: &str) -> bool {
     if ok {
@@ -14,6 +14,10 @@ fn check(ok: bool, what: &str) -> bool {
 fn main() {
     let mut all = true;
     all &= check(!shared::APP_ID.is_empty(), "store owner id is set");
+    all &= check(
+        model_flow::Phase::Installed.wire() == "installed",
+        "completed model installation uses the stable progress label",
+    );
     #[cfg(not(target_os = "macos"))]
     {
         all &= check(

@@ -18,7 +18,7 @@ serde_json = "1"
 rightkit-dictation-core = { version = "0.3.0", path = "../rightkit-dictation-core" }
 rightkit-dictation-app-runtime = { version = "0.2.0", path = "../rightkit-dictation-app-runtime" }
 rightkit-dictation-telemetry = { version = "0.2.0", path = "../rightkit-dictation-telemetry" }
-rightkit-dictation-models = { version = "0.2.0", path = "../rightkit-dictation-models" }
+rightkit-dictation-models = { version = "0.3.0", path = "../rightkit-dictation-models" }
 rightkit-dictation-command-host = { version = "0.2.0", path = "../rightkit-dictation-command-host" }
 rightkit-transcript-library = { version = "0.1.0", path = "../rightkit-transcript-library" }
 rightkit-text-polish = { version = "0.1.0", path = "../rightkit-text-polish" }

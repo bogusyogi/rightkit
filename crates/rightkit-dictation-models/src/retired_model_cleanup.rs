@@ -14,7 +14,13 @@
 //! Guarded by a marker file so a user who deliberately re-installs Unified via
 //! the Settings rollback lane does not get it deleted out from under them on the
 //! next launch.
+//!
+//! Every delete in this module is confined to the verified app-data models directory
+//! (`confined_remove`): the directory is opened one component at a time without following a
+//! link, the retired directory or marker is removed relative to that handle, and a link inside a
+//! tree is removed as the link itself. No path-based `remove_dir_all` or `remove_file` remains.
 
+use crate::confined_remove::{self, ConfinedDir};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -118,18 +124,34 @@ pub fn tdt_replacement_pending() -> bool {
 /// stale `.activating` file can never select an unverified revision forever.
 #[cfg(not(target_os = "macos"))]
 pub fn recover_interrupted_windows_tdt_activation_for_root(models_root: &Path) -> bool {
-    let activating = models_root.join(crate::model_paths::WINDOWS_TDT_ACTIVATING_MARKER);
-    if !activating.is_file() {
+    // An absent or refused models directory (a link in its path) has nothing to recover.
+    let Ok(Some(models)) = ConfinedDir::open(models_root) else {
+        return false;
+    };
+    if !matches!(
+        models.is_regular_file(crate::model_paths::WINDOWS_TDT_ACTIVATING_MARKER),
+        Ok(true)
+    ) {
         return false;
     }
-    let activated = models_root.join(crate::model_paths::WINDOWS_TDT_ACTIVATED_MARKER);
-    let _ = std::fs::remove_file(&activating);
-    if !activated.is_file() {
-        let current = models_root.join(crate::model_paths::WINDOWS_TDT_CURRENT_SUBDIR);
-        // A compatibility junction may point at a model used by other apps.
-        // Old private activation metadata never authorizes shared deletion.
-        if !current.is_symlink() {
-            let _ = std::fs::remove_dir_all(current);
+    let activated = matches!(
+        models.is_regular_file(crate::model_paths::WINDOWS_TDT_ACTIVATED_MARKER),
+        Ok(true)
+    );
+    let _ = models.remove_regular_file(crate::model_paths::WINDOWS_TDT_ACTIVATING_MARKER);
+    if !activated {
+        // A compatibility junction may point at a model used by other apps. Old private
+        // activation metadata never authorizes shared deletion: a link at the name is refused
+        // here, and a link inside the tree is removed as the link, never entered.
+        match models.remove_dir_tree(crate::model_paths::WINDOWS_TDT_CURRENT_SUBDIR, None) {
+            Ok(report) if report.retained == 0 => {}
+            Ok(_) => crate::telemetry::log_message(
+                "windows_tdt_activation_rollback_incomplete",
+                "some entries were left in place",
+            ),
+            Err(reason) => {
+                crate::telemetry::log_message("windows_tdt_activation_rollback_skipped", reason)
+            }
         }
     }
     true
@@ -171,25 +193,35 @@ pub fn reclaim_superseded_windows_tdt_for_root(models_root: &Path) -> Option<u64
 /// (activated marker, or the shared store's verified activation).
 #[cfg(not(target_os = "macos"))]
 fn remove_retired_windows_tdt_dirs(models_root: &Path) -> Option<u64> {
+    let models = match ConfinedDir::open(models_root) {
+        Ok(Some(models)) => models,
+        Ok(None) => return None,
+        Err(reason) => {
+            crate::telemetry::log_message("windows_tdt_retired_reclaim_failed", reason);
+            return None;
+        }
+    };
     let mut freed = 0u64;
     let mut removed_any = false;
     let mut failed = false;
-    for (retired, _) in retired_windows_tdt_dirs(models_root) {
-        if !retired.is_dir() {
-            continue;
-        }
-        let bytes = dir_size(&retired);
-        match std::fs::remove_dir_all(&retired) {
-            Ok(()) => {
-                freed = freed.saturating_add(bytes);
-                removed_any = true;
+    for (_, subdir) in retired_windows_tdt_dirs(models_root) {
+        // A compatibility link at a retired name is removed as the link; its target (a shared
+        // store entry) is never entered or touched here.
+        match models.remove_tree_or_link(subdir, None) {
+            Ok(report) => {
+                freed = freed.saturating_add(report.bytes_freed);
+                removed_any |= report.removed > 0;
+                if report.retained > 0 {
+                    failed = true;
+                    crate::telemetry::log_message(
+                        "windows_tdt_retired_reclaim_failed",
+                        "some entries were left in place",
+                    );
+                }
             }
-            Err(error) => {
+            Err(reason) => {
                 failed = true;
-                crate::telemetry::log_message(
-                    "windows_tdt_retired_reclaim_failed",
-                    &format!("{}: {error}", retired.display()),
-                );
+                crate::telemetry::log_message("windows_tdt_retired_reclaim_failed", reason);
             }
         }
     }
@@ -225,10 +257,12 @@ pub fn reclaim_superseded_windows_tdt() -> Option<u64> {
             crate::model_paths::WINDOWS_TDT_OLDER_ACTIVATED_MARKER,
             crate::model_paths::WINDOWS_TDT_OLDER_ACTIVATING_MARKER,
         ] {
-            let _ = std::fs::remove_file(models.join(old_marker));
+            let _ = confined_remove::remove_file_at(&models.join(old_marker));
         }
         for old_reclaim_marker in WINDOWS_TDT_PREVIOUS_RECLAIM_MARKERS {
-            let _ = std::fs::remove_file(crate::app_paths::app_data_file(old_reclaim_marker));
+            let _ = confined_remove::remove_file_at(&crate::app_paths::app_data_file(
+                old_reclaim_marker,
+            ));
         }
         if let Some(freed) = result {
             crate::telemetry::log_message(
@@ -250,18 +284,29 @@ pub fn reclaim_superseded_macos_tdt_for_root(
     if !ultra_verified {
         return None;
     }
-    let retired = models_root.join(crate::model_paths::MACOS_TDT_PREVIOUS_SUBDIR);
-    if retired.is_symlink() || !retired.is_dir() {
-        return None;
-    }
-    let bytes = dir_size(&retired);
-    match std::fs::remove_dir_all(&retired) {
-        Ok(()) => Some(bytes),
-        Err(error) => {
+    // A link at the bundle's name is refused (never followed); a link inside it is removed as the
+    // link. An absent models directory or bundle has nothing to reclaim.
+    let models = match ConfinedDir::open(models_root) {
+        Ok(Some(models)) => models,
+        Ok(None) => return None,
+        Err(reason) => {
+            crate::telemetry::log_message("macos_tdt_retired_reclaim_failed", reason);
+            return None;
+        }
+    };
+    match models.remove_dir_tree(crate::model_paths::MACOS_TDT_PREVIOUS_SUBDIR, None) {
+        Ok(report) if report.retained == 0 && report.removed > 0 => Some(report.bytes_freed),
+        Ok(report) if report.retained > 0 => {
             crate::telemetry::log_message(
                 "macos_tdt_retired_reclaim_failed",
-                &format!("{}: {error}", retired.display()),
+                "some entries were left in place",
             );
+            None
+        }
+        Ok(_) => None,
+        Err("link refused") => None,
+        Err(reason) => {
+            crate::telemetry::log_message("macos_tdt_retired_reclaim_failed", reason);
             None
         }
     }
@@ -303,32 +348,33 @@ pub fn reclaim_superseded_macos_tdt() -> Option<u64> {
 /// link itself is removed, never what it points at, and nothing is touched while the retired
 /// directory still exists. Idempotent; returns how many entries it removed.
 pub fn remove_retired_model_leftovers_for_root(models_root: &Path, retired: &[&str]) -> usize {
+    // An absent or refused models directory (a link in its path) has nothing to remove.
+    let Ok(Some(models)) = ConfinedDir::open(models_root) else {
+        return 0;
+    };
     let mut removed = 0;
     for subdir in retired {
-        if models_root.join(subdir).symlink_metadata().is_ok() {
+        // Names are single path components checked by the pinned directory: one with a
+        // separator or a `..` is refused there and never reaches a path. Unknown counts as
+        // present.
+        if models.exists(subdir).unwrap_or(true) {
             continue;
         }
-        let lock = models_root.join(format!("{subdir}.operation.lock"));
-        if lock.symlink_metadata().is_ok_and(|meta| meta.is_file())
-            && std::fs::remove_file(&lock).is_ok()
+        if models
+            .remove_regular_file(&format!("{subdir}.operation.lock"))
+            .unwrap_or(false)
         {
             removed += 1;
         }
-        let aside = models_root.join(format!(".{subdir}.symlink-aside"));
-        if aside
-            .symlink_metadata()
-            .is_ok_and(|meta| meta.file_type().is_symlink())
-            && remove_link(&aside).is_ok()
+        // Only a link is removed, as the link itself, never what it points at.
+        if models
+            .remove_link(&format!(".{subdir}.symlink-aside"))
+            .unwrap_or(false)
         {
             removed += 1;
         }
     }
     removed
-}
-
-/// Remove a symlink without following it (a directory link on Windows is removed as a directory).
-fn remove_link(link: &Path) -> std::io::Result<()> {
-    std::fs::remove_file(link).or_else(|_| std::fs::remove_dir(link))
 }
 
 /// [`remove_retired_model_leftovers_for_root`] for this install: every retired TDT revision and
@@ -417,45 +463,39 @@ pub fn reclaim_retired_unified() -> Option<u64> {
         let _ = rightkit_fs::atomic_write(&marker_path(), b"absent\n");
         return None;
     };
+    // Only the app-data copy is ever deleted here: a directory resolved anywhere else (the
+    // shared store) is not this function's to remove, and is left alone.
+    if unified != crate::model_paths::install_base().join(UNIFIED_SUBDIR) {
+        crate::telemetry::log_message(
+            "retired_unified_reclaim_skipped",
+            "resolved outside the app-data models directory",
+        );
+        return None;
+    }
 
-    let freed = dir_size(&unified);
-    match std::fs::remove_dir_all(&unified) {
-        Ok(()) => {
+    match confined_remove::remove_tree_at(&unified, None) {
+        Ok(report) if report.retained == 0 => {
+            let freed = report.bytes_freed;
             let _ =
                 rightkit_fs::atomic_write(&marker_path(), format!("freed {freed}\n").as_bytes());
             crate::telemetry::log_message(
                 "retired_unified_reclaimed",
-                &format!("removed {} ({freed} bytes)", unified.display()),
+                &format!("removed ({freed} bytes)"),
             );
             Some(freed)
         }
-        Err(e) => {
-            // Leave the marker absent so a later launch can retry (e.g. the dir
-            // was locked by a still-shutting-down engine process).
+        Ok(_) => {
+            // Leave the marker absent so a later launch can retry (e.g. a file was locked by a
+            // still-shutting-down engine process).
             crate::telemetry::log_message(
                 "retired_unified_reclaim_failed",
-                &format!("{}: {e}", unified.display()),
+                "some entries were left in place",
             );
             None
         }
-    }
-}
-
-fn dir_size(root: &Path) -> u64 {
-    let mut total = 0u64;
-    let mut stack = vec![root.to_path_buf()];
-    while let Some(dir) = stack.pop() {
-        let Ok(entries) = std::fs::read_dir(&dir) else {
-            continue;
-        };
-        for entry in entries.flatten() {
-            let Ok(meta) = entry.metadata() else { continue };
-            if meta.is_dir() {
-                stack.push(entry.path());
-            } else {
-                total += meta.len();
-            }
+        Err(reason) => {
+            crate::telemetry::log_message("retired_unified_reclaim_failed", reason);
+            None
         }
     }
-    total
 }

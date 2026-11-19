@@ -5,9 +5,28 @@ use rightkit_transcript_library::net::host_of_url;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
-/// Host of the compiled-in model worker. Any other worker base is a development
-/// override, the only case allowed to resolve to a local or private address.
-const DEFAULT_WORKER_HOST: &str = "heardright-models.adrdsouza.workers.dev";
+/// True for a plain `https://` origin: a host, no credentials, no query or fragment, no
+/// whitespace or control character. The grant request carries the device identifier and the
+/// response carries a bearer token, so neither may travel over a cleartext connection or to
+/// an address that names credentials.
+fn is_plain_https_base(base: &str) -> bool {
+    let base = base.trim();
+    let Some(rest) = base
+        .get(..8)
+        .filter(|scheme| scheme.eq_ignore_ascii_case("https://"))
+        .and_then(|_| base.get(8..))
+    else {
+        return false;
+    };
+    let authority = rest.split('/').next().unwrap_or("");
+    !authority.is_empty()
+        && !authority.contains('@')
+        && !base.contains(['?', '#'])
+        && !base.chars().any(|c| c.is_whitespace() || c.is_control())
+}
+
+/// Longest grant token accepted.
+const MAX_GRANT_TOKEN_BYTES: usize = 8 * 1024;
 
 pub struct ModelGrantRequest<'a> {
     pub worker_base: &'a str,
@@ -37,6 +56,14 @@ struct GrantResponse {
     sha256: String,
 }
 
+/// Ask the model worker at `request.worker_base` for a download grant and return its token.
+///
+/// Network policy: the worker base must be a plain `https://` origin and the connection uses the
+/// public-web address policy, so a worker that resolves to a loopback, private or link-local
+/// address is refused, whatever host the base names. The only exception is a build with the
+/// non-default `dev-worker-override` feature, where the one host named by
+/// `RIGHTKIT_MODEL_WORKER_BASE` may be reached at a local address (and over `http://`); no
+/// release build has that feature.
 pub fn acquire_model_grant(
     request: ModelGrantRequest<'_>,
     timeout: Duration,
@@ -54,9 +81,14 @@ pub fn acquire_model_grant(
     };
     let body = serde_json::to_string(&body)
         .map_err(|error| format!("could not encode model grant request: {error}"))?;
-    let override_host =
-        host_of_url(&endpoint).filter(|host| !host.eq_ignore_ascii_case(DEFAULT_WORKER_HOST));
-    let client = match override_host.as_deref() {
+    let host =
+        host_of_url(&endpoint).ok_or_else(|| "model worker address is invalid".to_string())?;
+    // The development host named for this build, if any; never derived from the request.
+    let dev_host = crate::resumable_download::dev_worker_host().filter(|dev| *dev == host);
+    if dev_host.is_none() && !is_plain_https_base(request.worker_base) {
+        return Err("model worker address must be an https origin".to_string());
+    }
+    let client = match dev_host.as_deref() {
         Some(host) => parity_client_allowing_host(timeout, host)?,
         None => parity_client(timeout)?,
     };
@@ -77,6 +109,11 @@ pub fn acquire_model_grant(
     }
     if response.route != request.route || !response.sha256.eq_ignore_ascii_case(request.sha256) {
         return Err("model grant response scope does not match the requested model".to_string());
+    }
+    // The token becomes an `Authorization` header value: bounded, and no control character.
+    if response.token.len() > MAX_GRANT_TOKEN_BYTES || response.token.chars().any(char::is_control)
+    {
+        return Err("model grant response is malformed".to_string());
     }
     Ok(response.token)
 }

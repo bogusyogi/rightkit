@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.2 (unpublished)
+
+- Align the shell supervisor with the 0.3 model-store interface and current dictation, transcript, telemetry and daemon packages. The host supplies app paths and engine identity. (bogusyogi/heardright#349)
+
 ## 0.2.1 (unpublished)
 
 - Serialize provider-key requests into a bounded, zeroizing buffer without creating an intermediate JSON value. Engine worker threads now use product-neutral names. (bogusyogi/heardright#349)

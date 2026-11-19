@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-dictation-app-runtime"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Dictation app runtime: the shell-side engine supervisor (spawn, launch frame, health, restart, sidecar logs) and engine process handle for a dictation app."
@@ -14,11 +14,11 @@ name = "rightkit_dictation_app_runtime"
 path = "src/lib.rs"
 
 [dependencies]
-rightkit-dictation-core = { version = "0.3.0", path = "../rightkit-dictation-core" }
-rightkit-transcript-library = { version = "0.1.0", path = "../rightkit-transcript-library" }
-rightkit-dictation-models = { version = "0.2.0", path = "../rightkit-dictation-models" }
-rightkit-dictation-telemetry = { version = "0.2.0", path = "../rightkit-dictation-telemetry" }
-rightkit-daemon = { version = "0.9.0", default-features = false, path = "../rightkit-daemon" }
+rightkit-dictation-core = { version = "0.3.2", path = "../rightkit-dictation-core" }
+rightkit-transcript-library = { version = "0.1.4", path = "../rightkit-transcript-library" }
+rightkit-dictation-models = { version = "0.3.0", path = "../rightkit-dictation-models" }
+rightkit-dictation-telemetry = { version = "0.2.2", path = "../rightkit-dictation-telemetry" }
+rightkit-daemon = { version = "0.9.1", default-features = false, path = "../rightkit-daemon" }
 rightkit-fs = { version = "0.4.9", default-features = false, features = ["fs", "app-dirs"], path = "../rightkit-fs" }
 rightkit-logs = { version = "0.4.0", default-features = false, path = "../rightkit-logs" }
 serde = { version = "1", features = ["derive"] }

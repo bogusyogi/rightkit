@@ -6,10 +6,13 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
 
 pub use rightkit_models::suite as store;
-/// Shared-store download transport matching the former `store::http_agent()`: no overall,
-/// connect, header or idle limit, and no automatic retry.
+/// Shared-store download transport: public-web address policy, no automatic retry, and a stalled
+/// transfer ends (30 s to connect, 60 s for headers, 120 s without a body byte, 6 h in all; see
+/// [`crate::resumable_download::streaming_download_client`]). The store itself caps the
+/// transfer at the catalog's pinned archive size and extracts within limits taken from the pinned
+/// file list (`rightkit-models` 0.7.2).
 pub fn http_client() -> rightkit_models::http::ModelHttp {
-    crate::resumable_download::unlimited_download_client()
+    crate::resumable_download::streaming_download_client()
 }
 /// The store owner id this adapter registers speech-model references under. It is the on-disk
 /// reference file name (`refs/heardright.json`) and the one id `rightkit-models` lets hold
@@ -115,10 +118,7 @@ pub fn reclaim_retired_store_entries() -> Result<store::RetiredPruneReport, Stri
 /// True when `record` names `spec` at its current revision (written by [`prepare`] after a
 /// successful native load).
 fn activation_recorded_for(record: &Path, spec: &store::ModelSpec) -> bool {
-    std::fs::read(record)
-        .ok()
-        .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
-        .is_some_and(|value| value["id"] == spec.id && value["revision"] == spec.version)
+    read_record(record).is_some_and(|value| record_names(&value, spec))
 }
 
 fn reclaim_retired_store_entries_at(
@@ -129,7 +129,14 @@ fn reclaim_retired_store_entries_at(
         return Ok(store::RetiredPruneReport::default());
     }
     store::release_models(root, APP_ID, spec.retired_store_ids)?;
-    strip_foreign_speech_refs(root, spec.retired_store_ids);
+    // Tidying, not a precondition of the prune (see the function): a failure is logged by tag
+    // only (the store's message names user paths) and the prune goes on.
+    if strip_foreign_speech_refs(root, spec.retired_store_ids).is_err() {
+        crate::telemetry::log_message(
+            "retired_store_refs_strip_failed",
+            "stale references in other apps' ref files were left in place",
+        );
+    }
     let report = store::prune_retired(root, spec, APP_ID)?;
     if !report.removed.is_empty() || !report.failed.is_empty() {
         crate::telemetry::log_message(
@@ -143,45 +150,41 @@ fn reclaim_retired_store_entries_at(
     Ok(report)
 }
 
+/// The refs registries a store at `root` answers to: its own, plus the legacy suite root's when
+/// this is the machine-wide store (the rule `rightkit-models` applies to its own prune and
+/// release, which keeps its helper private).
+fn registry_dirs(root: &Path) -> Vec<PathBuf> {
+    let mut dirs = vec![store::paths::model_refs_dir_at(root)];
+    if store::paths::is_suite_models_root(root) {
+        let legacy_models = store::paths::legacy_suite_root().join("models");
+        if legacy_models.as_path() != root {
+            dirs.push(store::paths::model_refs_dir_at(&legacy_models));
+        }
+    }
+    dirs
+}
+
 /// The app is the only owner of speech models: no other app uses them directly, so a
 /// `refs/<app>.json` that still names a retired speech id is a stale leftover, never a dependent.
 /// rightkit-models 0.5.2 already ignores a foreign speech ref when it decides what protects an
 /// entry (rightkit#1316), so this is tidying, not a precondition of the prune: the retired ids are
-/// removed from every other app's ref file so no stale leftover names a deleted model. Best
-/// effort: an unreadable or unparseable ref file is left alone.
-fn strip_foreign_speech_refs(root: &Path, retired_ids: &[&str]) {
-    let Ok(entries) = std::fs::read_dir(root.join("refs")) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.extension().and_then(|e| e.to_str()) != Some("json") {
-            continue;
-        }
-        let Ok(bytes) = std::fs::read(&path) else {
-            continue;
-        };
-        let Ok(mut value) = serde_json::from_slice::<serde_json::Value>(&bytes) else {
-            continue;
-        };
-        let Some(models) = value.get_mut("models").and_then(|m| m.as_array_mut()) else {
-            continue;
-        };
-        let before = models.len();
-        models.retain(|m| {
-            m.as_str()
-                .is_none_or(|id| !retired_ids.iter().any(|r| r.eq_ignore_ascii_case(id)))
-        });
-        if models.len() == before {
-            continue;
-        }
-        if let Ok(text) = serde_json::to_string_pretty(&value) {
-            let tmp = path.with_extension("json.tmp");
-            if std::fs::write(&tmp, text).is_ok() && std::fs::rename(&tmp, &path).is_err() {
-                let _ = std::fs::remove_file(&tmp);
-            }
-        }
+/// removed from every other app's ref file so no stale leftover names a deleted model.
+///
+/// The ref files are shared with other apps, so the update goes through the store's own registry
+/// mechanism and nothing else: every registry guard the store answers to is held (the
+/// cross-process `.registry.lock` of each `refs/` folder, in the store's lexical order, the order
+/// its own release and prune use) while `refs::strip_ids_all_locked` reads, edits and rewrites
+/// each ref file with the store's validated record and an atomic write. A ref file the store
+/// cannot read or validate is left alone, as `retire_speech_models` leaves it. A failure to take
+/// the guards or to write is returned and nothing here retries or falls back to an unlocked write.
+fn strip_foreign_speech_refs(root: &Path, retired_ids: &[&str]) -> Result<(), String> {
+    let dirs = registry_dirs(root);
+    let refs_dirs: Vec<&Path> = dirs.iter().map(PathBuf::as_path).collect();
+    let (_paths, _guards) = store::refs::acquire_registries(&refs_dirs)?;
+    for refs_dir in &dirs {
+        store::refs::strip_ids_all_locked(refs_dir, retired_ids)?;
     }
+    Ok(())
 }
 
 /// Newest retired TDT subdir whose complete fileset sits in the shared store.
@@ -302,10 +305,17 @@ fn recorded_dir() -> Option<PathBuf> {
         return None;
     }
     let record = record_path();
-    if !record.is_file() {
-        return None;
-    }
-    let Some(value) = read_record(&record) else {
+    // One capped read through one handle: an absent record is silent, anything else that
+    // cannot be read as a record (a link, a directory, too large, not JSON) is rejected once.
+    let bytes = match crate::confined_remove::read_capped_at(&record, MAX_RECORD_BYTES) {
+        Ok(Some(bytes)) => bytes,
+        Ok(None) => return None,
+        Err(_) => {
+            note_record_rejected("unreadable record");
+            return None;
+        }
+    };
+    let Ok(value) = serde_json::from_slice::<serde_json::Value>(&bytes) else {
         note_record_rejected("unreadable record");
         return None;
     };
@@ -323,9 +333,13 @@ fn recorded_dir() -> Option<PathBuf> {
     }
 }
 
+/// Largest activation record read. The record holds an id, a revision and one path.
+const MAX_RECORD_BYTES: u64 = 64 * 1024;
+
 fn read_record(record: &Path) -> Option<serde_json::Value> {
-    std::fs::read(record)
+    crate::confined_remove::read_capped_at(record, MAX_RECORD_BYTES)
         .ok()
+        .flatten()
         .and_then(|bytes| serde_json::from_slice(&bytes).ok())
 }
 
@@ -498,9 +512,10 @@ fn reject_record(record: &Path) {
         return;
     }
     let rejected = record.with_extension("json.rejected");
-    let _ = std::fs::remove_file(&rejected);
+    let _ = crate::confined_remove::remove_file_at(&rejected);
+    // The move-aside is a rename of this app's own record; the deletes are confined.
     if std::fs::rename(record, &rejected).is_err() {
-        let _ = std::fs::remove_file(record);
+        let _ = crate::confined_remove::remove_file_at(record);
     }
     crate::telemetry::log_message(
         "shared_model_record_rejected",
@@ -581,6 +596,6 @@ pub fn unregister() -> Result<(), String> {
     .map(|_| ());
     // Once the app holds no reference, a reinstall that keeps app data must verify and register
     // the copy again before anything selects it; a surviving record would skip that.
-    let _ = std::fs::remove_file(record_path());
+    let _ = crate::confined_remove::remove_file_at(&record_path());
     result
 }

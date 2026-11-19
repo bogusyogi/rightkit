@@ -2,8 +2,10 @@
 
 pub mod ane_cache_prune;
 pub mod archive_install;
+mod confined_remove;
 pub mod model_download_grant;
 pub mod model_fetch;
+pub mod model_flow;
 pub mod model_paths;
 pub mod resumable_download;
 pub mod retired_model_cleanup;

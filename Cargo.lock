@@ -11315,7 +11315,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-dictation-app-runtime"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "rightkit-daemon",
  "rightkit-dictation-core",
@@ -11438,7 +11438,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-dictation-models"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "dirs",
  "rightkit-child-process",
