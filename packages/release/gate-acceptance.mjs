@@ -722,7 +722,7 @@ export const STEPS = Object.freeze([
   { id: "S14", nn: nnForStepAll("S14"), title: "resident gate restart", runs: ["--to check"], clauses: [], note: "kills the resident gate (SIGTERM, a plain process stop), then a warm check must run no row (NN24)" },
   { id: "S15", nn: nnForStepAll("S15"), title: "workloads: RightKit and HeardRight warm check (read-only), Pulse compile with --pulse-compile", runs: ["--to check (rightkit)", "--to check (heardright)"], clauses: [], note: "NN18 per-workload budgets; no compile unless --pulse-compile" },
   { id: "S16", nn: nnForStepAll("S16"), title: "per-run identities differ", runs: ["--to check"], clauses: [], note: "NN29: a fake tool-call id, terminal session, temp dir and RK_GATE_* value; every key equals the warm run's" },
-  { id: "S17", nn: nnForStepAll("S17"), title: "cached failure: a commit with a real compile error, run twice, then with another toolchain", runs: ["--to compile (failing commit)", "--to compile (same commit again)", "--to compile (RUSTUP_TOOLCHAIN changed)"], clauses: [], note: "NN41; ephemeral commit under refs/witness/* that adds compile_error! to one fixture crate; the second run's failing rows must be hit, the third (another installed toolchain) must run them again" },
+  { id: "S17", nn: nnForStepAll("S17"), title: "cached failure: a commit with a real compile error, run twice, then with another toolchain", runs: ["--to compile (failing commit)", "--to compile (same commit again)", "--to compile (changed compiler identity)"], clauses: [], note: "NN41; ephemeral commit under refs/witness/* that adds compile_error! to one fixture crate; the second run's failing rows must be hit, the third (another compiler identity) must run them again; on broker hosts split-phase (--s17-phase a, operator broker toolchain switch, --s17-phase b), witness held under refs/s17-split/* between phases" },
   { id: "S9", nn: nnForStep("S9"), title: "end invariants", runs: [], clauses: ["GC-A01", "GC-A02", "GC-T14", "GC-T06", "GC-I15", "GC-T20"], note: "listings equal S0; one snapshot dir and no new one; one worktree; no upload; broker pid and start unchanged" },
 ]);
 
@@ -2221,6 +2221,51 @@ export function assertDecisionRun(run, decisions, { cause, ids = [], changedVar 
   return { ok: problems.length === 0, problems };
 }
 
+/**
+ * S17 split-phase on broker hosts (Adrian's approved operator-switch route, 2026-11-19): the broker pins its registered toolchain, so
+ * RUSTUP_TOOLCHAIN cannot change the compiler a compile binds. Phase A runs fail1/fail2 and seals state; an operator switches the broker
+ * toolchain outside the runner; phase B validates the state before any dispatch and runs fail3. Without a phase, a broker-backed S17
+ * refuses instead of wasting three compiles on an identity change that cannot take effect.
+ */
+export const S17_STATE_SCHEMA = "rightkit.s17-phase-a/1";
+export function s17PhaseProblems({ phase = null, stateFile = null, brokerBacked = false, s17Wanted = false } = {}) {
+  const problems = [];
+  if (phase !== null && phase !== undefined && phase !== "a" && phase !== "b") problems.push(`--s17-phase must be a or b, got ${JSON.stringify(phase)}`);
+  if (phase && !s17Wanted) problems.push("--s17-phase was given but S17 is not selected in --steps");
+  if (s17Wanted && brokerBacked && !phase) problems.push("S17 on a broker host must run split-phase (--s17-phase a, operator broker toolchain switch, --s17-phase b): RUSTUP_TOOLCHAIN cannot change the broker's registered compiler, so the single-phase third run cannot exercise an identity change");
+  if (phase === "b" && !stateFile) problems.push("--s17-phase b needs --s17-state <file> naming the sealed phase-A state");
+  return problems;
+}
+export function sealS17State(state) {
+  const body = JSON.stringify(state);
+  return JSON.stringify({ sha256: sha256(body), body }, null, 2);
+}
+export function parseS17State(text) {
+  let envelope;
+  try { envelope = JSON.parse(String(text)); } catch (e) { return { state: null, problems: [`the phase-A state cannot be read (${e.message})`] }; }
+  if (!isObject(envelope) || typeof envelope.body !== "string" || sha256(envelope.body) !== envelope.sha256) return { state: null, problems: ["the phase-A state checksum does not match its body: the state was altered or truncated"] };
+  try { return { state: JSON.parse(envelope.body), problems: [] }; } catch (e) { return { state: null, problems: [`the phase-A state body cannot be read (${e.message})`] }; }
+}
+export function s17StateProblems(state, { fixtureCommit = null, historySha256 = null } = {}) {
+  if (!isObject(state)) return ["no phase-A state: phase B has nothing to resume from"];
+  const problems = [];
+  const sha40 = /^[0-9a-f]{40}$/;
+  if (state.schema !== S17_STATE_SCHEMA) problems.push(`phase-A state schema ${JSON.stringify(state.schema)} is not ${S17_STATE_SCHEMA}`);
+  if (!sha40.test(state.witnessCommit ?? "")) problems.push("phase-A state names no witness commit (40-hex)");
+  if (!sha40.test(state.fixtureCommit ?? "")) problems.push("phase-A state names no fixture commit (40-hex)");
+  else if (fixtureCommit && state.fixtureCommit !== fixtureCommit) problems.push(`phase-A state is for fixture commit ${state.fixtureCommit}, this run is ${fixtureCommit}`);
+  if (typeof state.splitRef !== "string" || !state.splitRef.startsWith("refs/s17-split/")) problems.push("phase-A state names no refs/s17-split/* ref holding the witness commit");
+  if (typeof state.rustcA !== "string" || !state.rustcA.trim()) problems.push("phase-A state names no rustc identity bound by the first run");
+  if (!Array.isArray(state.failedIds) || !state.failedIds.length || state.failedIds.some((id) => typeof id !== "string" || !id)) problems.push("phase-A state carries no failing row ids from the first run");
+  if (!/^[0-9a-f]{64}$/.test(state.historySha256 ?? "")) problems.push("phase-A state names no forecast-history sha256");
+  else if (historySha256 !== null && historySha256 !== state.historySha256) problems.push("the forecast history changed since phase A (another run advanced it), so phase B would not resume the recorded baseline");
+  for (const label of ["S17:fail1", "S17:fail2"]) {
+    const r = state.runs?.[label];
+    if (!isObject(r) || !Number.isInteger(r.exit) || typeof r.logPath !== "string" || !Array.isArray(r.coveragePaths) || !r.coveragePaths.length) problems.push(`phase-A state carries no usable ${label} artifacts (exit, log, coverage)`);
+  }
+  return problems;
+}
+
 export function assertCachedFailure(first, second, third, { identity = "", thirdStop = null } = {}) {
   const problems = [];
   const failed = first ? [...first.values()].filter((r) => r.class === "B" && r.coverage === "ran" && r.status === "fail") : [];
@@ -2233,7 +2278,7 @@ export function assertCachedFailure(first, second, third, { identity = "", third
     else if (f.key && r.key && f.key !== r.key) problems.push(`${f.id}: the key changed between two identical runs`);
   }
   if (thirdStop) { if (!thirdStop.ok) problems.push(...thirdStop.problems.map((p) => `third run (${identity}): ${p}`)); }
-  else if (!third) problems.push(`no third run with a changed toolchain identity (${identity || "none chosen"}): the reuse after an identity change cannot be judged; the evidence needed is a second installed toolchain the gate keys on (RUSTUP_TOOLCHAIN)`);
+  else if (!third) problems.push(`no third run with a changed toolchain identity (${identity || "none chosen"}): the reuse after an identity change cannot be judged; the evidence needed is a changed compiler identity the gate keys on (RUSTUP_TOOLCHAIN on a direct host, or S17 phase B after an operator broker toolchain switch)`);
   else for (const f of failed) {
     const r = third.get(f.id);
     if (!r) problems.push(`${f.id}: absent from the run with a changed toolchain identity`);
@@ -2308,7 +2353,7 @@ const NN_EVAL_EXT = {
     // (astra62 review 8: four rk-leaf failures were cached-fail in the first run and reused in the third; selecting only rows that ran missed them).
     const failedIds = [...(a.run.rows?.values() ?? [])].filter((r) => r.class === "B" && (r.coverage === "ran" || r.coverage === "hit") && r.status === "fail").map((r) => r.id);
     const reuse = assertCachedFailure(a.run.rows, b.run.rows, c?.run.rows ?? null, { identity: ctx.identityChange ?? "" });
-    const explained = c ? assertDecisionRun(c.run, decisionReportOf(c.run.log), { cause: "changed", ids: failedIds, changedVar: "RUSTUP_TOOLCHAIN" }) : null;
+    const explained = c ? assertDecisionRun(c.run, decisionReportOf(c.run.log), { cause: "changed", ids: failedIds, changedVar: ctx.s17ChangedVar === undefined ? "RUSTUP_TOOLCHAIN" : ctx.s17ChangedVar }) : null;
     const verdict = { ok: reuse.ok && (explained?.ok ?? true), problems: [...reuse.problems, ...(explained?.problems ?? []).map((p) => `third run (${ctx.identityChange ?? ""}): ${p}`)] };
     return [checkFor("S17", verdict, [...a.run.coveragePaths, ...b.run.coveragePaths, ...(c?.run.coveragePaths ?? [])])];
   },
@@ -3148,7 +3193,7 @@ export function coldControls({ cold, warmPrev, warmRows, crate, ws, coldCompileR
 
 async function main(argv) {
   const opt = (name) => { const i = argv.indexOf(name); return i < 0 ? undefined : argv[i + 1]; };
-  const known = new Set(["--fixture", "--host", "--steps", "--out", "--plan", "--gate", "--commit", "--leaf-file", "--manifest-file", "--kill-after-ms", "--allow-install", "--budgets", "--help", "--prove", "--verify-release", "--other-receipt", "--contract-file", "--pulse-compile", "--prove-out", "--nn", "--checks-only", "--s11-checks-only", "--kills", "--candidate", "--sealed", "--archive", "--receipt-on-fail", "--live-output"]);
+  const known = new Set(["--fixture", "--host", "--steps", "--out", "--plan", "--gate", "--commit", "--leaf-file", "--manifest-file", "--kill-after-ms", "--allow-install", "--budgets", "--help", "--prove", "--verify-release", "--other-receipt", "--contract-file", "--pulse-compile", "--prove-out", "--nn", "--checks-only", "--s11-checks-only", "--kills", "--candidate", "--sealed", "--archive", "--receipt-on-fail", "--live-output", "--s17-phase", "--s17-state"]);
   for (const a of argv) if (a.startsWith("--") && !known.has(a)) { console.error(`gate-acceptance: unknown option ${a} (no cache bypass or other gate flag is ever passed)`); return 64; }
   liveCandidateOutput = argv.includes("--live-output");
   if (liveCandidateOutput && !opt("--candidate")) { console.error("gate-acceptance: --live-output requires --candidate"); return 64; }
@@ -3157,6 +3202,8 @@ async function main(argv) {
   if (!["mac", "dell"].includes(host)) { console.error("gate-acceptance: --host must be mac or dell"); return 64; }
   const wanted = (opt("--steps") ?? STEPS.map((s) => s.id).join(",")).split(",").map((s) => s.trim()).filter(Boolean);
   for (const s of wanted) if (!STEPS.some((x) => x.id === s)) { console.error(`gate-acceptance: unknown step ${s}`); return 64; }
+  const s17ArgProblems = s17PhaseProblems({ phase: opt("--s17-phase") ?? null, stateFile: opt("--s17-state") ?? null, brokerBacked: false, s17Wanted: wanted.includes("S17") });
+  if (s17ArgProblems.length) { console.error(`gate-acceptance: ${s17ArgProblems[0]}`); return 64; }
   const allowInstall = argv.includes("--allow-install");
   if (allowInstall) console.error("gate-acceptance: --allow-install: --to dev and --to qualify INSTALL an app on this host. Installs need Adrian's approval; this flag is not that approval.");
   if (argv.includes("--plan")) { console.log(formatPlan(buildPlan({ steps: wanted, allowInstall }))); return 0; }
@@ -3166,8 +3213,8 @@ async function main(argv) {
   const candidateArg = opt("--candidate") ?? null;
   if (candidateArg !== null && opt("--gate")) { console.error("--candidate and --gate cannot be given together: a candidate is run by its own sealed entry"); return 64; }
   const candidate = candidateArg === null ? null : findCandidateGate(managedRootOf(host), candidateArg);
-  if (candidateArg !== null) return execute({ fixture, host, wanted, gate: candidate?.entry ?? path.join(managedRootOf(host), "trusted-gates", "candidates", String(candidateArg), "node_modules", "@rightkit", "release", "bin", "rightkit-gate.mjs"), gateArg: candidate?.entry ?? null, candidateArg, candidate, budgetsFile: opt("--budgets"), out: opt("--out"), commitArg: opt("--commit"), leafFile: opt("--leaf-file"), manifestFile: opt("--manifest-file"), killAfterMs: Number(opt("--kill-after-ms") ?? 3000), allowInstall, otherReceiptFile: opt("--other-receipt"), contractFile: opt("--contract-file"), pulseCompile: argv.includes("--pulse-compile"), forceNN: opt("--nn")?.split(",").filter(Boolean), checksOnly: argv.includes("--checks-only"), s11ChecksOnly: argv.includes("--s11-checks-only"), killsFilter: opt("--kills")?.split(",").filter(Boolean), receiptOnFail: argv.includes("--receipt-on-fail") });
-  return execute({ fixture, host, wanted, gate: opt("--gate") ?? defaultGate(host), gateArg: opt("--gate"), budgetsFile: opt("--budgets"), out: opt("--out"), commitArg: opt("--commit"), leafFile: opt("--leaf-file"), manifestFile: opt("--manifest-file"), killAfterMs: Number(opt("--kill-after-ms") ?? 3000), allowInstall, otherReceiptFile: opt("--other-receipt"), contractFile: opt("--contract-file"), pulseCompile: argv.includes("--pulse-compile"), forceNN: opt("--nn")?.split(",").filter(Boolean), checksOnly: argv.includes("--checks-only"), s11ChecksOnly: argv.includes("--s11-checks-only"), killsFilter: opt("--kills")?.split(",").filter(Boolean), receiptOnFail: argv.includes("--receipt-on-fail") });
+  if (candidateArg !== null) return execute({ fixture, host, wanted, gate: candidate?.entry ?? path.join(managedRootOf(host), "trusted-gates", "candidates", String(candidateArg), "node_modules", "@rightkit", "release", "bin", "rightkit-gate.mjs"), gateArg: candidate?.entry ?? null, candidateArg, candidate, budgetsFile: opt("--budgets"), out: opt("--out"), commitArg: opt("--commit"), leafFile: opt("--leaf-file"), manifestFile: opt("--manifest-file"), killAfterMs: Number(opt("--kill-after-ms") ?? 3000), allowInstall, otherReceiptFile: opt("--other-receipt"), contractFile: opt("--contract-file"), pulseCompile: argv.includes("--pulse-compile"), forceNN: opt("--nn")?.split(",").filter(Boolean), checksOnly: argv.includes("--checks-only"), s11ChecksOnly: argv.includes("--s11-checks-only"), killsFilter: opt("--kills")?.split(",").filter(Boolean), receiptOnFail: argv.includes("--receipt-on-fail"), s17Phase: opt("--s17-phase") ?? null, s17State: opt("--s17-state") ?? null });
+  return execute({ fixture, host, wanted, gate: opt("--gate") ?? defaultGate(host), gateArg: opt("--gate"), budgetsFile: opt("--budgets"), out: opt("--out"), commitArg: opt("--commit"), leafFile: opt("--leaf-file"), manifestFile: opt("--manifest-file"), killAfterMs: Number(opt("--kill-after-ms") ?? 3000), allowInstall, otherReceiptFile: opt("--other-receipt"), contractFile: opt("--contract-file"), pulseCompile: argv.includes("--pulse-compile"), forceNN: opt("--nn")?.split(",").filter(Boolean), checksOnly: argv.includes("--checks-only"), s11ChecksOnly: argv.includes("--s11-checks-only"), killsFilter: opt("--kills")?.split(",").filter(Boolean), receiptOnFail: argv.includes("--receipt-on-fail"), s17Phase: opt("--s17-phase") ?? null, s17State: opt("--s17-state") ?? null });
 }
 
 async function execute(options) {
@@ -3180,7 +3227,7 @@ async function execute(options) {
   }
 }
 
-async function executeRun({ fixture, host, wanted, gate, gateArg, budgetsFile, out, commitArg, leafFile, manifestFile, killAfterMs, allowInstall, otherReceiptFile, contractFile, pulseCompile, forceNN, checksOnly, s11ChecksOnly, killsFilter, g, scratch, candidateArg = null, candidate = null, receiptOnFail = false }) {
+async function executeRun({ fixture, host, wanted, gate, gateArg, budgetsFile, out, commitArg, leafFile, manifestFile, killAfterMs, allowInstall, otherReceiptFile, contractFile, pulseCompile, forceNN, checksOnly, s11ChecksOnly, killsFilter, g, scratch, candidateArg = null, candidate = null, receiptOnFail = false, s17Phase = null, s17State = null }) {
   const startedAt = new Date().toISOString();
   const platform = host === "dell" ? "win32" : "darwin";
   const managedRoot = managedRootOf(host);
@@ -3575,28 +3622,79 @@ async function executeRun({ fixture, host, wanted, gate, gateArg, budgetsFile, o
 
   // S17 cached failure ----------------------------------------------------------------------------------------------------------------------
   // One witness commit that adds a real compile error to one fixture crate; the same commit runs twice (the failing rows must be hits the second
-  // time), then once more with RUSTUP_TOOLCHAIN naming another installed toolchain (a keyed environment input: the failing rows must run again).
+  // time), then once more under a changed compiler identity (the failing rows must run again). Identity route by host: direct hosts name another
+  // installed toolchain via RUSTUP_TOOLCHAIN; broker hosts run split-phase (s17PhaseProblems): phase A seals state, an operator switches the
+  // broker's registered toolchain outside the runner, phase B validates the sealed state before any dispatch and runs the third compile.
   if (wanted.includes("S17")) {
-    if (!crateInfo || crateInfo.why) check("S17", "a crate to break exists", { ok: false, problems: [crateInfo?.why ?? "no cargo layout"] });
+    const rustcOf = (run) => run?.receipt?.binding?.toolchain?.rustc ?? null;
+    const failedIdsOf = (run) => [...(run.rows?.values() ?? [])].filter((r) => r.class === "B" && (r.coverage === "ran" || r.coverage === "hit") && r.status === "fail").map((r) => r.id);
+    const commonDir = path.resolve(g.canonical, g.run(["rev-parse", "--git-common-dir"]).trim());
+    const cacheDir = process.env.RK_GATE_CACHE_DIR ? path.resolve(g.canonical, process.env.RK_GATE_CACHE_DIR) : path.join(commonDir, "rightkit-gate-cache");
+    const historyFile = cacheHistoryFileFor({ storeDir: cacheDir });
+    const phaseProblems = s17PhaseProblems({ phase: s17Phase, stateFile: s17State, brokerBacked: !!ctx.broker?.manifest, s17Wanted: true });
+    if (phaseProblems.length) check("S17", "split-phase selection for this host", { ok: false, problems: phaseProblems });
+    else if (s17Phase === "b") {
+      ctx.s17ChangedVar = null;
+      let parsed = { state: null, problems: [] };
+      try { parsed = parseS17State(fs.readFileSync(s17State, "utf8")); } catch (e) { parsed = { state: null, problems: [`the phase-A state ${s17State} cannot be read (${e.message})`] }; }
+      const problems = [...parsed.problems, ...s17StateProblems(parsed.state, { fixtureCommit: commit, historySha256: fileSha(historyFile) })];
+      const st = parsed.state;
+      if (st && !problems.length) {
+        let held = null; try { held = g.run(["rev-parse", st.splitRef]).trim(); } catch { held = null; }
+        if (held !== st.witnessCommit) problems.push(`${st.splitRef} holds ${held ?? "nothing"}, not the phase-A witness commit ${st.witnessCommit}: phase B cannot resume it`);
+        for (const label of ["S17:fail1", "S17:fail2"]) {
+          const rec = st.runs[label]; const reports = [];
+          for (const p of rec.coveragePaths) { const j = readJson(p); if (j.error) { problems.push(`${label}: cannot read phase-A coverage ${j.error}`); continue; } const v = validateCoverage(j.value); if (!v.ok) problems.push(...v.problems.map((x) => `${label}: ${p}: ${x}`)); reports.push(j.value); }
+          let log = ""; try { log = fs.readFileSync(rec.logPath, "utf8"); } catch (e) { problems.push(`${label}: cannot read phase-A log ${rec.logPath} (${e.message})`); }
+          if (!problems.length) ctx.runs[label] = { label, stage: "compile", commit: st.witnessCommit, exit: rec.exit, log, logPath: rec.logPath, coveragePaths: rec.coveragePaths, coverageStarts: reports.map((r) => r.startedAt), rows: mergeCoverage(reports), receipt: rec.receiptPath ? readJson(rec.receiptPath).value ?? null : null, receiptPath: rec.receiptPath ?? null, ladder: true, ledger: null, ledgerPath: null, timings: stageTimings(log), restoredFromPhaseA: true };
+        }
+      }
+      check("S17", "phase B resumes the sealed phase-A state before any dispatch", { ok: problems.length === 0, problems });
+      if (!problems.length) {
+        try {
+          const f3 = await doRun({ label: "S17:fail3", stage: "compile", commit: st.witnessCommit, ladder: true, step: "S17", profile: "edited-compile" });
+          ctx.identityChange = `operator broker toolchain switch: ${st.rustcA} -> ${rustcOf(f3) ?? "no compiler bound"}`;
+          check("S17", "the run after the operator toolchain switch forecast-runs its rows, each change named, and the failing rows run again", assertDecisionRun(f3, decisionReportOf(f3.log), { cause: "changed", ids: st.failedIds, changedVar: null }));
+          check("S17", "the third run's receipt binds a different compiler than phase A's (the operator switch took effect)", { ok: rustcOf(f3) !== null && rustcOf(f3) !== st.rustcA, problems: [`phase A bound ${st.rustcA}, third run bound ${rustcOf(f3) ?? "no compiler"}: the operator toolchain switch did not reach the compile`] });
+        } finally { try { g.run(["update-ref", "-d", st.splitRef]); } catch (e) { stepOf("S17")?.notes.push(`S17: could not delete ${st.splitRef}: ${e.message}`); } }
+      }
+    }
+    else if (!crateInfo || crateInfo.why) check("S17", "a crate to break exists", { ok: false, problems: [crateInfo?.why ?? "no cargo layout"] });
     else {
       const cf = g.witnessCommit(commit, "s17-fail", [{ path: crateInfo.file, content: `${g.show(commit, crateInfo.file)}\ncompile_error!("gate-acceptance NN41: a deterministic compile failure");\n` }]);
       const f1 = await doRun({ label: "S17:fail1", stage: "compile", commit: cf, ladder: true, step: "S17", profile: "edited-compile" });
       check("S17", "the failing commit's first compile wrote coverage", { ok: f1.rows !== null, problems: [`exit ${f1.exit}, no readable coverage`] });
       const f2 = await doRun({ label: "S17:fail2", stage: "compile", commit: cf, ladder: true, step: "S17", profile: "edited-compile" });
       check("S17", "the failing commit's second compile wrote coverage", { ok: f2.rows !== null, problems: [`exit ${f2.exit}, no readable coverage`] });
-      const other = otherToolchain(f1.receipt?.binding?.toolchain?.rustc);
-      if (!other) { ctx.identityChange = "no second installed toolchain found under RUSTUP_HOME/toolchains"; check("S17", "a second installed toolchain exists to change the identity", { ok: false, problems: [ctx.identityChange] }); }
-      else {
-        ctx.identityChange = `RUSTUP_TOOLCHAIN=${other}`;
-        // A toolchain change is not the run's own files: the misses run, explained (Adrian 2026-11-08), and the failing rows run again (no reuse).
-        const f3 = await doRun({ label: "S17:fail3", stage: "compile", commit: cf, ladder: true, step: "S17", profile: "edited-compile", env: { RUSTUP_TOOLCHAIN: other } });
-        const f1Failed = [...(f1.rows?.values() ?? [])].filter((r) => r.class === "B" && (r.coverage === "ran" || r.coverage === "hit") && r.status === "fail").map((r) => r.id);
-        check("S17", "the run with a changed toolchain forecast-runs its rows, each change named, and the failing rows run again", assertDecisionRun(f3, decisionReportOf(f3.log), { cause: "changed", ids: f1Failed, changedVar: "RUSTUP_TOOLCHAIN" }));
-        // The identity change must be real for the rows it judges: the compiler the third run's receipt binds differs from the first run's. On a broker
-        // host the broker compiles with its own pinned toolchain whatever RUSTUP_TOOLCHAIN says (Dell 2026-11-18: 1.98.0 asked, 1.99.1 bound in all three
-        // receipts), so a reused broker failure there is not a reuse across an identity change and this step has not exercised one.
-        const rustcOf = (run) => run?.receipt?.binding?.toolchain?.rustc ?? null;
-        check("S17", "the third run's receipt binds a different compiler than the first run's (the identity change took effect)", { ok: rustcOf(f1) !== null && rustcOf(f3) !== null && rustcOf(f1) !== rustcOf(f3), problems: [`first run bound ${rustcOf(f1) ?? "no compiler"}, third run (${ctx.identityChange}) bound ${rustcOf(f3) ?? "no compiler"}: the toolchain change did not reach the compile`] });
+      if (s17Phase === "a") {
+        ctx.identityChange = "split-phase A complete; awaiting operator broker toolchain switch (phase B)";
+        const splitRef = `refs/s17-split/${cf.slice(0, 12)}`;
+        const problems = [];
+        if (rustcOf(f1) === null) problems.push("the first run's receipt binds no compiler, so phase A cannot name the identity phase B must differ from");
+        if (!failedIdsOf(f1).length) problems.push("the first run has no Class B failing row, so phase A has no cached failure to carry");
+        if (!fileSha(historyFile)) problems.push(`no forecast history at ${historyFile} after phase A, so phase B cannot verify an unadvanced baseline`);
+        if (!problems.length) { try { g.run(["update-ref", splitRef, cf]); } catch (e) { problems.push(`cannot hold the witness commit under ${splitRef}: ${e.message}`); } }
+        let statePath = null;
+        if (!problems.length) {
+          const artifact = (run) => ({ exit: run.exit, logPath: run.logPath, coveragePaths: run.coveragePaths, receiptPath: run.receiptPath ?? null });
+          statePath = s17State ?? path.join(outDir, "s17-phase-a.json");
+          try { fs.writeFileSync(statePath, `${sealS17State({ schema: S17_STATE_SCHEMA, witnessCommit: cf, fixtureCommit: commit, splitRef, rustcA: rustcOf(f1), failedIds: failedIdsOf(f1), historyFile, historySha256: fileSha(historyFile), runs: { "S17:fail1": artifact(f1), "S17:fail2": artifact(f2) } })}\n`); } catch (e) { problems.push(`cannot write phase-A state ${statePath}: ${e.message}`); }
+        }
+        check("S17", "phase A seals its state for the operator-switch phase B", { ok: problems.length === 0, problems });
+        if (!problems.length) stepOf("S17")?.notes.push(`S17 phase A state: ${statePath}; witness held under ${splitRef}`);
+      } else {
+        const other = otherToolchain(f1.receipt?.binding?.toolchain?.rustc);
+        if (!other) { ctx.identityChange = "no second installed toolchain found under RUSTUP_HOME/toolchains"; check("S17", "a second installed toolchain exists to change the identity", { ok: false, problems: [ctx.identityChange] }); }
+        else {
+          ctx.identityChange = `RUSTUP_TOOLCHAIN=${other}`;
+          // A toolchain change is not the run's own files: the misses run, explained (Adrian 2026-11-08), and the failing rows run again (no reuse).
+          const f3 = await doRun({ label: "S17:fail3", stage: "compile", commit: cf, ladder: true, step: "S17", profile: "edited-compile", env: { RUSTUP_TOOLCHAIN: other } });
+          check("S17", "the run with a changed toolchain forecast-runs its rows, each change named, and the failing rows run again", assertDecisionRun(f3, decisionReportOf(f3.log), { cause: "changed", ids: failedIdsOf(f1), changedVar: "RUSTUP_TOOLCHAIN" }));
+          // The identity change must be real for the rows it judges: the compiler the third run's receipt binds differs from the first run's. On a broker
+          // host the broker compiles with its own pinned toolchain whatever RUSTUP_TOOLCHAIN says (Dell 2026-11-18: 1.98.0 asked, 1.99.1 bound in all three
+          // receipts), so a reused broker failure there is not a reuse across an identity change and this step has not exercised one.
+          check("S17", "the third run's receipt binds a different compiler than the first run's (the identity change took effect)", { ok: rustcOf(f1) !== null && rustcOf(f3) !== null && rustcOf(f1) !== rustcOf(f3), problems: [`first run bound ${rustcOf(f1) ?? "no compiler"}, third run (${ctx.identityChange}) bound ${rustcOf(f3) ?? "no compiler"}: the toolchain change did not reach the compile`] });
+        }
       }
     }
   }

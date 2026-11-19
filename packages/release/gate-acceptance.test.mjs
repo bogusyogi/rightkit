@@ -18,7 +18,7 @@ import {
   BROKER_FORBIDDEN_CARGO, BUDGETS_SCHEMA, BUDGET_STAGES, NN, NN07_ALLOWLIST, NN_IDS, assertAdviceCached, assertBatching, assertBudget, assertDependencyReuse, assertDigestStable,
   assertBlockedWhole, assertDecisionRun, assertEnvDigestScope, assertKeysStable, assertLanes, assertLockstepSharing, assertNoBrokerNonCompiling, assertNoClassARan, assertNoClassBRan, assertNoDuplicateSpawns, assertOneExclusionOnCheck, assertTogetherSharing, cacheHistoryFileFor, decisionReportOf,
   assertNoRealCargoMetadata, assertOtherWorkspacesIdle, assertRulesCached, assertRustfmtSpawns, assertSnapshotProof, assertUnitListShare, evaluateNonNegotiables, findInstalledGate,
-  gateIdentityProblems, isExecutingRow, loadBudgets, lockProblems, nnForStep, normalizeSpawn, parseLedger, programOf, reviewProblems, risenBudgets, stageMarks, unitSelectorsOf, validateBudgets,
+  gateIdentityProblems, isExecutingRow, loadBudgets, lockProblems, nnForStep, normalizeSpawn, parseLedger, parseS17State, programOf, reviewProblems, risenBudgets, s17PhaseProblems, s17StateProblems, sealS17State, stageMarks, unitSelectorsOf, validateBudgets,
 } from "./gate-acceptance.mjs";
 
 const sha = (s) => createHash("sha256").update(s).digest("hex");
@@ -184,6 +184,34 @@ test("NN36 lock judge fails closed when git or the contract cannot be read", () 
     fs.rmSync(path.join(root, "docs/GATE-CONTRACT.md"));
     assert.match(lockProblems({ ...args, run: happy }).problems.join(), /contract .* cannot be read/);
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test("S17 split-phase: phase selection refuses the env route on broker hosts and phase B without state", () => {
+  assert.deepEqual(s17PhaseProblems({ phase: null, brokerBacked: false, s17Wanted: true }), []);
+  assert.deepEqual(s17PhaseProblems({ phase: "a", brokerBacked: true, s17Wanted: true }), []);
+  assert.deepEqual(s17PhaseProblems({ phase: "b", stateFile: "s.json", brokerBacked: true, s17Wanted: true }), []);
+  assert.match(s17PhaseProblems({ phase: null, brokerBacked: true, s17Wanted: true }).join(), /split-phase/);
+  assert.match(s17PhaseProblems({ phase: "b", brokerBacked: true, s17Wanted: true }).join(), /--s17-state/);
+  assert.match(s17PhaseProblems({ phase: "c", brokerBacked: false, s17Wanted: true }).join(), /--s17-phase must be a or b/);
+  assert.match(s17PhaseProblems({ phase: "a", brokerBacked: true, s17Wanted: false }).join(), /S17 is not selected/);
+});
+
+test("S17 phase-A state: sealed roundtrip; tamper, wrong fixture and history drift are refused by name", () => {
+  const state = { schema: "rightkit.s17-phase-a/1", witnessCommit: "a".repeat(40), fixtureCommit: "b".repeat(40), splitRef: "refs/s17-split/x", rustcA: "rustc 1.99.1 (58cf8f9c3)", failedIds: ["clippy:rk:a"], historyFile: "/h.json", historySha256: "c".repeat(64), runs: { "S17:fail1": { exit: 1, logPath: "/o/f1.log", coveragePaths: ["/o/c1.json"], receiptPath: "/o/f1.receipt.json" }, "S17:fail2": { exit: 1, logPath: "/o/f2.log", coveragePaths: ["/o/c2.json"], receiptPath: "/o/f2.receipt.json" } } };
+  const text = sealS17State(state);
+  const back = parseS17State(text);
+  assert.deepEqual(back.problems, []); assert.deepEqual(back.state, state);
+  assert.match(parseS17State(text.replace("rustc 1.99.1", "rustc 1.98.0")).problems.join(), /checksum/);
+  assert.match(parseS17State("not json").problems.join(), /cannot be read/);
+  assert.match(parseS17State(JSON.stringify({ sha256: "x", body: "{}" })).problems.join(), /checksum/);
+  const now = { fixtureCommit: "b".repeat(40), historySha256: "c".repeat(64) };
+  assert.deepEqual(s17StateProblems(state, now), []);
+  assert.match(s17StateProblems(state, { ...now, fixtureCommit: "d".repeat(40) }).join(), /fixture commit/);
+  assert.match(s17StateProblems(state, { ...now, historySha256: "e".repeat(64) }).join(), /history changed since phase A/);
+  assert.match(s17StateProblems({ ...state, failedIds: [] }, now).join(), /no failing row ids/);
+  assert.match(s17StateProblems({ ...state, rustcA: "" }, now).join(), /rustc/);
+  assert.match(s17StateProblems({ ...state, schema: "other/1" }, now).join(), /schema/);
+  assert.match(s17StateProblems(null, now).join(), /no phase-A state/);
 });
 
 test("mergeCoverage prefers a real answer over a not-in-pass skip", () => {
