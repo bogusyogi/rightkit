@@ -621,7 +621,7 @@ struct ResolverPlace;
 impl ResolverPlace {
     fn take() -> Option<Self> {
         RESOLVING
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| {
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |n| {
                 (n < MAX_RESOLVING).then_some(n + 1)
             })
             .ok()
@@ -1065,7 +1065,7 @@ impl Op {
             Err(Error::InteractionRequired) => Err(PersistError::NeedsInteraction),
             Err(Error::InProgress { .. }) => Err(PersistError::Busy),
             // The backend could not take its per-target lock: it is before the write.
-            Err(Error::Timeout { op, .. }) if op == "lock" => Err(PersistError::Busy),
+            Err(Error::Timeout { op: "lock", .. }) => Err(PersistError::Busy),
             Err(Error::Timeout { .. }) => {
                 self.mark_unsettled();
                 Err(PersistError::Indeterminate)

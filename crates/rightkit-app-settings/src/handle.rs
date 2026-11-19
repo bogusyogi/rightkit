@@ -158,9 +158,7 @@ impl<T: Serialize + DeserializeOwned + Default + Clone> StoreHandle<T> {
         loop {
             match Store::<T>::open_path((self.path)(), (self.options)()) {
                 Ok(store) => {
-                    let _subscription = self
-                        .on_change
-                        .map(|notify| store.subscribe(move |change| notify(change)));
+                    let _subscription = self.on_change.map(|notify| store.subscribe(notify));
                     return Ok(Opened {
                         store,
                         _subscription,
