@@ -7,6 +7,10 @@
 //! isolated helper, window text harvest, AX focus proofs and native writes) and `windows`
 //! (clipboard staging with full-format restore, focus observer, promised clipboard).
 
+/// Upper bound on native events retained for a single authorized write.
+/// Larger edits require separately authorized batches or explicit clipboard recovery.
+pub const MAX_PREPARED_INPUT_EVENTS: usize = 1024;
+
 #[cfg(target_os = "macos")]
 pub mod macos;
 

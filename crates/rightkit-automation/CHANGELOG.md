@@ -2,6 +2,7 @@
 
 ## 0.7.1 (unpublished; partial extraction)
 
+- Added single-use prepared keyboard batches on Windows & macOS: paste, Return, Unicode text & Backspace. Preparation injects nothing; dispatch posts prebuilt input without modifier waits, lookups or allocation. Existing APIs remain available; native qualification is pending.
 - Added Windows `win::uia::{point_link_state, PointLinkState}`. Only complete, readable walks to desktop root prove `NotLink`; errors & ancestor limits return `Unknown`. Existing boolean helper behavior stays unchanged.
 - Added `desktop::paste_event_probe`: bounded, target-PID, listen-only evidence for host-tagged Cmd+V transitions on macOS, behind `desktop-context`.
 - Probe rejects zero tags, caps event count/lifetime & honors user-disabled tap state; Drop stops & joins its run loop.

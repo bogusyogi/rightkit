@@ -1,6 +1,7 @@
 #![cfg(target_os = "windows")]
 
 use std::{
+    cell::Cell,
     ffi::c_void,
     mem::size_of,
     ptr::null_mut,
@@ -27,8 +28,9 @@ use windows_sys::Win32::System::Threading::{
     OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
 };
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
-    GetAsyncKeyState, MapVirtualKeyW, KEYEVENTF_KEYUP, VK_CONTROL, VK_LWIN, VK_MENU, VK_RETURN,
-    VK_RWIN, VK_SHIFT,
+    GetAsyncKeyState, MapVirtualKeyW, SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT,
+    KEYEVENTF_KEYUP, KEYEVENTF_SCANCODE, KEYEVENTF_UNICODE, VK_CONTROL, VK_LWIN, VK_MENU,
+    VK_RETURN, VK_RWIN, VK_SHIFT,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{CopyImage, IMAGE_BITMAP};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
@@ -1099,6 +1101,116 @@ fn key(vk: u16, flags: u32) -> RawInput {
 
 fn send_inputs(inputs: &[RawInput]) -> bool {
     send_input_batch(inputs).is_ok()
+}
+
+/// Prebuilt, single-use keyboard batch for user-initiated input. Caller owns
+/// fresh focus, security & modifier authorization immediately before sending.
+/// Preparation injects nothing. This handle cannot be cloned or shared across threads.
+pub struct PreparedInput {
+    inputs: Vec<INPUT>,
+    attempted: Cell<bool>,
+}
+
+impl PreparedInput {
+    fn new(count: usize) -> Option<Self> {
+        if count > super::MAX_PREPARED_INPUT_EVENTS {
+            return None;
+        }
+        let mut inputs = Vec::new();
+        inputs.try_reserve_exact(count).ok()?;
+        Some(Self {
+            inputs,
+            attempted: Cell::new(false),
+        })
+    }
+
+    /// Issue one prebuilt SendInput batch, with no allocation, OS reads,
+    /// waits, lookups or retries. Empty batches succeed without a syscall.
+    /// Every attempt consumes this batch, including partial/failed insertion;
+    /// UIPI & secure-desktop restrictions remain enforced by Windows.
+    pub fn send_now(&self) -> bool {
+        if self.attempted.replace(true) {
+            return false;
+        }
+        self.inputs.is_empty()
+            || unsafe {
+                SendInput(
+                    self.inputs.len() as u32,
+                    self.inputs.as_ptr(),
+                    size_of::<INPUT>() as i32,
+                ) == self.inputs.len() as u32
+            }
+    }
+
+    fn push_key(&mut self, vk: u16, scan: u16, flags: u32) {
+        self.inputs.push(INPUT {
+            r#type: INPUT_KEYBOARD,
+            Anonymous: INPUT_0 {
+                ki: KEYBDINPUT {
+                    wVk: vk,
+                    wScan: scan,
+                    dwFlags: flags,
+                    time: 0,
+                    // Match send_input_batch's existing untagged default.
+                    dwExtraInfo: 0,
+                },
+            },
+        });
+    }
+}
+
+/// Prepare Ctrl down, V down/up, Ctrl up by scan code. Modifiers must already
+/// be up at authorization; no physical keys are released or re-pressed here.
+pub fn prepare_paste_chord() -> Option<PreparedInput> {
+    let ctrl = scan_for_vk(VK_CONTROL);
+    let v = scan_for_vk(0x56);
+    if ctrl == 0 || v == 0 {
+        return None;
+    }
+    let mut prepared = PreparedInput::new(4)?;
+    prepared.push_key(0, ctrl, KEYEVENTF_SCANCODE);
+    prepared.push_key(0, v, KEYEVENTF_SCANCODE);
+    prepared.push_key(0, v, KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP);
+    prepared.push_key(0, ctrl, KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP);
+    Some(prepared)
+}
+
+/// Prepare Return down/up, resolving its scan code before authorization.
+pub fn prepare_return() -> Option<PreparedInput> {
+    prepare_repeated_key(VK_RETURN, 1)
+}
+
+fn prepare_repeated_key(vk: u16, count: usize) -> Option<PreparedInput> {
+    let mut prepared = PreparedInput::new(count.checked_mul(2)?)?;
+    if count != 0 {
+        let scan = scan_for_vk(vk);
+        if scan == 0 {
+            return None;
+        }
+        for _ in 0..count {
+            prepared.push_key(vk, scan, 0);
+            prepared.push_key(vk, scan, KEYEVENTF_KEYUP);
+        }
+    }
+    Some(prepared)
+}
+
+/// Prepare UTF-16 key packets in one batch. Empty text prepares a no-op.
+pub fn prepare_unicode_text(text: &str) -> Option<PreparedInput> {
+    if text.len() > super::MAX_PREPARED_INPUT_EVENTS / 2 * 3 {
+        return None;
+    }
+    let mut prepared = PreparedInput::new(text.encode_utf16().count().checked_mul(2)?)?;
+    for unit in text.encode_utf16() {
+        prepared.push_key(0, unit, KEYEVENTF_UNICODE);
+        prepared.push_key(0, unit, KEYEVENTF_UNICODE | KEYEVENTF_KEYUP);
+    }
+    Some(prepared)
+}
+
+/// Prepare `count` Backspace down/up pairs. Zero prepares a no-op.
+pub fn prepare_backspaces(count: usize) -> Option<PreparedInput> {
+    prepare_repeated_key(0x08, count)
 }
 
 pub fn send_paste_keystroke() -> bool {
