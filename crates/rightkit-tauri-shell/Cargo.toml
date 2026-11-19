@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-tauri-shell"
-version = "0.8.4"
+version = "0.8.5"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Shared Tauri desktop shell for Right Suite apps: webview hardening, window state, native menu, tray, single instance, deep links, autostart, rich clipboard, watchdog and engine wiring."
@@ -45,6 +45,8 @@ dialog = ["dep:tauri-plugin-dialog"]
 app-update = ["host-services", "dep:rightkit-app-update"]
 update = ["host-services", "dep:tauri-plugin-updater", "dep:reqwest", "dep:sha2", "dep:tokio", "dep:rustls"]
 update-license = ["update", "dep:rightkit-license", "dep:url"]
+# Native background checks only; host supplies cadence, readiness, headers & tier policy.
+background-update = ["dep:tauri-plugin-updater", "dep:tokio"]
 overlay = ["dep:rightkit-overlay"]
 pdf-host = ["host-services", "dep:rightkit-pdf"]
 models = ["host-services", "dep:rightkit-models"]

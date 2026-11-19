@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.10.10 (unpublished)
+
+- Add opt-in `in-app-shot`: host-configured screenshot options, current-process Windows capture & typed JSON command argument readers. Keep app window identity, defaults & handlers in app code. Reject empty title tables, changed process ownership & oversized pixel buffers; release tooling must exclude QA-only feature.
+- Add optional `tiny-skia` 0.12 & Windows GDI/XPS features on existing `windows-sys` 0.61.2 dependency. Rust floor remains 1.98.0.
+
+## 0.10.9 (unpublished)
+
+- Add opt-in `credential-owner` module with `dispatch`, `OwnerHost`, declared credential sets, snapshot-store configuration & independently supplied runner identities. Preserve canonical target checks, slot collision rejection, metadata-only protocol v2 & per-app owner exclusion.
+- Keep owner mode unavailable: no supported snapshot-store isolation or signed independent runner has been established. macOS refuses `isolation_not_established`; Windows refuses `snapshot_store_unisolated`; missing runner proof refuses earlier. Owner-required operations have no in-process fallback. This intake makes no behavior-complete claim.
+- Dependency floors: `rightkit-daemon` 0.9.1 for Developer ID & held-handle publisher proof; `rightkit-fs` 0.4.17 with feature-gated `lock`; `rightkit-credentials` 0.5.6 for native credential identities.
+
 ## 0.10.8 (2026-11-16)
 
 - The package no longer ships `src/embedded/in_view.rs` (a one-newline file nothing declared). No public item, feature or behaviour changes; the compiled library is unchanged.

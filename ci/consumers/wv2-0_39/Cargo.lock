@@ -3162,7 +3162,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-qa"
-version = "0.10.8"
+version = "0.10.10"
 dependencies = [
  "getrandom 0.4.3",
  "png",
@@ -3208,7 +3208,7 @@ version = "0.1.0"
 
 [[package]]
 name = "rightkit-tauri-shell"
-version = "0.8.4"
+version = "0.8.5"
 dependencies = [
  "block2",
  "libc",

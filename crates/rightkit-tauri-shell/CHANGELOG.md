@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.8.5
+
+- Added opt-in `background-update`: native metadata-check cadence, one-shot manual checks & cached status. Host supplies timing, readiness, auth headers, tier policy, status routing & diagnostics; existing tray, hub & menu-helper behavior stays unchanged.
+
 ## 0.8.4
 
 - Added opt-in macOS `menubar-helper`: supervised nested helper launch, state notifications & authenticated menu/Shortcuts action transport. Exact host-configured Developer ID identities use `rightkit-daemon` 0.9.1 exclusively; role-specific actions, per-connection nonces, sequence checks, bounded replay history & connection/frame limits reject untrusted or repeated requests. Requires bundled-app helpers from `rightkit-child-process` 0.5.14.

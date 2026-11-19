@@ -2304,11 +2304,11 @@
       "pkId": "PK08",
       "id": "ci/consumers/rightkit-tauri-shell/src/main.rs",
       "files": {
-        "Cargo.toml": "7331cd583f111ad9d2e6083ac33b0a0d293e4122f1e52b1a3b9df2bc1e0bf0e5",
-        "README.md": "f1985211e1f00c25fef3bd7dea686e2874f8259c75bbaec85db12ee3ef15e639",
-        "src/main.rs": "a02b7ce992d7450271f80f7eb67c9404524b83d28f525e7fb73945cd91718778"
+        "Cargo.toml": "7d9a2662e59e0ab7e8b4982413741642e1ac8cebed31194ebd5527cf881b0f01",
+        "README.md": "6fae552c5db1d6406d5dfd0ab7d85c8179d2a04bf5e847dd2542a1c2203cae7d",
+        "src/main.rs": "35483cddef1dc255e9cf5ab8b8ca2df94e35803c4318bffd9b8364684b820fdc"
       },
-      "aggregateSha256": "2f90fe53e162091b2b2204c17ad2f83820f854cf774d16dc48d8e66f692e718f"
+      "aggregateSha256": "c9460d9cd7fc93e866ff8e90996a42c7462e1cf54d876401526da98490bc7ee4"
     },
     "rightkit-oauth": {
       "pkId": "PK06",
@@ -2460,18 +2460,18 @@
     "rightkit-qa": {
       "pkId": "PK14",
       "id": "ci/consumers/rightkit-qa/src/main.rs",
-      "dependency": "rightkit-qa = { version = \"=0.10.5\" }",
+      "dependency": "rightkit-qa = { version = \"=0.10.10\", features = [\"credential-owner\", \"in-app-shot\"] }",
       "extraDependencies": [
         "serde_json = \"1\""
       ],
-      "gateEvidence": "no assets needed; in-memory values only; default features only; no ci/asset-gated.json entry needed",
+      "gateEvidence": "no assets needed; in-memory values only; screenshot argument validation without native capture",
       "consumes": "PK14-4 named QA glue consumers per 01-packages.md: MailRight tauri_run.rs:109 QA registration, HeardRight and ScrapeRight journey runners; exercised modules: scenario, config, settings, check, storage, util (crates/rightkit-qa/src/lib.rs)",
       "files": {
-        "Cargo.toml": "92d01b136c5135a5e471b221deb31491e1a5020d0f0c6ad9bea6caf6fab6fc62",
-        "README.md": "1510ddc757e66da523b6692b2602845a2d6dd4afd97ea862ad8713b75acdd5bd",
-        "src/main.rs": "96871db3b9700255f9838aaa483e9629be0f4b3e0839fc8d46f378fe95ab1ffa"
+        "Cargo.toml": "ede885e8ac6b0052b4befe4679db863a1ca6adae75a21a80291b2d1cbc030457",
+        "README.md": "2a7c250cf674ea7a29db3b2f93367691102bb0e44ec155b50f6186e64f5be910",
+        "src/main.rs": "ec89757f6e854649383ac355a419d5977b51f236e7ee1a5767bfe00bd8a358eb"
       },
-      "aggregateSha256": "e7e23f007ccee54fee15cbf3c97ff62eed581b3f2e2ddfad8f6fe7ac4c8904b9"
+      "aggregateSha256": "1536ff412d0855755d8b14d26cc2c30dcbac9d32f5b9b8eb8ed1ca474b6b8c5d"
     },
     "rightkit-sandbox": {
       "pkId": "PK12",

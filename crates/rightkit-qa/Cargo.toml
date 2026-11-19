@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-qa"
-version = "0.10.8"
+version = "0.10.10"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Rust QA harness for Right Suite apps: engine black-box scenarios, hidden native UI driving (the in-app control server is the dev-only `control` feature), Rust-test scenario wrapper, dynamic paid-provider mocks, loudness/WAV/PNG/frame validators, run lock, orphan sweep, hashed evidence."
@@ -29,17 +29,22 @@ browser = ["dep:rightkit-browser", "dep:tokio"]
 # `RIGHTKIT_CONTROL_SERVICE`. A journey run protects the real data with the snapshot and restore of
 # the `snapshot` module (rightkit#1437), not with a throwaway root.
 control = ["dep:tauri"]
+# Owner-side credential protocol; keep out of release artifacts. Every order fails closed
+# until an independent runner identity & supported snapshot-store isolation are established.
+credential-owner = ["rightkit-fs/lock"]
+# QA-only current-process window capture plus typed command argument readers.
+in-app-shot = ["dep:tiny-skia", "windows-sys/Win32_Graphics_Gdi", "windows-sys/Win32_Storage_Xps"]
 # Windows: the `windows` + `webview2-com` generation the app's Tauri resolves, so WebView2 types cross the
 # Tauri boundary. Tauri 2.11 (wry 0.55) = wv2-0_38; Tauri 2.12+ = wv2-0_39. Neither is default: enable one with `control`.
 wv2-0_38 = ["dep:windows_061", "dep:webview2_com_038"]
 wv2-0_39 = ["dep:windows_062", "dep:webview2_com_039"]
 
 [dependencies]
-rightkit-fs = { version = "0.4.9", path = "../rightkit-fs", default-features = false, features = ["digest", "fs", "app-dirs"] }
+rightkit-fs = { version = "0.4.17", path = "../rightkit-fs", default-features = false, features = ["digest", "fs", "app-dirs"] }
 # The real OS credential store, read and written by the snapshot and restore (`snapshot` module).
-rightkit-credentials = { version = "0.5.0", path = "../rightkit-credentials" }
+rightkit-credentials = { version = "0.5.6", path = "../rightkit-credentials" }
 rightkit-sidecar = { version = "0.3.0", path = "../rightkit-sidecar" }
-rightkit-daemon = { version = "0.9.0", path = "../rightkit-daemon" }
+rightkit-daemon = { version = "0.9.1", path = "../rightkit-daemon" }
 # The suite root (`Suite`, `ENV_SUITE_ROOT`); `valid_service_name` is rightkit-daemon's again.
 rightkit-roots = { version = "0.2.0", path = "../rightkit-roots" }
 rightkit-child-process = { version = "0.5.7", path = "../rightkit-child-process" }
@@ -49,6 +54,7 @@ rightkit-automation = { version = "0.7.0", path = "../rightkit-automation" }
 tauri = { version = "2", optional = true }
 tokio = { version = "1", features = ["rt", "time"], optional = true }
 png = "0.18"
+tiny-skia = { version = "0.12", optional = true }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 getrandom = "0.4"

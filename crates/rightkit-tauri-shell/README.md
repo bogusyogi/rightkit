@@ -23,6 +23,7 @@ Shared Tauri desktop shell for Right Suite applications. It owns hardened webvie
 | `pdf-host` | off | implies `host-services`; `rightkit-pdf` 0.3.3 (`host`) | Native PDF view: seven `rightkit_pdf_*` commands (`src/pdf_host.rs`). PDFKit on macOS; `unsupported` on other platforms. |
 | `license` | off | implies `host-services`; `rightkit-license` 0.2.4 (`update-auth`) | The `rightkit_license_*` commands (status, activate, refresh, deactivate, request_trial, link_request, link_redeem, retry_pending_releases; the last needs `LicenseHostService::with_release_queue`) and, behind `ServiceId::ACCOUNT` (`HostServicesBuilder::account_client`), the nine `rightkit_account_*` commands. The views they return carry no token, key or device id. |
 | `update` | off | implies `host-services`; `tauri-plugin-updater` =2.10.1, `reqwest` 0.13.5, `sha2`, `tokio` | Native updater: five `rightkit_update_*` commands (`src/update.rs`). |
+| `background-update` | off | `tauri-plugin-updater` >=2.10.1, <3; `tokio` (`macros`, `time`) | Native metadata-check cadence, manual checks & cached status (`background_update`). Independent of `update` & `host-services`. |
 | `update-license` | off | implies `update` and `license`; `url` | Binds each update to the licence captured at check (`LicenseAuthority`). |
 | `overlay` | off | `rightkit-overlay` 0.2.0 | Always-on-top, no-activate overlay host (`src/overlay_host.rs`). |
 | `app-lock` | off | implies `host-services`; `rightkit-credentials` 0.4.0 (`os-auth`) | Native OS-auth app lock: `rightkit_app_lock_*` commands over Windows Hello / macOS LocalAuthentication, caller-gated, fail-closed (`src/app_lock.rs`, `src/host/app_lock.rs`). Local unlock never grants remote approval, PIN or signing authority. |
@@ -585,3 +586,11 @@ planning without native windows. Native multi-tray rendering/clicks require desk
 
 Tagged errors identify `origin` as `engine` or `supervisor`. Retry readiness codes only for
 `supervisor` errors: an engine reply using `down` or `not_ready` may follow completed work.
+
+## Background update checks
+
+Enable `background-update`, register Tauri's updater plugin, then call `background_update::start(app, host)` once from native setup. `Host` supplies `Schedule` (initial, regular & not-ready delays), accepted manifest tiers, readiness, async request headers, tier eligibility, status publication & diagnostics. Endpoints & signing keys stay in native updater configuration; renderer event names, routing & copy stay with host. Headers are refreshed for each check & must be scoped by host to its configured updater endpoints.
+
+`check_now(app, host)` performs one check regardless of readiness. Both paths validate manifest tier presence & membership before calculating eligibility, then cache & publish `BackgroundUpdateStatus`. `status()` returns process-wide cached status, initially `Idle`; its tagged JSON matches `@rightkit/app-update`'s background session. Reasons remain `auto_install_off` & `pro_required` for wire compatibility. These are metadata checks; download, install & install authorization remain separate.
+
+The detached loop lives until async runtime shutdown & has no cancellation/restart API. Use nonzero regular/retry delays & bounded header lookups. Manual checks can overlap; completed checks replace cached status in completion order. Host command wrappers must enforce their caller policy before exposing status or requesting checks. Existing `os_settings::open_pane(SettingsPane::Microphone)` covers native microphone settings without another launcher.

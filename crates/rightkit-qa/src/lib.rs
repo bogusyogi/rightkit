@@ -49,6 +49,9 @@ pub mod check;
 pub mod cli_tools;
 pub mod config;
 pub mod control;
+/// Owner-side credential protocol; unavailable until independent runner proof & store isolation exist.
+#[cfg(feature = "credential-owner")]
+pub mod credential_owner;
 /// macOS permission-dialog evidence.
 pub mod dialog;
 /// macOS display accessibility preferences and the scroller style, read and required for QA.
@@ -68,6 +71,9 @@ pub mod http;
 /// Tier-2 `InApp` client for the embedded control server (`control` feature only).
 #[cfg(feature = "control")]
 pub mod in_app;
+/// QA-only screenshot grammar, current-process capture & typed command argument readers.
+#[cfg(feature = "in-app-shot")]
+pub mod in_app_shot;
 pub mod inplace;
 pub mod installed;
 /// Run a journey in the logged-on user's interactive session from a session-0 (SSH) process.
