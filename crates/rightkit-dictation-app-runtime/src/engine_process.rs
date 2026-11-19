@@ -69,6 +69,9 @@ pub enum EngineEvent {
         /// dispatch (e.g. missing Accessibility grant) — the shell surfaces it
         /// on the pill instead of letting failure look like success.
         command_failed: Option<String>,
+        /// A typed request for the host to validate against its current session and delivery.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        host_command: Option<rightkit_dictation_core::engine::HostCommand>,
     },
     /// The sidecar recognized a hands-free stop command and is about to run the
     /// final transcribe. Leave `Recording` and show "processing" NOW, before the

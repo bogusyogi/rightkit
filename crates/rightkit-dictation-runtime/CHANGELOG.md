@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.4
+
+- Use the inference crate's wake-to-recording audio handoff and expose the production replay policy on macOS as well as Windows.
+- Route last-paste casing through a typed reset command for the shell. The legacy engine repaste route now refuses & directs callers to the shell delivery host.
+
 ## 0.2.3
 
 - `GetState` returns fixed state labels without error text; transcribing-session correlation retains its existing wire format. Transcript-returning APIs remain unchanged.

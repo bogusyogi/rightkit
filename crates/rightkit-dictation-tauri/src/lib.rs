@@ -14,9 +14,23 @@
     unused_imports
 )]
 
+pub mod dictation_control;
+pub mod engine_events;
+pub mod final_delivery;
+pub mod focus_coverage;
 pub mod host;
+pub mod hotkey_wiring;
+pub mod lifecycle;
+pub mod renderer_routes;
 pub mod runtime;
 pub mod runtime_lock;
+pub mod shell;
+pub mod sidecar;
+pub mod splash;
+pub mod start_destination;
+pub mod state_decisions;
+pub mod state_emission;
+pub mod wake_lab;
 
 pub mod dictation_error;
 pub mod engine_event_consumer;
@@ -103,7 +117,10 @@ pub mod media_control {
 pub mod streaming_insertion {
     use crate::host::host;
 
-    pub(crate) fn take_for_final(session_id: &str, transcript: &str) -> Option<String> {
+    pub(crate) fn take_for_final(
+        session_id: &str,
+        transcript: &str,
+    ) -> crate::host::StreamingFinal {
         host().streaming_take_for_final(session_id, transcript)
     }
     pub(crate) fn press_enter() -> bool {

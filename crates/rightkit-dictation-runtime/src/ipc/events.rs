@@ -346,6 +346,18 @@ pub(crate) fn emit_finalized(
                 }),
             }),
         ),
+        Ok(FinalizeOutcome::HostCommand(command)) => emit_event(
+            writer,
+            EngineSchemaName::TranscriptFinal,
+            Some(session_id),
+            Some(EnginePayload::TranscriptFinal {
+                text: String::new(),
+                confidence: Some(1.0),
+                diagnostics: Some(
+                    command.into_reset_diagnostics("the host could not verify the last insertion"),
+                ),
+            }),
+        ),
         // Command classified but dispatch failed: still resets to armed, but the
         // shell gets the failure to surface on the pill.
         Ok(FinalizeOutcome::CommandFailed { message }) => emit_event(

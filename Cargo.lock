@@ -11316,7 +11316,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-dictation-app-runtime"
-version = "0.2.2"
+version = "0.3.0"
 dependencies = [
  "rightkit-daemon",
  "rightkit-dictation-core",
@@ -11332,7 +11332,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-dictation-command-host"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "cc",
  "chrono",
@@ -11371,7 +11371,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-dictation-engine"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "libc 0.2.191",
@@ -11473,7 +11473,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-dictation-runtime"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "anyhow",
  "libloading 0.9.0",
@@ -11508,15 +11508,20 @@ dependencies = [
 
 [[package]]
 name = "rightkit-dictation-tauri"
-version = "0.2.2"
+version = "0.3.0"
 dependencies = [
+ "rightkit-automation",
+ "rightkit-crypto",
  "rightkit-dictation-app-runtime",
  "rightkit-dictation-command-host",
  "rightkit-dictation-core",
  "rightkit-dictation-models",
  "rightkit-dictation-telemetry",
+ "rightkit-fs",
+ "rightkit-hotkeys",
  "rightkit-text-polish",
  "rightkit-transcript-library",
+ "serde",
  "serde_json",
 ]
 

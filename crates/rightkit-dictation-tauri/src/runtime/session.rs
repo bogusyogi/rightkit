@@ -184,6 +184,12 @@ impl EngineRuntime {
         // Claim this session before unlocking; transition gate serializes the
         // matching backend RPC before any later cancel can run.
         self.active_session = Some(session_id.clone());
+        let streaming_generation = Arc::new(StdMutex::new(None));
+        self.partial_stream_session = Some(super::engine::PartialStreamSession {
+            session_id: session_id.clone(),
+            generation: Arc::clone(&streaming_generation),
+            last_revision: None,
+        });
         self.sync_sidecar_active_session();
         Ok(PreparedStart::with_command(PreparedEngineStart {
             session_id,
@@ -191,6 +197,7 @@ impl EngineRuntime {
             frame,
             snapshot_frames,
             generation_seen,
+            streaming_generation,
         }))
     }
 
@@ -367,13 +374,46 @@ impl EngineRuntime {
         self.state.get()
     }
 
+    /// Caller holds the runtime mutex through this effect. Stop/cancel/start
+    /// cannot revoke or replace session authority between this check and input.
+    pub(crate) fn stream_transcript_partial(
+        &mut self,
+        session_id: &str,
+        text: &str,
+        revision: u64,
+    ) {
+        if self.active_session.as_deref() != Some(session_id)
+            || !matches!(self.state.get(), AppState::Recording { session_id: ref active } if active == session_id)
+            || self.cancel_to_history_session.as_deref() == Some(session_id)
+        {
+            return;
+        }
+        let Some(authority) = self.partial_stream_session.as_mut() else {
+            return;
+        };
+        if authority.session_id != session_id
+            || authority.last_revision.is_some_and(|last| revision <= last)
+        {
+            return;
+        }
+        let generation = authority
+            .generation
+            .lock()
+            .ok()
+            .and_then(|generation| *generation);
+        if generation != Some(self.sidecar.supervisor.generation()) {
+            return;
+        }
+        // Advance before the host call, independently of history success. Neither
+        // duplicate events nor a failed draft write may retry an input effect.
+        authority.last_revision = Some(revision);
+        crate::host::host().streaming_on_committed(session_id, text);
+    }
+
     /// Crash-recovery draft history rows: throttled create-or-replace of the
-    /// in-progress draft row for `session_id`. Called from the shell's
-    /// `TranscriptPartial` event handler, which is NOT under the delivery
-    /// lock path (see `accept_sidecar_delivery`/`accept_sidecar_transcript`)
-    /// — this method just does a cheap DB upsert and returns; the shell
-    /// acquires `runtime_lock` briefly around the call, mirroring every
-    /// other per-event handler, and never holds it across the write.
+    /// in-progress draft row for `session_id`. The partial event handler holds
+    /// runtime_lock across streaming authorization and this history write.
+    /// History remains eligible while Transcribing; streaming input does not.
     ///
     /// Throttled to at most once per `DRAFT_UPSERT_MIN_INTERVAL` per session,
     /// and only when `revision` increased, so a live dictation's steady
@@ -476,7 +516,10 @@ impl EngineRuntime {
         if let Err(err) = self.persist_session_record(&session_id, record) {
             crate::telemetry::log_message(
                 "history_finalize_failed",
-                &format!("session={session_id} path=delivery error={err}"),
+                &format!(
+                    "session={session_id} path=delivery code={}",
+                    crate::dictation_error::history_error_log_code(&err)
+                ),
             );
         }
         self.draft_throttle = None;
@@ -608,12 +651,37 @@ impl EngineRuntime {
             );
         }
 
-        // Developer-mode streaming insertion already typed part of this text
-        // into the destination; deliver only what is still missing. History
-        // keeps the whole transcript.
+        // Developer-mode streaming insertion may already have typed part of this text into the
+        // destination. `take_for_final` answers with a closed outcome, and only two of its
+        // variants allow an automatic delivery. History keeps the whole transcript in all of them.
         let streamed_full_transcript =
-            crate::streaming_insertion::take_for_final(&session_id, &transcript)
-                .map(|remainder| std::mem::replace(&mut transcript, remainder));
+            match crate::streaming_insertion::take_for_final(&session_id, &transcript) {
+                // This session typed nothing: the normal single delivery, still through the gate.
+                crate::host::StreamingFinal::NothingWritten => None,
+                // The streamed text is a prefix of the final one. `transcript` becomes the
+                // remainder, used ONLY as the text to insert automatically; the full transcript is
+                // kept in `streamed_full_transcript` and is restored on every record that is shown
+                // or stored, on every exit below (recovery, delivered, empty remainder).
+                crate::host::StreamingFinal::Reconciled { remainder } => {
+                    Some(std::mem::replace(&mut transcript, remainder))
+                }
+                // Streamed text is (or may be) still in the field. Deliver nothing, press no
+                // Return, and keep the full transcript available to copy by hand. Only stable
+                // tags are logged.
+                crate::host::StreamingFinal::Stopped { tag, cause } => {
+                    crate::telemetry::log_message(
+                        "streaming_final_stopped",
+                        &format!("session={session_id} outcome={tag} cause={cause}"),
+                    );
+                    return self.accept_streaming_stopped(
+                        session_id,
+                        transcript,
+                        raw_text,
+                        recording_ms,
+                        observer,
+                    );
+                }
+            };
         if streamed_full_transcript.is_some() && transcript.trim().is_empty() && want_enter {
             if crate::streaming_insertion::press_enter() {
                 on_inserted();
@@ -645,7 +713,13 @@ impl EngineRuntime {
             })?;
             match outcome {
                 crate::host::FinalOutcome::Delivered(record) => record,
-                crate::host::FinalOutcome::Recovery(record) => {
+                crate::host::FinalOutcome::Recovery(mut record) => {
+                    // The recovery record was built from the remainder only. Every stored and
+                    // shown copy (card, `last_delivery`, history, the card's Copy) carries the
+                    // full transcript; only the automatic insertion used the remainder.
+                    if let Some(full) = streamed_full_transcript {
+                        record.transcript = full;
+                    }
                     return self.accept_sidecar_delivery(
                         session_id,
                         record.with_raw(raw_text, recording_ms),
@@ -661,6 +735,40 @@ impl EngineRuntime {
             record.transcript = full;
         }
         self.accept_sidecar_delivery(session_id, record, want_enter, observer)
+    }
+
+    /// Streaming insertion stopped with text of its own still in, or possibly still in, the
+    /// destination (`StreamingFinal::Stopped`). Nothing is delivered and no Return is pressed: a
+    /// paste would duplicate or append to what is there. The full transcript goes to history and
+    /// the state is the existing ready-to-copy one: a `CopiedFallback` record with the
+    /// clipboard-preserved reason (no clipboard write is made), which the shell shows as "Ready to
+    /// copy" with the card's explicit Copy.
+    fn accept_streaming_stopped(
+        &mut self,
+        session_id: String,
+        transcript: String,
+        raw_text: Option<String>,
+        recording_ms: Option<u64>,
+        observer: impl FnMut(&AppState),
+    ) -> Result<AppState, String> {
+        let target = self
+            .stop_target
+            .clone()
+            .unwrap_or_else(crate::delivery::TargetSnapshot::empty);
+        // The record builder is given a "write" that reports the clipboard was left alone, so no
+        // clipboard write happens and the record carries the preserved reason.
+        let record = rightkit_transcript_library::delivery::copy_fallback_record_with_clipboard(
+            &transcript,
+            crate::delivery::CopyFallbackReason::clipboard_preserved(),
+            target,
+            |_| Err(crate::delivery::CopyFallbackReason::clipboard_preserved()),
+        );
+        self.accept_sidecar_delivery(
+            session_id,
+            record.with_raw(raw_text, recording_ms),
+            false,
+            observer,
+        )
     }
 
     /// Cancel (any source) finalize: build the `Cancelled` record and push it
@@ -714,7 +822,10 @@ impl EngineRuntime {
         if let Some(err) = persist_error.as_deref() {
             crate::telemetry::log_message(
                 "history_finalize_failed",
-                &format!("session={session_id} path=cancel error={err}"),
+                &format!(
+                    "session={session_id} path=cancel code={}",
+                    crate::dictation_error::history_error_log_code(err)
+                ),
             );
         }
         self.draft_throttle = None;
@@ -788,7 +899,10 @@ impl EngineRuntime {
         if self.cancel_to_history_session.as_deref() == Some(session_id.as_str()) {
             crate::telemetry::log_message(
                 "cancel_to_history_finalize_error",
-                &format!("session={session_id} error={message}"),
+                &format!(
+                    "session={session_id} code={}",
+                    crate::dictation_error::error_log_code(&message)
+                ),
             );
             self.cancel_to_history_session = None;
             self.draft_throttle = None;
@@ -841,33 +955,58 @@ impl EngineRuntime {
         true
     }
 
+    /// Read the host's last completed dictation, including persisted history after restart.
+    fn manual_delivery_source(&mut self) -> Result<DeliveryRecord, String> {
+        self.ensure_history_loaded()?;
+        self.last_delivery
+            .as_ref()
+            .filter(|record| {
+                matches!(
+                    record.source,
+                    None | Some(rightkit_transcript_library::delivery::DeliverySource::Dictation)
+                ) && !matches!(
+                    record.outcome,
+                    rightkit_transcript_library::delivery::DeliveryOutcome::Draft
+                        | rightkit_transcript_library::delivery::DeliveryOutcome::Cancelled
+                )
+            })
+            .cloned()
+            .or_else(|| self.newest_repaste_candidate())
+            .ok_or_else(|| "no last delivery".to_string())
+    }
+
     pub fn repaste_last_delivery(&mut self) -> Result<DeliveryRecord, String> {
-        self.ensure_engine_ready()?;
-        match self.sidecar_repaste_last() {
-            Ok(record) => {
-                self.mirror_sidecar_manual_delivery(record.clone())?;
-                Ok(record)
+        let last = self.manual_delivery_source()?;
+        // Delivery stays in the host process, whose backend owns target proof & policy.
+        // Never retry: an unconfirmed insertion may already have changed its destination.
+        let record = crate::host::host()
+            .delivery_backend()
+            .deliver(&last.transcript)
+            .map_err(|err| err.to_string())?;
+        let confirmed = matches!(
+            record.outcome,
+            rightkit_transcript_library::delivery::DeliveryOutcome::Pasted
+        );
+        self.mirror_sidecar_manual_delivery(record.clone())?;
+        crate::cloud_sync::notify_local_change();
+        // Voice commands still read the engine's last-delivery mirror. A failed mirror update
+        // must not retry an OS effect or turn a confirmed paste into another delivery attempt.
+        if self.sidecar.supervisor.is_running() {
+            if let Err(err) = self.sync_sidecar_recent_history() {
+                crate::telemetry::log_message("sidecar_history_sync", &err);
             }
-            Err(err) if Self::is_no_last_delivery_error(&err) => {
-                self.sync_sidecar_recent_history()?;
-                let record = self.sidecar_repaste_last()?;
-                self.mirror_sidecar_manual_delivery(record.clone())?;
-                Ok(record)
-            }
-            Err(err) => Err(err),
+        }
+        if confirmed {
+            Ok(record)
+        } else {
+            Err("repaste not confirmed; delivery outcome recorded in history".to_string())
         }
     }
 
     pub fn copy_last_delivery_to_clipboard(&mut self) -> Result<String, String> {
-        self.ensure_engine_ready()?;
-        match self.sidecar_copy_last() {
-            Ok(transcript) => Ok(transcript),
-            Err(err) if Self::is_no_last_delivery_error(&err) => {
-                self.sync_sidecar_recent_history()?;
-                self.sidecar_copy_last()
-            }
-            Err(err) => Err(err),
-        }
+        let last = self.manual_delivery_source()?;
+        crate::delivery::copy_text(&last.transcript).map_err(|err| err.to_string())?;
+        Ok(last.transcript)
     }
 
     pub fn apply(
@@ -875,8 +1014,14 @@ impl EngineRuntime {
         event: AppEvent,
         observer: &mut impl FnMut(&AppState),
     ) -> Result<(), String> {
-        let result = transition(self.state.get(), event)
-            .map_err(|err| format!("invalid transition: {:?} + {:?}", err.state, err.event))?;
+        let result = transition(self.state.get(), event).map_err(|err| {
+            // Tags only: the state and the event hold the transcript and failure text.
+            format!(
+                "invalid transition: {} + {}",
+                transition_state_tag(&err.state),
+                transition_event_tag(&err.event)
+            )
+        })?;
         self.state.set(result.next_state);
         observer(&self.state.get());
         Ok(())
@@ -1044,5 +1189,36 @@ impl EngineRuntime {
             self.sidecar.info_ready.store(false, Ordering::Release);
             self.last_synced_sidecar_generation = generation;
         }
+    }
+}
+
+/// Log-safe variant name of a state: never its `Debug` form, which holds the dictated transcript
+/// and error text. No wildcard arm, so a new variant does not compile untagged.
+fn transition_state_tag(state: &AppState) -> &'static str {
+    match state {
+        AppState::Armed => "armed",
+        AppState::Recording { .. } => "recording",
+        AppState::Transcribing { .. } => "transcribing",
+        AppState::Pasting { .. } => "pasting",
+        AppState::Pasted { .. } => "pasted",
+        AppState::PasteSentUnconfirmed { .. } => "paste_sent_unconfirmed",
+        AppState::CopiedFallback { .. } => "copied_fallback",
+        AppState::Cancelled { .. } => "cancelled",
+        AppState::Error { .. } => "error",
+    }
+}
+
+/// Log-safe variant name of an event: never its `Debug` form, which holds the transcript and the
+/// failure message.
+fn transition_event_tag(event: &AppEvent) -> &'static str {
+    match event {
+        AppEvent::StartRecording { .. } => "start_recording",
+        AppEvent::StopRecording => "stop_recording",
+        AppEvent::TranscriptFinal { .. } => "transcript_final",
+        AppEvent::PasteSucceeded { .. } => "paste_succeeded",
+        AppEvent::PasteSentUnconfirmed { .. } => "paste_sent_unconfirmed",
+        AppEvent::CopyFallback { .. } => "copy_fallback",
+        AppEvent::Fail { .. } => "fail",
+        AppEvent::ResetToArmed => "reset_to_armed",
     }
 }

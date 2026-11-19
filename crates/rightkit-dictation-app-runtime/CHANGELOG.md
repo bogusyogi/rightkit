@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.0 (unpublished)
+
+- Breaking for Rust callers that destructure `EngineEvent::SessionReset`: it now carries an optional typed `host_command`. Match the new field or use `..` when only handling the reset. Older engine frames still decode with no host command. The existing sidecar generation and session checks remain in the routing path.
+
 ## 0.2.2 (unpublished)
 
 - Align the shell supervisor with the 0.3 model-store interface and current dictation, transcript, telemetry and daemon packages. The host supplies app paths and engine identity. (bogusyogi/heardright#349)

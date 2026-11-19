@@ -56,6 +56,7 @@ pub(crate) struct FinalizeCapture {
     pub(crate) audio_secs: Option<f32>,
     pub(crate) focus: Arc<Mutex<FocusTracker>>,
     pub(crate) last_delivery_text: Option<String>,
+    pub(crate) last_pasted_delivery_id: Option<String>,
     /// `StopKind::CancelToHistory` finalize (engine-side: `pending_local_only`,
     /// mirroring `send_enter`/`pending_send_enter`). Phase 2 runs ASR and L0
     /// local polish to completion exactly like a normal Stop, but skips the
@@ -235,7 +236,13 @@ impl EngineRuntime {
             transcript = "summarize".to_string();
             ai_transform = None;
         }
-        let last_delivery_text = self.last_delivery.as_ref().map(|r| r.transcript.clone());
+        let last_delivery = self.last_delivery.as_ref();
+        let last_delivery_text = last_delivery.map(|r| r.transcript.clone());
+        let last_pasted_delivery_id = last_delivery
+            .filter(|record| {
+                matches!(record.outcome, DeliveryOutcome::Pasted) && !record.delivery_id.is_empty()
+            })
+            .map(|record| record.delivery_id.clone());
         let generation = self.sequence;
         FinalizePhase1::Continue {
             capture: FinalizeCapture {
@@ -249,6 +256,7 @@ impl EngineRuntime {
                 audio_secs,
                 focus: self.focus.clone(),
                 last_delivery_text,
+                last_pasted_delivery_id,
                 local_only_stop,
                 recording_context: self.focus.lock().recording_start_context(),
                 context_request_attempted: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(
@@ -436,6 +444,7 @@ pub(crate) fn finalize_phase2_process(
         audio_secs,
         focus,
         last_delivery_text,
+        last_pasted_delivery_id,
         local_only_stop,
         recording_context,
         context_request_attempted,
@@ -479,6 +488,30 @@ pub(crate) fn finalize_phase2_process(
         // OS-visible one. Delivery never restores or redirects focus.
         if discard_if_superseded(is_current, &session_id, "before_standalone_dispatch") {
             return Ok(FinalizeCommit::discard());
+        }
+        if let rightkit_voice_commands::command::CommandAction::LastPasteTransform { transform } =
+            &action
+        {
+            use rightkit_dictation_core::engine::{HostCommand, LastPasteCase};
+
+            let outcome = match (
+                LastPasteCase::from_command_token(transform),
+                last_pasted_delivery_id,
+            ) {
+                (Some(transform), Some(delivery_id)) => {
+                    FinalizeOutcome::HostCommand(HostCommand::TransformLastPaste {
+                        delivery_id,
+                        transform,
+                    })
+                }
+                (None, _) => FinalizeOutcome::CommandFailed {
+                    message: "unknown last-paste transform".to_string(),
+                },
+                (_, None) => FinalizeOutcome::CommandFailed {
+                    message: "no confirmed paste to transform".to_string(),
+                },
+            };
+            return Ok(FinalizeCommit::outcome_only(outcome));
         }
         // A recognized command that fails to dispatch (no macOS equivalent,
         // unknown key, missing permission) must STILL return the engine to idle.

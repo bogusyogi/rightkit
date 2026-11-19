@@ -3,7 +3,7 @@ use super::*;
 #[allow(unused_imports)]
 use super::{unified_probe_lane::*, worker_api::*};
 
-const IDLE_AUDIO_WINDOW_SAMPLES: usize = SAMPLE_RATE as usize * 4;
+const IDLE_AUDIO_WINDOW_SAMPLES: usize = rightkit_dictation_inference::IDLE_AUDIO_WINDOW_SAMPLES;
 
 /// Idle wake listening and the wake-to-recording handoff. `listening` and
 /// `start_pending` are never true while a recording is active.
@@ -97,14 +97,13 @@ impl WakeListener {
                         self.start_pending = true;
                         self.fire_count = self.fire_count.saturating_add(1);
                         asr_executor.stop_idle_wake();
-                        let handoff_start = end_sample.saturating_add(SAMPLE_RATE as usize / 25);
-                        let offset = handoff_start.saturating_sub(self.idle_audio_origin);
-                        self.handoff_audio = self
-                            .idle_audio_window
-                            .iter()
-                            .skip(offset)
-                            .copied()
-                            .collect();
+                        let handoff_start =
+                            rightkit_dictation_inference::wake_handoff_start(end_sample);
+                        self.handoff_audio = rightkit_dictation_inference::wake_handoff_audio(
+                            &self.idle_audio_window,
+                            self.idle_audio_origin,
+                            handoff_start,
+                        );
                         let ts = std::time::SystemTime::now()
                             .duration_since(std::time::UNIX_EPOCH)
                             .unwrap_or_default()

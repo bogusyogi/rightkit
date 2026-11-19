@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.0
+
+- Add host-configured paste delivery, stop-time control binding & streaming reconciliation. Automatic writes require fresh security, control & physical-modifier evidence.
+- Check permit expiry after receipt marking, immediately before input is sent; retain clipboard custody reporting on refusal.
+- Legacy delivery calls without host policy refuse automatic input with `delivery_host_required` & leave clipboard untouched. Migrate automatic delivery to `paste_delivery::RealDeliveryBackend` or `paste_delivery::paste_text`.
+- Last-paste transforms without host-bound replacement custody refuse before Undo, preserving original field content. Empty-input & unknown-transform results remain unchanged.
+- Require `rightkit-automation` 0.7.2, `rightkit-transcript-library` 0.1.4 & `rightkit-dictation-core` 0.3.3.
+
 ## 0.2.1
 
 HeardRight's command host is compared with this crate and every difference in its output is taken; nothing changes for a host that makes no call below.
