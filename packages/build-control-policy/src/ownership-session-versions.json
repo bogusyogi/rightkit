@@ -779,7 +779,7 @@
       "rightkit-dictation-models": "0.3.0",
       "rightkit-dictation-pill": "0.1.0",
       "rightkit-dictation-telemetry": "0.2.2",
-      "rightkit-dictation-text-pipeline": "0.2.6",
+      "rightkit-dictation-text-pipeline": "0.2.7",
       "rightkit-docs": "0.1.2",
       "rightkit-embed": "0.6.1",
       "rightkit-ffmpeg": "0.2.10",
@@ -1470,7 +1470,8 @@
     ],
     "rightkit-dictation-text-pipeline": [
       "0.2.5",
-      "0.2.6"
+      "0.2.6",
+      "0.2.7"
     ]
   }
 }
