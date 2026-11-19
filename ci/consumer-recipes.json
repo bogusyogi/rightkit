@@ -3477,7 +3477,7 @@
       "files": {
         "Cargo.toml": "d403263debfa770521f34bd5f430fcabc0cd5d20021d462af1bf85abd5fab3ff",
         "README.md": "a2609b5cd24857cc56389197cd25e9fa45d8e232774282410105cb88a1a71ebe",
-        "src/main.rs": "ecb3d91b7e744f77dd1f736dd54985be676b8555562433f537329f4aa20d2043"
+        "src/main.rs": "fc6d581a196fb38f8d5f7f76050efb4d22d4133f1da738cdcfc2db2a21b33fe6"
       }
     },
     "rightkit-voice-commands": {

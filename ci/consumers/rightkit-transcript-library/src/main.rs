@@ -48,14 +48,13 @@ fn main() {
 }
 
 fn store_api_surface() {
-    use rightkit_transcript_library::history::HistoryStore;
     use rightkit_transcript_library::store::DeliveryHistoryStore;
     let _open_connection = DeliveryHistoryStore::open_connection;
     let _connection = DeliveryHistoryStore::connection;
-    let _push = HistoryStore::push;
-    let _push_batch = HistoryStore::push_batch;
-    let _update = HistoryStore::update_transcript;
-    let _delete_matching = HistoryStore::delete_matching;
-    let _prune = HistoryStore::prune_before;
-    let _clear = HistoryStore::clear;
+    let _push = <DeliveryHistoryStore as HistoryStore>::push;
+    let _push_batch = <DeliveryHistoryStore as HistoryStore>::push_batch;
+    let _update = <DeliveryHistoryStore as HistoryStore>::update_transcript;
+    let _delete_matching = <DeliveryHistoryStore as HistoryStore>::delete_matching;
+    let _prune = <DeliveryHistoryStore as HistoryStore>::prune_before;
+    let _clear = <DeliveryHistoryStore as HistoryStore>::clear;
 }
