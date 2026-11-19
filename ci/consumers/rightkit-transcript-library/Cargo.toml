@@ -8,3 +8,4 @@ publish = false
 
 [dependencies]
 rightkit-transcript-library = { version = "=0.1.4", features = ["store"] }
+rightkit-db = { version = "=0.5.8", default-features = false, features = ["bundled"] }

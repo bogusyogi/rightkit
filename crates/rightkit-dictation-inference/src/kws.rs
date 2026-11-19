@@ -676,8 +676,7 @@ impl KwsSwitches {
         Ok(())
     }
 
-    /// `base` with these switches applied.
-    fn tuning(&self, base: RustKwsTuning) -> RustKwsTuning {
+    fn tuning(&self) -> RustKwsTuning {
         RustKwsTuning {
             active_path_ttl_frames: self.ttl_frames,
             onset: self.onset.is_some(),
@@ -702,7 +701,6 @@ impl KwsSwitches {
             onset_params: self.onset_params,
             decode_step_samples: self.decode_step_samples.max(1),
             max_keyword_span_seconds: self.max_keyword_span_seconds,
-            ..base
         }
     }
 
@@ -1242,7 +1240,7 @@ impl Kws {
         Self::load_with_paths_and_switches(
             model_dir,
             switches.max_active_paths,
-            switches.tuning(RustKwsTuning::PRODUCTION),
+            switches.tuning(),
             switches,
         )
     }
@@ -3088,7 +3086,7 @@ fn spotter_config(
     config.active_path_ttl_frames = tuning.active_path_ttl_frames;
     config.trailing_blank_reset = tuning.trailing_blank_reset;
     config.softmax_f64 = tuning.softmax_f64;
-    config.onset = tuning.onset.then(|| rust_kws::OnsetConfig {
+    config.onset = tuning.onset.then_some(rust_kws::OnsetConfig {
         encoder_history: tuning.onset_params.encoder_history,
         feature_history: tuning.onset_params.feature_history,
         align_lead_frames: tuning.onset_params.align_lead_frames,
