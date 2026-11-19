@@ -600,7 +600,7 @@ impl MenubarHelper {
             }
             let line = match frames.next_frame() {
                 Ok(Some(line)) => line,
-                Ok(None) | Err(protocol::FrameError::Io(_)) => break,
+                Ok(None) | Err(protocol::FrameError::Io) => break,
                 Err(protocol::FrameError::TooLong) => {
                     self.log(
                         "menubar_frame_refused",

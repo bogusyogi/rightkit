@@ -251,7 +251,8 @@ impl ReplayGuard {
 pub enum FrameError {
     /// The line grew past [`MAX_FRAME_BYTES`] without a newline.
     TooLong,
-    Io(io::Error),
+    /// The underlying read failed after retrying interrupted reads.
+    Io,
 }
 
 /// Reads newline-delimited frames from a stream with a hard size cap.
@@ -287,7 +288,7 @@ impl<R: Read> FrameReader<R> {
                 Ok(0) => return Ok(None),
                 Ok(n) => self.pending.extend_from_slice(&chunk[..n]),
                 Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
-                Err(error) => return Err(FrameError::Io(error)),
+                Err(_) => return Err(FrameError::Io),
             }
         }
     }
