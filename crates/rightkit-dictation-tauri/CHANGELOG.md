@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.2
+
+- Sidecar state-probe mismatch logs omit reply contents & session identifiers, including transcript-bearing replies from older peers & unknown state strings.
+
 ## 0.2.1
 
 HeardRight's runtime is compared with this crate and every difference in its output is taken; nothing changes for a host that makes no call below.

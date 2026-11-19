@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.3
+
+- `GetState` returns fixed state labels without error text; transcribing-session correlation retains its existing wire format. Transcript-returning APIs remain unchanged.
+
 ## 0.2.2 (2026-11-16)
 
 HeardRight's engine runtime was compared with this crate again, file by file (cli, crash capture, entry, owner diagnostics, speech service, worker, recording finish, finalize, IPC); nothing changes for a host that makes no call below.

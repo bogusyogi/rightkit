@@ -58,6 +58,20 @@ pub enum CopyFallbackReason {
     Other(String),
 }
 
+impl CopyFallbackReason {
+    const PRESERVED: &'static str = "clipboard_preserved";
+
+    /// The existing clipboard was kept. The user may explicitly copy the transcript.
+    /// Uses the existing extensible wire representation so older readers can open the record.
+    pub fn clipboard_preserved() -> Self {
+        Self::Other(Self::PRESERVED.to_owned())
+    }
+
+    pub fn is_clipboard_preserved(&self) -> bool {
+        matches!(self, Self::Other(reason) if reason == Self::PRESERVED)
+    }
+}
+
 impl std::fmt::Display for CopyFallbackReason {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {

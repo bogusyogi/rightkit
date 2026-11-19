@@ -3628,7 +3628,7 @@
       "pkId": "PK145",
       "id": "ci/consumers/rightkit-dictation-runtime/src/main.rs",
       "files": {
-        "Cargo.toml": "8ae4167d06e0b36feb789b65821f4de6b4fd806f72e2023f910108c260ca9e00",
+        "Cargo.toml": "d322e6487666cac4dd1453bd4108ee97458475476c57fb38ef0e772bdb30a3e4",
         "README.md": "5c5d15313087a1644b9180193a9ad68f0277b0445d710e5330ed40833cea7f6b",
         "src/main.rs": "a0034cee9bf7df975f1593bb7e83fc7b60ff0af3547e9391c5de79170179a493"
       }
@@ -3979,7 +3979,7 @@
       "pkId": "PK181",
       "id": "ci/consumers/rightkit-dictation-tauri/src/main.rs",
       "files": {
-        "Cargo.toml": "9ad6c2ad9d089e28caf9341d465a6c77a7f0a5c30cf0c660794862845d2fd288",
+        "Cargo.toml": "ebe058173dbc0efbb33b002f1334f0d00db57e5e6738b160b9d1d9128c811962",
         "README.md": "4c0bce30ffc938f0539c838e39a3c469e248ef9215d93f45f5745059cda996fe",
         "src/main.rs": "65d6808153f4591e0d723e0f18175e625f50063f966917bcda82067a22fd93be"
       }

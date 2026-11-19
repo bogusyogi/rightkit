@@ -2,6 +2,8 @@
 
 ## 0.1.4 (unreleased)
 
+- Add a distinct `clipboard_preserved` recovery reason using the existing extensible record format.
+
 - Add portable JSON, Markdown, plain text and CSV export for delivery records, with host-provided labels.
 - Add optional `store` feature for the `delivery_history` keyed-connection store, schema migration,
   history queries and legacy JSON import with verification. Plaintext cleanup remains pending;

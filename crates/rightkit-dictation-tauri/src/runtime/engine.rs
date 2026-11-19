@@ -242,9 +242,12 @@ impl SidecarHandle {
             Some(EnginePayload::EngineStateSnapshot { state }) => {
                 let matches = engine_state_snapshot_is_transcribing_session(&state, session_id);
                 if !matches {
+                    // Older peers may send Debug state containing transcripts
+                    // or error text. Treat every reply as private, including
+                    // unknown state strings and session identifiers.
                     crate::telemetry::log_message(
                         "sidecar_state_probe_mismatch",
-                        &format!("session={session_id}; sidecar_state={state}"),
+                        "sidecar state does not match active transcribing session",
                     );
                 }
                 Ok(matches)

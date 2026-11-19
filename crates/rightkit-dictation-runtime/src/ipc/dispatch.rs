@@ -397,10 +397,19 @@ pub(crate) fn handle(
             }
         }
         Request::GetState => {
-            let state = runtime.lock().state().clone();
-            let payload = EnginePayload::EngineStateSnapshot {
-                state: format!("{:?}", state),
+            use crate::runtime::EngineState;
+
+            // State probes carry no error text or delivery content. Keep the
+            // transcribing session spelling for existing watchdog peers.
+            let state = match runtime.lock().state() {
+                EngineState::Idle => "Idle".to_string(),
+                EngineState::Recording { .. } => "Recording".to_string(),
+                EngineState::Transcribing { session_id } => {
+                    format!("Transcribing {{ session_id: {session_id:?} }}")
+                }
+                EngineState::Error { .. } => "Error".to_string(),
             };
+            let payload = EnginePayload::EngineStateSnapshot { state };
             EngineFrame::base(
                 EngineSchemaName::EngineStateSnapshot,
                 request_id,
