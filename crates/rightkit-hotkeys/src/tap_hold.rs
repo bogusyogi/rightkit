@@ -414,6 +414,13 @@ fn log(reporter: &Reporter, line: Option<LogLine>) {
     }
 }
 
+/// Job routes for one dispatch turn; callback execution policy is unchanged.
+struct JobRunners<'a> {
+    start: &'a dyn Fn(Job),
+    end: &'a dyn Fn(Job),
+    inline: &'a dyn Fn(Job),
+}
+
 /// One hotkey event of one registration. Starts (`on_tap`, `Debounced`, `Immediate`) are gated by
 /// the generation twice: here, and again when the job finally runs, so a start that was queued
 /// before [`unregister`] and runs after it does nothing. The release of a hold is an END (it stops
@@ -424,10 +431,13 @@ fn handle(
     id: u32,
     state: HotkeyState,
     sink: &Reporter,
-    spawn: &dyn Fn(Job),
-    spawn_end: &dyn Fn(Job),
-    inline: &dyn Fn(Job),
+    runners: JobRunners<'_>,
 ) {
+    let JobRunners {
+        start: spawn,
+        end: spawn_end,
+        inline,
+    } = runners;
     if !live.is_live() {
         return;
     }
@@ -674,9 +684,11 @@ fn install(bindings: Vec<Binding>, event_sink: EventSink) -> Result<(), String> 
                 id,
                 state,
                 &reporter,
-                &|job| spawn_job(&reporter, JobKind::Start, job),
-                &|job| spawn_job(&reporter, JobKind::End, job),
-                &|job| run_action(&reporter, job),
+                JobRunners {
+                    start: &|job| spawn_job(&reporter, JobKind::Start, job),
+                    end: &|job| spawn_job(&reporter, JobKind::End, job),
+                    inline: &|job| run_action(&reporter, job),
+                },
             )
         })
     };

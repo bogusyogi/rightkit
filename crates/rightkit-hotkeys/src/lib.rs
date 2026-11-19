@@ -44,5 +44,6 @@ pub use registration::{HotkeyApi, Registrations, UnregisterFailure};
 
 pub mod tap_hold;
 
+#[cfg(windows)]
 pub(crate) mod held_click;
 pub(crate) mod lifecycle;

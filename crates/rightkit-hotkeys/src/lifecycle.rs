@@ -12,24 +12,34 @@
 //! thread: a thread that may be blocked in a provider or host callback is detached, never awaited.
 //!
 //! What the hook threads need from here: a lock-free, bounded [`Lane`] (a hook procedure may send on
-//! it without waiting; [`Lane::send_end`] has a reserve so an end can follow a queued begin),
-//! [`bounded_call`] (a call that can wait on another process runs on a detached thread behind a
-//! deadline, counted against a [`HungCallCap`] only once it is past that deadline) and a
-//! [`PressLedger`] that tracks every swallowed key, not one.
+//! it without waiting; `Lane::send_end` has a reserve so an end can follow a queued begin),
+//! `bounded_call` (a call that can wait on another process runs on a detached thread behind a
+//! deadline, counted against a `HungCallCap` only once it is past that deadline) and a
+//! `PressLedger` that tracks every swallowed key, not one.
 
 use std::cell::Cell;
+#[cfg(any(windows, target_os = "macos"))]
 use std::panic::{catch_unwind, AssertUnwindSafe};
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicU8, AtomicUsize, Ordering};
-use std::sync::mpsc::{self, Receiver, RecvError, RecvTimeoutError, Sender};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+#[cfg(windows)]
+use std::sync::atomic::{AtomicU32, AtomicU8};
+#[cfg(windows)]
+use std::sync::mpsc::RecvTimeoutError;
+use std::sync::mpsc::{self, Receiver, RecvError, Sender};
 use std::sync::{Arc, Mutex, MutexGuard};
+#[cfg(any(windows, target_os = "macos"))]
 use std::thread;
+#[cfg(windows)]
 use std::time::{Duration, Instant};
 
+#[cfg(windows)]
 use crate::held_click::{lane_state, LaneState, Lookup, UnknownCause};
 
+#[cfg(windows)]
 static NEXT_GENERATION: AtomicU64 = AtomicU64::new(1);
 
 /// A process-unique, never-zero generation number. Zero means "no generation".
+#[cfg(windows)]
 pub fn next_generation() -> u64 {
     NEXT_GENERATION.fetch_add(1, Ordering::SeqCst)
 }
@@ -47,6 +57,7 @@ pub(crate) fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 /// never becomes live again; a later install makes a new one.
 #[derive(Debug)]
 pub struct Liveness {
+    #[cfg(windows)]
     id: u64,
     live: AtomicBool,
 }
@@ -54,11 +65,13 @@ pub struct Liveness {
 impl Liveness {
     pub fn begin() -> Arc<Self> {
         Arc::new(Self {
+            #[cfg(windows)]
             id: next_generation(),
             live: AtomicBool::new(true),
         })
     }
 
+    #[cfg(windows)]
     pub fn id(&self) -> u64 {
         self.id
     }
@@ -101,7 +114,8 @@ pub struct Lane<T> {
     open: AtomicBool,
     depth: Arc<AtomicUsize>,
     cap: usize,
-    /// Extra depth only [`Lane::send_end`] may use (0 for a lane without one).
+    /// Extra depth only `Lane::send_end` may use (0 for a lane without one).
+    #[cfg(windows)]
     reserve: usize,
     dropped: AtomicU64,
     tx: Sender<Slot<T>>,
@@ -119,10 +133,12 @@ impl<T> Lane<T> {
         Self::with_depth_and_reserve(cap, 0)
     }
 
-    /// A lane whose [`Lane::send`] holds at most `cap` items and whose [`Lane::send_end`] may go
+    /// A lane whose [`Lane::send`] holds at most `cap` items and whose `Lane::send_end` may go
     /// `reserve` items beyond that, so an item that ENDS something a queued item began can still be
-    /// queued when ordinary items are being dropped (see [`Lane::send_end`]).
+    /// queued when ordinary items are being dropped (see `Lane::send_end`).
     pub fn with_depth_and_reserve(cap: usize, reserve: usize) -> (Self, LaneRx<T>) {
+        #[cfg(not(windows))]
+        let _ = reserve;
         let (tx, rx) = mpsc::channel();
         let depth = Arc::new(AtomicUsize::new(0));
         (
@@ -130,6 +146,7 @@ impl<T> Lane<T> {
                 open: AtomicBool::new(true),
                 depth: Arc::clone(&depth),
                 cap: cap.max(1),
+                #[cfg(windows)]
                 reserve,
                 dropped: AtomicU64::new(0),
                 tx,
@@ -142,6 +159,7 @@ impl<T> Lane<T> {
         )
     }
 
+    #[cfg(windows)]
     pub fn is_open(&self) -> bool {
         self.open.load(Ordering::SeqCst)
     }
@@ -160,6 +178,7 @@ impl<T> Lane<T> {
     /// items are accepted only while the depth is below `cap`, so the only items that can sit above
     /// `cap` are ends of begins that were accepted at a depth of at most `cap`, and a host that
     /// pairs them (one open begin per kind) needs a reserve of at most one per open kind.
+    #[cfg(windows)]
     pub fn send_end(&self, value: T) -> bool {
         self.push(value, self.cap + self.reserve)
     }
@@ -222,29 +241,16 @@ impl<T> LaneRx<T> {
             }
         }
     }
-
-    pub fn recv_timeout(&self, timeout: Duration) -> Result<T, RecvTimeoutError> {
-        if self.ended.get() {
-            return Err(RecvTimeoutError::Disconnected);
-        }
-        match self.rx.recv_timeout(timeout) {
-            Ok(slot) => self.unwrap_slot(slot).ok_or(RecvTimeoutError::Disconnected),
-            Err(error) => {
-                if error == RecvTimeoutError::Disconnected {
-                    self.ended.set(true);
-                }
-                Err(error)
-            }
-        }
-    }
 }
 
 /// Where [`run_dispatch`] takes its items from: a [`LaneRx`].
+#[cfg(windows)]
 pub trait ItemSource<T> {
     /// The next item, or `None` when the source has ended.
     fn next_item(&self) -> Option<T>;
 }
 
+#[cfg(windows)]
 impl<T> ItemSource<T> for LaneRx<T> {
     fn next_item(&self) -> Option<T> {
         self.recv().ok()
@@ -269,12 +275,6 @@ impl ResolverCap {
             in_flight: AtomicUsize::new(0),
             max,
         }
-    }
-
-    /// A slot is free right now (one atomic read: safe on a hook thread). A later `try_acquire` can
-    /// still lose the race.
-    pub fn has_free_slot(&self) -> bool {
-        self.in_flight.load(Ordering::SeqCst) < self.max
     }
 
     pub fn try_acquire(&'static self) -> Option<ResolverPermit> {
@@ -309,6 +309,7 @@ impl Drop for ResolverPermit {
 /// still the live generation: a resolver that returns after uninstall drops its answer and does
 /// nothing else. `None` when the cap is full or the thread could not be created. The caller never
 /// joins the thread.
+#[cfg(windows)]
 pub fn start_resolver<T: Send + 'static>(
     cap: &'static ResolverCap,
     live: Arc<Liveness>,
@@ -321,6 +322,7 @@ pub fn start_resolver<T: Send + 'static>(
 /// [`start_resolver`] with the generation gate optional: with `None` the answer is delivered
 /// whenever the caller still waits (the caller's own deadline is the bound). Used for calls whose
 /// answer is wanted even while an install is being torn down.
+#[cfg(windows)]
 pub fn start_detached<T: Send + 'static>(
     cap: &'static ResolverCap,
     live: Option<Arc<Liveness>>,
@@ -334,7 +336,7 @@ pub fn start_detached<T: Send + 'static>(
         .spawn(move || {
             let _permit = permit;
             let answer = work();
-            if live.as_ref().map_or(true, |live| live.is_live()) {
+            if live.as_ref().is_none_or(|live| live.is_live()) {
                 let _ = tx.send(answer);
             }
         });
@@ -346,11 +348,13 @@ pub fn start_detached<T: Send + 'static>(
 /// Unlike [`ResolverCap`] it does NOT count a call that is still inside its deadline: a healthy call
 /// that is merely in flight never uses a slot, so two live calls cannot make a facility look
 /// saturated. A new call is refused only while `max` calls are hung.
+#[cfg(windows)]
 pub struct HungCallCap {
     hung: AtomicUsize,
     max: usize,
 }
 
+#[cfg(windows)]
 impl HungCallCap {
     pub const fn new(max: usize) -> Self {
         Self {
@@ -365,18 +369,23 @@ impl HungCallCap {
     }
 }
 
+#[cfg(windows)]
 const CALL_RUNNING: u8 = 0;
 /// The waiter gave up and counted the call as hung; the call's thread uncounts it when it ends.
+#[cfg(windows)]
 const CALL_ABANDONED: u8 = 1;
+#[cfg(windows)]
 const CALL_DONE: u8 = 2;
 
-/// Ends a [`bounded_call`]'s thread: marks the call done and, if the waiter had already counted it
+/// Ends a `bounded_call`'s thread: marks the call done and, if the waiter had already counted it
 /// as hung, uncounts it. A guard so that a panicking call uncounts too.
+#[cfg(windows)]
 struct CallEnd {
     state: Arc<AtomicU8>,
     cap: &'static HungCallCap,
 }
 
+#[cfg(windows)]
 impl Drop for CallEnd {
     fn drop(&mut self) {
         if self.state.swap(CALL_DONE, Ordering::SeqCst) == CALL_ABANDONED {
@@ -394,6 +403,7 @@ impl Drop for CallEnd {
 /// therefore at most `max` hung ones plus one per caller currently waiting inside its deadline. This
 /// is how a call that can wait on another process (a window hit test that is answered by the target's
 /// own thread) is bounded without ever being made on a thread that must not wait.
+#[cfg(windows)]
 pub fn bounded_call<T: Send + 'static>(
     cap: &'static HungCallCap,
     name: &str,
@@ -445,15 +455,18 @@ pub fn bounded_call<T: Send + 'static>(
 }
 
 /// How long one wait slice is.
+#[cfg(windows)]
 pub const WAIT_SLICE: Duration = Duration::from_millis(25);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg(windows)]
 pub enum WaitStep {
     Wait(Duration),
     Expired,
 }
 
 /// The next wait slice for a wait that has run `elapsed` of `deadline`.
+#[cfg(windows)]
 pub fn next_wait(elapsed: Duration, deadline: Duration, slice: Duration) -> WaitStep {
     if elapsed >= deadline {
         WaitStep::Expired
@@ -463,6 +476,7 @@ pub fn next_wait(elapsed: Duration, deadline: Duration, slice: Duration) -> Wait
 }
 
 #[derive(Debug, PartialEq, Eq)]
+#[cfg(windows)]
 pub enum Waited<T> {
     Got(T),
     TimedOut,
@@ -474,6 +488,7 @@ pub enum Waited<T> {
 
 /// Wait for `rx` up to `deadline`, in slices, so an uninstall is noticed within one slice
 /// instead of after the whole deadline.
+#[cfg(windows)]
 pub fn wait_interruptible<T>(
     rx: &Receiver<T>,
     deadline: Duration,
@@ -511,6 +526,7 @@ pub fn wait_interruptible<T>(
 /// What the click decision learns from a wait on the resolver. Only an answer that arrived while
 /// the install was live is a lookup; everything else is an `Unknown` with its cause (never
 /// `NotLink`), and an ended install is `Skipped`.
+#[cfg(windows)]
 pub fn lookup_from_wait(waited: Waited<Lookup>) -> Result<Lookup, UnknownCause> {
     match waited {
         Waited::Got(answer) => Ok(answer),
@@ -527,10 +543,12 @@ pub fn lookup_from_wait(waited: Waited<Lookup>) -> Result<Lookup, UnknownCause> 
 /// Marks the host toggle callback as running. It lives in the host's state object (not in an
 /// install), so a callback still running when its install ended keeps blocking a second callback
 /// from a later install: "at most one callback runs" holds across generations.
+#[cfg(windows)]
 pub struct ToggleGuard {
     since: Mutex<Option<Instant>>,
 }
 
+#[cfg(windows)]
 impl ToggleGuard {
     pub const fn new() -> Self {
         Self {
@@ -565,6 +583,7 @@ impl ToggleGuard {
 /// each. It ends when the sender is dropped, after the queued toggles (each was accepted before
 /// the end: "consumed" means it runs exactly once). A callback that is running cannot be
 /// interrupted; the thread ends when it returns.
+#[cfg(windows)]
 pub fn run_toggle_lane(rx: Receiver<()>, guard: &ToggleGuard, mut call: impl FnMut()) {
     while rx.recv().is_ok() {
         call();
@@ -578,6 +597,7 @@ pub fn run_toggle_lane(rx: Receiver<()>, guard: &ToggleGuard, mut call: impl FnM
 
 /// The kinds of command the keyboard dispatch thread delivers to the host.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg(windows)]
 pub enum Cmd {
     HookCancel,
     PttStart,
@@ -588,6 +608,7 @@ pub enum Cmd {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg(windows)]
 pub enum Admit {
     Run,
     Discard,
@@ -598,11 +619,13 @@ pub enum Admit {
 /// about is still delivered, and a still-open push-to-talk or preview is closed on exit: the host
 /// never keeps a recording or preview whose release this hook can no longer see.
 #[derive(Debug, Default)]
+#[cfg(windows)]
 pub struct DispatchTracker {
     ptt_open: bool,
     preview_down: bool,
 }
 
+#[cfg(windows)]
 impl DispatchTracker {
     pub const fn new() -> Self {
         Self {
@@ -676,6 +699,7 @@ impl DispatchTracker {
 /// item queued before uninstall but taken after is judged by [`DispatchTracker::admit`] as
 /// belonging to an ended install. Ends when the lane is closed and drained; then delivers the
 /// closers.
+#[cfg(windows)]
 pub fn run_dispatch<T, S: ItemSource<T>>(
     rx: S,
     is_open: impl Fn() -> bool,
@@ -700,15 +724,19 @@ pub fn run_dispatch<T, S: ItemSource<T>>(
 
 /// Most `rk-hook-report` threads alive in the PROCESS. A host sink that never returns pins one
 /// thread; once this many are pinned further hand-offs are dropped (never waited for).
+#[cfg(any(windows, target_os = "macos"))]
 pub const MAX_REPORT_THREADS: usize = 4;
 /// Most lines one [`report_detached`] hand-off carries; the rest are cut.
+#[cfg(any(windows, target_os = "macos"))]
 pub const MAX_REPORT_LINES: usize = 4;
+#[cfg(any(windows, target_os = "macos"))]
 static REPORT_THREADS: ResolverCap = ResolverCap::new(MAX_REPORT_THREADS);
 
 /// Deliver `lines` to the host's `sink` on a detached thread and return at once, so a teardown or a
 /// drop never waits for host code: `false` when nothing was handed over (the cap is full or no
 /// thread could be created: the lines are dropped), `true` otherwise. A panicking sink is caught.
 /// The caller makes every state change BEFORE calling this and holds no bookkeeping lock.
+#[cfg(any(windows, target_os = "macos"))]
 pub fn report_detached(sink: fn(&str, &str), mut lines: Vec<(&'static str, String)>) -> bool {
     lines.truncate(MAX_REPORT_LINES);
     if lines.is_empty() {
@@ -743,13 +771,17 @@ pub fn report_detached(sink: fn(&str, &str), mut lines: Vec<(&'static str, Strin
 /// companions (the AltGr Ctrl, the send Ctrl or Alt) are debts of their own. Keys are tracked in
 /// the range `0xA0..0xC0` (left/right Shift, Control and Alt, the keys the gesture can swallow);
 /// the generic `VK_CONTROL` is folded into `VK_LCONTROL`. Any other key is not tracked.
+#[cfg(windows)]
 pub struct PressLedger {
     bits: AtomicU32,
 }
 
+#[cfg(windows)]
 const LEDGER_BASE: u32 = 0xA0;
+#[cfg(windows)]
 const LEDGER_SPAN: u32 = 32;
 
+#[cfg(windows)]
 fn ledger_bit(vk: u32) -> Option<u32> {
     let vk = if vk == 0x11 { 0xA2 } else { vk };
     (LEDGER_BASE..LEDGER_BASE + LEDGER_SPAN)
@@ -757,6 +789,7 @@ fn ledger_bit(vk: u32) -> Option<u32> {
         .then(|| 1u32 << (vk - LEDGER_BASE))
 }
 
+#[cfg(windows)]
 impl PressLedger {
     pub const fn new() -> Self {
         Self {
@@ -792,6 +825,7 @@ impl PressLedger {
 /// How the hook routed the down of ONE key it can swallow outside the ledger's range (Escape, for
 /// the Ctrl+Escape cancel), so its up is routed the same way whatever the hook's state is by then.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg(windows)]
 pub enum HeldKey {
     /// No down seen (or its up was settled): an up of the key is delivered.
     None,
@@ -803,10 +837,12 @@ pub enum HeldKey {
 
 /// The pairing record of one key (`HeldKey`), lock-free. Cleared only where the ledgers are:
 /// `KeyboardState::on_hook_removed` or `begin_session`.
+#[cfg(windows)]
 pub struct KeyHold {
     state: AtomicU8,
 }
 
+#[cfg(windows)]
 impl KeyHold {
     pub const fn new() -> Self {
         Self {
@@ -852,6 +888,7 @@ impl KeyHold {
 
 /// How a push-to-talk key event is routed so swallowed and delivered presses stay balanced.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg(windows)]
 pub enum PressRoute {
     /// Run the normal push-to-talk logic (which swallows the push-to-talk key).
     Normal,
@@ -865,6 +902,7 @@ pub enum PressRoute {
 
 /// Pure routing of the push-to-talk key's key-up against the press it belongs to.
 /// `swallowed_vk` is the key whose down was swallowed (0 = none), `ptt_vk` the configured key.
+#[cfg(windows)]
 pub fn press_route(
     vk: u32,
     is_keydown: bool,
@@ -890,10 +928,12 @@ pub fn press_route(
 
 /// A held middle press whose button-up is still owed, tagged with the install (generation) that
 /// swallowed the down. A different install never swallows an up it does not owe.
+#[cfg(windows)]
 pub struct UpOwed {
     session: AtomicU64,
 }
 
+#[cfg(windows)]
 impl UpOwed {
     pub const fn new() -> Self {
         Self {
@@ -914,61 +954,5 @@ impl UpOwed {
 
     pub fn clear(&self) {
         self.session.store(0, Ordering::SeqCst);
-    }
-}
-
-// ---------------------------------------------------------------------------------------------
-// Scheduling handshake (macOS: a job handed to the main thread that the caller may give up on)
-// ---------------------------------------------------------------------------------------------
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum HandshakeState {
-    Pending,
-    Running,
-    Done,
-    Abandoned,
-}
-
-/// A job scheduled on another thread that the scheduler may stop waiting for. The job calls
-/// [`begin_run`](Self::begin_run) first and does nothing when it returns `false`; the scheduler
-/// calls [`abandon`](Self::abandon) on timeout and, when that returns `false` (the job already
-/// started or finished), schedules a cleanup behind it.
-pub struct Handshake {
-    state: Mutex<HandshakeState>,
-}
-
-impl Handshake {
-    pub const fn new() -> Self {
-        Self {
-            state: Mutex::new(HandshakeState::Pending),
-        }
-    }
-
-    pub fn begin_run(&self) -> bool {
-        let mut state = lock(&self.state);
-        if *state == HandshakeState::Pending {
-            *state = HandshakeState::Running;
-            true
-        } else {
-            false
-        }
-    }
-
-    pub fn finish(&self) {
-        let mut state = lock(&self.state);
-        if *state == HandshakeState::Running {
-            *state = HandshakeState::Done;
-        }
-    }
-
-    /// `true`: the job has not started and now never will. `false`: it started or finished.
-    pub fn abandon(&self) -> bool {
-        let mut state = lock(&self.state);
-        if *state == HandshakeState::Pending {
-            *state = HandshakeState::Abandoned;
-            true
-        } else {
-            false
-        }
     }
 }
