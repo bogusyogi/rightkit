@@ -757,7 +757,7 @@
       "rightkit-app-settings": "0.4.2",
       "rightkit-asr": "0.3.0",
       "rightkit-audio": "0.3.5",
-      "rightkit-automation": "0.7.1",
+      "rightkit-automation": "0.7.2",
       "rightkit-browser": "0.3.6",
       "rightkit-cache": "0.2.3",
       "rightkit-channel-memory": "0.2.1",
@@ -932,7 +932,8 @@
       "0.6.0",
       "0.6.1",
       "0.7.0",
-      "0.7.1"
+      "0.7.1",
+      "0.7.2"
     ],
     "rightkit-browser": [
       "0.2.0",
