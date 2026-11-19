@@ -424,29 +424,11 @@ fn macos_polish_field_context_for_pid_at_stop(
     })
 }
 
-/// Tri-state password evidence -> ordinary-paste veto (spec 3.3). Only POSITIVE
-/// password evidence (`Some(true)`) vetoes; `None` (timeout, saturated lane,
-/// no element, COM failure) is Unknown, which is neither a veto nor proof of
-/// safety. Never fold Unknown into `false` via `unwrap_or(false)`.
-#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
-pub(crate) fn password_state_vetoes_paste(state: Option<bool>) -> bool {
-    state == Some(true)
-}
-
-/// Tri-state password evidence -> Send+Enter authority. Submitting needs
-/// POSITIVE proof the destination is not a password field (`Some(false)`);
-/// Unknown (`None`) is unproven and must not submit.
-#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
-pub(crate) fn password_state_allows_submit(state: Option<bool>) -> bool {
-    state == Some(false)
-}
-
 /// Hard deadline for a Windows UIA probe. RightKit's `win::with_deadline`
 /// runs each probe on its own COM-initialised worker, returns `None` at this
 /// deadline, and refuses new work while an earlier call is still stuck, so a
 /// hung target UIA server cannot wedge `StopDictation`/`CancelDictation`/
-/// `GetState` or pile up threads. Password checks use the separate
-/// `with_deadline_security` worker so a hung content probe cannot starve them.
+/// `GetState` or pile up threads.
 #[cfg(target_os = "windows")]
 const UIA_PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(600);
 
@@ -461,35 +443,6 @@ where
         tracing::warn!(probe = label, "uia_probe_unavailable_or_timed_out");
     }
     result.flatten()
-}
-
-#[cfg(target_os = "windows")]
-fn bounded_password_uia_probe<T, F>(label: &'static str, probe: F) -> Option<T>
-where
-    T: Send + 'static,
-    F: FnOnce() -> Option<T> + Send + 'static,
-{
-    let result = rightkit_automation::win::with_deadline_security(UIA_PROBE_TIMEOUT, |_| probe());
-    if result.is_none() {
-        tracing::warn!(probe = label, "uia_probe_unavailable_or_timed_out");
-    }
-    result.flatten()
-}
-
-/// Best-effort UIA probe: is the focused control a password / credential field?
-///   `Some(true)`  — `CurrentIsPassword` is set. Never paste a transcript here.
-///   `Some(false)` — a focused element that is definitively NOT a password field.
-///   `None`        — no focused element, or UIA/COM was unavailable.
-///
-/// Delivery vetoes only `Some(true)` (HR-DELIVERY-004, HR-CONTROL-011).
-/// `None` means UIA could not answer; per spec §3.3 it leaves an otherwise
-/// valid ordinary paste eligible. Mirrors the shell twin
-/// `windows_focused_field_is_password` in `src-tauri/src/delivery/backend.rs`.
-#[cfg(target_os = "windows")]
-pub(crate) fn windows_focused_element_is_password() -> Option<bool> {
-    bounded_password_uia_probe("focused_element_is_password", || {
-        rightkit_automation::win::uia::focused_element_is_password()
-    })
 }
 
 /// Read the focused Windows field through UI Automation. TextPattern provides
@@ -521,26 +474,6 @@ pub(crate) fn focused_field_context(max_chars: usize) -> Option<FocusedFieldCont
             context = attempt(max_chars);
         }
         context
-    })
-}
-
-/// Untruncated, unnormalized read of the focused element's text — used ONLY
-/// for delivery insertion-attribution proof (HR-DELIVERY-006), never for
-/// polish/context capture. `focused_field_context` above is unsuitable for
-/// that job: it routes every value through `normalize_context_text`, which
-/// trims and middle-truncates, either of which can corrupt an exact
-/// before/after occurrence-count delta
-/// (`rightkit_transcript_library::delivery::insertion_attributable`) — a trimmed edge or
-/// a truncated middle can silently change or hide the count. This function
-/// uses RightKit's `focused_field_raw_text(None)` (TextPattern first,
-/// ValuePattern fallback, password fields refused), with no editable gate
-/// and no normalize step, bounded the same way.
-#[cfg(target_os = "windows")]
-pub(crate) fn focused_field_raw_text_for_proof() -> Option<String> {
-    // Uncapped (`None`), no editable gate, no normalisation; password
-    // elements give `None`.
-    bounded_uia_probe("focused_field_raw_text_for_proof", || {
-        rightkit_automation::win::uia::focused_field_raw_text(None)
     })
 }
 
