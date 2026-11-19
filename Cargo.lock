@@ -12463,7 +12463,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-overlay-win"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "rightkit-overlay",
  "windows-sys 0.61.2",
