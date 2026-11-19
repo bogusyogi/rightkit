@@ -103,7 +103,7 @@ fn start_focus_anchor() -> Option<rightkit_automation::desktop::HotkeyFocusAncho
 /// The hotkey-time start target.
 ///
 /// Windows keeps its established start snapshot path. macOS uses only the observer's non-blocking
-/// cached anchor; the expensive enrichment stays detached in [`capture_start_destination_late`].
+/// cached anchor; the expensive enrichment stays detached in `capture_start_destination_late`.
 pub fn observe_start_target(host: &'static DeliveryHost) -> TargetSnapshot {
     #[cfg(target_os = "macos")]
     {
