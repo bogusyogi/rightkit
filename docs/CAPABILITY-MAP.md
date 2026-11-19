@@ -185,7 +185,7 @@ Capabilities: 224 (58 with fingerprints, 166 declaration-only). Internal owners 
 | repo-graph-grammars | `rightkit-repo-graph-grammars` | none | declaration-only | 0 | rightkit-repo-graph-grammars: staged 0.1.1, not published |
 | research | `rightkit-research` | none | declaration-only | 0 | rightkit-research: staged 0.1.2, not published |
 | right-suite-api | `rightkit-license` | none | declaration-only | 0 | rightkit-license: published 0.3.1 (crates.io) |
-| safe-filesystem | `rightkit-fs` | advise | fingerprinted | 3 (0 block, 3 advise) | rightkit-fs: published 0.4.16 (crates.io) |
+| safe-filesystem | `rightkit-fs` | advise | fingerprinted | 3 (0 block, 3 advise) | rightkit-fs: published 0.4.17 (crates.io) |
 | scenario-runtime | `rightkit-workflow` | none | declaration-only | 0 | rightkit-workflow: published 0.2.0 (crates.io) |
 | scheduler | `rightkit-scheduler` | none | declaration-only | 0 | rightkit-scheduler: staged 0.3.0, not published |
 | screen-recording | `rightkit-record` | none | declaration-only | 0 | rightkit-record: published 0.3.3 (crates.io) |
