@@ -7,12 +7,24 @@
 //! capture left by a session that no longer exists, a hard length ceiling, and restore-once media
 //! release on every exit path.
 //!
-//! ```ignore
-//! static RECORDER: Recorder = Recorder::new(host_event_sink);
-//! let session_id = RECORDER.start(&settings, StartHooks { .. })?;
-//! match RECORDER.stop(&session_id, &settings, "capture_stopped") { .. }
-//! RECORDER.cancel(&session_id, "capture_cancelled");
+//! ```no_run
+//! use rightkit_audio::setup::calibration_capture::{
+//!     CaptureSettings, Recorder, StartError, StartHooks, StopOutcome,
+//! };
+//!
+//! fn record_until_stop(
+//!     recorder: &Recorder,
+//!     settings: &CaptureSettings,
+//!     hooks: StartHooks<'_>,
+//!     wait_for_stop: impl FnOnce(),
+//! ) -> Result<StopOutcome, StartError> {
+//!     let session_id = recorder.start(settings, hooks)?;
+//!     wait_for_stop();
+//!     Ok(recorder.stop(&session_id, settings, "capture_stopped"))
+//! }
 //! ```
+//!
+//! On cancellation, call `cancel` with the same session ID instead of `stop`.
 
 use std::sync::{
     atomic::{AtomicBool, Ordering},

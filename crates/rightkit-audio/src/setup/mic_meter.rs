@@ -5,11 +5,20 @@
 //! invalidated (`stop`, or a later `begin` for a device change). A stale capture thread must not
 //! stop its successor, and a stopped meter must not reopen the microphone.
 //!
-//! ```ignore
-//! static METER: MicMeter = MicMeter::new(host_event_sink);
-//! let epoch = METER.begin();              // on the async side
-//! METER.start(epoch, config, resolve, emit)?;   // on a blocking thread
-//! METER.stop();                           // step exit, hub hide, suspend, destroy
+//! ```no_run
+//! use std::sync::Arc;
+//! use rightkit_audio::capture::DeviceInfo;
+//! use rightkit_audio::setup::mic_meter::{MeterConfig, MeterEvent, MeterStartError, MicMeter};
+//!
+//! fn start_meter(
+//!     meter: &'static MicMeter,
+//!     config: MeterConfig,
+//!     resolve: impl FnOnce(&[DeviceInfo]) -> Result<Option<usize>, String>,
+//!     emit: Arc<dyn Fn(MeterEvent) + Send + Sync>,
+//! ) -> Result<(), MeterStartError> {
+//!     let epoch = meter.begin();
+//!     meter.start(epoch, config, resolve, emit)
+//! }
 //! ```
 //!
 //! Events: [`MeterEvent`] values go to the host's `emit` callback, which maps them to whatever it
