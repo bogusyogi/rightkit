@@ -497,6 +497,11 @@ test("a failed or receiptless baseline run fails GC-A04 and GC-A21 instead of le
   assert.equal(a21.status, "pass", a21.problems.join());
   const badStamp = { ...leg, log: "rightkit-gate: no stamp here\n" };
   assert.equal(summarizeClause("GC-A21", [].concat(CHECKS["GC-A21"]({ runs: { "S17:fail1": badStamp } }))).status, "fail", "stamps are still judged on a demanded failure");
+  // A phase-B restored leg (run object rebuilt from phase-A artifacts) is judgeable end to end: GC-A21 reads args/coverageProblems
+  // unguarded, so the restored shape must carry them (re-review defect: TypeError made phase-B GC-A21 unpassable).
+  const restored = { label: "S17:fail1", stage: "compile", commit: COMMIT, tree: TREE, args: [], exit: 1, expectedFailure: true, signal: null, timedOut: false, log: "2026-11-19T17:00:00Z rightkit-gate: [compile] failed in 1.0s\n", logPath: "/l", coveragePaths: ["/c.json"], coverageProblems: [], receipt: null, receiptPath: "/r.json", ladder: true, stageIndex: 1, restoredFromPhaseA: true };
+  assert.equal(summarizeClause("GC-A21", [].concat(CHECKS["GC-A21"]({ runs: { "S17:fail1": restored } }))).status, "pass");
+  assert.equal(CHECKS["GC-A04"]({ runs: { "S17:fail1": restored } }).status, "unchecked");
 });
 
 test("a bad GC-I22 comparison: the RustRight contracts dir is derived from the workspace root and a missing dir fails, never skips", () => {
