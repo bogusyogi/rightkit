@@ -98,6 +98,7 @@ jobs:
             packages/release/development-signing.mjs
             packages/release/devtools-policy.mjs
             packages/release/execution-policy.mjs
+            packages/release/external-bin.mjs
             packages/release/gate-executor.mjs
             packages/release/gate-stages.mjs
             packages/release/host-upload-refusal.mjs
@@ -171,6 +172,7 @@ jobs:
             packages/release/swift-mac-app.mjs
             packages/release/swift-scratch.mjs
             packages/release/tauri-locked.mjs
+            packages/release/test-env.mjs
             scripts/ci/scan-receipt.mjs
             scripts/ci/crate-scan-workspaces.mjs
             scripts/ci/upload.mjs
