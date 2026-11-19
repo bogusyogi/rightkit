@@ -489,6 +489,14 @@ test("a failed or receiptless baseline run fails GC-A04 and GC-A21 instead of le
   // an expected refusal or a negative is not a baseline failure
   assert.equal(CHECKS["GC-A04"]({ runs: { n: { ...failed, negative: "N01" } } }).status, "unchecked");
   assert.equal(CHECKS["GC-A04"]({ runs: { q: { ...failed, refusal: { ok: true, problems: [] } } } }).status, "unchecked");
+  // An S17 leg is a demanded failure (compile_error witness): GC-A04 skips it like a negative, GC-A21 drops only the exited-1
+  // problem and still judges its stamps and coverage; NN41 keeps demanding the nonzero exit itself.
+  const leg = { ...failed, expectedFailure: true, coveragePaths: ["/c.json"] };
+  assert.equal(CHECKS["GC-A04"]({ runs: { "S17:fail1": leg } }).status, "unchecked");
+  const a21 = summarizeClause("GC-A21", [].concat(CHECKS["GC-A21"]({ runs: { "S17:fail1": leg } })));
+  assert.equal(a21.status, "pass", a21.problems.join());
+  const badStamp = { ...leg, log: "rightkit-gate: no stamp here\n" };
+  assert.equal(summarizeClause("GC-A21", [].concat(CHECKS["GC-A21"]({ runs: { "S17:fail1": badStamp } }))).status, "fail", "stamps are still judged on a demanded failure");
 });
 
 test("a bad GC-I22 comparison: the RustRight contracts dir is derived from the workspace root and a missing dir fails, never skips", () => {
