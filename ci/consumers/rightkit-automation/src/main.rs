@@ -100,7 +100,12 @@ fn windows_published_surface() {
 
 #[cfg(target_os = "macos")]
 fn macos_probe_surface() {
+    use rightkit_automation::desktop::macos::{
+        physical_modifier_state, ModifierStateUnavailable, PhysicalModifierState,
+    };
     use rightkit_automation::desktop::paste_event_probe::{PasteEventProbe, ProbeLimits};
+    let _sample: fn() -> Result<PhysicalModifierState, ModifierStateUnavailable> =
+        physical_modifier_state;
     let limits = ProbeLimits::default();
     assert_eq!(limits.max_events, 8);
     let _start = PasteEventProbe::start;

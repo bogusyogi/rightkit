@@ -2,6 +2,7 @@
 
 ## 0.7.1 (unpublished; partial extraction)
 
+- Added read-only macOS `desktop::macos::physical_modifier_state`: both sides of Shift, Control, Option & Command plus Fn from Quartz HID state. Denied monitoring, Secure Input, unavailable console/session/source & inconsistent reads return typed unknown errors. No prompts, observers, input posting or content logging; native qualification pending.
 - Added single-use prepared keyboard batches on Windows & macOS: paste, Return, Unicode text & Backspace. Preparation injects nothing; dispatch posts prebuilt input without modifier waits, lookups or allocation. Existing APIs remain available; native qualification is pending.
 - Added Windows `win::uia::{point_link_state, PointLinkState}`. Only complete, readable walks to desktop root prove `NotLink`; errors & ancestor limits return `Unknown`. Existing boolean helper behavior stays unchanged.
 - Added `desktop::paste_event_probe`: bounded, target-PID, listen-only evidence for host-tagged Cmd+V transitions on macOS, behind `desktop-context`.

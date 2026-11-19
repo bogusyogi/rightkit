@@ -23,6 +23,7 @@ mod ffi;
 mod focus;
 mod frontmost;
 mod keyboard;
+mod modifiers;
 mod observation;
 mod qos;
 mod window_query;
@@ -31,6 +32,7 @@ pub use clipboard::*;
 pub use focus::*;
 pub use frontmost::*;
 pub use keyboard::*;
+pub use modifiers::*;
 pub use observation::*;
 pub use qos::*;
 pub use window_query::{

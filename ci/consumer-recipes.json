@@ -2288,7 +2288,7 @@
       "files": {
         "Cargo.toml": "f922608e6cb88013cc82faf63cce58cf4e8581429f1ccbe96119efb55d47f5b6",
         "README.md": "cd219e3c1f45a34107598dbac6e715c924b5b437ba119743afd7bc103bf22a26",
-        "src/main.rs": "d2fff8d400bbd7b85b4cb27bc37ed4ad35d04bc058f2c3777ebbe78a78e52d2a"
+        "src/main.rs": "abab944b1117017520bd0d8a090e250cd1f83d41b1e140b2abc8cb0fef87f6a5"
       }
     },
     "rightkit-agent-tools": {
