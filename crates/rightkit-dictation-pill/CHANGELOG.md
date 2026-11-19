@@ -1,0 +1,12 @@
+# Changelog
+
+## 0.1.0 (unreleased)
+
+- Add Windows pill, hint & clipboard overlay controllers with host-supplied painters, labels, geometry, motion & policy.
+- Add generation-scoped startup, cancellation, retained-thread retirement & bounded command queues.
+- Add completion tokens & deadlines for clipboard & host actions.
+- Add platform-neutral event queues, hitbox storage, bridge validation & guardian coalescing, with native Windows & macOS event sources.
+- Bound guardian drains to one queue capacity before servicing due work & rechecking stop.
+- Contain host readiness panics & report callback-specific payload types; clear guardian generation slots & signal exit after unexpected worker panics.
+- Import objc2 `DefinedClass` for macOS observer ivar access.
+- Include MIT & Apache-2.0 licenses; pin version-compatible RightKit dependencies.

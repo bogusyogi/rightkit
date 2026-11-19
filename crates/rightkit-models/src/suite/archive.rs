@@ -6,6 +6,7 @@
 //! on failure. A deterministic aside name lets the next startup recover from a
 //! kill in the narrow rename window.
 
+pub use crate::archive_core::ExtractLimits;
 use crate::archive_core::{self, Compression};
 use std::ffi::OsStr;
 use std::fs;
@@ -14,27 +15,63 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Extract `archive` (a `.tar.gz` whose members live under one wrapper dir)
 /// and install it as `dest_root/<installed_name>`. Any previous install is
-/// preserved until the replacement verifies and commits.
+/// preserved until the replacement verifies and commits. The extraction is bounded by
+/// [`ExtractLimits::DEFAULT`]; [`install_tar_gz_limited`] takes the caller's own.
 pub fn install_tar_gz(
     archive: &Path,
     dest_root: &Path,
     installed_name: &str,
 ) -> Result<(), String> {
-    install_inner(archive, dest_root, None, installed_name)
+    install_tar_gz_limited(archive, dest_root, installed_name, &ExtractLimits::DEFAULT)
+}
+
+/// [`install_tar_gz`] within `limits`: a member count, a per-file size or a total size past a
+/// limit fails the install before the previous install is touched.
+pub fn install_tar_gz_limited(
+    archive: &Path,
+    dest_root: &Path,
+    installed_name: &str,
+    limits: &ExtractLimits,
+) -> Result<(), String> {
+    install_inner(archive, dest_root, None, installed_name, limits)
 }
 
 /// Like [`install_tar_gz`], but the archive's single top-level directory must be named
 /// exactly `expected_wrapper`. A different top-level name, or a second top-level entry, is
 /// refused before anything is installed: the previous install (if any) is untouched and
-/// nothing is left behind. `expected_wrapper` must be one plain path component.
+/// nothing is left behind. `expected_wrapper` must be one plain path component. Bounded by
+/// [`ExtractLimits::DEFAULT`]; [`install_tar_gz_expecting_limited`] takes the caller's own.
 pub fn install_tar_gz_expecting(
     archive: &Path,
     dest_root: &Path,
     expected_wrapper: &str,
     installed_name: &str,
 ) -> Result<(), String> {
+    install_tar_gz_expecting_limited(
+        archive,
+        dest_root,
+        expected_wrapper,
+        installed_name,
+        &ExtractLimits::DEFAULT,
+    )
+}
+
+/// [`install_tar_gz_expecting`] within `limits` (see [`install_tar_gz_limited`]).
+pub fn install_tar_gz_expecting_limited(
+    archive: &Path,
+    dest_root: &Path,
+    expected_wrapper: &str,
+    installed_name: &str,
+    limits: &ExtractLimits,
+) -> Result<(), String> {
     validate_dir_name(expected_wrapper)?;
-    install_inner(archive, dest_root, Some(expected_wrapper), installed_name)
+    install_inner(
+        archive,
+        dest_root,
+        Some(expected_wrapper),
+        installed_name,
+        limits,
+    )
 }
 
 fn install_inner(
@@ -42,6 +79,7 @@ fn install_inner(
     dest_root: &Path,
     expected_wrapper: Option<&str>,
     installed_name: &str,
+    limits: &ExtractLimits,
 ) -> Result<(), String> {
     validate_dir_name(installed_name)?;
     fs::create_dir_all(dest_root)
@@ -58,37 +96,42 @@ fn install_inner(
     let _ = fs::remove_dir_all(&staging);
     fs::create_dir_all(&staging).map_err(|err| format!("create {}: {err}", staging.display()))?;
 
-    let result =
-        archive_core::unpack_wrapped(archive, Compression::Gzip, &staging, expected_wrapper)
-            .and_then(|()| {
-                let dest = dest_root.join(installed_name);
-                // Never delete `dest` before the replacement is in place: a crash or a
-                // failed rename between the two would leave no model at all. Move the
-                // existing install aside, commit the new one, and only then drop the
-                // aside copy; restore it if the commit fails.
-                let aside = dest
-                    .exists()
-                    .then(|| previous_aside_path(dest_root, installed_name));
+    let result = archive_core::unpack_wrapped_limited(
+        archive,
+        Compression::Gzip,
+        &staging,
+        expected_wrapper,
+        limits,
+    )
+    .and_then(|()| {
+        let dest = dest_root.join(installed_name);
+        // Never delete `dest` before the replacement is in place: a crash or a
+        // failed rename between the two would leave no model at all. Move the
+        // existing install aside, commit the new one, and only then drop the
+        // aside copy; restore it if the commit fails.
+        let aside = dest
+            .exists()
+            .then(|| previous_aside_path(dest_root, installed_name));
+        if let Some(aside) = aside.as_ref() {
+            let _ = fs::remove_dir_all(aside);
+            fs::rename(&dest, aside)
+                .map_err(|err| format!("stage previous {}: {err}", dest.display()))?;
+        }
+        match fs::rename(&staging, &dest) {
+            Ok(()) => {
                 if let Some(aside) = aside.as_ref() {
                     let _ = fs::remove_dir_all(aside);
-                    fs::rename(&dest, aside)
-                        .map_err(|err| format!("stage previous {}: {err}", dest.display()))?;
                 }
-                match fs::rename(&staging, &dest) {
-                    Ok(()) => {
-                        if let Some(aside) = aside.as_ref() {
-                            let _ = fs::remove_dir_all(aside);
-                        }
-                        Ok(())
-                    }
-                    Err(err) => {
-                        if let Some(aside) = aside.as_ref() {
-                            let _ = fs::rename(aside, &dest);
-                        }
-                        Err(format!("install {}: {err}", dest.display()))
-                    }
+                Ok(())
+            }
+            Err(err) => {
+                if let Some(aside) = aside.as_ref() {
+                    let _ = fs::rename(aside, &dest);
                 }
-            });
+                Err(format!("install {}: {err}", dest.display()))
+            }
+        }
+    });
 
     if result.is_err() {
         let _ = fs::remove_dir_all(&staging);

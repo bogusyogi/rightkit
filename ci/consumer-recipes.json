@@ -2277,7 +2277,7 @@
       "pkId": "PK12",
       "id": "ci/consumers/rightkit-models/src/main.rs",
       "files": {
-        "Cargo.toml": "f4524182808f3db91422a2225d7a58c644943cc8790804457c90165792184254",
+        "Cargo.toml": "f2f51ac4ee67f5845fca82102bd20c649915b471c2c5d56e0b6a60c39c713603",
         "README.md": "724628f98df342af4288b5eeae1edd8faab410c12c5aebbee63aa27868698c10",
         "src/main.rs": "898a0003b7cb92ef926a691d954b7b531166587723c9cca4f47574cdb881d8c5"
       }
@@ -4315,6 +4315,15 @@
         "Cargo.toml": "e682078d202eedeff131991eea992106ffeedbc397e6ab84ab0b10c83bfd5101",
         "README.md": "d7d75a6048ce54f6f15778138e4712aa1898ffaf3b1dd16b0e23b0d36d7ce6aa",
         "src/main.rs": "8b7804c257335b89eaf0bb7ba7dcec7b1e20071fc4ca48cdeb0ae73d5b39841b"
+      }
+    },
+    "rightkit-dictation-pill": {
+      "pkId": "PK254",
+      "id": "ci/consumers/rightkit-dictation-pill/src/main.rs",
+      "files": {
+        "Cargo.toml": "a95ec968fdb5a23e928dbcabe87837992f0086e3cdd2ab9d2cf6dd956e6ac3a8",
+        "README.md": "6e08e1bfa846e21d8ec443002f76c6fad18138d66ffe62ace2dd64b57deafff3",
+        "src/main.rs": "135aea4da5cbc2e008ba70403a40d77232bcd015680e4c6334a57b7c14e151c5"
       }
     }
   }

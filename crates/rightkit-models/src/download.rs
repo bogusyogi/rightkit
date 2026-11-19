@@ -207,21 +207,46 @@ fn same_download_name(left: &Path, right: &Path) -> Result<bool, String> {
     }
 }
 
-/// The total time budget of one download call ([`crate::http::ModelHttpOptions::total_timeout`]),
-/// started when the first request is about to be made.
+/// The time budget of one download call: its own total ([`crate::http::ModelHttpOptions::total_timeout`],
+/// counted from the first request being prepared) and/or the caller's absolute deadline
+/// ([`download_resumable_capped_by`]), whichever comes first. The deadline is an [`Instant`], so
+/// every request, pause and read derives its own timeout from it at the moment it starts
+/// ([`Budget::left`]); time spent before the budget was created (the fast path, the checks)
+/// is already counted.
 struct Budget {
-    total: Duration,
+    /// The call's own total, when it is what ends the budget; `None` when the caller's
+    /// deadline does.
+    total: Option<Duration>,
     deadline: Instant,
 }
 
 impl Budget {
-    /// `None` when no budget is set (or it is too large to represent as an instant).
-    fn start(total: Option<Duration>) -> Option<Self> {
-        let total = total?;
-        Some(Self {
-            total,
-            deadline: Instant::now().checked_add(total)?,
-        })
+    /// `None` when neither a total nor a caller's deadline is set (a total too large to
+    /// represent as an instant counts as not set).
+    fn start(total: Option<Duration>, until: Option<Instant>) -> Option<Self> {
+        let own = total.and_then(|total| Some((Instant::now().checked_add(total)?, total)));
+        match (own, until) {
+            (None, None) => None,
+            (Some((deadline, total)), None) => Some(Self {
+                total: Some(total),
+                deadline,
+            }),
+            (None, Some(until)) => Some(Self {
+                total: None,
+                deadline: until,
+            }),
+            (Some((deadline, total)), Some(until)) => Some(if until < deadline {
+                Self {
+                    total: None,
+                    deadline: until,
+                }
+            } else {
+                Self {
+                    total: Some(total),
+                    deadline,
+                }
+            }),
+        }
     }
 
     fn left(&self) -> Duration {
@@ -234,13 +259,22 @@ impl Budget {
 
     /// The failure message, also recorded as the transport failure that ended the call.
     fn exceeded(&self, slot: &FailureSlot) -> String {
-        let message = format!(
-            "download exceeded the total time budget of {:?}",
-            self.total
-        );
+        let message = match self.total {
+            Some(total) => format!("download exceeded the total time budget of {total:?}"),
+            None => "download exceeded the caller's deadline".to_string(),
+        };
         *slot.borrow_mut() = Some(LastFailure::Transport(message.clone()));
         message
     }
+}
+
+/// What bounds one download call besides the transport's own limits.
+#[derive(Clone, Copy)]
+struct Limits {
+    /// Most bytes the body may have.
+    max_bytes: Option<u64>,
+    /// The caller's absolute deadline for the whole call.
+    until: Option<Instant>,
 }
 
 /// The HTTP-level failure that ended a download attempt, for typed callers
@@ -450,19 +484,22 @@ fn write_response_body_with_progress(
                 )));
             }
         };
+        let next_received = received.checked_add(count as u64).ok_or_else(|| {
+            TransferError::TooLarge(format!("{CAP_PREFIX}received byte count overflow"))
+        })?;
+        if let Some(cap) = max_bytes.filter(|cap| next_received > *cap) {
+            let _ = file.sync_all();
+            return Err(TransferError::TooLarge(format!(
+                "{CAP_PREFIX}received more than {cap} bytes"
+            )));
+        }
         writer
             .write_all(&buffer[..count])
             .map_err(|error| TransferError::Fatal(io_msg("write atomic destination", error)))?;
         digest.update(&buffer[..count]);
         file.write_all(&buffer[..count])
             .map_err(|error| TransferError::Fatal(io_msg("write partial", error)))?;
-        received += count as u64;
-        if let Some(cap) = max_bytes.filter(|cap| received > *cap) {
-            let _ = file.sync_all();
-            return Err(TransferError::TooLarge(format!(
-                "{CAP_PREFIX}received more than {cap} bytes"
-            )));
-        }
+        received = next_received;
         progress(received, total);
     }
     file.sync_all()
@@ -524,6 +561,38 @@ pub fn download_resumable_capped(
     )
 }
 
+/// As [`download_resumable_capped`], ending by the absolute `deadline`. The deadline is not
+/// converted to a duration here: the call's time budget is the earlier of `deadline` and the
+/// client's own [`crate::http::ModelHttpOptions::total_timeout`], fixed as an instant, so each
+/// request's timeout (`rightkit_http::Request::timeout`), each pause between attempts, each
+/// wait for a body chunk (`crate::http::IdleReader`) and the check before each 64 KiB read is
+/// computed from `deadline` at the moment it starts, never from a duration taken earlier. A
+/// deadline already passed returns the message `download exceeded the caller's deadline` before
+/// anything is read or requested. Not interruptible by it: the file-system work around the
+/// transfer (the checks, the hash of a completed `.part`, the seed copy of a resume, the final
+/// fsync and rename). `rightkit-http` shares each request's remaining timeout across redirect
+/// hops rather than restarting it for each hop.
+pub fn download_resumable_capped_by(
+    client: &impl AsHttpClient,
+    request: DownloadRequest<'_>,
+    max_bytes: Option<u64>,
+    deadline: Instant,
+    progress: impl FnMut(u64, u64),
+) -> Result<DownloadResult, Error> {
+    download_resumable_recorded_with(
+        &client.vetted_client(),
+        request,
+        None,
+        Limits {
+            max_bytes,
+            until: Some(deadline),
+        },
+        DownloadOptions::default(),
+        progress,
+        &FailureSlot::default(),
+    )
+}
+
 /// As [`download_resumable_capped`], with the opt-in behaviour in `options` (see
 /// [`DownloadOptions`]). `DownloadOptions::default()` with `max_bytes: None` is exactly
 /// [`download_resumable`].
@@ -538,7 +607,10 @@ pub fn download_resumable_with_options(
         &client.vetted_client(),
         request,
         None,
-        max_bytes,
+        Limits {
+            max_bytes,
+            until: None,
+        },
         options,
         progress,
         &FailureSlot::default(),
@@ -579,7 +651,10 @@ pub(crate) fn download_resumable_recorded_capped(
         client,
         request,
         identity,
-        max_bytes,
+        Limits {
+            max_bytes,
+            until: None,
+        },
         DownloadOptions::default(),
         progress,
         slot,
@@ -592,7 +667,7 @@ fn download_resumable_recorded_with(
     client: &ModelHttp,
     request: DownloadRequest<'_>,
     identity: Option<&str>,
-    max_bytes: Option<u64>,
+    limits: Limits,
     options: DownloadOptions,
     progress: impl FnMut(u64, u64),
     slot: &FailureSlot,
@@ -601,9 +676,7 @@ fn download_resumable_recorded_with(
         .filter(|_| request.expected_sha256.is_some())
         .unwrap_or(request.url);
     let part_path = request.part_path.to_path_buf();
-    let outcome = download_inner(
-        client, request, resume_url, max_bytes, options, progress, slot,
-    );
+    let outcome = download_inner(client, request, resume_url, limits, options, progress, slot);
     if options.discard_partial_on_cancel && matches!(&outcome, Err(message) if message == CANCELLED)
     {
         discard_partial(&part_path);
@@ -628,11 +701,19 @@ fn download_inner(
     http: &ModelHttp,
     request: DownloadRequest<'_>,
     resume_url: &str,
-    max_bytes: Option<u64>,
+    limits: Limits,
     options: DownloadOptions,
     mut progress: impl FnMut(u64, u64),
     slot: &FailureSlot,
 ) -> Result<DownloadResult, String> {
+    let Limits { max_bytes, until } = limits;
+    // The caller's deadline is read before any file-system work or request; a passed deadline
+    // ends the call here and leaves everything on disk as it is.
+    if until.is_some_and(|limit| Instant::now() >= limit) {
+        let message = "download exceeded the caller's deadline".to_string();
+        *slot.borrow_mut() = Some(LastFailure::Transport(message.clone()));
+        return Err(message);
+    }
     let metadata_path = metadata_path(request.part_path);
     let staged_metadata_path = self::metadata_path(&metadata_path);
     // Resolve only parents, after the existing directory-creation step. Comparing
@@ -719,11 +800,18 @@ fn download_inner(
     if let Some(received) =
         completed_partial_candidate(request.part_path, &metadata_path, resume_url, &expected)?
     {
+        if let Some(cap) = max_bytes.filter(|cap| received > *cap) {
+            cleanup_poisoned(request.part_path, &metadata_path);
+            return Err(format!(
+                "{CAP_PREFIX}saved partial has {received} bytes, the cap is {cap}"
+            ));
+        }
         match commit_part(
             request.part_path,
             &metadata_path,
             request.dest_path,
             expected.as_deref(),
+            received,
         ) {
             Ok(got) => {
                 return Ok(DownloadResult {
@@ -740,7 +828,9 @@ fn download_inner(
     }
 
     let attempts = (http.retries() as usize).saturating_add(1);
-    let budget = Budget::start(http.total_timeout());
+    // An instant, not a duration: the caller's `until` is the same point however long the
+    // checks above took, and each request below takes its timeout from it when it is built.
+    let budget = Budget::start(http.total_timeout(), until);
     let mut last_transient = None;
     for attempt in 0..attempts {
         if let Some(budget) = &budget {
@@ -759,6 +849,12 @@ fn download_inner(
             &expected,
             options.resume_without_strong_etag,
         )?;
+        if let Some(cap) = max_bytes.filter(|cap| offset > *cap) {
+            cleanup_poisoned(request.part_path, &metadata_path);
+            return Err(format!(
+                "{CAP_PREFIX}saved partial has {offset} bytes, the cap is {cap}"
+            ));
+        }
         // A weak resume has no ETag to send as If-Range; the saved total is its only proof.
         let weak_total = (offset > 0 && stored_etag.is_none()).then_some(stored_total);
         // Byte ranges and the final file hash must describe the same wire
@@ -883,7 +979,11 @@ fn download_inner(
             },
         )?;
         let mut reader: Box<dyn std::io::Read + Send> = match http.read_timeout() {
-            Some(idle) => Box::new(IdleReader::new(response.into_reader(), idle)),
+            Some(idle) => Box::new(IdleReader::new(
+                response.into_reader(),
+                idle,
+                budget.as_ref().map(|budget| budget.deadline),
+            )),
             None => response.into_reader(),
         };
         let (mut writer, mut digest) = stage_partial(
@@ -997,10 +1097,8 @@ fn commit_part(
     metadata: &Path,
     dest: &Path,
     expected: Option<&str>,
+    received: u64,
 ) -> Result<String, String> {
-    let received = fs::metadata(part)
-        .map_err(|e| io_msg("read completed partial", e))?
-        .len();
     let (writer, digest) = stage_partial(part, dest, received)?;
     commit_staged(writer, digest, received, part, metadata, expected)
 }

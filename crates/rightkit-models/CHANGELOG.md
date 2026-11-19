@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.7.2
+
+- Bounded extraction. `suite::archive::ExtractLimits { max_entries, max_entry_bytes, max_total_bytes }`, `install_tar_gz_limited` and `install_tar_gz_expecting_limited` fail the install, before the previous install is touched, on the first member past a count, a per-file size or a summed size limit. The decompressed stream is capped as well (the summed size plus 4096 bytes per permitted entry), so a member that lies about its size cannot expand past the bound. `install_tar_gz`, `install_tar_gz_expecting` and `archive::unpack_wrapped*` are bounded by `ExtractLimits::DEFAULT` (200 000 members, 64 GiB per file, 256 GiB in all), finite and far above anything the suite ships; before, they had no bound. The suite store's own archive install passes limits taken from the catalog's pinned file list (the pinned sizes plus 16 MiB, and the file count plus 4096 members) when every file pins a size.
+- A file the store downloads from a catalog `SpecSource::Files` entry is capped at its pinned size (32 GiB when the catalog pins none); before, it was not capped.
+- New `download::download_resumable_capped_by(client, request, max_bytes, deadline: Instant, progress)`: the download ends by an absolute deadline. The call's time budget becomes the earlier of the deadline and the client's own `total_timeout`, kept as an instant, so each request's timeout, each pause between attempts, each wait for a body chunk (the idle limit is capped at the time left) and the check before each 64 KiB read is derived from the deadline when it starts; before, a caller could only give the client a duration, which started counting when the first request was prepared, after whatever the caller and the download's own checks had already spent. A deadline already passed returns `download exceeded the caller's deadline` before any request. `download_resumable`, `_capped` and `_with_options` are unchanged. File-system work around the transfer remains non-interruptible. `rightkit-http` shares each request's remaining timeout across redirect hops.
+- Not changed: `archive::extract_member` (one named member) is still unbounded.
+- Not compiled or run here.
+
 ## 0.7.1
 
 - Fix: migrating a pre-0.7 entry no longer deletes anything. The old directory (earlier revisions, `state.json`, old staging and paused installs) was deleted once the active revision became the suite entry; it is now moved to `<root>/.legacy-kept/<id>` (`<id>.1`, `<id>.2` when taken) at every step that removed it, uninstall included, and kept there. New `Store::legacy_kept()` lists those directories so the app can report them and let the user remove them; the store never does. A symlink at `<root>/.legacy-kept` is refused like every other store path.

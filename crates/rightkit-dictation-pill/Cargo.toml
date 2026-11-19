@@ -1,0 +1,39 @@
+[package]
+name = "rightkit-dictation-pill"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.98.0"
+license = "MIT OR Apache-2.0"
+description = "The dictation pill: a recording capsule, a hint card and a clip card drawn as native layered overlays (Windows backend), plus the platform-neutral session logic around a pill (the full-screen and foreground guardian, the generation-stamped event queue, native-view bridge helpers). Controller and logic only: every painter, layout size, font, colour, motion curve, label, window name, policy, persisted key and file name is supplied by the host."
+readme = "README.md"
+repository = "https://github.com/bogusyogi/rightkit"
+keywords = ["dictation", "overlay", "pill", "ui"]
+categories = ["gui", "os::windows-apis", "os::macos-apis"]
+include = ["src/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+
+[dependencies]
+# Shared event vocabulary, re-exported as `PillEvent`.
+rightkit-dictation-core = { version = "0.3.2", path = "../rightkit-dictation-core" }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+rightkit-overlay = { version = "=0.2.3", path = "../rightkit-overlay" }
+rightkit-overlay-win = { version = "=0.1.6", path = "../rightkit-overlay-win" }
+windows-sys = { version = "0.61.2", features = [
+  "Win32_Foundation",
+  "Win32_Graphics_Gdi",
+  "Win32_Media_Audio",
+  "Win32_UI_Input_KeyboardAndMouse",
+  "Win32_UI_WindowsAndMessaging",
+] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+core-foundation = "0.10"
+core-graphics = { version = "0.25", features = ["highsierra"] }
+objc2 = "0.6"
+objc2-app-kit = "0.3"
+objc2-foundation = "0.3"
+rightkit-automation = { version = "=0.7.1", path = "../rightkit-automation", features = ["desktop-context"] }
+
+[package.metadata.rightkit]
+continuous = false
+continuous_reason = "One owner thread blocked on its command queue with no timeout while nothing animates; frame pumps and timers run only while a surface animates or a deadline is armed. The visibility guardian worker blocks on a channel with no timeout and wakes only on an OS event (a pass at the host's degraded interval only when no OS event source could be installed). No polling loop while idle and no network."

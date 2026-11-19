@@ -11455,6 +11455,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "rightkit-dictation-pill"
+version = "0.1.0"
+dependencies = [
+ "core-foundation 0.10.1",
+ "core-graphics",
+ "objc2",
+ "objc2-app-kit",
+ "objc2-foundation",
+ "rightkit-automation",
+ "rightkit-dictation-core",
+ "rightkit-overlay",
+ "rightkit-overlay-win",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "rightkit-dictation-runtime"
 version = "0.2.3"
 dependencies = [
@@ -12334,7 +12350,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-models"
-version = "0.7.1"
+version = "0.7.2"
 dependencies = [
  "base64 0.23.1",
  "chrono",

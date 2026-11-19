@@ -586,9 +586,42 @@ fn download_archive(
         }
     }
     progress(Progress::Install);
-    archive::install_tar_gz(&dest, models_root, spec.id)?;
+    archive::install_tar_gz_limited(&dest, models_root, spec.id, &extract_limits_for(spec))?;
     let _ = fs::remove_file(&dest);
     Ok(())
+}
+
+/// Largest download of a file whose catalog entry pins no size. Finite; far above any file the
+/// suite ships.
+const UNPINNED_FILE_DOWNLOAD_CAP: u64 = 32 << 30;
+
+/// Room an archive may add beyond the pinned file list: a `manifest.json`, a notice file.
+const ARCHIVE_EXTRAS_BYTES: u64 = 16 << 20;
+/// Directory entries and extras an archive may carry beyond one entry per pinned file.
+const ARCHIVE_EXTRA_ENTRIES: usize = 4096;
+
+/// Extraction bounds for `spec`'s archive. When every pinned file carries a size the bounds are
+/// the pinned list's: the files' summed size and largest size plus a small allowance, and the
+/// member count of the list plus the directories a tree needs. A spec that pins no sizes gets
+/// [`archive::ExtractLimits::DEFAULT`].
+fn extract_limits_for(spec: &ModelSpec) -> archive::ExtractLimits {
+    if spec.files.is_empty() {
+        return archive::ExtractLimits::DEFAULT;
+    }
+    let mut total = 0u64;
+    let mut largest = 0u64;
+    for file in spec.files {
+        let Some(size) = file.size else {
+            return archive::ExtractLimits::DEFAULT;
+        };
+        total = total.saturating_add(size);
+        largest = largest.max(size);
+    }
+    archive::ExtractLimits {
+        max_entries: spec.files.len().saturating_add(ARCHIVE_EXTRA_ENTRIES),
+        max_entry_bytes: largest.saturating_add(ARCHIVE_EXTRAS_BYTES),
+        max_total_bytes: total.saturating_add(ARCHIVE_EXTRAS_BYTES),
+    }
 }
 
 fn download_files(
@@ -618,7 +651,9 @@ fn download_files(
             Some(url) => {
                 let part = download::part_path_for(&dest);
                 let name = file.path.to_string();
-                download::download_resumable_recorded(
+                // A pinned size bounds the file (nothing past it is written); an unpinned
+                // file gets the finite fallback.
+                download::download_resumable_recorded_capped(
                     client,
                     DownloadRequest {
                         url,
@@ -629,6 +664,7 @@ fn download_files(
                         cancelled,
                     },
                     None,
+                    Some(file.size.unwrap_or(UNPINNED_FILE_DOWNLOAD_CAP)),
                     |received, total| {
                         progress(Progress::Download {
                             file: name.clone(),

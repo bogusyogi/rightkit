@@ -537,7 +537,10 @@ impl AsHttpClient for ureq::Agent {
     }
 }
 
-/// Reader that fails with `TimedOut` when no bytes arrive for `idle`.
+/// Reader that fails with `TimedOut` when no bytes arrive for `idle`, or when the absolute
+/// `deadline` (when one is set) passes: each wait is `min(idle, time left to the deadline)`,
+/// derived from the instant when the wait starts, so a long idle limit cannot carry a read past
+/// the caller's deadline.
 ///
 /// The blocking read runs on a helper thread; on a stall the helper is
 /// abandoned and ends when its read returns or errors. This is a stopgap for a
@@ -547,11 +550,16 @@ pub(crate) struct IdleReader {
     pending: Vec<u8>,
     at: usize,
     idle: Duration,
+    deadline: Option<std::time::Instant>,
     done: bool,
 }
 
 impl IdleReader {
-    pub(crate) fn new(mut inner: Box<dyn Read + Send>, idle: Duration) -> Self {
+    pub(crate) fn new(
+        mut inner: Box<dyn Read + Send>,
+        idle: Duration,
+        deadline: Option<std::time::Instant>,
+    ) -> Self {
         let (sender, chunks) = mpsc::sync_channel(2);
         std::thread::spawn(move || {
             let mut buffer = vec![0u8; 64 * 1024];
@@ -572,6 +580,7 @@ impl IdleReader {
             pending: Vec::new(),
             at: 0,
             idle,
+            deadline,
             done: false,
         }
     }
@@ -583,7 +592,21 @@ impl Read for IdleReader {
             if self.done {
                 return Ok(0);
             }
-            match self.chunks.recv_timeout(self.idle) {
+            let wait = match self.deadline {
+                Some(deadline) => {
+                    let left = deadline.saturating_duration_since(std::time::Instant::now());
+                    if left.is_zero() {
+                        self.done = true;
+                        return Err(io::Error::new(
+                            io::ErrorKind::TimedOut,
+                            "the caller's deadline passed",
+                        ));
+                    }
+                    self.idle.min(left)
+                }
+                None => self.idle,
+            };
+            match self.chunks.recv_timeout(wait) {
                 Ok(Ok(chunk)) if chunk.is_empty() => {
                     self.done = true;
                     return Ok(0);
@@ -600,7 +623,7 @@ impl Read for IdleReader {
                     self.done = true;
                     return Err(io::Error::new(
                         io::ErrorKind::TimedOut,
-                        format!("no data for {} ms", self.idle.as_millis()),
+                        format!("no data for {} ms", wait.as_millis()),
                     ));
                 }
                 Err(mpsc::RecvTimeoutError::Disconnected) => {
