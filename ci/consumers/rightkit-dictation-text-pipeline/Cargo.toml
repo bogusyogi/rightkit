@@ -7,6 +7,6 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-dictation-text-pipeline = { version = "=0.2.6" }
+rightkit-dictation-text-pipeline = { version = "=0.2.7" }
 rightkit-app-settings = "=0.4.2"
 rightkit-dictation-core = "=0.3.2"

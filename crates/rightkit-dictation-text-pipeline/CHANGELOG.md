@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.7
+
+- Keep the last configured disk settings when an open fails with a transient I/O error. A later successful read replaces the retained settings.
+
 ## 0.2.6
 
 - `settings::configure_disk_settings` accepts host store options for read-only settings with per-field repair. Native runtime configuration takes precedence over disk reads, including a push that arrives during a read.

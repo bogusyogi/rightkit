@@ -1,10 +1,10 @@
 use std::collections::HashMap;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 
-use rightkit_app_settings::Store;
 pub use rightkit_app_settings::StoreOptions as DiskSettingsOptions;
+use rightkit_app_settings::{Error as StoreError, Store};
 use serde::{Deserialize, Serialize};
 
 use rightkit_dictation_core::settings::{
@@ -17,29 +17,56 @@ static DISK_SETTINGS: OnceLock<DiskSettingsReader> = OnceLock::new();
 
 struct DiskSettingsReader {
     options: DiskSettingsOptions,
-    store: Mutex<Option<Store<SettingsBlob>>>,
+    state: Mutex<DiskSettingsState>,
+}
+
+#[derive(Default)]
+struct DiskSettingsState {
+    store: Option<Store<SettingsBlob>>,
+    last_read: Option<SettingsBlob>,
 }
 
 impl DiskSettingsReader {
-    fn read(&self, path: &std::path::Path) -> SettingsBlob {
-        let mut slot = self.store.lock().unwrap_or_else(|error| error.into_inner());
-        if !slot.as_ref().is_some_and(|store| store.path() == path) {
-            *slot = Store::open_read_only(path, self.options.clone()).ok();
-        }
-        let mut blob = slot.as_ref().map(Store::get).unwrap_or_default();
+    fn read(&self, path: &Path) -> SettingsBlob {
+        let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
+        let mut blob = match state.store.as_ref() {
+            Some(store) if store.path() == path => store.get(),
+            _ => match Store::open_read_only(path, self.options.clone()) {
+                Ok(store) => {
+                    let blob = store.get();
+                    state.store = Some(store);
+                    blob
+                }
+                Err(StoreError::Io(error)) if error.kind() != std::io::ErrorKind::NotFound => {
+                    return state
+                        .last_read
+                        .clone()
+                        .unwrap_or_else(default_disk_settings);
+                }
+                Err(_) => return default_disk_settings(),
+            },
+        };
         migrate(&mut blob);
+        state.last_read = Some(blob.clone());
         blob
     }
 }
 
+fn default_disk_settings() -> SettingsBlob {
+    let mut blob = SettingsBlob::default();
+    migrate(&mut blob);
+    blob
+}
+
 /// Install the host's read-only settings store options before the first settings read.
 /// The first call wins. The store follows external edits & applies field repairs in
-/// memory. Native IPC owns the override used for pushed config & authorization.
+/// memory. A transient I/O error opening the file keeps the last settings read.
+/// Native IPC owns the override used for pushed config & authorization.
 pub fn configure_disk_settings(options: DiskSettingsOptions) -> bool {
     DISK_SETTINGS
         .set(DiskSettingsReader {
             options,
-            store: Mutex::new(None),
+            state: Mutex::new(DiskSettingsState::default()),
         })
         .is_ok()
 }
@@ -216,7 +243,7 @@ fn load_settings() -> SettingsBlob {
     runtime_config().unwrap_or(disk)
 }
 
-fn load_unconfigured_disk_settings(path: &std::path::Path) -> SettingsBlob {
+fn load_unconfigured_disk_settings(path: &Path) -> SettingsBlob {
     let bytes = match rightkit_fs::replaced::read_replaced(path) {
         Ok(bytes) => bytes,
         // Only a missing file means "no settings". A refused read keeps the last settings
@@ -225,15 +252,9 @@ fn load_unconfigured_disk_settings(path: &std::path::Path) -> SettingsBlob {
             if let Some(blob) = LAST_READ.lock().ok().and_then(|slot| slot.clone()) {
                 return blob;
             }
-            let mut blob = SettingsBlob::default();
-            migrate(&mut blob);
-            return blob;
+            return default_disk_settings();
         }
-        Err(_) => {
-            let mut blob = SettingsBlob::default();
-            migrate(&mut blob);
-            return blob;
-        }
+        Err(_) => return default_disk_settings(),
     };
     match serde_json::from_slice::<SettingsBlob>(&bytes) {
         Ok(mut blob) => {
@@ -243,11 +264,7 @@ fn load_unconfigured_disk_settings(path: &std::path::Path) -> SettingsBlob {
             }
             blob
         }
-        Err(_) => {
-            let mut blob = SettingsBlob::default();
-            migrate(&mut blob);
-            blob
-        }
+        Err(_) => default_disk_settings(),
     }
 }
 

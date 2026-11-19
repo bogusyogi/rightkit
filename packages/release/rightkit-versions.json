@@ -613,7 +613,7 @@
     "rightkit-dictation-runtime": "0.2.3",
     "rightkit-dictation-tauri": "0.2.2",
     "rightkit-dictation-telemetry": "0.2.2",
-    "rightkit-dictation-text-pipeline": "0.2.6",
+    "rightkit-dictation-text-pipeline": "0.2.7",
     "rightkit-disk-cleanup": "0.2.0",
     "rightkit-docs": "0.1.6",
     "rightkit-doctor": "0.2.0",
