@@ -148,13 +148,13 @@ jobs:
           "$RUNNER_TEMP/shellcheck-bin/shellcheck" --version | grep -Fx "version: ${SHELLCHECK_VERSION}"
           echo "$RUNNER_TEMP/shellcheck-bin" >> "$GITHUB_PATH"
       - name: Install the GTK and WebKit development libraries for Tauri units, rightkit-qa, rightkit-agent-demo and the rightkit-dictation crates (ALSA)
-        if: ${{ contains(matrix.unit, 'tauri') || matrix.unit == 'cargo:rightkit-qa' || matrix.unit == 'cargo:rightkit-agent-demo' || contains(matrix.unit, 'rightkit-dictation') }}
+        if: ${{ contains(matrix.unit, 'tauri') || matrix.unit == 'cargo:rightkit-qa' || matrix.unit == 'cargo:rightkit-agent-demo' || (contains(matrix.unit, 'rightkit-dictation') && matrix.unit != 'cargo:rightkit-dictation-core' && matrix.unit != 'cargo:rightkit-dictation-telemetry' && matrix.unit != 'cargo:rightkit-dictation-inference') }}
         run: |
           set -euo pipefail
           sudo apt-get update -qq
           sudo apt-get install -y -qq --no-install-recommends pkg-config libglib2.0-dev libgtk-3-dev libwebkit2gtk-4.1-dev libsoup-3.0-dev libayatana-appindicator3-dev librsvg2-dev libasound2-dev
-      - name: Install ALSA headers for audio capture
-        if: ${{ matrix.unit == 'cargo:rightkit-audio' }}
+      - name: Install ALSA headers for audio and inference
+        if: ${{ matrix.unit == 'cargo:rightkit-audio' || matrix.unit == 'cargo:rightkit-dictation-inference' }}
         run: |
           set -euo pipefail
           sudo apt-get update -qq

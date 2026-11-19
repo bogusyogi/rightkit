@@ -707,13 +707,13 @@ jobs:
       # The direct route packs on Linux, and `cargo package` compiles what it packs: a Tauri crate (or rightkit-qa) needs the
       # same system libraries there that qualify-direct.yml installs for it. The xcode-27 pack needs none.
       - name: Install the GTK and WebKit development libraries for Tauri units, rightkit-qa, rightkit-agent-demo and the rightkit-dictation crates (ALSA; Linux pack)
-        if: ${{ runner.os == 'Linux' && needs.plan.outputs.registry == 'crates' && (contains(needs.plan.outputs.units, 'tauri') || contains(needs.plan.outputs.units, 'rightkit-qa') || contains(needs.plan.outputs.units, 'rightkit-agent-demo') || contains(needs.plan.outputs.units, 'rightkit-dictation')) }}
+        if: ${{ runner.os == 'Linux' && needs.plan.outputs.registry == 'crates' && (contains(needs.plan.outputs.units, 'tauri') || contains(needs.plan.outputs.units, 'rightkit-qa') || contains(needs.plan.outputs.units, 'rightkit-agent-demo') || (contains(needs.plan.outputs.units, 'rightkit-dictation') && needs.plan.outputs.units != 'rightkit-dictation-core' && needs.plan.outputs.units != 'rightkit-dictation-telemetry' && needs.plan.outputs.units != 'rightkit-dictation-inference')) }}
         run: |
           set -euo pipefail
           sudo apt-get update -qq
           sudo apt-get install -y -qq --no-install-recommends pkg-config libglib2.0-dev libgtk-3-dev libwebkit2gtk-4.1-dev libsoup-3.0-dev libayatana-appindicator3-dev librsvg2-dev libasound2-dev
-      - name: Install ALSA headers for audio capture (Linux pack)
-        if: ${{ runner.os == 'Linux' && needs.plan.outputs.registry == 'crates' && contains(format(' {0} ', needs.plan.outputs.units), ' rightkit-audio ') }}
+      - name: Install ALSA headers for audio and inference (Linux pack)
+        if: ${{ runner.os == 'Linux' && needs.plan.outputs.registry == 'crates' && (contains(format(' {0} ', needs.plan.outputs.units), ' rightkit-audio ') || contains(format(' {0} ', needs.plan.outputs.units), ' rightkit-dictation-inference ')) }}
         run: |
           set -euo pipefail
           sudo apt-get update -qq
