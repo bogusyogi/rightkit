@@ -2059,13 +2059,13 @@
       "pkId": "PK03",
       "id": "ci/consumers/rightkit-credentials/src/main.rs",
       "files": {
-        "Cargo.toml": "a56f5408288e7407208910567cfa3872fddaebf6d263267799fbdea17b9f0c7d",
+        "Cargo.toml": "01891f94659152555870a3b8a7cfd2574a15639c6ebcaa872660456c862cc237",
         "prepare_signed_helper.py": "5416b80b5b81ef50528033bbc9b91131a73c421a66764b3390331dd80fa0cd6c",
         "qualification-helper/entitlements.plist": "a6aa6260390ae45abe50cc5bed4d0dd2b922a67ac93f69bd58b86419666f123c",
         "qualification-helper/Info.plist": "8a865dfac7975ff5b0bd3315625676af43490ed611e3e31d2a823debc7b664ad",
         "qualification-helper/main.swift": "e1598bfca1122aa38060e09f95abce58b367023cfee8b9d43c1375b80f4b15a1",
         "qualification-helper/README.md": "99fea95aa2c38cd5ba15b373a77bbfb0de9f0746e8687a2a4a08f8fdd131e549",
-        "README.md": "71380dfd989620b50cf21673258c90fea66d1847a225d7e694647278a3500e23",
+        "README.md": "ed553be8f81b5b772e4d625b04dc8600c2217103bd38e57444c55feac8f2cfc6",
         "src/main.rs": "6e97140fa7dd9cdca6322141c713d684c8e87788a97881147f840fe5ba06e7a4"
       },
       "runs": [
@@ -2106,7 +2106,7 @@
           }
         }
       ],
-      "aggregateSha256": "f73e44dc886e6520b385ce4c1355e82168062834af12ed626df91b4ba016b94c"
+      "aggregateSha256": "39639ea70bceb9bb93493b76687d27bc3477dd56381707606e010ab1b78ef629"
     },
     "rightkit-job-queue": {
       "pkId": "PK06",

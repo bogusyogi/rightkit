@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.7
+
+- Add `key_slot` for bounded credential-slot access, atomic minting and rotation, and process shutdown. Verified handles share mutation coordination and keep cached values scoped to their own binding.
+
 ## 0.5.6
 
 - Added `slots`: explicit app-owned credential slots, per-read interaction policy,

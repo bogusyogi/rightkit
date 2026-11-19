@@ -553,6 +553,21 @@ impl Store {
         mutation: bool,
         f: impl FnOnce(Arc<dyn Backend>, Namespace, String, Interaction) -> Result<T> + Send + 'static,
     ) -> Result<T> {
+        self.run_admitted(op, account, mutation, None, f)
+            .map(|value| value.expect("unconditional store call always runs"))
+    }
+
+    /// Admission runs on the mutation worker AFTER the native target has been claimed, directly
+    /// before the backend call. Returning false means no backend call ran. A true answer is the
+    /// operation's admission point: shutdown may abandon it, but cannot cancel it afterwards.
+    fn run_admitted<T: Send + 'static>(
+        &self,
+        op: &'static str,
+        account: &str,
+        mutation: bool,
+        admission: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
+        f: impl FnOnce(Arc<dyn Backend>, Namespace, String, Interaction) -> Result<T> + Send + 'static,
+    ) -> Result<Option<T>> {
         check_target(&self.ns, account)?;
         let started = Instant::now();
         // A timeout too large to add to the clock is treated as "a year".
@@ -585,7 +600,11 @@ impl Store {
         let (ns, acct, mode) = (self.ns.clone(), account.to_string(), self.mode);
         let (tx, rx) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
-            let result = f(backend, ns, acct, mode);
+            let result = if admission.as_ref().is_none_or(|admit| admit()) {
+                f(backend, ns, acct, mode).map(Some)
+            } else {
+                Ok(None)
+            };
             // Released before the result is sent, so a caller that has its answer can retry at once.
             drop(permit);
             drop(hold);
@@ -639,6 +658,38 @@ impl Store {
             }),
         }
     }
+    /// Slot writes use the same binding, target permit and atomic add as public writes. `None`
+    /// means shutdown refused admission on the worker, before any backend mutation.
+    pub(crate) fn put_admitted(
+        &self,
+        account: &str,
+        secret: &Secret,
+        intent: WriteIntent,
+        admission: Arc<dyn Fn() -> bool + Send + Sync>,
+    ) -> Result<Option<bool>> {
+        if secret.is_empty() {
+            return Err(Error::Invalid {
+                what: "secret",
+                reason: "empty (use delete)".into(),
+            });
+        }
+        let secret = secret.clone();
+        let op = match intent {
+            WriteIntent::Replace => "set",
+            WriteIntent::CreateOnly => "add",
+        };
+        self.run_admitted(
+            op,
+            account,
+            true,
+            Some(admission),
+            move |b, ns, a, m| match intent {
+                WriteIntent::Replace => b.set(&ns, &a, &secret, m).map(|()| true),
+                WriteIntent::CreateOnly => b.add_if_absent(&ns, &a, &secret, m),
+            },
+        )
+    }
+
     /// Create or replace: [`Store::put`] with [`WriteIntent::Replace`]. The method name is the
     /// caller's statement of intent; code that must not overwrite uses [`Store::put`] with
     /// [`WriteIntent::CreateOnly`] or [`Store::add_if_absent`].

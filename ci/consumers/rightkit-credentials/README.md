@@ -1,6 +1,6 @@
-# Credentials 0.5.6 R2 consumer
+# Credentials 0.5.7 R2 consumer
 
-Standalone source recipe pins `rightkit-credentials =0.5.6` with `db-adapter`. Added provider-slot surface references construct no store and read or write no secret values. Existing core, native DB & signed-helper checks remain unchanged.
+Standalone source recipe pins `rightkit-credentials =0.5.7` with `db-adapter`. Provider-slot surface references construct no store and read or write no secret values. Existing core, native DB & signed-helper checks remain unchanged.
 
 ## Coverage
 
