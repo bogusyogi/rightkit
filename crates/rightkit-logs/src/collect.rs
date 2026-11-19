@@ -1,9 +1,9 @@
 use crate::redact::RedactionPolicy;
 use crate::scrub::{scrub_value_counted, RedactionCounts};
 use crate::store::rotated_path;
+use rightkit_fs::{open_read_nofollow, ReadOptions};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
@@ -218,7 +218,7 @@ struct TailRead {
 }
 
 fn read_jsonl_tail(path: &Path, max_bytes: u64) -> io::Result<TailRead> {
-    let mut file = File::open(path)?;
+    let mut file = open_read_nofollow(path, &ReadOptions::new().require_single_link(true))?;
     let length = file.metadata()?.len();
     let start = if max_bytes == 0 {
         length
@@ -229,7 +229,7 @@ fn read_jsonl_tail(path: &Path, max_bytes: u64) -> io::Result<TailRead> {
         file.seek(SeekFrom::Start(start))?;
     }
     let mut bytes = Vec::new();
-    file.read_to_end(&mut bytes)?;
+    file.take(length - start).read_to_end(&mut bytes)?;
     let scanned_bytes = bytes.len() as u64;
 
     if start > 0 {
