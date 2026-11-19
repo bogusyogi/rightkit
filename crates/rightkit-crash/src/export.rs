@@ -443,7 +443,7 @@ fn sanitize_log(
         let content_event = value
             .get("event")
             .and_then(Value::as_str)
-            .is_some_and(|name| request.content_events.iter().any(|known| *known == name));
+            .is_some_and(|name| request.content_events.contains(&name));
         if content_event {
             replace_content_payload(&mut value);
         }
@@ -911,7 +911,7 @@ fn all_digits(text: &str, most: usize) -> bool {
 }
 
 fn in_list(list: &[&str], text: &str) -> bool {
-    list.iter().any(|known| *known == text)
+    list.contains(&text)
 }
 
 /// `kind` values the crash crate itself writes (`hook.rs`, `hang.rs`, `window.rs`, `android.rs`).
