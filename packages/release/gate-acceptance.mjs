@@ -28,7 +28,7 @@ import { fileURLToPath } from "node:url";
 import { keyPath, repoKey } from "./snapshot.mjs";
 import { RUNTIME_MANIFEST_FILE } from "./seam-broker.mjs";
 import { resolveBrokerClient } from "./broker-client.mjs";
-import { managedRuntimeClient } from "./managed-roots.mjs";
+import { gateRunsRoot, managedRuntimeClient } from "./managed-roots.mjs";
 import { codeClosure } from "./code-closure.mjs";
 import { CONTRACT_JOBS_ENV, CONTRACT_RUN_ID_ENV, CONTRACT_SEALED_ENV, CONTRACT_STEP_ENV, contractJobNonce, processIdentity } from "./gate-seam.mjs";
 
@@ -113,7 +113,7 @@ export function strictKeys(obj, { required = [], optional = [] }, where) {
 }
 
 const ROW_REQUIRED = ["id", "class", "coverage", "status", "key", "reason"];
-const ROW_OPTIONAL = ["code", "timing", "scanElapsedMs", "retryTiming", "batchAttempts", "batchedWith", "evidence", "filesRead"];
+const ROW_OPTIONAL = ["code", "timing", "scanElapsedMs", "retryTiming", "batchAttempts", "batchedWith", "group", "evidence", "filesRead"];
 const COVERAGE_VALUES = new Set(["hit", "ran", "skipped"]);
 
 /** GC-A21: the schema of one coverage report (gate-coverage.mjs buildCoverageReport). Fail closed on any unknown field. */
@@ -139,6 +139,7 @@ export function validateCoverage(report) {
     if (typeof row.status !== "string" || !row.status) problems.push(`${where}: status is not a non-empty string`);
     if (typeof row.reason !== "string" || !row.reason) problems.push(`${where}: reason is not a non-empty string`);
     if (!(row.key === null || (typeof row.key === "string" && row.key))) problems.push(`${where}: key is neither null nor a string`);
+    if ("group" in row && !(typeof row.group === "string" && row.group)) problems.push(`${where}: group is not a non-empty string`);
     // A member whose own result is a cached pass still fails when its grouped invocation failed (rightkit#1458: BATCH_REQUIREMENT_FAILED keeps
     // the grouped failure as evidence), so hit + fail is valid exactly when a batch attempt of that row failed.
     const batchFailed = Array.isArray(row.batchAttempts) && row.batchAttempts.some((a) => a?.status === "fail");
@@ -663,6 +664,7 @@ export const NN_EXT = Object.freeze([
   { id: "NN40", steps: ["S2"], title: "Docs build as one command per workspace and feature round, on every compile", evidence: "spawn ledger and doc coverage rows of every compile run" },
   { id: "NN41", steps: ["S17"], title: "A deterministic failure is cached like a pass", evidence: "coverage of the failing commit run three times (same inputs twice, then a changed toolchain identity)" },
   { id: "NN42", steps: ["S2"], title: "Cross targets of one stage go in one broker command naming every --target", evidence: "spawn ledger and log of every compile run" },
+  { id: "NN43", steps: ["S10"], title: "A unit-list run admits grouped rows by lockstep, not by whole-unit order", evidence: "S10 unit-list compile coverage (grouped rows) and log solo notes; per-unit receipts for blocked-whole" },
 ]);
 export const NN_ALL = Object.freeze([...NN, ...NN_EXT]);
 export const NN_ALL_IDS = Object.freeze(NN_ALL.map((n) => n.id));
@@ -713,7 +715,7 @@ export const STEPS = Object.freeze([
   { id: "S6", nn: nnForStep("S6"), title: "dirty checkout", runs: ["--to compile"], clauses: ["GC-A02", "GC-A04", "GC-T06"], note: "refuses a dirty fixture; ephemeral commit (a compile not yet recorded) built while the checkout has a dirty tracked edit, an untracked file and a pushed stash; the snapshot is compared with the commit; the checkout and the stash list are restored exactly" },
   { id: "S7", nn: nnForStep("S7"), title: "negatives", runs: NEGATIVES.map((n) => n.id), clauses: ["GC-T05", "GC-A01", "GC-T14", "GC-A15", "GC-1A-R2", "GC-1A-R4"], note: "ephemeral commits under refs/witness/*; the rest listed unchecked with their reason" },
   { id: "S8", nn: nnForStep("S8"), title: "kill and recover", runs: KILLS.map((k) => k.id), clauses: ["GC-T06", "GC-A24"], note: "SIGKILL (during compile and during Class A) and SIGINT; the lock stays after SIGKILL; the next run reclaims it on the stale-owner rule and passes" },
-  { id: "S10", nn: nnForStep("S10"), title: "unit list (--units-file, two fixture units)", runs: ["--to check --units-file"], clauses: [], note: "NN16: the list shares one Class A and runs no cargo fmt -p; needs two units of the gate's unit grammar (crates/rightkit-<x>, packages/<x>) in the fixture, else NN16 fails naming the gap" },
+  { id: "S10", nn: nnForStep("S10"), title: "unit list (--units-file, two fixture units)", runs: ["--to check --units-file", "--to compile --units-file --receipt-dir"], clauses: [], note: "NN16: the list shares one Class A and runs no cargo fmt -p; NN43: the compile subrun's grouped rows and per-unit receipts; needs two units of the gate's unit grammar (crates/rightkit-<x>, packages/<x>) in the fixture, else NN16 fails naming the gap" },
   { id: "S11", nn: nnForStepAll("S11"), title: "cold run (the gate's cache dir moved aside under scratch, then restored)", runs: ["--to check", "--to compile"], clauses: [], note: "NN18 cold budgets; real-condition controls that NN01, NN02, NN03, NN04, NN14, NN15, NN20, NN21, NN24, NN29 fail on a run where every row really ran" },
   { id: "S12", nn: nnForStepAll("S12"), title: "compile-side edits: one crate, one lockfile, one manifest", runs: ["--to compile (crate edit)", "--to check (lock edit)", "--to compile (manifest edit)"], clauses: [], note: "ephemeral commits under refs/witness/*; NN20, NN21, NN04 on --to compile" },
   { id: "S13", nn: nnForStepAll("S13"), title: "gate upgrade: the two newest sealed gates run the same commit", runs: ["--to check (previous gate)", "--to check (newest gate)"], clauses: [], note: "NN23; with fewer than two sealed versions it FAILS: needs two installed versions" },
@@ -1013,6 +1015,102 @@ export function assertUnitListShare(log, entries, { units }) {
   if (units >= 2 && memo < units - 1) problems.push(`${memo} later unit(s) reused the shared Class A, expected ${units - 1}`);
   for (const n of entries.map(normalizeSpawn)) { const c = cargoCall(n); if (c?.sub === "fmt") problems.push(`cargo fmt started for a unit list: ${n.program} ${shortArgs(n.args)}`); }
   return { ok: problems.length === 0, problems, reports, memo };
+}
+
+/** NN43 lockstep (sharing half): in a unit-list compile run, every Class B row that ran either ran in a grouped invocation, is named solo by a
+ * feature-partition note, has no same-configuration peer, or is inside the log's named solo budget (the `stay their own invocation` counts,
+ * deduped across passes). A singleton invocation while a same-configuration peer was ready, beyond those named solos, fails with the row ids. */
+export function assertLockstepSharing(rows, log) {
+  const problems = [];
+  const ran = [...rows.values()].filter((r) => r.class === "B" && r.coverage === "ran" && cargoBFamily(r.id));
+  if (!ran.length) return { ok: false, problems: ["no Class B row ran: no grouped-invocation evidence (a unit-list compile run is required)"] };
+  const text = String(log);
+  const soloBudget = [...new Set([...text.matchAll(/class B batching: (\d+) compile scan\(s\) stay their own invocation: [^\n]+/g)].map((m) => m[0]))]
+    .reduce((s, line) => s + Number(/: (\d+) compile/.exec(line)[1]), 0);
+  const partitionSolo = new Set([...text.matchAll(/([\w-]+) compiles alone:/g)].map((m) => m[1]));
+  const byConfig = new Map();
+  for (const r of ran) { const f = cargoBFamily(r.id); const k = `${f.fam}|${f.ws}|${f.target}`; (byConfig.get(k) ?? byConfig.set(k, []).get(k)).push({ r, f }); }
+  let shared = 0; const unexplained = [];
+  for (const list of byConfig.values()) {
+    const crates = new Set(list.map(({ f }) => f.crate));
+    if (crates.size > 1 && list.some(({ r }) => r.group)) shared += 1;
+    if (crates.size < 2) continue;
+    for (const { r, f } of list) if (!r.group && !partitionSolo.has(f.crate)) unexplained.push(r.id);
+  }
+  if (unexplained.length > soloBudget) problems.push(`${unexplained.length} row(s) ran solo while a same-configuration peer ran, beyond the ${soloBudget} named solo scan(s): ${unexplained.slice(0, 6).join(", ")}`);
+  if (ran.some((r) => r.group) && shared === 0) problems.push("grouped rows exist but no invocation names more than one crate of a configuration");
+  return { ok: problems.length === 0, problems, ran: ran.length, soloBudget, unexplained: unexplained.length };
+}
+
+/** NN43 blocked-whole, from a unit-list compile run's receipts: the aggregate report and the per-unit files agree, a blocked unit carries
+ * no passed requirement, and a passed unit's own file says passed. Two per-unit shapes exist: the fresh compile's unitResult
+ * ({result, stages}) and the union evidence ({status, requirements[]}); a file of neither shape fails. */
+export function assertBlockedWhole({ report, files }) {
+  const problems = [];
+  if (!isObject(report) || !Array.isArray(report.units)) return { ok: false, problems: ["units-report.json is missing or has no units list: blocked-whole cannot be judged"] };
+  const counts = { passed: 0, failed: 0, blocked: 0, "not-run": 0 };
+  for (const u of report.units) {
+    if (typeof u.selector !== "string" || !(u.status in counts)) { problems.push(`unit ${u.selector ?? "?"}: status ${JSON.stringify(u.status)} is not passed|failed|blocked|not-run`); continue; }
+    counts[u.status] += 1;
+    const file = files?.[u.receipt?.file] ?? null;
+    if (u.status === "passed" && !file) { problems.push(`${u.selector}: passed in the report but has no per-unit receipt file`); continue; }
+    if (!file) continue;
+    const overall = typeof file.result === "string" ? (file.result === "passed" ? "passed" : file.result === "not-built" ? "blocked" : "failed")
+      : typeof file.status === "string" ? file.status : null;
+    if (overall === null) { problems.push(`${u.selector}: per-unit receipt ${u.receipt?.file ?? "?"} is neither fresh unitResult nor unit-list-compile evidence`); continue; }
+    if (u.status === "passed" && overall !== "passed") problems.push(`${u.selector}: report says passed but its own receipt says ${overall}`);
+    if (u.status === "blocked" && overall === "passed") problems.push(`${u.selector}: report says blocked but its own receipt says passed`);
+    if (Array.isArray(file.requirements)) {
+      const passedReq = file.requirements.filter((r) => r.status === "passed");
+      if (u.status === "blocked" && passedReq.length) problems.push(`${u.selector}: blocked as a whole but ${passedReq.length} requirement(s) stand passed (${passedReq.slice(0, 3).map((r) => r.id).join(", ")})`);
+      if (u.status === "blocked" && file.requirements.some((r) => r.evidenceHash)) problems.push(`${u.selector}: blocked as a whole but a requirement carries evidenceHash`);
+      if (u.status === "passed" && file.requirements.some((r) => r.status !== "passed")) problems.push(`${u.selector}: passed but a requirement did not pass`);
+    }
+  }
+  for (const k of Object.keys(counts)) if (report.counts?.[k] !== counts[k]) problems.push(`units-report counts.${k} ${report.counts?.[k]} != ${counts[k]} units`);
+  return { ok: problems.length === 0, problems, counts };
+}
+
+/** NN43 lockstep on the fresh build-together path (gate/compile.mjs), judged from its per-unit receipts: calls are keyed by stage, cwd and
+ * arguments minus their `-p` list; a call naming one crate while another crate ran under that identical configuration fails. Consumer-manifest
+ * lint (`<stage>:consumer:...`) is planned per consumer file and never grouped by crate; a `--features` crate-specific call is isolated by
+ * its own feature set. Receipts predating the unit-result schema are recognized by shape; no fresh receipts, no evidence. */
+export function assertTogetherSharing({ report, files }) {
+  const problems = [];
+  if (!isObject(report) || !Array.isArray(report.units)) return { ok: false, problems: ["units-report.json is missing or has no units list: together-compile sharing cannot be judged"] };
+  const cargoUnits = report.units.filter((u) => typeof u.selector === "string" && u.selector.startsWith("cargo:"));
+  if (cargoUnits.length < 2) return { ok: false, problems: [`${cargoUnits.length} cargo unit(s) selected: no same-depth peer exists for a lockstep judgement`] };
+  const fresh = new Map();
+  for (const unit of cargoUnits) {
+    const file = files?.[unit.receipt?.file];
+    if (file?.schema === "rightkit.unit-result/1" || (typeof file?.unit === "string" && typeof file?.result === "string" && file?.stages && Array.isArray(file?.calls))) fresh.set(unit.selector, file);
+  }
+  if (!fresh.size) return { ok: false, problems: ["no fresh per-unit receipts (rightkit.unit-result/1): together-compile sharing cannot be judged"] };
+  const packagesOf = (args) => { const out = []; for (let i = 0; i < (args ?? []).length; i++) { if (args[i] === "--") break; if (args[i] === "-p" && typeof args[i + 1] === "string") out.push(args[++i]); } return out; };
+  const configOf = (args) => { const out = []; for (let i = 0; i < (args ?? []).length; i++) { if (args[i] === "-p") { i++; continue; } out.push(args[i]); } return JSON.stringify(out); };
+  const calls = new Map();
+  for (const [selector, file] of fresh) {
+    const crate = selector.slice("cargo:".length);
+    for (const call of file.calls ?? []) {
+      if (typeof call.id !== "string" || typeof call.stage !== "string" || !Array.isArray(call.args)) { problems.push(`${selector}: a together-compile call lacks id, stage or args`); continue; }
+      if (call.id.startsWith(`${call.stage}:consumer:`)) continue;
+      const packages = packagesOf(call.args);
+      if (packages.length && !packages.includes(crate)) problems.push(`${selector}: receipt call ${call.id} does not name its own crate`);
+      const old = calls.get(call.id);
+      if (old && (old.stage !== call.stage || old.cwd !== call.cwd || JSON.stringify(old.args) !== JSON.stringify(call.args))) problems.push(`call ${call.id}: per-unit receipts disagree on stage, cwd or args`);
+      if (!old) calls.set(call.id, { ...call, packages, config: `${call.stage}|${call.cwd ?? "."}|${configOf(call.args)}` });
+    }
+  }
+  const named = [...calls.values()].filter((c) => c.packages.length);
+  if (!named.length) problems.push("no together-compile call names a package: no grouped invocation evidence");
+  const byConfig = new Map();
+  for (const c of named) (byConfig.get(c.config) ?? byConfig.set(c.config, []).get(c.config)).push(c);
+  for (const list of byConfig.values()) {
+    const crates = new Set(list.flatMap((c) => c.packages));
+    if (crates.size < 2) continue;
+    for (const c of list) if (c.packages.length === 1 && !c.args.includes("--features")) problems.push(`${c.id}: names only ${c.packages[0]} while ${[...crates].filter((x) => x !== c.packages[0]).slice(0, 3).join(", ")} ran under the same stage, cwd and arguments`);
+  }
+  return { ok: problems.length === 0, problems, calls: named.length, grouped: named.filter((c) => c.packages.length > 1).length };
 }
 
 /** NN17 lanes: every Class A plan line reports as many lanes as the host has cores. */
@@ -2010,7 +2108,7 @@ export function assertMissRun(run, reports, { cause, ids = [], priorFailed = [],
   if (announced.length !== lookups.length || announced.some((n, i) => n !== lookups[i]?.misses)) problems.push(`the RK_CACHE_MISS announcements (${announced.join(", ") || "none"}) do not match the lookups' misses (${lookups.map((l) => l.misses).join(", ") || "none"})`);
   const named = new Map();
   lookups.forEach((l, i) => {
-    const r = list.find((x) => x?.file === l.file) ?? list[i];
+    const r = list.find((x) => x?.file === l.file);
     if (!r) { problems.push(`lookup ${i + 1}: its report ${l.file} was not read`); return; }
     if (r.error) { problems.push(`lookup ${i + 1}: the report ${r.file} cannot be read (${r.error})`); return; }
     const rows = Array.isArray(r.rows) ? r.rows : [];
@@ -2024,13 +2122,17 @@ export function assertMissRun(run, reports, { cause, ids = [], priorFailed = [],
     for (const [id, row] of coverage) if (row.coverage === "ran" && row.key && !named.has(id)) problems.push(`${id}: ran with a cache key but no miss report names it`);
     for (const [id, miss] of named) {
       const row = coverage.get(id); const why = String(miss.cause ?? "");
-      const groupMember = row?.class === "B" && /^no stored result/.test(why) && row.coverage === "hit";
+      // Answered by its group: the coverage row names the batched invocation that answered it (gate-coverage.mjs `group`); class B and a hit alone prove nothing.
+      const groupMember = row?.class === "B" && /^no stored result/.test(why) && row.coverage === "hit" && typeof row.group === "string" && row.group !== "";
       if (!row) problems.push(`${id}: named as a miss, absent from the run's coverage`);
       else if (row.coverage !== "ran" && !(cause === "changed" && groupMember)) problems.push(`${id}: named as a miss but did not run (coverage ${row.coverage})`);
       if (cause === "new") { if (!/^no stored result/.test(why)) problems.push(`${id}: cause "${why}" on a cold run (every miss must be "no stored result")`); continue; }
       const ev = miss.evidence ?? {};
-      const evidenced = /^inputs or environment changed/.test(why) && [ev.inputs, ev.env, ev.inheritedEnv].some((v) => Array.isArray(v) && v.length) || (ev.tool && typeof ev.tool === "object");
-      const newExplained = /^no stored result/.test(why) && (row?.class === "B" || prior.has(id));
+      // A recognised cause AND evidence of what changed (non-empty inputs, env or inherited env, or a tool change with content).
+      const toolChanged = ev.tool !== null && typeof ev.tool === "object" && Object.keys(ev.tool).length > 0;
+      const evidenced = /^inputs or environment changed/.test(why) && ([ev.inputs, ev.env, ev.inheritedEnv].some((v) => Array.isArray(v) && v.length > 0) || toolChanged);
+      // "no stored result" is explained only by group proof (above) or by a failure before (a stored failure is not a stored pass).
+      const newExplained = /^no stored result/.test(why) && (groupMember || prior.has(id));
       if (!evidenced && !newExplained) problems.push(`${id}: cause "${why || "(blank)"}" is not an evidenced explanation of this miss`);
     }
     if (cause === "new") { const hits = [...coverage.values()].filter((r) => r.coverage === "hit").length; if (hits || list.some((r) => (r?.hit ?? 0) > 0)) problems.push(`${hits} row(s) hit on a run whose cache was moved aside`); }
@@ -2041,6 +2143,69 @@ export function assertMissRun(run, reports, { cause, ids = [], priorFailed = [],
     }
     const failed = [...coverage.values()].some((r) => r.status === "fail");
     if ((run.exit === 0) === failed) problems.push(`exit ${run.exit} does not agree with the rows (${failed ? "a row failed" : "no row failed"})`);
+  }
+  return { ok: problems.length === 0, problems };
+}
+
+/**
+ * Every cache decision file a gate run names ("Class A|B cache decision: <file>"), in order, each read; an unreadable file is { file, error }.
+ * Adrian 2026-11-18 superseded the 2026-11-08 miss reports above: the forecast gate writes decision files, never RK_CACHE_MISS reports.
+ */
+/** The forecast-history file paired with a scan-result store, by the gate's own namespace (class-a-cache-history.mjs openHistory). */
+export function cacheHistoryFileFor({ storeDir, env = process.env, platform = process.platform, home = os.homedir() } = {}) {
+  const resolved = path.resolve(storeDir);
+  return path.join(gateRunsRoot({ env, platform, home }), "rightkit-class-a-history", `${sha256(platform === "win32" ? resolved.toLowerCase() : resolved)}.json`);
+}
+export function decisionReportOf(log, read = (f) => JSON.parse(fs.readFileSync(f, "utf8"))) {
+  return [...String(log ?? "").matchAll(/Class [AB] cache decision: (\S+\.json)/g)].map((m) => { try { return { file: m[1], ...read(m[1]) }; } catch (e) { return { file: m[1], error: e.message }; } });
+}
+/**
+ * Adrian 2026-11-18, judged on the run's decision files against its own coverage: rows were forecast before lookup, forecast equals actual,
+ * dispatch equals the actual runs, and no mismatch was carried. "new" (S11 cold): every row a first observation, nothing hit. "changed"
+ * (S17 toolchain): every id in `ids` forecast and actually ran, and some forecast's changes name `changedVar` (or a tool change), so the
+ * identity change the step made is the evidenced reason. A run whose log stopped on RK_CACHE_DIVERGENCE never reaches a pass here.
+ */
+export function assertDecisionRun(run, decisions, { cause, ids = [], changedVar = null, classes: expectedClasses = [] } = {}) {
+  if (!run) return { ok: false, problems: ["the run did not happen"] };
+  const problems = []; const log = String(run.log ?? "");
+  if (/RK_CACHE_DIVERGENCE/.test(log)) problems.push("the run stopped on RK_CACHE_DIVERGENCE: its forecast disagreed with lookup, so its rows are no evidence of a passing run");
+  const list = Array.isArray(decisions) ? decisions : decisions ? [decisions] : [];
+  if (!list.length) problems.push("no cache decision file is named in the log");
+  const coverage = run.rows instanceof Map ? run.rows : null;
+  if (!coverage) problems.push("the run wrote no readable coverage report, so the decisions cannot be judged against what ran");
+  const forecast = new Map(); const actual = new Map(); const dispatched = new Set(); const classes = new Set();
+  for (const d of list) {
+    if (d.error) { problems.push(`decision ${d.file} cannot be read (${d.error})`); continue; }
+    if (d.phase !== "observed") problems.push(`decision ${d.file}: phase ${JSON.stringify(d.phase)} is not "observed"`);
+    if (!Array.isArray(d.mismatches) || d.mismatches.length) problems.push(`decision ${d.file}: ${Array.isArray(d.mismatches) ? d.mismatches.length : "?"} forecast mismatch(es) carried (${(d.mismatches ?? []).slice(0, 3).map((m) => m.id).join(", ")})`);
+    classes.add(d.stage === "class-b" ? "B" : "A");
+    for (const f of d.forecast ?? []) forecast.set(f.id, f);
+    for (const a of d.actual ?? []) actual.set(a.id, a);
+    for (const id of d.dispatchedRows ?? []) dispatched.add(id);
+  }
+  for (const cls of expectedClasses) if (!classes.has(cls)) problems.push(`no class-${String(cls).toLowerCase()} cache decision in the log`);
+  for (const [id, f] of forecast) {
+    const a = actual.get(id);
+    if (!a) { problems.push(`${id}: forecast but no actual outcome`); continue; }
+    if (f.expected !== a.actual) problems.push(`${id}: forecast ${f.expected}, actual ${a.actual}`);
+    if (cause === "new" && !(f.expected === "run" && /first observation/.test(f.reason ?? ""))) problems.push(`${id}: forecast on a cold run is ${f.expected} (${f.reason ?? "no reason"}), not a first observation`);
+    if (cause === "changed" && f.expected === "run" && !f.changes && !/first observation/.test(f.reason ?? "")) problems.push(`${id}: forecast to run without changes naming why`);
+  }
+  for (const id of actual.keys()) if (!forecast.has(id)) problems.push(`${id}: actual outcome without a forecast`);
+  if (coverage) {
+    const ran = new Set([...coverage.values()].filter((r) => classes.has(r.class) && r.coverage === "ran").map((r) => r.id));
+    for (const id of dispatched) if (!ran.has(id)) problems.push(`${id}: dispatched per the decision but coverage says ${coverage.get(id)?.coverage ?? "absent"}`);
+    for (const id of ran) if (!dispatched.has(id)) problems.push(`${id}: ran but no decision dispatched it`);
+    if (cause === "new") { const hits = [...coverage.values()].filter((r) => classes.has(r.class) && r.coverage === "hit").length; if (hits) problems.push(`${hits} row(s) hit on a run whose cache was moved aside`); }
+    const failed = [...coverage.values()].some((r) => r.status === "fail");
+    if ((run.exit === 0) === failed) problems.push(`exit ${run.exit} does not agree with the rows (${failed ? "a row failed" : "no row failed"})`);
+  }
+  if (cause === "changed") {
+    for (const id of ids) {
+      if (forecast.get(id)?.expected !== "run") problems.push(`${id}: failed before and was not forecast to run again: the gate would have reused it`);
+      else if (coverage && coverage.get(id)?.coverage !== "ran") problems.push(`${id}: failed before and did not run again (coverage ${coverage.get(id)?.coverage ?? "absent"})`);
+    }
+    if (changedVar && ![...forecast.values()].some((f) => f.changes && (JSON.stringify(f.changes).includes(changedVar) || f.changes.tool))) problems.push(`no forecast names ${changedVar} (or a tool change) as changed: the toolchain change is not visible in the run's evidence`);
   }
   return { ok: problems.length === 0, problems };
 }
@@ -2128,9 +2293,11 @@ const NN_EVAL_EXT = {
     const a = usableRun(ctx, "S17:fail1", RED); const b = usableRun(ctx, "S17:fail2", RED); if (a.fail || b.fail) return [a.fail ?? b.fail];
     const c = ctx.runs["S17:fail3"] ? usableRun(ctx, "S17:fail3", RED) : null; if (c?.fail) return [c.fail];
     // The third run (a changed toolchain) runs its misses, explained (assertMissRun): every failing row is named in its miss report and runs again.
-    const failedIds = [...(a.run.rows?.values() ?? [])].filter((r) => r.class === "B" && r.coverage === "ran" && r.status === "fail").map((r) => r.id);
+    // Every class B row that failed in the first run, whether it ran or was answered from a stored failure: after an identity change none may be reused
+    // (astra62 review 8: four rk-leaf failures were cached-fail in the first run and reused in the third; selecting only rows that ran missed them).
+    const failedIds = [...(a.run.rows?.values() ?? [])].filter((r) => r.class === "B" && (r.coverage === "ran" || r.coverage === "hit") && r.status === "fail").map((r) => r.id);
     const reuse = assertCachedFailure(a.run.rows, b.run.rows, c?.run.rows ?? null, { identity: ctx.identityChange ?? "" });
-    const explained = c ? assertMissRun(c.run, missReportOf(c.run.log), { cause: "changed", ids: failedIds, priorFailed: failedIds, changedVar: "RUSTUP_TOOLCHAIN" }) : null;
+    const explained = c ? assertDecisionRun(c.run, decisionReportOf(c.run.log), { cause: "changed", ids: failedIds, changedVar: "RUSTUP_TOOLCHAIN" }) : null;
     const verdict = { ok: reuse.ok && (explained?.ok ?? true), problems: [...reuse.problems, ...(explained?.problems ?? []).map((p) => `third run (${ctx.identityChange ?? ""}): ${p}`)] };
     return [checkFor("S17", verdict, [...a.run.coveragePaths, ...b.run.coveragePaths, ...(c?.run.coveragePaths ?? [])])];
   },
@@ -2140,6 +2307,21 @@ const NN_EVAL_EXT = {
     return labels.map((label) => { const w = usableRun(ctx, label, RED); if (w.fail) return w.fail; const l = ledgerOf(w.run, label); return l.fail ?? checkFor(label, assertCrossTargetsOneCommand(w.run.log, l.entries, w.run.rows, { label }), [w.run.ledgerPath, w.run.logPath]); });
   },
   NN38: (ctx) => [{ label: "limited evidence", ...assertLimitedEvidence(ctx.runs), evidence: Object.values(ctx.runs).flatMap((r) => r.coveragePaths ?? []).slice(0, 3) }],
+  NN43: (ctx) => {
+    const run = ctx.runs["S10:units-compile"] ?? ctx.runs["S10:units"];
+    if (!run) return [bad("S10:units-compile", [ctx.unitsWhy ?? "the unit-list run did not execute"])];
+    const freshReceipts = run.unitReceipts && Object.values(run.unitReceipts.files ?? {}).some((f) => f?.schema === "rightkit.unit-result/1" || (typeof f?.unit === "string" && Array.isArray(f?.calls)));
+    if (freshReceipts) {
+      const problems = [...assertTogetherSharing(run.unitReceipts).problems, ...assertBlockedWhole(run.unitReceipts).problems];
+      return [checkFor(run.label, { ok: problems.length === 0, problems }, [run.logPath, ...(run.coveragePaths ?? []), run.unitReceipts.dir].filter(Boolean))];
+    }
+    if (!run.rows) return [bad(run.label, ["the unit-list run wrote no readable coverage report"], [run.logPath])];
+    const sharing = assertLockstepSharing(run.rows, run.log);
+    const problems = [...sharing.problems];
+    if (!run.unitReceipts) problems.push("no per-unit receipts from a unit-list compile run: blocked-whole is unjudged (S10 needs a compile subrun with --receipt-dir)");
+    else problems.push(...assertBlockedWhole(run.unitReceipts).problems);
+    return [checkFor(run.label, { ok: problems.length === 0, problems }, [run.logPath, ...run.coveragePaths, ...(run.unitReceipts?.dir ? [run.unitReceipts.dir] : [])])];
+  },
 };
 
 const PREV_WARM = Object.freeze({ "S2:check": "S1:check", "S2:compile": "S1:compile", "S2:check2": "S2:check", "S2:compile2": "S2:compile" });
@@ -2397,7 +2579,8 @@ export const CHECKS = {
     try { source = JSON.parse(fs.readFileSync(path.join(dir, "vectors-source.json"), "utf8")); for (const n of fs.readdirSync(dir)) if (n.endsWith(".json")) files[n] = fs.readFileSync(path.join(dir, n)); } catch (e) { return { status: "fail", evidence: [dir], problems: [e.message] }; }
     const up = ctx.rustrightContracts;
     let upstream = null;
-    if (up && fs.existsSync(up)) { upstream = {}; for (const n of Object.keys(files)) { try { upstream[n] = fs.readFileSync(path.join(up, n)); } catch { /* reported as "no copy" by vectorsProblems */ } } }
+    // GC-I22 pins copies of RustRight's COMMITTED blobs; the working tree's bytes are the checkout's (CRLF on Windows), never the pin's.
+    if (up && fs.existsSync(up)) { upstream = {}; const repoRoot = path.resolve(up, "..", ".."); for (const n of Object.keys(source.files ?? {})) { const pin = source.files[n]?.commit ?? source.source?.commit; try { if (pin) upstream[n] = git(repoRoot, ["cat-file", "blob", `${pin}:docs/contracts/${n}`], { buffer: true }); } catch { /* reported as "no copy" by vectorsProblems */ } } }
     return verdict(vectorsProblems({ source, files: { ...files }, upstream, upstreamDir: up }), [path.join(dir, "vectors-source.json"), up ?? "RustRight docs/contracts"]);
   },
   "GC-I18": (ctx) => {
@@ -3209,6 +3392,7 @@ async function executeRun({ fixture, host, wanted, gate, gateArg, budgetsFile, o
     // The gate accepts --units-file only for the RightKit repository itself ("--units-file names RightKit units ... every other repository is built whole"), so the unit-list run is a read-only --to check of the RightKit checkout.
     const rkDir = path.join(workspaceRootOf(), "rightkit");
     let rkTracked = []; try { rkTracked = git(rkDir, ["ls-tree", "-r", "--name-only", "HEAD"]).split("\n").filter(Boolean); } catch { /* reported below */ }
+    let rkHead = "HEAD"; try { rkHead = git(rkDir, ["rev-parse", "HEAD"]).trim(); } catch { /* the empty selection below names it */ }
     const units = unitSelectorsOf(rkTracked, 2);
     if (units.length < 2) {
       ctx.unitsWhy = `the RightKit checkout has ${units.length} unit(s) in the gate's unit grammar (crates/rightkit-<x>/Cargo.toml, packages/<x>/package.json); --units-file needs two`;
@@ -3216,39 +3400,80 @@ async function executeRun({ fixture, host, wanted, gate, gateArg, budgetsFile, o
     } else {
       const unitsFile = path.join(outDir, "units.json");
       fs.writeFileSync(unitsFile, `${JSON.stringify({ units })}\n`);
-      const r = await doRun({ label: "S10:units", stage: "check", commit: "HEAD", cwd: rkDir, args: ["--units-file", unitsFile], ladder: false, step: "S10", extra: { units }, receipt: false });
+      const r = await doRun({ label: "S10:units", stage: "check", commit: rkHead, cwd: rkDir, args: ["--units-file", unitsFile], ladder: false, step: "S10", extra: { units }, receipt: false });
       check("S10", "--to check --units-file exits 0", exitOk(r));
+      // NN43's evidence: the same unit list compiled, with one receipt per unit (the check run's Class B scans never run).
+      const receiptDir = path.join(outDir, "S10-receipts");
+      const rc = await doRun({ label: "S10:units-compile", stage: "compile", commit: rkHead, cwd: rkDir, args: ["--units-file", unitsFile, "--receipt-dir", receiptDir], ladder: false, step: "S10", extra: { units }, receipt: false });
+      check("S10", "--to compile --units-file exits 0", exitOk(rc));
+      try {
+        const files = {};
+        for (const n of fs.readdirSync(receiptDir)) if (n.endsWith(".json")) files[n] = JSON.parse(fs.readFileSync(path.join(receiptDir, n), "utf8"));
+        rc.unitReceipts = { dir: receiptDir, report: files["units-report.json"] ?? null, files };
+      } catch { rc.unitReceipts = null; }
     }
   }
 
   // S11 cold run ----------------------------------------------------------------------------------------------------------------------------
-  // The gate's scan-result cache (<git common dir>/rightkit-gate-cache, rule verdicts inside) is MOVED ASIDE under scratch (never deleted) and put back afterwards.
+  // Declared cold is a pair: the effective scan-result store (RK_GATE_CACHE_DIR, else <git common dir>/rightkit-gate-cache) AND its forecast
+  // history move aside together under scratch (never deleted) and are put back afterwards. Moving entries alone would forecast hits for
+  // absent entries and stop as an unexpected loss; moving history alone would fail closed on a populated store with no baseline.
   ctx.cellWhy = {}; ctx.proofs = {};
   const crateInfo = layout && (wanted.includes("S11") || wanted.includes("S12") || wanted.includes("S17")) ? crateEditInfo({ layout, tracked, ws: "rk" }) : null;
   if (crateInfo && !crateInfo.why) ctx.crateEdit = { workspace: crateInfo.workspace, crate: crateInfo.crate, deps: crateInfo.deps };
   if (wanted.includes("S11")) {
     const common = path.resolve(g.canonical, g.run(["rev-parse", "--git-common-dir"]).trim());
-    const cacheDir = path.join(common, "rightkit-gate-cache");
+    const cacheDir = process.env.RK_GATE_CACHE_DIR ? path.resolve(g.canonical, process.env.RK_GATE_CACHE_DIR) : path.join(common, "rightkit-gate-cache");
+    const historyFile = cacheHistoryFileFor({ storeDir: cacheDir });
+    const historyLockFile = `${historyFile}.lock`;
     const asideRoot = path.join(scratch, `cold-aside-${Date.now()}`);
     fs.mkdirSync(asideRoot, { recursive: true });
     const aside = path.join(asideRoot, "rightkit-gate-cache");
+    const asideHistory = path.join(asideRoot, path.basename(historyFile));
+    const originalStore = fs.existsSync(cacheDir);
+    const originalHistory = fs.existsSync(historyFile);
+    const historyLockAtStart = fs.existsSync(historyLockFile);
     let moved = false;
+    let movedHistory = false;
+    let pairMovedAside = false;
     try {
-      if (fs.existsSync(cacheDir)) { fs.renameSync(cacheDir, aside); moved = true; }
-      check("S11", `the gate cache dir ${cacheDir} was moved aside to ${aside}`, { ok: moved, problems: moved ? [] : [`${cacheDir} does not exist: the run is not proven cold`] });
-      // Adrian 2026-11-08 (explained invalidation replaces approval; matrix section 6): a cold run is not stopped. Each stage starts from an empty cache
-      // (what an earlier stage of this step stored is moved aside too, never deleted), runs, and every miss is "no stored result" (assertMissRun).
-      let previous = null;
-      for (const stage of (s11ChecksOnly ? ["check"] : ["check", "compile"])) {
-        if (previous && fs.existsSync(cacheDir)) fs.renameSync(cacheDir, path.join(asideRoot, `created-during-${previous}`));
-        const r = await doRun({ label: `S11:${stage}`, stage, ladder: true, step: "S11" });
-        check("S11", `cold --to ${stage} runs every row, each miss "no stored result" and explained, nothing hit`, assertMissRun(r, missReportOf(r.log), { cause: "new" }));
-        previous = stage;
+      check("S11", `the forecast history lock ${historyLockFile} is not held`, { ok: !historyLockAtStart, problems: historyLockAtStart ? [`${historyLockFile} exists: another gate may own the forecast history, so no cold stage runs`] : [] });
+      if (!historyLockAtStart) {
+        pairMovedAside = true;
+        if (originalStore) { fs.renameSync(cacheDir, aside); moved = true; }
+        if (originalHistory) { fs.renameSync(historyFile, asideHistory); movedHistory = true; }
+        check("S11", `the gate cache dir ${cacheDir} was moved aside to ${aside}`, { ok: moved, problems: moved ? [] : [`${cacheDir} does not exist: the run is not proven cold`] });
+        check("S11", `the forecast history ${historyFile} was moved aside or was absent`, { ok: !fs.existsSync(historyFile), problems: [`${historyFile} is still in place: the cold stages would forecast from the warm baseline`] });
+        // Adrian 2026-11-18: a declared cold run forecasts every row as a first observation and proceeds; an undeclared loss stops before
+        // dispatch. Each stage starts cold too: what an earlier stage of this step stored and recorded is moved aside, never deleted.
+        let previous = null;
+        for (const stage of (s11ChecksOnly ? ["check"] : ["check", "compile"])) {
+          if (previous) {
+            if (fs.existsSync(historyLockFile)) { check("S11", `the forecast history lock is released before cold --to ${stage}`, { ok: false, problems: [`${historyLockFile} exists after ${previous}: its pair is not moved under a holder`] }); break; }
+            if (fs.existsSync(cacheDir)) fs.renameSync(cacheDir, path.join(asideRoot, `created-during-${previous}`));
+            if (fs.existsSync(historyFile)) fs.renameSync(historyFile, path.join(asideRoot, `created-during-${previous}-history.json`));
+          }
+          const r = await doRun({ label: `S11:${stage}`, stage, ladder: true, step: "S11" });
+          check("S11", `cold --to ${stage} runs every row as a forecast first observation, nothing hit`, assertDecisionRun(r, decisionReportOf(r.log), { cause: "new", classes: stage === "compile" ? ["A", "B"] : ["A"] }));
+          previous = stage;
+        }
       }
     } finally {
-      let restored = !moved;
-      if (moved) { try { if (fs.existsSync(cacheDir)) fs.renameSync(cacheDir, path.join(asideRoot, "created-during-the-cold-run")); fs.renameSync(aside, cacheDir); restored = true; } catch (e) { check("S11", "the gate cache dir is restored", { ok: false, problems: [e.message] }); } }
-      check("S11", "the original gate cache dir is back in place", { ok: restored && (!moved || fs.existsSync(cacheDir)), problems: ["the cache dir was not restored"] });
+      const restoreProblems = [];
+      let restoredStore = false;
+      let restoredHistory = false;
+      try {
+        if (pairMovedAside) {
+          if (fs.existsSync(historyLockFile)) restoreProblems.push(`${historyLockFile} exists during restoration: the created forecast history is left in place for its holder`);
+          if ((moved || !originalStore) && fs.existsSync(cacheDir)) fs.renameSync(cacheDir, path.join(asideRoot, "created-during-the-cold-run"));
+          if (!restoreProblems.length && (movedHistory || !originalHistory) && fs.existsSync(historyFile)) fs.renameSync(historyFile, path.join(asideRoot, "created-during-the-cold-run-history.json"));
+          if (moved) fs.renameSync(aside, cacheDir);
+          if (!restoreProblems.length && movedHistory) fs.renameSync(asideHistory, historyFile);
+        }
+        restoredStore = fs.existsSync(cacheDir) === originalStore;
+        restoredHistory = fs.existsSync(historyFile) === originalHistory;
+      } catch (e) { restoreProblems.push(e.message); }
+      check("S11", "the original gate cache dir and forecast history are back as found", { ok: restoredStore && restoredHistory && !restoreProblems.length, problems: restoreProblems.length ? restoreProblems : ["the cache dir or forecast history was not restored as found"] });
     }
     Object.assign(ctx.proofs, Object.fromEntries(Object.entries(coldControls({ cold: runs["S11:check"], warmPrev: runs["S2:check2"]?.rows ?? runs["S1:check"]?.rows ?? null, warmRows: runs["S2:check2"]?.rows ?? null, crate: ctx.crateEdit, ws: "rk", coldCompileRows: runs["S11:compile"]?.rows ?? null })).map(([k, v]) => [k, { kind: "real-condition control: the cold run (every row really ran)", caught: v }])));
   }
@@ -3354,8 +3579,13 @@ async function executeRun({ fixture, host, wanted, gate, gateArg, budgetsFile, o
         ctx.identityChange = `RUSTUP_TOOLCHAIN=${other}`;
         // A toolchain change is not the run's own files: the misses run, explained (Adrian 2026-11-08), and the failing rows run again (no reuse).
         const f3 = await doRun({ label: "S17:fail3", stage: "compile", commit: cf, ladder: true, step: "S17", profile: "edited-compile", env: { RUSTUP_TOOLCHAIN: other } });
-        const f1Failed = [...(f1.rows?.values() ?? [])].filter((r) => r.class === "B" && r.coverage === "ran" && r.status === "fail").map((r) => r.id);
-        check("S17", "the run with a changed toolchain runs its misses, each explained, and the failing rows run again", assertMissRun(f3, missReportOf(f3.log), { cause: "changed", ids: f1Failed, priorFailed: f1Failed, changedVar: "RUSTUP_TOOLCHAIN" }));
+        const f1Failed = [...(f1.rows?.values() ?? [])].filter((r) => r.class === "B" && (r.coverage === "ran" || r.coverage === "hit") && r.status === "fail").map((r) => r.id);
+        check("S17", "the run with a changed toolchain forecast-runs its rows, each change named, and the failing rows run again", assertDecisionRun(f3, decisionReportOf(f3.log), { cause: "changed", ids: f1Failed, changedVar: "RUSTUP_TOOLCHAIN" }));
+        // The identity change must be real for the rows it judges: the compiler the third run's receipt binds differs from the first run's. On a broker
+        // host the broker compiles with its own pinned toolchain whatever RUSTUP_TOOLCHAIN says (Dell 2026-11-18: 1.98.0 asked, 1.99.1 bound in all three
+        // receipts), so a reused broker failure there is not a reuse across an identity change and this step has not exercised one.
+        const rustcOf = (run) => run?.receipt?.binding?.toolchain?.rustc ?? null;
+        check("S17", "the third run's receipt binds a different compiler than the first run's (the identity change took effect)", { ok: rustcOf(f1) !== null && rustcOf(f3) !== null && rustcOf(f1) !== rustcOf(f3), problems: [`first run bound ${rustcOf(f1) ?? "no compiler"}, third run (${ctx.identityChange}) bound ${rustcOf(f3) ?? "no compiler"}: the toolchain change did not reach the compile`] });
       }
     }
   }

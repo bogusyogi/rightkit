@@ -16,7 +16,7 @@ import {
 
 import {
   BROKER_FORBIDDEN_CARGO, BUDGETS_SCHEMA, BUDGET_STAGES, NN, NN07_ALLOWLIST, NN_IDS, assertAdviceCached, assertBatching, assertBudget, assertDependencyReuse, assertDigestStable,
-  assertEnvDigestScope, assertKeysStable, assertLanes, assertNoBrokerNonCompiling, assertNoClassARan, assertNoClassBRan, assertNoDuplicateSpawns, assertOneExclusionOnCheck,
+  assertBlockedWhole, assertDecisionRun, assertEnvDigestScope, assertKeysStable, assertLanes, assertLockstepSharing, assertNoBrokerNonCompiling, assertNoClassARan, assertNoClassBRan, assertNoDuplicateSpawns, assertOneExclusionOnCheck, assertTogetherSharing, cacheHistoryFileFor, decisionReportOf,
   assertNoRealCargoMetadata, assertOtherWorkspacesIdle, assertRulesCached, assertRustfmtSpawns, assertSnapshotProof, assertUnitListShare, evaluateNonNegotiables, findInstalledGate,
   gateIdentityProblems, isExecutingRow, loadBudgets, nnForStep, normalizeSpawn, parseLedger, programOf, risenBudgets, stageMarks, unitSelectorsOf, validateBudgets,
 } from "./gate-acceptance.mjs";
@@ -69,6 +69,8 @@ test("nothing installs by default: dev and qualify leave the ladder unless --all
 test("coverage validation: good report passes; unknown field, bad totals, empty reason all fail", () => {
   assert.ok(validateCoverage(report([row("a", "hit"), row("b", "ran")])).ok);
   assert.match(validateCoverage(report([{ ...row("a", "hit"), extra: 1 }])).problems.join(), /unknown field "extra"/);
+  assert.ok(validateCoverage(report([{ ...row("a", "hit"), group: "clippy:batch:1" }])).ok);
+  assert.match(validateCoverage(report([{ ...row("a", "hit"), group: 7 }])).problems.join(), /group is not a non-empty string/);
   const bad = report([row("a", "hit")]); bad.totals.hit = 2;
   assert.match(validateCoverage(bad).problems.join(), /totals/);
   assert.match(validateCoverage(report([row("a", "skipped", { status: "skipped", reason: "" })])).problems.join(), /reason/);
@@ -77,6 +79,68 @@ test("coverage validation: good report passes; unknown field, bad totals, empty 
   assert.match(validateCoverage(report([row("a", "hit"), row("a", "hit")])).problems.join(), /duplicate/);
   assert.match(validateCoverage({ ...report([]), schema: "other" }).problems.join(), /schema/);
   assert.equal(validateCoverage(null).ok, false);
+});
+
+test("NN43 lockstep sharing: grouped peers pass; unexplained singleton and missing Class B evidence fail", () => {
+  const bRow = (id, over = {}) => ({ id, class: "B", coverage: "ran", status: "pass", key: "k", reason: "ran", ...over });
+  const grouped = new Map([["clippy:rk:a", bRow("clippy:rk:a", { group: "clippy:batch:1" })], ["clippy:rk:b", bRow("clippy:rk:b", { group: "clippy:batch:1" })]]);
+  assert.ok(assertLockstepSharing(grouped, "").ok);
+  const solo = new Map([["clippy:rk:a", bRow("clippy:rk:a")], ["clippy:rk:b", bRow("clippy:rk:b", { group: "clippy:batch:1" })], ["clippy:rk:c", bRow("clippy:rk:c", { group: "clippy:batch:1" })]]);
+  assert.match(assertLockstepSharing(solo, "").problems.join(), /ran solo while a same-configuration peer ran/);
+  assert.ok(assertLockstepSharing(solo, "class B batching: 1 compile scan(s) stay their own invocation: solo reason\n").ok);
+  assert.ok(assertLockstepSharing(solo, "a compiles alone: x resolves to {f} for it and to {} in its group\n").ok);
+  assert.match(assertLockstepSharing(new Map(), "").problems.join(), /no Class B row ran/);
+});
+
+test("NN43 blocked-whole: report and per-unit receipts must agree; a blocked unit carries no passed requirement", () => {
+  const report = (units) => ({ schema: "rightkit.units-report/1", counts: { passed: units.filter((u) => u.status === "passed").length, failed: units.filter((u) => u.status === "failed").length, blocked: units.filter((u) => u.status === "blocked").length, "not-run": units.filter((u) => u.status === "not-run").length }, units });
+  const passed = report([{ selector: "cargo:a", status: "passed", receipt: { file: "gate-a.json" } }, { selector: "cargo:b", status: "blocked", receipt: { file: "gate-b.json" } }]);
+  const files = { "gate-a.json": { result: "passed", stages: {} }, "gate-b.json": { status: "blocked", requirements: [{ id: "b1", status: "blocked" }] } };
+  assert.ok(assertBlockedWhole({ report: passed, files }).ok);
+  const leaked = { ...files, "gate-b.json": { status: "blocked", requirements: [{ id: "b1", status: "passed", evidenceHash: "e".repeat(64) }] } };
+  assert.match(assertBlockedWhole({ report: passed, files: leaked }).problems.join(), /blocked as a whole but 1 requirement\(s\) stand passed/);
+  assert.match(assertBlockedWhole({ report: passed, files: { "gate-b.json": files["gate-b.json"] } }).problems.join(), /passed in the report but has no per-unit receipt file/);
+  assert.match(assertBlockedWhole({ report: { ...passed, counts: { ...passed.counts, passed: 9 } }, files }).problems.join(), /counts\.passed/);
+  assert.match(assertBlockedWhole({ report: null, files }).problems.join(), /units-report\.json is missing/);
+});
+
+test("Nov-18 decision run: forecast equals actual and dispatch equals ran; cold and toolchain causes judged from decision files", () => {
+  const rows = new Map([["clippy:rk:a", { id: "clippy:rk:a", class: "B", coverage: "ran", status: "pass", key: "k1" }], ["clippy:rk:b", { id: "clippy:rk:b", class: "B", coverage: "hit", status: "pass", key: "k2" }]]);
+  const decision = (over = {}) => ({ file: "d.json", stage: "class-b", phase: "observed", mismatches: [], forecast: [{ id: "clippy:rk:a", expected: "run", reason: "first observation of row in this store" }, { id: "clippy:rk:b", expected: "hit", reason: "prior verified result for this key" }], actual: [{ id: "clippy:rk:a", actual: "run" }, { id: "clippy:rk:b", actual: "hit" }], dispatchedRows: ["clippy:rk:a"], ...over });
+  const run = { log: "Class B cache decision: d.json", exit: 0, rows };
+  assert.match(assertDecisionRun(run, [decision()], { cause: "new" }).problems.join(), /hit on a run whose cache was moved aside/);
+  const coldRows = new Map([["clippy:rk:a", { id: "clippy:rk:a", class: "B", coverage: "ran", status: "pass", key: "k1" }]]);
+  const cold = decision({ forecast: [{ id: "clippy:rk:a", expected: "run", reason: "first observation of row in this store" }], actual: [{ id: "clippy:rk:a", actual: "run" }] });
+  assert.ok(assertDecisionRun({ ...run, rows: coldRows }, [cold], { cause: "new" }).ok);
+  assert.ok(assertDecisionRun({ ...run, rows: coldRows }, [cold], { cause: "new", classes: ["B"] }).ok);
+  assert.match(assertDecisionRun({ ...run, rows: coldRows }, [cold], { cause: "new", classes: ["A", "B"] }).problems.join(), /no class-a cache decision/);
+  const changed = decision({ forecast: [{ id: "clippy:rk:a", expected: "run", changes: { inheritedEnv: ["RUSTUP_TOOLCHAIN"] }, reason: "no prior result for this input, tool & environment identity" }, { id: "clippy:rk:b", expected: "hit", reason: "prior verified result for this key" }] });
+  assert.ok(assertDecisionRun(run, [changed], { cause: "changed", ids: ["clippy:rk:a"], changedVar: "RUSTUP_TOOLCHAIN" }).ok);
+  assert.match(assertDecisionRun(run, [decision({ mismatches: [{ id: "clippy:rk:a" }] })], { cause: "changed" }).problems.join(), /forecast mismatch/);
+  assert.match(assertDecisionRun({ ...run, log: "RK_CACHE_DIVERGENCE: x" }, [decision()], { cause: "changed" }).problems.join(), /RK_CACHE_DIVERGENCE/);
+  assert.deepEqual(decisionReportOf("Class B cache decision: /x/d.json\n", () => ({ phase: "observed" })), [{ file: "/x/d.json", phase: "observed" }]);
+});
+
+test("forecast history namespace mirrors the gate's store identity", () => {
+  const declared = cacheHistoryFileFor({ storeDir: "D:\\scratch\\loop-review\\muse-fixture-cache", env: {}, platform: "win32", home: "C:\\Users\\test" });
+  assert.equal(path.basename(declared), "481625f997041a8e4608b59b1b59b8bd4a84760a87a5b26d8b59f7d97a9750d7.json");
+  assert.equal(path.basename(path.dirname(declared)), "rightkit-class-a-history");
+  assert.equal(path.basename(cacheHistoryFileFor({ storeDir: "D:\\SCRATCH\\LOOP-REVIEW\\MUSE-FIXTURE-CACHE", env: {}, platform: "win32", home: "C:\\Users\\test" })), path.basename(declared));
+  assert.equal(path.basename(cacheHistoryFileFor({ storeDir: "D:\\Claude\\rk-witness-fixture\\.git\\rightkit-gate-cache", env: {}, platform: "win32", home: "C:\\Users\\test" })), "599ead3992baf7de0a2740dc9083e0fd2164c7f198e72836916923de9dd264f3.json");
+});
+
+test("NN43 together sharing: grouped fresh calls pass; a split same-configuration singleton fails", () => {
+  const unit = (crate, calls) => ({ schema: "rightkit.unit-result/1", unit: `cargo:${crate}`, result: "passed", stages: {}, calls });
+  const call = (id, args) => ({ id, stage: "test-build", cwd: ".", args, state: "ran", result: "passed" });
+  const report = { units: [{ selector: "cargo:a", receipt: { file: "gate-a.json" } }, { selector: "cargo:b", receipt: { file: "gate-b.json" } }] };
+  const groupedArgs = ["test", "-p", "a", "-p", "b", "--no-run"];
+  const grouped = { "gate-a.json": unit("a", [call("test-build:default", groupedArgs)]), "gate-b.json": unit("b", [call("test-build:default", groupedArgs)]) };
+  assert.ok(assertTogetherSharing({ report, files: grouped }).ok);
+  const split = { "gate-a.json": unit("a", [call("test-build:a", ["test", "-p", "a", "--no-run"])]), "gate-b.json": unit("b", [call("test-build:b", ["test", "-p", "b", "--no-run"])]) };
+  assert.match(assertTogetherSharing({ report, files: split }).problems.join(), /names only a while b ran under the same stage, cwd and arguments/);
+  const specific = { "gate-a.json": unit("a", [call("test-build:a", ["test", "-p", "a", "--features", "x", "--no-run"])]), "gate-b.json": unit("b", [call("test-build:b", ["test", "-p", "b", "--features", "x", "--no-run"])]) };
+  assert.ok(assertTogetherSharing({ report, files: specific }).ok);
+  assert.match(assertTogetherSharing({ report, files: {} }).problems.join(), /no fresh per-unit receipts/);
 });
 
 test("mergeCoverage prefers a real answer over a not-in-pass skip", () => {

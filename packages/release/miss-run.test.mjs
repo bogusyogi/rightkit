@@ -15,7 +15,7 @@ function rig({ lookups, coverage, exit, announced = null, extraLog = "" }) {
   const log = [...lookups.map((l, i) => `${lookupLine(l.file, { planned: l.planned, hit: l.hit, misses: l.lineMisses ?? l.rows.length })}\n${announce((announced ?? lookups.map((x) => x.lineMisses ?? x.rows.length))[i])}`), extraLog].join("\n");
   const files = Object.fromEntries(lookups.map((l) => [l.file, { planned: l.planned, hit: l.hit, misses: l.reportMisses ?? l.rows.length, rows: l.rows }]));
   const reports = missReportOf(log, (f) => { if (!files[f] || lookups.find((l) => l.file === f)?.unreadable) throw new Error(`ENOENT ${f}`); return files[f]; });
-  const rows = coverage === null ? null : new Map(coverage.map(([id, cls, cov, status, key = `k-${id}`]) => [id, { id, class: cls, coverage: cov, status, key }]));
+  const rows = coverage === null ? null : new Map(coverage.map(([id, cls, cov, status, key = `k-${id}`, group]) => [id, { id, class: cls, coverage: cov, status, key, ...(group ? { group } : {}) }]));
   return { run: { log, exit, rows }, reports };
 }
 const judge = (r, opts) => assertMissRun(r.run, r.reports, opts);
@@ -52,7 +52,7 @@ const changedRun = (over = {}) => rig({
     { file: "a.json", planned: 2, hit: 1, rows: over.aRows ?? [{ id: "cargo-deny:rk", cause: CHANGED, evidence: { inputs: [], inheritedEnv: ["RUSTUP_TOOLCHAIN"] } }] },
     { file: "b.json", planned: 3, hit: 1, rows: over.bRows ?? [{ id: "clippy:rk:rk-core", cause: NEW }, { id: "test:rust:rk:rk-core", cause: NEW }] },
   ],
-  coverage: over.coverage ?? [["cargo-deny:rk", "A", "ran", "pass"], ["tsc:x", "A", "hit", "pass"], ["clippy:rk:rk-core", "B", "hit", "pass"], ["test:rust:rk:rk-core", "B", "ran", "fail"], ["fmt:rk", "B", "hit", "pass"]],
+  coverage: over.coverage ?? [["cargo-deny:rk", "A", "ran", "pass"], ["tsc:x", "A", "hit", "pass"], ["clippy:rk:rk-core", "B", "hit", "pass", "k-c", "clippy:batch:822ddd83"], ["test:rust:rk:rk-core", "B", "ran", "fail"], ["fmt:rk", "B", "hit", "pass"]],
   exit: 1,
 });
 const S17 = { cause: "changed", ids: ["test:rust:rk:rk-core"], priorFailed: ["test:rust:rk:rk-core"], changedVar: "RUSTUP_TOOLCHAIN" };
@@ -62,7 +62,7 @@ test("toolchain change: evidenced class A misses, group members answered by thei
 });
 
 test("toolchain change, astra62 case 2: a blank cause and an 'unknown' cause fail", () => {
-  const v = judge(changedRun({ aRows: [{ id: "cargo-deny:rk", cause: "" }, { id: "x", cause: "unknown" }], coverage: [["cargo-deny:rk", "A", "ran", "pass"], ["x", "A", "ran", "pass"], ["clippy:rk:rk-core", "B", "hit", "pass"], ["test:rust:rk:rk-core", "B", "ran", "fail"]] }), S17);
+  const v = judge(changedRun({ aRows: [{ id: "cargo-deny:rk", cause: "" }, { id: "x", cause: "unknown" }], coverage: [["cargo-deny:rk", "A", "ran", "pass"], ["x", "A", "ran", "pass"], ["clippy:rk:rk-core", "B", "hit", "pass", "k-c", "clippy:batch:822ddd83"], ["test:rust:rk:rk-core", "B", "ran", "fail"]] }), S17);
   assert.match(text(v), /cargo-deny:rk: cause "\(blank\)" is not an evidenced explanation/); assert.match(text(v), /x: cause "unknown" is not an evidenced explanation/);
 });
 
@@ -71,11 +71,36 @@ test("toolchain change: an unrelated change, a cause without evidence, an unsupp
   assert.match(text(unrelated), /no miss names RUSTUP_TOOLCHAIN as changed/);
   const noEvidence = judge(changedRun({ aRows: [{ id: "cargo-deny:rk", cause: CHANGED, evidence: {} }] }), S17);
   assert.match(text(noEvidence), /cargo-deny:rk: cause "inputs or environment changed" is not an evidenced explanation/);
-  const classANew = judge(changedRun({ aRows: [{ id: "cargo-deny:rk", cause: NEW }, { id: "pnpm-audit:app", cause: CHANGED, evidence: { inheritedEnv: ["RUSTUP_TOOLCHAIN"] } }], coverage: [["cargo-deny:rk", "A", "ran", "pass"], ["pnpm-audit:app", "A", "ran", "pass"], ["clippy:rk:rk-core", "B", "hit", "pass"], ["test:rust:rk:rk-core", "B", "ran", "fail"]] }), S17);
+  const classANew = judge(changedRun({ aRows: [{ id: "cargo-deny:rk", cause: NEW }, { id: "pnpm-audit:app", cause: CHANGED, evidence: { inheritedEnv: ["RUSTUP_TOOLCHAIN"] } }], coverage: [["cargo-deny:rk", "A", "ran", "pass"], ["pnpm-audit:app", "A", "ran", "pass"], ["clippy:rk:rk-core", "B", "hit", "pass", "k-c", "clippy:batch:822ddd83"], ["test:rust:rk:rk-core", "B", "ran", "fail"]] }), S17);
   assert.match(text(classANew), /cargo-deny:rk: cause "no stored result[^"]*" is not an evidenced explanation/);
-  const reused = judge(changedRun({ coverage: [["cargo-deny:rk", "A", "ran", "pass"], ["clippy:rk:rk-core", "B", "hit", "pass"], ["test:rust:rk:rk-core", "B", "hit", "fail"]] }), S17);
+  const reused = judge(changedRun({ coverage: [["cargo-deny:rk", "A", "ran", "pass"], ["clippy:rk:rk-core", "B", "hit", "pass", "k-c", "clippy:batch:822ddd83"], ["test:rust:rk:rk-core", "B", "hit", "fail"]] }), S17);
   assert.match(text(reused), /test:rust:rk:rk-core: failed before and did not run again \(coverage hit\)/);
   const base = changedRun();
   assert.match(text(judge({ ...base, run: { ...base.run, exit: 0 } }, S17)), /exit 0 does not agree with the rows \(a row failed\)/);
   assert.match(text(judge({ ...base, run: { ...base.run, rows: null } }, S17)), /no readable coverage report/);
+});
+
+test("astra62 review 8: a class B hit without group proof, an unknown cause carrying tool data, a report under another file name: each fails", () => {
+  // A standalone class B row that missed with "no stored result" and was then a hit, with no group named: nothing explains it.
+  const standalone = judge(changedRun({ coverage: [["cargo-deny:rk", "A", "ran", "pass"], ["clippy:rk:rk-core", "B", "hit", "pass"], ["test:rust:rk:rk-core", "B", "ran", "fail"]] }), S17);
+  assert.match(text(standalone), /clippy:rk:rk-core: named as a miss but did not run \(coverage hit\)/);
+  assert.match(text(standalone), /clippy:rk:rk-core: cause "no stored result[^"]*" is not an evidenced explanation/);
+  // An unrecognised cause is not rescued by tool data; a recognised cause with an empty tool object is not evidence.
+  const toolUnknown = judge(changedRun({ aRows: [{ id: "cargo-deny:rk", cause: "unknown", evidence: { tool: { from: "a", to: "b" }, inheritedEnv: ["RUSTUP_TOOLCHAIN"] } }] }), S17);
+  assert.match(text(toolUnknown), /cargo-deny:rk: cause "unknown" is not an evidenced explanation/);
+  const emptyTool = judge(changedRun({ aRows: [{ id: "cargo-deny:rk", cause: CHANGED, evidence: { tool: {} } }] }), S17);
+  assert.match(text(emptyTool), /cargo-deny:rk: cause "inputs or environment changed" is not an evidenced explanation/);
+  // Each lookup is matched to the report it names; a report under another name is not substituted.
+  const base = changedRun();
+  const renamed = judge({ ...base, reports: base.reports.map((r, i) => (i === 1 ? { ...r, file: "other.json" } : r)) }, S17);
+  assert.match(text(renamed), /lookup 2: its report b\.json was not read/);
+});
+
+test("coverage names the batched group that answered a member row, and nothing for a row that ran alone", async () => {
+  const { buildCoverageReport } = await import("./gate-coverage.mjs");
+  const plan = { scans: [{ id: "clippy:a", class: "B" }, { id: "clippy:b", class: "B" }] };
+  const scanResult = { scans: [{ id: "clippy:a", status: "pass", cached: true, batchedWith: { id: "clippy:batch:822ddd83", units: ["a", "b"] } }, { id: "clippy:b", status: "pass" }] };
+  const rows = new Map(buildCoverageReport({ plan, scanResult, keys: new Map([["clippy:a", "k1"], ["clippy:b", "k2"]]) }).scans.map((r) => [r.id, r]));
+  assert.equal(rows.get("clippy:a").group, "clippy:batch:822ddd83"); assert.equal(rows.get("clippy:a").coverage, "hit");
+  assert.equal(Object.hasOwn(rows.get("clippy:b"), "group"), false);
 });

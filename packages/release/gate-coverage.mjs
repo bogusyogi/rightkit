@@ -13,7 +13,10 @@ function timingOf(value) {
 }
 function telemetryOf(row) {
   const attempts = Array.isArray(row?.batchAttempts) ? row.batchAttempts.filter((entry) => entry && typeof entry.id === "string" && typeof entry.status === "string").map((entry) => ({ id: entry.id, status: entry.status, timing: timingOf(entry.timing) })) : [];
-  return { timing: timingOf(row?.timing), scanElapsedMs: duration(row?.scanElapsedMs), retryTiming: timingOf(row?.retried?.timing), batchAttempts: attempts };
+  // `group`: the batched invocation that answered this row (runScans' projection of a group onto its members, batchedWith), so a member that missed at
+  // lookup and was then answered by its group's stored result is visible as such (contract test S17; astra62 review 8, 2026-11-18).
+  const group = typeof row?.batchedWith?.id === "string" && row.batchedWith.id ? { group: row.batchedWith.id } : {};
+  return { timing: timingOf(row?.timing), scanElapsedMs: duration(row?.scanElapsedMs), retryTiming: timingOf(row?.retried?.timing), batchAttempts: attempts, ...group };
 }
 
 /**
