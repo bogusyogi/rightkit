@@ -245,7 +245,7 @@ impl Drop for InputHooks {
         // Remove the hooks next. Then (guard) end the sessions. Then (guard) report.
         let removal = Removal {
             hooks: std::mem::take(&mut self.hooks),
-            count: std::mem::replace(&mut self.pending, NotRemoved(0)),
+            _count: std::mem::replace(&mut self.pending, NotRemoved(0)),
             report: ReportOnDrop::new(self.sink),
             keyboard,
             mouse,
@@ -262,11 +262,11 @@ impl Drop for InputHooks {
 /// lets a new install start. Done in `Drop` so that it also happens when a helper thread could not
 /// be created and the closure holding this was dropped on the calling thread.
 ///
-/// Field order is drop order: `hooks`, then `count` (the new install may start), then `report` (the
+/// Field order is drop order: `hooks`, then `_count` (the new install may start), then `report` (the
 /// host's sink lines). `Drop::drop` itself only joins and clears the debts; it calls no host code.
 struct Removal {
     hooks: Vec<LowLevelHooks>,
-    count: NotRemoved,
+    _count: NotRemoved,
     report: ReportOnDrop,
     keyboard: Option<&'static KeyboardState>,
     mouse: Option<&'static MiddleClickState>,

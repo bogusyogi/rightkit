@@ -9,7 +9,9 @@
 //! the shell's guard (`lifecycle::reveal_mode`) with the host's [`RevealSource`] on the main thread,
 //! immediately before the AppKit call, and does it only for `RevealMode::Foreground`.
 
-use tauri::{AppHandle, Manager, Runtime, WebviewWindow};
+#[cfg(target_os = "macos")]
+use tauri::Manager;
+use tauri::{AppHandle, Runtime, WebviewWindow};
 
 #[cfg(target_os = "macos")]
 use super::{reveal_mode, RevealMode};

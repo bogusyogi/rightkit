@@ -9,11 +9,11 @@
 //! * the scheduler (private): trigger coalescing, bounded retry, parking and the consent epoch.
 //!   Timings come from [`SchedulerPolicy`].
 //! * [`TranscriptHost`] / [`HistorySession`]: what the app provides.
-//! * [`SyncTransport`] / [`NativeObserver`]: the backend seam; [`cloudkit::CloudKitTransport`]
+//! * [`SyncTransport`] / [`NativeObserver`]: the backend seam; `cloudkit::CloudKitTransport`
 //!   is the macOS implementation over the signed helper process.
 //!
 //! The module has no product name, copy, path, identifier or timing of its own: all of them are
-//! inputs ([`TranscriptSyncConfig`], [`cloudkit::CloudKitConfig`]).
+//! inputs ([`TranscriptSyncConfig`], `cloudkit::CloudKitConfig`).
 
 mod history;
 mod ledger_guard;

@@ -1213,13 +1213,9 @@ fn begin_launch(key: &'static str, ticket: u64, window_end: Option<Deadline>) ->
             ticket: t,
             launching,
             ..
-        }) if *t == ticket && !*launching => {
-            if window_end.and_then(Deadline::remaining).is_some() {
-                *launching = true;
-                true
-            } else {
-                false
-            }
+        }) if *t == ticket && !*launching && window_end.and_then(Deadline::remaining).is_some() => {
+            *launching = true;
+            true
         }
         _ => false,
     }
@@ -1467,6 +1463,7 @@ impl Drop for SpawnReport {
 /// - an error with nothing launched releases the model to `Done` with the run's own result: the
 ///   standard library's spawn contract (no child exists after a failed `Command::spawn`) is the
 ///   evidence, not read from a run on a Mac.
+///
 /// State edits happen only while the state still carries this ticket.
 #[cfg(target_os = "macos")]
 fn finish_abandoned(key: &'static str, ticket: u64, outcome: SpawnOutcome) {

@@ -185,6 +185,7 @@ impl DrawOp {
 }
 
 /// Text op whose line box (`line_height`) is centred on `cy`.
+#[allow(clippy::too_many_arguments)] // Preserve the painter API used by app-owned drawing code.
 pub fn text_centered(
     text: &str,
     face: Face,
@@ -209,6 +210,7 @@ pub fn text_centered(
 }
 
 /// Text op whose line box top is `top` (multi-line paragraphs).
+#[allow(clippy::too_many_arguments)] // Preserve the painter API used by app-owned drawing code.
 pub fn text_at_top(
     text: &str,
     face: Face,

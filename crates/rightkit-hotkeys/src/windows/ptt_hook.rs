@@ -257,6 +257,12 @@ const TELEMETRY_LANE_DEPTH: usize = 256;
 /// generation that was armed. Inside the application range the hook thread accepts (`WM_APP..`).
 pub(crate) const MSG_PTT_ARM_ELAPSED: u32 = WM_APP + 0x41;
 
+type SessionLanes = (
+    Arc<KbSession>,
+    LaneRx<HookCommand>,
+    LaneRx<HookTelemetryEvent>,
+);
+
 /// The lanes of one install. Shared (as `Arc`) with every thread of that install, so closing them
 /// stops all of those threads from sending, whatever clones are still alive.
 pub(crate) struct KbSession {
@@ -487,16 +493,7 @@ impl KeyboardState {
     /// [`KbSession::take_cancel_rx`]). The session is built outside the lock and published once.
     /// The hook thread never reads the slot: its closure holds its own session. Only host-thread
     /// calls and the timer thread read it, and a slot read on the hook thread is a `try_lock`.
-    pub(crate) fn begin_session(
-        &'static self,
-    ) -> Result<
-        (
-            Arc<KbSession>,
-            LaneRx<HookCommand>,
-            LaneRx<HookTelemetryEvent>,
-        ),
-        HookError,
-    > {
+    pub(crate) fn begin_session(&'static self) -> Result<SessionLanes, HookError> {
         if lock(&self.session).as_ref().is_some_and(|s| s.is_open()) {
             return Err(HookError::AlreadyInstalled);
         }

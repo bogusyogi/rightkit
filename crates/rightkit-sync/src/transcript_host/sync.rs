@@ -2851,7 +2851,7 @@ impl TranscriptSync {
     /// Run one engine pass (pull, merge, push, tombstones). `Ok(None)` = skipped (consent off,
     /// the host is busy, or the result was stale on completion). Needs a running tokio runtime.
     /// This is an explicit pass: it is not held back by the admission rule (`admission_wait`).
-    /// The scheduler's automatic passes go through [`pass_automatic`](Self::pass_automatic).
+    /// The scheduler's automatic passes go through `pass_automatic`.
     pub async fn pass(self: &Arc<Self>) -> Result<Option<PassReport>, String> {
         self.pass_for(None).await
     }
@@ -3556,7 +3556,7 @@ impl TranscriptSync {
     /// confirmed action; confirmation is the caller's. Requires sync to be enabled: with sync
     /// off there is no live channel, so there is nothing to propagate.
     ///
-    /// The whole operation runs under one [`DeleteToken`] (account and consent epoch) captured at
+    /// The whole operation runs under one `DeleteToken` (account and consent epoch) captured at
     /// entry from a positive observation of the live account made for this operation. Listing
     /// the ids, the ledger check, the enqueue, the pass and the reported completion all use that
     /// token and nothing re-reads `authorized_scope`. Before the enqueue, inside the pass and
