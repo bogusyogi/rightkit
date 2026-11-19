@@ -208,6 +208,7 @@ test("S17 phase-A state: sealed roundtrip; tamper, wrong fixture and history dri
   assert.deepEqual(s17StateProblems(state, now), []);
   assert.match(s17StateProblems(state, { ...now, fixtureCommit: "d".repeat(40) }).join(), /fixture commit/);
   assert.match(s17StateProblems(state, { ...now, historySha256: "e".repeat(64) }).join(), /history changed since phase A/);
+  assert.match(s17StateProblems(state, { ...now, historySha256: null }).join(), /forecast history cannot be read/);
   assert.match(s17StateProblems({ ...state, failedIds: [] }, now).join(), /no failing row ids/);
   assert.match(s17StateProblems({ ...state, rustcA: "" }, now).join(), /rustc/);
   assert.match(s17StateProblems({ ...state, schema: "other/1" }, now).join(), /schema/);

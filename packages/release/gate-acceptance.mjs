@@ -2258,7 +2258,8 @@ export function s17StateProblems(state, { fixtureCommit = null, historySha256 = 
   if (typeof state.rustcA !== "string" || !state.rustcA.trim()) problems.push("phase-A state names no rustc identity bound by the first run");
   if (!Array.isArray(state.failedIds) || !state.failedIds.length || state.failedIds.some((id) => typeof id !== "string" || !id)) problems.push("phase-A state carries no failing row ids from the first run");
   if (!/^[0-9a-f]{64}$/.test(state.historySha256 ?? "")) problems.push("phase-A state names no forecast-history sha256");
-  else if (historySha256 !== null && historySha256 !== state.historySha256) problems.push("the forecast history changed since phase A (another run advanced it), so phase B would not resume the recorded baseline");
+  else if (!/^[0-9a-f]{64}$/.test(historySha256 ?? "")) problems.push("the forecast history cannot be read now, so phase B cannot verify the recorded baseline is unadvanced");
+  else if (historySha256 !== state.historySha256) problems.push("the forecast history changed since phase A (another run advanced it), so phase B would not resume the recorded baseline");
   for (const label of ["S17:fail1", "S17:fail2"]) {
     const r = state.runs?.[label];
     if (!isObject(r) || !Number.isInteger(r.exit) || typeof r.logPath !== "string" || !Array.isArray(r.coveragePaths) || !r.coveragePaths.length) problems.push(`phase-A state carries no usable ${label} artifacts (exit, log, coverage)`);
