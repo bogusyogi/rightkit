@@ -842,7 +842,7 @@ pub fn insert_transcript_tracked(
             elapsed_ms(snapshot_started),
         ));
         let stage_started = Instant::now();
-        let mut promised = match rightkit_automation::desktop::macos::stage_promised_clipboard_text(
+        let promised = match rightkit_automation::desktop::macos::stage_promised_clipboard_text(
             transcript,
             prior.change_count(),
         ) {
