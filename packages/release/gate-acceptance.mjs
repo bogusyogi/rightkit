@@ -3648,7 +3648,11 @@ async function executeRun({ fixture, host, wanted, gate, gateArg, budgetsFile, o
           const rec = st.runs[label]; const reports = [];
           for (const p of rec.coveragePaths) { const j = readJson(p); if (j.error) { problems.push(`${label}: cannot read phase-A coverage ${j.error}`); continue; } const v = validateCoverage(j.value); if (!v.ok) problems.push(...v.problems.map((x) => `${label}: ${p}: ${x}`)); reports.push(j.value); }
           let log = ""; try { log = fs.readFileSync(rec.logPath, "utf8"); } catch (e) { problems.push(`${label}: cannot read phase-A log ${rec.logPath} (${e.message})`); }
-          if (!problems.length) ctx.runs[label] = { label, stage: "compile", commit: st.witnessCommit, tree: g.tree(st.witnessCommit), args: [], exit: rec.exit, expectedFailure: true, signal: null, timedOut: false, ms: 0, startedMs: null, log, logPath: rec.logPath, coveragePaths: rec.coveragePaths, coverageProblems: [], coverageStarts: reports.map((r) => r.startedAt), rows: mergeCoverage(reports), receipt: rec.receiptPath ? readJson(rec.receiptPath).value ?? null : null, receiptPath: rec.receiptPath ?? null, ladder: true, stageIndex: LADDER.indexOf("compile"), ledger: null, ledgerPath: null, timings: stageTimings(log), restoredFromPhaseA: true };
+          // The leg's own spawn ledger from phase A (NN07/NN09/NN26 judge restored legs in an all-steps phase-B run): recorded in
+          // newer states, derived by doRun's naming for states sealed before it was.
+          const ledgerPath = rec.ledgerPath ?? path.join(path.dirname(rec.logPath), `${label.replace(/[^\w.-]/g, "_")}.ledger.jsonl`);
+          let ledger = null; try { ledger = parseLedger(fs.readFileSync(ledgerPath, "utf8")); } catch (e) { problems.push(`${label}: cannot read phase-A spawn ledger ${ledgerPath} (${e.message})`); }
+          if (!problems.length) ctx.runs[label] = { label, stage: "compile", commit: st.witnessCommit, tree: g.tree(st.witnessCommit), args: [], exit: rec.exit, expectedFailure: true, signal: null, timedOut: false, ms: 0, startedMs: null, log, logPath: rec.logPath, coveragePaths: rec.coveragePaths, coverageProblems: [], coverageStarts: reports.map((r) => r.startedAt), rows: mergeCoverage(reports), receipt: rec.receiptPath ? readJson(rec.receiptPath).value ?? null : null, receiptPath: rec.receiptPath ?? null, ladder: true, stageIndex: LADDER.indexOf("compile"), ledger, ledgerPath, timings: stageTimings(log), restoredFromPhaseA: true };
         }
       }
       check("S17", "phase B resumes the sealed phase-A state before any dispatch", { ok: problems.length === 0, problems });
@@ -3678,7 +3682,7 @@ async function executeRun({ fixture, host, wanted, gate, gateArg, budgetsFile, o
         if (!problems.length) { try { g.run(["update-ref", splitRef, cf]); } catch (e) { problems.push(`cannot hold the witness commit under ${splitRef}: ${e.message}`); } }
         let statePath = null;
         if (!problems.length) {
-          const artifact = (run) => ({ exit: run.exit, logPath: run.logPath, coveragePaths: run.coveragePaths, receiptPath: run.receiptPath ?? null });
+          const artifact = (run) => ({ exit: run.exit, logPath: run.logPath, coveragePaths: run.coveragePaths, receiptPath: run.receiptPath ?? null, ledgerPath: run.ledgerPath ?? null });
           statePath = s17State ?? path.join(outDir, "s17-phase-a.json");
           try { fs.writeFileSync(statePath, `${sealS17State({ schema: S17_STATE_SCHEMA, witnessCommit: cf, fixtureCommit: commit, splitRef, rustcA: rustcOf(f1), failedIds: failedIdsOf(f1), historyFile, historySha256: fileSha(historyFile), runs: { "S17:fail1": artifact(f1), "S17:fail2": artifact(f2) } })}\n`); } catch (e) { problems.push(`cannot write phase-A state ${statePath}: ${e.message}`); }
         }
