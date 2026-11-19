@@ -639,7 +639,7 @@ export const NN = Object.freeze([
   { id: "NN19", steps: ["S0"], always: true, title: "The gate under test is the installed sealed gate", evidence: "--version, launcher" },
 ]);
 export const NN_IDS = Object.freeze(NN.map((n) => n.id));
-/** NN20-NN42 (GC-A27 as extended 2026-11-05). `post` ones are judged from the finished result (NN34, NN35). */
+/** NN20-NN43 (GC-A27 as extended 2026-11-05). `post` ones are judged from the finished result (NN34, NN35). */
 export const NN_EXT = Object.freeze([
   { id: "NN20", steps: ["S12"], title: "One edited crate recompiles only that crate and its dependents", evidence: "S12 crate-edit compile coverage" },
   { id: "NN21", steps: ["S12"], title: "One edited lockfile reruns only the rows that read it", evidence: "S12 lock-edit coverage" },
@@ -750,7 +750,7 @@ export function formatPlan(plan) {
   out.push(`negatives not built: ${Object.keys(plan.negativesUnchecked).join(" ")}`, `kills not built: ${Object.keys(plan.killsUnchecked).join(" ")}`);
   out.push("", `non-negotiables (${(plan.nonNegotiables ?? []).length}; never unchecked on a host that can run them: missing evidence fails the run):`);
   for (const n of plan.nonNegotiables ?? []) out.push(`  ${n.id}  steps ${n.steps.join("+")}${n.selected ? "" : " (not selected)"}  ${n.title}  [${n.evidence}]`);
-  out.push("", `extended non-negotiables NN20-NN42 (${NN_EXT.length}):`);
+  out.push("", `extended non-negotiables NN20-NN43 (${NN_EXT.length}):`);
   for (const n of NN_EXT) out.push(`  ${n.id}  steps ${n.steps.join("+")}${n.always ? " (every run)" : ""}  ${n.title}  [${n.evidence}]`);
   return out.join("\n");
 }
@@ -1086,6 +1086,7 @@ export function assertTogetherSharing({ report, files }) {
     if (file?.schema === "rightkit.unit-result/1" || (typeof file?.unit === "string" && typeof file?.result === "string" && file?.stages && Array.isArray(file?.calls))) fresh.set(unit.selector, file);
   }
   if (!fresh.size) return { ok: false, problems: ["no fresh per-unit receipts (rightkit.unit-result/1): together-compile sharing cannot be judged"] };
+  for (const unit of cargoUnits) if (!fresh.has(unit.selector)) problems.push(`${unit.selector}: no fresh per-unit receipt (rightkit.unit-result/1) in ${unit.receipt?.file ?? "any file"}: its together-compile sharing is unjudged`);
   const packagesOf = (args) => { const out = []; for (let i = 0; i < (args ?? []).length; i++) { if (args[i] === "--") break; if (args[i] === "-p" && typeof args[i + 1] === "string") out.push(args[++i]); } return out; };
   const configOf = (args) => { const out = []; for (let i = 0; i < (args ?? []).length; i++) { if (args[i] === "-p") { i++; continue; } out.push(args[i]); } return JSON.stringify(out); };
   const calls = new Map();
@@ -1925,14 +1926,19 @@ export function lockProblems({ rootDir, paths, budgetsRel, contractRel, fixtureC
   const problems = [];
   const tableOf = (t) => parseContractNN(t).map((r) => `${r.id}|${r.property}|${r.fails}`).join("\n");
   const safe = (args) => { try { return run(args); } catch { return null; } };
-  const dirty = (safe(["status", "--porcelain", "--", ...paths]) ?? "").split("\n").filter(Boolean).filter((l) => !l.includes(contractRel));
+  const statusOut = safe(["status", "--porcelain", "--", ...paths]);
+  if (statusOut === null) problems.push("git status failed, so locked-file cleanliness cannot be judged");
+  const dirty = (statusOut ?? "").split("\n").filter(Boolean).filter((l) => !l.includes(contractRel));
   for (const l of dirty) problems.push(`a locked file has uncommitted changes (${l.trim()}): the commit must cite Adrian's approval`);
   const headContract = safe(["show", `HEAD:${contractRel}`]); let nowContract = null; try { nowContract = fs.readFileSync(path.join(rootDir, contractRel), "utf8"); } catch { /* reported below */ }
-  if (headContract !== null && nowContract !== null && tableOf(headContract) !== tableOf(nowContract)) problems.push("the contract's NN table has uncommitted changes: the commit must cite Adrian's approval");
+  if (headContract === null || nowContract === null) problems.push(`the contract ${contractRel} cannot be read at HEAD or on disk, so its NN table cannot be judged`);
+  else if (tableOf(headContract) !== tableOf(nowContract)) problems.push("the contract's NN table has uncommitted changes: the commit must cite Adrian's approval");
   const base = (safe(["log", "--grep=Gate-Acceptance-Locked:", "--format=%H", "-n", "1"]) ?? "").trim();
   if (!base) problems.push("the test is not locked: no commit carries a `Gate-Acceptance-Locked: <Adrian's words>` line, so there is no baseline to judge changes against");
   else {
-    const commits = (safe(["log", `${base}..HEAD`, "--format=%H", "--", ...paths]) ?? "").split("\n").filter(Boolean);
+    const commitsOut = safe(["log", `${base}..HEAD`, "--format=%H", "--", ...paths]);
+    if (commitsOut === null) problems.push("git log failed: cannot list commits since the lock, so locked-file changes cannot be judged");
+    const commits = (commitsOut ?? "").split("\n").filter(Boolean);
     for (const c of commits) {
       const msg = safe(["show", "-s", "--format=%B", c]) ?? "";
       const touchedContract = (safe(["diff-tree", "--no-commit-id", "--name-only", "-r", c]) ?? "").split("\n").includes(contractRel);
@@ -1943,12 +1949,14 @@ export function lockProblems({ rootDir, paths, budgetsRel, contractRel, fixtureC
       for (const rise of risenBudgets(was, is)) problems.push(`commit ${c.slice(0, 12)} raised a budget: ${rise}`);
     }
   }
+  if (pin && !fixtureCommit) problems.push("the fixture commit is unknown, so the budgets fixture pin cannot be judged");
   if (pin && fixtureCommit && pin !== fixtureCommit) problems.push(`the fixture is at ${fixtureCommit}, the pin is ${pin}`);
   if (!pin) problems.push("the budgets file has no fixture pin (`fixture.commit`)");
   return { ok: problems.length === 0, problems };
 }
 export function reviewProblems({ budgets, runnerSha256, contractSha256 }) {
   const reviews = Array.isArray(budgets?.reviews) ? budgets.reviews : [];
+  if (!/^[0-9a-f]{64}$/.test(runnerSha256 ?? "") || !/^[0-9a-f]{64}$/.test(contractSha256 ?? "")) return { ok: false, problems: [`the runner or contract sha256 is missing or not 64-hex, so no recorded review can be matched to them`] };
   const good = reviews.find((r) => isObject(r) && r.runnerSha256 === runnerSha256 && r.contractSha256 === contractSha256 && typeof r.reviewer === "string" && r.reviewer && typeof r.author === "string" && r.author && r.reviewer !== r.author && typeof r.adrianWords === "string" && r.adrianWords.trim() && r.verdict === "pass");
   return good ? { ok: true, problems: [] } : { ok: false, problems: [`no independent review is recorded for this runner (sha256 ${String(runnerSha256).slice(0, 12)}) and contract (${String(contractSha256).slice(0, 12)}): budgets.reviews needs { runnerSha256, contractSha256, reviewer, author (different), adrianWords, verdict: "pass" }`] };
 }
@@ -2178,12 +2186,15 @@ export function assertDecisionRun(run, decisions, { cause, ids = [], changedVar 
     if (d.error) { problems.push(`decision ${d.file} cannot be read (${d.error})`); continue; }
     if (d.phase !== "observed") problems.push(`decision ${d.file}: phase ${JSON.stringify(d.phase)} is not "observed"`);
     if (!Array.isArray(d.mismatches) || d.mismatches.length) problems.push(`decision ${d.file}: ${Array.isArray(d.mismatches) ? d.mismatches.length : "?"} forecast mismatch(es) carried (${(d.mismatches ?? []).slice(0, 3).map((m) => m.id).join(", ")})`);
-    classes.add(d.stage === "class-b" ? "B" : "A");
+    if (d.stage !== "class-a" && d.stage !== "class-b") problems.push(`decision ${d.file}: stage ${JSON.stringify(d.stage)} is not class-a or class-b`);
+    else classes.add(d.stage === "class-b" ? "B" : "A");
     for (const f of d.forecast ?? []) forecast.set(f.id, f);
     for (const a of d.actual ?? []) actual.set(a.id, a);
     for (const id of d.dispatchedRows ?? []) dispatched.add(id);
   }
   for (const cls of expectedClasses) if (!classes.has(cls)) problems.push(`no class-${String(cls).toLowerCase()} cache decision in the log`);
+  if (!forecast.size) problems.push("no forecast rows in any decision: nothing was forecast before lookup, so the run cannot be judged");
+  if (coverage && !coverage.size) problems.push("the coverage report is empty, so the decisions cannot be judged against what ran");
   for (const [id, f] of forecast) {
     const a = actual.get(id);
     if (!a) { problems.push(`${id}: forecast but no actual outcome`); continue; }

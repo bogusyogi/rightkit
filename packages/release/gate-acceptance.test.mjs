@@ -18,7 +18,7 @@ import {
   BROKER_FORBIDDEN_CARGO, BUDGETS_SCHEMA, BUDGET_STAGES, NN, NN07_ALLOWLIST, NN_IDS, assertAdviceCached, assertBatching, assertBudget, assertDependencyReuse, assertDigestStable,
   assertBlockedWhole, assertDecisionRun, assertEnvDigestScope, assertKeysStable, assertLanes, assertLockstepSharing, assertNoBrokerNonCompiling, assertNoClassARan, assertNoClassBRan, assertNoDuplicateSpawns, assertOneExclusionOnCheck, assertTogetherSharing, cacheHistoryFileFor, decisionReportOf,
   assertNoRealCargoMetadata, assertOtherWorkspacesIdle, assertRulesCached, assertRustfmtSpawns, assertSnapshotProof, assertUnitListShare, evaluateNonNegotiables, findInstalledGate,
-  gateIdentityProblems, isExecutingRow, loadBudgets, nnForStep, normalizeSpawn, parseLedger, programOf, risenBudgets, stageMarks, unitSelectorsOf, validateBudgets,
+  gateIdentityProblems, isExecutingRow, loadBudgets, lockProblems, nnForStep, normalizeSpawn, parseLedger, programOf, reviewProblems, risenBudgets, stageMarks, unitSelectorsOf, validateBudgets,
 } from "./gate-acceptance.mjs";
 
 const sha = (s) => createHash("sha256").update(s).digest("hex");
@@ -141,6 +141,49 @@ test("NN43 together sharing: grouped fresh calls pass; a split same-configuratio
   const specific = { "gate-a.json": unit("a", [call("test-build:a", ["test", "-p", "a", "--features", "x", "--no-run"])]), "gate-b.json": unit("b", [call("test-build:b", ["test", "-p", "b", "--features", "x", "--no-run"])]) };
   assert.ok(assertTogetherSharing({ report, files: specific }).ok);
   assert.match(assertTogetherSharing({ report, files: {} }).problems.join(), /no fresh per-unit receipts/);
+});
+
+test("fail-closed judges (independent NN37 review regressions): missing evidence never judges ok", () => {
+  const decision = (over = {}) => ({ file: "d.json", stage: "class-b", phase: "observed", mismatches: [], forecast: [{ id: "clippy:rk:a", expected: "run", reason: "first observation of row in this store" }], actual: [{ id: "clippy:rk:a", actual: "run" }], dispatchedRows: ["clippy:rk:a"], ...over });
+  const coldRows = new Map([["clippy:rk:a", { id: "clippy:rk:a", class: "B", coverage: "ran", status: "pass", key: "k1" }]]);
+  const run = { log: "Class B cache decision: d.json", exit: 0, rows: coldRows };
+  const empty = decision({ stage: "class-a", forecast: [], actual: [], dispatchedRows: [] });
+  assert.match(assertDecisionRun({ ...run, rows: new Map() }, [empty], { cause: "new", classes: ["A"] }).problems.join(), /no forecast rows/);
+  assert.match(assertDecisionRun(run, [decision({ stage: "class-x" })], { cause: "new" }).problems.join(), /stage .* is not class-a or class-b/);
+  const unit = (crate, calls) => ({ schema: "rightkit.unit-result/1", unit: `cargo:${crate}`, result: "passed", stages: {}, calls });
+  const call = (id, args) => ({ id, stage: "test-build", cwd: ".", args, state: "ran", result: "passed" });
+  const report2 = { units: [{ selector: "cargo:a", receipt: { file: "gate-a.json" } }, { selector: "cargo:b", receipt: { file: "gate-b.json" } }] };
+  const groupedArgs = ["test", "-p", "a", "-p", "b", "--no-run"];
+  const mixed = { "gate-a.json": unit("a", [call("test-build:default", groupedArgs)]), "gate-b.json": { status: "blocked", requirements: [] } };
+  assert.match(assertTogetherSharing({ report: report2, files: mixed }).problems.join(), /cargo:b: no fresh per-unit receipt/);
+  const goodReview = { runnerSha256: "a".repeat(64), contractSha256: "b".repeat(64), reviewer: "rev", author: "auth", adrianWords: "words", verdict: "pass" };
+  assert.ok(reviewProblems({ budgets: { reviews: [goodReview] }, runnerSha256: "a".repeat(64), contractSha256: "b".repeat(64) }).ok);
+  assert.equal(reviewProblems({ budgets: { reviews: [{ ...goodReview, runnerSha256: null, contractSha256: null }] }, runnerSha256: null, contractSha256: null }).ok, false);
+  assert.equal(reviewProblems({ budgets: { reviews: [{ ...goodReview, runnerSha256: "x" }] }, runnerSha256: "x", contractSha256: "b".repeat(64) }).ok, false);
+});
+
+test("NN36 lock judge fails closed when git or the contract cannot be read", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "rk-lock-"));
+  try {
+    fs.mkdirSync(path.join(root, "docs"), { recursive: true });
+    const contract = "# contract\n";
+    fs.writeFileSync(path.join(root, "docs/GATE-CONTRACT.md"), contract);
+    const base = "a".repeat(40);
+    const happy = (args) => {
+      if (args[0] === "status") return "";
+      if (args[0] === "show" && args[1] === "HEAD:docs/GATE-CONTRACT.md") return contract;
+      if (args[0] === "log" && args.some((a) => a.startsWith("--grep="))) return `${base}\n`;
+      if (args[0] === "log") return "";
+      throw new Error(`unexpected git ${args.join(" ")}`);
+    };
+    const args = { rootDir: root, paths: ["packages/release/gate-acceptance.mjs"], budgetsRel: "ci/b.json", contractRel: "docs/GATE-CONTRACT.md", fixtureCommit: "f".repeat(40), pin: "f".repeat(40) };
+    assert.ok(lockProblems({ ...args, run: happy }).ok, "control: readable everything, locked, pin matches");
+    assert.match(lockProblems({ ...args, run: () => { throw new Error("git gone"); } }).problems.join(), /git status failed/);
+    assert.match(lockProblems({ ...args, run: (a) => { if (a[0] === "log" && !a.some((x) => x.startsWith("--grep="))) throw new Error("log gone"); return happy(a); } }).problems.join(), /cannot list commits since the lock/);
+    assert.match(lockProblems({ ...args, fixtureCommit: undefined, run: happy }).problems.join(), /fixture commit is unknown/);
+    fs.rmSync(path.join(root, "docs/GATE-CONTRACT.md"));
+    assert.match(lockProblems({ ...args, run: happy }).problems.join(), /contract .* cannot be read/);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
 test("mergeCoverage prefers a real answer over a not-in-pass skip", () => {
