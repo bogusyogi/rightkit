@@ -355,7 +355,7 @@ pub enum WhisperModelError {
     Timeout,
     /// An earlier preparation of this model left an engine process, or a spawn that has not
     /// returned, without the evidence this module accepts. No new preparation starts until it
-    /// has that evidence ([`stop_confirmed`]: the leader reaped by `terminate_tree_bounded` and
+    /// has that evidence (`stop_confirmed`: the leader reaped by `terminate_tree_bounded` and
     /// the engine's process group observed to have no members at that moment; this does not
     /// show that a descendant that left the group, or work an OS daemon does for the engine, has
     /// stopped); the model is never released on a failure, a refused hand-off or a timeout of
@@ -1904,7 +1904,7 @@ fn fetch_and_install(
 
 /// Download + install the Whisper model from R2 (Pro). Idempotent: a no-op if
 /// already present. Emits `whisper-model` progress events throughout. Bounded by
-/// [`DOWNLOAD_CALL_BUDGET`]; see [`download_whisper_model_within`] for the typed error.
+/// `DOWNLOAD_CALL_BUDGET`; see [`download_whisper_model_within`] for the typed error.
 pub fn download_whisper_model_blocking(host: &dyn WhisperHost) -> Result<(), String> {
     download_whisper_model_within(host, DOWNLOAD_CALL_BUDGET).map_err(|e| e.to_string())
 }
@@ -1915,17 +1915,17 @@ pub fn download_whisper_model_blocking(host: &dyn WhisperHost) -> Result<(), Str
 /// the one absolute deadline and the instant a run must end at or after for this caller to
 /// share its result. A zero or already spent budget returns [`WhisperModelError::Timeout`] at
 /// once: before the operation gate, before the download, before a runner is chosen and before
-/// the engine is spawned (each of those reads the deadline again, see [`lock_until`],
-/// [`fetch_and_install`], [`claim_role`], `prepare_whisper`). Waiting for the operation gate,
+/// the engine is spawned (each of those reads the deadline again, see `lock_until`,
+/// `fetch_and_install`, `claim_role`, `prepare_whisper`). Waiting for the operation gate,
 /// the preparation's admission, the engine's run and its termination are each given only what
 /// is left of the deadline; when it passes the caller returns [`WhisperModelError::Timeout`],
-/// also in the middle of the download, which is stopped by it ([`fetch_and_install`] says which
+/// also in the middle of the download, which is stopped by it (`fetch_and_install` says which
 /// steps can be interrupted and which are bounded by size only). The operation gate covers the
 /// download and the install only; it is released before the one-time compile, which any number
 /// of callers share as one preparation. A model whose earlier engine process has no group-empty
 /// evidence yet, or whose spawn is outstanding, is refused with
 /// [`WhisperModelError::PreparationUnreaped`] (`Unreaped` or `Spawning`, see the preparation
-/// state) before an install can write into its directory ([`exclude_unreaped`]) and before a
+/// state) before an install can write into its directory (`exclude_unreaped`) and before a
 /// preparation can start.
 pub fn download_whisper_model_within(
     host: &dyn WhisperHost,

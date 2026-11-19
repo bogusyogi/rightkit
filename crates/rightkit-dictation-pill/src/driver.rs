@@ -391,7 +391,7 @@ pub fn shutdown() -> bool {
     let last = lock(&LAST_EXIT).clone();
     let exited = last
         .as_ref()
-        .map_or(true, |exit| exit.wait(remaining(deadline)));
+        .is_none_or(|exit| exit.wait(remaining(deadline)));
     let windows_left = exited && RETIRE.wait_retired(remaining(deadline)) != Verdict::Retired;
     crate::frame::clear();
     DROP_REPORTED.store(false, Ordering::Relaxed);
@@ -1860,7 +1860,7 @@ impl Core {
         let y = (anchor_bottom - f64::from(outer.bottom()) * s).round() as i32;
         let edge = |v: f32| {
             if v.is_finite() {
-                v.max(1.0).min(bound::MAX_SURFACE_PX)
+                v.clamp(1.0, bound::MAX_SURFACE_PX)
             } else {
                 1.0
             }

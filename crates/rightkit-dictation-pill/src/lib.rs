@@ -132,6 +132,6 @@ pub use driver::{
     set_visibility, show_clipboard, show_hint, shutdown, voice_level, Install,
 };
 #[cfg(target_os = "windows")]
-pub(crate) use driver::{Cmd, CmdTx, Shared, Surf};
+pub(crate) use driver::{CmdTx, Shared, Surf};
 #[cfg(target_os = "windows")]
 pub use supervisor::{apply_event_supervised, ensure_installed_supervised, shutdown_supervised};

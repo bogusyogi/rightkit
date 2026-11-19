@@ -97,7 +97,7 @@ pub fn pump() -> ov::Animation {
 pub fn frame_rect(x: i32, y: i32, w: f32, h: f32) -> ov::Rect {
     let edge = |v: f32| {
         if v.is_finite() {
-            v.max(1.0).min(crate::config::bound::MAX_SURFACE_PX)
+            v.clamp(1.0, crate::config::bound::MAX_SURFACE_PX)
         } else {
             1.0
         }
