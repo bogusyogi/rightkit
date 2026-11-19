@@ -45,7 +45,7 @@ impl Drop for ProbeSlot {
 
 fn start_probe(name: &str, work: impl FnOnce() + Send + 'static) -> Result<(), WezTermError> {
     PROBE_WORKERS
-        .fetch_update(Ordering::AcqRel, Ordering::Acquire, |active| {
+        .try_update(Ordering::AcqRel, Ordering::Acquire, |active| {
             (active < MAX_PROBE_WORKERS).then_some(active + 1)
         })
         .map_err(|_| WezTermError::Busy)?;

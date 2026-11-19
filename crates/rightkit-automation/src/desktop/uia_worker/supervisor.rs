@@ -110,7 +110,7 @@ pub(crate) fn token_generation(token: u64) -> u64 {
 /// wrap and hand an id out twice.
 pub(crate) fn mint_handle_id(counter: &std::sync::atomic::AtomicU32) -> Option<u64> {
     counter
-        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |used| {
+        .try_update(Ordering::Relaxed, Ordering::Relaxed, |used| {
             (u64::from(used) < MAX_HANDLE).then(|| used + 1)
         })
         .ok()

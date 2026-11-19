@@ -417,6 +417,13 @@ impl El {
         ))
     }
 
+    /// Whether UI Automation reports a writable ValuePattern. This reads capability metadata only.
+    #[cfg(feature = "desktop-context")]
+    pub(crate) fn has_writable_value_pattern(&self) -> Option<bool> {
+        let pattern = self.pattern::<IUIAutomationValuePattern>(UIA_ValuePatternId)?;
+        b(unsafe { pattern.CurrentIsReadOnly() }).map(|read_only| !read_only)
+    }
+
     /// Whether the `ValuePattern` value is empty. `None` when there is no `ValuePattern` or the
     /// read fails. Does not check for a password field.
     pub fn value_is_empty(&self) -> Option<bool> {

@@ -945,7 +945,7 @@ fn web_container_named(
     {
         return false;
     }
-    let writable_value = writable_value_pattern(element).unwrap_or(false);
+    let writable_value = element.has_writable_value_pattern().unwrap_or(false);
     // A plain page-level Document (no writable Value / TextEdit) never binds.
     if !(config.rules.web_area_editor_is_bindable)(
         Some(false),
