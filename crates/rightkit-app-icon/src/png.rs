@@ -1,4 +1,4 @@
-//! Minimal PNG encoder (RGBA8, filter 0, stored deflate) and the CRC-32 that `limits::validate_png` also uses. The encoder's production callers are the Windows GDI path and the macOS render path (both render into a bitmap the crate sized itself); it is compiled everywhere so its round trip is testable.
+//! PNG encoding for Windows GDI and macOS rendering, with CRC-32 for validation on every platform.
 
 pub(crate) fn crc32(chunks: &[&[u8]]) -> u32 {
     let mut table = [0u32; 256];
@@ -22,7 +22,7 @@ pub(crate) fn crc32(chunks: &[&[u8]]) -> u32 {
     !crc
 }
 
-#[cfg_attr(not(any(windows, target_os = "macos", test)), allow(dead_code))]
+#[cfg(any(windows, target_os = "macos"))]
 fn adler32(data: &[u8]) -> u32 {
     let (mut a, mut b) = (1u32, 0u32);
     for &byte in data {
@@ -32,7 +32,7 @@ fn adler32(data: &[u8]) -> u32 {
     (b << 16) | a
 }
 
-#[cfg_attr(not(any(windows, target_os = "macos", test)), allow(dead_code))]
+#[cfg(any(windows, target_os = "macos"))]
 fn push_chunk(out: &mut Vec<u8>, kind: &[u8; 4], data: &[u8]) {
     out.extend_from_slice(&(data.len() as u32).to_be_bytes());
     out.extend_from_slice(kind);
@@ -42,7 +42,7 @@ fn push_chunk(out: &mut Vec<u8>, kind: &[u8; 4], data: &[u8]) {
 
 /// zlib stream of stored (uncompressed) deflate blocks over `raw`. Empty input still gets one final
 /// empty block, so the result is always a complete, valid stream.
-#[cfg_attr(not(any(windows, target_os = "macos", test)), allow(dead_code))]
+#[cfg(any(windows, target_os = "macos"))]
 pub(crate) fn zlib_stored(raw: &[u8]) -> Vec<u8> {
     let mut z = Vec::with_capacity(raw.len() + raw.len() / 65535 * 5 + 16);
     z.extend_from_slice(&[0x78, 0x01]);
@@ -64,9 +64,10 @@ pub(crate) fn zlib_stored(raw: &[u8]) -> Vec<u8> {
 /// Convert premultiplied RGBA8 (what a Core Graphics / AppKit bitmap holds) to the straight alpha
 /// PNG stores, in place. Alpha 0 becomes black transparent; alpha 255 is unchanged; a channel that
 /// would exceed 255 (a malformed premultiplied pixel) is clamped.
-#[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
+#[cfg(target_os = "macos")]
 pub(crate) fn unpremultiply_rgba(pixels: &mut [u8]) {
-    for px in pixels.chunks_exact_mut(4) {
+    let (pixels, _) = pixels.as_chunks_mut::<4>();
+    for px in pixels {
         let a = u32::from(px[3]);
         match a {
             255 => {}
@@ -81,7 +82,7 @@ pub(crate) fn unpremultiply_rgba(pixels: &mut [u8]) {
 }
 
 /// Encode straight-alpha RGBA8 pixels (`width * height * 4` bytes) as a PNG.
-#[cfg_attr(not(any(windows, target_os = "macos", test)), allow(dead_code))]
+#[cfg(any(windows, target_os = "macos"))]
 pub(crate) fn encode_png_rgba(width: u32, height: u32, rgba: &[u8]) -> Option<Vec<u8>> {
     let stride = (width as usize).checked_mul(4)?;
     if width == 0 || height == 0 || rgba.len() != stride.checked_mul(height as usize)? {

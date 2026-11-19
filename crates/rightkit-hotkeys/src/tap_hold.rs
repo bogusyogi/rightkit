@@ -225,7 +225,7 @@ fn install(bindings: Vec<Binding>, event_sink: EventSink) -> Result<(), String> 
             })
         })
         .collect();
-    let table: Arc<Mutex<Vec<(u32, Arc<Slot>)>>> = Arc::new(Mutex::new(Vec::new()));
+    let table = Arc::new(Mutex::new(Vec::<(u32, Arc<Slot>)>::new()));
 
     let dispatch: Arc<dyn Fn(u32, HotkeyState) + Send + Sync> = {
         let table = table.clone();

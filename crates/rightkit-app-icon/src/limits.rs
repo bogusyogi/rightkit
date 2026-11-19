@@ -493,7 +493,7 @@ pub(crate) fn validate_png(
                 if palette_entries != 0
                     || idat != 0
                     || data.is_empty()
-                    || data.len() % 3 != 0
+                    || !data.len().is_multiple_of(3)
                     || data.len() > 768
                     || h.color == 0
                     || h.color == 4
