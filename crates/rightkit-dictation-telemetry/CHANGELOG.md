@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.2.1
+## 0.2.2 (unpublished)
 
 - `http_client::build` uses `ClientConfig::single_deadline` and `Client::try_new_or_direct` (rightkit-http 0.4.0) instead of setting the five timeout fields and direct-connection retry by hand. Same behavior; no API change.
 

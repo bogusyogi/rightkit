@@ -3637,8 +3637,8 @@
       "pkId": "PK146",
       "id": "ci/consumers/rightkit-dictation-telemetry/src/main.rs",
       "files": {
-        "Cargo.toml": "7652941e7005cf9db3ff83214817392b3281b9719b57e9af8bc709372f4cf2cf",
-        "README.md": "b59148dd1dd4ca405344f4c3f6b310c11861a4cc49aa2a08a5e8ba9e19fba07e",
+        "Cargo.toml": "1af5397e159aba9947cb34a94ca8216138b68f8487fe7136f086ad6de354d98d",
+        "README.md": "6cfea07767e47a87dfdf60edaa831937677814c037cbf2cf4c9dac21515c79c0",
         "src/main.rs": "928dd4e419d7c63baae490e069a538a302eef1c5bd53d848a55eda5f746cf3e5"
       }
     },
