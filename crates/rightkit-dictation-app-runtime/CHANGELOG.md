@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.1 (unpublished)
+
+- Serialize provider-key requests into a bounded, zeroizing buffer without creating an intermediate JSON value. Engine worker threads now use product-neutral names. (bogusyogi/heardright#349)
+
 ## 0.2.0
 
 - Breaking for dependents: dependency requirements `rightkit-daemon` 0.5 -> 0.8, `rightkit-dictation-core` 0.2 -> 0.3, `rightkit-dictation-models` 0.1 -> 0.2, `rightkit-dictation-telemetry` 0.1 -> 0.2, `rightkit-job-queue` 0.5 -> 0.6, `rightkit-logs` 0.3 -> 0.4. 0.1.2 was published before these requirements were raised; a semver-breaking dependency is a breaking change, so they ship as 0.2.0 instead of changing 0.1.2 in place (#1572). No source change in this crate since 0.1.2.

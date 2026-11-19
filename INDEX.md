@@ -12,7 +12,7 @@ Flagged mismatches: 2.
 
 The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `rustright`; its old `rightkit` alias is retired); it is not part of this inventory. `packages/build-control-policy` keeps the agent permission hooks.
 
-## Rust crates (229)
+## Rust crates (230)
 
 | Crate | Registry | Source | Published | Staged | Flag | Owns | What it is |
 |---|---|---|---|---|---|---|---|
@@ -57,6 +57,7 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 | `rightkit-align` | private | 0.1.0 | none recorded |  | private | script-alignment | Product-neutral script-to-ASR word alignment: pronunciation normalisation, edit-distance alignment with lexical and timing confidence, ambiguity and mismatch rejection, and control-name coverage |
 | `rightkit-android` | crates.io | 0.3.1 | 0.3.0 | 0.3.1 | staged, not yet published | android-bridge | Android bridge for Right Suite apps: the UniFFI surface and JNI context capture (JavaVM, application Context, app-private paths), the Keystore bridge for rightkit-credentials, a debug logcat sink, and the Gradle library module that packages the native library and generated Kotlin bindings. |
 | `rightkit-app-host` | crates.io | 0.1.2 | none recorded | 0.1.2 | staged, never published | app-host | Host services a desktop app gives RightKit companion crates (state folder, account home, published UI state and settings), installed once per process, with neutral defaults. |
+| `rightkit-app-icon` | crates.io | 0.1.0 | none recorded | 0.1.0 | staged, never published | application-icon-extraction | Application icons as PNG bytes or data URLs, by executable path, process name or bundle: shell icon, App Paths, Start-menu shortcuts and packaged-app logos on Windows, NSWorkspace on macOS, with a bounded memory cache and a persistent PNG cache. |
 | `rightkit-app-lock` | crates.io | 0.1.0 | none recorded | 0.1.0 | staged, never published |  | Application lock: lock state machine types, preference fail-closed rules, OS user verification (Windows Hello, Touch ID) and the shell-side unlock flow against an engine transport. |
 | `rightkit-app-manager` | crates.io | 0.2.3 | 0.2.2 | 0.2.3 | staged, not yet published | app-manager | Installed-app management: inventory, icons, usage, updates, safe uninstall with leftovers to the Trash, and app quit/force-quit with system and self protection. |
 | `rightkit-app-settings` | crates.io | 0.4.1 | 0.4.1 | 0.4.1 | ok | settings-persistence | Versioned per-app settings persistence: migrations, typed defaults, atomic writes, corruption recovery, change events. |
@@ -110,7 +111,7 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 | `rightkit-device` | crates.io | 0.5.1 | 0.5.1 | 0.5.1 | ok | tauri-host-adapters | Native host services for Right Suite Tauri license and device adapters. |
 | `rightkit-device-link` | crates.io | 0.1.0 | none recorded | 0.1.0 | staged, never published |  | Reliable ordered message delivery between linked devices over a relay: sequence numbers, cumulative ACK on handler accept, bounded fragments and buffers, replay after reconnect, skip markers, version fail-closed. Sans-IO, std only. |
 | `rightkit-device-link-types` | crates.io | 0.1.2 | none recorded | 0.1.2 | staged, never published | device-link-types | Record types of the device link: device reference, effect classes, principals, paired-device registry records and the signed device-circle records. |
-| `rightkit-dictation-app-runtime` | crates.io | 0.2.0 | none recorded | 0.2.0 | staged, never published | dictation-app-runtime | Dictation app runtime: the shell-side engine supervisor (spawn, launch frame, health, restart, sidecar logs) and engine process handle for a dictation app. |
+| `rightkit-dictation-app-runtime` | crates.io | 0.2.1 | none recorded | 0.2.1 | staged, never published | dictation-app-runtime | Dictation app runtime: the shell-side engine supervisor (spawn, launch frame, health, restart, sidecar logs) and engine process handle for a dictation app. |
 | `rightkit-dictation-command-host` | crates.io | 0.2.1 | none recorded | 0.2.1 | staged, never published | dictation-command-host | Dictation command host: voice command dispatch (keys, app launch, Shortcuts, power with confirmation), text delivery and insertion, focus checks and screen capture for a dictation app. |
 | `rightkit-dictation-core` | crates.io | 0.3.2 | 0.3.1 | 0.3.2 | staged, not yet published | dictation | Dictation core: engine wire protocol and validation, provider key handoff, recording session state machine, wake word state, mic selection and audio conditioning. |
 | `rightkit-dictation-engine` | crates.io | 0.2.0 | none recorded | 0.2.0 | staged, never published | dictation-engine | Dictation engine: the speech engine sidecar binary and library facade over the dictation runtime, inference, text pipeline and command host, with engine contract tests and fixtures. |

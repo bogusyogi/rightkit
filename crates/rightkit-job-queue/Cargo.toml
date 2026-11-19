@@ -33,7 +33,8 @@ input-file = ["serve", "dep:rightkit-fs"]
 contract = ["serve", "store"]
 # `EngineSupervisor` / `EngineClient` and the `rightkit-child-process` re-exports (gates
 # `rightkit-child-process`). Implies `protocol` only: a shell that supervises an engine needs no
-# database. Includes the store-free `doctor` probe and (for `SupervisorConfig::with_handshake`) `zeroize`. A consumer that also serves or speaks the
+# database. Includes the store-free `doctor` probe & `zeroize` for outbound client frames &
+# `SupervisorConfig::with_handshake`. A consumer that also serves or speaks the
 # dispatcher contract adds `contract`.
 supervisor = ["protocol", "doctor", "dep:zeroize"]
 # Client-side bounded doctor probes with capability caching; no store or wire dependency.

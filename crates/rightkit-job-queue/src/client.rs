@@ -8,6 +8,7 @@ use std::time::{Duration, Instant};
 use rightkit_child_process::{OwnedChild, OwnedCommand, ReapOutcome, WaitOutcome};
 use rightkit_sidecar::{read_json_line_or_oversized, FrameError, Incoming, ReadLimits};
 use serde_json::{json, Value};
+use zeroize::Zeroizing;
 
 use crate::error::{ErrorOrigin, JobError, JobResult, DELIVERY_UNKNOWN};
 use crate::wire::{finite_frame_limit, DEFAULT_FRAME_LIMIT};
@@ -102,7 +103,12 @@ fn validate_raw_params(raw: &[u8]) -> Result<(), &'static str> {
 
 /// One `request` frame with `raw` spliced in as `params`, in a buffer allocated at its final
 /// size (so no reallocation can leave an unwiped copy of `raw` behind).
-fn encode_raw_request(id: u64, method: &str, raw: &[u8], limit: usize) -> Result<Vec<u8>, String> {
+fn encode_raw_request(
+    id: u64,
+    method: &str,
+    raw: &[u8],
+    limit: usize,
+) -> Result<Zeroizing<Vec<u8>>, String> {
     let method_json = serde_json::to_vec(method).map_err(|e| e.to_string())?;
     let head = format!(r#"{{"type":"request","id":{id},"method":"#);
     const PARAMS: &[u8] = br#","params":"#;
@@ -112,7 +118,7 @@ fn encode_raw_request(id: u64, method: &str, raw: &[u8], limit: usize) -> Result
             "request of {payload} bytes exceeds the {limit}-byte frame limit"
         ));
     }
-    let mut out = Vec::with_capacity(payload + 1);
+    let mut out = Zeroizing::new(Vec::with_capacity(payload + 1));
     out.extend_from_slice(head.as_bytes());
     out.extend_from_slice(&method_json);
     out.extend_from_slice(PARAMS);
@@ -147,14 +153,14 @@ struct RequestFrame<'a> {
 
 /// One `request` frame for `params`, serialized straight into a buffer allocated at its final
 /// size: no intermediate encoder buffer, no clone of `params` and no reallocation can leave an
-/// unwiped copy of the frame behind (the writer thread wipes the returned buffer after the
-/// write). The size is counted in a first pass over `params`.
+/// unwiped copy of the frame behind. RAII wipes the buffer on drop, including unwind.
+/// The size is counted in a first pass over `params`.
 fn encode_value_request(
     id: u64,
     method: &str,
     params: &Value,
     limit: usize,
-) -> Result<Vec<u8>, String> {
+) -> Result<Zeroizing<Vec<u8>>, String> {
     let frame = RequestFrame {
         kind: "request",
         id,
@@ -169,19 +175,10 @@ fn encode_value_request(
             "request of {payload} bytes exceeds the {limit}-byte frame limit"
         ));
     }
-    let mut out = Vec::with_capacity(payload + 1);
-    serde_json::to_writer(&mut out, &frame).map_err(|e| {
-        wipe(&mut out);
-        e.to_string()
-    })?;
+    let mut out = Zeroizing::new(Vec::with_capacity(payload + 1));
+    serde_json::to_writer(&mut *out, &frame).map_err(|e| e.to_string())?;
     out.push(b'\n');
     Ok(out)
-}
-
-/// Overwrite `bytes` with zeros in a way the optimizer keeps.
-fn wipe(bytes: &mut [u8]) {
-    bytes.iter_mut().for_each(|b| *b = 0);
-    std::hint::black_box(&*bytes);
 }
 
 /// What the reader thread hands a waiting caller. Callbacks run on the
@@ -324,7 +321,8 @@ struct Closed {
 }
 
 /// One frame for the writer thread and the channel its write result goes back on.
-type WriteRequest = (Vec<u8>, Sender<std::io::Result<()>>);
+/// Ownership retains RAII wiping through enqueue, send failure, queue destruction & unwind.
+type WriteRequest = (Zeroizing<Vec<u8>>, Sender<std::io::Result<()>>);
 type Subscribers = Arc<Mutex<Vec<Sender<Value>>>>;
 
 /// State shared with the reader thread and the bounded-shutdown helper.
@@ -552,13 +550,13 @@ impl EngineClient {
                 ));
             }
         };
-        let (wtx, wrx) = channel::<(Vec<u8>, Sender<std::io::Result<()>>)>();
+        let (wtx, wrx) = channel::<WriteRequest>();
         let mut writer = writer;
         std::thread::spawn(move || {
-            for (mut bytes, reply) in wrx {
+            for (bytes, reply) in wrx {
                 let r = writer.write_all(&bytes).and_then(|_| writer.flush());
-                // Outbound frames may carry secrets in params: wipe before drop.
-                wipe(&mut bytes);
+                // Drop wipes secret-bearing frames before acknowledging write completion.
+                drop(bytes);
                 let _ = reply.send(r);
             }
         });
@@ -832,9 +830,11 @@ impl EngineClient {
     /// parsed into a `serde_json::Value` (which would leave a copy this crate cannot wipe): they
     /// are only checked, in place, to be exactly one JSON value with no line break, and refused
     /// with `bad_input` before anything is written when they are not. The only copy this crate
-    /// makes is the outbound frame buffer, which the writer thread overwrites with zeros once the
-    /// frame has been written (or the write has failed); it is allocated at its final size, so it
-    /// never reallocates and leaves no stale copy behind. Keep `params_json` in a
+    /// makes is the outbound frame buffer, held in `zeroize::Zeroizing` from allocation through
+    /// queue ownership. It is wiped after writing or write failure, on rejected enqueue or queue
+    /// destruction, & during unwind. It is allocated at its final size & never reallocates.
+    /// Caller timeout does not cancel queued or blocked writes: this buffer stays live until its
+    /// writer completes or releases it, which can outlast this call. Keep `params_json` in a
     /// `zeroize::Zeroizing` buffer to wipe the caller's side too. What the engine does with the
     /// bytes it reads is out of scope.
     ///
@@ -1061,11 +1061,8 @@ impl Core {
             .send((bytes, rtx))
         {
             Ok(()) => true,
-            // The writer thread is gone, so nobody else will wipe the frame.
-            Err(std::sync::mpsc::SendError((mut bytes, _))) => {
-                wipe(&mut bytes);
-                false
-            }
+            // SendError owns the RAII frame & wipes it when dropped here.
+            Err(_) => false,
         };
         let written = if !queued {
             Err(JobError::supervisor("engine_write", "writer stopped"))

@@ -2,6 +2,7 @@
 
 ## 0.6.1
 
+- Outbound client frames now retain `Zeroizing` ownership through encoding & writer queues, wiping on write completion, failed enqueue, queue destruction & unwind. Caller timeout can precede release of queued or blocked-write buffers.
 - Added the opt-in `input-file` feature for CLI input from a regular UTF-8 file of at most 1 MiB. Expansion keeps text in memory, preserves option values, and refuses conflicting inputs and the stdin sentinel.
 
 ## 0.6.0

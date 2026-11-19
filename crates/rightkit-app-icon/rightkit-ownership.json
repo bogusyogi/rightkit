@@ -1,0 +1,14 @@
+{
+  "package": "rightkit-app-icon",
+  "capabilities": [
+    {
+      "capability": "application-icon-extraction",
+      "summary": "Resolve bounded application icon PNG bytes or data URLs from executable paths, process names, and macOS bundles, with memory and persistent caches.",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "A package declaration does not establish host integration or installed icon behavior."
+      ]
+    }
+  ]
+}

@@ -19,7 +19,7 @@ use rightkit_dictation_core::engine::provider_handoff::{check_ack, encode_slots_
 use rightkit_dictation_core::engine::{EngineFrame, EnginePayload, EngineSchemaName, SecretString};
 use rightkit_job_queue::{
     CallOptions, EngineSupervisor as RkSupervisor, ExitObserver, InitialFailure, JobError,
-    LaunchFrame, Lifecycle, OwnedCommand, RestartMode, RestartPolicy, ShutdownReport,
+    LaunchFrame, Lifecycle, OwnedCommand, RawParams, RestartMode, RestartPolicy, ShutdownReport,
     SupervisorConfig as RkConfig, Terminal, MAX_FRAME_LIMIT,
 };
 
@@ -244,7 +244,7 @@ fn build_sidecar_command(bin: &std::path::Path, _config: &crate::SupervisorConfi
     // Parent death ends the sidecar: the owner ties it (Linux PDEATHSIG, a kqueue watchdog on macOS;
     // Windows already has the kill-on-close job), so the engine needs no parent-liveness poll.
     owned.kill_on_parent_exit(true);
-    // HR-SEC-001: clear the parent shell's env before populating the sidecar's env so BYOK keys,
+    // Clear the parent shell's env before populating the sidecar's env so BYOK keys,
     // debug vars, or anything the Tauri host inherited from the launcher's environment can't
     // accidentally leak across the IPC boundary. `env_allowlist` re-passes only the small set of
     // keys the sidecar needs; everything else (HR_*, HEARDRIGHT_*) is set explicitly below.
@@ -274,8 +274,8 @@ fn build_sidecar_command(bin: &std::path::Path, _config: &crate::SupervisorConfi
         // The polish policy (cleanup on, cloud consent, provider state) is no longer an
         // environment switch: `prepare_spawn` records it per generation and the shell pushes it in
         // the engine config (`l3_policy_value`, extras["l3_policy"]), which the engine reads before
-        // any polish call. BYOK provider keys never enter the sidecar environment either
-        // (HR-SEC-001): they go over the private stdin IPC channel with `call_with` once per
+        // any polish call. BYOK provider keys never enter the sidecar environment.
+        // They go over the private stdin IPC channel with `call_raw_with` once per
         // `Ready` generation (`ensure_ready`), and dependent work is gated until that settles.
     }
     owned
@@ -632,10 +632,9 @@ impl EngineSupervisor {
     /// `encode_failed`, `ack_invalid`, or `engine_rejected`), never key material; it is not
     /// retried here. Transient secret handling: the slots' `SecretString`s are copied into the
     /// owner's zeroized `Secret`s and wiped as they drop, the encoded frame is a `SecretString`
-    /// dropped (wiped) as soon as the request is serialized, and RightKit wipes the serialized
-    /// request bytes. The encoded `Value` is moved into `call_with`, whose copy RightKit cannot
-    /// wipe (rightkit-job-queue `client.rs:852` builds the request with `json!`, then drops it
-    /// unwiped); that residual is reported to RightKit, not worked around here.
+    /// dropped (wiped) as soon as the request is serialized, and the serialized params live in
+    /// RightKit's zeroizing `RawParams` buffer, which `call_raw_with` splices into the outbound
+    /// frame without a `serde_json::Value` copy and which is wiped when it drops here.
     fn send_provider_keys(&self, keys: ProviderKeys) -> Result<(), String> {
         let id = self.next_request_id();
         let request_id = format!("set_provider_keys:{id}");
@@ -652,17 +651,20 @@ impl EngineSupervisor {
             None,
             Some(EnginePayload::SetProviderKeys { frame: carrier }),
         );
-        let params = serde_json::to_value(&frame).map_err(|_| delivery_error("encode_failed"));
+        let params = RawParams::serialize(&frame, MAX_FRAME_LIMIT)
+            .map_err(|_| delivery_error("encode_failed"));
         drop(frame); // wipes the carrier
         let options = CallOptions {
             timeout: Some(PROVIDER_KEYS_ACK_TIMEOUT),
             keep_alive_on_timeout: true,
             ..CallOptions::default()
         };
+        let params = params?;
         let reply = self
             .rk
-            .call_with("set_provider_keys", params?, options)
+            .call_raw_with("set_provider_keys", &params, options)
             .map_err(|error| delivery_error(&error.code))?;
+        drop(params);
         let ack = frame_from_value(&reply)
             .ok()
             .and_then(|frame| match frame.payload {
@@ -963,7 +965,7 @@ fn spawn_bridges(
     let shutdown_generation = Arc::clone(shutdown_generation);
     let lifecycle_weak = weak.clone();
     let lifecycle = std::thread::Builder::new()
-        .name("hr-engine-lifecycle".to_string())
+        .name("dictation-engine-lifecycle".to_string())
         .spawn(move || {
             let mut last_reported_generation = 0_u64;
             let mut last_ready_generation = 0_u64;
@@ -1030,7 +1032,7 @@ fn spawn_bridges(
     let events_tx = tx.clone();
     let events_router = Arc::clone(router);
     let events = std::thread::Builder::new()
-        .name("hr-engine-events".to_string())
+        .name("dictation-engine-events".to_string())
         .spawn(move || {
             for envelope in events_rx {
                 let current = || {

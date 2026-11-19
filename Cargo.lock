@@ -10545,6 +10545,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "rightkit-app-icon"
+version = "0.1.0"
+dependencies = [
+ "miniz_oxide 0.8.9",
+ "objc2",
+ "objc2-app-kit",
+ "objc2-foundation",
+ "rightkit-crypto",
+ "rightkit-fs",
+ "windows 0.62.2",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "rightkit-app-lock"
 version = "0.1.0"
 dependencies = [
@@ -11301,7 +11315,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-dictation-app-runtime"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "rightkit-daemon",
  "rightkit-dictation-core",

@@ -548,6 +548,7 @@
     "rightkit-ai-accounts": "0.1.1",
     "rightkit-android": "0.3.1",
     "rightkit-app-host": "0.1.2",
+    "rightkit-app-icon": "0.1.0",
     "rightkit-app-lock": "0.1.0",
     "rightkit-app-manager": "0.2.3",
     "rightkit-app-settings": "0.4.1",
@@ -601,7 +602,7 @@
     "rightkit-device": "0.5.1",
     "rightkit-device-link": "0.1.0",
     "rightkit-device-link-types": "0.1.2",
-    "rightkit-dictation-app-runtime": "0.2.0",
+    "rightkit-dictation-app-runtime": "0.2.1",
     "rightkit-dictation-command-host": "0.2.1",
     "rightkit-dictation-core": "0.3.2",
     "rightkit-dictation-engine": "0.2.0",
@@ -652,6 +653,7 @@
     "rightkit-mail-gateway": "0.1.0",
     "rightkit-mail-store": "0.2.1",
     "rightkit-mcp": "0.10.0",
+    "rightkit-media-control": "0.1.0",
     "rightkit-media-fetch": "0.2.0",
     "rightkit-media-gen": "0.2.3",
     "rightkit-media-gen-approvals": "0.1.2",
@@ -730,8 +732,7 @@
     "rightkit-web-extract": "0.1.2",
     "rightkit-web-session": "0.1.1",
     "rightkit-win-ui": "0.1.1",
-    "rightkit-workflow": "0.2.3",
-    "rightkit-media-control": "0.1.0"
+    "rightkit-workflow": "0.2.3"
   },
   "swift": {
     "rightkit-swift": {
@@ -1447,6 +1448,9 @@
     ],
     "rightkit-dictation-core": [
       "0.3.1"
+    ],
+    "rightkit-dictation-app-runtime": [
+      "0.2.0"
     ]
   }
 }

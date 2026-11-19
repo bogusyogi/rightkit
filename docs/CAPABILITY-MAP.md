@@ -8,7 +8,7 @@ Owners come from `packages/release/rightkit-ownership.json`, which the ownership
 - Detection: `fingerprinted` when the owner declares dependency or source fingerprints; `declaration-only` when it declares ownership without a precise fingerprint. A declared dependency alone does not prove integration.
 - Published availability: `published` means a registry version is recorded. `staged` means a version is prepared and unverified on the registry.
 
-Capabilities: 223 (58 with fingerprints, 165 declaration-only). Internal owners that are not application capabilities are excluded.
+Capabilities: 224 (58 with fingerprints, 166 declaration-only). Internal owners that are not application capabilities are excluded.
 
 | Capability | Owner | Tier | Detection | Fingerprints | Published availability |
 |---|---|---|---|---|---|
@@ -55,6 +55,7 @@ Capabilities: 223 (58 with fingerprints, 165 declaration-only). Internal owners 
 | app-shell-ui | `@rightkit/react-shell` | advise | fingerprinted | 10 (0 block, 10 advise) | @rightkit/react-shell: published 0.7.4 (npm) |
 | appkit-autorelease-pool | `rightkit-ownership` | none | declaration-only | 0 | rightkit-ownership: published 0.4.2 (crates.io) |
 | apple-ops | `rightkit-apple-ops` | none | declaration-only | 0 | rightkit-apple-ops: staged 0.2.0, not published |
+| application-icon-extraction | `rightkit-app-icon` | none | declaration-only | 0 | rightkit-app-icon: staged 0.1.0, not published |
 | approvals | `rightkit-approvals` | none | declaration-only | 0 | rightkit-approvals: staged 0.2.1, not published |
 | article-extraction | `rightkit-web-extract` | none | declaration-only | 0 | rightkit-web-extract: staged 0.1.2, not published |
 | audio | `rightkit-audio` | advise | fingerprinted | 3 (0 block, 3 advise) | rightkit-audio: published 0.3.4 (crates.io) |
@@ -89,7 +90,7 @@ Capabilities: 223 (58 with fingerprints, 165 declaration-only). Internal owners 
 | device-link-types | `rightkit-device-link-types` | none | declaration-only | 0 | rightkit-device-link-types: staged 0.1.2, not published |
 | device-mesh | `rightkit-mesh` | none | declaration-only | 0 | rightkit-mesh: staged 0.2.2, not published |
 | dictation | `rightkit-dictation-core` | none | declaration-only | 0 | rightkit-dictation-core: published 0.3.1 (crates.io) |
-| dictation-app-runtime | `rightkit-dictation-app-runtime` | none | declaration-only | 0 | rightkit-dictation-app-runtime: staged 0.2.0, not published |
+| dictation-app-runtime | `rightkit-dictation-app-runtime` | none | declaration-only | 0 | rightkit-dictation-app-runtime: staged 0.2.1, not published |
 | dictation-command-host | `rightkit-dictation-command-host` | none | declaration-only | 0 | rightkit-dictation-command-host: staged 0.2.1, not published |
 | dictation-engine | `rightkit-dictation-engine` | none | declaration-only | 0 | rightkit-dictation-engine: staged 0.2.0, not published |
 | dictation-inference | `rightkit-dictation-inference` | none | declaration-only | 0 | rightkit-dictation-inference: staged 0.2.2, not published |
