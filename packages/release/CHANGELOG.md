@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.60
+
+- Snapshot compiles can reuse an unchanged crate’s verified result from its original Cargo group when another crate changes. The gate keeps the original command & checks the supporting evidence before dispatching new work.
+
 ## 0.6.59
 
 - Snapshot compiles compare each Class B row & grouped invocation with verified cache history before dispatch. An unexpected hit or miss blocks Class B & records the row, key & observed cause. Missing entries with no known removal cause are identified as such.

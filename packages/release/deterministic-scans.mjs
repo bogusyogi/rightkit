@@ -555,7 +555,7 @@ export function storedPassRow(s, row) {
   // proof (executableProof: the bound output directories and each executable's path, package, target and sha256): a later serial row whose plain row is a cache hit
   // re-checks every file against it (provenExecutables) and reuses them only when every one is still there with the same digest; otherwise it compiles once, alone.
   const memberRuns = row.memberRuns ? Object.fromEntries(Object.entries(row.memberRuns).map(([id, v]) => { const { acceptedBinaries: _bins, ...rest } = v ?? {}; void _bins; return [id, rest]; })) : null;
-  return { id: s.id, class: s.class, command: s.command, tool: s.tool ?? null, toolVersion: row.toolVersion, status: "pass", ...(row.executableProof ? { executableProof: row.executableProof } : {}), ...(s.coverageKey || s.provesPublisher ? { snapshotEvidence: row.snapshotEvidence ?? null } : {}), ...(row.testRun || s.coverageKey ? { testRun: row.testRun ?? null } : {}), ...(row.results ? { results: row.results } : {}), ...(memberRuns ? { memberRuns } : {}) };
+  return { id: s.id, class: s.class, command: s.command, tool: s.tool ?? null, toolVersion: row.toolVersion, status: "pass", ...(row.executableProof ? { executableProof: row.executableProof } : {}), ...(row.snapshotEvidence || s.coverageKey || s.provesPublisher ? { snapshotEvidence: row.snapshotEvidence ?? null } : {}), ...(row.testRun || s.coverageKey ? { testRun: row.testRun ?? null } : {}), ...(row.results ? { results: row.results } : {}), ...(memberRuns ? { memberRuns } : {}) };
 }
 /** The digest-bound proof of a run's accepted test executables (plain data, cacheable): `{ boundDirs, binaries: [{ executable, package, target, version, manifestDir, sha256 }] }`. */
 export function executableProofOf(accepted, boundDirs) {
@@ -3231,6 +3231,7 @@ export async function runScans(plan, options = {}) {
   const classACacheDecision = typeof options.classACacheForecast === "function" ? { fingerprints: [], forecast: [], actual: [], mismatches: [], dispatchedRows: [], retained: [] } : null;
   const classBCacheDecision = typeof options.classBCacheForecast === "function" ? { fingerprints: [], forecast: [], actual: [], mismatches: [], dispatchedRows: [], retained: [] } : null;
   const admittedB = new Map();
+  const featureContextInputs = new Map();
   const admittedA = new Map();
   const admissionToolFiles = new Map();
   const admissionTrusts = new Map();
@@ -3593,6 +3594,7 @@ export async function runScans(plan, options = {}) {
     // The partition of a configuration group's members (feature-partition.mjs), as index lists in plan order. A group naming several targets
     // (NN42) keeps as one invocation only the members equivalent on every target; the others run alone.
     const partitionMemo = new Map();
+    const featureProofOf = new Map();
     const FEATURE_PARTITION_MS = 5 * 60_000;
     const featurePartition = async (idx) => {
       const lead = bScans[idx[0]];
@@ -3601,10 +3603,13 @@ export async function runScans(plan, options = {}) {
       const crates = [...new Set(idx.map((i) => bScans[i].batchable.crate))];
       if (crates.length < 2) return [idx];
       const targets = [...new Set(idx.map((i) => bScans[i].batchable.target ?? null))];
-      const parts = await partitionCrates({ tool: lead.tool, prefix, rest, crates, targets, cwd: lead.cwd ?? ".", env: lead.env ?? {} });
-      return parts.map((p) => idx.filter((i) => p.crates.includes(bScans[i].batchable.crate))).filter((part) => part.length);
+      const evidence = [];
+      const parts = await partitionCrates({ tool: lead.tool, prefix, rest, crates, targets, cwd: lead.cwd ?? ".", env: lead.env ?? {}, evidence });
+      const result = parts.map((p) => idx.filter((i) => p.crates.includes(bScans[i].batchable.crate))).filter((part) => part.length);
+      for (const part of result) featureProofOf.set(part.join(","), evidence);
+      return result;
     };
-    const partitionCrates = async ({ tool, prefix, rest, crates, targets, cwd, env }) => {
+    const partitionCrates = async ({ tool, prefix, rest, crates, targets, cwd, env, evidence }) => {
       const dir = path.join(contentRoot, cwd);
       const inputs = workspaceManifestDigest(dir);
       const tree = async (packages, target) => {
@@ -3623,11 +3628,15 @@ export async function runScans(plan, options = {}) {
       let toolVersion = null;
       try { toolVersion = (await probe(tool, path.join(cargoLiveRoot ?? contentRoot, cwd)))?.version ?? null; } catch { toolVersion = null; }
       const one = async (target) => {
-        const key = partitionCacheKey({ rest, crates, target, cwd, inputs, toolVersion });
+        const context = { rest, crates, target, cwd, inputs, toolVersion };
+        const key = partitionCacheKey(context);
         const stored = cache?.read(key);
-        if (stored && stored.key === key && Array.isArray(stored.row?.partition)) return stored.row.partition;
+        if (stored && stored.key === key && Array.isArray(stored.row?.partition)) { evidence.push({ key, context, rowDigest: cacheEntryIdentity(stored.row) }); return stored.row.partition; }
         if (!partitionMemo.has(key)) partitionMemo.set(key, partitionByFeatures({ crates, tree: (packages) => tree(packages, target) }).then((parts) => { cache?.write(key, { id: "feature-partition", status: "pass", crates: [...crates].sort(), target, partition: parts }); return parts; }));
-        return partitionMemo.get(key);
+        const result = await partitionMemo.get(key);
+        const retained = cache?.read(key);
+        if (retained?.key === key && Array.isArray(retained.row?.partition)) evidence.push({ key, context, rowDigest: cacheEntryIdentity(retained.row) });
+        return result;
       };
       // Several targets (NN42): the common refinement of the per-target partitions, so no boundary any target drew is crossed (rightkit#1538, second review).
       const result = meetPartitions(await Promise.all(targets.map(one)));
@@ -3716,6 +3725,8 @@ export async function runScans(plan, options = {}) {
         const item = { decision, members, owned: { cargoReadTarget: null }, timing: { invocationId: crypto.randomUUID(), elapsedMs: null, cacheLookupMs: null, executionMs: null }, started: performance.now(), observed: new Map() };
         const prepared = scan.quiet === true ? { ...scan, timeoutMs: Math.min(scanTimeoutMs(scan, options), QUIET_SCAN_MAX_MS) } : scan;
         item.scan = scanRowIn(prepared, null, item.owned, item.timing, item);
+        item.invocationScan = scan;
+        item.featureProof = featureProofOf.get(members.join(","));
         const first = await item.scan.next();
         item.fingerprint = first.done ? classAFingerprint(scan, null, null, null, first.value.detail ?? "row not available") : first.value;
         item.done = first.done;
@@ -3743,6 +3754,13 @@ export async function runScans(plan, options = {}) {
         }
         if (predicted.size !== singles.length || singles.some((item) => !predicted.has(item.fingerprint.id))) throw new Error("member forecast differs from complete selected row set");
         decision.memberForecast = Object.freeze([...predicted.values()]);
+        for (const item of singles) {
+          const source = predicted.get(item.fingerprint.id).source;
+          if (!source) continue;
+          if (source.memberKey !== item.fingerprint.key || !source.scan?.batch?.members?.includes(item.fingerprint.id) || !/^[0-9a-f]{64}$/.test(source.key ?? "") || !/^[0-9a-f]{64}$/.test(source.rowDigest ?? "")) throw new Error(item.fingerprint.id + ": invalid retained invocation source");
+          item.source = source;
+          item.fingerprint = Object.freeze({ ...item.fingerprint, key: source.key, failureKey: null, invocationId: source.scan.id, coveredBy: source.scan.id, memberFingerprint: item.fingerprint });
+        }
         // Independent history chooses expected grouping before any scan outcome is looked up.
         memberPredictions = predicted;
         const seen = new Set();
@@ -3765,7 +3783,8 @@ export async function runScans(plan, options = {}) {
       } catch (error) {
         decision.mismatches.push({ id: "class-b", expected: null, actual: "blocked", reason: String(error?.message ?? error) });
       }
-      const logical = selected.flatMap((item) => item.members.map((i) => ({ item, fingerprint: Object.freeze({ ...item.fingerprint, id: bScans[i].id, invocationId: item.fingerprint.id, ...(item.members.length > 1 ? { coveredBy: item.fingerprint.id } : {}) }) })));
+      const memberById = new Map(decision.memberFingerprints?.map((row) => [row.id, row]));
+      const logical = selected.flatMap((item) => item.members.map((i) => ({ item, fingerprint: Object.freeze({ ...item.fingerprint, id: bScans[i].id, invocationId: item.source?.scan.id ?? item.fingerprint.id, memberFingerprint: memberById.get(bScans[i].id), ...(item.members.length > 1 ? { coveredBy: item.fingerprint.id } : {}) }) })));
       decision.fingerprints = Object.freeze(logical.map(({ fingerprint }) => fingerprint));
       const forecasts = new Map();
       const mismatch = (id, expected, actual, reason, more = {}) => decision.mismatches.push({ id, expected, actual, reason, ...more });
@@ -3795,7 +3814,7 @@ export async function runScans(plan, options = {}) {
         if (ids.has(id)) mismatch(id, forecasts.get(id)?.expected, null, "duplicate planned row");
         ids.add(id);
         if (problem) mismatch(id, forecasts.get(id)?.expected, "blocked", problem);
-        const actual = { ...item.actual, id, invocationId: item.fingerprint.id };
+        const actual = { ...item.actual, id, invocationId: fingerprint.invocationId };
         decision.actual.push(actual);
         if (!forecasts.has(id)) mismatch(id, null, actual.actual, "missing forecast row");
         else {
@@ -3818,6 +3837,7 @@ export async function runScans(plan, options = {}) {
         const changed = trustedScanToolProblem(identity, { ops: options.toolOps });
         if (changed) mismatch(item.fingerprint.id, null, "blocked", changed.detail);
       }
+      if (!decision.mismatches.length) for (const item of staged) if (item.receiptProof && !retainedReceiptValid(item.receiptProof)) mismatch(item.fingerprint.id, "hit", "blocked", "retained invocation receipt changed between lookup and dispatch");
       for (const item of staged) {
         if (!decision.mismatches.length && selected.includes(item)) admittedB.set(item.fingerprint.id, item);
         else await item.scan.return();
@@ -3882,9 +3902,31 @@ export async function runScans(plan, options = {}) {
 
   // `extraEnv` (the quiet lease id) reaches the child but never the cache key: a lease changes nothing a scan proves.
   function classAFingerprint(s, key, failureKey, keyParts, problem, uncacheableReason = null) {
-    return Object.freeze({ id: s.id, key, failureKey, inputs: keyParts?.raw.inputs ?? null, toolVersion: keyParts?.raw.toolVersion ?? null, environment: keyParts?.env ?? null, ...(problem ? { problem } : {}), ...(uncacheableReason ? { uncacheableReason } : {}) });
+    let featureContext = null;
+    const retainedSourceEligible = !s.coverageKey && !s.provesPublisher && !Array.isArray(s.batchable?.features);
+    if (s.class === SCAN_CLASS.B && s.batchable && retainedSourceEligible && Array.isArray(s.args)) {
+      const cwd = s.cwd ?? ".";
+      if (!featureContextInputs.has(cwd)) featureContextInputs.set(cwd, workspaceManifestDigest(path.join(contentRoot, cwd)));
+      const prefix = s.args[0] === "cargo" ? 1 : 0;
+      const { rest } = stripSelectors(s.args.slice(prefix));
+      featureContext = { cwd, inputs: featureContextInputs.get(cwd), toolVersion: toolVersions[s.tool] ?? null, selection: treeArgs({ rest, packages: [s.batchable.crate], target: s.batchable.target ?? null }) };
+    }
+    return Object.freeze({ id: s.id, key, failureKey, inputs: keyParts?.raw.inputs ?? null, toolVersion: keyParts?.raw.toolVersion ?? null, environment: keyParts?.env ?? null, retainedSourceEligible, featureContext, ...(problem ? { problem } : {}), ...(uncacheableReason ? { uncacheableReason } : {}) });
   }
   function cacheEntryIdentity(entry) { return entry === null || entry === undefined ? null : sha256(canonicalJson(entry)); }
+  function retainedReceiptValid(evidence) {
+    if (typeof evidence?.receiptPath !== "string" || !path.isAbsolute(evidence.receiptPath) || typeof evidence.requestId !== "string" || !/^[0-9a-f]{64}$/.test(evidence.receiptSha256 ?? "")) return false;
+    try {
+      const bytes = fs.readFileSync(evidence.receiptPath);
+      if (sha256(bytes) !== evidence.receiptSha256) return false;
+      const receipt = JSON.parse(bytes.toString("utf8"));
+      return receipt?.id === evidence.requestId && receipt.provenance?.payload?.jobId === evidence.requestId && Boolean(receipt.provenance.signature);
+    } catch { return false; }
+  }
+  function featureProofCovers(proof, context, crate) {
+    if (!context || !proof?.context || proof.context.cwd !== context.cwd || proof.context.inputs !== context.inputs || proof.context.toolVersion !== context.toolVersion || !proof.context.crates?.includes(crate)) return false;
+    try { return canonicalJson(treeArgs({ rest: proof.context.rest, packages: [crate], target: proof.context.target })) === canonicalJson(context.selection); } catch { return false; }
+  }
   function cacheReadOutcome(key) { return cache.readOutcome?.(key) ?? { entry: cache.read(key), issue: null }; }
   function readRowCache(key, admission) {
     if (!key) return null;
@@ -4009,7 +4051,21 @@ export async function runScans(plan, options = {}) {
         const { key, failureKey } = admitted.fingerprint;
         if (row.cached || admitted.stored) {
           const decision = admitted.decision ?? classACacheDecision;
-          for (const id of admitted.members ? admitted.members.map((i) => bScans[i].id) : [s.id]) decision.retained.push({ id, key: row.status === "fail" ? failureKey : key, status: row.status });
+          for (const id of admitted.members ? admitted.members.map((i) => bScans[i].id) : [s.id]) {
+            let source = admitted.source;
+            // The feature partition admitted this exact group. Keep its own
+            // stored row & descriptor, with each member's complete solo input
+            // identity as comparison evidence; write no projected cache row.
+            if (!source && admitted.members?.length > 1 && row.status === "pass") {
+              const stored = cache.read(key);
+              const member = decision.memberFingerprints.find((entry) => entry.id === id);
+              const signed = row.seam !== true || retainedReceiptValid(stored?.row?.snapshotEvidence);
+              const equivalence = admitted.featureProof;
+              const memberCrate = bScans.find((scan) => scan.id === id)?.batchable?.crate;
+              if (!admitted.invocationScan.coverageKey && !admitted.invocationScan.provesPublisher && member?.retainedSourceEligible && member.featureContext && member.key && signed && equivalence?.length && equivalence.every((proof) => featureProofCovers(proof, member.featureContext, memberCrate)) && usableStoredPass(stored, admitted.invocationScan, { cacheKey: key, viaSeam: row.seam === true })) source = { schema: "rightkit.retained-invocation/1", key, rowDigest: cacheEntryIdentity(stored.row), memberKey: member.key, memberCrate, featureContext: member.featureContext, scan: admitted.invocationScan, equivalence };
+            }
+            decision.retained.push({ id, key: row.status === "fail" ? failureKey : key, status: row.status, ...(source ? { source } : {}) });
+          }
         }
         const out = { ...row, timing: { ...admitted.timing, elapsedMs: performance.now() - admitted.started } };
         settle(s.id, out);
@@ -4179,6 +4235,27 @@ export async function runScans(plan, options = {}) {
             const uncacheableReason = !cacheKey ? cache?.uncacheableReason?.(s) ?? (metadata && s.cargoWorkspaceUncacheable === true ? "Cargo discovery inputs cannot be fully bound" : /^build-helpers(:|$)/.test(s.id) ? "host trace inputs cannot be bound" : null) : null;
             const problem = row.cacheKeyError ?? (!cacheKey && !uncacheableReason ? "required scan cache input or identity unavailable" : null);
             yield classAFingerprint(s, cacheKey, failKey, keyParts, problem, uncacheableReason);
+          }
+          if (admission?.source) {
+            // A historical invocation is retained under its original identity.
+            // Missing/changed evidence is a refused expected hit, never work.
+            const source = admission.source;
+            const hit = readRowCache(source.key, admission);
+            const equivalent = Array.isArray(source.equivalence) && source.equivalence.length > 0 && source.equivalence.every((proof) => {
+              const entry = readRowCache(proof.key, admission);
+              return featureProofCovers(proof, source.featureContext, source.memberCrate) && partitionCacheKey(proof.context) === proof.key && entry?.key === proof.key && Array.isArray(entry.row?.partition) && cacheEntryIdentity(entry.row) === proof.rowDigest;
+            });
+            const signed = !viaSeam || retainedReceiptValid(hit?.row?.snapshotEvidence);
+            if (viaSeam && signed) admission.receiptProof = hit.row.snapshotEvidence;
+            const current = admission.fingerprint.memberFingerprint;
+            const compatible = current?.retainedSourceEligible && current.featureContext && s.batchable?.crate === source.memberCrate && canonicalJson(current.featureContext) === canonicalJson(source.featureContext) && !source.scan.coverageKey && !source.scan.provesPublisher;
+            const valid = source.schema === "rightkit.retained-invocation/1" && compatible && equivalent && signed && source.memberKey === cacheKey && cacheEntryIdentity(hit?.row) === source.rowDigest && usableStoredPass(hit, source.scan, { cacheKey: source.key, viaSeam });
+            const observation = valid ? { id: s.id, actual: "hit", status: "pass", key: source.key } : { id: s.id, actual: "run", key: source.key, reason: "retained invocation evidence absent or invalid; removal cause unknown" };
+            yield observation;
+            if (!valid) return { ...row, status: "not-run", code: "CLASS_B_CACHE_DISAGREEMENT", detail: observation.reason };
+            const member = hit.row.memberRuns?.[s.id];
+            cacheHits.push(s.id);
+            return { ...row, status: "pass", cached: true, batchedWith: { id: source.scan.id, units: source.scan.batch.units }, batchCommand: source.scan.command, ...(hit.row.snapshotEvidence ? { snapshotEvidence: hit.row.snapshotEvidence } : {}), ...(member ? { results: member.results, testRun: member.testRun, executableProof: member.executableProof ?? hit.row.executableProof } : hit.row.executableProof ? { executableProof: hit.row.executableProof } : {}), ...(row.seam ? { seamSettled: true } : {}), detail: `retained ${source.scan.id} (${source.key})` };
           }
           let cached = null; let found = null;
           if (cache) {

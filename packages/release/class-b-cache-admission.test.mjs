@@ -3,8 +3,10 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
-import { fileScanCache, runScans } from "./deterministic-scans.mjs";
+import { fileURLToPath } from "node:url";
+import { defaultSpawnAsync, fileScanCache, runScans } from "./deterministic-scans.mjs";
 import { openClassBHistory } from "./class-a-cache-history.mjs";
+import { workspaceManifestDigest } from "./feature-partition.mjs";
 
 const cold = (rows) => rows.map(({ id }) => ({ id, expected: "run" }));
 const warm = (decision, rows = decision.fingerprints) => rows.map(({ id, key, failureKey }) => {
@@ -102,6 +104,155 @@ test("B forecasts actual grouped invocation keys & reuses stored group outcomes"
   assert.equal(f.dispatches(), 1);
   assert.deepEqual(second.classBCacheDecision.dispatchedRows, []);
   assert.equal(second.scans.every(({ cached }) => cached === true), true);
+});
+
+// These regressions use distinct packages. Feature partitioning reads a real,
+// dependency-free Cargo workspace; executable work remains Node subprocesses.
+async function independentGroupFixture(t) {
+  const f = fixture(t, { grouped: true, withHistory: true });
+  const names = ["core", "edited"];
+  fs.writeFileSync(path.join(f.root, "Cargo.toml"), '[workspace]\nmembers = ["core", "edited"]\nresolver = "2"\n');
+  fs.writeFileSync(path.join(f.root, "Cargo.lock"), 'version = 3\n\n[[package]]\nname = "core"\nversion = "0.1.0"\n\n[[package]]\nname = "edited"\nversion = "0.1.0"\n');
+  for (const name of names) {
+    fs.mkdirSync(path.join(f.root, name, "src"), { recursive: true });
+    fs.writeFileSync(path.join(f.root, name, "Cargo.toml"), `[package]\nname = "${name}"\nversion = "0.1.0"\nedition = "2021"\n\n[features]\ndefault = ["enabled"]\nenabled = []\n`);
+    fs.writeFileSync(path.join(f.root, name, "src/lib.rs"), 'pub fn value() -> u8 { 1 }\n');
+  }
+  const marker = path.join(f.root, "physical-argv.jsonl");
+  const program = `require('node:fs').appendFileSync(${JSON.stringify(marker)}, JSON.stringify(process.argv.slice(1)) + '\\n')`;
+  f.plan.scans.forEach((scan, i) => {
+    const name = names[i];
+    scan.id = `check:${name}`;
+    scan.args = ["--eval", program, "--", "-p", name, "--message-format=short"];
+    scan.command = `${process.execPath} ${scan.args.join(" ")}`;
+    scan.batchable = { key: "distinct-equivalent-packages", at: 3, crate: name, unit: name };
+    f.inputs.set(scan.id, fs.readFileSync(path.join(f.root, name, "src/lib.rs"), "utf8"));
+  });
+  const native = await defaultSpawnAsync("rustup", ["which", "cargo"], { cwd: fileURLToPath(new URL("../../", import.meta.url)), env: process.env });
+  assert.equal(native.status, 0, native.stderr);
+  const nativeCargo = native.stdout.trim();
+  assert.ok(path.isAbsolute(nativeCargo) && fs.existsSync(nativeCargo), "rustup resolves installed native Cargo");
+  const digest = f.cache.digest;
+  f.cache.digest = (scan) => scan.batch ? JSON.stringify({ members: digest(scan), manifests: workspaceManifestDigest(f.root) }) : digest(scan);
+  const resolutions = [];
+  const spawn = async (tool, args, options) => {
+    if (args[0] !== "tree") return defaultSpawnAsync(tool, args, options);
+    resolutions.push(args);
+    return defaultSpawnAsync(nativeCargo, [...args, "--offline"], options);
+  };
+  const run = async () => {
+    const history = f.openHistory();
+    const result = await f.run(history.forecast, { spawn });
+    if (!result.classBCacheDecision.mismatches.length) history.record(result.classBCacheDecision);
+    return result;
+  };
+  const argv = () => fs.existsSync(marker) ? fs.readFileSync(marker, "utf8").trim().split("\n").map(JSON.parse) : [];
+  const edit = (value) => {
+    const source = path.join(f.root, "edited/src/lib.rs");
+    fs.writeFileSync(source, `pub fn value() -> u8 { ${value} }\n`);
+    f.inputs.set("check:edited", fs.readFileSync(source, "utf8"));
+  };
+  return { ...f, run, argv, resolutions, edit };
+}
+
+test("editing one grouped member reuses original invocation evidence without dispatching unchanged core", async (t) => {
+  const f = await independentGroupFixture(t);
+  const first = await f.run();
+  assert.equal(first.ok, true, JSON.stringify(first));
+  assert.deepEqual(f.argv(), [["-p", "core", "-p", "edited", "--message-format=short"]]);
+  assert.equal(f.resolutions.length, 3, "Cargo resolves group & both distinct members");
+  const original = first.classBCacheDecision.fingerprints.find(({ id }) => id === "check:core");
+  assert.match(original.invocationId, /^check:batch:/);
+  assert.equal(original.coveredBy, original.invocationId);
+  const soloKey = first.classBCacheDecision.memberFingerprints.find(({ id }) => id === "check:core").key;
+  assert.equal(f.cache.readOutcome(soloKey).entry, null, "group result must never project into solo cache");
+
+  const warm = await f.run();
+  assert.equal(warm.ok, true, JSON.stringify(warm));
+  assert.equal(f.argv().length, 1);
+  f.edit(2);
+  const edited = await f.run();
+  assert.deepEqual(f.argv()[1], ["-p", "edited", "--message-format=short"], "physical invocation must exclude unchanged core");
+  assert.equal(edited.ok, true, JSON.stringify(edited));
+  assert.deepEqual(edited.classBCacheDecision.dispatchedRows, ["check:edited"]);
+  const core = edited.classBCacheDecision.fingerprints.find(({ id }) => id === "check:core");
+  assert.equal(core.invocationId, original.invocationId);
+  assert.equal(core.coveredBy, original.invocationId);
+  assert.equal(core.key, original.key);
+  assert.equal(edited.scans.find(({ id }) => id === "check:core").batchedWith.id, original.invocationId);
+  assert.equal(f.cache.readOutcome(soloKey).entry, null);
+
+  const warmed = await f.run();
+  assert.equal(warmed.ok, true, JSON.stringify(warmed));
+  assert.deepEqual(warmed.classBCacheDecision.dispatchedRows, []);
+  assert.equal(f.argv().length, 2);
+  f.edit(3);
+  const editedAgain = await f.run();
+  assert.equal(editedAgain.ok, true, JSON.stringify(editedAgain));
+  assert.deepEqual(editedAgain.classBCacheDecision.dispatchedRows, ["check:edited"]);
+  assert.deepEqual(f.argv()[2], ["-p", "edited", "--message-format=short"]);
+  assert.equal(editedAgain.classBCacheDecision.fingerprints.find(({ id }) => id === "check:core").invocationId, original.invocationId);
+  const warmedAgain = await f.run();
+  assert.equal(warmedAgain.ok, true, JSON.stringify(warmedAgain));
+  assert.deepEqual(warmedAgain.classBCacheDecision.dispatchedRows, []);
+  assert.equal(f.argv().length, 3);
+  fs.unlinkSync(path.join(f.root, "cache", `${original.key}.json`));
+  // Changed work is ready, but missing retained core evidence blocks all dispatch.
+  f.edit(4);
+  const missing = await f.run();
+  assert.equal(missing.ok, false);
+  assert.ok(missing.classBCacheDecision.mismatches.some(({ id, expected, actual }) => id === "check:core" && expected === "hit" && actual === "run"));
+  assert.deepEqual(missing.classBCacheDecision.dispatchedRows, []);
+  assert.equal(f.argv().length, 3);
+  assert.equal(f.cache.readOutcome(soloKey).entry, null);
+});
+
+test("publisher consumer transition discards ordinary group source & admits independent work", async (t) => {
+  for (const binding of ["provesPublisher", "coverageKey"]) await t.test(binding, async (t) => {
+    const f = await independentGroupFixture(t);
+    const first = await f.run();
+    assert.equal(first.ok, true, JSON.stringify(first));
+    const core = f.plan.scans.find(({ id }) => id === "check:core");
+    core[binding] = binding === "coverageKey" ? "publisher-core-requirement" : true;
+    core.batchable.key = "publisher-bound-core";
+    f.edit(2);
+    const result = await f.run();
+    assert.equal(result.ok, true, JSON.stringify(result));
+    assert.deepEqual(result.classBCacheDecision.dispatchedRows, ["check:core", "check:edited"]);
+    assert.deepEqual(f.argv().slice(1), [["-p", "core", "--message-format=short"], ["-p", "edited", "--message-format=short"]]);
+    const prediction = result.classBCacheDecision.memberForecast.find(({ id }) => id === "check:core");
+    assert.equal(prediction.expected, "run");
+    assert.equal(prediction.source, undefined);
+    assert.equal(result.classBCacheDecision.retained.find(({ id }) => id === "check:core").source, undefined);
+  });
+});
+
+test("changed Cargo feature inputs replace old group eligibility; same-context missing proof refuses", async (t) => {
+  const f = await independentGroupFixture(t);
+  const first = await f.run();
+  assert.equal(first.ok, true, JSON.stringify(first));
+  const original = first.classBCacheDecision.fingerprints.find(({ id }) => id === "check:core");
+  const unchanged = fs.readFileSync(path.join(f.root, "core/src/lib.rs"), "utf8");
+  const manifest = path.join(f.root, "edited/Cargo.toml");
+  fs.writeFileSync(manifest, fs.readFileSync(manifest, "utf8").replace('default = ["enabled"]', 'default = []'));
+  const result = await f.run();
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.equal(fs.readFileSync(path.join(f.root, "core/src/lib.rs"), "utf8"), unchanged);
+  assert.deepEqual(result.classBCacheDecision.dispatchedRows, ["check:core", "check:edited"]);
+  assert.deepEqual(f.argv()[1], ["-p", "core", "-p", "edited", "--message-format=short"]);
+  assert.equal(f.resolutions.length, 6, "changed manifests require new real feature partition");
+  assert.equal(result.classBCacheDecision.memberForecast.every(({ source, expected }) => source === undefined && expected === "run"), true);
+  const replacement = result.classBCacheDecision.fingerprints.find(({ id }) => id === "check:core");
+  assert.notEqual(replacement.key, original.key);
+  assert.equal(f.cache.readOutcome(original.key).entry.row.status, "pass", "old evidence still exists but is ineligible");
+  fs.unlinkSync(path.join(f.root, "cache", `${replacement.key}.json`));
+  f.edit(2);
+  const missing = await f.run();
+  assert.equal(missing.ok, false);
+  assert.equal(missing.classBCacheDecision.memberForecast.find(({ id }) => id === "check:core").expected, "hit");
+  assert.ok(missing.classBCacheDecision.mismatches.some(({ id, expected, actual }) => id === "check:core" && expected === "hit" && actual === "run"));
+  assert.deepEqual(missing.classBCacheDecision.dispatchedRows, []);
+  assert.equal(f.argv().length, 2);
 });
 
 test("mixed A+B mode completes A then blocks whole B set on forecast divergence", async (t) => {
