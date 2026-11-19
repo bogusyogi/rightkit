@@ -93,7 +93,7 @@ pub struct Timings {
     /// How long `ensure_installed` waits for the owner thread to create the overlays. When it
     /// gives up, the owner destroys whatever it made and exits. `50..=600_000`.
     pub startup_timeout_ms: u64,
-    /// How long [`crate::shutdown`] waits for an owner thread to close the overlays and exit and
+    /// How long Windows `shutdown` waits for an owner thread to close the overlays and exit and
     /// for every retained owner and window thread to finish and every forwarder and worker to
     /// retire, and how long a restarting `ensure_installed` waits for the same two things in total
     /// (one bound for both; when it runs out the answer is `Install::RetirementPending`).
@@ -262,7 +262,7 @@ pub enum ActionOutcome {
 /// returns costs its worker thread until process exit, and at most `Limits::max_worker_threads`
 /// workers run at once. `activate_secondary`, `error_generation`, `clip_dismissed` and the two
 /// `publish_*` callbacks are cheap and non-blocking and run on the driver thread (they must not
-/// call [`crate::shutdown`]: it refuses on that thread); `reveal_pill` and `recover_error` run on
+/// call Windows `shutdown`: it refuses on that thread); `reveal_pill` and `recover_error` run on
 /// a short-lived worker. A panic in any callback is caught and reported
 /// (`<prefix>_host_panic`): it never takes a window or the owner thread with it, and counts as a
 /// failure where the surface reads an outcome.
