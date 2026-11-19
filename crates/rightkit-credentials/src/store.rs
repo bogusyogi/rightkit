@@ -518,23 +518,27 @@ impl Store {
         ))
     }
 
+    /// Native exclusion key for this backend and account. Pin a mutable default store
+    /// before retaining this identity across operations.
+    pub(crate) fn mutation_target(&self, account: &str) -> Result<(String, String)> {
+        check_target(&self.ns, account)?;
+        Ok((
+            backend_identity(&self.backend),
+            self.backend.credential_identity(&self.ns, account)?,
+        ))
+    }
+
     /// Whether a mutation of `account` is inside a backend call right now, including one whose
     /// caller timed out. Non-blocking.
     pub(crate) fn mutation_in_flight(&self, account: &str) -> Result<bool> {
-        let key = (
-            backend_identity(&self.backend),
-            self.backend.credential_identity(&self.ns, account)?,
-        );
+        let key = self.mutation_target(account)?;
         Ok(in_flight().contains_key(&key))
     }
 
     /// Called under the rotation lock before changing its marker. A timed-out primary write
     /// still owns its target: abort/rebegin must not retire its recovery value until it returns.
     pub(crate) fn rotation_ready(&self, account: &str) -> Result<()> {
-        let key = (
-            backend_identity(&self.backend),
-            self.backend.credential_identity(&self.ns, account)?,
-        );
+        let key = self.mutation_target(account)?;
         let deadline = Instant::now()
             .checked_add(self.timeout)
             .unwrap_or_else(Instant::now);
