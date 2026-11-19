@@ -146,7 +146,7 @@ fn main() -> Result<(), Failure> {
 }
 
 fn bundle_resolution() -> Result<(), Failure> {
-    use rightkit_child_process::bundled_app::resolve_app_in_bundle;
+    use rightkit_child_process::resolve_app_in_bundle;
     let root = std::env::temp_dir().join(format!("rk-bundle-consumer-{}", std::process::id()));
     let host = root.join("Host.app/Contents/MacOS/host");
     let nested = root.join("Host.app/Contents/Library/LoginItems/Helper.app");

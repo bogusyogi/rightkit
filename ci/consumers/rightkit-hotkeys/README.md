@@ -1,6 +1,6 @@
-# rightkit-hotkeys 0.1.5 registry consumer
+# rightkit-hotkeys 0.1.6 registry consumer
 
-Standalone consumer, outside the workspace, pinning `rightkit-hotkeys =0.1.5` exactly. The crate has no features, so none are selected; it installs the crate from the sealed archive through the offline directory registry and runs `src/main.rs`, which exits non-zero on the first failed assertion. The same source compiles and runs on Windows, macOS and Linux.
+The standalone consumer pins `rightkit-hotkeys =0.1.6` and runs `src/main.rs` against the sealed archive in the offline registry on Windows, macOS and Linux.
 
 ## What it proves
 
@@ -17,11 +17,7 @@ These are the pure modules, which behave the same on every platform:
 
 On Windows and macOS only, the prior platform types are checked by name at compile time; nothing registers a native hotkey or tap. On Windows the hook hub is checked without installing a hook: no hook runs and no modifier side is known while no handler is registered, the default injection tag, and an empty `KeyContext`.
 
-The 0.1.5 `tap_hold` binding/host API is constructed as inert configuration; its
-register/unregister functions are type-checked but never called. The macOS holder
-APIs are constructed dormant, without starting a global event tap. No consumer
-path alters real user input. The new Windows combined-hook behavior is excluded
-from this candidate; existing published Windows APIs remain covered as before.
+The consumer type-checks `tap_hold` registration with inert host configuration. On Windows it checks the public input hooks, keyboard state, and middle-click state used by app adapters. On macOS it constructs dormant tap holders.
 
 ## What it deliberately does not prove
 

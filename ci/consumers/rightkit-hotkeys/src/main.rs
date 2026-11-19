@@ -1,4 +1,4 @@
-// rightkit-hotkeys 0.1.5 consumed by exact registry pin (no features: the crate has none, and the
+// rightkit-hotkeys 0.1.6 consumed by exact registry pin (no features: the crate has none, and the
 // apps use it that way), outside the workspace.
 //
 // Proves, through the public API only, the pure modules that compile and behave the same on
@@ -84,7 +84,7 @@ fn main() {
     middle_click_machinery();
     arm_timer();
     platform_surface();
-    println!("OK rightkit-hotkeys 0.1.5 (registry consumer)");
+    println!("OK rightkit-hotkeys 0.1.6 (registry consumer)");
 }
 
 #[cfg(target_os = "macos")]
@@ -448,7 +448,7 @@ fn push_to_talk_policy() {
     let line = format_abort("test", cause);
     assert_eq!(
         line,
-        "platform=test kind=modifier_joined key_code=49 modifiers=ctrl:true,shift:true,alt:false,command_or_win:false,fn:false joined=ctrl:false,shift:false,alt:true,command_or_win:false,fn:false phase=starting swallowed=true"
+        "platform=test kind=modifier_joined modifiers=ctrl:true,shift:true,alt:false,command_or_win:false,fn:false joined=ctrl:false,shift:false,alt:true,command_or_win:false,fn:false phase=starting swallowed=true"
     );
     let plain = PttAbortCause {
         kind: PttAbortKind::KeyDown,
@@ -458,7 +458,9 @@ fn push_to_talk_policy() {
         phase: PttPhase::Arming,
         swallowed: false,
     };
-    assert!(format_abort("test", plain).contains("kind=key_down key_code=none"));
+    let line = format_abort("test", plain);
+    assert!(line.contains("kind=key_down"));
+    assert!(!line.contains("key_code="));
 
     // A release that arrives while the start is still running is applied when the start completes.
     let handoff = PttHandoff::new();
@@ -1074,6 +1076,9 @@ fn seams_compile_only<K: KeyStateSource, A: HotkeyApi>() {
 
 #[cfg(windows)]
 fn platform_surface() {
+    use rightkit_hotkeys::windows::input_hooks::{InputHooks, InputHooksConfig};
+    use rightkit_hotkeys::windows::mouse_hook::MiddleClickState;
+    use rightkit_hotkeys::windows::ptt_hook::{KeyboardState, KeyboardTiming, PttEvent};
     use rightkit_hotkeys::windows::{
         GlobalHotkeys, HookConfig, HookDecision, HookError, HookHotkeys, KeyEvent, LowLevelHooks,
         LowLevelKeyboardHook, RegisterError, UnregisterError, LLKHF_INJECTED, RELEASE_POLL_MS,
@@ -1091,6 +1096,12 @@ fn platform_surface() {
         std::mem::size_of::<HookError>(),
         std::mem::size_of::<RegisterError>(),
         std::mem::size_of::<UnregisterError>(),
+        std::mem::size_of::<InputHooks>(),
+        std::mem::size_of::<InputHooksConfig>(),
+        std::mem::size_of::<MiddleClickState>(),
+        std::mem::size_of::<KeyboardState>(),
+        std::mem::size_of::<KeyboardTiming>(),
+        std::mem::size_of::<PttEvent>(),
     ];
     assert!(sizes.iter().all(|size| *size > 0));
     // The hook hub (0.1.4): nothing registered, so no hook runs and no side is known; the default

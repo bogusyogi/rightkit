@@ -6451,8 +6451,9 @@ dependencies = [
 
 [[package]]
 name = "rightkit-hotkeys"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
+ "rightkit-automation",
  "windows-sys 0.61.2",
 ]
 

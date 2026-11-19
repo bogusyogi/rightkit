@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-hotkeys"
-version = "0.1.5"
+version = "0.1.6"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Global shortcuts and low-level input hooks for Right Suite apps: chord parsing, conflict detection, CGEventTap/WH_KEYBOARD_LL primitives, push-to-talk state."
@@ -14,6 +14,8 @@ include = ["src/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE
 [dependencies]
 
 [target.'cfg(windows)'.dependencies]
+# Published automation API floor for tri-state UIA & tagged input replay.
+rightkit-automation = { version = "0.7.1", path = "../rightkit-automation" }
 windows-sys = { version = "0.61.2", features = [
   "Win32_Foundation",
   "Win32_System_LibraryLoader",
@@ -99,22 +101,64 @@ release = "Drop"
 # One Cargo workspace and lock per crate (rightkit#1285).
 
 [[package.metadata.rightkit.resources]]
+api = "InputHooks::install"
+file = "src/windows/input_hooks.rs"
+holds = ["thread", "memory"]
+scale = "per install: rk-input-hook-dispatch, rk-input-hook-cancel, rk-input-hook-telemetry (each blocked on a bounded lock-free lane), rk-ptt-arm (one ArmTimer), rk-middle-click, rk-middle-click-toggle, rk-middle-click-report; the hook thread is the crate's LowLevelHooks"
+release = "Drop quiesces timer posting then waits at most 1.5 s for helper removal; end transfers teardown to a helper. Quiesce can wait for an in-flight post; failed helper creation removes inline without a bound. Lanes close & workers drain after authority ends; stalled callbacks/providers finish when they return; teardown sink lines use capped detached reporters"
+
+[[package.metadata.rightkit.resources]]
+api = "remove_hooks"
+file = "src/windows/input_hooks.rs"
+holds = ["thread"]
+scale = "one short-lived rk-input-hook-remove thread per uninstall that runs the crate's LowLevelHooks::drop (an unbounded join); with InputHooks::end also one rk-input-hooks-end thread"
+release = "the thread ends when the crate's drop returns"
+
+[[package.metadata.rightkit.resources]]
+api = "KeyboardState::begin_session"
+file = "src/windows/ptt_hook.rs"
+holds = ["thread", "memory"]
+scale = "one ArmTimer thread (rk-ptt-arm) and three lanes (depth 128 plus an end reserve of 4, 16, 256) per install"
+release = "KeyboardState::quiesce asks the timer to stop and takes the post gate once (waits for a callback inside its one PostThreadMessageW), end_session closes the lanes"
+
+[[package.metadata.rightkit.resources]]
+api = "MiddleClickState::start_worker"
+file = "src/windows/mouse_hook.rs"
+holds = ["thread", "memory"]
+scale = "one rk-middle-click worker, one rk-middle-click-toggle lane thread and one rk-middle-click-report thread per generation; a bounded queue of 2 and a report lane of 32"
+release = "stop_worker ends the generation; the threads drain and exit; the toggle thread ends after a running host callback returns"
+
+[[package.metadata.rightkit.resources]]
+api = "bounded_call"
+file = "src/lifecycle.rs"
+holds = ["thread"]
+scale = "one detached rk-middle-click-hit-test thread per window hit test; at most 2 calls past their deadline and not yet returned in the process (a call still inside its deadline is not counted: one more per worker currently waiting)"
+release = "the call returning"
+
+[[package.metadata.rightkit.resources]]
+api = "report_detached"
+file = "src/lifecycle.rs"
+holds = ["thread"]
+scale = "one detached rk-hook-report thread per teardown hand-off, at most 4 in the process, at most 4 lines each"
+release = "the host sink returning for the lines it was given; a hand-off past the cap is dropped"
+
+[[package.metadata.rightkit.resources]]
 api = "tap_hold::register"
 file = "src/tap_hold.rs"
 holds = ["thread", "memory"]
-scale = "one registered chord set; Windows registration loop & short-lived callbacks for requested actions"
-release = "tap_hold::unregister releases holder; macOS schedules release on main thread"
+scale = "one registered chord set of at most 64 bindings (GlobalHotkeys thread on Windows); rk-chord-action threads capped at 8 starts and 32 ends in the process; one rk-chord-report thread and a lane of 32 per registration"
+release = "tap_hold::unregister (or the next register) ends the generation, releases a held started tap once, drops the holder, then closes the report lane; macOS runs it on the main thread"
 
 [[package.metadata.rightkit.resources]]
 api = "FnHotkeyHolder::start"
 file = "src/macos/holders.rs"
 holds = ["thread", "memory"]
-scale = "at most one existing FnHotkeyTap per holder; callbacks & settings are host inputs"
-release = "Drop of holder drops owned tap & releases callbacks"
+scale = "at most one FnHotkeyTap per holder plus one rk-fn-tap-diag thread; callbacks and settings are host inputs"
+release = "stop disables starts, drops the tap on a helper (waited for at most 1.5 s) & closes the diag lane; helper creation failure disposes inline without a bound"
 
 [[package.metadata.rightkit.resources]]
 api = "MiddleMouseHolder::spawn"
 file = "src/macos/holders.rs"
 holds = ["thread", "memory"]
-scale = "at most one existing MiddleMouseTap per holder"
-release = "Drop of holder drops owned tap & releases callbacks"
+scale = "at most one MiddleMouseTap per holder; AX lookups in flight capped at 2 in the process"
+release = "stop disables starts & drops the tap on a helper (waited for at most 1.5 s); helper creation failure disposes inline without a bound"

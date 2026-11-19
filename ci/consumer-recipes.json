@@ -2379,7 +2379,7 @@
       "files": {
         "Cargo.toml": "45fa969d0c1b1221feada3865f63f372e4dfefb8ef2669ff6be45ba13a90185d",
         "README.md": "852edbc451881d88c9f3b3064200faaf1e973b5e09f11aef2e7e2c5d58509a71",
-        "src/main.rs": "27442d320cb3dff2cecdd69967cae04b9c122223a319d90dce1c49d184a05c37"
+        "src/main.rs": "41e97e7d733d7be1465825efa6a5126e993d90eb9a339424295f309fe70ee487"
       },
       "aggregateSha256": "01779ab6ecf5149d037f97996e0f5b6da855d3daec88900ee349a0be16a040e7"
     },
@@ -2724,9 +2724,9 @@
       "pkId": "PK35",
       "id": "ci/consumers/rightkit-hotkeys/src/main.rs",
       "files": {
-        "Cargo.toml": "643e50337730f5705baae4b86d1f237538ad26a05fea765ac5e9a1d684b2b44d",
-        "README.md": "79b779ea0f7fc8f31f735215225cb30957e4e3ad581bb2cb26012f705a1ea6da",
-        "src/main.rs": "9cd7d35905cd90d846032ed6294d4342c68bb67aa63b85499a645ee915f6972f"
+        "Cargo.toml": "65c681f2f58756c6fa7178791935c83650a0ca41cecf3a1080620e50621648da",
+        "README.md": "39a4e56ab34015794a5f2dfce5f6a461f677db5679ca8591c6b49745f13fd0db",
+        "src/main.rs": "2c2ee5c19ea24f807850a094c57ab44d3bea0014d437302fdaf7332fe690ae3f"
       }
     },
     "rightkit-identity": {

@@ -1,80 +1,32 @@
 # rightkit-hotkeys
 
-One hotkey foundation for Right Suite apps: cross-platform shortcut policy with native macOS Carbon hotkeys, CoreGraphics event taps, and a Windows low-level keyboard hook.
+Native global shortcuts, configurable push-to-talk & middle-click handling for desktop hosts.
 
-- Ordinary chords use `GlobalHotkeys`.
-- fn gestures, push-to-talk, and the middle mouse button use `FnHotkeyTap` and `MiddleMouseTap`.
-- Every native handle stops and joins on drop.
+## APIs
 
-Catalog capability: `global-hotkeys`. Release versions are tracked in [INDEX.md](../../INDEX.md) and `CHANGELOG.md`.
+- `chord`, `conflict`, `hold`, `registration`, `register_status`, `hook_chord`: portable chord parsing, conflicts, registration & press/release policy.
+- `tap_hold`: host-configured tap/hold, debounced & immediate chords through native `GlobalHotkeys`. At most 64 bindings, 8 start jobs & 32 end jobs; each registration owns one bounded report lane.
+- `macos`: Carbon hotkeys, CoreGraphics fn/PTT & middle-button taps. `holders::{FnHotkeyHolder, MiddleMouseHolder}` retain host callbacks/settings & expose `stop()`.
+- `windows`: `RegisterHotKey`, low-level keyboard/mouse primitives & optional `hub`; `input_hooks::InputHooks` composes `ptt_hook::KeyboardState` & `mouse_hook::MiddleClickState` on one hook thread with separate dispatch/cancel/report lanes.
 
-## What it owns
+Windows `InputHooks` & `hub` claim identical process slots; use one. Platform modules are cfg-gated; portable policy modules remain available elsewhere. Windows requires published `rightkit-automation >= 0.7.1` for tri-state UIA link lookup & tagged input batches, plus `windows-sys 0.61.2`.
 
-| Module | Owns |
-|---|---|
-| `chord` | Parsing and formatting of chords, and single-key push-to-talk aliases (`parse_chord`, `Chord`, `Key`, `Modifier`, `Side`). Display is per platform. |
-| `conflict` | Conflict reports for registration failures (`HotkeyConflict`) and an in-process `ChordRegistry`. |
-| `hold` | Pure press/release pairing (`HoldTracker`, `KeyStateSource`, `HotkeyState`) for APIs that only report a press. |
-| `register_status` | Typed classification of OS registration failures (`RegisterFailure`). |
-| `ptt` | Pure push-to-talk policy and the start and end handoff state machine (`PttPhase`, `PttHandoff`, `PttEnd`). |
-| `decision` | Pure predicates shared by the platform hooks: the fn-chord gate and the middle-button check. |
-| `macos` | `CGEventTap` primitive, fn-chord tap (`FnHotkeyTap`), middle-mouse tap (`MiddleMouseTap`), and Carbon global hotkeys (`GlobalHotkeys`). |
-| `windows` | `WH_KEYBOARD_LL` hook and `RegisterHotKey` registration (`GlobalHotkeys`); `HookHotkeys` for chords the system refuses. |
-| `hook_chord` | Pure chord matcher over raw key events (`HookChords`), used by `HookHotkeys`. |
+## Host policy & injected input
 
-The pure modules compile and test on every platform. Platform modules are `cfg`-gated.
+Hosts supply chord/key choices, timing, enabled state, callbacks, sink, main-thread runner & middle-click replay tag. Input handling serves user-configured local shortcuts, PTT & middle-click actions; it stores no text or input history. Diagnostic text reports key classes, lifecycle outcomes & counts, without key identities.
 
-## When to use it
+`KeyboardState` passes every injected keyboard event unchanged before gesture tracking; synthetic command-delivery events cannot arm, cancel or modify PTT state. `MiddleClickState` passes events marked injected **&** carrying its host-supplied replay tag unchanged. Other injected mouse events follow normal enabled middle-button policy, preserving native remote-input behavior. Hosts choose replay tags through `MiddleClickState::new(tag)` or `with_timing(tag, timing)`; tags are loop prevention, not authentication. Low-level primitives expose injected flags to callers. Existing macOS tap event rules remain unchanged.
 
-- Use it to register global shortcuts, or push-to-talk keys, in a Right Suite app.
-- Use it when conflicts with other registrations must be reported.
+## Lifecycle
 
-Do not use it for in-window shortcuts. Those belong to the UI framework.
+Windows install generations fence timer posts, queued starts & worker results. Swallowed presses retain release debt until their matching release or hook removal, including teardown. Keyboard callbacks run off hook thread; cancel has its own lane. Middle-click work has one outstanding press, bounded queues & capped detached lookups. Only confirmed non-links toggle; unknown lookup results replay after target validation. Replay batches preserve original press point & carry matching down/up events.
 
-## Cargo features
+`InputHooks::drop` quiesces timer posting, then waits at most 1.5 s for helper-thread hook removal; quiesce itself waits for an in-flight post. If helper creation fails, removal runs inline & may wait without bound. `InputHooks::end` transfers teardown to a helper; its fallback also runs inline if helper creation fails. Stalled host callbacks/provider calls cannot be forcibly interrupted: capped workers may remain until they return; a new install is refused while old hook removal remains pending. Hook removal while a swallowed key/button remains held can expose its eventual release without its press, reported through owed-release diagnostics.
 
-None. The crate has no `[features]` table. The Windows-only dependencies sit under `cfg(windows)`. The `macos_e2e` test is declared as a `[[test]]` target.
+macOS holders disable starts before helper-thread tap disposal, wait at most 1.5 s & retain end callbacks. Helper creation failure may dispose inline without bound. AX lookups are capped at two in flight. Existing macOS middle-click primitives retain coordinate-only replay, lookup-error behavior & their original native event rules. Holder fencing prevents starts after stop; underlying run-loop disposal can outlive its wait.
 
-## Usage
+Carbon creation/release stays on main thread. Main-thread registration executes inline; queued timeout cancels pending work, while an already-running registration returns its actual ownership result. Failed unregister scheduling retains owned registrations for retry. Host callbacks already executing finish under their existing ownership.
 
-Parsing is portable. Taken from `src/chord.rs`:
+## Qualification
 
-```rust
-use rightkit_hotkeys::chord::parse_chord;
-
-let chord = parse_chord("cmd+shift+space")?;
-```
-
-Registration and taps are platform-specific. See `src/macos` and `src/windows` for their constructors.
-
-## Platform support
-
-- macOS: Carbon hotkeys, and CoreGraphics event taps. Event taps need Accessibility and Input Monitoring permissions.
-- Windows: `RegisterHotKey` for ordinary chords, and a `WH_KEYBOARD_LL` low-level hook.
-- Other platforms: only the pure modules (`chord`, `conflict`, `decision`, `hold`, `hook_chord`, `ptt`, `register_status`, `registration`) compile.
-
-## Tests
-
-`tests/macos_e2e.rs` checks the Accessibility and Input Monitoring grants. It then drives private synthetic events through the real Carbon and CoreGraphics paths.
-## Version and changes
-
-Version: see [INDEX.md](../../INDEX.md). Changes are recorded in `CHANGELOG.md`.
-
-## Windows
-
-- Two mechanisms, both in `src/windows/mod.rs` and compiled only under `cfg(windows)`:
-  - `GlobalHotkeys` runs a thread with a message loop and calls `RegisterHotKey(NULL, id, mods | MOD_NOREPEAT, vk)` for `register`; `register_repeating` omits `MOD_NOREPEAT` (`src/registration.rs:43-44`). `WM_HOTKEY` is handled on that thread. Ctrl, Alt and Shift map directly, and Meta, Super and Win all map to `MOD_WIN`. Registration errors are typed: 1409 `Conflict`, 87 and 1004 `Unsupported`, 5 `PermissionDenied`, 8, 14 and 1450 `ResourceExhausted`, anything else `Os`. `unregister(&Chord)` removes one chord; dropping unregisters every id and joins the thread.
-  - Hold-to-talk: `GlobalHotkeys::with_state` delivers `Pressed` and `Released`. `RegisterHotKey` has no release event, so after `WM_HOTKEY` the loop thread starts a roughly 15 ms thread timer that polls `GetAsyncKeyState` for the chord's key and modifiers, and kills it when nothing is held. No global hook is installed. Exactly one `Released` per `Pressed`, also on unregister and drop. Limits: release latency is 15 to 30 ms; a released modifier ends the hold; a focus change alone does not; a lock screen or UAC desktop switch makes Windows report all keys up, so the hold ends at the next poll.
-  - `LowLevelKeyboardHook` installs one process-wide `WH_KEYBOARD_LL` hook on its own thread. A second install returns `HookError::AlreadyInstalled`. The handler runs inside the hook procedure and returns `Pass` or `Swallow` (LRESULT 1). `KeyEvent.injected` reports `LLKHF_INJECTED`. The module comment says the handler must stay fast and hand real work to another thread.
-  - `LowLevelKeyboardHook::install_detailed` passes a `KeyEventDetail` (also `scan_code`, `extra_info` = `dwExtraInfo`, `alt_down` = `LLKHF_ALTDOWN`, `extended`); `KeyEvent` itself is unchanged. `LowLevelHooks::install(HookConfig)` runs a keyboard hook, a `WH_MOUSE_LL` hook (`MouseEvent`) and a handler for custom thread messages (`WM_APP..=0xBFFF`, sent with `post_message`) on one hook thread.
-- Push-to-talk aliases come from one table, `PttAlias`: Windows `lalt`, `ralt`, `rctrl`; macOS `ctrl` (also `lctrl`, `rctrl`, `control`), `lalt`, `ralt`. Canonical and display spellings parse back to the same alias.
-- There are no Windows `FnHotkeyTap` or `MiddleMouseTap` types. Those live in `src/macos/` only, so fn, push-to-talk and middle-button support is macOS-only at HEAD.
-- Dependency: `windows-sys` 0.61.2 under `cfg(windows)` (`Cargo.toml:17`), with features `Win32_Foundation`, `Win32_System_LibraryLoader`, `Win32_System_Threading`, `Win32_UI_Input_KeyboardAndMouse` and `Win32_UI_WindowsAndMessaging`. Consumers enable no Windows features.
-- Not verified: the module header says it has not been built on the macOS host and must be checked on Windows before an app adopts it. Nothing here was compiled for Windows.
-
-
-## Chord/holder additions (0.1.5 partial candidate)
-
-`tap_hold` registers configurable tap/hold, debounced & immediate chords through existing OS registration primitives. Required-registration failure rolls back its holder. Call `unregister` during host cleanup; macOS Carbon creation/release stays on main thread. A queued registration cancelled after its response deadline cannot install later.
-
-`macos::holders::{FnHotkeyHolder, MiddleMouseHolder}` composes existing tap primitives with host callbacks, enabled state & telemetry. Existing OS permission handling stays intact. Windows `input_hooks`, `ptt_hook` & `mouse_hook` extraction remains withheld pending safe UIA mouse-worker shutdown; existing 0.1.4 Windows APIs remain unchanged. No new automation dependency is required. Windows/macOS installed shortcut journeys & cleanup require qualification before adoption.
+This intake carries donor revision 5.3.2, including rev57's source-reviewed rebound-key release correction. Build, installed Windows/macOS shortcut journeys, blocked-lookup teardown, key-release pairing, replay targeting & repeated stop/restart remain integration-owner qualification work. Package resource metadata records thread/lane bounds & release paths. Changes: [CHANGELOG.md](CHANGELOG.md).

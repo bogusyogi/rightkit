@@ -423,7 +423,7 @@ fn decide(s: &Arc<Shared>, ev: &TapEvent) -> TapDecision {
         } else {
             (s.cb.diag)(
                 "ptt_chord_ignored_late",
-                &format!("kind=key_down key_code={keycode} elapsed_ms={elapsed}"),
+                &format!("kind=key_down key_class=other elapsed_ms={elapsed}"),
             );
         }
     }

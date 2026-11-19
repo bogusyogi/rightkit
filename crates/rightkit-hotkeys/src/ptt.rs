@@ -63,15 +63,11 @@ pub fn format_abort(platform: &str, cause: PttAbortCause) -> String {
         )
     };
     format!(
-        "platform={platform} kind={} key_code={} modifiers={} joined={} phase={} swallowed={}",
+        "platform={platform} kind={} modifiers={} joined={} phase={} swallowed={}",
         match cause.kind {
             PttAbortKind::KeyDown => "key_down",
             PttAbortKind::ModifierJoined => "modifier_joined",
         },
-        cause
-            .key_code
-            .map(|code| code.to_string())
-            .unwrap_or_else(|| "none".into()),
         flags(cause.modifiers),
         flags(cause.joined),
         match cause.phase {

@@ -43,3 +43,6 @@ pub use register_status::RegisterFailure;
 pub use registration::{HotkeyApi, Registrations, UnregisterFailure};
 
 pub mod tap_hold;
+
+pub(crate) mod held_click;
+pub(crate) mod lifecycle;

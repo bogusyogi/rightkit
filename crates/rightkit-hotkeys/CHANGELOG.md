@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.6
+
+- Added Windows `input_hooks`, `ptt_hook` & `mouse_hook`: configurable PTT/cancel handling, bounded worker lanes, generation fencing, tri-state link lookup & tagged middle-click replay through published automation 0.7.1.
+- Integrated donor revision 5.3.2, including rev57's rebound-key release correction; strengthened tap/hold & macOS holder lifecycle with bounded jobs, diagnostic lanes & explicit stop methods.
+- Preserved 0.1.5's Carbon main-thread registration, queued-timeout cancellation, scheduling-failure ownership & non-panicking action-thread creation.
+- Removed key identities from PTT diagnostic text; documented host-provided replay tags & injected-input policy.
+
 ## 0.1.5 (unpublished; partial extraction)
 
 - Added configurable `tap_hold` chord registration & `macos::holders` for existing Fn/middle-mouse tap primitives.
