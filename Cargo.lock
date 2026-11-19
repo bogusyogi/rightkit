@@ -11356,7 +11356,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-dictation-core"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "rightkit-credentials",
  "rightkit-fs",
