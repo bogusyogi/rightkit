@@ -153,7 +153,7 @@ A native dispatch of `ci.yml` (never a push: push and pull request runs are stat
 - **Swift.** `swift/RightKitSwift` (including the `rightkit-cloudkit-helper` executable product, empty off macOS) builds and tests on the macOS
   runner when its directory changed. The repository-root `Package.swift` (the manifest apps resolve by
   URL and tag) is checked with `swift package describe --type json`, which validates every target path
-  without compiling; `scripts/swift-root-manifest.test.mjs` guards it against drift from
+  without compiling; `scripts/swift-root-manifest.mjs` guards it against drift from
   `swift/RightKitSwift/Package.swift`.
 - **Root suites.** `ownership-approval`, `characterization`, `infrastructure`, `swift/contracts`
   and `scripts` run when their directory changed.

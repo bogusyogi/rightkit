@@ -2,6 +2,8 @@
 
 ## 0.9.1 (unreleased, rightkit#762; not tagged)
 
+- Added macOS products `RightKitActionChannel` for peer-verified action delivery, `RightKitMenuBarHelper` for the status item and helper lifecycle, and `RightKitDictationPill` for overlay and splash state, clipboard, and transitions. Hosts supply identity, views, copy, motion, and actions. Awaiting native qualification.
+
 Closes the eight ScrapeRight port gaps in #762 and the two follow-ups in its thread. No tests were added; coverage is end-to-end.
 
 - `RightKitSystem.RightKitSupervisedChild` (#1033): host seams `prepareProcess` (the configured `Process` before `run()`, for per-spawn standard input, arguments, environment), `onSpawned(Process)`, `onExit(Process, status, signaled, planned)`, `canStart` (start gate consulted before every launch), `externalRunning` (status reports `.running` for a copy something else started); `start(arguments:ignoringBackoff:)` spawns now with its own arguments, past a backoff or latch, with failures counted as usual; `stop(grace:)` stops the child as a planned exit and keeps supervising. `terminate(grace:)` and `retry()` are unchanged.

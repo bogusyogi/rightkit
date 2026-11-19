@@ -16,7 +16,7 @@
 //      dispatch SHA equals the requested commit;
 //   2. the checkout is that commit, clean, an ancestor of origin/main, and origin is this repository;
 //   3. swift/RightKitSwift/VERSION equals the version, CHANGELOG.md has a dated `## <version> - YYYY-MM-DD` heading,
-//      and the root Package.swift still matches the nested manifest (scripts/swift-root-manifest.test.mjs);
+//      and the root Package.swift still matches the nested manifest (scripts/swift-root-manifest.mjs);
 //   4. the tag exists neither locally nor on origin;
 //   5. ci/approved-artifacts.json (read from that commit) holds one reviewer-approved registry=swift entry whose
 //      sha256 is the tree digest of Package.swift + swift/RightKitSwift at that commit.
@@ -33,7 +33,7 @@ export const SWIFT_NAME = "RightKitSwift";
 export const PACKAGE_DIR = "swift/RightKitSwift";
 export const DIGEST_PATHS = Object.freeze(["Package.swift", PACKAGE_DIR]);
 export const WORKFLOW_REF = `${REPOSITORY}/.github/workflows/publish-swift.yml@refs/heads/main`;
-export const DRIFT_TEST = path.join("scripts", "swift-root-manifest.test.mjs");
+export const DRIFT_CHECK = path.join("scripts", "swift-root-manifest.mjs");
 export const TREE_DIGEST_CONTRACT = "rightkit-swift-tree/v1";
 const PLAIN_SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 const FULL_SHA = /^[0-9a-f]{40}$/;
@@ -128,7 +128,7 @@ export function checkCheckout({ git, root = ROOT, commit, version, repository = 
 }
 
 function defaultDrift(root) {
-  return spawnSync(process.execPath, ["--test", DRIFT_TEST], { cwd: root, encoding: "utf8", windowsHide: true, env: cleanEnvironment() });
+  return spawnSync(process.execPath, [DRIFT_CHECK], { cwd: root, encoding: "utf8", windowsHide: true, env: cleanEnvironment() });
 }
 
 // ---- source files ------------------------------------------------------------------------------

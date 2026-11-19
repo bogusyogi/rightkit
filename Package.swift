@@ -27,7 +27,11 @@ let package = Package(
         .library(name: "RightKitSpeech", targets: ["RightKitSpeech"]),
         .library(name: "RightKitIntents", targets: ["RightKitIntents"]),
         .library(name: "RightKitAppleCredentials", targets: ["RightKitAppleCredentials"]),
+        .library(name: "RightKitCredentialProvider", targets: ["RightKitCredentialProvider"]),
         .library(name: "RightKitOverlay", targets: ["RightKitOverlay"]),
+        .library(name: "RightKitActionChannel", targets: ["RightKitActionChannel"]),
+        .library(name: "RightKitMenuBarHelper", targets: ["RightKitMenuBarHelper"]),
+        .library(name: "RightKitDictationPill", targets: ["RightKitDictationPill"]),
         .library(name: "RightKitWatch", targets: ["RightKitWatch"]),
         .library(name: "RightKitUI", targets: ["RightKitUI"]),
         .library(name: "RightKitDB", targets: ["RightKitDB"]),
@@ -48,6 +52,11 @@ let package = Package(
         .library(name: "RightKitEngine", targets: ["RightKitEngine"]),
         .library(name: "RightKitHub", targets: ["RightKitHub"]),
         .library(name: "RightKitHubQA", targets: ["RightKitHubQA"]),
+        .library(name: "RightKitSend", targets: ["RightKitSend"]),
+        .library(name: "RightKitJobQueue", targets: ["RightKitJobQueue"]),
+        .library(name: "RightKitCLIProtocol", targets: ["RightKitCLIProtocol"]),
+        .library(name: "RightKitURLPolicy", targets: ["RightKitURLPolicy"]),
+        .library(name: "RightKitDaemonClient", targets: ["RightKitDaemonClient"]),
         // macOS CloudKit helper for rightkit-sync (rightkit#1302). Apps build it with
         // `swift build --product rightkit-cloudkit-helper`; the body is compiled on macOS only.
         .executable(name: "rightkit-cloudkit-helper", targets: ["rightkit-cloudkit-helper"]),
@@ -94,8 +103,12 @@ let package = Package(
         .target(name: "RightKitIntents", path: "swift/RightKitSwift/Sources/RightKitIntents"),
         .testTarget(name: "RightKitIntentsTests", dependencies: ["RightKitIntents"], path: "swift/RightKitSwift/Tests/RightKitIntentsTests"),
         .target(name: "RightKitAppleCredentials", path: "swift/RightKitSwift/Sources/RightKitAppleCredentials"),
+        .target(name: "RightKitCredentialProvider", path: "swift/RightKitSwift/Sources/RightKitCredentialProvider"),
         .testTarget(name: "RightKitAppleCredentialsTests", dependencies: ["RightKitAppleCredentials"], path: "swift/RightKitSwift/Tests/RightKitAppleCredentialsTests"),
         .target(name: "RightKitOverlay", path: "swift/RightKitSwift/Sources/RightKitOverlay"),
+        .target(name: "RightKitActionChannel", path: "swift/RightKitSwift/Sources/RightKitActionChannel", linkerSettings: [.linkedFramework("Security", .when(platforms: [.macOS]))]),
+        .target(name: "RightKitMenuBarHelper", dependencies: ["RightKitActionChannel"], path: "swift/RightKitSwift/Sources/RightKitMenuBarHelper"),
+        .target(name: "RightKitDictationPill", dependencies: ["RightKitOverlay"], path: "swift/RightKitSwift/Sources/RightKitDictationPill"),
         .testTarget(name: "RightKitOverlayTests", dependencies: ["RightKitOverlay"], path: "swift/RightKitSwift/Tests/RightKitOverlayTests"),
         // FSEvents file watcher (macOS only; the target is empty on iOS). CoreServices from the SDK.
         .target(name: "RightKitWatch", path: "swift/RightKitSwift/Sources/RightKitWatch"),
@@ -141,6 +154,10 @@ let package = Package(
         .testTarget(name: "RightKitHubTests", dependencies: ["RightKitHub", "RightKitHubQA"], path: "swift/RightKitSwift/Tests/RightKitHubTests"),
         // Line-JSON `rightkit-sync-helper/1` CloudKit helper over RightKitCloudSync (macOS only; empty elsewhere).
         .executableTarget(name: "rightkit-cloudkit-helper", dependencies: ["RightKitCloudSync"], path: "swift/RightKitSwift/Sources/rightkit-cloudkit-helper"),
-        .testTarget(name: "RightKitCloudKitHelperTests", dependencies: ["rightkit-cloudkit-helper"], path: "swift/RightKitSwift/Tests/RightKitCloudKitHelperTests"),
+        .target(name: "RightKitSend", path: "swift/RightKitSwift/Sources/RightKitSend"),
+        .target(name: "RightKitJobQueue", path: "swift/RightKitSwift/Sources/RightKitJobQueue"),
+        .target(name: "RightKitCLIProtocol", path: "swift/RightKitSwift/Sources/RightKitCLIProtocol"),
+        .target(name: "RightKitURLPolicy", path: "swift/RightKitSwift/Sources/RightKitURLPolicy"),
+        .target(name: "RightKitDaemonClient", path: "swift/RightKitSwift/Sources/RightKitDaemonClient"),
     ],
 )
