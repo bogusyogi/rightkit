@@ -49,7 +49,6 @@ pub mod check;
 pub mod cli_tools;
 pub mod config;
 pub mod control;
-/// Owner-side credential protocol; unavailable until independent runner proof & store isolation exist.
 #[cfg(feature = "credential-owner")]
 pub mod credential_owner;
 /// macOS permission-dialog evidence.
