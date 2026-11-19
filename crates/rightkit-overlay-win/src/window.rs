@@ -519,7 +519,14 @@ impl OverlayWindow {
         self.handle.clone()
     }
 
-    /// Closes the window and waits for its thread. Same as dropping it.
+    /// Requests closure & transfers the owner thread to the caller for retirement tracking.
+    /// Join it off the UI thread to observe completion, including teardown after window closure.
+    pub fn close_into_join_handle(mut self) -> JoinHandle<()> {
+        self.handle.close();
+        self.thread.take().expect("live overlay owns its thread")
+    }
+
+    /// Requests closure & waits up to the owner's shutdown timeout. Same as dropping it.
     pub fn close(self) {
         drop(self);
     }
@@ -527,8 +534,8 @@ impl OverlayWindow {
 
 impl Drop for OverlayWindow {
     fn drop(&mut self) {
-        self.handle.close();
         if let Some(thread) = self.thread.take() {
+            self.handle.close();
             #[cfg(windows)]
             crate::win::join_bounded(thread);
             #[cfg(not(windows))]
