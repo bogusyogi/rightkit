@@ -1,4 +1,4 @@
-// rightkit-overlay-win 0.1.5 consumed by exact registry pin, outside the workspace.
+// rightkit-overlay-win 0.1.6 consumed by exact registry pin, outside the workspace.
 //
 // Proves the pure, window-free API on every host (so it builds and runs on the macOS runner): Easing and
 // Animation sampling, Rgba, DPI and hit-test geometry, path construction and parsing, bar layout, and
@@ -182,6 +182,6 @@ fn main() -> Result<(), String> {
     let short = rightkit_overlay_win::response_layout::excerpt("short text", 40);
     assert!(short.contains("short text"));
 
-    println!("OK rightkit-overlay-win 0.1.5 (registry consumer)");
+    println!("OK rightkit-overlay-win 0.1.6 (registry consumer)");
     Ok(())
 }

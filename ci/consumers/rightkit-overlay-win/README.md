@@ -1,6 +1,6 @@
-# rightkit-overlay-win 0.1.5 (registry consumer recipe)
+# rightkit-overlay-win 0.1.6 (registry consumer recipe)
 
-Standalone consumer, outside the workspace, pinning `rightkit-overlay-win =0.1.5` exactly. It builds
+Standalone consumer, outside the workspace, pinning `rightkit-overlay-win =0.1.6` exactly. It builds
 and runs on every host, including the macOS runner, because it uses only the pure, window-free parts of
 the public API:
 

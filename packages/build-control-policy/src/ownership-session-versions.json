@@ -674,7 +674,7 @@
     "rightkit-ocr": "0.3.0",
     "rightkit-onnx": "0.3.2",
     "rightkit-overlay": "0.2.3",
-    "rightkit-overlay-win": "0.1.5",
+    "rightkit-overlay-win": "0.1.6",
     "rightkit-owner-approvals": "0.1.2",
     "rightkit-ownership": "0.4.6",
     "rightkit-passkeys": "0.1.0",
@@ -1209,7 +1209,8 @@
       "0.2.0"
     ],
     "rightkit-overlay-win": [
-      "0.1.0"
+      "0.1.0",
+      "0.1.5"
     ],
     "rightkit-ownership": [
       "0.2.0",

@@ -2531,16 +2531,16 @@
     "rightkit-overlay-win": {
       "pkId": "PK08",
       "id": "ci/consumers/rightkit-overlay-win/src/main.rs",
-      "dependency": "rightkit-overlay-win = { version = \"=0.1.5\" }",
+      "dependency": "rightkit-overlay-win = { version = \"=0.1.6\" }",
       "extraDependencies": [],
       "gateEvidence": "no assets needed; pure geometry, animation, colour, path and offscreen painting only, so it builds and runs on the macOS runner; no window, HWND, owner thread, DWM call, timer or file on any host (OverlayWindow::create is only refused: InvalidConfig everywhere, Unsupported off Windows)",
       "consumes": "PK08 overlay consumers (same family as rightkit-overlay; reviewed recipe, named product consumers not re-read here); rightkit-overlay-win public items used: Easing and Animation (src/anim.rs), Rgba (src/color.rs), scale_for_dpi, device_size, client_to_logical, hit_test, device_regions, HitRegion (src/geometry.rs), rounded_rect_path, parse_svg_path, transform_path (src/path.rs), bar_rects and BarStyle, PaintCtx::offscreen (src/paint.rs), OverlayWindow::create and OverlayConfig (src/window.rs), response_layout::excerpt (src/response_layout.rs, since 0.1.5)",
       "files": {
-        "Cargo.toml": "efe3791d16f88ba388ec2513c2af8cf3f36fc9f4ed7fd9ce5a2775b8d2e10e89",
-        "README.md": "49edd6359bfd3d8c3d5751dd5e8a97cfd3add0bf648973048379e797339a03b1",
-        "src/main.rs": "52a93886804372b5ba8ad5d38e88f569115ab3a0affa3cb6cd09ead0380839a6"
+        "Cargo.toml": "7583d75e537d98c4467d41115247b904ebc4f2ed1dffdcacdbb11cd708643c59",
+        "README.md": "4c80457471005280ed1574553998ff039557ca500f70e92b2e8d11d7b224117a",
+        "src/main.rs": "85d8904eae35b1f289f9fe32144fa9015099faff51d4ead8de0978d055b104ad"
       },
-      "aggregateSha256": "44a0f33b27ab3dba55ad7ab0bae5eced2a291b5d954aa835b010e5043b61f876"
+      "aggregateSha256": "0cf5c500c4f147b1dad28b54856e06cafb6c9798b4fe86fd05dfc710f15c3f0d"
     },
     "rightkit-android": {
       "pkId": "PK09",
