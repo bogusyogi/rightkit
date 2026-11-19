@@ -85,6 +85,65 @@ struct KeywordResult {
     detection: Option<Box<KeywordDetection>>,
 }
 
+/// The spotter's onset-history and estimator settings
+/// ([`rust_kws::OnsetConfig`] without the acoustic search and the D4 estimator, which
+/// [`KwsSwitches`] carries separately); `Copy` so [`KwsSwitches`] stays `Copy`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct KwsOnsetParams {
+    pub encoder_history: usize,
+    pub feature_history: usize,
+    pub align_lead_frames: usize,
+    pub posterior_threshold: f32,
+    pub posterior_max_frames: usize,
+    pub acoustic_max_frames: usize,
+}
+
+impl KwsOnsetParams {
+    /// The values of [`rust_kws::OnsetConfig::default`].
+    pub const DEFAULT: Self = Self {
+        encoder_history: 64,
+        feature_history: 320,
+        align_lead_frames: 10,
+        posterior_threshold: 1e-2,
+        posterior_max_frames: 15,
+        acoustic_max_frames: 30,
+    };
+
+    /// Bound retention to the shared front end's supported maximum (4096
+    /// encoder frames, with four feature frames per encoder frame). Estimator
+    /// lookbacks cannot request history beyond these retained windows.
+    pub fn validate(&self) -> Result<(), String> {
+        if !(1..=4096).contains(&self.encoder_history) {
+            return Err("onset encoder_history must be 1 to 4096 frames".into());
+        }
+        if !(1..=16_384).contains(&self.feature_history) {
+            return Err("onset feature_history must be 1 to 16384 frames".into());
+        }
+        if self.align_lead_frames > self.encoder_history
+            || self.posterior_max_frames > self.encoder_history
+            || self.align_lead_frames + self.posterior_max_frames > self.encoder_history
+        {
+            return Err("onset alignment and posterior lookbacks must fit encoder_history".into());
+        }
+        if self.acoustic_max_frames > self.feature_history {
+            return Err("onset acoustic_max_frames must fit feature_history".into());
+        }
+        if !self.posterior_threshold.is_finite()
+            || !(0.0..=1.0).contains(&self.posterior_threshold)
+        {
+            return Err("onset posterior_threshold must be finite and 0 to 1".into());
+        }
+        Ok(())
+    }
+}
+
+/// Per-spotter timing the cascade's switches set.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct SpotterTiming {
+    decode_step_samples: usize,
+    max_keyword_span_seconds: f32,
+}
+
 /// Decoder knobs of the spotter beyond the fixed model contract. Production
 /// uses [`RustKwsTuning::PRODUCTION`] with any [`KwsSwitches`] applied.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -119,6 +178,14 @@ struct RustKwsTuning {
     decoder_table: bool,
     /// Shared front end C6 (default off).
     shared_front_end: bool,
+    /// Intra-op threads per ONNX session ([`KwsSwitches::threads`]).
+    threads: usize,
+    num_trailing_blanks: i32,
+    onset_params: KwsOnsetParams,
+    /// Samples between streaming decode checkpoints.
+    decode_step_samples: usize,
+    /// Longest accepted first-to-last keyword token span.
+    max_keyword_span_seconds: f32,
 }
 
 impl RustKwsTuning {
@@ -143,6 +210,11 @@ impl RustKwsTuning {
         encoder_state_reuse: false,
         decoder_table: false,
         shared_front_end: false,
+        threads: NUM_THREADS as usize,
+        num_trailing_blanks: NUM_TRAILING_BLANKS,
+        onset_params: KwsOnsetParams::DEFAULT,
+        decode_step_samples: KWS_DECODE_STEP_SAMPLES,
+        max_keyword_span_seconds: MAX_KEYWORD_SPAN_SECONDS,
     };
 }
 
@@ -226,6 +298,43 @@ enum ConfirmTimestamp {
     /// The confirm stream's first keyword timestamp (emission), independent of the optional
     /// onset estimators.
     Emission,
+}
+
+impl ConfirmTimestamp {
+    fn as_str(self) -> &'static str {
+        match self {
+            ConfirmTimestamp::Aligned => "aligned",
+            ConfirmTimestamp::Emission => "emission",
+        }
+    }
+}
+
+/// Which side a cut label selected, for the onset report.
+fn cut_side(label: &str) -> &'static str {
+    match label {
+        "confirm_aligned"
+        | "confirm_first_token"
+        | "confirm_earlier"
+        | "confirm_beyond_400ms"
+        | "confirm_first_token_emission"
+        | "confirm_earlier_emission"
+        | "confirm_beyond_400ms_emission" => "confirm",
+        l if l.starts_with("no_trusted_boundary") => "none",
+        _ => "wake",
+    }
+}
+
+/// Cut evidence of one latched command under a non-default source, as reported.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct CutEvidence {
+    wake_cut: Option<usize>,
+    /// The confirm sample the source used, on the outer clock (origin + raw).
+    confirm_estimate: Option<usize>,
+    /// The timestamp method that produced `confirm_estimate`: `aligned` or `emission`.
+    method: &'static str,
+    /// The RAW confirm sample before any origin mapping (stream-relative).
+    raw_confirm_sample: Option<usize>,
+    selected: &'static str,
 }
 
 impl KwsCutSource {
@@ -336,6 +445,33 @@ pub struct KwsSwitches {
     /// HELD candidate's start, on top of the overlap rule. Only acts while a candidate is held.
     /// Default 0 = off.
     pub wake_start_proximity_samples: usize,
+    /// Beam width of the wake and confirm spotters, 1 to 16 (the hey-wake
+    /// spotter keeps [`MAX_ACTIVE_PATHS`]). Default 8.
+    pub max_active_paths: i32,
+    /// Blank frames a keyword must be followed by before it fires, 0 to 160. Default 0.
+    pub num_trailing_blanks: i32,
+    /// The upstream 1.5 s trailing-blank stream reset. Default `false`.
+    pub trailing_blank_reset: bool,
+    /// Joiner log-softmax in `f64`. Default `false`.
+    pub softmax_f64: bool,
+    /// Onset history and estimator settings. Default the spotter's own.
+    pub onset_params: KwsOnsetParams,
+    /// Samples between streaming decode checkpoints, at most 102400 (6.4 s).
+    /// Default 800 (50 ms); 0 uses one sample.
+    pub decode_step_samples: usize,
+    /// Audio the confirmation stream starts before the wake onset. Default 2 s. Not supported
+    /// with `shared_front_end` (checked by [`KwsSwitches::validate`]). At most 6.4 s.
+    pub confirm_context_samples: usize,
+    /// How long a wake candidate stays open after its end, at most 6.4 s. Default 1.5 s.
+    pub confirm_timeout_samples: usize,
+    /// Synthetic silence a fresh confirmation appends, at most 6.4 s. Default 200 ms.
+    pub fresh_tail_samples: usize,
+    /// Longest accepted first-to-last keyword token span, finite, positive & at most 6.4 s.
+    /// Default 2.0 s.
+    pub max_keyword_span_seconds: f32,
+    /// Intra-op threads of each ONNX session, at most 16. Default 1 (`NUM_THREADS`);
+    /// 0 is treated as 1.
+    pub threads: usize,
 }
 
 /// Which trace records to keep. Default off (`KwsSwitches::trace` `None`); every value is
@@ -451,6 +587,17 @@ impl Default for KwsSwitches {
             cut_source_shift_ms: -200,
             wake_refractory_samples: 0,
             wake_start_proximity_samples: 0,
+            max_active_paths: MAX_ACTIVE_PATHS,
+            num_trailing_blanks: tuning.num_trailing_blanks,
+            trailing_blank_reset: tuning.trailing_blank_reset,
+            softmax_f64: tuning.softmax_f64,
+            onset_params: tuning.onset_params,
+            decode_step_samples: tuning.decode_step_samples,
+            confirm_context_samples: CONFIRM_CONTEXT_SAMPLES,
+            confirm_timeout_samples: CONFIRM_TIMEOUT_SAMPLES,
+            fresh_tail_samples: FRESH_CONFIRMATION_TAIL_SAMPLES,
+            max_keyword_span_seconds: tuning.max_keyword_span_seconds,
+            threads: tuning.threads,
         }
     }
 }
@@ -460,6 +607,39 @@ impl KwsSwitches {
     /// and D4 selected or enabled while onset estimation is off. Run on every load.
     pub fn validate(&self) -> Result<(), String> {
         self.fricative.validate()?;
+        self.onset_params.validate()?;
+        // Keep replay allocations and scheduling within the existing 6.4 s
+        // shared-front-end horizon. Zero retains its documented meanings:
+        // decode step / threads become one; context, timeout and tail may be off.
+        const MAX_REPLAY_SAMPLES: usize = rust_kws::DEFAULT_RING_FRAMES * ENCODER_FRAME_SAMPLES;
+        const MAX_REPLAY_SECONDS: f32 = MAX_REPLAY_SAMPLES as f32 / SAMPLE_RATE as f32;
+        if !(1..=16).contains(&self.max_active_paths) {
+            return Err("max_active_paths must be 1 to 16".into());
+        }
+        if !(0..=rust_kws::DEFAULT_RING_FRAMES as i32).contains(&self.num_trailing_blanks) {
+            return Err("num_trailing_blanks must be 0 to 160 encoder frames".into());
+        }
+        if self.threads > 16 {
+            return Err("threads must be 0 to 16 (0 uses one thread)".into());
+        }
+        for (name, samples) in [
+            ("decode_step_samples", self.decode_step_samples),
+            ("confirm_context_samples", self.confirm_context_samples),
+            ("confirm_timeout_samples", self.confirm_timeout_samples),
+            ("fresh_tail_samples", self.fresh_tail_samples),
+        ] {
+            if samples > MAX_REPLAY_SAMPLES {
+                return Err(format!("{name} must be 0 to {MAX_REPLAY_SAMPLES} samples"));
+            }
+        }
+        if !self.max_keyword_span_seconds.is_finite()
+            || self.max_keyword_span_seconds <= 0.0
+            || self.max_keyword_span_seconds > MAX_REPLAY_SECONDS
+        {
+            return Err(format!(
+                "max_keyword_span_seconds must be finite, positive and at most {MAX_REPLAY_SECONDS}"
+            ));
+        }
         if self.fricative.enabled && self.onset.is_none() {
             return Err("fricative.enabled needs onset estimation (onset is off)".into());
         }
@@ -482,6 +662,9 @@ impl KwsSwitches {
             if self.shared_front_end {
                 return Err("cut_source is not qualified with shared_front_end".into());
             }
+        }
+        if self.shared_front_end && self.confirm_context_samples != CONFIRM_CONTEXT_SAMPLES {
+            return Err("confirm_context_samples is not supported with shared_front_end".into());
         }
         if let Some(trace) = self.trace {
             if !trace.firing && trace.window_frames == 0 {
@@ -513,6 +696,13 @@ impl KwsSwitches {
             encoder_state_reuse: self.encoder_state_reuse,
             decoder_table: self.decoder_table,
             shared_front_end: self.shared_front_end,
+            threads: self.threads.max(1),
+            num_trailing_blanks: self.num_trailing_blanks,
+            trailing_blank_reset: self.trailing_blank_reset,
+            softmax_f64: self.softmax_f64,
+            onset_params: self.onset_params,
+            decode_step_samples: self.decode_step_samples.max(1),
+            max_keyword_span_seconds: self.max_keyword_span_seconds,
             ..base
         }
     }
@@ -595,6 +785,22 @@ pub struct KwsOnsetReport {
     pub chosen_source: Option<&'static str>,
     /// The wake candidate's cut start a latch would use after this detection.
     pub cut_sample: Option<usize>,
+    /// The cut path's emission sample: origin + first keyword timestamp, `None` when the
+    /// origin or the timestamp is missing or invalid (unlike `emission_sample`, which
+    /// defaults them to 0).
+    pub emission_sample_checked: Option<usize>,
+    /// Non-default cut sources, latched confirm stages: the wake candidate's cut.
+    pub cut_wake_sample: Option<usize>,
+    /// The confirm path's first-token sample for the source's timestamp method (None when
+    /// missing).
+    pub cut_confirm_sample: Option<usize>,
+    /// Which side the cut took: `wake`, `confirm` or `none` (no trusted boundary).
+    pub cut_selected: Option<&'static str>,
+    /// The timestamp method `cut_confirm_sample` came from: `aligned` or `emission`.
+    pub cut_method: Option<&'static str>,
+    /// The RAW (stream-relative, before origin mapping) confirm sample. With
+    /// `origin_sample` this reproduces `cut_confirm_sample`.
+    pub cut_raw_confirm_sample: Option<usize>,
     /// Confirm stages: this detection latched a command.
     pub latched: bool,
     /// Identity of the wake candidate this report belongs to: on a `wake` report, the id the
@@ -727,14 +933,22 @@ impl KwsRuntime {
             threshold,
             paths,
         )
-        .map(|spotter| KwsSpotter(RefCell::new(spotter)))
+        .map(|spotter| {
+            KwsSpotter(
+                RefCell::new(spotter),
+                SpotterTiming {
+                    decode_step_samples: self.tuning.decode_step_samples,
+                    max_keyword_span_seconds: self.tuning.max_keyword_span_seconds,
+                },
+            )
+        })
     }
 }
 
 /// One keyword spotter (model sessions + keyword graph). `decode` takes `&mut`;
 /// a spotter is only touched by its one ASR worker thread, one call at a time,
 /// so the borrow never overlaps.
-struct KwsSpotter(RefCell<rust_kws::KeywordSpotter>);
+struct KwsSpotter(RefCell<rust_kws::KeywordSpotter>, SpotterTiming);
 
 /// One audio stream of a [`KwsSpotter`].
 struct KwsStream(rust_kws::KeywordStream);
@@ -885,8 +1099,8 @@ enum ConfirmationFeed {
     Gap,
 }
 
-fn next_decode_boundary(sample: usize) -> usize {
-    sample.saturating_add(KWS_DECODE_STEP_SAMPLES)
+fn next_decode_boundary(sample: usize, step: usize) -> usize {
+    sample.saturating_add(step)
 }
 
 fn classify_confirmation_feed(
@@ -995,9 +1209,9 @@ impl CascadeClock {
         self.candidate
     }
 
-    fn expire_if_needed(&mut self, live_sample: usize) -> bool {
+    fn expire_if_needed(&mut self, live_sample: usize, timeout_samples: usize) -> bool {
         let expired = self.candidate.is_some_and(|candidate| {
-            live_sample > candidate.end_sample.saturating_add(CONFIRM_TIMEOUT_SAMPLES)
+            live_sample > candidate.end_sample.saturating_add(timeout_samples)
         });
         if expired {
             self.candidate = None;
@@ -1028,7 +1242,7 @@ impl Kws {
     pub fn load_with_switches(model_dir: &Path, switches: KwsSwitches) -> Result<Self, String> {
         Self::load_with_paths_and_switches(
             model_dir,
-            MAX_ACTIVE_PATHS,
+            switches.max_active_paths,
             switches.tuning(RustKwsTuning::PRODUCTION),
             switches,
         )
@@ -1040,12 +1254,12 @@ impl Kws {
         if !matches!(paths, 4 | 8 | 16) {
             return Err("replay paths must be 4, 8 or 16".into());
         }
-        let switches = KwsSwitches::default();
-        Self::load_with_paths_and_switches(
+        Self::load_with_switches(
             model_dir,
-            paths,
-            switches.tuning(RustKwsTuning::PRODUCTION),
-            switches,
+            KwsSwitches {
+                max_active_paths: paths,
+                ..KwsSwitches::default()
+            },
         )
     }
 
@@ -1055,8 +1269,8 @@ impl Kws {
         tuning: RustKwsTuning,
         switches: KwsSwitches,
     ) -> Result<Self, String> {
-        validate_model_dir(model_dir)?;
         switches.validate()?;
+        validate_model_dir(model_dir)?;
         let runtime = KwsRuntime::load(tuning, model_dir)?;
 
         let wake_spotter =
@@ -1067,9 +1281,9 @@ impl Kws {
         tracing::info!(
             "KWS cascade loaded: model={} cpu_threads={} max_active_paths={} trailing_blanks={} switches={:?}",
             model_dir.display(),
-            NUM_THREADS,
+            switches.threads.max(1),
             paths,
-            NUM_TRAILING_BLANKS,
+            switches.num_trailing_blanks,
             switches
         );
         if switches.decoder_table {
@@ -1314,8 +1528,11 @@ impl Kws {
             candidate_id: candidate.map(|candidate| candidate.id),
             candidate_start_sample: candidate.map(|candidate| candidate.start_sample),
             candidate_end_sample: candidate.map(|candidate| candidate.end_sample),
-            expiry_deadline_sample: candidate
-                .map(|candidate| candidate.end_sample.saturating_add(CONFIRM_TIMEOUT_SAMPLES)),
+            expiry_deadline_sample: candidate.map(|candidate| {
+                candidate
+                    .end_sample
+                    .saturating_add(self.switches.confirm_timeout_samples)
+            }),
         });
     }
 
@@ -1334,7 +1551,9 @@ impl Kws {
         } else {
             None
         };
-        let expired = self.clock.expire_if_needed(live_sample);
+        let expired = self
+            .clock
+            .expire_if_needed(live_sample, self.switches.confirm_timeout_samples);
         if let (true, Some(candidate)) = (expired, candidate) {
             self.push_trace_feed(KwsFeedEvent {
                 stage: "confirm",
@@ -1362,7 +1581,9 @@ impl Kws {
                 candidate_start_sample: Some(candidate.start_sample),
                 candidate_end_sample: Some(candidate.end_sample),
                 expiry_deadline_sample: Some(
-                    candidate.end_sample.saturating_add(CONFIRM_TIMEOUT_SAMPLES),
+                    candidate
+                        .end_sample
+                        .saturating_add(self.switches.confirm_timeout_samples),
                 ),
             });
         }
@@ -1409,9 +1630,9 @@ impl Kws {
         candidate: WakeCandidate,
         result: &KeywordResult,
         origin: Option<usize>,
-    ) -> WakeCandidate {
+    ) -> (WakeCandidate, Option<CutEvidence>) {
         if self.switches.cut_source == KwsCutSource::WakeCandidate {
-            return candidate;
+            return (candidate, None);
         }
         let aligned = result
             .detection
@@ -1419,13 +1640,24 @@ impl Kws {
             .and_then(|detection| detection.onset.as_ref())
             .and_then(|onset| onset.aligned);
         // One stream clock: both timestamp methods map through the confirm stream origin.
-        let estimate = match self.switches.cut_source.confirm_timestamp() {
+        let method = self.switches.cut_source.confirm_timestamp();
+        let (raw_confirm, estimate) = match method {
             ConfirmTimestamp::Emission => {
-                emission_confirm_sample(origin, result.timestamps.first().copied()).1
+                emission_confirm_sample(origin, result.timestamps.first().copied())
             }
-            ConfirmTimestamp::Aligned => origin
-                .zip(aligned)
-                .map(|(origin, aligned)| onset_sample(origin, aligned)),
+            ConfirmTimestamp::Aligned => (
+                aligned.map(|a| a.feature_frame.max(0) as usize * FEATURE_SHIFT_SAMPLES),
+                origin
+                    .zip(aligned)
+                    .map(|(origin, aligned)| onset_sample(origin, aligned)),
+            ),
+        };
+        let evidence = |label: &'static str| CutEvidence {
+            wake_cut: candidate.cut_start_sample,
+            confirm_estimate: estimate,
+            method: method.as_str(),
+            raw_confirm_sample: raw_confirm,
+            selected: cut_side(label),
         };
         match decide_latched_cut(
             self.switches.cut_source,
@@ -1434,16 +1666,22 @@ impl Kws {
             estimate,
             self.switches.cut_source_shift_ms,
         ) {
-            LatchedCut::Cut(cut, label) => WakeCandidate {
-                cut_start_sample: Some(cut),
-                cut_source: label,
-                ..candidate
-            },
-            LatchedCut::NoTrustedBoundary(label) => WakeCandidate {
-                cut_start_sample: None,
-                cut_source: label,
-                ..candidate
-            },
+            LatchedCut::Cut(cut, label) => (
+                WakeCandidate {
+                    cut_start_sample: Some(cut),
+                    cut_source: label,
+                    ..candidate
+                },
+                Some(evidence(label)),
+            ),
+            LatchedCut::NoTrustedBoundary(label) => (
+                WakeCandidate {
+                    cut_start_sample: None,
+                    cut_source: label,
+                    ..candidate
+                },
+                Some(evidence(label)),
+            ),
         }
     }
 
@@ -1461,14 +1699,18 @@ impl Kws {
         latched: bool,
         candidate_id: Option<u64>,
         adopted: Option<bool>,
+        evidence: Option<CutEvidence>,
     ) {
         let Some(detection) = result.detection.as_deref() else {
             return;
         };
-        // A shared beam whose onset history was evicted still reports, with no onset.
+        // A shared beam whose onset history was evicted still reports, with no onset. The cut
+        // evidence of a non-default source does not depend on onset data, so a report is also
+        // built when evidence exists; for the default source the early return is unchanged.
         let onset = match (detection.onset.as_ref(), detection.onset_unavailable) {
             (Some(onset), _) => Some(onset),
             (None, Some(_)) => None,
+            (None, None) if evidence.is_some() => None,
             (None, None) => return,
         };
         let base = origin.unwrap_or(0);
@@ -1518,6 +1760,16 @@ impl Kws {
             chosen_sample: chosen.and_then(|(sample, _)| sample),
             chosen_source: chosen.map(|(_, source)| source),
             cut_sample,
+            emission_sample_checked: emission_confirm_sample(
+                origin,
+                result.timestamps.first().copied(),
+            )
+            .1,
+            cut_wake_sample: evidence.and_then(|e| e.wake_cut),
+            cut_confirm_sample: evidence.and_then(|e| e.confirm_estimate),
+            cut_selected: evidence.map(|e| e.selected),
+            cut_method: evidence.map(|e| e.method),
+            cut_raw_confirm_sample: evidence.and_then(|e| e.raw_confirm_sample),
             latched,
             candidate_id,
             adopted,
@@ -1616,7 +1868,7 @@ impl Kws {
             fed_until_sample: 0,
             accepted_until_sample: 0,
             pending_audio: Vec::new(),
-            next_decode_sample: KWS_DECODE_STEP_SAMPLES,
+            next_decode_sample: self.switches.decode_step_samples.max(1),
         });
         Ok(())
     }
@@ -1681,6 +1933,7 @@ impl Kws {
             None,
             None,
             false,
+            None,
             None,
             None,
         );
@@ -1811,7 +2064,7 @@ impl Kws {
         }
         let Some(result) = self
             .confirm_spotter
-            .decode_fresh(audio, FRESH_CONFIRMATION_TAIL_SAMPLES)?
+            .decode_fresh(audio, self.switches.fresh_tail_samples)?
         else {
             return Ok((empty_result(), None));
         };
@@ -1878,7 +2131,7 @@ impl Kws {
         };
         let fresh = self.confirm_spotter.decode_fresh_with(
             audio,
-            FRESH_CONFIRMATION_TAIL_SAMPLES,
+            self.switches.fresh_tail_samples,
             trace_window,
         )?;
         self.store_stream_trace(
@@ -1894,10 +2147,10 @@ impl Kws {
             return Ok((empty_result(), None));
         };
         let latch = command_text(&result.keyword).is_some_and(|text| text != "zephyr");
-        let candidate = if latch {
+        let (candidate, evidence) = if latch {
             self.latched_candidate(candidate, &result, snapshot_start_sample)
         } else {
-            candidate
+            (candidate, None)
         };
         self.report_onset(
             "fresh_confirm",
@@ -1909,6 +2162,7 @@ impl Kws {
             latch,
             Some(candidate.id),
             None,
+            evidence,
         );
         if !latch {
             return Ok((empty_result(), None));
@@ -2042,6 +2296,7 @@ impl Kws {
                         false,
                         adopted_id,
                         Some(adopted_id.is_some()),
+                        None,
                     );
                 }
             }
@@ -2071,10 +2326,10 @@ impl Kws {
                         .shared_confirmation
                         .as_ref()
                         .map(|shared| shared.origin_sample));
-                let candidate = if latch {
+                let (candidate, evidence) = if latch {
                     self.latched_candidate(candidate, &result, origin)
                 } else {
-                    candidate
+                    (candidate, None)
                 };
                 self.report_onset(
                     "confirm",
@@ -2086,6 +2341,7 @@ impl Kws {
                     latch,
                     Some(candidate.id),
                     None,
+                    evidence,
                 );
                 if latch {
                     self.latched = true;
@@ -2126,7 +2382,10 @@ impl Kws {
     ) -> Result<Option<KeywordResult>, String> {
         if self.wake_stream.is_none() {
             let mut stream = self.wake_spotter.create_stream();
-            let next_decode_sample = next_decode_boundary(snapshot_start_sample);
+            let next_decode_sample = next_decode_boundary(
+                snapshot_start_sample,
+                self.switches.decode_step_samples.max(1),
+            );
             let (result, accepted_until_sample, pending_audio, next_decode_sample) =
                 self.wake_spotter.accept_and_decode_at_sample_boundaries(
                     &mut stream,
@@ -2318,7 +2577,7 @@ impl Kws {
         if self.confirmation_stream.is_none() {
             let anchor_sample = candidate
                 .start_sample
-                .saturating_sub(CONFIRM_CONTEXT_SAMPLES)
+                .saturating_sub(self.switches.confirm_context_samples)
                 .max(snapshot_start_sample)
                 .min(live_total_sample);
             let anchor_offset = anchor_sample - snapshot_start_sample;
@@ -2332,7 +2591,8 @@ impl Kws {
                 );
                 stream.0.set_trace_window(from_frame, to_frame);
             }
-            let next_decode_sample = next_decode_boundary(anchor_sample);
+            let next_decode_sample =
+                next_decode_boundary(anchor_sample, self.switches.decode_step_samples.max(1));
             // On error the new stream drops, which destroys it.
             let (result, accepted_until_sample, pending_audio, next_decode_sample) = self
                 .confirm_spotter
@@ -2548,7 +2808,10 @@ impl KwsSpotter {
             if !accepts_keyword_result(&result.keyword) {
                 continue;
             }
-            if !keyword_timestamps_are_plausible(&result.timestamps) {
+            if !keyword_timestamps_are_plausible(
+                &result.timestamps,
+                self.1.max_keyword_span_seconds,
+            ) {
                 let start = result.timestamps.first().copied();
                 let end = result.timestamps.last().copied();
                 tracing::warn!(
@@ -2695,7 +2958,7 @@ impl KwsSpotter {
         let mut consumed = 0usize;
         loop {
             while next_decode_sample <= accepted_until_sample {
-                next_decode_sample = next_decode_sample.saturating_add(KWS_DECODE_STEP_SAMPLES);
+                next_decode_sample = next_decode_sample.saturating_add(self.1.decode_step_samples);
             }
             let needed = next_decode_sample.saturating_sub(accepted_until_sample);
             if pending_audio.len().saturating_sub(consumed) < needed {
@@ -2707,7 +2970,7 @@ impl KwsSpotter {
             if let Some(result) = self.decode_ready_result(stream)? {
                 first_result.get_or_insert(result);
             }
-            next_decode_sample = next_decode_sample.saturating_add(KWS_DECODE_STEP_SAMPLES);
+            next_decode_sample = next_decode_sample.saturating_add(self.1.decode_step_samples);
         }
         if consumed > 0 {
             pending_audio.drain(..consumed);
@@ -2729,7 +2992,10 @@ impl KwsSpotter {
                 return Err("KWS decode readiness did not converge".into());
             }
             if let Some(result) = self.current_result(stream)? {
-                if !keyword_timestamps_are_plausible(&result.timestamps) {
+                if !keyword_timestamps_are_plausible(
+                    &result.timestamps,
+                    self.1.max_keyword_span_seconds,
+                ) {
                     let start = result.timestamps.first().copied();
                     let end = result.timestamps.last().copied();
                     tracing::warn!(
@@ -2814,19 +3080,24 @@ fn spotter_config(
     );
     config.features.sample_rate = SAMPLE_RATE as u32;
     config.features.num_bins = FEATURE_DIM as usize;
-    config.threads = NUM_THREADS as usize;
+    config.threads = tuning.threads;
     config.max_active_paths = usize::try_from(paths)
         .map_err(|_| format!("KWS max_active_paths must be positive: {paths}"))?;
-    config.num_trailing_blanks = NUM_TRAILING_BLANKS;
+    config.num_trailing_blanks = tuning.num_trailing_blanks;
     config.keywords_score = KEYWORDS_SCORE;
     config.keywords_threshold = threshold;
     config.active_path_ttl_frames = tuning.active_path_ttl_frames;
     config.trailing_blank_reset = tuning.trailing_blank_reset;
     config.softmax_f64 = tuning.softmax_f64;
     config.onset = tuning.onset.then(|| rust_kws::OnsetConfig {
+        encoder_history: tuning.onset_params.encoder_history,
+        feature_history: tuning.onset_params.feature_history,
+        align_lead_frames: tuning.onset_params.align_lead_frames,
+        posterior_threshold: tuning.onset_params.posterior_threshold,
+        posterior_max_frames: tuning.onset_params.posterior_max_frames,
+        acoustic_max_frames: tuning.onset_params.acoustic_max_frames,
         acoustic_search: tuning.acoustic_search,
         fricative: tuning.fricative,
-        ..Default::default()
     });
     config.threshold_tokens = tuning.threshold_tokens;
     config.joiner_batching = tuning.joiner_batching;
@@ -3173,7 +3444,7 @@ fn accepts_keyword_result(keyword: &str) -> bool {
 /// Validate one emitted acoustic path. Request wall age, live-audio lag &
 /// stream identity are enforced by the outer worker because the spotter's timestamp
 /// clock may omit leading silence & cannot be compared to accepted PCM count.
-fn keyword_timestamps_are_plausible(timestamps: &[f32]) -> bool {
+fn keyword_timestamps_are_plausible(timestamps: &[f32], max_span_seconds: f32) -> bool {
     let (Some(start), Some(end)) = (timestamps.first(), timestamps.last()) else {
         return false;
     };
@@ -3181,7 +3452,7 @@ fn keyword_timestamps_are_plausible(timestamps: &[f32]) -> bool {
         && end.is_finite()
         && *start >= 0.0
         && *end >= *start
-        && *end - *start <= MAX_KEYWORD_SPAN_SECONDS
+        && *end - *start <= max_span_seconds
         && timestamps
             .windows(2)
             .all(|pair| pair[0].is_finite() && pair[1].is_finite() && pair[1] >= pair[0])
@@ -3243,6 +3514,12 @@ mod tests {
             chosen_sample: None,
             chosen_source: Some(NO_BOUNDARY_SOURCE),
             cut_sample: None,
+            emission_sample_checked: None,
+            cut_wake_sample: None,
+            cut_confirm_sample: None,
+            cut_selected: None,
+            cut_method: None,
+            cut_raw_confirm_sample: None,
             latched,
             candidate_id,
             adopted,

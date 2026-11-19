@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.3 (2026-11-19)
+
+- Allow hosts to set bounded wake-spotter thread, beam, blank, timing and onset-history options. Default settings preserve the existing wake policy.
+- Include chosen cut timing and source in onset diagnostics when a non-default cut source is selected.
+
 ## 0.2.2 (2026-11-16)
 
 Host switches for the wake detector's cut policy and debounce, so a host that runs its own fork of `kws.rs` can move onto this crate. Additive and default-equal: a host that sets none of the new `KwsSwitches` fields gets the 0.2.1 behaviour, cut samples and labels.

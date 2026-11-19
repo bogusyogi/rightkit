@@ -3610,7 +3610,7 @@
       "pkId": "PK143",
       "id": "ci/consumers/rightkit-dictation-inference/src/main.rs",
       "files": {
-        "Cargo.toml": "ab1f06b9f26c26654cfd282f487227365f44218af083df7fe75a944cc93fb813",
+        "Cargo.toml": "dccccc251a7bb5d98e1ca73c70b87dc65ffbd4d707f6b7f522efdee510a1ef64",
         "README.md": "89cd6b543c65c2c41f57858e5c509ac1b6ccf1b6203962a630c557029f9dc0a6",
         "src/main.rs": "0cacc582546eab94785a38b3920ee28457c3c0bdc9c0fefad6e42038a282f2b4"
       }
