@@ -28,6 +28,8 @@ mod bundle;
 #[cfg(feature = "diagnostics")]
 mod diagnostics;
 pub mod dump_helper;
+#[cfg(feature = "support-bundle")]
+pub mod export;
 mod hang;
 mod hook;
 mod native;
