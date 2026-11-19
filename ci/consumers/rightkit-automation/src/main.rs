@@ -1,6 +1,6 @@
-// rightkit-automation 0.7.1 registry consumer, outside the workspace.
+// rightkit-automation 0.7.2 registry consumer, outside the workspace.
 //
-// Pins `rightkit-automation =0.7.1` exactly with `paths` and `desktop-context`, plus
+// Pins `rightkit-automation =0.7.2` exactly with `paths` and `desktop-context`, plus
 // `rightkit-daemon =0.9.0` exactly so the returned `Suite` can be named. No
 // path, git, workspace, patch, or test-seam dependencies. Runs on any host:
 // nothing here touches a desktop, a window, or the input ladder.
@@ -77,16 +77,31 @@ fn main() {
     );
     assert_eq!(sensitive_value("hello world"), None);
 
-    println!("rightkit-automation 0.7.1 registry consumer passed");
+    println!("rightkit-automation 0.7.2 registry consumer passed");
 }
 
 #[cfg(windows)]
 fn windows_published_surface() {
+    use rightkit_automation::desktop::uia_worker::{
+        Config, RestoreOutcome, ShutdownReport, StopTarget, Uia,
+    };
+    use rightkit_automation::desktop::wezterm::{
+        prepaste_probe, PanePreflight, WezTermPaneBinding, WezTermReadback,
+    };
     use rightkit_automation::win::uia::{
         ensure_com, focused_element, focused_element_editable, focused_element_is_password,
         focused_field_context, focused_field_raw_text, read_node, semantic, El,
     };
-    // Existing published API references only; no COM initialization or UIA call is made.
+    use std::time::Duration;
+
+    let _worker: fn(Config) -> Uia = Uia::new;
+    let _shutdown: fn(&Uia, Duration) -> ShutdownReport = Uia::shutdown;
+    let _restore: fn(&Uia, &StopTarget<()>) -> RestoreOutcome = Uia::restore_stop_target_outcome;
+    let _pane_probe: fn(
+        &WezTermPaneBinding,
+        Duration,
+        bool,
+    ) -> (PanePreflight, Option<WezTermReadback>) = prepaste_probe;
     let _ensure_com = ensure_com;
     let _focused_element = focused_element;
     let _editable = focused_element_editable;

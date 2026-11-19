@@ -15,6 +15,10 @@ pub const MAX_PREPARED_INPUT_EVENTS: usize = 1024;
 pub mod macos;
 
 #[cfg(target_os = "windows")]
+pub mod uia_worker;
+#[cfg(target_os = "windows")]
+pub mod wezterm;
+#[cfg(target_os = "windows")]
 pub mod windows;
 
 #[cfg(target_os = "macos")]

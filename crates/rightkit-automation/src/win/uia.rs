@@ -12,6 +12,8 @@ use std::cell::Cell;
 use std::mem::ManuallyDrop;
 use std::sync::OnceLock;
 use std::time::Instant;
+#[cfg(feature = "desktop-context")]
+use std::{cell::RefCell, marker::PhantomData, rc::Rc};
 use windows::core::{IUnknown, Interface, BSTR};
 use windows::Win32::Foundation::{HWND, POINT, RECT};
 use windows::Win32::System::Com::{
@@ -32,6 +34,8 @@ unsafe impl<T> Sync for Shared<T> {}
 
 thread_local! {
     static COM_READY: Cell<bool> = const { Cell::new(false) };
+    #[cfg(feature = "desktop-context")]
+    static PRIVATE_AUTO: RefCell<Option<IUIAutomation>> = const { RefCell::new(None) };
 }
 
 /// Join the multithreaded apartment on this thread (idempotent).
@@ -45,10 +49,33 @@ pub fn ensure_com() {
     });
 }
 
-fn automation() -> Option<&'static IUIAutomation> {
-    static AUTO: OnceLock<Option<Shared<IUIAutomation>>> = OnceLock::new();
-    ensure_com();
-    AUTO.get_or_init(|| unsafe {
+/// A worker's private UIA instance. Replacements create their own instance
+/// without waiting for another worker's `CoCreateInstance` or provider calls.
+#[cfg(feature = "desktop-context")]
+pub(crate) struct PrivateAutomation(PhantomData<Rc<()>>);
+
+#[cfg(feature = "desktop-context")]
+impl PrivateAutomation {
+    pub(crate) fn enter() -> Option<Self> {
+        if PRIVATE_AUTO.with(|slot| slot.borrow().is_some()) {
+            return None;
+        }
+        ensure_com();
+        let instance = create_automation()?;
+        PRIVATE_AUTO.with(|slot| *slot.borrow_mut() = Some(instance));
+        Some(Self(PhantomData))
+    }
+}
+
+#[cfg(feature = "desktop-context")]
+impl Drop for PrivateAutomation {
+    fn drop(&mut self) {
+        drop(PRIVATE_AUTO.with(|slot| slot.take()));
+    }
+}
+
+fn create_automation() -> Option<IUIAutomation> {
+    unsafe {
         CoCreateInstance::<Option<&IUnknown>, IUIAutomation>(
             &CUIAutomation8,
             None,
@@ -62,10 +89,41 @@ fn automation() -> Option<&'static IUIAutomation> {
             )
         })
         .ok()
-        .map(Shared)
-    })
-    .as_ref()
-    .map(|s| &s.0)
+    }
+}
+
+fn automation() -> Option<IUIAutomation> {
+    static AUTO: OnceLock<Option<Shared<IUIAutomation>>> = OnceLock::new();
+    ensure_com();
+    #[cfg(feature = "desktop-context")]
+    if let Some(instance) = PRIVATE_AUTO.with(|slot| slot.borrow().clone()) {
+        return Some(instance);
+    }
+    AUTO.get_or_init(|| create_automation().map(Shared))
+        .as_ref()
+        .map(|s| s.0.clone())
+}
+
+/// Set provider timeouts on the calling worker's private UIA instance.
+#[cfg(feature = "desktop-context")]
+pub(crate) fn set_provider_timeouts(connection_ms: u32, transaction_ms: u32) -> bool {
+    let Some(auto) = PRIVATE_AUTO.with(|slot| slot.borrow().clone()) else {
+        return false;
+    };
+    let Ok(auto2) = auto.cast::<IUIAutomation2>() else {
+        return false;
+    };
+    // SAFETY: plain property setters on a free-threaded instance.
+    unsafe {
+        let mut ok = true;
+        if connection_ms != 0 {
+            ok &= auto2.SetConnectionTimeout(connection_ms).is_ok();
+        }
+        if transaction_ms != 0 {
+            ok &= auto2.SetTransactionTimeout(transaction_ms).is_ok();
+        }
+        ok
+    }
 }
 
 /// An opaque UI Automation element. The native interface pointer is private to the crate, so no
@@ -226,6 +284,37 @@ impl El {
     pub fn native_hwnd(&self) -> Option<isize> {
         let h = unsafe { self.0.CurrentNativeWindowHandle() }.ok()?;
         (!h.0.is_null()).then_some(h.0 as isize)
+    }
+    /// Tri-state `native_hwnd`: `Ok(Some(h))` the element has window handle `h`;
+    /// `Ok(None)` the read succeeded and the element has no HWND of its own (a
+    /// virtual element); `Err(())` the `CurrentNativeWindowHandle` call FAILED
+    /// (element gone, provider error), which says nothing about whether it has
+    /// one. `native_hwnd` reports the last two the same way; a caller that must
+    /// not treat a failed read as "virtual" uses this.
+    #[cfg(feature = "desktop-context")]
+    pub(crate) fn native_hwnd_checked(&self) -> std::result::Result<Option<isize>, ()> {
+        let h = unsafe { self.0.CurrentNativeWindowHandle() }.map_err(|_| ())?;
+        Ok((!h.0.is_null()).then_some(h.0 as isize))
+    }
+    /// Tri-state `parent`: `Ok(Some(p))` the parent element; `Ok(None)` the walker
+    /// answered with no parent (the root of the ControlView tree); `Err(())` the
+    /// automation instance, the walker or the call failed. The `Ok(None)` case is
+    /// recognised by the empty interface result the `windows` crate reports for a
+    /// NULL out pointer (`E_POINTER`, or a success code with no element); that
+    /// classification is not verified against `windows` 0.62 on a real tree. A
+    /// caller must therefore treat `Ok(None)` and `Err(())` both as "no proof of
+    /// a parent", differing only in the diagnostic tag.
+    #[cfg(feature = "desktop-context")]
+    pub(crate) fn parent_checked(&self) -> std::result::Result<Option<El>, ()> {
+        let a = automation().ok_or(())?;
+        let walker = unsafe { a.ControlViewWalker() }.map_err(|_| ())?;
+        match unsafe { walker.GetParentElement(&self.0) } {
+            Ok(p) => Ok(Some(El(p))),
+            Err(e) if e.code().is_ok() || e.code() == windows::Win32::Foundation::E_POINTER => {
+                Ok(None)
+            }
+            Err(_) => Err(()),
+        }
     }
     /// Top-level window handle that owns this element.
     pub fn top_hwnd(&self) -> Option<isize> {
@@ -881,19 +970,47 @@ pub fn semantic(el: &El, action: &Action) -> Result<String> {
             Ok("ScrollPattern".into())
         }
         Action::Focus => {
-            // SetFocus can pull a background window forward; only focus inside the app that is already foreground.
-            let fg = super::sys::foreground_pid();
-            if fg.is_some() && fg == el.pid() {
-                unsafe { el.0.SetFocus() }.map_err(|e| win_err(e, "SetFocus"))?;
-                Ok("SetFocus".into())
-            } else {
-                Err(Error::Unsupported(
-                    "element is not in the foreground app (SetFocus would activate it)",
-                ))
-            }
+            let ready = focus_precheck(el)?;
+            set_focus_raw(ready)
         }
         _ => Err(Error::Unsupported("not a semantic action")),
     }
+}
+
+/// Proof that [`focus_precheck`] succeeded for one element; required by
+/// [`set_focus_raw`], so the effect cannot be called without its reads.
+pub(crate) struct FocusReady<'a>(&'a El);
+
+/// The reads of `semantic(el, Action::Focus)`, with no effect: `el.pid()` (a
+/// cross-process provider read that can block; made first) and the foreground
+/// process id (an OS call; made last). SetFocus can pull a background window
+/// forward, so it is allowed only inside the app that is already foreground.
+/// `Err` means SetFocus was not and will not be called. Unlike the original
+/// `semantic(Focus)`, `el.pid()` is read even when there is no foreground
+/// process (the original short-circuited).
+pub(crate) fn focus_precheck(el: &El) -> Result<FocusReady<'_>> {
+    // The provider read comes first (it can take up to the provider deadline); the
+    // cheap OS foreground read comes last, immediately before the verdict, so the
+    // time between the foreground check and the caller's SetFocus is as short as
+    // this function can make it.
+    let element_pid = el.pid();
+    let fg = super::sys::foreground_pid();
+    if fg.is_some() && fg == element_pid {
+        Ok(FocusReady(el))
+    } else {
+        Err(Error::Unsupported(
+            "element is not in the foreground app (SetFocus would activate it)",
+        ))
+    }
+}
+
+/// Exactly one provider call: `IUIAutomationElement::SetFocus`. No reads before
+/// or after. The call may block in a hung provider and complete late; a caller
+/// that stopped waiting must treat that as "issued, outcome unknown".
+pub(crate) fn set_focus_raw(ready: FocusReady<'_>) -> Result<String> {
+    let FocusReady(element) = ready;
+    unsafe { element.0.SetFocus() }.map_err(|e| win_err(e, "SetFocus"))?;
+    Ok("SetFocus".into())
 }
 
 pub fn field_text(el: &El) -> Option<FieldText> {

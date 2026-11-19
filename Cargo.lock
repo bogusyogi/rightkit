@@ -10704,7 +10704,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-automation"
-version = "0.7.1"
+version = "0.7.2"
 dependencies = [
  "core-foundation 0.10.1",
  "core-graphics",
@@ -10713,6 +10713,7 @@ dependencies = [
  "objc2-foundation",
  "rightkit-child-process",
  "rightkit-roots",
+ "serde_json",
  "windows 0.62.2",
  "windows-sys 0.61.2",
 ]

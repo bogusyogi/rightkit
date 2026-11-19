@@ -121,11 +121,13 @@ Published version: see [INDEX.md](../../INDEX.md). Changes are listed in [CHANGE
 - Run on a Windows host: `rustright cargo test -p rightkit-automation --test e2e_win -- --nocapture`. The test header says it has not been run on Windows.
 - Raw input (`win::input`): `send_input_batch(&[RawInput])` is one `SendInput` call from typed key, Unicode and mouse items, with an optional `dwExtraInfo` tag (`SendOptions`). `ModifierSnapshot` records held modifiers so a caller that releases them can restore them. No policy, focus or receipt checks: it is for hosts that own their own policy. Unit tests build the `INPUT` array without injecting.
 
-## Paste evidence addition (0.7.1 partial candidate)
+## Desktop paste evidence
 
 Enable `desktop-context` for macOS `desktop::paste_event_probe`. `PasteEventProbe::start` observes one PID & one nonzero host-generated paste tag, records at most eight Cmd+V transitions for at most two seconds & returns no text content. Listen-only taps retain normal OS permission checks; unavailable evidence returns `None`. User-disabled tap state stops observation. `finish` or Drop stops & joins its run loop.
 
-Windows `uia_worker` & `wezterm` extraction remains withheld: synchronous provider calls cannot currently prove safe bounded teardown. Existing 0.7.0 Windows APIs remain unchanged. macOS compilation, permission refusal, event correlation & cleanup require installed-host qualification before adoption.
+On Windows, `desktop::uia_worker::Uia` runs probes on a private COM worker. A hung provider can consume one worker slot, but the next request can replace the worker after its deadline & grace period. Keep one handle per host & call `shutdown` with a budget when the app exits. Use `restore_stop_target_outcome` to distinguish a verified restore, a refused effect & an issued call whose result could not be confirmed.
+
+`desktop::wezterm` verifies a bound Windows terminal pane with bounded CLI probes. Use `PanePreflight::Current` as positive evidence. An exhausted worker limit or incomplete check returns `Unknown`. Installed Windows verification covers provider hangs, same-process window changes & pane probe saturation.
 
 ### Windows link evidence prerequisite
 

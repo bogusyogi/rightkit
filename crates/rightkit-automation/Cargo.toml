@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-automation"
-version = "0.7.1"
+version = "0.7.2"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Brand-neutral desktop automation: observe and act on any app (macOS AX, Windows UIA) through a four-tier input ladder with safety, focus guard, and evidence receipts."
@@ -32,6 +32,7 @@ offscreen-private-spi = []
 desktop-context = [
   "dep:windows-sys",
   "dep:rightkit-child-process",
+  "dep:serde_json",
   "dep:core-foundation",
   "dep:core-graphics",
   "dep:objc2",
@@ -43,6 +44,8 @@ desktop-context = [
 rightkit-roots = { version = "0.2.0", path = "../rightkit-roots", optional = true }
 
 [target.'cfg(windows)'.dependencies]
+rightkit-child-process = { version = "0.5.14", path = "../rightkit-child-process", optional = true }
+serde_json = { version = "1", optional = true }
 windows = { version = "0.62", features = [
   "Win32_Foundation",
   "Win32_Graphics_Gdi",
@@ -108,3 +111,17 @@ file = "src/desktop/paste_event_probe.rs"
 holds = ["thread", "memory"]
 scale = "one listen-only target-PID event tap, at most eight tagged Cmd+V transitions & two-second lifetime"
 release = "finish or Drop stops & joins run loop, disables tap & releases CoreFoundation objects"
+
+[[package.metadata.rightkit.resources]]
+api = "desktop::uia_worker::Uia"
+file = "src/desktop/uia_worker/api.rs"
+holds = ["thread", "memory"]
+scale = "one active Windows UI Automation worker per handle, bounded abandoned workers, retained elements and release queue"
+release = "shutdown or Drop closes the queue; timed-out workers remain counted until their threads release the private COM instance and exit"
+
+[[package.metadata.rightkit.resources]]
+api = "desktop::wezterm::WezTermPin::begin"
+file = "src/desktop/wezterm.rs"
+holds = ["thread", "process", "memory"]
+scale = "at most eight detached pane-probe workers process-wide, each issuing one bounded CLI command at a time"
+release = "admission is held until each worker exits, including after the caller deadline and through child cleanup"

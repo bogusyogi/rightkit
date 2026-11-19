@@ -2286,9 +2286,9 @@
       "pkId": "PK15",
       "id": "ci/consumers/rightkit-automation/src/main.rs",
       "files": {
-        "Cargo.toml": "f922608e6cb88013cc82faf63cce58cf4e8581429f1ccbe96119efb55d47f5b6",
-        "README.md": "cd219e3c1f45a34107598dbac6e715c924b5b437ba119743afd7bc103bf22a26",
-        "src/main.rs": "abab944b1117017520bd0d8a090e250cd1f83d41b1e140b2abc8cb0fef87f6a5"
+        "Cargo.toml": "13edf1161a72db9c9c4b3a78dbf5b9891034de6a316d2068de078157c617c760",
+        "README.md": "bc2f1d58c5c16192d6f1095f76270457fb2af0da5b1fa412db70b0fa3297695f",
+        "src/main.rs": "56845efc2a1586596cd41521c6b93595b8197df32cfdfdebdf39a54c9097a4a2"
       }
     },
     "rightkit-agent-tools": {

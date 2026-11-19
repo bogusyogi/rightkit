@@ -1,6 +1,11 @@
 # Changelog
 
-## 0.7.1 (unpublished; partial extraction)
+## 0.7.2 (unpublished)
+
+- Add Windows UI Automation editor probes & retained focus restoration behind `desktop-context`. A replaced worker keeps its own COM instance until teardown. Restore requires current membership in the captured window, with an explicit outcome for an issued call that could not be confirmed.
+- Add bounded, pane-specific WezTerm verification. Saturated or timed-out pane probes return unknown. Existing macOS paste event evidence is retained.
+
+## 0.7.1 (2026-11-19)
 
 - Added read-only macOS `desktop::macos::physical_modifier_state`: both sides of Shift, Control, Option & Command plus Fn from Quartz HID state. Denied monitoring, Secure Input, unavailable console/session/source & inconsistent reads return typed unknown errors. No prompts, observers, input posting or content logging; native qualification pending.
 - Added single-use prepared keyboard batches on Windows & macOS: paste, Return, Unicode text & Backspace. Preparation injects nothing; dispatch posts prebuilt input without modifier waits, lookups or allocation. Existing APIs remain available; native qualification is pending.

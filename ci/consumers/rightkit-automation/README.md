@@ -1,6 +1,6 @@
-# rightkit-automation 0.7.1 registry consumer (`paths`, `desktop-context` features)
+# rightkit-automation 0.7.2 registry consumer (`paths`, `desktop-context` features)
 
-Standalone consumer, outside the workspace, pinning `rightkit-automation =0.7.1`
+Standalone consumer, outside the workspace, pinning `rightkit-automation =0.7.2`
 exactly with `paths` and `desktop-context`, and `rightkit-daemon =0.9.0` exactly so the
 returned `Suite` type can be named. No path, Git, workspace, patch, or
 test-seam dependency, and no `Cargo.lock` committed in this directory (the
@@ -13,10 +13,9 @@ OS temp dir, removed when the `Suite` drops.
 
 ## What it proves
 
-On Windows, type-checks references to the pre-existing public UIA API without
-initializing COM or reading UI state. On macOS, checks the retained tagged paste
-probe's limits and start API without starting an event tap. New Windows delivery
-surface is excluded from this candidate.
+On Windows, type-checks public UIA reads, bounded worker shutdown, typed focus
+restore & WezTerm pane probes. On macOS, checks the tagged paste probe's limits
+& start API. These API checks leave COM, the CLI & the event tap idle.
 
 | Proof row | Executed behavior |
 |---|---|
