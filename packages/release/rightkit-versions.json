@@ -787,7 +787,7 @@
       "rightkit-fsindex": "0.5.0",
       "rightkit-google-identity": "0.2.0",
       "rightkit-hooks": "0.2.0",
-      "rightkit-hotkeys": "0.1.5",
+      "rightkit-hotkeys": "0.1.6",
       "rightkit-http": "0.4.0",
       "rightkit-identity": "0.1.0",
       "rightkit-job-queue": "0.6.1",
@@ -1092,7 +1092,8 @@
       "0.1.1",
       "0.1.2",
       "0.1.4",
-      "0.1.5"
+      "0.1.5",
+      "0.1.6"
     ],
     "rightkit-http": [
       "0.1.0",
