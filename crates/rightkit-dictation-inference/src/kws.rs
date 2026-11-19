@@ -128,8 +128,7 @@ impl KwsOnsetParams {
         if self.acoustic_max_frames > self.feature_history {
             return Err("onset acoustic_max_frames must fit feature_history".into());
         }
-        if !self.posterior_threshold.is_finite()
-            || !(0.0..=1.0).contains(&self.posterior_threshold)
+        if !self.posterior_threshold.is_finite() || !(0.0..=1.0).contains(&self.posterior_threshold)
         {
             return Err("onset posterior_threshold must be finite and 0 to 1".into());
         }
