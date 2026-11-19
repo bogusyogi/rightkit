@@ -94,10 +94,10 @@ Capabilities: 224 (58 with fingerprints, 166 declaration-only). Internal owners 
 | dictation-command-host | `rightkit-dictation-command-host` | none | declaration-only | 0 | rightkit-dictation-command-host: staged 0.2.1, not published |
 | dictation-engine | `rightkit-dictation-engine` | none | declaration-only | 0 | rightkit-dictation-engine: staged 0.2.0, not published |
 | dictation-inference | `rightkit-dictation-inference` | none | declaration-only | 0 | rightkit-dictation-inference: published 0.2.3 (crates.io) |
-| dictation-models | `rightkit-dictation-models` | none | declaration-only | 0 | rightkit-dictation-models: staged 0.3.0, not published |
+| dictation-models | `rightkit-dictation-models` | none | declaration-only | 0 | rightkit-dictation-models: published 0.3.0 (crates.io) |
 | dictation-runtime | `rightkit-dictation-runtime` | none | declaration-only | 0 | rightkit-dictation-runtime: staged 0.2.3, not published |
 | dictation-telemetry | `rightkit-dictation-telemetry` | none | declaration-only | 0 | rightkit-dictation-telemetry: published 0.2.2 (crates.io) |
-| dictation-text-pipeline | `rightkit-dictation-text-pipeline` | none | declaration-only | 0 | rightkit-dictation-text-pipeline: staged 0.2.5, not published |
+| dictation-text-pipeline | `rightkit-dictation-text-pipeline` | none | declaration-only | 0 | rightkit-dictation-text-pipeline: published 0.2.5 (crates.io) |
 | dictation-ui | `@rightkit/dictation-ui` | none | declaration-only | 0 | @rightkit/dictation-ui: published 0.2.7 (npm) |
 | disk-cache | `rightkit-cache` | advise | fingerprinted | 1 (0 block, 1 advise) | rightkit-cache: published 0.2.3 (crates.io) |
 | disk-cleanup | `rightkit-disk-cleanup` | none | declaration-only | 0 | rightkit-disk-cleanup: staged 0.2.0, not published |

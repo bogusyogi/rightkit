@@ -3,6 +3,8 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
 
+use rightkit_app_settings::Store;
+pub use rightkit_app_settings::StoreOptions as DiskSettingsOptions;
 use serde::{Deserialize, Serialize};
 
 use rightkit_dictation_core::settings::{
@@ -11,6 +13,36 @@ use rightkit_dictation_core::settings::{
 };
 
 static SETTINGS_OVERRIDE: OnceLock<Mutex<Option<SettingsBlob>>> = OnceLock::new();
+static DISK_SETTINGS: OnceLock<DiskSettingsReader> = OnceLock::new();
+
+struct DiskSettingsReader {
+    options: DiskSettingsOptions,
+    store: Mutex<Option<Store<SettingsBlob>>>,
+}
+
+impl DiskSettingsReader {
+    fn read(&self, path: &std::path::Path) -> SettingsBlob {
+        let mut slot = self.store.lock().unwrap_or_else(|error| error.into_inner());
+        if !slot.as_ref().is_some_and(|store| store.path() == path) {
+            *slot = Store::open_read_only(path, self.options.clone()).ok();
+        }
+        let mut blob = slot.as_ref().map(Store::get).unwrap_or_default();
+        migrate(&mut blob);
+        blob
+    }
+}
+
+/// Install the host's read-only settings store options before the first settings read.
+/// The first call wins. The store follows external edits & applies field repairs in
+/// memory. Native IPC owns the override used for pushed config & authorization.
+pub fn configure_disk_settings(options: DiskSettingsOptions) -> bool {
+    DISK_SETTINGS
+        .set(DiskSettingsReader {
+            options,
+            store: Mutex::new(None),
+        })
+        .is_ok()
+}
 
 const CALIBRATION_ROUTE_FILE: &str = "recognition-route.json";
 
@@ -165,15 +197,27 @@ fn settings_path() -> PathBuf {
     app_data_root().join("settings.json")
 }
 
-fn load_settings() -> SettingsBlob {
-    if let Some(blob) = SETTINGS_OVERRIDE
+fn runtime_config() -> Option<SettingsBlob> {
+    SETTINGS_OVERRIDE
         .get()
         .and_then(|cell| cell.lock().ok().and_then(|slot| slot.clone()))
-    {
+}
+
+fn load_settings() -> SettingsBlob {
+    if let Some(blob) = runtime_config() {
         return blob;
     }
     let path = settings_path();
-    let bytes = match rightkit_fs::replaced::read_replaced(&path) {
+    let disk = match DISK_SETTINGS.get() {
+        Some(reader) => reader.read(&path),
+        None => load_unconfigured_disk_settings(&path),
+    };
+    // A native push can arrive while the disk store is opening or reloading.
+    runtime_config().unwrap_or(disk)
+}
+
+fn load_unconfigured_disk_settings(path: &std::path::Path) -> SettingsBlob {
+    let bytes = match rightkit_fs::replaced::read_replaced(path) {
         Ok(bytes) => bytes,
         // Only a missing file means "no settings". A refused read keeps the last settings
         // that were read; defaults are the fallback only when nothing was ever read.

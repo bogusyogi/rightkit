@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.6
+
+- `settings::configure_disk_settings` accepts host store options for read-only settings with per-field repair. Native runtime configuration takes precedence over disk reads, including a push that arrives during a read.
+
 ## 0.2.5 (2026-11-16)
 
 - Requires rightkit-llm 0.7.0. No behaviour change.
