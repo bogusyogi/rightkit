@@ -32,7 +32,7 @@ core-graphics = { version = "0.25", features = ["highsierra"] }
 objc2 = "0.6"
 objc2-app-kit = "0.3"
 objc2-foundation = "0.3"
-rightkit-automation = { version = "=0.7.1", path = "../rightkit-automation", features = ["desktop-context"] }
+rightkit-automation = { version = "0.7.1", path = "../rightkit-automation", features = ["desktop-context"] }
 
 [package.metadata.rightkit]
 continuous = false
