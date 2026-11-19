@@ -2,7 +2,6 @@
   "_comment": "Units whose tests need assets, tools or sibling checkouts that the publish workflow does not provision. publish.yml refuses such a unit unless the request names it in allow_missing_assets; a named unit runs with RIGHTKIT_REQUIRE_ASSETS=0 and its SKIP markers and skipped tests are recorded in the receipts, never hidden. An unlisted unit runs strict (RIGHTKIT_REQUIRE_ASSETS=1) and fails on a missing asset. scripts/ci/publish.test.mjs fails when a crate or package reads RIGHTKIT_REQUIRE_ASSETS without an entry here.",
   "crates": {
     "rightkit-asr": "Whisper library (RIGHTKIT_WHISPER_LIB), ASR models and audio fixtures",
-    "rightkit-audio": "FFmpeg development build",
     "rightkit-autoedit": "editing FFmpeg (RIGHTKIT_FFMPEG) and a font (RIGHTKIT_FONT) for the variants compare render in tests/variants_variants.rs; a missing build prints SKIP, RIGHTKIT_REQUIRE_ASSETS=1 makes it fail",
     "rightkit-automation": "desktop session for the end-to-end tests (e2e_mac, e2e_win)",
     "rightkit-browser": "Chrome for Testing for the end-to-end tests",
