@@ -5282,7 +5282,8 @@ export async function main(argv, io = {}) {
         const under = (dir) => (dir === "." || dir === "" ? files : files.filter((f) => f === dir || f.startsWith(`${dir}/`)));
         const objectId = (p) => (ids.has(p) ? ids.get(p) : under(p).length ? digestOf(under(p)) : null);
         const storeDir = o.env.RK_GATE_CACHE_DIR ? path.resolve(o.env.RK_GATE_CACHE_DIR) : path.join(path.resolve(root, text(common).trim()), "rightkit-gate-cache");
-        if (guardCargoDiscovery) classAHistory = o[CLASS_A_HISTORY] ?? openClassAHistory({ historyRoot: path.join(gateRunsRoot({ env: o.env, platform: o.platform }), "rightkit-class-a-history"), storeDir });
+        // Nov-18 cache rule applies to every bound full-A form (snapshot, hosted, live), not only guarded snapshot discovery.
+        classAHistory = o[CLASS_A_HISTORY] ?? openClassAHistory({ historyRoot: path.join(gateRunsRoot({ env: o.env, platform: o.platform }), "rightkit-class-a-history"), storeDir });
         const store = fileScanCache(storeDir);
         const listFiles = (dir) => under(dir);
         const readBlob = (p) => fs.readFileSync(path.join(liveBase, p), "utf8");
@@ -5320,7 +5321,7 @@ export async function main(argv, io = {}) {
       }
     }
     if (!classAOnly) {
-      const needsForecast = Boolean(snapshotB) && !o.runScans;
+      const needsForecast = !o.runScans;
       try {
         const headSha = snapshotBCommit?.commit ?? text(git("rev-parse", "HEAD")).trim();
         const treeId = text(git("rev-parse", `${headSha}^{tree}`)).trim();
@@ -5334,6 +5335,8 @@ export async function main(argv, io = {}) {
           };
           const storeDir = o.env.RK_GATE_CACHE_DIR ? path.resolve(o.env.RK_GATE_CACHE_DIR) : path.join(path.resolve(root, text(common).trim()), "rightkit-gate-cache");
           if (needsForecast) classBHistory = openClassBHistory({ historyRoot: path.join(gateRunsRoot({ env: o.env, platform: o.platform }), "rightkit-class-a-history"), storeDir });
+          // Mixed A+B in one invocation needs its Class A history too; boundFullA opened it above when that block ran.
+          if (needsForecast && !classAHistory && !(snapshotB && o.classAEarlier === true)) classAHistory = o[CLASS_A_HISTORY] ?? openClassAHistory({ historyRoot: path.join(gateRunsRoot({ env: o.env, platform: o.platform }), "rightkit-class-a-history"), storeDir });
           const store = fileScanCache(storeDir);
           const listFiles = (dir) => {
             const r = git("ls-tree", "-r", "--name-only", "-z", headSha, "--", dir);
@@ -5404,12 +5407,13 @@ export async function main(argv, io = {}) {
       } catch (error) { o.err(`${tag} BLOCKED: RK_SEAM: ${error.message}; nothing ran`); return 1; }
     }
     directTiming.cargoStart = Date.now();
+    const stageClasses = classAOnly ? ["A"] : classAEarlier ? ["B"] : ["A", "B"];
     const scanOptions = {
       ...(authenticateCargoWorkspace ? { cargoWorkspaceFactsFor: authenticateCargoWorkspace } : {}),
       ...(classACargoPath ? { classAToolPaths: { cargo: classACargoPath } } : {}),
       // The commit's own files (rightkit#1393): a snapshot is not a git toplevel, so the secret scan needs this list to judge tracked files only and never what a stage wrote there.
       ...(snapshot ? { trackedFiles: files } : {}),
-      classes: classAOnly ? ["A"] : classAEarlier ? ["B"] : ["A", "B"], ...(classAEarlier ? { classAEarlier: true } : {}), jobs, classBJobs, classBBatching: !o[PRIVATE_SCOPED_COMPILE], groupTests: true, classBPipeline: 2, ...(brokerHost ? { brokerHost: true } : {}), ...(brokerLive ? { brokerLive } : {}), signal: ac.signal, ...(cache ? { cache } : {}),
+      classes: stageClasses, ...(classAEarlier ? { classAEarlier: true } : {}), jobs, classBJobs, classBBatching: !o[PRIVATE_SCOPED_COMPILE], groupTests: true, classBPipeline: 2, ...(brokerHost ? { brokerHost: true } : {}), ...(brokerLive ? { brokerLive } : {}), signal: ac.signal, ...(cache ? { cache } : {}),
       // NN41: the installed broker runtime's identity keys every cached compile failure; null (a direct host, an unreadable manifest) means no failure is cached.
       ...(brokerHost && cache ? (() => { const identity = brokerRuntimeIdentityText({ clients: [brokerClient, executor?.client, cargoCommand[0]], env: { ...o.env, ...(executor.env ?? {}) }, platform: o.platform }); return identity ? { failureIdentity: identity } : {}; })() : {}),
       // The declared Linux broker route: the scans are planned with the logical `rustright`, which this spawn (and scanSpawn's pass-through below) starts as the
@@ -5449,68 +5453,51 @@ export async function main(argv, io = {}) {
       })(),
       onResult: (row, p) => o.out(`${tag} [${p.done}/${p.total}] ${(row.cached ? (row.status === "pass" ? "cached" : "cached-fail") : row.status).padEnd(11)} ${row.id} (${p.seconds}s)${row.batchedWith ? ` [batch of ${row.batchedWith.units.length}]` : ""}${row.status === "fail" ? ` :: ${String(row.detail ?? "").slice(0, 300)}` : row.advice ? ` :: ${String(row.advice).slice(0, 300)}` : ""}`),
     };
-    // Adrian 2026-11-06: "every time should be warm". Before anything runs, every planned row is looked up in the cache. If any would miss, the
-    // run stops with a miss report (each row, its cause and the evidence: changed inputs, tool or environment, no stored result, or nothing
-    // changed at all). Every miss is explained in the report and the rows run; a miss where nothing changed is a cache bug to file with the
-    // report, never a reason to stop the run or to ask Adrian (2026-11-08: explained invalidation replaces approval).
-    if (!o.runScans && cache && !classAHistory && !classBHistory) {
-      const lookup = await runScans(plan, { ...scanOptions, cacheLookupOnly: true, onResult: () => {} });
-      const allMisses = lookup.scans.filter((r) => r.lookupMiss);
-      // Adrian 2026-11-06: "when we change something, we know exactly which rows are going to be called. Anything other than that needs approval."
-      // A row that misses ONLY because files in its own key changed (new content ids, no tool, toolchain, broker or environment change) is one this
-      // change must call: it runs, listed. Every other miss (nothing changed, no stored result, a tool or environment change) is reported as unexpected, with its cause.
-      const expected = (r) => r.cacheMiss?.kind === "changed" && (r.cacheMiss.why?.inputsChanged ?? 0) > 0 && r.cacheMiss.why.contentOnly === true && !r.cacheMiss.why.tool && !r.cacheMiss.why.env && !r.cacheMiss.why.inheritedEnv;
-      const called = allMisses.filter(expected);
-      if (called.length) o.out(`${tag} cache lookup: ${called.length} row(s) rerun because their own files changed: ${called.slice(0, 12).map((r) => `${r.id} (${(r.cacheMiss.why.inputs ?? []).slice(0, 2).map((k) => k.replace(/^[^/]*\//, "")).join(", ")})`).join("; ")}${called.length > 12 ? "; ..." : ""}`);
-      const misses = allMisses.filter((r) => !expected(r));
-      if (misses.length) {
-        const prior = new Map(lookup.scans.map((r) => [r.id, r]));
-        const kindOf = (r) => r.cacheMiss?.kind ?? "new";
-        const entries = misses.map((r) => ({ id: r.id, cause: kindOf(r) === "unchanged" ? "nothing changed: the cache failed" : kindOf(r) === "new" ? "no stored result (a new row, or the cache is empty)" : "inputs or environment changed", ...(r.cacheMiss?.why ? { evidence: r.cacheMiss.why } : {}), ...(r.cacheMiss?.last ? { lastPass: r.cacheMiss.last } : {}), ...(r.cacheMiss?.now ? { now: r.cacheMiss.now } : {}) })).sort((a, b) => a.id.localeCompare(b.id));
-        const byCause = entries.reduce((m, e) => ((m[e.cause] = (m[e.cause] ?? 0) + 1), m), {});
-        const changedInputs = {}; for (const e of entries) for (const k of e.evidence?.inputs ?? []) changedInputs[k] = (changedInputs[k] ?? 0) + 1;
-        const tools = [...new Set(entries.filter((e) => e.evidence?.tool).map((e) => `${e.evidence.tool.from} -> ${e.evidence.tool.to}`))];
-        const envs = [...new Set(entries.flatMap((e) => e.evidence?.env ?? []))];
-        const commitOfRun = snapshotBCommit?.commit ?? snapshotCommitId?.commit ?? null;
-        const body = { schema: "rightkit.gate-miss-report/1", commit: commitOfRun, planned: lookup.scans.length, hit: lookup.scans.filter((r) => r.cached).length, uncacheable: lookup.scans.filter((r) => r.uncacheable).length, misses: entries.length, byCause, topChangedInputs: Object.entries(changedInputs).sort((a, b) => b[1] - a[1]).slice(0, 20), tools, env: envs, rows: entries };
-        // The digest names WHAT would run and WHY (commit, row ids, causes), never evidence noise, so the same misses on a rerun match the same approval.
-        const digest = createHash("sha256").update(JSON.stringify({ schema: body.schema, commit: body.commit, rows: entries.map((e) => [e.id, e.cause]) })).digest("hex");
-        const reportFile = path.join(gateRunsRoot({ env: o.env, platform: o.platform }), "rightkit-gate-misses", `${path.basename(root)}-${new Date().toISOString().replace(/[:.]/g, "-")}-${digest.slice(0, 12)}.json`);
-        try { fs.mkdirSync(path.dirname(reportFile), { recursive: true }); fs.writeFileSync(reportFile, `${JSON.stringify({ ...body, digest }, null, 2)}\n`); } catch { /* the summary below still names everything */ }
-        o.out(`${tag} cache lookup: ${body.planned} planned, ${body.hit} hit, ${body.misses} unexpected miss(es) (${Object.entries(byCause).map(([c, n]) => `${n} ${c}`).join("; ")}), ${body.uncacheable} uncacheable by design; report ${reportFile} (digest ${digest})`);
-        if (body.topChangedInputs.length) o.out(`${tag} cache lookup: most-changed inputs ${body.topChangedInputs.slice(0, 8).map(([k, n]) => `${k} (${n})`).join(", ")}`);
-        if (tools.length) o.out(`${tag} cache lookup: tool changes ${tools.slice(0, 5).join("; ")}`);
-        if (envs.length) o.out(`${tag} cache lookup: environment changes ${envs.slice(0, 10).join(", ")}`);
-        o.err(`${tag} RK_CACHE_MISS: ${body.misses} row(s) miss the cache without a change to their own files; they run now. Each miss is explained in the report; a miss where nothing changed is a cache bug: file it with the report`);
-        void prior;
-      } else o.out(`${tag} cache lookup: ${lookup.scans.length} planned, ${lookup.scans.filter((r) => r.cached).length} hit, ${called.length} rerun for changed files, 0 unexpected; ${lookup.scans.filter((r) => r.uncacheable).length} uncacheable by design`);
+    // Adrian 2026-11-18 cache rule supersedes the 2026-11-08 explained-runs path:
+    // every cached class in this invocation needs its independent forecast history.
+    // Without it there is no approved prior outcome to forecast from, so fail closed
+    // before any scan dispatch instead of running unexpected misses.
+    const historyByClass = { A: classAHistory, B: classBHistory };
+    if (!o.runScans && cache) {
+      const missingHistory = stageClasses.filter((cls) => !historyByClass[cls]);
+      if (missingHistory.length) { o.err(`${tag} RK_CACHE_DIVERGENCE: cache forecast history unavailable for class ${missingHistory.join(", ")}; restore its verified history or select a new store for a declared cold run`); return 1; }
     }
     let scanResult;
-    let decisionFile;
-    const history = classBHistory ?? classAHistory;
-    const scanClass = classBHistory ? "B" : "A";
-    const stage = classBHistory ? "class-b" : "class-a";
-    if (history) {
-      decisionFile = path.join(gateRunsRoot({ env: o.env, platform: o.platform }), `rightkit-${stage}-decisions`, randomUUID() + ".json");
-      const evidence = { stage, host: os.hostname(), commit: snapshotBCommit?.commit ?? snapshotCommitId?.commit ?? hostedCommitA?.commit ?? null, tree: snapshotBCommit?.tree ?? liveSnapshot, baseline: history.file };
+    const decisionFiles = {};
+    const activeHistories = stageClasses.filter((cls) => historyByClass[cls]);
+    if (activeHistories.length) {
       try {
-        const forecasts = {};
-        scanOptions[`class${scanClass}CacheForecast`] = (rows, { phase } = {}) => {
-          const forecast = history.forecast(rows);
-          if (phase) forecasts[phase] = forecast;
-          writeFileAtomic(decisionFile, JSON.stringify({ ...evidence, phase: "forecast", forecast, ...(phase ? { forecasts } : {}) }), { mode: 0o600 });
-          return forecast;
-        };
-        scanResult = await runScans(plan, scanOptions);
-        const decision = scanResult[`class${scanClass}CacheDecision`];
-        if (!decision) throw new Error(`Class ${scanClass} scanner returned no forecast decision`);
-        writeFileAtomic(decisionFile, JSON.stringify({ ...evidence, ...decision, phase: "observed" }), { mode: 0o600 });
-        if (decision.mismatches.length) {
-          for (const row of decision.mismatches) o.err(`${tag} RK_CACHE_DIVERGENCE ${JSON.stringify(row)}`);
-          o.err(`${tag} BLOCKED: ${decision.dispatchedRows.length} row dispatches. Evidence: ${decisionFile}`);
-          return 1;
+        for (const cls of activeHistories) {
+          const history = historyByClass[cls];
+          const stage = cls === "B" ? "class-b" : "class-a";
+          const decisionFile = path.join(gateRunsRoot({ env: o.env, platform: o.platform }), `rightkit-${stage}-decisions`, randomUUID() + ".json");
+          decisionFiles[cls] = decisionFile;
+          const evidence = { stage, host: os.hostname(), commit: snapshotBCommit?.commit ?? snapshotCommitId?.commit ?? hostedCommitA?.commit ?? null, tree: snapshotBCommit?.tree ?? liveSnapshot, baseline: history.file };
+          const forecasts = {};
+          scanOptions[`class${cls}CacheForecast`] = (rows, { phase } = {}) => {
+            const forecast = history.forecast(rows);
+            if (phase) forecasts[phase] = forecast;
+            writeFileAtomic(decisionFile, JSON.stringify({ ...evidence, phase: "forecast", forecast, ...(phase ? { forecasts } : {}) }), { mode: 0o600 });
+            return forecast;
+          };
         }
-        o.out(`${tag} Class ${scanClass} cache decision: ${decisionFile}`);
+        scanResult = await runScans(plan, scanOptions);
+        let blocked = false;
+        for (const cls of activeHistories) {
+          const history = historyByClass[cls];
+          const stage = cls === "B" ? "class-b" : "class-a";
+          const decisionFile = decisionFiles[cls];
+          const decision = scanResult[`class${cls}CacheDecision`];
+          if (!decision) throw new Error(`Class ${cls} scanner returned no forecast decision`);
+          const evidence = { stage, host: os.hostname(), commit: snapshotBCommit?.commit ?? snapshotCommitId?.commit ?? hostedCommitA?.commit ?? null, tree: snapshotBCommit?.tree ?? liveSnapshot, baseline: history.file };
+          writeFileAtomic(decisionFile, JSON.stringify({ ...evidence, ...decision, phase: "observed" }), { mode: 0o600 });
+          if (decision.mismatches.length) {
+            blocked = true;
+            for (const row of decision.mismatches) o.err(`${tag} RK_CACHE_DIVERGENCE ${JSON.stringify(row)}`);
+            o.err(`${tag} BLOCKED: ${decision.dispatchedRows.length} row dispatches. Evidence: ${decisionFile}`);
+          } else o.out(`${tag} Class ${cls} cache decision: ${decisionFile}`);
+        }
+        if (blocked) return 1;
       } catch (error) { o.err(`${tag} RK_CACHE_DIVERGENCE: ${error.message}`); return 1; }
     } else scanResult = await (o.runScans ?? runScans)(plan, scanOptions);
     if (nodeCheckRejects.size) o.out(`${tag} node-check cache misses: ${[...nodeCheckRejects].sort(([a], [b]) => a.localeCompare(b)).map(([reason, count]) => `${reason}=${count}`).join(", ")}`);
@@ -5556,10 +5543,14 @@ export async function main(argv, io = {}) {
     // What a full class A verdict binds, green or red: the bytes it judged, unchanged from start to end, and the environment it judged
     // in (gate, tools, installed dependencies, tool caches), unchanged too. A verdict whose binding moved covers nothing: a green one is
     // refused and a red one names no reusable deterministic cause (rightkit#1257). Returns { env, notes } or { prefix, problem, exit }.
+    const recordedHistories = new Set();
     const recordHistory = () => {
-      if (!history) return true;
-      try { history.record(scanResult[`class${scanClass}CacheDecision`]); return true; }
-      catch (error) { o.err(`${tag} BLOCKED: cannot record verified Class ${scanClass} cache outcomes: ${error.message}`); return false; }
+      for (const cls of activeHistories) {
+        if (recordedHistories.has(cls)) continue;
+        try { historyByClass[cls].record(scanResult[`class${cls}CacheDecision`]); recordedHistories.add(cls); }
+        catch (error) { o.err(`${tag} BLOCKED: cannot record verified Class ${cls} cache outcomes: ${error.message}`); return false; }
+      }
+      return true;
     };
     const judgedBinding = async () => {
       if (hostedFullA) {
@@ -5705,9 +5696,11 @@ export async function main(argv, io = {}) {
       // full class A pass, and it says so (reviewer, 2026-10-27). The full gate runs them before any compile.
       const notRun = plan.scans.filter((s) => s.class === "A" && s.executes === true).map((s) => s.id);
       if (notRun.length) o.out(`${tag} class A partial: ${notRun.length} check(s) that execute repository code (tests, typecheck, lint, generated docs) run in the full gate, not in check: ${notRun.slice(0, 8).join(", ")}${notRun.length > 8 ? ", …" : ""}`);
+      if (!recordHistory()) return 1;
       o.out(`${tag} class A content pass: ${scanResult.scans.length} deterministic scan(s) over ${changed.length} file(s) of ${base}`);
       return 0;
     }
+    if (!recordHistory()) return 1;
     o.out(`${tag} pass (${changed.length} changed file(s) vs ${base}); ${deferrals.length} scan(s) deferred, not passed${scanResult.cacheHits.length ? `; ${scanResult.cacheHits.length} reused from the result cache` : ""}`);
     return 0;
   } finally {
@@ -5745,7 +5738,7 @@ if (invokedDirectly) {
     setTreeListingStore(treeLists ? contentStore(path.join(treeLists, "sealed")) : null);
   }
   // NN11/NN28: how this run proved the snapshot, once, at the end (snapshot.mjs SNAPSHOT_PROOF_COUNTS).
-  process.once("exit", () => { const c = SNAPSHOT_PROOF_COUNTS; if (c.treeHashes + c.verifyWalks + c.residentProofs > 0) { try { process.stdout.write(`rightkit-gate: ${snapshotProofLine("node-fs-watch")}\n`); } catch { /* stdout closed */ } } });
+  process.once("exit", () => { const c = SNAPSHOT_PROOF_COUNTS; if (c.treeHashes + c.verifyWalks + c.residentProofs > 0) { try { process.stdout.write(`${stampChildLines ? `${new Date().toISOString()} ` : ""}rightkit-gate: ${snapshotProofLine("node-fs-watch")}\n`); } catch { /* stdout closed */ } } });
   // Every child this run starts that can reach rustright (scans, unit stages, right-release dev/test, their builds) inherits it.
   process.env.RUSTRIGHT_CALLING_GATE = callingGatePath();
   delete process.env.RIGHTKIT_CALLING_GATE; // one spelling, never both
