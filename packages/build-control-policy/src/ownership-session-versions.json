@@ -775,6 +775,7 @@
       "rightkit-dictation-core": "0.3.2",
       "rightkit-dictation-ffi": "0.2.0",
       "rightkit-dictation-inference": "0.2.3",
+      "rightkit-dictation-models": "0.3.0",
       "rightkit-dictation-telemetry": "0.2.2",
       "rightkit-docs": "0.1.2",
       "rightkit-embed": "0.6.1",
