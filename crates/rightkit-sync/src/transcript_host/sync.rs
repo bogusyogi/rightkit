@@ -2338,7 +2338,7 @@ impl TranscriptSync {
         let engine = SyncEngineBuilder::new(
             Arc::new(TranscriptMapper::new(self.profile.clone())),
             backend,
-            Arc::clone(&local),
+            local.clone(),
             Box::new(BoundedLedgerStorage::new(
                 ledger_path,
                 Arc::clone(&self.guard),

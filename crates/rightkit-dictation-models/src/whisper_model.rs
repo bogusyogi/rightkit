@@ -1523,7 +1523,16 @@ enum Stop {
     /// start conflicting work on this model" (see [`stop_confirmed`]). It shows the group's
     /// membership at that moment and nothing more: not that a descendant that left the group has
     /// stopped, and not that work an OS daemon does for the engine has finished.
-    Gone(std::process::ExitStatus),
+    Gone(
+        #[cfg_attr(
+            not(target_os = "macos"),
+            expect(
+                dead_code,
+                reason = "only macOS runs the ANE compiler and needs its exit status"
+            )
+        )]
+        std::process::ExitStatus,
+    ),
     /// Not proven within the time given.
     NotConfirmed,
 }

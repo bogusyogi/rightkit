@@ -55,7 +55,7 @@ use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
-use super::fn_hotkey::{Action, FnAction};
+use super::fn_hotkey::{Action, Diag, FnAction};
 use super::{ax_link_at, FnHotkeyCallbacks, FnHotkeyTap, MiddleMouseTap, PttKey, TapLocation};
 use crate::lifecycle::{lock, report_detached, Lane, Liveness, ResolverCap};
 
@@ -176,7 +176,7 @@ impl DiagLine {
 /// then (one block holds several lines; not measured how often); and the crate formats some lines
 /// itself (`format_abort`) before it calls `diag` (HANDOFF.md, "Defects in rightkit-hotkeys 0.1.4",
 /// row 8).
-fn make_diag_lane(sink: EventSink) -> (Arc<Lane<DiagLine>>, Arc<dyn Fn(&str, &str) + Send + Sync>) {
+fn make_diag_lane(sink: EventSink) -> (Arc<Lane<DiagLine>>, Diag) {
     let (lane, rx) = Lane::<DiagLine>::with_depth(DIAG_LANE_DEPTH);
     let lane = Arc::new(lane);
     let spawned = thread::Builder::new()
@@ -191,10 +191,9 @@ fn make_diag_lane(sink: EventSink) -> (Arc<Lane<DiagLine>>, Arc<dyn Fn(&str, &st
         lane.close();
     }
     let queue = Arc::clone(&lane);
-    let diag: Arc<dyn Fn(&str, &str) + Send + Sync> =
-        Arc::new(move |event: &str, message: &str| {
-            let _ = queue.send(DiagLine::new(event, message));
-        });
+    let diag: Diag = Arc::new(move |event: &str, message: &str| {
+        let _ = queue.send(DiagLine::new(event, message));
+    });
     (lane, diag)
 }
 

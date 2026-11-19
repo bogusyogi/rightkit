@@ -430,7 +430,6 @@ pub fn wrap_text(text: &str, face: Face, size: f32, max_w: f32, max_lines: usize
             }
             if !current.is_empty() {
                 lines.push(std::mem::take(&mut current));
-                current_units = 0.0;
                 if lines.len() > max_lines {
                     break 'paragraphs;
                 }

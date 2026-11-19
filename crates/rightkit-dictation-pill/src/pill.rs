@@ -550,9 +550,10 @@ impl PillModel {
         let ms = self.ms(now);
         let dur = motion().button_hot_ms;
         let target = if hot { 1.0 } else { 0.0 };
+        let can_add = hot && self.hot.len() < crate::config::bound::MAX_REGIONS;
         match self.hot.iter_mut().find(|(id, _)| *id == region) {
             Some((_, fade)) => fade.retarget(target, ms, dur),
-            None if hot && self.hot.len() < crate::config::bound::MAX_REGIONS => {
+            None if can_add => {
                 let mut fade = Fade::at(0.0);
                 fade.retarget(target, ms, dur);
                 self.hot.push((region, fade));

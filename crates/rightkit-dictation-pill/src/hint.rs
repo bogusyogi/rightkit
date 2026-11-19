@@ -139,9 +139,10 @@ impl HintState {
     pub fn set_hot(&mut self, region: RegionId, hot: bool, now_ms: f64) {
         let dur = motion().aux_hot_ms;
         let target = if hot { 1.0 } else { 0.0 };
+        let can_add = hot && self.hot.len() < crate::config::bound::MAX_REGIONS;
         match self.hot.iter_mut().find(|(id, _)| *id == region) {
             Some((_, fade)) => fade.retarget(target, now_ms, dur),
-            None if hot && self.hot.len() < crate::config::bound::MAX_REGIONS => {
+            None if can_add => {
                 let mut fade = Fade::at(0.0);
                 fade.retarget(target, now_ms, dur);
                 self.hot.push((region, fade));
