@@ -1,6 +1,10 @@
 # Changelog
 
-## 0.1.5 (unpublished)
+## 0.1.6 (unpublished)
+
+- `OverlayWindow::close_into_join_handle` requests closure & returns the owner thread handle so callers can verify retirement before restart.
+
+## 0.1.5
 
 - New module `response_layout` (portable, no Win32): the AI answer's display model (parse answer text into blocks, wrap it into visual lines, the one-line excerpt for a card), moved unchanged from `rightkit-launcher` 0.1.0, where it did not belong; the launcher panel (`rightkit-launcher-win`) and the notch's answer card use it from here, as the plan maps Pulse's `response_layout.rs` to this crate. Additive. Taken on the recommended option of the 2026-11-11 shape review, pending the owner's confirmation.
 
