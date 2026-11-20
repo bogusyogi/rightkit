@@ -307,4 +307,4 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 
 ## Version records without a manifest
 
-rightkit-control (cargo), rightkit-framed-sidecar (cargo), rightkit-jobs (cargo), rightkit-media (cargo), rightkit-ort (cargo), rightkit-process (cargo), rightkit-qts (cargo), rightkit-qts-ggml (cargo), rightkit-qts-ggml-sys (cargo), rightkit-secrets (cargo), rightkit-service (cargo), rightkit-settings (cargo), rightkit-shell (cargo), rightkit-tauri (cargo), rightkit-watch (cargo), @rightkit/app-shell (npm), @rightkit/dictation-ui (npm), @rightkit/git (npm), @rightkit/shell (npm), @rightkit/updates (npm).
+rightkit-control (cargo), rightkit-framed-sidecar (cargo), rightkit-jobs (cargo), rightkit-media (cargo), rightkit-ort (cargo), rightkit-process (cargo), rightkit-qts (cargo), rightkit-qts-ggml (cargo), rightkit-qts-ggml-sys (cargo), rightkit-secrets (cargo), rightkit-service (cargo), rightkit-settings (cargo), rightkit-shell (cargo), rightkit-tauri (cargo), rightkit-watch (cargo), @rightkit/app-shell (npm), @rightkit/git (npm), @rightkit/shell (npm), @rightkit/updates (npm).

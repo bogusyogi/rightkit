@@ -1156,6 +1156,14 @@
       "sha256": "36069f56d1717d4b89bcfa3ad0928496851726827a7b6f61b9010d69abb6a234",
       "reviewer": "Oracle (claude-opus-5-5, independent pre-tag review)",
       "reviewRef": "https://github.com/bogusyogi/rightkit/issues/1302#issuecomment-6519518345"
+    },
+    {
+      "registry": "swift",
+      "name": "RightKitSwift",
+      "version": "0.9.3",
+      "sha256": "2038a90dfe8ef5335daffb65660f245b20a449c0f1925c6b75b3cf75ee093e4a",
+      "reviewer": "Independent Oracle source reviews (Apple mobile and macOS)",
+      "reviewRef": "agent-review:/root/hr_swift_093_apple_review+hr_swift_093_macos_review/af6fff4b76b87a286df66f5a68824b7dac98de8f/2038a90dfe8ef5335daffb65660f245b20a449c0f1925c6b75b3cf75ee093e4a"
     }
   ]
 }

@@ -1,5 +1,14 @@
 # RightKitSwift changelog
 
+## 0.9.3 - 2026-11-21
+
+- RightKitActionChannel and RightKitMenuBarHelper provide a bounded macOS action channel and configurable helper lifecycle.
+- RightKitDictationPill provides configurable native presentation infrastructure and generation-scoped splash callbacks. Hosts supply presentation, wording and actions.
+- RightKitWatchBridge adds a durable recording inbox, pending state and background processing with host-provided transcription and persistence.
+- RightKitAudio adds optional retained PCM, speech and health snapshots, and a PCM WAV writer. RightKitSpeech preserves the existing VAD names.
+- RightKitVoiceCommand adds a host-configured voice command parser. RightKitDiagnostics adds a native iOS MetricKit subscriber.
+- RightKitLLM adds host-configured BYOK settings, output validation and available on-device model support.
+
 ## 0.9.1 (unreleased, rightkit#762; not tagged)
 
 Closes the eight ScrapeRight port gaps in #762 and the two follow-ups in its thread. No tests were added; coverage is end-to-end.

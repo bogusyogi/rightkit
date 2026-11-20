@@ -84,7 +84,7 @@ try {
         if (specifier.startsWith('./')) queue.push(specifier.slice(2));
       }
     }
-    assert.deepEqual([...closure].sort(), ['context-menu.js', 'dismiss.js', 'exit.js', 'focus.js', 'format.js', 'geometry.js', 'headless.js', 'list.js', 'ptt.js', 'rank.js', 'time.js', 'toast.js']);
+    assert.deepEqual([...closure].sort(), ['context-menu.js', 'dismiss.js', 'exit.js', 'focus.js', 'format.js', 'geometry.js', 'headless.js', 'hover-tooltip.js', 'list.js', 'ptt.js', 'rank.js', 'time.js', 'toast.js']);
     assert.match(readFileSync(path.join(distDir, 'index.js'), 'utf8'), /import\(\s*["']@tauri-apps\/plugin-os["']\s*\)/);
     assert.equal(qa.isTauri, ui.isTauri, 'the QA entry re-exports the host detection');
     assert.notEqual(qa.getPlatform, ui.getPlatform, 'the QA entry replaces platform reads with its override-aware versions');
@@ -262,6 +262,17 @@ try {
     assert.deepEqual(headless.fitToViewport({ x: -50, y: -50, estimatedSize: { width: 5000, height: 10 }, viewport: { width: 400, height: 300 }, margin: 4 }), { left: 4, top: 4, width: 392, height: 10, maxWidth: 392, maxHeight: 292 });
     assert.throws(() => headless.fitToViewport({ x: 0, y: 0, viewport: { width: 10, height: 10 } }), TypeError);
     assert.deepEqual(headless.floatingPanelStyle({ x: 900, y: 700, width: 200, estimatedHeight: 300, viewportWidth: 1000, viewportHeight: 800 }), { left: 792, top: 492, width: 200, maxWidth: 984, maxHeight: 784 });
+    window.innerWidth = 400;
+    window.innerHeight = 300;
+    assert.deepEqual(headless.placeTooltip({ left: 20, right: 60, top: 40, bottom: 80 }, 100, 30), { left: 68, top: 45 });
+    assert.deepEqual(headless.placeTooltip({ left: 340, right: 380, top: 140, bottom: 180 }, 100, 30), { left: 292, top: 102 });
+    assert.deepEqual(headless.placeTooltip({ left: 340, right: 380, top: 10, bottom: 50 }, 100, 30), { left: 292, top: 58 });
+    const tooltipTarget = { dataset: { tooltip: '  Open   settings  ' }, innerText: 'Settings', getAttribute: name => name === 'aria-label' ? 'Option details' : null };
+    assert.equal(headless.tooltipTextFor(tooltipTarget), 'Open settings');
+    tooltipTarget.innerText = 'open settings';
+    assert.equal(headless.tooltipTextFor(tooltipTarget), '');
+    delete tooltipTarget.dataset.tooltip;
+    assert.equal(headless.tooltipTextFor(tooltipTarget), 'Option details');
     assert.equal(ui.relativeTimeFrom(0, 30_000), 'just now');
     assert.equal(ui.relativeTimeFrom(0, 60_000), '1 minute ago');
     assert.equal(ui.relativeTimeFrom(0, 90_000), '2 minutes ago');
