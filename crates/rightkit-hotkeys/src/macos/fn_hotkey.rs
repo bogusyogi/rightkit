@@ -355,20 +355,20 @@ fn on_flags_changed(s: &Arc<Shared>, ev: &TapEvent) {
         return;
     }
     let ptt_now = edge.unwrap_or_else(|| s.ptt_key_down.load(Ordering::SeqCst));
-    let release_end = if native_release.is_some()
-        && !ptt_now
-        && s.ptt_key_down.load(Ordering::SeqCst)
-        && !s.suppress_until_up.load(Ordering::SeqCst)
-    {
-        let (generation, edge) = native_release.expect("selected release was sampled");
-        let end = if s.send_pending.swap(false, Ordering::SeqCst) {
-            PttEnd::Send
-        } else {
-            PttEnd::Stop
-        };
-        s.handoff.request_release(generation, end, edge)
-    } else {
-        None
+    let release_end = match native_release {
+        Some((generation, edge))
+            if !ptt_now
+                && s.ptt_key_down.load(Ordering::SeqCst)
+                && !s.suppress_until_up.load(Ordering::SeqCst) =>
+        {
+            let end = if s.send_pending.swap(false, Ordering::SeqCst) {
+                PttEnd::Send
+            } else {
+                PttEnd::Stop
+            };
+            s.handoff.request_release(generation, end, edge)
+        }
+        _ => None,
     };
     let was_ptt = s.ptt_key_down.swap(ptt_now, Ordering::SeqCst);
     if s.suppress_until_up.load(Ordering::SeqCst) {

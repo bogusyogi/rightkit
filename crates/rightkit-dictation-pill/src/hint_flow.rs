@@ -23,6 +23,12 @@ struct PendingState {
 /// The hint kind waiting to be shown (declare as a `static`).
 pub struct PendingHint(Mutex<PendingState>);
 
+impl Default for PendingHint {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PendingHint {
     pub const fn new() -> PendingHint {
         PendingHint(Mutex::new(PendingState {

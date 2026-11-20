@@ -42,6 +42,12 @@ struct GenState {
 /// from another one.
 pub struct Generation(Mutex<GenState>);
 
+impl Default for Generation {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Generation {
     pub const fn new() -> Generation {
         Generation(Mutex::new(GenState {
@@ -150,6 +156,12 @@ pub struct Settle {
     generation: Generation,
 }
 
+impl Default for Settle {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Settle {
     pub const fn new() -> Settle {
         Settle {
@@ -225,6 +237,12 @@ impl Settle {
 
 /// Remembers the last value reported so a repeat is not reported again (declare as a `static`).
 pub struct LastValue<T: Copy + PartialEq>(Mutex<Option<T>>);
+
+impl<T: Copy + PartialEq> Default for LastValue<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl<T: Copy + PartialEq> LastValue<T> {
     pub const fn new() -> LastValue<T> {

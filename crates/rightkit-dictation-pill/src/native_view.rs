@@ -112,6 +112,9 @@ pub struct Entry {
     pub register_callbacks: unsafe extern "C" fn(CallbackTable),
 }
 
+/// Completion of a hub route request, called at most once on the host's main thread.
+pub type RouteCompletion = Box<dyn FnOnce(bool) + Send + 'static>;
+
 /// What each callback does in the app. A function returning `bool` answers `true` for success; a
 /// `false` is logged here as a fixed `outcome=failed` tag (the host never returns an error text).
 /// A callback that needs the app (a window, a runtime) reaches it inside its own function.
@@ -126,7 +129,7 @@ pub struct Actions {
     /// Open the hub route (one of [`Config::routes`]) on the host's main thread and call `done`
     /// with whether it opened, from that thread, when it is done. `done` must be called at most
     /// once; if the host cannot schedule the work it drops `done` and nothing is logged.
-    pub open_route: fn(&'static str, Box<dyn FnOnce(bool) + Send + 'static>),
+    pub open_route: fn(&'static str, RouteCompletion),
     /// The view dismissed the card made by the show with this generation (compare it to the
     /// committed override with `clip_override::clear_if_current`; never allocate a generation here).
     pub dismiss_clipboard: fn(u64),
@@ -712,17 +715,35 @@ impl NativeView {
         unsafe { (self.entry.splash_fly_into_pill)() };
     }
 
-    pub fn animate_hub_from_pill(&self, window: *mut c_void) {
+    /// Animate the host's native hub window from the pill.
+    ///
+    /// # Safety
+    ///
+    /// `window` must point to a live native window of the type expected by the configured
+    /// [`Entry`]. The caller must keep it alive until this call returns and satisfy the native
+    /// view's threading requirements. An entry point that uses the window asynchronously must
+    /// retain it before returning and keep it alive until that work finishes.
+    pub unsafe fn animate_hub_from_pill(&self, window: *mut c_void) {
         if self.stopped.load(Ordering::SeqCst) {
             return;
         }
+        // SAFETY: The caller guarantees the window lifetime, type and native thread contract.
         unsafe { (self.entry.hub_animate_from_pill)(window) };
     }
 
-    pub fn animate_hub_to_pill(&self, window: *mut c_void) {
+    /// Animate the host's native hub window to the pill.
+    ///
+    /// # Safety
+    ///
+    /// `window` must point to a live native window of the type expected by the configured
+    /// [`Entry`]. The caller must keep it alive until this call returns and satisfy the native
+    /// view's threading requirements. An entry point that uses the window asynchronously must
+    /// retain it before returning and keep it alive until that work finishes.
+    pub unsafe fn animate_hub_to_pill(&self, window: *mut c_void) {
         if self.stopped.load(Ordering::SeqCst) {
             return;
         }
+        // SAFETY: The caller guarantees the window lifetime, type and native thread contract.
         unsafe { (self.entry.hub_animate_to_pill)(window) };
     }
 

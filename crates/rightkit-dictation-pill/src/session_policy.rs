@@ -33,6 +33,12 @@ pub struct SessionFlags {
     fullscreen_suppressed: AtomicBool,
 }
 
+impl Default for SessionFlags {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SessionFlags {
     pub const fn new() -> SessionFlags {
         SessionFlags {
