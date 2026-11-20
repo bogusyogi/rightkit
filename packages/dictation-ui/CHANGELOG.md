@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.1
+
+- Added host-neutral model preparation, feature reel and onboarding model-progress helpers.
+- Added paged history query types/hook and `createTauriDictationClient`, whose native transport and command/event maps are injected by each host.
+- Added `createModelUpdateStore` for one shared, single-flight model update state across host surfaces.
+
 ## 0.3.0
 
 - Breaking: remove packaged app screens, settings panels, onboarding flow, shell, CSS and app-specific Tauri entry points.

@@ -5,7 +5,9 @@ use super::error::LifecycleError;
 use super::keystore::{
     Key, KeySource, KeyStoreError, PendingKey, ProtectedKeySession, ProtectedKeyStore,
 };
-use super::rebuild::{rebuild_after_failure, settle_interrupted, RebuildPolicy, RebuildReport};
+use super::rebuild::{
+    rebuild_after_failure, settle_interrupted, RebuildHooks, RebuildPolicy, RebuildReport,
+};
 use super::rotate::{recover_with_guard, Faults, NoFaults, RecoveryOutcome};
 use super::transition::{
     acquire_shared, journal_exists, next_id, JournalState, RootIdentity, StoreTransition,
@@ -60,6 +62,8 @@ pub struct EncryptedStoreConfig {
     pub drain_timeout: Duration,
     /// Opt-in rebuild for a file that is there but that no key opens (see [`RebuildPolicy`]).
     pub(super) rebuild: Option<RebuildPolicy>,
+    /// Opt-in quarantine hooks, kept apart from the policy (see [`RebuildHooks`]).
+    pub(super) hooks: Option<RebuildHooks>,
 }
 
 impl EncryptedStoreConfig {
@@ -75,6 +79,7 @@ impl EncryptedStoreConfig {
             validate: None,
             drain_timeout: Duration::from_secs(5),
             rebuild: None,
+            hooks: None,
         }
     }
 
@@ -84,6 +89,13 @@ impl EncryptedStoreConfig {
     /// happened. Without this, `open` never creates, quarantines or replaces a database.
     pub fn with_rebuild(mut self, policy: RebuildPolicy) -> Self {
         self.rebuild = Some(policy);
+        self
+    }
+
+    /// Attach the quarantine hooks (durable notice, legacy journal adoption, orphan sidecar
+    /// protection). They run on every open, with or without [`Self::with_rebuild`].
+    pub fn with_rebuild_hooks(mut self, hooks: RebuildHooks) -> Self {
+        self.hooks = Some(hooks);
         self
     }
 

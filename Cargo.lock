@@ -11258,7 +11258,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-db"
-version = "0.5.8"
+version = "0.5.9"
 dependencies = [
  "cc",
  "libc 0.2.191",
@@ -13200,7 +13200,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-transcript-library"
-version = "0.1.4"
+version = "0.1.6"
 dependencies = [
  "http",
  "rightkit-db",

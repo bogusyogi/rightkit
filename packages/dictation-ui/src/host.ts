@@ -1,6 +1,7 @@
 // Host-supplied dictation & pill capabilities. No UI composition or native transport.
 import type { LibrarySource } from "@rightkit/library-ui";
 import type { SettingsBackend } from "@rightkit/settings-ui/core";
+import type { HistoryPageResult, HistoryQueryArgs } from "./history/historyQueryTypes.js";
 import type { UseSettings } from "./hooks/useSettings.js";
 import type { SpeechClient } from "./settings/client.js";
 import type { AppState, HistoryItem } from "./lib/homeMetrics.js";
@@ -77,6 +78,8 @@ export interface DictationEventMap {
   appState: AppState;
   /** A transcript was delivered (the recent list refetches). */
   deliveryRecorded: unknown;
+  /** History changed outside a delivery, such as after syncing records. */
+  historyChanged: unknown;
   /** The wake phrase fired. */
   wake: unknown;
   /** Hotkey registration result; `null` when every hotkey registered. */
@@ -105,6 +108,7 @@ export interface DictationClient {
   /** Delivery history as a library source (rows mapped with `deliveryRow`); the History page and row icons use it. */
   history: LibrarySource;
   recentHistory(): Promise<HistoryItem[]>;
+  queryHistory?(args: HistoryQueryArgs & { offset: number; limit: number }): Promise<HistoryPageResult>;
   updateHistoryItem(deliveryId: string, transcript: string): Promise<boolean>;
   copyText(text: string): Promise<void>;
 

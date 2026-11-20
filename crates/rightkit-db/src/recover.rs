@@ -66,7 +66,7 @@ impl PartialEq for QuarantineStamp {
 impl Eq for QuarantineStamp {}
 
 impl QuarantineStamp {
-    fn suffix(self, now: SystemTime) -> String {
+    pub(crate) fn suffix(self, now: SystemTime) -> String {
         let since_epoch = now.duration_since(UNIX_EPOCH).unwrap_or_default();
         match self {
             Self::Millis => format!(".corrupt-{}", since_epoch.as_millis()),
@@ -229,7 +229,7 @@ const QUARANTINE_NAME_ATTEMPTS: u32 = 100;
 /// create-new semantics (`rename_exclusive`, or `link` for [`MoveMode::HardLinkThenRemove`]), never
 /// by check-then-rename, so a concurrent quarantine cannot be overwritten.
 pub fn quarantine_database_opts(db: &Path, options: &QuarantineOptions) -> Result<PathBuf> {
-    quarantine_steps(db, options, &|_| false).map_err(|failure| failure.error)
+    quarantine_steps(db, options, &|_| false, &|_| Ok(())).map_err(|failure| failure.error)
 }
 
 /// File name suffix of the journal [`quarantine_database_journaled`] keeps while a quarantine is
@@ -283,6 +283,23 @@ pub(crate) fn quarantine_database_journaled_hooked(
     sidecars: SidecarPolicy,
     die: &dyn Fn(QuarantineStep) -> bool,
 ) -> std::result::Result<PathBuf, QuarantineFailure> {
+    quarantine_database_journaled_notified(db, stamp, sidecars, die, &|_| Ok(()))
+}
+
+/// [`quarantine_database_journaled_hooked`] with a durable notification inside the transaction:
+/// `before_move(quarantined)` runs after the journal is written and before the first file moves,
+/// with the quarantined name the main file is about to take. `Err(reason)` abandons the quarantine
+/// with nothing moved: the journal is removed and the failure is `untouched`. A process death after
+/// the notification and before the move leaves the journal, which the next open settles (and
+/// notifies again, see [`recorded_quarantine`]).
+#[allow(clippy::result_large_err)]
+pub(crate) fn quarantine_database_journaled_notified(
+    db: &Path,
+    stamp: QuarantineStamp,
+    sidecars: SidecarPolicy,
+    die: &dyn Fn(QuarantineStep) -> bool,
+    before_move: &dyn Fn(&Path) -> std::result::Result<(), String>,
+) -> std::result::Result<PathBuf, QuarantineFailure> {
     let journal = with_suffix(db, QUARANTINE_JOURNAL_SUFFIX);
     let result = quarantine_steps(
         db,
@@ -293,6 +310,7 @@ pub(crate) fn quarantine_database_journaled_hooked(
             ..QuarantineOptions::default()
         },
         die,
+        before_move,
     );
     match &result {
         Err(failure) if failure.stranded_at.is_some() => {}
@@ -301,6 +319,26 @@ pub(crate) fn quarantine_database_journaled_hooked(
         }
     }
     result
+}
+
+/// Where the main file of an unfinished quarantine is (or is going), read from
+/// `<db>.quarantine-journal` without changing anything. `None` when there is no journal, when it
+/// cannot be read, or when it does not name this database and a quarantine name beside it:
+/// [`resume_quarantine`] reports those. The encrypted store uses it to tell the host about a
+/// quarantine it is about to finish before the finishing move runs.
+pub(crate) fn recorded_quarantine(db: &Path) -> Option<PathBuf> {
+    let journal = with_suffix(db, QUARANTINE_JOURNAL_SUFFIX);
+    let text = std::fs::read_to_string(journal).ok()?;
+    let original = PathBuf::from(journal_field(&text, "original")?);
+    let dest = PathBuf::from(journal_field(&text, "quarantined")?);
+    let named_here = original == db
+        && dest.parent() == db.parent()
+        && dest != db
+        && dest
+            .file_name()
+            .zip(db.file_name())
+            .is_some_and(|(to, from)| to.to_string_lossy().starts_with(&*from.to_string_lossy()));
+    named_here.then_some(dest)
 }
 
 /// What [`resume_quarantine`] found and did.
@@ -374,16 +412,37 @@ pub fn resume_quarantine(db: &Path) -> Result<QuarantineResume> {
                 .into(),
         ));
     }
-    let present = |path: &Path| std::fs::symlink_metadata(path).is_ok();
+    // Only NotFound means absent: a name that cannot be examined fails closed with every file kept.
+    let present = |path: &Path| -> Result<bool> {
+        match std::fs::symlink_metadata(path) {
+            Ok(_) => Ok(true),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+            Err(error) => Err(DbError::Fs(rightkit_fs::FsError::io(path, error))),
+        }
+    };
     // Settle one name that may sit at both ends: the same file means a link move stopped before
     // its unlink (drop the original name); different files are never merged.
     let settle_pair = |from: &Path, to: &Path| -> Result<()> {
-        if !present(from) {
+        if !present(from)? {
             return Ok(());
         }
-        if !present(to) {
+        if !present(to)? {
             return move_file(from, to, MoveMode::Rename)
                 .map_err(|error| DbError::Fs(rightkit_fs::FsError::io(from, error)));
+        }
+        // Same-file cleanup only between two regular files: `FileKey::of_path` follows links, so
+        // a destination symlink to the live source would otherwise delete the only copy.
+        let regular = |path: &Path| -> Result<bool> {
+            std::fs::symlink_metadata(path)
+                .map(|meta| meta.file_type().is_file())
+                .map_err(|error| DbError::Fs(rightkit_fs::FsError::io(path, error)))
+        };
+        if !regular(from)? || !regular(to)? {
+            return Err(refuse(format!(
+                "{} or {} is not a regular file; both were kept",
+                from.display(),
+                to.display()
+            )));
         }
         match (
             rightkit_fs::FileKey::of_path(from),
@@ -398,7 +457,7 @@ pub fn resume_quarantine(db: &Path) -> Result<QuarantineResume> {
             ))),
         }
     };
-    let main_moved = match (present(db), present(&dest)) {
+    let main_moved = match (present(db)?, present(&dest)?) {
         (false, true) => true,
         (true, false) => false,
         (true, true) => {
@@ -422,7 +481,7 @@ pub fn resume_quarantine(db: &Path) -> Result<QuarantineResume> {
         // goes back to its original name, never over a live one.
         for sidecar in ["-wal", "-shm", "-journal"] {
             let (from, to) = (with_suffix(db, sidecar), with_suffix(&dest, sidecar));
-            if present(&to) && !present(&from) {
+            if present(&to)? && !present(&from)? {
                 move_file(&to, &from, MoveMode::Rename)
                     .map_err(|error| DbError::Fs(rightkit_fs::FsError::io(&to, error)))?;
             }
@@ -471,6 +530,7 @@ fn quarantine_steps(
     db: &Path,
     options: &QuarantineOptions,
     die: &dyn Fn(QuarantineStep) -> bool,
+    before_move: &dyn Fn(&Path) -> std::result::Result<(), String>,
 ) -> std::result::Result<PathBuf, QuarantineFailure> {
     let name = db
         .file_name()
@@ -500,6 +560,21 @@ fn quarantine_steps(
         }
         if die(QuarantineStep::Recorded) {
             return Err(simulated_death(&dest));
+        }
+        // The host's durable record of this quarantine, written while the journal exists and
+        // before anything moves: a refusal leaves every file where it was.
+        if let Err(why) = before_move(&dest) {
+            if let Some(marker) = &options.marker {
+                let _ = std::fs::remove_file(marker);
+            }
+            return Err(QuarantineFailure::untouched(DbError::Fs(
+                rightkit_fs::FsError::io(
+                    &dest,
+                    std::io::Error::other(format!(
+                        "the quarantine notification failed: {why}; nothing was moved"
+                    )),
+                ),
+            )));
         }
         match move_file(db, &dest, options.move_mode) {
             Ok(()) => {}

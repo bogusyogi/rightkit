@@ -44,7 +44,10 @@ pub use keystore::{
 };
 #[doc(hidden)]
 pub use rebuild::RebuildStep;
-pub use rebuild::{MintKey, RebuildPolicy, RebuildReason, RebuildReport};
+pub use rebuild::{
+    LegacyQuarantineJournal, MintKey, QuarantineKind, QuarantineNotice, QuarantineNotify,
+    RebuildHooks, RebuildPolicy, RebuildReason, RebuildReport, RecordedMove,
+};
 pub use relocate::{
     recover_aborted_relocation, recover_completed_relocation, recover_relocation,
     recover_relocation_session, RelocationPlan, RelocationRecovery, RelocationReport,

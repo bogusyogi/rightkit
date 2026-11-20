@@ -11,6 +11,8 @@ Dictation behavior for React hosts. The host renders each window, supplies its o
 | `@rightkit/dictation-ui/onboarding` | Use microphone recording and speech-recognition setup in the host's chosen steps. |
 | `@rightkit/dictation-ui/settings` | Implement the speech settings client used by the host's settings sections. |
 
+The main entry also exports pure model-preparation and feature-reel state helpers, onboarding model-progress helpers, paged history query hooks/types, `createTauriDictationClient`, and the host-configured single-flight model-update store. The Tauri client takes host-provided `invoke`/`listen` functions plus command/event maps; it imports no native transport.
+
 ## Wiring the recording pill
 
 Attach `wrapRef` to the overlay wrapper, `pillRef` to the pill & optional `compactAnchorRef` to its compact measurement target. Apply `focusProps` to the focus container. Mark the interactive surface with `data-pill-surface` & its actions with `data-pill-action` so pointer and keyboard interaction reach the controller.
