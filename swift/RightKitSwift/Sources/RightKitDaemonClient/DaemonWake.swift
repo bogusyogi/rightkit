@@ -2,6 +2,7 @@ import Foundation
 
 #if canImport(Darwin)
 import Darwin
+import DarwinNotify
 
 /// Errors from the cross-process wake.
 public enum DaemonWakeError: Error, Equatable, Sendable {
