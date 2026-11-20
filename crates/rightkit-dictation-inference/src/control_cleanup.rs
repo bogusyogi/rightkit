@@ -2,7 +2,9 @@
 //! Call only after KWS stop/send; manual stops & spoken cancel use their own paths.
 use crate::trigger_audio_cut::CutResolverSwitches;
 use crate::{TimedToken, TranscriptionResult};
-use rightkit_text_polish::text_pipeline::{strip_fired_control_tail, ControlIntent};
+use rightkit_text_polish::text_pipeline::{
+    parse_control_command, strip_fired_control_tail, ControlIntent,
+};
 
 pub struct Alignment {
     pub boundary_sec: f32,
@@ -19,6 +21,26 @@ pub struct CleanupResult {
     pub score: Option<f32>,
     pub joint_calls: usize,
     pub error: Option<String>,
+}
+
+impl CleanupResult {
+    /// Whether cleanup removed words from the original transcript.
+    pub fn removed_words_from(&self, original: &str) -> bool {
+        words(&self.transcript.text) != words(original)
+    }
+}
+
+/// Remove one literal stop/send suffix after KWS has already confirmed the control.
+/// Ambiguous text needs timing evidence and remains untouched here.
+pub fn strip_explicit_control_tail(text: &str, intent: ControlIntent) -> Option<String> {
+    let command = parse_control_command(text)?;
+    let literal_match = command.intent == intent
+        && command.wake_word.eq_ignore_ascii_case("zephyr")
+        && matches!(
+            (intent, command.verb.as_str()),
+            (ControlIntent::Stop, "stop") | (ControlIntent::Send, "send")
+        );
+    literal_match.then_some(command.clean_text)
 }
 
 // TDT word starts trail the acoustic command onset by up to two encoder frames.
@@ -63,12 +85,7 @@ fn cleaned_text(
     let trimmed = crate::trigger_audio_cut::drop_words_from_boundary(original, tokens, boundary)
         .map(|(text, _)| text)
         .unwrap_or_else(|| original.to_string());
-    let cleaned = if switches.residue_strip {
-        strip_fired_control_tail(&trimmed, intent)
-    } else {
-        trimmed
-    };
-    recover_rendering(original, tokens, intent, boundary).unwrap_or(cleaned)
+    recover_rendering(original, tokens, intent, boundary).unwrap_or(trimmed)
 }
 
 // Compare words, not punctuation: strip_fired_control_tail also trims punctuation
@@ -141,8 +158,10 @@ fn cleanup_confirmed_control_impl(
     switches: &CutResolverSwitches,
 ) -> CleanupResult {
     let original = full.text.clone();
-    let stripped = if switches.residue_strip {
+    let stripped = if switches.residue_strip && matches!(intent, ControlIntent::Cancel) {
         strip_fired_control_tail(&original, intent)
+    } else if switches.residue_strip {
+        strip_explicit_control_tail(&original, intent).unwrap_or_else(|| original.clone())
     } else {
         original.clone()
     };

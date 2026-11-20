@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.8.6
+
+- Share Dock activation coordination, window motion & launch handoff. Wait for the host's native macOS close callback or Tauri's destruction event before revealing after retirement.
+
 ## 0.8.5
 
 - Added opt-in `background-update`: native metadata-check cadence, one-shot manual checks & cached status. Host supplies timing, readiness, auth headers, tier policy, status routing & diagnostics; existing tray, hub & menu-helper behavior stays unchanged.

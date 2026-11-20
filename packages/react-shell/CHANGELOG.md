@@ -2,6 +2,8 @@
 
 ## 0.7.5
 
+- Added `playTone(spec, volumePercent?)` and the `ToneSpec` type (root and `./headless`): one short synthesized Web Audio tone (`frequency`, `duration`, optional `type`), with a soft attack and release, volume 0 to 100 as linear gain 0 to 0.5, and no throw when audio is unavailable. The app keeps its cue table and its state-to-cue mapping. Moved from `@rightkit/dictation-ui` (`lib/sounds`).
+
 - Textarea accepts `unstyled` for caller-owned presentation. The native element, ref, event handlers and optional auto-grow remain available.
 
 ## 0.7.4

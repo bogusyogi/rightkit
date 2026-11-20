@@ -266,6 +266,7 @@ Every addition is optional. The CHANGELOG lists them with their defaults.
 | Controls | `Card onClick / label / flush / selected`, `Checkbox`, `Select`, `Slider`, `Notice`, `ProgressBar`, `Skeleton`, `SkeletonRows` | A clickable card is a button with Enter and Space. `Notice` `warn` and `bad` announce as alerts. |
 | State | `usePersistedState(key, initial)` | `key` null keeps it in memory. Reads and writes never throw. |
 | Platform | `installHoverGuard()` | Sets `data-rk-pointer` so hover washes stop when the pointer leaves the window (WebView2). Returns the detach function. |
+| Audio | `playTone(spec, volumePercent?)`, `ToneSpec` | One synthesized Web Audio tone (`{ frequency, duration, type? }`); volume 0 to 100 maps to gain 0 to 0.5; never throws. The app owns its cues. Also in `./headless`. |
 
 ### Table (0.7.2)
 

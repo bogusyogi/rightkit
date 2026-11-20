@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.7.4
+
+Additive. Moved from `@rightkit/dictation-ui`, which is being removed. Both are in `./core` and the root entry.
+
+- `createModelUpdateStore(options)`: a single-flight store for replacing a local model (`get`, `subscribe`, `use`, `open`, `dismiss`, `hide`, `start`). Every surface that shows the replacement (a prompt, a settings banner) reads one store and starts the download through it, so progress is identical everywhere and a second download never starts. The host passes `invoke`, `listen`, the backend id, the command and progress-event names and its error text; the store holds no product copy. States `closed`, `prompt`, `downloading`, `done`, `error`; phases `starting`, `downloading`, `verifying`, `preparing`. Types `ModelUpdateState`, `ModelUpdateStatus`, `ModelUpdatePhase`, `ModelUpdateStore`, `ModelUpdateStoreOptions`. Size text for the prompt is `formatBytes`.
+- `prepPercent(elapsedSecs, assumedSecs)`: synthetic progress for a "preparing" step that reports none, from 1 to 99 until the engine is done. The assumed duration per model is the app's number.
+
 ## 0.7.3
 
 Additive; `diagnosticsSection` renders as before without the new options.

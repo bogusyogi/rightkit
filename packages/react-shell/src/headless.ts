@@ -13,3 +13,5 @@ export type {
   HeadlessSegmentedOptionProps,
   HeadlessSegmentedControl,
 } from "./react/headless.js";
+
+export { playTone, type ToneSpec } from "./tone.js";

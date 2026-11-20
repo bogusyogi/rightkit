@@ -191,6 +191,8 @@ useDismiss(() => void exit.close(), { enabled: exit.isOpen, escapeTarget: dialog
 - `isTauri()` (root): Tauri WebView detection, without loading `plugin-os`.
 - `blockNativeContextMenu(doc?)` (root, `./headless`): suppress the native context menu; returns the uninstall.
 - `relativeTimeFrom(ms, now?)` (root, `./headless`): short "N minutes ago" text.
+- `mmss(totalSeconds)` (root, `./headless`): `mm:ss` timer text, minutes unbounded.
+- `isMacPttKeyEvent(code, configuredKey)`, `isWindowsPttKeyEvent(code, configuredKey)` (root, `./headless`): whether a `KeyboardEvent.code` is the configured push-to-talk key (`lalt`, `ralt`, `rctrl`); the platforms fall back differently for an unknown key.
 - `useFocusTrap(ref, active, { scope: "document", skipUnrendered: true })`: a trap that still holds while focus is on a backdrop, and ignores controls with no layout box.
 - `useDismiss(fn, { isInside, onFocusOut: true })`: `isInside` treats several elements as one panel; `onFocusOut` dismisses with reason `"focus"` when focus leaves the panel and never cancels the Tab.
 - `createToastBus({ dedupe: true, max: 3 })` and `toast(message, { id: "save" })`: dedupe plain toasts, cap the live stack, and replace a toast by key. Call `bus.dismiss(id)` on every removal so dedupe and `max` stay accurate.

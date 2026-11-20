@@ -2,7 +2,8 @@ import { formatChord as formatChordFor, normalizePlatform, type FormatChordOptio
 
 export { normalizePlatform, platformInitializationScript, type FormatChordOptions, type Platform } from "./format.js";
 export { blockNativeContextMenu } from "./context-menu.js";
-export { relativeTimeFrom } from "./time.js";
+export { mmss, relativeTimeFrom } from "./time.js";
+export { isMacPttKeyEvent, isWindowsPttKeyEvent } from "./ptt.js";
 
 /**
  * Options for `configurePlatform`. Every field has the default shown; an unconfigured module behaves as

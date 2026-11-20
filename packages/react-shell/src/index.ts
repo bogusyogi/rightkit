@@ -7,3 +7,4 @@ export * from "./shortcuts.js";
 export * from "./bridge.js";
 export * from "./commands.js";
 export * from "./hover.js";
+export * from "./tone.js";

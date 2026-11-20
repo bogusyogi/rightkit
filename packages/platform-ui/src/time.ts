@@ -12,3 +12,10 @@ export function relativeTimeFrom(ms: number, now: number = Date.now()): string {
   const days = Math.round(hours / 24);
   return `${days} day${days === 1 ? "" : "s"} ago`;
 }
+
+/** `mm:ss` for a whole number of seconds, minutes unbounded ("75:00" for 4500). Two digits minimum for each part. */
+export function mmss(totalSeconds: number): string {
+  const m = Math.floor(totalSeconds / 60);
+  const s = totalSeconds % 60;
+  return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+}

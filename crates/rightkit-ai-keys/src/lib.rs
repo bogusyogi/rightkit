@@ -2,8 +2,8 @@
 //! the live "is this key accepted" check and the read-state vocabulary.
 //!
 //! Mechanism only. The host supplies the namespace (how its [`Store`] is opened), the provider
-//! table (slot account, display name, models URL, aliases), the Pro gate, the renderer-facing
-//! status shapes and the product's choice of eligible provider. Nothing here names a product.
+//! table (slot account, display name, models URL, aliases), the entitlement gate and the product's
+//! choice of eligible provider. Renderer fields are derived from the provider table.
 //!
 //! Security properties:
 //!
@@ -23,6 +23,9 @@ use std::time::Duration;
 use rightkit_credentials::slots::{Slot, SlotOutcome, SlotStore};
 use rightkit_credentials::Store;
 use serde::{Deserialize, Serialize};
+
+mod byok;
+pub use byok::{any_read_error, KeysUpdate, Readiness};
 
 /// One provider the host supports.
 #[derive(Debug, Clone, Copy)]

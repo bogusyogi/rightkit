@@ -7,4 +7,4 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-ai-keys = { version = "=0.1.0" }
+rightkit-ai-keys = { version = "=0.1.1" }

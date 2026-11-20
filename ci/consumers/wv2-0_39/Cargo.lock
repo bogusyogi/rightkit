@@ -3036,7 +3036,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-automation"
-version = "0.7.2"
+version = "0.7.3"
 dependencies = [
  "windows 0.62.2",
 ]
@@ -3208,7 +3208,7 @@ version = "0.1.0"
 
 [[package]]
 name = "rightkit-tauri-shell"
-version = "0.8.5"
+version = "0.8.6"
 dependencies = [
  "block2",
  "libc",

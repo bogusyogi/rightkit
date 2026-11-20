@@ -64,6 +64,7 @@ pub mod redact;
 pub mod screen;
 pub mod secret;
 pub mod sensitive;
+pub mod text_select;
 pub mod uia_text;
 
 #[cfg(target_os = "macos")]
@@ -88,6 +89,15 @@ pub use policy::{
 };
 pub use redact::{MaskText, Redactor, ShotContext, ShotReport};
 pub use secret::{origin_of_url, FieldOrigin, Secret};
+pub use text_select::{
+    ControlIdentity, DocumentSnapshot, ObservedSelection, SelectionProof, TextSelectError,
+    TextSelectResult,
+};
+
+#[cfg(target_os = "macos")]
+pub type NativeTextTarget = macos::text_select::TextTarget;
+#[cfg(windows)]
+pub type NativeTextTarget = win::text_select::TextTarget;
 
 #[cfg(target_os = "macos")]
 pub type NativePlatform = macos::MacPlatform;

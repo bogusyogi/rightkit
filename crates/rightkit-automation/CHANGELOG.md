@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.7.3 (unpublished)
+
+- Add macOS focus reads with host-supplied timing and diagnostics, reusing the existing AX identity and focused-window rules. No Accessibility attributes are written.
+- Add `NativeTextTarget` for bounded, verified UTF-16 selection on Windows & macOS. Selection requires an exact full-field match in the retained focused control and reports whether a failed readback could safely restore the original selection. Callers must verify the full field and selection again immediately before editing.
+
 ## 0.7.2 (unpublished)
 
 - Add Windows UI Automation editor probes & retained focus restoration behind `desktop-context`. A replaced worker keeps its own COM instance until teardown. Restore requires current membership in the captured window, with an explicit outcome for an issued call that could not be confirmed.

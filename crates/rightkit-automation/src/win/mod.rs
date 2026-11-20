@@ -12,6 +12,7 @@ pub mod input;
 pub mod msaa;
 pub(crate) mod region;
 mod sys;
+pub mod text_select;
 pub mod uia;
 
 use crate::model::*;

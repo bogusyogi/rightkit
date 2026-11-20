@@ -9,6 +9,7 @@ pub(crate) mod capture_safety;
 mod events;
 mod ffi;
 pub(crate) mod pasteboard;
+pub mod text_select;
 
 pub use ffi::Cf;
 
