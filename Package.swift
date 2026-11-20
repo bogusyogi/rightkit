@@ -160,6 +160,7 @@ let package = Package(
         .target(name: "RightKitJobQueue", path: "swift/RightKitSwift/Sources/RightKitJobQueue"),
         .target(name: "RightKitCLIProtocol", path: "swift/RightKitSwift/Sources/RightKitCLIProtocol"),
         .target(name: "RightKitURLPolicy", path: "swift/RightKitSwift/Sources/RightKitURLPolicy"),
-        .target(name: "RightKitDaemonClient", path: "swift/RightKitSwift/Sources/RightKitDaemonClient"),
+        .target(name: "CRightKitDarwinNotify", path: "swift/RightKitSwift/Sources/CRightKitDarwinNotify"),
+        .target(name: "RightKitDaemonClient", dependencies: ["CRightKitDarwinNotify"], path: "swift/RightKitSwift/Sources/RightKitDaemonClient"),
     ],
 )

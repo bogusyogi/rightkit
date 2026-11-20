@@ -158,6 +158,7 @@ let package = Package(
         .target(name: "RightKitURLPolicy"),
         // Client halves of rightkit-daemon: cross-process wake and Darwin notify observer (rightkit#404), SSE parser
         // and Last-Event-ID replay stream (rightkit#1120). Foundation/Darwin only.
-        .target(name: "RightKitDaemonClient"),
+        .target(name: "CRightKitDarwinNotify"),
+        .target(name: "RightKitDaemonClient", dependencies: ["CRightKitDarwinNotify"]),
     ],
 )

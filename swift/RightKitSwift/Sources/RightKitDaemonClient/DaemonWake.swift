@@ -2,7 +2,7 @@ import Foundation
 
 #if canImport(Darwin)
 import Darwin
-import DarwinNotify
+import CRightKitDarwinNotify
 
 /// Errors from the cross-process wake.
 public enum DaemonWakeError: Error, Equatable, Sendable {
@@ -223,8 +223,8 @@ public final class DarwinNotifyObserver: @unchecked Sendable {
     /// Register for `name`; `handler` runs on `queue` for each post (posts may coalesce).
     public init(name: String, queue: DispatchQueue = .main, handler: @escaping @Sendable () -> Void) throws {
         var newToken: Int32 = 0
-        let status = notify_register_dispatch(name, &newToken, queue) { _ in handler() }
-        guard status == UInt32(NOTIFY_STATUS_OK) else {
+        let status = rkd_notify_register_dispatch(name, &newToken, queue) { _ in handler() }
+        guard status == rkd_notify_status_ok() else {
             throw DaemonWakeError.system(operation: "notify_register_dispatch", errno: Int32(truncatingIfNeeded: status))
         }
         token = newToken
@@ -235,7 +235,7 @@ public final class DarwinNotifyObserver: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         guard let token else { return }
-        notify_cancel(token)
+        rkd_notify_cancel(token)
         self.token = nil
     }
 
@@ -243,8 +243,8 @@ public final class DarwinNotifyObserver: @unchecked Sendable {
 
     /// Post a Darwin notification for `name`.
     public static func post(_ name: String) throws {
-        let status = notify_post(name)
-        guard status == UInt32(NOTIFY_STATUS_OK) else {
+        let status = rkd_notify_post(name)
+        guard status == rkd_notify_status_ok() else {
             throw DaemonWakeError.system(operation: "notify_post", errno: Int32(truncatingIfNeeded: status))
         }
     }
