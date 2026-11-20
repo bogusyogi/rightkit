@@ -139,7 +139,6 @@ pub fn rotate_settling(
                 "key rotation pending: {detail}; every viable key is kept and the rotation settles on the next open"
             ))
         }
-        other => Err(format!("key rotation pending: {other:?}")),
     }
 }
 
@@ -169,7 +168,6 @@ impl<'a> ReasonWords<'a> {
         match reason {
             RebuildReason::KeyAbsent => self.key_absent,
             RebuildReason::KeyRejected => self.key_rejected,
-            _ => "",
         }
     }
 }

@@ -126,6 +126,130 @@ pub fn focused_control_id(host: &DeliveryHost, want: IdentityLevel) -> Option<Co
     Some(ControlId::new(process_id, window, control, element))
 }
 
+/// Windows: the caret of `control` right now, as UI Automation TextPattern reports it: the text
+/// from the start of the document to the caret and whether the selection is collapsed.
+///
+/// The read is made on a short-lived helper thread (UIA calls into the target can hang), waited for
+/// at most `uia_text_read_ms`, and only one such read is in flight at a time; a read that is still
+/// running refuses the next. Every answer is `None` unless ALL of these hold: the focused element
+/// is the bound one (process id, native window handle and UIA runtime id equal the binding's, and
+/// it has keyboard focus), it is not a password field, TextPattern gave the document text AND a
+/// selection range (a ValuePattern-only control has no selection and so gives `None`), and the
+/// caret offset lies inside the document text on a character boundary.
+#[cfg(target_os = "windows")]
+pub fn focused_control_caret(
+    host: &DeliveryHost,
+    control: &ControlId,
+) -> Option<crate::streaming::CaretRead> {
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    static BUSY: AtomicBool = AtomicBool::new(false);
+
+    let element = control.element.as_ref()?;
+    let process_id = i32::try_from(control.process_id).ok()?;
+    let native_window = element.native_window;
+    let runtime_id = element.runtime_id.clone();
+    if BUSY.swap(true, Ordering::SeqCst) {
+        return None;
+    }
+    let (tx, rx) = std::sync::mpsc::channel();
+    let spawned = std::thread::Builder::new()
+        .name("streaming-caret-read".into())
+        .spawn(move || {
+            let read = read_bound_caret(process_id, native_window, &runtime_id);
+            BUSY.store(false, Ordering::SeqCst);
+            let _ = tx.send(read);
+        });
+    if spawned.is_err() {
+        BUSY.store(false, Ordering::SeqCst);
+        return None;
+    }
+    rx.recv_timeout(std::time::Duration::from_millis(
+        host.config.uia_text_read_ms,
+    ))
+    .ok()
+    .flatten()
+}
+
+#[cfg(target_os = "windows")]
+fn read_bound_caret(
+    process_id: i32,
+    native_window: isize,
+    runtime_id: &[i32],
+) -> Option<crate::streaming::CaretRead> {
+    use rightkit_automation::win::uia;
+
+    let element = uia::focused_element()?;
+    if element.pid()? != process_id
+        || element.native_hwnd().unwrap_or(0) != native_window
+        || element.runtime_id()?.as_slice() != runtime_id
+        || !element.has_focus()
+    {
+        return None;
+    }
+    // `field_text` gives a selection only from TextPattern: (UTF-16 offset of the selection start
+    // from the document start, UTF-16 length of the selection). A collapsed caret has length 0.
+    let field = uia::field_text(&element)?;
+    let (caret, selected) = field.selection?;
+    let units: Vec<u16> = field.text.encode_utf16().collect();
+    let before = units.get(..caret)?;
+    Some(crate::streaming::CaretRead {
+        before_caret: String::from_utf16(before).ok()?,
+        collapsed: selected == 0,
+    })
+}
+
+/// macOS: the caret of `control` right now, from the focused AX element: `AXValue` (the text) and
+/// `AXSelectedTextRange` (UTF-16 location and length). Every answer is `None` unless ALL hold: the
+/// host's focused-target identity (focused element hash mixed with its window hash, the same value
+/// the binding was built from) equals the binding's, and still does after the read; the focused
+/// element belongs to the bound process; it is not a secure text field; `AXValue` is a string and
+/// `AXSelectedTextRange` is present and inside it. Editors that publish text only through text
+/// markers (some Chromium and Electron fields) give no `AXValue` or no range and therefore `None`:
+/// streaming does not type into them (fail closed). The AX messaging timeout is 100 ms per call
+/// (`ax::system_wide_with` sets it as the process default, as the host's own AX code does).
+#[cfg(target_os = "macos")]
+pub fn focused_control_caret(
+    host: &DeliveryHost,
+    control: &ControlId,
+) -> Option<crate::streaming::CaretRead> {
+    use rightkit_automation::macos::ax::{self, AxOptions};
+    use std::time::Duration;
+
+    let want = control.control?;
+    if (host.focused_target_identity)() != Some(want) {
+        return None;
+    }
+    let timeout = Duration::from_millis(100);
+    let system = ax::system_wide_with(&AxOptions::with_timeout(timeout)).ok()?;
+    let focused = system.el_attr("AXFocusedUIElement")?;
+    focused.set_timeout(timeout);
+    if u32::try_from(focused.pid()?).ok()? != control.process_id || focused.is_secure() {
+        return None;
+    }
+    let value = focused.value_text()?;
+    let (location, length) = focused.selected_range()?;
+    // The same element must still be the bound one after the reads.
+    if (host.focused_target_identity)() != Some(want) {
+        return None;
+    }
+    let units: Vec<u16> = value.encode_utf16().collect();
+    let before = units.get(..location)?;
+    Some(crate::streaming::CaretRead {
+        before_caret: String::from_utf16(before).ok()?,
+        collapsed: length == 0,
+    })
+}
+
+/// Other platforms have no caret readback: `None`, never "the caret is at the end".
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
+pub fn focused_control_caret(
+    _host: &DeliveryHost,
+    _control: &ControlId,
+) -> Option<crate::streaming::CaretRead> {
+    None
+}
+
 #[cfg(target_os = "macos")]
 pub fn focused_control_id(host: &DeliveryHost, _want: IdentityLevel) -> Option<ControlId> {
     let pid = rightkit_automation::desktop::macos::frontmost_pid()?;
@@ -294,6 +418,34 @@ pub fn windows_control_match(
 #[cfg(target_os = "windows")]
 pub fn window_is_wezterm(host: &DeliveryHost, window: isize) -> bool {
     window_terminal_state(host.config.wezterm_gui_process_names, window) == Some(true)
+}
+
+/// Security state of the field focused in a streaming destination, for
+/// `StreamingHost::destination_security`: `Some(false)` only when positively known non-secure,
+/// `Some(true)` and `None` both refuse.
+///
+/// Windows: `destination` is the bound top-level window handle. A window of a process the host
+/// lists as a terminal (`DeliveryConfig::wezterm_gui_process_names`) answers `None` (streaming
+/// into a terminal pane stays refused; the shared streaming code refuses a terminal window itself,
+/// this is the second, host-side answer); otherwise the UIA password state of the focused field.
+/// macOS: `destination` is the bound process id; the AX secure-field state with the delivery's
+/// retry (`focused_field_security_with_retry_macos`). Other platforms: `None`.
+#[cfg(target_os = "windows")]
+pub fn streaming_destination_security(host: &DeliveryHost, destination: isize) -> Option<bool> {
+    if window_is_wezterm(host, destination) {
+        return None;
+    }
+    windows_uia(host).focused_field_is_password()
+}
+
+#[cfg(target_os = "macos")]
+pub fn streaming_destination_security(host: &DeliveryHost, destination: isize) -> Option<bool> {
+    focused_field_security_with_retry_macos(host, destination as i32)
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
+pub fn streaming_destination_security(_host: &DeliveryHost, _destination: isize) -> Option<bool> {
+    None
 }
 
 /// The control a macOS paste is bound to. With a retained focus pin the pin itself is the

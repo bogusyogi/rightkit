@@ -10,6 +10,8 @@ Use `paste_delivery::RealDeliveryBackend::new(&DELIVERY_HOST)` for automatic pas
 
 `streaming::StreamingHost` supplies security & control probes, budgets, terminal process list & application policy. Every chunk, erase & Return requires fresh security, control & physical-modifier evidence. Handle `ReconcileOutcome` before final delivery: only `NothingWritten` or `Reconciled` permits automatic delivery; retained or uncertain writes require manual recovery.
 
+`streaming::StreamingHost::focused_caret` (Windows UIA TextPattern caret and selection) lets streaming prove, for the bound control, that the selection is collapsed and the streamed text sits exactly before the caret before any erase or completion, and that an erase took effect at that position. A control or platform that cannot give a caret (macOS) is never streamed into; a failed proof leaves the typed text (`StoppedWritesRemain` / `StoppedCountUncertain`).
+
 Legacy `delivery::{deliver_text, deliver_text_with_enter, paste_text}` signatures remain available. Without host policy they refuse automatic input with `delivery_host_required`, leaving clipboard untouched. Delivery record APIs return `CopiedFallback`; `paste_text` returns `E_DELIVERY_HOST_REQUIRED`. Hosts must migrate these calls to `paste_delivery` to resume automatic delivery. Explicit `delivery::copy_text` remains available for user-requested recovery.
 
 Clipboard restoration retains generation & OS ownership checks. A paste refused after receipt marking leaves staged text recoverable & reports clipboard custody through existing fallback events. Permit expiry is checked again after receipt marking, immediately before input is sent.

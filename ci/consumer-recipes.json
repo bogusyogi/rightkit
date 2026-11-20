@@ -3608,7 +3608,7 @@
       "pkId": "PK141",
       "id": "ci/consumers/rightkit-dictation-command-host/src/main.rs",
       "files": {
-        "Cargo.toml": "445a473e8638371a0674633571314ba7b69dd10971e081a6939843ebcaede1c8",
+        "Cargo.toml": "21a910c03152aedb81fda6aa8459ab3e59fe76428d60eab08ae75442720f2d4d",
         "README.md": "87bb5a18330267d23b7bacf026a37a70d5f5cb642dfb28ebd1ee1e89d8ea7f93",
         "src/main.rs": "bf1d1a83945e1844dc0a41762e23bb4a42794fcc0201041be7202d32a882f59d"
       },

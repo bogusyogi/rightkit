@@ -2,7 +2,7 @@
 //! f32 stream, for offline parity/sweep harnesses (verify_audio_conditioning_parity.py,
 //! conditioning_sweep.py).
 //!
-//!   condition_audio <sample_rate> <policy>   (e.g. 16000 asr_simple_gain_hpf | raw)
+//!   `condition_audio <sample_rate> <policy>` (e.g. `16000 asr_simple_gain_hpf` or `16000 raw`)
 //!
 //! stdin  = little-endian f32 mono samples
 //! stdout = little-endian f32 mono samples (conditioned, same length)
