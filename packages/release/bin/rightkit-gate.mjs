@@ -1668,7 +1668,7 @@ async function installHook(o, root) {
  * apps/coderight-tauri), else the repository root. Every right-release stage runs there, the sealed set is read from there, and the
  * receipt is keyed to it (receiptKey). Returns { appRoot, appDir } with appDir relative to the repository root, "." at the root.
  */
-export function appRootOf({ root, cwd, exists = fs.existsSync, configDirs = null, platform = process.platform }) {
+export function appRootOf({ root, cwd, exists = fs.existsSync, configDirs = null, platform = process.platform, soleNestedApp = false }) {
   // rightkit#1553: on Windows a path names the same directory in any letter case (git reports D:/Claude/heardright, a runner may start in
   // D:\claude\heardright\tauri-app-next). path.win32.relative compares case-blind and keeps the cwd's spelling of each segment; posix stays exact.
   // A sibling sharing a prefix (D:\a\bc against root D:\a\b) is outside: relative() answers "..\bc", never a prefix match.
@@ -1690,6 +1690,14 @@ export function appRootOf({ root, cwd, exists = fs.existsSync, configDirs = null
   if (inside && rel !== "") {
     const segments = rel.split(p.sep).filter(Boolean);
     for (let n = segments.length; n > 0; n--) { const found = configDirAt(segments.slice(0, n).join("/")); if (found) { appDir = found; break; } }
+  }
+  // Dev/test/render hand ONE app to right-release. Run from the root of a repository whose selected commit holds no root
+  // config and exactly one nested app, that app is unambiguous (the witness fixture's app/; "--to test" from its root
+  // refused "no right-release.config at <commit>"). Several nested apps stay ambiguous and the root answer stands, so the
+  // stage refuses naming the missing config instead of guessing. Other stages never take this: their scope stays the cwd's.
+  if (soleNestedApp && committed && inside && rel === "" && appDir === "." && !committed.has(fold("."))) {
+    const dirs = [...committed.values()];
+    if (dirs.length === 1) appDir = dirs[0];
   }
   return { appRoot: appDir === "." ? rootAbs : p.join(rootAbs, ...appDir.split("/")), appDir };
 }
@@ -2083,7 +2091,7 @@ async function runStages(o, args, root, git, io) {
   const scopeCommit = o.doorSnapshot ? o.doorSnapshot.commit : selected ? selected.commit : text(git("rev-parse", "HEAD")).trim();
   const inventory = committedConfigDirs({ git, commit: scopeCommit });
   if (inventory.refusal) { o.err(`${tag} cannot read the app configuration of the selected commit: ${inventory.refusal}`); return 2; }
-  const { appRoot, appDir } = appRootOf({ root, cwd: o.cwd, configDirs: inventory.dirs });
+  const { appRoot, appDir } = appRootOf({ root, cwd: o.cwd, configDirs: inventory.dirs, soleNestedApp: devTest });
   // `--route`: which route this stage takes here and whether it refuses, answered without running anything (rightkit#1297).
   if (o.routeProbe) return await runRouteProbe(o, args, root, git, { to, platform, stages: devTest ? [] : stages, devTest, appDir });
   // Commit-only build (GATE-CONTRACT §1): on every host (not hosted CI, whose runner checkout is the commit) the door selects a commit

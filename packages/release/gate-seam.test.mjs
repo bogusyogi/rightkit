@@ -414,6 +414,12 @@ test("appRootOf finds the nested app on Windows whatever the letter case of the 
   // Without configDirs the live checkout answers through `exists`, with the same containment.
   const exists = (f) => f.replace(/\\/g, "/").toLowerCase() === "d:/claude/heardright/tauri-app-next/right-release.config.mjs";
   assert.equal(appRootOf({ root: "D:/Claude/heardright", cwd: "D:\\claude\\heardright\\tauri-app-next", exists, platform: "win32" }).appDir, "tauri-app-next");
+  // Dev/test/render from the root of a sole-nested-app repository (the witness fixture's app/) take that app; other stages
+  // and ambiguous multi-app trees keep the root answer.
+  const sole = new Set(["app"]);
+  assert.equal(appRootOf({ root: "D:/fx", cwd: "D:\\fx", configDirs: sole, platform: "win32", soleNestedApp: true }).appDir, "app");
+  assert.equal(appRootOf({ root: "D:/fx", cwd: "D:\\fx", configDirs: sole, platform: "win32" }).appDir, ".");
+  assert.equal(appRootOf({ root: "D:/fx", cwd: "D:\\fx", configDirs: new Set(["app", "apps/two"]), platform: "win32", soleNestedApp: true }).appDir, ".");
 });
 
 test("a staged entry re-signed in place is admitted only from its staged bytes to the reported signed bytes (rightkit#1555)", async () => {
