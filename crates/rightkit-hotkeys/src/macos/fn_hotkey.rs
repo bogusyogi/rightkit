@@ -19,9 +19,14 @@ use super::tap::{EventTap, TapConfig, TapDecision, TapError, TapEvent, TapKind, 
 use crate::decision::should_accept_fn_chord;
 use crate::ptt::{
     format_abort, should_abort_ptt_chord, should_arm_ptt, should_clear_ptt_hold_suppression,
-    PttAbortCause, PttAbortKind, PttEnd, PttHandoff, PttModifiers, PttPhase,
+    PttAbortCause, PttAbortKind, PttEnd, PttModifiers, PttPhase,
 };
 use crate::ptt_timer::{ArmTimer, MAX_ARM_DELAY};
+use crate::release_edge::{native_release_now, NativeReleaseEdge};
+use crate::release_handoff::{ReleaseDispatch, ReleaseHandoff};
+
+/// Physical release, delivered after start completes; None is clock failure.
+pub type PttReleaseAction = Arc<dyn Fn(PttEnd, Option<NativeReleaseEdge>) + Send + Sync + 'static>;
 
 pub type Action = Arc<dyn Fn() + Send + Sync + 'static>;
 pub type FnAction = Arc<dyn Fn(bool) + Send + Sync + 'static>;
@@ -121,7 +126,8 @@ struct Shared {
     suppress_until_up: AtomicBool,
     armed: AtomicBool,
     generation: AtomicU64,
-    handoff: PttHandoff,
+    handoff: ReleaseHandoff,
+    on_release: Option<PttReleaseAction>,
     fn_down: AtomicBool,
     arm_delay: Duration,
     /// The one arm timer (a single thread, one pending deadline). Set once by
@@ -148,7 +154,8 @@ impl Shared {
             suppress_until_up: AtomicBool::new(false),
             armed: AtomicBool::new(false),
             generation: AtomicU64::new(0),
-            handoff: PttHandoff::new(),
+            handoff: ReleaseHandoff::new(),
+            on_release: None,
             fn_down: AtomicBool::new(false),
             arm_delay: arm_delay.min(MAX_ARM_DELAY),
             timer: OnceLock::new(),
@@ -197,7 +204,7 @@ impl Shared {
             }
             return;
         }
-        if !self.handoff.begin_start() {
+        if !self.handoff.begin_start(generation) {
             return;
         }
         (self.cb.ptt_start)();
@@ -205,7 +212,7 @@ impl Shared {
             && self.generation.load(Ordering::SeqCst) == generation
             && self.ptt_key_down.load(Ordering::SeqCst)
             && self.armed.load(Ordering::SeqCst);
-        if let Some(end) = self.handoff.complete_start(still_valid) {
+        if let Some(end) = self.handoff.complete_start(generation, still_valid) {
             self.dispatch_end(end);
         }
     }
@@ -229,7 +236,12 @@ impl Shared {
         std::thread::spawn(f);
     }
 
-    fn dispatch_end(&self, (end, cause): (PttEnd, Option<PttAbortCause>)) {
+    fn dispatch_end(&self, (end, cause, release): ReleaseDispatch) {
+        if let (Some(edge), Some(callback)) = (release, self.on_release.as_ref()) {
+            let callback = Arc::clone(callback);
+            self.spawn(move || callback(end, edge));
+            return;
+        }
         let target = match end {
             PttEnd::Stop => Some(self.cb.ptt_stop.clone()),
             PttEnd::Send => Some(self.cb.ptt_stop_send.clone()),
@@ -314,6 +326,13 @@ fn modifiers_from_flags(flags: u64) -> PttModifiers {
 
 fn on_flags_changed(s: &Arc<Shared>, ev: &TapEvent) {
     let flags = ev.flags;
+    // Sample at the original selected-key release, before any callback is spawned.
+    let native_release = if s.selected_edge(ev.keycode, flags) == Some(false) {
+        let generation = s.generation.load(Ordering::SeqCst);
+        Some((generation, native_release_now()))
+    } else {
+        None
+    };
     let fn_now = flags & FLAG_SECONDARY_FN != 0;
     let fn_was = s.fn_down.swap(fn_now, Ordering::SeqCst);
     let other_mods = s.other_modifiers(ev.keycode, flags);
@@ -336,6 +355,21 @@ fn on_flags_changed(s: &Arc<Shared>, ev: &TapEvent) {
         return;
     }
     let ptt_now = edge.unwrap_or_else(|| s.ptt_key_down.load(Ordering::SeqCst));
+    let release_end = if native_release.is_some()
+        && !ptt_now
+        && s.ptt_key_down.load(Ordering::SeqCst)
+        && !s.suppress_until_up.load(Ordering::SeqCst)
+    {
+        let (generation, edge) = native_release.expect("selected release was sampled");
+        let end = if s.send_pending.swap(false, Ordering::SeqCst) {
+            PttEnd::Send
+        } else {
+            PttEnd::Stop
+        };
+        s.handoff.request_release(generation, end, edge)
+    } else {
+        None
+    };
     let was_ptt = s.ptt_key_down.swap(ptt_now, Ordering::SeqCst);
     if s.suppress_until_up.load(Ordering::SeqCst) {
         if should_clear_ptt_hold_suppression(ptt_now, other_mods) {
@@ -356,12 +390,7 @@ fn on_flags_changed(s: &Arc<Shared>, ev: &TapEvent) {
         s.hold_started_ms.store(0, Ordering::SeqCst);
         s.armed.store(false, Ordering::SeqCst);
         s.cancel_arm();
-        let end = if s.send_pending.swap(false, Ordering::SeqCst) {
-            PttEnd::Send
-        } else {
-            PttEnd::Stop
-        };
-        if let Some(end) = s.handoff.request_end(end, None) {
+        if let Some(end) = release_end {
             s.dispatch_end(end);
         }
     } else if ptt_now && was_ptt && other_mods && s.armed.load(Ordering::SeqCst) {
@@ -484,7 +513,33 @@ impl FnHotkeyTap {
         callbacks: FnHotkeyCallbacks,
         arm_delay: Duration,
     ) -> Result<Self, TapError> {
-        let shared = Arc::new(Shared::new(callbacks, arm_delay));
+        Self::spawn_inner(location, callbacks, arm_delay, None)
+    }
+
+    /// Preserve the native release sample before spawning any end callback.
+    /// Other callbacks retain their existing behavior.
+    pub fn spawn_with_ptt_release_edges(
+        location: TapLocation,
+        callbacks: FnHotkeyCallbacks,
+        on_release: PttReleaseAction,
+    ) -> Result<Self, TapError> {
+        Self::spawn_inner(
+            location,
+            callbacks,
+            Duration::from_millis(PTT_ARM_DELAY_MS),
+            Some(on_release),
+        )
+    }
+
+    fn spawn_inner(
+        location: TapLocation,
+        callbacks: FnHotkeyCallbacks,
+        arm_delay: Duration,
+        on_release: Option<PttReleaseAction>,
+    ) -> Result<Self, TapError> {
+        let mut state = Shared::new(callbacks, arm_delay);
+        state.on_release = on_release;
+        let shared = Arc::new(state);
         shared
             .start_timer()
             .map_err(|e| TapError::Thread(e.to_string()))?;

@@ -11370,7 +11370,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-dictation-core"
-version = "0.3.4"
+version = "0.3.5"
 dependencies = [
  "rightkit-credentials",
  "rightkit-fs",
@@ -11471,7 +11471,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-dictation-pill"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "core-foundation 0.10.1",
  "core-graphics",
@@ -11482,6 +11482,7 @@ dependencies = [
  "rightkit-dictation-core",
  "rightkit-overlay",
  "rightkit-overlay-win",
+ "serde_json",
  "windows-sys 0.61.2",
 ]
 
@@ -11909,7 +11910,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-hotkeys"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "rightkit-automation",
  "windows-sys 0.61.2",

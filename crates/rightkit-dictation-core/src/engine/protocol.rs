@@ -8,6 +8,24 @@ use rightkit_speech_client::TimedWord;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+/// Versioned same-machine monotonic release marker. Unknown versions, clocks or
+/// malformed values are rejected by the receiver; presence forbids legacy fallback.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CaptureReleaseEdge {
+    pub version: u8,
+    pub clock: String,
+    pub seconds: u64,
+    pub nanos: u32,
+}
+
+// Omission uses serde(default); a present value must decode as a complete edge.
+// In particular, JSON null must not select the legacy route.
+fn deserialize_release_edge<'de, D>(deserializer: D) -> Result<Option<CaptureReleaseEdge>, D::Error>
+where D: serde::Deserializer<'de> {
+    CaptureReleaseEdge::deserialize(deserializer).map(Some)
+}
+
 /// Parallel wire shape for vocabulary entries carrying sound-alike aliases.
 /// `term_details` rides beside `terms` in `ReplaceVocabulary` so an old engine
 /// without this field falls back gracefully to the bare `terms` list (no
@@ -397,6 +415,16 @@ pub enum EnginePayload {
     CaptureSeal {
         /// The press whose recording is sealed (the same id as its warm-up and start frame).
         start_attempt_id: u64,
+        /// How long before this frame was sent the user released the shortcut, in milliseconds.
+        /// Instants do not cross the process boundary, so the engine stamps the release as its
+        /// own receipt instant minus this age. Present when the shell sends the seal later than
+        /// the release (a retirement kept the first seal from reaching an engine, the ack timed
+        /// out); absent or 0 means "the release is now". Old frames omit it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        release_age_ms: Option<u64>,
+        /// Exact edge takes precedence over release_age_ms. Only omission preserves legacy peers.
+        #[serde(default, deserialize_with = "deserialize_release_edge", skip_serializing_if = "Option::is_none")]
+        release_edge: Option<CaptureReleaseEdge>,
     },
     EngineStateSnapshot {
         state: String,

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.5
+
+- Accept versioned exact release clock markers on capture seals. Legacy senders may omit the marker. Malformed markers reject the frame.
+
 ## 0.3.4
 
 - Add typed warm-up and seal frames, start-attempt correlation and validation for early capture. Expose audio conditioning through an opt-in tools binary.

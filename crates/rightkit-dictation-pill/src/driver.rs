@@ -171,11 +171,15 @@ pub(crate) enum Cmd {
         content: HintContent,
     },
     DismissHint,
+    /// `generation` orders clip commands: the owner drops one older than the last it applied.
     ShowClip {
         items: Vec<ClipItem>,
         single: bool,
+        generation: u64,
     },
-    DismissClip,
+    DismissClip {
+        generation: u64,
+    },
     /// A clip copy finished on its worker thread (`ok` only after the host confirmed it).
     CopyDone {
         token: u64,
@@ -859,7 +863,10 @@ pub fn dismiss_hint() {
     send(Cmd::DismissHint);
 }
 
-/// Show the clip card. An empty list dismisses the card. Otherwise the items are validated on the
+/// Show the clip card. `generation` is the one the host's write of the override slot took
+/// (`clip_override::set_while_showing`, `commit`): the owner thread applies clip commands in
+/// generation order and drops a show or close older than the last one it applied, whichever order
+/// the callers' threads reached the queue in. An empty list dismisses the card. Otherwise the items are validated on the
 /// caller's thread against `Limits` (at most `max_clip_items` kept, ids valid and unique, every
 /// payload within `max_clip_payload_bytes`, all payloads within `max_clip_total_bytes`); a refused
 /// card is reported (`clip_refused`), not shown, and returned as the error. Nothing is cut: a
@@ -869,15 +876,23 @@ pub fn dismiss_hint() {
 /// that was not accepted (no generation running, owner gone, queue full, nothing installed) is
 /// `Err(ClipRefusal::NotRunning)`: the host must not set any state that assumes the card shows
 /// (an override transcript, a "pill stays expanded" hold), or must undo it.
-pub fn show_clipboard(items: Vec<ClipItem>, single: bool) -> Result<(), ClipRefusal> {
+pub fn show_clipboard(
+    items: Vec<ClipItem>,
+    single: bool,
+    generation: u64,
+) -> Result<(), ClipRefusal> {
     let Some(config) = config::try_get() else {
         return Err(ClipRefusal::NotRunning);
     };
     let command = if items.is_empty() {
-        Cmd::DismissClip
+        Cmd::DismissClip { generation }
     } else {
         match clipboard::validate_items(items, &config.limits) {
-            Ok(items) => Cmd::ShowClip { items, single },
+            Ok(items) => Cmd::ShowClip {
+                items,
+                single,
+                generation,
+            },
             Err(refusal) => {
                 config::report("clip_refused", &format!("reason={}", refusal.code()));
                 return Err(refusal);
@@ -891,8 +906,10 @@ pub fn show_clipboard(items: Vec<ClipItem>, single: bool) -> Result<(), ClipRefu
     }
 }
 
-pub fn dismiss_clipboard() {
-    send(Cmd::DismissClip);
+/// Close the clip card for the write that has `generation` (`clip_override::clear_commit`). The
+/// owner drops it when a newer show or close was already applied.
+pub fn dismiss_clipboard(generation: u64) {
+    send(Cmd::DismissClip { generation });
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1400,6 +1417,11 @@ struct Core {
     region_refresh_at: Option<Instant>,
     click_watch_at: Option<Instant>,
     click_primed: bool,
+    /// The newest generation of a clip show or close this thread applied (`handle`): the order of
+    /// clip commands is the generation order, not the order the queue received them in.
+    clip_applied: u64,
+    /// The generation of the show that made the current card; `clip_dismissed` reports it.
+    clip_card: u64,
     prev_down: bool,
     last_hitbox: Option<(f32, f32, f32, f32)>,
     /// The overlay reports no right click, so while the pointer rests on a region with a
@@ -1459,6 +1481,8 @@ impl Core {
             region_refresh_at: None,
             click_watch_at: None,
             click_primed: false,
+            clip_applied: 0,
+            clip_card: 0,
             prev_down: false,
             last_hitbox: None,
             rwatch_at: None,
@@ -1524,8 +1548,23 @@ impl Core {
             Cmd::Overlay(surf, event) => return self.on_overlay(surf, event, now),
             Cmd::ShowHint { content } => self.show_hint(content, now),
             Cmd::DismissHint => self.dismiss_hint(now),
-            Cmd::ShowClip { items, single } => self.show_clip(items, single, now),
-            Cmd::DismissClip => self.dismiss_clip(now),
+            Cmd::ShowClip {
+                items,
+                single,
+                generation,
+            } => {
+                if self.clip_command_is_stale(generation, "show") {
+                    return Flow::Continue;
+                }
+                self.clip_card = generation;
+                self.show_clip(items, single, now);
+            }
+            Cmd::DismissClip { generation } => {
+                if self.clip_command_is_stale(generation, "close") {
+                    return Flow::Continue;
+                }
+                self.dismiss_clip(now);
+            }
             Cmd::CopyDone { token, ok } => self.on_copy_done(token, ok, now),
             Cmd::FlashDone { token, outcome } => {
                 // `now` is read when this command is handled, so a result that waited in the
@@ -2392,6 +2431,23 @@ impl Core {
         }
     }
 
+    /// Whether a clip command with `generation` is older than the newest one already applied (it
+    /// is then dropped and reported as `clip_dropped`); otherwise it becomes the newest.
+    fn clip_command_is_stale(&mut self, generation: u64, request: &str) -> bool {
+        if generation < self.clip_applied {
+            config::report(
+                "clip_dropped",
+                &format!(
+                    "request={request} generation={generation} applied={}",
+                    self.clip_applied
+                ),
+            );
+            return true;
+        }
+        self.clip_applied = generation;
+        false
+    }
+
     fn show_clip(&mut self, items: Vec<ClipItem>, single: bool, now: Instant) {
         if items.is_empty() {
             self.dismiss_clip(now);
@@ -2453,8 +2509,9 @@ impl Core {
         // The card is going: a copy still waiting has nothing left to report to.
         self.clip_copy.cancel();
         // Release the app-side holds (override transcript, "pill stays expanded").
+        let card = self.clip_card;
         host("clip_dismissed", || {
-            (config::get().callbacks.clip_dismissed)()
+            (config::get().callbacks.clip_dismissed)(card)
         });
         if began {
             config::report("clip_dismiss", "reason=requested");

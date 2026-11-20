@@ -279,8 +279,10 @@ pub struct Callbacks {
     /// only after it returns `true`. The reason for a failure is the host's to log.
     pub copy_text: fn(String) -> bool,
     /// The clip card was dismissed: release the host's holds (override transcript, "pill stays
-    /// expanded").
-    pub clip_dismissed: fn(),
+    /// expanded"). `generation` is the generation of the show that made the card (the one the host
+    /// passed to `show_clipboard`), so the host releases the holds only while that card is still
+    /// the newest request (`clip_override::clear_if_current`) and never a newer card's.
+    pub clip_dismissed: fn(generation: u64),
     /// A status capsule expired: collapse to idle through the host's reveal path so its
     /// visibility policy still applies.
     pub reveal_pill: fn(),

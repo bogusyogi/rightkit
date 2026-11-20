@@ -24,6 +24,9 @@ pub mod ptt;
 pub mod ptt_timer;
 pub mod register_status;
 pub mod registration;
+pub mod release_edge;
+#[cfg(any(target_os = "macos", test))]
+mod release_handoff;
 
 #[cfg(target_os = "macos")]
 pub mod macos;

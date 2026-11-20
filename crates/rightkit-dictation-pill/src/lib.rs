@@ -67,6 +67,21 @@
 
 pub mod anim;
 pub mod bridge;
+pub mod clip_override;
+pub mod native_view;
+pub mod visibility_policy;
+pub mod session_policy;
+pub mod event_pipeline;
+pub mod capsule;
+pub mod tip;
+pub mod host_glue;
+pub mod bars;
+pub mod synth;
+pub mod geometry;
+pub mod hint_flow;
+pub mod delayed;
+pub mod feature_tip;
+pub mod screenshot_notice;
 pub mod clipboard;
 pub(crate) mod clock;
 pub(crate) mod cmd_queue;

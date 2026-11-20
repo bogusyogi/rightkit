@@ -1,6 +1,6 @@
-# rightkit-hotkeys 0.1.6 registry consumer
+# rightkit-hotkeys 0.1.7 registry consumer
 
-The standalone consumer pins `rightkit-hotkeys =0.1.6` and runs `src/main.rs` against the sealed archive in the offline registry on Windows, macOS and Linux.
+The standalone consumer pins `rightkit-hotkeys =0.1.7` and runs `src/main.rs` against the sealed archive in the offline registry on Windows, macOS and Linux.
 
 ## What it proves
 

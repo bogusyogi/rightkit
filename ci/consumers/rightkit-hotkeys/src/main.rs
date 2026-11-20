@@ -1,4 +1,4 @@
-// rightkit-hotkeys 0.1.6 consumed by exact registry pin (no features: the crate has none, and the
+// rightkit-hotkeys 0.1.7 consumed by exact registry pin (no features: the crate has none, and the
 // apps use it that way), outside the workspace.
 //
 // Proves, through the public API only, the pure modules that compile and behave the same on
@@ -84,7 +84,7 @@ fn main() {
     middle_click_machinery();
     arm_timer();
     platform_surface();
-    println!("OK rightkit-hotkeys 0.1.6 (registry consumer)");
+    println!("OK rightkit-hotkeys 0.1.7 (registry consumer)");
 }
 
 #[cfg(target_os = "macos")]

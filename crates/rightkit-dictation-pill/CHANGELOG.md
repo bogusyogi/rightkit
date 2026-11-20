@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.1 candidate
+
+- Add caller-required geometry, motion, hint/cadence, event pipeline & session infrastructure with host-supplied presentation inputs.
+- Add host-configured native C bridge & generation-aware clipboard override lifecycle, including settled refresh identity.
+- Carry splash generations through truthful show/dismiss acknowledgment, forced completion & close callback; buffer reentrant close & sample app readiness outside Rust mutex.
+- Suppress duplicate initialize/shutdown & post-shutdown entry admission.
+
 ## 0.1.0 (unreleased)
 
 - Add native bridge C-string bounds, callback panic guard & host-configured splash handoff/reveal retry.

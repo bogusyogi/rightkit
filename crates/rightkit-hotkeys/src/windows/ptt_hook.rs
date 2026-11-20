@@ -56,6 +56,7 @@ use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
 use windows_sys::Win32::UI::WindowsAndMessaging::{PostThreadMessageW, WM_APP};
 
 use super::{HookDecision, HookError};
+use crate::release_edge::{native_release_now, NativeReleaseEdge};
 use crate::hook_detail::KeyEventDetail;
 use crate::lifecycle::{lock, next_generation, HeldKey, KeyHold, Lane, LaneRx, PressLedger};
 pub use crate::lifecycle::{press_route, PressRoute};
@@ -71,6 +72,21 @@ pub type EventSink = fn(&str, &str);
 pub enum HookCommand {
     Cancel,
     Ptt(PttEvent),
+}
+
+pub(crate) struct QueuedHookCommand {
+    pub(crate) command: HookCommand,
+    // Outer Some means a physical release; inner None means native clock failure.
+    pub(crate) release: Option<Option<NativeReleaseEdge>>,
+}
+
+impl From<HookCommand> for QueuedHookCommand {
+    fn from(command: HookCommand) -> Self {
+        Self {
+            command,
+            release: None,
+        }
+    }
 }
 
 /// A telemetry event queued from the hook procedure: plain data, formatted into text by
@@ -259,7 +275,7 @@ pub(crate) const MSG_PTT_ARM_ELAPSED: u32 = WM_APP + 0x41;
 
 type SessionLanes = (
     Arc<KbSession>,
-    LaneRx<HookCommand>,
+    LaneRx<QueuedHookCommand>,
     LaneRx<HookTelemetryEvent>,
 );
 
@@ -269,11 +285,11 @@ pub(crate) struct KbSession {
     /// The install generation (never 0); `KeyboardState::live_gen` equals it while the install is
     /// live.
     generation: u64,
-    commands: Arc<Lane<HookCommand>>,
-    cancels: Arc<Lane<HookCommand>>,
+    commands: Arc<Lane<QueuedHookCommand>>,
+    cancels: Arc<Lane<QueuedHookCommand>>,
     telemetry: Lane<HookTelemetryEvent>,
     /// Receiver of the cancel lane; taken once by the cancel dispatch thread.
-    cancel_rx: Mutex<Option<LaneRx<HookCommand>>>,
+    cancel_rx: Mutex<Option<LaneRx<QueuedHookCommand>>>,
     /// The session's one arm-timer thread (`rk-ptt-arm`, [`ArmTimer`]): arming is a channel send,
     /// so the hook thread never creates a thread. `None` once the session closed; dropping the
     /// timer stops its thread without firing.
@@ -286,7 +302,7 @@ impl KbSession {
     }
 
     /// The receiver of the cancel lane, for the cancel dispatch thread (once).
-    pub(crate) fn take_cancel_rx(&self) -> Option<LaneRx<HookCommand>> {
+    pub(crate) fn take_cancel_rx(&self) -> Option<LaneRx<QueuedHookCommand>> {
         lock(&self.cancel_rx).take()
     }
 
@@ -609,7 +625,7 @@ impl KeyboardState {
             self.ptt_recording.store(false, Ordering::SeqCst);
             return;
         }
-        if !commands.send(HookCommand::Ptt(PttEvent::Start)) {
+        if !commands.send(HookCommand::Ptt(PttEvent::Start).into()) {
             // The lane is full (or closing). Nothing was queued, so there is nothing to end.
             if self.ptt_gen.load(Ordering::SeqCst) == arm_seq {
                 self.ptt_recording.store(false, Ordering::SeqCst);
@@ -630,17 +646,32 @@ impl KeyboardState {
     /// hold. A host-thread caller passes `None` and reads the session slot (it may wait for the lock;
     /// when no session is left the dispatch thread's teardown closes the start instead).
     fn ptt_end(&self, event: PttEvent, hook: Option<&KbSession>) {
+        self.ptt_end_with_release(event, hook, None);
+    }
+
+    fn ptt_end_with_release(
+        &self,
+        event: PttEvent,
+        hook: Option<&KbSession>,
+        release: Option<Option<NativeReleaseEdge>>,
+    ) {
         if !self.ptt_open.swap(false, Ordering::SeqCst) {
             return;
         }
         match hook {
             Some(session) => {
-                session.commands.send_end(HookCommand::Ptt(event));
+                session.commands.send_end(QueuedHookCommand {
+                    command: HookCommand::Ptt(event),
+                    release,
+                });
             }
             None => {
                 let session = lock(&self.session).clone();
                 if let Some(session) = session {
-                    session.commands.send_end(HookCommand::Ptt(event));
+                    session.commands.send_end(QueuedHookCommand {
+                        command: HookCommand::Ptt(event),
+                        release,
+                    });
                 }
             }
         }
@@ -654,12 +685,12 @@ impl KeyboardState {
         let end = HookCommand::Ptt(PttEvent::Preview(false));
         match hook {
             Some(session) => {
-                session.commands.send_end(end);
+                session.commands.send_end(end.into());
             }
             None => {
                 let session = lock(&self.session).clone();
                 if let Some(session) = session {
-                    session.commands.send_end(end);
+                    session.commands.send_end(end.into());
                 }
             }
         }
@@ -772,7 +803,7 @@ impl KeyboardState {
                     HookCommand::Cancel => &session.cancels,
                     HookCommand::Ptt(_) => &session.commands,
                 };
-                lane.send(command)
+                lane.send(command.into())
             }
             None => false,
         }
@@ -1300,7 +1331,7 @@ impl KeyboardState {
             wants_swallow
         };
         if should_cancel && should_swallow && self.debounce_ok() {
-            session.cancels.send(HookCommand::Cancel);
+            session.cancels.send(HookCommand::Cancel.into());
             session.push(
                 "recording_cancel_hook",
                 TelemetryBody::Text("ctrl_escape_swallowed"),
@@ -1429,7 +1460,7 @@ impl KeyboardState {
                         // Paired: `Preview(false)` is queued only for a `Preview(true)` that was.
                         if session
                             .commands
-                            .send(HookCommand::Ptt(PttEvent::Preview(true)))
+                            .send(HookCommand::Ptt(PttEvent::Preview(true)).into())
                         {
                             self.preview_open.store(true, Ordering::SeqCst);
                             // A host thread that ended the preview in between saw it not open.
@@ -1601,15 +1632,18 @@ impl KeyboardState {
                     }
                 }
                 PttAction::Stop => {
+                    // This branch follows a non-injected physical key-up. Sample before
+                    // queueing or publishing any state that can end the gesture elsewhere.
+                    let release = Some(native_release_now());
                     self.ptt_gen.fetch_add(1, Ordering::SeqCst);
                     self.ptt_armed.store(false, Ordering::SeqCst);
                     self.ptt_recording.store(false, Ordering::SeqCst);
                     self.ptt_hold_started_ms.store(0, Ordering::SeqCst);
                     // The end of the open start; nothing when a host-thread setter already ended it.
                     if self.ptt_send_pending.swap(false, Ordering::SeqCst) {
-                        self.ptt_end(PttEvent::Send, Some(session));
+                        self.ptt_end_with_release(PttEvent::Send, Some(session), release);
                     } else {
-                        self.ptt_end(PttEvent::Stop, Some(session));
+                        self.ptt_end_with_release(PttEvent::Stop, Some(session), release);
                     }
                 }
                 PttAction::Cancel => {
