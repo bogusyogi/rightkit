@@ -3,7 +3,7 @@
 // only for the members whose own feature resolution the group preserves.
 import assert from "node:assert/strict";
 import test from "node:test";
-import { meetPartitions, memberDifference, parseTreeFeatures, partitionByFeatures, partitionCacheKey, splitNote, stripSelectors, treeArgs, workspaceManifestDigest } from "./feature-partition.mjs";
+import { meetPartitions, memberDifference, parseTreeFeatures, partitionByFeatures, partitionCacheKey, splitNote, stripSelectors, treeArgs, treeArgsForTargets, workspaceManifestDigest } from "./feature-partition.mjs";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -96,6 +96,9 @@ test("treeArgs carries the feature flags and dev edges of the compile it stands 
   for (const args of [treeArgs({ rest: ["check", "--all-targets", "--locked"], packages: ["a", "b"], target: "aarch64-apple-darwin" }), treeArgs({ rest: ["doc", "--no-deps", "--all-features", "--locked"], packages: ["a"] })]) assert.equal(carriedScanRefusal(args), null, `the direct read spawn admits ${args.join(" ")}`);
   assert.match(carriedScanRefusal(["tree", "-p", "a"]), /tree.*is admitted as/);
   assert.match(carriedScanRefusal(["tree", "--locked", "--prefix", "none", "-e", "normal,build", "-f", "{p}\t{f}", "-p", "a", "--manifest-path", "/x/Cargo.toml"]), /tree.*is admitted as/);
+  // The group resolution read names every target (treeArgsForTargets); repeated plain triples stay a read-only shape.
+  assert.equal(carriedScanRefusal(treeArgsForTargets({ rest: ["check", "--all-targets", "--locked"], packages: ["a"], targets: ["x86_64-pc-windows-msvc", "x86_64-unknown-linux-gnu", "aarch64-apple-darwin"] })), null);
+  assert.match(carriedScanRefusal(["tree", "--locked", "--prefix", "none", "-e", "normal,build", "-f", "{p}\t{f}", "--target", "../evil", "-p", "a"]), /plain triple/);
 });
 
 test("parseTreeFeatures reads one feature list per package line, skipping banners and the (*) mark", () => {

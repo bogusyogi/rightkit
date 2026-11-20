@@ -241,8 +241,8 @@ export function carriedScanRefusal(words, { checkout = null } = {}) {
       else own.push(w);
     }
     const f = flagsOf(own, { "--locked": "flag", "--prefix": "value", "-e": "value", "-f": "value", "--all-features": "flag", "--no-default-features": "flag", "--features": "value", "-F": "value" });
-    const shapeOk = f !== null && f.has("--locked") && f.get("--prefix") === "none" && ["normal,build", "normal,build,dev"].includes(f.get("-e") ?? "") && f.get("-f") === "{p}\t{f}" && packages >= 1 && targets <= 1;
-    return shapeOk ? null : "`tree` is admitted as `tree --locked --prefix none -e normal,build[,dev] -f '{p}<tab>{f}' [--all-features] [--no-default-features] [--features <list>] [--target <triple>] -p <crate>...` only (the feature-equivalence partition)";
+    const shapeOk = f !== null && f.has("--locked") && f.get("--prefix") === "none" && ["normal,build", "normal,build,dev"].includes(f.get("-e") ?? "") && f.get("-f") === "{p}\t{f}" && packages >= 1;
+    return shapeOk ? null : "`tree` is admitted as `tree --locked --prefix none -e normal,build[,dev] -f '{p}<tab>{f}' [--all-features] [--no-default-features] [--features <list>] [--target <triple>]... -p <crate>...` only (the feature-equivalence partition)";
   }
   return `\`cargo ${words.join(" ")}\` is not one of the carried read-only shapes (metadata, fetch --locked, deny, audit --db --no-fetch, fmt --check, package -p <unit> --list --locked, tree)`;
 }
