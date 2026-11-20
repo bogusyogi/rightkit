@@ -38,6 +38,8 @@ Everything below exists to make those three lines true and nothing else.
 
 ## 3. The interface (the one seam; agreed fab and astra, 2026-11-09, after both adversarial reviews; rustright#235; pending Adrian's word, as everything in this plan)
 
+**Status, recorded 2026-11-20: decided and built.** The words "pending Adrian's word" in this heading date from the draft. The seam was built and cut over (broker: Mac `1fd4595c`, Dell `f448a440`; gate: `cf54ceeb3`), and the gate contract records the clauses it replaced as superseded ([GATE-CONTRACT §11](../GATE-CONTRACT.md#11-contract-resolutions-and-requirement-index-audit-gate-broker-2026-10-30-gb-30), G7 to G11). Nothing in this section waits on a decision.
+
 The same text is section 2 of `docs/BUILD.md`.
 
 One entry: `rightkit-gate --to <check|compile|dev|test|package|qualify|release> --commit <sha>` with optional unit/scope selection. Gate owns selected-commit snapshot, Class A, row caches, test execution & qualification; broker owns machine resources, queue & process containment. Mac/Dell compile through broker; Linux runs directly with equivalent pinned output/environment. One persistent snapshot & warm target per app/host; unchanged source retains timestamps. Compilation uses release profile.
