@@ -1,5 +1,7 @@
 // Capture session: cpal::Stream + lock-free ring buffer + resampler.
 
+#[cfg(target_os = "windows")]
+use std::sync::atomic::AtomicU8;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
@@ -17,6 +19,109 @@ use super::downmix::{push_mono_f32, push_mono_pcm, MonoDownmix};
 use super::metrics::{CaptureErrorKind, Metrics, MetricsSnapshot};
 use super::resample::StreamResampler;
 use super::staging::{pending_resampled_len, take_resampled};
+
+// Only this module owns MMCSS handles. Keeping them in TLS (rather than in the
+// callback closure) guarantees same-thread revert even if a backend drops its
+// callback closure on the session owner. CPAL WASAPI uses one dedicated thread
+// per stream, keeps it through pause/resume, then terminates & joins on Drop.
+#[cfg(target_os = "windows")]
+struct CaptureThreadMmcss {
+    handle: Option<windows::Win32::Foundation::HANDLE>,
+    // 1 = Pro Audio, 2 = Audio, 3 = both registration attempts refused.
+    outcome: u8,
+}
+
+#[cfg(target_os = "windows")]
+impl CaptureThreadMmcss {
+    fn register() -> Self {
+        use windows::core::w;
+        use windows::Win32::System::Threading::AvSetMmThreadCharacteristicsW;
+
+        let mut task_index = 0u32;
+        // SAFETY: static NUL-terminated task name & valid writable task index;
+        // registration is performed by the callback thread itself.
+        if let Ok(handle) =
+            unsafe { AvSetMmThreadCharacteristicsW(w!("Pro Audio"), &mut task_index) }
+        {
+            return Self {
+                handle: Some(handle),
+                outcome: 1,
+            };
+        }
+        let mut task_index = 0u32;
+        // SAFETY: same as above; the failed first call created no registration.
+        match unsafe { AvSetMmThreadCharacteristicsW(w!("Audio"), &mut task_index) } {
+            Ok(handle) => Self {
+                handle: Some(handle),
+                outcome: 2,
+            },
+            Err(_) => Self {
+                handle: None,
+                outcome: 3,
+            },
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+impl Drop for CaptureThreadMmcss {
+    fn drop(&mut self) {
+        if let Some(handle) = self.handle.take() {
+            // SAFETY: this TLS guard retained the successful registration & is
+            // destroyed on its registering thread. Revert releases the handle;
+            // CloseHandle must not be used for an MMCSS registration.
+            let _ = unsafe {
+                windows::Win32::System::Threading::AvRevertMmThreadCharacteristics(handle)
+            };
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn join_capture_thread_mmcss(attempted: &mut bool, outcome: &AtomicU8) {
+    if *attempted {
+        return;
+    }
+    *attempted = true;
+    thread_local! {
+        static REGISTRATION: std::cell::OnceCell<CaptureThreadMmcss> = const {
+            std::cell::OnceCell::new()
+        };
+    }
+    let status = REGISTRATION.with(|registration| {
+        registration
+            .get_or_init(CaptureThreadMmcss::register)
+            .outcome
+    });
+    // Only numeric telemetry crosses into the consumer; no logging, formatting,
+    // locks or notifications are added to the data callback.
+    outcome.store(status, Ordering::Relaxed);
+}
+
+#[cfg(target_os = "windows")]
+fn report_capture_thread_mmcss(outcome: &AtomicU8) {
+    let status = outcome.load(Ordering::Relaxed);
+    // Bit 7 marks an already-reported result. Leave pending (0) untouched so a
+    // consumer read before the first callback cannot consume the eventual result.
+    if !(1..=3).contains(&status)
+        || outcome
+            .compare_exchange(status, status | 0x80, Ordering::Relaxed, Ordering::Relaxed)
+            .is_err()
+    {
+        return;
+    }
+    tracing::info!(
+        event = "capture_thread_mmcss",
+        outcome = status,
+        class = match status {
+            1 => "Pro Audio",
+            2 => "Audio",
+            _ => "none",
+        },
+        joined = status != 3,
+        "capture callback thread MMCSS"
+    );
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum OutDType {
@@ -138,6 +243,8 @@ pub struct CaptureSession {
     consumer: ringbuf::HeapCons<f32>,
     resampler: StreamResampler,
     metrics: Arc<Metrics>,
+    #[cfg(target_os = "windows")]
+    capture_thread_mmcss: Arc<AtomicU8>,
     target_rate: u32,
     target_dtype: OutDType,
     input_rate: u32,
@@ -206,6 +313,12 @@ impl CaptureSession {
         let (mut producer, mut consumer) = rb.split();
         prewarm_ring_storage(&mut producer, &mut consumer, ring_capacity);
 
+        #[cfg(target_os = "windows")]
+        let capture_thread_mmcss = Arc::new(AtomicU8::new(0));
+        #[cfg(target_os = "windows")]
+        let capture_thread_mmcss_cb = Arc::clone(&capture_thread_mmcss);
+        #[cfg(target_os = "windows")]
+        let mut capture_thread_mmcss_attempted = false;
         let metrics = Arc::new(Metrics::new());
         let metrics_cb = Arc::clone(&metrics);
         let metrics_err = Arc::clone(&metrics);
@@ -224,6 +337,11 @@ impl CaptureSession {
                 device.build_input_stream(
                     stream_config,
                     move |data: &[$sample], _info| {
+                        #[cfg(target_os = "windows")]
+                        join_capture_thread_mmcss(
+                            &mut capture_thread_mmcss_attempted,
+                            &capture_thread_mmcss_cb,
+                        );
                         let t0 = Instant::now();
                         push_mono_pcm(data, in_chans, &mut downmix, &mut producer, &metrics_cb);
                         audio_arrival_cb.signal();
@@ -240,6 +358,11 @@ impl CaptureSession {
             SampleFormat::F32 => device.build_input_stream(
                 stream_config,
                 move |data: &[f32], _info| {
+                    #[cfg(target_os = "windows")]
+                    join_capture_thread_mmcss(
+                        &mut capture_thread_mmcss_attempted,
+                        &capture_thread_mmcss_cb,
+                    );
                     let t0 = Instant::now();
                     push_mono_f32(data, in_chans, &mut downmix, &mut producer, &metrics_cb);
                     audio_arrival_cb.signal();
@@ -276,6 +399,8 @@ impl CaptureSession {
             consumer,
             resampler,
             metrics,
+            #[cfg(target_os = "windows")]
+            capture_thread_mmcss,
             target_rate: cfg.target_rate,
             target_dtype: cfg.target_dtype,
             input_rate,
@@ -434,10 +559,14 @@ impl CaptureSession {
     }
 
     pub fn metrics_snapshot(&self) -> MetricsSnapshot {
+        #[cfg(target_os = "windows")]
+        report_capture_thread_mmcss(&self.capture_thread_mmcss);
         self.metrics.snapshot()
     }
 
     fn ensure_stream_healthy(&self) -> Result<()> {
+        #[cfg(target_os = "windows")]
+        report_capture_thread_mmcss(&self.capture_thread_mmcss);
         if let Some(kind) = self.metrics.snapshot().terminal_error_kind {
             Err(anyhow!("capture stream error: {}", kind.as_str()))
         } else {
@@ -486,6 +615,8 @@ impl CaptureSession {
     }
 
     pub fn stop(&mut self) -> MetricsSnapshot {
+        #[cfg(target_os = "windows")]
+        report_capture_thread_mmcss(&self.capture_thread_mmcss);
         if !self.stopped.swap(true, Ordering::SeqCst) {
             // Dropping _stream on stop() would require consuming self; the
             // cpal stream will instead drop with the session struct.

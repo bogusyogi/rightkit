@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.7 (unpublished)
+
+- Windows capture callback threads register once with MMCSS, preferring `Pro Audio` then `Audio`; registration failure remains advisory. Thread-local ownership retains each registration until callback-thread exit & reverts it on that same thread.
+- MMCSS outcome crosses callback boundary as an atomic numeric status; consumer-side reads, metrics or stop report it once. No callback logging, per-buffer allocation or new public metrics fields; actual stream errors retain existing classification.
+
 ## 0.3.6 (unpublished)
 
 - Added `setup::permissions`: macOS consent & Windows capability classification, device probes, Settings opening & grant polling. Explicit Windows denials take precedence over probes. Host retains UI-thread scheduling, telemetry sink & grant event.
