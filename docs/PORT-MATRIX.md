@@ -86,7 +86,7 @@ Not-applicable declarations. Only current ratified rulings remove a mandatory re
 - **viewright**: M3 unratified, M4 unratified, M7 unratified, M17 unratified
 - **ember**: M3 unratified, M4 unratified, M6 unratified, M7 unratified, M9 unratified, M12 unratified, M13 unratified, M22 unratified
 
-## Matrix (281 packages)
+## Matrix (280 packages)
 
 ### Shell, UI and app frame (16)
 
@@ -249,7 +249,7 @@ Not-applicable declarations. Only current ratified rulings remove a mandatory re
 | `RightKitSwift` | add-on | - | 0.9.0 (staged 0.9.1) | stale (0.8.1→0.9.0, 2 pins; 4 exceptions: bogusyogi/rightkit#1127/bogusyogi/rightkit#1134+, expires 2026-11-30) | unused | unused | stale (0.8.1→0.9.0; also 1 current) | unused | unused | stale (0.8.1→0.9.0, 4 pins; 2 exceptions: bogusyogi/rightkit#1038, expires 2026-11-30) | stale (0.8.1→0.9.0, 2 pins) | unused | stale (0.8.1→0.9.0) | stale (0.8.1→0.9.0) | unused | - |
 | `rightkit-android` | add-on | - | 0.3.0 (staged 0.3.1) | unused | unused | unused | exception (1 exception: bogusyogi/rightkit#941, expires 2026-11-30) | unused | unused | unused | unused | unused | unused | unused | unused | - |
 
-### Other (no domain assigned) (185)
+### Other (no domain assigned) (184)
 
 | Package | Class | Rows | Latest | coderight | cutright | genright | heardright | mailright | postright | pulse | scraperight | viewright | ember (deferred app) | sellright (release consumer) | legion (tool consumer) | To move from |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
@@ -262,7 +262,6 @@ Not-applicable declarations. Only current ratified rulings remove a mandatory re
 | `@rightkit/agent-ui-workbench` | tool | - | none recorded (staged 0.1.1) | unused | unused | unused | unused | unused | unused | unused | unused | unused | unused | unused | unused | - |
 | `@rightkit/blender-worker` | tool | - | none recorded (staged 0.1.1) | unused | unused | ahead (0.1.1 (no published version) dev) | unused | unused | unused | unused | unused | unused | unused | unused | unused | - |
 | `@rightkit/config` | tool | - | none recorded (staged 0.1.1) | unused | ahead (0.1.1 (no published version) dev) | unused | unused | unused | unused | unused | ahead (0.1.1 (no published version) dev) | unused | unused | unused | unused | - |
-| `@rightkit/dictation-ui` | tool | - | none recorded (staged 0.2.7) | unused | unused | unused | unused | unused | unused | unused | unused | unused | unused | unused | unused | - |
 | `@rightkit/document-core` | tool | - | none recorded (staged 0.2.0) | unused | unused | unused | unused | unused | unused | unused | unused | unused | unused | unused | unused | - |
 | `@rightkit/document-workspace` | tool | - | none recorded (staged 0.2.1) | unused | unused | unused | unused | unused | unused | unused | unused | unused | unused | unused | unused | - |
 | `@rightkit/docx-editor` | tool | - | none recorded (staged 0.1.2) | unused | unused | unused | unused | unused | unused | unused | unused | unused | unused | unused | unused | - |

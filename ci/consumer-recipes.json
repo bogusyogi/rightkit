@@ -1246,47 +1246,6 @@
         "scripts/ci/npm-recipe-consumer.mjs": "a0e235cbb1540000a57f1af3b603e5f81c6c14322ad481bf189c497d8358e98f"
       }
     },
-    "@rightkit/dictation-ui": {
-      "pkId": "PK59",
-      "id": "ci/consumers/npm/dictation-ui/consumer.mjs",
-      "recipeId": "dictation-ui-root-export-consumer",
-      "scenarios": 1,
-      "surface": [
-        ".",
-        "./onboarding",
-        "./package.json",
-        "./pill",
-        "./settings"
-      ],
-      "closure": {
-        "install": {
-          "react": "19.3.1",
-          "react-dom": "19.3.1",
-          "@rightkit/app-update": "0.4.4",
-          "@rightkit/doc-render": "0.2.2",
-          "@rightkit/library-ui": "0.2.3",
-          "@rightkit/license": "0.3.2",
-          "@rightkit/logs": "0.1.6",
-          "@rightkit/media-ui": "0.3.6",
-          "@rightkit/platform-ui": "0.4.1",
-          "@rightkit/react-shell": "0.7.4",
-          "@rightkit/settings-ui": "0.7.2",
-          "@rightkit/tauri-shell": "0.1.4",
-          "@rightkit/theme": "0.3.3",
-          "@rightkit/tauri": "0.4.2",
-          "@rightkit/onboarding": "0.6.5",
-          "@rightkit/legal-ui": "0.4.2"
-        },
-        "declaredOnly": []
-      },
-      "files": {
-        "ci/consumers/npm/dictation-ui/README.md": "2b51d2ea89113a6d7f6ce34ff67543789c62cff19353f30bbf6e88780e2066f6",
-        "ci/consumers/npm/dictation-ui/consumer.mjs": "20006c93e6716aa8dcc3930f21b0ba0810db9eb8bb5b9c10956b656804cf3e31",
-        "ci/consumers/npm/dictation-ui/package.json": "0513fec9e70cd73bb747ebef8a754c63644dfa11880d2a8459cbb075a9aa4427",
-        "ci/consumers/npm/dictation-ui/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
-        "scripts/ci/npm-recipe-consumer.mjs": "a0e235cbb1540000a57f1af3b603e5f81c6c14322ad481bf189c497d8358e98f"
-      }
-    },
     "@rightkit/document-core": {
       "pkId": "PK60",
       "id": "ci/consumers/npm/document-core/consumer.mjs",

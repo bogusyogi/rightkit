@@ -249,7 +249,7 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 | `rightkit-win-ui` | crates.io | 0.1.1 | none recorded | 0.1.1 | staged, never published |  | Win32 UI toolkit: RAII window and GDI wrappers, software canvas, GDI surface and text painter, vector glyphs, shell file icons. Empty on other systems. |
 | `rightkit-workflow` | crates.io | 0.2.3 | 0.2.0 | 0.2.3 | staged, not yet published | scenario-runtime | Shared scenario interpreter and durable state machine for the RightKit scenario runtime (RK8): perform separated from observe_until, idempotency keys, append-only fsync journal, leases with fencing tokens, cooperative cancellation, retake replay, and a remote worker transport trait boundary |
 
-## npm packages (52)
+## npm packages (51)
 
 | Package | Registry | Source | Published | Staged | Flag | CLI | Owns | What it is |
 |---|---|---|---|---|---|---|---|---|
@@ -266,7 +266,6 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 | `@rightkit/build-control-policy` | private | 0.1.5-phase1 | none recorded |  | private | rightkit-host-gate |  | `ownership-write-hook-cli.mjs` adds secondary feedback for Claude `Write`/`Edit`/`MultiEdit` and shell (`Bash`) calls, and for Codex `apply_patch` and shell (`exec_command`) calls. Both adapters deny writes targeting ownership exception or platform trust records. `ownership-session-hook-cli.mjs` adds the current RightKit ownership index at session start. Hook feedback is fail-open for ambiguous edits; build admission remains authoritative. |
 | `@rightkit/ci` | npm | 0.3.2 | 0.3.1 | 0.3.2 | staged, not yet published | right-git | github-workflows | Public-repo-only GitHub Actions workflow layer: templates, visibility gate, sync/drift/adopt/uninstall for right-git. |
 | `@rightkit/config` | npm | 0.1.1 | none recorded | 0.1.1 | staged, never published |  | shared-presets | Shared presets for desktop apps: TypeScript configs, a Vite base config, a flat ESLint preset and Rust toolchain, cargo-deny, cargo-audit, rustfmt and cargo-about templates. |
-| `@rightkit/dictation-ui` | npm | 0.3.1 | 0.2.7 | 0.3.1 | staged, not yet published |  | dictation-ui | Headless dictation controls, setup hooks and recording pill behavior for host-rendered interfaces. |
 | `@rightkit/doc-render` | npm | 0.2.2 | 0.2.1 | 0.2.2 | staged, not yet published | rightkit-doc-render-check-katex | document-rendering | Brand-neutral, read-only document renderer (Markdown, sanitized HTML, safe email frame) for Right Suite readers. |
 | `@rightkit/document-core` | npm | 0.2.0 | none recorded | 0.2.0 | staged, never published |  | document-core | Shared base for the document editors and the document workspace: document types and format registry, host bridge, drafts, diagnostics, settings store, find, print and toolbar primitives, and the one host-identity store. |
 | `@rightkit/document-workspace` | npm | 0.2.1 | none recorded | 0.2.1 | staged, never published |  | document-workspace-ui | Host-configured multi-format document workspace shell: tabs, sidebar, document router, loaders, savers, actions, settings and the PDF editor pane. |
@@ -308,4 +307,4 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 
 ## Version records without a manifest
 
-rightkit-control (cargo), rightkit-framed-sidecar (cargo), rightkit-jobs (cargo), rightkit-media (cargo), rightkit-ort (cargo), rightkit-process (cargo), rightkit-qts (cargo), rightkit-qts-ggml (cargo), rightkit-qts-ggml-sys (cargo), rightkit-secrets (cargo), rightkit-service (cargo), rightkit-settings (cargo), rightkit-shell (cargo), rightkit-tauri (cargo), rightkit-watch (cargo), @rightkit/app-shell (npm), @rightkit/git (npm), @rightkit/shell (npm), @rightkit/updates (npm).
+rightkit-control (cargo), rightkit-framed-sidecar (cargo), rightkit-jobs (cargo), rightkit-media (cargo), rightkit-ort (cargo), rightkit-process (cargo), rightkit-qts (cargo), rightkit-qts-ggml (cargo), rightkit-qts-ggml-sys (cargo), rightkit-secrets (cargo), rightkit-service (cargo), rightkit-settings (cargo), rightkit-shell (cargo), rightkit-tauri (cargo), rightkit-watch (cargo), @rightkit/app-shell (npm), @rightkit/dictation-ui (npm), @rightkit/git (npm), @rightkit/shell (npm), @rightkit/updates (npm).

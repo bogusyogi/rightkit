@@ -333,7 +333,7 @@ const COLOR_LITERAL = /["'`]\s*(?:#(?:[\da-f]{3,4}|[\da-f]{6}|[\da-f]{8})\b|(?:r
 function sharedBehaviorPresentation({ root, files }) {
   const findings = [];
   for (const file of files) {
-    if (!SHARED_BEHAVIOR.has(file) && !file.startsWith("packages/dictation-ui/src/")) continue;
+    if (!SHARED_BEHAVIOR.has(file)) continue;
     const lines = (readText(root, file) ?? "").split("\n");
     for (const [index, line] of lines.entries()) {
       if (PRODUCT_NAME.test(line) || PRODUCT_CLASS.test(line) || COLOR_LITERAL.test(line)) {

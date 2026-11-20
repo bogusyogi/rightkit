@@ -6,5 +6,5 @@
 //   const source = tauriLibrarySource();
 //   <LibraryScreen source={source} variants={LIBRARY_SORT_VARIANTS} ... />
 //
-// HeardRight's history is the `history` source of `@rightkit/dictation-ui/tauri`; it is not repeated here.
+// Dictation hosts supply their own LibrarySource over the transcript store.
 export { LIBRARY_SORT_VARIANTS, tauriLibrarySource, type TauriLibraryCommands, type TauriLibraryOptions } from "./tauriLibrarySource.js";
