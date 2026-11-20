@@ -715,7 +715,7 @@
     "rightkit-social-publish": "0.2.0",
     "rightkit-speech-client": "0.5.0",
     "rightkit-spend": "0.2.3",
-    "rightkit-sync": "0.4.0",
+    "rightkit-sync": "0.4.1",
     "rightkit-sysmem": "0.1.0",
     "rightkit-system-monitor": "0.3.0",
     "rightkit-tauri-shell": "0.8.6",
@@ -1392,7 +1392,8 @@
     "rightkit-sync": [
       "0.1.1",
       "0.2.2",
-      "0.3.0"
+      "0.3.0",
+      "0.4.0"
     ],
     "rightkit-tauri": [
       "0.1.1"

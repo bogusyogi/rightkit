@@ -14,6 +14,8 @@ pub mod helper;
 pub mod http;
 mod ledger;
 mod record;
+#[cfg(feature = "transcripts")]
+pub mod recovery_marker;
 mod schedule;
 mod storage;
 mod traits;

@@ -6856,7 +6856,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-sync"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "rightkit-child-process",
  "rightkit-fs",

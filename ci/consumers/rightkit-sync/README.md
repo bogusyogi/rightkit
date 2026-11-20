@@ -1,6 +1,6 @@
-# rightkit-sync 0.4.0 registry consumer (compile-only)
+# rightkit-sync 0.4.1 registry consumer (compile-only)
 
-Standalone consumer, outside the workspace, pinning `rightkit-sync =0.4.0` exactly with `transcript-host`. It installs the crate from the sealed archive through the offline directory registry and builds `src/main.rs`.
+Standalone consumer, outside the workspace, pinning `rightkit-sync =0.4.1` exactly with `transcript-host`. It installs the crate from the sealed archive through the offline directory registry and builds `src/main.rs`.
 
 It never starts the helper or runs a sync. Adrian, 2026-11-03: "no dummy data, no fucking made up shit. real data." and "My decision was no unit tests. Only e2e." Existing sync surface is type-checked without calling it; new transcript-profile identity and digest APIs receive only in-memory inputs.
 

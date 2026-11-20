@@ -1,4 +1,4 @@
-// rightkit-sync 0.4.0 consumed by exact registry pin with transcript-host, outside
+// rightkit-sync 0.4.1 consumed by exact registry pin with transcript-host, outside
 // the workspace.
 //
 // Compile-only (Adrian, 2026-11-03: "no dummy data, no fucking made up shit. real data."; "My decision was no
