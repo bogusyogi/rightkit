@@ -87,7 +87,8 @@ $ev=@($all | Where-Object { $_.Id -eq 4688 -or $_.Id -eq 4689 } | ForEach-Object
   if (!(Date.parse(raw?.oldest) <= Date.parse(from))) problems.push(`the Security log's oldest event (${raw?.oldest}) is newer than the run's start, so events may have been overwritten`);
   if (raw?.continuous !== true) problems.push(`the Security log's record ids have a break inside the run's window (${raw?.records ?? "?"} records), so a start or exit may have been lost`);
   if (!(Date.parse(raw?.newest) >= Date.parse(to) - 5000) && !(Date.parse(raw?.newest) >= Date.parse(from))) problems.push(`the Security log's newest event (${raw?.newest}) is older than the run's window`);
-  const hex = (v) => (typeof v === "string" && /^0x[0-9a-f]+$/i.test(v) ? Number.parseInt(v, 16) : Number(v));
+  // A value that is not a hex or decimal number is unknown (null), never zero: a missing exit status must not read as success.
+  const hex = (v) => (typeof v === "string" && /^0x[0-9a-f]+$/i.test(v) ? Number.parseInt(v, 16) : typeof v === "string" && /^\d+$/.test(v) ? Number(v) : typeof v === "number" ? v : null);
   const events = (Array.isArray(raw?.events) ? raw.events : raw?.events ? [raw.events] : []).map((e) => e.id === 4688
     ? { id: 4688, time: e.time, pid: hex(e.data.NewProcessId), ppid: hex(e.data.ProcessId), exe: e.data.NewProcessName, commandLine: e.data.CommandLine ?? null }
     : { id: 4689, time: e.time, pid: hex(e.data.ProcessId), exe: e.data.ProcessName, exit: hex(e.data.Status) });
@@ -125,7 +126,7 @@ export async function launch({ out, commit, kind = null, receiptsDir, limits = n
   const files = { log: path.join(out, "gate.log"), launch: path.join(out, "launch.json") };
   const args = [gate, ...gateArgs, "--commit", commit];
   let snapRoot = snapshotsRoot; if (snapRoot === null) { try { snapRoot = (await import("./snapshot.mjs")).snapshotRoot({ platform, env }); } catch { snapRoot = null; } }
-  const record = { schema: LAUNCH_SCHEMA, runId, commit, kind: derived, host, gate: { path: gate, args }, launcherPid: process.pid, gatePid: null, lanes: laneCount, lanesSource: lanes ? "--lanes, handed to the gate as RK_GATE_JOBS" : "this host's cores, handed to the gate as RK_GATE_JOBS", limitMs, limitsSha256, receiptsDir: path.resolve(receiptsDir), snapshotsRoot: snapRoot, fingerprint: fp, baseline, startedAt: null, startMono: null, endedAt: null, endMono: null, exit: null, signal: null, previous };
+  const record = { schema: LAUNCH_SCHEMA, runId, commit, kind: derived, host, gate: { path: path.resolve(repo, gate), args }, launcherPid: process.pid, gatePid: null, lanes: laneCount, lanesSource: lanes ? "--lanes, handed to the gate as RK_GATE_JOBS" : "this host's cores, handed to the gate as RK_GATE_JOBS", limitMs, limitsSha256, receiptsDir: path.resolve(receiptsDir), snapshotsRoot: snapRoot, fingerprint: fp, baseline, startedAt: null, startMono: null, endedAt: null, endMono: null, exit: null, signal: null, previous };
   const save = () => fs.writeFileSync(files.launch, `${JSON.stringify(record, null, 2)}\n`);
   const logFd = fs.openSync(files.log, "a");
   record.startedAt = new Date().toISOString(); record.startMono = mono();
@@ -138,7 +139,9 @@ export async function launch({ out, commit, kind = null, receiptsDir, limits = n
   process.off("SIGINT", forward); process.off("SIGTERM", forward);
   record.endedAt = new Date().toISOString(); record.endMono = mono(); record.exit = code; record.signal = signal ?? null;
   const locksNow = (d) => { try { return fs.readdirSync(d).filter((n) => n.endsWith(".lock")).map((n) => path.join(d, n)); } catch { return null; } };
-  record.afterRun = { observedAt: new Date().toISOString(), locks: snapRoot ? (locksNow(snapRoot) ?? []) : [], locksKnown: snapRoot ? locksNow(snapRoot) !== null : false, rootAlive: alive(record.gatePid) };
+  // One read of the snapshot root decides both what was found and whether it could be read.
+  const seenLocks = snapRoot ? locksNow(snapRoot) : null;
+  record.afterRun = { observedAt: new Date().toISOString(), locks: seenLocks ?? [], locksKnown: seenLocks !== null, rootAlive: alive(record.gatePid) };
   save();
   try { fs.closeSync(logFd); } catch { /* closed */ }
   // The operating system's record of the run's programs, a little either side of the gate's own span.

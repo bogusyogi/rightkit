@@ -6,7 +6,9 @@ import fs from "node:fs";
 import { test } from "node:test";
 import os from "node:os";
 import path from "node:path";
-import { CHECK_IDS, CONTRACT_FILE, judgeRun, linkProblems, parseAcceptanceLines, parseCommandLine, processesFromWindowsEvents, readAcceptanceLines, readRunDir } from "./acceptance-lines.mjs";
+import { CHECK_IDS, CONTRACT_FILE, judgeRun, linkProblems, parseAcceptanceLines, parseCommandLine, processesFromEslogger, processesFromWindowsEvents, readAcceptanceLines, readRunDir } from "./acceptance-lines.mjs";
+import { execFileSync } from "node:child_process";
+import { EventEmitter } from "node:events";
 import { exportWindowsProcesses, kindOf, launch, sameFingerprint, takeLaunchLock } from "./acceptance-launch.mjs";
 
 // The lines under test are the contract's own: docs/GATE-CONTRACT.md [GC-A27], read here exactly as the command line reads them.
@@ -74,7 +76,7 @@ const inv = (entries) => new Map(entries.map(([id, stage, files]) => [id, { stag
 function records() {
   nextPid = 200;
   return {
-    launch: { schema: "rightkit.acceptance-launch/3", runId: "f".repeat(64), commit: C, kind: "compile", host: "fixture-host", gate: { path: "bin\\rightkit-gate.mjs", args: ["bin\\rightkit-gate.mjs", "--to", "compile", "--commit", C] }, gatePid: GATE, launcherPid: LAUNCHER,
+    launch: { schema: "rightkit.acceptance-launch/3", runId: "f".repeat(64), commit: C, kind: "compile", host: "fixture-host", gate: { path: "bin\\rightkit-gate.mjs", args: ["bin\\rightkit-gate.mjs", "--to", "compile", "--commit", C] }, gatePid: GATE, launcherPid: LAUNCHER, fingerprint: { gateCodeTree: "c".repeat(40), node: "v22.0.0", platform: "win32", tools: {} },
       lanes: 4, lanesSource: "this host's cores, handed to the gate as RK_GATE_JOBS", limitMs: 60_000, limitsSha256: "c".repeat(64), snapshotsRoot: "D:\\snaps",
       baseline: { commit: P, out: "D:\\prev", runId: "e".repeat(64), exit: 0, stable: true }, previous: { runId: "e".repeat(64), fromLastRun: true, exit: 0 },
       startedAt: at(0), startMono: "0", endedAt: at(10), endMono: String(10_000_000_000n), exit: 0, signal: null, afterRun: { observedAt: at(10), locks: [], locksKnown: true, rootAlive: false } },
@@ -143,6 +145,7 @@ const testJob = (r, exe, extra) => { r.procs = r.procs.filter((p) => p.exe !== R
 const same = (r, argv, cwd = `${SNAP}\\ws`) => { const c = r.procs.find((p) => p.exe === RUSTRIGHT); c.args = ["cargo", ...argv]; c.cwd = cwd; const p = r.receipts[0].doc.provenance.payload; p.request.requestedArgv = argv; p.request.workspace = cwd; };
 const pair = (r, id, argv, cwd, startedAt, terminalAt) => { r.procs.push(proc(startedAt - 0.1, RUSTRIGHT, ["cargo", ...argv], { end: terminalAt, cwd })); r.receipts.push(job(id, argv, { cwd, start: startedAt, end: terminalAt })); };
 const wrapped = (s, line, end = s + 0.1) => proc(s, "C:\\WINDOWS\\system32\\cmd.exe", ["/d", "/s", "/c", line], { end, cwd: null });
+const longRun = (r) => { r.launch.startedAt = at(-30); r.launch.startMono = "0"; r.launch.endMono = String(40_000_000_000n); r.witness.from = at(-32); r.procs[0].start = ms(-30); r.procs[1].start = ms(-30); r.procs[1].end = ms(-29.95); };
 const FROZEN = [
   // NN01: only the selected commit is built.
   ["GCX-01-1", "NN01", "not measured", (r) => { r.receipts = []; }], // a broker compile with no signed job
@@ -154,17 +157,17 @@ const FROZEN = [
   ["GCX-02-1", "NN02", "fail", (r) => { r.procs.push(wrapped(1.05, '""C:\\Program Files\\RustRight\\rustright.cmd" cargo metadata --format-version 1"')); }], // a quoted wrapper-only send during Class A
   ["GCX-02-2", "NN02", "not measured", (r) => { unchangedB(r); noBroker(r); byExe(r, RUSTFMT).exit = 1; r.procs[0].end = null; r.procs.push({ pid: 999, ppid: 4242, exe: GIT, args: ["status"], cwd: null, start: ms(9), end: ms(10), exit: 0 }); }], // Class A failed, Class B was reused, an unrelated process closed at 10 s, and the gate process has no exit
   ["GCX-02-3", "NN02", "not measured", (r) => { byExe(r, RUSTRIGHT).start = ms(1.1); }], // the broker client starts at the very moment Class A ends
-  ["gate 9", "NN02", "pass", (r) => { decoy(r, "gateLog", "Class A failed: cargo-deny exited 1"); decoy(r, "classAVerdict", { passed: false }); r.procs.push(proc(9, DENY, ["check"], { exit: 1, cwd: "D:\\other-unit" })); }], // a failing tool in another unit's folder after the broker work, with misleading text in the gate's log present and never read (restored)
+  ["gate 9", "NN02", "pass", (r) => { decoy(r, "gateLog", "Class A failed: cargo-deny exited 1"); decoy(r, "classAVerdict", { passed: false }); }], // a good run with misleading text in the gate's log and a failing verdict file beside it, never read (restored as the author wrote it)
   // NN03: Class A starts ready, independent work whenever an eligible lane is free.
   ["GCX-03-1", "NN03", "not measured", (r) => { r.launch.lanes = 1.5; }],
   ["GCX-03-2", "NN03", "not measured", (r) => { const f = byExe(r, RUSTFMT); f.end = f.start - 1; }],
   ["GCX-03-3", "NN03", "fail", (r) => { r.launch.lanes = 2; const f = byExe(r, RUSTFMT); f.start = ms(2.0); f.end = ms(2.1); }], // one ready row waits a second beside free capacity
-  ["gate 4", "NN03", "fail", (r) => { decoy(r, "gateLanes", 1); r.readiness.set("shellcheck", ms(1.0)); const f = byExe(r, RUSTFMT); f.start = ms(1.0); f.end = ms(3.0); r.procs.push(proc(3.0, "C:\\tools\\shellcheck.exe", ["x.sh"], { end: 5, cwd: SNAP })); }], // a gate-reported lane count of one is present and never read: the launcher's four lanes decide (restored)
+  ["gate 4", "NN03", "fail", (r) => { decoy(r, "gateLanes", 1); r.blobs["Cargo.lock"] = "l2"; r.readiness.set("cargo-deny", ms(1.0)); const f = byExe(r, RUSTFMT); f.start = ms(1.0); f.end = ms(3.0); r.procs.push(proc(3.0, DENY, ["check"], { end: 5, cwd: SNAP })); }], // two programs ready together, the second held two seconds with four lanes free; a gate-reported lane count of one is present and never read (restored with its owed deny row)
   ["GCX-03-4", "NN03", "pass", (r) => { r.launch.lanes = 20; }], // the same row ready and started at once on twenty lanes
   // NN05: if lookup disagrees with the record the gate stops before sending work; otherwise the work that ran matches it.
   ["GCX-05-1", "NN05", "not measured", (r) => { r.inventory = inv([["rustfmt:2021", "A", ["src/a.rs", "src/b.rs"]], ["deny", "A", ["Cargo.lock"]]]); }], // Class B work observed with no Class B row known
   ["GCX-05-3", "NN05", "fail", (r) => { same(r, ["clippy", "--profile", "release", "-p", "b", "-p", "z", "--locked"]); }], // the observed call and its signed job both name an extra crate
-  ["GCX-05-5", "NN05", "fail", (r) => { r.procs.push(proc(1.2, "C:\\tools\\shellcheck.exe", ["x.sh"], { end: 1.3, cwd: SNAP })); }], // a tool no row plans starts beside the valid work (the original's independent secret-scan dispatch)
+  ["GCX-05-5", "NN05", "fail", (r) => { byExe(r, RUSTFMT).args.push("src/unplanned.rs"); r.procs.push(proc(1.2, "C:\\tools\\shellcheck.exe", ["x.sh"], { end: 1.3, cwd: SNAP })); }], // an unplanned operand and a tool no row plans, beside the valid work
   // NN06: a row whose inputs did not change is never run again, including one that failed before.
   ["GCX-06-1", "NN06", "fail", (r) => { r.blobs["src/a.rs"] = "a0"; }], // rustfmt's inputs are unchanged and rustfmt still started
   ["GCX-06-3", "NN06", "not measured", (r) => { r.prior = { failedRows: new Set(["clippy:ws:a"]) }; byExe(r, RUSTFMT).exit = 1; r.launch.exit = 1; }], // the run is red, but another row's program failed, so the reused failure's own outcome is not shown
@@ -202,6 +205,7 @@ const FROZEN = [
   ["GCX-11-1", "NN11", "not measured", (r) => { r.launch.endMono = null; r.launch.endedAt = null; r.launch.exit = null; }],
   ["GCX-11-2", "NN11", "fail", (r) => { r.launch.limitMs = 9999; }],
   ["GCX-11-3", "NN11", "pass", (r) => { r.launch.limitMs = 10000; }],
+  ["gate 10", "NN11", "fail", (r) => { decoy(r, "gateLog", "first stamp 06:00:00"); longRun(r); r.launch.limitMs = 15_000; }], // the launcher began 30 s before the log's first stamp and the run took 40 s against a limit of 15 s (restored on one coherent timeline)
   // NN12: the run ends clean, even if killed: the next ordinary run starts safely by itself.
   ["gate 2", "NN12", "not measured", (r) => { decoy(r, "gateLiveList", []); r.live = { ...r.live, alive: (pid) => pid === GATE, inventory: () => [] }; }], // the operating system's listing is empty while the probe finds the gate alive; a pid list the gate wrote is present and never read (restored)
   ["gate 3", "NN12", "not measured", (r) => { decoy(r, "gateLiveList", [LAUNCHER]); r.live = { ...r.live, alive: (pid) => pid === GATE, inventory: () => [{ pid: LAUNCHER }, { pid: 4 }] }; }], // the listing omits the gate process the probe finds alive (restored)
@@ -210,9 +214,9 @@ const FROZEN = [
 ];
 // The specific reason each case's verdict must give (so it cannot be right for an unrelated one).
 const REASONS = {
-  "GCX-01-1": /broker client compile start\(s\) and 0 signed job/, "GCX-01-2": /ran in a folder the process record does not keep/, "GCX-01-3": /ran outside the selected snapshot/, "GCX-01-4": /built tree eeeeeeeeeeee, not the selected commit/, "gate 13": /does not say whether the snapshot stayed unchanged/,
+  "GCX-01-1": /broker client compile start\(s\) and 0 signed compile job/, "GCX-01-2": /ran in a folder the process record does not keep/, "GCX-01-3": /ran outside the selected snapshot/, "GCX-01-4": /built tree eeeeeeeeeeee, not the selected commit/, "gate 13": /does not say whether the snapshot stayed unchanged/,
   "GCX-02-1": /broker client started \(rustright cargo metadata\) before Class A finished/, "GCX-02-2": /has no recorded exit/, "GCX-02-3": /same moment Class A ended/, "GCX-02-4": /admitted on a Class A verdict .* written before this run began/, "gate 9": /Class A passed/,
-  "GCX-03-1": /no lane count/, "GCX-03-2": /ending before it started/, "GCX-03-3": /was ready at .* and started 1000 ms later, \d+ ms of it with a lane free of 2/, "GCX-03-4": /none waited while a lane of 20 was free/, "gate 4": /shellcheck was ready at .* and started 2000 ms later, \d+ ms of it with a lane free of 4/,
+  "GCX-03-1": /no lane count/, "GCX-03-2": /ending before it started/, "GCX-03-3": /was ready at .* and started 1000 ms later, \d+ ms of it with a lane free of 2/, "GCX-03-4": /none waited while a lane of 20 was free/, "gate 4": /cargo-deny was ready at .* and started 2000 ms later, \d+ ms of it with a lane free of 4/, "gate 10": /^40\.0 s, limit 15\.0 s/,
   "GCX-05-1": /no Class B row is known/, "GCX-05-2": /clippy:ws:b was owed a rerun and no program or signed job shows it/, "GCX-05-3": /also builds z, which no owed row needs/, "GCX-05-5": /rustfmt was handed src\/unplanned\.rs/, "gate 8": /did work although no file it reads changed/,
   "GCX-06-1": /rustfmt:2021 is unchanged and rustfmt started/, "GCX-06-3": /run's exit is not known/, "gate 1": /deny is unchanged and cargo-deny started/,
   "GCX-07-1": /src\/b\.rs changed and was never handed to rustfmt/, "GCX-07-2": /src\/a\.rs changed and was never handed to rustfmt/, "GCX-07-3": /each with only the work its change needs/, "GCX-07-4": /receipt does not verify/, "GCX-07-5": /no signed broker job built it/, "GCX-07-6": /no signed broker job built it/, "gate 12": /@x86_64-unknown-linux-gnu changed .* no signed broker job built it/,
@@ -229,10 +233,10 @@ Object.assign(REASONS, {
   "GCX-05-3": /also builds z, which no owed row needs/, "GCX-05-5": /^(?=[\s\S]*rustfmt was handed src\/unplanned\.rs)(?=[\s\S]*deny did work although no file it reads changed)/, "GCX-06-3": /another row also failed/,
   "GCX-07-4": /not shown to be this run's/, "GCX-07-5": /clippy:ws:b changed .* no signed broker job built it/, "GCX-07-6": /clippy:ws:b changed .* no signed broker job built it/, "gate 12": /@x86_64-unknown-linux-gnu changed .* no signed broker job built it/,
   "gate 5": /2x git rev-parse/, "GCX-09-6": /submitted \d+ ms after the first while it ran/, "GCX-12-2": /outlived the gate's exit \(first: child \d+\)/,
-  "GCX-01-3": /was handed src\/a\.rs, whose bytes on disk are not the selected commit's/, "gate 2": /process listing is empty/, "gate 3": /process listing omits node 100/, "gate 4": /shellcheck was ready at .* and started 2000 ms later, \d+ ms of it with a lane free of 4/,
+  "GCX-01-3": /was handed src\/a\.rs, whose bytes on disk are not the selected commit's/, "gate 2": /process listing is empty/, "gate 3": /process listing omits node 100/, "gate 4": /cargo-deny was ready at .* and started 2000 ms later, \d+ ms of it with a lane free of 4/, "gate 10": /^40\.0 s, limit 15\.0 s/,
   "gate 9": /Class A passed/, "GCX-09-8": /ci\/shards\.json at the run's tree cannot be read/, "GCX-10-2": /carries no manifest of test programs/,
 });
-Object.assign(REASONS, { "GCX-01-2": /was handed src\/a\.rs and its bytes on disk after the run were not read/, "GCX-05-5": /shellcheck ran and no known row plans it/, "GCX-07-4": /workspace/ });
+Object.assign(REASONS, { "GCX-01-2": /was handed src\/a\.rs and its bytes on disk after the run were not read/, "GCX-05-5": /^(?=[\s\S]*rustfmt was handed src\/unplanned\.rs)(?=[\s\S]*shellcheck ran and no known row plans it)/, "GCX-07-4": /workspace/ });
 const EXTRA_TWINS = [
   ["gate 2 twin", "NN12", "fail", (r) => { r.live = { ...r.live, alive: (pid) => pid === GATE, inventory: () => [{ pid: GATE }] }; }], // the same live gate with the listing showing it: the gate is still running
   ["gate 3 twin", "NN12", "fail", (r) => { r.live = { ...r.live, alive: (pid) => pid === GATE, inventory: () => [{ pid: LAUNCHER }, { pid: GATE }] }; }], // the listing that includes the gate process
@@ -244,15 +248,14 @@ const EXTRA_TWINS = [
   ["GCX-07-5 twin", "NN07", "pass", (r) => { same(r, ["clippy", "--profile", "release", "-p", "b", "--locked"]); }], // the observed compile selected crate b
   ["GCX-07-6 twin", "NN07", "pass", (r) => { r.tree["other/Cargo.toml"] = '[workspace]\nmembers = ["b"]\n'; same(r, ["clippy", "--profile", "release", "-p", "b", "--locked"], `${SNAP}\\ws`); }], // the same compile in the owed workspace
   ["gate 12 twin", "NN07", "pass", (r) => { const id = "clippy:ws:b@x86_64-unknown-linux-gnu"; r.inventory.delete("clippy:ws:b"); r.inventory.set(id, { stage: "B", files: ["ws/b/src/lib.rs"] }); same(r, ["clippy", "--profile", "release", "--target", "x86_64-unknown-linux-gnu", "-p", "b", "--locked"]); }], // the compile for the row's own target
-  ["gate 10 twin", "NN11", "pass", (r) => { r.launch.limitMs = 10_500; }], // the gate starting with the launcher
-  ["gate 10 substitute", "NN11", "fail", (r) => { r.launch.limitMs = 10_500; r.procs[0].start = ms(-1); }], // the gate began one second before the launcher's own start (the earliest the record allows)
+  ["gate 10 twin", "NN11", "pass", (r) => { longRun(r); r.launch.limitMs = 60_000; }], // the same 40 s run inside a limit of 60 s
   ["GCX-08-1 twin", "NN08", "fail", (r) => { r.procs.push(proc(7, "/opt/tool", ["probe"], { cwd: "/src" }), proc(8, "/opt/tool", ["probe"], { cwd: "/src" })); }], // the same Unix program twice in one folder
   ["GCX-08-2 twin", "NN08", "fail", (r) => { r.procs.push(proc(7, "/usr/bin/git", ["status"], { cwd: "/src/a" }), proc(8, "/usr/bin/git", ["status"], { cwd: "/src/a" })); }], // the same Unix folder twice
   ["gate 5 control", "NN08", "not measured", (r) => { const g = r.procs[1]; r.procs.push(proc(0.5, "C:\\WINDOWS\\system32\\cmd.exe", ["/d", "/s", "/c", `"${g.exe}" ${g.args.join(" ")}`], { end: 0.6, cwd: "D:\\snap\\other" })); }], // the same wrapper written in another known folder: not the same call, and no child shows what it ran
   ["gate 9 twin", "NN02", "fail", (r) => { r.procs.push(proc(9, DENY, ["check"], { exit: 1, cwd: SNAP })); }], // the same failing tool, in this run's snapshot
   ["GCX-09-7 twin", "NN09", "fail", (r) => { split(r, "-p b", "-p c"); policy(r, []); }], // the same split with no sidecar mark in the tree
 ];
-const TWINS = [["GCX-03-4", "GCX-03-3", "fail"], ["GCX-07-3", "GCX-07-1", "fail"], ["GCX-09-4", "GCX-09-3", "fail"], ["GCX-11-3", "GCX-11-2", "fail"], ["GCX-09-7", "GCX-09-7 twin", "fail"], ["GCX-08-1", "GCX-08-1 twin", "fail"], ["GCX-08-2", "GCX-08-2 twin", "fail"], ["gate 7", "gate 6", "fail"], ["GCX-02-2 twin", "GCX-02-2", "not measured"], ["GCX-02-3 twin", "GCX-02-3", "not measured"], ["GCX-06-3 twin", "GCX-06-3", "not measured"], ["GCX-07-4 twin", "GCX-07-4", "not measured"], ["GCX-07-5 twin", "GCX-07-5", "fail"], ["GCX-07-6 twin", "GCX-07-6", "fail"], ["gate 12 twin", "gate 12", "fail"], ["gate 10 twin", "gate 10 substitute", "fail"], ["gate 5 control", "gate 5", "fail"], ["gate 2 twin", "gate 2", "not measured"], ["gate 3 twin", "gate 3", "not measured"], ["GCX-01-2 twin", "GCX-01-2", "not measured"]];
+const TWINS = [["GCX-03-4", "GCX-03-3", "fail"], ["GCX-07-3", "GCX-07-1", "fail"], ["GCX-09-4", "GCX-09-3", "fail"], ["GCX-11-3", "GCX-11-2", "fail"], ["GCX-09-7", "GCX-09-7 twin", "fail"], ["GCX-08-1", "GCX-08-1 twin", "fail"], ["GCX-08-2", "GCX-08-2 twin", "fail"], ["gate 7", "gate 6", "fail"], ["GCX-02-2 twin", "GCX-02-2", "not measured"], ["GCX-02-3 twin", "GCX-02-3", "not measured"], ["GCX-06-3 twin", "GCX-06-3", "not measured"], ["GCX-07-4 twin", "GCX-07-4", "not measured"], ["GCX-07-5 twin", "GCX-07-5", "fail"], ["GCX-07-6 twin", "GCX-07-6", "fail"], ["gate 12 twin", "gate 12", "fail"], ["gate 10 twin", "gate 10", "fail"], ["gate 5 control", "gate 5", "fail"], ["gate 2 twin", "gate 2", "not measured"], ["gate 3 twin", "gate 3", "not measured"], ["GCX-01-2 twin", "GCX-01-2", "not measured"]];
 // Cases whose original fault lived only in a record the gate writes (its forecast, its lookup keys, its decision values) and has no form in evidence the gate
 // does not write. Each is reported to Adrian and chat gate; none is given a verdict it did not have.
 const NO_OUTSIDE_FORM = [
@@ -263,7 +266,6 @@ const NO_OUTSIDE_FORM = [
   ["GCX-05-4", "NN05", "fail", "three unknown decision values in the gate's forecast, lookup and coverage records"],
   ["GCX-06-2", "NN06", "not measured", "the lookup record carries no key: a field of a gate-written record"],
   ["gate 15", "NN06", "not measured", "the lookup record carries no key: a field of a gate-written record"],
-  ["gate 10", "NN11", "fail", "an owned process 30 s before the launcher's start: a child cannot start before its parent, so no record outside the gate can show it consistently (its nearest outside form is the case 'gate 10 substitute': the gate itself starting before the launcher)"],
   ["gate 8", "NN05", "fail", "the gate's stop line naming clippy:ws:bb for clippy:ws:b: only the gate's own words name a row"],
   ["GCX-02-4", "NN02", "fail", "a Class A verdict belonging to another run: the verdict file is written by the gate, and NN02 no longer reads it"],
   ["GCX-05-2", "NN05", "fail", "a claim recorded as dispatched and run in the gate's decision: gate-written"],
@@ -396,7 +398,7 @@ test("NN10: a verified compile-only test build whose program the gate ran, as th
 });
 test("NN12: a killed run passes only on the next ordinary run that names it, started after it, and ended 0; the lock is looked for in the launcher's snapshot root", () => {
   const killed = (r) => { r.launch.exit = 137; };
-  const next = (r, over = {}) => ({ launch: { previous: { runId: r.launch.runId, fromLastRun: true }, exit: 0, host: "fixture-host", startedAt: at(20), snapshotsRoot: "D:\\snaps", gate: { path: "bin\\rightkit-gate.mjs", args: ["bin\\rightkit-gate.mjs", "--to", "compile", "--commit", C] }, ...over } });
+  const next = (r, over = {}) => ({ launch: { previous: { runId: r.launch.runId, fromLastRun: true }, exit: 0, host: "fixture-host", startedAt: at(20), fingerprint: r.launch.fingerprint, snapshotsRoot: "D:\\snaps", gate: { path: "bin\\rightkit-gate.mjs", args: ["bin\\rightkit-gate.mjs", "--to", "compile", "--commit", C] }, ...over } });
   expect(alter((r) => { killed(r); r.successor = next(r); }), "NN12", "pass", /next ordinary run/);
   expect(alter((r) => { killed(r); r.successor = next(r, { exit: 1 }); }), "NN12", "not measured");
   expect(alter((r) => { killed(r); r.successor = next(r, { startedAt: at(5) }); }), "NN12", "not measured");
@@ -430,7 +432,7 @@ test("NN09 (F-16): the workspace is read from the selected tree, spellings and o
 });
 test("batch 4: the successor must be an ordinary run of the same store; the baseline must have ended cleanly; the launcher's takeover is exclusive; the sidecar is read as the tree states it", () => {
   const killed = (r) => { r.launch.exit = 137; };
-  const next = (r, over = {}) => ({ launch: { previous: { runId: r.launch.runId, fromLastRun: true }, exit: 0, host: "fixture-host", startedAt: at(20), snapshotsRoot: "D:\\snaps", gate: { path: "bin\\rightkit-gate.mjs", args: ["bin\\rightkit-gate.mjs", "--to", "compile", "--commit", C] }, ...over } });
+  const next = (r, over = {}) => ({ launch: { previous: { runId: r.launch.runId, fromLastRun: true }, exit: 0, host: "fixture-host", startedAt: at(20), fingerprint: r.launch.fingerprint, snapshotsRoot: "D:\\snaps", gate: { path: "bin\\rightkit-gate.mjs", args: ["bin\\rightkit-gate.mjs", "--to", "compile", "--commit", C] }, ...over } });
   expect(alter((r) => { killed(r); r.successor = next(r, { snapshotsRoot: "D:\\other-store" }); }), "NN12", "not measured");
   expect(alter((r) => { killed(r); r.successor = next(r, { gate: { path: "bin\\rightkit-gate.mjs", args: ["bin\\rightkit-gate.mjs", "--to", "compile", "--commit", C, "--no-cache"] } }); }), "NN12", "not measured");
   // What the launcher saw the moment the run ended is what counts, not a later look.
@@ -512,7 +514,7 @@ test("5.12 the production reader sets aside the run folder's legacy gate artifac
 });
 
 test("5.12 the ledger: all 63 originals, each with its disposition and the case that stands in for it", (t) => {
-  const SUBSTITUTE_FOR = { "gate 8": "gate 8 (unchanged row built)", "GCX-05-2": "GCX-05-2 (owed, nothing seen)", "gate 10": "gate 10 substitute" };
+  const SUBSTITUTE_FOR = { "gate 8": "gate 8 (unchanged row built)", "GCX-05-2": "GCX-05-2 (owed, nothing seen)" };
   const RESTORED = ["gate 2", "gate 3", "gate 4", "gate 9", "GCX-09-8", "GCX-10-2", "GCX-01-3"];
   const RESTATED = ["gate 5", "GCX-01-2", "GCX-05-5", "GCX-07-4", "GCX-09-6", "GCX-12-2"];
   const where = (id) => SUBSTITUTES.find(([x]) => x === id) ?? EXTRA_TWINS.find(([x]) => x === id);
@@ -523,7 +525,6 @@ test("5.12 the ledger: all 63 originals, each with its disposition and the case 
   for (const id of RESTORED) assert.ok(FROZEN.some(([x]) => x === id) && !NO_OUTSIDE_FORM.some(([x]) => x === id), `${id} is executable under its own id`);
   for (const [orig, sub] of Object.entries(SUBSTITUTE_FOR)) { assert.ok(where(sub), `${orig}'s substitute ${sub} exists`); assert.ok(NO_OUTSIDE_FORM.some(([x]) => x === orig), `${orig} is superseded`); }
   for (const row of rows) t.diagnostic(`${row[0]} | ${row[1]} | was ${row[2]} | ${row[3]} | substitute: ${row[4]}`);
-  { const g10 = where("gate 10 substitute"); const v = run(alter(g10[3])); assert.equal(verdictOf(v, "NN11"), "fail"); assert.match(whyOf(v, "NN11"), /^11\.0 s, limit 10\.5 s/); }
 });
 
 test("5.5 the sidecar exception is read from the bundle declaration of each format: JSON, JSON5 and TOML, active only, never a comment or another table", () => {
@@ -542,4 +543,164 @@ test("5.5 the sidecar exception is read from the bundle declaration of each form
   ];
   for (const [name, body] of pass) expect(alter(setup(name, body)), "NN09", "pass");
   for (const [name, body] of fail) expect(alter(setup(name, body)), "NN09", "fail", /sent as separate commands/);
+});
+
+// ---- batch 6: claims two or more Council CV-6 seats raised, each reproduced by a test first (chat gate, 2026-11-21) -----------------------------------------
+const CARGO = "C:\\cargo\\bin\\cargo.exe";
+test("6.1 cargo's short names and other test verbs, and a verb behind global options on the broker path, are not missed (Opus R-1, Sonnet F6, Fable UO-20, Astra SO-07)", () => {
+  const direct = (args) => (r) => { r.procs.push(proc(2, CARGO, args, { end: 3, cwd: SNAP })); };
+  for (const args of [["t", "-p", "b"], ["test", "-p", "b"], ["--config", "k=v", "t"], ["bench"], ["nextest", "run"], ["+nightly", "miri", "test"]]) expect(alter(direct(args)), "NN10", "fail", /cargo test start\(s\) ran outside the broker/);
+  expect(alter(direct(["frobnicate", "x"])), "NN10", "not measured", /not a verb known to build no tests/);
+  expect(alter(direct(["metadata", "--format-version", "1"])), "NN10", "pass", /no test/);
+  // the broker path: a short name and a global option before the verb are still a test job, so its manifest is demanded
+  expect(alter((r) => { testJob(r, EXE, {}); same(r, ["--config", "k=v", "test", "-p", "b", "--no-run"]); }), "NN10", "not measured", /carries no manifest of test programs/);
+  expect(alter((r) => { testJob(r, EXE, {}); same(r, ["t", "-p", "b", "--no-run"]); }), "NN10", "not measured", /carries no manifest of test programs/);
+});
+
+test("6.2 a start whose command line the record does not hold is an unknown call, not an empty one, for every line that reads arguments (Opus R-8, Sonnet F3, Astra SO-07, Sol IP-11, Fable UO-3)", () => {
+  const blind = (exe) => (r) => { const p = proc(2, exe, [], { end: 3, cwd: SNAP }); p.argsKnown = false; r.procs.push(p); };
+  expect(alter(blind(CARGO)), "NN10", "not measured", /no command line in the process record/);
+  expect(alter(blind(RUSTRIGHT)), "NN01", "not measured", /no command line in the process record/);
+  expect(alter((r) => { const f = byExe(r, RUSTFMT); f.args = []; f.argsKnown = false; }), "NN07", "not measured", /no command line in the process record/);
+  expect(alter((r) => { const f = byExe(r, RUSTFMT); f.args = []; f.argsKnown = false; }), "NN01", "not measured", /no command line in the process record/);
+  expect(alter((r) => { const f = byExe(r, RUSTFMT); f.args = []; f.argsKnown = false; }), "NN06", "not measured", /no command line in the process record/);
+  // the same start with its command line known is judged as before
+  expect(alter(() => {}), "NN10", "pass");
+});
+
+test("6.3 a tool that serves several rows is not credited to every row of it by one start (Opus R-9, Sonnet F4, Astra SO-06, Sol IP-06, Fable UO-5)", () => {
+  const rows = (r) => { r.inventory.set("deny:a", { stage: "A", files: ["a/Cargo.lock"] }); r.inventory.set("deny:b", { stage: "A", files: ["b/Cargo.lock"] }); for (const x of ["a", "b"]) { r.blobs[`${x}/Cargo.lock`] = "n"; r.priorBlobs[`${x}/Cargo.lock`] = "o"; } };
+  const one = (cwd) => (r) => { rows(r); r.procs.push(proc(1.3, DENY, ["check"], { end: 1.4, cwd })); };
+  expect(alter(one(SNAP)), "NN07", "not measured", /cannot be told apart by row/);
+  // a start inside one row's workspace serves that row; the other row has no start at all
+  expect(alter((r) => { rows(r); r.procs.push(proc(1.3, DENY, ["check"], { end: 1.4, cwd: `${SNAP}\\a` })); }), "NN07", "fail", /deny:b changed .* did no work/);
+  // placed by folder, each row has its own start
+  expect(alter((r) => { rows(r); r.procs.push(proc(1.3, DENY, ["check"], { end: 1.4, cwd: `${SNAP}\\a` }), proc(1.5, DENY, ["check"], { end: 1.6, cwd: `${SNAP}\\b` })); }), "NN07", "pass");
+});
+
+test("6.4 a Class A operand outside the selected tree, or one that is not a file of it, is never skipped (Opus R-6, Sonnet F1, Astra SO-05, Sol IP-03, Fable UO-2)", () => {
+  expect(alter((r) => { byExe(r, RUSTFMT).args.push("..\\x.rs"); }), "NN01", "fail", /outside the selected snapshot/);
+  expect(alter((r) => { byExe(r, RUSTFMT).args.push("src/../../x.rs"); }), "NN01", "fail", /outside the selected snapshot/);
+  expect(alter((r) => { byExe(r, RUSTFMT).args.push("generated/y.rs"); }), "NN01", "not measured", /not a file of the selected tree/);
+  expect(alter(() => {}), "NN01", "pass");
+});
+
+test("6.5 the sidecar declaration is read from the root bundle object (or tauri.bundle) only, never from a nested key or a string (Opus R-5, Sonnet F2, Sol IP-07, Astra SO-11, Fable UO-7)", () => {
+  const set = (body) => (r) => { split(r, "-p b", "-p c"); policy(r, []); r.tree["ws/c/Cargo.toml"] = '[package]\nname = "c"\n'; r.tree["ws/c/tauri.conf.json5"] = body; };
+  for (const body of ['{ plugins: { x: { bundle: { externalBin: ["y"] } } }, bundle: {} }', '{ note: "bundle: { externalBin: [\\"y\\"] }", bundle: {} }', '{ build: { bundle: { externalBin: ["y"] } } }', '{ bundle: { resources: { externalBin: ["y"] } } }']) expect(alter(set(body)), "NN09", "fail", /sent as separate commands/);
+  for (const body of ['{ "bundle": { "externalBin": ["y"] } }', "{ bundle: { 'externalBin': ['y'] } }", '{ tauri: { bundle: { externalBin: ["y"] } } }', '{ productName: "a #b", bundle: { externalBin: ["y"] } }']) expect(alter(set(body)), "NN09", "pass");
+});
+
+test("6.6 equivalent cargo options are one setting, and an option the check cannot interpret is not read as a reason to split (Opus R-4, Sol IP-07, Fable UO-6)", () => {
+  for (const [a, b] of [["-p b -Fx", "-p c -F x"], ["-p b -Zunstable-options", "-p c -Z unstable-options"], ["-p b --frozen", "-p c --offline"], ["-p b --manifest-path .\\ws\\Cargo.toml", "-p c --manifest-path=ws/Cargo.toml"]]) { const v = run(alter((r) => { split(r, a, b); policy(r, []); })); assert.equal(verdictOf(v, "NN09"), "fail", `${a} | ${b}: ${whyOf(v, "NN09")}`); assert.match(whyOf(v, "NN09"), /sent as separate commands/); }
+  expect(alter((r) => { split(r, "-p b --some-new-flag", "-p c"); policy(r, []); }), "NN09", "not measured", /does not know the meaning of/);
+  // a real difference in a known option (another feature set) is a legitimate reason for two commands
+  expect(alter((r) => { split(r, "-p b --features x", "-p c --features y"); policy(r, []); }), "NN09", "pass");
+});
+
+test("6.7 F-10: two compiles are 'together' only by overlapping signed intervals or a broker-signed queue wait, never by submission proximity alone (Opus R-3 / CV-5 F-10, Astra SO-15, Sol IP-12)", () => {
+  const timed = (submit2, start2, end2, queue) => (r) => { split(r, "-p b", "-p c"); policy(r, ["c"]); const p = r.receipts[1].doc.provenance.payload; p.startedAt = at(start2); p.terminalAt = at(end2); p.timingsMs = { admission: 50, queue, bind: 50 }; r.receipts[1].doc.provenance.payload.startedAt = at(start2); };
+  // started 100 ms after the first and still running with it: overlap, together
+  expect(alter(timed(0, 6.2, 9, 0)), "NN09", "pass");
+  // submitted 150 ms after the first but started only after it ended, with no queue wait signed: held back or no capacity, not shown
+  expect(alter(timed(0, 8.05, 9, 0)), "NN09", "not measured", /no queue wait signed/);
+  // the same with a queue wait the broker signed: the broker's own, not the gate's
+  expect(alter(timed(0, 8.05, 9, 1900)), "NN09", "pass");
+  // submitted only after the first ended: the groups did not run together
+  expect(alter(timed(0, 8.1, 9, 0)), "NN09", "fail", /submitted only after job j1 ended/);
+});
+
+test("6.8 a send or job that fits more than one counterpart is credited to none, and an unmatched send or job is carried into every line that reads receipts (Astra SO-01, Sol IP-01, Fable UO-4, Sonnet F9, Opus R-18)", () => {
+  // two jobs with one command, one send: which job the send was is not shown
+  expect(alter((r) => { r.receipts.push(job("j1b", ["clippy", "--profile", "release", "-p", "b", "--locked"])); }), "NN09", "not measured", /not shown to be this run's/);
+  // a compile send with no receipt beside a matched metadata receipt: NN01 is not masked by the count of jobs
+  expect(alter((r) => { r.procs.push(proc(6.5, RUSTRIGHT, ["cargo", "build", "-p", "z"], { end: 7, cwd: `${SNAP}\\ws` })); r.procs.push(proc(6.6, RUSTRIGHT, ["cargo", "metadata"], { end: 6.7, cwd: `${SNAP}\\ws` })); r.receipts.push(job("m1", ["metadata"], { start: 6.6, end: 6.7 })); }), "NN01", "not measured", /(signed compile job|no signed job that matches)/);
+  // an unmatched test send: NN10 is not a pass
+  expect(alter((r) => { r.procs.push(proc(6.5, RUSTRIGHT, ["cargo", "test", "-p", "b", "--no-run"], { end: 7, cwd: `${SNAP}\\ws` })); }), "NN10", "not measured", /(test request|no signed job that matches)/);
+});
+
+test("6.9 the Mac process record keeps the arguments it read; the Security export reads a missing exit status as unknown, never as zero (Opus R-15, Sonnet F8, Astra SO-13, Fable UO-12; Astra SO-09, Sol IP-09)", () => {
+  const lines = [{ event: "exec", pid: 7, ppid: 1, path: "/usr/bin/git", args: ["git", "status"], cwd: "/src", time: at(0) }, { event: "exit", pid: 7, status: 0, time: at(1) }];
+  const mac = processesFromEslogger(lines); assert.equal(mac[0].argsKnown, true); assert.deepEqual(mac[0].args, ["status"]);
+  assert.equal(processesFromEslogger([{ ...lines[0], args: undefined }, lines[1]])[0].argsKnown, false);
+  for (const status of [null, "", undefined, "n/a"]) {
+    const raw = { oldest: at(-100), newest: at(3), continuous: true, records: 2, events: [{ id: 4688, time: at(0), data: { NewProcessId: "0x64", ProcessId: "0x32", NewProcessName: "C:\\n.exe", CommandLine: "n" } }, { id: 4689, time: at(1), data: { ProcessId: "0x64", ProcessName: "C:\\n.exe", ...(status === undefined ? {} : { Status: status }) } }] };
+    const x = exportWindowsProcesses(at(-1), at(2), { run: () => JSON.stringify(raw) });
+    assert.equal(x.events.find((e) => e.id === 4689).exit === 0, false, `a missing exit status (${JSON.stringify(status)}) must not read as 0`);
+    assert.equal(processesFromWindowsEvents(x.events)[0].exit, null);
+  }
+});
+
+test("6.10 NN12: a program that ends after the gate did is not clean even by a moment, and the successor must run the same gate code (Astra SO-03 SO-14, Sol IP-04, Fable UO-11, Opus R-17)", () => {
+  expect(alter((r) => { const d = proc(5, "C:\\tools\\child.exe", ["x"], { end: 10.5, cwd: SNAP }); r.procs.push(d); }), "NN12", "fail", /outlived the gate's exit/);
+  const killed = (mutate) => alter((r) => { r.launch.exit = 137; r.successor = { launch: { previous: { runId: r.launch.runId, fromLastRun: true }, exit: 0, host: "fixture-host", startedAt: at(20), fingerprint: r.launch.fingerprint, snapshotsRoot: "D:\\snaps", gate: { path: "bin\\rightkit-gate.mjs", args: ["bin\\rightkit-gate.mjs", "--to", "compile", "--commit", C] } } }; mutate?.(r); });
+  expect(killed(), "NN12", "pass");
+  expect(killed((r) => { r.successor.launch.fingerprint = { ...r.launch.fingerprint, gateCodeTree: "d".repeat(40) }; }), "NN12", "not measured", /--successor/);
+  expect(killed((r) => { delete r.successor.launch.fingerprint; }), "NN12", "not measured", /--successor/);
+});
+
+test("6.11 a handed-in inventory can add rows and files but never remove or narrow the test's own enumeration; the predecessor's Class B outcomes are unknown (Opus R-7, Sonnet F5, Astra SO-02, Sol IP-02, Fable UO-9; Opus R-11, Fable UO-8)", () => {
+  const sh = (cwd, ...a) => execFileSync("git", ["-C", cwd, ...a], { encoding: "utf8", windowsHide: true });
+  const repo = fs.mkdtempSync(path.join(os.tmpdir(), "rk-inv-repo-")); const out = fs.mkdtempSync(path.join(os.tmpdir(), "rk-inv-out-")); const prevOut = fs.mkdtempSync(path.join(os.tmpdir(), "rk-inv-prev-"));
+  sh(repo, "init", "-q"); sh(repo, "config", "user.email", "t@t"); sh(repo, "config", "user.name", "t");
+  fs.mkdirSync(path.join(repo, "a", "src"), { recursive: true });
+  fs.writeFileSync(path.join(repo, "Cargo.toml"), '[workspace]\nmembers = ["a"]\n'); fs.writeFileSync(path.join(repo, "a", "Cargo.toml"), '[package]\nname = "a"\nedition = "2021"\n'); fs.writeFileSync(path.join(repo, "a", "src", "lib.rs"), "fn a() {}\n");
+  sh(repo, "add", "-A"); sh(repo, "commit", "-q", "-m", "x"); const commit = sh(repo, "rev-parse", "HEAD").trim(); const tree = sh(repo, "rev-parse", "HEAD^{tree}").trim();
+  const events = [{ id: 4688, pid: 100, ppid: 50, exe: "C:\\n.exe", commandLine: "n", time: at(0) }, { id: 4689, pid: 100, exit: 0, time: at(1) }];
+  fs.writeFileSync(path.join(prevOut, "launch.json"), JSON.stringify({ runId: "p".repeat(64), endedAt: at(-5) })); fs.writeFileSync(path.join(prevOut, "processes.json"), JSON.stringify({ kind: "windows-security", events, continuous: true, problems: [] }));
+  fs.writeFileSync(path.join(out, "launch.json"), JSON.stringify({ runId: "r".repeat(64), commit, startedAt: at(0), baseline: { commit, out: prevOut, runId: "p".repeat(64) } })); fs.writeFileSync(path.join(out, "processes.json"), JSON.stringify({ kind: "windows-security", events }));
+  const own = readRunDir(out, { repo });
+  assert.ok(own.inventory.has("rustfmt:2021") && own.inventory.has("clippy:.:a"), `the test's own enumeration finds the rows: ${[...own.inventory.keys()].join(", ")}`);
+  // a hand-written file that names the right tree and states no rows
+  const file = path.join(out, "inv.json"); fs.writeFileSync(file, JSON.stringify({ tree, rows: {}, uncovered: [] }));
+  const handed = readRunDir(out, { repo, inventoryFile: file });
+  assert.deepEqual([...handed.inventory.keys()].sort(), [...own.inventory.keys()].sort(), "an empty hand-written inventory removed nothing");
+  assert.ok(handed.inventoryUncovered.length >= own.inventoryUncovered.length, "it did not claim a kind covered");
+  fs.writeFileSync(file, JSON.stringify({ tree, rows: { "x:extra": { stage: "A", files: ["a/src/lib.rs"] }, "rustfmt:2021": { stage: "A", files: ["more.rs"] } } }));
+  const added = readRunDir(out, { repo, inventoryFile: file });
+  assert.ok(added.inventory.has("x:extra")); assert.deepEqual(added.inventory.get("rustfmt:2021").files.includes("more.rs"), true); assert.ok(added.inventory.get("rustfmt:2021").files.includes("a/src/lib.rs"), "own files stay");
+  // the predecessor's broker outcomes are not read, so no Class B row is known to have passed or failed
+  assert.ok(own.prior.unknownRows.has("clippy:.:a"), "a Class B row's prior outcome is unknown"); assert.equal(own.prior.failedRows.has("clippy:.:a"), false);
+  // a predecessor whose process export failed, or was empty, or broke, is not evidence that nothing failed
+  for (const bad of [{ kind: "windows-security", events: [], continuous: false, problems: ["the Security log could not be read"] }, { kind: "windows-security", events, continuous: true, problems: ["x"] }, { kind: "windows-security", events, continuous: false, problems: [] }]) { fs.writeFileSync(path.join(prevOut, "processes.json"), JSON.stringify(bad)); assert.equal(readRunDir(out, { repo }).prior, null, "an unusable predecessor record yields no prior outcomes"); }
+  // a predecessor Class A tool with no recorded end is unknown, not passed
+  const open = [{ id: 4688, pid: 100, ppid: 50, exe: "C:\\tools\\rustfmt.exe", commandLine: "rustfmt --check --edition 2021 a.rs", time: at(-9) }];
+  fs.writeFileSync(path.join(prevOut, "processes.json"), JSON.stringify({ kind: "windows-security", events: open, continuous: true, problems: [] }));
+  assert.ok(readRunDir(out, { repo }).prior.unknownRows.has("rustfmt:2021"), "a tool start with no end leaves its row unknown");
+});
+
+test("6.13 a Class A program that failed in a folder outside the snapshot is not shown to be another unit's, and a reused row with an unknown earlier outcome is not shown to have passed (Opus R-2, Fable UO-10; Fable UO-8, Astra SO-12, Sol IP-10)", () => {
+  expect(alter((r) => { r.procs.push(proc(9, DENY, ["check"], { exit: 1, cwd: "D:\\other-unit" })); }), "NN02", "not measured", /outside the snapshot/);
+  expect(alter((r) => { r.procs.push(proc(9, DENY, ["check"], { exit: null, cwd: "D:\\other-unit" })); }), "NN02", "not measured", /no recorded status/);
+  expect(alter((r) => { r.prior.unknownRows = new Set(["rustfmt:2021"]); r.expectedReuse = true; r.inventory.set("deny", { stage: "A", files: ["Cargo.lock"] }); r.prior.unknownRows.add("deny"); }), "NN02", "not measured", /is reused and what happened to it/);
+  expect(alter((r) => { r.prior = null; }), "NN02", "not measured", /is reused and what happened to it/);
+  expect(alter(() => {}), "NN02", "pass");
+});
+
+test("6.14 the reader names only the files of the launcher's record, the process record and the receipts list; a source scan fails if it ever names a file the gate writes", () => {
+  const names = new Set([...readRunDir.toString().matchAll(/"([\w.-]+\.(?:json|txt|log|ndjson|jsonl))"/g)].map((m) => m[1]));
+  assert.deepEqual([...names].sort(), ["launch.json", "processes.json", "receipts.txt"], "the production reader's file names");
+});
+
+test("6.15 the launcher reads the snapshot root once at the gate's exit, and records the gate by an absolute path (Astra SO-03 SO-14, Sol IP-04, Fable UO-11)", async () => {
+  const work = fs.mkdtempSync(path.join(os.tmpdir(), "rk-launch-")); const fp = { gateCodeTree: "c".repeat(40), node: "v22", platform: "win32", tools: { rustfmt: "r", cargo: "c", "cargo-deny": "d", pnpm: "p", git: "g" } };
+  const child = () => { const c = new EventEmitter(); c.pid = 999991; c.kill = () => {}; setImmediate(() => c.emit("exit", 0, null)); return c; };
+  const go = async (name, snapshotsRoot, gate) => { const out = path.join(work, name, "run"); const code = await launch({ out, commit: C, receiptsDir: work, repo: work, gate, lanes: 2, gateArgs: ["--to", "compile"], snapshotsRoot, spawnImpl: child, exportProcesses: (from, to) => ({ kind: "windows-security", from, to, newest: to, continuous: true, events: [], problems: [] }), fingerprint: fp, platform: "win32", host: "h" }); assert.equal(code, 0); return JSON.parse(fs.readFileSync(path.join(out, "launch.json"), "utf8")); };
+  // one read: a spy counts the directory reads of the snapshot root between the gate's exit and the record
+  const root = path.join(work, "store"); fs.mkdirSync(root); fs.writeFileSync(path.join(root, "k1.lock"), "x");
+  const real = fs.readdirSync; let reads = 0; fs.readdirSync = (p, ...a) => { if (path.resolve(String(p)) === path.resolve(root)) reads += 1; return real(p, ...a); };
+  let rec; try { rec = await go("a", root, "rel\\gate.mjs"); } finally { fs.readdirSync = real; }
+  assert.equal(reads, 1, "the snapshot root is read once"); assert.equal(rec.afterRun.locksKnown, true); assert.equal(rec.afterRun.locks.length, 1);
+  assert.equal(rec.gate.path, path.resolve(work, "rel\\gate.mjs"), "a relative gate path is recorded as the absolute path it resolved to");
+  // a root that cannot be read is unknown, with no locks claimed
+  const lost = await go("b", path.join(work, "missing-store"), path.join(work, "g.mjs")); assert.equal(lost.afterRun.locksKnown, false); assert.deepEqual(lost.afterRun.locks, []);
+});
+
+test("6.12 the 'present and never read' check can fail: a judge that reads a gate-written input is caught by the same spy", () => {
+  const r = records(); decoy(r, "gateLog", "Class A failed"); decoy(r, "classAVerdict", { passed: false });
+  // the spy is the one run() uses; a judge that touched the decoy would set decoyRead
+  const args = {}; const watched = new Proxy({ ...args, ...r.decoys }, { get(t, k, rcv) { if (Object.hasOwn(r.decoys, k)) r.decoyRead = k; return Reflect.get(t, k, rcv); } });
+  assert.equal(r.decoyRead, undefined); void watched.gateLog; assert.equal(r.decoyRead, "gateLog", "a read of the decoy is recorded");
+  { const clean = alter((x) => { decoy(x, "gateLog", "Class A failed"); }); run(clean); assert.equal(clean.decoyRead, undefined, "the real judge reads nothing it was not given a name for"); }
+  // the production reader, with legacy artifacts present, opens only the files it names (see 5.12); a reader that opened one would be caught by that test's assertion
 });
