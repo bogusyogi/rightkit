@@ -482,6 +482,32 @@
         }
       ]
     },
+    "rightkit-transcript-library": {
+      "featureSets": [
+        [],
+        [
+          "--features",
+          "store,rightkit-db/bundled"
+        ],
+        [
+          "--features",
+          "managed-store,rightkit-db/sqlcipher-libtomcrypt"
+        ]
+      ],
+      "checkFeatureSets": [
+        {
+          "features": [
+            "--features",
+            "managed-store,rightkit-db/sqlcipher-system"
+          ],
+          "hosts": [
+            "darwin",
+            "linux"
+          ],
+          "hostsReason": "sqlcipher-system links the system crypto provider (CommonCrypto on Apple, libcrypto elsewhere): on Windows it needs an OpenSSL install (OPENSSL_DIR) that the gate host does not provide; Windows is covered by the sqlcipher-libtomcrypt set"
+        }
+      ]
+    },
     "rightkit-daemon": {
       "featureSets": [
         [],
