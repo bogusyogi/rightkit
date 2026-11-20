@@ -1,7 +1,7 @@
-# rightkit-asr 0.5.1 registry consumer (PK18)
+# rightkit-asr 0.5.2 registry consumer (PK18)
 
 Publication qualification supplement, reviewed 2026-10-23; added after original
-PK01–PK17 inventory. Standalone consumer pins registry `rightkit-asr =0.5.1` &
+PK01–PK17 inventory. Standalone consumer pins registry `rightkit-asr =0.5.2` &
 `rightkit-transcript =0.4.2`, outside workspace dependency resolution.
 
 Release delta: transcript 0.4 type migration, including `TimedWord::source_ms`;

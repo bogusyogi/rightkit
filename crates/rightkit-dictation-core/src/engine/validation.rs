@@ -157,6 +157,18 @@ pub fn validate_frame(frame: &EngineFrame) -> Result<(), EngineContractError> {
                 matches!(payload, EnginePayload::RecordingContextCaptured { .. })
             })?;
         }
+        EngineSchemaName::CaptureWarmup => {
+            reject_error(frame)?;
+            require_payload(frame, |payload| {
+                matches!(payload, EnginePayload::CaptureWarmup { .. })
+            })?;
+        }
+        EngineSchemaName::CaptureSeal => {
+            reject_error(frame)?;
+            require_payload(frame, |payload| {
+                matches!(payload, EnginePayload::CaptureSeal { .. })
+            })?;
+        }
         EngineSchemaName::RecordingLevel => {
             reject_error(frame)?;
             require_session(frame)?;

@@ -1,4 +1,4 @@
-# rightkit-dictation-core 0.3.3 registry consumer
+# rightkit-dictation-core 0.3.4 registry consumer
 
 Standalone consumer, outside the workspace, pinning `rightkit-dictation-core` to the exact version
 in its `Cargo.toml`. Through the public API only, it covers: a file transcription request frame

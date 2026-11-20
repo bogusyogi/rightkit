@@ -73,6 +73,26 @@ pub enum EngineSchemaName {
     FileTranscriptionResult,
     RecordingStarted,
     RecordingContextCaptured,
+    /// Shell -> engine, sent the instant the dictation shortcut is pressed and before any other
+    /// start work: resume the idle microphone stream so audio accumulates while the shell
+    /// observes the target and allocates the session. Carries no session and no target, only the
+    /// press's start attempt id (`EnginePayload::CaptureWarmup`). The `RecordingStarted` frame
+    /// with the same `start_attempt_id` adopts the audio. The engine bounds the warm-up itself
+    /// (it pauses the stream a fixed time after the stream actually resumed when no matching start
+    /// arrives), and a warm-up whose attempt was already started, stopped, cancelled, revoked or
+    /// superseded is ignored. With `revoke` set the same frame instead ends the attempt: a press
+    /// that never became a session. Answered at once as accepted.
+    CaptureWarmup,
+    /// Shell -> engine, sent synchronously when the user releases the shortcut (or otherwise asks
+    /// to stop) and BEFORE the key-gated stop frame: seal the recording of this press at once. The
+    /// frame carries the press's attempt id (`EnginePayload::CaptureSeal`) and, when the shell
+    /// knows it, the session id. The engine applies it on the worker's ordered command path, in
+    /// the same sequence as the stop: it stops appending audio, stops streaming partials and
+    /// records the cut at the release instant, then answers with an `EngineAck` whose status says
+    /// what happened (`sealed`, `held` for a start that has not run yet, `noop` for a press that
+    /// already ended, `unavailable`). The stop that follows finalizes the sealed audio. A regular
+    /// request/response (not accepted-style): the reply is the acknowledgement of its application.
+    CaptureSeal,
     RecordingLevel,
     TranscribingStarted,
     TranscriptPartial,
@@ -361,6 +381,23 @@ pub enum EnginePayload {
         term_details: Option<Vec<VocabTermWire>>,
     },
     EngineStateRequest,
+    /// Payload of `EngineSchemaName::CaptureWarmup`.
+    CaptureWarmup {
+        /// The press this warm-up belongs to: allocated by the shell, strictly increasing per
+        /// press, and repeated as `EngineFrame::start_attempt_id` on that press's
+        /// `RecordingStarted`, stop and cancel frames.
+        start_attempt_id: u64,
+        /// End the attempt instead of starting capture: the press produced no session. The
+        /// engine pauses a warm stream of this attempt (or an older one) and refuses any later
+        /// warm-up of it.
+        #[serde(default)]
+        revoke: bool,
+    },
+    /// Payload of `EngineSchemaName::CaptureSeal`.
+    CaptureSeal {
+        /// The press whose recording is sealed (the same id as its warm-up and start frame).
+        start_attempt_id: u64,
+    },
     EngineStateSnapshot {
         state: String,
     },
@@ -574,6 +611,14 @@ pub struct EngineFrame {
     /// local; this field carries only bounded prompt context/provenance.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub recording_context: Option<RecordingContext>,
+    /// The shortcut press (start attempt) this frame belongs to. Set by the shell on a start
+    /// (`RecordingStarted`), on its stop and cancel frames (`TranscribingStarted`) and on the
+    /// warm-up's own frame. The engine adopts a capture warm-up only for a start with the same
+    /// id, and a stop or cancel revokes every warm-up up to and including its id, also when no
+    /// session is active. Absent on frames from a shell without early capture; the engine then
+    /// leaves any warm-up alone and a start cold-resumes as before.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start_attempt_id: Option<u64>,
     pub trace_id: String,
     #[serde(default)]
     pub payload: Option<EnginePayload>,
@@ -617,6 +662,7 @@ impl EngineFrame {
             session_id,
             recording_target: None,
             recording_context: None,
+            start_attempt_id: None,
             trace_id: trace_id.to_string(),
             payload,
             error,

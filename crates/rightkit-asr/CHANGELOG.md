@@ -3,6 +3,10 @@
 All notable changes to `rightkit-asr`. Versions follow Cargo semver; while the
 version is `0.x`, a minor bump may carry breaking changes.
 
+## 0.5.2
+
+- Default Windows Parakeet decoder/joint CPU sessions to no spinning and a four-thread cap, preserving explicit intra-op overrides and the streaming KWS C ABI.
+
 ## 0.5.1
 
 - Add optional `kws-ffi` feature with streaming keyword-spotter C ABI, `kws_ffi` module & packaged `include/rightkit_asr_kws.h`. Native hosts use `rightkit_asr_kws_*` symbols & release returned strings through `rightkit_asr_string_free`.

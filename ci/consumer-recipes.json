@@ -2425,8 +2425,8 @@
         "serde_json = \"1\""
       ],
       "files": {
-        "Cargo.toml": "10b09b88a793bc9c978dcd2d13db9a86f9d241c203ccbe0013ee25fa2396c824",
-        "README.md": "67afe2df92d9dcd9287afdba1c06f8707c773d29f4f1bb9714a28805041d67ad",
+        "Cargo.toml": "c5d578119e624e15ab277e5bb65b613b48ea39d74535319941ca94e503bde2eb",
+        "README.md": "cf794cae74036976d4011253855e117dd4dab31147ac5608ce2b5303bc51fd3d",
         "src/main.rs": "41fbbf4cc53e4e38dd6326c207acf051f7b910572eb57654ed110f23e8f04b23"
       },
       "aggregateSha256": "a02673ff6dcad2dc3aa89039e4eaf424c5c49dbb570719dde28843f07886808c"
@@ -3209,8 +3209,8 @@
       "pkId": "PK91",
       "id": "ci/consumers/rightkit-dictation-core/src/main.rs",
       "files": {
-        "Cargo.toml": "d97e4adb9ef1830e25f84fa3df7422966524c115d07c88b47ece499eba1a5866",
-        "README.md": "1bac0622a2dca972599ff9eca589799fda1dca06f2067fc9ea41841a32b504c7",
+        "Cargo.toml": "14c6378570eb351383a29649315f1fe9bb6b07a0197449c29f18a7fc7b82f81b",
+        "README.md": "8f04c1c96d17a01380658c83f28eeef6dbb6b44a1a6fe45d1b7170eb694bec70",
         "src/main.rs": "6c635537622a8598397ae3b0a963206a4745d9ec4fa0fdbbe0ff5725bbe9c7a9"
       },
       "aggregateSha256": "bb8d65990586f88e302fd56489bd4b28293cef84a05ac31d0f2af06b54436f91"

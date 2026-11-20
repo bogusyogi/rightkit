@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.4
+
+- Add typed warm-up and seal frames, start-attempt correlation and validation for early capture. Expose audio conditioning through an opt-in tools binary.
+
 ## 0.3.3 (unpublished)
 
 - Add typed last-paste casing commands in the extensible transcript reset diagnostics. Existing `DiagnosticsPayload` callers and older wire readers retain the reset and its failure diagnostic. The command names the prior delivery and requested case. It carries neither editor authority nor text.

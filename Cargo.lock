@@ -10654,7 +10654,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-asr"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "half",
  "hound",
@@ -11370,7 +11370,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-dictation-core"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "rightkit-credentials",
  "rightkit-fs",
