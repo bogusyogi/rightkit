@@ -146,6 +146,7 @@ test("NN01: only the selected commit is built", () => {
 });
 
 test("NN02: Class A finishes before anything goes to the broker; if it fails, nothing goes", () => {
+  expect(records(), "NN02", "pass", /Class A passed .* first, then 1 compile\(s\)/);
   expect(alter((r) => { r.ledger[2].at = at(1); }), "NN02", "fail", /before/);
   // (review) a process-list line that is not a whole record is not dropped silently: it leaves the list incomplete.
   expect(alter((r) => { r.extraLines.push("{not json"); }), "NN02", "not measured", /not JSON/);
@@ -203,6 +204,9 @@ test("NN05: a lookup that disagrees stops the gate before work is sent and names
 });
 
 test("NN06: a row whose inputs did not change is never run again, including one that failed before", () => {
+  // Passes: both unchanged rows reused under their keys, the earlier failure still a failure, and no process or coverage row ran either.
+  expect(records(), "NN06", "pass", /2 unchanged row\(s\) reused, 1 of them an earlier failure that stayed one/);
+  expect(alter((r) => { decB(r).forecast[0].status = "pass"; decB(r).actual[0].status = "pass"; scan(r, "covB.json", "clippy:ws:a").status = "pass"; }), "NN06", "pass", /2 unchanged row\(s\) reused$/);
   expect(alter((r) => { decB(r).actual.find((x) => x.id === "clippy:ws:a").actual = "run"; }), "NN06", "fail");
   // (review) a forecast hit with no recorded lookup result is not a reuse.
   expect(alter((r) => { decB(r).actual = decB(r).actual.filter((x) => x.id !== "clippy:ws:a"); }), "NN06", "not measured", /clippy:ws:a/);
@@ -256,6 +260,9 @@ test("NN09: compatible compiles are combined per workspace and stage; every spli
 });
 
 test("NN11 is judged only against a limit, over times that run forwards; NN12 only right after the run", () => {
+  // Passes: ten seconds of forward log against a sixty-second limit; right after the run, no lock and no process of the run alive.
+  expect(records(), "NN11", "pass", /10\.0 s, limit 60\.0 s/);
+  expect(records(), "NN12", "pass", /no lock and no process left behind/);
   expect(alter((r) => { r.limitMs = 1_000; }), "NN11", "fail");
   expect(alter((r) => { r.limitMs = null; }), "NN11", "not measured");
   // (review) a log whose last time is earlier than its first gives no interval to judge.
