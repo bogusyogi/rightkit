@@ -3540,7 +3540,7 @@
       "files": {
         "Cargo.toml": "be594e62422b5e8299c13dc9f6acfa2a139f2865247848c3d46a20b405002f14",
         "README.md": "969c6d39fd38a65bf266fa311e44e4f1801211851640317be94ac692e522aee5",
-        "src/main.rs": "404ff8346b78383ed53d86a0d3f7b52d9558666755be44179a9db69a39feccc6"
+        "src/main.rs": "c9567fdecec000edf806ec458059eba29045f3fd768af8e4e1aa71c5354acbce"
       }
     },
     "rightkit-app-host": {

@@ -56,7 +56,9 @@ pub struct ManagedConnection(pub(super) rightkit_db::encrypted_lifecycle::Encryp
 #[cfg(feature = "managed-store")]
 impl std::fmt::Debug for ManagedConnection {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.debug_struct("ManagedConnection").finish_non_exhaustive()
+        formatter
+            .debug_struct("ManagedConnection")
+            .finish_non_exhaustive()
     }
 }
 

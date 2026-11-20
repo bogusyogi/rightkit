@@ -1,3 +1,5 @@
+/// <reference path="./shiki-wasm.d.ts" />
+
 import type { HighlighterCore, LanguageRegistration } from "shiki/core";
 
 /**
