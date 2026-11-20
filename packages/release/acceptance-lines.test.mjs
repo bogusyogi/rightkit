@@ -82,6 +82,7 @@ function records() {
         mismatches: [], dispatchedRows: ["clippy:ws:b"], phase: "observed",
       },
       "v.json": { schema: "rightkit.class-a-verdict/1", commit: C, tree: T, status: "pass" },
+      [`${SNAP}\\ci\\shards.json`]: { solo: [] },
       "covA.json": { commit: C, scans: [
         { id: "rustfmt:2021", class: "A", coverage: "ran", status: "pass", lane: { readyAt: 1000, startedAt: 1010, endedAt: 1500, lanes: 4 } },
         { id: "deny", class: "A", coverage: "hit", status: "pass" },
@@ -116,6 +117,8 @@ const whyOf = (v, id) => v.lines.find((l) => l.id === id).why;
 const expect = (r, id, verdict, why) => { const v = run(r); assert.equal(verdictOf(v, id), verdict, `${id}: ${whyOf(v, id)}`); if (why) assert.match(whyOf(v, id), why); };
 const decB = (r) => r.files["decB.json"]; const decA = (r) => r.files["decA.json"];
 const scan = (r, file, id) => r.files[file].scans.find((s) => s.id === id);
+/** Class B wholly reused: b unchanged too, nothing dispatched, nothing compiled. */
+const wholeReuseB = (r) => { const d = decB(r); d.forecast[1].expected = "hit"; d.actual[1].actual = "hit"; d.dispatchedRows = []; scan(r, "covB.json", "clippy:ws:b").coverage = "hit"; r.ledger.splice(2, 1); };
 
 test("a run whose records meet every line passes eleven; NN10 stays not measured until the broker's receipt is read", () => {
   const v = run(records());
@@ -138,8 +141,11 @@ test("NN01: only the selected commit is built", () => {
   expect(alter((r) => { r.receipt = null; }), "NN01", "not measured", /receipt/);
   expect(alter((r) => { r.receipt.binding.tree = "c".repeat(40); }), "NN01", "fail");
   expect(alter((r) => { r.receipt.stages.compile.snapshotLock = "00000000-0000-0000-0000-000000000000"; }), "NN01", "fail", /lock/);
-  // A stage the receipt carries from an earlier run of the same commit and tree (recorded before this run began) is no other commit built.
-  expect(alter((r) => { Object.assign(r.receipt.stages.compile, { at: at(-600), snapshotLock: "00000000-0000-0000-0000-000000000000" }); }), "NN01", "pass");
+  // (review 2) an earlier receipt stage under another lock does not cover a stage this run did work in: this run compiles row b.
+  expect(alter((r) => { Object.assign(r.receipt.stages.compile, { at: at(-600), snapshotLock: "00000000-0000-0000-0000-000000000000" }); }), "NN01", "fail", /did work/);
+  // A stage carried from an earlier run of the same commit and tree is accepted only when every record shows this run did none of its work.
+  expect(alter((r) => { wholeReuseB(r); Object.assign(r.receipt.stages.compile, { at: at(-600), snapshotLock: "00000000-0000-0000-0000-000000000000" }); }), "NN01", "pass");
+  expect(alter((r) => { wholeReuseB(r); r.end = null; Object.assign(r.receipt.stages.compile, { at: at(-600), snapshotLock: "00000000-0000-0000-0000-000000000000" }); }), "NN01", "not measured", /carried/);
   expect(alter((r) => { delete r.receipt.stages.compile.at; }), "NN01", "not measured", /no time/);
   expect(alter((r) => { r.receipt.stages.check.snapshot.intactAfter = false; }), "NN01", "fail");
   expect(alter((r) => { decB(r).commit = "d".repeat(40); }), "NN01", "fail");
@@ -163,7 +169,14 @@ test("NN02: Class A finishes before anything goes to the broker; if it fails, no
 });
 
 test("NN03: Class A starts ready, independent work whenever an eligible lane is free", () => {
-  const lanes = (rows) => (r) => { r.files["covA.json"].scans = [...rows, { id: "deny", class: "A", coverage: "hit", status: "pass" }]; };
+  // The rows given replace Class A's changed row in every record: forecast, lookup, dispatch and coverage.
+  const lanes = (rows) => (r) => {
+    const d = decA(r); const deny = (xs) => xs.filter((x) => x.id === "deny");
+    d.forecast = [...rows.map((x) => ({ id: x.id, key: `k-${x.id}`, expected: "run" })), ...deny(d.forecast)];
+    d.actual = [...rows.map((x) => ({ id: x.id, actual: "run", key: `k-${x.id}` })), ...deny(d.actual)];
+    d.dispatchedRows = rows.filter((x) => x.coverage === "ran").map((x) => x.id);
+    r.files["covA.json"].scans = [...rows, { id: "deny", class: "A", coverage: "hit", status: "pass" }];
+  };
   const row = (id, readyAt, startedAt, endedAt, n = 2) => ({ id, class: "A", coverage: "ran", status: "pass", lane: { readyAt, startedAt, endedAt, lanes: n } });
   expect(alter(lanes([row("x", 0, 10, 500), row("y", 0, 20, 900)])), "NN03", "pass");
   expect(alter(lanes([row("x", 0, 10, 500), row("y", 0, 400, 900, 2)])), "NN03", "fail", /waited/);
@@ -272,6 +285,37 @@ test("NN11 is judged only against a limit, over times that run forwards; NN12 on
   expect(alter((r) => { r.live = { exists: () => false, alive: () => true, pids: [7] }; }), "NN12", "fail");
   // (review) an unknown process list is not an empty one.
   expect(alter((r) => { r.live = { exists: () => false, alive: () => false }; }), "NN12", "not measured", /process/);
+});
+
+// gatecodex's second review (2026-11-20, on 19d714e2d): eight inputs the checks passed falsely, its four rulings, and a justified split.
+test("review 2: the eight false passes, and the rulings on reuse, uncacheable rows and splits", () => {
+  const rr = (sub, rest) => entry(1, "C:\\WINDOWS\\system32\\cmd.exe", shim(sub, rest), `${SNAP}\\ws`);
+  // NN02: anything that goes to the broker counts, not only compiles: a broker metadata call before Class A passed.
+  expect(alter((r) => { r.ledger.push(rr("metadata", "--format-version 1")); }), "NN02", "fail", /before the Class A verdict/);
+  expect(alter((r) => { r.ledger.push(entry(0.5, "C:\\WINDOWS\\system32\\where.exe", ["rustright"])); }), "NN02", "pass");
+  // NN03: a row dispatched and run that the coverage report leaves out has no lane record; a report of zero lanes is no lane record.
+  expect(alter((r) => { decA(r).forecast.push({ id: "secret-scan", key: "ks", expected: "run" }); decA(r).actual.push({ id: "secret-scan", actual: "run", key: "ks" }); decA(r).dispatchedRows.push("secret-scan"); }), "NN03", "not measured", /secret-scan/);
+  expect(alter((r) => { Object.assign(scan(r, "covA.json", "rustfmt:2021").lane, { readyAt: 0, startedAt: 5000, endedAt: 6000, lanes: 0 }); }), "NN03", "not measured", /lanes/);
+  // Ruling 1: "no row ran" passes only for a proven, complete, wholly reused Class A with nothing owed or dispatched.
+  const reuseA = (r) => { decA(r).forecast[0].expected = "hit"; decA(r).actual[0].actual = "hit"; decA(r).dispatchedRows = []; scan(r, "covA.json", "rustfmt:2021").coverage = "hit"; delete scan(r, "covA.json", "rustfmt:2021").lane; };
+  expect(alter(reuseA), "NN03", "pass", /wholly reused/);
+  expect(alter((r) => { reuseA(r); decA(r).dispatchedRows = ["rustfmt:2021"]; }), "NN03", "not measured");
+  expect(alter((r) => { reuseA(r); decA(r).forecast[0].expected = "run"; }), "NN03", "not measured");
+  // NN04: a broker compile that starts before the Class B forecast is frozen.
+  expect(alter((r) => { r.ledger[2].at = at(4); }), "NN04", "fail", /before the Class B forecast was frozen/);
+  // NN05: two contradictory lookup results for one row, the right one last.
+  expect(alter((r) => { decB(r).actual.unshift({ id: "clippy:ws:a", actual: "run", key: "ka", status: "fail" }); }), "NN05", "fail", /clippy:ws:a .*more than once/);
+  // NN06: no Class B coverage and a cut process list cannot show that a reused row did not run.
+  expect(alter((r) => { r.log.splice(8, 1); r.end = null; }), "NN06", "not measured", /coverage|process list/);
+  // Ruling 2: an uncacheable row whose own record shows its inputs unchanged, and which ran, did unchanged work again.
+  expect(alter((r) => { decA(r).forecast.push({ id: "shellcheck", key: "kx", priorKey: "kx", expected: "uncacheable" }); decA(r).actual.push({ id: "shellcheck", actual: "uncacheable" }); decA(r).dispatchedRows.push("shellcheck"); r.files["covA.json"].scans.push({ id: "shellcheck", class: "A", coverage: "ran", status: "pass", lane: { readyAt: 1000, startedAt: 1020, endedAt: 1100, lanes: 4 } }); }), "NN06", "fail", /shellcheck/);
+  // NN09: the same settings in another flag order are one group; a split for a crate the commit's ci/shards.json names solo is justified.
+  const two = (second) => (r) => { decB(r).forecast.push({ id: "clippy:ws:c", key: "kc", expected: "run" }); decB(r).actual.push({ id: "clippy:ws:c", actual: "run", key: "kc" }); decB(r).dispatchedRows.push("clippy:ws:c"); r.files["covB.json"].scans.push({ id: "clippy:ws:c", class: "B", coverage: "ran", status: "pass" }); r.ledger.push(compile(6.5, "clippy", second)); };
+  expect(alter(two("--locked -p c --profile release")), "NN09", "fail", /2x cargo clippy/);
+  const solo = (r) => { r.files[`${SNAP}\\ci\\shards.json`] = { solo: ["c"] }; };
+  expect(alter((r) => { two("--profile release -p c --locked")(r); solo(r); }), "NN09", "pass", /solo/);
+  expect(alter((r) => { two("--profile release -p c --locked")(r); r.files[`${SNAP}\\ci\\shards.json`] = { solo: ["x"] }; }), "NN09", "fail", /2x cargo clippy/);
+  expect(alter((r) => { two("--profile release -p c --locked")(r); delete r.files[`${SNAP}\\ci\\shards.json`]; }), "NN09", "not measured", /shards\.json/);
 });
 
 // Shapes found in the recorded runs of full run 4 (D:\scratch\loop-review\muse-fulldev-4) that the first fixed checks misread.

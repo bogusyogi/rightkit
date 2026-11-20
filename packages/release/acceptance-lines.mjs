@@ -140,6 +140,21 @@ export function brokerCompileOf(entry) {
   if (!m || !COMPILING.has(m[1])) return null;
   return { sub: m[1], args: m[2].trim().split(" ").filter(Boolean), cwd: String(entry.cwd ?? ""), at: typeof entry.at === "string" ? Date.parse(entry.at) : null, ms: typeof entry.ms === "number" ? entry.ms : null };
 }
+/**
+ * Anything sent to the broker: a start of the rustright client itself, directly or through `cmd /c "<...>rustright.cmd" ...`, whatever it
+ * asks (a compile, `cargo metadata`, a version). Looking the program up (`where rustright`) starts something else and is not a send.
+ * Returns { args, cwd, at }, or null.
+ */
+export function brokerStartOf(entry) {
+  let cmd = String(entry.cmd); let args = (entry.args ?? []).map(String);
+  if (/(^|[\\/])cmd\.exe$/i.test(cmd)) {
+    const c = args.findIndex((a) => /^\/c$/i.test(a));
+    const line = c < 0 ? "" : args.slice(c + 1).join(" ").replaceAll('"', " ").trim();
+    [cmd, ...args] = line.split(/\s+/);
+  }
+  if (!/(^|[\\/])rustright(\.cmd|\.exe)?$/i.test(String(cmd ?? ""))) return null;
+  return { args, cwd: String(entry.cwd ?? ""), at: typeof entry.at === "string" ? Date.parse(entry.at) : null };
+}
 /** The values a cargo flag takes in an argument list: `--package x`, `--package=x`, `-p x`, `-px`. */
 const valuesOf = (args, long, short = null) => {
   const out = [];
@@ -206,7 +221,32 @@ function stageOf(ctx, stage) {
   const F = new Map((Array.isArray(doc?.forecast) ? doc.forecast : []).map((f) => [f.id, f]));
   const A = new Map((Array.isArray(doc?.actual) ? doc.actual : []).map((a) => [a.id, a]));
   const dispatched = Array.isArray(doc?.dispatchedRows) ? new Set(doc.dispatchedRows) : null;
-  return { stage, decisions: ds, d, doc, F, A, C, dispatched };
+  // A row recorded twice in one record cannot be read by id: the later entry would silently hide the earlier one.
+  const twice = (ids) => [...new Set(ids.filter((x, i) => ids.indexOf(x) !== i))];
+  const dups = {
+    forecast: twice((Array.isArray(doc?.forecast) ? doc.forecast : []).map((f) => f.id)),
+    lookup: twice((Array.isArray(doc?.actual) ? doc.actual : []).map((a) => a.id)),
+    coverage: twice(reports.flatMap((c) => c.doc.scans).filter((s) => s.class === stage && s.coverage !== "skipped").map((s) => s.id)),
+    dispatch: twice(Array.isArray(doc?.dispatchedRows) ? doc.dispatchedRows : []),
+  };
+  const dupIds = new Set(Object.values(dups).flat());
+  return { stage, decisions: ds, d, doc, F, A, C, dispatched, dups, dupIds };
+}
+
+/**
+ * What the records say about the work a stage did in this run: `did` names the evidence of work (a row run, dispatched or covered as ran, a
+ * broker compile for Class B), `unknown` why none cannot be shown (a missing record, an incomplete process list). Both empty: proven none.
+ */
+function stageWork(ctx, stage) {
+  const s = stageOf(ctx, stage); const did = []; const unknown = [];
+  if (s.dispatched?.size) did.push(`${s.dispatched.size} row(s) dispatched`);
+  const ran = [...(s.C?.values() ?? [])].filter((c) => c.coverage === "ran").length; if (ran) did.push(`${ran} row(s) covered as ran`);
+  const looked = [...s.A.values()].filter((a) => runs(normal(a.actual))).length; if (looked) did.push(`${looked} row(s) looked up to run`);
+  if (stage === "B" && ctx.compiles.length) did.push(`${ctx.compiles.length} broker compile(s)`);
+  if (!s.doc) unknown.push(`no Class ${stage} forecast`); else if (!s.dispatched) unknown.push(`no Class ${stage} dispatch list`);
+  if (!s.C) unknown.push(`no coverage report for Class ${stage}`);
+  if (stage === "B") unknown.push(...ctx.ledgerGaps);
+  return { did, unknown };
 }
 
 // ---- the twelve lines ------------------------------------------------------------------------------------------------------------------------------
@@ -237,18 +277,25 @@ function nn01(ctx) {
     if (receipt.commit !== runCommit) fails.push(`the receipt is for commit ${short(receipt.commit)}, the run was for ${short(runCommit)}`);
     if (receipt.binding?.tree !== snap.tree) fails.push(`the receipt is bound to tree ${short(receipt.binding?.tree)}, the snapshot is ${short(snap.tree)}`);
     if (!snap.lock) gaps.push("the log names no snapshot lock, so the receipt cannot be tied to this run");
-    // Every stage the receipt records is of this commit's tree. A stage recorded during this run must hold this run's lock; one recorded before
-    // the run began was carried from an earlier run of the same commit (a `--to check` after a compile, or a compile wholly reused), which
-    // is no other commit built. A stage with no time cannot be placed, so it is not trusted.
+    // Every stage the receipt records is of this commit's tree, and holds this run's snapshot lock. The one exception is a stage carried from an
+    // earlier run of the same commit and tree (recorded before this run began, under that run's lock), and only when every record shows this
+    // run did none of that stage's work (gatecodex ruling 4): an earlier time and a matching tree do not bind fresh work to an old receipt.
     const runStart = stampOf(log.split(/\r?\n/).find((l) => stampOf(l) !== null) ?? "");
+    const STAGE_CLASS = { check: "A", compile: "B" };
     const stages = Object.entries(receipt.stages ?? {}).filter(([, st]) => st);
     if (!stages.length) fails.push("the receipt records no stage");
     for (const [name, st] of stages) {
       if (st.snapshot?.tree !== snap.tree) fails.push(`the receipt's ${name} stage read tree ${short(st.snapshot?.tree)}`);
       if (st.snapshot?.intactAfter !== true) fails.push(`the receipt's ${name} stage does not record the snapshot intact after it`);
       const when = timeOf(st.at);
-      if (!Number.isFinite(when) || runStart === null) gaps.push(`the receipt's ${name} stage has no time to place it in this run or an earlier one`);
-      else if (when >= runStart && snap.lock && st.snapshotLock !== snap.lock) fails.push(`the receipt's ${name} stage, recorded during this run, holds snapshot lock ${st.snapshotLock}; this run held ${snap.lock}`);
+      if (!Number.isFinite(when) || runStart === null) { gaps.push(`the receipt's ${name} stage has no time to place it in this run or an earlier one`); continue; }
+      if (!snap.lock || st.snapshotLock === snap.lock) continue;
+      if (when >= runStart) { fails.push(`the receipt's ${name} stage, recorded during this run, holds snapshot lock ${st.snapshotLock}; this run held ${snap.lock}`); continue; }
+      const cls = STAGE_CLASS[name];
+      if (!cls) { gaps.push(`the receipt's ${name} stage was carried from an earlier run, and no record shows whether this run did its work`); continue; }
+      const w = stageWork(ctx, cls);
+      if (w.did.length) fails.push(`the receipt's ${name} stage is an earlier run's (lock ${st.snapshotLock}), yet this run did work in it: ${w.did.join(", ")}`);
+      else if (w.unknown.length) gaps.push(`the receipt's ${name} stage was carried from an earlier run; that this run did none of its work cannot be shown: ${w.unknown.slice(0, 2).join("; ")}`);
     }
   }
   return decide(fails, gaps, `selected commit ${short(runCommit)}, tree ${short(snap.tree)} before and after, receipt and records bound to lock ${snap.lock}`);
@@ -264,30 +311,43 @@ function nn02(ctx) {
   if (v.doc && !verdictOk && !aFailed) fails.push(`the Class A verdict ${path.basename(v.file)} is not a pass of commit ${short(runCommit)} tree ${short(snap.tree)} (it says ${v.doc.status} for ${short(v.doc.commit)} ${short(v.doc.tree)})`);
   if (v.file && !v.doc) gaps.push(`the Class A verdict ${v.file} cannot be read`);
   const lgaps = ctx.ledgerGaps;
+  const sends = ctx.brokerStarts;
   if (aFailed || (v.doc && !verdictOk)) {
-    if (compiles.length) fails.push(`Class A did not pass and ${compiles.length} compile(s) were still sent to the broker`);
+    if (sends.length) fails.push(`Class A did not pass and ${sends.length} start(s) still went to the broker (${compiles.length} of them compiles)`);
     if (sentB?.size) fails.push(`Class A did not pass and ${sentB.size} Class B row(s) were still dispatched`);
     gaps.push(...lgaps.map((g) => `that nothing was sent cannot be shown: ${g}`));
     return decide(fails, gaps, "Class A failed and nothing was sent to the broker (complete process list)");
   }
   if (!v.doc) {
-    if (compiles.length) fails.push(`${compiles.length} compile(s) were sent to the broker with no Class A verdict for this run`);
+    if (sends.length) fails.push(`${sends.length} start(s) went to the broker with no Class A verdict for this run`);
     return decide(fails, ["the log names no Class A verdict for this run"], "");
   }
-  const early = compiles.filter((c) => !(c.at >= v.at));
-  if (early.length) fails.push(`${early.length} compile(s) were sent to the broker before the Class A verdict (first: cargo ${early[0].sub})`);
-  gaps.push(...lgaps.map((g) => `that no compile went before the verdict cannot be shown: ${g}`));
+  const early = sends.filter((c) => !(c.at >= v.at));
+  if (early.length) fails.push(`${early.length} start(s) went to the broker before the Class A verdict (first: rustright ${early[0].args.slice(0, 2).join(" ")})`);
+  gaps.push(...lgaps.map((g) => `that nothing went to the broker before the verdict cannot be shown: ${g}`));
   return decide(fails, gaps, `Class A passed ${short(runCommit)} first, then ${compiles.length} compile(s) went to the broker (complete process list)`);
 }
 
 const LANE_TOLERANCE_MS = 250;
 function nn03(ctx) {
-  const covA = stageOf(ctx, "A").C;
+  const s = stageOf(ctx, "A"); const covA = s.C;
   if (!covA) return result(NOT_MEASURED, "no coverage report covers Class A");
-  const ran = [...covA.values()].filter((s) => s.coverage === "ran");
-  if (!ran.length) return result(PASS, "no Class A row ran, so none waited");
-  const bare = ran.filter((s) => !s.lane || ![s.lane.readyAt, s.lane.startedAt, s.lane.endedAt, s.lane.lanes].every(Number.isFinite));
-  if (bare.length) return result(NOT_MEASURED, `the row report carries no lane times (ready, started, ended, lanes) for ${bare.slice(0, 4).map((s) => s.id).join(", ")}${bare.length > 4 ? ` and ${bare.length - 4} more` : ""}`);
+  // Every row any record says ran: covered as ran, dispatched, or looked up to run. Each needs its lane times in the coverage report.
+  const ranIds = new Set([...[...covA.values()].filter((c) => c.coverage === "ran").map((c) => c.id), ...(s.dispatched ?? []), ...[...s.A.values()].filter((a) => runs(normal(a.actual))).map((a) => a.id)]);
+  if (!ranIds.size) {
+    // Gatecodex ruling 1: "no row waited" passes only for a proven, complete, wholly reused Class A: nothing forecast to run, nothing
+    // dispatched or run, and a coverage report naming exactly the forecast's rows.
+    const why = [];
+    if (!s.doc || !s.F.size) why.push("no Class A forecast"); else if ([...s.F.values()].some((f) => f.expected !== "hit")) why.push("the forecast owes Class A work that no record shows ran");
+    if (!s.dispatched) why.push("no Class A dispatch list");
+    if (s.F.size && ([...covA.keys()].some((id) => !s.F.has(id)) || [...s.F.keys()].some((id) => !covA.has(id)))) why.push("the coverage report and forecast name different rows");
+    if (s.dupIds.size) why.push(`row(s) recorded twice: ${[...s.dupIds].slice(0, 3).join(", ")}`);
+    return why.length ? result(NOT_MEASURED, `no Class A row ran, and that none was owed cannot be shown: ${why.join("; ")}`) : result(PASS, `Class A was wholly reused (${s.F.size} rows forecast, looked up and covered as reused, none dispatched), so no row waited`);
+  }
+  const lane = (c) => c?.lane && Number.isInteger(c.lane.lanes) && c.lane.lanes > 0 && [c.lane.readyAt, c.lane.startedAt, c.lane.endedAt].every(Number.isFinite) && c.lane.readyAt <= c.lane.startedAt && c.lane.startedAt <= c.lane.endedAt;
+  const bare = [...ranIds].filter((id) => !lane(covA.get(id)));
+  if (bare.length) return result(NOT_MEASURED, `no valid lane record (ready <= started <= ended, lanes >= 1) in the coverage report for row(s) that ran: ${bare.slice(0, 4).join(", ")}${bare.length > 4 ? ` and ${bare.length - 4} more` : ""}`);
+  const ran = [...ranIds].map((id) => covA.get(id));
   const fails = [];
   // A row waited beside a free lane when, at any moment from its ready time to its start, fewer rows ran than there were lanes (checked over the
   // whole wait, segment by segment between the other rows' starts and ends, not only at the ready time).
@@ -324,6 +384,8 @@ function nn04(ctx) {
     const frozen = timeOf(doc.forecastFrozenAt); const lookup = timeOf(doc.firstLookupAt);
     if (!Number.isFinite(frozen) || !Number.isFinite(lookup)) gaps.push(`the Class ${stage} forecast does not record when it was frozen and when the first lookup began (forecastFrozenAt, firstLookupAt)`);
     else if (frozen > lookup) fails.push(`the Class ${stage} forecast was frozen at ${doc.forecastFrozenAt}, after the first lookup at ${doc.firstLookupAt}`);
+    // Class B's work is what goes to the broker: none of it may start before its forecast is frozen, whatever the lookup times say.
+    if (stage === "B" && Number.isFinite(frozen)) { const early = ctx.brokerStarts.filter((b) => !(b.at >= frozen)); if (early.length) fails.push(`${early.length} start(s) went to the broker before the Class B forecast was frozen at ${doc.forecastFrozenAt}`); }
     if (s.C) {
       const missing = [...s.C.keys()].filter((id) => !s.F.has(id)); const extra = [...s.F.keys()].filter((id) => !s.C.has(id));
       if (missing.length) fails.push(`the Class ${stage} forecast leaves out row(s) the run covered: ${missing.slice(0, 4).join(", ")}`);
@@ -339,6 +401,7 @@ function nn05(ctx) {
   for (const stage of ["A", "B"]) {
     const s = stageOf(ctx, stage);
     if (!s.doc || !s.F.size) continue;
+    for (const [record, ids] of Object.entries(s.dups)) for (const id of ids) fails.push(`Class ${stage}: ${id} appears more than once in the ${record} record, so which entry holds cannot be known`);
     const lookup = [];
     for (const [id, f] of s.F) { const a = s.A.get(id); if (!a) lookup.push(`${id} has no lookup result`); else if (!sameOutcome(f.expected, a.actual)) lookup.push(`${id} was forecast ${f.expected}, looked up ${a.actual}`); }
     for (const id of s.A.keys()) if (!s.F.has(id)) lookup.push(`${id} was looked up and not forecast`);
@@ -387,10 +450,23 @@ function nn06(ctx) {
   const fails = []; const gaps = []; let reused = 0; let failures = 0;
   for (const stage of ["A", "B"]) {
     const s = stageOf(ctx, stage);
+    const hits = [...s.F.values()].filter((f) => f.expected === "hit");
+    // Absence is shown only from complete records (gatecodex review 2): with no coverage report, or a process list that may be missing
+    // starts, a reused row that ran cannot be ruled out.
+    if (hits.length && !s.C) gaps.push(`no coverage report covers Class ${stage}, so that its ${hits.length} reused row(s) did not run cannot be shown`);
+    if (hits.length && ctx.ledgerGaps.length && (stage === "B" || hits.some((f) => /^rustfmt:/.test(f.id)))) gaps.push(`that no process did a reused Class ${stage} row's work cannot be shown: ${ctx.ledgerGaps[0]}`);
     for (const [id, f] of s.F) {
-      if (f.expected === "uncacheable") { gaps.push(`${id} is uncacheable: it runs whether or not its inputs changed, so that it is never run again unchanged cannot be shown`); continue; }
+      if (f.expected === "uncacheable") {
+        // Gatecodex ruling 2: not measured while whether its inputs changed is unknown; a failure when its own record shows them unchanged and it ran.
+        const unchanged = (typeof f.key === "string" && f.key === f.priorKey) || f.changes?.inputsChanged === 0;
+        const ran = s.dispatched?.has(id) || runs(normal(s.A.get(id)?.actual)) || s.C?.get(id)?.coverage === "ran";
+        if (unchanged && ran) fails.push(`${id} is uncacheable, its inputs did not change, and it ran again`);
+        else gaps.push(`${id} is uncacheable: it runs whether or not its inputs changed, so that it is never run again unchanged cannot be shown`);
+        continue;
+      }
       if (f.expected !== "hit") continue;
       reused += 1;
+      if (s.dupIds.has(id)) { gaps.push(`${id} is recorded more than once, so its reuse cannot be read`); continue; }
       const a = s.A.get(id); const c = s.C?.get(id) ?? null;
       if (!a) gaps.push(`${id} was forecast unchanged and has no lookup result`);
       else {
@@ -412,7 +488,18 @@ function nn06(ctx) {
         if (sibling) gaps.push(`${id} is unchanged and a compile for ${sibling[0]} names the same crate; which feature set it built is not recorded`);
         else if (c2) fails.push(`${id} is unchanged and a broker compile did its work (cargo ${c2.sub} ${cratesOf(c2).map((n) => `-p ${n}`).join(" ")})`);
       }
-      if (stage === "A" && /^rustfmt:/.test(id)) { const ed = id.split(":")[1]; if (ctx.ledger.some((e) => isRustfmt(e) && valuesOf(e.args.map(String), "--edition").includes(ed))) fails.push(`${id} is unchanged and rustfmt ran for edition ${ed}`); }
+      if (stage === "A" && /^rustfmt:/.test(id)) {
+        // A rustfmt start for this edition does this row's work if it checks one of this row's files; with no changed row of the edition, any
+        // start for it does. Another changed row of the same edition (`rustfmt:2021` and `rustfmt:2021:2`) owns the starts that name its files.
+        const ed = id.split(":")[1]; const starts = ctx.ledger.filter((e) => isRustfmt(e) && valuesOf(e.args.map(String), "--edition").includes(ed));
+        const sharing = [...s.F.values()].some((o) => o.id !== id && /^rustfmt:/.test(o.id) && o.id.split(":")[1] === ed && runs(normal(o.expected)));
+        if (starts.length && !sharing) fails.push(`${id} is unchanged and rustfmt ran for edition ${ed}`);
+        else if (starts.length) {
+          const own = changedFilesOf(s.doc, { ...f, priorKey: null });
+          if (own.gap) gaps.push(own.gap);
+          else { const touched = starts.flatMap((e) => rustfmtFiles(e.args)).filter((x) => own.files.has(x)); if (touched.length) fails.push(`${id} is unchanged and rustfmt checked its file(s): ${touched.slice(0, 3).join(", ")}`); }
+        }
+      }
     }
   }
   if (!ctx.decisions.some((d) => d.doc)) return result(NOT_MEASURED, "no forecast file, so unchanged rows cannot be told from changed ones");
@@ -447,6 +534,7 @@ function nn07(ctx) {
     for (const [id, f] of s.F) {
       if (f.expected !== "run") continue;
       changed += 1;
+      if (s.dupIds.has(id)) { gaps.push(`${id} is recorded more than once, so its run cannot be read`); continue; }
       const a = s.A.get(id); const c = s.C?.get(id) ?? null;
       if (!a) gaps.push(`${id} was forecast changed and has no lookup result`);
       else if (normal(a.actual) !== "run") fails.push(`${id} changed and did not run (${a.actual})`);
@@ -514,16 +602,47 @@ function nn09(ctx) {
   const { compiles } = ctx; const fails = []; const gaps = [...ctx.ledgerGaps];
   if (!compiles.length) return decide([], gaps, "nothing was sent to the broker (complete process list)");
   // One group is one workspace (folder) and stage (subcommand and its settings): crate and target selectors are what one command gathers.
-  const settings = (args) => { const out = []; for (let i = 0; i < args.length; i += 1) { if (["-p", "--package", "--target"].includes(args[i])) { i += 1; continue; } if (/^(--package=|--target=|-p.)/.test(args[i])) continue; out.push(args[i]); } return out.join(" "); };
+  // Settings compare as a set, so the same flags in another order are the same settings (gatecodex review 2); a feature list compares as a
+  // set too. What follows `--` goes to the compiler in order and is kept in order.
+  const VALUE_FLAGS = new Set(["--profile", "--features", "-F", "--message-format", "--manifest-path", "--config", "-Z", "--color", "-j", "--jobs", "--target-dir", "--bin", "--test", "--example", "--bench"]);
+  const featureSet = (v) => v.split(/[\s,]+/).filter(Boolean).sort().join(",");
+  const settings = (args) => {
+    const cut = args.indexOf("--"); const head = cut < 0 ? args : args.slice(0, cut); const tail = cut < 0 ? [] : args.slice(cut);
+    const units = [];
+    for (let i = 0; i < head.length; i += 1) {
+      const a = head[i];
+      if (["-p", "--package", "--target"].includes(a)) { i += 1; continue; }
+      if (/^(--package=|--target=)/.test(a) || /^-p./.test(a)) continue;
+      if (/^--features=/.test(a)) { units.push(`--features ${featureSet(a.slice(11))}`); continue; }
+      if (VALUE_FLAGS.has(a) && i + 1 < head.length) { const v = head[(i += 1)]; units.push(`${a === "-F" ? "--features" : a} ${a === "--features" || a === "-F" ? featureSet(v) : v}`); continue; }
+      units.push(a);
+    }
+    return [...units.sort(), ...tail].join(" ");
+  };
   const groups = new Map();
-  for (const c of compiles) { const k = `${c.cwd.toLowerCase()}\u0000${c.sub}\u0000${settings(c.args)}`; (groups.get(k) ?? groups.set(k, []).get(k)).push(c); }
-  for (const [k, cs] of groups) if (cs.length > 1) fails.push(`${cs.length}x cargo ${k.split("\u0000")[1]} in ${path.basename(k.split("\u0000")[0])} were sent as separate commands and no split reason the check can verify is recorded`);
+  for (const c of compiles) { const k = `${c.cwd.replaceAll("\\", "/").toLowerCase()}\u0000${c.sub}\u0000${settings(c.args)}`; (groups.get(k) ?? groups.set(k, []).get(k)).push(c); }
+  // A split is justified, by the check itself, when every command beyond one names exactly one crate that the commit's own ci/shards.json
+  // lists as `solo` (a crate that always gets a job of its own). The file is read from the run's snapshot; no claim of the gate's is taken.
+  const sep = String(ctx.snap.path ?? "").includes("\\") ? "\\" : "/";
+  const shardsFile = ctx.snap.path ? `${ctx.snap.path}${sep}ci${sep}shards.json` : null;
+  let solo = null; let shardsProblem = null;
+  const soloSet = () => { if (solo || shardsProblem) return solo; if (!shardsFile) { shardsProblem = "the log names no snapshot to read ci/shards.json from"; return null; } try { const d = ctx.read(shardsFile); solo = new Set(Array.isArray(d?.solo) ? d.solo.map(String) : []); } catch (e) { shardsProblem = `the commit's ci/shards.json cannot be read (${e.code ?? e.message})`; } return solo; };
+  const justified = [];
+  for (const [k, cs] of groups) {
+    if (cs.length < 2) continue;
+    const where = `${cs.length}x cargo ${k.split("\u0000")[1]} in ${path.basename(k.split("\u0000")[0])}`;
+    const set = soloSet();
+    if (!set) { gaps.push(`${where} were sent as separate commands; ${shardsProblem}, so the split cannot be checked`); continue; }
+    const soloOnly = cs.filter((c) => { const n = cratesOf(c); return n.length === 1 && set.has(n[0]); });
+    if (cs.length - soloOnly.length <= 1) justified.push(`${soloOnly.map((c) => cratesOf(c)[0]).join(", ")} solo per ci/shards.json`);
+    else fails.push(`${where} were sent as separate commands, and only ${soloOnly.length} of the extra command(s) are for a crate ci/shards.json lists solo`);
+  }
   // Groups that ran one after the other: whether a lane was free beside them needs the broker's capacity and each group's ready time, which no
   // record of the run carries yet; until it does, such a run is not a pass.
   const spans = [...groups.values()].map((cs) => ({ from: Math.min(...cs.map((c) => c.at)), to: Math.max(...cs.map((c) => c.at + (c.ms ?? NaN))) }));
   if (spans.some((s) => !Number.isFinite(s.from) || !Number.isFinite(s.to))) gaps.push("a compile in the process list has no start time or duration");
   else { let serial = 0; for (let i = 0; i < spans.length; i += 1) for (let j = i + 1; j < spans.length; j += 1) if (spans[i].to <= spans[j].from || spans[j].to <= spans[i].from) serial += 1; if (serial) gaps.push(`${serial} pair(s) of compile groups ran one after the other; that no lane was free beside them needs a record of the broker's capacity and each group's ready time`); }
-  return decide(fails, gaps, `${compiles.length} compile command(s) in ${groups.size} group(s), one per workspace and stage, running together`);
+  return decide(fails, gaps, `${compiles.length} compile command(s) in ${groups.size} group(s), one per workspace and stage${justified.length ? ` (split: ${justified.join("; ")})` : ""}, running together`);
 }
 
 function nn10({ compiles }) {
@@ -574,7 +693,7 @@ export function judgeRun({ lines, log = "", ledger = null, commit = null, receip
   const ctx = {
     log: text, ledger: entries, ledgerGaps: ledgerGaps(ledger), commit, receipt, limitMs, exit, live,
     snap: snapshotOf(text), decisions: decisionsOf(text, { readJson: read }), coverage: coveragesOf(text, read),
-    compiles: entries.map(brokerCompileOf).filter(Boolean),
+    compiles: entries.map(brokerCompileOf).filter(Boolean), brokerStarts: entries.map(brokerStartOf).filter(Boolean), read,
     verdict: { file: vm ? vm[1].trim() : null, doc: verdictDoc, at: vLine >= 0 ? stampOf(text.split(/\r?\n/)[vLine]) ?? NaN : NaN },
   };
   const judged = lines.map(({ id, text: sentence }) => { let r; try { r = JUDGES[id](ctx); } catch (e) { r = result(FAIL, `the check itself failed: ${e.message}`); } return { id, text: sentence, verdict: r.verdict, why: r.why }; });
