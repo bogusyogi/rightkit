@@ -3614,11 +3614,11 @@
       "pkId": "PK145",
       "id": "ci/consumers/rightkit-dictation-runtime/src/main.rs",
       "files": {
-        "Cargo.toml": "c6c7a31f7cc2776d3c3ce949a16656eedd58b19cbe7aa53b14f11f0b5742785d",
+        "Cargo.toml": "7620f4e55e260d64de0c6b4efbbb53ccef84c5d097bda797ed0a285435ea30da",
         "README.md": "5c5d15313087a1644b9180193a9ad68f0277b0445d710e5330ed40833cea7f6b",
         "src/main.rs": "a0034cee9bf7df975f1593bb7e83fc7b60ff0af3547e9391c5de79170179a493"
       },
-      "aggregateSha256": "f417cfd3e0f2609b64c43025bc6b4706242fe36bfa23303cb055f53454028eeb"
+      "aggregateSha256": "c57e3b2ce7d04495b8557c2290dd553767b26f98bdce6b8c08372d50f6f40ae7"
     },
     "rightkit-dictation-telemetry": {
       "pkId": "PK146",
@@ -3966,11 +3966,11 @@
       "pkId": "PK181",
       "id": "ci/consumers/rightkit-dictation-tauri/src/main.rs",
       "files": {
-        "Cargo.toml": "d0775ed0a8230011d63405307a2bc8f5f5a31883873ee0e329f8d5e8ff261aaa",
-        "README.md": "6a8909ec0f909036fce67369d55012a1dc6c07a89745dc70ed835c721bea1f8d",
-        "src/main.rs": "095a8428ed63b1bf72666cf8287d0d4c5010d3b88b2620b69932ee814aa53e6f"
+        "Cargo.toml": "1433c7251c09708dc3fc145031cd3fc6b9151406501c468a0277a3439aae0af8",
+        "README.md": "00d173033a8b3201b33c6927d58e5fb9260e9320ad4a60852d79f361e3140eae",
+        "src/main.rs": "d6fd974ef208d19722d875b7c7765d04f039182277de7451370ee7a6a5203b0d"
       },
-      "aggregateSha256": "788c152aeb1d3abbfd5ba98b0bd66908cedab1e87d74d4830b49764d6a584dd0"
+      "aggregateSha256": "990a55a994a9fd745307dfe114fdf02f6526598f9a007a8d7ddd49cf7cc2d025"
     },
     "rightkit-evidence-application": {
       "pkId": "PK182",

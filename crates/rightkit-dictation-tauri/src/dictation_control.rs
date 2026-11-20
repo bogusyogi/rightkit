@@ -18,12 +18,14 @@ use crate::lifecycle::{
     emit_delivery_recorded, emit_delivery_recorded_from_id, emit_observed_states, emit_pill_state,
     emit_runtime_state, emit_state, observe_state, send_prepared_stop,
 };
+use std::sync::Arc;
+
 use crate::runtime::{self, CancelSource};
 use crate::runtime_lock::{runtime_lock, with_backend_transition};
 use crate::shell::{DictationShell, PillCue, Shell};
 use crate::start_sequence::{
-    await_capture_live, capture_liveness, run_start_sequence, StartSteps, CAPTURE_LIVE_POLL,
-    CAPTURE_LIVE_WINDOW,
+    await_capture_live, capture_liveness, run_start_sequence, CaptureLiveness, StartSteps,
+    CAPTURE_LIVE_POLL, CAPTURE_LIVE_WINDOW,
 };
 use crate::state::AppState;
 use crate::telemetry;
@@ -50,12 +52,120 @@ pub fn require_onboarded() -> Result<(), String> {
 
 /// Stop the recording started from a hotkey, the tray or the app.
 pub fn stop_dictation_inner(shell: &dyn DictationShell) -> Result<AppState, String> {
+    stop_dictation_inner_at(shell, runtime::OriginalReleaseMark::for_current_action())
+}
+
+/// Stop with a marker sampled at the native release before asynchronous dispatch.
+pub fn stop_dictation_inner_at(
+    shell: &dyn DictationShell,
+    released: runtime::OriginalReleaseMark,
+) -> Result<AppState, String> {
+    // The release is the end of the audio, however late the rest of this stop runs: seal the
+    // press's recording first, synchronously (bounded), before the gate, the start or a key
+    // delivery can delay anything. The key-gated stop below is sent only after the engine
+    // acknowledged the seal (`runtime::seal_capture_for_stop`).
+    if !runtime::seal_capture_for_stop_at(released) {
+        return Err("Capture release could not be sealed; recording discarded.".into());
+    }
+    // A stop that reaches a press whose start has not committed a session yet is that press's
+    // STOP intent, not a cancel: the start completes (adopting the warm-up audio), commits
+    // `Recording` and then performs this stop itself, so a quick press-and-release is finalised
+    // and delivered. Only a cancel discards.
+    if runtime::defer_stop_to_pending_start(runtime::DeferredStop::Stop) {
+        return get_app_state();
+    }
+    stop_dictation_for_session(shell, None)
+}
+
+/// `stop_dictation_inner` for a caller that must return promptly: the Windows push-to-talk release
+/// callback. Its dispatch thread is serial, and a key-gated stop (the transition gate, a provider
+/// key delivery in flight) held it back from the next press, whose warm-up and start are then
+/// late. On the calling thread this does only what must not wait: the synchronous capture seal
+/// (bounded by `CAPTURE_SEAL_WAIT`), then either records the stop as the pending start's intent
+/// (the start performs it for its own session, see `run_reserved_start`) or binds the active
+/// session; the key-gated stop itself runs on a `dictation-stop` thread, for that session only.
+pub fn stop_dictation_detached(shell: &Shell) -> Result<(), String> {
+    stop_dictation_detached_at(shell, runtime::OriginalReleaseMark::legacy_receipt())
+}
+
+/// `stop_dictation_and_send_inner` for the same caller (the push-to-talk send chord): see
+/// [`stop_dictation_detached`].
+pub fn send_dictation_detached(shell: &Shell) -> Result<(), String> {
+    send_dictation_detached_at(shell, runtime::OriginalReleaseMark::legacy_receipt())
+}
+
+/// Queue a stop while retaining the key hook's original release marker.
+pub fn stop_dictation_detached_at(
+    shell: &Shell,
+    released: runtime::OriginalReleaseMark,
+) -> Result<(), String> {
+    detached_stop(shell, runtime::DeferredStop::Stop, released)
+}
+
+pub fn send_dictation_detached_at(
+    shell: &Shell,
+    released: runtime::OriginalReleaseMark,
+) -> Result<(), String> {
+    detached_stop(shell, runtime::DeferredStop::StopAndSend, released)
+}
+
+fn detached_stop(
+    shell: &Shell,
+    kind: runtime::DeferredStop,
+    released: runtime::OriginalReleaseMark,
+) -> Result<(), String> {
+    if !runtime::seal_capture_for_stop_at(released) {
+        return Err("Capture release could not be sealed; recording discarded.".into());
+    }
+    if runtime::defer_stop_to_pending_start(kind) {
+        return Ok(());
+    }
+    // Bind the session this release belongs to before anything else can change it: the next press
+    // may start a new recording while the stop below is still waiting on the gate or on keys, and
+    // the stop must end the recording that was released, not that one.
+    let Some(session_id) = runtime::active_session_lock_free() else {
+        telemetry::log_message("stop_detached", "phase=no_active_session");
+        return Ok(());
+    };
+    let shell = shell.clone();
+    std::thread::Builder::new()
+        .name("dictation-stop".to_string())
+        .spawn(move || {
+            if let Err(error) = run_deferred_stop(shell.as_ref(), kind, &session_id) {
+                telemetry::log_message(
+                    "stop_detached_error",
+                    &format!("code={}", crate::dictation_error::error_log_code(&error)),
+                );
+            }
+        })
+        .map(|_| ())
+        .map_err(|error| format!("stop thread: {error}"))
+}
+
+/// Whether `expected` (the session a deferred stop was bound to) is the runtime's active session.
+/// `None` is an ordinary stop: it acts on whatever is recording.
+fn expected_session_is_active(runtime: &runtime::RuntimeApp, expected: Option<&str>) -> bool {
+    expected.is_none_or(|id| runtime.active_session_id().as_deref() == Some(id))
+}
+
+/// The stop body of `stop_dictation_inner`. With `expected` it is a deferred stop and acts only
+/// when that exact session is still the active recording, checked under the backend transition
+/// gate and the runtime lock that the stop itself then uses; otherwise it changes nothing.
+fn stop_dictation_for_session(
+    shell: &dyn DictationShell,
+    expected: Option<&str>,
+) -> Result<AppState, String> {
     telemetry::utterance_timeline::begin_stop("stop");
     let mut observed = Vec::new();
     let result = with_backend_transition(|| {
         let prepared = {
             let mut runtime = runtime_lock()?;
-            runtime.prepare_stop_dictation(|state| observe_state(&mut observed, state))
+            if expected_session_is_active(&runtime, expected) {
+                runtime.prepare_stop_dictation(|state| observe_state(&mut observed, state))
+            } else {
+                telemetry::log_message("start_stop_deferred", "phase=session_mismatch_skipped");
+                Ok(runtime::PreparedStop::without_command(runtime.app_state()))
+            }
         }?;
         send_prepared_stop(prepared, &mut observed)
     });
@@ -71,6 +181,22 @@ pub fn stop_dictation_from_pill_inner(
     shell: &dyn DictationShell,
     send_enter: bool,
 ) -> Result<AppState, String> {
+    // Release seal and stop intent of a pending start (see `stop_dictation_inner`).
+    if !runtime::seal_capture_for_stop() {
+        return Err("Capture release could not be sealed; recording discarded.".into());
+    }
+    if runtime::defer_stop_to_pending_start(runtime::DeferredStop::PillStop { send_enter }) {
+        return get_app_state();
+    }
+    stop_dictation_from_pill_for_session(shell, send_enter, None)
+}
+
+/// The stop body of `stop_dictation_from_pill_inner` (see `stop_dictation_for_session`).
+fn stop_dictation_from_pill_for_session(
+    shell: &dyn DictationShell,
+    send_enter: bool,
+    expected: Option<&str>,
+) -> Result<AppState, String> {
     telemetry::utterance_timeline::begin_stop(if send_enter {
         "pill_stop_send"
     } else {
@@ -81,9 +207,14 @@ pub fn stop_dictation_from_pill_inner(
     let result = with_backend_transition(|| {
         let prepared = {
             let mut runtime = runtime_lock()?;
-            runtime.prepare_stop_from_pill(send_enter, overlay_handles, |state| {
-                observe_state(&mut observed, state)
-            })
+            if expected_session_is_active(&runtime, expected) {
+                runtime.prepare_stop_from_pill(send_enter, overlay_handles, |state| {
+                    observe_state(&mut observed, state)
+                })
+            } else {
+                telemetry::log_message("start_stop_deferred", "phase=session_mismatch_skipped");
+                Ok(runtime::PreparedStop::without_command(runtime.app_state()))
+            }
         }?;
         send_prepared_stop(prepared, &mut observed)
     });
@@ -128,6 +259,16 @@ pub fn cancel_dictation_inner(
         return Ok(AppState::Armed);
     }
     emit_onboarding_shortcut(shell, "cancel");
+    // A CANCEL before the press's start committed a session has no session to cancel: it marks the
+    // pending start cancelled (discarding any stop that was waiting on it) and revokes its warm-up
+    // before it queues on the gate, so the start unwinds instead of resuming the microphone after
+    // the cancel. Only a cancel discards.
+    runtime::cancel_pending_start();
+    // Same capture seal as an ordinary Stop, before any gate or provider-key wait: audio after the
+    // cancel never enters the clip that is saved to History.
+    if !runtime::seal_capture_for_stop() {
+        return Err("Capture release could not be sealed; recording discarded.".into());
+    }
     telemetry::log_message(
         "cancel_to_history_lifecycle",
         &format!("phase=requested source={}", source.as_str()),
@@ -424,26 +565,97 @@ pub fn refresh_entitlements() -> Result<(), String> {
     runtime.sync_sidecar_runtime_snapshot_if_running()
 }
 
+/// Cancel, by session and attempt, a start whose RPC ended in an error or a timeout and may
+/// therefore already be recording in the engine. A no-op when the session is no longer the shell's
+/// active one or no engine is running; an engine that is running but does not accept the cancel is
+/// shut down (`PreparedEngineCancel::send_possibly_started`).
+fn cancel_possibly_started(session_id: &str) {
+    let prepared = runtime_lock()
+        .ok()
+        .and_then(|runtime| runtime.prepare_possibly_started_cancel(session_id));
+    if let Some(prepared) = prepared {
+        prepared.send_possibly_started();
+    }
+}
+
+/// The error a start unwinds with when its press was cancelled (see `runtime::cancel_pending_start`).
+/// It never reaches the user: `start_dictation_after_press` turns any failure of a cancelled press
+/// into the current state, not an error pill.
+const START_CANCELLED: &str = "start cancelled before recording";
+
 /// Production implementation of the start sequence. The order is fixed by `run_start_sequence`;
 /// each step here is one stage of it.
+///
+/// The press's pending token (`token`) is checked at every point a cancel could otherwise be lost:
+/// before the session is allocated, before the backend send, while waiting for live capture, and
+/// at the `Recording` commit (a compare-exchange, so a cancel and the commit cannot both win).
 struct ProductionStart {
     observed: Vec<AppState>,
     initial_target: TargetSnapshot,
     prepared: Option<runtime::PreparedStart>,
     dispatched: Option<runtime::PreparedStartResult>,
+    /// The session `allocate_interaction` claimed, until it is dispatched or unwound.
+    session_id: Option<String>,
+    /// This press's pending start: its attempt id (owned by this start and passed down
+    /// explicitly; no shared slot carries it) and whether a cancel or stop reached it first.
+    token: Arc<runtime::PendingStart>,
+}
+
+impl ProductionStart {
+    /// The press was cancelled after the session was allocated and before anything was sent to
+    /// the engine: release the session and return to Armed. The engine never saw it.
+    fn abort_unsent(&mut self) -> String {
+        if let Some(session_id) = self.session_id.take() {
+            if let Ok(mut runtime) = runtime_lock() {
+                let observed = &mut self.observed;
+                runtime.abort_prepared_start(&session_id, |state| observe_state(observed, state));
+            }
+        }
+        START_CANCELLED.to_string()
+    }
+
+    /// The press was cancelled after the start reached the engine: cancel the session it started
+    /// (stops capture and closes the session; also what the not-live path does).
+    fn cancel_dispatched(&mut self, source: CancelSource) {
+        self.dispatched = None;
+        self.session_id = None;
+        let cancel = runtime_lock().map(|mut runtime| runtime.prepare_cancel(source));
+        if let Ok(prepared) = cancel {
+            let _ = prepared.send();
+        }
+    }
 }
 
 impl StartSteps for ProductionStart {
     fn observe_target(&mut self) {
+        // A press already cancelled has no use for the target; the start unwinds at the next step.
+        if self.token.is_cancelled() {
+            return;
+        }
+        let began = std::time::Instant::now();
         self.initial_target = host().observe_start_target();
+        // Content-free timing so installed logs show what the hotkey-time observation costs now
+        // that the microphone no longer waits for it.
+        telemetry::log_message(
+            "start_observe_target",
+            &format!("elapsed_ms={}", began.elapsed().as_millis()),
+        );
     }
 
     fn allocate_interaction(&mut self) -> Result<(), String> {
+        // Cancelled during the target observation or while queued on the gate: no session yet,
+        // nothing to unwind.
+        if self.token.is_cancelled() {
+            return Err(START_CANCELLED.to_string());
+        }
         let mut runtime = runtime_lock()?;
         let observed = &mut self.observed;
-        let prepared = runtime.prepare_start_dictation(self.initial_target.clone(), |state| {
-            observe_state(observed, state)
-        })?;
+        let prepared = runtime.prepare_start_dictation_for_attempt(
+            self.initial_target.clone(),
+            self.token.capture_attempt(),
+            |state| observe_state(observed, state),
+        )?;
+        self.session_id = runtime.active_session_id();
         self.prepared = Some(prepared);
         Ok(())
     }
@@ -451,6 +663,10 @@ impl StartSteps for ProductionStart {
     fn show_optimistic_recording(&mut self) {
         // Visual only: Recording look now, no spinner. The Recording STATE is committed by
         // `acknowledge_recording`; rejection falls to the Error visual in `start_dictation_inner`.
+        // A press already cancelled, or released before any capture existed, shows nothing.
+        if self.token.is_cancelled() || self.token.refuse_if_released_before_capture() {
+            return;
+        }
         let host = host();
         if host.onboarding_surfaces_enabled() {
             host.show_pill_cue(PillCue::Recording);
@@ -459,12 +675,37 @@ impl StartSteps for ProductionStart {
 
     fn backend_start(&mut self) -> Result<(), String> {
         let prepared = self.prepared.take().ok_or("start not allocated")?;
+        // Last check before the backend send: a cancel that arrived while the session was being
+        // allocated unwinds here, and nothing reaches the engine. No warm-up is awaited: the
+        // engine adopts this press's warm-up if it already got there, and otherwise this start
+        // cold starts at once (a late warm-up is fenced by attempt id).
+        if self.token.is_cancelled() {
+            return Err(self.abort_unsent());
+        }
+        // Capture begins with this send. A press released while no capture existed (no engine could
+        // seal it) is cancelled here instead, so nothing is recorded after the release; the
+        // ordinary cancelled unwind follows (`start_dictation_after_press`).
+        if !self.token.begin_capture() {
+            return Err(self.abort_unsent());
+        }
         match prepared.send() {
             Ok(dispatched) => {
                 self.dispatched = Some(dispatched);
                 Ok(())
             }
             Err(error) => {
+                // The send may have failed AFTER its frame reached the engine (an RPC timeout, a
+                // lost reply, a key delivery that failed after the start was accepted): the engine
+                // can already be recording a session the shell is about to forget. Treat it as
+                // possibly started: send the session-correlated cancel (session id plus this
+                // press's attempt id) FIRST. The engine cancels the session if it started and
+                // fences the session and attempt if it did not, so a start that arrives later does
+                // not record. The shell state is cleared only after that.
+                cancel_possibly_started(&error.session_id);
+                if self.token.is_cancelled() {
+                    // Cancelled while the send was in flight: it is a cancel, not a failed start.
+                    return Err(self.abort_unsent());
+                }
                 if let Ok(mut runtime) = runtime_lock() {
                     let observed = &mut self.observed;
                     runtime.fail_prepared_start(
@@ -473,6 +714,7 @@ impl StartSteps for ProductionStart {
                         |state| observe_state(observed, state),
                     );
                 }
+                self.session_id = None;
                 Err(error.message)
             }
         }
@@ -486,14 +728,27 @@ impl StartSteps for ProductionStart {
             return Ok(());
         };
         let session_id = session_id.clone();
+        let token = Arc::clone(&self.token);
         let Err(message) = await_capture_live(
-            || capture_liveness(&session_id),
+            || {
+                // A cancel ends the wait at the next poll instead of after the whole window.
+                if token.is_cancelled() {
+                    CaptureLiveness::Failed(START_CANCELLED.to_string())
+                } else {
+                    capture_liveness(&session_id)
+                }
+            },
             std::thread::sleep,
             CAPTURE_LIVE_WINDOW,
             CAPTURE_LIVE_POLL,
         ) else {
             return Ok(());
         };
+        if message == START_CANCELLED {
+            // The engine holds the session this press started: cancel it.
+            self.cancel_dispatched(CancelSource::ShortcutIntent);
+            return Err(message);
+        }
         telemetry::log_message(
             "start_capture_not_live",
             &format!(
@@ -501,30 +756,208 @@ impl StartSteps for ProductionStart {
                 crate::dictation_error::error_log_code(&message)
             ),
         );
-        self.dispatched = None;
         // Stop any capture the worker left running, then close the session. Cancel clears the
         // active session, so the start-failure telemetry that `fail_prepared_start` would emit is
         // recorded here.
-        let cancel =
-            runtime_lock().map(|mut runtime| runtime.prepare_cancel(CancelSource::Watchdog));
-        if let Ok(prepared) = cancel {
-            let _ = prepared.send();
-        }
+        self.cancel_dispatched(CancelSource::Watchdog);
         Err(message)
     }
 
     fn acknowledge_recording(&mut self) -> Result<AppState, String> {
         let dispatched = self.dispatched.take().ok_or("start not dispatched")?;
+        // The commit point. A cancel that won the compare-exchange before this line wins: the
+        // session the engine started is cancelled and no `Recording` is ever committed. A cancel
+        // after it finds no pending start and takes the ordinary path against the session, which
+        // it reaches only after this gate section ends.
+        if !self.token.commit() {
+            drop(dispatched);
+            self.cancel_dispatched(CancelSource::ShortcutIntent);
+            return Err(START_CANCELLED.to_string());
+        }
+        self.session_id = None;
+        // Bind the committed session to the press before anything can take its deferred stop.
+        if let runtime::PreparedStartResult::Engine { session_id } = &dispatched {
+            self.token.bind_session(session_id.clone());
+        }
         let mut runtime = runtime_lock()?;
         let observed = &mut self.observed;
         runtime.finalize_prepared_start(dispatched, |state| observe_state(observed, state))
     }
 }
 
+/// Whether this press's warm-up can lead to a recording. A press made while a previous dictation
+/// is still in flight (Recording, Transcribing or Pasting) is refused by the start ("still
+/// finishing the previous dictation"), so it must not resume the microphone at all.
+fn warmup_can_lead_to_recording() -> bool {
+    !runtime::app_state_lock_free().is_some_and(|state| {
+        matches!(
+            state,
+            AppState::Recording { .. } | AppState::Transcribing { .. } | AppState::Pasting { .. }
+        )
+    })
+}
+
 /// Start a recording: the voice-controls check, the engine consumer, focus coverage, the start
 /// sequence, then state and pill emission.
+///
+/// The whole start is reserved first (`StartReservation`). A press that cannot reserve it (another
+/// press's start call has not fully ended) returns at once with the authoritative current state:
+/// it observes no target, shows no pill, takes no backend gate, reaches no engine, sends no
+/// warm-up and revokes nothing, so it can neither start a second session, claim the first press's
+/// warm-up, nor retire it. The reservation is held until this call returns.
+/// Explicit wake/developer recording: no precise capture epoch or native release requirement.
+pub fn start_dictation_legacy_inner(shell: &Shell) -> Result<AppState, String> {
+    let Some(reservation) = runtime::StartReservation::claim_legacy() else {
+        return get_app_state();
+    };
+    run_reserved_start(shell, reservation)
+}
+
 pub fn start_dictation_inner(shell: &Shell) -> Result<AppState, String> {
+    let Some(reservation) = runtime::StartReservation::claim() else {
+        telemetry::log_message("start_coalesced", "reason=start_in_flight");
+        return get_app_state();
+    };
+    run_reserved_start(shell, reservation)
+}
+
+/// `start_dictation_inner` for a caller that must return at once: the Windows push-to-talk press
+/// callback. The hook's dispatch thread is serial, so a press callback that stays in the start
+/// (100-300 ms of target observation, runtime lock and engine round trips) holds the same
+/// press's release callback back until the start returns, and the release would be seen late.
+/// This claims the press's reservation here, synchronously and cheaply (so a release that follows
+/// at once already finds the pending start and records its stop intent), then runs the whole start
+/// on its own thread and returns. A press that cannot reserve is coalesced exactly as
+/// `start_dictation_inner` does. Failures are reported the same way (error pill) and logged; there
+/// is no result to hand back.
+pub fn start_dictation_detached(shell: &Shell) -> Result<(), String> {
+    start_dictation_detached_route(shell, true)
+}
+
+pub fn start_dictation_legacy_detached(shell: &Shell) -> Result<(), String> {
+    start_dictation_detached_route(shell, false)
+}
+
+fn start_dictation_detached_route(shell: &Shell, exact: bool) -> Result<(), String> {
+    let reservation = if exact {
+        runtime::StartReservation::claim()
+    } else {
+        runtime::StartReservation::claim_legacy()
+    };
+    let Some(reservation) = reservation else {
+        telemetry::log_message("start_coalesced", "reason=start_in_flight");
+        return Ok(());
+    };
+    let shell = shell.clone();
+    // If the thread cannot be created the closure is dropped with the reservation inside it, which
+    // releases the reservation.
+    std::thread::Builder::new()
+        .name("dictation-start".to_string())
+        .spawn(move || {
+            if let Err(error) = run_reserved_start(&shell, reservation) {
+                telemetry::log_message(
+                    "start_detached_error",
+                    &format!("code={}", crate::dictation_error::error_log_code(&error)),
+                );
+            }
+        })
+        .map(|_| ())
+        .map_err(|error| format!("start thread: {error}"))
+}
+
+/// The start of the press that holds `reservation`, to the end of its deferred stop (if any).
+fn run_reserved_start(
+    shell: &Shell,
+    mut reservation: runtime::StartReservation,
+) -> Result<AppState, String> {
     host().require_voice_controls()?;
+    // A claim made during an engine retirement has no hold yet; take it here (off the dispatch
+    // thread, no slot held), so the start runs on the fresh generation.
+    reservation.ensure_engine_hold();
+    // The mic starts now, before any shell work: the engine keeps its stream paused while idle
+    // and resumes it only on a start or this warm-up, and the target observation, pill, runtime
+    // lock and engine snapshot below cost 100-300 ms that would otherwise be lost speech. Nothing
+    // waits for it. The engine adopts this audio at the start frame of the same attempt when the
+    // warm-up got there first; otherwise the start cold starts, as before, and the late warm-up is
+    // fenced. The attempt id is this press's: the start, stop and cancel frames repeat it, and a
+    // press that ends without a recording revokes it so the mic pauses at once.
+    let token = reservation.token();
+    let attempt = token.attempt();
+    // The user released this press while no engine could seal it (it was retiring or down) and no
+    // capture of the press existed: everything a capture started now would hold was spoken after
+    // the release. End the press as a cancelled, empty one: no warm-up, no recording state, no
+    // audio, no deferred stop to replay on a new recording. A cancel that arrived first reads the
+    // same way; the reservation drops here, so the next press gets a fresh attempt.
+    if token.refuse_if_released_before_capture() {
+        let state = get_app_state();
+        drop(reservation);
+        return state;
+    }
+    let warmed = token.capture_attempt().is_some() && warmup_can_lead_to_recording();
+    if warmed {
+        // Takes the press's `begin_capture` (refused after a release) and only reaches a running
+        // engine.
+        runtime::send_capture_warmup(&token);
+    }
+    let result = start_dictation_after_press(shell, Arc::clone(&token));
+    if warmed && !matches!(result, Ok(AppState::Recording { .. })) {
+        runtime::revoke_capture_warmup(attempt);
+    }
+    // A stop (not a cancel) that reached this press before it committed was recorded as its
+    // intent: now that `Recording` is committed, perform it, so a quick press-and-release is
+    // transcribed and delivered. The stop is bound to this press: it acts only if the session this
+    // press committed (`PendingStart::committed_session`) is still the runtime's active session,
+    // and it is dispatched BEFORE the reservation is released, so no other press can start (or
+    // stop) in between. A start that did not end in `Recording` has nothing to stop.
+    let deferred_stop = match &result {
+        Ok(AppState::Recording { .. }) => token.take_deferred_stop().zip(token.committed_session()),
+        _ => None,
+    };
+    let outcome = match deferred_stop {
+        Some((stop, session_id)) => {
+            telemetry::log_message("start_stop_deferred", "phase=performing_after_commit");
+            // Capture had begun, but the release could not reach the engine when it happened (a
+            // retirement, a missed ack): apply the ORIGINAL release instant as the seal cutoff
+            // first, so the stop below finalizes audio that ends at the release, not at this stop.
+            if runtime::seal_capture_at_recorded_release(&token) {
+                run_deferred_stop(shell.as_ref(), stop, &session_id)
+            } else {
+                Err("Capture release could not be sealed; recording discarded.".into())
+            }
+        }
+        None => result,
+    };
+    drop(reservation);
+    outcome
+}
+
+/// Perform the stop a user asked for during the press's start, against the session that start
+/// committed and no other. Runs under the backend transition gate and the runtime lock like every
+/// stop (`stop_dictation_for_session` and its siblings), and does nothing when `session_id` is no
+/// longer the active session (it ended, was cancelled or replaced meanwhile).
+fn run_deferred_stop(
+    shell: &dyn DictationShell,
+    stop: runtime::DeferredStop,
+    session_id: &str,
+) -> Result<AppState, String> {
+    match stop {
+        runtime::DeferredStop::Stop => stop_dictation_for_session(shell, Some(session_id)),
+        runtime::DeferredStop::PillStop { send_enter } => {
+            stop_dictation_from_pill_for_session(shell, send_enter, Some(session_id))
+        }
+        runtime::DeferredStop::StopAndSend => {
+            stop_dictation_and_send_for_session(shell, Some(session_id))
+        }
+    }
+}
+
+/// `start_dictation_inner` after the shortcut-press warm-up has been sent. The press's pending
+/// token is this call's own; it reaches the start frame through `ProductionStart`, so concurrent
+/// presses never share it.
+fn start_dictation_after_press(
+    shell: &Shell,
+    token: Arc<runtime::PendingStart>,
+) -> Result<AppState, String> {
     // A process resumed mid-onboarding has not activated the shared model (the boot that does it
     // waits for onboarding to finish), and the onboarding shortcut test is its first engine spawn.
     // Activate before the transition gate and the runtime lock are taken: the activation takes the
@@ -538,6 +971,8 @@ pub fn start_dictation_inner(shell: &Shell) -> Result<AppState, String> {
         initial_target: TargetSnapshot::empty(),
         prepared: None,
         dispatched: None,
+        session_id: None,
+        token,
     };
     // The consumer delivers the first-frames signal the start now waits on, so it must run before
     // the wait (idempotent).
@@ -547,6 +982,17 @@ pub fn start_dictation_inner(shell: &Shell) -> Result<AppState, String> {
     #[cfg(target_os = "macos")]
     host().focus_coverage_start_begin();
     let result = run_start_sequence(&mut steps, |op| with_backend_transition(op));
+    // A press cancelled before it committed unwinds with an error of its own making (or with the
+    // backend's, if the cancel overtook a failure). That is a cancel, not a failed start: report
+    // the authoritative state, so the optimistic Recording look is repainted and no error pill
+    // shows.
+    let result = match result {
+        Err(_) if steps.token.is_cancelled() => {
+            telemetry::log_message("start_cancelled", "phase=unwound");
+            get_app_state()
+        }
+        other => other,
+    };
     #[cfg(target_os = "macos")]
     host().focus_coverage_start_finish(result.as_ref().ok());
     let observed = std::mem::take(&mut steps.observed);
@@ -600,12 +1046,40 @@ pub fn toggle_dictation_inner(shell: &Shell) -> Result<AppState, String> {
 /// `transcribing` and returns; it never blocks on the transcribe. A failure also reverts the pill
 /// instead of leaving stale feedback.
 pub fn stop_dictation_and_send_inner(shell: &dyn DictationShell) -> Result<AppState, String> {
+    stop_dictation_and_send_inner_at(shell, runtime::OriginalReleaseMark::for_current_action())
+}
+
+pub fn stop_dictation_and_send_inner_at(
+    shell: &dyn DictationShell,
+    released: runtime::OriginalReleaseMark,
+) -> Result<AppState, String> {
+    // Release seal and stop intent of a pending start (see `stop_dictation_inner`): the start
+    // performs the stop-and-send (Enter after the paste) once it is recording.
+    if !runtime::seal_capture_for_stop_at(released) {
+        return Err("Capture release could not be sealed; recording discarded.".into());
+    }
+    if runtime::defer_stop_to_pending_start(runtime::DeferredStop::StopAndSend) {
+        return get_app_state();
+    }
+    stop_dictation_and_send_for_session(shell, None)
+}
+
+/// The stop body of `stop_dictation_and_send_inner` (see `stop_dictation_for_session`).
+fn stop_dictation_and_send_for_session(
+    shell: &dyn DictationShell,
+    expected: Option<&str>,
+) -> Result<AppState, String> {
     telemetry::utterance_timeline::begin_stop("stop_send");
     let mut observed = Vec::new();
     let result = with_backend_transition(|| {
         let prepared = {
             let mut runtime = runtime_lock()?;
-            runtime.prepare_stop_and_send(|state| observe_state(&mut observed, state))
+            if expected_session_is_active(&runtime, expected) {
+                runtime.prepare_stop_and_send(|state| observe_state(&mut observed, state))
+            } else {
+                telemetry::log_message("start_stop_deferred", "phase=session_mismatch_skipped");
+                Ok(runtime::PreparedStop::without_command(runtime.app_state()))
+            }
         }?;
         send_prepared_stop(prepared, &mut observed)
     });

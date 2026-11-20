@@ -69,6 +69,19 @@ impl EngineRuntime {
     pub fn prepare_start(
         &mut self,
         initial_target: crate::delivery::TargetSnapshot,
+        observer: impl FnMut(&AppState),
+    ) -> Result<PreparedStart, String> {
+        self.prepare_start_for_attempt(initial_target, None, observer)
+    }
+
+    /// `prepare_start` for the shortcut press that allocated `start_attempt`
+    /// (`runtime::begin_start_attempt`). The id is this call's own: it goes into this start's
+    /// frame and is bound to the session this call allocates, never read from shared state, so a
+    /// concurrent press can neither take it nor lose it. `None` is a start with no warm-up.
+    pub fn prepare_start_for_attempt(
+        &mut self,
+        initial_target: crate::delivery::TargetSnapshot,
+        start_attempt: Option<u64>,
         _observer: impl FnMut(&AppState),
     ) -> Result<PreparedStart, String> {
         // F1 fix (shell state-machine audit): a genuinely in-flight backend
@@ -93,7 +106,8 @@ impl EngineRuntime {
         // instead of recording as Free.
         self.invalidate_sidecar_mirrors_if_generation_changed();
         if self.sidecar.supervisor.is_running() {
-            self.sync_sidecar_runtime_snapshot()?;
+            // Credential-independent: a recording start never waits for provider keys.
+            self.sync_sidecar_runtime_snapshot_for_start()?;
         }
         let snapshot_frames = self.sidecar_snapshot_frames()?;
         let generation_seen = self.sidecar.supervisor.generation();
@@ -130,6 +144,10 @@ impl EngineRuntime {
         // `None` is an unresolved start identity, never an empty proof.
         let frozen_target = resolved_start_target(&initial_target);
         frame.recording_target = frozen_target.clone();
+        // The shortcut press that began this start: the engine adopts that press's capture
+        // warm-up only for this id, and the session's stop and cancel frames repeat it.
+        frame.start_attempt_id = start_attempt;
+        super::shared::bind_session_capture_route(&session_id, start_attempt);
         if crate::host::host().supports_start_capture() {
             let (tx, rx) = std::sync::mpsc::channel();
             let supervisor = Arc::clone(&sidecar.supervisor);
@@ -236,6 +254,26 @@ impl EngineRuntime {
             self.sync_sidecar_active_session();
             self.clear_start_capture();
             let _ = self.apply(AppEvent::Fail { message }, &mut observer);
+        }
+        self.state.get()
+    }
+
+    /// A prepared start that was cancelled before it reached the backend (the press's pending
+    /// token was cancelled): release the session it claimed and return to `Armed`. The engine
+    /// never saw this session, so no frame is sent, and no `Fail` event is applied: the user
+    /// cancelled, so nothing here is an error. Does nothing when the session is no longer the
+    /// active one.
+    pub fn abort_prepared_start(
+        &mut self,
+        session_id: &str,
+        mut observer: impl FnMut(&AppState),
+    ) -> AppState {
+        if self.active_session.as_deref() == Some(session_id) {
+            self.active_session = None;
+            self.sync_sidecar_active_session();
+            self.clear_start_capture();
+            self.state.set(AppState::Armed);
+            observer(&self.state.get());
         }
         self.state.get()
     }
@@ -1072,7 +1110,7 @@ impl EngineRuntime {
         } else {
             StopKind::Stop
         };
-        let frame = engine_supervisor::build_request(
+        let mut frame = engine_supervisor::build_request(
             &request_id,
             EngineSchemaName::TranscribingStarted,
             Some(session_id.to_string()),
@@ -1081,6 +1119,7 @@ impl EngineRuntime {
                 stop_target: None,
             }),
         );
+        frame.start_attempt_id = super::shared::session_start_attempt(session_id);
         PreparedEngineStop {
             session_id: session_id.to_string(),
             supervisor: Arc::clone(&sidecar.supervisor),
@@ -1101,7 +1140,7 @@ impl EngineRuntime {
             "stop:{}:cancel_to_history",
             sidecar.supervisor.next_request_id()
         );
-        let frame = engine_supervisor::build_request(
+        let mut frame = engine_supervisor::build_request(
             &request_id,
             EngineSchemaName::TranscribingStarted,
             Some(session_id.to_string()),
@@ -1110,6 +1149,7 @@ impl EngineRuntime {
                 stop_target: None,
             }),
         );
+        frame.start_attempt_id = super::shared::session_start_attempt(session_id);
         PreparedEngineStop {
             session_id: session_id.to_string(),
             supervisor: Arc::clone(&sidecar.supervisor),
@@ -1136,7 +1176,7 @@ impl EngineRuntime {
                     request_id
                 ),
             );
-            let frame = engine_supervisor::build_request(
+            let mut frame = engine_supervisor::build_request(
                 &request_id,
                 EngineSchemaName::TranscribingStarted,
                 Some(session_id.clone()),
@@ -1145,6 +1185,7 @@ impl EngineRuntime {
                     stop_target: None,
                 }),
             );
+            frame.start_attempt_id = super::shared::session_start_attempt(&session_id);
             Some(PreparedEngineCancel {
                 session_id,
                 source,

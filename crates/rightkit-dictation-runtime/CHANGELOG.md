@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.5
+
+- Seal exact capture at the validated release edge and retire the producer before reopening the selected microphone.
+
 ## 0.2.4
 
 - Use the inference crate's wake-to-recording audio handoff and expose the production replay policy on macOS as well as Windows.

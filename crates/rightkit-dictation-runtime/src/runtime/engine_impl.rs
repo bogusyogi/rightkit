@@ -96,6 +96,12 @@ impl EngineRuntime {
             .ok_or_else(|| "worker not available".to_string())
     }
 
+    /// A clone of the worker handle only when the worker already exists; never spawns one. The
+    /// shortcut-press capture warm-up uses it so a stray request cannot start a worker.
+    pub fn existing_worker_handle(&self) -> Option<WorkerHandle> {
+        self.worker.as_ref().cloned()
+    }
+
     /// True when no recording/transcribe session is active (safe to swap models).
     pub fn is_idle(&self) -> bool {
         !matches!(
@@ -190,6 +196,17 @@ impl EngineRuntime {
         recording_target: Option<rightkit_transcript_library::delivery::TargetSnapshot>,
         recording_context: Option<rightkit_dictation_core::engine::RecordingContext>,
     ) -> Result<Option<Arc<Mutex<FocusTracker>>>, String> {
+        // A session the shell already cancelled (a cancel of an ambiguous start that reached the
+        // engine ahead of, or instead of, its start; `cancel_traced` tombstones it) never starts:
+        // a later-arriving Start for it records nothing. The same-session duplicate while
+        // `Recording` stays idempotent below.
+        let is_active_duplicate = matches!(
+            &self.state,
+            EngineState::Recording { session_id: s } if s == session_id
+        );
+        if !is_active_duplicate && self.terminal_tombstones.iter().any(|id| id == session_id) {
+            return Err("session was cancelled before it started".to_string());
+        }
         match &self.state {
             EngineState::Recording { session_id: s } if s == session_id => {
                 // Duplicate RecordingStarted is idempotent. The detached
@@ -302,6 +319,7 @@ impl EngineRuntime {
             // in which case the state machine below is already invalid.
             let _ = w.send(WorkerCmd::StartRecording {
                 session_id: session_id.to_string(),
+                start_attempt: None,
             });
         }
         Ok(())
@@ -385,7 +403,12 @@ impl EngineRuntime {
                     );
                 }
             }
-            _ => {}
+            // No matching session: either the cancel is stale, or it names a start that has not
+            // reached this runtime yet (the shell's start RPC timed out or errored after its frame
+            // may have been sent). Fence the session id so that start, if it arrives later, is
+            // refused by `begin_recording`; the cancel frame's attempt id fences the worker side
+            // (`CaptureRevoke`, queued by the IPC handler before this call).
+            _ => self.record_terminal_tombstone(session_id),
         }
     }
 

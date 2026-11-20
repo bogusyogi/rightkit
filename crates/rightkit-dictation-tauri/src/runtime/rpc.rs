@@ -55,6 +55,14 @@ impl EngineRuntime {
     }
 
     pub fn sync_sidecar_engine_config(&mut self) -> Result<(), String> {
+        self.sync_sidecar_engine_config_with(true)
+    }
+
+    /// `gated` is whether the push may wait for (and trigger) the provider-key delivery of the
+    /// engine generation, as every ordinary call does. A recording start pushes with `false`: the
+    /// config carries no credential, so it must not queue behind keys (see
+    /// `sync_sidecar_runtime_snapshot_for_start`).
+    fn sync_sidecar_engine_config_with(&mut self, gated: bool) -> Result<(), String> {
         let config_value = self.current_engine_config_value()?;
         // H10 fix (see docs/PERF_AUDIT_2026-07-15.md): without this check, every
         // `start_dictation` would re-push this RPC under `runtime_lock` even when
@@ -65,9 +73,15 @@ impl EngineRuntime {
             return Ok(());
         }
         let frame = self.engine_config_frame(config_value.clone());
-        let response = self.sidecar_call(frame)?;
+        // Generation-bound: the mirror is recorded only if the engine generation that took the
+        // push is still the current one afterwards; a respawn in between leaves the mirror empty
+        // and the new generation is pushed again (`invalidate_sidecar_mirrors_if_generation_changed`).
+        let generation = self.sidecar.supervisor.generation();
+        let response = self.sidecar_call_for(frame, gated)?;
         Self::ack_from_frame(&response)?;
-        self.last_sent_engine_config = Some(config_value);
+        if self.sidecar.supervisor.generation() == generation {
+            self.last_sent_engine_config = Some(config_value);
+        }
         Ok(())
     }
 
@@ -136,6 +150,11 @@ impl EngineRuntime {
     }
 
     pub fn sync_sidecar_vocabulary(&mut self) -> Result<(), String> {
+        self.sync_sidecar_vocabulary_with(true)
+    }
+
+    /// See [`EngineRuntime::sync_sidecar_engine_config_with`] for `gated`.
+    fn sync_sidecar_vocabulary_with(&mut self, gated: bool) -> Result<(), String> {
         let (terms, term_details) = Self::current_vocabulary();
         // H10 fix: same skip-if-unchanged shape as the engine-config push
         // above. Vocab edits (add/remove/import) still push immediately —
@@ -144,10 +163,25 @@ impl EngineRuntime {
             return Ok(());
         }
         let frame = self.vocabulary_frame(terms.clone(), term_details.clone());
-        let response = self.sidecar_call(frame)?;
+        let generation = self.sidecar.supervisor.generation();
+        let response = self.sidecar_call_for(frame, gated)?;
         Self::ack_from_frame(&response)?;
-        self.last_sent_vocab = Some((terms, term_details));
+        if self.sidecar.supervisor.generation() == generation {
+            self.last_sent_vocab = Some((terms, term_details));
+        }
         Ok(())
+    }
+
+    /// The config and vocabulary pushes of a recording start (`prepare_start_for_attempt`):
+    /// the same byte-identical-skip pushes as `sync_sidecar_runtime_snapshot`, but through the
+    /// credential-independent call (`EngineSupervisor::call_without_keys`): never waits for the
+    /// provider-key delivery of the generation, never triggers it, never retires a generation
+    /// whose delivery failed. Provider keys gate only provider processing in the engine, never the
+    /// capture start. Mirrors are generation-bound (see `sync_sidecar_engine_config_with`).
+    pub fn sync_sidecar_runtime_snapshot_for_start(&mut self) -> Result<(), String> {
+        self.invalidate_sidecar_mirrors_if_generation_changed();
+        self.sync_sidecar_engine_config_with(false)?;
+        self.sync_sidecar_vocabulary_with(false)
     }
 
     pub fn sync_sidecar_recent_history(&mut self) -> Result<(), String> {
@@ -205,6 +239,22 @@ impl EngineRuntime {
         frame: rightkit_dictation_core::engine::EngineFrame,
     ) -> Result<rightkit_dictation_core::engine::EngineFrame, String> {
         self.sidecar_call_with_timeout(frame, SIDECAR_RPC_TIMEOUT)
+    }
+
+    /// `sidecar_call`, with or without the provider-key gate (`gated == false` is
+    /// `EngineSupervisor::call_without_keys`).
+    fn sidecar_call_for(
+        &self,
+        frame: rightkit_dictation_core::engine::EngineFrame,
+        gated: bool,
+    ) -> Result<rightkit_dictation_core::engine::EngineFrame, String> {
+        if gated {
+            self.sidecar_call(frame)
+        } else {
+            self.sidecar
+                .supervisor
+                .call_without_keys(&frame, SIDECAR_RPC_TIMEOUT)
+        }
     }
 
     pub fn sidecar_call_with_timeout(

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.1
+
+- Pair native release edges with their capture attempt; keep wake word and existing activation routes available.
+
 ## 0.3.0
 
 - Serialize partial streaming with session stop/cancel/start; reject stale sessions, duplicate revisions & changed engine generations before host input. Keep post-stop drafts available for recovery.

@@ -32,6 +32,20 @@ impl Worker {
         self.focus.lock().snapshot_at_stop();
         let mut returned = Vec::new();
         if let Some(cap) = &mut self.capture.stream {
+            if self.session_sealed || self.session_exact_failed {
+                // Sealed at the shortcut release: the buffer already ends at the release and the
+                // capture was paused by the seal. Anything still in the ring arrived after the
+                // release, so it is discarded, never ingested, appended or returned.
+                let _ = cap.flush();
+                cap.pause();
+                #[cfg(target_os = "macos")]
+                if prefetch {
+                    self.focus.lock().snapshot_at_stop_prefetch();
+                }
+                #[cfg(not(target_os = "macos"))]
+                let _ = prefetch;
+                return returned;
+            }
             match tail {
                 StopTail::Observe => {
                     if let Ok(chunk) = cap.read_f32(usize::MAX) {
@@ -65,6 +79,17 @@ impl Worker {
         self.close_capture_at_stop(&mut session, StopTail::Observe, true);
         rightkit_dictation_inference::timeline_recorder::mark(|t| &mut t.audio_sealed_ms);
         let session_id = session.id.clone();
+        if self.session_exact_failed {
+            self.asr_executor.cancel_recording(final_generation);
+            let _ = self.event_tx.send(WorkerEvent::TranscriptFinal {
+                session_id,
+                capture_warning: None,
+                result: Err("Capture release could not be sealed; recording discarded.".into()),
+                audio_secs: None,
+                stage_metrics: RecordingStageMetrics::default(),
+            });
+            return Flow::SkipPass;
+        }
         if let Err(error) = self.wait_for_reload_generation(recording_generation, &session_id) {
             let _ = self.event_tx.send(WorkerEvent::TranscriptFinal {
                 session_id,

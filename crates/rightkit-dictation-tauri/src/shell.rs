@@ -53,6 +53,41 @@ pub enum ShellEvent {
     OnboardingFn(serde_json::Value),
     /// The middle mouse button was clicked during the onboarding control test.
     OnboardingMiddleClick,
+    /// Push-to-talk was pressed or released during the onboarding control test. Raised from an
+    /// input-hook thread: the shell delivers it where the renderer must be addressed (it may hop
+    /// threads), maps it to its own event name and payload, and
+    /// calls `complete` exactly once with the actual emit result. `emit_event` itself returns only
+    /// whether the delivery was scheduled; a delivery is reported by `complete`, never by that
+    /// `Ok`.
+    OnboardingPtt {
+        down: bool,
+        complete: OnboardingPttCompletion,
+    },
+}
+
+/// Called by the shell with the push-to-talk direction and the actual result of delivering the
+/// onboarding preview to the renderer. Compares equal to any other completion (a function pointer
+/// has no stable identity).
+#[derive(Clone, Copy)]
+pub struct OnboardingPttCompletion(pub fn(down: bool, result: Result<(), String>));
+
+impl std::fmt::Debug for OnboardingPttCompletion {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("OnboardingPttCompletion")
+    }
+}
+
+impl PartialEq for OnboardingPttCompletion {
+    fn eq(&self, _other: &Self) -> bool {
+        true
+    }
+}
+
+impl OnboardingPttCompletion {
+    /// Report the delivery result.
+    pub fn call(self, down: bool, result: Result<(), String>) {
+        (self.0)(down, result)
+    }
 }
 
 /// Operations that need the application handle.

@@ -420,6 +420,15 @@ pub trait DictationHost: Send + Sync + 'static {
         _cancel: HotkeyAction,
     ) {
     }
+    /// Register original native PTT release edges before starting the tap.
+    /// Return true only after retaining this callback; unsupported hosts fail exact setup.
+    #[cfg(target_os = "macos")]
+    fn fn_hotkey_set_ptt_release_callback(
+        &self,
+        _callback: Option<rightkit_hotkeys::macos::fn_hotkey::PttReleaseAction>,
+    ) -> bool {
+        false
+    }
     /// macOS: apply the push-to-talk key and enabled setting to the tap. Default: nothing.
     #[cfg(target_os = "macos")]
     fn fn_hotkey_apply_ptt_settings(&self) {}

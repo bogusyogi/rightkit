@@ -1,4 +1,4 @@
-// rightkit-dictation-tauri 0.3.0 consumed by exact registry pin (`=0.3.0`), outside the workspace.
+// rightkit-dictation-tauri 0.3.1 consumed by exact registry pin (`=0.3.1`), outside the workspace.
 //
 // Proves, through the public API only, the pure user-facing error vocabulary and the capture
 // wording:
@@ -46,5 +46,5 @@ fn main() {
         CAPTURE_LIVE_WINDOW == Duration::from_millis(4_000),
         "the capture-live window is four seconds",
     );
-    println!("OK rightkit-dictation-tauri 0.3.0 (registry consumer)");
+    println!("OK rightkit-dictation-tauri 0.3.1 (registry consumer)");
 }
