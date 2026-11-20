@@ -396,7 +396,9 @@ export function snapshotCargoMetadata({ cwd, args, cargo, env, snapshotRootDir, 
 
 // ---- entry --------------------------------------------------------------------------------------------------------------------------------
 
-if (process.argv[1] && fs.realpathSync(process.argv[1]) === fs.realpathSync(SELF)) {
+// Importing this module must never throw: a `-e` helper (the gate's bounded probe) passes its payload as argv[1], not a file.
+const isServeEntry = (() => { try { return Boolean(process.argv[1]) && fs.realpathSync(process.argv[1]) === fs.realpathSync(SELF); } catch { return false; } })();
+if (isServeEntry) {
   const [cmd, a, b] = process.argv.slice(2);
   if (cmd === "serve") {
     serve({ root: a, log: (m) => console.log(`${new Date().toISOString()} gate-serve: ${m}`) }).catch((error) => { console.log(`${new Date().toISOString()} gate-serve: cannot serve: ${error?.message ?? error}`); process.exit(1); });

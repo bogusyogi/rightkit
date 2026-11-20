@@ -6,10 +6,17 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { test } from "node:test";
 import { changeHelperPath, serveRequest } from "./gate-serve.mjs";
+
+test("importing gate-serve from a -e helper whose argv[1] is a payload, not a file, does not throw (bounded probe regression)", () => {
+  const url = pathToFileURL(path.join(here, "gate-serve.mjs")).href;
+  const r = spawnSync(process.execPath, ["--input-type=module", "-e", `await import(${JSON.stringify(url)}); console.log("import-ok")`, JSON.stringify(["pnpm", ["--version"]])], { encoding: "utf8" });
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /import-ok/);
+});
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
