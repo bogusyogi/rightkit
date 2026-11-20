@@ -42,7 +42,7 @@ import { SCAN_TOKEN_ENV, readLedger, scanTokenOf, unclaimedLedgers } from "./car
 import { ADMISSION_POLL_MS, CARRIED_CANCEL_GRACE_MS, QUEUED_CEILING_FACTOR, createRunClock, createStatusPoller, watchBrokerAdmission } from "./broker-admission.mjs";
 import { CANCEL_WAIT_ENV, operationDeadlineEnv } from "./broker-admission.mjs";
 import { windowsPnpmIdentity } from "./snapshot-dependency-reuse.mjs";
-import { meetPartitions, partitionByFeatures, partitionCacheKey, splitNote, stripSelectors, treeArgs, workspaceManifestDigest } from "./feature-partition.mjs";
+import { compatibleTargetClasses, groupTargetDifference, meetPartitions, parseTreeFeatures, partitionByFeatures, partitionCacheKey, splitNote, stripSelectors, targetSplitNote, treeArgs, treeArgsForTargets, workspaceManifestDigest } from "./feature-partition.mjs";
 import { CLASS_A_ENV, NOT_EXECUTED_EXIT, RECEIPT_NONCE_ENV, contractJobTag, judgeSeamOutcome, normalizeWorkspace, recordContractJob, seamEnv, seamSettled, verdictForRun } from "./gate-seam.mjs";
 
 export const SCAN_RESULT_SCHEMA = "rightkit.deterministic-scans/1";
@@ -121,19 +121,62 @@ const probeAnswersOf = (spawnFn) => { if (typeof spawnFn !== "function") return 
 // found on PATH), or a .cmd/.bat shim whose answer depends on what it points at, is never remembered across runs.
 export const PROBE_RECORD = "rightkit.tool-probe/1";
 const defaultStat = (f) => fs.statSync(f);
-function probeIdentity(tool, command, key, statFile = defaultStat) {
-  if (typeof command !== "string" || !path.isAbsolute(command) || /\.(cmd|bat)$/i.test(command)) return null;
+/**
+ * The one program a Windows launcher shim starts, when the shim's own text says so beyond doubt: exactly one quoted absolute `.exe` path, and no
+ * `%~` (a path relative to the shim, as pnpm's shim uses) anywhere in it. The managed `rustright.cmd` is this shape
+ * (`"D:\.rustright\runtime\rustright.exe" %*`). Anything else answers null and is never remembered across runs.
+ */
+export function shimTarget(text) {
+  const s = String(text ?? "");
+  if (/%~/.test(s)) return null;
+  const found = [...s.matchAll(/"([A-Za-z]:\\[^"%\r\n]+\.exe)"/gi)].map((m) => m[1]);
+  return found.length === 1 ? found[0] : null;
+}
+const defaultReadText = (f) => fs.readFileSync(f, "utf8");
+function probeIdentity(tool, command, key, statFile = defaultStat, readText = defaultReadText) {
+  if (typeof command !== "string" || !path.isAbsolute(command)) return null;
   let st; try { st = statFile(command); } catch { return null; }
   if (!st?.isFile?.()) return null;
+  if (/\.(cmd|bat)$/i.test(command)) {
+    // NN09 (Dell 2026-11-19): `rustright.cmd` was never remembered, so every compile run sent `cargo --version` through the broker again. A shim
+    // is remembered by its own bytes and by the program it starts as that program is on disk; a change of either asks again.
+    let text; try { text = readText(command); } catch { return null; }
+    const target = shimTarget(text); if (!target) return null;
+    let ts; try { ts = statFile(target); } catch { return null; }
+    if (!ts?.isFile?.()) return null;
+    // What the launched client answers also depends on files beside it and beside the launcher: the runtime manifest next to the target (which
+    // client and broker this is) and the host configuration two levels above the launcher (`<managed root>/config.json`: the `tools` the broker
+    // compiles with). Their bytes are part of the identity, so a new runtime or a changed tool asks again. Residual, stated in the evidence
+    // sheet: a broker still running with an older configuration answers with its old tools until it is restarted, and nothing here can see that.
+    const bytesOf = (f) => { try { return sha256(readText(f)); } catch { return null; } };
+    const runtimeManifest = bytesOf(path.join(path.dirname(target), "runtime-manifest.json"));
+    const hostConfig = bytesOf(path.join(path.dirname(path.dirname(command)), "config.json"));
+    return sha256(canonicalJson({ schema: PROBE_RECORD, tool, command, shim: sha256(text), target, size: ts.size, mtimeMs: Math.trunc(ts.mtimeMs), runtimeManifest, hostConfig, key }));
+  }
   return sha256(canonicalJson({ schema: PROBE_RECORD, tool, command, size: st.size, mtimeMs: Math.trunc(st.mtimeMs), key }));
 }
-export function storedProbe(cache, tool, command, key, statFile) {
-  if (!cache) return null; const id = probeIdentity(tool, command, key, statFile); if (!id) return null;
+/**
+ * NN42: the parts of a compile row's arguments its group key is made from. `rest` is the arguments without the `-p <crate>` pair, `keyRest`
+ * those without the `--target <triple>` pair too, and `atKey` where the -p pair sits once the --target pair is taken out. Rows that differ
+ * only in their target, wherever each names it, get the same `keyRest` and `atKey`.
+ */
+export function batchKeyParts(args) {
+  const at = args.indexOf("-p");
+  const crate = at >= 0 ? args[at + 1] : null;
+  const rest = at >= 0 ? [...args.slice(0, at), ...args.slice(at + 2)] : [];
+  const ti = rest.indexOf("--target");
+  const target = ti >= 0 && typeof rest[ti + 1] === "string" ? rest[ti + 1] : null;
+  const keyRest = target ? [...rest.slice(0, ti), ...rest.slice(ti + 2)] : rest;
+  const atKey = target && ti < at ? at - 2 : at;
+  return { at, crate, rest, target, keyRest, atKey };
+}
+export function storedProbe(cache, tool, command, key, statFile, readText) {
+  if (!cache) return null; const id = probeIdentity(tool, command, key, statFile, readText); if (!id) return null;
   const row = cache.read(id)?.row;
   return row?.schema === PROBE_RECORD && row.tool === tool && row.command === command && row.outcome?.ok === true ? row.outcome : null;
 }
-export function storeProbe(cache, tool, command, key, outcome, statFile) {
-  if (!cache || !outcome?.ok) return; const id = probeIdentity(tool, command, key, statFile); if (!id) return;
+export function storeProbe(cache, tool, command, key, outcome, statFile, readText) {
+  if (!cache || !outcome?.ok) return; const id = probeIdentity(tool, command, key, statFile, readText); if (!id) return;
   cache.write(id, { schema: PROBE_RECORD, tool, command, outcome });
 }
 
@@ -2130,9 +2173,7 @@ export function planScans({
     if (x.batchUnit === undefined) return x;
     const { batchUnit: unit, ...plain } = x;
     if (!classBBatching || x.deferred || !Array.isArray(x.args) || (x.tool !== "rustright" && x.tool !== "cargo")) return plain;
-    const at = x.args.indexOf("-p");
-    const crate = at >= 0 ? x.args[at + 1] : null;
-    const rest = at >= 0 ? [...x.args.slice(0, at), ...x.args.slice(at + 2)] : [];
+    const { at, crate, rest, target, keyRest, atKey } = batchKeyParts(x.args);
     let why = null;
     if (at < 0 || typeof crate !== "string" || x.args.indexOf("-p", at + 1) >= 0) why = "it does not name exactly one `-p <crate>`";
     else if (rest.some((w) => /^(?:--features(?:=.*)?|-F.*)$/.test(w))) why = "its feature set names crate-specific features";
@@ -2142,10 +2183,10 @@ export function planScans({
     // NN42 (LOCKED 2026-11-06): one check/clippy per stage names every --target. The target is not part of the group key: rows that differ only
     // in their `--target <triple>` and that triple's own variables (CC_/CXX_/AR_/PKG_CONFIG_/RC_<triple>) share a key, and runScans runs crates
     // with the same set of targets as ONE invocation naming all of them, so Cargo overlaps the triples' graphs under one build lock.
-    const ti = rest.indexOf("--target");
-    const target = ti >= 0 && typeof rest[ti + 1] === "string" ? rest[ti + 1] : null;
+    // (2026-11-19) The --target pair is no part of the key at all, and the place of the -p pair is counted without it (batchKeyParts): the
+    // host's own row carries its --target before -p (oneOutput, when the row is planned) and a cross-target row after it, so with the pair's
+    // place in the key the host target never met the others and always ran as a command of its own.
     const tripleKey = target ? target.replace(/-/g, "_") : null;
-    const keyRest = target ? [...rest.slice(0, ti), "--target", "*", ...rest.slice(ti + 2)] : rest;
     const keyEnv = target ? Object.fromEntries(Object.entries(x.env ?? {}).filter(([k]) => !(k.endsWith(`_${tripleKey}`) || k.toUpperCase().endsWith(`_${tripleKey.toUpperCase()}`)))) : x.env;
     if (why) {
       batchNotes.set(why, (batchNotes.get(why) ?? 0) + 1);
@@ -2153,17 +2194,17 @@ export function planScans({
       // other target rows: the key keeps the crate, so only this crate's rows that differ by --target share an invocation (Mac 2026-11-07:
       // rightkit-tauri-shell's feature sets ran one target at a time, 1.8 rows/min).
       if (!target || at < 0 || typeof crate !== "string") return plain;
-      const ownKey = sha256(canonicalJson({ tool: x.tool, cwd: x.cwd ?? ".", root: x.root, env: keyEnv, rest: keyRest, at, crate, only: "targets" })).slice(0, 16);
+      const ownKey = sha256(canonicalJson({ tool: x.tool, cwd: x.cwd ?? ".", root: x.root, env: keyEnv, rest: keyRest, at: atKey, crate, only: "targets" })).slice(0, 16);
       groupCount.set(ownKey, (groupCount.get(ownKey) ?? 0) + 1);
       return { ...plain, batchable: { key: ownKey, at, crate, unit, target } };
     }
-    const key = sha256(canonicalJson({ tool: x.tool, cwd: x.cwd ?? ".", root: x.root, env: keyEnv, rest: keyRest, at })).slice(0, 16);
+    const key = sha256(canonicalJson({ tool: x.tool, cwd: x.cwd ?? ".", root: x.root, env: keyEnv, rest: keyRest, at: atKey })).slice(0, 16);
     groupCount.set(key, (groupCount.get(key) ?? 0) + 1);
     return { ...plain, batchable: { key, at, crate, unit, ...(target ? { target } : {}) } };
   });
   if (groupCount.size) {
     const grouped = [...groupCount.values()].filter((n) => n > 1);
-    notes.push(`class B batching: ${scans.filter((x) => x.batchable).length} compile scan(s) in ${groupCount.size} configuration group(s); each group of one Cargo workspace and target runs as one cargo invocation (${grouped.reduce((a, n) => a + n, 0)} scan(s) in ${grouped.length} shared group(s)), a failed group is attributed per crate from cargo's JSON messages, every row keeps its own id and command; before a group runs, each member's own feature resolution is compared with the group's (cargo tree, feature-partition.mjs; GATE-CONTRACT GC-A18) and a member the group would compile with other features runs apart`);
+    notes.push(`class B batching: ${scans.filter((x) => x.batchable).length} compile scan(s) in ${groupCount.size} configuration group(s); each group of one Cargo workspace runs as one cargo invocation, naming every target its members resolve alike (${grouped.reduce((a, n) => a + n, 0)} scan(s) in ${grouped.length} shared group(s)), a failed group is attributed per crate from cargo's JSON messages, every row keeps its own id and command; before a group runs, each member's own feature resolution is compared with the group's (cargo tree, feature-partition.mjs; GATE-CONTRACT GC-A18) and a member the group would compile with other features runs apart`);
     for (const [why, n] of batchNotes) notes.push(`class B batching: ${n} compile scan(s) stay their own invocation: ${why}`);
   }
   const ids = scans.map((s) => s.id);
@@ -3343,8 +3384,27 @@ export async function runScans(plan, options = {}) {
   // outside a Cargo workspace (rightkit#1215). Once it has answered in one directory that answer serves every directory: each fresh probe is a
   // broker CONTROL-lane request, and one sent while this run holds the broker's quiet lease waits the lease out and fails (rightkit#1526).
   let rustrightAnswer = null;
+  // NN09 (Dell 2026-11-19): six components asked at once, before the first answer existed, so six `cargo --version` requests reached the broker.
+  // While one rustright probe is in flight every other one waits for it; only if it failed does a waiter ask where its own scan runs.
+  let rustrightFlight = null;
   const probe = async (tool, scanDir = null) => {
-    if (tool === "rustright" && rustrightAnswer) return rustrightAnswer;
+    if (tool !== "rustright") return probeBody(tool, scanDir);
+    if (rustrightAnswer) return rustrightAnswer;
+    // NN09: on a broker host the caller hands over the broker's own compiler, read from its host configuration (broker-toolchain.mjs): the
+    // registered cargo, verified by its bytes. That is the answer, and no `rustright cargo --version` starts on any run.
+    if (options.brokerToolchain?.ok === true && typeof options.brokerToolchain.cargo?.version === "string") {
+      const version = options.brokerToolchain.cargo.version;
+      rustrightAnswer = { ok: true, command: toolCommand(tool), version, pinProblem: pinnedVersionProblem(tool, version), source: "broker-host-configuration" };
+      toolVersions[tool] = version;
+      return rustrightAnswer;
+    }
+    if (rustrightFlight) { const first = await rustrightFlight.catch(() => null); if (rustrightAnswer) return rustrightAnswer; if (first?.ok) return first; }
+    if (rustrightAnswer) return rustrightAnswer;
+    const flight = probeBody(tool, scanDir);
+    rustrightFlight = flight;
+    try { return await flight; } finally { if (rustrightFlight === flight) rustrightFlight = null; }
+  };
+  const probeBody = async (tool, scanDir = null) => {
     const trust = trustOf(tool);
     const command = trust ? (trust.ok ? trust.identity.path : null) : toolCommand(tool);
     const observed = classACacheDecision ? observedCommand(tool, command) : null;
@@ -3356,8 +3416,15 @@ export async function runScans(plan, options = {}) {
     // Across runs the probe's directory is a fresh temporary one and the environment carries per-run values, so the stored answer is keyed by what
     // can change a version answer: the program, its arguments, a scan directory when the probe runs in one, and the toolchain variables.
     const neutral = cwd === (deps.probeDir ?? neutralDir);
-    const lasting = sha256(canonicalJson({ tool, command, args: PROBES[tool] ?? ["--version"], cwd: neutral ? "(neutral)" : cwd, env: Object.fromEntries(Object.entries(deps.env ?? {}).filter(([k]) => /^(PATH|Path|RUSTUP_TOOLCHAIN|RUSTUP_HOME|CARGO_HOME|RUSTC|COREPACK_HOME|PNPM_HOME)$/.test(k)).sort()), ...(bytes ? { bytes } : {}) }));
     const probeFile = observed ?? (windowsPnpm ? pnpmIdentity.program : null) ?? command;
+    // NN25 (Dell 2026-11-19: `cargo.exe --version` on every warm run): the search path was part of this key, and on a broker host it holds a
+    // directory made for this one run (the gate's cargo shim, rk-gate-shim-*), so no stored answer was ever found again. The search path decides
+    // which program a NAME starts. When the program is one file named by its absolute path and bound by its bytes, the path decides nothing and
+    // is left out; a tool started by name keeps it.
+    // Not pnpm on Windows: its bound bytes are its launcher chain's, and what that chain ends up running can still depend on the path (review 2026-11-19).
+    const boundFile = Boolean(bytes) && !windowsPnpm && typeof probeFile === "string" && path.isAbsolute(probeFile);
+    const lastingEnv = boundFile ? /^(RUSTUP_TOOLCHAIN|RUSTUP_HOME|CARGO_HOME|RUSTC|COREPACK_HOME|PNPM_HOME)$/ : /^(PATH|Path|RUSTUP_TOOLCHAIN|RUSTUP_HOME|CARGO_HOME|RUSTC|COREPACK_HOME|PNPM_HOME)$/;
+    const lasting = sha256(canonicalJson({ tool, command, args: PROBES[tool] ?? ["--version"], cwd: neutral ? "(neutral)" : tool === "rustright" ? "(any workspace)" : cwd, env: Object.fromEntries(Object.entries(deps.env ?? {}).filter(([k]) => lastingEnv.test(k)).sort()), ...(bytes ? { bytes } : {}) }));
     const answers = probeAnswersOf(deps.spawn); const remembered = answers.get(key) ?? storedProbe(cache, tool, probeFile, lasting, deps.statFile);
     if (remembered) { answers.set(key, remembered); toolVersions[tool] = remembered.version; if (remembered.identity) toolIdentities[tool] = { ...remembered.identity, probed: remembered.version }; return remembered; }
     const outcome = await probeFlight(key, tool, scanDir);
@@ -3429,6 +3496,12 @@ export async function runScans(plan, options = {}) {
   // Class A scans are independent content checks (and short broker calls: metadata, package list, deny, audit): they run
   // `classAJobs` at a time (default: `jobs`); the rows keep plan order. Class B starts only once every class A row is in.
   const aJobs = Math.max(1, Number(options.classAJobs ?? jobs) || jobs);
+  // NN39 ("Serial work when it should be parallel? How does the system detect and fail that?", Adrian 2026-11-05): when each Class A row became
+  // ready (its queue was opened to the lanes), when a lane took it and when it ended, with the number of lanes of its queue. The contract test
+  // judged parallelism from child-process start times and read every later start as queued work, so planning time and a row's own second step
+  // (deny after fetch) counted as idle lanes (Dell 2026-11-19, 6.5 s and 2.4 s on a cold check). This is the record a judge can read instead:
+  // a lane is idle while work waits only if a row is ready, not started, and fewer rows are running than there are lanes.
+  const classALanes = [];
   if (classACacheDecision) await admitClassACache();
   {
     // Class A is everything mechanical and deterministic that does not compile (Adrian, 2026-10-27): the content checks first,
@@ -3438,16 +3511,24 @@ export async function runScans(plan, options = {}) {
     if (classACacheDecision?.mismatches.length) classAFailed = true;
     const content = []; const tests = []; const quietTests = [];
     aScans.forEach((s, i) => (s.kind === "test" ? (s.quiet === true ? quietTests : tests) : content).push(i));
-    const drain = (queue, extraEnv = null) => async () => {
-      while (queue.length) {
-        const i = queue.shift();
-        slots[i] = aScans[i].kind === "test" && classAFailed
-          ? { id: aScans[i].id, class: aScans[i].class, command: aScans[i].command, tool: aScans[i].tool ?? null, toolVersion: null, status: "not-run", detail: "a class A content check failed; the class A tests start only after it passes" }
-          : await runOne(aScans[i], extraEnv);
-      }
+    const drain = (queue, extraEnv = null, laneCount = 1) => {
+      const readyAt = Date.now(); // the queue is opened to its lanes now: every row in it is ready from this moment
+      return async () => {
+        while (queue.length) {
+          const i = queue.shift();
+          const startedAt = Date.now(); // the lane has taken the row
+          // Every lane takes its first row before any row's own work begins: without this pause the lanes are entered one after another and each
+          // would count the synchronous start of the rows before it (key hashing, the cache lookup) as time its own row sat ready and untaken.
+          await null;
+          slots[i] = aScans[i].kind === "test" && classAFailed
+            ? { id: aScans[i].id, class: aScans[i].class, command: aScans[i].command, tool: aScans[i].tool ?? null, toolVersion: null, status: "not-run", detail: "a class A content check failed; the class A tests start only after it passes" }
+            : await runOne(aScans[i], extraEnv);
+          classALanes.push({ id: aScans[i].id, readyAt, startedAt, endedAt: Date.now(), lanes: laneCount });
+        }
+      };
     };
-    await Promise.all(Array.from({ length: aJobs }, drain(content)));
-    await Promise.all(Array.from({ length: testJobs }, drain(tests)));
+    await Promise.all(Array.from({ length: aJobs }, drain(content, null, aJobs)));
+    await Promise.all(Array.from({ length: testJobs }, drain(tests, null, testJobs)));
     if (quietTests.length) {
       // One broker quiet lease per quiet suite (the broker caps a lease at 30 min and has no renewal): each suite runs alone,
       // under its own lease, with a timeout shorter than the lease, so a lease never expires while its suite still runs.
@@ -3498,29 +3579,40 @@ export async function runScans(plan, options = {}) {
     // running it N times would repeat it N times. Feature unification: one invocation unifies features across its crates, so before a group runs the planner
     // resolves each member alone and in the group with `cargo tree` (feature-partition.mjs) and keeps in one invocation only the members the group resolves as they resolve alone.
     const groupOf = new Map();
+    const targetAt = (i) => bScans[i].batchable.target ?? null;
     if (options.classBBatching === true) {
       const byKey = new Map();
       bScans.forEach((s, i) => { if (s.batchable && !s.deferred && (laneOf(s) === "compile" || laneOf(s) === "doc" || (options.groupTests !== false && laneOf(s) === "tests" && s.runOutside && (/^test:rust/.test(s.id) || s.publisherRustTest === true)))) { if (!byKey.has(s.batchable.key)) byKey.set(s.batchable.key, []); byKey.get(s.batchable.key).push(i); } });
       for (const all of byKey.values()) {
         // NN42: within one key, crates with the same set of targets form one invocation (crates x targets is exactly its members).
+        const subOf = (s) => s.args[s.args[0] === "cargo" ? 1 : 0];
+        const several = (s) => subOf(s) === "clippy" || subOf(s) === "check";
         const targetsOf = new Map();
-        for (const i of all) { const c = bScans[i].batchable.crate; if (!targetsOf.has(c)) targetsOf.set(c, new Set()); targetsOf.get(c).add(bScans[i].batchable.target ?? ""); }
+        for (const i of all) { const c = bScans[i].batchable.crate; if (!targetsOf.has(c)) targetsOf.set(c, new Set()); targetsOf.get(c).add(targetAt(i) ?? ""); }
         const parts = new Map();
         // One target per invocation (2026-11-10, HeardRight on the Dell): Cargo resolves features for host dependencies and target dependencies, never per triple, so a
         // call naming two targets gives each the union of both targets' features (the macOS-only sqlcipher-system reached the Linux target, whose C code then wanted
         // OpenSSL headers). Rows are grouped across crates for the SAME target; a crate's rows for different targets are never one invocation.
-        void targetsOf;
-        for (const i of all) { const sig = bScans[i].batchable.target ?? ""; if (!parts.has(sig)) parts.set(sig, []); parts.get(sig).push(i); }
+        // NN42 (2026-11-19): that is true where the targets resolve differently, and only there. For check and clippy (the commands the broker
+        // takes several --target for) crates with the same set of targets are one candidate group again; before it runs, featurePartition
+        // keeps in one invocation only the targets that resolve every package they share alike (targetClassesOf, cargo's own answer through
+        // `cargo tree`), and the others stay one target per invocation, each pair named with the package that separates it.
+        for (const i of all) {
+          const s = bScans[i];
+          const part = several(s) ? [...targetsOf.get(s.batchable.crate)].sort().join(",") : (s.batchable.target ?? "");
+          if (!parts.has(part)) parts.set(part, []); parts.get(part).push(i);
+        }
         for (const members of parts.values()) if (members.length > 1) { const group = { members, promise: null }; for (const i of members) groupOf.set(i, group); }
       }
     }
     const batchScanOf = (idx) => {
-      const lead = bScans[idx[0]];
+      // The row the command is built from names a --target when any member does (a host row names none): the pair is then replaced by every target.
+      const lead = bScans[idx.find((i) => bScans[i].args.includes("--target")) ?? idx[0]];
       const { batchable: _batchable, ...plain } = lead; void _batchable;
       // A group that holds a plan row standing for a publisher requirement stores and returns the receipt its members' publisher verdicts need (NN27, planUnitListScans).
       if (idx.some((i) => bScans[i].provesPublisher === true)) plain.provesPublisher = true;
       const crates = [...new Set(idx.map((i) => bScans[i].batchable.crate))];
-      const targets = [...new Set(idx.map((i) => bScans[i].batchable.target).filter(Boolean))];
+      const targets = [...new Set(idx.map((i) => targetAt(i)).filter(Boolean))];
       let args = [...lead.args.slice(0, lead.batchable.at), ...crates.flatMap((c) => ["-p", c]), ...lead.args.slice(lead.batchable.at + 2)];
       // Benchmark-only merged feature rows: drop the lead's own feature flags and name every member's features as <crate>/<feature>.
       if (idx.some((i) => Array.isArray(bScans[i].batchable.features))) {
@@ -3532,7 +3624,7 @@ export async function runScans(plan, options = {}) {
       if (targets.length > 1) { const t = args.indexOf("--target"); if (t >= 0) args = [...args.slice(0, t), ...targets.flatMap((x) => ["--target", x]), ...args.slice(t + 2)]; }
       if (targets.length > 1) plain.env = Object.assign({}, ...idx.map((i) => bScans[i].env ?? {}));
       const units = [...new Set(idx.map((i) => bScans[i].batchable.unit))].map((u) => targets.length > 1 ? u : u);
-      const memberKey = idx.map((i) => `${bScans[i].batchable.unit}@${bScans[i].batchable.target ?? ""}`);
+      const memberKey = idx.map((i) => `${bScans[i].batchable.unit}@${targetAt(i) ?? ""}`);
       // A publisher row (a unit-list run) is named by its cargo subcommand, a plan row by its id.
       const sub = lead.publisherPhase ? lead.args[lead.args[0] === "cargo" ? 1 : 0] : null;
       const stage = sub ? (sub === "clippy" ? "clippy" : sub === "doc" ? "doc" : sub === "test" ? "test" : "check") : /^clippy/.test(lead.id) ? "clippy" : /^doc:/.test(lead.id) ? "doc" : /^test:rust/.test(lead.id) ? "test" : "check";
@@ -3594,6 +3686,7 @@ export async function runScans(plan, options = {}) {
     // The partition of a configuration group's members (feature-partition.mjs), as index lists in plan order. A group naming several targets
     // (NN42) keeps as one invocation only the members equivalent on every target; the others run alone.
     const partitionMemo = new Map();
+    const treeMemo = new Map();
     const featureProofOf = new Map();
     const FEATURE_PARTITION_MS = 5 * 60_000;
     const featurePartition = async (idx) => {
@@ -3601,19 +3694,54 @@ export async function runScans(plan, options = {}) {
       const prefix = lead.args[0] === "cargo" ? ["cargo"] : [];
       const { rest } = stripSelectors(lead.args.slice(prefix.length));
       const crates = [...new Set(idx.map((i) => bScans[i].batchable.crate))];
-      if (crates.length < 2) return [idx];
-      const targets = [...new Set(idx.map((i) => bScans[i].batchable.target ?? null))];
+      const cwd = lead.cwd ?? "."; const env = lead.env ?? {};
       const evidence = [];
-      const parts = await partitionCrates({ tool: lead.tool, prefix, rest, crates, targets, cwd: lead.cwd ?? ".", env: lead.env ?? {}, evidence });
+      // A command names crates x targets, so its members must be exactly that product. When some rows of a group were answered from the
+      // store and others not, the crates left can differ in which targets they still need: each set of crates with the same targets is a
+      // group of its own, and nothing is compiled for a pair that has no row here (review 2026-11-19).
+      {
+        const targetsOfCrate = new Map();
+        for (const i of idx) { const c = bScans[i].batchable.crate; if (!targetsOfCrate.has(c)) targetsOfCrate.set(c, new Set()); targetsOfCrate.get(c).add(targetAt(i) ?? ""); }
+        const shape = (c) => [...targetsOfCrate.get(c)].sort().join(",");
+        const shapes = new Set([...targetsOfCrate.keys()].map(shape));
+        if (shapes.size > 1) return (await Promise.all([...shapes].map((s) => featurePartition(idx.filter((i) => shape(bScans[i].batchable.crate) === s))))).flat();
+      }
+      // NN42: several targets share one invocation only where that changes no target's own feature resolution (targetClassesOf).
+      const named = [...new Set(idx.map((i) => targetAt(i)))];
+      if (named.length > 1) {
+        const { classes, proof } = await targetClassesOf({ tool: lead.tool, prefix, rest, crates, targets: named, cwd, env });
+        if (classes.length > 1) return (await Promise.all(classes.map((cls) => featurePartition(idx.filter((i) => cls.includes(targetAt(i))))))).flat();
+        if (proof) evidence.push(proof);
+      }
+      if (crates.length < 2) { if (evidence.length) featureProofOf.set(idx.join(","), evidence); return [idx]; }
+      const parts = await partitionCrates({ tool: lead.tool, prefix, rest, crates, targets: named, cwd, env, evidence });
       const result = parts.map((p) => idx.filter((i) => p.crates.includes(bScans[i].batchable.crate))).filter((part) => part.length);
+      // Review 2026-11-19: the targets were found alike for ALL these crates named together. A smaller set of them can differ (a crate that
+      // turns a feature on for every target hides another crate's use of it on one target only), and the smaller set is what the command
+      // will name. So when the crates split, each part is judged again as a group of its own: its targets, then its crates.
+      if (named.length > 1 && result.length > 1) return (await Promise.all(result.map((part) => featurePartition(part)))).flat();
       for (const part of result) featureProofOf.set(part.join(","), evidence);
       return result;
     };
-    const partitionCrates = async ({ tool, prefix, rest, crates, targets, cwd, env, evidence }) => {
+    // What `cargo tree` is asked under: of a row's own environment only the variables that can change how Cargo resolves (which toolchain and
+    // home, flags that set a cfg, a default target). A row's other settings (RUSTDOCFLAGS on a doc group, CC_<triple> on a cross row, its
+    // output directory) change nothing here, and with them in the key the same question was put twice (review 2026-11-19; the contract
+    // test fails any program started twice with the same arguments in the same directory).
+    const TREE_ENV = /^(RUSTFLAGS|CARGO_ENCODED_RUSTFLAGS|CARGO_BUILD_RUSTFLAGS|CARGO_BUILD_TARGET|CARGO_HOME|RUSTUP_HOME|RUSTUP_TOOLCHAIN|RUSTC|RUSTC_WRAPPER|RUSTC_WORKSPACE_WRAPPER|RUSTC_BOOTSTRAP|CARGO_BUILD_RUSTC|CARGO_BUILD_RUSTC_WRAPPER|CARGO_NET_OFFLINE|CARGO_TARGET_[A-Z0-9_]+_RUSTFLAGS|CARGO_REGISTRIES_[A-Z0-9_]+|CARGO_RESOLVER_[A-Z0-9_]+|CARGO_UNSTABLE_[A-Z0-9_]+)$/;
+    // NN07 (Dell 2026-11-19, first compile: every `cargo tree` of the rk workspace started twice). A clippy group and a test group of the same
+    // crates resolve with the same tree arguments, and each asked for itself. One run asks each resolution (tool, directory, arguments, the
+    // row's own environment without its per-triple settings) once; the second caller gets the same answer, or the same failure.
+    // `target` is one triple, null, or a list of triples (the call that will name them all, NN42).
+    const treeOf = ({ tool, prefix, rest, cwd, env }) => {
       const dir = path.join(contentRoot, cwd);
-      const inputs = workspaceManifestDigest(dir);
-      const tree = async (packages, target) => {
-        const args = treeArgs({ rest, packages, target });
+      const tree = (packages, target) => {
+        const args = Array.isArray(target) ? treeArgsForTargets({ rest, packages, targets: target }) : treeArgs({ rest, packages, target });
+        const { CARGO_TARGET_DIR: _targetDirKey, ...keyEnv } = env; void _targetDirKey;
+        const memoKey = canonicalJson([tool, prefix, dir, args, Object.entries(keyEnv).filter(([k]) => TREE_ENV.test(k)).sort(([x], [y]) => (x < y ? -1 : x > y ? 1 : 0))]);
+        if (!treeMemo.has(memoKey)) treeMemo.set(memoKey, treeAsked(args, packages, target));
+        return treeMemo.get(memoKey);
+      };
+      const treeAsked = async (args, packages, target) => {
         const token = cargoLedger ? scanTokenOf(`feature-partition:${cwd}`) : null; if (token) claimedTokens.add(token);
         const { CARGO_TARGET_DIR: _targetDir, ...rowEnv } = env; void _targetDir;
         // Compiles nothing and must leave the tree as it is: its output directory is a scratch one outside every root (the direct read spawn gives it another).
@@ -3621,9 +3749,60 @@ export async function runScans(plan, options = {}) {
         let r;
         try { r = await deps.spawn(tool, [...prefix, ...args], { cwd: dir, env: { ...deps.env, ...rowEnv, CARGO_TARGET_DIR: scratch, ...(token ? { [SCAN_TOKEN_ENV]: token } : {}) }, timeout: FEATURE_PARTITION_MS, ...sig }); }
         finally { try { fs.rmSync(scratch, { recursive: true, force: true }); } catch { /* a scratch directory under the gate's tmp root */ } }
-        if (!r || r.error || r.status !== 0) throw new Error(`cargo tree for ${packages.join(", ")}${target ? ` (--target ${target})` : ""} in ${cwd} failed: ${r?.error?.message ?? (tail(r) || `exit ${r?.status}`)}`);
+        const named = Array.isArray(target) ? target.join(", ") : target;
+        if (!r || r.error || r.status !== 0) throw new Error(`cargo tree for ${packages.join(", ")}${named ? ` (--target ${named})` : ""} in ${cwd} failed: ${r?.error?.message ?? (tail(r) || `exit ${r?.status}`)}`);
         return r.stdout ?? "";
       };
+      return tree;
+    };
+    // NN42: which of a group's targets may be named in ONE invocation. Each target is resolved alone (`cargo tree`, every crate of the group);
+    // targets that resolve every package they share alike form a class (compatibleTargetClasses), and cargo's own resolution of the call
+    // naming a whole class must then be each member's resolution alone (groupTargetDifference), else that class runs one target per
+    // invocation too. Every pair kept apart is printed with the package that separates it (targetSplitNote): the contract test accepts one
+    // command per target only with that note for each pair. The broker takes several --target for check and clippy only.
+    const targetClassMemo = new Map();
+    const targetClassesOf = ({ tool, prefix, rest, crates: given, targets, cwd, env }) => {
+      const sub = rest[0];
+      const apart = () => Promise.resolve({ classes: targets.map((t) => [t]), proof: null });
+      if ((sub !== "clippy" && sub !== "check") || targets.some((t) => typeof t !== "string" || !t)) return apart();
+      const crates = [...given].sort(); // the order the crate partition asks in, so the same question is one question
+      const memoKey = canonicalJson([tool, prefix, cwd, rest, crates, [...targets].sort()]);
+      if (!targetClassMemo.has(memoKey)) targetClassMemo.set(memoKey, (async () => {
+        const tree = treeOf({ tool, prefix, rest, cwd, env });
+        const texts = await Promise.all(targets.map((t) => tree(crates, t)));
+        const features = new Map(targets.map((t, i) => [t, parseTreeFeatures(texts[i])]));
+        const { classes, differences } = compatibleTargetClasses(features);
+        for (const d of differences) partitionNotes.add(targetSplitNote({ sub, cwd, crates, ...d }));
+        const out = [];
+        for (const cls of classes) {
+          if (cls.length < 2) { out.push(cls); continue; }
+          const d = groupTargetDifference(parseTreeFeatures(await tree(crates, cls)), features, cls);
+          if (!d) { out.push(cls); continue; }
+          // Cargo resolves the call naming them all differently from one of them alone: none of this class shares a command.
+          for (const t of cls) out.push([t]);
+          for (let i = 0; i < cls.length; i += 1) for (let j = i + 1; j < cls.length; j += 1) partitionNotes.add(targetSplitNote({ sub, cwd, crates, a: cls[i], b: cls[j], package: d.package, aFeatures: d.aloneFeatures, bFeatures: d.groupFeatures ?? [] }));
+        }
+        // Every target in one class: that finding is stored like a crate partition's, so a member's kept result can show it later (a result
+        // of a command naming several targets is kept for a member only with this proof). The classes themselves are asked of cargo on every
+        // run that sends such a command: the run's own ledger then shows the question behind each note.
+        let proof = null;
+        if (out.length === 1 && cache) {
+          let toolVersion = null;
+          try { toolVersion = (await probe(tool, path.join(cargoLiveRoot ?? contentRoot, cwd)))?.version ?? null; } catch { toolVersion = null; }
+          const context = { kind: "targets", rest, crates, targets: [...targets].sort(), cwd, inputs: workspaceManifestDigest(path.join(contentRoot, cwd)), toolVersion };
+          const key = targetsProofKey(context);
+          cache.write(key, { id: "feature-partition-targets", status: "pass", crates, targets: context.targets });
+          const kept = cache.read(key);
+          if (kept?.key === key && kept.row?.id === "feature-partition-targets") proof = { key, context, rowDigest: cacheEntryIdentity(kept.row) };
+        }
+        return { classes: out, proof };
+      })());
+      return targetClassMemo.get(memoKey);
+    };
+    const partitionCrates = async ({ tool, prefix, rest, crates, targets, cwd, env, evidence }) => {
+      const dir = path.join(contentRoot, cwd);
+      const inputs = workspaceManifestDigest(dir);
+      const tree = treeOf({ tool, prefix, rest, cwd, env });
       // The cargo that resolves is part of what it resolves (fresh review 2026-11-09, E6): its version joins the key, with the module's own code (partitionCacheKey).
       let toolVersion = null;
       try { toolVersion = (await probe(tool, path.join(cargoLiveRoot ?? contentRoot, cwd)))?.version ?? null; } catch { toolVersion = null; }
@@ -3677,7 +3856,7 @@ export async function runScans(plan, options = {}) {
         });
         // NN42: cargo's messages name the crate, not the target. A crate that failed in an invocation naming several targets runs each of its
         // targets alone, so the verdict names the target that fails and the others pass on their own.
-        const multi = new Set(idx.map((i) => bScans[i].batchable.target).filter(Boolean)).size > 1;
+        const multi = new Set(idx.map((i) => targetAt(i)).filter(Boolean)).size > 1;
         if (multi && !signal?.aborted && !classBCacheDecision) {
           const redo = idx.filter((i) => slots[i]?.status === "fail");
           await Promise.all(redo.map(async (i) => { const alone = await runOne(bScans[i], extraEnv).catch((error) => failedRow(i, error)); slots[i] = { ...alone, batchFailure: { id: bs.id, units: bs.batch.units, command: row.command, detail: "the multi-target invocation failed for this crate; this target ran alone" } }; }));
@@ -3923,7 +4102,19 @@ export async function runScans(plan, options = {}) {
       return receipt?.id === evidence.requestId && receipt.provenance?.payload?.jobId === evidence.requestId && Boolean(receipt.provenance.signature);
     } catch { return false; }
   }
+  /** The key of a stored "these targets resolve alike for these crates" finding (targetClassesOf). */
+  function targetsProofKey(context) { return sha256(canonicalJson({ schema: "rightkit.feature-partition-targets/1", rest: context.rest, crates: context.crates, targets: context.targets, cwd: context.cwd, inputs: context.inputs, toolVersion: context.toolVersion })); }
+  /** Whether a targets proof is about this member: same workspace state and cargo, its crate, its own target, its own selection. */
+  function targetProofCovers(proof, context, crate) {
+    const c = proof?.context;
+    if (!context || c?.kind !== "targets" || c.cwd !== context.cwd || c.inputs !== context.inputs || c.toolVersion !== context.toolVersion || !c.crates?.includes(crate)) return false;
+    const at = Array.isArray(context.selection) ? context.selection.indexOf("--target") : -1;
+    const target = at >= 0 ? context.selection[at + 1] : null;
+    if (typeof target !== "string" || !c.targets?.includes(target)) return false;
+    try { return canonicalJson(treeArgs({ rest: c.rest, packages: [crate], target })) === canonicalJson(context.selection); } catch { return false; }
+  }
   function featureProofCovers(proof, context, crate) {
+    if (proof?.context?.kind === "targets") return false; // judged by targetProofCovers
     if (!context || !proof?.context || proof.context.cwd !== context.cwd || proof.context.inputs !== context.inputs || proof.context.toolVersion !== context.toolVersion || !proof.context.crates?.includes(crate)) return false;
     try { return canonicalJson(treeArgs({ rest: proof.context.rest, packages: [crate], target: proof.context.target })) === canonicalJson(context.selection); } catch { return false; }
   }
@@ -4062,7 +4253,13 @@ export async function runScans(plan, options = {}) {
               const signed = row.seam !== true || retainedReceiptValid(stored?.row?.snapshotEvidence);
               const equivalence = admitted.featureProof;
               const memberCrate = bScans.find((scan) => scan.id === id)?.batchable?.crate;
-              if (!admitted.invocationScan.coverageKey && !admitted.invocationScan.provesPublisher && member?.retainedSourceEligible && member.featureContext && member.key && signed && equivalence?.length && equivalence.every((proof) => featureProofCovers(proof, member.featureContext, memberCrate)) && usableStoredPass(stored, admitted.invocationScan, { cacheKey: key, viaSeam: row.seam === true })) source = { schema: "rightkit.retained-invocation/1", key, rowDigest: cacheEntryIdentity(stored.row), memberKey: member.key, memberCrate, featureContext: member.featureContext, scan: admitted.invocationScan, equivalence };
+              // NN42: of the group's proofs, the ones about this member: the crate partition of its own target, and (for a command that named
+              // several targets) the finding that those targets resolve alike. A group of several crates needs the first, of several targets the second.
+              const memberProofs = (equivalence ?? []).filter((proof) => (proof?.context?.kind === "targets" ? targetProofCovers(proof, member?.featureContext, memberCrate) : featureProofCovers(proof, member?.featureContext, memberCrate)));
+              const groupCrates = new Set(admitted.members.map((i) => bScans[i].batchable?.crate)).size;
+              const groupTargets = new Set(admitted.members.map((i) => bScans[i].batchable?.target ?? "")).size;
+              const proven = memberProofs.length > 0 && (groupCrates < 2 || memberProofs.some((proof) => proof.context.kind !== "targets")) && (groupTargets < 2 || memberProofs.some((proof) => proof.context.kind === "targets"));
+              if (!admitted.invocationScan.coverageKey && !admitted.invocationScan.provesPublisher && member?.retainedSourceEligible && member.featureContext && member.key && signed && proven && usableStoredPass(stored, admitted.invocationScan, { cacheKey: key, viaSeam: row.seam === true })) source = { schema: "rightkit.retained-invocation/1", key, rowDigest: cacheEntryIdentity(stored.row), memberKey: member.key, memberCrate, featureContext: member.featureContext, scan: admitted.invocationScan, equivalence: memberProofs };
             }
             decision.retained.push({ id, key: row.status === "fail" ? failureKey : key, status: row.status, ...(source ? { source } : {}) });
           }
@@ -4243,6 +4440,7 @@ export async function runScans(plan, options = {}) {
             const hit = readRowCache(source.key, admission);
             const equivalent = Array.isArray(source.equivalence) && source.equivalence.length > 0 && source.equivalence.every((proof) => {
               const entry = readRowCache(proof.key, admission);
+              if (proof?.context?.kind === "targets") return targetProofCovers(proof, source.featureContext, source.memberCrate) && targetsProofKey(proof.context) === proof.key && entry?.key === proof.key && entry.row?.id === "feature-partition-targets" && cacheEntryIdentity(entry.row) === proof.rowDigest;
               return featureProofCovers(proof, source.featureContext, source.memberCrate) && partitionCacheKey(proof.context) === proof.key && entry?.key === proof.key && Array.isArray(entry.row?.partition) && cacheEntryIdentity(entry.row) === proof.rowDigest;
             });
             const signed = !viaSeam || retainedReceiptValid(hit?.row?.snapshotEvidence);
@@ -4788,6 +4986,7 @@ export async function runScans(plan, options = {}) {
     deferred: results.filter((r) => r.status === "deferred").map((r) => r.id),
     scans: results, toolVersions, toolIdentities, cacheHits: [...cacheHits].sort(), notes: [...(plan.notes ?? []), ...batchFailureNotes, ...partitionNotes, ...seamNotes, ...(cargoLedger ? [UNOBSERVED_NESTED_CARGO_NOTE] : [])],
     ...(classACacheDecision ? { classACacheDecision } : {}),
+    ...(classALanes.length ? { classALanes } : {}),
     ...(classBCacheDecision ? { classBCacheDecision } : {}),
     scanSetDigest: digestScanSet(results),
     classDigests: { A: digestScanSet(results.filter((r) => r.class === "A")), B: digestScanSet(results.filter((r) => r.class === "B")) },

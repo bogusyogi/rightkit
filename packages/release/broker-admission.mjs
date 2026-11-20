@@ -14,6 +14,7 @@
 // Fail closed: a request the gate cannot read (no request id yet, a status that fails or is malformed, a state other than QUEUED) is counted as running, so
 // an unreadable broker never makes a scan immortal.
 import fs from "node:fs";
+import net from "node:net";
 import { spawnBrokerClient } from "./broker-client.mjs";
 import path from "node:path";
 
@@ -86,10 +87,39 @@ export function brokerStateOf(stdout, requestId) {
 }
 
 /**
+ * One job STATUS over the broker's endpoint (socket or named pipe), in this process: the request is one JSON line (`{ type: "STATUS", protocol,
+ * runtime, id }`, the same line bin/rightkit-gate.mjs readAnsweringRoots sends for its probe id); the broker greets with a HANDSHAKE and may send
+ * other frames first, so lines are read until the STATUS of this id or a refusal (`RESULT` with status `REJECTED`). Resolves that frame, or null
+ * when none came (no connection, an error, a close or the deadline). Never rejects. `connect` is the transport (tests).
+ */
+export function wireStatus({ endpoint, protocol, runtime, id, timeoutMs = 15_000, connect = (target) => net.connect({ path: target }) }) {
+  return new Promise((resolve) => {
+    let settled = false; let conn = null; let timer = null; let buffer = "";
+    const finish = (frame) => { if (settled) return; settled = true; clearTimeout(timer); try { conn?.destroy(); } catch { /* gone */ } resolve(frame); };
+    if (typeof endpoint !== "string" || !endpoint || typeof id !== "string" || !id) { finish(null); return; }
+    try { conn = connect(endpoint); } catch { finish(null); return; }
+    timer = setTimeout(() => finish(null), timeoutMs); timer.unref?.();
+    conn.on("connect", () => { try { conn.write(`${JSON.stringify({ type: "STATUS", protocol, runtime, id })}\n`); } catch { finish(null); } });
+    conn.on("data", (chunk) => {
+      buffer += String(chunk);
+      if (buffer.length > (1 << 24)) { finish(null); return; }
+      for (let at = buffer.indexOf("\n"); at >= 0; at = buffer.indexOf("\n")) {
+        const line = buffer.slice(0, at); buffer = buffer.slice(at + 1);
+        let frame = null; try { frame = JSON.parse(line); } catch { continue; }
+        if (!frame || typeof frame !== "object") continue;
+        if ((frame.type === "STATUS" && frame.id === id) || (frame.type === "RESULT" && frame.status === "REJECTED")) { finish(frame); return; }
+      }
+    });
+    conn.on("error", () => finish(null));
+    conn.on("close", () => finish(null));
+  });
+}
+
+/**
  * The gate's reader of the broker's live state, through the RustRight client with an ASYNCHRONOUS spawn (nothing here blocks the gate's event loop):
  * `state(id)` is the request's state word or null; `cancel(id)` is `rustright cancel <id>`.
  */
-export function createBrokerLive({ client, env = process.env, spawn, platform = process.platform }) {
+export function createBrokerLive({ client, env = process.env, spawn, platform = process.platform, wire = null, query = wireStatus }) {
   const call = async (args) => {
     try {
       const r = await spawnBrokerClient(spawn, client, args, { encoding: "utf8", env, timeout: 30_000, maxBuffer: 1 << 24, windowsHide: true }, { platform });
@@ -97,7 +127,20 @@ export function createBrokerLive({ client, env = process.env, spawn, platform = 
     } catch { return null; }
   };
   return {
-    async state(requestId) { const r = await call(["status", requestId]); return r ? brokerStateOf(r.stdout, requestId) : null; },
+    // NN07 (Dell 2026-11-19, first compile of the witness fixture: 123 `rustright status <id>` child processes for 44 jobs, the same command up
+    // to nine times). With `wire` ({ endpoint, protocol, runtime }: the answering broker's endpoint and the runtime identity beside the client,
+    // seam-broker.mjs brokerControlTarget) the state is asked over the broker's own endpoint from this process, the way the gate already asks
+    // SNAPSHOT_STATUS and the roots probe: no child process. A frame that answers is the answer, a refusal included. Only when the endpoint
+    // gives no frame at all (no connection, a timeout) is the client asked, as before.
+    async state(requestId) {
+      if (wire) {
+        const frame = await Promise.resolve().then(() => query({ ...wire, id: requestId })).catch(() => null);
+        // Only a frame that names this job's state is the answer. A refusal or a frame of another shape is not: the client is asked, as before,
+        // so a pipe that speaks differently from what this reader expects can never turn every state into "unknown".
+        if (frame) { const d = diagnoseControlReply(frame, requestId); if (d.kind === "live" || d.kind === "terminal") return d.state; }
+      }
+      const r = await call(["status", requestId]); return r ? brokerStateOf(r.stdout, requestId) : null;
+    },
     async cancel(requestId) { await call(["cancel", requestId]); },
   };
 }

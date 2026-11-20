@@ -34,15 +34,57 @@ export function pureQuestion(cmd, args) {
     if (tail.length === 1 && REV_FLAGS.has(tail[0])) return true;
     // Does this id name a commit, or a tree? An object id is content: once it resolves, it always does.
     if (tail.length === 3 && tail[0] === "--verify" && tail[1] === "--quiet") { const m = /^([0-9a-f]+)\^\{(commit|tree)\}$/.exec(tail[2]); return Boolean(m && SHA.test(m[1])); }
+    // The app rules' own reading of a commit named by its full id (app-check.mjs): asked again for every stage of a door run (Dell 2026-11-19,
+    // crate-edit compile: `rev-parse --verify --end-of-options <id>`, `rev-parse --verify <id>^{}` three times each).
+    if (tail.length === 3 && tail[0] === "--verify" && tail[1] === "--end-of-options") return SHA.test(tail[2]);
+    if (tail.length === 2 && tail[0] === "--verify") { const m = /^([0-9a-f]+)\^\{\}$/.exec(tail[1]); return Boolean(m && SHA.test(m[1])); }
+    // The tree or commit of a full id, asked without --verify (the door, twice per compile run).
+    if (tail.length === 1) { const m = /^([0-9a-f]+)\^\{(commit|tree)\}$/.exec(tail[0]); return Boolean(m && SHA.test(m[1])); }
     return false;
   }
+  // The type of an object named by its full id: content-addressed.
+  if (rest[0] === "cat-file") return rest.length === 3 && rest[1] === "-t" && SHA.test(rest[2]);
   if (rest[0] === "config") return rest.length === 3 && rest[1] === "--get" && rest[2] === "remote.origin.url";
   // A file of a commit or tree named by its full id: content-addressed, the same bytes for ever (NN07: `git show <commit>:rk/Cargo.toml` 16 times in
   // one compile of the witness fixture, Dell, 2026-11-17).
   if (rest[0] === "show") return rest.length === 2 && /^[0-9a-f]{40}([0-9a-f]{24})?:[^\0]+$/.test(rest[1]) && !rest[1].includes("..");
   // The file list of a tree named by its full id, names only or with modes and ids (snapshot.mjs treeEntries).
-  if (rest[0] === "ls-tree") return treeListOf(args) !== null;
+  // Any listing of a tree named by its full id, whatever its listing flags: kept in this process (only the two forms of treeListOf go to disk).
+  if (rest[0] === "ls-tree") return treeListOf(args) !== null || (rest.length >= 2 && SHA.test(rest[rest.length - 1]) && rest.slice(1, -1).every((f) => LS_TREE_FLAGS.has(f)));
   return false;
+}
+const LS_TREE_FLAGS = new Set(["-r", "-z", "-l", "-t", "--name-only", "--full-tree", "--long"]);
+
+/**
+ * `git grep` over a tree named by its full id (app-check.mjs lists a commit's text files with `grep -z -l -I -e <pattern> <id> --`): the same
+ * bytes for ever, so the same answer. Its exit status 1 means "no line matched", which is an answer too; only a pattern given with `-e` and a
+ * full id directly before the closing `--` qualify. Exported for its test.
+ */
+export function pureGrep(cmd, args) {
+  if (typeof cmd !== "string" || !Array.isArray(args) || !args.every((a) => typeof a === "string")) return false;
+  const name = path.basename(cmd.replaceAll("\\", "/")).toLowerCase().replace(/\.(exe|cmd|bat)$/, "");
+  if (name !== "git") return false;
+  let rest = args; while (rest[0] === "-c" && typeof rest[1] === "string" && rest[1].includes("=")) rest = rest.slice(2);
+  if (rest[0] !== "grep" || rest[rest.length - 1] !== "--" || !SHA.test(rest[rest.length - 2] ?? "")) return false;
+  const flags = rest.slice(1, -2); const e = flags.indexOf("-e");
+  return e >= 0 && e === flags.length - 2 && flags.slice(0, e).every((f) => /^-[A-Za-z]$/.test(f));
+}
+
+/**
+ * `git cat-file --batch` fed only full object ids on its input: every object is named by its content, so the output is fixed by the input.
+ * Returns the sha256 of that input (part of the remembering key), or null when the call is anything else.
+ */
+export function batchInputKey(cmd, args, options) {
+  if (typeof cmd !== "string" || !Array.isArray(args) || options?.input === undefined) return null;
+  const name = path.basename(cmd.replaceAll("\\", "/")).toLowerCase().replace(/\.(exe|cmd|bat)$/, "");
+  if (name !== "git") return null;
+  let rest = args; while (rest[0] === "-c" && typeof rest[1] === "string" && rest[1].includes("=")) rest = rest.slice(2);
+  if (rest.length !== 2 || rest[0] !== "cat-file" || rest[1] !== "--batch") return null;
+  const text = Buffer.isBuffer(options.input) ? options.input.toString("utf8") : typeof options.input === "string" ? options.input : null;
+  if (text === null) return null;
+  const lines = text.split("\n").filter((l) => l !== "");
+  if (!lines.length || !lines.every((l) => SHA.test(l))) return null;
+  return createHash("sha256").update(text).digest("hex");
 }
 
 /** The `ls-tree` question of `args` with its leading `-c` pairs dropped, when it lists a whole tree named by its full id; else null. */
@@ -116,6 +158,20 @@ const keyOf = (cmd, args, options) => {
   return JSON.stringify([cmd, args, typeof options?.cwd === "string" ? options.cwd : process.cwd(), options?.encoding ?? null, options?.input === undefined ? null : "has-input", env]);
 };
 const copy = (v) => (Buffer.isBuffer(v) ? Buffer.from(v) : v);
+// NN07 (Dell 2026-11-19, every ledger of the witness fixture): the same question started twice because it was asked two ways. `git config --get
+// remote.origin.url` once as `git` (snapshot.mjs) and once as `C:\Program Files\Git\cmd\git.exe` (the gate's default spawn); `rev-parse
+// --show-toplevel` and `--git-common-dir` the same; and a question asked through spawnSync and again through execFileSync. The contract test keys
+// a start by program name, arguments and directory, so these are one question. Its answer (the bytes of stdout) is kept once under that same key
+// and given to every caller in the form that caller asked for. Only a call that reads stdout through a pipe takes part.
+const programNameOf = (cmd) => path.basename(String(cmd).replaceAll("\\", "/")).toLowerCase().replace(/\.(exe|cmd|bat)$/, "");
+const questionKeyOf = (cmd, args, options) => {
+  const env = Object.entries(options?.env && typeof options.env === "object" ? options.env : process.env).filter(([k]) => /^GIT_/i.test(k)).sort();
+  return JSON.stringify([programNameOf(cmd), args, path.resolve(typeof options?.cwd === "string" ? options.cwd : process.cwd()), env]);
+};
+const piped = (options) => options?.stdio === undefined || options.stdio === "pipe";
+/** A batch read or a grep answer larger than this is not kept in memory: it is asked again. */
+const KEEP_MAX_BYTES = 8 * 1024 * 1024;
+const bytesOf = (out, encoding) => (Buffer.isBuffer(out) ? Buffer.from(out) : typeof out === "string" ? Buffer.from(out, encoding && encoding !== "buffer" ? encoding : "utf8") : null);
 
 let installed = false;
 /**
@@ -127,21 +183,45 @@ export function installProbeMemo({ storeDir = null } = {}) {
   installed = true;
   const stats = { asked: 0, answered: 0, stored: 0 };
   const store = treeListStore(storeDir);
-  const seenSpawn = new Map(); const seenExec = new Map();
+  const seenSpawn = new Map(); const seenExec = new Map(); const answers = new Map();
   const spawnSync = childProcess.spawnSync;
   childProcess.spawnSync = function memoSpawnSync(cmd, args, options) {
     const opts = Array.isArray(args) ? options : args; const argv = Array.isArray(args) ? args : [];
-    if (opts?.input !== undefined || opts?.shell || !pureQuestion(cmd, argv)) return spawnSync.apply(this, arguments);
-    stats.asked += 1; const key = keyOf(cmd, argv, opts); const hit = seenSpawn.get(key);
+    // Two more kinds of fixed answer (NN07, Dell 2026-11-19, compile runs: the app rules read the same commit once per stage). A batch read of
+    // objects named by full id is keyed by its input as well; a grep over a full id keeps exit status 1 ("no line matched") as its answer.
+    // Both are remembered for the identical call only, never shared between ways of asking, and never when the output is large.
+    const batch = opts?.shell ? null : batchInputKey(cmd, argv, opts);
+    const grep = !batch && opts?.input === undefined && !opts?.shell && pureGrep(cmd, argv);
+    if (!batch && !grep && (opts?.input !== undefined || opts?.shell || !pureQuestion(cmd, argv))) return spawnSync.apply(this, arguments);
+    stats.asked += 1; const key = keyOf(cmd, argv, opts) + (batch ? `\u0000${batch}` : ""); const hit = seenSpawn.get(key);
     if (hit) { stats.answered += 1; const stdout = copy(hit.stdout); const stderr = copy(hit.stderr); return { ...hit, stdout, stderr, output: [null, stdout, stderr] }; }
+    if (batch || grep) {
+      const r = spawnSync.apply(this, arguments);
+      const answered = r && !r.error && r.signal === null && (r.status === 0 || (grep && r.status === 1));
+      // `git cat-file --batch` exits 0 and prints `<id> missing` for an object the repository does not hold yet: that is not an answer to keep
+      // (the object may arrive: an ephemeral commit, a fetch), exactly like a failed question.
+      const missing = batch && r && /^[0-9a-f]{40,64} missing$/m.test(Buffer.isBuffer(r.stdout) ? r.stdout.toString("latin1") : String(r.stdout ?? ""));
+      if (answered && !missing && (r.stdout?.length ?? 0) <= KEEP_MAX_BYTES) seenSpawn.set(key, { ...r, stdout: copy(r.stdout), stderr: copy(r.stderr) });
+      return r;
+    }
+    const question = piped(opts) ? questionKeyOf(cmd, argv, opts) : null;
+    const shared = question ? answers.get(question) : undefined;
+    if (shared) {
+      stats.answered += 1; const stdout = asEncoded(shared, opts?.encoding); const stderr = asEncoded(Buffer.alloc(0), opts?.encoding);
+      const r = { pid: 0, status: 0, signal: null, stdout, stderr, output: [null, stdout, stderr] };
+      seenSpawn.set(key, { ...r, stdout: copy(stdout), stderr: copy(stderr) }); return r;
+    }
     const kept = store?.get(argv, opts?.cwd);
     if (kept) {
       stats.stored += 1; const stdout = asEncoded(kept, opts?.encoding); const stderr = asEncoded(Buffer.alloc(0), opts?.encoding);
       const r = { pid: 0, status: 0, signal: null, stdout, stderr, output: [null, stdout, stderr] };
+      if (question) answers.set(question, Buffer.from(kept));
       seenSpawn.set(key, { ...r, stdout: copy(stdout), stderr: copy(stderr) }); return r;
     }
     const r = spawnSync.apply(this, arguments);
     if (r && !r.error && r.status === 0 && r.signal === null && FINAL_ONLY(cmd, r.stdout)) {
+      const bytes = question ? bytesOf(r.stdout, opts?.encoding) : null;
+      if (bytes) answers.set(question, bytes);
       seenSpawn.set(key, { ...r, stdout: copy(r.stdout), stderr: copy(r.stderr) });
       if (store) store.put(argv, opts?.cwd, Buffer.isBuffer(r.stdout) ? r.stdout : Buffer.from(String(r.stdout ?? ""), opts?.encoding && opts.encoding !== "buffer" ? opts.encoding : "utf8"));
     }
@@ -153,10 +233,15 @@ export function installProbeMemo({ storeDir = null } = {}) {
     if (opts?.input !== undefined || opts?.shell || !pureQuestion(cmd, argv)) return execFileSync.apply(this, arguments);
     stats.asked += 1; const key = keyOf(cmd, argv, opts);
     if (seenExec.has(key)) { stats.answered += 1; return copy(seenExec.get(key)); }
+    const question = piped(opts) ? questionKeyOf(cmd, argv, opts) : null;
+    const shared = question ? answers.get(question) : undefined;
+    if (shared) { stats.answered += 1; const out = asEncoded(shared, opts?.encoding); seenExec.set(key, copy(out)); return out; }
     const kept = store?.get(argv, opts?.cwd);
-    if (kept) { stats.stored += 1; const out = asEncoded(kept, opts?.encoding); seenExec.set(key, copy(out)); return out; }
+    if (kept) { stats.stored += 1; const out = asEncoded(kept, opts?.encoding); if (question) answers.set(question, Buffer.from(kept)); seenExec.set(key, copy(out)); return out; }
     const out = execFileSync.apply(this, arguments); // throws on failure: a failure is never remembered
     if (FINAL_ONLY(cmd, out)) {
+      const bytes = question ? bytesOf(out, opts?.encoding) : null;
+      if (bytes) answers.set(question, bytes);
       seenExec.set(key, copy(out));
       if (store) store.put(argv, opts?.cwd, Buffer.isBuffer(out) ? out : Buffer.from(String(out), opts?.encoding && opts.encoding !== "buffer" ? opts.encoding : "utf8"));
     }

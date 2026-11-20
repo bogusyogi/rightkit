@@ -25,27 +25,44 @@ import { spawn, spawnSync } from "node:child_process";
 import { MessageChannel, Worker, receiveMessageOnPort } from "node:worker_threads";
 import { fileURLToPath } from "node:url";
 import { resolveManagedRoots } from "./managed-roots.mjs";
+import { createChangeLedger } from "./snapshot-changes.mjs";
 
 const SELF = fileURLToPath(import.meta.url);
 const SCHEMA = "rightkit.gate-serve/1";
 const COOKIE_PREFIX = "0000000000000000.gate-serve-cookie-";
-// The server's identity covers every local module it runs (this file and managed-roots.mjs, its only local import), so a client never
+// The server's identity covers every local module it runs (this file, managed-roots.mjs and snapshot-changes.mjs, its local imports), so a client never
 // takes answers from a server whose code differs from its own, e.g. one started from an edited checkout answering a sealed gate.
-const SERVER_MODULES = [SELF, fileURLToPath(new URL("./managed-roots.mjs", import.meta.url))];
+/**
+ * NN28: the native change source the package ships for this platform (`bin/<platform>/rightkit-gate-watch`, built from RightKit's
+ * rightkit-file-watch and rightkit-fsindex crates; crates/rightkit-gate-watch), or null when this package has none for it.
+ */
+export function changeHelperPath({ platform = process.platform, exists = fs.existsSync } = {}) {
+  const file = fileURLToPath(new URL(`./bin/${platform}/rightkit-gate-watch${platform === "win32" ? ".exe" : ""}`, import.meta.url));
+  return exists(file) ? file : null;
+}
+// The helper's bytes are part of the server's identity: another helper is another server.
+const SERVER_MODULES = [SELF, fileURLToPath(new URL("./managed-roots.mjs", import.meta.url)), fileURLToPath(new URL("./snapshot-changes.mjs", import.meta.url)), ...(changeHelperPath() ? [changeHelperPath()] : [])];
 const IDENTITY = (() => { try { const h = crypto.createHash("sha256"); for (const f of SERVER_MODULES) { h.update(path.basename(f)); h.update("\0"); h.update(fs.readFileSync(f)); h.update("\0"); } return h.digest("hex").slice(0, 16); } catch { return "unknown"; } })();
 
 function dataRoot(env = process.env) { return resolveManagedRoots({ env, platform: process.platform }).gateRoot; }
 export function socketPath(env = process.env) {
-  if (process.platform === "win32") return `\\\\.\\pipe\\rightkit-gate-serve-${(os.userInfo().username || "user").replace(/[^A-Za-z0-9_-]/g, "_")}`;
-  return path.join(dataRoot(env), "gate-serve", "serve.sock");
+  // The name carries the server's code identity (Dell 2026-11-19): every gate of this user shared one name, and a server asked by a gate of
+  // other code exits ("gate code changed"). Two gates in use on one machine (a sealed gate and a candidate under test, or two agents' gates)
+  // therefore ended each other's server at every question, and each lost its proofs each time. Each gate code now has its own server.
+  if (process.platform === "win32") return `\\\\.\\pipe\\rightkit-gate-serve-${(os.userInfo().username || "user").replace(/[^A-Za-z0-9_-]/g, "_")}-${IDENTITY}`;
+  return path.join(dataRoot(env), "gate-serve", `serve-${IDENTITY.slice(0, 8)}.sock`); // a socket path is limited to about 104 characters
 }
 
 // ---- server ---------------------------------------------------------------------------------------------------------------------------
 
-export async function serve({ root, idleMs = Number(process.env.RK_GATE_SERVE_IDLE_MS ?? 30 * 60 * 1000), log = () => {} } = {}) {
+/** `listenOn`: another socket than this gate code's own (a test's private one). */
+export async function serve({ root, idleMs = Number(process.env.RK_GATE_SERVE_IDLE_MS ?? 30 * 60 * 1000), log = () => {}, listenOn = null, helper = (() => { const file = changeHelperPath(); return file ? { command: file, args: [] } : null; })() } = {}) {
   const watchedRoot = fs.realpathSync(root);
   const generation = new Map(); // snapshot key -> change count
   const proven = new Map(); // snapshot key -> { tree, generation }
+  // NN11: the tree a snapshot was last proven to hold, with every path that changed since (snapshot-changes.mjs). `proven` answers "nothing
+  // changed"; this answers "these paths changed", so a later proof checks those files and does not hash the whole tree again.
+  const treeBase = new Map(); // snapshot key -> { tree, ledger }
   // GC-A11 non-compiling cargo answers (cargo metadata), keyed on the request and the snapshot's change count: an unchanged snapshot is answered
   // from memory, any change to it (or a restart) runs cargo again. Bounded: oldest dropped past 64 entries.
   const cargoAnswers = new Map(); // request digest -> { key, generation, status, stdout, stderr }
@@ -54,25 +71,87 @@ export async function serve({ root, idleMs = Number(process.env.RK_GATE_SERVE_ID
   // Only entries inside a snapshot directory (`<16 hex>/...`) are snapshot content; `<key>.tree-index`, `<key>.state.json` and the like
   // beside it are the gate's own metadata, and the cookie is `0000000000000000.gate-serve-cookie-*` (a name the snapshot root accepts).
   const keyOf = (rel) => { const base = String(rel ?? "").split(/[\\/]/)[0]; return /^[0-9a-f]{16}$/.test(base) ? base : null; };
-  const bumpAll = () => { for (const k of new Set([...generation.keys(), ...proven.keys()])) generation.set(k, (generation.get(k) ?? 0) + 1); proven.clear(); };
+  // The change count a proof is taken at and recorded against: the snapshot's own events plus `floor`, which rises whenever something may
+  // have changed anywhere without being named (an event without a name, a watcher error, dropped events, the helper ending). Review
+  // 2026-11-19: the count used to rise only for snapshots that already had an entry, so a snapshot with no event since this process started
+  // stayed at 0 through such a moment, and a proof begun before it was recorded after it.
+  let floor = 0;
+  const genOf = (key) => floor + (generation.get(key) ?? 0);
+  const bumpAll = () => { floor += 1; proven.clear(); treeBase.clear(); };
+  // One change under the watched root, from either source: "change" (content or metadata) or "rename" (appeared, disappeared, renamed).
+  const onEvent = (type, filename) => {
+    if (filename == null) { bumpAll(); return; } // an event without a name: anything may have changed
+    const name = String(filename);
+    const base = name.split(/[\\/]/)[0];
+    if (base.startsWith(COOKIE_PREFIX)) { const r = cookies.get(base); if (r) { cookies.delete(base); r(); } return; }
+    const key = keyOf(name);
+    // The watched root's own entry (its listing changed) carries no content: the entry that changed reports under its own name.
+    if (key === null) { if (/^[0-9a-f]{16}\./.test(base) || name === path.basename(watchedRoot)) return; bumpAll(); return; } // gate metadata beside a snapshot; anything else: drop every proof
+    generation.set(key, (generation.get(key) ?? 0) + 1);
+    proven.delete(key);
+    treeBase.get(key)?.ledger.touch(type, name.split(/[\\/]/).slice(1).join("/"));
+  };
+  // How this process learns of changes, as it reports it (NN28): the helper's own word, or Node's watcher.
+  let changeSource = helper ? "starting" : "node-fs-watch";
   const startWatch = () => {
     try {
-      watcher = fs.watch(watchedRoot, { recursive: true, persistent: true }, (_event, filename) => {
-        if (filename == null) { bumpAll(); return; } // an event without a name: anything may have changed
-        const name = String(filename);
-        const base = name.split(/[\\/]/)[0];
-        if (base.startsWith(COOKIE_PREFIX)) { const r = cookies.get(base); if (r) { cookies.delete(base); r(); } return; }
-        const key = keyOf(name);
-        // The watched root's own entry (its listing changed) carries no content: the entry that changed reports under its own name.
-        if (key === null) { if (/^[0-9a-f]{16}\./.test(base) || name === path.basename(watchedRoot)) return; bumpAll(); return; } // gate metadata beside a snapshot; anything else: drop every proof
-        generation.set(key, (generation.get(key) ?? 0) + 1);
-        proven.delete(key);
-      });
+      watcher = fs.watch(watchedRoot, { recursive: true, persistent: true }, onEvent);
       watcher.on("error", (error) => { log(`watcher error: ${error?.message ?? error}; every proof dropped, restarting the watch`); healthy = false; bumpAll(); try { watcher.close(); } catch { /* closed */ } setTimeout(startWatch, 200); });
       healthy = true;
     } catch (error) { healthy = false; log(`cannot watch ${watchedRoot}: ${error?.message ?? error}`); setTimeout(startWatch, 1000); }
   };
-  startWatch();
+  // NN28: the native helper (crates/rightkit-gate-watch) names each change from rightkit-file-watch and keeps a rightkit-fsindex listing of
+  // every snapshot this process holds a proof of. When events are dropped it lists those snapshots again and reports each difference as an
+  // ordinary change. So after an overflow no snapshot is answered "nothing changed" until it is proven again, but a listed snapshot keeps its
+  // record of what changed (the next proof walks it and compares those files; the tree is not hashed again). Of a snapshot the helper has
+  // not listed nothing is known then.
+  // It is this process's own child for as long as this process lives (it ends when its input closes); no gate run starts it.
+  let helperChild = null; let helperStarts = 0;
+  const helperListed = new Set(); const listWaiters = new Map();
+  // Events were dropped. No snapshot may be answered "nothing changed" on the strength of an earlier proof, and no proof begun before this
+  // moment may be recorded (the floor rises for all). What survives is the change record of a snapshot the helper has listed: the helper
+  // lists it again and reports every difference, so "these paths changed" stays true for it. Of any other snapshot nothing is known.
+  const dropUnlisted = () => { floor += 1; proven.clear(); for (const k of [...treeBase.keys()]) if (!helperListed.has(k)) treeBase.delete(k); };
+  const onHelper = (m) => {
+    if (!m || typeof m.t !== "string") return;
+    if (m.t === "ready") { healthy = true; changeSource = typeof m.source === "string" && m.source ? m.source : "fsindex,file-watch"; return; }
+    if (m.t === "change" || m.t === "rename") { if (typeof m.p === "string" && m.p) onEvent(m.t, m.p); return; }
+    if (m.t === "indexed") { if (typeof m.key === "string") { helperListed.add(m.key); for (const r of listWaiters.get(m.key) ?? []) r(true); listWaiters.delete(m.key); } return; }
+    if (m.t === "overflow") { dropUnlisted(); return; }
+    if (m.t === "error") log(`change helper: ${m.message}`);
+  };
+  const startHelper = () => {
+    helperStarts += 1;
+    let child;
+    try { child = spawn(helper.command, [...(helper.args ?? []), watchedRoot], { stdio: ["pipe", "pipe", "ignore"], windowsHide: true }); }
+    catch (error) { log(`cannot start the change helper: ${error?.message ?? error}; using Node's watcher`); changeSource = "node-fs-watch"; startWatch(); return; }
+    helperChild = child; let buf = "";
+    const lost = (why) => {
+      if (helperChild !== child) return;
+      helperChild = null; healthy = false; helperListed.clear();
+      for (const w of listWaiters.values()) for (const r of w) r(false);
+      listWaiters.clear(); bumpAll();
+      // A helper that keeps ending is not waited for: Node's watcher takes over, and the process says so (change-source=node-fs-watch).
+      if (helperStarts >= 3) { log(`change helper ended (${why}) ${helperStarts} times; every proof dropped; using Node's watcher`); changeSource = "node-fs-watch"; startWatch(); }
+      else { log(`change helper ended (${why}); every proof dropped; starting it again`); setTimeout(startHelper, 300); }
+    };
+    child.stdout.setEncoding("utf8");
+    child.stdout.on("data", (d) => { buf += d; for (let nl = buf.indexOf("\n"); nl >= 0; nl = buf.indexOf("\n")) { const text = buf.slice(0, nl); buf = buf.slice(nl + 1); let m = null; try { m = JSON.parse(text); } catch { m = null; } if (helperChild === child) onHelper(m); } });
+    child.stdin.on("error", () => {});
+    child.on("error", (error) => lost(error?.message ?? "error"));
+    child.on("exit", (code, signal) => lost(signal ? `signal ${signal}` : `exit ${code}`));
+  };
+  /** Resolves true once the helper holds a listing of snapshot `key` (at once with Node's watcher, which keeps none). */
+  const listed = (key) => {
+    if (!helperChild) return Promise.resolve(changeSource === "node-fs-watch");
+    if (helperListed.has(key)) return Promise.resolve(true);
+    return new Promise((resolve) => {
+      const waiting = listWaiters.get(key) ?? []; waiting.push(resolve); listWaiters.set(key, waiting);
+      if (waiting.length === 1) { try { helperChild.stdin.write(`${key}\n`); } catch { resolve(false); } }
+      setTimeout(() => resolve(false), 30_000).unref?.();
+    });
+  };
+  if (helper) startHelper(); else startWatch();
   // Every change made before this call has been delivered once the cookie's own event arrives (events of one watch are ordered).
   const cookieSync = (timeoutMs = 2000) => new Promise((resolve) => {
     if (!healthy) { resolve(false); return; }
@@ -83,30 +162,49 @@ export async function serve({ root, idleMs = Number(process.env.RK_GATE_SERVE_ID
     try { fs.writeFileSync(file, String(Date.now())); } catch { clearTimeout(timer); cookies.delete(name); resolve(false); }
   });
   let lastRequest = Date.now();
+  const answers = new Map(); const ANSWER_MAX_ENTRIES = 512; const ANSWER_MAX_BYTES = 1 << 20;
   const handle = async (req) => {
     lastRequest = Date.now();
     if (req?.schema !== SCHEMA) return { ok: false, why: "schema" };
     if (req.identity !== IDENTITY) { setTimeout(() => process.exit(0), 50); return { ok: false, why: "gate code changed; the server exits" }; }
-    if (req.op === "status") return { ok: true, healthy, root: watchedRoot, proven: [...proven].map(([k, v]) => ({ key: k, tree: v.tree })), pid: process.pid, identity: IDENTITY };
+    if (req.op === "status") return { ok: true, healthy, changeSource, root: watchedRoot, proven: [...proven].map(([k, v]) => ({ key: k, tree: v.tree })), pid: process.pid, identity: IDENTITY };
+    // Answers kept for later runs (resident-answers.mjs): an opaque string under a sha256 key. The caller stores each answer with the files it
+    // depends on and checks them itself before it uses one; this process only holds the bytes, in memory, oldest out first.
+    if (req.op === "answer-get" || req.op === "answer-put") {
+      if (typeof req.key !== "string" || !/^[0-9a-f]{64}$/.test(req.key)) return { ok: false, why: "bad answer key" };
+      if (req.op === "answer-get") return { ok: true, value: answers.get(req.key) ?? null };
+      if (typeof req.value !== "string" || req.value.length > ANSWER_MAX_BYTES) return { ok: false, why: "bad answer value" };
+      answers.delete(req.key);
+      if (answers.size >= ANSWER_MAX_ENTRIES) answers.delete(answers.keys().next().value);
+      answers.set(req.key, req.value);
+      return { ok: true };
+    }
     const dir = typeof req.dir === "string" ? req.dir : "";
     let real; try { real = fs.realpathSync(dir); } catch { return { ok: false, why: "no such directory" }; }
     if (path.dirname(real) !== watchedRoot) return { ok: false, why: "not a snapshot of the watched root" };
     const key = keyOf(path.basename(real));
     if (key === null) return { ok: false, why: "not a snapshot directory name" };
     if (!(await cookieSync())) return { ok: false, why: "watcher not current" };
-    if (req.op === "begin") return { ok: true, generation: generation.get(key) ?? 0 };
+    if (req.op === "begin") return { ok: true, generation: genOf(key), source: changeSource };
     if (req.op === "cargo-metadata") return cargoMetadataOp(req, key, real);
-    if (req.op === "record") {
+    if (req.op === "record" || req.op === "tree-record") {
       if (typeof req.tree !== "string" || !Number.isInteger(req.generation)) return { ok: false, why: "bad record" };
-      if ((generation.get(key) ?? 0) !== req.generation) return { ok: false, why: "changed during the proof" };
-      proven.set(key, { tree: req.tree, generation: req.generation });
+      if (genOf(key) !== req.generation) return { ok: false, why: "changed during the proof" };
+      // With the helper, a proof is kept only for a snapshot it has listed (that listing is what an overflow is recovered from).
+      if (!(await listed(key))) return { ok: false, why: "the change helper has no listing of this snapshot" };
+      if (genOf(key) !== req.generation) return { ok: false, why: "changed during the proof" };
+      // "tree-record": the commit's files are this tree (a proof that admitted stage outputs beside them). "record": that, and nothing else is there.
+      if (req.op === "record") proven.set(key, { tree: req.tree, generation: req.generation });
+      treeBase.set(key, { tree: req.tree, ledger: createChangeLedger() });
       return { ok: true };
     }
     if (req.op === "check") {
       const p = proven.get(key);
-      const now = generation.get(key) ?? 0;
+      const now = genOf(key);
       const clean = Boolean(p && p.tree === req.tree && p.generation === now);
-      return { ok: true, clean, generation: now };
+      // `base`: the tree last proven here and what changed since, when that is known; absent otherwise (the caller hashes the tree).
+      const tb = treeBase.get(key); const changes = tb && tb.tree === req.tree ? tb.ledger.list() : null;
+      return { ok: true, clean, generation: now, source: changeSource, ...(changes ? { base: { tree: tb.tree, ...changes } } : {}) };
     }
     return { ok: false, why: "unknown op" };
   };
@@ -120,7 +218,7 @@ export async function serve({ root, idleMs = Number(process.env.RK_GATE_SERVE_ID
     let cargoId; try { const st = fs.statSync(req.cargo); cargoId = `${st.size}:${st.mtimeMs}:${st.ino}`; } catch { return { ok: false, why: "no such cargo" }; }
     const digest = crypto.createHash("sha256").update(JSON.stringify({ key, cwd, args, cargo: req.cargo, cargoId, env: Object.entries(env).sort() })).digest("hex");
     const hit = cargoAnswers.get(digest);
-    const now = generation.get(key) ?? 0;
+    const now = genOf(key);
     if (hit && hit.generation === now) return { ok: true, cached: true, status: hit.status, stdout: hit.stdout, stderr: hit.stderr };
     const before = now;
     const result = await new Promise((resolve) => {
@@ -131,13 +229,13 @@ export async function serve({ root, idleMs = Number(process.env.RK_GATE_SERVE_ID
       child.on("close", (status) => resolve({ status: status ?? -1, stdout: Buffer.concat(out).toString("utf8"), stderr: Buffer.concat(err).toString("utf8") }));
     });
     // Cached only when cargo succeeded and nothing in the snapshot changed while it ran (the cookie makes every earlier event visible first).
-    if (result.status === 0 && (await cookieSync()) && (generation.get(key) ?? 0) === before) {
+    if (result.status === 0 && (await cookieSync()) && genOf(key) === before) {
       cargoAnswers.set(digest, { key, generation: before, ...result });
       while (cargoAnswers.size > 64) cargoAnswers.delete(cargoAnswers.keys().next().value);
     }
     return { ok: true, cached: false, ...result };
   }
-  const sock = socketPath();
+  const sock = listenOn ?? socketPath();
   // One server per host: a second one started in the same instant must not steal the socket from a live first one (seen 2026-11-05).
   const live = await new Promise((resolve) => { const c = net.connect(sock); c.on("connect", () => { c.destroy(); resolve(true); }); c.on("error", () => resolve(false)); });
   if (live) { log("another server already answers on the socket; exiting"); process.exit(0); }
@@ -226,7 +324,17 @@ export function serveRequest(req, { env = process.env, root = null, timeoutMs = 
   return res && res.ok ? res : null;
 }
 
+/** Whether `root` is this host's own snapshot root (snapshot.mjs snapshotRoot: `<managed root>/snapshots` on Mac and Windows). */
+export function isHostSnapshotRoot(root, { platform = process.platform } = {}) {
+  if (platform !== "darwin" && platform !== "win32") return true; // elsewhere the root comes from the host's configuration file
+  // Both hosts' file systems fold case: another spelling of the same root is the same root.
+  try { return path.resolve(root).toLowerCase() === path.resolve(path.join(resolveManagedRoots({ env: {}, platform }).gateRoot, "snapshots")).toLowerCase(); } catch { return false; }
+}
+
 function startServer({ root, env }) {
+  // One server per gate code, and it watches one root. A server started for any other directory (a test's temporary snapshot root) would hold
+  // the name and answer every real snapshot "not a snapshot of the watched root" for as long as it is asked. Only the host's root starts one.
+  if (!isHostSnapshotRoot(root)) return;
   try {
     const logDir = path.join(dataRoot(env), "gate-serve");
     fs.mkdirSync(logDir, { recursive: true });

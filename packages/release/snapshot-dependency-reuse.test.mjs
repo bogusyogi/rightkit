@@ -58,3 +58,33 @@ test('config identity ignores object order but binds values, array order and fil
   assert.notEqual(fingerprint({ b: { y: 3, x: 1 }, a: [1, 2] }), before);
   assert.notEqual(fingerprint({ a: [1, 2], b: { x: 1, y: 2 } }, [['user', 'changed'], ['global', 'hash-b']]), before);
 });
+
+test('pnpm config is asked once per directory and environment in one run; a config file edit still changes the fingerprint (NN07, Dell 2026-11-19)', async () => {
+  const { pnpmConfigIdentity, forgetPnpmConfigAnswers } = await import('./snapshot-dependency-reuse.mjs');
+  forgetPnpmConfigAnswers();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rk-pnpm-config-'));
+  const user = path.join(dir, 'user.npmrc'), global = path.join(dir, 'global.npmrc');
+  fs.writeFileSync(user, 'a=1\n'); fs.writeFileSync(global, '');
+  const calls = [];
+  const spawn = (cmd, args, opts) => { calls.push(`${args.join(' ')} @ ${opts.cwd}`); const a = args.slice(1).join(' '); return { status: 0, stdout: a === 'list --json' ? '{"k":"v"}' : a === 'get userconfig' ? user : global }; };
+  const env = { USERPROFILE: dir, HOME: dir };
+  const first = pnpmConfigIdentity({ dir, env, spawn });
+  assert.equal(calls.length, 3);
+  assert.equal(pnpmConfigIdentity({ dir, env, spawn }), first);
+  assert.equal(pnpmConfigIdentity({ dir, env, spawn }), first);
+  assert.equal(calls.length, 3, 'the second and third call start no pnpm');
+  fs.writeFileSync(user, 'a=2\n');
+  assert.notEqual(pnpmConfigIdentity({ dir, env, spawn }), first, 'the file is hashed on every call');
+  assert.equal(calls.length, 3);
+  pnpmConfigIdentity({ dir, env: { ...env, npm_config_registry: 'https://x.test/' }, spawn });
+  assert.equal(calls.length, 6, 'another environment is asked again');
+  const other = fs.mkdtempSync(path.join(os.tmpdir(), 'rk-pnpm-config-'));
+  pnpmConfigIdentity({ dir: other, env, spawn });
+  assert.equal(calls.length, 9, 'another directory is asked again');
+  forgetPnpmConfigAnswers();
+  let n = 0;
+  const failing = () => { n += 1; return { status: 1, stdout: '' }; };
+  assert.throws(() => pnpmConfigIdentity({ dir, env, spawn: failing }), /config-list-failed/);
+  assert.throws(() => pnpmConfigIdentity({ dir, env, spawn: failing }), /config-list-failed/);
+  assert.equal(n, 2, 'a failed question is not remembered');
+});

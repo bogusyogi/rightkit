@@ -83,11 +83,24 @@ import { hostTarget } from "../cross-targets.mjs";
 import { FOREIGN_PRE_COMMIT, retireHooksIn } from "../hook-retirement.mjs";
 import { fileURLToPath } from "node:url";
 import { installIdentity, installStateBytes } from "../dependency-identity.mjs";
+import { pnpmVersionAnswer } from "../snapshot-dependency-reuse.mjs";
 import { BIOME_CONFIG_FILES, CHECKER_IDENTITY, OXLINT_CONFIG_FILES, ESLINT_CONFIG_FILES, LOCAL_CLASS_B_JOBS, WORKSPACE_RUST_FILE, ancestorConfigChanged, ancestorDirsOf, canonicalJson, defaultSpawn, defaultSpawnAsync, judgeUnitList, blockedUnitsOf, digestScanSet, fileScanCache, findRustfmt, metadataArgs, planScans, planUnitListScans, publisherRequirementScan, runScans, sidecarBoundCrate, scanToolPolicyFromPipeline, scanDeferrals, scanFailures, seamRunState } from "../deterministic-scans.mjs";
 import { changedLockNames, parseLock, reach } from "../lock-graph.mjs";
 import { resolveExecutor } from "../gate-executor.mjs";
 // The gate's own executor: an outer gate's cargo wrapper on PATH is never this gate's cargo (gate-executor.mjs `gateWrappers`).
 const gateResolveExecutor = (args) => resolveExecutor({ ...args, gateWrappers: true });
+/**
+ * NN09, NN25: which cargo and rustc the broker compiles with, read in this process from the broker's own host configuration
+ * (broker-toolchain.mjs) instead of asking through the client (`rustright cargo --version`, `rustright rustc -V`). null for an injected
+ * spawn (a test sees every start it expects), for a host that does not compile through the RustRight client, and on any doubt; the caller then
+ * asks as before.
+ */
+function brokerToolchainOf(o, executor) {
+  if (o.spawn !== defaultSpawn || executor?.kind !== "broker" || !Array.isArray(executor.cargo) || executor.cargo.length < 2) return null;
+  let answer = null;
+  try { const launcher = resolveOnPath(executor.cargo[0], { env: o.env, platform: o.platform }); answer = launcher ? brokerToolchain({ launcher }) : null; } catch { answer = null; }
+  return answer?.ok ? answer : null;
+}
 import { ALL_UNITS_ERRORS, ALL_UNITS_EXCEPTIONS_FILE, BROKER_EXCEPTIONS_FILE, BROKER_EXCEPTION_ERRORS, CARGO_WORKSPACE_LIST_FILE, CARGO_WORKSPACE_LIST_KEY, RIGHTKIT_IDENTITY_FILE, authorizeAllUnits, authorizeNoBroker, checkCargoWorkspaceList, describeAllUnitsException, describeBrokerException, isRightKitIdentity, unitsOfSelector } from "../broker-exception.mjs";
 import { SIGNING_REFUSAL_CODES, suiteSigningRefusals } from "../suite-signing-policy.mjs";
 import { gitListRustFiles } from "../signing-files.mjs";
@@ -110,14 +123,15 @@ import { buildDirectReceipt, directVerdict, resolveTargetDirectory, verifyDirect
 import { platformDirOf } from "../platform-dir.mjs";
 import { buildInventory, classifyUnitResults, dependencyFirstOrder, selectAffectedAcrossInventories, classifyUnitRows, unitListReport } from "../affected-units.mjs";
 import { createRequire } from "node:module";
-import { BUILD_CONTROL_PROTOCOL, HANDSHAKE_PROBE_ID, RUNTIME_MANIFEST_FILE, parseRuntimeIdentity } from "../seam-broker.mjs";
+import { BUILD_CONTROL_PROTOCOL, HANDSHAKE_PROBE_ID, RUNTIME_MANIFEST_FILE, brokerControlTarget, parseRuntimeIdentity } from "../seam-broker.mjs";
 import { snapshotReclaimJudge } from "../seam-broker.mjs";
 import net from "node:net";
 import { installSpawnLedger } from "../spawn-ledger.mjs";
-import { rememberedVersion } from "../tool-version-memo.mjs";
+import { rememberedVersion, resolveOnPath } from "../tool-version-memo.mjs";
+import { brokerToolchain } from "../broker-toolchain.mjs";
 import { SNAPSHOT_PROOF_COUNTS, snapshotProofLine } from "../snapshot.mjs";
 import { contentStore, installProbeMemo } from "../probe-memo.mjs";
-import { setTreeListingStore } from "../snapshot-git.mjs";
+import { discoveryRun, setTreeListingStore } from "../snapshot-git.mjs";
 import { processIdentity, snapshotLockBody, verdictFileName } from "../gate-seam.mjs";
 
 const PRIVATE_SCOPED_COMPILE = Symbol("private scoped compile");
@@ -506,13 +520,15 @@ export function classAEnvironmentDigest({ root, files, spawn = defaultSpawn, inc
   const gateFiles = [`class-a-key-schema:${CLASS_A_KEY_SCHEMA}`, ...walkGate(gatePkg).sort().map((f) => path.relative(gatePkg, f)).filter((rel) => !releaseOnly(rel)).map((rel) => `${rel}:${fileDigest(path.join(gatePkg, rel))}`)];
   // Bounded: a pnpm that switches itself to the repository's packageManager version on first use, or waits on the network,
   // must fail the probe (and its process tree) within PNPM_PROBE_TIMEOUT_MS, never hang an admission.
-  const pnpmVersion = (() => {
+  // NN25, NN07: asked once and then kept by the open gate process while the files that decide which pnpm runs here are unchanged
+  // (snapshot-dependency-reuse.mjs pnpmVersionAnswer); only the real spawn remembers, a failed or timed-out probe is never kept.
+  const pnpmVersion = pnpmVersionAnswer({ cwd: root, env: process.env, remember: spawn === defaultSpawn, run: () => {
     const r = spawn("pnpm", ["--version"], { cwd: root, boundedMs: PNPM_PROBE_TIMEOUT_MS });
     if (r?.timedOut) throw new Error(`cannot identify pnpm for the class A environment (pnpm --version timed out after ${PNPM_PROBE_TIMEOUT_MS} ms; run it once in ${root} so pnpm can switch to the packageManager version)`);
     if (failed(r) || !text(r).trim()) throw new Error(`cannot identify pnpm for the class A environment (${r?.error ? `could not run pnpm: ${r.error.code ?? r.error.message}` : why(r)})`);
     return text(r).trim();
-  })();
-  const installState = files.filter((f) => /(^|\/)package\.json$/.test(f)).map((f) => path.join(path.dirname(path.join(root, f)), "node_modules", ".modules.yaml")).map((m) => { let d; try { d = createHash("sha256").update(installStateBytes(".modules.yaml", fs.readFileSync(m))).digest("hex"); } catch (error) { d = fileDigest(m, { optional: true }); } return `${path.relative(root, m)}:${d}`; });
+  } });
+  const installState =files.filter((f) => /(^|\/)package\.json$/.test(f)).map((f) => path.join(path.dirname(path.join(root, f)), "node_modules", ".modules.yaml")).map((m) => { let d; try { d = createHash("sha256").update(installStateBytes(".modules.yaml", fs.readFileSync(m))).digest("hex"); } catch (error) { d = fileDigest(m, { optional: true }); } return `${path.relative(root, m)}:${d}`; });
   const installed = installedDependencyDigest({ root, files, includeCaches });
   const bind = (gateInputs) => createHash("sha256").update([`node ${process.version}`, `pnpm ${pnpmVersion}`, `platform ${process.platform}-${process.arch}`, ...gateInputs, ...installState, `installed ${installed}`].join("\n")).digest("hex");
   // The verdict binds all gate data. Only cargo-deny rows using the packaged
@@ -552,8 +568,9 @@ export function pnpmPinProblem({ root, files, spawn = defaultSpawn, readFile = (
     if (pin) pins.set(f, pin);
   }
   if (!pins.size) return null;
-  const r = spawn("pnpm", ["--version"], { cwd: neutralCwd, boundedMs: PNPM_PROBE_TIMEOUT_MS });
-  const onPath = failed(r) ? "" : text(r).trim();
+  // Kept by the open gate process like the Class A environment's probe (pnpmVersionAnswer); a probe that fails is asked again next time.
+  let r = null; // the probe's own result when it ran (the refusals below name its error); null when the kept answer was used
+  const onPath = pnpmVersionAnswer({ cwd: neutralCwd, env: process.env, remember: spawn === defaultSpawn, run: () => { r = spawn("pnpm", ["--version"], { cwd: neutralCwd, boundedMs: PNPM_PROBE_TIMEOUT_MS }); return failed(r) ? "" : text(r).trim(); } }) ?? "";
   const fix = (pin) => `install the pinned pnpm as the pnpm on PATH (for example \`pnpm self-update ${pin}\`), or make the repository's own pin resolvable (corepack enable, network access to the pnpm release), and run again`;
   const bad = [...pins].filter(([, pin]) => pin !== onPath);
   if (!bad.length) return null;
@@ -1814,7 +1831,7 @@ export function changedPathsAt({ git, base, commit }) {
  * (with `--receipt-dir`) plus one aggregate report. Returns the exit the door run ends with: 0 only when every
  * selected unit passed, else the first failing unit's code (1 when only blocked units failed the run).
  */
-export async function runSharedUnitList({ o, io, stage, commit, selected, inventory, receiptDir = undefined, base = null, unmatched = [], runUnit = null }) {
+export async function runSharedUnitList({ o, io, stage, commit, selected, inventory, receiptDir = undefined, base = null, unmatched = [], runUnit = null, root = null }) {
   const tag = "rightkit-gate:";
   const bySelector = new Map((inventory?.units ?? []).map((u) => [u.selector, u]));
   const rows = selected.map((s) => ({ dir: unitDirOfSelector(s.selector), reason: "listed", ...bySelector.get(s.selector), ...s }));
@@ -1874,11 +1891,24 @@ export async function runSharedUnitList({ o, io, stage, commit, selected, invent
     if (receiptDir !== undefined) o.writeFile(path.join(receiptDir, "units-report.json"), `${JSON.stringify(report, null, 2)}\n`);
     return report.ok ? 0 : (exit || 1);
   }
-  const run = runUnit ?? io.runUnitForList ?? (async (selector, receipt) => main(["--to", stage, "--unit", selector, "--commit", commit, ...receipt], { ...io, unitListClassA }));
+  // NN13 (Dell 2026-11-19, `--to check --units-file` of two units: two `snapshot lock held` lines). Each unit of the list is a door run of its own
+  // and each took the repository's snapshot lock again. The list is one run: it takes the lock once, here, every unit's door joins it
+  // (io.unitListLock, read in runUnitSnapshot where a unit run would take its own), and it is released once, after the last unit, on the same
+  // proof as a door's.
+  let listLock = null;
+  if (!runUnit && !io.runUnitForList && !io.unitListLock && root && o.env.GITHUB_ACTIONS !== "true") {
+    const snap = await import("../snapshot.mjs");
+    const snapshotsAt = o.snapshotRoot ?? snap.snapshotRoot({ platform: o.platform, env: o.env });
+    const taken = takeRunLock({ o, checkout: root, snapshotsAt, commit, snap, tag });
+    if (taken.exit !== undefined) return taken.exit;
+    listLock = { ...taken, started: false };
+  }
+  const run = runUnit ?? io.runUnitForList ?? (async (selector, receipt) => main(["--to", stage, "--unit", selector, "--commit", commit, ...receipt], { ...io, unitListClassA, ...(listLock ? { unitListLock: listLock } : {}) }));
   const outcomes = new Map();
   const receiptEvidence = new Map();
   const runId = randomUUID();
   const bad = new Set(); // failed or blocked selectors, for the dependency check of later units
+  try {
   for (const [i, row] of ordered.entries()) {
     const blocker = (bySelector.get(row.selector)?.deps ?? []).find((d) => bad.has(d));
     if (blocker) {
@@ -1902,6 +1932,7 @@ export async function runSharedUnitList({ o, io, stage, commit, selected, invent
     outcomes.set(row.selector, { ran: true, code });
     if (code !== 0) bad.add(row.selector);
   }
+  } finally { if (listLock) releaseSeamLock({ o, release: listLock.release, seamBody: listLock.started ? listLock.body : null, tag }); }
   const results = classifyUnitResults({ selected: ordered, inventory: inventory ?? { units: rows }, outcomes });
   const report = unitListReport({ commit, stage, base, selected: ordered, results, unmatched });
   report.runId = runId;
@@ -1963,7 +1994,7 @@ export async function rightkitDoorRule(o, args, root, git, io, { unitsFileFlag, 
       const unknown = unitList.filter((selector) => !inventory.units.some((u) => u.selector === selector));
       if (unknown.length) { o.err(`${tag} BLOCKED: units missing from inventory: ${unknown.join(", ")}; nothing ran`); return { exit: 2 }; }
       const selected = unitList.map((selector) => ({ selector, reason: "listed" }));
-      return { exit: await runSharedUnitList({ o, io, stage, commit: pinned.commit, selected, inventory, receiptDir }) };
+      return { exit: await runSharedUnitList({ o, io, stage, commit: pinned.commit, selected, inventory, receiptDir, root }) };
     }
     // --changed (rightkit#1505): no handwritten list for routine work. Changed paths against the base select their
     // units plus every transitive dependent (affected-units.mjs); the plan is printed before anything runs.
@@ -1985,7 +2016,7 @@ export async function rightkitDoorRule(o, args, root, git, io, { unitsFileFlag, 
       o.out(`${tag} unit report: 0 passed, 0 failed, 0 blocked, 0 not-run of 0 on ${pinned.commit.slice(0, 12)}`);
       return { exit: 0 };
     }
-    return { exit: await runSharedUnitList({ o, io, stage, commit: pinned.commit, selected: selection.selected, inventory, receiptDir, base, unmatched: selection.unmatched }) };
+    return { exit: await runSharedUnitList({ o, io, stage, commit: pinned.commit, selected: selection.selected, inventory, receiptDir, base, unmatched: selection.unmatched, root }) };
   }
   if (allUnitsFlag) {
     const id = option("--all-units-exception");
@@ -2121,7 +2152,12 @@ async function runStages(o, args, root, git, io) {
   if (executor.kind === "refuse") { o.err(`${tag} BLOCKED: ${executor.problem}`); return 1; }
   // NN01/NN25: a tool's version is remembered across runs while its program file is unchanged (tool-version-memo.mjs); a shim is asked each time.
   const versionStore = (() => { try { return path.join(gateRunsRoot({ env: o.env, platform: o.platform }), "tool-versions.json"); } catch { return null; } })();
-  const version = (cmd, a) => rememberedVersion(cmd, a, { env: o.env, platform: o.platform, storeFile: o.spawn === defaultSpawn ? versionStore : null, run: (c, args) => { const r = o.spawn(c, args, { cwd: root }); return failed(r) ? null : text(r).trim().split(/\r?\n/)[0]; } });
+  const versionAsked = (cmd, a) => rememberedVersion(cmd, a, { env: o.env, platform: o.platform, storeFile: o.spawn === defaultSpawn ? versionStore : null, run: (c, args) => { const r = o.spawn(c, args, { cwd: root }); return failed(r) ? null : text(r).trim().split(/\r?\n/)[0]; } });
+  // pnpm is a launcher, which tool-version-memo.mjs never remembers by its own file. Its version here is kept by the open gate process while
+  // the files that decide which pnpm runs in this directory are unchanged (pnpmVersionAnswer; NN25: `pnpm --version` on every warm run).
+  const version = (cmd, a) => (cmd === "pnpm" && a.length === 1 && a[0] === "--version"
+    ? pnpmVersionAnswer({ cwd: root, env: o.env, remember: o.spawn === defaultSpawn, run: () => versionAsked(cmd, a) })
+    : versionAsked(cmd, a));
   const listed = git("ls-tree", "-r", "--name-only", "-z", commit);
   const lockFiles = {};
   for (const f of failed(listed) ? [] : text(listed).split("\0").filter((x) => /(^|\/)(Cargo\.lock|pnpm-lock\.yaml)$/.test(x))) {
@@ -2129,7 +2165,7 @@ async function runStages(o, args, root, git, io) {
   }
   const binding = bindingOf({
     tree, lockFiles, gateFile: fileURLToPath(import.meta.url), gateJudge: gateCodeIdentity(), executor: o.brokerException ? `${executor.kind}:exception:${o.brokerException.exceptionId}` : executor.kind,
-    toolchain: { classA: { "cargo-deny": version("cargo-deny", ["--version"]), "cargo-audit": version("cargo-audit", ["--version"]), actionlint: version("actionlint", ["-version"]), shellcheck: version("shellcheck", ["--version"]) }, node: process.version, rustc: version(executor.kind === "broker" && executor.cargo.length > 1 ? executor.cargo[0] : "rustc", executor.kind === "broker" && executor.cargo.length > 1 ? ["rustc", "-V"] : ["-V"]), pnpm: version("pnpm", ["--version"]) },
+    toolchain: { classA: { "cargo-deny": version("cargo-deny", ["--version"]), "cargo-audit": version("cargo-audit", ["--version"]), actionlint: version("actionlint", ["-version"]), shellcheck: version("shellcheck", ["--version"]) }, node: process.version, rustc: brokerToolchainOf(o, executor)?.rustc.version ?? version(executor.kind === "broker" && executor.cargo.length > 1 ? executor.cargo[0] : "rustc", executor.kind === "broker" && executor.cargo.length > 1 ? ["rustc", "-V"] : ["-V"]), pnpm: version("pnpm", ["--version"]) },
   });
   // Release writes to R2. The write credential lives only in the trusted publisher: a GitHub Actions job in the protected
   // publication environment, which sets RIGHTKIT_PUBLISHER=github-environment. Hosts and agents never hold it, so the door refuses the
@@ -3263,7 +3299,9 @@ async function runUnitSnapshot(o, args, root, git, io, option) {
   const snapshotsAt = o.snapshotRoot ?? snap.snapshotRoot({ platform: o.platform, env: o.env });
   { const mismatch = await declaredSnapshotRootRefusal(o, executor, snapshotsAt); if (mismatch) { o.err(`${tag} BLOCKED: ${mismatch.code}: ${mismatch.message}; nothing ran`); return 1; } }
   // The same one exclusion as the door (takeRunLock): on a broker host the unit's stage calls are seam requests, which the broker admits only under the snapshot lock.
-  const taken = takeRunLock({ o, checkout: root, snapshotsAt, commit, snap, tag });
+  // A unit of a unit list joins the list's one lock (runSharedUnitList, NN13): the lock is not re-entrant, so a second take by this same
+  // process would be refused as busy. Every other unit run takes its own.
+  const taken = io.unitListLock ?? takeRunLock({ o, checkout: root, snapshotsAt, commit, snap, tag });
   if (taken.exit !== undefined) return taken.exit;
   let started = false;
   try {
@@ -3366,7 +3404,9 @@ async function runUnitSnapshot(o, args, root, git, io, option) {
     });
     } finally { bound.cleanup(); }
   } finally {
-    releaseSeamLock({ o, release: taken.release, seamBody: started ? taken.body : null, tag });
+    // The list releases its own lock after its last unit, on the same proof; a unit only tells it that work began under the lock.
+    if (io.unitListLock) { if (started) io.unitListLock.started = true; }
+    else releaseSeamLock({ o, release: taken.release, seamBody: started ? taken.body : null, tag });
   }
 }
 
@@ -4076,6 +4116,32 @@ export function stageArgsProblem(args) {
   return null;
 }
 
+/**
+ * GC-A15 at the check stage: one line for every Cargo profile table other than `[profile.release]` in the app roots a commit tracks (the
+ * directory of each `right-release.config`), found by the release tool's own scan of the commit's snapshot. `tracked` is the commit's file
+ * list, `snapshotDir` its snapshot, `label` the name printed for an app at the repository root. RightKit's own repository gives none: it is
+ * judged per unit. No lines means the rule holds. Exported for its test.
+ */
+export async function cargoProfileRuleLines({ tracked, snapshotDir, label }) {
+  let rightkitRepo = false;
+  if (tracked.includes(RIGHTKIT_IDENTITY_FILE)) { try { rightkitRepo = isRightKitIdentity(fs.readFileSync(path.join(snapshotDir, ...RIGHTKIT_IDENTITY_FILE.split("/")), "utf8")); } catch { rightkitRepo = false; } }
+  if (rightkitRepo) return [];
+  const appRoots = [...new Set(tracked.filter((f) => /(^|\/)right-release\.config\.(json|mjs)$/.test(f)).map((f) => path.posix.dirname(f)))].sort();
+  const { scanCargoProfileContract, formatCargoProfileFindings } = await import("../cargo-profile-contract.mjs");
+  return appRoots.flatMap((dir) => formatCargoProfileFindings(scanCargoProfileContract(path.join(snapshotDir, ...(dir === "." ? [] : dir.split("/"))), { sources: false }).filter((f) => f.rule === "profile-extra" && /^\[profile\.[^\]]+\] is not allowed/.test(f.message)), dir === "." ? label : dir));
+}
+
+/**
+ * The Cargo home a run's Cargo reads (`CARGO_HOME`, else `.cargo` under the user's home), named by where it really is: the workspace proof
+ * (snapshot-metadata.mjs cargoWorkspaceTopology) refuses any discovery input reached through a link, and an agent profile's `.cargo` is a
+ * link to the user's Cargo home. A Cargo home that does not exist keeps its spelled path (the proof reads it as absent). Exported for its test.
+ */
+export function cargoHomeOf(env, { realpath = fs.realpathSync, homedir = os.homedir } = {}) {
+  let home = env.CARGO_HOME || path.join(env.USERPROFILE || env.HOME || homedir(), ".cargo");
+  try { home = realpath(home); } catch { /* absent: as spelled */ }
+  return home;
+}
+
 export async function main(argv, io = {}) {
   const o = {
     spawn: defaultSpawn, exists: fs.existsSync, readFile: (f) => fs.readFileSync(f, "utf8"), writeFile: fs.writeFileSync, mkdir: fs.mkdirSync, chmod: fs.chmodSync, readdir: fs.readdirSync,
@@ -4252,7 +4318,9 @@ export async function main(argv, io = {}) {
     let history;
     if (fullAdmission && snapshotDir && !o.runScans && o.classA !== false) {
       try {
-        const common = o.spawn("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], { cwd: snapshotCheckout });
+        // NN25: the same question, in the same words, the snapshot sync asked before the proof (snapshot-git.mjs discoveryRun), so this
+        // process already holds the answer (probe-memo.mjs) and no git starts after the proof line. An injected spawn is asked as before.
+        const common = o.spawn === defaultSpawn ? discoveryRun(snapshotCheckout, ["rev-parse", "--path-format=absolute", "--git-common-dir"]) : o.spawn("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], { cwd: snapshotCheckout });
         if (failed(common) || !text(common).trim()) throw new Error("cannot identify Class A cache location");
         const storeDir = o.env.RK_GATE_CACHE_DIR || path.join(text(common).trim(), "rightkit-gate-cache");
         history = openClassAHistory({ historyRoot: path.join(gateRunsRoot({ env: o.env, platform: o.platform }), "rightkit-class-a-history"), storeDir });
@@ -4260,9 +4328,23 @@ export async function main(argv, io = {}) {
     }
     const ruleCache = snapshotDir && snapshotCommit && !args.includes("--worktree") && !o.appCheck ? ruleVerdictCache({ checkout: snapshotCheckout, spawn: o.spawn }) : null;
     const appKey = ruleCache ? ruleCache.key({ rule: "app-check", tree: snapshotCommit.tree, args: appArgs, gate: gatePackageIdentity(o.gatePackage) }) : null;
-    const appCheck = appKey && ruleCache.passed(appKey)
+    const appCached = Boolean(appKey && ruleCache.passed(appKey));
+    let appCheck = appCached
       ? (o.out(`check: ${snapshotCommit.commit.slice(0, 12)} app rules: cached pass (tree ${snapshotCommit.tree.slice(0, 12)})`), 0)
       : await (o.appCheck ?? (await import("../app-check.mjs")).main)(appArgs, { out: o.out, err: o.err, label: "check", cwd: o.cwd, ...(snapshotDir && !args.includes("--worktree") ? { snapshot: snapshotDir } : {}) });
+    // GC-A15 ("An app carries no Cargo profile table but [profile.release]"; Adrian 2026-11-03: "hard block"). The rule lived only in the release
+    // tool (release.mjs cargo-profile-contract), so a commit that adds [profile.dev] to an app passed check and compile (contract test N15, failed
+    // on sealed 0.6.58 and on the Dell copy 2026-11-19). It is judged here with the app rules, by the release tool's own scan (same workspace
+    // roots, same exemptions), for every app root the commit tracks (a right-release.config), and its verdict is cached with theirs per tree.
+    // RightKit itself is judged per unit (rightkitDoorRule) and is not an app repository: its e2e-app keeps a [profile.dev] for its own harness.
+    if (!appCached && appCheck === 0 && fullAdmission && snapshotDir && snapshotCommit && !o.appCheck) {
+      try {
+        const listed = o.spawn("git", ["ls-tree", "-r", "--name-only", "-z", snapshotCommit.commit], { cwd: snapshotCheckout });
+        if (failed(listed)) throw new Error(`cannot list commit ${snapshotCommit.commit}`);
+        const lines = await cargoProfileRuleLines({ tracked: text(listed).split("\0").filter(Boolean), snapshotDir, label: path.basename(snapshotCheckout) });
+        if (lines.length) { for (const line of lines) o.err(`check: ${line}`); appCheck = 1; }
+      } catch (error) { o.err(`rightkit-gate: BLOCKED: the Cargo profile rule (GC-A15) could not be judged: ${error.message}`); return 1; }
+    }
     if (appKey && appCheck === 0) ruleCache.pass(appKey);
     if (args.includes("--list") || args.includes("--print-baseline") || args.includes("--only") || o.classA === false) {
       // A view of the app rules, never a class A verdict: say so, so no caller can take its exit 0 for a full check.
@@ -5030,7 +5112,10 @@ export async function main(argv, io = {}) {
     }
     const cargoMetadataTopologies = new Map();
     if (authenticateCargoWorkspace) {
-      const cargoHome = o.env.CARGO_HOME || path.join(o.env.USERPROFILE || o.env.HOME || os.homedir(), ".cargo");
+      // Dell 2026-11-19 (NN01, NN03, NN04, NN10, NN21, NN24): an agent profile's `.cargo` is a link to the user's Cargo home, the proof below
+      // refuses any linked discovery input, so all six fixture workspaces came back unproven and their metadata rows ran real Cargo on every
+      // run. The Cargo home is named by where it really is; a link that moves names another directory and changes the proof.
+      const cargoHome = cargoHomeOf(o.env);
       for (const row of plan.scans.filter((scan) => scan.class === "A" && /^cargo-metadata(:|$)/.test(scan.id))) {
         const proof = classACargoPath && cargoMetadata.cargoWorkspaceTopology({ root: repo, dir: row.cwd ?? ".", cargoHome });
         if (proof) cargoMetadataTopologies.set(row.id, proof);
@@ -5146,7 +5231,13 @@ export async function main(argv, io = {}) {
     // (`["rustright", ...]`) asks through that one. No client to ask (a shim-only executor with none resolved): no reader, and the scan's limit simply runs.
     const executorClient = path.basename(String(cargoCommand[0] ?? "")).replace(/\.(exe|cmd|bat)$/i, "") === "rustright" ? (brokerClientOf(o, executor) ?? cargoCommand[0]) : null;
     const brokerClient = !brokerHost ? null : declaredClient ? "rustright" : managedRuntimeClient(o.env, o.platform, o.exists) ?? executorClient;
-    const brokerLive = brokerClient ? createBrokerLive({ client: brokerClient, env: { ...o.env, ...(executor.env ?? {}) }, spawn: withDeclaredClient(defaultSpawnAsync), platform: o.platform }) : null;
+    // NN07: job states are read over the broker's own endpoint from this process when the endpoint and the runtime identity beside the client
+    // can be established (the same target the snapshot-status query uses); otherwise through the client, as before.
+    const brokerWire = (() => {
+      if (!brokerClient || o.spawn !== defaultSpawn) return null;
+      try { const target = brokerControlTarget({ ...o, env: { ...o.env, ...(executor.env ?? {}) } }, { client: brokerClient }); return target.ok ? { endpoint: target.endpoint, protocol: BUILD_CONTROL_PROTOCOL, runtime: target.identity } : null; } catch { return null; }
+    })();
+    const brokerLive = brokerClient ? createBrokerLive({ client: brokerClient, env: { ...o.env, ...(executor.env ?? {}) }, spawn: withDeclaredClient(defaultSpawnAsync), platform: o.platform, wire: brokerWire }) : null;
 
     if (planOnly) {
       o.out(`${tag} plan: ${plan.scans.length} scan(s) for ${changed.length} changed file(s) vs ${base.slice(0, 12)} (reads the working tree; nothing runs)`);
@@ -5411,6 +5502,8 @@ export async function main(argv, io = {}) {
     const scanOptions = {
       ...(authenticateCargoWorkspace ? { cargoWorkspaceFactsFor: authenticateCargoWorkspace } : {}),
       ...(classACargoPath ? { classAToolPaths: { cargo: classACargoPath } } : {}),
+      // NN09: the broker's compiler is read from its host configuration in this process; no `rustright cargo --version` starts (broker-toolchain.mjs).
+      ...(() => { const bt = brokerToolchainOf(o, executor); return bt ? { brokerToolchain: bt } : {}; })(),
       // The commit's own files (rightkit#1393): a snapshot is not a git toplevel, so the secret scan needs this list to judge tracked files only and never what a stage wrote there.
       ...(snapshot ? { trackedFiles: files } : {}),
       classes: stageClasses, ...(classAEarlier ? { classAEarlier: true } : {}), jobs, classBJobs, classBBatching: !o[PRIVATE_SCOPED_COMPILE], groupTests: true, classBPipeline: 2, ...(brokerHost ? { brokerHost: true } : {}), ...(brokerLive ? { brokerLive } : {}), signal: ac.signal, ...(cache ? { cache } : {}),
@@ -5738,7 +5831,7 @@ if (invokedDirectly) {
     setTreeListingStore(treeLists ? contentStore(path.join(treeLists, "sealed")) : null);
   }
   // NN11/NN28: how this run proved the snapshot, once, at the end (snapshot.mjs SNAPSHOT_PROOF_COUNTS).
-  process.once("exit", () => { const c = SNAPSHOT_PROOF_COUNTS; if (c.treeHashes + c.verifyWalks + c.residentProofs > 0) { try { process.stdout.write(`${stampChildLines ? `${new Date().toISOString()} ` : ""}rightkit-gate: ${snapshotProofLine("node-fs-watch")}\n`); } catch { /* stdout closed */ } } });
+  process.once("exit", () => { const c = SNAPSHOT_PROOF_COUNTS; if (c.treeHashes + c.verifyWalks + c.residentProofs > 0) { try { process.stdout.write(`${stampChildLines ? `${new Date().toISOString()} ` : ""}rightkit-gate: ${snapshotProofLine(c.changeSource ?? "none")}\n`); } catch { /* stdout closed */ } } });
   // Every child this run starts that can reach rustright (scans, unit stages, right-release dev/test, their builds) inherits it.
   process.env.RUSTRIGHT_CALLING_GATE = callingGatePath();
   delete process.env.RIGHTKIT_CALLING_GATE; // one spelling, never both

@@ -202,3 +202,79 @@ function moduleDigest() {
 export function partitionCacheKey({ rest, crates, target = null, cwd = ".", inputs, toolVersion = null }) {
   return sha256(`${FEATURE_PARTITION_SCHEMA}\0${JSON.stringify({ rest, crates: [...crates].sort(), target, cwd, inputs, toolVersion, code: moduleDigest() })}`);
 }
+
+// ---- several targets in one command (GATE-CONTRACT NN42) ---------------------------------------------------------------------------------
+//
+// NN42: the cross targets of one stage go in one command naming every `--target`. Cargo resolves features once per call for host and for
+// target dependencies, never per triple, so a call naming two targets builds each with the union of both targets' features (HeardRight on the
+// Dell, 2026-11-10: the macOS-only sqlcipher-system reached the Linux target). From 2026-11-10 the gate therefore named one target per call,
+// always, which NN42 fails. Both hold when targets share a call exactly where that changes nothing: two targets may share one when every
+// package both of them build resolves with the same features for each alone. Then the union is each one's own resolution.
+
+export const TARGET_SPLIT_NOTE = "class B targets: ";
+
+/** treeArgs for several targets: every `--target` named, as the compile command will name them. */
+export function treeArgsForTargets({ rest, packages, targets }) {
+  if (!Array.isArray(targets) || !targets.length || targets.some((t) => typeof t !== "string" || !t)) throw new TypeError("treeArgsForTargets: targets must be target triples");
+  const args = treeArgs({ rest, packages, target: targets[0] });
+  const at = args.indexOf("--target");
+  return [...args.slice(0, at), ...targets.flatMap((t) => ["--target", t]), ...args.slice(at + 2)];
+}
+
+/** The first package two targets both build and resolve differently: `{ package, aFeatures, bFeatures }` (each a sorted list of feature lists), or null. */
+export function targetDifference(a, b) {
+  for (const pkg of [...a.keys()].sort()) {
+    const fb = b.get(pkg); if (!fb) continue;
+    const fa = a.get(pkg);
+    if (!sameSet(fa, fb)) return { package: pkg, aFeatures: [...fa].sort(), bFeatures: [...fb].sort() };
+  }
+  return null;
+}
+
+/**
+ * The targets grouped so that any two in one group resolve every package they share alike. `featuresByTarget`: Map target -> parseTreeFeatures
+ * map of that target alone. Greedy and in the given order: a target joins the first group it agrees with on every member, else it starts one.
+ * Returns `{ classes: [[target, ...], ...], differences: [{ a, b, package, aFeatures, bFeatures }] }`, one difference for each pair that a
+ * group boundary separates and that does differ (the reason those two do not share a command).
+ */
+export function compatibleTargetClasses(featuresByTarget) {
+  const classes = []; const differences = [];
+  const noted = new Set();
+  const note = (a, b, d) => { const k = [a, b].sort().join("\0"); if (noted.has(k)) return; noted.add(k); differences.push({ a, b, ...d }); };
+  for (const [target, features] of featuresByTarget) {
+    let joined = false;
+    for (const cls of classes) {
+      let clash = null;
+      for (const other of cls) { const d = targetDifference(featuresByTarget.get(other), features); if (d) { clash = { other, d }; break; } }
+      if (!clash) { cls.push(target); joined = true; break; }
+      note(clash.other, target, clash.d);
+    }
+    if (!joined) classes.push([target]);
+  }
+  // Every pair of targets left in different groups is named when it differs, so a reader sees for each pair why it does not share a command.
+  for (let i = 0; i < classes.length; i += 1) for (let j = i + 1; j < classes.length; j += 1) for (const a of classes[i]) for (const b of classes[j]) {
+    const d = targetDifference(featuresByTarget.get(a), featuresByTarget.get(b));
+    if (d) note(a, b, d);
+  }
+  return { classes, differences };
+}
+
+/**
+ * Whether cargo's own resolution of several targets in ONE call (`group`, a parseTreeFeatures map of the call naming them all) is each
+ * target's resolution alone, for every package that target builds: null when it is, else `{ target, package, aloneFeatures, groupFeatures }`.
+ */
+export function groupTargetDifference(group, featuresByTarget, targets) {
+  for (const target of targets) {
+    const alone = featuresByTarget.get(target);
+    for (const pkg of [...alone.keys()].sort()) {
+      const g = group.get(pkg);
+      if (!g || !sameSet(alone.get(pkg), g)) return { target, package: pkg, aloneFeatures: [...alone.get(pkg)].sort(), groupFeatures: g ? [...g].sort() : null };
+    }
+  }
+  return null;
+}
+
+/** The note the gate prints for two targets that stay separate commands; the contract test reads it back (targetSplitNotesOf). */
+export function targetSplitNote({ sub, cwd, crates = null, a, b, package: pkg, aFeatures, bFeatures }) {
+  return `${TARGET_SPLIT_NOTE}${JSON.stringify({ sub, cwd, ...(Array.isArray(crates) ? { crates } : {}), a, b, package: pkg, aFeatures, bFeatures })}`;
+}

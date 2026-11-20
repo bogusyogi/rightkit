@@ -23,9 +23,9 @@ import path from "node:path";
 import { serveRequest } from "./gate-serve.mjs";
 import { LIVE_SCAN_IDS, defaultSpawn, isLiveScan, isRegistryScan, launchGuardEnv, planScans, runScans } from "./deterministic-scans.mjs";
 import { compileLaunch } from "./class-a-launch-guard.mjs";
-import { SnapshotError, dependencyDirs, isInside, snapshotProblem, snapshotTree, treeEntries, SNAPSHOT_PROOF_COUNTS } from "./snapshot.mjs";
+import { SnapshotError, dependencyDirs, isInside, noteChangeSource, snapshotProblem, snapshotTree, treeEntries, treeProvenByChanges, SNAPSHOT_PROOF_COUNTS } from "./snapshot.mjs";
 import { discoveryRun, sealedRun } from "./snapshot-git.mjs";
-import { snapshotDependencyReuse } from "./snapshot-dependency-reuse.mjs";
+import { pnpmVersionAnswer, snapshotDependencyReuse } from "./snapshot-dependency-reuse.mjs";
 import { gateRunsRoot } from "./managed-roots.mjs";
 import { writePerformanceDiagnostic } from "./performance-diagnostic.mjs";
 
@@ -120,7 +120,7 @@ export function commitOf(checkout, rev, spawn = defaultSpawn) { // eslint-disabl
  * (the entries an earlier verify returned) and/or `admitNew` (the END of a stage only), the stage's own ignored, untracked outputs
  * are admitted and the ledger must still match exactly. Then the result is `{ tree, ledger: [{ path, type, size, sha256, execBit }] }`.
  */
-export function verifySnapshotDir({ checkout, dir, commit, tree, when, ledger, admitNew }) {
+export function verifySnapshotDir({ checkout, dir, commit, tree, when, ledger, admitNew, resident = serveRequest }) {
   const diagnosticDir = process.env.RIGHTKIT_PREPARATION_DIAGNOSTIC_DIR;
   const labels = new Map([["before the check", "before-check"], ["after the check", "after-check"], ["before class A", "before-class-a"], ["after class A", "after-class-a"], ["before dependency installation", "before-dependencies"], ["after dependency installation and probes", "after-dependencies"], ["after reused dependency probes", "after-reuse"], ["after failed dependency installation cleanup", "failed-dependencies"], ["before the offline store check", "before-store"], ["after the offline store check", "after-store"], ["for env-digest", "env-digest"]]);
   const phase = labels.get(when) ?? 'other';
@@ -130,23 +130,27 @@ export function verifySnapshotDir({ checkout, dir, commit, tree, when, ledger, a
   // full verify takes the change generation first and records the proof after it passes. Any doubt means the full verify below.
   const plain = ledger === undefined && admitNew !== true;
   let generation = null;
-  if (plain) {
-    const c = serveRequest({ op: "check", dir, tree }, { root: path.dirname(path.resolve(dir)) });
-    if (c?.clean === true) { SNAPSHOT_PROOF_COUNTS.residentProofs += 1; rows.push({ label: `${phase}-resident-proof`, ms: 0, count: 1 }); if (diagnosticDir) writePerformanceDiagnostic(diagnosticDir, 'snapshot-verify', rows); return tree; }
+  // Asked in every case (NN11): with a ledger the answer is never "nothing changed", but it still says what changed since the tree was proven.
+  const c = noteChangeSource(resident({ op: "check", dir, tree }, { root: path.dirname(path.resolve(dir)) }));
+  {
+    if (plain && c?.clean === true) { SNAPSHOT_PROOF_COUNTS.residentProofs += 1; rows.push({ label: `${phase}-resident-proof`, ms: 0, count: 1 }); if (diagnosticDir) writePerformanceDiagnostic(diagnosticDir, 'snapshot-verify', rows); return tree; }
     if (Number.isInteger(c?.generation)) generation = c.generation;
   }
   try {
   const ledgerMode = ledger !== undefined || admitNew === true;
-  let inspected;
-  try { const entries = timed('tree-entries', () => treeEntries(checkout, commit)); SNAPSHOT_PROOF_COUNTS.verifyWalks += 1; inspected = timed('walk', () => snapshotProblem({ dir, entries, checkout, commit, ledger, admitNew })); }
+  let inspected; let entries;
+  try { entries = timed('tree-entries', () => treeEntries(checkout, commit)); SNAPSHOT_PROOF_COUNTS.verifyWalks += 1; inspected = timed('walk', () => snapshotProblem({ dir, entries, checkout, commit, ledger, admitNew })); }
   catch (e) { throw new CheckError(`cannot list snapshot ${dir} ${when}: ${e.message}`); }
   const extra = ledgerMode ? inspected.problem : inspected;
   if (extra) throw new CheckError(`snapshot ${dir} is not exactly commit ${commit}${ledgerMode ? " plus its stage-output ledger" : ""} ${when}: ${extra}`);
   let actual;
-  try { actual = timed('tree-hash', () => snapshotTree({ checkout, dir, baseTree: tree })); }
+  // NN11: the walk passed. When the open gate process knows what changed since this tree was proven, only the commit's files those changes
+  // could have touched are compared with the commit's blobs (snapshot.mjs treeProvenByChanges); otherwise the tree is hashed.
+  try { actual = c?.base && timed('changed-files', () => treeProvenByChanges({ reply: c, dir, tree, entries })) ? tree : timed('tree-hash', () => snapshotTree({ checkout, dir, baseTree: tree })); }
   catch (e) { throw new CheckError(`cannot compute the tree of snapshot ${dir} ${when}: ${e.message}`); }
   if (actual !== tree) throw new CheckError(`snapshot ${dir} is tree ${actual} ${when}, not tree ${tree} of commit ${commit}`);
-  if (plain && generation !== null) serveRequest({ op: "record", dir, tree, generation });
+  // A plain verify found exactly the commit: "record". With a ledger the commit's files are this tree beside admitted outputs: "tree-record".
+  if (generation !== null) resident({ op: plain ? "record" : "tree-record", dir, tree, generation });
   return ledgerMode ? { tree: actual, ledger: inspected.admitted } : actual;
   } finally { if (diagnosticDir) writePerformanceDiagnostic(diagnosticDir, 'snapshot-verify', rows); }
 }
@@ -326,7 +330,7 @@ export function installSnapshotDependencies({ checkout, snapshot, commit, tree, 
       verifySnapshotDir({ checkout, dir: base, commit, tree, when: "after failed dependency installation cleanup", ...(ledger !== undefined ? { ledger } : {}) });
     };
   };
-  const versionOf = (cwd) => { const r = spawn("pnpm", ["--version"], { cwd, env: { ...env, COREPACK_ENABLE_AUTO_PIN: "0" } }); return failed(r) ? null : text(r).trim().split(/\r?\n/).pop(); };
+  const versionOf = (cwd) => { const probeEnv = { ...env, COREPACK_ENABLE_AUTO_PIN: "0" }; return pnpmVersionAnswer({ cwd, env: probeEnv, remember: spawn === defaultSpawn, run: () => { const r = spawn("pnpm", ["--version"], { cwd, env: probeEnv }); return failed(r) ? null : text(r).trim().split(/\r?\n/).pop(); } }); };
   for (const root of roots) {
     const dir = path.resolve(base, root);
     if (!inside(dir, base)) throw new CheckError(`root ${root}: dependency install is outside the snapshot`);
@@ -348,7 +352,7 @@ export function installSnapshotDependencies({ checkout, snapshot, commit, tree, 
     const ownedDirs = generated.filter((d) => nearestLock(fold(dirOf(d))) === owner);
     const reuseStarted = performance.now();
     const reuseDiagnostic = {};
-    const reuse = snapshotDependencyReuse({ checkout, snapshot: base, tree, root, dirs: ownedDirs, filters, storeDir, version, env, spawn, diagnostic: reuseDiagnostic });
+    const reuse = snapshotDependencyReuse({ checkout, snapshot: base, tree, root, dirs: ownedDirs, filters, storeDir, version, env, spawn, diagnostic: reuseDiagnostic, remember: spawn === defaultSpawn });
     if (reuse?.matches()) {
       const skipped = probe ? probe({ dir, root, names: allowedBuilds(dir), spawn, env }) : [];
       if (reuse.matches()) {
@@ -417,7 +421,7 @@ export function verifySnapshotStore({ checkout, snapshot, commit, tree, ledger, 
   } catch (error) { throw new CheckError(`the snapshot store check needs a real snapshot directory: ${snapshot}: ${error.message}`); }
   if (inside(base, checkout) || inside(checkout, base)) throw new CheckError(`snapshot ${base} and checkout ${checkout} overlap`);
   verifySnapshotDir({ checkout, dir: base, commit, tree, when: "before the offline store check", ...(ledger !== undefined ? { ledger } : {}) });
-  const versionOf = (cwd) => { const r = spawn("pnpm", ["--version"], { cwd, env: { ...env, COREPACK_ENABLE_AUTO_PIN: "0" } }); return failed(r) ? null : text(r).trim().split(/\r?\n/).pop(); };
+  const versionOf = (cwd) => { const probeEnv = { ...env, COREPACK_ENABLE_AUTO_PIN: "0" }; return pnpmVersionAnswer({ cwd, env: probeEnv, remember: spawn === defaultSpawn, run: () => { const r = spawn("pnpm", ["--version"], { cwd, env: probeEnv }); return failed(r) ? null : text(r).trim().split(/\r?\n/).pop(); } }); };
   for (const root of roots) {
     const dir = path.resolve(base, root);
     if (!inside(dir, base)) throw new CheckError(`root ${root}: the store check is outside the snapshot`);

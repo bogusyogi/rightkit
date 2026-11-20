@@ -6,6 +6,8 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { installIdentity } from './dependency-identity.mjs';
+import { answerKey, fileMarks, recallAnswer, rememberAnswer } from './resident-answers.mjs';
+import { resolveOnPath } from './tool-version-memo.mjs';
 
 const PER_RUN_BOOKKEEPING = /^(?:RK_GATE_|RIGHTKIT_BUILD_OWNERSHIP$|RUSTRIGHT_GATE_RUN$|RUSTRIGHT_QUIET_LEASE$|RIGHTKIT_CARRIED_CARGO_MAP$|RUSTRIGHT_ATTEST_NONCE$|RUSTRIGHT_RECEIPT_NONCE$|RUSTRIGHT_REQUEST_ID_FILE$|RUSTRIGHT_SNAPSHOT_REQUEST$|RK_DIRECT_RECEIPT$)/;
 
@@ -181,12 +183,105 @@ export function canonicalConfigFingerprint(effective, files) {
   return hash(JSON.stringify({ effective: canonical(effective), files }));
 }
 
-export function pnpmConfigIdentity({ dir, env, spawn }) {
+// NN07 (Dell 2026-11-19, S2_check2 ledger): one gate run asked pnpm the same three config questions three times over (9 starts, one process).
+// pnpm's answers depend on the directory and the environment it is started with, so one run asks each question once per (dir, env) and keeps the
+// answer in memory only (never written, never logged). The two config files are still read and hashed on every call, so an edit of either one
+// changes the fingerprint; a failed question is not remembered.
+const PNPM_CONFIG_ANSWERS = new Map();
+export const forgetPnpmConfigAnswers = () => PNPM_CONFIG_ANSWERS.clear();
+/**
+ * The files a pnpm answer given in `dir` with `env` depends on, beyond the question, the directory and the environment (which are in the answer's
+ * key). `program` is the pnpm PATH resolves, or null when it cannot be named beyond doubt (then nothing is ever kept).
+ *  - The program and what it starts. On Windows the launcher alone says nothing (a `pnpm.cmd` has the same bytes across pnpm versions), so the
+ *    launcher, the script or executable it names and the node that runs it are all listed (windowsPnpmIdentity, the same proof the Class A key
+ *    uses), with the `package.json` of the pnpm package it belongs to. Elsewhere the resolved program, its real path and that `package.json`.
+ *  - Every `.npmrc`, `pnpm-workspace.yaml` and `package.json` from `dir` up to the root of the drive (project and workspace settings, the
+ *    `packageManager` pin), the home `.npmrc`, pnpm's own rc files, node's built-in npmrc, corepack's last-known-good record, and the config
+ *    files the environment names.
+ * A file that does not exist is a dependency too: one that appears later changes the answer.
+ */
+export function pnpmConfigDependencies({ dir, env, platform = process.platform, execPath = process.execPath }) {
+  const e = env ?? {};
+  const files = [];
+  let program = null;
+  const packageJsonAbove = (file) => { let at = path.dirname(file); for (let i = 0; i < 4; i += 1) { files.push(path.join(at, 'package.json')); if (path.dirname(at) === at) break; at = path.dirname(at); } };
+  if (platform === 'win32') {
+    // Paths only: the marks are taken by the caller (large programs by size and time), so nothing big is read here.
+    const small = (f) => { try { return fs.statSync(f).size > (1 << 20) ? Buffer.alloc(0) : fs.readFileSync(f); } catch { return Buffer.alloc(0); } };
+    let identity = null;
+    try { identity = windowsPnpmIdentity(e, { execPath, readFile: small }); } catch { identity = null; }
+    if (Array.isArray(identity) && identity.length) {
+      program = identity[0][0];
+      for (const [f] of identity) files.push(f);
+      if (identity[1]) packageJsonAbove(identity[1][0]);
+    }
+  } else {
+    const found = resolveOnPath('pnpm', { env: e, platform });
+    if (found) {
+      program = found; files.push(found);
+      let real = found; try { real = fs.realpathSync(found); } catch { real = found; }
+      if (real !== found) files.push(real);
+      packageJsonAbove(real); files.push(execPath);
+    }
+  }
+  for (let at = path.resolve(String(dir)); ; at = path.dirname(at)) {
+    for (const name of ['.npmrc', 'pnpm-workspace.yaml', 'package.json']) files.push(path.join(at, name));
+    if (path.dirname(at) === at) break;
+  }
+  const home = platform === 'win32' ? (e.USERPROFILE ?? e.HOME) : e.HOME;
+  if (home) files.push(path.join(home, '.npmrc'), path.join(home, '.config', 'pnpm', 'rc'), path.join(home, 'Library', 'Preferences', 'pnpm', 'rc'));
+  if (e.LOCALAPPDATA) files.push(path.join(e.LOCALAPPDATA, 'pnpm', 'config', 'rc'));
+  if (e.XDG_CONFIG_HOME) files.push(path.join(e.XDG_CONFIG_HOME, 'pnpm', 'rc'));
+  files.push(path.join(path.dirname(execPath), 'etc', 'npmrc'), path.join(path.dirname(execPath), 'node_modules', 'npm', 'npmrc'));
+  const corepackHome = e.COREPACK_HOME ?? (platform === 'win32' ? (e.LOCALAPPDATA ? path.join(e.LOCALAPPDATA, 'node', 'corepack') : null) : (home ? path.join(home, '.cache', 'node', 'corepack') : null));
+  if (corepackHome) files.push(path.join(corepackHome, 'lastKnownGood.json'));
+  for (const [name, value] of Object.entries(e)) if (/^npm_config_(userconfig|globalconfig)$/i.test(name) && typeof value === 'string' && path.isAbsolute(value)) files.push(value);
+  return { program, files: [...new Set(files)] };
+}
+
+/**
+ * `pnpm --version` as pnpm answers it in `cwd` with `env` (NN25, NN07; Dell 2026-11-19, every warm check: five such starts, two of them the same
+ * bounded probe). `run()` asks pnpm and returns the version line or null; it may throw, and nothing is kept then. With `remember` the open gate
+ * process keeps the answer under the directory and the environment less the gate's per-run bookkeeping, and gives it back only while the files
+ * that decide which pnpm runs there still have the marks they had before pnpm was asked (pnpmConfigDependencies).
+ */
+export function pnpmVersionAnswer({ cwd, env, remember = false, run }) {
+  const dependencies = remember ? pnpmConfigDependencies({ dir: cwd, env }) : null;
+  const lastingEnv = dependencies?.program ? Object.entries(env ?? {}).filter(([name]) => !PER_RUN_BOOKKEEPING.test(String(name).toUpperCase())).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)) : null;
+  const key = dependencies?.program ? answerKey(['rightkit.pnpm-version-answer/2', path.resolve(String(cwd)), lastingEnv]) : null;
+  const kept = key ? recallAnswer(key, { env }) : null;
+  if (kept) return kept;
+  const marks = key ? fileMarks(dependencies.files) : null;
+  const version = run();
+  if (key && typeof version === 'string' && /^\d+\.\d+\.\d+/.test(version)) rememberAnswer(key, version, marks, { env });
+  return version;
+}
+
+export function pnpmConfigIdentity({ dir, env, spawn, remember = false }) {
   const fail = (code) => { const e = new Error(code); e.reuseCode = code; throw e; };
+  // The files pnpm's answers depend on, as they are now. They are part of this run's own memory key too: a project `.npmrc` or a workspace
+  // setting edited between two calls of one run (install, then match) asks pnpm again, as it did before answers were kept at all.
+  const dependencies = pnpmConfigDependencies({ dir, env });
+  const marksNow = fileMarks(dependencies.files);
+  const scope = hash(JSON.stringify([path.resolve(String(dir)), Object.entries(env ?? {}).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)), marksNow]));
+  // NN25 (Dell 2026-11-19, every warm check: `pnpm config list --json`, `get userconfig`, `get globalconfig`): with `remember` (the real spawn
+  // only; an injected spawn sees every call) the open gate process keeps each answer for the runs after this one (resident-answers.mjs). It is
+  // keyed by the question, the directory and the environment less the gate's per-run bookkeeping (the reuse record's own rule, below), and is
+  // given back only while every file it depends on still has the mark it had before pnpm was asked. No pnpm program named: nothing is kept.
+  const lastingEnv = remember ? Object.entries(env ?? {}).filter(([name]) => !PER_RUN_BOOKKEEPING.test(String(name).toUpperCase())).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)) : null;
+  const lastingKey = (args) => (remember && dependencies.program ? answerKey(['rightkit.pnpm-config-answer/2', path.resolve(String(dir)), lastingEnv, args]) : null);
   const ask = (args) => {
+    const key = `${scope}\u0000${args.join(' ')}`;
+    if (PNPM_CONFIG_ANSWERS.has(key)) return PNPM_CONFIG_ANSWERS.get(key);
+    const lasting = lastingKey(args);
+    const kept = lasting ? recallAnswer(lasting, { env }) : null;
+    if (kept !== null) { PNPM_CONFIG_ANSWERS.set(key, kept); return kept; }
     const r = spawn('pnpm', ['config', ...args], { cwd: dir, env, maxBuffer: 1 << 24 });
     if (r?.status !== 0 || r?.error || r?.signal) fail(args[0] === 'list' ? 'config-list-failed' : 'config-path-query-failed');
-    return String(r.stdout ?? '').trim();
+    const answer = String(r.stdout ?? '').trim();
+    PNPM_CONFIG_ANSWERS.set(key, answer);
+    if (lasting && (answer || args[0] !== 'list')) rememberAnswer(lasting, answer, marksNow, { env });
+    return answer;
   };
   const effective = ask(['list', '--json']);
   if (!effective) fail('config-list-empty');
@@ -218,7 +313,7 @@ export function preparationInputComponents({ source, toolchain, config, store, e
   return Object.fromEntries(Object.entries({ source, toolchain, config, store, environment }).map(([name, value]) => [name, hash(JSON.stringify(value))]));
 }
 
-export function snapshotDependencyReuse({ checkout, snapshot, tree, root, dirs, filters, storeDir, version, env, spawn, diagnostic = {} }) {
+export function snapshotDependencyReuse({ checkout, snapshot, tree, root, dirs, filters, storeDir, version, env, spawn, diagnostic = {}, remember = false }) {
   let stage = 'pnpm-identity';
   try {
     const executable = pnpmIdentity(env);
@@ -232,7 +327,7 @@ export function snapshotDependencyReuse({ checkout, snapshot, tree, root, dirs, 
     const recordPath = path.join(cacheDir, `${hash(`${fs.realpathSync(snapshot)}\0${root}`)}.json`);
     // Hash values in memory; only the final digest is persisted, never env.
     stage = 'config';
-    const config = pnpmConfigIdentity({ dir: path.resolve(snapshot, root), env, spawn });
+    const config = pnpmConfigIdentity({ dir: path.resolve(snapshot, root), env, spawn, remember });
     stage = 'input-identity';
     const components = preparationInputComponents({ source: { checkout: fs.realpathSync(checkout), snapshot: fs.realpathSync(snapshot), tree, root, dirs: [...dirs].sort(), filters }, toolchain: { pnpm: executable, version, node: [fs.realpathSync(process.execPath), hash(fs.readFileSync(process.execPath)), process.version], platform: [process.platform, process.arch], gate: packageIdentity() }, config, store: fs.realpathSync(storeDir), env });
     const inputs = hash(JSON.stringify(components));
@@ -244,7 +339,7 @@ export function snapshotDependencyReuse({ checkout, snapshot, tree, root, dirs, 
       matches() {
         let phase = 'config';
         try {
-          if (pnpmConfigIdentity({ dir: path.resolve(snapshot, root), env, spawn }) !== config) { diagnostic.match = 'config-changed'; return false; }
+          if (pnpmConfigIdentity({ dir: path.resolve(snapshot, root), env, spawn, remember }) !== config) { diagnostic.match = 'config-changed'; return false; }
           phase = 'record';
           const record = JSON.parse(fs.readFileSync(recordPath, 'utf8'));
           if (record.schema !== 5 || !record.components || typeof record.components !== 'object' || typeof record.dependencies !== 'string') { diagnostic.match = 'record-invalid'; return false; }
@@ -260,7 +355,7 @@ export function snapshotDependencyReuse({ checkout, snapshot, tree, root, dirs, 
       save() {
         let phase = 'config';
         try {
-          if (pnpmConfigIdentity({ dir: path.resolve(snapshot, root), env, spawn }) !== config) { diagnostic.save = 'config-changed'; return; }
+          if (pnpmConfigIdentity({ dir: path.resolve(snapshot, root), env, spawn, remember }) !== config) { diagnostic.save = 'config-changed'; return; }
           phase = 'digest';
           digestChecks++;
           const { digest, capture } = dependencyProof(snapshot, dirs, diagnosticDir);
