@@ -12,7 +12,6 @@
     "gate-serve.mjs",
     "managed-root-guard.mjs",
     "managed-roots.mjs",
-    "run-record.mjs",
     "rustright-names.mjs",
     "seam-broker.mjs",
     "snapshot-changes.mjs",

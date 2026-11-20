@@ -1,11 +1,13 @@
 // Each of the twelve lines is shown to pass a run that meets it and to fail, or to say "not measured", for a run that breaks it or leaves
-// no record of it, on small hand-made records of the same shape a real run leaves (log lines, process list, forecast files, coverage
-// reports, the Class A verdict, the receipt). A check that cannot fail proves nothing.
+// no evidence of it, on small hand-made evidence of the same shape a real run leaves outside the gate (the operating system's process record,
+// the broker's signed jobs, git, the history copied before the run, the cache store, the launcher). A check that cannot fail proves nothing.
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { test } from "node:test";
-import { CHECK_IDS, CONTRACT_FILE, brokerCompileOf, judgeRun, linkProblems, parseAcceptanceLines, parseJournal, parseLedger, readAcceptanceLines } from "./acceptance-lines.mjs";
-import { parseRunRecord } from "./run-record.mjs";
+import os from "node:os";
+import path from "node:path";
+import { CHECK_IDS, CONTRACT_FILE, judgeRun, linkProblems, parseAcceptanceLines, parseCommandLine, processesFromWindowsEvents, readAcceptanceLines } from "./acceptance-lines.mjs";
+import { exportWindowsProcesses, historyFileFor, takeLaunchLock } from "./acceptance-launch.mjs";
 
 // The lines under test are the contract's own: docs/GATE-CONTRACT.md [GC-A27], read here exactly as the command line reads them.
 const CONTRACT = fs.readFileSync(CONTRACT_FILE, "utf8");
@@ -48,535 +50,211 @@ test("anything but one clean table is refused: no markers, a repeated id, a row 
 // ---- the records of one good compile run ------------------------------------------------------------------------------------------------------
 // Class A: rustfmt:2021 changed (one of its two files changed) and ran; deny is unchanged and reused. Class B: clippy of crate a is unchanged and
 // reused, an earlier failure; clippy of crate b changed and ran, as one broker compile. Every record agrees with every other.
-const C = "a".repeat(40); const T = "b".repeat(40); const LOCK = "7d43ae54-3ea7-46f6-97ed-d9fcfb830c8a"; const SNAP = "D:\\snap\\k1";
-const at = (s) => new Date(Date.UTC(2026, 10, 20, 6, 0, 0) + s * 1000).toISOString();
-const shim = (sub, rest) => ["/d", "/s", "/c", `""D:\\managed\\agent-bin\\rustright.cmd" cargo ${sub} ${rest}"`];
-const entry = (s, cmd, args, cwd = "D:\\repo", ms = 50) => ({ pid: 100, at: at(s), ms, sync: true, cmd, args, cwd, status: 0 });
-const compile = (s, sub, rest, cwd = `${SNAP}\\ws`, ms = 2000) => entry(s, "C:\\WINDOWS\\system32\\cmd.exe", shim(sub, rest), cwd, ms);
+// ---- the evidence of one good compile run --------------------------------------------------------------------------------------------------------
+// Nothing here is written by the gate (Adrian, 2026-11-21: the test takes nothing from the gate's own reporting). It is what the operating
+// system recorded (programs, parents, times, exits), what the broker signed (one clippy job for crate b), what git says the selected commit is,
+// the row history the launcher copied before the gate started, the cache entries written during the run, and the launcher's own record.
+// Class A: rustfmt:2021 last read src/a.rs and src/b.rs; src/a.rs changed, so rustfmt is owed src/a.rs; deny is unchanged. Class B: clippy of
+// crate a is unchanged; clippy of crate b changed and was built by one broker job.
+const C = "a".repeat(40); const T = "b".repeat(40); const SNAP = "D:\\snap\\k1"; const GATE = 100; const LAUNCHER = 50;
+const T0 = Date.UTC(2026, 10, 20, 6, 0, 0);
+const at = (s) => new Date(T0 + s * 1000).toISOString();
+const ms = (s) => T0 + s * 1000;
+let nextPid = 200;
+const proc = (s, exe, args, { end = s + 0.05, exit = 0, ppid = GATE, pid = (nextPid += 1), cwd = null } = {}) => ({ pid, ppid, exe, args, cwd, start: ms(s), end: end === null ? null : ms(end), exit });
+const GIT = "C:\\Program Files\\Git\\cmd\\git.exe"; const RUSTFMT = "C:\\rust\\bin\\rustfmt.exe"; const RUSTRIGHT = "D:\\managed\\agent-bin\\rustright.exe"; const DENY = "C:\\cargo\\bin\\cargo-deny.exe";
+const job = (id, argv, { cwd = `${SNAP}\\ws`, start = 6.1, end = 8, waits = { admission: 50, queue: 0, bind: 50 }, gate = { commit: C, tree: T, snapshotUnchanged: true }, extra = {} } = {}) => ({
+  file: `R-${id}.json`, verified: { ok: true, problems: [] },
+  doc: { provenance: { payload: { jobId: id, request: { requestedArgv: argv, workspace: cwd, adapter: null }, startedAt: start === null ? undefined : at(start), terminalAt: end === null ? undefined : at(end), timingsMs: waits, gate, ...extra } } },
+});
+const hist = (files, key, { failed = false } = {}) => ({ last: { key, inputs: JSON.stringify({ files }) }, passes: failed ? [] : [key], failures: failed ? [key] : [] });
 function records() {
+  nextPid = 200;
   return {
-    commit: C, runPid: 100, exit: 0, limitMs: 60_000, live: { exists: () => false, alive: () => false, pids: [100] },
-    log: [
-      `${at(0)} rightkit-gate: snapshot lock held ${LOCK}`,
-      `${at(0)} rightkit-gate: snapshot ${SNAP} is commit ${C} tree ${T} (written=0 removed=0 unchanged=9)`,
-      `${at(0)} rightkit-gate: --to compile for ${C.slice(0, 12)}: check -> compile; executor broker`,
-      `${at(2)} rightkit-gate: Class A cache decision: decA.json`,
-      `${at(2)} rightkit-gate: class A verdict written: v.json`,
-      `${at(2)} rightkit-gate: coverage report covA.json: 2 scan(s) in this pass (class A)`,
-      `${at(3)} rightkit-gate: snapshot ${SNAP} is still tree ${T} after the check`,
-      `${at(9)} rightkit-gate: Class B cache decision: decB.json`,
-      `${at(9)} rightkit-gate: coverage report covB.json: 2 scan(s) in this pass (class B)`,
-      `${at(10)} rightkit-gate: snapshot ${SNAP} is still tree ${T} after the compile`,
-      `${at(10)} rightkit-gate: 3 scan(s) for 1 changed file(s); class A scans 4 at a time`,
+    launch: { schema: "rightkit.acceptance-launch/2", runId: "f".repeat(64), commit: C, kind: "compile", host: "fixture-host", gatePid: GATE, launcherPid: LAUNCHER, lanes: 4, lanesSource: "this host's cores, handed to the gate as RK_GATE_JOBS",
+      limitMs: 60_000, limitsSha256: "c".repeat(64), cacheDir: "D:\\repo\\.git\\rightkit-gate-cache", historyFile: null, historyCopiedAt: at(-1), startedAt: at(0), startMono: "0", endedAt: at(10), endMono: String(10_000_000_000n), exit: 0, signal: null, previous: null },
+    witness: { kind: "windows-security", from: at(-2), to: at(12), problems: [] },
+    procs: [
+      { pid: GATE, ppid: LAUNCHER, exe: "C:\\node\\node.exe", args: ["bin\\rightkit-gate.mjs", "--to", "compile", "--commit", C], cwd: null, start: ms(0), end: ms(10), exit: 0 },
+      proc(0, GIT, ["rev-parse", "--verify", `${C}^{commit}`]),
+      proc(1.6, RUSTFMT, ["--check", "--edition", "2021", "src/a.rs"], { end: 1.7 }),
+      proc(6, RUSTRIGHT, ["cargo", "clippy", "--profile", "release", "-p", "b", "--locked"], { end: 8 }),
     ],
-    files: {
-      "decA.json": {
-        stage: "class-a", commit: C, forecastFrozenAt: at(1), firstLookupAt: at(1.5),
-        fingerprints: [{ id: "rustfmt:2021", inputs: JSON.stringify({ files: [["src/a.rs", "1"], ["src/b.rs", "2"]] }) }],
-        forecast: [{ id: "rustfmt:2021", key: "k1", priorKey: "k0", expected: "run", changes: { inputs: ["files.0.1"], inputsChanged: 1 } }, { id: "deny", key: "k2", expected: "hit", status: "pass" }],
-        actual: [{ id: "rustfmt:2021", actual: "run", key: "k1" }, { id: "deny", actual: "hit", key: "k2" }],
-        mismatches: [], dispatchedRows: ["rustfmt:2021"], phase: "observed",
-      },
-      "decB.json": {
-        stage: "class-b", commit: C, tree: T, forecastFrozenAt: at(0.9), firstLookupAt: at(5.5),
-        forecast: [{ id: "clippy:ws:a", key: "ka", expected: "hit", status: "fail" }, { id: "clippy:ws:b", key: "kb", expected: "run", status: "pass" }],
-        actual: [{ id: "clippy:ws:a", actual: "hit", key: "ka", status: "fail" }, { id: "clippy:ws:b", actual: "run", key: "kb", status: "pass" }],
-        mismatches: [], dispatchedRows: ["clippy:ws:b"], phase: "observed",
-      },
-      "v.json": { schema: "rightkit.class-a-verdict/1", commit: C, tree: T, status: "pass" },
-      "covA.json": { commit: C, scans: [
-        { id: "rustfmt:2021", class: "A", coverage: "ran", status: "pass", lane: { readyAt: 1000, startedAt: 1000, endedAt: 1500, lanes: 4 } },
-        { id: "deny", class: "A", coverage: "hit", status: "pass" },
-        { id: "clippy:ws:a", class: "B", coverage: "skipped", status: "not-in-pass" }, { id: "clippy:ws:b", class: "B", coverage: "skipped", status: "not-in-pass" },
-      ] },
-      "covB.json": { commit: C, scans: [
-        { id: "rustfmt:2021", class: "A", coverage: "skipped", status: "not-in-pass" }, { id: "deny", class: "A", coverage: "skipped", status: "not-in-pass" },
-        { id: "clippy:ws:a", class: "B", coverage: "hit", status: "fail" }, { id: "clippy:ws:b", class: "B", coverage: "ran", status: "pass" },
-      ] },
-    },
-    ledger: [
-      entry(0, "C:\\Program Files\\Git\\cmd\\git.exe", ["rev-parse", "--verify", `${C}^{commit}`]),
-      entry(1.6, "C:\\rust\\bin\\rustfmt.exe", ["--check", "--edition", "2021", "src/a.rs"], SNAP),
-      compile(6, "clippy", "--profile release -p b --locked"),
-    ],
-    end: { end: true, pid: 100, at: at(10), open: 0, root: true, lock: LOCK },
-    tree: { "ci/shards.json": { solo: [] } },
-    extraLines: [],
-    receipt: { commit: C, binding: { tree: T }, stages: {
-      check: { ok: true, at: at(1), snapshot: { tree: T, intactAfter: true }, snapshotLock: LOCK },
-      compile: { ok: true, at: at(6), snapshot: { tree: T, intactAfter: true }, snapshotLock: LOCK },
-    } },
+    receipts: [job("j1", ["clippy", "--profile", "release", "-p", "b", "--locked"])],
+    history: { copiedAt: at(-1), A: { "rustfmt:2021": hist([["src/a.rs", "a0"], ["src/b.rs", "b1"]], "k0"), deny: hist([["Cargo.lock", "l1"]], "k2") },
+      B: { "clippy:ws:a": hist([["ws/a/src/lib.rs", "x1"]], "ka"), "clippy:ws:b": hist([["ws/b/src/lib.rs", "y0"]], "kb0") } },
+    cacheBefore: ["k0", "k2", "ka", "kb0"],
+    cacheWrites: [{ key: "k1", at: at(1.7), row: { id: "rustfmt:2021", class: "A", status: "pass" } }, { key: "kb", at: at(8), row: { id: "clippy:ws:b", class: "B", status: "pass" } }],
+    blobs: { "src/a.rs": "a1", "src/b.rs": "b1", "Cargo.lock": "l1", "ws/a/src/lib.rs": "x1", "ws/b/src/lib.rs": "y1" },
+    tree: { "ci/shards.json": { solo: [] }, "ws/Cargo.toml": '[workspace]\nmembers = ["a", "b"]\n' },
+    gateOutput: "", live: { exists: () => false, alive: () => false }, successor: null, verifierPinned: true, digests: {},
   };
 }
-// ---- the record adapter (rightkit#1514 step 3) -------------------------------------------------------------------------------------------------------
-// The hand-made records above are written as a person reads a run: log lines, files, a process list. The judge reads none of the log. This
-// adapter turns them into what a launched run leaves (acceptance-launch.mjs, run-record.mjs, spawn-ledger.mjs), so every case, the 63 frozen
-// ones included, keeps its own inputs and expected verdict: the launcher's record (start and end from the first and last stamped line, the
-// gate's pid, the exit), the run record (one fact per line that states one, and, from each forecast file, the facts of when it was frozen
-// and when its first lookup began), the process list, and its journal (a start and an end for each entry; each `end: true` line is that
-// writer's exit). A line or field a case removes is a fact the record does not have.
-const RUN_ID = "f".repeat(64);
-const stampOf = (l) => { const m = /^(\d{4}-\d\d-\d\dT[\d:.]+Z) /.exec(l); return m ? Date.parse(m[1]) : null; };
-const monoOf = (ms, k = 0) => String(BigInt(Math.round(ms)) * 1_000_000n + BigInt(k));
-const iso = (ms) => new Date(ms).toISOString();
-function recordsOf(r) {
-  const stamps = r.log.map(stampOf).filter((t) => t !== null);
-  const launch = { schema: "rightkit.acceptance-launch/1", runId: RUN_ID, commit: r.commit, kind: "fixture", host: "fixture-host", gatePid: r.runPid,
-    startedAt: stamps.length ? iso(Math.min(...stamps)) : null, endedAt: stamps.length && Number.isInteger(r.exit) ? iso(Math.max(...stamps)) : null, exit: Number.isInteger(r.exit) ? r.exit : null, signal: null, previous: null };
-  Object.assign(launch, r.launchPatch ?? {});
-  const facts = []; let seq = 0;
-  const add = (ms, k, kind, fields) => { if (Number.isFinite(ms)) facts.push({ kind, seq: (seq += 1), mono: monoOf(ms, k), at: iso(ms), pid: r.runPid ?? 100, run: RUN_ID, ...fields }); };
-  r.log.forEach((line, i) => {
-    const t = stampOf(line); const k = i + 1; let m;
-    if ((m = /snapshot lock held (\S+)/.exec(line))) add(t, k, "lock", { token: m[1], reclaimed: null });
-    else if ((m = /snapshot (\S+) is commit ([0-9a-f]{40}) tree ([0-9a-f]{40})/.exec(line))) add(t, k, "snapshot", { path: m[1], commit: m[2], tree: m[3] });
-    else if ((m = /snapshot (\S+) is still tree ([0-9a-f]{40}) after the (\w+)/.exec(line))) add(t, k, "still-tree", { stage: m[3], path: m[1], tree: m[2] });
-    else if ((m = /--to (\S+) for ([0-9a-f]{7,40})\b/.exec(line))) add(t, k, "request", { to: m[1], commit: r.commit && r.commit.startsWith(m[2]) ? r.commit : m[2] });
-    else if ((m = /Class ([AB]) cache decision: (.+?)\s*$/.exec(line))) {
-      const doc = r.files[m[2]];
-      if (doc && typeof doc.forecastFrozenAt === "string") add(Date.parse(doc.forecastFrozenAt), 0, "forecast", { class: m[1], file: m[2], phase: null });
-      if (doc && typeof doc.firstLookupAt === "string") add(Date.parse(doc.firstLookupAt), 0, "lookup", { class: m[1], key: "first" });
-      add(t, k, "decision", { class: m[1], file: m[2], mismatches: Array.isArray(doc?.mismatches) ? doc.mismatches.length : 0 });
-    } else if ((m = /class A verdict written: (.+?)\s*$/.exec(line))) add(t, k, "verdict", { file: m[1], status: r.files[m[1]]?.status ?? null });
-    else if ((m = /coverage report (\S+\.json)(?:.*\(class ([AB+]+)\))?/.exec(line))) {
-      add(t, k, "coverage", { class: m[2] ?? null, file: m[1] });
-      const rows = (r.files[m[1]]?.scans ?? []).filter((s) => s.lane && typeof s.lane === "object").map((s) => ({ id: s.id, ...s.lane }));
-      if (rows.length) add(t, k, "lanes", { class: "A", rows });
-    } else if ((m = /class A scans (\d+) at a time/.exec(line))) add(t, k, "capacity", { classAJobs: Number(m[1]), classBJobs: null, cores: null, brokerHost: true });
-    else if ((m = /RK_CACHE_DIVERGENCE (\{.*\})\s*$/.exec(line))) { let row = null; try { row = JSON.parse(m[1]); } catch { row = null; } add(t, k, "divergence", { class: null, row }); }
-  });
-  for (const job of r.brokerJobs ?? []) add(Date.parse(job.at), 0, "broker-job", job);
-  const files = { ...r.files };
-  if (r.receipt) { files["receipt.json"] = r.receipt; add(stamps.length ? Math.max(...stamps) : NaN, 9999, "receipt-out", { file: "receipt.json" }); }
-  const ledgerLines = r.ledger.map((e) => JSON.stringify(e)); const journal = [];
-  r.ledger.forEach((e, i) => {
-    const t = Date.parse(e.at); if (!Number.isFinite(t)) return;
-    journal.push({ ev: "start", id: `e${i}`, pid: e.pid, child: 1000 + i, mono: monoOf(t), at: e.at, cmd: e.cmd, args: e.args, cwd: e.cwd, ...(e.sha256 ? { sha256: e.sha256 } : {}) });
-    if (!e.open) journal.push({ ev: "end", id: `e${i}`, pid: e.pid, child: 1000 + i, mono: monoOf(t + (e.ms ?? 0)), status: e.status });
-  });
-  for (const raw of [...r.extraLines, ...(r.end ? [JSON.stringify(r.end)] : [])]) {
-    let x = null; try { x = JSON.parse(raw); } catch { x = null; }
-    if (x && x.end === true) journal.push({ ev: "exit", pid: x.pid, parent: x.parent ?? null, root: x.root === true, open: x.open, mono: monoOf(Date.parse(x.at)), at: x.at });
-    else ledgerLines.push(raw);
-  }
-  const successor = r.live?.successor ? { launch: { runId: "e".repeat(64), previous: r.live.successor.ok ? { runId: RUN_ID, reclaimed: r.live.successor.reclaimed === true } : null }, record: { facts: [{ kind: "lock", run: "e".repeat(64) }], problems: [] } } : null;
-  return { launch, record: parseRunRecord(facts.map((x) => JSON.stringify(x)).join("\n")), ledger: parseLedger(ledgerLines.join("\n")), journal: parseJournal(journal.map((x) => JSON.stringify(x)).join("\n")), files, successor };
-}
-const run = (r) => {
-  const { files, ...records } = recordsOf(r);
-  return judgeRun({
-    lines: LINES, ...records, limitMs: r.limitMs, live: r.live, verifyReceipt: r.verifyReceipt ?? null,
-    readTree: (p) => { if (!(p in r.tree)) throw Object.assign(new Error(`ENOENT ${p}`), { code: "ENOENT" }); return structuredClone(r.tree[p]); },
-    readJson: (f) => { if (!(f in files)) throw Object.assign(new Error("ENOENT"), { code: "ENOENT" }); return structuredClone(files[f]); },
-  });
-};
+const run = (r) => judgeRun({
+  lines: LINES, launch: r.launch, processes: r.procs, witness: r.witness, receipts: r.receipts, history: r.history, cacheBefore: r.cacheBefore, cacheWrites: r.cacheWrites,
+  git: { tree: T, blobOf: (p) => r.blobs[p] ?? null, readTree: (p) => { if (!(p in r.tree)) throw Object.assign(new Error(`ENOENT ${p}`), { code: "ENOENT" }); return structuredClone(r.tree[p]); } },
+  gateOutput: r.gateOutput, live: r.live, successor: r.successor, verifierPinned: r.verifierPinned, digestOf: (f) => r.digests[f] ?? null,
+});
 const alter = (fn) => { const r = records(); fn(r); return r; };
 const verdictOf = (v, id) => v.lines.find((l) => l.id === id).verdict;
 const whyOf = (v, id) => v.lines.find((l) => l.id === id).why;
 const expect = (r, id, verdict, why) => { const v = run(r); assert.equal(verdictOf(v, id), verdict, `${id}: ${whyOf(v, id)}`); if (why) assert.match(whyOf(v, id), why); };
-const decB = (r) => r.files["decB.json"]; const decA = (r) => r.files["decA.json"];
-const scan = (r, file, id) => r.files[file].scans.find((s) => s.id === id);
-/** Class B wholly reused: b unchanged too, nothing dispatched, nothing compiled. */
-const wholeReuseB = (r) => { const d = decB(r); d.forecast[1].expected = "hit"; d.actual[1].actual = "hit"; d.dispatchedRows = []; scan(r, "covB.json", "clippy:ws:b").coverage = "hit"; r.ledger.splice(2, 1); };
+const byExe = (r, exe) => r.procs.find((p) => p.exe === exe);
 
-test("a run whose records meet every line passes all twelve (it compiles no test, so NN10 holds on its complete process list)", () => {
+test("a run whose evidence meets every line passes all twelve", () => {
   const v = run(records());
   for (const id of twelve) assert.equal(verdictOf(v, id), "pass", `${id}: ${whyOf(v, id)}`);
   assert.equal(v.pass, true);
 });
 
-// ---- the cases each line must fail, or must not pass -----------------------------------------------------------------------------------------
-// Those marked (review) are gatecodex's findings of 2026-11-20 on the step-1 checks; each one passed before the fix.
-
-test("NN01: only the selected commit is built", () => {
-  expect(alter((r) => r.log.splice(9, 1, `${at(10)} rightkit-gate: snapshot ${SNAP} is still tree ${"c".repeat(40)} after the compile`)), "NN01", "fail");
-  expect(alter((r) => { r.receipt.commit = "d".repeat(40); }), "NN01", "fail");
-  // (review) the log can be self-consistent and still describe a commit other than the one selected.
-  expect(alter((r) => { r.commit = "e".repeat(40); }), "NN01", "fail", /selected/);
-  expect(alter((r) => { r.commit = undefined; }), "NN01", "not measured", /selected/);
-  expect(alter((r) => { r.log[2] = `${at(0)} rightkit-gate: --to compile for ${"f".repeat(12)}: check -> compile`; }), "NN01", "fail");
-  // (review) the receipt must be this run's and bound to the snapshot's tree.
-  expect(alter((r) => { r.receipt = null; }), "NN01", "not measured", /receipt/);
-  expect(alter((r) => { r.receipt.binding.tree = "c".repeat(40); }), "NN01", "fail");
-  expect(alter((r) => { r.receipt.stages.compile.snapshotLock = "00000000-0000-0000-0000-000000000000"; }), "NN01", "fail", /lock/);
-  // (review 2) an earlier receipt stage under another lock does not cover a stage this run did work in: this run compiles row b.
-  expect(alter((r) => { Object.assign(r.receipt.stages.compile, { at: at(-600), snapshotLock: "00000000-0000-0000-0000-000000000000" }); }), "NN01", "fail", /did work/);
-  // A stage carried from an earlier run of the same commit and tree is accepted only when every record shows this run did none of its work.
-  expect(alter((r) => { wholeReuseB(r); Object.assign(r.receipt.stages.compile, { at: at(-600), snapshotLock: "00000000-0000-0000-0000-000000000000" }); }), "NN01", "pass");
-  expect(alter((r) => { wholeReuseB(r); r.end = null; Object.assign(r.receipt.stages.compile, { at: at(-600), snapshotLock: "00000000-0000-0000-0000-000000000000" }); }), "NN01", "not measured", /carried/);
-  expect(alter((r) => { delete r.receipt.stages.compile.at; }), "NN01", "not measured", /no time/);
-  expect(alter((r) => { r.receipt.stages.check.snapshot.intactAfter = false; }), "NN01", "fail");
-  expect(alter((r) => { decB(r).commit = "d".repeat(40); }), "NN01", "fail");
-});
-
-test("NN02: Class A finishes before anything goes to the broker; if it fails, nothing goes", () => {
-  expect(records(), "NN02", "pass", /Class A passed .* first, then 1 compile\(s\)/);
-  expect(alter((r) => { r.ledger[2].at = at(1); }), "NN02", "fail", /before/);
-  // (review) a process-list line that is not a whole record is not dropped silently: it leaves the list incomplete.
-  expect(alter((r) => { r.extraLines.push("{not json"); }), "NN02", "not measured", /not JSON/);
-  expect(alter((r) => { delete r.ledger[2].at; }), "NN02", "not measured", /has no at/);
-  // (review) a "verdict written" line is not a pass: the verdict must say pass, for this commit and tree.
-  expect(alter((r) => { r.files["v.json"].status = "fail"; }), "NN02", "fail");
-  expect(alter((r) => { r.files["v.json"].commit = "d".repeat(40); }), "NN02", "fail");
-  // (review) "nothing was sent" after a red Class A is shown only from a complete process list.
-  const red = (r) => { r.files["v.json"].status = "fail"; r.ledger.splice(2, 1); r.log.splice(7, 2); r.receipt.stages.compile = undefined; };
-  expect(alter(red), "NN02", "pass", /nothing was sent/);
-  expect(alter((r) => { red(r); r.end = null; }), "NN02", "not measured", /exit record/);
-  expect(alter((r) => { red(r); r.end.open = 1; }), "NN02", "not measured", /still open/);
-  expect(alter((r) => { red(r); r.ledger.push(compile(6, "test", "--profile release -p b --locked")); }), "NN02", "fail");
-});
-
-test("NN03: Class A starts ready, independent work whenever an eligible lane is free", () => {
-  // The rows given replace Class A's changed row in every record: forecast, lookup, dispatch and coverage.
-  const lanes = (rows) => (r) => {
-    const d = decA(r); const deny = (xs) => xs.filter((x) => x.id === "deny");
-    d.forecast = [...rows.map((x) => ({ id: x.id, key: `k-${x.id}`, expected: "run" })), ...deny(d.forecast)];
-    d.actual = [...rows.map((x) => ({ id: x.id, actual: "run", key: `k-${x.id}` })), ...deny(d.actual)];
-    d.dispatchedRows = rows.filter((x) => x.coverage === "ran").map((x) => x.id);
-    r.files["covA.json"].scans = [...rows, { id: "deny", class: "A", coverage: "hit", status: "pass" }];
-  };
-  const row = (id, readyAt, startedAt, endedAt, n = 2) => ({ id, class: "A", coverage: "ran", status: "pass", lane: { readyAt, startedAt, endedAt, lanes: n } });
-  expect(alter(lanes([row("x", 0, 0, 500), row("y", 0, 0, 900)])), "NN03", "pass");
-  // Council CV-1 F-8: no blanket allowance; a wait of 20 ms beside a free lane is a wait, unless the lane record states that resolution.
-  expect(alter(lanes([row("x", 0, 0, 500), row("y", 0, 20, 900)])), "NN03", "fail", /y waited 20 ms/);
-  expect(alter(lanes([row("x", 0, 0, 500), { ...row("y", 0, 20, 900), lane: { readyAt: 0, startedAt: 20, endedAt: 900, lanes: 2, resolutionMs: 50 } }])), "NN03", "pass");
-  // The lane count is the log's announcement, not the row report's word: with none announced, a wait cannot be judged.
-  expect(alter((r) => { lanes([row("x", 0, 0, 500), row("y", 0, 400, 900, 1)])(r); r.log = r.log.filter((l) => !/at a time/.test(l)); }), "NN03", "not measured", /not in the run record/);
-  expect(alter(lanes([row("x", 0, 10, 500), row("y", 0, 400, 900, 2)])), "NN03", "fail", /waited/);
-  // (review) every lane busy when the row became ready, then one freed while it still waited: a single look at the ready time missed it.
-  expect(alter(lanes([row("x", 0, 0, 500), row("y", 0, 0, 1000), row("z", 0, 900, 1200)])), "NN03", "fail", /z waited/);
-  // (review) a row that ran with no lane times leaves the line not measured, it is not skipped.
-  expect(alter(lanes([row("x", 0, 10, 500), { id: "y", class: "A", coverage: "ran", status: "pass" }])), "NN03", "not measured", /y/);
-});
-
-test("NN04: before the first cache lookup, the gate records the expected rows and which will be reused and which will run", () => {
-  expect(alter((r) => { decA(r).forecast = []; }), "NN04", "fail");
-  // (review) a forecast that does not say when it was frozen does not show it came before the first lookup.
-  expect(alter((r) => { delete decB(r).forecastFrozenAt; }), "NN04", "not measured", /frozen/);
-  expect(alter((r) => { decB(r).forecastFrozenAt = at(6); }), "NN04", "fail", /after the run's first lookup/);
-  // Council CV-1 F-10: the line is about the run's first lookup, so a Class B forecast frozen after Class A's first lookup fails too.
-  expect(alter((r) => { decB(r).forecastFrozenAt = at(2); }), "NN04", "fail", /after the run's first lookup/);
-  // (review) incomplete, repeated or another run's rows, and a stage that worked without a forecast.
-  expect(alter((r) => { decB(r).forecast.push({ ...decB(r).forecast[0] }); }), "NN04", "fail", /more than once/);
-  expect(alter((r) => { decB(r).commit = "d".repeat(40); }), "NN04", "fail", /commit/);
-  expect(alter((r) => { r.log.splice(7, 1); }), "NN04", "fail", /Class B/);
-  expect(alter((r) => { r.files["covB.json"].scans.push({ id: "clippy:ws:c", class: "B", coverage: "hit", status: "pass" }); }), "NN04", "fail", /clippy:ws:c/);
-});
-
-test("NN05: a lookup that disagrees stops the gate before work is sent and names the row and cause; otherwise the work that ran matches", () => {
-  const diverged = (r) => { const a = decB(r).actual.find((x) => x.id === "clippy:ws:a"); a.actual = "run"; decB(r).mismatches = [{ id: "clippy:ws:a", reason: "expected entry absent; removal cause unknown" }]; decB(r).dispatchedRows = []; scan(r, "covB.json", "clippy:ws:b").coverage = "hit"; r.ledger.splice(2, 1); r.log.push(`${at(10)} RK_CACHE_DIVERGENCE {"id":"clippy:ws:a","reason":"expected entry absent; removal cause unknown"}`); r.exit = 1; };
-  expect(alter(diverged), "NN05", "pass", /stopped/);
-  expect(alter((r) => { diverged(r); r.exit = 0; }), "NN05", "fail", /exited 0/);
-  expect(alter((r) => { diverged(r); r.log.pop(); }), "NN05", "fail", /name/);
-  expect(alter((r) => { diverged(r); r.ledger.push(compile(9.5, "clippy", "--profile release -p b --locked")); }), "NN05", "fail", /sent/);
-  // (review) mismatches[] can be empty while lookup and forecast disagree: the disagreement is found by joining the rows, not read from it.
-  expect(alter((r) => { decB(r).actual.find((x) => x.id === "clippy:ws:a").actual = "run"; }), "NN05", "fail");
-  // (review) a missing dispatch list or exit code does not pass a divergence.
-  expect(alter((r) => { diverged(r); delete decB(r).dispatchedRows; }), "NN05", "not measured", /dispatch/);
-  expect(alter((r) => { diverged(r); r.exit = null; }), "NN05", "not measured", /exit/);
-  expect(alter((r) => { diverged(r); r.end = null; }), "NN05", "not measured", /exit record/);
-  // (review) agreement still needs the work that ran to be exactly the forecast's: no row missing, none extra, in every record.
-  expect(alter((r) => { decB(r).dispatchedRows.push("clippy:ws:a"); }), "NN05", "fail", /clippy:ws:a/);
-  expect(alter((r) => { scan(r, "covB.json", "clippy:ws:a").coverage = "ran"; }), "NN05", "fail", /clippy:ws:a/);
-  expect(alter((r) => { r.ledger.push(compile(7, "doc", "--profile release -p b --locked")); }), "NN05", "fail", /doc/);
-});
-
-test("NN06: a row whose inputs did not change is never run again, including one that failed before", () => {
-  // Passes: both unchanged rows reused under their keys, the earlier failure still a failure, and no process or coverage row ran either.
-  expect(records(), "NN06", "pass", /2 unchanged row\(s\) reused, 1 of them an earlier failure that stayed one/);
-  expect(alter((r) => { decB(r).forecast[0].status = "pass"; decB(r).actual[0].status = "pass"; scan(r, "covB.json", "clippy:ws:a").status = "pass"; }), "NN06", "pass", /2 unchanged row\(s\) reused$/);
-  expect(alter((r) => { decB(r).actual.find((x) => x.id === "clippy:ws:a").actual = "run"; }), "NN06", "fail");
-  // (review) a forecast hit with no recorded lookup result is not a reuse.
-  expect(alter((r) => { decB(r).actual = decB(r).actual.filter((x) => x.id !== "clippy:ws:a"); }), "NN06", "not measured", /clippy:ws:a/);
-  // (review) a reused failure must still be a failure: a cached failure that turns into success was not reused.
-  expect(alter((r) => { decB(r).actual.find((x) => x.id === "clippy:ws:a").status = "pass"; }), "NN06", "fail", /failure/);
-  expect(alter((r) => { scan(r, "covB.json", "clippy:ws:a").status = "pass"; }), "NN06", "fail", /failure/);
-  // (review) a hit under another key (a changed toolchain changes the key) is not this row's reuse.
-  expect(alter((r) => { decB(r).actual.find((x) => x.id === "clippy:ws:a").key = "other"; }), "NN06", "fail", /key/);
-  // (review) the process list and the coverage report are checked too: a reused row must not have run.
-  expect(alter((r) => { r.ledger.push(compile(7, "clippy", "--profile release -p a --locked")); }), "NN06", "fail", /clippy:ws:a/);
-  expect(alter((r) => { scan(r, "covB.json", "clippy:ws:a").coverage = "ran"; }), "NN06", "fail", /clippy:ws:a/);
-  expect(alter((r) => { scan(r, "covA.json", "deny").coverage = "ran"; }), "NN06", "fail", /deny/);
-});
-
-test("NN07: a row whose inputs did change is always run again, and does only the work the change needs", () => {
-  expect(alter((r) => { decB(r).actual.find((x) => x.id === "clippy:ws:b").actual = "hit"; }), "NN07", "fail");
-  // (review) rustfmt handed a file the change did not touch (the rk-core recording): it ran, but did more than the change needs.
-  expect(alter((r) => { r.ledger[1].args.push("src/b.rs"); }), "NN07", "fail", /src\/b\.rs/);
-  // (review) a changed row that the forecast and the gate say ran, with no compile in a complete process list naming it.
-  expect(alter((r) => { r.ledger.splice(2, 1); }), "NN07", "fail", /clippy:ws:b/);
-  expect(alter((r) => { r.ledger.splice(2, 1, compile(6, "clippy", "--profile release -p a -p b --locked")); }), "NN07", "fail", /\ba\b/);
-  // A forecast that lists only some of its changed inputs cannot show the scope, and says so.
-  expect(alter((r) => { decA(r).forecast[0].changes.inputsChanged = 7; }), "NN07", "not measured", /changed inputs/);
-});
-
-test("NN08: nothing is started twice in one run", () => {
-  const plus = (e) => (r) => { r.ledger.push(e); };
-  // The same program spelled by name and by path, the same arguments and folder: one call made twice.
-  expect(alter(plus(entry(8, "git", ["rev-parse", "--verify", `${C}^{commit}`]))), "NN08", "fail", /2x/);
-  expect(alter(plus(entry(8, "git", ["rev-parse", "--verify", `${C}^{commit}`], "D:\\other"))), "NN08", "pass");
-  // (review) two different programs of one name are two calls; so are arguments that differ only in letter case or in an id.
-  expect(alter(plus(entry(8, "D:\\portable\\git\\bin\\git.exe", ["rev-parse", "--verify", `${C}^{commit}`]))), "NN08", "pass");
-  expect(alter((r) => { r.ledger.push(entry(8, "node", ["x.mjs", "Src/A.rs"]), entry(9, "node", ["x.mjs", "src/a.rs"])); }), "NN08", "pass");
-  expect(alter((r) => { r.ledger.push(entry(8, "node", ["cancel", "0f8fad5b-d9cb-469f-a165-70867728950e"]), entry(9, "node", ["cancel", "7c9e6679-7425-40de-944b-e07fc1f90ae7"])); }), "NN08", "pass");
-  // (review) a documented per-run part (a probe's temp folder) does not make a repeat into two calls.
-  expect(alter((r) => { r.ledger.push(entry(8, "cargo", ["--version"], "D:\\t\\rk-probe-AAAA"), entry(9, "cargo", ["--version"], "D:\\t\\rk-probe-BBBB")); }), "NN08", "fail", /2x cargo/);
-  // (review) "no repeat" is shown only from a complete process list whose entries can all be compared.
-  expect(alter((r) => { r.end = null; }), "NN08", "not measured", /exit record/);
-  expect(alter(plus(entry(8, "node", ["big.mjs", "a", "... 52 args"]))), "NN08", "not measured", /cut short/);
-});
-
-test("NN09: compatible compiles are combined per workspace and stage; every split has a reason; independent groups run together", () => {
-  expect(alter((r) => { r.ledger.splice(2, 1, compile(6, "clippy", "--profile release -p b --locked"), compile(6.5, "clippy", "--profile release -p a --locked")); }), "NN09", "fail", /2x cargo clippy/);
-  expect(alter((r) => { r.ledger.splice(2, 1, compile(6, "clippy", "--profile release -p b --target x --locked"), compile(6.1, "clippy", "--profile release -p b --target y --locked")); }), "NN09", "fail");
-  // Another feature set is another stage, and overlapping groups ran together.
-  expect(alter((r) => { r.ledger.push(compile(6, "clippy", "--profile release -p b --features z --locked")); }), "NN09", "pass");
-  // Council CV-1 F-27: commands that did not start together cannot pass on overlap alone, without a record of capacity and readiness.
-  expect(alter((r) => { r.ledger.push(compile(6.5, "clippy", "--profile release -p b --features z --locked")); }), "NN09", "not measured", /different times/);
-  // (review) "nothing was sent" is shown only from a complete process list.
-  expect(alter((r) => { r.ledger.splice(2, 1); r.end = null; }), "NN09", "not measured", /exit record/);
-  // (review) independent groups that ran one after the other cannot pass without the record of the free capacity they waited beside.
-  expect(alter((r) => { r.ledger.push(compile(9, "clippy", "--profile release -p c --locked", `${SNAP}\\other`)); }), "NN09", "not measured", /different times/);
-});
-
-test("NN11 is judged only against a limit, over times that run forwards; NN12 only right after the run", () => {
-  // Passes: ten seconds of forward log against a sixty-second limit; right after the run, no lock and no process of the run alive.
-  expect(records(), "NN11", "pass", /10\.0 s from its first to its last recorded event, limit 60\.0 s/);
-  expect(records(), "NN12", "pass", /no lock and no process left behind/);
-  expect(alter((r) => { r.limitMs = 1_000; }), "NN11", "fail");
-  expect(alter((r) => { r.limitMs = null; }), "NN11", "not measured");
-  // (review) the span is the launcher's clock: a launcher record with no start, or one that ends before it starts, gives no interval to judge.
-  expect(alter((r) => { r.launchPatch = { startedAt: null }; }), "NN11", "not measured", /no start time/);
-  expect(alter((r) => { r.launchPatch = { endedAt: at(-60) }; }), "NN11", "not measured", /ends before it starts/);
-  // An event the run owns outside the launcher's own span still counts (Council CV-1 F-29).
-  expect(alter((r) => { r.log.push(`${at(-60)} rightkit-gate: an early line`); }), "NN11", "fail", /70\.0 s/);
-  expect(alter((r) => { r.live = null; }), "NN12", "not measured");
-  expect(alter((r) => { r.live = { exists: (f) => f.endsWith(".lock"), alive: () => false, pids: [] }; }), "NN12", "fail");
-  expect(alter((r) => { r.live = { exists: () => false, alive: () => true, pids: [7] }; }), "NN12", "fail");
-  // (review) an unknown process list is not an empty one.
-  expect(alter((r) => { r.live = { exists: () => false, alive: () => false }; }), "NN12", "not measured", /process/);
-});
-
-// gatecodex's second review (2026-11-20, on 19d714e2d): eight inputs the checks passed falsely, its four rulings, and a justified split.
-test("review 2: the eight false passes, and the rulings on reuse, uncacheable rows and splits", () => {
-  const rr = (sub, rest) => entry(1, "C:\\WINDOWS\\system32\\cmd.exe", shim(sub, rest), `${SNAP}\\ws`);
-  // NN02: anything that goes to the broker counts, not only compiles: a broker metadata call before Class A passed.
-  expect(alter((r) => { r.ledger.push(rr("metadata", "--format-version 1")); }), "NN02", "fail", /before the Class A verdict/);
-  expect(alter((r) => { r.ledger.push(entry(0.5, "C:\\WINDOWS\\system32\\where.exe", ["rustright"])); }), "NN02", "pass");
-  // NN03: a row dispatched and run that the coverage report leaves out has no lane record; a report of zero lanes is no lane record.
-  expect(alter((r) => { decA(r).forecast.push({ id: "secret-scan", key: "ks", expected: "run" }); decA(r).actual.push({ id: "secret-scan", actual: "run", key: "ks" }); decA(r).dispatchedRows.push("secret-scan"); }), "NN03", "not measured", /secret-scan/);
-  expect(alter((r) => { Object.assign(scan(r, "covA.json", "rustfmt:2021").lane, { readyAt: 0, startedAt: 5000, endedAt: 6000, lanes: 0 }); }), "NN03", "not measured", /lanes/);
-  // Ruling 1: "no row ran" passes only for a proven, complete, wholly reused Class A with nothing owed or dispatched.
-  const reuseA = (r) => { decA(r).forecast[0].expected = "hit"; decA(r).actual[0].actual = "hit"; decA(r).dispatchedRows = []; scan(r, "covA.json", "rustfmt:2021").coverage = "hit"; delete scan(r, "covA.json", "rustfmt:2021").lane; };
-  expect(alter(reuseA), "NN03", "pass", /wholly reused/);
-  expect(alter((r) => { reuseA(r); decA(r).dispatchedRows = ["rustfmt:2021"]; }), "NN03", "not measured");
-  expect(alter((r) => { reuseA(r); decA(r).forecast[0].expected = "run"; }), "NN03", "not measured");
-  // NN04: a broker compile that starts before the Class B forecast is frozen.
-  expect(alter((r) => { r.ledger[2].at = at(0.5); }), "NN04", "fail", /before the Class B forecast was frozen/);
-  // NN05: two contradictory lookup results for one row, the right one last.
-  expect(alter((r) => { decB(r).actual.unshift({ id: "clippy:ws:a", actual: "run", key: "ka", status: "fail" }); }), "NN05", "fail", /clippy:ws:a .*more than once/);
-  // NN06: no Class B coverage and a cut process list cannot show that a reused row did not run.
-  expect(alter((r) => { r.log.splice(8, 1); r.end = null; }), "NN06", "not measured", /coverage|process list/);
-  // Ruling 2: an uncacheable row whose own record shows its inputs unchanged, and which ran, did unchanged work again.
-  expect(alter((r) => { decA(r).forecast.push({ id: "shellcheck", key: "kx", priorKey: "kx", expected: "uncacheable" }); decA(r).actual.push({ id: "shellcheck", actual: "uncacheable" }); decA(r).dispatchedRows.push("shellcheck"); r.files["covA.json"].scans.push({ id: "shellcheck", class: "A", coverage: "ran", status: "pass", lane: { readyAt: 1000, startedAt: 1020, endedAt: 1100, lanes: 4 } }); }), "NN06", "fail", /shellcheck/);
-  // NN09: the same settings in another flag order are one group; a split for a crate the commit's ci/shards.json names solo is justified.
-  const two = (second) => (r) => { decB(r).forecast.push({ id: "clippy:ws:c", key: "kc", expected: "run" }); decB(r).actual.push({ id: "clippy:ws:c", actual: "run", key: "kc" }); decB(r).dispatchedRows.push("clippy:ws:c"); r.files["covB.json"].scans.push({ id: "clippy:ws:c", class: "B", coverage: "ran", status: "pass" }); r.ledger.push(compile(6, "clippy", second)); };
-  expect(alter(two("--locked -p c --profile release")), "NN09", "fail", /2x cargo clippy/);
-  const solo = (r) => { r.tree["ci/shards.json"] = { solo: ["c"] }; };
-  expect(alter((r) => { two("--profile release -p c --locked")(r); solo(r); }), "NN09", "pass", /solo/);
-  expect(alter((r) => { two("--profile release -p c --locked")(r); r.tree["ci/shards.json"] = { solo: ["x"] }; }), "NN09", "fail", /2x cargo clippy/);
-  expect(alter((r) => { two("--profile release -p c --locked")(r); delete r.tree["ci/shards.json"]; }), "NN09", "not measured", /shards\.json/);
-});
-
-// ---- the frozen step-2 batch (D:\scratch\loop-review\twelve-line-step2\final-batch-cases.md, sha256 70ff356d) ---------------------------------------
-// All 63 cases, with their authors' ids and expected verdicts unchanged: gatecodex's 48 (GCX-*) and chat "gate"'s 15 (gate 1 to gate 15, 12 and
-// 14 being the two it found already right). Each is a mutation of these records. Their fixture* inputs reach the checks through the readers a
-// real run uses: files of the run's own Git tree (r.tree) and the mutable snapshot folder (r.files). One table, one loop, one result per id.
-const lane = (r) => scan(r, "covA.json", "rustfmt:2021").lane;
-const twoChanged = (r) => { decA(r).forecast[0].changes = { inputs: ["files.0.1", "files.1.1"], inputsChanged: 2 }; };
-const split = (r, left, right) => {
-  const args = [left, right];
-  r.ledger.splice(2, 1, ...args.map((a) => compile(6, "clippy", `--locked ${a}`)));
-  const ids = [...new Set(args.flatMap((a) => Array.from(a.matchAll(/-p (\w+)/g), (m) => `clippy:ws:${m[1]}`)))];
-  const d = decB(r);
-  d.forecast = ids.map((id) => ({ id, key: id, expected: "run" }));
-  d.actual = ids.map((id) => ({ id, key: id, actual: "run", status: "pass" }));
-  d.dispatchedRows = ids;
-  r.files["covB.json"].scans = ids.map((id) => ({ id, class: "B", coverage: "ran", status: "pass" }));
+// ---- the frozen step-2 batch, restated (D:\scratch\loop-review\twelve-line-step2\final-batch-cases.md, sha256 70ff356d) --------------------------
+// Adrian, 2026-11-21: "Restate them". Every case keeps its author's id and expected verdict; each is now the same fault as it shows in evidence
+// the gate does not write (the process record, the broker's signed jobs, git, the history copied before the run, the cache store, the launcher).
+const twoRows = (r, second, { lanes = 4, a = [1.0, 1.1], b = [2.0, 2.1] } = {}) => { r.launch.lanes = lanes; const f = byExe(r, RUSTFMT); f.start = ms(a[0]); f.end = ms(a[1]); r.procs.push(proc(b[0], second, ["check"], { end: b[1] })); };
+const split = (r, ...argvs) => {
+  r.procs = r.procs.filter((p) => p.exe !== RUSTRIGHT); r.receipts = []; r.cacheWrites = r.cacheWrites.filter((w) => w.row.class !== "B");
+  const crates = new Set();
+  argvs.forEach((a, i) => { const argv = ["clippy", "--locked", ...a.split(" ")]; r.procs.push(proc(6, RUSTRIGHT, ["cargo", ...argv], { end: 8 })); r.receipts.push(job(`j${i + 1}`, argv)); for (const m of a.matchAll(/-p (\w+)/g)) crates.add(m[1]); });
+  r.history.B = Object.fromEntries([...crates].map((c) => [`clippy:ws:${c}`, hist([[`ws/${c}/src/lib.rs`, "old"]], `k${c}0`)]));
+  for (const c of crates) r.blobs[`ws/${c}/src/lib.rs`] = "new";
+  r.tree["ws/Cargo.toml"] = `[workspace]\nmembers = [${[...crates].map((c) => `"${c}"`).join(", ")}]\n`;
 };
-// gatecodex's fixturePolicy: the policy at the run's tree (null: that tree's policy cannot be read); atReview: the mutable snapshot's copy.
-const policy = (r, atRun, atReview) => {
-  if (atRun === null) delete r.tree["ci/shards.json"]; else r.tree["ci/shards.json"] = { solo: atRun };
-  r.files[`${SNAP}\\ci\\shards.json`] = { solo: atReview };
-};
-function gate11(r) { r.ledger.push(compile(6, "clippy", "--profile release -p c --locked", `${SNAP}\\ws\\sub`)); const d = decB(r); d.forecast.push({ id: "clippy:ws:c", key: "kc", expected: "run", status: "pass" }); d.actual.push({ id: "clippy:ws:c", actual: "run", key: "kc", status: "pass" }); d.dispatchedRows.push("clippy:ws:c"); r.files["covB.json"].scans.push({ id: "clippy:ws:c", class: "B", coverage: "ran", status: "pass" }); r.files["covA.json"].scans.push({ id: "clippy:ws:c", class: "B", coverage: "skipped", status: "not-in-pass" }); }
+const policy = (r, solo) => { if (solo === null) delete r.tree["ci/shards.json"]; else r.tree["ci/shards.json"] = { solo }; };
+const unchangedB = (r) => { r.blobs["ws/b/src/lib.rs"] = "y0"; r.procs = r.procs.filter((p) => p.exe !== RUSTRIGHT); r.receipts = []; r.cacheWrites = r.cacheWrites.filter((w) => w.row.id !== "clippy:ws:b"); };
+const testJob = (r, exe, extra) => { r.procs = r.procs.filter((p) => p.exe !== RUSTRIGHT); r.procs.push(proc(6, RUSTRIGHT, ["cargo", "test", "-p", "b", "--no-run"], { end: 8 }), proc(8.5, exe, [], { end: 9 })); r.receipts = [job("t1", ["test", "-p", "b", "--no-run"], { extra })]; r.history.B["test:ws:b"] = hist([["ws/b/src/lib.rs", "y0"]], "kt0"); };
+const EXE = `${SNAP}\\ws\\target\\debug\\deps\\b-1.exe`;
 const FROZEN = [
-  ["GCX-01-1", "NN01", "not measured", (r) => { delete r.receipt.stages.compile; }],
-  ["GCX-01-2", "NN01", "not measured", (r) => { delete r.receipt.stages.check; }],
-  ["GCX-01-3", "NN01", "fail", (r) => { r.files["covA.json"].commit = "e".repeat(40); }],
-  ["GCX-01-4", "NN01", "fail", (r) => { r.receipt.stages.compile.snapshot.tree = "e".repeat(40); }],
-  ["GCX-02-1", "NN02", "fail", (r) => { r.ledger.push(entry(1, "C:\\Windows\\System32\\cmd.exe", ["/d", "/s", "/c", '""C:\\Program Files\\RustRight\\rustright.cmd" cargo metadata --format-version 1"'])); }],
-  ["GCX-02-2", "NN02", "not measured", (r) => { wholeReuseB(r); r.ledger = []; r.end = { ...r.end, pid: 999 }; r.files["v.json"].status = "fail"; }],
-  ["GCX-02-3", "NN02", "not measured", (r) => { r.ledger[2].at = at(2); }],
-  ["GCX-03-1", "NN03", "not measured", (r) => { lane(r).lanes = 1.5; }],
-  ["GCX-03-2", "NN03", "not measured", (r) => { lane(r).endedAt = lane(r).startedAt - 1; }],
-  ["GCX-03-3", "NN03", "fail", (r) => { Object.assign(lane(r), { readyAt: 1000, startedAt: 2000, endedAt: 2100, lanes: 2 }); }],
-  ["GCX-03-4", "NN03", "pass", (r) => { Object.assign(lane(r), { readyAt: 1000, startedAt: 1000, endedAt: 2100, lanes: 20 }); }],
-  ["GCX-04-1", "NN04", "fail", (r) => { r.ledger[1].at = at(0.5); }],
-  ["GCX-04-2", "NN04", "not measured", (r) => { decA(r).firstLookupAt = decA(r).forecastFrozenAt; }],
-  ["GCX-04-3", "NN04", "fail", (r) => { decA(r).stage = "class-b"; }],
-  ["GCX-05-1", "NN05", "not measured", (r) => { delete r.files["decB.json"]; }],
-  ["GCX-05-2", "NN05", "fail", (r) => { r.ledger.splice(2, 1); }],
-  ["GCX-05-3", "NN05", "fail", (r) => { r.ledger[2] = compile(6, "clippy", "--profile release -p b -p z --locked"); }],
-  ["GCX-05-4", "NN05", "fail", (r) => { decA(r).forecast[1].expected = "bogus"; decA(r).actual[1].actual = "bogus"; scan(r, "covA.json", "deny").coverage = "bogus"; }],
-  ["GCX-06-1", "NN06", "fail", (r) => { decA(r).forecast[0].priorKey = decA(r).forecast[0].key; decA(r).forecast[0].changes = { inputs: [], inputsChanged: 0 }; }],
-  ["GCX-06-2", "NN06", "not measured", (r) => { delete decB(r).actual[0].key; }],
-  ["GCX-06-3", "NN06", "not measured", (r) => { delete decB(r).actual[0].status; delete scan(r, "covB.json", "clippy:ws:a").status; }],
-  ["GCX-07-1", "NN07", "fail", (r) => { twoChanged(r); }],
-  ["GCX-07-2", "NN07", "fail", (r) => { r.ledger[1].args = ["--check", "--edition", "2021"]; }],
-  ["GCX-07-3", "NN07", "pass", (r) => { twoChanged(r); r.ledger[1].args.push("src/b.rs"); }],
-  ["GCX-07-4", "NN07", "not measured", (r) => { delete r.files["covB.json"]; }],
-  ["GCX-07-5", "NN07", "fail", (r) => { r.ledger[2] = compile(6, "clippy", "--profile release -p ws --locked"); }],
-  ["GCX-08-1", "NN08", "pass", (r) => { r.ledger = Array.of(entry(7, "/opt/Tool", ["probe"], "/src"), entry(8, "/opt/tool", ["probe"], "/src")); }],
-  ["GCX-08-2", "NN08", "pass", (r) => { r.ledger = Array.of(entry(7, "/usr/bin/git", ["status"], "/src/A"), entry(8, "/usr/bin/git", ["status"], "/src/a")); }],
-  ["GCX-08-3", "NN08", "fail", (r) => { r.ledger.push({ ...structuredClone(r.ledger[1]), at: at(8), pid: 101 }); r.extraLines.push(JSON.stringify({ ...r.end, pid: 101 })); }],
-  ["GCX-09-1", "NN09", "fail", (r) => { split(r, "-p b -p c", "-p c"); policy(r, ["c"], ["c"]); }],
-  ["GCX-09-2", "NN09", "fail", (r) => { split(r, "-p c --target x", "-p c --target y"); policy(r, ["c"], ["c"]); }],
-  ["GCX-09-3", "NN09", "fail", (r) => { split(r, "-p b", "-p c"); policy(r, [], ["c"]); }],
-  ["GCX-09-4", "NN09", "pass", (r) => { split(r, "-p b", "-p c"); policy(r, ["c"], []); }],
-  ["GCX-09-5", "NN09", "not measured", (r) => { split(r, "-p b", "-p c"); policy(r, null, ["c"]); }],
-  ["GCX-09-6", "NN09", "not measured", (r) => { r.ledger.push(compile(7.999, "clippy", "--profile release -p x --locked", `${SNAP}\\other`)); }],
-  ["GCX-10-1", "NN10", "not measured", (r) => { r.ledger[2] = compile(6, "test", "-p b --no-run"); r.ledger.push(entry(8, `${SNAP}\\b-test.exe`, [], SNAP)); }],
-  ["GCX-10-2", "NN10", "not measured", (r) => { r.ledger[2] = compile(6, "test", "-p b --no-run"); r.receipt.stages.compile.testExecutables = ["b-test.exe"]; }],
-  ["GCX-11-1", "NN11", "not measured", (r) => { r.log = r.log.slice(0, 6); r.exit = null; }],
-  ["GCX-11-2", "NN11", "fail", (r) => { r.limitMs = 9999; }],
-  ["GCX-11-3", "NN11", "pass", (r) => { r.limitMs = 10000; }],
-  ["GCX-12-1", "NN12", "not measured", (r) => { r.exit = 137; r.log = r.log.slice(0, 6); r.live = { exists: () => false, alive: () => false, pids: [100] }; }],
-  ["GCX-12-2", "NN12", "fail", (r) => { r.exit = 137; r.live = { exists: () => false, alive: (p) => p === 100, pids: [100] }; }],
-  ["GCX-02-4", "NN02", "fail", (r) => { r.files["v.json"].snapshotLock = "other-run"; r.files["v.json"].commit = C; r.files["v.json"].tree = T; }],
-  ["GCX-05-5", "NN05", "fail", (r) => { r.ledger[1].args.push("src/unplanned.rs"); decA(r).dispatchedRows.push("secret-scan"); }],
-  // fixtureWorkspaces {row: ws, invocation: other}: two workspaces of the run's tree, both with member b.
-  ["GCX-07-6", "NN07", "fail", (r) => { r.ledger[2] = compile(6, "clippy", "--profile release -p b --locked", `${SNAP}\\other`); r.tree["ws/Cargo.toml"] = '[workspace]\nmembers = ["b"]\n'; r.tree["other/Cargo.toml"] = '[workspace]\nmembers = ["b"]\n'; }],
-  // fixtureTreeEvidence {tree T, workspace ws, stage clippy, sidecarBound [c], batchable [b]}: the producer's own input at T, c's Tauri externalBin.
-  ["GCX-09-7", "NN09", "pass", (r) => { split(r, "-p b", "-p c"); policy(r, [], []); r.tree["ws/Cargo.toml"] = '[workspace]\nmembers = ["b", "c"]\n'; r.tree["ws/c/Cargo.toml"] = '[package]\nname = "c"\n'; r.tree["ws/c/tauri.conf.json"] = JSON.stringify({ bundle: { externalBin: ["binaries/c-sidecar"] } }); }],
-  // fixtureGateClaim: only the gate's printed reason; no tree evidence.
-  ["GCX-09-8", "NN09", "not measured", (r) => { split(r, "-p b", "-p c"); policy(r, null, []); r.log.push(`${at(9)} rightkit-gate: c is sidecar-bound`); }],
-  ["GCX-09-9", "NN09", "fail", (r) => { split(r, "-p b", "-p b"); policy(r, ["b"], ["b"]); }],
-  ["gate 1", "NN06", "fail", (r) => { r.ledger.push(entry(1.7, "C:\\cargo\\bin\\cargo-deny.exe", ["check"], SNAP)); }],
-  ["gate 2", "NN12", "not measured", (r) => { r.live = { exists: () => false, alive: () => true, pids: [] }; }],
-  ["gate 3", "NN12", "not measured", (r) => { r.live = { exists: () => false, alive: (p) => p === 100, pids: [999] }; }],
-  ["gate 4", "NN03", "fail", (r) => { const c = r.files["covA.json"]; c.scans[0].lane = { readyAt: 1000, startedAt: 1000, endedAt: 3000, lanes: 1 }; c.scans[1] = { id: "deny", class: "A", coverage: "ran", status: "pass", lane: { readyAt: 1000, startedAt: 3000, endedAt: 5000, lanes: 1 } }; const d = decA(r); d.forecast[1] = { id: "deny", key: "k2", priorKey: "k9", expected: "run", changes: { inputs: ["files.0.1"], inputsChanged: 1 } }; d.actual[1] = { id: "deny", actual: "run", key: "k2" }; d.dispatchedRows = ["rustfmt:2021", "deny"]; }],
-  ["gate 5", "NN08", "fail", (r) => { const g = r.ledger[0]; r.ledger.push(entry(0.5, "C:\\WINDOWS\\system32\\cmd.exe", ["/d", "/s", "/c", `"${g.cmd}" ${g.args.join(" ")}`], g.cwd)); }],
-  ["gate 6", "NN08", "fail", (r) => { const g = r.ledger[0]; r.ledger.push(entry(0.5, g.cmd, [...g.args], `${g.cwd}\\`)); }],
-  ["gate 7", "NN08", "pass", (r) => { const g = r.ledger[0]; r.ledger.push(entry(0.5, g.cmd, ["-c", "core.fsmonitor=false", ...g.args], g.cwd)); }],
-  ["gate 8", "NN05", "fail", (r) => { const d = decB(r); d.actual[1].actual = "hit"; d.mismatches = [{ id: "clippy:ws:b", reason: "expected run, found a stored result" }]; d.dispatchedRows = []; scan(r, "covB.json", "clippy:ws:b").coverage = "hit"; r.ledger.splice(2, 1); r.exit = 1; r.log.push(`${at(9)} RK_CACHE_DIVERGENCE {"id":"clippy:ws:bb"}`); }],
-  ["gate 9", "NN02", "pass", (r) => { r.log.push(`${at(9)} rightkit-gate: unit cargo:other stopped: class A check (compile tier) failed`); }],
-  ["gate 10", "NN11", "fail", (r) => { r.limitMs = 15_000; r.ledger.unshift(entry(-30, "C:\\Program Files\\Git\\cmd\\git.exe", ["status"], "D:\\repo")); }],
-  // gatecodex's ruling: manifests ws/Cargo.toml with members b, sub; ws/sub/Cargo.toml declares package c.
-  ["gate 11", "NN09", "fail", (r) => { gate11(r); r.tree["ws/Cargo.toml"] = '[workspace]\nmembers = ["b", "sub"]\n'; r.tree["ws/sub/Cargo.toml"] = '[package]\nname = "c"\n'; }],
-  ["gate 12", "NN07", "fail", (r) => { const d = decB(r); for (const k of ["forecast", "actual"]) d[k][1].id = "clippy:ws:b@x86_64-unknown-linux-gnu"; d.dispatchedRows = ["clippy:ws:b@x86_64-unknown-linux-gnu"]; for (const f of ["covA.json", "covB.json"]) scan(r, f, "clippy:ws:b").id = "clippy:ws:b@x86_64-unknown-linux-gnu"; r.ledger[2] = compile(6, "clippy", "--profile release --target x86_64-pc-windows-msvc -p b --locked"); }],
-  ["gate 13", "NN01", "not measured", (r) => { r.log = r.log.filter((l) => !/after the compile/.test(l)); }],
-  // The case's own scenario: "the Class B forecast ... frozen at 5 s" (these records freeze it at 0.9 s, so the case states it).
-  ["gate 14", "NN04", "fail", (r) => { decB(r).forecastFrozenAt = at(5); r.ledger[2] = compile(3, "clippy", "--profile release -p b --locked", `${SNAP}\\ws`, 1000); }],
-  ["gate 15", "NN06", "not measured", (r) => { delete decB(r).actual[0].key; }],
+  // NN01: only the selected commit is built.
+  ["GCX-01-1", "NN01", "not measured", (r) => { r.receipts = []; }], // a broker compile with no signed job
+  ["GCX-01-2", "NN01", "not measured", (r) => { r.witness.to = at(5); }], // the process record does not cover the run's work
+  ["GCX-01-3", "NN01", "fail", (r) => { r.receipts[0].doc.provenance.payload.gate.commit = "e".repeat(40); }], // signed for another commit
+  ["GCX-01-4", "NN01", "fail", (r) => { r.receipts[0].doc.provenance.payload.gate.tree = "e".repeat(40); }], // signed for another tree
+  ["gate 13", "NN01", "not measured", (r) => { delete r.receipts[0].doc.provenance.payload.gate.snapshotUnchanged; }], // nothing says the snapshot held after the compile
+  // NN02: Class A finishes before anything goes to the broker; if it fails, nothing goes.
+  ["GCX-02-1", "NN02", "fail", (r) => { const cmd = proc(1, "C:\\Windows\\System32\\cmd.exe", ["/d", "/s", "/c", '""C:\\Program Files\\RustRight\\rustright.cmd" cargo metadata --format-version 1"'], { end: 1.3 }); r.procs.push(cmd, proc(1.05, "C:\\Program Files\\RustRight\\rustright.exe", ["cargo", "metadata", "--format-version", "1"], { ppid: cmd.pid, end: 1.25 })); }],
+  ["GCX-02-2", "NN02", "not measured", (r) => { unchangedB(r); r.cacheWrites.push({ key: "kf", at: at(1.7), row: { id: "deny", class: "A", status: "fail" } }); r.procs[0].pid = 999; }], // the record shows no gate process of this launcher
+  ["GCX-02-3", "NN02", "not measured", (r) => { byExe(r, RUSTFMT).end = ms(6.0); }], // the job's signed submission ties with Class A's end
+  ["GCX-02-4", "NN02", "fail", (r) => { byExe(r, RUSTFMT).exit = 1; }], // Class A failed, and the broker still got a job
+  ["gate 9", "NN02", "pass", (r) => { r.procs.push(proc(9, "C:\\node\\node.exe", ["other-unit.mjs"], { exit: 1 })); }], // a program outside Class A failing is not Class A
+  // NN03: Class A starts ready, independent work whenever an eligible lane is free.
+  ["GCX-03-1", "NN03", "not measured", (r) => { r.launch.lanes = 1.5; }],
+  ["GCX-03-2", "NN03", "not measured", (r) => { const f = byExe(r, RUSTFMT); f.end = f.start - 1; }],
+  ["GCX-03-3", "NN03", "fail", (r) => { twoRows(r, "C:\\tools\\shellcheck.exe", { lanes: 2 }); }], // the second program waits a second beside a free lane
+  ["GCX-03-4", "NN03", "pass", (r) => { r.launch.lanes = 20; }],
+  ["gate 4", "NN03", "fail", (r) => { twoRows(r, "C:\\tools\\shellcheck.exe", { lanes: 4, a: [1.0, 3.0], b: [3.0, 5.0] }); }], // two ready programs run one after the other on four lanes
+  // NN04: the expectation is fixed before the first lookup (the test's own, from the history copied before the gate started).
+  ["GCX-04-1", "NN04", "fail", (r) => { r.history.copiedAt = at(0.5); }], // copied after the run's first program
+  ["GCX-04-2", "NN04", "not measured", (r) => { r.history.copiedAt = at(0); }], // copied at the same moment, no order shown
+  ["GCX-04-3", "NN04", "fail", (r) => { r.launch.historyFile = "D:\\runs\\rightkit-class-a-history\\0000.json"; }], // another store's history
+  ["gate 14", "NN04", "fail", (r) => { r.history.copiedAt = at(9); }], // copied after a broker job's work
+  // NN05: a disagreeing lookup stops the gate before work and is named; otherwise the work that ran is the work owed.
+  ["GCX-05-1", "NN05", "not measured", (r) => { r.history = null; }], // no expectation from before the run
+  ["GCX-05-2", "NN05", "fail", (r) => { r.procs = r.procs.filter((p) => p.exe !== RUSTRIGHT); r.receipts = []; r.cacheWrites = r.cacheWrites.filter((w) => w.row.id !== "clippy:ws:b"); }], // owed and not done
+  ["GCX-05-3", "NN05", "fail", (r) => { r.receipts[0].doc.provenance.payload.request.requestedArgv.push("-p", "z"); }], // a crate no owed row needs
+  ["GCX-05-4", "NN05", "fail", (r) => { r.cacheWrites.push({ key: "k9", at: at(1.8), row: { id: "deny", class: "A", status: "bogus" } }); }], // a result stored for an unchanged row
+  ["GCX-05-5", "NN05", "fail", (r) => { r.procs.push(proc(1.8, DENY, ["check"])); }], // an unchanged row's tool started
+  ["gate 8", "NN05", "fail", (r) => { unchangedB(r); r.cacheBefore = r.cacheBefore.filter((k) => k !== "kb0"); r.launch.exit = 1; r.gateOutput = 'rightkit-gate: RK_CACHE_DIVERGENCE {"id":"clippy:ws:bb"}'; }], // the stop names another row
+  // NN06: an unchanged row is never run again, including one that failed before.
+  ["GCX-06-1", "NN06", "fail", (r) => { r.blobs["src/a.rs"] = "a0"; }], // rustfmt is unchanged, and its result was stored again
+  ["GCX-06-2", "NN06", "not measured", (r) => { delete r.history.B["clippy:ws:a"].last.key; }],
+  ["GCX-06-3", "NN06", "not measured", (r) => { r.history.B["clippy:ws:a"] = hist([["ws/a/src/lib.rs", "x1"]], "ka", { failed: true }); r.launch.exit = null; r.launch.signal = "SIGKILL"; }],
+  ["gate 1", "NN06", "fail", (r) => { r.procs.push(proc(1.7, DENY, ["check"], { end: 1.9 })); }],
+  ["gate 15", "NN06", "not measured", (r) => { delete r.history.A.deny.last.key; }],
+  // NN07: a changed row always runs again, and does only the work the change needs.
+  ["GCX-07-1", "NN07", "fail", (r) => { r.blobs["src/b.rs"] = "b2"; }], // a.rs and b.rs changed; only a.rs reached rustfmt
+  ["GCX-07-2", "NN07", "fail", (r) => { byExe(r, RUSTFMT).args = ["--check", "--edition", "2021"]; }],
+  ["GCX-07-3", "NN07", "pass", (r) => { r.blobs["src/b.rs"] = "b2"; byExe(r, RUSTFMT).args.push("src/b.rs"); }],
+  ["GCX-07-4", "NN07", "not measured", (r) => { r.receipts = []; r.procs = r.procs.filter((p) => p.exe !== RUSTRIGHT); r.witness.problems = ["events were dropped"]; }],
+  ["GCX-07-5", "NN07", "fail", (r) => { r.receipts[0].doc.provenance.payload.request.requestedArgv = ["clippy", "--profile", "release", "-p", "ws", "--locked"]; }],
+  ["GCX-07-6", "NN07", "fail", (r) => { r.receipts[0].doc.provenance.payload.request.workspace = `${SNAP}\\other`; r.tree["other/Cargo.toml"] = '[workspace]\nmembers = ["b"]\n'; }],
+  ["gate 12", "NN07", "fail", (r) => { const id = "clippy:ws:b@x86_64-unknown-linux-gnu"; r.history.B[id] = r.history.B["clippy:ws:b"]; delete r.history.B["clippy:ws:b"]; r.cacheWrites[1].row.id = id; r.receipts[0].doc.provenance.payload.request.requestedArgv = ["clippy", "--profile", "release", "--target", "x86_64-pc-windows-msvc", "-p", "b", "--locked"]; }],
+  // NN08: nothing is started twice in one run.
+  ["GCX-08-1", "NN08", "pass", (r) => { r.procs.push(proc(7, "/opt/Tool", ["probe"], { cwd: "/src" }), proc(8, "/opt/tool", ["probe"], { cwd: "/src" })); }],
+  ["GCX-08-2", "NN08", "pass", (r) => { r.procs.push(proc(7, "/usr/bin/git", ["status"], { cwd: "/src/A" }), proc(8, "/usr/bin/git", ["status"], { cwd: "/src/a" })); }],
+  ["GCX-08-3", "NN08", "fail", (r) => { const nested = proc(7, "C:\\node\\node.exe", ["nested-gate.mjs"], { end: 9 }); r.procs.push(nested, proc(8, RUSTFMT, ["--check", "--edition", "2021", "src/a.rs"], { ppid: nested.pid })); }], // two writers, one call
+  ["gate 5", "NN08", "fail", (r) => { const g = r.procs[1]; const cmd = proc(0.5, "C:\\WINDOWS\\system32\\cmd.exe", ["/d", "/s", "/c", `"${g.exe}" ${g.args.join(" ")}`], { end: 0.6 }); r.procs.push(cmd, proc(0.52, g.exe, [...g.args], { ppid: cmd.pid, end: 0.58 })); }],
+  ["gate 6", "NN08", "fail", (r) => { const g = r.procs[1]; r.procs.push(proc(0.5, g.exe, [...g.args])); }], // the same call (the record keeps no folder)
+  ["gate 7", "NN08", "pass", (r) => { const g = r.procs[1]; r.procs.push(proc(0.5, g.exe, ["-c", "core.fsmonitor=false", ...g.args])); }],
+  // NN09: compatible compiles combined per workspace and stage; every split has a reason the check can verify; independent groups run together.
+  ["GCX-09-1", "NN09", "fail", (r) => { split(r, "-p b -p c", "-p c"); policy(r, ["c"]); }],
+  ["GCX-09-2", "NN09", "fail", (r) => { split(r, "-p c --target x", "-p c --target y"); policy(r, ["c"]); }],
+  ["GCX-09-3", "NN09", "fail", (r) => { split(r, "-p b", "-p c"); policy(r, []); }],
+  ["GCX-09-4", "NN09", "pass", (r) => { split(r, "-p b", "-p c"); policy(r, ["c"]); }],
+  ["GCX-09-5", "NN09", "not measured", (r) => { split(r, "-p b", "-p c"); policy(r, null); }],
+  ["GCX-09-6", "NN09", "not measured", (r) => { r.tree["other/Cargo.toml"] = '[workspace]\nmembers = ["x"]\n'; r.procs.push(proc(7.9, RUSTRIGHT, ["cargo", "clippy", "--profile", "release", "-p", "x", "--locked"], { end: 9 })); r.receipts.push(job("j2", ["clippy", "--profile", "release", "-p", "x", "--locked"], { cwd: `${SNAP}\\other`, start: null })); }], // no signed time
+  ["GCX-09-7", "NN09", "pass", (r) => { split(r, "-p b", "-p c"); policy(r, []); r.tree["ws/c/Cargo.toml"] = '[package]\nname = "c"\n'; r.tree["ws/c/tauri.conf.json"] = JSON.stringify({ bundle: { externalBin: ["binaries/c-sidecar"] } }); }],
+  ["GCX-09-8", "NN09", "not measured", (r) => { split(r, "-p b", "-p c"); policy(r, null); r.gateOutput = "rightkit-gate: c is sidecar-bound"; }],
+  ["GCX-09-9", "NN09", "fail", (r) => { split(r, "-p b", "-p b"); policy(r, ["b"]); }],
+  ["gate 11", "NN09", "fail", (r) => { r.tree["ws/Cargo.toml"] = '[workspace]\nmembers = ["b", "sub"]\n'; r.tree["ws/sub/Cargo.toml"] = '[package]\nname = "c"\n'; r.procs.push(proc(6, RUSTRIGHT, ["cargo", "clippy", "--profile", "release", "-p", "c", "--locked"], { end: 8 })); r.receipts.push(job("j2", ["clippy", "--profile", "release", "-p", "c", "--locked"], { cwd: `${SNAP}\\ws\\sub` })); }],
+  // NN10: tests are compiled by the broker and run by the gate.
+  ["GCX-10-1", "NN10", "not measured", (r) => { testJob(r, EXE, { testExecutables: [{ path: EXE, sha256: "h1" }] }); r.verifierPinned = false; r.receipts[0].verified = { ok: false, problems: ["no broker key is pinned"] }; }],
+  ["GCX-10-2", "NN10", "not measured", (r) => { testJob(r, EXE, { testExecutables: [{ path: EXE }] }); }], // a program named with no signed digest
+  // NN11: the run finishes inside its time limit (the launcher's clock, the limit pinned at launch).
+  ["GCX-11-1", "NN11", "not measured", (r) => { r.launch.endMono = null; r.launch.endedAt = null; r.launch.exit = null; }],
+  ["GCX-11-2", "NN11", "fail", (r) => { r.launch.limitMs = 9999; }],
+  ["GCX-11-3", "NN11", "pass", (r) => { r.launch.limitMs = 10000; }],
+  ["gate 10", "NN11", "fail", (r) => { r.launch.limitMs = 15_000; r.procs.push(proc(9, GIT, ["status"], { end: 40 })); }], // a program of the run outlives the gate by 30 s
+  // NN12: the run ends clean, even if killed: the next ordinary run starts safely by itself.
+  ["GCX-12-1", "NN12", "not measured", (r) => { r.launch.exit = 137; }],
+  ["GCX-12-2", "NN12", "fail", (r) => { r.launch.exit = 137; r.live = { exists: () => false, alive: (pid) => pid === byExe(r, RUSTFMT).pid }; }],
+  ["gate 2", "NN12", "not measured", (r) => { r.witness = null; }], // no record of the run's programs at all
+  ["gate 3", "NN12", "not measured", (r) => { r.witness.to = at(5); }], // the record leaves part of the run out
 ];
-test("the frozen step-2 batch: all 63 cases, each with its author's id and expected verdict", async (t) => {
+test("the frozen step-2 batch, restated: all 63 cases, each with its author's id and expected verdict", async (t) => {
   assert.equal(FROZEN.length, 63);
   assert.equal(new Set(FROZEN.map(([id]) => id)).size, 63, "every id once");
   for (const [id, line, verdict, fn] of FROZEN) {
-    await t.test(`${id} ${line}: ${verdict}`, () => { const v = run(alter(fn)); assert.equal(verdictOf(v, line), verdict, `${id} ${line}: ${whyOf(v, line)}`); });
+    await t.test(`${id} ${line}: expected ${verdict}`, (st) => { const v = run(alter(fn)); st.diagnostic(`${id} ${line}: got ${verdictOf(v, line)}`); assert.equal(verdictOf(v, line), verdict, `${id} ${line}: ${whyOf(v, line)}`); });
   }
 });
 
-// Cases of mine beside the batch (not part of the 63): gate 5 quoted the way cmd /s reads it, the same without /s, and gate 11 with no manifest.
-test("gate 5 and gate 11 twins: a correctly quoted cmd /c repeat, and a split whose workspace the run's tree cannot show", () => {
-  expect(alter((r) => { r.ledger.push(entry(0.4, "C:\\Program Files\\Git\\cmd\\git.exe", ["status"]), entry(0.5, "C:\\WINDOWS\\system32\\cmd.exe", ["/d", "/s", "/c", '""C:\\Program Files\\Git\\cmd\\git.exe" status"'])); }), "NN08", "fail");
-  expect(alter((r) => { r.ledger.push(entry(0.4, "C:\\Program Files\\Git\\cmd\\git.exe", ["status"]), entry(0.5, "C:\\WINDOWS\\system32\\cmd.exe", ["/d", "/c", '"C:\\Program Files\\Git\\cmd\\git.exe" status'])); }), "NN08", "fail");
-  expect(alter((r) => { gate11(r); }), "NN09", "not measured");
+// ---- the evidence readers ---------------------------------------------------------------------------------------------------------------------------
+test("a Windows command line is read as its program reads it", () => {
+  assert.deepEqual(parseCommandLine('"C:\\Program Files\\Git\\cmd\\git.exe" rev-parse --verify a^{commit}'), ["C:\\Program Files\\Git\\cmd\\git.exe", "rev-parse", "--verify", "a^{commit}"]);
+  assert.deepEqual(parseCommandLine('x "a b" c\\\\"d e" "f\\"g"'), ["x", "a b", 'c\\d e', 'f"g']);
+  assert.deepEqual(parseCommandLine('x ""'), ["x", ""]);
 });
-
-// Council CV-1's verified critical findings that the frozen batch does not exercise on its own, one case each.
-test("Council CV-1: the critical findings the frozen batch leaves uncovered", () => {
-  // F-1: a compile that builds outside the snapshot, by its folder or by the manifest it names.
-  expect(alter((r) => { r.ledger[2] = compile(6, "clippy", "--profile release -p b --locked", "D:\\other-checkout\\ws"); }), "NN01", "fail", /outside the snapshot/);
-  expect(alter((r) => { r.ledger[2] = compile(6, "clippy", "--profile release -p b --manifest-path ..\\..\\..\\elsewhere\\Cargo.toml --locked"); }), "NN01", "fail", /manifest/);
-  // F-3: a process list closed by a gate process other than the one the launcher started cannot show this run's absence of work.
-  expect(alter((r) => { r.launchPatch = { gatePid: 555 }; }), "NN08", "not measured", /not the run's own process 555/);
-  expect(alter((r) => { r.launchPatch = { gatePid: null }; }), "NN08", "not measured", /not known from its launcher/);
-  expect(alter((r) => { r.extraLines.push(JSON.stringify({ end: true, pid: 101, at: at(9), open: 0 })); r.ledger.push({ ...entry(7, "node", ["x.mjs"]), pid: 101 }); }), "NN08", "not measured", /not linked to the run's root/);
-  expect(alter((r) => { r.extraLines.push(JSON.stringify({ end: true, pid: 101, at: at(9), open: 0, parent: 100 })); r.ledger.push({ ...entry(7, "node", ["x.mjs"]), pid: 101 }); }), "NN08", "pass");
-  // F-5: a forecast that names another run is that run's.
-  expect(alter((r) => { decB(r).snapshotLock = "other-run"; }), "NN04", "fail", /another run/);
-  // F-6: a send while a Class A tool was still running is before Class A finished, whatever the verdict line says.
-  expect(alter((r) => { r.ledger[1] = { ...r.ledger[1], at: at(1.6), ms: 5000 }; }), "NN02", "fail", /still running/);
-  // F-9: a row looked up that the frozen forecast never named.
-  expect(alter((r) => { decB(r).actual.push({ id: "clippy:ws:z", actual: "hit", key: "kz" }); }), "NN04", "fail", /clippy:ws:z/);
-  // F-14: an exit code that is not a number is not an unsuccessful exit.
-  const diverged = (r) => { const a = decB(r).actual.find((x) => x.id === "clippy:ws:a"); a.actual = "run"; decB(r).mismatches = [{ id: "clippy:ws:a", reason: "gone" }]; decB(r).dispatchedRows = []; scan(r, "covB.json", "clippy:ws:b").coverage = "hit"; r.ledger.splice(2, 1); r.log.push(`${at(10)} RK_CACHE_DIVERGENCE {"id":"clippy:ws:a","reason":"gone"}`); r.exit = 1; };
-  expect(alter((r) => { diverged(r); r.exit = Number.NaN; }), "NN05", "not measured", /exit code/);
-  expect(alter((r) => { diverged(r); r.log[r.log.length - 1] = `${at(10)} RK_CACHE_DIVERGENCE {"id":"clippy:ws:a","reason":"another cause"}`; }), "NN05", "fail", /another cause/);
-  // F-15: work of any kind that starts after the stop notice.
-  expect(alter((r) => { diverged(r); r.ledger.push(entry(10.5, "C:\\rust\\bin\\rustfmt.exe", ["--check", "--edition", "2021", "src/a.rs"], SNAP)); }), "NN05", "fail", /after the stop notice/);
-  // F-16: a row whose own keys show it changed, forecast for reuse, must still run.
-  expect(alter((r) => { Object.assign(decB(r).forecast[0], { priorKey: "k-old" }); }), "NN07", "fail", /changed .* forecast for reuse/);
-  // F-24: `--release` and `--profile release` are the same settings, so these two commands are one workspace and stage split in two.
-  expect(alter((r) => { r.ledger.splice(2, 1, compile(6, "clippy", "--release -p b --locked"), compile(6, "clippy", "--profile release -p a --locked")); }), "NN09", "fail", /2x cargo clippy/);
-  // F-30: a killed run passes NN12 only on the record of the next ordinary run reclaiming it.
-  expect(alter((r) => { r.exit = 137; r.live = { exists: () => false, alive: () => false, pids: [100], successor: { ok: true, reclaimed: true } }; }), "NN12", "pass", /next ordinary run/);
-  // F-17's other side: a version query of a reused row's tool (actionlint spells it -version) is a probe, not the row's work.
-  expect(alter((r) => { r.ledger.push(entry(1.7, "C:\\cargo\\bin\\cargo-deny.exe", ["--version"], SNAP), entry(1.75, "D:\\bin\\actionlint.exe", ["-version"], "D:\\t\\rk-probe-x")); }), "NN06", "pass");
-  // F-33: an uncacheable row proven changed by its own record is no rerun of unchanged work.
-  expect(alter((r) => { decA(r).forecast.push({ id: "shellcheck", key: "kx", priorKey: "kw", expected: "uncacheable" }); decA(r).actual.push({ id: "shellcheck", actual: "uncacheable" }); decA(r).dispatchedRows.push("shellcheck"); r.files["covA.json"].scans.push({ id: "shellcheck", class: "A", coverage: "ran", status: "pass", lane: { readyAt: 1000, startedAt: 1000, endedAt: 1100, lanes: 4 } }); }), "NN06", "pass");
+test("Windows start and exit events become programs, an exit joined to the latest start of its pid", () => {
+  const ps = processesFromWindowsEvents([
+    { id: 4688, time: at(0), pid: 10, ppid: 1, exe: "C:\\a.exe", commandLine: '"C:\\a.exe" x' }, { id: 4689, time: at(1), pid: 10, exit: 0 },
+    { id: 4688, time: at(2), pid: 10, ppid: 1, exe: "C:\\b.exe", commandLine: "b y" }, { id: 4689, time: at(3), pid: 10, exit: 3 },
+  ]);
+  assert.deepEqual(ps.map((p) => [p.exe, p.args, p.end - p.start, p.exit, p.cwd]), [["C:\\a.exe", ["x"], 1000, 0, null], ["C:\\b.exe", ["y"], 1000, 3, null]]);
 });
-
-// Shapes found in the recorded runs of full run 4 (D:\scratch\loop-review\muse-fulldev-4) that the first fixed checks misread.
-// NN10 (rightkit#1514 step 3): a test compile is joined to its broker job; the receipt verifies, shows a compile only and lists the
-// programs the gate then ran, each with the digest the broker signed.
-const EXE = `${SNAP}\\ws\\target\\debug\\deps\\b-1.exe`;
-const testRun = (r) => {
-  r.ledger[2] = compile(6, "test", "-p b --no-run");
-  r.ledger.push({ ...entry(8.5, EXE, [], SNAP), sha256: "h1" });
-  r.brokerJobs = [{ at: at(8), requestId: "job1", argv: ["test", "-p", "b", "--no-run"], cwd: `${SNAP}\\ws`, receipt: "R1.json", receiptSha256: "d1", status: "pass", code: null, testExecutables: [{ path: EXE, sha256: "h1" }] }];
-  r.verifyReceipt = (file) => (file === "R1.json" ? { ok: true, sha256: "d1", requestId: "job1", receipt: { testExecutables: [{ path: EXE, sha256: "h1" }] }, problems: [] } : { ok: false, problems: ["unknown"] });
-};
-test("NN10: tests are compiled by the broker, with a verified compile-only receipt, and the gate runs exactly what the broker built", () => {
-  expect(alter(testRun), "NN10", "pass", /verified compile-only receipt/);
-  expect(alter((r) => { testRun(r); r.brokerJobs = []; }), "NN10", "not measured", /no broker job/);
-  expect(alter((r) => { testRun(r); r.verifyReceipt = null; }), "NN10", "not measured", /no broker key is pinned/);
-  expect(alter((r) => { testRun(r); r.verifyReceipt = () => ({ ok: false, problems: ["bad signature"] }); }), "NN10", "fail", /bad signature/);
-  expect(alter((r) => { testRun(r); r.brokerJobs[0].receiptSha256 = "d2"; }), "NN10", "fail", /not the one the gate read/);
-  expect(alter((r) => { testRun(r); const v = r.verifyReceipt; r.verifyReceipt = (x) => ({ ...v(x), requestId: "job9" }); }), "NN10", "fail", /not the request job1/);
-  expect(alter((r) => { testRun(r); r.verifyReceipt = () => ({ ok: true, sha256: "d1", requestId: "job1", receipt: {}, problems: [] }); }), "NN10", "fail", /compile only/);
-  expect(alter((r) => { testRun(r); r.ledger.pop(); }), "NN10", "fail", /never ran it/);
-  expect(alter((r) => { testRun(r); r.ledger.at(-1).sha256 = "h2"; }), "NN10", "fail", /another digest/);
-  expect(alter((r) => { testRun(r); delete r.ledger.at(-1).sha256; }), "NN10", "not measured", /no digest/);
-  expect(alter((r) => { r.ledger.push(entry(8, "C:\\cargo\\bin\\cargo.exe", ["test", "-p", "b"], SNAP)); }), "NN10", "fail", /outside the broker/);
-  expect(alter((r) => { testRun(r); r.end = null; }), "NN10", "not measured", /exit record/);
+test("the run is the gate the launcher started and everything under it; another launcher's gate is not this run", () => {
+  expect(alter((r) => { r.procs[0].ppid = 77; }), "NN08", "not measured", /no start of the gate process/);
+  expect(alter((r) => { r.procs.push({ ...proc(5, GIT, ["status"]), ppid: 4242 }, proc(5.5, GIT, ["status"])); }), "NN08", "pass");
+  expect(alter((r) => { byExe(r, RUSTFMT).end = null; }), "NN08", "not measured", /no recorded exit/);
 });
-
-test("record shapes real runs write: uncacheable rows, both change-list spellings, gate-run test suites, feature-set variants", () => {
-  // An uncacheable row is forecast, looked up and covered as such and runs every time: it agrees with itself, and NN06 cannot pass while it exists.
-  const uncacheable = (r) => { decA(r).forecast.push({ id: "shellcheck", expected: "uncacheable" }); decA(r).actual.push({ id: "shellcheck", actual: "uncacheable" }); decA(r).dispatchedRows.push("shellcheck"); r.files["covA.json"].scans.push({ id: "shellcheck", class: "A", coverage: "ran", status: "pass", lane: { readyAt: 1000, startedAt: 1000, endedAt: 1100, lanes: 4 } }); r.ledger.splice(2, 0, entry(1.7, "C:\\tools\\shellcheck.exe", ["scripts/a.sh"], SNAP)); };
-  expect(alter(uncacheable), "NN04", "pass"); expect(alter(uncacheable), "NN05", "pass");
-  expect(alter(uncacheable), "NN06", "not measured", /shellcheck is uncacheable/);
-  // A key's inputs carry the key schema after the JSON, and changed inputs are named by index or by path.
-  const pathForm = (r) => { decA(r).fingerprints[0].inputs += ":rightkit.class-a-key/3"; decA(r).forecast[0].changes = { inputs: ["files/src/a.rs"], inputsChanged: 1, contentOnly: true }; };
-  expect(alter(pathForm), "NN07", "pass");
-  expect(alter((r) => { pathForm(r); r.ledger[1].args.push("src/b.rs"); }), "NN07", "fail", /src\/b\.rs/);
-  // A JavaScript test suite (test:npm:*) is run by the gate, not compiled by the broker: no broker compile is owed for it.
-  const npm = (r) => { decB(r).forecast.push({ id: "test:npm:app-lib", key: "kn", expected: "run" }); decB(r).actual.push({ id: "test:npm:app-lib", actual: "run", key: "kn" }); decB(r).dispatchedRows.push("test:npm:app-lib"); r.files["covB.json"].scans.push({ id: "test:npm:app-lib", class: "B", coverage: "ran", status: "pass" }); };
-  expect(alter(npm), "NN07", "pass"); expect(alter(npm), "NN05", "pass");
-  // Two feature sets of one crate (`:0`, `:1`): a compile for the changed one names the crate the unchanged one shares, and which it built is unknown.
-  const variants = (r) => { const d = decB(r); d.forecast = [{ id: "clippy:ws:b:0", key: "k0", expected: "hit", status: "pass" }, { id: "clippy:ws:b:1", key: "k1", expected: "run" }]; d.actual = [{ id: "clippy:ws:b:0", actual: "hit", key: "k0", status: "pass" }, { id: "clippy:ws:b:1", actual: "run", key: "k1" }]; d.dispatchedRows = ["clippy:ws:b:1"]; r.files["covB.json"].scans = [{ id: "clippy:ws:b:0", class: "B", coverage: "hit", status: "pass" }, { id: "clippy:ws:b:1", class: "B", coverage: "ran", status: "pass" }]; r.ledger[2] = compile(6, "clippy", "--profile release -p b --features z --locked"); };
-  expect(alter(variants), "NN06", "not measured", /feature set/);
+test("the launcher's lock: a live holder refuses, a dead one is taken over and named, and the history file is the gate's own for its store", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rk-launch-"));
+  const lock = path.join(dir, "l");
+  fs.writeFileSync(lock, `${JSON.stringify({ runId: "r", pid: process.pid })}\n`);
+  assert.match(takeLaunchLock(lock, { runId: "s", pid: 1 }).refused, /holds/);
+  fs.writeFileSync(lock, `${JSON.stringify({ runId: "k", pid: 999999, out: "o" })}\n`);
+  assert.deepEqual(takeLaunchLock(lock, { runId: "s", pid: process.pid }).previous, { runId: "k", out: "o", pid: 999999, reclaimed: true });
+  assert.match(historyFileFor("D:\\runs\\h", "D:\\Repo\\.git\\rightkit-gate-cache", "win32"), /h[\\/][0-9a-f]{64}\.json$/);
+  assert.equal(historyFileFor("D:\\runs\\h", "D:\\Repo\\.git\\rightkit-gate-cache", "win32"), historyFileFor("D:\\runs\\h", "d:\\repo\\.git\\rightkit-gate-cache", "win32"));
 });
-
-test("the records are read as a real run writes them", () => {
-  const line = '{"pid":1,"at":"2026-11-20T06:24:41.108Z","ms":5,"sync":false,"cmd":"C:\\\\WINDOWS\\\\system32\\\\cmd.exe","args":["/d","/s","/c","\\"\\"D:\\\\.rightkit-managed\\\\agent-bin\\\\rustright.cmd\\" cargo clippy --profile release --target x86_64-pc-windows-msvc -p witness-engine --locked\\""],"cwd":"D:\\\\snap\\\\k\\\\app","status":0}';
-  const ledger = parseLedger(`${line}\nnot json\n`);
-  assert.equal(ledger.length, 1);
-  const c = brokerCompileOf(ledger[0]);
-  assert.equal(c.sub, "clippy"); assert.ok(c.args.includes("witness-engine"));
-  assert.equal(brokerCompileOf({ cmd: "git", args: ["status"], cwd: "." }), null);
-  assert.equal(brokerCompileOf({ cmd: "rustright", args: ["cargo", "metadata"], cwd: "." }), null, "a cargo question that compiles nothing is not a compile");
+test("the Security log export: its events become the process record, and a log that does not reach back is said", () => {
+  const raw = { oldest: at(-100), events: [{ id: 4688, time: at(0), data: { NewProcessId: "0x64", ProcessId: "0x32", NewProcessName: "C:\\node.exe", CommandLine: "node gate.mjs" } }, { id: 4689, time: at(1), data: { ProcessId: "0x64", ProcessName: "C:\\node.exe", Status: "0x0" } }] };
+  const x = exportWindowsProcesses(at(-1), at(2), { run: () => JSON.stringify(raw) });
+  assert.deepEqual(x.problems, []);
+  assert.deepEqual(x.events.map((e) => [e.id, e.pid, e.ppid ?? null]), [[4688, 100, 50], [4689, 100, null]]);
+  assert.match(exportWindowsProcesses(at(-1), at(2), { run: () => JSON.stringify({ ...raw, oldest: at(1) }) }).problems[0], /oldest event/);
+  assert.match(exportWindowsProcesses(at(-1), at(2), { run: () => { throw Object.assign(new Error("x"), { stderr: "Access is denied." }); } }).problems[0], /Access is denied/);
+});
+test("NN10: a verified compile-only test build whose program the gate ran, as the broker built it, passes", () => {
+  const ok = (r) => { testJob(r, EXE, { testExecutables: [{ path: EXE, sha256: "h1" }] }); r.digests[EXE] = "h1"; };
+  expect(alter(ok), "NN10", "pass");
+  expect(alter((r) => { ok(r); r.digests[EXE] = "h2"; }), "NN10", "fail", /not the program the broker built/);
+  expect(alter((r) => { ok(r); r.procs = r.procs.filter((p) => p.exe !== EXE); }), "NN10", "fail", /never ran it/);
+  expect(alter((r) => { ok(r); delete r.receipts[0].doc.provenance.payload.testExecutables; }), "NN10", "fail", /compile only/);
+  expect(alter((r) => { r.procs.push(proc(8, "C:\\cargo\\bin\\cargo.exe", ["test", "-p", "b"])); }), "NN10", "fail", /outside the broker/);
+});
+test("NN12: a killed run passes only on the next ordinary run that took its lock over and ended 0", () => {
+  const killed = (r) => { r.launch.exit = 137; };
+  expect(alter((r) => { killed(r); r.successor = { launch: { previous: { runId: r.launch.runId, reclaimed: true }, exit: 0 } }; }), "NN12", "pass", /next ordinary run/);
+  expect(alter((r) => { killed(r); r.successor = { launch: { previous: { runId: r.launch.runId, reclaimed: true }, exit: 1 } }; }), "NN12", "not measured");
+  expect(alter((r) => { r.live = { exists: (f) => f.endsWith(".lock"), alive: () => false }; }), "NN12", "fail", /lock/);
 });

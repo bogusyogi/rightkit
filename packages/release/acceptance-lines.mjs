@@ -1,35 +1,34 @@
 // The gate's acceptance test: twelve lines that must be true of every run (GATE-CONTRACT GC-A27; Adrian, 2026-11-20: "An acceptance test
 // should be a single list of things that has to pass any run").
 //
-// It judges ONE run from the records that run leaves behind, and nothing else, never its log: the launcher's record (acceptance-launch.mjs:
-// the selected commit, the run id, the gate's pid, its clock and its exit), the run record the gate writes as each fact happens (run-record.mjs:
-// the snapshot and its lock, the forecasts, every cache lookup, the decisions, the coverage reports, the Class A verdict, the lanes, the
-// broker jobs, the receipt), the list of every process it started with its journal (spawn-ledger.mjs), the broker's signed receipts, and,
-// where a split or a workspace must be checked, files of the run's own Git tree. It stages nothing and knows no scenario: a first build, a
-// repeat, a run after an edit and a real build of an app are all judged by the same twelve lines. A line with no record to judge it from is
-// "not measured", never a pass.
+// It judges ONE run, and takes nothing from the gate's own reporting (Adrian, 2026-11-21: "remove all dependency of gate reporting anything").
+// Its evidence is what the gate does not write: git (the selected commit, its tree and files), the operating system's record of every program
+// the run started and when it exited (Windows Security events 4688/4689, macOS eslogger), the broker's signed receipts (each job's command,
+// folder, times, commit, tree and test programs), the gate's state on disk as the launcher copied it before the gate started (each row's
+// last inputs and result) and as it stands after (the results the cache store took during the run), and the launcher's own record (commit,
+// run id, the gate's pid, its clock, its exit, the lanes and time limit pinned at launch, the run lock). The test works out itself what the
+// run owes, from the files each row last read and the selected tree. It stages nothing and knows no scenario. A line with no record to judge
+// it from is "not measured", never a pass.
 //
-// Rules every check keeps (gatecodex reviews and Council CV-1, 2026-11-20):
+// Rules every check keeps (gatecodex reviews and Council CV-1 and CV-2, 2026-11-20):
 //  * Missing proof is not the absence of work. "Nothing was sent", "nothing repeated" and "no other compile" are shown only from a process
-//    list that is complete and bound to this run (parseLedger, ledgerGaps); otherwise the line is not measured.
-//  * No record is trusted alone. The forecast, the lookup results, the coverage report, the dispatch list and the process list are joined
-//    row by row, in both directions, and any disagreement among them is found here, not read from the gate's own summary of it.
-//  * Every record must be this run's: the selected commit, the snapshot, its lock, the receipt and any record that names a run.
-//  * What a record cannot tell apart (a wrapped command it cannot decode, a feature-set variant, a tie in time) is not measured, not guessed.
+//    record that covers the whole run; otherwise the line is not measured.
+//  * What the run owed (the test's own reckoning) and what it did (programs, signed jobs, stored results) are compared in both directions.
+//  * What a record cannot tell apart (a wrapped command with no child, a feature-set variant, a tie in time) is not measured, not guessed.
 //
 // The lines are not written here. They are read from the one table in docs/GATE-CONTRACT.md [GC-A27] between
 // `<!-- acceptance-lines:begin -->` and `<!-- acceptance-lines:end -->`, and nothing is judged unless every line there has a check here and
 // every check here has a line there.
 //
-//   node acceptance-lines.mjs --run <run dir> [--repo <dir>] [--contract <file>] [--limits <file>] [--successor <run dir>]
-//                             [--broker-key <hex> --broker-key-id <hex>] [--live] [--json]
+//   node acceptance-lines.mjs --run <run dir> --repo <dir> --cache-dir <dir> --receipts <dir> [--broker-key <hex> --broker-key-id <hex>]
+//                             [--successor <run dir>] [--live] [--contract <file>] [--json]
 import fs from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { sidecarBoundCrate } from "./deterministic-scans.mjs";
-import { parseRunRecord } from "./run-record.mjs";
+import { historyFileFor } from "./acceptance-launch.mjs";
 
 export const CONTRACT_FILE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "docs", "GATE-CONTRACT.md");
 const BEGIN = "<!-- acceptance-lines:begin -->"; const END = "<!-- acceptance-lines:end -->";
@@ -88,82 +87,6 @@ const short = (s) => String(s).slice(0, 12);
 // ---- reading the records ---------------------------------------------------------------------------------------------------------------------------
 const ISO = /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z$/;
 const timeOf = (s) => (typeof s === "string" && ISO.test(s) ? Date.parse(s) : NaN);
-
-/**
- * The process list (RK_GATE_SPAWN_LEDGER). Each line is one finished child `{pid, child, at, ms, sync, cmd, args, cwd, status}`: `pid` is the
- * writer (the gate process that started it), `child` the started process's own id, `at` when it started; the line is written when it closes.
- * Returns the entries as an array that also carries `problems` (every line that is not a whole entry: nothing is dropped silently).
- */
-export function parseLedger(text) {
-  const entries = []; const problems = [];
-  String(text ?? "").split(/\r?\n/).forEach((raw, i) => {
-    if (!raw.trim()) return;
-    let e; try { e = JSON.parse(raw); } catch { problems.push(`line ${i + 1} is not JSON`); return; }
-    const missing = [];
-    if (!Number.isInteger(e?.pid)) missing.push("pid");
-    if (!Number.isFinite(timeOf(e?.at))) missing.push("at");
-    if (typeof e?.ms !== "number" || !(e.ms >= 0)) missing.push("ms");
-    if (typeof e?.cmd !== "string" || !e.cmd) missing.push("cmd");
-    if (!Array.isArray(e?.args)) missing.push("args");
-    if (typeof e?.cwd !== "string") missing.push("cwd");
-    if (!e || typeof e !== "object" || !("status" in e)) missing.push("status");
-    if (missing.length) { problems.push(`line ${i + 1} has no ${missing.join(", ")}`); return; }
-    entries.push(e);
-  });
-  return Object.defineProperties(entries, { problems: { value: problems } });
-}
-
-/**
- * The process journal beside the process list (spawn-ledger.mjs, `<ledger>.journal.jsonl`): `start` when a child starts, `end` when it closes
- * (joined by writer and `id`), and one `exit` per writer when its process exits, `{pid, parent, root, open}`. Returns { starts, ended, exits,
- * problems }: `ended` holds `<writer>:<id>` of every closed child, `exits` the exit records by writer.
- */
-export function parseJournal(text) {
-  const starts = []; const ended = new Set(); const exits = new Map(); const problems = [];
-  String(text ?? "").split(/\r?\n/).forEach((raw, i) => {
-    if (!raw.trim()) return;
-    let j; try { j = JSON.parse(raw); } catch { problems.push(`line ${i + 1} is not JSON`); return; }
-    if (!j || !Number.isInteger(j.pid) || !/^\d+$/.test(String(j.mono ?? ""))) { problems.push(`line ${i + 1} has no writer or clock reading`); return; }
-    if (j.ev === "start") { if (typeof j.id !== "string") problems.push(`line ${i + 1} is a start without an id`); else starts.push(j); }
-    else if (j.ev === "end") { if (typeof j.id !== "string") problems.push(`line ${i + 1} is an end without an id`); else ended.add(`${j.pid}:${j.id}`); }
-    else if (j.ev === "exit") { if (!Number.isInteger(j.open)) problems.push(`line ${i + 1} is an exit without its open count`); else if (exits.has(j.pid)) problems.push(`line ${i + 1} is a second exit record for process ${j.pid}`); else exits.set(j.pid, j); }
-    else problems.push(`line ${i + 1} is not a start, end or exit`);
-  });
-  return { starts, ended, exits, problems };
-}
-
-/**
- * Why the process list cannot be taken as this run's complete list, or [] when it can (Council CV-1 F-3; frozen case GCX-02-2): every line of
- * the list and the journal is whole; the run's own gate process (the pid its launcher started, not the gate's word) exited with one root
- * exit record; every process that wrote to the list exited too, linked to the root through its parent, with no child still open; and every
- * child the journal saw start was seen to end. A list without that is a sample, and a sample cannot show absence. An empty list closed this
- * way is a valid record of a run that started nothing.
- */
-export function ledgerGaps(ledger, journal, { runPid = null } = {}) {
-  if (!Array.isArray(ledger)) return ["the run has no process list"];
-  if (!Array.isArray(ledger.problems)) return ["the process list was not read with parseLedger, so whether it is complete is unknown"];
-  const gaps = ledger.problems.map((p) => `the process list is incomplete: ${p}`);
-  if (!journal || !(journal.exits instanceof Map)) { gaps.push("the run has no process journal, so a process started and never recorded cannot be ruled out"); return gaps; }
-  gaps.push(...journal.problems.map((p) => `the process journal is incomplete: ${p}`));
-  const roots = [...journal.exits.values()].filter((e) => e.root === true);
-  if (!roots.length) gaps.push("the process journal has no exit record of the run's own gate process (root), so a process started and never recorded cannot be ruled out");
-  if (roots.length > 1) gaps.push(`the process journal has ${roots.length} root exit records, so which run it belongs to is contradictory`);
-  const root = roots.length === 1 ? roots[0] : null;
-  if (root && !Number.isInteger(runPid)) gaps.push("the run's own process id is not known from its launcher, so the root exit record cannot be tied to the run");
-  if (root && Number.isInteger(runPid) && root.pid !== runPid) gaps.push(`the process journal's root exit record is process ${root.pid}'s, not the run's own process ${runPid} (its launcher's record)`);
-  for (const pid of new Set(ledger.map((e) => e.pid))) if (!journal.exits.has(pid)) gaps.push(`process ${pid} wrote to the process list and no exit record`);
-  for (const [pid, x] of journal.exits) {
-    if (x.open !== 0) gaps.push(`process ${pid} exited with ${x.open} child(ren) still open, which the list does not show`);
-    if (x.root === true) continue;
-    // Each other writer must reach the root through its parents.
-    let at = x; const seen = new Set();
-    while (at && at.root !== true && !seen.has(at.pid)) { seen.add(at.pid); at = journal.exits.get(at.parent); }
-    if (!at || at.root !== true) gaps.push(`process ${pid}'s exit record is not linked to the run's root through its parent`);
-  }
-  const unended = journal.starts.filter((s) => !journal.ended.has(`${s.pid}:${s.id}`));
-  if (unended.length) gaps.push(`${unended.length} process(es) started and never seen to end (first: ${programName(unended[0].cmd ?? "?")})`);
-  return gaps;
-}
 
 /**
  * A process start as the program it really ran (Council CV-1 F-4, F-22). A Windows `cmd /c <string>` start is decoded by cmd's own rules
@@ -300,570 +223,7 @@ const otherVariant = (a, b) => { const x = rowOf(a); const y = rowOf(b); return 
 const TOOLS = { rustfmt: "rustfmt", deny: "cargo-deny", "cargo-deny": "cargo-deny", "cargo-audit": "cargo-audit", shellcheck: "shellcheck", actionlint: "actionlint", oxlint: "oxlint", tsc: "tsc" };
 const toolOf = (id) => TOOLS[String(id).split(":")[0]] ?? null;
 const isProbe = (args) => args.length > 0 && args.every((a) => /^(--version|-version|-V|--help|-help|-h)$/.test(a));
-function toolStarts(ctx, id) {
-  const tool = toolOf(id); if (!tool) return null;
-  const ws = String(id).split(":").slice(1).find((s) => s && !/^\d+$/.test(s) && !/^20\d\d$/.test(s)) ?? null;
-  return ctx.starts.filter((d) => programName(d.program) === tool && !isProbe(d.args)).map((d) => {
-    if (tool === "rustfmt") return { ...d, mine: "maybe" };
-    if (!ws) return { ...d, mine: true };
-    const rel = relToSnap(d.cwd, ctx.snap.path); const manifest = valuesOf(d.args, "--manifest-path").map((m) => m.replaceAll("\\", "/"));
-    const inWs = rel === dirKey(ws) || manifest.some((m) => m === `${ws}/Cargo.toml` || m.endsWith(`/${ws}/Cargo.toml`));
-    const other = (rel !== null && rel !== "" && rel !== dirKey(ws)) || manifest.length > 0;
-    return { ...d, mine: inWs ? true : other ? false : "maybe" };
-  });
-}
 
-/**
- * The run as its record states it (run-record.mjs), keeping only facts of this run's id (the launcher's): the snapshot and its lock, the
- * stages asked for, every forecast file with the fact of when it was frozen, every cache lookup in order, the coverage reports, the Class A
- * verdict, the scheduler's lanes and capacity, the divergences, the broker jobs and the receipt, each file read. Nothing here is the log.
- */
-function runOf({ launch, record, readJson }) {
-  const problems = [...(record?.problems ?? ["the run has no record (record.jsonl)"])];
-  const runId = launch?.runId ?? null;
-  const all = record?.facts ?? [];
-  const foreign = runId ? all.filter((x) => x.run !== runId) : [];
-  if (!runId) problems.push("the launcher's record names no run id, so the facts cannot be tied to this run");
-  const facts = runId ? all.filter((x) => x.run === runId) : [];
-  const of = (k) => facts.filter((x) => x.kind === k);
-  const read = (file) => { try { return { doc: readJson(file), problem: null }; } catch (e) { return { doc: null, problem: `cannot read ${file} (${e.code ?? e.message})` }; } };
-  const decisions = [];
-  for (const stage of ["A", "B"]) {
-    const mine = (k) => of(k).filter((x) => x.class === stage);
-    for (const file of [...new Set([...mine("forecast"), ...mine("decision")].map((x) => x.file))]) {
-      const observed = mine("decision").filter((x) => x.file === file).at(-1);
-      decisions.push({ stage, file, ...read(file), at: observed ? timeOf(observed.at) : NaN, frozen: mine("forecast").filter((x) => x.file === file).at(-1) ?? null });
-    }
-  }
-  const v = of("verdict").at(-1); const out = of("receipt-out").at(-1);
-  const said = of("snapshot").map((x) => ({ path: x.path, commit: x.commit, tree: x.tree })); const still = of("still-tree");
-  return {
-    problems, foreign,
-    snap: { said, after: still.map((x) => x.tree), afterStages: new Set(still.map((x) => x.stage)), lock: of("lock")[0]?.token ?? null, commit: said[0]?.commit ?? null, tree: said[0]?.tree ?? null, path: said[0]?.path ?? null },
-    requests: of("request"), lookups: of("lookup"), decisions,
-    coverage: of("coverage").map((x) => ({ file: x.file, ...read(x.file) })),
-    verdict: v ? { file: v.file, doc: read(v.file).doc, at: timeOf(v.at) } : { file: null, doc: null, at: NaN },
-    capacity: of("capacity").at(-1) ?? null,
-    lanes: of("lanes").filter((x) => x.class === "A").flatMap((x) => (Array.isArray(x.rows) ? x.rows : [])),
-    divergences: of("divergence").map((x) => ({ row: x.row, at: timeOf(x.at) })),
-    brokerJobs: of("broker-job"),
-    receipt: out ? read(out.file).doc : null, receiptFile: out?.file ?? null,
-  };
-}
-/** A record that names a run (its lock or run id) different from this run's is another run's record (Council CV-1 F-5). */
-const foreignRun = (doc, lock) => {
-  for (const k of ["snapshotLock", "lock", "runLock"]) if (doc && typeof doc[k] === "string" && lock && doc[k] !== lock) return `${k} ${doc[k]}`;
-  return null;
-};
-
-/** Allowed values, by record (Council CV-1 F-13): anything else is invalid, and an invalid value is never agreement. */
-const FORECAST = new Set(["hit", "run", "uncacheable"]); const LOOKUP = new Set(["hit", "run", "ran", "uncacheable"]); const COVERED = new Set(["hit", "ran"]);
-/**
- * A forecast, lookup or coverage value as reuse ("hit"), run ("run") or "uncacheable" (a row the gate keeps no result for, so it runs every
- * time: forecast and looked up as such, covered as ran), or null for a value outside those.
- */
-const normal = (v) => (v === "hit" ? "hit" : v === "run" || v === "ran" ? "run" : v === "uncacheable" ? "uncacheable" : null);
-const runs = (v) => v === "run" || v === "uncacheable";
-const sameOutcome = (forecast, other) => normal(forecast) !== null && normal(other) !== null && (normal(forecast) === normal(other) || (normal(forecast) === "uncacheable" && normal(other) === "run"));
-/**
- * Whether a row's inputs changed, from its own keys and change list, never from its label (Council CV-1 F-16): "changed", "unchanged", or
- * null when the record carries neither.
- */
-const changeOf = (f) => {
-  if (typeof f.key === "string" && typeof f.priorKey === "string") return f.key === f.priorKey ? "unchanged" : "changed";
-  if (Number.isInteger(f.changes?.inputsChanged)) return f.changes.inputsChanged === 0 ? "unchanged" : "changed";
-  return null;
-};
-
-/**
- * One stage (A or B) with every record of it joined by row: the forecast (F), the lookup results (A), the coverage rows of this pass (C, null
- * when no coverage report covers the stage) and the dispatch list (null when the decision has none). `problem` says why the stage's decision
- * cannot be used: none named, unreadable, more than one, or a document that declares another stage.
- */
-function stageOf(ctx, stage) {
-  const ds = ctx.decisions.filter((d) => d.stage === stage);
-  let problem = null; let contradictory = false;
-  if (!ds.length) problem = `no Class ${stage} forecast is in the run record`;
-  else if (ds.length > 1) { problem = `the run record names ${ds.length} Class ${stage} forecasts`; contradictory = true; }
-  else if (!ds[0].doc) problem = `the Class ${stage} forecast cannot be read (${ds[0].problem})`;
-  else if (ds[0].doc.stage !== `class-${stage.toLowerCase()}`) { problem = `the Class ${stage} forecast ${path.basename(ds[0].file)} declares itself ${JSON.stringify(ds[0].doc.stage)}`; contradictory = true; }
-  const d = problem ? null : ds[0];
-  const doc = d?.doc ?? null;
-  const reports = ctx.coverage.filter((c) => c.doc && Array.isArray(c.doc.scans) && c.doc.scans.some((s) => s.class === stage && s.coverage !== "skipped"));
-  const covRows = reports.flatMap((c) => c.doc.scans).filter((s) => s.class === stage && s.coverage !== "skipped");
-  const C = reports.length ? new Map(covRows.map((s) => [s.id, s])) : null;
-  const F = new Map((Array.isArray(doc?.forecast) ? doc.forecast : []).map((f) => [f.id, f]));
-  const A = new Map((Array.isArray(doc?.actual) ? doc.actual : []).map((a) => [a.id, a]));
-  const dispatched = Array.isArray(doc?.dispatchedRows) ? new Set(doc.dispatchedRows) : null;
-  // A row recorded twice in one record cannot be read by id: the later entry would silently hide the earlier one.
-  const twice = (ids) => [...new Set(ids.filter((x, i) => ids.indexOf(x) !== i))];
-  const dups = {
-    forecast: twice((Array.isArray(doc?.forecast) ? doc.forecast : []).map((f) => f.id)),
-    lookup: twice((Array.isArray(doc?.actual) ? doc.actual : []).map((a) => a.id)),
-    coverage: twice(covRows.map((s) => s.id)),
-    dispatch: twice(Array.isArray(doc?.dispatchedRows) ? doc.dispatchedRows : []),
-  };
-  const dupIds = new Set(Object.values(dups).flat());
-  return { stage, decisions: ds, d, doc, F, A, C, dispatched, dups, dupIds, problem, contradictory };
-}
-
-/**
- * What the records say about the work a stage did in this run: `did` names the evidence of work (a row run, dispatched or covered as ran, a
- * broker compile for Class B, a verdict written for Class A), `unknown` why none cannot be shown. Both empty: proven none.
- */
-function stageWork(ctx, stage) {
-  const s = stageOf(ctx, stage); const did = []; const unknown = [];
-  if (s.dispatched?.size) did.push(`${s.dispatched.size} row(s) dispatched`);
-  const ran = [...(s.C?.values() ?? [])].filter((c) => c.coverage === "ran").length; if (ran) did.push(`${ran} row(s) covered as ran`);
-  const looked = [...s.A.values()].filter((a) => runs(normal(a.actual))).length; if (looked) did.push(`${looked} row(s) looked up to run`);
-  if (stage === "B" && ctx.compiles.length) did.push(`${ctx.compiles.length} broker compile(s)`);
-  if (stage === "A" && ctx.verdict.file) did.push("a Class A verdict was written in this run");
-  if (s.problem) unknown.push(s.problem); else if (!s.dispatched) unknown.push(`no Class ${stage} dispatch list`);
-  if (!s.C) unknown.push(`no coverage report for Class ${stage}`);
-  if (stage === "B") unknown.push(...ctx.ledgerGaps);
-  return { did, unknown };
-}
-/** Whether a stage has any record of being part of this run (Council CV-1 F-11): a forecast named, coverage rows of this pass, or work. */
-const stageEvidenced = (ctx, stage) => { const s = stageOf(ctx, stage); return s.decisions.length > 0 || s.C !== null || (stage === "B" && ctx.compiles.length > 0); };
-
-// ---- the twelve lines ------------------------------------------------------------------------------------------------------------------------------
-function nn01(ctx) {
-  const { receipt, commit, snap } = ctx; const fails = []; const gaps = [];
-  if (ctx.foreign.length) fails.push(`the run record holds ${ctx.foreign.length} fact(s) of another run (${ctx.foreign[0].run})`);
-  for (const p of ctx.recordProblems) gaps.push(`the run record is incomplete: ${p}`);
-  if (!snap.said.length) return decide(fails, ["the run record never says which commit and tree its snapshot is"], "");
-  if (!commit) gaps.push("the launcher's record names no selected commit, so the run cannot be held to it");
-  const commits = new Set(snap.said.map((s) => s.commit)); const trees = new Set([...snap.said.map((s) => s.tree), ...snap.after]);
-  if (commit && (commits.size !== 1 || !commits.has(commit))) fails.push(`the selected commit is ${short(commit)}, the snapshot was built from ${[...commits].map(short).join(", ")}`);
-  if (commits.size !== 1) fails.push(`the snapshot names ${commits.size} commits`);
-  if (trees.size !== 1) fails.push(`the snapshot names ${trees.size} trees: ${[...trees].map(short).join(", ")}`);
-  for (const r of ctx.requests) if (commit && r.commit !== commit) fails.push(`the gate resolved ${short(r.commit)}, not the selected ${short(commit)}`);
-  if (!snap.after.length) gaps.push("the snapshot's tree was stated at the start but never checked again after the work");
-  // Frozen case gate 13: each stage this run did work in has its own check of the tree after it; another stage's check does not cover it.
-  else for (const [name, cls] of [["check", "A"], ["compile", "B"]]) {
-    const w = stageWork(ctx, cls);
-    if (w.did.length && !snap.afterStages.has(name)) gaps.push(`this run did ${name} work (${w.did.join(", ")}) and the run record never checks the snapshot's tree after the ${name}`);
-  }
-  const runCommit = commit ?? snap.commit;
-  for (const d of ctx.decisions) if (d.doc && d.doc.commit !== runCommit) fails.push(`the Class ${d.stage} forecast is for commit ${short(d.doc.commit)}`);
-  for (const d of ctx.decisions) if (d.doc && d.stage === "B" && d.doc.tree && d.doc.tree !== snap.tree) fails.push(`the Class B forecast is for tree ${short(d.doc.tree)}`);
-  for (const c of ctx.coverage) if (c.doc && c.doc.commit && c.doc.commit !== runCommit) fails.push(`the coverage report ${path.basename(c.file)} is for commit ${short(c.doc.commit)}`);
-  if (ctx.verdict.doc && (ctx.verdict.doc.commit !== runCommit || ctx.verdict.doc.tree !== snap.tree)) fails.push(`the Class A verdict is for commit ${short(ctx.verdict.doc.commit)} tree ${short(ctx.verdict.doc.tree)}`);
-  // Council CV-1 F-1: every broker compile builds from this run's snapshot: its folder, and any manifest it names, are inside it.
-  if (!snap.path) gaps.push("the run record names no snapshot folder, so where the compiles built cannot be checked");
-  else for (const c of ctx.compiles) {
-    if (relToSnap(c.cwd, snap.path) === null) fails.push(`a broker compile (cargo ${c.sub}) ran in ${c.cwd}, outside the snapshot ${snap.path}`);
-    for (const mp of valuesOf(c.args, "--manifest-path")) {
-      const abs = /^([a-z]:[\\/]|[\\/])/i.test(mp) ? mp : `${c.cwd}${isWin(c.cwd) ? "\\" : "/"}${mp}`;
-      const norm = dirKey(abs).split("/").reduce((acc, p) => (p === ".." ? acc.slice(0, -1) : p === "." ? acc : [...acc, p]), []).join("/");
-      if (relToSnap(norm, snap.path) === null) fails.push(`a broker compile (cargo ${c.sub}) builds the manifest ${mp}, outside the snapshot`);
-    }
-  }
-  if (!receipt) gaps.push("the run has no receipt to bind the build to the commit and snapshot");
-  else {
-    if (receipt.commit !== runCommit) fails.push(`the receipt is for commit ${short(receipt.commit)}, the run was for ${short(runCommit)}`);
-    if (receipt.binding?.tree !== snap.tree) fails.push(`the receipt is bound to tree ${short(receipt.binding?.tree)}, the snapshot is ${short(snap.tree)}`);
-    if (!snap.lock) gaps.push("the run record names no snapshot lock, so the receipt cannot be tied to this run");
-    // Every stage the receipt records is of this commit's tree, and holds this run's snapshot lock. The one exception is a stage carried from an
-    // earlier run of the same commit and tree (recorded before this run began, under that run's lock), and only when every record shows this
-    // run did none of that stage's work (gatecodex ruling 4): an earlier time and a matching tree do not bind fresh work to an old receipt.
-    const runStart = Number.isFinite(ctx.runStart) ? ctx.runStart : null;
-    const STAGE_CLASS = { check: "A", compile: "B" };
-    const stages = Object.entries(receipt.stages ?? {}).filter(([, st]) => st);
-    if (!stages.length) fails.push("the receipt records no stage");
-    // Council CV-1 F-2: a stage this run did work in must be in the receipt, with its own proof.
-    for (const [name, cls] of Object.entries(STAGE_CLASS)) {
-      if (receipt.stages?.[name]) continue;
-      const w = stageWork(ctx, cls);
-      if (w.did.length) gaps.push(`this run did ${name} work (${w.did.join(", ")}) and the receipt records no ${name} stage to bind it to the tree and lock`);
-    }
-    for (const [name, st] of stages) {
-      if (st.snapshot?.tree !== snap.tree) fails.push(`the receipt's ${name} stage read tree ${short(st.snapshot?.tree)}`);
-      if (st.snapshot?.intactAfter !== true) fails.push(`the receipt's ${name} stage does not record the snapshot intact after it`);
-      const when = timeOf(st.at);
-      if (!Number.isFinite(when) || runStart === null) { gaps.push(`the receipt's ${name} stage has no time to place it in this run or an earlier one`); continue; }
-      if (!snap.lock || st.snapshotLock === snap.lock) continue;
-      if (when >= runStart) { fails.push(`the receipt's ${name} stage, recorded during this run, holds snapshot lock ${st.snapshotLock}; this run held ${snap.lock}`); continue; }
-      const cls = STAGE_CLASS[name];
-      if (!cls) { gaps.push(`the receipt's ${name} stage was carried from an earlier run, and no record shows whether this run did its work`); continue; }
-      const w = stageWork(ctx, cls);
-      if (w.did.length) fails.push(`the receipt's ${name} stage is an earlier run's (lock ${st.snapshotLock}), yet this run did work in it: ${w.did.join(", ")}`);
-      else if (w.unknown.length) gaps.push(`the receipt's ${name} stage was carried from an earlier run; that this run did none of its work cannot be shown: ${w.unknown.slice(0, 2).join("; ")}`);
-    }
-  }
-  return decide(fails, gaps, `selected commit ${short(runCommit)}, tree ${short(snap.tree)} before and after, every compile in the snapshot, receipt and records bound to lock ${snap.lock}`);
-}
-
-/** The Class A tool starts of this run (Council CV-1 F-6, F-10): starts of a program a Class A row runs, other than probes. */
-const classAStarts = (ctx) => ctx.starts.filter((d) => Object.values(TOOLS).includes(programName(d.program)) && !isProbe(d.args));
-
-function nn02(ctx) {
-  const { compiles, snap } = ctx; const fails = []; const gaps = [];
-  const runCommit = ctx.commit ?? snap.commit; const v = ctx.verdict;
-  const foreign = foreignRun(v.doc, snap.lock);
-  const verdictOk = v.doc && !foreign && v.doc.status === "pass" && v.doc.commit === runCommit && v.doc.tree === snap.tree && Number.isFinite(v.at);
-  const covA = stageOf(ctx, "A").C;
-  // Frozen case gate 9: whether Class A failed is read from this run's verdict file and Class A coverage only, never from log wording, which
-  // can be about a nested unit; with no verdict file the line is not measured below.
-  const aFailed = v.doc?.status === "fail" || [...(covA?.values() ?? [])].some((s) => s.status === "fail");
-  const sentB = stageOf(ctx, "B").dispatched;
-  if (foreign) fails.push(`the Class A verdict ${path.basename(v.file)} belongs to another run (${foreign})`);
-  else if (v.doc && !verdictOk && !aFailed) fails.push(`the Class A verdict ${path.basename(v.file)} is not a pass of commit ${short(runCommit)} tree ${short(snap.tree)} (it says ${v.doc.status} for ${short(v.doc.commit)} ${short(v.doc.tree)})`);
-  if (v.file && !v.doc) gaps.push(`the Class A verdict ${v.file} cannot be read`);
-  const lgaps = ctx.ledgerGaps;
-  const sends = ctx.brokerStarts.filter((b) => !b.ambiguous);
-  const unclear = ctx.brokerStarts.filter((b) => b.ambiguous);
-  if (unclear.length) gaps.push(`${unclear.length} start(s) name the broker client in a command line this judge cannot decode, so whether and when they sent work is unknown`);
-  if (aFailed || (v.doc && !verdictOk)) {
-    if (sends.length) fails.push(`Class A did not pass and ${sends.length} start(s) still went to the broker (${compiles.length} of them compiles)`);
-    if (sentB?.size) fails.push(`Class A did not pass and ${sentB.size} Class B row(s) were still dispatched`);
-    gaps.push(...lgaps.map((g) => `that nothing was sent cannot be shown: ${g}`));
-    return decide(fails, gaps, "Class A failed and nothing was sent to the broker (complete process list)");
-  }
-  if (!v.doc) {
-    if (sends.length) fails.push(`${sends.length} start(s) went to the broker with no Class A verdict for this run`);
-    return decide(fails, ["the run record names no Class A verdict for this run"], "");
-  }
-  // Council CV-1 F-6: a send must come strictly after Class A finished: after the verdict, and after every Class A tool process ended. A tie
-  // with no record of which came first proves neither order.
-  const aEnd = Math.max(v.at, ...classAStarts(ctx).map((d) => d.at + (d.ms ?? 0)));
-  for (const b of sends) {
-    if (!Number.isFinite(b.at)) gaps.push("a broker start has no time");
-    else if (b.at < v.at) fails.push(`a start went to the broker before the Class A verdict (rustright ${b.args.slice(0, 2).join(" ")})`);
-    else if (b.at < aEnd) fails.push(`a start went to the broker while a Class A tool was still running (rustright ${b.args.slice(0, 2).join(" ")})`);
-    else if (b.at === v.at || b.at === aEnd) gaps.push(`a broker start and the end of Class A carry the same time, and no record says which came first (rustright ${b.args.slice(0, 2).join(" ")})`);
-  }
-  gaps.push(...lgaps.map((g) => `that nothing went to the broker before the verdict cannot be shown: ${g}`));
-  return decide(fails, gaps, `Class A passed ${short(runCommit)} first, then ${compiles.length} compile(s) went to the broker (complete process list)`);
-}
-
-function nn03(ctx) {
-  const s = stageOf(ctx, "A"); const covA = s.C;
-  if (!covA) return result(NOT_MEASURED, "no coverage report covers Class A");
-  if (s.problem) return result(s.contradictory ? FAIL : NOT_MEASURED, s.problem);
-  // Council CV-1 F-7: every row owed or recorded as run, in any record, is accounted for first.
-  const owed = new Set([...[...s.F.values()].filter((f) => runs(normal(f.expected))).map((f) => f.id), ...[...covA.values()].filter((c) => c.coverage === "ran").map((c) => c.id), ...(s.dispatched ?? []), ...[...s.A.values()].filter((a) => runs(normal(a.actual))).map((a) => a.id)]);
-  if (!owed.size) {
-    // Gatecodex ruling 1 and F-7: "no row waited" passes only for a proven, complete, wholly reused Class A: every row forecast, looked up and
-    // covered as reused, the three records naming the same rows, and nothing dispatched.
-    const why = [];
-    if (!s.F.size) why.push("no Class A forecast rows");
-    if (!s.dispatched) why.push("no Class A dispatch list");
-    const ids = [...s.F.keys()];
-    if (ids.some((id) => s.A.get(id)?.actual !== "hit")) why.push("a row has no lookup result of reuse");
-    if (ids.some((id) => covA.get(id)?.coverage !== "hit")) why.push("a row is not covered as reused");
-    if ([...covA.keys()].some((id) => !s.F.has(id)) || [...s.A.keys()].some((id) => !s.F.has(id))) why.push("the coverage report, lookup and forecast name different rows");
-    if (s.dupIds.size) why.push(`row(s) recorded twice: ${[...s.dupIds].slice(0, 3).join(", ")}`);
-    return why.length ? result(NOT_MEASURED, `no Class A row ran, and that none was owed cannot be shown: ${why.join("; ")}`) : result(PASS, `Class A was wholly reused (${s.F.size} rows forecast, looked up and covered as reused, none dispatched), so no row waited`);
-  }
-  // The scheduler's own ready, start and end times per row (the run record's lanes fact), not a report's word.
-  const laneRows = new Map(); for (const l of ctx.lanes) if (l && typeof l.id === "string") laneRows.set(l.id, laneRows.has(l.id) ? null : l);
-  const lane = (l) => l && Number.isInteger(l.lanes) && l.lanes > 0 && [l.readyAt, l.startedAt, l.endedAt].every(Number.isFinite) && l.readyAt <= l.startedAt && l.startedAt <= l.endedAt;
-  const bare = [...owed].filter((id) => !lane(laneRows.get(id)));
-  if (bare.length) return result(NOT_MEASURED, `no valid lane record (one per row; ready <= started <= ended, lanes >= 1) from the scheduler for row(s) owed or run: ${bare.slice(0, 4).join(", ")}${bare.length > 4 ? ` and ${bare.length - 4} more` : ""}`);
-  const ran = [...owed].map((id) => ({ id, lane: laneRows.get(id) }));
-  // Council CV-1 F-8: the number of lanes is the capacity the scheduler was given during the run (the capacity fact), not a row's word; a
-  // wait beside a free lane fails however short, except within a timing resolution a lane record states.
-  const announced = Number(ctx.capacity?.classAJobs ?? NaN);
-  const fails = []; const gaps = [];
-  for (const r of ran) {
-    const { readyAt, startedAt } = r.lane; const tolerance = Number.isFinite(r.lane.resolutionMs) && r.lane.resolutionMs >= 0 ? r.lane.resolutionMs : 0;
-    if (startedAt - readyAt <= tolerance) continue;
-    if (!Number.isInteger(announced) || announced <= 0) { gaps.push(`${r.id} waited ${Math.round(startedAt - readyAt)} ms; how many lanes Class A had is not in the run record, so whether one was free cannot be shown`); continue; }
-    const others = ran.filter((o) => o !== r);
-    const points = [...new Set([readyAt, ...others.flatMap((o) => [o.lane.startedAt, o.lane.endedAt]).filter((t) => t > readyAt && t < startedAt)])].sort((a, b) => a - b);
-    let idle = 0; let idleFrom = null;
-    points.forEach((t, i) => {
-      const next = points[i + 1] ?? startedAt; const busy = others.filter((o) => o.lane.startedAt <= t && o.lane.endedAt > t).length;
-      if (busy < announced) { idle += next - t; idleFrom ??= t; }
-    });
-    if (idle > tolerance) fails.push(`${r.id} waited ${Math.round(startedAt - readyAt)} ms, ${Math.round(idle)} ms of it with a lane free of ${announced} (from ${idleFrom})`);
-  }
-  return decide(fails, gaps, `${ran.length} Class A row(s) ran; none waited while a lane was free`);
-}
-
-function nn04(ctx) {
-  const fails = []; const gaps = [];
-  const runCommit = ctx.commit ?? ctx.snap.commit;
-  const worked = { A: !!stageOf(ctx, "A").C || !!ctx.verdict.file, B: !!stageOf(ctx, "B").C || ctx.compiles.length > 0 };
-  const freezes = []; const lookups = [];
-  for (const stage of ["A", "B"]) {
-    const s = stageOf(ctx, stage);
-    if (!s.decisions.length) { if (worked[stage]) fails.push(`Class ${stage} worked (coverage or compiles) with no forecast in the run record`); continue; }
-    if (s.problem) { (s.contradictory ? fails : gaps).push(s.problem); if (s.decisions.length === 1 && s.decisions[0].doc && s.contradictory) continue; if (!s.decisions[0]?.doc) continue; }
-    const doc = s.doc ?? s.decisions[0].doc; const d = s.decisions[0];
-    if (!Array.isArray(doc.forecast) || !doc.forecast.length) { fails.push(`the Class ${stage} forecast ${path.basename(d.file)} is missing or empty`); continue; }
-    const foreign = foreignRun(doc, ctx.snap.lock); if (foreign) fails.push(`the Class ${stage} forecast belongs to another run (${foreign})`);
-    if (doc.commit !== runCommit) fails.push(`the Class ${stage} forecast is for commit ${short(doc.commit)}, not ${short(runCommit)}`);
-    const ids = doc.forecast.map((f) => f.id);
-    for (const id of new Set(ids.filter((x, i) => ids.indexOf(x) !== i))) fails.push(`Class ${stage} row ${id} appears more than once in the forecast`);
-    for (const f of doc.forecast) if (!FORECAST.has(f.expected)) fails.push(`Class ${stage} row ${f.id} is forecast as ${JSON.stringify(f.expected)}, not reuse, run or uncacheable`);
-    // Council CV-1 F-9: every row looked up was in the frozen forecast.
-    const fset = new Set(ids);
-    for (const a of Array.isArray(doc.actual) ? doc.actual : []) if (!fset.has(a.id)) fails.push(`Class ${stage} row ${a.id} was looked up and is not in the forecast`);
-    if (!d.frozen) gaps.push(`the run record has no fact of when the Class ${stage} forecast was frozen`);
-    else freezes.push({ stage, t: timeOf(d.frozen.at), mono: BigInt(d.frozen.mono) });
-    if (s.C) {
-      const missing = [...s.C.keys()].filter((id) => !s.F.has(id)); const extra = [...s.F.keys()].filter((id) => !s.C.has(id));
-      if (missing.length) fails.push(`the Class ${stage} forecast leaves out row(s) the run covered: ${missing.slice(0, 4).join(", ")}`);
-      if (extra.length) fails.push(`the Class ${stage} forecast names row(s) the run never covered: ${extra.slice(0, 4).join(", ")}`);
-    } else gaps.push(`no coverage report covers Class ${stage}, so its forecast cannot be shown complete`);
-  }
-  // Council CV-1 F-10: the line is about the run's FIRST cache lookup. Every required forecast is frozen before it, by the observed order of
-  // the run record (one monotonic clock for every process of the host), no stage's work starts before its forecast is frozen, and a tie
-  // proves no order.
-  const first = ctx.lookups[0] ?? null;
-  if (freezes.length && !first && ctx.decisions.some((d) => Array.isArray(d.doc?.actual) && d.doc.actual.length)) gaps.push("rows were looked up and the run record has no fact of the first lookup");
-  if (freezes.length && first) {
-    const last = freezes.reduce((a, b) => (b.mono > a.mono ? b : a)); const firstMono = BigInt(first.mono);
-    if (last.mono > firstMono) fails.push(`the Class ${last.stage} forecast was frozen at ${new Date(last.t).toISOString()}, after the run's first lookup${first.class ? ` (Class ${first.class})` : ""} at ${first.at}`);
-    else if (last.mono === firstMono) gaps.push("the last forecast was frozen at the same clock reading as the run's first lookup, so which came first is not shown");
-  }
-  const freezeOf = (stage) => freezes.find((f) => f.stage === stage)?.t;
-  if (Number.isFinite(freezeOf("B"))) { const early = ctx.brokerStarts.filter((b) => !(b.at > freezeOf("B"))); if (early.length) fails.push(`${early.length} start(s) went to the broker before the Class B forecast was frozen`); }
-  if (Number.isFinite(freezeOf("A"))) { const early = classAStarts(ctx).filter((d) => !(d.at > freezeOf("A"))); if (early.length) fails.push(`${early.length} Class A tool start(s) (first: ${programName(early[0].program)}) came before the Class A forecast was frozen`); }
-  if (!ctx.decisions.length && !fails.length) return result(NOT_MEASURED, "the run record names no forecast");
-  return decide(fails, gaps, ctx.decisions.map((d) => `Class ${d.stage}: ${d.doc?.forecast?.length ?? 0} rows forecast before the run's first lookup`).join("; "));
-}
-
-function nn05(ctx) {
-  const fails = []; const gaps = []; const notes = [];
-  const notices = ctx.divergences;
-  const allBroker = [...stageOf(ctx, "B").F.keys()];
-  for (const stage of ["A", "B"]) {
-    const s = stageOf(ctx, stage);
-    // Council CV-1 F-11: a stage with any record in this run has one readable, correctly identified decision, or the line cannot pass.
-    if (s.problem) { if (stageEvidenced(ctx, stage)) (s.contradictory ? fails : gaps).push(s.problem); continue; }
-    if (!s.F.size) { gaps.push(`the Class ${stage} forecast has no rows`); continue; }
-    for (const [record, ids] of Object.entries(s.dups)) for (const id of ids) fails.push(`Class ${stage}: ${id} appears more than once in the ${record} record, so which entry holds cannot be known`);
-    const foreign = s.C && ctx.coverage.map((c) => foreignRun(c.doc, ctx.snap.lock)).find(Boolean); if (foreign) fails.push(`a coverage report belongs to another run (${foreign})`);
-    // Council CV-1 F-13: values are checked against what each record may hold before anything is compared.
-    for (const f of s.F.values()) if (f.expected === undefined || f.expected === null) gaps.push(`Class ${stage}: ${f.id} has no forecast value`); else if (!FORECAST.has(f.expected)) fails.push(`Class ${stage}: ${f.id} is forecast ${JSON.stringify(f.expected)}, which is not a forecast value`);
-    for (const a of s.A.values()) if (a.actual === undefined || a.actual === null) gaps.push(`Class ${stage}: ${a.id} has no lookup value`); else if (!LOOKUP.has(a.actual)) fails.push(`Class ${stage}: ${a.id} was looked up ${JSON.stringify(a.actual)}, which is not a lookup value`);
-    for (const c of s.C?.values() ?? []) if (!COVERED.has(c.coverage)) fails.push(`Class ${stage}: ${c.id} is covered ${JSON.stringify(c.coverage)}, which is not a coverage value`);
-    const lookup = [];
-    for (const [id, f] of s.F) { const a = s.A.get(id); if (!a) lookup.push({ id, why: `${id} has no lookup result` }); else if (FORECAST.has(f.expected) && LOOKUP.has(a.actual) && !sameOutcome(f.expected, a.actual)) lookup.push({ id, why: `${id} was forecast ${f.expected}, looked up ${a.actual}` }); }
-    for (const id of s.A.keys()) if (!s.F.has(id)) lookup.push({ id, why: `${id} was looked up and not forecast` });
-    if (!s.dispatched) gaps.push(`the Class ${stage} forecast records no dispatch list, so what was sent cannot be shown`);
-    if (lookup.length) {
-      const named = Array.isArray(s.doc.mismatches) ? s.doc.mismatches : [];
-      for (const { id } of lookup) {
-        const m = named.find((x) => x?.id === id);
-        if (!m || typeof m.reason !== "string" || !m.reason.trim()) fails.push(`Class ${stage}: the lookup disagreed for ${id} and the run did not record its cause`);
-        const n = notices.find((x) => x.row?.id === id);
-        if (!n) fails.push(`Class ${stage}: the lookup disagreed for ${id} and the run did not name it (RK_CACHE_DIVERGENCE)`);
-        else if (m?.reason && n.row.reason !== undefined && n.row.reason !== m.reason) fails.push(`Class ${stage}: the stop notice for ${id} gives another cause than the recorded mismatch`);
-        else if (m?.reason && n.row.reason === undefined) gaps.push(`Class ${stage}: the stop notice for ${id} carries no cause to match the recorded one`);
-      }
-      for (const n of notices) if (n.row?.id && !lookup.some((l) => l.id === n.row.id) && !allBroker.includes(n.row.id) && !s.F.has(n.row.id)) fails.push(`a stop notice names ${n.row.id}, which is no row whose lookup disagreed`);
-      for (const n of notices) if (!n.row || typeof n.row.id !== "string") fails.push("a stop notice (RK_CACHE_DIVERGENCE) carries no row id");
-      if (ctx.exit === null || ctx.exit === undefined || !Number.isInteger(ctx.exit)) gaps.push(`Class ${stage}: the lookup disagreed (${lookup[0].why}) and the run's exit code is not known`);
-      else if (ctx.exit === 0) fails.push(`Class ${stage}: the lookup disagreed (${lookup[0].why}) and the run still exited 0`);
-      if (s.dispatched?.size) fails.push(`Class ${stage}: the lookup disagreed (${lookup[0].why}) and ${s.dispatched.size} row(s) were still sent`);
-      const ranRows = [...(s.C?.values() ?? [])].filter((c) => c.coverage === "ran").map((c) => c.id);
-      if (ranRows.length) fails.push(`Class ${stage}: the lookup disagreed and ${ranRows.slice(0, 3).join(", ")} still ran`);
-      if (ctx.compiles.length) fails.push(`Class ${stage}: the lookup disagreed and ${ctx.compiles.length} compile(s) were still sent to the broker`);
-      // Council CV-1 F-15: no work of any kind starts after the stop notice.
-      const stopAt = Math.min(...notices.filter((n) => lookup.some((l) => l.id === n.row?.id)).map((n) => n.at).filter(Number.isFinite));
-      if (Number.isFinite(stopAt)) { const after = ctx.starts.filter((d) => d.at >= stopAt && (programName(d.program) === "rustright" || Object.values(TOOLS).includes(programName(d.program)) || (ctx.snap.path && relToSnap(d.program, ctx.snap.path) !== null))); if (after.length) fails.push(`Class ${stage}: work started after the stop notice (${programName(after[0].program)})`); }
-      gaps.push(...ctx.ledgerGaps.map((g) => `that nothing was sent after the disagreement cannot be shown: ${g}`));
-      notes.push(`Class ${stage}: the lookup disagreed for ${lookup.slice(0, 3).map((l) => l.id).join(", ")}; the run stopped before sending work, named it and failed`);
-      continue;
-    }
-    if (Array.isArray(s.doc.mismatches) && s.doc.mismatches.length) fails.push(`Class ${stage}: the run recorded mismatches (${s.doc.mismatches.map((m) => m?.id).join(", ")}) where the forecast and lookup agree`);
-    const run = new Set([...s.F].filter(([, f]) => runs(normal(f.expected))).map(([id]) => id));
-    if (!s.C) gaps.push(`no coverage report covers Class ${stage}, so what ran cannot be compared with the forecast`);
-    else {
-      for (const [id] of s.C) if (!s.F.has(id)) fails.push(`Class ${stage}: ${id} was covered and not forecast`);
-      for (const [id, f] of s.F) { const c = s.C.get(id); if (!c) fails.push(`Class ${stage}: ${id} was forecast and not covered`); else if (FORECAST.has(f.expected) && COVERED.has(c.coverage) && !sameOutcome(f.expected, c.coverage)) fails.push(`Class ${stage}: ${id} was forecast ${f.expected} and ${c.coverage}`); }
-    }
-    if (s.dispatched) {
-      for (const id of s.dispatched) if (!run.has(id)) fails.push(`Class ${stage}: ${id} was sent and the forecast said reuse`);
-      for (const id of run) if (!s.dispatched.has(id)) fails.push(`Class ${stage}: ${id} was forecast to run and not sent`);
-    }
-    // Council CV-1 F-12: owed work and observed work are compared in both directions, in the process list as well as the gate's summaries.
-    if (stage === "B") {
-      const owedB = [...run].filter(isBrokerRow);
-      for (const id of owedB) if (!ctx.compiles.some((c) => covers(c, id, ctx.snap.path, allBroker))) (ctx.ledgerGaps.length ? gaps : fails).push(`Class B: ${id} was owed and no broker compile in the process list does its work`);
-      for (const c of ctx.compiles) {
-        const ts = targetsOf(c).length ? targetsOf(c) : [null];
-        for (const crate of cratesOf(c)) for (const t of ts) {
-          const unit = (id) => { const r = rowOf(id); return r.sub === c.sub && r.crate === crate && inWorkspace(c, r, ctx.snap.path) && (r.target === t || (r.target === null && (t === null || !allBroker.some((o) => { const q = rowOf(o); return q.sub === c.sub && q.crate === crate && q.ws === r.ws && q.target === t; })))); };
-          if (!owedB.some(unit)) fails.push(`a broker compile (cargo ${c.sub}) builds ${crate}${t ? ` for ${t}` : ""}${relToSnap(c.cwd, ctx.snap.path) === null ? " outside the snapshot" : ""}, which no row the forecast said to run asks for`);
-        }
-      }
-      gaps.push(...ctx.ledgerGaps.map((g) => `that no other compile was sent cannot be shown: ${g}`));
-    } else {
-      for (const id of run) { const st = toolStarts(ctx, id); if (st && !st.some((d) => d.mine)) (ctx.ledgerGaps.length ? gaps : fails).push(`Class A: ${id} was owed and no start of ${toolOf(id)} in the process list does its work`); }
-    }
-    notes.push(`Class ${stage}: forecast, lookup, coverage, dispatch and process list agree on ${s.F.size} rows (${run.size} run)`);
-  }
-  if (!notes.length && !fails.length && !gaps.length) return result(NOT_MEASURED, "no forecast file to compare with what ran");
-  return decide(fails, gaps, notes.join("; "));
-}
-
-function nn06(ctx) {
-  const fails = []; const gaps = []; let reused = 0; let failures = 0;
-  for (const stage of ["A", "B"]) {
-    const s = stageOf(ctx, stage);
-    if (s.problem) { if (stageEvidenced(ctx, stage)) (s.contradictory ? fails : gaps).push(s.problem); continue; }
-    const allIds = [...s.F.keys()];
-    // A row is unchanged by its own keys and change list (Council CV-1 F-16); only a row that carries neither is taken at its label.
-    const unchanged = [...s.F.values()].filter((f) => f.expected !== "uncacheable" && (changeOf(f) === "unchanged" || (changeOf(f) === null && f.expected === "hit")));
-    // Absence is shown only from complete records (gatecodex review 2): with no coverage report, or a process list that may be missing
-    // starts, a reused row that ran cannot be ruled out.
-    if (unchanged.length && !s.C) gaps.push(`no coverage report covers Class ${stage}, so that its ${unchanged.length} unchanged row(s) did not run cannot be shown`);
-    if (unchanged.length && ctx.ledgerGaps.length) gaps.push(`that no process did an unchanged Class ${stage} row's work cannot be shown: ${ctx.ledgerGaps[0]}`);
-    for (const f of s.F.values()) {
-      if (f.expected !== "uncacheable") continue;
-      // Gatecodex ruling 2 and F-33: proven changed passes; proven unchanged and run fails; unknown is not measured.
-      const ch = changeOf(f); const ran = s.dispatched?.has(f.id) || runs(normal(s.A.get(f.id)?.actual)) || s.C?.get(f.id)?.coverage === "ran";
-      if (ch === "unchanged" && ran) fails.push(`${f.id} is uncacheable, its inputs did not change, and it ran again`);
-      else if (ch === null) gaps.push(`${f.id} is uncacheable: it runs whether or not its inputs changed, and its record does not say whether they did`);
-    }
-    for (const f of unchanged) {
-      const id = f.id; reused += 1;
-      if (s.dupIds.has(id)) { gaps.push(`${id} is recorded more than once, so its reuse cannot be read`); continue; }
-      const a = s.A.get(id); const c = s.C?.get(id) ?? null;
-      if (!a) gaps.push(`${id} was forecast unchanged and has no lookup result`);
-      else {
-        if (normal(a.actual) !== "hit") fails.push(`${id} is unchanged and ran again (${a.actual})`);
-        if (typeof f.key === "string" && typeof a.key === "string" && f.key !== a.key) fails.push(`${id} was reused under key ${short(a.key)}, not its forecast key ${short(f.key)}`);
-        // Frozen cases GCX-06-2 and gate 15: with no key on either side, "reused under its forecast key" cannot be shown.
-        else if (typeof f.key !== "string" || typeof a.key !== "string") gaps.push(`${id} was reused, and its ${typeof f.key !== "string" ? "forecast" : "lookup"} records no key, so that it was reused under its forecast key cannot be shown`);
-      }
-      if (s.C && !c) gaps.push(`${id} was forecast unchanged and is not in the coverage report`);
-      if (c && normal(c.coverage) !== "hit") fails.push(`${id} is unchanged and the coverage report says it ${c.coverage}`);
-      // Council CV-1 F-17: an unchanged row is checked against dispatch and against the starts that would do its work.
-      if (s.dispatched?.has(id)) fails.push(`${id} is unchanged and was dispatched`);
-      if (f.status === "fail") {
-        failures += 1;
-        const recorded = [a?.status, c?.status].filter((x) => x !== undefined && x !== null);
-        if (!recorded.length) gaps.push(`${id} was an earlier failure and no record says what the reuse returned`);
-        if (recorded.some((x) => x !== "fail")) fails.push(`${id} was an earlier failure and came back ${recorded.find((x) => x !== "fail")}: a reused failure stays a failure`);
-      }
-      if (stage === "B") {
-        const c2 = ctx.compiles.find((x) => covers(x, id, ctx.snap.path, allIds));
-        const sibling = c2 ? allIds.find((o) => o !== id && s.F.get(o)?.expected !== "hit" && otherVariant(id, o) && covers(c2, o, ctx.snap.path, allIds)) : null;
-        if (sibling) gaps.push(`${id} is unchanged and a compile for ${sibling} names the same crate; which feature set it built is not recorded`);
-        else if (c2) fails.push(`${id} is unchanged and a broker compile did its work (cargo ${c2.sub} ${cratesOf(c2).map((n) => `-p ${n}`).join(" ")})`);
-      } else if (/^rustfmt:/.test(id)) {
-        // A rustfmt start does this row's work if it checks one of this row's files; with no changed row of the edition, any start for it does.
-        const ed = id.split(":")[1]; const starts = rustfmtStarts(ctx, ed);
-        const sharing = [...s.F.values()].some((o) => o.id !== id && /^rustfmt:/.test(o.id) && o.id.split(":")[1] === ed && runs(normal(o.expected)));
-        if (starts.length && !sharing) fails.push(`${id} is unchanged and rustfmt ran for edition ${ed}`);
-        else if (starts.length) {
-          const own = changedFilesOf(s.doc, { ...f, priorKey: null });
-          if (own.gap) gaps.push(own.gap);
-          else { const touched = starts.flatMap((d) => rustfmtFiles(ctx, d)).filter((x) => own.files.has(x)); if (touched.length) fails.push(`${id} is unchanged and rustfmt checked its file(s): ${touched.slice(0, 3).join(", ")}`); }
-        }
-      } else {
-        const st = toolStarts(ctx, id);
-        if (st?.some((d) => d.mine === true)) fails.push(`${id} is unchanged and ${toolOf(id)} ran for it`);
-        else if (st?.some((d) => d.mine === "maybe")) gaps.push(`${id} is unchanged and a start of ${toolOf(id)} cannot be told apart from its work`);
-      }
-    }
-  }
-  if (!ctx.decisions.some((d) => d.doc)) return result(NOT_MEASURED, "no forecast file, so unchanged rows cannot be told from changed ones");
-  return decide(fails, gaps, `${reused} unchanged row(s) reused${failures ? `, ${failures} of them an earlier failure that stayed one` : ""}`);
-}
-
-/** The rustfmt starts of this run for one edition, decoded. */
-const rustfmtStarts = (ctx, ed) => ctx.starts.filter((d) => programName(d.program) === "rustfmt" && !isProbe(d.args) && valuesOf(d.args, "--edition").includes(ed));
-/** The file operands of a rustfmt start, as paths from the snapshot root (resolved against the folder it ran in). */
-const rustfmtFiles = (ctx, d) => {
-  const out = []; const rel = relToSnap(d.cwd, ctx.snap.path);
-  for (let i = 0; i < d.args.length; i += 1) {
-    const a = String(d.args[i]);
-    if (["--edition", "--config", "--config-path", "--emit", "--color", "--files-with-diff"].includes(a)) { if (a !== "--files-with-diff") i += 1; continue; }
-    if (a.startsWith("-")) continue;
-    const f = a.replaceAll("\\", "/");
-    out.push(rel ? `${rel}/${f}` : f);
-  }
-  return out;
-};
-/** The files whose change made a Class A row run, from its fingerprint and the forecast's change list, or { gap } when they cannot be known. */
-function changedFilesOf(doc, f) {
-  const fp = (doc.fingerprints ?? []).find((x) => x.id === f.id);
-  // The inputs are the key's JSON with its schema written after it (`{...}:rightkit.class-a-key/3`).
-  let files; try { files = JSON.parse(String(fp?.inputs ?? "null").replace(/:rightkit\.[\w.-]+\/\d+$/, ""))?.files; } catch { files = null; }
-  if (!Array.isArray(files)) return { gap: `${f.id} has no recorded input files` };
-  if (!f.priorKey) return { files: new Set(files.map((x) => String(x[0]))), all: new Set(files.map((x) => String(x[0]))) };
-  const listed = f.changes?.inputs; const count = f.changes?.inputsChanged;
-  if (!Array.isArray(listed) || !Number.isInteger(count)) return { gap: `${f.id} has no list of its changed inputs` };
-  if (listed.length < count) return { gap: `${f.id}'s forecast lists ${listed.length} of its ${count} changed inputs, so the files the change touched cannot be named` };
-  // Two spellings: by index into the input files (`files.10.1`) or by path (`files/rk/crates/rk-core/src/lib.rs`).
-  const unread = listed.filter((p) => !/^files[./]/.test(p));
-  if (unread.length) return { gap: `${f.id}'s changed inputs include ${unread.slice(0, 2).join(", ")}, which name no file` };
-  const byIndex = listed.map((p) => /^files\.(\d+)\./.exec(p)?.[1]).filter(Boolean).map((i) => String(files[Number(i)]?.[0]));
-  const byPath = listed.map((p) => /^files\/(.+)$/.exec(p)?.[1]).filter(Boolean);
-  return { files: new Set([...byIndex, ...byPath]), all: new Set(files.map((x) => String(x[0]))) };
-}
-
-function nn07(ctx) {
-  const fails = []; const gaps = []; let changed = 0;
-  const allBroker = [...stageOf(ctx, "B").F.keys()];
-  for (const stage of ["A", "B"]) {
-    const s = stageOf(ctx, stage);
-    if (s.problem) { if (stageEvidenced(ctx, stage)) (s.contradictory ? fails : gaps).push(s.problem); continue; }
-    // A row is changed by its own keys and change list (Council CV-1 F-16); only a row that carries neither is taken at its label.
-    const changedRows = [...s.F.values()].filter((f) => f.expected !== "uncacheable" && (changeOf(f) === "changed" || (changeOf(f) === null && f.expected === "run")));
-    // Council CV-1 F-19: a changed row needs its coverage report and dispatch list; missing records are not measured, not passed.
-    if (changedRows.length && !s.C) gaps.push(`no coverage report covers Class ${stage}, so that its ${changedRows.length} changed row(s) ran cannot be shown`);
-    if (changedRows.length && !s.dispatched) gaps.push(`the Class ${stage} forecast records no dispatch list, so that its changed rows were sent cannot be shown`);
-    for (const f of changedRows) {
-      const id = f.id; changed += 1;
-      if (s.dupIds.has(id)) { gaps.push(`${id} is recorded more than once, so its run cannot be read`); continue; }
-      if (f.expected === "hit") fails.push(`${id} changed (key ${short(f.key)} against ${short(f.priorKey)}) and was forecast for reuse`);
-      const a = s.A.get(id); const c = s.C?.get(id) ?? null;
-      if (!a) gaps.push(`${id} was forecast changed and has no lookup result`);
-      else if (normal(a.actual) !== "run") fails.push(`${id} changed and did not run (${a.actual})`);
-      if (s.C && !c) gaps.push(`${id} was forecast changed and is not in the coverage report`);
-      if (c && normal(c.coverage) !== "run") fails.push(`${id} changed and the coverage report says it ${c.coverage}`);
-      if (s.dispatched && !s.dispatched.has(id)) fails.push(`${id} changed and was not sent`);
-      if (stage === "B" && isBrokerRow(id)) {
-        const doers = ctx.compiles.filter((x) => covers(x, id, ctx.snap.path, allBroker));
-        if (!doers.length) (ctx.ledgerGaps.length ? gaps : fails).push(`${id} changed and no broker compile in the process list does its work`);
-        else if (rowOf(id).variant !== null && allBroker.some((o) => otherVariant(id, o))) gaps.push(`${id} is one feature set of a crate built in several; which feature set the compile built is not recorded`);
-      }
-      if (stage === "A" && /^rustfmt:/.test(id)) {
-        // Council CV-1 F-21: the starts of this row together are handed exactly the files the change touched: none missing, none extra.
-        const ed = id.split(":")[1]; const scope = changedFilesOf(s.doc, f);
-        const starts = rustfmtStarts(ctx, ed);
-        if (!starts.length) (ctx.ledgerGaps.length ? gaps : fails).push(`${id} changed and no rustfmt start for edition ${ed} is in the process list`);
-        for (const d of starts) if (!rustfmtFiles(ctx, d).length) fails.push(`${id}: a rustfmt start for edition ${ed} was handed no file`);
-        if (scope.gap) gaps.push(scope.gap);
-        else {
-          const mine = starts.filter((d) => rustfmtFiles(ctx, d).some((x) => scope.all.has(x)));
-          const handed = new Set(mine.flatMap((d) => rustfmtFiles(ctx, d)));
-          const sibling = (x) => [...s.F.values()].some((o) => o.id !== id && /^rustfmt:/.test(o.id) && changedFilesOf(s.doc, { ...o, priorKey: null }).all?.has(x));
-          const extra = [...handed].filter((x) => !scope.files.has(x) && !sibling(x));
-          const missing = [...scope.files].filter((x) => /\.rs$/.test(x) && !handed.has(x));
-          if (extra.length) fails.push(`${id} ran rustfmt on file(s) the change did not touch: ${extra.slice(0, 4).join(", ")}`);
-          if (missing.length) fails.push(`${id} changed file(s) that rustfmt was never handed: ${missing.slice(0, 4).join(", ")}`);
-        }
-      } else if (stage === "A") {
-        const st = toolStarts(ctx, id);
-        if (st && !st.some((d) => d.mine)) (ctx.ledgerGaps.length ? gaps : fails).push(`${id} changed and no start of ${toolOf(id)} in the process list does its work`);
-      }
-    }
-  }
-  // A compile does only the change's work when every crate and target it names belongs to a changed row of its stage and workspace.
-  const runB = [...stageOf(ctx, "B").F].filter(([id, f]) => runs(normal(f.expected)) && isBrokerRow(id)).map(([id]) => id);
-  for (const c of ctx.compiles) {
-    const needed = new Set(runB.filter((id) => rowOf(id).sub === c.sub && inWorkspace(c, rowOf(id), ctx.snap.path)).map((id) => rowOf(id).crate));
-    const extra = cratesOf(c).filter((n) => !needed.has(n));
-    if (extra.length) fails.push(`a broker compile (cargo ${c.sub}) also names ${extra.join(", ")}, which no changed row of its workspace needs`);
-  }
-  if (!ctx.decisions.some((d) => d.doc)) return result(NOT_MEASURED, "no forecast file, so changed rows cannot be told from unchanged ones");
-  return decide(fails, gaps, `${changed} changed row(s), every one ran, and only on what changed`);
-}
-
-/**
- * NN08's per-run parts, the only ones blanked before two starts are compared (carried from the old test's NN07, gate-acceptance.mjs
- * normalizeRunPart): the temp folders of probes and shims, the macOS temp root, and pid values. Nothing else is rewritten: arguments keep their
- * case, their ids and their `-c` options, because two starts that differ there are two different calls.
- */
 const RUN_PARTS = [[/(rk-probe-|rk-gate-shim-|rk-cargo-shim-)[A-Za-z0-9_-]+/g, "$1*"], [/\/var\/folders\/[^/]+\/[^/]+\/T\//g, "$TMP/"], [/\b(pid|PID)([= :]?)\d+/g, "$1$2*"]];
 const runPart = (s) => RUN_PARTS.reduce((v, [re, to]) => v.replace(re, to), String(s));
 /** A decoded start as program, arguments and folder; Windows folders and programs compare without case or a trailing separator. */
@@ -875,33 +235,6 @@ function callOf(d, raw) {
 /** The same program: one path, or a bare name (found on PATH) and a path ending in it. Two different paths are two programs. */
 const sameProgram = (a, b) => a.name === b.name && (a.path === null || b.path === null || a.path === b.path);
 
-function nn08(ctx) {
-  const { ledger } = ctx;
-  if (!Array.isArray(ledger)) return result(NOT_MEASURED, "the run has no list of the processes it started");
-  const calls = ledger.map((e, i) => callOf(ctx.starts[i], e));
-  const buckets = new Map();
-  const written = calls.map((c, i) => (c.ambiguous && ctx.starts[i].intended ? callOf({ ...ctx.starts[i], ...ctx.starts[i].intended }, ledger[i]) : null));
-  for (const c of calls) { const k = JSON.stringify([c.args, c.cwd]); (buckets.get(k) ?? buckets.set(k, []).get(k)).push(c); }
-  const repeats = [];
-  for (const group of buckets.values()) {
-    const groups = [];
-    for (const c of group) { const g = groups.find((x) => sameProgram(x[0], c)); if (g) g.push(c); else groups.push([c]); }
-    for (const g of groups) if (g.length > 1) repeats.push(g);
-  }
-  written.forEach((w, i) => {
-    if (!w) return;
-    const same = calls.filter((c, j) => j !== i && !c.ambiguous && sameProgram(c, w) && c.cwd === w.cwd && JSON.stringify(c.args) === JSON.stringify(w.args));
-    if (same.length) repeats.push([same[0], { ...w, name: `${w.name} (written again through cmd /c)` }]);
-  });
-  const fails = repeats.sort((a, b) => b.length - a.length).map((g) => `${g.length}x ${g[0].name} ${g[0].args.join(" ").slice(0, 70)}`);
-  const gaps = [...ctx.ledgerGaps];
-  const cut = calls.filter((c) => c.truncated).length;
-  if (cut) gaps.push(`${cut} start(s) had their arguments cut short in the process list, so they cannot be compared`);
-  const unclear = calls.filter((c) => c.ambiguous).length;
-  if (unclear) gaps.push(`${unclear} start(s) are command lines this judge cannot decode to one program and its arguments, so they cannot be compared`);
-  return decide(fails.length ? [`${repeats.reduce((n, g) => n + g.length - 1, 0)} repeat start(s) of ${ledger.length}: ${fails.join("; ")}`] : [], gaps, `${ledger.length} process starts, no two alike (complete process list)`);
-}
-
 /** The values a minimal TOML `[workspace] members = [...]` holds, or null when the manifest has no workspace table. */
 const workspaceMembers = (toml) => {
   const t = String(toml ?? ""); const ws = /^\[workspace\]\s*$([\s\S]*?)(?=^\[|(?![\s\S]))/m.exec(t); if (!ws) return null;
@@ -909,10 +242,380 @@ const workspaceMembers = (toml) => {
   return [...m[1].matchAll(/"([^"]+)"/g)].map((x) => x[1].replace(/\/+$/, ""));
 };
 
+// ---- the evidence (none of it written by the gate) ----------------------------------------------------------------------------------------------
+/**
+ * A Windows command line as its program would read it (CommandLineToArgvW / the MSVC runtime rules): whitespace separates arguments outside
+ * quotes; `2n` backslashes before a quote are `n` backslashes and the quote toggles quoting; `2n+1` are `n` and a literal quote; `""` inside
+ * quotes is a literal quote.
+ */
+export function parseCommandLine(line) {
+  const s = String(line ?? ""); const out = []; let cur = ""; let quoted = false; let any = false;
+  for (let i = 0; i < s.length; i += 1) {
+    const c = s[i];
+    if (c === "\\") { let n = 0; while (s[i] === "\\") { n += 1; i += 1; } if (s[i] === '"') { cur += "\\".repeat(Math.floor(n / 2)); if (n % 2) { cur += '"'; any = true; } else { i -= 1; } } else { cur += "\\".repeat(n); i -= 1; } any = true; continue; }
+    if (c === '"') { if (quoted && s[i + 1] === '"') { cur += '"'; i += 1; } else quoted = !quoted; any = true; continue; }
+    if (!quoted && /\s/.test(c)) { if (any) { out.push(cur); cur = ""; any = false; } continue; }
+    cur += c; any = true;
+  }
+  if (any) out.push(cur);
+  return out;
+}
+
+/**
+ * Programs as the operating system recorded them, from Windows Security events 4688 (a process created: new pid, creator pid, image path,
+ * command line, time) and 4689 (a process exited: pid, image path, exit status, time). Event ids are reused by Windows, so an exit is joined
+ * to the latest start of that pid before it. 4688 records no working folder, so `cwd` is null. Returns [{ pid, ppid, exe, args, cwd, start,
+ * end, exit }], times in ms.
+ */
+export function processesFromWindowsEvents(events) {
+  const procs = [];
+  const sorted = [...(events ?? [])].map((e) => ({ ...e, t: timeOf(e.time) })).filter((e) => Number.isFinite(e.t)).sort((a, b) => a.t - b.t);
+  for (const e of sorted) {
+    if (e.id === 4688) { const argv = parseCommandLine(e.commandLine ?? ""); procs.push({ pid: e.pid, ppid: e.ppid, exe: String(e.exe ?? ""), args: argv.slice(1), cwd: null, start: e.t, end: null, exit: null }); }
+    else if (e.id === 4689) { const p = [...procs].reverse().find((x) => x.pid === e.pid && x.end === null && x.start <= e.t); if (p) { p.end = e.t; p.exit = e.exit ?? null; } }
+  }
+  return procs;
+}
+/** Programs from macOS `eslogger exec exit` lines, as normalized by the collector ({ event, pid, ppid, path, args, cwd, time, status }). */
+export function processesFromEslogger(lines) {
+  return processesFromWindowsEvents((lines ?? []).map((l) => (l.event === "exec" ? { id: 4688, pid: l.pid, ppid: l.ppid, exe: l.path, commandLine: null, time: l.time } : { id: 4689, pid: l.pid, exit: l.status, time: l.time }))).map((p, i, all) => {
+    const exec = (lines ?? []).filter((l) => l.event === "exec" && l.pid === p.pid)[all.slice(0, i).filter((q) => q.pid === p.pid).length];
+    return exec ? { ...p, args: Array.isArray(exec.args) ? exec.args.slice(1) : p.args, cwd: typeof exec.cwd === "string" ? exec.cwd : null } : p;
+  });
+}
+
+/**
+ * The run's own programs: the gate process the launcher started (its pid, a child of the launcher, started inside the launcher's span) and
+ * every program descended from it, each joined to the parent that was running when it started. Returns { root, procs, gaps }.
+ */
+function runTree(launch, processes, witness) {
+  const gaps = [];
+  if (!witness) return { root: null, procs: [], gaps: ["there is no operating-system record of the programs this run started"] };
+  gaps.push(...(witness.problems ?? []).map((p) => `the operating-system process record is incomplete: ${p}`));
+  const start = timeOf(launch?.startedAt); const end = timeOf(launch?.endedAt);
+  if (!(timeOf(witness.from) <= start)) gaps.push("the operating-system process record does not start before the run did");
+  if (!Number.isFinite(end)) gaps.push("the launcher never saw the run end, so the process record cannot be shown to cover it");
+  else if (!(timeOf(witness.to) >= end)) gaps.push("the operating-system process record ends before the run did");
+  const all = processes ?? [];
+  const root = all.find((p) => p.pid === launch?.gatePid && p.ppid === launch?.launcherPid && p.start >= start - 1000 && (!Number.isFinite(end) || p.start <= end)) ?? null;
+  if (!root) { gaps.push(`the process record has no start of the gate process ${launch?.gatePid ?? "(unknown)"} by its launcher`); return { root: null, procs: [], gaps }; }
+  const inTree = new Set([root]); let grew = true;
+  while (grew) {
+    grew = false;
+    for (const p of all) {
+      if (inTree.has(p)) continue;
+      const parent = [...inTree].filter((q) => q.pid === p.ppid && q.start <= p.start && (q.end === null || q.end >= p.start)).sort((a, b) => b.start - a.start)[0];
+      if (parent) { inTree.add(p); grew = true; }
+    }
+  }
+  const procs = [...inTree].filter((p) => p !== root).sort((a, b) => a.start - b.start);
+  const open = procs.filter((p) => p.end === null);
+  if (open.length) gaps.push(`${open.length} program(s) of the run have no recorded exit (first: ${programName(open[0].exe)})`);
+  return { root, procs, gaps };
+}
+
+/** A broker job from its signed receipt: only the signed payload is read. Submission time is the signed start less the signed waits. */
+function jobOf(r) {
+  const p = r?.doc?.provenance?.payload ?? null; const req = p?.request ?? null;
+  const argv = Array.isArray(req?.requestedArgv) ? req.requestedArgv.map(String) : null;
+  const started = timeOf(p?.startedAt); const t = p?.timingsMs ?? {};
+  const waits = ["admission", "queue", "bind"].map((k) => (Number.isFinite(t[k]) ? t[k] : 0)).reduce((a, b) => a + b, 0);
+  return {
+    file: r.file, verified: r.verified?.ok === true, problems: r.verified?.problems ?? [], jobId: p?.jobId ?? null, argv, cwd: typeof req?.workspace === "string" ? req.workspace : null,
+    sub: argv?.[0] ?? null, args: argv ? argv.slice(1) : [], gate: p?.gate ?? null, started, ended: timeOf(p?.terminalAt), submitted: Number.isFinite(started) ? started - waits : NaN, queueMs: Number.isFinite(t.queue) ? t.queue : null,
+    testExecutables: p?.testExecutables, testExecutablesReason: p?.testExecutablesReason,
+  };
+}
+
+/** A row's recorded inputs (the gate's own history, copied by the launcher before the gate started): its files and their blob ids. */
+const inputFiles = (inputs) => {
+  let doc; try { doc = JSON.parse(String(inputs ?? "null").replace(/:rightkit\.[\w.-]+\/\d+$/, "")); } catch { return null; }
+  return Array.isArray(doc?.files) ? doc.files.filter((f) => Array.isArray(f) && typeof f[0] === "string").map((f) => [f[0], String(f[1])]) : null;
+};
+
+/**
+ * What the run owes, worked out by the test itself (rightkit#1514 step 3): every row the history before the run knows, with the blob id of
+ * each input file it was last judged on, held to the selected commit's tree. A row whose files all still have those blob ids is owed no work
+ * (reuse); a row with any changed file is owed a rerun of exactly those files' work. A row whose recorded inputs hold no file list cannot be
+ * classified. Returns Map id -> { id, stage, expect: "reuse"|"run"|null, changed: [paths], priorKey, priorFailed, why }.
+ */
+function expectedRows(history, git) {
+  const out = new Map();
+  for (const stage of ["A", "B"]) {
+    for (const [id, h] of Object.entries(history?.[stage] ?? {})) {
+      const files = inputFiles(h?.last?.inputs);
+      const priorKey = typeof h?.last?.key === "string" ? h.last.key : null;
+      const priorFailed = Array.isArray(h?.failures) && priorKey !== null && h.failures.includes(priorKey);
+      if (!files) { out.set(id, { id, stage, expect: null, changed: [], priorKey, priorFailed, why: `${id}'s recorded inputs name no files` }); continue; }
+      const changed = files.filter(([p, blob]) => git.blobOf(p) !== blob).map(([p]) => p);
+      out.set(id, { id, stage, expect: changed.length ? "run" : "reuse", changed, priorKey, priorFailed, why: null });
+    }
+  }
+  return out;
+}
+
+/**
+ * The work each row actually did, from evidence the gate does not write: a result the cache store took during the run (its entry's own time),
+ * a program of the row's tool the operating system saw start, or a broker job the broker signed that covers the row.
+ */
+function workOf(ctx, id) {
+  const writes = ctx.cacheWrites.filter((w) => w.row?.id === id);
+  const tool = toolOf(id);
+  const progs = tool ? ctx.starts.filter((d) => programName(d.program) === tool && !isProbe(d.args)) : [];
+  const jobs = isBrokerRow(id) ? ctx.jobs.filter((j) => j.sub && covers(j, id, ctx.snap.path, [...ctx.expected.keys()])) : [];
+  return { writes, progs, jobs, did: writes.length > 0 || jobs.length > 0 || (tool && tool !== "rustfmt" && progs.length > 0) };
+}
+const classOf = (ctx, id) => ctx.expected.get(id)?.stage ?? (isBrokerRow(id) ? "B" : "A");
+/** Every row that did work in this run: rows with a cache write, plus rows a broker job covers. */
+const rowsThatWorked = (ctx) => new Set([...ctx.cacheWrites.map((w) => w.row?.id).filter(Boolean), ...[...ctx.expected.keys()].filter((id) => { const w = workOf(ctx, id); return w.jobs.length > 0 || (toolOf(id) && toolOf(id) !== "rustfmt" && w.progs.length > 0); })]);
+
+// ---- the twelve lines -------------------------------------------------------------------------------------------------------------------------------
+function nn01(ctx) {
+  const fails = []; const gaps = [...ctx.processGaps];
+  if (!/^[0-9a-f]{40}$/.test(String(ctx.commit ?? ""))) return result(NOT_MEASURED, "the launcher's record names no selected commit");
+  if (!ctx.tree) return result(NOT_MEASURED, `git cannot say which tree commit ${short(ctx.commit)} is`);
+  // Every broker job is signed as this commit's tree, built from a snapshot the broker confirmed unchanged.
+  for (const j of ctx.jobs) {
+    if (!j.verified) { (ctx.verifierPinned ? fails : gaps).push(`broker job ${j.jobId ?? path.basename(j.file)}: its receipt ${ctx.verifierPinned ? `does not verify (${j.problems.join("; ") || "no reason given"})` : "cannot be verified: no broker key is pinned"}`); continue; }
+    if (j.gate?.commit !== ctx.commit) fails.push(`broker job ${j.jobId} built commit ${short(j.gate?.commit)}, not the selected ${short(ctx.commit)}`);
+    if (j.gate?.tree !== ctx.tree) fails.push(`broker job ${j.jobId} built tree ${short(j.gate?.tree)}, not the selected commit's ${short(ctx.tree)}`);
+    if (j.gate?.snapshotUnchanged === false) fails.push(`broker job ${j.jobId}: the broker found the snapshot changed`);
+    else if (j.gate?.snapshotUnchanged !== true) gaps.push(`broker job ${j.jobId}: the broker's receipt does not say whether the snapshot stayed unchanged`);
+    if (j.cwd && ctx.snap.path && relToSnap(j.cwd, ctx.snap.path) === null) fails.push(`broker job ${j.jobId} built in ${j.cwd}, outside the snapshot ${ctx.snap.path}`);
+  }
+  const clients = ctx.starts.filter((d) => programName(d.program) === "rustright" && d.args[0] === "cargo" && COMPILING.has(d.args[1]));
+  if (clients.length > ctx.jobs.length) gaps.push(`${clients.length} broker client compile start(s) and ${ctx.jobs.length} signed job(s): what the others built is not shown`);
+  // A compile the gate ran itself, outside the broker, has no signed commit or tree.
+  const own = ctx.starts.filter((d) => programName(d.program) === "cargo" && COMPILING.has(d.args.find((a) => !a.startsWith("-") && !a.startsWith("+"))) || programName(d.program) === "rustc");
+  if (own.length) fails.push(`${own.length} compile(s) ran outside the broker (first: ${programName(own[0].program)} ${own[0].args.slice(0, 3).join(" ")}), so what they built is not shown`);
+  return decide(fails, gaps, `selected commit ${short(ctx.commit)} is tree ${short(ctx.tree)}; ${ctx.jobs.length} broker job(s) signed for that tree on an unchanged snapshot; nothing compiled outside the broker`);
+}
+
+const classAStarts = (ctx) => ctx.starts.filter((d) => Object.values(TOOLS).includes(programName(d.program)) && !isProbe(d.args));
+function nn02(ctx) {
+  const fails = []; const gaps = [...ctx.processGaps];
+  const a = classAStarts(ctx);
+  // Class A failed: a Class A result the cache store took as a failure, or a Class A tool that exited non-zero.
+  const failedRows = ctx.cacheWrites.filter((w) => w.row?.class === "A" && w.row?.status === "fail").map((w) => w.row.id);
+  const failedProgs = a.filter((d) => d.exit !== null && d.exit !== 0);
+  const failed = failedRows.length > 0 || failedProgs.length > 0;
+  const clients = ctx.starts.filter((d) => programName(d.program) === "rustright" && d.args[0] === "cargo");
+  if (failed) {
+    if (ctx.jobs.length || clients.length) fails.push(`Class A failed (${failedRows[0] ?? programName(failedProgs[0].program)}) and ${ctx.jobs.length} broker job(s) / ${clients.length} broker client start(s) still followed`);
+    return decide(fails, gaps, `Class A failed (${failedRows.slice(0, 2).join(", ") || programName(failedProgs[0].program)}) and nothing went to the broker`);
+  }
+  const aEnd = Math.max(-Infinity, ...a.map((d) => d.end ?? Infinity));
+  if (a.some((d) => d.end === null)) gaps.push("a Class A program has no recorded exit, so when Class A finished is not shown");
+  for (const j of ctx.jobs) {
+    if (!Number.isFinite(j.submitted)) { gaps.push(`broker job ${j.jobId}: its receipt gives no time`); continue; }
+    if (j.submitted < aEnd) fails.push(`broker job ${j.jobId} was submitted before Class A finished`);
+    else if (j.submitted === aEnd) gaps.push(`broker job ${j.jobId} was submitted at the same moment Class A ended, so which came first is not shown`);
+  }
+  for (const c of clients) if (c.at < aEnd) fails.push(`a broker client started (rustright ${c.args.slice(0, 2).join(" ")}) before Class A finished`);
+  return decide(fails, gaps, `Class A passed (${a.length} tool program(s)), then ${ctx.jobs.length} broker job(s) were submitted after it ended`);
+}
+
+function nn03(ctx) {
+  const gaps = [...ctx.processGaps]; const fails = [];
+  if (classAStarts(ctx).some((d) => d.end !== null && d.end < d.at)) return result(NOT_MEASURED, "the process record has a Class A program ending before it started");
+  const a = classAStarts(ctx).filter((d) => Number.isFinite(d.at) && d.end !== null);
+  if (!a.length) return decide([], gaps, "Class A started no tool program, so no row waited");
+  const lanes = Number(ctx.launch?.lanes);
+  if (!Number.isInteger(lanes) || lanes <= 0) return result(NOT_MEASURED, "the launcher's record gives no lane count for Class A on this host");
+  // Class A rows are independent: every one is ready when Class A begins (its first tool program starts).
+  const ready = Math.min(...a.map((d) => d.at));
+  for (const d of a) {
+    if (d.at === ready) continue;
+    const points = [...new Set([ready, ...a.flatMap((o) => [o.at, o.end]).filter((t) => t > ready && t < d.at)])].sort((x, y) => x - y);
+    let idle = 0;
+    points.forEach((t, i) => { const next = points[i + 1] ?? d.at; const busy = a.filter((o) => o !== d && o.at <= t && o.end > t).length; if (busy < lanes) idle += next - t; });
+    if (idle > 0) fails.push(`${programName(d.program)} waited ${Math.round(d.at - ready)} ms, ${Math.round(idle)} ms of it with a lane free of ${lanes}`);
+  }
+  gaps.push(...(ctx.launch?.lanesSource ? [] : ["the launcher's record does not say where its lane count came from"]));
+  return decide(fails, gaps, `${a.length} Class A program(s); none waited while a lane of ${lanes} was free`);
+}
+
+function nn04(ctx) {
+  // The contract's sentence is about the gate's own order; the test judges the outcome it guarantees: an expectation for every row was
+  // fixed before the gate started (the history the launcher copied first), and it accounts for every row that did work.
+  if (!ctx.history) return result(NOT_MEASURED, "the launcher's record has no copy of the row history taken before the gate started");
+  const gaps = [...ctx.processGaps]; const fails = [];
+  const copied = timeOf(ctx.history.copiedAt); const first = Math.min(...ctx.procs.map((p) => p.start));
+  if (!Number.isFinite(copied)) return result(NOT_MEASURED, "the launcher's record does not say when the row history was copied");
+  if (Number.isFinite(first) && copied > first) fails.push(`the row history was copied at ${new Date(copied).toISOString()}, after the run's first program started, so the expectation was not fixed before work`);
+  else if (Number.isFinite(first) && copied === first) gaps.push("the row history was copied at the same moment the run's first program started, so which came first is not shown");
+  if (ctx.launch?.cacheDir && ctx.launch?.historyFile && dirKey(ctx.launch.historyFile) !== dirKey(historyFileFor(path.dirname(ctx.launch.historyFile), ctx.launch.cacheDir, isWin(ctx.launch.cacheDir) ? "win32" : "linux"))) fails.push(`the history copied (${path.basename(ctx.launch.historyFile)}) is not the one the gate keeps for the cache store ${ctx.launch.cacheDir}`);
+  const unclassified = [...ctx.expected.values()].filter((e) => e.expect === null);
+  for (const id of rowsThatWorked(ctx)) { const e = ctx.expected.get(id); if (e && e.expect === null) gaps.push(`${id} did work and ${e.why}`); }
+  return decide(fails, gaps, `${ctx.expected.size} row(s) classified before the gate started (${unclassified.length} without a file list)`);
+}
+
+function nn05(ctx) {
+  if (!ctx.history) return result(NOT_MEASURED, "there is no row history from before the run, so what the run owed is not known");
+  const fails = []; const gaps = [...ctx.processGaps];
+  // The lookup disagrees when a row the test expects to reuse has no stored result to reuse.
+  const disagree = [...ctx.expected.values()].filter((e) => e.expect === "reuse" && e.priorKey && !ctx.cacheBefore.has(e.priorKey));
+  if (disagree.length) {
+    if (ctx.jobs.length) fails.push(`the lookup disagreed for ${disagree[0].id} (its stored result is gone) and ${ctx.jobs.length} broker job(s) were still submitted`);
+    const worked = [...rowsThatWorked(ctx)].filter((id) => !disagree.some((d) => d.id === id));
+    if (worked.length) fails.push(`the lookup disagreed for ${disagree[0].id} and ${worked.slice(0, 3).join(", ")} still did work`);
+    if (!Number.isInteger(ctx.exit)) gaps.push("the run's exit is not known");
+    else if (ctx.exit === 0) fails.push(`the lookup disagreed for ${disagree[0].id} and the run still exited 0`);
+    // Naming the row and its cause is something the gate says; its own output, kept by the launcher, is read for that and nothing else.
+    for (const d of disagree) {
+      const named = String(ctx.gateOutput ?? "").split(/\r?\n/).some((l) => /RK_CACHE_DIVERGENCE/.test(l) && new RegExp(`(^|[^\\w:@.-])${d.id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}([^\\w:@.-]|$)`).test(l));
+      if (!named) fails.push(`the lookup disagreed for ${d.id} and the gate's output does not name it (RK_CACHE_DIVERGENCE)`);
+    }
+    return decide(fails, gaps, `the lookup disagreed for ${disagree.map((d) => d.id).slice(0, 3).join(", ")}; the run stopped before sending work, named it and failed`);
+  }
+  // Otherwise the work that ran is the work owed: both directions.
+  const owed = new Set([...ctx.expected.values()].filter((e) => e.expect === "run").map((e) => e.id));
+  for (const id of owed) if (!workOf(ctx, id).did && !(toolOf(id) === "rustfmt" && rustfmtStarts(ctx).length)) (ctx.processGaps.length ? gaps : fails).push(`${id} was owed a rerun and did no work`);
+  for (const id of rowsThatWorked(ctx)) {
+    const e = ctx.expected.get(id);
+    if (e?.expect === "reuse") fails.push(`${id} did work although nothing it reads changed`);
+    else if (!e) gaps.push(`${id} did work and the history before the run does not know it, so whether it was owed cannot be shown`);
+  }
+  const strays = ctx.jobs.filter((j) => j.sub && ![...ctx.expected.keys()].some((id) => covers(j, id, ctx.snap.path, [...ctx.expected.keys()])));
+  if (strays.length) fails.push(`${strays.length} broker job(s) do no owed row's work (first: cargo ${strays[0].sub} ${strays[0].args.slice(0, 4).join(" ")})`);
+  for (const j of ctx.jobs.filter((x) => x.sub && !strays.includes(x))) {
+    const extra = cratesOf(j).filter((c) => ![...owed].some((id) => covers({ ...j, args: ["-p", c, ...targetsOf(j).flatMap((t) => ["--target", t])] }, id, ctx.snap.path, [...ctx.expected.keys()])));
+    if (extra.length) fails.push(`broker job ${j.jobId} also builds ${extra.join(", ")}, which no owed row needs`);
+  }
+  return decide(fails, gaps, `the work that ran is the ${owed.size} row(s) the test owed, no more`);
+}
+
+function nn06(ctx) {
+  const fails = []; const gaps = [...ctx.processGaps];
+  const reuse = [...ctx.expected.values()].filter((e) => e.expect === "reuse");
+  for (const e of reuse) {
+    if (!e.priorKey) gaps.push(`${e.id} is unchanged and its history names no stored result (key), so that it was reused cannot be shown`);
+    const w = workOf(ctx, e.id);
+    if (w.writes.length) fails.push(`${e.id} is unchanged and the cache store took a new result for it`);
+    if (w.jobs.length) fails.push(`${e.id} is unchanged and broker job ${w.jobs[0].jobId} did its work`);
+    if (toolOf(e.id) && toolOf(e.id) !== "rustfmt" && w.progs.length) fails.push(`${e.id} is unchanged and ${toolOf(e.id)} started`);
+  }
+  // A reused failure stays a failure: the run cannot end green over it.
+  const failures = reuse.filter((e) => e.priorFailed);
+  if (failures.length) { if (!Number.isInteger(ctx.exit)) gaps.push("the run's exit is not known"); else if (ctx.exit === 0) fails.push(`${failures[0].id} failed before and is unchanged, and the run exited 0`); }
+  if (!ctx.history) gaps.push("there is no row history from before the run, so unchanged rows cannot be told");
+  return decide(fails, gaps, `${reuse.length} unchanged row(s) did no work${failures.length ? `, ${failures.length} of them an earlier failure that kept the run red` : ""}`);
+}
+
+const rustfmtStarts = (ctx) => ctx.starts.filter((d) => programName(d.program) === "rustfmt" && !isProbe(d.args));
+/** The file operands of a rustfmt start, as given (rustfmt is run from the snapshot root). */
+const rustfmtFiles = (d) => { const out = []; for (let i = 0; i < d.args.length; i += 1) { const a = String(d.args[i]); if (["--edition", "--config", "--config-path", "--emit", "--color"].includes(a)) { i += 1; continue; } if (!a.startsWith("-")) out.push(a.replaceAll("\\", "/")); } return out; };
+function nn07(ctx) {
+  const fails = []; const gaps = [...ctx.processGaps];
+  const run = [...ctx.expected.values()].filter((e) => e.expect === "run");
+  for (const e of run) {
+    if (toolOf(e.id) === "rustfmt") {
+      const ed = e.id.split(":")[1]; const handed = rustfmtStarts(ctx).filter((d) => valuesOf(d.args, "--edition").includes(ed)).flatMap(rustfmtFiles);
+      const owed = e.changed.filter((p) => /\.rs$/.test(p));
+      for (const p of owed) if (!handed.includes(p)) (ctx.processGaps.length ? gaps : fails).push(`${e.id}: ${p} changed and was never handed to rustfmt`);
+      const extra = handed.filter((p) => !owed.includes(p) && !run.some((o) => o !== e && toolOf(o.id) === "rustfmt" && o.changed.includes(p)));
+      if (extra.length) fails.push(`${e.id}: rustfmt was handed ${extra.slice(0, 3).join(", ")}, which did not change`);
+      for (const p of new Set(handed)) if (handed.filter((x) => x === p).length > 1) fails.push(`${e.id}: rustfmt was handed ${p} more than once`);
+      continue;
+    }
+    const w = workOf(ctx, e.id);
+    if (isBrokerRow(e.id) ? !w.jobs.length : !w.did) (ctx.processGaps.length ? gaps : fails).push(`${e.id} changed (${e.changed.slice(0, 2).join(", ")}) and ${isBrokerRow(e.id) ? "no signed broker job built it" : "did no work"}`);
+  }
+  return decide(fails, gaps, `${run.length} changed row(s) ran again, each with only the work its change needs`);
+}
+
+function nn08(ctx) {
+  const gaps = [...ctx.processGaps];
+  // A shell wrapper whose program the record shows start as its child is that child's call: the child is compared, not the wrapper.
+  const resolved = new Set(ctx.procs.filter((p) => /(^|[\\/])cmd\.exe$/i.test(p.exe) && ctx.procs.some((c) => c.ppid === p.pid && c.start >= p.start && (p.end === null || c.start <= p.end))));
+  const calls = []; let unclear = 0;
+  ctx.procs.forEach((p, i) => {
+    if (resolved.has(p)) return;
+    const d = ctx.starts[i];
+    if (d.ambiguous) { unclear += 1; return; }
+    calls.push({ ...callOf(d, { args: p.args }), parent: ctx.parentKey(p), cwdKnown: p.cwd !== null });
+  });
+  const groups = new Map();
+  for (const c of calls) { const k = JSON.stringify([c.name, c.path, c.args, c.cwdKnown ? c.cwd : null]); (groups.get(k) ?? groups.set(k, []).get(k)).push(c); }
+  const repeats = [...groups.values()].filter((g) => g.length > 1);
+  if (unclear) gaps.push(`${unclear} start(s) are command lines with no child to show what they ran, so they cannot be compared`);
+  // Without a folder (Windows event 4688 records none) calls compare by program and arguments: that finds more repeats, never fewer.
+  const how = ctx.procs.some((p) => p.cwd === null) ? " (compared by program and arguments: the record keeps no folder)" : "";
+  const fails = repeats.map((g) => `${g.length}x ${g[0].name} ${g[0].args.join(" ").slice(0, 70)}`);
+  return decide(fails.length ? [`${repeats.reduce((n, g) => n + g.length - 1, 0)} repeat start(s): ${fails.join("; ")}`] : [], fails.length ? [] : gaps, `${calls.length} program start(s), no two alike${how}`);
+}
+
+function nn10(ctx) {
+  const fails = []; const gaps = [...ctx.processGaps];
+  const verb = (args) => args.find((a) => !a.startsWith("-") && !a.startsWith("+"));
+  const direct = ctx.starts.filter((d) => programName(d.program) === "cargo" && verb(d.args) === "test");
+  if (direct.length) fails.push(`${direct.length} cargo test start(s) ran outside the broker, so the gate built tests itself`);
+  const tests = ctx.jobs.filter((j) => j.sub === "test");
+  if (!tests.length) return decide(fails, gaps, "the broker built no test and no cargo test ran outside it");
+  let programs = 0;
+  for (const j of tests) {
+    const what = `broker job ${j.jobId ?? path.basename(j.file)}`;
+    if (!j.verified) { (ctx.verifierPinned ? fails : gaps).push(`${what}: its receipt ${ctx.verifierPinned ? "does not verify" : "cannot be verified: no broker key is pinned"}`); continue; }
+    if (!Array.isArray(j.testExecutables) && typeof j.testExecutablesReason !== "string") { fails.push(`${what}: the signed receipt does not show a compile only (no testExecutables), so the broker may have run the tests`); continue; }
+    for (const exe of Array.isArray(j.testExecutables) ? j.testExecutables : []) {
+      programs += 1;
+      const file = typeof exe === "string" ? exe : exe?.path; const digest = typeof exe === "object" ? exe?.sha256 : null;
+      if (typeof file !== "string") { fails.push(`${what}: the receipt lists a test program with no path`); continue; }
+      const ran = ctx.procs.filter((p) => dirKey(p.exe) === dirKey(file));
+      if (!ran.length) { (ctx.processGaps.length ? gaps : fails).push(`${what}: the broker built ${path.basename(file)} and the gate never ran it`); continue; }
+      if (ran.length > 1) fails.push(`${what}: the gate ran ${path.basename(file)} ${ran.length} times`);
+      const now = typeof ctx.digestOf === "function" ? ctx.digestOf(file) : null;
+      if (typeof digest !== "string") gaps.push(`${what}: the receipt gives no digest for ${path.basename(file)}`);
+      else if (now === null) gaps.push(`${what}: ${path.basename(file)} cannot be read now to compare with the digest the broker signed`);
+      else if (now !== digest) fails.push(`${what}: ${path.basename(file)} is not the program the broker built (digest ${short(now)}, signed ${short(digest)})`);
+    }
+  }
+  return decide(fails, gaps, `${tests.length} test build(s) by the broker, compile only and signed; the gate ran the ${programs} program(s) they list, each the one the broker built`);
+}
+
+function nn11(ctx) {
+  const { launch } = ctx;
+  const startMono = /^\d+$/.test(String(launch?.startMono ?? "")) ? BigInt(launch.startMono) : null; const endMono = /^\d+$/.test(String(launch?.endMono ?? "")) ? BigInt(launch.endMono) : null;
+  const limitMs = Number(launch?.limitMs);
+  if (startMono === null) return result(NOT_MEASURED, "the launcher's record has no start on its monotonic clock");
+  if (!Number.isFinite(limitMs) || limitMs <= 0) return result(NOT_MEASURED, `no time limit was pinned at launch for ${launch?.host ?? "this host"} and run kind ${launch?.kind ?? "(none)"}`);
+  // Programs the run owns that outlive the gate count too (Council CV-1 F-29), on the wall clock of the process record.
+  const lastProg = Math.max(-Infinity, ...ctx.procs.map((p) => p.end ?? -Infinity));
+  if (endMono === null) return result(NOT_MEASURED, `limit ${(limitMs / 1000).toFixed(1)} s, but the launcher never saw the run end`);
+  if (endMono < startMono) return result(NOT_MEASURED, "the launcher's monotonic clock runs backwards between its start and end");
+  let took = Number(endMono - startMono) / 1e6;
+  const wallEnd = timeOf(launch.endedAt); if (Number.isFinite(lastProg) && Number.isFinite(wallEnd) && lastProg > wallEnd) took += lastProg - wallEnd;
+  if (took > limitMs) return result(FAIL, `${(took / 1000).toFixed(1)} s, limit ${(limitMs / 1000).toFixed(1)} s (pinned at launch${launch.limitsSha256 ? `, limits ${short(launch.limitsSha256)}` : ""})`);
+  return result(PASS, `${(took / 1000).toFixed(1)} s on the launcher's clock, limit ${(limitMs / 1000).toFixed(1)} s pinned at launch`);
+}
+
+function nn12(ctx) {
+  const { live } = ctx;
+  if (!live) return result(NOT_MEASURED, "what was left behind is judged right after the run ends (--live)");
+  if (!ctx.snap.path) return result(NOT_MEASURED, "no broker job names the snapshot, so its lock cannot be looked for");
+  if (live.exists(`${ctx.snap.path}.lock`)) return result(FAIL, `the lock ${ctx.snap.path}.lock is still there after the run`);
+  if (ctx.processGaps.length) return result(NOT_MEASURED, `the run's programs cannot all be shown gone: ${ctx.processGaps[0]}`);
+  const alive = ctx.procs.filter((p) => live.alive(p.pid, p.start));
+  if (alive.length) return result(FAIL, `${alive.length} program(s) the run started are still alive: ${alive.slice(0, 5).map((p) => `${programName(p.exe)} ${p.pid}`).join(", ")}`);
+  if (!Number.isInteger(ctx.exit) || ctx.exit !== 0) {
+    // A run that did not end normally passes only on the next ordinary run: its launcher took this run's lock over and named it, and it ended 0.
+    const next = ctx.successor;
+    if (next && next.launch?.previous?.runId === ctx.launch?.runId && next.launch?.previous?.reclaimed === true && next.launch?.exit === 0) return result(PASS, `the run ended with ${ctx.exit ?? ctx.launch?.signal ?? "no exit"}; the next ordinary run took it over and ended 0, and nothing was left behind`);
+    return result(NOT_MEASURED, `the run ended with ${ctx.exit ?? ctx.launch?.signal ?? "no exit"}; that the next ordinary run starts safely by itself needs that run's record (--successor)`);
+  }
+  return result(PASS, "no lock and no program of the run left behind");
+}
+
+
 function nn09(ctx) {
-  const { compiles } = ctx; const fails = []; const gaps = [...ctx.ledgerGaps];
-  if (ctx.brokerStarts.some((b) => b.ambiguous)) gaps.push("a start names the broker client in a command line this judge cannot decode");
-  if (!compiles.length) return decide([], gaps, "nothing was sent to the broker (complete process list)");
+  // The compiles are the broker's signed jobs (argv, workspace, times); a broker client start with no signed job is a compile not shown.
+  const fails = []; const gaps = [];
+  const unverified = ctx.jobs.filter((j) => !j.verified); if (unverified.length) (ctx.verifierPinned ? fails : gaps).push(`${unverified.length} broker job(s) whose receipt ${ctx.verifierPinned ? "does not verify" : "cannot be verified: no broker key is pinned"}`);
+  const compiles = ctx.jobs.filter((j) => j.verified && j.sub && COMPILING.has(j.sub)).map((j) => ({ ...j, at: j.submitted }));
+  const clients = ctx.starts.filter((d) => programName(d.program) === "rustright" && d.args[0] === "cargo" && COMPILING.has(d.args[1]));
+  if (clients.length > ctx.jobs.length) gaps.push(`${clients.length} broker client compile start(s) and only ${ctx.jobs.length} signed job(s), so a compile may be missing`);
+  gaps.push(...ctx.processGaps.map((g) => `that every compile has its signed job cannot be shown: ${g}`));
+  if (!compiles.length) return decide(fails, gaps, "nothing was compiled by the broker");
   // One group is one workspace and stage (subcommand and its settings): crate and target selectors are what one command gathers. Settings
   // compare by meaning: the same flags in another order, `--release` and `--profile release`, and a feature list in another order are the same
   // settings (Council CV-1 F-24). What follows `--` goes to the compiler in order and is kept in order.
@@ -1000,163 +703,114 @@ function nn09(ctx) {
   }
   // Council CV-1 F-27: actual command intervals, not group envelopes. Commands that did not all start together cannot pass without a record of
   // when each became ready and how much capacity was free, which no record of the run carries yet.
-  const starts = compiles.map((c) => c.at);
-  if (starts.some((t) => !Number.isFinite(t))) gaps.push("a compile in the process list has no start time");
-  else if (compiles.length > 1 && new Set(starts).size > 1) gaps.push(`${compiles.length} compile commands started at ${new Set(starts).size} different times; that none waited beside free capacity needs a record of the broker's capacity and each command's ready time`);
-  return decide(fails, gaps, `${compiles.length} compile command(s) in ${groups.size} group(s), one per workspace and stage${justified.length ? ` (split: ${justified.join("; ")})` : ""}, all started together`);
+  // Independent groups run at the same time: the gate submits each without waiting for another to end. A job the broker queued for want of
+  // capacity (its signed queue wait) is the broker's, not the gate's.
+  if (compiles.some((c) => !Number.isFinite(c.submitted) || !Number.isFinite(c.ended))) gaps.push("a broker job's receipt gives no submission or end time");
+  else for (const c of compiles) { const before = compiles.find((o) => o !== c && o.ended <= c.submitted); if (before) fails.push(`broker job ${c.jobId} (cargo ${c.sub} ${cratesOf(c).join(" ")}) was submitted only after job ${before.jobId} ended, so independent groups did not run together`); }
+  return decide(fails, gaps, `${compiles.length} compile command(s) in ${groups.size} group(s), one per workspace and stage${justified.length ? ` (split: ${justified.join("; ")})` : ""}, all submitted together`);
 }
 
-/**
- * NN10: tests are compiled by the broker and run by the gate. Every test compile the gate sent is joined to its broker job in the run record
- * (by its command and folder; the job's key is the request id the broker assigned), whose signed receipt must verify against the pinned broker
- * key, match the digest the gate recorded, and show a compile only (`testExecutables`, or `testExecutablesReason`). Every test program the
- * receipt lists must then be started by the gate, the program the journal saw start having the digest the broker signed. A cargo test the
- * gate ran itself, outside the broker, fails.
- */
-function nn10(ctx) {
-  const fails = []; const gaps = [...ctx.ledgerGaps];
-  const verb = (args) => args.find((a) => !a.startsWith("-") && !a.startsWith("+"));
-  const direct = ctx.starts.filter((d) => programName(d.program) === "cargo" && verb(d.args) === "test");
-  if (direct.length) fails.push(`${direct.length} cargo test start(s) ran outside the broker, so the gate built tests itself`);
-  const tests = ctx.compiles.filter((c) => c.sub === "test");
-  if (!tests.length) return decide(fails, gaps, "this run compiled no test and ran no cargo test (complete process list)");
-  const unused = [...ctx.brokerJobs];
-  let programs = 0;
-  for (const t of tests) {
-    const at = unused.findIndex((j) => Array.isArray(j.argv) && JSON.stringify(j.argv.map(String)) === JSON.stringify([t.sub, ...t.args]) && typeof j.cwd === "string" && dirKey(j.cwd) === dirKey(t.cwd));
-    const what = `cargo test ${t.args.slice(0, 4).join(" ")}`;
-    if (at < 0) { gaps.push(`${what} went to the broker and the run record has no broker job for it`); continue; }
-    const job = unused.splice(at, 1)[0];
-    if (typeof job.receipt !== "string") { gaps.push(`${what}: broker job ${job.requestId ?? "(no request id)"} names no receipt`); continue; }
-    if (typeof ctx.verifyReceipt !== "function") { gaps.push(`${what}: no broker key is pinned for this judge, so receipt ${path.basename(job.receipt)}'s signature cannot be checked`); continue; }
-    let v; try { v = ctx.verifyReceipt(job.receipt); } catch (e) { v = { ok: false, problems: [e.message] }; }
-    if (!v?.ok) { fails.push(`${what}: receipt ${path.basename(job.receipt)} does not verify against the pinned broker key (${(v?.problems ?? []).join("; ") || "no reason given"})`); continue; }
-    if (job.receiptSha256 && v.sha256 !== job.receiptSha256) fails.push(`${what}: receipt ${path.basename(job.receipt)} is not the one the gate read (digest ${short(v.sha256)}, recorded ${short(job.receiptSha256)})`);
-    if (v.requestId !== undefined && job.requestId !== null && v.requestId !== job.requestId) fails.push(`${what}: receipt ${path.basename(job.receipt)} is job ${v.requestId}, not the request ${job.requestId} the gate submitted`);
-    const rec = v.receipt ?? {};
-    if (!Array.isArray(rec.testExecutables) && typeof rec.testExecutablesReason !== "string") { fails.push(`${what}: the broker's receipt does not show a compile only (no testExecutables), so the broker may have run the tests`); continue; }
-    for (const exe of Array.isArray(rec.testExecutables) ? rec.testExecutables : []) {
-      programs += 1;
-      const file = typeof exe === "string" ? exe : exe?.path; const digest = typeof exe === "object" ? exe?.sha256 : null;
-      if (typeof file !== "string") { fails.push(`${what}: the receipt lists a test program with no path`); continue; }
-      const ranIt = ctx.journal?.starts?.filter((s) => typeof s.cmd === "string" && dirKey(s.cmd) === dirKey(file)) ?? [];
-      if (!ranIt.length) { (ctx.ledgerGaps.length ? gaps : fails).push(`${what}: the broker built ${path.basename(file)} and the gate never ran it`); continue; }
-      if (typeof digest !== "string") gaps.push(`${what}: the receipt gives no digest for ${path.basename(file)}, so the program the gate ran cannot be shown to be the one the broker built`);
-      else if (ranIt.some((s) => typeof s.sha256 !== "string")) gaps.push(`${what}: the journal has no digest of ${path.basename(file)} as the gate started it`);
-      else if (ranIt.some((s) => s.sha256 !== digest)) fails.push(`${what}: the gate ran ${path.basename(file)} with another digest than the broker signed`);
-    }
-  }
-  return decide(fails, gaps, `${tests.length} test compile(s) went to the broker, each with a verified compile-only receipt; the gate ran the ${programs} program(s) they list, each the one the broker built`);
-}
-function nn11(ctx) {
-  const { limitMs, launch } = ctx;
-  const start = timeOf(launch?.startedAt); const end = timeOf(launch?.endedAt);
-  if (!Number.isFinite(start)) return result(NOT_MEASURED, "the launcher's record has no start time for the run");
-  if (Number.isFinite(end) && end < start) return result(NOT_MEASURED, "the launcher's record ends before it starts, so it gives no interval to judge");
-  // Council CV-1 F-29: the run's span is every event it owns: the launcher's start and end, the processes it started and its writers' exits. A
-  // pass needs a known finish (the launcher saw the gate exit); an overrun already proven by owned events fails even when the finish is unknown.
-  const owned = [start, end, ...ctx.ledger.flatMap((e) => [timeOf(e.at), timeOf(e.at) + (Number.isFinite(e.ms) ? e.ms : 0)]), ...[...(ctx.journal?.exits?.values() ?? [])].map((e) => timeOf(e.at))].filter(Number.isFinite);
-  const took = Math.max(...owned) - Math.min(...owned);
-  const finished = Number.isFinite(end) && (Number.isInteger(launch.exit) || typeof launch.signal === "string");
-  if (!Number.isFinite(limitMs) || limitMs <= 0) return result(NOT_MEASURED, `the run took ${(took / 1000).toFixed(1)} s${finished ? "" : " so far"}; no time limit is pinned for ${launch?.host ?? "this host"} and run kind ${launch?.kind ?? "(none)"}`);
-  if (took > limitMs) return result(FAIL, `${(took / 1000).toFixed(1)} s${finished ? "" : " at least"}, limit ${(limitMs / 1000).toFixed(1)} s`);
-  if (!finished) return result(NOT_MEASURED, `${(took / 1000).toFixed(1)} s recorded, limit ${(limitMs / 1000).toFixed(1)} s, but the launcher never saw the run end`);
-  return result(PASS, `${(took / 1000).toFixed(1)} s from its first to its last recorded event, limit ${(limitMs / 1000).toFixed(1)} s`);
-}
-function nn12(ctx) {
-  const { live } = ctx; const snapshot = ctx.snap.path;
-  if (!live) return result(NOT_MEASURED, "a recording cannot show what was left behind; this line is judged right after a run ends (--live)");
-  if (!snapshot) return result(NOT_MEASURED, "the run record names no snapshot, so its lock cannot be looked for");
-  if (!Array.isArray(live.pids)) return result(NOT_MEASURED, "the processes the run started are not known, so none can be shown gone");
-  if (live.exists(`${snapshot}.lock`)) return result(FAIL, `the lock ${snapshot}.lock is still there after the run`);
-  const alive = live.pids.filter((pid) => live.alive(pid));
-  if (alive.length) return result(FAIL, `${alive.length} process(es) the run started are still alive: ${alive.slice(0, 5).join(", ")}`);
-  // Council CV-1 F-30: a clean pass needs the whole list of the run's own processes, and a run that did not end normally passes only on the
-  // record of the next ordinary run: its launcher took this run's lock over and named it, and its gate took the snapshot lock and ran.
-  const known = new Set([...ctx.ledger.map((e) => e.pid), ...(ctx.journal?.exits?.keys() ?? [])]);
-  const missing = [...known].filter((p) => !live.pids.includes(p));
-  if (!live.pids.length || missing.length) return result(NOT_MEASURED, `the list of the run's processes checked after it ${live.pids.length ? `leaves out ${missing.slice(0, 5).join(", ")}, which the process list names` : "is empty"}, so none can be shown gone`);
-  if (!Number.isInteger(ctx.exit) || ctx.exit !== 0) {
-    const next = ctx.successor;
-    if (next?.ok === true && next?.reclaimed === true) return result(PASS, `the run ended with ${ctx.exit ?? ctx.launch?.signal ?? "no exit code"}; the next ordinary run took it over and started safely, and no lock or process was left behind`);
-    return result(NOT_MEASURED, `the run ended with ${ctx.exit ?? ctx.launch?.signal ?? "no exit code"}, not normally; that the next ordinary run starts safely by itself needs that run's record (--successor)`);
-  }
-  return result(PASS, "no lock and no process left behind");
-}
+
 const JUDGES = Object.freeze({ NN01: nn01, NN02: nn02, NN03: nn03, NN04: nn04, NN05: nn05, NN06: nn06, NN07: nn07, NN08: nn08, NN09: nn09, NN10: nn10, NN11: nn11, NN12: nn12 });
 export const CHECK_IDS = Object.freeze(Object.keys(JUDGES));
 
 /**
- * Judges one run against `lines` (readAcceptanceLines of the contract; required, and checked again here), from its records only:
- * `launch`: the launcher's record (acceptance-launch.mjs launch.json). `record`: the run record, parsed (run-record.mjs parseRunRecord).
- * `ledger`: the process list (parseLedger). `journal`: its journal (parseJournal). `readJson(file)`: a file the record names.
- * `readTree(path)`: a file of the run's own Git tree, parsed JSON or text; throws when unavailable. `limitMs`: the time limit pinned for this
- * host and run kind, or null. `live`: { exists(path), alive(pid), pids } when judged right after the run, else null. `successor`: the next
- * run's { launch, record } after a run that did not end normally, else null. `verifyReceipt(file)`: { ok, sha256, requestId, receipt,
- * problems } from the broker's own verifier with the pinned key, or null. Returns { lines: [{ id, text, verdict, why }], pass, failed,
- * notMeasured }. `pass` is true only when all twelve passed.
+ * The snapshot folder, from the broker's signed job folders and the selected tree alone: the folder each job ran in, less the part that is a
+ * Cargo workspace of the tree (`ws` when `ws/Cargo.toml` is in the tree). Null when the jobs do not agree on one, or there are none.
  */
-export function judgeRun({ lines, launch = null, record = null, ledger = null, journal = null, readTree = null, readJson, limitMs = null, live = null, successor = null, verifyReceipt = null } = {}) {
+function snapshotOf(jobs, readTree) {
+  const roots = new Set();
+  for (const j of jobs) {
+    if (!j.cwd) continue; const segs = dirKey(j.cwd).split("/"); let found = null;
+    for (let k = 1; k <= segs.length; k += 1) { const rel = segs.slice(k).join("/"); try { readTree(`${rel ? `${rel}/` : ""}Cargo.toml`); found = segs.slice(0, k).join("/"); break; } catch { /* not this split */ } }
+    if (found === null) return null; roots.add(found);
+  }
+  return roots.size === 1 ? [...roots][0] : null;
+}
+
+/**
+ * Judges one run against `lines` (readAcceptanceLines of the contract; required, and checked again here) from evidence the gate does not write:
+ * `launch`: the launcher's record (acceptance-launch.mjs). `processes` + `witness`: the operating system's record of every program start and
+ * exit in the run's window (processesFromWindowsEvents / processesFromEslogger) and what it covers. `receipts`: the broker's receipts that
+ * appeared during the run, each { file, sha256, doc, verified: { ok, problems } } (verified against the pinned broker key). `history`: the
+ * row history the launcher copied before the gate started ({ copiedAt, A, B }). `cacheBefore`: the cache keys present before the run;
+ * `cacheWrites`: the cache entries written during it. `git`: { tree, blobOf(path), readTree(path) } of the selected commit. `gateOutput`: the
+ * gate's own output, kept by the launcher, read only to see whether the gate named a disagreeing row (NN05). `live` / `successor` (NN12),
+ * `digestOf(file)` (NN10). Returns { lines: [{ id, text, verdict, why }], pass, failed, notMeasured }.
+ */
+export function judgeRun({ lines, launch = null, processes = null, witness = null, receipts = [], history = null, cacheBefore = null, cacheWrites = [], git = null, gateOutput = "", live = null, successor = null, verifierPinned = false, digestOf = null } = {}) {
   const unlinked = Array.isArray(lines) ? linkProblems(lines) : ["no lines were given: read them from the contract with readAcceptanceLines"];
   if (unlinked.length) throw Object.assign(new Error(`the contract and the acceptance test do not match: ${unlinked.join("; ")}`), { problems: unlinked });
-  const read = readJson ?? ((f) => JSON.parse(fs.readFileSync(f, "utf8")));
-  const entries = Array.isArray(ledger) ? ledger : [];
-  const run = runOf({ launch, record, readJson: read });
-  const exit = Number.isFinite(timeOf(launch?.endedAt)) && Number.isInteger(launch?.exit) ? launch.exit : null;
-  const next = successor ? (() => {
-    const facts = (successor.record?.facts ?? []).filter((x) => x.run === successor.launch?.runId);
-    return { ok: !!launch?.runId && successor.launch?.previous?.runId === launch.runId && facts.some((x) => x.kind === "lock"), reclaimed: successor.launch?.previous?.reclaimed === true };
-  })() : null;
+  const g = git ?? { tree: null, blobOf: () => null, readTree: () => { throw new Error("no git reader was given (--repo)"); } };
+  const tree = runTree(launch, processes, witness);
+  const start = timeOf(launch?.startedAt); const end = timeOf(launch?.endedAt);
+  const jobs = (receipts ?? []).map(jobOf).filter((j) => !Number.isFinite(j.submitted) || ((!Number.isFinite(start) || j.submitted >= start) && (!Number.isFinite(end) || j.submitted <= end)));
   const ctx = {
-    launch, commit: launch?.commit ?? null, exit, runStart: timeOf(launch?.startedAt), limitMs, live, successor: next, verifyReceipt,
-    ledger: entries, journal, ledgerGaps: ledgerGaps(ledger, journal, { runPid: launch?.gatePid ?? null }),
-    recordProblems: run.problems, foreign: run.foreign, snap: run.snap, requests: run.requests, lookups: run.lookups, decisions: run.decisions,
-    coverage: run.coverage, verdict: run.verdict, capacity: run.capacity, lanes: run.lanes, divergences: run.divergences, brokerJobs: run.brokerJobs, receipt: run.receipt,
-    starts: entries.map((e) => ({ ...decodeStart(e), at: timeOf(e.at), ms: typeof e.ms === "number" ? e.ms : null })),
-    compiles: entries.map(brokerCompileOf).filter(Boolean), brokerStarts: entries.map(brokerStartOf).filter(Boolean),
-    readTree: readTree ?? (() => { throw new Error("no reader for the run's Git tree was given (--repo)"); }),
+    launch, commit: launch?.commit ?? null, tree: g.tree, exit: Number.isFinite(end) && Number.isInteger(launch?.exit) ? launch.exit : null,
+    procs: tree.procs, processGaps: tree.gaps, starts: tree.procs.map((p) => ({ ...decodeStart({ cmd: p.exe, args: p.args, cwd: p.cwd ?? "" }), at: p.start, end: p.end, exit: p.exit })),
+    parentKey: (p) => { const parent = [tree.root, ...tree.procs].find((q) => q && q.pid === p.ppid && q.start <= p.start); return parent ? `${programName(parent.exe)}#${parent.start}` : "?"; },
+    jobs, verifierPinned, snap: { path: snapshotOf(jobs, g.readTree) }, readTree: g.readTree,
+    history, expected: expectedRows(history, g), cacheBefore: new Set(cacheBefore ?? []), cacheWrites: (cacheWrites ?? []).filter((w) => { const t = timeOf(w.at); return Number.isFinite(t) && (!Number.isFinite(start) || t >= start) && (!Number.isFinite(end) || t <= end); }),
+    gateOutput, live, successor, digestOf,
   };
   const judged = lines.map(({ id, text: sentence }) => { let r; try { r = JUDGES[id](ctx); } catch (e) { r = result(FAIL, `the check itself failed: ${e.message}`); } return { id, text: sentence, verdict: r.verdict, why: r.why }; });
   const failed = judged.filter((l) => l.verdict === FAIL).map((l) => l.id); const notMeasured = judged.filter((l) => l.verdict === NOT_MEASURED).map((l) => l.id);
   return { lines: judged, pass: failed.length === 0 && notMeasured.length === 0, failed, notMeasured };
 }
 
-/** A run directory's records as judgeRun reads them: launch.json, record.jsonl, ledger.jsonl and its journal. A missing file reads as none. */
-export function readRunDir(dir) {
-  const text = (name) => { try { return fs.readFileSync(path.join(dir, name), "utf8"); } catch { return null; } };
-  let launch = null; try { launch = JSON.parse(text("launch.json") ?? "null"); } catch { launch = null; }
-  const rec = text("record.jsonl"); const led = text("ledger.jsonl"); const jour = text("ledger.jsonl.journal.jsonl");
-  return { launch, record: rec === null ? null : parseRunRecord(rec), ledger: led === null ? null : parseLedger(led), journal: jour === null ? null : parseJournal(jour) };
+/**
+ * A run folder's evidence as judgeRun reads it, gathered from outside the gate: the launcher's record and its before-run copies, the process
+ * record the launcher exported, the broker receipts that appeared during the run, the cache entries written during it, and git.
+ */
+export function readRunDir(dir, { repo = null, receiptsDir = null, cacheDir = null, verify = null } = {}) {
+  const text = (p) => { try { return fs.readFileSync(p, "utf8"); } catch { return null; } };
+  const json = (p) => { try { return JSON.parse(text(p) ?? "null"); } catch { return null; } };
+  const launch = json(path.join(dir, "launch.json"));
+  const proc = json(path.join(dir, "processes.json"));
+  const processes = proc?.kind === "windows-security" ? processesFromWindowsEvents(proc.events) : proc?.kind === "eslogger" ? processesFromEslogger(proc.events) : null;
+  let history = null; const h = json(path.join(dir, "before", "history.json"));
+  if (h) { try { const body = JSON.parse(h.body); history = { copiedAt: launch?.historyCopiedAt ?? null, A: Object.fromEntries(body?.stages?.A ?? []), B: Object.fromEntries(body?.stages?.B ?? []) }; } catch { history = null; } }
+  const cacheBefore = (text(path.join(dir, "before", "cache-keys.txt")) ?? "").split(/\r?\n/).filter(Boolean);
+  const receiptsBefore = new Set((text(path.join(dir, "before", "receipts.txt")) ?? "").split(/\r?\n/).filter(Boolean));
+  const receipts = [];
+  if (receiptsDir) for (const f of fs.readdirSync(receiptsDir).filter((n) => n.endsWith(".json") && !receiptsBefore.has(n))) {
+    const file = path.join(receiptsDir, f); const body = fs.readFileSync(file);
+    let doc = null; try { doc = JSON.parse(body.toString("utf8")); } catch { doc = null; }
+    receipts.push({ file, sha256: createHash("sha256").update(body).digest("hex"), doc, verified: verify ? verify(file) : { ok: false, problems: ["no broker key is pinned"] } });
+  }
+  const before = new Set(cacheBefore); const cacheWrites = [];
+  if (cacheDir) for (const f of fs.readdirSync(cacheDir).filter((n) => n.endsWith(".json"))) {
+    const key = f.slice(0, -5); const st = fs.statSync(path.join(cacheDir, f));
+    if (before.has(key) && !(st.mtimeMs >= timeOf(launch?.startedAt))) continue;
+    const e = json(path.join(cacheDir, f)); if (e && typeof e.at === "string") cacheWrites.push({ key, at: e.at, row: e.row ?? null });
+  }
+  let git = null;
+  if (repo && launch?.commit) {
+    const run = (...a) => execFileSync("git", ["-C", repo, ...a], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], windowsHide: true, maxBuffer: 256 * 1024 * 1024 });
+    let tree = null; try { tree = run("rev-parse", `${launch.commit}^{tree}`).trim(); } catch { tree = null; }
+    const blobs = new Map(); if (tree) for (const l of run("ls-tree", "-r", "-z", tree).split("\0")) { const m = /^\d+ blob ([0-9a-f]+)\t(.+)$/.exec(l); if (m) blobs.set(m[2], m[1]); }
+    git = { tree, blobOf: (p) => blobs.get(String(p).replaceAll("\\", "/")) ?? null, readTree: (p) => { const t = run("cat-file", "-p", `${tree}:${p}`); try { return JSON.parse(t); } catch { return t; } } };
+  }
+  return { launch, processes, witness: proc ? { kind: proc.kind, from: proc.from, to: proc.to, problems: proc.problems ?? [] } : null, receipts, history, cacheBefore, cacheWrites, git, gateOutput: text(path.join(dir, "gate.log")) ?? "" };
 }
 
 // ---- command line -----------------------------------------------------------------------------------------------------------------------------------
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const opt = (name) => { const i = process.argv.indexOf(name); return i < 0 ? null : process.argv[i + 1]; };
-  const usage = "usage: acceptance-lines.mjs --run <run dir> [--repo <dir>] [--contract <file>] [--limits <file>] [--successor <run dir>] [--broker-key <hex> --broker-key-id <hex> [--rustright <client>]] [--live] [--json]";
-  const runDir = opt("--run");
-  if (!runDir) { console.error(usage); process.exit(2); }
+  const usage = "usage: acceptance-lines.mjs --run <run dir> --repo <dir> --cache-dir <dir> --receipts <dir> [--broker-key <hex> --broker-key-id <hex> [--rustright <client>]] [--successor <run dir>] [--live] [--contract <file>] [--json]";
+  const runDir = opt("--run"); if (!runDir) { console.error(usage); process.exit(2); }
   const contractFile = opt("--contract") ?? CONTRACT_FILE; let lines;
   try { lines = readAcceptanceLines(fs.readFileSync(contractFile, "utf8")); } catch (e) { console.error(`NOT JUDGED: ${e.code === "ENOENT" ? `the contract ${contractFile} cannot be read` : e.message}`); process.exit(2); }
-  const records = readRunDir(runDir); const { launch } = records;
-  const tree = records.record ? runOf({ launch, record: records.record, readJson: () => null }).snap.tree : null; const repo = opt("--repo");
-  // The run's own Git tree, read by its id from a repository that holds it: never the snapshot folder, which a later run can change.
-  const readTree = repo && tree ? (p) => { const t = execFileSync("git", ["-C", repo, "cat-file", "-p", `${tree}:${p}`], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }); try { return JSON.parse(t); } catch { return t; } } : null;
-  // The time limit pinned for this host and run kind: { "<host>/<kind>": ms } in the limits file the caller names.
-  let limitMs = null; const limitsFile = opt("--limits");
-  if (limitsFile && launch) { try { const v = JSON.parse(fs.readFileSync(limitsFile, "utf8"))[`${launch.host}/${launch.kind}`]; limitMs = Number.isFinite(v) ? v : null; } catch { limitMs = null; } }
-  // The broker's own verifier (rustright verify-receipt) with the key pinned by the caller; none pinned, none used.
   const key = opt("--broker-key"); const keyId = opt("--broker-key-id"); const client = opt("--rustright") ?? "rustright";
-  const verifyReceipt = key && keyId && launch?.host ? (file) => {
-    const body = fs.readFileSync(file); const sha256 = createHash("sha256").update(body).digest("hex");
-    let receipt = null; try { receipt = JSON.parse(body.toString("utf8")); } catch { receipt = null; }
-    try { execFileSync(client, ["verify-receipt", "--receipt", file, "--public-key", key, "--key-id", keyId, "--host", launch.host], { stdio: ["ignore", "pipe", "pipe"], windowsHide: true }); }
-    catch (e) { return { ok: false, sha256, receipt, problems: [String(e.stderr ?? e.message).trim().split(/\r?\n/).pop()] }; }
-    return { ok: true, sha256, receipt, requestId: receipt?.provenance?.payload?.jobId, problems: [] };
-  } : null;
-  const isAlive = (pid) => { try { process.kill(pid, 0); return true; } catch (e) { return e.code === "EPERM"; } };
-  const live = process.argv.includes("--live") ? { exists: (p) => fs.existsSync(p), alive: isAlive, pids: [...new Set([launch?.gatePid, ...(records.journal?.exits?.keys() ?? []), ...(records.journal?.starts ?? []).map((s) => s.child)].filter(Number.isInteger))] } : null;
-  const successorDir = opt("--successor"); const successor = successorDir ? readRunDir(successorDir) : null;
-  const verdict = judgeRun({ lines, ...records, readTree, limitMs, live, successor, verifyReceipt });
+  let host = null; try { host = JSON.parse(fs.readFileSync(path.join(runDir, "launch.json"), "utf8")).host; } catch { host = null; }
+  // The broker's own verifier (rustright verify-receipt) with the key pinned by the caller.
+  const verify = key && keyId && host ? (file) => { try { execFileSync(client, ["verify-receipt", "--receipt", file, "--public-key", key, "--key-id", keyId, "--host", host], { stdio: ["ignore", "pipe", "pipe"], windowsHide: true }); return { ok: true, problems: [] }; } catch (e) { return { ok: false, problems: [String(e.stderr ?? e.message).trim().split(/\r?\n/).pop()] }; } } : null;
+  const evidence = readRunDir(runDir, { repo: opt("--repo"), receiptsDir: opt("--receipts"), cacheDir: opt("--cache-dir"), verify });
+  const alive = (pid) => { try { process.kill(pid, 0); return true; } catch (e) { return e.code === "EPERM"; } };
+  const live = process.argv.includes("--live") ? { exists: (p) => fs.existsSync(p), alive } : null;
+  const successor = opt("--successor") ? { launch: (() => { try { return JSON.parse(fs.readFileSync(path.join(opt("--successor"), "launch.json"), "utf8")); } catch { return null; } })() } : null;
+  const digestOf = (file) => { try { return createHash("sha256").update(fs.readFileSync(file)).digest("hex"); } catch { return null; } };
+  const verdict = judgeRun({ lines, ...evidence, live, successor, verifierPinned: Boolean(verify), digestOf });
   if (process.argv.includes("--json")) console.log(JSON.stringify(verdict, null, 2));
   else { for (const l of verdict.lines) console.log(`${l.id} ${l.verdict.toUpperCase().padEnd(12)} ${l.text}\n      ${l.why}`); console.log(verdict.pass ? "PASS: all twelve lines" : `NOT PASSED: ${verdict.failed.length} failed, ${verdict.notMeasured.length} not measured`); }
   process.exit(verdict.pass ? 0 : 1);

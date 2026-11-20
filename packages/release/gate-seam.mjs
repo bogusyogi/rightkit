@@ -11,7 +11,6 @@ import { execFileSync as nodeExecFileSync } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { fact as runFact } from "./run-record.mjs";
 
 export const CLASS_A_VERDICT_SCHEMA = "rightkit.class-a-verdict/1";
 export const GATE_COMMIT_ENV = "RUSTRIGHT_GATE_COMMIT";
@@ -116,7 +115,6 @@ export function writeClassAVerdict(dir, verdict, { fsApi = fs } = {}) {
   const tmp = `${file}.${process.pid}.${crypto.randomBytes(4).toString("hex")}.tmp`;
   fsApi.writeFileSync(tmp, `${JSON.stringify(verdict)}\n`, { mode: 0o600 });
   fsApi.renameSync(tmp, file);
-  runFact("verdict", { file, status: verdict.status });
   return file;
 }
 
@@ -282,13 +280,7 @@ export function readSeamReceipt(file, { commit, tree, classA = null, expect = nu
  * executed command that failed keeps its exit as code EXIT; otherwise pass, with the evidence downstream reads (outputDir,
  * testExecutables, receipt digest).
  */
-export function judgeSeamOutcome(input) {
-  const v = seamOutcomeOf(input);
-  // rightkit#1514 step 3: one broker submission, joined by the request id the broker assigned, with the receipt the judge verifies.
-  runFact("broker-job", { requestId: v.result?.requestId ?? null, argv: input.expect?.argv ?? null, cwd: input.expect?.cwd ?? null, receipt: typeof v.result?.receipt === "string" ? v.result.receipt : null, receiptSha256: v.evidence?.receiptSha256 ?? null, status: v.status, code: v.code ?? null, testExecutables: v.evidence?.testExecutables ?? null });
-  return v;
-}
-function seamOutcomeOf({ child, stderr, commit, tree, classA = null, expect = null, fsApi = fs }) {
+export function judgeSeamOutcome({ child, stderr, commit, tree, classA = null, expect = null, fsApi = fs }) {
   let result;
   try { result = parseResultLine(stderr); } catch (e) { return { status: "fail", code: e.code, detail: e.message, result: null, evidence: null }; }
   if (result.code) {
