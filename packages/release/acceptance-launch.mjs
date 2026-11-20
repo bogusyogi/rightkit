@@ -40,7 +40,7 @@ export function takeLaunchLock(file, holder, { isAlive = alive, fsApi = fs } = {
   let held = null; try { held = JSON.parse(fsApi.readFileSync(file, "utf8")); } catch { held = null; }
   let written = 0; try { written = Math.trunc(fsApi.statSync(file).mtimeMs * 1000); } catch { written = 0; }
   if (held && isAlive(held.pid)) return { refused: `run ${held.runId} (pid ${held.pid}) holds ${file}` };
-  const identity = `${held?.runId ?? "unreadable"}.${held?.pid ?? 0}.${written}`.replace(/[^w.-]/g, "_");
+  const identity = `${held?.runId ?? "unreadable"}.${held?.pid ?? 0}.${written}`.replace(/[^\w.-]/g, "_");
   const claim = `${file}.successor.${identity}`;
   try { fsApi.writeFileSync(claim, `${JSON.stringify({ runId: holder.runId, pid: holder.pid })}
 `, { flag: "wx" }); }

@@ -486,6 +486,12 @@ test("5.1 the launcher's takeover is one exclusive claim per dead holder: of two
   const first = takeLaunchLock(lock, { runId: "C", pid: process.pid }, { isAlive: (p) => p === process.pid });
   assert.equal(first.previous.runId, "dead2");
   assert.equal(fs.readdirSync(dir).filter((n) => n.includes(".successor.")).length, 2);
+  // Two different dead holders whose ids and pids have the same length are two claims, not one: the claim name keeps the characters of the identity.
+  fs.rmSync(lock); fs.writeFileSync(lock, `${JSON.stringify({ runId: "dead3", pid: 999997 })}\n`);
+  const third = takeLaunchLock(lock, { runId: "D", pid: process.pid }, { isAlive: (p) => p === process.pid });
+  assert.equal(third.previous?.runId, "dead3", `a later dead holder of the same shape must be takeable: ${third.refused ?? ""}`);
+  const claims = fs.readdirSync(dir).filter((n) => n.includes(".successor."));
+  assert.equal(claims.length, 3); assert.ok(claims.some((n) => n.includes("dead3")) && claims.some((n) => n.includes("dead2")), `claim names keep the holder's identity: ${claims.join(", ")}`);
 });
 
 test("5.12 the production reader sets aside the run folder's legacy gate artifacts: with them present it opens only the launcher's record, the process record and the receipts list, and returns the same evidence", () => {
