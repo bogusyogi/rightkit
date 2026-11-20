@@ -222,6 +222,29 @@ Adrian, 2026-11-03: "i wnat all dev completely gone. all debug too. completely g
 - **Empty directories.** A directory the commit does not have that holds no file (a tool-created one such as `.swiftpm/xcode` or `xcshareddata/swiftpm/configuration`) is admitted exactly when the commit's own ignore rules ignore it, judged by the same neutral oracle as a file (`stage-ledger.mjs` `walkSnapshot`, `snapshot.mjs` `snapshotProblem`). It holds no byte and is not recorded in the ledger. One those rules do not ignore, or one under a reserved segment (`target`, `.right-release`, `.git`, `node_modules`), is refused as before.
 
 [GC-A27] 2026-11-05: **One end-to-end acceptance run shows what a gate pass is, against the whole contract.** Adrian, 2026-11-05: "does the gate have a e2e test that shows what pass looks like? one that achieves the full contract?" / "isn't that the right call?" (rightkit#1514).
+
+**The acceptance test is these twelve lines** (2026-11-20; Adrian: "An acceptance test should be a single list of things that has to pass any run"; the twelve agreed by Adrian, chat "gate" and chat "gatecodex"; rightkit#1514). A pass is all twelve lines true for one run, judged only from that run's own records. A line with no record to judge it from is "not measured", never a pass. `packages/release/acceptance-lines.mjs` reads its lines from the table between the two markers below, and refuses to judge if a line has no check or a check has no line. Each id is written in backticks so that the retiring runner, which reads every `| NNxx |` row in this file, does not read these twelve as duplicates of the history table further down.
+
+<!-- acceptance-lines:begin -->
+| Id | Line |
+|---|---|
+| `NN01` | Only the selected commit is built. |
+| `NN02` | Class A finishes before anything goes to the broker. If it fails, nothing goes. |
+| `NN03` | Class A starts ready, independent work whenever an eligible lane is free. |
+| `NN04` | Before the first cache lookup, the gate records the expected rows and which will be reused and which will run. |
+| `NN05` | If lookup disagrees with that record, the gate stops before sending work and names the row and the cause. Otherwise the work that ran matches it. |
+| `NN06` | A row whose inputs did not change is never run again, including one that failed before. |
+| `NN07` | A row whose inputs did change is always run again, and does only the work the change needs. |
+| `NN08` | No repeat calls: nothing is started twice in one run. |
+| `NN09` | Compatible compiles are combined per workspace and stage. Every split has a reason the check can verify. Independent groups run at the same time when there is capacity. |
+| `NN10` | Tests are compiled by the broker and run by the gate. |
+| `NN11` | The run finishes inside its time limit. |
+| `NN12` | The run ends clean, even if killed: the next ordinary run starts safely by itself. |
+<!-- acceptance-lines:end -->
+
+"Everything goes through the gate" is not one of these lines. It is proven at the build entry points and by the broker's refusal, not by a gate run.
+
+**History (2026-11-05 to 2026-11-20): the 43-rule test.** Everything from here to the end of [GC-A27] is the earlier test, kept as a record and not deleted. Its ids NN01 to NN43 are not the twelve lines above. Until the old test is retired, `gate-acceptance.mjs`, its result format and the two programs that read that result (`gate-release-admission.mjs` and rustright-install's `trusted_gate.rs`) still read this table and those ids.
 - **Runner.** `packages/release/gate-acceptance.mjs --fixture <dir> [--host mac|dell] [--steps ...] [--plan] [--allow-install]` drives the real installed gate (never a mock) through S0–S9 against the witness fixture (`rk-witness-fixture`), then judges every operative clause from that run's own artifacts: coverage reports, the door receipt, the owner record, render receipts and log lines.
 - **Verdict.** It prints `PASS (N of M asserted, K unchecked)` only when every asserted clause, every step, every step-only check and every non-negotiable below passed; otherwise `NOT PASSED` with the blockers. A clause with no evidence in that run is unchecked with its reason, never passed. A non-negotiable is never unchecked on a host that can run it: missing evidence for one fails the run.
 - **Negatives and kills.** A negative passes only on the named scan row or the exact rule code the gate emits for it, never on a word in the log. A kill must be followed by a run that reclaims the record ([GC-A26]) and passes.
