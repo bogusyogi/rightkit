@@ -792,9 +792,9 @@ impl OwnedCommand {
                 let reaped = child.cleanup_unidentified(self.partial_spawn_cleanup_timeout);
                 return Err(spawn_cleanup_failure(error, reaped));
             }
-            // macOS: the tie is a watchdog armed while the pid is still certainly ours. A
-            // child that could not be tied is stopped, never handed out untied.
-            #[cfg(target_os = "macos")]
+            // macOS and Linux: the group-wide tie is a watchdog armed while the pid is still
+            // certainly ours. A child that could not be tied is stopped, never handed out untied.
+            #[cfg(any(target_os = "macos", target_os = "linux"))]
             if self.kill_on_parent_exit {
                 if let Err(error) = crate::process_unix::arm_parent_death_watch(child.id()) {
                     let _ = child.signal(SignalTarget::Group, libc::SIGKILL);
