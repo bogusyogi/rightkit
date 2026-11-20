@@ -11,7 +11,7 @@ use crate::history::HistoryError;
 use rightkit_db::rusqlite::Connection;
 
 /// The access seam of [`super::DeliveryHistoryStore`]. Implemented for a raw connection and, with
-/// the `managed-store` feature, for [`ManagedConnection`]. It is not meant to be implemented by a
+/// the `managed-store` feature, for `ManagedConnection`. It is not meant to be implemented by a
 /// host.
 pub trait HistoryConnection: Send {
     /// Run `operation` on the live connection for reading.

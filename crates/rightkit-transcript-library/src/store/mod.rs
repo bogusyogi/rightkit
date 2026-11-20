@@ -8,7 +8,7 @@
 //! and report pending cleanup; they never overwrite or remove a path here.
 //!
 //! With the `managed-store` feature the host can instead hand over an open
-//! `rightkit_db::encrypted_lifecycle::EncryptedStore` ([`DeliveryHistoryStore::open_managed`]).
+//! `rightkit_db::encrypted_lifecycle::EncryptedStore` (`DeliveryHistoryStore::open_managed`).
 //! The store then runs every query, write and migration on that store's managed writer, so key
 //! rotation, restore and recovery of the same `EncryptedStore` drain and reopen the connection the
 //! history uses, and the host keeps no second connection.
@@ -40,7 +40,7 @@ pub type EventSink = fn(&str, &str);
 
 /// The history store. `C` is where its connection comes from: a raw `rusqlite::Connection` the host
 /// owns (the default, [`DeliveryHistoryStore::open_connection`]) or, with `managed-store`, an
-/// `EncryptedStore`'s managed writer ([`DeliveryHistoryStore::open_managed`]).
+/// `EncryptedStore`'s managed writer (`DeliveryHistoryStore::open_managed`).
 #[derive(Debug)]
 pub struct DeliveryHistoryStore<C = rusqlite::Connection> {
     conn: C,
