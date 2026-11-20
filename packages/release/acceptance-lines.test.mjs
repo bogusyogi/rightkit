@@ -4,7 +4,8 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { test } from "node:test";
-import { CHECK_IDS, CONTRACT_FILE, brokerCompileOf, judgeRun, linkProblems, parseAcceptanceLines, parseLedger, readAcceptanceLines } from "./acceptance-lines.mjs";
+import { CHECK_IDS, CONTRACT_FILE, brokerCompileOf, judgeRun, linkProblems, parseAcceptanceLines, parseJournal, parseLedger, readAcceptanceLines } from "./acceptance-lines.mjs";
+import { parseRunRecord } from "./run-record.mjs";
 
 // The lines under test are the contract's own: docs/GATE-CONTRACT.md [GC-A27], read here exactly as the command line reads them.
 const CONTRACT = fs.readFileSync(CONTRACT_FILE, "utf8");
@@ -107,12 +108,68 @@ function records() {
     } },
   };
 }
-const ledgerText = (r) => [...r.ledger.map((e) => JSON.stringify(e)), ...r.extraLines, ...(r.end ? [JSON.stringify(r.end)] : [])].join("\n");
-const run = (r) => judgeRun({
-  lines: LINES, log: r.log.join("\n"), ledger: parseLedger(ledgerText(r)), receipt: r.receipt, commit: r.commit, runPid: r.runPid, exit: r.exit, limitMs: r.limitMs, live: r.live,
-  readTree: (p) => { if (!(p in r.tree)) throw Object.assign(new Error(`ENOENT ${p}`), { code: "ENOENT" }); return structuredClone(r.tree[p]); },
-  readJson: (f) => { if (!(f in r.files)) throw Object.assign(new Error("ENOENT"), { code: "ENOENT" }); return structuredClone(r.files[f]); },
-});
+// ---- the record adapter (rightkit#1514 step 3) -------------------------------------------------------------------------------------------------------
+// The hand-made records above are written as a person reads a run: log lines, files, a process list. The judge reads none of the log. This
+// adapter turns them into what a launched run leaves (acceptance-launch.mjs, run-record.mjs, spawn-ledger.mjs), so every case, the 63 frozen
+// ones included, keeps its own inputs and expected verdict: the launcher's record (start and end from the first and last stamped line, the
+// gate's pid, the exit), the run record (one fact per line that states one, and, from each forecast file, the facts of when it was frozen
+// and when its first lookup began), the process list, and its journal (a start and an end for each entry; each `end: true` line is that
+// writer's exit). A line or field a case removes is a fact the record does not have.
+const RUN_ID = "f".repeat(64);
+const stampOf = (l) => { const m = /^(\d{4}-\d\d-\d\dT[\d:.]+Z) /.exec(l); return m ? Date.parse(m[1]) : null; };
+const monoOf = (ms, k = 0) => String(BigInt(Math.round(ms)) * 1_000_000n + BigInt(k));
+const iso = (ms) => new Date(ms).toISOString();
+function recordsOf(r) {
+  const stamps = r.log.map(stampOf).filter((t) => t !== null);
+  const launch = { schema: "rightkit.acceptance-launch/1", runId: RUN_ID, commit: r.commit, kind: "fixture", host: "fixture-host", gatePid: r.runPid,
+    startedAt: stamps.length ? iso(Math.min(...stamps)) : null, endedAt: stamps.length && Number.isInteger(r.exit) ? iso(Math.max(...stamps)) : null, exit: Number.isInteger(r.exit) ? r.exit : null, signal: null, previous: null };
+  Object.assign(launch, r.launchPatch ?? {});
+  const facts = []; let seq = 0;
+  const add = (ms, k, kind, fields) => { if (Number.isFinite(ms)) facts.push({ kind, seq: (seq += 1), mono: monoOf(ms, k), at: iso(ms), pid: r.runPid ?? 100, run: RUN_ID, ...fields }); };
+  r.log.forEach((line, i) => {
+    const t = stampOf(line); const k = i + 1; let m;
+    if ((m = /snapshot lock held (\S+)/.exec(line))) add(t, k, "lock", { token: m[1], reclaimed: null });
+    else if ((m = /snapshot (\S+) is commit ([0-9a-f]{40}) tree ([0-9a-f]{40})/.exec(line))) add(t, k, "snapshot", { path: m[1], commit: m[2], tree: m[3] });
+    else if ((m = /snapshot (\S+) is still tree ([0-9a-f]{40}) after the (\w+)/.exec(line))) add(t, k, "still-tree", { stage: m[3], path: m[1], tree: m[2] });
+    else if ((m = /--to (\S+) for ([0-9a-f]{7,40})\b/.exec(line))) add(t, k, "request", { to: m[1], commit: r.commit && r.commit.startsWith(m[2]) ? r.commit : m[2] });
+    else if ((m = /Class ([AB]) cache decision: (.+?)\s*$/.exec(line))) {
+      const doc = r.files[m[2]];
+      if (doc && typeof doc.forecastFrozenAt === "string") add(Date.parse(doc.forecastFrozenAt), 0, "forecast", { class: m[1], file: m[2], phase: null });
+      if (doc && typeof doc.firstLookupAt === "string") add(Date.parse(doc.firstLookupAt), 0, "lookup", { class: m[1], key: "first" });
+      add(t, k, "decision", { class: m[1], file: m[2], mismatches: Array.isArray(doc?.mismatches) ? doc.mismatches.length : 0 });
+    } else if ((m = /class A verdict written: (.+?)\s*$/.exec(line))) add(t, k, "verdict", { file: m[1], status: r.files[m[1]]?.status ?? null });
+    else if ((m = /coverage report (\S+\.json)(?:.*\(class ([AB+]+)\))?/.exec(line))) {
+      add(t, k, "coverage", { class: m[2] ?? null, file: m[1] });
+      const rows = (r.files[m[1]]?.scans ?? []).filter((s) => s.lane && typeof s.lane === "object").map((s) => ({ id: s.id, ...s.lane }));
+      if (rows.length) add(t, k, "lanes", { class: "A", rows });
+    } else if ((m = /class A scans (\d+) at a time/.exec(line))) add(t, k, "capacity", { classAJobs: Number(m[1]), classBJobs: null, cores: null, brokerHost: true });
+    else if ((m = /RK_CACHE_DIVERGENCE (\{.*\})\s*$/.exec(line))) { let row = null; try { row = JSON.parse(m[1]); } catch { row = null; } add(t, k, "divergence", { class: null, row }); }
+  });
+  for (const job of r.brokerJobs ?? []) add(Date.parse(job.at), 0, "broker-job", job);
+  const files = { ...r.files };
+  if (r.receipt) { files["receipt.json"] = r.receipt; add(stamps.length ? Math.max(...stamps) : NaN, 9999, "receipt-out", { file: "receipt.json" }); }
+  const ledgerLines = r.ledger.map((e) => JSON.stringify(e)); const journal = [];
+  r.ledger.forEach((e, i) => {
+    const t = Date.parse(e.at); if (!Number.isFinite(t)) return;
+    journal.push({ ev: "start", id: `e${i}`, pid: e.pid, child: 1000 + i, mono: monoOf(t), at: e.at, cmd: e.cmd, args: e.args, cwd: e.cwd, ...(e.sha256 ? { sha256: e.sha256 } : {}) });
+    if (!e.open) journal.push({ ev: "end", id: `e${i}`, pid: e.pid, child: 1000 + i, mono: monoOf(t + (e.ms ?? 0)), status: e.status });
+  });
+  for (const raw of [...r.extraLines, ...(r.end ? [JSON.stringify(r.end)] : [])]) {
+    let x = null; try { x = JSON.parse(raw); } catch { x = null; }
+    if (x && x.end === true) journal.push({ ev: "exit", pid: x.pid, parent: x.parent ?? null, root: x.root === true, open: x.open, mono: monoOf(Date.parse(x.at)), at: x.at });
+    else ledgerLines.push(raw);
+  }
+  const successor = r.live?.successor ? { launch: { runId: "e".repeat(64), previous: r.live.successor.ok ? { runId: RUN_ID, reclaimed: r.live.successor.reclaimed === true } : null }, record: { facts: [{ kind: "lock", run: "e".repeat(64) }], problems: [] } } : null;
+  return { launch, record: parseRunRecord(facts.map((x) => JSON.stringify(x)).join("\n")), ledger: parseLedger(ledgerLines.join("\n")), journal: parseJournal(journal.map((x) => JSON.stringify(x)).join("\n")), files, successor };
+}
+const run = (r) => {
+  const { files, ...records } = recordsOf(r);
+  return judgeRun({
+    lines: LINES, ...records, limitMs: r.limitMs, live: r.live, verifyReceipt: r.verifyReceipt ?? null,
+    readTree: (p) => { if (!(p in r.tree)) throw Object.assign(new Error(`ENOENT ${p}`), { code: "ENOENT" }); return structuredClone(r.tree[p]); },
+    readJson: (f) => { if (!(f in files)) throw Object.assign(new Error("ENOENT"), { code: "ENOENT" }); return structuredClone(files[f]); },
+  });
+};
 const alter = (fn) => { const r = records(); fn(r); return r; };
 const verdictOf = (v, id) => v.lines.find((l) => l.id === id).verdict;
 const whyOf = (v, id) => v.lines.find((l) => l.id === id).why;
@@ -122,11 +179,10 @@ const scan = (r, file, id) => r.files[file].scans.find((s) => s.id === id);
 /** Class B wholly reused: b unchanged too, nothing dispatched, nothing compiled. */
 const wholeReuseB = (r) => { const d = decB(r); d.forecast[1].expected = "hit"; d.actual[1].actual = "hit"; d.dispatchedRows = []; scan(r, "covB.json", "clippy:ws:b").coverage = "hit"; r.ledger.splice(2, 1); };
 
-test("a run whose records meet every line passes eleven; NN10 stays not measured until the broker's receipt is read", () => {
+test("a run whose records meet every line passes all twelve (it compiles no test, so NN10 holds on its complete process list)", () => {
   const v = run(records());
-  for (const id of twelve.filter((x) => x !== "NN10")) assert.equal(verdictOf(v, id), "pass", `${id}: ${whyOf(v, id)}`);
-  assert.equal(verdictOf(v, "NN10"), "not measured");
-  assert.equal(v.pass, false, "a run with a line not measured is not a pass");
+  for (const id of twelve) assert.equal(verdictOf(v, id), "pass", `${id}: ${whyOf(v, id)}`);
+  assert.equal(v.pass, true);
 });
 
 // ---- the cases each line must fail, or must not pass -----------------------------------------------------------------------------------------
@@ -165,7 +221,7 @@ test("NN02: Class A finishes before anything goes to the broker; if it fails, no
   // (review) "nothing was sent" after a red Class A is shown only from a complete process list.
   const red = (r) => { r.files["v.json"].status = "fail"; r.ledger.splice(2, 1); r.log.splice(7, 2); r.receipt.stages.compile = undefined; };
   expect(alter(red), "NN02", "pass", /nothing was sent/);
-  expect(alter((r) => { red(r); r.end = null; }), "NN02", "not measured", /end record/);
+  expect(alter((r) => { red(r); r.end = null; }), "NN02", "not measured", /exit record/);
   expect(alter((r) => { red(r); r.end.open = 1; }), "NN02", "not measured", /still open/);
   expect(alter((r) => { red(r); r.ledger.push(compile(6, "test", "--profile release -p b --locked")); }), "NN02", "fail");
 });
@@ -185,7 +241,7 @@ test("NN03: Class A starts ready, independent work whenever an eligible lane is 
   expect(alter(lanes([row("x", 0, 0, 500), row("y", 0, 20, 900)])), "NN03", "fail", /y waited 20 ms/);
   expect(alter(lanes([row("x", 0, 0, 500), { ...row("y", 0, 20, 900), lane: { readyAt: 0, startedAt: 20, endedAt: 900, lanes: 2, resolutionMs: 50 } }])), "NN03", "pass");
   // The lane count is the log's announcement, not the row report's word: with none announced, a wait cannot be judged.
-  expect(alter((r) => { lanes([row("x", 0, 0, 500), row("y", 0, 400, 900, 1)])(r); r.log = r.log.filter((l) => !/at a time/.test(l)); }), "NN03", "not measured", /not announced/);
+  expect(alter((r) => { lanes([row("x", 0, 0, 500), row("y", 0, 400, 900, 1)])(r); r.log = r.log.filter((l) => !/at a time/.test(l)); }), "NN03", "not measured", /not in the run record/);
   expect(alter(lanes([row("x", 0, 10, 500), row("y", 0, 400, 900, 2)])), "NN03", "fail", /waited/);
   // (review) every lane busy when the row became ready, then one freed while it still waited: a single look at the ready time missed it.
   expect(alter(lanes([row("x", 0, 0, 500), row("y", 0, 0, 1000), row("z", 0, 900, 1200)])), "NN03", "fail", /z waited/);
@@ -218,7 +274,7 @@ test("NN05: a lookup that disagrees stops the gate before work is sent and names
   // (review) a missing dispatch list or exit code does not pass a divergence.
   expect(alter((r) => { diverged(r); delete decB(r).dispatchedRows; }), "NN05", "not measured", /dispatch/);
   expect(alter((r) => { diverged(r); r.exit = null; }), "NN05", "not measured", /exit/);
-  expect(alter((r) => { diverged(r); r.end = null; }), "NN05", "not measured", /end record/);
+  expect(alter((r) => { diverged(r); r.end = null; }), "NN05", "not measured", /exit record/);
   // (review) agreement still needs the work that ran to be exactly the forecast's: no row missing, none extra, in every record.
   expect(alter((r) => { decB(r).dispatchedRows.push("clippy:ws:a"); }), "NN05", "fail", /clippy:ws:a/);
   expect(alter((r) => { scan(r, "covB.json", "clippy:ws:a").coverage = "ran"; }), "NN05", "fail", /clippy:ws:a/);
@@ -266,7 +322,7 @@ test("NN08: nothing is started twice in one run", () => {
   // (review) a documented per-run part (a probe's temp folder) does not make a repeat into two calls.
   expect(alter((r) => { r.ledger.push(entry(8, "cargo", ["--version"], "D:\\t\\rk-probe-AAAA"), entry(9, "cargo", ["--version"], "D:\\t\\rk-probe-BBBB")); }), "NN08", "fail", /2x cargo/);
   // (review) "no repeat" is shown only from a complete process list whose entries can all be compared.
-  expect(alter((r) => { r.end = null; }), "NN08", "not measured", /end record/);
+  expect(alter((r) => { r.end = null; }), "NN08", "not measured", /exit record/);
   expect(alter(plus(entry(8, "node", ["big.mjs", "a", "... 52 args"]))), "NN08", "not measured", /cut short/);
 });
 
@@ -278,7 +334,7 @@ test("NN09: compatible compiles are combined per workspace and stage; every spli
   // Council CV-1 F-27: commands that did not start together cannot pass on overlap alone, without a record of capacity and readiness.
   expect(alter((r) => { r.ledger.push(compile(6.5, "clippy", "--profile release -p b --features z --locked")); }), "NN09", "not measured", /different times/);
   // (review) "nothing was sent" is shown only from a complete process list.
-  expect(alter((r) => { r.ledger.splice(2, 1); r.end = null; }), "NN09", "not measured", /end record/);
+  expect(alter((r) => { r.ledger.splice(2, 1); r.end = null; }), "NN09", "not measured", /exit record/);
   // (review) independent groups that ran one after the other cannot pass without the record of the free capacity they waited beside.
   expect(alter((r) => { r.ledger.push(compile(9, "clippy", "--profile release -p c --locked", `${SNAP}\\other`)); }), "NN09", "not measured", /different times/);
 });
@@ -289,8 +345,11 @@ test("NN11 is judged only against a limit, over times that run forwards; NN12 on
   expect(records(), "NN12", "pass", /no lock and no process left behind/);
   expect(alter((r) => { r.limitMs = 1_000; }), "NN11", "fail");
   expect(alter((r) => { r.limitMs = null; }), "NN11", "not measured");
-  // (review) a log whose last time is earlier than its first gives no interval to judge.
-  expect(alter((r) => { r.log.push(`${at(-60)} rightkit-gate: late line`); }), "NN11", "not measured", /backwards/);
+  // (review) the span is the launcher's clock: a launcher record with no start, or one that ends before it starts, gives no interval to judge.
+  expect(alter((r) => { r.launchPatch = { startedAt: null }; }), "NN11", "not measured", /no start time/);
+  expect(alter((r) => { r.launchPatch = { endedAt: at(-60) }; }), "NN11", "not measured", /ends before it starts/);
+  // An event the run owns outside the launcher's own span still counts (Council CV-1 F-29).
+  expect(alter((r) => { r.log.push(`${at(-60)} rightkit-gate: an early line`); }), "NN11", "fail", /70\.0 s/);
   expect(alter((r) => { r.live = null; }), "NN12", "not measured");
   expect(alter((r) => { r.live = { exists: (f) => f.endsWith(".lock"), alive: () => false, pids: [] }; }), "NN12", "fail");
   expect(alter((r) => { r.live = { exists: () => false, alive: () => true, pids: [7] }; }), "NN12", "fail");
@@ -441,8 +500,9 @@ test("Council CV-1: the critical findings the frozen batch leaves uncovered", ()
   // F-1: a compile that builds outside the snapshot, by its folder or by the manifest it names.
   expect(alter((r) => { r.ledger[2] = compile(6, "clippy", "--profile release -p b --locked", "D:\\other-checkout\\ws"); }), "NN01", "fail", /outside the snapshot/);
   expect(alter((r) => { r.ledger[2] = compile(6, "clippy", "--profile release -p b --manifest-path ..\\..\\..\\elsewhere\\Cargo.toml --locked"); }), "NN01", "fail", /manifest/);
-  // F-3: a process list closed by another run's gate process cannot show this run's absence of work.
-  expect(alter((r) => { r.end.lock = "00000000-0000-0000-0000-000000000000"; }), "NN08", "not measured", /belongs to snapshot lock/);
+  // F-3: a process list closed by a gate process other than the one the launcher started cannot show this run's absence of work.
+  expect(alter((r) => { r.launchPatch = { gatePid: 555 }; }), "NN08", "not measured", /not the run's own process 555/);
+  expect(alter((r) => { r.launchPatch = { gatePid: null }; }), "NN08", "not measured", /not known from its launcher/);
   expect(alter((r) => { r.extraLines.push(JSON.stringify({ end: true, pid: 101, at: at(9), open: 0 })); r.ledger.push({ ...entry(7, "node", ["x.mjs"]), pid: 101 }); }), "NN08", "not measured", /not linked to the run's root/);
   expect(alter((r) => { r.extraLines.push(JSON.stringify({ end: true, pid: 101, at: at(9), open: 0, parent: 100 })); r.ledger.push({ ...entry(7, "node", ["x.mjs"]), pid: 101 }); }), "NN08", "pass");
   // F-5: a forecast that names another run is that run's.
@@ -470,6 +530,30 @@ test("Council CV-1: the critical findings the frozen batch leaves uncovered", ()
 });
 
 // Shapes found in the recorded runs of full run 4 (D:\scratch\loop-review\muse-fulldev-4) that the first fixed checks misread.
+// NN10 (rightkit#1514 step 3): a test compile is joined to its broker job; the receipt verifies, shows a compile only and lists the
+// programs the gate then ran, each with the digest the broker signed.
+const EXE = `${SNAP}\\ws\\target\\debug\\deps\\b-1.exe`;
+const testRun = (r) => {
+  r.ledger[2] = compile(6, "test", "-p b --no-run");
+  r.ledger.push({ ...entry(8.5, EXE, [], SNAP), sha256: "h1" });
+  r.brokerJobs = [{ at: at(8), requestId: "job1", argv: ["test", "-p", "b", "--no-run"], cwd: `${SNAP}\\ws`, receipt: "R1.json", receiptSha256: "d1", status: "pass", code: null, testExecutables: [{ path: EXE, sha256: "h1" }] }];
+  r.verifyReceipt = (file) => (file === "R1.json" ? { ok: true, sha256: "d1", requestId: "job1", receipt: { testExecutables: [{ path: EXE, sha256: "h1" }] }, problems: [] } : { ok: false, problems: ["unknown"] });
+};
+test("NN10: tests are compiled by the broker, with a verified compile-only receipt, and the gate runs exactly what the broker built", () => {
+  expect(alter(testRun), "NN10", "pass", /verified compile-only receipt/);
+  expect(alter((r) => { testRun(r); r.brokerJobs = []; }), "NN10", "not measured", /no broker job/);
+  expect(alter((r) => { testRun(r); r.verifyReceipt = null; }), "NN10", "not measured", /no broker key is pinned/);
+  expect(alter((r) => { testRun(r); r.verifyReceipt = () => ({ ok: false, problems: ["bad signature"] }); }), "NN10", "fail", /bad signature/);
+  expect(alter((r) => { testRun(r); r.brokerJobs[0].receiptSha256 = "d2"; }), "NN10", "fail", /not the one the gate read/);
+  expect(alter((r) => { testRun(r); const v = r.verifyReceipt; r.verifyReceipt = (x) => ({ ...v(x), requestId: "job9" }); }), "NN10", "fail", /not the request job1/);
+  expect(alter((r) => { testRun(r); r.verifyReceipt = () => ({ ok: true, sha256: "d1", requestId: "job1", receipt: {}, problems: [] }); }), "NN10", "fail", /compile only/);
+  expect(alter((r) => { testRun(r); r.ledger.pop(); }), "NN10", "fail", /never ran it/);
+  expect(alter((r) => { testRun(r); r.ledger.at(-1).sha256 = "h2"; }), "NN10", "fail", /another digest/);
+  expect(alter((r) => { testRun(r); delete r.ledger.at(-1).sha256; }), "NN10", "not measured", /no digest/);
+  expect(alter((r) => { r.ledger.push(entry(8, "C:\\cargo\\bin\\cargo.exe", ["test", "-p", "b"], SNAP)); }), "NN10", "fail", /outside the broker/);
+  expect(alter((r) => { testRun(r); r.end = null; }), "NN10", "not measured", /exit record/);
+});
+
 test("record shapes real runs write: uncacheable rows, both change-list spellings, gate-run test suites, feature-set variants", () => {
   // An uncacheable row is forecast, looked up and covered as such and runs every time: it agrees with itself, and NN06 cannot pass while it exists.
   const uncacheable = (r) => { decA(r).forecast.push({ id: "shellcheck", expected: "uncacheable" }); decA(r).actual.push({ id: "shellcheck", actual: "uncacheable" }); decA(r).dispatchedRows.push("shellcheck"); r.files["covA.json"].scans.push({ id: "shellcheck", class: "A", coverage: "ran", status: "pass", lane: { readyAt: 1000, startedAt: 1000, endedAt: 1100, lanes: 4 } }); r.ledger.splice(2, 0, entry(1.7, "C:\\tools\\shellcheck.exe", ["scripts/a.sh"], SNAP)); };

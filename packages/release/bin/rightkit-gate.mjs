@@ -133,6 +133,7 @@ import { SNAPSHOT_PROOF_COUNTS, snapshotProofLine } from "../snapshot.mjs";
 import { contentStore, installProbeMemo } from "../probe-memo.mjs";
 import { discoveryRun, sealedRepoInfo, setTreeListingStore } from "../snapshot-git.mjs";
 import { processIdentity, snapshotLockBody, verdictFileName } from "../gate-seam.mjs";
+import { endRunRecord, fact as runFact, openRunRecord } from "../run-record.mjs";
 
 const PRIVATE_SCOPED_COMPILE = Symbol("private scoped compile");
 const CLASS_A_HISTORY = Symbol("Class A cache history");
@@ -2088,6 +2089,7 @@ async function runStages(o, args, root, git, io) {
       o.err(`${tag} cannot resolve ${option("--commit") ?? "HEAD"} to a commit: ${e.message}`); return 2;
     }
   }
+  runFact("request", { to, commit: selected?.commit ?? o.doorSnapshot?.commit ?? null });
   const scopeCommit = o.doorSnapshot ? o.doorSnapshot.commit : selected ? selected.commit : text(git("rev-parse", "HEAD")).trim();
   const inventory = committedConfigDirs({ git, commit: scopeCommit });
   if (inventory.refusal) { o.err(`${tag} cannot read the app configuration of the selected commit: ${inventory.refusal}`); return 2; }
@@ -2133,6 +2135,7 @@ async function runStages(o, args, root, git, io) {
       try { synced = (o.syncSnapshot ?? snap.syncSnapshot)({ checkout: root, rev: selected.commit, root: snapshotsAt, lock: { held: taken.view } }); }
       catch (e) { o.err(`${tag} ${e.code === "error" ? "RK_CHECK_ERROR" : "BLOCKED"}: snapshot ${e.message}; nothing ran`); return e.code === "error" ? 2 : 1; }
       o.out(`${tag} snapshot ${synced.path} is commit ${synced.commit} tree ${synced.tree} (written=${synced.written} removed=${synced.removed} unchanged=${synced.unchanged})${synced.removedPaths?.length ? ` removed: ${synced.removedPaths.join(", ")}` : ""}`);
+      runFact("snapshot", { path: synced.path, commit: synced.commit, tree: synced.tree });
       if (synced.identity) o.out(`${tag} source identity ${synced.identity.file}: ${synced.identity.written ? "written" : synced.identity.kept ? "kept" : `not written (${synced.identity.reason})`}`);
       started = true;
       return await runStages({ ...o, snapshotLock: taken.view, doorSnapshot: { lock: taken.view, path: synced.path, commit: synced.commit, tree: synced.tree, root: snapshotsAt, ledger: { entries: [] } } }, args, root, git, { ...io, snapshotLock: taken.view });
@@ -2207,7 +2210,7 @@ async function runStages(o, args, root, git, io) {
   const receiptOut = option("--receipt-out");
   const save = () => {
     (o.writeReceipt ?? writeReceipt)({ commonDir, receipt });
-    if (receiptOut !== undefined) o.writeFile(path.resolve(o.cwd, receiptOut), `${JSON.stringify(receipt, null, 2)}\n`);
+    if (receiptOut !== undefined) { o.writeFile(path.resolve(o.cwd, receiptOut), `${JSON.stringify(receipt, null, 2)}\n`); runFact("receipt-out", { file: path.resolve(o.cwd, receiptOut) }); }
   };
 
   const cli = fileURLToPath(new URL("../cli/right-release.mjs", import.meta.url));
@@ -3165,6 +3168,7 @@ function takeRunLock({ o, checkout, snapshotsAt, commit, snap, tag, route = "doo
     throw e;
   }
   o.out(`${tag} snapshot lock held ${release.token}${release.reclaimed ? ` (reclaimed from ${release.reclaimed.from}: ${release.reclaimed.proof})` : ""}`);
+  runFact("lock", { token: release.token, reclaimed: release.reclaimed ? { from: release.reclaimed.from ?? null, proof: release.reclaimed.proof ?? null } : null });
   return { release, body: taken.body, view: snap.lockView(release) };
 }
 
@@ -3318,6 +3322,7 @@ async function runUnitSnapshot(o, args, root, git, io, option) {
     catch (e) { o.err(`${tag} ${e.code === "error" ? "RK_CHECK_ERROR" : "BLOCKED"}: snapshot ${e.message}; nothing ran`); return e.code === "error" ? 2 : 1; }
     started = true;
     o.out(`${tag} snapshot ${synced.path} is commit ${synced.commit} tree ${synced.tree} (written=${synced.written} removed=${synced.removed} unchanged=${synced.unchanged})${synced.removedPaths?.length ? ` removed: ${synced.removedPaths.join(", ")}` : ""}`);
+    runFact("snapshot", { path: synced.path, commit: synced.commit, tree: synced.tree });
     if (synced.identity) o.out(`${tag} source identity ${synced.identity.file}: ${synced.identity.written ? "written" : synced.identity.kept ? "kept" : `not written (${synced.identity.reason})`}`);
     const ds = { lock: taken.view, path: synced.path, commit: synced.commit, tree: synced.tree, root: snapshotsAt, ledger: { entries: [] } };
     if (io[UNIT_LIST_UNION]) return await runUnionSnapshot({ o, io, root, git, ds, union: io[UNIT_LIST_UNION], unitListClassA: io.unitListClassA });
@@ -4259,6 +4264,7 @@ export async function main(argv, io = {}) {
       try { synced = (o.syncSnapshot ?? snap.syncSnapshot)({ checkout, rev: selected.commit, root: snapshotsAt, lock: { held: view } }); }
       catch (e) { o.err(`rightkit-gate: ${e.code === "error" ? sc.CHECK_ERROR : "BLOCKED"}: snapshot ${e.message}; nothing ran`); return e.code === "error" ? 2 : 1; }
       o.out(`rightkit-gate: snapshot ${synced.path} is commit ${synced.commit} tree ${synced.tree} (written=${synced.written} removed=${synced.removed} unchanged=${synced.unchanged})${synced.removedPaths?.length ? ` removed: ${synced.removedPaths.join(", ")}` : ""}`);
+      runFact("snapshot", { path: synced.path, commit: synced.commit, tree: synced.tree });
       if (synced.identity) o.out(`rightkit-gate: source identity ${synced.identity.file}: ${synced.identity.written ? "written" : synced.identity.kept ? "kept" : `not written (${synced.identity.reason})`}`);
       const next = [...argv]; const ci = next.indexOf("--commit");
       if (ci >= 0) next.splice(ci, 2, "--commit", synced.commit); else next.push("--commit", synced.commit);
@@ -4302,10 +4308,11 @@ export async function main(argv, io = {}) {
         snapshotCommit = sc.commitOf(snapshotCheckout, option("--commit"), o.spawn);
         // NN07 (no repeated work): the door's stage opener has just proved this snapshot against the commit with an empty ledger (nothing staged
         // before the check), which is this same proof; the check does not walk the tree a second time.
-        if (o.snapshotProvedBefore === snapshotDir) o.out(`rightkit-gate: snapshot ${snapshotDir} is commit ${snapshotCommit.commit} tree ${snapshotCommit.tree} (proved by the door before the check)`);
+        if (o.snapshotProvedBefore === snapshotDir) { o.out(`rightkit-gate: snapshot ${snapshotDir} is commit ${snapshotCommit.commit} tree ${snapshotCommit.tree} (proved by the door before the check)`); runFact("snapshot", { path: snapshotDir, commit: snapshotCommit.commit, tree: snapshotCommit.tree }); }
         else {
           sc.verifySnapshotDir({ checkout: snapshotCheckout, dir: snapshotDir, ...snapshotCommit, when: "before the check" });
           o.out(`rightkit-gate: snapshot ${snapshotDir} is commit ${snapshotCommit.commit} tree ${snapshotCommit.tree} (verified before the check)`);
+          runFact("snapshot", { path: snapshotDir, commit: snapshotCommit.commit, tree: snapshotCommit.tree });
         }
       } catch (e) { o.err(`rightkit-gate: ${sc.CHECK_ERROR}: ${e.message}`); return 2; }
     }
@@ -4446,6 +4453,7 @@ export async function main(argv, io = {}) {
       try { sc.verifySnapshotDir({ checkout: snapshotCheckout, dir: snapshotDir, ...snapshotCommit, when: "after the check" }); }
       catch (e) { o.err(`rightkit-gate: ${sc.CHECK_ERROR}: ${e.message}; the result covers no known bytes`); return 2; }
       o.out(`rightkit-gate: snapshot ${snapshotDir} is still tree ${snapshotCommit.tree} after the check`);
+      runFact("still-tree", { stage: "check", path: snapshotDir, tree: snapshotCommit.tree });
     }
     return Math.max(appCheck, classA, selfRules);
   }
@@ -4968,6 +4976,7 @@ export async function main(argv, io = {}) {
           }
         }
         o.out(`${tag} snapshot ${snapshotB} is commit ${snapshotBCommit.commit} tree ${snapshotBCommit.tree} (verified before the compile)`);
+        runFact("snapshot", { path: snapshotB, commit: snapshotBCommit.commit, tree: snapshotBCommit.tree });
         for (const r of sc.installSnapshotDependencies({ checkout, snapshot: snapshotB, ...snapshotBCommit, ...(o.snapshotLedger !== undefined ? { ledger: o.snapshotLedger } : {}), roots: installRoots, ...(closure ? { packageDirs: npm.filter((u) => closure.npm.has(u.name)).map((u) => u.dir) } : {}), env: o.env, spawn: o.spawn })) o.out(`${tag} ${sc.describeInstall(r)}`);
       } catch (error) { o.err(`${tag} ${error.code === "RK_CHECK_ERROR" ? "RK_CHECK_ERROR" : "BLOCKED"}: ${error.message}`); return error.code === "RK_CHECK_ERROR" ? 2 : 1; }
       // A broker host: the compile goes through the seam (reset plan section 3). The broker pins the output directory (its managed generation target), so no checkout target
@@ -5263,6 +5272,7 @@ export async function main(argv, io = {}) {
     o.out(`${tag} executor: ${executor.kind}${executor.kind === "broker" ? ` (${cargoCommand.join(" ")})` : " (no broker on this host: cargo runs directly, through the same gates)"}`);
     const quietCount = plan.scans.filter((s) => s.quiet === true).length;
     o.out(`${tag} ${plan.scans.length} scan(s) for ${changed.length} changed file(s) vs ${base.slice(0, 12)}; class A scans ${jobs} at a time, ${brokerHost ? `class B: the broker queues and orders the carried scans of every component, no gate count (local test suites the broker does not see: ${classBJobs} at a time)` : `class B scans ${classBJobs} component(s) at a time`}${quietCount ? `, ${quietCount} quiet test scan(s) last under the broker's quiet lease` : ""}`);
+    runFact("capacity", { classAJobs: jobs, classBJobs: brokerHost ? null : classBJobs, cores: typeof os.availableParallelism === "function" ? os.availableParallelism() : os.cpus().length, brokerHost: Boolean(brokerHost) });
     let signalCode = 0;
     for (const sig of ["SIGINT", "SIGTERM"]) {
       const handler = () => {
@@ -5384,7 +5394,7 @@ export async function main(argv, io = {}) {
         const storeDir = o.env.RK_GATE_CACHE_DIR ? path.resolve(o.env.RK_GATE_CACHE_DIR) : path.join(path.resolve(root, text(common).trim()), "rightkit-gate-cache");
         // Nov-18 cache rule applies to every bound full-A form (snapshot, hosted, live), not only guarded snapshot discovery.
         classAHistory = o[CLASS_A_HISTORY] ?? openClassAHistory({ historyRoot: path.join(gateRunsRoot({ env: o.env, platform: o.platform }), "rightkit-class-a-history"), storeDir });
-        const store = fileScanCache(storeDir);
+        const store = recordedStore(fileScanCache(storeDir), "A");
         const listFiles = (dir) => under(dir);
         const readBlob = (p) => fs.readFileSync(path.join(liveBase, p), "utf8");
         // The verdict also depends on what is not in the tree: the gate's own code and advisory data, the node and pnpm that run
@@ -5437,7 +5447,7 @@ export async function main(argv, io = {}) {
           if (needsForecast) classBHistory = openClassBHistory({ historyRoot: path.join(gateRunsRoot({ env: o.env, platform: o.platform }), "rightkit-class-a-history"), storeDir });
           // Mixed A+B in one invocation needs its Class A history too; boundFullA opened it above when that block ran.
           if (needsForecast && !classAHistory && !(snapshotB && o.classAEarlier === true)) classAHistory = o[CLASS_A_HISTORY] ?? openClassAHistory({ historyRoot: path.join(gateRunsRoot({ env: o.env, platform: o.platform }), "rightkit-class-a-history"), storeDir });
-          const store = fileScanCache(storeDir);
+          const store = recordedStore(fileScanCache(storeDir), null);
           const listFiles = (dir) => {
             const r = git("ls-tree", "-r", "--name-only", "-z", headSha, "--", dir);
             if (failed(r)) throw new Error(`git ls-tree failed: ${why(r)}`);
@@ -5580,6 +5590,7 @@ export async function main(argv, io = {}) {
             const forecast = history.forecast(rows);
             if (phase) forecasts[phase] = forecast;
             writeFileAtomic(decisionFile, JSON.stringify({ ...evidence, phase: "forecast", forecast, ...(phase ? { forecasts } : {}) }), { mode: 0o600 });
+            runFact("forecast", { class: cls, file: decisionFile, phase: phase ?? null });
             return forecast;
           };
         }
@@ -5593,6 +5604,8 @@ export async function main(argv, io = {}) {
           if (!decision) throw new Error(`Class ${cls} scanner returned no forecast decision`);
           const evidence = { stage, host: os.hostname(), commit: snapshotBCommit?.commit ?? snapshotCommitId?.commit ?? hostedCommitA?.commit ?? null, tree: snapshotBCommit?.tree ?? liveSnapshot, baseline: history.file };
           writeFileAtomic(decisionFile, JSON.stringify({ ...evidence, ...decision, phase: "observed" }), { mode: 0o600 });
+          runFact("decision", { class: cls, file: decisionFile, mismatches: decision.mismatches.length });
+          for (const row of decision.mismatches) runFact("divergence", { class: cls, row });
           if (decision.mismatches.length) {
             blocked = true;
             for (const row of decision.mismatches) o.err(`${tag} RK_CACHE_DIVERGENCE ${JSON.stringify(row)}`);
@@ -5602,6 +5615,7 @@ export async function main(argv, io = {}) {
         if (blocked) return 1;
       } catch (error) { o.err(`${tag} RK_CACHE_DIVERGENCE: ${error.message}`); return 1; }
     } else scanResult = await (o.runScans ?? runScans)(plan, scanOptions);
+    if (Array.isArray(scanResult?.classALanes)) runFact("lanes", { class: "A", rows: scanResult.classALanes });
     if (nodeCheckRejects.size) o.out(`${tag} node-check cache misses: ${[...nodeCheckRejects].sort(([a], [b]) => a.localeCompare(b)).map(([reason, count]) => `${reason}=${count}`).join(", ")}`);
     if (snapFullA && o.env.RIGHTKIT_PREPARATION_DIAGNOSTIC_DIR && nodeCheckDiagnosticId) o.out(`${tag} node-check diagnostic row: ${nodeCheckDiagnosticState}`);
     if (unionContext) {
@@ -5640,6 +5654,7 @@ export async function main(argv, io = {}) {
       const base = gateRunsRoot({ env: o.env, platform: o.platform });
       const file = (o.writeCoverage ?? writeCoverageReport)({ dir: path.join(base, "rightkit-gate-coverage"), name: `${path.basename(root)}-${new Date().toISOString().replace(/[:.]/g, "-")}-${process.pid}`, report });
       const otherPass = (report.scans ?? []).filter((s) => s.coverage === "skipped" && /is not part of this pass/.test(String(s.reason ?? ""))).length;
+      runFact("coverage", { class: classAOnly ? "A" : classAEarlier ? "B" : "A+B", file });
       o.out(`${tag} coverage report ${file}: ${report.totals.planned - otherPass} scan(s) in this pass (class ${classAOnly ? "A" : classAEarlier ? "B" : "A+B"}), ${report.totals.hit} hit, ${report.totals.ran} ran, ${report.totals.skipped - otherPass} skipped; ${otherPass} belong to the other pass; scans took ${seconds(directTiming.cargoEnd - directTiming.cargoStart)}`);
     } catch (error) { o.out(`${tag} note: the coverage report could not be written (${error.message})`); }
     // What a full class A verdict binds, green or red: the bytes it judged, unchanged from start to end, and the environment it judged
@@ -5694,6 +5709,7 @@ export async function main(argv, io = {}) {
       catch (error) { o.err(`${tag} RK_CHECK_ERROR: ${error.message}; the compile covers no known bytes`); return 2; }
       directTiming.afterEnd = Date.now();
       o.out(`${tag} snapshot ${snapshotB} is still tree ${snapshotBCommit.tree} after the compile`);
+      runFact("still-tree", { stage: "compile", path: snapshotB, tree: snapshotBCommit.tree });
       // A broker host's evidence is the broker's own signed receipts (each carried scan's row.snapshotEvidence, verified above); the
       // gate writes no receipt that says `executor: direct` for it.
       // The output directories this compile's evidence names (GB-13): the broker's signed receipts' `outputDir`, or the direct host's resolved targets.
@@ -5825,12 +5841,20 @@ export async function productionEntryDeps() {
 const invokedDirectly = (() => {
   try { return fs.realpathSync(process.argv[1]) === fs.realpathSync(fileURLToPath(import.meta.url)); } catch { return false; }
 })();
+/** A scan cache whose every lookup is a run-record fact (rightkit#1514 NN04: the forecast is frozen before the first lookup, by observed order). */
+function recordedStore(store, cls) {
+  const wrapped = { ...store, read: (key, ...rest) => { runFact("lookup", { class: cls, key: String(key) }); return store.read(key, ...rest); } };
+  if (typeof store.readOutcome === "function") wrapped.readOutcome = (key, ...rest) => { runFact("lookup", { class: cls, key: String(key) }); return store.readOutcome(key, ...rest); };
+  return wrapped;
+}
 /** This gate's own resolved entry file: the broker admits a compile only when the request names the pinned trusted gate by this
  * path (rustright reads it from RUSTRIGHT_CALLING_GATE; a missing or different path is refused). */
 export const callingGatePath = () => fs.realpathSync(fileURLToPath(import.meta.url));
 if (invokedDirectly) {
   // GC-A27 NN07-NN12: with RK_GATE_SPAWN_LEDGER set, every child process of this run is recorded (spawn-ledger.mjs). Off otherwise.
   installSpawnLedger();
+  // rightkit#1514 step 3: with RK_GATE_RUN_RECORD set (acceptance-launch.mjs), the facts the twelve-line judge reads (run-record.mjs). Off otherwise.
+  if (openRunRecord()) process.once("exit", (code) => endRunRecord(code));
   // NN07: a fixed question about the checkout (git top level, object format, whether an id names a commit, where a tool is) is asked once per process.
   // NN22: whole-tree listings of a full commit id are kept between gate processes (probe-memo.mjs treeListStore).
   {

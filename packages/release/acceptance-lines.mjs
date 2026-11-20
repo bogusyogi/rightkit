@@ -1,11 +1,13 @@
 // The gate's acceptance test: twelve lines that must be true of every run (GATE-CONTRACT GC-A27; Adrian, 2026-11-20: "An acceptance test
 // should be a single list of things that has to pass any run").
 //
-// It judges ONE run from the records that run leaves behind, and nothing else: its log, the list of every process it started (the spawn
-// ledger), its forecast files (what it said it would reuse and run, and what happened), its row reports (coverage), its Class A verdict, its
-// receipt and, where a split or a workspace must be checked, files of the run's own Git tree. It stages nothing and knows no scenario: a
-// first build, a repeat, a run after an edit and a real build of an app are all judged by the same twelve lines. A line with no record to
-// judge it from is "not measured", never a pass.
+// It judges ONE run from the records that run leaves behind, and nothing else, never its log: the launcher's record (acceptance-launch.mjs:
+// the selected commit, the run id, the gate's pid, its clock and its exit), the run record the gate writes as each fact happens (run-record.mjs:
+// the snapshot and its lock, the forecasts, every cache lookup, the decisions, the coverage reports, the Class A verdict, the lanes, the
+// broker jobs, the receipt), the list of every process it started with its journal (spawn-ledger.mjs), the broker's signed receipts, and,
+// where a split or a workspace must be checked, files of the run's own Git tree. It stages nothing and knows no scenario: a first build, a
+// repeat, a run after an edit and a real build of an app are all judged by the same twelve lines. A line with no record to judge it from is
+// "not measured", never a pass.
 //
 // Rules every check keeps (gatecodex reviews and Council CV-1, 2026-11-20):
 //  * Missing proof is not the absence of work. "Nothing was sent", "nothing repeated" and "no other compile" are shown only from a process
@@ -19,13 +21,15 @@
 // `<!-- acceptance-lines:begin -->` and `<!-- acceptance-lines:end -->`, and nothing is judged unless every line there has a check here and
 // every check here has a line there.
 //
-//   node acceptance-lines.mjs --log <file> --ledger <file> --commit <sha> --pid <gate pid> [--repo <dir>] [--contract <file>] [--receipt <file>]
-//                             [--limit-ms <n>] [--exit <code>] [--json]
+//   node acceptance-lines.mjs --run <run dir> [--repo <dir>] [--contract <file>] [--limits <file>] [--successor <run dir>]
+//                             [--broker-key <hex> --broker-key-id <hex>] [--live] [--json]
 import fs from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { sidecarBoundCrate } from "./deterministic-scans.mjs";
+import { parseRunRecord } from "./run-record.mjs";
 
 export const CONTRACT_FILE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "docs", "GATE-CONTRACT.md");
 const BEGIN = "<!-- acceptance-lines:begin -->"; const END = "<!-- acceptance-lines:end -->";
@@ -84,27 +88,17 @@ const short = (s) => String(s).slice(0, 12);
 // ---- reading the records ---------------------------------------------------------------------------------------------------------------------------
 const ISO = /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z$/;
 const timeOf = (s) => (typeof s === "string" && ISO.test(s) ? Date.parse(s) : NaN);
-/** A log line's UTC stamp in ms, or null. */
-const stampOf = (line) => { const m = /^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z) /.exec(line); return m ? Date.parse(m[1]) : null; };
 
 /**
- * The process list (RK_GATE_SPAWN_LEDGER). Each line is one finished child `{pid, at, ms, sync, cmd, args, cwd, status}` (`at` is when it
- * started; the line is written when it closes), or a writer's end record `{end: true, pid, at, open, root?, lock?, parent?}` written when
- * that writer process finishes: `open` counts its children still running, the run's own gate process writes `root: true` with the run's
- * snapshot `lock`, and any other writer names its `parent` writer. Returns the entries as an array that also carries `problems` (every line
- * that is not a whole entry: nothing is dropped silently) and `ends` (end records by pid).
+ * The process list (RK_GATE_SPAWN_LEDGER). Each line is one finished child `{pid, child, at, ms, sync, cmd, args, cwd, status}`: `pid` is the
+ * writer (the gate process that started it), `child` the started process's own id, `at` when it started; the line is written when it closes.
+ * Returns the entries as an array that also carries `problems` (every line that is not a whole entry: nothing is dropped silently).
  */
 export function parseLedger(text) {
-  const entries = []; const problems = []; const ends = new Map();
+  const entries = []; const problems = [];
   String(text ?? "").split(/\r?\n/).forEach((raw, i) => {
     if (!raw.trim()) return;
     let e; try { e = JSON.parse(raw); } catch { problems.push(`line ${i + 1} is not JSON`); return; }
-    if (e && typeof e === "object" && e.end === true) {
-      if (!Number.isInteger(e.pid) || !Number.isFinite(timeOf(e.at)) || !Number.isInteger(e.open)) problems.push(`line ${i + 1} is an end record without pid, at and open`);
-      else if (ends.has(e.pid)) problems.push(`line ${i + 1} is a second end record for process ${e.pid}`);
-      else ends.set(e.pid, e);
-      return;
-    }
     const missing = [];
     if (!Number.isInteger(e?.pid)) missing.push("pid");
     if (!Number.isFinite(timeOf(e?.at))) missing.push("at");
@@ -116,37 +110,58 @@ export function parseLedger(text) {
     if (missing.length) { problems.push(`line ${i + 1} has no ${missing.join(", ")}`); return; }
     entries.push(e);
   });
-  return Object.defineProperties(entries, { problems: { value: problems }, ends: { value: ends } });
+  return Object.defineProperties(entries, { problems: { value: problems } });
 }
 
 /**
- * Why the process list cannot be taken as this run's complete list, or [] when it can (Council CV-1 F-3): every line is a whole entry; the
- * run's gate process closed it with one root end record bound to this run's snapshot lock; every process that wrote to it closed it too,
- * linked to the root through its parent, and none of them had a child still running. A list without that is a sample, and a sample cannot
- * show absence. An empty list closed this way is a valid record of a run that started nothing.
+ * The process journal beside the process list (spawn-ledger.mjs, `<ledger>.journal.jsonl`): `start` when a child starts, `end` when it closes
+ * (joined by writer and `id`), and one `exit` per writer when its process exits, `{pid, parent, root, open}`. Returns { starts, ended, exits,
+ * problems }: `ended` holds `<writer>:<id>` of every closed child, `exits` the exit records by writer.
  */
-export function ledgerGaps(ledger, { lock = null, runPid = null } = {}) {
+export function parseJournal(text) {
+  const starts = []; const ended = new Set(); const exits = new Map(); const problems = [];
+  String(text ?? "").split(/\r?\n/).forEach((raw, i) => {
+    if (!raw.trim()) return;
+    let j; try { j = JSON.parse(raw); } catch { problems.push(`line ${i + 1} is not JSON`); return; }
+    if (!j || !Number.isInteger(j.pid) || !/^\d+$/.test(String(j.mono ?? ""))) { problems.push(`line ${i + 1} has no writer or clock reading`); return; }
+    if (j.ev === "start") { if (typeof j.id !== "string") problems.push(`line ${i + 1} is a start without an id`); else starts.push(j); }
+    else if (j.ev === "end") { if (typeof j.id !== "string") problems.push(`line ${i + 1} is an end without an id`); else ended.add(`${j.pid}:${j.id}`); }
+    else if (j.ev === "exit") { if (!Number.isInteger(j.open)) problems.push(`line ${i + 1} is an exit without its open count`); else if (exits.has(j.pid)) problems.push(`line ${i + 1} is a second exit record for process ${j.pid}`); else exits.set(j.pid, j); }
+    else problems.push(`line ${i + 1} is not a start, end or exit`);
+  });
+  return { starts, ended, exits, problems };
+}
+
+/**
+ * Why the process list cannot be taken as this run's complete list, or [] when it can (Council CV-1 F-3; frozen case GCX-02-2): every line of
+ * the list and the journal is whole; the run's own gate process (the pid its launcher started, not the gate's word) exited with one root
+ * exit record; every process that wrote to the list exited too, linked to the root through its parent, with no child still open; and every
+ * child the journal saw start was seen to end. A list without that is a sample, and a sample cannot show absence. An empty list closed this
+ * way is a valid record of a run that started nothing.
+ */
+export function ledgerGaps(ledger, journal, { runPid = null } = {}) {
   if (!Array.isArray(ledger)) return ["the run has no process list"];
-  if (!Array.isArray(ledger.problems) || !(ledger.ends instanceof Map)) return ["the process list was not read with parseLedger, so whether it is complete is unknown"];
+  if (!Array.isArray(ledger.problems)) return ["the process list was not read with parseLedger, so whether it is complete is unknown"];
   const gaps = ledger.problems.map((p) => `the process list is incomplete: ${p}`);
-  const roots = [...ledger.ends.values()].filter((e) => e.root === true);
-  if (!roots.length) gaps.push("the process list has no end record of the run's own gate process (root), so a process started and never recorded cannot be ruled out");
-  if (roots.length > 1) gaps.push(`the process list has ${roots.length} root end records, so which run it belongs to is contradictory`);
+  if (!journal || !(journal.exits instanceof Map)) { gaps.push("the run has no process journal, so a process started and never recorded cannot be ruled out"); return gaps; }
+  gaps.push(...journal.problems.map((p) => `the process journal is incomplete: ${p}`));
+  const roots = [...journal.exits.values()].filter((e) => e.root === true);
+  if (!roots.length) gaps.push("the process journal has no exit record of the run's own gate process (root), so a process started and never recorded cannot be ruled out");
+  if (roots.length > 1) gaps.push(`the process journal has ${roots.length} root exit records, so which run it belongs to is contradictory`);
   const root = roots.length === 1 ? roots[0] : null;
-  if (root && !lock) gaps.push("this run's snapshot lock is not known, so the process list cannot be bound to it");
-  if (root && lock && root.lock !== lock) gaps.push(`the process list's root end record belongs to snapshot lock ${root.lock ?? "(none)"}, not this run's ${lock}`);
-  // Frozen case GCX-02-2: the root end record is the gate's own word; the run's pid comes from its launcher, which the gate does not write.
-  if (root && !Number.isInteger(runPid)) gaps.push("the run's own process id is not known from its launcher (--pid), so the root end record cannot be tied to the run");
-  if (root && Number.isInteger(runPid) && root.pid !== runPid) gaps.push(`the process list's root end record is process ${root.pid}'s, not the run's own process ${runPid}`);
-  for (const pid of new Set(ledger.map((e) => e.pid))) if (!ledger.ends.has(pid)) gaps.push(`process ${pid} wrote to the process list and no end record`);
-  for (const [pid, end] of ledger.ends) {
-    if (end.open !== 0) gaps.push(`process ${pid} ended with ${end.open} child(ren) still open, which the list does not show`);
-    if (end.root === true) continue;
+  if (root && !Number.isInteger(runPid)) gaps.push("the run's own process id is not known from its launcher, so the root exit record cannot be tied to the run");
+  if (root && Number.isInteger(runPid) && root.pid !== runPid) gaps.push(`the process journal's root exit record is process ${root.pid}'s, not the run's own process ${runPid} (its launcher's record)`);
+  for (const pid of new Set(ledger.map((e) => e.pid))) if (!journal.exits.has(pid)) gaps.push(`process ${pid} wrote to the process list and no exit record`);
+  for (const [pid, x] of journal.exits) {
+    if (x.open !== 0) gaps.push(`process ${pid} exited with ${x.open} child(ren) still open, which the list does not show`);
+    if (x.root === true) continue;
     // Each other writer must reach the root through its parents.
-    let at = end; const seen = new Set();
-    while (at && at.root !== true && !seen.has(at.pid)) { seen.add(at.pid); at = ledger.ends.get(at.parent); }
-    if (!at || at.root !== true) gaps.push(`process ${pid}'s end record is not linked to the run's root through its parent`);
+    let at = x; const seen = new Set();
+    while (at && at.root !== true && !seen.has(at.pid)) { seen.add(at.pid); at = journal.exits.get(at.parent); }
+    if (!at || at.root !== true) gaps.push(`process ${pid}'s exit record is not linked to the run's root through its parent`);
   }
+  const unended = journal.starts.filter((s) => !journal.ended.has(`${s.pid}:${s.id}`));
+  if (unended.length) gaps.push(`${unended.length} process(es) started and never seen to end (first: ${programName(unended[0].cmd ?? "?")})`);
   return gaps;
 }
 
@@ -298,23 +313,42 @@ function toolStarts(ctx, id) {
   });
 }
 
-/** The forecast files a log names ("Class A cache decision: <file>", "Class B cache decision: <file>"), read; an unreadable one is reported. */
-export function decisionsOf(log, { readJson = (f) => JSON.parse(fs.readFileSync(f, "utf8")) } = {}) {
-  const out = [];
-  for (const m of String(log).matchAll(/Class ([AB]) cache decision: (.+?)\s*$/gm)) {
-    let doc = null; let problem = null;
-    try { doc = readJson(m[2].trim()); } catch (e) { problem = `cannot read ${m[2].trim()} (${e.code ?? e.message})`; }
-    out.push({ stage: m[1], file: m[2].trim(), doc, problem, at: stampOf(String(log).slice(0, m.index).split(/\r?\n/).pop() + m[0]) });
+/**
+ * The run as its record states it (run-record.mjs), keeping only facts of this run's id (the launcher's): the snapshot and its lock, the
+ * stages asked for, every forecast file with the fact of when it was frozen, every cache lookup in order, the coverage reports, the Class A
+ * verdict, the scheduler's lanes and capacity, the divergences, the broker jobs and the receipt, each file read. Nothing here is the log.
+ */
+function runOf({ launch, record, readJson }) {
+  const problems = [...(record?.problems ?? ["the run has no record (record.jsonl)"])];
+  const runId = launch?.runId ?? null;
+  const all = record?.facts ?? [];
+  const foreign = runId ? all.filter((x) => x.run !== runId) : [];
+  if (!runId) problems.push("the launcher's record names no run id, so the facts cannot be tied to this run");
+  const facts = runId ? all.filter((x) => x.run === runId) : [];
+  const of = (k) => facts.filter((x) => x.kind === k);
+  const read = (file) => { try { return { doc: readJson(file), problem: null }; } catch (e) { return { doc: null, problem: `cannot read ${file} (${e.code ?? e.message})` }; } };
+  const decisions = [];
+  for (const stage of ["A", "B"]) {
+    const mine = (k) => of(k).filter((x) => x.class === stage);
+    for (const file of [...new Set([...mine("forecast"), ...mine("decision")].map((x) => x.file))]) {
+      const observed = mine("decision").filter((x) => x.file === file).at(-1);
+      decisions.push({ stage, file, ...read(file), at: observed ? timeOf(observed.at) : NaN, frozen: mine("forecast").filter((x) => x.file === file).at(-1) ?? null });
+    }
   }
-  return out;
-}
-/** The coverage reports a log names, read. */
-function coveragesOf(log, readJson) {
-  const out = [];
-  for (const m of String(log).matchAll(/coverage report (\S+\.json)/g)) {
-    try { out.push({ file: m[1], doc: readJson(m[1]) }); } catch (e) { out.push({ file: m[1], doc: null, problem: `cannot read ${m[1]} (${e.code ?? e.message})` }); }
-  }
-  return out;
+  const v = of("verdict").at(-1); const out = of("receipt-out").at(-1);
+  const said = of("snapshot").map((x) => ({ path: x.path, commit: x.commit, tree: x.tree })); const still = of("still-tree");
+  return {
+    problems, foreign,
+    snap: { said, after: still.map((x) => x.tree), afterStages: new Set(still.map((x) => x.stage)), lock: of("lock")[0]?.token ?? null, commit: said[0]?.commit ?? null, tree: said[0]?.tree ?? null, path: said[0]?.path ?? null },
+    requests: of("request"), lookups: of("lookup"), decisions,
+    coverage: of("coverage").map((x) => ({ file: x.file, ...read(x.file) })),
+    verdict: v ? { file: v.file, doc: read(v.file).doc, at: timeOf(v.at) } : { file: null, doc: null, at: NaN },
+    capacity: of("capacity").at(-1) ?? null,
+    lanes: of("lanes").filter((x) => x.class === "A").flatMap((x) => (Array.isArray(x.rows) ? x.rows : [])),
+    divergences: of("divergence").map((x) => ({ row: x.row, at: timeOf(x.at) })),
+    brokerJobs: of("broker-job"),
+    receipt: out ? read(out.file).doc : null, receiptFile: out?.file ?? null,
+  };
 }
 /** A record that names a run (its lock or run id) different from this run's is another run's record (Council CV-1 F-5). */
 const foreignRun = (doc, lock) => {
@@ -349,8 +383,8 @@ const changeOf = (f) => {
 function stageOf(ctx, stage) {
   const ds = ctx.decisions.filter((d) => d.stage === stage);
   let problem = null; let contradictory = false;
-  if (!ds.length) problem = `no Class ${stage} forecast is named in the log`;
-  else if (ds.length > 1) { problem = `the log names ${ds.length} Class ${stage} forecasts`; contradictory = true; }
+  if (!ds.length) problem = `no Class ${stage} forecast is in the run record`;
+  else if (ds.length > 1) { problem = `the run record names ${ds.length} Class ${stage} forecasts`; contradictory = true; }
   else if (!ds[0].doc) problem = `the Class ${stage} forecast cannot be read (${ds[0].problem})`;
   else if (ds[0].doc.stage !== `class-${stage.toLowerCase()}`) { problem = `the Class ${stage} forecast ${path.basename(ds[0].file)} declares itself ${JSON.stringify(ds[0].doc.stage)}`; contradictory = true; }
   const d = problem ? null : ds[0];
@@ -393,28 +427,22 @@ function stageWork(ctx, stage) {
 const stageEvidenced = (ctx, stage) => { const s = stageOf(ctx, stage); return s.decisions.length > 0 || s.C !== null || (stage === "B" && ctx.compiles.length > 0); };
 
 // ---- the twelve lines ------------------------------------------------------------------------------------------------------------------------------
-function snapshotOf(log) {
-  const said = [...log.matchAll(/snapshot (\S+) is commit ([0-9a-f]{40}) tree ([0-9a-f]{40})/g)].map((m) => ({ path: m[1], commit: m[2], tree: m[3] }));
-  const afterLines = [...log.matchAll(/is still tree ([0-9a-f]{40}) after the (\w+)/g)];
-  const after = afterLines.map((m) => m[1]); const afterStages = new Set(afterLines.map((m) => m[2]));
-  const lock = /snapshot lock held (\S+)/.exec(log)?.[1] ?? null;
-  return { said, after, afterStages, lock, commit: said[0]?.commit ?? null, tree: said[0]?.tree ?? null, path: said[0]?.path ?? null };
-}
-
 function nn01(ctx) {
-  const { log, receipt, commit, snap } = ctx; const fails = []; const gaps = [];
-  if (!snap.said.length) return result(NOT_MEASURED, "the log never says which commit and tree its snapshot is");
-  if (!commit) gaps.push("the judge was not told which commit was selected (--commit), so the run cannot be held to it");
+  const { receipt, commit, snap } = ctx; const fails = []; const gaps = [];
+  if (ctx.foreign.length) fails.push(`the run record holds ${ctx.foreign.length} fact(s) of another run (${ctx.foreign[0].run})`);
+  for (const p of ctx.recordProblems) gaps.push(`the run record is incomplete: ${p}`);
+  if (!snap.said.length) return decide(fails, ["the run record never says which commit and tree its snapshot is"], "");
+  if (!commit) gaps.push("the launcher's record names no selected commit, so the run cannot be held to it");
   const commits = new Set(snap.said.map((s) => s.commit)); const trees = new Set([...snap.said.map((s) => s.tree), ...snap.after]);
   if (commit && (commits.size !== 1 || !commits.has(commit))) fails.push(`the selected commit is ${short(commit)}, the snapshot was built from ${[...commits].map(short).join(", ")}`);
   if (commits.size !== 1) fails.push(`the snapshot names ${commits.size} commits`);
   if (trees.size !== 1) fails.push(`the snapshot names ${trees.size} trees: ${[...trees].map(short).join(", ")}`);
-  for (const m of log.matchAll(/--to \S+ for ([0-9a-f]{7,40})\b/g)) if (commit && !commit.startsWith(m[1])) fails.push(`the gate was asked for ${m[1]}, not the selected ${short(commit)}`);
+  for (const r of ctx.requests) if (commit && r.commit !== commit) fails.push(`the gate resolved ${short(r.commit)}, not the selected ${short(commit)}`);
   if (!snap.after.length) gaps.push("the snapshot's tree was stated at the start but never checked again after the work");
-  // Frozen case gate 13: each stage this run did work in has the log's own check of the tree after it; another stage's check does not cover it.
+  // Frozen case gate 13: each stage this run did work in has its own check of the tree after it; another stage's check does not cover it.
   else for (const [name, cls] of [["check", "A"], ["compile", "B"]]) {
     const w = stageWork(ctx, cls);
-    if (w.did.length && !snap.afterStages.has(name)) gaps.push(`this run did ${name} work (${w.did.join(", ")}) and the log never checks the snapshot's tree after the ${name}`);
+    if (w.did.length && !snap.afterStages.has(name)) gaps.push(`this run did ${name} work (${w.did.join(", ")}) and the run record never checks the snapshot's tree after the ${name}`);
   }
   const runCommit = commit ?? snap.commit;
   for (const d of ctx.decisions) if (d.doc && d.doc.commit !== runCommit) fails.push(`the Class ${d.stage} forecast is for commit ${short(d.doc.commit)}`);
@@ -422,7 +450,7 @@ function nn01(ctx) {
   for (const c of ctx.coverage) if (c.doc && c.doc.commit && c.doc.commit !== runCommit) fails.push(`the coverage report ${path.basename(c.file)} is for commit ${short(c.doc.commit)}`);
   if (ctx.verdict.doc && (ctx.verdict.doc.commit !== runCommit || ctx.verdict.doc.tree !== snap.tree)) fails.push(`the Class A verdict is for commit ${short(ctx.verdict.doc.commit)} tree ${short(ctx.verdict.doc.tree)}`);
   // Council CV-1 F-1: every broker compile builds from this run's snapshot: its folder, and any manifest it names, are inside it.
-  if (!snap.path) gaps.push("the log names no snapshot folder, so where the compiles built cannot be checked");
+  if (!snap.path) gaps.push("the run record names no snapshot folder, so where the compiles built cannot be checked");
   else for (const c of ctx.compiles) {
     if (relToSnap(c.cwd, snap.path) === null) fails.push(`a broker compile (cargo ${c.sub}) ran in ${c.cwd}, outside the snapshot ${snap.path}`);
     for (const mp of valuesOf(c.args, "--manifest-path")) {
@@ -435,11 +463,11 @@ function nn01(ctx) {
   else {
     if (receipt.commit !== runCommit) fails.push(`the receipt is for commit ${short(receipt.commit)}, the run was for ${short(runCommit)}`);
     if (receipt.binding?.tree !== snap.tree) fails.push(`the receipt is bound to tree ${short(receipt.binding?.tree)}, the snapshot is ${short(snap.tree)}`);
-    if (!snap.lock) gaps.push("the log names no snapshot lock, so the receipt cannot be tied to this run");
+    if (!snap.lock) gaps.push("the run record names no snapshot lock, so the receipt cannot be tied to this run");
     // Every stage the receipt records is of this commit's tree, and holds this run's snapshot lock. The one exception is a stage carried from an
     // earlier run of the same commit and tree (recorded before this run began, under that run's lock), and only when every record shows this
     // run did none of that stage's work (gatecodex ruling 4): an earlier time and a matching tree do not bind fresh work to an old receipt.
-    const runStart = stampOf(log.split(/\r?\n/).find((l) => stampOf(l) !== null) ?? "");
+    const runStart = Number.isFinite(ctx.runStart) ? ctx.runStart : null;
     const STAGE_CLASS = { check: "A", compile: "B" };
     const stages = Object.entries(receipt.stages ?? {}).filter(([, st]) => st);
     if (!stages.length) fails.push("the receipt records no stage");
@@ -470,7 +498,7 @@ function nn01(ctx) {
 const classAStarts = (ctx) => ctx.starts.filter((d) => Object.values(TOOLS).includes(programName(d.program)) && !isProbe(d.args));
 
 function nn02(ctx) {
-  const { log, compiles, snap } = ctx; const fails = []; const gaps = [];
+  const { compiles, snap } = ctx; const fails = []; const gaps = [];
   const runCommit = ctx.commit ?? snap.commit; const v = ctx.verdict;
   const foreign = foreignRun(v.doc, snap.lock);
   const verdictOk = v.doc && !foreign && v.doc.status === "pass" && v.doc.commit === runCommit && v.doc.tree === snap.tree && Number.isFinite(v.at);
@@ -494,7 +522,7 @@ function nn02(ctx) {
   }
   if (!v.doc) {
     if (sends.length) fails.push(`${sends.length} start(s) went to the broker with no Class A verdict for this run`);
-    return decide(fails, ["the log names no Class A verdict for this run"], "");
+    return decide(fails, ["the run record names no Class A verdict for this run"], "");
   }
   // Council CV-1 F-6: a send must come strictly after Class A finished: after the verdict, and after every Class A tool process ended. A tie
   // with no record of which came first proves neither order.
@@ -528,18 +556,20 @@ function nn03(ctx) {
     if (s.dupIds.size) why.push(`row(s) recorded twice: ${[...s.dupIds].slice(0, 3).join(", ")}`);
     return why.length ? result(NOT_MEASURED, `no Class A row ran, and that none was owed cannot be shown: ${why.join("; ")}`) : result(PASS, `Class A was wholly reused (${s.F.size} rows forecast, looked up and covered as reused, none dispatched), so no row waited`);
   }
-  const lane = (c) => c?.lane && Number.isInteger(c.lane.lanes) && c.lane.lanes > 0 && [c.lane.readyAt, c.lane.startedAt, c.lane.endedAt].every(Number.isFinite) && c.lane.readyAt <= c.lane.startedAt && c.lane.startedAt <= c.lane.endedAt;
-  const bare = [...owed].filter((id) => !lane(covA.get(id)));
-  if (bare.length) return result(NOT_MEASURED, `no valid lane record (ready <= started <= ended, lanes >= 1) in the coverage report for row(s) owed or run: ${bare.slice(0, 4).join(", ")}${bare.length > 4 ? ` and ${bare.length - 4} more` : ""}`);
-  const ran = [...owed].map((id) => covA.get(id));
-  // Council CV-1 F-8: the number of lanes is the run's own announcement ("class A scans N at a time"), not the row report's word; a wait
-  // beside a free lane fails however short, except within a timing resolution a lane record states.
-  const announced = Number(/class A scans (\d+) at a time/.exec(ctx.log)?.[1] ?? NaN);
+  // The scheduler's own ready, start and end times per row (the run record's lanes fact), not a report's word.
+  const laneRows = new Map(); for (const l of ctx.lanes) if (l && typeof l.id === "string") laneRows.set(l.id, laneRows.has(l.id) ? null : l);
+  const lane = (l) => l && Number.isInteger(l.lanes) && l.lanes > 0 && [l.readyAt, l.startedAt, l.endedAt].every(Number.isFinite) && l.readyAt <= l.startedAt && l.startedAt <= l.endedAt;
+  const bare = [...owed].filter((id) => !lane(laneRows.get(id)));
+  if (bare.length) return result(NOT_MEASURED, `no valid lane record (one per row; ready <= started <= ended, lanes >= 1) from the scheduler for row(s) owed or run: ${bare.slice(0, 4).join(", ")}${bare.length > 4 ? ` and ${bare.length - 4} more` : ""}`);
+  const ran = [...owed].map((id) => ({ id, lane: laneRows.get(id) }));
+  // Council CV-1 F-8: the number of lanes is the capacity the scheduler was given during the run (the capacity fact), not a row's word; a
+  // wait beside a free lane fails however short, except within a timing resolution a lane record states.
+  const announced = Number(ctx.capacity?.classAJobs ?? NaN);
   const fails = []; const gaps = [];
   for (const r of ran) {
     const { readyAt, startedAt } = r.lane; const tolerance = Number.isFinite(r.lane.resolutionMs) && r.lane.resolutionMs >= 0 ? r.lane.resolutionMs : 0;
     if (startedAt - readyAt <= tolerance) continue;
-    if (!Number.isInteger(announced) || announced <= 0) { gaps.push(`${r.id} waited ${Math.round(startedAt - readyAt)} ms; how many lanes Class A had is not announced in the log, so whether one was free cannot be shown`); continue; }
+    if (!Number.isInteger(announced) || announced <= 0) { gaps.push(`${r.id} waited ${Math.round(startedAt - readyAt)} ms; how many lanes Class A had is not in the run record, so whether one was free cannot be shown`); continue; }
     const others = ran.filter((o) => o !== r);
     const points = [...new Set([readyAt, ...others.flatMap((o) => [o.lane.startedAt, o.lane.endedAt]).filter((t) => t > readyAt && t < startedAt)])].sort((a, b) => a - b);
     let idle = 0; let idleFrom = null;
@@ -559,7 +589,7 @@ function nn04(ctx) {
   const freezes = []; const lookups = [];
   for (const stage of ["A", "B"]) {
     const s = stageOf(ctx, stage);
-    if (!s.decisions.length) { if (worked[stage]) fails.push(`Class ${stage} worked (coverage or compiles) with no forecast named in the log`); continue; }
+    if (!s.decisions.length) { if (worked[stage]) fails.push(`Class ${stage} worked (coverage or compiles) with no forecast in the run record`); continue; }
     if (s.problem) { (s.contradictory ? fails : gaps).push(s.problem); if (s.decisions.length === 1 && s.decisions[0].doc && s.contradictory) continue; if (!s.decisions[0]?.doc) continue; }
     const doc = s.doc ?? s.decisions[0].doc; const d = s.decisions[0];
     if (!Array.isArray(doc.forecast) || !doc.forecast.length) { fails.push(`the Class ${stage} forecast ${path.basename(d.file)} is missing or empty`); continue; }
@@ -571,43 +601,34 @@ function nn04(ctx) {
     // Council CV-1 F-9: every row looked up was in the frozen forecast.
     const fset = new Set(ids);
     for (const a of Array.isArray(doc.actual) ? doc.actual : []) if (!fset.has(a.id)) fails.push(`Class ${stage} row ${a.id} was looked up and is not in the forecast`);
-    const frozen = timeOf(doc.forecastFrozenAt); const lookup = timeOf(doc.firstLookupAt);
-    if (!Number.isFinite(frozen) || !Number.isFinite(lookup)) gaps.push(`the Class ${stage} forecast does not record when it was frozen and when the first lookup began (forecastFrozenAt, firstLookupAt)`);
-    else { freezes.push({ stage, t: frozen, seq: doc.forecastFrozenSeq }); lookups.push({ stage, t: lookup, seq: doc.firstLookupSeq }); }
+    if (!d.frozen) gaps.push(`the run record has no fact of when the Class ${stage} forecast was frozen`);
+    else freezes.push({ stage, t: timeOf(d.frozen.at), mono: BigInt(d.frozen.mono) });
     if (s.C) {
       const missing = [...s.C.keys()].filter((id) => !s.F.has(id)); const extra = [...s.F.keys()].filter((id) => !s.C.has(id));
       if (missing.length) fails.push(`the Class ${stage} forecast leaves out row(s) the run covered: ${missing.slice(0, 4).join(", ")}`);
       if (extra.length) fails.push(`the Class ${stage} forecast names row(s) the run never covered: ${extra.slice(0, 4).join(", ")}`);
     } else gaps.push(`no coverage report covers Class ${stage}, so its forecast cannot be shown complete`);
   }
-  // Council CV-1 F-10: the line is about the run's FIRST cache lookup. Every required forecast is frozen before it, no stage's work starts
-  // before its forecast is frozen, and a tie with no sequence proves no order.
-  if (freezes.length && lookups.length) {
-    const last = freezes.reduce((a, b) => (b.t > a.t ? b : a)); const first = lookups.reduce((a, b) => (b.t < a.t ? b : a));
-    if (last.t > first.t) fails.push(`the Class ${last.stage} forecast was frozen at ${new Date(last.t).toISOString()}, after the run's first lookup (Class ${first.stage}) at ${new Date(first.t).toISOString()}`);
-    else if (last.t === first.t && !(Number.isFinite(last.seq) && Number.isFinite(first.seq) && last.seq < first.seq)) gaps.push(`the last forecast was frozen at the same time as the run's first lookup, and no sequence says which came first`);
+  // Council CV-1 F-10: the line is about the run's FIRST cache lookup. Every required forecast is frozen before it, by the observed order of
+  // the run record (one monotonic clock for every process of the host), no stage's work starts before its forecast is frozen, and a tie
+  // proves no order.
+  const first = ctx.lookups[0] ?? null;
+  if (freezes.length && !first && ctx.decisions.some((d) => Array.isArray(d.doc?.actual) && d.doc.actual.length)) gaps.push("rows were looked up and the run record has no fact of the first lookup");
+  if (freezes.length && first) {
+    const last = freezes.reduce((a, b) => (b.mono > a.mono ? b : a)); const firstMono = BigInt(first.mono);
+    if (last.mono > firstMono) fails.push(`the Class ${last.stage} forecast was frozen at ${new Date(last.t).toISOString()}, after the run's first lookup${first.class ? ` (Class ${first.class})` : ""} at ${first.at}`);
+    else if (last.mono === firstMono) gaps.push("the last forecast was frozen at the same clock reading as the run's first lookup, so which came first is not shown");
   }
   const freezeOf = (stage) => freezes.find((f) => f.stage === stage)?.t;
   if (Number.isFinite(freezeOf("B"))) { const early = ctx.brokerStarts.filter((b) => !(b.at > freezeOf("B"))); if (early.length) fails.push(`${early.length} start(s) went to the broker before the Class B forecast was frozen`); }
   if (Number.isFinite(freezeOf("A"))) { const early = classAStarts(ctx).filter((d) => !(d.at > freezeOf("A"))); if (early.length) fails.push(`${early.length} Class A tool start(s) (first: ${programName(early[0].program)}) came before the Class A forecast was frozen`); }
-  if (!ctx.decisions.length && !fails.length) return result(NOT_MEASURED, "the log names no forecast file");
+  if (!ctx.decisions.length && !fails.length) return result(NOT_MEASURED, "the run record names no forecast");
   return decide(fails, gaps, ctx.decisions.map((d) => `Class ${d.stage}: ${d.doc?.forecast?.length ?? 0} rows forecast before the run's first lookup`).join("; "));
-}
-
-/** The RK_CACHE_DIVERGENCE notices of the log: each the mismatch row the gate wrote as JSON, with the time of its line (Council CV-1 F-14). */
-function divergencesOf(log) {
-  const out = [];
-  for (const line of String(log).split(/\r?\n/)) {
-    const m = /RK_CACHE_DIVERGENCE (\{.*\})\s*$/.exec(line); if (!m) continue;
-    let row = null; try { row = JSON.parse(m[1]); } catch { row = null; }
-    out.push({ row, at: stampOf(line) });
-  }
-  return out;
 }
 
 function nn05(ctx) {
   const fails = []; const gaps = []; const notes = [];
-  const notices = divergencesOf(ctx.log);
+  const notices = ctx.divergences;
   const allBroker = [...stageOf(ctx, "B").F.keys()];
   for (const stage of ["A", "B"]) {
     const s = stageOf(ctx, stage);
@@ -985,48 +1006,80 @@ function nn09(ctx) {
   return decide(fails, gaps, `${compiles.length} compile command(s) in ${groups.size} group(s), one per workspace and stage${justified.length ? ` (split: ${justified.join("; ")})` : ""}, all started together`);
 }
 
-function nn10({ compiles }) {
-  const tests = compiles.filter((c) => c.sub === "test");
-  if (!tests.length) return result(NOT_MEASURED, "this run sent no test compile to the broker");
-  // The gate sends `cargo test`; the broker turns it into a compile only and signs which test programs it built (its receipt's
-  // `cargo-test-compile-only` and `testExecutables`). Only that receipt shows the broker ran no test and the gate ran exactly those programs.
-  return result(NOT_MEASURED, `${tests.length} test command(s) went to the broker; that it only compiled them and the gate ran the programs needs the broker's receipts, which this judge does not read yet`);
+/**
+ * NN10: tests are compiled by the broker and run by the gate. Every test compile the gate sent is joined to its broker job in the run record
+ * (by its command and folder; the job's key is the request id the broker assigned), whose signed receipt must verify against the pinned broker
+ * key, match the digest the gate recorded, and show a compile only (`testExecutables`, or `testExecutablesReason`). Every test program the
+ * receipt lists must then be started by the gate, the program the journal saw start having the digest the broker signed. A cargo test the
+ * gate ran itself, outside the broker, fails.
+ */
+function nn10(ctx) {
+  const fails = []; const gaps = [...ctx.ledgerGaps];
+  const verb = (args) => args.find((a) => !a.startsWith("-") && !a.startsWith("+"));
+  const direct = ctx.starts.filter((d) => programName(d.program) === "cargo" && verb(d.args) === "test");
+  if (direct.length) fails.push(`${direct.length} cargo test start(s) ran outside the broker, so the gate built tests itself`);
+  const tests = ctx.compiles.filter((c) => c.sub === "test");
+  if (!tests.length) return decide(fails, gaps, "this run compiled no test and ran no cargo test (complete process list)");
+  const unused = [...ctx.brokerJobs];
+  let programs = 0;
+  for (const t of tests) {
+    const at = unused.findIndex((j) => Array.isArray(j.argv) && JSON.stringify(j.argv.map(String)) === JSON.stringify([t.sub, ...t.args]) && typeof j.cwd === "string" && dirKey(j.cwd) === dirKey(t.cwd));
+    const what = `cargo test ${t.args.slice(0, 4).join(" ")}`;
+    if (at < 0) { gaps.push(`${what} went to the broker and the run record has no broker job for it`); continue; }
+    const job = unused.splice(at, 1)[0];
+    if (typeof job.receipt !== "string") { gaps.push(`${what}: broker job ${job.requestId ?? "(no request id)"} names no receipt`); continue; }
+    if (typeof ctx.verifyReceipt !== "function") { gaps.push(`${what}: no broker key is pinned for this judge, so receipt ${path.basename(job.receipt)}'s signature cannot be checked`); continue; }
+    let v; try { v = ctx.verifyReceipt(job.receipt); } catch (e) { v = { ok: false, problems: [e.message] }; }
+    if (!v?.ok) { fails.push(`${what}: receipt ${path.basename(job.receipt)} does not verify against the pinned broker key (${(v?.problems ?? []).join("; ") || "no reason given"})`); continue; }
+    if (job.receiptSha256 && v.sha256 !== job.receiptSha256) fails.push(`${what}: receipt ${path.basename(job.receipt)} is not the one the gate read (digest ${short(v.sha256)}, recorded ${short(job.receiptSha256)})`);
+    if (v.requestId !== undefined && job.requestId !== null && v.requestId !== job.requestId) fails.push(`${what}: receipt ${path.basename(job.receipt)} is job ${v.requestId}, not the request ${job.requestId} the gate submitted`);
+    const rec = v.receipt ?? {};
+    if (!Array.isArray(rec.testExecutables) && typeof rec.testExecutablesReason !== "string") { fails.push(`${what}: the broker's receipt does not show a compile only (no testExecutables), so the broker may have run the tests`); continue; }
+    for (const exe of Array.isArray(rec.testExecutables) ? rec.testExecutables : []) {
+      programs += 1;
+      const file = typeof exe === "string" ? exe : exe?.path; const digest = typeof exe === "object" ? exe?.sha256 : null;
+      if (typeof file !== "string") { fails.push(`${what}: the receipt lists a test program with no path`); continue; }
+      const ranIt = ctx.journal?.starts?.filter((s) => typeof s.cmd === "string" && dirKey(s.cmd) === dirKey(file)) ?? [];
+      if (!ranIt.length) { (ctx.ledgerGaps.length ? gaps : fails).push(`${what}: the broker built ${path.basename(file)} and the gate never ran it`); continue; }
+      if (typeof digest !== "string") gaps.push(`${what}: the receipt gives no digest for ${path.basename(file)}, so the program the gate ran cannot be shown to be the one the broker built`);
+      else if (ranIt.some((s) => typeof s.sha256 !== "string")) gaps.push(`${what}: the journal has no digest of ${path.basename(file)} as the gate started it`);
+      else if (ranIt.some((s) => s.sha256 !== digest)) fails.push(`${what}: the gate ran ${path.basename(file)} with another digest than the broker signed`);
+    }
+  }
+  return decide(fails, gaps, `${tests.length} test compile(s) went to the broker, each with a verified compile-only receipt; the gate ran the ${programs} program(s) they list, each the one the broker built`);
 }
-
 function nn11(ctx) {
-  const { log, limitMs } = ctx;
-  const stamps = log.split(/\r?\n/).map(stampOf).filter((t) => t !== null);
-  if (stamps.length < 2) return result(NOT_MEASURED, "the log is not time-stamped");
-  const back = stamps.findIndex((t, i) => i > 0 && t < stamps[i - 1]);
-  if (back > 0) return result(NOT_MEASURED, `the log's times go backwards (line ${back + 1} of its stamped lines), so it gives no interval to judge`);
-  // Council CV-1 F-29: the run's span is every event it owns: its log, the processes it started and the end records of its writers. A pass
-  // needs a known finish (an exit code); an overrun already proven by owned events fails even when the finish is unknown.
-  const owned = [...stamps, ...ctx.ledger.flatMap((e) => [timeOf(e.at), timeOf(e.at) + (Number.isFinite(e.ms) ? e.ms : 0)]), ...[...(ctx.ledger.ends?.values() ?? [])].map((e) => timeOf(e.at))].filter(Number.isFinite);
-  const start = Math.min(...owned); const last = Math.max(...owned); const took = last - start;
-  const finished = Number.isInteger(ctx.exit);
-  if (!Number.isFinite(limitMs) || limitMs <= 0) return result(NOT_MEASURED, `the run took ${(took / 1000).toFixed(1)} s${finished ? "" : " so far"}; no time limit is set for it`);
+  const { limitMs, launch } = ctx;
+  const start = timeOf(launch?.startedAt); const end = timeOf(launch?.endedAt);
+  if (!Number.isFinite(start)) return result(NOT_MEASURED, "the launcher's record has no start time for the run");
+  if (Number.isFinite(end) && end < start) return result(NOT_MEASURED, "the launcher's record ends before it starts, so it gives no interval to judge");
+  // Council CV-1 F-29: the run's span is every event it owns: the launcher's start and end, the processes it started and its writers' exits. A
+  // pass needs a known finish (the launcher saw the gate exit); an overrun already proven by owned events fails even when the finish is unknown.
+  const owned = [start, end, ...ctx.ledger.flatMap((e) => [timeOf(e.at), timeOf(e.at) + (Number.isFinite(e.ms) ? e.ms : 0)]), ...[...(ctx.journal?.exits?.values() ?? [])].map((e) => timeOf(e.at))].filter(Number.isFinite);
+  const took = Math.max(...owned) - Math.min(...owned);
+  const finished = Number.isFinite(end) && (Number.isInteger(launch.exit) || typeof launch.signal === "string");
+  if (!Number.isFinite(limitMs) || limitMs <= 0) return result(NOT_MEASURED, `the run took ${(took / 1000).toFixed(1)} s${finished ? "" : " so far"}; no time limit is pinned for ${launch?.host ?? "this host"} and run kind ${launch?.kind ?? "(none)"}`);
   if (took > limitMs) return result(FAIL, `${(took / 1000).toFixed(1)} s${finished ? "" : " at least"}, limit ${(limitMs / 1000).toFixed(1)} s`);
-  if (!finished) return result(NOT_MEASURED, `${(took / 1000).toFixed(1)} s recorded, limit ${(limitMs / 1000).toFixed(1)} s, but the run's exit is not known, so its end is not shown`);
+  if (!finished) return result(NOT_MEASURED, `${(took / 1000).toFixed(1)} s recorded, limit ${(limitMs / 1000).toFixed(1)} s, but the launcher never saw the run end`);
   return result(PASS, `${(took / 1000).toFixed(1)} s from its first to its last recorded event, limit ${(limitMs / 1000).toFixed(1)} s`);
 }
-
 function nn12(ctx) {
-  const { log, live } = ctx;
-  const snapshot = /snapshot (\S+) is commit/.exec(log)?.[1] ?? null;
+  const { live } = ctx; const snapshot = ctx.snap.path;
   if (!live) return result(NOT_MEASURED, "a recording cannot show what was left behind; this line is judged right after a run ends (--live)");
-  if (!snapshot) return result(NOT_MEASURED, "the log names no snapshot, so its lock cannot be looked for");
+  if (!snapshot) return result(NOT_MEASURED, "the run record names no snapshot, so its lock cannot be looked for");
   if (!Array.isArray(live.pids)) return result(NOT_MEASURED, "the processes the run started are not known, so none can be shown gone");
   if (live.exists(`${snapshot}.lock`)) return result(FAIL, `the lock ${snapshot}.lock is still there after the run`);
   const alive = live.pids.filter((pid) => live.alive(pid));
   if (alive.length) return result(FAIL, `${alive.length} process(es) the run started are still alive: ${alive.slice(0, 5).join(", ")}`);
-  // Council CV-1 F-30: a clean pass needs the whole list of the run's own processes, and a run that did not end normally passes only on a
-  // record that the next ordinary run started safely after it.
-  const known = new Set([...ctx.ledger.map((e) => e.pid), ...(ctx.ledger.ends?.keys() ?? [])]);
+  // Council CV-1 F-30: a clean pass needs the whole list of the run's own processes, and a run that did not end normally passes only on the
+  // record of the next ordinary run: its launcher took this run's lock over and named it, and its gate took the snapshot lock and ran.
+  const known = new Set([...ctx.ledger.map((e) => e.pid), ...(ctx.journal?.exits?.keys() ?? [])]);
   const missing = [...known].filter((p) => !live.pids.includes(p));
   if (!live.pids.length || missing.length) return result(NOT_MEASURED, `the list of the run's processes checked after it ${live.pids.length ? `leaves out ${missing.slice(0, 5).join(", ")}, which the process list names` : "is empty"}, so none can be shown gone`);
   if (!Number.isInteger(ctx.exit) || ctx.exit !== 0) {
-    if (live.successor?.ok === true && live.successor?.reclaimed === true) return result(PASS, `the run ended with ${ctx.exit ?? "no exit code"}; the next ordinary run reclaimed it and started safely, and no lock or process was left behind`);
-    return result(NOT_MEASURED, `the run ended with ${ctx.exit ?? "no exit code"}, not normally; that the next ordinary run starts safely by itself needs that run's record`);
+    const next = ctx.successor;
+    if (next?.ok === true && next?.reclaimed === true) return result(PASS, `the run ended with ${ctx.exit ?? ctx.launch?.signal ?? "no exit code"}; the next ordinary run took it over and started safely, and no lock or process was left behind`);
+    return result(NOT_MEASURED, `the run ended with ${ctx.exit ?? ctx.launch?.signal ?? "no exit code"}, not normally; that the next ordinary run starts safely by itself needs that run's record (--successor)`);
   }
   return result(PASS, "no lock and no process left behind");
 }
@@ -1034,49 +1087,76 @@ const JUDGES = Object.freeze({ NN01: nn01, NN02: nn02, NN03: nn03, NN04: nn04, N
 export const CHECK_IDS = Object.freeze(Object.keys(JUDGES));
 
 /**
- * Judges one run against `lines` (readAcceptanceLines of the contract; required, and checked again here). `log`: its text. `ledger`: its
- * process list (parseLedger). `commit`: the commit selected for the run, from whoever started it. `receipt`: its receipt object or null.
- * `readTree(path)`: a file of the run's own Git tree (the tree its snapshot line names), parsed JSON or text; throws when unavailable.
- * `limitMs`: the time limit for this kind of run on this machine, or null. `exit`: its exit code, or null. `live`: { exists(path),
- * alive(pid), pids, successor? } when judged right after the run, else null. Returns { lines: [{ id, text, verdict, why }], pass, failed,
+ * Judges one run against `lines` (readAcceptanceLines of the contract; required, and checked again here), from its records only:
+ * `launch`: the launcher's record (acceptance-launch.mjs launch.json). `record`: the run record, parsed (run-record.mjs parseRunRecord).
+ * `ledger`: the process list (parseLedger). `journal`: its journal (parseJournal). `readJson(file)`: a file the record names.
+ * `readTree(path)`: a file of the run's own Git tree, parsed JSON or text; throws when unavailable. `limitMs`: the time limit pinned for this
+ * host and run kind, or null. `live`: { exists(path), alive(pid), pids } when judged right after the run, else null. `successor`: the next
+ * run's { launch, record } after a run that did not end normally, else null. `verifyReceipt(file)`: { ok, sha256, requestId, receipt,
+ * problems } from the broker's own verifier with the pinned key, or null. Returns { lines: [{ id, text, verdict, why }], pass, failed,
  * notMeasured }. `pass` is true only when all twelve passed.
  */
-export function judgeRun({ lines, log = "", ledger = null, commit = null, runPid = null, receipt = null, readTree = null, limitMs = null, exit = null, live = null, readJson } = {}) {
+export function judgeRun({ lines, launch = null, record = null, ledger = null, journal = null, readTree = null, readJson, limitMs = null, live = null, successor = null, verifyReceipt = null } = {}) {
   const unlinked = Array.isArray(lines) ? linkProblems(lines) : ["no lines were given: read them from the contract with readAcceptanceLines"];
   if (unlinked.length) throw Object.assign(new Error(`the contract and the acceptance test do not match: ${unlinked.join("; ")}`), { problems: unlinked });
   const read = readJson ?? ((f) => JSON.parse(fs.readFileSync(f, "utf8")));
-  const text = String(log);
   const entries = Array.isArray(ledger) ? ledger : [];
-  const vm = /class A verdict written: (.+?)\s*$/m.exec(text); const vLine = vm ? text.slice(0, vm.index).split(/\r?\n/).length - 1 : -1;
-  let verdictDoc = null; if (vm) { try { verdictDoc = read(vm[1].trim()); } catch { verdictDoc = null; } }
-  const snap = snapshotOf(text);
+  const run = runOf({ launch, record, readJson: read });
+  const exit = Number.isFinite(timeOf(launch?.endedAt)) && Number.isInteger(launch?.exit) ? launch.exit : null;
+  const next = successor ? (() => {
+    const facts = (successor.record?.facts ?? []).filter((x) => x.run === successor.launch?.runId);
+    return { ok: !!launch?.runId && successor.launch?.previous?.runId === launch.runId && facts.some((x) => x.kind === "lock"), reclaimed: successor.launch?.previous?.reclaimed === true };
+  })() : null;
   const ctx = {
-    log: text, ledger: Object.assign(entries, {}), ledgerGaps: ledgerGaps(ledger, { lock: snap.lock, runPid }), commit, receipt, limitMs, exit, live, snap,
-    decisions: decisionsOf(text, { readJson: read }), coverage: coveragesOf(text, read),
+    launch, commit: launch?.commit ?? null, exit, runStart: timeOf(launch?.startedAt), limitMs, live, successor: next, verifyReceipt,
+    ledger: entries, journal, ledgerGaps: ledgerGaps(ledger, journal, { runPid: launch?.gatePid ?? null }),
+    recordProblems: run.problems, foreign: run.foreign, snap: run.snap, requests: run.requests, lookups: run.lookups, decisions: run.decisions,
+    coverage: run.coverage, verdict: run.verdict, capacity: run.capacity, lanes: run.lanes, divergences: run.divergences, brokerJobs: run.brokerJobs, receipt: run.receipt,
     starts: entries.map((e) => ({ ...decodeStart(e), at: timeOf(e.at), ms: typeof e.ms === "number" ? e.ms : null })),
     compiles: entries.map(brokerCompileOf).filter(Boolean), brokerStarts: entries.map(brokerStartOf).filter(Boolean),
     readTree: readTree ?? (() => { throw new Error("no reader for the run's Git tree was given (--repo)"); }),
-    verdict: { file: vm ? vm[1].trim() : null, doc: verdictDoc, at: vLine >= 0 ? stampOf(text.split(/\r?\n/)[vLine]) ?? NaN : NaN },
   };
   const judged = lines.map(({ id, text: sentence }) => { let r; try { r = JUDGES[id](ctx); } catch (e) { r = result(FAIL, `the check itself failed: ${e.message}`); } return { id, text: sentence, verdict: r.verdict, why: r.why }; });
   const failed = judged.filter((l) => l.verdict === FAIL).map((l) => l.id); const notMeasured = judged.filter((l) => l.verdict === NOT_MEASURED).map((l) => l.id);
   return { lines: judged, pass: failed.length === 0 && notMeasured.length === 0, failed, notMeasured };
 }
 
+/** A run directory's records as judgeRun reads them: launch.json, record.jsonl, ledger.jsonl and its journal. A missing file reads as none. */
+export function readRunDir(dir) {
+  const text = (name) => { try { return fs.readFileSync(path.join(dir, name), "utf8"); } catch { return null; } };
+  let launch = null; try { launch = JSON.parse(text("launch.json") ?? "null"); } catch { launch = null; }
+  const rec = text("record.jsonl"); const led = text("ledger.jsonl"); const jour = text("ledger.jsonl.journal.jsonl");
+  return { launch, record: rec === null ? null : parseRunRecord(rec), ledger: led === null ? null : parseLedger(led), journal: jour === null ? null : parseJournal(jour) };
+}
+
 // ---- command line -----------------------------------------------------------------------------------------------------------------------------------
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const opt = (name) => { const i = process.argv.indexOf(name); return i < 0 ? null : process.argv[i + 1]; };
-  const logFile = opt("--log"); const ledgerFile = opt("--ledger");
-  if (!logFile || !ledgerFile) { console.error("usage: acceptance-lines.mjs --log <file> --ledger <file> --commit <sha> --pid <gate pid> [--repo <dir>] [--contract <file>] [--receipt <file>] [--limit-ms <n>] [--exit <code>] [--json]"); process.exit(2); }
+  const usage = "usage: acceptance-lines.mjs --run <run dir> [--repo <dir>] [--contract <file>] [--limits <file>] [--successor <run dir>] [--broker-key <hex> --broker-key-id <hex> [--rustright <client>]] [--live] [--json]";
+  const runDir = opt("--run");
+  if (!runDir) { console.error(usage); process.exit(2); }
   const contractFile = opt("--contract") ?? CONTRACT_FILE; let lines;
   try { lines = readAcceptanceLines(fs.readFileSync(contractFile, "utf8")); } catch (e) { console.error(`NOT JUDGED: ${e.code === "ENOENT" ? `the contract ${contractFile} cannot be read` : e.message}`); process.exit(2); }
-  const receiptFile = opt("--receipt"); let receipt = null; if (receiptFile) { try { receipt = JSON.parse(fs.readFileSync(receiptFile, "utf8")); } catch { receipt = null; } }
-  const log = fs.readFileSync(logFile, "utf8"); const tree = snapshotOf(log).tree; const repo = opt("--repo");
+  const records = readRunDir(runDir); const { launch } = records;
+  const tree = records.record ? runOf({ launch, record: records.record, readJson: () => null }).snap.tree : null; const repo = opt("--repo");
   // The run's own Git tree, read by its id from a repository that holds it: never the snapshot folder, which a later run can change.
   const readTree = repo && tree ? (p) => { const t = execFileSync("git", ["-C", repo, "cat-file", "-p", `${tree}:${p}`], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }); try { return JSON.parse(t); } catch { return t; } } : null;
-  const exitArg = opt("--exit"); const exit = exitArg === null ? null : /^-?\d+$/.test(exitArg) ? Number(exitArg) : null;
-  const pidArg = opt("--pid"); const runPid = pidArg !== null && /^\d+$/.test(pidArg) ? Number(pidArg) : null;
-  const verdict = judgeRun({ lines, log, ledger: parseLedger(fs.readFileSync(ledgerFile, "utf8")), commit: opt("--commit"), runPid, receipt, readTree, limitMs: opt("--limit-ms") === null ? null : Number(opt("--limit-ms")), exit });
+  // The time limit pinned for this host and run kind: { "<host>/<kind>": ms } in the limits file the caller names.
+  let limitMs = null; const limitsFile = opt("--limits");
+  if (limitsFile && launch) { try { const v = JSON.parse(fs.readFileSync(limitsFile, "utf8"))[`${launch.host}/${launch.kind}`]; limitMs = Number.isFinite(v) ? v : null; } catch { limitMs = null; } }
+  // The broker's own verifier (rustright verify-receipt) with the key pinned by the caller; none pinned, none used.
+  const key = opt("--broker-key"); const keyId = opt("--broker-key-id"); const client = opt("--rustright") ?? "rustright";
+  const verifyReceipt = key && keyId && launch?.host ? (file) => {
+    const body = fs.readFileSync(file); const sha256 = createHash("sha256").update(body).digest("hex");
+    let receipt = null; try { receipt = JSON.parse(body.toString("utf8")); } catch { receipt = null; }
+    try { execFileSync(client, ["verify-receipt", "--receipt", file, "--public-key", key, "--key-id", keyId, "--host", launch.host], { stdio: ["ignore", "pipe", "pipe"], windowsHide: true }); }
+    catch (e) { return { ok: false, sha256, receipt, problems: [String(e.stderr ?? e.message).trim().split(/\r?\n/).pop()] }; }
+    return { ok: true, sha256, receipt, requestId: receipt?.provenance?.payload?.jobId, problems: [] };
+  } : null;
+  const isAlive = (pid) => { try { process.kill(pid, 0); return true; } catch (e) { return e.code === "EPERM"; } };
+  const live = process.argv.includes("--live") ? { exists: (p) => fs.existsSync(p), alive: isAlive, pids: [...new Set([launch?.gatePid, ...(records.journal?.exits?.keys() ?? []), ...(records.journal?.starts ?? []).map((s) => s.child)].filter(Number.isInteger))] } : null;
+  const successorDir = opt("--successor"); const successor = successorDir ? readRunDir(successorDir) : null;
+  const verdict = judgeRun({ lines, ...records, readTree, limitMs, live, successor, verifyReceipt });
   if (process.argv.includes("--json")) console.log(JSON.stringify(verdict, null, 2));
   else { for (const l of verdict.lines) console.log(`${l.id} ${l.verdict.toUpperCase().padEnd(12)} ${l.text}\n      ${l.why}`); console.log(verdict.pass ? "PASS: all twelve lines" : `NOT PASSED: ${verdict.failed.length} failed, ${verdict.notMeasured.length} not measured`); }
   process.exit(verdict.pass ? 0 : 1);
