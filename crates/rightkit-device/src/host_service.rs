@@ -58,8 +58,8 @@ impl<S: SecureStore<String>> LazyDeviceService<S> {
 }
 
 /// The stable raw device id from `service` (created on first use), with failures logged under
-/// [`DEVICE_ID_ERROR_EVENT`]. A read failure is worded "could not read device id from secure
-/// storage: <text>"; any other failure logs its own text.
+/// [`DEVICE_ID_ERROR_EVENT`]. Read failures use
+/// `could not read device id from secure storage: <text>`. Other failures log their own text.
 pub fn device_id_reported<S: SecureStore<String>>(
     service: &DeviceService<S>,
     log: impl Fn(&str, &str),
