@@ -235,7 +235,10 @@ fn run(args: &[String]) -> rightkit_credentials::Result<serde_json::Value> {
             }
             "--windows-target" => {
                 if cmd != "status" {
-                    return Err(invalid("--windows-target", "only accepted by status and exec"));
+                    return Err(invalid(
+                        "--windows-target",
+                        "only accepted by status and exec",
+                    ));
                 }
                 if windows_target.is_some() {
                     return Err(invalid("--windows-target", "duplicate status option"));
