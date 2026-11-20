@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.3
+
+- Added host-side legacy import retry bookkeeping (`LegacyImport`, `LegacyImportRetry`, host event sinks), retaining 15-second cooldown & eight-retry cap.
+- Added native update-check credential readers & header helpers for hosts retaining their existing updater flow. Stored status never grants Pro; `verified_signed_token` requires caller's verified native Pro verdict. `UpdateAuthProvider` remains request-bound update authorization.
+- Added `drain_pending_releases_logged` (feature `client`), delegating delivery & acknowledgment to `LicenseClient`; logs contain counts only. Credential item names, stored formats & host install policy stay unchanged.
+
 ## 0.3.2
 
 - Added `ObservedEntitlements`: native paid-command checks retain refusal causes & emit verdict transitions through host event sinks. Checks use `NativeEngineEntitlements::current()` & grant only when its verified report grants access; errors fail closed. Observation updates remain serialized; event sinks run after locks are released.

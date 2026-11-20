@@ -1,6 +1,6 @@
-# rightkit-audio 0.3.5 registry consumer
+# rightkit-audio 0.3.6 registry consumer
 
-Standalone consumer, outside the workspace, pinning `rightkit-audio =0.3.5` exactly with default
+Standalone consumer, outside the workspace, pinning `rightkit-audio =0.3.6` exactly with default
 features off and `capture` enabled only to expose setup API. That is the feature set CutRight's engine and project crates, ScrapeRight's speech
 crate, GenRight's studio crate and HeardRight's inference crate use: the typed filter graphs,
 measurement maths, WAV and room-tone surface. It enables `capture` solely to type-check setup APIs;

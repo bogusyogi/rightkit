@@ -10,7 +10,7 @@ const failure = error => ({ name: error?.name ?? 'Error', message: String(error?
 const required = name => { assert(process.env[name], `${name} is required`); return process.env[name]; };
 const surface = [".", "./onboarding", "./package.json", "./pill", "./settings"];
 const expected = {
-  '.': ['configureDictationHost', 'deliveryRow', 'deliveryFilterKey', 'deliveryQueryArgs', 'useDictationEvent', 'useMicDevices', 'useSettings'],
+  '.': ['configureDictationHost', 'deliveryRow', 'deliveryFilterKey', 'deliveryQueryArgs', 'useDictationEvent', 'useMicDevices', 'useSettings', 'createModelUpdateStore', 'createTauriDictationClient', 'dateFilterRange', 'nextModelProgress', 'prepPercent', 'shouldFeatureReelAutoAdvance', 'useHistoryQuery'],
   './pill': ['configureDictationHost', 'usePillEvents', 'usePillAnimation', 'usePillGeometry'],
   './onboarding': ['useOnboardingRecording', 'useOnboardingRecognitionSetup'],
   './settings': [],

@@ -6,6 +6,12 @@
 //! backfill, filter and search SQL, scoped deletes, retention prune, the 200-row load and the
 //! one-time legacy `history.json` import. Verified imports preserve the source
 //! and report pending cleanup; they never overwrite or remove a path here.
+//!
+//! With the `managed-store` feature the host can instead hand over an open
+//! `rightkit_db::encrypted_lifecycle::EncryptedStore` ([`DeliveryHistoryStore::open_managed`]).
+//! The store then runs every query, write and migration on that store's managed writer, so key
+//! rotation, restore and recovery of the same `EncryptedStore` drain and reopen the connection the
+//! history uses, and the host keeps no second connection.
 
 use self::legacy_json_migration::migrate_legacy_json_if_present;
 use self::migrations::initialize_schema;
@@ -19,17 +25,25 @@ use rightkit_db::rusqlite;
 use rightkit_db::rusqlite::OptionalExtension;
 use std::path::Path;
 
+mod connection;
 mod legacy_json_migration;
 mod migrations;
 mod queries;
+
+use connection::HistoryConnection;
+#[cfg(feature = "managed-store")]
+pub use connection::ManagedConnection;
 
 /// Host event sink: `(event name, detail)`. The store reports history events through it
 /// (`history_find_failed`, `history_migration_row_mismatch`); the host decides where they go.
 pub type EventSink = fn(&str, &str);
 
+/// The history store. `C` is where its connection comes from: a raw `rusqlite::Connection` the host
+/// owns (the default, [`DeliveryHistoryStore::open_connection`]) or, with `managed-store`, an
+/// `EncryptedStore`'s managed writer ([`DeliveryHistoryStore::open_managed`]).
 #[derive(Debug)]
-pub struct DeliveryHistoryStore {
-    conn: rusqlite::Connection,
+pub struct DeliveryHistoryStore<C = rusqlite::Connection> {
+    conn: C,
     records: Vec<DeliveryRecord>,
     events: EventSink,
 }
@@ -45,7 +59,7 @@ fn outcome_kind_str(outcome: &crate::delivery::DeliveryOutcome) -> &'static str 
     }
 }
 
-impl DeliveryHistoryStore {
+impl<C: HistoryConnection> DeliveryHistoryStore<C> {
     /// In-memory mirror of `load_all`'s ORDER BY delivered_at_ms DESC,
     /// delivery_id DESC LIMIT
     /// MAX_HISTORY_ITEMS, without a full table reload. `delivered_at_ms` is
@@ -68,60 +82,110 @@ impl DeliveryHistoryStore {
         trim_records(&mut self.records);
     }
 
-    /// Take a connection the host already opened and keyed, create or migrate the schema, import a
-    /// leftover `legacy_json_path` when the table is empty, and load the newest
-    /// `MAX_HISTORY_ITEMS` rows.
-    pub fn open_connection(
-        mut conn: rusqlite::Connection,
+    /// Create or migrate the schema on `conn`'s connection, import a leftover `legacy_json_path`
+    /// when the table is empty, and load the newest `MAX_HISTORY_ITEMS` rows.
+    fn open_backend(
+        mut conn: C,
         legacy_json_path: &Path,
         events: EventSink,
     ) -> Result<Self, HistoryError> {
-        initialize_schema(&mut conn)?;
-
-        migrate_legacy_json_if_present(&mut conn, legacy_json_path, events)?;
-
-        let records = Self::load_all(&conn)?;
+        let records = conn.write(|conn| {
+            initialize_schema(conn)?;
+            migrate_legacy_json_if_present(conn, legacy_json_path, events)?;
+            load_all(conn)
+        })?;
         Ok(Self {
             conn,
             records,
             events,
         })
     }
+}
+
+impl DeliveryHistoryStore {
+    /// Take a connection the host already opened and keyed, create or migrate the schema, import a
+    /// leftover `legacy_json_path` when the table is empty, and load the newest
+    /// `MAX_HISTORY_ITEMS` rows. The host keeps key custody, rotation and recovery.
+    pub fn open_connection(
+        conn: rusqlite::Connection,
+        legacy_json_path: &Path,
+        events: EventSink,
+    ) -> Result<Self, HistoryError> {
+        Self::open_backend(conn, legacy_json_path, events)
+    }
 
     /// The live connection, for host-owned operations on it (key rotation).
     pub fn connection(&self) -> &rusqlite::Connection {
         &self.conn
     }
+}
 
-    fn load_all(conn: &rusqlite::Connection) -> Result<Vec<DeliveryRecord>, HistoryError> {
-        let mut stmt = conn
-            .prepare(
-                "SELECT record_json
-                 FROM delivery_history
-                 ORDER BY delivered_at_ms DESC, delivery_id DESC
-                 LIMIT ?1",
-            )
-            .map_err(|e| HistoryError::new(format!("prepare load: {e}")))?;
-        let rows = stmt
-            .query_map(rusqlite::params![MAX_HISTORY_ITEMS as i64], |row| {
-                let json: String = row.get(0)?;
-                let rec: DeliveryRecord = serde_json::from_str(&json).map_err(|e| {
-                    rusqlite::Error::FromSqlConversionFailure(
-                        0,
-                        rusqlite::types::Type::Text,
-                        Box::new(e),
-                    )
-                })?;
-                Ok(rec)
-            })
-            .map_err(|e| HistoryError::new(format!("query_map: {e}")))?
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| HistoryError::new(format!("collect rows: {e}")))?;
-        Ok(rows)
+#[cfg(feature = "managed-store")]
+impl DeliveryHistoryStore<ManagedConnection> {
+    /// Take an open `EncryptedStore`, create or migrate the schema on its managed writer, import a
+    /// leftover `legacy_json_path` when the table is empty, and load the newest
+    /// `MAX_HISTORY_ITEMS` rows. Key selection, rotation, restore and recovery stay with the
+    /// `EncryptedStore` (read what the open learned, such as `rebuilt()` or `degraded()`, before
+    /// handing it over; [`Self::store`] gives it back by reference).
+    ///
+    /// The host selects SQLCipher through rightkit-db's provider feature, exactly as for
+    /// `EncryptedStore` itself.
+    pub fn open_managed(
+        store: rightkit_db::encrypted_lifecycle::EncryptedStore,
+        legacy_json_path: &Path,
+        events: EventSink,
+    ) -> Result<Self, HistoryError> {
+        Self::open_backend(ManagedConnection(store), legacy_json_path, events)
+    }
+
+    /// The lifecycle owner behind the managed writer, for backup, restore, recovery and status.
+    /// Do not hold a connection from it across a call into this store: the store's operations
+    /// take the same writer.
+    pub fn store(&self) -> &rightkit_db::encrypted_lifecycle::EncryptedStore {
+        &self.conn.0
+    }
+
+    /// Rotate the key through the same `EncryptedStore` that serves every history operation: the
+    /// store drains its writer, rekeys, and reopens it with the new key. While it runs, history
+    /// operations return a busy error. The in-memory mirror is unaffected (a rotation changes the
+    /// key, not the rows). The report is the owner's; read it as documented on
+    /// `rightkit_db::encrypted_lifecycle::RotationReport`.
+    pub fn rotate_key(
+        &self,
+        request: rightkit_db::encrypted_lifecycle::RotationRequest,
+    ) -> rightkit_db::encrypted_lifecycle::RotationReport {
+        self.conn.0.rotate_key(request)
     }
 }
 
-impl HistoryStore for DeliveryHistoryStore {
+fn load_all(conn: &rusqlite::Connection) -> Result<Vec<DeliveryRecord>, HistoryError> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT record_json
+             FROM delivery_history
+             ORDER BY delivered_at_ms DESC, delivery_id DESC
+             LIMIT ?1",
+        )
+        .map_err(|e| HistoryError::new(format!("prepare load: {e}")))?;
+    let rows = stmt
+        .query_map(rusqlite::params![MAX_HISTORY_ITEMS as i64], |row| {
+            let json: String = row.get(0)?;
+            let rec: DeliveryRecord = serde_json::from_str(&json).map_err(|e| {
+                rusqlite::Error::FromSqlConversionFailure(
+                    0,
+                    rusqlite::types::Type::Text,
+                    Box::new(e),
+                )
+            })?;
+            Ok(rec)
+        })
+        .map_err(|e| HistoryError::new(format!("query_map: {e}")))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| HistoryError::new(format!("collect rows: {e}")))?;
+    Ok(rows)
+}
+
+impl<C: HistoryConnection> HistoryStore for DeliveryHistoryStore<C> {
     fn push(&mut self, record: DeliveryRecord) -> Result<(), HistoryError> {
         let json = serde_json::to_string(&record)
             .map_err(|e| HistoryError::new(format!("serialize record: {e}")))?;
@@ -135,20 +199,23 @@ impl HistoryStore for DeliveryHistoryStore {
         // plain indexed columns instead.
         let app_name = history_target_label(&record).to_ascii_lowercase();
         let outcome_kind = outcome_kind_str(&record.outcome);
-        self.conn
-            .execute(
+        let delivered_at_ms = sqlite_i64_ms(record.delivered_at_ms)?;
+        self.conn.write(|conn| {
+            conn.execute(
                 "INSERT OR REPLACE INTO delivery_history
                  (delivery_id, delivered_at_ms, record_json, app_name, outcome_kind)
                  VALUES (?1, ?2, ?3, ?4, ?5)",
                 rusqlite::params![
                     record.delivery_id,
-                    sqlite_i64_ms(record.delivered_at_ms)?,
+                    delivered_at_ms,
                     json,
                     app_name,
                     outcome_kind
                 ],
             )
-            .map_err(|e| HistoryError::new(format!("insert: {e}")))?;
+            .map(|_| ())
+            .map_err(|e| HistoryError::new(format!("insert: {e}")))
+        })?;
         self.mirror_upsert(record);
         Ok(())
     }
@@ -162,30 +229,33 @@ impl HistoryStore for DeliveryHistoryStore {
             .map_err(|e| HistoryError::new(format!("serialize record: {e}")))?;
         let app_name = history_target_label(&record).to_ascii_lowercase();
         let outcome_kind = outcome_kind_str(&record.outcome);
-        let tx = rightkit_db::write_txn(&mut self.conn)
-            .map_err(|e| HistoryError::new(format!("begin finalize session: {e}")))?;
-        tx.execute(
-            "INSERT OR REPLACE INTO delivery_history
-             (delivery_id, delivered_at_ms, record_json, app_name, outcome_kind)
-             VALUES (?1, ?2, ?3, ?4, ?5)",
-            rusqlite::params![
-                record.delivery_id,
-                sqlite_i64_ms(record.delivered_at_ms)?,
-                json,
-                app_name,
-                outcome_kind
-            ],
-        )
-        .map_err(|e| HistoryError::new(format!("insert final record: {e}")))?;
-        if draft_delivery_id != record.delivery_id {
+        let delivered_at_ms = sqlite_i64_ms(record.delivered_at_ms)?;
+        self.conn.write(|conn| {
+            let tx = rightkit_db::write_txn(conn)
+                .map_err(|e| HistoryError::new(format!("begin finalize session: {e}")))?;
             tx.execute(
-                "DELETE FROM delivery_history WHERE delivery_id = ?1",
-                rusqlite::params![draft_delivery_id],
+                "INSERT OR REPLACE INTO delivery_history
+                 (delivery_id, delivered_at_ms, record_json, app_name, outcome_kind)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                rusqlite::params![
+                    record.delivery_id,
+                    delivered_at_ms,
+                    json,
+                    app_name,
+                    outcome_kind
+                ],
             )
-            .map_err(|e| HistoryError::new(format!("delete superseded draft: {e}")))?;
-        }
-        tx.commit()
-            .map_err(|e| HistoryError::new(format!("commit finalize session: {e}")))?;
+            .map_err(|e| HistoryError::new(format!("insert final record: {e}")))?;
+            if draft_delivery_id != record.delivery_id {
+                tx.execute(
+                    "DELETE FROM delivery_history WHERE delivery_id = ?1",
+                    rusqlite::params![draft_delivery_id],
+                )
+                .map_err(|e| HistoryError::new(format!("delete superseded draft: {e}")))?;
+            }
+            tx.commit()
+                .map_err(|e| HistoryError::new(format!("commit finalize session: {e}")))
+        })?;
         if draft_delivery_id != record.delivery_id {
             self.records.retain(|r| r.delivery_id != draft_delivery_id);
         }
@@ -210,32 +280,34 @@ impl HistoryStore for DeliveryHistoryStore {
                 ))
             })
             .collect::<Result<Vec<_>, HistoryError>>()?;
-        let tx = rightkit_db::write_txn(&mut self.conn)
-            .map_err(|e| HistoryError::new(format!("begin history batch: {e}")))?;
-        {
-            // One statement prepared per batch: `rightkit_db::rusqlite` is built
-            // without the statement-cache feature, so no `prepare_cached`.
-            let mut statement = tx
-                .prepare(
-                    "INSERT OR REPLACE INTO delivery_history
-                     (delivery_id, delivered_at_ms, record_json, app_name, outcome_kind)
-                     VALUES (?1, ?2, ?3, ?4, ?5)",
-                )
-                .map_err(|e| HistoryError::new(format!("prepare history batch: {e}")))?;
-            for (delivery_id, delivered_at_ms, json, app_name, outcome_kind) in &rows {
-                statement
-                    .execute(rusqlite::params![
-                        delivery_id,
-                        delivered_at_ms,
-                        json,
-                        app_name,
-                        outcome_kind
-                    ])
-                    .map_err(|e| HistoryError::new(format!("insert history batch: {e}")))?;
+        self.conn.write(|conn| {
+            let tx = rightkit_db::write_txn(conn)
+                .map_err(|e| HistoryError::new(format!("begin history batch: {e}")))?;
+            {
+                // One statement prepared per batch: `rightkit_db::rusqlite` is built
+                // without the statement-cache feature, so no `prepare_cached`.
+                let mut statement = tx
+                    .prepare(
+                        "INSERT OR REPLACE INTO delivery_history
+                         (delivery_id, delivered_at_ms, record_json, app_name, outcome_kind)
+                         VALUES (?1, ?2, ?3, ?4, ?5)",
+                    )
+                    .map_err(|e| HistoryError::new(format!("prepare history batch: {e}")))?;
+                for (delivery_id, delivered_at_ms, json, app_name, outcome_kind) in &rows {
+                    statement
+                        .execute(rusqlite::params![
+                            delivery_id,
+                            delivered_at_ms,
+                            json,
+                            app_name,
+                            outcome_kind
+                        ])
+                        .map_err(|e| HistoryError::new(format!("insert history batch: {e}")))?;
+                }
             }
-        }
-        tx.commit()
-            .map_err(|e| HistoryError::new(format!("commit history batch: {e}")))?;
+            tx.commit()
+                .map_err(|e| HistoryError::new(format!("commit history batch: {e}")))
+        })?;
 
         for record in records {
             self.records
@@ -267,12 +339,15 @@ impl HistoryStore for DeliveryHistoryStore {
         // delete/update defaults gate on `find`, so a cache-only lookup made
         // every older (paged-in) row impossible to delete or edit.
         self.conn
-            .query_row(
-                "SELECT record_json FROM delivery_history WHERE delivery_id = ?1",
-                rusqlite::params![delivery_id],
-                row_to_record,
-            )
-            .optional()
+            .read(|conn| {
+                conn.query_row(
+                    "SELECT record_json FROM delivery_history WHERE delivery_id = ?1",
+                    rusqlite::params![delivery_id],
+                    row_to_record,
+                )
+                .optional()
+                .map_err(|e| HistoryError::new(e.to_string()))
+            })
             .unwrap_or_else(|err| {
                 (self.events)(
                     "history_find_failed",
@@ -302,15 +377,15 @@ impl HistoryStore for DeliveryHistoryStore {
         let mut updated = if let Some(idx) = cached_idx {
             self.records[idx].clone()
         } else {
-            let json = self
-                .conn
-                .query_row(
+            let json = self.conn.read(|conn| {
+                conn.query_row(
                     "SELECT record_json FROM delivery_history WHERE delivery_id = ?1",
                     rusqlite::params![delivery_id],
                     |row| row.get::<_, String>(0),
                 )
                 .optional()
-                .map_err(|e| HistoryError::new(format!("find for update: {e}")))?;
+                .map_err(|e| HistoryError::new(format!("find for update: {e}")))
+            })?;
             let Some(json) = json else {
                 return Ok(false);
             };
@@ -320,12 +395,14 @@ impl HistoryStore for DeliveryHistoryStore {
         updated.transcript = transcript;
         let json = serde_json::to_string(&updated)
             .map_err(|e| HistoryError::new(format!("serialize record: {e}")))?;
-        self.conn
-            .execute(
+        self.conn.write(|conn| {
+            conn.execute(
                 "UPDATE delivery_history SET record_json = ?2 WHERE delivery_id = ?1",
                 rusqlite::params![delivery_id, json],
             )
-            .map_err(|e| HistoryError::new(format!("update: {e}")))?;
+            .map(|_| ())
+            .map_err(|e| HistoryError::new(format!("update: {e}")))
+        })?;
         if let Some(idx) = cached_idx {
             self.records[idx] = updated;
         }
@@ -333,13 +410,13 @@ impl HistoryStore for DeliveryHistoryStore {
     }
 
     fn delete(&mut self, delivery_id: &str) -> Result<bool, HistoryError> {
-        let changed = self
-            .conn
-            .execute(
+        let changed = self.conn.write(|conn| {
+            conn.execute(
                 "DELETE FROM delivery_history WHERE delivery_id = ?1",
                 rusqlite::params![delivery_id],
             )
-            .map_err(|e| HistoryError::new(format!("delete: {e}")))?;
+            .map_err(|e| HistoryError::new(format!("delete: {e}")))
+        })?;
         let before = self.records.len();
         self.records.retain(|r| r.delivery_id != delivery_id);
         Ok(changed > 0 || self.records.len() != before)
@@ -348,48 +425,49 @@ impl HistoryStore for DeliveryHistoryStore {
     fn query(&self, query: &HistoryQuery) -> Result<HistoryPage, HistoryError> {
         let (search, search_pattern, from_ms, until_ms, app, cancelled_only) =
             sql_filter_values(&query.filter)?;
-        let total: i64 = self
-            .conn
-            .query_row(
-                &format!("SELECT COUNT(*) FROM delivery_history {HISTORY_FILTER_SQL}"),
-                rusqlite::params![
-                    search,
-                    search_pattern,
-                    from_ms,
-                    until_ms,
-                    app,
-                    cancelled_only
-                ],
-                |row| row.get(0),
-            )
-            .map_err(|e| HistoryError::new(format!("count history query: {e}")))?;
-
         let limit = query.bounded_limit() as i64;
         let offset = i64::from(query.offset);
-        let mut stmt = self
-            .conn
-            .prepare(&format!(
-                "SELECT record_json FROM delivery_history {HISTORY_FILTER_SQL} \
-                 ORDER BY delivered_at_ms DESC, delivery_id DESC LIMIT ?7 OFFSET ?8"
-            ))
-            .map_err(|e| HistoryError::new(format!("prepare history query: {e}")))?;
-        let items = stmt
-            .query_map(
-                rusqlite::params![
-                    search,
-                    search_pattern,
-                    from_ms,
-                    until_ms,
-                    app,
-                    cancelled_only,
-                    limit,
-                    offset
-                ],
-                row_to_record,
-            )
-            .map_err(|e| HistoryError::new(format!("run history query: {e}")))?
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| HistoryError::new(format!("collect history query: {e}")))?;
+        let (items, total) = self.conn.read(|conn| {
+            let total: i64 = conn
+                .query_row(
+                    &format!("SELECT COUNT(*) FROM delivery_history {HISTORY_FILTER_SQL}"),
+                    rusqlite::params![
+                        search,
+                        search_pattern,
+                        from_ms,
+                        until_ms,
+                        app,
+                        cancelled_only
+                    ],
+                    |row| row.get(0),
+                )
+                .map_err(|e| HistoryError::new(format!("count history query: {e}")))?;
+
+            let mut stmt = conn
+                .prepare(&format!(
+                    "SELECT record_json FROM delivery_history {HISTORY_FILTER_SQL} \
+                     ORDER BY delivered_at_ms DESC, delivery_id DESC LIMIT ?7 OFFSET ?8"
+                ))
+                .map_err(|e| HistoryError::new(format!("prepare history query: {e}")))?;
+            let items = stmt
+                .query_map(
+                    rusqlite::params![
+                        search,
+                        search_pattern,
+                        from_ms,
+                        until_ms,
+                        app,
+                        cancelled_only,
+                        limit,
+                        offset
+                    ],
+                    row_to_record,
+                )
+                .map_err(|e| HistoryError::new(format!("run history query: {e}")))?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|e| HistoryError::new(format!("collect history query: {e}")))?;
+            Ok((items, total))
+        })?;
         let total = usize::try_from(total)
             .map_err(|_| HistoryError::new("history count exceeded usize"))?;
         Ok(HistoryPage {
@@ -402,23 +480,26 @@ impl HistoryStore for DeliveryHistoryStore {
     fn delete_matching(&mut self, filter: &HistoryFilter) -> Result<usize, HistoryError> {
         let (search, search_pattern, from_ms, until_ms, app, cancelled_only) =
             sql_filter_values(filter)?;
-        let tx = rightkit_db::write_txn(&mut self.conn)
-            .map_err(|e| HistoryError::new(format!("begin filtered delete: {e}")))?;
-        let deleted = tx
-            .execute(
-                &format!("DELETE FROM delivery_history {HISTORY_FILTER_SQL}"),
-                rusqlite::params![
-                    search,
-                    search_pattern,
-                    from_ms,
-                    until_ms,
-                    app,
-                    cancelled_only
-                ],
-            )
-            .map_err(|e| HistoryError::new(format!("filtered delete: {e}")))?;
-        tx.commit()
-            .map_err(|e| HistoryError::new(format!("commit filtered delete: {e}")))?;
+        let deleted = self.conn.write(|conn| {
+            let tx = rightkit_db::write_txn(conn)
+                .map_err(|e| HistoryError::new(format!("begin filtered delete: {e}")))?;
+            let deleted = tx
+                .execute(
+                    &format!("DELETE FROM delivery_history {HISTORY_FILTER_SQL}"),
+                    rusqlite::params![
+                        search,
+                        search_pattern,
+                        from_ms,
+                        until_ms,
+                        app,
+                        cancelled_only
+                    ],
+                )
+                .map_err(|e| HistoryError::new(format!("filtered delete: {e}")))?;
+            tx.commit()
+                .map_err(|e| HistoryError::new(format!("commit filtered delete: {e}")))?;
+            Ok(deleted)
+        })?;
         self.records
             .retain(|record| !record_matches(record, filter));
         Ok(deleted)
@@ -426,30 +507,35 @@ impl HistoryStore for DeliveryHistoryStore {
 
     fn prune_before(&mut self, cutoff_ms: u64) -> Result<usize, HistoryError> {
         let cutoff = sqlite_i64_ms(cutoff_ms)?;
-        let tx = rightkit_db::write_txn(&mut self.conn)
-            .map_err(|e| HistoryError::new(format!("begin history prune: {e}")))?;
-        let deleted = tx
-            .execute(
-                "DELETE FROM delivery_history WHERE delivered_at_ms < ?1",
-                rusqlite::params![cutoff],
-            )
-            .map_err(|e| HistoryError::new(format!("history prune: {e}")))?;
-        tx.commit()
-            .map_err(|e| HistoryError::new(format!("commit history prune: {e}")))?;
+        let deleted = self.conn.write(|conn| {
+            let tx = rightkit_db::write_txn(conn)
+                .map_err(|e| HistoryError::new(format!("begin history prune: {e}")))?;
+            let deleted = tx
+                .execute(
+                    "DELETE FROM delivery_history WHERE delivered_at_ms < ?1",
+                    rusqlite::params![cutoff],
+                )
+                .map_err(|e| HistoryError::new(format!("history prune: {e}")))?;
+            tx.commit()
+                .map_err(|e| HistoryError::new(format!("commit history prune: {e}")))?;
+            Ok(deleted)
+        })?;
         self.records
             .retain(|record| record.delivered_at_ms >= cutoff_ms);
         Ok(deleted)
     }
 
     fn clear(&mut self) -> Result<(), HistoryError> {
-        self.conn
-            .execute("DELETE FROM delivery_history", [])
-            .map_err(|e| HistoryError::new(format!("clear: {e}")))?;
+        // The delete and the checkpoint run on one borrow of the connection. A failed delete
+        // returns before the mirror is touched; the checkpoint's own result is judged below.
+        let checkpoint = self.conn.write(|conn| {
+            conn.execute("DELETE FROM delivery_history", [])
+                .map_err(|e| HistoryError::new(format!("clear: {e}")))?;
+            Ok(rightkit_db::checkpoint_truncate(conn).map_err(|e| e.to_string()))
+        })?;
         // Clearing everything must not leave the old rows in the WAL file. The owner reports what
         // the TRUNCATE checkpoint achieved; a blocked or partial one has NOT removed them.
-        clear_mirror_then_checkpoint(&mut self.records, || {
-            rightkit_db::checkpoint_truncate(&self.conn)
-        })
+        clear_mirror_then_checkpoint(&mut self.records, move || checkpoint)
     }
 }
 

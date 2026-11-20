@@ -10518,6 +10518,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "rightkit-ai-keys"
+version = "0.1.0"
+dependencies = [
+ "rightkit-credentials",
+ "rightkit-http",
+ "serde",
+]
+
+[[package]]
 name = "rightkit-align"
 version = "0.1.0"
 dependencies = [
@@ -10644,7 +10653,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-asr"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "half",
  "hound",
@@ -10668,12 +10677,16 @@ dependencies = [
 
 [[package]]
 name = "rightkit-audio"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
+ "block2",
  "cpal",
  "hound",
+ "objc2",
  "objc2-core-audio",
  "objc2-core-foundation",
+ "objc2-foundation",
+ "rightkit-child-process",
  "rightkit-ffmpeg",
  "ringbuf",
  "rubato",
@@ -11258,7 +11271,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-db"
-version = "0.5.8"
+version = "0.5.9"
 dependencies = [
  "cc",
  "libc 0.2.191",
@@ -12008,7 +12021,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-license"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "base64 0.23.1",
  "ed25519-dalek",
@@ -13206,7 +13219,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-transcript-library"
-version = "0.1.4"
+version = "0.1.6"
 dependencies = [
  "http",
  "rightkit-db",

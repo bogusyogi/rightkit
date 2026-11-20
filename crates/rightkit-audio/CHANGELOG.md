@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.6 (unpublished)
+
+- Added `setup::permissions`: macOS consent & Windows capability classification, device probes, Settings opening & grant polling. Explicit Windows denials take precedence over probes. Host retains UI-thread scheduling, telemetry sink & grant event.
+- Added `setup::calibration_engine::{EngineRun, run_engine_calibration}`: host-selected engine, environment, execution timeout & stdout cap with owned process-tree cleanup & host-defined JSON results. Uses child-process APIs available in 0.5.12, preserving HeardRight's exact dependency pin.
+- Windows consent timeout cancels & drops its WinRT operation without leaving an indefinitely blocked join thread; each request supersedes previous grant watcher before classification.
+
 ## 0.3.5 (unpublished)
 
 - Added `setup` under feature `capture`: microphone metering, bounded calibration recording & host media restoration. Device policy, renderer events, settings & file ownership stay with host. Calibration PCM stays unconditioned.

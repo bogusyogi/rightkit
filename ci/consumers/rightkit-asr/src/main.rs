@@ -108,5 +108,16 @@ fn main() {
     transcript_type_and_wire();
     words_cues_and_exports();
     strict_missing_model_refusal();
+    // SAFETY: the ABI explicitly accepts a null handle and rejects this call.
+    assert_eq!(
+        unsafe {
+            rightkit_asr::kws_ffi::rightkit_asr_kws_stream_accept(
+                std::ptr::null_mut(),
+                std::ptr::null(),
+                0,
+            )
+        },
+        -1,
+    );
     println!("rightkit-asr transcript compatibility & assetless API assertions passed");
 }

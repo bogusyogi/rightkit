@@ -48,9 +48,14 @@ fn main() {
 }
 
 fn store_api_surface() {
-    use rightkit_transcript_library::store::DeliveryHistoryStore;
+    use rightkit_transcript_library::file_store::FileHistoryStore;
+    use rightkit_transcript_library::store::{DeliveryHistoryStore, ManagedConnection};
     let _open_connection = DeliveryHistoryStore::open_connection;
     let _connection = DeliveryHistoryStore::connection;
+    let _open_managed = DeliveryHistoryStore::<ManagedConnection>::open_managed;
+    let _rotate_key = DeliveryHistoryStore::<ManagedConnection>::rotate_key;
+    let _managed_push = <DeliveryHistoryStore<ManagedConnection> as HistoryStore>::push;
+    let _file_history_push = <FileHistoryStore as HistoryStore>::push;
     let _push = <DeliveryHistoryStore as HistoryStore>::push;
     let _push_batch = <DeliveryHistoryStore as HistoryStore>::push_batch;
     let _update = <DeliveryHistoryStore as HistoryStore>::update_transcript;

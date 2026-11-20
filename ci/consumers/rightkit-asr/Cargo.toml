@@ -7,6 +7,6 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-asr = { version = "=0.5.0", default-features = false }
+rightkit-asr = { version = "=0.5.1", default-features = false, features = ["kws-ffi"] }
 rightkit-transcript = { version = "=0.4.2" }
 serde_json = "1"

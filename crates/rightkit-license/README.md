@@ -4,7 +4,7 @@ Rust enforcement primitive for Right Suite license entitlements. The crate verif
 
 It is the security half of the licensing system. The JavaScript `@rightkit/license` package is the convenience half. Applications must enforce paid commands at the Rust boundary. Renderer state is never license authority.
 
-Catalog capability: `licensing`. crates.io has 0.2.3; source 0.2.4 is unpublished staging (see [INDEX.md](../../INDEX.md) and [CHANGELOG.md](CHANGELOG.md)). Licensed under MIT or Apache-2.0, at your option.
+Catalog capability: `licensing`. Source version: `0.3.3`; publication tracking: [INDEX.md](../../INDEX.md) & [CHANGELOG.md](CHANGELOG.md). Licensed under MIT or Apache-2.0, at your option.
 
 ## What it owns
 
@@ -231,3 +231,13 @@ Pure Rust, standard library only. `FileClockStore` and `CrossProcessLock` use `s
 Published version: see [INDEX.md](../../INDEX.md). Changes: [CHANGELOG.md](CHANGELOG.md).
 
 Use an exact crates.io version in product repositories. Do not use a Git or local path dependency after the Phase 2 migration gate.
+
+## Native host helpers (0.3.3)
+
+`LegacyImport` wraps host's import closure, cooldown & event sink; `LegacyImportRetry` exposes retry bookkeeping. Defaults are 15 seconds & eight retries. Host retains credential-store names & import policy.
+
+`stored_update_credentials` reads activation credentials from bare records or revisioned envelopes without granting entitlement. It preserves legacy parsing: `rkv` marks an envelope without validating its version, tombstones return absence, malformed input returns fixed error text, & only status `active` enables update-check headers. `read_update_license` composes host record/device reads & error reporting. `UpdateCheckHeaderNames` supplies host header names & app value; `update_check_headers` & `bearer_headers` return native transport headers. Keep their credential-bearing results out of logs & renderer state.
+
+`verified_signed_token` returns source's signed token only after caller supplies its verified native Pro verdict; it performs no independent verification. Host retains paid-install policy. These compatibility helpers do not bind headers to URLs or revisions: request-bound authorization remains `UpdateAuthProvider` (`update-auth`).
+
+`drain_pending_releases_logged` (`client`) calls existing durable queue drain & logs delivered/pending counts through host's event sink. Delivery, acknowledgment & stored queue format remain owned by `LicenseClient`.

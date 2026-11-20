@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-audio"
-version = "0.3.5"
+version = "0.3.6"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Shared audio for Right Suite apps: typed FFmpeg filter graphs, loudness gates, room tone, ducking, WAV I/O, and cpal capture with resample/downmix/recovery."
@@ -15,12 +15,13 @@ include = ["src/**", "presets/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "
 default = ["capture"]
 # Live microphone capture (cpal + rubato + ringbuf + tracing), the macOS CoreAudio device probe,
 # and the Windows endpoint/power lifecycle adapter. Off for pure filter-graph consumers.
-capture = ["dep:tracing", "dep:cpal", "dep:rubato", "dep:ringbuf", "dep:objc2-core-audio", "dep:objc2-core-foundation", "dep:windows", "dep:windows-core"]
+capture = ["dep:tracing", "dep:cpal", "dep:rubato", "dep:ringbuf", "dep:objc2-core-audio", "dep:objc2-core-foundation", "dep:windows", "dep:windows-core", "dep:rightkit-child-process", "dep:objc2", "dep:objc2-foundation", "dep:block2"]
 # Audio output (cpal only, no new dependency): OutputSession with a lock-free sample ring, a
 # latency-adjusted playback clock, pause/volume/mute/flush and device-loss recovery. Off by default.
 playback = ["dep:cpal"]
 
 [dependencies]
+rightkit-child-process = { path = "../rightkit-child-process", version = "0.5.12", optional = true }
 rightkit-ffmpeg = { path = "../rightkit-ffmpeg", version = "0.3.0", default-features = false }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
@@ -32,11 +33,16 @@ ringbuf = { version = "0.6", optional = true }
 tracing = { version = "0.1", optional = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
+objc2 = { version = "0.6", optional = true }
+objc2-foundation = { version = "0.3", optional = true }
+block2 = { version = "0.6", optional = true }
 objc2-core-audio = { version = "0.3.2", optional = true }
 objc2-core-foundation = { version = "0.3.2", optional = true }
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62.2", optional = true, features = [
+  "Foundation",
+  "Security_Authorization_AppCapabilityAccess",
   "Win32_Foundation",
   "Win32_Media_Audio",
   "Win32_System_Com",
@@ -123,3 +129,17 @@ file = "src/setup/calibration_capture.rs"
 holds = ["thread", "memory"]
 scale = "one onboarding-recognition-capture thread and one CaptureSession, plus mono f32 samples bounded by sample_rate times max_seconds"
 release = "Recorder::stop, Recorder::cancel, superseding start, or Drop stops and joins the worker; capture error or length ceiling drops the stream"
+
+[[package.metadata.rightkit.resources]]
+api = "request_microphone_access"
+file = "src/setup/permissions/mod.rs"
+holds = ["thread", "memory"]
+scale = "macOS: calling worker waits up to 120 s for OS callback; Windows: calling worker waits up to 5 s for UI dispatch plus 120 s for consent, polling an owned WinRT operation without a detached waiter; one 60 s grant-poll thread per request until superseded, with transient probe threads joined per check"
+release = "request return releases WinRT operation (cancellation requested on timeout/error); grant poll exits on deadline or superseding request; OS-owned macOS completion block may remain until user answers"
+
+[[package.metadata.rightkit.resources]]
+api = "run_engine_calibration"
+file = "src/setup/calibration_engine.rs"
+holds = ["process", "thread", "memory"]
+scale = "one owned engine child, two output drain workers, stdout bounded by EngineRun::stdout_cap plus 1 MiB stderr; macOS parent-death watchdog owns one helper process; execution deadline followed by bounded tree termination and pipe cleanup"
+release = "runner return after tree termination/reap and output cleanup; parent death terminates owned child through OS job or parent-death mechanism"

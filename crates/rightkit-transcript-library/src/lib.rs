@@ -17,5 +17,8 @@ pub mod net;
 
 pub mod export;
 
+/// Host-backed JSON fallback for transcript history.
+pub mod file_store;
+
 #[cfg(feature = "store")]
 pub mod store;

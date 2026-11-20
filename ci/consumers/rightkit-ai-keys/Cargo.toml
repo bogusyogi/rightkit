@@ -1,0 +1,10 @@
+[package]
+name = "rightkit-ai-keys-registry-consumer"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+rightkit-ai-keys = { version = "=0.1.0" }

@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-transcript-library"
-version = "0.1.4"
+version = "0.1.6"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Transcript library: delivery records (outcome, target, timings, source), history store contract with filters, paging, retention, scoped deletes and an in-memory store."
@@ -15,6 +15,9 @@ path = "src/lib.rs"
 
 [features]
 store = ["dep:rightkit-db"]
+# History on an `EncryptedStore`'s managed writer (`DeliveryHistoryStore::open_managed`). The host picks the
+# SQLCipher provider on rightkit-db itself (`sqlcipher-libtomcrypt` or `sqlcipher-system`).
+managed-store = ["store", "rightkit-db/encrypted-lifecycle"]
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }

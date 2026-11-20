@@ -1265,8 +1265,8 @@
         "declaredOnly": []
       },
       "files": {
-        "ci/consumers/npm/dictation-ui/README.md": "550dd19f6c4f00d75358972c2968f7e4dec7096df2f9cf4130781a44a2f31269",
-        "ci/consumers/npm/dictation-ui/consumer.mjs": "858699843bd816b7a0eca0bc9a9d8137f9331d9447ce83bf260e93d3006819e5",
+        "ci/consumers/npm/dictation-ui/README.md": "2b51d2ea89113a6d7f6ce34ff67543789c62cff19353f30bbf6e88780e2066f6",
+        "ci/consumers/npm/dictation-ui/consumer.mjs": "20006c93e6716aa8dcc3930f21b0ba0810db9eb8bb5b9c10956b656804cf3e31",
         "ci/consumers/npm/dictation-ui/package.json": "0513fec9e70cd73bb747ebef8a754c63644dfa11880d2a8459cbb075a9aa4427",
         "ci/consumers/npm/dictation-ui/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "fc160695e1dc97dc7e32e746c9e4471e2d85168b097623de818befeb00ee438c"
@@ -2344,28 +2344,28 @@
     "rightkit-db": {
       "pkId": "PK03",
       "id": "ci/consumers/rightkit-db/src/main.rs",
-      "dependency": "rightkit-db = { version = \"=0.5.1\", features = [\"bundled\"] }",
+      "dependency": "rightkit-db = { version = \"=0.5.9\", features = [\"bundled\"] }",
       "extraDependencies": [],
       "gateEvidence": "no OS keychain or SQLCipher key: bundled SQLite only; temp directory removed on exit; encrypted lifecycle (sqlcipher, ProtectedKeyStore, rotation, relocation) not exercised and needs its own PK03-3..6 gate rows",
       "consumes": "PK03 plan (docs/plans/2026-10-20-rightkit-implementation/01-packages.md:131-146) db 0.5.x surface; public items exercised: DbOptions::new, open_writer_migrated, open_read_pool_with (crates/rightkit-db/src/migrate.rs:788, src/lib.rs:217,383), write_txn (src/lib.rs:735), open_read_only, open_existing_writer, open_in_memory (src/lib.rs:524-534), ReadPoolOptions::with_read_only (src/lib.rs:823), migrate::Migration::sql (src/migrate.rs:31), MigrateOptions (src/migrate.rs:111), user_version (src/migrate.rs:191)",
       "files": {
-        "Cargo.toml": "748bccefdaf07e72f0c2a771b071cbd248092d9188816994afa0c71408523c61",
-        "README.md": "fccbf7c8387ccb776090ac2c717edc090af0a0b6d2368c641017849350b96c21",
+        "Cargo.toml": "16beca843e659782b4664a49bde555f1fe1e8fc36369f98a26b2c477c7565e33",
+        "README.md": "411be194acf8fe5fb475cdc059bc5e04beb09c46626e91b4311cf97d4f964a37",
         "src/main.rs": "af1c9a4987c9179dec7c72c1b63c37b19e6a077465d2152531527265a357622d"
       },
-      "aggregateSha256": "83e639bc50ed9a3c8c968f6dc1516bf875e96ed38444979d7c4ed1534a7ff5fd"
+      "aggregateSha256": "e585d14544d6c1aa8bed2b78bde338ac9040d389c1c36bcfcad6e6d2169f69cc"
     },
     "rightkit-license": {
       "pkId": "PK05",
       "id": "ci/consumers/rightkit-license/src/main.rs",
-      "dependency": "rightkit-license = { version = \"=0.3.2\", features = [\"client\"] }",
+      "dependency": "rightkit-license = { version = \"=0.3.3\", features = [\"client\"] }",
       "extraDependencies": [],
       "gateEvidence": "pure and offline: public keys and vectors copied verbatim from crates/rightkit-license/test-vectors (public material, verified byte-equal); clock ledger in a temp directory; client feature enabled for explicitly disabled LicenseClient status with synthetic device id; no network, no OS keychain or real user data; configured client operations, update-auth, engine-gate and subject-entitlement not exercised",
       "consumes": "PK05 plan (01-packages.md:167-183): every app licence migration; public items exercised: verify_token (crates/rightkit-license/src/lib.rs:514), VerifyError (src/lib.rs:390), verify_lease_envelope (src/lease.rs:168), FileClockStore (src/file_store.rs:184), ClockStore::load (src/clock.rs:305), MemoryClockStore (src/clock.rs:348), ProcessAnchor::new (src/clock.rs:243), NativeEntitlementSource (src/native_engine.rs:42), NativeEngineEntitlements::new and current_at (src/native_engine.rs:158,208), LifecyclePolicy (src/lifecycle.rs:118), LicenseClient::new/status/is_disabled (src/client/mod.rs:108,157,140) in Disabled mode only",
       "files": {
-        "Cargo.toml": "749eb5299822ba07b0f3fae93175a4f858878fbee4c96289a23740d6c84be9fc",
-        "README.md": "bdec489d10d8c58acbaa1a78657e14fbec6551fe16ca039ee01fea457630a204",
-        "src/main.rs": "73db4df80345ba3af88db0161b4898d9896a7c641de81ca4221cbb40fc5e1afc"
+        "Cargo.toml": "4ec688df21178a762a59f50999f350302f1e772fc5c444166dc8ab2c237efb42",
+        "README.md": "b279b7b7ec7afe4439b1ba813c3cabf043cbd1e37874abf25b9e72e93c96f232",
+        "src/main.rs": "37e527929bb03573ecaf8fe0b59952a25ac6fdc14b360ccea41a1922f0456c40"
       },
       "aggregateSha256": "a459920aff1315ea5003c044c9df5eaabbb7e5323f46b2f48d4fa1eea1412010"
     },
@@ -2411,17 +2411,17 @@
     "rightkit-asr": {
       "pkId": "PK18",
       "id": "ci/consumers/rightkit-asr/src/main.rs",
-      "dependency": "rightkit-asr = { version = \"=0.4.0\", default-features = false }",
-      "gateEvidence": "assetless API/transcript compatibility & impossible-model-path refusal; no model download, session or inference",
+      "dependency": "rightkit-asr = { version = \"=0.5.1\", default-features = false, features = [\"kws-ffi\"] }",
+      "gateEvidence": "assetless API/transcript compatibility & impossible-model-path refusal; no model download, session or inference; C-ABI null-handle refusal through kws-ffi; does not exercise iOS static linking",
       "consumes": "New PK18 publication qualification supplement, 2026-10-23; transcript 0.4 type identity/source_ms wire, longform word/cue assembly & early model refusal; optional engine features disabled; added after original PK01-PK17 inventory",
       "extraDependencies": [
         "rightkit-transcript = { version = \"=0.4.0\" }",
         "serde_json = \"1\""
       ],
       "files": {
-        "Cargo.toml": "94c3cf036d240fb1b37777cf105eb1588a9abdf977ec5a7ad62c4e62c668cde4",
-        "README.md": "5e12707d11b0b88c7f82541808ee5260136e5aad4ec3a74bfb958568988e73e0",
-        "src/main.rs": "77a1fdae68ad0faca0ff96168d26c4a24ebcc33100724b4db7443408ecbae07e"
+        "Cargo.toml": "10b09b88a793bc9c978dcd2d13db9a86f9d241c203ccbe0013ee25fa2396c824",
+        "README.md": "67afe2df92d9dcd9287afdba1c06f8707c773d29f4f1bb9714a28805041d67ad",
+        "src/main.rs": "41fbbf4cc53e4e38dd6326c207acf051f7b910572eb57654ed110f23e8f04b23"
       },
       "aggregateSha256": "a02673ff6dcad2dc3aa89039e4eaf424c5c49dbb570719dde28843f07886808c"
     },
@@ -2652,9 +2652,9 @@
       "pkId": "PK19",
       "id": "ci/consumers/rightkit-audio/src/main.rs",
       "files": {
-        "Cargo.toml": "f7970c2cd64bb4f6d917765c61ea0aca6a93180204c9876ecb7c0a4b7296f214",
-        "README.md": "0167c2a702239f810d959514f873259b74853e1b9f69a7b1452957de9e161f6e",
-        "src/main.rs": "ec64f8be267faa915adc72d9fbf49f8b37ed291b2facdf55a9aa53405702fac3"
+        "Cargo.toml": "d6f42d79a38c466621b5259dc5be4daf8c94090b1f86acb7a52af77cf3297019",
+        "README.md": "6ef04163f4de15b164ee4a1ca0e3d6f897a887645051fa5c60ae12b490be7429",
+        "src/main.rs": "f5586a5b641922434d2980ad11b90e56e2a1ddbb2145ca2df38a42e040ba808b"
       }
     },
     "rightkit-cache": {
@@ -3475,9 +3475,9 @@
       "pkId": "PK121",
       "id": "ci/consumers/rightkit-transcript-library/src/main.rs",
       "files": {
-        "Cargo.toml": "90e111daeb992dfba350cf8e0e65dd8def3533bb960f6e9160a3a708703df557",
-        "README.md": "a2609b5cd24857cc56389197cd25e9fa45d8e232774282410105cb88a1a71ebe",
-        "src/main.rs": "fc6d581a196fb38f8d5f7f76050efb4d22d4133f1da738cdcfc2db2a21b33fe6"
+        "Cargo.toml": "16f1838f994443312861214a2be4dd69bcf8f79a4b0fb265ce912a4b288dbcbf",
+        "README.md": "8e685f87f7210537486f6ae1bb0f7938c13cfc0a6802b20e42e22da312397842",
+        "src/main.rs": "f2a6783eb56f523a25be4745ea4d9aecbaf46ff60dc8ea581bf3235c33b96459"
       }
     },
     "rightkit-voice-commands": {
@@ -3532,6 +3532,15 @@
         "Cargo.toml": "2c68e43ed6d3c4a2d17d4a0ec5dec676f6fbdbe35e6bdbeb5279db43bdfe5d6b",
         "README.md": "e7c6ee9f660ff32d8aa9ee561723471aaf4b7f8c37f418c4b258f49521259bd6",
         "src/main.rs": "64a37190f3ddce227083b5c7d11926ed0e68ffcea800a366b824f28e4de55c4f"
+      }
+    },
+    "rightkit-ai-keys": {
+      "pkId": "PK255",
+      "id": "ci/consumers/rightkit-ai-keys/src/main.rs",
+      "files": {
+        "Cargo.toml": "be594e62422b5e8299c13dc9f6acfa2a139f2865247848c3d46a20b405002f14",
+        "README.md": "969c6d39fd38a65bf266fa311e44e4f1801211851640317be94ac692e522aee5",
+        "src/main.rs": "404ff8346b78383ed53d86a0d3f7b52d9558666755be44179a9db69a39feccc6"
       }
     },
     "rightkit-app-host": {

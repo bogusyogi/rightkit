@@ -25,7 +25,7 @@
     "@rightkit/blender-worker": "0.1.1",
     "@rightkit/ci": "0.3.2",
     "@rightkit/config": "0.1.1",
-    "@rightkit/dictation-ui": "0.3.0",
+    "@rightkit/dictation-ui": "0.3.1",
     "@rightkit/doc-render": "0.2.2",
     "@rightkit/document-core": "0.2.0",
     "@rightkit/document-workspace": "0.2.1",
@@ -546,6 +546,7 @@
     "rightkit-agent-transcript": "0.1.3",
     "rightkit-agents": "0.2.7",
     "rightkit-ai-accounts": "0.1.1",
+    "rightkit-ai-keys": "0.1.0",
     "rightkit-android": "0.3.1",
     "rightkit-app-host": "0.1.2",
     "rightkit-app-icon": "0.1.0",
@@ -555,8 +556,8 @@
     "rightkit-app-update": "0.2.0",
     "rightkit-apple-ops": "0.2.0",
     "rightkit-approvals": "0.2.1",
-    "rightkit-asr": "0.5.0",
-    "rightkit-audio": "0.3.5",
+    "rightkit-asr": "0.5.1",
+    "rightkit-audio": "0.3.6",
     "rightkit-autoedit": "0.2.0",
     "rightkit-automation": "0.7.2",
     "rightkit-autostart": "0.1.0",
@@ -595,7 +596,7 @@
     "rightkit-crypto": "0.1.3",
     "rightkit-daemon": "0.9.1",
     "rightkit-daemon-remote": "0.1.0",
-    "rightkit-db": "0.5.8",
+    "rightkit-db": "0.5.9",
     "rightkit-decimal": "0.1.0",
     "rightkit-deep-link": "0.1.1",
     "rightkit-desktop-tweaks": "0.3.0",
@@ -646,7 +647,7 @@
     "rightkit-launcher": "0.2.0",
     "rightkit-launcher-win": "0.1.0",
     "rightkit-library": "0.3.0",
-    "rightkit-license": "0.3.2",
+    "rightkit-license": "0.3.3",
     "rightkit-llm": "0.7.0",
     "rightkit-local-gen": "0.1.3",
     "rightkit-logs": "0.4.3",
@@ -721,7 +722,7 @@
     "rightkit-time": "0.1.4",
     "rightkit-timeline": "0.1.1",
     "rightkit-transcript": "0.4.2",
-    "rightkit-transcript-library": "0.1.4",
+    "rightkit-transcript-library": "0.1.6",
     "rightkit-tts": "0.3.1",
     "rightkit-tts-qwen": "0.3.0",
     "rightkit-tts-qwen-sys": "0.1.5",
@@ -921,7 +922,8 @@
       "0.2.2",
       "0.2.3",
       "0.3.1",
-      "0.3.4"
+      "0.3.4",
+      "0.3.5"
     ],
     "rightkit-automation": [
       "0.3.0",
@@ -1025,7 +1027,8 @@
       "0.4.0",
       "0.4.3",
       "0.5.1",
-      "0.5.2"
+      "0.5.2",
+      "0.5.8"
     ],
     "rightkit-device": [
       "0.1.3",
@@ -1137,7 +1140,8 @@
       "0.2.3",
       "0.2.4",
       "0.2.5",
-      "0.3.1"
+      "0.3.1",
+      "0.3.2"
     ],
     "rightkit-llm": [
       "0.1.0",
@@ -1452,7 +1456,8 @@
       "0.3.2"
     ],
     "rightkit-transcript-library": [
-      "0.1.2"
+      "0.1.2",
+      "0.1.4"
     ],
     "rightkit-dictation-telemetry": [
       "0.2.0"
