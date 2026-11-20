@@ -15,6 +15,7 @@
 use std::path::PathBuf;
 
 /// Largest wallpaper file read (24 MiB).
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 const MAX_WALLPAPER_BYTES: usize = 24 * 1024 * 1024;
 
 pub fn data_uri(

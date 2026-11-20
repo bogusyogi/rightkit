@@ -1,6 +1,6 @@
 {
   "name": "@rightkit/license",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "packageManager": "pnpm@12.16.1",
   "description": "Native licence invoke client & safe display views for Right Suite apps.",
   "license": "MIT OR Apache-2.0",
@@ -11,6 +11,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./react": {
+      "types": "./dist/react.d.ts",
+      "import": "./dist/react.js"
     }
   },
   "files": [
@@ -23,7 +27,9 @@
     "dist/proBridge.js",
     "dist/proBridge.d.ts",
     "LICENSE-MIT",
-    "LICENSE-APACHE"
+    "LICENSE-APACHE",
+    "dist/react.js",
+    "dist/react.d.ts"
   ],
   "sideEffects": false,
   "scripts": {
@@ -33,6 +39,8 @@
   },
   "devDependencies": {
     "@types/node": "^26.6.6",
+    "@types/react": "^19.3.0",
+    "react": "^19.3.1",
     "typescript": "^7.0.2"
   },
   "publishConfig": {
@@ -43,5 +51,13 @@
     "type": "git",
     "url": "git+https://github.com/bogusyogi/rightkit.git",
     "directory": "packages/license"
+  },
+  "peerDependencies": {
+    "react": ">=18 <21"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    }
   }
 }

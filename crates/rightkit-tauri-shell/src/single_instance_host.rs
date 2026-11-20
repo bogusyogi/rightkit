@@ -89,6 +89,12 @@ impl ForwardState {
     }
 }
 
+impl Default for ForwardedLaunch {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ForwardedLaunch {
     pub const fn new() -> Self {
         Self {

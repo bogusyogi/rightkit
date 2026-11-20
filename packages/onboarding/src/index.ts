@@ -26,3 +26,27 @@ export type { LicenseViewBackendOptions, LicenseViewClient, LicenseViewLike, OAu
 export { LEGAL_RECEIPT_COMMANDS, createNativeLegalReceiptPort, reopenLegalAcceptance, resetLegalAcceptance } from "./legal-receipt.js";
 export type { LegalReceiptInvoke, NativeLegalReceiptPortOptions } from "./legal-receipt.js";
 export type * from "./types.js";
+export { useOnboardingPermissions, isWindowsMicStatus, windowsMicPermissionState } from "./permissions-flow.js";
+export type {
+  PermissionBusy,
+  PermissionsCopy,
+  PermissionsPort,
+  UseOnboardingPermissionsArgs,
+  WindowsMicStatus,
+} from "./permissions-flow.js";
+export { useSetupRecording } from "./setup-recording.js";
+export type {
+  MicCheckState,
+  SetupRecordingCopy,
+  SetupRecordingEvents,
+  SetupRecordingPort,
+  ShortcutKind,
+  UseSetupRecordingArgs,
+} from "./setup-recording.js";
+export {
+  previewChordKey,
+  setupControlsReady,
+  setupHardwareReady,
+  setupModelAdvancePatch,
+  setupStepProgressLabel,
+} from "./setup-flow.js";

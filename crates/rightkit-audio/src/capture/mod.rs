@@ -17,6 +17,7 @@ pub mod android;
 mod device;
 mod downmix;
 mod metrics;
+mod precise;
 mod resample;
 mod route;
 mod session;
@@ -27,6 +28,7 @@ pub use device::{
 };
 pub use downmix::MonoDownmix;
 pub use metrics::{CaptureErrorKind, MetricsSnapshot};
+pub use precise::{capture_edge_now, CaptureClock, CaptureCutHandle, CaptureCutToken, CaptureEdge};
 pub use resample::StreamResampler;
 pub use route::{
     capture_open_error, capture_route_changed, current_capture_route, open_capture_paused,

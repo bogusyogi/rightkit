@@ -36,7 +36,7 @@ try {
   assert.match(sha256, /^[a-f0-9]{64}$/);
   assert.equal(createHash('sha256').update(readFileSync(archive)).digest('hex'), sha256);
   const root = import.meta.resolve('@rightkit/license');
-  const provenance = validateInstalledArtifact({ fixtureUrl: import.meta.url, archive, sha256, version, resolution, packageName: '@rightkit/license', rootResolvedUrl: root, entries: { '@rightkit/license': root } });
+  const provenance = validateInstalledArtifact({ fixtureUrl: import.meta.url, archive, sha256, version, resolution, packageName: '@rightkit/license', rootResolvedUrl: root, entries: { '@rightkit/license': root, '@rightkit/license/react': import.meta.resolve('@rightkit/license/react') } });
   result.artifact = provenance.artifact;
   const license = await import(provenance.entries['@rightkit/license']);
   const manifest = JSON.parse(readFileSync(path.join(path.dirname(provenance.artifact.modulePath), '..', 'package.json'), 'utf8'));
@@ -51,7 +51,9 @@ try {
 
   await run('export-surface-exact', async () => {
     assert.deepEqual(Object.keys(license).sort(), ['ACCOUNT_DELETION_MESSAGES', 'ACCOUNT_MESSAGES', 'APP_ACCOUNT_COMMANDS', 'APP_ACCOUNT_INVALID_INPUT', 'APP_LICENSE_COMMANDS', 'AccountClientError', 'LICENSE_MESSAGES', 'LICENSE_MESSAGES_EN_US', 'LicenseClientError', 'PRO_BRIDGE_COMMANDS', 'SECURE_STORAGE_UNAVAILABLE', 'SecureLicenseStorageError', 'accountCommandError', 'accountDeletionMessage', 'acknowledgeExpiredTrialNotice', 'createAccountClient', 'createAppAccountSession', 'createAppLicense', 'createLicenseClient', 'createLicenseLifecycleMonitor', 'createProBridgeClient', 'dialogForLicenseLifecycle', 'expiredTrialAcknowledgementKey', 'formatLicenseKey', 'hasAllFeatures', 'hasAnyFeature', 'hasFeature', 'isExpiredTrialNoticeAcknowledged', 'isLicensed', 'isPro', 'licenseCommandError', 'licenseMessage', 'lifecycleGrantsAccess', 'lifecycleNeedsOnlineRefresh', 'millisecondsUntilLicenseCheck', 'satisfiesRequirement', 'shouldRefreshLicenseFromServer', 'snapshotFromLicenseView', 'tier', 'tierAtLeast', 'viewShowsPro']);
-    assert.deepEqual(Object.keys(manifest.exports), ['.']);
+    assert.deepEqual(Object.keys(manifest.exports), ['.', './react']);
+    const hooks = await import(provenance.entries['@rightkit/license/react']);
+    assert.deepEqual(Object.keys(hooks).sort(), ['useAccountDeviceRow', 'useAccountDevices', 'useAccountSession', 'useLicenseSettings', 'useProFlag', 'useSubscribedValue']);
     let code = null;
     try { import.meta.resolve('@rightkit/license/testing'); } catch (error) { code = error.code; }
     assert.equal(code, 'ERR_PACKAGE_PATH_NOT_EXPORTED', 'there is no testing export');

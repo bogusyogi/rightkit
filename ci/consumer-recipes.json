@@ -534,18 +534,27 @@
       "recipeId": "license-native-client-views-consumer",
       "scenarios": 7,
       "surface": [
-        "."
+        ".",
+        "./react"
       ],
       "closure": {
-        "install": {},
+        "install": {
+          "react": "19.3.1"
+        },
         "declaredOnly": []
       },
       "files": {
         "ci/consumers/npm/license/README.md": "edd3164d9251bf2f682e90f53c25f349ba67c10154d15f0c24af12248c308ebd",
-        "ci/consumers/npm/license/consumer.mjs": "984b16dbfbe4694f165ae8a0ffe9a4275a9a92258d94d8fad96cefbc63d9cba9",
-        "ci/consumers/npm/license/package.json": "f1140c62da167e39df470d7e9f8f588393ccdcaf0099c7247ab4954eb6abc64a",
+        "ci/consumers/npm/license/consumer.mjs": "b798bb25c8d9c0f98eb359ae59ffc9a1c4f33d5dfec3cd7b639fa106603798fc",
+        "ci/consumers/npm/license/package.json": "c45aff572005e89abc139e66f21d1db155bcf78979285cfb824e26f591520c8e",
         "ci/consumers/npm/license/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "a0e235cbb1540000a57f1af3b603e5f81c6c14322ad481bf189c497d8358e98f"
+      },
+      "importClosures": {
+        ".": {},
+        "./react": {
+          "react": "19.3.1"
+        }
       }
     },
     "@rightkit/media-ui": {
@@ -645,7 +654,7 @@
       },
       "files": {
         "ci/consumers/npm/platform-ui/README.md": "529cad97cb28d6ae470612fb3ec624a3230410230ae80913e56c9ec8958b720f",
-        "ci/consumers/npm/platform-ui/consumer.mjs": "d75b6529f22fdafea76a086fb75e93723b655b98e19fa175209ca69ac157187a",
+        "ci/consumers/npm/platform-ui/consumer.mjs": "aca4f1805ffdf2f3aa62e43744c2d48bfbcbf67c6768241495261c83db1ef99b",
         "ci/consumers/npm/platform-ui/package.json": "adc5f962a645a7faba026a0264093893b32d441f07ebf9a476f5b98db1ea21a9",
         "ci/consumers/npm/platform-ui/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "a0e235cbb1540000a57f1af3b603e5f81c6c14322ad481bf189c497d8358e98f"
@@ -1578,7 +1587,7 @@
       },
       "files": {
         "ci/consumers/npm/library-ui/README.md": "3ba58ef3d084af9c401a1cf333eaa8cb84bf6fe7bbb672b2dfa4f94c7eaa24f9",
-        "ci/consumers/npm/library-ui/consumer.mjs": "99c3d3cc6c62787c38dd8942a4134fae4d55f858f3fd6aff521146c6fa58ac25",
+        "ci/consumers/npm/library-ui/consumer.mjs": "9c3421ad31bf85c65178686b246af182a2b8ae2ed7bbc2f14c20a9bf7d3d0d1f",
         "ci/consumers/npm/library-ui/package.json": "a6a11dad17b266d10142fc3b185a0e7f2641b365d0e304e9415b1aaaf031acb9",
         "ci/consumers/npm/library-ui/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "a0e235cbb1540000a57f1af3b603e5f81c6c14322ad481bf189c497d8358e98f"
@@ -2658,9 +2667,9 @@
       "pkId": "PK19",
       "id": "ci/consumers/rightkit-audio/src/main.rs",
       "files": {
-        "Cargo.toml": "12d47e38e53f0c99e32a7b50d2371ce223ff898b48307eb478e013c9a900ed55",
-        "README.md": "7d3d39a6d032e03301738b92cf673b337f9224e1a771975544dae427b03f14cf",
-        "src/main.rs": "c242ed968b6fa3c91cf25ffa4d7e125ac428483dfc66cdfb44fd89ba7867dad8"
+        "Cargo.toml": "fea7f28354460d50302a960569318a4305296158e8410dc730a915ecb9d1a981",
+        "README.md": "3dcbdf6519c480a78d3fd33e57c665583a04058202c70d957918d6655fb3f424",
+        "src/main.rs": "24d85728edba092ffe44260e84ae74a2785927cdb1e85dd7750742a60052898a"
       }
     },
     "rightkit-cache": {
@@ -3637,7 +3646,7 @@
       "pkId": "PK144",
       "id": "ci/consumers/rightkit-dictation-models/src/main.rs",
       "files": {
-        "Cargo.toml": "36902e59262c0cd818dcba71aae71026189e4dbe6644276470edcc557c48b552",
+        "Cargo.toml": "e6be2a7cd4426738d6c34dae98b1b6a7cceba987e79f6e174d404025d96b9ec7",
         "README.md": "d34a2cdd83beafcdd984ae88a09b0340482df751004919b4d15018d1ecdfc93a",
         "src/main.rs": "2cd8f39cd800105551eb936c6da0ff457d54f95e3c027ec450c22516b2db5691"
       }

@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-audio"
-version = "0.3.7"
+version = "0.3.8"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Shared audio for Right Suite apps: typed FFmpeg filter graphs, loudness gates, room tone, ducking, WAV I/O, and cpal capture with resample/downmix/recovery."
@@ -48,6 +48,7 @@ windows = { version = "0.62.2", optional = true, features = [
   "Win32_System_Com",
   "Win32_System_Com_StructuredStorage",
   "Win32_System_Power",
+  "Win32_System_Performance",
   "Win32_System_Threading",
   "Win32_UI_WindowsAndMessaging",
 ] }
@@ -69,7 +70,7 @@ reason = "cpal opens the default input device, which macOS gates behind the micr
 api = "CaptureSession::open_paused"
 file = "src/capture/session.rs"
 holds = ["thread", "memory"]
-scale = "one open cpal input stream: the OS audio callback thread, a 4 s mono f32 ring buffer at the device rate (about 768 KB at 48 kHz), the resample and staging buffers and one Metrics block; fixed per session, independent of recording length. stop() only pauses it"
+scale = "one open cpal input stream: OS audio callback thread, 4 s native-rate mono ring, 4096 callback metadata slots, resample/staging buffers and metrics; legacy mode is fixed per session. Opt-in precise epochs additionally retain native mono samples and callback stamps for recording duration, then cache full target-rate clip until next epoch or Drop. Cut handles hold Weak stream references. stop() only pauses it"
 release = "Drop"
 
 [[package.metadata.rightkit.resources]]

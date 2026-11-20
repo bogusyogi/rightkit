@@ -646,7 +646,7 @@ impl EngineSupervisor {
         })
     }
 
-    /// Hold this engine for one reserved start (until the guard drops): see [`CaptureHold`].
+    /// Hold this engine for one reserved start until the returned guard drops.
     /// Non-waiting admission under `retiring`, for callers that must return at once (a start
     /// reservation claimed on a hotkey dispatch thread while it holds the pending-start slot):
     /// `None` while a claimed retirement is shutting the engine down; the caller then takes the

@@ -35,6 +35,8 @@ try {
     assert.equal(manifest.name, '@rightkit/library-ui');
     assert.deepEqual(Object.keys(manifest.exports ?? {}).sort(), surface);
     const mod = await import(provenance.entries['@rightkit/library-ui']);
+    assert.equal(mod.baseName(String.raw`C:\folder\voice.wav`), 'voice.wav');
+    assert.equal(mod.baseName('/tmp/voice.wav'), 'voice.wav');
     for (const key of expected) assert.ok(key in mod, `missing root export ${key}`);
     return { checked: expected, exportKeys: surface.length };
   });

@@ -10678,7 +10678,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-audio"
-version = "0.3.7"
+version = "0.3.8"
 dependencies = [
  "block2",
  "cpal",
@@ -11453,7 +11453,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-dictation-models"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "dirs",
  "rightkit-child-process",

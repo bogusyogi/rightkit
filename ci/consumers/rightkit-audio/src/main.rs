@@ -1,4 +1,4 @@
-// rightkit-audio 0.3.7 consumed by exact registry pin (default features off, capture API enabled;
+// rightkit-audio 0.3.8 consumed by exact registry pin (default features off, capture API enabled;
 // no capture operation runs), outside the workspace.
 //
 // Proves, through the public API and with no FFmpeg and no audio device: the typed filter text and
@@ -1235,7 +1235,7 @@ fn main() {
     room_tone_fill_and_bed();
     error_text();
     std::fs::remove_dir_all(&scratch).expect("remove consumer temp dir");
-    println!("OK rightkit-audio 0.3.7 (registry consumer)");
+    println!("OK rightkit-audio 0.3.8 (registry consumer)");
 }
 
 fn setup_api_surface() {

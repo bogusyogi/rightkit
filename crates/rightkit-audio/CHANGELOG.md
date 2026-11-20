@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.8
+
+- Seal capture at the original hotkey release using same-host monotonic timestamps. Retain delayed pre-release microphone packets and discard samples captured afterward before resampling.
+- Reject missing timestamps, timeout, capture gaps, and overflow instead of returning an unverified clip.
+
 ## 0.3.7 (unpublished)
 
 - Windows capture callback threads register once with MMCSS, preferring `Pro Audio` then `Audio`; registration failure remains advisory. Thread-local ownership retains each registration until callback-thread exit & reverts it on that same thread.
