@@ -1,7 +1,9 @@
 //! Per-press release metadata serialized only with pure handoff transitions.
 use std::sync::{Mutex, MutexGuard};
 
-use crate::ptt::{PttAbortCause, PttEnd, PttHandoff, PttPhase};
+#[cfg(target_os = "macos")]
+use crate::ptt::PttPhase;
+use crate::ptt::{PttAbortCause, PttEnd, PttHandoff};
 use crate::release_edge::NativeReleaseEdge;
 
 pub(crate) type ReleaseDispatch = (
@@ -56,10 +58,12 @@ impl ReleaseHandoff {
         true
     }
 
+    #[cfg(target_os = "macos")]
     pub(crate) fn is_active(&self) -> bool {
         self.lock().handoff.is_active()
     }
 
+    #[cfg(target_os = "macos")]
     pub(crate) fn phase(&self) -> Option<PttPhase> {
         self.lock().handoff.phase()
     }
