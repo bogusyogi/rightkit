@@ -25,32 +25,33 @@ const mono = () => process.hrtime.bigint().toString();
 const alive = (pid) => { if (!Number.isInteger(pid) || pid <= 0) return false; try { process.kill(pid, 0); return true; } catch (e) { return e.code === "EPERM"; } };
 const sha256 = (b) => crypto.createHash("sha256").update(b).digest("hex");
 
-/** Takes the run lock. Returns { previous } (the dead holder this run took over, or null) or { refused } when a live run holds it or another launcher won the takeover. */
+/**
+ * Takes the run lock. Returns { previous } (the dead holder this run took over, or null) or { refused } when a live run holds it or another launcher
+ * claimed the same dead holder first. Takeover is one exclusive create (open with wx, which Windows maps to CREATE_NEW) of a claim file named by the dead
+ * holder's own identity (its run id, or its lock file's write time when it cannot be read): of any number of launchers that saw the same dead holder
+ * exactly one creates the claim, the others get EEXIST and do not start. A launcher that saw the holder after it was replaced sees a live holder, or a
+ * different identity, and so claims a different file. Nothing is deleted by a contender but the dead holder's own lock, moved aside.
+ */
 export function takeLaunchLock(file, holder, { isAlive = alive, fsApi = fs } = {}) {
   fsApi.mkdirSync(path.dirname(file), { recursive: true });
-  const create = () => { try { fsApi.writeFileSync(file, `${JSON.stringify(holder)}\n`, { flag: "wx" }); return true; } catch (e) { if (e.code !== "EEXIST") throw e; return false; } };
+  const create = () => { try { fsApi.writeFileSync(file, `${JSON.stringify(holder)}
+`, { flag: "wx" }); return true; } catch (e) { if (e.code !== "EEXIST") throw e; return false; } };
   if (create()) return { previous: null };
   let held = null; try { held = JSON.parse(fsApi.readFileSync(file, "utf8")); } catch { held = null; }
+  let written = 0; try { written = Math.trunc(fsApi.statSync(file).mtimeMs * 1000); } catch { written = 0; }
   if (held && isAlive(held.pid)) return { refused: `run ${held.runId} (pid ${held.pid}) holds ${file}` };
-  // A dead holder. Validation, takeover and release are serialized by a guard file that one contender holds: a second contender that finds the guard taken is
-  // refused, and the holder is read again under the guard (it may have been replaced by a live run since it was first looked at).
-  const guard = `${file}.takeover`;
-  const takeGuard = () => { try { fsApi.writeFileSync(guard, `${JSON.stringify({ runId: holder.runId, pid: holder.pid })}\n`, { flag: "wx" }); return true; } catch (e) { if (e.code !== "EEXIST") throw e; return false; } };
-  if (!takeGuard()) {
-    let g = null; try { g = JSON.parse(fsApi.readFileSync(guard, "utf8")); } catch { g = null; }
-    if (g && isAlive(g.pid)) return { refused: `another launcher (run ${g.runId}) is taking over ${file}` };
-    try { fsApi.rmSync(guard, { force: true }); } catch { /* another contender removed it */ }
-    if (!takeGuard()) return { refused: `another launcher is taking over ${file}` };
-  }
-  try {
-    let now = null; try { now = JSON.parse(fsApi.readFileSync(file, "utf8")); } catch { now = null; }
-    if (now && isAlive(now.pid)) return { refused: `run ${now.runId} (pid ${now.pid}) holds ${file}` };
-    const aside = `${file}.dead.${holder.runId}`;
-    try { fsApi.renameSync(file, aside); } catch (e) { if (e.code === "ENOENT") return { refused: `another launcher took over ${file}` }; throw e; }
-    let dead = null; try { dead = JSON.parse(fsApi.readFileSync(aside, "utf8")); } catch { dead = null; }
-    if (!create()) return { refused: `another launcher took ${file} after the dead holder was moved aside` };
-    return { previous: dead ? { runId: dead.runId ?? null, out: dead.out ?? null, pid: dead.pid ?? null, reclaimed: true } : { runId: null, out: null, pid: null, reclaimed: true, unreadable: true } };
-  } finally { try { fsApi.rmSync(guard, { force: true }); } catch { /* released */ } }
+  const identity = `${held?.runId ?? "unreadable"}.${held?.pid ?? 0}.${written}`.replace(/[^w.-]/g, "_");
+  const claim = `${file}.successor.${identity}`;
+  try { fsApi.writeFileSync(claim, `${JSON.stringify({ runId: holder.runId, pid: holder.pid })}
+`, { flag: "wx" }); }
+  catch (e) { if (e.code === "EEXIST") return { refused: `another launcher already claimed the successor of ${held?.runId ?? "the unreadable holder"} (${path.basename(claim)})` }; throw e; }
+  // This launcher alone holds the claim for that dead holder. The holder is read again: a live run at the path now is not the one that was claimed.
+  let now = null; try { now = JSON.parse(fsApi.readFileSync(file, "utf8")); } catch { now = null; }
+  if (now && isAlive(now.pid) && now.runId !== held?.runId) return { refused: `run ${now.runId} (pid ${now.pid}) holds ${file}` };
+  const aside = `${file}.dead.${identity}`;
+  try { fsApi.renameSync(file, aside); } catch (e) { if (e.code === "ENOENT") return { refused: `${file} was taken over before this launcher moved it` }; throw e; }
+  if (!create()) return { refused: `another launcher created ${file} after the dead holder was moved aside` };
+  return { previous: held ? { runId: held.runId ?? null, out: held.out ?? null, pid: held.pid ?? null, reclaimed: true } : { runId: null, out: null, pid: null, reclaimed: true, unreadable: true } };
 }
 
 /**
