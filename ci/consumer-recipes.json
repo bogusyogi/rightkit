@@ -71,8 +71,8 @@
         "declaredOnly": []
       },
       "files": {
-        "ci/consumers/npm/onboarding/README.md": "c5fd3c15d3fded298e33c289071d78fb45a2a92255fa0f46c508031d8988c387",
-        "ci/consumers/npm/onboarding/consumer.mjs": "a643c93c9223998a6dc7992d3617fa00864aa4dea1875a27a448a24a9381294c",
+        "ci/consumers/npm/onboarding/README.md": "3a0410585a4117cf883151ccf12d7030cc6ca74e70b4243c6794e71a7a37d0f2",
+        "ci/consumers/npm/onboarding/consumer.mjs": "110a00ebaaf844af937ec2e3f6c0d5421ee13cb43b9d2c8e8bf9af2e8795c61e",
         "ci/consumers/npm/onboarding/package.json": "0a547c8422de4a34652f3e6ad3c2e38bdc17cc6414ddd262decccdb8fc98d86c",
         "ci/consumers/npm/onboarding/provenance-negative.mjs": "0d685129d02c216d539c6ff67305541596c6822a5c9354ea40ab375dcd924952",
         "ci/consumers/npm/onboarding/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
