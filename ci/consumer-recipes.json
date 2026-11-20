@@ -2803,9 +2803,9 @@
       "pkId": "PK42",
       "id": "ci/consumers/rightkit-sync/src/main.rs",
       "files": {
-        "Cargo.toml": "27af54a8343789288db811a190bb2509a3aa4818329764c52c27d9f4550fbd33",
+        "Cargo.toml": "ef8e79c0c9f56c291e05e36e3e1bf0679fe89ea5400ba15ab8502e6efc239c58",
         "README.md": "10fda6aeefa407732cabbe059e55b22e3414e6a2d80fedd10c93e25068d1d6e3",
-        "src/main.rs": "b0019921ea7704de5871f87cd7714aec54d47c4145170496145534892a9098bf"
+        "src/main.rs": "9ff7ad81cd5f7a09737c5177b24f01c58cf03ffbe254a0b578c138b512f736f9"
       }
     },
     "rightkit-time": {

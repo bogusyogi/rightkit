@@ -531,7 +531,7 @@ impl<H: RecoveryHost> RecoveryLedger<H> {
     }
 
     /// Plain-text diagnostics a user can attach to a support request. Key and content are never
-    /// included. `label` names the store in the text (for example "<Product> history recovery").
+    /// included. `label` names the store in the text (for example `"<Product> history recovery"`).
     pub fn diagnostics(&self, label: &str) -> String {
         let Some(status) = self.status() else {
             return format!("{label}: no recovery event recorded.\n");

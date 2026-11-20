@@ -13057,6 +13057,7 @@ dependencies = [
  "rightkit-child-process",
  "rightkit-fs",
  "rightkit-http",
+ "rightkit-transcript-library",
  "ring",
  "serde",
  "serde_json",

@@ -16,6 +16,8 @@
 //! inputs ([`TranscriptSyncConfig`], `cloudkit::CloudKitConfig`).
 
 mod history;
+#[cfg(feature = "transcript-history")]
+pub mod history_store;
 mod ledger_guard;
 mod outbox;
 mod pending;
