@@ -21,9 +21,10 @@ try {
   assert.equal(createHash('sha256').update(readFileSync(archive)).digest('hex'), sha256);
   const root = import.meta.resolve('@rightkit/tauri');
   const dialog = import.meta.resolve('@rightkit/tauri/dialog');
+  const react = import.meta.resolve('@rightkit/tauri/react');
   const provenance = validateInstalledArtifact({
     fixtureUrl: import.meta.url, archive, sha256, version, resolution, packageName: '@rightkit/tauri', rootResolvedUrl: root,
-    entries: { '@rightkit/tauri': root, '@rightkit/tauri/dialog': dialog },
+    entries: { '@rightkit/tauri': root, '@rightkit/tauri/dialog': dialog, '@rightkit/tauri/react': react },
   });
   result.artifact = provenance.artifact;
   const tauri = await import(provenance.entries['@rightkit/tauri']);
@@ -107,6 +108,26 @@ try {
     assert.match(dialogFile, /\/dist\/dialog\.js$/);
     assert.ok(readFileSync(new URL(dialogFile)).length > 0);
     return { dialogExportBound: true, pluginDialogLoaded: false };
+  });
+
+  await run('typed-events-and-react-hook-exported', async () => {
+    const payloads = [];
+    const names = { update: 'host-update' };
+    const subscribe = tauri.defineTauriEvents({
+      events: names,
+      listen: async (name, deliver) => {
+        assert.equal(name, 'host-update');
+        deliver({ payload: 'ready' });
+        return () => {};
+      },
+    });
+    const unsubscribe = await subscribe('update', payload => payloads.push(payload));
+    unsubscribe();
+    assert.deepEqual(payloads, ['ready']);
+    assert.deepEqual(tauri.declaredTauriEventNames(names), ['host-update']);
+    const hooks = await import(provenance.entries['@rightkit/tauri/react']);
+    assert.equal(typeof hooks.useTauriEvent, 'function');
+    return { payloadForwarded: true, reactHookExported: true };
   });
 
   stage = 'qualification-complete';

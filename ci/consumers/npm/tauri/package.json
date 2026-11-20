@@ -7,7 +7,8 @@
   "dependencies": {
     "@rightkit/app-update": "0.4.0",
     "@rightkit/logs": "0.1.6",
-    "@tauri-apps/plugin-dialog": "2.8.3"
+    "@tauri-apps/plugin-dialog": "2.8.3",
+    "react": "19.3.1"
   },
   "scripts": { "consumer": "node consumer.mjs" }
 }

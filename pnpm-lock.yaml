@@ -1597,6 +1597,12 @@ importers:
         specifier: ^2.0.0
         version: 2.8.4
     devDependencies:
+      '@types/react':
+        specifier: ^19.3.0
+        version: 19.3.0
+      react:
+        specifier: ^19.3.1
+        version: 19.3.1
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
