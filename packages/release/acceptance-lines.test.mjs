@@ -54,7 +54,7 @@ const entry = (s, cmd, args, cwd = "D:\\repo", ms = 50) => ({ pid: 100, at: at(s
 const compile = (s, sub, rest, cwd = `${SNAP}\\ws`, ms = 2000) => entry(s, "C:\\WINDOWS\\system32\\cmd.exe", shim(sub, rest), cwd, ms);
 function records() {
   return {
-    commit: C, exit: 0, limitMs: 60_000, live: { exists: () => false, alive: () => false, pids: [100] },
+    commit: C, runPid: 100, exit: 0, limitMs: 60_000, live: { exists: () => false, alive: () => false, pids: [100] },
     log: [
       `${at(0)} rightkit-gate: snapshot lock held ${LOCK}`,
       `${at(0)} rightkit-gate: snapshot ${SNAP} is commit ${C} tree ${T} (written=0 removed=0 unchanged=9)`,
@@ -109,7 +109,7 @@ function records() {
 }
 const ledgerText = (r) => [...r.ledger.map((e) => JSON.stringify(e)), ...r.extraLines, ...(r.end ? [JSON.stringify(r.end)] : [])].join("\n");
 const run = (r) => judgeRun({
-  lines: LINES, log: r.log.join("\n"), ledger: parseLedger(ledgerText(r)), receipt: r.receipt, commit: r.commit, exit: r.exit, limitMs: r.limitMs, live: r.live,
+  lines: LINES, log: r.log.join("\n"), ledger: parseLedger(ledgerText(r)), receipt: r.receipt, commit: r.commit, runPid: r.runPid, exit: r.exit, limitMs: r.limitMs, live: r.live,
   readTree: (p) => { if (!(p in r.tree)) throw Object.assign(new Error(`ENOENT ${p}`), { code: "ENOENT" }); return structuredClone(r.tree[p]); },
   readJson: (f) => { if (!(f in r.files)) throw Object.assign(new Error("ENOENT"), { code: "ENOENT" }); return structuredClone(r.files[f]); },
 });
@@ -330,10 +330,9 @@ test("review 2: the eight false passes, and the rulings on reuse, uncacheable ro
 });
 
 // ---- the frozen step-2 batch (D:\scratch\loop-review\twelve-line-step2\final-batch-cases.md, sha256 70ff356d) ---------------------------------------
-// Cases written by gatecodex (GCX-*) and chat "gate" (gate *), each a mutation of these records with its expected verdict. Council CV-1's
-// adjudicator ruled which are critical (a breaking run judged pass); those, and every case the checks already got right, are held here.
-// Adapted to the records these checks now require, with the reason at each: the end record of the run's process list is the root's,
-// bound to its lock; the split policy and manifests come from the run's Git tree (r.tree), not the snapshot folder.
+// All 63 cases, with their authors' ids and expected verdicts unchanged: gatecodex's 48 (GCX-*) and chat "gate"'s 15 (gate 1 to gate 15, 12 and
+// 14 being the two it found already right). Each is a mutation of these records. Their fixture* inputs reach the checks through the readers a
+// real run uses: files of the run's own Git tree (r.tree) and the mutable snapshot folder (r.files). One table, one loop, one result per id.
 const lane = (r) => scan(r, "covA.json", "rustfmt:2021").lane;
 const twoChanged = (r) => { decA(r).forecast[0].changes = { inputs: ["files.0.1", "files.1.1"], inputsChanged: 2 }; };
 const split = (r, left, right) => {
@@ -346,16 +345,19 @@ const split = (r, left, right) => {
   d.dispatchedRows = ids;
   r.files["covB.json"].scans = ids.map((id) => ({ id, class: "B", coverage: "ran", status: "pass" }));
 };
-// gatecodex's fixturePolicy: the policy at the run's tree; `null` means that tree's policy cannot be read. The mutable folder plays no part.
-const policy = (r, atRun) => { if (atRun === null) delete r.tree["ci/shards.json"]; else r.tree["ci/shards.json"] = { solo: atRun }; };
+// gatecodex's fixturePolicy: the policy at the run's tree (null: that tree's policy cannot be read); atReview: the mutable snapshot's copy.
+const policy = (r, atRun, atReview) => {
+  if (atRun === null) delete r.tree["ci/shards.json"]; else r.tree["ci/shards.json"] = { solo: atRun };
+  r.files[`${SNAP}\\ci\\shards.json`] = { solo: atReview };
+};
+function gate11(r) { r.ledger.push(compile(6, "clippy", "--profile release -p c --locked", `${SNAP}\\ws\\sub`)); const d = decB(r); d.forecast.push({ id: "clippy:ws:c", key: "kc", expected: "run", status: "pass" }); d.actual.push({ id: "clippy:ws:c", actual: "run", key: "kc", status: "pass" }); d.dispatchedRows.push("clippy:ws:c"); r.files["covB.json"].scans.push({ id: "clippy:ws:c", class: "B", coverage: "ran", status: "pass" }); r.files["covA.json"].scans.push({ id: "clippy:ws:c", class: "B", coverage: "skipped", status: "not-in-pass" }); }
 const FROZEN = [
   ["GCX-01-1", "NN01", "not measured", (r) => { delete r.receipt.stages.compile; }],
   ["GCX-01-2", "NN01", "not measured", (r) => { delete r.receipt.stages.check; }],
   ["GCX-01-3", "NN01", "fail", (r) => { r.files["covA.json"].commit = "e".repeat(40); }],
   ["GCX-01-4", "NN01", "fail", (r) => { r.receipt.stages.compile.snapshot.tree = "e".repeat(40); }],
   ["GCX-02-1", "NN02", "fail", (r) => { r.ledger.push(entry(1, "C:\\Windows\\System32\\cmd.exe", ["/d", "/s", "/c", '""C:\\Program Files\\RustRight\\rustright.cmd" cargo metadata --format-version 1"'])); }],
-  // Adapted: the case's end record is an unrelated writer's (pid 999), so it carries no root or lock of this run.
-  ["GCX-02-2", "NN02", "not measured", (r) => { wholeReuseB(r); r.ledger = []; r.end = { end: true, pid: 999, at: r.end.at, open: 0 }; r.files["v.json"].status = "fail"; }],
+  ["GCX-02-2", "NN02", "not measured", (r) => { wholeReuseB(r); r.ledger = []; r.end = { ...r.end, pid: 999 }; r.files["v.json"].status = "fail"; }],
   ["GCX-02-3", "NN02", "not measured", (r) => { r.ledger[2].at = at(2); }],
   ["GCX-03-1", "NN03", "not measured", (r) => { lane(r).lanes = 1.5; }],
   ["GCX-03-2", "NN03", "not measured", (r) => { lane(r).endedAt = lane(r).startedAt - 1; }],
@@ -368,22 +370,23 @@ const FROZEN = [
   ["GCX-05-2", "NN05", "fail", (r) => { r.ledger.splice(2, 1); }],
   ["GCX-05-3", "NN05", "fail", (r) => { r.ledger[2] = compile(6, "clippy", "--profile release -p b -p z --locked"); }],
   ["GCX-05-4", "NN05", "fail", (r) => { decA(r).forecast[1].expected = "bogus"; decA(r).actual[1].actual = "bogus"; scan(r, "covA.json", "deny").coverage = "bogus"; }],
-  ["GCX-05-5", "NN05", "fail", (r) => { r.ledger[1].args.push("src/unplanned.rs"); decA(r).dispatchedRows.push("secret-scan"); }],
   ["GCX-06-1", "NN06", "fail", (r) => { decA(r).forecast[0].priorKey = decA(r).forecast[0].key; decA(r).forecast[0].changes = { inputs: [], inputsChanged: 0 }; }],
+  ["GCX-06-2", "NN06", "not measured", (r) => { delete decB(r).actual[0].key; }],
   ["GCX-06-3", "NN06", "not measured", (r) => { delete decB(r).actual[0].status; delete scan(r, "covB.json", "clippy:ws:a").status; }],
   ["GCX-07-1", "NN07", "fail", (r) => { twoChanged(r); }],
   ["GCX-07-2", "NN07", "fail", (r) => { r.ledger[1].args = ["--check", "--edition", "2021"]; }],
   ["GCX-07-3", "NN07", "pass", (r) => { twoChanged(r); r.ledger[1].args.push("src/b.rs"); }],
   ["GCX-07-4", "NN07", "not measured", (r) => { delete r.files["covB.json"]; }],
   ["GCX-07-5", "NN07", "fail", (r) => { r.ledger[2] = compile(6, "clippy", "--profile release -p ws --locked"); }],
-  ["GCX-07-6", "NN07", "fail", (r) => { r.ledger[2] = compile(6, "clippy", "--profile release -p b --locked", `${SNAP}\\other`); }],
+  ["GCX-08-1", "NN08", "pass", (r) => { r.ledger = Array.of(entry(7, "/opt/Tool", ["probe"], "/src"), entry(8, "/opt/tool", ["probe"], "/src")); }],
+  ["GCX-08-2", "NN08", "pass", (r) => { r.ledger = Array.of(entry(7, "/usr/bin/git", ["status"], "/src/A"), entry(8, "/usr/bin/git", ["status"], "/src/a")); }],
   ["GCX-08-3", "NN08", "fail", (r) => { r.ledger.push({ ...structuredClone(r.ledger[1]), at: at(8), pid: 101 }); r.extraLines.push(JSON.stringify({ ...r.end, pid: 101 })); }],
-  ["GCX-09-1", "NN09", "fail", (r) => { split(r, "-p b -p c", "-p c"); policy(r, ["c"]); }],
-  ["GCX-09-2", "NN09", "fail", (r) => { split(r, "-p c --target x", "-p c --target y"); policy(r, ["c"]); }],
-  ["GCX-09-3", "NN09", "fail", (r) => { split(r, "-p b", "-p c"); policy(r, []); r.files[`${SNAP}\\ci\\shards.json`] = { solo: ["c"] }; }],
-  ["GCX-09-5", "NN09", "not measured", (r) => { split(r, "-p b", "-p c"); policy(r, null); r.files[`${SNAP}\\ci\\shards.json`] = { solo: ["c"] }; }],
+  ["GCX-09-1", "NN09", "fail", (r) => { split(r, "-p b -p c", "-p c"); policy(r, ["c"], ["c"]); }],
+  ["GCX-09-2", "NN09", "fail", (r) => { split(r, "-p c --target x", "-p c --target y"); policy(r, ["c"], ["c"]); }],
+  ["GCX-09-3", "NN09", "fail", (r) => { split(r, "-p b", "-p c"); policy(r, [], ["c"]); }],
+  ["GCX-09-4", "NN09", "pass", (r) => { split(r, "-p b", "-p c"); policy(r, ["c"], []); }],
+  ["GCX-09-5", "NN09", "not measured", (r) => { split(r, "-p b", "-p c"); policy(r, null, ["c"]); }],
   ["GCX-09-6", "NN09", "not measured", (r) => { r.ledger.push(compile(7.999, "clippy", "--profile release -p x --locked", `${SNAP}\\other`)); }],
-  ["GCX-09-9", "NN09", "fail", (r) => { split(r, "-p b", "-p b"); policy(r, ["b"]); }],
   ["GCX-10-1", "NN10", "not measured", (r) => { r.ledger[2] = compile(6, "test", "-p b --no-run"); r.ledger.push(entry(8, `${SNAP}\\b-test.exe`, [], SNAP)); }],
   ["GCX-10-2", "NN10", "not measured", (r) => { r.ledger[2] = compile(6, "test", "-p b --no-run"); r.receipt.stages.compile.testExecutables = ["b-test.exe"]; }],
   ["GCX-11-1", "NN11", "not measured", (r) => { r.log = r.log.slice(0, 6); r.exit = null; }],
@@ -392,36 +395,45 @@ const FROZEN = [
   ["GCX-12-1", "NN12", "not measured", (r) => { r.exit = 137; r.log = r.log.slice(0, 6); r.live = { exists: () => false, alive: () => false, pids: [100] }; }],
   ["GCX-12-2", "NN12", "fail", (r) => { r.exit = 137; r.live = { exists: () => false, alive: (p) => p === 100, pids: [100] }; }],
   ["GCX-02-4", "NN02", "fail", (r) => { r.files["v.json"].snapshotLock = "other-run"; r.files["v.json"].commit = C; r.files["v.json"].tree = T; }],
+  ["GCX-05-5", "NN05", "fail", (r) => { r.ledger[1].args.push("src/unplanned.rs"); decA(r).dispatchedRows.push("secret-scan"); }],
+  // fixtureWorkspaces {row: ws, invocation: other}: two workspaces of the run's tree, both with member b.
+  ["GCX-07-6", "NN07", "fail", (r) => { r.ledger[2] = compile(6, "clippy", "--profile release -p b --locked", `${SNAP}\\other`); r.tree["ws/Cargo.toml"] = '[workspace]\nmembers = ["b"]\n'; r.tree["other/Cargo.toml"] = '[workspace]\nmembers = ["b"]\n'; }],
+  // fixtureTreeEvidence {tree T, workspace ws, stage clippy, sidecarBound [c], batchable [b]}: the producer's own input at T, c's Tauri externalBin.
+  ["GCX-09-7", "NN09", "pass", (r) => { split(r, "-p b", "-p c"); policy(r, [], []); r.tree["ws/Cargo.toml"] = '[workspace]\nmembers = ["b", "c"]\n'; r.tree["ws/c/Cargo.toml"] = '[package]\nname = "c"\n'; r.tree["ws/c/tauri.conf.json"] = JSON.stringify({ bundle: { externalBin: ["binaries/c-sidecar"] } }); }],
+  // fixtureGateClaim: only the gate's printed reason; no tree evidence.
+  ["GCX-09-8", "NN09", "not measured", (r) => { split(r, "-p b", "-p c"); policy(r, null, []); r.log.push(`${at(9)} rightkit-gate: c is sidecar-bound`); }],
+  ["GCX-09-9", "NN09", "fail", (r) => { split(r, "-p b", "-p b"); policy(r, ["b"], ["b"]); }],
   ["gate 1", "NN06", "fail", (r) => { r.ledger.push(entry(1.7, "C:\\cargo\\bin\\cargo-deny.exe", ["check"], SNAP)); }],
   ["gate 2", "NN12", "not measured", (r) => { r.live = { exists: () => false, alive: () => true, pids: [] }; }],
   ["gate 3", "NN12", "not measured", (r) => { r.live = { exists: () => false, alive: (p) => p === 100, pids: [999] }; }],
-  // With the lane count the run announced (4), the second row's two-second wait beside free lanes fails (the adjudicator's ruling).
   ["gate 4", "NN03", "fail", (r) => { const c = r.files["covA.json"]; c.scans[0].lane = { readyAt: 1000, startedAt: 1000, endedAt: 3000, lanes: 1 }; c.scans[1] = { id: "deny", class: "A", coverage: "ran", status: "pass", lane: { readyAt: 1000, startedAt: 3000, endedAt: 5000, lanes: 1 } }; const d = decA(r); d.forecast[1] = { id: "deny", key: "k2", priorKey: "k9", expected: "run", changes: { inputs: ["files.0.1"], inputsChanged: 1 } }; d.actual[1] = { id: "deny", actual: "run", key: "k2" }; d.dispatchedRows = ["rustfmt:2021", "deny"]; }],
-  // Adapted: under cmd /s the first and last quote of the string are removed (learn.microsoft.com, cmd), so the case's command line starts
-  // `C:\Program` with the path unquoted: not the same call, and not decodable. The correctly quoted twin below is the repeat.
-  ["gate 5", "NN08", "not measured", (r) => { const g = r.ledger[0]; r.ledger.push(entry(0.5, "C:\\WINDOWS\\system32\\cmd.exe", ["/d", "/s", "/c", `"${g.cmd}" ${g.args.join(" ")}`], g.cwd)); }],
-  ["gate 5 (quoted for /s)", "NN08", "fail", (r) => { r.ledger.push(entry(0.4, "C:\\Program Files\\Git\\cmd\\git.exe", ["status"]), entry(0.5, "C:\\WINDOWS\\system32\\cmd.exe", ["/d", "/s", "/c", '""C:\\Program Files\\Git\\cmd\\git.exe" status"'])); }],
-  // Without /s, cmd keeps one quoted program path when the string holds exactly one pair of quotes and no special character.
-  ["gate 5 (no /s, one quoted path)", "NN08", "fail", (r) => { r.ledger.push(entry(0.4, "C:\\Program Files\\Git\\cmd\\git.exe", ["status"]), entry(0.5, "C:\\WINDOWS\\system32\\cmd.exe", ["/d", "/c", '"C:\\Program Files\\Git\\cmd\\git.exe" status'])); }],
+  ["gate 5", "NN08", "fail", (r) => { const g = r.ledger[0]; r.ledger.push(entry(0.5, "C:\\WINDOWS\\system32\\cmd.exe", ["/d", "/s", "/c", `"${g.cmd}" ${g.args.join(" ")}`], g.cwd)); }],
   ["gate 6", "NN08", "fail", (r) => { const g = r.ledger[0]; r.ledger.push(entry(0.5, g.cmd, [...g.args], `${g.cwd}\\`)); }],
   ["gate 7", "NN08", "pass", (r) => { const g = r.ledger[0]; r.ledger.push(entry(0.5, g.cmd, ["-c", "core.fsmonitor=false", ...g.args], g.cwd)); }],
-  ["gate 8", "NN05", "fail", (r) => { const d = decB(r); d.actual[1].actual = "hit"; d.mismatches = [{ id: "clippy:ws:b", reason: "expected run, found a stored result" }]; d.dispatchedRows = []; scan(r, "covB.json", "clippy:ws:b").coverage = "hit"; r.ledger.splice(2, 1); r.exit = 1; r.log.push(`${at(10)} RK_CACHE_DIVERGENCE {"id":"clippy:ws:bb"}`); }],
+  ["gate 8", "NN05", "fail", (r) => { const d = decB(r); d.actual[1].actual = "hit"; d.mismatches = [{ id: "clippy:ws:b", reason: "expected run, found a stored result" }]; d.dispatchedRows = []; scan(r, "covB.json", "clippy:ws:b").coverage = "hit"; r.ledger.splice(2, 1); r.exit = 1; r.log.push(`${at(9)} RK_CACHE_DIVERGENCE {"id":"clippy:ws:bb"}`); }],
+  ["gate 9", "NN02", "pass", (r) => { r.log.push(`${at(9)} rightkit-gate: unit cargo:other stopped: class A check (compile tier) failed`); }],
   ["gate 10", "NN11", "fail", (r) => { r.limitMs = 15_000; r.ledger.unshift(entry(-30, "C:\\Program Files\\Git\\cmd\\git.exe", ["status"], "D:\\repo")); }],
-  // Adapted: the manifests the adjudicator stipulates are given as files of the run's tree: ws is one workspace with member sub.
-  ["gate 11", "NN09", "fail", (r) => { gate11(r); r.tree["ws/Cargo.toml"] = '[workspace]\nmembers = ["b", "sub"]\n'; }],
-  ["gate 11 (no manifest at the run's tree)", "NN09", "not measured", (r) => { gate11(r); }],
+  // gatecodex's ruling: manifests ws/Cargo.toml with members b, sub; ws/sub/Cargo.toml declares package c.
+  ["gate 11", "NN09", "fail", (r) => { gate11(r); r.tree["ws/Cargo.toml"] = '[workspace]\nmembers = ["b", "sub"]\n'; r.tree["ws/sub/Cargo.toml"] = '[package]\nname = "c"\n'; }],
   ["gate 12", "NN07", "fail", (r) => { const d = decB(r); for (const k of ["forecast", "actual"]) d[k][1].id = "clippy:ws:b@x86_64-unknown-linux-gnu"; d.dispatchedRows = ["clippy:ws:b@x86_64-unknown-linux-gnu"]; for (const f of ["covA.json", "covB.json"]) scan(r, f, "clippy:ws:b").id = "clippy:ws:b@x86_64-unknown-linux-gnu"; r.ledger[2] = compile(6, "clippy", "--profile release --target x86_64-pc-windows-msvc -p b --locked"); }],
-  // The adjudicator ruled pass right here: the compile stage's own receipt proves the tree after it.
-  ["gate 13", "NN01", "pass", (r) => { r.log = r.log.filter((l) => !/after the compile/.test(l)); }],
-  ["gate 14", "NN04", "fail", (r) => { r.ledger[2] = compile(0.3, "clippy", "--profile release -p b --locked", `${SNAP}\\ws`, 1000); }],
+  ["gate 13", "NN01", "not measured", (r) => { r.log = r.log.filter((l) => !/after the compile/.test(l)); }],
+  // The case's own scenario: "the Class B forecast ... frozen at 5 s" (these records freeze it at 0.9 s, so the case states it).
+  ["gate 14", "NN04", "fail", (r) => { decB(r).forecastFrozenAt = at(5); r.ledger[2] = compile(3, "clippy", "--profile release -p b --locked", `${SNAP}\\ws`, 1000); }],
+  ["gate 15", "NN06", "not measured", (r) => { delete decB(r).actual[0].key; }],
 ];
-function gate11(r) { r.ledger.push(compile(6, "clippy", "--profile release -p c --locked", `${SNAP}\\ws\\sub`)); const d = decB(r); d.forecast.push({ id: "clippy:ws:c", key: "kc", expected: "run", status: "pass" }); d.actual.push({ id: "clippy:ws:c", actual: "run", key: "kc", status: "pass" }); d.dispatchedRows.push("clippy:ws:c"); r.files["covB.json"].scans.push({ id: "clippy:ws:c", class: "B", coverage: "ran", status: "pass" }); r.files["covA.json"].scans.push({ id: "clippy:ws:c", class: "B", coverage: "skipped", status: "not-in-pass" }); }
-// Ruled not critical by the adjudicator (a wrong fail or not-measured on a good run, or a standalone proof gap), and left for later under
-// Adrian's "fix only critical issues": gate 9, gate 15, GCX-06-2, GCX-08-1, GCX-08-2, GCX-09-4, GCX-09-7, GCX-09-8.
-test("the frozen step-2 batch: every critical case and every case already right gives its expected verdict", () => {
-  const wrong = [];
-  for (const [id, line, verdict, fn] of FROZEN) { const v = run(alter(fn)); if (verdictOf(v, line) !== verdict) wrong.push(`${id} ${line}: expected ${verdict}, got ${verdictOf(v, line)}: ${whyOf(v, line)}`); }
-  assert.deepEqual(wrong, []);
+test("the frozen step-2 batch: all 63 cases, each with its author's id and expected verdict", async (t) => {
+  assert.equal(FROZEN.length, 63);
+  assert.equal(new Set(FROZEN.map(([id]) => id)).size, 63, "every id once");
+  for (const [id, line, verdict, fn] of FROZEN) {
+    await t.test(`${id} ${line}: ${verdict}`, () => { const v = run(alter(fn)); assert.equal(verdictOf(v, line), verdict, `${id} ${line}: ${whyOf(v, line)}`); });
+  }
+});
+
+// Cases of mine beside the batch (not part of the 63): gate 5 quoted the way cmd /s reads it, the same without /s, and gate 11 with no manifest.
+test("gate 5 and gate 11 twins: a correctly quoted cmd /c repeat, and a split whose workspace the run's tree cannot show", () => {
+  expect(alter((r) => { r.ledger.push(entry(0.4, "C:\\Program Files\\Git\\cmd\\git.exe", ["status"]), entry(0.5, "C:\\WINDOWS\\system32\\cmd.exe", ["/d", "/s", "/c", '""C:\\Program Files\\Git\\cmd\\git.exe" status"'])); }), "NN08", "fail");
+  expect(alter((r) => { r.ledger.push(entry(0.4, "C:\\Program Files\\Git\\cmd\\git.exe", ["status"]), entry(0.5, "C:\\WINDOWS\\system32\\cmd.exe", ["/d", "/c", '"C:\\Program Files\\Git\\cmd\\git.exe" status'])); }), "NN08", "fail");
+  expect(alter((r) => { gate11(r); }), "NN09", "not measured");
 });
 
 // Council CV-1's verified critical findings that the frozen batch does not exercise on its own, one case each.

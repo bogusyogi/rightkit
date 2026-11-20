@@ -19,12 +19,13 @@
 // `<!-- acceptance-lines:begin -->` and `<!-- acceptance-lines:end -->`, and nothing is judged unless every line there has a check here and
 // every check here has a line there.
 //
-//   node acceptance-lines.mjs --log <file> --ledger <file> --commit <sha> [--repo <dir>] [--contract <file>] [--receipt <file>]
+//   node acceptance-lines.mjs --log <file> --ledger <file> --commit <sha> --pid <gate pid> [--repo <dir>] [--contract <file>] [--receipt <file>]
 //                             [--limit-ms <n>] [--exit <code>] [--json]
 import fs from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { sidecarBoundCrate } from "./deterministic-scans.mjs";
 
 export const CONTRACT_FILE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "docs", "GATE-CONTRACT.md");
 const BEGIN = "<!-- acceptance-lines:begin -->"; const END = "<!-- acceptance-lines:end -->";
@@ -124,7 +125,7 @@ export function parseLedger(text) {
  * linked to the root through its parent, and none of them had a child still running. A list without that is a sample, and a sample cannot
  * show absence. An empty list closed this way is a valid record of a run that started nothing.
  */
-export function ledgerGaps(ledger, { lock = null } = {}) {
+export function ledgerGaps(ledger, { lock = null, runPid = null } = {}) {
   if (!Array.isArray(ledger)) return ["the run has no process list"];
   if (!Array.isArray(ledger.problems) || !(ledger.ends instanceof Map)) return ["the process list was not read with parseLedger, so whether it is complete is unknown"];
   const gaps = ledger.problems.map((p) => `the process list is incomplete: ${p}`);
@@ -134,6 +135,9 @@ export function ledgerGaps(ledger, { lock = null } = {}) {
   const root = roots.length === 1 ? roots[0] : null;
   if (root && !lock) gaps.push("this run's snapshot lock is not known, so the process list cannot be bound to it");
   if (root && lock && root.lock !== lock) gaps.push(`the process list's root end record belongs to snapshot lock ${root.lock ?? "(none)"}, not this run's ${lock}`);
+  // Frozen case GCX-02-2: the root end record is the gate's own word; the run's pid comes from its launcher, which the gate does not write.
+  if (root && !Number.isInteger(runPid)) gaps.push("the run's own process id is not known from its launcher (--pid), so the root end record cannot be tied to the run");
+  if (root && Number.isInteger(runPid) && root.pid !== runPid) gaps.push(`the process list's root end record is process ${root.pid}'s, not the run's own process ${runPid}`);
   for (const pid of new Set(ledger.map((e) => e.pid))) if (!ledger.ends.has(pid)) gaps.push(`process ${pid} wrote to the process list and no end record`);
   for (const [pid, end] of ledger.ends) {
     if (end.open !== 0) gaps.push(`process ${pid} ended with ${end.open} child(ren) still open, which the list does not show`);
@@ -157,7 +161,7 @@ export function ledgerGaps(ledger, { lock = null } = {}) {
  */
 export function decodeStart(entry) {
   let program = String(entry.cmd ?? ""); let args = (entry.args ?? []).map(String);
-  let ambiguous = false;
+  let ambiguous = false; let intended = null;
   const line = (() => {
     if (/(^|[\\/])cmd(\.exe)?$/i.test(program)) {
       const c = args.findIndex((a) => /^\/c$/i.test(a));
@@ -169,7 +173,13 @@ export function decodeStart(entry) {
       const kept = !slashS && a === 0 && (s.match(/"/g) ?? []).length === 2 && !/[&<>()@^|]/.test(s);
       // When a removed pair does not wrap the whole string, the quotes that held a spaced program path together are consumed and the path
       // is split at its space: cmd's own reading of that is not one plain command.
-      if (!kept && (slashS || a === 0) && a >= 0 && b > a && !(a === 0 && b === s.length - 1)) ambiguous = true;
+      if (!kept && (slashS || a === 0) && a >= 0 && b > a && !(a === 0 && b === s.length - 1)) {
+        ambiguous = true;
+        // The call the string was written as: its quoted head the program and its words, as written, the arguments. NN08 holds it against the
+        // run's other starts (frozen case gate 5): a call written twice is a repeat, however cmd then reads the second copy.
+        const w = /^"([^"]+)"(?:\s+(.*))?$/.exec(s);
+        if (w && !/["&|<>%]/.test(w[2] ?? "")) intended = { program: w[1], args: (w[2] ?? "").split(/\s+/).filter(Boolean) };
+      }
       if (kept) return s;
       if (slashS) { if (a >= 0 && b > a) s = s.slice(0, a) + s.slice(a + 1, b) + s.slice(b + 1); }
       else if (s.startsWith('"')) { if (b > 0) s = s.slice(1, b) + s.slice(b + 1); }
@@ -184,7 +194,7 @@ export function decodeStart(entry) {
   program = m[1]; const rest = m[2] ?? "";
   if (/["&|<>%]/.test(rest.replace(/\^./g, ""))) ambiguous = true;
   args = rest.split(/\s+/).filter(Boolean).map((a) => a.replace(/\^(.)/g, "$1"));
-  return { program, args, cwd: String(entry.cwd ?? ""), wrapped: true, ambiguous };
+  return { program, args, cwd: String(entry.cwd ?? ""), wrapped: true, ambiguous, intended };
 }
 const baseOf = (p) => String(p).replaceAll("\\", "/").split("/").pop();
 const programName = (p) => baseOf(p).replace(/\.(exe|cmd|bat|com)$/i, "").toLowerCase();
@@ -385,9 +395,10 @@ const stageEvidenced = (ctx, stage) => { const s = stageOf(ctx, stage); return s
 // ---- the twelve lines ------------------------------------------------------------------------------------------------------------------------------
 function snapshotOf(log) {
   const said = [...log.matchAll(/snapshot (\S+) is commit ([0-9a-f]{40}) tree ([0-9a-f]{40})/g)].map((m) => ({ path: m[1], commit: m[2], tree: m[3] }));
-  const after = [...log.matchAll(/is still tree ([0-9a-f]{40}) after/g)].map((m) => m[1]);
+  const afterLines = [...log.matchAll(/is still tree ([0-9a-f]{40}) after the (\w+)/g)];
+  const after = afterLines.map((m) => m[1]); const afterStages = new Set(afterLines.map((m) => m[2]));
   const lock = /snapshot lock held (\S+)/.exec(log)?.[1] ?? null;
-  return { said, after, lock, commit: said[0]?.commit ?? null, tree: said[0]?.tree ?? null, path: said[0]?.path ?? null };
+  return { said, after, afterStages, lock, commit: said[0]?.commit ?? null, tree: said[0]?.tree ?? null, path: said[0]?.path ?? null };
 }
 
 function nn01(ctx) {
@@ -400,6 +411,11 @@ function nn01(ctx) {
   if (trees.size !== 1) fails.push(`the snapshot names ${trees.size} trees: ${[...trees].map(short).join(", ")}`);
   for (const m of log.matchAll(/--to \S+ for ([0-9a-f]{7,40})\b/g)) if (commit && !commit.startsWith(m[1])) fails.push(`the gate was asked for ${m[1]}, not the selected ${short(commit)}`);
   if (!snap.after.length) gaps.push("the snapshot's tree was stated at the start but never checked again after the work");
+  // Frozen case gate 13: each stage this run did work in has the log's own check of the tree after it; another stage's check does not cover it.
+  else for (const [name, cls] of [["check", "A"], ["compile", "B"]]) {
+    const w = stageWork(ctx, cls);
+    if (w.did.length && !snap.afterStages.has(name)) gaps.push(`this run did ${name} work (${w.did.join(", ")}) and the log never checks the snapshot's tree after the ${name}`);
+  }
   const runCommit = commit ?? snap.commit;
   for (const d of ctx.decisions) if (d.doc && d.doc.commit !== runCommit) fails.push(`the Class ${d.stage} forecast is for commit ${short(d.doc.commit)}`);
   for (const d of ctx.decisions) if (d.doc && d.stage === "B" && d.doc.tree && d.doc.tree !== snap.tree) fails.push(`the Class B forecast is for tree ${short(d.doc.tree)}`);
@@ -459,7 +475,9 @@ function nn02(ctx) {
   const foreign = foreignRun(v.doc, snap.lock);
   const verdictOk = v.doc && !foreign && v.doc.status === "pass" && v.doc.commit === runCommit && v.doc.tree === snap.tree && Number.isFinite(v.at);
   const covA = stageOf(ctx, "A").C;
-  const aFailed = v.doc?.status === "fail" || /class A .*fail|FAIL .*\(class A\)|class A check .* failed/i.test(log) || [...(covA?.values() ?? [])].some((s) => s.status === "fail");
+  // Frozen case gate 9: whether Class A failed is read from this run's verdict file and Class A coverage only, never from log wording, which
+  // can be about a nested unit; with no verdict file the line is not measured below.
+  const aFailed = v.doc?.status === "fail" || [...(covA?.values() ?? [])].some((s) => s.status === "fail");
   const sentB = stageOf(ctx, "B").dispatched;
   if (foreign) fails.push(`the Class A verdict ${path.basename(v.file)} belongs to another run (${foreign})`);
   else if (v.doc && !verdictOk && !aFailed) fails.push(`the Class A verdict ${path.basename(v.file)} is not a pass of commit ${short(runCommit)} tree ${short(snap.tree)} (it says ${v.doc.status} for ${short(v.doc.commit)} ${short(v.doc.tree)})`);
@@ -690,6 +708,8 @@ function nn06(ctx) {
       else {
         if (normal(a.actual) !== "hit") fails.push(`${id} is unchanged and ran again (${a.actual})`);
         if (typeof f.key === "string" && typeof a.key === "string" && f.key !== a.key) fails.push(`${id} was reused under key ${short(a.key)}, not its forecast key ${short(f.key)}`);
+        // Frozen cases GCX-06-2 and gate 15: with no key on either side, "reused under its forecast key" cannot be shown.
+        else if (typeof f.key !== "string" || typeof a.key !== "string") gaps.push(`${id} was reused, and its ${typeof f.key !== "string" ? "forecast" : "lookup"} records no key, so that it was reused under its forecast key cannot be shown`);
       }
       if (s.C && !c) gaps.push(`${id} was forecast unchanged and is not in the coverage report`);
       if (c && normal(c.coverage) !== "hit") fails.push(`${id} is unchanged and the coverage report says it ${c.coverage}`);
@@ -839,6 +859,7 @@ function nn08(ctx) {
   if (!Array.isArray(ledger)) return result(NOT_MEASURED, "the run has no list of the processes it started");
   const calls = ledger.map((e, i) => callOf(ctx.starts[i], e));
   const buckets = new Map();
+  const written = calls.map((c, i) => (c.ambiguous && ctx.starts[i].intended ? callOf({ ...ctx.starts[i], ...ctx.starts[i].intended }, ledger[i]) : null));
   for (const c of calls) { const k = JSON.stringify([c.args, c.cwd]); (buckets.get(k) ?? buckets.set(k, []).get(k)).push(c); }
   const repeats = [];
   for (const group of buckets.values()) {
@@ -846,6 +867,11 @@ function nn08(ctx) {
     for (const c of group) { const g = groups.find((x) => sameProgram(x[0], c)); if (g) g.push(c); else groups.push([c]); }
     for (const g of groups) if (g.length > 1) repeats.push(g);
   }
+  written.forEach((w, i) => {
+    if (!w) return;
+    const same = calls.filter((c, j) => j !== i && !c.ambiguous && sameProgram(c, w) && c.cwd === w.cwd && JSON.stringify(c.args) === JSON.stringify(w.args));
+    if (same.length) repeats.push([same[0], { ...w, name: `${w.name} (written again through cmd /c)` }]);
+  });
   const fails = repeats.sort((a, b) => b.length - a.length).map((g) => `${g.length}x ${g[0].name} ${g[0].args.join(" ").slice(0, 70)}`);
   const gaps = [...ctx.ledgerGaps];
   const cut = calls.filter((c) => c.truncated).length;
@@ -907,6 +933,24 @@ function nn09(ctx) {
   // targets combined in one command; every other crate of the group shares one command.
   let solo; let soloProblem = null;
   const soloSet = () => { if (solo || soloProblem) return solo; try { const d = ctx.readTree("ci/shards.json"); const doc = typeof d === "string" ? JSON.parse(d) : d; solo = new Set(Array.isArray(doc?.solo) ? doc.solo.map(String) : []); } catch (e) { soloProblem = `ci/shards.json at the run's tree cannot be read (${e.message})`; } return solo; };
+  // Frozen case GCX-09-7: a crate the producer's own rule (sidecarBoundCrate: an externalBin in its Tauri config) finds sidecar-bound at the
+  // run's tree also keeps its own command. The crate's folder is a member of the group's workspace whose manifest names it, read at that tree.
+  const treeText = (p) => { const v = ctx.readTree(p.replaceAll("\\", "/")); return typeof v === "string" ? v : JSON.stringify(v); };
+  const packageName = (toml) => /^\[package\][^[]*?^name\s*=\s*"([^"]+)"/m.exec(String(toml))?.[1] ?? null;
+  const boundMemo = new Map();
+  const sidecarOf = (ws, crate) => {
+    const key = `${ws}\u0000${crate}`; if (boundMemo.has(key)) return boundMemo.get(key);
+    let out;
+    try {
+      const members = workspaceMembers(treeText(`${ws ? `${ws}/` : ""}Cargo.toml`)) ?? [""];
+      const dirs = members.map((m) => (m.endsWith("/*") ? `${m.slice(0, -1)}${crate}` : m));
+      let dir = null;
+      for (const d of dirs) { const rel = [ws, d].filter(Boolean).join("/"); try { if (packageName(treeText(`${rel ? `${rel}/` : ""}Cargo.toml`)) === crate) { dir = rel; break; } } catch { /* not this member */ } }
+      if (dir === null) out = { unknown: `no member of ${ws || "."}/Cargo.toml at the run's tree is package ${crate}` };
+      else { const b = sidecarBoundCrate({ dir, exists: (p) => { try { treeText(p); return true; } catch { return false; } }, readFile: treeText }); out = b.bound ? { bound: true, file: String(b.file).replaceAll("\\", "/") } : { bound: false }; }
+    } catch (e) { out = { unknown: `${ws || "."}/Cargo.toml at the run's tree cannot be read (${e.message})` }; }
+    boundMemo.set(key, out); return out;
+  };
   const justified = [];
   for (const [k, cs] of groups) {
     const where = `${cs.length}x cargo ${k.split("\u0000")[1]} in ${k.split("\u0000")[0] || "."}`;
@@ -915,16 +959,23 @@ function nn09(ctx) {
     const dup = [...seen].filter(([, n]) => n > 1).map(([u]) => u.replace(/@null$/, ""));
     if (dup.length) fails.push(`${where}: ${dup.join(", ")} built more than once in one workspace and stage`);
     if (cs.length < 2) continue;
-    const set = soloSet();
-    if (!set) { gaps.push(`${where} were sent as separate commands; ${soloProblem}, so the split cannot be checked`); continue; }
+    const policy = soloSet();
+    if (!policy) { gaps.push(`${where} were sent as separate commands; ${soloProblem}, so the split cannot be checked`); continue; }
+    const ws = k.split("\u0000")[0]; const set = new Set(policy); const reasons = new Map(); const unknown = [];
+    for (const n of new Set(cs.flatMap(cratesOf))) {
+      if (policy.has(n)) { reasons.set(n, "solo per the run's ci/shards.json"); continue; }
+      const b = ws.startsWith("?") ? { unknown: "its workspace is not placed" } : sidecarOf(ws, n);
+      if (b.bound) { set.add(n); reasons.set(n, `sidecar-bound per ${b.file} at the run's tree`); } else if (b.unknown) unknown.push(`${n}: ${b.unknown}`);
+    }
     const soloCmds = cs.filter((c) => cratesOf(c).some((n) => set.has(n)));
     const mixed = soloCmds.filter((c) => cratesOf(c).length > 1);
     const ordinary = cs.filter((c) => !cratesOf(c).some((n) => set.has(n)));
     const perSolo = new Map(); for (const c of soloCmds.filter((x) => cratesOf(x).length === 1)) perSolo.set(cratesOf(c)[0], (perSolo.get(cratesOf(c)[0]) ?? 0) + 1);
-    if (mixed.length) fails.push(`${where}: solo crate(s) ${[...new Set(mixed.flatMap(cratesOf).filter((n) => set.has(n)))].join(", ")} were built together with other crates`);
+    if (mixed.length) fails.push(`${where}: crate(s) that must build alone (${[...new Set(mixed.flatMap(cratesOf).filter((n) => set.has(n)))].join(", ")}) were built together with other crates`);
     if ([...perSolo.values()].some((n) => n > 1)) fails.push(`${where}: a solo crate was sent as several commands instead of one with its targets combined`);
-    if (ordinary.length > 1) fails.push(`${where} were sent as separate commands, and only ${cs.length - ordinary.length} of them are for a crate the run's ci/shards.json lists solo`);
-    if (!mixed.length && ![...perSolo.values()].some((n) => n > 1) && ordinary.length <= 1) justified.push(`${[...perSolo.keys()].join(", ")} solo per the run's ci/shards.json`);
+    // NN09: "every split has a reason the check can verify"; a crate whose manifest cannot be found at the run's tree has no such reason.
+    if (ordinary.length > 1) fails.push(`${where} were sent as separate commands, and only ${cs.length - ordinary.length} of them are for a crate the run's tree keeps alone (ci/shards.json solo, or sidecar-bound)${unknown.length ? `; no reason found for ${unknown.slice(0, 2).join("; ")}` : ""}`);
+    if (!mixed.length && ![...perSolo.values()].some((n) => n > 1) && ordinary.length <= 1) justified.push([...perSolo.keys()].map((n) => `${n} ${reasons.get(n)}`).join(", "));
   }
   // Council CV-1 F-27: actual command intervals, not group envelopes. Commands that did not all start together cannot pass without a record of
   // when each became ready and how much capacity was free, which no record of the run carries yet.
@@ -990,7 +1041,7 @@ export const CHECK_IDS = Object.freeze(Object.keys(JUDGES));
  * alive(pid), pids, successor? } when judged right after the run, else null. Returns { lines: [{ id, text, verdict, why }], pass, failed,
  * notMeasured }. `pass` is true only when all twelve passed.
  */
-export function judgeRun({ lines, log = "", ledger = null, commit = null, receipt = null, readTree = null, limitMs = null, exit = null, live = null, readJson } = {}) {
+export function judgeRun({ lines, log = "", ledger = null, commit = null, runPid = null, receipt = null, readTree = null, limitMs = null, exit = null, live = null, readJson } = {}) {
   const unlinked = Array.isArray(lines) ? linkProblems(lines) : ["no lines were given: read them from the contract with readAcceptanceLines"];
   if (unlinked.length) throw Object.assign(new Error(`the contract and the acceptance test do not match: ${unlinked.join("; ")}`), { problems: unlinked });
   const read = readJson ?? ((f) => JSON.parse(fs.readFileSync(f, "utf8")));
@@ -1000,7 +1051,7 @@ export function judgeRun({ lines, log = "", ledger = null, commit = null, receip
   let verdictDoc = null; if (vm) { try { verdictDoc = read(vm[1].trim()); } catch { verdictDoc = null; } }
   const snap = snapshotOf(text);
   const ctx = {
-    log: text, ledger: Object.assign(entries, {}), ledgerGaps: ledgerGaps(ledger, { lock: snap.lock }), commit, receipt, limitMs, exit, live, snap,
+    log: text, ledger: Object.assign(entries, {}), ledgerGaps: ledgerGaps(ledger, { lock: snap.lock, runPid }), commit, receipt, limitMs, exit, live, snap,
     decisions: decisionsOf(text, { readJson: read }), coverage: coveragesOf(text, read),
     starts: entries.map((e) => ({ ...decodeStart(e), at: timeOf(e.at), ms: typeof e.ms === "number" ? e.ms : null })),
     compiles: entries.map(brokerCompileOf).filter(Boolean), brokerStarts: entries.map(brokerStartOf).filter(Boolean),
@@ -1016,7 +1067,7 @@ export function judgeRun({ lines, log = "", ledger = null, commit = null, receip
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const opt = (name) => { const i = process.argv.indexOf(name); return i < 0 ? null : process.argv[i + 1]; };
   const logFile = opt("--log"); const ledgerFile = opt("--ledger");
-  if (!logFile || !ledgerFile) { console.error("usage: acceptance-lines.mjs --log <file> --ledger <file> --commit <sha> [--repo <dir>] [--contract <file>] [--receipt <file>] [--limit-ms <n>] [--exit <code>] [--json]"); process.exit(2); }
+  if (!logFile || !ledgerFile) { console.error("usage: acceptance-lines.mjs --log <file> --ledger <file> --commit <sha> --pid <gate pid> [--repo <dir>] [--contract <file>] [--receipt <file>] [--limit-ms <n>] [--exit <code>] [--json]"); process.exit(2); }
   const contractFile = opt("--contract") ?? CONTRACT_FILE; let lines;
   try { lines = readAcceptanceLines(fs.readFileSync(contractFile, "utf8")); } catch (e) { console.error(`NOT JUDGED: ${e.code === "ENOENT" ? `the contract ${contractFile} cannot be read` : e.message}`); process.exit(2); }
   const receiptFile = opt("--receipt"); let receipt = null; if (receiptFile) { try { receipt = JSON.parse(fs.readFileSync(receiptFile, "utf8")); } catch { receipt = null; } }
@@ -1024,7 +1075,8 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   // The run's own Git tree, read by its id from a repository that holds it: never the snapshot folder, which a later run can change.
   const readTree = repo && tree ? (p) => { const t = execFileSync("git", ["-C", repo, "cat-file", "-p", `${tree}:${p}`], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }); try { return JSON.parse(t); } catch { return t; } } : null;
   const exitArg = opt("--exit"); const exit = exitArg === null ? null : /^-?\d+$/.test(exitArg) ? Number(exitArg) : null;
-  const verdict = judgeRun({ lines, log, ledger: parseLedger(fs.readFileSync(ledgerFile, "utf8")), commit: opt("--commit"), receipt, readTree, limitMs: opt("--limit-ms") === null ? null : Number(opt("--limit-ms")), exit });
+  const pidArg = opt("--pid"); const runPid = pidArg !== null && /^\d+$/.test(pidArg) ? Number(pidArg) : null;
+  const verdict = judgeRun({ lines, log, ledger: parseLedger(fs.readFileSync(ledgerFile, "utf8")), commit: opt("--commit"), runPid, receipt, readTree, limitMs: opt("--limit-ms") === null ? null : Number(opt("--limit-ms")), exit });
   if (process.argv.includes("--json")) console.log(JSON.stringify(verdict, null, 2));
   else { for (const l of verdict.lines) console.log(`${l.id} ${l.verdict.toUpperCase().padEnd(12)} ${l.text}\n      ${l.why}`); console.log(verdict.pass ? "PASS: all twelve lines" : `NOT PASSED: ${verdict.failed.length} failed, ${verdict.notMeasured.length} not measured`); }
   process.exit(verdict.pass ? 0 : 1);
