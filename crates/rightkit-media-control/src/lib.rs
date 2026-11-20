@@ -22,8 +22,14 @@ mod worker;
 #[cfg(target_os = "windows")]
 mod win;
 
+#[cfg(target_os = "macos")]
+pub mod mac;
+
 pub use backend::{classify_post_observation, Backend, CommandOutcome, Observation, Observed};
 pub use worker::{begin_for_session, install_backend, restore_any, restore_for_session};
+
+#[cfg(target_os = "macos")]
+pub use mac::{MacBackend, MacPlayer};
 
 use std::sync::OnceLock;
 

@@ -1,4 +1,4 @@
-# rightkit-text-polish 0.1.2 registry consumer (`store` feature)
+# rightkit-text-polish 0.1.3 registry consumer (`store` feature)
 
 Standalone consumer, outside the workspace, pinning `rightkit-text-polish` to the exact version in
 its `Cargo.toml`. Through the public API only, it proves: deterministic polish capitalizes and

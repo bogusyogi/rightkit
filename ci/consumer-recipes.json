@@ -678,8 +678,8 @@
         ]
       },
       "files": {
-        "ci/consumers/npm/react-shell/README.md": "c2c67616ed576c71ccc3e8fb22b3e0c70d5d430b055ae5884726cd362842e0b2",
-        "ci/consumers/npm/react-shell/consumer.mjs": "53ede68f9fac033b2b875fbb25d2be4201cdc5ea5c4dfa4363b0ffa65d13355f",
+        "ci/consumers/npm/react-shell/README.md": "f3f2c936ccdb11d97794c94b96369a3874ee82794ae6cc7fdbc7e7fd6b74fd18",
+        "ci/consumers/npm/react-shell/consumer.mjs": "82369c8d889df2967cadbba6058a20ee091c8e96bb9137233f005ea90d5a267d",
         "ci/consumers/npm/react-shell/package.json": "7316f3eadb4c9d39d41c790089429d4a215dabb70e26eac121a99b0e36581e25",
         "ci/consumers/npm/react-shell/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "a0e235cbb1540000a57f1af3b603e5f81c6c14322ad481bf189c497d8358e98f"
@@ -3472,8 +3472,8 @@
       "pkId": "PK120",
       "id": "ci/consumers/rightkit-text-polish/src/main.rs",
       "files": {
-        "Cargo.toml": "16734ee5fa06b50b36776e1e337de389afcad537c32f6b4351ee66c6397e7333",
-        "README.md": "ea69b6eb65f0335fe84ce65f56f36c08fb4a518bb1b98365f01c52e9cc042fa1",
+        "Cargo.toml": "dca78557fea5eac8ceef8c55a588f6f7445106fc9d484288b3f754f362b74314",
+        "README.md": "d515951235d11b8f43da37d3a6a7f985ab3543d8a9d36605c18077f703569411",
         "src/main.rs": "b8a75a1cd619f5c93075e4ae20da2184e52cc09c3f4a5b8ec84a243dd60dc4c9"
       }
     },
@@ -4323,9 +4323,9 @@
       "pkId": "PK252",
       "id": "ci/consumers/rightkit-media-control/src/main.rs",
       "files": {
-        "Cargo.toml": "f3e40ef2a22931c61a5b6e1230e4ea0b3ed9d7e7b6a6c088b2f16febfe6482ca",
+        "Cargo.toml": "d0968151171af9dde4126a73298d2f0f58decaeddfbd618cc0d937fc34e8fc65",
         "README.md": "c7c77417ac53960cf9c6c847e4f1be2dbbcb71c319cb60c002ad84e8236ed546",
-        "src/main.rs": "a7a5ac9cfb9bfb880216e42b289ac80b71ea89172c58ca68c6e8f9c2f6e3bc31"
+        "src/main.rs": "661f734d85925fd55bc6a2c766c51ecb96db7937cd6c8a432137c4b089e9b533"
       }
     },
     "rightkit-app-icon": {

@@ -2,6 +2,8 @@
 
 ## 0.8.6
 
+- Share wallpaper reads, install-location/login-entry policy, forwarded-launch startup coordination, watchdog event logs, close decisions & startup renderer parking. Serialize forwarded opens with app binding & startup readiness; retain failed main-thread scheduling for retry.
+
 - Share Dock activation coordination, window motion & launch handoff. Wait for the host's native macOS close callback or Tauri's destruction event before revealing after retirement.
 
 ## 0.8.5

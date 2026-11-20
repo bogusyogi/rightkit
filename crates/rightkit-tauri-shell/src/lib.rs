@@ -31,6 +31,7 @@ pub mod background_update;
 pub mod broker;
 pub mod caller_gate;
 pub mod clipboard;
+pub mod close_policy;
 pub mod commands;
 pub mod consent;
 #[cfg(feature = "viewer")]
@@ -48,6 +49,7 @@ pub mod harden;
 pub mod host;
 pub mod hub_window;
 pub mod idle;
+pub mod install_location;
 pub mod launch_handoff;
 pub mod launch_origin;
 pub mod lifecycle;
@@ -76,10 +78,12 @@ pub mod print;
 pub mod quit;
 pub mod recovery;
 pub mod relaunch;
+pub mod single_instance_host;
 #[cfg(feature = "viewer")]
 pub mod site;
 pub mod startup_cache;
 pub mod startup_error;
+pub mod startup_park;
 #[cfg(feature = "viewer")]
 pub mod stream;
 pub mod surface;
@@ -87,7 +91,9 @@ pub mod tray;
 pub mod tray_state;
 #[cfg(feature = "update")]
 pub mod update;
+pub mod wallpaper;
 pub mod watchdog;
+pub mod watchdog_log;
 pub mod webview2_env;
 pub mod webview2_menu;
 pub mod window_motion;

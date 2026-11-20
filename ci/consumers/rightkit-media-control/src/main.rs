@@ -1,6 +1,8 @@
 use rightkit_media_control::{classify_post_observation, CommandOutcome, Observed};
 
 fn main() {
+    #[cfg(target_os = "macos")]
+    let _mac_backend = rightkit_media_control::mac::MacBackend::new;
     let paused = Observed {
         player: 1,
         playing: false,

@@ -49,7 +49,7 @@
     "@rightkit/platform-ui": "0.4.2",
     "@rightkit/qa": "0.7.0",
     "@rightkit/qa-chrome": "0.1.12",
-    "@rightkit/react-shell": "0.7.5",
+    "@rightkit/react-shell": "0.7.6",
     "@rightkit/release": "0.6.61",
     "@rightkit/send-ui": "0.1.0",
     "@rightkit/settings-ui": "0.7.4",
@@ -658,7 +658,7 @@
     "rightkit-mail-gateway": "0.1.0",
     "rightkit-mail-store": "0.2.1",
     "rightkit-mcp": "0.10.0",
-    "rightkit-media-control": "0.1.0",
+    "rightkit-media-control": "0.1.1",
     "rightkit-media-fetch": "0.2.0",
     "rightkit-media-gen": "0.2.3",
     "rightkit-media-gen-approvals": "0.1.2",
@@ -720,7 +720,7 @@
     "rightkit-system-monitor": "0.3.0",
     "rightkit-tauri-shell": "0.8.6",
     "rightkit-terminal-ui": "0.1.3",
-    "rightkit-text-polish": "0.1.2",
+    "rightkit-text-polish": "0.1.3",
     "rightkit-theme": "0.1.0",
     "rightkit-time": "0.1.4",
     "rightkit-timeline": "0.1.1",
@@ -1473,7 +1473,8 @@
       "0.2.0"
     ],
     "rightkit-text-polish": [
-      "0.1.1"
+      "0.1.1",
+      "0.1.2"
     ],
     "rightkit-dictation-ffi": [
       "0.2.0"
@@ -1502,6 +1503,9 @@
     ],
     "rightkit-dictation-command-host": [
       "0.3.0"
+    ],
+    "rightkit-media-control": [
+      "0.1.0"
     ]
   }
 }

@@ -81,7 +81,7 @@ try {
   await run('export-surface-exact-per-subpath-and-shared-platform-peer', async () => {
     assert.deepEqual(Object.keys(shell).sort(), rootSurface);
     assert.deepEqual(Object.keys(ui).sort(), reactSurface);
-    assert.deepEqual(Object.keys(headless).sort(), ['playTone', 'useSegmentedControl', 'useToggle']);
+    assert.deepEqual(Object.keys(headless).sort(), ['DEFAULT_SPLASH_STALL_SECS', 'featureReelControlState', 'featureReelReducedMotionChanged', 'focusConnectedOrPageDestination', 'focusPageDestination', 'initialFeatureAutoAdvance', 'initialFeatureReelPlayback', 'playTone', 'setFeatureReelTransientPause', 'shouldFeatureReelAutoAdvance', 'splashMessageForWait', 'toggleFeatureReelAutoAdvance', 'useFeatureReelPlayback', 'useHashRoute', 'useSegmentedControl', 'useSplashClock', 'useSplashStall', 'useSplashWallpaper', 'useTickingValue', 'useToggle']);
     assert.deepEqual(Object.keys(manifest.exports), ['.', './react', './headless', ...stylesheets.map(file => `./${file}`)]);
     assert.deepEqual(Object.keys(manifest.peerDependencies).sort(), ['@rightkit/platform-ui', '@tauri-apps/plugin-os', 'react', 'react-dom']);
     assert.equal(manifest.peerDependenciesMeta['@tauri-apps/plugin-os'].optional, true);
@@ -90,7 +90,7 @@ try {
     assert.equal(ui.rankCommands, platformHeadless.rankCommands);
     assert.equal(ui.useFocusTrap, platformHeadless.useFocusTrap);
     assert.throws(() => import.meta.resolve('@tauri-apps/plugin-os'), error => error.code === 'ERR_MODULE_NOT_FOUND', 'the optional OS plugin is not part of this installation');
-    return { rootExports: rootSurface.length, reactExports: reactSurface.length, headlessExports: 3, stylesheets: stylesheets.length };
+    return { rootExports: rootSurface.length, reactExports: reactSurface.length, headlessExports: 20, stylesheets: stylesheets.length };
   });
 
   await run('navigation-and-palette-selection-helpers', async () => {
