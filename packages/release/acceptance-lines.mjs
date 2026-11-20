@@ -29,7 +29,7 @@ import { createHash } from "node:crypto";
 import { enumerateRows } from "./acceptance-rows.mjs";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
-import { sidecarBoundCrate } from "./deterministic-scans.mjs";
+import { kindOf } from "./acceptance-launch.mjs";
 
 export const CONTRACT_FILE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "docs", "GATE-CONTRACT.md");
 const BEGIN = "<!-- acceptance-lines:begin -->"; const END = "<!-- acceptance-lines:end -->";
@@ -298,6 +298,7 @@ function runTree(launch, processes, witness) {
   if (!Number.isFinite(end)) gaps.push("the launcher never saw the run end, so the process record cannot be shown to cover it");
   else if (!(timeOf(witness.to) >= end)) gaps.push("the operating-system process record ends before the run did");
   // The log itself must have advanced past the run's end when it was read (its newest event), so events cannot be missing from the tail.
+  if (witness.continuous !== true) gaps.push("the process record does not show the Security log's records ran without a break across the run, so a lost start or exit is not ruled out");
   if (!Number.isFinite(timeOf(witness.newest))) gaps.push("the process record does not say how far the Security log had advanced when it was read");
   else if (Number.isFinite(end) && timeOf(witness.newest) < end) gaps.push("the Security log's newest event is older than the run's end, so events may not have been written yet");
   if (all.some((p) => !Number.isInteger(p.pid) || !Number.isInteger(p.ppid) || !Number.isFinite(p.start))) gaps.push("the process record holds a start with no usable process id, parent or time");
@@ -339,11 +340,12 @@ function jobOf(r) {
  * file. A row none of whose files changed between the two trees is owed reuse; a row with a changed, added or removed file is owed a rerun of exactly
  * those files' work. Returns Map id -> { id, stage, expect: "reuse"|"run", changed: [paths], priorFailed, isNew }.
  */
-function expectedRows(inventory, git, prior) {
+function expectedRows(inventory, git, prior, priorInventory = null) {
   const out = new Map();
   if (!inventory || typeof git?.priorBlobOf !== "function") return out;
   for (const [id, row] of inventory) {
-    const files = Array.isArray(row?.files) ? row.files.map((p) => String(p).replaceAll("\\", "/")) : [];
+    // A file a row read at the baseline and no longer exists is a change to it too: the files are those of both trees.
+    const files = [...new Set([...(Array.isArray(row?.files) ? row.files : []), ...(Array.isArray(priorInventory?.get(id)?.files) ? priorInventory.get(id).files : [])].map((p) => String(p).replaceAll("\\", "/")))];
     const changed = files.filter((p) => (git.blobOf(p) ?? null) !== (git.priorBlobOf(p) ?? null));
     const isNew = files.length > 0 && files.every((p) => (git.priorBlobOf(p) ?? null) === null);
     out.set(id, { id, stage: row?.stage === "B" ? "B" : "A", expect: changed.length || !files.length ? "run" : "reuse", changed: changed.length ? changed : (files.length ? [] : ["(no input files)"]), priorFailed: prior?.failedRows?.has(id) === true, isNew });
@@ -385,7 +387,7 @@ function nn01(ctx) {
     else if (j.gate?.snapshotUnchanged !== true) gaps.push(`broker job ${j.jobId}: the broker's receipt does not say whether the snapshot stayed unchanged`);
     if (j.cwd && ctx.snap.path && relToSnap(j.cwd, ctx.snap.path) === null) fails.push(`broker job ${j.jobId} built in ${j.cwd}, outside the snapshot ${ctx.snap.path}`);
   }
-  const clients = ctx.starts.filter((d) => programName(d.program) === "rustright" && d.args[0] === "cargo" && COMPILING.has(d.args[1]));
+  const clients = ctx.sends.filter((d) => COMPILING.has(d.args[1]));
   if (clients.length > ctx.jobs.length) gaps.push(`${clients.length} broker client compile start(s) and ${ctx.jobs.length} signed job(s): what the others built is not shown`);
   // Class A work is bound to the selected tree by the folder it ran in: a program that ran in another folder read another tree, and one whose folder
   // the record does not keep (Windows event 4688 has none) cannot be placed.
@@ -411,12 +413,13 @@ function nn02(ctx) {
   const failedRows = [...ctx.expected.values()].filter((e) => e.stage === "A" && e.expect === "reuse" && e.priorFailed).map((e) => e.id);
   const failedProgs = a.filter((d) => d.exit !== null && d.exit !== 0);
   const failed = failedRows.length > 0 || failedProgs.length > 0;
-  const rust = ctx.starts.filter((d) => programName(d.program) === "rustright");
+  const rust = ctx.rustStarts;
   const clients = rust.filter((d) => d.args[0] === "cargo");
   const probes = rust.filter((d) => !clients.includes(d));
   const unknownClient = probes.filter((d) => !(isProbe(d.args) || /^(quiet|verify-receipt|request-digest|status)$/.test(d.args[0] ?? "")));
   if (unknownClient.length) gaps.push(`${unknownClient.length} broker client start(s) that are not a send or a known probe (first: rustright ${unknownClient[0].args.slice(0, 2).join(" ")}), so whether they sent work is not shown`);
   gaps.push(...ctx.jobGaps);
+  if (!ctx.inventory || ctx.inventoryUncovered?.length) gaps.push("Class A rows that run in the gate's own process leave no program, so that none of them failed is not shown");
   if (failed) {
     if (ctx.jobs.length || clients.length) fails.push(`Class A failed (${failedRows[0] ?? programName(failedProgs[0].program)}) and ${ctx.jobs.length} broker job(s) / ${clients.length} broker client start(s) still followed`);
     return decide(fails, gaps, `Class A failed (${failedRows.slice(0, 2).join(", ") || programName(failedProgs[0].program)}) and nothing went to the broker`);
@@ -425,11 +428,6 @@ function nn02(ctx) {
   for (const e of ctx.expected.values()) if (e.stage === "A" && e.expect === "run" && !workOf(ctx, e.id).did && toolOf(e.id)) gaps.push(`${e.id} is owed a Class A run and no program of it was seen, so when Class A finished is not shown`);
   const aEnd = Math.max(-Infinity, ...a.map((d) => d.end ?? Infinity));
   if (a.some((d) => d.end === null)) gaps.push("a Class A program has no recorded exit, so when Class A finished is not shown");
-  for (const j of ctx.vjobs) {
-    const named = typeof j.gate?.classA === "string" ? j.gate.classA : null;
-    if (named === null) gaps.push(`broker job ${j.jobId}: its signed receipt names no Class A verdict, so what admitted it is not shown`);
-    else { const t = ctx.verdictTimes?.get(named); if (!Number.isFinite(t)) gaps.push(`broker job ${j.jobId}: the Class A verdict it names (${path.basename(named)}) was not observed on disk`); else if (t < timeOf(ctx.launch?.startedAt)) fails.push(`broker job ${j.jobId} was admitted on a Class A verdict (${path.basename(named)}) written before this run began`); }
-  }
   for (const j of ctx.jobs) {
     if (!Number.isFinite(j.submitted)) { gaps.push(`broker job ${j.jobId}: its receipt gives no time`); continue; }
     if (j.submitted < aEnd) fails.push(`broker job ${j.jobId} was submitted before Class A finished`);
@@ -468,7 +466,8 @@ function nn03(ctx) {
     points.forEach((t, i) => { const next = points[i + 1] ?? d.at; const busy = a.filter((o) => o !== d && o.at <= t && o.end > t).length; if (busy < lanes) idle += next - t; });
     if (idle > 0) fails.push(`${programName(d.program)} waited ${Math.round(d.at - firstReady)} ms, ${Math.round(idle)} ms of it with a lane free of ${lanes}`);
   }
-  if (!ctx.readiness) gaps.push("when each Class A row became ready is not shown by any evidence outside the gate, so a row that waited before the first program started is not ruled out");
+  if (!a.every((d) => ready(d) !== null)) gaps.push("when each Class A row became ready is not shown by any evidence outside the gate for every program that started, so a row that waited before it started is not ruled out");
+  for (const e of owedA) if (toolOf(e.id) && !workOf(ctx, e.id).did) gaps.push(`${e.id} is owed a Class A run and no program of it started, so how long it waited is not shown`);
   gaps.push(...(ctx.launch?.lanesSource ? [] : ["the launcher's record does not say where its lane count came from"]));
   return decide(fails, gaps, `${a.length} Class A program(s); none waited while a lane of ${lanes} was free`);
 }
@@ -503,7 +502,10 @@ function nn05(ctx) {
     if (extra.length) fails.push(`broker job ${j.jobId} also builds ${extra.join(", ")}, which no owed row needs`);
   }
   // A mismatch is a fail above; that the gate stopped and named the row and its cause is not shown by evidence the gate does not write, and matters only then.
-  return decide(fails, gaps, `the work that ran is the ${owed.size} row(s) owed, no more, and nothing owed reuse did work`);
+  // The work can match the record whether or not the lookup agreed with it (a gate that went on despite a disagreement can do exactly the owed work): a pass
+  // needs evidence of the lookup, and none exists outside the gate, so the line can fail here and cannot pass.
+  if (!fails.length) gaps.push("that the lookup agreed with the record, rather than disagreed and the gate went on, is not shown by evidence the gate does not write");
+  return decide(fails, gaps, "");
 }
 
 function nn06(ctx) {
@@ -521,6 +523,8 @@ function nn06(ctx) {
   // A reused failure stays a failure: the previous launched run's own evidence says the row failed, and this run cannot end green over it.
   if (reuse.length && !ctx.prior) gaps.push("the previous launched run's evidence is not available, so whether an unchanged row failed before is not shown");
   const failures = reuse.filter((e) => e.priorFailed);
+  const otherRed = classAStarts(ctx).some((d) => d.exit !== null && d.exit !== 0);
+  if (failures.length && Number.isInteger(ctx.exit) && ctx.exit !== 0 && otherRed) gaps.push(`${failures[0].id} failed in the previous launched run and is unchanged, and the run ended red, but a Class A program of another row also failed, so that the reused failure kept it red is not shown`);
   if (failures.length) { if (!Number.isInteger(ctx.exit)) gaps.push("the run's exit is not known"); else if (ctx.exit === 0) fails.push(`${failures[0].id} failed in the previous launched run and is unchanged, and the run exited 0`); }
   const inProcess = reuse.filter((e) => !toolOf(e.id) && !isBrokerRow(e.id));
   if (inProcess.length) gaps.push(`${inProcess.length} unchanged row(s) run in the gate's own process (first: ${inProcess[0].id}), so that none reran is not shown by any program or signed job`);
@@ -562,10 +566,15 @@ function nn08(ctx) {
     calls.push({ ...callOf(d, { args: p.args }), parent: ctx.parentKey(p), cwdKnown: p.cwd !== null });
   });
   const groups = new Map();
-  for (const c of calls) { const k = JSON.stringify([c.name, c.path, c.args, c.cwdKnown ? c.cwd : null]); (groups.get(k) ?? groups.set(k, []).get(k)).push(c); }
-  const repeats = [...groups.values()].filter((g) => g.length > 1);
+  for (const c of calls) { const k = JSON.stringify([c.name, c.args]); (groups.get(k) ?? groups.set(k, []).get(k)).push(c); }
+  // Two calls are distinct only when their programs differ, or both folders are known and differ. An unknown folder on either side leaves them possibly the
+  // same call, which is reported as a repeat (never as distinct).
+  const same = (a, b) => sameProgram(a, b) && !(a.cwdKnown && b.cwdKnown && a.cwd !== b.cwd);
+  const repeats = [];
+  for (const g of groups.values()) { const dup = g.filter((c, i) => g.some((o, j) => j !== i && same(o, c))); if (dup.length > 1) repeats.push(dup); }
+  if (ctx.procs.some((p) => p.args.some((a) => /^\.\.\. \d+ args$/.test(String(a))))) unclear += 1;
   // A wrapper with no child shows only what it was written as: if that is the same call as another start, it is a repeat; otherwise it cannot be compared.
-  for (const w of wrapped) { const same = calls.find((c) => sameProgram(c, w) && JSON.stringify(c.args) === JSON.stringify(w.args)); if (same) repeats.push([same, { ...w, name: `${w.name} (written again through cmd /c)` }]); else unclear += 1; }
+  for (const w of wrapped) { const same = calls.find((c) => sameProgram(c, w) && JSON.stringify(c.args) === JSON.stringify(w.args) && !(c.cwdKnown && w.cwdKnown && c.cwd !== w.cwd)); if (same) repeats.push([same, { ...w, name: `${w.name} (written again through cmd /c)` }]); else unclear += 1; }
   if (unclear) gaps.push(`${unclear} start(s) are command lines with no child to show what they ran, so they cannot be compared`);
   // Without a folder (Windows event 4688 records none) calls compare by program and arguments: that finds more repeats, never fewer.
   const how = ctx.procs.some((p) => p.cwd === null) ? " (compared by program and arguments: the record keeps no folder)" : "";
@@ -581,13 +590,14 @@ function nn10(ctx) {
   if (ctx.jobs.some((j) => !j.argv)) gaps.push("a broker job's signed receipt names no command, so whether it was a test build is not shown");
   const tests = ctx.jobs.filter((j) => j.sub === "test");
   // Every test request the process record saw go to the broker needs its own signed job.
-  const requested = ctx.starts.filter((d) => programName(d.program) === "rustright" && d.args[0] === "cargo" && d.args[1] === "test");
+  const requested = ctx.sends.filter((d) => d.args[1] === "test");
   if (requested.length > tests.length) gaps.push(`${requested.length} test request(s) went to the broker and ${tests.length} signed test job(s) exist: a request with no receipt is not shown to be compile only`);
   if (!tests.length) return decide(fails, gaps, "the broker built no test and no cargo test ran outside it");
   let programs = 0; const claims = new Map();
   for (const j of tests) {
     const what = `broker job ${j.jobId ?? path.basename(j.file)}`;
     if (!j.verified) { (ctx.verifierPinned ? fails : gaps).push(`${what}: its receipt ${ctx.verifierPinned ? "does not verify" : "cannot be verified: no broker key is pinned"}`); continue; }
+    if (!Array.isArray(j.testExecutables) && typeof j.testExecutablesReason === "string") { gaps.push(`${what}: the receipt gives a reason string and no program list, which is not proof the broker only compiled and produced nothing`); continue; }
     if (!Array.isArray(j.testExecutables) && typeof j.testExecutablesReason !== "string") { fails.push(`${what}: the signed receipt does not show a compile only (no testExecutables), so the broker may have run the tests`); continue; }
     if (Array.isArray(j.testExecutables) && !j.testExecutables.length && typeof j.testExecutablesReason !== "string") gaps.push(`${what}: the receipt lists no test program and gives no reason, so that the gate had nothing to run is not shown`);
     for (const exe of Array.isArray(j.testExecutables) ? j.testExecutables : []) {
@@ -602,6 +612,8 @@ function nn10(ctx) {
       if (claimed && claimed !== j.jobId) { fails.push(`${what}: ${path.basename(file)} is also listed by broker job ${claimed}, and its launch is credited to that receipt only`); continue; }
       claims.set(dirKey(file), j.jobId);
       // Execution after production: a launch before the broker finished the build ran something else.
+      if (!Number.isFinite(j.ended)) gaps.push(`${what}: the receipt gives no end time, so that ${path.basename(file)} ran after it was built is not shown`);
+      else if (ran.some((p) => p.start === j.ended)) gaps.push(`${what}: ${path.basename(file)} started at the very moment the build ended, so which came first is not shown`);
       if (Number.isFinite(j.ended) && ran.some((p) => p.start < j.ended)) fails.push(`${what}: ${path.basename(file)} was started before the broker finished building it (job ended ${new Date(j.ended).toISOString()})`);
       // The image at execution: the file's digest now equals the signed digest, and the file was last written before the launch and not since, so what ran is what the broker built.
       const img = typeof ctx.digestOf === "function" ? ctx.digestOf(file) : null;
@@ -621,12 +633,12 @@ function nn11(ctx) {
   const startMono = /^\d+$/.test(String(launch?.startMono ?? "")) ? BigInt(launch.startMono) : null; const endMono = /^\d+$/.test(String(launch?.endMono ?? "")) ? BigInt(launch.endMono) : null;
   const limitMs = Number(launch?.limitMs);
   // The budget is selected by what was run, not by a label: the kind must be the stage the launched gate was asked for.
-  const asked = Array.isArray(launch?.gate?.args) ? launch.gate.args[launch.gate.args.indexOf("--to") + 1] ?? null : null;
+  const asked = Array.isArray(launch?.gate?.args) ? kindOf(launch.gate.args) : null;
   if (launch?.kind !== undefined && asked !== null && launch.kind !== asked) return result(NOT_MEASURED, `the run kind ${JSON.stringify(launch.kind)} does not match the stage the gate was asked for (--to ${asked}), so the pinned limit is not this run's`);
   if (startMono === null) return result(NOT_MEASURED, "the launcher's record has no start on its monotonic clock");
   if (!Number.isFinite(limitMs) || limitMs <= 0) return result(NOT_MEASURED, `no time limit was pinned at launch for ${launch?.host ?? "this host"} and run kind ${launch?.kind ?? "(none)"}`);
   // Programs the run owns that outlive the gate count too (Council CV-1 F-29), on the wall clock of the process record.
-  const lastProg = Math.max(-Infinity, ...ctx.procs.map((p) => p.end ?? -Infinity));
+  const lastProg = Math.max(-Infinity, ...[ctx.root, ...ctx.procs].filter(Boolean).map((p) => p.end ?? -Infinity));
   const earlyBy = ctx.root && Number.isFinite(ctx.root.start) ? Math.max(0, timeOf(launch.startedAt) - ctx.root.start) : 0;
   // An owned program still open is counted up to the end of the process record: the run lasted at least that long.
   const openLower = Math.max(-Infinity, ...ctx.procs.filter((p) => p.end === null).map((p) => timeOf(ctx.witnessTo) - timeOf(launch.startedAt)));
@@ -640,36 +652,58 @@ function nn11(ctx) {
   return result(PASS, `${(took / 1000).toFixed(1)} s on the launcher's clock, limit ${(limitMs / 1000).toFixed(1)} s pinned at launch`);
 }
 
+const after2 = (next, ctx) => timeOf(next?.launch?.startedAt) >= timeOf(ctx.launch?.endedAt ?? ctx.launch?.startedAt);
 function nn12(ctx) {
   const { live } = ctx;
   if (!live) return result(NOT_MEASURED, "what was left behind is judged right after the run ends (--live)");
+  // What the launcher saw the moment the gate exited (before anything could clear it): no lock and no gate process left.
+  const after = ctx.launch?.afterRun;
+  if (!after || !Array.isArray(after.locks) || !Number.isFinite(timeOf(after.observedAt))) return result(NOT_MEASURED, "the launcher recorded no observation of locks and the gate process at the moment the run ended, so what was left behind is not shown");
+  if (after.locks.length) return result(FAIL, `the lock ${after.locks[0]} was still there when the run ended`);
+  if (after.rootAlive === true) return result(FAIL, "the gate process was still alive when the launcher saw the run end");
   // The snapshot lock is looked for in the snapshot root the launcher recorded, not inferred from broker work (a run with no broker job has one too).
   const locks = typeof live.locksIn === "function" && ctx.launch?.snapshotsRoot ? live.locksIn(ctx.launch.snapshotsRoot) : null;
   if (locks === null && !ctx.snap.path) return result(NOT_MEASURED, "neither the launcher's snapshot root nor a broker job names where the snapshot lock lives, so it cannot be looked for");
   if (locks && locks.length) return result(FAIL, `the lock ${locks[0]} is still there after the run`);
   if (ctx.snap.path && live.exists(`${ctx.snap.path}.lock`)) return result(FAIL, `the lock ${ctx.snap.path}.lock is still there after the run`);
-  if (ctx.processGaps.length) return result(NOT_MEASURED, `the run's programs cannot all be shown gone: ${ctx.processGaps[0]}`);
   const rootProc = ctx.root ? [ctx.root] : [];
   const alive = [...rootProc, ...ctx.procs].filter((p) => live.alive(p.pid, p.start));
   if (alive.length) return result(FAIL, `${alive.length} program(s) the run started are still alive: ${alive.slice(0, 5).map((p) => `${programName(p.exe)} ${p.pid}`).join(", ")}`);
+  if (ctx.processGaps.length) return result(NOT_MEASURED, `the run's programs cannot all be shown gone: ${ctx.processGaps[0]}`);
   if (!Number.isInteger(ctx.exit) || ctx.exit !== 0) {
     // A run that did not end normally passes only on the next ordinary run: its launcher took this run's lock over and named it, and it ended 0.
     const next = ctx.successor; const prev = next?.launch?.previous;
-    const after = timeOf(next?.launch?.startedAt) >= timeOf(ctx.launch?.endedAt ?? ctx.launch?.startedAt);
-    if (next && prev?.runId === ctx.launch?.runId && (prev.reclaimed === true || prev.fromLastRun === true) && after && next.launch?.exit === 0 && next.launch?.host === ctx.launch?.host) return result(PASS, `the run ended with ${ctx.exit ?? ctx.launch?.signal ?? "no exit"}; the next ordinary run took it over and ended 0, and nothing was left behind`);
+    const ordinary = (a) => Array.isArray(a) && a.slice(1).every((x, i, all) => (i % 2 === 0 ? ["--to", "--commit"].includes(x) : !String(all[i - 1] ?? "").startsWith("-") || true));
+    const sameStore = next?.launch?.snapshotsRoot && next.launch.snapshotsRoot === ctx.launch?.snapshotsRoot;
+    if (next && prev?.runId === ctx.launch?.runId && (prev.reclaimed === true || prev.fromLastRun === true) && after2(next, ctx) && next.launch?.exit === 0 && next.launch?.host === ctx.launch?.host && sameStore && ordinary(next.launch?.gate?.args)) return result(PASS, `the run ended with ${ctx.exit ?? ctx.launch?.signal ?? "no exit"}; the next ordinary run took it over and ended 0, and nothing was left behind`);
     return result(NOT_MEASURED, `the run ended with ${ctx.exit ?? ctx.launch?.signal ?? "no exit"}; that the next ordinary run starts safely by itself needs that run's record (--successor)`);
   }
   return result(PASS, "no lock and no program of the run left behind");
 }
 
 
+/** Text with its comments removed (block, line and hash comments), so a declaration that is commented out is not read as active. */
+const withoutComments = (t) => String(t).replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:"'\w])\/\/.*$/gm, "$1").replace(/(^|\s)#.*$/gm, "$1");
+/** Whether a crate folder of the selected tree declares a sidecar (an active externalBin in its Tauri configuration). Returns { bound, file }. */
+function sidecarBound(read, dir) {
+  for (const base of [dir, `${dir}/src-tauri`]) {
+    for (const name of ["tauri.conf.json", "tauri.conf.json5", "Tauri.toml"]) {
+      const file = `${base}/${name}`; let body;
+      try { body = read(file); } catch { continue; }
+      try { const conf = JSON.parse(body); const list = conf?.bundle?.externalBin ?? conf?.tauri?.bundle?.externalBin; if (Array.isArray(list) && list.length) return { bound: true, file }; continue; } catch { /* not strict JSON: read the text */ }
+      if (/(^|[\s{,"'])externalBin["']?\s*[:=]\s*\[\s*["']/.test(withoutComments(body))) return { bound: true, file };
+    }
+  }
+  return { bound: false };
+}
 function nn09(ctx) {
   // The compiles are the broker's signed jobs (argv, workspace, times); a broker client start with no signed job is a compile not shown.
   const fails = []; const gaps = [];
   const unverified = ctx.jobs.filter((j) => !j.verified); if (unverified.length) (ctx.verifierPinned ? fails : gaps).push(`${unverified.length} broker job(s) whose receipt ${ctx.verifierPinned ? "does not verify" : "cannot be verified: no broker key is pinned"}`);
   const compiles = ctx.jobs.filter((j) => j.verified && j.sub && COMPILING.has(j.sub)).map((j) => ({ ...j, at: j.submitted }));
-  const clients = ctx.starts.filter((d) => programName(d.program) === "rustright" && d.args[0] === "cargo" && COMPILING.has(d.args[1]));
+  const clients = ctx.sends.filter((d) => COMPILING.has(d.args[1]));
   if (clients.length > ctx.jobs.length) gaps.push(`${clients.length} broker client compile start(s) and only ${ctx.jobs.length} signed job(s), so a compile may be missing`);
+  gaps.push(...ctx.foreignGaps);
   gaps.push(...ctx.processGaps.map((g) => `that every compile has its signed job cannot be shown: ${g}`));
   if (ctx.jobs.some((j) => !j.argv)) gaps.push("a broker job's signed receipt names no command, so what it built is not shown");
   if (!compiles.length) return decide(fails, gaps, "nothing was compiled by the broker");
@@ -734,7 +768,7 @@ function nn09(ctx) {
       let dir = null;
       for (const d of dirs) { const rel = [ws, d].filter(Boolean).join("/"); try { if (packageName(treeText(`${rel ? `${rel}/` : ""}Cargo.toml`)) === crate) { dir = rel; break; } } catch { /* not this member */ } }
       if (dir === null) out = { unknown: `no member of ${ws || "."}/Cargo.toml at the run's tree is package ${crate}` };
-      else { const b = sidecarBoundCrate({ dir, exists: (p) => { try { treeText(p); return true; } catch { return false; } }, readFile: treeText }); out = b.bound ? { bound: true, file: String(b.file).replaceAll("\\", "/") } : { bound: false }; }
+      else { const b = sidecarBound(treeText, dir); out = b.bound ? { bound: true, file: String(b.file).replaceAll("\\", "/") } : { bound: false }; }
     } catch (e) { out = { unknown: `${ws || "."}/Cargo.toml at the run's tree cannot be read (${e.message})` }; }
     boundMemo.set(key, out); return out;
   };
@@ -772,6 +806,8 @@ function nn09(ctx) {
   else for (const c of compiles) {
     const first = compiles.reduce((a, b) => (b.submitted < a.submitted ? b : a)); const late = c.submitted - first.submitted;
     if (c !== first && late > 250 && !compiles.some((o) => o !== c && o.ended <= c.submitted)) gaps.push(`broker job ${c.jobId} was submitted ${Math.round(late)} ms after the first while it ran; whether it waited for capacity or was held back is not shown`);
+    const behind = compiles.find((o) => o !== c && Number.isFinite(c.started) && c.started >= o.ended && o.started < c.started);
+    if (behind && c.queueMs !== null && c.queueMs <= 0) gaps.push(`broker job ${c.jobId} started only after job ${behind.jobId} ended with no queue wait signed, so whether the gate held it back or the broker had no capacity is not shown`);
     const before = compiles.find((o) => o !== c && o.ended <= c.submitted); if (before) fails.push(`broker job ${c.jobId} (cargo ${c.sub} ${cratesOf(c).join(" ")}) was submitted only after job ${before.jobId} ended, so independent groups did not run together`); }
   return decide(fails, gaps, `${compiles.length} compile command(s) in ${groups.size} group(s), one per workspace and stage${justified.length ? ` (split: ${justified.join("; ")})` : ""}, all submitted together`);
 }
@@ -804,23 +840,34 @@ function snapshotOf(jobs, readTree) {
  * (NN12),
  * `digestOf(file)` (NN10). Returns { lines: [{ id, text, verdict, why }], pass, failed, notMeasured }.
  */
-export function judgeRun({ lines, launch = null, processes = null, witness = null, receipts = [], inventory = null, inventoryUncovered = [], prior = null, readiness = null, verdictTimes = null, git = null, live = null, successor = null, verifierPinned = false, digestOf = null } = {}) {
+export function judgeRun({ lines, launch = null, processes = null, witness = null, receipts = [], inventory = null, priorInventory = null, inventoryUncovered = [], prior = null, readiness = null, git = null, live = null, successor = null, verifierPinned = false, digestOf = null } = {}) {
   const unlinked = Array.isArray(lines) ? linkProblems(lines) : ["no lines were given: read them from the contract with readAcceptanceLines"];
   if (unlinked.length) throw Object.assign(new Error(`the contract and the acceptance test do not match: ${unlinked.join("; ")}`), { problems: unlinked });
   const g = git ?? { tree: null, blobOf: () => null, readTree: () => { throw new Error("no git reader was given (--repo)"); } };
   const tree = runTree(launch, processes, witness);
   const start = timeOf(launch?.startedAt); const end = timeOf(launch?.endedAt);
   const jobsAll = (receipts ?? []).map(jobOf);
-  const jobs = jobsAll.filter((j) => !Number.isFinite(j.submitted) || ((!Number.isFinite(start) || j.submitted >= start) && (!Number.isFinite(end) || j.submitted <= end)));
+  const inWindow = jobsAll.filter((j) => !Number.isFinite(j.submitted) || ((!Number.isFinite(start) || j.submitted >= start) && (!Number.isFinite(end) || j.submitted <= end)));
+  const startsAll = tree.procs.map((p) => ({ ...decodeStart({ cmd: p.exe, args: p.args, cwd: p.cwd ?? "" }), at: p.start, end: p.end, exit: p.exit }));
+  const hasChild = (p) => /(^|[\\/])cmd\.exe$/i.test(p.exe) && tree.procs.some((c) => c !== p && c.ppid === p.pid && c.start >= p.start && (p.end === null || c.start <= p.end));
+  const rustStarts = startsAll.filter((d, i) => programName(d.program) === "rustright" && !hasChild(tree.procs[i]));
+  const sends = rustStarts.filter((d) => d.args[0] === "cargo");
+  // One job to one send: the same command, and the same folder where both are known. A job no send of this run's tree matches is not shown to be this run's.
+  const claimed = new Set(); const jobs = []; const foreign = [];
+  for (const j of [...inWindow].sort((a, b) => (a.submitted || 0) - (b.submitted || 0))) {
+    const key = j.argv ? j.argv.join("\u0000") : null;
+    const hit = key === null ? null : sends.find((d) => !claimed.has(d) && d.args.slice(1).join("\u0000") === key && (!d.cwd || !j.cwd || dirKey(d.cwd) === dirKey(j.cwd)));
+    if (hit) { claimed.add(hit); jobs.push(j); } else foreign.push(j);
+  }
   const ctx = {
     launch, witnessTo: witness?.to ?? null, commit: launch?.commit ?? null, tree: g.tree,
-    vjobs: jobs.filter((j) => j.verified), jobGaps: jobs.filter((j) => !j.verified).map((j) => `broker job ${j.jobId ?? path.basename(j.file)} is not credited: its receipt ${verifierPinned ? `does not verify (${j.problems.join("; ") || "no reason given"})` : "cannot be verified, no broker key is pinned"}`),
-    inventory: inventory ? new Map(inventory) : null, inventoryUncovered, verdictTimes, readiness, prior,
-    baselineGap: !launch?.baseline?.commit ? "the launcher has no earlier launched run to take a baseline commit from, so what changed since cannot be shown" : typeof g.priorBlobOf !== "function" ? "git cannot show the baseline commit's tree" : null, exit: Number.isFinite(end) && Number.isInteger(launch?.exit) ? launch.exit : null,
-    root: tree.root, procs: tree.procs, processGaps: tree.gaps, starts: tree.procs.map((p) => ({ ...decodeStart({ cmd: p.exe, args: p.args, cwd: p.cwd ?? "" }), at: p.start, end: p.end, exit: p.exit })),
+    rustStarts, sends, vjobs: jobs.filter((j) => j.verified), foreignGaps: foreign.map((j) => `broker job ${j.jobId ?? path.basename(j.file)} is not shown to be this run's: no send of the run's own process tree has its command and folder`), jobGaps: [...foreign.map((j) => `broker job ${j.jobId ?? path.basename(j.file)} is not shown to be this run's: no send of the run's own process tree has its command and folder`), ...jobs.filter((j) => !j.verified).map((j) => `broker job ${j.jobId ?? path.basename(j.file)} is not credited: its receipt ${verifierPinned ? `does not verify (${j.problems.join("; ") || "no reason given"})` : "cannot be verified, no broker key is pinned"}`)],
+    inventory: inventory ? new Map(inventory) : null, inventoryUncovered, readiness, prior,
+    baselineGap: !launch?.baseline?.commit ? "the launcher has no earlier launched run to take a baseline commit from, so what changed since cannot be shown" : launch.baseline.exit !== 0 ? "the previous launched run did not end cleanly, so its state is not a baseline" : typeof g.priorBlobOf !== "function" ? "git cannot show the baseline commit's tree" : null, exit: Number.isFinite(end) && Number.isInteger(launch?.exit) ? launch.exit : null,
+    root: tree.root, procs: tree.procs, processGaps: tree.gaps, starts: startsAll,
     parentKey: (p) => { const parent = [tree.root, ...tree.procs].find((q) => q && q.pid === p.ppid && q.start <= p.start); return parent ? `${programName(parent.exe)}#${parent.start}` : "?"; },
     jobs, verifierPinned, snap: { path: snapshotOf(jobs, g.readTree) }, readTree: g.readTree,
-    expected: expectedRows(inventory ? new Map(inventory) : null, g, prior),
+    expected: expectedRows(inventory ? new Map(inventory) : null, g, prior, priorInventory ? new Map(priorInventory) : null),
     live, successor, digestOf,
   };
   const judged = lines.map(({ id, text: sentence }) => { let r; try { r = JUDGES[id](ctx); } catch (e) { r = result(FAIL, `the check itself failed: ${e.message}`); } return { id, text: sentence, verdict: r.verdict, why: r.why }; });
@@ -852,14 +899,17 @@ export function readRunDir(dir, { repo = null, receiptsDir = null, verify = null
     return out;
   };
   const receipts = receiptsOf(receiptsDir, receiptsBefore);
-  const given = (() => { const j = inventoryFile ? json(inventoryFile) : null; return j ? new Map(Object.entries(j)) : null; })();
-  let inventory = given; let inventoryUncovered = given ? [] : null;
+  // An inventory handed in names the kinds it does not cover ({ rows, uncovered }); one that does not is of unknown provenance.
+  const givenDoc = inventoryFile ? json(inventoryFile) : null;
+  const given = givenDoc ? new Map(Object.entries(givenDoc.rows ?? givenDoc)) : null;
+  let inventory = given; let inventoryUncovered = given ? (Array.isArray(givenDoc.uncovered) ? givenDoc.uncovered : ["the inventory's provenance and the kinds it does not cover are not stated"]) : null; let priorInventory = null;
   let git = null; let prior = null;
   if (repo && launch?.commit) {
     const run = (...a) => execFileSync("git", ["-C", repo, ...a], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], windowsHide: true, maxBuffer: 256 * 1024 * 1024 });
     const blobsOf = (commit) => { try { const tree = run("rev-parse", `${commit}^{tree}`).trim(); const m = new Map(); for (const l of run("ls-tree", "-r", "-z", tree).split("\0")) { const x = /^\d+ blob ([0-9a-f]+)\t(.+)$/.exec(l); if (x) m.set(x[2], x[1]); } return { tree, m }; } catch { return null; } };
     const sel = blobsOf(launch.commit); const base = launch.baseline?.commit ? blobsOf(launch.baseline.commit) : null;
     // The test's own enumeration of the selected tree (acceptance-rows.mjs): the rows a tree states, and the kinds only gate code decides.
+    if (base && !given) priorInventory = enumerateRows({ files: base.m, read: (p) => run("cat-file", "-p", `${base.tree}:${p}`) }).rows;
     if (sel && !given) { const e = enumerateRows({ files: sel.m, read: (p) => run("cat-file", "-p", `${sel.tree}:${p}`) }); inventory = e.rows; inventoryUncovered = e.uncovered; }
     if (sel) git = { tree: sel.tree, blobOf: (p) => sel.m.get(String(p).replaceAll("\\", "/")) ?? null, priorBlobOf: base ? (p) => base.m.get(String(p).replaceAll("\\", "/")) ?? null : undefined, readTree: (p) => { const t = run("cat-file", "-p", `${sel.tree}:${p}`); try { return JSON.parse(t); } catch { return t; } } };
   }
@@ -871,7 +921,7 @@ export function readRunDir(dir, { repo = null, receiptsDir = null, verify = null
     for (const p of pp ?? []) for (const [id] of inventory) { const tool = toolOf(id); if (tool && programName(p.exe) === tool && p.exit !== null && p.exit !== 0 && !isProbe(p.args)) failed.add(id); }
     prior = { failedRows: failed, runId: prevLaunch?.runId ?? null };
   }
-  return { launch, processes, witness: proc ? { kind: proc.kind, from: proc.from, to: proc.to, newest: proc.newest, problems: proc.problems ?? [] } : null, receipts, inventory, inventoryUncovered, prior, git };
+  return { launch, processes, witness: proc ? { kind: proc.kind, from: proc.from, to: proc.to, newest: proc.newest, continuous: proc.continuous === true, problems: proc.problems ?? [] } : null, receipts, inventory, priorInventory, inventoryUncovered, prior, git };
 }
 
 // ---- command line -----------------------------------------------------------------------------------------------------------------------------------

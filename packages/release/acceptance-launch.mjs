@@ -32,12 +32,25 @@ export function takeLaunchLock(file, holder, { isAlive = alive, fsApi = fs } = {
   if (create()) return { previous: null };
   let held = null; try { held = JSON.parse(fsApi.readFileSync(file, "utf8")); } catch { held = null; }
   if (held && isAlive(held.pid)) return { refused: `run ${held.runId} (pid ${held.pid}) holds ${file}` };
-  // A dead holder: one rename moves it aside, and a rename can succeed once, so exactly one launcher takes over; the others find no lock to move.
-  const aside = `${file}.dead.${holder.runId}`;
-  try { fsApi.renameSync(file, aside); } catch (e) { if (e.code === "ENOENT") return { refused: `another launcher took over ${file}` }; throw e; }
-  let dead = null; try { dead = JSON.parse(fsApi.readFileSync(aside, "utf8")); } catch { dead = null; }
-  if (!create()) return { refused: `another launcher took ${file} after the dead holder was moved aside` };
-  return { previous: dead ? { runId: dead.runId ?? null, out: dead.out ?? null, pid: dead.pid ?? null, reclaimed: true } : { runId: null, out: null, pid: null, reclaimed: true, unreadable: true } };
+  // A dead holder. Validation, takeover and release are serialized by a guard file that one contender holds: a second contender that finds the guard taken is
+  // refused, and the holder is read again under the guard (it may have been replaced by a live run since it was first looked at).
+  const guard = `${file}.takeover`;
+  const takeGuard = () => { try { fsApi.writeFileSync(guard, `${JSON.stringify({ runId: holder.runId, pid: holder.pid })}\n`, { flag: "wx" }); return true; } catch (e) { if (e.code !== "EEXIST") throw e; return false; } };
+  if (!takeGuard()) {
+    let g = null; try { g = JSON.parse(fsApi.readFileSync(guard, "utf8")); } catch { g = null; }
+    if (g && isAlive(g.pid)) return { refused: `another launcher (run ${g.runId}) is taking over ${file}` };
+    try { fsApi.rmSync(guard, { force: true }); } catch { /* another contender removed it */ }
+    if (!takeGuard()) return { refused: `another launcher is taking over ${file}` };
+  }
+  try {
+    let now = null; try { now = JSON.parse(fsApi.readFileSync(file, "utf8")); } catch { now = null; }
+    if (now && isAlive(now.pid)) return { refused: `run ${now.runId} (pid ${now.pid}) holds ${file}` };
+    const aside = `${file}.dead.${holder.runId}`;
+    try { fsApi.renameSync(file, aside); } catch (e) { if (e.code === "ENOENT") return { refused: `another launcher took over ${file}` }; throw e; }
+    let dead = null; try { dead = JSON.parse(fsApi.readFileSync(aside, "utf8")); } catch { dead = null; }
+    if (!create()) return { refused: `another launcher took ${file} after the dead holder was moved aside` };
+    return { previous: dead ? { runId: dead.runId ?? null, out: dead.out ?? null, pid: dead.pid ?? null, reclaimed: true } : { runId: null, out: null, pid: null, reclaimed: true, unreadable: true } };
+  } finally { try { fsApi.rmSync(guard, { force: true }); } catch { /* released */ } }
 }
 
 /**
@@ -62,12 +75,16 @@ export function exportWindowsProcesses(from, to, { run = execFileSync } = {}) {
   const ps = `$ErrorActionPreference='Stop'; $from=[datetime]::Parse('${from}').ToLocalTime(); $to=[datetime]::Parse('${to}').ToLocalTime();
 $oldest=(Get-WinEvent -LogName Security -MaxEvents 1 -Oldest).TimeCreated.ToUniversalTime().ToString('o');
 $newest=(Get-WinEvent -LogName Security -MaxEvents 1).TimeCreated.ToUniversalTime().ToString('o');
-$ev=@(Get-WinEvent -FilterHashtable @{LogName='Security'; Id=4688,4689; StartTime=$from; EndTime=$to} -ErrorAction SilentlyContinue | ForEach-Object { $x=[xml]$_.ToXml(); $d=@{}; foreach($n in $x.Event.EventData.Data){ $d[$n.Name]=$n.'#text' }; [pscustomobject]@{ id=$_.Id; time=$_.TimeCreated.ToUniversalTime().ToString('o'); data=$d } });
-[pscustomobject]@{ oldest=$oldest; newest=$newest; events=$ev } | ConvertTo-Json -Depth 5 -Compress`;
+$all=@(Get-WinEvent -FilterHashtable @{LogName='Security'; StartTime=$from; EndTime=$to} -ErrorAction SilentlyContinue);
+$ids=@($all | ForEach-Object { $_.RecordId } | Sort-Object);
+$continuous=($ids.Count -le 1) -or (($ids[-1] - $ids[0] + 1) -eq $ids.Count);
+$ev=@($all | Where-Object { $_.Id -eq 4688 -or $_.Id -eq 4689 } | ForEach-Object { $x=[xml]$_.ToXml(); $d=@{}; foreach($n in $x.Event.EventData.Data){ $d[$n.Name]=$n.'#text' }; [pscustomobject]@{ id=$_.Id; time=$_.TimeCreated.ToUniversalTime().ToString('o'); data=$d } });
+[pscustomobject]@{ oldest=$oldest; newest=$newest; continuous=$continuous; records=$ids.Count; events=$ev } | ConvertTo-Json -Depth 5 -Compress`;
   const problems = []; let raw;
   try { raw = JSON.parse(run("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", ps], { encoding: "utf8", windowsHide: true, maxBuffer: 512 * 1024 * 1024 })); }
-  catch (e) { return { kind: "windows-security", from, to, newest: null, events: [], problems: [`the Security log could not be read (${String(e.stderr ?? e.message).trim().split(/\r?\n/)[0]})`] }; }
+  catch (e) { return { kind: "windows-security", from, to, newest: null, continuous: false, events: [], problems: [`the Security log could not be read (${String(e.stderr ?? e.message).trim().split(/\r?\n/)[0]})`] }; }
   if (!(Date.parse(raw?.oldest) <= Date.parse(from))) problems.push(`the Security log's oldest event (${raw?.oldest}) is newer than the run's start, so events may have been overwritten`);
+  if (raw?.continuous !== true) problems.push(`the Security log's record ids have a break inside the run's window (${raw?.records ?? "?"} records), so a start or exit may have been lost`);
   if (!(Date.parse(raw?.newest) >= Date.parse(to) - 5000) && !(Date.parse(raw?.newest) >= Date.parse(from))) problems.push(`the Security log's newest event (${raw?.newest}) is older than the run's window`);
   const hex = (v) => (typeof v === "string" && /^0x[0-9a-f]+$/i.test(v) ? Number.parseInt(v, 16) : Number(v));
   const events = (Array.isArray(raw?.events) ? raw.events : raw?.events ? [raw.events] : []).map((e) => e.id === 4688
@@ -76,7 +93,7 @@ $ev=@(Get-WinEvent -FilterHashtable @{LogName='Security'; Id=4688,4689; StartTim
   const bad = events.filter((e) => !Number.isInteger(e.pid) || !Number.isFinite(Date.parse(e.time)) || (e.id === 4688 && !Number.isInteger(e.ppid)));
   if (bad.length) problems.push(`${bad.length} event(s) have no usable process id, parent or time`);
   if (events.some((e) => e.id === 4688 && (e.commandLine === null || e.commandLine === undefined))) problems.push("start events carry no command line (ProcessCreationIncludeCmdLine_Enabled is off)");
-  return { kind: "windows-security", from, to, newest: raw?.newest ?? null, events, problems };
+  return { kind: "windows-security", from, to, newest: raw?.newest ?? null, continuous: raw?.continuous === true, events, problems };
 }
 
 /** The stage the launched gate is asked for: its `--to` value (the gate's own default is the check stage). */
@@ -100,7 +117,7 @@ export async function launch({ out, commit, kind = null, receiptsDir, limits = n
   // this run is the same kind of baseline (gate code, tools, node and platform equal).
   let last = null; try { last = JSON.parse(fs.readFileSync(lastFile, "utf8")); } catch { last = null; }
   const fp = fingerprint ?? fingerprintOf({ repo, commit, platform });
-  const baseline = last ? { commit: last.commit ?? null, out: last.out ?? null, runId: last.runId ?? null, stable: sameFingerprint(last.fingerprint, fp) } : null;
+  const baseline = last ? { commit: last.commit ?? null, out: last.out ?? null, runId: last.runId ?? null, exit: last.exit ?? null, signal: last.signal ?? null, stable: sameFingerprint(last.fingerprint, fp) } : null;
   const previous = taken.previous ?? (last ? { runId: last.runId ?? null, out: last.out ?? null, pid: null, reclaimed: false, fromLastRun: true, exit: last.exit ?? null, signal: last.signal ?? null } : null);
   const list = (d) => { try { return fs.readdirSync(d).filter((n) => n.endsWith(".json")); } catch { return []; } };
   fs.writeFileSync(path.join(before, "receipts.txt"), `${list(receiptsDir).join("\n")}\n`);
@@ -119,11 +136,13 @@ export async function launch({ out, commit, kind = null, receiptsDir, limits = n
   const [code, signal] = await new Promise((resolve) => { child.once("error", () => resolve([null, null])); child.once("exit", (c, s) => resolve([c, s])); });
   process.off("SIGINT", forward); process.off("SIGTERM", forward);
   record.endedAt = new Date().toISOString(); record.endMono = mono(); record.exit = code; record.signal = signal ?? null;
+  const locksNow = (d) => { try { return fs.readdirSync(d).filter((n) => n.endsWith(".lock")).map((n) => path.join(d, n)); } catch { return null; } };
+  record.afterRun = { observedAt: new Date().toISOString(), locks: snapRoot ? (locksNow(snapRoot) ?? []) : [], locksKnown: snapRoot ? locksNow(snapRoot) !== null : false, rootAlive: alive(record.gatePid) };
   save();
   try { fs.closeSync(logFd); } catch { /* closed */ }
   // The operating system's record of the run's programs, a little either side of the gate's own span.
   const from = new Date(Date.parse(record.startedAt) - 2000).toISOString(); const to = new Date(Date.now() + 2000).toISOString();
-  const exported = exportProcesses ? exportProcesses(from, to) : platform === "win32" ? exportWindowsProcesses(from, to) : { kind: null, from, to, newest: null, events: [], problems: [`no process record is collected on ${platform} yet (eslogger on the Mac)`] };
+  const exported = exportProcesses ? exportProcesses(from, to) : platform === "win32" ? exportWindowsProcesses(from, to) : { kind: null, from, to, newest: null, continuous: false, events: [], problems: [`no process record is collected on ${platform} yet (eslogger on the Mac)`] };
   fs.writeFileSync(path.join(out, "processes.json"), `${JSON.stringify(exported)}\n`);
   // This run is now the last launched run, kept apart from the lock so the next run has its identity whether or not anything was released.
   const tmp = `${lastFile}.${process.pid}.tmp`; fs.writeFileSync(tmp, `${JSON.stringify({ runId, out: path.resolve(out), commit, fingerprint: fp, host, endedAt: record.endedAt, exit: code, signal: signal ?? null })}\n`); fs.renameSync(tmp, lastFile);
