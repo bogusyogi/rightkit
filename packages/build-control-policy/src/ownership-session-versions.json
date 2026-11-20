@@ -600,7 +600,7 @@
     "rightkit-decimal": "0.1.0",
     "rightkit-deep-link": "0.1.1",
     "rightkit-desktop-tweaks": "0.3.0",
-    "rightkit-device": "0.5.1",
+    "rightkit-device": "0.5.2",
     "rightkit-device-link": "0.1.0",
     "rightkit-device-link-types": "0.1.2",
     "rightkit-dictation-app-runtime": "0.3.0",
@@ -1035,7 +1035,8 @@
       "0.2.0",
       "0.3.0",
       "0.3.1",
-      "0.4.0"
+      "0.4.0",
+      "0.5.1"
     ],
     "rightkit-docs": [
       "0.1.0",

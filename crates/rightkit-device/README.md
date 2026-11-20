@@ -38,14 +38,13 @@ operation with its own outcome.
 ## Public surface
 
 - `SecureStore<T>`: the get, set, and delete trait that each app implements over its keyring.
-- `LicenseRequirement` (re-exported from `rightkit-license`).
 - `DeviceService`: the single managed device service described above.
-- `device_id_hash(raw)`: lowercase hex SHA-256 of the raw device id; the only form that leaves the machine.
+- `device_id_hash(raw)`: lowercase hex SHA-256 of raw device id for lease, link & Pro-bridge requests.
 - Also public in `src/lib.rs`: `SecureService` and `MutationHook`.
 
 ## Features
 
-None. The crate has no Cargo features. Dependencies: `getrandom` 0.3 and `rightkit-license`.
+`credentials` enables OS credential-store adapter; `license-client` enables that adapter & its `rightkit_license::DeviceIdSource` implementation. Default features are empty. Dependencies include `getrandom` 0.4, `rightkit-license` 0.3.3 & `rightkit-logs`; credential features add `rightkit-credentials` & `serde_json`.
 
 ## Platform support
 
@@ -62,3 +61,9 @@ Illustrative; not compiled as a doctest. For compiled usage of the services, see
 // build one DeviceService, store it in Tauri managed state, and call it
 // from the app's #[tauri::command] wrappers.
 ```
+
+## Lazy host service (0.5.2)
+
+`host_service::LazyDeviceService<S>` lazily holds one shared `Arc<DeviceService<S>>`; host supplies store construction & log sink. Successful construction is cached; failed construction is logged & retried on next call. `device_id_reported` delegates to `DeviceService::get_or_create` & logs storage errors without logging identity. `UnsupportedDeviceStore` refuses storage on unsupported platforms.
+
+Host retains credential item names, storage format, interaction policy, command wrappers & its static cell. Module requires no additional feature or dependency.

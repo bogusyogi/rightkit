@@ -2241,7 +2241,7 @@
       "pkId": "PK05",
       "id": "ci/consumers/rightkit-device/src/main.rs",
       "files": {
-        "Cargo.toml": "6f8ef6dd7339513335abee34e6f133e1267c77040af36becad88a00c743eee4d",
+        "Cargo.toml": "a71c93f3a9485a2d35037ce92721e76e20072d6507df46aa788345e12790f3cb",
         "README.md": "5e34d2ab7752e36c863d81e788b7cd795ef60b85fc135741b580c51844ba5f03",
         "src/main.rs": "24a8d0ad3a59f612d938ff7708687b6c44bac0e8c8a8f8e235fad9900b02f8de"
       }

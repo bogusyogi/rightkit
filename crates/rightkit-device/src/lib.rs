@@ -8,6 +8,7 @@
 
 #[cfg(feature = "credentials")]
 pub mod credentials;
+pub mod host_service;
 
 use std::{marker::PhantomData, sync::Mutex};
 
