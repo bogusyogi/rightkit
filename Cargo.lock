@@ -11330,7 +11330,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-dictation-app-runtime"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "rightkit-daemon",
  "rightkit-dictation-core",

@@ -606,7 +606,7 @@
     "rightkit-device": "0.5.2",
     "rightkit-device-link": "0.1.0",
     "rightkit-device-link-types": "0.1.2",
-    "rightkit-dictation-app-runtime": "0.3.0",
+    "rightkit-dictation-app-runtime": "0.3.1",
     "rightkit-dictation-command-host": "0.3.1",
     "rightkit-dictation-core": "0.3.4",
     "rightkit-dictation-engine": "0.2.1",
