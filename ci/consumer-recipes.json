@@ -645,7 +645,7 @@
       },
       "files": {
         "ci/consumers/npm/platform-ui/README.md": "529cad97cb28d6ae470612fb3ec624a3230410230ae80913e56c9ec8958b720f",
-        "ci/consumers/npm/platform-ui/consumer.mjs": "7626d71d55840bb7d137a88224232525d9dd2c9e5af6cb501ad7d60070e1bfa1",
+        "ci/consumers/npm/platform-ui/consumer.mjs": "d75b6529f22fdafea76a086fb75e93723b655b98e19fa175209ca69ac157187a",
         "ci/consumers/npm/platform-ui/package.json": "adc5f962a645a7faba026a0264093893b32d441f07ebf9a476f5b98db1ea21a9",
         "ci/consumers/npm/platform-ui/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "a0e235cbb1540000a57f1af3b603e5f81c6c14322ad481bf189c497d8358e98f"
@@ -679,7 +679,7 @@
       },
       "files": {
         "ci/consumers/npm/react-shell/README.md": "c2c67616ed576c71ccc3e8fb22b3e0c70d5d430b055ae5884726cd362842e0b2",
-        "ci/consumers/npm/react-shell/consumer.mjs": "356cf13ad645700be4c6ea54b56f6685879e663dc920258857b205b85a812a4e",
+        "ci/consumers/npm/react-shell/consumer.mjs": "53ede68f9fac033b2b875fbb25d2be4201cdc5ea5c4dfa4363b0ffa65d13355f",
         "ci/consumers/npm/react-shell/package.json": "7316f3eadb4c9d39d41c790089429d4a215dabb70e26eac121a99b0e36581e25",
         "ci/consumers/npm/react-shell/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "a0e235cbb1540000a57f1af3b603e5f81c6c14322ad481bf189c497d8358e98f"

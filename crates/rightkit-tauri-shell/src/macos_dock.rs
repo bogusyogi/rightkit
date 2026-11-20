@@ -70,6 +70,12 @@ pub struct Dock {
     gate: Mutex<()>,
 }
 
+impl Default for Dock {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Dock {
     pub const fn new() -> Self {
         Self {

@@ -62,6 +62,7 @@ pub struct ControlIdentity {
 
 impl ControlIdentity {
     /// `element_token` must be non-empty.
+    #[cfg(any(windows, target_os = "macos"))]
     pub(crate) fn new(
         pid: i32,
         window_id: Option<u64>,

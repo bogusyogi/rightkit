@@ -61,7 +61,7 @@ fn range_text(range: &IUIAutomationTextRange, limit_utf16: usize) -> TextSelectR
     // Raw UTF-16 units, decoded strictly: `BSTR`'s `Display` replaces a lone surrogate with
     // U+FFFD, which keeps the length but changes the text, so a malformed string is refused
     // instead.
-    let units = text.as_wide();
+    let units: &[u16] = &text;
     if units.len() > limit_utf16 {
         return Err(TextSelectError::TooLarge { limit_utf16 });
     }
