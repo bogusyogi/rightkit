@@ -28,6 +28,19 @@ test("NN12: Windows pnpm is named by the shim and the program it starts", () => 
   assert.equal(windowsPnpmIdentity({ Path: "relative" }, files({ "relative\\pnpm.cmd": shim })), null);
 });
 
+test("pathsOnly names the same program from a two-byte prefix read (pnpmConfigDependencies reads nothing big)", () => {
+  const bin = "C:\\Users\\u\\AppData\\Local\\pnpm\\bin";
+  const env = { Path: bin, PATHEXT: ".COM;.EXE;.BAT;.CMD" };
+  const shim = '@SETLOCAL\r\n@"%~dp0\\..\\global\\v11\\x\\node_modules\\pnpm\\pnpm"   %*\r\n';
+  const exe = "C:\\Users\\u\\AppData\\Local\\pnpm\\global\\v11\\x\\node_modules\\pnpm\\pnpm.exe";
+  const map = { [`${bin}\\pnpm.cmd`]: shim, [exe]: "MZ native" };
+  const prefix = { exists: (f) => Object.hasOwn(map, f), readFile: (f) => Buffer.from(map[f], "latin1").subarray(0, f === exe ? 2 : undefined), execPath: "C:\\node\\node.exe", pathsOnly: true };
+  assert.deepEqual(windowsPnpmIdentity(env, prefix).map(([f]) => f), [`${bin}\\pnpm.cmd`, exe]);
+  // An empty read of the program names nothing (the pre-fix caller wiring: program stayed null and no answer was ever kept).
+  const empty = { ...prefix, readFile: (f) => (f === exe ? Buffer.alloc(0) : Buffer.from(map[f], "latin1")) };
+  assert.equal(windowsPnpmIdentity(env, empty), null);
+});
+
 test("NN12: with no HOME and pnpm's userconfig undefined, Windows takes ~/.npmrc from USERPROFILE (the Dell gate's environment)", async () => {
   const { pnpmConfigIdentity } = await import("./snapshot-dependency-reuse.mjs");
   const answers = { "list --json": "{}", "get userconfig": "undefined", "get globalconfig": process.platform === "win32" ? "C:\\nowhere\\pnpm\\config.yaml" : "/nowhere/pnpm/config.yaml" };

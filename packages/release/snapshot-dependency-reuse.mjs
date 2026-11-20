@@ -116,7 +116,7 @@ export async function capturePostClassADiagnostics({ checkout, snapshot, commit,
  * Anything else (corepack, a version manager, a shim with several commands or a variable) is not named. Every file is hashed in full.
  * Exported for its test; `platform`, `exists`, `readFile` and `execPath` are injectable.
  */
-export function windowsPnpmIdentity(env, { exists = (f) => { try { return fs.statSync(f).isFile(); } catch { return false; } }, readFile = (f) => fs.readFileSync(f), execPath = process.execPath } = {}) {
+export function windowsPnpmIdentity(env, { exists = (f) => { try { return fs.statSync(f).isFile(); } catch { return false; } }, readFile = (f) => fs.readFileSync(f), execPath = process.execPath, pathsOnly = false } = {}) {
   const w = path.win32;
   const pathKey = Object.keys(env ?? {}).find((k) => k.toLowerCase() === 'path');
   const exts = String(env?.PATHEXT || '.COM;.EXE;.BAT;.CMD').split(';').filter(Boolean).map((e) => e.toLowerCase());
@@ -127,7 +127,9 @@ export function windowsPnpmIdentity(env, { exists = (f) => { try { return fs.sta
     if (found) break;
   }
   if (!found) return null;
-  const named = (f) => [f, hash(readFile(f))];
+  // pathsOnly: the caller takes the files' marks itself (large programs by size and time), so no file is hashed here; the
+  // caller's readFile may then return only a prefix of a large file, which still carries the MZ signature this check needs.
+  const named = pathsOnly ? (f) => [f, ''] : (f) => [f, hash(readFile(f))];
   if (/\.(exe|com)$/i.test(found)) return [named(found)];
   if (!/\.(cmd|bat)$/i.test(found)) return null;
   const text = readFile(found).toString('utf8');
@@ -141,7 +143,7 @@ export function windowsPnpmIdentity(env, { exists = (f) => { try { return fs.sta
   for (const ext of ['.exe', '.com']) {
     if (!exists(target + ext)) continue;
     const bytes = readFile(target + ext);
-    return bytes.subarray(0, 2).toString('latin1') === 'MZ' ? [named(found), [target + ext, hash(bytes)]] : null;
+    return bytes.subarray(0, 2).toString('latin1') === 'MZ' ? [named(found), pathsOnly ? [target + ext, ''] : [target + ext, hash(bytes)]] : null;
   }
   return null;
 }
@@ -206,10 +208,11 @@ export function pnpmConfigDependencies({ dir, env, platform = process.platform, 
   let program = null;
   const packageJsonAbove = (file) => { let at = path.dirname(file); for (let i = 0; i < 4; i += 1) { files.push(path.join(at, 'package.json')); if (path.dirname(at) === at) break; at = path.dirname(at); } };
   if (platform === 'win32') {
-    // Paths only: the marks are taken by the caller (large programs by size and time), so nothing big is read here.
-    const small = (f) => { try { return fs.statSync(f).size > (1 << 20) ? Buffer.alloc(0) : fs.readFileSync(f); } catch { return Buffer.alloc(0); } };
+    // Paths only: the marks are taken by the caller (large programs by size and time), so nothing big is read here — a large
+    // file gives its first two bytes, which carry the MZ signature windowsPnpmIdentity checks (an empty read named nothing).
+    const small = (f) => { try { if (fs.statSync(f).size <= (1 << 20)) return fs.readFileSync(f); const fd = fs.openSync(f, 'r'); try { const b = Buffer.alloc(2); fs.readSync(fd, b, 0, 2, 0); return b; } finally { fs.closeSync(fd); } } catch { return Buffer.alloc(0); } };
     let identity = null;
-    try { identity = windowsPnpmIdentity(e, { execPath, readFile: small }); } catch { identity = null; }
+    try { identity = windowsPnpmIdentity(e, { execPath, readFile: small, pathsOnly: true }); } catch { identity = null; }
     if (Array.isArray(identity) && identity.length) {
       program = identity[0][0];
       for (const [f] of identity) files.push(f);
@@ -245,15 +248,41 @@ export function pnpmConfigDependencies({ dir, env, platform = process.platform, 
  * process keeps the answer under the directory and the environment less the gate's per-run bookkeeping, and gives it back only while the files
  * that decide which pnpm runs there still have the marks they had before pnpm was asked (pnpmConfigDependencies).
  */
-export function pnpmVersionAnswer({ cwd, env, remember = false, run }) {
+/**
+ * The inputs that can make `pnpm --version` answered in `dir` differ from the PATH pnpm's own version: the nearest `packageManager`
+ * pin up the tree (what pnpm/corepack would switch to) and an explicit `manage-package-manager-versions` setting. Two directories
+ * whose switch inputs, program and environment all agree ask the same question, so their answer is shared (NN07: the bounded
+ * probe for the Class A environment and the one for the pin check started the same helper twice in one run). Read fresh on every
+ * call, so a pin or setting that appears is a new question at once; the stored marks still guard everything else.
+ */
+export function pnpmVersionSwitchInputs({ dir }) {
+  let pin = '', manageVersions = '';
+  for (let at = path.resolve(String(dir)); ; at = path.dirname(at)) {
+    if (!pin) {
+      try {
+        const pm = JSON.parse(fs.readFileSync(path.join(at, 'package.json'), 'utf8'))?.packageManager;
+        if (typeof pm === 'string' && pm) { const m = /^pnpm@(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)(?:\+.*)?$/.exec(pm.trim()); pin = m ? m[1] : `other:${pm}`; }
+      } catch { /* no readable package.json at this level */ }
+    }
+    if (!manageVersions) {
+      for (const name of ['pnpm-workspace.yaml', '.npmrc']) {
+        try { const m = /manage-package-manager-versions["']?\s*[:=]\s*["']?([A-Za-z0-9._-]+)/.exec(fs.readFileSync(path.join(at, name), 'utf8')); if (m) { manageVersions = m[1]; break; } } catch { /* absent */ }
+      }
+    }
+    if (path.dirname(at) === at) break;
+  }
+  return { pin, manageVersions };
+}
+
+export function pnpmVersionAnswer({ cwd, env, remember = false, run, ask }) {
   const dependencies = remember ? pnpmConfigDependencies({ dir: cwd, env }) : null;
   const lastingEnv = dependencies?.program ? Object.entries(env ?? {}).filter(([name]) => !PER_RUN_BOOKKEEPING.test(String(name).toUpperCase())).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)) : null;
-  const key = dependencies?.program ? answerKey(['rightkit.pnpm-version-answer/2', path.resolve(String(cwd)), lastingEnv]) : null;
-  const kept = key ? recallAnswer(key, { env }) : null;
+  const key = dependencies?.program ? answerKey(['rightkit.pnpm-version-answer/3', dependencies.program, lastingEnv, pnpmVersionSwitchInputs({ dir: cwd })]) : null;
+  const kept = key ? recallAnswer(key, { env, ...(ask ? { ask } : {}) }) : null;
   if (kept) return kept;
   const marks = key ? fileMarks(dependencies.files) : null;
   const version = run();
-  if (key && typeof version === 'string' && /^\d+\.\d+\.\d+/.test(version)) rememberAnswer(key, version, marks, { env });
+  if (key && typeof version === 'string' && /^\d+\.\d+\.\d+/.test(version)) rememberAnswer(key, version, marks, { env, ...(ask ? { ask } : {}) });
   return version;
 }
 

@@ -3,7 +3,25 @@ import os from "node:os";
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { dependencyDigest, canonicalConfigFingerprint, preparationInputComponents } from './snapshot-dependency-reuse.mjs';
+import { dependencyDigest, canonicalConfigFingerprint, preparationInputComponents, pnpmVersionAnswer } from './snapshot-dependency-reuse.mjs';
+
+test('pnpmVersionAnswer asks once for two pin-free directories, and again where a pin can switch the answer (NN07)', (t) => {
+  const scratch = ((root) => (fs.existsSync(root) ? root : os.tmpdir()))(process.platform === 'win32' ? 'D:\\scratch' : '/Volumes/D/scratch');
+  const base = fs.mkdtempSync(path.join(scratch, 'rk-pnpm-answer-'));
+  t.after(() => fs.rmSync(base, { recursive: true, force: true }));
+  const a = path.join(base, 'a'), b = path.join(base, 'b'); fs.mkdirSync(a); fs.mkdirSync(b);
+  fs.writeFileSync(path.join(a, 'package.json'), '{"name":"a"}\n');
+  const kept = new Map();
+  const ask = (req) => { if (req.op === 'answer-put') { kept.set(req.key, req.value); return { ok: true }; } if (req.op === 'answer-get') return { ok: true, value: kept.get(req.key) ?? null }; return null; };
+  let runs = 0;
+  const run = () => { runs += 1; return '12.16.1'; };
+  assert.equal(pnpmVersionAnswer({ cwd: a, env: process.env, remember: true, run, ask }), '12.16.1');
+  assert.equal(pnpmVersionAnswer({ cwd: b, env: process.env, remember: true, run, ask }), '12.16.1');
+  assert.equal(runs, 1, 'the same pnpm question from a second pin-free directory must not start pnpm again');
+  fs.writeFileSync(path.join(b, 'package.json'), '{"name":"b","packageManager":"pnpm@11.0.0"}\n');
+  assert.equal(pnpmVersionAnswer({ cwd: b, env: process.env, remember: true, run: () => { runs += 1; return '11.0.0'; }, ask }), '11.0.0');
+  assert.equal(runs, 2, 'a directory whose pin can switch pnpm is asked for itself');
+});
 
 test('dependency proof binds bytes, metadata and modes', (t) => {
   const scratch = ((root) => (fs.existsSync(root) ? root : os.tmpdir()))(process.platform === 'win32' ? 'D:\\scratch' : '/Volumes/D/scratch');

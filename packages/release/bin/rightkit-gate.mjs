@@ -131,7 +131,7 @@ import { rememberedVersion, resolveOnPath } from "../tool-version-memo.mjs";
 import { brokerToolchain } from "../broker-toolchain.mjs";
 import { SNAPSHOT_PROOF_COUNTS, snapshotProofLine } from "../snapshot.mjs";
 import { contentStore, installProbeMemo } from "../probe-memo.mjs";
-import { discoveryRun, setTreeListingStore } from "../snapshot-git.mjs";
+import { discoveryRun, sealedRepoInfo, setTreeListingStore } from "../snapshot-git.mjs";
 import { processIdentity, snapshotLockBody, verdictFileName } from "../gate-seam.mjs";
 
 const PRIVATE_SCOPED_COMPILE = Symbol("private scoped compile");
@@ -4318,11 +4318,11 @@ export async function main(argv, io = {}) {
     let history;
     if (fullAdmission && snapshotDir && !o.runScans && o.classA !== false) {
       try {
-        // NN25: the same question, in the same words, the snapshot sync asked before the proof (snapshot-git.mjs discoveryRun), so this
-        // process already holds the answer (probe-memo.mjs) and no git starts after the proof line. An injected spawn is asked as before.
-        const common = o.spawn === defaultSpawn ? discoveryRun(snapshotCheckout, ["rev-parse", "--path-format=absolute", "--git-common-dir"]) : o.spawn("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], { cwd: snapshotCheckout });
-        if (failed(common) || !text(common).trim()) throw new Error("cannot identify Class A cache location");
-        const storeDir = o.env.RK_GATE_CACHE_DIR || path.join(text(common).trim(), "rightkit-gate-cache");
+        // NN25: no git starts after the resident proof. The snapshot sync already resolved this checkout's repository
+        // (snapshot.mjs repositoryOf -> snapshot-git.mjs sealedRepoInfo, cached per canonical path in this process), so the
+        // common dir is read from that cache, never asked again. An injected spawn (tests) is asked as before.
+        const commonDir = o.spawn === defaultSpawn ? sealedRepoInfo(snapshotCheckout).commonDir : (() => { const common = o.spawn("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], { cwd: snapshotCheckout }); if (failed(common) || !text(common).trim()) throw new Error("cannot identify Class A cache location"); return text(common).trim(); })();
+        const storeDir = o.env.RK_GATE_CACHE_DIR || path.join(commonDir, "rightkit-gate-cache");
         history = openClassAHistory({ historyRoot: path.join(gateRunsRoot({ env: o.env, platform: o.platform }), "rightkit-class-a-history"), storeDir });
       } catch (error) { o.err(`rightkit-gate: BLOCKED: ${error.message}`); return 1; }
     }
@@ -4365,8 +4365,9 @@ export async function main(argv, io = {}) {
     // RightKit checking itself: its own rules (line endings, consumer recipes, npm surface, version copies and the version feed, dispatcher
     // pins, consumer locks, generated docs, temp paths: scripts/preflight.mjs) and its exports' import safety are class A for the RightKit repository.
     let selfRules = 0;
-    const top = o.spawn("git", ["rev-parse", "--show-toplevel"], { cwd: checkCwd });
-    const root = failed(top) ? null : path.resolve(text(top).trim());
+    // NN25: in snapshot mode the checkout's canonical top was resolved before the proof (snapshotCheckout); asking git again
+    // here would start a git process after the resident proof for an answer this process already holds.
+    const root = snapshotCheckout ?? (() => { const top = o.spawn("git", ["rev-parse", "--show-toplevel"], { cwd: checkCwd }); return failed(top) ? null : path.resolve(text(top).trim()); })();
     const self = o.selfPath ?? fileURLToPath(import.meta.url);
     // RightKit's own scripts are the checked repository's code: they run only after the app rules and every class A scan passed,
     // never after a failure, so a red tree executes nothing of its own.

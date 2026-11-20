@@ -43,6 +43,18 @@ test("each app root is judged on its own and named by its directory; a manifest 
   assert.match(lines[0], /^apps\/one .*\[profile\.bench\] is not allowed/);
 });
 
+test("a workspace member manifest with [profile.dev] gives a line (GC-A15: an app carries no profile table but [profile.release], in any manifest)", async (t) => {
+  const s = snapshot(t, {
+    "right-release.config.json": "{}\n",
+    "Cargo.toml": "[workspace]\nmembers = [\"crates/member\"]\nresolver = \"2\"\n",
+    "crates/member/Cargo.toml": `${PACKAGE("member")}\n[profile.dev]\nopt-level = 1\n`,
+    "crates/member/src/lib.rs": "",
+  });
+  const lines = await cargoProfileRuleLines({ tracked: s.tracked, snapshotDir: s.dir, label: "app" });
+  assert.equal(lines.length, 1, lines.join("\n") || "no line: member profile table not judged");
+  assert.match(lines[0], /\[profile-extra\] \[profile\.dev\] is not allowed/);
+});
+
 test("RightKit's own repository gives no line (it is judged per unit); a repository that only looks like it by path is judged", async (t) => {
   const own = JSON.parse(fs.readFileSync(new URL("./package.json", import.meta.url), "utf8")).name;
   const files = (name) => ({ "packages/release/package.json": `${JSON.stringify({ name })}\n`, "right-release.config.json": "{}\n", "Cargo.toml": `${PACKAGE("e2e")}\n[profile.dev]\nopt-level = 1\n`, "src/lib.rs": "" });
