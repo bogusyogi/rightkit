@@ -163,7 +163,7 @@ const FROZEN = [
   ["gate 8", "NN05", "fail", (r) => { unchangedB(r); }], // b is unchanged and a broker job still built it
   // NN06: a row whose inputs did not change is never run again, including one that failed before.
   ["GCX-06-1", "NN06", "fail", (r) => { r.blobs["src/a.rs"] = "a0"; }], // rustfmt's inputs are unchanged and rustfmt still started
-  ["GCX-06-3", "NN06", "not measured", (r) => { r.launch.exit = null; r.launch.signal = "SIGKILL"; r.launch.endedAt = null; r.launch.endMono = null; }], // the run's outcome is not known, so an unchanged failure's is not
+  ["GCX-06-3", "NN06", "not measured", (r) => { r.prior = { failedRows: new Set(["clippy:ws:a"]) }; r.launch.exit = null; r.launch.signal = "SIGKILL"; }], // an unchanged failed row is reused and the run's own outcome is not known
   ["gate 1", "NN06", "fail", (r) => { r.procs.push(proc(1.7, DENY, ["check"], { end: 1.9, cwd: SNAP })); }], // deny is unchanged and its tool visibly started
   // NN07: a row whose inputs did change is always run again, and does only the work the change needs.
   ["GCX-07-1", "NN07", "fail", (r) => { r.blobs["src/b.rs"] = "b2"; }], // a.rs and b.rs changed; only a.rs reached rustfmt
@@ -205,6 +205,26 @@ const FROZEN = [
   ["gate 2", "NN12", "not measured", (r) => { r.witness = null; }], // no record of the run's programs
   ["gate 3", "NN12", "not measured", (r) => { r.procs = r.procs.filter((p) => p.pid !== GATE); }], // the record does not hold the gate process
 ];
+// The specific reason each case's verdict must give (so it cannot be right for an unrelated one).
+const REASONS = {
+  "GCX-01-1": /broker client compile start\(s\) and 0 signed job/, "GCX-01-2": /ran in a folder the process record does not keep/, "GCX-01-3": /ran outside the selected snapshot/, "GCX-01-4": /built tree eeeeeeeeeeee, not the selected commit/, "gate 13": /does not say whether the snapshot stayed unchanged/,
+  "GCX-02-1": /broker client started \(rustright cargo metadata\) before Class A finished/, "GCX-02-2": /has no recorded exit/, "GCX-02-3": /same moment Class A ended/, "GCX-02-4": /admitted on a Class A verdict .* written before this run began/, "gate 9": /Class A passed/,
+  "GCX-03-1": /no lane count/, "GCX-03-2": /ending before it started/, "GCX-03-3": /was ready at .* and started 1000 ms later with a lane free of 2/, "GCX-03-4": /none waited while a lane of 20 was free/, "gate 4": /shellcheck was ready at .* started 2000 ms later with a lane free of 4/,
+  "GCX-05-1": /no Class B row is known/, "GCX-05-2": /clippy:ws:b was owed a rerun and no program or signed job shows it/, "GCX-05-3": /also builds z, which no owed row needs/, "GCX-05-5": /rustfmt was handed src\/unplanned\.rs/, "gate 8": /did work although no file it reads changed/,
+  "GCX-06-1": /rustfmt:2021 is unchanged and rustfmt started/, "GCX-06-3": /run's exit is not known/, "gate 1": /deny is unchanged and cargo-deny started/,
+  "GCX-07-1": /src\/b\.rs changed and was never handed to rustfmt/, "GCX-07-2": /src\/a\.rs changed and was never handed to rustfmt/, "GCX-07-3": /each with only the work its change needs/, "GCX-07-4": /receipt does not verify/, "GCX-07-5": /no signed broker job built it/, "GCX-07-6": /no signed broker job built it/, "gate 12": /@x86_64-unknown-linux-gnu changed .* no signed broker job built it/,
+  "GCX-08-1": /no two alike/, "GCX-08-2": /no two alike/, "GCX-08-3": /2x rustfmt/, "gate 5": /2x git rev-parse/, "gate 6": /2x git rev-parse/, "gate 7": /no two alike/,
+  "GCX-09-1": /must build alone \(c\) were built together/, "GCX-09-2": /solo crate was sent as several commands/, "GCX-09-3": /sent as separate commands, and only 0 of them/, "GCX-09-4": /c solo per the run's ci\/shards\.json/, "GCX-09-5": /ci\/shards\.json at the run's tree cannot be read/, "GCX-09-6": /submitted \d+ ms after the first while it ran/,
+  "GCX-09-7": /c sidecar-bound per ws\/c\/tauri\.conf\.json/, "GCX-09-8": /ci\/shards\.json at the run's tree cannot be read/, "GCX-09-9": /b built more than once/, "gate 11": /sent as separate commands, and only 0 of them/,
+  "GCX-10-1": /test request\(s\) went to the broker and 0 signed test job/, "GCX-10-2": /cannot be verified: no broker key is pinned/,
+  "GCX-11-1": /never saw the run end/, "GCX-11-2": /limit 10\.0 s \(pinned at launch/, "GCX-11-3": /limit 10\.0 s pinned at launch/, "gate 10": /^40\.0 s, limit 15\.0 s/,
+  "GCX-12-1": /needs that run's record/, "GCX-12-2": /still alive: node 100/, "gate 2": /no operating-system record/, "gate 3": /no start of the gate process/,
+};
+const EXTRA_TWINS = [
+  ["gate 9 twin", "NN02", "fail", (r) => { r.procs.push(proc(9, DENY, ["check"], { exit: 1, cwd: SNAP })); }], // the same failing tool, in this run's snapshot
+  ["GCX-09-7 twin", "NN09", "fail", (r) => { split(r, "-p b", "-p c"); policy(r, []); }], // the same split with no sidecar mark in the tree
+];
+const TWINS = [["GCX-03-4", "GCX-03-3", "fail"], ["GCX-07-3", "GCX-07-1", "fail"], ["GCX-09-4", "GCX-09-3", "fail"], ["GCX-11-3", "GCX-11-2", "fail"], ["gate 9", "gate 9 twin", "fail"], ["GCX-09-7", "GCX-09-7 twin", "fail"], ["GCX-08-1", "gate 6", "fail"], ["GCX-08-2", "gate 6", "fail"], ["gate 7", "gate 6", "fail"]];
 // Cases whose original fault lived only in a record the gate writes (its forecast, its lookup keys, its decision values) and has no form in evidence the gate
 // does not write. Each is reported to Adrian and chat gate; none is given a verdict it did not have.
 const NO_OUTSIDE_FORM = [
@@ -220,9 +240,11 @@ test("the frozen step-2 batch: all 63 cases accounted for, 56 run in outside evi
   assert.equal(FROZEN.length + NO_OUTSIDE_FORM.length, 63);
   assert.equal(new Set([...FROZEN, ...NO_OUTSIDE_FORM].map(([id]) => id)).size, 63, "every id once");
   for (const [id, line, verdict, fn] of FROZEN) {
-    await t.test(`${id} ${line}: expected ${verdict}`, (st) => { const r = alter(fn); const v = run(r); st.diagnostic(`${id} ${line}: got ${verdictOf(v, line)}: ${whyOf(v, line).slice(0, 200)}`); assert.equal(verdictOf(v, line), verdict, `${id} ${line}: ${whyOf(v, line)}`); assert.equal(r.workingRead, undefined, "the mutable checkout is never read"); });
+    await t.test(`${id} ${line}: expected ${verdict}`, (st) => { const r = alter(fn); const v = run(r); st.diagnostic(`${id} ${line}: got ${verdictOf(v, line)}: ${whyOf(v, line).slice(0, 200)}`); assert.equal(verdictOf(v, line), verdict, `${id} ${line}: ${whyOf(v, line)}`); assert.match(whyOf(v, line), REASONS[id], `${id} gives the verdict for another reason than the case names`); assert.equal(r.workingRead, undefined, "the mutable checkout is never read"); });
   }
-  for (const [id, line, verdict, why] of NO_OUTSIDE_FORM) await t.test(`${id} ${line}: expected ${verdict}: NO OUTSIDE FORM (${why})`, (st) => { st.diagnostic(`${id} has no form in evidence the gate does not write: ${why}`); });
+  for (const [id, line, verdict, why] of NO_OUTSIDE_FORM) await t.test(`${id} ${line}: superseded: ${why}`, (st) => { st.diagnostic(`${id} ${line} (was expected ${verdict}): superseded: ${why}`); });
+  // A passing case is paired with a case that differs from it only in the decisive fact and gets the other verdict.
+  for (const [id, twin, expected] of TWINS) await t.test(`${id} twin ${twin}: differs only in the decisive fact`, () => { const a = FROZEN.find(([x]) => x === id); const b = FROZEN.find(([x]) => x === twin) ?? EXTRA_TWINS.find(([x]) => x === twin); const va = run(alter(a[3])); const vb = run(alter(b[3])); assert.equal(verdictOf(va, a[1]), "pass"); assert.equal(verdictOf(vb, b[1]), expected, `${twin}: ${whyOf(vb, b[1])}`); });
 });
 
 // ---- batch 3: controls that differ from a case only in its decisive fact ---------------------------------------------------------------------------
@@ -314,9 +336,14 @@ test("the Security log export: its events become the process record, and a log t
   assert.match(exportWindowsProcesses(at(-1), at(2), { run: () => { throw Object.assign(new Error("x"), { stderr: "Access is denied." }); } }).problems[0], /Access is denied/);
 });
 test("NN10: a verified compile-only test build whose program the gate ran, as the broker built it, passes", () => {
-  const ok = (r) => { testJob(r, EXE, { testExecutables: [{ path: EXE, sha256: "h1" }] }); r.digests[EXE] = "h1"; };
+  const ok = (r) => { testJob(r, EXE, { testExecutables: [{ path: EXE, sha256: "h1" }] }); r.digests[EXE] = { sha256: "h1", mtimeMs: ms(8.2) }; };
   expect(alter(ok), "NN10", "pass");
-  expect(alter((r) => { ok(r); r.digests[EXE] = "h2"; }), "NN10", "fail", /not the program the broker built/);
+  expect(alter((r) => { ok(r); r.digests[EXE] = { sha256: "h2", mtimeMs: ms(8.2) }; }), "NN10", "fail", /not the program the broker built/);
+  // F-19: the launch is after the build, credited to one receipt, and the image unchanged since before it ran
+  expect(alter((r) => { ok(r); byExe(r, EXE).start = ms(7.5); byExe(r, EXE).end = ms(7.6); }), "NN10", "fail", /started before the broker finished building it/);
+  expect(alter((r) => { ok(r); r.receipts.push(job("t2", ["test", "-p", "c", "--no-run"], { extra: { testExecutables: [{ path: EXE, sha256: "h1" }] } })); }), "NN10", "fail", /also listed by broker job t1, and its launch is credited to that receipt only/);
+  expect(alter((r) => { ok(r); r.digests[EXE] = { sha256: "h1", mtimeMs: ms(9) }; }), "NN10", "fail", /written after the gate started it/);
+  expect(alter((r) => { ok(r); r.digests[EXE] = { sha256: "h1" }; }), "NN10", "not measured", /when .* was last written is not shown/);
   expect(alter((r) => { ok(r); r.procs = r.procs.filter((p) => p.exe !== EXE); }), "NN10", "fail", /never ran it/);
   expect(alter((r) => { ok(r); delete r.receipts[0].doc.provenance.payload.testExecutables; }), "NN10", "fail", /compile only/);
   expect(alter((r) => { ok(r); r.receipts[0].doc.provenance.payload.testExecutables = []; }), "NN10", "not measured", /no test program/);
@@ -342,4 +369,17 @@ test("the test's own row enumerator reads a tree and says which kinds of row onl
   assert.ok(e.uncovered.length > 10, "the kinds only gate code decides are listed");
   // A judge given only this enumeration says the rows it does not decide are not measured, on every line that needs the inventory.
   for (const id of ["NN05", "NN06", "NN07"]) expect(alter((r) => { r.inventoryUncovered = e.uncovered; }), id, "not measured", /exist only in gate code/);
+});
+
+test("NN09 (F-16): the workspace is read from the selected tree, spellings and output formatting do not split a group, and a real difference does", () => {
+  // The same two crates, spelled --package b and --package=c: one group, so two commands with no reason fail.
+  expect(alter((r) => { split(r, "--package b", "--package=c"); policy(r, []); }), "NN09", "fail", /sent as separate commands/);
+  // The same, differing only in how diagnostics are printed: still one group.
+  expect(alter((r) => { split(r, "-p b --message-format json", "-p c"); policy(r, []); }), "NN09", "fail", /sent as separate commands/);
+  expect(alter((r) => { split(r, "-p b --color never", "-p c --color always"); policy(r, []); }), "NN09", "fail", /sent as separate commands/);
+  // A real difference (the feature set) is two groups, each of one command: nothing is combinable, so nothing needs a reason.
+  expect(alter((r) => { split(r, "-p b --features x", "-p c"); policy(r, []); }), "NN09", "pass");
+  // A crate folder inside a workspace, with no workspace of its own, belongs to that workspace (read from the tree); a separate workspace does not.
+  expect(alter((r) => { r.tree["ws/Cargo.toml"] = '[workspace]\nmembers = ["b", "sub"]\n'; r.tree["ws/sub/Cargo.toml"] = '[package]\nname = "c"\n'; r.procs.push(proc(6, RUSTRIGHT, ["cargo", "clippy", "--profile", "release", "-p", "c", "--locked"], { end: 8, cwd: `${SNAP}\\ws\\sub` })); r.receipts.push(job("j2", ["clippy", "--profile", "release", "-p", "c", "--locked"], { cwd: `${SNAP}\\ws\\sub` })); }), "NN09", "fail", /sent as separate commands/);
+  expect(alter((r) => { r.tree["ws/sub/Cargo.toml"] = '[workspace]\nmembers = ["c"]\n'; r.procs.push(proc(6, RUSTRIGHT, ["cargo", "clippy", "--profile", "release", "-p", "c", "--locked"], { end: 8, cwd: `${SNAP}\\ws\\sub` })); r.receipts.push(job("j2", ["clippy", "--profile", "release", "-p", "c", "--locked"], { cwd: `${SNAP}\\ws\\sub` })); }), "NN09", "pass");
 });

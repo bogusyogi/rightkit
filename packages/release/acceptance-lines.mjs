@@ -584,7 +584,7 @@ function nn10(ctx) {
   const requested = ctx.starts.filter((d) => programName(d.program) === "rustright" && d.args[0] === "cargo" && d.args[1] === "test");
   if (requested.length > tests.length) gaps.push(`${requested.length} test request(s) went to the broker and ${tests.length} signed test job(s) exist: a request with no receipt is not shown to be compile only`);
   if (!tests.length) return decide(fails, gaps, "the broker built no test and no cargo test ran outside it");
-  let programs = 0;
+  let programs = 0; const claims = new Map();
   for (const j of tests) {
     const what = `broker job ${j.jobId ?? path.basename(j.file)}`;
     if (!j.verified) { (ctx.verifierPinned ? fails : gaps).push(`${what}: its receipt ${ctx.verifierPinned ? "does not verify" : "cannot be verified: no broker key is pinned"}`); continue; }
@@ -597,10 +597,20 @@ function nn10(ctx) {
       const ran = ctx.procs.filter((p) => dirKey(p.exe) === dirKey(file));
       if (!ran.length) { (ctx.processGaps.length ? gaps : fails).push(`${what}: the broker built ${path.basename(file)} and the gate never ran it`); continue; }
       if (ran.length > 1) fails.push(`${what}: the gate ran ${path.basename(file)} ${ran.length} times`);
-      const now = typeof ctx.digestOf === "function" ? ctx.digestOf(file) : null;
+      // One launch is credited to one receipt only: a program two receipts both list cannot have run for both.
+      const claimed = claims.get(dirKey(file));
+      if (claimed && claimed !== j.jobId) { fails.push(`${what}: ${path.basename(file)} is also listed by broker job ${claimed}, and its launch is credited to that receipt only`); continue; }
+      claims.set(dirKey(file), j.jobId);
+      // Execution after production: a launch before the broker finished the build ran something else.
+      if (Number.isFinite(j.ended) && ran.some((p) => p.start < j.ended)) fails.push(`${what}: ${path.basename(file)} was started before the broker finished building it (job ended ${new Date(j.ended).toISOString()})`);
+      // The image at execution: the file's digest now equals the signed digest, and the file was last written before the launch and not since, so what ran is what the broker built.
+      const img = typeof ctx.digestOf === "function" ? ctx.digestOf(file) : null;
+      const now = img && typeof img === "object" ? img.sha256 : img; const written = img && typeof img === "object" ? img.mtimeMs : null;
       if (typeof digest !== "string") gaps.push(`${what}: the receipt gives no digest for ${path.basename(file)}`);
-      else if (now === null) gaps.push(`${what}: ${path.basename(file)} cannot be read now to compare with the digest the broker signed`);
+      else if (now === null || now === undefined) gaps.push(`${what}: ${path.basename(file)} cannot be read now to compare with the digest the broker signed`);
       else if (now !== digest) fails.push(`${what}: ${path.basename(file)} is not the program the broker built (digest ${short(now)}, signed ${short(digest)})`);
+      else if (!Number.isFinite(written)) gaps.push(`${what}: when ${path.basename(file)} was last written is not shown, so that the image that ran is the one the broker built is not shown`);
+      else if (written > Math.min(...ran.map((p) => p.start))) fails.push(`${what}: ${path.basename(file)} was written after the gate started it, so the image that ran is not the image now`);
     }
   }
   return decide(fails, gaps, `${tests.length} test build(s) by the broker, compile only and signed; the gate ran the ${programs} program(s) they list, each the one the broker built`);
@@ -674,6 +684,9 @@ function nn09(ctx) {
     for (let i = 0; i < head.length; i += 1) {
       const a = head[i];
       if (["-p", "--package", "--target"].includes(a)) { i += 1; continue; }
+      // Output formatting changes how diagnostics are printed, not what is built: two compiles that differ only in it are compatible.
+      if (a === "--message-format" || a === "--color") { i += 1; continue; }
+      if (/^--(message-format|color)=/.test(a) || a === "-q" || a === "--quiet" || a === "-v" || a === "--verbose") continue;
       if (/^(--package=|--target=)/.test(a) || /^-p./.test(a)) continue;
       if (a === "--release") { units.push("--profile release"); continue; }
       if (/^--profile=/.test(a)) { units.push(`--profile ${a.slice(10)}`); continue; }
@@ -687,15 +700,18 @@ function nn09(ctx) {
   // inner one as a member; when that manifest cannot be read, which workspace it is stays disputed (Council CV-1 F-24).
   const rels = compiles.map((c) => relToSnap(c.cwd, ctx.snap.path));
   if (rels.some((r) => r === null)) gaps.push("a broker compile ran outside the snapshot or the snapshot folder is unknown, so its workspace cannot be placed");
+  // The workspace of an invocation is read from the selected tree: the nearest ancestor folder (or its own) whose Cargo.toml declares [workspace];
+  // a folder with a package and no workspace above it is its own. When a manifest on the way cannot be read the workspace is disputed.
   const wsOf = new Map();
-  for (const r of new Set(rels.filter((x) => x !== null))) wsOf.set(r, r);
-  for (const outer of new Set(rels.filter((x) => x !== null))) for (const inner of new Set(rels.filter((x) => x !== null))) {
-    if (inner === outer || !(outer === "" ? inner !== "" : inner.startsWith(`${outer}/`))) continue;
-    let members = null; let why = null;
-    try { members = workspaceMembers(ctx.readTree(`${outer ? `${outer}/` : ""}Cargo.toml`)); } catch (e) { why = e.message; }
-    if (why !== null || members === null) { if (why !== null) gaps.push(`compiles ran in ${outer || "."} and in ${inner} inside it; ${outer || "."}/Cargo.toml at the run's tree cannot be read (${why}), so whether they are one workspace is disputed`); continue; }
-    const sub = outer === "" ? inner : inner.slice(outer.length + 1);
-    if (members.some((m) => m === sub || (m.endsWith("/*") && sub.startsWith(m.slice(0, -1))))) wsOf.set(inner, wsOf.get(outer));
+  for (const r of new Set(rels.filter((x) => x !== null))) {
+    let d = r; let found = null; let unread = null;
+    for (;;) {
+      try { if (workspaceMembers(ctx.readTree(`${d ? `${d}/` : ""}Cargo.toml`)) !== null) { found = d; break; } }
+      catch (e) { if (e?.code !== "ENOENT") unread = e.message; }
+      if (d === "") break; d = d.includes("/") ? d.slice(0, d.lastIndexOf("/")) : "";
+    }
+    if (found === null && unread !== null) gaps.push(`the workspace of a compile in ${r || "."} cannot be read from the selected tree (${unread}), so whether it shares a workspace with another is disputed`);
+    wsOf.set(r, found ?? r);
   }
   const groups = new Map();
   compiles.forEach((c, i) => { const ws = rels[i] === null ? `?${c.cwd}` : wsOf.get(rels[i]); const k = `${ws}\u0000${c.sub}\u0000${settings(c.args)}`; (groups.get(k) ?? groups.set(k, []).get(k)).push(c); });
@@ -874,7 +890,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const locksIn = (d) => { try { return fs.readdirSync(d).filter((n) => n.endsWith(".lock")).map((n) => path.join(d, n)); } catch { return null; } };
   const live = process.argv.includes("--live") ? { exists: (p) => fs.existsSync(p), alive, locksIn } : null;
   const successor = opt("--successor") ? { launch: (() => { try { return JSON.parse(fs.readFileSync(path.join(opt("--successor"), "launch.json"), "utf8")); } catch { return null; } })() } : null;
-  const digestOf = (file) => { try { return createHash("sha256").update(fs.readFileSync(file)).digest("hex"); } catch { return null; } };
+  const digestOf = (file) => { try { const body = fs.readFileSync(file); return { sha256: createHash("sha256").update(body).digest("hex"), mtimeMs: fs.statSync(file).mtimeMs }; } catch { return null; } };
   const verdict = judgeRun({ lines, ...evidence, live, successor, verifierPinned: Boolean(verify), digestOf });
   if (process.argv.includes("--json")) console.log(JSON.stringify(verdict, null, 2));
   else { for (const l of verdict.lines) console.log(`${l.id} ${l.verdict.toUpperCase().padEnd(12)} ${l.text}\n      ${l.why}`); console.log(verdict.pass ? "PASS: all twelve lines" : `NOT PASSED: ${verdict.failed.length} failed, ${verdict.notMeasured.length} not measured`); }
