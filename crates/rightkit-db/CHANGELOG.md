@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.10
+
+- Add shared encrypted-store helpers for rotation settlement, orphan-sidecar classification & secure-delete verification.
+
 ## 0.5.9 (unreleased)
 - Revision 4: same-file cleanup only between two regular non-link files (rebuild and quarantine replay); rollback distinguishes rename from duplicate-link cleanup.
 - Revision 3: ownership check before resumed notice/quarantine replay; failed settle undoes only entries it changed; orphan protection before the first candidate probe.

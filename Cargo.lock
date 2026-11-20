@@ -11272,7 +11272,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-db"
-version = "0.5.9"
+version = "0.5.10"
 dependencies = [
  "cc",
  "libc 0.2.191",
