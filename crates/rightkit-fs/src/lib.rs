@@ -102,6 +102,8 @@ pub mod profile_home;
 #[cfg(feature = "fs")]
 pub mod publish_dir;
 #[cfg(feature = "fs")]
+pub mod purge_once;
+#[cfg(feature = "fs")]
 pub mod rename_case;
 #[cfg(feature = "fs")]
 pub mod replaced;

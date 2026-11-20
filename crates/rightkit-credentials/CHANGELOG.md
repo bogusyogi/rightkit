@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.8
+
+- `exec` & `status` accept `--windows-target` so callers can address existing Credential Manager entries with the original target naming and encoding. The default slash format is unchanged.
+
 ## 0.5.7
 
 - Add `key_slot` for bounded credential-slot access, atomic minting and rotation, and process shutdown. Verified handles share mutation coordination and keep cached values scoped to their own binding.

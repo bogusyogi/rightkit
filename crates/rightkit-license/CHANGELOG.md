@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.4
+
+- Add `install_update_headers`: public tiers carry no credential & paid artifacts require a host-verified signed entitlement.
+
 ## 0.3.3
 
 - Added host-side legacy import retry bookkeeping (`LegacyImport`, `LegacyImportRetry`, host event sinks), retaining 15-second cooldown & eight-retry cap.

@@ -140,8 +140,9 @@ pub use native_verdict::{
 pub use pending_release_drain::drain_pending_releases_logged;
 pub use record_text::stored_signed_token;
 pub use update_credentials::{
-    bearer_headers, read_update_license, stored_update_credentials, update_check_headers,
-    verified_signed_token, StoredUpdateCredentials, UpdateCheckHeaderNames, UpdateLicense,
+    bearer_headers, install_update_headers, read_update_license, stored_update_credentials,
+    update_check_headers, verified_signed_token, StoredUpdateCredentials, UpdateCheckHeaderNames,
+    UpdateLicense,
 };
 
 pub use revocation::{

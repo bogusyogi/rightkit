@@ -103,11 +103,22 @@ only while `new` is still the pending value, so a rotation aborted or replaced b
 is refused with `Error::Invalid { what: "pending rotation", .. }` and never overwrites the newer
 primary. `commit_rotation` / `abort_rotation` act on whatever is pending, for recovery after a restart.
 
-`rightkit-credentials exec --namespace N --account A --env NAME -- /absolute/native/executable args...`
+`rightkit-credentials exec --namespace N --account A [--windows-target STYLE] --env NAME -- /absolute/native/executable args...`
 reads one credential from an unguarded durable OS store & puts its UTF-8 value only in child
 environment. Missing credentials, read errors, NUL bytes, invalid UTF-8 & scripts prevent child
 launch. No shell, parent environment mutation, secret argument or secret file is used. Child output
 is inherited & child exit status is returned; selected executable controls its own output.
+
+`exec` and `status` accept `--windows-target slash` (default, `namespace/account`, raw bytes),
+`--windows-target keyring` (`account.namespace`, UTF-16LE), or `--windows-target keyring-legacy-utf8`
+(`account.namespace`, legacy UTF-8). Choose the format that originally wrote the entry. Reads
+always use the requested format, with no alternate lookup or conversion of stored entries.
+Namespace & account on other platforms follow their existing rules. For presence, read the
+`present` field from `rightkit-credentials status --namespace N --account A --windows-target STYLE`.
+
+Resolve Node to an absolute native executable before invoking `exec`. In PowerShell, use
+`(Get-Command node.exe -CommandType Application -ErrorAction Stop).Source` and pass that path
+after `--`, followed by the script & its arguments.
 
 ## Helpers, sidecars and CLIs (owner-binary hand-off)
 

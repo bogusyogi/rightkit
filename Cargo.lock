@@ -11195,7 +11195,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-credentials"
-version = "0.5.7"
+version = "0.5.8"
 dependencies = [
  "block2",
  "getrandom 0.4.3",
@@ -11452,7 +11452,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-dictation-models"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "dirs",
  "rightkit-child-process",
@@ -11814,7 +11814,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-fs"
-version = "0.4.17"
+version = "0.4.18"
 dependencies = [
  "blake3",
  "libc 0.2.191",
@@ -12021,7 +12021,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-license"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "base64 0.23.1",
  "ed25519-dalek",
@@ -12893,7 +12893,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-roots"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "getrandom 0.4.3",
  "rightkit-fs",
@@ -13219,7 +13219,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-transcript-library"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "http",
  "rightkit-db",

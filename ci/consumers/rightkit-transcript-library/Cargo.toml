@@ -7,5 +7,5 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-transcript-library = { version = "=0.1.6", features = ["store", "managed-store"] }
+rightkit-transcript-library = { version = "=0.1.7", features = ["store", "managed-store"] }
 rightkit-db = { version = "=0.5.8", default-features = false, features = ["sqlcipher-libtomcrypt"] }

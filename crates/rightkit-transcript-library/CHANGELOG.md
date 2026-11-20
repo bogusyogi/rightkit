@@ -1,6 +1,10 @@
 # Changelog
 
-## 0.1.6 (unreleased)
+## 0.1.7
+
+- Add `HistoryStore::default_total` for recovery replay verification. Totals beyond the receipt format return an error.
+
+## 0.1.6
 
 - Added (feature `managed-store`): `DeliveryHistoryStore::open_managed(EncryptedStore, legacy_json_path, events)`. The history store runs every query, write and migration (schema, search-column backfill, legacy `history.json` import) on the `EncryptedStore`'s managed writer (`EncryptedStore::with_writer`), so one connection serves history and the lifecycle owner, and a rotation, restore or recovery of that store drains and reopens the connection the history uses. The host no longer opens a second connection, re-reads the credential for it, or closes and reopens the history around a rotation. `DeliveryHistoryStore::store()` returns the lifecycle owner by reference; `DeliveryHistoryStore::rotate_key(RotationRequest) -> RotationReport` rotates through it.
 - Changed: `DeliveryHistoryStore` is generic over where its connection comes from, `DeliveryHistoryStore<C = rusqlite::Connection>`. Every existing use is unchanged: `DeliveryHistoryStore::open_connection(conn, path, events)` and `connection()` still take and give a bare `rusqlite::Connection`, and a type written `DeliveryHistoryStore` still means the raw-connection store. The `HistoryStore` impl covers both.

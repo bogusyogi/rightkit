@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.18
+
+- Add `purge_once::purge_files_once` using a pinned directory for removal & an atomic completion marker.
+
 ## 0.4.17
 
 - Add `ordered_write::{OrderedWriteQueue, WriteTicket}` behind `fs`: ordered saves, queue-bound tickets, automatic cancellation on drop & turn release on errors or unwind. Refused-load state lets hosts protect unreadable files.

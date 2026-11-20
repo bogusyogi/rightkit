@@ -3071,7 +3071,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-credentials"
-version = "0.5.7"
+version = "0.5.8"
 dependencies = [
  "getrandom 0.4.3",
  "rightkit-child-process",
@@ -3110,7 +3110,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-fs"
-version = "0.4.17"
+version = "0.4.18"
 dependencies = [
  "libc",
  "sha2 0.11.1",
@@ -3184,7 +3184,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-roots"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "getrandom 0.4.3",
  "rightkit-fs",

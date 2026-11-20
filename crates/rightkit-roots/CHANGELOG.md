@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.1
+
+- Add `injected_root::AppDataRoot` for hosts that inject a resolved root at startup & use a per-process temp root before injection.
+
 ## 0.2.0
 
 - Removed `valid_service_name` and `MAX_SERVICE_NAME_LEN`: they are `rightkit-daemon`'s and this crate never used them. The crate is unpublished, so no deprecated copy is kept.

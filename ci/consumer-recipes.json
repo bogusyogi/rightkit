@@ -2042,7 +2042,7 @@
       "pkId": "PK01",
       "id": "ci/consumers/rightkit-fs/src/main.rs",
       "files": {
-        "Cargo.toml": "1bb0e0b9483525b52f60d9620ceffa6649a06bc4c29659a8d69580171ff945cc",
+        "Cargo.toml": "f5db9c27a3a1e11b84ee63ebcb7ec22a138b96d9bd06021546c436e621cb1823",
         "README.md": "84de36e6f006b76d1094d62dc02790e0b0b04a8de6ee7d656b5184649dd7753a",
         "src/main.rs": "aa82e086bd358b28b0be1df0c30b68c1ce97c7c1765e8c825735892bcd967af4"
       }
@@ -2059,7 +2059,7 @@
       "pkId": "PK03",
       "id": "ci/consumers/rightkit-credentials/src/main.rs",
       "files": {
-        "Cargo.toml": "01891f94659152555870a3b8a7cfd2574a15639c6ebcaa872660456c862cc237",
+        "Cargo.toml": "df98b0d04b32f1b3bcb10834349950628286792d28e320fe7f2acefb005d1b7d",
         "prepare_signed_helper.py": "5416b80b5b81ef50528033bbc9b91131a73c421a66764b3390331dd80fa0cd6c",
         "qualification-helper/entitlements.plist": "a6aa6260390ae45abe50cc5bed4d0dd2b922a67ac93f69bd58b86419666f123c",
         "qualification-helper/Info.plist": "8a865dfac7975ff5b0bd3315625676af43490ed611e3e31d2a823debc7b664ad",
@@ -2363,7 +2363,7 @@
       "gateEvidence": "pure and offline: public keys and vectors copied verbatim from crates/rightkit-license/test-vectors (public material, verified byte-equal); clock ledger in a temp directory; client feature enabled for explicitly disabled LicenseClient status with synthetic device id; no network, no OS keychain or real user data; configured client operations, update-auth, engine-gate and subject-entitlement not exercised",
       "consumes": "PK05 plan (01-packages.md:167-183): every app licence migration; public items exercised: verify_token (crates/rightkit-license/src/lib.rs:514), VerifyError (src/lib.rs:390), verify_lease_envelope (src/lease.rs:168), FileClockStore (src/file_store.rs:184), ClockStore::load (src/clock.rs:305), MemoryClockStore (src/clock.rs:348), ProcessAnchor::new (src/clock.rs:243), NativeEntitlementSource (src/native_engine.rs:42), NativeEngineEntitlements::new and current_at (src/native_engine.rs:158,208), LifecyclePolicy (src/lifecycle.rs:118), LicenseClient::new/status/is_disabled (src/client/mod.rs:108,157,140) in Disabled mode only",
       "files": {
-        "Cargo.toml": "4ec688df21178a762a59f50999f350302f1e772fc5c444166dc8ab2c237efb42",
+        "Cargo.toml": "16c316427d0daad910cd4b8f1da5e6fa22918d50d0f3b42d7fe0166f4602be0a",
         "README.md": "b279b7b7ec7afe4439b1ba813c3cabf043cbd1e37874abf25b9e72e93c96f232",
         "src/main.rs": "37e527929bb03573ecaf8fe0b59952a25ac6fdc14b360ccea41a1922f0456c40"
       },
@@ -3475,7 +3475,7 @@
       "pkId": "PK121",
       "id": "ci/consumers/rightkit-transcript-library/src/main.rs",
       "files": {
-        "Cargo.toml": "16f1838f994443312861214a2be4dd69bcf8f79a4b0fb265ce912a4b288dbcbf",
+        "Cargo.toml": "f569d1c48ec2bf765c258ec8c422448c081786f155be1c10c3633776e0a86f56",
         "README.md": "8e685f87f7210537486f6ae1bb0f7938c13cfc0a6802b20e42e22da312397842",
         "src/main.rs": "f2a6783eb56f523a25be4745ea4d9aecbaf46ff60dc8ea581bf3235c33b96459"
       }
@@ -3631,7 +3631,7 @@
       "pkId": "PK144",
       "id": "ci/consumers/rightkit-dictation-models/src/main.rs",
       "files": {
-        "Cargo.toml": "cee40bc7b70b454932f6ba728cd1d022a9ec20816becfa6a9c115c683b5d9523",
+        "Cargo.toml": "36902e59262c0cd818dcba71aae71026189e4dbe6644276470edcc557c48b552",
         "README.md": "d34a2cdd83beafcdd984ae88a09b0340482df751004919b4d15018d1ecdfc93a",
         "src/main.rs": "2cd8f39cd800105551eb936c6da0ff457d54f95e3c027ec450c22516b2db5691"
       }
@@ -3794,7 +3794,7 @@
       "pkId": "PK216",
       "id": "ci/consumers/rightkit-roots/src/main.rs",
       "files": {
-        "Cargo.toml": "9b6f8f008c5d889b33b0c18e8e65283730fa341c9e6f668ba3cff4fa01a9c08a",
+        "Cargo.toml": "6f395dbfffcdb85e211fd84922716e543b86fdd5ddddc7e52e80ba41c2093cb0",
         "README.md": "9db2f3acffa80944a6429bb40be1b73ac2b21de3ca21015186485a15fe259ef5",
         "src/main.rs": "e76de553e044ca6bb387d58b5c7ef98d05187df0d206a8cbddf1e694c5fd6bf3"
       }

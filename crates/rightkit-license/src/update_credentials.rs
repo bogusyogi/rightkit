@@ -112,6 +112,23 @@ pub fn bearer_headers(token: &str) -> HashMap<String, String> {
     HashMap::from([("Authorization".to_string(), format!("Bearer {token}"))])
 }
 
+/// Return no credential for public tiers. For a paid artifact, obtain a verified signed
+/// entitlement from the host or refuse the installation with the host's error text.
+pub fn install_update_headers(
+    tier: &str,
+    free_tiers: &[&str],
+    paid_token: impl FnOnce() -> Result<Option<String>, String>,
+    needs_pro: &str,
+) -> Result<Option<HashMap<String, String>>, String> {
+    if free_tiers.contains(&tier) {
+        return Ok(None);
+    }
+    match paid_token()? {
+        Some(token) => Ok(Some(bearer_headers(&token))),
+        None => Err(needs_pro.to_string()),
+    }
+}
+
 /// Headers for the update CHECK: only an active licence with an activation token yields any.
 pub fn update_check_headers(
     license: UpdateLicense,
