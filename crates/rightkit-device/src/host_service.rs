@@ -48,9 +48,8 @@ impl<S: SecureStore<String>> LazyDeviceService<S> {
         if let Some(service) = cell.as_ref() {
             return Ok(service.clone());
         }
-        let store = build_store().map_err(|message| {
-            log(DEVICE_ID_ERROR_EVENT, &message);
-            message
+        let store = build_store().inspect_err(|message| {
+            log(DEVICE_ID_ERROR_EVENT, message);
         })?;
         let service = Arc::new(DeviceService::new(store));
         *cell = Some(service.clone());
