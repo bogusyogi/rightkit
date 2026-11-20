@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.61
+
+- Export a configurable forbidden-literal file scanner through the release SDK.
+
 ## 0.6.60
 
 - Snapshot compiles can reuse an unchanged crate’s verified result from its original Cargo group when another crate changes. The gate keeps the original command & checks the supporting evidence before dispatching new work.

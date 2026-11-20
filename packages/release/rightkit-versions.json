@@ -50,7 +50,7 @@
     "@rightkit/qa": "0.7.0",
     "@rightkit/qa-chrome": "0.1.12",
     "@rightkit/react-shell": "0.7.5",
-    "@rightkit/release": "0.6.60",
+    "@rightkit/release": "0.6.61",
     "@rightkit/send-ui": "0.1.0",
     "@rightkit/settings-ui": "0.7.4",
     "@rightkit/social-ui": "0.2.1",
@@ -423,7 +423,8 @@
       "0.6.11",
       "0.6.12",
       "0.6.13",
-      "0.6.57"
+      "0.6.57",
+      "0.6.60"
     ],
     "@rightkit/settings-ui": [
       "0.1.0",
