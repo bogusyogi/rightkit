@@ -56,12 +56,12 @@ use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
 use windows_sys::Win32::UI::WindowsAndMessaging::{PostThreadMessageW, WM_APP};
 
 use super::{HookDecision, HookError};
-use crate::release_edge::{native_release_now, NativeReleaseEdge};
 use crate::hook_detail::KeyEventDetail;
 use crate::lifecycle::{lock, next_generation, HeldKey, KeyHold, Lane, LaneRx, PressLedger};
 pub use crate::lifecycle::{press_route, PressRoute};
 use crate::ptt::{PttAbortCause, PttAbortKind, PttModifiers, PttPhase};
 use crate::ptt_timer::ArmTimer;
+use crate::release_edge::{native_release_now, NativeReleaseEdge};
 
 /// Host event sink: `(event, message)`. Called off the hook thread only.
 pub type EventSink = fn(&str, &str);

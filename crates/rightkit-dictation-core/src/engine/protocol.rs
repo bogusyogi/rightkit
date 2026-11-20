@@ -22,7 +22,9 @@ pub struct CaptureReleaseEdge {
 // Omission uses serde(default); a present value must decode as a complete edge.
 // In particular, JSON null must not select the legacy route.
 fn deserialize_release_edge<'de, D>(deserializer: D) -> Result<Option<CaptureReleaseEdge>, D::Error>
-where D: serde::Deserializer<'de> {
+where
+    D: serde::Deserializer<'de>,
+{
     CaptureReleaseEdge::deserialize(deserializer).map(Some)
 }
 
@@ -423,7 +425,11 @@ pub enum EnginePayload {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         release_age_ms: Option<u64>,
         /// Exact edge takes precedence over release_age_ms. Only omission preserves legacy peers.
-        #[serde(default, deserialize_with = "deserialize_release_edge", skip_serializing_if = "Option::is_none")]
+        #[serde(
+            default,
+            deserialize_with = "deserialize_release_edge",
+            skip_serializing_if = "Option::is_none"
+        )]
         release_edge: Option<CaptureReleaseEdge>,
     },
     EngineStateSnapshot {

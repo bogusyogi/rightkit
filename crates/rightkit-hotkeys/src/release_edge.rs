@@ -33,8 +33,7 @@ pub(crate) fn native_release_now() -> Option<NativeReleaseEdge> {
     let mut counter = 0i64;
     // SAFETY: valid writable pointers; QPC retains neither pointer.
     let valid = unsafe {
-        QueryPerformanceFrequency(&mut frequency) != 0
-            && QueryPerformanceCounter(&mut counter) != 0
+        QueryPerformanceFrequency(&mut frequency) != 0 && QueryPerformanceCounter(&mut counter) != 0
     };
     if !valid || frequency <= 0 || counter < 0 {
         return None;

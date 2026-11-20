@@ -186,13 +186,10 @@ pub fn clear_if_current(generation: u64) -> Result<Option<u64>, String> {
     if let Some(retired) = state.pending.get_mut(&generation) {
         *retired = true;
     }
-    let committed_view = state.committed_at == generation
-        || state.committed_views.contains(&generation);
+    let committed_view =
+        state.committed_at == generation || state.committed_views.contains(&generation);
     if state.latest != generation && !(state.pending.is_empty() && committed_view) {
-        if !state.pending.is_empty()
-            && committed_view
-            && state.committed.is_some()
-        {
+        if !state.pending.is_empty() && committed_view && state.committed.is_some() {
             state.committed = None;
             state.committed_views.clear();
         }

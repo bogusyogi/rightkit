@@ -7,5 +7,5 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-audio = { version = "=0.3.8", default-features = false, features = ["capture"] }
+rightkit-audio = { version = "=0.3.9", default-features = false, features = ["capture"] }
 serde_json = "1"

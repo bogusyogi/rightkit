@@ -77,8 +77,9 @@ impl PillEvents {
                 // The microphone level arrives at audio rate: a level still waiting for the
                 // applying thread is replaced by the newer one, so the queue never fills with
                 // amplitudes.
-                queue
-                    .enqueue_replacing_last(event, |last, _| matches!(last, PillEvent::Voice { .. }))
+                queue.enqueue_replacing_last(event, |last, _| {
+                    matches!(last, PillEvent::Voice { .. })
+                })
             } else {
                 queue.enqueue(event)
             }

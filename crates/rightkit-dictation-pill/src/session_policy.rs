@@ -56,7 +56,8 @@ impl SessionFlags {
 
     /// Store the full-screen verdict and return the previous one.
     pub fn swap_fullscreen(&self, fullscreen: bool) -> bool {
-        self.fullscreen_suppressed.swap(fullscreen, Ordering::SeqCst)
+        self.fullscreen_suppressed
+            .swap(fullscreen, Ordering::SeqCst)
     }
 }
 

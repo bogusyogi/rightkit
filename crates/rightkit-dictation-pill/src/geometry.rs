@@ -69,8 +69,19 @@ pub const MAX_GLOW_RINGS: usize = 256;
 /// step would stall), and at most [`MAX_GLOW_RINGS`] are made.
 pub fn gaussian_glow_ops(cap: VRect, bloom: f32, color: Rgba, spec: &GlowSpec) -> Vec<DrawOp> {
     let finite = [
-        cap.x, cap.y, cap.w, cap.h, bloom, spec.sigma_base, spec.sigma_gain, spec.band_base,
-        spec.band_gain, spec.alpha_base, spec.alpha_gain, spec.min_bloom, spec.min_alpha,
+        cap.x,
+        cap.y,
+        cap.w,
+        cap.h,
+        bloom,
+        spec.sigma_base,
+        spec.sigma_gain,
+        spec.band_base,
+        spec.band_gain,
+        spec.alpha_base,
+        spec.alpha_gain,
+        spec.min_bloom,
+        spec.min_alpha,
         spec.reach_sigmas,
     ]
     .iter()
@@ -309,7 +320,12 @@ pub fn status_row(cx: f32, cap_w: f32, label: &str, spec: &StatusSpec) -> Status
 
 /// Apply a card's pose to its display list: the content fades over the shell (the first
 /// `shell_len` ops), then the whole card takes its opacity and scale about `card`'s centre.
-pub fn apply_card_pose(mut ops: Vec<DrawOp>, shell_len: usize, card: VRect, pose: AuxPose) -> Vec<DrawOp> {
+pub fn apply_card_pose(
+    mut ops: Vec<DrawOp>,
+    shell_len: usize,
+    card: VRect,
+    pose: AuxPose,
+) -> Vec<DrawOp> {
     if pose.content_alpha < 0.999 {
         let content_ops = fade_ops(&ops[shell_len..], pose.content_alpha);
         ops.truncate(shell_len);
@@ -402,7 +418,13 @@ pub fn feature_needs_wrap(title: &str, body: &str, spec: &FeatureSpec) -> bool {
 pub fn feature_block(title: &str, body: &str, spec: &FeatureSpec) -> FeatureBlock {
     let wrap = feature_needs_wrap(title, body, spec);
     let lines = if wrap {
-        wrap_text(body, spec.body_face, spec.size, spec.max_width, spec.max_lines)
+        wrap_text(
+            body,
+            spec.body_face,
+            spec.size,
+            spec.max_width,
+            spec.max_lines,
+        )
     } else {
         vec![body.to_string()]
     };
@@ -592,7 +614,8 @@ pub fn recent_card(spec: &RecentSpec, rows: &[&str]) -> RecentCard {
         .collect();
     let rows_h: f32 =
         row_heights.iter().sum::<f32>() + spec.row_gap * rows.len().saturating_sub(1) as f32;
-    let card_h = spec.top_pad + rows_h + spec.row_gap + spec.footer_gap + spec.footer_h + spec.bottom_pad;
+    let card_h =
+        spec.top_pad + rows_h + spec.row_gap + spec.footer_gap + spec.footer_h + spec.bottom_pad;
     let m = spec.margin;
     let outer = VRect::new(
         m,

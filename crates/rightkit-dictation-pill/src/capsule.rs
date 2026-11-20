@@ -104,7 +104,8 @@ pub fn recording_dock_content_width(
     button_count: usize,
 ) -> f32 {
     let pad = (dock.dock_height - dock.button_size) / 2.0;
-    pad * 2.0 + dock.button_size * button_count as f32
+    pad * 2.0
+        + dock.button_size * button_count as f32
         + (dock.bars_width + dock.bars_gap + timer_width)
         + dock.gap * button_count as f32
 }

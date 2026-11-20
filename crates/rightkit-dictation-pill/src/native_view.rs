@@ -296,9 +296,7 @@ impl NativeView {
             PillEvent::Starting => (kinds.starting, 0.0, false, None),
             PillEvent::Recording => (kinds.recording, 0.0, false, None),
             PillEvent::Voice { level } => (kinds.voice, f64::from(*level), false, None),
-            PillEvent::Processing { cancellable } => {
-                (kinds.processing, 0.0, *cancellable, None)
-            }
+            PillEvent::Processing { cancellable } => (kinds.processing, 0.0, *cancellable, None),
             PillEvent::Success => (kinds.success, 0.0, false, None),
             PillEvent::Status { label } => (
                 kinds.status,
@@ -333,7 +331,9 @@ impl NativeView {
             return;
         }
         if ACTIVE.set(self).is_err()
-            && !ACTIVE.get().is_some_and(|active| std::ptr::eq(*active, self))
+            && !ACTIVE
+                .get()
+                .is_some_and(|active| std::ptr::eq(*active, self))
         {
             self.log("bridge", "outcome=refused reason=binding_exists");
             return;
@@ -474,7 +474,10 @@ impl NativeView {
             // Engine not warm yet: the deadline elapsing is expected (a model compile can take
             // ~30s) and must NOT terminate the handoff early. `observe` keeps reporting active
             // until it is.
-            state = Some((handoff.observe(native_active, || engine_ready, Instant::now()), epoch));
+            state = Some((
+                handoff.observe(native_active, || engine_ready, Instant::now()),
+                epoch,
+            ));
             break;
         }
         let Some((state, epoch)) = state else {
@@ -515,14 +518,20 @@ impl NativeView {
         // `is_superseded`. Two racing requests reach the view in either order; the view drops the
         // older generation.
         if crate::clip_override::is_superseded(generation) {
-            self.log("clipboard_dropped", &format!("request=show generation={generation}"));
+            self.log(
+                "clipboard_dropped",
+                &format!("request=show generation={generation}"),
+            );
             return false;
         }
         let items = c_string(items_json);
         unsafe { (self.entry.set_clipboard_items)(items.as_ptr(), mode, loaded, generation) };
         // Revalidate: a newer write during the hop only needs a note; its own request follows.
         if crate::clip_override::is_superseded(generation) {
-            self.log("clipboard_dropped", &format!("request=show_applied_stale generation={generation}"));
+            self.log(
+                "clipboard_dropped",
+                &format!("request=show_applied_stale generation={generation}"),
+            );
         }
         true
     }
@@ -536,12 +545,18 @@ impl NativeView {
             return false;
         }
         if crate::clip_override::is_superseded(generation) {
-            self.log("clipboard_dropped", &format!("request=close generation={generation}"));
+            self.log(
+                "clipboard_dropped",
+                &format!("request=close generation={generation}"),
+            );
             return false;
         }
         unsafe { (self.entry.close_clipboard)(generation) };
         if crate::clip_override::is_superseded(generation) {
-            self.log("clipboard_dropped", &format!("request=close_applied_stale generation={generation}"));
+            self.log(
+                "clipboard_dropped",
+                &format!("request=close_applied_stale generation={generation}"),
+            );
         }
         true
     }
@@ -627,7 +642,11 @@ impl NativeView {
         if closed {
             // The host binding is static, but `self` is not necessarily borrowed as static here.
             // Use the installed binding only when it is exactly this one.
-            if let Some(view) = ACTIVE.get().copied().filter(|view| std::ptr::eq(*view, self)) {
+            if let Some(view) = ACTIVE
+                .get()
+                .copied()
+                .filter(|view| std::ptr::eq(*view, self))
+            {
                 notify_splash_closed(view, generation);
             }
         }
@@ -639,8 +658,7 @@ impl NativeView {
     pub fn splash_dismiss(&self, generation: u64) -> bool {
         {
             let _handoff = self.handoff.lock().unwrap_or_else(|e| e.into_inner());
-            if self.stopped.load(Ordering::SeqCst)
-                || !self.splash_in_flight.load(Ordering::SeqCst)
+            if self.stopped.load(Ordering::SeqCst) || !self.splash_in_flight.load(Ordering::SeqCst)
             {
                 return false;
             }
@@ -760,10 +778,7 @@ unsafe extern "C" fn cb_update_history_item(delivery_id: *const c_char, transcri
         let delivery_id = unsafe { string_from_c(delivery_id, view.config.max_id_bytes) };
         let transcript = unsafe { string_from_c(transcript, view.config.max_text_bytes) };
         let (Some(delivery_id), Some(transcript)) = (delivery_id, transcript) else {
-            view.log(
-                "history_update_error",
-                "outcome=refused reason=too_large",
-            );
+            view.log("history_update_error", "outcome=refused reason=too_large");
             return;
         };
         if bridge::valid_token(&delivery_id, view.config.max_id_bytes).is_none() {
@@ -860,15 +875,21 @@ unsafe extern "C" fn cb_log(surface: *const c_char, message: *const c_char) {
 }
 
 unsafe extern "C" fn cb_stop_recording() {
-    guard((), |view| view.spawn_action("stop_error", view.actions.stop_recording))
+    guard((), |view| {
+        view.spawn_action("stop_error", view.actions.stop_recording)
+    })
 }
 
 unsafe extern "C" fn cb_start_dictation() {
-    guard((), |view| view.spawn_action("start_error", view.actions.start_dictation))
+    guard((), |view| {
+        view.spawn_action("start_error", view.actions.start_dictation)
+    })
 }
 
 unsafe extern "C" fn cb_stop_and_send() {
-    guard((), |view| view.spawn_action("stop_send_error", view.actions.stop_and_send))
+    guard((), |view| {
+        view.spawn_action("stop_send_error", view.actions.stop_and_send)
+    })
 }
 
 unsafe extern "C" fn cb_cancel_processing() {
@@ -881,10 +902,7 @@ unsafe extern "C" fn cb_cancel_processing() {
 
 unsafe extern "C" fn cb_request_clipboard_items() {
     guard((), |view| {
-        view.log(
-            "action",
-            "action=open_clipboard phase=callback_received",
-        );
+        view.log("action", "action=open_clipboard phase=callback_received");
         std::thread::spawn(move || {
             let started = Instant::now();
             if !(view.actions.refresh_clipboard_items)() {

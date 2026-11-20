@@ -80,7 +80,11 @@ pub fn advance(cadence: &Cadence<'_>, saved: &Value, now_ms: u64, kinds: usize) 
     let next_at = read(cadence.next_at_key).unwrap_or(cadence.first_at);
     let cursor = read(cadence.cursor_key).unwrap_or(0);
     let due = completed >= next_at;
-    let next_cursor = if due { cursor.saturating_add(1) } else { cursor };
+    let next_cursor = if due {
+        cursor.saturating_add(1)
+    } else {
+        cursor
+    };
     let jitter = if cadence.interval_jitter == 0 {
         0
     } else {

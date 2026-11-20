@@ -77,7 +77,8 @@ use std::time::Duration;
 
 use super::mouse_hook::{MiddleClickState, StartError};
 use super::ptt_hook::{
-    no_key_cause, EventSink, HookCommand, KbSession, KeyboardState, PttEvent, QueuedHookCommand, MSG_PTT_ARM_ELAPSED,
+    no_key_cause, EventSink, HookCommand, KbSession, KeyboardState, PttEvent, QueuedHookCommand,
+    MSG_PTT_ARM_ELAPSED,
 };
 use super::{HookConfig, HookError, LowLevelHooks};
 use crate::lifecycle::{report_detached, run_dispatch, Cmd};

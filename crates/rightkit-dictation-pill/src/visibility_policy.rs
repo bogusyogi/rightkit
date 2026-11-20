@@ -268,7 +268,9 @@ pub enum PanelInvariant {
     /// The hand-off is active: leave the panel alone.
     DeferForSplashHandoff,
     /// Make the panel visible or hidden (it differs from what the policy wants).
-    Set { visible: bool },
+    Set {
+        visible: bool,
+    },
 }
 
 /// The visibility pass for a native panel host.

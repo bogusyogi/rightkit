@@ -60,7 +60,8 @@ pub struct BarTunings {
 
 /// Breathing period of slot `index` in seconds.
 pub fn breath_period(t: &BarTunings, index: usize) -> f32 {
-    t.breath_period_base + t.breath_period_step * ((index * t.breath_period_mul) % t.breath_period_mod) as f32
+    t.breath_period_base
+        + t.breath_period_step * ((index * t.breath_period_mul) % t.breath_period_mod) as f32
 }
 
 /// Silence breathing target of slot `index`: each bar swells and relaxes on its own period and
@@ -96,9 +97,14 @@ pub fn recording_target<const N: usize>(
     }
     let position = index as f32 / (N - 1) as f32;
     let envelope = t.envelope_base
-        + t.envelope_gain * (position * std::f32::consts::PI).sin().max(0.0).powf(t.envelope_exponent);
+        + t.envelope_gain
+            * (position * std::f32::consts::PI)
+                .sin()
+                .max(0.0)
+                .powf(t.envelope_exponent);
     let flutter = if base > 0.0 {
-        (now_sec * (t.flutter_rate_base + (index % t.flutter_rate_mod) as f32 * t.flutter_rate_step)
+        (now_sec
+            * (t.flutter_rate_base + (index % t.flutter_rate_mod) as f32 * t.flutter_rate_step)
             + index as f32 * t.flutter_phase_step)
             .sin()
             * t.flutter_depth

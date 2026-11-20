@@ -3,7 +3,7 @@
 //! CPAL 0.18.2 does not expose WASAPI TIMESTAMP_ERROR. ALSA fallback timestamps
 //! can include scheduling jitter; discontinuity is explicit failure, never proof
 //! of exact hardware visibility or an instruction to repair timestamps.
-use super::{anyhow, Result};
+use super::{anyhow, CaptureError, Result};
 use cpal::traits::StreamTrait;
 use cpal::{Stream, StreamInstant};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -292,6 +292,38 @@ pub fn capture_edge_now() -> Result<CaptureEdge> {
     }
 }
 
+/// Exact-marker failure. Every variant rejects this marker; callers must never
+/// substitute receipt time, cut_now or legacy trimming after this error.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CaptureCutError {
+    SessionDropped,
+    EdgeBeforeEpoch,
+    /// Invalid/version/clock/future markers, stale epochs & publication failures.
+    Rejected(CaptureError),
+}
+impl std::fmt::Display for CaptureCutError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::SessionDropped => f.write_str("precise capture session dropped"),
+            Self::EdgeBeforeEpoch => f.write_str("capture edge precedes session epoch"),
+            Self::Rejected(error) => std::fmt::Display::fmt(error, f),
+        }
+    }
+}
+impl std::error::Error for CaptureCutError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Rejected(error) => Some(error),
+            _ => None,
+        }
+    }
+}
+impl From<CaptureError> for CaptureCutError {
+    fn from(error: CaptureError) -> Self {
+        Self::Rejected(error)
+    }
+}
+
 /// Synchronous hotkey edge; handles never extend capture stream lifetime.
 #[derive(Clone)]
 pub struct CaptureCutHandle {
@@ -339,6 +371,28 @@ impl CaptureCutHandle {
             return Err(anyhow!("capture edge precedes session epoch"));
         }
         self.publish_at(at)
+    }
+    /// Typed exact-marker path. `cut_at` retains its existing signature.
+    /// Explicit markers fail closed: no error permits receipt-age fallback.
+    pub fn cut_at_exact(
+        &self,
+        edge: CaptureEdge,
+    ) -> std::result::Result<CaptureCutToken, CaptureCutError> {
+        let stream = self
+            .stream
+            .upgrade()
+            .ok_or(CaptureCutError::SessionDropped)?;
+        self.gate.check_epoch(self.epoch)?;
+        let at = edge.instant()?;
+        if at > stream.now() {
+            return Err(CaptureCutError::Rejected(anyhow!(
+                "capture edge is in future"
+            )));
+        }
+        if at < self.start {
+            return Err(CaptureCutError::EdgeBeforeEpoch);
+        }
+        self.publish_at(at).map_err(CaptureCutError::from)
     }
     fn publish_at(&self, at: StreamInstant) -> Result<CaptureCutToken> {
         let result = self

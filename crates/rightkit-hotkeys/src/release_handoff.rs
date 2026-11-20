@@ -115,11 +115,7 @@ impl ReleaseHandoff {
         Self::finish(&mut state, result)
     }
 
-    pub(crate) fn complete_start(
-        &self,
-        generation: u64,
-        valid: bool,
-    ) -> Option<ReleaseDispatch> {
+    pub(crate) fn complete_start(&self, generation: u64, valid: bool) -> Option<ReleaseDispatch> {
         let mut state = self.lock();
         if state.generation != generation {
             return None;
@@ -146,7 +142,10 @@ mod tests {
     fn deferred_release_keeps_original_edge() {
         let handoff = ReleaseHandoff::new();
         assert!(handoff.begin_start(1));
-        assert_eq!(handoff.request_release(1, PttEnd::Send, Some(edge(7))), None);
+        assert_eq!(
+            handoff.request_release(1, PttEnd::Send, Some(edge(7))),
+            None
+        );
         assert_eq!(
             handoff.complete_start(1, false),
             Some((PttEnd::Send, None, Some(Some(edge(7)))))
@@ -156,7 +155,10 @@ mod tests {
     #[test]
     fn release_between_arm_check_and_start_is_retained() {
         let handoff = ReleaseHandoff::new();
-        assert_eq!(handoff.request_release(1, PttEnd::Stop, Some(edge(8))), None);
+        assert_eq!(
+            handoff.request_release(1, PttEnd::Stop, Some(edge(8))),
+            None
+        );
         assert!(handoff.begin_start(1));
         assert_eq!(
             handoff.complete_start(1, false),
@@ -212,7 +214,10 @@ mod tests {
             panic!("poison handoff");
         }));
         assert!(handoff.begin_start(2));
-        assert_eq!(handoff.complete_start(2, false), Some((PttEnd::Stop, None, None)));
+        assert_eq!(
+            handoff.complete_start(2, false),
+            Some((PttEnd::Stop, None, None))
+        );
     }
 
     #[test]

@@ -66,7 +66,11 @@ fn lowered(value: Option<&str>, max_chars: usize) -> String {
 }
 
 /// Substring matches on the lower-cased process name and window title.
-pub fn is_likely_target(policy: &TipPolicy<'_>, process: Option<&str>, title: Option<&str>) -> bool {
+pub fn is_likely_target(
+    policy: &TipPolicy<'_>,
+    process: Option<&str>,
+    title: Option<&str>,
+) -> bool {
     let process = lowered(process, policy.max_target_chars);
     let title = lowered(title, policy.max_target_chars);
     let haystack = format!("{process} {title}");

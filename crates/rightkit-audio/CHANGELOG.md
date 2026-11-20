@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.9
+
+- Add typed errors for exact capture cuts, including a dropped stream and a release edge before its recording epoch. Existing cut callers retain their current interface.
+
 ## 0.3.8
 
 - Seal capture at the original hotkey release using same-host monotonic timestamps. Retain delayed pre-release microphone packets and discard samples captured afterward before resampling.

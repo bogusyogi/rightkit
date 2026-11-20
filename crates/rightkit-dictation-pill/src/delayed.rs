@@ -128,11 +128,7 @@ impl Generation {
     /// Run `work` on a new thread after `delay` (at most [`MAX_DELAY`]) unless a later `schedule`,
     /// a `cancel`, a `retire` or a `restart` happened first. Returns whether the thread was
     /// started (`false` in a retired lifecycle).
-    pub fn schedule(
-        &'static self,
-        delay: Duration,
-        work: impl FnOnce() + Send + 'static,
-    ) -> bool {
+    pub fn schedule(&'static self, delay: Duration, work: impl FnOnce() + Send + 'static) -> bool {
         let Some(generation) = self.next() else {
             return false;
         };
@@ -212,14 +208,17 @@ impl Settle {
                         self.generation.run_if_current(generation, || step());
                     }));
                 }
-                let _ = self
-                    .running
-                    .compare_exchange(generation, 0, Ordering::SeqCst, Ordering::SeqCst);
+                let _ = self.running.compare_exchange(
+                    generation,
+                    0,
+                    Ordering::SeqCst,
+                    Ordering::SeqCst,
+                );
             });
         if spawned.is_err() {
-            let _ = self
-                .running
-                .compare_exchange(generation, 0, Ordering::SeqCst, Ordering::SeqCst);
+            let _ =
+                self.running
+                    .compare_exchange(generation, 0, Ordering::SeqCst, Ordering::SeqCst);
         }
     }
 }
