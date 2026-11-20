@@ -77,9 +77,10 @@ public struct WatchPendingPolicy: Sendable {
 @MainActor
 public final class WatchPendingStore {
     #if canImport(Combine)
-    public let objectWillChange = ObservableObjectPublisher()
-    #endif
+    @Published public private(set) var items: [WatchPendingItem]
+    #else
     public private(set) var items: [WatchPendingItem]
+    #endif
     private let defaults: UserDefaults
     private let defaultsKey: String
     private let keys: WatchPendingKeys
@@ -104,9 +105,6 @@ public final class WatchPendingStore {
     public func retry(_ item: WatchPendingItem) { send([keys.retry: [item.id]]) }
     public func delete(_ item: WatchPendingItem) { send([keys.purge: [item.id]]) }
     private func replace(_ next: [WatchPendingItem]) {
-        #if canImport(Combine)
-        objectWillChange.send()
-        #endif
         items = next.sorted { $0.startedAt < $1.startedAt }
         if let data = try? JSONEncoder().encode(items) { defaults.set(data, forKey: defaultsKey) }
         didChange?(items)
