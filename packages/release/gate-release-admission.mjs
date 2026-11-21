@@ -29,8 +29,12 @@ import { createHash } from "node:crypto";
 import { BUDGETS_FILE, CONTRACT_FILE, RUNNER_FILE, archiveIdentity, archiveOfSeal, runnerFileHashes, validWaiver, verifyReleaseReceipts } from "./gate-acceptance.mjs";
 import { contractJobNonce } from "./gate-seam.mjs";
 import { verifyPublicationClaim } from "./receipt-signature.mjs";
+import { ACCEPTANCE_RESULT_SCHEMA, admitAcceptanceResult, judgeFileHashes } from "./acceptance-admission.mjs";
+import { execFileSync } from "node:child_process";
 
 const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
+/** The tree id of a commit in this checkout. */
+const defaultTreeOf = (commit) => String(execFileSync("git", ["-C", path.dirname(CONTRACT_FILE), "rev-parse", `${commit}^{tree}`], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], windowsHide: true })).trim();
 const PLATFORM_OF = Object.freeze({ mac: "darwin", dell: "win32" });
 const stepIdOf = (label) => String(label).split(":")[0];
 
@@ -116,7 +120,7 @@ export function admitGateRelease({ receipt, readJob, archiveBytes, commit, pipel
  * Admission from files on disk: the receipt, the archive in question, the release commit and the committed pipeline file. The folders
  * `job-claims` and `gate-seal` must sit beside the receipt. Returns { ok, problems, facts }; never throws for a missing or bad input.
  */
-export function admitFromFiles({ receiptFile, archiveFile, commit, pipelineFile = null }) {
+export function admitFromFiles({ receiptFile, archiveFile, commit, pipelineFile = null, treeOf = defaultTreeOf }) {
   const here = path.dirname(fileURLToPath(import.meta.url));
   const problems = [];
   if (!receiptFile) problems.push("no contract-test receipt was named");
@@ -129,6 +133,18 @@ export function admitFromFiles({ receiptFile, archiveFile, commit, pipelineFile 
   const sealed = read("contract-nn.json", path.join(here, "contract-nn.json"), true);
   const budgets = read("the budgets file", BUDGETS_FILE, true);
   if (problems.length) return { ok: false, problems, facts: null };
+  // A twelve-line result (GC-A27) is admitted by its own rules; any other record is the old contract-test receipt, read as before so results sealed earlier stay readable.
+  if (receipt.schema === ACCEPTANCE_RESULT_SCHEMA) {
+    if (receipt.jobClaims !== "job-claims") return { ok: false, problems: [`the result names its job claims folder as ${JSON.stringify(receipt.jobClaims)}, expected "job-claims"`], facts: null };
+    const dir = path.dirname(path.resolve(receiptFile));
+    const orNull = (f) => { try { return fs.readFileSync(f); } catch { return null; } };
+    const seal = receipt.gateSeal === "gate-seal" ? path.join(dir, "gate-seal") : null;
+    let tree = null; try { tree = treeOf(commit); } catch (e) { problems.push(`the tree of ${commit} cannot be read (${e.message})`); }
+    const contractText = String(fs.readFileSync(CONTRACT_FILE));
+    const admitted = admitAcceptanceResult({ result: receipt, readJob: (id) => fs.readFileSync(path.join(dir, "job-claims", `${id}.json`)), archiveBytes, commit, tree, pipeline, contractText, contractSha256: sha256(contractText), judgeFiles: judgeFileHashes(),
+      manifestBytes: seal ? orNull(path.join(seal, "manifest.txt")) : null, sourceBytes: seal ? orNull(path.join(seal, "trusted-gate-source.json")) : null });
+    return { ...admitted, ok: admitted.ok && problems.length === 0, problems: [...problems, ...admitted.problems] };
+  }
   if (receipt.jobClaims !== "job-claims") return { ok: false, problems: [`the receipt names its job claims folder as ${JSON.stringify(receipt.jobClaims)}, expected "job-claims"`], facts: null };
   const beside = path.dirname(path.resolve(receiptFile));
   const readOrNull = (f) => { try { return fs.readFileSync(f); } catch { return null; } };
