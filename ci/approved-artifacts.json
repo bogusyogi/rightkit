@@ -1169,9 +1169,9 @@
       "registry": "swift",
       "name": "RightKitSwift",
       "version": "0.9.4",
-      "sha256": "f5e17113329c1a030868efe55c533032c5c02560371a7ec77ffd2e8fd04de49b",
+      "sha256": "1fc91fed1aa1f8d6953ea69a55282bbe6d723716afe1e0c79b47e05e55678ea0",
       "reviewer": "Independent Oracle source reviews (Apple audio, Watch, and model lifecycle)",
-      "reviewRef": "agent-review:/root/hr_094_native_oracle+hr_094_speech_oracle/b0b6ec05cad66aceaf197c626825e9d69f4c98d5/f5e17113329c1a030868efe55c533032c5c02560371a7ec77ffd2e8fd04de49b"
+      "reviewRef": "agent-review:/root/hr_094_native_oracle+hr_094_speech_oracle/b0b6ec05cad66aceaf197c626825e9d69f4c98d5/f5e17113329c1a030868efe55c533032c5c02560371a7ec77ffd2e8fd04de49b; cleanup restored from 0ff6971918830304241b808c3ae6065d21b22e62; failed test reproduced in run 44869189560; fixed-source:08fa9c3339976f4811dbe12e31922e1c86a3d6a0/1fc91fed1aa1f8d6953ea69a55282bbe6d723716afe1e0c79b47e05e55678ea0"
     }
   ]
 }

@@ -171,9 +171,8 @@ public struct ModelDownloadCoordinator: Sendable {
             progress(.init(phase: .ready, fraction: 1))
             return directory
         } catch {
-            // Keep a pinned archive after storage/validation failures (including ENOSPC) so retry does
-            // not require another transfer. Only an archive whose digest was rejected is discarded.
-            if case ModelDownloadError.checksumMismatch = error { try? manager.removeItem(at: archive) }
+            // A cancelled install keeps the archive for the retry; a rejected archive is useless.
+            if !ModelDownloadPolicy.isCancellation(error) { try? manager.removeItem(at: archive) }
             throw error
         }
     }
