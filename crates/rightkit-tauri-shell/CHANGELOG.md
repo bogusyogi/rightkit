@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.8.7
+
+- Add a hub controller for show, routing, launch splash & legal handoff. Windows keeps a static hub.
+- Add startup planning, reveal, legal latch, renderer park & ordered setup over host callbacks.
+
 ## 0.8.6
 
 - Share wallpaper reads, install-location/login-entry policy, forwarded-launch startup coordination, watchdog event logs, close decisions & startup renderer parking. Serialize forwarded opens with app binding & startup readiness; retain failed main-thread scheduling for retry.

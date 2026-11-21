@@ -2016,7 +2016,7 @@
       "pkId": "PK01",
       "id": "ci/consumers/rightkit-fs/src/main.rs",
       "files": {
-        "Cargo.toml": "f5db9c27a3a1e11b84ee63ebcb7ec22a138b96d9bd06021546c436e621cb1823",
+        "Cargo.toml": "351f6d0713b094a0a36c10a7b470c92880e699dc49de6051cdac8844fb77331d",
         "README.md": "84de36e6f006b76d1094d62dc02790e0b0b04a8de6ee7d656b5184649dd7753a",
         "src/main.rs": "aa82e086bd358b28b0be1df0c30b68c1ce97c7c1765e8c825735892bcd967af4"
       }
@@ -2278,11 +2278,11 @@
       "pkId": "PK08",
       "id": "ci/consumers/rightkit-tauri-shell/src/main.rs",
       "files": {
-        "Cargo.toml": "bfcfbca3c2711de9f40ac22a524626136f0e0a8f083fda853e34cd2e3ce0583a",
-        "README.md": "157ddc61dbb7898cbdb98da679455deab6bb2943209655dff41daaa8950979bb",
-        "src/main.rs": "9d8081c88d1572bf33eeda9daa26dd1030b5bccc8c1bd07394a8e451b85e9e74"
+        "Cargo.toml": "309b2b0b799fca4280068776edd8e5cb903e073a6900cefeec778e21a3a0e4de",
+        "README.md": "a2282b07f9d914c51a800347320775a5ff75793554fcd33e84c429066ad37aa7",
+        "src/main.rs": "4466993524e48ab50d8c4771cc6ad800763b9062217ac40773d1aa3fe6e6bee0"
       },
-      "aggregateSha256": "c9460d9cd7fc93e866ff8e90996a42c7462e1cf54d876401526da98490bc7ee4"
+      "aggregateSha256": "5109cfddd9b5c2e500102501aeb48cbdc3d643bb6d2097632580614bed374c99"
     },
     "rightkit-oauth": {
       "pkId": "PK06",
@@ -2626,9 +2626,9 @@
       "pkId": "PK19",
       "id": "ci/consumers/rightkit-audio/src/main.rs",
       "files": {
-        "Cargo.toml": "3b77e8795a4deba1ade93f5be29b277661001947b7df313582b54a87fe4ba9fb",
-        "README.md": "553d3000c8b577385b8824c4ab9d15d9d28cf205a41713be98fc9d42cf2f896c",
-        "src/main.rs": "ac8241d1e953ac082d369b60e7dfd692a7f1c092ab8b1c942a04dddedcbea069"
+        "Cargo.toml": "410ef5da0cb53a277027780258108f08c2601aeabb3693b27e3a8c0c69e485b4",
+        "README.md": "5144c628bb41ffba6a75959b4108668aee8aee13a56c8e8a83fa585f47b5c3e2",
+        "src/main.rs": "c17aff0b97b2485ab10226259b96941db46e8bc1a758fcfa07c53e38798c1a2e"
       }
     },
     "rightkit-cache": {

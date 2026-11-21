@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.19
+
+- Add a fallible `OwnedTemp::discard` operation. Explicit discard and drop keep ownership evidence when the temporary file cannot be removed.
+
 ## 0.4.18
 
 - Add `purge_once::purge_files_once` using a pinned directory for removal & an atomic completion marker.

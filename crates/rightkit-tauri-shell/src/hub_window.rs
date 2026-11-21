@@ -21,6 +21,7 @@
 //! * [`retire_overlay`]: click-through, hide, close for a webview overlay that must never ghost.
 //! * [`morph`]: the frame maths, timing and (Windows, feature `overlay`) the native shell that grows
 //!   the hub out of, or returns it to, an anchor rectangle.
+//! * [`controller`]: show or route the hub, present a launch splash, and hand off the legal gate.
 //!
 //! # Reveal policy
 //!
@@ -46,6 +47,7 @@ use tauri::{AppHandle, Manager, Runtime, WebviewUrl, WebviewWindow, Wry};
 pub use crate::lifecycle::{reveal_mode, RevealMode, RevealSource};
 use crate::windows::RevealStyle;
 
+pub mod controller;
 pub mod macos;
 pub mod morph;
 

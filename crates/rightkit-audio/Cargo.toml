@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-audio"
-version = "0.3.9"
+version = "0.3.10"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Shared audio for Right Suite apps: typed FFmpeg filter graphs, loudness gates, room tone, ducking, WAV I/O, and cpal capture with resample/downmix/recovery."
@@ -15,13 +15,14 @@ include = ["src/**", "presets/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "
 default = ["capture"]
 # Live microphone capture (cpal + rubato + ringbuf + tracing), the macOS CoreAudio device probe,
 # and the Windows endpoint/power lifecycle adapter. Off for pure filter-graph consumers.
-capture = ["dep:tracing", "dep:cpal", "dep:rubato", "dep:ringbuf", "dep:objc2-core-audio", "dep:objc2-core-foundation", "dep:windows", "dep:windows-core", "dep:rightkit-child-process", "dep:objc2", "dep:objc2-foundation", "dep:block2"]
+capture = ["dep:tracing", "dep:cpal", "dep:rubato", "dep:ringbuf", "dep:objc2-core-audio", "dep:objc2-core-foundation", "dep:windows", "dep:windows-core", "dep:rightkit-child-process", "dep:objc2", "dep:objc2-foundation", "dep:block2", "dep:rightkit-fs"]
 # Audio output (cpal only, no new dependency): OutputSession with a lock-free sample ring, a
 # latency-adjusted playback clock, pause/volume/mute/flush and device-loss recovery. Off by default.
 playback = ["dep:cpal"]
 
 [dependencies]
 rightkit-child-process = { path = "../rightkit-child-process", version = "0.5.12", optional = true }
+rightkit-fs = { path = "../rightkit-fs", version = "0.4.19", default-features = false, features = ["fs"], optional = true }
 rightkit-ffmpeg = { path = "../rightkit-ffmpeg", version = "0.3.0", default-features = false }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
@@ -145,3 +146,10 @@ file = "src/setup/calibration_engine.rs"
 holds = ["process", "thread", "memory"]
 scale = "one owned engine child, two output drain workers, stdout bounded by EngineRun::stdout_cap plus 1 MiB stderr; macOS parent-death watchdog owns one helper process; execution deadline followed by bounded tree termination and pipe cleanup"
 release = "runner return after tree termination/reap and output cleanup; parent death terminates owned child through OS job or parent-death mechanism"
+
+[[package.metadata.rightkit.resources]]
+api = "calibration_session::finish"
+file = "src/setup/calibration_session.rs"
+holds = ["memory"]
+scale = "one owned on-disk PCM file and a sample buffer bounded by sample rate times maximum capture length"
+release = "discard is attempted on every normal exit after reservation and before any resident restart; failures are reported and retained ownership evidence allows recovery once the process is confirmed dead"

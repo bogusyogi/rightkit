@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.10
+
+- Add calibration session completion with owned PCM cleanup, typed outcomes & host callbacks for model activation, engine execution and restart.
+
 ## 0.3.9
 
 - Add typed errors for exact capture cuts, including a dropped stream and a release edge before its recording epoch. Existing cut callers retain their current interface.
