@@ -621,15 +621,19 @@ public final class RightKitPillModel: ObservableObject {
         let started = ProcessInfo.processInfo.systemUptime
         let duration = configuration.timings.introDuration
         let timer = Timer(timeInterval: 1 / 60, repeats: true) { [weak self] timer in
-            MainActor.assumeIsolated {
-                guard let self else { timer.invalidate(); return }
+            let shouldInvalidate = MainActor.assumeIsolated {
+                guard let self else { return true }
                 let progress = min(1, (ProcessInfo.processInfo.systemUptime - started) / duration)
                 self.introBloom = Self.clampedIntroIntensity(self.views.introIntensity, progress: progress)
                 if progress >= 1 {
-                    timer.invalidate()
                     self.introTimer = nil
                     self.introBloom = 0
+                    return true
                 }
+                return false
+            }
+            if shouldInvalidate {
+                timer.invalidate()
             }
         }
         timer.tolerance = 0.002
