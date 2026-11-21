@@ -15,14 +15,17 @@
 param(
     [switch]$Debug,
     [string]$Crate = 'rightkit-android',
-    [string]$Library = 'rightkit_android'
+    [string]$Library = 'rightkit_android',
+    [string]$ManifestPath = '',
+    [switch]$Models
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $crateDir = Split-Path -Parent $here
-$root = Resolve-Path (Join-Path $crateDir '..\..')
+$manifest = if ($ManifestPath) { (Resolve-Path -LiteralPath $ManifestPath).Path } else { Join-Path $crateDir 'Cargo.toml' }
+if ($Library -notmatch '^[A-Za-z0-9_]+$') { throw 'Invalid library name' }
 $pins = @{}
 foreach ($line in Get-Content -LiteralPath (Join-Path $here 'toolchain.versions')) {
     if ($line -match '^\s*([A-Z_]+)=(.*)$') { $pins[$Matches[1]] = $Matches[2].Trim() }
@@ -39,16 +42,20 @@ $profile = @()
 $targets = @()
 foreach ($abi in ($pins['ABIS'] -split '\s+')) { $targets += @('-t', $abi) }
 
-Push-Location $root
+Push-Location (Split-Path -Parent $manifest)
 try {
     $cargoTail = if ($cargo.Count -gt 1) { $cargo[1..($cargo.Count - 1)] } else { @() }
-    & $cargo[0] @cargoTail ndk @targets --platform $pins['MIN_SDK'] -o $jni build -p $Crate @profile
+    $featureArgs = if ($Models) { @('--features', 'rightkit-android/models') } else { @() }
+    & $cargo[0] @cargoTail ndk @targets --platform $pins['MIN_SDK'] -o $jni build --manifest-path $manifest -p $Crate @profile @featureArgs
     if ($LASTEXITCODE -ne 0) { throw 'cargo ndk build failed' }
 
     $lib = Join-Path $jni "arm64-v8a\lib$Library.so"
     if (Test-Path -LiteralPath $gen) { Remove-Item -LiteralPath $gen -Recurse -Force }
-    & $cargo[0] @cargoTail run -p rightkit-android --features bindgen --bin uniffi-bindgen -- `
-        generate --library $lib --language kotlin --out-dir $gen --no-format
+    $config = Join-Path $gen 'uniffi-build.toml'
+    New-Item -ItemType Directory -Path $gen -Force | Out-Null
+    (Get-Content -Raw -LiteralPath (Join-Path $crateDir 'uniffi.toml')).Replace('[bindings.kotlin]', '[crates.rightkit_android.bindings.kotlin]').Replace('cdylib_name = "rightkit_android"', "cdylib_name = `"$Library`"") + "`nandroid = true`n" | Set-Content -LiteralPath $config
+    & $cargo[0] @cargoTail run --manifest-path (Join-Path $crateDir 'Cargo.toml') -p rightkit-android --features bindgen --bin uniffi-bindgen -- `
+        generate --library $lib --crate rightkit_android --config $config --language kotlin --out-dir $gen --no-format
     if ($LASTEXITCODE -ne 0) { throw 'uniffi-bindgen failed' }
 
     $rev = (& git rev-parse --short HEAD 2>$null)
@@ -56,6 +63,7 @@ try {
         "built:   $((Get-Date).ToUniversalTime().ToString('o'))",
         "git:     $rev",
         "crate:   $Crate (dev)",
+        "models:  $Models",
         "ndk:     $($pins['NDK_VERSION'])",
         "minSdk:  $($pins['MIN_SDK'])",
         "abis:    $($pins['ABIS'])"

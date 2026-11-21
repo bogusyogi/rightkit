@@ -552,7 +552,7 @@
     "rightkit-agents": "0.2.7",
     "rightkit-ai-accounts": "0.1.1",
     "rightkit-ai-keys": "0.1.1",
-    "rightkit-android": "0.3.1",
+    "rightkit-android": "0.3.2",
     "rightkit-app-host": "0.1.2",
     "rightkit-app-icon": "0.1.0",
     "rightkit-app-lock": "0.1.0",
@@ -906,7 +906,8 @@
     ],
     "rightkit-android": [
       "0.2.0",
-      "0.3.0"
+      "0.3.0",
+      "0.3.1"
     ],
     "rightkit-app-settings": [
       "0.2.0",

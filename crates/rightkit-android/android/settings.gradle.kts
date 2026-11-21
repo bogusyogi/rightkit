@@ -21,6 +21,10 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
+        maven {
+            url = uri("https://raw.githubusercontent.com/rustls/rustls-platform-verifier/maven-archive/android-release-support/maven/")
+            content { includeModule("org.rustls", "rustls-platform-verifier") }
+        }
     }
 }
 

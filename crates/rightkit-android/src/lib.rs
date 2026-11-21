@@ -26,6 +26,8 @@ pub mod error;
 pub mod jni_entry;
 pub mod keystore;
 pub mod logcat;
+#[cfg(feature = "models")]
+pub mod models;
 pub mod paths;
 pub mod toolchain;
 

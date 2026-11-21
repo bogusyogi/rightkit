@@ -2519,14 +2519,14 @@
     "rightkit-android": {
       "pkId": "PK09",
       "id": "ci/consumers/rightkit-android/src/main.rs",
-      "dependency": "rightkit-android = { version = \"=0.3.0\" }",
+      "dependency": "rightkit-android = { version = \"=0.3.2\" }",
       "extraDependencies": [],
       "gateEvidence": "no assets needed; deterministic, in-process; no ci/asset-gated.json entry needed",
       "consumes": "no app pins this version yet; publication unblocks adoption (recipe exercises the public API family named in its README)",
       "files": {
-        "Cargo.toml": "712a64b86026f23de74bfa8eeff0eeb50863ead3dbe6300e2cc982339bcbfafa",
-        "README.md": "8a9b8a952e250aa8008ec84943a1b900160da652fab0a4984dc427af66a825fe",
-        "src/main.rs": "fdc1fd2f4878d91235693752f3086c270a73451187e9c6d1d2a3d8da4321e900"
+        "Cargo.toml": "c92c94ec0da953fb6d887d5392da364ac9df4e5998958f3c46e000fd7d1f338a",
+        "README.md": "ecf9a3b025ef15593abc46e452a98cd41670c19659d1299e1e794bde8720d6f0",
+        "src/main.rs": "177ce66536fa62103aa5b545ab6c04dd326d72fbe8ebf1ec0234db62084348f6"
       },
       "aggregateSha256": "d92df425b86d41f41da82518b5b17c98054d2ff4739b8f5f5ec22ec1b30a89cb"
     },
