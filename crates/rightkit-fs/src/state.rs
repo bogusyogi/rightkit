@@ -5,8 +5,7 @@
 //! (a directory, owned by the effective user, not writable by group/others) and compared with an
 //! `lstat` taken before the walk. Reads, writes, renames, unlinks and listings are `*at`
 //! operations relative to that descriptor, so renaming or swapping the path afterwards (or
-//! planting a symlink at a child name) cannot redirect anything. Donor: Cockpit
-//! `core/src/store.rs` (pinned descriptor, tested against swaps).
+//! planting a symlink at a child name) cannot redirect these operations.
 //!
 //! Windows walks components without following reparse points, then retains a directory handle
 //! without delete sharing. Child opens use `NtCreateFile` relative to that handle; publication
