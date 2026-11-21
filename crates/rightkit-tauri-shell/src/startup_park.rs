@@ -1,5 +1,5 @@
 //! Park the hidden main window's renderer once its frontend surfaces are ready. Moved from
-//! HeardRight `app_run.rs` (`HUB_STARTUP_SUSPEND_ARMED`, `HUB_FRONTEND_READY_SURFACES`,
+//! host `app_run.rs` (`HUB_STARTUP_SUSPEND_ARMED`, `HUB_FRONTEND_READY_SURFACES`,
 //! `HUB_FRONTEND_READY_REQUIRED`, `try_suspend_startup_hub`, and the surface-name match in
 //! `hub_frontend_ready`).
 //!

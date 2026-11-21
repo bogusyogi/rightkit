@@ -1,7 +1,5 @@
-//! Capture route identity and open policy. Ported from HeardRight
-//! `heardright-runtime/src/worker/capture_recovery.rs` (route signature, route-change
-//! test, access-denied hint) minus the worker-state coupling: the mic-selection
-//! policy here is the generic part (saved platform id, fail closed when it is gone).
+//! Capture route identity, change detection and access-denied hints. A saved
+//! platform ID fails closed when that microphone is unavailable.
 
 use super::anyhow;
 use super::{

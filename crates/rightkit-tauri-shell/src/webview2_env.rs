@@ -11,7 +11,7 @@
 //! every build; no Cargo feature keeps inherited values. A profile that calls
 //! [`ProfileEnv::keep_existing_user_data_folder`] keeps a launcher-chosen user data folder.
 //!
-//! Donor: ViewRight's profile environment (`lib.rs:178-208` at its HEAD). That source is not in this
+//! Mechanism: host's profile environment (`lib.rs:178-208` at its HEAD). That source is not in this
 //! checkout, so the surface here is the shell's own: [`ProfileEnv`] with a validated, typed view of
 //! the two variables. Arguments are validated because WebView2 splits them on spaces: an argument
 //! with whitespace, a control character or no leading `--` is refused, and so is any argument that

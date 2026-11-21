@@ -1,6 +1,6 @@
 //! Native notifications, badge and sound policy.
 //!
-//! Donor: CodeRight `notifications.rs` (per-target sound cooldown, `navigate_path || title` key,
+//! Mechanism: host `notifications.rs` (per-target sound cooldown, `navigate_path || title` key,
 //! non-negative badge, foreground attention cue, Do-Not-Disturb suppression through
 //! [`crate::presence`]). The delivery itself is `rightkit-notifications` (#958), the neutral owner
 //! usable without Tauri: `UNUserNotificationCenter` on macOS, WinRT toasts on Windows and
@@ -16,7 +16,7 @@
 //! name and icon. [`delivered`] is empty on Windows and Linux.
 //!
 //! Notification settings that apps persist (sound on/off, sound name, per-category toggles —
-//! HeardRight and MailRight keep these in their own stores) arrive on every request; the shell owns
+//! hosts keep these in their own stores) arrive on every request; the shell owns
 //! the delivery policy, the app owns its preferences.
 
 use std::collections::HashMap;
@@ -28,7 +28,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::ShellError;
 
-/// Per-target notification-sound cooldown (CodeRight: Omnigent's value).
+/// Per-target notification-sound cooldown (host policy).
 pub const SOUND_THROTTLE_MS: u64 = 3_000;
 /// macOS system sound used when the caller does not choose one.
 pub const DEFAULT_SOUND: &str = "Glass";

@@ -2,7 +2,7 @@
 //!
 //! A first-run app keeps one hidden window and shows it in different shapes: a 960x640 legal and
 //! onboarding window, then the 1200x760 app window. Each app hand-wrote the same sequence
-//! (ScrapeRight `window_surface.rs`): un-maximise, resize, centre, reveal, plus a timer that shows
+//! (host `window_surface.rs`): un-maximise, resize, centre, reveal, plus a timer that shows
 //! the window anyway when the frontend never asks. This module owns the sequence; the app owns the
 //! numbers.
 //!

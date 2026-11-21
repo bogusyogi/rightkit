@@ -1,8 +1,8 @@
 //! Native application menu: standard App / Edit / View / Window / Help structure, no browser
 //! verbs (no Reload, no zoom, no Back), plus app-defined groups.
 //!
-//! Donors: ViewRight's macOS menu (Hide, Hide Others, Quit, Edit, Window), CodeRight's
-//! `build_application_menu` (typed ids forwarded to the renderer exactly once) and HeardRight's
+//! Mechanisms: host's macOS menu (Hide, Hide Others, Quit, Edit, Window), host's
+//! `build_application_menu` (typed ids forwarded to the renderer exactly once) and host's
 //! menu/tray gating. Custom items carry stable string ids; a click is delivered as the
 //! `rightkit-shell://menu` event and to an optional Rust callback.
 

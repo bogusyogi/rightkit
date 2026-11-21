@@ -1,4 +1,4 @@
-//! The user's current desktop wallpaper as a data URI. Moved from HeardRight `commands/system.rs`
+//! The user's current desktop wallpaper as a data URI. Moved from host `commands/system.rs`
 //! (`wallpaper_data_blocking`). Read-only, never leaves the device; `None` on failure. WebKit
 //! renders HEIC natively, so macOS bytes ship unconverted.
 //!

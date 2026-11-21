@@ -1,4 +1,4 @@
-//! Single-instance claim and forwarded-launch handling for an app's `run()`. Moved from HeardRight
+//! Single-instance claim and forwarded-launch handling for an app's `run()`. Moved from host
 //! `app_run.rs` (`single_instance_identifier`, `claim_single_instance`, `handle_forwarded_launch`
 //! and the four statics that deferred a forwarded launch until startup finished).
 //!

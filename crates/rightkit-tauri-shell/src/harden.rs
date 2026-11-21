@@ -42,12 +42,12 @@ pub struct Hardening {
     /// Cancel `contextmenu` outside designated surfaces.
     pub block_context_menu: bool,
     /// Keep the native Cut/Copy/Paste menu inside inputs, textareas and contenteditable
-    /// (HeardRight behaviour). Mark any other surface with `data-rk-native-menu`.
+    /// (host behaviour). Mark any other surface with `data-rk-native-menu`.
     pub allow_editable_menu: bool,
     /// Block F5 and Cmd/Ctrl+R (+Shift) reload shortcuts only. Print and view-source have
     /// their own switches below, so an app can keep reload blocked without losing them.
     pub block_reload: bool,
-    /// Block Cmd/Ctrl+P (print). Split from `block_reload`: MailRight needs print while
+    /// Block Cmd/Ctrl+P (print). Split from `block_reload`: host needs print while
     /// reload stays blocked.
     pub block_print: bool,
     /// Block Cmd/Ctrl+U (view source) outside editable surfaces. Inside an input, textarea or

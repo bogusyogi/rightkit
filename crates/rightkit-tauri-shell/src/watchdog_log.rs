@@ -1,4 +1,4 @@
-//! Structured `ui_*` log lines for the shell watchdog's events. Moved from HeardRight
+//! Structured `ui_*` log lines for the shell watchdog's events. Moved from host
 //! `app_run.rs` (`log_watchdog_event`). No event carries a path, a value or a secret beyond the
 //! artifact file name (the file name only: the directory is under the user's profile).
 

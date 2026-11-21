@@ -1,6 +1,6 @@
 //! DPI-independent window geometry persistence and restore.
 //!
-//! Base: CodeRight's `window_state` (the most developed donor: logical-pixel storage, v0 -> v1
+//! Base: host's `window_state` (the most developed donor: logical-pixel storage, v0 -> v1
 //! migration, exact-dimension / intersecting / nearest-monitor selection, on-screen title bar
 //! clamp, maximised-state memory). Changes: no tokio (debounce on a thread), the state file lives
 //! under the shell's per-app directory, and every label is tracked, not only `main`.
@@ -292,7 +292,7 @@ impl WindowStateStore {
         load_store(&self.dir).states.remove(label)
     }
 
-    /// Import a legacy per-app geometry store once (M1-G5; CodeRight `window_state/mod.rs:92,110-118`
+    /// Import a legacy per-app geometry store once (M1-G5; host `window_state/mod.rs:92,110-118`
     /// shape: a flat `label -> state` JSON object, `version` 0 meaning physical pixels).
     ///
     /// Each legacy entry runs through the same v0 -> v1 migration the store applies on load, then is

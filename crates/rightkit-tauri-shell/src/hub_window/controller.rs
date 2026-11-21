@@ -79,6 +79,8 @@ pub struct LegalGateWording {
     pub hub_hidden_detail: &'static str,
 }
 
+type HubAnimation = fn(&WebviewWindow<Wry>) -> Result<(), String>;
+
 /// Everything the controller needs from the host. Plain data and function pointers, so a
 /// `HubController` can be a `static`. The crate drives `Wry` windows only (`fit_work_area` and the
 /// idle machine are `Wry`).
@@ -123,7 +125,7 @@ pub struct HubHost {
     /// The hand-over from the pill to the hub: the AppKit panel on macOS, the native shell on
     /// Windows. `None` elsewhere. Called only when the guard allows a foreground reveal. An `Err`
     /// falls through to an ordinary show.
-    pub animate_from_pill: Option<fn(&WebviewWindow<Wry>) -> Result<(), String>>,
+    pub animate_from_pill: Option<HubAnimation>,
 }
 
 /// Drives one hub window. `const`-constructible for a `static`.

@@ -1,6 +1,6 @@
 //! Ranged custom-protocol streaming of broker-granted files.
 //!
-//! Donors: ViewRight `binary_stream.rs` (id resolution, HEAD/GET/OPTIONS, single-range parsing,
+//! Mechanisms: host `binary_stream.rs` (id resolution, HEAD/GET/OPTIONS, single-range parsing,
 //! heavy reads off the calling thread) and `stream_http.rs` (range parser, fallible response
 //! builders that never panic). The shell registers one or more schemes with
 //! `ShellBuilder::stream_protocol("myapp-stream", policy)`; URLs are `myapp-stream://localhost/<id>`

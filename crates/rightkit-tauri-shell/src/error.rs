@@ -1,6 +1,6 @@
 //! Typed error envelope for shell commands that need category handling in the renderer.
 //!
-//! Donor: ViewRight `error.rs` (`{code, message}` with snake_case codes). The wire shape is
+//! Mechanism: host `error.rs` (`{code, message}` with snake_case codes). The wire shape is
 //! `{"code": "broker_denied", "message": "..."}` and a Tauri command returning
 //! `Result<_, ShellError>` rejects its promise with exactly that object. Older shell commands
 //! still reject with plain strings; the bridge normalises both (`ShellError` in `@rightkit/tauri-shell`).

@@ -2,8 +2,8 @@
 //! open-from-clipboard, over the runtime-neutral `rightkit-clipboard` (rightkit#956), which owns the
 //! raw transaction API (text, HTML, PNG, file lists and app-defined formats on macOS and Windows).
 //!
-//! Donors: HeardRight `clipboard` + delivery (text/HTML/image, paste-sequence discipline),
-//! ViewRight file grants (paths, not bytes) and ViewRight `commands/clipboard.rs` (typed
+//! Mechanisms: host `clipboard` + delivery (text/HTML/image, paste-sequence discipline),
+//! host file grants (paths, not bytes) and host `commands/clipboard.rs` (typed
 //! files/image/text/empty result, CF_DIB to BMP, temp-file grants, one-hour purge).
 //!
 //! * [`read`] / [`write()`] are the raw transaction API, re-exported from `rightkit-clipboard`.

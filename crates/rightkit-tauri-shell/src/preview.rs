@@ -1,6 +1,6 @@
 //! In-memory preview documents served from their own custom scheme (Orthic-Labs/rightkit#386).
 //!
-//! Donor: ViewRight `preview_protocol.rs` (`viewright-preview://`). A `srcdoc` iframe inherits the
+//! Mechanism: host `preview_protocol.rs` (`example-preview://`). A `srcdoc` iframe inherits the
 //! embedding window's CSP, so previewing content that needs `'unsafe-eval'` (compiled MDX) or remote
 //! `http(s)` scripts (interactive HTML) would force the MAIN window to allow both. Serving each
 //! preview from its own scheme gives it its own response CSP and keeps the main window strict.
@@ -307,7 +307,7 @@ impl PreviewStore {
     }
 
     /// The kind a live token was registered under, or `None` for an unknown, revoked or expired
-    /// token. An app uses it to decide what else it may do with a document (ViewRight: only an
+    /// token. An app uses it to decide what else it may do with a document (host: only an
     /// interactive document may be opened in DevTools) without holding a second token table.
     pub fn kind_of(&self, token: &str) -> Option<String> {
         self.kind_of_at(token, Instant::now())

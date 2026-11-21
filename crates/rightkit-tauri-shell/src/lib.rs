@@ -1,4 +1,4 @@
-//! rightkit-tauri-shell: the shared Tauri desktop shell for Right Suite apps.
+//! rightkit-tauri-shell: the shared Tauri shell for desktop apps.
 //!
 //! What every desktop app needs around its own UI: a hardened webview, window state, a native
 //! menu, a tray, single instance, deep links, autostart, a rich clipboard, a hang watchdog and
@@ -506,7 +506,7 @@ impl ShellBuilder {
     }
     /// Who may use DevTools. The default, [`DevToolsPolicy::Denied`], makes no webview of the app
     /// inspectable. [`DevToolsPolicy::ContentOnly`] is a named allowance for an app that renders
-    /// opened content (ViewRight) and must also register that content with
+    /// opened content (host) and must also register that content with
     /// [`ShellBuilder::content_webview`]. The policy applies whichever modules are installed.
     pub fn devtools_policy(mut self, p: DevToolsPolicy) -> Self {
         self.devtools_policy = p;
@@ -610,7 +610,7 @@ impl ShellBuilder {
     /// Register an environment variable that means never-show for this process when it is set to
     /// exactly `1`, `true`, `yes` or `on` (ASCII case-insensitive; anything else, including empty,
     /// `0` and unrecognised text, is off; read at each reveal, so a harness can set it before
-    /// launch). Call it once per name (ScrapeRight: `RIGHTKIT_QA_NATIVE_REAL`).
+    /// launch). Call it once per name (host: `RIGHTKIT_QA_NATIVE_REAL`).
     ///
     /// # Panics
     /// Panics on an empty name or one containing `=` or NUL: a programmer error at startup.

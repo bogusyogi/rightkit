@@ -1,4 +1,4 @@
-//! Install-location rules and launch-at-login wiring. Moved from HeardRight
+//! Install-location rules and launch-at-login wiring. Moved from host
 //! `commands/build_location.rs` and `commands/updates.rs` (`installed_executable`,
 //! `launch_at_login_spec`, `migrate_launch_at_login_entry`, and the bodies of the
 //! `set_launch_at_login` / `launch_at_login_enabled` commands).

@@ -1,14 +1,7 @@
-//! Windows-only capture endpoint & power lifecycle adapter (Wave W1).
+//! Windows-only capture endpoint and power lifecycle adapter.
 //!
-//! Behavioral reference: the MIT `windows-mic-listener.c` donor (OpenWhispr)
-//! for the IMMNotificationClient registration / enqueue-only-callback /
-//! unregister-on-drop shape. Only that discipline is ported — no session or
-//! PID-refcount logic from the donor is reused, and no TypeWhisper (GPL)
-//! source was read or referenced. `PowerRegisterSuspendResumeNotification`
-//! follows the Microsoft-documented suspend/resume callback contract.
-//!
-//! LOCKED (docs/WINDOWS_IMPLEMENTATION_SET.md Wave W1;
-//! docs/NATIVE_PLATFORM_ARCHITECTURE.md "Windows"):
+//! Registration follows the Windows endpoint and suspend/resume notification contracts.
+//! Ownership and callback rules:
 //! - endpoint callbacks enqueue one bounded typed event; power callbacks
 //!   publish latest transition through lock-free atomic slot; both share a
 //!   monotonic sequence & return immediately; they never touch capture state,
@@ -18,10 +11,7 @@
 //! - this module only observes endpoint/power events and publishes them; it
 //!   never opens, owns, or reopens a capture stream, never picks a capture
 //!   backend or inference provider, and never emits diagnostics itself —
-//!   coalescing, recovery, and the `windows_capture_lifecycle` record live in
-//!   the worker loop (`worker/worker_main.rs` streaming phase,
-//!   `worker/capture_recovery.rs`) so they can share state with the
-//!   existing capture owner.
+//!   the capture owner handles event coalescing, recovery and diagnostics.
 //!
 //! Non-Windows targets get a no-op stub with the same public surface so
 //! callers never need a platform `cfg` at the call site.
@@ -257,9 +247,8 @@ mod windows_impl {
             role: ERole,
             default_device_id: &PCWSTR,
         ) -> WinResult<()> {
-            // Only capture-flow, console/communications-role changes drive
-            // HeardRight's system-default input selection; a render-flow or
-            // multimedia-only-role change is not acted on.
+            // System-default input selection follows capture-flow changes for
+            // the console and multimedia roles.
             if flow == eCapture && (role == eConsole || role == eMultimedia) {
                 self.enqueue(
                     LifecycleCause::DefaultChanged,

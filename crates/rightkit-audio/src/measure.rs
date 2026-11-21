@@ -1,10 +1,8 @@
 //! FFmpeg-driven audio measurement and offline renders (loudness/true-peak/clipping,
 //! astats, band energy, room-tone step, chain/bus/ducking renders).
 //!
-//! Donor: CutRight `cutright-audio/src/tools.rs`. Reconciled onto the shared
-//! `rightkit-ffmpeg` runner (owned child tree, cancellation, timeout, bounded stderr)
-//! instead of CutRight's private `Command` runner; FFmpeg is any
-//! [`rightkit_ffmpeg::FfmpegBinary`] (catalog-verified in production).
+//! Uses the shared `rightkit-ffmpeg` runner for owned child processes, cancellation,
+//! timeouts and bounded stderr. The caller supplies a [`rightkit_ffmpeg::FfmpegBinary`].
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};

@@ -2,7 +2,7 @@
 //! "hub": build it, show it, hide it, suspend its renderer, restore it to a work area, hand it over
 //! to and from an anchor window, and retire an overlay window.
 //!
-//! Donor: HeardRight `hub_window.rs`. Everything here is mechanism. The host supplies every
+//! Mechanism: host `hub_window.rs`. Everything here is mechanism. The host supplies every
 //! identity and decision as an input: window labels, titles, routes, sizes, colours, event names,
 //! the event sink `fn(&str, &str)` (which receives `(event, detail)`), and callbacks for anything
 //! that reaches the host's own runtime, pill, settings or licence code.

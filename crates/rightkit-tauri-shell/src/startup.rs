@@ -314,6 +314,8 @@ impl HubStartupWording {
     }
 }
 
+type QaHubNeeded<'a, R> = &'a dyn Fn(&AppHandle<R>) -> bool;
+
 /// The host's side of [`reveal_hub_at_startup`]. Every call that can present a window is the
 /// host's, so its own reveal guard and hidden-QA rules apply to it.
 pub struct HubStartupHost<'a, R: Runtime> {
@@ -322,7 +324,7 @@ pub struct HubStartupHost<'a, R: Runtime> {
     pub wording: HubStartupWording,
     pub sink: EventSink,
     /// `Some` only in a QA build: a hidden QA run needs a hub that no window declares (macOS).
-    pub qa_hub_needed: Option<&'a dyn Fn(&AppHandle<R>) -> bool>,
+    pub qa_hub_needed: Option<QaHubNeeded<'a, R>>,
     /// Shows the hub (the host's show; in a hidden QA run it builds the hub hidden).
     pub show_hub: &'a dyn Fn(&AppHandle<R>),
     /// Suspends the hub's renderer.

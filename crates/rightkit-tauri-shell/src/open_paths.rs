@@ -1,7 +1,7 @@
 //! File paths the OS hands the app at launch, from a second launch, or (macOS) as `file://` URLs
 //! of `RunEvent::Opened`, delivered to the renderer only after the path broker granted them.
 //!
-//! Donor: ViewRight's `PendingOpenPaths` (`commands/dialogs.rs`) and its second-instance path
+//! Mechanism: host's `PendingOpenPaths` (`commands/dialogs.rs`) and its second-instance path
 //! filter, with two changes: only existing regular files survive the filter, and the renderer never
 //! receives a raw path. A path on the command line (`app.exe C:\docs\a.docx`, `app /tmp/a.md`) is
 //! queued until the renderer calls [`rk_shell_open_paths_ready`], which grants every queued file

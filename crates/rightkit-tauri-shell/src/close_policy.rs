@@ -1,8 +1,8 @@
-//! What closing a window does. Moved from HeardRight `pill_overlays.rs`
+//! What closing a window does. Moved from host `pill_overlays.rs`
 //! (`should_hide_window_on_close_for_behavior`, `should_quit_app_on_close_for_behavior`) and the
 //! branch order of `app_run.rs` `handle_window_event`. The host supplies the main window's label,
 //! the stored close preference's values and whether the main window hides to its tray/pill on
-//! close regardless of the preference (HeardRight: Windows and macOS).
+//! close regardless of the preference (host: Windows and macOS).
 
 /// What a close request on `label` should do.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

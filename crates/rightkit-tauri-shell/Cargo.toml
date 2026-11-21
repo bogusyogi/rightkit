@@ -27,7 +27,7 @@ engine = ["dep:rightkit-job-queue"]
 viewer = []
 # Required by `DevToolsPolicy::ContentOnly`: compiles Tauri's devtools in so a registered content
 # webview can be inspected. Every other webview stays non-inspectable. Only an app on the
-# `right-release` allow-list (`packages/release/devtools-policy.json`, today only ViewRight) may
+# `right-release` allow-list (`packages/release/devtools-policy.json`) may
 # ship a build with it; every other app must leave it off. Never a default feature.
 content-devtools = ["tauri/devtools", "tauri/unstable"]
 # DEVELOPMENT/QA BUILDS ONLY. Compiles the QA control-command helpers an app registers on its `rightkit-qa`

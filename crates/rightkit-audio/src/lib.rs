@@ -1,14 +1,13 @@
-//! Shared audio for Right Suite apps.
+//! Reusable audio primitives.
 //!
 //! * Typed FFmpeg filter graphs ([`filter`], [`chain`], [`ducking`], [`room_tone`],
-//!   [`bus`], [`preset`]) — donor CutRight `cutright-audio`.
+//!   [`bus`], [`preset`]).
 //! * Measurement and offline renders through the shared `rightkit-ffmpeg` runner
 //!   ([`measure`], [`profile`] loudness gate).
 //! * Pure-Rust [`mic_align`] (NCC mic-to-camera lag) and [`room_fill`] (equal-power looped
-//!   room-tone fill), donor CutRight.
-//! * WAV I/O ([`wav`]) — dedupes ScrapeRight's reader.
-//! * Live capture ([`capture`], feature `capture`) — donor HeardRight
-//!   `heardright_capture`; Windows endpoint/power lifecycle in [`lifecycle`].
+//!   room-tone fill).
+//! * WAV I/O ([`wav`]).
+//! * Live capture ([`capture`], feature `capture`) and Windows endpoint/power lifecycle ([`lifecycle`]).
 //! * Audio output (`playback`, feature `playback`): lock-free ring into a cpal output
 //!   stream with a latency-adjusted playback clock.
 //!

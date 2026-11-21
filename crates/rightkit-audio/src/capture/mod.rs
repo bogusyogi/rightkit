@@ -1,10 +1,9 @@
 //! Live microphone capture: cpal stream -> lock-free ring -> adaptive mono downmix ->
 //! rubato resample -> staged f32 reads.
 //!
-//! Donor: HeardRight `heardright_capture` (the most mature capture path in the suite:
-//! stable platform-id device resolution, per-transport classification, adaptive
-//! downmix that survives echo-cancellation reference channels, prewarmed ring,
-//! pause/resume without teardown, typed terminal-vs-advisory stream errors).
+//! Supports stable platform IDs, transport classification, adaptive downmix for
+//! echo-cancellation reference channels, a prewarmed ring, pause and resume
+//! without teardown, and typed terminal and advisory stream errors.
 //!
 //! Threading: cpal owns an OS audio thread that calls the data callback, which only
 //! converts samples to mono f32, pushes into the SPSC ring and bumps atomics (no

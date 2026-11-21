@@ -1,6 +1,6 @@
 # rightkit-audio
 
-Shared audio for Right Suite apps. The crate provides typed FFmpeg filter graphs, loudness measurement and gates, room tone, ducking, WAV I/O, and optional microphone capture with resampling, downmixing and recovery. Presets are bundled from the `presets` directory.
+Reusable audio primitives. The crate provides typed FFmpeg filter graphs, loudness measurement and gates, room tone, ducking, WAV I/O, and optional microphone capture with resampling, downmixing and recovery. Presets are bundled from the `presets` directory.
 
 Catalog capability: `audio`.
 
@@ -18,7 +18,7 @@ Catalog capability: `audio`.
 ## When to use it
 
 - Use it to build or run FFmpeg audio chains for narration, dialogue cleanup, ducking or room tone.
-- Use it for WAV read and write in Right Suite apps.
+- Use it to read and write WAV files.
 - Use it for microphone capture when a product needs resampling and downmix in one place.
 - Use it to play decoded audio through an output device (feature `playback`): `OutputSession` takes interleaved `f32` samples through a bounded lock-free ring and exposes a latency-adjusted playback clock for A/V sync.
 
