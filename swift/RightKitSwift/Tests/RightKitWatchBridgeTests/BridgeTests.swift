@@ -233,3 +233,106 @@ private func recordingKeys() -> WatchRecordingStorageKeys {
     _ = try unbounded.receive(fileURL: source, metadata: ["id": records[0].id])
     #expect(try unbounded.records().count == 252)
 }
+
+
+private final class ReceiptObservations: @unchecked Sendable {
+    private let lock = NSLock()
+    private var values: [WatchRecordingReceiptEvent] = []
+    func append(_ event: WatchRecordingReceiptEvent) { lock.withLock { values.append(event) } }
+    var events: [WatchRecordingReceiptEvent] { lock.withLock { values } }
+}
+
+private struct ImmediateReceiptError: LocalizedError {
+    var errorDescription: String? { "immediate unavailable" }
+}
+
+private final class ReceiptTransport: WatchMessageTransport {
+    let isReachable: Bool
+    var userInfos: [[String: Any]] = []
+    var beforeSend: () -> Void = {}
+    init(reachable: Bool) { isReachable = reachable }
+    func sendMessage(_ message: [String: Any], onError: @escaping (Error) -> Void) {
+        beforeSend()
+        onError(ImmediateReceiptError())
+    }
+    func transferUserInfo(_ userInfo: [String: Any]) { beforeSend(); userInfos.append(userInfo) }
+}
+
+@Test func receiptObservationsFollowDurableIngestAndPreserveRollbackPolicy() throws {
+    let suite = "rk-receipt-events-\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suite)!
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(suite)
+    defer {
+        defaults.removePersistentDomain(forName: suite)
+        try? FileManager.default.removeItem(at: root)
+    }
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    let source = root.appendingPathComponent("source")
+    try Data([1]).write(to: source)
+    let storage = WatchRecordingStorage(root: root, defaults: defaults, keys: recordingKeys())
+    let observations = ReceiptObservations()
+    let inbox = WatchRecordingInbox(storage: storage, rollbackReason: { _ in "host wording" },
+        missingIdentifierRollbackID: "unknown", observe: { observations.append($0) })
+    let id = UUID().uuidString
+    let transport = ReceiptTransport(reachable: true)
+    transport.beforeSend = {
+        #expect((try? storage.receivedRecordingIDs()) == [id])
+        #expect(FileManager.default.fileExists(atPath: root.appendingPathComponent("\(id).json").path))
+    }
+    #expect(try inbox.receive(fileURL: source, metadata: ["id": id], transport: transport) == id)
+    #expect(observations.events == [
+        .immediateFailed(kind: .acknowledgement, recordingID: id, error: "immediate unavailable"),
+        .queued(kind: .acknowledgement, recordingID: id, immediateAttempted: true),
+    ])
+    let rollback = ReceiptTransport(reachable: true)
+    #expect(throws: WatchRecordingStorageError.self) {
+        try inbox.receive(fileURL: source, metadata: [:], transport: rollback)
+    }
+    #expect(rollback.userInfos.first?["watchTransferRollback"] as? String == "unknown")
+    #expect(rollback.userInfos.first?["watchTransferRollbackReason"] as? String == "host wording")
+    #expect(Array(observations.events.suffix(2)) == [
+        .immediateFailed(kind: .rollback, recordingID: "unknown", error: "immediate unavailable"),
+        .queued(kind: .rollback, recordingID: "unknown", immediateAttempted: true),
+    ])
+    let strict = ReceiptTransport(reachable: false)
+    #expect(throws: WatchRecordingStorageError.self) {
+        try WatchRecordingInbox(storage: storage).receive(fileURL: source, metadata: [:], transport: strict)
+    }
+    #expect(strict.userInfos.isEmpty)
+}
+
+@Test func activationReplayUsesNewestDurableRowsWithoutLimitingReceiptQueries() throws {
+    let suite = "rk-receipt-replay-\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suite)!
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(suite)
+    defer {
+        defaults.removePersistentDomain(forName: suite)
+        try? FileManager.default.removeItem(at: root)
+    }
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    // Intentionally not manifest order. Newest row lacks audio and must never be acknowledged.
+    let records = [1, 3, 0, 2].map { index in
+        let id = UUID().uuidString
+        return WatchReceivedRecording(id: id, fileName: "\(id).m4a",
+            receivedAt: Date(timeIntervalSince1970: Double(index)), metadataFileName: "\(id).json", startedAt: nil)
+    }
+    defaults.set(try JSONEncoder().encode(records), forKey: "manifest")
+    for record in records where record != records[1] {
+        try Data([1]).write(to: root.appendingPathComponent(record.fileName))
+    }
+    let storage = WatchRecordingStorage(root: root, defaults: defaults, keys: recordingKeys())
+    let observations = ReceiptObservations()
+    let inbox = WatchRecordingInbox(storage: storage, activationReplayLimit: 1,
+                                     observe: { observations.append($0) })
+    let transport = ReceiptTransport(reachable: false)
+    try inbox.resendDurableAcknowledgements(transport: transport)
+    #expect(transport.userInfos.compactMap { $0["watchTransferAck"] as? String } == [records[3].id])
+    #expect(observations.events.isEmpty)
+    let requested = [records[2].id, records[1].id, records[0].id, records[3].id]
+    let reply = try inbox.receiptReply(to: ["watchTransferReceiptQuery": requested])
+    #expect(reply["watchTransferReceipts"] as? [String] == [records[2].id, records[0].id, records[3].id])
+    let unlimited = ReceiptTransport(reachable: false)
+    try WatchRecordingInbox(storage: storage).resendDurableAcknowledgements(transport: unlimited)
+    #expect(unlimited.userInfos.compactMap { $0["watchTransferAck"] as? String }
+        == [records[0].id, records[2].id, records[3].id])
+}

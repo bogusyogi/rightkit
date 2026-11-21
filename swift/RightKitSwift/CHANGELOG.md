@@ -1,5 +1,11 @@
 # RightKitSwift changelog
 
+## 0.9.5 - 2026-11-21
+
+- RightKitWatchBridge adds receipt observations, configurable rollback wording and bounded activation replay. Explicit receipt queries still consult durable storage.
+- Watch background scheduling uses asynchronous submission on iOS 27 with the previous path on older SDKs and operating systems.
+- Watch processing coalesces new drain requests during transcription. Recovery preserves corrupt manifests and reconstructs durable recordings while keeping processing history.
+
 ## 0.9.4 - 2026-11-21
 
 - RightKitAudio uses the iOS 27 throwing input tap when available and offers an optional setup and configuration event sink.

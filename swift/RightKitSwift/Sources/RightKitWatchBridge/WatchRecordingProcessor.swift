@@ -16,7 +16,7 @@ public struct WatchRecordingDrainResult: Sendable {
     public var succeeded: Bool { pendingCount == 0 && !wasCancelled && !alreadyRunning }
 }
 
-/// One instance per storage namespace. A second drain returns a typed busy result.
+/// One instance per storage namespace. A second drain requests a follow-on snapshot & returns busy.
 /// Host preparation composes ASR/polish; synchronous commit saves a stable record ID atomically
 /// with transcript deduplication, so replay after interruption cannot insert duplicates.
 @MainActor
@@ -30,6 +30,7 @@ public final class WatchRecordingProcessor<Prepared> {
     private let notify: (WatchRecordingProcessingEvent) -> Void
     private let maximumTransientRetries: Int
     private var running = false
+    private var drainRequested = false
 
     public init(storage: WatchRecordingStorage, maximumTransientRetries: Int = 2,
                 classify: @escaping (Error) -> WatchRecordingFailureKind,
@@ -39,73 +40,83 @@ public final class WatchRecordingProcessor<Prepared> {
         self.classify = classify; self.prepare = prepare; self.commit = commit; self.notify = notify
     }
     public func processPending() async throws -> WatchRecordingDrainResult {
-        guard !running else { return try result(cancelled: Task.isCancelled, busy: true) }
+        guard !running else {
+            if !Task.isCancelled { drainRequested = true }
+            return try result(cancelled: Task.isCancelled, busy: true)
+        }
         running = true
-        defer { running = false }
+        defer { running = false; drainRequested = false }
         let storage = self.storage
-        // File/defaults I/O leaves main actor; storage owns its process-wide lock.
-        let records = try await Task.detached(priority: .utility) { try storage.records() }.value
-        for record in records where !storage.isFinished(record.id) {
-            guard !Task.isCancelled else { return try result(cancelled: true) }
-            let url = storage.audioURL(for: record)
-            guard FileManager.default.fileExists(atPath: url.path) else {
-                try finishTerminal(record.id, reason: "missing_audio")
-                continue
-            }
-            var prepared: Prepared?
-            while true {
+        // A deferred ID gets one attempt per invocation, even when another caller requests
+        // a snapshot while preparation suspends. Only this invocation can commit.
+        var attempted = Set<String>()
+        repeat {
+            drainRequested = false
+            // File/defaults I/O leaves main actor; storage owns its process-wide lock.
+            let records = try await Task.detached(priority: .utility) { try storage.records() }.value
+            for record in records where !storage.isFinished(record.id) && !attempted.contains(record.id) {
+                attempted.insert(record.id)
+                guard !Task.isCancelled else { return try result(cancelled: true) }
+                let url = storage.audioURL(for: record)
+                guard FileManager.default.fileExists(atPath: url.path) else {
+                    try finishTerminal(record.id, reason: "missing_audio")
+                    continue
+                }
+                var prepared: Prepared?
+                while true {
+                    do {
+                        try Task.checkCancellation()
+                        let metadataData = try await Task.detached(priority: .utility) {
+                            try storage.metadataData(for: record)
+                        }.value
+                        try Task.checkCancellation()
+                        let metadata = try JSONSerialization.jsonObject(with: metadataData) as? [String: Any] ?? [:]
+                        prepared = try await prepare(record, url, metadata)
+                        try Task.checkCancellation()
+                        break
+                    } catch {
+                        if Task.isCancelled || error is CancellationError { return try result(cancelled: true) }
+                        switch classify(error) {
+                        case .modelRequired:
+                            storage.lastError = error.localizedDescription
+                            notify(.deferred(record.id, error: error.localizedDescription))
+                            break
+                        case .noSpeech:
+                            try finishTerminal(record.id, reason: "no_speech")
+                        case .transient:
+                            let previous = storage.retryCount(record.id)
+                            guard previous < maximumTransientRetries else {
+                                try finishTerminal(record.id, reason: "decode_exhausted")
+                                break
+                            }
+                            // Persist retry only after delay succeeds; cancellation consumes no retry.
+                            do { try await Task.sleep(nanoseconds: previous == 0 ? 250_000_000 : 500_000_000) }
+                            catch { return try result(cancelled: true) }
+                            guard !Task.isCancelled else { return try result(cancelled: true) }
+                            storage.setRetryCount(previous + 1, for: record.id)
+                            continue
+                        }
+                        break
+                    }
+                }
+                guard let prepared else { continue }
+                guard !Task.isCancelled else { return try result(cancelled: true) }
                 do {
-                    try Task.checkCancellation()
-                    let metadataData = try await Task.detached(priority: .utility) {
-                        try storage.metadataData(for: record)
-                    }.value
-                    try Task.checkCancellation()
-                    let metadata = try JSONSerialization.jsonObject(with: metadataData) as? [String: Any] ?? [:]
-                    prepared = try await prepare(record, url, metadata)
-                    try Task.checkCancellation()
-                    break
+                    // No suspension between host commit & processed marker. Commit must be idempotent
+                    // using record.id because process termination may occur between these writes.
+                    try commit(record, prepared)
+                    try storage.markProcessed(record.id)
+                    storage.setRetryCount(nil, for: record.id)
+                    storage.lastError = nil
+                    notify(.processed(record.id))
                 } catch {
                     if Task.isCancelled || error is CancellationError { return try result(cancelled: true) }
-                    switch classify(error) {
-                    case .modelRequired:
-                        storage.lastError = error.localizedDescription
-                        notify(.deferred(record.id, error: error.localizedDescription))
-                        return try result()
-                    case .noSpeech:
-                        try finishTerminal(record.id, reason: "no_speech")
-                    case .transient:
-                        let previous = storage.retryCount(record.id)
-                        guard previous < maximumTransientRetries else {
-                            try finishTerminal(record.id, reason: "decode_exhausted")
-                            break
-                        }
-                        // Persist retry only after delay succeeds; cancellation consumes no retry.
-                        do { try await Task.sleep(nanoseconds: previous == 0 ? 250_000_000 : 500_000_000) }
-                        catch { return try result(cancelled: true) }
-                        guard !Task.isCancelled else { return try result(cancelled: true) }
-                        storage.setRetryCount(previous + 1, for: record.id)
-                        continue
-                    }
-                    break
+                    storage.lastError = error.localizedDescription
+                    notify(.deferred(record.id, error: error.localizedDescription))
+                    // Persistence failures remain pending; they never consume decode retry budget.
                 }
             }
-            guard let prepared else { continue }
-            guard !Task.isCancelled else { return try result(cancelled: true) }
-            do {
-                // No suspension between host commit & processed marker. Commit must be idempotent
-                // using record.id because process termination may occur between these writes.
-                try commit(record, prepared)
-                try storage.markProcessed(record.id)
-                storage.setRetryCount(nil, for: record.id)
-                storage.lastError = nil
-                notify(.processed(record.id))
-            } catch {
-                if Task.isCancelled || error is CancellationError { return try result(cancelled: true) }
-                storage.lastError = error.localizedDescription
-                notify(.deferred(record.id, error: error.localizedDescription))
-                // Persistence failures remain pending; they never consume decode retry budget.
-            }
-        }
+        } while drainRequested && !Task.isCancelled
         return try result(cancelled: Task.isCancelled)
     }
     private func finishTerminal(_ id: String, reason: String) throws {

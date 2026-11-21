@@ -122,28 +122,17 @@ public final class WatchRecordingStorage: @unchecked Sendable {
     }
     /// Receipt queries must include the entire durable manifest, including processed files.
     public func receivedRecordingIDs() throws -> [String] {
+        try receivedRecordings().map(\.id)
+    }
+    func receivedRecordings() throws -> [WatchReceivedRecording] {
         try Self.lock.withLock {
-            try readManifest().filter { fileManager.fileExists(atPath: audioURL(for: $0).path) }.map(\.id)
+            try readManifest().filter { fileManager.fileExists(atPath: audioURL(for: $0).path) }
         }
     }
     public func recoverOrphans() throws {
         try Self.lock.withLock {
             try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
-            let files = try fileManager.contentsOfDirectory(at: root,
-                includingPropertiesForKeys: [.contentModificationDateKey], options: [.skipsHiddenFiles])
-            var records = try readManifest()
-            var known = Set(records.map(\.id))
-            for file in files where file.pathExtension == "m4a" {
-                let id = file.deletingPathExtension().lastPathComponent
-                guard UUID(uuidString: id) != nil, known.insert(id).inserted else { continue }
-                let sidecar = file.deletingPathExtension().appendingPathExtension("json")
-                let metadata = (try? Data(contentsOf: sidecar)).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
-                let start = metadata?["startedAt"] as? TimeInterval
-                records.append(WatchReceivedRecording(id: id, fileName: file.lastPathComponent,
-                    receivedAt: (try? file.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? Date(),
-                    metadataFileName: sidecar.lastPathComponent,
-                    startedAt: start.flatMap { $0.isFinite ? Date(timeIntervalSince1970: $0) : nil }))
-            }
+            let records = try recoveringPairs(in: readManifest())
             try writeManifest(records)
         }
     }
@@ -181,8 +170,8 @@ public final class WatchRecordingStorage: @unchecked Sendable {
     public func markTerminal(_ id: String, reason: String) throws {
         try Self.lock.withLock {
             var reasons = defaults.dictionary(forKey: keys.terminalReasons) ?? [:]
-            reasons[id] = reason; defaults.set(reasons, forKey: keys.terminalReasons)
-            try append(id, to: keys.terminal)
+            reasons[id] = reason
+            try append(id, to: keys.terminal, reasons: reasons)
         }
     }
     public var terminalReasons: [String: String] {
@@ -193,16 +182,70 @@ public final class WatchRecordingStorage: @unchecked Sendable {
         set { Self.lock.withLock { defaults.set(newValue, forKey: keys.lastError) } }
     }
     private func strings(_ key: String) -> Set<String> { Set(defaults.stringArray(forKey: key) ?? []) }
-    private func append(_ id: String, to key: String) throws {
-        var values = strings(key); values.insert(id); defaults.set(values.sorted(), forKey: key)
-        guard defaults.synchronize() else { throw WatchRecordingStorageError.persistence }
+    private func append(_ id: String, to key: String, reasons: [String: Any]? = nil) throws {
+        var values = strings(key)
+        values.insert(id)
+        var updates: [(key: String, value: Any)] = [(key, values.sorted())]
+        if let reasons { updates.append((keys.terminalReasons, reasons)) }
+        try persistDefaults(updates)
+    }
+    private func persistDefaults(_ updates: [(key: String, value: Any)]) throws {
+        let previous = updates.map { ($0.key, defaults.object(forKey: $0.key)) }
+        for (key, value) in updates { defaults.set(value, forKey: key) }
+        guard defaults.synchronize() else {
+            // Failed writes must not look committed to a later receipt query or drain.
+            for (key, value) in previous {
+                if let value { defaults.set(value, forKey: key) }
+                else { defaults.removeObject(forKey: key) }
+            }
+            throw WatchRecordingStorageError.persistence
+        }
     }
     private func readManifest() throws -> [WatchReceivedRecording] {
         guard let data = defaults.data(forKey: keys.manifest) else { return [] }
-        guard let decoded = try? JSONDecoder().decode([WatchReceivedRecording].self, from: data) else {
-            throw WatchRecordingStorageError.corruptManifest
+        if let decoded = try? JSONDecoder().decode([WatchReceivedRecording].self, from: data) {
+            return decoded
         }
-        return decoded
+        // Preserve exact corrupt bytes before replacing anything. Failure leaves receipt
+        // unavailable, so neither receipt callbacks nor replay can acknowledge lost state.
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        let backup = root.appendingPathComponent(".manifest-corrupt-\(UUID().uuidString).json")
+        try data.write(to: backup, options: .atomic)
+        let recovered = try recoveringPairs(in: [])
+        try writeManifest(recovered)
+        return try readManifest()
+    }
+    /// Existing valid manifest rows retain legacy semantics, including absent sidecars.
+    /// New recovered rows require complete regular audio/JSON pairs; invalid pairs stay on disk.
+    private func recoveringPairs(in existing: [WatchReceivedRecording]) throws -> [WatchReceivedRecording] {
+        let files = try fileManager.contentsOfDirectory(at: root,
+            includingPropertiesForKeys: [.contentModificationDateKey, .isRegularFileKey, .isSymbolicLinkKey],
+            options: [.skipsHiddenFiles])
+        var records = existing
+        var known = Set(records.map(\.id))
+        for file in files.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) where file.pathExtension == "m4a" {
+            let id = file.deletingPathExtension().lastPathComponent
+            guard let uuid = UUID(uuidString: id), !known.contains(id),
+                  let audioValues = try? file.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey]),
+                  audioValues.isRegularFile == true, audioValues.isSymbolicLink != true,
+                  (audioValues.fileSize ?? 0) > 0 else { continue }
+            let sidecar = file.deletingPathExtension().appendingPathExtension("json")
+            guard let sidecarValues = try? sidecar.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey]),
+                  sidecarValues.isRegularFile == true, sidecarValues.isSymbolicLink != true,
+                  let data = try? Data(contentsOf: sidecar),
+                  let metadata = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { continue }
+            // Compatibility receipts may have missing/malformed sender IDs in unchanged metadata.
+            if let rawID = metadata["id"] as? String, let senderID = UUID(uuidString: rawID), senderID != uuid { continue }
+            if let duration = metadata["duration"] as? NSNumber,
+               !duration.doubleValue.isFinite || duration.doubleValue < 0 || duration.doubleValue > maximumDuration { continue }
+            let start = metadata["startedAt"] as? TimeInterval
+            records.append(WatchReceivedRecording(id: id, fileName: file.lastPathComponent,
+                receivedAt: (try? file.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? Date(),
+                metadataFileName: sidecar.lastPathComponent,
+                startedAt: start.flatMap { $0.isFinite ? Date(timeIntervalSince1970: $0) : nil }))
+            known.insert(id)
+        }
+        return records
     }
     private func writeManifest(_ records: [WatchReceivedRecording]) throws {
         // Optional soft cap matches bounded phone history without dropping unprocessed audio.
@@ -217,7 +260,6 @@ public final class WatchRecordingStorage: @unchecked Sendable {
                 .sorted { $0.receivedAt > $1.receivedAt }.prefix(finishedSlots).map(\.id))
             retained = records.filter { !finished.contains($0.id) || keepFinished.contains($0.id) }
         }
-        defaults.set(try JSONEncoder().encode(retained), forKey: keys.manifest)
-        guard defaults.synchronize() else { throw WatchRecordingStorageError.persistence }
+        try persistDefaults([(keys.manifest, JSONEncoder().encode(retained))])
     }
 }

@@ -20,12 +20,28 @@ public enum WatchBackgroundProcessing {
             task.expirationHandler = { completion.expire() }
         }
     }
+    /// Uses async submission when compiled with the iOS 27 SDK; older SDKs retain sync submission.
+    /// Callers await this method from their scheduling task to receive submission failures.
+    public static func scheduleAsync(identifier: String,
+                                     earliestBeginDate: Date = Date(timeIntervalSinceNow: 1)) async throws {
+        #if compiler(>=6.4)
+        if #available(iOS 27.0, *) {
+            let request = processingRequest(identifier: identifier, earliestBeginDate: earliestBeginDate)
+            try await BGTaskScheduler.shared.submitTaskRequest(request)
+            return
+        }
+        #endif
+        try schedule(identifier: identifier, earliestBeginDate: earliestBeginDate)
+    }
     public static func schedule(identifier: String, earliestBeginDate: Date = Date(timeIntervalSinceNow: 1)) throws {
+        try BGTaskScheduler.shared.submit(processingRequest(identifier: identifier, earliestBeginDate: earliestBeginDate))
+    }
+    private static func processingRequest(identifier: String, earliestBeginDate: Date) -> BGProcessingTaskRequest {
         let request = BGProcessingTaskRequest(identifier: identifier)
         request.requiresNetworkConnectivity = false
         request.requiresExternalPower = false
         request.earliestBeginDate = earliestBeginDate
-        try BGTaskScheduler.shared.submit(request)
+        return request
     }
 }
 
