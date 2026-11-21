@@ -455,7 +455,9 @@ function nn01(ctx) {
     }
   } else if (aStarts.length) gaps.push("Class A work ran and no broker job names the snapshot folder, so that it read the selected tree is not shown");
   // A compile the gate ran itself, outside the broker, has no signed commit or tree.
-  const own = ctx.starts.filter((d) => programName(d.program) === "cargo" && COMPILING.has(cargoVerb(d.args)) || programName(d.program) === "rustc");
+  // rustc asked only for its version or a configuration print is a discovery probe, not a compile (NN03 counts it as one); any other rustc start compiles.
+  const rustcProbe = (args) => args.length > 0 && args.every((x, i) => /^(-vV|--version|-V|-v|--print=.+)$/.test(x) || x === "--print" || (i > 0 && args[i - 1] === "--print"));
+  const own = ctx.starts.filter((d) => (programName(d.program) === "cargo" && COMPILING.has(cargoVerb(d.args))) || (programName(d.program) === "rustc" && !rustcProbe(d.args)));
   if (own.length) fails.push(`${own.length} compile(s) ran outside the broker (first: ${programName(own[0].program)} ${own[0].args.slice(0, 3).join(" ")}), so what they built is not shown`);
   return decide(fails, gaps, `selected commit ${short(ctx.commit)} is tree ${short(ctx.tree)}; ${ctx.jobs.length} broker job(s) signed for that tree on an unchanged snapshot; nothing compiled outside the broker`);
 }
@@ -530,7 +532,12 @@ function nn03(ctx) {
     else if (probes.some(({ p }) => p.end === null)) probeProblem = "a discovery probe has no recorded exit";
     else if (probes.some(({ p }) => p.end > firstStart)) probeProblem = "a discovery probe was still running when Class A started";
     else if (probes.length) probeReady = Math.max(...probes.map(({ p }) => p.end)); }
-  const given = (d) => { const r = ctx.readiness?.get(programName(d.program)); return Number.isFinite(r) ? r : null; };
+  // A readiness handed in is keyed by program name, so it can belong to one row only when exactly one Class A start of that program exists; with two or more
+  // starts of it nothing says which start it is for, and taking it for all of them hides the wait before an earlier one (CV-6 F-6): it is not used and is a gap.
+  const startsOf = (name) => a.filter((o) => programName(o.program) === name).length;
+  const sharedName = [...new Set(a.map((d) => programName(d.program)))].filter((n) => startsOf(n) > 1 && Number.isFinite(ctx.readiness?.get(n)));
+  const given = (d) => { const n = programName(d.program); if (startsOf(n) > 1) return null; const r = ctx.readiness?.get(n); return Number.isFinite(r) ? r : null; };
+  if (sharedName.length) gaps.push(`a readiness is keyed by program name and ${sharedName.join(", ")} started more than once, so which start it belongs to is not shown and it is not used`);
   const ready = (d) => given(d) ?? probeReady;
   // Between two moments, the time a lane stood free: every interval between consecutive start and end events is looked at, and the lanes busy over the whole
   // interval (programs other than the one waiting) are counted, so a lane idle for part of a wait is found however many programs overlapped some of it.

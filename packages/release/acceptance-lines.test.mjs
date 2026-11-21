@@ -144,6 +144,8 @@ const EXE = `${SNAP}\\ws\\target\\debug\\deps\\b-1.exe`;
 const testJob = (r, exe, extra) => { r.procs = r.procs.filter((p) => p.exe !== RUSTRIGHT); r.procs.push(proc(6, RUSTRIGHT, ["cargo", "test", "-p", "b", "--no-run"], { end: 8, cwd: `${SNAP}\\ws` }), proc(8.5, exe, [], { end: 9, cwd: SNAP })); r.receipts = [job("t1", ["test", "-p", "b", "--no-run"], { extra })]; };
 // Both witnesses describe one call: the observed client and the signed job change together.
 const same = (r, argv, cwd = `${SNAP}\\ws`) => { const c = r.procs.find((p) => p.exe === RUSTRIGHT); c.args = ["cargo", ...argv]; c.cwd = cwd; const p = r.receipts[0].doc.provenance.payload; p.request.requestedArgv = argv; p.request.workspace = cwd; };
+// A second compile of another workspace whose client, signed start and submission all sit at startedAt (no admission, queue or bind wait), alongside the first job (6.0 to 8.0).
+const gap9 = (r, startedAt, endedAt = 9.999) => { const argv = ["clippy", "--profile", "release", "-p", "x", "--locked"]; r.procs.push(proc(startedAt, RUSTRIGHT, ["cargo", ...argv], { end: endedAt, cwd: `${SNAP}\\other` })); r.receipts.push(job("j2", argv, { cwd: `${SNAP}\\other`, start: startedAt, end: endedAt, waits: { admission: 0, queue: 0, bind: 0 } })); };
 const pair = (r, id, argv, cwd, startedAt, terminalAt) => { r.procs.push(proc(startedAt - 0.1, RUSTRIGHT, ["cargo", ...argv], { end: terminalAt, cwd })); r.receipts.push(job(id, argv, { cwd, start: startedAt, end: terminalAt })); };
 const wrapped = (s, line, end = s + 0.1) => proc(s, "C:\\WINDOWS\\system32\\cmd.exe", ["/d", "/s", "/c", line], { end, cwd: null });
 const longRun = (r) => { r.launch.startedAt = at(-30); r.launch.startMono = "0"; r.launch.endMono = String(40_000_000_000n); r.witness.from = at(-32); r.procs[0].start = ms(-30); r.procs[1].start = ms(-30); r.procs[1].end = ms(-29.95); };
@@ -177,7 +179,6 @@ const FROZEN = [
   ["GCX-07-1", "NN07", "fail", (r) => { r.blobs["src/b.rs"] = "b2"; }], // a.rs and b.rs changed; only a.rs reached rustfmt
   ["GCX-07-2", "NN07", "fail", (r) => { byExe(r, RUSTFMT).args = ["--check", "--edition", "2021"]; }],
   ["GCX-07-3", "NN07", "pass", (r) => { r.blobs["src/b.rs"] = "b2"; byExe(r, RUSTFMT).args.push("src/b.rs"); }],
-  ["GCX-07-4", "NN07", "not measured", (r) => { delete r.receipts[0].doc.provenance.payload.request.workspace; }], // the signed job names no workspace: the compile activity stays, but which row's crate it built is not shown
   ["GCX-07-5", "NN07", "fail", (r) => { same(r, ["clippy", "--profile", "release", "-p", "ws", "--locked"]); }], // the observed compile selected the workspace label, not crate b
   ["GCX-07-6", "NN07", "fail", (r) => { r.tree["other/Cargo.toml"] = '[workspace]\nmembers = ["b"]\n'; same(r, ["clippy", "--profile", "release", "-p", "b", "--locked"], `${SNAP}\\other`); }], // the observed compile ran in another workspace that also holds b
   ["gate 12", "NN07", "fail", (r) => { const id = "clippy:ws:b@x86_64-unknown-linux-gnu"; r.inventory.delete("clippy:ws:b"); r.inventory.set(id, { stage: "B", files: ["ws/b/src/lib.rs"] }); same(r, ["clippy", "--profile", "release", "--target", "x86_64-pc-windows-msvc", "-p", "b", "--locked"]); }], // the observed compile was for another target than the row's
@@ -194,7 +195,7 @@ const FROZEN = [
   ["GCX-09-3", "NN09", "fail", (r) => { split(r, "-p b", "-p c"); policy(r, [], ["c"]); }], // the run's tree names no solo crate; a later checkout does
   ["GCX-09-4", "NN09", "pass", (r) => { split(r, "-p b", "-p c"); policy(r, ["c"], []); }], // the run's tree names c solo; a later checkout withdraws it
   ["GCX-09-5", "NN09", "not measured", (r) => { split(r, "-p b", "-p c"); policy(r, null, ["c"]); }], // the run's tree has no policy; a later checkout would justify the split
-  ["GCX-09-6", "NN09", "not measured", (r) => { r.tree["other/Cargo.toml"] = '[workspace]\nmembers = ["x"]\n'; pair(r, "j2", ["clippy", "--profile", "release", "-p", "x", "--locked"], `${SNAP}\\other`, 7.999, 9.999); }], // the second compile is submitted one ms before the first ends: one ms of overlap, no word on readiness or capacity
+  ["GCX-09-6", "NN09", "not measured", (r) => { r.tree["other/Cargo.toml"] = '[workspace]\nmembers = ["x"]\n'; gap9(r, 7.999); }], // the second compile is submitted at 7.999, one ms before the first ends at 8.0: one ms of overlap, no word on readiness or capacity (restored: the submission delay is the original's, with no admission or bind wait to blur it)
   ["GCX-09-7", "NN09", "pass", (r) => { split(r, "-p b", "-p c"); policy(r, []); r.tree["ws/c/Cargo.toml"] = '[package]\nname = "c"\n'; r.tree["ws/c/tauri.conf.json"] = JSON.stringify({ bundle: { externalBin: ["binaries/c-sidecar"] } }); }],
   ["GCX-09-8", "NN09", "not measured", (r) => { decoy(r, "gateLog", "sidecar-bound: c (printed by the gate)"); decoy(r, "sidecarClaim", { c: "sidecar-bound" }); split(r, "-p b", "-p c"); policy(r, null); }], // a competing printed sidecar reason is present and never read; the tree has no policy (restored)
   ["GCX-09-9", "NN09", "fail", (r) => { split(r, "-p b", "-p b"); policy(r, ["b"]); }],
@@ -211,7 +212,7 @@ const FROZEN = [
   ["gate 2", "NN12", "not measured", (r) => { decoy(r, "gateLiveList", []); r.live = { ...r.live, alive: (pid) => pid === GATE, inventory: () => [] }; }], // the operating system's listing is empty while the probe finds the gate alive; a pid list the gate wrote is present and never read (restored)
   ["gate 3", "NN12", "not measured", (r) => { decoy(r, "gateLiveList", [LAUNCHER]); r.live = { ...r.live, alive: (pid) => pid === GATE, inventory: () => [{ pid: LAUNCHER }, { pid: 4 }] }; }], // the listing omits the gate process the probe finds alive (restored)
   ["GCX-12-1", "NN12", "not measured", (r) => { r.launch.exit = 137; }],
-  ["GCX-12-2", "NN12", "fail", (r) => { r.launch.exit = 137; const d = proc(5, "C:\\tools\\child.exe", ["x"], { end: null, exit: null, cwd: SNAP }); r.procs.push(d); r.live = { ...r.live, alive: (pid) => pid === d.pid }; }], // a program of the run is still going when the killed gate has long gone (the surviving process)
+  ["GCX-12-2", "NN12", "fail", (r) => { r.launch.exit = 137; r.live = { ...r.live, alive: (pid) => pid === GATE, inventory: () => [{ pid: GATE }, { pid: LAUNCHER }] }; }], // the killed run's own gate process (pid 100) is still alive, and the operating system's listing shows it (restored: the original's actor and observation)
 ];
 // The specific reason each case's verdict must give (so it cannot be right for an unrelated one).
 const REASONS = {
@@ -237,7 +238,9 @@ Object.assign(REASONS, {
   "GCX-01-3": /was handed src\/a\.rs, whose bytes on disk are not the selected commit's/, "gate 2": /process listing is empty/, "gate 3": /process listing omits node 100/, "gate 4": /cargo-deny was ready at .* and started 2000 ms later, \d+ ms of it with a lane free of 4/, "gate 10": /^40\.0 s, limit 15\.0 s/,
   "gate 9": /Class A passed/, "GCX-09-8": /ci\/shards\.json at the run's tree cannot be read/, "GCX-10-2": /carries no manifest of test programs/,
 });
-Object.assign(REASONS, { "GCX-01-2": /was handed src\/a\.rs and its bytes on disk after the run were not read/, "GCX-05-5": /^(?=[\s\S]*rustfmt was handed src\/unplanned\.rs)(?=[\s\S]*shellcheck ran and no known row plans it)/, "GCX-07-4": /workspace/ });
+Object.assign(REASONS, { "GCX-01-2": /was handed src\/a\.rs and its bytes on disk after the run were not read/, "GCX-05-5": /^(?=[\s\S]*rustfmt was handed src\/unplanned\.rs)(?=[\s\S]*shellcheck ran and no known row plans it)/,
+  "GCX-09-6": /broker job j2 was submitted 1999 ms after the first while it ran/, "GCX-12-2": /1 program\(s\) the run started are still alive: node 100/ });
+delete REASONS["GCX-07-4"]; // superseded below: its original fault was a missing gate-written coverage report that NN07 does not read
 const EXTRA_TWINS = [
   ["gate 2 twin", "NN12", "fail", (r) => { r.live = { ...r.live, alive: (pid) => pid === GATE, inventory: () => [{ pid: GATE }] }; }], // the same live gate with the listing showing it: the gate is still running
   ["gate 3 twin", "NN12", "fail", (r) => { r.live = { ...r.live, alive: (pid) => pid === GATE, inventory: () => [{ pid: LAUNCHER }, { pid: GATE }] }; }], // the listing that includes the gate process
@@ -245,7 +248,8 @@ const EXTRA_TWINS = [
   ["GCX-02-2 twin", "NN02", "pass", (r) => { unchangedB(r); noBroker(r); byExe(r, RUSTFMT).exit = 1; r.procs.push({ pid: 999, ppid: 4242, exe: GIT, args: ["status"], cwd: null, start: ms(9), end: ms(10), exit: 0 }); }], // the same, with the gate's exit recorded: Class A failed and nothing went to the broker
   ["GCX-02-3 twin", "NN02", "pass", (r) => { byExe(r, RUSTRIGHT).start = ms(1.6); }], // the same client a half second after Class A ended
   ["GCX-06-3 twin", "NN06", "pass", (r) => { r.prior = { failedRows: new Set(["clippy:ws:a"]) }; r.launch.exit = 1; }], // the same red run with no other row failing: the reused failure kept it red
-  ["GCX-07-4 twin", "NN07", "pass", () => {}], // the signed receipt names its command
+  ["GCX-07-4 twin", "NN07", "pass", () => {}], // the signed receipt names its command and verifies
+  ["GCX-09-6 twin", "NN09", "fail", (r) => { r.tree["other/Cargo.toml"] = '[workspace]\nmembers = ["x"]\n'; gap9(r, 8.0); }], // the same second compile submitted at the very moment the first ended: after it, so it had capacity
   ["GCX-07-5 twin", "NN07", "pass", (r) => { same(r, ["clippy", "--profile", "release", "-p", "b", "--locked"]); }], // the observed compile selected crate b
   ["GCX-07-6 twin", "NN07", "pass", (r) => { r.tree["other/Cargo.toml"] = '[workspace]\nmembers = ["b"]\n'; same(r, ["clippy", "--profile", "release", "-p", "b", "--locked"], `${SNAP}\\ws`); }], // the same compile in the owed workspace
   ["gate 12 twin", "NN07", "pass", (r) => { const id = "clippy:ws:b@x86_64-unknown-linux-gnu"; r.inventory.delete("clippy:ws:b"); r.inventory.set(id, { stage: "B", files: ["ws/b/src/lib.rs"] }); same(r, ["clippy", "--profile", "release", "--target", "x86_64-unknown-linux-gnu", "-p", "b", "--locked"]); }], // the compile for the row's own target
@@ -256,7 +260,7 @@ const EXTRA_TWINS = [
   ["gate 9 twin", "NN02", "fail", (r) => { r.procs.push(proc(9, DENY, ["check"], { exit: 1, cwd: SNAP })); }], // the same failing tool, in this run's snapshot
   ["GCX-09-7 twin", "NN09", "fail", (r) => { split(r, "-p b", "-p c"); policy(r, []); }], // the same split with no sidecar mark in the tree
 ];
-const TWINS = [["GCX-03-4", "GCX-03-3", "fail"], ["GCX-07-3", "GCX-07-1", "fail"], ["GCX-09-4", "GCX-09-3", "fail"], ["GCX-11-3", "GCX-11-2", "fail"], ["GCX-09-7", "GCX-09-7 twin", "fail"], ["GCX-08-1", "GCX-08-1 twin", "fail"], ["GCX-08-2", "GCX-08-2 twin", "fail"], ["gate 7", "gate 6", "fail"], ["GCX-02-2 twin", "GCX-02-2", "not measured"], ["GCX-02-3 twin", "GCX-02-3", "not measured"], ["GCX-06-3 twin", "GCX-06-3", "not measured"], ["GCX-07-4 twin", "GCX-07-4", "not measured"], ["GCX-07-5 twin", "GCX-07-5", "fail"], ["GCX-07-6 twin", "GCX-07-6", "fail"], ["gate 12 twin", "gate 12", "fail"], ["gate 10 twin", "gate 10", "fail"], ["gate 5 control", "gate 5", "fail"], ["gate 2 twin", "gate 2", "not measured"], ["gate 3 twin", "gate 3", "not measured"], ["GCX-01-2 twin", "GCX-01-2", "not measured"]];
+const TWINS = [["GCX-03-4", "GCX-03-3", "fail"], ["GCX-07-3", "GCX-07-1", "fail"], ["GCX-09-4", "GCX-09-3", "fail"], ["GCX-11-3", "GCX-11-2", "fail"], ["GCX-09-7", "GCX-09-7 twin", "fail"], ["GCX-08-1", "GCX-08-1 twin", "fail"], ["GCX-08-2", "GCX-08-2 twin", "fail"], ["gate 7", "gate 6", "fail"], ["GCX-02-2 twin", "GCX-02-2", "not measured"], ["GCX-02-3 twin", "GCX-02-3", "not measured"], ["GCX-06-3 twin", "GCX-06-3", "not measured"], ["GCX-07-4 twin", "GCX-07-4 (receipt not credited)", "not measured"], ["GCX-09-6 twin", "GCX-09-6", "not measured"], ["GCX-12-1", "GCX-12-2", "fail"], ["GCX-07-5 twin", "GCX-07-5", "fail"], ["GCX-07-6 twin", "GCX-07-6", "fail"], ["gate 12 twin", "gate 12", "fail"], ["gate 10 twin", "gate 10", "fail"], ["gate 5 control", "gate 5", "fail"], ["gate 2 twin", "gate 2", "not measured"], ["gate 3 twin", "gate 3", "not measured"], ["GCX-01-2 twin", "GCX-01-2", "not measured"]];
 // Cases whose original fault lived only in a record the gate writes (its forecast, its lookup keys, its decision values) and has no form in evidence the gate
 // does not write. Each is reported to Adrian and chat gate; none is given a verdict it did not have.
 const NO_OUTSIDE_FORM = [
@@ -270,6 +274,7 @@ const NO_OUTSIDE_FORM = [
   ["gate 8", "NN05", "fail", "the gate's stop line naming clippy:ws:bb for clippy:ws:b: only the gate's own words name a row"],
   ["GCX-02-4", "NN02", "fail", "a Class A verdict belonging to another run: the verdict file is written by the gate, and NN02 no longer reads it"],
   ["GCX-05-2", "NN05", "fail", "a claim recorded as dispatched and run in the gate's decision: gate-written"],
+  ["GCX-07-4", "NN07", "not measured", "Class B coverage report absent while the compile and its workspace stay: a gate-written record NN07 does not read; with the compile and workspace intact the outside judge passes (EGM, CV-6 F-15 restoration)"],
 ];
 // What replaces a superseded original, under a new id: its former body, kept as its own case with its specific reason.
 const SUBSTITUTES = [
@@ -280,6 +285,8 @@ const SUBSTITUTES = [
   ["GCX-05-2 (owed, nothing seen)", "NN05", "fail", (r) => { noBroker(r); }],
   ["GCX-10-2 (no key pinned)", "NN10", "not measured", (r) => { testJob(r, EXE, { testExecutables: [{ path: EXE }] }); r.verifierPinned = false; r.receipts[0].verified = { ok: false, problems: ["no broker key is pinned"] }; }],
   ["GCX-01-2 (windows shape)", "NN01", "not measured", (r) => { byExe(r, RUSTFMT).cwd = null; }],
+  ["GCX-07-4 (receipt not credited)", "NN07", "not measured", (r) => { r.receipts[0].verified = { ok: false, problems: ["signature does not match"] }; }], // the command and workspace stay; only the broker's attestation is gone
+  ["GCX-07-4 (report absent)", "NN07", "pass", (r) => { decoy(r, "gateCoverageB", undefined); }], // the original's missing coverage report, present as an absent decoy that is never read: it changes nothing
 ];
 test("the frozen step-2 batch: all 63 cases accounted for, each run in outside evidence with its author's id and verdict or printed as superseded", async (t) => {
   assert.equal(FROZEN.length + NO_OUTSIDE_FORM.length, 63);
@@ -290,7 +297,7 @@ test("the frozen step-2 batch: all 63 cases accounted for, each run in outside e
   }
   for (const [id, line, verdict, why] of NO_OUTSIDE_FORM) await t.test(`${id} ${line}: superseded: ${why}`, (st) => { st.diagnostic(`${id} ${line} (was expected ${verdict}): superseded: ${why}`); });
   // A passing case is paired with a case that differs from it only in the decisive fact and gets the other verdict.
-  for (const [id, twin, expected] of TWINS) await t.test(`${id} twin ${twin}: differs only in the decisive fact`, () => { const find = (x) => FROZEN.find(([y]) => y === x) ?? EXTRA_TWINS.find(([y]) => y === x); const a = find(id); const b = find(twin); const va = run(alter(a[3])); const vb = run(alter(b[3])); assert.notEqual(verdictOf(va, a[1]), verdictOf(vb, b[1]), "the twin must give the other verdict"); assert.equal(verdictOf(va, a[1]), a[2], `${id}: ${whyOf(va, a[1])}`); assert.equal(verdictOf(vb, b[1]), expected, `${twin}: ${whyOf(vb, b[1])}`); });
+  for (const [id, twin, expected] of TWINS) await t.test(`${id} twin ${twin}: differs only in the decisive fact`, () => { const find = (x) => FROZEN.find(([y]) => y === x) ?? EXTRA_TWINS.find(([y]) => y === x) ?? SUBSTITUTES.find(([y]) => y === x); const a = find(id); const b = find(twin); const va = run(alter(a[3])); const vb = run(alter(b[3])); assert.notEqual(verdictOf(va, a[1]), verdictOf(vb, b[1]), "the twin must give the other verdict"); assert.equal(verdictOf(va, a[1]), a[2], `${id}: ${whyOf(va, a[1])}`); assert.equal(verdictOf(vb, b[1]), expected, `${twin}: ${whyOf(vb, b[1])}`); });
 });
 
 // ---- batch 3: controls that differ from a case only in its decisive fact ---------------------------------------------------------------------------
@@ -469,10 +476,11 @@ test("the substitutes: each superseded original's former body, under its new id,
     "gate 8 (unchanged row built)": /did work although no file it reads changed/, "GCX-01-3 (other folder)": /ran outside the selected snapshot/,
     "GCX-05-2 (owed, nothing seen)": /clippy:ws:b was owed a rerun and no program or signed job shows it/,
     "GCX-10-2 (no key pinned)": /cannot be verified: no broker key is pinned/, "GCX-01-2 (windows shape)": /ran in a folder the process record does not keep/,
+    "GCX-07-4 (receipt not credited)": /broker job j1 is not credited: its receipt does not verify \(signature does not match\)/, "GCX-07-4 (report absent)": /each with only the work its change needs/,
   };
   assert.equal(SUBSTITUTES.length, Object.keys(SUB_REASONS).length);
   { const tw = EXTRA_TWINS.find(([x]) => x === "gate 9 twin"); const v = run(alter(tw[3])); assert.equal(verdictOf(v, "NN02"), "fail", "the same failing tool in this run's snapshot is Class A failing"); }
-  for (const [id, line, verdict, fn] of SUBSTITUTES) await t.test(`${id} ${line}: ${verdict}`, () => { const v = run(alter(fn)); assert.equal(verdictOf(v, line), verdict, `${id}: ${whyOf(v, line)}`); assert.match(whyOf(v, line), SUB_REASONS[id]); });
+  for (const [id, line, verdict, fn] of SUBSTITUTES) await t.test(`${id} ${line}: ${verdict}`, () => { const r = alter(fn); const v = run(r); assert.equal(verdictOf(v, line), verdict, `${id}: ${whyOf(v, line)}`); assert.match(whyOf(v, line), SUB_REASONS[id]); assert.equal(r.decoyRead, undefined, `${id}: a gate-written input was read (${r.decoyRead})`); });
 });
 
 test("5.1 the launcher's takeover is one exclusive claim per dead holder: of two contenders that saw the same dead holder exactly one starts, in either interleaving", () => {
@@ -516,9 +524,9 @@ test("5.12 the production reader sets aside the run folder's legacy gate artifac
 });
 
 test("5.12 the ledger: all 63 originals, each with its disposition and the case that stands in for it", (t) => {
-  const SUBSTITUTE_FOR = { "gate 8": "gate 8 (unchanged row built)", "GCX-05-2": "GCX-05-2 (owed, nothing seen)" };
-  const RESTORED = ["gate 2", "gate 3", "gate 4", "gate 9", "GCX-09-8", "GCX-10-2", "GCX-01-3"];
-  const RESTATED = ["gate 5", "GCX-01-2", "GCX-05-5", "GCX-07-4", "GCX-09-6", "GCX-12-2"];
+  const SUBSTITUTE_FOR = { "gate 8": "gate 8 (unchanged row built)", "GCX-05-2": "GCX-05-2 (owed, nothing seen)", "GCX-07-4": "GCX-07-4 (receipt not credited)" };
+  const RESTORED = ["gate 2", "gate 3", "gate 4", "gate 9", "GCX-09-8", "GCX-10-2", "GCX-01-3", "GCX-09-6", "GCX-12-2"];
+  const RESTATED = ["gate 5", "GCX-01-2", "GCX-05-5"];
   const where = (id) => SUBSTITUTES.find(([x]) => x === id) ?? EXTRA_TWINS.find(([x]) => x === id);
   const rows = [];
   for (const [id, line, verdict] of FROZEN) rows.push([id, line, verdict, RESTORED.includes(id) ? "executable: restored under its original id, misleading input present and unread" : RESTATED.includes(id) ? "executable: restated" : "executable", "-"]);
@@ -739,6 +747,27 @@ test("7.4 NN03 readiness is the last discovery probe's exit, taken from the proc
   expect(alter((r) => { derived(r); const g = r.procs.find((p) => p.exe === GIT); g.end = null; g.exit = null; }), "NN03", "not measured", /no recorded exit|when each Class A row became ready is not shown/);
   // only commands that discover (git rev-parse, cargo metadata, rustc -vV) count: a git commit-tree is not a probe
   expect(alter((r) => { derived(r); r.procs.find((p) => p.exe === GIT).args = ["commit-tree", "x"]; }), "NN03", "not measured", /when each Class A row became ready is not shown/);
+});
+
+test("8.1 NN03: a readiness keyed by program name cannot be told which of two starts of that program it belongs to, so it is not used for either (CV-6 F-6)", () => {
+  // two rustfmt starts (3.0 s and 3.2 s) and one readiness for 'rustfmt' (3.2 s): taken for both, the first start looks early and the wait before it disappears
+  const two = (r) => { r.launch.lanes = 4; const f = byExe(r, RUSTFMT); f.start = ms(3.0); f.end = ms(3.1); r.procs.push(proc(3.2, RUSTFMT, ["--check", "--edition", "2021", "src/b.rs"], { end: 3.3, cwd: SNAP })); r.readiness = new Map([["rustfmt", ms(3.2)]]); };
+  const v = run(alter(two));
+  assert.notEqual(verdictOf(v, "NN03"), "pass", `NN03: ${whyOf(v, "NN03")}`);
+  // with no wait to find, the verdict is still not a pass and names the ambiguity
+  const one = alter((r) => { two(r); r.procs.find((p) => p.start === ms(3.2)).start = ms(3.0); r.procs.find((p) => p.start === ms(3.0) && p.end === ms(3.3)).end = ms(3.1); });
+  assert.notEqual(verdictOf(run(one), "NN03"), "pass");
+  // one start of the program with its readiness is unchanged: still a pass
+  expect(alter((r) => { r.launch.lanes = 4; }), "NN03", "pass");
+});
+
+test("8.2 NN01: a rustc version probe is not a compile outside the broker (it is a discovery probe to NN03); a rustc that compiles a source still is", () => {
+  const probe = (r) => { r.procs.push(proc(0.02, "C:\\rust\\bin\\rustc.exe", ["-vV"], { cwd: SNAP })); };
+  const v = run(alter(probe));
+  assert.notEqual(verdictOf(v, "NN01"), "fail", `NN01: ${whyOf(v, "NN01")}`);
+  for (const args of [["--version"], ["-V"], ["--print", "sysroot"], ["--print=cfg"]]) { const w = run(alter((r) => { r.procs.push(proc(0.02, "C:\\rust\\bin\\rustc.exe", args, { cwd: SNAP })); })); assert.notEqual(verdictOf(w, "NN01"), "fail", `${args.join(" ")}: ${whyOf(w, "NN01")}`); }
+  expect(alter((r) => { r.procs.push(proc(0.02, "C:\\rust\\bin\\rustc.exe", ["src/lib.rs", "--crate-type", "lib"], { cwd: SNAP })); }), "NN01", "fail", /compile\(s\) ran outside the broker \(first: rustc src\/lib\.rs/);
+  expect(alter((r) => { r.procs.push(proc(0.02, "C:\\rust\\bin\\rustc.exe", ["-vV", "src/lib.rs"], { cwd: SNAP })); }), "NN01", "fail", /outside the broker/);
 });
 
 test("6.15 the launcher reads the snapshot root once at the gate's exit, and records the gate by an absolute path (Astra SO-03 SO-14, Sol IP-04, Fable UO-11)", async () => {
