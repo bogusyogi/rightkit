@@ -654,11 +654,12 @@ pub mod windows {
                     telemetry::log_input_trigger("ptt_start");
                     // Returns at once (the start runs on its own thread): this dispatch thread is
                     // serial, so a press that stayed in the start would hold the release back.
-                    if let Err(err) = (if exact {
+                    let started = if exact {
                         start_dictation_detached(shell)
                     } else {
                         crate::dictation_control::start_dictation_legacy_detached(shell)
-                    }) {
+                    };
+                    if let Err(err) = started {
                         telemetry::log_message(
                             "ptt_start_error",
                             crate::dictation_error::error_log_code(&err),
