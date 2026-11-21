@@ -1,6 +1,6 @@
-# rightkit-roots 0.2.0 registry consumer
+# rightkit-roots 0.3.0 registry consumer
 
-Standalone package outside the RightKit workspace. It depends on `rightkit-roots` by exact registry pin (`=0.2.0`)
+Standalone package outside the RightKit workspace. It depends on `rightkit-roots` by exact registry pin (`=0.3.0`)
 with default features (there are none). It has no path, Git, workspace or patch dependency, no committed
 `Cargo.lock` and no other dependency.
 
@@ -12,7 +12,7 @@ created or written); `Suite::at` refuses a relative root; `Suite::per_run_temp`,
 `valid_app_name`; `Suite::app_root` (inside the per-run suite, under `apps`), `lock_writer`
 held once; `AppRoot::migrate_from` with `Migrated`, `AlreadyMigrated` and `NothingToMigrate`, and
 `migration_state`; `lock::try_lock_exclusive` taken once and refused while held; `RootCutover::status` before any
-cutover and `CUTOVER_RECORD`; and that the `app_dirs` and `StateDir` re-exports name the `rightkit-fs` items.
+cutover and `CUTOVER_RECORD`; and that the `app_dirs` and `StateDir` re-exports name the `rightkit-fs` items. The re-exported `app_dirs::AppId` accepts an explicit suite organization value.
 
 Not covered: the root cutover run, recovery and retirement (the `rightkit-daemon` recipe, PK07, runs them through
 the daemon's re-exports), migration options (links, specials, reparse points), Windows reparse points, and the

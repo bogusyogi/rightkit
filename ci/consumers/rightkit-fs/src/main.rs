@@ -258,6 +258,12 @@ fn transaction_checks(base: &Path) {
 
 fn main() {
     ordered_write_queue();
+    let flat = rightkit_fs::AppDirs::resolve(rightkit_fs::AppId::new("ExampleApp", None)).unwrap();
+    let nested_id = rightkit_fs::AppId::new("ExampleApp", Some("ExampleOrg"));
+    let nested = rightkit_fs::AppDirs::resolve(nested_id).unwrap();
+    let base = flat.local.parent().unwrap();
+    assert_eq!(flat.local, base.join("ExampleApp"));
+    assert_eq!(nested.local, base.join("ExampleOrg").join("ExampleApp"));
     assert_eq!(std::env::var("GITHUB_ACTIONS").unwrap(), "true");
     let temp = std::path::PathBuf::from(std::env::var_os("RUNNER_TEMP").unwrap());
     let plan: serde_json::Value =
@@ -339,6 +345,13 @@ fn main() {
     let checks = Path::new(plan["scratch"].as_str().unwrap())
         .join(format!("rk-fs-checks-{}", std::process::id()));
     fs::create_dir(&checks).unwrap();
+    let destination = checks.join("output");
+    let temp = rightkit_fs::OwnedTemp::create(&destination, "registry-consumer").unwrap();
+    let temp_path = temp.path().to_path_buf();
+    assert!(temp_path.is_file());
+    temp.discard().unwrap();
+    assert!(!temp_path.exists());
+    assert!(fs::read_dir(&checks).unwrap().next().is_none());
     transaction_checks(&checks);
     fs::remove_dir_all(checks).unwrap();
     println!("PK01 transaction checks passed");

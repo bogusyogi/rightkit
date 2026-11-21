@@ -1,5 +1,4 @@
-//! Loudness / true-peak / clipping gate. Ported from
-//! `video-project::audio_profile::AudioProfile::evaluate_loudness_gate`.
+//! Evaluate a measured signal against loudness, true-peak and clipping limits.
 
 use serde::{Deserialize, Serialize};
 

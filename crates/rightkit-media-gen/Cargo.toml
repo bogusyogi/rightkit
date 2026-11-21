@@ -40,4 +40,5 @@ rightkit-onnx = { version = "0.3.0", features = ["half", "session"], path = "../
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
 rightkit-child-process = { version = "0.5.7", path = "../rightkit-child-process" }
 rightkit-ffmpeg = { version = "0.3.0", path = "../rightkit-ffmpeg" }
-rightkit-fs = { version = "0.4.9", default-features = false, features = ["fs", "lock", "digest", "app-dirs"], path = "../rightkit-fs" }
+rightkit-fs = { version = "0.5.0", default-features = false, features = ["fs", "lock", "digest", "app-dirs"], path = "../rightkit-fs" }
+rightkit-roots = { version = "0.3.0", path = "../rightkit-roots" }

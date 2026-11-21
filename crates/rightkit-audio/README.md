@@ -92,7 +92,7 @@ Published version: see [INDEX.md](../../INDEX.md). Publication goes through the 
 A hosted runner has none of these assets, so each test prints `SKIP <test>: ...` and passes. Set `RIGHTKIT_REQUIRE_ASSETS=1` on a host that must have them, and the test fails instead.
 
 - `tests/audio_e2e.rs`, `filter_graph_render_is_measurable_and_wav_round_trips` and `ducking_and_room_tone_render_have_content_changes`: a development FFmpeg, enabled by `RIGHTKIT_FFMPEG=<path>` or one of the candidate paths in `rightkit_ffmpeg::dev_resolve`.
-- `tests/audio_e2e.rs`, `resampler_and_capture_gate_are_explicit` (the capture half): a loopback input device (BlackHole, Loopback or Soundflower), enabled by installing one. The resampler assertions run on every host.
+- `tests/audio_e2e.rs`, `resampler_and_capture_gate_are_explicit` (the capture half): a configured virtual loopback input device. The resampler assertions run on every host.
 
 ## Setup metering & calibration
 

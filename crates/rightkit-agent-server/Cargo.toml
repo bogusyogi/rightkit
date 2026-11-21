@@ -50,7 +50,7 @@ rightkit-agent-engine-runtime-resources = { version = "0.1.0", path = "../rightk
 rightkit-agent-engine-storage = { version = "0.3.0", path = "../rightkit-agent-engine-storage", features = ["workflow"] }
 rightkit-workflow = { version = "0.2.1", path = "../rightkit-workflow" , features = ["control_plane", "control_plane_host"] }
 rightkit-crypto = { version = "0.1.0", path = "../rightkit-crypto" }
-rightkit-fs = { version = "0.4.9", path = "../rightkit-fs", features = ["digest", "fs", "json", "lock", "transaction"] }
+rightkit-fs = { version = "0.5.0", path = "../rightkit-fs", features = ["digest", "fs", "json", "lock", "transaction"] }
 rightkit-time = { version = "0.1.1", path = "../rightkit-time" }
 rightkit-file-watch = { version = "0.4.2", path = "../rightkit-file-watch" }
 rightkit-oauth = { version = "0.11.0", path = "../rightkit-oauth", features = ["secrets", "system-sources"], default-features = false }

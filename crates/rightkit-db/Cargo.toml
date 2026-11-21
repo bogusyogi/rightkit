@@ -38,7 +38,7 @@ hooks = ["rusqlite/hooks"]
 [dependencies]
 rusqlite = { version = "0.41", default-features = false, features = ["backup"] }
 # Opts out of rightkit-fs `json` (serde) and `digest` (sha2): db needs atomic writes, sweeps, owner-only files, netfs and the store-wide advisory lock.
-rightkit-fs = { version = "0.4.10", path = "../rightkit-fs", default-features = false, features = ["fs", "lock", "transaction"] }
+rightkit-fs = { version = "0.5.0", path = "../rightkit-fs", default-features = false, features = ["fs", "lock", "transaction"] }
 thiserror = "2"
 zeroize = "1.9"
 # Only for `sqlcipher-libtomcrypt`: names the -sys crate so its `sqlcipher` link (against the library build.rs makes) is in the graph.

@@ -26,4 +26,4 @@ serde_json = "1"
 # Request ids from the OS random source (no fallback: no source, no request).
 getrandom = "0.4"
 # SHA-256 and hex for the binding digests; `fs` (atomic, owner-only writes) only with `file`.
-rightkit-fs = { version = "0.4.9", default-features = false, features = ["digest"], path = "../rightkit-fs" }
+rightkit-fs = { version = "0.5.0", default-features = false, features = ["digest"], path = "../rightkit-fs" }

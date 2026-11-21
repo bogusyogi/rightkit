@@ -31,7 +31,7 @@ release = "the Permit drop, or admit returning None when the caller's stop closu
 
 [dependencies]
 log = "0.4"
-rightkit-fs = { version = "0.4.9", path = "../rightkit-fs", default-features = false, features = ["fs"] }
+rightkit-fs = { version = "0.5.0", path = "../rightkit-fs", default-features = false, features = ["fs"] }
 
 # Native only: Metal, Vulkan and DX12 through wgpu. The browser build keeps its own path (WebGPU needs async device creation).
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]

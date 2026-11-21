@@ -42,7 +42,7 @@ zune-jpeg = { version = "=0.5.15", optional = true }
 rightkit-pdf = { version = "0.3.5", path = "../rightkit-pdf", default-features = false, features = ["edit", "merge", "extract"] }
 lopdf = { version = "0.47", default-features = false, features = ["rayon"] }
 # The one writer behind every write (temp sibling, flush, rename, directory sync).
-rightkit-fs = { version = "0.4.9", path = "../rightkit-fs", default-features = false, features = ["fs"] }
+rightkit-fs = { version = "0.5.0", path = "../rightkit-fs", default-features = false, features = ["fs"] }
 # XLSX read (typed cells, cached formula results) and XLSX create. Both pull zip 9.x.
 calamine = "0.38"
 rust_xlsxwriter = "0.102"

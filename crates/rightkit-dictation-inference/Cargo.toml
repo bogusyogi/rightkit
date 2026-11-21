@@ -37,7 +37,7 @@ rightkit-asr = { version = "0.5.0", default-features = false, path = "../rightki
 [dev-dependencies]
 rightkit-dictation-core = { version = "0.3.0", path = "../rightkit-dictation-core" }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-rightkit-fs = { version = "0.4.9", default-features = false, features = ["digest"], path = "../rightkit-fs" }
+rightkit-fs = { version = "0.5.0", default-features = false, features = ["digest"], path = "../rightkit-fs" }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 rightkit-asr = { version = "0.5.0", default-features = false, path = "../rightkit-asr", features = ["onnx-tdt", "directml"] }
@@ -52,7 +52,7 @@ objc2-core-media = { version = "0.3" }
 rightkit-onnx = { version = "0.3.0", default-features = false, features = ["session", "ndarray", "coreml"], path = "../rightkit-onnx" }
 objc2 = { version = "0.6" }
 objc2-core-ml = { version = "0.3" }
-rightkit-fs = { version = "0.4.9", default-features = false, features = ["fs", "digest"], path = "../rightkit-fs" }
+rightkit-fs = { version = "0.5.0", default-features = false, features = ["fs", "digest"], path = "../rightkit-fs" }
 objc2-foundation = { version = "0.3" }
 half = { version = "2" }
 realfft = { version = "3.5" }

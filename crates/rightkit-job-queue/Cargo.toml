@@ -51,7 +51,7 @@ crash = ["supervisor", "dep:rightkit-crash"]
 ffi = ["supervisor", "dep:rightkit-daemon"]
 
 [dependencies]
-rightkit-fs = { version = "0.4.9", path = "../rightkit-fs", default-features = false, features = ["digest", "lock"], optional = true }
+rightkit-fs = { version = "0.5.0", path = "../rightkit-fs", default-features = false, features = ["digest", "lock"], optional = true }
 rightkit-db = { version = "0.5.3", path = "../rightkit-db", features = ["bundled", "statement-cache"], optional = true }
 rightkit-sidecar = { version = "0.3.3", path = "../rightkit-sidecar", optional = true }
 rightkit-child-process = { version = "0.5.11", path = "../rightkit-child-process", optional = true }

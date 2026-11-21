@@ -18,4 +18,4 @@ rightkit-logs = { version = "0.4.0", default-features = false, path = "../rightk
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1" }
 thiserror = { version = "2" }
-rightkit-fs = { version = "0.4.9", features = ["digest"], path = "../rightkit-fs" }
+rightkit-fs = { version = "0.5.0", features = ["digest"], path = "../rightkit-fs" }

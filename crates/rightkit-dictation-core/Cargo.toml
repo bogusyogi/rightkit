@@ -28,6 +28,6 @@ zeroize = "1"
 rightkit-credentials = { version = "0.5.1", path = "../rightkit-credentials" }
 rightkit-speech-client = { version = "=0.5.0", path = "../rightkit-speech-client" }
 rightkit-transcript-library = { version = "0.1.0", path = "../rightkit-transcript-library" }
-rightkit-fs = { version = "0.4.9", path = "../rightkit-fs", default-features = false, features = ["app-dirs"] }
+rightkit-fs = { version = "0.5.0", path = "../rightkit-fs", default-features = false, features = ["app-dirs"] }
 rightkit-logs = { version = "0.4.0", path = "../rightkit-logs", default-features = false }
 rightkit-time = { version = "0.1.1", path = "../rightkit-time" }

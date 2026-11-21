@@ -34,7 +34,7 @@ rightkit-mcp = {version = "0.10.0", path = "../rightkit-mcp", optional = true}
 
 [target.'cfg(windows)'.dependencies]
 object = { version = "0.39.1", default-features = false, features = ["pe", "read_core", "std"] }
-rightkit-fs = { version = "0.4.17", path = "../rightkit-fs", default-features = false, features = ["fs"] }
+rightkit-fs = { version = "0.5.0", path = "../rightkit-fs", default-features = false, features = ["fs"] }
 
 [dev-dependencies]
 tempfile = "3"

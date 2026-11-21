@@ -1,7 +1,7 @@
 //! SHA-256 (`digest` feature), BLAKE3 (`blake3` feature), & lowercase hex.
 //!
-//! Consolidates the file-digest and hex helpers that Right Suite crates each copied. File
-//! digests stream in 64 KiB chunks, so large artifacts never load into memory.
+//! File-digest & hex helpers. File digests stream in 64 KiB chunks, so large artifacts
+//! never load into memory.
 
 #[cfg(feature = "digest")]
 use sha2::{Digest, Sha256};

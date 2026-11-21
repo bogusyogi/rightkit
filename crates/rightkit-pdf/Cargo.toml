@@ -58,7 +58,7 @@ pdf-extract = { version = "0.12", optional = true }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"], optional = true }
 # The one writer behind a commit (temp sibling, flush, rename, directory sync). `fs` is the smallest
 # feature set that has `AtomicWriter`; `json`, `lock` and `digest` are not needed.
-rightkit-fs = { version = "0.4.9", path = "../rightkit-fs", default-features = false, features = ["fs"], optional = true }
+rightkit-fs = { version = "0.5.0", path = "../rightkit-fs", default-features = false, features = ["fs"], optional = true }
 
 # The PDFKit backend of the `host` feature (macOS only; the target table keeps them out of every other
 # platform's build even with the feature on). Versions match rightkit-tauri-shell's objc2 family.

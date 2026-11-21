@@ -16,7 +16,7 @@ default = []
 
 [dependencies]
 rightkit-logs = { version = "0.4.0", path = "../rightkit-logs", default-features = false, features = ["tracing"] }
-rightkit-fs = { version = "0.4.9", path = "../rightkit-fs", default-features = false, features = ["fs", "digest"] }
+rightkit-fs = { version = "0.5.0", path = "../rightkit-fs", default-features = false, features = ["fs", "digest"] }
 rightkit-crypto = { version = "0.1.0", path = "../rightkit-crypto" }
 serde = { version = "1", features = ["derive"] }
 tracing = { version = "0.1", default-features = false, features = ["std"] }

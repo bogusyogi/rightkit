@@ -25,7 +25,7 @@ scale = "one tokio runtime per mesh handle the phone creates (one per app proces
 release = "the free call of the handle drops the runtime and the endpoint"
 
 [dependencies]
-rightkit-fs = { version = "0.4.9", path = "../rightkit-fs", default-features = false, features = ["fs", "digest"] }
+rightkit-fs = { version = "0.5.0", path = "../rightkit-fs", default-features = false, features = ["fs", "digest"] }
 rightkit-crypto = { version = "0.1.2", path = "../rightkit-crypto" }
 # No desktop code: the phone links the mesh with default features off (no fast-apple-datapath: private syscalls fail App Store review).
 rightkit-mesh = { version = "0.2.0", path = "../rightkit-mesh", default-features = false }

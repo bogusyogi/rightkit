@@ -28,7 +28,7 @@ pub fn cache_root() -> PathBuf {
     if let Some(dir) = override_dir(crate::qa_env::cache_root()) {
         return dir;
     }
-    resolve(AppId::new(PRODUCT_DIR_NAME).without_org())
+    resolve(AppId::new(PRODUCT_DIR_NAME, None))
         .map(|dirs| dirs.cache)
         .unwrap_or_else(|| PathBuf::from(PRODUCT_DIR_NAME))
 }
@@ -40,7 +40,10 @@ pub fn state_root() -> PathBuf {
     if let Some(dir) = override_dir(crate::qa_env::state_root()) {
         return dir;
     }
-    resolve(AppId::new(PRODUCT_DIR_NAME))
+    resolve(AppId::new(
+        PRODUCT_DIR_NAME,
+        Some(rightkit_roots::SUITE_DIR_NAME),
+    ))
         .map(|dirs| dirs.local)
         .unwrap_or_else(|| PathBuf::from(PRODUCT_DIR_NAME))
         .join("state")

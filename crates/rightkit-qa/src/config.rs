@@ -382,7 +382,7 @@ struct Raw {
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SnapshotConfig {
-    /// The installed folder name under `Orthic Labs` (`AppId::new`).
+    /// The installed folder name under the suite organization folder.
     pub app_name: Option<String>,
     /// `AppId::without_org`: `<base>/<name>`.
     #[serde(default)]

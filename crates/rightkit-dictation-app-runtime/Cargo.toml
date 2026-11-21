@@ -19,7 +19,7 @@ rightkit-transcript-library = { version = "0.1.4", path = "../rightkit-transcrip
 rightkit-dictation-models = { version = "0.3.0", path = "../rightkit-dictation-models" }
 rightkit-dictation-telemetry = { version = "0.2.2", path = "../rightkit-dictation-telemetry" }
 rightkit-daemon = { version = "0.9.1", default-features = false, path = "../rightkit-daemon" }
-rightkit-fs = { version = "0.4.9", default-features = false, features = ["fs", "app-dirs"], path = "../rightkit-fs" }
+rightkit-fs = { version = "0.5.0", default-features = false, features = ["fs", "app-dirs"], path = "../rightkit-fs" }
 rightkit-logs = { version = "0.4.0", default-features = false, path = "../rightkit-logs" }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1" }

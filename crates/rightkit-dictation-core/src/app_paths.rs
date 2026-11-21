@@ -57,7 +57,7 @@ pub fn app_data_dir_name() -> &'static str {
 }
 
 fn app_id() -> AppId {
-    AppId::new(app_data_dir_name()).without_org()
+    AppId::new(app_data_dir_name(), None)
 }
 
 /// The installed-build location: the owner's machine-local folder for the configured name, never

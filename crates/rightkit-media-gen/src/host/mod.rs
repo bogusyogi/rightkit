@@ -49,7 +49,7 @@ pub fn app_data_root_for(env_override: Option<std::ffi::OsString>) -> PathBuf {
 }
 
 fn per_user_dirs() -> Option<rightkit_fs::AppDirs> {
-    let app = rightkit_fs::AppId::new(config().app_identifier.as_str()).without_org();
+    let app = rightkit_fs::AppId::new(config().app_identifier.as_str(), None);
     let opts = rightkit_fs::AppDirsOptions::new(rightkit_fs::AppDirsOs::current()).dev(false);
     rightkit_fs::AppDirs::resolve_with_options(app, &opts).ok()
 }

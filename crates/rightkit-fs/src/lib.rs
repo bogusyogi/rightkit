@@ -1,4 +1,4 @@
-//! Safe filesystem state for Right Suite apps.
+//! Safe filesystem state for applications.
 //!
 //! - [`atomic`]: temp + `fsync` + rename replacement, streaming writer, crash-orphan sweep.
 //!   [`atomic_write`] is the one-call entry point.

@@ -15,7 +15,7 @@ path = "src/lib.rs"
 
 [dependencies]
 rightkit-child-process = { version = "0.5.7", path = "../rightkit-child-process" }
-rightkit-fs = { version = "0.4.9", features = ["fs", "digest"], path = "../rightkit-fs" }
+rightkit-fs = { version = "0.5.0", features = ["fs", "digest"], path = "../rightkit-fs" }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1" }
 thiserror = { version = "2" }

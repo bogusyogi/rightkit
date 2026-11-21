@@ -229,9 +229,8 @@ pub fn roots_with(app: &AppId, mode: &Mode, input: &dyn ModeInput) -> Result<App
         Mode::Release => {
             let suite = input.per_user_default()?;
             let app_dir = if app.flat {
-                let folder = FolderId::new(app.dir_name)
-                    .without_org()
-                    .with_legacy_names(app.legacy_names);
+                let folder =
+                    FolderId::new(app.dir_name, None).with_legacy_names(app.legacy_names);
                 input
                     .app_dirs(&folder)
                     .map_err(|e| SuiteError::NoRoot(e.to_string()))?

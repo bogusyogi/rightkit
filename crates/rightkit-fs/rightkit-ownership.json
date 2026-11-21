@@ -3,7 +3,7 @@
   "capabilities": [
     {
       "capability": "safe-filesystem",
-      "summary": "Safe state directories, atomic writes, cross-process locks, owner-only files, and stable file identity for Right Suite apps.",
+      "summary": "Safe state directories, atomic writes, cross-process locks, owner-only files, and stable file identity for applications.",
       "fingerprints": [
         {
           "id": "fs.cargo.fs2",
