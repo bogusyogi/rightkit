@@ -24,6 +24,14 @@ public struct WatchRecordingStorageKeys: Sendable {
 
 public enum WatchRecordingStorageError: Error { case invalidIdentifier, invalidDuration, invalidMetadata, corruptManifest, persistence }
 
+/// Strict receipt preserves sender identity. Assignment is opt-in compatibility for hosts that
+/// already acknowledge canonical/generated UUIDs; metadata remains unchanged in the sidecar.
+/// A generated ID cannot identify a malformed sender queue entry without sender cooperation.
+public enum WatchRecordingReceivePolicy: Sendable {
+    case requireValidIdentifier
+    case assignCanonicalIdentifier
+}
+
 public struct WatchRecordingStatus: Sendable {
     public let pendingCount: Int
     public let processedCount: Int
@@ -41,19 +49,33 @@ public final class WatchRecordingStorage: @unchecked Sendable {
     private let root: URL
     private let fileManager: FileManager
     private let maximumDuration: TimeInterval
+    private let receivePolicy: WatchRecordingReceivePolicy
+    private let maximumManifestRecords: Int?
 
     public init(root: URL, defaults: UserDefaults = .standard, keys: WatchRecordingStorageKeys,
-                maximumDuration: TimeInterval = 600, fileManager: FileManager = .default) {
+                maximumDuration: TimeInterval = 600, fileManager: FileManager = .default,
+                receivePolicy: WatchRecordingReceivePolicy = .requireValidIdentifier,
+                maximumManifestRecords: Int? = nil) {
         self.root = root; self.defaults = defaults; self.keys = keys
         self.maximumDuration = maximumDuration; self.fileManager = fileManager
+        self.receivePolicy = receivePolicy
+        self.maximumManifestRecords = maximumManifestRecords.map { max(0, $0) }
     }
 
-    /// Returns only after audio, JSON sidecar & manifest exist. Reject invalid IDs rather than
-    /// acknowledge a newly invented ID that cannot close the sender's queue.
+    /// Returns only after audio, JSON sidecar & manifest exist. Strict receipt rejects invalid
+    /// IDs; compatibility receipt returns its assigned UUID for the host to acknowledge.
     public func receive(fileURL: URL, metadata: [String: Any]) throws -> String {
         try Self.lock.withLock {
-            guard let id = metadata["id"] as? String, UUID(uuidString: id) != nil else {
-                throw WatchRecordingStorageError.invalidIdentifier
+            let rawID = metadata["id"] as? String
+            let id: String
+            switch receivePolicy {
+            case .requireValidIdentifier:
+                guard let rawID, UUID(uuidString: rawID) != nil else {
+                    throw WatchRecordingStorageError.invalidIdentifier
+                }
+                id = rawID
+            case .assignCanonicalIdentifier:
+                id = rawID.flatMap { UUID(uuidString: $0) }?.uuidString ?? UUID().uuidString
             }
             if let number = metadata["duration"] as? NSNumber {
                 guard number.doubleValue.isFinite, number.doubleValue >= 0,
@@ -183,8 +205,19 @@ public final class WatchRecordingStorage: @unchecked Sendable {
         return decoded
     }
     private func writeManifest(_ records: [WatchReceivedRecording]) throws {
-        // Never evict pending records to meet a display/receipt limit.
-        defaults.set(try JSONEncoder().encode(records), forKey: keys.manifest)
+        // Optional soft cap matches bounded phone history without dropping unprocessed audio.
+        // Pending rows may exceed the cap. Eviction removes only finished manifest rows;
+        // audio, sidecars & processing ledgers remain available for recovery/deduplication.
+        var retained = records
+        if let maximumManifestRecords, records.count > maximumManifestRecords {
+            let finished = strings(keys.processed).union(strings(keys.terminal))
+            let pendingCount = records.filter { !finished.contains($0.id) }.count
+            let finishedSlots = max(0, maximumManifestRecords - pendingCount)
+            let keepFinished = Set(records.filter { finished.contains($0.id) }
+                .sorted { $0.receivedAt > $1.receivedAt }.prefix(finishedSlots).map(\.id))
+            retained = records.filter { !finished.contains($0.id) || keepFinished.contains($0.id) }
+        }
+        defaults.set(try JSONEncoder().encode(retained), forKey: keys.manifest)
         guard defaults.synchronize() else { throw WatchRecordingStorageError.persistence }
     }
 }

@@ -1164,6 +1164,14 @@
       "sha256": "df6ee6ef6bca1c0dcb6b8e44630c5af395a514f567e656792abff73a52dbad5e",
       "reviewer": "Independent Oracle source reviews (Apple mobile and macOS)",
       "reviewRef": "agent-review:/root/hr_swift_093_apple_review+hr_swift_093_macos_review+hr_swift_publish_guard_review/0837c8a40f388fb30c941da3bcc551bbdb1787f0/df6ee6ef6bca1c0dcb6b8e44630c5af395a514f567e656792abff73a52dbad5e"
+    },
+    {
+      "registry": "swift",
+      "name": "RightKitSwift",
+      "version": "0.9.4",
+      "sha256": "f5e17113329c1a030868efe55c533032c5c02560371a7ec77ffd2e8fd04de49b",
+      "reviewer": "Independent Oracle source reviews (Apple audio, Watch, and model lifecycle)",
+      "reviewRef": "agent-review:/root/hr_094_native_oracle+hr_094_speech_oracle/b0b6ec05cad66aceaf197c626825e9d69f4c98d5/f5e17113329c1a030868efe55c533032c5c02560371a7ec77ffd2e8fd04de49b"
     }
   ]
 }

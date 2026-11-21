@@ -106,6 +106,19 @@ public enum WarmAudioCaptureConfigurationChange: Sendable, Equatable {
     case rebuildFailed(String)
 }
 
+/// Content-free capture setup/lifecycle diagnostics. Delivered on a private serial queue;
+/// the sink never runs on the audio tap thread or acquires capture locks for event delivery.
+/// Hosts choose their own logging names & fields.
+public enum WarmAudioCaptureRuntimeEvent: Sendable, Equatable {
+    case inputOnlyIOConfigured(
+        status: Int, readBeforeStatus: Int, outputEnabledBefore: UInt32,
+        readAfterStatus: Int, outputEnabledAfter: UInt32
+    )
+    case voiceProcessingConfigured(requested: Bool, enabled: Bool)
+    /// Identities at the invalidation boundary, before any automatic rebuild.
+    case engineConfigurationChanged(generation: UInt64, nextGeneration: UInt64)
+}
+
 /// A kept-warm `AVAudioEngine` microphone tap that converts every buffer to a caller-supplied format and
 /// hands it to a callback on the tap thread.
 ///
@@ -151,6 +164,10 @@ public final class WarmAudioCapture: @unchecked Sendable {
         /// Runs on the fresh, stopped graph's input node before its format is read (for example to
         /// configure RemoteIO). A throw fails the start.
         public var prepareInput: (@Sendable (AVAudioInputNode) throws -> Void)?
+        /// Optional setup/lifecycle event sink. Set on configuration before constructing capture.
+        /// Delivery is asynchronous & ordered; events describe their originating graph, which may
+        /// already be stopped/replaced when received. Keep logging bounded & enqueue any UI work.
+        public var runtimeEventSink: (@Sendable (WarmAudioCaptureRuntimeEvent) -> Void)? = nil
 
         /// Original initializer retained verbatim in signature for existing function references.
         public init(
@@ -216,6 +233,8 @@ public final class WarmAudioCapture: @unchecked Sendable {
 
     /// Serializes engine lifecycle mutation. The tap never takes it.
     private let lifecycleLock = NSLock()
+    /// Only setup/lifecycle paths enqueue here; the realtime tap never emits events.
+    private let runtimeEventQueue = DispatchQueue(label: "RightKitAudio.capture.runtime-events")
     /// Guards the statistics and the active tap generation; the tap takes it briefly.
     private let stateLock = NSLock()
     /// Held by the tap for the whole of one delivery, and by `stop()` while it seals, so a callback in
@@ -530,11 +549,15 @@ public final class WarmAudioCapture: @unchecked Sendable {
 
         let input = graph.inputNode
         do {
-            if attemptInputOnlyIO { try Self.configureInputOnly(input) }
+            if attemptInputOnlyIO { try configureInputOnly(input) }
             #if !os(watchOS)
             if attemptVoiceProcessingEnabled { try input.setVoiceProcessingEnabled(true) }
             #else
             guard !attemptVoiceProcessingEnabled else { throw WarmAudioCaptureError.unsupportedFormat }
+            #endif
+            #if !os(watchOS)
+            emitRuntimeEvent(.voiceProcessingConfigured(
+                requested: attemptVoiceProcessingEnabled, enabled: input.isVoiceProcessingEnabled))
             #endif
             try configuration.prepareInput?(input)
         } catch {
@@ -571,8 +594,19 @@ public final class WarmAudioCapture: @unchecked Sendable {
         deliveryGate.unlock()
 
         installObserverLocked(for: graph, generation: generation)
-        input.installTap(onBus: 0, bufferSize: configuration.tapBufferSize, format: inputFormat) { [weak self] buffer, _ in
-            self?.consume(buffer, generation: generation)
+        do {
+            try installInputTap(input, format: inputFormat, generation: generation)
+        } catch {
+            removeObserverLocked()
+            graph.stop()
+            deliveryGate.lock()
+            stateLock.withLock {
+                activeTapGeneration = generation &+ 1
+                converter = nil
+            }
+            deliveryGate.unlock()
+            if preserveUnderlyingErrors { throw error }
+            throw WarmAudioCaptureError.engineFailed(error.localizedDescription)
         }
         graph.prepare()
         do {
@@ -595,11 +629,38 @@ public final class WarmAudioCapture: @unchecked Sendable {
         armWatchdogLocked(generation: generation)
     }
 
-    private static func configureInputOnly(_ input: AVAudioInputNode) throws {
+    private func installInputTap(_ input: AVAudioInputNode, format: AVAudioFormat, generation: UInt64) throws {
+        // Xcode 27 ships Swift 6.4 & the iOS 27 SDK. Keep the new symbol out of older
+        // supported Xcode SDKs as well as guarding its runtime availability.
+        #if os(iOS) && compiler(>=6.4)
+        if #available(iOS 27.0, *) {
+            try input.installAudioTap(onBus: 0, bufferSize: configuration.tapBufferSize, format: format) { [weak self] buffer, _ in
+                // Both APIs feed the same generation-fenced converter/accumulation path.
+                let mutable = AVAudioPCMBuffer(copying: buffer)
+                self?.consume(mutable, generation: generation)
+            }
+            return
+        }
+        #endif
+        input.installTap(onBus: 0, bufferSize: configuration.tapBufferSize, format: format) { [weak self] buffer, _ in
+            self?.consume(buffer, generation: generation)
+        }
+    }
+
+    private func emitRuntimeEvent(_ event: WarmAudioCaptureRuntimeEvent) {
+        guard let sink = configuration.runtimeEventSink else { return }
+        runtimeEventQueue.async { sink(event) }
+    }
+
+    private func configureInputOnly(_ input: AVAudioInputNode) throws {
         #if os(iOS)
         guard let audioUnit = input.audioUnit else {
             throw NSError(domain: NSOSStatusErrorDomain, code: Int(kAudioUnitErr_Uninitialized))
         }
+        var before: UInt32 = 1
+        var beforeSize = UInt32(MemoryLayout<UInt32>.size)
+        let readBeforeStatus = AudioUnitGetProperty(audioUnit, kAudioOutputUnitProperty_EnableIO,
+            kAudioUnitScope_Output, 0, &before, &beforeSize)
         var disabled: UInt32 = 0
         let status = AudioUnitSetProperty(audioUnit, kAudioOutputUnitProperty_EnableIO,
             kAudioUnitScope_Output, 0, &disabled, UInt32(MemoryLayout<UInt32>.size))
@@ -607,6 +668,9 @@ public final class WarmAudioCapture: @unchecked Sendable {
         var size = UInt32(MemoryLayout<UInt32>.size)
         let readStatus = AudioUnitGetProperty(audioUnit, kAudioOutputUnitProperty_EnableIO,
             kAudioUnitScope_Output, 0, &after, &size)
+        emitRuntimeEvent(.inputOnlyIOConfigured(
+            status: Int(status), readBeforeStatus: Int(readBeforeStatus), outputEnabledBefore: before,
+            readAfterStatus: Int(readStatus), outputEnabledAfter: after))
         guard status == noErr, readStatus == noErr, after == 0 else {
             let code = status != noErr ? status : (readStatus != noErr ? readStatus : kAudioUnitErr_FailedInitialization)
             throw NSError(domain: NSOSStatusErrorDomain, code: Int(code))
@@ -668,6 +732,7 @@ public final class WarmAudioCapture: @unchecked Sendable {
         deliveryGate.lock()
         stateLock.withLock { activeTapGeneration = _engineGeneration }
         deliveryGate.unlock()
+        emitRuntimeEvent(.engineConfigurationChanged(generation: generation, nextGeneration: _engineGeneration))
         var outcome: WarmAudioCaptureConfigurationChange = .stopped(generation: _engineGeneration)
         if configuration.rebuildOnConfigurationChange {
             do {

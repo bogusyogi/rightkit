@@ -12,6 +12,8 @@ public final class WatchRecordingInbox: Sendable {
     public func receive(fileURL: URL, metadata: [String: Any], transport: any WatchMessageTransport) throws -> String {
         do {
             let id = try storage.receive(fileURL: fileURL, metadata: metadata)
+            // Storage's explicit receive policy owns identity. Always acknowledge its durable
+            // returned ID, including an assigned UUID, never the unvalidated metadata value.
             DualPathSender(transport: transport).send([delivery.keys.acknowledgement: id])
             return id
         } catch {

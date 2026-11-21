@@ -1,5 +1,11 @@
 # RightKitSwift changelog
 
+## 0.9.4 - 2026-11-21
+
+- RightKitAudio uses the iOS 27 throwing input tap when available and offers an optional setup and configuration event sink.
+- RightKitWatchBridge adds optional incoming UUID assignment and a recording manifest limit that preserves pending recordings.
+- RightKitSpeech adds model setup, installed-model recovery, shared publication, and runtime lifecycle. Explicit entitlement downloads enforce their initial Worker origin and restart after process death. Worker-grant transfers retain background staging.
+
 ## 0.9.3 - 2026-11-21
 
 - RightKitActionChannel and RightKitMenuBarHelper provide a bounded macOS action channel and configurable helper lifecycle.
