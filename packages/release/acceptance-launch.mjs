@@ -72,18 +72,38 @@ export const sameFingerprint = (a, b) => complete(a) && complete(b) && JSON.stri
  * Get-WinEvent (Event Log Readers is enough). The record says how far the log had advanced (its newest event) and whether it reaches back to the
  * run's start (its oldest), and every event it keeps has a process id and a time.
  */
+/**
+ * The Security log's events as the system tool wevtutil writes them, parsed here: no PowerShell object in between. One query gives every event of the run's window (the record
+ * ids prove none was lost), one the oldest event and one the newest. Windows PowerShell 5.1's ConvertTo-Json left a quote unescaped inside a command line that was itself JSON
+ * and broke a whole run's record (run7: a 6.4 MB document failed to parse at 3.29 MB), and Get-WinEvent with ToXml took over 60 ms an event (a 150 s window took 359 s);
+ * wevtutil takes seconds, and XML escaping keeps every character of a command line exact.
+ */
+const XML_ENTITIES = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'" };
+const unxml = (s) => String(s).replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(Number.parseInt(h, 16))).replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(Number(d))).replace(/&(amp|lt|gt|quot|apos);/g, (_, n) => XML_ENTITIES[n]);
+/** wevtutil's XML text into [{ id, recordId, time, data }], `data` holding each named Data value (null when it has no text). */
+export function parseWevtutilEvents(text) {
+  const out = [];
+  for (const m of String(text).matchAll(/<Event[ >][\s\S]*?<\/Event>/g)) {
+    const x = m[0];
+    const id = /<EventID[^>]*>(\d+)<\/EventID>/.exec(x); const rec = /<EventRecordID>(\d+)<\/EventRecordID>/.exec(x); const time = /<TimeCreated[^>]*SystemTime=['"]([^'"]+)['"]/.exec(x);
+    const data = {};
+    for (const d of x.matchAll(/<Data Name=['"]([^'"]+)['"]\s*(?:\/>|>([\s\S]*?)<\/Data>)/g)) data[d[1]] = d[2] === undefined || d[2] === "" ? null : unxml(d[2]);
+    out.push({ id: id ? Number(id[1]) : null, recordId: rec ? Number(rec[1]) : null, time: time ? time[1] : null, data });
+  }
+  return out;
+}
 export function exportWindowsProcesses(from, to, { run = execFileSync } = {}) {
-  const ps = `$ErrorActionPreference='Stop'; $from=[datetime]::Parse('${from}').ToLocalTime(); $to=[datetime]::Parse('${to}').ToLocalTime();
-$oldest=(Get-WinEvent -LogName Security -MaxEvents 1 -Oldest).TimeCreated.ToUniversalTime().ToString('o');
-$newest=(Get-WinEvent -LogName Security -MaxEvents 1).TimeCreated.ToUniversalTime().ToString('o');
-$all=@(Get-WinEvent -FilterHashtable @{LogName='Security'; StartTime=$from; EndTime=$to} -ErrorAction SilentlyContinue);
-$ids=@($all | ForEach-Object { $_.RecordId } | Sort-Object);
-$continuous=($ids.Count -le 1) -or (($ids[-1] - $ids[0] + 1) -eq $ids.Count);
-$ev=@($all | Where-Object { $_.Id -eq 4688 -or $_.Id -eq 4689 } | ForEach-Object { $x=[xml]$_.ToXml(); $d=@{}; foreach($n in $x.Event.EventData.Data){ $d[$n.Name]=$n.'#text' }; [pscustomobject]@{ id=$_.Id; time=$_.TimeCreated.ToUniversalTime().ToString('o'); data=$d } });
-[pscustomobject]@{ oldest=$oldest; newest=$newest; continuous=$continuous; records=$ids.Count; events=$ev } | ConvertTo-Json -Depth 5 -Compress`;
-  const problems = []; let raw;
-  try { raw = JSON.parse(run("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", ps], { encoding: "utf8", windowsHide: true, maxBuffer: 512 * 1024 * 1024 })); }
-  catch (e) { return { kind: "windows-security", from, to, newest: null, continuous: false, events: [], problems: [`the Security log could not be read (${String(e.stderr ?? e.message).trim().split(/\r?\n/)[0]})`] }; }
+  const problems = []; let oldest; let newest; let all;
+  const wev = (args) => run("wevtutil.exe", ["qe", "Security", ...args, "/f:xml"], { encoding: "utf8", windowsHide: true, maxBuffer: 1024 * 1024 * 1024 });
+  try {
+    oldest = parseWevtutilEvents(wev(["/c:1", "/rd:false"]))[0]?.time ?? null;
+    newest = parseWevtutilEvents(wev(["/c:1", "/rd:true"]))[0]?.time ?? null;
+    all = parseWevtutilEvents(wev([`/q:*[System[TimeCreated[@SystemTime>='${from}' and @SystemTime<='${to}']]]`]));
+  }
+  catch (e) { return { kind: "windows-security", from, to, newest: null, continuous: false, events: [], problems: [`the Security log could not be read (${String(e.stderr || e.message).trim().split(/\r?\n/)[0]})`] }; }
+  const ids = all.map((e) => e.recordId).filter(Number.isInteger).sort((a, b) => a - b);
+  const continuous = all.every((e) => Number.isInteger(e.recordId)) && (ids.length <= 1 || ids[ids.length - 1] - ids[0] + 1 === ids.length);
+  const raw = { oldest, newest, continuous, records: ids.length, events: all.filter((e) => e.id === 4688 || e.id === 4689) };
   if (!(Date.parse(raw?.oldest) <= Date.parse(from))) problems.push(`the Security log's oldest event (${raw?.oldest}) is newer than the run's start, so events may have been overwritten`);
   if (raw?.continuous !== true) problems.push(`the Security log's record ids have a break inside the run's window (${raw?.records ?? "?"} records), so a start or exit may have been lost`);
   if (!(Date.parse(raw?.newest) >= Date.parse(to) - 5000) && !(Date.parse(raw?.newest) >= Date.parse(from))) problems.push(`the Security log's newest event (${raw?.newest}) is older than the run's window`);

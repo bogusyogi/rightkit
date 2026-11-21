@@ -321,7 +321,10 @@ function runTree(launch, processes, witness) {
     }
   }
   if (root.end === null) gaps.push("the gate process the launcher started has no recorded exit, so that nothing else ran after it cannot be shown");
-  const procs = [...inTree].filter((p) => p !== root).sort((a, b) => a.start - b.start);
+  // The Windows console host: the system conhost.exe Windows starts for each console program, with a handle argument and -ForceV1. It exits after the program it serves,
+  // and there is one per console child, so it is the operating system's own start, not a program the run chose: it is neither outlived-by nor a repeat.
+  const consoleHost = (p) => /\/windows\/system32\/conhost\.exe$/.test(dirKey(p.exe)) && Array.isArray(p.args) && p.args.length > 0 && p.argsKnown !== false && p.args.every((a) => /^(0x[0-9a-f]+|-ForceV[12])$/i.test(String(a)));
+  const procs = [...inTree].filter((p) => p !== root && !consoleHost(p)).sort((a, b) => a.start - b.start);
   const open = procs.filter((p) => p.end === null);
   if (open.length) gaps.push(`${open.length} program(s) of the run have no recorded exit (first: ${programName(open[0].exe)})`);
   // A start whose command line the record does not hold is an unknown call, not an empty one: for a tool the lines read arguments of, what it did is not shown.
@@ -455,8 +458,9 @@ function nn01(ctx) {
     }
   } else if (aStarts.length) gaps.push("Class A work ran and no broker job names the snapshot folder, so that it read the selected tree is not shown");
   // A compile the gate ran itself, outside the broker, has no signed commit or tree.
-  // rustc asked only for its version or a configuration print is a discovery probe, not a compile (NN03 counts it as one); any other rustc start compiles.
-  const rustcProbe = (args) => args.length > 0 && args.every((x, i) => /^(-vV|--version|-V|-v|--print=.+)$/.test(x) || x === "--print" || (i > 0 && args[i - 1] === "--print"));
+  // rustc asked only for its version or for information (--print, with the crate name and types cargo gives its target-info probe, and a `-` for the empty crate) is a
+  // discovery probe, not a compile (NN03 counts it as one); any other rustc start, with a source, an --emit or any other option, compiles.
+  const rustcProbe = (args) => { if (!args.length) return false; let info = false; for (let i = 0; i < args.length; i += 1) { const x = String(args[i]); if (/^(-vV|--version|-V|-v)$/.test(x) || x === "--print" || /^--print=./.test(x)) { info = true; if (x === "--print") i += 1; continue; } if (x === "-" || /^-[WADF][a-z][a-z_-]*$/.test(x)) continue; if (x === "--crate-name" || x === "--crate-type" || x === "--target") { i += 1; continue; } return false; } return info; };
   const own = ctx.starts.filter((d) => (programName(d.program) === "cargo" && COMPILING.has(cargoVerb(d.args))) || (programName(d.program) === "rustc" && !rustcProbe(d.args)));
   if (own.length) fails.push(`${own.length} compile(s) ran outside the broker (first: ${programName(own[0].program)} ${own[0].args.slice(0, 3).join(" ")}), so what they built is not shown`);
   return decide(fails, gaps, `selected commit ${short(ctx.commit)} is tree ${short(ctx.tree)}; ${ctx.jobs.length} broker job(s) signed for that tree on an unchanged snapshot; nothing compiled outside the broker`);
@@ -514,7 +518,8 @@ function nn03(ctx) {
     // Positive proof of complete reuse is the one pass that needs no readiness: every Class A row is owed reuse, none ran, and the record is whole.
     const rows = [...ctx.expected.values()].filter((e) => e.stage === "A");
     if (!rows.length) gaps.push("no Class A row is known, so that none was owed work is not shown");
-    if (owedA.length) fails.push(`${owedA.length} Class A row(s) were owed a run (first: ${owedA[0].id}) and no Class A program started`);
+    // No program of an owed row is no evidence that it waited (the record may be unreadable, or the row ran in the gate's own process): not shown, never a fail.
+    if (owedA.length) gaps.push(`${owedA.length} Class A row(s) were owed a run (first: ${owedA[0].id}) and no Class A program started, so that none waited with a lane free is not shown`);
     return decide(fails, gaps, `Class A was wholly reused (${rows.length} row(s) owed reuse, no program started), so no row waited`);
   }
   const lanes = Number(ctx.launch?.lanes);
@@ -553,7 +558,8 @@ function nn03(ctx) {
     if (!(d.at > r)) continue;
     // A readiness taken from the probes is when discovery ended: the gate's own work after it, before its first Class A start, leaves no process record and is a gap, not a wait;
     // a wait after the first start is counted from the first start.
-    if (given(d) === null && probeReady !== null) { const from = Math.max(r, firstStart); if (!(d.at > from)) continue; const idleLate = idleIn(from, d.at, d); if (idleLate > 0) fails.push(`${programName(d.program)} was ready at ${new Date(r).toISOString()} (the last discovery probe's exit) and started ${Math.round(d.at - r)} ms later, ${Math.round(idleLate)} ms of it after Class A had started with a lane free of ${lanes}`); continue; }
+    // That readiness is the gate's discovery ending, not evidence that this row was ready (a row can wait on its own dependency): a wait counted from it is not shown, never a fail.
+    if (given(d) === null && probeReady !== null) { const from = Math.max(r, firstStart); if (!(d.at > from)) continue; const idleLate = idleIn(from, d.at, d); if (idleLate > 0) gaps.push(`${programName(d.program)} was ready at ${new Date(r).toISOString()} (the last discovery probe's exit) and started ${Math.round(d.at - r)} ms later, ${Math.round(idleLate)} ms of it after Class A had started with a lane free of ${lanes}; a row's readiness taken from the probe's exit is not evidence that it was ready, so that it waited with capacity free is not shown`); continue; }
     const idle = idleIn(r, d.at, d);
     if (idle > 0) fails.push(`${programName(d.program)} was ready at ${new Date(r).toISOString()} and started ${Math.round(d.at - r)} ms later, ${Math.round(idle)} ms of it with a lane free of ${lanes}`);
   }
@@ -803,7 +809,11 @@ function nn12(ctx) {
     if (unlisted.length) return result(NOT_MEASURED, `the process listing omits ${programName(unlisted[0].exe)} ${unlisted[0].pid}, which the liveness probe finds alive, so the listing is not trusted`);
   }
   // A program of the run that was still going when the gate exited outlived it, whether or not it has since ended.
-  if (ctx.root && ctx.root.end !== null) { const late = ctx.procs.filter((p) => p.end === null || p.end > ctx.root.end); if (late.length) return result(FAIL, `${late.length} program(s) of the run outlived the gate's exit (first: ${programName(late[0].exe)} ${late[0].pid})`); }
+  // The snapshot lock's job holder is a PowerShell the gate starts to hold the Windows job its tree runs in; it polls and exits when the job is empty, so it always ends just
+  // after the gate. A holder (this exact file form, in the launcher's snapshot root) that ended within 2 s of the gate's exit, or whose exit is not recorded (a gap, below), is not
+  // left behind; one still there later is.
+  const holderOf = (p) => /^(powershell|pwsh)$/.test(programName(p.exe)) && (() => { const i = (p.args ?? []).findIndex((a) => String(a).toLowerCase() === "-file"); const f = i < 0 ? null : String(p.args[i + 1] ?? ""); const root = dirKey(ctx.launch?.snapshotsRoot ?? ""); return f !== null && root !== "" && /[\\/][0-9a-f]{16}\.lock\.children[\\/]job-holder-[0-9a-f]{16}\.json\.ps1$/i.test(f) && dirKey(f).startsWith(`${root}/`); })();
+  if (ctx.root && ctx.root.end !== null) { const late = ctx.procs.filter((p) => (p.end === null || p.end > ctx.root.end) && !(holderOf(p) && (p.end === null || p.end - ctx.root.end <= 2000))); if (late.length) return result(FAIL, `${late.length} program(s) of the run outlived the gate's exit (first: ${programName(late[0].exe)} ${late[0].pid})`); }
   const rootProc = ctx.root ? [ctx.root] : [];
   const alive = [...rootProc, ...ctx.procs].filter((p) => live.alive(p.pid, p.start) === true);
   if (alive.length) return result(FAIL, `${alive.length} program(s) the run started are still alive: ${alive.slice(0, 5).map((p) => `${programName(p.exe)} ${p.pid}`).join(", ")}`);
@@ -984,7 +994,7 @@ function nn09(ctx) {
     const ordinary = cs.filter((c) => !cratesOf(c).some((n) => set.has(n)));
     const perSolo = new Map(); for (const c of soloCmds.filter((x) => cratesOf(x).length === 1)) perSolo.set(cratesOf(c)[0], (perSolo.get(cratesOf(c)[0]) ?? 0) + 1);
     if (mixed.length) fails.push(`${where}: crate(s) that must build alone (${[...new Set(mixed.flatMap(cratesOf).filter((n) => set.has(n)))].join(", ")}) were built together with other crates`);
-    if ([...perSolo.values()].some((n) => n > 1)) fails.push(`${where}: a solo crate was sent as several commands instead of one with its targets combined`);
+    if ([...perSolo.values()].some((n) => n > 1)) fails.push(`${where}: a solo crate was sent as several commands for one target instead of one`);
     // NN09: "every split has a reason the check can verify"; a crate whose manifest cannot be found at the run's tree has no such reason.
     if (ordinary.length > 1) fails.push(`${where} were sent as separate commands, and only ${cs.length - ordinary.length} of them are for a crate the run's tree keeps alone (ci/shards.json solo, or sidecar-bound)${unknown.length ? `; no reason found for ${unknown.slice(0, 2).join("; ")}` : ""}`);
     if (!mixed.length && ![...perSolo.values()].some((n) => n > 1) && ordinary.length <= 1) justified.push([...perSolo.keys()].map((n) => `${n} ${reasons.get(n)}`).join(", "));

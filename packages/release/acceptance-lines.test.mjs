@@ -9,7 +9,7 @@ import path from "node:path";
 import { CHECK_IDS, CONTRACT_FILE, judgeRun, linkProblems, parseAcceptanceLines, parseCommandLine, processesFromEslogger, processesFromWindowsEvents, readAcceptanceLines, readRunDir } from "./acceptance-lines.mjs";
 import { execFileSync } from "node:child_process";
 import { EventEmitter } from "node:events";
-import { exportWindowsProcesses, fingerprintOf, kindOf, launch, sameFingerprint, takeLaunchLock } from "./acceptance-launch.mjs";
+import { exportWindowsProcesses, fingerprintOf, kindOf, launch, parseWevtutilEvents, sameFingerprint, takeLaunchLock } from "./acceptance-launch.mjs";
 import * as LINESMOD from "./acceptance-lines.mjs";
 
 // The lines under test are the contract's own: docs/GATE-CONTRACT.md [GC-A27], read here exactly as the command line reads them.
@@ -117,6 +117,17 @@ const verdictOf = (v, id) => v.lines.find((l) => l.id === id).verdict;
 const whyOf = (v, id) => v.lines.find((l) => l.id === id).why;
 const expect = (r, id, verdict, why) => { const v = run(r); assert.equal(verdictOf(v, id), verdict, `${id}: ${whyOf(v, id)}`); if (why) assert.match(whyOf(v, id), why); };
 const byExe = (r, exe) => r.procs.find((p) => p.exe === exe);
+// A stand-in for wevtutil: for a fixture object { oldest, newest, continuous, records, events: [{ id, time, data }] } it answers the three queries the exporter makes with the XML wevtutil
+// writes (escaped text, one Event per record). Events not listed fill `records` out with other record ids; `continuous: false` leaves a hole in the numbering.
+const xmlEsc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
+const eventXml = (e, rec) => `<Event xmlns='http://schemas.microsoft.com/win/2004/08/events/event'><System><Provider Name='Microsoft-Windows-Security-Auditing'/><EventID>${e.id}</EventID><EventRecordID>${rec}</EventRecordID><TimeCreated SystemTime='${e.time}'/></System><EventData>${Object.entries(e.data ?? {}).map(([k, v]) => (v === null ? `<Data Name='${k}'/>` : `<Data Name='${k}'>${xmlEsc(v)}</Data>`)).join("")}</EventData></Event>`;
+const fake = (raw) => (cmd, args) => {
+  const a = args.join(" ");
+  if (a.includes("/c:1") && a.includes("/rd:false")) return eventXml({ id: 4624, time: raw.oldest }, 1);
+  if (a.includes("/c:1") && a.includes("/rd:true")) return eventXml({ id: 4624, time: raw.newest }, 99999);
+  const events = raw.events ?? []; const all = [...events]; while (all.length < (raw.records ?? events.length)) all.push({ id: 4703, time: raw.newest, data: {} });
+  return all.map((e, i) => eventXml(e, 100 + i + (raw.continuous === false && i > 0 ? 5 : 0))).join("\r\n");
+};
 
 test("a run whose evidence meets every line passes ten; NN04 (not measured until Adrian rewords it) and NN05 (a pass needs evidence of the lookup, which none outside the gate gives) cannot", () => {
   const v = run(records());
@@ -382,13 +393,13 @@ test("the fingerprint of what git cannot show: equal only when every field is pr
 });
 test("the Security log export: its events become the process record, and a log that does not reach the run is said", () => {
   const raw = { oldest: at(-100), newest: at(3), continuous: true, records: 3, events: [{ id: 4688, time: at(0), data: { NewProcessId: "0x64", ProcessId: "0x32", NewProcessName: "C:\\node.exe", CommandLine: "node gate.mjs" } }, { id: 4689, time: at(1), data: { ProcessId: "0x64", ProcessName: "C:\\node.exe", Status: "0x0" } }] };
-  const x = exportWindowsProcesses(at(-1), at(2), { run: () => JSON.stringify(raw) });
+  const x = exportWindowsProcesses(at(-1), at(2), { run: fake(raw) });
   assert.deepEqual(x.problems, []); assert.equal(x.newest, at(3)); assert.equal(x.continuous, true);
   // A break in the record ids of the window (a lost start or exit) is a problem, and the record is then not continuous.
-  { const broken = exportWindowsProcesses(at(-1), at(2), { run: () => JSON.stringify({ ...raw, continuous: false, records: 7 }) }); assert.equal(broken.continuous, false); assert.match(broken.problems.join(), /record ids have a break/); }
+  { const broken = exportWindowsProcesses(at(-1), at(2), { run: fake({ ...raw, continuous: false, records: 7 }) }); assert.equal(broken.continuous, false); assert.match(broken.problems.join(), /record ids have a break/); }
   assert.deepEqual(x.events.map((e) => [e.id, e.pid, e.ppid ?? null]), [[4688, 100, 50], [4689, 100, null]]);
-  assert.match(exportWindowsProcesses(at(-1), at(2), { run: () => JSON.stringify({ ...raw, oldest: at(1) }) }).problems[0], /oldest event/);
-  assert.match(exportWindowsProcesses(at(-1), at(2), { run: () => JSON.stringify({ ...raw, newest: at(-50) }) }).problems.join(), /newest event/);
+  assert.match(exportWindowsProcesses(at(-1), at(2), { run: fake({ ...raw, oldest: at(1) }) }).problems[0], /oldest event/);
+  assert.match(exportWindowsProcesses(at(-1), at(2), { run: fake({ ...raw, newest: at(-50) }) }).problems.join(), /newest event/);
   assert.match(exportWindowsProcesses(at(-1), at(2), { run: () => { throw Object.assign(new Error("x"), { stderr: "Access is denied." }); } }).problems[0], /Access is denied/);
 });
 test("NN10: a verified compile-only test build whose program the gate ran, as the broker built it, passes", () => {
@@ -636,7 +647,7 @@ test("6.9 the Mac process record keeps the arguments it read; the Security expor
   assert.equal(processesFromEslogger([{ ...lines[0], args: undefined }, lines[1]])[0].argsKnown, false);
   for (const status of [null, "", undefined, "n/a"]) {
     const raw = { oldest: at(-100), newest: at(3), continuous: true, records: 2, events: [{ id: 4688, time: at(0), data: { NewProcessId: "0x64", ProcessId: "0x32", NewProcessName: "C:\\n.exe", CommandLine: "n" } }, { id: 4689, time: at(1), data: { ProcessId: "0x64", ProcessName: "C:\\n.exe", ...(status === undefined ? {} : { Status: status }) } }] };
-    const x = exportWindowsProcesses(at(-1), at(2), { run: () => JSON.stringify(raw) });
+    const x = exportWindowsProcesses(at(-1), at(2), { run: fake(raw) });
     assert.equal(x.events.find((e) => e.id === 4689).exit === 0, false, `a missing exit status (${JSON.stringify(status)}) must not read as 0`);
     assert.equal(processesFromWindowsEvents(x.events)[0].exit, null);
   }
@@ -741,7 +752,7 @@ test("7.4 NN03 readiness is the last discovery probe's exit, taken from the proc
   // a first Class A start at the very moment the last probe exited is a tie, not a measurement: a derived readiness never passes
   expect(alter((r) => { derived(r); const f = byExe(r, RUSTFMT); f.start = ms(0.05); f.end = ms(0.15); }), "NN03", "not measured", /a tie, not a measurement/);
   // a program that waited with a lane free after the first start still fails, with the probe exit as its readiness (the first start is well after it, so this is not the first-start fallback)
-  expect(alter((r) => { derived(r); r.launch.lanes = 4; const f = byExe(r, RUSTFMT); f.start = ms(1.0); f.end = ms(3); r.procs.push(proc(3.5, "C:\\tools\\shellcheck.exe", ["x.sh"], { end: 5, cwd: SNAP })); }), "NN03", "fail", /shellcheck was ready at .* \(the last discovery probe's exit\) and started 3450 ms later/);
+  expect(alter((r) => { derived(r); r.launch.lanes = 4; const f = byExe(r, RUSTFMT); f.start = ms(1.0); f.end = ms(3); r.procs.push(proc(3.5, "C:\\tools\\shellcheck.exe", ["x.sh"], { end: 5, cwd: SNAP })); }), "NN03", "not measured", /shellcheck was ready at .* \(the last discovery probe's exit\) and started 3450 ms later/);
   // no discovery probe in the record: nothing is derived and the old statement stands
   expect(alter((r) => { derived(r); r.procs = r.procs.filter((p) => p.exe !== GIT); }), "NN03", "not measured", /when each Class A row became ready is not shown/);
   // a probe with no recorded exit, or with its command line unknown, is no readiness
@@ -849,4 +860,66 @@ test("6.12 the 'present and never read' check can fail: a judge that reads a gat
   assert.equal(r.decoyRead, undefined); void watched.gateLog; assert.equal(r.decoyRead, "gateLog", "a read of the decoy is recorded");
   { const clean = alter((x) => { decoy(x, "gateLog", "Class A failed"); }); run(clean); assert.equal(clean.decoyRead, undefined, "the real judge reads nothing it was not given a name for"); }
   // the production reader, with legacy artifacts present, opens only the files it names (see 5.12); a reader that opened one would be caught by that test's assertion
+});
+
+test("10.2 (table 8): cargo's own rustc target-info probe is not a compile outside the broker; a rustc that compiles still is", () => {
+  const RUSTC = "C:\\rust\\bin\\rustc.exe";
+  const probe = ["-", "--crate-name", "___", "--print=file-names", "--crate-type", "bin", "--crate-type", "rlib", "--crate-type", "proc-macro", "--print=sysroot", "--print=split-debuginfo", "-"];
+  expect(alter((r) => { r.procs.push(proc(0.02, RUSTC, probe, { cwd: SNAP })); }), "NN01", "pass"); // 8a: the form cargo runs for any cargo call
+  // the exact command lines of run8 (cargo 1.99.1): more prints, a lint flag, and with --target for a target build
+  const real = ["-", "--crate-name", "___", "--print=file-names", "--crate-type", "bin", "--crate-type", "rlib", "--crate-type", "dylib", "--crate-type", "cdylib", "--crate-type", "staticlib", "--crate-type", "proc-macro", "--print=sysroot", "--print=split-debuginfo", "--print=crate-name", "--print=cfg", "-Wwarnings"];
+  const realTarget = [...real.slice(0, 4), "--target", "x86_64-pc-windows-msvc", ...real.slice(4)];
+  expect(alter((r) => { r.procs.push(proc(0.02, RUSTC, real, { cwd: SNAP }), proc(0.03, RUSTC, realTarget, { cwd: SNAP })); }), "NN01", "pass");
+  expect(alter((r) => { r.procs.push(proc(0.02, RUSTC, [...real, "src/lib.rs"], { cwd: SNAP })); }), "NN01", "fail", /compile\(s\) ran outside the broker/); // a source with the same options is a compile
+  expect(alter((r) => { r.procs.push(proc(0.02, RUSTC, ["-", "--crate-name", "x", "--crate-type", "bin"], { cwd: SNAP })); }), "NN01", "fail", /compile\(s\) ran outside the broker/); // 8b: reads a crate from stdin and compiles it
+  expect(alter((r) => { r.procs.push(proc(0.02, RUSTC, [...probe, "--emit=link"], { cwd: SNAP })); }), "NN01", "fail", /compile\(s\) ran outside the broker/); // 8c: an --emit is a compile
+});
+
+test("10.3 (table 9): a readiness taken from the last discovery probe is never positive evidence, so a wait on it is not shown, never a fail", () => {
+  const waited = (r) => { r.readiness = new Map(); r.launch.lanes = 4; const f = byExe(r, RUSTFMT); f.start = ms(1.0); f.end = ms(3); r.procs.push(proc(3.5, "C:\\tools\\shellcheck.exe", ["x.sh"], { end: 5, cwd: SNAP })); };
+  expect(alter(waited), "NN03", "not measured", /last discovery probe's exit/); // 9a: shellcheck started 3.45 s after the probe's exit with lanes free
+  expect(alter((r) => { r.launch.lanes = 2; const f = byExe(r, RUSTFMT); f.start = ms(2.0); f.end = ms(2.1); }), "NN03", "fail", /ready at .* and started 1000 ms later/); // 9b: a readiness supplied from outside (GCX-03-3) still fails
+});
+
+test("10.6 the Security log export carries any command line exactly: quotes, backslashes, newlines, tabs, non-ASCII, markup and a whole JSON document (run7: ConvertTo-Json left a quote unescaped and a 6.4 MB record failed to parse)", () => {
+  // The kind of command line that broke run7: another tool's argument that is itself a JSON document holding quoted text, with markup-like text added.
+  const tricky = ['codex exec --json "{\\"input-messages\\":[],\\"last-assistant-message\\":\\"Scope reviewed:\\\\n- User requested: \\"Pin those packages and delete the old code\\".\\"}"', "second line", "tab\there", "caf\u00e9 \u2014 \u6f22\u5b57", "100% <done></Data> & 'quoted' &amp; &#65;"].join("\n");
+  const raw = { oldest: at(-100), newest: at(3), continuous: true, records: 3, events: [{ id: 4688, time: at(0), data: { NewProcessId: "0x64", ProcessId: "0x32", NewProcessName: "C:\\node.exe", CommandLine: tricky } }, { id: 4689, time: at(1), data: { ProcessId: "0x64", ProcessName: "C:\\node.exe", Status: "0x0" } }] };
+  const x = exportWindowsProcesses(at(-1), at(2), { run: fake(raw) });
+  assert.equal(x.events[0].commandLine, tricky); assert.deepEqual(x.problems, []); assert.equal(x.continuous, true);
+  // an element with no text is no value (null), never an empty command line
+  assert.equal(parseWevtutilEvents("<Event><System><EventID>4688</EventID><EventRecordID>5</EventRecordID><TimeCreated SystemTime='" + at(0) + "'/></System><EventData><Data Name='CommandLine'/><Data Name='NewProcessName'></Data></EventData></Event>")[0].data.CommandLine, null);
+  // a failed read is a problem, never an empty record
+  assert.match(exportWindowsProcesses(at(-1), at(2), { run: () => { throw Object.assign(new Error("x"), { stderr: "Access is denied." }); } }).problems[0], /Access is denied/);
+  // the real tool: wevtutil itself answers a query the way the parser reads (skipped where this account cannot read the Security log)
+  if (process.platform === "win32") {
+    const now = new Date(); const live = exportWindowsProcesses(new Date(now - 5000).toISOString(), now.toISOString());
+    if (!/could not be read/.test(live.problems.join())) { assert.ok(Number.isFinite(Date.parse(live.newest)), "the newest event has a time"); assert.ok(live.events.every((e) => Number.isInteger(e.pid)), "every event has a process id"); }
+  }
+});
+
+test("10.5 (table 11): NN03 never fails for want of evidence: an owed Class A row with no program in the record, from an unreadable record or a whole one, is not shown", () => {
+  expect(alter((r) => { r.witness = null; }), "NN03", "not measured", /no operating-system record/); // 11a: no process record at all (run7: Security log unreadable, NN03 FAIL)
+  expect(alter((r) => { r.witness.problems = ["the Security log could not be read (Unexpected token)"]; r.witness.continuous = false; r.procs = r.procs.filter((p) => p.exe !== RUSTFMT); }), "NN03", "not measured", /could not be read/); // 11b: an incomplete record
+  expect(alter((r) => { r.procs = r.procs.filter((p) => p.exe !== RUSTFMT); }), "NN03", "not measured", /owed a run .* no Class A program started/); // 11c: a whole record and the owed row never started: nothing shows it waited
+});
+
+test("10.4 (table 10): the snapshot lock's job holder exits when the gate's job drains, so it ends just after the gate; any other late program still fails", () => {
+  const HOLDER = "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe";
+  const holderArgs = ["-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", "D:\\snaps\\226c20f30c489153.lock.children\\job-holder-0ec397aa6842abd2.json.ps1"];
+  expect(alter((r) => { r.procs.push(proc(0.5, HOLDER, holderArgs, { end: 10.138, cwd: null })); }), "NN12", "pass"); // 10a: ends 138 ms after the gate (10.0 s)
+  expect(alter((r) => { r.procs.push(proc(0.5, HOLDER, holderArgs, { end: 14, cwd: null })); }), "NN12", "fail", /outlived the gate's exit/); // 10b: still there 4 s after the gate is not draining
+  expect(alter((r) => { r.procs.push(proc(0.5, HOLDER, holderArgs, { end: null, cwd: null })); }), "NN12", "not measured", /no recorded exit/); // 10b: no exit is not shown gone
+  expect(alter((r) => { r.procs.push(proc(0.5, HOLDER, ["-NoProfile", "-File", "D:\\work\\other.ps1"], { end: 10.138, cwd: null })); }), "NN12", "fail", /outlived the gate's exit/); // 10c: any other powershell
+  expect(alter((r) => { r.procs.push(proc(0.5, HOLDER, holderArgs.map((a) => a.replace("job-holder-0ec397aa6842abd2", "job-holder-zz")), { end: 10.138, cwd: null })); }), "NN12", "fail", /outlived the gate's exit/); // 10c: a name that is not the holder's form
+});
+
+test("10.1 (table 7): the Windows console host is not a program of the run: it exits after its parent and starts once per console child", () => {
+  const CONHOST = "C:\\Windows\\System32\\conhost.exe";
+  const host = (s, end) => proc(s, CONHOST, ["0xffffffff", "-ForceV1"], { end, cwd: null }); // 7a: the form Windows gives a console child
+  expect(alter((r) => { r.procs.push(host(1.0, 10.3)); }), "NN12", "pass"); // outlives the gate's exit at 10.0 s, and is not held against the run
+  expect(alter((r) => { r.procs.push(host(2.0, 2.5), host(3.0, 3.5)); }), "NN08", "pass"); // one per console child, identical command lines, not a repeat
+  expect(alter((r) => { r.procs.push(host(1.0, null)); }), "NN12", "pass"); // no recorded exit is not an open program of the run
+  expect(alter((r) => { r.procs.push(proc(1.0, "D:\\tools\\conhost.exe", ["0xffffffff", "-ForceV1"], { end: 10.3, cwd: null })); }), "NN12", "fail", /outlived the gate's exit/); // 7b: a conhost elsewhere is a program
+  expect(alter((r) => { r.procs.push(proc(1.0, CONHOST, ["--serve"], { end: 10.3, cwd: null })); }), "NN12", "fail", /outlived the gate's exit/); // 7c
 });
