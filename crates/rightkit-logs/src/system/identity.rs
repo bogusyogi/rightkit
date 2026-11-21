@@ -10,6 +10,20 @@ pub struct PlatformIdentity {
     pub webview_version: String,
 }
 
+impl PlatformIdentity {
+    /// Platform metadata for diagnostics, preserving this identity's captured values.
+    pub fn diagnostics_json(&self) -> serde_json::Value {
+        serde_json::json!({
+            "os": std::env::consts::OS,
+            "arch": std::env::consts::ARCH,
+            "os_version": self.os_version,
+            "os_build": self.os_build,
+            "chip": self.chip,
+            "model": self.hw_model,
+        })
+    }
+}
+
 pub fn current() -> PlatformIdentity {
     platform::current()
 }

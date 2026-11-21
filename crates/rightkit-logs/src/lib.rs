@@ -50,7 +50,7 @@ pub use privacy_scan::{
     scan_privacy, scan_store_privacy, PrivacyFinding, PrivacyKind, PrivacyReport,
 };
 pub use redact::RedactionPolicy;
-pub use rotate::RotatedNaming;
+pub use rotate::{rotated_generation_path, RotatedNaming};
 #[cfg(feature = "token-hash")]
 pub use scrub::redact_key_tokens;
 pub use scrub::{

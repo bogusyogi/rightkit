@@ -618,7 +618,7 @@
     "rightkit-dictation-pill": "0.1.1",
     "rightkit-dictation-runtime": "0.2.5",
     "rightkit-dictation-tauri": "0.3.1",
-    "rightkit-dictation-telemetry": "0.2.2",
+    "rightkit-dictation-telemetry": "0.2.3",
     "rightkit-dictation-text-pipeline": "0.2.7",
     "rightkit-disk-cleanup": "0.2.0",
     "rightkit-docs": "0.1.6",
@@ -1473,7 +1473,8 @@
       "0.1.4"
     ],
     "rightkit-dictation-telemetry": [
-      "0.2.0"
+      "0.2.0",
+      "0.2.2"
     ],
     "rightkit-text-polish": [
       "0.1.1",

@@ -2026,7 +2026,7 @@
       "id": "ci/consumers/rightkit-logs/src/main.rs",
       "files": {
         "Cargo.toml": "c3d5f1db45753eb9671978163f17456b988b46f52976022b3d241c8746449b9d",
-        "src/main.rs": "826b18bff33c08045164c88af8ef77047b2e287972fd76068e02af40eb7ca685"
+        "src/main.rs": "bbac287ca17bee758b8cc66758030c17830f57919613591c3c06c3d2da9eb316"
       }
     },
     "rightkit-credentials": {
@@ -3624,9 +3624,9 @@
       "pkId": "PK146",
       "id": "ci/consumers/rightkit-dictation-telemetry/src/main.rs",
       "files": {
-        "Cargo.toml": "1af5397e159aba9947cb34a94ca8216138b68f8487fe7136f086ad6de354d98d",
-        "README.md": "6cfea07767e47a87dfdf60edaa831937677814c037cbf2cf4c9dac21515c79c0",
-        "src/main.rs": "928dd4e419d7c63baae490e069a538a302eef1c5bd53d848a55eda5f746cf3e5"
+        "Cargo.toml": "6f3a63ec6c51c031fa3260e454e599f1f657112560a6fe927dfa9e3fa8c822df",
+        "README.md": "a5b5087164f70739458685cec61c5e018d871ddfc4aaf852f870763181ac79e5",
+        "src/main.rs": "14c75b6c4fa711ce954c315ae91eed48ddc6a084e373f5ce59f748978b45faeb"
       }
     },
     "rightkit-dictation-text-pipeline": {

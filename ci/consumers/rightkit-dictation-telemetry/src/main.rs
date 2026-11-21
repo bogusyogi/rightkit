@@ -1,8 +1,8 @@
 // rightkit-dictation-telemetry consumed by the exact registry pin in Cargo.toml, outside the
-// workspace. Public API only; no network, no files.
+// workspace. Public API only; no network. One temporary archive.
 use rightkit_dictation_telemetry::feedback::{
     configure_feedback_endpoint, diagnostics_upload_headers, new_submission_id, submit_feedback,
-    FeedbackEndpoint,
+    upload_diagnostics_archive, FeedbackEndpoint,
 };
 
 fn check(ok: bool, what: &str) -> bool {
@@ -32,6 +32,21 @@ fn main() {
     all &= check(
         submit_feedback("   ", None, &a).is_err(),
         "empty feedback is refused before sending",
+    );
+    let archive = std::env::temp_dir().join(format!("rightkit-diagnostics-{a}.zip"));
+    std::fs::write(&archive, b"four").expect("write archive fixture");
+    let result = upload_diagnostics_archive(
+        &archive,
+        "https://example.invalid/v1/diagnostics",
+        3,
+        "1.2.3",
+        None,
+        Some(&a),
+    );
+    all &= check(
+        matches!(result, Err(ref error) if error.starts_with("diagnostics ZIP exceeds"))
+            && !archive.exists(),
+        "oversize archive is refused and removed before sending",
     );
     if !all {
         std::process::exit(1);

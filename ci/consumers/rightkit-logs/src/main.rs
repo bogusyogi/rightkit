@@ -43,6 +43,10 @@ impl Drop for TempDir {
 fn main() {
     let tmp = TempDir::new("logs-packed");
     let dir = tmp.0.clone();
+    assert_eq!(
+        rightkit_logs::rotated_generation_path(&dir.join("app.log"), 1),
+        dir.join("app.log.1")
+    );
 
     // Known-value redaction: exact and percent-encoded forms.
     let secret = "pk-live key/with+chars-98765";
