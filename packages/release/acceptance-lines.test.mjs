@@ -203,7 +203,7 @@ const FROZEN = [
   ["gate 7", "NN08", "pass", (r) => { const g = r.procs[1]; r.procs.push(proc(0.5, g.exe, ["-c", "core.fsmonitor=false", ...g.args], { cwd: g.cwd })); }],
   // NN09: compatible compiles combined per workspace and stage; every split has a reason the check can verify; independent groups run together.
   ["GCX-09-1", "NN09", "fail", (r) => { split(r, "-p b -p c", "-p c"); policy(r, ["c"]); }],
-  ["GCX-09-2", "NN09", "fail", (r) => { split(r, "-p c --target x", "-p c --target y"); policy(r, ["c"]); }],
+  ["GCX-09-2", "NN09", "fail", (r) => { split(r, "-p c --target x", "-p c --target x"); policy(r, ["c"]); }], // moved by the EGM ruling on the HeardRight 2026-11-10 finding: one command per target is the split Cargo's feature unification requires, so the failing form is a solo crate sent twice for the same target
   ["GCX-09-3", "NN09", "fail", (r) => { split(r, "-p b", "-p c"); policy(r, [], ["c"]); }], // the run's tree names no solo crate; a later checkout does
   ["GCX-09-4", "NN09", "pass", (r) => { split(r, "-p b", "-p c"); policy(r, ["c"], []); }], // the run's tree names c solo; a later checkout withdraws it
   ["GCX-09-5", "NN09", "not measured", (r) => { split(r, "-p b", "-p c"); policy(r, null, ["c"]); }], // the run's tree has no policy; a later checkout would justify the split
@@ -896,6 +896,55 @@ test("10.6 the Security log export carries any command line exactly: quotes, bac
     const now = new Date(); const live = exportWindowsProcesses(new Date(now - 5000).toISOString(), now.toISOString());
     if (!/could not be read/.test(live.problems.join())) { assert.ok(Number.isFinite(Date.parse(live.newest)), "the newest event has a time"); assert.ok(live.events.every((e) => Number.isInteger(e.pid)), "every event has a process id"); }
   }
+});
+
+test("10.7 the receipt verifier gets everything the installed rustright verify-receipt asks for: pinned key, key id, host and broker digest, and the receipt's own job id, nonce and request digest (run8: 7 receipts 'did not verify' for want of arguments)", () => {
+  const body = JSON.stringify({ provenance: { payload: { jobId: "job-1", nonce: "ab".repeat(32), requestDigest: "cd".repeat(32) }, schema: "rustright.provenance.v1", signature: {} } });
+  const argv = LINESMOD.verifierArgv({ file: "R.json", body, key: "04aa", keyId: "k1", host: "BOGUS-DELL", brokerDigest: "bd" });
+  assert.deepEqual(argv, ["verify-receipt", "--receipt", "R.json", "--public-key", "04aa", "--key-id", "k1", "--host", "BOGUS-DELL", "--broker-digest", "bd", "--nonce", "ab".repeat(32), "--request-digest", "cd".repeat(32), "--job-id", "job-1"]);
+  // a pin missing, or a receipt that names no nonce, request digest or job id, is not verified, never verified on less
+  assert.equal(LINESMOD.verifierArgv({ file: "R.json", body, key: "04aa", keyId: "k1", host: "H", brokerDigest: "" }), null);
+  for (const drop of ["jobId", "nonce", "requestDigest"]) { const p = JSON.parse(body); delete p.provenance.payload[drop]; assert.equal(LINESMOD.verifierArgv({ file: "R.json", body: JSON.stringify(p), key: "04aa", keyId: "k1", host: "H", brokerDigest: "bd" }), null, drop); }
+  assert.equal(LINESMOD.verifierArgv({ file: "R.json", body: "not json", key: "04aa", keyId: "k1", host: "H", brokerDigest: "bd" }), null);
+});
+
+test("10.8 (table 12): NN05 fails a broker job no known row explains only when the inventory covers every kind of row; otherwise a row the test cannot see may own it (run8: 7 real jobs 'do no known row's work')", () => {
+  // a signed job for a crate and verb no known row plans (a test build; the inventory lists clippy rows only)
+  const stray = (r) => { const argv = ["test", "--profile", "release", "-p", "q", "--locked"]; r.procs.push(proc(6.2, RUSTRIGHT, ["cargo", ...argv], { end: 7.9, cwd: `${SNAP}\\ws` })); r.receipts.push(job("j9", argv, { start: 6.2, end: 7.9, waits: { admission: 0, queue: 0, bind: 0 } })); };
+  expect(alter((r) => { stray(r); r.inventoryUncovered = ["test:rust"]; }), "NN05", "not measured", /do no known .*row's work/); // 12a: the inventory does not cover test rows
+  expect(alter((r) => { stray(r); r.inventoryUncovered = []; }), "NN05", "fail", /broker job\(s\) do no known row's work/); // 12b: every kind covered, still no row owns it
+});
+
+test("10.9 (table 13): a rustright capability probe sends no work, so it is not an unknown client start (run8: 'rustright trampoline-capability' not shown to have sent work); another subcommand still is", () => {
+  const client = (args) => (r) => { r.procs.push(proc(0.3, RUSTRIGHT, args, { cwd: SNAP })); };
+  const gapsOf = (r) => whyOf(run(r), "NN02");
+  assert.doesNotMatch(gapsOf(alter(client(["trampoline-capability"]))), /not a send or a known probe/); // 13a
+  assert.match(gapsOf(alter(client(["frobnicate", "x"]))), /not a send or a known probe \(first: rustright frobnicate x\)/); // 13b
+});
+
+test("11.1 NN09 (table 14; EGM ruling on the HeardRight 2026-11-10 finding): commands that name one distinct target each are a verified split, because Cargo unifies features across the targets of one command; every other split keeps the existing rules", () => {
+  const c = (argvs, solo, verdict, why) => expect(alter((r) => { split(r, ...argvs); policy(r, solo); }), "NN09", verdict, why);
+  // 14a: one command per target (run8/run9: three clippy jobs for rightkit-time, one per triple)
+  c(["-p b --target x", "-p b --target y", "-p b --target z"], [], "pass", /split by target \(x, y, z\)/);
+  // 14b: the same target twice is a real duplicate
+  c(["-p b --target x", "-p b --target x"], [], "fail", /b@x built more than once/);
+  // 14c: the same target, different crates: not a split by target, the existing rule (no reason) applies
+  c(["-p b --target x", "-p c --target x"], [], "fail", /sent as separate commands, and only 0 of them/);
+  // 14d: settings differ by a known option: separate groups, as before
+  c(["-p b --target x --features f", "-p b --target y"], [], "pass");
+  // 14e: settings differ by an option the check does not know: not shown
+  c(["-p b --target x --some-new-flag", "-p b --target y"], [], "not measured", /does not know the meaning of/);
+  // 14f: a command naming two targets beside one naming one gets no split reason
+  c(["-p c --target x --target y", "-p c --target z"], [], "fail", /sent as separate commands/);
+  c(["-p c --target x --target y", "-p c --target x"], [], "fail", /c@x built more than once/);
+  // 14g: a solo crate, one command per target, is what the gate does for it
+  c(["-p c --target x", "-p c --target y"], ["c"], "pass", /c solo per the run's ci\/shards\.json/);
+  // 14h: a solo crate built together with another crate in each target command still fails
+  c(["-p b -p c --target x", "-p b -p c --target y"], ["c"], "fail", /must build alone \(c\) were built together/);
+  // 14i: the crate set may differ per target (a crate is never asked for a target it cannot build)
+  c(["-p b -p c --target x", "-p b --target y"], [], "pass", /split by target/);
+  // no --target at all: nothing changed (GCX-09-1, 09-3, 09-9 and gate 11 keep their verdicts)
+  c(["-p b", "-p c"], [], "fail", /sent as separate commands/);
 });
 
 test("10.5 (table 11): NN03 never fails for want of evidence: an owed Class A row with no program in the record, from an unreadable record or a whole one, is not shown", () => {

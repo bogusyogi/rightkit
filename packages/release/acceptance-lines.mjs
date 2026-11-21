@@ -479,7 +479,7 @@ function nn02(ctx) {
   const rust = ctx.rustStarts;
   const clients = rust.filter((d) => d.args[0] === "cargo");
   const probes = rust.filter((d) => !clients.includes(d));
-  const unknownClient = probes.filter((d) => !(isProbe(d.args) || /^(quiet|verify-receipt|request-digest|status)$/.test(d.args[0] ?? "")));
+  const unknownClient = probes.filter((d) => !(isProbe(d.args) || /^(quiet|verify-receipt|request-digest|status|trampoline-capability)$/.test(d.args[0] ?? "")));
   if (unknownClient.length) gaps.push(`${unknownClient.length} broker client start(s) that are not a send or a known probe (first: rustright ${unknownClient[0].args.slice(0, 2).join(" ")}), so whether they sent work is not shown`);
   gaps.push(...ctx.jobGaps);
   if (!ctx.inventory || ctx.inventoryUncovered?.length) gaps.push("Class A rows that run in the gate's own process leave no program, so that none of them failed is not shown");
@@ -601,7 +601,9 @@ function nn05(ctx) {
   const jobList = ctx.vjobs;
   const strays = jobList.filter((j) => j.sub && ![...ctx.expected.keys()].some((id) => covers(j, id, ctx.snap.path, [...ctx.expected.keys()])));
   const haveB = [...ctx.expected.values()].some((e) => e.stage === "B");
-  if (strays.length) (haveB ? fails : gaps).push(`${strays.length} broker job(s) do no ${haveB ? "known" : "known (no Class B row is known at all)"} row's work (first: cargo ${strays[0].sub} ${strays[0].args.slice(0, 4).join(" ")})`);
+  // A job no known row explains is work nothing owed only when the inventory covers every kind of row; with kinds decided only in gate code (test, doc, ...), a row the test cannot see may own it.
+  const complete = ctx.inventory && !ctx.inventoryUncovered?.length;
+  if (strays.length) ((haveB && complete) ? fails : gaps).push(`${strays.length} broker job(s) do no ${haveB ? "known" : "known (no Class B row is known at all)"} row's work${complete ? "" : " (the inventory does not cover every kind of row, so a row the test cannot see may own them)"} (first: cargo ${strays[0].sub} ${strays[0].args.slice(0, 4).join(" ")})`);
   for (const e of [...ctx.expected.values()].filter((x) => x.expect === "run" && toolOf(x.id) === "rustfmt")) {
     const ed = e.id.split(":")[1]; const handed = rustfmtStarts(ctx).filter((d) => valuesOf(d.args, "--edition").includes(ed)).flatMap(rustfmtFiles);
     const extra = handed.filter((p) => !e.changed.includes(p));
@@ -980,24 +982,34 @@ function nn09(ctx) {
     for (const c of cs) for (const crate of cratesOf(c)) for (const t of targetsOf(c).length ? targetsOf(c) : [null]) { const u = `${crate}@${t}`; seen.set(u, (seen.get(u) ?? 0) + 1); }
     const dup = [...seen].filter(([, n]) => n > 1).map(([u]) => u.replace(/@null$/, ""));
     if (dup.length) fails.push(`${where}: ${dup.join(", ")} built more than once in one workspace and stage`);
-    if (cs.length < 2) continue;
+    // Commands that each name exactly one --target are one command per target: the split Cargo's feature unification requires (several targets in one call give each the union of both
+    // targets' features: HeardRight on the Dell, 2026-11-10; gate/calls.mjs), which is checkable from the commands alone. Each target's commands are judged by the usual rules; a command
+    // naming two or more targets, or none, gets no such reason and the group is judged whole. (EGM ruling, 2026-11-21.)
+    const partition = cs.length > 1 && cs.every((c) => targetsOf(c).length === 1);
+    const byTarget = new Map(); if (partition) for (const c of cs) { const t = targetsOf(c)[0]; (byTarget.get(t) ?? byTarget.set(t, []).get(t)).push(c); }
+    if (!partition && cs.length < 2) continue;
     const policy = soloSet();
     if (!policy) { gaps.push(`${where} were sent as separate commands; ${soloProblem}, so the split cannot be checked`); continue; }
+    const failsBefore = fails.length;
+    for (const slice of partition ? [...byTarget.values()] : [cs]) {
+    const where = `${slice.length}x cargo ${k.split("\u0000")[1]} in ${k.split("\u0000")[0] || "."}${partition && byTarget.size > 1 ? ` for target ${targetsOf(slice[0])[0]}` : ""}`;
     const ws = k.split("\u0000")[0]; const set = new Set(policy); const reasons = new Map(); const unknown = [];
-    for (const n of new Set(cs.flatMap(cratesOf))) {
+    for (const n of new Set(slice.flatMap(cratesOf))) {
       if (policy.has(n)) { reasons.set(n, "solo per the run's ci/shards.json"); continue; }
       const b = ws.startsWith("?") ? { unknown: "its workspace is not placed" } : sidecarOf(ws, n);
       if (b.bound) { set.add(n); reasons.set(n, `sidecar-bound per ${b.file} at the run's tree`); } else if (b.unknown) unknown.push(`${n}: ${b.unknown}`);
     }
-    const soloCmds = cs.filter((c) => cratesOf(c).some((n) => set.has(n)));
+    const soloCmds = slice.filter((c) => cratesOf(c).some((n) => set.has(n)));
     const mixed = soloCmds.filter((c) => cratesOf(c).length > 1);
-    const ordinary = cs.filter((c) => !cratesOf(c).some((n) => set.has(n)));
+    const ordinary = slice.filter((c) => !cratesOf(c).some((n) => set.has(n)));
     const perSolo = new Map(); for (const c of soloCmds.filter((x) => cratesOf(x).length === 1)) perSolo.set(cratesOf(c)[0], (perSolo.get(cratesOf(c)[0]) ?? 0) + 1);
     if (mixed.length) fails.push(`${where}: crate(s) that must build alone (${[...new Set(mixed.flatMap(cratesOf).filter((n) => set.has(n)))].join(", ")}) were built together with other crates`);
     if ([...perSolo.values()].some((n) => n > 1)) fails.push(`${where}: a solo crate was sent as several commands for one target instead of one`);
     // NN09: "every split has a reason the check can verify"; a crate whose manifest cannot be found at the run's tree has no such reason.
-    if (ordinary.length > 1) fails.push(`${where} were sent as separate commands, and only ${cs.length - ordinary.length} of them are for a crate the run's tree keeps alone (ci/shards.json solo, or sidecar-bound)${unknown.length ? `; no reason found for ${unknown.slice(0, 2).join("; ")}` : ""}`);
+    if (ordinary.length > 1) fails.push(`${where} were sent as separate commands, and only ${slice.length - ordinary.length} of them are for a crate the run's tree keeps alone (ci/shards.json solo, or sidecar-bound)${unknown.length ? `; no reason found for ${unknown.slice(0, 2).join("; ")}` : ""}`);
     if (!mixed.length && ![...perSolo.values()].some((n) => n > 1) && ordinary.length <= 1) justified.push([...perSolo.keys()].map((n) => `${n} ${reasons.get(n)}`).join(", "));
+    }
+    if (partition && byTarget.size > 1 && fails.length === failsBefore) justified.push(`split by target (${[...byTarget.keys()].join(", ")}): one target per command, because Cargo unifies features across the targets of one command`);
   }
   // Council CV-1 F-27: actual command intervals, not group envelopes. Commands that did not all start together cannot pass without a record of
   // when each became ready and how much capacity was free, which no record of the run carries yet.
@@ -1011,7 +1023,7 @@ function nn09(ctx) {
     if (behind && c.queueMs !== null && c.queueMs <= 0) gaps.push(`broker job ${c.jobId} started only after job ${behind.jobId} ended with no queue wait signed, so whether the gate held it back or the broker had no capacity is not shown`);
     // A job submitted only after another ended may have waited for a free lane or for its own readiness: neither is recorded, so that independent groups could have run together is not shown.
     const before = compiles.find((o) => o !== c && o.ended <= c.submitted); if (before) gaps.push(`broker job ${c.jobId} (cargo ${c.sub} ${cratesOf(c).join(" ")}) was submitted only after job ${before.jobId} ended, and no record shows it was ready or that a lane was free before then, so that independent groups could have run together is not shown`); }
-  return decide(fails, gaps, `${compiles.length} compile command(s) in ${groups.size} group(s), one per workspace and stage${justified.length ? ` (split: ${justified.join("; ")})` : ""}, all submitted together`);
+  return decide(fails, gaps, `${compiles.length} compile command(s) in ${groups.size} group(s), one per workspace and stage${justified.filter(Boolean).length ? ` (split: ${justified.filter(Boolean).join("; ")})` : ""}, all submitted together`);
 }
 
 
@@ -1028,6 +1040,18 @@ export function liveCheck({ pid, start, readStart, tolMs = 2000 }) {
   if (s === undefined) return false;
   if (s === null || !Number.isFinite(s) || !Number.isFinite(start)) return null;
   return Math.abs(s - start) <= tolMs;
+}
+
+/**
+ * The arguments of `rustright verify-receipt` for one receipt: the caller pins the key, key id, host and broker digest (written at the broker's enrollment, not by the gate);
+ * the job id, nonce and request digest are the receipt's own signed payload, so the signature, the pinned key and the pinned host and broker digest are what is checked.
+ * Null when the payload names no job id, nonce or request digest, or a pin is missing.
+ */
+export function verifierArgv({ file, body, key, keyId, host, brokerDigest }) {
+  let payload = null; try { payload = JSON.parse(body)?.provenance?.payload ?? null; } catch { payload = null; }
+  const need = { nonce: payload?.nonce, requestDigest: payload?.requestDigest, jobId: payload?.jobId };
+  if (!key || !keyId || !host || !brokerDigest || Object.values(need).some((v) => typeof v !== "string" || v === "")) return null;
+  return ["verify-receipt", "--receipt", file, "--public-key", key, "--key-id", keyId, "--host", host, "--broker-digest", brokerDigest, "--nonce", need.nonce, "--request-digest", need.requestDigest, "--job-id", need.jobId];
 }
 
 /**
@@ -1191,7 +1215,8 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const key = opt("--broker-key"); const keyId = opt("--broker-key-id"); const client = opt("--rustright") ?? "rustright";
   let host = null; try { host = JSON.parse(fs.readFileSync(path.join(runDir, "launch.json"), "utf8")).host; } catch { host = null; }
   // The broker's own verifier (rustright verify-receipt) with the key pinned by the caller.
-  const verify = key && keyId && host ? (body) => { const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rk-verify-")); const file = path.join(dir, "receipt.json"); fs.writeFileSync(file, body); try { execFileSync(client, ["verify-receipt", "--receipt", file, "--public-key", key, "--key-id", keyId, "--host", host], { stdio: ["ignore", "pipe", "pipe"], windowsHide: true }); return { ok: true, problems: [] }; } catch (e) { return { ok: false, problems: [String(e.stderr ?? e.message).trim().split(/\r?\n/).pop()] }; } } : null;
+  const brokerDigest = opt("--broker-digest"); const brokerHost = opt("--broker-host") ?? host;
+  const verify = key && keyId && brokerHost ? (body) => { const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rk-verify-")); const file = path.join(dir, "receipt.json"); fs.writeFileSync(file, body); const argv = verifierArgv({ file, body, key, keyId, host: brokerHost, brokerDigest }); if (!argv) return { ok: false, problems: ["the receipt names no job id, nonce or request digest, or no broker digest is pinned (--broker-digest), so it cannot be verified"] }; try { execFileSync(client, argv, { stdio: ["ignore", "pipe", "pipe"], windowsHide: true }); return { ok: true, problems: [] }; } catch (e) { return { ok: false, problems: [String(e.stderr ?? e.message).trim().split(/\r?\n/).pop()] }; } } : null;
   const evidence = readRunDir(runDir, { repo: opt("--repo"), receiptsDir: opt("--receipts"), verify, inventoryFile: opt("--inventory") });
   // The start time of the process now at an id (ms), undefined when there is none, null when it cannot be read: a recorded id is the run's program only if it started when the record says.
   const startCache = new Map();
