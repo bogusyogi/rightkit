@@ -1,6 +1,6 @@
 {
   "schema": "rightkit.contract-nn/1",
-  "contractSha256": "f47b8439dff78ce0a0358d6a9f5cfdd6c9f1a0577b676ea4666b826cee755d65",
+  "contractSha256": "a0d63d5d10e3d3e80f3f24ac92d99395a154baacd22c5ff57e9b31ec99cd5b95",
   "budgetsSha256": "c49ca00d962e9352c2d6d3029fce09ff07ef937c8bd6dccaa672998c15559ead",
   "runnerFiles": [
     "background-process.mjs",
