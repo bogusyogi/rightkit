@@ -90,7 +90,7 @@ pub enum WindowOpenDecision {
     },
     /// An allow-listed popup (OAuth) that may become an in-app child window.
     Popup,
-    /// A non-web scheme (for example `zoom:`) that needs the person's consent before the system
+    /// A non-web scheme (for example `example-app:`) that needs the person's consent before the system
     /// handles it. The shell does not open it; an app with a consent surface may confirm it.
     ProtocolConsent {
         scheme: String,
@@ -310,7 +310,7 @@ impl NavPolicy {
         }
     }
 
-    /// The scheme of a non-web `window.open` target (for example `zoom:` or `ms-settings:`) that an app
+    /// The scheme of a non-web `window.open` target (for example `example-app:` or `ms-settings:`) that an app
     /// with a consent surface may confirm with the person before handing it to the system. `None` for
     /// web schemes and for schemes the shell serves or refuses outright (internal, `file:`, `javascript:`).
     /// [`NavPolicy::decide_window_open`] returns `Deny` for every such target either way.

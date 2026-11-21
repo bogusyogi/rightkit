@@ -797,7 +797,7 @@ impl ShellBuilder {
         self.new_window_router = Some(Arc::new(f));
         self
     }
-    /// Confirm a page's request to open a non-web scheme (`zoom:`, `ms-settings:`; #640) with the
+    /// Confirm a page's request to open a non-web scheme (`example-app:`, `ms-settings:`; #640) with the
     /// native three-choice dialog: Deny, Allow once, Always allow. A remembered grant opens the link
     /// without asking; a request from a page other than the pinned origin is refused without a
     /// dialog. Without this call such requests are refused, as before. The consent words and the

@@ -1,6 +1,6 @@
 //! Native three-choice consent for a non-web link scheme (#640): Deny, Allow once, Always allow.
 //!
-//! A page asks the shell to open a link such as `zoom:` or `ms-settings:`. [`crate::nav`] answers
+//! A page asks the shell to open a link such as `example-app:` or `ms-settings:`. [`crate::nav`] answers
 //! `WindowOpenDecision::ProtocolConsent`; this module is the surface that confirms it. The wording
 //! stays the app's: [`ConsentPrompt`] carries every string, including the three button labels, so
 //! the shell ships no consent vocabulary. "Always allow" is remembered through the app's

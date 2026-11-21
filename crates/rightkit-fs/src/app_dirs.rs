@@ -122,7 +122,7 @@ pub struct AppId {
     /// The organisation folder; `None` keeps a flat `<base>/<name>` layout.
     pub org: Option<&'static str>,
     /// Earlier app names whose existing folders are still used, in order of preference (for
-    /// example `&["LightCraft"]` for an app renamed to `Ember`). See [`AppId::with_legacy_names`].
+    /// example `&["PreviousAppName"]` after renaming). See [`AppId::with_legacy_names`].
     pub legacy_names: &'static [&'static str],
 }
 
