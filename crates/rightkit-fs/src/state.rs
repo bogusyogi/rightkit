@@ -34,7 +34,7 @@
 //!   residual in the `atomic` module docs, section 3).
 //! - Windows: there is no directory flush. `FlushFileBuffers` needs `GENERIC_WRITE`, and on a
 //!   directory handle opened for listing (the pinned handle) it fails with
-//!   `ERROR_ACCESS_DENIED` (Pulse measured this on NTFS), so the crate does not call it. The
+//!   `ERROR_ACCESS_DENIED`, so the crate does not call it. The
 //!   file is flushed before publication, and directory creation (including every missing
 //!   ancestor [`StateDir::create`] makes), the publishing rename and the removing delete run on
 //!   handles opened `FILE_WRITE_THROUGH`, which asks the filesystem to commit the operation

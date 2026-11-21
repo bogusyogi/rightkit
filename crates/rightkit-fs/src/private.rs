@@ -1,6 +1,6 @@
 //! Owner-only files and directories.
 //!
-//! Donor: CodeRight `private_fs` (perm/atomic/sweep). Unix uses mode bits applied at
+//! Unix uses mode bits applied at
 //! creation time (never chmod-after-create for new files); Windows applies one protected
 //! owner-only DACL through native security APIs. There is no weaker fallback: a failed native
 //! step is an error, never a partial hardening reported as success.

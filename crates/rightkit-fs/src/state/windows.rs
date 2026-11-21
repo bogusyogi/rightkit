@@ -842,7 +842,7 @@ impl Dir {
 
     /// There is no directory flush on Windows, so this does nothing and says so (`None`): the
     /// pinned handle is opened for listing, and `FlushFileBuffers` on it fails with
-    /// `ERROR_ACCESS_DENIED` (it needs `GENERIC_WRITE`; Pulse saw the same on NTFS). A directory
+    /// `ERROR_ACCESS_DENIED` (it needs `GENERIC_WRITE`). A directory
     /// handle opened for write would only be flushing NTFS metadata the filesystem journals
     /// anyway. Directory-entry durability comes from the operations themselves: the file is
     /// flushed before publication, and directory creation, the publishing rename and the

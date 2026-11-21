@@ -16,9 +16,7 @@
 //! cross-process lock, so any number of processes can track and resolve concurrently. Without
 //! `json` (feature `fs` alone) the identity types are still here: [`StableId`], [`Fingerprint`],
 //! [`Tracked`], [`Resolution`], [`SearchLimits`], [`track_path`] and the ledger-free [`locate`],
-//! so an app that keeps its own records can resolve a moved or replaced file. Donors:
-//! HeardRight/ScrapeRight/ViewRight file grants and clipboard delivery, which each keyed files by
-//! path.
+//! so an app that keeps its own records can resolve a moved or replaced file.
 
 #[cfg(feature = "json")]
 use crate::atomic::atomic_write_private;

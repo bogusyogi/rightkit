@@ -304,10 +304,8 @@ pub fn stored_zip_bytes(entries: &[(&str, &[u8])]) -> io::Result<Vec<u8>> {
     writer.finish()
 }
 
-// Archives built from files on disk, byte-compatible with CutRight's former writer (rightkit#467).
-
-/// "Version made by" of [`write_zip`]: host Unix (3), specification 3.0. This is the byte-exact
-/// value CutRight's former `cutright-qa/src/zip.rs` wrote; [`StoredZipWriter`] keeps its own 2.0.
+/// "Version made by" of [`write_zip`]: host Unix (3), specification 3.0. This preserves the existing
+/// file-backed format (rightkit#467). [`StoredZipWriter`] uses specification 2.0.
 const FILE_ZIP_MADE_BY: u16 = 0x031E;
 
 fn io_context(context: String, error: io::Error) -> io::Error {

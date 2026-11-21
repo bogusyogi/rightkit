@@ -37,7 +37,7 @@
 //!   `<LOCALAPPDATA>/<org>/<namespace>/Cache` so it never shares a folder with state.
 //! * **User folders.** [`user_dirs`] answers the account's home, Desktop, Documents and Downloads.
 //! * **Dev namespace.** Only an [`Options`] with `dev` set uses `<name>Dev` (for example
-//!   `ViewRightDev`); no build sets it by default, so a dev run is not isolated from the installed app.
+//!   `ExampleAppDev`); no build sets it by default, so a dev run is not isolated from the installed app.
 //! * **No test mode.** There is no test root and no QA override: every build resolves the real
 //!   per-user folders. QA runs against the real home and uses `rightkit-qa` snapshot and restore.
 //!
@@ -117,7 +117,7 @@ impl Os {
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct AppId {
-    /// The installed folder name, for example `ViewRight`.
+    /// The installed folder name, for example `ExampleApp`.
     pub name: &'static str,
     /// The organisation folder; `None` keeps a flat `<base>/<name>` layout.
     pub org: Option<&'static str>,

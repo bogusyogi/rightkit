@@ -259,8 +259,8 @@ Existing SHA-256 `copy_verified` & `VerifiedCopy.sha256` stay compatible.
 Call `rightkit_fs::zip::write_zip(destination, &entries)` with
 `entries: Vec<(String, PathBuf)>`. Order is preserved; sort entries before calling if
 ordering starts from directory enumeration. Identical names, order & source bytes produce
-identical output regardless of clock, source mtime, permissions or host OS. Encoding matches
-CutRight’s former `cutright-qa/src/zip.rs`: STORED, UTF-8 flag, DOS epoch 1980-01-01,
+identical output regardless of clock, source mtime, permissions or host OS. Encoding uses
+STORED, UTF-8 flag, DOS epoch 1980-01-01,
 Unix creator 3.0, mode 0644, no extras, comments or data descriptors.
 
 ZIP64 is unsupported: fewer than 65535 entries, names at most 65535 UTF-8 bytes, sizes
