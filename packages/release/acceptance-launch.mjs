@@ -101,6 +101,43 @@ $ev=@($all | Where-Object { $_.Id -eq 4688 -or $_.Id -eq 4689 } | ForEach-Object
 /** The stage the launched gate is asked for: its `--to` value (the gate's own default is the check stage). */
 export const kindOf = (gateArgs) => { const i = gateArgs.indexOf("--to"); return i < 0 ? "check" : gateArgs[i + 1] ?? null; };
 
+/**
+ * A recursive listing of a folder as the file system shows it: relative path (forward slashes) -> [size, mtime in ms]. A folder that does not exist is an empty,
+ * known listing; one that cannot be read, or that holds more files than `cap`, is null (unknown). Nothing in it is read.
+ */
+export function listFolder(dir, { cap = 200_000 } = {}) {
+  if (!dir) return null;
+  try { if (!fs.existsSync(dir)) return {}; } catch { return null; }
+  const out = {}; let n = 0;
+  const walk = (d, rel) => {
+    for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+      const r = rel ? `${rel}/${e.name}` : e.name; const f = path.join(d, e.name);
+      if (e.isDirectory()) walk(f, r);
+      else if (e.isFile()) { n += 1; if (n > cap) throw new Error("too many files"); const st = fs.statSync(f); out[r] = [st.size, Math.trunc(st.mtimeMs)]; }
+    }
+  };
+  try { walk(dir, ""); } catch { return null; }
+  return out;
+}
+/** The gate's scan-result store, as the gate would choose it (RK_GATE_CACHE_DIR, else <git common dir>/rightkit-gate-cache), or null when the common dir cannot be found. */
+export function cacheStoreDir(repo, env = process.env, run = execFileSync) {
+  if (env.RK_GATE_CACHE_DIR) return path.resolve(repo, env.RK_GATE_CACHE_DIR);
+  try { const common = String(run("git", ["-C", repo, "rev-parse", "--git-common-dir"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], windowsHide: true })).trim(); return common ? path.join(path.resolve(repo, common), "rightkit-gate-cache") : null; } catch { return null; }
+}
+/** The folders of the snapshot root that came into being or changed since `sinceMs`, each listed (the stat record of the snapshots at the gate's exit). */
+export function statSnapshots(root, sinceMs, { cap = 200_000, entries = null } = {}) {
+  if (!root) return { root: null, dirs: {}, known: false };
+  let names; try { names = (entries ?? fs.readdirSync(root, { withFileTypes: true })).filter((e) => e.isDirectory()); } catch { return { root, dirs: {}, known: false }; }
+  const dirs = {}; let total = 0; let known = true;
+  for (const e of names) {
+    let st; try { st = fs.statSync(path.join(root, e.name)); } catch { known = false; continue; }
+    const files = listFolder(path.join(root, e.name), { cap: cap - total });
+    if (files === null) { dirs[e.name] = null; known = false; continue; }
+    total += Object.keys(files).length; dirs[e.name] = files;
+  }
+  return { root, dirs, known };
+}
+
 /** Starts one gate run and records it. Resolves with the gate's exit (or 128 + signal number). */
 export async function launch({ out, commit, kind = null, receiptsDir, limits = null, lanes = null, repo = process.cwd(), gate = path.join(here, "bin", "rightkit-gate.mjs"), lock = null, gateArgs = [], env = process.env, spawnImpl = spawn, host = os.hostname(), exportProcesses = null, platform = process.platform, fingerprint = null, snapshotsRoot = null }) {
   if (!out || !/^[0-9a-f]{40}$/.test(String(commit ?? "")) || !receiptsDir) throw new Error("launch needs --out, a full --commit sha and --receipts");
@@ -123,6 +160,11 @@ export async function launch({ out, commit, kind = null, receiptsDir, limits = n
   const previous = taken.previous ?? (last ? { runId: last.runId ?? null, out: last.out ?? null, pid: null, reclaimed: false, fromLastRun: true, exit: last.exit ?? null, signal: last.signal ?? null } : null);
   const list = (d) => { try { return fs.readdirSync(d).filter((n) => n.endsWith(".json")); } catch { return []; } };
   fs.writeFileSync(path.join(before, "receipts.txt"), `${list(receiptsDir).join("\n")}\n`);
+  // The gate's scan-result store as the file system shows it before the run, the launcher's own listing (nothing in it is read).
+  // A run folder reused after a crash must not offer the earlier run's listings.
+  for (const stale of ["cache-store-after.json", "snapshot-stat.json"]) fs.rmSync(path.join(out, stale), { force: true });
+  const storeDir = cacheStoreDir(repo, env); const storeBefore = listFolder(storeDir);
+  fs.writeFileSync(path.join(before, "cache-store.json"), `${JSON.stringify({ dir: storeDir, files: storeBefore })}\n`);
   const files = { log: path.join(out, "gate.log"), launch: path.join(out, "launch.json") };
   const args = [gate, ...gateArgs, "--commit", commit];
   let snapRoot = snapshotsRoot; if (snapRoot === null) { try { snapRoot = (await import("./snapshot.mjs")).snapshotRoot({ platform, env }); } catch { snapRoot = null; } }
@@ -138,10 +180,18 @@ export async function launch({ out, commit, kind = null, receiptsDir, limits = n
   const [code, signal] = await new Promise((resolve) => { child.once("error", () => resolve([null, null])); child.once("exit", (c, s) => resolve([c, s])); });
   process.off("SIGINT", forward); process.off("SIGTERM", forward);
   record.endedAt = new Date().toISOString(); record.endMono = mono(); record.exit = code; record.signal = signal ?? null;
-  const locksNow = (d) => { try { return fs.readdirSync(d).filter((n) => n.endsWith(".lock")).map((n) => path.join(d, n)); } catch { return null; } };
+  // The snapshot root is read once, with its entry kinds: the locks and the stat record of the snapshots both come from that one read.
+  const rootEntries = (() => { try { return snapRoot ? fs.readdirSync(snapRoot, { withFileTypes: true }) : null; } catch { return null; } })();
+  const locksNow = (d) => (rootEntries === null ? null : rootEntries.map((e) => e.name).filter((n) => n.endsWith(".lock")).map((n) => path.join(d, n)));
   // One read of the snapshot root decides both what was found and whether it could be read.
   const seenLocks = snapRoot ? locksNow(snapRoot) : null;
   record.afterRun = { observedAt: new Date().toISOString(), locks: seenLocks ?? [], locksKnown: seenLocks !== null, rootAlive: alive(record.gatePid) };
+  // At the gate's exit, before anything can change: the store listed again, and the stat record of the snapshots this run made or touched.
+  const storeAfter = listFolder(storeDir);
+  fs.writeFileSync(path.join(out, "cache-store-after.json"), `${JSON.stringify({ dir: storeDir, files: storeAfter })}\n`);
+  const snaps = rootEntries === null ? { root: snapRoot, dirs: {}, known: false } : statSnapshots(snapRoot, Date.parse(record.startedAt), { entries: rootEntries });
+  fs.writeFileSync(path.join(out, "snapshot-stat.json"), `${JSON.stringify(snaps)}\n`);
+  record.cacheStore = { dir: storeDir, beforeKnown: storeBefore !== null, afterKnown: storeAfter !== null }; record.snapshotStat = { root: snaps.root, folders: Object.keys(snaps.dirs), known: snaps.known };
   save();
   try { fs.closeSync(logFd); } catch { /* closed */ }
   // The operating system's record of the run's programs, a little either side of the gate's own span.

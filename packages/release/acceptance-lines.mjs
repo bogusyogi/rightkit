@@ -442,6 +442,12 @@ function nn01(ctx) {
       }
       if (!named.length) { gaps.push(`${programName(d.program)} names no file of the selected tree in its arguments, so what it read is not shown`); continue; }
       for (const rel of named) {
+        // The launcher's stat record of the snapshot at the gate's exit: a file written after its program started is not what the program was handed.
+        const folder = path.basename(String(ctx.snap.path)); const dirStat = ctx.snapshotStat && Object.hasOwn(ctx.snapshotStat.dirs ?? {}, folder) ? ctx.snapshotStat.dirs[folder] : null; const raw = dirStat && Object.hasOwn(dirStat, rel) ? dirStat[rel] : null; const entry = Array.isArray(raw) && raw.length >= 2 && Number.isFinite(raw[0]) && Number.isFinite(raw[1]) ? raw : null;
+        if (!ctx.snapshotStat) gaps.push(`${programName(d.program)} was handed ${rel} and the launcher recorded no stat record of the snapshot, so when it was last written is not shown`);
+        else if (!entry) gaps.push(`${programName(d.program)} was handed ${rel} and the launcher's stat record of the snapshot has no stat record of ${rel}, so when it was last written is not shown`);
+        else if (d.at - entry[1] >= 0 && d.at - entry[1] <= 50) gaps.push(`${programName(d.program)} was handed ${rel}, last written within 50 ms of ${programName(d.program)} starting (the file system's own clock tick), so which came first is not shown`);
+        else if (entry[1] > d.at) fails.push(`${programName(d.program)} was handed ${rel}, which was written after ${programName(d.program)} started (${rel} was written after ${programName(d.program)} started: ${new Date(entry[1]).toISOString()} against ${new Date(d.at).toISOString()})`);
         const disk = typeof ctx.diskBlobs === "function" ? ctx.diskBlobs(`${ctx.snap.path}${isWin(ctx.snap.path) ? "\\" : "/"}${rel.replaceAll("/", isWin(ctx.snap.path) ? "\\" : "/")}`, rel) : null;
         if (disk === null || disk === undefined) gaps.push(`${programName(d.program)} was handed ${rel} and its bytes on disk after the run were not read, so that it read the selected commit's file is not shown`);
         else if (disk !== ctx.blobOf(rel)) fails.push(`${programName(d.program)} was handed ${rel}, whose bytes on disk are not the selected commit's`);
@@ -513,7 +519,19 @@ function nn03(ctx) {
   if (!Number.isInteger(lanes) || lanes <= 0) return result(NOT_MEASURED, "the launcher's record gives no lane count for Class A on this host");
   // When each row became ready is an input from outside the gate (none exists on a real run yet); a row's start is held to it. Without it the first start
   // is the row's own evidence that it was ready, which can show a lane left idle but never a row that waited before any start.
-  const ready = (d) => { const r = ctx.readiness?.get(programName(d.program)); return Number.isFinite(r) ? r : null; };
+  // Discovery probes, from the process record alone: the commands the gate runs to find out what the tree is and what changed (git rev-parse, diff, ls-files and the like,
+  // cargo metadata, rustc -vV) that started and ended before the first Class A program started. The last of them to exit is when independent work was known to be ready.
+  const GIT_PROBES = new Set(["rev-parse", "diff", "diff-tree", "ls-files", "ls-tree", "cat-file", "status", "log", "show", "merge-base", "rev-list", "describe", "name-rev", "symbolic-ref"]);
+  const gitVerb = (args) => { for (let i = 0; i < args.length; i += 1) { const x = String(args[i]); if (x === "-c" || x === "-C") { i += 1; continue; } if (x.startsWith("-")) continue; return x; } return null; };
+  const firstStart = Math.min(...a.map((d) => d.at));
+  let probeReady = null; let probeProblem = null;
+  { const probes = ctx.procs.map((p, i) => ({ p, d: ctx.starts[i] })).filter(({ p, d }) => p.start < firstStart && !d.ambiguous && ((programName(p.exe) === "git" && GIT_PROBES.has(gitVerb(p.args))) || (programName(p.exe) === "cargo" && cargoVerb(p.args) === "metadata") || (programName(p.exe) === "rustc" && p.args.length > 0 && p.args.every((x) => /^(-vV|--version|-V|-v)$/.test(x)))));
+    if (probes.some(({ p }) => p.argsKnown === false)) probeProblem = "a discovery probe has no command line in the process record";
+    else if (probes.some(({ p }) => p.end === null)) probeProblem = "a discovery probe has no recorded exit";
+    else if (probes.some(({ p }) => p.end > firstStart)) probeProblem = "a discovery probe was still running when Class A started";
+    else if (probes.length) probeReady = Math.max(...probes.map(({ p }) => p.end)); }
+  const given = (d) => { const r = ctx.readiness?.get(programName(d.program)); return Number.isFinite(r) ? r : null; };
+  const ready = (d) => given(d) ?? probeReady;
   // Between two moments, the time a lane stood free: every interval between consecutive start and end events is looked at, and the lanes busy over the whole
   // interval (programs other than the one waiting) are counted, so a lane idle for part of a wait is found however many programs overlapped some of it.
   const idleIn = (from, to, self) => {
@@ -526,10 +544,14 @@ function nn03(ctx) {
   for (const d of a) {
     const r = ready(d) ?? firstReady;
     if (!(d.at > r)) continue;
+    // A readiness taken from the probes is when discovery ended: the gate's own work after it, before its first Class A start, leaves no process record and is a gap, not a wait;
+    // a wait after the first start is counted from the first start.
+    if (given(d) === null && probeReady !== null) { const from = Math.max(r, firstStart); if (!(d.at > from)) continue; const idleLate = idleIn(from, d.at, d); if (idleLate > 0) fails.push(`${programName(d.program)} was ready at ${new Date(r).toISOString()} (the last discovery probe's exit) and started ${Math.round(d.at - r)} ms later, ${Math.round(idleLate)} ms of it after Class A had started with a lane free of ${lanes}`); continue; }
     const idle = idleIn(r, d.at, d);
     if (idle > 0) fails.push(`${programName(d.program)} was ready at ${new Date(r).toISOString()} and started ${Math.round(d.at - r)} ms later, ${Math.round(idle)} ms of it with a lane free of ${lanes}`);
   }
-  if (!a.every((d) => ready(d) !== null)) gaps.push("when each Class A row became ready is not shown by any evidence outside the gate for every program that started, so a row that waited before it started is not ruled out");
+  if (probeReady !== null && a.some((d) => given(d) === null)) { const planning = firstStart - probeReady; gaps.push(`the gate's own work between the last discovery probe's exit (${new Date(probeReady).toISOString()}) and the first Class A start (${Math.round(planning)} ms) leaves no process record, so that no Class A row was held back in it is not shown (a first start at the very moment of the last probe's exit is a tie, not a measurement)`); }
+  else if (!a.every((d) => ready(d) !== null)) gaps.push(`when each Class A row became ready is not shown by any evidence outside the gate for every program that started, so a row that waited before it started is not ruled out${probeProblem ? ` (${probeProblem})` : ""}`);
   for (const e of owedA) if (toolOf(e.id) && !workOf(ctx, e.id).did) gaps.push(`${e.id} is owed a Class A run and no program of it started, so how long it waited is not shown`);
   gaps.push(...(ctx.launch?.lanesSource ? [] : ["the launcher's record does not say where its lane count came from"]));
   return decide(fails, gaps, `${a.length} Class A program(s); none waited while a lane of ${lanes} was free`);
@@ -543,6 +565,10 @@ function nn04() {
 
 function nn05(ctx) {
   const fails = []; const gaps = [...ctx.sendGaps, ...ctx.processGaps, ...ctx.jobGaps, ...baselineGaps(ctx)];
+  // What the file system shows of the gate's scan-result store, listed by the launcher before and after: entries are named by keys only the gate's code computes, so the
+  // entries a run wrote cannot be mapped to the rows from outside it, and a lookup (a read) leaves no trace in a listing.
+  if (!ctx.cacheStore) gaps.push("the launcher recorded no listing of the cache store before and after the run, so that the lookup and the store agree with the work is not shown");
+  else gaps.push(`${ctx.cacheStore.written.length} cache entr${ctx.cacheStore.written.length === 1 ? "y" : "ies"} written during the run (${ctx.cacheStore.removed.length} removed) in the launcher's listing; entries are keyed by values only the gate's code computes, so which row each belongs to is not shown, and a lookup leaves no trace in a listing`);
   // The test cannot see a lookup or what the gate said about it; it can see the work. A mismatch between the work owed and the work done is the
   // disagreement the line is about, and that the gate stopped and named the row is not shown by evidence the gate does not write.
   const owed = new Set([...ctx.expected.values()].filter((e) => e.expect === "run").map((e) => e.id));
@@ -978,7 +1004,7 @@ function snapshotOf(jobs, readTree) {
  * (NN12),
  * `digestOf(file)` (NN10). Returns { lines: [{ id, text, verdict, why }], pass, failed, notMeasured }.
  */
-export function judgeRun({ lines, launch = null, processes = null, witness = null, receipts = [], inventory = null, priorInventory = null, inventoryUncovered = [], prior = null, readiness = null, diskBlobs = null, git = null, live = null, successor = null, verifierPinned = false, digestOf = null } = {}) {
+export function judgeRun({ lines, launch = null, processes = null, witness = null, receipts = [], inventory = null, priorInventory = null, inventoryUncovered = [], prior = null, readiness = null, diskBlobs = null, cacheStore = null, snapshotStat = null, git = null, live = null, successor = null, verifierPinned = false, digestOf = null } = {}) {
   const unlinked = Array.isArray(lines) ? linkProblems(lines) : ["no lines were given: read them from the contract with readAcceptanceLines"];
   if (unlinked.length) throw Object.assign(new Error(`the contract and the acceptance test do not match: ${unlinked.join("; ")}`), { problems: unlinked });
   const g = git ?? { tree: null, blobOf: () => null, readTree: () => { throw new Error("no git reader was given (--repo)"); } };
@@ -1013,7 +1039,7 @@ export function judgeRun({ lines, launch = null, processes = null, witness = nul
     if (ok) { c.forEach((d) => claimed.add(d)); jobs.push(j); } else foreign.push(j);
   }
   const ctx = {
-    launch, witnessTo: witness?.to ?? null, commit: launch?.commit ?? null, tree: g.tree, blobOf: g.blobOf, diskBlobs,
+    launch, witnessTo: witness?.to ?? null, commit: launch?.commit ?? null, tree: g.tree, blobOf: g.blobOf, diskBlobs, cacheStore, snapshotStat,
     sendGaps: sends.filter((d) => !claimed.has(d)).map((d) => `a broker send (cargo ${d.args.slice(1, 4).join(" ")}) has no signed job that matches its command, folder and lifetime, so what it built is not shown`), rustStarts, sends, vjobs: jobs.filter((j) => j.verified), foreignGaps: foreign.map((j) => `broker job ${j.jobId ?? path.basename(j.file)} is not shown to be this run's: no send of the run's own process tree has its command and folder`), jobGaps: [...foreign.map((j) => `broker job ${j.jobId ?? path.basename(j.file)} is not shown to be this run's: no send of the run's own process tree has its command and folder`), ...jobs.filter((j) => j.verified && !j.cwd).map((j) => `broker job ${j.jobId ?? path.basename(j.file)} is signed with no workspace, so which workspace and crate it built is not shown`), ...jobs.filter((j) => !j.verified).map((j) => `broker job ${j.jobId ?? path.basename(j.file)} is not credited: its receipt ${verifierPinned ? `does not verify (${j.problems.join("; ") || "no reason given"})` : "cannot be verified, no broker key is pinned"}`)],
     inventory: inventory ? new Map(inventory) : null, inventoryUncovered, readiness, prior,
     baselineGap: !launch?.baseline?.commit ? "the launcher has no earlier launched run to take a baseline commit from, so what changed since cannot be shown" : launch.baseline.exit !== 0 ? "the previous launched run did not end cleanly, so its state is not a baseline" : typeof g.priorBlobOf !== "function" ? "git cannot show the baseline commit's tree" : null, exit: Number.isFinite(end) && Number.isInteger(launch?.exit) ? launch.exit : null,
@@ -1097,7 +1123,12 @@ export function readRunDir(dir, { repo = null, receiptsDir = null, verify = null
       prior = { failedRows: failed, unknownRows: unknown, runId: prevLaunch.runId };
     }
   }
-  return { launch, processes, witness: proc ? { kind: proc.kind, from: proc.from, to: proc.to, newest: proc.newest, continuous: proc.continuous === true, problems: proc.problems ?? [] } : null, receipts, inventory, priorInventory, inventoryUncovered, prior, git };
+  // The launcher's own listings: the gate's scan-result store before and after the run, and the stat record of the snapshots at the gate's exit. Nothing in them is a record the gate writes.
+  const listing = (p) => { const d = json(p); return d && d.files && typeof d.files === "object" ? d.files : null; };
+  const storeBefore = listing(path.join(dir, "before", "cache-store.json")); const storeAfter = listing(path.join(dir, "cache-store-after.json"));
+  const cacheStore = storeBefore && storeAfter ? { dir: json(path.join(dir, "cache-store-after.json"))?.dir ?? null, written: Object.keys(storeAfter).filter((k) => !storeBefore[k] || storeBefore[k][0] !== storeAfter[k][0] || storeBefore[k][1] !== storeAfter[k][1]).sort(), removed: Object.keys(storeBefore).filter((k) => !storeAfter[k]).sort() } : null;
+  const statDoc = json(path.join(dir, "snapshot-stat.json")); const snapshotStat = statDoc && statDoc.dirs && typeof statDoc.dirs === "object" && statDoc.known === true ? { root: statDoc.root ?? null, dirs: statDoc.dirs } : null;
+  return { cacheStore, snapshotStat, launch, processes, witness: proc ? { kind: proc.kind, from: proc.from, to: proc.to, newest: proc.newest, continuous: proc.continuous === true, problems: proc.problems ?? [] } : null, receipts, inventory, priorInventory, inventoryUncovered, prior, git };
 }
 
 // ---- command line -----------------------------------------------------------------------------------------------------------------------------------

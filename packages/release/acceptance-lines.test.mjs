@@ -95,6 +95,7 @@ function records() {
     prior: { failedRows: new Set() },
     readiness: new Map([["rustfmt", ms(1.0)]]),
     tree: { "ci/shards.json": { solo: [] }, "ws/Cargo.toml": '[workspace]\nmembers = ["a", "b"]\n' }, working: {},
+    snapshotStat: { root: "D:\\snaps", dirs: { k1: { "src/a.rs": [10, ms(0.5)], "src/b.rs": [10, ms(0.5)] } } }, cacheStore: { dir: "D:\\store", written: [], removed: [] },
     diskOverride: {}, live: { exists: () => false, alive: () => false, locksIn: () => [] }, successor: null, verifierPinned: true, digests: {},
   };
 }
@@ -107,7 +108,7 @@ const run = (r) => {
     lines: LINES, launch: r.launch, processes: r.procs, witness: r.witness, receipts: r.receipts, inventory: r.inventory, inventoryUncovered: r.inventoryUncovered ?? [], prior: r.prior, readiness: r.readiness, verdictTimes: r.verdictTimes,
     git: { tree: T, blobOf: (p) => r.blobs[p] ?? null, priorBlobOf: (p) => r.priorBlobs[p] ?? null, readWorking, readTree: (p) => { if (!(p in r.tree)) throw Object.assign(new Error(`ENOENT ${p}`), { code: "ENOENT" }); return structuredClone(r.tree[p]); } },
     live: r.live, successor: r.successor, verifierPinned: r.verifierPinned, digestOf: (f) => r.digests[f] ?? null,
-    diskBlobs: (abs, rel) => (Object.hasOwn(r.diskOverride, rel) ? r.diskOverride[rel] : r.blobs[rel] ?? null),
+    diskBlobs: (abs, rel) => (Object.hasOwn(r.diskOverride, rel) ? r.diskOverride[rel] : r.blobs[rel] ?? null), cacheStore: r.cacheStore, snapshotStat: r.snapshotStat,
   }));
 };
 const alter = (fn) => { const r = records(); fn(r); return r; };
@@ -444,7 +445,8 @@ test("batch 4: the successor must be an ordinary run of the same store; the base
   // Log continuity: a break in the record ids leaves the process record unproven.
   expect(alter((r) => { r.witness.continuous = false; }), "NN08", "not measured", /ran without a break/);
   // NN03: a program with no readiness of its own leaves a wait unshown; NN05 cannot pass without evidence of the lookup.
-  expect(alter((r) => { r.readiness = new Map(); }), "NN03", "not measured", /for every program that started/);
+  expect(alter((r) => { r.readiness = new Map(); }), "NN03", "not measured", /last discovery probe's exit/);
+  expect(alter((r) => { r.readiness = new Map(); r.procs = r.procs.filter((p) => p.exe !== GIT); }), "NN03", "not measured", /for every program that started/);
   // NN08: an unknown folder on one side leaves two otherwise identical calls possibly the same call, never distinct.
   expect(alter((r) => { const g = r.procs[1]; r.procs.push(proc(0.5, g.exe, [...g.args], { cwd: null })); }), "NN08", "fail", /2x git rev-parse/);
   // NN09: a sidecar declared only in a comment justifies nothing; an active declaration does.
@@ -509,7 +511,7 @@ test("5.12 the production reader sets aside the run folder's legacy gate artifac
   fs.readdirSync = (p, ...a) => { opened.push(`dir:${path.basename(String(p))}`); return realDir(p, ...a); };
   let withLegacy; try { withLegacy = readRunDir(dir); } finally { fs.readFileSync = real; fs.readdirSync = realDir; }
   for (const n of legacy) assert.ok(!opened.includes(n), `${n} was opened by the reader`);
-  assert.ok(opened.every((n) => ["launch.json", "processes.json", "receipts.txt"].includes(n)), `unexpected opens: ${opened.join(", ")}`);
+  assert.ok(opened.every((n) => ["launch.json", "processes.json", "receipts.txt", "cache-store.json", "cache-store-after.json", "snapshot-stat.json"].includes(n)), `unexpected opens: ${opened.join(", ")}`);
   assert.equal(withLegacy.processes.length, 1); assert.deepEqual(withLegacy.processes, without.processes); assert.deepEqual(withLegacy.launch, without.launch);
 });
 
@@ -679,7 +681,64 @@ test("6.13 a Class A program that failed in a folder outside the snapshot is not
 
 test("6.14 the reader names only the files of the launcher's record, the process record and the receipts list; a source scan fails if it ever names a file the gate writes", () => {
   const names = new Set([...readRunDir.toString().matchAll(/"([\w.-]+\.(?:json|txt|log|ndjson|jsonl))"/g)].map((m) => m[1]));
-  assert.deepEqual([...names].sort(), ["launch.json", "processes.json", "receipts.txt"], "the production reader's file names");
+  // the launcher's own record, the OS process record, the receipts list, and the launcher's own listings (the cache store before and after, the snapshot stat record)
+  assert.deepEqual([...names].sort(), ["cache-store-after.json", "cache-store.json", "launch.json", "processes.json", "receipts.txt", "snapshot-stat.json"], "the production reader's file names");
+});
+
+// ---- batch 7: the three buildable items of the EGM review of the open decisions (chat gate, 2026-11-21) ----------------------------------------------------
+test("7.1 the launcher lists the gate's cache store before and after the run and stats the snapshots at the gate's exit; the reader returns both from the launcher's own files", async () => {
+  const work = fs.mkdtempSync(path.join(os.tmpdir(), "rk-b7-")); const store = path.join(work, "store"); const snaps = path.join(work, "snaps"); fs.mkdirSync(store); fs.mkdirSync(snaps);
+  fs.writeFileSync(path.join(store, "old-entry.json"), "{}");
+  // a snapshot folder from earlier runs, updated in place, with times long before this run: it is still listed
+  fs.mkdirSync(path.join(snaps, "warm"), { recursive: true }); fs.writeFileSync(path.join(snaps, "warm", "w.rs"), "x"); const longAgo = new Date("2020-01-01T00:00:00Z"); fs.utimesSync(path.join(snaps, "warm", "w.rs"), longAgo, longAgo); fs.utimesSync(path.join(snaps, "warm"), longAgo, longAgo);
+  const fp = { gateCodeTree: "c".repeat(40), node: "v22", platform: "win32", tools: { rustfmt: "r", cargo: "c", "cargo-deny": "d", pnpm: "p", git: "g" } };
+  const child = () => { const c = new EventEmitter(); c.pid = 999991; c.kill = () => {}; setImmediate(() => { fs.mkdirSync(path.join(store, "sub"), { recursive: true }); fs.writeFileSync(path.join(store, "sub", "new-entry.json"), "{\"a\":1}"); fs.writeFileSync(path.join(store, "old-entry.json"), "{\"changed\":true}"); fs.mkdirSync(path.join(snaps, "k9", "src"), { recursive: true }); fs.writeFileSync(path.join(snaps, "k9", "src", "a.rs"), "fn a() {}"); c.emit("exit", 0, null); }); return c; };
+  const out = path.join(work, "run"); const code = await launch({ out, commit: C, receiptsDir: work, repo: work, gate: path.join(work, "g.mjs"), lanes: 2, gateArgs: ["--to", "compile"], snapshotsRoot: snaps, env: { ...process.env, RK_GATE_CACHE_DIR: store }, spawnImpl: child, exportProcesses: (from, to) => ({ kind: "windows-security", from, to, newest: to, continuous: true, events: [], problems: [] }), fingerprint: fp, platform: "win32", host: "h" });
+  assert.equal(code, 0);
+  const before = JSON.parse(fs.readFileSync(path.join(out, "before", "cache-store.json"), "utf8")); const after = JSON.parse(fs.readFileSync(path.join(out, "cache-store-after.json"), "utf8"));
+  assert.deepEqual(Object.keys(before.files), ["old-entry.json"]); assert.deepEqual(Object.keys(after.files).sort(), ["old-entry.json", "sub/new-entry.json"]);
+  const stat = JSON.parse(fs.readFileSync(path.join(out, "snapshot-stat.json"), "utf8")); assert.equal(stat.known, true); assert.deepEqual(Object.keys(stat.dirs.k9), ["src/a.rs"]); assert.deepEqual(Object.keys(stat.dirs.warm), ["w.rs"], "a warm snapshot folder is listed whatever its own times");
+  // a run folder reused after a crash does not offer the earlier run's listings
+  { const reuse = path.join(work, "reuse"); fs.mkdirSync(reuse, { recursive: true }); fs.writeFileSync(path.join(reuse, "snapshot-stat.json"), JSON.stringify({ root: "old", dirs: { stale: { "x.rs": [1, 1] } }, known: true })); fs.writeFileSync(path.join(reuse, "cache-store-after.json"), JSON.stringify({ dir: "old", files: { "stale.json": [1, 1] } }));
+    const c2 = await launch({ out: reuse, commit: C, receiptsDir: work, repo: work, gate: path.join(work, "g.mjs"), lanes: 2, gateArgs: ["--to", "compile"], snapshotsRoot: path.join(work, "no-such-root"), env: { ...process.env, RK_GATE_CACHE_DIR: store }, spawnImpl: () => { const c = new EventEmitter(); c.pid = 999993; c.kill = () => {}; setImmediate(() => c.emit("exit", 0, null)); return c; }, exportProcesses: (from, to) => ({ kind: "windows-security", from, to, newest: to, continuous: true, events: [], problems: [] }), fingerprint: fp, platform: "win32", host: "h" });
+    assert.equal(c2, 0); assert.equal(JSON.parse(fs.readFileSync(path.join(reuse, "snapshot-stat.json"), "utf8")).known, false, "the earlier run's stat record is gone"); assert.equal(Object.hasOwn(JSON.parse(fs.readFileSync(path.join(reuse, "cache-store-after.json"), "utf8")).files, "stale.json"), false); }
+  const read = readRunDir(out); assert.deepEqual(read.cacheStore.written, ["old-entry.json", "sub/new-entry.json"]); assert.deepEqual(read.cacheStore.removed, []); assert.deepEqual(Object.keys(read.snapshotStat.dirs.k9), ["src/a.rs"]);
+  // a store that cannot be listed is unknown, never empty
+  fs.writeFileSync(path.join(work, "afile"), "x"); const bad = await launch({ out: path.join(work, "run2"), commit: C, receiptsDir: work, repo: work, gate: path.join(work, "g.mjs"), lanes: 2, gateArgs: ["--to", "compile"], snapshotsRoot: snaps, env: { ...process.env, RK_GATE_CACHE_DIR: path.join(work, "afile") }, spawnImpl: () => { const c = new EventEmitter(); c.pid = 999992; c.kill = () => {}; setImmediate(() => c.emit("exit", 0, null)); return c; }, exportProcesses: (from, to) => ({ kind: "windows-security", from, to, newest: to, continuous: true, events: [], problems: [] }), fingerprint: fp, platform: "win32", host: "h" });
+  assert.equal(bad, 0); assert.equal(readRunDir(path.join(work, "run2")).cacheStore, null);
+});
+
+test("7.2 NN05 names the launcher's listing: entries written during the run are shown, and cannot be mapped to a row from outside the gate's code, so the line stays not measured", () => {
+  expect(alter((r) => { r.cacheStore = { dir: "D:\\store", written: ["ab/cd12.json", "ef/0099.json"], removed: [] }; }), "NN05", "not measured", /2 cache entr(y|ies) written during the run .* which row each belongs to is not shown/);
+  expect(alter((r) => { r.cacheStore = null; }), "NN05", "not measured", /launcher recorded no listing of the cache store/);
+});
+
+test("7.3 NN01 uses the launcher's stat record of the snapshot: an operand written after its program started fails, and no stat record is a gap", () => {
+  expect(alter(() => {}), "NN01", "pass");
+  expect(alter((r) => { r.snapshotStat.dirs.k1["src/a.rs"] = [10, ms(1.5)]; }), "NN01", "fail", /src\/a\.rs was written after rustfmt started/);
+  expect(alter((r) => { r.snapshotStat = null; }), "NN01", "not measured", /stat record of the snapshot/);
+  expect(alter((r) => { delete r.snapshotStat.dirs.k1["src/a.rs"]; }), "NN01", "not measured", /no stat record of src\/a\.rs/);
+  // a write within the file system's clock tick of the program's start, or at the same moment, is a tie; a malformed entry is no record
+  expect(alter((r) => { r.snapshotStat.dirs.k1["src/a.rs"] = [10, ms(0.99)]; }), "NN01", "not measured", /within 50 ms of rustfmt starting/);
+  expect(alter((r) => { r.snapshotStat.dirs.k1["src/a.rs"] = [10, ms(1.0)]; }), "NN01", "not measured", /within 50 ms of rustfmt starting/);
+  expect(alter((r) => { r.snapshotStat.dirs.k1["src/a.rs"] = [10, "soon"]; }), "NN01", "not measured", /no stat record of src\/a\.rs/);
+  expect(alter((r) => { r.snapshotStat.dirs.k1["src/a.rs"] = [10]; }), "NN01", "not measured", /no stat record of src\/a\.rs/);
+  expect(alter((r) => { r.snapshotStat.dirs.k1["src/a.rs"] = [10, ms(0.5)]; r.snapshotStat.dirs = Object.create({ k1: { "src/a.rs": [10, ms(0.5)] } }); }), "NN01", "not measured", /stat record/);
+});
+
+test("7.4 NN03 readiness is the last discovery probe's exit, taken from the process record; the gate's own work between it and the first Class A start is a gap, not a pass", () => {
+  const derived = (r) => { r.readiness = new Map(); };
+  expect(alter(derived), "NN03", "not measured", /between the last discovery probe's exit .* and the first Class A start \(950 ms\)/);
+  // a first Class A start at the very moment the last probe exited is a tie, not a measurement: a derived readiness never passes
+  expect(alter((r) => { derived(r); const f = byExe(r, RUSTFMT); f.start = ms(0.05); f.end = ms(0.15); }), "NN03", "not measured", /a tie, not a measurement/);
+  // a program that waited with a lane free after the first start still fails, with the probe exit as its readiness (the first start is well after it, so this is not the first-start fallback)
+  expect(alter((r) => { derived(r); r.launch.lanes = 4; const f = byExe(r, RUSTFMT); f.start = ms(1.0); f.end = ms(3); r.procs.push(proc(3.5, "C:\\tools\\shellcheck.exe", ["x.sh"], { end: 5, cwd: SNAP })); }), "NN03", "fail", /shellcheck was ready at .* \(the last discovery probe's exit\) and started 3450 ms later/);
+  // no discovery probe in the record: nothing is derived and the old statement stands
+  expect(alter((r) => { derived(r); r.procs = r.procs.filter((p) => p.exe !== GIT); }), "NN03", "not measured", /when each Class A row became ready is not shown/);
+  // a probe with no recorded exit, or with its command line unknown, is no readiness
+  expect(alter((r) => { derived(r); const g = r.procs.find((p) => p.exe === GIT); g.end = null; g.exit = null; }), "NN03", "not measured", /no recorded exit|when each Class A row became ready is not shown/);
+  // only commands that discover (git rev-parse, cargo metadata, rustc -vV) count: a git commit-tree is not a probe
+  expect(alter((r) => { derived(r); r.procs.find((p) => p.exe === GIT).args = ["commit-tree", "x"]; }), "NN03", "not measured", /when each Class A row became ready is not shown/);
 });
 
 test("6.15 the launcher reads the snapshot root once at the gate's exit, and records the gate by an absolute path (Astra SO-03 SO-14, Sol IP-04, Fable UO-11)", async () => {
