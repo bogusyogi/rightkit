@@ -11152,6 +11152,7 @@ dependencies = [
  "rightkit-memory-store",
  "rightkit-onnx",
  "rightkit-repo-graph",
+ "rightkit-roots",
  "rightkit-sync",
  "rightkit-time",
  "ring",
@@ -11821,7 +11822,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-fs"
-version = "0.4.19"
+version = "0.5.0"
 dependencies = [
  "blake3",
  "libc 0.2.191",
@@ -12230,6 +12231,7 @@ dependencies = [
  "rightkit-logs",
  "rightkit-models",
  "rightkit-onnx",
+ "rightkit-roots",
  "rightkit-search",
  "rightkit-spend",
  "rightkit-tts",
@@ -12903,7 +12905,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-roots"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "getrandom 0.4.3",
  "rightkit-fs",
