@@ -1161,9 +1161,9 @@
       "registry": "swift",
       "name": "RightKitSwift",
       "version": "0.9.3",
-      "sha256": "3abc35b6e25456d44e0f748310f46a24ecdf2c5a3f6f9e9232325ffaf2dfb840",
+      "sha256": "734dbb1051f5f0a4350d528ca043162e10bdc11d511a87329f23dcc5e7360096",
       "reviewer": "Independent Oracle source reviews (Apple mobile and macOS)",
-      "reviewRef": "agent-review:/root/hr_swift_093_apple_review+hr_swift_093_macos_review+hr_swift_publish_guard_review/bc357fd7861a6b671def1fcde2eae40574fe74a3/3abc35b6e25456d44e0f748310f46a24ecdf2c5a3f6f9e9232325ffaf2dfb840"
+      "reviewRef": "agent-review:/root/hr_swift_093_apple_review+hr_swift_093_macos_review+hr_swift_publish_guard_review/aa9c6d7a7d56dde60db04bad673cbc503db66bf1/734dbb1051f5f0a4350d528ca043162e10bdc11d511a87329f23dcc5e7360096"
     }
   ]
 }

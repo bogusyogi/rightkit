@@ -285,14 +285,13 @@ host.
 Pins are always exact (`exact:`), never `from:` ranges: a consumer upgrade is a deliberate
 edit of the pin, recorded in `rightkit-versions.json`.
 
-The version in the examples below is illustrative. The version apps may pin is the `swift` section of
-`packages/release/rightkit-versions.json`, or `stagedSwift` until the tag is recorded there. `VERSION` is the version
-under development; it is published when `right-release publish swift` pushes its tag. As of 2026-10-20 the latest tag is `0.8.1`; `0.9.0` is staged and not tagged.
+The examples use the version in `VERSION`. Use this pin after its tag exists. Published Swift pins are
+recorded in the `swift` section of `packages/release/rightkit-versions.json`.
 
 ```swift
 // Package.swift
 dependencies: [
-    .package(url: "https://github.com/bogusyogi/rightkit", exact: "0.9.0"),
+    .package(url: "https://github.com/bogusyogi/rightkit", exact: "0.9.3"),
 ],
 targets: [
     .target(name: "YourApp", dependencies: [
@@ -307,7 +306,7 @@ In an XcodeGen `project.yml`:
 packages:
   RightKitSwift:
     url: https://github.com/bogusyogi/rightkit
-    exactVersion: "0.7.0"
+    exactVersion: "0.9.3"
 ```
 
 The URL is the public repository `bogusyogi/rightkit`; its root `Package.swift` exposes the same products as
