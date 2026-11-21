@@ -1,6 +1,8 @@
 import Foundation
 @preconcurrency import AVFoundation
+#if os(iOS)
 import AudioToolbox
+#endif
 
 /// Raw input-tap health, measured before conversion: it answers "is Core Audio delivering anything",
 /// never "did the user speak".
