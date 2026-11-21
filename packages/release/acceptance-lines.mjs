@@ -570,6 +570,11 @@ function nn04() {
   return result(NOT_MEASURED, "the line is about the order of the gate's own forecast and first lookup, which evidence the gate does not write cannot show; it stays not measured until Adrian rewords it");
 }
 
+/** The packages a signed job builds that no owed row (an id of `owed`) needs, in the job's workspace, stage and target. */
+function extraCrates(ctx, j, owed) {
+  return cratesOf(j).filter((c) => ![...owed].some((id) => covers({ ...j, args: ["-p", c, ...targetsOf(j).flatMap((t) => ["--target", t])] }, id, ctx.snap.path, [...ctx.expected.keys()])));
+}
+
 function nn05(ctx) {
   const fails = []; const gaps = [...ctx.sendGaps, ...ctx.processGaps, ...ctx.jobGaps, ...baselineGaps(ctx)];
   // What the file system shows of the gate's scan-result store, listed by the launcher before and after: entries are named by keys only the gate's code computes, so the
@@ -597,7 +602,7 @@ function nn05(ctx) {
     if (extra.length) fails.push(`${e.id}: rustfmt was handed ${extra.slice(0, 3).join(", ")}, which no owed change needs`);
   }
   for (const j of jobList.filter((x) => x.sub && !strays.includes(x))) {
-    const extra = cratesOf(j).filter((c) => ![...owed].some((id) => covers({ ...j, args: ["-p", c, ...targetsOf(j).flatMap((t) => ["--target", t])] }, id, ctx.snap.path, [...ctx.expected.keys()])));
+    const extra = extraCrates(ctx, j, owed);
     if (extra.length) fails.push(`broker job ${j.jobId} also builds ${extra.join(", ")}, which no owed row needs`);
   }
   // A mismatch is a fail above; that the gate stopped and named the row and its cause is not shown by evidence the gate does not write, and matters only then.
@@ -637,7 +642,7 @@ const rustfmtStarts = (ctx) => ctx.starts.filter((d) => programName(d.program) =
 const rustfmtFiles = (d) => { const out = []; for (let i = 0; i < d.args.length; i += 1) { const a = String(d.args[i]); if (["--edition", "--config", "--config-path", "--emit", "--color"].includes(a)) { i += 1; continue; } if (!a.startsWith("-")) out.push(a.replaceAll("\\", "/")); } return out; };
 function nn07(ctx) {
   const fails = []; const gaps = [...ctx.sendGaps, ...ctx.processGaps, ...ctx.jobGaps, ...baselineGaps(ctx)];
-  const run = [...ctx.expected.values()].filter((e) => e.expect === "run");
+  const run = [...ctx.expected.values()].filter((e) => e.expect === "run"); const seenJobs = new Set();
   for (const e of run) {
     if (e.isNew && !toolOf(e.id) && !isBrokerRow(e.id)) { gaps.push(`${e.id} is a new row with no program or signed job that could show it ran`); continue; }
     if (toolOf(e.id) === "rustfmt") {
@@ -652,6 +657,8 @@ function nn07(ctx) {
     const w = workOf(ctx, e.id);
     if (w.ambiguous) { gaps.push(`${e.id}: its tool serves other rows too and the start(s) or broker job(s) seen cannot be told apart by row, so that this row ran is not shown`); continue; }
     if (isBrokerRow(e.id) ? !w.jobs.length : !w.did) (ctx.processGaps.length || ctx.jobGaps.length ? gaps : fails).push(`${e.id} changed (${e.changed.slice(0, 2).join(", ")}) and ${isBrokerRow(e.id) ? "no signed broker job built it" : "did no work"}`);
+    // The job that built a changed row builds only what is owed in that workspace and stage: an extra package is work no change needs.
+    if (isBrokerRow(e.id)) for (const j of w.jobs) { if (seenJobs.has(j.jobId)) continue; seenJobs.add(j.jobId); const extra = extraCrates(ctx, j, run.map((o) => o.id)); if (extra.length) fails.push(`broker job ${j.jobId} also builds ${extra.join(", ")}, which no owed row needs`); }
   }
   return decide(fails, gaps, `${run.length} changed row(s) ran again, each with only the work its change needs`);
 }
@@ -670,11 +677,17 @@ function nn08(ctx) {
   });
   const groups = new Map();
   for (const c of calls) { const k = JSON.stringify([c.name, c.args]); (groups.get(k) ?? groups.set(k, []).get(k)).push(c); }
-  // Two calls are distinct only when their programs differ, or both folders are known and differ. An unknown folder on either side leaves them possibly the
-  // same call, which is reported as a repeat (never as distinct).
-  const same = (a, b) => sameProgram(a, b) && !(a.cwdKnown && b.cwdKnown && a.cwd !== b.cwd);
-  const repeats = [];
-  for (const g of groups.values()) { const dup = g.filter((c, i) => g.some((o, j) => j !== i && same(o, c))); if (dup.length > 1) repeats.push(dup); }
+  // A repeat is proven only when program, arguments and a known, equal folder all match. An unknown folder on either side leaves two such calls possibly the
+  // same call, which is not shown to be a repeat (and not shown to be distinct): it is a gap, never a fail.
+  const known = (a, b) => a.cwdKnown && b.cwdKnown;
+  const proven = (a, b) => sameProgram(a, b) && known(a, b) && a.cwd === b.cwd;
+  const possible = (a, b) => sameProgram(a, b) && !known(a, b);
+  const repeats = []; let possibly = 0;
+  for (const g of groups.values()) {
+    const dup = g.filter((c, i) => g.some((o, j) => j !== i && proven(o, c))); if (dup.length > 1) repeats.push(dup);
+    if (g.some((c, i) => g.some((o, j) => j !== i && possible(o, c)))) possibly += 1;
+  }
+  if (possibly) gaps.push(`${possibly} program and argument list(s) started more than once with a folder the record does not keep: possibly the same call, so a repeat is not shown`);
   if (ctx.procs.some((p) => p.args.some((a) => /^\.\.\. \d+ args$/.test(String(a))))) unclear += 1;
   // A wrapper with no child shows only what it was written as, not that the shell started anything: it is never counted as a start and never makes a repeat.
   unclear += wrapped.length;
@@ -694,9 +707,13 @@ function nn10(ctx) {
   const unknownVerb = cargoStarts.filter((d) => { const v = cargoVerb(d.args); return v !== null && !TESTLIKE.has(v) && !COMPILING.has(v) && !NOT_TEST_VERBS.has(v); });
   if (unknownVerb.length) gaps.push(`cargo ${cargoVerb(unknownVerb[0].args)} ran outside the broker and is not a verb known to build no tests (it may be an alias for one), so that the gate built no tests itself is not shown`);
   if (ctx.jobs.some((j) => !j.argv)) gaps.push("a broker job's signed receipt names no command, so whether it was a test build is not shown");
-  const tests = ctx.jobs.filter((j) => j.sub === "test");
+  // A signed job whose verb is not known to build no tests is not shown to have built none either (an alias or plugin).
+  const unknownJob = ctx.jobs.filter((j) => j.sub && !TESTLIKE.has(j.sub) && !COMPILING.has(j.sub) && !NOT_TEST_VERBS.has(j.sub));
+  if (unknownJob.length) gaps.push(`a signed job runs cargo ${unknownJob[0].sub}, which is not a verb known to build no tests (it may be an alias for one), so that the broker only compiled is not shown`);
+  // Every verb that builds test programs (test, bench, nextest, miri, ...) is a test build, signed or requested.
+  const tests = ctx.jobs.filter((j) => TESTLIKE.has(j.sub));
   // Every test request the process record saw go to the broker needs its own signed job.
-  const requested = ctx.sends.filter((d) => canonVerb(d.args[1]) === "test");
+  const requested = ctx.sends.filter((d) => TESTLIKE.has(canonVerb(d.args[1])));
   if (requested.length > tests.length) gaps.push(`${requested.length} test request(s) went to the broker and ${tests.length} signed test job(s) exist: a request with no receipt is not shown to be compile only`);
   if (!tests.length) return decide(fails, gaps, "the broker built no test and no cargo test ran outside it");
   let programs = 0; const claims = new Map();
@@ -782,14 +799,17 @@ function nn12(ctx) {
     if (!Array.isArray(listing)) return result(NOT_MEASURED, "the operating system's process listing could not be read after the run, so that no program of the run is left is not shown");
     if (listing.length === 0) return result(NOT_MEASURED, "the operating system's process listing is empty, so what is still alive is not shown");
     const mine = [...(ctx.root ? [ctx.root] : []), ...ctx.procs];
-    const unlisted = mine.filter((p) => live.alive(p.pid, p.start) && !listing.some((q) => q.pid === p.pid));
+    const unlisted = mine.filter((p) => live.alive(p.pid, p.start) === true && !listing.some((q) => q.pid === p.pid));
     if (unlisted.length) return result(NOT_MEASURED, `the process listing omits ${programName(unlisted[0].exe)} ${unlisted[0].pid}, which the liveness probe finds alive, so the listing is not trusted`);
   }
   // A program of the run that was still going when the gate exited outlived it, whether or not it has since ended.
   if (ctx.root && ctx.root.end !== null) { const late = ctx.procs.filter((p) => p.end === null || p.end > ctx.root.end); if (late.length) return result(FAIL, `${late.length} program(s) of the run outlived the gate's exit (first: ${programName(late[0].exe)} ${late[0].pid})`); }
   const rootProc = ctx.root ? [ctx.root] : [];
-  const alive = [...rootProc, ...ctx.procs].filter((p) => live.alive(p.pid, p.start));
+  const alive = [...rootProc, ...ctx.procs].filter((p) => live.alive(p.pid, p.start) === true);
   if (alive.length) return result(FAIL, `${alive.length} program(s) the run started are still alive: ${alive.slice(0, 5).map((p) => `${programName(p.exe)} ${p.pid}`).join(", ")}`);
+  // A process found at a recorded id whose start time cannot be read may be the run's program or another that took the id: not shown either way.
+  const unknownLive = [...rootProc, ...ctx.procs].filter((p) => live.alive(p.pid, p.start) === null);
+  if (unknownLive.length) return result(NOT_MEASURED, `${unknownLive.length} process(es) are found at an id the run used (first: ${programName(unknownLive[0].exe)} ${unknownLive[0].pid}) and their start time cannot be read, so whether they are the run's programs is not shown`);
   if (ctx.processGaps.length) return result(NOT_MEASURED, `the run's programs cannot all be shown gone: ${ctx.processGaps[0]}`);
   if (!Number.isInteger(ctx.exit) || ctx.exit !== 0) {
     // A run that did not end normally passes only on the next ordinary run: its launcher took this run's lock over and named it, and it ended 0.
@@ -979,13 +999,26 @@ function nn09(ctx) {
     if (c !== first && late > 250 && !compiles.some((o) => o !== c && o.ended <= c.submitted)) gaps.push(`broker job ${c.jobId} was submitted ${Math.round(late)} ms after the first while it ran; whether it waited for capacity or was held back is not shown`);
     const behind = compiles.find((o) => o !== c && Number.isFinite(c.started) && c.started >= o.ended && o.started < c.started);
     if (behind && c.queueMs !== null && c.queueMs <= 0) gaps.push(`broker job ${c.jobId} started only after job ${behind.jobId} ended with no queue wait signed, so whether the gate held it back or the broker had no capacity is not shown`);
-    const before = compiles.find((o) => o !== c && o.ended <= c.submitted); if (before) fails.push(`broker job ${c.jobId} (cargo ${c.sub} ${cratesOf(c).join(" ")}) was submitted only after job ${before.jobId} ended, so independent groups did not run together`); }
+    // A job submitted only after another ended may have waited for a free lane or for its own readiness: neither is recorded, so that independent groups could have run together is not shown.
+    const before = compiles.find((o) => o !== c && o.ended <= c.submitted); if (before) gaps.push(`broker job ${c.jobId} (cargo ${c.sub} ${cratesOf(c).join(" ")}) was submitted only after job ${before.jobId} ended, and no record shows it was ready or that a lane was free before then, so that independent groups could have run together is not shown`); }
   return decide(fails, gaps, `${compiles.length} compile command(s) in ${groups.size} group(s), one per workspace and stage${justified.length ? ` (split: ${justified.join("; ")})` : ""}, all submitted together`);
 }
 
 
 const JUDGES = Object.freeze({ NN01: nn01, NN02: nn02, NN03: nn03, NN04: nn04, NN05: nn05, NN06: nn06, NN07: nn07, NN08: nn08, NN09: nn09, NN10: nn10, NN11: nn11, NN12: nn12 });
 export const CHECK_IDS = Object.freeze(Object.keys(JUDGES));
+
+/**
+ * Whether a recorded process is still running: the process at its id must have started when the record says it did (within `tolMs`). `readStart(pid)` gives the start
+ * time of the process now at that id in ms, `undefined` when none exists and `null` when it exists and its start time cannot be read. Returns true (the same process),
+ * false (no process, or another that took the id), or null (not shown: an unreadable start time, or a record with no start).
+ */
+export function liveCheck({ pid, start, readStart, tolMs = 2000 }) {
+  const s = readStart(pid);
+  if (s === undefined) return false;
+  if (s === null || !Number.isFinite(s) || !Number.isFinite(start)) return null;
+  return Math.abs(s - start) <= tolMs;
+}
 
 /**
  * The snapshot folder, from the broker's signed job folders and the selected tree alone: the folder each job ran in, less the part that is a
@@ -1150,7 +1183,22 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   // The broker's own verifier (rustright verify-receipt) with the key pinned by the caller.
   const verify = key && keyId && host ? (body) => { const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rk-verify-")); const file = path.join(dir, "receipt.json"); fs.writeFileSync(file, body); try { execFileSync(client, ["verify-receipt", "--receipt", file, "--public-key", key, "--key-id", keyId, "--host", host], { stdio: ["ignore", "pipe", "pipe"], windowsHide: true }); return { ok: true, problems: [] }; } catch (e) { return { ok: false, problems: [String(e.stderr ?? e.message).trim().split(/\r?\n/).pop()] }; } } : null;
   const evidence = readRunDir(runDir, { repo: opt("--repo"), receiptsDir: opt("--receipts"), verify, inventoryFile: opt("--inventory") });
-  const alive = (pid) => { try { process.kill(pid, 0); return true; } catch (e) { return e.code === "EPERM"; } };
+  // The start time of the process now at an id (ms), undefined when there is none, null when it cannot be read: a recorded id is the run's program only if it started when the record says.
+  const startCache = new Map();
+  const readStart = (pid) => {
+    if (startCache.has(pid)) return startCache.get(pid);
+    let out;
+    try { process.kill(pid, 0); } catch (e) { if (e.code !== "EPERM") out = undefined; }
+    if (out === undefined && !(startCache.has(pid))) { startCache.set(pid, undefined); return undefined; }
+    try {
+      const text = process.platform === "win32"
+        ? execFileSync("powershell", ["-NoProfile", "-NonInteractive", "-Command", `$p = Get-CimInstance Win32_Process -Filter 'ProcessId=${Number(pid)}'; if ($p) { $p.CreationDate.ToUniversalTime().ToString('o') }`], { encoding: "utf8", windowsHide: true }).trim()
+        : execFileSync("ps", ["-o", "lstart=", "-p", String(Number(pid))], { encoding: "utf8" }).trim();
+      const t = Date.parse(text); out = text === "" ? undefined : Number.isFinite(t) ? t : null;
+    } catch { out = null; }
+    startCache.set(pid, out); return out;
+  };
+  const alive = (pid, start) => liveCheck({ pid, start, readStart });
   const locksIn = (d) => { try { return fs.readdirSync(d).filter((n) => n.endsWith(".lock")).map((n) => path.join(d, n)); } catch { return null; } };
   // The operating system's own listing of running programs (tasklist or ps), read when --live is judged.
   const inventory = () => {

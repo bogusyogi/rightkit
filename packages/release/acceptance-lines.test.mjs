@@ -9,7 +9,8 @@ import path from "node:path";
 import { CHECK_IDS, CONTRACT_FILE, judgeRun, linkProblems, parseAcceptanceLines, parseCommandLine, processesFromEslogger, processesFromWindowsEvents, readAcceptanceLines, readRunDir } from "./acceptance-lines.mjs";
 import { execFileSync } from "node:child_process";
 import { EventEmitter } from "node:events";
-import { exportWindowsProcesses, kindOf, launch, sameFingerprint, takeLaunchLock } from "./acceptance-launch.mjs";
+import { exportWindowsProcesses, fingerprintOf, kindOf, launch, sameFingerprint, takeLaunchLock } from "./acceptance-launch.mjs";
+import * as LINESMOD from "./acceptance-lines.mjs";
 
 // The lines under test are the contract's own: docs/GATE-CONTRACT.md [GC-A27], read here exactly as the command line reads them.
 const CONTRACT = fs.readFileSync(CONTRACT_FILE, "utf8");
@@ -249,7 +250,7 @@ const EXTRA_TWINS = [
   ["GCX-02-3 twin", "NN02", "pass", (r) => { byExe(r, RUSTRIGHT).start = ms(1.6); }], // the same client a half second after Class A ended
   ["GCX-06-3 twin", "NN06", "pass", (r) => { r.prior = { failedRows: new Set(["clippy:ws:a"]) }; r.launch.exit = 1; }], // the same red run with no other row failing: the reused failure kept it red
   ["GCX-07-4 twin", "NN07", "pass", () => {}], // the signed receipt names its command and verifies
-  ["GCX-09-6 twin", "NN09", "fail", (r) => { r.tree["other/Cargo.toml"] = '[workspace]\nmembers = ["x"]\n'; gap9(r, 8.0); }], // the same second compile submitted at the very moment the first ended: after it, so it had capacity
+  ["GCX-09-6 twin", "NN09", "pass", (r) => { r.tree["other/Cargo.toml"] = '[workspace]\nmembers = ["x"]\n'; const argv = ["clippy", "--profile", "release", "-p", "x", "--locked"]; r.procs.push(proc(6.0, RUSTRIGHT, ["cargo", ...argv], { end: 9.999, cwd: `${SNAP}\\other` })); r.receipts.push(job("j2", argv, { cwd: `${SNAP}\\other`, start: 8.0, end: 9.999, waits: { admission: 0, queue: 2000, bind: 0 } })); }], // the same second compile, with the broker's own signed queue wait of 2 s: submitted with the first, held by the broker
   ["GCX-07-5 twin", "NN07", "pass", (r) => { same(r, ["clippy", "--profile", "release", "-p", "b", "--locked"]); }], // the observed compile selected crate b
   ["GCX-07-6 twin", "NN07", "pass", (r) => { r.tree["other/Cargo.toml"] = '[workspace]\nmembers = ["b"]\n'; same(r, ["clippy", "--profile", "release", "-p", "b", "--locked"], `${SNAP}\\ws`); }], // the same compile in the owed workspace
   ["gate 12 twin", "NN07", "pass", (r) => { const id = "clippy:ws:b@x86_64-unknown-linux-gnu"; r.inventory.delete("clippy:ws:b"); r.inventory.set(id, { stage: "B", files: ["ws/b/src/lib.rs"] }); same(r, ["clippy", "--profile", "release", "--target", "x86_64-unknown-linux-gnu", "-p", "b", "--locked"]); }], // the compile for the row's own target
@@ -455,7 +456,7 @@ test("batch 4: the successor must be an ordinary run of the same store; the base
   expect(alter((r) => { r.readiness = new Map(); }), "NN03", "not measured", /last discovery probe's exit/);
   expect(alter((r) => { r.readiness = new Map(); r.procs = r.procs.filter((p) => p.exe !== GIT); }), "NN03", "not measured", /for every program that started/);
   // NN08: an unknown folder on one side leaves two otherwise identical calls possibly the same call, never distinct.
-  expect(alter((r) => { const g = r.procs[1]; r.procs.push(proc(0.5, g.exe, [...g.args], { cwd: null })); }), "NN08", "fail", /2x git rev-parse/);
+  expect(alter((r) => { const g = r.procs[1]; r.procs.push(proc(0.5, g.exe, [...g.args], { cwd: null })); }), "NN08", "not measured", /possibly the same call/); // one folder unknown: not a proven repeat (batch 9, table 3)
   // NN09: a sidecar declared only in a comment justifies nothing; an active declaration does.
   const commented = (r) => { split(r, "-p b", "-p c"); policy(r, []); r.tree["ws/c/Cargo.toml"] = '[package]\nname = "c"\n'; r.tree["ws/c/tauri.conf.json5"] = '{ bundle: { /* externalBin: ["binaries/c"], */ } }'; };
   expect(alter(commented), "NN09", "fail", /sent as separate commands/);
@@ -616,8 +617,8 @@ test("6.7 F-10: two compiles are 'together' only by overlapping signed intervals
   expect(alter(timed(0, 8.05, 9, 0)), "NN09", "not measured", /no queue wait signed/);
   // the same with a queue wait the broker signed: the broker's own, not the gate's
   expect(alter(timed(0, 8.05, 9, 1900)), "NN09", "pass");
-  // submitted only after the first ended: the groups did not run together
-  expect(alter(timed(0, 8.1, 9, 0)), "NN09", "fail", /submitted only after job j1 ended/);
+  // submitted only after the first ended: no record shows it was ready or that a lane was free, so that the groups could have run together is not shown (batch 9, table 6)
+  expect(alter(timed(0, 8.1, 9, 0)), "NN09", "not measured", /submitted only after job j1 ended/);
 });
 
 test("6.8 a send or job that fits more than one counterpart is credited to none, and an unmatched send or job is carried into every line that reads receipts (Astra SO-01, Sol IP-01, Fable UO-4, Sonnet F9, Opus R-18)", () => {
@@ -768,6 +769,63 @@ test("8.2 NN01: a rustc version probe is not a compile outside the broker (it is
   for (const args of [["--version"], ["-V"], ["--print", "sysroot"], ["--print=cfg"]]) { const w = run(alter((r) => { r.procs.push(proc(0.02, "C:\\rust\\bin\\rustc.exe", args, { cwd: SNAP })); })); assert.notEqual(verdictOf(w, "NN01"), "fail", `${args.join(" ")}: ${whyOf(w, "NN01")}`); }
   expect(alter((r) => { r.procs.push(proc(0.02, "C:\\rust\\bin\\rustc.exe", ["src/lib.rs", "--crate-type", "lib"], { cwd: SNAP })); }), "NN01", "fail", /compile\(s\) ran outside the broker \(first: rustc src\/lib\.rs/);
   expect(alter((r) => { r.procs.push(proc(0.02, "C:\\rust\\bin\\rustc.exe", ["-vV", "src/lib.rs"], { cwd: SNAP })); }), "NN01", "fail", /outside the broker/);
+});
+
+// ---- batch 9: one test per row of D:\scratch\loop-review\twelve-line-step5\decision-tables.md ------------------------------------------------------
+test("9.1 NN10 (table 1): every test-producing verb is a test build; a request for one needs its own signed job; a verb not known to build no tests is not shown to build none", () => {
+  const verbJob = (verb, tail, extra = {}, withJob = true) => (r) => { r.procs = r.procs.filter((p) => p.exe !== RUSTRIGHT); r.procs.push(proc(6, RUSTRIGHT, ["cargo", verb, ...tail], { end: 8, cwd: `${SNAP}\\ws` })); r.receipts = withJob ? [job("t1", [verb, ...tail], { extra })] : []; };
+  for (const [verb, tail] of [["test", ["-p", "b", "--no-run"]], ["bench", ["-p", "b", "--no-run"]], ["nextest", ["run", "-p", "b"]], ["miri", ["test", "-p", "b"]], ["llvm-cov", ["-p", "b"]], ["tarpaulin", ["-p", "b"]]]) {
+    expect(alter(verbJob(verb, tail)), "NN10", "not measured", /carries no manifest of test programs/); // 1b
+    expect(alter(verbJob(verb, tail, { testExecutables: [] })), "NN10", "not measured", /lists no test program/); // 1c
+    expect(alter(verbJob(verb, tail, {}, false)), "NN10", "not measured", /test request\(s\) went to the broker and 0 signed test job/); // 1d
+  }
+  expect(alter((r) => { verbJob("bench", ["-p", "b", "--no-run"], { testExecutables: [{ path: EXE, sha256: "h1" }] })(r); r.procs.push(proc(8.5, EXE, [], { end: 9, cwd: SNAP })); r.digests[EXE] = { sha256: "h1", mtimeMs: ms(8.2) }; }), "NN10", "not measured", /image of b-1\.exe at the moment it ran is not shown/); // 1a: a complete bench build still has no image witness
+  expect(alter(() => {}), "NN10", "pass", /broker built no test/); // 1e: a clippy job is no test build
+  expect(alter(verbJob("frobnicate", ["-p", "b"])), "NN10", "not measured", /signed job.*frobnicate.*not a verb known to build no tests/); // 1f
+  expect(alter((r) => { r.procs.push(proc(7, "C:\\cargo\\bin\\cargo.exe", ["bench", "-p", "b"], { cwd: SNAP })); }), "NN10", "fail", /cargo test start\(s\) ran outside the broker/); // 1g
+});
+
+test("9.2 NN07 (table 2): a changed row's signed job that also builds a package no owed row needs fails", () => {
+  const withZ = (r) => same(r, ["clippy", "--profile", "release", "-p", "b", "-p", "z", "--locked"]);
+  expect(alter(() => {}), "NN07", "pass"); // 2a
+  expect(alter(withZ), "NN07", "fail", /broker job j1 also builds z, which no owed row needs/); // 2b
+  expect(alter((r) => { withZ(r); r.inventory.set("clippy:ws:z", { stage: "B", files: ["ws/z/src/lib.rs"] }); r.blobs["ws/z/src/lib.rs"] = "z1"; r.priorBlobs["ws/z/src/lib.rs"] = "z0"; r.tree["ws/Cargo.toml"] = '[workspace]\nmembers = ["a", "b", "z"]\n'; }), "NN07", "pass"); // 2e: z is owed too
+});
+
+test("9.3 NN08 (table 3): the same program and arguments twice is a proven repeat only where both folders are known and equal", () => {
+  const GITU = "/usr/bin/git"; const twice = (a, b) => (r) => { r.procs.push(proc(7, GITU, ["status"], a), proc(8, GITU, ["status"], b)); };
+  expect(alter(twice({ cwd: "/src/a" }, { cwd: "/src/a" })), "NN08", "fail", /2x git status/); // 3a
+  expect(alter(twice({ cwd: "/src/a" }, { cwd: "/src/b" })), "NN08", "pass"); // 3b
+  for (const [a, b] of [[null, null], ["/src/a", null], [null, "/src/a"]]) expect(alter(twice({ cwd: a }, { cwd: b })), "NN08", "not measured", /possibly the same call/); // 3c
+  expect(alter((r) => { r.procs.push(proc(7, GITU, ["status"], { cwd: null }), proc(8, GITU, ["log"], { cwd: null })); }), "NN08", "pass"); // 3d
+});
+
+test("9.4 NN12 (table 4): a recorded process is alive only when the process at its id started when it did; an unreadable start time is not shown", () => {
+  const t0 = ms(0);
+  assert.equal(LINESMOD.liveCheck({ pid: 5, start: t0, readStart: () => undefined }), false); // 4a no process
+  assert.equal(LINESMOD.liveCheck({ pid: 5, start: t0, readStart: () => t0 + 500 }), true); // 4b same start
+  assert.equal(LINESMOD.liveCheck({ pid: 5, start: t0, readStart: () => t0 + 60_000 }), false); // 4c a reused id
+  assert.equal(LINESMOD.liveCheck({ pid: 5, start: t0, readStart: () => null }), null); // 4d unreadable
+  assert.equal(LINESMOD.liveCheck({ pid: 5, start: Number.NaN, readStart: () => t0 }), null); // no recorded start
+  // the judge: unknown liveness is never a pass, with the run ending 0 or not
+  for (const exit of [0, 137]) expect(alter((r) => { r.launch.exit = exit; r.live = { ...r.live, alive: (pid) => (pid === GATE ? null : false), inventory: () => [{ pid: GATE }] }; }), "NN12", "not measured", /start time/);
+});
+
+test("9.5 NN06 (table 5): the toolchain version is in the launcher's fingerprint, so a toolchain change is not a stable baseline", () => {
+  const run = (rustc) => (cmd, args) => { if (cmd === "rustc") { if (rustc === null) throw new Error("no rustc"); return `${rustc}\nbinary: rustc`; } return cmd === "git" && args.includes("rev-parse") ? "t".repeat(40) : `${cmd} 1.0`; };
+  const a = fingerprintOf({ repo: "r", commit: C, run: run("rustc 1.80.0 (abc 2026-01-01)"), platform: "win32" });
+  assert.equal(a.tools.rustc, "rustc 1.80.0 (abc 2026-01-01)"); // 5a
+  assert.equal(sameFingerprint(a, structuredClone(a)), true);
+  assert.equal(sameFingerprint(a, fingerprintOf({ repo: "r", commit: C, run: run("rustc 1.81.0 (def 2026-02-01)"), platform: "win32" })), false); // 5b
+  const unread = fingerprintOf({ repo: "r", commit: C, run: run(null), platform: "win32" });
+  assert.equal(sameFingerprint(unread, unread), false); // 5c
+  expect(alter((r) => { unchangedB(r); r.launch.baseline.stable = false; r.procs.push(proc(6.5, RUSTRIGHT, ["cargo", "clippy", "--profile", "release", "-p", "a", "--locked"], { end: 7, cwd: `${SNAP}\\ws` })); }), "NN06", "not measured", /baseline's/);
+});
+
+test("9.6 NN09 (table 6): a job submitted after another ended is not shown to have been held back without a record of readiness and a free lane", () => {
+  const tree = (r) => { r.tree["other/Cargo.toml"] = '[workspace]\nmembers = ["x"]\n'; };
+  expect(alter((r) => { tree(r); gap9(r, 8.0); }), "NN09", "not measured", /submitted only after job j1 ended/); // 6b
+  expect(alter((r) => { tree(r); const argv = ["clippy", "--profile", "release", "-p", "x", "--locked"]; r.procs.push(proc(6.0, RUSTRIGHT, ["cargo", ...argv], { end: 9.999, cwd: `${SNAP}\\other` })); r.receipts.push(job("j2", argv, { cwd: `${SNAP}\\other`, start: 8.0, end: 9.999, waits: { admission: 0, queue: 2000, bind: 0 } })); }), "NN09", "pass"); // 6c: the broker held it
 });
 
 test("6.15 the launcher reads the snapshot root once at the gate's exit, and records the gate by an absolute path (Astra SO-03 SO-14, Sol IP-04, Fable UO-11)", async () => {

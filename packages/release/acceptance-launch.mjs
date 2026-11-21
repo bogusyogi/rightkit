@@ -61,7 +61,7 @@ export function takeLaunchLock(file, holder, { isAlive = alive, fsApi = fs } = {
 export function fingerprintOf({ repo, commit, run = execFileSync, platform = process.platform }) {
   const probe = (cmd, args) => { try { return String(run(cmd, args, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], windowsHide: true, timeout: 20_000 })).trim().split(/\r?\n/)[0]; } catch { return null; } };
   const gateCodeTree = probe("git", ["-C", repo, "rev-parse", `${commit}:packages/release`]);
-  const tools = Object.fromEntries([["rustfmt", ["--version"]], ["cargo", ["--version"]], ["cargo-deny", ["--version"]], ["pnpm", ["--version"]], ["git", ["--version"]]].map(([c, a]) => [c, probe(c, a)]));
+  const tools = Object.fromEntries([["rustc", ["-vV"]], ["rustfmt", ["--version"]], ["cargo", ["--version"]], ["cargo-deny", ["--version"]], ["pnpm", ["--version"]], ["git", ["--version"]]].map(([c, a]) => [c, probe(c, a)]));
   return { gateCodeTree, node: process.version, platform, tools };
 }
 const complete = (f) => !!f && f.gateCodeTree !== null && Object.values(f.tools ?? {}).every((v) => typeof v === "string") && typeof f.node === "string";
