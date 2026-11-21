@@ -192,7 +192,7 @@ pub struct PendingStart {
     release: StdMutex<ReleaseTrace>,
 }
 
-/// See [`PendingStart::release`].
+/// The pending start records the key-up mark when the key is released.
 #[derive(Clone)]
 pub struct OriginalReleaseMark {
     at: Instant,
