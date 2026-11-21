@@ -48,7 +48,12 @@ impl FileHistoryStore {
         sort_records_newest_first(&mut records);
         trim_records(&mut records);
 
-        Ok(Self { path, write, records, state_uncertain: false })
+        Ok(Self {
+            path,
+            write,
+            records,
+            state_uncertain: false,
+        })
     }
 
     /// Write the whole history file atomically through the host's writer. A direct
@@ -64,17 +69,23 @@ impl FileHistoryStore {
     /// lands or the prior contents are still recoverable on next open.
     fn persist_candidate(&mut self, candidate: Vec<DeliveryRecord>) -> Result<(), HistoryError> {
         if self.state_uncertain {
-            return Err(HistoryError::new("history state is uncertain after failed write"));
+            return Err(HistoryError::new(
+                "history state is uncertain after failed write",
+            ));
         }
         let raw = serde_json::to_string_pretty(&candidate)
             .map_err(|err| HistoryError::new(format!("serialize history failed: {err}")))?;
         match (self.write)(&self.path, raw.as_bytes()) {
-            Ok(()) => { self.records = candidate; Ok(()) }
+            Ok(()) => {
+                self.records = candidate;
+                Ok(())
+            }
             Err(err) => {
                 // Some atomic writers can report failure after rename (for example, directory
                 // sync failure). Reconcile from disk before accepting another mutation.
-                match fs::read_to_string(&self.path).ok()
-                    .and_then(|contents| serde_json::from_str::<Vec<DeliveryRecord>>(&contents).ok()) {
+                match fs::read_to_string(&self.path).ok().and_then(|contents| {
+                    serde_json::from_str::<Vec<DeliveryRecord>>(&contents).ok()
+                }) {
                     Some(mut disk_records) => {
                         sort_records_newest_first(&mut disk_records);
                         trim_records(&mut disk_records);
@@ -109,8 +120,7 @@ impl HistoryStore for FileHistoryStore {
             }
         }
         let mut candidate = self.records.clone();
-        candidate
-            .retain(|item| !seen.contains(item.delivery_id.as_str()));
+        candidate.retain(|item| !seen.contains(item.delivery_id.as_str()));
         candidate.extend(deduped);
         sort_records_newest_first(&mut candidate);
         trim_records(&mut candidate);
@@ -134,10 +144,7 @@ impl HistoryStore for FileHistoryStore {
         transcript: String,
     ) -> Result<bool, HistoryError> {
         let mut candidate = self.records.clone();
-        if let Some(record) = candidate
-            .iter_mut()
-            .find(|r| r.delivery_id == delivery_id)
-        {
+        if let Some(record) = candidate.iter_mut().find(|r| r.delivery_id == delivery_id) {
             record.transcript = transcript;
             self.persist_candidate(candidate)?;
             return Ok(true);
@@ -148,17 +155,13 @@ impl HistoryStore for FileHistoryStore {
     fn upsert_draft(&mut self, session_id: &str, text: String) -> Result<(), HistoryError> {
         let delivery_id = crate::delivery::draft_delivery_id(session_id);
         let mut candidate = self.records.clone();
-        if let Some(existing) = candidate
-            .iter_mut()
-            .find(|r| r.delivery_id == delivery_id)
-        {
+        if let Some(existing) = candidate.iter_mut().find(|r| r.delivery_id == delivery_id) {
             existing.transcript = text;
             existing.delivered_at_ms = crate::delivery::now_ms();
             sort_records_newest_first(&mut candidate);
             return self.persist_candidate(candidate);
         }
-        candidate
-            .push(DeliveryRecord::new_draft(session_id, text));
+        candidate.push(DeliveryRecord::new_draft(session_id, text));
         sort_records_newest_first(&mut candidate);
         trim_records(&mut candidate);
         self.persist_candidate(candidate)
@@ -167,8 +170,7 @@ impl HistoryStore for FileHistoryStore {
     fn delete(&mut self, delivery_id: &str) -> Result<bool, HistoryError> {
         let mut candidate = self.records.clone();
         let before = candidate.len();
-        candidate
-            .retain(|record| record.delivery_id != delivery_id);
+        candidate.retain(|record| record.delivery_id != delivery_id);
         let changed = candidate.len() != before;
         if changed {
             self.persist_candidate(candidate)?;
@@ -183,8 +185,7 @@ impl HistoryStore for FileHistoryStore {
     fn delete_matching(&mut self, filter: &HistoryFilter) -> Result<usize, HistoryError> {
         let mut candidate = self.records.clone();
         let before = candidate.len();
-        candidate
-            .retain(|record| !record_matches(record, filter));
+        candidate.retain(|record| !record_matches(record, filter));
         let deleted = before - candidate.len();
         if deleted > 0 {
             self.persist_candidate(candidate)?;
@@ -195,8 +196,7 @@ impl HistoryStore for FileHistoryStore {
     fn prune_before(&mut self, cutoff_ms: u64) -> Result<usize, HistoryError> {
         let mut candidate = self.records.clone();
         let before = candidate.len();
-        candidate
-            .retain(|record| record.delivered_at_ms >= cutoff_ms);
+        candidate.retain(|record| record.delivered_at_ms >= cutoff_ms);
         let deleted = before - candidate.len();
         if deleted > 0 {
             self.persist_candidate(candidate)?;

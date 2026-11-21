@@ -45,9 +45,7 @@ use super::store::{
     file_present, is_plaintext_sqlite, key_is_usable, key_store_error, scan_candidates,
     EncryptedStoreConfig, SlotRead,
 };
-use super::transition::{
-    journal_path as transition_journal_path, StoreTransition, TransitionKind,
-};
+use super::transition::{journal_path as transition_journal_path, StoreTransition, TransitionKind};
 use crate::recover::{
     quarantine_database_journaled_notified, recorded_quarantine, resume_quarantine, with_suffix,
     QuarantineResume, QuarantineStep, QUARANTINE_JOURNAL_SUFFIX,
@@ -497,10 +495,7 @@ fn folded_name(path: &Path) -> Option<String> {
 }
 
 fn folded_component(component: Component<'_>) -> String {
-    component
-        .as_os_str()
-        .to_string_lossy()
-        .to_ascii_lowercase()
+    component.as_os_str().to_string_lossy().to_ascii_lowercase()
 }
 
 /// True when both paths sit in the same directory, written the same way (names compared ignoring
@@ -528,8 +523,8 @@ fn validate_move_set(
     let refuse = |detail: String| LifecycleError::RecoveryRequired {
         detail: format!("{detail}; the move set was refused and no file was changed"),
     };
-    let db_name = folded_name(db)
-        .ok_or_else(|| refuse(format!("{} has no file name", db.display())))?;
+    let db_name =
+        folded_name(db).ok_or_else(|| refuse(format!("{} has no file name", db.display())))?;
     let live: Vec<String> = SIDECARS
         .iter()
         .map(|sidecar| format!("{db_name}{sidecar}"))
@@ -537,9 +532,10 @@ fn validate_move_set(
     let mut sources: Vec<String> = Vec::new();
     let mut destinations: Vec<String> = Vec::new();
     for recorded in moves {
-        let (Some(source), Some(destination)) =
-            (folded_name(&recorded.source), folded_name(&recorded.destination))
-        else {
+        let (Some(source), Some(destination)) = (
+            folded_name(&recorded.source),
+            folded_name(&recorded.destination),
+        ) else {
             return Err(refuse(format!(
                 "{} -> {} names no file",
                 recorded.source.display(),
@@ -842,7 +838,10 @@ fn path_text(path: &Path) -> Result<&str, LifecycleError> {
 
 /// Write the move list atomically and privately before the notice and before the first move.
 fn write_orphan_list(db: &Path, moves: &[RecordedMove]) -> Result<(), LifecycleError> {
-    let mut body = format!("{ORPHAN_LIST_MAGIC}\ndatabase={}\n", escape_field(path_text(db)?));
+    let mut body = format!(
+        "{ORPHAN_LIST_MAGIC}\ndatabase={}\n",
+        escape_field(path_text(db)?)
+    );
     for recorded in moves {
         body.push_str(&format!(
             "move={}\t{}\n",
@@ -950,7 +949,10 @@ fn orphan_sidecars(db: &Path) -> Result<Option<Vec<PathBuf>>, LifecycleError> {
 fn protect_orphans(cfg: &EncryptedStoreConfig) -> Result<(), LifecycleError> {
     let path = cfg.db.effective_path();
     if !presence(&orphan_list_path(&path))? {
-        let wanted = cfg.hooks.as_ref().is_some_and(|hooks| hooks.orphan_sidecars);
+        let wanted = cfg
+            .hooks
+            .as_ref()
+            .is_some_and(|hooks| hooks.orphan_sidecars);
         if !wanted || main_has_content(&path)? || orphan_sidecars(&path)?.is_none() {
             return Ok(());
         }
@@ -996,7 +998,11 @@ fn protect_orphans_locked(cfg: &EncryptedStoreConfig, path: &Path) -> Result<(),
         finish_orphan_moves(&moves)?;
         return remove_orphan_list(path);
     }
-    if !cfg.hooks.as_ref().is_some_and(|hooks| hooks.orphan_sidecars) {
+    if !cfg
+        .hooks
+        .as_ref()
+        .is_some_and(|hooks| hooks.orphan_sidecars)
+    {
         return Ok(());
     }
     if main_has_content(path)? {
@@ -1077,7 +1083,6 @@ fn finish_orphan_moves(moves: &[RecordedMove]) -> Result<(), LifecycleError> {
     }
     Ok(())
 }
-
 
 /// After `open` failed with `KeyMissing` or `NoKeyOpens`: rebuild if the policy allows it.
 /// `Ok(None)` means "not eligible": the caller returns its original error and nothing changed.
