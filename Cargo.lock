@@ -11525,7 +11525,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-dictation-tauri"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "rightkit-audio",
  "rightkit-automation",
@@ -11541,6 +11541,7 @@ dependencies = [
  "rightkit-transcript-library",
  "serde",
  "serde_json",
+ "tauri",
 ]
 
 [[package]]
@@ -13059,7 +13060,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-sync"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "rightkit-child-process",
  "rightkit-fs",

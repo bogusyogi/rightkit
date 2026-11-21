@@ -35,6 +35,8 @@ pub use engine::{
 pub use error::{SyncError, SyncResult};
 pub use ledger::{ConsentRequest, Ledger, LedgerStore, RemoteVersion};
 pub use record::{field, read_tombstone, write_tombstone, FieldValue, RawRecord};
+#[cfg(feature = "transcripts")]
+pub use recovery_marker::{RecoveryConsent, ReplayReceipt};
 pub use schedule::{
     next_delay, should_continue, sync_once, work_outcome, SchedulePolicy, SyncBudget, SyncReport,
     WorkOutcome,

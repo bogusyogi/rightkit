@@ -617,7 +617,7 @@
     "rightkit-dictation-models": "0.3.2",
     "rightkit-dictation-pill": "0.1.1",
     "rightkit-dictation-runtime": "0.2.5",
-    "rightkit-dictation-tauri": "0.3.1",
+    "rightkit-dictation-tauri": "0.3.2",
     "rightkit-dictation-telemetry": "0.2.3",
     "rightkit-dictation-text-pipeline": "0.2.7",
     "rightkit-disk-cleanup": "0.2.0",
@@ -717,7 +717,7 @@
     "rightkit-social-publish": "0.2.0",
     "rightkit-speech-client": "0.5.0",
     "rightkit-spend": "0.2.3",
-    "rightkit-sync": "0.4.1",
+    "rightkit-sync": "0.4.2",
     "rightkit-sysmem": "0.1.0",
     "rightkit-system-monitor": "0.3.0",
     "rightkit-tauri-shell": "0.8.6",
@@ -1398,7 +1398,8 @@
       "0.1.1",
       "0.2.2",
       "0.3.0",
-      "0.4.0"
+      "0.4.0",
+      "0.4.1"
     ],
     "rightkit-tauri": [
       "0.1.1"
@@ -1518,6 +1519,8 @@
       "0.1.0"
     ],
     "rightkit-dictation-runtime": [],
-    "rightkit-dictation-tauri": []
+    "rightkit-dictation-tauri": [
+      "0.3.1"
+    ]
   }
 }

@@ -74,3 +74,22 @@ Partial streaming holds runtime's session mutex through its host callback. Only 
 session's increasing revisions from its acknowledged engine generation reach input; stale
 session events never replace a stopped binding. Host callback must not reenter runtime or
 acquire backend transition gate. Recovery drafts remain eligible after stop.
+
+## Host policy & renderer adapters (0.3.2)
+
+`asr_compat` lists captured WAVs, reads duration, selects samples & evaluates timed
+transcripts using host thresholds. `capture_folder` migrates host-resolved capture
+paths. `command_outcome` classifies engine action/detail pairs; hosts supply labels.
+`hotkey_gates` applies onboarding/test/launch inputs. `settings_policy::BackendPolicy`
+resolves host backend aliases & entitlement policy; language & choice helpers accept
+host defaults. These modules need no Tauri feature.
+
+Enable `features = ["tauri"]` on macOS/Windows shell consumers to use
+`renderer_events::{RendererEvents, native_drag_drop_payload}`. This optional Tauri 2
+dependency disables Tauri default features; hosts select their runtime features.
+`RendererEvents::new` accepts static manifest JSON, schema version, allowed window
+labels & dispatch channel. `emit` reuses `renderer_routes` validation/encoding,
+tries every routed window, skips absent windows & returns first delivery error.
+Unknown events or invalid manifests fail before delivery. Native drag/drop payloads
+retain tagged enter/over/drop/leave shapes, physical coordinates & lossy UTF-8 paths.
+Hosts retain UI-dispatch lock checks, route manifests, window/event names & copy.

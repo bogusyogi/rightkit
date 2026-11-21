@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.2
+
+- Add host-configured ASR sample evaluation, capture-folder migration, command-outcome classification, hotkey gates & settings policy.
+- Add opt-in `tauri` feature for routed renderer delivery & native drag/drop conversion over existing `renderer_routes`; hosts keep manifests, window/event names & copy.
+
 ## 0.3.1
 
 - Pair native release edges with their capture attempt; keep wake word and existing activation routes available.

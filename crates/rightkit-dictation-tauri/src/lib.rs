@@ -14,6 +14,14 @@
     unused_imports
 )]
 
+pub mod asr_compat;
+pub mod capture_folder;
+pub mod command_outcome;
+pub mod hotkey_gates;
+#[cfg(feature = "tauri")]
+pub mod renderer_events;
+pub mod settings_policy;
+
 pub mod dictation_control;
 pub mod engine_events;
 pub mod final_delivery;
