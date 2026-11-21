@@ -421,11 +421,11 @@ argv/cwd forwarding & guard release.
 `windows::WindowSpec` opens app-relative pages only. `ContentWebviewSpec` opens a window onto a remote `https` origin for sign-in windows and content readers:
 
 ```rust
-let spec = ContentWebviewSpec::new("play-spotify", "https://open.spotify.com/")
-    .allow_origin("https://open.spotify.com")
-    .allow_origin("https://accounts.spotify.com")
-    .popup_origin("https://accounts.google.com")
-    .profile(ContentProfile::new("spotify", profiles_root)?)
+let spec = ContentWebviewSpec::new("remote-content", "https://content.example.com/")
+    .allow_origin("https://content.example.com")
+    .allow_origin("https://account.example.com")
+    .popup_origin("https://signin.example.net")
+    .profile(ContentProfile::new("remote-content", profiles_root)?)
     .app_acl_manifest(true)
     .capability(include_str!("../capabilities/default.json"));
 rightkit_tauri_shell::content_webview::open(&app, &spec)?;
