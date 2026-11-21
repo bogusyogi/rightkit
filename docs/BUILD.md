@@ -82,7 +82,7 @@ Verification pending: RESET-A/W/C/O & migrated P1/P2/P3/recovery are prepared, n
 
 ### Kept from before the reset
 
-The 42 GC-A27 non-negotiables are named checks of `packages/release/gate-acceptance.mjs` (`NN_ALL`), run on each host by `gate-acceptance.mjs --verify-release`, which `run-batch.sh` requires. GAP: plan section 6 moves them to `node --test` files (`packages/release/gate.test.mjs`); until then they stay where they are.
+The twelve GC-A27 acceptance lines (NN01 to NN12) are judged by `packages/release/acceptance-lines.mjs` from the records of one run launched by `acceptance-launch.mjs`; `acceptance-result.mjs` writes that run's result and `gate-release-admission.mjs` admits a gate release only on a result in which all twelve lines passed. The earlier 43-rule test (`gate-acceptance.mjs`) was retired in rightkit#1514 step 9 (GATE-CONTRACT.md, GC-A27 history).
 
 | Check | Rule |
 |---|---|

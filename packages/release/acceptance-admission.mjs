@@ -18,7 +18,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
-import { archiveIdentity, archiveOfSeal } from "./gate-acceptance.mjs";
+import { archiveIdentity, archiveOfSeal } from "./legacy-contract-receipt.mjs";
 import { readAcceptanceLines } from "./acceptance-lines.mjs";
 import { verifyPublicationClaim } from "./receipt-signature.mjs";
 

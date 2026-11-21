@@ -17,7 +17,7 @@ export const GATE_COMMIT_ENV = "RUSTRIGHT_GATE_COMMIT";
 export const CLASS_A_ENV = "RUSTRIGHT_CLASS_A";
 
 // ---- a contract-test run tags its broker jobs (loop matrix G26; rustright GB-101) -----------------------------------------------------------------
-// The contract test (gate-acceptance.mjs) launches the gate with these four variables. Every broker job the gate then sends carries a nonce the
+// The contract test (the retired gate-acceptance.mjs; the twelve-line launcher acceptance-launch.mjs does not use these) launches the gate with these four variables. Every broker job the gate then sends carries a nonce the
 // broker signs into the job's receipt, computed from the run, the gate under test, the test step and a random value per call:
 //   nonce = sha256( UTF-8 of  runId + "\n" + sealedSha256 + "\n" + step + "\n" + call ), lowercase hex.
 // A verifier that holds the contract receipt (which lists runId, sealedSha256 and, per job, step and call) recomputes it and requires it to be

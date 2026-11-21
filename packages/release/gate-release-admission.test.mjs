@@ -8,7 +8,7 @@ import { createHash, generateKeyPairSync, sign } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { admitGateRelease, admitFromFiles, gateReleaseGuard, GATE_PACKAGE, GATE_RECEIPT_ENV } from "./gate-release-admission.mjs";
-import { NN_ALL_IDS, CONTRACT_RECEIPT_SCHEMA, CONTRACT_SIGNED_LAUNCHES, archiveIdentity, archiveOfSeal } from "./gate-acceptance.mjs";
+import { NN_ALL_IDS, CONTRACT_RECEIPT_SCHEMA, CONTRACT_SIGNED_LAUNCHES, archiveIdentity, archiveOfSeal } from "./legacy-contract-receipt.mjs";
 import { contractJobNonce } from "./gate-seam.mjs";
 import { claimSignedBytes, signedBytes, verifyPublicationClaim, PUBLICATION_CLAIM_SCHEMA } from "./receipt-signature.mjs";
 

@@ -10,7 +10,7 @@ import { createHash, generateKeyPairSync, sign } from "node:crypto";
 import { admitAcceptanceResult, ACCEPTANCE_RESULT_SCHEMA, JUDGE_FILES, judgeFileHashes } from "./acceptance-admission.mjs";
 import { admitFromFiles, gateReleaseGuard, GATE_PACKAGE } from "./gate-release-admission.mjs";
 import { readAcceptanceLines, CONTRACT_FILE } from "./acceptance-lines.mjs";
-import { archiveIdentity } from "./gate-acceptance.mjs";
+import { archiveIdentity } from "./legacy-contract-receipt.mjs";
 import { claimSignedBytes, PUBLICATION_CLAIM_SCHEMA } from "./receipt-signature.mjs";
 
 const sha = (b) => createHash("sha256").update(b).digest("hex");
@@ -137,5 +137,44 @@ test("9.3 the effect: a refused result throws before the publish entry starts np
     assert.throws(enter, /the archive in question is/); assert.equal(publishes, 0);
     // admitted: the real archive, every line pass
     fs.writeFileSync(archiveFile, archiveBytes); enter(); assert.equal(publishes, 1, "exactly one publish after an admission");
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("9.5 contract-nn.json is the list of the twelve-line test and keeps the hashes of the retired contract test", () => {
+  const listed = JSON.parse(fs.readFileSync(new URL("./contract-nn.json", import.meta.url), "utf8"));
+  assert.deepEqual(Object.keys(listed), ["schema", "contractSha256", "runnerFiles", "ids", "retiredRunner"]);
+  assert.equal(listed.schema, "rightkit.contract-nn/1");
+  assert.equal(listed.contractSha256, sha(fs.readFileSync(CONTRACT_FILE)), "docs/GATE-CONTRACT.md changed: write its sha256 into packages/release/contract-nn.json (contractSha256)");
+  assert.deepEqual(listed.ids, LINES.map((l) => l.id), "the ids are the twelve lines of GC-A27, in order");
+  assert.deepEqual(listed.ids, Array.from({ length: 12 }, (_, i) => `NN${String(i + 1).padStart(2, "0")}`));
+  assert.deepEqual(listed.runnerFiles, [...JUDGE_FILES].sort(), "the sealed list names the judge, its test and its launcher");
+  for (const name of listed.runnerFiles) assert.ok(fs.existsSync(new URL(`./${name}`, import.meta.url)), `${name} is in the package`);
+  const files = JSON.parse(fs.readFileSync(new URL("./package.json", import.meta.url), "utf8")).files;
+  assert.ok(files.includes("*.json") && files.includes("*.mjs"), "the package carries contract-nn.json and the judge");
+  // The retired runner: what an old receipt is judged against, and nothing that runs.
+  const retired = listed.retiredRunner;
+  assert.equal(retired.retiredIn, "rightkit#1514 step 9");
+  for (const field of ["contractSha256", "budgetsSha256", "runnerSha256"]) assert.match(retired[field], /^[0-9a-f]{64}$/, field);
+  assert.equal(retired.ids.length, 43); assert.deepEqual(retired.signedLaunches.map((l) => l.label), ["S12:crate", "S12:manifest"]);
+  assert.ok(retired.runnerFiles.some((f) => f.name === "gate-acceptance.mjs" && f.sha256 === retired.runnerSha256), "the retired runner's own hash is in its file list");
+  assert.ok(retired.runnerFiles.every((f) => /^[0-9a-f]{64}$/.test(f.sha256) && !f.name.includes("..")));
+  for (const gone of ["./gate-acceptance.mjs", "../../ci/gate-acceptance-budgets.json"]) assert.equal(fs.existsSync(new URL(gone, import.meta.url)), false, `${gone} was deleted`);
+});
+
+test("9.6 an old contract-test receipt is still read, against the retired runner's recorded hashes, and is refused when it is not that runner's", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rk-legacy-"));
+  try {
+    fs.mkdirSync(path.join(dir, "job-claims"));
+    const receiptFile = path.join(dir, "receipt.json"); const archiveFile = path.join(dir, "a.tgz");
+    fs.writeFileSync(archiveFile, archiveBytes);
+    const old = { schema: "rightkit.contract-test-receipt/1", jobClaims: "job-claims", host: "dell", gate: { kind: "candidate", sealedSha256: SEALED }, contractSha256: "a".repeat(64), runnerSha256: "e".repeat(64), budgetsSha256: "b".repeat(64), jobs: [] };
+    fs.writeFileSync(receiptFile, JSON.stringify(old));
+    const pipelineFile = path.join(dir, "pipeline.json"); fs.writeFileSync(pipelineFile, JSON.stringify(pipeline));
+    const result = admitFromFiles({ receiptFile, archiveFile, commit: COMMIT, pipelineFile, treeOf: () => TREE });
+    refused(result, /./);
+    const text = result.problems.join(" | ");
+    assert.doesNotMatch(text, /cannot be read/, "nothing it reads is missing from the tree");
+    // Each of these is compared with what contract-nn.json recorded of the retired runner.
+    for (const re of [/the contract changed after the dell receipt was written/, /the runner changed after the dell receipt was written/, /judged against other budgets/, /runner files are not this runner's; not listed: background-process\.mjs/, /launch S12:crate cannot be served from a cache/]) assert.match(text, re);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
