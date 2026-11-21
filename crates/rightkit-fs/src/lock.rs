@@ -62,7 +62,8 @@
 //! `lock_alias.rs::flock_kind_is_unaffected_by_aliases`, `lock_cross_process.rs::killed_flock_holder_releases_the_lock`).
 //! Windows takes `LockFileEx` on one handle per attempt (no registry, not inherited); a reparse
 //! point at the lock path is refused (`lock_reparse.rs`, Windows).
-
+//!
+//! Every process that modifies the protected resource must participate in the locking protocol.
 
 #[cfg(feature = "json")]
 use crate::atomic::atomic_write;
