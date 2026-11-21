@@ -278,11 +278,12 @@ mod macos {
                 if exact && !exact_ready {
                     return;
                 }
-                if let Err(err) = (if exact {
+                let started = if exact {
                     start_dictation_inner(&start_shell)
                 } else {
                     crate::dictation_control::start_dictation_legacy_inner(&start_shell)
-                }) {
+                };
+                if let Err(err) = started {
                     telemetry::log_message(
                         "ptt_start_error",
                         crate::dictation_error::error_log_code(&err),
