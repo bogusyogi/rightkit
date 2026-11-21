@@ -81,10 +81,10 @@ pub mod relaunch;
 pub mod single_instance_host;
 #[cfg(feature = "viewer")]
 pub mod site;
+pub mod startup;
 pub mod startup_cache;
 pub mod startup_error;
 pub mod startup_park;
-pub mod startup;
 #[cfg(feature = "viewer")]
 pub mod stream;
 pub mod surface;
