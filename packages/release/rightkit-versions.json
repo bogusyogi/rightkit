@@ -562,7 +562,7 @@
     "rightkit-apple-ops": "0.2.0",
     "rightkit-approvals": "0.2.1",
     "rightkit-asr": "0.5.2",
-    "rightkit-audio": "0.4.0",
+    "rightkit-audio": "0.4.1",
     "rightkit-autoedit": "0.2.0",
     "rightkit-automation": "0.7.3",
     "rightkit-autostart": "0.1.0",
@@ -936,7 +936,8 @@
       "0.3.6",
       "0.3.7",
       "0.3.8",
-      "0.3.9"
+      "0.3.9",
+      "0.4.0"
     ],
     "rightkit-automation": [
       "0.3.0",

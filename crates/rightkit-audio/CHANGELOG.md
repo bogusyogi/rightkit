@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.1
+
+- Reserve setup meter starts at command receipt, reject stale queued starts and stops, and drain an older admitted start before opening its replacement. Consent stays independent. Existing setup start and stop signatures remain supported.
+
 ## 0.4.0
 
 - Coordinate setup visibility, stale command rejection, owned consent & off-UI resource drain with SetupAudioScope.

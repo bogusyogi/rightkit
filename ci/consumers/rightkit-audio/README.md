@@ -1,6 +1,6 @@
-# rightkit-audio 0.4.0 registry consumer
+# rightkit-audio 0.4.1 registry consumer
 
-Standalone consumer, outside the workspace, pinning `rightkit-audio =0.4.0` exactly with default
+Standalone consumer, outside the workspace, pinning `rightkit-audio =0.4.1` exactly with default
 features off and `capture` enabled only to expose setup API. That is the feature set CutRight's engine and project crates, ScrapeRight's speech
 crate, GenRight's studio crate and HeardRight's inference crate use: the typed filter graphs,
 measurement maths, WAV and room-tone surface. It enables `capture` solely to type-check setup APIs;
@@ -10,7 +10,7 @@ the same recipe runs on Windows and macOS in hosted qualification.
 
 What it proves, in plain sentences, through the public API only:
 
-- Setup lifecycle without opening a device: meter stop and restartable epochs, owned consent cancellation, hidden admission, stale tickets after reveal, retirement and terminal close.
+- Setup lifecycle without opening a device: legacy start and stop compatibility, rejection of an older queued start or stop after a newer meter action, reserved start and immediate stop, owned consent cancellation, hidden admission, retirement and terminal close.
 - `Filter` and its text: named, positional and quoted options, `render`, `render_chain`, the number
   formatting of `filter::num` (trailing zeros dropped, no negative zero), `filter::quote` with an
   inner quote, and `filter::db_to_linear`.

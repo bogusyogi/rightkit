@@ -240,6 +240,17 @@ impl MicMeter {
         self.state.invalidate();
     }
 
+    // Scope wait admission must refuse capture-worker reentrancy before it can
+    // wait behind a start that joins this same worker.
+    pub(super) fn is_worker_scoped(&self) -> bool {
+        self.state.is_worker()
+    }
+
+    #[cfg(test)]
+    pub(super) fn scoped_epoch_is_current(&self, epoch: u64) -> bool {
+        self.state.is_current(epoch)
+    }
+
     pub(super) fn drain_scoped(&self) {
         let _operation = lock(&self.operation);
         self.join_worker();

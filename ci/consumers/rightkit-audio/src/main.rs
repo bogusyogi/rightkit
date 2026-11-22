@@ -1,4 +1,4 @@
-// rightkit-audio 0.4.0 consumed by exact registry pin (default features off, capture API enabled;
+// rightkit-audio 0.4.1 consumed by exact registry pin (default features off, capture API enabled;
 // no capture operation runs), outside the workspace.
 //
 // Proves, through the public API and with no FFmpeg and no audio device: the typed filter text and
@@ -1235,7 +1235,7 @@ fn main() {
     room_tone_fill_and_bed();
     error_text();
     std::fs::remove_dir_all(&scratch).expect("remove consumer temp dir");
-    println!("OK rightkit-audio 0.4.0 (registry consumer)");
+    println!("OK rightkit-audio 0.4.1 (registry consumer)");
 }
 
 fn setup_api_surface() {
@@ -1314,6 +1314,35 @@ fn setup_api_surface() {
     scope
         .stop_meter(&after_reveal)
         .expect("new ticket admitted after drain");
+    let legacy_start = scope.ticket().expect("capture legacy start");
+    scope.stop_meter_now().expect("stop on receipt");
+    assert_eq!(
+        scope.start_meter(
+            &legacy_start,
+            config,
+            |_| panic!("stopped start resolved a device"),
+            Arc::new(|_| panic!("stopped start emitted an event")),
+        ),
+        Err(SetupAudioError::StaleTicket)
+    );
+    let legacy_stop = scope.ticket().expect("capture legacy stop");
+    let reserved = scope.meter_ticket().expect("reserve a newer start");
+    assert_eq!(
+        scope.stop_meter(&legacy_stop),
+        Err(SetupAudioError::StaleTicket)
+    );
+    scope
+        .stop_meter_now()
+        .expect("stop newer reservation on receipt");
+    assert_eq!(
+        scope.start_reserved_meter(
+            &reserved,
+            config,
+            |_| panic!("stopped reservation resolved a device"),
+            Arc::new(|_| panic!("stopped reservation emitted an event")),
+        ),
+        Err(SetupAudioError::StaleTicket)
+    );
     scope.close();
     scope.drain();
     assert_eq!(scope.activate(), Err(SetupAudioError::Closed));
