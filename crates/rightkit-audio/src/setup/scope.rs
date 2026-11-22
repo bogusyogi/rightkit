@@ -1,7 +1,7 @@
 //! Host-owned setup audio admission & teardown, independent of any window/runtime framework.
 //!
 //! Construct with explicit initial activity (including headless hosts). Capture a [`SetupAudioTicket`](crate::setup::scope::SetupAudioTicket)
-//! for legacy meter commands or consent, or [`SetupAudioMeterTicket`] with `meter_ticket` for
+//! for legacy meter commands or consent, or [`SetupAudioMeterTicket`](crate::setup::scope::SetupAudioMeterTicket) with `meter_ticket` for
 //! ordered meter starts, when accepting each command BEFORE dispatching blocking work. Call
 //! `stop_meter_now` immediately on the same serialized command ingress, never on a blocking
 //! executor. Reusing a pre-hide ticket after reveal is rejected. A newer meter ticket or stop invalidates queued meter starts without
