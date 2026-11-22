@@ -44,9 +44,9 @@ pub fn state_root() -> PathBuf {
         PRODUCT_DIR_NAME,
         Some(rightkit_roots::SUITE_DIR_NAME),
     ))
-        .map(|dirs| dirs.local)
-        .unwrap_or_else(|| PathBuf::from(PRODUCT_DIR_NAME))
-        .join("state")
+    .map(|dirs| dirs.local)
+    .unwrap_or_else(|| PathBuf::from(PRODUCT_DIR_NAME))
+    .join("state")
 }
 
 /// `state/resident.json`: `{pid, endpoint, generation, started, ts}`.
