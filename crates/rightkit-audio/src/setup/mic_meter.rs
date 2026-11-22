@@ -11,7 +11,7 @@
 //! use rightkit_audio::setup::mic_meter::{MeterConfig, MeterEvent, MeterStartError, MicMeter};
 //!
 //! fn start_meter(
-//!     meter: &'static MicMeter,
+//!     meter: &MicMeter,
 //!     config: MeterConfig,
 //!     resolve: impl FnOnce(&[DeviceInfo]) -> Result<Option<usize>, String>,
 //!     emit: Arc<dyn Fn(MeterEvent) + Send + Sync>,
@@ -26,7 +26,8 @@
 //! the event names in this file.
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, MutexGuard};
+use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use crate::capture::DeviceInfo;
@@ -104,6 +105,10 @@ pub enum MeterEvent {
 /// Why `start` did not start a meter. The host words the message.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MeterStartError {
+    /// This owner has been permanently closed. Allocate a new owner for another lifetime.
+    Closed,
+    /// Starting synchronously from this meter's callback would deadlock teardown.
+    ReentrantStart,
     /// The device list could not be read.
     EnumerateDevices,
     /// The host's resolver refused the saved device; carries the host's own text.
@@ -116,74 +121,135 @@ pub enum MeterStartError {
 
 type OpenResult = Result<crate::capture::CaptureSession, String>;
 
+/// App-held microphone owner. Construction does not open a device or spawn a worker.
+/// Keep this value (typically in an `Arc`) until `close` has completed off the UI thread.
+/// Callbacks that refer back to this owner should retain a `Weak`, avoiding an ownership cycle.
 pub struct MicMeter {
-    active: AtomicBool,
-    // A device change replaces an active meter. Stale capture threads must not stop its successor.
+    state: Arc<MeterState>,
+    // Only off-UI start/close paths take this lock. The worker never takes it.
+    operation: Mutex<()>,
+    worker: Mutex<Option<JoinHandle<()>>>,
+}
+
+struct MeterState {
+    // Odd epochs are active; even epochs are cancelled. One atomic transition avoids
+    // stop racing a separate ACTIVE/EPOCH update. Each begin uses a fresh epoch.
     epoch: AtomicU64,
-    // Serializes every transition of the ACTIVE/EPOCH pair (start, stop, and a
-    // worker releasing its own meter). A worker's "if still mine, clear ACTIVE"
-    // was a load followed by a separate store, so a meter started in between
-    // could be cleared by its stale predecessor. Reads stay lock-free.
-    transition: std::sync::Mutex<()>,
+    closed: AtomicBool,
+    running_epoch: AtomicU64,
     event_sink: fn(&str, &str),
 }
 
+std::thread_local! {
+    // Identity only: this pointer is never dereferenced, and owns no resource.
+    static METER_WORKER: std::cell::Cell<*const MeterState> = const {
+        std::cell::Cell::new(std::ptr::null())
+    };
+}
+
+fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 impl MicMeter {
-    pub const fn new(event_sink: fn(&str, &str)) -> Self {
+    /// Since 0.4.0 this allocates private shared state and is no longer `const`.
+    /// Hosts retain an app-owned value instead of a process-wide static meter.
+    pub fn new(event_sink: fn(&str, &str)) -> Self {
         Self {
-            active: AtomicBool::new(false),
-            epoch: AtomicU64::new(0),
-            transition: std::sync::Mutex::new(()),
-            event_sink,
+            state: Arc::new(MeterState {
+                epoch: AtomicU64::new(0),
+                closed: AtomicBool::new(false),
+                running_epoch: AtomicU64::new(0),
+                event_sink,
+            }),
+            operation: Mutex::new(()),
+            worker: Mutex::new(None),
         }
     }
 
-    fn meter_transition(&self) -> std::sync::MutexGuard<'_, ()> {
-        self.transition
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-    }
-
-    /// Clear ACTIVE only if `epoch` still owns the meter, atomically with respect
-    /// to start and stop.
-    fn release(&self, epoch: u64) -> bool {
-        let _transition = self.meter_transition();
-        if self.epoch.load(Ordering::SeqCst) != epoch {
-            return false;
-        }
-        self.active.store(false, Ordering::SeqCst);
-        true
-    }
-
-    fn is_current(&self, epoch: u64) -> bool {
-        self.active.load(Ordering::SeqCst) && self.epoch.load(Ordering::SeqCst) == epoch
-    }
-
-    /// Claim the meter for a new run and return its epoch. A meter that was active is replaced
-    /// (its capture thread ends on its own); that is reported as `onboarding_mic_meter_replaced`.
+    /// Cancel the previous run and claim a fresh epoch without waiting for capture.
+    /// `start` drains the predecessor before opening another device. On a closed
+    /// owner this returns an inert epoch; `start` then returns `Closed`.
     pub fn begin(&self) -> u64 {
-        let (epoch, replacing_active_meter) = {
-            let _transition = self.meter_transition();
-            let epoch = self.epoch.fetch_add(1, Ordering::SeqCst).wrapping_add(1);
-            (epoch, self.active.swap(true, Ordering::SeqCst))
-        };
-        if replacing_active_meter {
-            (self.event_sink)("onboarding_mic_meter_replaced", &format!("epoch={epoch}"));
+        if self.state.closed.load(Ordering::SeqCst) {
+            return self.state.epoch.load(Ordering::SeqCst);
+        }
+        let previous = self
+            .state
+            .epoch
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |epoch| {
+                Some(epoch.wrapping_add(2) | 1)
+            })
+            .unwrap();
+        let epoch = previous.wrapping_add(2) | 1;
+        if previous & 1 != 0 {
+            (self.state.event_sink)("onboarding_mic_meter_replaced", &format!("epoch={epoch}"));
         }
         epoch
     }
 
-    /// Invalidate the meter's epoch so any live capture thread tears itself down.
-    /// Thread-safe and idempotent. Call it from the step-exit cleanup AND from every hide, suspend
-    /// or destroy path of the window that shows the meter: the meter is a native OS capture
-    /// thread, so a hidden or suspended web view does NOT stop it on its own, and without this a
-    /// hidden window leaves the microphone hot. Bumping the epoch (not just clearing ACTIVE) also
-    /// guarantees a stale thread from a replaced meter cannot reopen capture.
+    /// Immediately invalidate queued starts, reads and retries. Does not wait for
+    /// a device open, read or teardown. Call on hide, suspend and step exit, then
+    /// call `close` off UI when retiring this owner. Already admitted callbacks or
+    /// device opens may finish; their capture is drained by `close`.
     pub fn stop(&self) {
-        let _transition = self.meter_transition();
-        self.epoch.fetch_add(1, Ordering::SeqCst);
-        self.active.store(false, Ordering::SeqCst);
-        (self.event_sink)("onboarding_mic_meter_stopping", "");
+        if self.state.invalidate() {
+            // Emit only on the active-to-stopped transition. A sink may reenter
+            // stop without recursion, and never runs under our operation lock.
+            (self.state.event_sink)("onboarding_mic_meter_stopping", "");
+        }
+    }
+
+    /// Permanently close this owner, joining its worker and releasing capture.
+    /// Blocking: call off UI. Concurrent calls are idempotent. A callback on this
+    /// worker only requests cancellation: its own stack must unwind before capture
+    /// can be released; a later non-worker close joins that teardown.
+    pub fn close(&self) {
+        self.state.closed.store(true, Ordering::SeqCst);
+        self.state.invalidate();
+        if self.state.is_worker() {
+            return;
+        }
+        let _operation = lock(&self.operation);
+        self.join_worker();
+    }
+
+    // Scope admission holds its own state lock. These hooks never call host code.
+    pub(super) fn begin_scoped(&self) -> u64 {
+        if self.state.closed.load(Ordering::SeqCst) {
+            return self.state.epoch.load(Ordering::SeqCst);
+        }
+        let previous = self
+            .state
+            .epoch
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |epoch| {
+                Some(epoch.wrapping_add(2) | 1)
+            })
+            .unwrap();
+        previous.wrapping_add(2) | 1
+    }
+
+    pub(super) fn stop_scoped(&self) {
+        self.state.invalidate();
+    }
+
+    pub(super) fn close_scoped(&self) {
+        self.state.closed.store(true, Ordering::SeqCst);
+        self.state.invalidate();
+    }
+
+    pub(super) fn drain_scoped(&self) {
+        let _operation = lock(&self.operation);
+        self.join_worker();
+    }
+
+    fn join_worker(&self) {
+        let worker = lock(&self.worker).take();
+        if let Some(worker) = worker {
+            let _ = worker.join();
+        }
     }
 
     /// Open the microphone for the epoch from `begin` and start the capture thread. Blocking: run
@@ -191,51 +257,89 @@ impl MicMeter {
     /// device id (`None` is the default device) or the host's refusal text.
     /// Host must verify an existing OS microphone grant & explicit user action before calling.
     pub fn start(
-        &'static self,
+        &self,
         epoch: u64,
         config: MeterConfig,
         resolve_device: impl FnOnce(&[DeviceInfo]) -> Result<Option<usize>, String>,
         emit: Arc<dyn Fn(MeterEvent) + Send + Sync>,
     ) -> Result<(), MeterStartError> {
-        let (device_id, device_platform_id) =
-            self.resolve_device(resolve_device).inspect_err(|_| {
-                self.release(epoch);
-                (self.event_sink)(
+        if self.state.closed.load(Ordering::SeqCst) {
+            return Err(MeterStartError::Closed);
+        }
+        if self.state.is_worker() {
+            return Err(MeterStartError::ReentrantStart);
+        }
+        if !self.state.is_current(epoch) {
+            return Ok(());
+        }
+        // The host resolver is outside our locks: it may cancel/close this owner.
+        let resolved = self.state.resolve_device(resolve_device);
+        let operation = lock(&self.operation);
+        if self.state.closed.load(Ordering::SeqCst) {
+            return Err(MeterStartError::Closed);
+        }
+        if !self.state.is_current(epoch) {
+            return Ok(());
+        }
+        // An epoch can start at most once, including simultaneous duplicate calls
+        // and a worker that panicked before cancelling its own epoch.
+        if self.state.running_epoch.load(Ordering::SeqCst) == epoch {
+            return Ok(());
+        }
+        self.join_worker();
+        if !self.state.is_current(epoch) {
+            return Ok(());
+        }
+        let (device_id, device_platform_id) = match resolved {
+            Ok(device) => device,
+            Err(error) => {
+                self.state.release(epoch);
+                drop(operation);
+                (self.state.event_sink)(
                     "onboarding_mic_meter_device_unavailable",
                     "outcome=selected_device_unavailable",
                 );
-            })?;
-        if !self.is_current(epoch) {
-            return Ok(());
-        }
-        let transition = self.meter_transition();
-        if !self.is_current(epoch) {
-            return Ok(());
-        }
-        let opened = open_session(&config, device_id, device_platform_id.as_deref());
-        drop(transition);
-        let mut session = opened
-            .map_err(|_| MeterStartError::OpenFailed)
-            .inspect_err(|_| {
-                self.release(epoch);
-                (self.event_sink)("onboarding_mic_meter_open_failed", "outcome=open_failed");
-            })?;
-        if !self.is_current(epoch) {
+                return Err(error);
+            }
+        };
+        let mut session = match open_session(&config, device_id, device_platform_id.as_deref()) {
+            Ok(session) => session,
+            Err(_) => {
+                self.state.release(epoch);
+                drop(operation);
+                (self.state.event_sink)("onboarding_mic_meter_open_failed", "outcome=open_failed");
+                return Err(MeterStartError::OpenFailed);
+            }
+        };
+        if !self.state.is_current(epoch) {
             let _ = session.stop();
             return Ok(());
         }
-        log_health(
-            self.event_sink,
-            "onboarding_mic_meter_started",
-            &session,
-            0,
-            "opened",
-        );
-
-        std::thread::Builder::new()
+        self.state.running_epoch.store(epoch, Ordering::SeqCst);
+        let state = Arc::clone(&self.state);
+        // Keep the caller's Arc alive until after operation unlocks. On spawn
+        // failure std drops the worker closure synchronously; its Arc must not
+        // run the host payload's destructor while operation is still locked.
+        let worker_emit = Arc::clone(&emit);
+        let worker = std::thread::Builder::new()
             .name("onboarding-mic-meter".to_string())
             .spawn(move || {
-                let event_sink = self.event_sink;
+                METER_WORKER.with(|worker| worker.set(Arc::as_ptr(&state)));
+                let emit = |event| {
+                    // Each event is admitted separately, including consecutive statuses.
+                    // Never hold a lock while invoking host code: callbacks may stop/close.
+                    if state.is_current(epoch) {
+                        worker_emit(event);
+                    }
+                };
+                let event_sink = state.event_sink;
+                log_health(
+                    event_sink,
+                    "onboarding_mic_meter_started",
+                    &session,
+                    0,
+                    "opened",
+                );
                 let mut health = session.metrics_snapshot();
                 let mut session = Some(session);
                 let mut smoothed = 0.0_f32;
@@ -249,7 +353,7 @@ impl MicMeter {
                 let mut needs_health_probe = true;
                 let mut probe_started = Instant::now();
                 let mut signal_confirmed = false;
-                while self.is_current(epoch) {
+                while state.is_current(epoch) {
                     let Some(active_session) = session.as_mut() else {
                         break;
                     };
@@ -277,7 +381,7 @@ impl MicMeter {
                                     repair_attempt,
                                     "live",
                                 );
-                                if self.is_current(epoch) {
+                                if state.is_current(epoch) {
                                     emit(MeterEvent::Status(MeterStatus::Recovered));
                                 }
                             }
@@ -295,7 +399,7 @@ impl MicMeter {
                             level_blocks = level_blocks.saturating_add(1);
                             // The read above can outlive a stop or replacement;
                             // a stale meter must not paint the new one's UI.
-                            if !self.is_current(epoch) {
+                            if !state.is_current(epoch) {
                                 break;
                             }
                             emit(MeterEvent::Level(smoothed.clamp(0.0, 1.0)));
@@ -317,7 +421,7 @@ impl MicMeter {
                                     // Same epoch-checked, single-retry helper as
                                     // the stream-error path: a stopped meter
                                     // must not reopen the microphone.
-                                    let Some(reopen_result) = self.try_reopen(
+                                    let Some(reopen_result) = state.try_reopen(
                                         epoch,
                                         &config,
                                         &mut repair_attempt,
@@ -328,7 +432,7 @@ impl MicMeter {
                                     };
                                     match reopen_result {
                                         Ok(mut reopened) => {
-                                            if !self.is_current(epoch) {
+                                            if !state.is_current(epoch) {
                                                 let _ = reopened.stop();
                                                 break;
                                             }
@@ -338,7 +442,7 @@ impl MicMeter {
                                             continue;
                                         }
                                         Err(_) => {
-                                            if self.is_current(epoch) {
+                                            if state.is_current(epoch) {
                                                 emit(MeterEvent::Status(MeterStatus::Unavailable));
                                             }
                                             break;
@@ -365,14 +469,14 @@ impl MicMeter {
                                 repair_attempt,
                                 &outcome,
                             );
-                            if !self.is_current(epoch) {
+                            if !state.is_current(epoch) {
                                 break;
                             }
                             emit(MeterEvent::Status(MeterStatus::Reopening));
                             if let Some(mut previous) = session.take() {
                                 health = previous.stop();
                             }
-                            let Some(reopen_result) = self.try_reopen(
+                            let Some(reopen_result) = state.try_reopen(
                                 epoch,
                                 &config,
                                 &mut repair_attempt,
@@ -381,7 +485,7 @@ impl MicMeter {
                             ) else {
                                 // `None` also means the meter was stopped or
                                 // replaced meanwhile; that is not a failure.
-                                if !self.is_current(epoch) {
+                                if !state.is_current(epoch) {
                                     break;
                                 }
                                 {
@@ -394,7 +498,7 @@ impl MicMeter {
                             };
                             match reopen_result {
                                 Ok(mut reopened) => {
-                                    if !self.is_current(epoch) {
+                                    if !state.is_current(epoch) {
                                         let _ = reopened.stop();
                                         break;
                                     }
@@ -407,7 +511,7 @@ impl MicMeter {
                                         "onboarding_mic_meter_error",
                                         "outcome=reopen_failed repair_attempt=1",
                                     );
-                                    if self.is_current(epoch) {
+                                    if state.is_current(epoch) {
                                         emit(MeterEvent::Status(MeterStatus::Unavailable));
                                         emit(MeterEvent::Error { detail: None });
                                     }
@@ -436,16 +540,51 @@ impl MicMeter {
                         health.dropped_blocks,
                     ),
                 );
-                if self.release(epoch) {
+                if state.is_current(epoch) {
                     emit(MeterEvent::Level(0.0));
+                    state.release(epoch);
                 }
-            })
-            .map_err(|err| {
-                self.release(epoch);
-                MeterStartError::SpawnFailed(err.to_string())
-            })?;
-
+            });
+        match worker {
+            Ok(worker) => *lock(&self.worker) = Some(worker),
+            Err(error) => {
+                self.state.release(epoch);
+                return Err(MeterStartError::SpawnFailed(error.to_string()));
+            }
+        }
+        // Parameters also drop after local guards on early returns. Explicitly
+        // order the successful path for host callback destructor reentry.
+        drop(operation);
+        drop(emit);
         Ok(())
+    }
+}
+
+impl Drop for MicMeter {
+    fn drop(&mut self) {
+        self.close();
+    }
+}
+
+impl MeterState {
+    fn invalidate(&self) -> bool {
+        self.epoch.fetch_and(!1, Ordering::SeqCst) & 1 != 0
+    }
+
+    fn release(&self, epoch: u64) -> bool {
+        self.epoch
+            .compare_exchange(epoch, epoch & !1, Ordering::SeqCst, Ordering::SeqCst)
+            .is_ok()
+    }
+
+    fn is_current(&self, epoch: u64) -> bool {
+        !self.closed.load(Ordering::SeqCst)
+            && epoch & 1 != 0
+            && self.epoch.load(Ordering::SeqCst) == epoch
+    }
+
+    fn is_worker(&self) -> bool {
+        METER_WORKER.with(|worker| std::ptr::eq(worker.get(), self))
     }
 
     fn resolve_device(
@@ -472,12 +611,18 @@ impl MicMeter {
         device_id: Option<usize>,
         device_platform_id: Option<&str>,
     ) -> Option<OpenResult> {
-        let _transition = self.meter_transition();
         if !self.is_current(epoch) || *repair_attempt >= 1 {
             return None;
         }
         *repair_attempt = repair_attempt.saturating_add(1);
-        Some(open_session(config, device_id, device_platform_id))
+        let result = open_session(config, device_id, device_platform_id);
+        if !self.is_current(epoch) {
+            if let Ok(mut session) = result {
+                let _ = session.stop();
+            }
+            return None;
+        }
+        Some(result)
     }
 }
 

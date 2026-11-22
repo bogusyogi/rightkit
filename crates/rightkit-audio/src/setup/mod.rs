@@ -30,3 +30,6 @@ pub mod calibration_session;
 pub mod media_guard;
 pub mod mic_meter;
 pub mod permissions;
+
+/// Setup audio admission, suspend/resume & explicit off-UI teardown.
+pub mod scope;

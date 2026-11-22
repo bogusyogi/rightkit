@@ -35,6 +35,22 @@ pub(super) fn status_label(status: isize) -> &'static str {
 /// Synchronous: the `recv_timeout` wait on the completion handler blocks the calling thread, so
 /// hosts call this from a blocking worker.
 pub(super) fn request_access(event_sink: fn(&str, &str)) -> Result<String, String> {
+    request_access_cancellable(event_sink, || false)
+}
+
+/// Cancellation releases only the app wait; OS may retain its sender-only completion block.
+pub(super) fn request_access_cancellable(
+    event_sink: fn(&str, &str),
+    cancelled: impl Fn() -> bool,
+) -> Result<String, String> {
+    let check = || {
+        if cancelled() {
+            Err("microphone permission session cancelled".to_string())
+        } else {
+            Ok(())
+        }
+    };
+    check()?;
     use objc2::msg_send;
     use objc2::runtime::{AnyClass, Bool};
     use objc2_foundation::NSString;
@@ -51,6 +67,7 @@ pub(super) fn request_access(event_sink: fn(&str, &str)) -> Result<String, Strin
         "microphone_permission_status",
         &format!("preflight={status}"),
     );
+    check()?;
     match status {
         3 => {
             event_sink("microphone_permission_result", "authorized_existing");
@@ -69,13 +86,27 @@ pub(super) fn request_access(event_sink: fn(&str, &str)) -> Result<String, Strin
         _ => {}
     }
     event_sink("microphone_permission_prompt", "requesting");
+    check()?;
     let (tx, rx) = std::sync::mpsc::channel::<bool>();
     let handler = block2::RcBlock::new(move |granted: Bool| {
         let _ = tx.send(granted.as_bool());
     });
     let _: () =
         unsafe { msg_send![cls, requestAccessForMediaType: &*media, completionHandler: &*handler] };
-    match rx.recv_timeout(std::time::Duration::from_secs(120)) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(120);
+    let answer = loop {
+        check()?;
+        let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+        if remaining.is_zero() {
+            break Err(std::sync::mpsc::RecvTimeoutError::Timeout);
+        }
+        match rx.recv_timeout(remaining.min(std::time::Duration::from_millis(20))) {
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
+            result => break result,
+        }
+    };
+    check()?;
+    match answer {
         Ok(true) => {
             event_sink("microphone_permission_result", "authorized_prompt");
             Ok("authorized".into())

@@ -32,7 +32,7 @@ rightkit-transcript-library = { version = "0.1.4", path = "../rightkit-transcrip
 rightkit-text-polish = { version = "0.1.0", path = "../rightkit-text-polish" }
 
 [target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]
-rightkit-audio = { version = "0.3.8", default-features = false, features = ["capture"], path = "../rightkit-audio" }
+rightkit-audio = { version = "0.4.0", default-features = false, features = ["capture"], path = "../rightkit-audio" }
 rightkit-automation = { version = "0.7.1", path = "../rightkit-automation", features = ["desktop-context"] }
 
 rightkit-hotkeys = { version = "0.1.7", path = "../rightkit-hotkeys" }

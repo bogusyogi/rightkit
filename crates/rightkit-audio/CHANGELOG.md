@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.0
+
+- Coordinate setup visibility, stale command rejection, owned consent & off-UI resource drain with SetupAudioScope.
+- Own each microphone meter worker with an app-held MicMeter. Construct it at runtime, cancel an epoch with stop, and close or drop off the UI thread to drain its capture.
+- Hold a MicrophonePermissionSession for setup consent. Windows callers migrate to the session request method, which owns and drains the grant watch. The legacy free request remains available on other platforms.
+- Declare the actual lifetimes of capture registration, calibration children and setup workers.
+
 ## 0.3.10
 
 - Add calibration session completion with owned PCM cleanup, typed outcomes & host callbacks for model activation, engine execution and restart.

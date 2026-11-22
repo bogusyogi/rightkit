@@ -52,6 +52,12 @@ let samples: Vec<f32> = read_wav_16k_mono(Path::new("/abs/in.wav"))?;
 - `tests/audio_e2e.rs` uses real files and FFmpeg, and a named loopback input device when one is available. No test routes audible audio to speakers; the one `playback` test that opens the default output device is `#[ignore]` and pushes only silence.
 - Playback (feature `playback`) uses cpal output on WASAPI, CoreAudio and ALSA, as capture does. The pure ring, gain and clock tests run on every host; the device test runs with `--features playback -- --ignored`.
 
+## Setup lifecycle
+
+Keep a `MicMeter` and `MicrophonePermissionSession` in host-owned setup state. Constructors open no device and start no worker. Call `begin` and `start` after a user action and an existing grant, and `stop` to invalidate the current epoch without waiting. The next start drains its predecessor before opening capture. Use `session.request(&host)` off the UI thread for microphone consent. On hide or suspend, stop the meter and cancel consent immediately. Drain both with `close` off the UI thread on teardown. Close is terminal, so construct fresh owners to reopen. Callbacks that refer to an owner should hold a weak reference.
+
+In 0.4.0, `MicMeter::new` requires runtime construction and Windows callers move from the free request function to `MicrophonePermissionSession::request`. The free API on other targets is unchanged.
+
 ## Playback
 
 For a short cue, `play_once` does the decode, resample and device handling in one call and returns when the device has consumed the file:
@@ -95,6 +101,8 @@ A hosted runner has none of these assets, so each test prints `SKIP <test>: ...`
 - `tests/audio_e2e.rs`, `resampler_and_capture_gate_are_explicit` (the capture half): a configured virtual loopback input device. The resampler assertions run on every host.
 
 ## Setup metering & calibration
+
+Use `setup::scope::SetupAudioScope` to own metering & consent across setup visibility changes. Capture a ticket when accepting each command before dispatching it to a blocking executor. The scope rejects stale tickets and hidden starts. `suspend` revokes old work, `activate` records an explicit reveal, and off-UI `drain` releases retired work before new operations can proceed. `stop_meter` leaves consent in place. For ordinary exit, call terminal `close` then `drain` off UI before releasing the final owner. Keep window lifecycle, OS grant checks, device selection, event routing & copy in the host.
 
 `setup::mic_meter::{MicMeter, MeterConfig, MeterEvent, MeterStatus, MeterStartError, level}` provides metering with first-buffer probing, one reopen & stale-epoch protection. Use `begin` then `start`; call `stop` on setup exit, hide, suspend & close. Stop invalidates its epoch; worker drops its stream after its current bounded read. Reopen drops old stream before opening its replacement.
 

@@ -2626,9 +2626,9 @@
       "pkId": "PK19",
       "id": "ci/consumers/rightkit-audio/src/main.rs",
       "files": {
-        "Cargo.toml": "410ef5da0cb53a277027780258108f08c2601aeabb3693b27e3a8c0c69e485b4",
-        "README.md": "5144c628bb41ffba6a75959b4108668aee8aee13a56c8e8a83fa585f47b5c3e2",
-        "src/main.rs": "c17aff0b97b2485ab10226259b96941db46e8bc1a758fcfa07c53e38798c1a2e"
+        "Cargo.toml": "3b2c1508cb593fc3af9e8716539182745d2c1ae266f20a993c9754a0405d7292",
+        "README.md": "899abf3f5a32db3214fcfa4db4198b371786c1c18bbcc838090cba64a95938e5",
+        "src/main.rs": "f737fecc671b43b8fe14273d37c95f1e68f2af32b283c19a9d934a091d25e55f"
       }
     },
     "rightkit-cache": {
