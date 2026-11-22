@@ -6,6 +6,7 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { parseYaml } from "./workflow-yaml.mjs";
 import { derivePublicationObligations } from "./publication-obligations.mjs";
+import { candidateWorkspace } from "../../packages/release/committed-cargo-workspace.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const SHA = /^[a-f0-9]{40}$/;
@@ -110,15 +111,22 @@ export function loadCandidateSource({ directory, sourceSha, promotionSha, regist
   if (!Array.isArray(workspace.packages) || workspace.packages[0] !== "packages/*" || workspace.packages.slice(1).some((item) => typeof item !== "string" || !/^!packages\/[^/\s]+$/.test(item))) throw new Error("unsupported candidate workspace package policy");
   const excluded = new Set([...workspaceText.matchAll(/^\s*-\s*['"]?!packages\/([^'"\s/]+)['"]?\s*$/gm)].map((match) => match[1]));
   if (excluded.size !== new Set(workspace.packages.slice(1)).size) throw new Error("workspace exclusions disagree with gate parser");
-  // rightkit#1285: every crates/<x> is its own Cargo workspace with its own Cargo.lock; there is no root manifest or lock.
+  // Resolve committed workspace ownership, including the separate workspace used by older candidates.
   const memberManifests = []; const packageManifests = []; const packageNames = new Map(); const crateLocks = {};
+  const workspaceSource = { readData };
+  const lockByPath = new Map();
   for (const name of [...entries.keys()].sort()) {
     if (/^crates\/[^/]+\/Cargo.toml$/.test(name)) {
       const manifest = read(name);
       if (/^\[package\][^[]*?^name\s*=\s*"([^"]+)"/ms.test(manifest)) {
         const dir = path.posix.dirname(name);
         memberManifests.push({ dir, text: manifest });
-        crateLocks[dir] = read(`${dir}/Cargo.lock`);
+        if (registry === "crates") {
+          const owner = entries.has("Cargo.toml") ? candidateWorkspace(workspaceSource, dir) : dir;
+          const lockPath = owner === "." ? "Cargo.lock" : `${owner}/Cargo.lock`;
+          if (!lockByPath.has(lockPath)) lockByPath.set(lockPath, read(lockPath));
+          crateLocks[dir] = lockByPath.get(lockPath);
+        }
       }
     }
     if (/^packages\/[^/]+\/package.json$/.test(name)) {
