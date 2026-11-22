@@ -8,6 +8,8 @@ Shared Tauri shell for desktop applications. It owns hardened webviews (`Hardeni
 
 ## Features
 
+macOS applications locked to Tauri 2.11 must enable `tauri/macos-private-api` in their macOS dependency to compile the window transparency builder. Tauri 2.12 exposes this builder without that feature.
+
 | Feature | Default | Pulls in | Effect |
 |---|---|---|---|
 | `engine` | off | `rightkit-job-queue` (optional; `rightkit-child-process` is an unconditional dependency) | Engine sidecar wiring over `rightkit-job-queue` `EngineClient`. Opt in; it pulls `rightkit-job-queue` (db, time, uuid). |
