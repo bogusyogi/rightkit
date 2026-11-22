@@ -974,6 +974,40 @@
           "receiptSha256": "9166464769885f6775f39f6db0ac96636ac5f7b1b2165f595c6847af71d626cc"
         }
       }
+    },
+    {
+      "id": "audio-0-4-1-a10c1334",
+      "sourceSha": "a10c1334893a25c2a209ffd9f1b3cba0621d7e7d",
+      "runId": "44987812990",
+      "runAttempt": "1",
+      "workflowId": "381341382",
+      "manifestSha256": "7bdb2e6909f9e7f0cf2e4208fffb1960ccb2e8505a3f41c19fbcb249b5f70cb5",
+      "registry": "crates",
+      "units": [
+        "rightkit-audio"
+      ],
+      "allow": {
+        "hostExclusion": [],
+        "noTest": [],
+        "ignored": [],
+        "missingAssets": []
+      },
+      "artifacts": {
+        "packed": {
+          "id": "14740324554",
+          "digest": "sha256:68def1f2c2cfc181119eeaacc7e041bd105c1d8c92aa9ab5cb9a955b5e80b52a"
+        },
+        "macos": {
+          "id": "14740434835",
+          "digest": "sha256:d4534f9415dbeb6ed67b4ad1811e3f0e3c348356a257d86edb8c196627d69abc",
+          "receiptSha256": "45c84055fd1ec07f6252dee432ad59e580cd44963da4a0933e695d2dd72584ce"
+        },
+        "windows": {
+          "id": "14741071150",
+          "digest": "sha256:4df3a543b5fc055d118e9eaf43d9f40bf7f38633f56695a4207730bcbaaf4020",
+          "receiptSha256": "408a03776d2b404460c650604783ca2eb6fef255ad6df9b8d8cbb9096bc39bcc"
+        }
+      }
     }
   ],
   "artifacts": [
@@ -1264,6 +1298,14 @@
       "sha256": "a0e387ba954c0ff7a5be0f8214e53352e76a8542d079b66cfda053020f62bd54",
       "reviewer": "Independent Oracle and owner exact archive review",
       "reviewRef": "https://github.com/bogusyogi/rightkit/issues/1680#issuecomment-7073524136"
+    },
+    {
+      "registry": "crates",
+      "name": "rightkit-audio",
+      "version": "0.4.1",
+      "sha256": "844ea6ad36344ef7760865975a3dd47fb569efcf5ead40b080e0b96b71f62bfd",
+      "reviewer": "Independent Oracle and owner exact archive review",
+      "reviewRef": "agent-review:/root/audio_meter_041_oracle+audio_041_archive_oracle/a10c1334893a25c2a209ffd9f1b3cba0621d7e7d/844ea6ad36344ef7760865975a3dd47fb569efcf5ead40b080e0b96b71f62bfd"
     }
   ]
 }
