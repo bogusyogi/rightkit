@@ -53,11 +53,18 @@ pub fn state_dir_name() -> &'static str {
         .unwrap_or(DEFAULT_STATE_DIR_NAME)
 }
 
-/// `name` (written with the default `RIGHTKIT_` prefix) under the host's prefix. The renamed
-/// strings are interned once each, so a call allocates nothing after the first.
+/// `name` (written with the default `RIGHTKIT_` prefix) under the host's prefix. A name that
+/// already carries the host's prefix is kept as it is, so a host that passes its own names (for
+/// example `CODERIGHT_HOOK_ROLE` in an extra variable) does not get them prefixed twice
+/// (`CODERIGHTCODERIGHT_HOOK_ROLE`). The renamed strings are interned once each, so a call
+/// allocates nothing after the first.
 pub(crate) fn host_env_name(name: &'static str) -> &'static str {
     let prefix = env_prefix();
-    if prefix == DEFAULT_ENV_PREFIX {
+    if prefix == DEFAULT_ENV_PREFIX
+        || name
+            .strip_prefix(prefix)
+            .is_some_and(|rest| rest.starts_with('_'))
+    {
         return name;
     }
     static NAMES: std::sync::Mutex<Option<std::collections::HashMap<&'static str, &'static str>>> =

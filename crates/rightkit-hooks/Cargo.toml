@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-hooks"
-version = "0.2.11"
+version = "0.2.12"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Typed Claude Code and Codex hook payloads, a deadline-bound exit-0 dispatcher, exact output builders, and delivery receipts."
@@ -22,6 +22,9 @@ regex = {version = "1", optional = true}
 rightkit-child-process = {version = "0.5.7", features = ["tokio"], path = "../rightkit-child-process", optional = true}
 thiserror = {version = "2", optional = true}
 tokio = {version = "1", features = ["full"], optional = true}
+
+[dev-dependencies]
+tokio = {version = "1", features = ["macros", "rt-multi-thread"]}
 
 [package.metadata.rightkit]
 continuous = false
