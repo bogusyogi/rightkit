@@ -165,6 +165,12 @@ pub struct RuntimeMiddlewareRegistry {
     store_path: Option<PathBuf>,
     last_persisted_at: Option<std::time::Instant>,
     dirty: bool,
+    /// `enabled` flags this registry changed since its last write. Only these override the
+    /// file; every other flag is taken from the file, so a registry holding an older snapshot
+    /// never turns back a flag another process changed.
+    pending_enabled: BTreeMap<String, bool>,
+    /// Set when this registry replaced the local plugin middleware since its last write.
+    plugins_replaced: bool,
 }
 
 impl Default for RuntimeMiddlewareRegistry {
@@ -182,6 +188,8 @@ impl RuntimeMiddlewareRegistry {
             store_path: None,
             last_persisted_at: None,
             dirty: false,
+            pending_enabled: BTreeMap::new(),
+            plugins_replaced: false,
         };
         for definition in builtin_middleware() {
             registry
@@ -225,11 +233,76 @@ impl RuntimeMiddlewareRegistry {
         registry
     }
 
-    /// Write the store now, within the size cap.
+    /// Merge what other processes wrote since this registry last wrote: the file's `enabled`
+    /// flags win over this registry's except those it changed itself (`pending_enabled`); the
+    /// local plugin rows come from the file unless this registry replaced them; spans and
+    /// observations from the file are kept beside this registry's own.
+    fn merge_from_disk(&mut self, path: &Path) {
+        let Ok(raw) = std::fs::read_to_string(path) else {
+            return;
+        };
+        let Ok(disk) = serde_json::from_str::<PersistedRuntimeMiddleware>(&raw) else {
+            return;
+        };
+        if !self.plugins_replaced {
+            let on_disk: std::collections::BTreeSet<&str> =
+                disk.middleware.iter().map(|d| d.id.as_str()).collect();
+            self.middleware.retain(|id, definition| {
+                definition.source != MiddlewareSource::LocalPlugin || on_disk.contains(id.as_str())
+            });
+        }
+        for persisted in disk.middleware {
+            if self.plugins_replaced && persisted.source == MiddlewareSource::LocalPlugin {
+                continue;
+            }
+            match self.middleware.get_mut(&persisted.id) {
+                Some(current) => {
+                    if !self.pending_enabled.contains_key(&persisted.id) {
+                        current.enabled = persisted.enabled;
+                    }
+                }
+                None => {
+                    self.middleware.insert(persisted.id.clone(), persisted);
+                }
+            }
+        }
+        for span in disk.spans {
+            self.spans.entry(span.id.clone()).or_insert(span);
+        }
+        for observation in disk.observations {
+            self.observations
+                .entry(observation.id.clone())
+                .or_insert(observation);
+        }
+        Self::evict_oldest(&mut self.spans, MAX_RETAINED_SPANS, |s| {
+            s.started_at.clone()
+        });
+        Self::evict_oldest(&mut self.observations, MAX_RETAINED_OBSERVATIONS, |o| {
+            o.created_at.clone()
+        });
+    }
+
+    /// Write the store now, within the size cap. Several processes of one account share the
+    /// file (CodeRight #539), so the write is a read-modify-write under `<store>.lock`: the
+    /// file is re-read and merged (`merge_from_disk`) before it is replaced. A lock that cannot
+    /// be taken within five seconds skips this write; the changes stay pending for the next.
     fn persist(&mut self) {
         let Some(path) = self.store_path.clone() else {
             return;
         };
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let mut lock_path = path.clone().into_os_string();
+        lock_path.push(".lock");
+        let Ok(_lock) = rightkit_fs::FileLock::acquire(
+            Path::new(&lock_path),
+            &rightkit_fs::LockOptions::wait(std::time::Duration::from_secs(5)),
+        ) else {
+            self.dirty = true;
+            return;
+        };
+        self.merge_from_disk(&path);
         let body = loop {
             let snapshot = PersistedRuntimeMiddleware {
                 middleware: self.middleware(),
@@ -268,6 +341,8 @@ impl RuntimeMiddlewareRegistry {
         );
         self.last_persisted_at = Some(std::time::Instant::now());
         self.dirty = false;
+        self.pending_enabled.clear();
+        self.plugins_replaced = false;
     }
 
     /// Write after a span or observation record, at most once per
@@ -304,9 +379,9 @@ impl RuntimeMiddlewareRegistry {
     pub fn set_enabled(&mut self, id: &str, enabled: bool) -> Option<MiddlewareDefinition> {
         let definition = self.middleware.get_mut(id)?;
         definition.enabled = enabled;
-        let updated = definition.clone();
+        self.pending_enabled.insert(id.to_string(), enabled);
         self.persist();
-        Some(updated)
+        self.middleware.get(id).cloned()
     }
 
     pub fn replace_local_plugin_middleware(
@@ -319,6 +394,7 @@ impl RuntimeMiddlewareRegistry {
             definition.source = MiddlewareSource::LocalPlugin;
             self.middleware.insert(definition.id.clone(), definition);
         }
+        self.plugins_replaced = true;
         self.persist();
         self.middleware()
             .into_iter()
