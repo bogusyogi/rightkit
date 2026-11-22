@@ -16,7 +16,7 @@
   "workloads": [
     {
       "id": "native-shell-wv2-0_38",
-      "args": ["test", "--locked", "--profile", "release-iterate", "-p", "rightkit-tauri-shell", "--no-default-features", "--features", "wv2-0_38", "--bench", "budget_native"],
+      "args": ["test", "--locked", "--profile", "release-iterate", "--manifest-path", "../../ci/consumers/wv2-0_38/Cargo.toml", "-p", "rightkit-tauri-shell-wv38-runtime", "--no-default-features", "--features", "wv2-0_38", "--bench", "budget_native"],
       "bench": "budget_native",
       "intervalMs": 1000
     },
@@ -28,7 +28,7 @@
     },
     {
       "id": "native-host-wv2-0_38",
-      "args": ["test", "--locked", "--profile", "release-iterate", "-p", "rightkit-tauri-shell", "--no-default-features", "--features", "wv2-0_38,host-services,logs,crash,content-devtools", "--bench", "budget_native"],
+      "args": ["test", "--locked", "--profile", "release-iterate", "--manifest-path", "../../ci/consumers/wv2-0_38/Cargo.toml", "-p", "rightkit-tauri-shell-wv38-runtime", "--no-default-features", "--features", "wv2-0_38,host-services,logs,crash,content-devtools", "--bench", "budget_native"],
       "bench": "budget_native",
       "intervalMs": 1000
     },
