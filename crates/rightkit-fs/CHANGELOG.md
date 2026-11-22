@@ -2,6 +2,9 @@
 
 ## 0.5.0 (unpublished)
 
+- Directory ACL caching now requires a held `private_cached::PrivateDirCacheLease`. Without a lease, helpers perform the owner-only checks on each call. Dropping the last lease releases cached directory identities after in-flight calls return.
+- Reject a Windows scanner timeout that cannot be represented before starting the scanner process.
+
 - Breaking: `AppId::new(name, org: Option<&'static str>)` requires an explicit organization choice; remove `DEFAULT_ORG`. Pass the installed organization as `Some(org)` or preserve an existing flat layout with `None`. Resolver, legacy-name, dev, Android injected-root & Windows cache behavior stay unchanged. See README migration instructions. (#1671)
 - Retain `OwnedTemp::discard` & its ownership-evidence cleanup behavior from staged 0.4.19.
 

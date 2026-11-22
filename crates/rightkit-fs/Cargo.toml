@@ -88,7 +88,7 @@ static_note = "The process registry has entries only for active locks; no idle w
 api = "scan_file_with_timeout"
 file = "src/malware_scan.rs"
 holds = ["child", "memory"]
-scale = "At most one Windows scanner child per call, polled every 50 ms. Caller chooses a deadline or waits for child exit."
+scale = "At most one Windows scanner child per call, polled every 50 ms. A finite deadline is checked for overflow before spawn; an unrepresentable deadline returns Unavailable without launching a child. None waits for child exit."
 release = "Child exit or a failed or timed-out wait kills and reaps the child."
 
 [[package.metadata.rightkit.resources]]
@@ -99,12 +99,12 @@ scale = "One caller-owned ACL operation with MAX_OPEN_TRIES attempts on a Window
 release = "ACL call return."
 
 [[package.metadata.rightkit.resources]]
-api = "ensure_dir"
+api = "PrivateDirCacheLease"
 file = "src/private_cached.rs"
 holds = ["memory"]
-scale = "At most 513 cached directory identities per process; reuse is limited to 300 seconds and checks current identity."
-release = "forget_private_dir removes one entry; insertion over the limit clears all entries."
-static_note = "One lazy lock over a size-limited cache, with no background task or timer."
+scale = "Acquire and Clone share at most 513 directory identities per shared cache; only held PrivateDirCacheLease values enable new cache calls, and in-flight helpers may briefly retain storage; reuse lasts at most 300 seconds and checks current identity. Without a lease, ACL checks are uncached."
+release = "Last lease Drop, after in-flight helpers return, drops the map and its entries. forget_private_dir removes one entry; insertion over the limit clears entries."
+static_note = "One process singleton holds only a mutex-protected Weak slot, never a strong cache owner. Serialized acquire/upgrade shares a live cache or creates an empty one; no background task or timer."
 
 [[package.metadata.rightkit.resources]]
 api = "FileTransaction"

@@ -1,11 +1,14 @@
-//! Owner-only folders with a per-process trust cache. [`ensure_dir`] and
+//! Owner-only folders with a caller-held trust cache. [`ensure_dir`] and
 //! [`ensure_private_dir_repairing`] wrap [`crate::private::ensure_private_dir`] so a folder checked
 //! recently is not re-checked (and its security descriptor not re-read) on every write, and a
 //! folder an elevated run created on Windows is moved aside and recreated instead of failing for good.
+//! Hold a [`PrivateDirCacheLease`] to enable caching; without a lease every call checks ACLs.
 
 use crate::FsError;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// How long a successful owner-only check of a folder is trusted. `ensure_private_dir` reads and
@@ -46,18 +49,85 @@ fn private_dir_identity(meta: &std::fs::Metadata) -> Option<DirIdentity> {
 }
 
 type PrivateDirCache =
-    std::sync::Mutex<std::collections::HashMap<PathBuf, (std::time::Instant, DirIdentity)>>;
+    Mutex<std::collections::HashMap<PathBuf, (std::time::Instant, DirIdentity)>>;
 
-fn private_dir_cache() -> &'static PrivateDirCache {
-    static CACHE: std::sync::OnceLock<PrivateDirCache> = std::sync::OnceLock::new();
+struct PrivateDirCacheState {
+    entries: PrivateDirCache,
+    leases: AtomicUsize,
+}
+
+/// Keeps the shared owner-only directory trust cache alive for this caller.
+///
+/// Clones share at most 513 identities with a 300-second trust window. Dropping the last lease
+/// discards entries once in-flight cache calls finish without another lease being acquired.
+/// Acquisition after that point starts empty.
+/// Without a held lease, helpers use uncached ACL checks. No worker or timer is started.
+#[must_use = "hold this lease for as long as directory trust caching is wanted"]
+pub struct PrivateDirCacheLease {
+    _cache: Arc<PrivateDirCacheState>,
+}
+
+impl PrivateDirCacheLease {
+    /// Acquire a caller-held lease, sharing any cache still held by a lease or in-flight call.
+    pub fn acquire() -> Self {
+        let mut slot = private_dir_cache_slot()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let cache = slot.upgrade().unwrap_or_else(|| {
+            let cache = Arc::new(PrivateDirCacheState {
+                entries: PrivateDirCache::default(),
+                leases: AtomicUsize::new(0),
+            });
+            *slot = Arc::downgrade(&cache);
+            cache
+        });
+        cache.leases.fetch_add(1, Ordering::Relaxed);
+        Self { _cache: cache }
+    }
+}
+
+impl std::fmt::Debug for PrivateDirCacheLease {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("PrivateDirCacheLease")
+            .finish_non_exhaustive()
+    }
+}
+
+impl Clone for PrivateDirCacheLease {
+    fn clone(&self) -> Self {
+        let cache = Arc::clone(&self._cache);
+        cache.leases.fetch_add(1, Ordering::Relaxed);
+        Self { _cache: cache }
+    }
+}
+
+impl Drop for PrivateDirCacheLease {
+    fn drop(&mut self) {
+        self._cache.leases.fetch_sub(1, Ordering::Release);
+    }
+}
+
+fn private_dir_cache_slot() -> &'static Mutex<Weak<PrivateDirCacheState>> {
+    static CACHE: OnceLock<Mutex<Weak<PrivateDirCacheState>>> = OnceLock::new();
     CACHE.get_or_init(Default::default)
+}
+
+fn private_dir_cache() -> Option<Arc<PrivateDirCacheState>> {
+    let cache = private_dir_cache_slot().lock().ok()?.upgrade()?;
+    // An in-flight helper may outlive the final lease, but cannot enable new cache calls.
+    (cache.leases.load(Ordering::Acquire) != 0).then_some(cache)
 }
 
 /// True when `dir` passed the owner-only check recently in this process and still exists as the
 /// same folder (one metadata call, no security descriptor read). A link is never trusted from the
 /// cache, and a changed or unreadable folder identity is a miss.
 pub fn private_dir_verified(dir: &Path) -> bool {
-    let Some((at, identity)) = private_dir_cache()
+    let Some(cache) = private_dir_cache() else {
+        return false;
+    };
+    let Some((at, identity)) = cache
+        .entries
         .lock()
         .ok()
         .and_then(|cache| cache.get(dir).copied())
@@ -77,26 +147,32 @@ pub fn private_dir_verified(dir: &Path) -> bool {
 /// Remember that `dir` just passed `crate::private::ensure_private_dir`. A folder whose identity
 /// cannot be read is not remembered.
 pub fn note_private_dir(dir: &Path) {
+    let Some(cache) = private_dir_cache() else {
+        return;
+    };
     let Some(identity) = std::fs::symlink_metadata(dir)
         .ok()
         .and_then(|meta| private_dir_identity(&meta))
     else {
         return;
     };
-    if let Ok(mut cache) = private_dir_cache().lock() {
+    if let Ok(mut cache) = cache.entries.lock() {
         if cache.len() > 512 {
             cache.clear();
         }
         cache.insert(dir.to_path_buf(), (std::time::Instant::now(), identity));
-    }
+    };
 }
 
 /// Drop the remembered check for `dir` (a write there failed with access denied), so the next
 /// call checks and repairs it again.
 pub fn forget_private_dir(dir: &Path) {
-    if let Ok(mut cache) = private_dir_cache().lock() {
+    let Some(cache) = private_dir_cache() else {
+        return;
+    };
+    if let Ok(mut cache) = cache.entries.lock() {
         cache.remove(dir);
-    }
+    };
 }
 
 /// Makes `dir` and its missing parents owner-only (RightKit's `ensure_private_dir`), so a run from an
