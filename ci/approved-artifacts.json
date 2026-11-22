@@ -1008,6 +1008,42 @@
           "receiptSha256": "408a03776d2b404460c650604783ca2eb6fef255ad6df9b8d8cbb9096bc39bcc"
         }
       }
+    },
+    {
+      "id": "shell-0-8-7-a10c1334",
+      "sourceSha": "a10c1334893a25c2a209ffd9f1b3cba0621d7e7d",
+      "runId": "44989079685",
+      "runAttempt": "1",
+      "workflowId": "381341382",
+      "manifestSha256": "42d71d51ba39437e6c156c89d3007d6d54709e08f07d784bbec4af2a46d25c27",
+      "registry": "crates",
+      "units": [
+        "rightkit-tauri-shell"
+      ],
+      "allow": {
+        "hostExclusion": [],
+        "noTest": [],
+        "ignored": [
+          "rightkit-tauri-shell"
+        ],
+        "missingAssets": []
+      },
+      "artifacts": {
+        "packed": {
+          "id": "14741505692",
+          "digest": "sha256:fda8da2b044cabbc5762dee17a03f92702ccd98549a305be67d2280b8678f71f"
+        },
+        "macos": {
+          "id": "14741767589",
+          "digest": "sha256:e430a9b47ab029e5f55bc9e1525ae43db74dabbdb3de190de60c9e78de790f43",
+          "receiptSha256": "cb8025d7f0d72a8a84bd72fb3a6362e4d176ef4e7ded500b4d61ee618998f170"
+        },
+        "windows": {
+          "id": "14742083800",
+          "digest": "sha256:7dc71382a762712764bfa790f3dcbcd7726010cc16e10527b1c71046b0c72ae5",
+          "receiptSha256": "ae64f9cfe5f253caff2c7fec98e1653388feb877529db352af5dbda536daa708"
+        }
+      }
     }
   ],
   "artifacts": [
@@ -1306,6 +1342,14 @@
       "sha256": "844ea6ad36344ef7760865975a3dd47fb569efcf5ead40b080e0b96b71f62bfd",
       "reviewer": "Independent Oracle and owner exact archive review",
       "reviewRef": "agent-review:/root/audio_meter_041_oracle+audio_041_archive_oracle/a10c1334893a25c2a209ffd9f1b3cba0621d7e7d/844ea6ad36344ef7760865975a3dd47fb569efcf5ead40b080e0b96b71f62bfd"
+    },
+    {
+      "registry": "crates",
+      "name": "rightkit-tauri-shell",
+      "version": "0.8.7",
+      "sha256": "6924c8f848df1d2c0354b9a57f098aa5bf9bed95c632c8889a66b3e9d67419f9",
+      "reviewer": "Independent Oracle and owner exact archive review",
+      "reviewRef": "agent-review:/root/shell_087_resealed_archive_oracle/a10c1334893a25c2a209ffd9f1b3cba0621d7e7d/6924c8f848df1d2c0354b9a57f098aa5bf9bed95c632c8889a66b3e9d67419f9"
     }
   ]
 }
