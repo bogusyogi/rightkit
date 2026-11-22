@@ -179,7 +179,7 @@ impl MicMeter {
         let previous = self
             .state
             .epoch
-            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |epoch| {
+            .try_update(Ordering::SeqCst, Ordering::SeqCst, |epoch| {
                 Some(epoch.wrapping_add(2) | 1)
             })
             .unwrap();
@@ -224,7 +224,7 @@ impl MicMeter {
         let previous = self
             .state
             .epoch
-            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |epoch| {
+            .try_update(Ordering::SeqCst, Ordering::SeqCst, |epoch| {
                 Some(epoch.wrapping_add(2) | 1)
             })
             .unwrap();
