@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.15
+
+- Fixed (Linux): `OwnedCommand::kill_on_parent_exit` now takes the child's whole process group with this process, as on macOS. Before, Linux only set `PR_SET_PDEATHSIG` on the direct child, so anything the child started outlived a supervisor that died without cleanup: CodeRight's daemon, SIGKILLed, left a `sh -c` command's `sleep` running (CodeRight #448). Linux now arms the same double-forked, re-parented watchdog as macOS, holding pidfds on the supervisor and the child (`pidfd_open`, Linux 5.3; older kernels poll `kill(pid, 0)` every 50 ms). When the supervisor dies first it sends `SIGTERM` to the child's process group and `SIGKILL` two seconds later. Because the direct child's death signal fires with the supervisor, the watchdog does not stand down when the child is already gone: it signals whatever is left of the group (a group id is not reused while a member lives), and a child exit is only taken as "left on its own" when the supervisor is still alive 200 ms later. The direct child still gets `PR_SET_PDEATHSIG`. Cost: one helper process per tied child on Linux too.
+- New end-to-end test `tests/parent_death_e2e.rs` (Linux and macOS): a supervisor starts `sh -c 'sleep A & sleep B'` tied to it and is SIGKILLed; both sleeps must be gone within three seconds. It fails on 0.5.14 (both sleeps survive) and passes here.
+
 ## 0.5.14
 
 - Added `resolve_bundled_app` & `resolve_app_in_bundle` for canonical nested `.app` discovery inside host bundles, rejecting path traversal, symlink escapes, plain files & aliases to host bundle itself. Resolution verifies placement only & never launches a helper.
