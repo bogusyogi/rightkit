@@ -2689,7 +2689,7 @@
       "pkId": "PK34",
       "id": "ci/consumers/rightkit-hooks/src/main.rs",
       "files": {
-        "Cargo.toml": "b7098d7a43e03af584f9580318921fa9722479eafc03a0d47a4f8016edfa065e",
+        "Cargo.toml": "bf4a6ce2ee0eaf746f52a4cf39d07ff37c4d9da221e80425b8a577df86e60162",
         "README.md": "7b92ba222bcda5c0a6a37ab7de9c0433cdaa220a0c21ba576b81945ec9b0e8b9",
         "src/main.rs": "81b3c522d503e3cd84fc0be1efef048e20a4c99ab09f663df910f03b042d1e5b"
       }

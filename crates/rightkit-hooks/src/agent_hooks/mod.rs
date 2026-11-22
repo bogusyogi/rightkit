@@ -12,6 +12,7 @@ pub use bus::{
     PreToolUseOutcome, PreToolUseReport, ProcessLaunchAdapter,
 };
 pub use chain::{ChainReport, ConfiguredHooks, HookDecision, HookKind, HookResult, HookSpec};
+#[allow(deprecated)]
 pub use guard::{DestructiveGuard, DestructiveGuardDecision};
 pub use registry::{dry_run_hook_with_adapter, HookDryRunReport, HookRegistry, IdentifiedHook};
 
