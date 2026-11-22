@@ -2351,7 +2351,7 @@
       "gateEvidence": "existing consumer runs the child as itself for process cases; bundle resolver case uses a synthetic temporary .app tree, never launches a child, and refuses an escaping relative path; no network or real user data",
       "consumes": "PK02 plan (01-packages.md:116-129): ScrapeRight and CodeRight runners; public items exercised: run (crates/rightkit-child-process/src/run.rs:192), run_with_stdin (src/run.rs:173), run_command (src/run.rs:249), run_command_capture (src/run.rs:271), RunOptions (src/run.rs:64), CaptureOptions (src/run.rs:105), OwnedCommand::new and command_mut (src/owned.rs:167,216); 0.5.5 descriptor policy surface: OwnedCommand::inherit_all_descriptors and inherit_fd (src/owned.rs:255,273); 0.5.14 bundled_app::resolve_app_in_bundle resolves nested app placement and refuses escaping relative paths without child launch",
       "files": {
-        "Cargo.toml": "45fa969d0c1b1221feada3865f63f372e4dfefb8ef2669ff6be45ba13a90185d",
+        "Cargo.toml": "803d1bfb02fefee31179c9e6c9bf89548676432acbf81c2571b4b4646987d399",
         "README.md": "852edbc451881d88c9f3b3064200faaf1e973b5e09f11aef2e7e2c5d58509a71",
         "src/main.rs": "41e97e7d733d7be1465825efa6a5126e993d90eb9a339424295f309fe70ee487"
       },
@@ -2689,7 +2689,7 @@
       "pkId": "PK34",
       "id": "ci/consumers/rightkit-hooks/src/main.rs",
       "files": {
-        "Cargo.toml": "07bee0bb0741e7527f033cfe815f546e48d3571b05ae0a2ae03546cf93e6195e",
+        "Cargo.toml": "b7098d7a43e03af584f9580318921fa9722479eafc03a0d47a4f8016edfa065e",
         "README.md": "7b92ba222bcda5c0a6a37ab7de9c0433cdaa220a0c21ba576b81945ec9b0e8b9",
         "src/main.rs": "81b3c522d503e3cd84fc0be1efef048e20a4c99ab09f663df910f03b042d1e5b"
       }
@@ -3024,7 +3024,7 @@
       "pkId": "PK70",
       "id": "ci/consumers/rightkit-agent-engine-runtime-middleware/src/main.rs",
       "files": {
-        "Cargo.toml": "b5786ab6197a5efccbdda703d60c50622027e3177294b624efaefa67a8803fff",
+        "Cargo.toml": "041ea5dfc57fe2b18a1bdac307cf3d01b0b00b4eee3d82771e0a9375d0d3047e",
         "README.md": "5347c55dd098253a2bac59ffc13cabaa887b142bafb061060d2dc6a4ea80e8b1",
         "src/main.rs": "5d5b6741db83d4a77ac24f5834d93c54988acddd83f761c398332118548c1669"
       }
@@ -3078,7 +3078,7 @@
       "pkId": "PK76",
       "id": "ci/consumers/rightkit-agent-policy/src/main.rs",
       "files": {
-        "Cargo.toml": "63cb366a687e5816f36db445712a38c7330bc8fff6e6563bd3fafa914eaa90ef",
+        "Cargo.toml": "b6411df129b47ea6025f1b32c196f0103bd20a4b13666c522df1b57429ab5935",
         "README.md": "0d56bc71f8d661798528b7155ef64b35aa5aeb57eb2989dbf4e5e61e06f3e8da",
         "src/main.rs": "9c3d91141942b148bd5c04aeee1c469ceb7b7fe7f934f60436ffd9e8685599b3"
       }

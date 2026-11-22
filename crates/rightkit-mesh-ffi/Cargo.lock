@@ -1978,7 +1978,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-child-process"
-version = "0.5.14"
+version = "0.5.15"
 dependencies = [
  "libc",
  "windows",
