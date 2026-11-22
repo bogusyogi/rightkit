@@ -2,6 +2,40 @@
   "schema": 2,
   "candidates": [
     {
+      "id": "fs-0-5-0-60dd355e",
+      "sourceSha": "60dd355e00b11faad4c40840a502d7e645bafa06",
+      "runId": "44966407814",
+      "runAttempt": "1",
+      "workflowId": "381341382",
+      "manifestSha256": "a38ac628152e8b32d2678126510bb4455b87ef48de4fc80d2adbf8d5c2116628",
+      "registry": "crates",
+      "units": [
+        "rightkit-fs"
+      ],
+      "allow": {
+        "hostExclusion": [],
+        "noTest": [],
+        "ignored": [],
+        "missingAssets": []
+      },
+      "artifacts": {
+        "packed": {
+          "id": "14732125097",
+          "digest": "sha256:bcf2ff2dcf79611b251c1ea0e7c16e12d6b089c40cd2d8e1cfb7ba2abf01c282"
+        },
+        "macos": {
+          "id": "14731759213",
+          "digest": "sha256:00b62fc92d198061abd9e6bef68915b8d8e66b746b960fb7bbb312908b5a7fdf",
+          "receiptSha256": "e7aa26312f7c70e50a1a9c8fe565d0874a7421afa13380c21ace7b0d631b2c80"
+        },
+        "windows": {
+          "id": "14732046710",
+          "digest": "sha256:fab0b1c58325e2849da23d8d24b971a00439c82784ab30644a9df29e4068bcfe",
+          "receiptSha256": "955c955b95772647e2d941978e984ce99c47c095b171798e34f284f2fc646cbe"
+        }
+      }
+    },
+    {
       "id": "npm-logs-448e",
       "sourceSha": "448ec538b4c0c0a0b10341b235a83d5c37f3e22b",
       "runId": "39437329860",
@@ -909,6 +943,14 @@
     }
   ],
   "artifacts": [
+    {
+      "registry": "crates",
+      "name": "rightkit-fs",
+      "version": "0.5.0",
+      "sha256": "77b3fe7fc1ab9d5e78f27958839742967f1fef8817851a38d13d8552d00a55ab",
+      "reviewer": "RightKit owner and independent archive Oracle",
+      "reviewRef": "https://github.com/bogusyogi/rightkit/actions/runs/44966407814/attempts/1"
+    },
     {
       "registry": "npm",
       "name": "@rightkit/logs",
