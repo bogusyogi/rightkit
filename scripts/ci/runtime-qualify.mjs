@@ -257,7 +257,7 @@ async function resolveCandidate(env) {
   fs.writeFileSync(zip, bytes);
   const names = safeArchiveMembers(command("unzip", ["-Z1", zip], ROOT));
   // publish-packed is deliberately a flat set of files, never directories or links.
-  if (new Set(names).size !== names.length || names.some((name) => !/^(?:manifest\.json|[\w.-]+\.(?:crate|upload\.json))$/.test(name))) throw new Error("publish-packed must contain unique flat crate files");
+  if (new Set(names).size !== names.length || names.some((name) => !/^(?:manifest\.json|qualification-binding\.json|[\w.-]+\.(?:crate|upload\.json))$/.test(name))) throw new Error("publish-packed must contain unique flat crate files");
   // Read individual entries as bytes; never materialize ZIP symlinks.
   for (const name of names) fs.writeFileSync(path.join(packed, name), command("unzip", ["-p", zip, name], ROOT, { encoding: "buffer" }));
   Object.assign(context, { crate, artifactId: artifact.id, artifactDigest: artifact.digest, harnessSha: env.GITHUB_SHA });
