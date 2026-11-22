@@ -17,14 +17,20 @@ const hash = (bytes) => sha("sha256", bytes);
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 const safe = (name) => typeof name === "string" && /^[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)*$/.test(name) && name.split("/").every((p) => p !== "." && p !== "..");
 const TRUST_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-// This source has one computed loader with exactly two fixed call sites. Pin
-// every byte as well as its expression so a new call cannot extend this closure.
+// Computed imports from trusted helpers have fixed destinations. Pin the
+// entire source and expression so a new call cannot extend this closure.
 const COMPUTED_HELPER_IMPORTS = Object.freeze({
   "packages/release/local-publish.mjs": Object.freeze({
-    sha256: "95cf229407d41dbed5de34109ece5e0b485fa916e4d57d99f30ecf7ae4f85621",
+    sha256: "dd409f4c6f3456348171da71cd6333aa0d668dede6de636f85de61434e618e39",
     expression: 'pathToFileURL(path.join(workspaceRoot, "scripts", "ci", file)).href',
     count: 1,
     paths: Object.freeze(["scripts/ci/test-results.mjs", "scripts/ci/upload.mjs"]),
+  }),
+  "packages/release/deterministic-scans.mjs": Object.freeze({
+    sha256: "2babfa53db722522480f435c35f514567bef3b09dea23383a5fe5be9e274ade5",
+    expression: "pathToFileURL(TRUSTED_YAML_PARSER).href",
+    count: 1,
+    paths: Object.freeze(["packages/release/workflow-yaml.mjs"]),
   }),
 });
 /**
