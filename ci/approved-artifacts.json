@@ -940,6 +940,40 @@
           "receiptSha256": "fc90757f67d9149a335ab5bfe37253b7214532f81d68243c42d782413602fb66"
         }
       }
+    },
+    {
+      "id": "audio-0-4-0-b167e4b5",
+      "sourceSha": "b167e4b5502fd9cde94aa7c837fc1a6ab727830c",
+      "runId": "44979080670",
+      "runAttempt": "1",
+      "workflowId": "381341382",
+      "manifestSha256": "70e4bbd6d8af2bbcb42a302db11101cb9db4fde5e46ede1d6dcc8c60fba3c063",
+      "registry": "crates",
+      "units": [
+        "rightkit-audio"
+      ],
+      "allow": {
+        "hostExclusion": [],
+        "noTest": [],
+        "ignored": [],
+        "missingAssets": []
+      },
+      "artifacts": {
+        "packed": {
+          "id": "14736868431",
+          "digest": "sha256:8417a9b172d77d4ae998abe5b98cdc86bb9c1aa1d8381f71a857805f1b9834d5"
+        },
+        "macos": {
+          "id": "14736613044",
+          "digest": "sha256:fb2a5d505ce2314bcbd404266e0160f9f8cdafb30875648715d74d2b2647a099",
+          "receiptSha256": "39709a1d3a6bf6092ce93ebb8d5b2f0d3994b239999fc8d8780229162e56b848"
+        },
+        "windows": {
+          "id": "14737525941",
+          "digest": "sha256:6a6e1ae9ce51165567f2b67f0a80c1e35ae2259843aa945abd04a9a00f4d6f91",
+          "receiptSha256": "9166464769885f6775f39f6db0ac96636ac5f7b1b2165f595c6847af71d626cc"
+        }
+      }
     }
   ],
   "artifacts": [
@@ -1222,6 +1256,14 @@
       "sha256": "640cb57ba2ad43a33ddb54ed75ffe3a19eaf7bc5f8ae058f041d44b2e5cc6492",
       "reviewer": "Independent Oracle source review",
       "reviewRef": "agent-review:/root/hr_095_swift_oracle+hr_095_archive_oracle/ddc845b5d1c5b12a08819ae50e403b2b4943923a/640cb57ba2ad43a33ddb54ed75ffe3a19eaf7bc5f8ae058f041d44b2e5cc6492"
+    },
+    {
+      "registry": "crates",
+      "name": "rightkit-audio",
+      "version": "0.4.0",
+      "sha256": "a0e387ba954c0ff7a5be0f8214e53352e76a8542d079b66cfda053020f62bd54",
+      "reviewer": "Independent Oracle and owner exact archive review",
+      "reviewRef": "https://github.com/bogusyogi/rightkit/issues/1680#issuecomment-7073524136"
     }
   ]
 }
