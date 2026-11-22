@@ -1,6 +1,6 @@
 //! Host-owned setup audio admission & teardown, independent of any window/runtime framework.
 //!
-//! Construct with explicit initial activity (including headless hosts). Capture a [`SetupAudioTicket`]
+//! Construct with explicit initial activity (including headless hosts). Capture a [`SetupAudioTicket`](crate::setup::scope::SetupAudioTicket)
 //! when accepting each user command, BEFORE dispatching blocking work; reusing a pre-hide ticket
 //! after reveal is rejected. `activate` records visibility even while teardown is draining.
 //! `suspend` cancels meter & consent immediately. Dispatch `drain` on an existing blocking executor;
