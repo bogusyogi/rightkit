@@ -48,8 +48,7 @@ fn private_dir_identity(meta: &std::fs::Metadata) -> Option<DirIdentity> {
     }
 }
 
-type PrivateDirCache =
-    Mutex<std::collections::HashMap<PathBuf, (std::time::Instant, DirIdentity)>>;
+type PrivateDirCache = Mutex<std::collections::HashMap<PathBuf, (std::time::Instant, DirIdentity)>>;
 
 struct PrivateDirCacheState {
     entries: PrivateDirCache,
