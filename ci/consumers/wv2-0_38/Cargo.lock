@@ -3161,6 +3161,7 @@ dependencies = [
  "tauri-runtime",
  "tauri-runtime-wry",
  "tauri-utils",
+ "tempfile",
  "webview2-com",
  "windows 0.61.3",
 ]
