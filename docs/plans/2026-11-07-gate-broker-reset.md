@@ -2,6 +2,8 @@
 
 Draft for Adrian, 2026-11-07. Written by Legion from both contracts and both codebases as they stand (rightkit `67515ffb5`, rustright `0bbd1e3`). Nothing here is decided until Adrian says so. It replaces no contract yet.
 
+**Reading this on or after 22 November.** Start with the [status file](../../../rustright/docs/audits/loop-2026-11-10/08-state-2026-11-22.md): what Adrian wants, what is decided, what is open and the current state. This plan is still the plan.
+
 **Reading this on 18 November.** The opening records the original draft. Use [§7, order of work](#7-order-of-work) for the agreed sequence & [§11, evidence at handoff](#11-evidence-at-handoff) for the latest Dell reading. The [companion regression matrix, §17](../../../rustright/docs/audits/loop-2026-11-10/00-loop-review.md#17-november-18-regressions) lives in the sibling private RustRight checkout. It records how previous attempts failed, including attempts to follow this plan.
 
 ## 1. The requirement
