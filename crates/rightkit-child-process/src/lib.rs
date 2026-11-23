@@ -21,6 +21,7 @@ mod no_window;
 mod owned;
 #[cfg(feature = "tokio")]
 mod owned_tokio;
+mod parent_tie;
 mod power;
 mod process_handle;
 mod process_table;
@@ -77,6 +78,7 @@ pub use owned::{
 };
 #[cfg(feature = "tokio")]
 pub use owned_tokio::{AsyncStderr, AsyncStdin, AsyncStdout, OwnedTokioChild};
+pub use parent_tie::tie_group_to_parent;
 pub use power::{PowerAssertion, PowerKind};
 pub use process_handle::ProcessHandle;
 pub use process_table::{process_table, ProcessEntry};
