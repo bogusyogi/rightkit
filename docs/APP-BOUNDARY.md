@@ -117,9 +117,11 @@ active app scope above. Installed-path and signature checks must bind the execut
 to trusted product signing identity before it runs. The user-writable discovery
 record is a locator. Keep each app's existing licence, pairing and approval gates.
 
-## Dictation UI cleanup
+## Dictation UI retirement
 
-The 0.3.0 source removes the app's pages, first-run flow, settings panels, shell, native command bindings and CSS from `@rightkit/dictation-ui`. It retains dictation capabilities and host-rendered pill controllers. The published 0.2.7 line contains the earlier UI extraction. App owners should compose their screens with the mandatory packages and select individual dictation capabilities after the cleaned package is published.
+Retire `@rightkit/dictation-ui`. Version 0.3.1 removed HeardRight screens, shell and styling. The remaining bundle still combines settings, onboarding, history, microphone and model controls, host transport and pill behavior. Route reusable behavior through its existing owners, including Settings UI, Onboarding, Library UI, Tauri, audio, models and overlay. HeardRight keeps its screens, styling, copy and composition.
+
+Stop adopting or releasing this package. HeardRight replaces its callers and verifies its installed app. RightKit then removes the package and its standalone consumer recipe. [RightKit #1663](https://github.com/bogusyogi/rightkit/issues/1663) tracks the consumer cutover and removal.
 
 ## How the earlier reading went wrong
 

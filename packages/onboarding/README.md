@@ -13,7 +13,7 @@ First-run onboarding framework for Right Suite apps. The legal agreement gate co
 
 | Import | Contents |
 |---|---|
-| `@rightkit/onboarding` | `Onboarding`, `isLegalAccepted`, `onboardingStateKey`, `licenseStep`, `modelsStep`, `permissionsStep`, `signInStep` (Google/Apple/OAuth buttons that call the shared `rightkit-oauth` owner; copy says "Opens your browser"; never an in-app webview, bogusyogi/rightkit#279); native receipt: `createNativeLegalReceiptPort`, `LEGAL_RECEIPT_COMMANDS`, `reopenLegalAcceptance`, `resetLegalAcceptance`; adapters: `licenseBackendFromView`, `licenseStateFromView`, `signInBackendFromOAuth`; types from `types.ts` (including `LegalReceiptPort`, `LegalReceiptCreateRequest`, `DeclaredLegalDocument`), `LicenseStepCopy`, `LicenseStepOptions`, `ModelsStepOptions`, `LicenseViewClient`, `LicenseViewLike`, `LicenseViewBackendOptions`, `OAuthSignInPort`, `LegalReceiptInvoke`, `NativeLegalReceiptPortOptions` |
+| `@rightkit/onboarding` | `useRecognitionCheck`, `createInvokeRecognitionCheckPort` (recognition check; types `RecognitionCheck*`), `nextEntryProgress`, `trackModelInstall`, `Onboarding`, `isLegalAccepted`, `onboardingStateKey`, `licenseStep`, `modelsStep`, `permissionsStep`, `signInStep` (Google/Apple/OAuth buttons that call the shared `rightkit-oauth` owner; copy says "Opens your browser"; never an in-app webview, bogusyogi/rightkit#279); native receipt: `createNativeLegalReceiptPort`, `LEGAL_RECEIPT_COMMANDS`, `reopenLegalAcceptance`, `resetLegalAcceptance`; adapters: `licenseBackendFromView`, `licenseStateFromView`, `signInBackendFromOAuth`; types from `types.ts` (including `LegalReceiptPort`, `LegalReceiptCreateRequest`, `DeclaredLegalDocument`), `LicenseStepCopy`, `LicenseStepOptions`, `ModelsStepOptions`, `LicenseViewClient`, `LicenseViewLike`, `LicenseViewBackendOptions`, `OAuthSignInPort`, `LegalReceiptInvoke`, `NativeLegalReceiptPortOptions` |
 | `@rightkit/onboarding/onboarding.css` | Stylesheet |
 
 ## Peer dependencies
@@ -84,3 +84,35 @@ const declaration = acceptanceDeclaration(manifest);
 ## Known issues
 
 - Peer React is `<21`, the same range as `doc-render`, `i18n`, `media-ui` and `pdf-ui` (`package.json:29`).
+
+## Models step: progress, install-in-session, extras, and the recognition check (0.6.6)
+
+`modelsStep(backend, options)` keeps each row's progress monotonic (an `error` entry resets it), and takes:
+
+- `onInstalledInSession(context, isActive)` and `installedDelayMs` (default 900): runs once when a model finishes installing while the step is on screen, never for a model that was already installed when the step opened. Call `context.advance()` from it, or activate the model first and then advance.
+- `extras(view)`: content under the model card, with `{ loaded, installed, models }`.
+
+```tsx
+modelsStep(models, {
+  required: true,
+  autoStartDownload: true,
+  onInstalledInSession: async (context, isActive) => {
+    await activateModel(context);          // the app's own work
+    if (isActive()) await context.advance();
+  },
+  extras: ({ loaded, installed }) => (loaded && !installed ? <FeatureReel /> : null),
+});
+```
+
+The recognition check is a hook over a port. The app supplies the passage, the labels and its command names:
+
+```tsx
+const port = createInvokeRecognitionCheckPort({
+  invoke, listen,
+  commands: { start: "start_recognition_check", stop: "stop_recognition_check", cancel: "cancel_recognition_check" },
+  progressEvent: "recognition-check-progress",
+});
+// module scope: keep one port object for the life of the screen
+const check = useRecognitionCheck({ port, active: true, setError, processingLabel: "Checking speech recognition…" });
+// check.phase, check.elapsed, check.readyToFinish, check.start(), check.finish(), check.cancel()
+```

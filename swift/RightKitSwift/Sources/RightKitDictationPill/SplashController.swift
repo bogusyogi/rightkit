@@ -83,6 +83,7 @@ final class SplashPanelController {
     private var handoffFinalized = false
     private var flyPendingForContent = false
     private var startupGeneration = 0
+    private var hostGeneration: UInt64?
     private(set) var preparingFirstFrame = false
     /// True only once `beginContraction()` has actually run: the engine reported warm and the host
     /// asked for the fly-in. Both the deadline force-complete below and the host's backstop must be
@@ -119,6 +120,7 @@ final class SplashPanelController {
     /// from this file's own deadline check and directly from the host's backstop, which has no
     /// visibility into this state, so the guard belongs here too.
     func forceCompleteHandoffAtDeadline() {
+        let hostGeneration = self.hostGeneration
         guard !handoffFinalized else { return }
         guard contractionStarted else {
             callbacks.log("splash_lifecycle", "phase=handoff_force_skipped reason=engine_not_ready")
@@ -141,6 +143,7 @@ final class SplashPanelController {
         handoffFinalized = true
         runtime.pill?.forceCompleteSplashHandoff()
         callbacks.log("splash_lifecycle", "phase=handoff_forced reason=deadline")
+        callbacks.splashClosed(generation: hostGeneration)
     }
 
     func remainingVisibleDuration(shownAt: Date, now: Date) -> TimeInterval {
@@ -180,14 +183,22 @@ final class SplashPanelController {
         panel.contentView?.subviews.forEach { $0.alphaValue = 0 }
     }
 
-    func show() {
-        guard panel == nil, !preparingFirstFrame else { return }
-        guard let controller = runtime.pill,
-              controller.launchHandoff.phase != .handedOff else { return }
+    var canShow: Bool {
+        panel == nil && !preparingFirstFrame && runtime.pill?.launchHandoff.phase != .handedOff
+    }
+
+    @discardableResult
+    func show(generation: UInt64? = nil) -> Bool {
+        guard canShow, let controller = runtime.pill else { return false }
+        hostGeneration = generation
         preparingFirstFrame = true
         contractionStarted = false
-        attachPillIfPresented(controller)
         let generation = startupGeneration
+        attachPillIfPresented(controller)
+        // Published destination changes can synchronously dismiss or replace this launch.
+        // Its teardown owns the flags; leave them intact when this admission was superseded.
+        guard startupGeneration == generation, preparingFirstFrame,
+              runtime.pill === controller else { return false }
         let warm = views.warmSplash
         let log = callbacks
         // Separate AppKit's cold window setup, host view construction and first layout so
@@ -214,6 +225,7 @@ final class SplashPanelController {
                 }
             }
         }
+        return true
     }
 
     private func presentFirstFrame() {
@@ -300,6 +312,7 @@ final class SplashPanelController {
     }
 
     func flyIntoPill() {
+        let hostGeneration = self.hostGeneration
         if preparingFirstFrame {
             flyPendingForContent = true
             return
@@ -307,6 +320,7 @@ final class SplashPanelController {
         attachPillIfPresented()
         guard let panel else {
             callbacks.log("splash_lifecycle", "phase=contraction_skipped reason=missing_panel")
+            if !handoffFinalized { callbacks.splashClosed(generation: hostGeneration) }
             return
         }
         guard let controller = runtime.pill else {
@@ -400,6 +414,7 @@ final class SplashPanelController {
     /// completion arriving after a forced finish is a no-op.
     private func finalizeHandoff(panel: RightKitOverlayPanel, generation: Int) {
         guard isCurrentHandoff(panel: panel, generation: generation) else { return }
+        let hostGeneration = self.hostGeneration
         handoffFinalized = true
         contractionWatchdog?.cancel()
         contractionWatchdog = nil
@@ -417,6 +432,7 @@ final class SplashPanelController {
         panel.orderOut(nil); panel.close()
         self.shownAt = nil
         self.panel = nil
+        callbacks.splashClosed(generation: hostGeneration)
     }
 
     /// Watchdog and resign-snap both need the panel to land at its final geometry with no further

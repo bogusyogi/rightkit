@@ -1,4 +1,4 @@
-// rightkit-tauri-shell 0.8.4 consumed by exact registry pin, outside the workspace.
+// rightkit-tauri-shell 0.8.5 consumed by exact registry pin, outside the workspace.
 //
 // Proves, through public API only and with default features:
 // * navigation scheme rules: external_scheme_allowed admits only http, https and mailto, and
@@ -16,14 +16,26 @@
 // no process spawn, no user data.
 use std::time::Instant;
 
+use rightkit_tauri_shell::background_update::{status, BackgroundUpdateStatus};
 use rightkit_tauri_shell::caller_gate::is_content_label;
 use rightkit_tauri_shell::launch_origin::is_login_launch;
 use rightkit_tauri_shell::nav::{external_scheme_allowed, validate_internal_scheme};
+use rightkit_tauri_shell::os_settings::{settings_uri, Os, SettingsPane};
 use rightkit_tauri_shell::preview::{PreviewStore, TOKEN_HEX_LEN};
 use rightkit_tauri_shell::relaunch::{dispatch, relaunch_self, spawn, Protocol};
 use rightkit_tauri_shell::webview2_env::{plan, ProfileEnv, ENV_ADDITIONAL_BROWSER_ARGUMENTS};
 
 fn main() {
+    assert!(matches!(status(), BackgroundUpdateStatus::Idle));
+    assert_eq!(
+        settings_uri(SettingsPane::Microphone, Os::Windows).as_deref(),
+        Some("ms-settings:privacy-microphone")
+    );
+    assert_eq!(
+        settings_uri(SettingsPane::Microphone, Os::Macos).as_deref(),
+        Some("x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone")
+    );
+
     assert!(is_login_launch(
         ["--login"],
         None,
@@ -139,5 +151,5 @@ fn main() {
         "a revoked token no longer resolves"
     );
 
-    println!("OK rightkit-tauri-shell 0.8.4 (registry consumer)");
+    println!("OK rightkit-tauri-shell 0.8.5 (registry consumer)");
 }

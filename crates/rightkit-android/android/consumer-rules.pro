@@ -6,3 +6,5 @@
 -keep class com.sun.jna.** { *; }
 -keep class uniffi.** { *; }
 -keep class com.orthiclabs.rightkit.android.core.** { *; }
+# The models feature uses Android's certificate verifier through JNI.
+-keep,includedescriptorclasses class org.rustls.platformverifier.** { *; }

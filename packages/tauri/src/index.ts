@@ -12,6 +12,14 @@ export {
   createNativeFetch,
 } from './fetch.js';
 export type { NativeFetchErrorCode, NativeFetchOptions } from './fetch.js';
+export { declaredTauriEventNames, defineTauriEvents } from './events.js';
+export type {
+  DefineTauriEventsConfig,
+  TauriEventNames,
+  TauriListen,
+  TauriSubscribe,
+  TauriUnlisten,
+} from './events.js';
 export type {
   DefineTauriCommandsConfig,
   TauriCommandClient,

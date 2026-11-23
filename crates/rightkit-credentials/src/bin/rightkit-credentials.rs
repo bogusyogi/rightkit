@@ -3,14 +3,14 @@
 //! The CLI never prints secret bytes; an executed child controls its own output.
 //!
 //!   rightkit-credentials <status|set|delete|ensure-key> --namespace N --account A [--replace]
-//!   rightkit-credentials exec --namespace N --account A --env NAME -- /absolute/native/executable [args...]
+//!   rightkit-credentials exec --namespace N --account A [--windows-target STYLE] --env NAME -- /absolute/native/executable [args...]
 //! `exec` requires an unguarded durable OS store, inherits child output, and returns its exit
 //! status. The selected native executable receives the secret only in its own environment.
 //!
 //! `set` creates the credential and refuses (`"stored":false`) when one exists; `--replace` is
 //! the explicit instruction to overwrite it.
 
-use rightkit_credentials::{Config, Namespace, Secret, Store, WriteIntent};
+use rightkit_credentials::{Config, Namespace, Secret, Store, WindowsTarget, WriteIntent};
 use std::io::Read;
 use std::process::Command;
 
@@ -19,6 +19,25 @@ fn invalid(what: &'static str, reason: &str) -> rightkit_credentials::Error {
         what,
         reason: reason.into(),
     }
+}
+
+fn credential_namespace(
+    service: String,
+    windows_target: Option<&str>,
+) -> rightkit_credentials::Result<Namespace> {
+    let namespace = Namespace::new(service)?;
+    let style = match windows_target {
+        None | Some("slash") => return Ok(namespace),
+        Some("keyring") => WindowsTarget::KeyringCompat,
+        Some("keyring-legacy-utf8") => WindowsTarget::KeyringCompatLegacyUtf8,
+        Some(_) => {
+            return Err(invalid(
+                "--windows-target",
+                "use slash, keyring, or keyring-legacy-utf8",
+            ));
+        }
+    };
+    namespace.try_windows_target(style)
 }
 
 fn exec_command(
@@ -113,16 +132,18 @@ fn exec(args: &[String]) -> rightkit_credentials::Result<i32> {
     let mut ns = None;
     let mut account = None;
     let mut env = None;
+    let mut windows_target = None;
     let (pairs, remainder) = options.as_chunks::<2>();
     for pair in pairs {
         let slot = match pair[0].as_str() {
             "--namespace" => &mut ns,
             "--account" => &mut account,
             "--env" => &mut env,
+            "--windows-target" => &mut windows_target,
             _ => {
                 return Err(invalid(
                     "option",
-                    "exec accepts only --namespace, --account and --env",
+                    "exec accepts only --namespace, --account, --env and --windows-target",
                 ))
             }
         };
@@ -134,7 +155,7 @@ fn exec(args: &[String]) -> rightkit_credentials::Result<i32> {
         return Err(invalid("option", "missing exec option value"));
     }
     let required = |value: Option<String>, name| value.ok_or_else(|| invalid(name, "required"));
-    let ns = Namespace::new(required(ns, "--namespace")?)?;
+    let ns = credential_namespace(required(ns, "--namespace")?, windows_target.as_deref())?;
     let account = required(account, "--account")?;
     let env = required(env, "--env")?;
     let executable = args
@@ -205,7 +226,32 @@ fn run(args: &[String]) -> rightkit_credentials::Result<serde_json::Value> {
         what,
         reason: "required".into(),
     };
-    let ns = Namespace::new(arg(args, "--namespace").ok_or(missing("--namespace"))?)?;
+    let mut options = args.iter().skip(1);
+    let mut windows_target = None;
+    while let Some(option) = options.next() {
+        match option.as_str() {
+            "--namespace" | "--account" => {
+                options.next();
+            }
+            "--windows-target" => {
+                if cmd != "status" {
+                    return Err(invalid(
+                        "--windows-target",
+                        "only accepted by status and exec",
+                    ));
+                }
+                if windows_target.is_some() {
+                    return Err(invalid("--windows-target", "duplicate status option"));
+                }
+                windows_target = Some(options.next().ok_or(missing("--windows-target"))?.as_str());
+            }
+            _ => {}
+        }
+    }
+    let ns = credential_namespace(
+        arg(args, "--namespace").ok_or(missing("--namespace"))?,
+        windows_target,
+    )?;
     let account = arg(args, "--account").ok_or(missing("--account"))?;
     let cfg = Config::new(ns);
     let store = Store::open(cfg);

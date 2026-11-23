@@ -1,5 +1,23 @@
 # rightkit-qa
 
+## In-app screenshots (0.10.10)
+
+Opt-in `in-app-shot` exports `rightkit_qa::in_app_shot::{ShotHost, ShotWindowSpec, ShotOptions, capture, options_from_env, parse_args, parse_window, parse_delay, default_path}` & `command_args::{parse, text, non_blank, flag}`. Keep window labels, title aliases, file names, delay & command handlers in app code. Grammar supports `--shot [path]`, `--shot=<path>`, `--shot-window`, `--shot-delay-ms` & `--shot-foreground`.
+
+Windows capture searches only current-process windows with host-supplied exact titles, caps pixel buffers at 256 MiB & writes PNG to requested path. Other platforms return Windows-only capture error; option & command argument readers remain available. Enable only through opt-in QA features; release tooling must exclude this feature. Dependency floor: optional `tiny-skia` 0.12; Windows `windows-sys` 0.61.2 with GDI & XPS features. Rust floor remains 1.98.0.
+
+## Credential owner intake (0.10.9)
+
+Feature `credential-owner` exports `rightkit_qa::credential_owner`: `dispatch`, `OwnerHost`, `DeclaredSet`, `OwnerWindowsTarget`, `SnapshotStore`, `MacAppIdentity`, `ExpectedRunner`, `MacRunnerIdentity` & `WindowsRunnerIdentity`. Call `dispatch` first in app `main`, before normal startup; `--rightkit-qa-credentials` must be its sole argument. Keep this feature out of release artifacts through release tooling; source configuration alone does not enforce that exclusion.
+
+`OwnerHost::new(app, declared, snapshot_store, version, runner)` validates host-owned configuration & rejects native credential-slot collisions under both macOS & Windows rules, including derived chunk slots. Protocol `rightkit.qa.credential-owner/2` carries metadata only; snapshot, restore & completion use separate launches, with per-app owner exclusion & canonical snapshot-target checks. Owner-required operations must never fall back to credential reads or restores inside runner process.
+
+No supported snapshot-store isolation or signed independent runner has been established. Use `ExpectedRunner::unconfigured()` until independently trusted runner release metadata exists: every order, including `health`, refuses `runner_proof_unavailable`. Even with runner proof, macOS refuses `isolation_not_established` until per-slot Keychain access controls can be established; Windows refuses `snapshot_store_unisolated`. This is an API intake, with no behavior-complete claim.
+
+Integration prerequisites: independently signed runner identity & immutable release record (Windows also requires signed executable SHA-256, publisher EKU & CA pins); proven snapshot-store isolation; runner protocol-v2 metadata parsing, completion sequencing, recovery exclusion & legacy-v1 recovery. Dependency floors are `rightkit-daemon` 0.9.1, `rightkit-fs` 0.4.17 (`credential-owner` enables `lock`) & `rightkit-credentials` 0.5.6. Qualify those dependencies & real installed-host behavior before claiming operational support.
+
+For an app that requires this owner, set `credential_owner_required = true` under `[snapshot]` in `rightkit-qa.toml`. Pass `--credential-owner <absolute installed executable>` to both `rightkit-qa run` & `rightkit-qa journeys run`. An owner-required snapshot refuses a missing binding before arming, & resumed cleanup does not provide fresh restoration evidence for a release.
+
 > **Migrating from `rightkit-qa-driver` (0.6.0).** The embedded QA control server moved here, behind the dev-only `control` feature. It never ships: it carries the same release marker (`RIGHTKIT-QA-CONTROL-SERVER-PRESENT`) and `right-release` refuses it in both its binary and its source layer. `rightkit-qa-driver` 0.5.0 is a deprecated shim, so a version bump alone compiles; do the change below to leave it.
 >
 > In the app's `Cargo.toml`, replace

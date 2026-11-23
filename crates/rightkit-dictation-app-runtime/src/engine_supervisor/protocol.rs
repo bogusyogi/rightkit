@@ -1,7 +1,7 @@
 // Sidecar frame ↔ shell event translation + request-frame construction.
 
 use rightkit_dictation_core::engine::{
-    DiagnosticsPayload, EngineFrame, EnginePayload, EngineSchemaName,
+    DiagnosticsPayload, EngineFrame, EnginePayload, EngineSchemaName, HostCommand,
 };
 
 use crate::engine_process::EngineEvent;
@@ -147,6 +147,7 @@ pub(crate) fn frame_to_engine_event(frame: &EngineFrame) -> Option<EngineEvent> 
                     command_dispatched,
                     command_detail,
                     command_failed,
+                    host_command: diag_value.and_then(HostCommand::from_reset_diagnostics),
                 });
             }
 

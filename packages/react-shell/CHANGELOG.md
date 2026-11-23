@@ -1,6 +1,17 @@
 # Changelog
 
+## 0.7.6
+
+Additive. Moved from HeardRight; no existing export changes. Imports only `react` (headless-safe).
+
+- `useFeatureReelPlayback(labels)` and the pure playback functions (`feature-reel.ts`, root and `./headless`): carousel auto-advance, hover and focus pauses, reduced-motion start and change, and the play/pause control state. The control wording is the `labels` input (`pause`, `resume`).
+- `useSplashClock`, `splashMessageForWait`, `useSplashStall`, `useSplashWallpaper`, `useTickingValue` (`splash.ts`, root and `./headless`): the launch splash's wait clock, staged status line, stall detection with a recovery-action runner, a value read once and a ticking value. The status reader, thresholds, stage messages and the actions behind the buttons are inputs.
+- `useHashRoute` (`hash-route.ts`, root and `./headless`): a tab that follows `location.hash` both ways, plus one overlay hash with focus restore. The tab table, overlay hash and side effects are inputs.
+- `focusPageDestination` and `focusConnectedOrPageDestination` (`focus-page.ts`, root and `./headless`): focus the destination heading after a page switch, polling while a lazy page mounts; restore focus to a still-connected launcher. The page attribute, heading selector and poll window are options.
+
 ## 0.7.5
+
+- Added `playTone(spec, volumePercent?)` and the `ToneSpec` type (root and `./headless`): one short synthesized Web Audio tone (`frequency`, `duration`, optional `type`), with a soft attack and release, volume 0 to 100 as linear gain 0 to 0.5, and no throw when audio is unavailable. The app keeps its cue table and its state-to-cue mapping. Moved from `@rightkit/dictation-ui` (`lib/sounds`).
 
 - Textarea accepts `unstyled` for caller-owned presentation. The native element, ref, event handlers and optional auto-grow remain available.
 

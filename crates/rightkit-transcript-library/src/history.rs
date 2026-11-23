@@ -170,6 +170,12 @@ pub trait HistoryStore: Send {
     fn upsert_draft(&mut self, session_id: &str, text: String) -> Result<(), HistoryError>;
     fn delete(&mut self, delivery_id: &str) -> Result<bool, HistoryError>;
     fn query(&self, query: &HistoryQuery) -> Result<HistoryPage, HistoryError>;
+    /// Return the default history query's total for a recovery replay receipt.
+    fn default_total(&self) -> Result<u32, HistoryError> {
+        let total = self.query(&HistoryQuery::default())?.total;
+        u32::try_from(total)
+            .map_err(|_| HistoryError::new("history total exceeds the replay receipt limit"))
+    }
     fn delete_matching(&mut self, filter: &HistoryFilter) -> Result<usize, HistoryError>;
     fn prune_before(&mut self, cutoff_ms: u64) -> Result<usize, HistoryError>;
     fn clear(&mut self) -> Result<(), HistoryError>;

@@ -13,6 +13,8 @@ pub mod helper;
 #[cfg(feature = "http")]
 pub mod http;
 mod ledger;
+#[cfg(feature = "transcripts")]
+pub mod recovery_marker;
 mod record;
 mod schedule;
 mod storage;

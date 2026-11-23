@@ -91,6 +91,40 @@ function keyFromCode(code: string): string | undefined {
   return CODE_KEYS[code];
 }
 
+const NATIVE_KEY_NAMES: ReadonlyMap<string, string> = new Map([
+  ["ArrowLeft", "left"],
+  ["ArrowRight", "right"],
+  ["ArrowUp", "up"],
+  ["ArrowDown", "down"],
+  ["Enter", "return"],
+  ["NumpadEnter", "return"],
+  ["Tab", "tab"],
+]);
+
+export interface NativeShortcutOptions {
+  /** Persisted name for physical backward delete. */
+  backspace?: "backspace" | "delete";
+  /** Name written for Option/Alt. Defaults to "alt". */
+  alt?: "alt" | "opt";
+  /** Name written for Command/Windows. Use null to reject Meta chords. Defaults to "meta". */
+  meta?: "meta" | "cmd" | null;
+}
+
+/** Format a modified physical key for a native binding, independent of the character typed. */
+export function nativeShortcutFromEvent(
+  event: Pick<KeyboardEvent, "code" | "ctrlKey" | "altKey" | "shiftKey" | "metaKey">,
+  { alt = "alt", meta = "meta", backspace = "backspace" }: NativeShortcutOptions = {},
+): string | null {
+  const key = event.code === "Backspace" ? backspace : NATIVE_KEY_NAMES.get(event.code) ?? keyFromCode(event.code);
+  if (typeof key !== "string" || (event.metaKey && meta === null)) return null;
+  const modifiers: string[] = [];
+  if (event.ctrlKey) modifiers.push("ctrl");
+  if (event.altKey) modifiers.push(alt);
+  if (event.shiftKey) modifiers.push("shift");
+  if (event.metaKey && meta !== null) modifiers.push(meta);
+  return modifiers.length ? [...modifiers, key].join("+") : null;
+}
+
 function parseStep(raw: string): Step {
   const step: Step = { mod: false, ctrl: false, meta: false, ctrlOrMeta: false, alt: false, shift: false, key: "" };
   // "mod++" style: a literal "+" key is written as "plus".

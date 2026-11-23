@@ -35,6 +35,213 @@ use crate::{
     SyncEngine, SyncEngineBuilder, SyncError, SyncObserver, SyncResult,
 };
 
+#[cfg(test)]
+mod recovery_commit_tests {
+    use super::super::traits::HistorySession;
+    use super::*;
+    use crate::recovery_marker::{RecoveryConsent, ReplayReceipt};
+
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+
+    struct Host(PathBuf);
+
+    impl TranscriptHost for Host {
+        fn data_file(&self, name: &str) -> PathBuf {
+            self.0.join(name)
+        }
+
+        fn open_history(&self) -> Result<Box<dyn HistorySession>, String> {
+            Err("history is outside this consent-only test".to_string())
+        }
+
+        fn history_changed(&self) {}
+        fn busy_reason(&self) -> Option<&'static str> {
+            None
+        }
+        fn recovery_pending(&self, _scope: &str) -> bool {
+            false
+        }
+        fn recovery_complete(&self, _scope: &str, _generation: u64) -> Result<(), String> {
+            Ok(())
+        }
+        fn now_ms(&self) -> u64 {
+            0
+        }
+        fn downloaded(&self, _count: u32) {}
+    }
+
+    struct Files {
+        root: PathBuf,
+        consent: ConsentStore,
+        scheduler: Scheduler,
+    }
+
+    impl Files {
+        fn new() -> Self {
+            let root = std::env::temp_dir().join(format!(
+                "rightkit-recovery-consent-{}-{}-{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos(),
+                NEXT.fetch_add(1, Ordering::Relaxed)
+            ));
+            std::fs::create_dir(&root).unwrap();
+            let consent = ConsentStore {
+                host: Arc::new(Host(root.clone())),
+                file: "consent.json".to_string(),
+                fence_file: "fence.json".to_string(),
+                revocation_incomplete: AtomicBool::new(false),
+                stop_unverified: AtomicBool::new(false),
+                disable_requests: AtomicU64::new(0),
+                stop_gate: Mutex::new(()),
+                seen_epoch: AtomicU64::new(0),
+                outbox_file: root.join("outbox.json"),
+                outbox_lock: Arc::new(Mutex::new(())),
+                account_changed_message: "account changed".to_string(),
+                lock: Mutex::new(()),
+            };
+            {
+                let _guard = consent.transition_guard().unwrap();
+                let state = TranscriptSyncState {
+                    sync_enabled: true,
+                    epoch: 41,
+                    scope: ConsentScopeBinding {
+                        authorized_scope: Some("owner".to_string()),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                };
+                consent.write_locked(&state).unwrap();
+                consent.write_fence(FenceState::Enabled, 41).unwrap();
+            }
+            Self {
+                root,
+                consent,
+                scheduler: Scheduler::new(SchedulerPolicy::new(5, 5, 1), |_| {}),
+            }
+        }
+
+        fn request_stop(&self) {
+            let _gate = self.consent.stop_gate.lock().unwrap();
+            self.consent.disable_requests.fetch_add(1, Ordering::AcqRel);
+            self.consent
+                .revocation_incomplete
+                .store(true, Ordering::Release);
+            self.scheduler.disable();
+        }
+
+        fn durable_revoke(&self) {
+            let _guard = self.consent.transition_guard().unwrap();
+            let mut state = self.consent.read_checked().unwrap();
+            state.sync_enabled = false;
+            self.consent
+                .commit_transition(&mut state, true, true, 0)
+                .unwrap();
+        }
+    }
+
+    impl Drop for Files {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.root);
+        }
+    }
+
+    fn proof() -> (ReplayReceipt, RecoveryConsent) {
+        (
+            ReplayReceipt {
+                scope: "owner".to_string(),
+                consent_generation: 0,
+                cursor_committed: true,
+            },
+            RecoveryConsent {
+                scope: "owner".to_string(),
+                epoch: 41,
+            },
+        )
+    }
+
+    #[test]
+    fn revocation_before_admission_never_runs_marker_commit() {
+        let files = Files::new();
+        let (receipt, consent) = proof();
+        files.request_stop();
+        let mut called = false;
+        let admitted = files
+            .consent
+            .commit_recovery_if_authorized(&files.scheduler, &receipt, &consent, &mut || {
+                called = true;
+                Ok(())
+            })
+            .unwrap();
+        assert!(!admitted);
+        assert!(!called);
+        files.durable_revoke();
+        assert!(!files.consent.read_checked().unwrap().sync_enabled);
+    }
+
+    #[test]
+    fn shutdown_before_admission_refuses_even_with_trusted_durable_consent() {
+        let files = Files::new();
+        let (receipt, consent) = proof();
+        {
+            let _gate = files.consent.stop_gate.lock().unwrap();
+            files.scheduler.stop();
+        }
+        assert!(files.consent.recovery_state().unwrap().is_some());
+        let mut called = false;
+        let admitted = files
+            .consent
+            .commit_recovery_if_authorized(&files.scheduler, &receipt, &consent, &mut || {
+                called = true;
+                Ok(())
+            })
+            .unwrap();
+        assert!(!admitted);
+        assert!(!called);
+    }
+
+    #[test]
+    fn admitted_marker_commit_precedes_durable_revoke_without_blocking_stop_gate() {
+        let files = Files::new();
+        let (receipt, consent) = proof();
+        let (entered_tx, entered_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        std::thread::scope(|threads| {
+            let files = &files;
+            let committing = threads.spawn(move || {
+                files
+                    .consent
+                    .commit_recovery_if_authorized(&files.scheduler, &receipt, &consent, &mut || {
+                        entered_tx.send(()).unwrap();
+                        release_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+                        assert!(matches!(
+                            files.consent.load_fence().unwrap(),
+                            FenceRead::Valid(FenceState::Enabled, 41)
+                        ));
+                        replace_file_atomically(&files.root.join("marker.json"), b"retained")
+                            .map_err(|error| error.to_string())
+                    })
+                    .unwrap()
+            });
+            entered_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+            assert!(files.consent.stop_gate.try_lock().is_ok());
+            files.request_stop();
+            assert_ne!(files.scheduler.consent_generation(), 0);
+            assert!(matches!(files.consent.lock.try_lock(), Err(TryLockError::WouldBlock)));
+            release_tx.send(()).unwrap();
+            assert!(committing.join().unwrap());
+        });
+        assert_eq!(std::fs::read(files.root.join("marker.json")).unwrap(), b"retained");
+        files.durable_revoke();
+        assert!(matches!(
+            files.consent.load_fence().unwrap(),
+            FenceRead::Valid(FenceState::Revoked, 42)
+        ));
+    }
+}
+
 /// The consent file is a fixed-field struct of a few dozen bytes; a larger file is not ours.
 const MAX_CONSENT_FILE_BYTES: u64 = 1024 * 1024;
 /// The sync fence file is `{"v":2,"state":"revoked"|"enabled","epoch":<n>}`, a few dozen bytes
@@ -939,6 +1146,57 @@ impl ConsentStore {
             .map_err(|_| "cloud sync scope state lock poisoned".to_string())
     }
 
+    /// Recovery callers hold `transition_guard`; include the outbox high-water mark so a restored
+    /// older consent file cannot supply durable provenance for a newer marker.
+    fn recovery_state(&self) -> Result<Option<TranscriptSyncState>, String> {
+        let _outbox = self
+            .outbox_lock
+            .lock()
+            .map_err(|_| "deletion outbox lock poisoned".to_string())?;
+        let high = Outbox::peek_high_water(&self.outbox_file)?;
+        Ok(match self.load()? {
+            ConsentRead::Valid(state)
+                if state.sync_enabled && state.epoch >= high && self.consent_trusted(&state) =>
+            {
+                Some(state)
+            }
+            _ => None,
+        })
+    }
+
+    fn commit_recovery_if_authorized(
+        &self,
+        scheduler: &Scheduler,
+        receipt: &crate::recovery_marker::ReplayReceipt,
+        consent: &crate::recovery_marker::RecoveryConsent,
+        commit: &mut dyn FnMut() -> Result<(), String>,
+    ) -> Result<bool, String> {
+        let _transition = self.transition_guard()?;
+        let Some(state) = self.recovery_state()? else {
+            return Ok(false);
+        };
+        if !receipt.cursor_committed
+            || receipt.scope != consent.scope
+            || state.epoch != consent.epoch
+            || state.scope.authorized_scope.as_deref() != Some(consent.scope.as_str())
+        {
+            return Ok(false);
+        }
+        {
+            let _gate = self
+                .stop_gate
+                .lock()
+                .map_err(|_| "cloud sync stop gate poisoned".to_string())?;
+            if scheduler.consent_generation() != receipt.consent_generation
+                || self.revocation_incomplete.load(Ordering::Acquire)
+            {
+                return Ok(false);
+            }
+        }
+        commit()?;
+        Ok(true)
+    }
+
     /// The next epoch: one above both the consent file's own epoch and `floor`, the outbox's
     /// high-water mark, so the number is never one an older stamp already used even when the
     /// consent file was lost, replaced or rolled back. A state whose epoch cannot grow refuses
@@ -1665,6 +1923,32 @@ impl TranscriptSync {
         self.scheduler.consent_generation()
     }
 
+    /// Trusted durable recovery provenance. Unlike `consent_generation`, this epoch survives
+    /// restart and changes with every durable consent/account transition.
+    pub fn recovery_consent(&self) -> Option<crate::recovery_marker::RecoveryConsent> {
+        let _guard = self.consent.transition_guard().ok()?;
+        let state = self.consent.recovery_state().ok()??;
+        Some(crate::recovery_marker::RecoveryConsent {
+            scope: state.scope.authorized_scope?,
+            epoch: state.epoch,
+        })
+    }
+
+    /// Admit a recovery marker commit against both its durable provenance and this pull's
+    /// runtime receipt. The consent transition lock orders admitted marker I/O before durable
+    /// revoke/account writes. `stop_gate` protects only admission: cancellation remains immediate
+    /// while an already-admitted marker commit finishes. The callback must only commit its marker;
+    /// replacement verification and any store reopen must happen before calling this method.
+    pub fn commit_recovery_if_authorized(
+        &self,
+        receipt: &crate::recovery_marker::ReplayReceipt,
+        consent: &crate::recovery_marker::RecoveryConsent,
+        commit: &mut dyn FnMut() -> Result<(), String>,
+    ) -> Result<bool, String> {
+        self.consent
+            .commit_recovery_if_authorized(&self.scheduler, receipt, consent, commit)
+    }
+
     /// Durable local work exists. Any thread; does not touch the disk or any lock but a latch.
     pub fn notify_local_change(&self) {
         self.scheduler.request(PUSH);
@@ -1695,7 +1979,14 @@ impl TranscriptSync {
     /// Non-blocking: it does not wait for a pass (a pass can be inside a helper call for up to
     /// the transport's request timeout) and does not touch the consent file. Idempotent.
     pub fn shutdown(&self) {
-        self.scheduler.stop();
+        {
+            let _gate = self
+                .consent
+                .stop_gate
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            self.scheduler.stop();
+        }
         // Not verifiable here (no transition lock, non-blocking): a failed stop request is
         // recorded so the status never reads as a verified stop.
         if self.transport.set_enabled(false).is_err() {

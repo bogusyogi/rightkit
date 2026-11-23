@@ -145,7 +145,8 @@ export function closureAgeExceptions(entry, name) {
     return [`${QA_CLOSURE_APPROVAL.name}@${QA_CLOSURE_APPROVAL.version}`];
   }
   if (name !== '@rightkit/tauri') return [];
-  need(same(entry.closure.install, { '@rightkit/app-update': '0.4.0', '@rightkit/logs': '0.1.6', '@tauri-apps/plugin-dialog': '2.8.3' }), 'tauri release-age exception requires exact selected reviewed closure');
+  const tauriClosure = { '@rightkit/app-update': '0.4.0', '@rightkit/logs': '0.1.6', '@tauri-apps/plugin-dialog': '2.8.3' };
+  need(same(entry.closure.install, tauriClosure) || same(entry.closure.install, { ...tauriClosure, react: '19.3.1' }), 'tauri release-age exception requires exact selected reviewed closure');
   return [`${CLOSURE_APPROVAL.name}@${CLOSURE_APPROVAL.version}`];
 }
 export function validateClosureApproval(artifacts, entry, name) {

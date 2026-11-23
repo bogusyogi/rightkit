@@ -1,19 +1,14 @@
-// Delivery — OS side effects only: clipboard write, paste, Enter, foreground
-// target snapshot, and target validation.
-//
-// The pure record shapes + id/time helpers live in `rightkit_transcript_library::delivery`
-// (re-exported below). Module layout: `deliver` owns the public delivery
-// entry points and outcome mapping, `insert` owns the per-platform transcript
-// transaction (clipboard stage + paste keystroke + confirmation proof),
-// `clipboard` owns raw clipboard read/write/clear + selection fetch,
-// `keystrokes` owns the paste/Enter key posts, and `targets` owns the
-// foreground-target snapshot / revalidation / restore helpers.
+// Legacy delivery API, explicit clipboard copy & foreground target utilities.
+// Automatic paste requires paste_delivery::DeliveryHost policy; legacy input
+// entry points refuse before effects when no host-bound evidence is available.
 
 pub use rightkit_transcript_library::delivery::*;
 
 mod clipboard;
 mod deliver;
 mod insert;
+// Compatibility stubs reject calls without host-bound evidence.
+#[allow(dead_code)]
 #[cfg(any(target_os = "windows", target_os = "macos"))]
 mod keystrokes;
 mod targets;

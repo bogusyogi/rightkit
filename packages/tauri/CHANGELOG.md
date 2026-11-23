@@ -2,6 +2,9 @@
 
 ## 0.4.3
 
+- Added `useRecoveryNotice` to `@rightkit/tauri/react` for backup notice state, dismissal & diagnostic export with host-owned presentation.
+- Added `defineTauriEvents<Spec>({ listen, events })`: the event counterpart of `defineTauriCommands`. One typed `subscribe(key, handler)` over a declared event map (the app's key to the native event name); the handler gets the payload. An unmapped key rejects with an Error naming it. Also `declaredTauriEventNames(events)` and the types `TauriSubscribe`, `TauriListen`, `TauriUnlisten`, `TauriEventNames`, `DefineTauriEventsConfig`. Moved from `@rightkit/dictation-ui` (`Subscribe`, `createTauriDictationClient`'s `subscriber`).
+- Added `@rightkit/tauri/react` entry with `useTauriEvent(subscribe, event, handler)`: one subscription per mount, latest handler via a ref (no re-subscribe on a new closure), cleanup that waits for the subscription, a rejected subscription swallowed. Moved from `@rightkit/dictation-ui` (`useDictationEvent`). `react` is an optional peer (`>=18 <21`); the root and `./dialog` / `./window` entries do not import it.
 - Added opt-in `invalidResult: 'cancel'` for native open pickers. Empty single or lone plural strings & non-string single results resolve to `null`; native errors still propagate.
 
 ## 0.4.2

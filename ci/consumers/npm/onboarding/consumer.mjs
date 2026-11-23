@@ -5,7 +5,6 @@ import { readFileSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const CANDIDATE = { version: '0.6.5', sha256: '4f8536daaabefd884588ae471c7e38054a2aab325b10a3d67d587c89e4e0ee0b' };
 const result = { recipeId: 'onboarding-react-memory-mount', schemaVersion: 1, ok: false, host: { platform: process.platform, arch: process.arch, node: process.version }, artifact: null, scenarios: [], errors: [], nativeHostQualified: false };
 const failure = error => ({ name: error?.name ?? 'Error', message: String(error?.message ?? error), stack: error?.stack ?? null });
 const required = name => { assert(process.env[name], `${name} is required`); return process.env[name]; };
@@ -17,8 +16,6 @@ try {
   const resolution = required('RIGHTKIT_CONSUMER_RESOLUTION');
   assert(['packed', 'fetched'].includes(resolution));
   assert.match(sha256, /^[a-f0-9]{64}$/);
-  assert.equal(version, CANDIDATE.version);
-  if (resolution === 'packed') assert.equal(sha256, CANDIDATE.sha256, 'wrong R2(a) candidate archive');
   assert.equal(createHash('sha256').update(readFileSync(archive)).digest('hex'), sha256);
   const provenance = validateInstalledArtifact({ fixtureUrl: import.meta.url, archive, sha256, version, resolution, packageName: '@rightkit/onboarding', rootResolvedUrl: import.meta.resolve('@rightkit/onboarding'), entries: { '@rightkit/onboarding': import.meta.resolve('@rightkit/onboarding') } });
   result.artifact = provenance.artifact;

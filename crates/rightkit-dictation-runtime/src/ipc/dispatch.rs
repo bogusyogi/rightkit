@@ -366,22 +366,19 @@ pub(crate) fn handle(
                 None,
             )
         }
-        Request::RepasteLast => {
-            let mut r = runtime.lock();
-            match r.repaste_last() {
-                Ok(record) => EngineFrame::base(
-                    EngineSchemaName::ManualDeliveryResult,
-                    request_id,
-                    None,
-                    &trace_id,
-                    Some(EnginePayload::ManualDeliveryResult {
-                        record: serde_json::to_value(record).unwrap_or(Value::Null),
-                    }),
-                    None,
-                ),
-                Err(message) => error_frame(request_id, &trace_id, None, &message),
-            }
-        }
+        Request::RepasteLast => EngineFrame::base(
+            EngineSchemaName::EngineError,
+            request_id,
+            None,
+            &trace_id,
+            None,
+            Some(EngineErrorPayload {
+                code: "E_DELIVERY_HOST_REQUIRED".into(),
+                message: "repaste requires the shell delivery host".into(),
+                retryable: false,
+                diagnostics: None,
+            }),
+        ),
         Request::CopyLast => {
             let mut r = runtime.lock();
             match r.copy_last() {

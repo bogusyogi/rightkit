@@ -129,6 +129,7 @@ impl RuntimeApp {
             last_synced_sidecar_generation: 0,
             cancel_to_history_session: None,
             draft_throttle: None,
+            partial_stream_session: None,
         }))
     }
 
@@ -309,6 +310,17 @@ impl RuntimeApp {
         }
     }
 
+    pub(crate) fn stream_transcript_partial(
+        &mut self,
+        session_id: &str,
+        text: &str,
+        revision: u64,
+    ) {
+        match self {
+            Self::Engine(runtime) => runtime.stream_transcript_partial(session_id, text, revision),
+        }
+    }
+
     /// Crash-recovery draft history rows: throttled create-or-replace of the
     /// in-progress draft row for `session_id` from the engine's committed
     /// (L0/raw) `TranscriptPartial` text.
@@ -342,7 +354,6 @@ impl RuntimeApp {
         session_id: String,
         observer: impl FnMut(&AppState),
     ) -> Result<AppState, String> {
-        crate::media_control::restore_for_session(&session_id, "session_reset");
         match self {
             Self::Engine(runtime) => runtime.accept_sidecar_reset(session_id, observer),
         }

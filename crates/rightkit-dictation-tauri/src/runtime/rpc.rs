@@ -180,19 +180,6 @@ impl EngineRuntime {
         self.sidecar.request_engine_info()
     }
 
-    pub fn sidecar_repaste_last(&self) -> Result<DeliveryRecord, String> {
-        let sidecar = &self.sidecar;
-        let request_id = format!("repaste_last:{}", sidecar.supervisor.next_request_id());
-        let frame = engine_supervisor::build_request(
-            &request_id,
-            EngineSchemaName::RepasteLastRequest,
-            None,
-            Some(EnginePayload::RepasteLastRequest),
-        );
-        let response = self.sidecar_call(frame)?;
-        Self::delivery_record_from_frame(&response)
-    }
-
     pub fn sidecar_copy_last(&self) -> Result<String, String> {
         let sidecar = &self.sidecar;
         let request_id = format!("copy_last:{}", sidecar.supervisor.next_request_id());

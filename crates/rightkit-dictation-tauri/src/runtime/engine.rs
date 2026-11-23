@@ -21,6 +21,8 @@ pub struct EngineRuntime {
     pub(crate) last_delivery: Option<DeliveryRecord>,
     pub(crate) sequence: u64,
     pub(crate) active_session: Option<String>,
+    /// Created by prepare_start only; incoming events never replace this authority.
+    pub(crate) partial_stream_session: Option<PartialStreamSession>,
     /// Destination frozen at first recording-stop boundary; never restored.
     pub(crate) stop_target: Option<crate::delivery::TargetSnapshot>,
     /// Exact AX element/window retained only for this recording session.
@@ -79,6 +81,15 @@ pub struct EngineRuntime {
     /// write, so a live dictation doesn't hammer the encrypted DB on every
     /// ASR partial tick.
     pub(crate) draft_throttle: Option<(String, u64, Instant)>,
+}
+
+/// Streaming authority is separate from draft throttling: every accepted revision
+/// must advance even when its history write is throttled or fails.
+pub(crate) struct PartialStreamSession {
+    pub(crate) session_id: String,
+    /// PreparedStart publishes only the generation that acknowledged this start.
+    pub(crate) generation: Arc<StdMutex<Option<u64>>>,
+    pub(crate) last_revision: Option<u64>,
 }
 
 impl EngineRuntime {

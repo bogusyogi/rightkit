@@ -3,6 +3,7 @@
 //! lifetime, split by concern:
 //!   - `context`: focused-field/AX context reading (`FocusedField`).
 //!   - `proof`: `FocusedFieldProof` capture and insertion confirmation.
+//!   - `replacement_proof`: exact read-only prior-insertion custody.
 //!   - `native_write`: native (non-clipboard) selection-write capability.
 //!   - `polish`: polish-only field context probe.
 //!   - `pin`: `FocusPin` capture/validation lifecycle.
@@ -19,6 +20,7 @@ mod native_write;
 mod pin;
 mod polish;
 mod proof;
+mod replacement_proof;
 
 pub use context::*;
 pub use harvest::*;
@@ -26,3 +28,4 @@ pub use native_write::*;
 pub use pin::*;
 pub use polish::*;
 pub use proof::*;
+pub use replacement_proof::*;

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.2 (unpublished candidate)
+
+- Optional `models` UniFFI bridge delegates authenticated pinned model delivery, bounded extraction, replacement and recovery to rightkit-models 0.7.2. Host supplies catalogue and pins.
+- Optional Gradle model state wrapper with cooperative cancellation, handle cleanup and visible recovery failures; disabled consumers exclude its sources.
+- Android scripts select models explicitly, work from packaged crate manifests and generate Kotlin for the selected native library. No Maven publication introduced.
+
 ## 0.3.1 (unpublished)
 
 - Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.

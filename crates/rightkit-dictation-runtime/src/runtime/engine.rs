@@ -31,7 +31,7 @@ pub(crate) use crate::asr::AsrEp;
 #[cfg(any(target_os = "windows", target_os = "macos"))]
 pub(crate) use crate::delivery::copy_fallback_record;
 pub(crate) use crate::delivery::{
-    copy_text, deliver_text, snapshot_target, DeliveryOutcome, DeliveryRecord, TargetSnapshot,
+    copy_text, snapshot_target, DeliveryOutcome, DeliveryRecord, TargetSnapshot,
 };
 pub(crate) use crate::focus::FocusTracker;
 pub(crate) use crate::owner_diagnostics;
@@ -101,6 +101,7 @@ pub enum FinalizeOutcome {
         action: String,
         detail: String,
     },
+    HostCommand(rightkit_dictation_core::engine::HostCommand),
     /// A recognized standalone command failed to dispatch (missing macOS
     /// Accessibility grant, no platform equivalent, unknown key). The engine
     /// still recovers to armed; the message lets the shell surface the failure

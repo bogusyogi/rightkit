@@ -10518,6 +10518,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "rightkit-ai-keys"
+version = "0.1.1"
+dependencies = [
+ "rightkit-credentials",
+ "rightkit-http",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "rightkit-align"
 version = "0.1.0"
 dependencies = [
@@ -10668,12 +10678,16 @@ dependencies = [
 
 [[package]]
 name = "rightkit-audio"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
+ "block2",
  "cpal",
  "hound",
+ "objc2",
  "objc2-core-audio",
  "objc2-core-foundation",
+ "objc2-foundation",
+ "rightkit-child-process",
  "rightkit-ffmpeg",
  "ringbuf",
  "rubato",
@@ -11182,7 +11196,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-credentials"
-version = "0.5.7"
+version = "0.5.8"
 dependencies = [
  "block2",
  "getrandom 0.4.3",
@@ -11258,7 +11272,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-db"
-version = "0.5.9"
+version = "0.5.10"
 dependencies = [
  "cc",
  "libc 0.2.191",
@@ -11292,7 +11306,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-device"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "getrandom 0.4.3",
  "rightkit-credentials",
@@ -11316,7 +11330,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-dictation-app-runtime"
-version = "0.2.2"
+version = "0.3.0"
 dependencies = [
  "rightkit-daemon",
  "rightkit-dictation-core",
@@ -11332,7 +11346,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-dictation-command-host"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "cc",
  "chrono",
@@ -11356,7 +11370,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-dictation-core"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "rightkit-credentials",
  "rightkit-fs",
@@ -11371,7 +11385,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-dictation-engine"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "libc 0.2.191",
@@ -11404,7 +11418,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-dictation-inference"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "cc",
  "half",
@@ -11439,7 +11453,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-dictation-models"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "dirs",
  "rightkit-child-process",
@@ -11468,12 +11482,13 @@ dependencies = [
  "rightkit-dictation-core",
  "rightkit-overlay",
  "rightkit-overlay-win",
+ "serde_json",
  "windows-sys 0.61.2",
 ]
 
 [[package]]
 name = "rightkit-dictation-runtime"
-version = "0.2.3"
+version = "0.2.5"
 dependencies = [
  "anyhow",
  "libloading 0.9.0",
@@ -11508,15 +11523,20 @@ dependencies = [
 
 [[package]]
 name = "rightkit-dictation-tauri"
-version = "0.2.2"
+version = "0.3.0"
 dependencies = [
+ "rightkit-automation",
+ "rightkit-crypto",
  "rightkit-dictation-app-runtime",
  "rightkit-dictation-command-host",
  "rightkit-dictation-core",
  "rightkit-dictation-models",
  "rightkit-dictation-telemetry",
+ "rightkit-fs",
+ "rightkit-hotkeys",
  "rightkit-text-polish",
  "rightkit-transcript-library",
+ "serde",
  "serde_json",
 ]
 
@@ -11796,7 +11816,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-fs"
-version = "0.4.17"
+version = "0.4.18"
 dependencies = [
  "blake3",
  "libc 0.2.191",
@@ -12003,7 +12023,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-license"
-version = "0.3.2"
+version = "0.3.4"
 dependencies = [
  "base64 0.23.1",
  "ed25519-dalek",
@@ -12654,7 +12674,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-qa"
-version = "0.10.8"
+version = "0.10.10"
 dependencies = [
  "getrandom 0.4.3",
  "png",
@@ -12669,6 +12689,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tauri",
+ "tiny-skia",
  "tokio",
  "toml 1.2.0+spec-1.1.0",
  "webview2-com 0.38.2",
@@ -12874,7 +12895,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-roots"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "getrandom 0.4.3",
  "rightkit-fs",
@@ -13032,7 +13053,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-sync"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "rightkit-child-process",
  "rightkit-fs",
@@ -13079,7 +13100,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-tauri-shell"
-version = "0.8.4"
+version = "0.8.6"
 dependencies = [
  "block2",
  "libc 0.2.191",
@@ -13200,7 +13221,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-transcript-library"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "http",
  "rightkit-db",

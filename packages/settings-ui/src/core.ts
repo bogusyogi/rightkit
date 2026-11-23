@@ -35,3 +35,12 @@ export type {
   SearchKeyOptions,
 } from "./search.js";
 export { sectionIcons } from "./icons.js";
+export { prepPercent } from "./model-prep.js";
+export { createModelUpdateStore } from "./model-update-store.js";
+export type {
+  ModelUpdatePhase,
+  ModelUpdateState,
+  ModelUpdateStatus,
+  ModelUpdateStore,
+  ModelUpdateStoreOptions,
+} from "./model-update-store.js";

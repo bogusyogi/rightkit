@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased
+
+- Own Windows input-hook wiring & report onboarding push-to-talk diagnostics after the host completes the renderer emit.
+- Add ASR compatibility sample selection & evaluation with host-selected thresholds and copy.
+
+## 0.3.0
+
+- Serialize partial streaming with session stop/cancel/start; reject stale sessions, duplicate revisions & changed engine generations before host input. Keep post-stop drafts available for recovery.
+
+- Shared repaste control emits stored recovery/history on refusal without another effect; renderer channel names are JSON encoded; new event/hotkey diagnostics classify errors without content.
+- Add shared shell/event/lifecycle/hotkey/control/renderer routing paths consumed by current app wrappers. `DictationShell` carries per-handle operations; `DictationHost` adds host policy, platform callbacks & required history-export labels. Copy, theme, event/window names & composition stay in host.
+
+- Breaking host contract: `streaming_take_for_final` returns `StreamingFinal` (`NothingWritten`, `Reconciled { remainder }`, `Stopped { tag, cause }`). Stopped or uncertain prior writes bypass final delivery & Return, preserving full transcript with clipboard untouched. Reconciled streams insert only remainder; recovery/history keep full transcript.
+- Add donor `dictation_error::error_log_code` & `history_error_log_code`, already called by current app command/event paths.
+- Add host-configured final delivery, destination capture, focus coverage, state decisions & serialized state emission modules. App copy, theme & composition remain host-owned.
+- Repaste uses host delivery backend once, persists its returned outcome & succeeds only for a confirmed paste. Copy reads host last-delivery/history state directly. Cancelled, draft, synced & file rows remain excluded from restored manual delivery.
+- Default final delivery preserves clipboard & returns a recovery record until host supplies delivery policy. It never calls insertion callback.
+- Raise command-host, models & app-runtime floors to 0.3.0, core to 0.3.2, telemetry to 0.2.2 & transcript-library to 0.1.4. Add automation 0.7.1 for platform destination proofs.
+- Last-paste casing requests return a command failure. The shell needs an editor-authoritative, conditional replacement of the prior insertion before it can support this operation.
+
 ## 0.2.2
 
 - Sidecar state-probe mismatch logs omit reply contents & session identifiers, including transcript-bearing replies from older peers & unknown state strings.

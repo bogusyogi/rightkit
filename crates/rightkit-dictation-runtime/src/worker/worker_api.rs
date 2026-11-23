@@ -463,6 +463,8 @@ pub enum WorkerCmd {
 pub enum ControlCutStatus {
     Cut,
     Skipped,
+    /// The full transcript may still contain the confirmed control phrase.
+    Unresolved,
 }
 
 /// Typed ownership of why a recording ended. Text is never used to infer a

@@ -20,7 +20,7 @@ pub use worker_api::{
 
 /// Small policy surface for deterministic replay tools. These wrappers keep
 /// replay scheduling tied to the same production predicates & constants.
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 pub mod replay_policy {
     use super::{probe_decisions, worker_api};
 

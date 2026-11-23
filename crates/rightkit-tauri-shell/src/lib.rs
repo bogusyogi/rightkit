@@ -26,6 +26,8 @@ pub use rightkit_presence::presence;
 /// (#867): `post`, `Watcher`, `Lease`, `LeaseMonitor`.
 pub use rightkit_signal as signal;
 pub mod b64;
+#[cfg(feature = "background-update")]
+pub mod background_update;
 pub mod broker;
 pub mod caller_gate;
 pub mod clipboard;
@@ -46,10 +48,13 @@ pub mod harden;
 pub mod host;
 pub mod hub_window;
 pub mod idle;
+pub mod launch_handoff;
 pub mod launch_origin;
 pub mod lifecycle;
 #[cfg(feature = "logs")]
 pub mod logs_commands;
+#[cfg(target_os = "macos")]
+pub mod macos_dock;
 pub mod menu;
 #[cfg(all(feature = "menubar-helper", target_os = "macos"))]
 pub mod menubar_helper;
@@ -85,6 +90,7 @@ pub mod update;
 pub mod watchdog;
 pub mod webview2_env;
 pub mod webview2_menu;
+pub mod window_motion;
 pub mod window_state;
 /// The `windows` / `webview2-com` generation selected by `wv2-0_38` / `wv2-0_39`.
 #[cfg(windows)]

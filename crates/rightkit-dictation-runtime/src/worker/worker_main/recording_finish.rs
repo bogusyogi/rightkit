@@ -364,6 +364,7 @@ impl Worker {
                 );
                 let asr_elapsed = started.elapsed().as_millis() as u64;
                 let asr_elapsed_ms = Some(asr_elapsed);
+                let trigger_removed = cleanup.as_ref().is_ok_and(|outcome| outcome.trigger_removed);
                 let (
                     result,
                     original_text,
@@ -392,7 +393,11 @@ impl Worker {
                                     intent,
                                     control_start_sample: Some(onset_sample),
                                     control_end_sample: None,
-                                    cut_status: crate::worker::ControlCutStatus::Skipped,
+                                    cut_status: if trigger_removed {
+                                        crate::worker::ControlCutStatus::Skipped
+                                    } else {
+                                        crate::worker::ControlCutStatus::Unresolved
+                                    },
                                 },
                             )),
                             Some(original_text),
@@ -431,7 +436,7 @@ impl Worker {
                     session_id: sid,
                     result,
                     audio_secs: Some(audio_secs(&session.buffer)),
-                    send_enter,
+                    send_enter: send_enter && trigger_removed,
                     standalone_action: None,
                     stage_metrics: RecordingStageMetrics {
                         vad_observed_frame_count: vad_aggregate.map(|value| value.0),
@@ -480,7 +485,7 @@ impl Worker {
                 trace_trigger_audio_cut_fallback(Some(&sid), reason, session.buffer.len());
                 (
                     session.buffer.len(),
-                    crate::worker::ControlCutStatus::Skipped,
+                    crate::worker::ControlCutStatus::Unresolved,
                 )
             }
         };
@@ -499,7 +504,7 @@ impl Worker {
                 "cut_decode_failed_full_buffer_retry",
                 session.buffer.len(),
             );
-            cut_status = crate::worker::ControlCutStatus::Skipped;
+            cut_status = crate::worker::ControlCutStatus::Unresolved;
             result = self.transcribe_final_result(final_generation, session.buffer.clone());
         }
         let asr_elapsed_ms = if decode_end == 0 {
@@ -517,10 +522,21 @@ impl Worker {
             } else {
                 full.text.clone()
             };
-            let stripped = rightkit_text_polish::text_pipeline::strip_fired_control_tail(
-                &residue_stripped,
-                intent,
-            );
+            let stripped = if cut_status == crate::worker::ControlCutStatus::Unresolved {
+                // With no reliable audio cut, only remove one explicit command.
+                // The repeated residue stripper can eat user words before it.
+                match rightkit_dictation_inference::control_cleanup::strip_explicit_control_tail(
+                    &full.text, intent,
+                ) {
+                    Some(text) => {
+                        cut_status = crate::worker::ControlCutStatus::Skipped;
+                        text
+                    }
+                    None => full.text.clone(),
+                }
+            } else {
+                rightkit_text_polish::text_pipeline::strip_fired_control_tail(&residue_stripped, intent)
+            };
             owner_diagnostics::record_event(json!({
                 "event": "final_transcript",
                 "session_id": &sid,
@@ -556,7 +572,7 @@ impl Worker {
             session_id: sid,
             result,
             audio_secs: Some(audio_secs(&session.buffer)),
-            send_enter,
+            send_enter: send_enter && cut_status != crate::worker::ControlCutStatus::Unresolved,
             standalone_action: None,
             stage_metrics: RecordingStageMetrics {
                 vad_observed_frame_count: vad_aggregate.map(|value| value.0),

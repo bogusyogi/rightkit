@@ -56,6 +56,7 @@ pub(crate) struct FinalizeCapture {
     pub(crate) audio_secs: Option<f32>,
     pub(crate) focus: Arc<Mutex<FocusTracker>>,
     pub(crate) last_delivery_text: Option<String>,
+    pub(crate) last_pasted_delivery_id: Option<String>,
     /// `StopKind::CancelToHistory` finalize (engine-side: `pending_local_only`,
     /// mirroring `send_enter`/`pending_send_enter`). Phase 2 runs ASR and L0
     /// local polish to completion exactly like a normal Stop, but skips the
@@ -213,13 +214,16 @@ impl EngineRuntime {
         // Wake command authority arrives only from KWS through
         // `pending_send_enter` or the worker's cancel event. Final main-ASR
         // text remains dictation; it cannot select STOP, SEND, or CANCEL.
-        let mut ai_transform = take_final_ai_transform(&mut transcript).inspect(|intent| {
-            tracing::info!(
-                intent = ?intent,
-                parser = "final_asr_lexical",
-                "ai_transform_tail_detected"
-            );
-        });
+        let mut ai_transform = (!unresolved_control_tail(&stop_evidence))
+            .then(|| take_final_ai_transform(&mut transcript))
+            .flatten()
+            .inspect(|intent| {
+                tracing::info!(
+                    intent = ?intent,
+                    parser = "final_asr_lexical",
+                    "ai_transform_tail_detected"
+                );
+            });
         // Field bug 2026-07-16: saying just "summarize" (ASR often adds a
         // leading filler the tail parser strips) matched the TAIL lane with
         // EMPTY content — L3 then summarized nothing and pasted the model's
@@ -235,7 +239,13 @@ impl EngineRuntime {
             transcript = "summarize".to_string();
             ai_transform = None;
         }
-        let last_delivery_text = self.last_delivery.as_ref().map(|r| r.transcript.clone());
+        let last_delivery = self.last_delivery.as_ref();
+        let last_delivery_text = last_delivery.map(|r| r.transcript.clone());
+        let last_pasted_delivery_id = last_delivery
+            .filter(|record| {
+                matches!(record.outcome, DeliveryOutcome::Pasted) && !record.delivery_id.is_empty()
+            })
+            .map(|record| record.delivery_id.clone());
         let generation = self.sequence;
         FinalizePhase1::Continue {
             capture: FinalizeCapture {
@@ -249,6 +259,7 @@ impl EngineRuntime {
                 audio_secs,
                 focus: self.focus.clone(),
                 last_delivery_text,
+                last_pasted_delivery_id,
                 local_only_stop,
                 recording_context: self.focus.lock().recording_start_context(),
                 context_request_attempted: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(
@@ -421,6 +432,16 @@ pub(crate) fn stale_selection_fallback_commit(
     )
 }
 
+fn unresolved_control_tail(evidence: &crate::worker::StopEvidence) -> bool {
+    matches!(
+        evidence,
+        crate::worker::StopEvidence::Zephyr {
+            cut_status: crate::worker::ControlCutStatus::Unresolved,
+            ..
+        }
+    )
+}
+
 pub(crate) fn finalize_phase2_process(
     capture: FinalizeCapture,
     is_current: &dyn Fn() -> bool,
@@ -429,18 +450,42 @@ pub(crate) fn finalize_phase2_process(
         session_id,
         stop_started_at,
         mut transcript,
-        stop_evidence: _stop_evidence,
+        stop_evidence,
         standalone_action,
         send_enter,
         mut ai_transform,
         audio_secs,
         focus,
         last_delivery_text,
+        last_pasted_delivery_id,
         local_only_stop,
         recording_context,
         context_request_attempted,
         context_original_binding,
     } = capture;
+
+    if !local_only_stop && !transcript.trim().is_empty() && unresolved_control_tail(&stop_evidence) {
+        trace_stop_to_engine_outcome(stop_started_at, "zephyr_trigger_unresolved");
+        let captured_target = focus.lock().captured_target();
+        let target = captured_target.unwrap_or_else(snapshot_target);
+        let recording_ms = audio_secs.map(|seconds| (seconds.max(0.0) * 1000.0) as u64);
+        let reason = CopyFallbackReason::clipboard_preserved();
+        let record = rightkit_transcript_library::delivery::copy_fallback_record_with_clipboard(
+            &transcript,
+            reason.clone(),
+            target,
+            |_| Err(reason),
+        )
+        .with_raw(None, recording_ms);
+        return Ok(FinalizeCommit::with_record(
+            FinalizeOutcome::Delivery {
+                record: record.clone(),
+                send_enter: false,
+            },
+            record,
+            false,
+        ));
+    }
 
     // Standalone voice commands are a Pro feature (root CLAUDE.md §6). The
     // SAME classifier the worker's streaming auto-fire uses decides command vs
@@ -479,6 +524,30 @@ pub(crate) fn finalize_phase2_process(
         // OS-visible one. Delivery never restores or redirects focus.
         if discard_if_superseded(is_current, &session_id, "before_standalone_dispatch") {
             return Ok(FinalizeCommit::discard());
+        }
+        if let rightkit_voice_commands::command::CommandAction::LastPasteTransform { transform } =
+            &action
+        {
+            use rightkit_dictation_core::engine::{HostCommand, LastPasteCase};
+
+            let outcome = match (
+                LastPasteCase::from_command_token(transform),
+                last_pasted_delivery_id,
+            ) {
+                (Some(transform), Some(delivery_id)) => {
+                    FinalizeOutcome::HostCommand(HostCommand::TransformLastPaste {
+                        delivery_id,
+                        transform,
+                    })
+                }
+                (None, _) => FinalizeOutcome::CommandFailed {
+                    message: "unknown last-paste transform".to_string(),
+                },
+                (_, None) => FinalizeOutcome::CommandFailed {
+                    message: "no confirmed paste to transform".to_string(),
+                },
+            };
+            return Ok(FinalizeCommit::outcome_only(outcome));
         }
         // A recognized command that fails to dispatch (no macOS equivalent,
         // unknown key, missing permission) must STILL return the engine to idle.

@@ -21,6 +21,7 @@ pub(crate) fn own_window_owner_prefix() -> Option<&'static str> {
 mod clipboard;
 mod ffi;
 mod focus;
+pub mod focus_reads;
 mod frontmost;
 mod keyboard;
 mod modifiers;

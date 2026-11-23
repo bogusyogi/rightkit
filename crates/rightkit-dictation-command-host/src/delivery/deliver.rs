@@ -35,14 +35,8 @@ pub fn deliver_text_with_enter(
         .with_delivery_timing(DeliveryTimings::from_steps(total_ms, steps)));
     }
 
-    // Insert the transcript via clipboard + Ctrl+V (Windows) or clipboard + Cmd+V
-    // (macOS). The bare-Alt KeyTips bug that originally motivated the switch to
-    // type_unicode is gone: send_paste_keystroke never sends a lone VK_MENU key-up.
-    // Clipboard+paste is instant for any length text and works in every target
-    // including Electron/Claude (type_unicode is per-character and Electron fires a
-    // synthetic `input` event for each keystroke, producing char-by-char insertion).
-    // The user's existing clipboard is saved before the write and restored after the
-    // paste so dictation never clobbers it (Wispr/Superwhisper pattern).
+    // Legacy calls lack explicit host policy. Refusal leaves clipboard untouched;
+    // hosts use paste_delivery::RealDeliveryBackend for automatic delivery.
     match insert_transcript(transcript, &target, send_enter) {
         #[cfg(any(target_os = "windows", target_os = "macos"))]
         Ok(InsertResult::Confirmed {
@@ -144,6 +138,7 @@ fn copy_fallback_reason_for_insert_error(error: &DeliveryError) -> CopyFallbackR
         // Focused control is a password field, or its security state could not
         // be verified — the transcript stays on the clipboard only, never
         // pasted or sent (HR-DELIVERY-004, HR-CONTROL-011).
+        "E_DELIVERY_HOST_REQUIRED" => CopyFallbackReason::Other("delivery_host_required".into()),
         "E_SECURE_TARGET" => CopyFallbackReason::Other("secure_target".to_string()),
         "E_FOCUS_CHANGED" => CopyFallbackReason::FocusChanged,
         // Insertion was posted (native write or paste keystroke) but the
@@ -160,7 +155,8 @@ fn copy_fallback_reason_for_insert_error(error: &DeliveryError) -> CopyFallbackR
 }
 
 pub(crate) fn should_leave_clipboard_untouched(error: &DeliveryError) -> bool {
-    error.code == "E_CLIPBOARD"
+    error.code == "E_DELIVERY_HOST_REQUIRED"
+        || error.code == "E_CLIPBOARD"
         || copy_fallback_reason_for_insert_error(error)
             == CopyFallbackReason::ClipboardLossySnapshot
 }

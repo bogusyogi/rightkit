@@ -11,7 +11,8 @@
 //!   reservation, and the temp's own file name.
 //! * [`OwnedTemp::path`] is handed to the child process (it may rewrite or replace the file).
 //! * [`OwnedTemp::publish`] publishes it with [`crate::publish_file_with`] and removes the evidence.
-//!   Dropping an unpublished `OwnedTemp` removes the temp and its evidence.
+//! * [`OwnedTemp::discard`] removes an unpublished temp and then its evidence. Dropping an
+//!   unpublished temp attempts the same cleanup and keeps the evidence if removing the temp fails.
 //! * [`sweep_owned_temps`] removes a temp only when all of this holds: there is a `.rkowner` record
 //!   in the directory that this module wrote (magic line) for the same `owner` label; the temp name
 //!   the record names is the record's own file name without the suffix and is a plain file name;
@@ -39,7 +40,7 @@ static COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// A reserved temp path for an external writer. See the module docs.
 #[derive(Debug)]
-#[must_use = "an unpublished OwnedTemp removes its temp when dropped"]
+#[must_use = "dropping an unpublished OwnedTemp attempts to remove its temp"]
 pub struct OwnedTemp {
     target: PathBuf,
     temp: PathBuf,
@@ -129,6 +130,18 @@ impl OwnedTemp {
         &self.target
     }
 
+    /// Remove the unpublished temp and its ownership record. Close any writer first.
+    /// If the temp cannot be removed, its record remains available to [`sweep_owned_temps`].
+    pub fn discard(mut self) -> Result<()> {
+        self.done = true;
+        self.remove_unpublished()
+    }
+
+    fn remove_unpublished(&self) -> Result<()> {
+        remove_file_if_present(&self.temp)?;
+        remove_file_if_present(&self.record)
+    }
+
     /// Publish the finished temp at the target, as [`publish_file_with`]; the writer must have
     /// closed it. On success the evidence record is removed. On failure nothing is removed here
     /// (the temp and its record remain, and dropping `self` cleans them up).
@@ -146,9 +159,16 @@ impl OwnedTemp {
 impl Drop for OwnedTemp {
     fn drop(&mut self) {
         if !self.done {
-            let _ = fs::remove_file(&self.temp);
-            let _ = fs::remove_file(&self.record);
+            let _ = self.remove_unpublished();
         }
+    }
+}
+
+fn remove_file_if_present(path: &Path) -> Result<()> {
+    match fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(FsError::io(path, e)),
     }
 }
 

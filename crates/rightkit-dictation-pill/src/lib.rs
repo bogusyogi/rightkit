@@ -67,12 +67,14 @@
 
 pub mod anim;
 pub mod bridge;
+pub mod clip_override;
 pub mod clipboard;
 pub(crate) mod clock;
 pub(crate) mod cmd_queue;
 pub mod config;
 pub mod dispatch_queue;
 pub mod draw;
+pub mod feature_tip;
 pub mod frame;
 pub mod guardian;
 pub mod guardian_worker;
@@ -85,7 +87,9 @@ pub mod regions;
 pub(crate) mod retire;
 pub mod reveal_retry;
 pub mod splash_handoff;
+pub mod synth;
 pub mod text;
+pub mod tip;
 pub mod visibility;
 
 #[cfg(target_os = "windows")]

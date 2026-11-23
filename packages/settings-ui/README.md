@@ -14,7 +14,7 @@ Settings panel frame and standard sections for Right Suite apps: appearance, upd
 | Import | Contents |
 |---|---|
 | `@rightkit/settings-ui` | Everything in `/core` and `/standard` (the 0.3.x surface, unchanged, plus the search exports) |
-| `@rightkit/settings-ui/core` | `SettingsPanel`, `SectionFrame`, `mergeSections`, `orderSections`, `searchSections`, `revealSetting`, `SettingsGroup`, `SettingRow`, `ProgressBar`, `formatBytes`, `useSettings`, `createMemorySettings`, `sectionIcons`, the search API (`SettingsSearchProvider`, `SettingsItem`, `SettingsSearchSection`, `SettingsSectionScope`, `HighlightedText`, `useSettingsSearch`, `useSearchKeys`), and types. Imports only `react`. |
+| `@rightkit/settings-ui/core` | `createModelUpdateStore` (single-flight local-model replacement store), `prepPercent` (synthetic "preparing" progress), `SettingsPanel`, `SectionFrame`, `mergeSections`, `orderSections`, `searchSections`, `revealSetting`, `SettingsGroup`, `SettingRow`, `ProgressBar`, `formatBytes`, `useSettings`, `createMemorySettings`, `sectionIcons`, the search API (`SettingsSearchProvider`, `SettingsItem`, `SettingsSearchSection`, `SettingsSectionScope`, `HighlightedText`, `useSettingsSearch`, `useSearchKeys`), and types. Imports only `react`. |
 | `@rightkit/settings-ui/appearance` | `appearanceSection`, `AppearanceOptions`. Needs `@rightkit/react-shell` and `@rightkit/theme`, not `@rightkit/license`. Pair with `/core` in an app without licensing (0.5.0). |
 | `@rightkit/settings-ui/standard` | `standardSections`, the section factories, `useLicenseSection`, `useDoctor`. Needs the optional peers below. |
 | `@rightkit/settings-ui/headless` | The search state as hooks and no-DOM providers, for a host with its own markup: `SettingsSearchProvider`, `useSettingsSearch`, `useSettingsRow`, `useSettingsItem`, `useSettingsHit`, `useSettingsGroup`, `useSettingsSection`, `useSettingsSearchField`, `useSettingsSearchStatus`, `useSearchKeys`, `highlightText`, `parseSearchTerms`, `defaultAnnouncement`, `SettingsGroupScope`, `SettingsSectionScope`. Imports only `react`; no stylesheet. See [Headless search](#headless-search). |
@@ -321,3 +321,25 @@ Outside a provider every hook is inert: rows render, nothing is hidden, groups a
 
 - Two peers have no upper bound: `@rightkit/logs` and `@rightkit/app-update` (npm audit 2026-10-08, settings-ui finding). `@rightkit/license` is bounded to `<0.4`.
 - Peer React is `<21`, the same range as `doc-render`, `i18n`, `media-ui` and `pdf-ui` (`package.json:49`).
+
+## Model replacement store and preparing progress (0.7.4)
+
+```ts
+import { createModelUpdateStore, formatBytes, prepPercent } from "@rightkit/settings-ui/core";
+
+const store = createModelUpdateStore({
+  invoke, listen,                       // the app's own IPC
+  backend: "parakeet-tdt",
+  modelLabel: "Parakeet Ultra",
+  commands: { download: "download_model", dismiss: "dismiss_model_update", afterInstall: "register_hotkeys" },
+  progressEvent: "local-asr-model",      // payload { backend, phase, received, total }
+  notReadyMessage: "The model finished downloading but is not ready yet.",
+  unknownErrorMessage: "Unknown error",
+});
+
+const state = store.use();               // React hook; status, busy, phase, pct, error, modelLabel, downloadBytes
+const size = state.downloadBytes > 0 ? formatBytes(state.downloadBytes) : "";
+const preparing = `Preparing model... ${prepPercent(elapsedSecs, 180)}%`; // the assumed 180 s is the app's number
+```
+
+`start()` is single-flight: a second call while a download runs only reopens the progress view. Labels and copy stay in the app.

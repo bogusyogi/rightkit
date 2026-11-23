@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Button, Input, Badge } from "@rightkit/react-shell/react";
-import type { SignInBackend, SignInProvider, LicenseBackend, ModelEntry, ModelsAutoStart, ModelsStepEnterContext, LicenseState, ModelsBackend, OnboardingStep, PermissionStatus, PermissionsBackend } from "./types.js";
+import type { SignInBackend, SignInProvider, LicenseBackend, ModelEntry, ModelsAutoStart, ModelsStepEnterContext, LicenseState, ModelsBackend, OnboardingStep, OnboardingStepContext, PermissionStatus, PermissionsBackend } from "./types.js";
+import { nextEntryProgress, trackModelInstall } from "./model-progress.js";
 
 function ProgressBar({ value, label }: { value: number; label: string }) {
   const pct = Math.max(0, Math.min(1, value));
@@ -54,26 +55,73 @@ export function permissionsStep(backend: PermissionsBackend, options: { label?: 
   return { id: "permissions", label: options.label ?? "Permissions", title: options.title ?? "Allow what this app needs", description: options.description ?? "You can change these permissions later in System Settings.", skippable: true, render: () => <PermissionsBody backend={backend} /> };
 }
 
-interface ModelsBodyProps extends ModelsAutoStart { backend: ModelsBackend; onReady?: (ready: boolean) => void; intro?: ReactNode; startGuard?: { current: boolean } }
+/** What the step knows about its models, for `ModelsStepOptions.extras`. */
+export interface ModelsStepView {
+  /** False until the first read of the model list has finished. */
+  loaded: boolean;
+  /** True when at least one model is installed. */
+  installed: boolean;
+  models: readonly ModelEntry[];
+}
 
-function ModelsBody({ backend, onReady, autoStartDownload, shouldAutoStart, onModelsStepEnter, intro, startGuard }: ModelsBodyProps) {
+interface ModelsBodyProps extends ModelsAutoStart {
+  backend: ModelsBackend; onReady?: (ready: boolean) => void; intro?: ReactNode; startGuard?: { current: boolean };
+  context?: OnboardingStepContext; onInstalledInSession?: ModelsStepOptions["onInstalledInSession"]; installedDelayMs?: number; extras?: ModelsStepOptions["extras"];
+}
+
+function ModelsBody({ backend, onReady, autoStartDownload, shouldAutoStart, onModelsStepEnter, intro, startGuard, context, onInstalledInSession, installedDelayMs = 900, extras }: ModelsBodyProps) {
   const [models, setModels] = useState<ModelEntry[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const ownGuard = useRef(false);
   const autoStarted = startGuard ?? ownGuard;
+  // The bar only moves forward: the last progress each model showed, reset by an error entry.
+  const lastProgress = useRef(new Map<string, number>());
   const reload = useCallback(() => backend.list().then((list) => { setModels(list); setLoaded(true); }, (e) => setError(e instanceof Error ? e.message : String(e))), [backend]);
   useEffect(() => {
     void reload();
     if (!backend.subscribe) return;
     let off: (() => void) | undefined;
     let live = true;
-    void backend.subscribe((entry) => setModels((current) => current.some((m) => m.id === entry.id) ? current.map((m) => m.id === entry.id ? entry : m) : [...current, entry])).then((unsubscribe) => { if (live) off = unsubscribe; else unsubscribe(); });
+    void backend.subscribe((incoming) => {
+      const progress = nextEntryProgress(lastProgress.current.get(incoming.id) ?? 0, incoming);
+      lastProgress.current.set(incoming.id, progress);
+      const entry = { ...incoming, progress };
+      setModels((current) => current.some((m) => m.id === entry.id) ? current.map((m) => m.id === entry.id ? entry : m) : [...current, entry]);
+    }).then((unsubscribe) => { if (live) off = unsubscribe; else unsubscribe(); });
     return () => { live = false; off?.(); };
   }, [backend, reload]);
   const hasInstalled = models.some((m) => m.state === "installed");
   useEffect(() => { onReady?.(hasInstalled); }, [hasInstalled, onReady]);
+  // Advance on an install that finished while this step was mounted (see `trackModelInstall`).
+  const contextRef = useRef(context);
+  contextRef.current = context;
+  const onInstalledRef = useRef(onInstalledInSession);
+  onInstalledRef.current = onInstalledInSession;
+  const mountedRef = useRef(true);
+  const sawNotInstalledRef = useRef(false);
+  const [installedHere, setInstalledHere] = useState(false);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
+  const aggregateState = !loaded ? "unknown" : hasInstalled ? "installed" : "missing";
+  useEffect(() => {
+    const next = trackModelInstall(sawNotInstalledRef.current, aggregateState);
+    sawNotInstalledRef.current = next.sawNotInstalled;
+    setInstalledHere(next.advance);
+  }, [aggregateState]);
+  const watchInstalled = onInstalledInSession !== undefined;
+  useEffect(() => {
+    if (!installedHere || !watchInstalled) return;
+    const timer = window.setTimeout(() => {
+      const current = contextRef.current;
+      if (!current) return;
+      void Promise.resolve(onInstalledRef.current?.(current, () => mountedRef.current)).catch((e) => { if (mountedRef.current) setError(e instanceof Error ? e.message : String(e)); });
+    }, installedDelayMs);
+    return () => window.clearTimeout(timer);
+  }, [installedHere, watchInstalled, installedDelayMs]);
   const run = (id: string, request: Promise<void>) => {
     setBusy(id); setError(null);
     void request.then(reload, (e) => setError(e instanceof Error ? e.message : String(e))).finally(() => setBusy(null));
@@ -99,7 +147,7 @@ function ModelsBody({ backend, onReady, autoStartDownload, shouldAutoStart, onMo
     // run is intentionally omitted: it only closes over setters.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoStartDownload, shouldAutoStart, onModelsStepEnter, loaded, models, backend]);
-  return (
+  const card = (
     <div className="rk-onboarding__card" data-testid="onboarding-models">
       {intro ? <div className="rk-onboarding__intro" data-testid="onboarding-models-intro">{intro}</div> : null}
       {error ? <p className="rk-onboarding__error" role="alert">{error}</p> : null}
@@ -121,6 +169,9 @@ function ModelsBody({ backend, onReady, autoStartDownload, shouldAutoStart, onMo
       {models.length === 0 && !error ? <p className="rk-onboarding__muted">No models available.</p> : null}
     </div>
   );
+  if (!extras) return card;
+  // The extras sit under the card; both are laid out as one centred column.
+  return <div style={{ display: "grid", width: "100%", justifyItems: "center", gap: 12 }}>{card}{extras({ loaded, installed: hasInstalled, models })}</div>;
 }
 
 export interface ModelsStepOptions extends ModelsAutoStart {
@@ -133,6 +184,18 @@ export interface ModelsStepOptions extends ModelsAutoStart {
   intro?: ReactNode;
   /** Shared "already auto-started" flag. `Onboarding` supplies one that survives Back/Next and re-renders; omit it and the guard lives for the step's mount only. */
   startGuard?: { current: boolean };
+  /**
+   * Called once when a model goes from not installed to installed while this step is mounted (a download that
+   * finished here), after `installedDelayMs`. A model already installed when the step opens (relaunch, Back to
+   * the step) never calls it. `isActive` is false once the step unmounted (Back, a rail click): check it before
+   * moving on. Use `context.advance()` to complete the step, or your own activation first. A rejection shows as
+   * the step's error.
+   */
+  onInstalledInSession?: (context: OnboardingStepContext, isActive: () => boolean) => void | Promise<void>;
+  /** Wait before `onInstalledInSession`, so the finished bar is seen. Default 900. */
+  installedDelayMs?: number;
+  /** App content under the model card (a feature reel while nothing is installed, a licence credit). Receives the step's model state. */
+  extras?: (view: ModelsStepView) => ReactNode;
 }
 
 export function modelsStep(backend: ModelsBackend, options: ModelsStepOptions = {}): OnboardingStep {
@@ -140,7 +203,7 @@ export function modelsStep(backend: ModelsBackend, options: ModelsStepOptions = 
     id: "models", label: options.label ?? "Models", title: options.title ?? "Choose local models", description: options.description ?? "Downloads are verified before a model is activated.", skippable: true,
     canContinue: options.required ? (ctx) => ctx.ready.models === true : undefined,
     blockedHint: options.required ? "Download a model to continue." : undefined,
-    render: (ctx) => <ModelsBody backend={backend} onReady={ctx.setReady} autoStartDownload={options.autoStartDownload} shouldAutoStart={options.shouldAutoStart} onModelsStepEnter={options.onModelsStepEnter} intro={options.intro} startGuard={options.startGuard} />,
+    render: (ctx) => <ModelsBody backend={backend} onReady={ctx.setReady} autoStartDownload={options.autoStartDownload} shouldAutoStart={options.shouldAutoStart} onModelsStepEnter={options.onModelsStepEnter} intro={options.intro} startGuard={options.startGuard} context={ctx} onInstalledInSession={options.onInstalledInSession} installedDelayMs={options.installedDelayMs} extras={options.extras} />,
   };
 }
 

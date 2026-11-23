@@ -6,7 +6,7 @@
 //! Split out of the former single-file `macos/focus.rs`
 //! (docs/agent-rules.md: pure move, no logic changes).
 
-use core_foundation::base::{CFHash, CFType, TCFType};
+use core_foundation::base::{CFHash, CFType, CFTypeRef, TCFType};
 
 use super::super::ffi::{
     ax_app_element, ax_attribute_settable, ax_bool, ax_children, ax_copy, ax_copy_with_error,
@@ -128,23 +128,37 @@ pub fn focused_target_identity_for_pid(pid: i32) -> Option<isize> {
         let focused_ref = focused.as_CFTypeRef() as AXUIElementRef;
         let _ = AXUIElementSetMessagingTimeout(focused_ref, AX_MESSAGING_TIMEOUT_SECONDS);
         let window = CFType::wrap_under_create_rule(ax_copy(focused_ref, "AXWindow")?);
-        let window_hash = CFHash(window.as_CFTypeRef()) as u64;
-        let element_hash = CFHash(focused.as_CFTypeRef()) as u64;
-        Some((window_hash.rotate_left(17) ^ element_hash) as isize)
+        Some(focused_target_hash(window.as_CFTypeRef(), focused.as_CFTypeRef()))
     }
 }
 
+pub(in crate::desktop::macos) unsafe fn focused_target_hash(
+    window: CFTypeRef,
+    element: CFTypeRef,
+) -> isize {
+    let window_hash = unsafe { CFHash(window) } as u64;
+    let element_hash = unsafe { CFHash(element) } as u64;
+    (window_hash.rotate_left(17) ^ element_hash) as isize
+}
+
 pub(in crate::desktop::macos) fn focused_window_for_pid(pid: i32) -> Option<CFType> {
+    focused_window_with_timeout(pid, AX_MESSAGING_TIMEOUT_SECONDS)
+}
+
+pub(in crate::desktop::macos) fn focused_window_with_timeout(
+    pid: i32,
+    timeout_seconds: f32,
+) -> Option<CFType> {
     unsafe {
         let app = ax_app_element(pid)?;
         let app_ref = app.as_CFTypeRef() as AXUIElementRef;
-        let _ = AXUIElementSetMessagingTimeout(app_ref, AX_MESSAGING_TIMEOUT_SECONDS);
+        let _ = AXUIElementSetMessagingTimeout(app_ref, timeout_seconds);
         for attr in ["AXFocusedWindow", "AXMainWindow"] {
             if let Some(window) = ax_copy(app_ref, attr) {
                 let window = CFType::wrap_under_create_rule(window);
                 let _ = AXUIElementSetMessagingTimeout(
                     window.as_CFTypeRef() as AXUIElementRef,
-                    AX_MESSAGING_TIMEOUT_SECONDS,
+                    timeout_seconds,
                 );
                 return Some(window);
             }

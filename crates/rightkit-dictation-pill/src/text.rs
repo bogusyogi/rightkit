@@ -506,3 +506,8 @@ pub fn ellipsize(text: &str, face: Face, size: f32, max_w: f32) -> String {
         None => "…".to_string(),
     }
 }
+
+/// Display elapsed seconds as `mm:ss`.
+pub fn clock_text(elapsed_secs: u32) -> String {
+    format!("{:02}:{:02}", elapsed_secs / 60, elapsed_secs % 60)
+}

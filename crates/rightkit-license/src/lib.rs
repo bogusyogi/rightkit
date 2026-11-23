@@ -77,15 +77,19 @@ mod file_store;
 #[cfg(feature = "engine-gate")]
 mod gate;
 mod lease;
+mod legacy_import;
 mod lifecycle;
 mod native_engine;
 mod native_verdict;
+#[cfg(feature = "client")]
+mod pending_release_drain;
 mod record_text;
 mod refresh;
 mod revocation;
 #[cfg(feature = "subject-entitlement")]
 mod subject;
 pub mod suite_api;
+mod update_credentials;
 
 #[cfg(feature = "engine-gate")]
 pub use gate::{
@@ -120,6 +124,10 @@ pub use client::{
     AuthorizedHeaders, LicenseRevision, StagedIdentity, UpdateAuthConfig, UpdateAuthError,
     UpdateAuthProvider, UpdateBinding, UpdateRoute, DEFAULT_HEADER_TTL,
 };
+pub use legacy_import::{
+    LegacyImport, LegacyImportEvents, LegacyImportRetry, DEFAULT_MAX_RETRIES,
+    DEFAULT_RETRY_COOLDOWN,
+};
 pub use native_engine::{
     NativeCredential, NativeEngineEntitlements, NativeEntitlementError, NativeEntitlementSource,
     NativeSignedCredential, NativeSourceError,
@@ -128,7 +136,14 @@ pub use native_verdict::{
     ObservedEntitlements, RefusalCode as NativeRefusalCode, EVENT_REFUSED as PRO_EVENT_REFUSED,
     EVENT_VERDICT as PRO_EVENT_VERDICT,
 };
+#[cfg(feature = "client")]
+pub use pending_release_drain::drain_pending_releases_logged;
 pub use record_text::stored_signed_token;
+pub use update_credentials::{
+    bearer_headers, install_update_headers, read_update_license, stored_update_credentials,
+    update_check_headers, verified_signed_token, StoredUpdateCredentials, UpdateCheckHeaderNames,
+    UpdateLicense,
+};
 
 pub use revocation::{
     peek_unverified_claims, verify_token_not_revoked, RevocationError, RevokedIds, UnverifiedClaims,

@@ -35,6 +35,7 @@ mod rebuild;
 mod relocate;
 mod rotate;
 mod store;
+pub mod support;
 mod transition;
 
 pub use error::LifecycleError;

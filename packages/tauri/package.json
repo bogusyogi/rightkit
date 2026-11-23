@@ -12,6 +12,10 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
+    "./react": {
+      "types": "./dist/react.d.ts",
+      "import": "./dist/react.js"
+    },
     "./dialog": {
       "types": "./dist/dialog.d.ts",
       "import": "./dist/dialog.js"
@@ -39,9 +43,13 @@
   },
   "peerDependencies": {
     "@rightkit/app-update": ">=0.2.5 <0.5",
-    "@tauri-apps/plugin-dialog": "^2.0.0"
+    "@tauri-apps/plugin-dialog": "^2.0.0",
+    "react": ">=18 <21"
   },
   "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    },
     "@tauri-apps/plugin-dialog": {
       "optional": true
     }
@@ -53,6 +61,8 @@
     "typecheck:contracts": "tsc --ignoreConfig --noEmit --strict --target ES2022 --module NodeNext --moduleResolution NodeNext type-tests/contract.ts"
   },
   "devDependencies": {
+    "@types/react": "^19.3.0",
+    "react": "^19.3.1",
     "typescript": "^7.0.2"
   },
   "publishConfig": {

@@ -2,7 +2,8 @@
 // Public API only; in-memory values only (no audio device, no engine process).
 use rightkit_dictation_core::audio_conditioning::rms;
 use rightkit_dictation_core::engine::{
-    validate_frame, EngineFrame, EnginePayload, EngineSchemaName,
+    validate_frame, DiagnosticsPayload, EngineFrame, EnginePayload, EngineSchemaName, HostCommand,
+    LastPasteCase,
 };
 use rightkit_dictation_core::mic_selection::{resolve_mic_selection, MicDeviceSnapshot};
 use rightkit_dictation_core::pill::PillEvent;
@@ -51,6 +52,39 @@ fn main() {
     all &= check(
         validate_frame(&mismatched).is_err(),
         "request without its payload is refused",
+    );
+    let command = HostCommand::TransformLastPaste {
+        delivery_id: "delivery-1".into(),
+        transform: LastPasteCase::Upper,
+    };
+    let wire = command
+        .clone()
+        .into_reset_diagnostics("last insertion unavailable");
+    all &= check(
+        wire == serde_json::json!({
+            "reset_to_armed": true,
+            "command_failed": "last insertion unavailable",
+            "host_command": {"kind": "transform_last_paste", "delivery_id": "delivery-1", "transform": "upper"}
+        }) && HostCommand::from_reset_diagnostics(&wire) == Some(command),
+        "last-paste command round-trips through reset diagnostics",
+    );
+    let legacy: DiagnosticsPayload =
+        serde_json::from_value(wire.clone()).expect("legacy diagnostics remain readable");
+    all &= check(
+        legacy.reset_to_armed == Some(true)
+            && legacy.command_failed.as_deref() == Some("last insertion unavailable"),
+        "legacy parser retains the reset and visible failure",
+    );
+    let mut non_reset = wire.clone();
+    non_reset["reset_to_armed"] = false.into();
+    let mut malformed = wire;
+    malformed["host_command"]["transform"] = "unknown".into();
+    all &= check(
+        HostCommand::from_reset_diagnostics(&non_reset).is_none()
+            && HostCommand::from_reset_diagnostics(&malformed).is_none()
+            && HostCommand::from_reset_diagnostics(&serde_json::json!({"reset_to_armed": true}))
+                .is_none(),
+        "non-reset, malformed and legacy frames request no host command",
     );
     let devices = [MicDeviceSnapshot {
         id: 0,

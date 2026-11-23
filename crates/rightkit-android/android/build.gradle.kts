@@ -12,6 +12,9 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+// Opt in only when native bindings were generated with the Cargo models feature.
+val modelsEnabled = providers.gradleProperty("rightkit.models").orNull == "true"
+
 android {
     namespace = "com.orthiclabs.rightkit.android"
     compileSdk = 35
@@ -45,17 +48,26 @@ android {
 
 kotlin {
     jvmToolchain(17)
+    if (!modelsEnabled) {
+        sourceSets.configureEach { kotlin.exclude("com/orthiclabs/rightkit/android/models/**") }
+    }
 }
 
-// Every resolved dependency is locked (gradle.lockfile, committed): Class A refuses a build whose lockfile does not match
-// (gradle-lock). Regenerate with `gradle dependencies --write-locks` after a dependency change and commit the lockfile with it.
+// Each feature configuration locks its own resolved dependencies.
 dependencyLocking {
+    if (!modelsEnabled) lockFile.set(file("gradle-core.lockfile"))
     lockAllConfigurations()
 }
 
 dependencies {
     // UniFFI's generated Kotlin loads the library through JNA.
     api("net.java.dev.jna:jna:5.14.0@aar")
+    if (modelsEnabled) {
+        // Reuse the module's existing locked coroutine version (compatible with Kotlin 2.0.21).
+        api("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.6.4")
+        // Matches rustls-platform-verifier-android in Cargo.lock.
+        implementation("org.rustls:rustls-platform-verifier:0.2.0")
+    }
 }
 
 // Fail early with a useful message instead of an app that crashes on System.loadLibrary.
@@ -63,10 +75,12 @@ dependencies {
 val verifyNativeLibs by tasks.registering {
     val libs = layout.projectDirectory.dir("src/main/jniLibs")
     val abis = listOf("arm64-v8a", "x86_64")
+    val library = providers.gradleProperty("rightkit.libraryName").orElse("rightkit_android").get()
+    require(library.matches(Regex("[A-Za-z0-9_]+"))) { "Invalid rightkit.libraryName" }
     val skip = providers.gradleProperty("rightkit.skipNativeCheck").orNull == "true"
     doLast {
         if (skip) return@doLast
-        val missing = abis.filter { !libs.file("$it/librightkit_android.so").asFile.exists() }
+        val missing = abis.filter { !libs.file("$it/lib$library.so").asFile.exists() }
         check(missing.isEmpty()) {
             "Native libraries missing for ${missing.joinToString()}: run crates/rightkit-android/scripts/build-android.(sh|ps1) first."
         }

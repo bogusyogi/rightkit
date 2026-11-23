@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.2
+
+Additive. Moved from `@rightkit/dictation-ui`, which is being removed.
+
+- `mmss(totalSeconds)` (root, `./headless`): `mm:ss` text for a whole number of seconds, minutes unbounded. One implementation for a recording timer and a setup preview timer.
+- `isMacPttKeyEvent(code, configuredKey)` and `isWindowsPttKeyEvent(code, configuredKey)` (root, `./headless`): whether a `KeyboardEvent.code` is the configured push-to-talk key. `configuredKey` is the `rightkit-hotkeys` `PttAlias` (`lalt`, `ralt`, `rctrl`); an unknown alias falls back to right Alt on Windows and to either Control on macOS.
+
 ## 0.4.1 — unpublished staging
 
 Additive. Every new option defaults to the 0.4.0 behaviour.

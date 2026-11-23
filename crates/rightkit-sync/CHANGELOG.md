@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.1
+
+- Add durable transcript recovery markers, consent binding & replay completion under the `transcripts` feature.
+
 ## 0.4.0
 
 - Added `transcript-host`: consent/account authority, guarded ledger, scoped deletion outbox, windowed history, event-driven scheduler & macOS CloudKit transport; host retains product values, history storage & UI copy.

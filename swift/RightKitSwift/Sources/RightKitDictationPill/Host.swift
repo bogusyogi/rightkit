@@ -21,14 +21,16 @@ public enum RightKitPillCopyLastResult: Sendable, Equatable {
     }
 }
 
-/// What the pill asks of its host. Every member is required: there is no default that reports
-/// success. Each closure is called off the main thread unless noted, and may block.
+/// What the pill asks of its host. Each closure is called off the main thread unless noted,
+/// and may block.
 public struct RightKitPillHost: Sendable {
     /// Copies the text and returns whether the clipboard holds it now. Blocks until the write finished.
     public var copyText: @Sendable (_ text: String) -> Bool
     public var updateHistoryItem: @Sendable (_ id: String, _ transcript: String) -> Void
     public var openHub: @Sendable (_ tab: Int32) -> Void
     public var dismissClipboard: @Sendable () -> Void
+    /// Receives the generation captured when the view dismissed the card.
+    public var dismissClipboardGeneration: (@Sendable (UInt64) -> Void)?
     public var dismissHint: @Sendable () -> Void
     public var setScreenshotDestination: @Sendable (_ destination: Int32) -> Void
     public var log: @Sendable (_ surface: String, _ message: String) -> Void
@@ -45,6 +47,11 @@ public struct RightKitPillHost: Sendable {
     public var splashAction: @Sendable (_ action: Int32) -> Void
     /// Copies the newest transcript. Blocks.
     public var copyLast: @Sendable () -> RightKitPillCopyLastResult
+    /// Called after the native splash handoff retires, including an already absent panel.
+    public var splashClosed: @Sendable () -> Void
+    /// Retires the exact versioned show. Compare this token at the host's lifecycle owner.
+    /// When supplied, tokenless retirements are ignored rather than sent to `splashClosed`.
+    public var splashClosedGeneration: (@Sendable (UInt64) -> Void)?
 
     public init(
         copyText: @escaping @Sendable (String) -> Bool,
@@ -63,12 +70,16 @@ public struct RightKitPillHost: Sendable {
         terminalErrorGeneration: @escaping @Sendable () -> Int64,
         splashStalled: @escaping @Sendable (Int32) -> Bool,
         splashAction: @escaping @Sendable (Int32) -> Void,
-        copyLast: @escaping @Sendable () -> RightKitPillCopyLastResult
+        copyLast: @escaping @Sendable () -> RightKitPillCopyLastResult,
+        splashClosed: @escaping @Sendable () -> Void = {},
+        dismissClipboardGeneration: (@Sendable (UInt64) -> Void)? = nil,
+        splashClosedGeneration: (@Sendable (UInt64) -> Void)? = nil
     ) {
         self.copyText = copyText
         self.updateHistoryItem = updateHistoryItem
         self.openHub = openHub
         self.dismissClipboard = dismissClipboard
+        self.dismissClipboardGeneration = dismissClipboardGeneration
         self.dismissHint = dismissHint
         self.setScreenshotDestination = setScreenshotDestination
         self.log = log
@@ -82,6 +93,8 @@ public struct RightKitPillHost: Sendable {
         self.splashStalled = splashStalled
         self.splashAction = splashAction
         self.copyLast = copyLast
+        self.splashClosed = splashClosed
+        self.splashClosedGeneration = splashClosedGeneration
     }
 }
 
@@ -177,7 +190,15 @@ public final class RightKitPillCallbackQueue: @unchecked Sendable {
     }
 
     public func openHub(_ tab: Int32) { let host = host; background { host.openHub(tab) } }
-    public func dismissClipboard() { let host = host; background { host.dismissClipboard() } }
+    public func dismissClipboard(generation: UInt64? = nil) {
+        let host = host
+        if let dismiss = host.dismissClipboardGeneration {
+            guard let generation else { return }
+            background { dismiss(generation) }
+        } else {
+            background { host.dismissClipboard() }
+        }
+    }
     public func dismissHint() { let host = host; background { host.dismissHint() } }
     public func setScreenshotDestination(_ destination: Int32) {
         let host = host; background { host.setScreenshotDestination(destination) }
@@ -191,6 +212,17 @@ public final class RightKitPillCallbackQueue: @unchecked Sendable {
         let host = host; background { host.recoverTerminalError(generation) }
     }
     public func splashAction(_ action: Int32) { let host = host; background { host.splashAction(action) } }
+    public func splashClosed(generation: UInt64? = nil) {
+        let host = host
+        if let closed = host.splashClosedGeneration {
+            guard let generation else { return }
+            background { closed(generation) }
+        } else {
+            // Never erase a versioned retirement's identity through a legacy fallback.
+            guard generation == nil else { return }
+            background { host.splashClosed() }
+        }
+    }
 
     /// Copies the newest transcript on a background queue and reports on the main queue.
     public func copyLast(completion: @escaping @MainActor @Sendable (RightKitPillCopyLastResult) -> Void) {

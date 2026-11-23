@@ -8,8 +8,8 @@ pub use protocol::{
     check_duration_limit, last_pasted_for_engine, recording_delivery_policy,
     recording_delivery_policy_with_stop_proof, validate_engine_frame, DiagnosticsPayload,
     EngineContractError, EngineErrorPayload, EngineFrame, EngineHealthStatus, EnginePass,
-    EnginePayload, EngineSchemaName, EngineTimeline, RecordingContext, RecordingContextState,
-    RecordingDeliveryPolicy, RecordingStageMetrics, StopKind, VocabTermWire,
+    EnginePayload, EngineSchemaName, EngineTimeline, HostCommand, LastPasteCase, RecordingContext,
+    RecordingContextState, RecordingDeliveryPolicy, RecordingStageMetrics, StopKind, VocabTermWire,
     CAPABILITY_LIVE_L3_RECONFIGURE, CURRENT_SCHEMA_VERSION, FREE_TRANSCRIBE_MAX_SECS,
     PROTOCOL_MAJOR, PROTOCOL_MINOR,
 };

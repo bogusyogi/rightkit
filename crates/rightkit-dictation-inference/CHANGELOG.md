@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.4
+
+- Remove a literal stop/send suffix once. Ambiguous renderings require acoustic or token timing evidence.
+- Allow a shared deadline for optional alignment lease acquisition and model calls. A backend call already running finishes before the worker yields.
+
 ## 0.2.3 (2026-11-19)
 
 - Allow hosts to set bounded wake-spotter thread, beam, blank, timing and onset-history options. Default settings preserve the existing wake policy.

@@ -10,7 +10,7 @@ Catalog capability: `audio`.
 - Measurement and offline renders (`measure`, `profile`). These run FFmpeg through `rightkit-ffmpeg`, so cancellation, timeout and process-tree ownership are uniform.
 - WAV I/O (`wav`): `read_wav_mono_f32`, `read_wav_16k_mono`, `write_wav_mono_i16`.
 - Live capture (`capture`, feature `capture`) and the Windows endpoint and power lifecycle (`lifecycle`).
-- Setup metering & calibration (`setup`, feature `capture`): epoch-owned microphone meter, bounded PCM recorder & restore-once host media guard.
+- Setup metering & calibration (`setup`, feature `capture`): epoch-owned microphone meter, bounded PCM recorder, restore-once host media guard, OS microphone consent & owned calibration engine runner.
 - Audio output (`playback`, feature `playback`): `list_output_devices`, `OutputSession` (push, pause, resume, flush, volume, mute, clock, counters, device-loss recovery) and the `OutputControl` handle for other threads.
 - One-shot playback (`playback::play_once`, feature `playback`): decode a WAV and play it to the default output device, blocking until it ends.
 - Mic-to-camera lag (`mic_align`: `align_mic`) and equal-power looped room-tone fill (`room_fill`: `room_tone_fill`, `room_tone_bed`).
@@ -28,7 +28,7 @@ Do not use it for transcription (see `rightkit-asr`), or to decode or remux medi
 
 | Feature | Default | Pulls in | Adds |
 |---|---|---|---|
-| `capture` | yes | `tracing` 0.1, `cpal` 0.18.2, `rubato` 5.0.0, `ringbuf` 0.5; macOS `objc2-core-audio`, `objc2-core-foundation`; Windows `windows`, `windows-core` | Live microphone capture (`capture` module) and the Windows endpoint and power lifecycle (`lifecycle`). Without it, the crate is filter graphs, measurement, WAV I/O and room tone only. |
+| `capture` | yes | `tracing` 0.1, `cpal` 0.18.2, `rubato` 5.0.1, `ringbuf` 0.6, `rightkit-child-process` 0.5.12; macOS `objc2-core-audio`, `objc2-core-foundation`, `objc2`, `objc2-foundation`, `block2`; Windows `windows`, `windows-core` | Live microphone capture (`capture`), setup metering, consent & calibration (`setup`), Windows endpoint & power lifecycle (`lifecycle`). Without it, crate provides filter graphs, measurement, WAV I/O & room tone. |
 | `playback` | no | `cpal` 0.18.2 (the same optional dependency `capture` uses; nothing new) | Audio output (`playback` module): `OutputSession` over a bounded lock-free SPSC ring, `played_samples()`/`position()` clock, pause/resume/flush, volume/mute, underrun/overrun counters, reopen of the default device after a device loss. Independent of `capture`. |
 
 ## Usage
@@ -102,4 +102,8 @@ A hosted runner has none of these assets, so each test prints `SKIP <test>: ...`
 
 Helpers: `selected_capture_device(choose)`, `f32le_bytes(samples)` & `sweep_files_with_extension(dir, extension)`. Host supplies device policy, settings, session ids, stale-file cleanup, media callbacks & renderer events. Callbacks must return normally & avoid re-entering their meter or recorder.
 
-Constructors open no microphone. Call `start` only for an explicit user action after verifying an existing OS microphone grant; host owns permission requests. This module never conditions calibration PCM or starts recognition. Cancel recording when setup exits or its window hides, suspends or closes.
+Constructors open no microphone. Call `start` only for an explicit user action after verifying an existing OS microphone grant. Cancel recording when setup exits or its window hides, suspends or closes.
+
+`setup::permissions::{PermissionHost, microphone_access_status, request_microphone_access, open_macos_microphone_settings}` provides OS consent. Host supplies telemetry sink, UI-thread scheduler & grant callback; call status & request from blocking workers. macOS waits up to 120 s for consent. Windows requests capability access on host's UI thread, waits up to 5 s for dispatch plus 120 s for consent, preserves explicit denials & refines other results with device probes. Settings grant polling checks every 2 s for 60 s; each new request supersedes prior watcher. Hardware enumeration/open calls follow native driver timing. Host owns renderer event names & copy.
+
+`setup::calibration_engine::{EngineRun, run_engine_calibration}` runs host-selected engine over host-owned PCM path & decodes stdout into host's result type. Host supplies subcommand, environment, timeout & stdout cap. Runner owns process tree, execution deadline, bounded output capture & cleanup; PCM files, wire structs, model activation & engine restart remain host responsibilities. Capture PCM stays unconditioned.

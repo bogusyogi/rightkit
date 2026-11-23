@@ -22,7 +22,7 @@ use std::path::Path;
 use std::time::Duration;
 
 /// Pure decision: is this process launch attributable to login? Takes an argv iterator (minus
-/// argv[0]) and an optional uptime so it is testable without a running app or real `sysctl` state.
+/// `argv[0]`) and an optional uptime so it is testable without a running app or real `sysctl` state.
 ///
 /// 1. `login_arg` present in argv -> login launch (explicit marker from the login entry).
 /// 2. Otherwise fall back to boot uptime: within `boot_window` of boot -> login launch (covers

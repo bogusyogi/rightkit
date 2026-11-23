@@ -167,6 +167,7 @@ fn align_onnx_control_suffix(
     conditioned_audio: &[f32],
     earliest_sec: f32,
     locator_enabled: bool,
+    deadline: Option<std::time::Instant>,
 ) -> Result<crate::control_cleanup::Alignment, String> {
     use std::collections::HashMap;
 
@@ -211,7 +212,16 @@ fn align_onnx_control_suffix(
         conditioned_audio,
         locator_enabled,
         || {
+            // Cooperative deadline: checked before the (uninterruptible) mel and encoder calls
+            // and before every joint step below. A backend call already in flight can finish
+            // after the deadline.
+            if crate::inference_gate::deadline_passed(deadline) {
+                return Err(crate::inference_gate::ALIGNMENT_DEADLINE_ERROR.to_string());
+            }
             let features = model.mel(conditioned_audio).map_err(|e| e.to_string())?;
+            if crate::inference_gate::deadline_passed(deadline) {
+                return Err(crate::inference_gate::ALIGNMENT_DEADLINE_ERROR.to_string());
+            }
             model.encode(&features).map_err(|e| e.to_string())
         },
         |previous, fresh| {
@@ -267,6 +277,11 @@ fn align_onnx_control_suffix(
         }
         if frame >= encoded.used {
             return Err("decoder step is beyond available frames".to_string());
+        }
+        // Every greedy pass, locator probe and lattice cell reaches the model through this
+        // closure (memo hits above are free), so one check here bounds the whole alignment.
+        if crate::inference_gate::deadline_passed(deadline) {
+            return Err(crate::inference_gate::ALIGNMENT_DEADLINE_ERROR.to_string());
         }
         let out = model
             .joint_step(&encoded.frame(frame), last, &state.0, &state.1)
@@ -668,9 +683,28 @@ impl AsrRuntime {
         command: &str,
         earliest_sec: f32,
     ) -> Result<crate::control_cleanup::Alignment, String> {
+        self.align_control_suffix_until_under_lease(conditioned_audio, command, earliest_sec, None)
+    }
+
+    /// `align_control_suffix_under_lease` with a cooperative `deadline`: the joint-step loops
+    /// stop and return `Err(ALIGNMENT_DEADLINE_ERROR)` once it passes (checked before the mel and
+    /// encoder calls and before every joint step; a single model call already running is not
+    /// interrupted). `None` never expires.
+    pub fn align_control_suffix_until_under_lease(
+        &mut self,
+        conditioned_audio: &[f32],
+        command: &str,
+        earliest_sec: f32,
+        deadline: Option<std::time::Instant>,
+    ) -> Result<crate::control_cleanup::Alignment, String> {
         #[cfg(target_os = "macos")]
         if let AsrRuntime::CoreMlParakeet(model) = self {
-            let found = model.align_control_suffix(conditioned_audio, command, earliest_sec)?;
+            let found = model.align_control_suffix_until(
+                conditioned_audio,
+                command,
+                earliest_sec,
+                deadline,
+            )?;
             return Ok(crate::control_cleanup::Alignment {
                 boundary_sec: found.boundary_sec,
                 accepted: found.accepted,
@@ -688,9 +722,10 @@ impl AsrRuntime {
                 conditioned_audio,
                 earliest_sec,
                 true,
+                deadline,
             );
         }
-        let _ = (conditioned_audio, command, earliest_sec);
+        let _ = (conditioned_audio, command, earliest_sec, deadline);
         Err("control alignment is unavailable for this ASR runtime".to_string())
     }
 
@@ -702,6 +737,24 @@ impl AsrRuntime {
         command: &str,
         earliest_sec: f32,
     ) -> Result<crate::control_cleanup::Alignment, String> {
+        self.align_control_suffix_exact_until_under_lease(
+            conditioned_audio,
+            command,
+            earliest_sec,
+            None,
+        )
+    }
+
+    /// `align_control_suffix_exact_under_lease` with a cooperative `deadline` (see
+    /// `align_control_suffix_until_under_lease`).
+    #[cfg(target_os = "windows")]
+    pub fn align_control_suffix_exact_until_under_lease(
+        &mut self,
+        conditioned_audio: &[f32],
+        command: &str,
+        earliest_sec: f32,
+        deadline: Option<std::time::Instant>,
+    ) -> Result<crate::control_cleanup::Alignment, String> {
         if let AsrRuntime::Parakeet(model, _) = self {
             return align_onnx_control_suffix(
                 model,
@@ -709,6 +762,7 @@ impl AsrRuntime {
                 conditioned_audio,
                 earliest_sec,
                 false,
+                deadline,
             );
         }
         Err("control alignment is unavailable for this ASR runtime".to_string())
@@ -969,6 +1023,27 @@ impl AsrRuntime {
             return work(self);
         }
         let _lease = crate::inference_gate::lease(owner);
+        work(self)
+    }
+
+    /// `with_inference_lease` for OPTIONAL work: the lease is awaited only until `deadline`.
+    /// Returns `Err` without running `work` when another decode still holds the gate then, so
+    /// optional alignment never starts after a lease wait has exhausted its budget. Core ML
+    /// and ONNX share the same process-wide gate as `with_inference_lease`.
+    pub fn with_inference_lease_until<T>(
+        &mut self,
+        owner: &'static str,
+        deadline: std::time::Instant,
+        work: impl FnOnce(&mut Self) -> Result<T, String>,
+    ) -> Result<T, String> {
+        let Some(_lease) = crate::inference_gate::lease_until(owner, deadline) else {
+            return Err(format!(
+                "inference lease not available before the deadline ({owner})"
+            ));
+        };
+        if crate::inference_gate::deadline_passed(Some(deadline)) {
+            return Err(crate::inference_gate::ALIGNMENT_DEADLINE_ERROR.to_string());
+        }
         work(self)
     }
 

@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-dictation-core"
-version = "0.3.2"
+version = "0.3.3"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Dictation core: engine wire protocol and validation, provider key handoff, recording session state machine, wake word state, mic selection and audio conditioning."
@@ -12,6 +12,14 @@ include = ["src/**", "tests/**", "fixtures/**", "README.md", "CHANGELOG.md", "LI
 [lib]
 name = "rightkit_dictation_core"
 path = "src/lib.rs"
+
+[features]
+tools = []
+
+[[bin]]
+name = "condition_audio"
+path = "src/bin/condition_audio.rs"
+required-features = ["tools"]
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }

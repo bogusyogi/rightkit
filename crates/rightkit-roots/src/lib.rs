@@ -30,6 +30,7 @@
 //! resolvers still overlap.
 
 mod app_root;
+pub mod injected_root;
 pub mod lock;
 pub mod mode;
 mod root_cutover;

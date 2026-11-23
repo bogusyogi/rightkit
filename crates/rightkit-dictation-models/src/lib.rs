@@ -7,6 +7,7 @@ pub mod model_download_grant;
 pub mod model_fetch;
 pub mod model_flow;
 pub mod model_paths;
+pub mod model_update_prompt;
 pub mod resumable_download;
 pub mod retired_model_cleanup;
 pub mod shared;

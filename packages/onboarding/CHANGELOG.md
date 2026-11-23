@@ -2,7 +2,10 @@
 
 ## 0.6.6
 
+- Added `useTrialActivation` for onboarding trial requests, activation & entitlement refresh with host-owned text.
 - Added optional `onLegalAccepted`, awaited after a first acceptance or re-acceptance is saved. It receives the acceptance record and re-acceptance flag; callback failures are reported without undoing the saved acceptance.
+- Added to `modelsStep` (moved from `@rightkit/dictation-ui`): (1) the model row's bar only moves forward. A subscribed entry that reports a lower `progress` keeps the last one; an entry in `verifying` with no `progress` holds the download's place or shows full once a download had started; an `error` entry resets it for the retry. Exported as `nextEntryProgress(last, entry)`. This is the default, not an option: a bar that jumps back to 0 is never wanted. (2) `onInstalledInSession(context, isActive)` with `installedDelayMs` (default 900): called once when a model goes from not installed to installed while the step is mounted. A model already installed when the step opens (relaunch, Back) never calls it. Exported rule: `trackModelInstall(sawNotInstalled, state)`. (3) `extras(view)`: app content under the model card; it gets `{ loaded, installed, models }`. Without `extras` the step's markup is unchanged.
+- Added the recognition check ("read this passage, the engine must hear it"): `useRecognitionCheck({ port, active, setError, processingLabel? })` returns `{ phase, elapsed, minSeconds, targetSeconds, progress, readyToFinish, setupComplete, start, finish, cancel }` and cancels a running session when `active` turns false or the screen unmounts. `RecognitionCheckPort` is the native side (`start`, `stop`, `cancel`, `subscribe`); `createInvokeRecognitionCheckPort({ invoke, listen, commands: { start, stop, cancel }, progressEvent })` builds it over the app's own IPC. The passage, labels and command names stay in the app. Types `RecognitionCheckController`, `RecognitionCheckStart`, `RecognitionCheckResult`, `RecognitionCheckProgress`.
 
 ## 0.6.5
 

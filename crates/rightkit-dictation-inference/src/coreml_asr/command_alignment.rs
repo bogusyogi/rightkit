@@ -103,6 +103,22 @@ impl CoreMlParakeet {
         command: &str,
         earliest_sec: f32,
     ) -> Result<CommandAlignment, String> {
+        self.align_control_suffix_until(conditioned_audio, command, earliest_sec, None)
+    }
+
+    /// `align_control_suffix` with a cooperative `deadline`: checked before the mel and encoder
+    /// calls and at the top of every decoder/joint step (the one closure every greedy pass,
+    /// locator probe and lattice cell goes through; memo hits are free), returning
+    /// `Err(ALIGNMENT_DEADLINE_ERROR)` once it passes so an active alignment yields the sole
+    /// main-ASR worker by the deadline. A Core ML call already running is not interrupted.
+    pub fn align_control_suffix_until(
+        &self,
+        conditioned_audio: &[f32],
+        command: &str,
+        earliest_sec: f32,
+        deadline: Option<std::time::Instant>,
+    ) -> Result<CommandAlignment, String> {
+        use crate::inference_gate::{deadline_passed, ALIGNMENT_DEADLINE_ERROR};
         if !self.meta.is_tdt {
             return Err("command alignment requires a TDT model".into());
         }
@@ -140,6 +156,9 @@ impl CoreMlParakeet {
         let (pl, ph, blank, nd) = (m.pred_layers, m.pred_hidden, m.blank_id, m.durations.len());
         let max_symbols = 10usize;
 
+        if deadline_passed(deadline) {
+            return Err(ALIGNMENT_DEADLINE_ERROR.to_string());
+        }
         let mut padded = vec![0f32; self.win_samples];
         padded[..conditioned_audio.len()].copy_from_slice(conditioned_audio);
         let mel_full = autoreleasepool(|_| -> Result<Vec<f32>, String> {
@@ -165,6 +184,9 @@ impl CoreMlParakeet {
             }
         }
 
+        if deadline_passed(deadline) {
+            return Err(ALIGNMENT_DEADLINE_ERROR.to_string());
+        }
         let enc_flat = autoreleasepool(|_| -> Result<Vec<f32>, String> {
             let mel_in = ml_f16(&[1, m.n_mel, m.mel_frames], &mel)?;
             let len_in = ml_i32(&[1], &[m.mel_frames as i32])?;
@@ -209,6 +231,9 @@ impl CoreMlParakeet {
             if s.t >= nframes {
                 return Err("decoder step is beyond available frames".to_string());
             }
+            if deadline_passed(deadline) {
+                return Err(ALIGNMENT_DEADLINE_ERROR.to_string());
+            }
 
             let predictor_key = (
                 s.last_tok,
@@ -250,6 +275,9 @@ impl CoreMlParakeet {
                     .get(&key)
                     .ok_or_else(|| "decoder memo lookup failed".to_string())?
                     .clone());
+            }
+            if deadline_passed(deadline) {
+                return Err(ALIGNMENT_DEADLINE_ERROR.to_string());
             }
             let logits = autoreleasepool(|_| -> Result<Vec<Vec<f32>>, String> {
                 if times.len() == 1 {

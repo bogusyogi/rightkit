@@ -1,6 +1,6 @@
 {
   "name": "@rightkit/release",
-  "version": "0.6.60",
+  "version": "0.6.61",
   "description": "Portable release CLI/SDK with fail-closed public GitHub Releases and private R2 + RightApps distribution.",
   "license": "MIT OR Apache-2.0",
   "type": "module",
@@ -24,6 +24,7 @@
     "./dmg-build.mjs": "./dmg-build.mjs",
     "./door.mjs": "./door.mjs",
     "./engine-locator.mjs": "./engine-locator.mjs",
+    "./forbidden-literals.mjs": "./forbidden-literals.mjs",
     "./github-release.mjs": "./github-release.mjs",
     "./legal-contract.mjs": "./legal-contract.mjs",
     "./linux-setup.mjs": "./linux-setup.mjs",

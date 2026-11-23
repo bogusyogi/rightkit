@@ -9,6 +9,7 @@ pub fn snapshot_target() -> TargetSnapshot {
 }
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]
+#[allow(dead_code)]
 pub(crate) fn target_ready_for_input(original: &TargetSnapshot) -> bool {
     if let Some(evidence) = original.stop_continuity.as_ref() {
         if !original

@@ -1,0 +1,53 @@
+[package]
+name = "rightkit-tauri-shell-wv38-runtime"
+version = "0.8.7"
+edition = "2021"
+rust-version = "1.98.0"
+publish = false
+description = "Standalone native shell workload on the Tauri 2.11 / WebView2 0.38 graph."
+
+[workspace]
+resolver = "3"
+
+[features]
+default = []
+wv2-0_38 = ["rightkit-tauri-shell/wv2-0_38"]
+host-services = ["rightkit-tauri-shell/host-services", "dep:rightkit-app-settings"]
+logs = ["rightkit-tauri-shell/logs"]
+crash = ["rightkit-tauri-shell/crash", "dep:rightkit-crash"]
+content-devtools = ["rightkit-tauri-shell/content-devtools"]
+
+[dependencies]
+tauri = { version = "=2.11.5", features = ["test"] }
+# Keep this compatibility workload on Tauri's WebView2 0.38 runtime generation.
+tauri-runtime = "=2.11.3"
+tauri-runtime-wry = "=2.11.4"
+tauri-utils = "=2.9.3"
+rightkit-tauri-shell = { path = "../../../crates/rightkit-tauri-shell", default-features = false }
+rightkit-child-process = { path = "../../../crates/rightkit-child-process" }
+rightkit-app-settings = { path = "../../../crates/rightkit-app-settings", default-features = false, optional = true }
+rightkit-crash = { path = "../../../crates/rightkit-crash", default-features = false, features = ["window-errors"], optional = true }
+serde_json = "1.0.154"
+
+[target.'cfg(windows)'.dependencies]
+webview2-com = "=0.38.2"
+windows = "0.61"
+
+[dev-dependencies]
+tempfile = "3"
+
+[[bench]]
+name = "budget_native"
+path = "../../../crates/rightkit-tauri-shell/benches/budget_native.rs"
+harness = false
+
+[profile.release-iterate]
+inherits = "release"
+opt-level = 1
+lto = false
+codegen-units = 16
+incremental = true
+strip = "none"
+
+[profile.release-iterate.package."*"]
+incremental = false

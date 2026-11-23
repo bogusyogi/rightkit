@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.61
+
+- Export `forbidden-literals.mjs` for host-configured byte scans. Findings report file paths without printing matched values.
+- This entry covers the helper. Gate changes in this package require their own installed qualification.
+
 ## 0.6.60
 
 - Snapshot compiles can reuse an unchanged crate’s verified result from its original Cargo group when another crate changes. The gate keeps the original command & checks the supporting evidence before dispatching new work.

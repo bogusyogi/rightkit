@@ -366,3 +366,26 @@ pub enum Mode {
     Status,
     Error,
 }
+
+/// Entrance progress using the host's spring and stagger, with `f32::MAX` fully visible.
+pub fn row_progress(rows_ms: f32, index: usize, step_ms: f32, cap_ms: f32, spring: SpringParams) -> f32 {
+    if rows_ms >= f32::MAX {
+        return 1.0;
+    }
+    let delay = (index as f32 * step_ms).min(cap_ms);
+    spring_unit((rows_ms - delay) / 1000.0, spring).clamp(0.0, 1.0)
+}
+
+/// Smoothly rise to `1` at `peak` and then fall back to `0`. Invalid peaks have no envelope.
+pub fn peak_envelope(progress: f32, peak: f32) -> f32 {
+    if !progress.is_finite() || !(0.0 < peak && peak < 1.0) {
+        return 0.0;
+    }
+    let progress = progress.clamp(0.0, 1.0);
+    let phase = if progress < peak {
+        progress / peak
+    } else {
+        1.0 - (progress - peak) / (1.0 - peak)
+    };
+    phase * phase * (3.0 - 2.0 * phase)
+}

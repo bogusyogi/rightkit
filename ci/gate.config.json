@@ -283,7 +283,7 @@
       "checkFeatureSets": [
         [
           "--features",
-          "control,wv2-0_39"
+          "control,wv2-0_39,credential-owner,in-app-shot"
         ],
         [
           "--features",
@@ -360,6 +360,11 @@
         ]
       ],
       "checkFeatureSets": [
+        [
+          "--no-default-features",
+          "--features",
+          "background-update,wv2-0_39,license,pro-bridge,menubar-helper,overlay"
+        ],
         [
           "--no-default-features",
           "--features",

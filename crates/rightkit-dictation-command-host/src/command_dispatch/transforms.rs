@@ -1,5 +1,5 @@
 // Special ops (backspace-last / clear-clipboard / always-on-top) + last-paste
-// transform (undo + clipboard rewrite + paste).
+// transform validation (replacement refuses until host-bound custody exists).
 
 #[cfg(any(target_os = "windows", target_os = "macos"))]
 use super::entry::DispatchOutcome;
@@ -173,10 +173,10 @@ fn verify_last_paste_before_undo(last_text: Option<&str>) -> Result<(), Dispatch
 }
 
 // ---------------------------------------------------------------------------
-// Last paste transform — undo + clipboard rewrite + paste
+// Last paste transform — validate & refuse before Undo without host context
 // ---------------------------------------------------------------------------
 
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 pub(super) fn dispatch_last_paste_transform(
     transform: &str,
     last_text: Option<&str>,
@@ -187,40 +187,23 @@ pub(super) fn dispatch_last_paste_transform(
             "nothing to transform",
         ));
     };
-    let new_text = transform_last_text(prev, transform)?;
-    verify_last_paste_before_undo(last_text)?;
-    super::keys::send_chord("ctrl+z")
-        .map_err(|e| DispatchError::new("E_TRANSFORM_UNDO_FAILED", e.message))?;
-    std::thread::sleep(std::time::Duration::from_millis(50));
-    crate::delivery::paste_text(&new_text)
-        .map_err(|e| DispatchError::new("E_TRANSFORM_PASTE_FAILED", e.to_string()))?;
-    Ok(DispatchOutcome::new(
-        "last_paste_transform",
-        format!("transform={transform:?} chars={}", new_text.chars().count()),
-    ))
-}
-
-#[cfg(target_os = "macos")]
-pub(super) fn dispatch_last_paste_transform(
-    transform: &str,
-    last_text: Option<&str>,
-) -> DispatchResult {
-    let Some(prev) = last_text.map(str::trim).filter(|s| !s.is_empty()) else {
-        return Ok(DispatchOutcome::new(
-            "last_paste_transform",
-            "nothing to transform",
-        ));
-    };
-    let new_text = transform_last_text(prev, transform)?;
-    verify_last_paste_before_undo(last_text)?;
-    super::keys::send_chord_macos("ctrl+z")
-        .map_err(|e| DispatchError::new("E_TRANSFORM_UNDO_FAILED", e.message))?;
-    std::thread::sleep(std::time::Duration::from_millis(50));
-    crate::delivery::paste_text(&new_text)
-        .map_err(|e| DispatchError::new("E_TRANSFORM_PASTE_FAILED", e.to_string()))?;
-    Ok(DispatchOutcome::new(
-        "last_paste_transform",
-        format!("transform={transform:?} chars={}", new_text.chars().count()),
+    // Preserve transform validation before reporting missing host context.
+    let transform = rightkit_dictation_core::engine::LastPasteCase::from_command_token(transform)
+        .ok_or_else(|| {
+        DispatchError::new(
+            "E_BAD_TRANSFORM",
+            format!("unknown last-paste transform {transform:?}"),
+        )
+    })?;
+    let _ = transform_last_text(prev, transform);
+    // Command dispatch carries text only: neither HostIdentity nor the paste
+    // owner name supplies delivery policy, a retained control binding or recovery
+    // custody. Refuse BEFORE Undo; a subsequent paste refusal must never leave
+    // the previously inserted text removed. Host-bound paste alone cannot make
+    // Undo + replacement atomic or prove replacement is safe before Undo.
+    Err(DispatchError::new(
+        "E_DELIVERY_HOST_REQUIRED",
+        "last-paste replacement requires host-bound delivery and recovery custody before Undo",
     ))
 }
 
@@ -236,11 +219,16 @@ pub(super) fn dispatch_last_paste_transform(
 }
 
 #[cfg(any(target_os = "windows", target_os = "macos"))]
-fn transform_last_text(text: &str, transform: &str) -> Result<String, DispatchError> {
+fn transform_last_text(
+    text: &str,
+    transform: rightkit_dictation_core::engine::LastPasteCase,
+) -> String {
+    use rightkit_dictation_core::engine::LastPasteCase;
+
     match transform {
-        "upper" => Ok(text.to_uppercase()),
-        "lower" => Ok(text.to_lowercase()),
-        "title" => {
+        LastPasteCase::Upper => text.to_uppercase(),
+        LastPasteCase::Lower => text.to_lowercase(),
+        LastPasteCase::Title => {
             let mut out = String::with_capacity(text.len());
             let mut new_word = true;
             for ch in text.chars() {
@@ -256,22 +244,18 @@ fn transform_last_text(text: &str, transform: &str) -> Result<String, DispatchEr
                     new_word = true;
                 }
             }
-            Ok(out)
+            out
         }
-        "capitalize" => {
+        LastPasteCase::Capitalize => {
             let mut chars = text.chars();
             match chars.next() {
                 Some(first) => {
                     let mut out = first.to_uppercase().collect::<String>();
                     out.push_str(chars.as_str());
-                    Ok(out)
+                    out
                 }
-                None => Ok(String::new()),
+                None => String::new(),
             }
         }
-        other => Err(DispatchError::new(
-            "E_BAD_TRANSFORM",
-            format!("unknown last-paste transform {:?}", other),
-        )),
     }
 }

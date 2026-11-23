@@ -29,6 +29,11 @@ public final class RightKitPillRuntime {
     var pill: PillPanelController?
     private(set) var splash: SplashPanelController!
     private var hub: HubTransitionController!
+    private var latestClipboardGeneration: UInt64 = 0
+    private var latestSplashGeneration: UInt64?
+    private var activeSplashGeneration: UInt64?
+    private var pendingSplashGeneration: UInt64?
+    private var splashAdmission = UUID()
 
     /// `configuration` is validated (clamped) here. `callbacks` is the host's thread-safe callback
     /// queue, `sounds` its optional action sounds.
@@ -57,9 +62,10 @@ public final class RightKitPillRuntime {
         return created
     }
 
-    private func installPillControllerIfNeeded(forSplash: Bool = false) {
+    private func installPillControllerIfNeeded(forSplash: Bool = false, admission: (() -> Bool)? = nil) {
         let fontsStarted = CACurrentMediaTime()
         views.registerResources()
+        guard admission?() != false else { return }
         callbacks.log("pill_startup_timing", "phase=fonts elapsed_ms=\(Int((CACurrentMediaTime() - fontsStarted) * 1000))")
         let destinationStarted = CACurrentMediaTime()
         let controller = ensurePill()
@@ -80,6 +86,7 @@ public final class RightKitPillRuntime {
     public func initialize() { installPillControllerIfNeeded() }
 
     public func shutdown() {
+        invalidateSplashAdmission()
         pill?.shutdown()
         splash.dismiss()
         hub.shutdown()
@@ -107,6 +114,9 @@ public final class RightKitPillRuntime {
 
     public var isPanelVisible: Bool { pill?.panel?.isVisible == true }
 
+    /// Whether the native panel is showing an active clipboard card.
+    public var clipboardVisible: Bool { isPanelVisible && model?.clipboardVisible == true }
+
     /// Whether the launch handoff still blocks ordinary pill changes. A wall-clock backstop: once the
     /// contraction deadline passes, the splash phase is terminated before this answers "not active".
     /// Answering false alone would leave later calls alternating around stale state.
@@ -119,16 +129,40 @@ public final class RightKitPillRuntime {
         return true
     }
 
-    /// Terminal backstop for a stalled handoff. A no-op until the contraction has started.
-    public func forceCompleteSplashHandoff() { splash.forceCompleteHandoffAtDeadline() }
+    /// Terminal backstop for a stalled legacy handoff. A no-op until contraction starts, or
+    /// while a versioned show owns the handoff; use its generation-bearing overload then.
+    public func forceCompleteSplashHandoff() {
+        // A tokenless callback cannot identify a versioned launch it is allowed to retire.
+        guard activeSplashGeneration == nil else { return }
+        splash.forceCompleteHandoffAtDeadline()
+    }
 
-    /// `json` is the engine's clipboard item list; see ``RightKitPillModel/setClipboard(json:mode:loaded:)``.
-    public func setClipboard(json: String, mode: Int32, loaded: Bool) {
-        pill?.model.setClipboard(json: json, mode: mode, loaded: loaded)
+    /// Retires only the accepted show with this generation. The native contraction/readiness
+    /// guards still apply; hosts must carry the show token across their main-actor hop.
+    public func forceCompleteSplashHandoff(generation: UInt64) {
+        guard activeSplashGeneration == generation else { return }
+        splash.forceCompleteHandoffAtDeadline()
+    }
+
+    /// Apply the engine's clipboard item list. Hosts with asynchronous requests pass their
+    /// generation so an older show arriving on the main actor cannot replace a newer request.
+    public func setClipboard(json: String, mode: Int32, loaded: Bool, generation: UInt64? = nil) {
+        guard acceptClipboardGeneration(generation) else { return }
+        pill?.model.setClipboard(json: json, mode: mode, loaded: loaded, generation: generation)
     }
 
     /// Closes the clipboard card without telling the host (the host asked for it).
-    public func closeClipboard() { pill?.model.dismissClipboard(notify: false) }
+    public func closeClipboard(generation: UInt64? = nil) {
+        guard acceptClipboardGeneration(generation) else { return }
+        pill?.model.dismissClipboard(notify: false)
+    }
+
+    private func acceptClipboardGeneration(_ generation: UInt64?) -> Bool {
+        guard let generation else { return true }
+        guard generation >= latestClipboardGeneration else { return false }
+        latestClipboardGeneration = generation
+        return true
+    }
 
     /// `id` is a host hint id; 0 hides.
     public func setHint(_ id: Int32) { pill?.model.setHint(id) }
@@ -136,16 +170,51 @@ public final class RightKitPillRuntime {
     // MARK: Splash
 
     public func splashShow() {
+        showSplashIfAccepted(generation: nil)
+    }
+
+    /// Accepts strictly increasing host generations (including an initial zero). A refused
+    /// native show does not consume its token or rebind an existing launch. Keep generations
+    /// monotonic for this runtime's lifetime, including across dismissals and shutdowns.
+    public func splashShow(generation: UInt64) {
+        if let latestSplashGeneration, generation <= latestSplashGeneration { return }
+        if let pendingSplashGeneration, generation <= pendingSplashGeneration { return }
+        guard splash.canShow else { return }
+        showSplashIfAccepted(generation: generation)
+    }
+
+    private func showSplashIfAccepted(generation: UInt64?) {
+        let admission = UUID()
+        splashAdmission = admission
+        pendingSplashGeneration = generation
+        defer {
+            if splashAdmission == admission { pendingSplashGeneration = nil }
+        }
         // The host requests the splash before its ordinary install call. Satisfy the splash's
         // hidden-destination dependency here so callback ordering cannot suppress launch or leave
         // the handoff unprepared.
         let started = CACurrentMediaTime()
-        installPillControllerIfNeeded(forSplash: true)
-        splash.show()
+        installPillControllerIfNeeded(forSplash: true, admission: { self.splashAdmission == admission })
+        // Resource registration is a synchronous host hook: it may dismiss, shut down, or
+        // accept a newer show. Never let this superseded request overwrite that admission.
+        guard splashAdmission == admission else { return }
+        guard splash.show(generation: generation) else { return }
+        // Preparing the observable destination can reenter host code before show returns.
+        guard splashAdmission == admission else { return }
+        if let generation { latestSplashGeneration = generation }
+        activeSplashGeneration = generation
         callbacks.log("splash_startup_timing", "phase=destination_prepared elapsed_ms=\(Int((CACurrentMediaTime() - started) * 1000))")
     }
 
-    public func splashDismiss() { splash.dismiss() }
+    private func invalidateSplashAdmission() {
+        splashAdmission = UUID()
+        pendingSplashGeneration = nil
+    }
+
+    public func splashDismiss() {
+        invalidateSplashAdmission()
+        splash.dismiss()
+    }
 
     /// Loader step, wrapped into 0..<stepCount (a negative step wraps too).
     public func setSplashStep(_ step: Int32) {

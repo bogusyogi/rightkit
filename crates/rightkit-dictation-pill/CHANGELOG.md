@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Add bounded synthesis of a host-configured intro swell as an in-memory PCM WAV.
+- Add host-configured tip cadence, bounded tip and catalog reads, and elapsed clock formatting.
+
 ## 0.1.0 (unreleased)
 
 - Add native bridge C-string bounds, callback panic guard & host-configured splash handoff/reveal retry.

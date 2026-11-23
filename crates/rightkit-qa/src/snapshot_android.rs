@@ -256,6 +256,28 @@ pub(crate) fn verify_copy(rec: &AndroidRecord, snap_dir: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Read-only live verification for recovery checkpoints; never stops or writes package data.
+/// A running package is not stable enough to reuse a verification checkpoint.
+pub(crate) fn verify_live(rec: &AndroidRecord) -> Result<bool> {
+    let expected = rec
+        .listing_sha256
+        .as_deref()
+        .ok_or_else(|| Error("Android live verification lacks saved listing digest".into()))?;
+    if expected.len() != 64
+        || !expected
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    {
+        return err("Android live verification has invalid listing digest");
+    }
+    let device = Device::open(rec)?;
+    if device.running()? {
+        return Ok(false);
+    }
+    let actual = device.listing()?;
+    Ok(!device.running()? && sha256_hex(actual.as_bytes()) == expected)
+}
+
 /// Put the data dir back to the snapshot and verify it. [`verify_copy`] has already passed.
 pub(crate) fn restore(rec: &AndroidRecord, snap_dir: &Path) -> Result<()> {
     let dir = snap_dir.join("android");

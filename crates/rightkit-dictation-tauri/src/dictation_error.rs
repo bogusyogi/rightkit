@@ -74,3 +74,53 @@ pub fn is_no_clear_speech_error(message: &str) -> bool {
         || normalized.contains("repetition_loop")
         || normalized.contains("low_token_diversity")
 }
+
+/// A stable, content-free code for an error string that may have been produced by another
+/// component (capture, engine, delivery). Logged instead of the string, which can carry free text
+/// (a device name, a file name, text from the user's content). Built from the same recognizers as
+/// [`label_for_error`]; anything else is `unclassified`.
+pub fn error_log_code(message: &str) -> &'static str {
+    if is_microphone_access_denied_error(message) {
+        "microphone_access_denied"
+    } else if is_explicit_microphone_mute_error(message) {
+        "microphone_muted"
+    } else if is_no_microphone_audio_error(message) {
+        "no_microphone_audio"
+    } else if is_microphone_device_error(message) {
+        "microphone_unavailable"
+    } else if is_no_clear_speech_error(message) {
+        "no_clear_speech"
+    } else {
+        "unclassified"
+    }
+}
+
+/// A stable, content-free code for a history store error. The store's messages begin with a label
+/// the app sets and then append the underlying library's text (a database or parser message, which
+/// can quote stored content or a path); only the label is recognized here, never the tail.
+pub fn history_error_log_code(message: &str) -> &'static str {
+    const LABELS: &[(&str, &str)] = &[
+        ("create data dir failed", "history_create_dir"),
+        ("read history failed", "history_read"),
+        ("parse history failed", "history_parse"),
+        ("serialize history failed", "history_serialize"),
+        ("write history failed", "history_write"),
+        ("credential store", "history_credential_store"),
+        ("rekey", "history_rekey"),
+        ("key rotation", "history_key_rotation"),
+        ("stage new key", "history_key_rotation"),
+        ("promote recovered key", "history_key_recovery"),
+        ("quarantine", "history_recovery"),
+        ("recovery marker", "history_recovery"),
+        ("commit recovery marker", "history_recovery"),
+        ("create recovery marker dir", "history_recovery"),
+        ("serialize recovery marker", "history_recovery"),
+        ("sync dir", "history_recovery"),
+        ("stat", "history_recovery"),
+        ("open", "history_recovery"),
+    ];
+    LABELS
+        .iter()
+        .find(|(label, _)| message.starts_with(label))
+        .map_or("history_other", |(_, code)| code)
+}

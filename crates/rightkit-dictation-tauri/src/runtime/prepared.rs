@@ -67,6 +67,7 @@ pub struct PreparedEngineStart {
     pub(crate) snapshot_frames: Vec<EngineFrame>,
     /// The engine generation `snapshot_frames` were prepared against.
     pub(crate) generation_seen: u64,
+    pub(crate) streaming_generation: Arc<StdMutex<Option<u64>>>,
 }
 
 pub struct PreparedEngineCancel {
@@ -249,6 +250,7 @@ impl PreparedStart {
                 }
             }
         }
+        let recording_generation = command.supervisor.generation();
         let response = command
             .supervisor
             .call(&command.frame, Duration::from_secs(5))
@@ -270,6 +272,13 @@ impl PreparedStart {
                 session_id: command.session_id,
                 message: "unexpected sidecar recording-start response".to_string(),
             });
+        }
+        // A restart during the start RPC cannot authorize streaming for either
+        // process. Keep the cell empty; ordinary final/history recovery still runs.
+        if command.supervisor.generation() == recording_generation {
+            if let Ok(mut generation) = command.streaming_generation.lock() {
+                *generation = Some(recording_generation);
+            }
         }
         command
             .supervisor

@@ -106,6 +106,7 @@ public final class RightKitPillModel: ObservableObject {
     /// copy result or a timer from an earlier card compares it before it acts, so it can never mark
     /// or close a different card. Not published: a view reads it only inside a completion.
     public internal(set) var clipboardEpoch: UInt64 = 0
+    private var clipboardGeneration: UInt64?
     private var introDidRun = false
     private var introTimer: Timer?
     private var suppressNextStopSound = false
@@ -313,6 +314,7 @@ public final class RightKitPillModel: ObservableObject {
         if let controller, !controller.launchHandoff.prepare() { return false }
         controller?.endSingleClipEditing()
         cancelAuxiliaryRetire()
+        clipboardGeneration = nil
         clipboardVisible = false
         singleClipEditing = false
         hint = Self.hiddenHint
@@ -412,7 +414,7 @@ public final class RightKitPillModel: ObservableObject {
 
     /// `json` is the engine's item list. Text over 4 MiB shows an empty card, and at most 64 items
     /// are read; the engine bounds both further. `mode` other than 0 or 1 is the "recent" card.
-    public func setClipboard(json: String, mode: Int32, loaded: Bool) {
+    public func setClipboard(json: String, mode: Int32, loaded: Bool, generation: UInt64? = nil) {
         guard !handoffBlocks else { return }
         clipboardEpoch &+= 1
         let resolvedMode = RightKitPillClipboardMode(rawValue: mode) ?? .recent
@@ -433,6 +435,7 @@ public final class RightKitPillModel: ObservableObject {
         controller?.prepareClipboardPresentation(resolvedMode, items: decodedItems)
         // Visibility is last: the first rendered card frame already contains every row and lands
         // inside a center-fixed, final-size window.
+        clipboardGeneration = generation
         clipboardVisible = true
     }
 
@@ -469,6 +472,8 @@ public final class RightKitPillModel: ObservableObject {
         controller?.endSingleClipEditing()
         singleClipEditing = false
         let clipWasOpen = clipboardVisible
+        let generation = clipboardGeneration
+        clipboardGeneration = nil
         let linked = configuration.clipboardLinkedHint
         let leavingHint: Int32 = (linked != nil && hint == linked) ? hint : Self.hiddenHint
         clipboardVisible = false
@@ -478,7 +483,7 @@ public final class RightKitPillModel: ObservableObject {
         } else if !auxiliaryRetiring {
             controller?.restoreCapsulePresentation()
         }
-        if notify { callbacks.dismissClipboard() }
+        if notify { callbacks.dismissClipboard(generation: generation) }
     }
 
     public func beginSingleClipEditing() { controller?.beginSingleClipEditing() }

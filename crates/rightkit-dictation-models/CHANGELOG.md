@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.1
+
+- Add `model_update_prompt` for one replacement prompt per launch after dictation idles. Hosts provide presentation & readiness checks.
+
 ## 0.3.0
 
 - Add host-configured `model_flow` archive & shared-store download orchestration with host-owned progress text, byte limits & activation.

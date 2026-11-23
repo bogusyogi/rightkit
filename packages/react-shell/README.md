@@ -14,7 +14,7 @@ Brand-neutral React frame for Right Suite desktop apps: fused sidebar and titleb
 | Import | Contents |
 |---|---|
 | `@rightkit/react-shell` | Navigation, theme, match, geometry, toast, shortcut, bridge and command modules (`dist/index.js`) |
-| `@rightkit/react-shell/headless` | `useToggle` and `useSegmentedControl`: switch and segmented-control behaviour and ARIA as props for your own markup. Imports only `react`. See [Headless toggle and segmented control](#headless-toggle-and-segmented-control). |
+| `@rightkit/react-shell/headless` | `useToggle` and `useSegmentedControl`: switch and segmented-control behaviour and ARIA as props for your own markup. Imports only `react`. Also includes tone playback, feature reel controls, focus restoration, hash routing and startup timing for host markup. See [Headless toggle and segmented control](#headless-toggle-and-segmented-control). |
 | `@rightkit/react-shell/react` | `ShellProvider`, `AppShell`, `AppFrame`, `Titlebar`, `Plane`, `NavList`, `PageShell`, palette, toasts, overlays, context menu, hooks (`useShell`, `useCommands`, `useShortcuts`, `useToast`, `useTheme`) and UI primitives |
 | `@rightkit/react-shell/shell.css` | Stylesheet, unlayered (the 0.5.x behaviour). Tokens are `--rk-*`. |
 | `@rightkit/react-shell/shell.layered.css` | The same rules inside the cascade layer `rk`, so host utilities and unlayered host CSS override them. See [Adopting with a locked UI](#adopting-with-a-locked-ui). |
@@ -266,6 +266,7 @@ Every addition is optional. The CHANGELOG lists them with their defaults.
 | Controls | `Card onClick / label / flush / selected`, `Checkbox`, `Select`, `Slider`, `Notice`, `ProgressBar`, `Skeleton`, `SkeletonRows` | A clickable card is a button with Enter and Space. `Notice` `warn` and `bad` announce as alerts. |
 | State | `usePersistedState(key, initial)` | `key` null keeps it in memory. Reads and writes never throw. |
 | Platform | `installHoverGuard()` | Sets `data-rk-pointer` so hover washes stop when the pointer leaves the window (WebView2). Returns the detach function. |
+| Audio | `playTone(spec, volumePercent?)`, `ToneSpec` | One synthesized Web Audio tone (`{ frequency, duration, type? }`); volume 0 to 100 maps to gain 0 to 0.5; never throws. The app owns its cues. Also in `./headless`. |
 
 ### Table (0.7.2)
 

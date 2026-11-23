@@ -1,9 +1,8 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { Button, Checkbox, Select, Toggle, Input } from "@rightkit/react-shell/react";
+import { Button, Checkbox, Select, Toggle, Input, useNativeShortcutCapture } from "@rightkit/react-shell/react";
 import { formatChord } from "@rightkit/platform-ui";
 import { SettingRow, SettingsItem } from "@rightkit/settings-ui/core";
 import { useSettingsSearch } from "@rightkit/settings-ui/headless";
-import { windowShortcutFrom } from "./settingsKit.js";
 import { isWindows } from "@rightkit/system-ui/api";
 
 /** The launcher's user-made items. Stored by the notch as one JSON string. */
@@ -150,23 +149,17 @@ function ShortcutHotkeyLine({ name, hotkey, takenBy, onChange }: {
   onChange: (hotkey: string) => void;
 }) {
   const [recording, setRecording] = useState(false);
-  useEffect(() => {
-    if (!recording) return;
-    const onKey = (e: KeyboardEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-      if (e.code === "Escape") {
-        setRecording(false);
-        return;
-      }
-      const shortcut = windowShortcutFrom(e);
-      if (!shortcut) return;
+  useNativeShortcutCapture({
+    active: recording,
+    alt: "opt",
+    meta: "cmd",
+    backspace: "delete",
+    onCancel: () => setRecording(false),
+    onRecord: (shortcut) => {
       onChange(shortcut);
       setRecording(false);
-    };
-    window.addEventListener("keydown", onKey, true);
-    return () => window.removeEventListener("keydown", onKey, true);
-  }, [recording, onChange]);
+    },
+  });
   return (
     <div className="ck-list">
       <div className="ck-line">

@@ -16,6 +16,7 @@ Updater behavior comes from `@rightkit/app-update`: an `AutoUpdateClient` passed
 | Import | Contents |
 |---|---|
 | `@rightkit/tauri` | `createRightKitTauriClient`, `standardRightKitTauriCommands`, `logsOnlyRightKitTauriCommands`, `standardRightKitDeviceGetOrCreate`, `defineTauriCommands`, `declaredTauriCommandNames`, `tauriHandlerCommandNames`, `missingTauriHandlers`, `TauriCommandError`, `createNativeFetch`, `NativeFetchError`, `NATIVE_FETCH_MESSAGES`, `RIGHTKIT_FETCH_COMMAND`; types `Invoke`, `RightKitTauriCommands`, `RightKitTauriClientConfig`, `RightKitTauriAdapterConfig`, `RightKitTauriAppConfig`, `RightKitTauriClient`. Deprecated, removed in 0.5.0: `createViewRightTauriClient`, `createScrapeRightTauriClient`, `createHeardRightTauriClient`, `createMailRightTauriClient`, `createCodeRightTauriClient`, `createRightSuiteAppTauriClient`, `rightSuiteTauriAppConfigs` |
+| `@rightkit/tauri/react` | `useTauriEvent(subscribe, event, handler)`: one native event subscription per mount for a `subscribe` made with `defineTauriEvents` (optional `react` peer) |
 | `@rightkit/tauri/window` | `tauriWindowControls` (caption-button adapter; the app passes how to reach its window, e.g. `getCurrentWindow` of its own `@tauri-apps/api`) |
 | `@rightkit/tauri/dialog` | `pickFolder`, `pickFile`, `pickFiles`, `pickSavePath`, `ask` (native dialogs; see below) |
 
@@ -51,6 +52,32 @@ const deviceId = await native.device.getOrCreate();
 ```
 
 A host that answers diagnostics from the log store passes `commands: logsOnlyRightKitTauriCommands`.
+
+## Typed events (`defineTauriEvents`)
+
+```ts
+import { listen } from "@tauri-apps/api/event";
+import { defineTauriEvents } from "@rightkit/tauri";
+import { useTauriEvent } from "@rightkit/tauri/react";
+
+interface AppEvents {
+  appState: { state: string };
+  wake: unknown;
+}
+
+// The app's key -> the native event name. A key left out is a type error.
+export const on = defineTauriEvents<AppEvents>({
+  listen,
+  events: { appState: "app-state-changed", wake: "wake-fired" },
+});
+
+function Status() {
+  useTauriEvent(on, "appState", (payload) => console.log(payload.state));
+  return null;
+}
+```
+
+`on(key, handler)` resolves to an unsubscribe. `@rightkit/tauri` adds no dependency on `@tauri-apps/api`: the app passes its own `listen`.
 
 ## Migrate to 0.4.0
 

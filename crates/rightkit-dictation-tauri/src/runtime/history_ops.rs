@@ -71,7 +71,7 @@ impl EngineRuntime {
     /// this Mac's own dictations qualify: file transcriptions, synced rows
     /// from other devices and crash-recovery drafts never become the target
     /// (the same rule `transcribe_file` follows by not setting it).
-    fn newest_repaste_candidate(&self) -> Option<DeliveryRecord> {
+    pub(super) fn newest_repaste_candidate(&self) -> Option<DeliveryRecord> {
         self.recent_cache
             .iter()
             .find(|record| {
@@ -81,6 +81,7 @@ impl EngineRuntime {
                 ) && !matches!(
                     record.outcome,
                     rightkit_transcript_library::delivery::DeliveryOutcome::Draft
+                        | rightkit_transcript_library::delivery::DeliveryOutcome::Cancelled
                 )
             })
             .cloned()

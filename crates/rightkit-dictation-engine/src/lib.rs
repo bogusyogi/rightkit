@@ -13,6 +13,9 @@
     clippy::manual_clamp
 )] // intentional: large variants live on cold error paths, a few arg-heavy platform fns, doc-comment style
 
+pub mod host;
+pub use host::{configure_host, EngineHostConfig};
+
 pub use rightkit_dictation_runtime::{crash_capture, owner_diagnostics};
 // The resident engine exists only where the runtime does (macOS and Windows).
 #[cfg(any(target_os = "macos", target_os = "windows"))]
@@ -26,6 +29,7 @@ pub use rightkit_dictation_command_host::{
 
 // All targets: the keyword-spotting cascade runs on the Rust spotter and builds everywhere.
 pub use rightkit_dictation_inference::kws;
+pub use rightkit_dictation_inference::kws_cascade;
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 pub use rightkit_dictation_inference::{asr, calibration, trigger_audio_cut};
 #[cfg(target_os = "macos")]

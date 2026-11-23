@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-dictation-runtime"
-version = "0.2.3"
+version = "0.2.5"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Dictation engine runtime: the JSON-RPC sidecar worker (recording, finalize, polish, delivery decisions), speech service, IPC, crash capture and engine paths for a push-to-talk dictation engine."
@@ -14,14 +14,14 @@ name = "rightkit_dictation_runtime"
 path = "src/lib.rs"
 
 [dependencies]
-rightkit-dictation-core = { version = "0.3.0", path = "../rightkit-dictation-core" }
+rightkit-dictation-core = { version = "0.3.3", path = "../rightkit-dictation-core" }
 rightkit-text-polish = { version = "0.1.0", path = "../rightkit-text-polish" }
 rightkit-voice-commands = { version = "0.1.0", path = "../rightkit-voice-commands" }
 rightkit-transcript-library = { version = "0.1.0", path = "../rightkit-transcript-library" }
 rightkit-dictation-models = { version = "0.3.0", path = "../rightkit-dictation-models" }
 rightkit-dictation-text-pipeline = { version = "0.2.0", path = "../rightkit-dictation-text-pipeline" }
-rightkit-dictation-inference = { version = "0.2.0", path = "../rightkit-dictation-inference" }
-rightkit-dictation-command-host = { version = "0.2.0", path = "../rightkit-dictation-command-host" }
+rightkit-dictation-inference = { version = "0.2.4", path = "../rightkit-dictation-inference" }
+rightkit-dictation-command-host = { version = "0.3.0", path = "../rightkit-dictation-command-host" }
 rightkit-automation = { version = "0.7.0", path = "../rightkit-automation", features = ["desktop-context"] }
 rightkit-speech-client = { version = "0.5.0", path = "../rightkit-speech-client" }
 rightkit-daemon = { version = "0.9.0", path = "../rightkit-daemon" }

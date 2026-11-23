@@ -203,6 +203,60 @@ fn is_zero_u32(value: &u32) -> bool {
     *value == 0
 }
 
+/// Supported casing operations for the shell's previous-delivery command.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LastPasteCase {
+    Upper,
+    Lower,
+    Title,
+    Capitalize,
+}
+
+impl LastPasteCase {
+    pub fn from_command_token(token: &str) -> Option<Self> {
+        match token {
+            "upper" => Some(Self::Upper),
+            "lower" => Some(Self::Lower),
+            "title" => Some(Self::Title),
+            "capitalize" => Some(Self::Capitalize),
+            _ => None,
+        }
+    }
+}
+
+/// A sidecar request for a shell effect. Delivery identity only locates the
+/// prior result. The shell must separately prove that it still owns the edit.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum HostCommand {
+    TransformLastPaste {
+        delivery_id: String,
+        transform: LastPasteCase,
+    },
+}
+
+impl HostCommand {
+    /// Encode the command in the extensible diagnostics slot of a transcript reset.
+    /// Older hosts still see a reset and the caller's failure diagnostic.
+    pub fn into_reset_diagnostics(self, legacy_failure: &str) -> Value {
+        serde_json::json!({
+            "reset_to_armed": true,
+            "command_failed": legacy_failure,
+            "host_command": self,
+        })
+    }
+
+    /// Decode a host command only from reset diagnostics. Missing or invalid extensions
+    /// leave the original reset and failure handling in place.
+    pub fn from_reset_diagnostics(diagnostics: &Value) -> Option<Self> {
+        if diagnostics.get("reset_to_armed").and_then(Value::as_bool) != Some(true) {
+            return None;
+        }
+        Self::deserialize(diagnostics.get("host_command")?).ok()
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct DiagnosticsPayload {
     #[serde(default, skip_serializing_if = "Option::is_none")]

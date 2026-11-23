@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-android"
-version = "0.3.1"
+version = "0.3.2"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Android bridge for Right Suite apps: the UniFFI surface and JNI context capture (JavaVM, application Context, app-private paths), the Keystore bridge for rightkit-credentials, a debug logcat sink, and the Gradle library module that packages the native library and generated Kotlin bindings."
@@ -27,6 +27,8 @@ include = [
 crate-type = ["lib", "cdylib"]
 
 [features]
+# Optional authenticated model installer; initialises the HTTP Android trust provider.
+models = ["dep:rightkit-models", "dep:url", "platform-verifier"]
 # Builds the `uniffi-bindgen` binary used by scripts/build-android.* to generate the Kotlin
 # bindings. Never enable it in a shipped Android build.
 bindgen = ["uniffi/cli"]
@@ -40,14 +42,17 @@ path = "src/bin/uniffi-bindgen.rs"
 required-features = ["bindgen"]
 
 [dependencies]
+rightkit-models = { version = "=0.7.2", path = "../rightkit-models", default-features = false, optional = true }
+url = { version = "2", optional = true }
 uniffi = "0.32"
 jni = "0.22.4"
 thiserror = "2"
 rightkit-credentials = { version = "0.5.0", path = "../rightkit-credentials" }
-rustls-platform-verifier = { version = "0.7", default-features = false, optional = true }
+# The matching Android Kotlin component is pinned in android/build.gradle.kts.
+rustls-platform-verifier = { version = "=0.7.1", default-features = false, optional = true }
 
 [package.metadata.rightkit]
 continuous = false
-continuous_reason = "no thread-spawn, task-spawn, sleep, timer, listener or watcher in this crate: it holds one write-once process-wide static (the captured JavaVM, application Context global reference, Keystore class global reference and the app paths, set by init and kept for the life of the process) and one debug-logging flag; each Keystore call attaches the calling thread to the JavaVM for the call and detaches it on return, and the worker threads that make those calls belong to rightkit-credentials (reviewed 2026-10-16); resident-static: CONTEXT in src/context.rs is the write-once OnceLock described above, set by init and never replaced (reviewed 2026-10-17)"
+continuous_reason = "no thread-spawn, task-spawn, sleep, timer, listener or watcher in this crate; the optional models bridge blocks on its caller and delegates bounded HTTP reader threads/backoff to rightkit-models: it holds one write-once process-wide static (the captured JavaVM, application Context global reference, Keystore class global reference and the app paths, set by init and kept for the life of the process) and one debug-logging flag; each Keystore call attaches the calling thread to the JavaVM for the call and detaches it on return, and the worker threads that make those calls belong to rightkit-credentials (reviewed 2026-10-16); resident-static: CONTEXT in src/context.rs is the write-once OnceLock described above, set by init and never replaced (reviewed 2026-10-17)"
 
 # One Cargo workspace and lock per crate (rightkit#1285).

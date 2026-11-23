@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Add the `condition_audio` parity harness behind the `tools` feature. It applies the same conditioning policy as the dictation runtime.
+
+## 0.3.3 (unpublished)
+
+- Add typed last-paste casing commands in the extensible transcript reset diagnostics. Existing `DiagnosticsPayload` callers and older wire readers retain the reset and its failure diagnostic. The command names the prior delivery and requested case. It carries neither editor authority nor text.
+
 ## 0.3.2 (unpublished)
 
 - Add `pill`: shared `PillEvent`, render-state mapping, visibility, hit-testing & event-driven hover scheduling. Serde derives, tags, variants & fields match HeardRight commit `28acb588^`; labels remain host inputs.
