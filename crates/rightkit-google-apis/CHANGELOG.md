@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.3
+
+- Added `calendar::create_event_with(g: &Google, calendar_id: &str, ev: EventInput) -> Result<CalEvent, String>` (additive): `create_event` through an authorised client such as `Google::with_store`, with no refresh token. The same request, `EventInput` and `CalEvent`; `create_event` stays and now calls it. The request sends `sendUpdates=all`, so Google emails any attendee named in `ev.attendees`. Written, not compiled.
+
 ## 0.2.2
 
 - Added authorised-client variants for sending (AG-6), additive: `gmail::send_message_with(g: &Google, raw_mime: &str, thread_id: Option<&str>) -> Result<SentRef, String>`, `drafts::create_draft_with(g: &Google, raw_mime: &str, thread_id: Option<&str>) -> Result<(String, Option<String>), String>` and `gmail::modify_labels_with(g: &Google, ids: &[String], add: &[&str], remove: &[&str]) -> Result<(), String>`. They take a `Google` (for example `Google::with_store`) instead of a client id, secret and refresh token; the requests, error text and the uncertain-send classification are those of `send_message`, `create_draft` and `modify_labels`, which stay and now call them. Written, not compiled. No unit tests, per the 2026-11-03 rule.
