@@ -109,33 +109,6 @@ pub trait Host: Send + Sync + 'static {
         None
     }
 
-    /// The card size the user chose: `small`, `medium`, `large` or empty for medium.
-    fn card_size(&self) -> String {
-        String::new()
-    }
-
-    /// Where the strip opens: `notch`, `bottom` or empty for the notch.
-    fn placement(&self) -> String {
-        String::new()
-    }
-
-    /// The strip's hot key in the clipboard spec's grammar; empty for the default.
-    fn hotkey_text(&self) -> String {
-        String::new()
-    }
-
-    /// The notch under `point` (screen pixels), when the strip can come out of one.
-    #[cfg(windows)]
-    fn notch_spot_at(&self, _point: (i32, i32)) -> Option<crate::strip::NotchSpot> {
-        None
-    }
-
-    /// Wakes the application's window thread (the hub's counts follow).
-    fn wake_ui(&self) {}
-
-    /// Opens the launcher in its clipboard mode.
-    fn open_launcher_clip(&self) {}
-
     /// The copy burst's dots or its hover preview changed: the notch redraws.
     fn burst_changed(&self) {}
 
@@ -327,42 +300,6 @@ pub fn tf(key: &str, args: &[&str]) -> String {
     }
     out.push_str(rest);
     out
-}
-
-#[cfg(windows)]
-pub(crate) fn card_size() -> String {
-    HOST.get().map(|host| host.card_size()).unwrap_or_default()
-}
-
-#[cfg(windows)]
-pub(crate) fn placement() -> String {
-    HOST.get().map(|host| host.placement()).unwrap_or_default()
-}
-
-#[cfg(windows)]
-pub(crate) fn hotkey_text() -> String {
-    HOST.get()
-        .map(|host| host.hotkey_text())
-        .unwrap_or_default()
-}
-
-#[cfg(windows)]
-pub(crate) fn notch_spot_at(point: (i32, i32)) -> Option<crate::strip::NotchSpot> {
-    HOST.get()?.notch_spot_at(point)
-}
-
-#[cfg(windows)]
-pub(crate) fn wake_ui() {
-    if let Some(host) = HOST.get() {
-        host.wake_ui();
-    }
-}
-
-#[cfg(windows)]
-pub(crate) fn open_launcher_clip() {
-    if let Some(host) = HOST.get() {
-        host.open_launcher_clip();
-    }
 }
 
 #[cfg(windows)]

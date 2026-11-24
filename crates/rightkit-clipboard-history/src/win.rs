@@ -328,13 +328,6 @@ pub fn set_paths(open: &Open, paths: &[String]) -> bool {
     set_bytes(open, CF_HDROP, &hdrop_bytes(paths))
 }
 
-/// Deletes the copies a card drag made for other apps (the host's drag folder under the temp directory): what was dragged
-/// out is not kept once the history lets go of it. A drag still in the air has its file already
-/// handed over; a later one makes its copy again.
-pub fn clear_drag_copies() {
-    let _ = std::fs::remove_dir_all(std::env::temp_dir().join(crate::host::drag_copy_dir()));
-}
-
 /// A movable block of global memory holding `bytes`, for a data object's medium; the receiver
 /// frees it. Null when none could be had.
 pub fn global_from(bytes: &[u8]) -> Handle {

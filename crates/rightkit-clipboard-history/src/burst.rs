@@ -18,7 +18,6 @@ use crate::host;
 use crate::model::{self as clip, Kind};
 use crate::paste::{WRITE_WAITS, mark_own, write_back};
 use crate::win::{self, Open};
-use rightkit_notch_ui::card::{CardContent, Row};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Condvar, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
@@ -226,40 +225,6 @@ pub fn burst_preview() -> Option<BurstPreview> {
         snippet,
         image_path,
     })
-}
-
-/// The default card for the hovered dot. The host can render its own card using [burst_preview].
-pub fn burst_preview_panel() -> Option<CardContent> {
-    let BurstPreview {
-        position,
-        total,
-        selected,
-        kind,
-        mut snippet,
-        image_path,
-    } = burst_preview()?;
-    if snippet.is_empty() {
-        snippet = match kind {
-            Kind::Image => host::t("Image").to_string(),
-            Kind::File => host::t("Files").to_string(),
-            _ => host::t("Empty").to_string(),
-        };
-    }
-    let picture = image_path.map(|png| Row::File {
-        name: snippet.clone(),
-        path: png.to_string_lossy().into_owned(),
-    });
-    let mut content = CardContent::plain(
-        host::tf(
-            "Copy {} of {}",
-            &[&position.to_string(), &total.to_string()],
-        ),
-        vec![picture.unwrap_or(Row::Text(snippet))],
-    );
-    if selected {
-        content.accessory = Some(host::t("Selected").to_string());
-    }
-    Some(content)
 }
 
 // ---- copying -------------------------------------------------------------------------------

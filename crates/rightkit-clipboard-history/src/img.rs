@@ -1,9 +1,8 @@
 //! Pictures for the clipboard history: the conversions between what the clipboard holds (a
 //! registered PNG, or a DIB) and what the store keeps (a PNG), the 320-pixel thumbnail of the
 //! spec's section 3.2, and the pixels the strip draws. The picture codec is WIC, the same the
-//! screenshots use; files are the way in and out (the clipboard folder's `.tmp`), as in
-//! the screenshot code, so no stream plumbing is needed. Call `init_com` once on every thread that uses
-//! these.
+//! screenshots use. File-backed callers use the clipboard folder's `.tmp`. Image drags use a
+//! memory stream to decode the offered DIB. Call `init_com` on the calling thread.
 
 use crate::model as clip;
 use std::fs;
@@ -12,14 +11,15 @@ use std::path::Path;
 use windows::Win32::Foundation::{E_FAIL, GENERIC_READ};
 use windows::Win32::Graphics::Imaging::{
     CLSID_WICImagingFactory, GUID_ContainerFormatPng, GUID_WICPixelFormat32bppBGRA,
-    GUID_WICPixelFormat32bppPBGRA, IWICBitmapFrameEncode, IWICImagingFactory, IWICPalette,
-    WICBitmapDitherTypeNone, WICBitmapEncoderNoCache, WICBitmapInterpolationModeFant,
+    GUID_WICPixelFormat32bppPBGRA, IWICBitmapDecoder, IWICBitmapFrameEncode, IWICImagingFactory,
+    IWICPalette, WICBitmapDitherTypeNone, WICBitmapEncoderNoCache, WICBitmapInterpolationModeFant,
     WICBitmapPaletteTypeCustom, WICDecodeMetadataCacheOnDemand, WICRect,
 };
 use windows::Win32::System::Com::StructuredStorage::IPropertyBag2;
 use windows::Win32::System::Com::{
     CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED, CoCreateInstance, CoInitializeEx, IStream,
 };
+use windows::Win32::UI::Shell::SHCreateMemStream;
 use windows::core::{Error, IUnknown, Interface, PCWSTR};
 
 /// The longest side of a card's thumbnail (spec 3.2).
@@ -65,8 +65,38 @@ fn wide(path: &Path) -> Vec<u16> {
 /// scaled down (Fant) while it is read, so a huge image is never held whole.
 pub fn decode_file(path: &Path, max_side: Option<u32>) -> Option<Bitmap> {
     let name = wide(path);
-    // SAFETY: COM is initialised on this thread (`init_com`); every interface is released on
-    // drop, `name` outlives the calls and the pixel buffer is exactly `stride * height` long.
+    // SAFETY: the terminated name outlives this WIC call.
+    decode_first(max_side, |factory| unsafe {
+        factory.CreateDecoderFromFilename(
+            PCWSTR(name.as_ptr()),
+            None,
+            GENERIC_READ,
+            WICDecodeMetadataCacheOnDemand,
+        )
+    })
+}
+
+pub(crate) fn dibv5_from_png(png: &[u8]) -> Option<Vec<u8>> {
+    let (width, height) = png_size(png)?;
+    if u64::from(width) * u64::from(height) > DIB_PIXELS_MAX {
+        return None;
+    }
+    u32::try_from(png.len()).ok()?;
+    // SAFETY: COM is initialised on this thread. The stream copies the bytes.
+    let stream = unsafe { SHCreateMemStream(Some(png)) }?;
+    // SAFETY: the COM stream outlives decoding and the factory call.
+    let bitmap = decode_first(None, |factory| unsafe {
+        factory.CreateDecoderFromStream(&stream, None, WICDecodeMetadataCacheOnDemand)
+    })?;
+    dibv5(&bitmap)
+}
+
+fn decode_first(
+    max_side: Option<u32>,
+    open: impl FnOnce(&IWICImagingFactory) -> Result<IWICBitmapDecoder, Error>,
+) -> Option<Bitmap> {
+    // SAFETY: COM is initialised on this thread. Interfaces are released on drop and each
+    // pixel buffer is exactly `stride * height` long.
     unsafe {
         let run = || -> Result<Bitmap, Error> {
             let factory: IWICImagingFactory = CoCreateInstance(
@@ -74,12 +104,7 @@ pub fn decode_file(path: &Path, max_side: Option<u32>) -> Option<Bitmap> {
                 None::<&IUnknown>,
                 CLSCTX_INPROC_SERVER,
             )?;
-            let decoder = factory.CreateDecoderFromFilename(
-                PCWSTR(name.as_ptr()),
-                None,
-                GENERIC_READ,
-                WICDecodeMetadataCacheOnDemand,
-            )?;
+            let decoder = open(&factory)?;
             let frame = decoder.GetFrame(0)?;
             let converter = factory.CreateFormatConverter()?;
             converter.Initialize(
