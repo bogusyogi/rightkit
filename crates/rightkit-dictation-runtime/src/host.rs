@@ -110,3 +110,22 @@ pub fn configure_service_log_names(names: ServiceLogNames) -> bool {
 pub fn service_log_names() -> &'static ServiceLogNames {
     SERVICE_LOG_NAMES.get().unwrap_or(&ServiceLogNames::DEFAULT)
 }
+
+static PULSE_HANDOFF: OnceLock<rightkit_dictation_command_host::pulse_handoff::HandoffIdentity> =
+    OnceLock::new();
+
+/// Turn on the hand-off to Pulse (`docs/contracts/voice.md`, decision 5): a recording that began from the
+/// wake word and that no command matched is sent to the Pulse command line as a task instead of being typed.
+/// Call once per process, before `entry::run`; returns `false` when already installed. A host that makes no
+/// call keeps today's behaviour: such a recording is dictated.
+pub fn configure_pulse_handoff(
+    identity: rightkit_dictation_command_host::pulse_handoff::HandoffIdentity,
+) -> bool {
+    PULSE_HANDOFF.set(identity).is_ok()
+}
+
+/// The hand-off identity, when the host turned the hand-off on.
+pub fn pulse_handoff(
+) -> Option<&'static rightkit_dictation_command_host::pulse_handoff::HandoffIdentity> {
+    PULSE_HANDOFF.get()
+}

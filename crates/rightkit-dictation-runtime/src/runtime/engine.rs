@@ -109,5 +109,13 @@ pub enum FinalizeOutcome {
     CommandFailed {
         message: String,
     },
+    /// An addressed recording that no command matched was sent to Pulse and Pulse did not accept it
+    /// (refused, not running, or no answer). The words are kept, never typed: `text` is the transcript
+    /// and `message` is the pill's line. An accepted hand-off is [`FinalizeOutcome::CommandDispatched`]
+    /// (`pulse.task`), which clears the words.
+    HandoffKept {
+        text: String,
+        message: String,
+    },
     NoOp,
 }

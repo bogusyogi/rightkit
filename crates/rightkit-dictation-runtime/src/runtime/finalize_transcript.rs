@@ -50,6 +50,9 @@ pub(crate) struct FinalizeCapture {
     pub(crate) stop_started_at: Option<Instant>,
     pub(crate) transcript: String,
     pub(crate) stop_evidence: crate::worker::StopEvidence,
+    /// The recording began from the wake word: its words are addressed to the agent. When no command
+    /// matches, they go to Pulse (when the host turned the hand-off on) instead of being typed.
+    pub(crate) addressed: bool,
     pub(crate) standalone_action: Option<rightkit_voice_commands::command::CommandAction>,
     pub(crate) send_enter: bool,
     pub(crate) ai_transform: Option<rightkit_text_polish::text_pipeline::AiTransformIntent>,
@@ -175,6 +178,7 @@ impl EngineRuntime {
                 text,
                 tokens: Vec::new(),
                 stop_evidence: crate::worker::StopEvidence::Manual,
+                addressed: false,
             }),
             audio_secs,
             None,
@@ -199,8 +203,12 @@ impl EngineRuntime {
         let stop_started_at = self.stop_started_at.take();
         let send_enter = std::mem::take(&mut self.pending_send_enter);
         let local_only_stop = std::mem::take(&mut self.pending_local_only);
-        let (mut transcript, stop_evidence) = match result {
-            Ok(final_transcript) => (final_transcript.text, final_transcript.stop_evidence),
+        let (mut transcript, stop_evidence, addressed) = match result {
+            Ok(final_transcript) => (
+                final_transcript.text,
+                final_transcript.stop_evidence,
+                final_transcript.addressed,
+            ),
             Err(message) => {
                 self.record_terminal_tombstone(session_id);
                 self.state = EngineState::Error {
@@ -253,6 +261,7 @@ impl EngineRuntime {
                 stop_started_at,
                 transcript,
                 stop_evidence,
+                addressed,
                 standalone_action,
                 send_enter,
                 ai_transform,
@@ -432,6 +441,48 @@ pub(crate) fn stale_selection_fallback_commit(
     )
 }
 
+/// Hand an addressed recording that no command matched to Pulse as a task (`docs/contracts/voice.md`, VO-1).
+/// `None` when the host did not turn the hand-off on, or the recording is not eligible: the caller then
+/// carries on as dictation, as it always did. The words are cleared only on an accepted receipt
+/// (`CommandDispatched`, action `pulse.task`); every other receipt keeps them (`HandoffKept`) and nothing
+/// is typed or replayed. Runs unlocked, in phase 2, and blocks for at most the command line's timeouts.
+fn pulse_handoff_commit(
+    session_id: &str,
+    transcript: &str,
+    stop_evidence: &crate::worker::StopEvidence,
+) -> Option<FinalizeCommit> {
+    use rightkit_dictation_command_host::pulse_handoff::{submit_installed, Receipt};
+
+    let identity = crate::host::pulse_handoff()?;
+    let words = transcript.trim();
+    let cancelled = matches!(
+        stop_evidence,
+        crate::worker::StopEvidence::Zephyr {
+            intent: rightkit_text_polish::text_pipeline::ControlIntent::Cancel,
+            ..
+        }
+    );
+    if words.is_empty() || cancelled {
+        return None;
+    }
+    let receipt = submit_installed(&identity.record_for(session_id, words));
+    let outcome = match receipt {
+        Receipt::Accepted {
+            task_id,
+            task_status,
+            ..
+        } => FinalizeOutcome::CommandDispatched {
+            action: "pulse.task".to_string(),
+            detail: format!("{task_id} {task_status}"),
+        },
+        kept => FinalizeOutcome::HandoffKept {
+            text: words.to_string(),
+            message: kept.pill_message().unwrap_or_default(),
+        },
+    };
+    Some(FinalizeCommit::outcome_only(outcome))
+}
+
 fn unresolved_control_tail(evidence: &crate::worker::StopEvidence) -> bool {
     matches!(
         evidence,
@@ -451,6 +502,7 @@ pub(crate) fn finalize_phase2_process(
         stop_started_at,
         mut transcript,
         stop_evidence,
+        addressed,
         standalone_action,
         send_enter,
         mut ai_transform,
@@ -699,6 +751,23 @@ pub(crate) fn finalize_phase2_process(
                     message: "selection_changed".to_string(),
                 },
             ));
+        }
+    }
+    // Addressed (wake-started) recording that matched no command, no AI-transform tail and is not the bare
+    // summarize trigger: it is a request to the agent, not dictation. It goes to Pulse and is never typed
+    // (decision 5, `docs/contracts/voice.md`). The classifier above is the one that decides "no command".
+    if addressed
+        && !local_only_stop
+        && ai_transform.is_none()
+        && !standalone_summarize_requested
+        && !rightkit_text_polish::text_pipeline::is_bare_summarize_trigger(&transcript)
+    {
+        if discard_if_superseded(is_current, &session_id, "before_pulse_handoff") {
+            return Ok(FinalizeCommit::discard());
+        }
+        if let Some(commit) = pulse_handoff_commit(&session_id, &transcript, &stop_evidence) {
+            trace_stop_to_engine_outcome(stop_started_at, "pulse_handoff");
+            return Ok(commit);
         }
     }
     // Copy-fallback (Adrian, 2026-07-16): a selection in a READ-ONLY region
