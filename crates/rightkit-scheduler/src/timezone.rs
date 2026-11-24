@@ -6,6 +6,10 @@ pub fn normalize_time_zone(time_zone: &str) -> Result<String, String> {
     if let Some(name) = canonical_iana_time_zone(trimmed) {
         return Ok(name.to_string());
     }
+    #[cfg(feature = "iana-full")]
+    if let Some(name) = crate::timezone_full::canonical(trimmed) {
+        return Ok(name);
+    }
     let rest = trimmed
         .strip_prefix("UTC")
         .or_else(|| trimmed.strip_prefix("utc"))
@@ -114,8 +118,19 @@ fn iana_time_zone_offset_minutes_at(zone: &str, epoch_minute: i64) -> Result<i32
         "Asia/Singapore" => Ok(8 * 60),
         "Asia/Dubai" => Ok(4 * 60),
         "Australia/Sydney" => Ok(sydney_offset(epoch_minute, year)),
-        _ => Err(format!("unsupported IANA time zone: {zone}")),
+        _ => other_iana_offset(zone, epoch_minute),
     }
+}
+
+/// A zone outside the written-out table: the bundled database with `iana-full`, otherwise unsupported.
+#[cfg(feature = "iana-full")]
+fn other_iana_offset(zone: &str, epoch_minute: i64) -> Result<i32, String> {
+    crate::timezone_full::offset_minutes_at(zone, epoch_minute)
+}
+
+#[cfg(not(feature = "iana-full"))]
+fn other_iana_offset(zone: &str, _epoch_minute: i64) -> Result<i32, String> {
+    Err(format!("unsupported IANA time zone: {zone}"))
 }
 
 fn us_offset(epoch_minute: i64, year: i32, standard_offset: i32) -> i32 {

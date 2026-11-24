@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-scheduler"
-version = "0.3.0"
+version = "0.3.1"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Agent schedule model: bot profiles, schedule specs (cron, once, interval, monitor), due-minute computation in IANA time zones"
@@ -13,9 +13,15 @@ include = ["src/**", "fixtures/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", 
 name = "rightkit_scheduler"
 path = "src/lib.rs"
 
+[features]
+# Every IANA zone from a bundled time zone database (`jiff`), where the default knows UTC, fixed offsets and
+# eleven named zones. Off by default: adding `jiff` to RightKit's dependency allowlist is an open owner decision.
+iana-full = ["dep:jiff"]
+
 [dependencies]
 rightkit-agent-engine-protocol = { version = "0.4.0", path = "../rightkit-agent-engine-protocol" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+jiff = { version = "0.2", default-features = false, features = ["std", "tzdb-bundle-always"], optional = true }
 rightkit-time = { version = "0.1.1", path = "../rightkit-time" }
 rightkit-db = { version = "0.5.3", features = ["bundled", "statement-cache"], path = "../rightkit-db" }

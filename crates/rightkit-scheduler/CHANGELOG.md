@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.3.1
+
+- Feature `iana-full` (off by default; additive): every IANA zone from a bundled time zone database. The default still knows `UTC`, fixed `UTC+HH:MM` offsets and the eleven named zones in `timezone.rs`; with the feature a name outside them is looked up in `jiff`'s bundled database (`normalize_time_zone` returns its spelling, `time_zone_offset_minutes_at` its offset), in one file, `timezone_full.rs`. Needs `jiff` on RightKit's dependency allowlist, an open owner decision (it is in the workspace lock already but allowlisted only for one app). `rightkit-time`'s own zone table is four zones and has no database; it is not changed. Written, not compiled.
 
 - Additive (RK-10, blueprint AG-7): `runner`, the schedule runner as a library on SQLite (`rightkit-db`, new dependency). `claim_due` / `claim_schedule` claim each schedule minute exactly once, keyed on schedule id + UTC minute (primary key, taken with the schedule's cursor in one `BEGIN IMMEDIATE` transaction). Per-schedule misfire policy through the existing `MisfirePolicy` (`Skip`; `Coalesce` = run once for all missed; `CatchUp` = run each). A cron time in a clock gap runs once after the gap; a repeated (overlap) time runs once. Offsets come from `rightkit_time::zones::offset_at`, so named zones are limited to its tables (README). A `confirmed` flag is required: an unconfirmed schedule is never claimed. `init_claim_tables` creates the two tables. Nothing existing changed in behaviour (`cron_matches_in_time_zone` now calls the new crate-private `cron_matches_local_minute`).
 
