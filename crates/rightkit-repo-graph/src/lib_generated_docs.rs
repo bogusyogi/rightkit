@@ -116,16 +116,55 @@ pub fn is_generated(target_path: &Path) -> bool {
     first_line.starts_with(GENERATION_HEADER_PREFIX)
 }
 
+/// The bytes [`write_text`] writes for `body`: `body` with one trailing newline.
+fn normalized(body: &str) -> String {
+    if body.ends_with('\n') {
+        body.to_string()
+    } else {
+        format!("{}\n", body)
+    }
+}
+
 fn write_text(path: &Path, body: &str) -> std::io::Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
-    let out = if body.ends_with('\n') {
-        body.to_string()
-    } else {
-        format!("{}\n", body)
+    fs::write(path, normalized(body))
+}
+
+/// What a docs build does, or would do, to one file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DocAction {
+    /// The file does not exist and would be written.
+    Created,
+    /// The file exists and its bytes differ from what would be written.
+    Changed,
+    /// The file exists and holds exactly what would be written; a real run rewrites it with the
+    /// same bytes.
+    Unchanged,
+    /// The file exists and would be deleted (`START-HERE.md`, retired on every successful build).
+    Removed,
+}
+
+/// One file of a docs build and what happens to it, relative to the repository root.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DocFilePlan {
+    pub path: String,
+    pub action: DocAction,
+}
+
+/// Compares what [`write_text`] would write to `relative` with the file as it is now. Reads only.
+fn plan_text(root: &Path, relative: &str, body: &str) -> std::io::Result<DocFilePlan> {
+    let action = match fs::read(root.join(relative)) {
+        Ok(existing) if existing == normalized(body).as_bytes() => DocAction::Unchanged,
+        Ok(_) => DocAction::Changed,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => DocAction::Created,
+        Err(error) => return Err(error),
     };
-    fs::write(path, out)
+    Ok(DocFilePlan {
+        path: relative.to_string(),
+        action,
+    })
 }
 
 // ── Product doc ─────────────────────────────────────────────────────────
@@ -646,13 +685,9 @@ pub enum ReadmePointerMode {
     Updated,
 }
 
-/// Mirrors `maintainReadmePointer`.
-pub fn maintain_readme_pointer(root: &Path) -> std::io::Result<ReadmePointerMode> {
-    let readme_path = root.join("README.md");
-    let text = match fs::read_to_string(&readme_path) {
-        Ok(t) => t,
-        Err(_) => return Ok(ReadmePointerMode::Absent),
-    };
+/// The README after the pointer block is added or refreshed, and which of the two it is. Pure:
+/// [`maintain_readme_pointer`] and the dry run both use it.
+fn readme_pointer_next(text: &str) -> (String, ReadmePointerMode) {
     let block = [
         MARKER,
         "## Repository truth docs",
@@ -666,9 +701,7 @@ pub fn maintain_readme_pointer(root: &Path) -> std::io::Result<ReadmePointerMode
     let end_idx = start_idx.and_then(|s| text[s..].find(END_MARKER).map(|i| s + i));
 
     if start_idx.is_none() || end_idx.is_none() {
-        let next = format!("{}\n{}\n", text, block);
-        write_text(&readme_path, &next)?;
-        return Ok(ReadmePointerMode::Created);
+        return (format!("{}\n{}\n", text, block), ReadmePointerMode::Created);
     }
 
     let start_idx = start_idx.unwrap();
@@ -682,11 +715,25 @@ pub fn maintain_readme_pointer(root: &Path) -> std::io::Result<ReadmePointerMode
     } else {
         format!("\n{}", after_raw)
     };
-    let next = format!("{}{}{}", before, block, after);
+    (
+        format!("{}{}{}", before, block, after),
+        ReadmePointerMode::Updated,
+    )
+}
+
+/// Mirrors `maintainReadmePointer`.
+pub fn maintain_readme_pointer(root: &Path) -> std::io::Result<ReadmePointerMode> {
+    let readme_path = root.join("README.md");
+    let text = match fs::read_to_string(&readme_path) {
+        Ok(t) => t,
+        Err(_) => return Ok(ReadmePointerMode::Absent),
+    };
+    let (next, mode) = readme_pointer_next(&text);
+    // `Created` always differs from `text`, so one comparison covers both modes.
     if next != text {
         write_text(&readme_path, &next)?;
     }
-    Ok(ReadmePointerMode::Updated)
+    Ok(mode)
 }
 
 // ── Orchestrator ───────────────────────────────────────────────────────
@@ -695,6 +742,9 @@ pub fn maintain_readme_pointer(root: &Path) -> std::io::Result<ReadmePointerMode
 #[derive(Debug, Clone, Copy, Default)]
 pub struct GenerateDocsOptions {
     pub no_readme_link: bool,
+    /// Write nothing. The result's `plan` says, for each file a real run would touch, whether it
+    /// would be created, changed (content compared) or left unchanged, and `mode` is `"dry_run"`.
+    pub dry_run: bool,
 }
 
 /// Outcome of [`generate_docs`], mirroring the JS result object.
@@ -706,6 +756,10 @@ pub struct GenerateDocsResult {
     pub fallback: Vec<String>,
     pub readme: Option<ReadmePointerMode>,
     pub retired: Vec<String>,
+    /// A dry run only: what a real run would do to each file, in the order it does it (the two
+    /// docs, or the two fallback docs after a conflict; the README when the pointer is kept;
+    /// `START-HERE.md` when it would be retired). Empty after a real run.
+    pub plan: Vec<DocFilePlan>,
 }
 
 /// Build the small input projection needed by the generated-doc emitter from
@@ -892,6 +946,49 @@ pub fn generate_docs(
     }
     if !is_generated(&target_arch) {
         conflicts.push(DOC_PATH_ARCHITECTURE.to_string());
+    }
+
+    if opts.dry_run {
+        let mut plan = Vec::new();
+        let mut fallback = Vec::new();
+        if conflicts.is_empty() {
+            plan.push(plan_text(root, DOC_PATH_PRODUCT, &product_body)?);
+            plan.push(plan_text(root, DOC_PATH_ARCHITECTURE, &arch_body)?);
+            if !opts.no_readme_link {
+                if let Ok(text) = fs::read_to_string(root.join("README.md")) {
+                    let (next, _) = readme_pointer_next(&text);
+                    // A real run leaves the README alone when the pointer is already current.
+                    if next == text {
+                        plan.push(DocFilePlan {
+                            path: "README.md".to_string(),
+                            action: DocAction::Unchanged,
+                        });
+                    } else {
+                        plan.push(plan_text(root, "README.md", &next)?);
+                    }
+                }
+            }
+            if root.join(START_HERE_PATH).exists() {
+                plan.push(DocFilePlan {
+                    path: START_HERE_PATH.to_string(),
+                    action: DocAction::Removed,
+                });
+            }
+        } else {
+            plan.push(plan_text(root, FALLBACK_PRODUCT_PATH, &product_body)?);
+            plan.push(plan_text(root, FALLBACK_ARCHITECTURE_PATH, &arch_body)?);
+            fallback = vec![
+                FALLBACK_PRODUCT_PATH.to_string(),
+                FALLBACK_ARCHITECTURE_PATH.to_string(),
+            ];
+        }
+        return Ok(GenerateDocsResult {
+            mode: "dry_run",
+            conflicts,
+            fallback,
+            plan,
+            ..Default::default()
+        });
     }
 
     let mut result = GenerateDocsResult {

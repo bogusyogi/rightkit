@@ -1884,6 +1884,12 @@ fn build_and_publish(
                 .or_else(|| request.input.get("no-readme-link"))
                 .and_then(Value::as_bool)
                 .unwrap_or(false),
+            dry_run: request
+                .input
+                .get("docsDryRun")
+                .or_else(|| request.input.get("docs-dry-run"))
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
         };
         // Docs generation is a bounded but uncancellable phase; at least refuse
         // to enter it once shutdown has been requested.
@@ -1901,9 +1907,18 @@ fn build_and_publish(
                 crate::lib_generated_docs::ReadmePointerMode::Updated => "updated",
             }})),
             "retired": docs_result.retired,
+            "plan": docs_result.plan.iter().map(|file| json!({
+                "path": file.path,
+                "action": match file.action {
+                    crate::lib_generated_docs::DocAction::Created => "created",
+                    crate::lib_generated_docs::DocAction::Changed => "changed",
+                    crate::lib_generated_docs::DocAction::Unchanged => "unchanged",
+                    crate::lib_generated_docs::DocAction::Removed => "removed",
+                },
+            })).collect::<Vec<_>>(),
         })
     } else {
-        json!({"mode": "skipped", "conflicts": [], "wrote": [], "fallback": [], "readme": null, "retired": []})
+        json!({"mode": "skipped", "conflicts": [], "wrote": [], "fallback": [], "readme": null, "retired": [], "plan": []})
     };
     context.check()?;
     bounded_generation_response(
