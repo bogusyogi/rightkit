@@ -96,13 +96,7 @@ pub fn observe_compare<T, R>(
     }
 }
 
-type Row = (
-    String,
-    String,
-    Option<String>,
-    Option<String>,
-    Option<bool>,
-);
+type Row = (String, String, Option<String>, Option<String>, Option<bool>);
 
 /// The part of a window's accessibility tree an action can change: each node's id, role, name,
 /// value and enabled flag, in tree order, plus which node holds focus. Frames, snapshot ids and

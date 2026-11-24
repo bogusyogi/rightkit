@@ -1,6 +1,6 @@
 mod sync_full;
-pub use sync_full::{fetch_sync, fetch_sync_with};
 pub use sync_full::FullSyncApi;
+pub use sync_full::{fetch_sync, fetch_sync_with};
 mod message_fetch;
 use message_fetch::{get_full, get_metadata};
 mod types;

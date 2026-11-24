@@ -185,20 +185,28 @@ pub enum StepFacts {
     MoveToTrash,
     /// Change an event. `seen_by_others: false` is the owner's own calendar entry (holding a slot
     /// acts alone).
-    ChangeEvent { seen_by_others: bool },
+    ChangeEvent {
+        seen_by_others: bool,
+    },
     /// Press something that submits.
     Submit,
     /// Press something that publishes.
     Publish,
     /// Press something that pays. `purchase: None` is a payment the host cannot read as a
     /// purchase: it asks.
-    Pay { purchase: Option<PurchaseFacts> },
+    Pay {
+        purchase: Option<PurchaseFacts>,
+    },
     SignIn,
     /// Open a site; `on_list` is the owner's list of sites.
-    OpenSite { on_list: bool },
+    OpenSite {
+        on_list: bool,
+    },
     RunTerminalCommand,
     /// Write a file; `inside_approved_folder` is the owner's list of approved folders.
-    WriteFile { inside_approved_folder: bool },
+    WriteFile {
+        inside_approved_folder: bool,
+    },
     /// A step in the never class.
     Never(NeverClass),
 }

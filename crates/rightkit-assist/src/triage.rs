@@ -8,8 +8,8 @@
 //! instruction or a tool argument.
 
 use crate::facts::{
-    Booking, BookingKind, Commitment, CommitmentKind, FactBody, LocalDateTime, Money, MoneyDirection, Party,
-    PartyRole, Place,
+    Booking, BookingKind, Commitment, CommitmentKind, FactBody, LocalDateTime, Money,
+    MoneyDirection, Party, PartyRole, Place,
 };
 use crate::markup;
 use crate::signal::Signal;
@@ -201,7 +201,11 @@ struct Field {
 }
 
 const fn field(name: &'static str, shape: Shape, required: bool) -> Field {
-    Field { name, shape, required }
+    Field {
+        name,
+        shape,
+        required,
+    }
 }
 
 struct FactSpec {
@@ -246,14 +250,22 @@ const FACT_SPECS: &[FactSpec] = &[
         tag: "party",
         fields: &[
             field("name", Shape::Text(80), true),
-            field("role", Shape::Choice(&["customer", "vendor", "colleague", "other"]), true),
+            field(
+                "role",
+                Shape::Choice(&["customer", "vendor", "colleague", "other"]),
+                true,
+            ),
             field("email", Shape::Text(120), false),
         ],
     },
     FactSpec {
         tag: "commitment",
         fields: &[
-            field("kind", Shape::Choice(&["reply_needed", "deliver", "attend"]), true),
+            field(
+                "kind",
+                Shape::Choice(&["reply_needed", "deliver", "attend"]),
+                true,
+            ),
             field("due", Shape::Local, false),
             field("label", Shape::Text(120), true),
         ],
@@ -263,7 +275,11 @@ const FACT_SPECS: &[FactSpec] = &[
         fields: &[
             field("amount_minor", Shape::Amount, true),
             field("currency", Shape::Currency, true),
-            field("direction", Shape::Choice(&["owed_by_owner", "owed_to_owner"]), true),
+            field(
+                "direction",
+                Shape::Choice(&["owed_by_owner", "owed_to_owner"]),
+                true,
+            ),
             field("due", Shape::Local, false),
             field("label", Shape::Text(120), true),
         ],
@@ -324,7 +340,9 @@ fn child(path: &str, key: &str) -> String {
 }
 
 fn as_map<'a>(value: &'a Value, path: &str) -> Result<&'a Map<String, Value>, SchemaError> {
-    value.as_object().ok_or_else(|| err(path, "expected an object"))
+    value
+        .as_object()
+        .ok_or_else(|| err(path, "expected an object"))
 }
 
 /// A field that passed its shape.
@@ -429,7 +447,11 @@ fn clean_text(value: &Value, max_chars: usize, here: &str) -> Result<Option<Stri
                 return Err(err(here, "text too long"));
             }
             let cleaned = text::clean(s, max_chars);
-            Ok(if cleaned.is_empty() { None } else { Some(cleaned) })
+            Ok(if cleaned.is_empty() {
+                None
+            } else {
+                Some(cleaned)
+            })
         }
         _ => Err(err(here, "expected text")),
     }
@@ -437,7 +459,8 @@ fn clean_text(value: &Value, max_chars: usize, here: &str) -> Result<Option<Stri
 
 /// Turn a listed name into its enum through the enum's own serde name.
 fn from_name<T: serde::de::DeserializeOwned>(name: &str, here: &str) -> Result<T, SchemaError> {
-    serde_json::from_value(Value::String(name.to_string())).map_err(|_| err(here, "value not allowed"))
+    serde_json::from_value(Value::String(name.to_string()))
+        .map_err(|_| err(here, "value not allowed"))
 }
 
 /// Check one present, non-null value. `None` means it held nothing (empty text, an empty place).
@@ -447,7 +470,9 @@ fn check_shape(shape: Shape, value: &Value, here: &str) -> Result<Option<Got>, S
         Shape::Date => Ok(clean_text(value, 10, here)?.map(Got::Text)),
         Shape::Clock => Ok(clean_text(value, 5, here)?.map(Got::Text)),
         Shape::Currency => match clean_text(value, 3, here)? {
-            Some(c) if c.len() == 3 && c.bytes().all(|b| b.is_ascii_uppercase()) => Ok(Some(Got::Text(c))),
+            Some(c) if c.len() == 3 && c.bytes().all(|b| b.is_ascii_uppercase()) => {
+                Ok(Some(Got::Text(c)))
+            }
             Some(_) => Err(err(here, "not a currency code")),
             None => Ok(None),
         },
@@ -485,10 +510,16 @@ fn check_shape(shape: Shape, value: &Value, here: &str) -> Result<Option<Got>, S
                 name: got.text("name"),
                 city: got.text("city"),
             };
-            Ok(if place.is_empty() { None } else { Some(Got::Place(place)) })
+            Ok(if place.is_empty() {
+                None
+            } else {
+                Some(Got::Place(place))
+            })
         }
         Shape::Facts => {
-            let list = value.as_array().ok_or_else(|| err(here, "expected a list"))?;
+            let list = value
+                .as_array()
+                .ok_or_else(|| err(here, "expected a list"))?;
             if list.len() > MAX_FACTS {
                 return Err(err(here, "too many facts"));
             }
@@ -613,7 +644,11 @@ pub enum TriageStep {
 /// Judge one answer for a signal. `answer` is `None` when the host got no usable reply (an error, a timeout,
 /// a refusal). Counts the attempt on the signal and records the fixed rejection reason. Does not change the
 /// signal's state: the caller moves it, so the pipeline owns every transition.
-pub fn judge_answer(signal: &mut Signal, previous: &TriageRequest, answer: Option<&str>) -> TriageStep {
+pub fn judge_answer(
+    signal: &mut Signal,
+    previous: &TriageRequest,
+    answer: Option<&str>,
+) -> TriageStep {
     signal.triage_attempts = signal.triage_attempts.saturating_add(1);
     let checked = match answer {
         Some(raw) => parse_output(raw),

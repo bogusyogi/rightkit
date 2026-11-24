@@ -32,7 +32,9 @@ fn every_hard_to_undo_step_asks_first() {
         (StepFacts::Forward, HardToUndo::Forward),
         (StepFacts::MoveToTrash, HardToUndo::MoveToTrash),
         (
-            StepFacts::ChangeEvent { seen_by_others: true },
+            StepFacts::ChangeEvent {
+                seen_by_others: true,
+            },
             HardToUndo::ChangeSharedEvent,
         ),
         (StepFacts::Submit, HardToUndo::Submit),
@@ -40,10 +42,18 @@ fn every_hard_to_undo_step_asks_first() {
         (StepFacts::Pay { purchase: None }, HardToUndo::Pay),
         (purchase(Some(5_001), "USD", true), HardToUndo::BuyOverLimit),
         (StepFacts::SignIn, HardToUndo::SignIn),
-        (StepFacts::OpenSite { on_list: false }, HardToUndo::OpenUnlistedSite),
-        (StepFacts::RunTerminalCommand, HardToUndo::RunTerminalCommand),
         (
-            StepFacts::WriteFile { inside_approved_folder: false },
+            StepFacts::OpenSite { on_list: false },
+            HardToUndo::OpenUnlistedSite,
+        ),
+        (
+            StepFacts::RunTerminalCommand,
+            HardToUndo::RunTerminalCommand,
+        ),
+        (
+            StepFacts::WriteFile {
+                inside_approved_folder: false,
+            },
             HardToUndo::WriteOutsideApprovedFolders,
         ),
     ];
@@ -60,14 +70,22 @@ fn every_hard_to_undo_step_asks_first() {
 #[test]
 fn reversible_steps_act_alone_and_a_small_listed_purchase_goes_through() {
     let alone = [
-        StepFacts::ChangeEvent { seen_by_others: false },
+        StepFacts::ChangeEvent {
+            seen_by_others: false,
+        },
         StepFacts::OpenSite { on_list: true },
-        StepFacts::WriteFile { inside_approved_folder: true },
+        StepFacts::WriteFile {
+            inside_approved_folder: true,
+        },
         purchase(Some(5_000), "usd", true),
         purchase(Some(1), "USD", true),
     ];
     for step in alone {
-        assert_eq!(classify_step(&step, &limits()), StepClass::ActsAlone, "{step:?}");
+        assert_eq!(
+            classify_step(&step, &limits()),
+            StepClass::ActsAlone,
+            "{step:?}"
+        );
     }
 }
 
@@ -101,7 +119,10 @@ fn the_never_class_is_refused_whatever_the_limits() {
     for class in NeverClass::ALL {
         let step = StepFacts::Never(class);
         assert_eq!(classify_step(&step, &generous), StepClass::Never(class));
-        assert_eq!(classify_step(&step, &OwnerLimits::default()), StepClass::Never(class));
+        assert_eq!(
+            classify_step(&step, &OwnerLimits::default()),
+            StepClass::Never(class)
+        );
         assert_eq!(refuse_if_never(&step), Err(class));
     }
     assert_eq!(refuse_if_never(&StepFacts::Send), Ok(()));

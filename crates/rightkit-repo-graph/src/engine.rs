@@ -2177,10 +2177,12 @@ fn trim_to_byte_ceiling(
         let Some(field) = ["sourceObservation", "freshnessReceipt", "detail"]
             .into_iter()
             .filter_map(|field| {
-                value
-                    .get(field)
-                    .filter(|node| !node.is_null())
-                    .map(|node| (field, serde_json::to_vec(node).map_or(0, |bytes| bytes.len())))
+                value.get(field).filter(|node| !node.is_null()).map(|node| {
+                    (
+                        field,
+                        serde_json::to_vec(node).map_or(0, |bytes| bytes.len()),
+                    )
+                })
             })
             .max_by_key(|(_, size)| *size)
             .map(|(field, _)| field)

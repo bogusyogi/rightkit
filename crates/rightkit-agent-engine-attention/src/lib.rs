@@ -367,7 +367,6 @@ struct SnoozeMap {
     by_id: std::collections::BTreeMap<String, String>,
 }
 
-
 fn load_density(workspace_root: &str) -> TranscriptDensity {
     let path = density_path(workspace_root);
     let value: Value = read_json(&path).unwrap_or_default();

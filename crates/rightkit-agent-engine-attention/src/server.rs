@@ -442,4 +442,3 @@ async fn get_attention_banner_handler(
         });
     Ok(Json(banner))
 }
-

@@ -5,7 +5,9 @@
 //! state, run the closure, write the state back, all under one lock. [`MemoryAssistStore`] keeps it in memory.
 
 use crate::facts::Fact;
-use crate::instruction::{self, FireOutcome, Occurrence, OccurrenceState, OwnerApproval, StandingInstruction};
+use crate::instruction::{
+    self, FireOutcome, Occurrence, OccurrenceState, OwnerApproval, StandingInstruction,
+};
 use crate::signal::{NewSignal, Signal};
 use crate::sort::SenderLists;
 use serde::{Deserialize, Serialize};
@@ -43,7 +45,11 @@ impl AssistState {
     pub fn admit(&mut self, new: &NewSignal) -> Admission {
         let signal = Signal::admit(new);
         let id = signal.id.clone();
-        if self.signals.values().any(|s| s.dedupe_key == signal.dedupe_key) {
+        if self
+            .signals
+            .values()
+            .any(|s| s.dedupe_key == signal.dedupe_key)
+        {
             let existing = self
                 .signals
                 .values()
@@ -79,7 +85,10 @@ impl AssistState {
     }
 
     pub fn facts_of(&self, signal_id: &str) -> Vec<&Fact> {
-        self.facts.values().filter(|f| f.signal_id == signal_id).collect()
+        self.facts
+            .values()
+            .filter(|f| f.signal_id == signal_id)
+            .collect()
     }
 
     pub fn all_facts(&self) -> Vec<Fact> {
@@ -88,7 +97,8 @@ impl AssistState {
 
     /// Add or replace an instruction as the owner wrote it (see [`StandingInstruction::propose`]).
     pub fn put_instruction(&mut self, instruction: StandingInstruction) {
-        self.instructions.insert(instruction.id.clone(), instruction);
+        self.instructions
+            .insert(instruction.id.clone(), instruction);
     }
 
     /// Record the owner's approval and switch the instruction on. Owner path only.
@@ -104,7 +114,9 @@ impl AssistState {
 
     pub fn fire_instruction(&mut self, id: &str, trigger_key: &str, now: i64) -> FireOutcome {
         match self.instructions.get(id) {
-            Some(instruction) => instruction::fire(instruction, trigger_key, now, &mut self.occurrences),
+            Some(instruction) => {
+                instruction::fire(instruction, trigger_key, now, &mut self.occurrences)
+            }
             None => FireOutcome::Inert,
         }
     }

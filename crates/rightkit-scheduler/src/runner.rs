@@ -256,7 +256,9 @@ fn due_minutes(spec: &ScheduleSpec, after: i64, through: i64) -> Result<Vec<i64>
             };
             let mut out = Vec::new();
             loop {
-                let minute = start.saturating_add(k.saturating_mul(step)).div_euclid(60_000);
+                let minute = start
+                    .saturating_add(k.saturating_mul(step))
+                    .div_euclid(60_000);
                 if minute > through {
                     break;
                 }

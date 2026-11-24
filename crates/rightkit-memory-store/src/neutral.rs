@@ -258,9 +258,7 @@ fn name_of(id: &str, scope: &str) -> (String, &'static str) {
         .strip_prefix(scope)
         .and_then(|rest| rest.strip_prefix('/'))
     {
-        Some(name) if !name.is_empty() => {
-            (name.to_string(), "id_suffix_after_scope_prefix")
-        }
+        Some(name) if !name.is_empty() => (name.to_string(), "id_suffix_after_scope_prefix"),
         _ => (id.to_string(), "id_unqualified_legacy"),
     }
 }
@@ -422,7 +420,9 @@ pub fn export_neutral(
             content,
             keywords: text_to_value(row.get(4)?),
             created: row.get(5)?,
-            updated: row.get::<_, Option<String>>(6)?.filter(|text| !text.is_empty()),
+            updated: row
+                .get::<_, Option<String>>(6)?
+                .filter(|text| !text.is_empty()),
             state: row.get(7)?,
             provenance: NeutralProvenance {
                 producer: row.get(8)?,
@@ -600,12 +600,11 @@ fn import_one(
         });
     }
     if table_present(&tx, "deletions")?
-        && tx
-            .query_row(
-                "SELECT EXISTS(SELECT 1 FROM deletions WHERE id = ?1)",
-                [&rec.id],
-                |row| row.get::<_, bool>(0),
-            )?
+        && tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM deletions WHERE id = ?1)",
+            [&rec.id],
+            |row| row.get::<_, bool>(0),
+        )?
     {
         return Ok(reject(
             "tombstoned",
@@ -613,12 +612,11 @@ fn import_one(
         ));
     }
     if table_present(&tx, "memory_quarantine")?
-        && tx
-            .query_row(
-                "SELECT EXISTS(SELECT 1 FROM memory_quarantine WHERE id = ?1)",
-                [&rec.id],
-                |row| row.get::<_, bool>(0),
-            )?
+        && tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM memory_quarantine WHERE id = ?1)",
+            [&rec.id],
+            |row| row.get::<_, bool>(0),
+        )?
     {
         return Ok(reject(
             "quarantined",
@@ -637,7 +635,11 @@ fn import_one(
             && tx.query_row(
                 "SELECT EXISTS(SELECT 1 FROM memory_identity
                   WHERE memory_id = ?1 OR artifact_id = ?2 OR origin_event_uid = ?3)",
-                params![identity.memory_id, identity.artifact_id, identity.origin_event_uid],
+                params![
+                    identity.memory_id,
+                    identity.artifact_id,
+                    identity.origin_event_uid
+                ],
                 |row| row.get::<_, bool>(0),
             )?
         {

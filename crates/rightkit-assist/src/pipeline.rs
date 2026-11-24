@@ -111,7 +111,11 @@ fn finish_report(
                 None => false,
             };
             if ok {
-                fired.push(state.fire_instruction(&id, &instruction::mail_trigger_key(&signal), now));
+                fired.push(state.fire_instruction(
+                    &id,
+                    &instruction::mail_trigger_key(&signal),
+                    now,
+                ));
             }
         }
     }
@@ -134,7 +138,10 @@ fn condition_holds(condition: &instruction::Condition, produced: &[&Fact]) -> bo
         }
     }
     if let Some(kind) = condition.requires_fact {
-        if !produced.iter().any(|f| instruction::FactKind::of(&f.body) == kind) {
+        if !produced
+            .iter()
+            .any(|f| instruction::FactKind::of(&f.body) == kind)
+        {
             return false;
         }
     }
@@ -172,7 +179,15 @@ pub fn prepare(
     let mut added = Vec::new();
     let mut findings = Vec::new();
     if sorting.category == Some(Category::Bulk) {
-        let report = finish_report(state, signal_id, &sender_address, added, findings, now, false)?;
+        let report = finish_report(
+            state,
+            signal_id,
+            &sender_address,
+            added,
+            findings,
+            now,
+            false,
+        )?;
         return Ok(Prepared::Finished(report));
     }
 
@@ -182,14 +197,30 @@ pub fn prepare(
     };
     if !bookings.is_empty() {
         let bodies: Vec<FactBody> = bookings.into_iter().map(FactBody::Booking).collect();
-        store_facts(state, signal_id, Origin::Code, bodies, now, &mut added, &mut findings)?;
+        store_facts(
+            state,
+            signal_id,
+            Origin::Code,
+            bodies,
+            now,
+            &mut added,
+            &mut findings,
+        )?;
         let signal = signal_mut(state, signal_id)?;
         if signal.category.is_none() {
             signal.category = Some(Category::Travel);
         }
         signal.settled_by = Some(SettledBy::Code);
         signal.advance(SignalState::Triaged)?;
-        let report = finish_report(state, signal_id, &sender_address, added, findings, now, false)?;
+        let report = finish_report(
+            state,
+            signal_id,
+            &sender_address,
+            added,
+            findings,
+            now,
+            false,
+        )?;
         return Ok(Prepared::Finished(report));
     }
 
@@ -223,7 +254,15 @@ pub fn apply_answer(
         TriageStep::Retry(next) => Ok(Applied::Retry(next)),
         TriageStep::Failed => {
             signal_mut(state, signal_id)?.advance(SignalState::TriageFailed)?;
-            let report = finish_report(state, signal_id, &sender_address, Vec::new(), Vec::new(), now, true)?;
+            let report = finish_report(
+                state,
+                signal_id,
+                &sender_address,
+                Vec::new(),
+                Vec::new(),
+                now,
+                true,
+            )?;
             Ok(Applied::Finished(report))
         }
         TriageStep::Accepted(output) => {
@@ -248,7 +287,15 @@ pub fn apply_answer(
                 signal.settled_by = Some(SettledBy::Model);
                 signal.advance(SignalState::Triaged)?;
             }
-            let report = finish_report(state, signal_id, &sender_address, added, findings, now, true)?;
+            let report = finish_report(
+                state,
+                signal_id,
+                &sender_address,
+                added,
+                findings,
+                now,
+                true,
+            )?;
             Ok(Applied::Finished(report))
         }
     }
@@ -273,7 +320,14 @@ pub fn replay(
     };
     loop {
         let reply = answer(&request);
-        match apply_answer(state, signal_id, &request, reply.as_deref(), &mail.from, now)? {
+        match apply_answer(
+            state,
+            signal_id,
+            &request,
+            reply.as_deref(),
+            &mail.from,
+            now,
+        )? {
             Applied::Finished(report) => return Ok(report),
             Applied::Retry(next) => request = next,
         }

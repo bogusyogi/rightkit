@@ -59,14 +59,20 @@ pub fn trip_dates(input: &CheckInput) -> Vec<NewInboxItem> {
     let mut hotels: Vec<(&Fact, i64, i64)> = Vec::new();
     let mut flights: Vec<(&Fact, i64, i64)> = Vec::new();
     for fact in input.facts {
-        let Some(booking) = fact.booking() else { continue };
+        let Some(booking) = fact.booking() else {
+            continue;
+        };
         let start = booking.start.as_ref().and_then(|d| d.day_number());
         let end = booking.end.as_ref().and_then(|d| d.day_number());
         match (booking.kind, start, end) {
             // Hotel: check-in, check-out.
-            (BookingKind::Hotel, Some(checkin), Some(checkout)) => hotels.push((fact, checkin, checkout)),
+            (BookingKind::Hotel, Some(checkin), Some(checkout)) => {
+                hotels.push((fact, checkin, checkout))
+            }
             // Flight: departure date, arrival date.
-            (BookingKind::Flight, Some(depart), Some(arrive)) => flights.push((fact, depart, arrive)),
+            (BookingKind::Flight, Some(depart), Some(arrive)) => {
+                flights.push((fact, depart, arrive))
+            }
             _ => {}
         }
     }
@@ -74,12 +80,15 @@ pub fn trip_dates(input: &CheckInput) -> Vec<NewInboxItem> {
     let mut items = Vec::new();
     for (hotel, checkin, checkout) in &hotels {
         let some_flight_arrives_at_checkin = flights.iter().any(|(_, _, arrive)| arrive == checkin);
-        let some_flight_leaves_at_checkout = flights.iter().any(|(_, depart, _)| depart == checkout);
+        let some_flight_leaves_at_checkout =
+            flights.iter().any(|(_, depart, _)| depart == checkout);
         for (flight, depart, arrive) in &flights {
             let arrival_gap = (arrive - checkin).abs();
             let departure_gap = (depart - checkout).abs();
-            let arrival_off = !some_flight_arrives_at_checkin && (1..=TRIP_WINDOW_DAYS).contains(&arrival_gap);
-            let departure_off = !some_flight_leaves_at_checkout && (1..=TRIP_WINDOW_DAYS).contains(&departure_gap);
+            let arrival_off =
+                !some_flight_arrives_at_checkin && (1..=TRIP_WINDOW_DAYS).contains(&arrival_gap);
+            let departure_off =
+                !some_flight_leaves_at_checkout && (1..=TRIP_WINDOW_DAYS).contains(&departure_gap);
             if !arrival_off && !departure_off {
                 continue;
             }

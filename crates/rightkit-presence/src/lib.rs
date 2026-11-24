@@ -2,5 +2,5 @@
 //! observations (a meeting, a presentation, fullscreen), combine automatic and manual preferences, and run the
 //! polling loop that reports changes.
 
-pub mod presence;
 pub mod activity;
+pub mod presence;

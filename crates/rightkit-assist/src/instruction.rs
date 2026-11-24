@@ -120,7 +120,13 @@ pub struct StandingInstruction {
 
 impl StandingInstruction {
     /// A new instruction: revision 1, switched off, unapproved.
-    pub fn propose(id: &str, trigger: Trigger, condition: Condition, action: Action, builtin: bool) -> Self {
+    pub fn propose(
+        id: &str,
+        trigger: Trigger,
+        condition: Condition,
+        action: Action,
+        builtin: bool,
+    ) -> Self {
         StandingInstruction {
             id: id.to_string(),
             revision: 1,
@@ -198,7 +204,12 @@ impl StandingInstruction {
 
 /// The occurrence key: a digest of the instruction, its revision and the trigger.
 pub fn occurrence_key(instruction_id: &str, revision: u32, trigger_key: &str) -> String {
-    digest::digest(&["occurrence", instruction_id, &revision.to_string(), trigger_key])
+    digest::digest(&[
+        "occurrence",
+        instruction_id,
+        &revision.to_string(),
+        trigger_key,
+    ])
 }
 
 /// The trigger key for a mail signal.

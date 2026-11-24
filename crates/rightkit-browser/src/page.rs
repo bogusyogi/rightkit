@@ -1,9 +1,9 @@
+use crate::act::{ActResult, ActionWatch, NodeChange, NodeState, ObservationDiff, RefAction};
 use crate::cdp_ext::{
     command_for, download_params, page_scale_params, parse_ax_tree, run_interceptor, summarize_ax,
     AxNode, AxSummary, DownloadBehavior, InterceptDecision, InterceptFailure, InterceptedRequest,
     PageException, PausedCommand, RequestInterceptor, INTERCEPTOR_TIMEOUT, MAX_EXCEPTIONS,
 };
-use crate::act::{ActResult, ActionWatch, NodeChange, NodeState, ObservationDiff, RefAction};
 use crate::cookies::{self, NetscapeCookie};
 use crate::design_mode::{self, DesignModeBridge, DesignModeSession, NativeGestureLatch};
 use crate::error::{cdp, BrowserError, Result};

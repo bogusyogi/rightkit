@@ -303,7 +303,19 @@ fn tokenize(html: &str) -> Vec<Token> {
 fn is_void(name: &str) -> bool {
     matches!(
         name,
-        "area" | "base" | "br" | "col" | "embed" | "hr" | "img" | "input" | "link" | "meta" | "source" | "track" | "wbr"
+        "area"
+            | "base"
+            | "br"
+            | "col"
+            | "embed"
+            | "hr"
+            | "img"
+            | "input"
+            | "link"
+            | "meta"
+            | "source"
+            | "track"
+            | "wbr"
     )
 }
 
@@ -335,7 +347,17 @@ pub fn html_to_text(html: &str, max_bytes: usize) -> String {
             Token::Open { name, .. } | Token::Close(name) => {
                 if matches!(
                     name.as_str(),
-                    "p" | "br" | "div" | "tr" | "li" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6" | "table"
+                    "p" | "br"
+                        | "div"
+                        | "tr"
+                        | "li"
+                        | "h1"
+                        | "h2"
+                        | "h3"
+                        | "h4"
+                        | "h5"
+                        | "h6"
+                        | "table"
                 ) {
                     out.push('\n');
                 }
@@ -376,7 +398,10 @@ fn last_segment(url: &str) -> String {
 }
 
 fn prop_names(raw: &str) -> Vec<String> {
-    raw.split_whitespace().take(4).map(|s| s.to_string()).collect()
+    raw.split_whitespace()
+        .take(4)
+        .map(|s| s.to_string())
+        .collect()
 }
 
 fn to_node(items: &[BuildItem], idx: usize, depth: usize) -> Node {
@@ -390,7 +415,8 @@ fn to_node(items: &[BuildItem], idx: usize, depth: usize) -> Node {
             BuildVal::Text(t) => obj.props.push((name.clone(), Node::Text(t.clone()))),
             BuildVal::Item(child) => {
                 if depth < MAX_ITEM_DEPTH && *child > idx {
-                    obj.props.push((name.clone(), to_node(items, *child, depth + 1)));
+                    obj.props
+                        .push((name.clone(), to_node(items, *child, depth + 1)));
                 }
             }
         }
@@ -428,7 +454,9 @@ pub fn microdata(html: &str) -> Vec<Node> {
                         if let Some(c) = frame.collect {
                             let value = text::clean(&c.text, MAX_PROP_TEXT);
                             for pname in c.names {
-                                items[c.owner].props.push((pname, BuildVal::Text(value.clone())));
+                                items[c.owner]
+                                    .props
+                                    .push((pname, BuildVal::Text(value.clone())));
                             }
                         }
                     }
@@ -518,9 +546,14 @@ pub fn microdata(html: &str) -> Vec<Node> {
         if let Some(c) = frame.collect {
             let value = text::clean(&c.text, MAX_PROP_TEXT);
             for pname in c.names {
-                items[c.owner].props.push((pname, BuildVal::Text(value.clone())));
+                items[c.owner]
+                    .props
+                    .push((pname, BuildVal::Text(value.clone())));
             }
         }
     }
-    roots.into_iter().map(|idx| to_node(&items, idx, 0)).collect()
+    roots
+        .into_iter()
+        .map(|idx| to_node(&items, idx, 0))
+        .collect()
 }

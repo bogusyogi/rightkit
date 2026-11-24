@@ -1148,7 +1148,8 @@ impl NativeWatcher {
             self.emit("poll_cancelled", None);
             return Err(WatchError::Snapshot(SnapshotError::Cancelled));
         }
-        let (native_events_observed, native_events, queue_overflowed) = self.take_native_events()?;
+        let (native_events_observed, native_events, queue_overflowed) =
+            self.take_native_events()?;
         let now = Instant::now();
         let backstop = self.backstop_interval();
         let marker = git_marker(&self.config.root);

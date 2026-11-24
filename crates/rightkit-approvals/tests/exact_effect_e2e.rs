@@ -5,8 +5,8 @@
 use rightkit_approvals::authority::{begin, recheck};
 use rightkit_approvals::rules::{self, Decision, Limits, Outcome};
 use rightkit_approvals::{
-    Approver, Authority, Binding, Error, Grant, MemoryStore, Origin, Record, Refusal, Request,
-    Retention, State, Store, now_ms,
+    now_ms, Approver, Authority, Binding, Error, Grant, MemoryStore, Origin, Record, Refusal,
+    Request, Retention, State, Store,
 };
 use serde_json::json;
 
@@ -148,7 +148,9 @@ fn expired_and_revoked_approvals_are_refused() {
     );
 
     let id = approved(&store, send("r6", "Yes.", 1));
-    rules::revoke(&store, &id, "revoked", t0() + 1).unwrap().unwrap();
+    rules::revoke(&store, &id, "revoked", t0() + 1)
+        .unwrap()
+        .unwrap();
     assert_eq!(
         recheck(&store, &owner(), &id, &send("r6", "Yes.", 1), t0() + 2).unwrap_err(),
         Error::Denied
@@ -225,7 +227,9 @@ fn a_session_grant_never_approves_one_exact_effect() {
         grant: Grant::Open,
         reason: Some("user"),
     };
-    rules::decide(&store, &id, &decision, t0()).unwrap().unwrap();
+    rules::decide(&store, &id, &decision, t0())
+        .unwrap()
+        .unwrap();
     assert_eq!(
         recheck(&store, &owner(), &id, &request, t0() + 1).unwrap_err(),
         Error::Malformed

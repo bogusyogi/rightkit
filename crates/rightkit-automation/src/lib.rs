@@ -90,10 +90,12 @@ pub use policy::{
 };
 pub use redact::{MaskText, Redactor, ShotContext, ShotReport};
 pub use secret::{origin_of_url, FieldOrigin, Secret};
-pub use verify::{compare, observe_compare, Delta, Observed, VerifiedOutcome, Verdict, WindowState};
 pub use text_select::{
     ControlIdentity, DocumentSnapshot, ObservedSelection, SelectionProof, TextSelectError,
     TextSelectResult,
+};
+pub use verify::{
+    compare, observe_compare, Delta, Observed, Verdict, VerifiedOutcome, WindowState,
 };
 
 #[cfg(target_os = "macos")]

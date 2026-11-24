@@ -22,9 +22,14 @@ pub enum RefAction {
     DoubleClick,
     Hover,
     /// Click to focus, optionally select-all and delete, then type.
-    Fill { text: String, clear: bool },
+    Fill {
+        text: String,
+        clear: bool,
+    },
     /// Choose a `<select>` option by value or label.
-    SelectOption { value: String },
+    SelectOption {
+        value: String,
+    },
 }
 
 impl RefAction {

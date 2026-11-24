@@ -464,7 +464,8 @@ pub(crate) fn finalize_phase2_process(
         context_original_binding,
     } = capture;
 
-    if !local_only_stop && !transcript.trim().is_empty() && unresolved_control_tail(&stop_evidence) {
+    if !local_only_stop && !transcript.trim().is_empty() && unresolved_control_tail(&stop_evidence)
+    {
         trace_stop_to_engine_outcome(stop_started_at, "zephyr_trigger_unresolved");
         let captured_target = focus.lock().captured_target();
         let target = captured_target.unwrap_or_else(snapshot_target);

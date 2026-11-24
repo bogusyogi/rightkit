@@ -123,10 +123,13 @@ pub fn swell_wav(spec: &SwellSpec) -> Result<Vec<u8>, SwellError> {
     out.extend_from_slice(&payload.to_le_bytes());
     // Interpolate in log space. Ratios of valid positive inputs can overflow near zero.
     let [start_pitch, end_pitch] = [spec.start_hz.ln(), spec.end_hz.ln()];
-    let [start_gain, peak_gain, end_gain] = [spec.start_gain.ln(), spec.peak_gain.ln(), spec.end_gain.ln()];
-    let interpolate = |start: f64, end: f64, progress: f64| {
-        (start + (end - start) * progress).exp()
-    };
+    let [start_gain, peak_gain, end_gain] = [
+        spec.start_gain.ln(),
+        spec.peak_gain.ln(),
+        spec.end_gain.ln(),
+    ];
+    let interpolate =
+        |start: f64, end: f64, progress: f64| (start + (end - start) * progress).exp();
     let mut phase = 0.0f64;
     for frame in 0..frames {
         let time = frame as f64 / f64::from(sample_rate);

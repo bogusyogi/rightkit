@@ -162,7 +162,12 @@ fn hotel_from(reservation: &Obj, subject: Option<&Obj>) -> Option<Booking> {
     );
     let end = when(
         reservation,
-        &["checkoutTime", "checkoutDate", "checkOutTime", "checkOutDate"],
+        &[
+            "checkoutTime",
+            "checkoutDate",
+            "checkOutTime",
+            "checkOutDate",
+        ],
     );
     if start.is_none() && end.is_none() {
         return None;
@@ -234,9 +239,13 @@ fn walk(obj: &Obj, depth: usize, out: &mut Vec<Booking>) {
         return;
     }
     let subject = obj.get_obj("reservationFor");
-    let lodging_subject = subject.map(|s| LODGING_TYPES.iter().any(|t| s.has_type(t))).unwrap_or(false);
+    let lodging_subject = subject
+        .map(|s| LODGING_TYPES.iter().any(|t| s.has_type(t)))
+        .unwrap_or(false);
     let flight_subject = subject.map(|s| s.has_type("Flight")).unwrap_or(false);
-    let booking = if obj.has_type("LodgingReservation") || (obj.has_type("Reservation") && lodging_subject) {
+    let booking = if obj.has_type("LodgingReservation")
+        || (obj.has_type("Reservation") && lodging_subject)
+    {
         hotel_from(obj, subject)
     } else if obj.has_type("FlightReservation") || (obj.has_type("Reservation") && flight_subject) {
         subject.and_then(|f| flight_from(obj, f))

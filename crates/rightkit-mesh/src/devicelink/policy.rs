@@ -37,7 +37,11 @@ pub fn is_owner_paired(record: &PairedDevice) -> bool {
 /// such device. When a device id appears more than once, every record must qualify.
 pub fn is_owner_paired_in(registry: &Registry, device_id: &str) -> bool {
     let mut found = false;
-    for d in registry.devices.iter().filter(|d| d.device.device_id == device_id) {
+    for d in registry
+        .devices
+        .iter()
+        .filter(|d| d.device.device_id == device_id)
+    {
         if !is_owner_paired(d) {
             return false;
         }

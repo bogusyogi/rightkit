@@ -389,7 +389,9 @@ impl Worker {
                 );
                 let asr_elapsed = started.elapsed().as_millis() as u64;
                 let asr_elapsed_ms = Some(asr_elapsed);
-                let trigger_removed = cleanup.as_ref().is_ok_and(|outcome| outcome.trigger_removed);
+                let trigger_removed = cleanup
+                    .as_ref()
+                    .is_ok_and(|outcome| outcome.trigger_removed);
                 let (
                     result,
                     original_text,
@@ -560,7 +562,10 @@ impl Worker {
                     None => full.text.clone(),
                 }
             } else {
-                rightkit_text_polish::text_pipeline::strip_fired_control_tail(&residue_stripped, intent)
+                rightkit_text_polish::text_pipeline::strip_fired_control_tail(
+                    &residue_stripped,
+                    intent,
+                )
             };
             owner_diagnostics::record_event(json!({
                 "event": "final_transcript",
