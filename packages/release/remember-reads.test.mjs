@@ -14,7 +14,10 @@ test("only reads whose answer cannot change in a run are remembered", () => {
   assert.equal(isRememberedRead("git", ["rev-parse", "HEAD"]), false);
   assert.equal(isRememberedRead("git", ["status", "--porcelain"]), false);
   assert.equal(isRememberedRead("pnpm", ["install"]), false);
-  assert.equal(isRememberedRead("cargo", ["--version"]), false);
+  assert.equal(isRememberedRead("cargo", ["build"]), false);
+  // a tool's own version and pnpm's resolved configuration are remembered too (keyed by folder and environment)
+  for (const [c, a] of [["cargo", ["--version"]], ["actionlint", ["-version"]], ["shellcheck", ["--version"]], ["rustc", ["-V"]], ["pnpm", ["config", "list", "--json"]], ["pnpm", ["config", "get", "userconfig"]], ["cargo-audit", ["audit", "--version"]]]) assert.equal(isRememberedRead(c, a), true, `${c} ${a.join(" ")}`);
+  assert.equal(isRememberedRead("pnpm", ["config", "set", "x", "y"]), false, "a write is never remembered");
 });
 test("the same read in the same folder is started once; another folder, another environment or a failure is started again", () => {
   const calls = []; let fail = false;
@@ -29,4 +32,11 @@ test("the same read in the same folder is started once; another folder, another 
   run("git", ["status"], { cwd: "D:\\repo" }); run("git", ["status"], { cwd: "D:\\repo" }); assert.equal(calls.length, 6, "anything else always runs");
   fail = true; run("git", ["rev-parse", "--show-toplevel"], { cwd: "D:\\x" }); run("git", ["rev-parse", "--show-toplevel"], { cwd: "D:\\x" });
   assert.equal(calls.length, 8, "a failed read is not remembered");
+});
+
+test("the asynchronous path answers a remembered read from the same memory", async () => {
+  const { defaultSpawnAsync } = await import("./deterministic-scans.mjs");
+  const node = process.execPath; const cwd = process.cwd();
+  const a = await defaultSpawnAsync(node, ["--version"], { cwd }); const b = await defaultSpawnAsync(node, ["--version"], { cwd });
+  assert.equal(a.status, 0); assert.deepEqual(b, { status: 0, signal: null, stdout: a.stdout, stderr: a.stderr }, "the second answer is the remembered one");
 });

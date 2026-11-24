@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.6.67
+
+Step F of the Dell sequence, settled with Gemini (status file 11.7), and faults the 0.6.66 acceptance runs showed (GC-A27), each with a test.
+
+- No waste: a compile run's class B keys read every file id from one listing of the commit, not one `git ls-tree <sha> -- <path>` per path (545 processes a fixture run; 23 s quiet, three minutes busy).
+- NN07: the sidecar key reads only the variables that change what Cargo builds; folders and wrappers a run picks are left out (they changed the key on every run). When staging runs, the gate says which part of the key changed.
+- NN08: a tool's own version, pnpm's resolved configuration, and the reads already remembered are answered once per folder and environment on both ways the gate starts programs.
+- F1: on Mac and Windows the `RUSTRIGHT_`/`RIGHTKIT_` root variables are dropped from a caller's environment; on every host `RIGHTKIT_SCRATCH_ROOT`, `RIGHTKIT_STAGE_SIDECAR_ALLOW_NESTED` and `RUSTRIGHT_OPERATION_DEADLINE_MS` are.
+- F2: `--no-broker` and `--all-units-exception` records are read from `origin/main`, never from the selected commit.
+- F3, F7: `GITHUB_ACTIONS=true` and `--receipt-in` are refused outside a genuine GitHub run (GITHUB_RUN_ID and RUNNER_OS set, no managed broker on the host).
+- F4: `check` that skipped the scans that execute repository code exits 3 (partial), never 0.
+- F5, F6: `--worktree` is refused; `--class-a`, `--all` and `--snapshot` are refused from a caller (the gate's own calls keep them; the git pre-push route is unchanged).
+
 ## 0.6.66
 
 - NN09: one carried command per workspace is in flight at a time again, every workspace at once. 0.6.64 sent every command of a workspace together; the broker then ran clippy and check of one crate side by side on one output folder, and one clippy took 615 s instead of 3.

@@ -37,7 +37,9 @@ test("the key holds for an edit elsewhere and changes for an edit the sidecar re
   for (const [file, body] of [["app/engine/src/lib.rs", "pub fn b() {}"], ["app/shared/src/lib.rs", "pub fn t() {}"], ["app/engine/Cargo.lock", "lock2"], ["rust-toolchain.toml", "x"], ["app/right-release.config.mjs", "export default { x: 1 }"]])
     assert.notEqual(keyOf({ ...base, [file]: body }), k, `an edit to ${file} changes the key`);
   assert.notEqual(keyOf(base, { mode: "dev" }), k); assert.notEqual(keyOf(base, { target: "aarch64-apple-darwin" }), k);
-  assert.notEqual(keyOf(base, { gateIdentity: "h" }), k); assert.notEqual(keyOf(base, { env: { RUSTFLAGS: "-C x" } }), k); assert.notEqual(keyOf(base, { toolchains: [["stable", 1, 2]] }), k);
+  assert.notEqual(keyOf(base, { gateIdentity: "h" }), k); assert.notEqual(keyOf(base, { env: { RUSTFLAGS: "-C x" } }), k);
+  // folders and wrappers the run picks do not change what Cargo builds, and change on every run: they are not in the key
+  assert.equal(keyOf(base, { env: { CARGO_TARGET_DIR: "D:\\t\\run-1", CARGO_HOME: "D:\\h", RUSTC_WRAPPER: "sccache", CARGO: "D:\\shim-1\\cargo.exe" } }), k); assert.notEqual(keyOf(base, { toolchains: [["stable", 1, 2]] }), k);
 });
 test("nothing is skipped when a staged file is not built by Cargo, its package is not found, or a path dependency is not a committed crate", () => {
   const git = gitOf(base);

@@ -231,7 +231,9 @@ export async function launch({ out, commit, kind = null, receiptsDir, limits = n
   record.cacheStore = { dir: storeDir, beforeKnown: storeBefore !== null, afterKnown: storeAfter !== null }; record.snapshotStat = { root: snaps.root, folders: Object.keys(snaps.dirs), known: snaps.known };
   save();
   try { fs.closeSync(logFd); } catch { /* closed */ }
-  // The operating system's record of the run's programs, a little either side of the gate's own span.
+  // The operating system's record of the run's programs, a little either side of the gate's own span. Windows writes an exit event shortly after the
+  // process ends; the record is read two seconds after the gate's exit so a late one is in it (case 7 on 0.6.66, 2026-11-24: one git exit was missing).
+  if (!exportProcesses && platform === "win32") await new Promise((resolve) => setTimeout(resolve, 2000));
   const from = new Date(Date.parse(record.startedAt) - 2000).toISOString(); const to = new Date(Date.now() + 2000).toISOString();
   const exported = exportProcesses ? exportProcesses(from, to) : platform === "win32" ? exportWindowsProcesses(from, to) : { kind: null, from, to, newest: null, continuous: false, events: [], problems: [`no process record is collected on ${platform} yet (eslogger on the Mac)`] };
   fs.writeFileSync(path.join(out, "processes.json"), `${JSON.stringify(exported)}\n`);

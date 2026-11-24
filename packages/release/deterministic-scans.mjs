@@ -2303,7 +2303,11 @@ const READ_MEMO = new Map();
 export function isRememberedRead(command, args) {
   const name = String(command).replaceAll("\\", "/").split("/").pop().replace(/\.(exe|cmd|bat)$/i, "").toLowerCase();
   const a = (args ?? []).map(String);
-  if (name === "pnpm") return a.length === 1 && a[0] === "--version";
+  // A tool's own version, asked with nothing else (each lane and pass asked again: acceptance cases on 0.6.66, 2026-11-24).
+  if (a.length === 1 && ["--version", "-version", "-V", "version"].includes(a[0])) return true;
+  if (name === "cargo-audit" && a.length === 2 && a[0] === "audit" && a[1] === "--version") return true;
+  // pnpm's resolved configuration of a folder (its .npmrc chain), which nothing in a run writes.
+  if (name === "pnpm") return (a.length === 2 && a[0] === "config" && a[1] === "list") || (a.length === 3 && a[0] === "config" && a[1] === "list" && a[2] === "--json") || (a.length === 3 && a[0] === "config" && a[1] === "get" && /^[a-z-]+$/i.test(a[2]));
   if (name !== "git") return false;
   // git's own leading options (-c key=value, -C dir) are part of the key; the subcommand is what is judged.
   let i = 0; while (i < a.length && (a[i] === "-c" || a[i] === "-C")) i += 2;
@@ -2313,11 +2317,11 @@ export function isRememberedRead(command, args) {
   if (sub[0] === "ls-tree" && sub.length >= 2 && /^[0-9a-f]{40}$/.test(sub[sub.length - 1]) && sub.slice(1, -1).every((a) => /^-[a-z]$|^--name-only$|^--full-tree$/.test(a))) return true;
   return sub.length === 2 && sub[0] === "rev-parse" && sub[1] === "--show-toplevel";
 }
+const readMemoKey = (command, args, options = {}) => { const env = options.env ? Object.keys(options.env).sort().map((k) => `${k}=${options.env[k]}`).join("\0") : ""; return sha256(JSON.stringify([String(command), args, path.resolve(options.cwd ?? process.cwd()), env])); };
 export function rememberReads(spawn, { store = READ_MEMO } = {}) {
   return (command, args, options = {}) => {
     if (!isRememberedRead(command, args) || options.input !== undefined || options.stdio !== undefined) return spawn(command, args, options);
-    const env = options.env ? Object.keys(options.env).sort().map((k) => `${k}=${options.env[k]}`).join("\0") : "";
-    const key = sha256(JSON.stringify([String(command), args, path.resolve(options.cwd ?? process.cwd()), options.encoding ?? null, env]));
+    const key = readMemoKey(command, args, options);
     if (store.has(key)) return { ...store.get(key) };
     const r = spawn(command, args, options);
     if (r && r.status === 0 && !r.error) store.set(key, { status: 0, signal: null, stdout: r.stdout, stderr: r.stderr });
@@ -2380,6 +2384,15 @@ export function killProcessTree(child, { platform = process.platform, run = spaw
  * With `options.stdoutFile`, stdout is written to that file whole instead of kept in memory.
  */
 export function defaultSpawnAsync(command, args, options = {}) {
+  // GC-A27 NN08: the reads rememberReads keeps are answered from the same memory here, and an answer this path gets is kept for both.
+  if (isRememberedRead(command, args) && options.input === undefined && options.stdio === undefined && !options.stdoutFile && !options.onSpawn && !options.signal) {
+    const key = readMemoKey(command, args, options);
+    if (READ_MEMO.has(key)) return Promise.resolve({ ...READ_MEMO.get(key) });
+    return rawSpawnAsync(command, args, options).then((r) => { if (r && r.status === 0 && !r.error) READ_MEMO.set(key, { status: 0, signal: null, stdout: r.stdout, stderr: r.stderr }); return r; });
+  }
+  return rawSpawnAsync(command, args, options);
+}
+function rawSpawnAsync(command, args, options = {}) {
   const { signal, stdoutFile, stdoutKeep = OUTPUT_KEEP, onSpawn, ...rest } = options;
   const inv = resolveInvocation(command, args, { env: rest.env ?? process.env });
   if (inv.error) return Promise.resolve({ status: null, stdout: "", stderr: "", error: inv.error });

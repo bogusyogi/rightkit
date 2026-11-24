@@ -2032,7 +2032,7 @@ export async function rightkitDoorRule(o, args, root, git, io, { unitsFileFlag, 
     const id = option("--all-units-exception");
     let granted;
     try {
-      const shown = git("show", `${pinned.commit}:${ALL_UNITS_EXCEPTIONS_FILE}`);
+      const shown = git("show", `${PROTECTED_RECORD_REF}:${ALL_UNITS_EXCEPTIONS_FILE}`); // F2: the protected branch's record, never one an agent's own commit adds
       granted = authorizeAllUnits({ id, record: failed(shown) ? null : text(shown), now: o.now ? o.now() : Date.now() });
     } catch (e) {
       if (!e.code?.startsWith("RK_ALL_UNITS_")) throw e;
@@ -2839,15 +2839,26 @@ export function sidecarSourceDirs({ git, commit, result }) {
  * target, the build mode, the gate's own code, Node, the Cargo and Rust variables, and the installed Rust toolchains' channel manifests (rustup rewrites
  * them on every update). Null when the commit cannot be listed.
  */
-export function sidecarSourceKey({ git, commit, config, target, mode, dirs, env = process.env, gateIdentity, nodeVersion = process.version, toolchains = rustupChannelManifests(env) }) {
+export function sidecarSourceKey(args) { const p = sidecarSourceKeyParts(args); return p ? createHash("sha256").update(JSON.stringify(p)).digest("hex") : null; }
+export function sidecarSourceKeyParts({ git, commit, config, target, mode, dirs, env = process.env, gateIdentity, nodeVersion = process.version, toolchains = rustupChannelManifests(env) }) {
   const listed = git("ls-tree", "-r", "-z", commit); if (failed(listed)) return null;
   const ancestors = new Set(); for (const d of dirs) { let a = d; for (;;) { ancestors.add(a); if (a === "." || !a.includes("/")) { ancestors.add("."); break; } a = a.slice(0, a.lastIndexOf("/")); } }
   const rootFiles = ["Cargo.toml", "Cargo.lock", "rust-toolchain", "rust-toolchain.toml", ".cargo/config", ".cargo/config.toml"];
   const named = new Set([...ancestors].flatMap((a) => rootFiles.map((f) => (a === "." ? f : `${a}/${f}`))));
   const files = text(listed).split("\0").filter(Boolean).map((l) => { const tab = l.indexOf("\t"); return [l.slice(tab + 1), l.slice(0, tab).split(" ")[2]]; })
     .filter(([p]) => p === config || named.has(p) || dirs.some((d) => d === "." || p.startsWith(`${d}/`)));
-  const rustEnv = Object.entries(env ?? {}).filter(([k]) => /^(CARGO_|RUSTFLAGS$|RUSTDOCFLAGS$|RUSTC|RUSTUP_TOOLCHAIN$)/i.test(k)).sort(([a], [b]) => (a < b ? -1 : 1));
-  return createHash("sha256").update(JSON.stringify({ schema: "rightkit.sidecar-source/1", config, target, mode, node: nodeVersion, gate: gateIdentity ?? null, env: rustEnv, toolchains, files })).digest("hex");
+  return sidecarKeyParts({ config, target, mode, nodeVersion, gateIdentity, env, toolchains, files });
+}
+/**
+ * The parts of the sidecar key, each digested on its own, so a staging that runs again can say which part changed. Only variables that change what Cargo
+ * builds are read: the flags, the toolchain choice, and the profile and build settings. A path the gate or the run picks (a target or home folder, a
+ * wrapper) is left out: it changes on every run without changing the binary (acceptance cases on 0.6.66, 2026-11-24: the key never matched).
+ */
+export const SIDECAR_KEY_ENV = /^(RUSTFLAGS|RUSTDOCFLAGS|CARGO_ENCODED_RUSTFLAGS|CARGO_BUILD_RUSTFLAGS|CARGO_BUILD_TARGET|RUSTUP_TOOLCHAIN|CARGO_PROFILE_[A-Z0-9_]+)$/i;
+export function sidecarKeyParts({ config, target, mode, nodeVersion, gateIdentity, env, toolchains, files }) {
+  const d = (v) => createHash("sha256").update(JSON.stringify(v ?? null)).digest("hex").slice(0, 16);
+  const rustEnv = Object.entries(env ?? {}).filter(([k]) => SIDECAR_KEY_ENV.test(k)).sort(([a], [b]) => (a < b ? -1 : 1));
+  return { schema: "rightkit.sidecar-source/2", config: d(config), target: d(target), mode: d(mode), node: d(nodeVersion), gate: d(gateIdentity), env: d(rustEnv), toolchains: d(toolchains), files: d(files) };
 }
 function rustupChannelManifests(env) {
   const home = env?.RUSTUP_HOME || path.join(env?.USERPROFILE || env?.HOME || os.homedir(), ".rustup");
@@ -2888,8 +2899,14 @@ export async function stageSidecarsOnce({ o, ds, root, git = null, configs, appD
     // file is still there with its recorded sha256 (--if-stale); nothing is built. Anything else stages as before.
     const mode = stage === "dev" ? "dev" : "release"; const stateFile = sidecarStateFile(ds.path, { config, target: key, mode });
     let prior = null; try { prior = JSON.parse(fs.readFileSync(stateFile, "utf8")); } catch { prior = null; }
-    const keyNow = (dirs) => (git && Array.isArray(dirs) ? sidecarSourceKey({ git, commit, config, target: key, mode, dirs, env: o.env, gateIdentity: gatePackageIdentity(o.gatePackage) }) : null);
-    const unchanged = Boolean(prior?.schema === 1 && typeof prior.key === "string" && typeof prior.receipt === "string" && keyNow(prior.dirs) === prior.key && fileSha256(path.join(ds.path, prior.receipt)) === prior.receiptSha256);
+    const partsNow = (dirs) => (git && Array.isArray(dirs) ? sidecarSourceKeyParts({ git, commit, config, target: key, mode, dirs, env: o.env, gateIdentity: gatePackageIdentity(o.gatePackage) }) : null);
+    const keyOf = (parts) => (parts ? createHash("sha256").update(JSON.stringify(parts)).digest("hex") : null);
+    const keyNow = (dirs) => keyOf(partsNow(dirs));
+    const nowParts = prior?.schema === 2 ? partsNow(prior.dirs) : null;
+    const receiptNow = prior?.schema === 2 && typeof prior.receipt === "string" ? fileSha256(path.join(ds.path, prior.receipt)) : null;
+    const unchanged = Boolean(prior?.schema === 2 && nowParts && keyOf(nowParts) === prior.key && receiptNow === prior.receiptSha256);
+    // Why it stages again, in one line, so a missed reuse can be traced from the run's own output.
+    if (!unchanged) o.out(tag + " [" + stage + "] stage-sidecar " + config + " builds: " + (prior?.schema !== 2 ? "no earlier staging is recorded" : !nowParts ? "its sources cannot be read from the commit" : keyOf(nowParts) !== prior.key ? "changed since the last staging: " + (Object.keys(nowParts).filter((k) => nowParts[k] !== prior.parts?.[k]).join(", ") || "unknown part") : "the staged receipt is not the one recorded"));
     let r;
     try {
       o.out(`${tag} [${stage}] right-release stage-sidecar --config ${path.join(ds.path, config)}${target ? ` --target ${target}` : ""}${unchanged ? " --if-stale (its sources are those of the last staging: the staged files are checked, nothing is built)" : ""} (from the snapshot ${ds.path})`);
@@ -2919,7 +2936,7 @@ export async function stageSidecarsOnce({ o, ds, root, git = null, configs, appD
     // The sources this staging was built from, for the next run (NN07). Not recordable (a sidecar not built by Cargo, a package not found): the state is removed.
     try {
       const dirs = git ? sidecarSourceDirs({ git, commit, result }) : null; const k = dirs ? keyNow(dirs) : null; const sha = receiptAbs ? fileSha256(path.join(ds.path, receiptAbs)) : null;
-      if (k && sha) { fs.mkdirSync(path.dirname(stateFile), { recursive: true }); const tmp = `${stateFile}.${process.pid}.tmp`; fs.writeFileSync(tmp, `${JSON.stringify({ schema: 1, key: k, dirs, receipt: receiptAbs, receiptSha256: sha })}\n`); fs.renameSync(tmp, stateFile); }
+      if (k && sha) { fs.mkdirSync(path.dirname(stateFile), { recursive: true }); const tmp = `${stateFile}.${process.pid}.tmp`; fs.writeFileSync(tmp, `${JSON.stringify({ schema: 2, key: k, parts: partsNow(dirs), dirs, receipt: receiptAbs, receiptSha256: sha })}\n`); fs.renameSync(tmp, stateFile); }
       else fs.rmSync(stateFile, { force: true });
     } catch (e) { o.out(`${tag} [${stage}] stage-sidecar ${config}: the staging state was not recorded (${e.message}); the next run stages again`); }
   }
@@ -4215,6 +4232,40 @@ export function cargoHomeOf(env, { realpath = fs.realpathSync, homedir = os.home
   return home;
 }
 
+/** Marks the gate's calls of itself (an io key no command line can set). */
+export const GATE_SELF = Symbol.for("rightkit-gate.self-call");
+/** Where Adrian's exception records are read from (F2): the protected branch as last fetched. An agent's commit cannot add one; no fetched branch, no record. */
+export const PROTECTED_RECORD_REF = "refs/remotes/origin/main";
+/**
+ * A genuine GitHub-hosted run: GitHub sets all three, and no managed broker runtime is installed on its runners. A variable set by hand on a broker host
+ * does not make one (F3: `GITHUB_ACTIONS=true` alone selected the hosted route, which builds the working checkout with no snapshot).
+ */
+export function genuineGithubRun({ env = {}, platform = process.platform, exists = fs.existsSync } = {}) {
+  if (env.GITHUB_ACTIONS !== "true" || !env.GITHUB_RUN_ID || !env.RUNNER_OS) return false;
+  const runtime = platform === "win32" ? "D:\\.rustright\\runtime" : platform === "darwin" ? "/Volumes/D/.rustright/runtime" : null;
+  return !(runtime && exists(runtime));
+}
+/**
+ * Why a caller's run is refused, or null. `--worktree` reads the working folder, not the commit (F5); `--class-a`, `--all` and `--snapshot` are the gate's
+ * own calls of itself (F6; the git pre-push route, which names none of them, is not touched); `GITHUB_ACTIONS=true` outside a genuine GitHub run selects the
+ * hosted route (F3); `--receipt-in` hands the gate a stage receipt and is the publisher job's only (F7).
+ */
+export function callerRefusal({ args, env = {}, platform = process.platform, exists = fs.existsSync, selfCall = false }) {
+  if (selfCall) return null;
+  if (args.includes("--worktree")) return "--worktree is refused: the gate checks and builds the selected commit only, never the working folder (GC-A27 NN01)";
+  const own = ["--class-a", "--all", "--snapshot"].filter((f) => args.includes(f));
+  if (own.length) return `${own.join(", ")} ${own.length > 1 ? "are" : "is"} the gate's own call of itself and cannot be passed by a caller; run a stage with --to`;
+  const github = genuineGithubRun({ env, platform, exists });
+  if (env.GITHUB_ACTIONS === "true" && !github) return "GITHUB_ACTIONS=true is refused outside a genuine GitHub-hosted run (GITHUB_RUN_ID and RUNNER_OS set, no managed broker on the host): the hosted route builds the working checkout";
+  if (args.includes("--receipt-in") && !github) return "--receipt-in is refused outside the publisher's GitHub run: a stage receipt is not taken from a caller on this host";
+  return null;
+}
+/** Variables the gate drops from a caller's environment: the roots on Mac and Windows (F1), and on every host the scratch root and two guards (step F). */
+export function ignoredCallerVariable(name, platform = process.platform) {
+  const n = String(name).toUpperCase();
+  if (n === "RIGHTKIT_SCRATCH_ROOT" || n === "RIGHTKIT_STAGE_SIDECAR_ALLOW_NESTED" || n === "RUSTRIGHT_OPERATION_DEADLINE_MS") return true;
+  return (platform === "win32" || platform === "darwin") && /^(RUSTRIGHT|RIGHTKIT)_(DATA_ROOT|MANAGED_ROOT|EXTERNAL_ROOT|GATE_ROOT|CONTROL_ROOT|RUNTIME_ROOT)$/.test(n);
+}
 export async function main(argv, io = {}) {
   const o = {
     spawn: rememberReads(defaultSpawn), exists: fs.existsSync, readFile: (f) => fs.readFileSync(f, "utf8"), writeFile: fs.writeFileSync, mkdir: fs.mkdirSync, chmod: fs.chmodSync, readdir: fs.readdirSync,
@@ -4224,6 +4275,17 @@ export async function main(argv, io = {}) {
     gateFile: fileURLToPath(import.meta.url), ...io,
   };
   const args = [...argv];
+  // Step F of the Dell sequence (status file 11.7, settled with Gemini, 2026-11-24): what a caller may not choose. The gate's own calls of itself carry
+  // GATE_SELF; a caller's do not.
+  const selfCall = io[GATE_SELF] === true;
+  io = { ...io, [GATE_SELF]: true };
+  {
+    const refused = callerRefusal({ args, env: o.env, platform: o.platform, exists: o.exists, selfCall });
+    if (refused) { o.err(`rightkit-gate: ${refused}`); return 2; }
+    // Variables that move the gate's state or loosen a guard are not read from a caller: they are dropped from the run's environment before anything reads it.
+    const dropped = Object.keys(o.env ?? {}).filter((k) => ignoredCallerVariable(k, o.platform));
+    if (dropped.length) { o.env = Object.fromEntries(Object.entries(o.env).filter(([k]) => !ignoredCallerVariable(k, o.platform))); if (!selfCall) o.err(`rightkit-gate: note: ignored from the environment: ${dropped.join(", ")} (the gate's roots and guards are fixed on this host)`); }
+  }
   if (args.includes("--ci-proof-out")) {
     try {
       const problem = stageArgsProblem(args);
@@ -4625,7 +4687,7 @@ export async function main(argv, io = {}) {
       let record = null; let inRightKit = true;
       if (typeof brokerId === "string" && !brokerId.startsWith("--")) {
         const pinned = (await import("../snapshot.mjs")).resolveCommit(root, option("--commit") ?? "HEAD");
-        const shown = git("show", `${pinned.commit}:${BROKER_EXCEPTIONS_FILE}`);
+        const shown = git("show", `${PROTECTED_RECORD_REF}:${BROKER_EXCEPTIONS_FILE}`); // F2: the protected branch's record, never one an agent's own commit adds
         record = failed(shown) ? null : text(shown);
         // The repository identity of the commit decides what an exception must name: RightKit's units, or (every other repository, built whole) nothing.
         inRightKit = rightkitIdentityAt(git, pinned.commit);
@@ -5493,11 +5555,18 @@ export async function main(argv, io = {}) {
         const treeId = text(git("rev-parse", `${headSha}^{tree}`)).trim();
         const common = git("rev-parse", "--git-common-dir");
         if (headSha && treeId && !failed(common) && text(common).trim()) {
+          // Every blob and tree id of the commit from one listing, read the first time an id is asked for (GC-A27 "no waste": one `git ls-tree <sha> -- <path>`
+          // per path was 545 processes a fixture run, 23 s on a quiet Dell and three minutes on a busy one; the commit's ids cannot change during the run).
+          let treeIds = null;
           const objectId = (p) => {
-            const r = git("ls-tree", headSha, "--", p);
-            if (failed(r)) throw new Error(`git ls-tree failed: ${why(r)}`);
-            const line = text(r).split(/\r?\n/).find(Boolean);
-            return line ? (line.split("\t")[0].split(/\s+/)[2] ?? null) : null;
+            if (!treeIds) {
+              const r = git("ls-tree", "-r", "-t", "-z", headSha);
+              if (failed(r)) throw new Error(`git ls-tree failed: ${why(r)}`);
+              treeIds = new Map();
+              for (const entry of text(r).split("\0").filter(Boolean)) { const tab = entry.indexOf("\t"); treeIds.set(entry.slice(tab + 1), entry.slice(0, tab).split(/\s+/)[2] ?? null); }
+            }
+            const key = String(p).replaceAll("\\", "/").replace(/^\.\//, "").replace(/\/+$/, "");
+            return key === "" || key === "." ? treeId : (treeIds.get(key) ?? null);
           };
           const storeDir = path.join(path.resolve(root, text(common).trim()), "rightkit-gate-cache");
           if (needsForecast) classBHistory = openClassBHistory({ historyRoot: path.join(gateRunsRoot({ env: o.env, platform: o.platform }), "rightkit-class-a-history"), storeDir, onRestart: cacheRestartNote(o) });
@@ -5870,6 +5939,8 @@ export async function main(argv, io = {}) {
       if (notRun.length) o.out(`${tag} class A partial: ${notRun.length} check(s) that execute repository code (tests, typecheck, lint, generated docs) run in the full gate, not in check: ${notRun.slice(0, 8).join(", ")}${notRun.length > 8 ? ", …" : ""}`);
       if (!recordHistory()) return 1;
       o.out(`${tag} class A content pass: ${scanResult.scans.length} deterministic scan(s) over ${changed.length} file(s) of ${base}`);
+      // F4 (step F, 2026-11-24): a check that skipped the scans that execute repository code is not a pass. Exit 3, as --only's partial run does.
+      if (notRun.length) { o.out(`${tag} PARTIAL: ${notRun.length} executing check(s) did not run; run it with --full-a, or run the stage with --to`); return 3; }
       return 0;
     }
     if (!recordHistory()) return 1;

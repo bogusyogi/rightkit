@@ -20,6 +20,8 @@ import { verifierArgv } from "./acceptance-lines.mjs";
 import { decideAll, decideCase, decideRealBuild, factsOfRun } from "./acceptance-cases.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
+/** The error case 1 plants in the working checkout (never in the commit). */
+const PLANTED = "pub fn leaf() -> u32 { this does not compile\n";
 const sha256 = (b) => crypto.createHash("sha256").update(b).digest("hex");
 const git = (repo, args, opts = {}) => String(execFileSync("git", ["-C", repo, ...args], { encoding: "utf8", windowsHide: true, stdio: ["pipe", "pipe", "pipe"], maxBuffer: 64 * 1024 * 1024, ...opts })).trim();
 const IDENT = { GIT_AUTHOR_NAME: "acceptance", GIT_AUTHOR_EMAIL: "acceptance@rightkit.invalid", GIT_COMMITTER_NAME: "acceptance", GIT_COMMITTER_EMAIL: "acceptance@rightkit.invalid", GIT_AUTHOR_DATE: "2026-11-24T00:00:00Z", GIT_COMMITTER_DATE: "2026-11-24T00:00:00Z" };
@@ -82,6 +84,9 @@ async function main() {
 
   if (fixture) {
     const pinned = cases.fixture.commit; if (git(fixture, ["cat-file", "-t", pinned]) !== "commit") throw new Error(`the fixture has no commit ${pinned}`);
+    // A run killed during case 1 cannot put back the error it planted: the next run does, and only when that is the one change (anything else refuses).
+    { const planted = path.join(fixture, "rk", "crates", "rk-leaf", "src", "lib.rs"); let body = ""; try { body = fs.readFileSync(planted, "utf8"); } catch { body = ""; }
+      if (body === PLANTED && git(fixture, ["status", "--porcelain", "--untracked-files=no"]).trim() === "M rk/crates/rk-leaf/src/lib.rs") { git(fixture, ["checkout", "--", "rk/crates/rk-leaf/src/lib.rs"]); console.log("note: the error a killed case 1 planted was still in the checkout; it was put back"); } }
     if (git(fixture, ["status", "--porcelain", "--untracked-files=no"])) throw new Error("the fixture's working checkout has changes to tracked files; the cases need it clean to start");
     const storeDir = cacheStoreDir(fixture); const args = ["--to", cases.fixture.stage];
     const wanted = (opt("--cases") ?? cases.order.join(",")).split(",").map(Number);
