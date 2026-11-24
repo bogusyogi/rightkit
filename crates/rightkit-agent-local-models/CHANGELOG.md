@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.2
+
+- Depends on rightkit-sandbox 0.7.0. `probe_hardware_with_adapter` takes the 0.7.0 `ProcessLaunchAdapter` and `ProcessLaunchContext`; hosts must depend on the same rightkit-sandbox version.
+
 ## 0.1.1
 
 - Taken from the CodeRight app: the fit check passes the detected VRAM as `Gpu::vram_mib: Some(mb)` (was `None`), so exact-MiB fit checks apply. Behaviour change for existing callers: a model within rounding distance of the VRAM limit is now judged on exact MiB.
