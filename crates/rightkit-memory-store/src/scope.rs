@@ -118,7 +118,7 @@ impl ScopeDescriptorV1 {
 
 #[derive(serde::Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
-struct MembraneWorkspaceConfig {
+struct WorkspaceConfig {
     schema_version: u32,
     workspace_root: PathBuf,
 }
@@ -130,16 +130,19 @@ fn validated_workspace_root(value: &str) -> Option<PathBuf> {
         .flatten()
 }
 
-pub(crate) fn workspace_root_from(
+/// Resolve an explicit workspace root or read the selected workspace config.
+/// A nonempty invalid explicit root returns no workspace.
+pub fn workspace_root_from(
     explicit: Option<&str>,
     config_path: Option<&Path>,
+    schema_version: u32,
 ) -> Option<PathBuf> {
     if let Some(value) = explicit.filter(|value| !value.trim().is_empty()) {
         return validated_workspace_root(value);
     }
     let payload = std::fs::read(config_path?).ok()?;
-    let config: MembraneWorkspaceConfig = serde_json::from_slice(&payload).ok()?;
-    if config.schema_version != 3 {
+    let config: WorkspaceConfig = serde_json::from_slice(&payload).ok()?;
+    if config.schema_version != schema_version {
         return None;
     }
     validated_workspace_root(config.workspace_root.to_str()?)
@@ -193,6 +196,7 @@ fn passwd_home() -> Option<PathBuf> {
     Some(PathBuf::from(std::ffi::OsStr::from_bytes(dir.to_bytes())))
 }
 
+/// Compatibility entry point using the original resident configuration location.
 pub fn workspace_root() -> Option<PathBuf> {
     let explicit = crate::qa_env::workspace_root().and_then(|value| value.into_string().ok());
     let configured = crate::qa_env::workspace_config()
@@ -200,7 +204,7 @@ pub fn workspace_root() -> Option<PathBuf> {
         .filter(|value| !value.trim().is_empty())
         .map(PathBuf::from)
         .or_else(|| account_home().map(|home| home.join(".config/membrane/workspace.json")));
-    workspace_root_from(explicit.as_deref(), configured.as_deref())
+    workspace_root_from(explicit.as_deref(), configured.as_deref(), 3)
 }
 
 /// Uppercase a leading Windows drive token so `d--Claude-x` and `D--Claude-x` never fork.
