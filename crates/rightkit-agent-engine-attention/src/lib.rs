@@ -491,9 +491,8 @@ async fn list_attention_handler(
         return Err(StatusCode::BAD_REQUEST);
     }
     let density = load_density(&workspace_root);
-    // This route has no zone database, so every window is read as UTC (the behaviour it had before
-    // `quiet_hours_active_in_zones` existed); a host that has one calls that function itself.
-    let quiet_hours_active = quiet_hours_active_in_zones(&workspace_root, now_seconds(), &|_, _| 0);
+    let quiet_hours_active =
+        quiet_hours_active_in_zones(&workspace_root, now_seconds(), &zone_offset_secs);
     let items = build_attention_items(&workspace_root, density);
     let counts = count_attention(&items);
     Ok(Json(AttentionListResponse {
@@ -875,6 +874,25 @@ pub fn quiet_hours_active_in_zones(
     inbox::quiet_windows_contain(now, &qh.windows, offset_for)
 }
 
+/// The offset (seconds, east positive) of a quiet-hours window's zone at `unix`, from
+/// `rightkit_time::zones::offset_at`. A window naming no zone is read as UTC. A zone that table
+/// does not cover (any zone but UTC, Asia/Kolkata, Europe/London, America/New_York, or a DST
+/// zone outside 2026 and 2027) is also read as UTC, as every window was before zones were
+/// honoured; this is a fallback, not a guess about the user's zone. Pass it as `offset_for`.
+pub fn zone_offset_secs(zone: Option<&str>, unix: i64) -> i32 {
+    rightkit_time::zones::offset_at(zone.unwrap_or("UTC"), unix).unwrap_or(0)
+}
+
+/// If quiet hours are in force for `workspace_root` at `now_seconds`, the Unix second at which
+/// they end (the first instant outside every window), reading each window in its own zone;
+/// `None` when they are not enabled, not in force, or never end. Same rules as the inbox's
+/// `inbox::quiet_hours_release_at`, over the stored settings.
+pub fn quiet_hours_release_for_workspace(workspace_root: &str, now_seconds: u64) -> Option<u64> {
+    let qh = load_quiet_hours(workspace_root);
+    let now = i64::try_from(now_seconds).ok()?;
+    inbox::quiet_hours_release_at(&qh, now, &zone_offset_secs).and_then(|t| u64::try_from(t).ok())
+}
+
 // FM-174: cross-midnight quiet-hours predicate. Repaired (see disposition in
 // docs/research/canon-provenance/refactor0-closure-ledger.md) to treat
 // `start > end` as a window that wraps past midnight (active from `start`
@@ -912,6 +930,13 @@ fn build_attention_items(workspace_root: &str, density: TranscriptDensity) -> Ve
         .join(&config().state_dir)
         .join("notifications.json");
     let mut rows: Vec<Value> = read_notification_rows(&notifications_path);
+    // A row held through quiet hours carries `releaseAt` (Unix seconds); it is not an item until then.
+    let now = now_seconds();
+    rows.retain(|row| {
+        row.get("releaseAt")
+            .and_then(Value::as_u64)
+            .is_none_or(|release_at| release_at <= now)
+    });
     // Apply density: summary collapses non-failed, non-needs-input rows.
     if matches!(density, TranscriptDensity::Summary) {
         rows.retain(|row| {

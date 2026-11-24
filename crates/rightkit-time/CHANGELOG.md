@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Added `zones::offset_at(zone, unix) -> Result<i32, ZoneError>`: the UTC offset a zone observes at a UTC instant, from the same tables as `to_utc` (UTC, Asia/Kolkata, Europe/London, America/New_York; DST zones for 2026 and 2027 only, else `time_out_of_table`). Additive. No version bump yet; a publish needs one. Written, not compiled.
+
 ## 0.1.4
 
 - Manifest only: dependency requirements and workspace metadata changed since 0.1.3 was published; no source change.

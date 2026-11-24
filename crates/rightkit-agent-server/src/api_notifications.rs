@@ -44,6 +44,9 @@ pub struct NotificationRow {
     pub created_at: String,
     #[serde(default)]
     pub read: bool,
+    /// Unix seconds before which the row is held back (quiet hours); absent when delivered at once.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub release_at: Option<u64>,
 }
 
 pub(crate) fn notifications_openapi_components() -> Map<String, Value> {
@@ -62,7 +65,8 @@ pub(crate) fn notifications_openapi_components() -> Map<String, Value> {
                 "scheduleId": {"type": ["string", "null"]},
                 "sessionId": {"type": ["string", "null"]},
                 "createdAt": {"type": "string"},
-                "read": {"type": "boolean"}
+                "read": {"type": "boolean"},
+                "releaseAt": {"type": "integer", "minimum": 0}
             },
             "additionalProperties": false
         }),
@@ -138,10 +142,12 @@ pub fn append_desktop_notification(
     )
 }
 
-/// Live attention-routing gate: a desktop notification is suppressed (not
-/// persisted) while the project's quiet hours are active, so the operator is
-/// not interrupted. `now_seconds` is injected so the routing decision is
-/// deterministic and unit-testable.
+/// Live attention-routing gate: while the project's quiet hours are in force a desktop
+/// notification is HELD, not dropped. It is persisted at once with `release_at` set to the
+/// Unix second the quiet hours end (each window read in its own zone, the inbox's rules), the
+/// list route and the attention list leave it out until then, and it appears when the time
+/// passes. Quiet hours that never end hold nothing (deliver at once). `now_seconds` is
+/// injected so the routing decision is deterministic.
 fn append_desktop_notification_at(
     workspace_root: &FsPath,
     source: &str,
@@ -161,15 +167,17 @@ fn append_desktop_notification_at(
         session_id: session_id.map(str::to_string),
         created_at: current_unix_timestamp(),
         read: false,
+        release_at: None,
     };
     let root_str = workspace_root.to_string_lossy();
-    // No zone database here, so quiet hours are read as UTC, as before the zone-aware function existed.
-    #[allow(deprecated)]
-    let quiet = rightkit_agent_engine_attention::quiet_hours_active(root_str.as_ref(), now_seconds);
-    if quiet {
-        // Quiet hours active: route the notification as suppressed.
-        return Ok(row);
-    }
+    let row = NotificationRow {
+        release_at: rightkit_agent_engine_attention::quiet_hours_release_for_workspace(
+            root_str.as_ref(),
+            now_seconds,
+        ),
+        ..row
+    };
+    let _guard = rightkit_agent_engine_attention::lock_attention_state();
     let path = notifications_store_path(workspace_root);
     let mut rows = load_notifications(workspace_root)?;
     rows.push(row.clone());
@@ -182,6 +190,9 @@ async fn list_notifications_handler(
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     let root = notification_workspace_root(&query);
     let mut rows = load_notifications(&root).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    // Rows held through quiet hours stay out of the list until their release time.
+    let now = current_unix_seconds();
+    rows.retain(|row| row.release_at.is_none_or(|release_at| release_at <= now));
     rows.sort_by(|a, b| b.created_at.cmp(&a.created_at));
     let unread_count = rows.iter().filter(|row| !row.read).count();
     Ok(Json(serde_json::json!({

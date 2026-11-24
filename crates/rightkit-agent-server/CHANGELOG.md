@@ -2,6 +2,8 @@
 
 ## 0.2.0 (unpublished)
 
+- Desktop notifications raised during quiet hours are held, not dropped: the row is stored with `releaseAt` (Unix seconds, when the quiet hours end, each window read in its own zone) and the `/notifications` list leaves it out until then. `NotificationRow` gains optional `release_at`. The append now holds `lock_attention_state` across its read-modify-write. Written, not compiled.
+
 - `doctor` hooks probe: proves the destructive-command guard refuses `rm -rf /` through `rightkit_agent_policy::catastrophic_reason` and reports `block` when it does not, instead of constructing the deprecated `rightkit_hooks::agent_hooks::DestructiveGuard` and always reporting `pass` (rightkit#1687). Evidence id `destructive_guard_default` is now `destructive_guard_refuses_root_delete`.
 - Requires `rightkit-bot-messaging` 0.3.1 (webhook delivery records no longer keep the URL path; see its changelog). No other change: the new host options stay off.
 - Requires `rightkit-mcp` 0.9.0 (agent MCP server options, bearer config, prompts and the CodeRight sync; see its changelog).
