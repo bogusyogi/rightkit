@@ -612,6 +612,54 @@ impl Canvas {
         }
     }
 
+    /// Lays `ink` (premultiplied `0xAARRGGBB`, with its own alpha) over this canvas with its
+    /// top-left corner at `origin` (which may be negative), at opacity `shown`, clipped to what
+    /// this canvas already covers: a pixel with no alpha here stays empty.
+    /// Both buffers are taken as rectangles of their `width` by
+    /// `height`. `shown` is clamped to `0.0..=1.0` and a value that is not finite draws nothing.
+    pub fn composite_clipped(&mut self, ink: &Canvas, origin: (i32, i32), shown: f32) {
+        if !shown.is_finite() {
+            return;
+        }
+        let shown = shown.clamp(0.0, 1.0);
+        let (ox, oy) = origin;
+        let src_x = ox.min(0).unsigned_abs() as usize;
+        let src_y = oy.min(0).unsigned_abs() as usize;
+        let dst_x = ox.max(0) as usize;
+        let dst_y = oy.max(0) as usize;
+        let width = ink
+            .width
+            .saturating_sub(src_x)
+            .min(self.width.saturating_sub(dst_x));
+        let height = ink
+            .height
+            .saturating_sub(src_y)
+            .min(self.height.saturating_sub(dst_y));
+        if width == 0 || height == 0 {
+            return;
+        }
+        let sources = ink.pixels.chunks_exact(ink.width).skip(src_y);
+        let destinations = self.pixels.chunks_exact_mut(self.width).skip(dst_y);
+        for (src, dst) in sources.zip(destinations).take(height) {
+            let sources = &src[src_x..src_x + width];
+            let destinations = &mut dst[dst_x..dst_x + width];
+            for (&over, under) in sources.iter().zip(destinations) {
+                let keep = shown * (*under >> 24) as f32 / 255.0;
+                let a = (over >> 24) as f32 / 255.0 * keep;
+                if a <= 0.0 {
+                    continue;
+                }
+                let below = *under;
+                let mix = |shift: u32| {
+                    let top = ((over >> shift) & 0xFF) as f32 * keep;
+                    let rest = ((below >> shift) & 0xFF) as f32 * (1.0 - a);
+                    ((top + rest).round().clamp(0.0, 255.0) as u32) << shift
+                };
+                *under = mix(24) | mix(16) | mix(8) | mix(0);
+            }
+        }
+    }
+
     /// Composites a text mask with its top-left corner at `(x, y)`.
     pub fn draw_mask(&mut self, mask: &Mask, x: i32, y: i32, color: Rgb, alpha: f32) {
         for row in 0..mask.height {

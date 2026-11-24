@@ -3,6 +3,7 @@
 ## 0.1.3
 
 - Added `text_layout::wrap_preserving(text, lines, char_budget, fits)`: a wrap that keeps the layout the text has (line breaks, indentation, tabs as four spaces, runs of spaces), takes the host's own `fits` measure for a candidate line, breaks a word that does not fit alone, looks only at the first `lines * char_budget` characters, and ends a cut text in an ellipsis. `TextPainter::wrap` (which collapses whitespace) is unchanged.
+- Added `Canvas::composite_clipped(ink, origin, shown)`: lays a premultiplied canvas over another at an opacity, clipped to what the destination already covers (the loop Pulse kept for card contents and clipboard previews). Buffers are taken as rectangles; opacity is clamped to 0..=1 and a non-finite value draws nothing.
 
 ## 0.1.2
 
