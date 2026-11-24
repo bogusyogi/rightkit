@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.1
+
+- Added `color::Lab`, `color::srgb_to_lab` and `color::delta_e76` (CIE76 perceptual distance, sRGB to CIELAB under D65) for native UIs.
+
 ## 0.1.0 (unpublished)
 
 Issue #960 (resolved theme tokens for non-web UIs).
