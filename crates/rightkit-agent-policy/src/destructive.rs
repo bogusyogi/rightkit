@@ -5,10 +5,116 @@
 //! system-destroyers, not ordinary risky dev commands. Where it cannot tell
 //! code from data it treats the text as code: refusing a harmless command is an
 //! annoyance, allowing a root wipe is a vulnerability.
+//!
+//! `exec_reason` is the exec-boundary entry: it checks the file about to be run, right before the exec.
 
 /// If `command` is catastrophic, return a human-readable reason; else `None`.
 pub fn catastrophic_reason(command: &str) -> Option<&'static str> {
     reason(command, 0)
+}
+
+/// Programs that run a script file named in their arguments.
+const INTERPRETERS: &[&str] = &[
+    "sh",
+    "bash",
+    "zsh",
+    "dash",
+    "ksh",
+    "fish",
+    "python",
+    "python3",
+    "perl",
+    "ruby",
+    "node",
+    "awk",
+    "gawk",
+    "pwsh",
+    "powershell",
+];
+
+/// The most bytes of a script file `exec_reason` inspects.
+const EXEC_FILE_CAP: usize = 1_048_576;
+
+/// The exec-boundary check (decision D6): inspect what is about to be launched, not only the command text.
+/// A host calls this immediately before each exec it is about to perform, with the resolved argv. It checks the
+/// argv as a command line, then the script file an interpreter will run (or the program file itself) with
+/// `catastrophic_reason`, so a file written earlier (through `split`, `awk`, ...) is judged when it runs.
+///
+/// No check is possible for a file that does not exist yet. The caller must call this right before the exec,
+/// because the file can change afterwards. An unreadable file returns `None` (the exec fails by itself).
+/// Binary files are not inspected; a text file over 1 MiB is refused as too large to inspect.
+pub fn exec_reason(
+    program: &str,
+    args: &[String],
+    cwd: &std::path::Path,
+) -> Option<&'static str> {
+    use std::io::Read;
+
+    fn quote(word: &str) -> String {
+        format!("'{}'", word.replace('\'', "'\\''"))
+    }
+    let mut line = quote(program);
+    for arg in args {
+        line.push(' ');
+        line.push_str(&quote(arg));
+    }
+    if let Some(found) = catastrophic_reason(&line) {
+        return Some(found);
+    }
+
+    let last = program.rsplit(['/', '\\']).next().unwrap_or(program).to_lowercase();
+    let name = last.strip_suffix(".exe").unwrap_or(&last);
+    let candidate: String = if INTERPRETERS.contains(&name) {
+        if name == "awk" || name == "gawk" {
+            let at = args.iter().position(|a| a == "-f")?;
+            args.get(at + 1)?.clone()
+        } else {
+            let is_shell = ["sh", "bash", "zsh", "dash", "ksh", "fish"].contains(&name);
+            if is_shell
+                && args
+                    .iter()
+                    .take_while(|a| a.starts_with('-'))
+                    .any(|a| !a.starts_with("--") && a.len() > 1 && a.ends_with('c'))
+            {
+                return None;
+            }
+            args.iter().find(|a| !a.starts_with('-'))?.clone()
+        }
+    } else {
+        program.to_string()
+    };
+
+    let path: std::path::PathBuf = if candidate.contains('/') || candidate.contains('\\') {
+        cwd.join(&candidate)
+    } else {
+        let found = std::env::var_os("PATH").and_then(|paths| {
+            std::env::split_paths(&paths)
+                .map(|d| d.join(&candidate))
+                .find(|p| p.is_file())
+        });
+        found.unwrap_or_else(|| cwd.join(&candidate))
+    };
+
+    let file = std::fs::File::open(&path).ok()?;
+    let mut bytes = Vec::new();
+    file.take(EXEC_FILE_CAP as u64 + 1)
+        .read_to_end(&mut bytes)
+        .ok()?;
+
+    let head = &bytes[..bytes.len().min(4096)];
+    if head.contains(&0)
+        || head.starts_with(&[0x7f, 0x45, 0x4c, 0x46])
+        || head.starts_with(&[0xcf, 0xfa, 0xed, 0xfe])
+        || head.starts_with(&[0xca, 0xfe, 0xba, 0xbe])
+        || head.starts_with(&[0xfe, 0xed, 0xfa, 0xcf])
+        || head.starts_with(b"MZ")
+    {
+        return None;
+    }
+    if bytes.len() > EXEC_FILE_CAP {
+        return Some("script too large for the destructive guard to inspect");
+    }
+    catastrophic_reason(&String::from_utf8_lossy(&bytes))
 }
 
 /// `catastrophic_reason` for code nested `depth` files deep (text written to a file and run).

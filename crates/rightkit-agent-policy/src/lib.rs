@@ -55,7 +55,7 @@ pub use deny_globs::{
     shell_withholds_read_in, state_dir_name, DenyGlobError, DenyGlobSet, DEFAULT_READ_DENY,
     DEFAULT_STATE_DIR_NAME, DEFAULT_WRITE_DENY,
 };
-pub use destructive::catastrophic_reason;
+pub use destructive::{catastrophic_reason, exec_reason};
 pub use engine::{is_test_file, PermissionEngine};
 pub use net_guard::{
     is_private_ip, resolve_provider_endpoint, resolve_then_reject_private,

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.4
+
+- New `exec_reason(program, args, cwd)` checks what is about to be executed (the script file an interpreter will run, or the program file itself) with the destructive guard, so write-then-run forms through `split` or an interpreter are refused at launch (CodeRight #457 item 3, decision D6).
+
 ## 0.2.3
 
 Safety fixes to `destructive::catastrophic_reason`, the write-then-run guard (CodeRight #457 items 1, 2 and 4). Each command below passed 0.2.2 and is refused now:
