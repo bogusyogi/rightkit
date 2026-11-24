@@ -1642,19 +1642,36 @@ impl<P: Platform> Automation<P> {
                     }
                     let mut n = 0;
                     for ev in &evs {
-                        self.p.foreground(pid, ev).map_err(|e| TierFail {
-                            error: e,
-                            stop: n > 0,
-                        })?;
+                        if let Err(e) = self.p.foreground(pid, ev) {
+                            // The window that was in front comes back after a failed event too, and
+                            // an error that could not put it back says so instead of hiding it.
+                            let restored = match front0 {
+                                Some(b) if b != pid => self.restore_front(b),
+                                _ => true,
+                            };
+                            return Err(TierFail {
+                                error: if restored {
+                                    e
+                                } else {
+                                    Error::Platform(
+                                        0,
+                                        "a foreground event failed and the previous window could not be brought back",
+                                    )
+                                },
+                                stop: n > 0,
+                            });
+                        }
                         n += 1;
                         std::thread::sleep(Duration::from_millis(20));
                     }
-                    if let Some(b) = front0 {
-                        if b != pid {
-                            self.restore_front(b);
-                        }
-                    }
-                    Ok(format!("{n} foreground event(s); focus restored"))
+                    let restored = match front0 {
+                        Some(b) if b != pid => self.restore_front(b),
+                        _ => true,
+                    };
+                    Ok(format!(
+                        "{n} foreground event(s); focus {}",
+                        if restored { "restored" } else { "NOT restored" }
+                    ))
                 }
             }
         }

@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Truthful restore (AG-12, RK-13; behaviour fix): the foreground tier of `act` now brings the previously frontmost app back after a failed event too, not only after the last one succeeded, and reports the result: the success detail reads `focus restored` or `focus NOT restored` (it said `focus restored` whatever `restore_front` returned), and a failed event whose restore also failed returns a `Platform` error saying the previous window could not be brought back. Written, not compiled; no version bump yet.
+
 ## 0.7.4
 
 - Add `verify` (AG-11, RK-13; additive): `observe_compare(observe, act, delta)` and `compare` take an observation before and after an action and answer `Verdict::Effect`, `NoEffect` or `Unmeasured` (an observation that could not be taken, or a truncated one with no other change, is never a no-effect). `Automation::act_verified` wraps `act` with a before and after snapshot of the window (`WindowState`: node id, role, name, value, enabled, focused node; frames ignored) and returns `VerifiedOutcome`, whose `done()` is false when the verdict is `NoEffect`. `act` itself is unchanged.
