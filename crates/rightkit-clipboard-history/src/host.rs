@@ -153,6 +153,12 @@ pub trait Host: Send + Sync + 'static {
         self.log_info(ctx, &[("operation", op), ("error", &error.message())]);
     }
 
+    /// Records a WIC PNG re-encode failure. The default keeps the existing log event.
+    #[cfg(windows)]
+    fn log_png_error(&self, error: &windows::core::Error) {
+        self.log_info("clipboard_png_failed", &[("error", &error.message())]);
+    }
+
     /// Records an informational event with `fields`. Never called with clipboard content.
     fn log_info(&self, _event: &str, _fields: &[(&str, &str)]) {}
 }
@@ -245,6 +251,13 @@ pub(crate) fn excluded_apps() -> Vec<String> {
 pub(crate) fn log_error(op: &str, error: &windows::core::Error, ctx: &str) {
     if let Some(host) = HOST.get() {
         host.log_win32_error(op, error, ctx);
+    }
+}
+
+#[cfg(windows)]
+pub(crate) fn log_png_error(error: &windows::core::Error) {
+    if let Some(host) = HOST.get() {
+        host.log_png_error(error);
     }
 }
 

@@ -382,7 +382,7 @@ pub fn reencode_png(source: &Path, target: &Path) -> bool {
     match written {
         Ok(()) => true,
         Err(error) => {
-            crate::host::log_info("clipboard_png_failed", &[("error", &error.message())]);
+            crate::host::log_png_error(&error);
             let _ = fs::remove_file(target);
             false
         }
