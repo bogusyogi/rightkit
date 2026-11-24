@@ -193,6 +193,8 @@ pub struct AnthropicCompatClient {
     cache_retention: CacheRetention,
     deferred_tools: Vec<Value>,
     retry_notifier: rightkit_agent_engine_protocol::RetryNotifier,
+    /// Opt-in thinking-block binding (`None`: nothing is sent, nothing is dropped).
+    thinking_binding: Option<ThinkingBlockBinding>,
 }
 
 impl AnthropicCompatClient {
@@ -220,6 +222,7 @@ impl AnthropicCompatClient {
             cache_retention: CacheRetention::default(),
             deferred_tools: Vec::new(),
             retry_notifier: Default::default(),
+            thinking_binding: None,
         }
     }
 
@@ -248,6 +251,7 @@ impl AnthropicCompatClient {
             cache_retention: CacheRetention::default(),
             deferred_tools: Vec::new(),
             retry_notifier: Default::default(),
+            thinking_binding: None,
         }
     }
 
@@ -302,6 +306,15 @@ impl AnthropicCompatClient {
         self
     }
 
+    /// Opt in to thinking-block binding: sends beta `thinking-binding-controls-2026-08-01` and
+    /// `thinking.block_binding.prefix_mismatch_behavior` (`error` or `drop_block`), and removes
+    /// the thinking blocks of another model or provider from the request (never from the stored
+    /// history). Off by default.
+    pub fn with_thinking_block_binding(mut self, binding: ThinkingBlockBinding) -> Self {
+        self.thinking_binding = Some(binding);
+        self
+    }
+
     fn inline_tools_enabled(&self) -> bool {
         !self.deferred_tools.is_empty() && model_supports_inline_tools(&self.model_id)
     }
@@ -353,26 +366,36 @@ impl AnthropicCompatClient {
         if !has_anthropic_version {
             request = request.header("anthropic-version", "2023-06-01");
         }
-        // The body carries inline-tools fields whenever `inline_tools_enabled()`, so the beta flag
-        // must be sent then: appended to a user-configured `anthropic-beta`, never dropped.
-        let inline_tools = self.inline_tools_enabled();
+        // The body carries inline-tools fields whenever `inline_tools_enabled()` and the thinking
+        // binding field whenever a binding is set, so each beta flag must be sent then: appended to
+        // a user-configured `anthropic-beta`, never dropped or duplicated.
+        let mut required_betas: Vec<&str> = Vec::new();
+        if self.inline_tools_enabled() {
+            required_betas.push(INLINE_TOOLS_BETA);
+        }
+        if self.thinking_binding.is_some() {
+            required_betas.push(THINKING_BINDING_BETA);
+        }
         let mut has_beta = false;
         for (name, value) in &self.public_headers {
-            if inline_tools && name.eq_ignore_ascii_case("anthropic-beta") {
+            if !required_betas.is_empty() && name.eq_ignore_ascii_case("anthropic-beta") {
                 has_beta = true;
-                if !value
-                    .split(',')
-                    .any(|beta| beta.trim() == INLINE_TOOLS_BETA)
-                {
-                    let merged = format!("{value},{INLINE_TOOLS_BETA}");
+                let present: Vec<&str> = value.split(',').map(str::trim).collect();
+                let missing: Vec<&str> = required_betas
+                    .iter()
+                    .copied()
+                    .filter(|beta| !present.contains(beta))
+                    .collect();
+                if !missing.is_empty() {
+                    let merged = format!("{value},{}", missing.join(","));
                     request = request.header(name.as_str(), merged.as_str());
                     continue;
                 }
             }
             request = request.header(name.as_str(), value.as_str());
         }
-        if inline_tools && !has_beta {
-            request = request.header("anthropic-beta", INLINE_TOOLS_BETA);
+        if !required_betas.is_empty() && !has_beta {
+            request = request.header("anthropic-beta", required_betas.join(","));
         }
         request
     }
@@ -409,6 +432,11 @@ impl AnthropicCompatClient {
         let mut messages = messages;
         if options.history_repair {
             crate::agent_providers::history_transform::normalise_wire_ids(&mut messages);
+        }
+        // Thinking-block binding, layer 1: this is the request copy; the stored history is never
+        // edited. Thinking of another model or provider is left out of this request only.
+        if self.thinking_binding.is_some() {
+            drop_foreign_thinking(&mut messages, &self.model_id);
         }
         let (system_blocks, mut messages) = anthropic_messages_split(messages);
         repair_tool_pairing(&mut messages);
@@ -455,6 +483,16 @@ impl AnthropicCompatClient {
         });
         if let Some(thinking) = thinking_plan.thinking {
             body["thinking"] = thinking;
+            if let Some(binding) = self.thinking_binding {
+                if let Some(object) = body["thinking"].as_object_mut() {
+                    if object.get("type").and_then(Value::as_str) != Some("disabled") {
+                        object.insert(
+                            "block_binding".into(),
+                            json!({"prefix_mismatch_behavior": binding.wire()}),
+                        );
+                    }
+                }
+            }
         }
         if let Some(effort) = thinking_plan.effort {
             body["output_config"] = json!({"effort": effort});
@@ -794,6 +832,7 @@ impl AnthropicCompatClient {
                 .unwrap_or(std::time::Duration::from_secs(
                     crate::agent_providers::transport::SEMANTIC_PROGRESS_SECS,
                 ));
+        let logged_model = self.model_id.clone();
         let output = async_stream::try_stream! {
             if let Some(rate_limit) = reported_rate_limit {
                 yield ProviderStreamEvent::RateLimit(rate_limit);
@@ -901,6 +940,7 @@ impl AnthropicCompatClient {
                                 got_stop = true;
                             }
                             "message_start" => {
+                                log_message_start_transformations(&value, &logged_model);
                                 if let Some(usage) = value.pointer("/message/usage") {
                                     prompt_tokens = usage.get("input_tokens").and_then(Value::as_u64).unwrap_or(0) as u32;
                                     let (cache_read, cache_creation) = cache_usage(usage);
@@ -1455,6 +1495,91 @@ fn mark_last_message_breakpoint(messages: &mut [Value], marker: &Value) {
 /// Beta header for inline tool additions (`tool_addition` blocks in a mid-conversation system message).
 const INLINE_TOOLS_BETA: &str = "inline-tools-2026-09-15";
 
+/// Beta header for `thinking.block_binding`.
+const THINKING_BINDING_BETA: &str = "thinking-binding-controls-2026-08-01";
+
+/// What Anthropic does when a request's thinking blocks no longer match the prefix they were
+/// issued under: refuse it (`Error`) or drop the mismatched block (`DropBlock`). Sent as
+/// `thinking.block_binding.prefix_mismatch_behavior`; see
+/// [`AnthropicCompatClient::with_thinking_block_binding`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ThinkingBlockBinding {
+    Error,
+    DropBlock,
+}
+
+impl ThinkingBlockBinding {
+    /// The wire value of `prefix_mismatch_behavior`.
+    pub fn wire(self) -> &'static str {
+        match self {
+            ThinkingBlockBinding::Error => "error",
+            ThinkingBlockBinding::DropBlock => "drop_block",
+        }
+    }
+}
+
+/// True only for an HTTP 400 that reports a thinking-block binding mismatch; the caller flips
+/// that one session to [`ThinkingBlockBinding::DropBlock`] and resends once.
+pub fn is_thinking_binding_mismatch(error: &ProviderError) -> bool {
+    match error {
+        ProviderError::Http { status: 400, body } => {
+            let body = body.to_ascii_lowercase();
+            body.contains("block_binding") || (body.contains("thinking") && body.contains("prefix"))
+        }
+        _ => false,
+    }
+}
+
+/// Remove the thinking of assistant turns issued by another model or provider from the request
+/// copy: `reasoning_content`, `reasoning` and every `thinking` / `redacted_thinking` block. A
+/// turn with no `origin`, or a matching one, is left as it is.
+fn drop_foreign_thinking(messages: &mut [Value], model_id: &str) {
+    for message in messages.iter_mut() {
+        if message.get("role").and_then(Value::as_str) != Some("assistant") {
+            continue;
+        }
+        let foreign = message.get("origin").is_some_and(|origin| {
+            origin
+                .get("model")
+                .and_then(Value::as_str)
+                .is_some_and(|model| model != model_id)
+                || origin
+                    .get("provider")
+                    .and_then(Value::as_str)
+                    .is_some_and(|provider| provider != "anthropic")
+        });
+        if !foreign {
+            continue;
+        }
+        if let Some(object) = message.as_object_mut() {
+            object.remove("reasoning_content");
+            object.remove("reasoning");
+        }
+        if let Some(blocks) = message.get_mut("content").and_then(Value::as_array_mut) {
+            blocks.retain(|block| {
+                !matches!(
+                    block.get("type").and_then(Value::as_str),
+                    Some("thinking" | "redacted_thinking")
+                )
+            });
+        }
+    }
+}
+
+/// Report the response's `input_transformations` (non-empty array) to the host's logger.
+fn log_message_start_transformations(value: &Value, fallback_model: &str) {
+    if let Some(array) = value
+        .pointer("/message/input_transformations")
+        .filter(|array| array.as_array().is_some_and(|items| !items.is_empty()))
+    {
+        let model = value
+            .pointer("/message/model")
+            .and_then(Value::as_str)
+            .unwrap_or(fallback_model);
+        crate::agent_providers::host::log_input_transformations(model, array);
+    }
+}
+
 /// Anthropic's tool-name rule: 1 to 128 characters of letters, digits, `_` and `-`.
 fn valid_tool_name(name: &str) -> bool {
     !name.is_empty()
@@ -1836,6 +1961,8 @@ fn apply_event(
             }
         }
         "message_start" => {
+            // No client model here; the response's own `/message/model` names it.
+            log_message_start_transformations(value, "");
             if let Some(usage) = value.pointer("/message/usage") {
                 turn.prompt_tokens = usage
                     .get("input_tokens")
@@ -2068,4 +2195,171 @@ fn cache_usage(usage: &Value) -> (u32, u32) {
             .and_then(Value::as_u64)
             .unwrap_or(0) as u32,
     )
+}
+
+#[cfg(test)]
+mod thinking_binding_tests {
+    use super::*;
+
+    const MODEL: &str = "claude-sonnet-4-5";
+
+    fn client() -> AnthropicCompatClient {
+        AnthropicCompatClient::new("key", MODEL, "https://api.anthropic.com/v1")
+    }
+
+    fn user_message() -> Vec<Value> {
+        vec![json!({"role": "user", "content": "hi"})]
+    }
+
+    fn beta_headers(request: &rightkit_http::Request) -> Vec<String> {
+        request
+            .headers
+            .iter()
+            .filter(|(name, _)| name.eq_ignore_ascii_case("anthropic-beta"))
+            .map(|(_, value)| value.clone())
+            .collect()
+    }
+
+    #[test]
+    fn wire_values() {
+        assert_eq!(ThinkingBlockBinding::Error.wire(), "error");
+        assert_eq!(ThinkingBlockBinding::DropBlock.wire(), "drop_block");
+    }
+
+    #[test]
+    fn body_carries_prefix_mismatch_behavior() {
+        for (binding, wire) in [
+            (ThinkingBlockBinding::Error, "error"),
+            (ThinkingBlockBinding::DropBlock, "drop_block"),
+        ] {
+            let body = client()
+                .with_thinking_block_binding(binding)
+                .build_message_body(user_message(), Vec::new(), None);
+            assert_eq!(
+                body.pointer("/thinking/block_binding/prefix_mismatch_behavior")
+                    .and_then(Value::as_str),
+                Some(wire)
+            );
+        }
+    }
+
+    #[test]
+    fn body_has_no_block_binding_without_the_builder() {
+        let body = client().build_message_body(user_message(), Vec::new(), None);
+        assert!(body.get("thinking").is_some());
+        assert!(body.pointer("/thinking/block_binding").is_none());
+    }
+
+    #[test]
+    fn beta_is_sent_once_and_merged() {
+        let bound = client().with_thinking_block_binding(ThinkingBlockBinding::Error);
+        let request = bound.request_builder("https://api.anthropic.com/v1/messages");
+        assert_eq!(beta_headers(&request), vec![THINKING_BINDING_BETA.to_string()]);
+
+        let mut merged = bound.clone();
+        merged
+            .public_headers
+            .insert("anthropic-beta".into(), "foo".into());
+        let request = merged.request_builder("https://api.anthropic.com/v1/messages");
+        assert_eq!(
+            beta_headers(&request),
+            vec!["foo,thinking-binding-controls-2026-08-01".to_string()]
+        );
+
+        let mut present = bound.clone();
+        present.public_headers.insert(
+            "anthropic-beta".into(),
+            "foo, thinking-binding-controls-2026-08-01".into(),
+        );
+        let request = present.request_builder("https://api.anthropic.com/v1/messages");
+        assert_eq!(
+            beta_headers(&request),
+            vec!["foo, thinking-binding-controls-2026-08-01".to_string()]
+        );
+
+        let unbound = client().request_builder("https://api.anthropic.com/v1/messages");
+        assert!(beta_headers(&unbound).is_empty());
+    }
+
+    #[test]
+    fn beta_combines_with_inline_tools() {
+        let tool = json!({"type": "function", "function": {"name": "lookup", "parameters": {}}});
+        let combined = AnthropicCompatClient::new(
+            "key",
+            "claude-sonnet-5-5",
+            "https://api.anthropic.com/v1",
+        )
+        .with_deferred_tools(vec![tool])
+        .with_thinking_block_binding(ThinkingBlockBinding::DropBlock);
+        assert!(combined.inline_tools_enabled());
+        let request = combined.request_builder("https://api.anthropic.com/v1/messages");
+        assert_eq!(
+            beta_headers(&request),
+            vec![format!("{INLINE_TOOLS_BETA},{THINKING_BINDING_BETA}")]
+        );
+    }
+
+    #[test]
+    fn foreign_thinking_is_removed_and_same_model_kept() {
+        let history = vec![
+            json!({"role": "user", "content": "one"}),
+            json!({
+                "role": "assistant",
+                "origin": {"model": "claude-opus-4-5", "provider": "anthropic"},
+                "reasoning_content": "foreign reasoning",
+                "content": [
+                    {"type": "thinking", "thinking": "t", "signature": "SIG_FOREIGN"},
+                    {"type": "redacted_thinking", "data": "RED_FOREIGN"},
+                    {"type": "text", "text": "answer one"}
+                ]
+            }),
+            json!({"role": "user", "content": "two"}),
+            json!({
+                "role": "assistant",
+                "origin": {"model": MODEL, "provider": "anthropic"},
+                "content": [
+                    {"type": "thinking", "thinking": "t", "signature": "SIG_SAME"},
+                    {"type": "text", "text": "answer two"}
+                ]
+            }),
+            json!({"role": "user", "content": "three"}),
+        ];
+        let before = history.clone();
+        let body = client()
+            .with_thinking_block_binding(ThinkingBlockBinding::Error)
+            .build_message_body(history.clone(), Vec::new(), None);
+        let wire = body["messages"].to_string();
+        assert!(!wire.contains("SIG_FOREIGN"));
+        assert!(!wire.contains("RED_FOREIGN"));
+        assert!(!wire.contains("foreign reasoning"));
+        assert!(wire.contains("SIG_SAME"));
+        assert!(wire.contains("answer one"));
+        assert_eq!(history, before);
+        assert!(before[1].to_string().contains("SIG_FOREIGN"));
+
+        // Without the builder nothing is dropped.
+        let plain = client().build_message_body(history, Vec::new(), None);
+        assert!(plain["messages"].to_string().contains("SIG_FOREIGN"));
+    }
+
+    #[test]
+    fn mismatch_matcher() {
+        let http = |status: u16, body: &str| ProviderError::Http {
+            status,
+            body: body.to_string(),
+        };
+        assert!(is_thinking_binding_mismatch(&http(
+            400,
+            r#"{"error":{"message":"thinking.block_binding: prefix changed"}}"#
+        )));
+        assert!(is_thinking_binding_mismatch(&http(
+            400,
+            "Thinking block does not match the Prefix"
+        )));
+        assert!(!is_thinking_binding_mismatch(&http(400, "max_tokens too large")));
+        assert!(!is_thinking_binding_mismatch(&http(529, "block_binding")));
+        assert!(!is_thinking_binding_mismatch(&ProviderError::RateLimited {
+            retry_after_secs: 1
+        }));
+    }
 }

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.7.1
+
+- Add opt-in thinking-block binding (beta `thinking-binding-controls-2026-08-01`, drop only foreign-model thinking, 400 matcher, `input_transformations` logger) and a host-set Codex originator header.
+
 ## 0.7.0 (2026-11-16)
 
 Breaking for hosts that relied on the implied OS keyring: the features `agent_providers` and `agent_router` no longer enable `agent_providers-os-keyring` / `agent_router-os-keyring`. A host that wants the OS credential store (desktop) names `agent_providers-os-keyring` (and `agent_router-os-keyring` for the router) itself; a host without one (iOS) can use the providers and router with no OS credential store. Without the keyring feature, subscription sign-in reports that the provider has no subscription login, token plans fall back to the API-key route and host credential probes report no credential store, as before for builds without it. `RIGHTKIT_OAUTH_CALLBACK_HOST`, `RIGHTKIT_CONTEXT_INSPECTION_PATH`, `RIGHTKIT_CONTEXT_INSPECTION_KEY` and the replay-record switch now follow `rightkit_agent_config::set_env_prefix` (default names unchanged). Requires `rightkit-agent-config` 0.1.3.
