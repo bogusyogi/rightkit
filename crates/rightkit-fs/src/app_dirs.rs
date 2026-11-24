@@ -513,6 +513,21 @@ impl<K: PartialEq> FolderCache<K> {
     }
 }
 
+/// The account's Roaming AppData folder from the operating system, never from `%APPDATA%`.
+/// `Some` only on Windows, when the lookup succeeds and the answer is absolute; `None` elsewhere
+/// and on failure. It has the shape of a "roaming app data" provider a host hands to a reader that
+/// needs the folder only on Windows (see [`account_home`] for the home folder, with an error).
+pub fn roaming_app_data() -> Option<PathBuf> {
+    #[cfg(windows)]
+    {
+        known::known_folder(&known::ROAMING_APP_DATA).filter(|p| looks_absolute(Os::Windows, p))
+    }
+    #[cfg(not(windows))]
+    {
+        None
+    }
+}
+
 #[cfg(windows)]
 mod known {
     use std::ffi::c_void;

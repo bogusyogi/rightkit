@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.4.3
+- Add `setup::mic_devices`: `MicDeviceView` (serialisable input device), `list_input_device_views` (blocking list), and `resolve_saved_device` with `SavedDeviceChoice` (saved-microphone fallback refusal around a host resolver). Additive.
+
 ## 0.4.2
 
 - New `echo` module (VO-5, `docs/contracts/voice.md` in the Pulse repository): `ReferenceTap` (a time-indexed 16 kHz history of what the speakers play, with a process-wide `reference_tap()`) and `EchoCanceller` (a model-free normalised-LMS filter, `process_with_tap`), so speech over a reply can be heard without the agent's own voice. Playback and capture must share the process, or the host feeds the tap from the process that plays. Not run on a microphone and a speaker.

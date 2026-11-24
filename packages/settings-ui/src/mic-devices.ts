@@ -1,6 +1,8 @@
 // Input-device list for a microphone picker: reads through the host's `list`, refreshes on device change and
 // window focus, and ignores a late result after unmount. Imports only `react`.
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { MicDeviceLike, MicDeviceSelection, MicSelectionLabels } from "./mic-device-options.js";
+import { micSelectionLabel } from "./mic-device-options.js";
 
 export interface UseMicDevices<D> {
   devices: D[];
@@ -62,4 +64,19 @@ export function useMicDevices<D>(list: () => Promise<D[]>, refreshToken: number 
   }, [refresh]);
 
   return { devices, loading, error, refresh };
+}
+
+/**
+ * Reports the resolved microphone line (`micSelectionLabel`) to `onResolved` after each render where it, or the callback,
+ * changed. Does nothing without a callback.
+ */
+export function useResolvedMicLabel<D extends MicDeviceLike>(
+  selection: MicDeviceSelection<D>,
+  labels: MicSelectionLabels,
+  onResolved: ((label: string) => void) | undefined,
+): void {
+  const label = micSelectionLabel(selection, labels);
+  useEffect(() => {
+    onResolved?.(label);
+  }, [label, onResolved]);
 }

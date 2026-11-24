@@ -7,4 +7,4 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-media-control = { version = "=0.1.1" }
+rightkit-media-control = { version = "=0.1.2" }

@@ -448,6 +448,36 @@ impl StoreOptions {
         self
     }
 
+    /// [`StoreOptions::flat_migration`] over a typed settings struct `T`. The object is read into
+    /// `T`, `migrate` runs on it and returns whether it changed anything, and a change is written
+    /// back as the migrated object. Left to the store's per-field repair, with the stored object
+    /// returned unchanged and no change reported: an object that does not read into `T`, a `migrate`
+    /// that reports no change, and a `T` that does not serialise to an object. A serialisation
+    /// error aborts the open as for `flat_migration`. `migrate` must be idempotent (see
+    /// `flat_migration`). The host passes its settings type and its migration.
+    pub fn typed_flat_migration<T>(
+        self,
+        migrate: impl Fn(&mut T) -> bool + Send + Sync + 'static,
+    ) -> Self
+    where
+        T: serde::Serialize + serde::de::DeserializeOwned,
+    {
+        self.flat_migration(move |map| {
+            let original = map.clone();
+            let mut typed: T = match serde_json::from_value(Value::Object(map)) {
+                Ok(typed) => typed,
+                Err(_) => return Ok((original, false)),
+            };
+            if !migrate(&mut typed) {
+                return Ok((original, false));
+            }
+            match serde_json::to_value(&typed)? {
+                Value::Object(migrated) => Ok((migrated, true)),
+                _ => Ok((original, false)),
+            }
+        })
+    }
+
     /// Chooses what happens to an unreadable file. Default [`OnCorrupt::Quarantine`].
     pub fn on_corrupt(mut self, policy: OnCorrupt) -> Self {
         self.on_corrupt = policy;
@@ -622,4 +652,13 @@ impl Default for ReadOptions {
     fn default() -> Self {
         Self::new(FileFormat::Envelope)
     }
+}
+
+/// The defaults of a typed settings struct after its migration: `T::default()` with `migrate`
+/// applied (its change report is ignored). What a missing or unreadable settings file means when
+/// the host's migration also normalises defaults.
+pub fn migrated_default<T: Default>(migrate: impl FnOnce(&mut T) -> bool) -> T {
+    let mut value = T::default();
+    migrate(&mut value);
+    value
 }

@@ -9,6 +9,8 @@
 //!   pass, with a hard length ceiling, session ownership checks, and superseding of a capture
 //!   left by a session that no longer exists.
 //! * [`media_guard`]: restore-once guard around a host's "pause other media" calls.
+//! * [`mic_devices`]: serialisable input-device records, a blocking list helper and the saved-device
+//!   fallback refusal.
 //! * [`permissions`]: microphone consent status and request per OS (macOS `AVCaptureDevice`,
 //!   Windows `AppCapability` plus a capture probe), and the macOS Settings opener.
 //! * [`calibration_engine`]: runs a host's recognition engine as a bounded child over a
@@ -28,6 +30,7 @@ pub mod calibration_capture;
 pub mod calibration_engine;
 pub mod calibration_session;
 pub mod media_guard;
+pub mod mic_devices;
 pub mod mic_meter;
 pub mod permissions;
 

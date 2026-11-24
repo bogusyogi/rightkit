@@ -2024,7 +2024,7 @@
       "pkId": "PK01",
       "id": "ci/consumers/rightkit-fs/src/main.rs",
       "files": {
-        "Cargo.toml": "45c4348cb0ffc3e436c9ab3dad4e174e0286538632e24a5b36df3e47d6a7340a",
+        "Cargo.toml": "8660e8d86c49169324eb176bc46d646328f8c210fd559c8758158801e906a0fe",
         "README.md": "f650550be439700dda9838bf353828c5b81364dd25e5ba4cc9a4fd1158097ea8",
         "src/main.rs": "4de0c0379119ad9c76ded3186f53c0edec88b68134e5944a8caeab0d3694a036"
       }
@@ -2041,7 +2041,7 @@
       "pkId": "PK03",
       "id": "ci/consumers/rightkit-credentials/src/main.rs",
       "files": {
-        "Cargo.toml": "ca2c78a978ca5937411bfe91dba2c12d46db66873288e1a2a5f526949ba2d45e",
+        "Cargo.toml": "5c3b3ac0ad2803551e20d9a06e23d2c5632b12a83661bb2f17a5f425e2ad2096",
         "prepare_signed_helper.py": "5416b80b5b81ef50528033bbc9b91131a73c421a66764b3390331dd80fa0cd6c",
         "qualification-helper/entitlements.plist": "a6aa6260390ae45abe50cc5bed4d0dd2b922a67ac93f69bd58b86419666f123c",
         "qualification-helper/Info.plist": "8a865dfac7975ff5b0bd3315625676af43490ed611e3e31d2a823debc7b664ad",
@@ -2088,7 +2088,7 @@
           }
         }
       ],
-      "aggregateSha256": "39639ea70bceb9bb93493b76687d27bc3477dd56381707606e010ab1b78ef629"
+      "aggregateSha256": "cb0e727159c950539e5a16e46aed4710f1f70e7810d07eb6d67be835904a80c2"
     },
     "rightkit-job-queue": {
       "pkId": "PK06",
@@ -2232,7 +2232,7 @@
       "pkId": "PK04",
       "id": "ci/consumers/rightkit-app-settings/src/main.rs",
       "files": {
-        "Cargo.toml": "88b05386bd0b804975c839f48cb9dc930112237caf3b6f1c65626b3cc0b5be5e",
+        "Cargo.toml": "36b767900e85444823d53bb930e63ca114d8d48f07029d0aca61f52db3b706be",
         "README.md": "d04715c60bc17f93254375ddff629e2acc170cd7ad46241f325943ed688152b5",
         "src/main.rs": "acb605e873cb4d2d819eee90e4047cebfbd3ac1d7f9a3095053658c522e9fcfa"
       }
@@ -2268,7 +2268,7 @@
       "pkId": "PK15",
       "id": "ci/consumers/rightkit-automation/src/main.rs",
       "files": {
-        "Cargo.toml": "2f21afda96d48affaa8018c70770645d38e224f74d7bdbf3227c19b3f5ba7fbf",
+        "Cargo.toml": "1e78da180366a00cb202aa4ceb37ae43e8878ef639d77cd99957b113daecef3e",
         "README.md": "4a56308625789488e109b96b08c4593ad283161c5ecbdc9d4e340fe4d0d74b18",
         "src/main.rs": "b5730ec4bf6a4680eb13b5c794332c4c085887863332d8c74ef2be659604bcff"
       }
@@ -2286,11 +2286,11 @@
       "pkId": "PK08",
       "id": "ci/consumers/rightkit-tauri-shell/src/main.rs",
       "files": {
-        "Cargo.toml": "3b1429e9dc31f9c0b54cd04ce7cbfcd8b7d2d16d65e2f4500a9d372a8b9f3650",
+        "Cargo.toml": "675ff0dd61643e9d415171f8671cc7a7c4184eccf76fe408e3a0c6018ced641b",
         "README.md": "a2282b07f9d914c51a800347320775a5ff75793554fcd33e84c429066ad37aa7",
         "src/main.rs": "4466993524e48ab50d8c4771cc6ad800763b9062217ac40773d1aa3fe6e6bee0"
       },
-      "aggregateSha256": "5109cfddd9b5c2e500102501aeb48cbdc3d643bb6d2097632580614bed374c99"
+      "aggregateSha256": "5cc20a43c213d97db751d01533b6644969412bb3f13288aa3af6653703469907"
     },
     "rightkit-oauth": {
       "pkId": "PK06",
@@ -2331,11 +2331,11 @@
       "gateEvidence": "no OS keychain or SQLCipher key: bundled SQLite only; temp directory removed on exit; encrypted lifecycle (sqlcipher, ProtectedKeyStore, rotation, relocation) not exercised and needs its own PK03-3..6 gate rows",
       "consumes": "PK03 plan (docs/plans/2026-10-20-rightkit-implementation/01-packages.md:131-146) db 0.5.x surface; public items exercised: DbOptions::new, open_writer_migrated, open_read_pool_with (crates/rightkit-db/src/migrate.rs:788, src/lib.rs:217,383), write_txn (src/lib.rs:735), open_read_only, open_existing_writer, open_in_memory (src/lib.rs:524-534), ReadPoolOptions::with_read_only (src/lib.rs:823), migrate::Migration::sql (src/migrate.rs:31), MigrateOptions (src/migrate.rs:111), user_version (src/migrate.rs:191)",
       "files": {
-        "Cargo.toml": "66748289cdcd6bfc0740e9e7a2f0bc9c2dcd2fe25b4781d6e753bb07ec709e5b",
+        "Cargo.toml": "8932377b227f1552393970f21270c73cfd0d0d15236ffba2751f61686d0c2727",
         "README.md": "2435f1ae580b70e8571c62e4bbc1bfc9bf49c1e81b513f6aca0574316ae13b00",
         "src/main.rs": "af1c9a4987c9179dec7c72c1b63c37b19e6a077465d2152531527265a357622d"
       },
-      "aggregateSha256": "e585d14544d6c1aa8bed2b78bde338ac9040d389c1c36bcfcad6e6d2169f69cc"
+      "aggregateSha256": "18855e9b740c0a4cfe3295064dc2574a463a0054fb5f533fe92cacb28f359823"
     },
     "rightkit-license": {
       "pkId": "PK05",
@@ -2345,11 +2345,11 @@
       "gateEvidence": "pure and offline: public keys and vectors copied verbatim from crates/rightkit-license/test-vectors (public material, verified byte-equal); clock ledger in a temp directory; client feature enabled for explicitly disabled LicenseClient status with synthetic device id; no network, no OS keychain or real user data; configured client operations, update-auth, engine-gate and subject-entitlement not exercised",
       "consumes": "PK05 plan (01-packages.md:167-183): every app licence migration; public items exercised: verify_token (crates/rightkit-license/src/lib.rs:514), VerifyError (src/lib.rs:390), verify_lease_envelope (src/lease.rs:168), FileClockStore (src/file_store.rs:184), ClockStore::load (src/clock.rs:305), MemoryClockStore (src/clock.rs:348), ProcessAnchor::new (src/clock.rs:243), NativeEntitlementSource (src/native_engine.rs:42), NativeEngineEntitlements::new and current_at (src/native_engine.rs:158,208), LifecyclePolicy (src/lifecycle.rs:118), LicenseClient::new/status/is_disabled (src/client/mod.rs:108,157,140) in Disabled mode only",
       "files": {
-        "Cargo.toml": "16c316427d0daad910cd4b8f1da5e6fa22918d50d0f3b42d7fe0166f4602be0a",
+        "Cargo.toml": "4288bad0bd71926e0fb4c3f8de32c8e56b633da71c760b6f92610767b3d7f3e9",
         "README.md": "b279b7b7ec7afe4439b1ba813c3cabf043cbd1e37874abf25b9e72e93c96f232",
         "src/main.rs": "37e527929bb03573ecaf8fe0b59952a25ac6fdc14b360ccea41a1922f0456c40"
       },
-      "aggregateSha256": "a459920aff1315ea5003c044c9df5eaabbb7e5323f46b2f48d4fa1eea1412010"
+      "aggregateSha256": "0ba4ba6174156407b99496a01edbecbcdfdd8164d9699ae0257b8d53d1847e10"
     },
     "rightkit-child-process": {
       "pkId": "PK02",
@@ -2384,11 +2384,11 @@
         }
       ],
       "files": {
-        "Cargo.toml": "8337c463d26ae7b53f49632c2674a0ed7fc39676c5e3c252b11376597768f8fb",
+        "Cargo.toml": "3cfe1304d1414ec39c7d1c998b33758fd2a5c8fc25163ebaed22832ce36f0760",
         "README.md": "bd1826337aebd775d5a4c55cc14a144a0319c1a95f98e0d671c3ee576d603f2e",
         "src/main.rs": "5b993d0703b4f770c327d04248c450b989ccb6475eb7f115e65dd903cc7e8d28"
       },
-      "aggregateSha256": "6fe40c028fdcff52744e3fb536bd686f83940b83955e394d8b12062e8eef8b1b"
+      "aggregateSha256": "206e6c020d39615eb52514c710cad56108b0c8e81f99844a1b82ed019f9ee54a"
     },
     "rightkit-asr": {
       "pkId": "PK18",
@@ -2627,7 +2627,7 @@
       "pkId": "PK19",
       "id": "ci/consumers/rightkit-audio/src/main.rs",
       "files": {
-        "Cargo.toml": "9164308ac1e91ae58cd181e5ea173fce56ba39e176bffacedec61eaf998a2ad4",
+        "Cargo.toml": "25c37ef44efad77b6a5b484a7b05222045fd7b9367f1e43ffab45b3a0196036c",
         "README.md": "df869ff38ab41ec3c708dd21b21dd19c0354f5ce3f0a15e75f65f557b6d23b08",
         "src/main.rs": "3137d2e7bfe3964b09dbda3956476a04a316652ea19a81373778e8b786450c87"
       }
@@ -2699,7 +2699,7 @@
       "pkId": "PK35",
       "id": "ci/consumers/rightkit-hotkeys/src/main.rs",
       "files": {
-        "Cargo.toml": "3135dfceaea0d6d8918a1173c2fcae361ace3ceb76af768d29f75970218eb76a",
+        "Cargo.toml": "f10b83f8896c08ac2cce18f83112ac9f18faf6903e181b5c0f624675b627d9ca",
         "README.md": "5a1379416113cf7d191e32973e0c2c6c4b71877bc59f4fcfb2ee306e617f691c",
         "src/main.rs": "21803204b0792aca6ae78cc6e1928ec13fe8a9a6aea5c1f23ddd23f1ba350ecd"
       }
@@ -3178,11 +3178,11 @@
       "pkId": "PK91",
       "id": "ci/consumers/rightkit-dictation-core/src/main.rs",
       "files": {
-        "Cargo.toml": "6e423094c4493d87ea2e37270577a1e42a24d84bbd0f3c31c056bd1ef6ce0a5b",
+        "Cargo.toml": "b631d46644e292db874ebdecdaf1231d3b10e151c25f9e1e13160850554fa758",
         "README.md": "d8bafb727a742ad45273efab4a6f466d74b0d6c2c6125212030818ef811f0195",
         "src/main.rs": "6c635537622a8598397ae3b0a963206a4745d9ec4fa0fdbbe0ff5725bbe9c7a9"
       },
-      "aggregateSha256": "609c6cb4c65d20e3c3bef6992fb73ec172313887b4f2c664d258988b09527d77"
+      "aggregateSha256": "f013c730b9bda64ab8bb7412ce4f7a1329b998555e07ff38e23e1b9ce6972a9e"
     },
     "rightkit-disk-cleanup": {
       "pkId": "PK92",
@@ -3441,7 +3441,7 @@
       "pkId": "PK120",
       "id": "ci/consumers/rightkit-text-polish/src/main.rs",
       "files": {
-        "Cargo.toml": "dca78557fea5eac8ceef8c55a588f6f7445106fc9d484288b3f754f362b74314",
+        "Cargo.toml": "e87ffa4707d29b3d3d9eaed50095c1cef3ea9e4c7332a9554826ef48c92d2418",
         "README.md": "d515951235d11b8f43da37d3a6a7f985ab3543d8a9d36605c18077f703569411",
         "src/main.rs": "b8a75a1cd619f5c93075e4ae20da2184e52cc09c3f4a5b8ec84a243dd60dc4c9"
       }
@@ -3606,7 +3606,7 @@
       "pkId": "PK144",
       "id": "ci/consumers/rightkit-dictation-models/src/main.rs",
       "files": {
-        "Cargo.toml": "e6be2a7cd4426738d6c34dae98b1b6a7cceba987e79f6e174d404025d96b9ec7",
+        "Cargo.toml": "ccfdf09b9ed54dd3b1c0187802563c1d55b94a05f9fe8dcfe931122b2274235c",
         "README.md": "d34a2cdd83beafcdd984ae88a09b0340482df751004919b4d15018d1ecdfc93a",
         "src/main.rs": "2cd8f39cd800105551eb936c6da0ff457d54f95e3c027ec450c22516b2db5691"
       }
@@ -3967,11 +3967,11 @@
       "pkId": "PK181",
       "id": "ci/consumers/rightkit-dictation-tauri/src/main.rs",
       "files": {
-        "Cargo.toml": "3c02b95fe379788102316421caa7654a4e1460d16c4efcb593d9956743c9ef29",
+        "Cargo.toml": "cfd3ced2c1f238487292fabc32d104790fe4a51849a86cf50b5d5c6cc4b8c89a",
         "README.md": "3f49a4e649953c2e48e170fad962304a232a65b61ffe72ead19866cf73c286c3",
         "src/main.rs": "d08e3088050bd0e411a5c2fcf51e9a911ef55898d84d48016d8e2ed0dc7649d1"
       },
-      "aggregateSha256": "b93ba39df92131ec5da84e96e96eb572c19636a75c8da6fcc89fe87cb9c9b99e"
+      "aggregateSha256": "009301f9f0f9e7714b82d18c4f70ba9a5369e51ba5f4f6a2b89da881d98c58df"
     },
     "rightkit-evidence-application": {
       "pkId": "PK182",
@@ -4292,7 +4292,7 @@
       "pkId": "PK252",
       "id": "ci/consumers/rightkit-media-control/src/main.rs",
       "files": {
-        "Cargo.toml": "d0968151171af9dde4126a73298d2f0f58decaeddfbd618cc0d937fc34e8fc65",
+        "Cargo.toml": "87b801efc718e56aa709774df9526e8f578e70672eb1ac1cecb9d1619ae63e63",
         "README.md": "c7c77417ac53960cf9c6c847e4f1be2dbbcb71c319cb60c002ad84e8236ed546",
         "src/main.rs": "661f734d85925fd55bc6a2c766c51ecb96db7937cd6c8a432137c4b089e9b533"
       }

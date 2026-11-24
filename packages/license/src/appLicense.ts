@@ -325,6 +325,13 @@ export const APP_ACCOUNT_INVALID_INPUT: Readonly<AccountInvalidInput> = Object.f
   removeDevice: 'That device is no longer on your account.',
 });
 
+/** The argument names the app's account commands take: `token` for sign-in completion, `deviceId` for device rows. */
+export interface AppAccountArgumentNames { token: string; deviceId: string }
+export const APP_ACCOUNT_ARGUMENT_NAMES: Readonly<AppAccountArgumentNames> = Object.freeze({
+  token: 'token',
+  deviceId: 'deviceIdHash',
+});
+
 export interface AppAccountOptions {
   invoke: LicenseInvoke;
   commands?: Partial<AppAccountCommands>;
@@ -333,6 +340,10 @@ export interface AppAccountOptions {
   invalidInput?: Partial<AccountInvalidInput>;
   /** The host's wording of how a deletion ended; see `accountDeletionMessage`. */
   deletionMessages?: Partial<Record<AccountDeletionMessageCode, string>>;
+  /** The native argument names when the app's commands use other ones (default `APP_ACCOUNT_ARGUMENT_NAMES`). Only the names change; values are sent as before. */
+  argumentNames?: Partial<AppAccountArgumentNames>;
+  /** Extra arguments the native deletion command requires, such as an explicit confirmation flag. Sent as the deletion call's arguments; omitted when not given. */
+  deleteArguments?: Record<string, unknown>;
 }
 
 /**
@@ -340,9 +351,10 @@ export interface AppAccountOptions {
  * the session token; every rejection becomes an `Error` with the host's wording. An account is never needed
  * for Free use or local transcription, and no call here reads or changes the licence.
  */
-export function createAppAccountSession({ invoke, commands: own, messages, invalidInput: ownInvalid, deletionMessages }: AppAccountOptions) {
+export function createAppAccountSession({ invoke, commands: own, messages, invalidInput: ownInvalid, deletionMessages, argumentNames: ownNames, deleteArguments }: AppAccountOptions) {
   const commands: AppAccountCommands = { ...APP_ACCOUNT_COMMANDS, ...own };
   const invalid: AccountInvalidInput = { ...APP_ACCOUNT_INVALID_INPUT, ...ownInvalid };
+  const names: AppAccountArgumentNames = { ...APP_ACCOUNT_ARGUMENT_NAMES, ...ownNames };
   async function call<T>(command: string, args: Record<string, unknown> | undefined, invalidInput: string): Promise<T> {
     try { return await invoke<T>(command, args); } catch (cause) { throw accountCommandError(cause, invalidInput, messages); }
   }
@@ -358,16 +370,16 @@ export function createAppAccountSession({ invoke, commands: own, messages, inval
     /** Starts the passwordless sign-in: the server e-mails a one-time link or token. No password is ever collected. */
     beginMagicLink: async (email: string): Promise<void> => { await call(commands.beginMagicLink, { email }, invalid.beginMagicLink); },
     /** Completes sign-in with the token of the e-mailed link (deep-linked back into the app, or pasted). */
-    complete: async (token: string): Promise<AppAccountStatus> => status(await call<Native>(commands.complete, { token }, invalid.complete)),
+    complete: async (token: string): Promise<AppAccountStatus> => status(await call<Native>(commands.complete, { [names.token]: token }, invalid.complete)),
     signOut: async (): Promise<void> => { await call(commands.signOut, undefined, ''); },
     devices: (): Promise<AppAccountDevice[]> => call<AppAccountDevice[]>(commands.devices, undefined, ''),
     /** `id` is the device row's `id`; the command's parameter keeps its original name `deviceIdHash`. */
-    renameDevice: async (id: string, label: string): Promise<void> => { await call(commands.renameDevice, { deviceIdHash: id, label }, invalid.renameDevice); },
+    renameDevice: async (id: string, label: string): Promise<void> => { await call(commands.renameDevice, { [names.deviceId]: id, label }, invalid.renameDevice); },
     /** Destructive: frees the device's seat remotely. Callers confirm first and treat a rejection as a failure. */
-    removeDevice: async (id: string): Promise<void> => { await call(commands.removeDevice, { deviceIdHash: id }, invalid.removeDevice); },
+    removeDevice: async (id: string): Promise<void> => { await call(commands.removeDevice, { [names.deviceId]: id }, invalid.removeDevice); },
     /** Permanently deletes the account. Resolves only when the service said it is deleted; a refusal or an unconfirmed answer rejects, with the session kept. */
     async deleteAccount(): Promise<void> {
-      const answer = await call<AccountDeletionView>(commands.deleteAccount, undefined, '');
+      const answer = await call<AccountDeletionView>(commands.deleteAccount, deleteArguments, '');
       if (answer.outcome === 'deleted') return;
       // Any other refusal reads as `other`, and any other answer as unconfirmed.
       const reason = answer.outcome === 'refused' && (answer.reason === 'activeSubscription' || answer.reason === 'rateLimited') ? answer.reason : 'other';

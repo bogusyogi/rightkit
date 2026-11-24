@@ -44,3 +44,25 @@ export type {
   EscapeClears,
   SearchKeyOptions,
 } from "./search-core.js";
+
+// Headless-safe additions (0.7.x): no DOM, no stylesheet, only `react` or nothing.
+export { settingsPaletteCommands, useSettingsPaletteCommands } from "./palette-commands.js";
+export type { PaletteSettingEntry, SettingsPaletteCommand, SettingsPaletteOptions } from "./palette-commands.js";
+export { settingsEntriesForSection, settingsSectionFor } from "./settings-table.js";
+export type { SectionedSettingEntry } from "./settings-table.js";
+export { useFeedbackForm, feedbackErrorText } from "./feedback-form.js";
+export type { FeedbackForm, FeedbackStatus, UseFeedbackFormOptions } from "./feedback-form.js";
+export { useKeyPanelDisclosure } from "./key-panel.js";
+export type { KeyPanelDisclosure, UseKeyPanelDisclosureOptions } from "./key-panel.js";
+export { useLaunchAtLogin } from "./launch-at-login.js";
+export type { LaunchAtLogin, UseLaunchAtLoginOptions } from "./launch-at-login.js";
+export { mapLegacyValue, flagKeyChoiceValue, writeFlagKeyChoice, withSelection } from "./setting-choices.js";
+export type { FlagKeyChoice, WriteFlagKeyChoiceOptions } from "./setting-choices.js";
+export { onEnterKey, removalDialogProps, useFocusWhen } from "./form-handlers.js";
+export type { RemovalDialogProps } from "./form-handlers.js";
+export { bridgeChannelLabels } from "./device-sync.js";
+export type { BridgeChannelLabels } from "./device-sync.js";
+export { micSelectionLabel } from "./mic-device-options.js";
+export type { MicSelectionLabels } from "./mic-device-options.js";
+export { useResolvedMicLabel } from "./mic-devices.js";
+export { WHISPER_LANGUAGE_CODES, DEFAULT_LANGUAGE_NAME_OVERRIDES, languageDisplayName, languageOptions } from "./languages.js";

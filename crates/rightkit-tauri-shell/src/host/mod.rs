@@ -68,6 +68,8 @@ pub mod crash;
 pub mod legal;
 #[cfg(feature = "license")]
 pub mod license;
+#[cfg(feature = "license")]
+pub mod license_runtime;
 #[cfg(feature = "models")]
 pub mod models;
 pub mod policy;

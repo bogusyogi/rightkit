@@ -20,7 +20,14 @@ export {
 export * from "./toast.js";
 export { blockNativeContextMenu } from "./context-menu.js";
 export { mmss, relativeTimeFrom } from "./time.js";
-export { isMacPttKeyEvent, isWindowsPttKeyEvent } from "./ptt.js";
+export {
+  isMacPttKeyEvent,
+  isWindowsPttKeyEvent,
+  pushToTalkChord,
+  pushToTalkCopy,
+  pushToTalkSendGesture,
+  type PushToTalkLabels,
+} from "./ptt.js";
 export { attachFocusTrap, resolveReturnFocus, trackFocusHistory, useFocusTrap, useLatest, useModalDismiss, type FocusTrapOptions, type ReturnFocusTarget } from "./focus.js";
 export { attachDismiss, useDismiss, type DismissConfig, type DismissOptions, type DismissReason, type OutsidePress } from "./dismiss.js";
 export {

@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.7.7
+- Add macOS focus-continuity probe examples (`editor_identity_probe`, `focus_continuity_survival`, `focus_observer_idle_memory`, `start_capture_chain`) over `desktop`, behind `desktop-context`. Examples only; no library change.
+
 ## 0.7.6
 
 - Add `win::clipboard_text::eager_text_formats(text)` (Windows): the Unicode, ANSI, OEM and locale clipboard formats of a text, built before the clipboard is opened so publishing all four under one open prevents the automatic format synthesis on close. The desktop clipboard write (`desktop::windows`) uses it instead of its own encoder; behaviour of that write is unchanged. `rightkit-clipboard-history` writes its text through it as well.

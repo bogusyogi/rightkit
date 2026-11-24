@@ -137,7 +137,8 @@ pub mod zip;
 
 #[cfg(feature = "app-dirs")]
 pub use app_dirs::{
-    account_home, AppDirs, AppDirsError, AppId, Options as AppDirsOptions, Os as AppDirsOs,
+    account_home, roaming_app_data, AppDirs, AppDirsError, AppId, Options as AppDirsOptions,
+    Os as AppDirsOs,
 };
 #[cfg(feature = "fs")]
 pub use append::{append_record, open_private_append, AppendOptions};

@@ -106,3 +106,19 @@ export function resolveMicSelection<D extends MicDeviceLike>(
     selectedName: options.find((option) => option.value === value)?.device.name ?? saved?.name,
   };
 }
+
+/** Words for `micSelectionLabel`. */
+export interface MicSelectionLabels {
+  /** The system-default line; `deviceName` is the default device's name when one is known. */
+  systemDefault(deviceName: string | undefined): string;
+  /** Shown when the saved device has no known name. */
+  savedFallback: string;
+}
+
+/**
+ * The one line that says which microphone is in use: the system-default line while the value selects the default, else the
+ * selected or saved device's name, else `savedFallback`. The host shows it, or reports it to a parent.
+ */
+export function micSelectionLabel<D extends MicDeviceLike>(selection: MicDeviceSelection<D>, labels: MicSelectionLabels): string {
+  return selection.usesSystemDefault ? labels.systemDefault(selection.defaultDevice?.name) : (selection.selectedName ?? labels.savedFallback);
+}

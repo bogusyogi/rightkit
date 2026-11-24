@@ -23,6 +23,10 @@ export interface TabItem {
   panelId?: string;
   /** Extra class on this tab's wrapper. */
   className?: string;
+  /** Extra class on this tab's button (the element with `role="tab"`). */
+  buttonClassName?: string;
+  /** Extra `data-*` attributes on this tab's button (`data-section-id` and the like). Keys not starting with `data-` are ignored. */
+  dataAttributes?: Readonly<Record<string, string | undefined>>;
 }
 
 export interface TabStripProps {
@@ -47,6 +51,10 @@ export interface TabStripProps {
   leading?: ReactNode;
   /** Render scroll arrows when the tabs overflow. Default true. */
   scrollArrows?: boolean;
+  /** `id` of each tab button. Default: an id made from the strip's generated id and the tab id. */
+  tabId?: (tab: TabItem) => string;
+  /** Extra `data-*` attributes on each tab button, from its state (`data-active` and the like). Keys not starting with `data-` are ignored. */
+  tabButtonData?: (tab: TabItem, state: { active: boolean }) => Readonly<Record<string, string | undefined>> | undefined;
   /** Names of the scroll buttons. */
   scrollLeftLabel?: string;
   scrollRightLabel?: string;
@@ -59,6 +67,15 @@ export interface TabStripProps {
   className?: string;
   /** Extra classes per region: `root`, `scroller`, `list`, `tab`, `tabButton`, `icon`, `label`, `dirty`, `close`, `arrow`, `leading`, `trailing`. */
   slots?: SlotClasses<"root" | "scroller" | "list" | "tab" | "tabButton" | "icon" | "label" | "dirty" | "close" | "arrow" | "leading" | "trailing">;
+}
+
+function dataProps(...sources: (Readonly<Record<string, string | undefined>> | undefined)[]): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const source of sources) {
+    if (!source) continue;
+    for (const [key, value] of Object.entries(source)) if (key.startsWith("data-") && value !== undefined) out[key] = value;
+  }
+  return out;
 }
 
 const textOf = (tab: TabItem) => tab.title ?? (typeof tab.label === "string" ? tab.label : tab.id);
@@ -80,6 +97,8 @@ export function TabStrip({
   trailing,
   leading,
   scrollArrows = true,
+  tabId,
+  tabButtonData,
   scrollLeftLabel = "Scroll tabs left",
   scrollRightLabel = "Scroll tabs right",
   closeLabel = (title) => `Close ${title}`,
@@ -244,7 +263,8 @@ export function TabStrip({
                 <button
                   type="button"
                   role="tab"
-                  id={`${baseId}-tab-${tab.id}`}
+                  {...dataProps(tab.dataAttributes, tabButtonData?.(tab, { active }))}
+                  id={tabId ? tabId(tab) : `${baseId}-tab-${tab.id}`}
                   data-tab-button={tab.id}
                   aria-selected={active}
                   aria-controls={tab.panelId}
@@ -252,7 +272,7 @@ export function TabStrip({
                   disabled={tab.disabled}
                   tabIndex={tab.id === tabbable ? 0 : -1}
                   title={title}
-                  className={cx("rk-tab__button", slots?.tabButton)}
+                  className={cx("rk-tab__button", tab.buttonClassName, slots?.tabButton)}
                   onClick={() => onSelect(tab.id)}
                   onKeyDown={(e) => onKeyDown(e, tab)}
                 >

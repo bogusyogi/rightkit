@@ -10603,7 +10603,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-app-settings"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "rightkit-credentials",
  "rightkit-db",
@@ -10693,7 +10693,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-audio"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "block2",
  "cpal",
@@ -10734,7 +10734,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-automation"
-version = "0.7.6"
+version = "0.7.7"
 dependencies = [
  "core-foundation 0.10.1",
  "core-graphics",
@@ -11211,7 +11211,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-credentials"
-version = "0.5.9"
+version = "0.5.10"
 dependencies = [
  "block2",
  "getrandom 0.4.3",
@@ -11287,7 +11287,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-db"
-version = "0.5.10"
+version = "0.5.11"
 dependencies = [
  "cc",
  "libc 0.2.191",
@@ -11386,7 +11386,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-dictation-core"
-version = "0.3.6"
+version = "0.3.7"
 dependencies = [
  "rightkit-credentials",
  "rightkit-fs",
@@ -11469,7 +11469,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-dictation-models"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "dirs",
  "rightkit-child-process",
@@ -11539,7 +11539,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-dictation-tauri"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "rightkit-audio",
  "rightkit-automation",
@@ -11834,7 +11834,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-fs"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "blake3",
  "libc 0.2.191",
@@ -11928,7 +11928,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-hotkeys"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "rightkit-automation",
  "windows-sys 0.61.2",
@@ -12038,7 +12038,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-license"
-version = "0.3.4"
+version = "0.3.5"
 dependencies = [
  "base64 0.23.1",
  "ed25519-dalek",
@@ -12197,7 +12197,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-media-control"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "libc 0.2.191",
  "rightkit-child-process",
@@ -12501,7 +12501,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-onnx"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "half",
  "ndarray",
@@ -13136,7 +13136,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-tauri-shell"
-version = "0.8.8"
+version = "0.8.9"
 dependencies = [
  "block2",
  "libc 0.2.191",
@@ -13214,7 +13214,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-text-polish"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "regex",
  "rightkit-fs",

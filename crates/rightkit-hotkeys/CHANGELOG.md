@@ -1,6 +1,9 @@
 # Changelog
 
 
+## 0.1.8
+- Add `ConflictState` (`new`, `snapshot`, `publish`): the process-wide current registration conflict with a store, emit and show-on-conflict sequence. Additive.
+
 ## 0.1.7 - 2026-11-20
 
 - Carry the native push-to-talk release clock sample through asynchronous Windows and macOS dispatch. Existing callback registration remains available.

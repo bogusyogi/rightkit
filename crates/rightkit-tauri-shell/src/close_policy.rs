@@ -51,3 +51,52 @@ pub fn decide(
     }
     CloseDecision::Allow
 }
+
+/// The host's reactions to a close request, for [`handle_close_requested`]. Each runs after the
+/// close has been prevented (every case but `Allow`).
+pub struct CloseHandlers<'a, R: tauri::Runtime> {
+    /// Quit: the host runs its shutdown steps and exits the app.
+    pub quit: &'a dyn Fn(&tauri::Window<R>),
+    /// The main window hides to its tray/pill (the host runs its transition).
+    pub main_to_tray: &'a dyn Fn(&tauri::Window<R>),
+    /// Hide the window and suspend its rendering. The window is hidden before this runs.
+    pub hide: &'a dyn Fn(&tauri::Window<R>),
+}
+
+/// Decide a close request for `window` with [`decide`], prevent the close when it must not
+/// proceed, and run the matching handler. Returns the decision. `Hide` hides the window itself
+/// before calling `handlers.hide`; `Allow` runs nothing and lets the close proceed.
+pub fn handle_close_requested<R: tauri::Runtime>(
+    window: &tauri::Window<R>,
+    api: &tauri::CloseRequestApi,
+    main_label: &str,
+    close_behavior: &str,
+    values: &CloseValues<'_>,
+    main_hides_to_tray: bool,
+    handlers: &CloseHandlers<'_, R>,
+) -> CloseDecision {
+    let decision = decide(
+        window.label(),
+        main_label,
+        close_behavior,
+        values,
+        main_hides_to_tray,
+    );
+    match decision {
+        CloseDecision::Quit => {
+            api.prevent_close();
+            (handlers.quit)(window);
+        }
+        CloseDecision::MainToTray => {
+            api.prevent_close();
+            (handlers.main_to_tray)(window);
+        }
+        CloseDecision::Hide => {
+            api.prevent_close();
+            let _ = window.hide();
+            (handlers.hide)(window);
+        }
+        CloseDecision::Allow => {}
+    }
+    decision
+}

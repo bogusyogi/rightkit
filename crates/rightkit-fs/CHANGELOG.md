@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.5.1
+- Add `app_dirs::roaming_app_data`: the account's Roaming AppData known folder (Windows, from the OS and never `%APPDATA%`; `None` elsewhere). Additive.
+
 ## 0.5.0 (unpublished)
 
 - Directory ACL caching now requires a held `private_cached::PrivateDirCacheLease`. Without a lease, helpers perform the owner-only checks on each call. Dropping the last lease releases cached directory identities after in-flight calls return.

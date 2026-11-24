@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.5
+Additive; existing exports unchanged.
+
+- Added `createRendererEventBridge({ bridgeEvent })` returning `{ listen(event, handler) }`: the renderer side of the native event bridge, a window listener on the host's `bridgeEvent` name, filtered by event name, with no Tauri import and no dynamic import. Types `RendererEvent`, `RendererEventCallback`, `RendererEventEnvelope`, `RendererEventBridge`, `RendererEventBridgeConfig`.
+- Added `mapListenRoutes({ listen, routes })`: remaps each event name through `routes` to the name the native side emits; a name with no route resolves to a no-op unlisten and is never delivered.
+- Added `handOverLegacyStorage({ storage, keys, send })`: a one-time hand-over of values a retired renderer kept in web storage. It reads the keys, does nothing when none is set, calls `send` once with the raw values, and removes the keys only after `send` resolves. Types `LegacyStorage`, `LegacyStorageHandOverConfig`.
+
 ## 0.4.4
 
 - Additive. `useTauriEvent(subscribe, event, handler, onReady?)` takes an optional fourth argument, run once after the listener is registered (skipped if the subscription was cleaned up or replaced first; a throw, rejection or non-settlement never affects the unlisten). The handler and `onReady` are published at commit and a listener reaches them only while its own `subscribe` and `event` are the committed ones, so a listener being replaced cannot deliver to its successor. Without the argument nothing changes.

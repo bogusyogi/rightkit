@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.3.3
+- New, additive: `executable_runtime_candidates`, `configure_runtime_for_current_exe` and `selection_file_name`: the exe-sibling plus resource-subdirectory (plus optional developer path) candidate list and bind for a desktop app that ships the runtime beside its executable.
+
 ## 0.3.2
 
 - New, additive: `BindSpec::exempt_explicit_from_verification` (default `false`): when `true`, a runtime selected from a `CandidateSource::Explicit` or `ExplicitFile` candidate skips `BindSpec::verification` and reports `VerificationReport::Unverified`; every other source is still verified. Reproduces CutRight's rule (a caller-named path is trusted, the installed bundle must verify).

@@ -7,6 +7,7 @@
 //!   action, so two features never fight over one chord before the OS is even asked.
 
 use std::collections::BTreeMap;
+use std::sync::Mutex;
 
 use crate::chord::Chord;
 
@@ -30,6 +31,54 @@ impl HotkeyConflict {
             shortcuts,
             message: message.to_string(),
         }
+    }
+}
+
+/// The current registration conflict of a process, for a `static`: stored when published, read back
+/// by a late-loading window, and cleared by publishing `None`.
+pub struct ConflictState {
+    current: Mutex<Option<HotkeyConflict>>,
+}
+
+impl ConflictState {
+    /// An empty state (no conflict), usable in a `static`.
+    pub const fn new() -> Self {
+        Self {
+            current: Mutex::new(None),
+        }
+    }
+
+    /// The conflict published last, if any. A poisoned lock is recovered.
+    pub fn snapshot(&self) -> Option<HotkeyConflict> {
+        self.current
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .clone()
+    }
+
+    /// Store `conflict` as the current state, then call `emit` with it (the host sends its
+    /// renderer event there and logs a failed send), then, only when it is a conflict, call
+    /// `on_conflict` (the host shows its window there). The lock is not held during the callbacks.
+    pub fn publish(
+        &self,
+        conflict: Option<HotkeyConflict>,
+        emit: impl FnOnce(&Option<HotkeyConflict>),
+        on_conflict: impl FnOnce(),
+    ) {
+        *self
+            .current
+            .lock()
+            .unwrap_or_else(|error| error.into_inner()) = conflict.clone();
+        emit(&conflict);
+        if conflict.is_some() {
+            on_conflict();
+        }
+    }
+}
+
+impl Default for ConflictState {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

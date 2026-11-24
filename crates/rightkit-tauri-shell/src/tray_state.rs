@@ -351,6 +351,35 @@ impl TrayAlert {
             }));
         }
     }
+
+    /// Apply a [`TrayAlertSignal`] derived from the host's state: `Raise` and `Clear` call
+    /// [`Self::set`], `Keep` leaves the alert as it is.
+    pub fn apply<R: Runtime>(
+        &self,
+        app: &AppHandle<R>,
+        tray_id: &str,
+        signal: TrayAlertSignal,
+        sink: EventSink,
+    ) {
+        match signal {
+            TrayAlertSignal::Raise => self.set(app, tray_id, true, sink),
+            TrayAlertSignal::Clear => self.set(app, tray_id, false, sink),
+            TrayAlertSignal::Keep => {}
+        }
+    }
+}
+
+/// What a state change means for a [`TrayAlert`]: the host maps its own state (an error naming a
+/// blocked permission raises, a state that proves the capability works clears, anything else
+/// keeps) and passes the result to [`TrayAlert::apply`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TrayAlertSignal {
+    /// Turn the alert on.
+    Raise,
+    /// Turn the alert off.
+    Clear,
+    /// Leave the alert as it is.
+    Keep,
 }
 
 /// Run `on_click` for each left click on the tray `tray_id`, read from the shell's tray event

@@ -21,3 +21,4 @@ export * from "./react/tooltip.js";
 export * from "./react/live-region.js";
 export * from "./react/tabs.js";
 export * from "./react/colorgrid.js";
+export * from "./react/bootstrap.js";

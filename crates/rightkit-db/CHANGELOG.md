@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.5.11
+- Add `encrypted_lifecycle::support::{open_store_checked, rotate_with_new_key, lifecycle_error_text}`: the open sequence (orphan check, open, degraded note, after-open, secure-delete read-back) and mint-then-rotate with host closures and error mappings, and the key-store prefix mapping for a `LifecycleError`. Additive.
+
 ## 0.5.10
 
 - Add shared encrypted-store helpers for rotation settlement, orphan-sidecar classification & secure-delete verification.

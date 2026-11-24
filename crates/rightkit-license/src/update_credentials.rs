@@ -144,6 +144,59 @@ pub fn update_check_headers(
     Some(headers)
 }
 
+/// [`update_check_headers`] over a host read of the stored licence: `read` returns the stored
+/// licence (for example [`read_update_license`] bound to the host's store); its error is returned
+/// unchanged and no licence is `Ok(None)`. The host passes `read` and its header `names`.
+pub fn update_check_headers_for_stored(
+    read: impl FnOnce() -> Result<Option<UpdateLicense>, String>,
+    names: UpdateCheckHeaderNames<'_>,
+) -> Result<Option<HashMap<String, String>>, String> {
+    let Some(license) = read()? else {
+        return Ok(None);
+    };
+    Ok(update_check_headers(license, names))
+}
+
+/// The update-check request headers as name/value pairs for a client that takes a list: empty when
+/// there is no licence (a read that failed or found none, which the host passes as `None`), when it
+/// is not active or has no activation token, so such an install checks anonymously.
+pub fn update_check_header_pairs(
+    license: Option<UpdateLicense>,
+    names: UpdateCheckHeaderNames<'_>,
+) -> Vec<(String, String)> {
+    license
+        .and_then(|license| update_check_headers(license, names))
+        .map(|headers| headers.into_iter().collect())
+        .unwrap_or_default()
+}
+
+/// [`install_update_headers`] for a paid tier that needs a fresh signed entitlement first. In order,
+/// for a tier not in `free_tiers`: `runtime` returns the host's licensing runtime (`None` is the
+/// error `unavailable`); `refresh` re-validates with the licence service (a failure there is the
+/// host's to swallow, so it returns nothing and the stored token is still verified); `token` returns
+/// the verified signed token, `None` being the error `needs_pro`. A free tier returns `Ok(None)`
+/// without calling any of them.
+pub fn install_update_headers_refreshing<R>(
+    tier: &str,
+    free_tiers: &[&str],
+    needs_pro: &str,
+    unavailable: &str,
+    runtime: impl FnOnce() -> Option<R>,
+    refresh: impl FnOnce(&R),
+    token: impl FnOnce() -> Option<String>,
+) -> Result<Option<HashMap<String, String>>, String> {
+    install_update_headers(
+        tier,
+        free_tiers,
+        || {
+            let runtime = runtime().ok_or_else(|| unavailable.to_string())?;
+            refresh(&runtime);
+            Ok(token())
+        },
+        needs_pro,
+    )
+}
+
 /// The signed entitlement token for native consumers that present it to a private artifact lane,
 /// or `None` unless `pro_granted` (the host's verified Pro verdict, evaluated by the caller) and
 /// the source holds a signed credential right now. Never sent to a renderer by this function.

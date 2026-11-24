@@ -117,3 +117,32 @@ export function useTickingValue<T>(read: () => T, tickMs = 1000): T {
   }, [read, tickMs]);
   return value;
 }
+
+/** Options of the clock formatters: the locale and, for the time part, the 12 or 24 hour clock. */
+export interface ClockFormatOptions {
+  /** BCP 47 locale. Default `en-US`. */
+  locale?: string;
+  /** 12 hour clock. Default true. */
+  hour12?: boolean;
+}
+
+/**
+ * Menu-bar clock text such as `Wed Jul 1  12:03 AM`: short weekday, short month and day, two spaces, then the time.
+ * The date and the time are formatted separately and joined because one `toLocaleString` call inserts a locale
+ * separator (" at ") a real menu bar never shows, and the commas of the weekday form are dropped.
+ */
+export function formatMenuBarClock(date: Date, options: ClockFormatOptions = {}): string {
+  const { locale = "en-US", hour12 = true } = options;
+  const day = date.toLocaleDateString(locale, { weekday: "short", month: "short", day: "numeric" }).replace(/,/g, "");
+  const time = date.toLocaleTimeString(locale, { hour: "numeric", minute: "2-digit", hour12 });
+  return `${day}  ${time}`;
+}
+
+/** Taskbar clock parts such as `{ time: "12:03 AM", date: "7/1/2026" }`, for a clock drawn on two lines. */
+export function formatTaskbarClock(date: Date, options: ClockFormatOptions = {}): { time: string; date: string } {
+  const { locale = "en-US", hour12 = true } = options;
+  return {
+    time: date.toLocaleTimeString(locale, { hour: "numeric", minute: "2-digit", hour12 }),
+    date: date.toLocaleDateString(locale, { month: "numeric", day: "numeric", year: "numeric" }),
+  };
+}

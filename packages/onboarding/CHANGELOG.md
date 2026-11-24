@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.6.9
+- Added `useAccessibilityWatch(port, { enabled, pollMs? })` with `AccessibilityWatchPort { status, activateShortcuts? }`: a hub-level granted flag re-checked on mount, focus and visibility change, polled only while access is absent, activating shortcuts once per grant. Additive.
+- Added `useMicLevel(subscribe, { active?, readLevel? })`, `clampMicLevel`, `micMeterActiveBars` and `micMeterBarHeight` for a setup microphone meter; the bars are drawn by the host. Additive.
+- Added `resolvePttKey` and `platformPttMatcher`, and optional `pttSettings` / `pttMatchers` arguments of `useSetupRecording` (used when `pttKey` / `isPttKeyEvent` are not passed). The controller also returns `pttKey`. Additive.
+- Added `createSingleModelBackend`, `modelEntryFromStatus`, `modelEntryFromEvent`, `activateInstalledModel` and `createModelAutoAdvance` for a one-model download step and its install-select-advance-once rule. Additive.
+- Added `legalAcceptanceCurrentFromSettings`, `createSettingsLegalReceiptPort`, `createReAcceptanceHandlers` and `DEFAULT_LEGAL_SETTINGS_FIELDS` for acceptance stored as flat settings fields and a standalone re-acceptance gate. Additive.
+- Added `useStepReady(setReady, ready, ref?)`. Additive.
+
 ## 0.6.8
 
 - Added options to `restartOnboardingSetup`: `existingProgress: { firstStep, resetStepProgress }` keeps the fields it does not reset, leaves absent progress absent and can go to a step without clearing its history, and `alongside` patches host settings (for example a separate flow draft) in the same revision-checked write. Without options it behaves as before: the first step, setup progress cleared, the legal acceptance kept.
