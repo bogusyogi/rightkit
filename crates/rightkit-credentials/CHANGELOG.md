@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.5.9
 
 - Add `key_slot::SharedKeySlot` (a `static` cell that binds a `KeySlot` once and retries after a failed bind), `Store::get_text`, `Secret::to_text` and `create_rotation_lock_dir`. Additive.
 

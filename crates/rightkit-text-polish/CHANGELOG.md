@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.4
 
 - Add `polish_jsonl` (`polish_jsonl`, `polish_jsonl_line`, `json_string_field`, `json_escape`, `json_unescape`, and `polish_json_array` behind `store`): a JSON-lines driver that applies a host polish function to each `text` field, plus an `examples/polish_jsonl.rs` harness. Additive.
 

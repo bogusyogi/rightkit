@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.3
 
 - Added `StoreOptions::typed_flat_migration` (a typed settings struct through the flat migration) and `migrated_default`. Additive.
 

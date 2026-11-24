@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.8
 
 - Add `ConflictState` (`new`, `snapshot`, `publish`): the process-wide current registration conflict with a store, emit and show-on-conflict sequence. Additive.
 

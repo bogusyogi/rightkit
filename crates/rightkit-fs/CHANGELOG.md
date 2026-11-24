@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.5.1
 
 - Add `app_dirs::roaming_app_data`: the account's Roaming AppData known folder (Windows, from the OS and never `%APPDATA%`; `None` elsewhere). Additive.
 

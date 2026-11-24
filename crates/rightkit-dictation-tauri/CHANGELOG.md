@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.3
 
 - Add `file_transcribe` (`preflight_media_file`, `host_read_check`, `files_settings_url`, `validate_export_path`, `write_text_export`, default extension lists): media-file preflight and guarded transcript export. Host passes extension lists & app name. Additive.
 - Add `asr_compat_report` (`run_sample_check`, `report_for`, `CompatReport`, `CompatLabels`, `SampleTranscript`): the serialisable compatibility result and the whole captured-sample check over `asr_compat`; host passes thresholds, profiles & message templates. Additive.

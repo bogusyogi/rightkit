@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.3
 
 - New, additive: `executable_runtime_candidates`, `configure_runtime_for_current_exe` and `selection_file_name`: the exe-sibling plus resource-subdirectory (plus optional developer path) candidate list and bind for a desktop app that ships the runtime beside its executable.
 

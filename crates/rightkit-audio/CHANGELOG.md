@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.2
 
 - Add `setup::mic_devices`: `MicDeviceView` (serialisable input device), `list_input_device_views` (blocking list), and `resolve_saved_device` with `SavedDeviceChoice` (saved-microphone fallback refusal around a host resolver). Additive.
 

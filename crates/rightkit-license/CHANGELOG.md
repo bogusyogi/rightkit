@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.5
 
 - Add `update_check_headers_for_stored`, `update_check_header_pairs` and `install_update_headers_refreshing`: the stored-licence read to update-check headers, the pair-list form, and the paid-tier install sequence (runtime, refresh, verified token). Additive.
 

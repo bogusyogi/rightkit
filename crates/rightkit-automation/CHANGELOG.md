@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.7.4
 
 - Add macOS focus-continuity probe examples (`editor_identity_probe`, `focus_continuity_survival`, `focus_observer_idle_memory`, `start_capture_chain`) over `desktop`, behind `desktop-context`. Examples only; no library change.
 
