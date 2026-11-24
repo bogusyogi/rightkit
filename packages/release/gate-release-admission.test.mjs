@@ -209,9 +209,7 @@ test("the real command and the publication entries: refused by name without an a
   const local = src("./publish-local-npm.mjs");
   const localAt = local.indexOf("gateReleaseGuard({ name: o.pkg, archiveFile: path.join(work, tgz), commit })");
   assert.ok(localAt > 0 && localAt < local.indexOf("const token = readToken();") && localAt < local.indexOf('run("npm", ["publish", path.join(work, tgz)'), "publish-local-npm.mjs calls the guard on the packed file before the token and before npm");
-  const owner = src("../../.github/workflows/publish-npm-owner.yml");
-  const refuseAt = owner.indexOf('if [[ "$PACKAGE" == "packages/release" ]]; then echo "::error::packages/release');
-  assert.ok(refuseAt > 0 && refuseAt < owner.indexOf("          npm publish --provenance --access public --ignore-scripts"), "the hand-started workflow refuses packages/release before it publishes");
+  // The hand-started owner workflow publishes the gate on the owner's decision (Adrian, 2026-11-24, rightkit#1514); it carries no refusal.
 });
 
 test("the upload entry reads an admission record: required for the gate package, bound to the exact sealed unit", async () => {
