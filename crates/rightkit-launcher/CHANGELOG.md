@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.2
+
+- Added `files::LiveFileIndex` (Windows): a file index whose roots and switches follow the embedding app's settings, rebuilt after file changes (watched with `rightkit-file-watch`, a four-second quiet window and a 120-second gap between rebuilds), with a revision counter and an `on_revision` callback a host uses to refresh an open query. Explicit roots walk independently, canonical aliases are deduplicated, absolute excludes apply to ordinary, dotted and verbatim paths, drive classification and scan I/O are bounded per drive so an offline volume cannot stall the others. `files::scope`, `signature` and the walk now take the settings as a value; `host::file_index_scope` is still the default source. Moved from Pulse's `windows/src/launcher_files.rs`.
+- New Windows-only dependency `rightkit-file-watch` (no default features); the `windows` crate gains `Win32_System_IO`.
+
 ## 0.2.1
 
 - Exported usage history ranking with caller-provided time and capacity, compatible with saved Windows launcher records.
