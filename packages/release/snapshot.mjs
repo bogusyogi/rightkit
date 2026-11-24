@@ -807,6 +807,12 @@ export const windowsSelfCheckScript = (name) => [
   "$in = $false; if (-not [RkJob]::IsProcessInJob([RkJob]::GetCurrentProcess(), $j, [ref]$in)) { 'ERR:' + [Runtime.InteropServices.Marshal]::GetLastWin32Error(); exit 0 }",
   "if ($in) { 'IN' } else { 'OUT' }",
 ].join("\n");
+/** Asks Windows itself about a named job, with no holder: `GONE:<error>` when no such job exists any more, else `ACTIVE:<count>`. */
+export const windowsJobProbeScript = (name) => [
+  "$ErrorActionPreference = 'Stop'", JOB_TYPE,
+  `$j = [RkJob]::OpenJobObjectW(0x0004, $false, ${psString(name)}); if ($j -eq [IntPtr]::Zero) { 'GONE:' + [Runtime.InteropServices.Marshal]::GetLastWin32Error(); exit 0 }`,
+  "'ACTIVE:' + [RkJob]::Active($j)",
+].join("\n");
 const readJson = (file) => { try { return JSON.parse(fs.readFileSync(file, "utf8").replace(/^﻿/, "")); } catch { return null; } };
 const sleepMs = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 /** The real Windows operations; tests pass their own. */
@@ -819,6 +825,18 @@ export const windowsJobOps = {
     const out = String(r.stdout ?? "").trim();
     if (r.error || r.status !== 0 || !/^(IN|OUT)$/m.test(out)) throw new Error(`the containment self-check gave no answer (${r.error?.message ?? out.slice(0, 120)})`);
     return /^IN$/m.test(out) ? "IN" : "OUT";
+  },
+  /**
+   * The named job as Windows shows it, asked without its holder: `{ exists: false }` when Windows has no job of that name (a job with no open handle
+   * and no process in it is deleted by Windows, so every process of it has ended), else `{ exists: true, active }`. Throws when Windows gave no answer.
+   */
+  jobActive(name) {
+    const r = spawnSync("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(windowsJobProbeScript(name), "utf16le").toString("base64")], { encoding: "utf8", timeout: 60_000, windowsHide: true });
+    const out = String(r.stdout ?? "").trim(); const gone = /^GONE:(\d+)$/m.exec(out); const active = /^ACTIVE:(\d+)$/m.exec(out);
+    if (r.error || r.status !== 0 || (!gone && !active)) throw new Error(`Windows gave no answer about the job (${r.error?.message ?? out.slice(0, 120)})`);
+    // 2 is ERROR_FILE_NOT_FOUND: no object of that name. Any other failure to open it (access denied, ...) proves nothing.
+    if (gone) { if (Number(gone[1]) !== 2) throw new Error(`the job could not be opened (Windows error ${gone[1]})`); return { exists: false }; }
+    return { exists: true, active: Number(active[1]) };
   },
   sleep: sleepMs,
   /** The host's last boot as Unix ms (the deleted build-ownership.mjs read it the same way: [DateTimeOffset] of LastBootUpTime, never local-time arithmetic). */
@@ -888,7 +906,7 @@ export function queryJobHolder(file, { job, timeoutMs = 5000, sleep = sleepMs } 
  * A record that is not contained proves nothing, at the holder's own release or after it died: live (acquisition refuses a self-check OUT, so only a damaged record says so).
  * A dead holder's job made before the host's last boot is gone (the reboot ended it); a holder killed without a reboot leaves the lock busy (fail closed).
  */
-export function windowsJobLive(lockFile, { self = 0, query = queryJobHolder, bootTime = () => windowsJobOps.bootTime() } = {}) {
+export function windowsJobLive(lockFile, { self = 0, query = queryJobHolder, bootTime = () => windowsJobOps.bootTime(), probe = (name) => windowsJobOps.jobActive(name) } = {}) {
   let record = null;
   try { record = JSON.parse(fs.readFileSync(jobRecordOf(lockFile), "utf8")); } catch (e) { if (e?.code === "ENOENT") return []; return [`job record unreadable (${e?.code ?? e?.message})`]; }
   if (record?.schema !== WINDOWS_JOB_SCHEMA || typeof record.job !== "string" || typeof record.holder !== "string" || !HOLDER_NAME.test(record.holder)) return ["job record malformed"];
@@ -903,7 +921,16 @@ export function windowsJobLive(lockFile, { self = 0, query = queryJobHolder, boo
   const state = readJson(file);
   if (state?.schema === WINDOWS_JOB_SCHEMA && state.job === record.job && state.state === "drained") return [];
   try { const { active } = query(file, { job: record.job }); return active - self > 0 ? [`job ${record.job} (${active - self} process(es))`] : []; }
-  catch (e) { return [`job ${record.job} unknown (${e.message})`]; }
+  catch (e) {
+    // The holder did not answer. For a dead lock holder that is what a holder killed with its gate looks like (GC-A27 NN12: the next ordinary run must start
+    // by itself), so Windows is asked directly: no job of that name left, or a job with no process in it, proves every process of it has ended. Anything
+    // Windows cannot say stays unknown, which counts as live. A holder asking about its own job (self > 0) never takes this path.
+    if (self === 0) {
+      try { const seen = probe(record.job); if (!seen.exists || seen.active === 0) return []; return [`job ${record.job} (${seen.active} process(es); its holder is gone)`]; }
+      catch (p) { return [`job ${record.job} unknown (${e.message}; ${p.message})`]; }
+    }
+    return [`job ${record.job} unknown (${e.message})`];
+  }
 }
 
 /** The recorded process groups of `lockFile` that still answer (kill(-group, 0) is not ESRCH); a group that cannot be judged counts as alive.

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.63
+
+- A snapshot lock left by a gate that was killed together with its job holder is now reclaimed by the next run. When the holder does not answer, the gate asks Windows about the named job directly: no such job, or a job with no process in it, proves every process of it has ended. Before, the lock stayed busy until the next reboot.
+
 ## 0.6.62
 
 - The scan-result cache has one fixed place per repository, the folder `rightkit-gate-cache` in the repository's git folder. The gate no longer reads `RK_GATE_CACHE_DIR`.

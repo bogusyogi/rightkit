@@ -294,7 +294,13 @@ test("Windows: what still runs in a lock's job: a fresh count from the holder; d
   assert.deepEqual(windowsJobLive(lockFile, at(0)), []);
   assert.deepEqual(windowsJobLive(lockFile, { self: 1, ...at(1) }), [], "at its own release the holder is the one process");
   assert.equal(windowsJobLive(lockFile, { self: 1, ...at(2) }).length, 1, "a child still running keeps the lock at release");
-  assert.match(windowsJobLive(lockFile, { query: () => { throw new Error("no answer"); } })[0], /unknown \(no answer\)/);
+  assert.match(windowsJobLive(lockFile, { query: () => { throw new Error("no answer"); }, probe: () => { throw new Error("no word from Windows"); } })[0], /unknown \(no answer; no word from Windows\)/);
+  // GC-A27 NN12: a holder killed with its gate cannot answer, so Windows itself is asked about the job. No job of that name, or one with no process, is proof.
+  const mute = () => { throw new Error("no answer"); };
+  assert.deepEqual(windowsJobLive(lockFile, { query: mute, probe: () => ({ exists: false }) }), [], "Windows has no such job: every process of it has ended");
+  assert.deepEqual(windowsJobLive(lockFile, { query: mute, probe: () => ({ exists: true, active: 0 }) }), [], "the job exists with no process in it");
+  assert.match(windowsJobLive(lockFile, { query: mute, probe: () => ({ exists: true, active: 2 }) })[0], /2 process\(es\); its holder is gone/, "a survivor in the job keeps the lock");
+  assert.match(windowsJobLive(lockFile, { self: 1, query: mute, probe: () => assert.fail("a holder never asks Windows about its own job") })[0], /unknown \(no answer\)/);
   const rec = recordOf(lockFile);
   fs.writeFileSync(path.join(`${lockFile}.children`, rec.holder), JSON.stringify({ schema: WINDOWS_JOB_SCHEMA, job: rec.job, state: "drained" }));
   assert.deepEqual(windowsJobLive(lockFile, { query: () => assert.fail("a drained job needs no query") }), []);
@@ -353,8 +359,8 @@ test("Windows: a dead holder's job made before the host's last boot is gone (reg
   assert.ok(Number.isFinite(at), "the record names when its job was made");
   const dead = () => { throw new Error("no answer"); };
   assert.deepEqual(windowsJobLive(lockFile, { query: dead, bootTime: () => at + 1 }), [], "rebooted since: nothing of the job survives");
-  assert.match(windowsJobLive(lockFile, { query: dead, bootTime: () => at - 1 })[0], /unknown \(no answer\)/, "no reboot: an unanswered holder is unknown");
-  assert.match(windowsJobLive(lockFile, { query: dead, bootTime: () => { throw new Error("cim"); } })[0], /unknown/, "an unreadable boot time proves nothing");
+  assert.match(windowsJobLive(lockFile, { query: dead, bootTime: () => at - 1, probe: () => { throw new Error("no word from Windows"); } })[0], /unknown \(no answer/, "no reboot, and Windows cannot say: an unanswered holder is unknown");
+  assert.match(windowsJobLive(lockFile, { query: dead, bootTime: () => { throw new Error("cim"); }, probe: () => { throw new Error("no word from Windows"); } })[0], /unknown/, "an unreadable boot time proves nothing");
   assert.equal(windowsJobLive(lockFile, { self: 1, query: () => ({ active: 2 }), bootTime: () => at + 1 }).length, 1, "the live holder's own release never uses the boot time");
 });
 
