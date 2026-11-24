@@ -18,7 +18,7 @@ Capabilities: 223 (58 with fingerprints, 165 declaration-only). Internal owners 
 | agent-api-platform | `rightkit-agent-engine-api-platform` | none | declaration-only | 0 | rightkit-agent-engine-api-platform: staged 0.1.3, not published |
 | agent-api-sessions | `rightkit-agent-engine-api-sessions` | none | declaration-only | 0 | rightkit-agent-engine-api-sessions: staged 0.1.1, not published |
 | agent-api-workflows | `rightkit-agent-engine-api-workflows` | none | declaration-only | 0 | rightkit-agent-engine-api-workflows: staged 0.2.2, not published |
-| agent-attention | `rightkit-agent-engine-attention` | none | declaration-only | 0 | rightkit-agent-engine-attention: staged 0.2.0, not published |
+| agent-attention | `rightkit-agent-engine-attention` | none | declaration-only | 0 | rightkit-agent-engine-attention: published 0.2.0 (crates.io) |
 | agent-cli | `rightkit-agent-engine-cli` | none | declaration-only | 0 | rightkit-agent-engine-cli: staged 0.1.1, not published |
 | agent-demo-mode | `rightkit-agent-demo` | none | declaration-only | 0 | rightkit-agent-demo: staged 0.2.0, not published |
 | agent-engine | `rightkit-agent-engine-core` | none | declaration-only | 0 | rightkit-agent-engine-core: staged 0.1.3, not published |
@@ -26,7 +26,7 @@ Capabilities: 223 (58 with fingerprints, 165 declaration-only). Internal owners 
 | agent-gateway | `rightkit-agent-gateway` | none | declaration-only | 0 | rightkit-agent-gateway: staged 0.3.0, not published |
 | agent-history | `rightkit-agent-engine-history` | none | declaration-only | 0 | rightkit-agent-engine-history: staged 0.1.4, not published |
 | agent-host-traits | `rightkit-agent-host-traits` | none | declaration-only | 0 | rightkit-agent-host-traits: staged 0.1.3, not published |
-| agent-memory | `rightkit-memory` | none | declaration-only | 0 | rightkit-memory: staged 0.3.1, not published |
+| agent-memory | `rightkit-memory` | none | declaration-only | 0 | rightkit-memory: published 0.3.1 (crates.io) |
 | agent-mobile-runtime | `rightkit-agent-engine-mobile-runtime` | none | declaration-only | 0 | rightkit-agent-engine-mobile-runtime: staged 0.1.1, not published |
 | agent-orchestration | `rightkit-agent-orchestration` | none | declaration-only | 0 | rightkit-agent-orchestration: staged 0.1.6, not published |
 | agent-orchestration-handoff | `rightkit-agent-orchestration-handoff` | none | declaration-only | 0 | rightkit-agent-orchestration-handoff: staged 0.1.2, not published |
@@ -82,7 +82,7 @@ Capabilities: 223 (58 with fingerprints, 165 declaration-only). Internal owners 
 | crash-reporting | `rightkit-crash` | advise | fingerprinted | 1 (0 block, 1 advise) | rightkit-crash: published 0.4.2 (crates.io) |
 | crypto-primitives | `rightkit-crypto` | none | declaration-only | 0 | rightkit-crypto: published 0.1.0 (crates.io) |
 | dependency-updates | `@rightkit/outdated` | none | declaration-only | 0 | @rightkit/outdated: published 0.3.0 (npm) |
-| desktop-automation | `rightkit-automation` | advise | fingerprinted | 4 (0 block, 4 advise) | rightkit-automation: published 0.7.3 (crates.io) |
+| desktop-automation | `rightkit-automation` | advise | fingerprinted | 4 (0 block, 4 advise) | rightkit-automation: published 0.7.4 (crates.io) |
 | desktop-control | `rightkit-qa-driver` | advise | fingerprinted | 6 (0 block, 6 advise) | rightkit-qa-driver: published 0.7.0 (crates.io) |
 | desktop-overlay | `rightkit-overlay` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-overlay: published 0.2.0 (crates.io) |
 | desktop-qa | `rightkit-qa` | advise | fingerprinted | 4 (0 block, 4 advise) | rightkit-qa: published 0.10.8 (crates.io) |
@@ -109,7 +109,7 @@ Capabilities: 223 (58 with fingerprints, 165 declaration-only). Internal owners 
 | document-workspace-ui | `@rightkit/document-workspace` | none | declaration-only | 0 | @rightkit/document-workspace: staged 0.2.1, not published |
 | docx | `rightkit-docs` | none | declaration-only | 0 | rightkit-docs: published 0.1.2 (crates.io) |
 | docx-editor | `@rightkit/docx-editor` | none | declaration-only | 0 | @rightkit/docx-editor: staged 0.1.2, not published |
-| durable-memory | `rightkit-memory-store` | none | declaration-only | 0 | rightkit-memory-store: published 0.2.0 (crates.io) |
+| durable-memory | `rightkit-memory-store` | none | declaration-only | 0 | rightkit-memory-store: published 0.2.1 (crates.io) |
 | durable-memory-core | `rightkit-memory-core` | none | declaration-only | 0 | rightkit-memory-core: staged 0.2.0, not published |
 | embeddings | `rightkit-embed` | advise | fingerprinted | 1 (0 block, 1 advise) | rightkit-embed: published 0.6.1 (crates.io) |
 | engine-host | `rightkit-engine-host` | none | declaration-only | 0 | rightkit-engine-host: staged 0.2.0, not published |
@@ -128,7 +128,7 @@ Capabilities: 223 (58 with fingerprints, 165 declaration-only). Internal owners 
 | github-workflows | `@rightkit/ci` | none | declaration-only | 0 | @rightkit/ci: published 0.3.1 (npm) |
 | global-hotkeys | `rightkit-hotkeys` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-hotkeys: published 0.1.6 (crates.io) |
 | google-identity | `rightkit-google-identity` | none | declaration-only | 0 | rightkit-google-identity: published 0.2.0 (crates.io) |
-| google-workspace-apis | `rightkit-google-apis` | none | declaration-only | 0 | rightkit-google-apis: staged 0.2.1, not published |
+| google-workspace-apis | `rightkit-google-apis` | none | declaration-only | 0 | rightkit-google-apis: published 0.2.1 (crates.io) |
 | html-editor | `@rightkit/html-editor` | none | declaration-only | 0 | @rightkit/html-editor: staged 0.2.0, not published |
 | http-client | `rightkit-http` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-http: published 0.4.0 (crates.io) |
 | installation-identity | `rightkit-identity` | none | declaration-only | 0 | rightkit-identity: published 0.1.0 (crates.io) |
@@ -159,7 +159,7 @@ Capabilities: 223 (58 with fingerprints, 165 declaration-only). Internal owners 
 | motion-inspect-sheets | `rightkit-motion` | none | declaration-only | 0 | rightkit-motion: published 0.2.0 (crates.io) |
 | motion-takes | `rightkit-motion` | none | declaration-only | 0 | rightkit-motion: published 0.2.0 (crates.io) |
 | nearby-sharing | `rightkit-send` | none | declaration-only | 0 | rightkit-send: published 0.2.0 (crates.io) |
-| oauth-sign-in | `rightkit-oauth` | block | fingerprinted | 8 (3 block, 5 advise) | rightkit-oauth: published 0.10.0 (crates.io) |
+| oauth-sign-in | `rightkit-oauth` | block | fingerprinted | 8 (3 block, 5 advise) | rightkit-oauth: published 0.11.1 (crates.io) |
 | ocr | `rightkit-ocr` | advise | fingerprinted | 3 (0 block, 3 advise) | rightkit-ocr: published 0.2.3 (crates.io) |
 | onboarding-ui | `@rightkit/onboarding` | advise | fingerprinted | 7 (0 block, 7 advise) | @rightkit/onboarding: published 0.6.6 (npm) |
 | onnx-runtime | `rightkit-onnx` | advise | fingerprinted | 4 (0 block, 4 advise) | rightkit-onnx: published 0.2.7 (crates.io) |
@@ -214,7 +214,7 @@ Capabilities: 223 (58 with fingerprints, 165 declaration-only). Internal owners 
 | text-polish | `rightkit-text-polish` | none | declaration-only | 0 | rightkit-text-polish: published 0.1.3 (crates.io) |
 | text-to-speech | `rightkit-tts`, `rightkit-tts-qwen`, `rightkit-tts-qwen-sys` | advise | fingerprinted | 3 (0 block, 3 advise) | rightkit-tts: published 0.2.3 (crates.io); rightkit-tts-qwen: published 0.2.7 (crates.io); rightkit-tts-qwen-sys: published 0.1.2 (crates.io) |
 | theme-ui | `@rightkit/theme` | advise | fingerprinted | 7 (0 block, 7 advise) | @rightkit/theme: published 0.3.4 (npm) |
-| time-civil | `rightkit-time` | none | declaration-only | 0 | rightkit-time: published 0.1.0 (crates.io) |
+| time-civil | `rightkit-time` | none | declaration-only | 0 | rightkit-time: published 0.1.5 (crates.io) |
 | timed-transcripts | `rightkit-transcript` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-transcript: published 0.4.0 (crates.io) |
 | transcript-library | `rightkit-transcript-library` | none | declaration-only | 0 | rightkit-transcript-library: published 0.1.7 (crates.io) |
 | typeset | `rightkit-typeset` | advise | fingerprinted | 3 (0 block, 3 advise) | rightkit-typeset: published 0.1.0 (crates.io) |
