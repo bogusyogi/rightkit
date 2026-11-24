@@ -2,9 +2,7 @@
   "schema": 1,
   "about": "Publishable units with no reviewed consumer recipe (scripts/preflight.mjs consumer-recipe and npm-recipe, G01). Every publishable crate and public npm package has a recipe or is listed here; a unit leaves this list in the commit that adds its recipe, and a unit about to publish must have one whatever this list says. Listed 2026-10-24 from the tree.",
   "uncovered": {
-    "cargo": {
-      "rightkit-assist": "New crate (0.1.0), not published yet and its crates.io name is not yet approved by the owner; no consumer recipe has been written or reviewed. It must get a reviewed recipe (ci/consumers/rightkit-assist) in the commit before it is published."
-    },
+    "cargo": {},
     "npm": {}
   }
 }

@@ -5,6 +5,7 @@ edition = "2021"
 rust-version = "1.98.0"
 description = "The noticing loop for an always-on assistant: signals, sorting in code, booking extraction, a tools-off triage contract, typed facts, checks, standing instructions and occurrences, over a storage trait. Pure logic, no network, no model calls."
 license = "MIT OR Apache-2.0"
+publish = false
 readme = "README.md"
 repository = "https://github.com/bogusyogi/rightkit"
 keywords = ["assistant", "triage", "inbox", "agent"]
