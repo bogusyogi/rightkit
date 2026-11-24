@@ -2627,7 +2627,7 @@
       "pkId": "PK19",
       "id": "ci/consumers/rightkit-audio/src/main.rs",
       "files": {
-        "Cargo.toml": "153438560a1aef310de4f119c58199f7f8ee85a1441ed945c427b94a9412af39",
+        "Cargo.toml": "9164308ac1e91ae58cd181e5ea173fce56ba39e176bffacedec61eaf998a2ad4",
         "README.md": "df869ff38ab41ec3c708dd21b21dd19c0354f5ce3f0a15e75f65f557b6d23b08",
         "src/main.rs": "3137d2e7bfe3964b09dbda3956476a04a316652ea19a81373778e8b786450c87"
       }
@@ -2799,7 +2799,7 @@
       "pkId": "PK18",
       "id": "ci/consumers/rightkit-tts/src/main.rs",
       "files": {
-        "Cargo.toml": "4d767ba47ab9fbf4c9e2e466cc6bec5956b0d61a4a24ac49f25ceba74e605f6c",
+        "Cargo.toml": "e64144641ec41a3481424bae7f65adffe01b04dfa0d241aa3c1f730b46eaceb2",
         "README.md": "57738f5d663d06fd9218ddb332e25eb06bf8e61b43679c293a566ac7b9a0bc2b",
         "src/main.rs": "cc257282104f31005111638d25c32a1be62ed29aa72010c0f136d180ac4daa29"
       }
@@ -3178,7 +3178,7 @@
       "pkId": "PK91",
       "id": "ci/consumers/rightkit-dictation-core/src/main.rs",
       "files": {
-        "Cargo.toml": "23682502d963d2002ee54460262072a6824c4d0a1bcef2fbe6c4636ce3094b69",
+        "Cargo.toml": "6e423094c4493d87ea2e37270577a1e42a24d84bbd0f3c31c056bd1ef6ce0a5b",
         "README.md": "d8bafb727a742ad45273efab4a6f466d74b0d6c2c6125212030818ef811f0195",
         "src/main.rs": "6c635537622a8598397ae3b0a963206a4745d9ec4fa0fdbbe0ff5725bbe9c7a9"
       },
@@ -3459,7 +3459,7 @@
       "pkId": "PK122",
       "id": "ci/consumers/rightkit-voice-commands/src/main.rs",
       "files": {
-        "Cargo.toml": "5e292defe90692bc5f64c110182c1d4473fe9162a000d08cf48c5440d4ab9c24",
+        "Cargo.toml": "5d501ad49ff9b3f7f2e6c0633d6ba05f99c624bf402f0587c887f5d7b975666d",
         "README.md": "427f97892bddc5f9989bf02f7448c9d36fcccfe42a473a86dc2e92edc25a1a5b",
         "src/main.rs": "9f558ccc972a4e9d79741dc25cdb78926735af8a57bdf6c3e140663679714d89"
       }
@@ -3577,7 +3577,7 @@
       "pkId": "PK141",
       "id": "ci/consumers/rightkit-dictation-command-host/src/main.rs",
       "files": {
-        "Cargo.toml": "21a910c03152aedb81fda6aa8459ab3e59fe76428d60eab08ae75442720f2d4d",
+        "Cargo.toml": "aec8fbad484278c9d33b89a2e7da65670484eafce10e38fff8a30582bc066221",
         "README.md": "87bb5a18330267d23b7bacf026a37a70d5f5cb642dfb28ebd1ee1e89d8ea7f93",
         "src/main.rs": "bf1d1a83945e1844dc0a41762e23bb4a42794fcc0201041be7202d32a882f59d"
       },
@@ -3615,7 +3615,7 @@
       "pkId": "PK145",
       "id": "ci/consumers/rightkit-dictation-runtime/src/main.rs",
       "files": {
-        "Cargo.toml": "7620f4e55e260d64de0c6b4efbbb53ccef84c5d097bda797ed0a285435ea30da",
+        "Cargo.toml": "e546934fbad6fe6f06ca7527b881eedc8999e1f215967a1f9aa4a7baa0e151eb",
         "README.md": "5c5d15313087a1644b9180193a9ad68f0277b0445d710e5330ed40833cea7f6b",
         "src/main.rs": "a0034cee9bf7df975f1593bb7e83fc7b60ff0af3547e9391c5de79170179a493"
       },
