@@ -22,11 +22,12 @@ pub struct Intent {
 }
 
 /// Provenance kinds. Serialized as `intent.source.kind`:
-/// `direct`, `delegated`, `unavailable-pointer`, `revoked`, `out-of-scope`, `grant`.
+/// `direct`, `delegated`, `unavailable-pointer`, `revoked`, `out-of-scope`, `grant`, `engine`.
 ///
 /// Relay variants carry the quote and a pointer to the sending chat's message
 /// (or the device it ran on). `Grant` carries no quote: a gateway call is
-/// authorized by the owner's local grant, not by a message.
+/// authorized by the owner's local grant, not by a message. `Engine` carries none either: a run the engine
+/// starts has nothing the owner said this time.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
 pub enum IntentSource {
@@ -81,6 +82,74 @@ pub enum IntentSource {
         /// Only when the request itself carries a conversation reference.
         conversation_ref: Option<String>,
     },
+    /// A run the engine started from a schedule or from a standing instruction the owner approved. Nothing
+    /// the owner said this time: there is no quote, message id or chat, and none may be written into it.
+    ///
+    /// Only the engine builds this variant, from its own store, never from a caller's request. The receiver
+    /// accepts it only while the rule `rule_id` is active at exactly `rule_revision`, and runs it with the
+    /// unattended tool set; every hard-to-undo step still asks the owner. `occurrence_key` names this one
+    /// occurrence (a digest of the rule, its revision and the trigger), so the same firing twice is one task.
+    Engine {
+        trigger: EngineTrigger,
+        rule_id: String,
+        rule_revision: u64,
+        occurrence_key: String,
+    },
+}
+
+/// What started an engine run. Serialized in kebab-case.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum EngineTrigger {
+    /// A schedule came due.
+    Schedule,
+    /// A signal (a mail, a check's finding) matched a standing instruction.
+    Signal,
+}
+
+/// Longest `rule_id` or `occurrence_key`, in bytes.
+pub const MAX_ENGINE_ID_BYTES: usize = 256;
+
+/// Why an [`IntentSource`] is not well formed.
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+pub enum IntentSourceError {
+    #[error("engine intent field {0} is empty")]
+    Empty(&'static str),
+    #[error("engine intent field {0} is longer than 256 bytes or holds a control character")]
+    Malformed(&'static str),
+    #[error("engine intent rule_revision must be at least 1")]
+    Revision,
+}
+
+impl IntentSource {
+    /// Checks what can be checked from the record alone. Only [`IntentSource::Engine`] has rules here:
+    /// `rule_id` and `occurrence_key` are non-empty, at most [`MAX_ENGINE_ID_BYTES`] bytes with no control
+    /// character, and `rule_revision` is at least 1. That an `occurrence_key` is unique per occurrence is
+    /// the store's rule (the task's idempotency key is derived from it), not something one record shows.
+    /// Every other source is accepted as it was before.
+    pub fn validate(&self) -> Result<(), IntentSourceError> {
+        let IntentSource::Engine {
+            rule_id,
+            rule_revision,
+            occurrence_key,
+            ..
+        } = self
+        else {
+            return Ok(());
+        };
+        for (name, value) in [("rule_id", rule_id), ("occurrence_key", occurrence_key)] {
+            if value.trim().is_empty() {
+                return Err(IntentSourceError::Empty(name));
+            }
+            if value.len() > MAX_ENGINE_ID_BYTES || value.chars().any(char::is_control) {
+                return Err(IntentSourceError::Malformed(name));
+            }
+        }
+        if *rule_revision == 0 {
+            return Err(IntentSourceError::Revision);
+        }
+        Ok(())
+    }
 }
 
 /// Pointer to the authoritative delegation: a chat message id, or a
