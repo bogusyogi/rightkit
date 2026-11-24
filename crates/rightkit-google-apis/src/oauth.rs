@@ -40,6 +40,10 @@ pub const SCOPE: &str = concat!(
     // which the app-scoped drive.file grant cannot reach. Least-privilege would
     // narrow this only if those cross-folder operations are dropped.
     " https://www.googleapis.com/auth/drive",
+    // The app's own hidden Drive folder (`appDataFolder`), for sync through the owner's own Drive
+    // (rightkit-sync's `drive` backend). It reaches nothing else in Drive. Existing accounts re-consent on
+    // their next reconnect: until then calls against the app data folder 403, and nothing else changes.
+    " https://www.googleapis.com/auth/drive.appdata",
 );
 /// Budget for the user to finish consent in the browser.
 const CONSENT_TIMEOUT: Duration = Duration::from_secs(300);
