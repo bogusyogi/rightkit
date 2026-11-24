@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.8
+
+- `Session::spawn_with_child` starts a session over any `SessionChild` (a host-confined child); `SessionChild` is implemented for `OwnedChild`; `Session::spawn_with` is unchanged.
+
 ## 0.2.7 (2026-11-16)
 
 - Requires rightkit-mcp 0.10.0 and rightkit-agent-config 0.1.3. No behaviour change.
