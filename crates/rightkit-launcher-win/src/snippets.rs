@@ -40,6 +40,7 @@ use crate::host;
 use rightkit_automation::win::input::{ModifierSnapshot, RawInput, vk};
 use rightkit_automation::win::uia;
 use rightkit_clipboard_history::capture as clip_capture;
+use rightkit_clipboard_history::paste::{ClipboardSnapshot, WRITE_WAITS, snapshot_for_restore};
 use rightkit_clipboard_history::win::{self, Open};
 use rightkit_launcher::config as launcher_config;
 use std::mem::size_of;
@@ -75,16 +76,11 @@ const IDLE: Duration = Duration::from_secs(5);
 const EXPAND_DELAY: Duration = Duration::from_millis(50);
 const CHECK_DELAY: Duration = Duration::from_millis(80);
 const RESTORE_DELAY: Duration = Duration::from_millis(1500);
-const SNAPSHOT_BYTES: usize = 32 * 1024 * 1024;
-const WRITE_WAITS: [u64; 9] = [20; 9];
 /// Pauses between attempts to put the clipboard back after a failed restore.
 const RESTORE_RETRIES: [u64; 6] = [100, 200, 400, 800, 1600, 3200];
 /// How often the focus watcher looks at the focused element, and how old its answer may be.
 const FOCUS_POLL: Duration = Duration::from_millis(100);
 const FOCUS_FRESH: Duration = Duration::from_millis(400);
-/// Formats held as GDI handles: they cannot be kept as bytes, so such a clipboard is not restored.
-const GDI_FORMATS: [u32; 8] = [2, 3, 9, 14, 0x0080, 0x0082, 0x0083, 0x008E];
-
 /// Keyword characters, and the text each expands to (nested snippets already included).
 type Entry = (Vec<char>, String);
 
@@ -363,21 +359,14 @@ fn expand(body: &str, count: usize, token: u64, front: usize) {
     // A snapshot an earlier expansion could not put back goes first (the clipboard still holds its
     // transient text, which `snapshot` would refuse).
     retry_pending();
-    // Save the clipboard first: if it cannot be kept whole, or holds a password manager's item,
-    // nothing changes.
-    let Some(saved) = snapshot() else {
+    let Some((saved, written)) = write_transient(&text) else {
         return;
     };
-    if !write_transient(&text) {
-        give_back(saved, None);
-        return;
-    }
-    let written = win::sequence();
     // The snapshot above can take a while, and keys typed meanwhile reached the program: check
     // everything again, and the typing generation once more at the last moment, so a Backspace is
     // never sent once the buffer has changed.
-    if !may_replace(token, front) || !still_current(token) {
-        give_back(saved, Some(written));
+    if !may_replace(token, front) || win::sequence() != written || !still_current(token) {
+        give_back(saved, written);
         return;
     }
     let mut events = Vec::with_capacity(count * 2);
@@ -387,14 +376,14 @@ fn expand(body: &str, count: usize, token: u64, front: usize) {
     host::send_input(&events, "snippets");
     std::thread::sleep(CHECK_DELAY);
     // A key, click or window change since the checks may have moved the caret.
-    if !may_replace(token, front) {
-        give_back(saved, Some(written));
+    if !may_replace(token, front) || win::sequence() != written {
+        give_back(saved, written);
         return;
     }
     host::paste();
     host::log_info("snippets", &[("result", "expanded")]);
     std::thread::sleep(RESTORE_DELAY);
-    give_back(saved, Some(written));
+    give_back(saved, written);
 }
 
 /// Whether no key, click or clear came in since the expansion was scheduled. Cheap: it only reads
@@ -404,47 +393,25 @@ fn still_current(token: u64) -> bool {
     state.listening && state.generation == token
 }
 
-/// The clipboard's formats with their bytes, or `None` when it cannot be kept whole: a password
-/// manager's copy (never read), a GDI format, a format that cannot be read, or more than 32 MB.
-fn snapshot() -> Option<Vec<(u32, Vec<u8>)>> {
+/// Takes the backup and replaces it with eager snippet text under one clipboard guard.
+fn write_transient(text: &str) -> Option<(ClipboardSnapshot, u32)> {
     let open = Open::acquire(&WRITE_WAITS)?;
-    let f = win::formats();
-    let formats = win::format_list(&open);
-    if formats
-        .iter()
-        .any(|&format| format == f.exclude || format == f.no_history)
-    {
+    let saved = snapshot_for_restore(&open)?;
+    if !win::empty(&open) {
         return None;
     }
-    let mut total = 0;
-    let mut kept = Vec::with_capacity(formats.len());
-    for format in formats {
-        if GDI_FORMATS.contains(&format) {
-            return None;
-        }
-        let bytes = win::read_bytes(&open, format, SNAPSHOT_BYTES - total)?;
-        total += bytes.len();
-        kept.push((format, bytes));
-    }
-    Some(kept)
-}
-
-/// Puts the snippet on the clipboard as the application's own transient item. False when it could not.
-fn write_transient(text: &str) -> bool {
-    let Some(open) = Open::acquire(&WRITE_WAITS) else {
-        return false;
-    };
-    if !win::empty(&open) || !win::set_text(&open, text) {
-        return false;
+    if !win::set_text(&open, text) {
+        let written = clip_capture::note_own_write(&open);
+        drop(open);
+        give_back(saved, written);
+        return None;
     }
     let f = win::formats();
     win::set_dword(&open, f.own, 1);
     win::set_dword(&open, f.exclude, 1);
     win::set_dword(&open, f.no_history, 0);
     win::set_dword(&open, f.no_cloud, 0);
-    drop(open);
-    clip_capture::note_own_write();
-    true
+    Some((saved, clip_capture::note_own_write(&open)))
 }
 
 /// How one attempt to put the clipboard back ended.
@@ -454,30 +421,27 @@ enum Restored {
     /// The clipboard no longer holds what the expansion wrote (the user copied something), so
     /// nothing is put back and nothing is left to retry.
     Moved,
-    /// The clipboard was busy or a format could not be set: try again.
-    Failed,
+    /// The restore must retry while the clipboard still holds this sequence.
+    Failed(u32),
 }
 
-/// A snapshot that could not be put back yet, with the sequence of the text the expansion wrote:
-/// a later expansion retries it first. Only while the clipboard still holds that text.
-/// A clipboard snapshot (format, bytes) waiting to be put back, and the sequence it was taken at.
-type PendingRestore = (Vec<(u32, Vec<u8>)>, Option<u32>);
+/// A saved clipboard and the sequence of our last write or partial restore.
+type PendingRestore = (ClipboardSnapshot, u32);
 static PENDING: Mutex<Option<PendingRestore>> = Mutex::new(None);
 
-/// One attempt to put the saved formats back. With `written`, only while the clipboard still holds
-/// what the expansion wrote; anything copied meanwhile is left alone.
-fn restore(saved: &[(u32, Vec<u8>)], written: Option<u32>) -> Restored {
-    if written.is_some_and(|sequence| win::sequence() != sequence) {
+/// Restores the saved formats only while the clipboard still holds our write.
+fn restore(saved: &[(u32, Vec<u8>)], written: u32) -> Restored {
+    if win::sequence() != written {
         return Restored::Moved;
     }
     let Some(open) = Open::acquire(&WRITE_WAITS) else {
-        return Restored::Failed;
+        return Restored::Failed(written);
     };
-    if written.is_some_and(|sequence| win::sequence() != sequence) {
+    if win::sequence() != written {
         return Restored::Moved;
     }
     if !win::empty(&open) {
-        return Restored::Failed;
+        return Restored::Failed(written);
     }
     let mut complete = true;
     for (format, bytes) in saved {
@@ -488,40 +452,45 @@ fn restore(saved: &[(u32, Vec<u8>)], written: Option<u32>) -> Restored {
     if !win::set_dword(&open, win::formats().own, 1) {
         complete = false;
     }
-    drop(open);
-    clip_capture::note_own_write();
+    let sequence = clip_capture::note_own_write(&open);
     if complete {
         Restored::Done
     } else {
-        Restored::Failed
+        Restored::Failed(sequence)
     }
 }
 
-/// Puts the clipboard back. A failed attempt is retried with a growing pause on a thread of its
-/// own; if every retry fails the snapshot is kept for the next expansion and the failure is logged.
-fn give_back(saved: Vec<(u32, Vec<u8>)>, written: Option<u32>) {
-    if !matches!(restore(&saved, written), Restored::Failed) {
+/// Puts the clipboard back. Retries only while the clipboard still holds our last write.
+fn give_back(saved: ClipboardSnapshot, written: u32) {
+    let Restored::Failed(mut written) = restore(&saved, written) else {
         return;
-    }
+    };
     let spawned = std::thread::Builder::new()
         .name("rightkit-snippets-restore".to_string())
         .spawn(move || {
             for wait in RESTORE_RETRIES {
                 std::thread::sleep(Duration::from_millis(wait));
                 match restore(&saved, written) {
-                    Restored::Failed => {}
+                    Restored::Failed(sequence) => written = sequence,
                     _ => return,
                 }
             }
             host::log_info("snippets", &[("result", "restore_failed_kept")]);
-            *PENDING.lock().unwrap_or_else(PoisonError::into_inner) = Some((saved, written));
+            retain_pending(saved, written);
         });
     if spawned.is_err() {
         host::log_info("snippets", &[("result", "restore_no_thread")]);
     }
 }
 
-/// Tries once to put back a snapshot kept by `give_back`, keeping it when that fails again.
+fn retain_pending(saved: ClipboardSnapshot, written: u32) {
+    let mut pending = PENDING.lock().unwrap_or_else(PoisonError::into_inner);
+    if win::sequence() == written {
+        *pending = Some((saved, written));
+    }
+}
+
+/// Tries once to put back a snapshot kept by `give_back`.
 fn retry_pending() {
     let pending = PENDING
         .lock()
@@ -530,8 +499,8 @@ fn retry_pending() {
     let Some((saved, written)) = pending else {
         return;
     };
-    if matches!(restore(&saved, written), Restored::Failed) {
-        *PENDING.lock().unwrap_or_else(PoisonError::into_inner) = Some((saved, written));
+    if let Restored::Failed(sequence) = restore(&saved, written) {
+        retain_pending(saved, sequence);
     }
 }
 

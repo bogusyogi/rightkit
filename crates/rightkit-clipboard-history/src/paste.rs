@@ -114,15 +114,11 @@ fn run(id: &str, choice: Choice, previous: isize) {
     clip_img::init_com();
     // The clipboard as it was, kept for the restore after the paste (7.11.2 step 6). Only when a
     // paste will follow: never for a copy only, or in the "copy" paste mode.
-    let saved = if choice != Choice::CopyOnly
+    let restore = choice != Choice::CopyOnly
         && !host::paste_copies_only()
-        && host::switch_on("clipboardRestoreAfterPaste")
-    {
-        snapshot()
-    } else {
-        None
-    };
-    if !write_back(id, choice == Choice::Plain) {
+        && host::switch_on("clipboardRestoreAfterPaste");
+    let Some((written, saved)) = write_back_with_snapshot(id, choice == Choice::Plain, restore)
+    else {
         // The strip's window was in front for the choice: the previous one gets focus back.
         let front = hwnd_from_key(previous);
         // SAFETY: a plain query on a handle that may have gone.
@@ -130,9 +126,7 @@ fn run(id: &str, choice: Choice, previous: isize) {
             give_foreground_to(previous);
         }
         return;
-    }
-    // The change count the write left: the restore only goes back if nothing else changed it.
-    let written = win::sequence();
+    };
     clip::with(|store| store.touch(id, clip::now()));
     let copy_mode = host::paste_copies_only();
     let front = hwnd_from_key(previous);
@@ -165,6 +159,9 @@ fn run(id: &str, choice: Choice, previous: isize) {
         })
         .unwrap_or_default();
     let shift = host::shift_paste_apps().contains(&exe);
+    if win::sequence() != written {
+        return;
+    }
     press_paste(shift);
     if let Some(saved) = saved {
         schedule_restore(saved, written);
@@ -178,14 +175,15 @@ const RESTORE_DELAY: Duration = Duration::from_millis(1500);
 /// cannot be kept as bytes, so a clipboard that has one is not restored.
 const GDI_FORMATS: [u32; 8] = [2, 3, 9, 14, 0x0080, 0x0082, 0x0083, 0x008E];
 
-/// The clipboard's formats with their bytes, for the restore after a paste, or `None` when it cannot
-/// be kept whole: a password manager's copy (never read), a GDI format, a format that cannot be
-/// read, or more than 32 MB in all.
-fn snapshot() -> Option<Vec<(u32, Vec<u8>)>> {
+/// Eager clipboard formats and their bytes, taken before a temporary write.
+pub type ClipboardSnapshot = Vec<(u32, Vec<u8>)>;
+
+/// Saves a clipboard for restore while the same guard protects the replacement write.
+/// Skips protected entries or data that cannot be kept whole within 32 MiB.
+pub fn snapshot_for_restore(open: &Open) -> Option<ClipboardSnapshot> {
     const SNAPSHOT_BYTES: usize = 32 * 1024 * 1024;
-    let open = Open::acquire(&WRITE_WAITS)?;
     let f = win::formats();
-    let formats = win::format_list(&open);
+    let formats = win::format_list(open);
     if formats
         .iter()
         .any(|&format| format == f.exclude || format == f.no_history)
@@ -198,7 +196,7 @@ fn snapshot() -> Option<Vec<(u32, Vec<u8>)>> {
         if GDI_FORMATS.contains(&format) {
             return None;
         }
-        let bytes = win::read_bytes(&open, format, SNAPSHOT_BYTES - total)?;
+        let bytes = win::read_bytes(open, format, SNAPSHOT_BYTES - total)?;
         total += bytes.len();
         kept.push((format, bytes));
     }
@@ -207,7 +205,7 @@ fn snapshot() -> Option<Vec<(u32, Vec<u8>)>> {
 
 /// Runs `restore` after the keystroke has had its moment, on a thread of its own so the next paste
 /// is not held up.
-fn schedule_restore(saved: Vec<(u32, Vec<u8>)>, written: u32) {
+fn schedule_restore(saved: ClipboardSnapshot, written: u32) {
     let _ = std::thread::Builder::new()
         .name(host::thread_name("restore"))
         .spawn(move || {
@@ -228,42 +226,41 @@ fn restore(saved: &[(u32, Vec<u8>)], written: u32) {
     if win::sequence() != written || !win::empty(&open) {
         return;
     }
-    for (format, bytes) in saved {
-        let _ = win::set_bytes(&open, *format, bytes);
-    }
-    let f = win::formats();
-    win::set_dword(&open, f.own, 1);
-    if host::switch_on("clipboardWriteBackExcluded") {
-        win::set_dword(&open, f.exclude, 1);
-        win::set_dword(&open, f.no_history, 0);
-        win::set_dword(&open, f.no_cloud, 0);
-    }
-    drop(open);
-    clip_capture::note_own_write();
+    put_saved(&open, saved);
+    mark_own(open);
 }
 
-/// Writes the item's formats to the clipboard. False when the item is gone or the clipboard
-/// could not be taken.
+fn put_saved(open: &Open, saved: &[(u32, Vec<u8>)]) {
+    for (format, bytes) in saved {
+        let _ = win::set_bytes(open, *format, bytes);
+    }
+}
+
 /// Writes item `id` back to the clipboard (plain text only when `plain`).
+/// Returns false when the item is unavailable or the clipboard could not be written.
 pub fn write_back(id: &str, plain: bool) -> bool {
-    let Some((kind, original, payload)) = clip::with(|store| {
+    write_back_with_snapshot(id, plain, false).is_some()
+}
+
+fn write_back_with_snapshot(
+    id: &str,
+    plain: bool,
+    restore: bool,
+) -> Option<(u32, Option<ClipboardSnapshot>)> {
+    let (kind, original, payload) = clip::with(|store| {
         let item = store.get(id)?;
         let original = item.meta_str("original").map(str::to_string);
         Some((item.kind, original, store.payload(id)?))
-    }) else {
-        return false;
-    };
+    })?;
     let f = win::formats();
     // Everything is read and encoded before the clipboard is emptied, so that a payload that
     // can't be read never leaves the clipboard with nothing on it.
     let mut image: Option<(Vec<u8>, Option<Vec<u8>>)> = None;
     if kind == Kind::Image {
-        let Some(path) = &payload.png else {
-            return false;
-        };
+        let path = payload.png.as_deref()?;
         let Some(png) = crate::seal::read(path) else {
             host::log_info("clipboard", &[("result", "paste_payload_unreadable")]);
-            return false;
+            return None;
         };
         let dib = crate::seal::with_plain_file(&png, "png", |plain| {
             clip_img::decode_file(plain, None).and_then(|bitmap| clip_img::dibv5(&bitmap))
@@ -271,14 +268,19 @@ pub fn write_back(id: &str, plain: bool) -> bool {
         .flatten();
         image = Some((png, dib));
     } else if kind == Kind::File && payload.paths.is_empty() {
-        return false;
+        return None;
     }
     let Some(open) = Open::acquire(&WRITE_WAITS) else {
         host::log_info("clipboard", &[("result", "paste_clipboard_busy")]);
-        return false;
+        return None;
+    };
+    let saved = if restore {
+        snapshot_for_restore(&open)
+    } else {
+        None
     };
     if !win::empty(&open) {
-        return false;
+        return None;
     }
     let mut wrote = false;
     // A plain paste is the text alone; an image has no text and goes as it is.
@@ -311,17 +313,18 @@ pub fn write_back(id: &str, plain: bool) -> bool {
         _ => wrote |= win::set_text(&open, &payload.text),
     }
     if !wrote {
-        return false;
+        if let Some(saved) = &saved {
+            put_saved(&open, saved);
+            mark_own(open);
+        }
+        return None;
     }
-    mark_own(open);
-    true
+    Some((mark_own(open), saved))
 }
 
-/// Marks what was just written as the application's own (and, with `clipboardWriteBackExcluded`, keeps it
-/// out of Windows' history and cloud), then closes the clipboard and tells the watcher the change
-/// is not a copy.
-/// Marks the clipboard contents just written as the application's own.
-pub fn mark_own(open: Open) {
+/// Marks the clipboard contents as the application's own and returns their sequence.
+/// Applies history and cloud exclusion when requested, before releasing the clipboard.
+pub fn mark_own(open: Open) -> u32 {
     let f = win::formats();
     win::set_dword(&open, f.own, 1);
     if host::switch_on("clipboardWriteBackExcluded") {
@@ -329,8 +332,7 @@ pub fn mark_own(open: Open) {
         win::set_dword(&open, f.no_history, 0);
         win::set_dword(&open, f.no_cloud, 0);
     }
-    drop(open);
-    clip_capture::note_own_write();
+    clip_capture::note_own_write(&open)
 }
 
 /// Gives the foreground back to `window`; sharing its input queue for the call lets a thread

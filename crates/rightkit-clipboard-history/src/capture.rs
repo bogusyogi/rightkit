@@ -92,10 +92,12 @@ pub fn sync() {
     }
 }
 
-/// The application wrote the clipboard itself (a paste or a copy from the strip): that change, and the
-/// ones the write makes while it runs, are not copies. Called with the clipboard closed.
-pub fn note_own_write() {
-    OWN_SEQ.store(win::sequence(), Ordering::Relaxed);
+/// Records an eager write's final sequence while its clipboard guard is held.
+/// The returned sequence lets the caller verify ownership before restoring.
+pub fn note_own_write(_open: &Open) -> u32 {
+    let sequence = win::sequence();
+    OWN_SEQ.store(sequence, Ordering::Relaxed);
+    sequence
 }
 
 // ---- the listener thread ------------------------------------------------------------------
