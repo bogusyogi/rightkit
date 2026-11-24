@@ -409,12 +409,7 @@ impl Worker {
         let zero_failure = session.capture_zero_failure.is_some();
         if (vad_ready || zero_failure)
             && !session.auto_stop_fired
-            && (silence_decision(
-                session.speech.heard_voice,
-                decision_now.duration_since(session.speech.last_voice_at),
-            ) == SilenceDecision::StopAfterPostSpeechSilence
-                || duration_cap_hit
-                || zero_failure)
+            && (session.post_speech_stop(decision_now) || duration_cap_hit || zero_failure)
         {
             // A silence decision is provisional until device-ring tail is
             // consumed. A renewed word may already be queued behind the
@@ -428,13 +423,7 @@ impl Worker {
                         }
                     }
                 }
-                if silence_decision(
-                    session.speech.heard_voice,
-                    self.decision_clock
-                        .now()
-                        .duration_since(session.speech.last_voice_at),
-                ) != SilenceDecision::StopAfterPostSpeechSilence
-                {
+                if !session.post_speech_stop(self.decision_clock.now()) {
                     return;
                 }
             }

@@ -396,6 +396,11 @@ pub enum Request {
         threshold: Option<f32>,
     },
     StopWakeListen,
+    /// Open the follow-up window (`EnginePayload::FollowUpOpen`).
+    OpenFollowUp {
+        window_ms: u64,
+    },
+    CloseFollowUp,
     Shutdown,
 }
 
@@ -467,6 +472,10 @@ pub(crate) fn decode_request(frame: EngineFrame) -> Option<Request> {
         (WakeListenStopped, EnginePayload::WakeListenStopped { .. }) => {
             Some(Request::StopWakeListen)
         }
+        (FollowUpOpen, EnginePayload::FollowUpOpen { window_ms }) => {
+            Some(Request::OpenFollowUp { window_ms })
+        }
+        (FollowUpClose, EnginePayload::FollowUpClose) => Some(Request::CloseFollowUp),
         (
             RecordingStarted,
             EnginePayload::RecordingStarted {

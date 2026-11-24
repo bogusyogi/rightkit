@@ -1,5 +1,6 @@
 mod capture_device;
 mod capture_recovery;
+mod follow_up;
 mod probe_decisions;
 mod recording_session;
 mod streaming_commit;

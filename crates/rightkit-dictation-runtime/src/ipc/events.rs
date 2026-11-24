@@ -24,6 +24,7 @@ pub(crate) fn spawn_worker_event_pump(
                     ts,
                     fire_count,
                     threshold,
+                    follow_up,
                 } => {
                     emit_event(
                         &writer,
@@ -32,7 +33,11 @@ pub(crate) fn spawn_worker_event_pump(
                         Some(EnginePayload::WakeFired {
                             ts,
                             fire_count: Some(fire_count),
-                            model: Some("kws-hey-zephyr".into()),
+                            model: Some(if follow_up {
+                                "follow-up".into()
+                            } else {
+                                "kws-hey-zephyr".into()
+                            }),
                             threshold: Some(threshold),
                             score: None,
                         }),

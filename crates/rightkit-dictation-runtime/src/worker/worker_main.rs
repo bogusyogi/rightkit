@@ -271,7 +271,7 @@ impl Worker {
             self.wake
                 .drain_results(&self.asr_executor, &self.capture.stream, &self.event_tx);
             self.wake
-                .pump_audio(&self.asr_executor, &mut self.capture.stream);
+                .pump_audio(&self.asr_executor, &mut self.capture.stream, &self.event_tx);
             // A sealed recording takes no more audio and produces no more partials; it waits for
             // its stop (which finalizes the sealed buffer).
             if self.session.is_some() && !self.session_sealed && !self.session_seal_failed {
@@ -718,6 +718,21 @@ impl Worker {
                 let _ = reply.send(fire_count);
                 Flow::Proceed
             }
+            Ok(WorkerCmd::OpenFollowUp { reply, .. }) if self.windows_lifecycle.suspended => {
+                let _ = reply.send(Err(
+                    "microphone is suspended; retry after Windows resumes".to_string()
+                ));
+                Flow::SkipPass
+            }
+            Ok(WorkerCmd::OpenFollowUp { window, reply }) => self.open_follow_up(window, reply),
+            Ok(WorkerCmd::CloseFollowUp { reply }) => {
+                let was_open = self.wake.close_follow_up();
+                if was_open && self.session.is_none() && !self.wake.is_active() {
+                    self.capture.pause();
+                }
+                let _ = reply.send(was_open);
+                Flow::Proceed
+            }
             Ok(WorkerCmd::ReloadModel { reply }) => {
                 // Proactive switch (settings changed) — load+warm off the hotkey
                 // path so the next recording is instant. The coordinator owns
@@ -887,6 +902,45 @@ impl Worker {
             Err(std::sync::mpsc::TryRecvError::Disconnected) => Err(RecvTimeoutError::Disconnected),
             Err(std::sync::mpsc::TryRecvError::Empty) => Err(RecvTimeoutError::Timeout),
         }
+    }
+
+    /// Open the follow-up window: the microphone stays open and the worker polls (it does not park,
+    /// see `WakeListener::is_active`) until speech starts a recording or the window ends. Refused
+    /// while a recording or wake listening owns the stream.
+    fn open_follow_up(&mut self, window: Duration, reply: Sender<Result<(), String>>) -> Flow {
+        if self.session.is_some() || self.wake.is_active() {
+            let _ = reply.send(Err(
+                "cannot open a follow-up window while recording or listening".into(),
+            ));
+            return Flow::SkipPass;
+        }
+        let saved = crate::settings::input_device();
+        if capture_should_reopen(
+            self.capture.stream.is_none(),
+            saved != self.capture.saved_device,
+        ) {
+            self.capture.stream = None;
+            match open_capture(saved.as_deref()) {
+                Ok((c, route)) => {
+                    self.capture.stream = Some(c);
+                    self.capture.route = route;
+                    self.capture.saved_device = saved;
+                }
+                Err(error) => {
+                    let _ = reply.send(Err(error));
+                    return Flow::SkipPass;
+                }
+            }
+        } else if let Some(cap) = &self.capture.stream {
+            if let Err(error) = cap.resume() {
+                let _ = reply.send(Err(format!("capture resume: {error}")));
+                return Flow::SkipPass;
+            }
+        }
+        self.capture.cancel_warmup();
+        self.wake.open_follow_up(window);
+        let _ = reply.send(Ok(()));
+        Flow::Proceed
     }
 
     fn start_wake_listen(&mut self, threshold: f32, reply: Sender<Result<(), String>>) -> Flow {
