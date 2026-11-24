@@ -32,7 +32,9 @@ export function isClassAProgram(start) {
   const name = programName(start.program); const args = (start.args ?? []).map(String);
   if (isProbe(args)) return false;
   if (["rustfmt", "actionlint", "shellcheck", "cargo-deny", "cargo-audit", "oxlint", "tsc"].includes(name)) return true;
-  if (name === "node") return args.includes("--check") || args.some((a) => /[\\/]pnpm\.(c|m)?js$/i.test(a) && args.some((b) => ["audit", "exec"].includes(b)));
+  const absolute = (a) => /^([a-z]:[\\/]|[\\/])/i.test(a);
+  if (name === "node" && args.includes("--check")) return args.filter((a) => !a.startsWith("-")).every((a) => !absolute(a)); // a tracked file, named relative to the snapshot; never a build output
+  if (name === "node") return args.some((a) => /[\\/]pnpm\.(c|m)?js$/i.test(a) && args.some((b) => ["audit", "exec"].includes(b)));
   if (name === "pnpm") return args.some((a) => ["audit", "exec"].includes(a));
   if (name === "cargo") return ["deny", "audit"].includes(cargoVerb(args));
   return false;
@@ -65,10 +67,12 @@ export function receiptsNameTheCommit(run) {
 export function classABeforeBroker(run) {
   const fails = []; if (!run.jobs.length) return ["no broker receipt exists, so the order of Class A and the first submission cannot be shown"];
   const first = firstSubmission(run); if (!Number.isFinite(first)) return ["no broker receipt signs a usable start time and waits, so the first submission time is not known"];
-  for (const file of new Set(run.jobs.map((j) => j.gate?.classA).filter(Boolean))) {
-    const at = run.verdicts?.[path.basename(plain(file)).toLowerCase()];
-    if (!Number.isFinite(at)) fails.push(`the Class A verdict file ${path.basename(plain(file))} the receipts name is not in the launcher's listing`);
-    else if (at >= first) fails.push(`the Class A verdict file was written at ${new Date(at).toISOString()}, not before the first submission at ${new Date(first).toISOString()}`);
+  // Each job against the verdict file its own receipt names: that file, as the launcher lists it after the run, must be older than the job's signed submission.
+  // A file written later was not this run's verdict when the job was sent (an older run's file of the same name was what the broker read).
+  for (const j of run.jobs) {
+    if (!j.gate?.classA) continue; const name = path.basename(plain(j.gate.classA)); const at = run.verdicts?.[name.toLowerCase()];
+    if (!Number.isFinite(at)) fails.push(`the Class A verdict file ${name} that ${jobName(j)} names is not in the launcher's listing`);
+    else if (!Number.isFinite(j.submitted) || at >= j.submitted) fails.push(`${jobName(j)} (cargo ${j.sub}) was submitted at ${new Date(j.submitted).toISOString()}, before the Class A verdict file it names was written (${name}, ${new Date(at).toISOString()})`);
   }
   if (run.jobs.some((j) => !j.gate?.classA)) fails.push("a broker receipt names no Class A verdict file");
   const late = run.starts.filter(isClassAProgram).filter((s) => s.end === null || s.end > first);
@@ -76,11 +80,25 @@ export function classABeforeBroker(run) {
   if (run.processGaps.length) fails.push(`the process record is incomplete (${run.processGaps[0]})`);
   return fails;
 }
+/**
+ * The programs the gate itself started: children of the gate process, and the program a shell wrapper of the gate's ran (the wrapper is not counted beside it).
+ * What a tool starts for itself (cargo's rustc probes, pnpm's node) is that tool's work, not a call the gate made. Approved for the earlier judge on 21 November
+ * ("cargo's own rustc target-info probe [is] not [a program] the run chose to start"); the same rule, stated once for every tool.
+ */
+export function startedByGate(run) {
+  if (!Number.isInteger(run.rootPid)) return run.starts;
+  const isShell = (s) => /(^|[\\/])cmd\.exe$/i.test(String(s.exe));
+  const mine = run.starts.filter((s) => s.ppid === run.rootPid);
+  const shells = mine.filter(isShell);
+  const wrapped = run.starts.filter((s) => shells.some((w) => w.pid === s.ppid && s.at >= w.at && (w.end === null || s.at <= w.end)));
+  const withChild = new Set(wrapped.map((s) => s.ppid));
+  return [...mine.filter((s) => !(isShell(s) && withChild.has(s.pid))), ...wrapped];
+}
 /** NN08, every run: no program starts twice with the same arguments and no broker command is sent twice, beyond the pinned legitimate repeats. */
 export function repeats(run, legitimate = []) {
   const fails = []; if (run.processGaps.length) fails.push(`the process record is incomplete (${run.processGaps[0]})`);
   const groups = new Map();
-  for (const s of run.starts) { if (!s.argsKnown || s.ambiguous) continue; const k = JSON.stringify([programName(s.program), s.args]); groups.set(k, (groups.get(k) ?? 0) + 1); }
+  for (const s of startedByGate(run)) { if (!s.argsKnown || s.ambiguous) continue; const k = JSON.stringify([programName(s.program), s.args]); groups.set(k, (groups.get(k) ?? 0) + 1); }
   for (const [k, n] of groups) {
     if (n < 2) continue; const [name, args] = JSON.parse(k);
     const allowed = legitimate.find((l) => l.program === name && JSON.stringify(l.args) === JSON.stringify(args))?.count ?? 1;
@@ -98,7 +116,7 @@ export function testsBuiltByBrokerRunByGate(run) {
   const signed = new Map();
   for (const j of tests) {
     if (!j.verified) { fails.push(`${jobName(j)}: its receipt does not verify`); continue; }
-    if (!(j.argv ?? []).includes("--no-run")) fails.push(`${jobName(j)} is a cargo test without --no-run: the broker ran the tests`);
+    if (!(j.effectiveArgv ?? j.argv ?? []).includes("--no-run")) fails.push(`${jobName(j)} is a cargo test the broker ran without --no-run: the broker ran the tests`);
     if (!Array.isArray(j.testExecutables)) { fails.push(`${jobName(j)} signs no list of test programs`); continue; }
     for (const exe of j.testExecutables) {
       const file = typeof exe === "string" ? exe : exe?.path; const digest = typeof exe === "object" ? exe?.sha256 : null;
@@ -348,7 +366,7 @@ export function factsOfRun(dir, { repo, receiptsDir, verify = null, killed = fal
   return {
     dir, commit: launch.commit ?? null, tree: read.git?.tree ?? null, exit: launch.exit ?? null, signal: launch.signal ?? null, killed: killed || !!launch.signal,
     durationMs: Number.isFinite(start) && Number.isFinite(end) ? end - start : NaN, lanes: launch.lanes ?? null, log,
-    jobs: mine, starts: f.starts, processGaps: f.gaps, cacheWritten: json(path.join(dir, "cache-written.json")), verdicts, decisions,
+    jobs: mine, starts: f.starts, rootPid: f.root?.pid ?? null, processGaps: f.gaps, cacheWritten: json(path.join(dir, "cache-written.json")), verdicts, decisions,
     locksAfter: launch.afterRun?.locks ?? [], locksKnown: launch.afterRun?.locksKnown === true, rootAlive: launch.afterRun?.rootAlive === true, snapshot, imageNow,
   };
 }

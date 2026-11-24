@@ -19,9 +19,10 @@ let seq = 0;
 const job = (ws, verb, target, features, at, { crates = [], dur = 5000, extra = [] } = {}) => {
   seq += 1; const feat = features ? features.split(" ") : [];
   const args = [verb, ...crates.flatMap((c) => ["-p", c]), ...feat, "--target", target, "--locked", ...extra];
-  return { jobId: `job-${seq}`, verified: true, problems: [], argv: ["cargo", ...args], args, sub: verb, cwd: ws === "." ? SNAP : `${SNAP}\\${ws.replaceAll("/", "\\")}`, gate: { commit: COMMIT, tree: TREE, snapshot: `\\\\?\\${SNAP}`, snapshotUnchanged: true, classA: `\\\\?\\D:\\data\\class-a-verdicts\\${VERDICT}` }, submitted: at, started: at + 50, ended: at + dur, testExecutables: null, status: "SUCCEEDED" };
+  return { jobId: `job-${seq}`, verified: true, problems: [], argv: args.filter((a) => a !== "--no-run"), effectiveArgv: args, args, sub: verb, cwd: ws === "." ? SNAP : `${SNAP}\\${ws.replaceAll("/", "\\")}`, gate: { commit: COMMIT, tree: TREE, snapshot: `\\\\?\\${SNAP}`, snapshotUnchanged: true, classA: `\\\\?\\D:\\data\\class-a-verdicts\\${VERDICT}` }, submitted: at, started: at + 50, ended: at + dur, testExecutables: null, status: "SUCCEEDED" };
 };
-const prog = (program, args, at, end) => ({ program, exe: program, args, at, end, exit: 0, argsKnown: true, ambiguous: false });
+let pids = 100; const ROOT = 7;
+const prog = (program, args, at, end, ppid = ROOT) => ({ program, exe: program, args, at, end, exit: 0, argsKnown: true, ambiguous: false, pid: (pids += 1), ppid });
 const TEST_EXE = "D:\\data\\ws\\t\\release\\deps\\rk_leaf-0123456789abcdef.exe";
 /** A clean run from nothing: Class A programs filling the lanes, a verdict, then every required broker command submitted at once. */
 function fullRun() {
@@ -36,9 +37,9 @@ function fullRun() {
   jobs.filter((j) => j.sub === "test").forEach((j) => { j.testExecutables = []; });
   const t = jobs.find((j) => j.sub === "test"); t.testExecutables = [{ path: TEST_EXE, sha256: "e".repeat(64) }];
   starts.push(prog(TEST_EXE, [], t.ended + 500, t.ended + 900));
-  return { commit: COMMIT, tree: TREE, exit: 0, signal: null, killed: false, durationMs: 60_000, lanes, log: "", jobs, starts, processGaps: [], cacheWritten: [{ name: "x.json", row: "rustfmt:2021" }], verdicts: { [VERDICT]: sub - 2000 }, decisions: [], locksAfter: [], locksKnown: true, rootAlive: false, snapshot: SNAP, imageNow: { [TEST_EXE.replaceAll("\\", "/").toLowerCase()]: "e".repeat(64) } };
+  return { commit: COMMIT, tree: TREE, exit: 0, signal: null, killed: false, durationMs: 60_000, lanes, log: "", jobs, starts, processGaps: [], cacheWritten: [{ name: "x.json", row: "rustfmt:2021" }], verdicts: { [VERDICT]: sub - 2000 }, decisions: [], locksAfter: [], locksKnown: true, rootAlive: false, rootPid: ROOT, snapshot: SNAP, imageNow: { [TEST_EXE.replaceAll("\\", "/").toLowerCase()]: "e".repeat(64) } };
 }
-const quiet = (over = {}) => ({ commit: COMMIT, tree: TREE, exit: 0, signal: null, killed: false, durationMs: 9000, lanes: 4, log: "", jobs: [], starts: [], processGaps: [], cacheWritten: [], verdicts: {}, decisions: [], locksAfter: [], locksKnown: true, rootAlive: false, snapshot: SNAP, imageNow: {}, ...over });
+const quiet = (over = {}) => ({ commit: COMMIT, tree: TREE, exit: 0, signal: null, killed: false, durationMs: 9000, lanes: 4, log: "", jobs: [], starts: [], processGaps: [], cacheWritten: [], verdicts: {}, decisions: [], locksAfter: [], locksKnown: true, rootAlive: false, rootPid: ROOT, snapshot: SNAP, imageNow: {}, ...over });
 const def = (id) => CASES.cases.find((c) => c.id === id);
 const indexName = (id) => `${crypto.createHash("sha256").update(`rk-row-index/1\0${id}`).digest("hex")}.json`;
 /** Clean runs for every case. */
@@ -90,7 +91,9 @@ test("NN01: a gate that reads the checkout fails case 1 or passes case 5; a rece
 test("NN02: a receipt in the failing case, a verdict newer than the first submission, or a Class A program still running at it fails", () => {
   failsFor("NN02", 5, (r) => { r.jobs.push(job("rk", "clippy", bc.hostTarget, "", T0 + 100)); }, /left 1 broker receipt/);
   failsFor("NN02", 5, (r) => { r.exit = 0; }, /failing exit/, 1);
-  failsFor("NN02", 1, (r) => { r.verdicts[VERDICT] = T0 + 10_500; }, /not before the first submission/);
+  failsFor("NN02", 1, (r) => { r.verdicts[VERDICT] = T0 + 10_500; }, /before the Class A verdict file it names was written/);
+  // one job sent early under a verdict file an older run left, written by this run only later: that job fails, whatever the others did
+  failsFor("NN02", 1, (r) => { r.jobs[0].gate.classA = "D:\\data\\class-a-verdicts\\class-a-aaaaaaaaaaaa-full-scope.json"; r.verdicts["class-a-aaaaaaaaaaaa-full-scope.json"] = r.jobs[0].submitted + 40_000; }, /job-\d+ \(cargo clippy\) was submitted/);
   failsFor("NN02", 1, (r) => { delete r.verdicts[VERDICT]; }, /not in the launcher's listing/);
   failsFor("NN02", 1, (r) => { r.starts[0].end = T0 + 11_000; }, /had not ended at the first submission/);
 });
@@ -131,6 +134,12 @@ test("NN08: a program started twice with the same arguments, a pinned repeat ove
   failsFor("NN08", 2, (r) => { r.starts.push(prog("C:\\git\\git.exe", ["rev-parse", "HEAD"], T0 + 1, T0 + 2), prog("C:\\git\\git.exe", ["rev-parse", "HEAD"], T0 + 3, T0 + 4)); }, /git rev-parse HEAD started 2 times \(1 allowed\)/);
   failsFor("NN08", 1, (r) => { r.starts.push(prog("C:\\tools\\cargo.exe", ["metadata", "--no-deps", "--format-version", "1", "--locked"], T0 + 300, T0 + 310)); }, /started 7 times \(6 allowed\)/);
   failsFor("NN08", 1, (r) => { r.jobs.push({ ...r.jobs[0], jobId: "again" }); }, /was sent 2 times/);
+  // what a tool starts for itself is not the gate's call: cargo's own rustc probes, twice alike, are not a repeat; the same two started by the gate are
+  const twice = (ppid) => (r) => { const c = prog("C:\\tools\\cargo.exe", ["tree"], T0 + 1, T0 + 9); r.starts.push(c, prog("C:\\rust\\rustc.exe", ["-vV"], T0 + 2, T0 + 3, ppid ?? c.pid), prog("C:\\rust\\rustc.exe", ["-vV"], T0 + 4, T0 + 5, ppid ?? c.pid)); };
+  assert.equal(broken("NN08", 2, twice(null)).verdict, PASS);
+  failsFor("NN08", 2, twice(ROOT), /rustc -vV started 2 times/);
+  // a shell wrapper of the gate's counts as the program it ran, once
+  assert.equal(broken("NN08", 2, (r) => { const w = prog("C:\\Windows\\System32\\cmd.exe", ["/d", "/s", "/c", "pnpm --version"], T0 + 1, T0 + 9); r.starts.push(w, prog("C:\\n\\pnpm.exe", ["--version"], T0 + 2, T0 + 3, w.pid)); }).verdict, PASS);
 });
 test("NN09: a split of compatible compiles, a missing or unlisted command, two targets in one command, or waiting for one job before sending the next fails", () => {
   failsFor("NN09", 1, (r) => { r.jobs.push(job("rk", "clippy", bc.hostTarget, "", T0 + 10_100, { crates: ["rk-leaf"] })); }, /2 broker commands for rk \| clippy/);
@@ -140,7 +149,7 @@ test("NN09: a split of compatible compiles, a missing or unlisted command, two t
   failsFor("NN09", 1, (r) => { r.jobs.forEach((j, i) => { j.submitted = T0 + 10_000 + i * 6000; j.ended = j.submitted + 5000; }); }, /submitted only after the first job had ended/);
 });
 test("NN10: a broker that runs the tests, a gate that skips or repeats a signed program, a changed program, an unsigned one, or a failing test that passes, fails", () => {
-  failsFor("NN10", 1, (r) => { const t = r.jobs.find((j) => j.sub === "test"); t.argv = t.argv.filter((a) => a !== "--no-run"); }, /the broker ran the tests/);
+  failsFor("NN10", 1, (r) => { const t = r.jobs.find((j) => j.sub === "test"); t.effectiveArgv = t.effectiveArgv.filter((a) => a !== "--no-run"); }, /the broker ran the tests/);
   failsFor("NN10", 1, (r) => { r.starts = r.starts.filter((s) => s.exe !== TEST_EXE); }, /started 0 times/);
   failsFor("NN10", 1, (r) => { r.imageNow = {}; }, /does not have the signed hash/);
   failsFor("NN10", 1, (r) => { r.starts.push(prog("D:\\data\\ws\\t\\release\\deps\\other-fedcba9876543210.exe", [], T0 + 30_000, T0 + 30_100)); }, /no receipt signs/);
@@ -166,6 +175,7 @@ test("the group of a broker job is its workspace, verb, one target and feature f
   assert.deepEqual(groupOf(j, bc.hostTarget), { workspace: "app/src-tauri", verb: "clippy", target: "x86_64-unknown-linux-gnu", features: "--all-features", crates: [] });
   assert.equal(isClassAProgram(prog("C:\\t\\rustfmt.exe", ["--version"], 0, 1)), false);
   assert.equal(isClassAProgram(prog("C:\\t\\node.exe", ["--check", "a.js"], 0, 1)), true);
+  assert.equal(isClassAProgram(prog("C:\\t\\node.exe", ["--check", "D:\\snap\\app\\dist\\main.js"], 0, 1)), false, "a build output checked after the web build is not a Class A row");
   assert.equal(isClassAProgram(prog("C:\\t\\cargo.exe", ["metadata", "--no-deps"], 0, 1)), false);
   assert.equal(isClassAProgram(prog("C:\\t\\cargo.exe", ["deny", "check"], 0, 1)), true);
 });

@@ -1212,7 +1212,9 @@ export function readRunDir(dir, { repo = null, receiptsDir = null, verify = null
 export function runFacts(run) {
   const tree = runTree(run?.launch ?? null, run?.processes ?? null, run?.witness ?? null);
   const starts = tree.procs.map((p) => ({ ...decodeStart({ cmd: p.exe, args: p.args, cwd: p.cwd ?? "" }), exe: p.exe, pid: p.pid, ppid: p.ppid, at: p.start, end: p.end, exit: p.exit, argsKnown: p.argsKnown !== false }));
-  return { root: tree.root, gaps: tree.gaps, starts, jobs: (run?.receipts ?? []).map((r) => ({ ...jobOf(r), status: r?.doc?.provenance?.payload?.result?.status ?? null })) };
+  // The signed command as the broker ran it (the broker adds --no-run to a test build itself), beside the one the gate asked for.
+  const ran = (r) => { const a = r?.doc?.provenance?.payload?.request?.effectiveArgv; return Array.isArray(a) ? a.map(String) : null; };
+  return { root: tree.root, gaps: tree.gaps, starts, jobs: (run?.receipts ?? []).map((r) => ({ ...jobOf(r), effectiveArgv: ran(r), status: r?.doc?.provenance?.payload?.result?.status ?? null })) };
 }
 export { programName, cargoVerb, valuesOf, dirKey, isProbe };
 
