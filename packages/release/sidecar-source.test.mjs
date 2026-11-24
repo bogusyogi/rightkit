@@ -59,3 +59,14 @@ test("sidecar staging is told its build mode; a caller's RIGHTKIT_BUILD_MODE nev
   assert.match(src, /RIGHTKIT_BUILD_MODE: stage === "dev" \? "dev" : "release" \}/);
   assert.doesNotMatch(src, /\.\.\.\(stage === "dev" \? \{ RIGHTKIT_BUILD_MODE: "dev" \} : \{\}\)/);
 });
+test("the staged files are compared by path and sha256, not by when the receipt was written", async () => {
+  const fs = await import("node:fs"); const os = await import("node:os"); const path = await import("node:path");
+  const { stagedFilesDigest } = await import("./bin/rightkit-gate.mjs");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rk-receipt-")); const f = path.join(dir, "stage-sidecar.json");
+  const files = [{ path: "src-tauri/binaries/e.exe", sha256: "a".repeat(64) }];
+  fs.writeFileSync(f, JSON.stringify({ stagedAt: "2026-11-24T10:00:00Z", files })); const one = stagedFilesDigest(f);
+  fs.writeFileSync(f, JSON.stringify({ stagedAt: "2026-11-24T11:00:00Z", files })); assert.equal(stagedFilesDigest(f), one, "a new time is the same staging");
+  fs.writeFileSync(f, JSON.stringify({ stagedAt: "2026-11-24T11:00:00Z", files: [{ ...files[0], sha256: "b".repeat(64) }] })); assert.notEqual(stagedFilesDigest(f), one, "another binary is not");
+  fs.writeFileSync(f, "{"); assert.equal(stagedFilesDigest(f), null);
+  fs.rmSync(dir, { recursive: true, force: true });
+});

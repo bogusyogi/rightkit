@@ -59,9 +59,11 @@ const firstSubmission = (run) => Math.min(...run.jobs.map((j) => j.submitted).fi
 
 // ---- the checks one run can be given, whatever the case ---------------------------------------------------------------------------------------------------
 /** NN01, every run: each broker receipt verifies, names the selected commit and its tree, and says the snapshot was unchanged. */
-export function receiptsNameTheCommit(run) {
+/** A job the broker refused before it started (no signed start, not a success) built nothing: a run killed under it leaves one (case 7 on 0.6.67). Skipped in the kill case only: anywhere else an unstarted refusal may be a job sent before Class A, which NN02 must see. */
+export const neverRan = (j) => !Number.isFinite(j.started) && j.status !== "SUCCEEDED";
+export function receiptsNameTheCommit(run, { skipNeverRan = false } = {}) {
   const fails = [];
-  for (const j of run.jobs) {
+  for (const j of run.jobs.filter((x) => !(skipNeverRan && neverRan(x)))) {
     if (!j.verified) { fails.push(`${jobName(j)}: its receipt does not verify (${(j.problems ?? []).join("; ") || "no reason given"})`); continue; }
     if (j.gate?.commit !== run.commit) fails.push(`${jobName(j)} is signed for commit ${String(j.gate?.commit).slice(0, 12)}, not the selected ${String(run.commit).slice(0, 12)}`);
     if (!run.tree || j.gate?.tree !== run.tree) fails.push(`${jobName(j)} is signed for tree ${String(j.gate?.tree).slice(0, 12)}, not the selected commit's ${String(run.tree).slice(0, 12)}`);
@@ -70,8 +72,8 @@ export function receiptsNameTheCommit(run) {
   return fails;
 }
 /** NN02, a run that reached the broker: the Class A verdict file the receipts name is older than the first signed submission, and every Class A program ended before it. */
-export function classABeforeBroker(run) {
-  const fails = []; if (!run.jobs.length) return ["no broker receipt exists, so the order of Class A and the first submission cannot be shown"];
+export function classABeforeBroker(run, { skipNeverRan = false } = {}) {
+  const fails = []; if (skipNeverRan) { run = { ...run, jobs: run.jobs.filter((x) => !neverRan(x)) }; if (!run.jobs.length) return []; } else if (!run.jobs.length) return ["no broker receipt exists, so the order of Class A and the first submission cannot be shown"];
   const first = firstSubmission(run); if (!Number.isFinite(first)) return ["no broker receipt signs a usable start time and waits, so the first submission time is not known"];
   // Each job against the verdict file its own receipt names: that file, as the launcher lists it after the run, must be older than the job's signed submission.
   // A file written later was not this run's verdict when the job was sent (an older run's file of the same name was what the broker read).
@@ -174,7 +176,7 @@ const noCacheWrite = (run, label) => (!Array.isArray(run.cacheWritten) ? [`${lab
 const LINES = {
   // Only the selected commit is built.
   NN01(c, cases) {
-    const fails = c.runs.flatMap(receiptsNameTheCommit);
+    const fails = c.runs.flatMap((r) => receiptsNameTheCommit(r, { skipNeverRan: c.id === 7 }));
     if (c.id === 1) fails.push(...passedRun(c.runs[0], "the run with an error planted in the checkout that the commit does not hold"));
     if (c.id === 5) c.runs.forEach((r, i) => fails.push(...failedRun(r, `run ${i + 1} of the commit that holds the error, with a clean checkout`)));
     return verdict(fails, c.id === 1 ? "an error in the checkout that is not in the commit did not fail the run, and every receipt names the selected commit and tree with the snapshot unchanged" : c.id === 5 ? "an error in the commit failed the run with a clean checkout" : `${c.runs.reduce((n, r) => n + r.jobs.length, 0)} receipt(s), each naming the selected commit and tree with the snapshot unchanged`);
@@ -182,7 +184,7 @@ const LINES = {
   // Class A finishes before anything goes to the broker. If it fails, nothing goes.
   NN02(c) {
     if (c.id === 5) return verdict(c.runs.flatMap((r, i) => [...failedRun(r, `run ${i + 1}`), ...noReceipt(r, `run ${i + 1}`)]), "a failing Class A check ended the run with a failing exit and no broker receipt, twice");
-    return verdict(c.runs.filter((r) => r.jobs.length).flatMap(classABeforeBroker), "the Class A verdict file is older than the first signed submission, and every Class A program had ended by then");
+    return verdict(c.runs.filter((r) => r.jobs.length).flatMap((r) => classABeforeBroker(r, { skipNeverRan: c.id === 7 })), "the Class A verdict file is older than the first signed submission, and every Class A program had ended by then");
   },
   // Class A starts ready, independent work whenever an eligible lane is free.
   NN03(c, cases) {

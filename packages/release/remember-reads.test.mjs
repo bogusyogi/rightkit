@@ -26,9 +26,9 @@ test("the same read in the same folder is started once; another folder, another 
   const first = run("git", ["show", `${SHA}:package.json`], { cwd: "D:\\repo" });
   assert.equal(run("git", ["show", `${SHA}:package.json`], { cwd: "D:\\repo" }).stdout, first.stdout);
   assert.equal(calls.length, 1, "the second identical read starts nothing");
-  run("git", ["show", `${SHA}:package.json`], { cwd: "D:\\other" }); assert.equal(calls.length, 2, "another folder is another read");
-  run("pnpm", ["--version"], { cwd: "D:\\repo" }); run("pnpm", ["--version"], { cwd: "D:\\repo" }); assert.equal(calls.length, 3);
-  run("pnpm", ["--version"], { cwd: "D:\\repo", env: { PATH: "x" } }); assert.equal(calls.length, 4, "another environment is another read");
+  run("git", ["show", `${SHA}:package.json`], { cwd: "D:\\other" }); assert.equal(calls.length, 1, "an object named by its hash is the same object in any folder");
+  run("actionlint", ["-version"], { cwd: "D:\\repo" }); run("actionlint", ["-version"], { cwd: "D:\\other" }); assert.equal(calls.length, 2, "a tool's version is its binary's, whatever the folder");
+  run("git", ["rev-parse", "--show-toplevel"], { cwd: "D:\\repo" }); run("git", ["rev-parse", "--show-toplevel"], { cwd: "D:\\other" }); assert.equal(calls.length, 4, "the top of a checkout is the folder's");
   run("git", ["status"], { cwd: "D:\\repo" }); run("git", ["status"], { cwd: "D:\\repo" }); assert.equal(calls.length, 6, "anything else always runs");
   fail = true; run("git", ["rev-parse", "--show-toplevel"], { cwd: "D:\\x" }); run("git", ["rev-parse", "--show-toplevel"], { cwd: "D:\\x" });
   assert.equal(calls.length, 8, "a failed read is not remembered");
@@ -39,4 +39,9 @@ test("the asynchronous path answers a remembered read from the same memory", asy
   const node = process.execPath; const cwd = process.cwd();
   const a = await defaultSpawnAsync(node, ["--version"], { cwd }); const b = await defaultSpawnAsync(node, ["--version"], { cwd });
   assert.equal(a.status, 0); assert.deepEqual(b, { status: 0, signal: null, stdout: a.stdout, stderr: a.stderr }, "the second answer is the remembered one");
+});
+
+test("the gate runs with defaultSpawn itself, so the pnpm answers kept across runs (NN25, which test spawn === defaultSpawn) stay on", async () => {
+  const src = (await import("node:fs")).readFileSync(new URL("./bin/rightkit-gate.mjs", import.meta.url), "utf8");
+  assert.match(src, /spawn: defaultSpawn, exists: fs\.existsSync/); assert.doesNotMatch(src, /spawn: rememberReads\(defaultSpawn\)/);
 });

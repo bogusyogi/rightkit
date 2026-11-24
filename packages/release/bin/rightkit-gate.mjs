@@ -2867,6 +2867,8 @@ function rustupChannelManifests(env) {
 /** `<managed root>/sidecar-state/<repo key>/<config, target and mode>.json`, beside the snapshot: the key and receipt of the last staging. */
 const sidecarStateFile = (snapshotPath, { config, target, mode }) => path.join(path.dirname(path.dirname(snapshotPath)), "sidecar-state", path.basename(snapshotPath), `${createHash("sha256").update(JSON.stringify([config, target, mode])).digest("hex").slice(0, 32)}.json`);
 const fileSha256 = (file) => { try { return createHash("sha256").update(fs.readFileSync(file)).digest("hex"); } catch { return null; } };
+/** What a staging receipt stages: each file's path and sha256, not when it was written (the time changes on every staging; acceptance cases on 0.6.67). Null when unreadable. */
+export const stagedFilesDigest = (file) => { try { const r = JSON.parse(fs.readFileSync(file, "utf8")); if (!Array.isArray(r?.files)) return null; return createHash("sha256").update(JSON.stringify(r.files.map((x) => [x?.path ?? null, x?.sha256 ?? null]).sort())).digest("hex"); } catch { return null; } };
 
 /**
  * Sidecars are staged ONCE per door run, after the sync and before the first stage that builds the Tauri crate. The step is
@@ -2903,7 +2905,7 @@ export async function stageSidecarsOnce({ o, ds, root, git = null, configs, appD
     const keyOf = (parts) => (parts ? createHash("sha256").update(JSON.stringify(parts)).digest("hex") : null);
     const keyNow = (dirs) => keyOf(partsNow(dirs));
     const nowParts = prior?.schema === 2 ? partsNow(prior.dirs) : null;
-    const receiptNow = prior?.schema === 2 && typeof prior.receipt === "string" ? fileSha256(path.join(ds.path, prior.receipt)) : null;
+    const receiptNow = prior?.schema === 2 && typeof prior.receipt === "string" ? stagedFilesDigest(path.join(ds.path, prior.receipt)) : null;
     const unchanged = Boolean(prior?.schema === 2 && nowParts && keyOf(nowParts) === prior.key && receiptNow === prior.receiptSha256);
     // Why it stages again, in one line, so a missed reuse can be traced from the run's own output.
     if (!unchanged) o.out(tag + " [" + stage + "] stage-sidecar " + config + " builds: " + (prior?.schema !== 2 ? "no earlier staging is recorded" : !nowParts ? "its sources cannot be read from the commit" : keyOf(nowParts) !== prior.key ? "changed since the last staging: " + (Object.keys(nowParts).filter((k) => nowParts[k] !== prior.parts?.[k]).join(", ") || "unknown part") : "the staged receipt is not the one recorded"));
@@ -2935,7 +2937,7 @@ export async function stageSidecarsOnce({ o, ds, root, git = null, configs, appD
     if (receiptAbs) { try { (ds.stagedReceipts ??= new Map()).set(receiptAbs, fs.readFileSync(path.join(ds.path, receiptAbs), "utf8")); } catch { /* the close names the change without the field diff */ } }
     // The sources this staging was built from, for the next run (NN07). Not recordable (a sidecar not built by Cargo, a package not found): the state is removed.
     try {
-      const dirs = git ? sidecarSourceDirs({ git, commit, result }) : null; const k = dirs ? keyNow(dirs) : null; const sha = receiptAbs ? fileSha256(path.join(ds.path, receiptAbs)) : null;
+      const dirs = git ? sidecarSourceDirs({ git, commit, result }) : null; const k = dirs ? keyNow(dirs) : null; const sha = receiptAbs ? stagedFilesDigest(path.join(ds.path, receiptAbs)) : null;
       if (k && sha) { fs.mkdirSync(path.dirname(stateFile), { recursive: true }); const tmp = `${stateFile}.${process.pid}.tmp`; fs.writeFileSync(tmp, `${JSON.stringify({ schema: 2, key: k, parts: partsNow(dirs), dirs, receipt: receiptAbs, receiptSha256: sha })}\n`); fs.renameSync(tmp, stateFile); }
       else fs.rmSync(stateFile, { force: true });
     } catch (e) { o.out(`${tag} [${stage}] stage-sidecar ${config}: the staging state was not recorded (${e.message}); the next run stages again`); }
@@ -4268,7 +4270,7 @@ export function ignoredCallerVariable(name, platform = process.platform) {
 }
 export async function main(argv, io = {}) {
   const o = {
-    spawn: rememberReads(defaultSpawn), exists: fs.existsSync, readFile: (f) => fs.readFileSync(f, "utf8"), writeFile: fs.writeFileSync, mkdir: fs.mkdirSync, chmod: fs.chmodSync, readdir: fs.readdirSync,
+    spawn: defaultSpawn, exists: fs.existsSync, // remembers its read-only answers itself (deterministic-scans.mjs isRememberedRead); a wrapper here switched off the pnpm answers kept across runs, which test `spawn === defaultSpawn` readFile: (f) => fs.readFileSync(f, "utf8"), writeFile: fs.writeFileSync, mkdir: fs.mkdirSync, chmod: fs.chmodSync, readdir: fs.readdirSync,
     readStdin: () => { try { return process.stdin.isTTY ? "" : fs.readFileSync(0, "utf8"); } catch { return ""; } },
     out: (m) => console.log(m), err: (m) => console.error(m), cwd: process.cwd(), env: process.env, platform: process.platform,
     // Where this gate runs from (the door puts its own shims first on PATH when it is an installed package: doorPath).

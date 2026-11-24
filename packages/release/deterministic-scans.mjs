@@ -2287,6 +2287,16 @@ export function cmdShimEntry(shim, { readFile = (f) => fs.readFileSync(f, "utf8"
 
 /** Default spawn: synchronous, no console window, never `shell: true`. */
 export function defaultSpawn(command, args, options = {}) {
+  if (isRememberedRead(command, args) && options.input === undefined && options.stdio === undefined) {
+    const key = readMemoKey(command, args, options);
+    if (READ_MEMO.has(key)) return { ...READ_MEMO.get(key) };
+    const r = rawSpawn(command, args, options);
+    if (r && r.status === 0 && !r.error) READ_MEMO.set(key, { status: 0, signal: null, stdout: r.stdout, stderr: r.stderr });
+    return r;
+  }
+  return rawSpawn(command, args, options);
+}
+function rawSpawn(command, args, options = {}) {
   if (options.boundedMs) return boundedSpawn(command, args, options);
   const inv = resolveInvocation(command, args, { env: options.env ?? process.env });
   if (inv.error) return { status: null, stdout: "", stderr: "", error: inv.error };
@@ -2317,7 +2327,19 @@ export function isRememberedRead(command, args) {
   if (sub[0] === "ls-tree" && sub.length >= 2 && /^[0-9a-f]{40}$/.test(sub[sub.length - 1]) && sub.slice(1, -1).every((a) => /^-[a-z]$|^--name-only$|^--full-tree$/.test(a))) return true;
   return sub.length === 2 && sub[0] === "rev-parse" && sub[1] === "--show-toplevel";
 }
-const readMemoKey = (command, args, options = {}) => { const env = options.env ? Object.keys(options.env).sort().map((k) => `${k}=${options.env[k]}`).join("\0") : ""; return sha256(JSON.stringify([String(command), args, path.resolve(options.cwd ?? process.cwd()), env])); };
+const readMemoKey = (command, args, options = {}) => {
+  const a = (args ?? []).map(String); let i = 0; while (i < a.length && (a[i] === "-c" || a[i] === "-C")) i += 2;
+  const sub = a.slice(i);
+  // git show <sha>:<path>, ls-tree <sha>, cat-file -p <sha>: content-addressed, the same answer wherever it is asked (a repository without the object fails, and a failure is not kept).
+  if (/(^|[\\/])git(\.exe)?$/i.test(String(command)) && sub[0] !== "rev-parse") return sha256(JSON.stringify(["object", sub]));
+  // A tool's own version is the version of the binary that runs: the program as the environment resolves it.
+  if (a.length === 1 || (a.length === 2 && a[1] === "--version")) {
+    let file = String(command); try { file = resolveInvocation(command, args, { env: options.env ?? process.env }).file ?? file; } catch { /* as given */ }
+    return sha256(JSON.stringify(["version", String(file).toLowerCase(), a]));
+  }
+  const env = options.env ? Object.keys(options.env).sort().map((k) => `${k}=${options.env[k]}`).join("\0") : "";
+  return sha256(JSON.stringify([String(command), a, path.resolve(options.cwd ?? process.cwd()), env]));
+};
 export function rememberReads(spawn, { store = READ_MEMO } = {}) {
   return (command, args, options = {}) => {
     if (!isRememberedRead(command, args) || options.input !== undefined || options.stdio !== undefined) return spawn(command, args, options);

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.68
+
+Faults the acceptance cases showed on 0.6.67 (GC-A27; rightkit#1514), each with a test.
+
+- NN07: the sidecar's last staging is recognised by the files it staged (each path and sha256), not by the receipt's bytes, whose time changes on every staging.
+- NN08: the gate runs with `defaultSpawn` itself again. The 0.6.64 wrapper had switched off the pnpm answers kept across runs (`pnpm --version` and `pnpm config`, which check `spawn === defaultSpawn`). The run's read-only answers are now kept inside `defaultSpawn`, keyed by what decides each: an object named by its hash in any folder, a tool's version by the binary that runs, anything else by folder and environment.
+
 ## 0.6.67
 
 Step F of the Dell sequence, settled with Gemini (status file 11.7), and faults the 0.6.66 acceptance runs showed (GC-A27), each with a test.

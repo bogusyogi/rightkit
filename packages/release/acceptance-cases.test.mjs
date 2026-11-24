@@ -199,3 +199,16 @@ test("the group of a broker job is its workspace, verb, targets and feature flag
   assert.equal(isClassAProgram(prog("C:\\t\\cargo.exe", ["metadata", "--no-deps"], 0, 1)), false);
   assert.equal(isClassAProgram(prog("C:\\t\\cargo.exe", ["deny", "check"], 0, 1)), true);
 });
+test("NN01, NN02: a job the broker refused before it started built nothing and is not held against the run; a job that ran is", () => {
+  const refused = (j) => ({ ...j, started: NaN, status: "FAILED", gate: { ...j.gate, snapshotUnchanged: false } });
+  // case 7: the killed run leaves a job the broker refused when the snapshot changed under it
+  assert.equal(broken("NN01", 7, (r) => { r.jobs = [refused(job("app/engine", "build", bc.hostTarget, "", T0 + 100))]; }).verdict, PASS);
+  assert.equal(broken("NN02", 7, (r) => { r.jobs = [refused(job("app/engine", "build", bc.hostTarget, "", T0 + 100))]; }).verdict, PASS);
+  // the same receipt from a job that did start still fails
+  failsFor("NN01", 1, (r) => { r.jobs[0].gate.snapshotUnchanged = false; r.jobs[0].status = "FAILED"; }, /snapshot was unchanged/);
+});
+test("an unstarted refusal is skipped in the kill case only: anywhere else it may be a job sent before Class A", () => {
+  const refused = (j) => ({ ...j, started: NaN, status: "FAILED", gate: { ...j.gate, snapshotUnchanged: false } });
+  failsFor("NN01", 3, (r) => { r.jobs.push(refused(job("rk", "clippy", bc.targets, "", T0 + 100, { crates: ["rk-leaf"] }))); }, /snapshot was unchanged/);
+  failsFor("NN02", 1, (r) => { r.jobs.unshift(refused(job("rk", "clippy", bc.targets, "", T0 + 100))); }, /usable start time|before the Class A verdict/);
+});
