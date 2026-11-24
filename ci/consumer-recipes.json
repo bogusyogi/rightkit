@@ -3430,7 +3430,7 @@
       "files": {
         "Cargo.toml": "2022aff594ad7d574a97f4ad23d953912a316eb4c7fa24d43f12fb8d473d1668",
         "README.md": "1550b98c41d0c68b1bc44e4c91024eec4491a4e37fd8793d9bbf5d415616f341",
-        "src/main.rs": "ad44f5e7d60bcd02697196056d09eaa8c6e5f0e8bd066fe9af122b567b9ba582"
+        "src/main.rs": "f800184518433a1c4558b84669a4998565ac73996159562f44e11d34e4cf901e"
       }
     },
     "rightkit-terminal-ui": {

@@ -7,6 +7,8 @@
 //! drives. Without one nothing is written.
 
 pub mod drive_health;
+#[cfg(windows)]
+pub mod drive_health_windows;
 pub mod gpu_temp;
 pub mod monitor;
 #[cfg(windows)]

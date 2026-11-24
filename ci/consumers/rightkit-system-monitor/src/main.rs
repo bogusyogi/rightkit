@@ -31,6 +31,14 @@ fn main() {
         !set_state_directory(dir.clone()),
         "a second state folder is refused",
     );
+    #[cfg(windows)]
+    {
+        let report = rightkit_system_monitor::drive_health_windows::report(&dir, &[], 0);
+        check(
+            report.drives.is_empty() && report.alerts.is_empty(),
+            "the Windows drive-health report of no mounts is empty",
+        );
+    }
     let _ = std::fs::remove_dir_all(&dir);
     history_journey();
     println!("rightkit-system-monitor consumer: all checks passed");

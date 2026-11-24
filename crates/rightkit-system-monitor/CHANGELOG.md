@@ -6,6 +6,7 @@
 
 - Added stoppable system history with bounded visibility leases, monotonic retention & exclusive millisecond cursors.
 - Release disk-list admission once per worker so an earlier completion cannot reset the next listing.
+- Added `drive_health_windows` (Windows): drive health with persisted `PhysicalDriveN` identities and unelevated native fallbacks over the `drive_health` types. A mount maps to its physical drive through `IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS` (a volume on several drives, or none, is unknown and never sampled); a drive is read through smartctl `/dev/pdN`, then the NVMe SMART / Health log page and the storage reliability counters (PowerShell), then the temperature alone, and keeps its last good reading when all fail. `refresh(dir, candidates, mounts, now)` samples at the ten-minute interval and writes the history and alert files before returning alerts; `report(dir, mounts, now)` is the saved view and never runs a tool. Moved from Pulse's `engine/src/health_windows.rs`.
 
 ## 0.3.0
 
