@@ -68,24 +68,24 @@ pub fn claim_or_exit(
 }
 
 /// Where a forwarded launch waits until the app can show itself. One `static` per app.
-pub struct ForwardedLaunch {
-    state: Mutex<ForwardState>,
+pub struct ForwardedLaunch<T = ()> {
+    state: Mutex<ForwardState<T>>,
 }
 
-struct ForwardState {
+struct ForwardState<T> {
     app: Option<tauri::AppHandle>,
-    pending: bool,
+    pending: Option<T>,
     startup_ready: bool,
+    dispatching: bool,
 }
 
-impl ForwardState {
-    fn take_ready(&mut self) -> Option<tauri::AppHandle> {
-        if !self.pending || (cfg!(target_os = "macos") && !self.startup_ready) {
+impl<T> ForwardState<T> {
+    fn take_ready(&mut self) -> Option<(tauri::AppHandle, T)> {
+        if self.pending.is_none() || (cfg!(target_os = "macos") && !self.startup_ready) {
             return None;
         }
         let app = self.app.clone()?;
-        self.pending = false;
-        Some(app)
+        self.pending.take().map(|payload| (app, payload))
     }
 }
 
@@ -97,13 +97,7 @@ impl Default for ForwardedLaunch {
 
 impl ForwardedLaunch {
     pub const fn new() -> Self {
-        Self {
-            state: Mutex::new(ForwardState {
-                app: None,
-                pending: false,
-                startup_ready: false,
-            }),
-        }
+        Self::with_startup_ready(false)
     }
 
     /// A second launch was forwarded to this primary: show the app via `show` (on macOS on the
@@ -111,14 +105,14 @@ impl ForwardedLaunch {
     pub fn forwarded(&self, show: fn(&tauri::AppHandle), sink: EventSink) {
         let (app, deferred) = {
             let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
-            state.pending = true;
+            state.pending = Some(());
             let deferred = cfg!(target_os = "macos") && state.app.is_some() && !state.startup_ready;
             (state.take_ready(), deferred)
         };
         if deferred {
             sink("single_instance_deferred", "startup_pending");
         }
-        let Some(app) = app else {
+        let Some((app, ())) = app else {
             return;
         };
         #[cfg(target_os = "macos")]
@@ -130,7 +124,7 @@ impl ForwardedLaunch {
                 self.state
                     .lock()
                     .unwrap_or_else(|error| error.into_inner())
-                    .pending = true;
+                    .pending = Some(());
                 sink("single_instance_schedule_failed", &error.to_string());
             }
         }
@@ -149,7 +143,7 @@ impl ForwardedLaunch {
             state.app.get_or_insert_with(|| app.clone());
             state.take_ready()
         };
-        if let Some(app) = ready {
+        if let Some((app, ())) = ready {
             show(&app);
         }
     }
@@ -171,8 +165,76 @@ impl ForwardedLaunch {
             state.app.get_or_insert_with(|| app.clone());
             state.take_ready()
         };
-        if let Some(app) = ready {
+        if let Some((app, ())) = ready {
             show(&app);
+        }
+    }
+}
+
+impl<T> ForwardedLaunch<T> {
+    /// Store just the latest payload until setup binds the app handle. The delivery function
+    /// owns dispatch to the native UI thread. Use the same function for every push and bind.
+    pub const fn new_payload() -> Self {
+        Self::with_startup_ready(true)
+    }
+
+    const fn with_startup_ready(startup_ready: bool) -> Self {
+        Self {
+            state: Mutex::new(ForwardState {
+                app: None,
+                pending: None,
+                startup_ready,
+                dispatching: false,
+            }),
+        }
+    }
+
+    pub fn forward_payload(&self, payload: T, deliver: fn(&tauri::AppHandle, T)) {
+        let displaced = self.lock().pending.replace(payload);
+        drop(displaced);
+        self.dispatch_payload(deliver);
+    }
+
+    pub fn bind_payload_app(&self, app: &tauri::AppHandle, deliver: fn(&tauri::AppHandle, T)) {
+        self.lock().app.get_or_insert_with(|| app.clone());
+        self.dispatch_payload(deliver);
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, ForwardState<T>> {
+        self.state.lock().unwrap_or_else(|error| error.into_inner())
+    }
+
+    fn dispatch_payload(&self, deliver: fn(&tauri::AppHandle, T)) {
+        {
+            let mut state = self.lock();
+            if state.dispatching {
+                return;
+            }
+            state.dispatching = true;
+        }
+        // Reset the drain claim even if a host callback unwinds.
+        struct Drain<'a, T>(Option<&'a ForwardedLaunch<T>>);
+        impl<T> Drop for Drain<'_, T> {
+            fn drop(&mut self) {
+                if let Some(queue) = self.0 {
+                    queue.lock().dispatching = false;
+                }
+            }
+        }
+        let mut drain = Drain(Some(self));
+        loop {
+            let delivered = {
+                let mut state = self.lock();
+                let Some(deliverable) = state.take_ready() else {
+                    state.dispatching = false;
+                    drain.0 = None;
+                    return;
+                };
+                deliverable
+            };
+            // Deliver outside the lock. A forwarded callback can enqueue another payload without
+            // overtaking this one or starting a competing drain at the setup boundary.
+            deliver(&delivered.0, delivered.1);
         }
     }
 }
