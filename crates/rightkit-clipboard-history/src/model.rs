@@ -356,14 +356,6 @@ pub fn root() -> Option<PathBuf> {
     crate::host::data_dir().map(|dir| dir.join("clipboard"))
 }
 
-/// A new file name in the folder's `.tmp`, for the picture conversions (`clip_img.rs`). The
-/// folder is emptied when the store opens.
-pub fn tmp_file(extension: &str) -> Option<PathBuf> {
-    let dir = root()?.join(".tmp");
-    fs::create_dir_all(&dir).ok()?;
-    Some(dir.join(format!("{}.{extension}", uuid4())))
-}
-
 pub fn now() -> f64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -470,9 +462,6 @@ impl Store {
             store.status = Status::Unreadable;
             return store;
         }
-        let _ = fs::remove_dir_all(store.dir.join(".tmp"));
-        // Undo copies of big items do not outlive the run (spec 9).
-        let _ = fs::remove_dir_all(store.dir.join(".undo"));
         // Not shared: a second process that opens the same folder fails here and only reads.
         store._lock = rightkit_fs::FileLock::acquire(
             &store.dir.join(".lock"),
@@ -485,6 +474,10 @@ impl Store {
         // Sealed files are opened before anything is read (spec 9, #152). A process that does not
         // hold the lock changes nothing in the folder.
         let owner = store._lock.is_some();
+        if owner {
+            // Undo copies of big items do not outlive the run (spec 9).
+            let _ = fs::remove_dir_all(store.dir.join(".undo"));
+        }
         if clip_seal::prepare(&store.dir, owner) == clip_seal::Prepared::Unavailable && owner {
             store.status = Status::Unreadable;
         }

@@ -262,10 +262,7 @@ fn write_back_with_snapshot(
             host::log_info("clipboard", &[("result", "paste_payload_unreadable")]);
             return None;
         };
-        let dib = crate::seal::with_plain_file(&png, "png", |plain| {
-            clip_img::decode_file(plain, None).and_then(|bitmap| clip_img::dibv5(&bitmap))
-        })
-        .flatten();
+        let dib = clip_img::dibv5_from_png(&png);
         image = Some((png, dib));
     } else if kind == Kind::File && payload.paths.is_empty() {
         return None;
