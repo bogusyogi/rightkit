@@ -6147,7 +6147,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-app-settings"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "rightkit-fs",
  "serde",
@@ -6179,7 +6179,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-audio"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "block2",
  "cpal",
@@ -6203,7 +6203,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-automation"
-version = "0.7.6"
+version = "0.7.7"
 dependencies = [
  "windows 0.62.2",
 ]
@@ -6306,7 +6306,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-credentials"
-version = "0.5.9"
+version = "0.5.10"
 dependencies = [
  "getrandom 0.4.3",
  "rightkit-child-process",
@@ -6347,7 +6347,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-db"
-version = "0.5.10"
+version = "0.5.11"
 dependencies = [
  "libc",
  "rightkit-fs",
@@ -6428,7 +6428,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-fs"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "libc",
  "sha2 0.11.1",
@@ -6456,7 +6456,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-hotkeys"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "rightkit-automation",
  "windows-sys 0.61.2",
@@ -6509,7 +6509,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-license"
-version = "0.3.4"
+version = "0.3.5"
 dependencies = [
  "base64 0.23.1",
  "ed25519-dalek",
@@ -6629,7 +6629,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-onnx"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "half",
  "ndarray",
@@ -6885,7 +6885,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-tauri-shell"
-version = "0.8.8"
+version = "0.8.9"
 dependencies = [
  "block2",
  "libc",
