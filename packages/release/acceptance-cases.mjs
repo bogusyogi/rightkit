@@ -39,15 +39,21 @@ export function isClassAProgram(start) {
   if (name === "cargo") return ["deny", "audit"].includes(cargoVerb(args));
   return false;
 }
-/** The workspace, verb, target and feature flags of a broker job: the group NN09 counts. */
+/** The workspace, verb, feature flags and targets of a broker job: what NN09 holds against the cases file's exact list. A command that names no --target builds for the host. */
 export function groupOf(job, hostTarget) {
   const args = job.args ?? []; const snap = plain(job.gate?.snapshot); const cwd = plain(job.cwd);
   const workspace = snap && cwd.startsWith(snap) ? cwd.slice(snap.length).replace(/^\//, "") || "." : cwd;
-  const targets = valuesOf(args, "--target"); const feats = valuesOf(args, "--features", "-F");
+  const named = valuesOf(args, "--target"); const feats = valuesOf(args, "--features", "-F");
   const features = args.includes("--all-features") ? "--all-features" : feats.length ? `--features ${feats.join(",")}` : "";
-  return { workspace, verb: job.sub, target: targets.length === 0 ? hostTarget : targets.length === 1 ? targets[0] : null, features, crates: valuesOf(args, "--package", "-p") };
+  return { workspace, verb: job.sub, targets: (named.length ? [...new Set(named)] : [hostTarget]).sort(), features, crates: valuesOf(args, "--package", "-p") };
 }
-const groupKey = (g) => `${g.workspace} | ${g.verb} | ${g.target} | ${g.features || "default features"}`;
+const groupKey = (g) => `${g.workspace} | ${g.verb} | ${g.features || "default features"} | ${g.targets.join(" + ")}`;
+/** The cases file's exact command list as keys; `prerequisite` commands (a sidecar build other commands need first) are returned apart. */
+export function expectedCommands(bc) {
+  const out = new Map();
+  for (const c of bc.commands ?? []) { const targets = (c.targets === "each target" ? bc.targets : c.targets === "host" ? [bc.hostTarget] : [c.targets]).slice().sort(); out.set(groupKey({ workspace: c.workspace, verb: c.verb, features: c.features, targets }), c); }
+  return out;
+}
 const jobName = (j) => `broker job ${j.jobId ?? "(no id)"}`;
 const firstSubmission = (run) => Math.min(...run.jobs.map((j) => j.submitted).filter(Number.isFinite));
 
@@ -101,7 +107,8 @@ export function repeats(run, legitimate = []) {
   for (const s of startedByGate(run)) { if (!s.argsKnown || s.ambiguous) continue; const k = JSON.stringify([programName(s.program), s.args]); groups.set(k, (groups.get(k) ?? 0) + 1); }
   for (const [k, n] of groups) {
     if (n < 2) continue; const [name, args] = JSON.parse(k);
-    const allowed = legitimate.find((l) => l.program === name && JSON.stringify(l.args) === JSON.stringify(args))?.count ?? 1;
+    const line = args.join(" ");
+    const allowed = legitimate.find((l) => (l.programPattern ? new RegExp(l.programPattern).test(name) : l.program === name) && (l.argsPattern ? new RegExp(l.argsPattern).test(line) : JSON.stringify(l.args) === JSON.stringify(args)))?.count ?? 1;
     if (n > allowed) fails.push(`${name} ${args.join(" ").slice(0, 80)} started ${n} times (${allowed} allowed)`);
   }
   const sent = new Map();
@@ -241,25 +248,27 @@ const LINES = {
   // Compatible compiles are combined per workspace and stage. Every split has a reason the check can verify. Independent groups run at the same time when there is capacity.
   NN09(c, cases) {
     const run = c.runs[0]; const fails = [...passedRun(run, "the run from nothing")]; const bc = cases.brokerCommands ?? {};
-    const expand = (list) => list.flatMap((g) => ["clippy", "check", "test", "doc"].filter((v) => typeof g[v] === "string" && !g[v].startsWith("none")).flatMap((v) => (g[v] === "each target" ? bc.targets : [bc.hostTarget]).map((t) => groupKey({ workspace: g.workspace, verb: v, target: t, features: g.features }))));
-    const required = new Set(expand(bc.required ?? [])); const permitted = new Set(expand(bc.permitted ?? []));
-    const seen = new Map();
+    const expected = expectedCommands(bc); const seen = new Map(); const prerequisite = new Set();
     for (const j of run.jobs) {
       if (!j.verified) { fails.push(`${jobName(j)}: its receipt does not verify`); continue; }
-      const g = groupOf(j, bc.hostTarget);
-      if (g.target === null) { fails.push(`${jobName(j)} names more than one --target in one command`); continue; }
-      const k = groupKey(g); seen.set(k, (seen.get(k) ?? 0) + 1);
+      const k = groupKey(groupOf(j, bc.hostTarget)); seen.set(k, (seen.get(k) ?? 0) + 1);
+      if (expected.get(k)?.why === "the sidecar binary") prerequisite.add(j);
     }
-    for (const k of required) if (!seen.has(k)) fails.push(`no broker command for ${k}`);
+    for (const k of expected.keys()) if (!seen.has(k)) fails.push(`no broker command for ${k}`);
     for (const [k, n] of seen) {
-      if (!required.has(k) && !permitted.has(k)) fails.push(`a broker command for ${k}, which the cases file does not list`);
-      else if (n > 1) fails.push(`${n} broker commands for ${k}: compatible compiles were split`);
+      if (!expected.has(k)) fails.push(`a broker command for ${k}, which the cases file does not list`);
+      else if (n > 1) fails.push(`${n} broker commands for ${k}: the cases file lists it once`);
     }
-    // Early submission: each later command was submitted before the first command's job ended (the broker runs one Cargo process per app; what the gate owes is not to wait).
-    const byTime = run.jobs.filter((j) => Number.isFinite(j.submitted)).sort((a, b) => a.submitted - b.submitted);
-    if (byTime.length !== run.jobs.length) fails.push("a broker receipt signs no usable submission time");
-    if (byTime.length > 1 && Number.isFinite(byTime[0].ended)) { const waited = byTime.slice(1).filter((j) => j.submitted >= byTime[0].ended); if (waited.length) fails.push(`${waited.length} of ${byTime.length - 1} later command(s) were submitted only after the first job had ended: the gate waited for one job before sending the next`); }
-    return verdict(fails, `${run.jobs.length} broker commands, one per workspace, stage, target and declared feature set, every one submitted before the first job ended`);
+    // Early submission. The broker runs one build of a repository at a time and owns the order; what the gate owes is not to hold a command back. A command
+    // submitted when every earlier command of the run had already ended was held until then: the gate waited for a job before sending the next. The sidecar
+    // build is the one command others need first, so it is left out on both sides.
+    const rest = run.jobs.filter((j) => !prerequisite.has(j));
+    const byTime = rest.filter((j) => Number.isFinite(j.submitted) && Number.isFinite(j.ended)).sort((a, b) => a.submitted - b.submitted);
+    if (byTime.length !== rest.length) fails.push("a broker receipt signs no usable submission or end time");
+    let lastEnd = -Infinity; const held = [];
+    byTime.forEach((j, i) => { if (i > 0 && j.submitted >= lastEnd) held.push(j); lastEnd = Math.max(lastEnd, j.ended); });
+    if (held.length) fails.push(`${held.length} of ${byTime.length - 1} later command(s) were submitted only after every earlier one had ended (first: cargo ${held[0].sub} in ${groupOf(held[0], bc.hostTarget).workspace} at ${new Date(held[0].submitted).toISOString()}): the gate waited for a job before sending the next`);
+    return verdict(fails, `${run.jobs.length} broker commands, exactly the cases file's list, each sent once, none held back until earlier jobs had ended`);
   },
   // Tests are compiled by the broker and run by the gate.
   NN10(c) {
@@ -295,17 +304,29 @@ function workMatches(c, cases) {
     if (!g.crates.length) fails.push(`${jobName(j)} names no crate, so it built the whole workspace`);
     if (g.verb in counts) counts[g.verb] += 1; else fails.push(`${jobName(j)} is a cargo ${g.verb}, which the cases file does not expect`);
   }
+  delete counts.check;
   for (const v of Object.keys(counts)) if (counts[v] !== (want[v] ?? 0)) fails.push(`${counts[v]} ${v} command(s) for the edit; the cases file expects ${want[v] ?? 0}`);
   if (!Array.isArray(run.cacheWritten)) fails.push("the launcher could not list the scan store");
   else {
     const expected = new Set([...(e.classARows ?? []), ...(e.compileRows ?? [])]);
     const index = new Map([...expected].map((id) => [crypto.createHash("sha256").update(`rk-row-index/1\0${id}`).digest("hex"), id]));
     const written = new Set();
+    // A combined command stores one result under its own id (clippy:batch:<hash>) and the planner stores which targets it combined (feature-partition-targets);
+    // each names its crates, and stands for the expected rows of that verb and those crates. A rule verdict of the new commit names no row and is expected.
+    const verbOf = (id) => (/^test:rust/.test(id) ? "test" : String(id).split(":")[0]); const crateOf = (id) => String(id).split(":").pop().split("@")[0];
     for (const f of run.cacheWritten) {
       const id = f.row ?? index.get(path.basename(f.name, ".json")) ?? null;
-      if (id === null) fails.push(`the scan store file ${f.name} was written and names no row`);
-      else if (!expected.has(id)) fails.push(`a result for ${id} was written, a row the edit does not touch`);
-      else if (f.row) written.add(id);
+      if (/^rule-verdicts\//.test(String(f.name).replaceAll("\\", "/"))) continue;
+      if (id === null) { fails.push(`the scan store file ${f.name} was written and names no row`); continue; }
+      const combined = /^([a-z]+):batch:/.exec(id)?.[1] ?? (/^feature-partition/.test(id) ? "plan" : null);
+      if (combined) {
+        const extra = (f.crates ?? []).filter((x) => !wantCrates.has(x));
+        if (!Array.isArray(f.crates) || !f.crates.length) fails.push(`the combined result ${id} was written and the launcher could not read which crates it names`);
+        else if (extra.length) fails.push(`the combined result ${id} names ${extra.join(", ")}, which the edit does not touch`);
+        else if (combined !== "plan") for (const e of expected) if (verbOf(e) === combined && f.crates.includes(crateOf(e))) written.add(e);
+        continue;
+      }
+      if (!expected.has(id)) fails.push(`a result for ${id} was written, a row the edit does not touch`); else written.add(id);
     }
     for (const id of expected) if (!written.has(id)) fails.push(`no result was written for ${id}, a row the edit changes`);
   }

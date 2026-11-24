@@ -86,100 +86,185 @@
     ]
   },
   "brokerCommands": {
-    "rule": "NN09: one command per workspace, stage, target and feature flags, never two. A group is the four together: the workspace folder, the cargo verb, the one --target it names, and its feature flags. The per-target split is the contract's (approved 2026-11-21). A feature-flag split is verified only when the flags are a feature set that ci/gate.config.json declares for a crate of that workspace, or --all-features for a workspace with a crate that declares features and has no featureSets. Required groups must each be sent exactly once in a full compile; permitted groups at most once; any other command, or a second command of one group, fails the line. rk-darwin is not built on this host (platforms: darwin).",
+    "rule": "NN09: the broker commands of a full compile are exactly this list, each sent once: nothing missing, nothing extra, nothing sent twice. One command per workspace, stage and feature set. Clippy names all three targets in one command where the workspace's crates resolve alike for every target (they have no target-specific dependency), and is one command per target for the Tauri shell app/src-tauri, whose dependency graph differs by target (the split the contract approved on 2026-11-21). A feature set is its own command only where ci/gate.config.json declares it for a crate (rk-core: alpha,excl-a and beta,excl-b; rk-slow: slow), because --features names one crate's features. Docs are built for libraries, with each crate's first declared feature set (rk-core: alpha,excl-a). app/src-tauri declares a feature and no featureSets, so it gets one --all-features lint on the host. The sidecar the Tauri shell needs is one build in app/engine. rk-darwin is not built on this host.",
     "hostTarget": "x86_64-pc-windows-msvc",
     "targets": [
       "x86_64-pc-windows-msvc",
       "x86_64-unknown-linux-gnu",
       "aarch64-apple-darwin"
     ],
-    "required": [
+    "commands": [
       {
         "workspace": "app/engine",
+        "verb": "build",
         "features": "",
-        "clippy": "each target",
-        "test": "host",
-        "doc": "host"
+        "targets": "host",
+        "why": "the sidecar binary"
+      },
+      {
+        "workspace": "app/engine",
+        "verb": "clippy",
+        "features": "",
+        "targets": "each target"
+      },
+      {
+        "workspace": "app/engine",
+        "verb": "test",
+        "features": "",
+        "targets": "host"
+      },
+      {
+        "workspace": "app/engine",
+        "verb": "doc",
+        "features": "",
+        "targets": "host"
       },
       {
         "workspace": "app/src-tauri",
+        "verb": "clippy",
         "features": "",
-        "clippy": "each target",
-        "test": "host",
-        "doc": "none: no library"
+        "targets": "x86_64-pc-windows-msvc"
+      },
+      {
+        "workspace": "app/src-tauri",
+        "verb": "clippy",
+        "features": "",
+        "targets": "x86_64-unknown-linux-gnu"
+      },
+      {
+        "workspace": "app/src-tauri",
+        "verb": "clippy",
+        "features": "",
+        "targets": "aarch64-apple-darwin"
+      },
+      {
+        "workspace": "app/src-tauri",
+        "verb": "clippy",
+        "features": "--all-features",
+        "targets": "host"
+      },
+      {
+        "workspace": "app/src-tauri",
+        "verb": "test",
+        "features": "",
+        "targets": "host"
       },
       {
         "workspace": "tools",
+        "verb": "clippy",
         "features": "",
-        "clippy": "each target",
-        "test": "host",
-        "doc": "host"
+        "targets": "each target"
+      },
+      {
+        "workspace": "tools",
+        "verb": "test",
+        "features": "",
+        "targets": "host"
+      },
+      {
+        "workspace": "tools",
+        "verb": "doc",
+        "features": "",
+        "targets": "host"
       },
       {
         "workspace": "rk",
+        "verb": "clippy",
         "features": "",
-        "clippy": "each target",
-        "test": "host",
-        "doc": "host"
+        "targets": "each target"
       },
       {
         "workspace": "rk",
+        "verb": "clippy",
         "features": "--features alpha,excl-a",
-        "clippy": "each target",
-        "test": "host"
+        "targets": "each target"
       },
       {
         "workspace": "rk",
+        "verb": "clippy",
         "features": "--features beta,excl-b",
-        "clippy": "each target",
-        "test": "host"
+        "targets": "each target"
       },
       {
         "workspace": "rk",
+        "verb": "clippy",
         "features": "--features slow",
-        "clippy": "each target",
-        "test": "host"
+        "targets": "each target"
+      },
+      {
+        "workspace": "rk",
+        "verb": "test",
+        "features": "",
+        "targets": "host"
+      },
+      {
+        "workspace": "rk",
+        "verb": "test",
+        "features": "--features alpha,excl-a",
+        "targets": "host"
+      },
+      {
+        "workspace": "rk",
+        "verb": "test",
+        "features": "--features beta,excl-b",
+        "targets": "host"
+      },
+      {
+        "workspace": "rk",
+        "verb": "test",
+        "features": "--features slow",
+        "targets": "host"
+      },
+      {
+        "workspace": "rk",
+        "verb": "doc",
+        "features": "",
+        "targets": "host"
+      },
+      {
+        "workspace": "rk",
+        "verb": "doc",
+        "features": "--features alpha,excl-a",
+        "targets": "host"
       },
       {
         "workspace": "crates/rightkit-a",
+        "verb": "clippy",
         "features": "",
-        "clippy": "each target",
-        "test": "host",
-        "doc": "host"
+        "targets": "each target"
+      },
+      {
+        "workspace": "crates/rightkit-a",
+        "verb": "test",
+        "features": "",
+        "targets": "host"
+      },
+      {
+        "workspace": "crates/rightkit-a",
+        "verb": "doc",
+        "features": "",
+        "targets": "host"
       },
       {
         "workspace": "crates/rightkit-b",
+        "verb": "clippy",
         "features": "",
-        "clippy": "each target",
-        "test": "host",
-        "doc": "host"
+        "targets": "each target"
+      },
+      {
+        "workspace": "crates/rightkit-b",
+        "verb": "test",
+        "features": "",
+        "targets": "host"
+      },
+      {
+        "workspace": "crates/rightkit-b",
+        "verb": "doc",
+        "features": "",
+        "targets": "host"
       }
     ],
-    "permitted": [
-      {
-        "workspace": "rk",
-        "features": "--features alpha,excl-a",
-        "doc": "host"
-      },
-      {
-        "workspace": "rk",
-        "features": "--features beta,excl-b",
-        "doc": "host"
-      },
-      {
-        "workspace": "rk",
-        "features": "--features slow",
-        "doc": "host"
-      },
-      {
-        "workspace": "app/src-tauri",
-        "features": "--all-features",
-        "clippy": "each target",
-        "check": "host"
-      }
-    ],
-    "requiredTotal": 41,
-    "why": "required: 6 workspaces with clippy on 3 targets and a test build on the host (24), 5 library workspaces with docs (5), and 3 declared feature sets in rk with clippy on 3 targets and a test build (12)"
+    "total": 28
   },
   "legitimateRepeats": [
     {
@@ -192,7 +277,51 @@
         "--locked"
       ],
       "count": 6,
-      "why": "one per Cargo workspace; the Windows process record keeps no folder, so the six look alike"
+      "why": "one per Cargo workspace (the planner's read); the Windows process record keeps no folder, so the six look alike"
+    },
+    {
+      "program": "cargo",
+      "args": [
+        "metadata",
+        "--format-version",
+        "1",
+        "--locked"
+      ],
+      "count": 6,
+      "why": "one per Cargo workspace (the cargo-deny row's own read)"
+    },
+    {
+      "program": "cargo",
+      "args": [
+        "fetch",
+        "--locked"
+      ],
+      "count": 6,
+      "why": "one per Cargo workspace (the cargo-deny row's own fetch)"
+    },
+    {
+      "program": "cargo",
+      "argsPattern": "^audit --db \\S+ --no-fetch( |$)",
+      "count": 6,
+      "why": "one per Cargo workspace (the cargo-audit row); the advisory database path is this machine's"
+    },
+    {
+      "programPattern": "^oxlint",
+      "argsPattern": "^-c \\S*\\.oxlintrc\\.json \\.$",
+      "count": 2,
+      "why": "one per npm package"
+    },
+    {
+      "program": "pnpm",
+      "args": [
+        "exec",
+        "tsc",
+        "--noEmit",
+        "-p",
+        "tsconfig.json"
+      ],
+      "count": 2,
+      "why": "one per npm package"
     }
   ],
   "cases": [
@@ -264,7 +393,7 @@
         "edits": [
           {
             "path": "rk/crates/rk-leaf/src/lib.rs",
-            "append": "\n/// Acceptance case 3: one more public function in the leaf.\npub fn leaf_again() -> u32 {\n    leaf() + 1\n}\n"
+            "content": "/// The leaf of the dependency chain rk-core, rk-util, rk-leaf: a one-file edit here rebuilds only this crate.\npub fn leaf() -> u32 {\n    rk_util::doubled() + 1\n}\n\n/// Acceptance case 3: one more public function in the leaf.\npub fn leaf_again() -> u32 {\n    leaf() + 1\n}\n\n#[cfg(test)]\nmod tests {\n    use super::leaf;\n\n    #[test]\n    fn leaf_is_three() {\n        assert_eq!(leaf(), 3);\n    }\n}\n"
           }
         ]
       },
@@ -283,7 +412,7 @@
         ],
         "brokerCommands": {
           "workspace": "rk",
-          "clippy": 3,
+          "clippy": 1,
           "test": 1,
           "doc": 1
         },
@@ -294,7 +423,8 @@
           "doc:rk:rk-leaf",
           "test:rust:rk:rk-leaf"
         ],
-        "source": "the frozen prediction of 18 November for a one-file edit to rk-leaf: five of 77 compile rows, and the two Class A rows whose read-set holds the file"
+        "source": "the frozen prediction of 18 November for a one-file edit to rk-leaf: five of 77 compile rows, and the two Class A rows whose read-set holds the file",
+        "brokerCommandsWhy": "one clippy naming all three targets, one test build, one doc, each naming only rk-leaf"
       }
     },
     {
@@ -414,5 +544,15 @@
     "case7": null,
     "realBuild": null
   },
-  "limitsRule": "first clean measured time x 1.25, filled once; null means not yet measured, and NN11 fails while it is null"
+  "limitsRule": "first clean measured time x 1.25, filled once; null means not yet measured, and NN11 fails while it is null",
+  "corrections": {
+    "approved": "Adrian, 2026-11-24: \"Approve, keep going\" (to: C1, C4, the sidecar-build half of C2, and C3 tightened to an exact command list). Reviewed first by Gemini, which rejected C3 as first worded (\"in one command or split by target\" lets a gate always split) and the rk-sidecar half of C2.",
+    "previousSha256": "e41bba2b2331adc866ed602f3ab3ecda27adb615d296e981f9a2310479b06bdc",
+    "list": [
+      "C1: per-workspace and per-package commands that look alike in a process record with no folder are pinned with their exact counts (six Cargo workspaces, two npm packages).",
+      "C2: the sidecar build in app/engine is an expected broker command. rk-sidecar gets no command of its own: that split was a gate fault (ci/shards.json solo) and is fixed in the gate.",
+      "C3: the broker commands are an exact list. A workspace whose crates resolve alike for every target is one clippy command naming all three targets; the Tauri shell, whose dependency graph differs by target, is one command per target.",
+      "C4: case 3's edit puts the new function above the test module (clippy rejects an item after a test module)."
+    ]
+  }
 }

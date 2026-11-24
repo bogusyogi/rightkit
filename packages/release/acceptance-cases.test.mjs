@@ -18,7 +18,7 @@ const bc = CASES.brokerCommands;
 let seq = 0;
 const job = (ws, verb, target, features, at, { crates = [], dur = 5000, extra = [] } = {}) => {
   seq += 1; const feat = features ? features.split(" ") : [];
-  const args = [verb, ...crates.flatMap((c) => ["-p", c]), ...feat, "--target", target, "--locked", ...extra];
+  const args = [verb, ...crates.flatMap((c) => ["-p", c]), ...feat, ...[].concat(target).flatMap((x) => ["--target", x]), "--locked", ...extra];
   return { jobId: `job-${seq}`, verified: true, problems: [], argv: args.filter((a) => a !== "--no-run"), effectiveArgv: args, args, sub: verb, cwd: ws === "." ? SNAP : `${SNAP}\\${ws.replaceAll("/", "\\")}`, gate: { commit: COMMIT, tree: TREE, snapshot: `\\\\?\\${SNAP}`, snapshotUnchanged: true, classA: `\\\\?\\D:\\data\\class-a-verdicts\\${VERDICT}` }, submitted: at, started: at + 50, ended: at + dur, testExecutables: null, status: "SUCCEEDED" };
 };
 let pids = 100; const ROOT = 7;
@@ -30,14 +30,15 @@ function fullRun() {
   ["rustfmt", "shellcheck", "actionlint", "oxlint", "tsc", "cargo-deny", "cargo-audit"].forEach((p, i) => starts.push(prog(`C:\\tools\\${p}.exe`, ["--check", `f${i}`], T0 + 1000 + Math.floor(i / lanes) * 900 + i * 10, T0 + 1900 + Math.floor(i / lanes) * 900 + i * 10)));
   for (let i = 0; i < 6; i += 1) starts.push(prog("C:\\tools\\cargo.exe", ["metadata", "--no-deps", "--format-version", "1", "--locked"], T0 + 200 + i, T0 + 400 + i));
   const jobs = []; const sub = T0 + 10_000;
-  for (const g of bc.required) for (const v of ["clippy", "test", "doc"]) {
-    if (typeof g[v] !== "string" || g[v].startsWith("none")) continue;
-    for (const t of g[v] === "each target" ? bc.targets : [bc.hostTarget]) jobs.push(job(g.workspace, v, t, g.features, sub + jobs.length, { extra: v === "test" ? ["--no-run"] : [] }));
+  for (const c of bc.commands) {
+    const targets = c.targets === "each target" ? bc.targets : c.targets === "host" ? bc.hostTarget : c.targets;
+    if (c.verb === "build") jobs.push(job(c.workspace, c.verb, targets, c.features, T0 + 8000, { dur: 100 }));
+    else jobs.push(job(c.workspace, c.verb, targets, c.features, sub + jobs.length, { extra: c.verb === "test" ? ["--no-run"] : [] }));
   }
   jobs.filter((j) => j.sub === "test").forEach((j) => { j.testExecutables = []; });
   const t = jobs.find((j) => j.sub === "test"); t.testExecutables = [{ path: TEST_EXE, sha256: "e".repeat(64) }];
   starts.push(prog(TEST_EXE, [], t.ended + 500, t.ended + 900));
-  return { commit: COMMIT, tree: TREE, exit: 0, signal: null, killed: false, durationMs: 60_000, lanes, log: "", jobs, starts, processGaps: [], cacheWritten: [{ name: "x.json", row: "rustfmt:2021" }], verdicts: { [VERDICT]: sub - 2000 }, decisions: [], locksAfter: [], locksKnown: true, rootAlive: false, rootPid: ROOT, snapshot: SNAP, imageNow: { [TEST_EXE.replaceAll("\\", "/").toLowerCase()]: "e".repeat(64) } };
+  return { commit: COMMIT, tree: TREE, exit: 0, signal: null, killed: false, durationMs: 60_000, lanes, log: "", jobs, starts, processGaps: [], cacheWritten: [{ name: "x.json", row: "rustfmt:2021" }], verdicts: { [VERDICT]: sub - 3000 }, decisions: [], locksAfter: [], locksKnown: true, rootAlive: false, rootPid: ROOT, snapshot: SNAP, imageNow: { [TEST_EXE.replaceAll("\\", "/").toLowerCase()]: "e".repeat(64) } };
 }
 const quiet = (over = {}) => ({ commit: COMMIT, tree: TREE, exit: 0, signal: null, killed: false, durationMs: 9000, lanes: 4, log: "", jobs: [], starts: [], processGaps: [], cacheWritten: [], verdicts: {}, decisions: [], locksAfter: [], locksKnown: true, rootAlive: false, rootPid: ROOT, snapshot: SNAP, imageNow: {}, ...over });
 const def = (id) => CASES.cases.find((c) => c.id === id);
@@ -45,13 +46,13 @@ const indexName = (id) => `${crypto.createHash("sha256").update(`rk-row-index/1\
 /** Clean runs for every case. */
 function good() {
   const e3 = def(3).expect; const sub = T0 + 5000;
-  const leaf = [...bc.targets.map((t, i) => job("rk", "clippy", t, "", sub + i, { crates: ["rk-leaf"] })), { ...job("rk", "test", bc.hostTarget, "", sub + 3, { crates: ["rk-leaf"], extra: ["--no-run"] }), testExecutables: [] }, job("rk", "doc", bc.hostTarget, "", sub + 4, { crates: ["rk-leaf"] })];
+  const leaf = [job("rk", "clippy", bc.targets, "", sub, { crates: ["rk-leaf"] }), { ...job("rk", "test", bc.hostTarget, "", sub + 3, { crates: ["rk-leaf"], extra: ["--no-run"] }), testExecutables: [] }, job("rk", "doc", bc.hostTarget, "", sub + 4, { crates: ["rk-leaf"] })];
   const rows3 = [...e3.classARows, ...e3.compileRows];
   return {
     1: [fullRun()],
     2: [quiet()],
     4: [quiet({ exit: 1, log: "rightkit-gate: BLOCKED: license was expected to be reused and its stored result is missing; nothing ran\n", decisions: [{ commit: COMMIT, forecast: [{ id: "license", expected: "hit" }, { id: "rustfmt:2021", expected: "hit" }] }] })],
-    3: [quiet({ jobs: leaf, starts: [prog("C:\\tools\\rustfmt.exe", ["--check", "--edition", "2021", "lib.rs"], T0 + 1000, T0 + 1500)], verdicts: { [VERDICT]: sub - 1000 }, cacheWritten: [...rows3.map((id, i) => ({ name: `r${i}.json`, row: id })), { name: indexName("secret-scan"), row: null }] })],
+    3: [quiet({ jobs: leaf, starts: [prog("C:\\tools\\rustfmt.exe", ["--check", "--edition", "2021", "lib.rs"], T0 + 1000, T0 + 1500)], verdicts: { [VERDICT]: sub - 1000 }, cacheWritten: [...rows3.filter((id) => !id.startsWith("clippy:")).map((id, i) => ({ name: `r${i}.json`, row: id, crates: null })), { name: "b.json", row: "clippy:batch:d4d63083", crates: ["rk-leaf"] }, { name: "p.json", row: "feature-partition-targets", crates: ["rk-leaf"] }, { name: "rule-verdicts/abc.json", row: null, crates: null }, { name: indexName("secret-scan"), row: null, crates: null }] })],
     5: [quiet({ exit: 1, log: "json-parse failed: ci/acceptance-broken.json\n", cacheWritten: [{ name: "f.json", row: "json-parse" }] }), quiet({ exit: 1, log: "json-parse failed (stored)\n" })],
     6: [quiet({ exit: 1, log: "test fails_on_purpose ... FAILED\n" })],
     7: [quiet({ exit: null, signal: "SIGKILL", killed: true, locksAfter: [`${SNAP}.lock`] }), quiet()],
@@ -93,7 +94,7 @@ test("NN02: a receipt in the failing case, a verdict newer than the first submis
   failsFor("NN02", 5, (r) => { r.exit = 0; }, /failing exit/, 1);
   failsFor("NN02", 1, (r) => { r.verdicts[VERDICT] = T0 + 10_500; }, /before the Class A verdict file it names was written/);
   // one job sent early under a verdict file an older run left, written by this run only later: that job fails, whatever the others did
-  failsFor("NN02", 1, (r) => { r.jobs[0].gate.classA = "D:\\data\\class-a-verdicts\\class-a-aaaaaaaaaaaa-full-scope.json"; r.verdicts["class-a-aaaaaaaaaaaa-full-scope.json"] = r.jobs[0].submitted + 40_000; }, /job-\d+ \(cargo clippy\) was submitted/);
+  failsFor("NN02", 1, (r) => { r.jobs[0].gate.classA = "D:\\data\\class-a-verdicts\\class-a-aaaaaaaaaaaa-full-scope.json"; r.verdicts["class-a-aaaaaaaaaaaa-full-scope.json"] = r.jobs[0].submitted + 40_000; }, /job-\d+ \(cargo build\) was submitted/);
   failsFor("NN02", 1, (r) => { delete r.verdicts[VERDICT]; }, /not in the launcher's listing/);
   failsFor("NN02", 1, (r) => { r.starts[0].end = T0 + 11_000; }, /had not ended at the first submission/);
 });
@@ -113,6 +114,8 @@ test("NN05: a gate that carries on after the surprise leaves a receipt, a progra
   failsFor("NN05", 4, (r) => { r.log = "BLOCKED: a row disagreed\n"; }, /does not name the row license/);
   failsFor("NN05", 4, (r) => { r.log = "license\n"; }, /no cause/);
   failsFor("NN05", 3, (r) => { r.cacheWritten.push({ name: "z.json", row: "clippy:rk:rk-core" }); }, /a row the edit does not touch/);
+  failsFor("NN05", 3, (r) => { r.cacheWritten.find((x) => x.row === "clippy:batch:d4d63083").crates = ["rk-leaf", "rk-core"]; }, /names rk-core, which the edit does not touch/);
+  failsFor("NN05", 3, (r) => { r.cacheWritten = r.cacheWritten.filter((x) => x.row !== "clippy:batch:d4d63083"); }, /no result was written for clippy:rk:rk-leaf/);
   failsFor("NN05", 3, (r) => { r.cacheWritten = r.cacheWritten.filter((f) => f.row !== "doc:rk:rk-leaf"); }, /no result was written for doc:rk:rk-leaf/);
 });
 test("NN06: a rerun that starts a program, sends a job or writes a result fails, for a passing row and for one that failed before", () => {
@@ -127,6 +130,8 @@ test("NN07: missing work leaves an expected command or program absent; extra wor
   failsFor("NN07", 3, (r) => { r.jobs.pop(); }, /0 doc command/);
   failsFor("NN07", 3, (r) => { r.jobs[0].args.splice(1, 0, "-p", "rk-core"); }, /names rk-core/);
   failsFor("NN07", 3, (r) => { r.jobs.push(job("tools", "clippy", bc.hostTarget, "", T0 + 6000, { crates: ["witness-tools"] })); }, /workspace tools/);
+  // the sidecar build sent on an edit that does not touch the sidecar is extra work (acceptance case 3 on 0.6.63)
+  failsFor("NN07", 3, (r) => { r.jobs.push(job("app/engine", "build", bc.hostTarget, "", T0 + 4000, { crates: ["witness-engine"] })); }, /workspace app\/engine/);
   failsFor("NN07", 3, (r) => { r.starts = []; }, /rustfmt did not run/);
   failsFor("NN07", 3, (r) => { r.starts.push(prog("C:\\tools\\shellcheck.exe", ["a.sh"], T0 + 10, T0 + 20)); }, /shellcheck ran although/);
 });
@@ -134,6 +139,11 @@ test("NN08: a program started twice with the same arguments, a pinned repeat ove
   failsFor("NN08", 2, (r) => { r.starts.push(prog("C:\\git\\git.exe", ["rev-parse", "HEAD"], T0 + 1, T0 + 2), prog("C:\\git\\git.exe", ["rev-parse", "HEAD"], T0 + 3, T0 + 4)); }, /git rev-parse HEAD started 2 times \(1 allowed\)/);
   failsFor("NN08", 1, (r) => { r.starts.push(prog("C:\\tools\\cargo.exe", ["metadata", "--no-deps", "--format-version", "1", "--locked"], T0 + 300, T0 + 310)); }, /started 7 times \(6 allowed\)/);
   failsFor("NN08", 1, (r) => { r.jobs.push({ ...r.jobs[0], jobId: "again" }); }, /was sent 2 times/);
+  // one per workspace or package is pinned; one more than its count is a repeat
+  const audit = (n) => (r) => { for (let i = 0; i < n; i += 1) r.starts.push(prog("C:\\tools\\cargo.exe", ["audit", "--db", "C:\\Users\\x\\advisory-db\\abc", "--no-fetch", "--json"], T0 + 500 + i, T0 + 600 + i)); };
+  assert.equal(broken("NN08", 1, audit(6)).verdict, PASS);
+  failsFor("NN08", 1, audit(7), /cargo audit .* started 7 times \(6 allowed\)/);
+  failsFor("NN08", 2, (r) => { for (let i = 0; i < 3; i += 1) r.starts.push(prog("C:\\n\\oxlint-x86_64-pc-windows-msvc.exe", ["-c", "../../.oxlintrc.json", "."], T0 + i, T0 + i + 1)); }, /started 3 times \(2 allowed\)/);
   // what a tool starts for itself is not the gate's call: cargo's own rustc probes, twice alike, are not a repeat; the same two started by the gate are
   const twice = (ppid) => (r) => { const c = prog("C:\\tools\\cargo.exe", ["tree"], T0 + 1, T0 + 9); r.starts.push(c, prog("C:\\rust\\rustc.exe", ["-vV"], T0 + 2, T0 + 3, ppid ?? c.pid), prog("C:\\rust\\rustc.exe", ["-vV"], T0 + 4, T0 + 5, ppid ?? c.pid)); };
   assert.equal(broken("NN08", 2, twice(null)).verdict, PASS);
@@ -141,12 +151,20 @@ test("NN08: a program started twice with the same arguments, a pinned repeat ove
   // a shell wrapper of the gate's counts as the program it ran, once
   assert.equal(broken("NN08", 2, (r) => { const w = prog("C:\\Windows\\System32\\cmd.exe", ["/d", "/s", "/c", "pnpm --version"], T0 + 1, T0 + 9); r.starts.push(w, prog("C:\\n\\pnpm.exe", ["--version"], T0 + 2, T0 + 3, w.pid)); }).verdict, PASS);
 });
-test("NN09: a split of compatible compiles, a missing or unlisted command, two targets in one command, or waiting for one job before sending the next fails", () => {
-  failsFor("NN09", 1, (r) => { r.jobs.push(job("rk", "clippy", bc.hostTarget, "", T0 + 10_100, { crates: ["rk-leaf"] })); }, /2 broker commands for rk \| clippy/);
+test("NN09: a split, a missing or unlisted command, a command sent twice, or a command held until earlier jobs ended fails", () => {
+  // the rk workspace's clippy sent as one command per target instead of one naming all three: three unlisted commands and the listed one missing
+  failsFor("NN09", 1, (r) => { const i = r.jobs.findIndex((j) => j.sub === "clippy" && j.cwd.endsWith("rk") && !j.args.includes("--features")); const [one] = r.jobs.splice(i, 1); for (const t of bc.targets) r.jobs.push(job("rk", "clippy", t, "", one.submitted)); }, /no broker command for rk \| clippy \| default features \| .* \+ /);
+  // a crate split out of its workspace's command (rk-sidecar on 0.6.63): the same group sent twice
+  failsFor("NN09", 1, (r) => { r.jobs.push(job("rk", "clippy", bc.targets, "", T0 + 10_100, { crates: ["rk-sidecar"] })); }, /2 broker commands for rk \| clippy/);
+  // the Tauri shell's three targets merged into one command, which the cases file lists apart
+  failsFor("NN09", 1, (r) => { r.jobs = r.jobs.filter((j) => !(j.sub === "clippy" && j.cwd.endsWith("src-tauri") && !j.args.includes("--all-features"))); r.jobs.push(job("app/src-tauri", "clippy", bc.targets, "", T0 + 10_100)); }, /which the cases file does not list/);
   failsFor("NN09", 1, (r) => { r.jobs = r.jobs.filter((j) => !(j.sub === "doc" && j.cwd.endsWith("tools"))); }, /no broker command for tools \| doc/);
-  failsFor("NN09", 1, (r) => { r.jobs.push(job("rk", "clippy", bc.hostTarget, "--features nonsense", T0 + 10_100)); }, /does not list/);
-  failsFor("NN09", 1, (r) => { r.jobs[0].args.push("--target", "aarch64-apple-darwin"); }, /more than one --target/);
-  failsFor("NN09", 1, (r) => { r.jobs.forEach((j, i) => { j.submitted = T0 + 10_000 + i * 6000; j.ended = j.submitted + 5000; }); }, /submitted only after the first job had ended/);
+  failsFor("NN09", 1, (r) => { r.jobs = r.jobs.filter((j) => j.sub !== "build"); }, /no broker command for app\/engine \| build/);
+  failsFor("NN09", 1, (r) => { r.jobs.push(job("rk", "clippy", bc.targets, "--features nonsense", T0 + 10_100)); }, /does not list/);
+  // each command sent only when the one before it had ended
+  failsFor("NN09", 1, (r) => { r.jobs.filter((j) => j.sub !== "build").forEach((j, i) => { j.submitted = T0 + 10_000 + i * 6000; j.ended = j.submitted + 5000; }); }, /submitted only after every earlier one had ended/);
+  // one command held back while the rest went at once
+  failsFor("NN09", 1, (r) => { const rest = r.jobs.filter((j) => j.sub !== "build"); rest.forEach((j) => { j.ended = T0 + 20_000; }); const last = rest[rest.length - 1]; last.submitted = T0 + 21_000; last.ended = T0 + 22_000; }, /1 of \d+ later command/);
 });
 test("NN10: a broker that runs the tests, a gate that skips or repeats a signed program, a changed program, an unsigned one, or a failing test that passes, fails", () => {
   failsFor("NN10", 1, (r) => { const t = r.jobs.find((j) => j.sub === "test"); t.effectiveArgv = t.effectiveArgv.filter((a) => a !== "--no-run"); }, /the broker ran the tests/);
@@ -170,9 +188,11 @@ test("NN12: a lock or a program left behind fails; a kill that the next ordinary
   // another repository's lock in the same folder is not this run's
   assert.equal(broken("NN12", 2, (r) => { r.locksAfter = ["D:\\data\\snapshots\\other.lock"]; }).verdict, PASS);
 });
-test("the group of a broker job is its workspace, verb, one target and feature flags; a Class A program is a row's tool, never a version probe", () => {
+test("the group of a broker job is its workspace, verb, targets and feature flags; a Class A program is a row's tool, never a version probe", () => {
   const j = job("app/src-tauri", "clippy", "x86_64-unknown-linux-gnu", "--all-features", T0);
-  assert.deepEqual(groupOf(j, bc.hostTarget), { workspace: "app/src-tauri", verb: "clippy", target: "x86_64-unknown-linux-gnu", features: "--all-features", crates: [] });
+  assert.deepEqual(groupOf(j, bc.hostTarget), { workspace: "app/src-tauri", verb: "clippy", targets: ["x86_64-unknown-linux-gnu"], features: "--all-features", crates: [] });
+  assert.deepEqual(groupOf(job("rk", "clippy", bc.targets, "", T0), bc.hostTarget).targets, [...bc.targets].sort(), "a command naming three targets is one group");
+  assert.deepEqual(groupOf({ ...j, args: ["test", "--locked"] }, bc.hostTarget).targets, [bc.hostTarget], "no --target is the host");
   assert.equal(isClassAProgram(prog("C:\\t\\rustfmt.exe", ["--version"], 0, 1)), false);
   assert.equal(isClassAProgram(prog("C:\\t\\node.exe", ["--check", "a.js"], 0, 1)), true);
   assert.equal(isClassAProgram(prog("C:\\t\\node.exe", ["--check", "D:\\snap\\app\\dist\\main.js"], 0, 1)), false, "a build output checked after the web build is not a Class A row");

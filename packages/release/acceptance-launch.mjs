@@ -223,7 +223,9 @@ export async function launch({ out, commit, kind = null, receiptsDir, limits = n
   fs.writeFileSync(path.join(out, "side-folders-after.json"), `${JSON.stringify({ verdictDir, decisionDir, ...sideAfter })}\n`);
   const changed = storeBefore && storeAfter ? Object.keys(storeAfter).filter((k) => !storeBefore[k] || storeBefore[k][0] !== storeAfter[k][0] || storeBefore[k][1] !== storeAfter[k][1]).sort() : null;
   const rowOfFile = (name) => { try { const d = JSON.parse(fs.readFileSync(path.join(storeDir, name), "utf8")); return typeof d?.row?.id === "string" ? d.row.id : typeof d?.id === "string" ? d.id : null; } catch { return null; } };
-  fs.writeFileSync(path.join(out, "cache-written.json"), `${JSON.stringify(changed === null ? null : changed.map((name) => ({ name, row: rowOfFile(name) })))}\n`);
+  // A combined result names its crates in its own record, or in the command it stores (`-p <crate>`).
+  const cratesOfFile = (name) => { try { const d = JSON.parse(fs.readFileSync(path.join(storeDir, name), "utf8")); if (Array.isArray(d?.row?.crates)) return d.row.crates.map(String); const words = String(d?.row?.command ?? "").split(/\s+/); const out = []; words.forEach((w, i) => { if ((w === "-p" || w === "--package") && words[i + 1]) out.push(words[i + 1]); }); return out.length ? [...new Set(out)] : null; } catch { return null; } };
+  fs.writeFileSync(path.join(out, "cache-written.json"), `${JSON.stringify(changed === null ? null : changed.map((name) => ({ name, row: rowOfFile(name), crates: cratesOfFile(name) })))}\n`);
   const snaps = rootEntries === null ? { root: snapRoot, dirs: {}, known: false } : statSnapshots(snapRoot, Date.parse(record.startedAt), { entries: rootEntries });
   fs.writeFileSync(path.join(out, "snapshot-stat.json"), `${JSON.stringify(snaps)}\n`);
   record.cacheStore = { dir: storeDir, beforeKnown: storeBefore !== null, afterKnown: storeAfter !== null }; record.snapshotStat = { root: snaps.root, folders: Object.keys(snaps.dirs), known: snaps.known };
