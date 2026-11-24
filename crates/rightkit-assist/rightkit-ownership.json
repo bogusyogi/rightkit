@@ -1,0 +1,15 @@
+{
+  "package": "rightkit-assist",
+  "capabilities": [
+    {
+      "capability": "agent-noticing-loop",
+      "summary": "Noticing loop for an always-on assistant: signals, code sorting, booking extraction, tools-off triage contract, typed facts, checks, standing instructions and occurrences over a storage trait; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Declaration-only: dependency declarations do not verify integration.",
+        "Unpublished (name not approved); listed so the catalog and the inventory hygiene check agree."
+      ]
+    }
+  ]
+}

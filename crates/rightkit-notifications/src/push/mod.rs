@@ -9,12 +9,16 @@
 //! body field, so message text can never reach Apple's servers through this crate.
 
 mod alert;
+#[cfg(feature = "apns-http")]
+mod http;
 mod registry;
 mod request;
 mod token;
 mod transport;
 
 pub use alert::{PhoneAlert, MAX_ITEM_ID_BYTES, MAX_TITLE_CHARS};
+#[cfg(feature = "apns-http")]
+pub use http::HttpPushTransport;
 pub use registry::{DeviceTokenStore, MemoryTokenStore};
 pub use request::{
     build_request, ApnsEnvironment, DeviceToken, Priority, PushRequest, MAX_DEVICE_TOKEN_BYTES,
