@@ -73,7 +73,9 @@ use crate::error::{ConnectError, ServiceError, ERROR_UNAVAILABLE};
 use crate::host_identity::{HostExpectation, HostIdentityError, HostIdentityReason};
 use crate::record::{try_read_record, ServiceRecord};
 
-pub use crate::incumbent::{stop_incumbent, IncumbentError, IncumbentStop};
+pub use crate::incumbent::{
+    stop_identity, stop_incumbent, IncumbentError, IncumbentStop, StopOptions,
+};
 pub use crate::shutdown::{OrderedShutdown, PhaseOutcome, PhaseReport};
 use std::num::NonZeroU32;
 

@@ -16,7 +16,11 @@
 //!    webhook does) or a [`Capability`](RouteClass::Capability) route (a capability presented in
 //!    a header, a path segment or a cookie and checked by the owner's [`CapabilityVerifier`]).
 //!    Route matching is exact: a lookalike path (a suffix, a longer path, another method) is a
-//!    bearer route again.
+//!    bearer route again. With `LoopbackConfig::bearer_grants(true)`, a bearer that is not the owner
+//!    token on a bearer route (undeclared or `bearer_query_token`) is offered to the
+//!    [`CapabilityVerifier`] and, when it verifies, admitted as [`Authenticated::Capability`]; the
+//!    owner token is still checked first. The owner's handler must treat `Capability` as a
+//!    restricted caller, never as the owner.
 //! 4. **Body type.** A state-changing request with a body must be `application/json` unless the
 //!    route allows a form body, so a cross-site form post is not a request the owner sees.
 //!    A capability carried in a **cookie** is ambient authority, so a state-changing request on
@@ -499,6 +503,8 @@ pub(crate) struct Policy {
     port: u16,
     routes: Vec<Compiled>,
     capability: Option<Arc<dyn CapabilityVerifier>>,
+    /// A bearer that is not the owner token is offered to `capability` on a bearer route.
+    bearer_grants: bool,
 }
 
 impl Policy {
@@ -509,6 +515,7 @@ impl Policy {
         port: u16,
         routes: Vec<RouteSpec>,
         capability: Option<Arc<dyn CapabilityVerifier>>,
+        bearer_grants: bool,
     ) -> Result<Self, PatternError> {
         let mut compiled = Vec::with_capacity(routes.len());
         let mut needs_verifier = false;
@@ -533,6 +540,9 @@ impl Policy {
                 "a capability route needs a CapabilityVerifier".to_string(),
             ));
         }
+        if bearer_grants && capability.is_none() {
+            return Err(PatternError("bearer grants need a CapabilityVerifier".to_string()));
+        }
         Ok(Self {
             token,
             legacy_headers: legacy_headers
@@ -543,11 +553,21 @@ impl Policy {
             port,
             routes: compiled,
             capability,
+            bearer_grants,
         })
     }
 
     pub(crate) fn token(&self) -> &LoopbackToken {
         &self.token
+    }
+
+    /// Whether the request presents the owner token: the legacy headers, then `Authorization:
+    /// Bearer`, never the `?access_token=` query. Chooses a rate-limit bucket only. It has no side
+    /// effect, counts no failure and admits nothing; [`authenticate`](Self::authenticate) verifies
+    /// the owner token itself.
+    pub(crate) fn is_owner_request(&self, request: &Request) -> bool {
+        self.presented_token(request, false)
+            .is_some_and(|presented| self.token.verify(&presented))
     }
 
     fn origin_allowed(&self, origin: &str) -> bool {
@@ -693,14 +713,44 @@ impl Policy {
         request: &Request,
         query_ok: bool,
         allow_form: bool,
+        route: &str,
     ) -> Result<Authenticated, Reject> {
         match self.presented_token(request, query_ok) {
+            // The owner token is checked first, in constant time: an owner request is never
+            // downgraded to a grant.
             Some(presented) if self.token.verify(&presented) => {
                 self.body_ok(request, allow_form)?;
                 Ok(Authenticated::Bearer)
             }
+            Some(presented) if self.bearer_grants => {
+                self.admit_granted_bearer(request, route, &presented, allow_form)
+            }
             Some(_) => Err(Reject::unauthorized(true)),
             None => Err(Reject::unauthorized(false)),
+        }
+    }
+
+    /// A bearer that is not the owner token, offered to the owner's [`CapabilityVerifier`]. The
+    /// error mapping matches [`authenticate_capability`](Self::authenticate_capability): an unknown
+    /// guest token is the plain 401 (a failed authentication); a verifier `forbidden` is 403 and is
+    /// not an authentication failure.
+    fn admit_granted_bearer(
+        &self,
+        request: &Request,
+        route: &str,
+        presented: &str,
+        allow_form: bool,
+    ) -> Result<Authenticated, Reject> {
+        let Some(verifier) = self.capability.as_ref() else {
+            return Err(Reject::unauthorized(true));
+        };
+        match verifier.verify(route, presented, request) {
+            Ok(grant) => {
+                self.body_ok(request, allow_form)?;
+                Ok(Authenticated::Capability(grant))
+            }
+            Err(error) if error.code == ERROR_UNAUTHENTICATED => Err(Reject::unauthorized(true)),
+            Err(error) => Err(Reject::from_error(&error)),
         }
     }
 
@@ -756,11 +806,14 @@ impl Policy {
                 RouteClass::Capability(source) => {
                     self.authenticate_capability(request, route, source)
                 }
-                RouteClass::BearerQueryToken => {
-                    self.authenticate_bearer(request, true, route.spec.allow_form_body)
-                }
+                RouteClass::BearerQueryToken => self.authenticate_bearer(
+                    request,
+                    true,
+                    route.spec.allow_form_body,
+                    route.pattern.as_str(),
+                ),
             },
-            None => self.authenticate_bearer(request, false, false),
+            None => self.authenticate_bearer(request, false, false, &request.path),
         }
     }
 }

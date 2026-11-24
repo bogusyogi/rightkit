@@ -28,7 +28,7 @@
 //!
 //! # What a request goes through
 //!
-//! In [`crate::loopback::LoopbackApp::handle`]'s caller, in order: the global token bucket (CodeRight's 200/s,
+//! In [`crate::loopback::LoopbackApp::handle`]'s caller, in order: the per-class token bucket (the owner token's own bucket and one shared by everyone else, each CodeRight's 200/s,
 //! burst 400, `429 rate limited`); the bounded parser (head, header and body limits,
 //! timeouts, no `Transfer-Encoding`, no `Expect`, no smuggling-prone duplicates); the Host and
 //! Origin policy (DNS-rebinding and cross-site refusal); the CORS preflight; `GET
@@ -39,6 +39,9 @@
 //! The verification of the token and of capabilities is done here, inside the owner's process,
 //! before any handler runs: an app's handler receives an [`crate::loopback::Authenticated`] value, not a header to
 //! check.
+//!
+//! The host binds 127.0.0.1 only; CodeRight's guest-only LAN listener (`serve --lan`) is not served by
+//! this host and stays the app's.
 //!
 //! # CodeRight wire points preserved
 //!
@@ -79,7 +82,9 @@ pub use presence::{
 };
 pub use record::{LoopbackRecord, RecordLabels};
 pub use replay::{
-    replay_response, run_replay_stream, ReplayConfig, ReplayCursor, ReplayEvent, KEEPALIVE,
+    replay_response, run_replay_stream, run_replay_stream_with, Admission, Classified,
+    CursorHandle, EpochCursor, ReconnectBackoff, ReplayConfig, ReplayCursor, ReplayEvent,
+    ReplayWire, ResumeVia, ResyncMarker, SeqFrom, KEEPALIVE,
 };
 
 use std::collections::HashMap;
@@ -112,7 +117,8 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 pub trait LoopbackApp: Send + Sync + 'static {
     /// Serve one request that passed the host's checks. `auth` says how it was admitted. For a
     /// [`RouteClass::Public`] route nothing was verified here and the handler must verify its own
-    /// proof and fail closed. A panic is a `500`.
+    /// proof and fail closed. A panic is a `500`. `Authenticated::Capability(grant)` on a bearer
+    /// route means a granted bearer, not the owner: apply the grant's scopes.
     fn handle(&self, request: &Request, auth: &Authenticated) -> Response;
 
     /// The body of `GET /health` (answered without credentials, after the Host and Origin
@@ -138,6 +144,7 @@ pub struct LoopbackConfig {
     labels: RecordLabels,
     max_connections: usize,
     rate: Option<(f64, f64)>,
+    bearer_grants: bool,
 }
 
 impl Default for LoopbackConfig {
@@ -157,6 +164,7 @@ impl Default for LoopbackConfig {
             labels: RecordLabels::default(),
             max_connections: 128,
             rate: Some((200.0, 400.0)),
+            bearer_grants: false,
         }
     }
 }
@@ -220,6 +228,21 @@ impl LoopbackConfig {
         self
     }
 
+    /// On a bearer route (an undeclared route, or one declared with
+    /// [`RouteSpec::bearer_query_token`]) a presented bearer that is not the owner token is passed to
+    /// the [`CapabilityVerifier`] as `presented` (route = the matched pattern, or the request path for
+    /// an undeclared route). `Ok(grant)` admits the request as [`Authenticated::Capability`];
+    /// `unauthenticated` is the plain 401; any other error is its own status (a guest `forbidden` is
+    /// 403). The owner token is checked first. Needs
+    /// [`capability_verifier`](Self::capability_verifier): [`start`](Loopback::start) returns
+    /// `InvalidInput` otherwise. Public and capability routes never take it. CodeRight: the owner
+    /// bearer or a `coderight share` guest-link bearer on the same session routes.
+    #[must_use]
+    pub fn bearer_grants(mut self, on: bool) -> Self {
+        self.bearer_grants = on;
+        self
+    }
+
     /// Serve CodeRight's client-presence routes (`/clients`) behind the bearer token.
     #[must_use]
     pub fn presence(mut self, config: PresenceConfig) -> Self {
@@ -272,14 +295,22 @@ impl LoopbackConfig {
         self
     }
 
-    /// The global token bucket: `per_second` refill, `burst` capacity. Default 200 and 400
-    /// (CodeRight's). `None` turns it off.
+    /// Token bucket per caller class: `per_second` refill and `burst` capacity, one bucket for
+    /// requests that present the owner token and one shared by every other request (guest bearers,
+    /// capability callers, unauthenticated callers). Default 200 and 400 (CodeRight's). A refused
+    /// request is 429 with the text `rate limited` and no `Retry-After` header. `None` turns the
+    /// limit off.
     #[must_use]
     pub fn rate_limit(mut self, limit: Option<(f64, f64)>) -> Self {
         self.rate = limit;
         self
     }
 }
+
+/// Index of the bucket for requests that present the owner token.
+const OWNER: usize = 0;
+/// Index of the bucket shared by every other request.
+const OTHER: usize = 1;
 
 struct Bucket {
     tokens: f64,
@@ -310,7 +341,7 @@ struct Shared {
     busy: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
     on_idle: Option<Arc<dyn Fn() + Send + Sync>>,
     idle_fired: AtomicBool,
-    bucket: Mutex<Option<Bucket>>,
+    buckets: Mutex<Option<[Bucket; 2]>>,
     fails: Mutex<FailLimiter>,
     conns: Mutex<HashMap<u64, TcpStream>>,
     live: AtomicUsize,
@@ -355,6 +386,7 @@ impl Loopback {
             port,
             config.routes,
             config.capability,
+            config.bearer_grants,
         )
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
         let record =
@@ -370,11 +402,14 @@ impl Loopback {
             busy: config.busy,
             on_idle: config.on_idle,
             idle_fired: AtomicBool::new(false),
-            bucket: Mutex::new(config.rate.map(|(rate, burst)| Bucket {
-                tokens: burst,
-                last: Instant::now(),
-                rate,
-                burst,
+            buckets: Mutex::new(config.rate.map(|(rate, burst)| {
+                let full = || Bucket {
+                    tokens: burst,
+                    last: Instant::now(),
+                    rate,
+                    burst,
+                };
+                [full(), full()]
             })),
             fails: Mutex::new(FailLimiter::new()),
             conns: Mutex::new(HashMap::new()),
@@ -644,16 +679,23 @@ impl Shared {
         self.stopped_cv.notify_all();
     }
 
-    fn take_token(&self, now: Instant) -> bool {
-        match lock(&self.bucket).as_mut() {
-            Some(bucket) => bucket.take(now),
+    fn take_token(&self, class: usize, now: Instant) -> bool {
+        match lock(&self.buckets).as_mut() {
+            Some(buckets) => buckets[class].take(now),
             None => true,
         }
     }
 
     fn dispatch(&self, request: &Request, conn: u64) -> Response {
         let now = Instant::now();
-        if !self.take_token(now) {
+        // Classed before the Host and Origin rules, so a refused request still draws from the bucket of
+        // its caller. Only the owner token draws from OWNER.
+        let class = if self.policy.is_owner_request(request) {
+            OWNER
+        } else {
+            OTHER
+        };
+        if !self.take_token(class, now) {
             return Response::text(429, "rate limited");
         }
         let origin = match self.policy.check_context(request) {

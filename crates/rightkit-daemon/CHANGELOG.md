@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.2
+
+- Loopback host admits a verified guest-link bearer on bearer routes (`bearer_grants`); replay streams gain `EpochCursor`, `CursorHandle`, `ReconnectBackoff`, `ReplayWire` and `run_replay_stream_with`; `stop_identity` stops an incumbent from an `AdoptedIdentity` with an executable pin and a caller success condition. The loopback host's request-rate limit is per caller class (owner and everyone else), so an unauthenticated or guest flood no longer 429s the owner.
+
 ## 0.9.1 (unpublished)
 
 - On macOS, `SigningIdentity::MacDeveloperId` verifies the connected peer's exact Developer ID signing identifier & team. Hosts can allow multiple exact identities with `or_signed_by`. (rightkit#1658)
