@@ -624,7 +624,14 @@ impl LiveApp {
 
 impl Drop for LiveApp {
     fn drop(&mut self) {
-        let _ = self.ctl.stop();
+        match self.ctl.stop() {
+            Ok(r) if r.process_gone && r.endpoint_closed => {}
+            Ok(r) => eprintln!(
+                "QA app stop incomplete: pid {} process_gone={} endpoint_closed={}",
+                r.pid, r.process_gone, r.endpoint_closed
+            ),
+            Err(e) => eprintln!("QA app stop failed: {e}"),
+        }
         self.snapshot.restore();
         // The QA home is removed pass or fail; a retained home is named so it can be cleaned by hand.
         let report = workspace::dispose(&self.ws, false, 20, 250);

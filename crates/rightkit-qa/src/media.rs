@@ -592,7 +592,8 @@ pub fn decode_png(path: &Path) -> Result<(u32, u32, Vec<u8>)> {
 }
 
 /// Decode PNG bytes (pure Rust) to RGBA8: 16-bit samples are reduced to 8, palettes and grey are
-/// expanded. The error text starts with `PNG decode:`.
+/// expanded. A decoder error starts with `PNG decode:`; the (unreachable after expansion) palette
+/// branch reads `PNG palette was not expanded` without that prefix.
 pub fn decode_png_bytes(bytes: &[u8]) -> Result<(u32, u32, Vec<u8>)> {
     let mut dec = png::Decoder::new(std::io::Cursor::new(bytes));
     dec.set_transformations(png::Transformations::normalize_to_color8());

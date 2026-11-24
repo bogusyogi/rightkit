@@ -232,7 +232,7 @@ impl<'a> CaptureJourney<'a> {
         let manifest_path = dir.join("manifest.json");
         std::fs::write(
             &manifest_path,
-            serde_json::to_string_pretty(&manifest).unwrap_or_default(),
+            serde_json::to_string_pretty(&manifest).expect("manifest json"),
         )
         .expect("write sequence manifest");
         self.sc
@@ -317,7 +317,7 @@ impl<'a> CaptureJourney<'a> {
         let index_path = self.root.join(format!("{os}-{stem}-index.json"));
         std::fs::write(
             &index_path,
-            serde_json::to_string_pretty(&index).unwrap_or_default(),
+            serde_json::to_string_pretty(&index).expect("index json"),
         )
         .expect("write capture index");
         self.sc.keep(&format!("{os}-{stem}-index"), &index_path);

@@ -36,9 +36,40 @@ pub struct TargetCase {
     pub surface: Option<&'static str>,
     /// Host the front browser tab must show, if any.
     pub expected_host: Option<&'static str>,
+    /// The case is a chat composer the AX API alone cannot focus: click where it sits, and refuse to
+    /// seed over a non-empty operator draft. A case with a `surface` behaves the same. Default false;
+    /// [`target_case`] sets it for the reserved ids `chatgpt` and `claude`.
+    pub composer_click: bool,
+    /// After a paste-only run, undo the observed paste (single Cmd+Z) so the sentinel is not left in
+    /// the operator's real composer. A case with a `surface` behaves the same. Default false;
+    /// [`target_case`] sets it for the reserved ids `chatgpt` and `claude`.
+    pub undo_paste_on_cleanup: bool,
+    /// After a paste-only run, interrupt (Ctrl+C) the line left in a terminal. Default false;
+    /// [`target_case`] sets it for the reserved id `terminal`.
+    pub interrupt_on_cleanup: bool,
+    /// After a sent run, press Escape in the same app to halt generation and prove it stopped.
+    /// Default false; [`target_case`] sets it for the reserved ids `chatgpt` and `claude`.
+    pub escape_after_send: bool,
 }
 
-/// A [`TargetCase`] in one expression (usable in a `const` matrix).
+const fn same_id(a: &str, b: &str) -> bool {
+    let (a, b) = (a.as_bytes(), b.as_bytes());
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut i = 0;
+    while i < a.len() {
+        if a[i] != b[i] {
+            return false;
+        }
+        i += 1;
+    }
+    true
+}
+
+/// A [`TargetCase`] in one expression (usable in a `const` matrix). The cleanup flags default to
+/// false, except for the reserved ids `chatgpt`, `claude` and `terminal`, which keep their documented
+/// cleanup; the `with_*` setters change any flag for a differently named case.
 pub const fn target_case(
     id: &'static str,
     app: &'static str,
@@ -48,6 +79,7 @@ pub const fn target_case(
     surface: Option<&'static str>,
     expected_host: Option<&'static str>,
 ) -> TargetCase {
+    let chat = same_id(id, "chatgpt") || same_id(id, "claude");
     TargetCase {
         id,
         app,
@@ -56,10 +88,34 @@ pub const fn target_case(
         secure_field,
         surface,
         expected_host,
+        composer_click: chat,
+        undo_paste_on_cleanup: chat,
+        interrupt_on_cleanup: same_id(id, "terminal"),
+        escape_after_send: chat,
     }
 }
 
 impl TargetCase {
+    /// Set [`TargetCase::composer_click`].
+    pub const fn with_composer_click(mut self, on: bool) -> Self {
+        self.composer_click = on;
+        self
+    }
+    /// Set [`TargetCase::undo_paste_on_cleanup`].
+    pub const fn with_undo_paste_on_cleanup(mut self, on: bool) -> Self {
+        self.undo_paste_on_cleanup = on;
+        self
+    }
+    /// Set [`TargetCase::interrupt_on_cleanup`].
+    pub const fn with_interrupt_on_cleanup(mut self, on: bool) -> Self {
+        self.interrupt_on_cleanup = on;
+        self
+    }
+    /// Set [`TargetCase::escape_after_send`].
+    pub const fn with_escape_after_send(mut self, on: bool) -> Self {
+        self.escape_after_send = on;
+        self
+    }
     /// The matrix row as the receipt records it.
     pub fn to_value(&self) -> Value {
         json!({
@@ -454,7 +510,7 @@ pub fn stabilize_prepared_target(entry: &TargetCase) -> Result<(), String> {
 /// nothing for other cases.
 #[cfg(target_os = "macos")]
 pub fn focus_composer_region(entry: &TargetCase) -> Result<(), String> {
-    if entry.id != "chatgpt" && entry.id != "claude" && entry.surface.is_none() {
+    if !entry.composer_click && entry.surface.is_none() {
         return Ok(());
     }
     let surface = entry.surface.unwrap_or(entry.id);
@@ -574,7 +630,7 @@ pub fn run_case_body(
     let initial = mac::read_focused_ax();
     let existing_prefix = format!("{} {} {} ", config.existing_prefix, entry.id, now_ms());
     if options.existing_text {
-        if (entry.id == "chatgpt" || entry.id == "claude" || entry.surface.is_some())
+        if (entry.composer_click || entry.surface.is_some())
             && !initial.trim().is_empty()
             && !config.placeholders.contains(&initial.trim())
         {
@@ -598,7 +654,7 @@ pub fn run_case_body(
     // Send QA submits the sentinel into a real chat composer. Immediately press in-chat Escape
     // (key code 53) IN THE SAME APP to halt any generation the sentinel started, then prove
     // generation stopped. NEVER quit/close/clear the app, and never Cmd+Z a sent case.
-    if options.send && (entry.id == "claude" || entry.id == "chatgpt") {
+    if options.send && entry.escape_after_send {
         mac::sleep(0.4);
         mac::key_code(53)?;
         mac::sleep(0.8);
@@ -689,11 +745,58 @@ pub fn run_case_body(
     Ok(())
 }
 
+/// Restores the operator's clipboard and undoes the sentinel left in a real composer, from `Drop`
+/// when the case body or the host closure panics, or through [`CleanupGuard::finish`] otherwise.
+#[cfg(target_os = "macos")]
+struct CleanupGuard {
+    entry: &'static TargetCase,
+    send: bool,
+    original: String,
+    cleanup: Cleanup,
+    restored: Option<bool>,
+}
+
+#[cfg(target_os = "macos")]
+impl CleanupGuard {
+    /// Run the cleanup once and return whether the clipboard came back.
+    fn finish(&mut self) -> bool {
+        if let Some(restored) = self.restored {
+            return restored;
+        }
+        // Paste-only left the sentinel in a real composer. Undo EXACTLY that paste with a single
+        // Cmd+Z, and ONLY after the paste was actually observed (never select-all-delete, never quit
+        // or close the app, never after a sent case).
+        if !self.send && (self.entry.undo_paste_on_cleanup || self.entry.surface.is_some()) {
+            if self.cleanup.second_delivery_pasted {
+                let _ = mac::key("z", Some("command"));
+            }
+            if self.cleanup.seeded_existing_text {
+                let _ = mac::key("z", Some("command"));
+            }
+        }
+        if !self.send && self.entry.interrupt_on_cleanup {
+            let _ = mac::key("c", Some("control"));
+        }
+        let _ = mac::copy_clipboard(&self.original);
+        let restored = mac::read_clipboard() == self.original;
+        self.restored = Some(restored);
+        restored
+    }
+}
+
+#[cfg(target_os = "macos")]
+impl Drop for CleanupGuard {
+    fn drop(&mut self) {
+        self.finish();
+    }
+}
+
 /// Run one case: remember the clipboard, run [`run_case_body`], undo exactly the paste a paste-only run
 /// left in a real composer with a single Cmd+Z (and only after the paste was observed; never
 /// select-all-delete, never quit or close the app, never after a sent case), then put the clipboard
-/// back and fail the case when it cannot be restored. The ordering is part of the contract: restore
-/// always runs, pass or fail.
+/// back and fail the case when it cannot be restored. The ordering is part of the contract: the
+/// cleanup and the restore run from a `Drop` guard created right after the clipboard is read, so they
+/// run on pass, fail and panic (in the body or in the host closure).
 #[cfg(target_os = "macos")]
 pub fn run_case(
     deliver: Deliver,
@@ -701,37 +804,28 @@ pub fn run_case(
     entry: &'static TargetCase,
     options: &DeliveryOptions,
 ) -> CaseResult {
-    let original_clipboard = mac::read_clipboard();
+    let mut guard = CleanupGuard {
+        entry,
+        send: options.send,
+        original: mac::read_clipboard(),
+        cleanup: Cleanup::default(),
+        restored: None,
+    };
     let mut result = CaseResult::new(entry);
-    let mut cleanup = Cleanup::default();
+    let original = guard.original.clone();
     if let Err(error) = run_case_body(
         deliver,
         config,
         entry,
         options,
         &mut result,
-        &mut cleanup,
-        &original_clipboard,
+        &mut guard.cleanup,
+        &original,
     ) {
         result.error = Some(error);
         result.status = "fail";
     }
-    // Paste-only left the sentinel in a real composer. Undo EXACTLY that paste with a single Cmd+Z,
-    // and ONLY after the paste was actually observed (never select-all-delete, never quit or close
-    // the app, never after a sent case).
-    if !options.send && (entry.id == "chatgpt" || entry.id == "claude" || entry.surface.is_some()) {
-        if cleanup.second_delivery_pasted {
-            let _ = mac::key("z", Some("command"));
-        }
-        if cleanup.seeded_existing_text {
-            let _ = mac::key("z", Some("command"));
-        }
-    }
-    if !options.send && entry.id == "terminal" {
-        let _ = mac::key("c", Some("control"));
-    }
-    let _ = mac::copy_clipboard(&original_clipboard);
-    let restored = mac::read_clipboard() == original_clipboard;
+    let restored = guard.finish();
     result
         .phases
         .insert("clipboard".into(), json!({ "restored": restored }));

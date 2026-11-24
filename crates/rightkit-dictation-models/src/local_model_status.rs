@@ -126,11 +126,12 @@ pub fn classify_model_source(found: Option<&Path>, shared_root: &Path) -> &'stat
 }
 
 /// Status of a backend alias against the live store. `replacement_pending` is the host's
-/// "a replacement download is outstanding" fact; it only counts for the current backend.
+/// "a replacement download is outstanding" fact, asked only for the current backend, so a host
+/// whose check reads the disk pays for it once and never for the other backends.
 pub fn local_asr_model_status(
     backend: &str,
     labels: &LocalAsrLabels<'_>,
-    replacement_pending: bool,
+    replacement_pending: impl FnOnce() -> bool,
 ) -> LocalAsrModelStatus {
     let subdir = local_asr_subdir(backend);
     let found = model_paths::resolve_model_dir(subdir);
@@ -143,7 +144,7 @@ pub fn local_asr_model_status(
             found.as_deref(),
             &crate::shared::store::paths::models_root(),
         ),
-        replacement_required: canonical == BACKEND_CURRENT && replacement_pending,
+        replacement_required: canonical == BACKEND_CURRENT && replacement_pending(),
     }
 }
 

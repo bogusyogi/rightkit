@@ -559,7 +559,7 @@ fn run_ps1(dir: &Path, args: &[String]) -> Result<std::process::Child, String> {
         .args(args)
         .creation_flags(0x0800_0000) // CREATE_NO_WINDOW: no console flashes on the owner's screen
         .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
         .spawn()
         .map_err(|e| format!("powershell: {e}"))
 }
@@ -729,6 +729,47 @@ pub fn sequence(
         trigger_error: outcome.err(),
     })
 }
+/// Owns the PowerShell frame loop: on drop (including a panic in the trigger) it writes `stop.txt`,
+/// waits a bounded time for the child to exit, then kills and reaps it.
+#[cfg(windows)]
+struct PsGuard {
+    child: std::process::Child,
+    stop: PathBuf,
+}
+
+#[cfg(windows)]
+impl PsGuard {
+    /// Ask the loop to stop and wait up to `bound` for it; kill it when it does not exit.
+    fn stop_and_wait(&mut self, bound: Duration) {
+        let _ = std::fs::write(&self.stop, "stop");
+        self.wait_or_kill(bound);
+    }
+
+    fn wait_or_kill(&mut self, bound: Duration) {
+        let started = Instant::now();
+        loop {
+            match self.child.try_wait() {
+                Ok(Some(_)) => return,
+                Ok(None) if started.elapsed() < bound => {
+                    std::thread::sleep(Duration::from_millis(50));
+                }
+                _ => {
+                    let _ = self.child.kill();
+                    let _ = self.child.wait();
+                    return;
+                }
+            }
+        }
+    }
+}
+
+#[cfg(windows)]
+impl Drop for PsGuard {
+    fn drop(&mut self) {
+        self.stop_and_wait(Duration::from_secs(5));
+    }
+}
+
 #[cfg(windows)]
 pub fn sequence(
     grabber: &Grabber,
@@ -764,12 +805,14 @@ pub fn sequence(
         "-Single".to_string(),
         "0".to_string(),
     ];
-    let mut child = run_ps1(dir, &args)?;
+    let mut guard = PsGuard {
+        child: run_ps1(dir, &args)?,
+        stop: dir.join("stop.txt"),
+    };
     // PowerShell compiles its helper before the first frame; start the clock only once it is ready.
     let ready = Instant::now();
     while !dir.join("ready.txt").is_file() {
         if ready.elapsed() > Duration::from_secs(30) {
-            let _ = child.kill();
             return Err("the capture script never became ready".into());
         }
         std::thread::sleep(Duration::from_millis(50));
@@ -783,20 +826,11 @@ pub fn sequence(
     if elapsed < Duration::from_millis(post_ms) {
         std::thread::sleep(Duration::from_millis(post_ms) - elapsed);
     }
-    std::fs::write(dir.join("stop.txt"), "stop").map_err(|e| format!("stop file: {e}"))?;
-    let finished = Instant::now();
-    loop {
-        match child.try_wait() {
-            Ok(Some(_)) => break,
-            Ok(None) if finished.elapsed() < Duration::from_secs(15) => {
-                std::thread::sleep(Duration::from_millis(50));
-            }
-            _ => {
-                let _ = child.kill();
-                break;
-            }
-        }
+    if let Err(e) = std::fs::write(&guard.stop, "stop") {
+        guard.wait_or_kill(Duration::ZERO);
+        return Err(format!("stop file: {e}"));
     }
+    guard.wait_or_kill(Duration::from_secs(15));
     let csv = std::fs::read_to_string(dir.join("frames.csv")).unwrap_or_default();
     let mut frames = Vec::new();
     for line in csv.lines() {

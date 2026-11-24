@@ -105,6 +105,8 @@ pub struct StepRules<'a> {
     pub forbid_page: &'a [(&'a str, &'a str)],
     /// `(text, source)` that must not appear in the onboarding frame's text.
     pub forbid_frame: &'a [(&'a str, &'a str)],
+    /// The label of the Back button (default `Back`).
+    pub back_label: &'a str,
     /// Where the footer's button set (Back and the primary) is defined.
     pub footer_src: &'a str,
     /// Where the primary button's `rk-btn--primary` class is defined.
@@ -130,6 +132,7 @@ impl<'a> StepRules<'a> {
             eyebrow_display: None,
             forbid_page: &[],
             forbid_frame: &[],
+            back_label: "Back",
             footer_src: "",
             primary_class_src: "",
             back_src: "",
@@ -215,7 +218,7 @@ pub fn assert_step(
     p.eq(
         &format!("{tag} footer buttons"),
         &labels.join(" | "),
-        &format!("Back | {}", want.primary),
+        &format!("{} | {}", rules.back_label, want.primary),
         rules.footer_src,
     );
     p.yes(

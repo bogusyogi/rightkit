@@ -53,21 +53,28 @@ pub const SCROLL_TO_BOTTOM_JS: &str = "for (const e of document.querySelectorAll
 pub const SCROLL_TO_TOP_JS: &str =
     "for (const e of document.querySelectorAll('*')) { if (e.scrollTop) e.scrollTop = 0; } return true;";
 
-/// `macos` or `windows`: the platform prefix of evidence file names.
+/// `macos`, `windows`, or `std::env::consts::OS` elsewhere: the platform prefix of evidence file names.
 pub fn os_name() -> &'static str {
-    if cfg!(target_os = "macos") {
+    if cfg!(windows) {
+        "windows"
+    } else if cfg!(target_os = "macos") {
         "macos"
     } else {
-        "windows"
+        std::env::consts::OS
     }
 }
 
-/// The scenario requirement tag for this platform (`platform:darwin` or `platform:windows`).
+/// The scenario requirement tag for this platform (`platform:darwin`, `platform:windows`, or
+/// `platform:linux` on Linux, `platform:other` on any other OS).
 pub fn platform_tier() -> &'static str {
-    if cfg!(target_os = "macos") {
-        "platform:darwin"
-    } else {
+    if cfg!(windows) {
         "platform:windows"
+    } else if cfg!(target_os = "macos") {
+        "platform:darwin"
+    } else if cfg!(target_os = "linux") {
+        "platform:linux"
+    } else {
+        "platform:other"
     }
 }
 
@@ -196,7 +203,7 @@ pub fn write_state_log(
         serde_json::to_string_pretty(
             &json!({ "os": os_name(), "viewport": [viewport.0, viewport.1], "entries": entries }),
         )
-        .unwrap_or_default(),
+        .expect("state log json"),
     )
     .expect("write state log");
 }
@@ -245,7 +252,7 @@ impl ScreenAudit {
             sc.dir()
                 .join(format!("{}-screen-audit-{part}.json", self.os)),
             serde_json::to_string_pretty(&json!({ "os": self.os, "screens": self.rows }))
-                .unwrap_or_default(),
+                .expect("audit json"),
         )
         .expect("write audit");
     }
