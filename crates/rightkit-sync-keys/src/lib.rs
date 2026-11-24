@@ -9,6 +9,10 @@
 //! * [`transfer`] (#145): device-approval key transfer, `rightkit-sync-keys-transfer/1`:
 //!   the `rk-pair/1` short-code commit-reveal with X25519 and an AEAD wrap on top.
 //!
+//! * [`RevokeWipe`] and [`issue_revoke_notice`]: wipe on revoke. A revoked device erases its local
+//!   synced copy and destroys its keys at its next start or contact (it cannot be forced while it
+//!   is off; see the module notes in `revoke.rs`).
+//!
 //! Not here: the recovery-phrase (Argon2id) wrap of the design, which is a separate path that
 //! needs a new dependency; and the relay, which only carries the opaque messages of [`transfer`].
 
@@ -16,6 +20,7 @@ mod error;
 mod key;
 mod manager;
 mod provider;
+mod revoke;
 mod util;
 
 pub mod transfer;
@@ -24,4 +29,5 @@ pub use error::{Error, Result};
 pub use key::{account_scope, DataKey, KeyId, ZoneKey, KEY_LEN};
 pub use manager::{InstallOutcome, KeyManager};
 pub use provider::{KeyProvider, StaticKeys, ZoneKeys};
+pub use revoke::{issue_revoke_notice, LocalCopy, NoticeOutcome, RevokeWipe};
 pub use transfer::{format_code, Approver, Requester, TransferContext};
