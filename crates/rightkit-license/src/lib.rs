@@ -142,8 +142,8 @@ pub use record_text::stored_signed_token;
 pub use update_credentials::{
     bearer_headers, install_update_headers, install_update_headers_refreshing, read_update_license,
     stored_update_credentials, update_check_header_pairs, update_check_headers,
-    update_check_headers_for_stored, verified_signed_token, StoredUpdateCredentials, UpdateCheckHeaderNames,
-    UpdateLicense,
+    update_check_headers_for_stored, verified_signed_token, StoredUpdateCredentials,
+    UpdateCheckHeaderNames, UpdateLicense,
 };
 
 pub use revocation::{

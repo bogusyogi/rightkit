@@ -46,10 +46,7 @@ pub fn has_flag(flag: &str) -> bool {
 /// Serialize `report` as pretty JSON and write it to `output` (atomically, creating parent
 /// folders), or print it on stdout when `output` is `None`. Errors carry `self-test serialize
 /// failed: ..` or `self-test write failed: ..`.
-pub fn write_report(
-    output: Option<PathBuf>,
-    report: &serde_json::Value,
-) -> Result<(), String> {
+pub fn write_report(output: Option<PathBuf>, report: &serde_json::Value) -> Result<(), String> {
     let json = serde_json::to_vec_pretty(report)
         .map_err(|err| format!("self-test serialize failed: {err}"))?;
     match output {

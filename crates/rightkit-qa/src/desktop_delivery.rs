@@ -432,10 +432,7 @@ pub fn prepare_target(entry: &TargetCase, config: &DeliveryConfig) -> Result<(),
     // a blank scratch note / a sacrificial chat focused (2026-09-02 incident). `--web` surface
     // launches are gated off in staged runs.
     if let Some(surface) = entry.surface {
-        mac::launch(
-            entry.app,
-            Some(surface_url(surface)),
-        )?;
+        mac::launch(entry.app, Some(surface_url(surface)))?;
     }
     Ok(())
 }
@@ -583,10 +580,9 @@ pub fn run_case_body(
         {
             return Err("existing-text case refuses to modify a non-empty operator draft".into());
         }
-        result.phases.insert(
-            "seedDelivery".into(),
-            deliver(&existing_prefix, false)?,
-        );
+        result
+            .phases
+            .insert("seedDelivery".into(), deliver(&existing_prefix, false)?);
         mac::sleep(0.3);
         cleanup.seeded_existing_text = true;
     }

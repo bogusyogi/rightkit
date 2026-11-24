@@ -235,7 +235,8 @@ impl<'a> CaptureJourney<'a> {
             serde_json::to_string_pretty(&manifest).unwrap_or_default(),
         )
         .expect("write sequence manifest");
-        self.sc.keep(&format!("{os}-{name}-manifest"), &manifest_path);
+        self.sc
+            .keep(&format!("{os}-{name}-manifest"), &manifest_path);
         for file in &summary.files {
             let stem = file
                 .file_name()
@@ -341,18 +342,35 @@ mod tests {
             Ok(vec![Obs {
                 label: "w".into(),
                 id: 1,
-                rect: Rect { x: 0.0, y: 0.0, w: 10.0, h: 10.0 },
+                rect: Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    w: 10.0,
+                    h: 10.0,
+                },
                 scale: 0.0,
             }])
         };
-        let found = settle("steady", None, &|o| !o.is_empty(), 3, Duration::from_secs(5), &mut observe);
+        let found = settle(
+            "steady",
+            None,
+            &|o| !o.is_empty(),
+            3,
+            Duration::from_secs(5),
+            &mut observe,
+        );
         assert_eq!(found.len(), 1);
         assert!(calls >= 3);
     }
 
     #[test]
     fn park_point_is_off_the_overlay() {
-        let (x, y) = park_point(Rect { x: 500.0, y: 900.0, w: 64.0, h: 10.0 });
+        let (x, y) = park_point(Rect {
+            x: 500.0,
+            y: 900.0,
+            w: 64.0,
+            h: 10.0,
+        });
         assert!(x > 0.0 && y > 0.0);
     }
 }

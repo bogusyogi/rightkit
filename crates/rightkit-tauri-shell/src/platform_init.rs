@@ -49,7 +49,10 @@ mod tests {
         let script = script();
         assert_eq!(script.is_some(), native_platform_name().is_some());
         if let (Some(script), Some(name)) = (script, native_platform_name()) {
-            assert_eq!(script, format!("window.__RIGHTKIT_PLATFORM__ = \"{name}\";"));
+            assert_eq!(
+                script,
+                format!("window.__RIGHTKIT_PLATFORM__ = \"{name}\";")
+            );
         }
     }
 }

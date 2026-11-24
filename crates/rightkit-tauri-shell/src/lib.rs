@@ -43,8 +43,8 @@ pub mod crash_hang;
 pub mod devtools;
 #[cfg(feature = "engine")]
 pub mod engine;
-mod entropy;
 pub mod entitlement_backend;
+mod entropy;
 pub mod error;
 pub mod external_link;
 pub mod frameless;
@@ -54,9 +54,9 @@ pub mod host;
 pub mod hub_window;
 pub mod idle;
 pub mod install_location;
+pub mod key_slot;
 pub mod launch_handoff;
 pub mod launch_origin;
-pub mod key_slot;
 pub mod lifecycle;
 #[cfg(feature = "logs")]
 pub mod logs_commands;
@@ -72,12 +72,12 @@ pub mod open_paths;
 pub mod open_url;
 pub mod opener;
 pub mod os_settings;
-pub mod patch_keys;
-pub mod platform_init;
 #[cfg(feature = "overlay")]
 pub mod overlay_host;
+pub mod patch_keys;
 #[cfg(feature = "pdf-host")]
 pub mod pdf_host;
+pub mod platform_init;
 #[cfg(feature = "viewer")]
 pub mod preview;
 #[cfg(feature = "viewer")]

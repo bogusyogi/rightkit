@@ -20,8 +20,8 @@ pub mod capture_folder;
 pub mod command_outcome;
 pub mod engine_cache;
 pub mod file_transcribe;
-pub mod onboarding_gates;
 pub mod hotkey_gates;
+pub mod onboarding_gates;
 #[cfg(feature = "tauri")]
 pub mod renderer_events;
 pub mod settings_policy;

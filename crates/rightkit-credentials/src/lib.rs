@@ -60,4 +60,7 @@ pub use namespace::{
 };
 pub use rotation::{RotationStatus, ROTATION_PENDING_SUFFIX};
 pub use secret::Secret;
-pub use store::{create_rotation_lock_dir, Config, Diagnostics, GuardMode, Store, WriteIntent, UNIVERSAL_GUARD_ENV};
+pub use store::{
+    create_rotation_lock_dir, Config, Diagnostics, GuardMode, Store, WriteIntent,
+    UNIVERSAL_GUARD_ENV,
+};

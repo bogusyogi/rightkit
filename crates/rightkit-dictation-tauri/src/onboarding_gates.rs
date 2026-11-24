@@ -22,8 +22,7 @@ impl Default for RegistrationLabels {
     fn default() -> Self {
         Self {
             onboarding_incomplete:
-                "onboarding and current legal acceptance are required; hotkeys remain gated"
-                    .into(),
+                "onboarding and current legal acceptance are required; hotkeys remain gated".into(),
             voice_controls_unavailable:
                 "Bundled realtime voice controls are unavailable. Reinstall the app.".into(),
         }
@@ -38,15 +37,14 @@ pub fn registration_gate(
     voice_controls_missing: impl FnOnce() -> bool,
     labels: &RegistrationLabels,
 ) -> Result<(), String> {
-    registration_refusal(onboarding_complete, voice_controls_missing)
-        .map_or(Ok(()), |refusal| {
-            Err(match refusal {
-                RegistrationRefusal::OnboardingIncomplete => labels.onboarding_incomplete.clone(),
-                RegistrationRefusal::VoiceControlsUnavailable => {
-                    labels.voice_controls_unavailable.clone()
-                }
-            })
+    registration_refusal(onboarding_complete, voice_controls_missing).map_or(Ok(()), |refusal| {
+        Err(match refusal {
+            RegistrationRefusal::OnboardingIncomplete => labels.onboarding_incomplete.clone(),
+            RegistrationRefusal::VoiceControlsUnavailable => {
+                labels.voice_controls_unavailable.clone()
+            }
         })
+    })
 }
 
 /// The refusal [`registration_gate`] words, if any.

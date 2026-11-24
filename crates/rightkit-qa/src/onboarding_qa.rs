@@ -313,7 +313,11 @@ pub fn rail_step_slug(app: &LiveApp, index: usize) -> String {
 /// seeded settings JSON) with `onboarding_complete` false and `onboarding.state` set to
 /// `{currentStep, completed: [], eligibilityBasis}`. The rail always allows going back, so every
 /// earlier step is one rail click away.
-pub fn park_onboarding_settings(base: &str, current_step: usize, eligibility_basis: &str) -> String {
+pub fn park_onboarding_settings(
+    base: &str,
+    current_step: usize,
+    eligibility_basis: &str,
+) -> String {
     let mut s: Value = serde_json::from_str(base).expect("seed settings json");
     s["onboarding_complete"] = json!(false);
     s["onboarding.state"] = json!({
@@ -367,8 +371,12 @@ pub fn first_complete_dir(candidates: &[Option<PathBuf>], required: &[&str]) -> 
 pub fn seed_model_copy(source: &Path, store: &Path) {
     let models = store.parent().expect("shared models folder");
     std::fs::create_dir_all(models).expect("create snapshotted models folder");
-    rightkit_fs::copy_tree_confined(source, store, &rightkit_fs::ConfinedCopy::new(source, models))
-        .expect("seed the absent model store");
+    rightkit_fs::copy_tree_confined(
+        source,
+        store,
+        &rightkit_fs::ConfinedCopy::new(source, models),
+    )
+    .expect("seed the absent model store");
 }
 
 /// Persist onboarding progress as a user who finished `completed` steps and stands at rail index
@@ -422,7 +430,10 @@ mod tests {
         let v: Value = serde_json::from_str(&out).unwrap();
         assert_eq!(v["onboarding_complete"], json!(false));
         assert_eq!(v["onboarding.state"]["currentStep"], json!(8));
-        assert_eq!(v["onboarding.state"]["eligibilityBasis"], json!("individual"));
+        assert_eq!(
+            v["onboarding.state"]["eligibilityBasis"],
+            json!("individual")
+        );
     }
 
     #[test]

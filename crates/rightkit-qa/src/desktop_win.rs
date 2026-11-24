@@ -169,7 +169,11 @@ pub fn click_at(x: i32, y: i32) {
 
 /// The first visible top-level window of `pid` whose title contains `title` and whose size passes
 /// `fits`.
-pub fn visible_window(pid: u32, title: &str, fits: impl Fn(&TopWindow) -> bool) -> Option<TopWindow> {
+pub fn visible_window(
+    pid: u32,
+    title: &str,
+    fits: impl Fn(&TopWindow) -> bool,
+) -> Option<TopWindow> {
     top_windows(pid)
         .into_iter()
         .find(|w| w.visible && w.title.contains(title) && fits(w))
@@ -228,6 +232,10 @@ pub fn assert_no_aux_blockers(
         .map(window_json)
         .collect();
     let name = format!("no_aux_blockers_{label}");
-    report.add(&name, blockers.is_empty(), serde_json::json!({ "windows": blockers }));
+    report.add(
+        &name,
+        blockers.is_empty(),
+        serde_json::json!({ "windows": blockers }),
+    );
     assert!(blockers.is_empty(), "{name}: {blockers:?}");
 }

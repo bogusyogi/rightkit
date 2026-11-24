@@ -183,13 +183,12 @@ impl LicenseRuntime {
     /// local tombstone.
     pub fn license_service(&self) -> LicenseHostService {
         let legacy_import = self.legacy_import.clone();
-        let mut service = LicenseHostService::new(self.client.clone()).with_before_status(
-            Arc::new(move || {
+        let mut service =
+            LicenseHostService::new(self.client.clone()).with_before_status(Arc::new(move || {
                 if let Some(import) = &legacy_import {
                     import.retry_if_due();
                 }
-            }),
-        );
+            }));
         if let Some(queue) = &self.release_queue {
             service = service.with_release_queue(queue.clone());
         }

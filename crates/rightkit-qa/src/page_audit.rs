@@ -150,7 +150,10 @@ pub fn set_theme_via_palette(
     app.ctl
         .key(&format!("{}+k", mod_key()))
         .expect("open command palette");
-    app.wait_js("return !!document.querySelector('.rk-palette input');", wait);
+    app.wait_js(
+        "return !!document.querySelector('.rk-palette input');",
+        wait,
+    );
     app.ctl
         .type_text(&format!("{command_prefix}{label}"))
         .expect("type theme command");
@@ -407,15 +410,25 @@ mod tests {
     #[test]
     fn footer_slug_and_asserts() {
         let footer = json!({"state": {"plan": "free", "sync": "off"}, "overflow": [], "overlaps": [], "outside": []});
-        assert_eq!(footer_slug(&footer, &["plan", "polish", "sync"]), "plan-free-sync-off");
+        assert_eq!(
+            footer_slug(&footer, &["plan", "polish", "sync"]),
+            "plan-free-sync-off"
+        );
         assert_eq!(footer_slug(&json!({}), &["plan"]), "unknown");
         assert_footer_clean(&footer, "dark");
-        assert_tooltip_fits(&json!({"text": "t", "inside": true, "truncated": false}), "t", "dark");
+        assert_tooltip_fits(
+            &json!({"text": "t", "inside": true, "truncated": false}),
+            "t",
+            "dark",
+        );
     }
 
     #[test]
     fn settings_edit() {
         let out = settings_with("{\"a\":1}", |s| s["b"] = json!(2));
-        assert_eq!(serde_json::from_str::<Value>(&out).unwrap(), json!({"a":1,"b":2}));
+        assert_eq!(
+            serde_json::from_str::<Value>(&out).unwrap(),
+            json!({"a":1,"b":2})
+        );
     }
 }

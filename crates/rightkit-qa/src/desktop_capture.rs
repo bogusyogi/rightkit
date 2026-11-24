@@ -294,7 +294,11 @@ pub fn fixed_region(
     let anchor = idle.iter().find(|o| o.label == label)?;
     let (cx, _) = anchor.rect.center();
     let bottom = anchor.rect.y + anchor.rect.h + below;
-    let scale = if anchor.scale > 0.0 { anchor.scale } else { 1.0 };
+    let scale = if anchor.scale > 0.0 {
+        anchor.scale
+    } else {
+        1.0
+    };
     Some((
         Rect {
             x: (cx - width / 2.0).max(0.0),
@@ -1046,7 +1050,10 @@ mod tests {
         };
         let obs = parse_overlay_rects(&report, &spec);
         assert_eq!(obs.len(), 2);
-        assert_eq!(sig(&obs), vec![("clipboard".into(), 322, 260), ("pill".into(), 80, 30)]);
+        assert_eq!(
+            sig(&obs),
+            vec![("clipboard".into(), 322, 260), ("pill".into(), 80, 30)]
+        );
         let (region, scale) = fixed_region(&obs, "pill", 360.0, 300.0, 12.0).unwrap();
         assert_eq!(scale, 1.5);
         assert_eq!((region.w, region.h), (360.0, 300.0));

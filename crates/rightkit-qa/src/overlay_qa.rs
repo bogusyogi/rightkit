@@ -107,7 +107,10 @@ mod tests {
     #[test]
     fn hitbox_adds_the_window_origin() {
         let r = json!({"pill": {"x": 100.0, "y": 50.0}, "pill_hitbox": {"x": 10.0, "y": 5.0, "w": 80.0, "h": 30.0}});
-        assert_eq!(hitbox_on_screen(&r, "pill", "pill_hitbox"), (110.0, 55.0, 80.0, 30.0));
+        assert_eq!(
+            hitbox_on_screen(&r, "pill", "pill_hitbox"),
+            (110.0, 55.0, 80.0, 30.0)
+        );
         assert!(num(&r, "missing").is_nan());
     }
 
@@ -116,6 +119,8 @@ mod tests {
         let open = json!({"hint": {"visible": true}});
         let got = wait_open("hint", "hint", Duration::from_secs(2), || Ok(open.clone()));
         assert!(is_visible(&got["hint"]));
-        wait_closed("hint closed", "hint", Duration::from_secs(2), || Ok(json!({"hint": {"visible": false}})));
+        wait_closed("hint closed", "hint", Duration::from_secs(2), || {
+            Ok(json!({"hint": {"visible": false}}))
+        });
     }
 }
