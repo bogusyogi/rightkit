@@ -106,24 +106,33 @@ export function useFileDropZone<E extends HTMLElement = HTMLElement>(options: Us
   optionsRef.current = options;
 
   useEffect(() => {
-    const unlisten = optionsRef.current.subscribe((event) => {
-      if (event.type === "leave") {
-        setOver(false);
-        opened.current = false;
-        return;
-      }
-      const inside = isDragPositionInside(ref.current, event.position);
-      setOver(inside);
-      if (inside && !opened.current) {
-        opened.current = true;
-        optionsRef.current.onEnterZone();
-      }
-      if (event.type === "drop") {
-        opened.current = false;
-        setOver(false);
-      }
-    });
+    let live = true;
+    let unlisten: Promise<() => void>;
+    try {
+      unlisten = optionsRef.current.subscribe((event) => {
+        if (!live) return;
+        if (event.type === "leave") {
+          setOver(false);
+          opened.current = false;
+          return;
+        }
+        const inside = isDragPositionInside(ref.current, event.position);
+        setOver(inside);
+        if (inside && !opened.current) {
+          opened.current = true;
+          optionsRef.current.onEnterZone();
+        }
+        if (event.type === "drop") {
+          opened.current = false;
+          setOver(false);
+        }
+      });
+    } catch {
+      return undefined;
+    }
+    void unlisten.catch(() => undefined);
     return () => {
+      live = false;
       void unlisten.then((stop) => stop()).catch(() => undefined);
     };
   }, []);

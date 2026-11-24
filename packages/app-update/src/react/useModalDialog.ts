@@ -37,6 +37,13 @@ export interface UseModalDialogOptions {
    * `closeOnUnmount`, and by the returned `restoreFocus()`.
    */
   restoreFocus?: (opener: HTMLElement | null) => void;
+  /**
+   * With `closeOnUnmount`, whether unmounting a dialog that is still open also restores focus to the
+   * opener. Default true. A host that restores focus itself when it dismisses the dialog, and moves focus
+   * to a new page when the dialog goes away with a route change, sets false so unmount only closes it.
+   * A dialog already closed when the component unmounts never restores focus on unmount.
+   */
+  restoreFocusOnUnmount?: boolean;
 }
 
 /**
@@ -92,8 +99,9 @@ export function useModalDialog(
     if (!closeOnUnmount) return undefined;
     const el = dialogRef.current;
     return () => {
-      if (el?.open) el.close();
-      restoreFocus();
+      const stillOpen = el?.open === true;
+      if (el && stillOpen) el.close();
+      if (stillOpen && optionsRef.current.restoreFocusOnUnmount !== false) restoreFocus();
     };
   }, [closeOnUnmount, restoreFocus]);
 

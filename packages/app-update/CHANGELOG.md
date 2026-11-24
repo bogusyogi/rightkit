@@ -2,6 +2,8 @@
 
 ## 0.4.6
 
+`useModalDialog` option `restoreFocusOnUnmount` (default true; with `closeOnUnmount`): set false when the host restores focus itself on dismiss. Unmounting an already closed dialog never restores focus.
+
 Additive. Every new option is off by default: a host that passes none gets the 0.4.4 behaviour.
 
 - `qaUpdateStatus({ enabled, search, ... })`, `isUpdateTierEligible(tier, hasLicense)`, `autoInstallFromSettings(readSettings, select)` and `startBackgroundUpdateChecks(session, isNative)` (root, `src/session-helpers.ts`): the policy a host wrote around `createUpdateSession`. A QA status fixture chosen by query parameter (names, version and messages configurable, off unless `enabled`), the `patch`-always, feature-tier-needs-licence eligibility rule, the auto-install flag read from the host's settings, and the background start guarded by the host's native check. Additive.

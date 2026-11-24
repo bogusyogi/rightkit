@@ -56,12 +56,17 @@ export function useMicLevel<P = { level?: unknown }>(
     }
     let disposed = false;
     let off: (() => void) | undefined;
-    void Promise.resolve(
-      subscribeRef.current((payload) => {
+    let pending: Promise<() => void> | (() => void);
+    try {
+      pending = subscribeRef.current((payload) => {
+        if (disposed) return;
         const read = readRef.current;
         setLevel(clampMicLevel(read ? read(payload) : (payload as { level?: unknown }).level));
-      }),
-    )
+      });
+    } catch {
+      return undefined;
+    }
+    void Promise.resolve(pending)
       .then((unsubscribe) => {
         if (disposed) unsubscribe();
         else off = unsubscribe;

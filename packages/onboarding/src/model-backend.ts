@@ -67,7 +67,7 @@ export interface InvokeModelsBackendOptions extends SingleModelConfig {
  * `list` and the event handler use `modelEntryFromStatus` and `modelEntryFromEvent`.
  */
 export function createSingleModelBackend(options: InvokeModelsBackendOptions): ModelsBackend {
-  const matches = options.matches ?? ((p) => p.backend === undefined || p.backend === options.id);
+  const matches = options.matches ?? ((p) => p.backend === options.id);
   return {
     async list() {
       return [modelEntryFromStatus(options, await options.status())];
