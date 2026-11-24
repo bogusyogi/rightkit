@@ -107,6 +107,15 @@ pub const PRESETS: &[Preset] = &[
         "http://127.0.0.1:1234/v1",
         false,
     ),
+    // The llama.cpp `llama-server` listens on port 8080 by default and serves the OpenAI chat
+    // protocol under `/v1` (documented in its README; this crate runs no model and has not checked
+    // it against a live server). `base_url` overrides the port.
+    p(
+        "llamacpp",
+        Wire::OpenAiCompat,
+        "http://127.0.0.1:8080/v1",
+        false,
+    ),
 ];
 
 pub fn preset(id: &str) -> Option<&'static Preset> {
