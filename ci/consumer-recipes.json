@@ -4030,7 +4030,7 @@
       "pkId": "PK188",
       "id": "ci/consumers/rightkit-win-ui/src/main.rs",
       "files": {
-        "Cargo.toml": "e4684e26e54a156b28a552d61c318a3bd44030d18479952d488ff19e14e2739f",
+        "Cargo.toml": "d29b873819d6b9defc71875c627293235c34de17f645441b70a6ff382a0a1158",
         "README.md": "1d69022288b44ef3cc1bddac23f253b90f49b1d766e42a8b7a181df23237be72",
         "src/main.rs": "927010dd5719f4a127d61d62bfe61d1ee3225d03fde434e7ccdbe0b059479fdb"
       }
