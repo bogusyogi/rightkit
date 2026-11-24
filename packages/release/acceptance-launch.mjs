@@ -5,7 +5,7 @@
 // gate code, tools and environment that git cannot show). It keeps the gate's output for people. After the gate ends it exports the operating
 // system's record of every program that started and exited in the run's window.
 //
-//   node acceptance-launch.mjs --out <run dir> --commit <sha> --receipts <broker receipts dir> [--kind <stage>] [--limits <file>] [--lanes <n>]
+//   node acceptance-launch.mjs --out <run dir> --commit <sha> --receipts <broker receipts dir> [--kind <stage>] [--limits <file>]
 //                              [--repo <dir>] [--gate <bin/rightkit-gate.mjs>] [--lock <file>] -- <gate arguments>
 //
 // The run folder holds launch.json (this record), before/receipts.txt, processes.json and gate.log. Beside the run folder: acceptance-launch.lock
@@ -139,9 +139,8 @@ export function listFolder(dir, { cap = 200_000 } = {}) {
   try { walk(dir, ""); } catch { return null; }
   return out;
 }
-/** The gate's scan-result store, as the gate would choose it (RK_GATE_CACHE_DIR, else <git common dir>/rightkit-gate-cache), or null when the common dir cannot be found. */
-export function cacheStoreDir(repo, env = process.env, run = execFileSync) {
-  if (env.RK_GATE_CACHE_DIR) return path.resolve(repo, env.RK_GATE_CACHE_DIR);
+/** The gate's scan-result store: the folder rightkit-gate-cache in the repository's git folder, its one fixed place (no variable chooses it), or null when the git folder cannot be found. */
+export function cacheStoreDir(repo, _env = null, run = execFileSync) {
   try { const common = String(run("git", ["-C", repo, "rev-parse", "--git-common-dir"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], windowsHide: true })).trim(); return common ? path.join(path.resolve(repo, common), "rightkit-gate-cache") : null; } catch { return null; }
 }
 /** The folders of the snapshot root that came into being or changed since `sinceMs`, each listed (the stat record of the snapshots at the gate's exit). */
@@ -159,7 +158,7 @@ export function statSnapshots(root, sinceMs, { cap = 200_000, entries = null } =
 }
 
 /** Starts one gate run and records it. Resolves with the gate's exit (or 128 + signal number). */
-export async function launch({ out, commit, kind = null, receiptsDir, limits = null, lanes = null, repo = process.cwd(), gate = path.join(here, "bin", "rightkit-gate.mjs"), lock = null, gateArgs = [], env = process.env, spawnImpl = spawn, host = os.hostname(), exportProcesses = null, platform = process.platform, fingerprint = null, snapshotsRoot = null }) {
+export async function launch({ out, commit, kind = null, receiptsDir, limits = null, lanes = null, repo = process.cwd(), gate = path.join(here, "bin", "rightkit-gate.mjs"), lock = null, gateArgs = [], env = process.env, spawnImpl = spawn, host = os.hostname(), exportProcesses = null, platform = process.platform, fingerprint = null, snapshotsRoot = null, onStart = null, managedRoot = null }) {
   if (!out || !/^[0-9a-f]{40}$/.test(String(commit ?? "")) || !receiptsDir) throw new Error("launch needs --out, a full --commit sha and --receipts");
   const derived = kindOf(gateArgs);
   if (kind !== null && kind !== derived) throw new Error(`--kind ${kind} does not match the stage the gate is asked for (--to ${derived}); the time limit is chosen by what is run`);
@@ -171,7 +170,9 @@ export async function launch({ out, commit, kind = null, receiptsDir, limits = n
   // The limit and the lanes are pinned now, before the gate runs, never chosen afterwards.
   let limitMs = null; let limitsSha256 = null;
   if (limits) { const body = fs.readFileSync(limits); limitsSha256 = sha256(body); const v = JSON.parse(body.toString("utf8"))[`${host}/${derived}`]; limitMs = Number.isFinite(v) ? v : null; }
-  const laneCount = Number.isInteger(lanes) && lanes > 0 ? lanes : (typeof os.availableParallelism === "function" ? os.availableParallelism() : os.cpus().length);
+  // The lanes are the gate's own default, this host's cores: the launcher hands the gate no lane count and no cache folder (Adrian, 2026-11-24: no agent chooses either).
+  if (lanes !== null) throw new Error("the launcher no longer sets the gate's lanes: they are this host's cores");
+  const laneCount = typeof os.availableParallelism === "function" ? os.availableParallelism() : os.cpus().length;
   // The previous launched run, from the launcher's own record: its identity (whether or not the lock was released), the baseline commit, and whether
   // this run is the same kind of baseline (gate code, tools, node and platform equal).
   let last = null; try { last = JSON.parse(fs.readFileSync(lastFile, "utf8")); } catch { last = null; }
@@ -183,18 +184,26 @@ export async function launch({ out, commit, kind = null, receiptsDir, limits = n
   // The gate's scan-result store as the file system shows it before the run, the launcher's own listing (nothing in it is read).
   // A run folder reused after a crash must not offer the earlier run's listings.
   for (const stale of ["cache-store-after.json", "snapshot-stat.json"]) fs.rmSync(path.join(out, stale), { force: true });
-  const storeDir = cacheStoreDir(repo, env); const storeBefore = listFolder(storeDir);
+  const storeDir = cacheStoreDir(repo); const storeBefore = listFolder(storeDir);
+  // Two folders of the managed data root, listed before and after by the launcher: the Class A verdict files the broker requires before it admits a compile, and
+  // the gate's Class A decision records (its forecast). The listings are the launcher's; what a decision record says is the gate's own statement and is read as that.
+  let snapRootEarly = snapshotsRoot; if (snapRootEarly === null) { try { snapRootEarly = (await import("./snapshot.mjs")).snapshotRoot({ platform, env }); } catch { snapRootEarly = null; } }
+  const managed = managedRoot ?? (snapRootEarly ? path.dirname(snapRootEarly) : null);
+  const verdictDir = managed ? path.join(managed, "class-a-verdicts") : null; const decisionDir = managed ? path.join(managed, "runs", "rightkit-class-a-decisions") : null;
+  const sideBefore = { verdicts: listFolder(verdictDir), decisions: listFolder(decisionDir) };
+  fs.writeFileSync(path.join(before, "side-folders.json"), `${JSON.stringify({ verdictDir, decisionDir, ...sideBefore })}\n`);
   fs.writeFileSync(path.join(before, "cache-store.json"), `${JSON.stringify({ dir: storeDir, files: storeBefore })}\n`);
   const files = { log: path.join(out, "gate.log"), launch: path.join(out, "launch.json") };
   const args = [gate, ...gateArgs, "--commit", commit];
-  let snapRoot = snapshotsRoot; if (snapRoot === null) { try { snapRoot = (await import("./snapshot.mjs")).snapshotRoot({ platform, env }); } catch { snapRoot = null; } }
-  const record = { schema: LAUNCH_SCHEMA, runId, commit, kind: derived, host, gate: { path: path.resolve(repo, gate), args }, launcherPid: process.pid, gatePid: null, lanes: laneCount, lanesSource: lanes ? "--lanes, handed to the gate as RK_GATE_JOBS" : "this host's cores, handed to the gate as RK_GATE_JOBS", limitMs, limitsSha256, receiptsDir: path.resolve(receiptsDir), snapshotsRoot: snapRoot, fingerprint: fp, baseline, startedAt: null, startMono: null, endedAt: null, endMono: null, exit: null, signal: null, previous };
+  const snapRoot = snapRootEarly;
+  const record = { schema: LAUNCH_SCHEMA, runId, commit, kind: derived, host, gate: { path: path.resolve(repo, gate), args }, launcherPid: process.pid, gatePid: null, lanes: laneCount, lanesSource: "this host's cores, the gate's own default; nothing is handed to the gate", limitMs, limitsSha256, receiptsDir: path.resolve(receiptsDir), snapshotsRoot: snapRoot, fingerprint: fp, baseline, startedAt: null, startMono: null, endedAt: null, endMono: null, exit: null, signal: null, previous };
   const save = () => fs.writeFileSync(files.launch, `${JSON.stringify(record, null, 2)}\n`);
   const logFd = fs.openSync(files.log, "a");
   record.startedAt = new Date().toISOString(); record.startMono = mono();
-  const child = spawnImpl(process.execPath, args, { cwd: repo, windowsHide: true, stdio: ["ignore", logFd, logFd], env: { ...env, RK_GATE_JOBS: String(laneCount) } });
+  const child = spawnImpl(process.execPath, args, { cwd: repo, windowsHide: true, stdio: ["ignore", logFd, logFd], env: (() => { const e = { ...env }; for (const k of Object.keys(e)) if (/^(RK_GATE_JOBS|RK_GATE_CACHE_DIR)$/i.test(k)) delete e[k]; return e; })() });
   record.gatePid = Number.isInteger(child.pid) ? child.pid : null;
   save();
+  if (typeof onStart === "function") { try { onStart({ child, record: { ...record }, out }); } catch { /* the hook is the caller's */ } }
   const forward = (sig) => { try { child.kill(sig); } catch { /* already gone */ } };
   process.on("SIGINT", forward); process.on("SIGTERM", forward);
   const [code, signal] = await new Promise((resolve) => { child.once("error", () => resolve([null, null])); child.once("exit", (c, s) => resolve([c, s])); });
@@ -209,6 +218,12 @@ export async function launch({ out, commit, kind = null, receiptsDir, limits = n
   // At the gate's exit, before anything can change: the store listed again, and the stat record of the snapshots this run made or touched.
   const storeAfter = listFolder(storeDir);
   fs.writeFileSync(path.join(out, "cache-store-after.json"), `${JSON.stringify({ dir: storeDir, files: storeAfter })}\n`);
+  // The same two folders after the run, and which store files this run wrote with the row each names (read at the gate's exit, before a later run can change them).
+  const sideAfter = { verdicts: listFolder(verdictDir), decisions: listFolder(decisionDir) };
+  fs.writeFileSync(path.join(out, "side-folders-after.json"), `${JSON.stringify({ verdictDir, decisionDir, ...sideAfter })}\n`);
+  const changed = storeBefore && storeAfter ? Object.keys(storeAfter).filter((k) => !storeBefore[k] || storeBefore[k][0] !== storeAfter[k][0] || storeBefore[k][1] !== storeAfter[k][1]).sort() : null;
+  const rowOfFile = (name) => { try { const d = JSON.parse(fs.readFileSync(path.join(storeDir, name), "utf8")); return typeof d?.row?.id === "string" ? d.row.id : typeof d?.id === "string" ? d.id : null; } catch { return null; } };
+  fs.writeFileSync(path.join(out, "cache-written.json"), `${JSON.stringify(changed === null ? null : changed.map((name) => ({ name, row: rowOfFile(name) })))}\n`);
   const snaps = rootEntries === null ? { root: snapRoot, dirs: {}, known: false } : statSnapshots(snapRoot, Date.parse(record.startedAt), { entries: rootEntries });
   fs.writeFileSync(path.join(out, "snapshot-stat.json"), `${JSON.stringify(snaps)}\n`);
   record.cacheStore = { dir: storeDir, beforeKnown: storeBefore !== null, afterKnown: storeAfter !== null }; record.snapshotStat = { root: snaps.root, folders: Object.keys(snaps.dirs), known: snaps.known };
@@ -229,6 +244,6 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const own = cut < 0 ? argv : argv.slice(0, cut); const gateArgs = cut < 0 ? [] : argv.slice(cut + 1);
   const opt = (name) => { const i = own.indexOf(name); return i < 0 ? null : own[i + 1]; };
   if (gateArgs.includes("--commit")) { console.error("acceptance-launch: the launcher owns --commit; give it before --"); process.exit(2); }
-  launch({ out: opt("--out"), commit: opt("--commit"), kind: opt("--kind"), receiptsDir: opt("--receipts"), limits: opt("--limits"), lanes: opt("--lanes") ? Number(opt("--lanes")) : null, repo: opt("--repo") ?? process.cwd(), gate: opt("--gate") ?? undefined, lock: opt("--lock"), gateArgs })
+  launch({ out: opt("--out"), commit: opt("--commit"), kind: opt("--kind"), receiptsDir: opt("--receipts"), limits: opt("--limits"), repo: opt("--repo") ?? process.cwd(), gate: opt("--gate") ?? undefined, lock: opt("--lock"), gateArgs })
     .then((code) => process.exit(code), (e) => { console.error(`acceptance-launch: ${e.message}`); process.exit(2); });
 }

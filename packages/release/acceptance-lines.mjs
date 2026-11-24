@@ -1205,6 +1205,17 @@ export function readRunDir(dir, { repo = null, receiptsDir = null, verify = null
   return { cacheStore, snapshotStat, launch, processes, witness: proc ? { kind: proc.kind, from: proc.from, to: proc.to, newest: proc.newest, continuous: proc.continuous === true, problems: proc.problems ?? [] } : null, receipts, inventory, priorInventory, inventoryUncovered, prior, git };
 }
 
+/**
+ * The outside facts of one run, for the case-based decision (acceptance-cases.mjs; Adrian, 2026-11-24, rightkit#1514: "adopt the 12-line evidence table"):
+ * the programs of the gate's own process tree as the operating system recorded them, and each broker job from its signed receipt. Nothing the gate wrote is read.
+ */
+export function runFacts(run) {
+  const tree = runTree(run?.launch ?? null, run?.processes ?? null, run?.witness ?? null);
+  const starts = tree.procs.map((p) => ({ ...decodeStart({ cmd: p.exe, args: p.args, cwd: p.cwd ?? "" }), exe: p.exe, pid: p.pid, ppid: p.ppid, at: p.start, end: p.end, exit: p.exit, argsKnown: p.argsKnown !== false }));
+  return { root: tree.root, gaps: tree.gaps, starts, jobs: (run?.receipts ?? []).map((r) => ({ ...jobOf(r), status: r?.doc?.provenance?.payload?.result?.status ?? null })) };
+}
+export { programName, cargoVerb, valuesOf, dirKey, isProbe };
+
 // ---- command line -----------------------------------------------------------------------------------------------------------------------------------
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const opt = (name) => { const i = process.argv.indexOf(name); return i < 0 ? null : process.argv[i + 1]; };

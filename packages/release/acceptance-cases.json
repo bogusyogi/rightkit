@@ -1,0 +1,418 @@
+{
+  "schema": "rightkit.acceptance-cases/1",
+  "about": "The inputs of the twelve-line acceptance run (GATE-CONTRACT GC-A27; rightkit#1514; Adrian, 2026-11-24: 'adopt the 12-line evidence table and its 4 named limits ... and the 7 fixture cases + 1 real build as the acceptance run'). Written by hand from the witness fixture's layout and the contract's rules, fixed with its hash recorded before any run it judges, never regenerated from a run. The time limits are the one exception: each is the first clean measured time multiplied by 1.25 and is filled in once, with the measurement named.",
+  "fixture": {
+    "repository": "rk-witness-fixture",
+    "commit": "9da554ea136a70b7a82fb466ca7e00e0fd85ce37",
+    "stage": "compile",
+    "host": "win32",
+    "hostTriple": "x86_64-pc-windows-msvc",
+    "otherTriples": [
+      "x86_64-unknown-linux-gnu",
+      "aarch64-apple-darwin"
+    ]
+  },
+  "classA": {
+    "source": "The 46 Class A rows of the fixture, from the 18 November inventory (5a, sha256 5463eb8e... as reviewed) which was read from the gate's stored keys and source and checked by a second model. Since that inventory's commit 34788a9 the fixture changed one file (rk/crates/rk-slow/build.rs), which adds and removes no row.",
+    "programRows": {
+      "rustfmt": [
+        "rustfmt:2021"
+      ],
+      "node": [
+        "node-check:app/packages/witness-lib/index.js",
+        "node-check:app/packages/witness-lib/index.test.js",
+        "node-check:app/packages/witness-notest/index.js",
+        "node-check:app/right-release.config.mjs",
+        "node-check:app/scripts/build-web.mjs",
+        "node-check:app/scripts/print-ok.mjs"
+      ],
+      "actionlint": [
+        "actionlint"
+      ],
+      "shellcheck": [
+        "shellcheck"
+      ],
+      "cargo metadata": [
+        "cargo-metadata:app/engine",
+        "cargo-metadata:app/src-tauri",
+        "cargo-metadata:rightkit-a",
+        "cargo-metadata:rightkit-b",
+        "cargo-metadata:rk",
+        "cargo-metadata:tools"
+      ],
+      "cargo-deny": [
+        "cargo-deny:app/engine",
+        "cargo-deny:app/src-tauri",
+        "cargo-deny:rightkit-a",
+        "cargo-deny:rightkit-b",
+        "cargo-deny:rk",
+        "cargo-deny:tools"
+      ],
+      "cargo-audit": [
+        "cargo-audit:app/engine",
+        "cargo-audit:app/src-tauri",
+        "cargo-audit:rightkit-a",
+        "cargo-audit:rightkit-b",
+        "cargo-audit:rk",
+        "cargo-audit:tools"
+      ],
+      "pnpm": [
+        "pnpm-lockfile:app",
+        "pnpm-audit:app"
+      ],
+      "tsc": [
+        "tsc:app-packages-witness-lib",
+        "tsc:app-packages-witness-notest"
+      ],
+      "oxlint": [
+        "oxlint:app-packages-witness-lib",
+        "oxlint:app-packages-witness-notest"
+      ]
+    },
+    "insideGateRows": [
+      "json-parse",
+      "toml-parse",
+      "yaml-parse",
+      "ghsa-audit:app/engine",
+      "ghsa-audit:app/src-tauri",
+      "ghsa-audit:rightkit-a",
+      "ghsa-audit:rightkit-b",
+      "ghsa-audit:rk",
+      "ghsa-audit:tools",
+      "license",
+      "secret-scan",
+      "feature-coverage",
+      "swift-lock:app/macos-native/WitnessHelper"
+    ]
+  },
+  "brokerCommands": {
+    "rule": "NN09: one command per workspace, stage, target and feature flags, never two. A group is the four together: the workspace folder, the cargo verb, the one --target it names, and its feature flags. The per-target split is the contract's (approved 2026-11-21). A feature-flag split is verified only when the flags are a feature set that ci/gate.config.json declares for a crate of that workspace, or --all-features for a workspace with a crate that declares features and has no featureSets. Required groups must each be sent exactly once in a full compile; permitted groups at most once; any other command, or a second command of one group, fails the line. rk-darwin is not built on this host (platforms: darwin).",
+    "hostTarget": "x86_64-pc-windows-msvc",
+    "targets": [
+      "x86_64-pc-windows-msvc",
+      "x86_64-unknown-linux-gnu",
+      "aarch64-apple-darwin"
+    ],
+    "required": [
+      {
+        "workspace": "app/engine",
+        "features": "",
+        "clippy": "each target",
+        "test": "host",
+        "doc": "host"
+      },
+      {
+        "workspace": "app/src-tauri",
+        "features": "",
+        "clippy": "each target",
+        "test": "host",
+        "doc": "none: no library"
+      },
+      {
+        "workspace": "tools",
+        "features": "",
+        "clippy": "each target",
+        "test": "host",
+        "doc": "host"
+      },
+      {
+        "workspace": "rk",
+        "features": "",
+        "clippy": "each target",
+        "test": "host",
+        "doc": "host"
+      },
+      {
+        "workspace": "rk",
+        "features": "--features alpha,excl-a",
+        "clippy": "each target",
+        "test": "host"
+      },
+      {
+        "workspace": "rk",
+        "features": "--features beta,excl-b",
+        "clippy": "each target",
+        "test": "host"
+      },
+      {
+        "workspace": "rk",
+        "features": "--features slow",
+        "clippy": "each target",
+        "test": "host"
+      },
+      {
+        "workspace": "crates/rightkit-a",
+        "features": "",
+        "clippy": "each target",
+        "test": "host",
+        "doc": "host"
+      },
+      {
+        "workspace": "crates/rightkit-b",
+        "features": "",
+        "clippy": "each target",
+        "test": "host",
+        "doc": "host"
+      }
+    ],
+    "permitted": [
+      {
+        "workspace": "rk",
+        "features": "--features alpha,excl-a",
+        "doc": "host"
+      },
+      {
+        "workspace": "rk",
+        "features": "--features beta,excl-b",
+        "doc": "host"
+      },
+      {
+        "workspace": "rk",
+        "features": "--features slow",
+        "doc": "host"
+      },
+      {
+        "workspace": "app/src-tauri",
+        "features": "--all-features",
+        "clippy": "each target",
+        "check": "host"
+      }
+    ],
+    "requiredTotal": 41,
+    "why": "required: 6 workspaces with clippy on 3 targets and a test build on the host (24), 5 library workspaces with docs (5), and 3 declared feature sets in rk with clippy on 3 targets and a test build (12)"
+  },
+  "legitimateRepeats": [
+    {
+      "program": "cargo",
+      "args": [
+        "metadata",
+        "--no-deps",
+        "--format-version",
+        "1",
+        "--locked"
+      ],
+      "count": 6,
+      "why": "one per Cargo workspace; the Windows process record keeps no folder, so the six look alike"
+    }
+  ],
+  "cases": [
+    {
+      "id": 1,
+      "name": "from nothing, with the checkout dirtied",
+      "decides": [
+        "NN01",
+        "NN03",
+        "NN08",
+        "NN09",
+        "NN10",
+        "NN11",
+        "NN12"
+      ],
+      "commit": "fixture",
+      "setup": [
+        "remove the fixture's scan store and its history file",
+        "overwrite rk/crates/rk-leaf/src/lib.rs in the working checkout with text that does not compile; restore it after the run"
+      ],
+      "expect": {
+        "exit": 0
+      }
+    },
+    {
+      "id": 2,
+      "name": "the same commit again",
+      "decides": [
+        "NN06",
+        "NN08"
+      ],
+      "commit": "fixture",
+      "setup": [],
+      "expect": {
+        "exit": 0,
+        "newReceipts": 0,
+        "classAPrograms": 0,
+        "cacheFilesWritten": 0
+      }
+    },
+    {
+      "id": 4,
+      "name": "one cache file deleted (license)",
+      "decides": [
+        "NN04",
+        "NN05"
+      ],
+      "commit": "fixture",
+      "setup": [
+        "delete every store file whose row id is license, keeping a copy; put the copy back after the run"
+      ],
+      "expect": {
+        "exit": "non-zero",
+        "newReceipts": 0,
+        "classAPrograms": 0,
+        "outputNames": [
+          "license"
+        ]
+      }
+    },
+    {
+      "id": 3,
+      "name": "one edit to rk-leaf",
+      "decides": [
+        "NN05",
+        "NN07"
+      ],
+      "commit": {
+        "edits": [
+          {
+            "path": "rk/crates/rk-leaf/src/lib.rs",
+            "append": "\n/// Acceptance case 3: one more public function in the leaf.\npub fn leaf_again() -> u32 {\n    leaf() + 1\n}\n"
+          }
+        ]
+      },
+      "setup": [],
+      "expect": {
+        "exit": 0,
+        "classARows": [
+          "rustfmt:2021",
+          "secret-scan"
+        ],
+        "classAPrograms": [
+          "rustfmt"
+        ],
+        "brokerCrates": [
+          "rk-leaf"
+        ],
+        "brokerCommands": {
+          "workspace": "rk",
+          "clippy": 3,
+          "test": 1,
+          "doc": 1
+        },
+        "compileRows": [
+          "clippy:rk:rk-leaf",
+          "clippy:rk:rk-leaf@x86_64-unknown-linux-gnu",
+          "clippy:rk:rk-leaf@aarch64-apple-darwin",
+          "doc:rk:rk-leaf",
+          "test:rust:rk:rk-leaf"
+        ],
+        "source": "the frozen prediction of 18 November for a one-file edit to rk-leaf: five of 77 compile rows, and the two Class A rows whose read-set holds the file"
+      }
+    },
+    {
+      "id": 5,
+      "name": "a commit with a malformed tracked JSON file, run twice",
+      "decides": [
+        "NN01",
+        "NN02",
+        "NN06"
+      ],
+      "commit": {
+        "edits": [
+          {
+            "path": "ci/acceptance-broken.json",
+            "content": "{ \"unfinished\": \n"
+          }
+        ]
+      },
+      "setup": [
+        "the working checkout stays clean"
+      ],
+      "runs": 2,
+      "expect": {
+        "exit": "non-zero",
+        "newReceipts": 0,
+        "outputNames": [
+          "json-parse"
+        ],
+        "secondRun": {
+          "classAPrograms": 0,
+          "cacheFilesWritten": 0
+        }
+      }
+    },
+    {
+      "id": 6,
+      "name": "a commit with a failing unit test",
+      "decides": [
+        "NN10"
+      ],
+      "commit": {
+        "edits": [
+          {
+            "path": "rk/crates/rk-leaf/src/lib.rs",
+            "append": "\n#[cfg(test)]\nmod acceptance_case_six {\n    #[test]\n    fn fails_on_purpose() {\n        assert_eq!(super::leaf(), 4);\n    }\n}\n"
+          }
+        ]
+      },
+      "setup": [],
+      "expect": {
+        "exit": "non-zero",
+        "outputNames": [
+          "fails_on_purpose"
+        ]
+      }
+    },
+    {
+      "id": 7,
+      "name": "killed midway, then an ordinary run",
+      "decides": [
+        "NN12"
+      ],
+      "commit": {
+        "edits": [
+          {
+            "path": "rk/crates/rk-slow/build.rs",
+            "append": "\n// Acceptance case 7: a changed build script, so the slow build runs again and the run can be killed midway.\n"
+          }
+        ]
+      },
+      "setup": [
+        "kill the gate and every program it started once its first broker job is running"
+      ],
+      "runs": 2,
+      "expect": {
+        "firstRun": "killed",
+        "secondRun": {
+          "exit": 0
+        }
+      }
+    }
+  ],
+  "order": [
+    1,
+    2,
+    4,
+    3,
+    5,
+    6,
+    7
+  ],
+  "orderWhy": "Case 4 needs the store exactly as case 2 left it, so it runs before the cases that select other commits.",
+  "realBuild": {
+    "repository": "rightkit",
+    "args": [
+      "--to",
+      "compile",
+      "--unit",
+      "cargo:rightkit-time"
+    ],
+    "lines": [
+      "NN01",
+      "NN02",
+      "NN08",
+      "NN10",
+      "NN11",
+      "NN12"
+    ]
+  },
+  "limitsMs": {
+    "case1": null,
+    "case2": null,
+    "case3": null,
+    "case4": null,
+    "case5": null,
+    "case6": null,
+    "case7": null,
+    "realBuild": null
+  },
+  "limitsRule": "first clean measured time x 1.25, filled once; null means not yet measured, and NN11 fails while it is null"
+}
