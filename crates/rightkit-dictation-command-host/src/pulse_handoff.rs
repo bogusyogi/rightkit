@@ -11,6 +11,9 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use rightkit_agent_task_contract::device::{DevicePlatform, DeviceRef, DEVICE_REF_SCHEMA_VERSION};
+use rightkit_agent_task_contract::task::{UtteranceRef, UTTERANCE_REF_SCHEMA_VERSION};
+use rightkit_agent_task_contract::voice as contract;
 use rightkit_child_process::OwnedCommand;
 use serde::{Deserialize, Serialize};
 
@@ -153,6 +156,52 @@ impl HandoffRecord {
         Ok(())
     }
 
+    /// The record the Pulse command line reads: the agent task contract's own `VoiceHandoff`, so what is sent
+    /// is what the contract's types accept (it refuses unknown fields, and its transcript, session id, wake id
+    /// and confidence sit at the top level, not inside `utterance`). Call [`HandoffRecord::validate`] first;
+    /// the confidence is narrowed to the contract's `f32`.
+    pub fn to_voice_handoff(&self) -> contract::VoiceHandoff {
+        contract::VoiceHandoff {
+            schema_version: contract::VOICE_HANDOFF_SCHEMA_VERSION,
+            utterance: UtteranceRef {
+                schema_version: UTTERANCE_REF_SCHEMA_VERSION,
+                utterance_id: self.utterance.utterance_id.clone(),
+                generation: self.utterance.generation,
+            },
+            session_id: self.utterance.session_id.clone(),
+            wake_id: self.utterance.wake_id.clone(),
+            transcript: self.utterance.transcript.clone(),
+            confidence: self.utterance.confidence as f32,
+            device: DeviceRef {
+                schema_version: DEVICE_REF_SCHEMA_VERSION,
+                device_id: self.device.device_id.clone(),
+                platform: match self.device.platform {
+                    Platform::Mac => DevicePlatform::Mac,
+                    Platform::Windows => DevicePlatform::Windows,
+                    Platform::Linux => DevicePlatform::Linux,
+                    Platform::Ios => DevicePlatform::Ios,
+                },
+                display_name: self.device.display_name.clone(),
+            },
+            owner_id: self.owner_id.clone(),
+            mode: contract::VoiceMode::AddressedControl,
+            checks: contract::VoiceChecks {
+                schema_version: contract::VOICE_CHECKS_SCHEMA_VERSION,
+                r0: contract::R0Check {
+                    outcome: contract::R0Outcome::NoExactMatch,
+                    catalog_version: self.checks.r0.catalog_version.clone(),
+                },
+                r1: contract::R1Check {
+                    outcome: contract::R1Outcome::UnresolvedAgentRequest,
+                    registry_version: self.checks.r1.registry_version.clone(),
+                },
+            },
+            context_refs: self.context_refs.clone(),
+        }
+    }
+
+    /// The key the command line derives from the utterance (`VoiceHandoff::to_task_envelope`), so a resend
+    /// after an unknown receipt names the same task.
     pub fn idempotency_key(&self) -> String {
         format!(
             "voice:{}:{}",
@@ -262,17 +311,7 @@ pub fn submit(record: &HandoffRecord, cli_path: &Path, timeout: Duration) -> Rec
     if record.validate().is_err() {
         return Receipt::Unknown;
     }
-    let mut value = match serde_json::to_value(record) {
-        Ok(v) => v,
-        Err(_) => return Receipt::Unknown,
-    };
-    if let Some(obj) = value.as_object_mut() {
-        obj.insert(
-            "idempotency_key".into(),
-            serde_json::Value::String(record.idempotency_key()),
-        );
-    }
-    let Ok(json) = serde_json::to_string(&value) else {
+    let Ok(json) = serde_json::to_string(&record.to_voice_handoff()) else {
         return Receipt::Unknown;
     };
     let first = submit_once(&json, cli_path, timeout);

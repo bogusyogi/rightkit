@@ -8,6 +8,8 @@ pub mod cipher;
 pub mod drive;
 mod engine;
 mod error;
+#[cfg(feature = "cipher")]
+pub mod families;
 #[cfg(feature = "helper")]
 pub mod helper;
 #[cfg(feature = "http")]
