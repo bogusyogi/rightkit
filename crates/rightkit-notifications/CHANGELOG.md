@@ -1,9 +1,9 @@
 # Changelog
 
-## Unreleased
+## 0.1.1
 
 - RK-4, transport-independent: new `push` module. `PhoneAlert` (title and item id only, no body; title capped at 64 characters), `build_provider_jwt` and `ProviderTokenCache` (ES256 via `rightkit_crypto::P256Signer`, refreshed at 50 minutes under Apple's 60-minute rule), `build_request` and `PushRequest` (pure, redacted `Debug`), `PushTransport` host trait with `classify`, `backoff_hint` and `send_alert` (200 ok, 410 or `BadDeviceToken` unregisters, 429 and 5xx retry hint, others reported), and `DeviceTokenStore` with `MemoryTokenStore`.
-- New dependency: workspace crate `rightkit-crypto` 0.1.3 (needs its unreleased `P256Signer`, so it must be published first). No external crate added, no version bump.
+- New dependency: workspace crate `rightkit-crypto` 0.1.4 (carries `P256Signer`, so it is published first). No external crate added.
 - The HTTP/2 transport waits on the rightkit-http HTTP/2 decision; the host supplies `PushTransport` meanwhile.
 
 ## 0.1.0 (unpublished)

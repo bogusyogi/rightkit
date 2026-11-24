@@ -2608,7 +2608,7 @@
       "pkId": "PK26",
       "id": "ci/consumers/rightkit-llm/src/main.rs",
       "files": {
-        "Cargo.toml": "1f1a89dc226863117f3509b41d31295e764f49ed7b1632bbc83bbbf90fd7a08c",
+        "Cargo.toml": "d6799bc12c2a2becc9b56f09a67035e4e26976037e40058e815eabffb541f8a0",
         "README.md": "b6615409fe6230ce89f536708e07002b33df0b9712c828baca6335480662e47a",
         "src/main.rs": "af9e5de71bcd646a770d34f76853e42621347b156f0a5cd6e440f138022c36fa"
       }
@@ -2671,7 +2671,7 @@
       "pkId": "PK32",
       "id": "ci/consumers/rightkit-crypto/src/main.rs",
       "files": {
-        "Cargo.toml": "ed7fd4017edabf49cec85e39979063d024d79482c7180bc96dc348ea69e5fb5d",
+        "Cargo.toml": "86fe6ff94858e1bb8ad3732a3256a947dda0f4a9cd62ed046ff82c1b1789f76c",
         "README.md": "1cb809f489d3ee7454c88c590092c08595d7db8c2e1ef38c9188a3d2313a28da",
         "src/main.rs": "5c4e27f9e08af95376d73428ee706e1ae6f1725e173c149b3c4af45c840cf56b"
       }
@@ -2771,7 +2771,7 @@
       "pkId": "PK42",
       "id": "ci/consumers/rightkit-sync/src/main.rs",
       "files": {
-        "Cargo.toml": "f09824c3e587b5b397ddbdf7f804fb27a0a00501eb26b13ba753825324910e78",
+        "Cargo.toml": "97627ef0992181bde44c1b61a9d366c3af54adfca06986bbc0d78112bd820f0d",
         "README.md": "bcb366f9d833841c364d0476b5c8eaf25a4f5e198162b96a968b05690b3c8af6",
         "src/main.rs": "ed39c50408f11c09d1c1efd8f9b87c1239b9caa0e940af3c5ad934044c0e54e2"
       }
@@ -4156,7 +4156,7 @@
       "pkId": "PK202",
       "id": "ci/consumers/rightkit-notifications/src/main.rs",
       "files": {
-        "Cargo.toml": "02eb81805a6a3800da836015b35b1f0b24911601f85c404cab37fcfe29e39924",
+        "Cargo.toml": "01683a1402f3f50120b405e080cd5ae56dd839266f8cecd08868b3c4b8333d07",
         "README.md": "aa9b226a386e6ef1596837d56bb8b576db7d0262a7f4b3135ab4b237772ad0e1",
         "src/main.rs": "1395057cf7b7f316a9eadfc317fa78a1b50973cdd5e23fa6ab7393ac1565a8d2"
       }

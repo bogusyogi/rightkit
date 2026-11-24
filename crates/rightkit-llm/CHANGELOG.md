@@ -1,8 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.7.1
 
-- Added the `llamacpp` preset (RK-11): the llama.cpp `llama-server` on `http://127.0.0.1:8080/v1`, OpenAI chat protocol, no credential, as `ollama` and `lmstudio` are. Additive: `PRESETS` gains one row and no existing id or URL changes. A local model is run by the server, never by this crate; `base_url` overrides the port. Not compiled or run against a live server in this pass. No version bump yet (patch at release).
+- Added the `llamacpp` preset (RK-11): the llama.cpp `llama-server` on `http://127.0.0.1:8080/v1`, OpenAI chat protocol, no credential, as `ollama` and `lmstudio` are. Additive: `PRESETS` gains one row and no existing id or URL changes. A local model is run by the server, never by this crate; `base_url` overrides the port. Not compiled or run against a live server in this pass.
 
 ## 0.7.0 (2026-11-16)
 
