@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.6
+
+- Add the follow-up window frames (VO-2): `EngineSchemaName::FollowUpOpen` with `EnginePayload::FollowUpOpen { window_ms }` and `FollowUpClose`, both validated. A new `EngineSchemaName` variant and `EnginePayload` variants are source-breaking for an exhaustive `match`; older engines answer an unknown schema name with an error frame.
+
 ## 0.3.5
 
 - Accept versioned exact release clock markers on capture seals. Legacy senders may omit the marker. Malformed markers reject the frame.
