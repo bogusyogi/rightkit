@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.7.7
 
 Additive. Moved from HeardRight; no existing export, signature or behaviour changes. New modules import only `react` (headless-safe, in `./headless`), except `bootstrapWindows`, which imports `react-dom/client` (in `./react` only).
 

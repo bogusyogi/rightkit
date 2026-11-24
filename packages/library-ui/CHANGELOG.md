@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.5
 
 Additive. Every new option and field is optional: a host that sets none renders and behaves as 0.2.3.
 

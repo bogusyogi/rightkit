@@ -1,4 +1,4 @@
-## Unreleased
+## 0.3.5
 
 Additive; existing exports and wire behaviour unchanged. Defaults send exactly what 0.3.4 sent.
 

@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.6.8
 
 - Added `useAccessibilityWatch(port, { enabled, pollMs? })` with `AccessibilityWatchPort { status, activateShortcuts? }`: a hub-level granted flag re-checked on mount, focus and visibility change, polled only while access is absent, activating shortcuts once per grant. Additive.
 - Added `useMicLevel(subscribe, { active?, readLevel? })`, `clampMicLevel`, `micMeterActiveBars` and `micMeterBarHeight` for a setup microphone meter; the bars are drawn by the host. Additive.

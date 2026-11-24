@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.6
 
 Additive. Every new option is off by default: a host that passes none gets the 0.4.4 behaviour.
 
