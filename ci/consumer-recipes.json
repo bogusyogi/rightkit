@@ -3994,7 +3994,7 @@
       "pkId": "PK184",
       "id": "ci/consumers/rightkit-launcher/src/main.rs",
       "files": {
-        "Cargo.toml": "42717f57f132cf67d96a060ddd68f047066fee85176455d705c4b60fc5702a08",
+        "Cargo.toml": "0c2cdd7d94fe8d8df113cb7894720c55ff589545bf53d7b2e12e43aa0387b962",
         "README.md": "63cfb5bf342192893cb015d01ca684c30cba9b669c5f3153871bad88cc890233",
         "src/main.rs": "0993b17952fdb97d800099d8e2e10db67b5821b49e085c7f99511714191d17b9"
       }

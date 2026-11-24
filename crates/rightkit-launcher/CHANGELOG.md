@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.1
+
+- Exported usage history ranking with caller-provided time and capacity, compatible with saved Windows launcher records.
+
 ## 0.2.0
 
 - Breaking: the crate is the portable launcher core. The Win32 panel and what only it uses (`panel`, `chat`, `snippets`, `spot_takeover`, `store`, the `qa-views` feature) moved to the new crate `rightkit-launcher-win` 0.1.0, which depends on this one; `response_layout` (the AI answer display model) moved to `rightkit-overlay-win` 0.1.5.
