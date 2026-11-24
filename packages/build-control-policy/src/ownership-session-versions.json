@@ -668,7 +668,7 @@
     "rightkit-media-gen-client": "0.1.0",
     "rightkit-media-gen-models": "0.1.1",
     "rightkit-media-pipeline": "0.2.2",
-    "rightkit-memory": "0.3.0",
+    "rightkit-memory": "0.3.1",
     "rightkit-memory-client": "0.1.1",
     "rightkit-memory-core": "0.2.0",
     "rightkit-memory-store": "0.2.1",
@@ -1546,6 +1546,9 @@
     ],
     "rightkit-memory-store": [
       "0.2.0"
+    ],
+    "rightkit-memory": [
+      "0.3.0"
     ]
   }
 }

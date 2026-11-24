@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.1
+
+- Requires `rightkit-memory-store` 0.2.1, so the re-exported `memory::store` module (`pub use rightkit_memory_store::*`) always carries the new `neutral` export and import. No source change in this crate since 0.3.0.
+
 ## 0.3.0
 
 - Breaking for dependents: dependency requirements `rightkit-memory-core` 0.1 -> 0.2, `rightkit-memory-store` 0.1 -> 0.2. 0.2.0 was published before these requirements were raised; a semver-breaking dependency is a breaking change, so they ship as 0.3.0 instead of changing 0.2.0 in place (#1572). No source change in this crate since 0.2.0.
