@@ -2278,7 +2278,7 @@
       "pkId": "PK08",
       "id": "ci/consumers/rightkit-tauri-shell/src/main.rs",
       "files": {
-        "Cargo.toml": "309b2b0b799fca4280068776edd8e5cb903e073a6900cefeec778e21a3a0e4de",
+        "Cargo.toml": "3b1429e9dc31f9c0b54cd04ce7cbfcd8b7d2d16d65e2f4500a9d372a8b9f3650",
         "README.md": "a2282b07f9d914c51a800347320775a5ff75793554fcd33e84c429066ad37aa7",
         "src/main.rs": "4466993524e48ab50d8c4771cc6ad800763b9062217ac40773d1aa3fe6e6bee0"
       },
