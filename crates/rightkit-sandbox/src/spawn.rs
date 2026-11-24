@@ -1,11 +1,13 @@
 use crate::process_tree;
 #[cfg(feature = "pty")]
-use crate::pty::{PtyError, PtySession, PtySize};
+use crate::pty::{PtyError, PtySession, PtySize, StreamedPty};
 use crate::{
     classify_denial, DenialSignature, DenialSource, EnvPolicy, Reservation, ResourceAuthority,
     ResourceKind, SandboxCommand, SandboxError, SandboxPolicy,
 };
 use rightkit_child_process::OwnedCommand;
+#[cfg(feature = "pty")]
+use std::ffi::OsString;
 use std::io::{Read, Write};
 #[cfg(windows)]
 use std::os::windows::io::OwnedHandle;
@@ -383,21 +385,15 @@ impl Sandbox {
         finish(cmd, reservation, DenialSource::Unknown, false)
     }
 
+    /// The program, arguments and confinement for a PTY child. Shared by `spawn_pty` and
+    /// `spawn_pty_stream` so macOS and Linux confinement cannot diverge. Windows with a policy
+    /// is `Unsupported` here (the confined Windows PTY is `spawn_pty_stream`).
     #[cfg(feature = "pty")]
-    /// Spawn under a PTY with lease-epoch input fencing. With `policy`, the child is
-    /// confined (macOS and Linux; other platforms fail closed). Reserves a
-    /// `BackgroundProcess` slot for the session's lifetime.
-    pub fn spawn_pty(
+    fn pty_program_and_confinement(
         &self,
         policy: Option<&SandboxPolicy>,
-        command: SandboxCommand,
-        size: PtySize,
-    ) -> Result<PtySession, PtyError> {
-        validate_command(&command).map_err(PtyError::Sandbox)?;
-        let reservation = self
-            .authority
-            .reserve(ResourceKind::BackgroundProcess)
-            .map_err(|d| PtyError::Sandbox(d.into()))?;
+        command: &SandboxCommand,
+    ) -> Result<(OsString, Vec<OsString>, crate::pty::Confinement), PtyError> {
         #[allow(unused_mut)]
         let mut confinement = crate::pty::Confinement::None;
         let (program, args) = match policy {
@@ -426,6 +422,31 @@ impl Sandbox {
                 }
             }
         };
+        Ok((program, args, confinement))
+    }
+
+    #[cfg(feature = "pty")]
+    /// Spawn under a PTY with lease-epoch input fencing. With `policy`, the child is
+    /// confined (macOS and Linux; other platforms fail closed: with a policy this returns
+    /// `Unsupported` on Windows, the lease-fenced session is not given a Windows confinement;
+    /// use [`Sandbox::spawn_pty_stream`] there). Reserves a `BackgroundProcess` slot for the
+    /// session's lifetime.
+    ///
+    /// `size.pixel_width` and `size.pixel_height` reach the terminal on macOS and Linux, confined
+    /// or not (readable with `StreamedPty::winsize`); Windows ConPTY has no pixel size, so the
+    /// Windows side accepts and ignores them. Rows and cols below 1 are raised to 1.
+    pub fn spawn_pty(
+        &self,
+        policy: Option<&SandboxPolicy>,
+        command: SandboxCommand,
+        size: PtySize,
+    ) -> Result<PtySession, PtyError> {
+        validate_command(&command).map_err(PtyError::Sandbox)?;
+        let reservation = self
+            .authority
+            .reserve(ResourceKind::BackgroundProcess)
+            .map_err(|d| PtyError::Sandbox(d.into()))?;
+        let (program, args, confinement) = self.pty_program_and_confinement(policy, &command)?;
         let env = policy.map(|p| p.env.clone()).unwrap_or_else(|| EnvPolicy {
             inherit: true,
             ..EnvPolicy::default()
@@ -440,6 +461,100 @@ impl Sandbox {
             confinement,
             reservation,
         )
+    }
+
+    #[cfg(feature = "pty")]
+    /// Spawn under a PTY and hand the caller lossless async streams ([`StreamedPty`]). Must be
+    /// called inside a tokio runtime. Reserves one `BackgroundProcess` slot, released on drop.
+    /// With `policy` the child is confined (macOS Seatbelt, Linux Landlock + seccomp, Windows
+    /// AppContainer + ConPTY).
+    ///
+    /// `size.pixel_width` and `size.pixel_height` reach the terminal on macOS and Linux, confined
+    /// or not (readable with [`StreamedPty::winsize`]); Windows ConPTY has no pixel size, so the
+    /// Windows side accepts and ignores them. Rows and cols below 1 are raised to 1.
+    pub fn spawn_pty_stream(
+        &self,
+        policy: Option<&SandboxPolicy>,
+        command: SandboxCommand,
+        size: PtySize,
+    ) -> Result<StreamedPty, PtyError> {
+        #[cfg(windows)]
+        if let Some(p) = policy {
+            return self.spawn_pty_stream_confined_windows(p, command, size);
+        }
+        validate_command(&command).map_err(PtyError::Sandbox)?;
+        let reservation = self
+            .authority
+            .reserve(ResourceKind::BackgroundProcess)
+            .map_err(|d| PtyError::Sandbox(d.into()))?;
+        let (program, args, confinement) = self.pty_program_and_confinement(policy, &command)?;
+        let env = policy.map(|p| p.env.clone()).unwrap_or_else(|| EnvPolicy {
+            inherit: true,
+            ..EnvPolicy::default()
+        });
+        let pty_command = crate::pty::build_pty_command(
+            program,
+            args,
+            command.cwd.clone(),
+            &env,
+            &command.env,
+            size,
+            confinement,
+        )?;
+        StreamedPty::spawn(pty_command, reservation)
+    }
+
+    #[cfg(all(windows, feature = "pty"))]
+    fn spawn_pty_stream_confined_windows(
+        &self,
+        policy: &SandboxPolicy,
+        command: SandboxCommand,
+        size: PtySize,
+    ) -> Result<StreamedPty, PtyError> {
+        crate::windows_appcontainer::refuse_deny_read_policy(policy).map_err(PtyError::Sandbox)?;
+        policy.validate().map_err(PtyError::Sandbox)?;
+        validate_command(&command).map_err(PtyError::Sandbox)?;
+        let reservation = self
+            .authority
+            .reserve(ResourceKind::BackgroundProcess)
+            .map_err(|d| PtyError::Sandbox(d.into()))?;
+        let conpty = rightkit_pty::ConPty::open(crate::pty::to_pty_size(size))?;
+        let process = crate::windows_appcontainer::spawn_pty(policy, &command, conpty.hpcon()?)
+            .map_err(PtyError::Sandbox)?;
+        Ok(StreamedPty::from_confined(
+            crate::pty_windows::WindowsPtyChild::new(conpty, process),
+            reservation,
+        ))
+    }
+
+    /// Spawn under a PTY inside a reusable [`crate::AppContainerProfile`] (Windows): the same
+    /// sequence as the confined [`Sandbox::spawn_pty_stream`] without the policy checks. Must be
+    /// called inside a tokio runtime. Pixel sizes are accepted and ignored by ConPTY.
+    #[cfg(all(windows, feature = "pty"))]
+    pub fn spawn_pty_stream_in_profile(
+        &self,
+        profile: &crate::AppContainerProfile,
+        command: SandboxCommand,
+        env: &EnvPolicy,
+        size: PtySize,
+    ) -> Result<StreamedPty, PtyError> {
+        validate_command(&command).map_err(PtyError::Sandbox)?;
+        let reservation = self
+            .authority
+            .reserve(ResourceKind::BackgroundProcess)
+            .map_err(|d| PtyError::Sandbox(d.into()))?;
+        let conpty = rightkit_pty::ConPty::open(crate::pty::to_pty_size(size))?;
+        let process = crate::windows_appcontainer::spawn_pty_in_profile(
+            profile,
+            &command,
+            env,
+            conpty.hpcon()?,
+        )
+        .map_err(PtyError::Sandbox)?;
+        Ok(StreamedPty::from_confined(
+            crate::pty_windows::WindowsPtyChild::new(conpty, process),
+            reservation,
+        ))
     }
 }
 

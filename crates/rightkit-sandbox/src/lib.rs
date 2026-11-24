@@ -5,13 +5,20 @@
 //! * [`confine_command`] applies the same confinement to a command the caller owns (Linux and
 //!   macOS), with [`is_landlock_available`] and [`landlock_abi_version`] to probe the host.
 //! * [`Sandbox::spawn_pty`] (feature `pty`, default) gives a PTY child with lease-epoch input fencing ([`PtySession`]).
+//! * [`Sandbox::spawn_pty_stream`] (feature `pty`) gives a sandboxed PTY child as lossless async
+//!   streams ([`StreamedPty`]; macOS Seatbelt, Linux Landlock, Windows AppContainer + ConPTY; call
+//!   it inside a tokio runtime); `Sandbox::spawn_pty_stream_in_profile` (Windows) does the same
+//!   inside a reusable `AppContainerProfile`. The terminal size ([`PtySize`]: rows, cols,
+//!   pixel_width, pixel_height; pixels 0 = unknown) reaches the kernel window size on macOS and
+//!   Linux and [`StreamedPty::winsize`] reads it back; Windows ConPTY ignores pixels.
 //! * [`process_tree`] enumerates and kills whole process trees (bounded).
 //! * [`ResourceAuthority`] reserves capacity before any process exists; `Strict` denies.
 //! * [`classify_denial`] turns raw error text into a cross-platform [`DenialSignature`];
 //!   [`report_denial`] builds a [`DenialReport`] (denied path, protected-secret flag, the grant
 //!   to request) from it plus the command text.
 //! * [`SandboxPolicy::deny_read()`] and [`secret_paths_within`] keep secrets out of reach inside
-//!   a wide grant (see [`deny_read_enforced`] for where it is enforced).
+//!   a wide grant (see [`deny_read_enforced`] for where it is enforced; Linux enforces existing
+//!   paths).
 //! * [`Sandbox::spawn_piped`] is [`Sandbox::spawn`] with a stdin pipe
 //!   ([`SandboxedChild::take_stdin`]); [`Sandbox::pin_read_roots`] shares interpreter install
 //!   directories as read/execute roots through a [`PinHandle`].
@@ -39,6 +46,8 @@ mod policy;
 pub mod process_tree;
 #[cfg(feature = "pty")]
 mod pty;
+#[cfg(all(windows, feature = "pty"))]
+mod pty_windows;
 mod resources;
 mod seccomp;
 mod spawn;
@@ -56,7 +65,7 @@ mod windows_job;
 
 pub use confine::{
     confine_command, deny_exec_enforced, deny_read_enforced, is_landlock_available,
-    landlock_abi_version, system_roots_enforced,
+    landlock_abi_version, signal_scope_enforced, system_roots_enforced,
 };
 pub use denial::{classify_denial, DenialCategory, DenialSignature, DenialSource};
 pub use denial_report::{
@@ -71,10 +80,16 @@ pub use error::SandboxError;
 pub use pins::{default_user_dirs, is_interpreter_dir, read_root_is_too_broad, PinHandle};
 pub use policy::{
     ConfinementMode, DenyReadEntry, EnvPolicy, LandlockMode, LoopbackPolicy, NetworkPolicy,
-    SandboxCommand, SandboxPolicy, SeccompMode, SystemRoots, UnixSocketPolicy,
+    SandboxCommand, SandboxPolicy, SeccompMode, SignalScope, SystemRoots, UnixSocketPolicy,
 };
 #[cfg(feature = "pty")]
-pub use pty::{PtyError, PtyLeaseSnapshot, PtySession, PtySize, UnacknowledgedInputDecision};
+pub use pty::{
+    PtyError, PtyLeaseSnapshot, PtySession, PtySize, StreamedPty, UnacknowledgedInputDecision,
+};
+#[cfg(feature = "pty")]
+pub use rightkit_child_process::TerminationOptions;
+#[cfg(feature = "pty")]
+pub use rightkit_pty::{PtyReader, PtyWriter};
 pub use resources::{
     Reservation, ResourceAuthority, ResourceDenied, ResourceKind, ResourceProfile,
 };

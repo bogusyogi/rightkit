@@ -92,6 +92,18 @@ pub enum SystemRoots {
     None,
 }
 
+/// Which processes a confined child may signal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SignalScope {
+    /// No signal scoping: today's behaviour.
+    #[default]
+    Off,
+    /// Linux Landlock ABI 6 `LANDLOCK_SCOPE_SIGNAL`: a confined process may signal only itself
+    /// and its own descendants/domain, never the launcher or any other same-user process. Best
+    /// effort on an older kernel; see [`crate::signal_scope_enforced`]. Ignored off Linux.
+    Own,
+}
+
 /// Unix-domain socket reach of a child whose network is denied (issue #943). Applies only with
 /// [`NetworkPolicy::Deny`]; with `Allow` the network rule already covers local sockets.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -202,6 +214,8 @@ pub struct SandboxPolicy {
     pub deny_exec: Vec<DenyReadEntry>,
     /// Unix-socket reach when the network is denied. Default [`UnixSocketPolicy::Local`].
     pub unix_sockets: UnixSocketPolicy,
+    /// Which processes the child may signal. Default [`SignalScope::Off`].
+    pub signal_scope: SignalScope,
 }
 
 impl SandboxPolicy {
@@ -248,20 +262,25 @@ impl SandboxPolicy {
         self
     }
     /// Denies reading (and writing) `path` and everything below it, even inside a granted
-    /// root. macOS: a `(deny file-read* file-write*)` rule after every allow. Windows: **not
-    /// supported yet** (issue #887; a lowbox token ignores DENY ACEs): any `deny_read` entry
-    /// makes the spawn fail with `SandboxError::Unsupported`, never a silent leak. **Linux: not
-    /// enforced.** Landlock only adds allowances and cannot carve a hole out of a granted
-    /// root, so the entry is omitted there; check [`crate::deny_read_enforced`] and grant
-    /// narrower roots instead when it is `false`. Use [`crate::secret_paths_within`] to
-    /// find the protected locations beneath a root.
+    /// root. macOS: a `(deny file-read* file-write*)` rule after every allow. Linux: enforced for
+    /// an exact path that EXISTS at spawn beneath a granted read or write root, by splitting the
+    /// granted directory into per-entry rules (the denied inode gets no rule). A missing path has
+    /// no object and is not denied; files created later inside a split directory are writable but
+    /// not readable until the next launch; unlink, rename or truncate of the denied entry through
+    /// the split directory's retained rights is NOT prevented. Windows: **not supported yet**
+    /// (issue #887; a lowbox token ignores DENY ACEs): any `deny_read` entry makes the spawn fail
+    /// with `SandboxError::Unsupported`, never a silent leak. Check
+    /// [`crate::deny_read_enforced`]. Use [`crate::secret_paths_within`] to find the protected
+    /// locations beneath a root.
     pub fn deny_read(mut self, path: impl Into<PathBuf>) -> Self {
         self.deny_read.push(DenyReadEntry::Path(path.into()));
         self
     }
     /// As [`SandboxPolicy::deny_read()`] for an absolute glob. macOS matches it by regex at
-    /// access time. Windows: not supported yet (issue #887), the spawn is refused with
-    /// `SandboxError::Unsupported` before the glob is expanded. Linux omits it.
+    /// access time. Linux expands it at spawn and denies each existing match beneath a granted
+    /// root by splitting that directory (same residuals as [`SandboxPolicy::deny_read()`]: a
+    /// path created after spawn is not matched). Windows: not supported yet (issue #887), the
+    /// spawn is refused with `SandboxError::Unsupported` before the glob is expanded.
     pub fn deny_read_glob(mut self, pattern: impl Into<String>) -> Self {
         self.deny_read.push(DenyReadEntry::Glob(pattern.into()));
         self
@@ -326,6 +345,11 @@ impl SandboxPolicy {
     /// Sets the unix-socket reach for a network-denied policy (issue #943).
     pub fn unix_sockets(mut self, policy: UnixSocketPolicy) -> Self {
         self.unix_sockets = policy;
+        self
+    }
+    /// Sets which processes the child may signal. See [`SignalScope`].
+    pub fn signal_scope(mut self, scope: SignalScope) -> Self {
+        self.signal_scope = scope;
         self
     }
 

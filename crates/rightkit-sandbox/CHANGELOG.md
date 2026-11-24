@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.7.0
+
+- Linux: `deny_read` and `deny_read_glob` are enforced by splitting granted roots; opt-in `SandboxPolicy::signal_scope(SignalScope::Own)` scopes signals under Landlock ABI 6; `Sandbox::spawn_pty_stream` returns a lossless async PTY (`StreamedPty`) on macOS, Linux and Windows; `ResourceAuthority::unlimited()` and `ResourceProfile::Unlimited` added. Minor bump: a new `ResourceProfile` variant and enforced Linux `deny_read` change behaviour.
+
 ## 0.6.6
 
 - Feature `execution`: `WorkspaceLayout::with_state_dir(name)` builds the default layout under a host state folder; `default()` is unchanged (`.rightkit/workspaces/{workspaceId}`).

@@ -14,6 +14,11 @@ pub enum ResourceProfile {
     Practical,
     /// Larger but finite pools.
     Expanded,
+    /// No ceiling: every reservation is admitted and only counted. Never produced by
+    /// `ResourceProfile::parse` or `Default`; reachable only through
+    /// `ResourceAuthority::unlimited()` or `ResourceAuthority::new(ResourceProfile::Unlimited)`,
+    /// so a profile named in configuration can never lift the limits.
+    Unlimited,
 }
 
 impl ResourceProfile {
@@ -32,6 +37,7 @@ impl ResourceProfile {
             Self::Strict => 0,
             Self::Practical => 1,
             Self::Expanded => 16,
+            Self::Unlimited => usize::MAX,
         }
     }
     fn limit(self, kind: ResourceKind) -> usize {
@@ -41,6 +47,7 @@ impl ResourceProfile {
             (Self::Practical, ResourceKind::BackgroundProcess) => 2,
             (Self::Expanded, ResourceKind::ChildProcess) => 32,
             (Self::Expanded, ResourceKind::BackgroundProcess) => 16,
+            (Self::Unlimited, _) => usize::MAX,
         }
     }
 }
@@ -111,6 +118,14 @@ impl ResourceAuthority {
             profile,
             counts: Arc::default(),
         }
+    }
+    /// An authority that admits every reservation (profile [`ResourceProfile::Unlimited`]), for a
+    /// host that already admits launches through its own authority and uses this one only to
+    /// satisfy `Sandbox::new`. Counts are still kept, clones share them, and a [`Reservation`]
+    /// still releases its slots on drop. Thread-safe exactly like every other authority: the
+    /// counters sit behind one `Arc<Mutex<Counts>>` and a poisoned lock is recovered.
+    pub fn unlimited() -> Self {
+        Self::new(ResourceProfile::Unlimited)
     }
     pub fn profile(&self) -> ResourceProfile {
         self.profile

@@ -94,19 +94,36 @@ pub fn landlock_abi_version() -> Option<u32> {
 }
 
 /// Whether [`SandboxPolicy::deny_read()`] carves a denied path out of a granted root on this
-/// platform: `true` on macOS (Seatbelt) only. When it is `false`, do not rely on the deny: grant
+/// platform: `true` on macOS and Linux. When it is `false`, do not rely on the deny: grant
 /// narrower roots, and check this before building a policy with `deny_read` entries.
 ///
-/// * Linux: Landlock cannot carve a hole out of a granted root; the entry is omitted.
-/// * Windows (AppContainer): not supported yet (issue #887: a lowbox token ignores DENY ACEs).
-///   A policy with any `deny_read` entry, including a glob, a missing path or a path outside
-///   every grant, is refused with `SandboxError::Unsupported` before any profile, lease or ACE
-///   exists, so a denied path is never silently granted. That includes
+/// * macOS: a Seatbelt deny rule after the allows.
+/// * Linux: by splitting granted roots so the denied inode has no rule (Landlock cannot carve a
+///   hole). Only existing paths, and globs matching at spawn, are denied; too many sibling
+///   entries refuses the launch.
+/// * Windows (AppContainer): `false`; not supported yet (issue #887: a lowbox token ignores
+///   DENY ACEs). A policy with any `deny_read` entry, including a glob, a missing path or a path
+///   outside every grant, is refused with `SandboxError::Unsupported` before any profile, lease
+///   or ACE exists, so a denied path is never silently granted. That includes
 ///   `AppContainerProfile::for_workspace` whenever its policy has denies: correct fail-closed
 ///   behaviour until the full design lands. Older versions may have left DENY ACEs behind (see
 ///   the README).
 pub const fn deny_read_enforced() -> bool {
-    cfg!(target_os = "macos")
+    cfg!(any(target_os = "macos", target_os = "linux"))
+}
+
+/// Whether `SandboxPolicy::signal_scope(SignalScope::Own)` takes effect on this host: `true` on
+/// Linux with Landlock ABI 6 or newer, `false` everywhere else. Callers that need it must check
+/// it; on an older kernel the scope is best effort and silently absent.
+pub fn signal_scope_enforced() -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        landlock_abi_version().map_or(false, |v| v >= 6)
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        false
+    }
 }
 
 /// Whether [`SandboxPolicy::system_roots()`] narrows the implicit system roots on this platform:

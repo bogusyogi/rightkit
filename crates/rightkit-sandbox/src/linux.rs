@@ -11,15 +11,20 @@
 //! `TRUNCATE` (truncating a file needs the right too). On an older kernel those operations keep
 //! the kernel's behavior for that ABI; [`landlock_abi_version`] reports what is in force.
 //!
+//! deny_read. Landlock only adds allowances, so `deny_read` is enforced by splitting the granted
+//! roots (`add_root`): a root with a withheld path beneath it is replaced by one rule per entry
+//! and the withheld inode gets none. Signal scope: [`SignalScope::Own`] sets
+//! `LANDLOCK_SCOPE_SIGNAL` on ABI 6 and newer.
+//!
 //! seccomp. With the network denied the child gets either the default-deny allowlist or the
 //! network-only filter ([`SeccompMode`]); both begin with an architecture check (see
 //! `seccomp.rs`). NOTE: compiled/tested only where a Linux host is available (see matrix.md).
 
-use crate::deny_read::glob_literal_prefix;
+use crate::deny_read::{expand_glob, glob_literal_prefix};
 use crate::seccomp::{self, SockFilter};
 use crate::{
     path_is_within, ConfinementMode, DenyReadEntry, LandlockMode, NetworkPolicy, SandboxPolicy,
-    SeccompMode, SystemRoots, UnixSocketPolicy,
+    SeccompMode, SignalScope, SystemRoots, UnixSocketPolicy,
 };
 use std::ffi::CString;
 use std::io;
@@ -43,6 +48,13 @@ const FS_MAKE_SYM: u64 = 1 << 12;
 const FS_REFER: u64 = 1 << 13;
 /// ABI 3.
 const FS_TRUNCATE: u64 = 1 << 14;
+/// ABI 6: `LANDLOCK_SCOPE_SIGNAL`, a confined process may signal only its own domain.
+const SCOPE_SIGNAL: u64 = 1 << 1;
+/// The first ABI whose `landlock_ruleset_attr` carries `scoped`.
+const ABI_SCOPED: u32 = 6;
+/// The most rules one policy list (read, exec or write) may produce when granted roots are split
+/// around withheld `deny_read` paths.
+const MAX_RULES: usize = 4096;
 const RULE_PATH_BENEATH: u32 = 1;
 const CREATE_RULESET_VERSION: u32 = 1 << 0;
 const SYS_CREATE_RULESET: libc::c_long = 444;
@@ -162,6 +174,8 @@ fn rights_for_object(access: u64, is_dir: bool, abi: u32) -> u64 {
 #[repr(C)]
 struct RulesetAttr {
     handled_access_fs: u64,
+    handled_access_net: u64,
+    scoped: u64,
 }
 #[repr(C)]
 struct PathBeneathAttr {
@@ -241,12 +255,95 @@ fn add_rule(ruleset: i32, path: &Path, access: u64, abi: u32) -> io::Result<()> 
     result
 }
 
-/// Landlock ruleset for `policy`, or `None` when the mode skips it for a path-less policy.
-fn build_ruleset(policy: &SandboxPolicy) -> io::Result<Option<std::fs::File>> {
+/// Grants `rights` beneath `path` while leaving every path in `withheld` without a rule.
+///
+/// Landlock rights are a union across ancestors and cannot carve a hole, so a root that has a
+/// withheld path beneath it is not granted whole: the directory itself keeps only the rights that
+/// do not read file content or execute, and each entry beside the withheld path is granted
+/// (recursively) instead. The withheld inode therefore has no rule of its own and no ancestor
+/// grants it content access. Symlink entries get no rule, because `add_rule` opens `O_PATH` and
+/// would follow the link to the withheld file; an unreadable directory leaves nothing beneath it
+/// granted (fail closed). `budget` counts rules for one policy list and refuses the launch past
+/// `MAX_RULES`.
+fn add_root(
+    ruleset: i32,
+    path: &Path,
+    rights: u64,
+    abi: u32,
+    withheld: &[PathBuf],
+    budget: &mut usize,
+) -> io::Result<()> {
+    let Ok(root) = std::fs::canonicalize(path) else {
+        return Ok(()); // a missing path grants nothing
+    };
+    if withheld.iter().any(|w| *w == root) {
+        return Ok(());
+    }
+    *budget += 1;
+    if *budget > MAX_RULES {
+        return Err(io::Error::other(
+            "too many entries beside withheld secret files to confine; refusing the launch",
+        ));
+    }
+    if !withheld.iter().any(|w| w.starts_with(&root)) {
+        return add_rule(ruleset, &root, rights, abi);
+    }
+    add_rule(ruleset, &root, rights & !(FS_READ_FILE | FS_EXECUTE), abi)?;
+    let Ok(entries) = std::fs::read_dir(&root) else {
+        return Ok(());
+    };
+    for entry in entries {
+        let Ok(entry) = entry else {
+            continue;
+        };
+        match entry.file_type() {
+            Ok(kind) if !kind.is_symlink() => {
+                add_root(ruleset, &entry.path(), rights, abi, withheld, budget)?;
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+/// Whether the filesystem part of Landlock applies: `false` only for the opt-in
+/// [`LandlockMode::SkipWhenNoPaths`] on a policy that lists no path.
+fn filesystem_confined(policy: &SandboxPolicy) -> bool {
     let paths_listed = !policy.read_paths.is_empty()
         || !policy.write_paths.is_empty()
         || !policy.exec_paths.is_empty();
-    if policy.landlock == LandlockMode::SkipWhenNoPaths && !paths_listed {
+    !(policy.landlock == LandlockMode::SkipWhenNoPaths && !paths_listed)
+}
+
+/// The existing, canonical paths a policy's `deny_read` entries name: a missing path has no
+/// object and is not denied; a glob is expanded now.
+fn withheld_paths(policy: &SandboxPolicy) -> io::Result<Vec<PathBuf>> {
+    let mut withheld = Vec::new();
+    for entry in &policy.deny_read {
+        match entry {
+            DenyReadEntry::Path(path) => {
+                if let Ok(canonical) = std::fs::canonicalize(path) {
+                    withheld.push(canonical);
+                }
+            }
+            DenyReadEntry::Glob(pattern) => {
+                for matched in expand_glob(pattern, MAX_RULES)? {
+                    if let Ok(canonical) = std::fs::canonicalize(matched) {
+                        withheld.push(canonical);
+                    }
+                }
+            }
+        }
+    }
+    Ok(withheld)
+}
+
+/// Landlock ruleset for `policy`, or `None` when nothing applies: the mode skips the filesystem
+/// part for a path-less policy and no signal scope can be set.
+fn build_ruleset(policy: &SandboxPolicy) -> io::Result<Option<std::fs::File>> {
+    let fs_confined = filesystem_confined(policy);
+    let want_scope = policy.signal_scope == SignalScope::Own;
+    if !fs_confined && !want_scope {
         return Ok(None);
     }
     let abi = landlock_abi().map_err(|error| {
@@ -255,16 +352,38 @@ fn build_ruleset(policy: &SandboxPolicy) -> io::Result<Option<std::fs::File>> {
             format!("Landlock unavailable ({error}); refusing unsandboxed execution"),
         )
     })?;
-    let handled = supported_rights(abi);
+    let scoped = if want_scope && abi >= ABI_SCOPED {
+        SCOPE_SIGNAL
+    } else {
+        0
+    };
+    if !fs_confined && scoped == 0 {
+        // Own on an older kernel is best effort (see `signal_scope_enforced`), never an error.
+        return Ok(None);
+    }
+    // A scope-only ruleset (no filesystem part) handles no filesystem right.
+    let handled = if fs_confined {
+        supported_rights(abi)
+    } else {
+        0
+    };
     let attr = RulesetAttr {
         handled_access_fs: handled,
+        handled_access_net: 0,
+        scoped,
+    };
+    // An oversized attribute on an older kernel is E2BIG; the kernel zero-fills a shorter one.
+    let attr_size = if abi >= ABI_SCOPED {
+        std::mem::size_of::<RulesetAttr>()
+    } else {
+        std::mem::size_of::<u64>()
     };
     // SAFETY: valid attr pointer and size.
     let fd = unsafe {
         libc::syscall(
             SYS_CREATE_RULESET,
             &attr as *const RulesetAttr,
-            std::mem::size_of::<RulesetAttr>(),
+            attr_size,
             0,
         )
     };
@@ -274,18 +393,25 @@ fn build_ruleset(policy: &SandboxPolicy) -> io::Result<Option<std::fs::File>> {
     // Own the descriptor before any fallible rule installation.
     // SAFETY: `fd` is a fresh descriptor owned by no other value.
     let ruleset = unsafe { std::fs::File::from_raw_fd(fd as i32) };
+    if !fs_confined {
+        return Ok(Some(ruleset));
+    }
     let raw = ruleset.as_raw_fd();
+    let withheld = withheld_paths(policy)?;
     for p in system_roots_for(policy) {
         add_rule(raw, &p, EXEC, abi)?;
     }
+    let mut budget = 0usize;
     for p in &policy.read_paths {
-        add_rule(raw, p, READ, abi)?;
+        add_root(raw, p, READ, abi, &withheld, &mut budget)?;
     }
+    let mut budget = 0usize;
     for p in &policy.exec_paths {
-        add_rule(raw, p, EXEC, abi)?;
+        add_root(raw, p, EXEC, abi, &withheld, &mut budget)?;
     }
+    let mut budget = 0usize;
     for p in &policy.write_paths {
-        add_rule(raw, p, handled, abi)?;
+        add_root(raw, p, handled, abi, &withheld, &mut budget)?;
     }
     if policy.exec_any {
         // Execution anywhere; reading an image still needs a read grant.
@@ -335,9 +461,12 @@ impl Prepared {
                  different boundary",
             ));
         }
-        // `deny_read` is not enforceable under Landlock (allow-only): see `deny_read_enforced`.
         let ruleset = build_ruleset(policy)?;
-        check_deny_exec(policy, &system_roots_for(policy), ruleset.is_some())?;
+        check_deny_exec(
+            policy,
+            &system_roots_for(policy),
+            ruleset.is_some() && filesystem_confined(policy),
+        )?;
         if policy.network == NetworkPolicy::Deny {
             if let UnixSocketPolicy::Allow(paths) = &policy.unix_sockets {
                 if !paths.is_empty() {

@@ -16,6 +16,9 @@
 //! `SECURITY_CAPABILITIES` attribute, so this path calls `CreateProcessW` directly. The child
 //! is created suspended, assigned to a kill-on-close Job Object, and only then resumed, so it
 //! never runs (or spawns) outside the job.
+//!
+//! A pseudoconsole child is launched by `spawn_pty` / `spawn_pty_in_profile` with both attributes
+//! (`SECURITY_CAPABILITIES` and the pseudoconsole) in one `CreateProcessW`, `bInheritHandles` false.
 
 use crate::deny_read::{expand_glob, plan_deny_read_paths, GLOB_EXPANSION_LIMIT};
 use crate::windows_job::{WindowsJob, DEFAULT_ACTIVE_PROCESS_LIMIT};
@@ -31,7 +34,7 @@ pub use ancestors::{
 };
 use ancestors::{AncestorLease, PROFILE_PREFIX};
 use std::collections::{BTreeMap, HashMap};
-use std::ffi::{c_void, OsStr};
+use std::ffi::{c_void, OsStr, OsString};
 use std::io;
 use std::os::windows::ffi::OsStrExt;
 use std::os::windows::io::{AsRawHandle, FromRawHandle, IntoRawHandle, OwnedHandle, RawHandle};
@@ -48,7 +51,8 @@ use windows::Win32::System::Threading::{
     InitializeProcThreadAttributeList, ResumeThread, TerminateProcess, UpdateProcThreadAttribute,
     WaitForSingleObject, CREATE_NO_WINDOW, CREATE_SUSPENDED, CREATE_UNICODE_ENVIRONMENT,
     EXTENDED_STARTUPINFO_PRESENT, LPPROC_THREAD_ATTRIBUTE_LIST, PROCESS_INFORMATION,
-    PROC_THREAD_ATTRIBUTE_HANDLE_LIST, PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES,
+    PROC_THREAD_ATTRIBUTE_HANDLE_LIST, PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE,
+    PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES,
     STARTF_USESTDHANDLES, STARTUPINFOEXW,
 };
 
@@ -2035,6 +2039,16 @@ impl ConfinedChild {
         }
     }
 
+    /// Terminate the Job Object (or, without one, the process) without waiting. Used by the
+    /// ConPTY child's drop so descendants die before the console closes.
+    pub(crate) fn kill_tree(&self) -> io::Result<()> {
+        match &self.job {
+            Some(job) => job.terminate(),
+            // SAFETY: live process handle owned by self.
+            None => unsafe { TerminateProcess(HANDLE(self.process), 1) }.map_err(io::Error::other),
+        }
+    }
+
     /// Kill the child and, through its Job Object, every descendant.
     pub(crate) fn terminate_tree(&mut self) -> io::Result<ExitStatus> {
         if let Some(status) = self.try_wait()? {
@@ -2118,6 +2132,8 @@ struct SuspendedLaunchParams<'a> {
     named_capabilities: &'a [String],
     stdio: [RawHandle; 3],
     auxiliary: &'a [RawHandle],
+    /// The raw `HPCON` of a ConPTY the child attaches to; `None` for every non-PTY launch.
+    pseudoconsole: Option<isize>,
 }
 
 /// The policy's grants as canonical existing paths: (path, writable). Missing paths fail
@@ -3210,6 +3226,153 @@ fn spawn_inner(
     )
 }
 
+/// The grants, working directory and environment block of one launch into `prepared`: leases
+/// the image directory and (when the container wants it) the loopback exemption, resolves the
+/// confined cwd, and builds the child's environment with the computed `GIT_CEILING_DIRECTORIES`.
+/// Shared by the piped launch and the pseudoconsole launch so they cannot diverge.
+fn launch_context(
+    prepared: &PreparedContainer,
+    program: &Path,
+    command_cwd: Option<&Path>,
+    command_env: &[(String, String)],
+    env: &EnvPolicy,
+) -> Result<(Vec<(PathBuf, bool)>, PathBuf, Vec<u16>), SandboxError> {
+    let profile = &prepared.profile;
+    let grants: Vec<(PathBuf, bool)> = prepared
+        .grants
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone();
+    profile.lease_image_dir(program)?;
+    let folder = profile.folder_path()?;
+    let cwd = match command_cwd {
+        Some(requested) => confined_cwd(requested, &grants)?,
+        None => folder.clone(),
+    };
+    if prepared.network && prepared.loopback {
+        profile.lease_loopback();
+    }
+    let mut extra: Vec<(String, String)> = command_env.to_vec();
+    if let Some(ceilings) = profile.git_ceiling_value() {
+        let named = |key: &str| key.eq_ignore_ascii_case("GIT_CEILING_DIRECTORIES");
+        // The caller's own setting wins over the computed one.
+        if !extra.iter().any(|(key, _)| named(key)) && !env.set.keys().any(|key| named(key)) {
+            extra.push(("GIT_CEILING_DIRECTORIES".into(), ceilings));
+        }
+    }
+    let environment = confined_environment(&cwd, &folder, env, &extra);
+    Ok((grants, cwd, environment))
+}
+
+/// The command line of a launch: the quoted image path followed by the quoted arguments.
+fn build_command_line(program: &Path, args: &[OsString]) -> String {
+    let mut command_line = format!("\"{}\"", program.display());
+    for arg in args {
+        command_line.push(' ');
+        append_quoted_arg(&mut command_line, &arg.to_string_lossy());
+    }
+    command_line
+}
+
+/// Takes ownership of a freshly created suspended process: assigns it to a kill-on-close Job
+/// Object while it is still suspended, then resumes it. Any failure returns the error and the
+/// `ConfinedChild` drop kills the still-suspended process (fail closed).
+fn adopt_suspended(
+    profile: &ContainerProfile,
+    process: *mut c_void,
+    thread: *mut c_void,
+    pid: u32,
+) -> Result<ConfinedChild, SandboxError> {
+    let mut child = ConfinedChild {
+        job: None,
+        process,
+        thread,
+        pid,
+        _leases: profile.leases.clone(),
+    };
+    // Assigned while suspended, so no fast child can spawn descendants outside the job. Any
+    // failure before resume kills the process (ConfinedChild's drop) and fails closed.
+    let job = WindowsJob::new(Some(DEFAULT_ACTIVE_PROCESS_LIMIT))
+        .and_then(|job| job.assign_process_id(pid).map(|()| job))
+        .map_err(|e| step_error("assign confined process to its Job Object", e))?;
+    child.job = Some(job);
+    // SAFETY: primary-thread handle from CreateProcessW.
+    if unsafe { ResumeThread(HANDLE(thread)) } == u32::MAX {
+        return Err(last_error("resume confined process").into());
+    }
+    Ok(child)
+}
+
+/// Whether the launch already carries a `TERM` (in the command's own variables or `env.set`).
+fn env_has_term(command_env: &[(String, String)], env: &EnvPolicy) -> bool {
+    let named = |key: &str| key.eq_ignore_ascii_case("TERM");
+    command_env.iter().any(|(key, _)| named(key)) || env.set.keys().any(|key| named(key))
+}
+
+/// Start `command` in `prepared`'s container attached to the ConPTY `hpcon`: one `CreateProcessW`
+/// with `SECURITY_CAPABILITIES` and the pseudoconsole attribute, no inherited handles, created
+/// suspended, assigned to the kill-on-close Job Object, then resumed.
+fn launch_container_pty(
+    prepared: &PreparedContainer,
+    program: PathBuf,
+    command: &SandboxCommand,
+    env: &EnvPolicy,
+    hpcon: isize,
+) -> Result<ConfinedChild, SandboxError> {
+    let profile = &prepared.profile;
+    let mut command_env = command.env.clone();
+    if !env_has_term(&command_env, env) {
+        command_env.push(("TERM".into(), "xterm-256color".into()));
+    }
+    let (_grants, cwd, environment) = launch_context(
+        prepared,
+        &program,
+        command.cwd.as_deref(),
+        &command_env,
+        env,
+    )?;
+    let command_line = build_command_line(&program, &command.args);
+    let (process, thread, pid) = create_suspended(
+        profile,
+        SuspendedLaunchParams {
+            program: &program,
+            command_line: &command_line,
+            cwd: &cwd,
+            environment: &environment,
+            network: prepared.network,
+            named_capabilities: &prepared.named_capabilities,
+            stdio: [std::ptr::null_mut(); 3],
+            auxiliary: &[],
+            pseudoconsole: Some(hpcon),
+        },
+    )?;
+    adopt_suspended(profile, process, thread, pid)
+}
+
+/// Spawn `command` confined to `policy` and attached to the ConPTY `hpcon` (the raw `HPCON`).
+pub(crate) fn spawn_pty(
+    policy: &SandboxPolicy,
+    command: &SandboxCommand,
+    hpcon: isize,
+) -> Result<ConfinedChild, SandboxError> {
+    refuse_deny_read_policy(policy)?;
+    let program = resolve_image(&command.program)?;
+    let prepared = prepare_container(policy, ONE_SHOT_ANCESTOR_POLICY)?;
+    launch_container_pty(&prepared, program, command, &policy.env, hpcon)
+}
+
+/// Spawn `command` in `profile`'s container attached to the ConPTY `hpcon` (mirrors
+/// [`spawn_in_profile`]).
+pub(crate) fn spawn_pty_in_profile(
+    profile: &AppContainerProfile,
+    command: &SandboxCommand,
+    env: &EnvPolicy,
+    hpcon: isize,
+) -> Result<ConfinedChild, SandboxError> {
+    let program = resolve_image(&command.program)?;
+    launch_container_pty(&profile.prepared, program, command, env, hpcon)
+}
+
 /// Start `command` in `prepared`'s container: lease its image, build its cwd and environment,
 /// wire its stdio, create it suspended, put it in a kill-on-close job, then resume it.
 fn launch_container(
@@ -3222,29 +3385,13 @@ fn launch_container(
     stdin_mode: StdinMode,
 ) -> Result<ConfinedLaunch, SandboxError> {
     let profile = &prepared.profile;
-    let grants: Vec<(PathBuf, bool)> = prepared
-        .grants
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .clone();
-    profile.lease_image_dir(&program)?;
-    let folder = profile.folder_path()?;
-    let cwd = match &command.cwd {
-        Some(requested) => confined_cwd(requested, &grants)?,
-        None => folder.clone(),
-    };
-    if prepared.network && prepared.loopback {
-        profile.lease_loopback();
-    }
-    let mut extra: Vec<(String, String)> = command.env.clone();
-    if let Some(ceilings) = profile.git_ceiling_value() {
-        let named = |key: &str| key.eq_ignore_ascii_case("GIT_CEILING_DIRECTORIES");
-        // The caller's own setting wins over the computed one.
-        if !extra.iter().any(|(key, _)| named(key)) && !env.set.keys().any(|key| named(key)) {
-            extra.push(("GIT_CEILING_DIRECTORIES".into(), ceilings));
-        }
-    }
-    let environment = confined_environment(&cwd, &folder, env, &extra);
+    let (grants, cwd, environment) = launch_context(
+        prepared,
+        &program,
+        command.cwd.as_deref(),
+        &command.env,
+        env,
+    )?;
 
     let security = PipeSecurity::new(&profile.sid_text)?;
     // A piped stdin is an ACL-bound pipe whose write end the parent keeps; otherwise the child
@@ -3344,11 +3491,7 @@ fn launch_container(
     } else {
         None
     };
-    let mut command_line = format!("\"{}\"", program.display());
-    for arg in &command.args {
-        command_line.push(' ');
-        append_quoted_arg(&mut command_line, &arg.to_string_lossy());
-    }
+    let mut command_line = build_command_line(&program, &command.args);
     if let (Some(handle_flag), Some((_, child_read, _, child_write))) =
         (handle_flag, auxiliary.as_ref())
     {
@@ -3396,6 +3539,7 @@ fn launch_container(
                 named_capabilities: &prepared.named_capabilities,
                 stdio: [stdin, stdout_child, stderr_child],
                 auxiliary: &auxiliary_child_handles,
+                pseudoconsole: None,
             },
         )
     })();
@@ -3403,23 +3547,7 @@ fn launch_container(
         close_raw(handle);
     }
     let (process, thread, pid) = launched?;
-    let mut child = ConfinedChild {
-        job: None,
-        process,
-        thread,
-        pid,
-        _leases: profile.leases.clone(),
-    };
-    // Assigned while suspended, so no fast child can spawn descendants outside the job. Any
-    // failure before resume kills the process (ConfinedChild's drop) and fails closed.
-    let job = WindowsJob::new(Some(DEFAULT_ACTIVE_PROCESS_LIMIT))
-        .and_then(|job| job.assign_process_id(pid).map(|()| job))
-        .map_err(|e| step_error("assign confined process to its Job Object", e))?;
-    child.job = Some(job);
-    // SAFETY: primary-thread handle from CreateProcessW.
-    if unsafe { ResumeThread(HANDLE(thread)) } == u32::MAX {
-        return Err(last_error("resume confined process").into());
-    }
+    let child = adopt_suspended(profile, process, thread, pid)?;
     let auxiliary = auxiliary.map(|(to_child, _, from_child, _)| (to_child, from_child));
     Ok(ConfinedLaunch {
         child,
@@ -3445,6 +3573,7 @@ fn create_suspended(
         named_capabilities,
         stdio,
         auxiliary,
+        pseudoconsole,
     } = params;
     let wprogram = wide(program);
     let mut wcommand = wide(command_line);
@@ -3507,28 +3636,58 @@ fn create_suspended(
             )
         }
         .map_err(|e| io::Error::other(format!("set AppContainer attribute: {e}")))?;
-        // SAFETY: the handle array outlives CreateProcessW; only stdio and explicitly supplied
-        // auxiliary client endpoints are inherited.
-        unsafe {
-            UpdateProcThreadAttribute(
-                list,
-                0,
-                PROC_THREAD_ATTRIBUTE_HANDLE_LIST as usize,
-                Some(handles.as_ptr().cast()),
-                std::mem::size_of_val(handles.as_slice()),
-                None,
-                None,
-            )
+        if let Some(hpcon) = pseudoconsole {
+            // SAFETY: the attribute value IS the HPCON (not a pointer to it); the console
+            // outlives CreateProcessW. No handle-list attribute: a pseudoconsole child inherits
+            // nothing.
+            unsafe {
+                UpdateProcThreadAttribute(
+                    list,
+                    0,
+                    PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE as usize,
+                    Some(hpcon as usize as *const c_void),
+                    std::mem::size_of::<isize>(),
+                    None,
+                    None,
+                )
+            }
+            .map_err(|e| io::Error::other(format!("set pseudoconsole attribute: {e}")))?;
+        } else {
+            // SAFETY: the handle array outlives CreateProcessW; only stdio and explicitly supplied
+            // auxiliary client endpoints are inherited.
+            unsafe {
+                UpdateProcThreadAttribute(
+                    list,
+                    0,
+                    PROC_THREAD_ATTRIBUTE_HANDLE_LIST as usize,
+                    Some(handles.as_ptr().cast()),
+                    std::mem::size_of_val(handles.as_slice()),
+                    None,
+                    None,
+                )
+            }
+            .map_err(|e| io::Error::other(format!("set inherited handle list: {e}")))?;
         }
-        .map_err(|e| io::Error::other(format!("set inherited handle list: {e}")))?;
 
         let mut startup = STARTUPINFOEXW::default();
         startup.StartupInfo.cb = std::mem::size_of::<STARTUPINFOEXW>() as u32;
         startup.lpAttributeList = list;
-        startup.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
-        startup.StartupInfo.hStdInput = stdio_handles[0];
-        startup.StartupInfo.hStdOutput = stdio_handles[1];
-        startup.StartupInfo.hStdError = stdio_handles[2];
+        if pseudoconsole.is_none() {
+            startup.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
+            startup.StartupInfo.hStdInput = stdio_handles[0];
+            startup.StartupInfo.hStdOutput = stdio_handles[1];
+            startup.StartupInfo.hStdError = stdio_handles[2];
+        }
+        // The pseudoconsole is the console: no CREATE_NO_WINDOW, no inherited handles.
+        let creation_flags = if pseudoconsole.is_some() {
+            EXTENDED_STARTUPINFO_PRESENT | CREATE_UNICODE_ENVIRONMENT | CREATE_SUSPENDED
+        } else {
+            // Never a window: without a parent console a console child would open one.
+            EXTENDED_STARTUPINFO_PRESENT
+                | CREATE_UNICODE_ENVIRONMENT
+                | CREATE_NO_WINDOW
+                | CREATE_SUSPENDED
+        };
         let mut info = PROCESS_INFORMATION::default();
         // SAFETY: NUL-terminated, mutable command line; valid in/out structures.
         unsafe {
@@ -3537,12 +3696,8 @@ fn create_suspended(
                 Some(PWSTR(wcommand.as_mut_ptr())),
                 None,
                 None,
-                true,
-                // Never a window: without a parent console a console child would open one.
-                EXTENDED_STARTUPINFO_PRESENT
-                    | CREATE_UNICODE_ENVIRONMENT
-                    | CREATE_NO_WINDOW
-                    | CREATE_SUSPENDED,
+                pseudoconsole.is_none(),
+                creation_flags,
                 Some(environment.as_ptr().cast()),
                 PCWSTR(wcwd.as_ptr()),
                 &startup.StartupInfo,

@@ -25,13 +25,45 @@ use tokio::io::AsyncReadExt;
 /// Terminal dimensions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PtySize {
+    /// Terminal rows in cells; a value below 1 is raised to 1 when the size is handed to the
+    /// terminal.
     pub rows: u16,
+    /// Terminal columns in cells; a value below 1 is raised to 1.
     pub cols: u16,
+    /// Terminal width in pixels, 0 = unknown. On macOS and Linux it is written to the kernel
+    /// window size (ws_xpixel) so programs using sixel or terminal image protocols can query it;
+    /// Windows ConPTY has no pixel size, so the Windows side accepts and ignores it.
+    pub pixel_width: u16,
+    /// Terminal height in pixels, 0 = unknown; same rules as `pixel_width`.
+    pub pixel_height: u16,
 }
 
 impl Default for PtySize {
     fn default() -> Self {
-        Self { rows: 24, cols: 80 }
+        Self {
+            rows: 24,
+            cols: 80,
+            pixel_width: 0,
+            pixel_height: 0,
+        }
+    }
+}
+
+impl PtySize {
+    /// rows by cols cells, pixel size unknown (0).
+    pub const fn new(rows: u16, cols: u16) -> Self {
+        Self {
+            rows,
+            cols,
+            pixel_width: 0,
+            pixel_height: 0,
+        }
+    }
+    /// The same size with a pixel size (0 = unknown).
+    pub const fn with_pixels(mut self, pixel_width: u16, pixel_height: u16) -> Self {
+        self.pixel_width = pixel_width;
+        self.pixel_height = pixel_height;
+        self
     }
 }
 
@@ -151,6 +183,52 @@ fn io_other(message: &str) -> std::io::Error {
     std::io::Error::other(message.to_string())
 }
 
+/// Builds the terminal command for a PTY child: argv, size, working directory, environment and
+/// (Linux) the confinement applied just before `exec`. Shared by [`PtySession`] and
+/// [`StreamedPty`] so the two cannot diverge.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn build_pty_command(
+    program: OsString,
+    args: Vec<OsString>,
+    cwd: Option<PathBuf>,
+    env: &EnvPolicy,
+    extra_env: &[(String, String)],
+    size: PtySize,
+    confinement: Confinement,
+) -> std::io::Result<PtyCommand> {
+    let mut command = PtyCommand::from_argv(std::iter::once(program).chain(args))?;
+    command.size(to_pty_size(size));
+    if let Some(cwd) = cwd {
+        command.current_dir(cwd);
+    }
+    if !env.inherit {
+        command.owned_mut().command_mut().env_clear();
+        for key in &env.keep {
+            if let Some(value) = std::env::var_os(key) {
+                command.env(key, value);
+            }
+        }
+    }
+    for (key, value) in env.set.iter() {
+        command.env(key, value);
+    }
+    for (key, value) in extra_env {
+        command.env(key, value);
+    }
+    match confinement {
+        Confinement::None => {}
+        #[cfg(target_os = "linux")]
+        Confinement::Linux(prepared) => {
+            // SAFETY: `Prepared::apply` performs only syscalls (the same contract the
+            // non-PTY spawn path relies on), and it was prepared in the parent.
+            unsafe {
+                command.pre_exec_last(move || prepared.apply());
+            }
+        }
+    }
+    Ok(command)
+}
+
 impl PtySession {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn spawn(
@@ -168,36 +246,7 @@ impl PtySession {
             .thread_name("rightkit-sandbox-pty")
             .enable_all()
             .build()?;
-        let mut command = PtyCommand::from_argv(std::iter::once(program).chain(args))?;
-        command.size(to_pty_size(size));
-        if let Some(cwd) = cwd {
-            command.current_dir(cwd);
-        }
-        if !env.inherit {
-            command.owned_mut().command_mut().env_clear();
-            for key in &env.keep {
-                if let Some(value) = std::env::var_os(key) {
-                    command.env(key, value);
-                }
-            }
-        }
-        for (key, value) in env.set.iter() {
-            command.env(key, value);
-        }
-        for (key, value) in extra_env {
-            command.env(key, value);
-        }
-        match confinement {
-            Confinement::None => {}
-            #[cfg(target_os = "linux")]
-            Confinement::Linux(prepared) => {
-                // SAFETY: `Prepared::apply` performs only syscalls (the same contract the
-                // non-PTY spawn path relies on), and it was prepared in the parent.
-                unsafe {
-                    command.pre_exec_last(move || prepared.apply());
-                }
-            }
-        }
+        let command = build_pty_command(program, args, cwd, env, extra_env, size, confinement)?;
         // The terminal registers with the reactor of the runtime that is current at spawn.
         let mut child = {
             let _enter = rt.enter();
@@ -457,8 +506,145 @@ impl PtySession {
     }
 }
 
-fn to_pty_size(size: PtySize) -> rightkit_pty::PtySize {
+pub(crate) fn to_pty_size(size: PtySize) -> rightkit_pty::PtySize {
     rightkit_pty::PtySize::new(size.rows.max(1), size.cols.max(1))
+        .with_pixels(size.pixel_width, size.pixel_height)
+}
+
+pub(crate) fn from_pty_size(size: rightkit_pty::PtySize) -> PtySize {
+    PtySize {
+        rows: size.rows,
+        cols: size.cols,
+        pixel_width: size.pixel_width,
+        pixel_height: size.pixel_height,
+    }
+}
+
+enum StreamedInner {
+    Pty(Option<PtyChild>),
+    #[cfg(windows)]
+    Confined(crate::pty_windows::WindowsPtyChild),
+}
+
+/// A running PTY child whose terminal streams belong to the caller: no ring buffer, no private
+/// runtime, no reader task. [`StreamedPty::take_reader`] and [`StreamedPty::take_writer`] hand
+/// out the lossless async streams (the reader applies backpressure; nothing is dropped).
+///
+/// Must be created and used inside a tokio runtime. On Windows the unconfined variant is the
+/// plain rightkit-pty ConPTY and the confined one is the AppContainer + ConPTY child of
+/// `pty_windows.rs`. Dropping it kills the whole owned process tree first and then releases the
+/// resource reservation.
+pub struct StreamedPty {
+    // Field order is the drop order: the tree is killed before the slot is released.
+    inner: StreamedInner,
+    pid: u32,
+    _reservation: Reservation,
+}
+
+impl StreamedPty {
+    pub(crate) fn spawn(command: PtyCommand, reservation: Reservation) -> Result<Self, PtyError> {
+        let child = command.spawn()?;
+        let pid = child.id();
+        Ok(Self {
+            inner: StreamedInner::Pty(Some(child)),
+            pid,
+            _reservation: reservation,
+        })
+    }
+
+    #[cfg(windows)]
+    pub(crate) fn from_confined(
+        child: crate::pty_windows::WindowsPtyChild,
+        reservation: Reservation,
+    ) -> Self {
+        let pid = child.id();
+        Self {
+            inner: StreamedInner::Confined(child),
+            pid,
+            _reservation: reservation,
+        }
+    }
+
+    /// The child's process id.
+    pub fn id(&self) -> u32 {
+        self.pid
+    }
+
+    /// The lossless async reader of the terminal output, once; then `None`.
+    pub fn take_reader(&mut self) -> std::io::Result<Option<rightkit_pty::PtyReader>> {
+        match &mut self.inner {
+            StreamedInner::Pty(Some(child)) => child.take_reader(),
+            StreamedInner::Pty(None) => Err(io_other("the pty child is being stopped")),
+            #[cfg(windows)]
+            StreamedInner::Confined(child) => child.take_reader(),
+        }
+    }
+
+    /// The async writer of the terminal input, once; then `None`.
+    pub fn take_writer(&mut self) -> std::io::Result<Option<rightkit_pty::PtyWriter>> {
+        match &mut self.inner {
+            StreamedInner::Pty(Some(child)) => child.take_writer(),
+            StreamedInner::Pty(None) => Err(io_other("the pty child is being stopped")),
+            #[cfg(windows)]
+            StreamedInner::Confined(child) => child.take_writer(),
+        }
+    }
+
+    /// Resizes the terminal. Rows, cols and pixels reach the terminal; Windows ConPTY has no
+    /// pixel size and ignores them.
+    pub fn resize(&mut self, size: PtySize) -> std::io::Result<()> {
+        match &mut self.inner {
+            StreamedInner::Pty(Some(child)) => child.resize(to_pty_size(size)),
+            StreamedInner::Pty(None) => Err(io_other("the pty child is being stopped")),
+            #[cfg(windows)]
+            StreamedInner::Confined(child) => child.resize(to_pty_size(size)),
+        }
+    }
+
+    /// The exit status if the child already exited.
+    pub fn try_wait(&mut self) -> std::io::Result<Option<ExitStatus>> {
+        match &mut self.inner {
+            StreamedInner::Pty(Some(child)) => child.try_wait(),
+            StreamedInner::Pty(None) => Err(io_other("the pty child is being stopped")),
+            #[cfg(windows)]
+            StreamedInner::Confined(child) => child.try_wait(),
+        }
+    }
+
+    /// Waits for the child to exit. Cancel-safe: dropping the future leaves the child running and
+    /// waitable.
+    pub async fn wait(&mut self) -> std::io::Result<ExitStatus> {
+        match &mut self.inner {
+            StreamedInner::Pty(Some(child)) => child.wait().await,
+            StreamedInner::Pty(None) => Err(io_other("the pty child is being stopped")),
+            #[cfg(windows)]
+            StreamedInner::Confined(child) => child.wait().await,
+        }
+    }
+
+    /// Staged kill of the whole owned process tree. On Windows (confined) the Job Object is
+    /// terminated and `options.grace` is ignored.
+    pub async fn cancel(&mut self, options: TerminationOptions) -> std::io::Result<ExitStatus> {
+        match &mut self.inner {
+            StreamedInner::Pty(Some(child)) => child.cancel(options).await,
+            StreamedInner::Pty(None) => Err(io_other("the pty child is being stopped")),
+            #[cfg(windows)]
+            StreamedInner::Confined(child) => child.cancel(options).await,
+        }
+    }
+
+    /// The size the terminal holds right now, read back, not the size last requested. On macOS
+    /// and Linux rows, cols, pixel_width and pixel_height are what the kernel holds and what the
+    /// child sees. On Windows it is the last size set, with pixel_width and pixel_height always
+    /// 0 because ConPTY has no pixel size.
+    pub fn winsize(&self) -> std::io::Result<PtySize> {
+        match &self.inner {
+            StreamedInner::Pty(Some(child)) => child.winsize().map(from_pty_size),
+            StreamedInner::Pty(None) => Err(io_other("the pty child is being stopped")),
+            #[cfg(windows)]
+            StreamedInner::Confined(child) => child.winsize().map(from_pty_size),
+        }
+    }
 }
 
 impl Drop for PtySession {
