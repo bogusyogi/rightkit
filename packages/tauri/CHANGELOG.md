@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+Additive; existing exports unchanged.
+
+- Added `createRendererEventBridge({ bridgeEvent })` returning `{ listen(event, handler) }`: the renderer side of the native event bridge, a window listener on the host's `bridgeEvent` name, filtered by event name, with no Tauri import and no dynamic import. Types `RendererEvent`, `RendererEventCallback`, `RendererEventEnvelope`, `RendererEventBridge`, `RendererEventBridgeConfig`.
+- Added `mapListenRoutes({ listen, routes })`: remaps each event name through `routes` to the name the native side emits; a name with no route resolves to a no-op unlisten and is never delivered.
+- Added `handOverLegacyStorage({ storage, keys, send })`: a one-time hand-over of values a retired renderer kept in web storage. It reads the keys, does nothing when none is set, calls `send` once with the raw values, and removes the keys only after `send` resolves. Types `LegacyStorage`, `LegacyStorageHandOverConfig`.
+
 ## 0.4.3
 
 - Added `useRecoveryNotice` to `@rightkit/tauri/react` for backup notice state, dismissal & diagnostic export with host-owned presentation.

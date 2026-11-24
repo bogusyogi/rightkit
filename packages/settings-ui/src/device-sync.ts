@@ -156,3 +156,45 @@ export function useDeviceSync<B extends SyncBridgeStatus>(port: DeviceSyncPort<B
 
   return { enabled, transcriptStatus, bridgeStatus, busy, error, setError, toggle, refresh };
 }
+
+/** Words for the per-channel status lines `bridgeChannelLabels` returns. */
+export interface BridgeChannelLabels {
+  checking: string;
+  off: string;
+  /** Credential channel enabled and ready. */
+  synced: string;
+  /** Credential channel enabled but not ready, without a detail. */
+  unavailable: string;
+  /** Pro resolution reported `okStatus`. */
+  proOn: string;
+  /** Pro resolution reported `blockedStatus`. */
+  waitingOnKeychain: string;
+}
+
+/**
+ * The credential channel's and the Pro-resolution channel's own status word and tone, for the rows under the summary.
+ * `bridge` null reads as checking. The credential line is off, synced, or the native detail (else `unavailable`) as a
+ * warning. The Pro line is on for `okStatus`, waiting for `blockedStatus`, else off.
+ */
+export function bridgeChannelLabels(
+  bridge: SyncBridgeStatus | null,
+  labels: BridgeChannelLabels,
+  statuses: { okStatus?: string; blockedStatus?: string } = {},
+): { keychain: { text: string; tone: SyncTone }; proDevices: { text: string; tone: SyncTone } } {
+  const { okStatus = "ok", blockedStatus = "blocked_no_keychain" } = statuses;
+  const keychain: { text: string; tone: SyncTone } = !bridge
+    ? { text: labels.checking, tone: "muted" }
+    : !bridge.keychainSyncEnabled
+      ? { text: labels.off, tone: "muted" }
+      : bridge.keychainReady
+        ? { text: labels.synced, tone: "ok" }
+        : { text: bridge.keychainDetail || labels.unavailable, tone: "warn" };
+  const proDevices: { text: string; tone: SyncTone } = !bridge
+    ? { text: labels.checking, tone: "muted" }
+    : bridge.proResolutionStatus === okStatus
+      ? { text: labels.proOn, tone: "ok" }
+      : bridge.proResolutionStatus === blockedStatus
+        ? { text: labels.waitingOnKeychain, tone: "warn" }
+        : { text: labels.off, tone: "muted" };
+  return { keychain, proDevices };
+}

@@ -1,8 +1,10 @@
 //! Measures how often a start-time focus-continuity token survives against
 //! the live frontmost app. Read-only: no activation, input, or AX writes.
 //! Usage: focus_continuity_survival [seconds]
+//!
+//! Run (macOS only): cargo run -p rightkit-automation --features desktop-context --example focus_continuity_survival
 
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", feature = "desktop-context"))]
 fn main() {
     use std::time::{Duration, Instant};
     let seconds: u64 = std::env::args()
@@ -64,5 +66,5 @@ fn main() {
     );
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(all(target_os = "macos", feature = "desktop-context")))]
 fn main() {}

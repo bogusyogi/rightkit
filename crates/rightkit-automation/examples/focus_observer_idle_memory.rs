@@ -4,8 +4,10 @@
 //!       `macos-focus-continuity` thread and no periodic wakeups (the on-demand contract).
 //!   focus_observer_idle_memory [seconds] cover    coverage armed for the whole run: the 40 ms
 //!       observer cycle runs; a per-cycle leak shows up here as steady growth.
+//!
+//! Run (macOS only): cargo run -p rightkit-automation --features desktop-context --example focus_observer_idle_memory
 
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", feature = "desktop-context"))]
 fn main() {
     let seconds: u64 = std::env::args()
         .nth(1)
@@ -20,5 +22,5 @@ fn main() {
     std::thread::sleep(std::time::Duration::from_secs(seconds));
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(all(target_os = "macos", feature = "desktop-context")))]
 fn main() {}

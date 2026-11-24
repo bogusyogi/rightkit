@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+Additive. Moved from HeardRight; no existing export, signature or behaviour changes. New modules import only `react` (headless-safe, in `./headless`), except `bootstrapWindows`, which imports `react-dom/client` (in `./react` only).
+
+- `createFieldStore(initial?)`, `useField(store)`, `FieldStore` (`field-store.ts`): a shared string value over `useSyncExternalStore`, for a title-bar search field and the page under it.
+- `humanizeError(message, rules, { fallback })` and `createErrorHumanizer(rules, { fallback })`, `ErrorRule` (`humanize-error.ts`): a first-match rule table (substring, prefix or pattern; show the message, strip a prefix, or replace) from raw error strings to user wording. Rules and wording are inputs.
+- `useFeatureReelFrame({ count, advancing, intervalMs })`, `preloadImagesWhenIdle(urls, options?)` and `useFeatureReelPreload(urls, options?)` (`feature-reel.ts`): the frame index with its auto-advance timer, and idle-time image preloading.
+- `formatMenuBarClock(date, options?)` and `formatTaskbarClock(date, options?)`, `ClockFormatOptions` (`splash.ts`): the menu-bar and taskbar clock text of a splash mock; locale and 12/24 hour are options (default `en-US`, 12 hour).
+- `usePaletteFocusRestore({ paletteSelector?, restore?, focusPage? })` (`palette-focus-restore.ts`): returns focus to the last element focused outside the palette, or to the page heading, after the palette unmounts with focus on the body.
+- `useStartupRead`, `useWindowCustomEvent`, `useHubSetupGate`, `useThemeChoiceSave` (`hub-boot.ts`): a read-once settings load, a `CustomEvent` listener, the first-run/acceptance gate (show-window and background-work callbacks, ready dataset flag) and a theme picker's persist-then-apply handler. Reads, wording and side effects are inputs.
+- `buildCatalogView`, `useCatalogView` and `useLoadedList` (`catalog-view.ts`): searchable, categorised catalog view-model (excluded categories, featured slice, grouping in first-seen order) and a list loaded while enabled.
+- `bootstrapWindows({ views, nativeViews, hub, before, ... })`, `WindowView` (`react/bootstrap.tsx`, `./react`): picks the window kind from a query parameter, returns without mounting for native kinds, else mounts the named view or the hub, optionally in `StrictMode`.
+- `TabItem.buttonClassName` and `TabItem.dataAttributes`, and `TabStrip` props `tabId` and `tabButtonData`: a class and `data-*` attributes on the tab button, and a resolver for the button `id`. With `scrollArrows={false}` (existing) the strip draws no arrows. Defaults are unchanged.
+
 ## 0.7.6
 
 Additive. Moved from HeardRight; no existing export changes. Imports only `react` (headless-safe).

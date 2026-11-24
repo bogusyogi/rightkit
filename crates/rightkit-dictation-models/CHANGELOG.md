@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Add `local_model_status`: `LocalAsrModelStatus`, `LocalAsrLabels`, `local_asr_model_status`, `canonical_local_asr_backend`, `local_asr_subdir`, `local_asr_label` and `classify_model_source`, so a host reports installed/source/label for the local ASR models without its own matrix. Hosts pass the family labels and the replacement-pending fact. Additive.
+
 ## 0.3.2
 
 - Add host-configured `install_flow`: guarded activation, model downloads, resident cache rebuilds & boot-time retired shared-store reclaim. Keep app copy, runtime locking & settings in host adapters.

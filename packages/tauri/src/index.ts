@@ -13,6 +13,16 @@ export {
 } from './fetch.js';
 export type { NativeFetchErrorCode, NativeFetchOptions } from './fetch.js';
 export { declaredTauriEventNames, defineTauriEvents } from './events.js';
+export { createRendererEventBridge, mapListenRoutes } from './renderer-events.js';
+export type {
+  RendererEvent,
+  RendererEventBridge,
+  RendererEventBridgeConfig,
+  RendererEventCallback,
+  RendererEventEnvelope,
+} from './renderer-events.js';
+export { handOverLegacyStorage } from './legacy-storage.js';
+export type { LegacyStorage, LegacyStorageHandOverConfig } from './legacy-storage.js';
 export type {
   DefineTauriEventsConfig,
   TauriEventNames,

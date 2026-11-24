@@ -194,6 +194,36 @@ export function assertFinalLegalSnapshot(config: LegalSnapshotConfig, appRoot = 
   return manifest;
 }
 
+export interface AssertCliOptions<T> {
+  /** The process arguments, normally `process.argv`. A `--root <dir>` pair selects the app root. */
+  argv: readonly string[];
+  /** The app root used when `--root` is absent (the host computes it from its script's location). */
+  defaultRoot: string;
+  /** The app's check. It throws when the app fails; its return value is passed to `describe`. */
+  check: (root: string) => T;
+  /** The one line printed on success, for example `third-party provenance: App 1.2.3 verified`. */
+  describe: (result: T) => string;
+  /** The prefix of the failure line on stderr; the check's error message follows it after `: `. */
+  failure: string;
+}
+
+/**
+ * A small CLI runner for a host's assertion script. It parses `--root`, runs the host's check, prints the success
+ * line on stdout, or prints `<failure>: <message>` on stderr and sets `process.exitCode = 1`. It never throws.
+ * The check and its wording are the host's; this function holds only the argument and exit-code handling.
+ */
+export function runAssertCli<T>(options: AssertCliOptions<T>): void {
+  const { argv, defaultRoot, check, describe, failure } = options;
+  const rootIndex = argv.indexOf("--root");
+  const root = rootIndex >= 0 ? path.resolve(argv[rootIndex + 1] ?? "") : defaultRoot;
+  try {
+    console.log(describe(check(root)));
+  } catch (error) {
+    console.error(`${failure}: ${error instanceof Error ? error.message : String(error)}`);
+    process.exitCode = 1;
+  }
+}
+
 export interface NpmLicenseEntry { name: string; versions: string[]; paths: string[] }
 export type NpmLicenseGroups = Record<string, NpmLicenseEntry[]>;
 export interface NpmLicenseAppendixOptions {

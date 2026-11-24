@@ -95,6 +95,7 @@ pub mod regions;
 pub(crate) mod retire;
 pub mod reveal_retry;
 pub mod screenshot_notice;
+pub mod session_glue;
 pub mod session_policy;
 pub mod splash_handoff;
 pub mod synth;

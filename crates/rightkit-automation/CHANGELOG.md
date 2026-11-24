@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Add macOS focus-continuity probe examples (`editor_identity_probe`, `focus_continuity_survival`, `focus_observer_idle_memory`, `start_capture_chain`) over `desktop`, behind `desktop-context`. Examples only; no library change.
+
 ## 0.7.3 (unpublished)
 
 - Add macOS focus reads with host-supplied timing and diagnostics, reusing the existing AX identity and focused-window rules. No Accessibility attributes are written.

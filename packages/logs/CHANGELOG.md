@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+Additive; existing exports unchanged.
+
+- Added `reportRenderCrash({ logs, invoke, boundary, command? })`: builds the `onError(error, info)` handler for a render-crash boundary. It writes one content-free `render_crash` log line naming the boundary, flushes, and sends a scrubbed report (message at most 1000 characters, component stack at most 8000) through the app's crash command (default `RIGHTKIT_CRASH_WINDOW_ERROR_COMMAND`). It never throws. Types `RenderCrashReportConfig`, `RenderCrashInfo`. The host supplies its own boundary label.
+
 ## 0.1.6 — unpublished staging
 
 - Add opt-in `createDiagnosticsRecorder`: 80-entry persistent renderer history with static event allowlists, content-free projection, bounded legacy migration, dedup, lifecycle flushes, privacy toggling, & explicit persistence results.

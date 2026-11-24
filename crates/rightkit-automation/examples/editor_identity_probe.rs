@@ -1,7 +1,9 @@
 //! Compares the focus observer's editor identity with the identity of a
 //! freshly captured focus pin for the live frontmost app. Read-only.
+//!
+//! Run (macOS only): cargo run -p rightkit-automation --features desktop-context --example editor_identity_probe
 
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", feature = "desktop-context"))]
 fn main() {
     use std::time::Duration;
     rightkit_automation::desktop::start_focus_observer();
@@ -33,5 +35,5 @@ fn main() {
     }
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(all(target_os = "macos", feature = "desktop-context")))]
 fn main() {}

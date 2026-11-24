@@ -1,8 +1,10 @@
 //! Runs the production macOS start-capture chain against the live frontmost
 //! app and prints content-free gate results. Read-only: no activation, input,
 //! or AX writes beyond the observation lease the app itself takes.
+//!
+//! Run (macOS only): cargo run -p rightkit-automation --features desktop-context --example start_capture_chain
 
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", feature = "desktop-context"))]
 fn main() {
     use std::time::Duration;
     rightkit_automation::desktop::start_focus_observer();
@@ -64,5 +66,5 @@ fn main() {
     }
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(all(target_os = "macos", feature = "desktop-context")))]
 fn main() {}
