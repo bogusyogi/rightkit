@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.62
+
+- The scan-result cache has one fixed place per repository, the folder `rightkit-gate-cache` in the repository's git folder. The gate no longer reads `RK_GATE_CACHE_DIR`.
+- A cache the gate cannot use (one with no history, or with a history from before compile results were recorded) is set aside under a dated name beside it and restarted empty in the same place by the gate itself, with one line saying so. It was a refusal that told the caller to choose another folder.
+- `RK_GATE_LEGACY_ROWS` and `RK_GATE_SERVE=0` are removed: compiles are always combined, and the resident gate process cannot be switched off.
+
 ## 0.6.61
 
 - Export a configurable forbidden-literal file scanner through the release SDK.

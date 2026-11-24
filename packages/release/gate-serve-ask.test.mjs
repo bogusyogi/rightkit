@@ -51,6 +51,4 @@ test("no server, a server that never answers and one that answers nonsense are a
   try { const t0 = Date.now(); const r = askInProcess({ op: "status" }, 400, { sock: silent.sock }); assert.deepEqual(r, { ok: false, why: "timeout" }); assert.ok(Date.now() - t0 < 2500, "it does not wait past its time"); } finally { silent.stop(); }
   const garbage = await start("garbage");
   try { assert.deepEqual(askInProcess({ op: "status" }, 2000, { sock: garbage.sock }), { ok: false, why: "bad reply" }); assert.equal(serveRequest({ op: "status" }, { env: {}, sock: garbage.sock }), null); } finally { garbage.stop(); }
-  // Switched off, nothing is asked.
-  assert.equal(serveRequest({ op: "status" }, { env: { RK_GATE_SERVE: "0" }, sock: missing }), null);
 });

@@ -74,6 +74,8 @@
 import fs from "node:fs";
 import { createHash, randomUUID } from "node:crypto";
 import { openClassAHistory, openClassBHistory } from "../class-a-cache-history.mjs";
+/** One line, once, when the gate set an unusable cache aside and started an empty one in the same place (class-a-cache-history.mjs). */
+const cacheRestartNote = (o) => ({ store, reason, storeAside }) => (o.out ?? console.log)(`rightkit-gate: cache restarted: ${store} could not be used (${reason}); ${storeAside ? `the old one is kept at ${storeAside}` : "there was no old store to keep"}; every row is checked once more and stored here`);
 import { writeFileAtomic } from "../atomic-write.mjs";
 import { envNamed, gateRunsRoot, resolveManagedRoots } from "../managed-roots.mjs";
 import { resolveBrokerClient, spawnBrokerClient } from "../broker-client.mjs";
@@ -3451,12 +3453,12 @@ async function runUnionSnapshot({ o, io, root, git, ds, union, unitListClassA })
   if (!await openSnapshotStage({ o, ds, root, stage: "compile", tag })) return 1;
   let code = 1;
   // Crates build together (docs/design/2026-11-10-gate-fresh-design.md; Adrian, 2026-11-04: "RK has to build all it's necessary crates together"): a list of crates on a
-  // broker host is compiled by gate/compile.mjs as a few Cargo calls naming every crate, each crate with its own result. RK_GATE_LEGACY_ROWS=1 keeps the per-crate rows
-  // until the proof runs pass on both hosts; the legacy branch and that switch are then deleted together.
+  // broker host is compiled by gate/compile.mjs as a few Cargo calls naming every crate, each crate with its own result. No switch selects the per-crate rows
+  // (the RK_GATE_LEGACY_ROWS switch was removed 2026-11-24, rightkit#1514: compiles are combined, GC-A27 NN09).
   let together = null;
   try {
     const ex = (o.resolveExecutor ?? gateResolveExecutor)({ env: o.env, platform: o.platform, exists: o.exists, which: whichIn(o), readFile: o.readFile });
-    if (o.env.RK_GATE_LEGACY_ROWS !== "1" && ex?.kind === "broker" && union.selected.every((row) => row.selector.startsWith("cargo:"))) together = { client: brokerClientOf(o, ex) };
+    if (ex?.kind === "broker" && union.selected.every((row) => row.selector.startsWith("cargo:"))) together = { client: brokerClientOf(o, ex) };
   } catch { together = null; }
   if (together) {
     try {
@@ -4330,8 +4332,9 @@ export async function main(argv, io = {}) {
         // (snapshot.mjs repositoryOf -> snapshot-git.mjs sealedRepoInfo, cached per canonical path in this process), so the
         // common dir is read from that cache, never asked again. An injected spawn (tests) is asked as before.
         const commonDir = o.spawn === defaultSpawn ? sealedRepoInfo(snapshotCheckout).commonDir : (() => { const common = o.spawn("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], { cwd: snapshotCheckout }); if (failed(common) || !text(common).trim()) throw new Error("cannot identify Class A cache location"); return text(common).trim(); })();
-        const storeDir = o.env.RK_GATE_CACHE_DIR || path.join(commonDir, "rightkit-gate-cache");
-        history = openClassAHistory({ historyRoot: path.join(gateRunsRoot({ env: o.env, platform: o.platform }), "rightkit-class-a-history"), storeDir });
+        // The store has one fixed place per repository; no caller moves it (Adrian, 2026-11-24, rightkit#1514).
+        const storeDir = path.join(commonDir, "rightkit-gate-cache");
+        history = openClassAHistory({ historyRoot: path.join(gateRunsRoot({ env: o.env, platform: o.platform }), "rightkit-class-a-history"), storeDir, onRestart: cacheRestartNote(o) });
       } catch (error) { o.err(`rightkit-gate: BLOCKED: ${error.message}`); return 1; }
     }
     const ruleCache = snapshotDir && snapshotCommit && !args.includes("--worktree") && !o.appCheck ? ruleVerdictCache({ checkout: snapshotCheckout, spawn: o.spawn }) : null;
@@ -5381,9 +5384,9 @@ export async function main(argv, io = {}) {
         const { files, ids, digestOf } = live;
         const under = (dir) => (dir === "." || dir === "" ? files : files.filter((f) => f === dir || f.startsWith(`${dir}/`)));
         const objectId = (p) => (ids.has(p) ? ids.get(p) : under(p).length ? digestOf(under(p)) : null);
-        const storeDir = o.env.RK_GATE_CACHE_DIR ? path.resolve(o.env.RK_GATE_CACHE_DIR) : path.join(path.resolve(root, text(common).trim()), "rightkit-gate-cache");
+        const storeDir = path.join(path.resolve(root, text(common).trim()), "rightkit-gate-cache");
         // Nov-18 cache rule applies to every bound full-A form (snapshot, hosted, live), not only guarded snapshot discovery.
-        classAHistory = o[CLASS_A_HISTORY] ?? openClassAHistory({ historyRoot: path.join(gateRunsRoot({ env: o.env, platform: o.platform }), "rightkit-class-a-history"), storeDir });
+        classAHistory = o[CLASS_A_HISTORY] ?? openClassAHistory({ historyRoot: path.join(gateRunsRoot({ env: o.env, platform: o.platform }), "rightkit-class-a-history"), storeDir, onRestart: cacheRestartNote(o) });
         const store = fileScanCache(storeDir);
         const listFiles = (dir) => under(dir);
         const readBlob = (p) => fs.readFileSync(path.join(liveBase, p), "utf8");
@@ -5433,10 +5436,10 @@ export async function main(argv, io = {}) {
             const line = text(r).split(/\r?\n/).find(Boolean);
             return line ? (line.split("\t")[0].split(/\s+/)[2] ?? null) : null;
           };
-          const storeDir = o.env.RK_GATE_CACHE_DIR ? path.resolve(o.env.RK_GATE_CACHE_DIR) : path.join(path.resolve(root, text(common).trim()), "rightkit-gate-cache");
-          if (needsForecast) classBHistory = openClassBHistory({ historyRoot: path.join(gateRunsRoot({ env: o.env, platform: o.platform }), "rightkit-class-a-history"), storeDir });
+          const storeDir = path.join(path.resolve(root, text(common).trim()), "rightkit-gate-cache");
+          if (needsForecast) classBHistory = openClassBHistory({ historyRoot: path.join(gateRunsRoot({ env: o.env, platform: o.platform }), "rightkit-class-a-history"), storeDir, onRestart: cacheRestartNote(o) });
           // Mixed A+B in one invocation needs its Class A history too; boundFullA opened it above when that block ran.
-          if (needsForecast && !classAHistory && !(snapshotB && o.classAEarlier === true)) classAHistory = o[CLASS_A_HISTORY] ?? openClassAHistory({ historyRoot: path.join(gateRunsRoot({ env: o.env, platform: o.platform }), "rightkit-class-a-history"), storeDir });
+          if (needsForecast && !classAHistory && !(snapshotB && o.classAEarlier === true)) classAHistory = o[CLASS_A_HISTORY] ?? openClassAHistory({ historyRoot: path.join(gateRunsRoot({ env: o.env, platform: o.platform }), "rightkit-class-a-history"), storeDir, onRestart: cacheRestartNote(o) });
           const store = fileScanCache(storeDir);
           const listFiles = (dir) => {
             const r = git("ls-tree", "-r", "--name-only", "-z", headSha, "--", dir);

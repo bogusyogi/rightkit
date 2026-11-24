@@ -13,7 +13,7 @@
 //   proven", and the caller does the full verify. The server never says "clean" on a guess.
 // - Only plain verifies (no stage-output ledger) use it.
 //
-// Lifecycle: started detached by the first client that finds no server (RK_GATE_SERVE=0 disables it); one server per host and data root;
+// Lifecycle: started detached by the first client that finds no server (no switch disables it: RK_GATE_SERVE was removed 2026-11-24, rightkit#1514); one server per host and data root;
 // exits after RK_GATE_SERVE_IDLE_MS (default 30 min) without a request, or when a client runs different gate code. No system service is
 // installed. Commands: `node gate-serve.mjs serve`, `node gate-serve.mjs status`, and the internal client ops below.
 import crypto from "node:crypto";
@@ -311,7 +311,6 @@ export function askInProcess(req, timeoutMs, { sock = socketPath() } = {}) {
 
 /** One synchronous request to the resident server; null when it is disabled, unreachable or did not answer. Starts it when absent. */
 export function serveRequest(req, { env = process.env, root = null, timeoutMs = 3000, sock = socketPath(env) } = {}) {
-  if (env.RK_GATE_SERVE === "0") return null;
   let res = null;
   try { res = askInProcess(req, timeoutMs, { sock }); }
   catch {

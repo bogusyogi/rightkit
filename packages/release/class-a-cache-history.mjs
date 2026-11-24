@@ -18,7 +18,18 @@ export function openClassBHistory(options) {
   return openHistory(options, "B");
 }
 
-function openHistory({ historyRoot, storeDir }, stage) {
+// A store this gate cannot use (one with no history, or with a history from before Class B was recorded) is set aside under a dated name
+// beside it, and an empty store and history are started in the same fixed place. The gate does this itself and reports it once through
+// `onRestart`; no caller chooses another folder (Adrian, 2026-11-24, rightkit#1514). The Cargo build output is elsewhere and is not touched.
+const stamp = () => new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d+Z$/, "Z");
+function setAside(target) {
+  let to = target + ".set-aside-" + stamp();
+  for (let i = 1; fs.existsSync(to); i += 1) to = target + ".set-aside-" + stamp() + "-" + i;
+  fs.renameSync(target, to);
+  return to;
+}
+
+function openHistory({ historyRoot, storeDir, onRestart = null }, stage) {
   const label = "Class " + stage;
   const store = path.resolve(storeDir);
   const relative = path.relative(store, path.resolve(historyRoot));
@@ -42,8 +53,28 @@ function openHistory({ historyRoot, storeDir }, stage) {
     if (stage === "B" && document.schema === 1) throw new Error("Class B cache history missing at " + file + " for legacy store " + store + ". Restore verified independent Class B history or select a new store for a declared cold run.");
     return new Map(document.schema === 1 ? document.rows : document.stages[stage]);
   };
+  const restart = (reason) => {
+    // The old store goes first: if it cannot be moved (a file in it is held open), nothing has changed and the run stops with the reason.
+    let storeAside = null; let historyAside = null;
+    try {
+      if (fs.existsSync(store)) storeAside = setAside(store);
+      if (fs.existsSync(file)) historyAside = setAside(file);
+      fs.mkdirSync(store, { recursive: true });
+    } catch (cause) {
+      throw new Error(label + " cache at " + store + " cannot be used (" + reason + ") and could not be set aside: " + (cause.code ?? cause.message));
+    }
+    save({ schema: 2, namespace, stages: { A: [], B: [] } });
+    if (typeof onRestart === "function") onRestart({ store, reason, storeAside, historyAside });
+    return new Map();
+  };
   let baseline;
-  try { baseline = rowsFor(read()); } catch (error) {
+  try {
+    const document = read();
+    if (stage === "B" && document.schema === 1) {
+      const lock = acquireFileLock(file + ".lock", label + " cache history");
+      try { const again = read(); baseline = again.schema === 1 ? restart("its history was written before compile results were recorded") : rowsFor(again); } finally { lock.release(); }
+    } else baseline = rowsFor(document);
+  } catch (error) {
     if (error.code !== "ENOENT") throw error;
     const lock = acquireFileLock(file + ".lock", label + " cache history");
     try {
@@ -52,14 +83,18 @@ function openHistory({ historyRoot, storeDir }, stage) {
         fs.mkdirSync(path.dirname(store), { recursive: true });
         // Exclusive creation establishes a first-use store. An already existing
         // cache without independent evidence must never silently forecast all misses.
+        let existing = false;
         try { fs.mkdirSync(store); } catch (cause) {
           if (cause.code !== "EEXIST") throw cause;
-          throw new Error(label + " cache history missing at " + file + " for existing store " + store + ". Restore its verified history or select a new store for a declared cold run.");
+          existing = true;
         }
-        baseline = new Map();
-        // Both classes acquire their independent first-use evidence in one
-        // atomic write, before either class may populate the physical store.
-        save({ schema: 2, namespace, stages: { A: [], B: [] } });
+        if (existing) baseline = restart("it has no history");
+        else {
+          baseline = new Map();
+          // Both classes acquire their independent first-use evidence in one
+          // atomic write, before either class may populate the physical store.
+          save({ schema: 2, namespace, stages: { A: [], B: [] } });
+        }
       }
     } finally { lock.release(); }
   }

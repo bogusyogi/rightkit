@@ -265,7 +265,6 @@ export function treeProvenByChanges({ reply, dir, tree, entries, objectFormat })
  * hash of this run.
  */
 export function beginResidentProof(dir, { env = process.env, ask = serveRequest, waitMs = 8000 } = {}) {
-  if (env.RK_GATE_SERVE === "0") return null;
   const root = path.dirname(path.resolve(dir));
   // Only the first question may start the process (each start is a launcher of its own on Windows); the ones after it only ask.
   let r = noteChangeSource(ask({ op: "begin", dir }, { env, root }));
