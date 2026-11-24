@@ -2025,7 +2025,7 @@
       "pkId": "PK11",
       "id": "ci/consumers/rightkit-logs/src/main.rs",
       "files": {
-        "Cargo.toml": "c3d5f1db45753eb9671978163f17456b988b46f52976022b3d241c8746449b9d",
+        "Cargo.toml": "8a35fe88c7ed1fdc973a1d90d147aca4263bdd7787252264092bc817a9090967",
         "src/main.rs": "bbac287ca17bee758b8cc66758030c17830f57919613591c3c06c3d2da9eb316"
       }
     },

@@ -14,6 +14,7 @@ mod known;
 mod log_bridge;
 mod outbox;
 mod privacy_scan;
+mod recent;
 mod redact;
 mod rotate;
 pub mod scrub;
@@ -49,6 +50,7 @@ pub use outbox::{EnqueueError, Outbox, OutboxConfig, OutboxEvent, OutboxHealth, 
 pub use privacy_scan::{
     scan_privacy, scan_store_privacy, PrivacyFinding, PrivacyKind, PrivacyReport,
 };
+pub use recent::RecentJsonl;
 pub use redact::RedactionPolicy;
 pub use rotate::{rotated_generation_path, RotatedNaming};
 #[cfg(feature = "token-hash")]

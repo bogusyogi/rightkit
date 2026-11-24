@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.4
+
+- Added `RecentJsonl::new(records, max_bytes)` with `read(path)` and `append(path, &Value)`: a count-bounded private JSONL history that keeps raw lines (malformed JSON counts toward retention, invalid UTF-8 is read lossily), reads only the tail of a legacy file over its byte limit, appends under the per-log sidecar lock and replaces a full or oversized log atomically, keeping the newest consecutive lines within both limits. Reading never rewrites the file or creates the lock. The rotation lock helper is shared with `JsonlStore`.
+
 ## 0.4.3
 
 - Added `rotated_generation_path(path, n)` for `app.log.N` paths with original filename encoding & `PlatformIdentity::diagnostics_json()` for captured platform metadata. Existing collection, redaction & snapshot behavior stays unchanged.

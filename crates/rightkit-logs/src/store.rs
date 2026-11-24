@@ -321,7 +321,7 @@ impl JsonlStore {
         // One cross-process lock covers the size check, rotation, open and append, so another
         // process cannot rotate and evict this file between our open and our write.
         let lock = if self.cross_process_lock {
-            match self.acquire_rotation_lock() {
+            match acquire_rotation_lock(&self.path) {
                 Ok(Some(lock)) => Some(lock),
                 Ok(None) if self.require_process_lock => {
                     return Err(io::Error::new(
@@ -397,28 +397,28 @@ impl JsonlStore {
             )
         }
     }
+}
 
-    /// Exclusive lock on the sidecar lock file, held until the returned `File` is dropped. `None`
-    /// when another holder kept it past [`ROTATION_LOCK_WAIT`].
-    fn acquire_rotation_lock(&self) -> io::Result<Option<File>> {
-        let lock = OpenOptions::new()
-            .create(true)
-            .write(true)
-            .truncate(false)
-            .open(rotation_lock_path(&self.path))?;
-        let deadline = Instant::now() + ROTATION_LOCK_WAIT;
-        loop {
-            let outcome = lock.try_lock();
-            match outcome {
-                Ok(()) => return Ok(Some(lock)),
-                Err(TryLockError::WouldBlock) => {
-                    if Instant::now() >= deadline {
-                        return Ok(None);
-                    }
-                    std::thread::sleep(ROTATION_LOCK_POLL);
+/// Exclusive lock on the sidecar lock file, held until the returned `File` is dropped. `None`
+/// when another holder kept it past [`ROTATION_LOCK_WAIT`].
+pub(crate) fn acquire_rotation_lock(path: &Path) -> io::Result<Option<File>> {
+    let lock = OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(false)
+        .open(rotation_lock_path(path))?;
+    let deadline = Instant::now() + ROTATION_LOCK_WAIT;
+    loop {
+        let outcome = lock.try_lock();
+        match outcome {
+            Ok(()) => return Ok(Some(lock)),
+            Err(TryLockError::WouldBlock) => {
+                if Instant::now() >= deadline {
+                    return Ok(None);
                 }
-                Err(TryLockError::Error(error)) => return Err(error),
+                std::thread::sleep(ROTATION_LOCK_POLL);
             }
+            Err(TryLockError::Error(error)) => return Err(error),
         }
     }
 }

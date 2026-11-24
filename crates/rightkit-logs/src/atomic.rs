@@ -15,7 +15,7 @@ pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
     atomic_write_with(path, options, |file| file.write_all(bytes)).map_err(into_io)
 }
 
-fn into_io(error: FsError) -> io::Error {
+pub(crate) fn into_io(error: FsError) -> io::Error {
     match error {
         FsError::Io { source, .. } => source,
         other => io::Error::other(other.to_string()),
