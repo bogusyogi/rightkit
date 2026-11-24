@@ -1784,8 +1784,12 @@
       "surface": [
         ".",
         "./activityLease",
+        "./activityTimeline",
         "./api",
+        "./chartGeometry",
         "./components/Chart",
+        "./duplicateReview",
+        "./healthReadings",
         "./host",
         "./metrics",
         "./package.json",
@@ -1800,13 +1804,13 @@
           "react": "19.3.1",
           "react-dom": "19.3.1",
           "lucide-react": "1.66.0",
-          "@rightkit/app-update": "0.4.4",
-          "@rightkit/license": "0.3.2",
+          "@rightkit/app-update": "0.4.5",
+          "@rightkit/license": "0.3.4",
           "@rightkit/logs": "0.1.6",
-          "@rightkit/platform-ui": "0.4.1",
-          "@rightkit/react-shell": "0.7.4",
-          "@rightkit/settings-ui": "0.7.2",
-          "@rightkit/theme": "0.3.3"
+          "@rightkit/platform-ui": "0.4.3",
+          "@rightkit/react-shell": "0.7.6",
+          "@rightkit/settings-ui": "0.7.5",
+          "@rightkit/theme": "0.3.4"
         },
         "declaredOnly": [
           "@tauri-apps/api"
@@ -1814,8 +1818,8 @@
       },
       "files": {
         "ci/consumers/npm/system-ui/README.md": "a20081a2b3c56f2875de517424504758f008f9bd4c1b73d4c3afbb558fd84a3b",
-        "ci/consumers/npm/system-ui/consumer.mjs": "4d9fa42a24ee99264af544c1fcbb70ce2d1c904bc3e8b688449e5f87525e5c8d",
-        "ci/consumers/npm/system-ui/package.json": "9a5ef9a0b5f8d0b7ff62c0c494d68af9a6a009bbb9e11faa067600d5dfe14b17",
+        "ci/consumers/npm/system-ui/consumer.mjs": "8c80088ab184c5bd729f8d1ecb7f95b3dfd731362883e8696b68ffcfea9bf73c",
+        "ci/consumers/npm/system-ui/package.json": "a84d6423d6764dcf2522ae82e53f254e299e1fcf79ebfd9b4e4bc4016e2cee46",
         "ci/consumers/npm/system-ui/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "a0e235cbb1540000a57f1af3b603e5f81c6c14322ad481bf189c497d8358e98f"
       }
