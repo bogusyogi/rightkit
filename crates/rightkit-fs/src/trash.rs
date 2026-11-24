@@ -110,8 +110,7 @@ fn unavailable() -> FsError {
 
 /// Send `path` to the trash and return its identity. `path` must exist (a symlink is trashed itself,
 /// never its target), be absolute or is made absolute against the current directory, and must not
-/// hold a NUL byte. The item leaves `path`; on error it is where it was. On Windows this always
-/// returns [`FsError::Unavailable`] without touching the item (see the module docs).
+/// hold a NUL byte. The item leaves `path`; on error it is where it was. On Windows only a path on a fixed, drive-lettered drive is moved, through `IFileOperation` with `FOFX_RECYCLEONDELETE`, and the call fails with [`FsError::Unavailable`] before the item is touched for a UNC, network or removable path; on Linux the freedesktop.org trash is used; on other targets (Android, iOS) it returns [`FsError::Unavailable`]. This is the OS trash only: it keeps no workspace-local copy and writes no receipt beyond the returned [`TrashIdentity`].
 pub fn move_to_trash(path: &Path) -> Result<TrashIdentity> {
     if path.as_os_str().as_encoded_bytes().contains(&0) {
         return Err(FsError::BadName(path.display().to_string()));

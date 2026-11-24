@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.1
+
+- Documentation only: README and the move_to_trash doc comment now describe the Windows and Linux trash and copy_tree_confined, and why no workspace-local trash with receipts is offered.
+
 ## 0.5.0 (unpublished)
 
 - Directory ACL caching now requires a held `private_cached::PrivateDirCacheLease`. Without a lease, helpers perform the owner-only checks on each call. Dropping the last lease releases cached directory identities after in-flight calls return.
