@@ -3,6 +3,10 @@
 All notable changes to `rightkit-tts`. Versions follow Cargo semver; while the
 version is `0.x`, a minor bump may carry breaking changes.
 
+## 0.3.2
+
+- New `speech_out` module (VO-4, `docs/contracts/voice.md` in the Pulse repository): `Speaker` says text sentence by sentence, queueing each sentence to the sink as soon as it is made, so the first is audible while the rest is still synthesised. Each `speak` returns an `UtteranceId`; `stop(id)` ends that utterance at once (synthesis interrupted, queued audio flushed) and `stop_all` is the barge-in, returning after the flush. `SpeechEvent::FirstAudio` reports time to first audio. `SpeechSynth` and `SpeechSink` are traits; adapters `QtsSynth` (feature `client`), `SystemSynth` (feature `system`) and `OutputSink` (new feature `playback`, rightkit-audio output; it also feeds the echo reference). One new thread per `Speaker`, declared in the resources table. Additive. Time to first audio and the choice of voice are not measured.
+
 ## 0.3.1 (2026-11-16)
 
 - Added (feature `engine`) `worker::worker_main(args) -> !` and `worker::worker_main_with(args, model_dir_env) -> !`: the whole worker `main` (parse the arguments, resolve the model folder, vocoder and backend, run the engine loop; a bad argument or an unresolvable model folder exits 64). The crate's own `rightkit-tts-worker` binary is now `worker_main(std::env::args().skip(1))` and behaves as before; a host that ships the worker under its own name calls the same function from its `main`, after any start-up of its own. `worker_main_with` names the host's own variable in the "cannot resolve the model folder" message; which variables are read is unchanged.

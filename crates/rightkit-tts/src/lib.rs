@@ -6,8 +6,11 @@
 //! - `client`: QTS worker client (spawn, chunking, model manifest verification).
 //! - `engine`: the vendored Qwen3-TTS worker (`worker`, binary `rightkit-tts-worker`); implies `client`.
 //!
-//! `wav` and the sample-rate constants are always available.
+//! - `playback`: a cpal output sink for `speech_out` (also feeds the echo reference).
+//!
+//! `wav`, `speech_out` and the sample-rate constants are always available.
 
+pub mod speech_out;
 pub mod wav;
 
 #[cfg(feature = "client")]

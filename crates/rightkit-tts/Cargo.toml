@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-tts"
-version = "0.3.1"
+version = "0.3.2"
 edition = "2021"
 rust-version = "1.98.0"
 publish = true
@@ -26,6 +26,8 @@ default = ["system", "client"]
 system = ["dep:rightkit-transcript", "dep:thiserror"]
 client = ["dep:rightkit-onnx", "dep:rightkit-child-process", "dep:rightkit-fs", "dep:serde", "dep:serde_json"]
 engine = ["client", "dep:qts", "dep:libc"]
+# `playback` = a cpal output sink for `speech_out::Speaker` (rightkit-audio output, echo reference).
+playback = ["dep:rightkit-audio"]
 metal = ["engine", "qts/metal"]
 vulkan = ["engine", "qts/vulkan"]
 
@@ -37,6 +39,7 @@ rightkit-fs = { version = "0.5.0", path = "../rightkit-fs", default-features = f
 rightkit-onnx = { version = "0.3.0", path = "../rightkit-onnx", default-features = false, optional = true }
 rightkit-child-process = { version = "0.5.7", path = "../rightkit-child-process", optional = true }
 rightkit-transcript = { version = "0.4.0", path = "../rightkit-transcript", optional = true }
+rightkit-audio = { version = "0.4.2", path = "../rightkit-audio", default-features = false, features = ["playback"], optional = true }
 qts = { package = "rightkit-tts-qwen", version = "0.3.0", path = "../rightkit-tts-qwen", optional = true }
 
 [target.'cfg(unix)'.dependencies]
@@ -72,6 +75,13 @@ holds = ["child", "thread", "memory"]
 scale = "at most one warm worker process (the loaded TTS model: GPU or RAM sized by the model files) with its stdin, a reply channel and one stdout reader thread; the client sleeps only inside one synthesis call while polling for a reply"
 release = "QtsClient Drop or the shutdown function; the worker also exits itself after its idle timeout"
 static_note = "WORKER is one OnceLock<Mutex<Option<Worker>>> slot holding at most one warm worker handle; CANCEL and REQ_ID are atomics; none is a collection and none grows"
+
+[[package.metadata.rightkit.resources]]
+api = "Speaker::start"
+file = "src/speech_out.rs"
+holds = ["thread", "memory"]
+scale = "one speaking thread per Speaker with its job channel; at most one utterance is synthesised and queued at a time, and the sink bounds the audio queued"
+release = "Drop of the Speaker closes the job channel and the thread returns"
 
 [[package.metadata.rightkit.resources]]
 api = "run"
