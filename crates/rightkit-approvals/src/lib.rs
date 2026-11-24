@@ -12,6 +12,10 @@
 //! * **Binding** (the reference rule): an approval is always bound to a digest of the exact
 //!   arguments, the destination, the expiry and the revision ([`Binding`], [`bind_of`]). At use
 //!   the act about to run must present the same binding ([`Binding::check`]).
+//! * **Execution re-check** ([`authority::recheck`], [`authority::begin`]): immediately before the
+//!   effect runs, the approval is still approved, unexpired and unrevoked, its binding matches the
+//!   exact effect (a changed draft voids it), and the host's [`Authority`] re-verifies the signature
+//!   and that the approver is the owner (an owner-paired device, never a guest).
 //! * **Decision** ([`rules::decide`]): only a pending, unexpired request is decided; a decision
 //!   carries the display digest of what the decider was shown ([`Request::display_digest`]) and,
 //!   where the decision crosses a process boundary, a [`Proof`]. The move is one
@@ -35,6 +39,7 @@
 //! domain tag, kinds and scopes are the app's words.
 
 mod audit;
+pub mod authority;
 mod digest;
 mod error;
 #[cfg(feature = "file")]
@@ -46,7 +51,8 @@ pub mod rules;
 mod store;
 
 pub use audit::{Audit, Audited};
-pub use digest::{bind_of, new_id, sha256_hex};
+pub use authority::{Approver, Authority, Rechecked};
+pub use digest::{args_digest, bind_of, canonical_json, new_id, sha256_hex};
 pub use error::{Error, Refusal, Result};
 #[cfg(feature = "file")]
 pub use file::FileStore;

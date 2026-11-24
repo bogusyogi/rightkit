@@ -27,6 +27,7 @@ pub mod denial_tracking;
 pub mod deny_globs;
 pub mod destructive;
 pub mod engine;
+pub mod hard_to_undo;
 pub mod net_guard;
 pub mod owning_process;
 pub mod pdp;
@@ -57,6 +58,10 @@ pub use deny_globs::{
 };
 pub use destructive::catastrophic_reason;
 pub use engine::{is_test_file, PermissionEngine};
+pub use hard_to_undo::{
+    classify_step, refuse_if_never, HardToUndo, NeverClass, OwnerLimits, PurchaseFacts, StepClass,
+    StepFacts,
+};
 pub use net_guard::{
     is_private_ip, resolve_provider_endpoint, resolve_then_reject_private,
     resolve_then_reject_private_allow_loopback, NetGuardError,

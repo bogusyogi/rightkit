@@ -533,6 +533,132 @@ impl rightkit_approvals::Proof for SignedApproval<'_> {
     }
 }
 
+/// A signed approval decision as kept for the re-check at execution: the signature and everything
+/// it commits to that the engine does not already hold in the record. Keep it beside the record
+/// (the decision's own moment is the only time the signature is taken live) and hand it to
+/// [`OwnerKeyAuthority`] when the effect is about to run.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DecisionEvidence {
+    pub key_id: String,
+    pub nonce: String,
+    pub issued: u64,
+    pub expires: u64,
+    /// The display digest the owner's device was shown and signed (`SignedApproval::digest`).
+    pub digest: String,
+    signature: Vec<u8>,
+}
+
+impl DecisionEvidence {
+    /// The evidence of a decision just taken: the signature as received and the display digest it
+    /// was verified against.
+    pub fn of(signed: &Signed, digest: &str) -> DecisionEvidence {
+        DecisionEvidence {
+            key_id: signed.key_id.clone(),
+            nonce: signed.nonce.clone(),
+            issued: signed.issued,
+            expires: signed.expires,
+            digest: digest.to_string(),
+            signature: signed.signature.clone(),
+        }
+    }
+
+    /// `{keyId, nonce, issued, expires, signature, digest}`, the form [`Self::from_value`] reads.
+    pub fn to_value(&self) -> Value {
+        json!({
+            "keyId": self.key_id,
+            "nonce": self.nonce,
+            "issued": self.issued,
+            "expires": self.expires,
+            "signature": hex(&self.signature),
+            "digest": self.digest,
+        })
+    }
+
+    pub fn from_value(value: &Value) -> Result<DecisionEvidence> {
+        let signed = Signed::from_value(value)?;
+        let digest = value["digest"].as_str().ok_or_else(|| {
+            Refusal::new(
+                "approval_signature_invalid",
+                "the kept approval evidence is malformed",
+            )
+        })?;
+        Ok(DecisionEvidence::of(&signed, digest))
+    }
+}
+
+/// The owner-key side of the re-check at execution
+/// ([`rightkit_approvals::authority::Authority`]): re-verifies the kept signature against the
+/// approver keys enrolled **now** and names the key as an owner key. A key that was revoked since
+/// the decision, a development key, a registry that is not proven, a record whose display digest is
+/// not the one that was signed, or a signature that does not cover this record all refuse. The
+/// signature window and the nonce are not checked again (the nonce was spent at the decision and
+/// the window only limits how long a decision may take); the approval's own expiry is the core's.
+pub struct OwnerKeyAuthority<'a> {
+    pub evidence: &'a DecisionEvidence,
+    /// The app's display-digest domain tag, the one given to the decision rule.
+    pub domain: &'a str,
+}
+
+impl rightkit_approvals::authority::Authority for OwnerKeyAuthority<'_> {
+    fn approver(
+        &self,
+        record: &rightkit_approvals::Record,
+    ) -> Result<rightkit_approvals::authority::Approver> {
+        let request = &record.request;
+        let evidence = self.evidence;
+        if request.display_digest(self.domain) != evidence.digest {
+            return Err(invalid());
+        }
+        let keys = proven_keys()?;
+        let Some(key) = keys.iter().find(|k| k.key_id == evidence.key_id) else {
+            return Err(Refusal::new(
+                "approver_revoked",
+                "the key that approved this is no longer an enrolled owner key",
+            ));
+        };
+        if key.dev {
+            return Err(Refusal::new(
+                "approver_dev_key",
+                "a development approver key is not trusted by this build",
+            ));
+        }
+        let nonce_ok = (32..=64).contains(&evidence.nonce.len())
+            && evidence.nonce.chars().all(|c| c.is_ascii_hexdigit());
+        let field_ok = ![
+            request.id.as_str(),
+            evidence.digest.as_str(),
+            request.origin.client.as_str(),
+        ]
+        .iter()
+        .any(|f| f.contains('\n'));
+        if !nonce_ok
+            || !field_ok
+            || evidence.expires < evidence.issued
+            || evidence.expires - evidence.issued > MAX_LIFETIME
+        {
+            return Err(invalid());
+        }
+        let msg = message(
+            "approve",
+            &request.id,
+            &evidence.digest,
+            &request.origin.client,
+            &key.device,
+            &key.key_id,
+            &evidence.nonce,
+            evidence.issued,
+            evidence.expires,
+        );
+        if !check_signature(&key.public, &msg, &evidence.signature) {
+            return Err(invalid());
+        }
+        Ok(rightkit_approvals::authority::Approver::OwnerKey {
+            key_id: key.key_id.clone(),
+            device: key.device.clone(),
+        })
+    }
+}
+
 // ---- enrolment and revocation (owner path only) ------------------------------------------------
 
 /// Who may change the registry (enrol or revoke), first key included: the host app PIN, verified

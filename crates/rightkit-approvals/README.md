@@ -11,6 +11,11 @@ the decider is proven.
   destination, the expiry and the revision (`Binding`, `bind_of`: length-prefixed SHA-256). The act about
   to run presents its binding and must match (`Binding::check`). A decision is bound to the display
   digest of what the decider was shown (`Request::display_digest`, under the app's own domain tag).
+* **Execution re-check** (`authority`). Immediately before an effect runs the host calls `recheck` (or
+  `begin`, which also claims): still approved and unexpired, exact binding (a changed draft voids the
+  approval, reason `binding_changed`), the host's `Authority` re-verifies the signature against keys
+  enrolled now, and the approver is the owner (an owner key, or an owner-paired, active, non-guest
+  paired device). `args_digest` and `Binding::of_effect` build the binding for JSON arguments.
 * **Rules** (`rules`): `file` (repeat of a waiting request gets the same id; pending cap), `decide` (only
   a pending, unexpired request; proof and display digest checked; one compare-and-set), `take` (spent by
   one act for the same kind, scope, door, filer, destination, arguments and revision; with a proof a
