@@ -4,6 +4,7 @@
 
 - Accept host-resolved alternate paths after migration & report unreadable candidates. Expose budgeted grant reads, controlled publication recording & installation-scoped pending lookup.
 - Controlled publication refreshes the cancellation check and SQLite's busy timeout before begin, insert and commit, and restores the normal timeout afterwards; once commit starts, its result controls the receipt. SQLite's timeout is not a wall-clock guarantee (documented on the budget).
+- Memory candidate projection from a resident's own store: `memory_provider::project_memory_candidates` takes the ordered scope chain and memory snapshot, reads dimensions only for the selected candidates and samples repository freshness late; `project_baseline_candidates` with the `BaselinePreferenceInventory` trait ranks baseline preferences from read-only access to eligible memory ids, candidates and live record-to-memory and scope bindings. An inventory failure is a stale omission before any entry read. The trait is trusted input: the resident verifies Adapt provenance first and projection does not authenticate the flags it is given.
 
 ## 0.1.4 (2026-11-16)
 
