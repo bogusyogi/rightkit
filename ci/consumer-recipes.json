@@ -4255,9 +4255,9 @@
       "pkId": "PK221",
       "id": "ci/consumers/rightkit-launcher-win/src/main.rs",
       "files": {
-        "Cargo.toml": "b32b1a3267b086073e0682b3a256ff5b2261b62f6027f865d677236eef9d86e3",
-        "README.md": "740e0fbbc44bfe463b99e72739230f60bd22b956da6451450b90e09cb7a382e3",
-        "src/main.rs": "bd23d7d196e770765215e449b77fe809e538da92942d2da8c023ba765ec592e9"
+        "Cargo.toml": "5856bae8b1152cfcbc278d6c1a5948bbef91b7af5155f07a02f6d52a6f3729f5",
+        "README.md": "41b27a805565bc568cbe169b3c36e176337b07da3a76a03ddb1fea25c35d22b0",
+        "src/main.rs": "213e888bd980d06fafbfd5726338c452761e1138fbdb00d6caa15eb7e7db2493"
       }
     },
     "rightkit-media-gen-client": {
