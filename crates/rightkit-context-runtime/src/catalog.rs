@@ -1037,9 +1037,10 @@ fn insert_pending_pull_publication_sql(
     )? > 0)
 }
 
-/// Control-aware Pull publication recording. The resident catalog mutex and
-/// SQLite busy wait are both bounded by request control. A transaction keeps
-/// an insert out of the catalog when cancellation arrives before commit.
+/// Record a pending publication with fresh SQLite busy-wait budgets for begin, insert
+/// and commit. Check cancellation while waiting for the mutex and at commit admission.
+/// A successful commit is authoritative. Actual elapsed time depends on SQLite and OS
+/// scheduling. An I/O failure requires reconciliation against durable state.
 pub fn record_pending_pull_publication_with_control(
     catalog: &ContextCatalog,
     publication: &PendingPullPublicationV1,
@@ -1049,13 +1050,18 @@ pub fn record_pending_pull_publication_with_control(
         return Err("invalid pending pull publication".to_owned());
     }
     let ready = || {
+        let remaining = control.deadline.remaining_at(std::time::Instant::now());
         if control.cancellation.is_cancelled() {
             Err("pull request cancelled during catalog publication".to_owned())
-        } else if control.deadline.is_exhausted_at(std::time::Instant::now()) {
+        } else if remaining.is_zero() {
             Err("pull request deadline exhausted during catalog publication".to_owned())
         } else {
-            Ok(control.deadline.remaining_at(std::time::Instant::now()))
+            Ok(remaining)
         }
+    };
+    let set_wait = |conn: &Connection| -> Result<(), String> {
+        conn.busy_timeout(ready()?.min(std::time::Duration::from_millis(25)))
+            .map_err(|error| error.to_string())
     };
 
     let mut conn = loop {
@@ -1071,43 +1077,18 @@ pub fn record_pending_pull_publication_with_control(
     let installation_id = catalog.startup_report.catalog_installation_id.clone();
 
     loop {
-        let remaining = ready()?;
-        // Use short busy-handler slices so cancellation is observed while a
-        // different SQLite connection holds the database write lock. Restore
-        // the catalog's normal timeout after each attempt.
-        conn.busy_timeout(remaining.min(std::time::Duration::from_millis(25)))
-            .map_err(|error| error.to_string())?;
-        let attempt = {
-            match conn.transaction() {
-                Err(error) => Err(error.to_string()),
-                Ok(tx) => {
-                    if let Err(error) = ready() {
-                        drop(tx);
-                        Err(error)
-                    } else {
-                        let result =
-                            insert_pending_pull_publication_sql(&tx, &installation_id, publication)
-                                .map_err(|error| error.to_string());
-                        match result {
-                            Ok(changed) => match ready() {
-                                Ok(_) => tx
-                                    .commit()
-                                    .map(|()| changed)
-                                    .map_err(|error| error.to_string()),
-                                Err(error) => {
-                                    drop(tx);
-                                    Err(error)
-                                }
-                            },
-                            Err(error) => {
-                                drop(tx);
-                                Err(error)
-                            }
-                        }
-                    }
-                }
-            }
-        };
+        let attempt = (|| {
+            set_wait(&conn)?;
+            let tx = conn.transaction().map_err(|error| error.to_string())?;
+            set_wait(&tx)?;
+            let changed = insert_pending_pull_publication_sql(&tx, &installation_id, publication)
+                .map_err(|error| error.to_string())?;
+            // Cancellation observed here drops the transaction. Once COMMIT begins,
+            // its result is authoritative even if cancellation arrives during the write.
+            set_wait(&tx)?;
+            tx.commit().map_err(|error| error.to_string())?;
+            Ok::<bool, String>(changed)
+        })();
         conn.busy_timeout(std::time::Duration::from_secs(5))
             .map_err(|error| error.to_string())?;
         match attempt {

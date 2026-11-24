@@ -3,6 +3,7 @@
 ## 0.1.5
 
 - Accept host-resolved alternate paths after migration & report unreadable candidates. Expose budgeted grant reads, controlled publication recording & installation-scoped pending lookup.
+- Controlled publication refreshes the cancellation check and SQLite's busy timeout before begin, insert and commit, and restores the normal timeout afterwards; once commit starts, its result controls the receipt. SQLite's timeout is not a wall-clock guarantee (documented on the budget).
 
 ## 0.1.4 (2026-11-16)
 
