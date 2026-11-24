@@ -3,6 +3,7 @@
 ## 0.4.0
 
 - Disabling default features leaves only the portable detection API. Enable `history` if a consumer disables defaults and uses the persisted model, search, host or native modules. Existing default-feature consumers keep the full API.
+- Host hooks for native capture: `Host::capture_reads_enabled()` (Windows; default `true`) lets the app stop the native reader from reading the desktop session while explicit fixture copies still work, and `Host::log_win32_error(op, error, ctx)` (Windows; default the informational log) hands the host the structured Windows error. `burst::burst_preview()` returns the hovered burst item (position, total, selected, kind, snippet, image path) for hosts that draw their own card; `burst_preview_panel()` is built on it and unchanged.
 
 ## 0.3.2
 

@@ -184,9 +184,18 @@ pub fn burst_dismiss() {
     }
 }
 
-/// The card a hovered dot shows: where the item stands in the burst and a snippet of it. `None`
-/// when no dot is hovered. Hangs from the Send cell like its other popups, without expanding it.
-pub fn burst_preview_panel() -> Option<CardContent> {
+/// The hovered item's position and preview data for hosts that draw their own card.
+pub struct BurstPreview {
+    pub position: usize,
+    pub total: usize,
+    pub selected: bool,
+    pub kind: Kind,
+    pub snippet: String,
+    pub image_path: Option<std::path::PathBuf>,
+}
+
+/// Preview data for the hovered dot, when present.
+pub fn burst_preview() -> Option<BurstPreview> {
     let (position, total, selected, id) = {
         let state = locked();
         let index = state.hover.filter(|&i| i < state.items.len())?;
@@ -199,13 +208,36 @@ pub fn burst_preview_panel() -> Option<CardContent> {
     };
     let (kind, preview) =
         clip::with(|store| store.get(&id).map(|item| (item.kind, item.preview.clone())))?;
-    let mut snippet: String = preview
+    let snippet: String = preview
         .split_whitespace()
         .collect::<Vec<_>>()
         .join(" ")
         .chars()
         .take(PREVIEW_CHARS)
         .collect();
+    let image_path = (kind == Kind::Image)
+        .then(|| clip::with(|store| store.payload(&id)).and_then(|payload| payload.png))
+        .flatten();
+    Some(BurstPreview {
+        position,
+        total,
+        selected,
+        kind,
+        snippet,
+        image_path,
+    })
+}
+
+/// The default card for the hovered dot. The host can render its own card using [burst_preview].
+pub fn burst_preview_panel() -> Option<CardContent> {
+    let BurstPreview {
+        position,
+        total,
+        selected,
+        kind,
+        mut snippet,
+        image_path,
+    } = burst_preview()?;
     if snippet.is_empty() {
         snippet = match kind {
             Kind::Image => host::t("Image").to_string(),
@@ -213,14 +245,10 @@ pub fn burst_preview_panel() -> Option<CardContent> {
             _ => host::t("Empty").to_string(),
         };
     }
-    // An image shows its thumbnail (a file row over the stored PNG); anything else its text.
-    let picture = (kind == Kind::Image)
-        .then(|| clip::with(|store| store.payload(&id)).and_then(|payload| payload.png))
-        .flatten()
-        .map(|png| Row::File {
-            name: snippet.clone(),
-            path: png.to_string_lossy().into_owned(),
-        });
+    let picture = image_path.map(|png| Row::File {
+        name: snippet.clone(),
+        path: png.to_string_lossy().into_owned(),
+    });
     let mut content = CardContent::plain(
         host::tf(
             "Copy {} of {}",

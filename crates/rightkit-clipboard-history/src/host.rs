@@ -139,6 +139,20 @@ pub trait Host: Send + Sync + 'static {
     /// The copy burst's dots or its hover preview changed: the notch redraws.
     fn burst_changed(&self) {}
 
+    /// Whether the native clipboard reader may read the desktop session. Fixture copies
+    /// supplied explicitly by the app are independent of this permission.
+    #[cfg(windows)]
+    fn capture_reads_enabled(&self) -> bool {
+        true
+    }
+
+    /// Records a native clipboard operation failure. Keeps the structured Windows error
+    /// available to host diagnostics. The default preserves the informational log.
+    #[cfg(windows)]
+    fn log_win32_error(&self, op: &str, error: &windows::core::Error, ctx: &str) {
+        self.log_info(ctx, &[("operation", op), ("error", &error.message())]);
+    }
+
     /// Records an informational event with `fields`. Never called with clipboard content.
     fn log_info(&self, _event: &str, _fields: &[(&str, &str)]) {}
 }
@@ -229,7 +243,14 @@ pub(crate) fn excluded_apps() -> Vec<String> {
 
 #[cfg(windows)]
 pub(crate) fn log_error(op: &str, error: &windows::core::Error, ctx: &str) {
-    log_info(ctx, &[("operation", op), ("error", &error.message())]);
+    if let Some(host) = HOST.get() {
+        host.log_win32_error(op, error, ctx);
+    }
+}
+
+#[cfg(windows)]
+pub(crate) fn capture_reads_enabled() -> bool {
+    HOST.get().is_none_or(|host| host.capture_reads_enabled())
 }
 
 #[cfg(windows)]
