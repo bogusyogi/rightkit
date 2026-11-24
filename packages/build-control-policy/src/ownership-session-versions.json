@@ -641,7 +641,7 @@
     "rightkit-fs": "0.5.0",
     "rightkit-fsindex": "0.6.2",
     "rightkit-github": "0.2.0",
-    "rightkit-google-apis": "0.2.0",
+    "rightkit-google-apis": "0.2.1",
     "rightkit-gpu": "0.1.0",
     "rightkit-hooks": "0.2.13",
     "rightkit-hotkeys": "0.1.7",
@@ -1108,6 +1108,9 @@
       "0.3.0",
       "0.4.1",
       "0.5.0"
+    ],
+    "rightkit-google-apis": [
+      "0.2.0"
     ],
     "rightkit-google-identity": [
       "0.1.0",

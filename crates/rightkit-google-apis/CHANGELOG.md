@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.1
 
 - Added `Google::with_store(client_id, client_secret, account, store)`: a client whose refresh token lives in a caller-supplied `rightkit_oauth::TokenStore` instead of being passed as a string. Access tokens are minted from, and refreshed back into, that store; a missing or revoked grant surfaces as `GoogleError::Auth`, with no re-seeding and no retry loop. Clones share one token holder. `Google::new` and every string-taking function are unchanged.
 - Added `oauth::AccessTokens::with_store`, `oauth::provision_refresh_token(store, account, refresh_token)` (writes a sign-in's refresh token into a store as an expired grant) and, behind the new `sealed-store` feature, `oauth::sealed_file_store(root, key)` over `rightkit-oauth`'s `SealedFileTokenStore`. The 32-byte key is the caller's to supply from a service-manager credential; nothing here reads a key from disk.
