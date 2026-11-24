@@ -1,8 +1,13 @@
 # Changelog
 
+## 0.4.5
+
+- Added the optional `timeline` feature (`timeline::*`): bounded, snapshot-based timeline paging that retains duplicate legacy occurrences through log rotation. The first read freezes up to 3,500 projected rows; later pages keep the same occurrence identities even if the source rotates. Each cursor binds a canonical ordinal to 128 random bits and expires on restart, capacity eviction or two idle minutes; a fresh snapshot gives identical legacy copies fresh ids. Hosts supply their source projections and limits.
+
 ## 0.4.4
 
 - Added `RecentJsonl::new(records, max_bytes)` with `read(path)` and `append(path, &Value)`: a count-bounded private JSONL history that keeps raw lines (malformed JSON counts toward retention, invalid UTF-8 is read lossily), reads only the tail of a legacy file over its byte limit, appends under the per-log sidecar lock and replaces a full or oversized log atomically, keeping the newest consecutive lines within both limits. Reading never rewrites the file or creates the lock. The rotation lock helper is shared with `JsonlStore`.
+- Added `read_line_tail`, `LineTail` and `LineCutoff`: bounded line-tail reads from an open file with an explicit byte-cutoff policy (a snapshot length keeps a concurrent append out of the read); `tail_bytes` is unchanged.
 
 ## 0.4.3
 

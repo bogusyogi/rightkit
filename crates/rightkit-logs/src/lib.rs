@@ -26,6 +26,8 @@ mod stderr_tracing;
 mod store;
 pub mod system;
 mod textlog;
+#[cfg(feature = "timeline")]
+pub mod timeline;
 #[cfg(feature = "tracing")]
 mod tracing_file;
 mod upload;
@@ -67,7 +69,10 @@ pub use series::{
 pub use stderr_fmt::stderr_layer;
 #[cfg(feature = "tracing")]
 pub use stderr_tracing::{install_stderr_tracing, install_stderr_tracing_or_noop};
-pub use store::{tail_bytes, JsonlStore, JsonlStoreConfig, RetainReport, StoreStatus};
+pub use store::{
+    read_line_tail, tail_bytes, JsonlStore, JsonlStoreConfig, LineCutoff, LineTail, RetainReport,
+    StoreStatus,
+};
 pub use textlog::{capture_stderr, RotatingTextWriter, StderrCapture, StderrLine};
 #[cfg(feature = "tracing")]
 pub use tracing_file::{

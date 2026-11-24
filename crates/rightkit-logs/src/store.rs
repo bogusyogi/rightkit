@@ -428,18 +428,56 @@ const DEFAULT_NAME: &str = "events.jsonl";
 /// The last `max_bytes` bytes of the file at `path`, read without loading the rest of it. The
 /// first byte may fall inside a line. A missing file reads as empty; other errors are returned.
 pub fn tail_bytes(path: &Path, max_bytes: u64) -> io::Result<Vec<u8>> {
-    let mut file = match File::open(path) {
+    let file = match File::open(path) {
         Ok(file) => file,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
         Err(error) => return Err(error),
     };
+    Ok(read_tail_snapshot(file, max_bytes)?.1)
+}
+
+fn read_tail_snapshot(mut file: File, max_bytes: u64) -> io::Result<(u64, Vec<u8>)> {
     let len = file.metadata()?.len();
     let start = len.saturating_sub(max_bytes);
     file.seek(SeekFrom::Start(start))?;
-    let mut bytes = Vec::with_capacity(usize::try_from(len - start).unwrap_or(0));
+    let mut bytes = Vec::with_capacity((len - start).min(8192) as usize);
     // Bound the read to the snapshot so concurrent appends cannot exceed `max_bytes`.
     file.take(len - start).read_to_end(&mut bytes)?;
-    Ok(bytes)
+    Ok((len, bytes))
+}
+
+/// Which line to return first when the byte window starts partway through the log.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum LineCutoff {
+    /// Keep a record beginning exactly at the cutoff. Inspect one preceding byte.
+    KeepAligned,
+    /// Resume after the first newline in the window, even if the window begins at a record.
+    AfterNextNewline,
+}
+
+/// Bytes remain unmodified, including an unterminated last record.
+pub struct LineTail {
+    pub bytes: Vec<u8>,
+    /// The byte budget excluded an earlier part of the file.
+    pub truncated: bool,
+}
+
+/// Read from the caller's open log handle. Open errors and link policy stay with the caller.
+pub fn read_line_tail(file: File, max_bytes: u64, cutoff: LineCutoff) -> io::Result<LineTail> {
+    let budget = match cutoff {
+        LineCutoff::KeepAligned => max_bytes.saturating_add(1),
+        LineCutoff::AfterNextNewline => max_bytes,
+    };
+    let (snapshot_len, mut bytes) = read_tail_snapshot(file, budget)?;
+    let truncated = snapshot_len > max_bytes;
+    if truncated {
+        let skip = bytes
+            .iter()
+            .position(|byte| *byte == b'\n')
+            .map_or(bytes.len(), |at| at + 1);
+        bytes.drain(..skip);
+    }
+    Ok(LineTail { bytes, truncated })
 }
 
 /// `<file name>.lock` beside the log, the file that carries the rotation lock.
