@@ -181,6 +181,20 @@ impl ProtectedKey {
     }
 }
 
+/// Whether Windows Hello can make and use key credentials on this computer (the probe `create` makes
+/// first, without making anything). Always `false` on other platforms, where the question is asked by
+/// calling [`ProtectedKey::create`] and reading its typed error. Never prompts.
+pub fn hello_supported() -> bool {
+    #[cfg(windows)]
+    {
+        sys::hello_supported()
+    }
+    #[cfg(not(windows))]
+    {
+        false
+    }
+}
+
 /// `rsaEncryption` (1.2.840.113549.1.1.1) as DER, the start of an RSA `AlgorithmIdentifier`.
 const RSA_ENCRYPTION_OID: [u8; 11] = [
     0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x01,
