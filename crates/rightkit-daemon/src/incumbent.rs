@@ -257,7 +257,10 @@ fn exe_matches(pid: NonZeroU32, expected: &Path) -> bool {
     let Some(actual) = fresh.exe() else {
         return false;
     };
-    match (std::fs::canonicalize(actual), std::fs::canonicalize(expected)) {
+    match (
+        std::fs::canonicalize(actual),
+        std::fs::canonicalize(expected),
+    ) {
         (Ok(a), Ok(e)) => a == e,
         _ => false,
     }

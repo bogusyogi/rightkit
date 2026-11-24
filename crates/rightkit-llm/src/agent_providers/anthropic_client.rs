@@ -2254,7 +2254,10 @@ mod thinking_binding_tests {
     fn beta_is_sent_once_and_merged() {
         let bound = client().with_thinking_block_binding(ThinkingBlockBinding::Error);
         let request = bound.request_builder("https://api.anthropic.com/v1/messages");
-        assert_eq!(beta_headers(&request), vec![THINKING_BINDING_BETA.to_string()]);
+        assert_eq!(
+            beta_headers(&request),
+            vec![THINKING_BINDING_BETA.to_string()]
+        );
 
         let mut merged = bound.clone();
         merged
@@ -2284,13 +2287,10 @@ mod thinking_binding_tests {
     #[test]
     fn beta_combines_with_inline_tools() {
         let tool = json!({"type": "function", "function": {"name": "lookup", "parameters": {}}});
-        let combined = AnthropicCompatClient::new(
-            "key",
-            "claude-sonnet-5-5",
-            "https://api.anthropic.com/v1",
-        )
-        .with_deferred_tools(vec![tool])
-        .with_thinking_block_binding(ThinkingBlockBinding::DropBlock);
+        let combined =
+            AnthropicCompatClient::new("key", "claude-sonnet-5-5", "https://api.anthropic.com/v1")
+                .with_deferred_tools(vec![tool])
+                .with_thinking_block_binding(ThinkingBlockBinding::DropBlock);
         assert!(combined.inline_tools_enabled());
         let request = combined.request_builder("https://api.anthropic.com/v1/messages");
         assert_eq!(
@@ -2356,7 +2356,10 @@ mod thinking_binding_tests {
             400,
             "Thinking block does not match the Prefix"
         )));
-        assert!(!is_thinking_binding_mismatch(&http(400, "max_tokens too large")));
+        assert!(!is_thinking_binding_mismatch(&http(
+            400,
+            "max_tokens too large"
+        )));
         assert!(!is_thinking_binding_mismatch(&http(529, "block_binding")));
         assert!(!is_thinking_binding_mismatch(&ProviderError::RateLimited {
             retry_after_secs: 1

@@ -21,10 +21,8 @@ impl Scratch {
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_nanos())
             .unwrap_or(0);
-        let dir = std::env::temp_dir().join(format!(
-            "rk-confine-{name}-{}-{nanos}",
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("rk-confine-{name}-{}-{nanos}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         Self(fs::canonicalize(&dir).unwrap())
@@ -84,7 +82,10 @@ fn deny_read_blocks_a_secret_inside_a_granted_root() {
 
     // Positive control without confinement: both secrets are readable.
     let control = sh("cat secret/.env a.key", root).output().unwrap();
-    assert!(control.status.success(), "unconfined control must read both");
+    assert!(
+        control.status.success(),
+        "unconfined control must read both"
+    );
     let control_out = text(&control.stdout);
     assert!(control_out.contains("SECRET=1"), "{control_out}");
     assert!(control_out.contains("KEY-MATERIAL"), "{control_out}");
@@ -94,7 +95,10 @@ fn deny_read_blocks_a_secret_inside_a_granted_root() {
     assert_eq!(text(&ok.stdout), "ok-content");
 
     let env = run_confined("cat secret/.env", root, &policy).unwrap();
-    assert!(!env.status.success(), "the denied .env must not be readable");
+    assert!(
+        !env.status.success(),
+        "the denied .env must not be readable"
+    );
     assert!(
         text(&env.stderr).contains("Permission denied"),
         "stderr: {}",
@@ -103,7 +107,10 @@ fn deny_read_blocks_a_secret_inside_a_granted_root() {
     assert!(!text(&env.stdout).contains("SECRET=1"));
 
     let key = run_confined("cat a.key", root, &policy).unwrap();
-    assert!(!key.status.success(), "the globbed a.key must not be readable");
+    assert!(
+        !key.status.success(),
+        "the globbed a.key must not be readable"
+    );
     assert!(
         text(&key.stderr).contains("Permission denied"),
         "stderr: {}",

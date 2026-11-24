@@ -959,7 +959,8 @@ impl Run<'_> {
         file_bytes: &mut u64,
     ) -> Result<Vec<u8>, Stop> {
         let len = pos.len as u64;
-        if *file_bytes + len > MAX_FILE_BYTES_PER_PAGE || self.bytes_scanned + len > self.max_page_bytes
+        if *file_bytes + len > MAX_FILE_BYTES_PER_PAGE
+            || self.bytes_scanned + len > self.max_page_bytes
         {
             return Err(Stop::none(StreamStatus::Truncated, "context_replay_budget"));
         }
@@ -970,7 +971,8 @@ impl Run<'_> {
             .map_err(|_| unavailable())?;
         let mut buf = vec![0u8; pos.len];
         file.read_exact(&mut buf).map_err(|_| unavailable())?;
-        file.seek(SeekFrom::Start(here)).map_err(|_| unavailable())?;
+        file.seek(SeekFrom::Start(here))
+            .map_err(|_| unavailable())?;
         *file_bytes += len;
         self.bytes_scanned += len;
         Ok(buf)
@@ -1032,7 +1034,9 @@ impl Run<'_> {
                 st.after_remaining = 0;
                 continue;
             }
-            let content_len = line_buf.strip_suffix(b"\r").map_or(line_buf.len(), <[u8]>::len);
+            let content_len = line_buf
+                .strip_suffix(b"\r")
+                .map_or(line_buf.len(), <[u8]>::len);
             let is_match = self.regex.is_match(&line_buf[..content_len]);
             match self.mode {
                 StreamMode::FilesWithMatches => {
@@ -1195,8 +1199,7 @@ pub fn stream_page(
     }
     let workspace = fs::canonicalize(&req.workspace_root)
         .map_err(|_| StreamError::NotFound(req.workspace_root.clone()))?;
-    let root =
-        fs::canonicalize(&walk_root).map_err(|_| StreamError::NotFound(req.root.clone()))?;
+    let root = fs::canonicalize(&walk_root).map_err(|_| StreamError::NotFound(req.root.clone()))?;
     if !root.starts_with(&workspace) {
         return Err(StreamError::RootOutsideWorkspace(req.root.clone()));
     }

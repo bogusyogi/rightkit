@@ -1594,7 +1594,8 @@ mod codex_originator_tests {
 
     #[test]
     fn chatgpt_originator_header_is_pi_without_a_setter_call() {
-        let client = OpenAiCompatClient::new("key", "gpt-5", "https://chatgpt.com/backend-api/codex");
+        let client =
+            OpenAiCompatClient::new("key", "gpt-5", "https://chatgpt.com/backend-api/codex");
         assert_eq!(
             client.public_headers.get("originator").map(String::as_str),
             Some("pi")

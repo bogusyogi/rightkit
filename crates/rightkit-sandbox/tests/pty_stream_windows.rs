@@ -30,10 +30,8 @@ impl Scratch {
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_nanos())
             .unwrap_or(0);
-        let dir = std::env::temp_dir().join(format!(
-            "rk-conpty-{name}-{}-{nanos}",
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("rk-conpty-{name}-{}-{nanos}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         Self(fs::canonicalize(&dir).unwrap())
@@ -345,11 +343,7 @@ async fn slot_released_on_drop() {
     let sandbox = sandbox(ResourceProfile::Practical);
     let hold = || cmd_command(scratch.path(), &["/k"]);
 
-    let first = expect_spawned(sandbox.spawn_pty_stream(
-        Some(&policy),
-        hold(),
-        PtySize::default(),
-    ));
+    let first = expect_spawned(sandbox.spawn_pty_stream(Some(&policy), hold(), PtySize::default()));
 
     match expect_failed(sandbox.spawn_pty_stream(Some(&policy), hold(), PtySize::default())) {
         PtyError::Sandbox(SandboxError::ResourceDenied(_)) => {}
@@ -357,11 +351,8 @@ async fn slot_released_on_drop() {
     }
 
     drop(first);
-    let mut third = expect_spawned(sandbox.spawn_pty_stream(
-        Some(&policy),
-        hold(),
-        PtySize::default(),
-    ));
+    let mut third =
+        expect_spawned(sandbox.spawn_pty_stream(Some(&policy), hold(), PtySize::default()));
     cancel(&mut third).await;
 }
 

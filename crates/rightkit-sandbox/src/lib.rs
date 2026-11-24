@@ -86,13 +86,13 @@ pub use policy::{
 pub use pty::{
     PtyError, PtyLeaseSnapshot, PtySession, PtySize, StreamedPty, UnacknowledgedInputDecision,
 };
+pub use resources::{
+    Reservation, ResourceAuthority, ResourceDenied, ResourceKind, ResourceProfile,
+};
 #[cfg(feature = "pty")]
 pub use rightkit_child_process::TerminationOptions;
 #[cfg(feature = "pty")]
 pub use rightkit_pty::{PtyReader, PtyWriter};
-pub use resources::{
-    Reservation, ResourceAuthority, ResourceDenied, ResourceKind, ResourceProfile,
-};
 pub use spawn::{Sandbox, SandboxOutput, SandboxedChild, DEFAULT_OUTPUT_CAP};
 #[cfg(windows)]
 pub use spawn::{WindowsAuxiliaryIo, WindowsPipeSpawn};

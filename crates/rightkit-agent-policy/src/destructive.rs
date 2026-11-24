@@ -43,11 +43,7 @@ const EXEC_FILE_CAP: usize = 1_048_576;
 /// No check is possible for a file that does not exist yet. The caller must call this right before the exec,
 /// because the file can change afterwards. An unreadable file returns `None` (the exec fails by itself).
 /// Binary files are not inspected; a text file over 1 MiB is refused as too large to inspect.
-pub fn exec_reason(
-    program: &str,
-    args: &[String],
-    cwd: &std::path::Path,
-) -> Option<&'static str> {
+pub fn exec_reason(program: &str, args: &[String], cwd: &std::path::Path) -> Option<&'static str> {
     use std::io::Read;
 
     fn quote(word: &str) -> String {
@@ -62,7 +58,11 @@ pub fn exec_reason(
         return Some(found);
     }
 
-    let last = program.rsplit(['/', '\\']).next().unwrap_or(program).to_lowercase();
+    let last = program
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or(program)
+        .to_lowercase();
     let name = last.strip_suffix(".exe").unwrap_or(&last);
     let candidate: String = if INTERPRETERS.contains(&name) {
         if name == "awk" || name == "gawk" {

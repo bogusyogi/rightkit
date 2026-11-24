@@ -67,12 +67,7 @@ fn a_killed_host_takes_chrome_with_it() {
 
     let exe = std::env::current_exe().expect("test binary");
     let mut supervisor: Child = Command::new(exe)
-        .args([
-            "--exact",
-            TEST_NAME,
-            "--nocapture",
-            "--test-threads=1",
-        ])
+        .args(["--exact", TEST_NAME, "--nocapture", "--test-threads=1"])
         .env(ROLE, "supervisor")
         .stdout(Stdio::piped())
         .spawn()

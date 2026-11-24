@@ -62,7 +62,10 @@ fn harmless_launches_stay_allowed() {
     std::fs::write(d.join("ok.sh"), "echo hello\n").unwrap();
     assert_eq!(exec_reason("sh", &["ok.sh".into()], &d), None);
     assert_eq!(exec_reason("ls", &["-la".into()], &d), None);
-    assert_eq!(exec_reason("sh", &["-c".into(), "echo hi".into()], &d), None);
+    assert_eq!(
+        exec_reason("sh", &["-c".into(), "echo hi".into()], &d),
+        None
+    );
     done(&d);
 }
 

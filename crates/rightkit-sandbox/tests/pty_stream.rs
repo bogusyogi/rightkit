@@ -194,7 +194,10 @@ async fn a_confined_child_cannot_read_outside_its_root_and_the_stream_shows_the_
     let mut reader = streamed.take_reader().unwrap().expect("a reader");
 
     let out = String::from_utf8_lossy(&read_to_eof(&mut reader).await).into_owned();
-    assert!(out.contains("INSIDE-OK"), "the granted root is readable: {out:?}");
+    assert!(
+        out.contains("INSIDE-OK"),
+        "the granted root is readable: {out:?}"
+    );
     assert!(
         !out.contains("OUTSIDE-SECRET"),
         "a file outside the root must not be readable: {out:?}"
@@ -266,11 +269,7 @@ async fn outside_a_tokio_runtime_the_spawn_is_an_io_error_and_takes_no_slot() {
     let error = std::thread::scope(|scope| {
         scope
             .spawn(|| {
-                expect_failed(sandbox.spawn_pty_stream(
-                    None,
-                    sleep_command(),
-                    PtySize::default(),
-                ))
+                expect_failed(sandbox.spawn_pty_stream(None, sleep_command(), PtySize::default()))
             })
             .join()
             .unwrap()
@@ -341,11 +340,8 @@ async fn pixel_size_survives_spawn_and_resize() {
 async fn default_and_clamped_sizes_reach_the_kernel() {
     let sandbox = sandbox(ResourceProfile::Expanded);
 
-    let mut default = expect_spawned(sandbox.spawn_pty_stream(
-        None,
-        sleep_command(),
-        PtySize::default(),
-    ));
+    let mut default =
+        expect_spawned(sandbox.spawn_pty_stream(None, sleep_command(), PtySize::default()));
     assert_eq!(
         default.winsize().unwrap(),
         PtySize {

@@ -541,7 +541,9 @@ impl Policy {
             ));
         }
         if bearer_grants && capability.is_none() {
-            return Err(PatternError("bearer grants need a CapabilityVerifier".to_string()));
+            return Err(PatternError(
+                "bearer grants need a CapabilityVerifier".to_string(),
+            ));
         }
         Ok(Self {
             token,
