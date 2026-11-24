@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.3
+
+- Spoken replies and interview answers (VO-3, VO-4). `HandoffIdentity::spoken_reply` submits the hand-off as `agent.request` with `reply: "speech"` (an answer written to be read aloud, answer-only whatever `agentActions` says); `submit_with` and `submit_installed(record, spoken_reply)` take it. `record_for` takes the pending interview question and sends it as `interview:<question id>` in `context_refs` (Pulse refuses any `context_refs` until its profile exists, so a hand-off that carries one is refused with `unsupported_context` today). `task_speech_text` gives the text to say aloud for a finished task: the answer `pulse task result` returns, whole for a reply written for speech and its first sentence for an acting run. Source-breaking for callers of `record_for`, `submit_installed` and a struct literal of `HandoffIdentity`; the only caller is `rightkit-dictation-runtime` 0.2.7.
+
 ## 0.3.2
 
 - The hand-off now reads Pulse's real answers (VO-1, `docs/contracts/voice.md` in the Pulse repository). The accepted receipt is `receipt: "accepted"` with no `status`; `parse_receipt` read `status == "accepted"` and so never saw an accepted task. `Receipt::Accepted` gains `task_status`; `Receipt::NotBuilt`, which the command line never prints, is replaced by `Receipt::Unreachable` (`status: "unreachable"`: no engine answered, nothing ran, so the words are kept and a resend is the caller's) beside `Receipt::Unknown` (sent, no answer: `submit` resends once with the same key). A command line that cannot be started is `Unreachable`; a record that fails validation is `Refused`, not `Unknown`. `Receipt::pill_message` gives the pill's line for each of them. Source-breaking for a `match` on `Receipt`; the only caller is `rightkit-dictation-runtime` 0.2.6.
