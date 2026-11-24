@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.7.5
+
+- Add `win::clipboard_text::eager_text_formats(text)` (Windows): the Unicode, ANSI, OEM and locale clipboard formats of a text, built before the clipboard is opened so publishing all four under one open prevents the automatic format synthesis on close. The desktop clipboard write (`desktop::windows`) uses it instead of its own encoder; behaviour of that write is unchanged. `rightkit-clipboard-history` writes its text through it as well.
+
 ## 0.7.4
 
 - Add `verify` (AG-11, RK-13; additive): `observe_compare(observe, act, delta)` and `compare` take an observation before and after an action and answer `Verdict::Effect`, `NoEffect` or `Unmeasured` (an observation that could not be taken, or a truncated one with no other change, is never a no-effect). `Automation::act_verified` wraps `act` with a before and after snapshot of the window (`WindowState`: node id, role, name, value, enabled, focused node; frames ignored) and returns `VerifiedOutcome`, whose `done()` is false when the verdict is `NoEffect`. `act` itself is unchanged.

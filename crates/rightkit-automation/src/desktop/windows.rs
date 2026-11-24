@@ -11,7 +11,6 @@ use std::{
 
 use crate::win::{send_input_batch, RawInput};
 use windows_sys::Win32::Foundation::{CloseHandle, GlobalFree, HWND, LPARAM, LRESULT, WPARAM};
-use windows_sys::Win32::Globalization::{GetThreadLocale, WideCharToMultiByte};
 use windows_sys::Win32::Graphics::Gdi::{
     CopyEnhMetaFileW, DeleteEnhMetaFile, DeleteObject, HBITMAP, HENHMETAFILE,
 };
@@ -878,12 +877,11 @@ fn write_clipboard_text_guarded(
     text: &str,
     expected_sequence: Option<u32>,
 ) -> Result<u32, ClipboardWriteFailure> {
-    let mut wide: Vec<u16> = text.encode_utf16().collect();
-    wide.push(0);
-    let byte_len = wide.len() * size_of::<u16>();
-    let ansi = clipboard_multibyte_bytes(&wide, 0)?;
-    let oem = clipboard_multibyte_bytes(&wide, 1)?;
-    let locale = unsafe { GetThreadLocale() }.to_ne_bytes().to_vec();
+    let [(unicode_format, wide), (ansi_format, ansi), (oem_format, oem), (locale_format, locale)] =
+        crate::win::clipboard_text::eager_text_formats(text).ok_or(ClipboardWriteFailure {
+            restore_sequence: None,
+        })?;
+    let byte_len = wide.len();
 
     unsafe {
         if OpenClipboard(std::ptr::null_mut::<std::ffi::c_void>() as HWND) == 0 {
@@ -956,7 +954,7 @@ fn write_clipboard_text_guarded(
             });
         }
 
-        std::ptr::copy_nonoverlapping(wide.as_ptr(), locked, wide.len());
+        std::ptr::copy_nonoverlapping(wide.as_ptr(), locked.cast::<u8>(), byte_len);
         GlobalUnlock(handle);
         std::ptr::copy_nonoverlapping(ansi.as_ptr(), ansi_locked, ansi.len());
         GlobalUnlock(ansi_handle);
@@ -980,7 +978,7 @@ fn write_clipboard_text_guarded(
         // Publish all common text formats while clipboard is open. If these
         // were omitted, CloseClipboard lets Windows synthesize them and bump
         // sequence after staging; every handle transfers ownership separately.
-        let formats = [CF_UNICODETEXT as u32, 1, 7, 16];
+        let formats = [unicode_format, ansi_format, oem_format, locale_format];
         let mut handles = [handle, ansi_handle, oem_handle, locale_handle];
         for (index, format) in formats.into_iter().enumerate() {
             if SetClipboardData(format, handles[index]).is_null() {
@@ -1000,49 +998,6 @@ fn write_clipboard_text_guarded(
         let transcript_sequence = GetClipboardSequenceNumber();
         CloseClipboard();
         Ok(transcript_sequence)
-    }
-}
-
-fn clipboard_multibyte_bytes(
-    wide: &[u16],
-    codepage: u32,
-) -> Result<Vec<u8>, ClipboardWriteFailure> {
-    let required = unsafe {
-        WideCharToMultiByte(
-            codepage,
-            0,
-            wide.as_ptr(),
-            -1,
-            std::ptr::null_mut(),
-            0,
-            std::ptr::null(),
-            std::ptr::null_mut(),
-        )
-    };
-    if required <= 0 {
-        return Err(ClipboardWriteFailure {
-            restore_sequence: None,
-        });
-    }
-    let mut bytes = vec![0u8; required as usize];
-    let written = unsafe {
-        WideCharToMultiByte(
-            codepage,
-            0,
-            wide.as_ptr(),
-            -1,
-            bytes.as_mut_ptr(),
-            required,
-            std::ptr::null(),
-            std::ptr::null_mut(),
-        )
-    };
-    if written == required {
-        Ok(bytes)
-    } else {
-        Err(ClipboardWriteFailure {
-            restore_sequence: None,
-        })
     }
 }
 

@@ -293,12 +293,14 @@ pub fn set_bytes(_open: &Open, format: u32, bytes: &[u8]) -> bool {
 }
 
 pub fn set_text(open: &Open, text: &str) -> bool {
-    let bytes: Vec<u8> = std::ffi::OsStr::new(text)
-        .encode_wide()
-        .chain(std::iter::once(0))
-        .flat_map(u16::to_le_bytes)
-        .collect();
-    set_bytes(open, CF_UNICODETEXT, &bytes)
+    let Some(formats) = rightkit_automation::win::clipboard_text::eager_text_formats(text) else {
+        return false;
+    };
+    let mut complete = true;
+    for (format, bytes) in formats {
+        complete &= set_bytes(open, format, &bytes);
+    }
+    complete
 }
 
 pub fn set_dword(open: &Open, format: u32, value: u32) -> bool {

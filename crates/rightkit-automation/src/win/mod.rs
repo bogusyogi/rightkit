@@ -5,6 +5,7 @@
 pub mod bounded;
 pub(crate) mod capture_safety;
 pub(crate) mod clip;
+pub mod clipboard_text;
 pub mod dialog;
 pub mod dropfiles;
 pub mod ime;
