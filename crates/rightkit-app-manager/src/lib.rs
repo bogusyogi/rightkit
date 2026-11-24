@@ -19,5 +19,5 @@ pub mod subprocess;
 
 pub use host::{
     HostIdentity, set_account_home_resolver, set_host_identity, set_privileged_helper_enabled,
-    set_privileged_helper_probe, set_state_directory,
+    set_privileged_helper_probe, set_state_directory, set_state_directory_resolver,
 };

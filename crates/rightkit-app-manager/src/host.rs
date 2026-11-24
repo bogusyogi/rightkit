@@ -18,6 +18,8 @@ pub struct HostIdentity {
 
 static IDENTITY: OnceLock<HostIdentity> = OnceLock::new();
 static STATE_DIRECTORY: OnceLock<PathBuf> = OnceLock::new();
+static STATE_DIRECTORY_RESOLVER: OnceLock<Box<dyn Fn() -> Option<PathBuf> + Send + Sync>> =
+    OnceLock::new();
 static HELPER_ENABLED: AtomicBool = AtomicBool::new(false);
 static HELPER_PROBE: OnceLock<Box<dyn Fn() -> bool + Send + Sync>> = OnceLock::new();
 static HOME_RESOLVER: OnceLock<Box<dyn Fn() -> PathBuf + Send + Sync>> = OnceLock::new();
@@ -31,6 +33,17 @@ pub fn set_host_identity(identity: HostIdentity) -> bool {
 /// effect; returns `false` otherwise.
 pub fn set_state_directory(dir: PathBuf) -> bool {
     STATE_DIRECTORY.set(dir).is_ok()
+}
+
+/// Have the host app resolve its state folder on every lookup, for a host whose folder cannot be known
+/// at startup (an account home that is unavailable then): a folder set once would lose the inventory,
+/// icon and update caches for the rest of the run, where a resolver is asked again each time and `None`
+/// means "not available yet". When set it takes the place of [`set_state_directory`]. Only the first
+/// call takes effect; returns `false` otherwise.
+pub fn set_state_directory_resolver(
+    resolver: impl Fn() -> Option<PathBuf> + Send + Sync + 'static,
+) -> bool {
+    STATE_DIRECTORY_RESOLVER.set(Box::new(resolver)).is_ok()
 }
 
 /// Report whether the host app's privileged helper is approved (default `false`).
@@ -48,7 +61,10 @@ pub fn set_privileged_helper_probe(probe: impl Fn() -> bool + Send + Sync + 'sta
 
 #[cfg(unix)]
 pub(crate) fn state_directory() -> Option<PathBuf> {
-    STATE_DIRECTORY.get().cloned()
+    match STATE_DIRECTORY_RESOLVER.get() {
+        Some(resolve) => resolve(),
+        None => STATE_DIRECTORY.get().cloned(),
+    }
 }
 
 #[cfg(unix)]

@@ -2,6 +2,7 @@
 
 ## 0.2.3
 
+- `set_state_directory_resolver(fn() -> Option<PathBuf>)` (PL-46, additive): the host's state folder asked again on every lookup, for a host whose folder is unknown at startup (an unavailable account home) and would otherwise lose the inventory, icon and update caches for the rest of the run to a folder fixed once. `None` means not available yet. Replaces `set_state_directory` when set. With the account-home resolver, the helper probe and `with_elevator` already here, a host needs no local copy of the Unix inventory and uninstall module. Written, not compiled.
 - Export the account-home resolver setter on Windows as well as Unix. Windows keeps its existing home resolution.
 
 ## 0.2.2
