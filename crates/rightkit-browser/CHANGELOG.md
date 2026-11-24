@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.12
+
+- Fixed: on macOS and Linux Chrome is tied to the host (`kill_on_parent_exit`, spawned from a dedicated launcher thread), so a crashed or SIGKILLed host no longer leaves Chrome running (CodeRight #470).
+
 ## 0.3.11 (unpublished)
 
 - Requires `rightkit-models` 0.7.0 (one on-disk model store, shape review 2026-11-11, pending the owner's confirmation). No behaviour change in this crate.

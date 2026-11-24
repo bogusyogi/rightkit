@@ -299,6 +299,8 @@ pub(crate) fn profile_arg(path: &Path) -> OsString {
 fn chrome_command(exe: &Path, args: &[OsString]) -> OwnedCommand {
     let mut cmd = OwnedCommand::new(exe);
     cmd.windows_hide();
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    cmd.kill_on_parent_exit(true);
     cmd.command_mut()
         .args(args)
         .stdin(Stdio::null())
@@ -390,6 +392,59 @@ pub(crate) fn spawn_chrome_fixture(
     spawn_chrome_command(cmd, timeout, None)
 }
 
+/// A unit of work for the launcher thread.
+type LauncherJob = Box<dyn FnOnce() + Send>;
+
+/// The process-wide launcher thread's job queue. Created by the first launch and never closed.
+static LAUNCHER: std::sync::OnceLock<std::sync::mpsc::Sender<LauncherJob>> =
+    std::sync::OnceLock::new();
+
+fn launcher_sender() -> std::io::Result<&'static std::sync::mpsc::Sender<LauncherJob>> {
+    if let Some(sender) = LAUNCHER.get() {
+        return Ok(sender);
+    }
+    let (tx, rx) = std::sync::mpsc::channel::<LauncherJob>();
+    // The receiver lives only in this thread, which never exits while the process runs.
+    std::thread::Builder::new()
+        .name("rightkit-browser-launcher".into())
+        .spawn(move || {
+            while let Ok(job) = rx.recv() {
+                job();
+            }
+        })?;
+    // If another launch won the race, `tx` is dropped here; the thread spawned above then
+    // ends on its own and the winner's sender is used.
+    let _ = LAUNCHER.set(tx);
+    LAUNCHER.get().ok_or_else(launcher_gone)
+}
+
+fn launcher_gone() -> std::io::Error {
+    std::io::Error::new(
+        std::io::ErrorKind::BrokenPipe,
+        "browser launcher thread is gone",
+    )
+}
+
+/// Runs `job` on the dedicated launcher thread and returns its result. A panic in `job` is
+/// contained: the caller receives `BrokenPipe` and the launcher thread keeps serving jobs.
+fn run_on_launcher_thread<T: Send + 'static>(
+    job: impl FnOnce() -> T + Send + 'static,
+) -> std::io::Result<T> {
+    let sender = launcher_sender()?;
+    let (result_tx, result_rx) = std::sync::mpsc::channel::<T>();
+    let boxed: LauncherJob = Box::new(move || {
+        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(job)) {
+            Ok(value) => {
+                let _ = result_tx.send(value);
+            }
+            // Dropping `result_tx` on a panic makes the caller's `recv` fail.
+            Err(_) => drop(result_tx),
+        }
+    });
+    sender.send(boxed).map_err(|_| launcher_gone())?;
+    result_rx.recv().map_err(|_| launcher_gone())
+}
+
 fn spawn_chrome_command(
     #[cfg_attr(not(windows), allow(unused_mut))] mut cmd: OwnedCommand,
     timeout: Duration,
@@ -403,8 +458,10 @@ fn spawn_chrome_command(
     }
     #[cfg(not(windows))]
     let _ = job;
-    let mut child = cmd
-        .spawn()
+    // Spawned on the launcher thread: Linux PDEATHSIG (kill_on_parent_exit) is keyed to the
+    // spawning thread, and a pooled blocking thread exits after its idle keep-alive.
+    let mut child = run_on_launcher_thread(move || cmd.spawn())
+        .map_err(|e| BrowserError::Launch(e.to_string()))?
         .map_err(|e| BrowserError::Launch(e.to_string()))?;
     let stderr = child
         .take_stderr()
