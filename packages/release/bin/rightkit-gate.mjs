@@ -62,11 +62,11 @@
 // rust.<crate>.testInputs lists the paths they read, for npm, node and docs scans, and whenever a reference cannot be resolved
 // statically) are all identical. Stored in <git common dir>/rightkit-gate-cache; a hit prints
 // `cached` and is listed in the result's cacheHits. A deterministic failure (NN41: a compile's authenticated or diagnosed failure, a file-only rule's violations) is cached too and prints `cached-fail`; timeouts, aborts, refusals, infrastructure errors and test runs never are.
-// RK_GATE_JOBS (default 4) sets class A scan concurrency. Class B on a broker host (rightkit#1367 step 2): the gate does not count builds; every
+// Class A scan concurrency is the host's core count; no caller sets it. Class B on a broker host (rightkit#1367 step 2): the gate does not count builds; every
 // component's broker-carried scans (cargo, rustright, carried Swift, and npm suites that declare a broker call) start without a limit, each component in plan order,
 // and the broker queues and orders them. A carried scan's run limit is a stopwatch that stops while the broker holds all its requests QUEUED (broker-admission.mjs),
 // so queue time is neither charged to the scan nor bounded by a gate allowance. Only class B suites the broker never sees (npm or node tests run on this host)
-// keep a local limit of 3, one slot per suite. On a host with no broker RK_GATE_CLASS_B_JOBS (default 3) sets how many components' class B scans run at once; one
+// keep a local limit of 3, one slot per suite. On a host with no broker 3 components' class B scans run at once; one
 // component's scans stay in order (rightkit#1285).
 // A crate whose ci/gate.config.json entry says `quietTests: true` has its test scans run last,
 // one at a time, under the RustRight quiet lease (`rustright quiet acquire`, RUSTRIGHT_QUIET_LEASE in their environment).
@@ -396,11 +396,10 @@ function workspaceMetadata({ root, spawn, cargoCommand, dir, realpath }) {
  * Where the gate's own temporary files live (cargo-deny's metadata file and config overlay, read by the broker by absolute path). The
  * RustRight broker refuses paths on the system volume (RK_INTERNAL_DRIVE_REFUSED: agents never write to the internal drive), and
  * os.tmpdir() is on it on every Mac and Dell, so on a host with a disk-policy scratch root (/Volumes/D/scratch, D:\scratch) they go
- * there. RK_GATE_TMPDIR overrides; os.tmpdir() is the fallback where no scratch root exists (CI runners, cloud containers). The gate
+ * there. No caller chooses it; os.tmpdir() is the fallback where no scratch root exists (CI runners, cloud containers). The gate
  * exports nothing and copies no source: this is not a source location (docs/GATE-CONTRACT.md, 2026-10-29: no export or copy).
  */
 export function gateTmpRoot({ env = process.env, platform = process.platform, exists = fs.existsSync, policy = null } = {}) {
-  if (env.RK_GATE_TMPDIR) return env.RK_GATE_TMPDIR;
   try {
     const roots = scratchRoots(policy ?? readDiskPolicy(), { platform, env });
     const found = roots.find((root) => exists(root));
@@ -2808,6 +2807,57 @@ export function committedSidecarConfigs({ o, git, commit, appDir = ".", base }) 
 }
 
 /**
+ * GC-A27 NN07 (a row whose inputs did not change does no work; acceptance case 3 on 0.6.63, 2026-11-24: a one-file edit in another workspace sent the sidecar's
+ * cargo build to the broker on every run). The sources a staging of Cargo-built sidecars reads, from the commit alone: the crate directory of each staged
+ * package and, followed through their manifests, of every path dependency. Null when a staged file is not a cargo-bin, a package is not found, or a path
+ * dependency is not a committed crate: then nothing is skipped.
+ */
+export function sidecarSourceDirs({ git, commit, result }) {
+  const files = Array.isArray(result?.files) ? result.files : [];
+  if (!files.length || files.some((f) => f?.kind !== "cargo-bin" || typeof f.package !== "string")) return null;
+  const listed = git("ls-tree", "-r", "-z", commit); if (failed(listed)) return null;
+  const manifests = [];
+  for (const line of text(listed).split("\0").filter(Boolean)) {
+    const tab = line.indexOf("\t"); const p = line.slice(tab + 1); if (!/(^|\/)Cargo\.toml$/.test(p)) continue;
+    const blob = git("cat-file", "-p", line.slice(0, tab).split(" ")[2]); if (failed(blob)) return null;
+    manifests.push({ dir: p.includes("/") ? p.slice(0, p.lastIndexOf("/")) : ".", body: text(blob) });
+  }
+  const nameOf = (body) => { let section = null; for (const l of body.split(/\r?\n/)) { const h = /^\s*\[([^\]]+)\]\s*$/.exec(l); if (h) { section = h[1].trim(); continue; } const n = section === "package" && /^\s*name\s*=\s*"([^"]+)"/.exec(l); if (n) return n[1]; } return null; };
+  // Only the dependency tables name crates: `path =` under [lib] or [[bin]] is a source file.
+  const depPaths = (body) => { const out = []; let deps = false; for (const l of body.split(/\r?\n/)) { const h = /^\s*\[\[?([^\]]+)\]\]?\s*$/.exec(l); if (h) { deps = /(^|\.)(dependencies|dev-dependencies|build-dependencies)(\.|$)|^patch\./.test(h[1].trim()); continue; } if (deps) for (const m of l.matchAll(/\bpath\s*=\s*"([^"]+)"/g)) out.push(m[1]); } return out; };
+  const byName = new Map(manifests.map((m) => [nameOf(m.body), m]).filter(([n]) => n));
+  const queue = [...new Set(files.map((f) => f.package))].map((n) => byName.get(n)); if (queue.some((m) => !m)) return null;
+  const dirs = new Set();
+  while (queue.length) {
+    const m = queue.pop(); if (dirs.has(m.dir)) continue; dirs.add(m.dir);
+    for (const rel of depPaths(m.body)) { const d = path.posix.normalize(path.posix.join(m.dir === "." ? "" : m.dir, rel)).replace(/\/$/, "") || "."; const dep = manifests.find((x) => x.dir === d); if (!dep) return null; queue.push(dep); }
+  }
+  return [...dirs].sort();
+}
+/**
+ * The key of those sources: every committed file under the dirs, the Cargo, toolchain and cargo-config files of their ancestors, the release config, the
+ * target, the build mode, the gate's own code, Node, the Cargo and Rust variables, and the installed Rust toolchains' channel manifests (rustup rewrites
+ * them on every update). Null when the commit cannot be listed.
+ */
+export function sidecarSourceKey({ git, commit, config, target, mode, dirs, env = process.env, gateIdentity, nodeVersion = process.version, toolchains = rustupChannelManifests(env) }) {
+  const listed = git("ls-tree", "-r", "-z", commit); if (failed(listed)) return null;
+  const ancestors = new Set(); for (const d of dirs) { let a = d; for (;;) { ancestors.add(a); if (a === "." || !a.includes("/")) { ancestors.add("."); break; } a = a.slice(0, a.lastIndexOf("/")); } }
+  const rootFiles = ["Cargo.toml", "Cargo.lock", "rust-toolchain", "rust-toolchain.toml", ".cargo/config", ".cargo/config.toml"];
+  const named = new Set([...ancestors].flatMap((a) => rootFiles.map((f) => (a === "." ? f : `${a}/${f}`))));
+  const files = text(listed).split("\0").filter(Boolean).map((l) => { const tab = l.indexOf("\t"); return [l.slice(tab + 1), l.slice(0, tab).split(" ")[2]]; })
+    .filter(([p]) => p === config || named.has(p) || dirs.some((d) => d === "." || p.startsWith(`${d}/`)));
+  const rustEnv = Object.entries(env ?? {}).filter(([k]) => /^(CARGO_|RUSTFLAGS$|RUSTDOCFLAGS$|RUSTC|RUSTUP_TOOLCHAIN$)/i.test(k)).sort(([a], [b]) => (a < b ? -1 : 1));
+  return createHash("sha256").update(JSON.stringify({ schema: "rightkit.sidecar-source/1", config, target, mode, node: nodeVersion, gate: gateIdentity ?? null, env: rustEnv, toolchains, files })).digest("hex");
+}
+function rustupChannelManifests(env) {
+  const home = env?.RUSTUP_HOME || path.join(env?.USERPROFILE || env?.HOME || os.homedir(), ".rustup");
+  try { return fs.readdirSync(path.join(home, "toolchains")).sort().map((n) => { try { const st = fs.statSync(path.join(home, "toolchains", n, "lib", "rustlib", "multirust-channel-manifest.toml")); return [n, st.size, Math.trunc(st.mtimeMs)]; } catch { return [n, null, null]; } }); } catch { return null; }
+}
+/** `<managed root>/sidecar-state/<repo key>/<config, target and mode>.json`, beside the snapshot: the key and receipt of the last staging. */
+const sidecarStateFile = (snapshotPath, { config, target, mode }) => path.join(path.dirname(path.dirname(snapshotPath)), "sidecar-state", path.basename(snapshotPath), `${createHash("sha256").update(JSON.stringify([config, target, mode])).digest("hex").slice(0, 32)}.json`);
+const fileSha256 = (file) => { try { return createHash("sha256").update(fs.readFileSync(file)).digest("hex"); } catch { return null; } };
+
+/**
  * Sidecars are staged ONCE per door run, after the sync and before the first stage that builds the Tauri crate. The step is
  * right-release's own `stage-sidecar --json` run inside the snapshot (the split); this gate then walks the snapshot itself and the
  * step's additions must equal the files it reported plus its receipt (anything else is an unattributed write, RK_CHECK_ERROR). The
@@ -2834,10 +2884,16 @@ export async function stageSidecarsOnce({ o, ds, root, git = null, configs, appD
     const carrier = await carrierForChildren({ o, ds, root, git, executor, stage, tag, appDir });
     if (carrier.refusal) { o.err(`${tag} BLOCKED: ${carrier.refusal}; nothing was staged`); return false; }
     const run = startRun({ commonDir, commit, tree, stage, source });
+    // NN07: when the sidecars' own sources are those of the last staging and its receipt is the one in the snapshot, stage-sidecar only checks that every staged
+    // file is still there with its recorded sha256 (--if-stale); nothing is built. Anything else stages as before.
+    const mode = stage === "dev" ? "dev" : "release"; const stateFile = sidecarStateFile(ds.path, { config, target: key, mode });
+    let prior = null; try { prior = JSON.parse(fs.readFileSync(stateFile, "utf8")); } catch { prior = null; }
+    const keyNow = (dirs) => (git && Array.isArray(dirs) ? sidecarSourceKey({ git, commit, config, target: key, mode, dirs, env: o.env, gateIdentity: gatePackageIdentity(o.gatePackage) }) : null);
+    const unchanged = Boolean(prior?.schema === 1 && typeof prior.key === "string" && typeof prior.receipt === "string" && keyNow(prior.dirs) === prior.key && fileSha256(path.join(ds.path, prior.receipt)) === prior.receiptSha256);
     let r;
     try {
-      o.out(`${tag} [${stage}] right-release stage-sidecar --config ${path.join(ds.path, config)}${target ? ` --target ${target}` : ""} (from the snapshot ${ds.path})`);
-      r = (o.spawnCapture ?? ((cmd, a, opts) => spawnInherit(cmd, a, { ...opts, encoding: "utf8", maxBuffer: 1 << 26 })))(process.execPath, [cli, "stage-sidecar", "--config", path.join(ds.path, config), ...(target ? ["--target", target] : []), "--json"], { cwd: snapshotAppRootOf(ds.path, appDir), env: carriedEnv(carrier, { ...cleanEnv, ...run.env, ...(stage === "dev" ? { RIGHTKIT_BUILD_MODE: "dev" } : {}) }) });
+      o.out(`${tag} [${stage}] right-release stage-sidecar --config ${path.join(ds.path, config)}${target ? ` --target ${target}` : ""}${unchanged ? " --if-stale (its sources are those of the last staging: the staged files are checked, nothing is built)" : ""} (from the snapshot ${ds.path})`);
+      r = (o.spawnCapture ?? ((cmd, a, opts) => spawnInherit(cmd, a, { ...opts, encoding: "utf8", maxBuffer: 1 << 26 })))(process.execPath, [cli, "stage-sidecar", "--config", path.join(ds.path, config), ...(target ? ["--target", target] : []), ...(unchanged ? ["--if-stale"] : []), "--json"], { cwd: snapshotAppRootOf(ds.path, appDir), env: carriedEnv(carrier, { ...cleanEnv, ...run.env, RIGHTKIT_BUILD_MODE: stage === "dev" ? "dev" : "release" }) }); // set, never inherited: the sidecar key names this mode (GC-A27 NN07)
     } finally { endRun(run); }
     const carriedOk = await carrier.finish({ stage });
     if (r?.stderr) o.err(String(r.stderr).trimEnd());
@@ -2860,6 +2916,12 @@ export async function stageSidecarsOnce({ o, ds, root, git = null, configs, appD
     ds.ledger = { entries: walked.entries.map((e) => (priorPaths.has(e.path) && priorByPath.get(e.path).sha256 === e.sha256 ? priorByPath.get(e.path) : { ...e, kind: "staged", producer: { stage: "sidecar", step: config } })) };
     // Evidence for a later "changed after it was staged": the receipt exactly as this staging wrote it.
     if (receiptAbs) { try { (ds.stagedReceipts ??= new Map()).set(receiptAbs, fs.readFileSync(path.join(ds.path, receiptAbs), "utf8")); } catch { /* the close names the change without the field diff */ } }
+    // The sources this staging was built from, for the next run (NN07). Not recordable (a sidecar not built by Cargo, a package not found): the state is removed.
+    try {
+      const dirs = git ? sidecarSourceDirs({ git, commit, result }) : null; const k = dirs ? keyNow(dirs) : null; const sha = receiptAbs ? fileSha256(path.join(ds.path, receiptAbs)) : null;
+      if (k && sha) { fs.mkdirSync(path.dirname(stateFile), { recursive: true }); const tmp = `${stateFile}.${process.pid}.tmp`; fs.writeFileSync(tmp, `${JSON.stringify({ schema: 1, key: k, dirs, receipt: receiptAbs, receiptSha256: sha })}\n`); fs.renameSync(tmp, stateFile); }
+      else fs.rmSync(stateFile, { force: true });
+    } catch (e) { o.out(`${tag} [${stage}] stage-sidecar ${config}: the staging state was not recorded (${e.message}); the next run stages again`); }
   }
   return true;
 }
@@ -5234,10 +5296,10 @@ export async function main(argv, io = {}) {
     o.onQualifyOwed?.((plan.qualifyOwed ?? []).filter((x) => x.kind !== "e2e-crate" || plan.scans.some((s) => s.id === x.id)));
     // GC-A24: class A lanes default to the host's cores (measured, Mac, cold RK class A rows: 4 lanes 14.4 s, 8 lanes 7.0 s, 12 lanes 5.9 s).
     const defaultJobs = typeof os.availableParallelism === "function" ? os.availableParallelism() : os.cpus().length;
-    const jobs = Math.max(1, Number(o.env.RK_GATE_JOBS ?? defaultJobs) || defaultJobs);
+    const jobs = Math.max(1, defaultJobs); // no caller sets it (step F of the Dell sequence, 2026-11-24: RK_GATE_JOBS is not read)
     // A broker host has no gate-side build count: the broker decides it. What remains is the local limit on class B processes the broker never sees.
     const brokerHost = executor.kind === "broker";
-    const classBJobs = brokerHost ? LOCAL_CLASS_B_JOBS : Math.max(1, Number(o.env.RK_GATE_CLASS_B_JOBS ?? 3) || 3);
+    const classBJobs = LOCAL_CLASS_B_JOBS; // on every host; no caller sets it (RK_GATE_CLASS_B_JOBS is not read)
     // The broker's live state of a request (queued or running), asked through the executor's own client with an asynchronous spawn: a carried scan's run limit does not tick
     // while the broker holds it queued. No client to ask (none resolves): no reader, and a carried scan's limit simply runs, counting its queue time.
     // The client is the declared Linux route's, else the managed runtime client, else the executor's own: a broker host whose executor is the `rustright` found on PATH

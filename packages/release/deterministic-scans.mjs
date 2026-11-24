@@ -2294,7 +2294,7 @@ export function defaultSpawn(command, args, options = {}) {
 }
 
 /**
- * GC-A27 NN08 (no repeat calls): the answers of three read-only commands are kept for the life of the gate process and never asked for twice. Each is a read
+ * GC-A27 NN08 (no repeat calls): the answers of read-only commands are kept for the life of the gate process and never asked for twice. Each is a read
  * whose answer cannot change during a run for the same folder and environment: a file of a commit named by its full sha (`git show <sha>:<path>`), the top
  * of a checkout (`git rev-parse --show-toplevel`), and `pnpm --version`. Found by the acceptance cases on gate 0.6.63 (2026-11-24): each was started two to
  * four times in one run. Only a successful answer is kept; anything else is asked again. `store` is injectable for tests.
@@ -2309,6 +2309,8 @@ export function isRememberedRead(command, args) {
   let i = 0; while (i < a.length && (a[i] === "-c" || a[i] === "-C")) i += 2;
   const sub = a.slice(i);
   if (sub.length === 2 && sub[0] === "show" && /^[0-9a-f]{40}:.+/.test(sub[1])) return true;
+  if (sub.length === 3 && sub[0] === "cat-file" && sub[1] === "-p" && /^[0-9a-f]{40}$/.test(sub[2])) return true;
+  if (sub[0] === "ls-tree" && sub.length >= 2 && /^[0-9a-f]{40}$/.test(sub[sub.length - 1]) && sub.slice(1, -1).every((a) => /^-[a-z]$|^--name-only$|^--full-tree$/.test(a))) return true;
   return sub.length === 2 && sub[0] === "rev-parse" && sub[1] === "--show-toplevel";
 }
 export function rememberReads(spawn, { store = READ_MEMO } = {}) {
@@ -3218,7 +3220,7 @@ export function swiftScratchPath({ tmpRoot, roots, id }) {
   const dir = path.join(real(tmpRoot), "rightkit-swift-scratch", crypto.createHash("sha256").update(repo).digest("hex").slice(0, 16), id.replace(/[^A-Za-z0-9._-]/g, "_"));
   for (const root of roots.filter(Boolean)) {
     const rel = path.relative(real(root), dir);
-    if (rel === "" || (rel !== ".." && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel))) throw new Error(`the SwiftPM build directory ${dir} would be inside ${real(root)}; set RK_GATE_TMPDIR outside the repository`);
+    if (rel === "" || (rel !== ".." && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel))) throw new Error(`the SwiftPM build directory ${dir} would be inside ${real(root)}; the gate's temp folder must lie outside the repository`);
   }
   return dir;
 }
@@ -3236,7 +3238,7 @@ export function cargoReadTargetDir({ tmpRoot, roots }) {
     const rel = path.relative(real(root), dir);
     if (rel === "" || (rel !== ".." && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel))) {
       fs.rmSync(dir, { recursive: true, force: true });
-      throw new Error(`the Cargo output directory ${dir} would be inside ${real(root)}; set RK_GATE_TMPDIR outside the repository`);
+      throw new Error(`the Cargo output directory ${dir} would be inside ${real(root)}; the gate's temp folder must lie outside the repository`);
     }
   }
   return dir;

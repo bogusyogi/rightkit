@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.65
+
+- NN07 (GC-A27): the sidecar's cargo build no longer goes to the broker on a commit that does not change it. The gate keys the sidecar's own sources from the commit (its crate and path dependencies, their Cargo and toolchain files, the release config, target, mode, the gate's code, the Rust variables and the installed toolchains); when the key is that of the last staging and its receipt is in the snapshot, stage-sidecar only checks the staged files (`--if-stale`). Found by acceptance case 3 on 0.6.63.
+- NN08: `git ls-tree <sha>` and `git cat-file -p <sha>` are answered from memory within a run, like the other read-only commands.
+- Step F: `RK_GATE_JOBS`, `RK_GATE_CLASS_B_JOBS` and `RK_GATE_TMPDIR` are no longer read; sidecar staging is told its build mode instead of inheriting a caller's `RIGHTKIT_BUILD_MODE`.
+
 ## 0.6.64
 
 Five faults the first run of the twelve-line acceptance cases showed on 0.6.63 (GC-A27; rightkit#1514), each with a test.
