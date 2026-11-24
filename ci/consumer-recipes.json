@@ -2597,20 +2597,13 @@
       "aggregateSha256": "e70ebc57d3259d6719a2dc31f636cf1c2b5b289366503a0101930188f8b77432"
     },
     "rightkit-sync-keys": {
-      "pkId": "PK22",
+      "pkId": "PK256",
       "id": "ci/consumers/rightkit-sync-keys/src/main.rs",
-      "dependency": "rightkit-sync-keys = { version = \"=0.1.0\" }",
-      "extraDependencies": [
-        "zeroize = \"1.9\""
-      ],
-      "gateEvidence": "no assets needed; deterministic, in-process; no ci/asset-gated.json entry needed",
-      "consumes": "no app pins this version yet; publication unblocks adoption (recipe exercises the public API family named in its README)",
       "files": {
-        "Cargo.toml": "f3b9a78d19215ae51b4bcd5502e6b32d6bb8acf775e37c93c625752f8f7506d3",
-        "README.md": "58c0118b9c329391b6fa00791e410bca903f24dfc68fe982084642d5b1f629e1",
-        "src/main.rs": "f2e73d403e393647e26a9b3dfbca00c3149f6e7a92dac32ad51a5ba3dfd2f04e"
-      },
-      "aggregateSha256": "dd861970191eb2b66691b5d4687b5ad99b3baece8fb97457e917d2b3fa95286d"
+        "Cargo.toml": "773dcfa9cf71e161445a78fef9b2fe2fbadb29f0c7487ab06ba7eeb123ab28cd",
+        "README.md": "49969ed5d52a95136fd3a2292ff9075c1d8885e7afec17d3f0728f0534748164",
+        "src/main.rs": "bc2da36433862d3958697d8acbf19229dd89c933dd3314570cce6c1b8d74acbd"
+      }
     },
     "rightkit-llm": {
       "pkId": "PK26",
