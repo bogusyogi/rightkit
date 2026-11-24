@@ -1249,6 +1249,20 @@ pub(crate) fn fit_any_result(
     fit_envelope_bytes(result, budget, request);
 }
 
+/// Fit a response body to `budget` bytes (the whole wire envelope, as `Response::validate`
+/// bounds it) the same way `fit_any_result` does, for a caller that works to a fixed ceiling
+/// rather than the request's: the largest collections are halved and every cut is recorded as a
+/// `byte_ceiling` omission, creating the `omissions` receipt when the body has none.
+pub(crate) fn fit_to_byte_ceiling(result: &mut Value, budget: usize, request: &BlueprintRequest) {
+    if !result.is_object() {
+        return;
+    }
+    if !result.get("omissions").is_some_and(Value::is_array) {
+        result["omissions"] = Value::Array(Vec::new());
+    }
+    fit_envelope_bytes(result, budget, request);
+}
+
 /// Graph and diagnostic sections a `projection: "candidates"` caller (Pull
 /// federation) never consumes; Explorer and diagnostics request them.
 const PRESENTATIONAL_SECTIONS: [&str; 6] = [
