@@ -4018,7 +4018,7 @@
       "pkId": "PK186",
       "id": "ci/consumers/rightkit-notch-ui/src/main.rs",
       "files": {
-        "Cargo.toml": "88d079a3362c1bc844893d1860e4d0a265aa0733cbecf960ef456b8e14d5e933",
+        "Cargo.toml": "d57b8b2277fee5a5edcd4eba51c7115aa75a9962751d84cd78c2882098b9b745",
         "README.md": "0ae91da2643716eb844823762dbbb00adf34651a34fb7aea72dad820e542080f",
         "src/main.rs": "f0dfdf2f6e892ec4cbff475c62de1cb294d1aac8f6c14c09902a1d0df4726493"
       }

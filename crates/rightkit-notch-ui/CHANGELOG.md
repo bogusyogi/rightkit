@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.2
+
+- The card renderer's two premultiplied pixel loops (a strip picture laid over a body, card contents laid over a body) are `rightkit_win_ui::canvas::Canvas::composite_clipped`; the loops in `render` are gone and the output is unchanged. Requires `rightkit-win-ui` 0.1.3.
+
 ## 0.2.1
 
 - `layout::headline_outside()`: whether `draw_headline_outside` was called (the headline window drawn outside whatever the switches say). Default `false` until it is called, as before; the flag was private, so a host building its own `CellView`s could not read it. Pulse's `views` reads it where `weeklyHeadline` would swap the rings.
