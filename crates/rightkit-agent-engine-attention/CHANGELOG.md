@@ -1,7 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.2.0
 
+- Breaking, so a minor release: the axum routes are no longer in the default build, and published `rightkit-agent-server` 0.1.1 requires `^0.1.0` without `server`, so a patch release would have broken its fresh builds. `rightkit-time` requirement raised to 0.1.5 (`zones::offset_at`, used by the `/attention` route and `zone_offset_secs`). `rightkit-agent-server` and `rightkit-assist` now require 0.2.0.
 - `rightkit-fs` requirement relaxed from `0.5.0` to `>=0.4.15, <0.6`: this crate only calls `atomic_write`, which both have, so a host on 0.4.15 (Pulse's engine) does not gain a second `rightkit-fs`. `rightkit-agent-server` still needs 0.5.0. Written, not compiled.
 - The axum routes (`attention_routes`, `AttentionRouterState`) now sit behind the new non-default feature `server`; `axum` is an optional dependency. A host that wants only `inbox`, routing and the stores no longer pulls axum. Breaking for a caller of the routes that does not enable `server` (in-tree: `rightkit-agent-server` now does; `rightkit-assist` uses only `inbox`). The route code moved to `src/server.rs`, unchanged. Written, not compiled.
 

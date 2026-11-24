@@ -18,7 +18,7 @@ Capabilities: 223 (58 with fingerprints, 165 declaration-only). Internal owners 
 | agent-api-platform | `rightkit-agent-engine-api-platform` | none | declaration-only | 0 | rightkit-agent-engine-api-platform: staged 0.1.3, not published |
 | agent-api-sessions | `rightkit-agent-engine-api-sessions` | none | declaration-only | 0 | rightkit-agent-engine-api-sessions: staged 0.1.1, not published |
 | agent-api-workflows | `rightkit-agent-engine-api-workflows` | none | declaration-only | 0 | rightkit-agent-engine-api-workflows: staged 0.2.2, not published |
-| agent-attention | `rightkit-agent-engine-attention` | none | declaration-only | 0 | rightkit-agent-engine-attention: staged 0.1.3, not published |
+| agent-attention | `rightkit-agent-engine-attention` | none | declaration-only | 0 | rightkit-agent-engine-attention: staged 0.2.0, not published |
 | agent-cli | `rightkit-agent-engine-cli` | none | declaration-only | 0 | rightkit-agent-engine-cli: staged 0.1.1, not published |
 | agent-demo-mode | `rightkit-agent-demo` | none | declaration-only | 0 | rightkit-agent-demo: staged 0.2.0, not published |
 | agent-engine | `rightkit-agent-engine-core` | none | declaration-only | 0 | rightkit-agent-engine-core: staged 0.1.3, not published |

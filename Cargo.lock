@@ -10064,10 +10064,11 @@ dependencies = [
 
 [[package]]
 name = "rightkit-agent-engine-attention"
-version = "0.1.3"
+version = "0.2.0"
 dependencies = [
  "axum",
  "rightkit-fs",
+ "rightkit-time",
  "serde",
  "serde_json",
 ]
