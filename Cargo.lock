@@ -10680,6 +10680,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "rightkit-assist"
+version = "0.1.0"
+dependencies = [
+ "rightkit-agent-engine-attention",
+ "rightkit-fs",
+ "rightkit-time",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "rightkit-audio"
 version = "0.4.1"
 dependencies = [
@@ -12440,6 +12451,7 @@ dependencies = [
  "objc2",
  "objc2-foundation",
  "objc2-user-notifications",
+ "rightkit-crypto",
  "thiserror 2.0.21",
  "windows 0.61.3",
 ]
@@ -12935,6 +12947,7 @@ name = "rightkit-scheduler"
 version = "0.3.0"
 dependencies = [
  "rightkit-agent-engine-protocol",
+ "rightkit-db",
  "rightkit-time",
  "serde",
  "serde_json",
