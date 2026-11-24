@@ -1,5 +1,9 @@
 # RightKitSwift changelog
 
+## 0.9.6 - 2026-11-24
+
+- RightKitAccessibility adds `RightKitAXElement.application(pid:messagingTimeout:)` (a per-element messaging timeout) and `elementsIfReadable(_:)` (an absent or unsupported list is empty, an unreadable or malformed one is unknown). RightKitOverlay adds `RightKitWindowVisibility.isOnScreen(_:)`, `RightKitAllSpacesWindows.contains(ownerPID:layer:matchingSize:)` (WindowServer, hidden and minimized windows included) and ordered `onScreenWindowRecords()` (`OnScreenWindow`: pid, bounds, layer, owner name, alpha) for hosts that detect full-screen or hidden windows.
+
 ## 0.9.5 - 2026-11-21
 
 - RightKitWatchBridge adds receipt observations, configurable rollback wording and bounded activation replay. Explicit receipt queries still consult durable storage.

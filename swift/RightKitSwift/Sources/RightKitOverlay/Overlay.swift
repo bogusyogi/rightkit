@@ -785,20 +785,42 @@ extension RightKitOverlayFullScreen {
                 && visibleFrameCoversScreen(frame: screen.frame, visibleFrame: screen.visibleFrame))
     }
 
-    /// Second half of the split's input: the on-screen windows. A blocking WindowServer call that
-    /// is safe on any thread; call it off the main thread.
-    public static func onScreenWindows() -> [WindowInfo] {
-        var windows: [WindowInfo] = []
-        guard let infoList = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
-            as? [[String: Any]] else { return windows }
-        for info in infoList {
-            guard let pid = info[kCGWindowOwnerPID as String] as? pid_t,
-                  let layer = info[kCGWindowLayer as String] as? Int,
-                  let dict = info[kCGWindowBounds as String] as? NSDictionary,
-                  let bounds = CGRect(dictionaryRepresentation: dict as CFDictionary) else { continue }
-            windows.append((pid: pid, layer: layer, bounds: bounds))
+    public struct OnScreenWindow: Sendable {
+        public let pid: pid_t
+        public let bounds: CGRect
+        public let layer: Int?
+        public let ownerName: String?
+        public let alpha: Double?
+    }
+
+    private static func windowEntries() -> [[String: Any]] {
+        CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
+            as? [[String: Any]] ?? []
+    }
+
+    private static func geometry(_ entry: [String: Any]) -> (pid: pid_t, bounds: CGRect, layer: Int?)? {
+        guard let pid = entry[kCGWindowOwnerPID as String] as? pid_t,
+              let raw = entry[kCGWindowBounds as String] as? NSDictionary,
+              let bounds = CGRect(dictionaryRepresentation: raw as CFDictionary) else { return nil }
+        return (pid, bounds, entry[kCGWindowLayer as String] as? Int)
+    }
+
+    /// Blocking WindowServer query in front-to-back order. Call off the main thread.
+    public static func onScreenWindowRecords() -> [OnScreenWindow] {
+        windowEntries().compactMap { entry in
+            guard let window = geometry(entry) else { return nil }
+            return OnScreenWindow(pid: window.pid, bounds: window.bounds, layer: window.layer,
+                                  ownerName: entry[kCGWindowOwnerName as String] as? String,
+                                  alpha: entry[kCGWindowAlpha as String] as? Double)
         }
-        return windows
+    }
+
+    /// Blocking input for full-screen detection. Call off the main thread.
+    public static func onScreenWindows() -> [WindowInfo] {
+        windowEntries().compactMap { entry in
+            guard let window = geometry(entry), let layer = window.layer else { return nil }
+            return (pid: window.pid, layer: layer, bounds: window.bounds)
+        }
     }
 }
 #endif
