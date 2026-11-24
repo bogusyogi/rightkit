@@ -4,8 +4,8 @@
 //! bad signature are the same answer.
 
 use ring::signature::{
-    Ed25519KeyPair, KeyPair, UnparsedPublicKey, ECDSA_P256_SHA256_ASN1, ECDSA_P256_SHA256_FIXED,
-    ED25519, RSA_PKCS1_2048_8192_SHA256,
+    EcdsaKeyPair, Ed25519KeyPair, KeyPair, UnparsedPublicKey, ECDSA_P256_SHA256_ASN1,
+    ECDSA_P256_SHA256_FIXED, ECDSA_P256_SHA256_FIXED_SIGNING, ED25519, RSA_PKCS1_2048_8192_SHA256,
 };
 
 use crate::{CryptoError, Secret};
@@ -66,6 +66,64 @@ pub fn ed25519_verify(public_key: &[u8], message: &[u8], signature: &[u8]) -> bo
     UnparsedPublicKey::new(&ED25519, public_key)
         .verify(message, signature)
         .is_ok()
+}
+
+/// An ECDSA P-256 / SHA-256 signing key producing the raw `r || s` form JWS ES256 needs (RFC 7518
+/// section 3.4), for example an APNs provider token.
+///
+/// `Debug` prints no key bytes and [`CryptoError`] carries no detail. `ring` does not let a parsed
+/// key pair be wiped, so the only wiped copy is the caller's: hold the PKCS#8 document in a
+/// [`Secret`] and drop it once this signer is built.
+pub struct P256Signer {
+    pair: EcdsaKeyPair,
+}
+
+impl P256Signer {
+    /// A new key from the system random generator. Returns the signer and its PKCS#8 document (the
+    /// form [`P256Signer::from_pkcs8`] reads), held as a wiped [`Secret`].
+    pub fn generate() -> Result<(Self, Secret), CryptoError> {
+        let rng = ring::rand::SystemRandom::new();
+        let doc = EcdsaKeyPair::generate_pkcs8(&ECDSA_P256_SHA256_FIXED_SIGNING, &rng)
+            .map_err(|_| CryptoError)?;
+        let secret = Secret::new(doc.as_ref().to_vec());
+        let signer = Self::from_pkcs8(secret.expose())?;
+        Ok((signer, secret))
+    }
+
+    /// Load a key from an unencrypted PKCS#8 `PrivateKeyInfo` DER document (what Apple's `.p8` holds
+    /// once its PEM armor is removed). A malformed or non-P-256 document is a [`CryptoError`].
+    pub fn from_pkcs8(pkcs8: &[u8]) -> Result<Self, CryptoError> {
+        let rng = ring::rand::SystemRandom::new();
+        EcdsaKeyPair::from_pkcs8(&ECDSA_P256_SHA256_FIXED_SIGNING, pkcs8, &rng)
+            .map(|pair| Self { pair })
+            .map_err(|_| CryptoError)
+    }
+
+    /// The 65-byte uncompressed SEC1 public key (leading `0x04`), the form [`ecdsa_p256_verify`] takes.
+    pub fn public_key(&self) -> [u8; 65] {
+        let mut out = [0u8; 65];
+        out.copy_from_slice(self.pair.public_key().as_ref());
+        out
+    }
+
+    /// The ES256 signature of `message`: 64 bytes, `r || s`, each big-endian and left-padded to 32.
+    pub fn sign(&self, message: &[u8]) -> Result<[u8; 64], CryptoError> {
+        let rng = ring::rand::SystemRandom::new();
+        let sig = self.pair.sign(&rng, message).map_err(|_| CryptoError)?;
+        let mut out = [0u8; 64];
+        let bytes = sig.as_ref();
+        if bytes.len() != 64 {
+            return Err(CryptoError);
+        }
+        out.copy_from_slice(bytes);
+        Ok(out)
+    }
+}
+
+impl std::fmt::Debug for P256Signer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("P256Signer(<redacted>)")
+    }
 }
 
 /// Encoding of an ECDSA P-256 signature.
