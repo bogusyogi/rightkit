@@ -120,9 +120,9 @@ async fn read_to_eof(reader: &mut PtyReader) -> Vec<u8> {
 }
 
 async fn cancel(streamed: &mut StreamedPty) {
-    streamed
-        .cancel(TerminationOptions::default())
+    tokio::time::timeout(LIMIT, streamed.cancel(TerminationOptions::default()))
         .await
+        .unwrap_or_else(|_| panic!("cancel must end the child within {} s", LIMIT.as_secs()))
         .expect("cancel must end the child");
 }
 
@@ -163,7 +163,10 @@ async fn input_is_echoed_and_the_streams_are_taken_once() {
     assert!(streamed.take_reader().unwrap().is_none());
     assert!(streamed.take_writer().unwrap().is_none());
 
-    writer.write_input(b"echo hi\r").await.unwrap();
+    tokio::time::timeout(LIMIT, writer.write_input(b"echo hi\r"))
+        .await
+        .expect("writing input must not block for 60 s")
+        .unwrap();
     // The terminal echoes "echo hi" and the shell then prints its output on a line of its own.
     let text = read_until(&mut reader, "\nhi\r").await;
     assert!(text.contains("\nhi\r"), "{text:?}");
@@ -194,6 +197,11 @@ async fn a_confined_child_cannot_read_outside_its_root_and_the_stream_shows_the_
     let mut reader = streamed.take_reader().unwrap().expect("a reader");
 
     let out = String::from_utf8_lossy(&read_to_eof(&mut reader).await).into_owned();
+    // Reap the child before any assertion can panic, so the stream is not dropped while it runs.
+    tokio::time::timeout(LIMIT, streamed.wait())
+        .await
+        .expect("the confined child must exit within 60 s")
+        .ok();
     assert!(
         out.contains("INSIDE-OK"),
         "the granted root is readable: {out:?}"
@@ -256,7 +264,20 @@ async fn the_background_slot_is_released_after_drop() {
         other => panic!("a second spawn under one slot must be denied, got {other}"),
     }
 
-    drop(first);
+    // Dropping the live stream is what this test checks, so it stays a drop. It runs on its own
+    // thread under the runtime's context, so a drop that never returns fails here at 60 s.
+    let (dropped_tx, dropped_rx) = std::sync::mpsc::channel::<()>();
+    let runtime = tokio::runtime::Handle::current();
+    let dropper = std::thread::spawn(move || {
+        let _runtime = runtime.enter();
+        drop(first);
+        let _ = dropped_tx.send(());
+    });
+    dropped_rx
+        .recv_timeout(LIMIT)
+        .expect("dropping a live StreamedPty must return within 60 s");
+    dropper.join().expect("the dropper thread must not panic");
+
     let mut third =
         expect_spawned(sandbox.spawn_pty_stream(None, sleep_command(), PtySize::default()));
     cancel(&mut third).await;

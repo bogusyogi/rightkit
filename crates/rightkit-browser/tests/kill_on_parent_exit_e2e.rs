@@ -9,7 +9,7 @@
 //! the supervisor with SIGKILL (no cleanup runs), and expects Chrome and its group to be gone.
 #![cfg(any(target_os = "linux", target_os = "macos"))]
 
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::process::{Child, Command, Stdio};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
@@ -39,6 +39,23 @@ fn group_members_remain(pgid: u32) -> bool {
         .any(|group| group == pgid)
 }
 
+/// True when Chrome for Testing resolves the way the supervisor's default launch resolves it.
+/// Otherwise prints the reason on stdout and returns false, so the test skips.
+fn chrome_for_testing_or_skip() -> bool {
+    match rightkit_browser::chrome_for_testing_path(None) {
+        Ok(_) => true,
+        Err(error) => {
+            println!(
+                "skipping {TEST_NAME}: Chrome for Testing is not installed on this host, so the \
+                 kill-on-parent-exit proof cannot run. Set RIGHTKIT_CHROME_FOR_TESTING to a \
+                 Chrome for Testing executable, or run `rightkit-qa-chrome install`. \
+                 Detail: {error}"
+            );
+            false
+        }
+    }
+}
+
 #[test]
 fn a_killed_host_takes_chrome_with_it() {
     if std::env::var(ROLE).as_deref() == Ok("supervisor") {
@@ -46,8 +63,11 @@ fn a_killed_host_takes_chrome_with_it() {
             .enable_all()
             .build()
             .expect("current-thread runtime");
-        if rightkit_browser::find_chrome().is_none() {
-            panic!("no Chrome found on this host: the kill-on-parent-exit proof cannot run");
+        // The same resolver the default launch below uses. `find_chrome` would also accept a
+        // regular Google Chrome, which `LaunchOptions::default()` never launches, so checking it
+        // here would refuse a host that has Chrome for Testing but no regular Chrome.
+        if let Err(error) = rightkit_browser::chrome_for_testing_path(None) {
+            panic!("Chrome for Testing is not available here, so the proof cannot run: {error}");
         }
         let session = runtime
             .block_on(rightkit_browser::BrowserSession::launch(
@@ -65,13 +85,27 @@ fn a_killed_host_takes_chrome_with_it() {
         return;
     }
 
+    if !chrome_for_testing_or_skip() {
+        return;
+    }
+
     let exe = std::env::current_exe().expect("test binary");
     let mut supervisor: Child = Command::new(exe)
         .args(["--exact", TEST_NAME, "--nocapture", "--test-threads=1"])
         .env(ROLE, "supervisor")
         .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
         .spawn()
         .expect("supervisor spawns");
+
+    let stderr = supervisor.stderr.take().expect("piped stderr");
+    let (stderr_tx, stderr_rx) = mpsc::channel::<String>();
+    std::thread::spawn(move || {
+        // Drains the pipe for the whole run so the supervisor never blocks on a full pipe.
+        let mut text = String::new();
+        let _ = BufReader::new(stderr).read_to_string(&mut text);
+        let _ = stderr_tx.send(text);
+    });
 
     let stdout = supervisor.stdout.take().expect("piped stdout");
     let (pid_tx, pid_rx) = mpsc::channel::<u32>();
@@ -90,9 +124,17 @@ fn a_killed_host_takes_chrome_with_it() {
     let chrome = match pid_rx.recv_timeout(Duration::from_secs(60)) {
         Ok(pid) => pid,
         Err(_) => {
+            // A supervisor that exits closes its stdout at once, so this arm returns without
+            // waiting out the 60 s bound; the bound applies only to a live supervisor.
             let _ = supervisor.kill();
-            let _ = supervisor.wait();
-            panic!("supervisor did not report chrome_pid= within 60 s");
+            let status = supervisor.wait();
+            let stderr_text = stderr_rx
+                .recv_timeout(Duration::from_secs(5))
+                .unwrap_or_else(|_| "(stderr still open: a child holds the pipe)".into());
+            panic!(
+                "supervisor did not report chrome_pid= (exit status {status:?}); \
+                 supervisor stderr:\n{stderr_text}"
+            );
         }
     };
 
