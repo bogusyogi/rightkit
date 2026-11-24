@@ -491,7 +491,9 @@ async fn list_attention_handler(
         return Err(StatusCode::BAD_REQUEST);
     }
     let density = load_density(&workspace_root);
-    let quiet_hours_active = quiet_hours_active(&workspace_root, now_seconds());
+    // This route has no zone database, so every window is read as UTC (the behaviour it had before
+    // `quiet_hours_active_in_zones` existed); a host that has one calls that function itself.
+    let quiet_hours_active = quiet_hours_active_in_zones(&workspace_root, now_seconds(), &|_, _| 0);
     let items = build_attention_items(&workspace_root, density);
     let counts = count_attention(&items);
     Ok(Json(AttentionListResponse {
@@ -832,6 +834,15 @@ fn load_quiet_hours(workspace_root: &str) -> QuietHoursResponse {
     })
 }
 
+/// Whether quiet hours are in force now, reading every window as UTC.
+///
+/// Deprecated: a window's `HH:MM` times are local times in the window's `timezone`, and this
+/// ignores the zone, so a window set for another zone is off by that zone's offset. Use
+/// [`quiet_hours_active_in_zones`] with the caller's zone offset function.
+#[deprecated(
+    since = "0.1.4",
+    note = "reads every window as UTC and ignores its timezone; use quiet_hours_active_in_zones"
+)]
 pub fn quiet_hours_active(workspace_root: &str, now_seconds: u64) -> bool {
     let qh = load_quiet_hours(workspace_root);
     if !qh.enabled || qh.windows.is_empty() {
@@ -841,6 +852,27 @@ pub fn quiet_hours_active(workspace_root: &str, now_seconds: u64) -> bool {
     qh.windows
         .iter()
         .any(|w| window_contains(&w.start, &w.end, &hhmm))
+}
+
+/// Whether quiet hours are in force at `now_seconds`, reading each window in its own zone.
+///
+/// `offset_for(zone, unix)` returns that zone's UTC offset in seconds, east positive, at that
+/// instant (`zone` is the window's `timezone`, `None` when it names none, which the caller reads
+/// as its default zone). The crate has no zone database, so the caller's does the work, DST
+/// included. Same window rules as [`quiet_hours_active`]: `start > end` crosses midnight and
+/// `start == end` is empty; a window with an unparsable time is ignored. Quiet hours that are
+/// not enabled are never active.
+pub fn quiet_hours_active_in_zones(
+    workspace_root: &str,
+    now_seconds: u64,
+    offset_for: &dyn Fn(Option<&str>, i64) -> i32,
+) -> bool {
+    let qh = load_quiet_hours(workspace_root);
+    if !qh.enabled || qh.windows.is_empty() {
+        return false;
+    }
+    let now = i64::try_from(now_seconds).unwrap_or(i64::MAX);
+    inbox::quiet_windows_contain(now, &qh.windows, offset_for)
 }
 
 // FM-174: cross-midnight quiet-hours predicate. Repaired (see disposition in

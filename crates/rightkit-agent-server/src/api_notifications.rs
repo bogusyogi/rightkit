@@ -163,7 +163,10 @@ fn append_desktop_notification_at(
         read: false,
     };
     let root_str = workspace_root.to_string_lossy();
-    if rightkit_agent_engine_attention::quiet_hours_active(root_str.as_ref(), now_seconds) {
+    // No zone database here, so quiet hours are read as UTC, as before the zone-aware function existed.
+    #[allow(deprecated)]
+    let quiet = rightkit_agent_engine_attention::quiet_hours_active(root_str.as_ref(), now_seconds);
+    if quiet {
         // Quiet hours active: route the notification as suppressed.
         return Ok(row);
     }

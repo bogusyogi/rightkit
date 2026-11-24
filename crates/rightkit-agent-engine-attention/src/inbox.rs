@@ -11,6 +11,9 @@
 // different thing (typed banner status) and is untouched.
 //
 // Time: every instant is Unix seconds (`i64`) and always passed in; nothing here reads a clock.
+// Zones: quiet-hours windows carry an optional zone name. The crate has no zone database, so the
+// caller supplies `offset_for(zone, unix)`, the offset in seconds east of UTC; `zone` is the
+// window's own zone name, or `None` when the window names none (the caller's default zone).
 //
 // Storage: the decision logic is pure functions over `&mut Vec<InboxItem>`. The host persists
 // through `InboxStore::update`, one atomic read-modify-write. `FileInboxStore` follows the
@@ -49,6 +52,16 @@ impl InboxState {
             InboxState::Dismissed | InboxState::Handled | InboxState::Expired
         )
     }
+}
+
+/// How sure the agent is of a finding. A finding is a candidate, not a verdict: a mismatch can
+/// have an innocent explanation, and a lower confidence with `missing_information` says so.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum InboxConfidence {
+    Low,
+    Medium,
+    High,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -91,6 +104,13 @@ pub struct InboxItem {
     pub evidence_ids: Vec<String>,
     #[serde(default)]
     pub proposed_actions: Vec<InboxAction>,
+    /// How sure the agent is that this finding is right. `None` when the check did not say.
+    #[serde(default)]
+    pub confidence: Option<InboxConfidence>,
+    /// What information is missing: what the agent could not find or confirm and would need in
+    /// order to be sure. Empty when nothing is known to be missing.
+    #[serde(default)]
+    pub missing_information: Vec<String>,
     pub state: InboxState,
     pub dedupe_key: String,
     #[serde(default)]
@@ -119,6 +139,10 @@ pub struct NewInboxItem {
     pub evidence_ids: Vec<String>,
     #[serde(default)]
     pub proposed_actions: Vec<InboxAction>,
+    #[serde(default)]
+    pub confidence: Option<InboxConfidence>,
+    #[serde(default)]
+    pub missing_information: Vec<String>,
     #[serde(default)]
     pub urgent: bool,
     #[serde(default)]
@@ -214,6 +238,8 @@ pub fn raise(
         fact_ids: facts.into_iter().collect(),
         evidence_ids: new.evidence_ids,
         proposed_actions: new.proposed_actions,
+        confidence: new.confidence,
+        missing_information: new.missing_information,
         state: if expired {
             InboxState::Expired
         } else {
@@ -298,18 +324,56 @@ pub fn record_delivery(items: &mut [InboxItem], id: &str, device_id: &str, now: 
 pub struct TickReport {
     pub expired: Vec<String>,
     pub woken: Vec<String>,
+    /// Items whose expiry passed while quiet hours held them, never delivered: they stay open so
+    /// routing delivers them once after the hold, and they expire on the tick after that.
+    pub expiry_deferred: Vec<String>,
+}
+
+/// True when `item` is open, was never delivered, and its expiry instant fell inside a quiet-hours
+/// hold that applied to it. Such an item is owed one delivery before it may expire.
+fn expiry_fell_in_hold(
+    item: &InboxItem,
+    settings: &RoutingSettings,
+    release_at: &dyn Fn(i64) -> Option<i64>,
+) -> bool {
+    let Some(expiry) = item.expires_at else {
+        return false;
+    };
+    item.state == InboxState::Open
+        && item.deliveries.is_empty()
+        && !(item.urgent && settings.urgent_bypasses_quiet_hours)
+        && release_at(expiry).is_some_and(|release| release > expiry)
 }
 
 /// Moves time forward. Expiry is checked first, so an item whose expiry and snooze both passed
 /// is expired, not woken. A woken item returns as `Open` with its delivery history cleared, so
 /// it alerts again.
-pub fn tick(items: &mut [InboxItem], now: i64) -> TickReport {
+///
+/// A held alert is never lost to expiry: an open item that was never delivered and whose expiry
+/// instant fell inside a quiet-hours hold is not expired. It stays open, is listed in
+/// `expiry_deferred`, is delivered once by routing after the hold ends, and expires on the first
+/// tick after that delivery is recorded. A snoozed item is not held by quiet hours (the owner
+/// hid it), so it expires normally.
+///
+/// `release_at(t)` is the release instant of the quiet-hours hold in force at `t`, or `None` when
+/// quiet hours are not in force at `t` (see [`quiet_hours_release_at`]). It is asked about the
+/// item's expiry instant, so changing the quiet-hours setting afterwards can change the answer.
+pub fn tick(
+    items: &mut [InboxItem],
+    now: i64,
+    settings: &RoutingSettings,
+    release_at: &dyn Fn(i64) -> Option<i64>,
+) -> TickReport {
     let mut report = TickReport::default();
     for item in items.iter_mut() {
         if item.state.is_terminal() {
             continue;
         }
         if item.expires_at.is_some_and(|at| at <= now) {
+            if expiry_fell_in_hold(item, settings, release_at) {
+                report.expiry_deferred.push(item.id.clone());
+                continue;
+            }
             item.state = InboxState::Expired;
             item.snooze_until = None;
             item.resolved_at = Some(now);
@@ -336,10 +400,10 @@ fn hhmm_minutes(value: &str) -> Option<i64> {
     Some(h.parse::<i64>().ok()? * 60 + m.parse::<i64>().ok()?)
 }
 
-/// Seconds since local midnight at `unix`, using the zone offset in force at that instant. An
-/// offset `rightkit-time` rejects is treated as UTC rather than failing.
-fn local_second_of_day(unix: i64, offset_secs_at: &dyn Fn(i64) -> i32) -> i64 {
-    let civil = rightkit_time::DateTime::from_unix(unix, offset_secs_at(unix))
+/// Seconds since local midnight at `unix` in the zone whose offset is `offset_secs`. An offset
+/// `rightkit-time` rejects is treated as UTC rather than failing.
+fn local_second_of_day(unix: i64, offset_secs: i32) -> i64 {
+    let civil = rightkit_time::DateTime::from_unix(unix, offset_secs)
         .or_else(|| rightkit_time::DateTime::from_unix(unix, 0));
     match civil {
         Some(c) => c.hour as i64 * 3600 + c.minute as i64 * 60 + c.second as i64,
@@ -347,39 +411,65 @@ fn local_second_of_day(unix: i64, offset_secs_at: &dyn Fn(i64) -> i32) -> i64 {
     }
 }
 
+/// Start and end, in seconds from local midnight, of a usable window: both times parse and
+/// `start != end` (equal is empty).
+fn window_bounds(w: &QuietHoursWindow) -> Option<(i64, i64)> {
+    let (s, e) = (hhmm_minutes(&w.start)? * 60, hhmm_minutes(&w.end)? * 60);
+    (s != e).then_some((s, e))
+}
+
+fn second_inside(start: i64, end: i64, sod: i64) -> bool {
+    if start < end {
+        start <= sod && sod < end
+    } else {
+        sod >= start || sod < end
+    }
+}
+
+/// True when `unix` is inside any of `windows`, each read in its own zone (see
+/// [`quiet_release_at`] for `offset_for`). Unlike [`quiet_release_at`] it does not care whether
+/// the windows ever end, so windows that cover the whole day are all-day active here.
+pub fn quiet_windows_contain(
+    unix: i64,
+    windows: &[QuietHoursWindow],
+    offset_for: &dyn Fn(Option<&str>, i64) -> i32,
+) -> bool {
+    windows.iter().any(|w| {
+        window_bounds(w).is_some_and(|(start, end)| {
+            let sod = local_second_of_day(unix, offset_for(w.timezone.as_deref(), unix));
+            second_inside(start, end, sod)
+        })
+    })
+}
+
 /// If `now` is inside quiet hours, the Unix second at which they end (the first instant outside
 /// every window); `None` when quiet hours are not in force.
 ///
 /// `windows` are `HH:MM` local-time windows; `start > end` crosses midnight and `start == end`
 /// is empty (the same rules as the crate's existing quiet-hours predicate). Windows with an
-/// unparsable time are ignored. `offset_secs_at(unix)` returns the zone's UTC offset in seconds,
-/// east positive, at that instant, so the caller's zone database handles DST. Windows that
-/// together cover the whole day hold nothing: a window that never ends would drop alerts, not
-/// hold them.
+/// unparsable time are ignored. Each window is read in its own zone: `offset_for(zone, unix)`
+/// returns that zone's UTC offset in seconds, east positive, at that instant (`zone` is the
+/// window's `timezone`, `None` when it names none), so the caller's zone database handles DST.
+/// Windows that together cover the whole day hold nothing: a window that never ends would drop
+/// alerts, not hold them.
 pub fn quiet_release_at(
     now: i64,
     windows: &[QuietHoursWindow],
-    offset_secs_at: &dyn Fn(i64) -> i32,
+    offset_for: &dyn Fn(Option<&str>, i64) -> i32,
 ) -> Option<i64> {
-    let parsed: Vec<(i64, i64)> = windows
+    let parsed: Vec<(&QuietHoursWindow, i64, i64)> = windows
         .iter()
-        .filter_map(|w| Some((hhmm_minutes(&w.start)? * 60, hhmm_minutes(&w.end)? * 60)))
-        .filter(|(s, e)| s != e)
+        .filter_map(|w| window_bounds(w).map(|(s, e)| (w, s, e)))
         .collect();
     if parsed.is_empty() {
         return None;
     }
     let mut t = now;
     for _ in 0..(parsed.len() * 2 + 2) {
-        let sod = local_second_of_day(t, offset_secs_at);
         let mut next: Option<i64> = None;
-        for &(start, end) in &parsed {
-            let inside = if start < end {
-                start <= sod && sod < end
-            } else {
-                sod >= start || sod < end
-            };
-            if inside {
+        for &(w, start, end) in &parsed {
+            let sod = local_second_of_day(t, offset_for(w.timezone.as_deref(), t));
+            if second_inside(start, end, sod) {
                 let candidate = t + (end - sod).rem_euclid(86_400);
                 next = Some(next.map_or(candidate, |n| n.max(candidate)));
             }
@@ -396,12 +486,12 @@ pub fn quiet_release_at(
 pub fn quiet_hours_release_at(
     settings: &QuietHoursResponse,
     now: i64,
-    offset_secs_at: &dyn Fn(i64) -> i32,
+    offset_for: &dyn Fn(Option<&str>, i64) -> i32,
 ) -> Option<i64> {
     if !settings.enabled {
         return None;
     }
-    quiet_release_at(now, &settings.windows, offset_secs_at)
+    quiet_release_at(now, &settings.windows, offset_for)
 }
 
 // ─── Routing: "Alerts follow you" ────────────────────────────────────────────
@@ -697,8 +787,9 @@ impl<S: InboxStore> Inbox<S> {
     }
 
     /// One pass: expire and wake by time, then route every open item. `quiet` is the stored
-    /// quiet-hours setting; `offset_secs_at` is the zone offset function (see
-    /// [`quiet_release_at`]). Nothing is marked sent: the host sends, then calls
+    /// quiet-hours setting; `offset_for` is the zone offset function (see [`quiet_release_at`]).
+    /// An item whose expiry fell inside a quiet-hours hold is delivered once after the hold and
+    /// expires on a later pass (see [`tick`]). Nothing is marked sent: the host sends, then calls
     /// [`Inbox::record_delivery`], so a failed send is offered again.
     pub fn poll(
         &self,
@@ -706,11 +797,12 @@ impl<S: InboxStore> Inbox<S> {
         devices: &[DevicePresence],
         settings: &RoutingSettings,
         quiet: &QuietHoursResponse,
-        offset_secs_at: &dyn Fn(i64) -> i32,
+        offset_for: &dyn Fn(Option<&str>, i64) -> i32,
     ) -> Result<PollReport, String> {
-        let release = quiet_hours_release_at(quiet, now, offset_secs_at);
+        let release_at = |t: i64| quiet_hours_release_at(quiet, t, offset_for);
+        let release = release_at(now);
         self.store.update(|items| {
-            let ticked = tick(items, now);
+            let ticked = tick(items, now, settings, &release_at);
             let decisions = items
                 .iter()
                 .filter(|i| i.state == InboxState::Open)
