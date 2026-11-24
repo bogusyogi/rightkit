@@ -17,6 +17,8 @@ mod record;
 #[cfg(feature = "transcripts")]
 pub mod recovery_marker;
 mod schedule;
+#[cfg(any(feature = "drive", feature = "http"))]
+pub mod scope;
 mod storage;
 mod traits;
 #[cfg(feature = "transcript-host")]

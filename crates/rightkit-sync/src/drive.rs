@@ -173,10 +173,24 @@ pub fn sync_config() -> SyncConfig {
     }
 }
 
-/// `AuthProvider::account_scope` value: lowercase hex SHA-256 of
-/// `rightkit-drive|<app>|<zone>|<account_id>`. `account_id` is any stable identifier of the Google
+/// `AuthProvider::account_scope` value without a key id: the canonical
+/// [`crate::scope::account_scope`] with `None`. `account_id` is any stable identifier of the Google
 /// account the app obtained (for example the OIDC `sub`, or the Drive `permissionId` of the user).
+/// A zone sealed with `cipher` must bind its key id too, so use [`account_scope_with_key`].
 pub fn account_scope(app: &str, zone: &str, account_id: &str) -> String {
+    crate::scope::account_scope(app, zone, account_id, None)
+}
+
+/// [`account_scope`] with the sync key id bound (the same string `http::account_scope` and
+/// `rightkit_sync_keys::account_scope` give), so a key rotation or reset pauses for consent.
+pub fn account_scope_with_key(app: &str, zone: &str, account_id: &str, key_id: &str) -> String {
+    crate::scope::account_scope(app, zone, account_id, Some(key_id))
+}
+
+/// The scope this module computed before the canonical function: lowercase hex SHA-256 of
+/// `rightkit-drive|<app>|<zone>|<account_id>`. Kept for a ledger already written under it;
+/// switching to [`account_scope`] is a scope change.
+pub fn legacy_account_scope(app: &str, zone: &str, account_id: &str) -> String {
     rightkit_fs::digest::sha256_bytes(
         format!("rightkit-drive|{app}|{zone}|{account_id}").as_bytes(),
     )

@@ -1,5 +1,8 @@
 # Changelog
 
+## Unreleased
+
+- `KeyProvider::key_by_version(u32)` (provided, so existing implementors still compile; the default returns an error, not `None`), implemented by `ZoneKeys` and `StaticKeys`: `rightkit-sync`'s cipher seals a key version and needs the lookup by it. The adapter example in `provider.rs` now targets `rightkit_sync::cipher::VersionedKeyProvider`. `account_scope` documents its twin in `rightkit-sync` (`scope::account_scope`). Written, not compiled. No unit tests, per the 2026-11-03 rule.
 ## 0.1.0 (2026-10-17)
 
 - The local `pairing_sas.rs` copy of `rk-pair/1` is deleted (#965); `transfer` uses `rightkit_identity::pairing` (`pairing_commit`, `pairing_code`, `label_bytes`, the three constants). New dependency `rightkit-identity` 0.1.1. Behaviour unchanged (same bytes). Not compiled here.

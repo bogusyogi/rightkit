@@ -56,10 +56,18 @@ pub fn sync_config() -> SyncConfig {
     }
 }
 
-/// `AuthProvider::account_scope` value: lowercase hex SHA-256 of
-/// `rightkit-cloud|<app>|<zone>|<account_id>|<key_id>`. A key rotation or an account switch
-/// changes it, which resets (or, with consent required, pauses) the ledger.
+/// `AuthProvider::account_scope` value: the canonical [`crate::scope::account_scope`] with the key
+/// id bound. A key rotation or an account switch changes it, which resets (or, with consent
+/// required, pauses) the ledger. Same string as `rightkit_sync_keys::account_scope`.
 pub fn account_scope(app: &str, zone: &str, account_id: &str, key_id: &str) -> String {
+    crate::scope::account_scope(app, zone, account_id, Some(key_id))
+}
+
+/// The scope this module computed before the canonical function: lowercase hex SHA-256 of
+/// `rightkit-cloud|<app>|<zone>|<account_id>|<key_id>`. A host with a ledger already written under
+/// it keeps passing this value; switching to [`account_scope`] is a scope change (the engine
+/// resets, or pauses for consent when `require_consent_on_scope_change` is set).
+pub fn legacy_account_scope(app: &str, zone: &str, account_id: &str, key_id: &str) -> String {
     rightkit_fs::digest::sha256_bytes(
         format!("rightkit-cloud|{app}|{zone}|{account_id}|{key_id}").as_bytes(),
     )

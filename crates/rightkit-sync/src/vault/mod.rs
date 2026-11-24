@@ -78,7 +78,9 @@ use ring::rand::{SecureRandom, SystemRandom};
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroize;
 
-use crate::cipher::{KeyProvider, OpenError, RecordCipher, ENC_FIELD};
+use crate::cipher::{
+    KeyProvider, LegacyKeys, OpenError, RecordCipher, VersionedKeyProvider, ENC_FIELD,
+};
 use crate::error::{SyncError, SyncResult};
 use crate::record::{FieldValue, RawRecord};
 use crate::storage::LedgerStorage;
@@ -535,6 +537,17 @@ impl Vault {
         ledger: Arc<dyn LedgerStorage>,
         config: VaultConfig,
     ) -> SyncResult<Self> {
+        Self::new_versioned(store, vault_id, Arc::new(LegacyKeys(keys)), ledger, config)
+    }
+
+    /// Like [`Vault::new`] with `u32` key versions ([`VersionedKeyProvider`]).
+    pub fn new_versioned(
+        store: Arc<dyn ConditionalStore>,
+        vault_id: &str,
+        keys: Arc<dyn VersionedKeyProvider>,
+        ledger: Arc<dyn LedgerStorage>,
+        config: VaultConfig,
+    ) -> SyncResult<Self> {
         if !valid_vault_id(vault_id) {
             return Err(SyncError::Persistence(
                 "vault id must be 1 to 64 of A-Z a-z 0-9 . _ -".into(),
@@ -548,7 +561,7 @@ impl Vault {
         Ok(Self {
             store,
             vault_id: vault_id.to_string(),
-            cipher: RecordCipher::new(vault_id, keys),
+            cipher: RecordCipher::new_versioned(vault_id, keys),
             ledger,
             config,
             rng: SystemRandom::new(),
