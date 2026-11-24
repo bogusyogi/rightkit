@@ -1,9 +1,12 @@
 # Changelog
 
-## 0.7.3 (unpublished)
+## 0.7.4
 
 - Add `verify` (AG-11, RK-13; additive): `observe_compare(observe, act, delta)` and `compare` take an observation before and after an action and answer `Verdict::Effect`, `NoEffect` or `Unmeasured` (an observation that could not be taken, or a truncated one with no other change, is never a no-effect). `Automation::act_verified` wraps `act` with a before and after snapshot of the window (`WindowState`: node id, role, name, value, enabled, focused node; frames ignored) and returns `VerifiedOutcome`, whose `done()` is false when the verdict is `NoEffect`. `act` itself is unchanged.
 - `act` with `strict_focus` now runs a `FocusWatch` over the whole ladder, so a foreground steal that is undone before the final read sets `focus_moved` and fails with `FocusMoved`. An unmeasured watch never claims a move. Without `strict_focus` nothing changes. `FocusWatch` now stops its thread when dropped without `finish`. Written, not compiled.
+
+## 0.7.3
+
 - Add macOS focus reads with host-supplied timing and diagnostics, reusing the existing AX identity and focused-window rules. No Accessibility attributes are written.
 - Add `NativeTextTarget` for bounded, verified UTF-16 selection on Windows & macOS. Selection requires an exact full-field match in the retained focused control and reports whether a failed readback could safely restore the original selection. Callers must verify the full field and selection again immediately before editing.
 

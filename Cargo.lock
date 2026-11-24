@@ -10722,7 +10722,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-automation"
-version = "0.7.3"
+version = "0.7.4"
 dependencies = [
  "core-foundation 0.10.1",
  "core-graphics",
