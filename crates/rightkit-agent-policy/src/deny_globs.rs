@@ -179,6 +179,20 @@ pub struct DenyGlobSet {
 }
 
 impl DenyGlobSet {
+    /// Every read-deny pattern this set matches on, defaults included and in build order, so a
+    /// host can report which ones it cannot enforce on a given platform. Subtract
+    /// [`default_read_deny`] to get the user-configured ones alone.
+    #[must_use]
+    pub fn read_patterns(&self) -> &[String] {
+        &self.read_patterns
+    }
+
+    /// Every write-deny pattern this set matches on, the counterpart of [`Self::read_patterns`].
+    #[must_use]
+    pub fn write_patterns(&self) -> &[String] {
+        &self.write_patterns
+    }
+
     /// Build with the default deny lists.
     pub fn new() -> Self {
         Self::with_patterns(default_read_deny(), default_write_deny())
