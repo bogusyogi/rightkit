@@ -9,6 +9,8 @@ pub mod blur;
 #[cfg(windows)]
 pub mod card;
 #[cfg(windows)]
+pub mod card_flow;
+#[cfg(windows)]
 pub mod glide;
 pub mod host;
 pub mod layout;
