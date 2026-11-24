@@ -55,7 +55,8 @@ export function ensureAdvisoryDb({ cacheRoot, pin, git = defaultGit, fsImpl = fs
   const { url, commit } = checkPin(pin);
   const base = path.join(cacheRoot, "advisory-db");
   const dest = path.join(base, commit);
-  const head = (dir) => { const r = git(["rev-parse", "HEAD"], { cwd: dir }); return !r.error && r.status === 0 ? String(r.stdout).trim() : null; };
+  // -C names the checkout on the command line, so the process log tells this question from the fixture's own HEAD (NN08, 0.6.72).
+  const head = (dir) => { const r = git(["-C", dir, "rev-parse", "HEAD"], { cwd: dir }); return !r.error && r.status === 0 ? String(r.stdout).trim() : null; };
   if (fsImpl.existsSync(dest)) {
     if (head(dest) === commit) return dest;
     // A stale or damaged directory under the pinned name is never trusted; replace it.

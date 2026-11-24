@@ -2409,7 +2409,8 @@ export function killProcessTree(child, { platform = process.platform, run = spaw
  */
 export function defaultSpawnAsync(command, args, options = {}) {
   // GC-A27 NN08: the reads rememberReads keeps are answered from the same memory here, and an answer this path gets is kept for both.
-  if (isRememberedRead(command, args) && options.input === undefined && options.stdio === undefined && !options.stdoutFile && !options.onSpawn && !options.signal) {
+  // A cancel signal does not change the answer: a remembered one starts nothing to cancel (Class A's version probe always passes one).
+  if (isRememberedRead(command, args) && options.input === undefined && options.stdio === undefined && !options.stdoutFile && !options.onSpawn && !options.signal?.aborted) {
     const key = readMemoKey(command, args, options);
     if (READ_MEMO.has(key)) return Promise.resolve({ ...READ_MEMO.get(key) });
     return rawSpawnAsync(command, args, options).then((r) => { if (r && r.status === 0 && !r.error) READ_MEMO.set(key, { status: 0, signal: null, stdout: r.stdout, stderr: r.stderr }); return r; });

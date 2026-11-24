@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.73
+
+- NN08: a remembered read is answered even when the caller passes a cancel signal (Class A's version probe always does), so `pnpm --version` is not asked again in the real pass; a path missing from a commit named by its full id (`git show <sha>:<path>`, status 128) is remembered; the advisory database's HEAD question names its checkout with `-C`, so it is told apart from the fixture's.
+
 ## 0.6.72
 
 - NN08: the snapshot is not asked for its top level (the gate knows it is a snapshot when it passes the tracked-file list); the Class-A-only path uses the `--commit` id instead of asking HEAD; content-addressed git questions are remembered whatever folder asks; versions of actionlint, shellcheck, oxlint, cargo-deny and cargo-audit are asked once (rustup proxies and pnpm stay per folder).

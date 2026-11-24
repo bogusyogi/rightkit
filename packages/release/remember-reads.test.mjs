@@ -61,3 +61,22 @@ test("NN08: a snapshot run does not ask the snapshot for its top level, and the 
   const src = (await import("node:fs")).readFileSync(new URL("./bin/rightkit-gate.mjs", import.meta.url), "utf8");
   assert.match(src, /snapshotBCommit\?\.commit \?\? \(\/\^\[0-9a-f\]\{40\}\$\/\.test\(named \?\? ""\) \? named :/);
 });
+
+test("NN08: a path missing at a full commit id is asked once; a cancel signal still takes a remembered answer", async () => {
+  const { absentAtCommit } = await import("./probe-memo.mjs");
+  assert.equal(absentAtCommit("git", ["show", "9da554".padEnd(40, "0") + ":package.json"]), true);
+  assert.equal(absentAtCommit("git", ["show", "HEAD:package.json"]), false);
+  const src = (await import("node:fs")).readFileSync(new URL("./deterministic-scans.mjs", import.meta.url), "utf8");
+  assert.match(src, /!options\.onSpawn && !options\.signal\?\.aborted\)/);
+});
+
+test("NN08: the advisory database's HEAD question names its checkout with -C", async () => {
+  const { ensureAdvisoryDb } = await import("./advisory-db.mjs");
+  const commit = "a".repeat(40); const asked = [];
+  const git = (args) => { asked.push(args); return { status: 0, stdout: commit + "\n" }; };
+  const fsImpl = { existsSync: () => true };
+  const root = (await import("node:os")).tmpdir();
+  try { ensureAdvisoryDb({ cacheRoot: root, pin: { url: "https://github.com/rustsec/advisory-db", commit }, git, fsImpl }); } catch {}
+  const q = asked.find((a) => a.includes("rev-parse"));
+  assert.ok(q, "HEAD was asked"); assert.equal(q[0], "-C"); assert.deepEqual(q.slice(2), ["rev-parse", "HEAD"]);
+});
