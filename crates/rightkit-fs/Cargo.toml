@@ -1,9 +1,9 @@
 [package]
 name = "rightkit-fs"
-version = "0.4.18"
+version = "0.5.0"
 edition = "2021"
 rust-version = "1.98.0"
-description = "Safe state directories, atomic writes, cross-process locks, owner-only files, and stable file identity for Right Suite apps."
+description = "Safe state directories, atomic writes, cross-process locks, owner-only files, and stable file identity for applications."
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 repository = "https://github.com/bogusyogi/rightkit"
@@ -62,13 +62,60 @@ libc = { version = "0.2", optional = true }
 
 [package.metadata.rightkit]
 continuous = "held-resource"
-continuous_reason = "sleep: bounded retry delay for a transient rename or sharing violation (atomic.rs, RetryPolicy attempts) and lock acquisition poll bounded by LockOptions.timeout (lock.rs); no thread, task, timer, listener, watcher or growing memory (reviewed 2026-10-11); resident-static: the thread_local cells in src/atomic.rs are per-thread fault-injection and sync-count seams (the test seams were removed with the test features), each a fixed-size Cell or a short Vec of steps recorded only while a test arms it; the COUNTER there is a single AtomicU64 (reviewed 2026-10-17); 0.4.6 additions, not yet reviewed: src/transaction.rs holds one ID_COUNTER AtomicU64 and, inside test-seams, one thread_local hook cell, its commit and recovery waits are the bounded operation-lock acquisition (LockOptions timeout, default 30 s) with no thread, timer or growing memory, and src/write_locks.rs keeps an in-process registry that holds one entry per destination with a holder or waiter and removes it with the last, each wait bounded by a Condvar timeout (unless the caller passes a timeout the clock cannot add, such as Duration::MAX, which asks for no deadline); the transaction cleanup delete retry (transaction.rs retry_while and remove_with_retry) sleeps a bounded number of RetryPolicy attempts for each file with doubling pauses capped at one second, on Windows errors 5 (access denied), 32 (sharing violation) and 33 (lock violation) only; 0.4.8 additions, not yet reviewed: src/transient.rs holds no state and sleeps a bounded RetryPolicy (20 retries of 100 ms by default) between attempts of one delete, rename or open that Windows refuses with those three codes, and the transaction directory removal in transaction.rs uses the same bounded retry"
-
-# One Cargo workspace and lock per crate (rightkit#1285).
-
 [[package.metadata.rightkit.resources]]
-api = "ordered_write::OrderedWriteQueue"
+api = "OrderedWriteQueue"
 file = "src/ordered_write.rs"
 holds = ["memory"]
-scale = "one cancellation marker per dropped ticket waiting behind an unfinished earlier turn; markers are removed when that turn advances; no thread, timer or file handle"
-release = "turn advancement or queue Drop"
+scale = "One cancellation marker per dropped ticket waiting behind an unfinished earlier turn."
+release = "Turn advancement or queue Drop."
+
+[[package.metadata.rightkit.resources]]
+api = "publish_file_with"
+file = "src/atomic.rs"
+holds = ["memory"]
+scale = "One caller-owned atomic publish operation and a finite caller-configured number of retry delays."
+release = "Publish call return."
+
+[[package.metadata.rightkit.resources]]
+api = "FileLock"
+file = "src/lock.rs"
+holds = ["memory"]
+scale = "One record per active POSIX file identity. A raced alias may add one retained descriptor per attempt until the last holder drops. Lock acquisition polls on the calling thread up to LockOptions.timeout."
+release = "Last matching FileLock Drop removes the entry and releases its descriptors."
+static_note = "The process registry has entries only for active locks; no idle worker or timer."
+
+[[package.metadata.rightkit.resources]]
+api = "scan_file_with_timeout"
+file = "src/malware_scan.rs"
+holds = ["child", "memory"]
+scale = "At most one Windows scanner child per call, polled every 50 ms. A finite deadline is checked for overflow before spawn; an unrepresentable deadline returns Unavailable without launching a child. None waits for child exit."
+release = "Child exit or a failed or timed-out wait kills and reaps the child."
+
+[[package.metadata.rightkit.resources]]
+api = "ensure_private_dir"
+file = "src/private.rs"
+holds = ["memory"]
+scale = "One caller-owned ACL operation with MAX_OPEN_TRIES attempts on a Windows sharing violation."
+release = "ACL call return."
+
+[[package.metadata.rightkit.resources]]
+api = "PrivateDirCacheLease"
+file = "src/private_cached.rs"
+holds = ["memory"]
+scale = "Acquire and Clone share at most 513 directory identities per shared cache; only held PrivateDirCacheLease values enable new cache calls, and in-flight helpers may briefly retain storage; reuse lasts at most 300 seconds and checks current identity. Without a lease, ACL checks are uncached."
+release = "Last lease Drop, after in-flight helpers return, drops the map and its entries. forget_private_dir removes one entry; insertion over the limit clears entries."
+static_note = "One process singleton holds only a mutex-protected Weak slot, never a strong cache owner. Serialized acquire/upgrade shares a live cache or creates an empty one; no background task or timer."
+
+[[package.metadata.rightkit.resources]]
+api = "FileTransaction"
+file = "src/transaction.rs"
+holds = ["memory"]
+scale = "One operation lock held during transaction work and bounded delete retries for each file, with delay capped at one second."
+release = "Commit or recovery return drops the operation lock."
+
+[[package.metadata.rightkit.resources]]
+api = "retry_transient"
+file = "src/transient.rs"
+holds = ["memory"]
+scale = "One synchronous operation with a caller-configured finite retry count and delay."
+release = "Operation return."

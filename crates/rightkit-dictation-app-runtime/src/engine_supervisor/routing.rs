@@ -76,6 +76,46 @@ impl KeyGate {
         }
     }
 
+    /// `claim` that never waits: register this caller as the delivery of `generation` right now
+    /// (`Deliver`, with `inflight` set before this returns) when nothing settled or is in flight
+    /// for it. When another caller is already delivering, answers `Done`: that delivery is the
+    /// one to wait for (`wait_settled`), this caller has nothing to do. Used by the recording
+    /// start so the claim exists before the start returns, whatever the scheduler does next.
+    pub(crate) fn try_claim(&self, generation: u64) -> Claim {
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        if state.settled_generation >= generation {
+            return match (&state.outcome, state.settled_generation == generation) {
+                (Some(Err(reason)), true) => Claim::Failed(reason.clone()),
+                _ => Claim::Done,
+            };
+        }
+        if state.inflight != Some(generation) {
+            state.inflight = Some(generation);
+            return Claim::Deliver;
+        }
+        Claim::Done
+    }
+
+    /// Wait at most `bound` for `generation`'s delivery to settle. `true` when nothing is in
+    /// flight for it (settled, or never claimed); `false` when the wait ran out with a delivery
+    /// still in flight.
+    pub(crate) fn wait_settled(&self, generation: u64, bound: Duration) -> bool {
+        let deadline = Instant::now() + bound;
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        while state.inflight == Some(generation) && state.settled_generation < generation {
+            let left = deadline.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                return false;
+            }
+            state = self
+                .settled
+                .wait_timeout(state, left)
+                .unwrap_or_else(|e| e.into_inner())
+                .0;
+        }
+        true
+    }
+
     /// Delivery for `generation` ended with `outcome`: record it and release the waiters.
     pub(crate) fn settle(&self, generation: u64, outcome: Result<(), String>) {
         let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());

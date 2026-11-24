@@ -1,12 +1,14 @@
 # Native filesystem qualification
 
-`qualify-fs.yml` takes an explicit main `publish.yml` run. Guard, plan, pack & both native verify jobs must succeed; final seal-check may fail for an unapproved candidate. GitHub artifact digests, sealed manifest hashes & host receipts bind every consumed archive. This standalone consumer pins `rightkit-fs =0.4.17`; registry-consumer builds it from those exact sealed bytes through an offline directory registry.
+`qualify-fs.yml` takes an explicit main `publish.yml` run. Guard, plan, pack & both native verify jobs must succeed; final seal-check may fail for an unapproved candidate. GitHub artifact digests, sealed manifest hashes & host receipts bind every consumed archive. This standalone consumer pins `rightkit-fs =0.5.0`; registry-consumer builds it from those exact sealed bytes through an offline directory registry.
 
 Windows requires isolated NTFS & FAT32 VHDs. macOS requires an APFS sparse image. Images & mountpoints live under runner temporary storage outside checkout. Setup fails when native mounting or filesystem identification fails. Always-run cleanup detaches volumes before recursive removal & emits its own receipt.
 
 Consumer requires distinct native volume identities, two staged files, committed readback, unchanged candidates, rollback & retained-journal recovery. Archived crate's existing cross-volume test also runs exactly once with its mandatory fixture supplied.
 
-The `0.4.17` consumer also exercises `ordered_write::OrderedWriteQueue` using in-memory closures only: ordered tickets advance and refused-persist state is retained. No queue check touches a file.
+The `0.5.0` consumer also exercises `ordered_write::OrderedWriteQueue` using in-memory closures only: ordered tickets advance and refused-persist state is retained. No queue check touches a file.
+
+The consumer resolves explicit flat & nested application directories through the current account's known folders. It discards an owned temporary file on native scratch storage & checks that the temporary file and ownership record are gone.
 
 After the native fixture, the consumer runs four transaction checks in a directory under the native scratch root, which is removed afterwards: a two-file commit (one replacement and one create-new in a subdirectory) with owner-only modes on Unix, readback and an empty journal; conflict handling, where a stale identity expectation is refused with a conflict and leaves an external edit and an unrelated file unchanged, and create-new over an existing file is refused; keyed write serialization, where an overlapping writer on the same destination through an alias path is refused while the first holds the key, and the second writer commits last; and retention of a user import whose name matches a temporary pattern, which no sweep removes. The interruption matrix is not part of this consumer; the R1 gate matrix covers it.
 

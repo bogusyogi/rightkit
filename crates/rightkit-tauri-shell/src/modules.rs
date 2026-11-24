@@ -3,7 +3,7 @@
 //!
 //! ```text
 //! let plugin = rightkit_tauri_shell::ShellPlugin::builder()
-//!     .shell(rightkit_tauri_shell::Shell::builder("viewright").app_name("ViewRight").build())
+//!     .shell(rightkit_tauri_shell::Shell::builder("example-app").app_name("Example App").build())
 //!     .without(Module::Presence)
 //!     .without(Module::Watchdog)
 //!     .build();
@@ -11,12 +11,12 @@
 //! // Or: broker, stream, recovery, frameless and clipboard only, with no hardening, navigation
 //! // policy, window restore, show-on-ready, watchdog or presence.
 //! let plugin = rightkit_tauri_shell::ShellPlugin::builder()
-//!     .shell(rightkit_tauri_shell::Shell::builder("viewright").build())
+//!     .shell(rightkit_tauri_shell::Shell::builder("example-app").build())
 //!     .install_state_only();
 //!
 //! // Or: the app owns its windows and keeps the webview policy (hardening and navigation policy).
 //! let plugin = rightkit_tauri_shell::ShellPlugin::builder()
-//!     .shell(rightkit_tauri_shell::Shell::builder("viewright").build())
+//!     .shell(rightkit_tauri_shell::Shell::builder("example-app").build())
 //!     .host_windows()
 //!     .build();
 //! ```

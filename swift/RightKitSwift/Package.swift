@@ -25,6 +25,7 @@ let package = Package(
         .library(name: "RightKitActionChannel", targets: ["RightKitActionChannel"]),
         .library(name: "RightKitMenuBarHelper", targets: ["RightKitMenuBarHelper"]),
         .library(name: "RightKitDictationPill", targets: ["RightKitDictationPill"]),
+        .library(name: "RightKitVoiceCommand", targets: ["RightKitVoiceCommand"]),
         .library(name: "RightKitWatch", targets: ["RightKitWatch"]),
         .library(name: "RightKitUI", targets: ["RightKitUI"]),
         .library(name: "RightKitDB", targets: ["RightKitDB"]),
@@ -101,6 +102,7 @@ let package = Package(
         .target(name: "RightKitActionChannel", linkerSettings: [.linkedFramework("Security", .when(platforms: [.macOS]))]),
         .target(name: "RightKitMenuBarHelper", dependencies: ["RightKitActionChannel"]),
         .target(name: "RightKitDictationPill", dependencies: ["RightKitOverlay"]),
+        .target(name: "RightKitVoiceCommand"),
         .testTarget(name: "RightKitOverlayTests", dependencies: ["RightKitOverlay"]),
         // FSEvents file watcher (macOS only; the target is empty on iOS). CoreServices from the SDK.
         .target(name: "RightKitWatch"),
@@ -156,6 +158,7 @@ let package = Package(
         .target(name: "RightKitURLPolicy"),
         // Client halves of rightkit-daemon: cross-process wake and Darwin notify observer (rightkit#404), SSE parser
         // and Last-Event-ID replay stream (rightkit#1120). Foundation/Darwin only.
-        .target(name: "RightKitDaemonClient"),
+        .target(name: "CRightKitDarwinNotify"),
+        .target(name: "RightKitDaemonClient", dependencies: ["CRightKitDarwinNotify"]),
     ],
 )

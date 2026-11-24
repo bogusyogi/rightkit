@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.2
+
+- Add host-configured `install_flow`: guarded activation, model downloads, resident cache rebuilds & boot-time retired shared-store reclaim. Keep app copy, runtime locking & settings in host adapters.
+
 ## 0.3.1
 
 - Add `model_update_prompt` for one replacement prompt per launch after dictation idles. Hosts provide presentation & readiness checks.

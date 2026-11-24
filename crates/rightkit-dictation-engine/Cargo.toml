@@ -36,7 +36,7 @@ rightkit-automation = { version = "0.7.0", path = "../rightkit-automation", feat
 [dev-dependencies]
 rightkit-automation = { version = "0.7.0", path = "../rightkit-automation", features = ["desktop-context"] }
 libc = { version = "0.2" }
-rightkit-audio = { version = "0.3.1", default-features = false, features = ["capture"], path = "../rightkit-audio" }
+rightkit-audio = { version = "0.4.0", default-features = false, features = ["capture"], path = "../rightkit-audio" }
 libloading = { version = "0.9" }
 rightkit-onnx = { version = "0.3.0", default-features = false, features = ["session"], path = "../rightkit-onnx" }
 

@@ -1,6 +1,6 @@
 //! Setup recovery: a crash-safe session snapshot.
 //!
-//! Donor: ViewRight `setup_recovery.rs`. The app periodically saves a JSON snapshot of its open
+//! Mechanism: host `setup_recovery.rs`. The app periodically saves a JSON snapshot of its open
 //! work; after a crash it loads it back. The write is atomic (`.new` written and synced, previous
 //! file kept as `.old` until the swap succeeds), validated (`version`, size cap) and
 //! *authority-checked*: every file path the snapshot names must already be granted by the
@@ -43,7 +43,7 @@ pub struct RecoverySpec {
 }
 
 impl RecoverySpec {
-    /// ViewRight's snapshot shape: `{"version":1,"documents":[{"document":{"path":..}}]}`.
+    /// host's snapshot shape: `{"version":1,"documents":[{"document":{"path":..}}]}`.
     pub fn documents() -> Self {
         Self {
             name: "setup-recovery".into(),

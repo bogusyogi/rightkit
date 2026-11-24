@@ -13,6 +13,8 @@
 //!   Windows `AppCapability` plus a capture probe), and the macOS Settings opener.
 //! * [`calibration_engine`]: runs a host's recognition engine as a bounded child over a
 //!   retained PCM file and decodes its JSON result.
+//! * [`calibration_session`]: finishes capture, bounds PCM lifetime with an owned temp,
+//!   and coordinates host model, engine and restart hooks.
 //!
 //! Nothing here conditions or analyses audio for recognition: the host keeps its own conditioning
 //! authority and decides what captured PCM is used for. Renderer events, copy, paths & thresholds
@@ -24,6 +26,10 @@
 
 pub mod calibration_capture;
 pub mod calibration_engine;
+pub mod calibration_session;
 pub mod media_guard;
 pub mod mic_meter;
 pub mod permissions;
+
+/// Setup audio admission, suspend/resume & explicit off-UI teardown.
+pub mod scope;

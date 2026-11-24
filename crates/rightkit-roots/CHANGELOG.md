@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.0
+
+- Update the filesystem re-exports to `rightkit-fs` 0.5.0. Callers of `app_dirs::AppId::new` supply `Some(SUITE_DIR_NAME)` for a suite-nested layout or `None` for a flat layout. Existing suite and app root layouts are preserved.
+
 ## 0.2.1
 
 - Add `injected_root::AppDataRoot` for hosts that inject a resolved root at startup & use a per-process temp root before injection.

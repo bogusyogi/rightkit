@@ -187,6 +187,10 @@ final class SplashPanelController {
         panel == nil && !preparingFirstFrame && runtime.pill?.launchHandoff.phase != .handedOff
     }
 
+    func ownsActiveSplash(generation: UInt64) -> Bool {
+        hostGeneration == generation && (panel != nil || preparingFirstFrame)
+    }
+
     @discardableResult
     func show(generation: UInt64? = nil) -> Bool {
         guard canShow, let controller = runtime.pill else { return false }
@@ -387,7 +391,9 @@ final class SplashPanelController {
         contractionStarted = true
         contractionDeadline = Date().addingTimeInterval(configuration.handoffDeadline)
         let generation = startupGeneration
-        armResignObserver(panel: panel, generation: generation)
+        // AppKit callbacks carry identity only. Resolve the panel on the main actor.
+        let panelID = ObjectIdentifier(panel)
+        armResignObserver(panelID: panelID, generation: generation)
         let watchdog = pillWorkItem { [weak self] in
             guard let self, self.isCurrentHandoff(panel: panel, generation: generation) else { return }
             self.callbacks.log("splash_lifecycle", "phase=handoff_forced reason=watchdog")
@@ -401,7 +407,10 @@ final class SplashPanelController {
             context.timingFunction = CAMediaTimingFunction(controlPoints: points[0], points[1], points[2], points[3])
             panel.animator().setFrame(target, display: true)
         } completionHandler: { [weak self] in
-            MainActor.assumeIsolated { self?.finalizeHandoff(panel: panel, generation: generation) }
+            MainActor.assumeIsolated {
+                guard let self, let panel = self.panel, ObjectIdentifier(panel) == panelID else { return }
+                self.finalizeHandoff(panel: panel, generation: generation)
+            }
         }
     }
 
@@ -446,7 +455,7 @@ final class SplashPanelController {
         finalizeHandoff(panel: panel, generation: generation)
     }
 
-    private func armResignObserver(panel: RightKitOverlayPanel, generation: Int) {
+    private func armResignObserver(panelID: ObjectIdentifier, generation: Int) {
         removeResignObserver()
         resignObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didResignActiveNotification,
@@ -454,7 +463,8 @@ final class SplashPanelController {
             queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated {
-                guard let self, self.isCurrentHandoff(panel: panel, generation: generation) else { return }
+                guard let self, let panel = self.panel, ObjectIdentifier(panel) == panelID,
+                      self.isCurrentHandoff(panel: panel, generation: generation) else { return }
                 let fallbackTarget = self.runtime.pill?.panel.map { self.collapsedPillTarget(from: $0.frame) } ?? panel.frame
                 self.callbacks.log("splash_lifecycle", "phase=handoff_forced reason=resign_active")
                 self.forceCompleteHandoff(panel: panel, target: fallbackTarget, generation: generation)

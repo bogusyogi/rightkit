@@ -77,10 +77,16 @@ use std::time::Duration;
 
 use super::mouse_hook::{MiddleClickState, StartError};
 use super::ptt_hook::{
-    no_key_cause, EventSink, HookCommand, KbSession, KeyboardState, PttEvent, MSG_PTT_ARM_ELAPSED,
+    no_key_cause, EventSink, HookCommand, KbSession, KeyboardState, PttEvent, QueuedHookCommand,
+    MSG_PTT_ARM_ELAPSED,
 };
 use super::{HookConfig, HookError, LowLevelHooks};
 use crate::lifecycle::{report_detached, run_dispatch, Cmd};
+use crate::release_edge::NativeReleaseEdge;
+
+/// Physical PTT release callback, run off the hook thread in command order.
+/// None is native clock failure, never permission to sample dispatch time.
+pub type PttReleaseCallback = Box<dyn Fn(PttEvent, Option<NativeReleaseEdge>) + Send + 'static>;
 
 /// The longest `InputHooks::drop` waits for the hook thread to finish and the hooks to be removed
 /// (after `KeyboardState::quiesce`).
@@ -321,6 +327,22 @@ impl InputHooks {
     /// then everything this call started has been ended. `HookError::AlreadyInstalled` when a
     /// session of the same state object is still live.
     pub fn install(config: InputHooksConfig) -> Result<Self, HookError> {
+        Self::install_inner(config, None)
+    }
+
+    /// Install with a callback replacing `on_ptt` only for physical Stop/Send.
+    /// Forced ends, cancel, start & preview continue through `on_ptt`.
+    pub fn install_with_ptt_release_edges(
+        config: InputHooksConfig,
+        on_release: PttReleaseCallback,
+    ) -> Result<Self, HookError> {
+        Self::install_inner(config, Some(on_release))
+    }
+
+    fn install_inner(
+        config: InputHooksConfig,
+        on_release: Option<PttReleaseCallback>,
+    ) -> Result<Self, HookError> {
         // A previous install's hook thread that has not exited can still run its handlers on the
         // same state objects: no new generation starts until it is gone.
         if HOOKS_NOT_REMOVED.load(Ordering::SeqCst) != 0 {
@@ -346,7 +368,7 @@ impl InputHooks {
         };
 
         if let Some(keyboard) = keyboard {
-            match start_keyboard(keyboard) {
+            match start_keyboard(keyboard, on_release) {
                 Ok(session) => {
                     kb_session = Some(session);
                     this.keyboard = kb_state;
@@ -485,8 +507,8 @@ fn hook_error_tag(error: &HookError, failed: &'static str) -> &'static str {
 }
 
 /// What the dispatch thread delivers, as the pure lifecycle code sees it.
-fn command_kind(command: &HookCommand) -> Cmd {
-    match command {
+fn command_kind(command: &QueuedHookCommand) -> Cmd {
+    match &command.command {
         HookCommand::Cancel => Cmd::HookCancel,
         HookCommand::Ptt(PttEvent::Start) => Cmd::PttStart,
         HookCommand::Ptt(PttEvent::Stop) => Cmd::PttStop,
@@ -511,7 +533,10 @@ fn report_overflow(session: &KbSession, state: &KeyboardState) {
 /// running host work (which can take locks and wait on other processes) there stalls keystrokes
 /// system-wide and risks Windows silently removing the hook. All three threads end when the
 /// session's lanes close (uninstall), after draining what was queued; none is ever joined.
-fn start_keyboard(keyboard: KeyboardHookConfig) -> Result<Arc<KbSession>, HookError> {
+fn start_keyboard(
+    keyboard: KeyboardHookConfig,
+    on_release: Option<PttReleaseCallback>,
+) -> Result<Arc<KbSession>, HookError> {
     let KeyboardHookConfig {
         state,
         on_cancel,
@@ -561,7 +586,7 @@ fn start_keyboard(keyboard: KeyboardHookConfig) -> Result<Arc<KbSession>, HookEr
                 |command| {
                     // A panicking host callback must not end the thread.
                     let _ = catch_unwind(AssertUnwindSafe(|| {
-                        if let HookCommand::Cancel = command {
+                        if let HookCommand::Cancel = command.command {
                             on_cancel();
                         }
                     }));
@@ -588,8 +613,11 @@ fn start_keyboard(keyboard: KeyboardHookConfig) -> Result<Arc<KbSession>, HookEr
                 |command| {
                     // A panicking host callback must not end the dispatch thread.
                     let _ = catch_unwind(AssertUnwindSafe(|| {
-                        if let HookCommand::Ptt(event) = command {
-                            on_ptt(event);
+                        if let HookCommand::Ptt(event) = command.command {
+                            match (command.release, on_release.as_ref()) {
+                                (Some(edge), Some(callback)) => callback(event, edge),
+                                _ => on_ptt(event),
+                            }
                         }
                     }));
                     report_overflow(&dispatch_session, state);

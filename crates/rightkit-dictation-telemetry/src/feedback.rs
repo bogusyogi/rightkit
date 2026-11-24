@@ -138,3 +138,53 @@ pub fn submit_feedback(
         .map(str::to_owned)
         .ok_or_else(|| "feedback endpoint omitted report ID".to_string())
 }
+
+/// Upload one host-created diagnostics archive after explicit user consent and delete it.
+/// The archive is read once, never more than `max_bytes` + 1 bytes: the checked bytes are sent.
+/// It is removed whether or not reading succeeds, since it exists only for this upload.
+/// Removal is best effort.
+/// Returns the server's report id
+/// (header `<prefix>report-id`, the prefix set by [`configure_feedback_endpoint`]).
+/// `upload_url` and `app_version` are host values.
+pub fn upload_diagnostics_archive(
+    archive: &std::path::Path,
+    upload_url: &str,
+    max_bytes: u64,
+    app_version: &str,
+    feedback_id: Option<&str>,
+    submission_id: Option<&str>,
+) -> Result<String, String> {
+    // One read: the size that is checked and the body that is sent are the same immutable bytes.
+    let bytes =
+        rightkit_crash::export::read_archive_bounded(archive, max_bytes).map_err(
+            |error| match error {
+                rightkit_crash::export::BoundedReadError::TooLarge => {
+                    format!("diagnostics ZIP exceeds {} MB", max_bytes / 1024 / 1024)
+                }
+                rightkit_crash::export::BoundedReadError::Unreadable => {
+                    "read diagnostics ZIP failed".to_string()
+                }
+            },
+        );
+    // The archive existed only for this upload; the bytes (or the refusal) are all that is kept.
+    let _ = std::fs::remove_file(archive);
+    let bytes = bytes?;
+    let client = crate::http_client::parity_client(Duration::from_secs(30))?;
+    let mut request = rightkit_http::Request::post(upload_url);
+    for (name, value) in diagnostics_upload_headers(app_version, feedback_id, submission_id) {
+        request = request.header(name, value);
+    }
+    let request = request.body(bytes);
+    let response =
+        crate::http_client::send_head(&client, &request, true, "diagnostics send failed")?;
+    if response.status != 202 {
+        return Err(format!(
+            "diagnostics endpoint returned {}",
+            crate::http_client::status_display(response.status)
+        ));
+    }
+    response
+        .header(&header_name("report-id"))
+        .map(str::to_owned)
+        .ok_or_else(|| "diagnostics endpoint omitted report ID".to_string())
+}

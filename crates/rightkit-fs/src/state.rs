@@ -5,8 +5,7 @@
 //! (a directory, owned by the effective user, not writable by group/others) and compared with an
 //! `lstat` taken before the walk. Reads, writes, renames, unlinks and listings are `*at`
 //! operations relative to that descriptor, so renaming or swapping the path afterwards (or
-//! planting a symlink at a child name) cannot redirect anything. Donor: Cockpit
-//! `core/src/store.rs` (pinned descriptor, tested against swaps).
+//! planting a symlink at a child name) cannot redirect these operations.
 //!
 //! Windows walks components without following reparse points, then retains a directory handle
 //! without delete sharing. Child opens use `NtCreateFile` relative to that handle; publication
@@ -34,7 +33,7 @@
 //!   residual in the `atomic` module docs, section 3).
 //! - Windows: there is no directory flush. `FlushFileBuffers` needs `GENERIC_WRITE`, and on a
 //!   directory handle opened for listing (the pinned handle) it fails with
-//!   `ERROR_ACCESS_DENIED` (Pulse measured this on NTFS), so the crate does not call it. The
+//!   `ERROR_ACCESS_DENIED`, so the crate does not call it. The
 //!   file is flushed before publication, and directory creation (including every missing
 //!   ancestor [`StateDir::create`] makes), the publishing rename and the removing delete run on
 //!   handles opened `FILE_WRITE_THROUGH`, which asks the filesystem to commit the operation

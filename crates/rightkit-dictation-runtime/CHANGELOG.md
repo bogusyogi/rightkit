@@ -2,10 +2,10 @@
 
 ## 0.2.5
 
-- Full-buffer voice stop removes a single literal command or uses timing evidence. Ambiguous text stays available for explicit copy without touching the clipboard or issuing a keypress.
-- Give optional voice-stop alignment and its exact retry a shared 400 ms budget after final transcription.
+- Seal exact capture at the validated release edge and retire the producer before reopening the selected microphone.
 
 ## 0.2.4
+
 - Use the inference crate's wake-to-recording audio handoff and expose the production replay policy on macOS as well as Windows.
 - Route last-paste casing through a typed reset command for the shell. The legacy engine repaste route now refuses & directs callers to the shell delivery host.
 

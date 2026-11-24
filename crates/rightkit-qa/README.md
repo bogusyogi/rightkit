@@ -16,7 +16,7 @@ No supported snapshot-store isolation or signed independent runner has been esta
 
 Integration prerequisites: independently signed runner identity & immutable release record (Windows also requires signed executable SHA-256, publisher EKU & CA pins); proven snapshot-store isolation; runner protocol-v2 metadata parsing, completion sequencing, recovery exclusion & legacy-v1 recovery. Dependency floors are `rightkit-daemon` 0.9.1, `rightkit-fs` 0.4.17 (`credential-owner` enables `lock`) & `rightkit-credentials` 0.5.6. Qualify those dependencies & real installed-host behavior before claiming operational support.
 
-For an app that requires this owner, set `credential_owner_required = true` under `[snapshot]` in `rightkit-qa.toml`. Pass `--credential-owner <absolute installed executable>` to both `rightkit-qa run` & `rightkit-qa journeys run`. An owner-required snapshot refuses a missing binding before arming, & resumed cleanup does not provide fresh restoration evidence for a release.
+This version provides the app-side library. A signed runner & proven native snapshot-store isolation are required before enabling owner-bound snapshot & restore.
 
 > **Migrating from `rightkit-qa-driver` (0.6.0).** The embedded QA control server moved here, behind the dev-only `control` feature. It never ships: it carries the same release marker (`RIGHTKIT-QA-CONTROL-SERVER-PRESENT`) and `right-release` refuses it in both its binary and its source layer. `rightkit-qa-driver` 0.5.0 is a deprecated shim, so a version bump alone compiles; do the change below to leave it.
 >

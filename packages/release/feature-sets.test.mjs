@@ -176,8 +176,8 @@ test("no-change proof: rustCratePlan equals the pre-scoping formula for every ex
     }
   }
   assert.ok(compared > 100, `compared ${compared} crate plans`);
-  // The only host-scoped entries in the repository: the three tts crates (Metal/Vulkan/BLAS) and the three with a sqlcipher-system check set.
-  assert.deepEqual(Object.entries(config).filter(([name, own]) => hasHostScopedSets(own, name)).map(([name]) => name).sort(), ["rightkit-bench", "rightkit-credentials", "rightkit-db", "rightkit-tts", "rightkit-tts-qwen", "rightkit-tts-qwen-sys"]);
+  // The only host-scoped entries in the repository: the three tts crates (Metal/Vulkan/BLAS) and the four with a sqlcipher-system check set.
+  assert.deepEqual(Object.entries(config).filter(([name, own]) => hasHostScopedSets(own, name)).map(([name]) => name).sort(), ["rightkit-bench", "rightkit-credentials", "rightkit-db", "rightkit-transcript-library", "rightkit-tts", "rightkit-tts-qwen", "rightkit-tts-qwen-sys"]);
 });
 
 test("no-change proof: planScans rows of existing crates come from the configured array sets exactly", () => {

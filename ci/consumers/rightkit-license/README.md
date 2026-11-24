@@ -1,6 +1,6 @@
-# rightkit-license 0.3.2 registry consumer (PK05)
+# rightkit-license 0.3.3 registry consumer (PK05)
 
-Standalone consumer, outside the workspace, pinning `rightkit-license =0.3.2` exactly and enabling
+Standalone consumer, outside the workspace, pinning `rightkit-license =0.3.3` exactly and enabling
 `client`. It is pure and offline. It verifies the published `license-v2` vector with `verify_token`
 and rejects a wrong app, a wrong device, an expired token, a malformed token and a tampered payload.
 It verifies the published `lease-envelope-v1` vector with `verify_lease_envelope` and rejects a

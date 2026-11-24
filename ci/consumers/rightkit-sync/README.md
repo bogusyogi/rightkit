@@ -1,12 +1,13 @@
-# rightkit-sync 0.4.0 registry consumer (compile-only)
+# rightkit-sync 0.4.2 registry consumer (compile-only)
 
-Standalone consumer, outside the workspace, pinning `rightkit-sync =0.4.0` exactly with `transcript-host`. It installs the crate from the sealed archive through the offline directory registry and builds `src/main.rs`.
+Standalone consumer, outside the workspace, pinning `rightkit-sync =0.4.2` exactly with `transcript-history`. It installs the crate from the sealed archive through the offline directory registry and builds `src/main.rs`.
 
 It never starts the helper or runs a sync. Adrian, 2026-11-03: "no dummy data, no fucking made up shit. real data." and "My decision was no unit tests. Only e2e." Existing sync surface is type-checked without calling it; new transcript-profile identity and digest APIs receive only in-memory inputs.
 
 ## What it proves
 
 - The sealed `rightkit-sync` archive installs through the registry and the default features resolve.
+- Recovery consent and replay receipt resolve to the same types at the crate root and in `recovery_marker`.
 - The public surface an app links type-checks: `RecordMapper`, `LocalStore`, `ItemHeader`, `RawRecord` and `FieldValue`, `SyncEngineBuilder` (`auth`, `build`), `SyncEngine` (`note_changed`, `run_pass`), `PassOutcome`, `FileStorage`, `NullObserver`, real CloudKit helper types, and the `transcripts` feature's profile identity and content hash APIs.
 
 ## What it does not prove

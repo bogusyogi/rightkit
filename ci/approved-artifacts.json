@@ -2,6 +2,40 @@
   "schema": 2,
   "candidates": [
     {
+      "id": "fs-0-5-0-cecaa4e3",
+      "sourceSha": "cecaa4e3f929a628da975d5bcc94a8f09d89f395",
+      "runId": "44972198892",
+      "runAttempt": "2",
+      "workflowId": "381341382",
+      "manifestSha256": "5bc03fd4a92721f22cc27d5176eea223844b2c6d43c59b03c73fab3b87af9f6a",
+      "registry": "crates",
+      "units": [
+        "rightkit-fs"
+      ],
+      "allow": {
+        "hostExclusion": [],
+        "noTest": [],
+        "ignored": [],
+        "missingAssets": []
+      },
+      "artifacts": {
+        "packed": {
+          "id": "14734328984",
+          "digest": "sha256:888d52474d8fb010a75418277d09a772a3ca83cbf7550eb6aa3b6e80af471b47"
+        },
+        "macos": {
+          "id": "14734782831",
+          "digest": "sha256:28faf3359d89eb2830681e52dbf900fe2fcc51cef371c0e5e18af871d0a57b67",
+          "receiptSha256": "7e147f8c1ef504c5d1fa873605fbf5a4bd325803711ec6eed9063bc82f146abc"
+        },
+        "windows": {
+          "id": "14734568652",
+          "digest": "sha256:aa9f666eb8aa13261fa3938fe4867ca9019a58b3b934f9934dd2ce624270af1b",
+          "receiptSha256": "6b5c7e662305e782bbbeddfc8d7b9f2097116c6de9accd82383dc47ffdc41b4d"
+        }
+      }
+    },
+    {
       "id": "npm-logs-448e",
       "sourceSha": "448ec538b4c0c0a0b10341b235a83d5c37f3e22b",
       "runId": "39437329860",
@@ -906,9 +940,121 @@
           "receiptSha256": "fc90757f67d9149a335ab5bfe37253b7214532f81d68243c42d782413602fb66"
         }
       }
+    },
+    {
+      "id": "audio-0-4-0-b167e4b5",
+      "sourceSha": "b167e4b5502fd9cde94aa7c837fc1a6ab727830c",
+      "runId": "44979080670",
+      "runAttempt": "1",
+      "workflowId": "381341382",
+      "manifestSha256": "70e4bbd6d8af2bbcb42a302db11101cb9db4fde5e46ede1d6dcc8c60fba3c063",
+      "registry": "crates",
+      "units": [
+        "rightkit-audio"
+      ],
+      "allow": {
+        "hostExclusion": [],
+        "noTest": [],
+        "ignored": [],
+        "missingAssets": []
+      },
+      "artifacts": {
+        "packed": {
+          "id": "14736868431",
+          "digest": "sha256:8417a9b172d77d4ae998abe5b98cdc86bb9c1aa1d8381f71a857805f1b9834d5"
+        },
+        "macos": {
+          "id": "14736613044",
+          "digest": "sha256:fb2a5d505ce2314bcbd404266e0160f9f8cdafb30875648715d74d2b2647a099",
+          "receiptSha256": "39709a1d3a6bf6092ce93ebb8d5b2f0d3994b239999fc8d8780229162e56b848"
+        },
+        "windows": {
+          "id": "14737525941",
+          "digest": "sha256:6a6e1ae9ce51165567f2b67f0a80c1e35ae2259843aa945abd04a9a00f4d6f91",
+          "receiptSha256": "9166464769885f6775f39f6db0ac96636ac5f7b1b2165f595c6847af71d626cc"
+        }
+      }
+    },
+    {
+      "id": "audio-0-4-1-a10c1334",
+      "sourceSha": "a10c1334893a25c2a209ffd9f1b3cba0621d7e7d",
+      "runId": "44987812990",
+      "runAttempt": "1",
+      "workflowId": "381341382",
+      "manifestSha256": "7bdb2e6909f9e7f0cf2e4208fffb1960ccb2e8505a3f41c19fbcb249b5f70cb5",
+      "registry": "crates",
+      "units": [
+        "rightkit-audio"
+      ],
+      "allow": {
+        "hostExclusion": [],
+        "noTest": [],
+        "ignored": [],
+        "missingAssets": []
+      },
+      "artifacts": {
+        "packed": {
+          "id": "14740324554",
+          "digest": "sha256:68def1f2c2cfc181119eeaacc7e041bd105c1d8c92aa9ab5cb9a955b5e80b52a"
+        },
+        "macos": {
+          "id": "14740434835",
+          "digest": "sha256:d4534f9415dbeb6ed67b4ad1811e3f0e3c348356a257d86edb8c196627d69abc",
+          "receiptSha256": "45c84055fd1ec07f6252dee432ad59e580cd44963da4a0933e695d2dd72584ce"
+        },
+        "windows": {
+          "id": "14741071150",
+          "digest": "sha256:4df3a543b5fc055d118e9eaf43d9f40bf7f38633f56695a4207730bcbaaf4020",
+          "receiptSha256": "408a03776d2b404460c650604783ca2eb6fef255ad6df9b8d8cbb9096bc39bcc"
+        }
+      }
+    },
+    {
+      "id": "shell-0-8-7-a10c1334",
+      "sourceSha": "a10c1334893a25c2a209ffd9f1b3cba0621d7e7d",
+      "runId": "44989079685",
+      "runAttempt": "1",
+      "workflowId": "381341382",
+      "manifestSha256": "42d71d51ba39437e6c156c89d3007d6d54709e08f07d784bbec4af2a46d25c27",
+      "registry": "crates",
+      "units": [
+        "rightkit-tauri-shell"
+      ],
+      "allow": {
+        "hostExclusion": [],
+        "noTest": [],
+        "ignored": [
+          "rightkit-tauri-shell"
+        ],
+        "missingAssets": []
+      },
+      "artifacts": {
+        "packed": {
+          "id": "14741505692",
+          "digest": "sha256:fda8da2b044cabbc5762dee17a03f92702ccd98549a305be67d2280b8678f71f"
+        },
+        "macos": {
+          "id": "14741767589",
+          "digest": "sha256:e430a9b47ab029e5f55bc9e1525ae43db74dabbdb3de190de60c9e78de790f43",
+          "receiptSha256": "cb8025d7f0d72a8a84bd72fb3a6362e4d176ef4e7ded500b4d61ee618998f170"
+        },
+        "windows": {
+          "id": "14742083800",
+          "digest": "sha256:7dc71382a762712764bfa790f3dcbcd7726010cc16e10527b1c71046b0c72ae5",
+          "receiptSha256": "ae64f9cfe5f253caff2c7fec98e1653388feb877529db352af5dbda536daa708"
+        }
+      }
     }
   ],
   "artifacts": [
+    {
+      "registry": "crates",
+      "name": "rightkit-fs",
+      "version": "0.5.0",
+      "sha256": "e793dc951d6c15c61eeb70c5b7528f0e8a6f47fd3c2e41385608c56509c0482f",
+      "reviewer": "RightKit owner and independent archive Oracle",
+      "reviewRef": "https://github.com/bogusyogi/rightkit/actions/runs/44972198892/attempts/2"
+    },
     {
       "registry": "npm",
       "name": "@rightkit/logs",
@@ -1156,6 +1302,54 @@
       "sha256": "36069f56d1717d4b89bcfa3ad0928496851726827a7b6f61b9010d69abb6a234",
       "reviewer": "Oracle (claude-opus-5-5, independent pre-tag review)",
       "reviewRef": "https://github.com/bogusyogi/rightkit/issues/1302#issuecomment-6519518345"
+    },
+    {
+      "registry": "swift",
+      "name": "RightKitSwift",
+      "version": "0.9.3",
+      "sha256": "df6ee6ef6bca1c0dcb6b8e44630c5af395a514f567e656792abff73a52dbad5e",
+      "reviewer": "Independent Oracle source reviews (Apple mobile and macOS)",
+      "reviewRef": "agent-review:/root/hr_swift_093_apple_review+hr_swift_093_macos_review+hr_swift_publish_guard_review/0837c8a40f388fb30c941da3bcc551bbdb1787f0/df6ee6ef6bca1c0dcb6b8e44630c5af395a514f567e656792abff73a52dbad5e"
+    },
+    {
+      "registry": "swift",
+      "name": "RightKitSwift",
+      "version": "0.9.4",
+      "sha256": "1fc91fed1aa1f8d6953ea69a55282bbe6d723716afe1e0c79b47e05e55678ea0",
+      "reviewer": "Independent Oracle source reviews (Apple audio, Watch, and model lifecycle)",
+      "reviewRef": "agent-review:/root/hr_094_native_oracle+hr_094_speech_oracle/b0b6ec05cad66aceaf197c626825e9d69f4c98d5/f5e17113329c1a030868efe55c533032c5c02560371a7ec77ffd2e8fd04de49b; cleanup restored from 0ff6971918830304241b808c3ae6065d21b22e62; failed test reproduced in run 44869189560; fixed-source:08fa9c3339976f4811dbe12e31922e1c86a3d6a0/1fc91fed1aa1f8d6953ea69a55282bbe6d723716afe1e0c79b47e05e55678ea0"
+    },
+    {
+      "registry": "swift",
+      "name": "RightKitSwift",
+      "version": "0.9.5",
+      "sha256": "640cb57ba2ad43a33ddb54ed75ffe3a19eaf7bc5f8ae058f041d44b2e5cc6492",
+      "reviewer": "Independent Oracle source review",
+      "reviewRef": "agent-review:/root/hr_095_swift_oracle+hr_095_archive_oracle/ddc845b5d1c5b12a08819ae50e403b2b4943923a/640cb57ba2ad43a33ddb54ed75ffe3a19eaf7bc5f8ae058f041d44b2e5cc6492"
+    },
+    {
+      "registry": "crates",
+      "name": "rightkit-audio",
+      "version": "0.4.0",
+      "sha256": "a0e387ba954c0ff7a5be0f8214e53352e76a8542d079b66cfda053020f62bd54",
+      "reviewer": "Independent Oracle and owner exact archive review",
+      "reviewRef": "https://github.com/bogusyogi/rightkit/issues/1680#issuecomment-7073524136"
+    },
+    {
+      "registry": "crates",
+      "name": "rightkit-audio",
+      "version": "0.4.1",
+      "sha256": "844ea6ad36344ef7760865975a3dd47fb569efcf5ead40b080e0b96b71f62bfd",
+      "reviewer": "Independent Oracle and owner exact archive review",
+      "reviewRef": "agent-review:/root/audio_meter_041_oracle+audio_041_archive_oracle/a10c1334893a25c2a209ffd9f1b3cba0621d7e7d/844ea6ad36344ef7760865975a3dd47fb569efcf5ead40b080e0b96b71f62bfd"
+    },
+    {
+      "registry": "crates",
+      "name": "rightkit-tauri-shell",
+      "version": "0.8.7",
+      "sha256": "6924c8f848df1d2c0354b9a57f098aa5bf9bed95c632c8889a66b3e9d67419f9",
+      "reviewer": "Independent Oracle and owner exact archive review",
+      "reviewRef": "agent-review:/root/shell_087_resealed_archive_oracle/a10c1334893a25c2a209ffd9f1b3cba0621d7e7d/6924c8f848df1d2c0354b9a57f098aa5bf9bed95c632c8889a66b3e9d67419f9"
     }
   ]
 }

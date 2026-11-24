@@ -1,8 +1,8 @@
 //! Window creation and lifecycle helpers: hardened builders, reveal / toggle, secondary windows.
 //!
-//! Donors: CodeRight `os_shell/windows` (bounded labels and dimensions, app-relative URLs only,
-//! lifecycle event), HeardRight `hub_window` (reveal = show + unminimize + focus; macOS needs
-//! `app.show()` first), ViewRight (hidden-until-first-paint).
+//! Mechanisms: host `os_shell/windows` (bounded labels and dimensions, app-relative URLs only,
+//! lifecycle event), host `hub_window` (reveal = show + unminimize + focus; macOS needs
+//! `app.show()` first), host (hidden-until-first-paint).
 
 use std::sync::Arc;
 

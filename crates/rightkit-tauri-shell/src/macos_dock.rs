@@ -70,6 +70,12 @@ pub struct Dock {
     gate: Mutex<()>,
 }
 
+impl Default for Dock {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Dock {
     pub const fn new() -> Self {
         Self {
@@ -185,7 +191,10 @@ impl Dock {
                 }
             };
             match outcome {
-                Some(Ok(())) => sink(events.visibility, if visible { "visible" } else { "hidden" }),
+                Some(Ok(())) => sink(
+                    events.visibility,
+                    if visible { "visible" } else { "hidden" },
+                ),
                 Some(Err(error)) => sink(
                     events.visibility_error,
                     &format!("visible={visible} error={error}"),

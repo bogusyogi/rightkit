@@ -128,7 +128,10 @@ pub fn focused_target_identity_for_pid(pid: i32) -> Option<isize> {
         let focused_ref = focused.as_CFTypeRef() as AXUIElementRef;
         let _ = AXUIElementSetMessagingTimeout(focused_ref, AX_MESSAGING_TIMEOUT_SECONDS);
         let window = CFType::wrap_under_create_rule(ax_copy(focused_ref, "AXWindow")?);
-        Some(focused_target_hash(window.as_CFTypeRef(), focused.as_CFTypeRef()))
+        Some(focused_target_hash(
+            window.as_CFTypeRef(),
+            focused.as_CFTypeRef(),
+        ))
     }
 }
 

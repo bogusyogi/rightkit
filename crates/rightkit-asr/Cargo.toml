@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-asr"
-version = "0.5.0"
+version = "0.5.2"
 edition = "2021"
 rust-version = "1.98.0"
 publish = true
@@ -14,6 +14,7 @@ keywords = ["speech-recognition", "asr", "parakeet", "whisper", "onnx"]
 categories = ["multimedia::audio"]
 include = [
   "src/**",
+  "include/rightkit_asr_kws.h",
   "Cargo.toml",
   "README.md",
   "LICENSE",
@@ -63,6 +64,8 @@ objc2-foundation = "0.3"
 [features]
 default = ["cpu", "ort-defaults", "whisper-tokenizers"]
 cpu = []
+# C ABI over the always-available kws module for native hosts.
+kws-ffi = []
 # `onnx_tdt`: ONNX Runtime execution for Parakeet TDT (mel, encoder, decoder-joint sessions with
 # per-stage threading, DirectML adapter choice and batched decoder runs).
 onnx-tdt = ["dep:tracing", "dep:windows-sys"]
@@ -199,3 +202,24 @@ scale = "one stream: the encoder cache tensors (fixed by the model), the beam (a
 release = "Drop"
 
 # One Cargo workspace and lock per crate (rightkit#1285).
+
+[[package.metadata.rightkit.resources]]
+api = "kws_ffi::rightkit_asr_kws_spotter_create"
+file = "src/kws_ffi.rs"
+holds = ["memory", "thread"]
+scale = "one caller-owned opaque handle holding a KeywordSpotter: three ONNX sessions, one CPU thread per session, token table, keyword graph and fbank tables; fixed per spotter"
+release = "rightkit_asr_kws_spotter_destroy, after its streams are destroyed"
+
+[[package.metadata.rightkit.resources]]
+api = "kws_ffi::rightkit_asr_kws_stream_create"
+file = "src/kws_ffi.rs"
+holds = ["memory"]
+scale = "one caller-owned opaque KeywordStream handle: model-sized encoder cache, max_active_paths beam and buffered fbank frames drained by decode; bounded while caller keeps decoding"
+release = "rightkit_asr_kws_stream_destroy"
+
+[[package.metadata.rightkit.resources]]
+api = "kws_ffi::rightkit_asr_kws_stream_result_json"
+file = "src/kws_ffi.rs"
+holds = ["memory"]
+scale = "one allocated C string per result call or error_out message; caller must release every non-null returned string"
+release = "rightkit_asr_string_free"

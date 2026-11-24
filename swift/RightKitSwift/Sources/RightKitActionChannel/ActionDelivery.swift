@@ -37,6 +37,8 @@ public struct ActionDeliveryConfiguration: Sendable {
         deadline: TimeInterval = 30,
         retryInterval: TimeInterval = 0.25
     ) {
+        precondition(deadline.isFinite && deadline > 0, "deadline must be positive and finite")
+        precondition(retryInterval.isFinite && retryInterval > 0, "retryInterval must be positive and finite")
         self.socketName = socketName
         self.serverRequirement = serverRequirement
         self.launchBundleIdentifier = launchBundleIdentifier
@@ -53,24 +55,31 @@ public enum ActionDelivery {
     /// Deliver `action` once. One frame id covers every retry, so the app can tell a resend from a new
     /// command. Throws ``ActionDeliveryError``; a cancelled task throws `CancellationError`.
     public static func submit(_ action: String, configuration: ActionDeliveryConfiguration) async throws {
+        precondition(configuration.deadline.isFinite && configuration.deadline > 0)
+        precondition(configuration.retryInterval.isFinite && configuration.retryInterval > 0)
+        let deadline = ProcessInfo.processInfo.systemUptime + configuration.deadline
         let connection = ActionChannelConnection(
             socketName: configuration.socketName,
             serverRequirement: configuration.serverRequirement
         )
         defer { connection.close() }
-        let deadline = Date().addingTimeInterval(configuration.deadline)
         var last: ActionChannelError = .unavailable
         let intentID = UUID().uuidString.lowercased()
         while true {
+            try Task.checkCancellation()
+            guard ProcessInfo.processInfo.systemUptime < deadline else {
+                throw ActionDeliveryError.timedOut(last: last)
+            }
             do {
-                try await attempt(connection, action, id: intentID)
+                try await attempt(connection, action, id: intentID, deadline: deadline)
                 return
             } catch let error as ActionChannelError {
                 switch error {
                 case .refused:
                     throw ActionDeliveryError.refused(error)
                 case .unavailable:
-                    if let bundleIdentifier = configuration.launchBundleIdentifier {
+                    if ProcessInfo.processInfo.systemUptime < deadline,
+                       let bundleIdentifier = configuration.launchBundleIdentifier {
                         launchIfNeeded(bundleIdentifier: bundleIdentifier)
                     }
                 case .serverNotVerified, .io:
@@ -78,8 +87,10 @@ public enum ActionDelivery {
                 }
                 last = error
             }
-            if Date() >= deadline { throw ActionDeliveryError.timedOut(last: last) }
-            try await Task.sleep(nanoseconds: UInt64(configuration.retryInterval * 1_000_000_000))
+            let remaining = deadline - ProcessInfo.processInfo.systemUptime
+            guard remaining > 0 else { throw ActionDeliveryError.timedOut(last: last) }
+            let pause = min(configuration.retryInterval, remaining)
+            try await Task.sleep(for: .seconds(pause))
         }
     }
 
@@ -98,11 +109,11 @@ public enum ActionDelivery {
         NSWorkspace.shared.openApplication(at: appURL, configuration: configuration)
     }
 
-    private static func attempt(_ connection: ActionChannelConnection, _ action: String, id: String) async throws {
+    private static func attempt(_ connection: ActionChannelConnection, _ action: String, id: String, deadline: TimeInterval) async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             DispatchQueue.global(qos: .userInitiated).async {
                 do {
-                    try connection.send(action, id: id)
+                    try connection.send(action, id: id, deadline: deadline)
                     continuation.resume()
                 } catch {
                     continuation.resume(throwing: error)

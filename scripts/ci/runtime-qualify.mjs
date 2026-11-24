@@ -29,11 +29,18 @@ export function assertCrateName(value) { if (!isCrateName(value)) throw new Erro
 // `trailing` are the bench's own arguments after `--`; each is a number or a fixed long flag, pinned here.
 const FEATURES = /^[a-z0-9_-]+(?:,[a-z0-9_-]+)*$/;
 const TRAILING = /^(?:[0-9]+|--[a-z][a-z-]*)$/;
+// The 0.38 shell rows must resolve Tauri 2.11 independently of the root's Tauri 2.12 graph.
+const WV38_DIRECTORY = "ci/consumers/wv2-0_38";
+const WV38 = Object.freeze({
+  packageName: "rightkit-tauri-shell-wv38-runtime",
+  manifestPath: `../../${WV38_DIRECTORY}/Cargo.toml`,
+  inputs: Object.freeze(["Cargo.toml", "Cargo.lock", "build.rs"].map((file) => `${WV38_DIRECTORY}/${file}`)),
+});
 // `noDefaultFeatures` adds --no-default-features before --features (the shell rows select exactly one native binding).
-const cargoBench = (crate, features, bench, trailing = [], noDefaultFeatures = false) => {
+const cargoBench = (crate, { features, bench, trailing = [], noDefaultFeatures = false, fixture }) => {
   if (features !== null && !FEATURES.test(features)) throw new Error("trusted workload features are malformed");
   if (!trailing.every((arg) => TRAILING.test(arg))) throw new Error("trusted workload trailing arguments are malformed");
-  return Object.freeze(["test", "--locked", "--profile", "release-iterate", "-p", crate, ...(noDefaultFeatures ? ["--no-default-features"] : []), ...(features === null ? [] : ["--features", features]), "--bench", bench, ...(trailing.length ? ["--", ...trailing] : [])]);
+  return Object.freeze(["test", "--locked", "--profile", "release-iterate", ...(fixture ? ["--manifest-path", fixture.manifestPath] : []), "-p", fixture?.packageName ?? crate, ...(noDefaultFeatures ? ["--no-default-features"] : []), ...(features === null ? [] : ["--features", features]), "--bench", bench, ...(trailing.length ? ["--", ...trailing] : [])]);
 };
 // A workload may take a measurement profile: the ceilings and required scale of that named profile in the crate's
 // runtime-budget.json govern it instead of the top-level ones. The profile's features and scale are pinned here.
@@ -97,9 +104,9 @@ const TRUSTED_COVERAGE = Object.freeze({
       "qa-probes": "development-only; excluded from published runtime workload",
     }),
     workloads: Object.freeze([
-      Object.freeze({ id: "native-shell-wv2-0_38", features: "wv2-0_38", noDefaultFeatures: true, bench: "budget_native", trailing: Object.freeze([]), env: Object.freeze([]), intervalMs: 1000, description: "CI isolated native Wry shell, 0.38 binding: paired bare/watchdog children, 5 s settling, then 30 s observation" }),
+      Object.freeze({ id: "native-shell-wv2-0_38", fixture: WV38, features: "wv2-0_38", noDefaultFeatures: true, bench: "budget_native", trailing: Object.freeze([]), env: Object.freeze([]), intervalMs: 1000, description: "CI isolated native Wry shell, 0.38 binding: paired bare/watchdog children, 5 s settling, then 30 s observation" }),
       Object.freeze({ id: "native-shell-wv2-0_39", features: "wv2-0_39", noDefaultFeatures: true, bench: "budget_native", trailing: Object.freeze([]), env: Object.freeze([]), intervalMs: 1000, description: "CI isolated native Wry shell, 0.39 binding: paired bare/watchdog children, 5 s settling, then 30 s observation" }),
-      Object.freeze({ id: "native-host-wv2-0_38", features: "wv2-0_38,host-services,logs,crash,content-devtools", noDefaultFeatures: true, bench: "budget_native", trailing: Object.freeze([]), env: Object.freeze([]), intervalMs: 1000, description: "CI isolated native Wry shell with settings/secrets services, registered ContentWebview ACL refusal, logs runtime and report-only crash adapter, 0.38 binding: paired children, then 30 s observation" }),
+      Object.freeze({ id: "native-host-wv2-0_38", fixture: WV38, features: "wv2-0_38,host-services,logs,crash,content-devtools", noDefaultFeatures: true, bench: "budget_native", trailing: Object.freeze([]), env: Object.freeze([]), intervalMs: 1000, description: "CI isolated native Wry shell with settings/secrets services, registered ContentWebview ACL refusal, logs runtime and report-only crash adapter, 0.38 binding: paired children, then 30 s observation" }),
       Object.freeze({ id: "native-host-wv2-0_39", features: "wv2-0_39,host-services,logs,crash,content-devtools", noDefaultFeatures: true, bench: "budget_native", trailing: Object.freeze([]), env: Object.freeze([]), intervalMs: 1000, description: "CI isolated native Wry shell with settings/secrets services, registered ContentWebview ACL refusal, logs runtime and report-only crash adapter, 0.39 binding: paired children, then 30 s observation" }),
     ]),
     requiredSources: Object.freeze(["crates/rightkit-tauri-shell/src/watchdog.rs", "crates/rightkit-tauri-shell/src/lib.rs", "crates/rightkit-tauri-shell/src/host/mod.rs", "crates/rightkit-tauri-shell/src/host/policy.rs", "crates/rightkit-tauri-shell/src/logs_commands.rs"]),
@@ -121,14 +128,14 @@ const TRUSTED_COVERAGE = Object.freeze({
   }),
 });
 // Every declared env name must have a harness provider; refuse a malformed table at load, never at measurement.
-for (const entry of Object.values(TRUSTED_COVERAGE)) for (const w of entry.workloads) { assertEnvNames([...(w.env ?? [])]); cargoBench("rightkit-x", w.features, w.bench, w.trailing ?? [], w.noDefaultFeatures ?? false); }
+for (const entry of Object.values(TRUSTED_COVERAGE)) for (const w of entry.workloads) { assertEnvNames([...(w.env ?? [])]); cargoBench("rightkit-x", w); }
 function trustedFor(crate) {
   assertCrateName(crate);
   if (!Object.hasOwn(TRUSTED_COVERAGE, crate)) throw new Error(`no trusted supported coverage for ${crate}`);
   return TRUSTED_COVERAGE[crate];
 }
 export function workloadsFor(crate) {
-  return trustedFor(crate).workloads.map((w) => Object.freeze({ id: w.id, args: cargoBench(crate, w.features, w.bench, w.trailing ?? [], w.noDefaultFeatures ?? false), bench: w.bench, intervalMs: w.intervalMs, description: w.description, env: w.env ?? Object.freeze([]), profile: w.profile ?? null }));
+  return trustedFor(crate).workloads.map((w) => Object.freeze({ id: w.id, args: cargoBench(crate, w), bench: w.bench, intervalMs: w.intervalMs, description: w.description, env: w.env ?? Object.freeze([]), profile: w.profile ?? null }));
 }
 export function trustedRequiredSources(crate) { return [...(trustedFor(crate).requiredSources ?? [])]; }
 export function supportedPrescription(crate) {
@@ -153,10 +160,12 @@ export function readSourcePrescription(crate, readBlob) {
   return { prescription, workloads: validateSourcePrescription(crate, prescription) };
 }
 export function harnessMetadataPaths(crate, prescription) {
-  // Two workloads may share one bench source (daemon local and loopback); each blob is bound once.
-  return [...new Set([workloadPrescriptionPath(crate), ...validateSourcePrescription(crate, prescription).map((w) => `crates/${crate}/benches/${w.bench}.rs`)])];
+  const workloads = validateSourcePrescription(crate, prescription);
+  const fixtures = trustedFor(crate).workloads.flatMap((workload) => workload.fixture?.inputs ?? []);
+  return [...new Set(["Cargo.toml", "Cargo.lock", workloadPrescriptionPath(crate),
+    ...workloads.map((w) => `crates/${crate}/benches/${w.bench}.rs`), ...fixtures])];
 }
-// Binds the prescription and every declared bench blob at the candidate SHA; any missing blob refuses.
+// Binds Cargo graphs and harness inputs at the candidate SHA; any missing blob refuses.
 export function bindHarnessMetadata(crate, prescription, readBlob) {
   const bindings = {};
   for (const full of harnessMetadataPaths(crate, prescription)) {
@@ -257,7 +266,7 @@ async function resolveCandidate(env) {
   fs.writeFileSync(zip, bytes);
   const names = safeArchiveMembers(command("unzip", ["-Z1", zip], ROOT));
   // publish-packed is deliberately a flat set of files, never directories or links.
-  if (new Set(names).size !== names.length || names.some((name) => !/^(?:manifest\.json|[\w.-]+\.(?:crate|upload\.json))$/.test(name))) throw new Error("publish-packed must contain unique flat crate files");
+  if (new Set(names).size !== names.length || names.some((name) => !/^(?:manifest\.json|qualification-binding\.json|[\w.-]+\.(?:crate|upload\.json))$/.test(name))) throw new Error("publish-packed must contain unique flat crate files");
   // Read individual entries as bytes; never materialize ZIP symlinks.
   for (const name of names) fs.writeFileSync(path.join(packed, name), command("unzip", ["-p", zip, name], ROOT, { encoding: "buffer" }));
   Object.assign(context, { crate, artifactId: artifact.id, artifactDigest: artifact.digest, harnessSha: env.GITHUB_SHA });
@@ -300,7 +309,7 @@ function bindSource(source, packed, env = process.env) {
   // not shipped: bind these exact blobs to authenticated candidate sourceSha only.
   // Missing candidate blobs fail closed; never substitute a newer harness checkout.
   Object.assign(bindings, bindHarnessMetadata(crate, prescription, (full) => command("git", ["cat-file", "blob", `${context.sourceSha}:${full}`], source, { encoding: "buffer" })));
-  const contextFiles = command("git", ["ls-tree", "-r", "--name-only", context.sourceSha, `${unit.dir}/Cargo.toml`, `${unit.dir}/Cargo.lock`, "rust-toolchain.toml", ".cargo", `${unit.dir}/.cargo`, `${unit.dir}/benches`, "crates/rightkit-child-process/src", "crates/rightkit-child-process/Cargo.toml"], source).trim().split(/\r?\n/).filter(Boolean);
+  const contextFiles = command("git", ["ls-tree", "-r", "--name-only", context.sourceSha, `${unit.dir}/Cargo.toml`, "rust-toolchain.toml", ".cargo", `${unit.dir}/.cargo`, `${unit.dir}/benches`, "crates/rightkit-child-process/src", "crates/rightkit-child-process/Cargo.toml"], source).trim().split(/\r?\n/).filter(Boolean);
   for (const full of contextFiles) bindings[full] = hash(command("git", ["cat-file", "blob", `${context.sourceSha}:${full}`], source, { encoding: "buffer" }));
   return { context, unit, manifestSha256: hash(manifestBytes), bindings, workloads };
 }

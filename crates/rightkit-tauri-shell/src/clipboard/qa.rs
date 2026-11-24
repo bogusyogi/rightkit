@@ -1,6 +1,6 @@
 //! QA-only helpers for private pasteboards, behind the non-default `qa-probes` feature.
 //!
-//! Donor: ViewRight `commands/clipboard.rs` (`qa_paste_from_board`, `qa_stage_board`, `qa_png`).
+//! Mechanism: host `commands/clipboard.rs` (`qa_paste_from_board`, `qa_stage_board`, `qa_png`).
 //! An app registers these as `rightkit-qa` control commands (never as Tauri commands), so a scenario
 //! can stage a private pasteboard and read it back through the same typed path the app uses, without
 //! touching what the user copied. Every board here is `Board::Named`; a name in the

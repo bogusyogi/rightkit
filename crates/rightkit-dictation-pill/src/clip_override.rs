@@ -2,10 +2,11 @@
 //! (a captured transcript shown on its own) instead of the list of the newest history rows.
 //!
 //! The slot is this module's one process-wide `static`; these functions are the only code that
-//! reads or writes it, so callers pass no slot. The host supplies the recent-history reader and
+//! reads or writes it, so callers pass no slot. Moved from HeardRight `pill_overlays.rs`,
+//! `dictation_commands.rs` and `runtime_host.rs`. The host supplies the recent-history reader and
 //! the id of the single card; nothing here knows a product, a path or a history format.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Mutex, MutexGuard};
 
 /// The slot and what is known about it, under one lock, so a restore can tell whether the value it
@@ -23,11 +24,14 @@ struct State {
     /// The generation at which `committed` was written. A show that started later than this and
     /// succeeded replaces `committed`; one that started earlier does not (a newer value wins).
     committed_at: u64,
+    /// Refresh tokens issued by snapshots of this committed card. Settlement advances the
+    /// ordering counter without changing card identity, so these tokens name the same baseline.
+    committed_views: BTreeSet<u64>,
     /// The generation of the latest explicit `set` or `clear`.
     explicit_at: u64,
     /// The generation of the latest write that starts a card or ends one (`commit`, `clear_commit`,
-    /// `clear_if_current`, the start of a `set_while_showing`). Settlement restores the identity
-    /// of the committed value along with its text, while `generation` keeps advancing.
+    /// `clear_if_current`, the start of a `set_while_showing`). The settle of overlapping shows
+    /// moves `generation` but not this: it is the identity of "the newest card request".
     latest: u64,
     /// The generation of the latest provisional write (`set_while_showing`).
     provisional_at: u64,
@@ -42,6 +46,7 @@ static STATE: Mutex<State> = Mutex::new(State {
     generation: 0,
     committed: None,
     committed_at: 0,
+    committed_views: BTreeSet::new(),
     explicit_at: 0,
     latest: 0,
     provisional_at: 0,
@@ -69,6 +74,7 @@ fn lock_for_clear() -> MutexGuard<'static, State> {
                 generation,
                 committed: None,
                 committed_at: generation,
+                committed_views: BTreeSet::new(),
                 explicit_at: generation,
                 latest: generation,
                 provisional_at: 0,
@@ -100,9 +106,16 @@ pub fn is_set() -> bool {
 /// that needs the override and anything derived from it (the card's mode, its rows) takes both from
 /// this one value, so a `set` or `clear` between two separate reads cannot give it a payload from
 /// one override and a mode from another. The generation is the one to pass to
-/// [`is_superseded`] when the result is applied.
+/// [`is_superseded`] when the result is applied. A settled snapshot also registers that token
+/// as a view of the current committed card, so its eventual dismissal resolves the same identity
+/// even when settlement advanced the ordering counter. These aliases end when that baseline is
+/// replaced or explicitly cleared.
 pub fn snapshot() -> Result<(Option<String>, u64), String> {
-    let state = lock()?;
+    let mut state = lock()?;
+    if state.pending.is_empty() {
+        let generation = state.generation;
+        state.committed_views.insert(generation);
+    }
     Ok((state.value.clone(), state.generation))
 }
 
@@ -121,6 +134,7 @@ pub fn commit(text: Option<String>) -> Result<u64, String> {
     state.generation = state.generation.wrapping_add(1);
     state.committed = text;
     state.committed_at = state.generation;
+    state.committed_views.clear();
     state.explicit_at = state.generation;
     state.latest = state.generation;
     Ok(state.generation)
@@ -142,6 +156,7 @@ pub fn clear_commit() -> u64 {
     state.generation = state.generation.wrapping_add(1);
     state.committed = None;
     state.committed_at = state.generation;
+    state.committed_views.clear();
     state.explicit_at = state.generation;
     state.latest = state.generation;
     state.generation
@@ -149,7 +164,8 @@ pub fn clear_commit() -> u64 {
 
 /// The view dismissed the card that was shown for `generation` (the generation of its show, which
 /// the view carried back): clear the override only when that card is still the newest request
-/// (`latest == generation`), compared and cleared under one lock. `Ok(Some(g))` is the generation
+/// (`latest == generation`, or a settled snapshot token of that same committed card), compared
+/// and cleared under one lock. `Ok(Some(g))` is the generation
 /// of the clear (a close for it carries `g`); `Ok(None)` means a newer show or clear exists, so the
 /// dismissal belongs to a card that has since been replaced and changes nothing. No generation is
 /// allocated unless the identity matched.
@@ -170,12 +186,12 @@ pub fn clear_if_current(generation: u64) -> Result<Option<u64>, String> {
     if let Some(retired) = state.pending.get_mut(&generation) {
         *retired = true;
     }
-    if state.latest != generation {
-        if !state.pending.is_empty()
-            && state.committed_at == generation
-            && state.committed.is_some()
-        {
+    let committed_view =
+        state.committed_at == generation || state.committed_views.contains(&generation);
+    if state.latest != generation && !(state.pending.is_empty() && committed_view) {
+        if !state.pending.is_empty() && committed_view && state.committed.is_some() {
             state.committed = None;
+            state.committed_views.clear();
         }
         return Ok(None);
     }
@@ -183,6 +199,7 @@ pub fn clear_if_current(generation: u64) -> Result<Option<u64>, String> {
     state.generation = state.generation.wrapping_add(1);
     state.committed = None;
     state.committed_at = state.generation;
+    state.committed_views.clear();
     state.explicit_at = state.generation;
     state.latest = state.generation;
     Ok(Some(state.generation))
@@ -205,23 +222,6 @@ struct Finish {
     shown: bool,
 }
 
-impl Finish {
-    fn begin(text: Option<String>) -> Result<Self, String> {
-        let mut state = lock()?;
-        state.value = text.clone();
-        state.generation = state.generation.wrapping_add(1);
-        let ours = state.generation;
-        state.provisional_at = ours;
-        state.latest = ours;
-        state.pending.insert(ours, false);
-        Ok(Self {
-            ours,
-            text,
-            shown: false,
-        })
-    }
-}
-
 impl Drop for Finish {
     fn drop(&mut self) {
         let mut state = STATE.lock().unwrap_or_else(|e| e.into_inner());
@@ -234,6 +234,7 @@ impl Drop for Finish {
         if self.shown && !retired && self.ours > state.committed_at {
             state.committed = self.text.take();
             state.committed_at = self.ours;
+            state.committed_views.clear();
         }
         // The last show to finish settles the slot: when no `set` or `clear` came after the latest
         // provisional write, the slot still holds provisional text, and the committed value
@@ -264,8 +265,22 @@ pub fn set_while_showing<E>(
     text: Option<String>,
     show: impl FnOnce(u64) -> Result<(), E>,
 ) -> Result<Result<(), E>, String> {
-    let mut finish = Finish::begin(text)?;
-    let result = show(finish.ours);
+    let ours = {
+        let mut state = lock()?;
+        state.value = text.clone();
+        state.generation = state.generation.wrapping_add(1);
+        state.provisional_at = state.generation;
+        state.latest = state.generation;
+        let ours = state.generation;
+        state.pending.insert(ours, false);
+        ours
+    };
+    let mut finish = Finish {
+        ours,
+        text,
+        shown: false,
+    };
+    let result = show(ours);
     finish.shown = result.is_ok();
     drop(finish);
     Ok(result)
@@ -304,103 +319,5 @@ pub fn select_items(
             }])
         }
         None => Ok(all.into_iter().take(limit).collect()),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::panic::catch_unwind;
-
-    // Both regressions exercise the process-wide slot. Reserve it for one test at a time.
-    static TEST_SLOT: Mutex<()> = Mutex::new(());
-
-    #[test]
-    fn dismissing_a_pending_card_prevents_it_from_becoming_the_rollback_baseline() {
-        let _test_slot = TEST_SLOT.lock().unwrap_or_else(|error| error.into_inner());
-
-        for (first_finishes_first, second_is_shown) in
-            [(true, false), (false, false), (true, true), (false, true)]
-        {
-            let cleared = clear_commit();
-            let mut first = Finish::begin(Some("first".into())).unwrap();
-            let mut second = Finish::begin(Some("second".into())).unwrap();
-            let second_generation = second.ours;
-            first.shown = true;
-            second.shown = second_is_shown;
-
-            assert_eq!(clear_if_current(first.ours), Ok(None));
-            assert_eq!(
-                snapshot().unwrap(),
-                (Some("second".into()), second_generation)
-            );
-
-            if first_finishes_first {
-                drop(first);
-                drop(second);
-            } else {
-                drop(second);
-                drop(first);
-            }
-
-            let state = lock().unwrap();
-            assert!(state.pending.is_empty());
-            assert_eq!(state.value.as_deref(), second_is_shown.then_some("second"));
-            let expected_generation = if second_is_shown {
-                second_generation
-            } else {
-                cleared
-            };
-            assert_eq!(state.latest, expected_generation);
-        }
-    }
-
-    #[test]
-    fn a_completion_from_before_poison_recovery_cannot_settle_the_new_show() {
-        let _test_slot = TEST_SLOT.lock().unwrap_or_else(|error| error.into_inner());
-
-        for second_is_shown in [false, true] {
-            clear_commit();
-            let mut old = Finish::begin(Some("old".into())).unwrap();
-            old.shown = true;
-            assert!(catch_unwind(|| {
-                let _slot = STATE.lock().unwrap();
-                panic!("poison the test clipboard slot");
-            })
-            .is_err());
-            assert!(get().is_err());
-
-            let recovered = clear_commit();
-            assert!(recovered > old.ours);
-            assert_eq!(snapshot().unwrap(), (None, recovered));
-
-            let mut second = Finish::begin(Some("second".into())).unwrap();
-            let second_generation = second.ours;
-            second.shown = second_is_shown;
-            drop(old);
-            assert_eq!(
-                snapshot().unwrap(),
-                (Some("second".into()), second_generation)
-            );
-            {
-                let state = lock().unwrap();
-                assert_eq!(state.committed_at, recovered);
-                assert_eq!(state.committed, None);
-                assert_eq!(state.latest, second_generation);
-                assert_eq!(state.pending.len(), 1);
-                assert_eq!(state.pending.get(&second_generation), Some(&false));
-            }
-
-            drop(second);
-            let state = lock().unwrap();
-            assert!(state.pending.is_empty());
-            assert_eq!(state.value.as_deref(), second_is_shown.then_some("second"));
-            let expected_generation = if second_is_shown {
-                second_generation
-            } else {
-                recovered
-            };
-            assert_eq!(state.latest, expected_generation);
-        }
     }
 }

@@ -1,6 +1,6 @@
 # rightkit-audio
 
-Shared audio for Right Suite apps. The crate provides typed FFmpeg filter graphs, loudness measurement and gates, room tone, ducking, WAV I/O, and optional microphone capture with resampling, downmixing and recovery. Presets are bundled from the `presets` directory.
+Reusable audio primitives. The crate provides typed FFmpeg filter graphs, loudness measurement and gates, room tone, ducking, WAV I/O, and optional microphone capture with resampling, downmixing and recovery. Presets are bundled from the `presets` directory.
 
 Catalog capability: `audio`.
 
@@ -18,7 +18,7 @@ Catalog capability: `audio`.
 ## When to use it
 
 - Use it to build or run FFmpeg audio chains for narration, dialogue cleanup, ducking or room tone.
-- Use it for WAV read and write in Right Suite apps.
+- Use it to read and write WAV files.
 - Use it for microphone capture when a product needs resampling and downmix in one place.
 - Use it to play decoded audio through an output device (feature `playback`): `OutputSession` takes interleaved `f32` samples through a bounded lock-free ring and exposes a latency-adjusted playback clock for A/V sync.
 
@@ -51,6 +51,12 @@ let samples: Vec<f32> = read_wav_16k_mono(Path::new("/abs/in.wav"))?;
 - FFmpeg is required for measurement and rendering. It is resolved through `rightkit-ffmpeg`.
 - `tests/audio_e2e.rs` uses real files and FFmpeg, and a named loopback input device when one is available. No test routes audible audio to speakers; the one `playback` test that opens the default output device is `#[ignore]` and pushes only silence.
 - Playback (feature `playback`) uses cpal output on WASAPI, CoreAudio and ALSA, as capture does. The pure ring, gain and clock tests run on every host; the device test runs with `--features playback -- --ignored`.
+
+## Setup lifecycle
+
+Keep a `MicMeter` and `MicrophonePermissionSession` in host-owned setup state. Constructors open no device and start no worker. Call `begin` and `start` after a user action and an existing grant, and `stop` to invalidate the current epoch without waiting. The next start drains its predecessor before opening capture. Use `session.request(&host)` off the UI thread for microphone consent. On hide or suspend, stop the meter and cancel consent immediately. Drain both with `close` off the UI thread on teardown. Close is terminal, so construct fresh owners to reopen. Callbacks that refer to an owner should hold a weak reference.
+
+In 0.4.0, `MicMeter::new` requires runtime construction and Windows callers move from the free request function to `MicrophonePermissionSession::request`. The free API on other targets is unchanged.
 
 ## Playback
 
@@ -92,9 +98,15 @@ Published version: see [INDEX.md](../../INDEX.md). Publication goes through the 
 A hosted runner has none of these assets, so each test prints `SKIP <test>: ...` and passes. Set `RIGHTKIT_REQUIRE_ASSETS=1` on a host that must have them, and the test fails instead.
 
 - `tests/audio_e2e.rs`, `filter_graph_render_is_measurable_and_wav_round_trips` and `ducking_and_room_tone_render_have_content_changes`: a development FFmpeg, enabled by `RIGHTKIT_FFMPEG=<path>` or one of the candidate paths in `rightkit_ffmpeg::dev_resolve`.
-- `tests/audio_e2e.rs`, `resampler_and_capture_gate_are_explicit` (the capture half): a loopback input device (BlackHole, Loopback or Soundflower), enabled by installing one. The resampler assertions run on every host.
+- `tests/audio_e2e.rs`, `resampler_and_capture_gate_are_explicit` (the capture half): a configured virtual loopback input device. The resampler assertions run on every host.
 
 ## Setup metering & calibration
+
+Use `setup::scope::SetupAudioScope` to own metering & consent across setup visibility changes. Capture `meter_ticket()` (`SetupAudioMeterTicket`) when accepting each start or device change, before dispatching `start_reserved_meter` to an existing blocking executor. Call nonblocking `stop_meter_now()` immediately on that same serialized command ingress; never dispatch it for later execution. New receipts & stops invalidate queued meter starts without revoking consent. Newest valid start waits off UI only for its admitted predecessor; newer choices, stop & hide wake obsolete waiters. `MicMeter` drains prior capture before opening another device. Device/OS calls have no timing bound. Each meter token admits one attempt, including failures; an unconsumed `Draining` refusal permits same-token retry after drain.
+
+Existing `start_meter(&SetupAudioTicket, ...)` & `stop_meter(&SetupAudioTicket)` signatures remain available. Capture a fresh `ticket()` per legacy command before dispatch. Tickets carry monotonic command receipts. Legacy starts reject older or already-used receipts before hardware access & return `Busy` for an active predecessor. Legacy stops reject receipts older than an admitted meter action, so an earlier stop cannot cancel a later legacy or reserved start. A later stop can cancel an earlier start even when both tickets were captured before either worker ran. Consent uses `ticket()` independently of receipt order. Use reserved starts & immediate stop for receipt-ordered device changes.
+
+Scope rejects stale tickets & hidden starts. `suspend` revokes old work, `activate` records explicit reveal, & off-UI `drain` releases retired work before new operations proceed. Both stop APIs preserve consent. Invoke hide/suspend/close synchronously at lifecycle ingress; defer only resource drain, never another cancellation that could revoke later work. For ordinary exit, call terminal `close` then `drain` off UI before releasing final owner. Host owns window lifecycle, existing OS grant checks, explicit user action, device selection, event routing & copy.
 
 `setup::mic_meter::{MicMeter, MeterConfig, MeterEvent, MeterStatus, MeterStartError, level}` provides metering with first-buffer probing, one reopen & stale-epoch protection. Use `begin` then `start`; call `stop` on setup exit, hide, suspend & close. Stop invalidates its epoch; worker drops its stream after its current bounded read. Reopen drops old stream before opening its replacement.
 
@@ -107,3 +119,5 @@ Constructors open no microphone. Call `start` only for an explicit user action a
 `setup::permissions::{PermissionHost, microphone_access_status, request_microphone_access, open_macos_microphone_settings}` provides OS consent. Host supplies telemetry sink, UI-thread scheduler & grant callback; call status & request from blocking workers. macOS waits up to 120 s for consent. Windows requests capability access on host's UI thread, waits up to 5 s for dispatch plus 120 s for consent, preserves explicit denials & refines other results with device probes. Settings grant polling checks every 2 s for 60 s; each new request supersedes prior watcher. Hardware enumeration/open calls follow native driver timing. Host owns renderer event names & copy.
 
 `setup::calibration_engine::{EngineRun, run_engine_calibration}` runs host-selected engine over host-owned PCM path & decodes stdout into host's result type. Host supplies subcommand, environment, timeout & stdout cap. Runner owns process tree, execution deadline, bounded output capture & cleanup; PCM files, wire structs, model activation & engine restart remain host responsibilities. Capture PCM stays unconditioned.
+
+`setup::calibration_session` coordinates recorder stop, an owned PCM file, host model and engine callbacks, and resident restart after a passing report. It reports PCM cleanup separately and can sweep owned files from dead processes. Hosts supply paths, process hooks, wire formats and copy.

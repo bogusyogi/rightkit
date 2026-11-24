@@ -14,7 +14,7 @@ name = "rightkit_timeline"
 path = "src/lib.rs"
 
 [dependencies]
-rightkit-fs = { version = "0.4.9", default-features = false, features = ["blake3"], path = "../rightkit-fs" }
+rightkit-fs = { version = "0.5.0", default-features = false, features = ["blake3"], path = "../rightkit-fs" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0" }
 thiserror = { version = "2.0" }

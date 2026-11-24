@@ -1,4 +1,4 @@
-// rightkit-audio 0.3.5 consumed by exact registry pin (default features off, capture API enabled;
+// rightkit-audio 0.4.1 consumed by exact registry pin (default features off, capture API enabled;
 // no capture operation runs), outside the workspace.
 //
 // Proves, through the public API and with no FFmpeg and no audio device: the typed filter text and
@@ -1235,7 +1235,7 @@ fn main() {
     room_tone_fill_and_bed();
     error_text();
     std::fs::remove_dir_all(&scratch).expect("remove consumer temp dir");
-    println!("OK rightkit-audio 0.3.5 (registry consumer)");
+    println!("OK rightkit-audio 0.4.1 (registry consumer)");
 }
 
 fn setup_api_surface() {
@@ -1244,10 +1244,12 @@ fn setup_api_surface() {
     use rightkit_audio::setup::mic_meter::{
         level, MeterConfig, MeterEvent, MeterStartError, MicMeter,
     };
+    use rightkit_audio::setup::permissions::{MicrophonePermissionSession, PermissionHost};
+    use rightkit_audio::setup::scope::{SetupAudioConfig, SetupAudioError, SetupAudioScope};
     use std::sync::Arc;
     use std::time::Duration;
     fn sink(_: &str, _: &str) {}
-    let _meter = MicMeter::new(sink);
+    let meter = MicMeter::new(sink);
     let _recorder = Recorder::new(sink);
     let _settings = CaptureSettings {
         sample_rate: 16_000,
@@ -1255,14 +1257,14 @@ fn setup_api_surface() {
         target_seconds: 35,
         max_seconds: 120,
     };
-    let _config = MeterConfig {
+    let config = MeterConfig {
         sample_rate: 16_000,
         block_ms: 20,
         confirm_level: 0.08,
         probe_timeout: Duration::from_secs(3),
     };
     let _meter_start: fn(
-        &'static MicMeter,
+        &MicMeter,
         u64,
         MeterConfig,
         fn(&[DeviceInfo]) -> Result<Option<usize>, String>,
@@ -1272,5 +1274,76 @@ fn setup_api_surface() {
     let _recorder_stop = Recorder::stop;
     let _recorder_cancel = Recorder::cancel;
     assert!(level(0.316_227_76) > 0.99);
-    // No start method is called; this covers setup APIs without capturing audio.
+    let stopped_epoch = meter.begin();
+    meter.stop();
+    let reopened_epoch = meter.begin();
+    assert_ne!(stopped_epoch, reopened_epoch);
+    meter.close();
+    meter.close();
+    assert!(matches!(
+        meter.start(
+            reopened_epoch,
+            config,
+            |_| panic!("closed meter consulted resolver"),
+            Arc::new(|_| panic!("closed meter emitted")),
+        ),
+        Err(MeterStartError::Closed)
+    ));
+    let consent = MicrophonePermissionSession::new();
+    let _request: fn(&MicrophonePermissionSession, &PermissionHost) -> Result<String, String> =
+        MicrophonePermissionSession::request;
+    consent.cancel();
+    consent.close();
+
+    let scope = SetupAudioScope::new(SetupAudioConfig {
+        initially_active: false,
+        event_sink: sink,
+    });
+    assert!(matches!(scope.ticket(), Err(SetupAudioError::Inactive)));
+    scope.activate().expect("reveal setup");
+    let before_hide = scope.ticket().expect("ticket while visible");
+    scope.suspend();
+    assert!(matches!(scope.ticket(), Err(SetupAudioError::Inactive)));
+    assert_eq!(scope.activate(), Err(SetupAudioError::Draining));
+    let after_reveal = scope.ticket().expect("ticket during retirement");
+    scope.drain();
+    assert_eq!(
+        scope.stop_meter(&before_hide),
+        Err(SetupAudioError::StaleTicket)
+    );
+    scope
+        .stop_meter(&after_reveal)
+        .expect("new ticket admitted after drain");
+    let legacy_start = scope.ticket().expect("capture legacy start");
+    scope.stop_meter_now().expect("stop on receipt");
+    assert_eq!(
+        scope.start_meter(
+            &legacy_start,
+            config,
+            |_| panic!("stopped start resolved a device"),
+            Arc::new(|_| panic!("stopped start emitted an event")),
+        ),
+        Err(SetupAudioError::StaleTicket)
+    );
+    let legacy_stop = scope.ticket().expect("capture legacy stop");
+    let reserved = scope.meter_ticket().expect("reserve a newer start");
+    assert_eq!(
+        scope.stop_meter(&legacy_stop),
+        Err(SetupAudioError::StaleTicket)
+    );
+    scope
+        .stop_meter_now()
+        .expect("stop newer reservation on receipt");
+    assert_eq!(
+        scope.start_reserved_meter(
+            &reserved,
+            config,
+            |_| panic!("stopped reservation resolved a device"),
+            Arc::new(|_| panic!("stopped reservation emitted an event")),
+        ),
+        Err(SetupAudioError::StaleTicket)
+    );
+    scope.close();
+    scope.drain();
+    assert_eq!(scope.activate(), Err(SetupAudioError::Closed));
 }

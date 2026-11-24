@@ -1,6 +1,6 @@
 //! The renderer-facing log commands over `rightkit-logs` (feature `logs`, Orthic-Labs/rightkit#390).
 //!
-//! Six apps hand-copy this trio (CodeRight `src-tauri/src/logs.rs`, CuteRight, HeardRight, ...):
+//! Shared renderer log commands:
 //! `rightkit_logs_write`, `rightkit_logs_collect` and `rightkit_logs_clear`, the names the
 //! `@rightkit/logs` JS client invokes (`RIGHTKIT_LOGS_*_COMMAND`). They are shared here once. The
 //! renderer sends no path and no URL: everything that decides where logs live and what leaves them is

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.1
+
+- Bind live streaming and final append to a fresh verified caret on the same control. Preserve visible streamed text on cancel or divergent final output and report the copy fallback.
+- Share platform destination security probes so hosts can forward the current native check directly.
+
 ## 0.3.0
 
 - Add host-configured paste delivery, stop-time control binding & streaming reconciliation. Automatic writes require fresh security, control & physical-modifier evidence.

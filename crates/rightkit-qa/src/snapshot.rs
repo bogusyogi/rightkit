@@ -1167,10 +1167,8 @@ fn check_root_sane(path: &Path, managed: &Path, file: bool) -> Result<()> {
 fn resolve_app_dirs(name: &str, flat: bool) -> Result<rightkit_fs::AppDirs> {
     // The id is built once per run from the config; the leak is a few bytes.
     let leaked: &'static str = Box::leak(name.to_string().into_boxed_str());
-    let mut id = rightkit_fs::AppId::new(leaked);
-    if flat {
-        id = id.without_org();
-    }
+    let org = (!flat).then_some(rightkit_roots::SUITE_DIR_NAME);
+    let id = rightkit_fs::AppId::new(leaked, org);
     let dirs = rightkit_fs::AppDirs::resolve(id)
         .map_err(|e| Error(format!("cannot resolve the data folders of {name}: {e}")))?;
     Ok(dirs)

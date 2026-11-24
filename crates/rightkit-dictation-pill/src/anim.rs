@@ -368,7 +368,13 @@ pub enum Mode {
 }
 
 /// Entrance progress using the host's spring and stagger, with `f32::MAX` fully visible.
-pub fn row_progress(rows_ms: f32, index: usize, step_ms: f32, cap_ms: f32, spring: SpringParams) -> f32 {
+pub fn row_progress(
+    rows_ms: f32,
+    index: usize,
+    step_ms: f32,
+    cap_ms: f32,
+    spring: SpringParams,
+) -> f32 {
     if rows_ms >= f32::MAX {
         return 1.0;
     }

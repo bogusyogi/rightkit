@@ -20,6 +20,7 @@ use super::links::{self, Link};
 use super::roster::{self, LocalSession};
 use super::store::Store;
 use super::{ReceiptState, deliver_local_via};
+use rightkit_fs::private_cached::PrivateDirCacheLease;
 use serde::Serialize;
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
@@ -284,6 +285,7 @@ fn unregister() {
 pub fn start(alias: &str) {
     let alias = super::clean_alias(alias);
     let begun = std::time::Instant::now();
+    let cache = PrivateDirCacheLease::acquire();
     register(&alias);
     let registered = begun.elapsed().as_millis();
     {
@@ -295,7 +297,7 @@ pub fn start(alias: &str) {
     if let Some(store) = store() {
         let written = {
             let mut gate = gate();
-            *gate = true;
+            *gate = Some(cache);
             store.write_relay_status(&alias)
         };
         if let Err(e) = written {
@@ -321,10 +323,11 @@ pub fn stop() {
     // Closed first, under the gate, so the heartbeat thread cannot write a beat after the clear.
     progress().last_begin = None;
     let mut gate = gate();
-    *gate = false;
+    let cache = gate.take();
     if let Some(store) = store() {
         store.clear_relay_status();
     }
+    drop(cache);
 }
 
 /// Recreate the reply listener of every reply route from the last 24 hours, so a chat
@@ -436,10 +439,10 @@ fn progress() -> MutexGuard<'static, TickProgress> {
         .unwrap_or_else(|p| p.into_inner())
 }
 
-/// Whether the heartbeat may be written. Held across the write and the clear so `stop` cannot be
-/// followed by a late beat from the heartbeat thread.
-fn gate() -> MutexGuard<'static, bool> {
-    static GATE: Mutex<bool> = Mutex::new(false);
+/// An active hub keeps the private-directory trust cache for the heartbeat and its workers.
+/// The gate stays locked across writes and the clear so `stop` cannot be followed by a late beat.
+fn gate() -> MutexGuard<'static, Option<PrivateDirCacheLease>> {
+    static GATE: Mutex<Option<PrivateDirCacheLease>> = Mutex::new(None);
     GATE.lock().unwrap_or_else(|p| p.into_inner())
 }
 
@@ -575,7 +578,7 @@ fn heartbeat_pass() {
         return;
     }
     let gate = gate();
-    if !*gate {
+    if gate.is_none() {
         return;
     }
     if let Some(store) = store()
@@ -586,7 +589,7 @@ fn heartbeat_pass() {
     }
 }
 
-/// Every couple of seconds while active: heartbeat first, then (off this thread) the chat
+/// Every couple of seconds after start and while active: heartbeat first, then (off this thread) the chat
 /// rescan, the slow poll of linked computers for the page, and queued reply retries.
 /// Nothing here waits on ssh.
 pub fn tick(alias: &str) {
@@ -604,8 +607,10 @@ pub fn tick(alias: &str) {
     };
     let lane = LaneGuard::begin(false, "heartbeat");
     {
-        let mut gate = gate();
-        *gate = true;
+        let gate = gate();
+        if gate.is_none() {
+            return;
+        }
         if first && let Err(e) = store.write_relay_status(&alias) {
             drop(gate);
             note(format!("Couldn't write the heartbeat: {e}"));

@@ -74,13 +74,11 @@ impl LaunchHandoff {
         #[cfg(target_os = "macos")]
         {
             let task_app = app.clone();
-            if let Err(error) = app.run_on_main_thread(move || {
-                match self.admit() {
-                    Some(Action::Retire) => (host.native_flight)(&task_app),
-                    Some(Action::RevealFirst) => self.reveal(&task_app, &host, true),
-                    Some(Action::RevealAgain) => self.reveal(&task_app, &host, false),
-                    None => {}
-                }
+            if let Err(error) = app.run_on_main_thread(move || match self.admit() {
+                Some(Action::Retire) => (host.native_flight)(&task_app),
+                Some(Action::RevealFirst) => self.reveal(&task_app, &host, true),
+                Some(Action::RevealAgain) => self.reveal(&task_app, &host, false),
+                None => {}
             }) {
                 sink("finish_launch_schedule_failed", &error.to_string());
             }
@@ -108,7 +106,9 @@ impl LaunchHandoff {
         }
         let sink = host.sink;
         let task_app = app.clone();
-        if let Err(error) = app.run_on_main_thread(move || self.reveal_after_close(&task_app, &host)) {
+        if let Err(error) =
+            app.run_on_main_thread(move || self.reveal_after_close(&task_app, &host))
+        {
             sink("splash_retirement_schedule_failed", &error.to_string());
         }
     }

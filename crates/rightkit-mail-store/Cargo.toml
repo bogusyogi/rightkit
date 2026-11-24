@@ -22,7 +22,7 @@ rightkit-cache = { version = "0.2.3", path = "../rightkit-cache" }
 rightkit-embed = { version = "0.7.0", path = "../rightkit-embed" }
 rightkit-models = { version = "0.7.0", path = "../rightkit-models" }
 rightkit-onnx = { version = "0.3.0", default-features = false, path = "../rightkit-onnx" }
-rightkit-fs = { version = "0.4.9", default-features = false, features = ["fs", "app-dirs", "digest", "lock"], path = "../rightkit-fs" }
+rightkit-fs = { version = "0.5.0", default-features = false, features = ["fs", "app-dirs", "digest", "lock"], path = "../rightkit-fs" }
 rightkit-time = { version = "0.1.1", path = "../rightkit-time" }
 rightkit-job-queue = { version = "0.6.0", features = ["store"], path = "../rightkit-job-queue" }
 rightkit-app-settings = { version = "0.4.0", default-features = false, features = ["sql"], path = "../rightkit-app-settings" }

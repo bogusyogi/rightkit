@@ -1,6 +1,15 @@
 # Changelog
 
+## 0.8.7
+
+- Package docs & examples use neutral host identities. `devtools::OWNER_DECISION` keeps its public `&str` API with a general policy summary; original wording is preserved in release policy documentation. Runtime authorization, markers & compatibility names are unchanged.
+
+- Add a hub controller for show, routing, launch splash & legal handoff. Windows keeps a static hub.
+- Add startup planning, reveal, legal latch, renderer park & ordered setup over host callbacks.
+
 ## 0.8.6
+
+- Share wallpaper reads, install-location/login-entry policy, forwarded-launch startup coordination, watchdog event logs, close decisions & startup renderer parking. Serialize forwarded opens with app binding & startup readiness; retain failed main-thread scheduling for retry.
 
 - Share Dock activation coordination, window motion & launch handoff. Wait for the host's native macOS close callback or Tauri's destruction event before revealing after retirement.
 
@@ -24,7 +33,7 @@
 
 ## 0.8.2
 
-- New: `windows::route_new_windows_with(window, handler)`, the per-window form of `route_new_windows` for an app that sets no app-wide `on_new_window` hook because its windows route differently (ViewRight: the main window opens `target=_blank` links as tabs, the HTML inspector leaves them to the system browser). Additive.
+- New: `windows::route_new_windows_with(window, handler)`, the per-window form of `route_new_windows` for an app that sets no app-wide `on_new_window` hook because its windows route differently (host: the main window opens `target=_blank` links as tabs, the HTML inspector leaves them to the system browser). Additive.
 
 - **New: `startup_error::show_with(title, message, &StartupErrorOptions)`** (`show` is unchanged and equals the default options): choose the macOS dialog (`MacosDialog::AlertCritical` default, or `DialogStop`: `display dialog` with an `OK` button and the stop icon), add `MB_SETFOREGROUND` on Windows, set a stderr line prefix, and report a failed `osascript` start as `could not show the start-up error: <error>`. macOS now discards `osascript`'s stdout for the dialog it shows (it printed the clicked button).
 - **New: `startup_error::set_window_icon_native::<R>(&WebviewWindow<R>, &Image)`**: `set_window_icon` for any runtime from a decoded image; on Windows it also sends `WM_SETICON` (small, small2, big) so the taskbar does not keep a cached icon.
@@ -68,7 +77,7 @@
 
 ## Unreleased
 
-- New feature `pro-bridge` (implies `license`; adds `rightkit-credentials`, `rightkit-fs`): `host::pro_bridge` with `ProBridge`, `ProBridgeConfig` (helper name, optional signing team, consent marker, state file) and `ProBridgeHost` (licence client, `has_pro`, log sink). It is the one Pro continuity across Apple devices: the iCloud-Keychain helper over `rightkit_credentials::apple_helper`, the device-only state file (`pro-bridge-state.json` format of the live HeardRight app, read in place, legacy `sync_enabled` migrated once), the launch algorithm over `LicenseClient::{bridge_publish, bridge_exchange}`, and `status`, `set_keychain_sync_enabled`, `set_pro_resolution_enabled`, `set_sync_enabled`, `suppress_consumption`. Compiles on every OS; the helper is found only on macOS. The Tauri commands stay a one-line wrapper in the app.
+- New feature `pro-bridge` (implies `license`; adds `rightkit-credentials`, `rightkit-fs`): `host::pro_bridge` with `ProBridge`, `ProBridgeConfig` (helper name, optional signing team, consent marker, state file) and `ProBridgeHost` (licence client, `has_pro`, log sink). It is the one Pro continuity across Apple devices: the iCloud-Keychain helper over `rightkit_credentials::apple_helper`, the device-only state file (`pro-bridge-state.json` format of the live host, read in place, legacy `sync_enabled` migrated once), the launch algorithm over `LicenseClient::{bridge_publish, bridge_exchange}`, and `status`, `set_keychain_sync_enabled`, `set_pro_resolution_enabled`, `set_sync_enabled`, `suppress_consumption`. Compiles on every OS; the helper is found only on macOS. The Tauri commands stay a one-line wrapper in the app.
 - `ShellBuilder::webview_data_directory(path)` (`ShellState::webview_data_directory`): `windows::builder` and `windows::open` set it as the WebView2 user data folder on each window builder (Windows only), so an app no longer has to export an environment variable. Unset, behaviour is unchanged.
 - Renderer log bridge: `prepare_batch_filtered` keeps a record that fails to parse as a Warn carrying its event name (`unknown` when it has none) instead of counting it invalid. Non-objects and bad names stay invalid.
 - `ShellPlugin` injects `window.__RIGHTKIT_PLATFORM__ = "macos" | "ios" | "windows" | "linux"` (the value `platformInitializationScript` returns) in every profile, `lifecycle_only` included; apps no longer hand-write it. Nothing is injected on other targets.
@@ -85,7 +94,7 @@ Issues bogusyogi/rightkit #414, #498, #638, #746, #869, #938, #1019 (Rust side),
 - #1032: `host::account` (feature `license`): `ServiceId::ACCOUNT`, `AccountHostService`, `HostServicesBuilder::account_client(trust, AccountSessionClient)` and the nine commands `rightkit_account_status`, `_refresh`, `_request_sign_in { email }`, `_complete_sign_in { code }`, `_sign_out`, `_list_devices`, `_rename_device { device, label }`, `_remove_device { device }`, `_delete { confirmed }` (only `true` makes the delete confirmation). Rejections are the client's `{ code, reason? }` or a `{ code, message }` host error (`forbidden`, `unsupported`). Carried by `handler!`.
 - #1036: `rightkit_license_retry_pending_releases` (answers `{ attempted, settled, kept, acknowledgeFailed }`) over `LicenseOps::drain_pending_releases`; the app lends its durable queue with `LicenseHostService::with_release_queue`, else the command answers `unsupported`.
 - Command names reconciled with the TS packages (Rust names kept): `@rightkit/tauri` `createNativeFetch` now calls `rightkit_app_update_fetch`, and `@rightkit/app-update` boot probation calls `rightkit_boot_status`, `_stage`, `_ok`, `_begin`.
-- #963: `content_webview` module: `ContentWebviewSpec` opens a window onto a remote `https` origin (`content_webview::open`). Top-level navigation is limited to `allowed_origins` (the shell's own navigation hook stands aside for a registered content window); a sized `window.open` to a `popup_origins` origin from an allowed page becomes an in-app popup, any other web link opens in the system browser, other schemes are refused. `ContentProfile::new(slot, root)` gives a persistent profile slot (`data_directory` on Windows and Linux, registered with the DevTools tripwire before the webview exists; a `data_store_identifier` derived from the slot on macOS 14+); no profile means incognito. `validate` refuses a spec whose attested capabilities grant the window IPC, or without the ACL manifest attestation. `registration()` returns the `ContentWebview` to hand to the builder under `DevToolsPolicy::ContentOnly`; under `Denied` the window is non-inspectable. Closing destroys the webview and forgets its registration. Windows only (no child webview). Adoption by PlayRight, ViewRight and ScrapeRight is in those repositories.
+- #963: `content_webview` module: `ContentWebviewSpec` opens a window onto a remote `https` origin (`content_webview::open`). Top-level navigation is limited to `allowed_origins` (the shell's own navigation hook stands aside for a registered content window); a sized `window.open` to a `popup_origins` origin from an allowed page becomes an in-app popup, any other web link opens in the system browser, other schemes are refused. `ContentProfile::new(slot, root)` gives a persistent profile slot (`data_directory` on Windows and Linux, registered with the DevTools tripwire before the webview exists; a `data_store_identifier` derived from the slot on macOS 14+); no profile means incognito. `validate` refuses a spec whose attested capabilities grant the window IPC, or without the ACL manifest attestation. `registration()` returns the `ContentWebview` to hand to the builder under `DevToolsPolicy::ContentOnly`; under `Denied` the window is non-inspectable. Closing destroys the webview and forgets its registration. Windows only (no child webview). Consumer adoption is tracked outside this package.
 - #970 (updater): `update::managed_install::{detect, classify, ManagedInstall}` recognise an install a package manager or store owns (Mac App Store receipt, Homebrew, MacPorts, Nix, MSIX or Microsoft Store, Scoop, Chocolatey, WinGet portable, Snap, Flatpak, a distribution package under `/usr`). `UpdateHost::check` refuses it with `unsupported` unless `UpdatePolicy::allow_managed_install(true)`; no wire vocabulary changed.
 - #1069: `UpdatePolicy::right_suite` appends `platform=<darwin|windows>` (the OS part of `update::current_platform`) to the release-status URL, so the status read is filtered per platform.
 - #1105: `WindowSpec` gains `maximizable`, `minimizable`, `transparent` and `background_color: Option<[u8; 4]>` (RGBA). Unset fields keep the builder defaults.
@@ -108,8 +117,8 @@ Issues bogusyogi/rightkit #414, #498, #638, #746, #869, #938, #1019 (Rust side),
 - #1138: `LegalManifest::from_json(version, json)` computes the material digest (SHA-256 of `role|id|version|sha256` lines, sorted by role, newline-joined, as `@rightkit/legal` `materialDigestInput`). `host-services` now enables `dep:sha2`. Roles are sorted by byte order; `localeCompare` agrees for the ASCII role names in use.
 - #414: `CloseBehavior::DestroyAndRecreate`: closing the main window destroys it and the process keeps running; a reveal, a tray click or a second launch recreates the main window from its `tauri.conf.json` entry with the shell's policy. Single-instance is plain Rust already (`single_instance.rs`).
 - #498: `startup_error::show(title, message)` (`MessageBoxW`; `osascript display alert` with argv, not spliced text) and `startup_error::set_window_icon(window, png)`. The WebView2 user-data part is #1052.
-- Removed: the `dev-overrides` feature (Adrian's rules: no test-mode code, no debug assertions, QA runs against the real installed build, never localhost or a dev server). `NavPolicy::default()` has `allow_loopback: false` in every build (the field stays for an app that sets it in its own code), and `webview2_env::apply` always scrubs the inherited WebView2 loader variables on Windows. An app that enabled `rightkit-tauri-shell/dev-overrides` must drop it from its features (the Pulse hub `src-tauri` manifest does). `qa-probes` is unchanged.
-- #1049: `MenuSpec` gains `order: Vec<MenuSlot>` (top-level menu order: App, File, Edit, View, Window, Help or `Group(label)`; listed slots first, the rest in default order, App always first on macOS), `omit_menus: Vec<BuiltinMenu>` (do not build a built-in menu; the App menu cannot be omitted, File cannot while settings or a Quit / Close Window override would live in it) and `placements: Vec<MenuPlacement>` (per built-in menu: `start` and `end` entries, including checks and nested submenus, and `omit: Vec<BuiltinItem>` for About, Services, Hide, Fullscreen, Minimize, Maximize, Close Window). `MenuGroup` gains `platforms: Vec<MenuPlatform>` (empty = every OS) with `MenuGroup::new(label, entries)` and `.only_on(..)`; struct-literal users add `platforms: vec![]`. View is built on Windows and Linux only when a placement gives it entries. Every item built from the spec, wherever placed, is driven by `rk_shell_set_menu_state` and `rk_shell_set_menu_item_checked`. Decision: an additive spec with a pure ordering function (`menu::resolve_order`) rather than a second menu builder, so ViewRight can delete `native_menu.rs` and keep the shell's ordered quit.
+- Removed: the `dev-overrides` feature (Adrian's rules: no test-mode code, no debug assertions, QA runs against the real installed build, never localhost or a dev server). `NavPolicy::default()` has `allow_loopback: false` in every build (the field stays for an app that sets it in its own code), and `webview2_env::apply` always scrubs the inherited WebView2 loader variables on Windows. An app that enabled `rightkit-tauri-shell/dev-overrides` must drop it from its features (the host hub `src-tauri` manifest does). `qa-probes` is unchanged.
+- #1049: `MenuSpec` gains `order: Vec<MenuSlot>` (top-level menu order: App, File, Edit, View, Window, Help or `Group(label)`; listed slots first, the rest in default order, App always first on macOS), `omit_menus: Vec<BuiltinMenu>` (do not build a built-in menu; the App menu cannot be omitted, File cannot while settings or a Quit / Close Window override would live in it) and `placements: Vec<MenuPlacement>` (per built-in menu: `start` and `end` entries, including checks and nested submenus, and `omit: Vec<BuiltinItem>` for About, Services, Hide, Fullscreen, Minimize, Maximize, Close Window). `MenuGroup` gains `platforms: Vec<MenuPlatform>` (empty = every OS) with `MenuGroup::new(label, entries)` and `.only_on(..)`; struct-literal users add `platforms: vec![]`. View is built on Windows and Linux only when a placement gives it entries. Every item built from the spec, wherever placed, is driven by `rk_shell_set_menu_state` and `rk_shell_set_menu_item_checked`. Decision: an additive spec with a pure ordering function (`menu::resolve_order`) rather than a second menu builder, so host can delete `native_menu.rs` and keep the shell's ordered quit.
 - #640: `consent` module: `consent::ask(&ConsentPrompt)` shows the native three-choice dialog (Deny, Allow once, Always allow) with the app's own button labels: `TaskDialogIndirect` on Windows (Common Controls v6, already required by the Tauri window stack; `build.rs` embeds it for tests and benches; `windows` feature `Win32_UI_Controls`), `display alert` through `osascript` (argv, not spliced) on macOS, `unsupported` elsewhere. `GrantStore` (with `FileGrantStore`) remembers Always allow by scheme, `consent_surface(pinned, current)` lets only a page of the pinned origin prompt, and `ShellBuilder::protocol_consent(ProtocolConsent)` wires `WindowOpenDecision::ProtocolConsent` to the dialog and the system opener. Esc and the close box are Deny; Deny is the default button. The Dell run of the dialog is still to do.
 - #956 (and #519): the runtime-neutral modules are now crates the shell depends on and re-exports at their old paths: `rightkit-autostart` (`autostart`, `login_item`), `rightkit-instance` (`instance`, `single_instance`, the legacy handoff), `rightkit-clipboard` (the raw clipboard; the shell keeps `take_item` and `ClipboardItem` because they grant files through the path broker), `rightkit-presence` (`presence`), `rightkit-deep-link` (`deep_link`). No behaviour change for current consumers. `single_instance::hold`, `release` and `release_all` are now `pub`. The Tauri-bound modules (tray, menu, window state, idle, watchdog, frameless, hardening, notify policy, OS settings panes) stay. Names follow the `rightkit-<capability>` rule of the sibling crates (`rightkit-app-lock`, `rightkit-clipboard-history`, `rightkit-hotkeys`) and the plan's own list (autostart, instance, clipboard, presence, deep-link).
 - #867: `rightkit-signal` 0.1.0 is re-exported as `rightkit_tauri_shell::signal`: `post(name)`, `Watcher` (observe names; Darwin notifications on macOS, `Local\` named events on Windows), `Lease` (repeating post while a probe is true) and `LeaseMonitor` (live while the last post is younger than a ttl).
@@ -152,7 +161,7 @@ BREAKING (source), so the next version is 0.7.0 (the registry records 0.6.0): `L
 
 ## 0.5.1 (unpublished staging)
 
-- **Fixed: features `update` and `update-license` were unusable in a Tauri 2.12 app.** `tauri-plugin-updater` was pinned `=2.10.1`, while Tauri 2.12 apps resolve 2.14, so Cargo could not select both (ViewRight, 2026-10-23: blocks its native licence cutover). The requirement is now `>=2.10.1, <3`. Checked with a consumer-shaped crate: tauri 2.12.5 + tauri-plugin-updater 2.14.0 + features `update,update-license`, `cargo check` green on macOS through the broker. The RightKit workspace lock stays on 2.10.1 until the Tauri 2.12 move; runtime behaviour on 2.14 is the app's qualification.
+- **Fixed: features `update` and `update-license` were unusable in a Tauri 2.12 app.** `tauri-plugin-updater` was pinned `=2.10.1`, while Tauri 2.12 apps resolve 2.14, so Cargo could not select both (host, 2026-10-23: blocks its native licence cutover). The requirement is now `>=2.10.1, <3`. Checked with a consumer-shaped crate: tauri 2.12.5 + tauri-plugin-updater 2.14.0 + features `update,update-license`, `cargo check` green on macOS through the broker. The RightKit workspace lock stays on 2.10.1 until the Tauri 2.12 move; runtime behaviour on 2.14 is the app's qualification.
 
 ## 0.5.0 — 2026-10-23
 
@@ -252,7 +261,7 @@ version is `0.x`, a minor bump may carry breaking changes.
 - Added: `OAUTH_POPUP_ORIGINS` gains `mcp.atlassian.com`, `auth.atlassian.com`, `login.salesforce.com`, `test.salesforce.com`. `nav::strip_coop_headers`, `nav::popup_origins_from_json`, `NavPolicy::decide_window_open_pinned` (opener must equal a pinned origin) and `NavPolicy::protocol_consent_scheme` (the scheme of a non-web `window.open` target an app may confirm; `decide_window_open` still returns `Deny` for it). `NavPolicy` and `WindowOpenDecision` keep their previous public shape.
 - Changed: the shell's `on_new_window` hook passes the opening window's current URL (`WebviewWindow::url`) to the popup decision, so an opener not served in place is external. Partial for #638: the shell does not yet carry a pinned server origin (no `ShellConfig` setting), so pinned-origin popups need the app to call `decide_window_open_pinned`; the hook uses the unpinned rule.
 - Note (unchanged, pre-existing policy): DevTools `AllowDev` (dev-inspect) and `AllowContent` (ContentOnly) decisions remain.
-- Added: engine policy and tray options from the CutRight gap patch G15-G18 (see `engine::EnginePolicy`, `tray::TrayOptions`). Not built or run locally.
+- Added: engine policy and tray options from the host gap patch G15-G18 (see `engine::EnginePolicy`, `tray::TrayOptions`). Not built or run locally.
 
 ## 0.3.2
 
@@ -271,13 +280,13 @@ version is `0.x`, a minor bump may carry breaking changes.
 
 - Security (behaviour change; Orthic-Labs/rightkit#109): dev-control no longer follows `cfg(debug_assertions)`, which is on in the dev profile used by installed dev builds. `NavPolicy::default().allow_loopback` is now `false` unless the new non-default `dev-overrides` feature is on. The `devtoolsOpen` readback in the QA state command (`commands.rs`) is compiled only with `content-devtools` or `dev-inspect`; otherwise it reports `false`. The inspector-closing call in `devtools::apply_native` keeps `debug_assertions` in its cfg because it only closes an inspector on a denied webview. App migration: an app that relied on loopback navigation in dev builds enables `rightkit-tauri-shell/dev-overrides` from its QA/dev feature (apps may also set `allow_loopback: true` explicitly in `NavPolicy`); an app that relied on the devtools readback in dev builds enables `dev-inspect`. Not built or run locally.
 
-- Added (Orthic-Labs/rightkit#232; additive, moved from ViewRight so it can delete its copies; not built or run locally):
-  - `frameless::button_frames(&WebviewWindow) -> Result<ButtonFrames, ShellError>`: read-only macOS probe of the close, minimise and zoom buttons (`standardWindowButton` frame, hidden flag, plus `window_visible`), run on the main thread (through the shell's dispatch when the plugin is installed, otherwise inline or queued with a 5 s wait). Typed `ButtonFrame { x, y, width, height, hidden }` and `ButtonFrames { close, miniaturize, zoom, window_visible }`, with `ButtonFrames::to_json()` in ViewRight's control-command shape. Returns `ShellError::Unsupported` off macOS. It never moves a button, orders the window in or activates the app.
+- Added (Orthic-Labs/rightkit#232; additive, moved from host so it can delete its copies; not built or run locally):
+  - `frameless::button_frames(&WebviewWindow) -> Result<ButtonFrames, ShellError>`: read-only macOS probe of the close, minimise and zoom buttons (`standardWindowButton` frame, hidden flag, plus `window_visible`), run on the main thread (through the shell's dispatch when the plugin is installed, otherwise inline or queued with a 5 s wait). Typed `ButtonFrame { x, y, width, height, hidden }` and `ButtonFrames { close, miniaturize, zoom, window_visible }`, with `ButtonFrames::to_json()` in host's control-command shape. Returns `ShellError::Unsupported` off macOS. It never moves a button, orders the window in or activates the app.
   - `clipboard::named_board_refusal(name)` is now public and available on every platform (it was private, macOS and test only): the pure guard that refuses empty names and the `Apple CFPasteboard ...` system board names.
-  - New non-default feature `qa-probes` (development/QA builds only) compiles `clipboard::qa`: `paste_from_board(&PathBroker, app_id, raw)` (typed read of a private named pasteboard, as JSON; refuses system names before touching a pasteboard), `stage_board(raw, prefix)` / `plan_stage` (put a file URL and/or a generated 1x1 PNG on a board whose name starts with the app's QA prefix), `control_args` and `test_png`. Apps register them as `rightkit-qa` control commands. The paste result uses the shell's `kind` of `none` where ViewRight's own type said `empty`.
+  - New non-default feature `qa-probes` (development/QA builds only) compiles `clipboard::qa`: `paste_from_board(&PathBroker, app_id, raw)` (typed read of a private named pasteboard, as JSON; refuses system names before touching a pasteboard), `stage_board(raw, prefix)` / `plan_stage` (put a file URL and/or a generated 1x1 PNG on a board whose name starts with the app's QA prefix), `control_args` and `test_png`. Apps register them as `rightkit-qa` control commands. The paste result uses the shell's `kind` of `none` where host's own type said `empty`.
   - Example app: control commands `traffic_lights`, `stage_board`, `paste_from_board`, `refuse_system_boards`, a `rightkit-qa.toml`, and the macOS-only scenarios `scenarios/clipboard-named-board-mac.scenario.toml` and `scenarios/traffic-lights-mac.scenario.toml`.
   - Tests: system-name refusal (existing `clipboard` tests plus `clipboard::qa` tests that the refusal runs before any pasteboard or temp directory is touched), staging prefix rules, test PNG shape, `ButtonFrame` mapping and the JSON shape. The macOS pasteboard read and the AppKit button read need a Mac run.
-- Added (Orthic-Labs/rightkit#230; additive, not built or run locally): minimise-only idle for an app with a single web view (Pulse's hub, `main`).
+- Added (Orthic-Labs/rightkit#230; additive, not built or run locally): minimise-only idle for an app with a single web view (host's hub, `main`).
   - `IdleTrigger { HiddenOrMinimised (default), Minimised }`, `IdleOptions::trigger(..)` and `IdleOptions::on_minimise(true)` (shorthand for `Minimised`), `IdleOptions::minimise_enabled()`, plus the pure `source_starts_idle(trigger, IdleSource)`. With `Minimised` a window minimise always feeds the idle machine (no `start_on_minimize` needed) and a tray hide, close-to-tray or `note_hidden` does not. Whole-app: it acts on the webview of the window that was minimised (the main window); no per-label idle.
   - Windows: minimise is `SetIsVisible(false)` at once (or on the timer with `ControllerHide::OnTimer`) then `TrySuspend` after `suspend_after`; nothing is closed. Restore is `Resume` when suspended, then `SetIsVisible(true)`; a restore before the timer only shows. macOS and Linux: the machine and the `rightkit-shell://idle` event run, nothing is suspended (documented no-op; the app pauses its own timers).
   - Tests: trigger gating and the minimise, restore, double minimise and restore-while-not-suspended sequences, on the pure state machine and a fake controller (`tests/idle_options.rs`, `idle::tests`). The WebView2 calls need a real Windows app.
@@ -300,7 +309,7 @@ Renamed from rightkit-shell; 0.2.0 remains published under the old name.
   before. Tests: `tests/window_spec.rs`.
 
 - **Window state: `WindowStateStore::import_legacy` migrates an app's own geometry store once (owner gap M1-G5).**
-  Reads a legacy flat `label -> state` JSON file (CodeRight `window_state/mod.rs:92,110-118` shape; `version` 0 means
+  Reads a legacy flat `label -> state` JSON file (host `window_state/mod.rs:92,110-118` shape; `version` 0 means
   physical pixels), runs the same v0 -> v1 migration the store applies on load, maps labels with `(legacy, owner)` pairs
   (empty map keeps all), never overwrites an existing owner entry, and writes a `window-state.imported-<source_id>`
   marker so later calls return `LegacyImport::AlreadyImported`. A missing file is not marked. Additive; the store file
@@ -344,7 +353,7 @@ Renamed from rightkit-shell; 0.2.0 remains published under the old name.
   off Windows). When Tauri runs the native step later instead of at once, the function has already returned `Ok` and
   the refusal is the printed error and the closed webview. A webview that may be inspected is never refused.
   New: `DevToolsSwitch`, `enforce_switch`, `is_blocked_accelerator`.
-- **Windows: browser keys are stopped one by one, never all at once (ledger 180; MailRight lost Ctrl+P and keyboard zoom).**
+- **Windows: browser keys are stopped one by one, never all at once (ledger 180; host lost Ctrl+P and keyboard zoom).**
   The DevTools layer turned every WebView2 browser accelerator key off in a denied webview, and the hardening did the
   same for `block_reload` or `block_history_nav`. Neither calls `SetAreBrowserAcceleratorKeysEnabled(false)` any more.
   Each webview has one `AcceleratorKeyPressed` handler that stops exactly the keys its active rules name: F12,
@@ -373,7 +382,7 @@ Renamed from rightkit-shell; 0.2.0 remains published under the old name.
   embedded, and one stderr line announces that developer inspection is active. Without the feature the policy is
   unchanged. `right-release` refuses the feature and the marker in release and update builds and `rightkit-qa`
   rejects it in default features. Written, unverified: nothing was compiled or run.
-- **DevTools policy (owner's fixed design).** Every Right app has no access to DevTools; ViewRight alone may
+- **DevTools policy (owner's fixed design).** Every app denies shell inspection; only release-authorized hosts may
   inspect the HTML content it opens, never its own UI or shell. New `devtools` module: `DevToolsPolicy`
   (`Denied` default, `ContentOnly`), `ContentWebview`, `DevToolsGate`, `DevToolsError`, `guard_process_start`,
   `open_content_devtools`, plus `ShellBuilder::devtools_policy` / `content_webview`. Every webview is made
@@ -395,12 +404,12 @@ Renamed from rightkit-shell; 0.2.0 remains published under the old name.
   literal in this repository is `lib.rs`, updated to set `suspend_after` on the options. `IdleStatus.suspend_after_ms`
   still reports the fixed value.
 
-Single-instance naming defect (found by MailRight): `instance::arbitrate("app.mailright", ..)` returned
+Single-instance naming defect (found by host): `instance::arbitrate("app.example", ..)` returned
 `Unavailable("invalid service name ..")` because `rightkit-daemon` names allow only `[a-z0-9-]`, so a
 dotted bundle identifier ran with single-instance protection off.
 
 - **Service names are derived from the app id by a documented normalisation**: ASCII lowercase, every
-  character outside `[a-z0-9-]` becomes `-` (`app.mailright` -> `app-mailright-shell`). An already valid id
+  character outside `[a-z0-9-]` becomes `-` (`app.example` -> `app-example-shell`). An already valid id
   gives exactly the same name as before. The caller identity used for the allowlist and the connect is the
   same normalised id, so differently spelled equivalents agree.
 - **New `Arbitration::InvalidAppId(InvalidAppId)`** for an id that cannot be named (empty, or a name over
@@ -412,7 +421,7 @@ dotted bundle identifier ran with single-instance protection off.
 - The plugin entry points (`single_instance_plugin`, the full plugin) fail startup with a message naming
   the id on `InvalidAppId`; OS-level `Unavailable` behaves as before.
 
-Gaps ViewRight reported, closed additively (CutRight, PostRight, GenRight and ScrapeRight need no change):
+Consumer-reported gaps closed additively:
 
 - **`TrafficLights` works without `ShellState`.** `set_offset` and `reapply` now fall back, when the shell
   plugin is not installed, to running inline on the macOS main thread (`pthread_main_np`) or queueing to it
@@ -440,10 +449,10 @@ Gaps ViewRight reported, closed additively (CutRight, PostRight, GenRight and Sc
     `windows` crates. Not run against a live Windows clipboard.
   - `dib_to_bmp`: `BI_BITFIELDS`/`BI_ALPHABITFIELDS` masks are separate only after a 40-byte header; V4/V5
     headers carry them inside, so the pixel offset was too large and such DIBs were refused.
-  - `ClipboardItem::None` still serialises as `"none"` (unchanged). ViewRight's own type said `"empty"`; map it
+  - `ClipboardItem::None` still serialises as `"none"` (unchanged). host's own type said `"empty"`; map it
     in the app, because serde cannot alias a serialised name.
 
-- **Webview idle matches ScrapeRight's WebView2 ordering.** Suspend is one operation on the WebView2
+- **Webview idle matches host's WebView2 ordering.** Suspend is one operation on the WebView2
   thread, `SetIsVisible(false)` then `TrySuspend`; a failed hide means no suspend, the webview stays
   visible and running, the failure goes to `webview_idle_on_error`, and the next hide starts a fresh timer.
   Resume is one operation, `Resume` then `SetIsVisible(true)`; a failed resume means no show, and a failed
@@ -474,7 +483,7 @@ Additive otherwise. The one behaviour change is `lifecycle_only` only, and is ca
   and reveal never change the macOS activation policy, and on macOS the policy is set to Prohibited at
   plugin setup (and again when each webview is ready). `never_show_env` registers extra environment
   variables that mean never-show when set to anything but empty, `0`, `false`, `no` or `off`, read at each
-  reveal (ScrapeRight: `RIGHTKIT_QA_NATIVE_REAL`). The `show` command answers `Ok` and does nothing.
+  reveal (host: `RIGHTKIT_QA_NATIVE_REAL`). The `show` command answers `Ok` and does nothing.
 - **`ShellBuilder::reveal_on_reopen(bool)` and `Module::RevealOnReopen`.** Default on. Off, a Dock reopen
   and an OS-delivered URL or file deliver their links and reveal nothing. `Module::ALL` is now 12;
   `state_only` keeps the module (its behaviour is unchanged). `show_on_ready_decision` is unchanged.
@@ -590,7 +599,7 @@ Additive except where marked **Breaking**. Each item has a test in `tests/`.
   scratch keys; `startup_approved_is_disabled` is `auto-launch`'s rule.
 - **Test binaries load on Windows.** A `build.rs` embeds the Common Controls v6 manifest dependency in
   test binaries (`STATUS_ENTRYPOINT_NOT_FOUND` before `main` otherwise).
-- The legacy names were confirmed by HeardRight against its locked `tauri-plugin-single-instance` 2.4.5.
+- The legacy names were confirmed by host against its locked `tauri-plugin-single-instance` 2.4.5.
 - **Relaunch for update.** `SingleInstance::destroy()` is documented and tested as idempotent, and
   now also runs releases registered with `SingleInstance::on_destroy` (once each, a panicking one
   does not stop the rest), so an app that still registers `tauri-plugin-single-instance` releases
@@ -598,7 +607,7 @@ Additive except where marked **Breaking**. Each item has a test in `tests/`.
   legacy claim.
 - **Legacy names as data.** `LegacySingleInstanceNames` (mutex, window class and title, socket,
   D-Bus name) and `LegacyAutostartNames` (Run value, LaunchAgent label and plist, desktop entry), pinned
-  with HeardRight's values in `tests/legacy_names.rs`. The Linux legacy autostart entry is now found
+  with host's values in `tests/legacy_names.rs`. The Linux legacy autostart entry is now found
   under `~/.config/autostart` as the plugin writes it, even when `XDG_CONFIG_HOME` differs.
 
 - **Site-root scheme** (`site` module, `ShellBuilder::site_protocol`). A second custom scheme,
@@ -644,7 +653,7 @@ Additive except where marked **Breaking**. Each item has a test in `tests/`.
   literals must add the field, or use `..Default::default()` (`StreamPolicy`) or the builder methods
   (`RecoverySpec::at_path`, `IdleHost::with_on_error`). `ShellState` gains fields; read it, do not
   construct it.
-- Authority tests ported from ViewRight (`tests/authority.rs`): known-token exchange,
+- Authority tests ported from host (`tests/authority.rs`): known-token exchange,
   canonicalization, stream-token revocation not revived by reopen, site-root tokens and revocation,
   site-root grant is not a file grant, independent per-tab tokens, symlink escape, and revoked-root
   serving. `tests/site_scheme.rs` covers denied names, symlink escape, percent-decoding, the MIME

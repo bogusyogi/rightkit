@@ -40,13 +40,13 @@ wv2-0_38 = ["dep:windows_061", "dep:webview2_com_038"]
 wv2-0_39 = ["dep:windows_062", "dep:webview2_com_039"]
 
 [dependencies]
-rightkit-fs = { version = "0.4.9", path = "../rightkit-fs", default-features = false, features = ["digest", "fs", "app-dirs"] }
+rightkit-fs = { version = "0.5.0", path = "../rightkit-fs", default-features = false, features = ["digest", "fs", "app-dirs"] }
 # The real OS credential store, read and written by the snapshot and restore (`snapshot` module).
 rightkit-credentials = { version = "0.5.6", path = "../rightkit-credentials" }
 rightkit-sidecar = { version = "0.3.0", path = "../rightkit-sidecar" }
 rightkit-daemon = { version = "0.9.1", path = "../rightkit-daemon" }
 # The suite root (`Suite`, `ENV_SUITE_ROOT`); `valid_service_name` is rightkit-daemon's again.
-rightkit-roots = { version = "0.2.0", path = "../rightkit-roots" }
+rightkit-roots = { version = "0.3.0", path = "../rightkit-roots" }
 rightkit-child-process = { version = "0.5.7", path = "../rightkit-child-process" }
 rightkit-browser = { version = "0.3.7", path = "../rightkit-browser", optional = true }
 # Generic input, admission, lease and key code (and `macos::background::frontmost_*` for the guard).

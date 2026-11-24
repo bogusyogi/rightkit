@@ -2,6 +2,8 @@
 
 ## 0.4.3
 
+- Added `rotated_generation_path(path, n)` for `app.log.N` paths with original filename encoding & `PlatformIdentity::diagnostics_json()` for captured platform metadata. Existing collection, redaction & snapshot behavior stays unchanged.
+
 - Added opt-in exact-key JSON value and quote-aware text redaction with caller-provided markers.
 
 - Added an opt-in required cross-process lock for JSONL size checks, rotation, and appends.

@@ -494,22 +494,19 @@ impl OwnedCommand {
         self.process_priority = priority;
         self
     }
-    /// Opt-in, off by default. Linux only: the kernel sends `SIGTERM` to the direct child
-    /// (`PR_SET_PDEATHSIG`) when the thread that spawned it exits, which includes this
-    /// process dying without running cleanup (for example SIGKILL). The signal reaches the
-    /// direct child only, never the rest of its group, it can be caught, and there is no
-    /// `SIGKILL` escalation. It is keyed to the spawning *thread*, so spawn from a thread
-    /// that lives as long as the child.
+    /// Opt-in, off by default. Ties the child's whole process group to this process: when this
+    /// process dies without running cleanup (for example SIGKILL), `SIGTERM` goes to the child's
+    /// process group and `SIGKILL` two seconds later, so what the child started (a shell's forked
+    /// command, a dev server's workers) goes too.
     ///
-    /// macOS has no `PR_SET_PDEATHSIG`, so the tie is a small watchdog process started right
-    /// after the child (a `kqueue` with `EVFILT_PROC`/`NOTE_EXIT` on this process and on the
-    /// child; see `process_unix::arm_parent_death_watch`). When this process dies, SIGKILL
-    /// included, the watchdog sends `SIGTERM` to the child's whole process group and `SIGKILL`
-    /// two seconds later. Differences from Linux: the trigger is the whole process exiting,
-    /// not the spawning thread; the signal goes to the group and escalates; it costs one
-    /// extra helper process per tied child (it exits when the child or this process does);
+    /// The tie is a small watchdog process started right after the child (see
+    /// `process_unix::arm_parent_death_watch`): a `kqueue` with `EVFILT_PROC`/`NOTE_EXIT` on macOS,
+    /// two pidfds on Linux (a poll of `kill(pid, 0)` every 50 ms on Linux older than 5.3). It costs
+    /// one extra helper process per tied child, which exits when the child or this process does;
     /// the child runs untied between its spawn and the moment `spawn` returns (a few
-    /// milliseconds), and `spawn` kills the child and fails if the watchdog cannot be armed.
+    /// milliseconds); and `spawn` kills the child and fails if the watchdog cannot be armed.
+    /// Linux also sets `PR_SET_PDEATHSIG` (`SIGTERM`) on the direct child, keyed to the spawning
+    /// thread, so spawn from a thread that lives as long as the child.
     ///
     /// Other Unix hosts have no parent-death primitive this crate relies on: the spawn fails
     /// with `ErrorKind::Unsupported` before anything is started, rather than run the child
@@ -792,9 +789,9 @@ impl OwnedCommand {
                 let reaped = child.cleanup_unidentified(self.partial_spawn_cleanup_timeout);
                 return Err(spawn_cleanup_failure(error, reaped));
             }
-            // macOS: the tie is a watchdog armed while the pid is still certainly ours. A
-            // child that could not be tied is stopped, never handed out untied.
-            #[cfg(target_os = "macos")]
+            // macOS and Linux: the group-wide tie is a watchdog armed while the pid is still
+            // certainly ours. A child that could not be tied is stopped, never handed out untied.
+            #[cfg(any(target_os = "macos", target_os = "linux"))]
             if self.kill_on_parent_exit {
                 if let Err(error) = crate::process_unix::arm_parent_death_watch(child.id()) {
                     let _ = child.signal(SignalTarget::Group, libc::SIGKILL);

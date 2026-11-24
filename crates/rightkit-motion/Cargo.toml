@@ -38,7 +38,7 @@ rightkit-engine-host = { version = "0.2.0", path = "../rightkit-engine-host", op
 rightkit-video-project = { version = "0.1.3", path = "../rightkit-video-project", optional = true }
 chrono = { version = "0.4", default-features = false, features = ["clock"], optional = true }
 rightkit-cache = { version = "0.2.3", path = "../rightkit-cache", optional = true }
-rightkit-fs = { version = "0.4.9", path = "../rightkit-fs", default-features = false, features = ["fs", "blake3"], optional = true }
+rightkit-fs = { version = "0.5.0", path = "../rightkit-fs", default-features = false, features = ["fs", "blake3"], optional = true }
 rightkit-transcript = { version = "0.4.0", path = "../rightkit-transcript" }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"

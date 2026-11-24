@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.2
+
+- Export `RecoveryConsent` & `ReplayReceipt` at crate root under `transcripts`, sharing existing `recovery_marker` types & durable consent checks.
+
 ## 0.4.1
 
 - Add durable transcript recovery markers, consent binding & replay completion under the `transcripts` feature.

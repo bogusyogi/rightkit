@@ -1,6 +1,6 @@
 # rightkit-fs
 
-Safe filesystem state for Right Suite apps:
+Safe filesystem state for applications:
 
 - Descriptor-pinned state directories (`StateDir`). A swapped or symlinked path cannot redirect a pinned directory.
 - Atomic writes (`atomic_write`, `atomic_write_private`, `atomic_write_with`, `atomic_write_with_options`, `AtomicWriter`): temp file, `fsync`, then rename. `AtomicWriteOptions` adds `ReplaceMode::{Rename, MoveWriteThrough, NoReplace}` (Windows `MoveFileExW` for the last two) and a `RetryPolicy` for sharing violations. There is no `ReplaceFileW` mode. A failure after the content is published is a typed error with `FsError::target_replaced()` true (`ReplacedButDirSyncFailed`, `ReplacedButPostStepFailed`). Generic sweeps (`sweep_stale_temps`, `StateDir::sweep_temps`) retain every ambiguous temporary-looking name, even with a confirmed-dead PID; names & liveness prove no ownership. What a durable write guarantees differs by platform: see [Atomic writes](#atomic-writes).
@@ -36,6 +36,32 @@ No feature is on by default (0.4.0). Name `fs`, `lock`, `json`, `digest`, `blake
 - `json`: identity ledger (`IdentityStore`), lock owner records, and the `rightkit-clonefile` binary. Depends on `lock`, `serde`, and `serde_json`.
 
 Without `json`, locks write no owner file, so `recovered_stale` and `current_owner` return `None`. The lock itself behaves the same. `rightkit-db` uses `features = ["fs"]`. Digest-only callers use `features = ["digest"]`. Every integration test names the features it imports (`required-features`), so `--no-default-features` and each single feature compile.
+
+## App folders (`app-dirs`)
+
+`AppId::new(name, org)` requires an explicit organization choice in 0.5.0:
+
+```rust,no_run
+use rightkit_fs::app_dirs::{AppDirs, AppId};
+
+let nested = AppId::new("ExampleApp", Some("ExampleOrg"));
+let flat = AppId::new("ExampleApp", None);
+let dirs = AppDirs::resolve(nested)?;
+# Ok::<(), rightkit_fs::app_dirs::AppDirsError>(())
+```
+
+`Some(org)` keeps `<base>/<org>/<name>`; `None` keeps `<base>/<name>`.
+Windows cache adds `Cache` inside that app folder. Legacy names keep their existing
+per-folder lookup order; dev mode adds `Dev` to current & legacy names. Android
+continues to use `AppDirs::injected(files_dir, cache_dir)` unchanged.
+
+When upgrading from 0.4.x, replace each one-argument constructor with
+`AppId::new(name, Some(existing_org))`, using exactly its installed organization
+string. For an existing flat layout, including callers using `.without_org()`, use
+`AppId::new(name, None)`. For callers using `.with_org(org)`, pass that same `org` as
+`Some(org)`. `DEFAULT_ORG` is removed; host configuration owns organization strings.
+Choosing `None` for an existing nested layout changes its roots. Preserve current
+roots during this API migration; intentional moves use `AppDirs::migrate_dir`.
 
 ## State directories (`StateDir`)
 
@@ -259,8 +285,8 @@ Existing SHA-256 `copy_verified` & `VerifiedCopy.sha256` stay compatible.
 Call `rightkit_fs::zip::write_zip(destination, &entries)` with
 `entries: Vec<(String, PathBuf)>`. Order is preserved; sort entries before calling if
 ordering starts from directory enumeration. Identical names, order & source bytes produce
-identical output regardless of clock, source mtime, permissions or host OS. Encoding matches
-CutRight’s former `cutright-qa/src/zip.rs`: STORED, UTF-8 flag, DOS epoch 1980-01-01,
+identical output regardless of clock, source mtime, permissions or host OS. Encoding uses
+STORED, UTF-8 flag, DOS epoch 1980-01-01,
 Unix creator 3.0, mode 0644, no extras, comments or data descriptors.
 
 ZIP64 is unsupported: fewer than 65535 entries, names at most 65535 UTF-8 bytes, sizes

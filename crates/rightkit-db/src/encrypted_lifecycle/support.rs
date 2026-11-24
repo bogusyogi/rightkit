@@ -139,7 +139,6 @@ pub fn rotate_settling(
                 "key rotation pending: {detail}; every viable key is kept and the rotation settles on the next open"
             ))
         }
-        other => Err(format!("key rotation pending: {other:?}")),
     }
 }
 
@@ -169,7 +168,6 @@ impl<'a> ReasonWords<'a> {
         match reason {
             RebuildReason::KeyAbsent => self.key_absent,
             RebuildReason::KeyRejected => self.key_rejected,
-            _ => "",
         }
     }
 }
@@ -262,8 +260,8 @@ where
 mod tests {
     use super::*;
     use crate::encrypted_lifecycle::{
-        EncryptedStoreConfig, Key, KeyStoreError, PendingKey, PendingRevision,
-        ProtectedKeySession, ProtectedKeyStore, RebuildHooks, RebuildPolicy,
+        EncryptedStoreConfig, Key, KeyStoreError, PendingKey, PendingRevision, ProtectedKeySession,
+        ProtectedKeyStore, RebuildHooks, RebuildPolicy,
     };
     use crate::{DbOptions, QuarantineStamp};
     use std::sync::{Arc, Mutex};
@@ -277,7 +275,10 @@ mod tests {
             let path = std::env::temp_dir().join(format!(
                 "rightkit-db-support-{}-{}-{}",
                 std::process::id(),
-                SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos(),
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos(),
                 NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
             ));
             std::fs::create_dir(&path).unwrap();
@@ -359,7 +360,9 @@ mod tests {
         for empty_main in [false, true] {
             let files = Files::new();
             let db = files.path("history.db");
-            if empty_main { std::fs::write(&db, []).unwrap(); }
+            if empty_main {
+                std::fs::write(&db, []).unwrap();
+            }
             for name in ["history.db-wal", "history.db-shm", "history.db-journal"] {
                 std::fs::write(files.path(name), name.as_bytes()).unwrap();
             }
@@ -370,22 +373,32 @@ mod tests {
             let entries = Arc::new(Mutex::new(Vec::new()));
             let capture = entries.clone();
             let cfg = config(&db)
-                .with_rebuild(RebuildPolicy::new(|| panic!("quarantine must not mint a key"))
-                    .with_quarantine_stamp(QuarantineStamp::Custom(legacy_suffix)))
-                .with_rebuild_hooks(RebuildHooks::new().with_orphan_sidecars(true)
-                    .with_quarantine_notice(move |notice| {
-                        assert_eq!(notice.kind, QuarantineKind::OrphanSidecars);
-                        assert!(!notice.resumed);
-                        for item in &notice.moves {
-                            assert!(item.source.exists());
-                            assert!(!item.destination.exists());
-                        }
-                        let (paths, reason) = quarantine_entry(notice, reason, ReasonWords {
-                            key_absent: "missing-key", key_rejected: "rejected-key",
-                        });
-                        capture.lock().unwrap().push((paths, reason));
-                        Ok(())
-                    }));
+                .with_rebuild(
+                    RebuildPolicy::new(|| panic!("quarantine must not mint a key"))
+                        .with_quarantine_stamp(QuarantineStamp::Custom(legacy_suffix)),
+                )
+                .with_rebuild_hooks(
+                    RebuildHooks::new()
+                        .with_orphan_sidecars(true)
+                        .with_quarantine_notice(move |notice| {
+                            assert_eq!(notice.kind, QuarantineKind::OrphanSidecars);
+                            assert!(!notice.resumed);
+                            for item in &notice.moves {
+                                assert!(item.source.exists());
+                                assert!(!item.destination.exists());
+                            }
+                            let (paths, reason) = quarantine_entry(
+                                notice,
+                                reason,
+                                ReasonWords {
+                                    key_absent: "missing-key",
+                                    key_rejected: "rejected-key",
+                                },
+                            );
+                            capture.lock().unwrap().push((paths, reason));
+                            Ok(())
+                        }),
+                );
             settle(&cfg).unwrap();
             let entries = entries.lock().unwrap();
             assert_eq!(entries.len(), 1);
@@ -409,9 +422,11 @@ mod tests {
         let db = files.path("history.db");
         let wal = files.path("history.db-wal");
         std::fs::write(&wal, b"committed rows without main").unwrap();
-        let cfg = config(&db).with_rebuild_hooks(RebuildHooks::new()
-            .with_orphan_sidecars(true)
-            .with_quarantine_notice(|_| Err("ledger unavailable".into())));
+        let cfg = config(&db).with_rebuild_hooks(
+            RebuildHooks::new()
+                .with_orphan_sidecars(true)
+                .with_quarantine_notice(|_| Err("ledger unavailable".into())),
+        );
         let error = settle(&cfg).unwrap_err();
         assert!(matches!(error, LifecycleError::RecoveryRequired { .. }));
         assert!(error.to_string().contains("ledger unavailable"));
@@ -430,7 +445,8 @@ mod tests {
             &db,
             || Err("credential access denied".into()),
             || panic!("failed credential read must not mint a replacement"),
-        ).unwrap_err();
+        )
+        .unwrap_err();
         assert_eq!(error, "credential store: credential access denied");
         assert_eq!(std::fs::read(wal).unwrap(), b"retained WAL");
         assert!(!db.exists());
@@ -446,16 +462,25 @@ mod tests {
         // Earlier host moved main, then stopped before WAL. Preserve its destination spelling.
         std::fs::write(&destination, b"encrypted main retained").unwrap();
         std::fs::write(&wal, b"committed WAL retained").unwrap();
-        let pairs = vec![(db.clone(), destination.clone()), (wal.clone(), wal_destination.clone())];
+        let pairs = vec![
+            (db.clone(), destination.clone()),
+            (wal.clone(), wal_destination.clone()),
+        ];
         let pending = pairs.clone();
         let reports = Arc::new(Mutex::new(Vec::new()));
         let capture = reports.clone();
-        let journal = PathPairJournal::new(move || Ok(pending.clone()), move |consumed, landed| {
-            capture.lock().unwrap().push((consumed.to_vec(), landed.to_vec()));
-            Ok(())
-        });
-        let cfg = config(&db).with_rebuild_hooks(RebuildHooks::new()
-            .with_legacy_journal(Arc::new(journal)));
+        let journal = PathPairJournal::new(
+            move || Ok(pending.clone()),
+            move |consumed, landed| {
+                capture
+                    .lock()
+                    .unwrap()
+                    .push((consumed.to_vec(), landed.to_vec()));
+                Ok(())
+            },
+        );
+        let cfg = config(&db)
+            .with_rebuild_hooks(RebuildHooks::new().with_legacy_journal(Arc::new(journal)));
         // Reporting the same retained host record twice must never replace or lose either file.
         settle(&cfg).unwrap();
         settle(&cfg).unwrap();
@@ -465,8 +490,14 @@ mod tests {
             assert_eq!(consumed, &pairs);
             assert_eq!(landed, &vec![destination.clone(), wal_destination.clone()]);
         }
-        assert_eq!(std::fs::read(destination).unwrap(), b"encrypted main retained");
-        assert_eq!(std::fs::read(wal_destination).unwrap(), b"committed WAL retained");
+        assert_eq!(
+            std::fs::read(destination).unwrap(),
+            b"encrypted main retained"
+        );
+        assert_eq!(
+            std::fs::read(wal_destination).unwrap(),
+            b"committed WAL retained"
+        );
         assert!(!db.exists());
         assert!(!wal.exists());
     }
@@ -484,9 +515,12 @@ mod tests {
             move || Ok(vec![(source.clone(), target.clone())]),
             |_, _| panic!("refused moves must not be acknowledged"),
         );
-        let cfg = config(&db).with_rebuild_hooks(RebuildHooks::new()
-            .with_legacy_journal(Arc::new(journal)));
-        assert!(matches!(settle(&cfg), Err(LifecycleError::RecoveryRequired { .. })));
+        let cfg = config(&db)
+            .with_rebuild_hooks(RebuildHooks::new().with_legacy_journal(Arc::new(journal)));
+        assert!(matches!(
+            settle(&cfg),
+            Err(LifecycleError::RecoveryRequired { .. })
+        ));
         assert_eq!(std::fs::read(db).unwrap(), b"original encrypted bytes");
         assert!(!destination.exists());
     }
@@ -504,10 +538,16 @@ mod tests {
             move || Ok(vec![(source.clone(), target.clone())]),
             |_, _| panic!("conflicting files must not be acknowledged"),
         );
-        let cfg = config(&db).with_rebuild_hooks(RebuildHooks::new()
-            .with_legacy_journal(Arc::new(journal)));
-        assert!(matches!(settle(&cfg), Err(LifecycleError::RecoveryRequired { .. })));
+        let cfg = config(&db)
+            .with_rebuild_hooks(RebuildHooks::new().with_legacy_journal(Arc::new(journal)));
+        assert!(matches!(
+            settle(&cfg),
+            Err(LifecycleError::RecoveryRequired { .. })
+        ));
         assert_eq!(std::fs::read(db).unwrap(), b"live encrypted bytes");
-        assert_eq!(std::fs::read(destination).unwrap(), b"earlier retained bytes");
+        assert_eq!(
+            std::fs::read(destination).unwrap(),
+            b"earlier retained bytes"
+        );
     }
 }

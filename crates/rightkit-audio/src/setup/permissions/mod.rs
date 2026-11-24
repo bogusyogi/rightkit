@@ -17,6 +17,12 @@
 //! `microphone_permission_status`, `microphone_permission_prompt` and
 //! `microphone_permission_result`.
 //!
+//! Version 0.4 migration: Windows callers retain a [`MicrophonePermissionSession`] before
+//! scheduling blocking work, call [`MicrophonePermissionSession::request`], then cancel on
+//! teardown & move final ownership off UI for `close`/Drop. Windows no longer exposes the
+//! legacy free request: returning its status cannot also retain an unowned grant watcher.
+//! Non-Windows callers may keep using `request_microphone_access(&host)` or use the session API.
+//!
 //! Requires the host app to declare `NSMicrophoneUsageDescription` and the
 //! `com.apple.security.device.audio-input` entitlement on macOS, and (for the package-scoped
 //! Windows row) a sparse-package identity that declares the `microphone` capability.
@@ -42,6 +48,85 @@ pub struct PermissionHost {
     /// Called from the background poll when a grant arrives after the user was sent to Windows
     /// Settings (the host emits its "permission granted" event here). Unused off Windows.
     pub on_granted: Arc<dyn Fn() + Send + Sync>,
+}
+
+/// Owns Windows consent work & at most one grant-watch worker.
+/// After its first watch, that worker sleeps on a condition variable between requests,
+/// retaining one thread/stack until cancellation or final teardown; idle has no poll timer.
+///
+/// Create & retain this value before scheduling a blocking request. `cancel` is terminal:
+/// no subsequent request is accepted. A new request supersedes previous session work.
+/// `close` & final Drop belong on a blocking thread, never the UI thread. They cancel &
+/// drain owned work; already-running OS/device calls can delay completion. On Windows,
+/// callbacks must return without waiting for UI work or another thread closing this session.
+/// A callback closing/dropping its own worker signals cancellation; that worker finishes
+/// naturally after its callback returns, without trying to join itself.
+///
+/// macOS cancellation releases the app wait; its OS-owned prompt may complete later.
+#[derive(Default)]
+pub struct MicrophonePermissionSession {
+    #[cfg(target_os = "windows")]
+    windows: winrt::PermissionSession,
+    #[cfg(not(target_os = "windows"))]
+    cancelled: std::sync::atomic::AtomicBool,
+}
+
+impl MicrophonePermissionSession {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Request native consent on a blocking thread, retaining this session for deferred grants.
+    ///
+    /// Windows returns its classified status before the 60 s grant watch completes.
+    /// A superseding request or cancellation interrupts pending Windows waits with an error.
+    /// macOS keeps its existing prompt/result flow; other platforms return `"authorized"`.
+    pub fn request(&self, host: &PermissionHost) -> Result<String, String> {
+        #[cfg(target_os = "windows")]
+        {
+            winrt::request_access(&self.windows, host)
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            if self.cancelled.load(std::sync::atomic::Ordering::Acquire) {
+                return Err("microphone permission session cancelled".into());
+            }
+            #[cfg(target_os = "macos")]
+            {
+                apple::request_access_cancellable(host.event_sink, || {
+                    self.cancelled.load(std::sync::atomic::Ordering::Acquire)
+                })
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                request_microphone_access(host)
+            }
+        }
+    }
+
+    /// Invalidate pending Windows jobs & wake waits without waiting for completion.
+    /// Callbacks already admitted before cancellation may finish; `close` drains workers.
+    pub fn cancel(&self) {
+        #[cfg(target_os = "windows")]
+        self.windows.cancel();
+        #[cfg(not(target_os = "windows"))]
+        self.cancelled
+            .store(true, std::sync::atomic::Ordering::Release);
+    }
+
+    /// Cancel & drain Windows work from a blocking thread; never call on the UI thread.
+    pub fn close(&self) {
+        #[cfg(target_os = "windows")]
+        self.windows.close();
+        #[cfg(not(target_os = "windows"))]
+        self.cancel();
+    }
+}
+
+impl Drop for MicrophonePermissionSession {
+    fn drop(&mut self) {
+        self.close();
+    }
 }
 
 /// Current microphone permission state. See the module docs for the status strings.
@@ -81,12 +166,12 @@ pub fn open_macos_microphone_settings() -> Result<(), String> {
     }
 }
 
-/// Request microphone consent.
+/// Request microphone consent through the existing non-Windows flow.
 ///
-/// macOS shows the native prompt and returns the answer. Windows has no completion callback: it
-/// asks WinRT, classifies, opens the Settings page for any non-final state and polls for a grant
-/// for 60 s (`PermissionHost::on_granted`), returning the classified status. Other platforms
-/// return `"authorized"`.
+/// macOS shows its native prompt & returns its answer. Other non-Windows platforms return
+/// `"authorized"`. Windows 0.4 callers use [`MicrophonePermissionSession::request`] so deferred
+/// grant work always has a caller-held owner.
+#[cfg(not(target_os = "windows"))]
 pub fn request_microphone_access(
     #[allow(unused_variables)] host: &PermissionHost,
 ) -> Result<String, String> {
@@ -94,11 +179,7 @@ pub fn request_microphone_access(
     {
         apple::request_access(host.event_sink)
     }
-    #[cfg(target_os = "windows")]
-    {
-        winrt::request_access(host)
-    }
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    #[cfg(not(target_os = "macos"))]
     {
         Ok("authorized".into())
     }

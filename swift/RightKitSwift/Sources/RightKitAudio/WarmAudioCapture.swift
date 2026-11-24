@@ -1,5 +1,8 @@
 import Foundation
 @preconcurrency import AVFoundation
+#if os(iOS)
+import AudioToolbox
+#endif
 
 /// Raw input-tap health, measured before conversion: it answers "is Core Audio delivering anything",
 /// never "did the user speak".
@@ -47,6 +50,19 @@ public struct CaptureRawHealth: Sendable, Equatable {
         self.elapsedMs = elapsedMs
     }
 
+    public var telemetryFields: [String: Any] {
+        [
+            "raw_callback_count": callbackCount, "raw_frame_count": frameCount,
+            "raw_zero_sample_fraction": zeroSampleFraction, "raw_max_abs": Double(maxAbs),
+            "raw_rms": rms, "raw_first_callback_ms": firstCallbackMs,
+            "raw_first_nonzero_ms": firstNonzeroMs, "raw_input_sample_rate": inputSampleRate,
+            "raw_input_channels": Int(inputChannelCount), "capture_health": verdict.rawValue,
+            "raw_elapsed_ms": elapsedMs,
+            "raw_callbacks_per_second": elapsedMs > 0 ? Double(callbackCount) * 1000 / Double(elapsedMs) : 0,
+            "raw_frames_per_second": elapsedMs > 0 ? Double(frameCount) * 1000 / Double(elapsedMs) : 0,
+        ]
+    }
+
     /// Deliberately conservative: `dead` is reserved for digital silence, `suspectLowSignal` only reports.
     /// Ordinary microphones peak around 0.2; measured dead paths peaked at 0.0000 to 0.0017.
     public var verdict: Verdict {
@@ -90,6 +106,19 @@ public enum WarmAudioCaptureConfigurationChange: Sendable, Equatable {
     case rebuildFailed(String)
 }
 
+/// Content-free capture setup/lifecycle diagnostics. Delivered on a private serial queue;
+/// the sink never runs on the audio tap thread or acquires capture locks for event delivery.
+/// Hosts choose their own logging names & fields.
+public enum WarmAudioCaptureRuntimeEvent: Sendable, Equatable {
+    case inputOnlyIOConfigured(
+        status: Int, readBeforeStatus: Int, outputEnabledBefore: UInt32,
+        readAfterStatus: Int, outputEnabledAfter: UInt32
+    )
+    case voiceProcessingConfigured(requested: Bool, enabled: Bool)
+    /// Identities at the invalidation boundary, before any automatic rebuild.
+    case engineConfigurationChanged(generation: UInt64, nextGeneration: UInt64)
+}
+
 /// A kept-warm `AVAudioEngine` microphone tap that converts every buffer to a caller-supplied format and
 /// hands it to a callback on the tap thread.
 ///
@@ -106,7 +135,23 @@ public enum WarmAudioCaptureConfigurationChange: Sendable, Equatable {
 /// The buffer handler runs on a realtime audio thread: enqueue and return. Do not call `stop()` or
 /// `start()` from inside it.
 public final class WarmAudioCapture: @unchecked Sendable {
+    public typealias RawHealth = CaptureRawHealth
+    public typealias CaptureError = WarmAudioCaptureError
+
+    public struct SpeechActivitySnapshot: Sendable {
+        public let firstSpeechSample: Int?
+        public let lastSpeechAt: DispatchTime?
+        public var heardSpeech: Bool { firstSpeechSample != nil }
+
+        public init(firstSpeechSample: Int?, lastSpeechAt: DispatchTime?) {
+            self.firstSpeechSample = firstSpeechSample
+            self.lastSpeechAt = lastSpeechAt
+        }
+    }
+
     public struct Configuration: @unchecked Sendable {
+        /// Retain mono Float32 PCM for snapshots/checkpoints. Opt-in preserves callback-only capture.
+        public var retainSamples: Bool
         /// The format handed to the buffer handler. Default: 16 kHz mono Float32, what the ASR runtimes expect.
         public var outputFormat: AVAudioFormat
         public var tapBufferSize: AVAudioFrameCount
@@ -119,7 +164,12 @@ public final class WarmAudioCapture: @unchecked Sendable {
         /// Runs on the fresh, stopped graph's input node before its format is read (for example to
         /// configure RemoteIO). A throw fails the start.
         public var prepareInput: (@Sendable (AVAudioInputNode) throws -> Void)?
+        /// Optional setup/lifecycle event sink. Set on configuration before constructing capture.
+        /// Delivery is asynchronous & ordered; events describe their originating graph, which may
+        /// already be stopped/replaced when received. Keep logging bounded & enqueue any UI work.
+        public var runtimeEventSink: (@Sendable (WarmAudioCaptureRuntimeEvent) -> Void)? = nil
 
+        /// Original initializer retained verbatim in signature for existing function references.
         public init(
             outputFormat: AVAudioFormat = WarmAudioCapture.mono16kFloat,
             tapBufferSize: AVAudioFrameCount = 4096,
@@ -128,6 +178,22 @@ public final class WarmAudioCapture: @unchecked Sendable {
             deadTapTimeout: TimeInterval? = nil,
             prepareInput: (@Sendable (AVAudioInputNode) throws -> Void)? = nil,
         ) {
+            self.init(outputFormat: outputFormat, retainSamples: false, tapBufferSize: tapBufferSize,
+                voiceProcessingEnabled: voiceProcessingEnabled,
+                rebuildOnConfigurationChange: rebuildOnConfigurationChange,
+                deadTapTimeout: deadTapTimeout, prepareInput: prepareInput)
+        }
+
+        public init(
+            outputFormat: AVAudioFormat = WarmAudioCapture.mono16kFloat,
+            retainSamples: Bool,
+            tapBufferSize: AVAudioFrameCount = 4096,
+            voiceProcessingEnabled: Bool = false,
+            rebuildOnConfigurationChange: Bool = true,
+            deadTapTimeout: TimeInterval? = nil,
+            prepareInput: (@Sendable (AVAudioInputNode) throws -> Void)? = nil,
+        ) {
+            self.retainSamples = retainSamples
             self.outputFormat = outputFormat
             self.tapBufferSize = tapBufferSize
             self.voiceProcessingEnabled = voiceProcessingEnabled
@@ -140,6 +206,8 @@ public final class WarmAudioCapture: @unchecked Sendable {
     /// 16 kHz mono Float32, non-interleaved.
     nonisolated(unsafe) public static let mono16kFloat = AVAudioFormat(
         commonFormat: .pcmFormatFloat32, sampleRate: 16_000, channels: 1, interleaved: false)!
+
+    public static let targetSampleRate: Double = 16_000
 
     public typealias BufferHandler = @Sendable (AVAudioPCMBuffer) -> Void
 
@@ -165,6 +233,8 @@ public final class WarmAudioCapture: @unchecked Sendable {
 
     /// Serializes engine lifecycle mutation. The tap never takes it.
     private let lifecycleLock = NSLock()
+    /// Only setup/lifecycle paths enqueue here; the realtime tap never emits events.
+    private let runtimeEventQueue = DispatchQueue(label: "RightKitAudio.capture.runtime-events")
     /// Guards the statistics and the active tap generation; the tap takes it briefly.
     private let stateLock = NSLock()
     /// Held by the tap for the whole of one delivery, and by `stop()` while it seals, so a callback in
@@ -175,16 +245,45 @@ public final class WarmAudioCapture: @unchecked Sendable {
     private var converter: AVAudioConverter?
     private var observer: NSObjectProtocol?
     private var running = false
-    private var engineGeneration: UInt64 = 0
+    private var _engineGeneration: UInt64 = 0
     private var watchdog: Task<Void, Never>?
+
+    private let voiceActivityDetector = VoiceActivityDetector()
+    private var retainedSamples: [Float] = []
+    private var accumulating = true
+    private var peakAmplitude: Float = 0
+    private var sumSquares: Double = 0
+    private var voiceActiveFrames = 0
+    private var voiceTotalFrames = 0
+    private var _firstSpeechSample: Int?
+    private var lastSpeechAt: DispatchTime?
+    private var _pcmObserver: (@Sendable ([Float]) -> Void)?
+    private var _engineConfigurationChangeHandler: (@Sendable (UInt64) -> Void)?
+    private var attemptVoiceProcessingEnabled = false
+    private var attemptInputOnlyIO = false
+    private var preserveUnderlyingErrors = false
+
+    /// Retained PCM delivery on tap thread. Enqueue & return; never call lifecycle or
+    /// accumulation methods from this callback (they acquire deliveryGate).
+    public var pcmObserver: (@Sendable ([Float]) -> Void)? {
+        get { stateLock.withLock { _pcmObserver } }
+        set { stateLock.withLock { _pcmObserver = newValue } }
+    }
+
+    /// Legacy generation notification: receives invalidated graph identity. Configure automatic
+    /// rebuilding off when caller owns route-recovery policy.
+    public var engineConfigurationChangeHandler: (@Sendable (UInt64) -> Void)? {
+        get { stateLock.withLock { _engineConfigurationChangeHandler } }
+        set { stateLock.withLock { _engineConfigurationChangeHandler = newValue } }
+    }
 
     private var _bufferHandler: BufferHandler?
     private var _configurationChangeHandler: (@Sendable (WarmAudioCaptureConfigurationChange) -> Void)?
     private var _startFailureHandler: (@Sendable (WarmAudioCaptureError) -> Void)?
     private var activeTapGeneration: UInt64 = 0
     private var _latestLevel: Double = 0
-    private var boundInputSampleRate: Double = 0
-    private var boundInputChannelCount: UInt32 = 0
+    private var _boundInputSampleRate: Double = 0
+    private var _boundInputChannelCount: UInt32 = 0
     private var startedAt: DispatchTime?
     private var firstCallbackAt: DispatchTime?
     private var firstNonzeroAt: DispatchTime?
@@ -214,7 +313,25 @@ public final class WarmAudioCapture: @unchecked Sendable {
         lifecycleLock.lock()
         defer { lifecycleLock.unlock() }
         guard !running else { throw WarmAudioCaptureError.alreadyRunning }
+        attemptVoiceProcessingEnabled = configuration.voiceProcessingEnabled
+        attemptInputOnlyIO = false
+        preserveUnderlyingErrors = false
         try startLocked(resetStatistics: true)
+    }
+
+    /// Starts with per-attempt hardware options; session/route policy remains caller-owned.
+    public func start(
+        voiceProcessingEnabled: Bool,
+        inputOnlyIO: Bool = false,
+        preservingExistingSamples: Bool = false
+    ) throws {
+        lifecycleLock.lock()
+        defer { lifecycleLock.unlock() }
+        guard !running else { throw WarmAudioCaptureError.alreadyRunning }
+        attemptVoiceProcessingEnabled = voiceProcessingEnabled
+        attemptInputOnlyIO = inputOnlyIO
+        preserveUnderlyingErrors = true
+        try startLocked(resetStatistics: !preservingExistingSamples)
     }
 
     /// `start()`, then waits up to `timeout` for the tap to deliver usable audio. On a dead path it stops
@@ -247,10 +364,25 @@ public final class WarmAudioCapture: @unchecked Sendable {
     public func stop() {
         lifecycleLock.lock()
         defer { lifecycleLock.unlock() }
+        _ = stopAndSnapshotLocked()
+    }
+
+    /// Seals PCM & stops at one lifecycle boundary. Existing `stop()` keeps its Void signature.
+    public func stopAndReturnSamples() -> [Float] {
+        lifecycleLock.lock()
+        defer { lifecycleLock.unlock() }
+        return stopAndSnapshotLocked()
+    }
+
+    private func stopAndSnapshotLocked() -> [Float] {
         watchdog?.cancel()
         watchdog = nil
         deliveryGate.lock()
-        stateLock.withLock { activeTapGeneration = engineGeneration &+ 1 }
+        let captured = stateLock.withLock {
+            accumulating = false
+            activeTapGeneration = _engineGeneration &+ 1
+            return retainedSamples
+        }
         deliveryGate.unlock()
         removeObserverLocked()
         if running {
@@ -258,8 +390,12 @@ public final class WarmAudioCapture: @unchecked Sendable {
             engine.stop()
             running = false
         }
-        engineGeneration &+= 1
+        _engineGeneration &+= 1
+        return captured
     }
+
+    public var isMonitoring: Bool { isRunning }
+    public var engineGeneration: UInt64 { generation }
 
     /// True while the engine is live.
     public var isRunning: Bool {
@@ -272,7 +408,7 @@ public final class WarmAudioCapture: @unchecked Sendable {
     public var generation: UInt64 {
         lifecycleLock.lock()
         defer { lifecycleLock.unlock() }
-        return engineGeneration
+        return _engineGeneration
     }
 
     /// Rebuilds the graph after a configuration change stopped it. `expectedGeneration` is the value from
@@ -281,10 +417,88 @@ public final class WarmAudioCapture: @unchecked Sendable {
     public func recoverAfterConfigurationChange(expectedGeneration: UInt64) throws {
         lifecycleLock.lock()
         defer { lifecycleLock.unlock() }
-        guard !running, engineGeneration == expectedGeneration else {
+        guard !running, _engineGeneration == expectedGeneration else {
             throw WarmAudioCaptureError.lifecycleInvalidated
         }
         try startLocked(resetStatistics: false)
+    }
+
+    public func recoverAfterConfigurationChange(
+        expectedGeneration: UInt64, voiceProcessingEnabled: Bool, inputOnlyIO: Bool
+    ) throws {
+        lifecycleLock.lock()
+        defer { lifecycleLock.unlock() }
+        guard !running, _engineGeneration == expectedGeneration else {
+            throw WarmAudioCaptureError.lifecycleInvalidated
+        }
+        attemptVoiceProcessingEnabled = voiceProcessingEnabled
+        attemptInputOnlyIO = inputOnlyIO
+        preserveUnderlyingErrors = true
+        try startLocked(resetStatistics: false)
+    }
+
+    /// Starts a fresh recording on warm engine, serialized with complete tap delivery.
+    public func beginAccumulation() {
+        deliveryGate.lock()
+        defer { deliveryGate.unlock() }
+        voiceActivityDetector.reset()
+        stateLock.withLock {
+            resetAccumulationLocked()
+            resetRawHealth()
+            accumulating = true
+        }
+    }
+
+    /// Seals retained PCM while leaving engine/tap/session warm.
+    public func endAccumulation() -> [Float] {
+        deliveryGate.lock()
+        defer { deliveryGate.unlock() }
+        return stateLock.withLock {
+            accumulating = false
+            return retainedSamples
+        }
+    }
+
+    public var boundInputSampleRate: Double { stateLock.withLock { _boundInputSampleRate } }
+    public var boundInputChannelCount: UInt32 { stateLock.withLock { _boundInputChannelCount } }
+    public var conversionTargetSampleRate: Double { configuration.outputFormat.sampleRate }
+    public var sampleCount: Int { stateLock.withLock { retainedSamples.count } }
+    public var firstSpeechSample: Int? { stateLock.withLock { _firstSpeechSample } }
+    public var speechActivity: SpeechActivitySnapshot {
+        stateLock.withLock { SpeechActivitySnapshot(firstSpeechSample: _firstSpeechSample, lastSpeechAt: lastSpeechAt) }
+    }
+    public var captureLevelSummary: (peak: Float, rms: Double, sampleCount: Int) {
+        stateLock.withLock {
+            let count = retainedSamples.count
+            return (peakAmplitude, count > 0 ? (sumSquares / Double(count)).squareRoot() : 0, count)
+        }
+    }
+    public var conversionSummary: [String: Any] {
+        stateLock.withLock {
+            ["converter_error_count": converterErrorCount, "converter_dropped_buffers": droppedBufferCount,
+             "vad_active_fraction": voiceTotalFrames > 0 ? Double(voiceActiveFrames) / Double(voiceTotalFrames) : 0,
+             "vad_frames": voiceTotalFrames]
+        }
+    }
+    public func samples(from index: Int) -> [Float] {
+        stateLock.withLock {
+            let start = min(max(index, 0), retainedSamples.count)
+            return Array(retainedSamples[start...])
+        }
+    }
+
+    /// Caller holds stateLock; resets one retained recording's statistics.
+    private func resetAccumulationLocked() {
+        retainedSamples.removeAll(keepingCapacity: true)
+        _latestLevel = 0
+        peakAmplitude = 0
+        sumSquares = 0
+        converterErrorCount = 0
+        droppedBufferCount = 0
+        voiceActiveFrames = 0
+        voiceTotalFrames = 0
+        _firstSpeechSample = nil
+        lastSpeechAt = nil
     }
 
     // MARK: Observation
@@ -308,8 +522,8 @@ public final class WarmAudioCapture: @unchecked Sendable {
                 rms: rawSamples > 0 ? (rawSumSquares / Double(rawSamples)).squareRoot() : 0,
                 firstCallbackMs: elapsed(firstCallbackAt),
                 firstNonzeroMs: elapsed(firstNonzeroAt),
-                inputSampleRate: boundInputSampleRate,
-                inputChannelCount: boundInputChannelCount,
+                inputSampleRate: _boundInputSampleRate,
+                inputChannelCount: _boundInputChannelCount,
                 elapsedMs: elapsed(DispatchTime.now()),
             )
         }
@@ -327,18 +541,37 @@ public final class WarmAudioCapture: @unchecked Sendable {
         engine.stop()
         let graph = AVAudioEngine()
         engine = graph
-        engineGeneration &+= 1
-        let generation = engineGeneration
+        _engineGeneration &+= 1
+        let generation = _engineGeneration
+        deliveryGate.lock()
         stateLock.withLock { activeTapGeneration = generation }
+        deliveryGate.unlock()
 
         let input = graph.inputNode
         do {
-            if configuration.voiceProcessingEnabled { try input.setVoiceProcessingEnabled(true) }
+            if attemptInputOnlyIO { try configureInputOnly(input) }
+            #if !os(watchOS)
+            if attemptVoiceProcessingEnabled { try input.setVoiceProcessingEnabled(true) }
+            #else
+            guard !attemptVoiceProcessingEnabled else { throw WarmAudioCaptureError.unsupportedFormat }
+            #endif
+            #if !os(watchOS)
+            emitRuntimeEvent(.voiceProcessingConfigured(
+                requested: attemptVoiceProcessingEnabled, enabled: input.isVoiceProcessingEnabled))
+            #endif
             try configuration.prepareInput?(input)
         } catch {
+            if preserveUnderlyingErrors { throw error }
             throw WarmAudioCaptureError.engineFailed(error.localizedDescription)
         }
         let inputFormat = input.outputFormat(forBus: 0)
+        if configuration.retainSamples {
+            guard configuration.outputFormat.commonFormat == .pcmFormatFloat32,
+                  configuration.outputFormat.channelCount == 1,
+                  configuration.outputFormat.sampleRate == Self.targetSampleRate else {
+                throw WarmAudioCaptureError.unsupportedFormat
+            }
+        }
         // Validate that the format is usable, never that it equals the target: 48 kHz hardware feeding a
         // 16 kHz converter is normal; a zero rate or channel count is the "route not ready" signal that
         // would otherwise reach installTap as an uncatchable assertion.
@@ -346,21 +579,34 @@ public final class WarmAudioCapture: @unchecked Sendable {
               let newConverter = AVAudioConverter(from: inputFormat, to: configuration.outputFormat)
         else { throw WarmAudioCaptureError.unsupportedFormat }
 
+        deliveryGate.lock()
+        voiceActivityDetector.reset()
         stateLock.withLock {
             converter = newConverter
-            boundInputSampleRate = inputFormat.sampleRate
-            boundInputChannelCount = inputFormat.channelCount
+            _boundInputSampleRate = inputFormat.sampleRate
+            _boundInputChannelCount = inputFormat.channelCount
             if resetStatistics {
-                _latestLevel = 0
-                converterErrorCount = 0
-                droppedBufferCount = 0
+                resetAccumulationLocked()
             }
             resetRawHealth()
+            accumulating = true
         }
+        deliveryGate.unlock()
 
         installObserverLocked(for: graph, generation: generation)
-        input.installTap(onBus: 0, bufferSize: configuration.tapBufferSize, format: inputFormat) { [weak self] buffer, _ in
-            self?.consume(buffer, generation: generation)
+        do {
+            try installInputTap(input, format: inputFormat, generation: generation)
+        } catch {
+            removeObserverLocked()
+            graph.stop()
+            deliveryGate.lock()
+            stateLock.withLock {
+                activeTapGeneration = generation &+ 1
+                converter = nil
+            }
+            deliveryGate.unlock()
+            if preserveUnderlyingErrors { throw error }
+            throw WarmAudioCaptureError.engineFailed(error.localizedDescription)
         }
         graph.prepare()
         do {
@@ -370,11 +616,68 @@ public final class WarmAudioCapture: @unchecked Sendable {
             input.removeTap(onBus: 0)
             removeObserverLocked()
             graph.stop()
-            stateLock.withLock { converter = nil }
+            deliveryGate.lock()
+            stateLock.withLock {
+                activeTapGeneration = generation &+ 1
+                converter = nil
+            }
+            deliveryGate.unlock()
+            if preserveUnderlyingErrors { throw error }
             throw WarmAudioCaptureError.engineFailed(error.localizedDescription)
         }
         running = true
         armWatchdogLocked(generation: generation)
+    }
+
+    private func installInputTap(_ input: AVAudioInputNode, format: AVAudioFormat, generation: UInt64) throws {
+        // Xcode 27 ships Swift 6.4 & the iOS 27 SDK. Keep the new symbol out of older
+        // supported Xcode SDKs as well as guarding its runtime availability.
+        #if os(iOS) && compiler(>=6.4)
+        if #available(iOS 27.0, *) {
+            try input.installAudioTap(onBus: 0, bufferSize: configuration.tapBufferSize, format: format) { [weak self] buffer, _ in
+                // Both APIs feed the same generation-fenced converter/accumulation path.
+                let mutable = AVAudioPCMBuffer(copying: buffer)
+                self?.consume(mutable, generation: generation)
+            }
+            return
+        }
+        #endif
+        input.installTap(onBus: 0, bufferSize: configuration.tapBufferSize, format: format) { [weak self] buffer, _ in
+            self?.consume(buffer, generation: generation)
+        }
+    }
+
+    private func emitRuntimeEvent(_ event: WarmAudioCaptureRuntimeEvent) {
+        guard let sink = configuration.runtimeEventSink else { return }
+        runtimeEventQueue.async { sink(event) }
+    }
+
+    private func configureInputOnly(_ input: AVAudioInputNode) throws {
+        #if os(iOS)
+        guard let audioUnit = input.audioUnit else {
+            throw NSError(domain: NSOSStatusErrorDomain, code: Int(kAudioUnitErr_Uninitialized))
+        }
+        var before: UInt32 = 1
+        var beforeSize = UInt32(MemoryLayout<UInt32>.size)
+        let readBeforeStatus = AudioUnitGetProperty(audioUnit, kAudioOutputUnitProperty_EnableIO,
+            kAudioUnitScope_Output, 0, &before, &beforeSize)
+        var disabled: UInt32 = 0
+        let status = AudioUnitSetProperty(audioUnit, kAudioOutputUnitProperty_EnableIO,
+            kAudioUnitScope_Output, 0, &disabled, UInt32(MemoryLayout<UInt32>.size))
+        var after: UInt32 = 1
+        var size = UInt32(MemoryLayout<UInt32>.size)
+        let readStatus = AudioUnitGetProperty(audioUnit, kAudioOutputUnitProperty_EnableIO,
+            kAudioUnitScope_Output, 0, &after, &size)
+        emitRuntimeEvent(.inputOnlyIOConfigured(
+            status: Int(status), readBeforeStatus: Int(readBeforeStatus), outputEnabledBefore: before,
+            readAfterStatus: Int(readStatus), outputEnabledAfter: after))
+        guard status == noErr, readStatus == noErr, after == 0 else {
+            let code = status != noErr ? status : (readStatus != noErr ? readStatus : kAudioUnitErr_FailedInitialization)
+            throw NSError(domain: NSOSStatusErrorDomain, code: Int(code))
+        }
+        #else
+        throw WarmAudioCaptureError.unsupportedFormat
+        #endif
     }
 
     private func armWatchdogLocked(generation: UInt64) {
@@ -390,7 +693,7 @@ public final class WarmAudioCapture: @unchecked Sendable {
 
     private func watchdogFired(generation: UInt64) {
         lifecycleLock.lock()
-        let current = running && engineGeneration == generation
+        let current = running && _engineGeneration == generation
         lifecycleLock.unlock()
         guard current else { return }
         let health = rawHealth
@@ -413,7 +716,7 @@ public final class WarmAudioCapture: @unchecked Sendable {
 
     private func handleConfigurationChange(graph: AVAudioEngine?, generation: UInt64) {
         lifecycleLock.lock()
-        guard running, generation == engineGeneration, let graph, graph === engine else {
+        guard running, generation == _engineGeneration, let graph, graph === engine else {
             lifecycleLock.unlock()
             return
         }
@@ -425,21 +728,23 @@ public final class WarmAudioCapture: @unchecked Sendable {
         graph.inputNode.removeTap(onBus: 0)
         graph.stop()
         running = false
-        engineGeneration &+= 1
+        _engineGeneration &+= 1
         deliveryGate.lock()
-        stateLock.withLock { activeTapGeneration = engineGeneration }
+        stateLock.withLock { activeTapGeneration = _engineGeneration }
         deliveryGate.unlock()
-        var outcome: WarmAudioCaptureConfigurationChange = .stopped(generation: engineGeneration)
+        emitRuntimeEvent(.engineConfigurationChanged(generation: generation, nextGeneration: _engineGeneration))
+        var outcome: WarmAudioCaptureConfigurationChange = .stopped(generation: _engineGeneration)
         if configuration.rebuildOnConfigurationChange {
             do {
                 try startLocked(resetStatistics: false)
-                outcome = .rebuilt(generation: engineGeneration)
+                outcome = .rebuilt(generation: _engineGeneration)
             } catch {
                 outcome = .rebuildFailed(error.localizedDescription)
             }
         }
         lifecycleLock.unlock()
         configurationChangeHandler?(outcome)
+        engineConfigurationChangeHandler?(generation)
     }
 
     // MARK: Tap path
@@ -463,6 +768,30 @@ public final class WarmAudioCapture: @unchecked Sendable {
         }
         let level = Self.level(of: converted)
         stateLock.withLock { _latestLevel = level }
+        if configuration.retainSamples, let channel = converted.floatChannelData?.pointee {
+            let frame = UnsafeBufferPointer(start: channel, count: Int(converted.frameLength))
+            var frameSum: Float = 0
+            var peak: Float = 0
+            for value in frame {
+                frameSum += value * value
+                peak = max(peak, abs(value))
+            }
+            let activity = voiceActivityDetector.ingest(rms: (frameSum / Float(frame.count)).squareRoot())
+            let copied = Array(frame)
+            let now = DispatchTime.now()
+            let observer = stateLock.withLock { () -> (@Sendable ([Float]) -> Void)? in
+                guard accumulating else { return nil }
+                if activity == .speechStarted, _firstSpeechSample == nil { _firstSpeechSample = retainedSamples.count }
+                if activity != .silence { lastSpeechAt = now }
+                retainedSamples.append(contentsOf: copied)
+                peakAmplitude = max(peakAmplitude, peak)
+                sumSquares += Double(frameSum)
+                voiceTotalFrames += 1
+                if activity != .silence { voiceActiveFrames += 1 }
+                return _pcmObserver
+            }
+            observer?(copied)
+        }
         handler?(converted)
     }
 
@@ -509,8 +838,11 @@ public final class WarmAudioCapture: @unchecked Sendable {
         var counted = 0
         var sumSquares: Double = 0
         if let channels = buffer.floatChannelData {
-            for channel in 0..<Int(buffer.format.channelCount) {
-                for value in UnsafeBufferPointer(start: channels[channel], count: frames) {
+            let channelCount = Int(buffer.format.channelCount)
+            let buffers = buffer.format.isInterleaved ? 1 : channelCount
+            let valuesPerBuffer = buffer.format.isInterleaved ? frames * channelCount : frames
+            for channel in 0..<buffers {
+                for value in UnsafeBufferPointer(start: channels[channel], count: valuesPerBuffer) {
                     let magnitude = abs(value)
                     if magnitude > maxAbs { maxAbs = magnitude }
                     if value == 0 { zeros += 1 }

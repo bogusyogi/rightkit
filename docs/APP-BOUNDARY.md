@@ -119,10 +119,12 @@ record is a locator. Keep each app's existing licence, pairing and approval gate
 
 ## Dictation UI retirement
 
-Retire `@rightkit/dictation-ui`. Version 0.3.1 removed HeardRight screens, shell and styling. The remaining bundle still combines settings, onboarding, history, microphone and model controls, host transport and pill behavior. Route reusable behavior through its existing owners, including Settings UI, Onboarding, Library UI, Tauri, audio, models and overlay. HeardRight keeps its screens, styling, copy and composition.
+RightKit retired `@rightkit/dictation-ui` and removed its standalone package and consumer recipe.
+The npm archives for 0.2.7 and 0.3.1 remain historical releases. Reusable behavior routes through
+its existing owners. HeardRight keeps its screens, styling, copy and composition.
 
-Stop adopting or releasing this package. HeardRight replaces its callers and verifies its installed app. RightKit then removes the package and its standalone consumer recipe. [RightKit #1663](https://github.com/bogusyogi/rightkit/issues/1663) tracks the consumer cutover and removal.
-
+Installed HeardRight replacement and cutover are not established by this source retirement.
+[RightKit #1663](https://github.com/bogusyogi/rightkit/issues/1663) tracks the consumer cutover and removal.
 ## How the earlier reading went wrong
 
 The full analysis, with the timeline, the root causes, every app checked against the

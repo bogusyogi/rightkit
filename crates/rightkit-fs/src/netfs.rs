@@ -1,6 +1,6 @@
 //! Is a path on a network or remote filesystem? SQLite WAL (shared-memory locking) and OS
 //! advisory locks are unreliable there, so callers pick rollback journaling / refuse to rely on
-//! lock files. Donor: CodeRight `private_fs::journal` (statfs / UNC / OneDrive detection).
+//! lock files.
 
 use std::path::Path;
 

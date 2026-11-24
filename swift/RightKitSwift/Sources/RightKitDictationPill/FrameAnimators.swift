@@ -10,7 +10,8 @@ import QuartzCore
 /// It owns only the timer cadence, the generation guard that invalidates a stale run, and the
 /// teardown and completion ordering. Progress, easing, per-tick effects and completion semantics
 /// stay with the caller. Main queue only.
-final class GenerationGuardedFrameAnimator {
+// Mutable state is confined to the main queue; the timer delivers there synchronously.
+final class GenerationGuardedFrameAnimator: @unchecked Sendable {
     private var timer: DispatchSourceTimer?
     private(set) var generation = 0
 

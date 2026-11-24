@@ -170,20 +170,21 @@ public final class RightKitPillRuntime {
     // MARK: Splash
 
     public func splashShow() {
-        showSplashIfAccepted(generation: nil)
+        _ = showSplashIfAccepted(generation: nil)
     }
 
     /// Accepts strictly increasing host generations (including an initial zero). A refused
     /// native show does not consume its token or rebind an existing launch. Keep generations
     /// monotonic for this runtime's lifetime, including across dismissals and shutdowns.
-    public func splashShow(generation: UInt64) {
-        if let latestSplashGeneration, generation <= latestSplashGeneration { return }
-        if let pendingSplashGeneration, generation <= pendingSplashGeneration { return }
-        guard splash.canShow else { return }
-        showSplashIfAccepted(generation: generation)
+    @discardableResult
+    public func splashShow(generation: UInt64) -> Bool {
+        if let latestSplashGeneration, generation <= latestSplashGeneration { return false }
+        if let pendingSplashGeneration, generation <= pendingSplashGeneration { return false }
+        guard splash.canShow else { return false }
+        return showSplashIfAccepted(generation: generation)
     }
 
-    private func showSplashIfAccepted(generation: UInt64?) {
+    private func showSplashIfAccepted(generation: UInt64?) -> Bool {
         let admission = UUID()
         splashAdmission = admission
         pendingSplashGeneration = generation
@@ -197,23 +198,34 @@ public final class RightKitPillRuntime {
         installPillControllerIfNeeded(forSplash: true, admission: { self.splashAdmission == admission })
         // Resource registration is a synchronous host hook: it may dismiss, shut down, or
         // accept a newer show. Never let this superseded request overwrite that admission.
-        guard splashAdmission == admission else { return }
-        guard splash.show(generation: generation) else { return }
+        guard splashAdmission == admission else { return false }
+        guard splash.show(generation: generation) else { return false }
         // Preparing the observable destination can reenter host code before show returns.
-        guard splashAdmission == admission else { return }
+        guard splashAdmission == admission else { return false }
         if let generation { latestSplashGeneration = generation }
         activeSplashGeneration = generation
         callbacks.log("splash_startup_timing", "phase=destination_prepared elapsed_ms=\(Int((CACurrentMediaTime() - started) * 1000))")
+        return splashAdmission == admission
     }
 
     private func invalidateSplashAdmission() {
         splashAdmission = UUID()
         pendingSplashGeneration = nil
+        activeSplashGeneration = nil
     }
 
     public func splashDismiss() {
         invalidateSplashAdmission()
         splash.dismiss()
+    }
+
+    /// Dismisses the launch only while this exact generation owns a preparing or visible splash.
+    @discardableResult
+    public func splashDismiss(generation: UInt64) -> Bool {
+        guard activeSplashGeneration == generation || pendingSplashGeneration == generation,
+              splash.ownsActiveSplash(generation: generation) else { return false }
+        splashDismiss()
+        return true
     }
 
     /// Loader step, wrapped into 0..<stepCount (a negative step wraps too).

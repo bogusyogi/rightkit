@@ -1,4 +1,4 @@
-//! rightkit-tauri-shell: the shared Tauri desktop shell for Right Suite apps.
+//! rightkit-tauri-shell: the shared Tauri shell for desktop apps.
 //!
 //! What every desktop app needs around its own UI: a hardened webview, window state, a native
 //! menu, a tray, single instance, deep links, autostart, a rich clipboard, a hang watchdog and
@@ -31,6 +31,7 @@ pub mod background_update;
 pub mod broker;
 pub mod caller_gate;
 pub mod clipboard;
+pub mod close_policy;
 pub mod commands;
 pub mod consent;
 #[cfg(feature = "viewer")]
@@ -48,6 +49,7 @@ pub mod harden;
 pub mod host;
 pub mod hub_window;
 pub mod idle;
+pub mod install_location;
 pub mod launch_handoff;
 pub mod launch_origin;
 pub mod lifecycle;
@@ -76,10 +78,13 @@ pub mod print;
 pub mod quit;
 pub mod recovery;
 pub mod relaunch;
+pub mod single_instance_host;
 #[cfg(feature = "viewer")]
 pub mod site;
+pub mod startup;
 pub mod startup_cache;
 pub mod startup_error;
+pub mod startup_park;
 #[cfg(feature = "viewer")]
 pub mod stream;
 pub mod surface;
@@ -87,7 +92,9 @@ pub mod tray;
 pub mod tray_state;
 #[cfg(feature = "update")]
 pub mod update;
+pub mod wallpaper;
 pub mod watchdog;
+pub mod watchdog_log;
 pub mod webview2_env;
 pub mod webview2_menu;
 pub mod window_motion;
@@ -499,7 +506,7 @@ impl ShellBuilder {
     }
     /// Who may use DevTools. The default, [`DevToolsPolicy::Denied`], makes no webview of the app
     /// inspectable. [`DevToolsPolicy::ContentOnly`] is a named allowance for an app that renders
-    /// opened content (ViewRight) and must also register that content with
+    /// opened content (host) and must also register that content with
     /// [`ShellBuilder::content_webview`]. The policy applies whichever modules are installed.
     pub fn devtools_policy(mut self, p: DevToolsPolicy) -> Self {
         self.devtools_policy = p;
@@ -603,7 +610,7 @@ impl ShellBuilder {
     /// Register an environment variable that means never-show for this process when it is set to
     /// exactly `1`, `true`, `yes` or `on` (ASCII case-insensitive; anything else, including empty,
     /// `0` and unrecognised text, is off; read at each reveal, so a harness can set it before
-    /// launch). Call it once per name (ScrapeRight: `RIGHTKIT_QA_NATIVE_REAL`).
+    /// launch). Call it once per name (host: `RIGHTKIT_QA_NATIVE_REAL`).
     ///
     /// # Panics
     /// Panics on an empty name or one containing `=` or NUL: a programmer error at startup.
@@ -790,7 +797,7 @@ impl ShellBuilder {
         self.new_window_router = Some(Arc::new(f));
         self
     }
-    /// Confirm a page's request to open a non-web scheme (`zoom:`, `ms-settings:`; #640) with the
+    /// Confirm a page's request to open a non-web scheme (`example-app:`, `ms-settings:`; #640) with the
     /// native three-choice dialog: Deny, Allow once, Always allow. A remembered grant opens the link
     /// without asking; a request from a page other than the pinned origin is refused without a
     /// dialog. Without this call such requests are refused, as before. The consent words and the

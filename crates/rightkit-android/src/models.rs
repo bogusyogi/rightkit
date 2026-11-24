@@ -22,8 +22,8 @@ use std::sync::Arc;
 use rightkit_models::http::ModelHttpOptions;
 use rightkit_models::suite::grant::{try_acquire_grant_pinned, GrantError, ModelGrantRequest};
 use rightkit_models::{
-    ErrorCode, Event, Extract, FileSpec, InstallOptions, ModelId, ModelSpec, Platform, RevisionSpec,
-    Store, VerifyMode,
+    ErrorCode, Event, Extract, FileSpec, InstallOptions, ModelId, ModelSpec, Platform,
+    RevisionSpec, Store, VerifyMode,
 };
 
 use crate::context::{AndroidContext, ContextHandle};
@@ -171,14 +171,21 @@ fn https_origin(base: &str) -> Result<(String, String), ModelInstallError> {
         return Err(invalid("worker_base must be an https origin"));
     }
     // Use the same canonical origin for grants and downloads.
-    Ok((parsed.origin().ascii_serialization(), parsed.host_str().unwrap().to_string()))
+    Ok((
+        parsed.origin().ascii_serialization(),
+        parsed.host_str().unwrap().to_string(),
+    ))
 }
 
 fn checked_route(route: &str) -> Result<&str, ModelInstallError> {
     if !route.starts_with('/')
         || route.len() <= 1
-        || !route.bytes().all(|b| b.is_ascii_alphanumeric() || b"/-._~".contains(&b))
-        || route[1..].split('/').any(|part| part.is_empty() || part == "." || part == "..")
+        || !route
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"/-._~".contains(&b))
+        || route[1..]
+            .split('/')
+            .any(|part| part.is_empty() || part == "." || part == "..")
     {
         return Err(invalid("route must be a plain absolute path"));
     }
@@ -190,24 +197,38 @@ fn validate(request: &ModelInstallRequest) -> Result<(), ModelInstallError> {
     ModelId::parse(&request.model_id).map_err(|_| invalid("invalid model_id"))?;
     validate_payload_dir(&request.payload_dir)?;
     if request.archive_sha256.len() != 64
-        || !request.archive_sha256.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
-        || request.archive_bytes == 0 || request.archive_bytes > i64::MAX as u64
+        || !request
+            .archive_sha256
+            .bytes()
+            .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+        || request.archive_bytes == 0
+        || request.archive_bytes > i64::MAX as u64
         || request.revision != request.archive_sha256
     {
-        return Err(invalid("revision must equal the pinned archive sha256; positive byte size required"));
+        return Err(invalid(
+            "revision must equal the pinned archive sha256; positive byte size required",
+        ));
     }
-    if request.platform != "android" || request.grant_model.trim().is_empty()
-        || request.device_id.trim().is_empty() || request.user_agent.trim().is_empty()
+    if request.platform != "android"
+        || request.grant_model.trim().is_empty()
+        || request.device_id.trim().is_empty()
+        || request.user_agent.trim().is_empty()
     {
-        return Err(invalid("android platform, grant_model, device_id and user_agent are required"));
+        return Err(invalid(
+            "android platform, grant_model, device_id and user_agent are required",
+        ));
     }
     Ok(())
 }
 
 fn validate_payload_dir(payload_dir: &str) -> Result<(), ModelInstallError> {
     if payload_dir.split('/').any(|part| {
-        part.is_empty() || part == "." || part == ".."
-            || !part.bytes().all(|b| b.is_ascii_alphanumeric() || b"-._".contains(&b))
+        part.is_empty()
+            || part == "."
+            || part == ".."
+            || !part
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b"-._".contains(&b))
     }) {
         return Err(invalid("payload_dir must be a relative directory path"));
     }
@@ -218,14 +239,19 @@ fn validate_payload_dir(payload_dir: &str) -> Result<(), ModelInstallError> {
     Ok(())
 }
 
-fn spec_for(request: &ModelInstallRequest, archive_url: String) -> Result<ModelSpec, ModelInstallError> {
+fn spec_for(
+    request: &ModelInstallRequest,
+    archive_url: String,
+) -> Result<ModelSpec, ModelInstallError> {
     let hex = request.archive_sha256.len() == 64
         && request
             .archive_sha256
             .bytes()
             .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'));
     if !hex || request.archive_bytes == 0 {
-        return Err(invalid("archive_sha256 and archive_bytes must be the pinned values"));
+        return Err(invalid(
+            "archive_sha256 and archive_bytes must be the pinned values",
+        ));
     }
     if request.revision.trim().is_empty() || request.payload_dir.trim().is_empty() {
         return Err(invalid("revision and payload_dir are required"));
@@ -281,14 +307,19 @@ fn grant(request: &ModelInstallRequest, origin: &str) -> Result<String, ModelIns
 /// The installed payload directory for `request` when exactly that revision is installed and verified, else
 /// `None`. Full file verification; `Store::resolve` may recover a legacy layout. No network.
 #[uniffi::export]
-pub fn installed_model_dir(request: ModelInstallRequest) -> Result<Option<String>, ModelInstallError> {
+pub fn installed_model_dir(
+    request: ModelInstallRequest,
+) -> Result<Option<String>, ModelInstallError> {
     let store = store_for(&request)?;
     let key = RevisionSpec {
         revision: request.revision.clone(),
         ..Default::default()
     }
     .key();
-    let Some(resolved) = store.resolve(&request.model_id).filter(|resolved| resolved.key == key) else {
+    let Some(resolved) = store
+        .resolve(&request.model_id)
+        .filter(|resolved| resolved.key == key)
+    else {
         return Ok(None);
     };
     if !store.verify(&request.model_id, &key, VerifyMode::Full) {
@@ -326,7 +357,9 @@ pub fn install_model(
     listener: Arc<dyn ModelInstallListener>,
 ) -> Result<String, ModelInstallError> {
     validate(&request)?;
-    if cancel.flag.load(Ordering::SeqCst) { return Err(ModelInstallError::Cancelled); }
+    if cancel.flag.load(Ordering::SeqCst) {
+        return Err(ModelInstallError::Cancelled);
+    }
     let (origin, host) = https_origin(&request.worker_base)?;
     let route = checked_route(&request.route)?;
     if request.device_id.trim().is_empty() || request.grant_model.trim().is_empty() {
@@ -364,20 +397,27 @@ pub fn install_model(
                 overall_total,
                 ..
             } => listener.on_progress(ModelInstallStage::Downloading, overall_done, overall_total),
-            Event::FileVerified { .. } => {
-                listener.on_progress(ModelInstallStage::Verifying, request.archive_bytes, request.archive_bytes)
-            }
-            Event::Extracted { .. } | Event::Activated { .. } => {
-                listener.on_progress(ModelInstallStage::Installing, request.archive_bytes, request.archive_bytes)
-            }
+            Event::FileVerified { .. } => listener.on_progress(
+                ModelInstallStage::Verifying,
+                request.archive_bytes,
+                request.archive_bytes,
+            ),
+            Event::Extracted { .. } | Event::Activated { .. } => listener.on_progress(
+                ModelInstallStage::Installing,
+                request.archive_bytes,
+                request.archive_bytes,
+            ),
             _ => {}
         };
         match store.install(&spec, &options, sink) {
             Ok(outcome) => {
-                return verified_payload_dir(&outcome.dir, &request.payload_dir)
-                    .ok_or_else(|| invalid("installed revision does not contain the requested payload layout"));
+                return verified_payload_dir(&outcome.dir, &request.payload_dir).ok_or_else(|| {
+                    invalid("installed revision does not contain the requested payload layout")
+                });
             }
-            Err(error) if !refreshed && error.message.contains("download authorization rejected") => {
+            Err(error)
+                if !refreshed && error.message.contains("download authorization rejected") =>
+            {
                 refreshed = true;
             }
             Err(error) => return Err(from_models_error(&error)),
@@ -391,7 +431,13 @@ mod tests {
 
     #[test]
     fn rejects_reserved_store_paths() {
-        for path in [".dl", ".dl/model", ".shared", ".shared/model", "manifest.json"] {
+        for path in [
+            ".dl",
+            ".dl/model",
+            ".shared",
+            ".shared/model",
+            "manifest.json",
+        ] {
             assert!(validate_payload_dir(path).is_err(), "{path}");
         }
         assert!(validate_payload_dir("model/weights").is_ok());

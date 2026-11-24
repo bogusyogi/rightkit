@@ -154,13 +154,19 @@ fn range_from_cf(item: CFTypeRef) -> TextSelectResult<(usize, usize)> {
             || CFGetTypeID(item) != AXValueGetTypeID()
             || AXValueGetType(item) != AX_VALUE_CF_RANGE
         {
-            return Err(TextSelectError::Unreadable("attribute is not an AXValue range"));
+            return Err(TextSelectError::Unreadable(
+                "attribute is not an AXValue range",
+            ));
         }
         let mut r = CFRange {
             location: 0,
             length: 0,
         };
-        if AXValueGetValue(item, AX_VALUE_CF_RANGE, &mut r as *mut CFRange as *mut c_void) == 0
+        if AXValueGetValue(
+            item,
+            AX_VALUE_CF_RANGE,
+            &mut r as *mut CFRange as *mut c_void,
+        ) == 0
             || r.location < 0
             || r.length < 0
         {
@@ -368,9 +374,8 @@ impl TextTarget {
                 "AXSelectedTextRange is not settable",
             ));
         }
-        let window = exact_element_attr(&el, "AXWindow")?.ok_or(TextSelectError::Unsupported(
-            "AXWindow is absent",
-        ))?;
+        let window = exact_element_attr(&el, "AXWindow")?
+            .ok_or(TextSelectError::Unsupported("AXWindow is absent"))?;
         let token = NEXT_TARGET_TOKEN.fetch_add(1, Ordering::Relaxed);
         let baseline = Surface {
             el: &el,

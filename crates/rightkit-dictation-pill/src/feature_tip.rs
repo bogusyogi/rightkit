@@ -4,7 +4,9 @@
 //! JSON object the host keeps in one file; its keys, thresholds, size bound and the list of kinds
 //! are the host's, so a file already on users' disks keeps working.
 //!
-//! Hosts choose when and how to display a due tip.
+//! Moved from HeardRight `pill_overlays.rs` (`advance_tip_cadence`, `read_tip_state`,
+//! `note_completed_transcript_for_hints`, `now_epoch_ms`). The formula is unchanged. Showing the
+//! tip (and its delay) is the host's, through `host_glue::run_after`.
 
 use std::io::Read;
 use std::path::Path;
@@ -78,7 +80,11 @@ pub fn advance(cadence: &Cadence<'_>, saved: &Value, now_ms: u64, kinds: usize) 
     let next_at = read(cadence.next_at_key).unwrap_or(cadence.first_at);
     let cursor = read(cadence.cursor_key).unwrap_or(0);
     let due = completed >= next_at;
-    let next_cursor = if due { cursor.saturating_add(1) } else { cursor };
+    let next_cursor = if due {
+        cursor.saturating_add(1)
+    } else {
+        cursor
+    };
     let jitter = if cadence.interval_jitter == 0 {
         0
     } else {

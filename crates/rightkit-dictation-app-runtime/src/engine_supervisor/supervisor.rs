@@ -9,9 +9,9 @@
 
 use std::io;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
-use std::sync::{Arc, Mutex, Weak};
+use std::sync::{Arc, Condvar, Mutex, Weak};
 use std::time::{Duration, Instant};
 
 use rightkit_dictation_core::engine::launch::{EngineLaunch, LAUNCH_SCHEMA, LAUNCH_VERSION};
@@ -411,6 +411,43 @@ pub struct EngineSupervisor {
     /// engine is `Ready` again.
     terminal_since: Mutex<Option<Instant>>,
     abandon_cooldown: Duration,
+    /// The generation whose background key delivery failed or was uncertain while it was
+    /// recording. The engine of that generation keeps running (the recording is never touched);
+    /// the next recording start, which runs with no session in flight, retires it so a fresh
+    /// generation gets its own delivery. See [`EngineSupervisor::deliver_claimed_provider_keys`].
+    keys_retry_generation: Mutex<Option<u64>>,
+    /// Captures that hold this engine: one per reserved start (`hold_capture`). A generation is
+    /// never retired while this is non-zero or while an active session exists (`capture_busy`).
+    capture_holds: AtomicUsize,
+    /// Serializes capture admission (`hold_capture`) against a retirement claim
+    /// (`retire_generation`). `true` while a claimed retirement is shutting the engine down; a
+    /// start waits on `retirement_done` until it ends, so it can never attach to the dying
+    /// generation. The flag is set and cleared under the lock; the shutdown itself runs unlocked.
+    retiring: Mutex<bool>,
+    retirement_done: Condvar,
+    /// The shell's mirror of its active session (`register_active_session_probe`): `Some` from
+    /// the moment a start allocates its session until the session reaches a terminal state.
+    session_probe: Mutex<Option<Arc<Mutex<Option<String>>>>>,
+}
+
+/// A held capture: while it lives the engine generation is not retired by any key-delivery path.
+/// Released on drop.
+pub struct CaptureHold {
+    supervisor: Arc<EngineSupervisor>,
+}
+
+impl Drop for CaptureHold {
+    fn drop(&mut self) {
+        self.supervisor.capture_holds.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
+/// The provider-key delivery claim a recording start takes synchronously
+/// ([`EngineSupervisor::claim_provider_keys_for_start`]); the delivery then runs on any thread
+/// ([`EngineSupervisor::deliver_claimed_provider_keys`]).
+pub struct ProviderKeyClaim {
+    generation: u64,
+    deliver: bool,
 }
 
 impl EngineSupervisor {
@@ -477,6 +514,11 @@ impl EngineSupervisor {
                 shutdown_generation,
                 terminal_since: Mutex::new(None),
                 abandon_cooldown: SIDECAR_ABANDON_COOLDOWN,
+                keys_retry_generation: Mutex::new(None),
+                capture_holds: AtomicUsize::new(0),
+                retiring: Mutex::new(false),
+                retirement_done: Condvar::new(),
+                session_probe: Mutex::new(None),
             },
             event_rx,
         )
@@ -492,6 +534,14 @@ impl EngineSupervisor {
 
     fn ensure_ready(&self) -> Result<String, String> {
         let version = self.ensure_running()?;
+        self.ensure_provider_keys()?;
+        Ok(version)
+    }
+
+    /// The BYOK key-delivery gate of the current generation, on its own: claim it and, when this
+    /// caller is the one that delivers, deliver (up to `PROVIDER_KEYS_ACK_TIMEOUT`); a caller that
+    /// finds a delivery in flight waits for it. `ensure_ready` is `ensure_running` plus this.
+    fn ensure_provider_keys(&self) -> Result<(), String> {
         let generation = self.rk.status().generation;
         match self.gate.claim(generation) {
             Claim::Done => {}
@@ -515,7 +565,7 @@ impl EngineSupervisor {
                 }
             }
         }
-        Ok(version)
+        Ok(())
     }
 
     /// End `generation` after its key delivery failed or is uncertain. The gate keeps that
@@ -525,6 +575,48 @@ impl EngineSupervisor {
     /// that generation is still the live one, so a caller that lost a race never stops the
     /// replacement.
     fn retire_generation(&self, generation: u64) {
+        // No key-delivery path (prewarm, an ordinary call, the background delivery) may end an
+        // engine that is capturing or about to: the generation stays up with its keys marked
+        // unavailable (the gate keeps the failure; provider processing falls back to local) and
+        // the retirement is deferred to the next recording start, which runs with no session in
+        // flight on the engine (`start_without_keys`).
+        //
+        // The busy check and the retirement claim happen under `retiring`, the same lock
+        // `hold_capture` admits under, so a start cannot slip in between the check and the
+        // shutdown: either the start holds first (retirement deferred) or the claim is first and
+        // the start waits for the shutdown to finish, then starts a fresh generation.
+        {
+            let mut retiring = self
+                .retiring
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            if *retiring {
+                return;
+            }
+            if self.capture_busy() {
+                telemetry::log_message(
+                    "provider_keys_generation_retire_deferred",
+                    &format!("generation={generation}"),
+                );
+                *self
+                    .keys_retry_generation
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(generation);
+                return;
+            }
+            *retiring = true;
+        }
+        // App I/O (the engine shutdown) runs with no lock held.
+        self.retire_generation_now(generation);
+        let mut retiring = self
+            .retiring
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        *retiring = false;
+        self.retirement_done.notify_all();
+    }
+
+    fn retire_generation_now(&self, generation: u64) {
         if self.rk.lifecycle() != Lifecycle::Ready || self.rk.status().generation != generation {
             return;
         }
@@ -533,6 +625,76 @@ impl EngineSupervisor {
             &format!("generation={generation}"),
         );
         self.shutdown();
+    }
+
+    /// True while a capture holds this engine: a reserved start (`hold_capture`) or an active
+    /// session in the shell's mirror. An unreadable mirror counts as busy.
+    fn capture_busy(&self) -> bool {
+        if self.capture_holds.load(Ordering::SeqCst) > 0 {
+            return true;
+        }
+        let probe = self
+            .session_probe
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone();
+        probe.is_some_and(|probe| {
+            probe
+                .lock()
+                .map(|session| session.is_some())
+                .unwrap_or(true)
+        })
+    }
+
+    /// Hold this engine for one reserved start until the returned guard drops.
+    /// Non-waiting admission under `retiring`, for callers that must return at once (a start
+    /// reservation claimed on a hotkey dispatch thread while it holds the pending-start slot):
+    /// `None` while a claimed retirement is shutting the engine down; the caller then takes the
+    /// hold later with [`EngineSupervisor::hold_capture`] off that thread, holding no slot.
+    pub fn try_hold_capture(self: &Arc<Self>) -> Option<CaptureHold> {
+        let retiring = self
+            .retiring
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if *retiring {
+            return None;
+        }
+        self.capture_holds.fetch_add(1, Ordering::SeqCst);
+        drop(retiring);
+        Some(CaptureHold {
+            supervisor: Arc::clone(self),
+        })
+    }
+
+    /// Admitted under `retiring`: a claimed retirement finishes first (the wait releases the
+    /// lock), so the start that follows runs on a fresh generation, never the one shutting down.
+    /// Blocks for at most the retirement's shutdown: call it only from a thread that holds no
+    /// pending-start slot or dispatch thread (see `try_hold_capture`).
+    pub fn hold_capture(self: &Arc<Self>) -> CaptureHold {
+        let mut retiring = self
+            .retiring
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        while *retiring {
+            retiring = self
+                .retirement_done
+                .wait(retiring)
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+        }
+        self.capture_holds.fetch_add(1, Ordering::SeqCst);
+        drop(retiring);
+        CaptureHold {
+            supervisor: Arc::clone(self),
+        }
+    }
+
+    /// Give the supervisor the shell's active-session mirror so it can tell a recording engine
+    /// from an idle one (see [`EngineSupervisor::hold_capture`]). Called once at runtime open.
+    pub fn register_active_session_probe(&self, probe: Arc<Mutex<Option<String>>>) {
+        *self
+            .session_probe
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(probe);
     }
 
     fn terminal_since_lock(&self) -> std::sync::MutexGuard<'_, Option<Instant>> {
@@ -813,6 +975,179 @@ impl EngineSupervisor {
             return Err("sidecar not running".to_string());
         }
         self.gate.wait_if_inflight(self.rk.status().generation);
+        self.accept(frame)
+    }
+
+    /// Deliver a shortcut-press capture-control frame (`capture_warmup`, resume or revoke) to an
+    /// engine that is already running. Narrowly typed on purpose: it accepts nothing but a
+    /// `CaptureWarmup` frame, it never spawns or readies an engine, and it does not wait for a
+    /// provider-key delivery in flight (`send` does, up to the key gate's bound), because a
+    /// microphone resume or revoke has nothing to do with keys or config and must not queue behind
+    /// them. Only the engine's own immediate acceptance (bounded by `SIDECAR_SEND_TIMEOUT`) is
+    /// awaited. A normal start keeps the key gate (`start` and `call`).
+    pub fn send_capture_control(&self, frame: &EngineFrame) -> Result<(), String> {
+        if frame.schema_name != EngineSchemaName::CaptureWarmup
+            || !matches!(frame.payload, Some(EnginePayload::CaptureWarmup { .. }))
+        {
+            return Err("send_capture_control carries only capture_warmup frames".to_string());
+        }
+        if !self.is_running() {
+            return Err("sidecar not running".to_string());
+        }
+        self.accept(frame)
+    }
+
+    /// The engine is running for a recording start: the same recovery as `start`, but WITHOUT the
+    /// provider-key delivery gate. A recording start must not wait (up to the key gate's bound)
+    /// for keys that only cloud features need at finalization; the caller delivers them after the
+    /// start frame through [`EngineSupervisor::deliver_claimed_provider_keys`]. While the mic
+    /// is warm from the shortcut press (the worker's bounded warm-up), this keeps the start frame
+    /// from arriving after the warm-up expired.
+    pub fn start_without_keys(&self) -> Result<String, String> {
+        // A previous recording's background key delivery failed on this generation. This start
+        // runs with no session in flight (the shell reserves one start at a time and refuses a
+        // start while a dictation is still finishing), so it is the safe moment to end that
+        // generation: the engine respawns below and its new generation gets its own delivery.
+        let retry = self
+            .keys_retry_generation
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .take();
+        if let Some(generation) = retry {
+            // No session of this engine is in flight at a start (the shell refuses a start while a
+            // dictation is still finishing), so this retirement, deferred from a capture, is safe.
+            self.retire_generation_now(generation);
+        }
+        self.ensure_running()
+    }
+
+    /// `call` for a recording-start frame (and the config pushes before it): readies the engine
+    /// like `call`, without the key delivery gate. See [`EngineSupervisor::start_without_keys`].
+    pub fn call_without_keys(
+        &self,
+        frame: &EngineFrame,
+        timeout: Duration,
+    ) -> Result<EngineFrame, String> {
+        self.ensure_running()?;
+        self.exchange(frame, timeout)
+            .map_err(ExchangeError::into_message)
+    }
+
+    /// Take the provider-key delivery claim of the current generation for a recording start,
+    /// synchronously and without ever waiting: when this caller is to deliver, the gate has the
+    /// delivery in flight before this returns, so a stop that follows cannot get ahead of it
+    /// (`send_stop` waits on exactly this claim). When another caller is already delivering, or the
+    /// generation settled, the claim is empty and the in-flight delivery is the one a stop waits
+    /// for.
+    pub fn claim_provider_keys_for_start(&self) -> ProviderKeyClaim {
+        let generation = self.rk.status().generation;
+        let deliver = matches!(self.gate.try_claim(generation), Claim::Deliver);
+        ProviderKeyClaim {
+            generation,
+            deliver,
+        }
+    }
+
+    /// Run the delivery for a claim from [`EngineSupervisor::claim_provider_keys_for_start`], on
+    /// any thread, WITHOUT ever touching the recording: it never retires the generation, never
+    /// shuts the engine down and never starts one. The keys gate only provider (AI cleanup)
+    /// processing in the engine; capture start and stop never wait for them. A failed or uncertain
+    /// delivery returns `Err` (a fixed, non-secret reason): the generation's gate is settled as
+    /// done (it is recording with no keys, so cleanup falls back to local polish, and no other
+    /// caller can retire it mid-recording through the gate's failure path) and the generation is
+    /// remembered in `keys_retry_generation` for the next start. A claim whose generation has
+    /// since been replaced is released without sending (the new generation gets its own claim).
+    pub fn deliver_claimed_provider_keys(&self, claim: ProviderKeyClaim) -> Result<(), String> {
+        if !claim.deliver {
+            return Ok(());
+        }
+        let generation = claim.generation;
+        if self.rk.status().generation != generation {
+            self.gate.settle(generation, Ok(()));
+            return Ok(());
+        }
+        let outcome = self.deliver_provider_keys();
+        if let Err(reason) = &outcome {
+            telemetry::log_message(
+                "provider_keys_delivery_failed",
+                &format!("generation={generation}; background; reason={reason}"),
+            );
+            *self
+                .keys_retry_generation
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(generation);
+        }
+        // Settled as done on both outcomes (see above): the recording keeps its engine.
+        self.gate.settle(generation, Ok(()));
+        outcome
+    }
+
+    /// Send the stop (or cancel-to-history) frame of a session: the finalize waits for the
+    /// provider-key delivery of the current generation, bounded by `keys_wait`, so a cloud cleanup
+    /// never depends on scheduler order (a recording start registers its delivery claim before it
+    /// returns). When the wait runs out the stop is sent anyway and finalizes with local polish
+    /// unless the keys land first; that is logged. The audio was already sealed by
+    /// [`EngineSupervisor::seal_capture`], so this wait never lengthens the recording.
+    pub fn send_stop(&self, frame: &EngineFrame, keys_wait: Duration) -> Result<(), String> {
+        if !self.is_running() {
+            return Err("sidecar not running".to_string());
+        }
+        let generation = self.rk.status().generation;
+        if !self.gate.wait_settled(generation, keys_wait) {
+            telemetry::log_message(
+                "provider_keys_wait_timeout",
+                &format!(
+                    "generation={generation}; finalize proceeds without waiting (local polish)"
+                ),
+            );
+        }
+        self.accept(frame)
+    }
+
+    /// The synchronous, ordered capture seal: send a `CaptureSeal` frame to the running engine and
+    /// wait (bounded by `timeout`) for its reply, which is sent only after the worker applied the
+    /// seal on the same ordered path as the stop. Never spawns or readies an engine, never waits
+    /// on the provider-key gate, no config work. `Err` when no engine runs, the reply does not
+    /// come in time or the engine refuses; the stop then seals itself in the worker.
+    pub fn seal_capture(
+        &self,
+        frame: &EngineFrame,
+        timeout: Duration,
+    ) -> Result<EngineFrame, String> {
+        if frame.schema_name != EngineSchemaName::CaptureSeal
+            || !matches!(frame.payload, Some(EnginePayload::CaptureSeal { .. }))
+        {
+            return Err("seal_capture carries only capture_seal frames".to_string());
+        }
+        if !self.is_running() {
+            return Err("sidecar not running".to_string());
+        }
+        self.exchange(frame, timeout)
+            .map_err(ExchangeError::into_message)
+    }
+
+    /// Deliver the session-correlated cancel of a start whose RPC ended in an error or a timeout
+    /// after its frame may already have reached the engine (the engine can be recording even
+    /// though the caller never saw the reply). Narrowly typed: accepts only a `Cancel` stop frame
+    /// that names a session, only for an engine that is already running (never spawns one), and
+    /// does not wait on the provider-key gate (the cancel must not queue behind the delivery that
+    /// may be why the start timed out). The engine closes that session and fences its attempt.
+    pub fn send_session_cancel(&self, frame: &EngineFrame) -> Result<(), String> {
+        let is_cancel = frame.schema_name == EngineSchemaName::TranscribingStarted
+            && frame.session_id.is_some()
+            && matches!(
+                frame.payload,
+                Some(EnginePayload::TranscribingStarted {
+                    stop_kind: Some(rightkit_dictation_core::engine::StopKind::Cancel),
+                    ..
+                })
+            );
+        if !is_cancel {
+            return Err("send_session_cancel carries only a session cancel frame".to_string());
+        }
+        if !self.is_running() {
+            return Err("sidecar not running".to_string());
+        }
         self.accept(frame)
     }
 

@@ -1,6 +1,6 @@
-# rightkit-android 0.3.0 registry consumer (draft, PK09)
+# rightkit-android 0.3.2 registry consumer (draft, PK09)
 
-Standalone consumer, outside the workspace, pinning `rightkit-android =0.3.0` exactly. It exercises
+Standalone consumer, outside the workspace, pinning `rightkit-android =0.3.2` exactly. It exercises
 the pure surface an app's own cdylib reads before `RightKit.init`: the ABI table (`Abi`,
 `SUPPORTED_ABIS`, `MIN_SDK`, `COMPILE_SDK`), `AppPaths::new` with `dirs()` and `crash_dir()`, the
 refused relative path, and the exported helpers `is_initialised`, `app_dirs`, `supported_abis`,

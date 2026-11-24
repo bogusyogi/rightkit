@@ -4,7 +4,7 @@
 //! The engine only publishes committed partials while streaming is on, and each partial is the
 //! full committed text so far (append-only). This side types the new suffix.
 //!
-//! Every write (typed chunk, reconcile backspaces, cancel-erase, Enter) is built first
+//! Every write (typed chunk, final suffix, Enter) is built first
 //! (`gated_writes::prepare_*`, CPU only) and then goes through the central evidence gate
 //! (`evidence_gate::authorize_with_input`) immediately before it is sent: a FRESH read of the
 //! focused control compared with the control streaming bound at the first chunk, a FRESH
@@ -18,9 +18,32 @@
 //! refuse and stop streaming. Nothing
 //! runs between the authorization and the effect-only send: the batch already exists, and the
 //! permit's expiry is checked once more at redemption (`gated_writes`). A refused chunk stops
-//! streaming for the session (it never types again). A refused erase leaves the typed text in
+//! streaming for the session (it never types again). A refused suffix leaves the typed text in
 //! place, and `take_for_final` says so with an explicit [`ReconcileOutcome`]; the host must not
 //! deliver the full transcript on top of text that is still in the field.
+//!
+//! Streaming NEVER deletes text. There is no Backspace anywhere in this module: editors may delete
+//! a grapheme per key while this side counts Unicode scalars, and an erase cannot be bound to the
+//! span that was typed. What streaming does instead:
+//!
+//! * Every typed piece (a streamed chunk, or the suffix at the final) is an append-only suffix of
+//!   what was already typed, and the caret proof is taken INSIDE the evidence gate, as the last
+//!   control sample before the modifier sample, i.e. immediately before the write: same control, a
+//!   collapsed selection, the caret exactly `start_offset + typed length` characters into the field
+//!   (`start_offset` was read at the first chunk), and the text between those two positions equal to
+//!   what was typed (only CRLF reads as LF). A target that has not yet applied earlier keys shows a
+//!   proper prefix of the typed text: that is "pending", the write is skipped (streaming) or waited
+//!   for up to [`SPAN_SETTLE_MS`] (final), never forced.
+//! * A control that cannot give a caret and selection (no TextPattern selection on Windows, no AX
+//!   selected range or AXValue on macOS, unreadable, another element focused) is never typed into.
+//! * Final: if the final transcript starts with the streamed text, only the remaining suffix is
+//!   typed (each batch through the same gated proof) and nothing is left for the host to paste. If
+//!   the final differs from what was streamed (a rewrite) there is no way here to replace the span
+//!   in one range-bound operation (neither `rightkit-automation` nor this crate can select an
+//!   exact UIA or AX range and verify it), so nothing is erased or pasted: `StoppedWritesRemain`,
+//!   the streamed text stays and the host offers the final as "Ready to copy". A paste on top of
+//!   streamed text would duplicate it.
+//! * Cancel leaves the streamed text in place (an event says so).
 //!
 //! Host inputs: [`StreamingHost`], passed to every call. The host supplies the secure-field probe,
 //! the fresh focused-control probe, the probe budget and the event sink; the keystroke
@@ -30,6 +53,7 @@ mod reconcile;
 
 pub use reconcile::reconcile_point;
 
+use std::cell::Cell;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
@@ -79,26 +103,48 @@ pub struct StreamingHost {
     /// `evidence_app_identity_unknown`, `evidence_app_identity_error`,
     /// `evidence_app_identity_changed`). Not consulted on Windows.
     pub app_policy: &'static AppTargetPolicy,
+    /// Read the caret of `control` now: the text from the start of the field to the caret and
+    /// whether the selection is collapsed (`paste_delivery::focused_control_caret` is the
+    /// implementation: Windows UIA TextPattern; macOS AX `AXValue` + `AXSelectedTextRange` of the
+    /// focused element whose identity equals the binding's). `None` in the field: the platform has
+    /// no caret readback, so streaming does not type at all. `Some` returning `None`: unreadable
+    /// now (no selection range, other element focused, timeout), same refusal.
+    pub focused_caret: Option<fn(control: &ControlId) -> Option<CaretRead>>,
 }
+
+/// What a caret readback returns: the text from the start of the field to the caret, as the
+/// platform reports it, and whether the selection is collapsed (no range selected). The caret is
+/// at the end of `before_caret`.
+pub struct CaretRead {
+    pub before_caret: String,
+    pub collapsed: bool,
+}
+
+/// How long `take_for_final` waits for the streamed text to be fully applied (typed keys still
+/// queued in the target) before it gives up on proving the span. Only the "pending" state waits;
+/// any other mismatch fails at once.
+pub const SPAN_SETTLE_MS: u64 = 400;
+/// Pause between two readbacks while waiting.
+pub const SPAN_POLL_MS: u64 = 40;
 
 /// What `take_for_final` did to the field, as a closed set. The host decides what to deliver from
 /// this and from nothing else: only [`ReconcileOutcome::NothingWritten`] and
-/// [`ReconcileOutcome::Reconciled`] allow an automatic delivery.
+/// [`ReconcileOutcome::Reconciled`] allow an automatic delivery. Nothing here ever erases.
 ///
 /// Deliberately not `Debug`: `Reconciled` carries transcript text, so a `{:?}` would put content
 /// in a log. Log [`ReconcileOutcome::tag`].
 pub enum ReconcileOutcome {
-    /// The streamed text now equals a prefix of the final transcript. `remainder` is the rest
-    /// (possibly empty) and is what the host delivers through the normal gated delivery. When it
-    /// is empty, [`press_enter`] may submit.
+    /// The field now holds the whole final transcript: the streamed text was a prefix of it and
+    /// the missing suffix (if any) was typed here after a caret proof. `remainder` is therefore
+    /// always empty and the host must paste nothing; [`press_enter`] may submit.
     Reconciled { remainder: String },
     /// This session wrote nothing into any field (no stream, a stream of another session, or no
     /// chunk was ever typed, and no send failed). The host delivers the whole transcript through
     /// the normal gated delivery, once.
     NothingWritten,
     /// Streaming stopped and text it typed is still in the field. `remaining_chars` is exactly
-    /// the number of streamed characters left there (the erase batches that did go through are
-    /// subtracted). `cause` is a stable tag (a gate refusal code, `destination_moved`,
+    /// the number of streamed characters left there. `cause` is a stable tag (a gate refusal code,
+    /// a caret-proof cause such as `caret_moved`, `final_diverges_from_streamed`,
     /// `batch_not_preparable`, `permit_expired`). The host must not deliver the transcript
     /// automatically and must not press Return: it would duplicate or append to text already
     /// typed. The full transcript stays with the host for manual recovery.
@@ -140,6 +186,10 @@ struct Stream {
     typed: String,
     /// The control and application bound at the first keystroke.
     bound: Option<Binding>,
+    /// Characters of field text before the caret when the first chunk was about to be typed (LF
+    /// normalized, selection proven collapsed). `None` until bound, and where no caret readback
+    /// is required (test seam). The streamed span must end exactly `typed` characters after it.
+    start_offset: Option<usize>,
     /// A gate refused, a keystroke failed, or the partial was not append-only.
     stopped: bool,
     /// A typed batch was handed to the OS and reported failure: part of it may be in the field,
@@ -148,10 +198,19 @@ struct Stream {
     last_attempt: Option<Instant>,
 }
 
+/// The span the Enter that follows a reconcile is authorized against: the binding, the caret offset
+/// where the streamed span began, and the full final transcript that must now sit between that
+/// offset and the caret.
+struct EnterSpan {
+    bound: Binding,
+    start_offset: Option<usize>,
+    expected: String,
+}
+
 struct Slots {
     stream: Mutex<Option<Stream>>,
-    /// The binding the last reconcile typed into, for the Enter that follows it.
-    enter: Mutex<Option<Binding>>,
+    /// What the last reconcile left in the field, for the Enter that follows it.
+    enter: Mutex<Option<EnterSpan>>,
 }
 
 static SLOTS: Slots = Slots {
@@ -188,14 +247,30 @@ trait StreamIo {
     /// Build the batches. CPU only; called BEFORE any evidence is sampled. `None` means it cannot
     /// be built, so nothing is authorized or sent.
     fn prepare_type(&self, text: &str) -> Option<Self::Batch>;
-    fn prepare_backspaces(&self, count: usize) -> Option<Self::Batch>;
     fn prepare_enter(&self) -> Option<Self::Batch>;
     /// Redeem the permit and send a built batch; nothing else.
     fn type_batch(&self, permit: WritePermit, batch: &Self::Batch) -> SendOutcome;
-    fn backspace_batch(&self, permit: WritePermit, batch: &Self::Batch) -> SendOutcome;
     fn enter_batch(&self, permit: WritePermit, batch: &Self::Batch) -> bool;
     fn emit(&self, event: &str, detail: &str);
     fn config(&self) -> StreamingConfig;
+    /// The caret of the bound control now. The default (`NotRequired`) exists only for the unit
+    /// test fake, which models no field; `OsIo` always answers `Read` or `Unavailable`.
+    fn caret(&self, _control: &ControlId) -> CaretState {
+        CaretState::NotRequired
+    }
+    /// Wait between two readbacks.
+    fn pause(&self, millis: u64) {
+        std::thread::sleep(Duration::from_millis(millis));
+    }
+}
+
+/// The answer of a caret readback.
+enum CaretState {
+    /// Test seam only (see `StreamIo::caret`): no proof is demanded.
+    NotRequired,
+    /// The platform or the control cannot give a caret and selection now: fail closed.
+    Unavailable,
+    Read(CaretRead),
 }
 
 struct OsIo<'a> {
@@ -287,17 +362,11 @@ impl StreamIo for OsIo<'_> {
     fn prepare_type(&self, text: &str) -> Option<Self::Batch> {
         gated_writes::prepare_type_text(text)
     }
-    fn prepare_backspaces(&self, count: usize) -> Option<Self::Batch> {
-        gated_writes::prepare_backspaces(count)
-    }
     fn prepare_enter(&self) -> Option<Self::Batch> {
         gated_writes::prepare_enter()
     }
     fn type_batch(&self, permit: WritePermit, batch: &Self::Batch) -> SendOutcome {
         gated_writes::type_prepared(permit, batch)
-    }
-    fn backspace_batch(&self, permit: WritePermit, batch: &Self::Batch) -> SendOutcome {
-        gated_writes::backspaces_prepared(permit, batch)
     }
     fn enter_batch(&self, permit: WritePermit, batch: &Self::Batch) -> bool {
         gated_writes::enter_prepared(permit, batch)
@@ -307,6 +376,12 @@ impl StreamIo for OsIo<'_> {
     }
     fn config(&self) -> StreamingConfig {
         self.host.config
+    }
+    fn caret(&self, control: &ControlId) -> CaretState {
+        match self.host.focused_caret.and_then(|read| read(control)) {
+            Some(read) => CaretState::Read(read),
+            None => CaretState::Unavailable,
+        }
     }
 }
 
@@ -337,67 +412,167 @@ fn fresh_state<I: StreamIo>(io: &I, bound: &Binding) -> ControlMatch {
     }
 }
 
-/// The gate for one streaming write against the binding: secure read, control and application
-/// read, then the modifier sample last. The caller has already built the batch; the next thing it
-/// does with the permit is the effect-only send.
-fn gate<I: StreamIo>(io: &I, kind: WriteKind, bound: &Binding) -> Result<WritePermit, Refusal> {
-    authorize_with_input(
-        kind,
-        Duration::from_millis(io.config().probe_budget_ms),
-        || io.secure(&bound.control),
-        || fresh_state(io, bound),
-        || io.input_quiet(),
-    )
+/// Line breaks as the field reports them: CRLF reads as LF. Nothing else is normalized (a line
+/// break is not a space; case, runs of spaces and every other character compare exactly).
+fn lf(text: &str) -> String {
+    text.replace("\r\n", "\n")
 }
 
-/// Why an erase stopped before everything was removed.
-#[derive(Clone, Copy)]
-enum EraseStop {
-    /// Nothing of the failed batch was sent (a gate refusal, an unbuildable batch, an expired
-    /// permit): the count of characters erased so far is exact.
-    Certain(&'static str),
-    /// A send reported failure after the batch was handed to the OS: it may have removed some of
-    /// its characters, so the count is unknown.
-    Uncertain(&'static str),
+/// Why a caret proof failed, as a stable tag.
+type ProofCause = &'static str;
+
+/// Not a failure of the control: the target has applied only a proper prefix of the typed text so
+/// far (keys still queued). Streaming skips the write and tries on the next partial; the final
+/// waits up to [`SPAN_SETTLE_MS`]. It never lets a write through.
+const PENDING: ProofCause = "pending";
+
+/// The text before the caret, LF-normalized, with the selection proven collapsed. `Ok(None)` only
+/// for the test seam (`CaretState::NotRequired`).
+fn read_collapsed_caret<I: StreamIo>(
+    io: &I,
+    control: &ControlId,
+) -> Result<Option<String>, ProofCause> {
+    match io.caret(control) {
+        CaretState::NotRequired => Ok(None),
+        CaretState::Unavailable => Err("caret_unavailable"),
+        CaretState::Read(read) if !read.collapsed => Err("selection_not_collapsed"),
+        CaretState::Read(read) => Ok(Some(lf(&read.before_caret))),
+    }
 }
 
-impl EraseStop {
-    fn code(self) -> &'static str {
-        match self {
-            EraseStop::Certain(code) | EraseStop::Uncertain(code) => code,
+/// Characters (not bytes) of `text`.
+fn chars_of(text: &str) -> usize {
+    text.chars().count()
+}
+
+/// The part of `text` after its first `skip` characters.
+fn after_chars(text: &str, skip: usize) -> Option<&str> {
+    match text.char_indices().nth(skip) {
+        Some((at, _)) => Some(&text[at..]),
+        None => (chars_of(text) == skip).then_some(""),
+    }
+}
+
+/// One proof attempt that the streamed span is exactly where it was typed and that appending at
+/// the caret continues it: selection collapsed, caret exactly `start` + typed length characters
+/// into the field, and the text between `start` and the caret equal to `typed`. The control
+/// identity is the caller's (`fresh_state`), taken immediately before this read.
+fn prove_span_once<I: StreamIo>(
+    io: &I,
+    control: &ControlId,
+    start: Option<usize>,
+    typed: &str,
+) -> Result<(), ProofCause> {
+    let Some(before) = read_collapsed_caret(io, control)? else {
+        return Ok(());
+    };
+    let Some(start) = start else {
+        return Err("caret_start_unknown");
+    };
+    let typed = lf(typed);
+    let want = start + chars_of(&typed);
+    let have = chars_of(&before);
+    if have == want {
+        return match after_chars(&before, start) {
+            Some(span) if span == typed => Ok(()),
+            _ => Err("streamed_span_mismatch"),
+        };
+    }
+    if have >= start && have < want {
+        if let Some(span) = after_chars(&before, start) {
+            if typed.starts_with(span) {
+                return Err(PENDING);
+            }
+        }
+    }
+    Err("caret_moved")
+}
+
+/// [`prove_span_once`], retried for at most [`SPAN_SETTLE_MS`] while (and only while) the result is
+/// [`PENDING`]. Used where nothing is written (the final with nothing to add).
+fn prove_span<I: StreamIo>(
+    io: &I,
+    control: &ControlId,
+    start: Option<usize>,
+    typed: &str,
+) -> Result<(), ProofCause> {
+    let started = Instant::now();
+    loop {
+        match prove_span_once(io, control, start, typed) {
+            Err(PENDING) if started.elapsed() < Duration::from_millis(SPAN_SETTLE_MS) => {
+                io.pause(SPAN_POLL_MS);
+            }
+            other => return other,
         }
     }
 }
 
-/// Backspaces in batches of at most `gated_writes::MAX_UNITS_PER_BATCH`. Each batch is built
-/// first, then passes its own gate (one authorization per prepared batch), then is sent. Returns
-/// the characters erased by batches that were sent and why it stopped early, if it did. Erasing
-/// is from the caret backwards, so a stop part-way leaves a shorter streamed text in place and
-/// nothing else, unless the stop was `Uncertain`.
-fn erase_in_batches<I: StreamIo>(
+/// The caret proof a gate pass carries.
+enum Proof<'a> {
+    /// First chunk: the caret must be collapsed; its offset is recorded here (the span starts there).
+    Bind(&'a Cell<Option<usize>>),
+    /// Every later write: the streamed span `typed`, started at `start`, ends exactly at the caret.
+    Span {
+        start: Option<usize>,
+        typed: &'a str,
+    },
+}
+
+/// Why a gate pass refused.
+enum GateStop {
+    Evidence(Refusal),
+    Proof(ProofCause),
+}
+
+impl GateStop {
+    fn code(&self) -> &'static str {
+        match self {
+            GateStop::Evidence(refusal) => refusal.code(),
+            GateStop::Proof(cause) => cause,
+        }
+    }
+}
+
+/// The gate for one streaming write against the binding: secure read, then the control and
+/// application read followed IMMEDIATELY by the caret proof (the last control sample), then the
+/// modifier sample last. The caller has already built the batch; the next thing it does with the
+/// permit is the effect-only send. Nothing but the modifier sample sits between the caret proof and
+/// the write, so a same-control caret move cannot slip past control-only gating.
+fn gate_proven<I: StreamIo>(
     io: &I,
     kind: WriteKind,
     bound: &Binding,
-    count: usize,
-) -> (usize, Result<(), EraseStop>) {
-    let mut erased = 0usize;
-    while erased < count {
-        let batch_len = (count - erased).min(gated_writes::MAX_UNITS_PER_BATCH);
-        let Some(batch) = io.prepare_backspaces(batch_len) else {
-            return (erased, Err(EraseStop::Certain("batch_not_preparable")));
-        };
-        match gate(io, kind, bound) {
-            Ok(permit) => match io.backspace_batch(permit, &batch) {
-                SendOutcome::Sent => erased += batch_len,
-                SendOutcome::NotSent => return (erased, Err(EraseStop::Certain("permit_expired"))),
-                SendOutcome::Failed => {
-                    return (erased, Err(EraseStop::Uncertain("keystroke_failed")))
+    proof: Proof<'_>,
+) -> Result<WritePermit, GateStop> {
+    let cause: Cell<Option<ProofCause>> = Cell::new(None);
+    let result = authorize_with_input(
+        kind,
+        Duration::from_millis(io.config().probe_budget_ms),
+        || io.secure(&bound.control),
+        || {
+            let matched = fresh_state(io, bound);
+            if matched != ControlMatch::Same {
+                return matched;
+            }
+            let proven = match &proof {
+                Proof::Bind(offset) => read_collapsed_caret(io, &bound.control)
+                    .map(|before| offset.set(before.map(|before| chars_of(&before)))),
+                Proof::Span { start, typed } => prove_span_once(io, &bound.control, *start, typed),
+            };
+            match proven {
+                Ok(()) => ControlMatch::Same,
+                Err(why) => {
+                    cause.set(Some(why));
+                    ControlMatch::Changed
                 }
-            },
-            Err(refusal) => return (erased, Err(EraseStop::Certain(refusal.code()))),
-        }
-    }
-    (erased, Ok(()))
+            }
+        },
+        || io.input_quiet(),
+    );
+    result.map_err(|refusal| match cause.get() {
+        Some(why) => GateStop::Proof(why),
+        None => GateStop::Evidence(refusal),
+    })
 }
 
 /// The first chunk binds the foreground application (macOS) and the control focused now
@@ -405,26 +580,36 @@ fn erase_in_batches<I: StreamIo>(
 /// the secure read, a second control read and a second application observation all happen after
 /// the binding reads. The application is classified FIRST, so a terminal or an unclassified
 /// application refuses with its own tag whatever the control read would say.
-fn bind_and_gate<I: StreamIo>(io: &I, kind: WriteKind) -> Result<(Binding, WritePermit), Refusal> {
-    let app = io.capture_app().map_err(Refusal::App)?;
+fn bind_and_gate<I: StreamIo>(
+    io: &I,
+    kind: WriteKind,
+) -> Result<(Binding, Option<usize>, WritePermit), GateStop> {
+    let app = io
+        .capture_app()
+        .map_err(|r| GateStop::Evidence(Refusal::App(r)))?;
     let Some(control) = io.fresh_control(IdentityLevel::Element) else {
-        return Err(Refusal::ControlUnknown);
+        return Err(GateStop::Evidence(Refusal::ControlUnknown));
     };
     // Streaming never binds on window and process alone: it needs a control (focus handle, AX
     // element or UIA element) it can tell apart from its neighbours in the same window.
     if control.level < IdentityLevel::Control {
-        return Err(Refusal::ControlUnknown);
+        return Err(GateStop::Evidence(Refusal::ControlUnknown));
     }
     // The observed application and the focused control must be the same process.
     if app
         .as_ref()
         .is_some_and(|app| app.pid() != control.process_id)
     {
-        return Err(Refusal::App(AppRefusal::IdentityChanged));
+        return Err(GateStop::Evidence(Refusal::App(
+            AppRefusal::IdentityChanged,
+        )));
     }
+    // The first caret read is part of the gate pass (`Proof::Bind`): a control that cannot give a
+    // collapsed caret is never typed into, and the start offset is read immediately before the write.
     let bound = Binding { control, app };
-    let permit = gate(io, kind, &bound)?;
-    Ok((bound, permit))
+    let offset = Cell::new(None);
+    let permit = gate_proven(io, kind, &bound, Proof::Bind(&offset))?;
+    Ok((bound, offset.get(), permit))
 }
 
 /// A committed-text partial for the recording `session_id`. Types whatever
@@ -445,6 +630,7 @@ fn on_committed_with<I: StreamIo>(io: &I, slots: &Slots, session_id: &str, commi
             session_id: session_id.to_string(),
             typed: String::new(),
             bound: None,
+            start_offset: None,
             stopped: false,
             uncertain: false,
             last_attempt: None,
@@ -506,20 +692,33 @@ fn on_committed_with<I: StreamIo>(io: &I, slots: &Slots, session_id: &str, commi
     };
 
     let permit = match stream.bound.clone() {
-        Some(bound) => gate(io, WriteKind::StreamChunk, &bound),
-        None => bind_and_gate(io, WriteKind::StreamChunk).map(|(bound, permit)| {
+        Some(bound) => gate_proven(
+            io,
+            WriteKind::StreamChunk,
+            &bound,
+            Proof::Span {
+                start: stream.start_offset,
+                typed: &stream.typed,
+            },
+        ),
+        None => bind_and_gate(io, WriteKind::StreamChunk).map(|(bound, start_offset, permit)| {
             stream.bound = Some(bound);
+            stream.start_offset = start_offset;
             permit
         }),
     };
     let permit = match permit {
         Ok(permit) => permit,
-        Err(refusal) => {
+        // The target has not applied the earlier keys yet: write nothing, the next partial carries
+        // this delta again.
+        Err(GateStop::Proof(PENDING)) => return,
+        Err(stop) => {
             stream.stopped = true;
-            io.emit(
-                "streaming_insertion_stopped",
-                &format!("reason=evidence_{}", refusal.code()),
-            );
+            let reason = match stop {
+                GateStop::Evidence(refusal) => format!("evidence_{}", refusal.code()),
+                GateStop::Proof(cause) => format!("caret_proof_{cause}"),
+            };
+            io.emit("streaming_insertion_stopped", &format!("reason={reason}"));
             return;
         }
     };
@@ -552,16 +751,17 @@ fn on_committed_with<I: StreamIo>(io: &I, slots: &Slots, session_id: &str, commi
     }
 }
 
-/// The final transcript for `session_id` is about to be delivered. When text was streamed into
-/// the same control, remove the streamed text that diverges from `final_text` and say what is
-/// left. The result is an explicit [`ReconcileOutcome`]; there is no "none" that a caller can
-/// read as "deliver everything":
+/// The final transcript for `session_id` is about to be delivered. Nothing is ever erased. The
+/// result is an explicit [`ReconcileOutcome`]; there is no "none" that a caller can read as
+/// "deliver everything":
 ///
-/// * `Reconciled`: deliver the remainder normally (its own gate decides between paste and copy).
+/// * `Reconciled`: the final starts with the streamed text; the missing suffix was typed here
+///   after a renewed caret proof (same control, caret exactly at the end of the streamed span).
+///   `remainder` is empty; the host pastes nothing.
 /// * `NothingWritten`: this session wrote nothing; deliver the whole transcript normally.
 /// * `StoppedWritesRemain` / `StoppedCountUncertain`: streamed text is, or may be, still in the
-///   field. Deliver nothing automatically and press no Return; keep the full transcript for
-///   manual recovery.
+///   field (the final differs from it, the proof failed, a gate refused). Deliver nothing
+///   automatically and press no Return; keep the full transcript for manual copy.
 pub fn take_for_final(
     host: &StreamingHost,
     session_id: &str,
@@ -602,7 +802,7 @@ fn take_for_final_with<I: StreamIo>(
     if stream.typed.is_empty() {
         return ReconcileOutcome::NothingWritten;
     }
-    let typed_chars = stream.typed.chars().count();
+    let typed_chars = chars_of(&stream.typed);
     let Some(bound) = stream.bound.clone() else {
         // Text was typed but no control is bound: where it went is unknown.
         io.emit("streaming_insertion_final", "outcome=count_uncertain");
@@ -610,73 +810,145 @@ fn take_for_final_with<I: StreamIo>(
             cause: "no_binding",
         };
     };
-    let common_bytes = reconcile_point(&stream.typed, final_text);
-    let erase = stream.typed[common_bytes..].chars().count();
-    if erase > 0 {
-        // The gate re-reads the control, the secure state and the modifiers itself, once per batch.
-        let (erased, stop) = erase_in_batches(io, WriteKind::StreamBackspace, &bound, erase);
-        match stop {
-            Ok(()) => {}
-            Err(EraseStop::Uncertain(code)) => {
-                io.emit(
-                    "streaming_insertion_final",
-                    &format!("outcome=erase_failed_{code} count_uncertain=true"),
-                );
-                return ReconcileOutcome::StoppedCountUncertain { cause: code };
-            }
-            Err(EraseStop::Certain(code)) => {
-                let remaining_chars = typed_chars.saturating_sub(erased);
-                io.emit(
-                    "streaming_insertion_final",
-                    &format!(
-                        "outcome=erase_refused_{code} partial_erased_chars={erased} remaining_chars={remaining_chars}"
-                    ),
-                );
-                return ReconcileOutcome::StoppedWritesRemain {
-                    remaining_chars,
-                    cause: code,
-                };
-            }
-        }
-    } else {
-        let moved = fresh_state(io, &bound);
-        if moved != ControlMatch::Same {
-            // Nothing to erase, but the remainder must not be delivered as a continuation of text
-            // typed into a control (or an application) that is no longer focused or no longer
-            // permitted, and the streamed text stays where it is.
-            let cause = match moved {
-                ControlMatch::App(refusal) => refusal.code(),
-                _ => "destination_moved",
+    // A rewrite: the final does not start with what was streamed. No Backspace exists here and no
+    // range-bound replacement is available, so the streamed text stays, nothing is pasted on top of
+    // it, and the host offers the final as "Ready to copy".
+    let Some(suffix) = final_text.strip_prefix(stream.typed.as_str()) else {
+        io.emit(
+            "streaming_insertion_final",
+            &format!("outcome=final_diverges_copy_fallback remaining_chars={typed_chars}"),
+        );
+        return ReconcileOutcome::StoppedWritesRemain {
+            remaining_chars: typed_chars,
+            cause: "final_diverges_from_streamed",
+        };
+    };
+    let mut typed = stream.typed.clone();
+    if !suffix.is_empty() {
+        // The stop hotkey's modifiers must lift first; the gate refuses a held one regardless.
+        let _ = io.settle_modifiers();
+        let mut rest = suffix;
+        while !rest.is_empty() {
+            let take = gated_writes::typed_prefix_len(rest);
+            let piece = &rest[..take];
+            let batch = if take == 0 {
+                None
+            } else {
+                io.prepare_type(piece)
             };
-            io.emit(
-                "streaming_insertion_final",
-                &format!("outcome=destination_moved cause={cause}"),
-            );
-            return ReconcileOutcome::StoppedWritesRemain {
-                remaining_chars: typed_chars,
-                cause,
+            let Some(batch) = batch else {
+                return stopped_with_text(io, &typed, "batch_not_preparable");
             };
+            // Every batch is preceded by its own proof inside the gate: same control, collapsed
+            // selection, caret exactly at the end of what has been typed so far, span equal to it.
+            let waiting_since = Instant::now();
+            let permit = loop {
+                match gate_proven(
+                    io,
+                    WriteKind::StreamChunk,
+                    &bound,
+                    Proof::Span {
+                        start: stream.start_offset,
+                        typed: &typed,
+                    },
+                ) {
+                    Ok(permit) => break permit,
+                    Err(GateStop::Proof(PENDING))
+                        if waiting_since.elapsed() < Duration::from_millis(SPAN_SETTLE_MS) =>
+                    {
+                        io.pause(SPAN_POLL_MS);
+                    }
+                    Err(stop) => return stopped_with_text(io, &typed, stop.code()),
+                }
+            };
+            match io.type_batch(permit, &batch) {
+                SendOutcome::Sent => {
+                    typed.push_str(piece);
+                    rest = &rest[take..];
+                }
+                SendOutcome::NotSent => return stopped_with_text(io, &typed, "permit_expired"),
+                SendOutcome::Failed => {
+                    io.emit(
+                        "streaming_insertion_final",
+                        "outcome=suffix_failed_keystroke_failed count_uncertain=true",
+                    );
+                    return ReconcileOutcome::StoppedCountUncertain {
+                        cause: "keystroke_failed",
+                    };
+                }
+            }
         }
     }
+    // For EVERY stop (Return requested or not), after the last write or when there was none: the
+    // bounded readback (`prove_span`, retrying only while `pending`, at most `SPAN_SETTLE_MS`) must
+    // show, in the same control, a collapsed caret at the end of the span and the text from the
+    // start offset to the caret equal to the full final transcript. Sent is not applied: a target
+    // can ignore keys. Missing, changed or unreadable: `Stopped`, the host offers the full final.
+    if let Err(cause) = prove_span(io, &bound.control, stream.start_offset, &typed) {
+        io.emit(
+            "streaming_insertion_final",
+            &format!(
+                "outcome=final_span_unproven cause={cause} suffix_chars={} remaining_chars={}",
+                chars_of(suffix),
+                chars_of(&typed)
+            ),
+        );
+        return ReconcileOutcome::StoppedWritesRemain {
+            remaining_chars: chars_of(&typed),
+            cause: "final_span_unproven",
+        };
+    }
+    let moved = fresh_state(io, &bound);
+    if moved != ControlMatch::Same {
+        let cause = match moved {
+            ControlMatch::App(refusal) => refusal.code(),
+            _ => "destination_moved",
+        };
+        io.emit(
+            "streaming_insertion_final",
+            &format!("outcome=destination_moved cause={cause}"),
+        );
+        return ReconcileOutcome::StoppedWritesRemain {
+            remaining_chars: chars_of(&typed),
+            cause,
+        };
+    }
     if let Ok(mut enter) = slots.enter.lock() {
-        *enter = Some(bound);
+        *enter = Some(EnterSpan {
+            bound,
+            start_offset: stream.start_offset,
+            expected: typed,
+        });
     }
     io.emit(
         "streaming_insertion_final",
         &format!(
-            "outcome=reconciled streamed_chars={typed_chars} erased_chars={erase} remaining_chars={}",
-            final_text[common_bytes..].chars().count()
+            "outcome=reconciled streamed_chars={typed_chars} suffix_chars={} erased_chars=0 remaining_chars=0",
+            chars_of(suffix)
         ),
     );
     ReconcileOutcome::Reconciled {
-        remainder: final_text[common_bytes..].to_string(),
+        remainder: String::new(),
     }
 }
 
-/// The recording was cancelled: remove what was streamed, if the evidence gate confirms the
-/// control is still the one it was typed into and is not a secure field. A refused or failed
-/// erase leaves the typed text in place; the event carries how many characters were erased and
-/// whether the count is uncertain, and nothing else is typed.
+/// The suffix could not be (fully) typed: whatever is in `typed` is in the field and stays.
+fn stopped_with_text<I: StreamIo>(io: &I, typed: &str, cause: &'static str) -> ReconcileOutcome {
+    let remaining_chars = chars_of(typed);
+    io.emit(
+        "streaming_insertion_final",
+        &format!("outcome=suffix_refused_{cause} remaining_chars={remaining_chars}"),
+    );
+    ReconcileOutcome::StoppedWritesRemain {
+        remaining_chars,
+        cause,
+    }
+}
+
+/// The recording was cancelled. Streamed text is NOT removed: no Backspace exists in this module
+/// (editors may delete a grapheme per key while the count here is Unicode scalars), and no
+/// range-bound deletion of an exact verified span is available. The event records that the text
+/// was left in place.
 pub fn erase_on_cancel(host: &StreamingHost, session_id: &str) {
     erase_on_cancel_with(&OsIo { host }, &SLOTS, session_id);
 }
@@ -691,47 +963,37 @@ fn erase_on_cancel_with<I: StreamIo>(io: &I, slots: &Slots, session_id: &str) {
     if stream.session_id != session_id || (stream.typed.is_empty() && !stream.uncertain) {
         return;
     }
-    let count = stream.typed.chars().count();
-    let (erased, why, uncertain) = match stream.bound.as_ref() {
-        None => (false, "no_binding".to_string(), stream.uncertain),
-        Some(_) if stream.uncertain => (false, "typed_batch_failed".to_string(), true),
-        Some(bound) => match erase_in_batches(io, WriteKind::CancelErase, bound, count) {
-            (_, Ok(())) => (true, "ok".to_string(), false),
-            (0, Err(stop)) => (
-                false,
-                stop.code().to_string(),
-                matches!(stop, EraseStop::Uncertain(_)),
-            ),
-            (erased, Err(stop)) => (
-                false,
-                format!("{}_after_{erased}", stop.code()),
-                matches!(stop, EraseStop::Uncertain(_)),
-            ),
-        },
-    };
+    let count = chars_of(&stream.typed);
     io.emit(
         "streaming_insertion_cancel",
-        &format!("erased={erased} streamed_chars={count} detail={why} count_uncertain={uncertain}"),
+        &format!(
+            "erased=false streamed_chars={count} detail=left_in_place_no_backspace count_uncertain={}",
+            stream.uncertain
+        ),
     );
 }
 
-/// Submit when the streamed text already covers the whole final transcript. Requires the control
-/// the last `take_for_final` reconciled into (a [`ReconcileOutcome::Reconciled`]), and a fresh
-/// pass of the evidence gate with a real modifier sample; `false` when there is no such binding,
-/// the batch cannot be built, or the gate refuses. A stopped or uncertain outcome never creates
-/// that binding, so Return cannot follow one.
+/// Submit when the field holds the whole final transcript. Requires what the last
+/// [`ReconcileOutcome::Reconciled`] left: the binding, the start offset and the full final text.
+/// Return is sent only after a bounded readback (at most [`SPAN_SETTLE_MS`], retrying while the
+/// target is still applying keys) proves, through `gate_proven` immediately before the key, that in
+/// the same control the text from the start offset to a collapsed caret equals the full final
+/// transcript and the caret is at its end. `false` (NO Return was sent) when there is no such
+/// record, the batch cannot be built, the proof or the gate refuses or times out. The caller must
+/// then treat the final as not delivered and offer it as "Ready to copy": the field may hold an
+/// incomplete or changed text and a Return would submit it.
 pub fn press_enter(host: &StreamingHost) -> bool {
     press_enter_with(&OsIo { host }, &SLOTS)
 }
 
 fn press_enter_with<I: StreamIo>(io: &I, slots: &Slots) -> bool {
-    let Some(bound) = slots.enter.lock().ok().and_then(|mut enter| enter.take()) else {
+    let Some(span) = slots.enter.lock().ok().and_then(|mut enter| enter.take()) else {
         io.emit("streaming_insertion_enter", "outcome=refused_no_binding");
         return false;
     };
     // Everything that builds or waits comes first: the Return batch is built, then the stop
-    // hotkey's modifiers are waited out, and only then does the gate sample (the modifier keys
-    // last) and the send follow.
+    // hotkey's modifiers are waited out, and only then does the gate sample (the caret proof last
+    // among the control samples, the modifier keys after it) and the send follow.
     let Some(batch) = io.prepare_enter() else {
         io.emit(
             "streaming_insertion_enter",
@@ -746,23 +1008,33 @@ fn press_enter_with<I: StreamIo>(io: &I, slots: &Slots) -> bool {
         );
         return false;
     }
-    let result = authorize_with_input(
-        WriteKind::Enter,
-        Duration::from_millis(io.config().probe_budget_ms),
-        || io.secure(&bound.control),
-        || fresh_state(io, &bound),
-        || io.input_quiet(),
-    );
-    match result {
-        Ok(permit) => io.enter_batch(permit, &batch),
-        Err(refusal) => {
-            io.emit(
-                "streaming_insertion_enter",
-                &format!("outcome=refused_{}", refusal.code()),
-            );
-            false
+    let waiting_since = Instant::now();
+    let permit = loop {
+        match gate_proven(
+            io,
+            WriteKind::Enter,
+            &span.bound,
+            Proof::Span {
+                start: span.start_offset,
+                typed: &span.expected,
+            },
+        ) {
+            Ok(permit) => break permit,
+            Err(GateStop::Proof(PENDING))
+                if waiting_since.elapsed() < Duration::from_millis(SPAN_SETTLE_MS) =>
+            {
+                io.pause(SPAN_POLL_MS);
+            }
+            Err(stop) => {
+                io.emit(
+                    "streaming_insertion_enter",
+                    &format!("outcome=refused_{}", stop.code()),
+                );
+                return false;
+            }
         }
-    }
+    };
+    io.enter_batch(permit, &batch)
 }
 
 #[cfg(test)]
@@ -777,7 +1049,6 @@ mod tests {
         controls: RefCell<VecDeque<Option<ControlId>>>,
         secure: RefCell<VecDeque<Option<bool>>>,
         typed: RefCell<Vec<String>>,
-        erased: RefCell<Vec<usize>>,
         enters: RefCell<usize>,
         events: RefCell<Vec<String>>,
         probe_delay: Duration,
@@ -791,7 +1062,6 @@ mod tests {
     /// A built, unsent batch of the fake.
     enum FakeBatch {
         Type(String),
-        Erase(usize),
         Enter,
     }
 
@@ -853,9 +1123,6 @@ mod tests {
         fn prepare_type(&self, text: &str) -> Option<FakeBatch> {
             Some(FakeBatch::Type(text.to_string()))
         }
-        fn prepare_backspaces(&self, count: usize) -> Option<FakeBatch> {
-            Some(FakeBatch::Erase(count))
-        }
         fn prepare_enter(&self) -> Option<FakeBatch> {
             Some(FakeBatch::Enter)
         }
@@ -870,16 +1137,6 @@ mod tests {
             } else {
                 SendOutcome::Failed
             }
-        }
-        fn backspace_batch(&self, permit: WritePermit, batch: &FakeBatch) -> SendOutcome {
-            assert!(permit
-                .redeem(&[WriteKind::StreamBackspace, WriteKind::CancelErase])
-                .is_ok());
-            let FakeBatch::Erase(count) = batch else {
-                return SendOutcome::Failed;
-            };
-            self.erased.borrow_mut().push(*count);
-            SendOutcome::Sent
         }
         fn enter_batch(&self, permit: WritePermit, batch: &FakeBatch) -> bool {
             assert!(permit.redeem(&[WriteKind::Enter]).is_ok());
@@ -1035,19 +1292,22 @@ mod tests {
     }
 
     #[test]
-    fn reconcile_erases_only_after_a_fresh_gate_pass() {
+    fn a_final_that_extends_the_typed_text_types_only_the_suffix() {
         let io = fake();
         let slots = slots();
         script(&io, &[Some(control(1))], &[Some(false)]);
         on_committed_with(&io, &slots, "s", "hello wor");
         let remainder = remainder(take_for_final_with(&io, &slots, "s", "hello world"));
-        // The cut moves back to the word boundary: " wor" is erased, " world" delivered.
-        assert_eq!(remainder.as_deref(), Some(" world"));
-        assert_eq!(*io.erased.borrow(), vec![4]);
+        // Prefix match: only "ld" is typed here, nothing is left for the host to paste.
+        assert_eq!(remainder.as_deref(), Some(""));
+        assert_eq!(
+            *io.typed.borrow(),
+            vec!["hello wor".to_string(), "ld".to_string()]
+        );
     }
 
     #[test]
-    fn reconcile_with_a_changed_control_erases_nothing_and_reports_the_text_left() {
+    fn reconcile_with_a_changed_control_types_nothing_and_reports_the_text_left() {
         let io = fake();
         let slots = slots();
         script(&io, &[Some(control(1))], &[Some(false)]);
@@ -1060,11 +1320,11 @@ mod tests {
                 ..
             }
         ));
-        assert!(io.erased.borrow().is_empty());
+        assert_eq!(io.typed.borrow().len(), 1);
     }
 
     #[test]
-    fn reconcile_into_a_secure_field_erases_nothing() {
+    fn reconcile_into_a_secure_field_types_nothing() {
         let io = fake();
         let slots = slots();
         script(&io, &[Some(control(1))], &[Some(false)]);
@@ -1077,11 +1337,11 @@ mod tests {
                 ..
             }
         ));
-        assert!(io.erased.borrow().is_empty());
+        assert_eq!(io.typed.borrow().len(), 1);
     }
 
     #[test]
-    fn reconcile_with_nothing_to_erase_still_requires_the_same_control() {
+    fn reconcile_with_a_suffix_still_requires_the_same_control() {
         let io = fake();
         let slots = slots();
         script(&io, &[Some(control(1))], &[Some(false)]);
@@ -1097,26 +1357,18 @@ mod tests {
     }
 
     #[test]
-    fn cancel_erase_goes_through_the_gate() {
+    fn cancel_leaves_the_streamed_text_in_place() {
         let io = fake();
         let slots = slots();
         script(&io, &[Some(control(1))], &[Some(false)]);
         on_committed_with(&io, &slots, "s", "hello");
         erase_on_cancel_with(&io, &slots, "s");
-        assert_eq!(*io.erased.borrow(), vec![5]);
-
-        let io = fake();
-        let slots = self::slots();
-        script(&io, &[Some(control(1))], &[Some(false)]);
-        on_committed_with(&io, &slots, "s", "hello");
-        script(&io, &[Some(control(1))], &[None]);
-        erase_on_cancel_with(&io, &slots, "s");
-        assert!(io.erased.borrow().is_empty());
+        assert_eq!(*io.typed.borrow(), vec!["hello".to_string()]);
         assert!(io
             .events
             .borrow()
             .iter()
-            .any(|e| e.contains("erased=false") && e.contains("secure_unknown")));
+            .any(|e| e.contains("erased=false") && e.contains("left_in_place_no_backspace")));
     }
 
     #[test]

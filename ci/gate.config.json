@@ -382,9 +382,30 @@
         ]
       ],
       "paths": [
-        "ci/consumers/wv2-0_39"
+        "ci/consumers/wv2-0_39",
+        "ci/consumers/wv2-0_38"
       ],
       "consumerRows": [
+        {
+          "manifestPath": "ci/consumers/wv2-0_38/Cargo.toml",
+          "args": [
+            "--no-default-features",
+            "--features",
+            "wv2-0_38",
+            "--benches"
+          ],
+          "locked": true
+        },
+        {
+          "manifestPath": "ci/consumers/wv2-0_38/Cargo.toml",
+          "args": [
+            "--no-default-features",
+            "--features",
+            "wv2-0_38,host-services,logs,crash,content-devtools",
+            "--benches"
+          ],
+          "locked": true
+        },
         {
           "manifestPath": "ci/consumers/wv2-0_39/Cargo.toml",
           "args": [],
@@ -402,7 +423,7 @@
       "quietTests": true,
       "allowIgnored": "example-app/tests/e2e.rs (2 tests: positive_control_native_menu_is_detectable_where_the_shell_allows_it, native_menu_bar_matches_the_spec_through_accessibility) are #[ignore] on purpose: background-only QA forbids a native popup or global menu activation over the user's work, so they run by hand with --ignored (2 ignored per default run of the example-app package; the crate's own tests have none); every other tauri-shell test runs and asserts on every default run",
       "unlintedFeatures": {
-        "wv2-0_38": "it selects the WebView2 binding generation of Tauri 2.11 (wry 0.55: webview2-com 0.38, windows 0.61). The one workspace lock resolves Tauri 2.12 (wry 0.57: webview2-com 0.39, windows 0.62) since 81a836d4d, and the controller this code calls is Tauri's own type, so on Windows the 0.38 arguments no longer match it (E0631/E0308/E0277/E0599 in rightkit-tauri-shell with --no-default-features --features wv2-0_38, Dell batch at 8e6f0c43); it cannot be built in this workspace on the host where it means anything. wv2-0_39 is built on every host (rightkit#1562)"
+        "wv2-0_38": "it selects the WebView2 binding generation of Tauri 2.11 (wry 0.55: webview2-com 0.38, windows 0.61). The one workspace lock resolves Tauri 2.12 (wry 0.57: webview2-com 0.39, windows 0.62) since 81a836d4d, and the controller this code calls is Tauri's own type, so on Windows the 0.38 arguments no longer match it (E0631/E0308/E0277/E0599 in rightkit-tauri-shell with --no-default-features --features wv2-0_38, Dell batch at 8e6f0c43); the root graph cannot build this feature on Windows. Standalone consumer rows above exercise both 0.38 workload shapes; 0.39 remains built on every host in the root graph (rightkit#1562, #1678)"
       }
     },
     "rightkit-file-watch": {
@@ -473,6 +494,32 @@
           "features": [
             "--features",
             "sqlcipher-system,encrypted-lifecycle"
+          ],
+          "hosts": [
+            "darwin",
+            "linux"
+          ],
+          "hostsReason": "sqlcipher-system links the system crypto provider (CommonCrypto on Apple, libcrypto elsewhere): on Windows it needs an OpenSSL install (OPENSSL_DIR) that the gate host does not provide; Windows is covered by the sqlcipher-libtomcrypt set"
+        }
+      ]
+    },
+    "rightkit-transcript-library": {
+      "featureSets": [
+        [],
+        [
+          "--features",
+          "store,rightkit-db/bundled"
+        ],
+        [
+          "--features",
+          "managed-store,rightkit-db/sqlcipher-libtomcrypt"
+        ]
+      ],
+      "checkFeatureSets": [
+        {
+          "features": [
+            "--features",
+            "managed-store,rightkit-db/sqlcipher-system"
           ],
           "hosts": [
             "darwin",
@@ -665,6 +712,7 @@
       "allowIgnored": "src/macos/tests/live.rs (8 tests: hello_reports_the_identity_without_prompting, without_permission_start_is_refused_and_nothing_is_written, an_unknown_window_is_not_found_and_nothing_is_written, an_unsupported_plan_is_refused_before_capture, the_target_exiting_mid_take_is_reported_and_the_media_is_kept, a_short_hevc_take_seals_and_verifies, a_live_capture_of_the_off_screen_fixture_seals_a_verified_bundle, a_sigkilled_helper_leaves_quarantined_media_that_decodes) and src/windows/tests/live.rs::a_terminated_helper_leaves_quarantined_media_that_decodes are #[ignore] on purpose: they need the built capture helper, Screen Recording permission (macOS) or the rk2 target (Windows), and ffmpeg/ffprobe, none of which a runner has; they run by hand with --ignored per the module docs (8 ignored per default run on macOS, 1 on Windows); the golden-file and unit tests run and assert on every default run"
     },
     "rightkit-asr": {
+      "featureSets": [[], ["--no-default-features", "--features", "kws-ffi"]],
       "allowIgnored": "tests/e2e_parakeet.rs::onnx_transducer_decodes_the_fixtures_when_the_export_is_present is #[ignore] on purpose: it needs an ONNX Parakeet TDT export (RK_PARAKEET_ONNX_DIR) and the ORT dylib (RK_ORT_TEST_DYLIB) that no runner provisions, and runs by hand with --ignored (1 ignored per default run); every other asr test runs and asserts on every default run, with the asset-gated ones recording SKIP markers in the receipts"
     },
     "rightkit-speech-client": {

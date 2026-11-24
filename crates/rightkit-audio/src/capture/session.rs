@@ -1,5 +1,7 @@
 // Capture session: cpal::Stream + lock-free ring buffer + resampler.
 
+#[cfg(target_os = "windows")]
+use std::sync::atomic::AtomicU8;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
@@ -15,8 +17,114 @@ use ringbuf::{
 use super::device::resolve_device;
 use super::downmix::{push_mono_f32, push_mono_pcm, MonoDownmix};
 use super::metrics::{CaptureErrorKind, Metrics, MetricsSnapshot};
+use super::precise::{
+    CallbackStamp, CaptureCutHandle, CaptureCutToken, PreciseEpoch, ProducerGate,
+};
 use super::resample::StreamResampler;
 use super::staging::{pending_resampled_len, take_resampled};
+
+// Only this module owns MMCSS handles. Keeping them in TLS (rather than in the
+// callback closure) guarantees same-thread revert even if a backend drops its
+// callback closure on the session owner. CPAL WASAPI uses one dedicated thread
+// per stream, keeps it through pause/resume, then terminates & joins on Drop.
+#[cfg(target_os = "windows")]
+struct CaptureThreadMmcss {
+    handle: Option<windows::Win32::Foundation::HANDLE>,
+    // 1 = Pro Audio, 2 = Audio, 3 = both registration attempts refused.
+    outcome: u8,
+}
+
+#[cfg(target_os = "windows")]
+impl CaptureThreadMmcss {
+    fn register() -> Self {
+        use windows::core::w;
+        use windows::Win32::System::Threading::AvSetMmThreadCharacteristicsW;
+
+        let mut task_index = 0u32;
+        // SAFETY: static NUL-terminated task name & valid writable task index;
+        // registration is performed by the callback thread itself.
+        if let Ok(handle) =
+            unsafe { AvSetMmThreadCharacteristicsW(w!("Pro Audio"), &mut task_index) }
+        {
+            return Self {
+                handle: Some(handle),
+                outcome: 1,
+            };
+        }
+        let mut task_index = 0u32;
+        // SAFETY: same as above; the failed first call created no registration.
+        match unsafe { AvSetMmThreadCharacteristicsW(w!("Audio"), &mut task_index) } {
+            Ok(handle) => Self {
+                handle: Some(handle),
+                outcome: 2,
+            },
+            Err(_) => Self {
+                handle: None,
+                outcome: 3,
+            },
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+impl Drop for CaptureThreadMmcss {
+    fn drop(&mut self) {
+        if let Some(handle) = self.handle.take() {
+            // SAFETY: this TLS guard retained the successful registration & is
+            // destroyed on its registering thread. Revert releases the handle;
+            // CloseHandle must not be used for an MMCSS registration.
+            let _ = unsafe {
+                windows::Win32::System::Threading::AvRevertMmThreadCharacteristics(handle)
+            };
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn join_capture_thread_mmcss(attempted: &mut bool, outcome: &AtomicU8) {
+    if *attempted {
+        return;
+    }
+    *attempted = true;
+    thread_local! {
+        static REGISTRATION: std::cell::OnceCell<CaptureThreadMmcss> = const {
+            std::cell::OnceCell::new()
+        };
+    }
+    let status = REGISTRATION.with(|registration| {
+        registration
+            .get_or_init(CaptureThreadMmcss::register)
+            .outcome
+    });
+    // Only numeric telemetry crosses into the consumer; no logging, formatting,
+    // locks or notifications are added to the data callback.
+    outcome.store(status, Ordering::Relaxed);
+}
+
+#[cfg(target_os = "windows")]
+fn report_capture_thread_mmcss(outcome: &AtomicU8) {
+    let status = outcome.load(Ordering::Relaxed);
+    // Bit 7 marks an already-reported result. Leave pending (0) untouched so a
+    // consumer read before the first callback cannot consume the eventual result.
+    if !(1..=3).contains(&status)
+        || outcome
+            .compare_exchange(status, status | 0x80, Ordering::Relaxed, Ordering::Relaxed)
+            .is_err()
+    {
+        return;
+    }
+    tracing::info!(
+        event = "capture_thread_mmcss",
+        outcome = status,
+        class = match status {
+            1 => "Pro Audio",
+            2 => "Audio",
+            _ => "none",
+        },
+        joined = status != 3,
+        "capture callback thread MMCSS"
+    );
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum OutDType {
@@ -134,10 +242,15 @@ impl AudioArrival {
 /// What the Python side gets back as a handle. Internally just an index.
 pub struct CaptureSession {
     /// cpal stream — keep alive for the lifetime of the session.
-    _stream: cpal::Stream,
+    _stream: Arc<cpal::Stream>,
+    producer_gate: Arc<ProducerGate>,
+    stamp_consumer: ringbuf::HeapCons<CallbackStamp>,
+    precise: Option<PreciseEpoch>,
     consumer: ringbuf::HeapCons<f32>,
     resampler: StreamResampler,
     metrics: Arc<Metrics>,
+    #[cfg(target_os = "windows")]
+    capture_thread_mmcss: Arc<AtomicU8>,
     target_rate: u32,
     target_dtype: OutDType,
     input_rate: u32,
@@ -206,11 +319,22 @@ impl CaptureSession {
         let (mut producer, mut consumer) = rb.split();
         prewarm_ring_storage(&mut producer, &mut consumer, ring_capacity);
 
+        #[cfg(target_os = "windows")]
+        let capture_thread_mmcss = Arc::new(AtomicU8::new(0));
+        #[cfg(target_os = "windows")]
+        let capture_thread_mmcss_cb = Arc::clone(&capture_thread_mmcss);
+        #[cfg(target_os = "windows")]
+        let mut capture_thread_mmcss_attempted = false;
         let metrics = Arc::new(Metrics::new());
         let metrics_cb = Arc::clone(&metrics);
         let metrics_err = Arc::clone(&metrics);
         let audio_arrival = Arc::new(AudioArrival::default());
         let audio_arrival_cb = Arc::clone(&audio_arrival);
+
+        let producer_gate = Arc::new(ProducerGate::default());
+        let producer_gate_cb = Arc::clone(&producer_gate);
+        // Fixed callback metadata storage; no callback allocation.
+        let (mut stamp_producer, stamp_consumer) = HeapRb::<CallbackStamp>::new(4096).split();
 
         let in_chans = input_channels as usize;
         let mut downmix = MonoDownmix::new(in_chans, input_rate);
@@ -223,9 +347,37 @@ impl CaptureSession {
             ($sample:ty) => {
                 device.build_input_stream(
                     stream_config,
-                    move |data: &[$sample], _info| {
+                    move |data: &[$sample], info| {
+                        let Some(admission) = producer_gate_cb.enter() else {
+                            return;
+                        };
+                        #[cfg(target_os = "windows")]
+                        join_capture_thread_mmcss(
+                            &mut capture_thread_mmcss_attempted,
+                            &capture_thread_mmcss_cb,
+                        );
                         let t0 = Instant::now();
+                        let packet_fits = producer.vacant_len() >= data.len() / in_chans.max(1);
                         push_mono_pcm(data, in_chans, &mut downmix, &mut producer, &metrics_cb);
+                        if admission.epoch != 0 {
+                            let timestamp = info.timestamp();
+                            if stamp_producer
+                                .try_push(CallbackStamp {
+                                    epoch: admission.epoch,
+                                    capture: timestamp.capture,
+                                    callback: timestamp.callback,
+                                    frames: data.len() / in_chans.max(1),
+                                })
+                                .is_err()
+                            {
+                                producer_gate_cb
+                                    .metadata_overflow
+                                    .store(true, Ordering::Release);
+                            } else if packet_fits {
+                                producer_gate_cb
+                                    .packet_committed(admission.epoch, timestamp.capture);
+                            }
+                        }
                         audio_arrival_cb.signal();
                         let dur = t0.elapsed().as_micros() as u64;
                         metrics_cb.record_callback(dur, (data.len() / in_chans.max(1)) as u64);
@@ -239,9 +391,36 @@ impl CaptureSession {
         let stream = match sample_format {
             SampleFormat::F32 => device.build_input_stream(
                 stream_config,
-                move |data: &[f32], _info| {
+                move |data: &[f32], info| {
+                    let Some(admission) = producer_gate_cb.enter() else {
+                        return;
+                    };
+                    #[cfg(target_os = "windows")]
+                    join_capture_thread_mmcss(
+                        &mut capture_thread_mmcss_attempted,
+                        &capture_thread_mmcss_cb,
+                    );
                     let t0 = Instant::now();
+                    let packet_fits = producer.vacant_len() >= data.len() / in_chans.max(1);
                     push_mono_f32(data, in_chans, &mut downmix, &mut producer, &metrics_cb);
+                    if admission.epoch != 0 {
+                        let timestamp = info.timestamp();
+                        if stamp_producer
+                            .try_push(CallbackStamp {
+                                epoch: admission.epoch,
+                                capture: timestamp.capture,
+                                callback: timestamp.callback,
+                                frames: data.len() / in_chans.max(1),
+                            })
+                            .is_err()
+                        {
+                            producer_gate_cb
+                                .metadata_overflow
+                                .store(true, Ordering::Release);
+                        } else if packet_fits {
+                            producer_gate_cb.packet_committed(admission.epoch, timestamp.capture);
+                        }
+                    }
                     audio_arrival_cb.signal();
                     let dur = t0.elapsed().as_micros() as u64;
                     metrics_cb.record_callback(dur, (data.len() / in_chans.max(1)) as u64);
@@ -272,10 +451,15 @@ impl CaptureSession {
         let resampler = StreamResampler::new(input_rate, cfg.target_rate)?;
 
         Ok(Self {
-            _stream: stream,
+            _stream: Arc::new(stream),
+            producer_gate,
+            stamp_consumer,
+            precise: None,
             consumer,
             resampler,
             metrics,
+            #[cfg(target_os = "windows")]
+            capture_thread_mmcss,
             target_rate: cfg.target_rate,
             target_dtype: cfg.target_dtype,
             input_rate,
@@ -302,6 +486,144 @@ impl CaptureSession {
         Ok(session)
     }
 
+    /// Close old producer admission, wait for its current callback, discard old
+    /// data, then open a new precise epoch. Call before resume, or on a warm stream.
+    pub fn begin_precise_epoch(&mut self, timeout: Duration) -> Result<CaptureCutHandle> {
+        let deadline = Instant::now()
+            .checked_add(timeout)
+            .ok_or_else(|| anyhow!("precise capture deadline overflow"))?;
+        self.producer_gate
+            .check_epoch(self.producer_gate.current_epoch())?;
+        self.producer_gate
+            .close(self.producer_gate.current_epoch())?;
+        if let Err(error) = self.producer_gate.wait_closed_until(deadline) {
+            self.producer_gate
+                .timeout(self.producer_gate.current_epoch());
+            return Err(error);
+        }
+        self.precise = None;
+        self.flush();
+        while self.stamp_consumer.try_pop().is_some() {}
+        self.ensure_stream_healthy()?;
+        let before = self.metrics.snapshot();
+        let start = self._stream.now();
+        if Instant::now() >= deadline {
+            self.producer_gate
+                .timeout(self.producer_gate.current_epoch());
+            return Err(anyhow!("precise capture begin deadline exhausted"));
+        }
+        let epoch = self.producer_gate.open_next()?;
+        self.precise = Some(PreciseEpoch {
+            epoch,
+            start,
+            native: Vec::new(),
+            stamps: Vec::new(),
+            overflow_before: before.input_overflow_count,
+            errors_before: before.async_error_count,
+            cached: None,
+        });
+        Ok(CaptureCutHandle {
+            stream: Arc::downgrade(&self._stream),
+            gate: Arc::clone(&self.producer_gate),
+            epoch,
+            start,
+            cut: Arc::new(std::sync::OnceLock::new()),
+        })
+    }
+
+    /// After synchronous cut_now, keep draining FIFO until a complete packet
+    /// starts at/after cut. Quiesce, pause, then render retained native [start,cut)
+    /// from fresh resampler state. Prior live reads remain part of full clip.
+    /// No watermark or failure is never returned as successful audio.
+    pub fn seal_precise(&mut self, cut: &CaptureCutToken, timeout: Duration) -> Result<Vec<f32>> {
+        let precise = self
+            .precise
+            .as_ref()
+            .ok_or_else(|| anyhow!("no precise capture epoch"))?;
+        if !Arc::ptr_eq(&cut.gate, &self.producer_gate) || precise.epoch != cut.epoch {
+            return Err(anyhow!("precise capture wrong epoch or stream"));
+        }
+        if let Some(cached) = &precise.cached {
+            return cached.clone();
+        }
+        let deadline = Instant::now()
+            .checked_add(timeout)
+            .ok_or_else(|| anyhow!("precise capture deadline overflow"))?;
+        let result = (|| {
+            loop {
+                self.drain_native_into_scratch();
+                self.ensure_stream_healthy()?;
+                let metrics = self.metrics.snapshot();
+                self.precise
+                    .as_ref()
+                    .expect("epoch retained during seal")
+                    .validate_integrity(
+                        self.producer_gate.metadata_overflow.load(Ordering::Acquire),
+                        metrics.input_overflow_count,
+                        metrics.async_error_count,
+                    )?;
+                if self.producer_gate.has_watermark() {
+                    break;
+                }
+                if Instant::now() >= deadline {
+                    self.producer_gate.timeout(cut.epoch);
+                    return Err(anyhow!("precise capture timeout: no post-cut watermark"));
+                }
+                // Drain while waiting: a delayed worker must not fill native ring.
+                self.audio_arrival.wait(
+                    &mut self.arrival_seen,
+                    deadline
+                        .saturating_duration_since(Instant::now())
+                        .min(Duration::from_millis(2)),
+                );
+            }
+            if let Err(error) = self.producer_gate.wait_closed_until(deadline) {
+                self.producer_gate.timeout(cut.epoch);
+                return Err(error);
+            }
+            self.drain_native_into_scratch();
+            if Instant::now() >= deadline {
+                self.producer_gate.timeout(cut.epoch);
+                return Err(anyhow!("precise capture quiesce deadline exhausted"));
+            }
+            // Synchronization is admission+watermark+quiescence. Backend pause
+            // may only queue a command (WASAPI), so it is never our barrier.
+            self._stream
+                .pause()
+                .map_err(|e| anyhow!("precise capture pause failed: {e}"))?;
+            if Instant::now() >= deadline {
+                self.producer_gate.timeout(cut.epoch);
+                return Err(anyhow!("precise capture pause deadline exhausted"));
+            }
+            self.ensure_stream_healthy()?;
+            let precise = self.precise.as_ref().expect("epoch retained during seal");
+            let metrics = self.metrics.snapshot();
+            precise.validate_integrity(
+                self.producer_gate.metadata_overflow.load(Ordering::Acquire),
+                metrics.input_overflow_count,
+                metrics.async_error_count,
+            )?;
+            let selected = precise.selected_native(cut, self.input_rate)?;
+            StreamResampler::resample_sealed(&selected, self.input_rate, self.target_rate)
+        })();
+        if result.is_err() {
+            // On error stop further admission. Retain ring/native storage even
+            // if callback cannot quiesce before shared deadline; never recycle it.
+            let _ = self.producer_gate.close(cut.epoch);
+            if Instant::now() >= deadline || self.producer_gate.wait_closed_until(deadline).is_err()
+            {
+                self.producer_gate.timeout(cut.epoch);
+            } else {
+                let _ = self._stream.pause();
+            }
+        }
+        self.precise
+            .as_mut()
+            .expect("epoch retained during seal")
+            .cached = Some(result.clone());
+        result
+    }
+
     pub fn input_rate(&self) -> u32 {
         self.input_rate
     }
@@ -322,19 +644,33 @@ impl CaptureSession {
     /// `native_scratch` (cleared first), then resample it into `out_buf_f32`.
     /// Shared by every read path that needs a fresh top-up before taking from
     /// the resampled staging buffer.
-    fn drain_native_into_scratch_and_resample(&mut self) -> Result<()> {
+    fn drain_native_into_scratch(&mut self) {
         self.native_scratch.clear();
         let mut tmp = [0f32; 4096];
-        loop {
-            let n = self.consumer.pop_slice(&mut tmp);
+        // Snapshot bounds each drain even when producer continues arriving.
+        let mut remaining = self.consumer.occupied_len();
+        while remaining > 0 {
+            let take = remaining.min(tmp.len());
+            let n = self.consumer.pop_slice(&mut tmp[..take]);
             if n == 0 {
                 break;
             }
             self.native_scratch.extend_from_slice(&tmp[..n]);
-            if n < tmp.len() {
-                break;
+            remaining -= n;
+        }
+        if let Some(precise) = self.precise.as_mut() {
+            precise.native.extend_from_slice(&self.native_scratch);
+            let pending_stamps = self.stamp_consumer.occupied_len();
+            for _ in 0..pending_stamps {
+                if let Some(stamp) = self.stamp_consumer.try_pop() {
+                    precise.stamps.push(stamp);
+                }
             }
         }
+    }
+
+    fn drain_native_into_scratch_and_resample(&mut self) -> Result<()> {
+        self.drain_native_into_scratch();
         if !self.native_scratch.is_empty() {
             self.resampler
                 .process(&self.native_scratch, &mut self.out_buf_f32)?;
@@ -434,10 +770,14 @@ impl CaptureSession {
     }
 
     pub fn metrics_snapshot(&self) -> MetricsSnapshot {
+        #[cfg(target_os = "windows")]
+        report_capture_thread_mmcss(&self.capture_thread_mmcss);
         self.metrics.snapshot()
     }
 
     fn ensure_stream_healthy(&self) -> Result<()> {
+        #[cfg(target_os = "windows")]
+        report_capture_thread_mmcss(&self.capture_thread_mmcss);
         if let Some(kind) = self.metrics.snapshot().terminal_error_kind {
             Err(anyhow!("capture stream error: {}", kind.as_str()))
         } else {
@@ -454,6 +794,17 @@ impl CaptureSession {
     /// Returns the number of native-rate input samples discarded (0 on a clean
     /// stop; larger when the ring kept filling between recordings).
     pub fn flush(&mut self) -> usize {
+        // Timed-out callback storage must remain retained until stream Drop joins it.
+        if self
+            .producer_gate
+            .check_epoch(self.producer_gate.current_epoch())
+            .is_err()
+        {
+            return 0;
+        }
+        if let Some(precise) = self.precise.as_mut() {
+            precise.cached = Some(Err(anyhow!("precise capture invalidated by flush")));
+        }
         let mut discarded = 0usize;
         let mut tmp = [0f32; 4096];
         loop {
@@ -479,6 +830,8 @@ impl CaptureSession {
     /// Resume capture on the already-open stream after `pause()`. Far cheaper than
     /// `start()` (no device enumeration / stream build).
     pub fn resume(&self) -> Result<()> {
+        self.producer_gate
+            .check_epoch(self.producer_gate.current_epoch())?;
         self.metrics.reset_capture_epoch();
         self._stream
             .play()
@@ -486,6 +839,8 @@ impl CaptureSession {
     }
 
     pub fn stop(&mut self) -> MetricsSnapshot {
+        #[cfg(target_os = "windows")]
+        report_capture_thread_mmcss(&self.capture_thread_mmcss);
         if !self.stopped.swap(true, Ordering::SeqCst) {
             // Dropping _stream on stop() would require consuming self; the
             // cpal stream will instead drop with the session struct.

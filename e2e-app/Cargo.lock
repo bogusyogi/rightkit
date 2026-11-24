@@ -6157,7 +6157,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-asr"
-version = "0.5.0"
+version = "0.5.2"
 dependencies = [
  "half",
  "hound",
@@ -6179,12 +6179,16 @@ dependencies = [
 
 [[package]]
 name = "rightkit-audio"
-version = "0.3.5"
+version = "0.3.8"
 dependencies = [
+ "block2",
  "cpal",
  "hound",
+ "objc2",
  "objc2-core-audio",
  "objc2-core-foundation",
+ "objc2-foundation",
+ "rightkit-child-process",
  "rightkit-ffmpeg",
  "ringbuf",
  "rubato",
@@ -6198,7 +6202,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-automation"
-version = "0.7.2"
+version = "0.7.3"
 dependencies = [
  "windows 0.62.2",
 ]
@@ -6342,7 +6346,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-db"
-version = "0.5.9"
+version = "0.5.10"
 dependencies = [
  "libc",
  "rightkit-fs",
@@ -6360,7 +6364,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-device"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "getrandom 0.4.3",
  "rightkit-credentials",
@@ -6504,7 +6508,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-license"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "base64 0.23.1",
  "ed25519-dalek",
@@ -6724,7 +6728,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-qa"
-version = "0.10.9"
+version = "0.10.10"
 dependencies = [
  "getrandom 0.4.3",
  "png",
@@ -6852,7 +6856,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-sync"
-version = "0.4.0"
+version = "0.4.2"
 dependencies = [
  "rightkit-child-process",
  "rightkit-fs",
@@ -6879,7 +6883,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-tauri-shell"
-version = "0.8.5"
+version = "0.8.6"
 dependencies = [
  "block2",
  "libc",

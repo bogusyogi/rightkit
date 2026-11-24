@@ -2,7 +2,7 @@
 //! Windows/Linux drop decorations and the app draws its own title bar (the `@rightkit/react-shell`
 //! TitleBar) using the `rk_shell_window` controls and `data-tauri-drag-region`.
 //!
-//! Donor: ViewRight `traffic_lights` (capture the macOS-default button origins once, apply a
+//! Mechanism: host `traffic_lights` (capture the macOS-default button origins once, apply a
 //! horizontal/vertical offset, re-assert after resize/focus because AppKit resets them).
 
 #[cfg(feature = "qa-probes")]
@@ -160,7 +160,7 @@ impl ButtonFrames {
         [self.close, self.miniaturize, self.zoom]
     }
 
-    /// The QA control-command shape ViewRight shipped:
+    /// The QA control-command shape host shipped:
     /// `{"buttons": [{"x","y","width","height","hidden"} x3 in close, miniaturize, zoom order], "windowVisible": bool}`.
     pub fn to_json(&self) -> String {
         serde_json::json!({ "buttons": self.buttons(), "windowVisible": self.window_visible })

@@ -41,7 +41,7 @@ desktop-context = [
 ]
 
 [dependencies]
-rightkit-roots = { version = "0.2.0", path = "../rightkit-roots", optional = true }
+rightkit-roots = { version = "0.3.0", path = "../rightkit-roots", optional = true }
 
 [target.'cfg(windows)'.dependencies]
 rightkit-child-process = { version = "0.5.14", path = "../rightkit-child-process", optional = true }

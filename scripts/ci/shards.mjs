@@ -3,7 +3,9 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { pnpmBuildClosureArgs } from "./select.mjs";
 import { TEST_COMMAND } from "./test-results.mjs";
-import { defaultCheckFeatureSets, hostFeatureSets } from "../../packages/release/feature-sets.mjs";
+import { crossTargetsFor, oneOutput } from "../../packages/release/cross-targets.mjs";
+import { clippyArgs } from "../../packages/release/deterministic-scans.mjs";
+import { crossFeatureSets, defaultCheckFeatureSets, hostFeatureSets } from "../../packages/release/feature-sets.mjs";
 
 // Pure shard planning for the RightKit CI workflow (.github/workflows/ci.yml): which GitHub Actions jobs a
 // push needs, per runner OS, and which gate tokens each job runs. No process. The only file read is a Swift
@@ -335,9 +337,13 @@ export function requiredConsumerLockCommands(rows = []) {
  * (rightkit#1285): gate.mjs runs each crate's commands with cwd crates/<x>, which a command string does not carry, so the strings stay
  * `cargo <verb> -p <crate> ...` and must match the gate's run() labels exactly. Consumer rows run at the repository root.
  */
-export function requiredShardCommands(tokens, { config = {}, packages = [], swiftTests = [] } = {}) {
+export function requiredShardCommands(tokens, { config = {}, packages = [], swiftTests = [], nativePublication } = {}) {
   const commands = [];
-  const add = (unit, executable, args) => commands.push({ unit, command: `${executable} ${args.join(" ")}` });
+  const platform = nativePublication?.platform ?? process.platform;
+  const add = (unit, executable, args) => {
+    const effectiveArgs = executable === "cargo" && nativePublication ? oneOutput(args, nativePublication) : args;
+    commands.push({ unit, command: `${executable} ${effectiveArgs.join(" ")}` });
+  };
   const parts = tokens.split(/\s+/).filter(Boolean).map((token) => { const colon = token.indexOf(":"); return [token.slice(0, colon), token.slice(colon + 1)]; });
   const npm = parts.filter(([kind]) => kind === "npm").map(([, dir]) => {
     const pkg = packages.find((entry) => entry.dir === dir);
@@ -351,10 +357,16 @@ export function requiredShardCommands(tokens, { config = {}, packages = [], swif
     if (kind === "rust") {
       if (Array.isArray(entry.featureSets) && !entry.featureSets.length) throw new Error(`${name}: empty featureSets`);
       // This host's sets: a set scoped to other hosts is not planned here (feature-sets.mjs); a crate with none planned here has no row on this host.
-      const sets = hostFeatureSets(entry, process.platform, "featureSets", name) ?? [[]];
+      const sets = hostFeatureSets(entry, platform, "featureSets", name) ?? [[]];
       if (!sets.length) continue;
-      const checkSets = sets.some((features) => features.includes("--all-features")) ? [] : hostFeatureSets(entry, process.platform, "checkFeatureSets", name) ?? defaultCheckFeatureSets(entry, name);
-      for (const features of sets) add(unit, "cargo", ["clippy", "-p", name, "--no-deps", "--all-targets", ...features, "--", "-D", "warnings"]);
+      const checkSets = sets.some((features) => features.includes("--all-features")) ? [] : hostFeatureSets(entry, platform, "checkFeatureSets", name) ?? defaultCheckFeatureSets(entry, name);
+      for (const features of sets) add(unit, "cargo", clippyArgs(name, { features }));
+      if (nativePublication) {
+        const crossSets = crossFeatureSets(entry, platform, "featureSets", name) ?? [[]];
+        for (const target of crossTargetsFor(entry, platform)) {
+          for (const features of crossSets) add(unit, "cargo", clippyArgs(name, { features, target }));
+        }
+      }
       for (const features of checkSets) add(unit, "cargo", ["check", "-p", name, "--all-targets", ...features]);
       const docSets = [...new Map([...sets, ...checkSets].map((features) => [JSON.stringify(features), features])).values()];
       for (const features of docSets) add(unit, "cargo", ["doc", "-p", name, "--no-deps", ...features]);
@@ -365,7 +377,7 @@ export function requiredShardCommands(tokens, { config = {}, packages = [], swif
     } else if (kind === "rust-check") {
       add(unit, "cargo", ["check", "-p", name, "--all-targets"]);
       // An empty checkFeatureSets row is the default check above; never run it twice.
-      for (const features of (hostFeatureSets(entry, process.platform, "checkFeatureSets", name) ?? defaultCheckFeatureSets(entry, name)).filter((features) => features.length)) add(unit, "cargo", ["check", "-p", name, "--all-targets", ...features]);
+      for (const features of (hostFeatureSets(entry, platform, "checkFeatureSets", name) ?? defaultCheckFeatureSets(entry, name)).filter((features) => features.length)) add(unit, "cargo", ["check", "-p", name, "--all-targets", ...features]);
     } else if (kind === "npm") {
       if (npm.find((pkg) => pkg.dir === name).scripts?.test) add(unit, "pnpm", ["--dir", name, "run", "test"]);
     } else if (kind === "root") {

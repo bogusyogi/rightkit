@@ -1,8 +1,8 @@
 //! Navigation and window-open policy: what a webview may load in place, what leaves for the
 //! system browser, and what is refused.
 //!
-//! Merges ViewRight's `external_navigation` broker (an `https://open.<app>.invalid/?target=`
-//! hop that the frontend uses to ask the host to open a link) with CodeRight's `popup_policy`
+//! Merges host's `external_navigation` broker (an `https://open.<app>.invalid/?target=`
+//! hop that the frontend uses to ask the host to open a link) with host's `popup_policy`
 //! (web schemes leave the shell; only a size-shaped OAuth popup may become a child window).
 //! The decision functions are pure so every platform shares one policy.
 
@@ -15,7 +15,7 @@ pub const EXTERNAL_SCHEMES: &[&str] = &["http", "https", "mailto"];
 /// Schemes a webview loads in place (the app's own content and in-page documents).
 const INTERNAL_SCHEMES: &[&str] = &["tauri", "asset", "ipc", "about", "blob", "data", "http-ipc"];
 
-/// OAuth authorization origins allowed to open as an in-app popup (CodeRight list, plus the Atlassian
+/// OAuth authorization origins allowed to open as an in-app popup (host list, plus the Atlassian
 /// and Salesforce sign-in origins). An app adds its own through [`NavPolicy::popup_origins`] or
 /// [`popup_origins_from_json`].
 pub const OAUTH_POPUP_ORIGINS: &[&str] = &[
@@ -90,7 +90,7 @@ pub enum WindowOpenDecision {
     },
     /// An allow-listed popup (OAuth) that may become an in-app child window.
     Popup,
-    /// A non-web scheme (for example `zoom:`) that needs the person's consent before the system
+    /// A non-web scheme (for example `example-app:`) that needs the person's consent before the system
     /// handles it. The shell does not open it; an app with a consent surface may confirm it.
     ProtocolConsent {
         scheme: String,
@@ -105,7 +105,7 @@ pub struct NavPolicy {
     /// Allow `localhost` / loopback http(s) as internal. Off in every build: no Cargo feature turns it
     /// on. An app that must reach a local server sets it in its own code.
     pub allow_loopback: bool,
-    /// ViewRight-style broker host. `https://<host>/?target=<url>` navigates nothing and asks the
+    /// host-style broker host. `https://<host>/?target=<url>` navigates nothing and asks the
     /// shell to open `target` externally (only when `target` has an external scheme).
     pub broker_host: Option<String>,
     /// Origins (scheme://host`[:port]`) allowed to open popup windows in-app.
@@ -310,7 +310,7 @@ impl NavPolicy {
         }
     }
 
-    /// The scheme of a non-web `window.open` target (for example `zoom:` or `ms-settings:`) that an app
+    /// The scheme of a non-web `window.open` target (for example `example-app:` or `ms-settings:`) that an app
     /// with a consent surface may confirm with the person before handing it to the system. `None` for
     /// web schemes and for schemes the shell serves or refuses outright (internal, `file:`, `javascript:`).
     /// [`NavPolicy::decide_window_open`] returns `Deny` for every such target either way.

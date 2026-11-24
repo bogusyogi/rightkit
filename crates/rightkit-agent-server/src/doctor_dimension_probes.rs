@@ -141,19 +141,29 @@ pub(crate) fn probe_workspace_trust(verbose: bool) -> Dimension {
     }
 }
 
-/// Probe hook-deny readiness: confirm the hooks crate's destructive guard is
-/// constructible AND the engine-side destructive-guard config is on disk.
+/// Probe hook-deny readiness: confirm the destructive-command guard
+/// (`rightkit-agent-policy`) refuses a catastrophic command AND the engine-side
+/// destructive-guard config is on disk.
 pub(crate) fn probe_hooks(verbose: bool) -> Dimension {
-    use rightkit_hooks::agent_hooks::DestructiveGuard;
-
-    // Constructable in code → the hook-deny engine is wired into this build.
-    let _ = DestructiveGuard::default();
+    // The guard every shell decision uses must refuse `rm -rf /` (rightkit#1687).
+    let refused = rightkit_agent_policy::catastrophic_reason("rm -rf /");
     let mut evidence = vec![Evidence {
-        id: "destructive_guard_default".to_string(),
-        label: "DestructiveGuard::default()".to_string(),
-        status: "pass",
-        detail: "destructive shell guard constructible".to_string(),
+        id: "destructive_guard_refuses_root_delete".to_string(),
+        label: "rightkit_agent_policy::catastrophic_reason(\"rm -rf /\")".to_string(),
+        status: if refused.is_some() { "pass" } else { "block" },
+        detail: match refused {
+            Some(reason) => format!("destructive shell guard refuses rm -rf /: {reason}"),
+            None => "destructive shell guard allowed rm -rf /".to_string(),
+        },
     }];
+    if refused.is_none() {
+        let detail = "hooks: destructive shell guard allowed rm -rf /".to_string();
+        return if verbose {
+            dim_with_evidence("block", detail, evidence)
+        } else {
+            dim("block", detail)
+        };
+    }
 
     // Try to locate assets/hooks/destructive-guard.toml relative to a few
     // candidate roots. This is best-effort: missing config is "warn", not
@@ -175,7 +185,7 @@ pub(crate) fn probe_hooks(verbose: bool) -> Dimension {
                 detail: format!("config present at {}", path.display()),
             });
             let detail = format!(
-                "hooks: destructive guard constructible, config at {}",
+                "hooks: destructive guard refuses rm -rf /, config at {}",
                 path.display()
             );
             if verbose {
@@ -191,7 +201,7 @@ pub(crate) fn probe_hooks(verbose: bool) -> Dimension {
                 status: "warn",
                 detail: format!("config not found in: {candidate_list}"),
             });
-            let detail = "hooks: destructive guard constructible (in-code defaults), no destructive-guard.toml probed"
+            let detail = "hooks: destructive guard refuses rm -rf / (in-code defaults), no destructive-guard.toml probed"
                 .to_string();
             if verbose {
                 dim_with_evidence("warn", detail, evidence)
@@ -358,4 +368,25 @@ pub(crate) fn hook_config_probe_paths() -> Vec<PathBuf> {
         );
     }
     paths
+}
+
+#[cfg(test)]
+mod hooks_probe_tests {
+    // rightkit#1687: the hooks dimension proves the real guard refuses `rm -rf /`.
+    #[test]
+    fn hooks_probe_reports_the_policy_guard_refusing_root_delete() {
+        let dimension = super::probe_hooks(true);
+        assert_ne!(dimension.status, "block", "{}", dimension.detail);
+        assert!(
+            dimension.detail.contains("refuses rm -rf /"),
+            "{}",
+            dimension.detail
+        );
+        let evidence = dimension.evidence.expect("verbose evidence");
+        let guard = evidence
+            .iter()
+            .find(|e| e.id == "destructive_guard_refuses_root_delete")
+            .expect("guard evidence");
+        assert_eq!(guard.status, "pass", "{}", guard.detail);
+    }
 }

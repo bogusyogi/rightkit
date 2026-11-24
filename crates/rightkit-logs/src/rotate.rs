@@ -17,6 +17,13 @@ pub(crate) fn generation_path(path: &Path, n: u32, default_name: &str) -> PathBu
     path.with_file_name(filename)
 }
 
+/// Path of rotated generation `n` (`n >= 1`) of `path` with default suffix naming.
+/// For example, generation 1 of `app.log` is `app.log.1`. File names retain their
+/// original platform encoding; this helper does not read or modify the file.
+pub fn rotated_generation_path(path: &Path, n: u32) -> PathBuf {
+    generation_path(path, n, "")
+}
+
 /// How rotated generations are named.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum RotatedNaming {

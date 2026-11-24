@@ -5,7 +5,7 @@ import PackageDescription
 // repository root, so apps pin `https://github.com/bogusyogi/rightkit` by exact tag and get this file.
 // It mirrors swift/RightKitSwift/Package.swift (the manifest CI builds and tests in place) with every
 // target given an explicit `path:` under swift/RightKitSwift. Keep the two in step: change both in one commit;
-// scripts/swift-root-manifest.test.mjs fails on products, targets, dependencies or paths that drift.
+// scripts/swift-root-manifest.mjs fails on products, targets, dependencies or paths that drift.
 // Resource paths (.process/.copy) and linker settings are relative to the target path, so they are unchanged.
 
 // Shared platform infrastructure for the Right Suite's native Apple apps. It owns licensing,
@@ -32,6 +32,7 @@ let package = Package(
         .library(name: "RightKitActionChannel", targets: ["RightKitActionChannel"]),
         .library(name: "RightKitMenuBarHelper", targets: ["RightKitMenuBarHelper"]),
         .library(name: "RightKitDictationPill", targets: ["RightKitDictationPill"]),
+        .library(name: "RightKitVoiceCommand", targets: ["RightKitVoiceCommand"]),
         .library(name: "RightKitWatch", targets: ["RightKitWatch"]),
         .library(name: "RightKitUI", targets: ["RightKitUI"]),
         .library(name: "RightKitDB", targets: ["RightKitDB"]),
@@ -109,6 +110,7 @@ let package = Package(
         .target(name: "RightKitActionChannel", path: "swift/RightKitSwift/Sources/RightKitActionChannel", linkerSettings: [.linkedFramework("Security", .when(platforms: [.macOS]))]),
         .target(name: "RightKitMenuBarHelper", dependencies: ["RightKitActionChannel"], path: "swift/RightKitSwift/Sources/RightKitMenuBarHelper"),
         .target(name: "RightKitDictationPill", dependencies: ["RightKitOverlay"], path: "swift/RightKitSwift/Sources/RightKitDictationPill"),
+        .target(name: "RightKitVoiceCommand", path: "swift/RightKitSwift/Sources/RightKitVoiceCommand"),
         .testTarget(name: "RightKitOverlayTests", dependencies: ["RightKitOverlay"], path: "swift/RightKitSwift/Tests/RightKitOverlayTests"),
         // FSEvents file watcher (macOS only; the target is empty on iOS). CoreServices from the SDK.
         .target(name: "RightKitWatch", path: "swift/RightKitSwift/Sources/RightKitWatch"),
@@ -158,6 +160,7 @@ let package = Package(
         .target(name: "RightKitJobQueue", path: "swift/RightKitSwift/Sources/RightKitJobQueue"),
         .target(name: "RightKitCLIProtocol", path: "swift/RightKitSwift/Sources/RightKitCLIProtocol"),
         .target(name: "RightKitURLPolicy", path: "swift/RightKitSwift/Sources/RightKitURLPolicy"),
-        .target(name: "RightKitDaemonClient", path: "swift/RightKitSwift/Sources/RightKitDaemonClient"),
+        .target(name: "CRightKitDarwinNotify", path: "swift/RightKitSwift/Sources/CRightKitDarwinNotify"),
+        .target(name: "RightKitDaemonClient", dependencies: ["CRightKitDarwinNotify"], path: "swift/RightKitSwift/Sources/RightKitDaemonClient"),
     ],
 )

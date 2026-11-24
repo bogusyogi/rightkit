@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.13
+
+- Deprecated `agent_hooks::DestructiveGuard` and `DestructiveGuardDecision` (rightkit#1687). `rightkit-agent-policy` is RightKit's destructive-command guard: it parses the command (groups, `sh -c` bodies, substitutions, wrappers), while this guard only matches substrings, so it misses `(cd / && rm -rf -- *)` and flags `echo "rm -rf"`. Nothing in RightKit decides with it. Behaviour is unchanged; the types are removed in the next minor release. Use `rightkit_agent_policy::catastrophic_reason` and the host's permission engine.
+- New end-to-end test `tests/deprecated_guard_e2e.rs` (feature `agent_hooks`): the deprecated guard still blocks, asks and allows exactly as in 0.2.12.
+
+## 0.2.12
+
+- Fixed: with a renamed environment prefix (`set_env_prefix`), a variable the host passes under its own prefix is no longer prefixed twice. `run_event_hooks(..., &[("CODERIGHT_HOOK_ROLE", ..)])` used to reach the hook as `CODERIGHTCODERIGHT_HOOK_ROLE`, so the hook never saw it (CodeRight renamed every extra to `RIGHTKIT_HOOK_*` to work around it). A name already carrying the host's prefix and an underscore is kept; a `RIGHTKIT_` name is renamed as before. Covers command hooks and `url` hook bodies alike.
+- New end-to-end test `tests/host_prefix_env_e2e.rs` (Unix, feature `agent_hooks-host-env`): a `SessionEnd` command hook records its environment; both spellings arrive once as `CODERIGHT_HOOK_*`. Fails on 0.2.11, passes here. New dev-dependency `tokio` (macros, multi-thread runtime) for the test.
+
 ## 0.2.11 (2026-11-16)
 
 - Breaking for a host outside this repository that relied on the implied OS keyring: with `agent_hooks` the crate no longer names `rightkit-llm`'s `agent_providers-os-keyring`, so the OS credential store (`rightkit-credentials`) is no longer linked. New feature `agent_hooks-os-keyring` adds it (implies `agent_hooks`); a host that needs the keyring names it. Nothing in the crate's own code needs the keyring, so no item changes.

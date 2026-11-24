@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.5.16
+
+- New: `tie_group_to_parent(child_pid)` arms the parent-death watchdog of `OwnedCommand::kill_on_parent_exit` for a child the caller already spawned (rightkit#1688). For a host that builds and spawns its own commands and cannot go through `OwnedCommand::spawn`: CodeRight's shells are `tokio::process::Command`s with Landlock and seccomp `pre_exec` hooks, so they only had `PR_SET_PDEATHSIG` on the direct child and a `sh -c 'a & b'` outlived a SIGKILLed daemon (CodeRight #448). The child must lead its own process group; one that does not is refused with `InvalidInput`. macOS and Linux only; other platforms return `Unsupported`. No change to existing behaviour.
+- New end-to-end test `tests/tie_existing_child_e2e.rs` (Linux and macOS): a supervisor spawns `sh -c 'sleep A & sleep B'` with a plain `Command`, ties it and is SIGKILLed; both sleeps are gone within three seconds, and the same run without the tie leaves them running. A child sharing its parent's group is refused.
+
+## 0.5.15
+
+- Fixed (Linux): `OwnedCommand::kill_on_parent_exit` now takes the child's whole process group with this process, as on macOS. Before, Linux only set `PR_SET_PDEATHSIG` on the direct child, so anything the child started outlived a supervisor that died without cleanup: CodeRight's daemon, SIGKILLed, left a `sh -c` command's `sleep` running (CodeRight #448). Linux now arms the same double-forked, re-parented watchdog as macOS, holding pidfds on the supervisor and the child (`pidfd_open`, Linux 5.3; older kernels poll `kill(pid, 0)` every 50 ms). When the supervisor dies first it sends `SIGTERM` to the child's process group and `SIGKILL` two seconds later. Because the direct child's death signal fires with the supervisor, the watchdog does not stand down when the child is already gone: it signals whatever is left of the group (a group id is not reused while a member lives), and a child exit is only taken as "left on its own" when the supervisor is still alive 200 ms later. The direct child still gets `PR_SET_PDEATHSIG`. Cost: one helper process per tied child on Linux too.
+- New end-to-end test `tests/parent_death_e2e.rs` (Linux and macOS): a supervisor starts `sh -c 'sleep A & sleep B'` tied to it and is SIGKILLed; both sleeps must be gone within three seconds. It fails on 0.5.14 (both sleeps survive) and passes here.
+
 ## 0.5.14
 
 - Added `resolve_bundled_app` & `resolve_app_in_bundle` for canonical nested `.app` discovery inside host bundles, rejecting path traversal, symlink escapes, plain files & aliases to host bundle itself. Resolution verifies placement only & never launches a helper.

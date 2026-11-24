@@ -12,7 +12,6 @@ use std::time::Instant;
 
 use rightkit_transcript_library::delivery::{DeliveryRecord, TargetSnapshot};
 
-use crate::dictation_control::start_dictation_inner;
 use crate::engine::EngineTimeline;
 use crate::engine_event_consumer::spawn_receiver_consumer;
 use crate::engine_process::EngineEvent;
@@ -99,7 +98,7 @@ fn handle_wake_fired(
     // consumer can deliver.
     let shell = shell.clone();
     host().spawn_blocking(Box::new(move || {
-        if let Err(err) = start_dictation_inner(&shell) {
+        if let Err(err) = crate::dictation_control::start_dictation_legacy_inner(&shell) {
             telemetry::log_message(
                 "wake_dictation_error",
                 crate::dictation_error::error_log_code(&err),

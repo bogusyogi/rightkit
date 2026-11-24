@@ -213,27 +213,38 @@ mod recovery_commit_tests {
             let committing = threads.spawn(move || {
                 files
                     .consent
-                    .commit_recovery_if_authorized(&files.scheduler, &receipt, &consent, &mut || {
-                        entered_tx.send(()).unwrap();
-                        release_rx.recv_timeout(Duration::from_secs(5)).unwrap();
-                        assert!(matches!(
-                            files.consent.load_fence().unwrap(),
-                            FenceRead::Valid(FenceState::Enabled, 41)
-                        ));
-                        replace_file_atomically(&files.root.join("marker.json"), b"retained")
-                            .map_err(|error| error.to_string())
-                    })
+                    .commit_recovery_if_authorized(
+                        &files.scheduler,
+                        &receipt,
+                        &consent,
+                        &mut || {
+                            entered_tx.send(()).unwrap();
+                            release_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+                            assert!(matches!(
+                                files.consent.load_fence().unwrap(),
+                                FenceRead::Valid(FenceState::Enabled, 41)
+                            ));
+                            replace_file_atomically(&files.root.join("marker.json"), b"retained")
+                                .map_err(|error| error.to_string())
+                        },
+                    )
                     .unwrap()
             });
             entered_rx.recv_timeout(Duration::from_secs(5)).unwrap();
             assert!(files.consent.stop_gate.try_lock().is_ok());
             files.request_stop();
             assert_ne!(files.scheduler.consent_generation(), 0);
-            assert!(matches!(files.consent.lock.try_lock(), Err(TryLockError::WouldBlock)));
+            assert!(matches!(
+                files.consent.lock.try_lock(),
+                Err(TryLockError::WouldBlock)
+            ));
             release_tx.send(()).unwrap();
             assert!(committing.join().unwrap());
         });
-        assert_eq!(std::fs::read(files.root.join("marker.json")).unwrap(), b"retained");
+        assert_eq!(
+            std::fs::read(files.root.join("marker.json")).unwrap(),
+            b"retained"
+        );
         files.durable_revoke();
         assert!(matches!(
             files.consent.load_fence().unwrap(),

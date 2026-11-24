@@ -857,7 +857,14 @@ fn settings_probe(app: &tauri::AppHandle<Wry>) {
         .expect("settings event JSON");
         assert_eq!(
             payload,
-            serde_json::json!({"keys": ["probe"], "revision": revision})
+            serde_json::json!({
+                "keys": ["probe"],
+                "revision": revision,
+                "revisionText": revision
+                    .as_u64()
+                    .expect("committed settings counter")
+                    .to_string(),
+            })
         );
     }
     assert!(

@@ -17,14 +17,20 @@ const hash = (bytes) => sha("sha256", bytes);
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 const safe = (name) => typeof name === "string" && /^[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)*$/.test(name) && name.split("/").every((p) => p !== "." && p !== "..");
 const TRUST_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-// This source has one computed loader with exactly two fixed call sites. Pin
-// every byte as well as its expression so a new call cannot extend this closure.
+// Computed imports from trusted helpers have fixed destinations. Pin the
+// entire source and expression so a new call cannot extend this closure.
 const COMPUTED_HELPER_IMPORTS = Object.freeze({
   "packages/release/local-publish.mjs": Object.freeze({
-    sha256: "95cf229407d41dbed5de34109ece5e0b485fa916e4d57d99f30ecf7ae4f85621",
+    sha256: "dd409f4c6f3456348171da71cd6333aa0d668dede6de636f85de61434e618e39",
     expression: 'pathToFileURL(path.join(workspaceRoot, "scripts", "ci", file)).href',
     count: 1,
     paths: Object.freeze(["scripts/ci/test-results.mjs", "scripts/ci/upload.mjs"]),
+  }),
+  "packages/release/deterministic-scans.mjs": Object.freeze({
+    sha256: "2babfa53db722522480f435c35f514567bef3b09dea23383a5fe5be9e274ade5",
+    expression: "pathToFileURL(TRUSTED_YAML_PARSER).href",
+    count: 1,
+    paths: Object.freeze(["packages/release/workflow-yaml.mjs"]),
   }),
 });
 /**
@@ -104,7 +110,7 @@ export function validateRuntimeRecords({ source, sourceSha, unit, budget, record
   const exists = (absolute) => { try { readFile(absolute); return true; } catch { return false; } };
   // readData is an authenticated immutable tree, so owner freshness reads describe
   // this exact SHA snapshot instead of unrelated validator working-tree changes.
-  // Each crate is its own Cargo workspace (#1285): the staleness check asks about the crate's own Cargo.lock, git's cwd being its directory.
+  // The staleness check resolves the workspace via its cwd and reads that workspace's Cargo.lock from the candidate.
   const git = (args, cwd) => {
     const lockRelative = path.relative(source.root, path.join(cwd ?? crateDir, "Cargo.lock")).split(path.sep).join("/");
     if (args[0] === "cat-file" && args[1] === "-t" && args[2] === sourceSha) return { status: 0, stdout: "commit" };
@@ -223,7 +229,7 @@ export async function verifyRuntimeSupplement({ candidate, pin, manifest, manife
           need(hash(command(spawn, "tar", ["-xOzf", path.join(original.packDir, unit.file), member], source.root)) === digest, "sealed source/bench binding mismatch");
         }
       }
-      for (const name of [owner.workloadPrescriptionPath(crate), ...owner.trustedRequiredSources(crate), `crates/${crate}/Cargo.toml`, `crates/${crate}/Cargo.lock`, ...workloads.map((w) => `crates/${crate}/benches/${w.bench}.rs`)]) need(Object.hasOwn(bindings, name), "required sealed binding absent");
+      for (const name of [...owner.harnessMetadataPaths(crate, prescribed.prescription), ...owner.trustedRequiredSources(crate), `crates/${crate}/Cargo.toml`]) need(Object.hasOwn(bindings, name), "required sealed binding absent");
       owner.validateWorkloadReceipts(envelope.workloads, context, unit, manifestSha256, bindings, host, pin.producer.sourceSha, budget, { id: pin.producer.runId, attempt: pin.producer.runAttempt });
       for (const receipt of envelope.workloads) {
         for (const name of [`${receipt.workload}-bench.txt`, `${receipt.workload}-evidence.txt`]) {
@@ -302,7 +308,7 @@ export async function verifyLocalRuntimeProof({ candidate, manifest, manifestSha
     const bindings = rows[0]?.bindings;
     need(bindings && typeof bindings === "object" && Object.keys(bindings).length > 0, `${host}: runtime source bindings missing`);
     for (const [name, digest] of Object.entries(bindings)) need(hash(readSource(name)) === digest, "source binding differs from original candidate");
-    for (const name of [owner.workloadPrescriptionPath(crate), ...owner.trustedRequiredSources(crate), `crates/${crate}/Cargo.toml`, `crates/${crate}/Cargo.lock`, ...prescribed.workloads.map((w) => `crates/${crate}/benches/${w.bench}.rs`)]) need(Object.hasOwn(bindings, name), "required sealed binding absent");
+    for (const name of [...owner.harnessMetadataPaths(crate, prescribed.prescription), ...owner.trustedRequiredSources(crate), `crates/${crate}/Cargo.toml`]) need(Object.hasOwn(bindings, name), "required sealed binding absent");
     try { owner.validateWorkloadReceipts(rows, context, unit, manifestSha256, bindings, host, candidate.sourceSha, budget, qualificationRun); } catch (error) { need(false, `${host}: ${error.message}`); }
     for (const row of rows) {
       const workload = trustedWorkloads.find((item) => item.id === row.workload);

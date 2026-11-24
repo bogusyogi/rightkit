@@ -1,4 +1,4 @@
-// rightkit-license 0.3.2 registry consumer, outside the workspace.
+// rightkit-license 0.3.3 registry consumer, outside the workspace.
 //
 // Pure and offline. Verifies the published license-v2 vector with verify_token and rejects a wrong
 // app, a wrong device, an expired token, a malformed token and a tampered payload. Verifies the
@@ -157,6 +157,6 @@ fn exercise(dir: &std::path::Path) -> Result<(), Failure> {
         "absent credential must not grant access"
     );
 
-    println!("rightkit-license 0.3.2 registry consumer passed");
+    println!("rightkit-license 0.3.3 registry consumer passed");
     Ok(())
 }

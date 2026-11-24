@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.3
+
+Safety fixes to `destructive::catastrophic_reason`, the write-then-run guard (CodeRight #457 items 1, 2 and 4). Each command below passed 0.2.2 and is refused now:
+
+- Groups: a redirection after a `( ... )` subshell or `{ ...; }` brace group applies to every command in the group, so the text the group prints is a write to that file: `( echo 'rm -rf /*' ) > x.sh && sh x.sh`, `{ echo 'rm -rf /*'; } > x.sh && sh x.sh`.
+- Shell code strings: the clauses of a shell's `-c` string (`sh`, `bash -lc`, ...; behind wrappers too) are linked in sequence with the clauses around it, so a file written inside the string and run after it is caught: `sh -c "echo 'rm -rf /*' > x.sh" && sh x.sh`.
+- Wrappers: behind a wrapper (`flock`, `su`, `timeout`, `nice`, `sudo`, ...) any word naming the file just written counts as the program run, since which word a wrapper runs depends on the wrapper: `echo 'rm -rf /*' > x.sh && su builder x.sh`, `... && flock /tmp/lock x.sh`. Before, only the word after numeric arguments counted. Trade-off: a wrapper that only reads such a file (`sudo cat x.sh` after writing a catastrophic command into it) is refused too.
+- Still a listed limit (item 3): a name the guard cannot see (`split`'s derived output files) and a program that prints the command itself (`awk 'BEGIN{print "rm -rf /*"}' > x.sh`). Those need the check at the exec boundary.
+- New end-to-end test `tests/destructive_nested_e2e.rs`: eight write-then-run forms refused, seven ordinary commands of the same shapes allowed. Fails on 0.2.2 (seven of the eight are allowed), passes here. The private `wrapped_program` helper is gone.
+
 ## 0.2.2 (2026-11-16)
 
 - The package no longer ships `src/auto_approval.rs`, a tool-call approval classifier (`AutoApprovalClassifier`, `AutoApprovalCache`) that `src/lib.rs` never declared and nothing called. No public item, feature or behaviour changes; the compiled library is unchanged.

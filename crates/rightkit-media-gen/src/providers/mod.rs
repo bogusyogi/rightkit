@@ -27,7 +27,8 @@ pub mod wavespeed;
 /// organisation folder), so every app on the machine finds the same tools. The app name only
 /// supplies the child that is dropped.
 pub fn tools_root() -> Option<std::path::PathBuf> {
-    let dirs = rightkit_fs::AppDirs::resolve(rightkit_fs::AppId::new("RightKit")).ok()?;
+    let id = rightkit_fs::AppId::new("RightKit", Some(rightkit_roots::SUITE_DIR_NAME));
+    let dirs = rightkit_fs::AppDirs::resolve(id).ok()?;
     Some(dirs.local.parent()?.to_path_buf())
 }
 

@@ -30,9 +30,9 @@ rightkit-timeline = { version = "0.1.0", path = "../rightkit-timeline" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0" }
 thiserror = { version = "2.0" }
-rightkit-fs = { version = "0.4.9", default-features = false, features = ["fs", "lock", "json", "blake3"], path = "../rightkit-fs" }
+rightkit-fs = { version = "0.5.0", default-features = false, features = ["fs", "lock", "json", "blake3"], path = "../rightkit-fs" }
 rightkit-child-process = { version = "0.5.7", default-features = false, path = "../rightkit-child-process" }
-rightkit-audio = { version = "0.3.1", default-features = false, path = "../rightkit-audio" }
+rightkit-audio = { version = "0.4.0", default-features = false, path = "../rightkit-audio" }
 rightkit-ffmpeg = { version = "0.3.0", default-features = false, features = ["native"], path = "../rightkit-ffmpeg" }
 rightkit-engine-host = { version = "0.2.0", path = "../rightkit-engine-host", optional = true }
 rightkit-transcript = { version = "0.4.0", path = "../rightkit-transcript", optional = true }

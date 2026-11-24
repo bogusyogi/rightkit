@@ -6,8 +6,8 @@ rust-version = "1.98.0"
 publish = false
 description = "Gate consumer: builds rightkit-tauri-shell the way a Tauri 2.12 app (ViewRight, ScrapeRight) does, with the wv2-0_39 generation and no wv2-0_38."
 
-# Standalone (own workspace and own lock file) so it never enters the RightKit workspace, whose lock is
-# the Tauri 2.11 graph (tauri 2.11.5, wry 0.55.1, webview2-com 0.38.2) that every wv2-0_38 row checks.
+# Standalone consumer with its own lock. The RightKit workspace and this consumer use Tauri 2.12.
+# The native 0.38 workloads use the separate Tauri 2.11 graph in ../wv2-0_38.
 # Place at <repo>/ci/consumers/wv2-0_39/ (the paths below are relative to that directory).
 [workspace]
 

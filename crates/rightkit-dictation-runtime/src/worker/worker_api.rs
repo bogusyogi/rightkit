@@ -58,6 +58,12 @@ pub(crate) const FILE_STALL_TIMEOUT: Duration = Duration::from_secs(600);
 // phrases, app-launch verbs, & modifier chords wait until their next word resolves.
 pub(crate) const PAUSE_GATE_MS: u64 = 180;
 pub(crate) const CMD_RETRY_MS: u64 = 50;
+/// How long a shortcut-press capture warm-up keeps the idle microphone stream running while it
+/// waits for `StartRecording`, counted from the instant the stream actually resumed. A normal
+/// start follows within a few hundred milliseconds; the bound only limits how long the mic stays
+/// live when no start comes (a rejected or abandoned press). The worker loop owns the expiry. The
+/// 4 s capture ring holds the whole window.
+pub(crate) const EARLY_CAPTURE_MAX: Duration = Duration::from_millis(2_500);
 pub(crate) const CMD_PREFIX_GRACE_MS: u64 = 2_500;
 pub(crate) const COMMAND_EVENTS_JSONL_MAX_BYTES: u64 = 10 * 1024 * 1024;
 // Only the first short utterance can be a standalone command. This is a probe
@@ -129,6 +135,16 @@ impl WorkerWaitSignal {
             // `unpark` carries a token, so a notify between the sequence
             // check and park cannot be lost.
             std::thread::park();
+        }
+    }
+
+    /// Like `wait_for_change`, but returns no later than `deadline` (an early or spurious return
+    /// is possible; the caller re-checks its own deadline on the next pass).
+    pub(crate) fn wait_for_change_until(&self, observed: u64, deadline: Instant) {
+        let _ = self.waiter.set(std::thread::current());
+        let now = Instant::now();
+        if self.snapshot() == observed && now < deadline {
+            std::thread::park_timeout(deadline - now);
         }
     }
 }
@@ -301,11 +317,39 @@ impl WakeDiagnostics {
     }
 }
 
+/// Legacy peers retain receipt-age cuts; exact peers must either seal or fail closed.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CaptureRelease {
+    Legacy(Instant),
+    Exact(Result<rightkit_audio::capture::CaptureEdge, String>),
+}
+
 pub(crate) enum WorkerCapture {
     Live(CaptureSession),
 }
 
 impl WorkerCapture {
+    pub(crate) fn begin_precise_epoch(
+        &mut self,
+    ) -> Result<rightkit_audio::capture::CaptureCutHandle, String> {
+        match self {
+            Self::Live(capture) => capture
+                .begin_precise_epoch(Duration::from_millis(250))
+                .map_err(|error| error.to_string()),
+        }
+    }
+
+    pub(crate) fn seal_precise(
+        &mut self,
+        cut: &rightkit_audio::capture::CaptureCutToken,
+    ) -> Result<Vec<f32>, String> {
+        match self {
+            Self::Live(capture) => capture
+                .seal_precise(cut, Duration::from_secs(1))
+                .map_err(|error| error.to_string()),
+        }
+    }
+
     pub(crate) fn is_replay(&self) -> bool {
         false
     }
@@ -428,6 +472,39 @@ pub enum WorkerCmd {
     },
     StartRecording {
         session_id: String,
+        /// The shortcut press this start belongs to. Only the warm-up of the same attempt is
+        /// adopted. `None` (a shell without early capture) never adopts.
+        start_attempt: Option<u64>,
+    },
+    /// Shortcut pressed (start attempt `attempt`): resume the idle mic stream now so the start of
+    /// the same attempt adopts the audio captured since the press. Ignored while a session or
+    /// wake listening owns the stream, while the microphone is suspended, and for an attempt
+    /// that was already started, stopped, cancelled, revoked, expired or superseded. The worker
+    /// loop expires it a fixed time after the stream actually resumed.
+    CaptureWarmup {
+        attempt: u64,
+    },
+    /// Explicit revoke of start attempt `attempt` (a cancel or stop with no session yet, a failed
+    /// press, a stop or cancel of its session), with or without a session: close the attempt,
+    /// pause a warm stream of exactly that attempt, and fence any `StartRecording` of it that is
+    /// still behind this command so it does not record. A warm-up that merely expires fences
+    /// nothing: its press may still cold start.
+    CaptureRevoke {
+        attempt: Option<u64>,
+    },
+    /// The user released the shortcut of start attempt `attempt` (session `session_id` when the
+    /// shell knows it) at `released_at`. Applied on this ordered command path, in sequence with the
+    /// stop: if the active recording is that attempt's (and session's) it is sealed at once (no
+    /// more audio appended, no more streaming partials, cut at `released_at`) and `reply` gets
+    /// `"sealed"`; if the attempt's start has not run yet the release is held for it (`"held"`,
+    /// applied by the start); for an attempt that already ended or another session it is a no-op
+    /// (`"noop"`); a seal whose audio drain failed answers `"unsealed"` (the clip is then finalized
+    /// by the stop without a cut). Never closes or fences the attempt.
+    CaptureSeal {
+        attempt: u64,
+        session_id: Option<String>,
+        released_at: CaptureRelease,
+        reply: Sender<&'static str>,
     },
     StopRecording {
         send_enter: bool,
@@ -633,6 +710,61 @@ impl WorkerHandle {
         result
     }
 
+    /// Resume the idle mic stream at shortcut press (start attempt `attempt`). Returns once the
+    /// command is queued; the worker loop owns the bound that pauses the stream again when no
+    /// start of this attempt follows, so no timer or thread exists that could fail to start.
+    pub fn capture_warmup(&self, attempt: u64) -> Result<(), String> {
+        self.send(WorkerCmd::CaptureWarmup { attempt })
+    }
+
+    /// Explicitly revoke start attempt `attempt` (stop, cancel or a press that produced no
+    /// session): close it, pause a warm stream of exactly that attempt and fence a later start of
+    /// it. Queued on the worker's one command channel, so it is ordered with the start and stop
+    /// commands.
+    pub fn capture_revoke(&self, attempt: Option<u64>) -> Result<(), String> {
+        self.send(WorkerCmd::CaptureRevoke { attempt })
+    }
+
+    /// The shortcut of start attempt `attempt` was released (`release_age_ms` ago; absent = now): stamp the release, queue the seal
+    /// on the worker's ordered command channel and wait (bounded) for the worker to apply it. The
+    /// worker cuts the press's audio at the stamped instant, however late it dequeues the command.
+    /// `Err` when the worker is gone or does not answer in time (the stop then seals itself).
+    pub fn capture_seal(
+        &self,
+        attempt: u64,
+        session_id: Option<String>,
+        release_age_ms: Option<u64>,
+        release_edge: Option<rightkit_dictation_core::engine::CaptureReleaseEdge>,
+    ) -> Result<&'static str, String> {
+        let (reply, answer) = channel();
+        // Instants do not cross the process boundary: the shell sends how long ago the release
+        // was; the stamp is this receipt instant minus that age (the original release, however
+        // late the seal frame was sent or dequeued).
+        let now = std::time::Instant::now();
+        let released_at = match release_edge {
+            // Presence is authoritative: malformed exact markers never become receipt-time cuts.
+            Some(edge) => CaptureRelease::Exact(
+                serde_json::to_value(edge)
+                    .map_err(|e| e.to_string())
+                    .and_then(|value| serde_json::from_value(value).map_err(|e| e.to_string())),
+            ),
+            None => CaptureRelease::Legacy(
+                release_age_ms
+                    .and_then(|age| now.checked_sub(Duration::from_millis(age)))
+                    .unwrap_or(now),
+            ),
+        };
+        self.send(WorkerCmd::CaptureSeal {
+            attempt,
+            session_id,
+            released_at,
+            reply,
+        })?;
+        answer
+            .recv_timeout(Duration::from_secs(2))
+            .map_err(|_| "capture seal not applied in time".to_string())
+    }
+
     pub fn reload_model(&self) -> Result<bool, String> {
         let (reply_tx, reply_rx) = channel();
         self.send(WorkerCmd::ReloadModel {
@@ -807,6 +939,9 @@ pub fn spawn_dummy_worker(focus: Arc<Mutex<FocusTracker>>) -> Result<WorkerHandl
                 match cmd_rx.recv() {
                     Ok(WorkerCmd::Shutdown) | Err(_) => break,
                     Ok(WorkerCmd::StartRecording { .. })
+                    | Ok(WorkerCmd::CaptureWarmup { .. })
+                    | Ok(WorkerCmd::CaptureRevoke { .. })
+                    | Ok(WorkerCmd::CaptureSeal { .. })
                     | Ok(WorkerCmd::StopRecording { .. })
                     | Ok(WorkerCmd::Cancel) => {}
                     Ok(WorkerCmd::StartWakeListen { reply, .. }) => {

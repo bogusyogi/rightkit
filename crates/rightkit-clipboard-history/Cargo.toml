@@ -16,7 +16,7 @@ path = "src/lib.rs"
 [dependencies]
 serde = { version = "1.0", optional = true }
 serde_json = { version = "1.0", optional = true }
-rightkit-fs = { version = "0.4.9", default-features = false, features = ["fs", "digest", "lock"], path = "../rightkit-fs", optional = true }
+rightkit-fs = { version = "0.5.0", default-features = false, features = ["fs", "digest", "lock"], path = "../rightkit-fs", optional = true }
 rightkit-time = { version = "0.1.1", path = "../rightkit-time", optional = true }
 rightkit-launcher = { version = "0.2.0", path = "../rightkit-launcher", optional = true }
 

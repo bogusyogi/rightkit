@@ -33,6 +33,8 @@ pub(crate) const ENGINE_METHOD_ALLOWLIST: &[&str] = &[
     "file_transcription_cancel",
     "recording_started",
     "recording_context_captured",
+    "capture_warmup",
+    "capture_seal",
     "transcribing_started",
     "wake_listen_started",
     "wake_listen_stopped",
@@ -72,9 +74,13 @@ pub(crate) fn hello_version(hello: Option<&Value>) -> String {
 }
 
 /// Methods the engine acknowledges at once (`{"accepted":true}`) and completes as an id-less,
-/// generation-carrying event (stop / cancel via `transcribing_started`, and the context update).
-pub(crate) const ACCEPTED_METHODS: &[&str] =
-    &["transcribing_started", "recording_context_captured"];
+/// generation-carrying event (stop / cancel via `transcribing_started`, the context update, and
+/// the shortcut-press `capture_warmup`).
+pub(crate) const ACCEPTED_METHODS: &[&str] = &[
+    "transcribing_started",
+    "recording_context_captured",
+    "capture_warmup",
+];
 
 /// Engine process identity (`instance`) from the hello envelope; the event fence.
 pub(crate) fn hello_instance(hello: Option<&Value>) -> Option<String> {

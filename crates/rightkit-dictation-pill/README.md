@@ -2,7 +2,7 @@
 
 Source intake for native dictation overlays & platform-neutral session logic. Build, runtime & installed qualification results are pending.
 
-The controller behind a dictation pill: a recording capsule, a hint card and a clip card driven as three native layered, non-activating overlays on Windows (over `rightkit-overlay-win`), and the platform-neutral session logic around a pill of any kind: the event-driven full-screen and foreground guardian, the generation-stamped event queue, the capsule hitbox store and generic bounds helpers for a bridge to a native pill view. It carries no painters, layout sizes, colours, fonts, copy, easing curves, timings, tolerances, persisted keys, file names, tip logic or visibility policy: the host supplies all of those as required inputs.
+The controller behind a dictation pill: a recording capsule, a hint card and a clip card driven as three native layered, non-activating overlays on Windows (over `rightkit-overlay-win`), and the platform-neutral session logic around a pill of any kind: the event-driven full-screen and foreground guardian, the generation-stamped event queue, the capsule hitbox store and generic bounds helpers for a bridge to a native pill view. It carries no painters, layout sizes, colours, fonts, copy, easing curves, timings, tolerances, persisted keys, file names, app tip catalogs or app visibility settings: the host supplies all of those as required inputs.
 
 `PillEvent` comes from `rightkit-dictation-core` 0.3.2. Checkout dependencies use version-compatible sibling paths; published packages resolve those versions through Cargo.
 
@@ -111,3 +111,32 @@ Event names are `<HostInputs::event_prefix>_<code>`; the detail is `key=value` t
 ## Verification owed
 
 Run native Windows & macOS qualification against installed consumers: startup cancellation, repeated restart, shutdown with retained threads, clipboard completion deadlines, guardian event floods & callback panics, foreground/fullscreen transitions, & host-supplied painters, labels & themes.
+## Native view ABI (0.1.1)
+
+`native_view` owns host-configured callbacks, wire encoding & native-generation admission. `clip_override` owns provisional rollback & generation-specific dismissal, including settled refresh tokens. Geometry, motion, cadence, hint & session helpers take host presentation inputs. App painters, branding, copy, policy values & composition stay in app code.
+
+Coordinated C/Rust/Swift signatures:
+
+```c
+bool hr_splash_show(uint64_t generation);
+bool hr_splash_dismiss(uint64_t generation);
+void hr_pill_splash_handoff_force_complete(uint64_t generation);
+/* Existing final callback-table slot, same field order: */
+void (*splash_closed)(uint64_t generation);
+```
+
+Show & dismiss must synchronously return reviewed Runtime acceptance; queueing work is not acceptance. Swift adapter uses `RightKitPillMain.sync`, `splashShow(generation:) -> Bool`, `splashDismiss(generation:) -> Bool`, `forceCompleteSplashHandoff(generation:)` & `splashClosedGeneration`. C callback trampoline carries `uint64_t`; Rust `Actions::splash_closed` takes `u64`. Nonmatching/retired dismiss returns false.
+
+Rust `splash_show(token) -> bool` reserves one pending show, rejects duplicates without replacing accepted identity, releases mutex for native call & commits only after true ACK. Reentrant close is buffered while ACK is pending, delivered only for accepted show, discarded on refusal. Reentrant dismiss or shutdown invalidates pending show. `splash_dismiss(token) -> bool` uses request's captured token; false leaves ownership intact, true retires only matching native owner. Explicit dismiss does not report completed launch handoff. Native queries & app engine-readiness callbacks run outside Rust handoff mutex.
+
+HR app call sequence:
+
+1. Initialize process-static Rust binding once; register Swift callback host before any show. Serialize lifecycle transitions without holding app locks across Rust/Swift calls.
+2. Allocate increasing nonzero token; reserve separate pending app latch without replacing accepted latch. Release app lock, call `VIEW.splash_show(token)`.
+3. On true, promote only still-live pending token. On false, discard only that pending token; preserve previous accepted latch. A close racing ACK can retire pending token first; ACK must never resurrect it.
+4. Close handler carries token through app queues & compares against pending/accepted app latch at actual retirement. Dismissal captures same native-owner token before scheduling; call `VIEW.splash_dismiss(token)`. Successful required-download dismissal retires native presentation while logical launch remains blocked for download/prewarm.
+5. Shutdown first closes app callback/producer admission & invalidates Swift adapter lifetime epoch, then retires hint/delay producers off main thread, calls `VIEW.shutdown()`, synchronously tears down native Runtime & drains/quiesces admitted app actions. Rust binding is terminal after shutdown.
+
+Swift adapter lifetime contract: capture admission epoch before each async hop, release admission lock, then revalidate on main immediately before mutation. Shutdown invalidates epoch before its main hop. A closure with stale epoch returns false/no-op. After Runtime reentry, revalidate epoch again before acknowledging show/dismiss. Never hold admission, app or Rust lock across AppKit hop. Already-running callbacks honor app termination state before effects; lifecycle fencing applies to every native entry, not only splash calls. Preserve native windows before async hops & copy borrowed strings before entry returns: Rust frees temporary C strings then.
+
+Source-only candidate. Root owns command-based checks & Oracle review.

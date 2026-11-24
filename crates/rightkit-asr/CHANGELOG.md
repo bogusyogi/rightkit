@@ -3,6 +3,16 @@
 All notable changes to `rightkit-asr`. Versions follow Cargo semver; while the
 version is `0.x`, a minor bump may carry breaking changes.
 
+## 0.5.2
+
+- Default Windows Parakeet decoder/joint CPU sessions to no spinning and a four-thread cap, preserving explicit intra-op overrides and the streaming KWS C ABI.
+
+## 0.5.1
+
+- Add optional `kws-ffi` feature with streaming keyword-spotter C ABI, `kws_ffi` module & packaged `include/rightkit_asr_kws.h`. Native hosts use `rightkit_asr_kws_*` symbols & release returned strings through `rightkit_asr_string_free`.
+- Accept caller-selected active-path TTL in 40 ms frames; zero or negative disables expiry. Existing callers retain 38 by passing 38.
+- Reject unproven pre-existing ORT API bindings during iOS static initialization. Track successful API installation before environment creation so retries keep that binding & cannot switch to another library.
+
 ## 0.5.0
 
 - Breaking for dependents: dependency requirements `rightkit-onnx` 0.2 -> 0.3, `rightkit-vad` 0.1 -> 0.2. 0.4.2 was published before these requirements were raised; a semver-breaking dependency is a breaking change, so they ship as 0.5.0 instead of changing 0.4.2 in place (#1572). No source change in this crate since 0.4.2.

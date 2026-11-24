@@ -44,3 +44,11 @@ export {
   type ListNavigationOptions,
 } from "./list.js";
 export { matchScore, rankCommands, rankItems, type Rankable, type RankOptions } from "./rank.js";
+export {
+  placeTooltip,
+  tooltipTextFor,
+  useHoverTooltip,
+  type TooltipBox,
+  type TooltipPlacementOptions,
+  type UseHoverTooltipOptions,
+} from "./hover-tooltip.js";

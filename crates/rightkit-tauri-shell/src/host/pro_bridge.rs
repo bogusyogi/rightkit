@@ -90,14 +90,14 @@ const DEFAULT_HELPER_TIMEOUT: Duration = Duration::from_secs(15);
 /// Everything product-specific.
 #[derive(Debug, Clone)]
 pub struct ProBridgeConfig {
-    /// File name of the Swift helper, e.g. `HeardRightAppleCredentials`. It ships as its own nested
+    /// File name of the Swift helper, e.g. `ExampleAppleCredentials`. It ships as its own nested
     /// `.app` under `Contents/Library/LoginItems` (the keychain access group needs its profile).
     pub helper_binary_name: String,
     /// Developer ID team the helper must be signed by. `Some` verifies the signature before every
     /// spawn (the helper receives the bridge token); `None` runs a helper found by placement alone.
     pub helper_team_id: Option<String>,
     /// The versioned consent marker written to the synchronized account, e.g.
-    /// `heardright.apple-sync.v1`.
+    /// `example.apple-sync.v1`.
     pub consent_marker: String,
     /// The state file (`pro-bridge-state.json` in the app's data directory).
     pub state_file: PathBuf,

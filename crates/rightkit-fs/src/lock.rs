@@ -31,7 +31,7 @@
 //! Owner records are JSON, so they need the `json` feature. Without it, `acquire` writes no
 //! owner file, `recovered_stale` is always `None`, and `current_owner` and `probe_owner` return
 //! `None`. The lock itself behaves the same either way. An owner record carries both
-//! `started_unix_ms` and an RFC 3339 `started` field (the shape CutRight reads), and a read
+//! `started_unix_ms` and an RFC 3339 `started` field, and a read
 //! accepts either one, so records written by older builds still parse.
 //!
 //! # The Unix registry: every request, what it does, what a crash leaves
@@ -63,7 +63,7 @@
 //! Windows takes `LockFileEx` on one handle per attempt (no registry, not inherited); a reparse
 //! point at the lock path is refused (`lock_reparse.rs`, Windows).
 //!
-//! Consolidates CutRight project/model-store/qa locks and CodeRight `DaemonDbLock`.
+//! Every process that modifies the protected resource must participate in the locking protocol.
 
 #[cfg(feature = "json")]
 use crate::atomic::atomic_write;
@@ -117,8 +117,7 @@ impl LockOwner {
 }
 
 /// The owner file's JSON shape. Writes always carry both start-time fields. Reads prefer
-/// `started_unix_ms` and fall back to RFC 3339 `started`, and a missing `label` reads as empty
-/// (CutRight's records have none).
+/// `started_unix_ms` and fall back to RFC 3339 `started`, and a missing `label` reads as empty.
 #[cfg(feature = "json")]
 #[derive(Serialize, Deserialize)]
 struct OwnerRecord {
@@ -792,7 +791,7 @@ fn civil_from_days(days: i64) -> (i64, u32, u32) {
     (year, month, day)
 }
 
-/// RFC 3339 UTC with whole seconds (`2020-01-01T00:00:00Z`), the form CutRight writes.
+/// RFC 3339 UTC with whole seconds (`2020-01-01T00:00:00Z`).
 /// Sub-second precision is dropped here; `started_unix_ms` keeps it.
 #[cfg(feature = "json")]
 fn format_rfc3339_secs(unix_ms: u64) -> String {

@@ -62,6 +62,7 @@ pub struct ControlIdentity {
 
 impl ControlIdentity {
     /// `element_token` must be non-empty.
+    #[cfg(any(windows, target_os = "macos"))]
     pub(crate) fn new(
         pid: i32,
         window_id: Option<u64>,
@@ -162,7 +163,9 @@ pub enum TextSelectError {
     /// A read failed or was inconsistent.
     Unreadable(&'static str),
     /// The document is longer than the limit; nothing was selected.
-    TooLarge { limit_utf16: usize },
+    TooLarge {
+        limit_utf16: usize,
+    },
     /// `start > end` or `end` is past the document.
     InvalidSpan {
         start: usize,
@@ -170,13 +173,17 @@ pub enum TextSelectError {
         len_utf16: usize,
     },
     /// An offset falls inside a surrogate pair.
-    SplitsSurrogatePair { offset: usize },
+    SplitsSurrogatePair {
+        offset: usize,
+    },
     /// The control is not the focused element.
     NotFocused,
     /// The focused control is not the one this target was made for.
     IdentityChanged,
     /// The document text differs from `expected_full_text`.
-    TextChanged { stage: Stage },
+    TextChanged {
+        stage: Stage,
+    },
     /// A failure after the selection was touched, with what happened to the original selection.
     AfterSelection {
         cause: Box<TextSelectError>,

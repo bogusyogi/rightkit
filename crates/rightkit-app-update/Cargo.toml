@@ -12,7 +12,7 @@ categories = ["os"]
 include = ["src/**", "Cargo.toml", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [dependencies]
-rightkit-fs = { version = "0.4.9", path = "../rightkit-fs", default-features = false, features = ["fs"] }
+rightkit-fs = { version = "0.5.0", path = "../rightkit-fs", default-features = false, features = ["fs"] }
 rightkit-http = { version = "0.4.0", path = "../rightkit-http", default-features = false }
 rightkit-crypto = { version = "0.1.0", path = "../rightkit-crypto" }
 serde = { version = "1.0.229", features = ["derive"] }

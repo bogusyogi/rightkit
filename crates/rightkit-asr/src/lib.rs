@@ -57,6 +57,8 @@ mod decoder_tdt;
 mod error;
 mod execution;
 pub mod kws;
+#[cfg(feature = "kws-ffi")]
+pub mod kws_ffi;
 mod model;
 mod model_eou;
 mod model_nemotron;

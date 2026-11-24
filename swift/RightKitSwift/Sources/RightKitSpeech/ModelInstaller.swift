@@ -44,6 +44,7 @@ public struct ModelInstaller: Sendable {
         layout: ModelStoreLayout,
         onValidating: @escaping @Sendable () -> Void = {}
     ) async throws -> URL {
+        try Self.requireSafeDirectoryName(spec.directoryName)
         guard let digest = spec.expectedSHA256?.lowercased() else {
             throw ModelDownloadError.missingExpectedDigest(spec.directoryName)
         }
@@ -68,9 +69,15 @@ public struct ModelInstaller: Sendable {
 
     /// Resolves an activation that a crash or kill interrupted. A half-activated model is validated and
     /// kept if it loads, otherwise rolled back to the previous install. Call it on launch.
+    ///
+    /// An activation left by the app's earlier installer (`.<name>.previous-aside` with its
+    /// `.<name>.replacement-pending` marker) is resolved first (``LegacyModelInstall/recover(_:modelsRoot:)``),
+    /// so nothing reads the install before it is settled.
     @discardableResult
     public func recoverInterruptedInstall(_ spec: ModelArtifactSpec, layout: ModelStoreLayout) async throws -> ArtifactRecoveryOutcome {
+        try Self.requireSafeDirectoryName(spec.directoryName)
         let validate = self.validate
+        try LegacyModelInstall.recover(spec, modelsRoot: layout.modelsRoot)
         return try await ArtifactInstaller.recoverInterruptedInstall(
             destinationRoot: layout.modelsRoot, topLevelDirectory: spec.directoryName,
             postActivationValidation: { directory in try await validate(spec, directory) })
@@ -79,26 +86,37 @@ public struct ModelInstaller: Sendable {
     /// True when the model is installed, validated (ready marker present), structurally complete, and is
     /// the archive `spec` pins. Resolves an interrupted install first.
     ///
-    /// An install that recorded a different archive digest than the spec's is not ready: a build that
-    /// pins a newer model must download it instead of keeping the old one. An install with no manifest
-    /// (made by an older app, before this owner) is trusted as it stands.
+    /// The digest the install was made from is read from its manifest (``ModelInstallProof``: this owner's
+    /// `.rightkit-manifest.json`, else the earlier installer's `manifest.json`) and must equal the spec's
+    /// pinned digest. An install whose digest differs, cannot be read, or that has no pinned digest to
+    /// compare with is not ready: a build that pins a newer model downloads it, and an install that cannot
+    /// be proven is never trusted as it stands.
     public func isReady(_ spec: ModelArtifactSpec, layout: ModelStoreLayout) async -> Bool {
-        _ = try? await recoverInterruptedInstall(spec, layout: layout)
+        do { _ = try await recoverInterruptedInstall(spec, layout: layout) } catch { return false }
         let directory = layout.modelDirectory(for: spec)
         guard spec.isStructurallyInstalled(at: directory), CoreMLModelValidator.hasReadyMarker(at: directory) else { return false }
-        if let installed = (try? ArtifactInstaller.readManifest(destinationRoot: layout.modelsRoot, topLevelDirectory: spec.directoryName))?.archiveSHA256,
-           let pinned = spec.expectedSHA256, installed.caseInsensitiveCompare(pinned) != .orderedSame {
-            return false
+        return ModelInstallProof.matchesPin(spec, modelsRoot: layout.modelsRoot)
+    }
+
+    private static func requireSafeDirectoryName(_ name: String) throws {
+        guard !name.isEmpty, name != ".", name != "..", !name.contains("/"),
+              !name.contains("\\"), !name.contains("\u{0}") else {
+            throw ArtifactError.invalidTopLevelDirectory(name)
         }
-        return true
     }
 
     /// Deletes the installed model and any retained archive or aside for `spec`.
     public func remove(_ spec: ModelArtifactSpec, layout: ModelStoreLayout) throws {
+        try Self.requireSafeDirectoryName(spec.directoryName)
         let manager = FileManager.default
         let modelsEntries = (try? manager.contentsOfDirectory(atPath: layout.modelsRoot.path)) ?? []
-        // The installer's scratch and aside names all contain the top-level name; remove them with it.
-        let related = modelsEntries.filter { $0 == spec.directoryName || ($0.hasPrefix(".") && $0.contains(spec.directoryName)) }
+        // Match this model's exact transaction names; a substring could delete another model's files.
+        let name = spec.directoryName
+        let fixed = Set([name, ".aside-\(name)", ".pending-\(name).json",
+                         ".\(name).previous-aside", ".\(name).replacement-pending"])
+        let related = modelsEntries.filter {
+            fixed.contains($0) || $0.hasPrefix(".staging-\(name)-") || $0.hasPrefix(".trash-\(name)-")
+        }
         for name in related { try manager.removeItem(at: layout.modelsRoot.appendingPathComponent(name)) }
         if manager.fileExists(atPath: layout.archiveURL(for: spec).path) {
             try manager.removeItem(at: layout.archiveURL(for: spec))

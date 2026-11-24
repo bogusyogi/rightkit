@@ -26,6 +26,26 @@ pub struct StreamResampler {
 }
 
 impl StreamResampler {
+    /// Fresh, delay-compensated conversion of already selected native input.
+    /// rubato 5 process_all resets state, flushes with zeros & trims startup delay.
+    /// Output length is ceil(native_len * output_rate / input_rate).
+    pub fn resample_sealed(input: &[f32], input_rate: u32, output_rate: u32) -> Result<Vec<f32>> {
+        let mut fresh = Self::new(input_rate, output_rate)?;
+        let Some(inner) = fresh.inner.as_mut() else {
+            return Ok(input.to_vec());
+        };
+        if input.is_empty() {
+            return Ok(Vec::new());
+        }
+        let channels = vec![input.to_vec()];
+        let adapter = SequentialSliceOfVecs::new(&channels, 1, input.len())
+            .map_err(|e| anyhow!("rubato sealed input adapter failed: {e}"))?;
+        let output = inner
+            .process_all(&adapter, input.len(), None)
+            .map_err(|e| anyhow!("rubato sealed resample failed: {e}"))?;
+        Ok(output.take_data())
+    }
+
     pub fn new(input_rate: u32, output_rate: u32) -> Result<Self> {
         if input_rate == 0 || output_rate == 0 {
             return Err(anyhow!("resampler rates must be non-zero"));

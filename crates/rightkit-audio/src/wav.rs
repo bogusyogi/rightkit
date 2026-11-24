@@ -1,5 +1,4 @@
-//! WAV read/write through `hound`. Dedupes ScrapeRight `crates/audio/src/wav.rs`
-//! (16 kHz mono reader) and the PCM writers apps hand-rolled around capture.
+//! WAV read/write through `hound`.
 
 use std::path::Path;
 
@@ -60,7 +59,7 @@ fn decode_mono_f32<R: std::io::Read>(
             }
         }
         hound::SampleFormat::Int => {
-            // Same scale as the writer (and ScrapeRight): full scale is 2^(bits-1) - 1.
+            // Full scale matches the writer: 2^(bits-1) - 1.
             let scale = ((1i64 << (spec.bits_per_sample - 1)) - 1) as f32;
             for s in reader.samples::<i32>().take(limit) {
                 interleaved.push(s.map_err(wav_err)? as f32 / scale);
@@ -81,7 +80,7 @@ fn decode_mono_f32<R: std::io::Read>(
     })
 }
 
-/// ScrapeRight's contract: the file must already be 16 kHz mono; returns its samples.
+/// Read samples from an existing 16 kHz mono WAV.
 pub fn read_wav_16k_mono(path: &Path) -> Result<Vec<f32>, AudioError> {
     let reader = hound::WavReader::open(path).map_err(wav_err)?;
     let spec = reader.spec();

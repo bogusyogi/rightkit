@@ -102,8 +102,11 @@ pub use engine::{
 pub use engine::{mark_background_history_changed, open_history_store_for_background};
 pub use prepared::{PreparedEngineCancel, PreparedEngineStart, PreparedEngineStop};
 pub use shared::{
-    app_state_lock_free, engine_info_lock_free, prewarm_handshake_lock_free,
-    register_engine_sidecar, sidecar_final_wait_expired_lock_free,
-    sidecar_is_transcribing_session_lock_free, sidecar_revoke_session_lock_free, state_is_current,
-    terminal_error_generation_lock_free, SharedState,
+    active_session_lock_free, app_state_lock_free, begin_start_attempt, cancel_pending_start,
+    defer_stop_to_pending_start, engine_info_lock_free, prewarm_handshake_lock_free,
+    register_engine_sidecar, revoke_capture_warmup, seal_capture_at_recorded_release,
+    seal_capture_for_stop, seal_capture_for_stop_at, send_capture_warmup,
+    sidecar_final_wait_expired_lock_free, sidecar_is_transcribing_session_lock_free,
+    sidecar_revoke_session_lock_free, state_is_current, terminal_error_generation_lock_free,
+    DeferredStop, OriginalReleaseMark, PendingStart, SharedState, StartReservation,
 };

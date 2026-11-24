@@ -194,6 +194,7 @@ pub(crate) fn handle(
             recording_target,
             recording_context,
             last_pasted,
+            start_attempt,
         } => {
             // Get the already-warm worker handle under a brief lock. Model
             // changes are proactively warmed by ReplaceEngineConfig, and the
@@ -232,11 +233,18 @@ pub(crate) fn handle(
                 Ok(Some(_focus)) => {
                     let _ = handle.send(crate::worker::WorkerCmd::StartRecording {
                         session_id: session_id.clone(),
+                        start_attempt,
                     });
                 }
                 Ok(None) => {}
                 Err(message) => {
-                    return error_frame(request_id, &trace_id, Some(&session_id), &message)
+                    // A rejected start (still finishing the previous dictation, bad state) left
+                    // the press's warm stream running: close the attempt so it pauses now
+                    // instead of at its bound.
+                    if let Some(attempt) = start_attempt {
+                        let _ = handle.capture_revoke(Some(attempt));
+                    }
+                    return error_frame(request_id, &trace_id, Some(&session_id), &message);
                 }
             }
             EngineFrame::base(
@@ -247,6 +255,87 @@ pub(crate) fn handle(
                 Some(EnginePayload::RecordingStarted {
                     session_id,
                     last_pasted: None,
+                }),
+                None,
+            )
+        }
+        Request::CaptureSeal {
+            start_attempt_id,
+            session_id,
+            release_age_ms,
+            release_edge,
+        } => {
+            // The seal travels the worker's one ordered command channel, the same path as the
+            // stop, and is answered only after the worker applied it: the shell waits for this
+            // reply before it sends the key-gated stop. Only a worker that already exists is
+            // asked (never spawned). Runs on its own request thread (the runtime lock is held
+            // only to fetch the handle), so a busy worker never blocks the read loop.
+            let exact = release_edge.is_some();
+            let handle = runtime.lock().existing_worker_handle();
+            let status = match handle {
+                Some(handle) => handle
+                    .capture_seal(
+                        start_attempt_id,
+                        session_id.clone(),
+                        release_age_ms,
+                        release_edge,
+                    )
+                    .unwrap_or("unavailable"),
+                None => "unavailable",
+            };
+            EngineFrame::base(
+                EngineSchemaName::EngineAck,
+                request_id,
+                session_id,
+                &trace_id,
+                Some(EnginePayload::EngineAck {
+                    // Distinct acknowledgements prevent a new shell accepting an older
+                    // engine's silently ignored edge as precise qualification.
+                    status: if exact && matches!(status, "sealed" | "held" | "noop") {
+                        format!("{status}_exact")
+                    } else {
+                        status.into()
+                    },
+                    detail: None,
+                }),
+                None,
+            )
+        }
+        Request::CaptureWarmup {
+            start_attempt_id,
+            revoke,
+        } => {
+            // Only a worker that already exists is warmed: the request must never spawn one, and
+            // the worker itself ignores it while a session or wake listening owns the stream and
+            // for an attempt that was already started, stopped, cancelled or revoked. The server
+            // runs this handler on its read-loop thread, before the accepted reply and before
+            // any later request is read, so a warm-up written ahead of its Start is queued ahead
+            // of it. The shell does not wait for that: a warm-up that loses the race is fenced by
+            // attempt id in the worker (floor and explicit-revoke set). Stop and cancel of the
+            // same press stay on their own threads for the same reason.
+            let handle = runtime.lock().existing_worker_handle();
+            let status = match handle {
+                Some(handle) => {
+                    let queued = if revoke {
+                        handle.capture_revoke(Some(start_attempt_id))
+                    } else {
+                        handle.capture_warmup(start_attempt_id)
+                    };
+                    match queued {
+                        Ok(()) => "ok",
+                        Err(_) => "unavailable",
+                    }
+                }
+                None => "unavailable",
+            };
+            EngineFrame::base(
+                EngineSchemaName::EngineAck,
+                request_id,
+                None,
+                &trace_id,
+                Some(EnginePayload::EngineAck {
+                    status: status.into(),
+                    detail: None,
                 }),
                 None,
             )
@@ -318,8 +407,16 @@ pub(crate) fn handle(
             session_id,
             send_enter,
             local_only,
+            start_attempt,
         } => {
             let mut r = runtime.lock();
+            // Explicit pre-session stop: close the press's attempt and pause its warm stream
+            // first, whether or not a session is active (`begin_stop` is a no-op without one).
+            if let Some(attempt) = start_attempt {
+                if let Some(handle) = r.existing_worker_handle() {
+                    let _ = handle.capture_revoke(Some(attempt));
+                }
+            }
             match r.begin_stop(&session_id, send_enter, local_only) {
                 Ok(()) => EngineFrame::base(
                     EngineSchemaName::TranscribingStarted,
@@ -341,7 +438,10 @@ pub(crate) fn handle(
                 Err(message) => error_frame(request_id, &trace_id, Some(&session_id), &message),
             }
         }
-        Request::CancelDictation { session_id } => {
+        Request::CancelDictation {
+            session_id,
+            start_attempt,
+        } => {
             let source = cancel_source_from_request_id(request_id);
             tracing::info!(
                 target: "cancel_lifecycle",
@@ -351,9 +451,18 @@ pub(crate) fn handle(
                 request_id,
                 "external cancel received"
             );
-            runtime
-                .lock()
-                .cancel_traced(&session_id, request_id, source);
+            {
+                let mut r = runtime.lock();
+                // Explicit pre-session cancel: close the press's attempt and pause its warm
+                // stream first, whether or not a session is active (`cancel_traced` is a no-op
+                // without one).
+                if let Some(attempt) = start_attempt {
+                    if let Some(handle) = r.existing_worker_handle() {
+                        let _ = handle.capture_revoke(Some(attempt));
+                    }
+                }
+                r.cancel_traced(&session_id, request_id, source);
+            }
             EngineFrame::base(
                 EngineSchemaName::TranscribingStarted,
                 request_id,
@@ -677,6 +786,7 @@ pub(crate) fn accepts_immediately(request: &Request) -> bool {
         Request::StopDictation { .. }
             | Request::CancelDictation { .. }
             | Request::UpdateRecordingContext { .. }
+            | Request::CaptureWarmup { .. }
     )
 }
 
@@ -684,7 +794,7 @@ pub(crate) fn accepts_immediately(request: &Request) -> bool {
 pub(crate) fn accepted_session_id(request: &Request) -> Option<String> {
     match request {
         Request::StopDictation { session_id, .. }
-        | Request::CancelDictation { session_id }
+        | Request::CancelDictation { session_id, .. }
         | Request::UpdateRecordingContext { session_id, .. } => Some(session_id.clone()),
         _ => None,
     }

@@ -1,10 +1,6 @@
-//! DevTools policy: every Right app has no access to DevTools; ViewRight alone may inspect the
-//! HTML content it opens.
-//!
-//! The owner's fixed design, verbatim: every Right app has absolutely NO access to DevTools,
-//! blocked at each and every level that is possible, for the app, its shell and its own UI. The
-//! single exception is ViewRight: it opens HTML documents, and DevTools must be available INSIDE
-//! that opened HTML content only (the content frame), never for ViewRight's own UI or shell.
+//! DevTools policy denies inspection of app UI & shell in every build.
+//! Only release-authorized hosts may inspect explicitly registered, IPC-isolated opened content.
+//! Product authorization & original owner wording live in release policy documentation.
 //!
 //! Two values exist, [`DevToolsPolicy::Denied`] (the default) and [`DevToolsPolicy::ContentOnly`]
 //! (a named allowance an app must request explicitly). Under both, every webview the shell sees is
@@ -37,8 +33,8 @@ use std::time::{Duration, SystemTime};
 
 use tauri::{AppHandle, Manager, Runtime, Webview};
 
-/// The owner's decision, stated verbatim. Do not edit or soften.
-pub const OWNER_DECISION: &str = "Every Right app has absolutely NO access to DevTools: blocked at each and every level that is possible, for the app, its shell and its own UI. The single exception is ViewRight: it opens HTML documents, and DevTools must be available INSIDE that opened HTML content only (the content frame), never for ViewRight's own UI or shell.";
+/// General policy summary. Original owner wording & app authorization live in release policy docs.
+pub const OWNER_DECISION: &str = "App UI and shell DevTools are denied in every build. Only release-authorized hosts may inspect explicitly registered, IPC-isolated opened content.";
 
 /// Bytes a binary carries when it was built with the `content-devtools` feature. `right-release`
 /// accepts Tauri's devtools code in a binary only if this marker is present and the app is on the
@@ -68,7 +64,7 @@ pub enum DevToolsPolicy {
     #[default]
     Denied,
     /// Only webviews the app registered as content webviews ([`ContentWebview`]) are inspectable.
-    /// A named allowance; intended for ViewRight only. Needs the `content-devtools` feature.
+    /// A named allowance; restricted by the release allow-list. Needs the `content-devtools` feature.
     ContentOnly,
 }
 

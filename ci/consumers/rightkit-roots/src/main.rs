@@ -145,9 +145,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     // The other two root implementations are the rightkit-fs items, re-exported.
     let _: fn(&std::path::Path) -> Result<rightkit_roots::StateDir, _> =
         rightkit_roots::StateDir::open;
-    assert_eq!(rightkit_roots::app_dirs::DEFAULT_ORG, SUITE_DIR_NAME);
+    let folder_id = rightkit_roots::app_dirs::AppId::new("ExampleApp", Some(SUITE_DIR_NAME));
+    assert_eq!(folder_id.org, Some(SUITE_DIR_NAME));
     ok("app_dirs and StateDir re-exports");
 
-    println!("OK rightkit-roots 0.2.0 (registry consumer)");
+    println!("OK rightkit-roots 0.3.0 (registry consumer)");
     Ok(())
 }

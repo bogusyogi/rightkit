@@ -117,6 +117,54 @@ public final class ModelDownloader: NSObject, URLSessionDownloadDelegate, @unche
         }
     }
 
+    /// Explicit entitlement tokens stay in-process so redirects can be refused before any request
+    /// leaves the configured origin. This transfer can continue while the process runs, but cannot
+    /// survive suspension or termination; retry starts a new transfer. Worker grants keep the stable
+    /// background session and its staging format through `download`.
+    func downloadWithExplicitBearer(
+        _ request: URLRequest,
+        modelID: String,
+        onProgress: @escaping @Sendable (Int64, Int64) -> Void
+    ) async throws -> URL {
+        guard let origin = request.url else { throw ModelDownloadError.notConfigured }
+        try ModelDownloadCoordinator.requireSecureOrigin(of: origin, workerBase: nil)
+        // Retire a legacy background transfer for this model before starting the protected transport.
+        await cancelDownloads(modelID: modelID)
+        try Task.checkCancellation()
+        let delegate = ExplicitBearerDownloadDelegate(origin: origin, onProgress: onProgress)
+        let settings = URLSessionConfiguration.ephemeral
+        settings.urlCredentialStorage = nil
+        settings.httpCookieStorage = nil
+        settings.httpShouldSetCookies = false
+        let transport = URLSession(configuration: settings)
+        defer { transport.invalidateAndCancel() }
+        let (location, response) = try await transport.download(for: request, delegate: delegate)
+        defer { try? FileManager.default.removeItem(at: location) }
+        guard let finalURL = response.url, Self.sameOrigin(origin, finalURL),
+              finalURL.user == nil, finalURL.password == nil,
+              let http = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
+        guard (200..<300).contains(http.statusCode) else { throw ModelDownloadError.httpStatus(http.statusCode) }
+        try Task.checkCancellation()
+        try FileManager.default.createDirectory(at: configuration.workDirectory, withIntermediateDirectories: true)
+        let retained = configuration.workDirectory.appendingPathComponent("explicit-\(UUID().uuidString).download")
+        try FileManager.default.moveItem(at: location, to: retained)
+        return retained
+    }
+
+    static func explicitBearerRedirectRequest(original: URL, proposed: URLRequest) -> URLRequest? {
+        guard let target = proposed.url, target.scheme?.lowercased() == "https",
+              target.user == nil, target.password == nil, sameOrigin(original, target) else { return nil }
+        return proposed
+    }
+
+    /// True when the (background) session still holds a running or suspended transfer for `modelID`: one
+    /// the system kept going while the app was away. ``download(_:modelID:onProgress:)`` joins it.
+    public func hasActiveDownload(modelID: String) async -> Bool {
+        await session.allTasks.contains {
+            $0 is URLSessionDownloadTask && $0.taskDescription == modelID && ($0.state == .running || $0.state == .suspended)
+        }
+    }
+
     /// Cancels running downloads for `modelID`, or every download when nil.
     public func cancelDownloads(modelID: String? = nil) async {
         let tasks = await session.allTasks
@@ -171,7 +219,16 @@ public final class ModelDownloader: NSObject, URLSessionDownloadDelegate, @unche
 
     /// The finished-download path. Must run synchronously inside `didFinishDownloadingTo`, because the
     /// system deletes `location` when that delegate call returns.
-    func handleFinished(taskIdentifier: Int, modelID: String?, response: URLResponse?, location: URL) {
+    func handleFinished(taskIdentifier: Int, modelID: String?, response: URLResponse?, location: URL, originalURL: URL?) {
+        // Background sessions follow redirects without invoking the redirect delegate. Never persist an
+        // archive whose final response escaped its configured HTTPS origin. This is a persistence boundary,
+        // not a claim that the background transport can prevent credential forwarding during redirects.
+        guard let originalURL, let finalURL = response?.url,
+              originalURL.scheme?.lowercased() == "https", finalURL.scheme?.lowercased() == "https",
+              finalURL.user == nil, finalURL.password == nil, Self.sameOrigin(originalURL, finalURL) else {
+            fail(taskIdentifier: taskIdentifier, error: URLError(.badServerResponse))
+            return
+        }
         guard let waiter = takeWaiter(taskIdentifier) else {
             // Nobody is waiting: the app was relaunched for this download. Park it durably.
             guard let modelID, configuration.isKnownModel(modelID) else { return }
@@ -222,7 +279,39 @@ public final class ModelDownloader: NSObject, URLSessionDownloadDelegate, @unche
     public func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
         handleFinished(
             taskIdentifier: downloadTask.taskIdentifier, modelID: downloadTask.taskDescription,
-            response: downloadTask.response, location: location)
+            response: downloadTask.response, location: location, originalURL: downloadTask.originalRequest?.url)
+    }
+
+    /// Defense for default/ephemeral sessions only; iOS background sessions never call this delegate.
+    /// For those sessions, the final response is checked before persistence in `handleFinished`.
+    /// A redirect is followed only to an `https` address with a host and
+    /// no embedded credentials; one that leaves the original request's origin (scheme, host, port) is
+    /// followed WITHOUT the `Authorization` header. Explicit entitlement transfers use a separate
+    /// in-process delegate that refuses every cross-origin redirect. Anything else is not followed:
+    /// the task then ends with the 3xx answer, which is reported as a failed status.
+    public func urlSession(
+        _ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void
+    ) {
+        completionHandler(Self.redirectRequest(original: task.originalRequest?.url, proposed: request))
+    }
+
+    static func redirectRequest(original: URL?, proposed: URLRequest) -> URLRequest? {
+        guard let target = proposed.url, target.scheme?.lowercased() == "https",
+              let host = target.host, !host.isEmpty, target.user == nil, target.password == nil else { return nil }
+        guard let original, sameOrigin(original, target) else {
+            var stripped = proposed
+            stripped.setValue(nil, forHTTPHeaderField: "Authorization")
+            stripped.setValue(nil, forHTTPHeaderField: "Proxy-Authorization")
+            return stripped
+        }
+        return proposed
+    }
+
+    static func sameOrigin(_ lhs: URL, _ rhs: URL) -> Bool {
+        lhs.scheme?.lowercased() == rhs.scheme?.lowercased()
+            && lhs.host?.lowercased() == rhs.host?.lowercased()
+            && (lhs.port ?? 443) == (rhs.port ?? 443)
     }
 
     public func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
@@ -233,5 +322,31 @@ public final class ModelDownloader: NSObject, URLSessionDownloadDelegate, @unche
     public func urlSessionDidFinishEvents(forBackgroundURLSession session: URLSession) {
         completeSystemEvents()
     }
+}
+/// Per-transfer delegate: unlike background sessions, ephemeral download tasks invoke this boundary.
+private final class ExplicitBearerDownloadDelegate: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
+    private let origin: URL
+    private let onProgress: @Sendable (Int64, Int64) -> Void
+
+    init(origin: URL, onProgress: @escaping @Sendable (Int64, Int64) -> Void) {
+        self.origin = origin
+        self.onProgress = onProgress
+    }
+
+    func urlSession(
+        _ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest, completionHandler: @escaping @Sendable (URLRequest?) -> Void
+    ) {
+        completionHandler(ModelDownloader.explicitBearerRedirectRequest(original: origin, proposed: request))
+    }
+
+    func urlSession(
+        _ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64,
+        totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64
+    ) {
+        onProgress(totalBytesWritten, totalBytesExpectedToWrite)
+    }
+
+    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {}
 }
 #endif

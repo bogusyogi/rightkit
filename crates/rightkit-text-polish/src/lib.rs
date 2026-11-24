@@ -14,6 +14,7 @@
 pub mod text_pipeline;
 pub mod vocab_learn;
 pub mod vocabulary;
+pub mod vocabulary_limits;
 
 #[cfg(feature = "store")]
 pub mod vocabulary_store;

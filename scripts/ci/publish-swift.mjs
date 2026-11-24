@@ -33,7 +33,7 @@ export const SWIFT_NAME = "RightKitSwift";
 export const PACKAGE_DIR = "swift/RightKitSwift";
 export const DIGEST_PATHS = Object.freeze(["Package.swift", PACKAGE_DIR]);
 export const WORKFLOW_REF = `${REPOSITORY}/.github/workflows/publish-swift.yml@refs/heads/main`;
-export const DRIFT_CHECK = path.join("scripts", "swift-root-manifest.mjs");
+export const DRIFT_TEST = path.join("scripts", "swift-root-manifest.mjs");
 export const TREE_DIGEST_CONTRACT = "rightkit-swift-tree/v1";
 const PLAIN_SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 const FULL_SHA = /^[0-9a-f]{40}$/;
@@ -128,7 +128,7 @@ export function checkCheckout({ git, root = ROOT, commit, version, repository = 
 }
 
 function defaultDrift(root) {
-  return spawnSync(process.execPath, [DRIFT_CHECK], { cwd: root, encoding: "utf8", windowsHide: true, env: cleanEnvironment() });
+  return spawnSync(process.execPath, [DRIFT_TEST], { cwd: root, encoding: "utf8", windowsHide: true, env: cleanEnvironment() });
 }
 
 // ---- source files ------------------------------------------------------------------------------

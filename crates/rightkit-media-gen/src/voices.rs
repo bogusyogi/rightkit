@@ -710,7 +710,7 @@ fn voiceright_default_dirs() -> Vec<PathBuf> {
         .join("voices");
     // Flat `<app-data base>/<identifier>` as Tauri's `app_data_dir` lays it out; the base is the
     // parent of the resolved folder, so a debug build's `Dev` namespace never changes the search.
-    let app = rightkit_fs::AppId::new("com.rightsuite.voiceright").without_org();
+    let app = rightkit_fs::AppId::new("com.rightsuite.voiceright", None);
     rightkit_fs::AppDirs::resolve(app)
         .ok()
         .and_then(|dirs| dirs.data.parent().map(|base| base.join(&rel)))

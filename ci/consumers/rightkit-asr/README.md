@@ -1,8 +1,8 @@
-# rightkit-asr 0.3.0 registry consumer (PK18)
+# rightkit-asr 0.5.2 registry consumer (PK18)
 
 Publication qualification supplement, reviewed 2026-10-23; added after original
-PK01–PK17 inventory. Standalone consumer pins registry `rightkit-asr =0.3.0` &
-`rightkit-transcript =0.4.0`, outside workspace dependency resolution.
+PK01–PK17 inventory. Standalone consumer pins registry `rightkit-asr =0.5.2` &
+`rightkit-transcript =0.4.2`, outside workspace dependency resolution.
 
 Release delta: transcript 0.4 type migration, including `TimedWord::source_ms`;
 ASR 0.3.0 changelog records no decoder or algorithm change. Consumer checks
@@ -21,3 +21,5 @@ accelerator, or platform-engine qualification claim. Default features are disabl
 HF tokenizer & optional engine features are outside this recipe.
 
 Run only through CI consumer lane. Root integration owns execution evidence.
+
+The registry pin enables kws-ffi and exercises null-handle refusal through its Rust C-ABI export. It does not link the iOS static runtime.

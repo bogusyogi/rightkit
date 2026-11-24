@@ -1,6 +1,6 @@
-# rightkit-tauri-shell 0.8.5 registry consumer (PK08)
+# rightkit-tauri-shell 0.8.7 registry consumer (PK08)
 
-Standalone consumer, outside the workspace, pinning `rightkit-tauri-shell =0.8.5` exactly with
+Standalone consumer, outside the workspace, pinning `rightkit-tauri-shell =0.8.7` exactly with
 default features, `background-update` and `menubar-helper`. It exercises, through public API only:
 
 - background update status starts at `Idle` in a fresh process;

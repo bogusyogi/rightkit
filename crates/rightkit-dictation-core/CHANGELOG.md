@@ -1,8 +1,12 @@
 # Changelog
 
-## Unreleased
+## 0.3.5
 
-- Add the `condition_audio` parity harness behind the `tools` feature. It applies the same conditioning policy as the dictation runtime.
+- Accept versioned exact release clock markers on capture seals. Legacy senders may omit the marker. Malformed markers reject the frame.
+
+## 0.3.4
+
+- Add typed warm-up and seal frames, start-attempt correlation and validation for early capture. Expose audio conditioning through an opt-in tools binary.
 
 ## 0.3.3 (unpublished)
 

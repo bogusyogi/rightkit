@@ -308,7 +308,7 @@ struct ModelDownloaderTests {
             let accepted = downloader.register(taskIdentifier: 5, onProgress: { written, _ in progress.mutate { $0.append(written) } }, continuation: continuation)
             #expect(accepted)
             downloader.reportProgress(taskIdentifier: 5, written: 32, expected: 64)
-            downloader.handleFinished(taskIdentifier: 5, modelID: "m", response: http(200), location: location)
+            downloader.handleFinished(taskIdentifier: 5, modelID: "m", response: http(200), location: location, originalURL: http(200).url)
         }
         #expect(try Data(contentsOf: file).count == 64)
         #expect(file.deletingLastPathComponent().lastPathComponent == "work")
@@ -325,7 +325,7 @@ struct ModelDownloaderTests {
         await #expect(throws: ModelDownloadError.httpStatus(403)) {
             _ = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<URL, Error>) in
                 downloader.register(taskIdentifier: 6, onProgress: { _, _ in }, continuation: continuation)
-                downloader.handleFinished(taskIdentifier: 6, modelID: "m", response: http(403), location: location)
+                downloader.handleFinished(taskIdentifier: 6, modelID: "m", response: http(403), location: location, originalURL: http(200).url)
             }
         }
         #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent("work").path)
@@ -340,7 +340,7 @@ struct ModelDownloaderTests {
         try Data(repeating: 1, count: 8).write(to: location)
         let file = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<URL, Error>) in
             downloader.register(taskIdentifier: 7, onProgress: { _, _ in }, continuation: continuation)
-            downloader.handleFinished(taskIdentifier: 7, modelID: "m", response: http(200), location: location)
+            downloader.handleFinished(taskIdentifier: 7, modelID: "m", response: http(200), location: location, originalURL: http(200).url)
             downloader.fail(taskIdentifier: 7, error: URLError(.cancelled))  // the late didCompleteWithError
         }
         #expect(FileManager.default.fileExists(atPath: file.path))
@@ -380,14 +380,14 @@ struct ModelDownloaderTests {
         let location = root.appendingPathComponent("system.tmp")
         try Data(repeating: 3, count: 40).write(to: location)
 
-        downloader.handleFinished(taskIdentifier: 99, modelID: "m", response: http(200), location: location)
+        downloader.handleFinished(taskIdentifier: 99, modelID: "m", response: http(200), location: location, originalURL: http(200).url)
         #expect(announced.value == ["m"])
         #expect(downloader.configuration.staging.stagedArchive(for: "m") != nil)
 
         let stray = root.appendingPathComponent("stray.tmp")
         try Data(repeating: 3, count: 40).write(to: stray)
-        downloader.handleFinished(taskIdentifier: 100, modelID: "unknown", response: http(200), location: stray)
-        downloader.handleFinished(taskIdentifier: 101, modelID: nil, response: http(200), location: stray)
+        downloader.handleFinished(taskIdentifier: 100, modelID: "unknown", response: http(200), location: stray, originalURL: http(200).url)
+        downloader.handleFinished(taskIdentifier: 101, modelID: nil, response: http(200), location: stray, originalURL: http(200).url)
         #expect(announced.value == ["m"], "an unknown model id is never staged")
     }
 
@@ -710,5 +710,94 @@ struct ModelDownloadCoordinatorTests {
         let config = ModelDownloadConfig(signedURL: URL(string: "https://worker.example/test/model.tar.gz"), expectedSHA256: v2Spec.expectedSHA256, workerBase: nil)
         let directory = try await upgrade.prepare(v2Spec, config: config)
         #expect(try String(contentsOf: directory.appendingPathComponent("model.bin"), encoding: .utf8) == "v2")
+    }
+}
+
+// Explicit entitlement tokens require a redirect boundary available before network dispatch.
+struct ModelExplicitBearerBoundaryTests {
+    @Test func redirectsStayOnConfiguredHTTPSOrigin() {
+        let origin = URL(string: "https://worker.example/model")!
+        var same = URLRequest(url: URL(string: "https://worker.example:443/other")!)
+        same.setValue("Bearer entitlement", forHTTPHeaderField: "Authorization")
+        #expect(ModelDownloader.explicitBearerRedirectRequest(original: origin, proposed: same) != nil)
+        for address in ["https://other.example/model", "http://worker.example/model",
+                        "https://worker.example:444/model", "https://user@worker.example/model"] {
+            #expect(ModelDownloader.explicitBearerRedirectRequest(
+                original: origin, proposed: URLRequest(url: URL(string: address)!)) == nil)
+        }
+    }
+
+    @Test func entitlementChoosesProtectedTransferWithoutGrantOrLegacyJoin() async throws {
+        let root = try scratch()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let backgroundCalls = Box(0)
+        let protectedCalls = Box<[String?]>([])
+        let grantCalls = Box(0)
+        let joins = Box(0)
+        let spec = makeSpec(sha: String(repeating: "a", count: 64))
+        let coordinator = ModelDownloadCoordinator(
+            layout: ModelStoreLayout(root: root), staging: ModelDownloadStaging(root: root.appendingPathComponent("staging")),
+            installer: fakeInstaller(),
+            grantClient: ModelGrantClient(transport: FakeTransport { _ in
+                grantCalls.mutate { $0 += 1 }
+                throw ModelDownloadError.httpStatus(418)
+            }, now: { Date() }),
+            userAgent: "Tests/1", deviceID: { "device" }, allowsCellular: { false },
+            authorizer: { _ in .bearer("entitlement") },
+            fetch: { _, _, _ in
+                backgroundCalls.mutate { $0 += 1 }
+                throw ModelDownloadError.httpStatus(418)
+            },
+            explicitBearerFetch: { request, _, _ in
+                protectedCalls.mutate { $0.append(request.value(forHTTPHeaderField: "Authorization")) }
+                throw ModelDownloadError.httpStatus(418)
+            },
+            hasActiveTransfer: { _ in joins.mutate { $0 += 1 }; return true }, sleep: { _ in })
+        await #expect(throws: ModelDownloadError.httpStatus(418)) {
+            try await coordinator.prepare(spec, config: ModelDownloadConfig(
+                signedURL: URL(string: "https://worker.example/model"), expectedSHA256: spec.expectedSHA256,
+                workerBase: "https://worker.example"))
+        }
+        #expect(backgroundCalls.value == 0 && grantCalls.value == 0 && joins.value == 0)
+        #expect(protectedCalls.value == ["Bearer entitlement"])
+    }
+
+    @Test func untrustedOriginIsRejected() throws {
+        for address in ["http://worker.example/model", "https://other.example/model", "https://user@worker.example/model"] {
+            #expect(throws: ModelDownloadError.notConfigured) {
+                try ModelDownloadCoordinator.requireSecureOrigin(of: URL(string: address)!, workerBase: "https://worker.example")
+            }
+        }
+    }
+}
+
+struct ModelLegacyInstallProofTests {
+    @Test func legacyPinMatchesWhileMissingOrDifferentPinCannotBecomeReady() throws {
+        let root = try scratch()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let digest = String(repeating: "a", count: 64)
+        let spec = makeSpec(sha: digest)
+        let directory = root.appendingPathComponent(spec.directoryName)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        #expect(!ModelInstallProof.matchesPin(spec, modelsRoot: root))
+        try JSONSerialization.data(withJSONObject: ["sha256": digest.uppercased(), "status": "installed"])
+            .write(to: directory.appendingPathComponent("manifest.json"))
+        #expect(ModelInstallProof.matchesPin(spec, modelsRoot: root))
+        #expect(!ModelInstallProof.matchesPin(makeSpec(sha: nil), modelsRoot: root))
+        #expect(!ModelInstallProof.matchesPin(makeSpec(sha: String(repeating: "b", count: 64)), modelsRoot: root))
+    }
+
+    @Test func interruptedLegacyActivationRestoresAsideBeforeReadiness() throws {
+        let root = try scratch()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let spec = makeSpec(sha: String(repeating: "a", count: 64))
+        let aside = LegacyModelInstall.asideURL(spec, modelsRoot: root)
+        try FileManager.default.createDirectory(at: aside, withIntermediateDirectories: true)
+        try Data("retained".utf8).write(to: aside.appendingPathComponent("model.bin"))
+        try Data().write(to: LegacyModelInstall.pendingURL(spec, modelsRoot: root))
+        try LegacyModelInstall.recover(spec, modelsRoot: root)
+        #expect(try Data(contentsOf: root.appendingPathComponent("model/model.bin")) == Data("retained".utf8))
+        #expect(!FileManager.default.fileExists(atPath: aside.path))
+        #expect(!FileManager.default.fileExists(atPath: LegacyModelInstall.pendingURL(spec, modelsRoot: root).path))
     }
 }

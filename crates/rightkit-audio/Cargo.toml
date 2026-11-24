@@ -1,9 +1,9 @@
 [package]
 name = "rightkit-audio"
-version = "0.3.6"
+version = "0.4.1"
 edition = "2021"
 rust-version = "1.98.0"
-description = "Shared audio for Right Suite apps: typed FFmpeg filter graphs, loudness gates, room tone, ducking, WAV I/O, and cpal capture with resample/downmix/recovery."
+description = "Reusable audio primitives: typed FFmpeg filter graphs, loudness gates, room tone, ducking, WAV I/O, and cpal capture with resample/downmix/recovery."
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/bogusyogi/rightkit"
 keywords = ["audio", "ffmpeg", "capture", "playback", "loudness"]
@@ -15,13 +15,14 @@ include = ["src/**", "presets/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "
 default = ["capture"]
 # Live microphone capture (cpal + rubato + ringbuf + tracing), the macOS CoreAudio device probe,
 # and the Windows endpoint/power lifecycle adapter. Off for pure filter-graph consumers.
-capture = ["dep:tracing", "dep:cpal", "dep:rubato", "dep:ringbuf", "dep:objc2-core-audio", "dep:objc2-core-foundation", "dep:windows", "dep:windows-core", "dep:rightkit-child-process", "dep:objc2", "dep:objc2-foundation", "dep:block2"]
+capture = ["dep:tracing", "dep:cpal", "dep:rubato", "dep:ringbuf", "dep:objc2-core-audio", "dep:objc2-core-foundation", "dep:windows", "dep:windows-core", "dep:rightkit-child-process", "dep:objc2", "dep:objc2-foundation", "dep:block2", "dep:rightkit-fs"]
 # Audio output (cpal only, no new dependency): OutputSession with a lock-free sample ring, a
 # latency-adjusted playback clock, pause/volume/mute/flush and device-loss recovery. Off by default.
 playback = ["dep:cpal"]
 
 [dependencies]
 rightkit-child-process = { path = "../rightkit-child-process", version = "0.5.12", optional = true }
+rightkit-fs = { path = "../rightkit-fs", version = "0.5.0", default-features = false, features = ["fs"], optional = true }
 rightkit-ffmpeg = { path = "../rightkit-ffmpeg", version = "0.3.0", default-features = false }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
@@ -48,6 +49,8 @@ windows = { version = "0.62.2", optional = true, features = [
   "Win32_System_Com",
   "Win32_System_Com_StructuredStorage",
   "Win32_System_Power",
+  "Win32_System_Performance",
+  "Win32_System_Threading",
   "Win32_UI_WindowsAndMessaging",
 ] }
 windows-core = { version = "0.62.2", optional = true }
@@ -68,8 +71,9 @@ reason = "cpal opens the default input device, which macOS gates behind the micr
 api = "CaptureSession::open_paused"
 file = "src/capture/session.rs"
 holds = ["thread", "memory"]
-scale = "one open cpal input stream: the OS audio callback thread, a 4 s mono f32 ring buffer at the device rate (about 768 KB at 48 kHz), the resample and staging buffers and one Metrics block; fixed per session, independent of recording length. stop() only pauses it"
+scale = "one open cpal input stream: OS audio callback thread, 4 s native-rate mono ring, 4096 callback metadata slots, resample/staging buffers and metrics; legacy mode is fixed per session. Opt-in precise epochs additionally retain native mono samples and callback stamps for recording duration, then cache full target-rate clip until next epoch or Drop. Cut handles hold Weak stream references. stop() only pauses it"
 release = "Drop"
+static_note = "Windows MMCSS registration is one fixed thread-local guard per active CPAL callback thread; CPAL drops and joins that thread, and the guard reverts registration at thread exit"
 
 [[package.metadata.rightkit.resources]]
 api = "list_input_devices"
@@ -114,14 +118,20 @@ holds = ["thread", "memory"]
 scale = "one OutputSession (cpal output stream, its ring and callback thread) plus the decoded file: mono f32 at file rate and a device-rate interleaved copy, about (samples x device channels + samples) x 4 bytes for the file length; the call blocks for the file duration"
 release = "function return (the OutputSession drops before play_once returns)"
 
-# One Cargo workspace and lock per crate (rightkit#1285).
+[[package.metadata.rightkit.resources]]
+api = "SetupAudioScope"
+file = "src/setup/scope.rs"
+holds = ["memory"]
+scale = "fixed setup lifecycle state, one MicMeter and at most one active or retiring permission session; no scope-owned thread, queue or growing retired collection. The hosted executor supplies admitted blocking operations, and retained primitives have their own resource entries"
+release = "suspend or close invalidates admission and cancels work; drain waits off UI and releases the retired scope work, and Drop frees remaining lifecycle state"
 
 [[package.metadata.rightkit.resources]]
 api = "MicMeter::start"
 file = "src/setup/mic_meter.rs"
 holds = ["thread", "memory"]
-scale = "one onboarding-mic-meter thread and one CaptureSession per run, with at most 4096 RMS history entries; ends when its epoch is invalidated or capture fails"
-release = "MicMeter::stop invalidates the epoch; worker drops its CaptureSession on exit"
+scale = "one owned meter worker and at most one CaptureSession at a time; up to 4096 RMS history entries, including on device repair"
+release = "stop invalidates without blocking; the worker releases capture on cancellation, replacement drains its predecessor, and close or Drop joins; callback self-close completes as its callback unwinds"
+static_note = "METER_WORKER is one pointer per meter worker thread, identity-only and never dereferenced; it owns no resource and expires at worker exit"
 
 [[package.metadata.rightkit.resources]]
 api = "Recorder::start"
@@ -131,15 +141,29 @@ scale = "one onboarding-recognition-capture thread and one CaptureSession, plus 
 release = "Recorder::stop, Recorder::cancel, superseding start, or Drop stops and joins the worker; capture error or length ceiling drops the stream"
 
 [[package.metadata.rightkit.resources]]
-api = "request_microphone_access"
+api = "MicrophonePermissionSession::request"
 file = "src/setup/permissions/mod.rs"
 holds = ["thread", "memory"]
-scale = "macOS: calling worker waits up to 120 s for OS callback; Windows: calling worker waits up to 5 s for UI dispatch plus 120 s for consent, polling an owned WinRT operation without a detached waiter; one 60 s grant-poll thread per request until superseded, with transient probe threads joined per check"
-release = "request return releases WinRT operation (cancellation requested on timeout/error); grant poll exits on deadline or superseding request; OS-owned macOS completion block may remain until user answers"
+scale = "one request admission and platform consent operation per current ticket; macOS uses the calling worker and an OS-owned completion block, Windows delegates the follow-up watch to an owned session"
+release = "request return releases the synchronous wait; on macOS the OS-owned completion may remain until the user answers; see the Windows session worker entry"
+
+[[package.metadata.rightkit.resources]]
+api = "PermissionSession"
+file = "src/setup/permissions/winrt.rs"
+holds = ["thread", "memory"]
+scale = "one lazy runner thread per session, a single replaceable grant watch with a 60 second consent observation window, a pending native operation, and bounded transient capture probe workers joined per probe; idle runner sleeps without a timer"
+release = "cancel suppresses new work and wakes waits; close or Drop drains admitted native calls and callbacks and joins the runner off UI, with callback self-close completing as it unwinds"
 
 [[package.metadata.rightkit.resources]]
 api = "run_engine_calibration"
 file = "src/setup/calibration_engine.rs"
-holds = ["process", "thread", "memory"]
+holds = ["child", "thread", "memory"]
 scale = "one owned engine child, two output drain workers, stdout bounded by EngineRun::stdout_cap plus 1 MiB stderr; macOS parent-death watchdog owns one helper process; execution deadline followed by bounded tree termination and pipe cleanup"
 release = "runner return after tree termination/reap and output cleanup; parent death terminates owned child through OS job or parent-death mechanism"
+
+[[package.metadata.rightkit.resources]]
+api = "calibration_session::finish"
+file = "src/setup/calibration_session.rs"
+holds = ["memory"]
+scale = "one owned on-disk PCM file and a sample buffer bounded by sample rate times maximum capture length"
+release = "discard is attempted on every normal exit after reservation and before any resident restart; failures are reported and retained ownership evidence allows recovery once the process is confirmed dead"

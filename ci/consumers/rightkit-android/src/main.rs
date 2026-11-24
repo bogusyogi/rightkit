@@ -1,4 +1,4 @@
-// rightkit-android 0.3.0 consumed by exact registry pin, outside the workspace.
+// rightkit-android 0.3.2 consumed by exact registry pin, outside the workspace.
 //
 // Proves the pure surface an app's own cdylib reads before RightKit.init runs (rightkit-android
 // abi.rs, paths.rs and the exported helpers in lib.rs): the ABI table with its Gradle names and
@@ -63,8 +63,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         rightkit_android::supported_abis(),
         vec!["arm64-v8a".to_string(), "x86_64".to_string()]
     );
-    assert_eq!(rightkit_android::bridge_version(), "0.3.0");
+    assert_eq!(rightkit_android::bridge_version(), "0.3.2");
 
-    println!("OK rightkit-android 0.3.0 (registry consumer)");
+    println!("OK rightkit-android 0.3.2 (registry consumer)");
     Ok(())
 }

@@ -2,7 +2,7 @@
 //! and a click listener for a tray whose left click the host handles itself
 //! (`TraySpec::left_click = LeftClick::Emit`).
 //!
-//! Donor: HeardRight `tray.rs`. The mapping from an app's own state to a state name, the menu, its
+//! Mechanism: host `tray.rs`. The mapping from an app's own state to a state name, the menu, its
 //! labels and what a click does stay with the host; this module is the mechanism.
 //!
 //! Bounds: a state name is `[A-Za-z0-9_-]{1,32}`; an icon file name pattern and sub-directory are

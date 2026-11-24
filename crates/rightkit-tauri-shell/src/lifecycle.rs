@@ -15,8 +15,8 @@
 //! window geometry, stop the engine (bounded), remove the tray, release the single-instance
 //! service.
 //!
-//! Donors: HeardRight `tray.rs` Quit (engine shutdown before exit), `hub_window` (close hides,
-//! Dock reopen restores), ViewRight `RunEvent::Reopen`, CodeRight `window_state` save hooks.
+//! Mechanisms: host `tray.rs` Quit (engine shutdown before exit), `hub_window` (close hides,
+//! Dock reopen restores), host `RunEvent::Reopen`, host `window_state` save hooks.
 
 use std::ffi::{OsStr, OsString};
 use std::sync::atomic::{AtomicBool, Ordering};

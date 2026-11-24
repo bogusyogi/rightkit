@@ -291,7 +291,7 @@ pub(crate) fn quarantine_database_journaled_hooked(
 /// with the quarantined name the main file is about to take. `Err(reason)` abandons the quarantine
 /// with nothing moved: the journal is removed and the failure is `untouched`. A process death after
 /// the notification and before the move leaves the journal, which the next open settles (and
-/// notifies again, see [`recorded_quarantine`]).
+/// notifies again, see `recorded_quarantine`).
 #[allow(clippy::result_large_err)]
 pub(crate) fn quarantine_database_journaled_notified(
     db: &Path,
@@ -326,6 +326,7 @@ pub(crate) fn quarantine_database_journaled_notified(
 /// cannot be read, or when it does not name this database and a quarantine name beside it:
 /// [`resume_quarantine`] reports those. The encrypted store uses it to tell the host about a
 /// quarantine it is about to finish before the finishing move runs.
+#[cfg(feature = "encrypted-lifecycle")]
 pub(crate) fn recorded_quarantine(db: &Path) -> Option<PathBuf> {
     let journal = with_suffix(db, QUARANTINE_JOURNAL_SUFFIX);
     let text = std::fs::read_to_string(journal).ok()?;

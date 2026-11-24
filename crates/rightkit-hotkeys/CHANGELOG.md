@@ -1,5 +1,10 @@
 # Changelog
 
+
+## 0.1.7 - 2026-11-20
+
+- Carry the native push-to-talk release clock sample through asynchronous Windows and macOS dispatch. Existing callback registration remains available.
+
 ## 0.1.6
 
 - Added Windows `input_hooks`, `ptt_hook` & `mouse_hook`: configurable PTT/cancel handling, bounded worker lanes, generation fencing, tri-state link lookup & tagged middle-click replay through published automation 0.7.1.

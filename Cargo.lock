@@ -10158,7 +10158,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-agent-engine-runtime-middleware"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "rightkit-fs",
  "serde",
@@ -10304,7 +10304,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-agent-policy"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "globset",
  "libc 0.2.191",
@@ -10537,13 +10537,15 @@ dependencies = [
 
 [[package]]
 name = "rightkit-android"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "jni 0.22.4",
  "rightkit-credentials",
+ "rightkit-models",
  "rustls-platform-verifier",
  "thiserror 2.0.21",
  "uniffi",
+ "url",
 ]
 
 [[package]]
@@ -10654,7 +10656,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-asr"
-version = "0.5.0"
+version = "0.5.2"
 dependencies = [
  "half",
  "hound",
@@ -10678,7 +10680,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-audio"
-version = "0.3.6"
+version = "0.4.1"
 dependencies = [
  "block2",
  "cpal",
@@ -10689,6 +10691,7 @@ dependencies = [
  "objc2-foundation",
  "rightkit-child-process",
  "rightkit-ffmpeg",
+ "rightkit-fs",
  "ringbuf",
  "rubato",
  "serde",
@@ -10718,7 +10721,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-automation"
-version = "0.7.2"
+version = "0.7.3"
 dependencies = [
  "core-foundation 0.10.1",
  "core-graphics",
@@ -10860,7 +10863,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-child-process"
-version = "0.5.14"
+version = "0.5.16"
 dependencies = [
  "libc 0.2.191",
  "tokio",
@@ -11149,6 +11152,7 @@ dependencies = [
  "rightkit-memory-store",
  "rightkit-onnx",
  "rightkit-repo-graph",
+ "rightkit-roots",
  "rightkit-sync",
  "rightkit-time",
  "ring",
@@ -11330,7 +11334,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-dictation-app-runtime"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "rightkit-daemon",
  "rightkit-dictation-core",
@@ -11346,7 +11350,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-dictation-command-host"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "cc",
  "chrono",
@@ -11370,7 +11374,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-dictation-core"
-version = "0.3.3"
+version = "0.3.5"
 dependencies = [
  "rightkit-credentials",
  "rightkit-fs",
@@ -11453,7 +11457,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-dictation-models"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "dirs",
  "rightkit-child-process",
@@ -11471,7 +11475,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-dictation-pill"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "core-foundation 0.10.1",
  "core-graphics",
@@ -11523,8 +11527,9 @@ dependencies = [
 
 [[package]]
 name = "rightkit-dictation-tauri"
-version = "0.3.0"
+version = "0.3.2"
 dependencies = [
+ "rightkit-audio",
  "rightkit-automation",
  "rightkit-crypto",
  "rightkit-dictation-app-runtime",
@@ -11538,11 +11543,12 @@ dependencies = [
  "rightkit-transcript-library",
  "serde",
  "serde_json",
+ "tauri",
 ]
 
 [[package]]
 name = "rightkit-dictation-telemetry"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "chrono",
  "dirs",
@@ -11816,7 +11822,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-fs"
-version = "0.4.18"
+version = "0.5.0"
 dependencies = [
  "blake3",
  "libc 0.2.191",
@@ -11894,7 +11900,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-hooks"
-version = "0.2.11"
+version = "0.2.13"
 dependencies = [
  "async-trait",
  "regex",
@@ -11910,7 +11916,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-hotkeys"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "rightkit-automation",
  "windows-sys 0.61.2",
@@ -12182,8 +12188,11 @@ dependencies = [
 
 [[package]]
 name = "rightkit-media-control"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
+ "libc 0.2.191",
+ "rightkit-child-process",
+ "serde_json",
  "windows 0.62.2",
 ]
 
@@ -12222,6 +12231,7 @@ dependencies = [
  "rightkit-logs",
  "rightkit-models",
  "rightkit-onnx",
+ "rightkit-roots",
  "rightkit-search",
  "rightkit-spend",
  "rightkit-tts",
@@ -12895,7 +12905,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-roots"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "getrandom 0.4.3",
  "rightkit-fs",
@@ -13053,11 +13063,12 @@ dependencies = [
 
 [[package]]
 name = "rightkit-sync"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "rightkit-child-process",
  "rightkit-fs",
  "rightkit-http",
+ "rightkit-transcript-library",
  "ring",
  "serde",
  "serde_json",
@@ -13100,7 +13111,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-tauri-shell"
-version = "0.8.6"
+version = "0.8.7"
 dependencies = [
  "block2",
  "libc 0.2.191",
@@ -13178,7 +13189,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-text-polish"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "regex",
  "rightkit-fs",

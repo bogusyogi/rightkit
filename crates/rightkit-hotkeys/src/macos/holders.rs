@@ -201,6 +201,7 @@ pub struct FnHotkeyHolder {
     tap: Mutex<Option<FnRunning>>,
     chord: Mutex<Option<ChordSet>>,
     ptt: Mutex<Option<PttSet>>,
+    ptt_release: Mutex<Option<super::fn_hotkey::PttReleaseAction>>,
     enabled: AtomicBool,
     ptt_enabled: AtomicBool,
     ptt_key: AtomicU8,
@@ -213,6 +214,7 @@ impl FnHotkeyHolder {
             tap: Mutex::new(None),
             chord: Mutex::new(None),
             ptt: Mutex::new(None),
+            ptt_release: Mutex::new(None),
             enabled: AtomicBool::new(true),
             ptt_enabled: AtomicBool::new(false),
             ptt_key: AtomicU8::new(PttKey::Control as u8),
@@ -241,6 +243,12 @@ impl FnHotkeyHolder {
         *lock(&self.ptt) = Some((start, stop, stop_send, cancel));
     }
 
+    /// Set before start; replaces physical Stop/Send callbacks only.
+    /// None restores legacy callbacks on the next tap generation.
+    pub fn set_ptt_release_callback(&self, callback: Option<super::fn_hotkey::PttReleaseAction>) {
+        *lock(&self.ptt_release) = callback;
+    }
+
     /// Spawns the tap once both callback sets are registered. Idempotent while a tap is live.
     pub fn start(&self) {
         let mut slot = lock(&self.tap);
@@ -266,7 +274,14 @@ impl FnHotkeyHolder {
             ptt_cancel: ptt.3,
             diag,
         };
-        let outcome = match FnHotkeyTap::spawn(TapLocation::Hid, callbacks) {
+        let release = lock(&self.ptt_release).clone();
+        let spawned = match release {
+            Some(callback) => {
+                FnHotkeyTap::spawn_with_ptt_release_edges(TapLocation::Hid, callbacks, callback)
+            }
+            None => FnHotkeyTap::spawn(TapLocation::Hid, callbacks),
+        };
+        let outcome = match spawned {
             Ok(tap) => {
                 tap.set_enabled(self.enabled.load(Ordering::SeqCst));
                 tap.set_ptt_key(key_from_u8(self.ptt_key.load(Ordering::SeqCst)));

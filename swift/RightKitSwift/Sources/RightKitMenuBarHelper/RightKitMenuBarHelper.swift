@@ -177,12 +177,13 @@ final class RightKitMenuBarDelegate: NSObject, NSApplicationDelegate, NSMenuDele
         )
         post(configuration.readyAction)
         // Proof of life for the main app's supervisor.
-        Timer.scheduledTimer(withTimeInterval: configuration.heartbeatInterval, repeats: true) { [weak self] _ in
+        let heartbeatTimer = Timer(timeInterval: configuration.heartbeatInterval, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self else { return }
                 self.post(self.configuration.heartbeatAction)
             }
         }
+        RunLoop.main.add(heartbeatTimer, forMode: .common)
     }
 
     /// Icons live in THIS helper's own Resources (packaging copies them there). `Bundle.main.resourceURL`
@@ -255,9 +256,10 @@ final class RightKitMenuBarDelegate: NSObject, NSApplicationDelegate, NSMenuDele
     private func watchParent() {
         guard parentPid > 0 else { return }
         let pid = parentPid
-        Timer.scheduledTimer(withTimeInterval: configuration.parentPollInterval, repeats: true) { _ in
+        let parentTimer = Timer(timeInterval: configuration.parentPollInterval, repeats: true) { _ in
             if kill(pid, 0) != 0 { MainActor.assumeIsolated { NSApp.terminate(nil) } }
         }
+        RunLoop.main.add(parentTimer, forMode: .common)
     }
 }
 #endif

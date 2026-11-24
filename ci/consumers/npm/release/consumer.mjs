@@ -67,6 +67,8 @@ try {
     // Node resolves a listed subpath into the installed package and refuses the internals and the package root.
     const inside = specifier => { const file = realpathSync(fileURLToPath(import.meta.resolve(specifier))); assert.ok(file.startsWith(`${packageRoot}${path.sep}`)); return file; };
     assert.ok(inside('@rightkit/release/cargo-target.mjs').endsWith('cargo-target.mjs'));
+    const absenceScan = await import('@rightkit/release/forbidden-literals.mjs');
+    assert.equal(typeof absenceScan.runForbiddenLiteralScan, 'function');
     assert.ok(inside('@rightkit/release/cli/right-release.mjs').endsWith('right-release.mjs'));
     const refused = [];
     for (const specifier of ['@rightkit/release', '@rightkit/release/release.mjs', '@rightkit/release/build-release.mjs', '@rightkit/release/sign-macos.mjs', '@rightkit/release/ownership.mjs']) {

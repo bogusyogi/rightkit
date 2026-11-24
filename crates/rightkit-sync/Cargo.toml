@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-sync"
-version = "0.4.1"
+version = "0.4.2"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Brand-neutral desktop/mobile cloud sync engine: change tokens, tombstones, last-writer-wins conflicts, resumable batches, offline queue, retry/backoff."
@@ -38,6 +38,8 @@ drive = ["dep:rightkit-http", "rightkit-fs/digest"]
 transcripts = ["rightkit-fs/digest"]
 # Desktop transcript host: consent/account authority, guarded ledger & event-driven scheduler.
 transcript-host = ["transcripts", "helper", "process-usage", "dep:tokio"]
+# Maps transcript-library history stores into the transcript host.
+transcript-history = ["transcript-host", "dep:rightkit-transcript-library"]
 
 # `vault` module: conditional-object vault sync (immutable sealed state objects, one head swapped with
 # If-Match, a three-way merge policy, an encrypted ledger) for password-vault data that cannot use the
@@ -51,8 +53,9 @@ serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 tokio = { version = "1", features = ["sync", "time", "rt"], optional = true }
 rightkit-child-process = { version = "0.5.12", path = "../rightkit-child-process", optional = true }
-rightkit-fs = { version = "0.4.15", path = "../rightkit-fs", default-features = false, features = ["fs", "lock"] }
+rightkit-fs = { version = "0.5.0", path = "../rightkit-fs", default-features = false, features = ["fs", "lock"] }
 rightkit-http = { version = "0.4.0", path = "../rightkit-http", default-features = false, optional = true }
+rightkit-transcript-library = { version = "0.1.7", path = "../rightkit-transcript-library", optional = true }
 ring = { version = "0.17", optional = true }
 zeroize = { version = "1.9", optional = true }
 

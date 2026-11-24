@@ -163,8 +163,8 @@ export async function measureRuntimeCrate(options, deps = {}) {
   const bindings = {};
   for (const full of [...lsTree([`crates/${crate}/src`]), `crates/${crate}/Cargo.toml`]) bindings[full] = sha256(blob(full));
   Object.assign(bindings, owner.bindHarnessMetadata(crate, prescription, blob));
-  // Each crate is its own Cargo workspace with its own Cargo.lock (#1285): the same context files scripts/ci/runtime-qualify.mjs binds.
-  for (const full of lsTree([`crates/${crate}/Cargo.toml`, `crates/${crate}/Cargo.lock`, "rust-toolchain.toml", ".cargo", `crates/${crate}/.cargo`, `crates/${crate}/benches`, "crates/rightkit-child-process/src", "crates/rightkit-child-process/Cargo.toml"])) bindings[full] = sha256(blob(full));
+  // Bind the same context files as the hosted producer. Cargo locks are bound in bindHarnessMetadata.
+  for (const full of lsTree([`crates/${crate}/Cargo.toml`, "rust-toolchain.toml", ".cargo", `crates/${crate}/.cargo`, `crates/${crate}/benches`, "crates/rightkit-child-process/src", "crates/rightkit-child-process/Cargo.toml"])) bindings[full] = sha256(blob(full));
   const { specs, problems: scopeProblems = [] } = (deps.measuredPathspecs ?? H.budgets.measuredPathspecs)(crateDir, { base: root });
   if (scopeProblems.length) throw new Error(`cannot bind the measured dependency scope: ${scopeProblems.join("; ")}`);
   for (const full of lsTree(specs)) bindings[full] = sha256(blob(full));

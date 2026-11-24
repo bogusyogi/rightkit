@@ -38,7 +38,7 @@ rightkit-agent-telemetry = { version = "0.1.0", path = "../rightkit-agent-teleme
 rightkit-sandbox = { version = "0.6.3", path = "../rightkit-sandbox", features = ["execution"], optional = true }
 rightkit-agent-coding-tools = { version = "0.1.8", path = "../rightkit-agent-coding-tools", optional = true }
 rightkit-db = { version = "0.5.3", path = "../rightkit-db", features = ["bundled", "statement-cache"], optional = true }
-rightkit-fs = { version = "0.4.9", path = "../rightkit-fs", features = ["fs", "lock", "json", "digest", "transaction"], optional = true }
+rightkit-fs = { version = "0.5.0", path = "../rightkit-fs", features = ["fs", "lock", "json", "digest", "transaction"], optional = true }
 
 [features]
 default = []

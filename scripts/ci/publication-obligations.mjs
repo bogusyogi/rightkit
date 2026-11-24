@@ -3,6 +3,9 @@ import { parseLock, selectUnits } from "./select.mjs";
 import { requiredConsumerLockCommands, requiredShardCommands } from "./shards.mjs";
 import { judgeUnit, TEST_COMMAND } from "./test-results.mjs";
 
+// Architectures of the fixed native runners in publish.yml.
+const NATIVE_RUNNER = { macos: { platform: "darwin", arch: "arm64" }, windows: { platform: "win32", arch: "x64" } };
+
 const signature = (row) => JSON.stringify([row?.unit, row?.command]);
 const count = (value) => Number.isSafeInteger(value) && value >= 0;
 const equal = (left, right) => JSON.stringify(left) === JSON.stringify(right);
@@ -39,13 +42,15 @@ export function derivePublicationObligations({ registry, units, host, config = {
     if (new Set(inventory.map((entry) => entry.name)).size !== inventory.length || new Set(inventory.map((entry) => entry.dir)).size !== inventory.length) throw new Error("duplicate source inventory entry");
     list(inventory.map((entry) => entry.name), "inventory names");
   }
-  // rightkit#1285: every crate is its own workspace; its package entry comes from its own crates/<x>/Cargo.lock (candidate data), never a root lock.
+  // Every package entry comes from the authenticated lock that governs its workspace.
   if (crateLocks === null || typeof crateLocks !== "object" || Array.isArray(crateLocks)) throw new Error("invalid crate lock data");
   const lock = new Map();
+  const parsedLocks = new Map();
   for (const member of members) {
     const lockText = crateLocks[member.dir];
     if (typeof lockText !== "string") continue;
-    const entry = parseLock(lockText).get(member.name);
+    if (!parsedLocks.has(lockText)) parsedLocks.set(lockText, parseLock(lockText));
+    const entry = parsedLocks.get(lockText).get(member.name);
     if (entry) lock.set(member.name, entry);
   }
   const selection = selectUnits({ registry, units, host, config, members, packages, lock, assetGated, allowHostExclusion, allowNoTest, allowIgnored, allowMissingAssets });
@@ -57,7 +62,7 @@ export function derivePublicationObligations({ registry, units, host, config = {
   commands.push(...requiredConsumerLockCommands([...selection.rust.test, ...selection.rust.check].flatMap((name) => config.rust?.[name]?.consumerRows ?? [])).map(({ unit, command }) => ({ unit, command })));
   // rustfmt runs once per crate workspace (no root workspace exists to batch -p flags in).
   for (const name of selection.rust.test) commands.push({ unit: "fmt", command: `cargo fmt --manifest-path ${dirOf.get(name)}/Cargo.toml --all` });
-  if (tokens) commands.push(...requiredShardCommands(tokens, { config, packages }));
+  if (tokens) commands.push(...requiredShardCommands(tokens, { config, packages, nativePublication: NATIVE_RUNNER[host] }));
   if (new Set(commands.map(signature)).size !== commands.length) throw new Error("duplicate required publication command");
   const unitPolicies = units.map((name) => ({
     name,

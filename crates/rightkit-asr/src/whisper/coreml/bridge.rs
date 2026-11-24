@@ -296,10 +296,12 @@ pub fn ml_f16(dims: &[usize], data: &[f32]) -> Result<Retained<MLMultiArray>, St
 }
 
 /// Write one f16 element by linear C-contiguous index (in-place KV cache updates).
+#[cfg(feature = "whisper-tokenizers")]
 pub fn f16_set(arr: &MLMultiArray, idx: usize, val: f32) {
     unsafe { *(arr.dataPointer().as_ptr() as *mut f16).add(idx) = f16::from_f32(val) }
 }
 
+#[cfg(feature = "whisper-tokenizers")]
 pub fn i32_set(arr: &MLMultiArray, idx: usize, val: i32) {
     unsafe { *(arr.dataPointer().as_ptr() as *mut i32).add(idx) = val }
 }

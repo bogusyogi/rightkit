@@ -1,7 +1,7 @@
 //! Site-root serving: a second custom scheme (`<app>-site://`) that serves allowlisted
 //! subresources beneath a granted site root.
 //!
-//! Donor: ViewRight `site_root.rs` (root inference, MIME allowlist, containment checked after
+//! Mechanism: host `site_root.rs` (root inference, MIME allowlist, containment checked after
 //! canonicalization, opaque per-grant tokens) and `stream_http.rs`.
 //!
 //! Flow: the app grants a document it already holds through the broker (the

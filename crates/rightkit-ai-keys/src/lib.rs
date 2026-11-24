@@ -231,9 +231,7 @@ where
                 return self
                     .providers
                     .iter()
-                    .map(|provider| {
-                        Err(format!("could not read {} API key: {error}", provider.id))
-                    })
+                    .map(|provider| Err(format!("could not read {} API key: {error}", provider.id)))
                     .collect();
             }
         };

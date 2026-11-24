@@ -25,5 +25,5 @@ fn main() {
     assert!(scheduler.take_due(settle).any());
     assert!(scheduler.is_idle());
 
-    println!("OK rightkit-dictation-pill 0.1.0 (registry consumer)");
+    println!("OK rightkit-dictation-pill 0.1.1 (registry consumer)");
 }

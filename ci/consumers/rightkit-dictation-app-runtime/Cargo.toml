@@ -7,5 +7,5 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-dictation-app-runtime = { version = "=0.3.0" }
+rightkit-dictation-app-runtime = { version = "=0.3.1" }
 serde_json = "1"

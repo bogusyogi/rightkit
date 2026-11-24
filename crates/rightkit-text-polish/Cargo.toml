@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-text-polish"
-version = "0.1.2"
+version = "0.1.3"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Transcript polish: deterministic L0 cleanup (numbers, dates, inline edits, formatting, casing), spoken control and AI-transform command parsing, vocabulary replacements and learning."
@@ -21,7 +21,7 @@ store = ["dep:rightkit-fs", "dep:serde_json"]
 regex = "1"
 serde = { version = "1", features = ["derive"] }
 rightkit-voice-commands = { version = "0.1.0", path = "../rightkit-voice-commands" }
-rightkit-fs = { version = "0.4.17", path = "../rightkit-fs", default-features = false, features = ["fs"], optional = true }
+rightkit-fs = { version = "0.5.0", path = "../rightkit-fs", default-features = false, features = ["fs"], optional = true }
 serde_json = { version = "1", optional = true }
 
 [package.metadata.rightkit]

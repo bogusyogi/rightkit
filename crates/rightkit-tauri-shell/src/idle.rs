@@ -1,6 +1,6 @@
 //! Webview idle / resource management for tray-resident apps.
 //!
-//! Donor: MailRight `webview_idle.rs`. The state machine is kept verbatim (generation-stamped timer
+//! Mechanism: host `webview_idle.rs`. The state machine is kept verbatim (generation-stamped timer
 //! so a stale timer never suspends a webview the person already brought back). When the main window
 //! has been hidden for `suspend_after` the webview is suspended; showing it resumes it.
 //!
@@ -10,7 +10,7 @@
 //! * macOS / Linux: WebKit already throttles a hidden view, there is no public suspend call, so the
 //!   shell tracks the state and emits `rightkit-shell://idle` for the app to pause its own timers.
 //!
-//! Controller sequencing (Windows semantics, matching ScrapeRight's `webview_idle.rs`): suspend is
+//! Controller sequencing (Windows semantics, matching host's `webview_idle.rs`): suspend is
 //! one operation on the WebView2 thread, `SetIsVisible(false)` then `TrySuspend`, and `TrySuspend`
 //! is never called when hiding failed. Resume is one operation, `Resume` then `SetIsVisible(true)`,
 //! and the show is skipped when `Resume` failed. A failed step stays pending in `Applied` and is
@@ -33,7 +33,7 @@ use tauri::{AppHandle, Emitter, Manager, Wry};
 
 use crate::{ShellState, EVENT_IDLE};
 
-/// Tray / minimise to suspend delay (MailRight, locked 2026-07-06).
+/// Tray / minimise to suspend delay (host, locked 2026-07-06).
 pub const DEFAULT_SUSPEND_AFTER: Duration = Duration::from_secs(30);
 
 /// Longest suspend delay accepted (a larger host or per-hide value is clamped to it).
@@ -42,7 +42,7 @@ pub const MAX_SUSPEND_AFTER: Duration = Duration::from_secs(24 * 60 * 60);
 /// When the WebView2 controller is hidden after the main window hides.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ControllerHide {
-    /// At once, when the window hides (the MailRight donor behaviour and the default): rendering
+    /// At once, when the window hides (the host donor behaviour and the default): rendering
     /// stops immediately, and `TrySuspend` later finds the controller already hidden.
     #[default]
     Immediate,

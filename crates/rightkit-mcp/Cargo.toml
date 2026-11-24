@@ -55,7 +55,7 @@ getrandom = "0.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["raw_value"] }
 ureq = { version = "3.5", default-features = false, features = ["rustls"] }
-rightkit-fs = { version = "0.4.9", path = "../rightkit-fs", default-features = false, features = ["digest", "fs"] }
+rightkit-fs = { version = "0.5.0", path = "../rightkit-fs", default-features = false, features = ["digest", "fs"] }
 rightkit-http = { version = "0.4.0", path = "../rightkit-http", default-features = false }
 http = { version = "1", optional = true }
 tokio = { version = "1", features = ["rt-multi-thread", "time", "sync", "macros"], optional = true }

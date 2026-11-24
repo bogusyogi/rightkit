@@ -1,6 +1,6 @@
 //! Startup cache repair: keep the app's cache directory usable before a plugin needs it.
 //!
-//! Donor: ViewRight `startup_cache.rs`. A dangling symlink or a stray file where a cache directory
+//! Mechanism: host `startup_cache.rs`. A dangling symlink or a stray file where a cache directory
 //! belongs makes `create_dir_all` fail with `AlreadyExists`, which aborts plugins that expect the
 //! directory (`tauri-plugin-http` cookie cache). Cache content is disposable, so the bad entry is
 //! replaced with a real directory.

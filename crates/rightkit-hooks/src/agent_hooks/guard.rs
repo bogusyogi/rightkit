@@ -1,6 +1,16 @@
 //! The destructive-action guard — intercepts dangerous tool calls before execution.
+//!
+//! Deprecated (rightkit#1687): `rightkit-agent-policy` is RightKit's destructive-command guard.
+//! It parses the command (groups, `sh -c` bodies, substitutions, wrappers); this guard only
+//! matches substrings. Nothing in RightKit decides with this guard; it is removed in the next
+//! minor release of `rightkit-hooks`.
+#![allow(deprecated)]
 
 /// A guard decision for an intercepted tool call.
+#[deprecated(
+    since = "0.2.13",
+    note = "use rightkit_agent_policy (catastrophic_reason and the permission engine); this substring guard is removed in the next minor release (rightkit#1687)"
+)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DestructiveGuardDecision {
     /// The action is safe to run.
@@ -39,6 +49,10 @@ pub struct AttackMapping {
 }
 
 /// Intercepts shell commands and file operations that could cause irreversible damage.
+#[deprecated(
+    since = "0.2.13",
+    note = "use rightkit_agent_policy (catastrophic_reason and the permission engine); this substring guard is removed in the next minor release (rightkit#1687)"
+)]
 pub struct DestructiveGuard {
     /// Extra command substrings that should be blocked outright.
     blocked_patterns: Vec<String>,

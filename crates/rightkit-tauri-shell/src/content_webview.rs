@@ -2,8 +2,8 @@
 //!
 //! [`windows::WindowSpec`](crate::windows::WindowSpec) opens app-relative paths only. A
 //! [`ContentWebviewSpec`] opens a window onto a remote `https` origin the app names, for the apps
-//! that show third-party pages inside the shell (PlayRight's per-service sign-in windows,
-//! ScrapeRight's in-app sign-in, ViewRight's HTML content windows). Everything the page may do is
+//! that show third-party pages inside the shell (host's per-service sign-in windows,
+//! host's in-app sign-in, host's HTML content windows). Everything the page may do is
 //! stated in the spec:
 //!
 //! * **Origin allow-list.** Top-level navigation stays on `allowed_origins`; anything else is
@@ -197,7 +197,7 @@ impl ContentWebviewSpec {
     }
 
     /// The DevTools registration of this window, for `ShellBuilder` under
-    /// `DevToolsPolicy::ContentOnly` (ViewRight's allowance): the gate then lets this window's
+    /// `DevToolsPolicy::ContentOnly` (host's allowance): the gate then lets this window's
     /// content be inspected and nothing of the app's own UI. Under `Denied`, register nothing.
     pub fn registration(&self) -> ContentWebview {
         let mut registration =

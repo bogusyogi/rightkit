@@ -531,7 +531,7 @@ impl<H: RecoveryHost> RecoveryLedger<H> {
     }
 
     /// Plain-text diagnostics a user can attach to a support request. Key and content are never
-    /// included. `label` names the store in the text (for example "<Product> history recovery").
+    /// included. `label` names the store in the text (for example `"<Product> history recovery"`).
     pub fn diagnostics(&self, label: &str) -> String {
         let Some(status) = self.status() else {
             return format!("{label}: no recovery event recorded.\n");
@@ -899,7 +899,9 @@ mod tests {
             .unwrap();
         assert!(ledger.take_recorded());
         let before = std::fs::read(ledger.marker_path()).unwrap();
-        ledger.record_quarantine(&[backup], Some("changed")).unwrap();
+        ledger
+            .record_quarantine(&[backup], Some("changed"))
+            .unwrap();
         assert_eq!(std::fs::read(ledger.marker_path()).unwrap(), before);
         assert!(!ledger.take_recorded());
         ledger.finish_after_replay(&receipt()).unwrap();
@@ -956,7 +958,10 @@ mod tests {
             .record_quarantine(&[ledger.host.root.join("backup")], None)
             .unwrap();
         assert!(ledger.finish_after_replay(&receipt()).is_err());
-        assert_eq!(std::fs::read(ledger.marker_path()).unwrap(), b"broken marker");
+        assert_eq!(
+            std::fs::read(ledger.marker_path()).unwrap(),
+            b"broken marker"
+        );
     }
 
     #[test]

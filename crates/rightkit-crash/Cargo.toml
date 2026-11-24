@@ -33,7 +33,7 @@ diagnostics = ["dep:tracing", "rightkit-logs/tracing"]
 
 [dependencies]
 rightkit-crypto = { version = "0.1.1", path = "../rightkit-crypto" }
-rightkit-fs = { version = "0.4.12", path = "../rightkit-fs", default-features = false, features = ["fs", "digest"] }
+rightkit-fs = { version = "0.5.0", path = "../rightkit-fs", default-features = false, features = ["fs", "digest"] }
 rightkit-logs = { version = "0.4.0", path = "../rightkit-logs", default-features = false }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

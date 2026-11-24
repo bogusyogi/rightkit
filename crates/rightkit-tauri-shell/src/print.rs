@@ -1,6 +1,6 @@
 //! Printing the current webview (Orthic-Labs/rightkit#386).
 //!
-//! Donor: ViewRight `commands/print.rs`. On Windows the system print dialog cannot preview WebView2
+//! Mechanism: host `commands/print.rs`. On Windows the system print dialog cannot preview WebView2
 //! content, so the default is WebView2's own in-app print preview (`ICoreWebView2_16::ShowPrintUI`
 //! with the browser kind). On macOS the webview's own print operation runs (WKWebView shows the
 //! system print panel, macOS 11 and later). Other platforms answer `Unsupported`. Print CSS in the

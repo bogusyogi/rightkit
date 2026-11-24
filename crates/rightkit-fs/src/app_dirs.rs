@@ -32,12 +32,13 @@
 //!   the current name's folder if it exists, else the first legacy name's folder that exists, else
 //!   the current name. `cache` always uses the current name (it is re-creatable). Nothing is moved
 //!   or created. Injected folders ignore legacy names.
-//! * **App folder.** `<base>/<org>/<namespace>`, org defaulting to `Orthic Labs`
-//!   ([`AppId::without_org`] keeps an existing flat `<base>/<name>` install). Windows cache is
-//!   `<LOCALAPPDATA>/<org>/<namespace>/Cache` so it never shares a folder with state.
+//! * **App folder.** [`AppId::new`] requires an explicit organization choice: `Some(org)` gives
+//!   `<base>/<org>/<namespace>`; `None` gives `<base>/<namespace>`. Keep the installed layout when
+//!   upgrading by passing its existing organization or `None` for an existing flat layout.
+//!   Windows cache appends `Cache` to that app folder so it never shares a folder with state.
 //! * **User folders.** [`user_dirs`] answers the account's home, Desktop, Documents and Downloads.
 //! * **Dev namespace.** Only an [`Options`] with `dev` set uses `<name>Dev` (for example
-//!   `ViewRightDev`); no build sets it by default, so a dev run is not isolated from the installed app.
+//!   `ExampleAppDev`); no build sets it by default, so a dev run is not isolated from the installed app.
 //! * **No test mode.** There is no test root and no QA override: every build resolves the real
 //!   per-user folders. QA runs against the real home and uses `rightkit-qa` snapshot and restore.
 //!
@@ -58,9 +59,6 @@ pub mod user_dirs;
 use std::ffi::OsString;
 use std::io;
 use std::path::{Path, PathBuf};
-
-/// The organisation folder every Right Suite app nests under.
-pub const DEFAULT_ORG: &str = "Orthic Labs";
 
 /// Why folders could not be resolved.
 #[derive(Debug, thiserror::Error)]
@@ -117,21 +115,22 @@ impl Os {
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct AppId {
-    /// The installed folder name, for example `ViewRight`.
+    /// The installed folder name, for example `ExampleApp`.
     pub name: &'static str,
     /// The organisation folder; `None` keeps a flat `<base>/<name>` layout.
     pub org: Option<&'static str>,
     /// Earlier app names whose existing folders are still used, in order of preference (for
-    /// example `&["LightCraft"]` for an app renamed to `Ember`). See [`AppId::with_legacy_names`].
+    /// example `&["PreviousAppName"]` after renaming). See [`AppId::with_legacy_names`].
     pub legacy_names: &'static [&'static str],
 }
 
 impl AppId {
-    /// `name` under [`DEFAULT_ORG`].
-    pub const fn new(name: &'static str) -> AppId {
+    /// `name` with an explicit organization choice: `Some(org)` nests under that folder;
+    /// `None` uses a flat layout. Pass the installed organization unchanged when upgrading.
+    pub const fn new(name: &'static str, org: Option<&'static str>) -> AppId {
         AppId {
             name,
-            org: Some(DEFAULT_ORG),
+            org,
             legacy_names: &[],
         }
     }
@@ -146,7 +145,7 @@ impl AppId {
         self
     }
 
-    /// A different organisation folder.
+    /// Override the organization folder explicitly.
     pub const fn with_org(mut self, org: &'static str) -> AppId {
         self.org = Some(org);
         self

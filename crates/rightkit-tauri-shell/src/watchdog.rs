@@ -1,16 +1,16 @@
 //! Main-thread hang watchdog.
 //!
-//! Base: HeardRight `hang_watchdog` (a dedicated OS thread watches a heartbeat that a recurring
+//! Base: host `hang_watchdog` (a dedicated OS thread watches a heartbeat that a recurring
 //! `run_on_main_thread` ping refreshes; the report fires once per stall episode and re-arms after a
 //! fresh beat; neither thread takes an app lock, so the watchdog can observe a deadlock without
 //! joining it). Changes: the report goes to a caller callback and a `rightkit-shell://stall`
-//! event instead of HeardRight's crash-dump module, and the threshold/interval are configurable.
+//! event instead of host's crash-dump module, and the threshold/interval are configurable.
 //! The watchdog thread touches only atomics, its wake-up `Bell` and the callback in callback-only
-//! mode ([`WatchdogConfig::emit_event`] `false`), HeardRight's `hang_watchdog` rule.
+//! mode ([`WatchdogConfig::emit_event`] `false`), host's `hang_watchdog` rule.
 //!
 //! # Episodes (PK11-4, K11)
 //!
-//! One loop, one detector. HeardRight's `ui_stall_watchdog` (a second loop with its own timing,
+//! One loop, one detector. host's `ui_stall_watchdog` (a second loop with its own timing,
 //! ping and capture rules) is NOT a second watchdog here: its mechanics are fields of
 //! [`WatchdogConfig`], and its timings are inputs (threshold 200 ms, heartbeat and poll 50 ms,
 //! observer gap 1 s, capture cooldown 60 s), never defaults.
@@ -69,7 +69,7 @@ pub struct StallReport {
 
 pub type StallCallback = Arc<dyn Fn(&StallReport) + Send + Sync>;
 
-/// Default for [`WatchdogConfig::poll_interval`] (HeardRight's cadence): the lateness allowed past
+/// Default for [`WatchdogConfig::poll_interval`] (host's cadence): the lateness allowed past
 /// the threshold, not a polling period.
 pub const DEFAULT_POLL_INTERVAL: Duration = Duration::from_millis(250);
 /// Default for [`WatchdogConfig::observer_gap`].
@@ -1073,7 +1073,7 @@ pub fn install(app: AppHandle<Wry>, cfg: WatchdogConfig) -> WatchdogHandle {
 pub struct CrashCaptureOptions {
     /// Also take a native sample (macOS) or minidump (Windows) of this process. Off by default: a
     /// native artifact can hold memory, and sampling a process that is already struggling can
-    /// lengthen a short stall, so a host opts in (HeardRight keeps it behind an environment switch).
+    /// lengthen a short stall, so a host opts in (host keeps it behind an environment switch).
     pub native: bool,
 }
 

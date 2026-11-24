@@ -6,7 +6,7 @@ use crate::onnx_tdt::{Error, Result};
 
 /// Intra-op threads for the Windows decoder/joint session (capped by the
 /// machine's available parallelism).
-const WINDOWS_DECODER_THREADS: usize = 6;
+const WINDOWS_DECODER_THREADS: usize = 4;
 
 /// Which ORT execution provider to build sessions with.
 ///
@@ -32,9 +32,9 @@ pub struct SessionOptions {
     /// Intra-op threads. Windows CPU stages share pool; encoder keeps automatic
     /// private threads. Explicit sizes opt out.
     pub threads: Option<usize>,
-    /// Let the CPU intra-op pool spin between parallel sections. Only the
-    /// Windows decoder/joint stage turns this on (see `cpu_only_for_stage`);
-    /// every other CPU session, and the shared pool, keep spinning off.
+    /// Explicit opt-in to spinning on a private Windows CPU intra-op pool.
+    /// Defaults to false; no stage enables it automatically. Inter-op workers
+    /// and shared-pool workers keep spinning off.
     pub spinning: bool,
 }
 
@@ -56,15 +56,12 @@ impl SessionOptions {
     /// The same options with the provider forced to CPU. Used for the mel and
     /// decoder/joint stages, which are dispatch-bound rather than compute-bound.
     pub(crate) fn cpu_only_for_stage(&self, stage: &str) -> Self {
-        // Windows decoder/joint: a private pool that spins, 6 intra threads.
-        // Paired AB/BA on the Dell (Ultra, beam 2, RTX): spin + 8 threads beat
-        // the shared non-spinning pool 6/6 (run 17.9 -> 10.4 ms per window);
-        // 6 threads matched 8 (+0.6 ms, not significant) with ~30 % less spin
-        // tail. Spinning costs nothing at idle (0 % CPU from 2 s after the last
-        // call) and ~2 core-seconds per dictation.
-        let decoder_spins = cfg!(target_os = "windows") && stage == "DECODER";
+        // Windows decoder/joint defaults to a private, non-spinning CPU pool.
+        // Cap automatic intra-op workers at four to reduce contention.
+        // Explicit thread counts and spinning remain caller-controlled.
+        let windows_decoder = cfg!(target_os = "windows") && stage == "DECODER";
         let threads = self.threads.or_else(|| {
-            decoder_spins.then(|| {
+            windows_decoder.then(|| {
                 std::thread::available_parallelism()
                     .map(usize::from)
                     .unwrap_or(1)
@@ -74,7 +71,7 @@ impl SessionOptions {
         Self {
             provider: ExecutionProvider::Cpu,
             threads,
-            spinning: decoder_spins,
+            spinning: self.spinning,
             ..self.clone()
         }
     }

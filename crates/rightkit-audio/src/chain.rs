@@ -1,6 +1,5 @@
 //! The configurable dialogue chain: high-pass -> denoise -> compressor -> de-esser ->
-//! limiter. Ported from `video-media::audio_finish::dialogue_chain_filter` and
-//! `video-project::audio_profile`, extended with denoise and typed stages.
+//! limiter. Stage parameters are typed and validated before rendering.
 
 use std::path::Path;
 

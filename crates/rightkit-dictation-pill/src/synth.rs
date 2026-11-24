@@ -96,7 +96,10 @@ pub fn swell_wav(spec: &SwellSpec) -> Result<Vec<u8>, SwellError> {
     }
     // At most 10 s at 192 kHz: 1.92 million frames, far inside every size below.
     let frames_f = (f64::from(sample_rate) * spec.seconds).floor();
-    if !(1.0..=f64::from(*SAMPLE_RATES.end()) * MAX_SECONDS).contains(&frames_f) {
+    if !(frames_f.is_finite()
+        && frames_f >= 1.0
+        && frames_f <= f64::from(*SAMPLE_RATES.end()) * MAX_SECONDS)
+    {
         return Err(SwellError::Size);
     }
     let frames = frames_f as usize;

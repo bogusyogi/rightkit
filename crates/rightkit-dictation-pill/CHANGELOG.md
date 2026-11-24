@@ -1,9 +1,11 @@
 # Changelog
 
-## Unreleased
+## 0.1.1 candidate
 
-- Add bounded synthesis of a host-configured intro swell as an in-memory PCM WAV.
-- Add host-configured tip cadence, bounded tip and catalog reads, and elapsed clock formatting.
+- Add caller-required geometry, motion, hint/cadence, event pipeline & session infrastructure with host-supplied presentation inputs.
+- Add host-configured native C bridge & generation-aware clipboard override lifecycle, including settled refresh identity.
+- Carry splash generations through truthful show/dismiss acknowledgment, forced completion & close callback; buffer reentrant close & sample app readiness outside Rust mutex.
+- Suppress duplicate initialize/shutdown & post-shutdown entry admission.
 
 ## 0.1.0 (unreleased)
 

@@ -21,9 +21,8 @@
 use super::uia::El;
 use crate::text_select::{
     scalars_before, select_and_verify, snapshot, utf16_len, utf16_slice, ControlIdentity,
-    DocumentSnapshot,
-    ObservedSelection, SelectionProof, TextSelectError, TextSelectResult, TextSurface,
-    DEFAULT_LIMIT_UTF16,
+    DocumentSnapshot, ObservedSelection, SelectionProof, TextSelectError, TextSelectResult,
+    TextSurface, DEFAULT_LIMIT_UTF16,
 };
 use crate::uia_text::get_text_request_len;
 use windows::Win32::UI::Accessibility::{
@@ -46,13 +45,14 @@ fn map_err(e: windows::core::Error, op: &'static str) -> TextSelectError {
 }
 
 fn text_pattern(el: &El) -> TextSelectResult<IUIAutomationTextPattern> {
-    unsafe { el.0.GetCurrentPatternAs::<IUIAutomationTextPattern>(UIA_TextPatternId) }.map_err(
-        |e| match map_err(e, "GetCurrentPattern(TextPattern)") {
-            // E_NOINTERFACE and friends: the control simply has no TextPattern.
-            TextSelectError::Platform(..) => TextSelectError::Unsupported("no TextPattern"),
-            other => other,
-        },
-    )
+    unsafe {
+        el.0.GetCurrentPatternAs::<IUIAutomationTextPattern>(UIA_TextPatternId)
+    }
+    .map_err(|e| match map_err(e, "GetCurrentPattern(TextPattern)") {
+        // E_NOINTERFACE and friends: the control simply has no TextPattern.
+        TextSelectError::Platform(..) => TextSelectError::Unsupported("no TextPattern"),
+        other => other,
+    })
 }
 
 fn range_text(range: &IUIAutomationTextRange, limit_utf16: usize) -> TextSelectResult<String> {
@@ -61,7 +61,7 @@ fn range_text(range: &IUIAutomationTextRange, limit_utf16: usize) -> TextSelectR
     // Raw UTF-16 units, decoded strictly: `BSTR`'s `Display` replaces a lone surrogate with
     // U+FFFD, which keeps the length but changes the text, so a malformed string is refused
     // instead.
-    let units = text.as_wide();
+    let units: &[u16] = &text;
     if units.len() > limit_utf16 {
         return Err(TextSelectError::TooLarge { limit_utf16 });
     }
@@ -171,8 +171,10 @@ impl TextSurface for Surface<'_> {
             .ok_or(TextSelectError::SplitsSurrogatePair { offset: start })?;
 
         let mut counts = vec![(start, end)];
-        if let (Some(s), Some(e)) = (scalars_before(document, start), scalars_before(document, end))
-        {
+        if let (Some(s), Some(e)) = (
+            scalars_before(document, start),
+            scalars_before(document, end),
+        ) {
             if (s, e) != (start, end) {
                 counts.push((s, e));
             }

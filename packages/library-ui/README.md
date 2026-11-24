@@ -13,7 +13,7 @@ Library list and reader over a host-supplied `LibrarySource` (the main entry hol
 | Import | Contents |
 |---|---|
 | `@rightkit/library-ui` | The library contract (`LibrarySource`, `LibraryRow`, `LibraryDetail`, `LibraryQuery`), host configuration (`configureLibraryHost`), the list (`LibraryScreen` and its parts, `useGroupSelection`, `OriginIcon`, list helpers) and the reader (`LibraryReader` and its parts, find helpers). |
-| `@rightkit/library-ui/tauri` | `tauriLibrarySource()`: the `LibrarySource` over ScrapeRight's artifact library (`get_history_page`, `get_transcript`, `get_transcript_variant`, `delete_transcript`, the `job://update` event), and `LIBRARY_SORT_VARIANTS`. Imports Tauri. HeardRight's history is the `history` source of `@rightkit/dictation-ui/tauri`. |
+| `@rightkit/library-ui/tauri` | `tauriLibrarySource()`: the `LibrarySource` over ScrapeRight's artifact library (`get_history_page`, `get_transcript`, `get_transcript_variant`, `delete_transcript`, the `job://update` event), and `LIBRARY_SORT_VARIANTS`. Imports Tauri. A dictation host supplies its own `LibrarySource` over its transcript store. |
 | `@rightkit/library-ui/queue` | ScrapeRight's queue screens (paste bar, queue board, job cards, workbench preview, its Detail screen over the reader). Not IPC-free: this entry imports `@tauri-apps/api`, `@tauri-apps/plugin-dialog` and `@rightkit/tauri-shell` and calls ScrapeRight's Tauri commands by name; it stays here until a queue UI package exists. |
 | `@rightkit/library-ui/styles.css` | Reader and queue styles, plus `@rightkit/doc-render`'s. |
 
@@ -52,15 +52,14 @@ where the group's own label does not.
 
 HeardRight's History page is the reference for the list (search, variants, date and origin filters, retention,
 export, selection, edit, delete with confirmation, group visibility); ScrapeRight's Detail reader is the reference
-for the reader (views, find, media, images, copy, save). `@rightkit/dictation-ui` maps dictation delivery records
-to rows (`deliveryRow`) and wraps the list as `DictationHistory`.
+for the reader (views, find, media, images, copy, save). Dictation hosts supply delivery rows through the `LibrarySource` contract.
 
 ## Host configuration
 
 `configureLibraryHost({ appName?, storagePrefix?, storageKeys? })`: the product name in copy, and the browser-storage
 keys the list keeps (`skipDeleteConfirm`, `groupSelection`, `recoveryDismissed`; default `rk-library.<key>`). A host
 with stored choices passes its existing keys. The configuration is also importable alone from
-`@rightkit/library-ui/host` (no list code), which is how `@rightkit/dictation-ui` forwards its own host configuration.
+`@rightkit/library-ui/host` for configuration without the list module.
 
 ## Peer dependencies
 

@@ -27,6 +27,21 @@ public struct ModelDownloadProgress: Sendable, Equatable {
     }
 }
 
+/// How the download of one model is authorized when `ModelDownloadConfig.workerBase` is set.
+public enum ModelDownloadAuthorization: Sendable, Equatable {
+    /// Ask the Worker for a scoped grant (`/v1/model-grants`). The default.
+    case workerGrant
+    /// Present this bearer token as is through an origin-bound in-process transfer; no grant is requested.
+    /// A retry after process termination restarts the transfer. Choose a scoped grant or signed URL when
+    /// the host needs a durable background transfer.
+    case bearer(String)
+}
+
+/// Chooses the authorization for one model. It is consulted only when the config has a `workerBase`
+/// (an explicit signed URL is already scoped and needs none). Throwing fails the job with that error
+/// before any request is made.
+public typealias ModelDownloadAuthorizer = @Sendable (ModelArtifactSpec) async throws -> ModelDownloadAuthorization
+
 /// Makes a model ready: reuse what is installed, else adopt a staged or retained archive, else
 /// (grant, download with retries) and then install transactionally. The Swift counterpart of
 /// `rightkit-models` `ensure_with_grant`.
@@ -50,14 +65,18 @@ public struct ModelDownloadCoordinator: Sendable {
     public let userAgent: String
 
     private let fetch: Fetch
+    private let explicitBearerFetch: Fetch
     private let sleep: Sleep
     private let deviceID: @Sendable () -> String
     private let allowsCellular: @Sendable () -> Bool
+    private let authorizer: ModelDownloadAuthorizer?
+    private let hasActiveTransfer: @Sendable (String) async -> Bool
 
     /// - Parameters:
     ///   - downloader: the app's single ``ModelDownloader``; its staging folder is used for adoption.
     ///   - deviceID: the stable per-install id sent with grant requests (see ``ModelGrantClient/stableDeviceID(prefix:vendorIdentifier:defaults:key:)``).
     ///   - allowsCellular: read at each download attempt, so a settings change applies to the next one.
+    ///   - authorizer: picks the authorization per model when the config routes through a Worker; nil means a Worker grant.
     public init(
         layout: ModelStoreLayout,
         downloader: ModelDownloader,
@@ -65,20 +84,29 @@ public struct ModelDownloadCoordinator: Sendable {
         grantClient: ModelGrantClient = ModelGrantClient(),
         userAgent: String,
         deviceID: @escaping @Sendable () -> String,
-        allowsCellular: @escaping @Sendable () -> Bool = { false }
+        allowsCellular: @escaping @Sendable () -> Bool = { false },
+        authorizer: ModelDownloadAuthorizer? = nil
     ) {
         self.init(
             layout: layout, staging: downloader.configuration.staging, installer: installer, grantClient: grantClient,
-            userAgent: userAgent, deviceID: deviceID, allowsCellular: allowsCellular,
+            userAgent: userAgent, deviceID: deviceID, allowsCellular: allowsCellular, authorizer: authorizer,
             fetch: { request, modelID, progress in try await downloader.download(request, modelID: modelID, onProgress: progress) },
+            explicitBearerFetch: { request, modelID, progress in
+                try await downloader.downloadWithExplicitBearer(request, modelID: modelID, onProgress: progress)
+            },
+            hasActiveTransfer: { modelID in await downloader.hasActiveDownload(modelID: modelID) },
             sleep: { try await Task.sleep(nanoseconds: UInt64(max(0, $0) * 1_000_000_000)) })
     }
 
     init(
         layout: ModelStoreLayout, staging: ModelDownloadStaging, installer: ModelInstaller, grantClient: ModelGrantClient,
         userAgent: String, deviceID: @escaping @Sendable () -> String, allowsCellular: @escaping @Sendable () -> Bool,
-        fetch: @escaping Fetch, sleep: @escaping Sleep
+        authorizer: ModelDownloadAuthorizer? = nil,
+        fetch: @escaping Fetch, explicitBearerFetch: Fetch? = nil, hasActiveTransfer: @escaping @Sendable (String) async -> Bool = { _ in false },
+        sleep: @escaping Sleep
     ) {
+        self.hasActiveTransfer = hasActiveTransfer
+        self.authorizer = authorizer
         self.layout = layout
         self.staging = staging
         self.installer = installer
@@ -87,6 +115,7 @@ public struct ModelDownloadCoordinator: Sendable {
         self.deviceID = deviceID
         self.allowsCellular = allowsCellular
         self.fetch = fetch
+        self.explicitBearerFetch = explicitBearerFetch ?? fetch
         self.sleep = sleep
     }
 
@@ -166,6 +195,19 @@ public struct ModelDownloadCoordinator: Sendable {
         func reset() { lock.withLock { tracker.reset() } }
     }
 
+    /// `https`, a host, no embedded credentials; and, when the URL was routed through a Worker, the Worker's
+    /// own scheme, host and port. Anything else is ``ModelDownloadError/notConfigured``.
+    static func requireSecureOrigin(of url: URL, workerBase: String?) throws {
+        guard url.scheme?.lowercased() == "https", let host = url.host?.lowercased(), !host.isEmpty,
+              url.user == nil, url.password == nil else { throw ModelDownloadError.notConfigured }
+        guard let workerBase else { return }
+        guard let base = URL(string: workerBase), base.scheme?.lowercased() == "https",
+              base.user == nil, base.password == nil,
+              base.host?.lowercased() == host, (base.port ?? 443) == (url.port ?? 443) else {
+            throw ModelDownloadError.notConfigured
+        }
+    }
+
     private func download(
         spec: ModelArtifactSpec,
         config: ModelDownloadConfig,
@@ -173,33 +215,56 @@ public struct ModelDownloadCoordinator: Sendable {
         progress: @escaping @Sendable (ModelDownloadProgress) -> Void
     ) async throws {
         guard let url = config.signedURL else { throw ModelDownloadError.notConfigured }
+        // The origin is checked before anything that carries a credential: no bearer is fetched from the
+        // authorizer, no grant is requested and no request is built for an address that is not https, carries
+        // credentials, or (when routed through a Worker) is not the Worker's own origin.
+        try Self.requireSecureOrigin(of: url, workerBase: config.workerBase)
         let box = ProgressBox(report: progress)
         var grant: ModelGrant?
+        var bearer: String?
         var refreshedAfterRejection = false
         let maxAttempts = ModelDownloadPolicy.maxAttempts
+        var usesGrant = config.workerBase != nil
+        // Resolve policy before considering a legacy background task. An explicit entitlement must never
+        // join a transport whose redirect handling cannot enforce its original origin.
+        if config.workerBase != nil, let authorizer {
+            switch try await authorizer(spec) {
+            case .workerGrant: usesGrant = true
+            case let .bearer(token):
+                guard !token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                    throw ModelDownloadError.notConfigured
+                }
+                usesGrant = false
+                bearer = token
+            }
+        }
+        var joining = bearer == nil ? await hasActiveTransfer(spec.id) : false
 
         for attempt in 1...maxAttempts {
             try Task.checkCancellation()
-            if let workerBase = config.workerBase, grant == nil || grant?.expires(within: 60) == true {
+            if !joining, usesGrant, let workerBase = config.workerBase, grant == nil || grant?.expires(within: 60) == true {
                 progress(.init(phase: .requestingGrant, fraction: 0.01))
                 grant = try await grantClient.acquireGrant(.init(
                     workerBase: workerBase, route: spec.route, model: spec.id, platform: spec.platform,
                     sha256: spec.expectedSHA256 ?? "", deviceID: deviceID()))
             }
             let request = ModelDownloadPolicy.request(
-                url: url, bearerToken: grant?.token, userAgent: userAgent, allowsCellular: allowsCellular())
+                url: url, bearerToken: joining ? nil : (grant?.token ?? bearer), userAgent: userAgent,
+                allowsCellular: allowsCellular())
             progress(.init(phase: .downloading, fraction: 0.02))
             do {
-                let file = try await fetch(request, spec.id, { downloaded, expected in box.update(downloaded: downloaded, expected: expected) })
+                let transfer = bearer == nil ? fetch : explicitBearerFetch
+                let file = try await transfer(request, spec.id, { downloaded, expected in box.update(downloaded: downloaded, expected: expected) })
                 let manager = FileManager.default
                 if manager.fileExists(atPath: archive.path) { try manager.removeItem(at: archive) }
                 try manager.moveItem(at: file, to: archive)
                 return
             } catch {
                 if ModelDownloadPolicy.isCancellation(error) { throw error }
+                joining = false
                 // The Worker may have rejected a grant that expired in flight: ask once more.
                 if case let ModelDownloadError.httpStatus(status) = error, status == 401 || status == 403,
-                   config.workerBase != nil, !refreshedAfterRejection, attempt < maxAttempts {
+                   usesGrant, !refreshedAfterRejection, attempt < maxAttempts {
                     refreshedAfterRejection = true
                     grant = nil
                     continue

@@ -17,6 +17,39 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 static HOTKEYS_REGISTERED: AtomicBool = AtomicBool::new(false);
 
+/// The hook's native release sample as the stop/send mark: translated EXACTLY ONCE here, from
+/// `rightkit_hotkeys::release_edge::NativeReleaseEdge` to the audio crate's `CaptureEdge`
+/// (`version: 1`, the matching clock, seconds and nanos unchanged) and on to the wire edge
+/// (`OriginalReleaseMark::edge_from_audio`, a rename of the same value). `None` (the hook's clock
+/// sample failed) is `OriginalReleaseMark::missing()`: the engine fails closed, the stop is never
+/// re-sampled at dispatch time and never falls back to receipt age.
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+pub fn release_mark_from_native(
+    edge: Option<rightkit_hotkeys::release_edge::NativeReleaseEdge>,
+) -> crate::runtime::OriginalReleaseMark {
+    use crate::runtime::OriginalReleaseMark;
+    // Wake starts deliberately bind legacy identity. Select that route before constructing
+    // any exact mark; absence of an epoch never selects this branch.
+    if OriginalReleaseMark::current_capture_is_legacy() {
+        return OriginalReleaseMark::legacy_receipt();
+    }
+    use rightkit_audio::capture::{CaptureClock, CaptureEdge};
+    use rightkit_hotkeys::release_edge::NativeReleaseClock;
+    let Some(edge) = edge else {
+        return OriginalReleaseMark::missing();
+    };
+    let audio = CaptureEdge {
+        version: 1,
+        clock: match edge.clock {
+            NativeReleaseClock::WasapiQpc100nsV1 => CaptureClock::WasapiQpc100nsV1,
+            NativeReleaseClock::CoreAudioHostNsV1 => CaptureClock::CoreAudioHostNsV1,
+        },
+        seconds: edge.seconds,
+        nanos: edge.nanos,
+    };
+    OriginalReleaseMark::from_edge(OriginalReleaseMark::edge_from_audio(audio))
+}
+
 /// Why a dictation hotkey is discarded right now: the engine is still warming up, or onboarding is
 /// not finished. Log text only.
 fn ignored_reason() -> &'static str {
@@ -125,7 +158,7 @@ mod macos {
 
     use crate::dictation_control::{
         cancel_dictation_inner, start_dictation_inner, stop_dictation_and_send_inner,
-        stop_dictation_inner, toggle_dictation_inner,
+        stop_dictation_and_send_inner_at, stop_dictation_inner_at, toggle_dictation_inner,
     };
     use crate::host::host;
     use crate::lifecycle::{
@@ -135,7 +168,7 @@ mod macos {
     use crate::shell::{Shell, ShellEvent};
     use crate::telemetry;
 
-    use super::{emit_onboarding_shortcut, ignored_reason};
+    use super::{emit_onboarding_shortcut, ignored_reason, release_mark_from_native};
 
     static MACOS_FN_HOTKEY_STARTED: AtomicBool = AtomicBool::new(false);
 
@@ -228,7 +261,7 @@ mod macos {
     }
 
     /// Wires the push-to-talk (Control or Option hold) callbacks.
-    fn wire_ptt_callbacks(shell: &Shell) {
+    fn wire_ptt_callbacks(shell: &Shell, exact: bool, exact_ready: bool) {
         let start_shell = shell.clone();
         let stop_shell = shell.clone();
         let stop_send_shell = shell.clone();
@@ -242,7 +275,15 @@ mod macos {
                 if !host.ptt_dictation_allowed() {
                     return;
                 }
-                if let Err(err) = start_dictation_inner(&start_shell) {
+                if exact && !exact_ready {
+                    return;
+                }
+                let started = if exact {
+                    start_dictation_inner(&start_shell)
+                } else {
+                    crate::dictation_control::start_dictation_legacy_inner(&start_shell)
+                };
+                if let Err(err) = started {
                     telemetry::log_message(
                         "ptt_start_error",
                         crate::dictation_error::error_log_code(&err),
@@ -258,7 +299,14 @@ mod macos {
                     return;
                 }
                 telemetry::log_input_trigger("ptt_release");
-                if let Err(err) = stop_dictation_inner(stop_shell.as_ref()) {
+                if let Err(err) = stop_dictation_inner_at(
+                    stop_shell.as_ref(),
+                    if exact {
+                        crate::runtime::OriginalReleaseMark::missing()
+                    } else {
+                        crate::runtime::OriginalReleaseMark::legacy_receipt()
+                    },
+                ) {
                     telemetry::log_message(
                         "ptt_stop_error",
                         crate::dictation_error::error_log_code(&err),
@@ -278,7 +326,14 @@ mod macos {
                     return;
                 };
                 telemetry::log_input_trigger("ptt_send");
-                match stop_dictation_and_send_inner(stop_send_shell.as_ref()) {
+                match stop_dictation_and_send_inner_at(
+                    stop_send_shell.as_ref(),
+                    if exact {
+                        crate::runtime::OriginalReleaseMark::missing()
+                    } else {
+                        crate::runtime::OriginalReleaseMark::legacy_receipt()
+                    },
+                ) {
                     Ok(_) => emit_immediate_trigger_feedback("ptt_send", trigger_started, false),
                     Err(err) => telemetry::log_message(
                         "ptt_stop_send_error",
@@ -304,6 +359,63 @@ mod macos {
             }),
         );
         host().fn_hotkey_apply_ptt_settings();
+    }
+
+    /// Wires the physical push-to-talk Stop/Send release with the hook's original native edge
+    /// (`FnHotkeyHolder::set_ptt_release_callback`). Must run BEFORE `fn_hotkey_start()`: the tap
+    /// reads it when it is created. It replaces only the physical Stop/Send callbacks above (the
+    /// same gates and logging); start, cancel and a `Cancel` end are not routed here. The mark is
+    /// built once from the hook's sample and handed to the `*_at` stop/send, so nothing samples a
+    /// replacement at dispatch time. Needs the host method `fn_hotkey_set_ptt_release_callback`
+    /// (see the HANDOFF; host.rs is outside this donor).
+    fn wire_ptt_release_callback(shell: &Shell) -> bool {
+        let stop_shell = shell.clone();
+        let stop_send_shell = shell.clone();
+        host().fn_hotkey_set_ptt_release_callback(Some(Arc::new(
+            move |end: rightkit_hotkeys::ptt::PttEnd,
+                  edge: Option<rightkit_hotkeys::release_edge::NativeReleaseEdge>| {
+                use rightkit_hotkeys::ptt::PttEnd;
+                match end {
+                    PttEnd::Stop => {
+                        let released = release_mark_from_native(edge);
+                        let host = host();
+                        if !host.push_to_talk_enabled() || !host.ptt_dictation_allowed() {
+                            return;
+                        }
+                        telemetry::log_input_trigger("ptt_release");
+                        if let Err(err) = stop_dictation_inner_at(stop_shell.as_ref(), released) {
+                            telemetry::log_message(
+                                "ptt_stop_error",
+                                crate::dictation_error::error_log_code(&err),
+                            );
+                        }
+                    }
+                    PttEnd::Send => {
+                        let released = release_mark_from_native(edge);
+                        let host = host();
+                        if !host.push_to_talk_enabled() || !host.ptt_dictation_allowed() {
+                            return;
+                        }
+                        let trigger_started = Instant::now();
+                        let Some(_guard) = DictationTriggerGuard::acquire("ptt_send") else {
+                            return;
+                        };
+                        telemetry::log_input_trigger("ptt_send");
+                        match stop_dictation_and_send_inner_at(stop_send_shell.as_ref(), released) {
+                            Ok(_) => {
+                                emit_immediate_trigger_feedback("ptt_send", trigger_started, false)
+                            }
+                            Err(err) => telemetry::log_message(
+                                "ptt_stop_send_error",
+                                crate::dictation_error::error_log_code(&err),
+                            ),
+                        }
+                    }
+                    // Cancel keeps its own callback.
+                    _ => {}
+                }
+            },
+        )))
     }
 
     /// Wires the middle-mouse toggle callback.
@@ -350,32 +462,51 @@ mod macos {
     /// Returns false while the grant is missing; a repeat call after the taps started only
     /// re-enables the fn tap.
     pub fn activate_macos_fn_hotkey(shell: &Shell) -> bool {
+        activate_macos_fn_hotkey_route(shell, false)
+    }
+
+    /// Select before first activation. False means exact callback was not registered.
+    pub fn activate_macos_fn_hotkey_exact(shell: &Shell) -> bool {
+        activate_macos_fn_hotkey_route(shell, true)
+    }
+
+    static MACOS_EXACT_ROUTE: AtomicBool = AtomicBool::new(false);
+
+    fn activate_macos_fn_hotkey_route(shell: &Shell, exact: bool) -> bool {
         let host = host();
         if MACOS_FN_HOTKEY_STARTED.load(Ordering::SeqCst) {
             host.fn_hotkey_set_enabled(true);
-            return true;
+            return !exact || MACOS_EXACT_ROUTE.load(Ordering::SeqCst);
         }
         if !host.accessibility_trusted() {
             telemetry::log_message("fn_hotkey", "deferred until Accessibility is granted");
             return false;
         }
+        let exact_ready = exact && wire_ptt_release_callback(shell);
+        if exact && !exact_ready {
+            telemetry::log_message(
+                "fn_hotkey",
+                "original PTT release callback unsupported; exact PTT disabled",
+            );
+        }
         if MACOS_FN_HOTKEY_STARTED.swap(true, Ordering::SeqCst) {
             host.fn_hotkey_set_enabled(true);
-            return true;
+            return !exact || MACOS_EXACT_ROUTE.load(Ordering::SeqCst);
         }
         host.fn_hotkey_set_enabled(true);
 
         wire_fn_chord_callbacks(shell);
-        wire_ptt_callbacks(shell);
+        MACOS_EXACT_ROUTE.store(exact_ready, Ordering::SeqCst);
+        wire_ptt_callbacks(shell, exact, exact_ready);
         host.fn_hotkey_start();
         wire_middle_mouse_callback(shell);
 
-        true
+        !exact || exact_ready
     }
 }
 
 #[cfg(target_os = "macos")]
-pub use macos::activate_macos_fn_hotkey;
+pub use macos::{activate_macos_fn_hotkey, activate_macos_fn_hotkey_exact};
 
 /// Windows: the low-level keyboard and mouse hooks and what each event does to dictation.
 ///
@@ -399,9 +530,10 @@ pub mod windows {
     use rightkit_hotkeys::windows::mouse_hook::MiddleClickState;
     use rightkit_hotkeys::windows::ptt_hook::{KeyboardState, PttEvent};
 
+    use super::release_mark_from_native;
     use crate::dictation_control::{
-        cancel_dictation_inner, send_dictation_detached, start_dictation_detached,
-        stop_dictation_detached,
+        cancel_dictation_inner, send_dictation_detached_at, start_dictation_detached,
+        stop_dictation_detached_at,
     };
     use crate::host::host;
     use crate::runtime::CancelSource;
@@ -427,6 +559,15 @@ pub mod windows {
     /// runs on its own thread; a failed install leaves no hooks and is reported by the hooks
     /// package through `event_sink`.
     pub fn install_input_hooks(shell: Shell, setup: HookSetup) {
+        install_input_hooks_route(shell, setup, false);
+    }
+
+    /// Explicit original-release route; select before first hook installation.
+    pub fn install_input_hooks_exact(shell: Shell, setup: HookSetup) {
+        install_input_hooks_route(shell, setup, true);
+    }
+
+    fn install_input_hooks_route(shell: Shell, setup: HookSetup, exact: bool) {
         if HOOK_THREAD_STARTED.swap(true, Ordering::SeqCst) {
             return;
         }
@@ -434,7 +575,11 @@ pub mod windows {
             .name(setup.thread_name.to_string())
             .spawn(move || {
                 let cancel_shell = shell.clone();
-                let installed = InputHooks::install(InputHooksConfig {
+                let release_shell = shell.clone();
+                // The release callback receives the hook's native edge, sampled on the hook
+                // thread before the dispatch queue; it replaces `on_ptt` only for physical
+                // Stop/Send. Start, forced ends, cancel and preview stay on `on_ptt`.
+                let config = InputHooksConfig {
                     keyboard: Some(KeyboardHookConfig {
                         state: setup.keyboard,
                         on_cancel: Box::new(move || {
@@ -443,11 +588,21 @@ pub mod windows {
                                 CancelSource::KeyboardCancelHook,
                             );
                         }),
-                        on_ptt: Box::new(move |event| dispatch_ptt(&shell, event)),
+                        on_ptt: Box::new(move |event| dispatch_ptt(&shell, event, exact)),
                     }),
                     mouse: Some(MouseHookConfig { state: setup.mouse }),
                     event_sink: setup.event_sink,
-                });
+                };
+                let installed = if exact {
+                    InputHooks::install_with_ptt_release_edges(
+                        config,
+                        Box::new(move |event, edge| {
+                            dispatch_ptt_release(&release_shell, event, edge)
+                        }),
+                    )
+                } else {
+                    InputHooks::install(config)
+                };
                 if let Ok(hooks) = installed {
                     *HOOKS.lock().unwrap_or_else(|e| e.into_inner()) = Some(hooks);
                 }
@@ -455,16 +610,56 @@ pub mod windows {
             .ok();
     }
 
-    /// Push-to-talk events from the hook (arm timer, release, chord). Runs on the hooks package's
-    /// dispatch thread, never on the hook thread.
-    fn dispatch_ptt(shell: &Shell, event: PttEvent) {
+    /// A physical push-to-talk Stop/Send with the hook's original native edge (`None`: the hook's
+    /// clock sample failed, `missing()`, the engine fails closed). The mark is built once and
+    /// carried through the `*_at` stop/send; nothing here samples at dispatch time. Any other
+    /// event (not delivered here by the hooks package) goes through `dispatch_ptt`.
+    fn dispatch_ptt_release(
+        shell: &Shell,
+        event: PttEvent,
+        edge: Option<rightkit_hotkeys::release_edge::NativeReleaseEdge>,
+    ) {
+        match event {
+            PttEvent::Stop => {
+                telemetry::log_input_trigger("ptt_release");
+                if let Err(err) = stop_dictation_detached_at(shell, release_mark_from_native(edge))
+                {
+                    telemetry::log_message(
+                        "ptt_stop_error",
+                        crate::dictation_error::error_log_code(&err),
+                    );
+                }
+            }
+            PttEvent::Send => {
+                telemetry::log_input_trigger("ptt_send");
+                if let Err(err) = send_dictation_detached_at(shell, release_mark_from_native(edge))
+                {
+                    telemetry::log_message(
+                        "ptt_stop_send_error",
+                        crate::dictation_error::error_log_code(&err),
+                    );
+                }
+            }
+            other => dispatch_ptt(shell, other, true),
+        }
+    }
+
+    /// Push-to-talk events from the hook (arm timer, chord, cancel, preview, start). Runs on the
+    /// hooks package's dispatch thread, never on the hook thread. Physical Stop/Send arrive through
+    /// `dispatch_ptt_release` with their native edge.
+    fn dispatch_ptt(shell: &Shell, event: PttEvent, exact: bool) {
         match event {
             PttEvent::Start => {
                 if host().ptt_dictation_allowed() {
                     telemetry::log_input_trigger("ptt_start");
                     // Returns at once (the start runs on its own thread): this dispatch thread is
                     // serial, so a press that stayed in the start would hold the release back.
-                    if let Err(err) = start_dictation_detached(shell) {
+                    let started = if exact {
+                        start_dictation_detached(shell)
+                    } else {
+                        crate::dictation_control::start_dictation_legacy_detached(shell)
+                    };
+                    if let Err(err) = started {
                         telemetry::log_message(
                             "ptt_start_error",
                             crate::dictation_error::error_log_code(&err),
@@ -476,7 +671,15 @@ pub mod windows {
                 telemetry::log_input_trigger("ptt_release");
                 // The release seals the recording and returns; the key-gated stop runs on its own
                 // thread so the next press is not held behind it.
-                if let Err(err) = stop_dictation_detached(shell) {
+                // Not reached through the release callback; fail closed rather than re-sample.
+                if let Err(err) = stop_dictation_detached_at(
+                    shell,
+                    if exact {
+                        crate::runtime::OriginalReleaseMark::missing()
+                    } else {
+                        crate::runtime::OriginalReleaseMark::legacy_receipt()
+                    },
+                ) {
                     telemetry::log_message(
                         "ptt_stop_error",
                         crate::dictation_error::error_log_code(&err),
@@ -485,7 +688,14 @@ pub mod windows {
             }
             PttEvent::Send => {
                 telemetry::log_input_trigger("ptt_send");
-                if let Err(err) = send_dictation_detached(shell) {
+                if let Err(err) = send_dictation_detached_at(
+                    shell,
+                    if exact {
+                        crate::runtime::OriginalReleaseMark::missing()
+                    } else {
+                        crate::runtime::OriginalReleaseMark::legacy_receipt()
+                    },
+                ) {
                     telemetry::log_message(
                         "ptt_stop_send_error",
                         crate::dictation_error::error_log_code(&err),

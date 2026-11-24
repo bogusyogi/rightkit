@@ -88,8 +88,7 @@
 //! | Windows | exists, a racing creator wins, or a symlink | none: not looked at again, so a second identical call flushes none | n/a (see the residual) | none | `atomic_publish.rs::windows::a_pre_existing_directory_is_not_flushed_only_what_the_call_creates_is` |
 //! | Windows | `durable: false` | `create_dir_all` (or `ensure_private_dir`), no flush | the directories may be lost with the file, as the mode says | none | none |
 //!
-//! Consolidates CutRight `fsutil::atomic_write` (project and qa copies), CodeRight
-//! `private_fs::atomic` and the settings/model-store writers.
+//! Use the same publication primitive for replaceable state such as project settings or model metadata.
 
 use crate::error::{FsError, Result};
 use std::fs::{self, File, OpenOptions};
@@ -188,8 +187,8 @@ pub enum ReplaceMode {
     #[default]
     Rename,
     /// Windows: `MoveFileExW` with `MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH`, so the
-    /// move is on stable storage when the call returns, whether or not the destination exists
-    /// (the mode HeardRight's telemetry outbox uses). This is a separate mode, not part of
+    /// move is on stable storage when the call returns, whether or not the destination exists.
+    /// This is a separate mode, not part of
     /// `durable`, because `MoveFileExW` replaces without POSIX semantics: a concurrent reader that
     /// holds the destination open without `FILE_SHARE_DELETE` makes the move fail with a sharing or
     /// access error, which [`AtomicWriteOptions::retry_sharing_violation`] can retry. Choose it for

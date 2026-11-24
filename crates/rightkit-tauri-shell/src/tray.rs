@@ -1,10 +1,10 @@
 //! System tray / menu-bar extra with a dynamic menu.
 //!
-//! Donors: CodeRight `os_shell/tray` (menu rebuilt from a snapshot, typed actions back to the
-//! renderer, never a second authority), HeardRight `tray.rs` (state icons, left click opens the
-//! app, Quit runs the ordered shutdown first). HeardRight's out-of-process macOS menu-bar helper
+//! Mechanisms: host `os_shell/tray` (menu rebuilt from a snapshot, typed actions back to the
+//! renderer, never a second authority), host `tray.rs` (state icons, left click opens the
+//! app, Quit runs the ordered shutdown first). host's out-of-process macOS menu-bar helper
 //! (a workaround for a Control Center identity bug) is an app packaging choice and stays in
-//! HeardRight; this tray is the in-process item every other app uses.
+//! host; this tray is the in-process item every other app uses.
 
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};

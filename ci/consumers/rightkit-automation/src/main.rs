@@ -1,6 +1,6 @@
-// rightkit-automation 0.7.2 registry consumer, outside the workspace.
+// rightkit-automation 0.7.3 registry consumer, outside the workspace.
 //
-// Pins `rightkit-automation =0.7.2` exactly with `paths` and `desktop-context`, plus
+// Pins `rightkit-automation =0.7.3` exactly with `paths` and `desktop-context`, plus
 // `rightkit-daemon =0.9.0` exactly so the returned `Suite` can be named. No
 // path, git, workspace, patch, or test-seam dependencies. Runs on any host:
 // nothing here touches a desktop, a window, or the input ladder.
@@ -77,7 +77,7 @@ fn main() {
     );
     assert_eq!(sensitive_value("hello world"), None);
 
-    println!("rightkit-automation 0.7.2 registry consumer passed");
+    println!("rightkit-automation 0.7.3 registry consumer passed");
 }
 
 #[cfg(windows)]

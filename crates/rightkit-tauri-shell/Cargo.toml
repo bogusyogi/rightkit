@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-tauri-shell"
-version = "0.8.6"
+version = "0.8.7"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Shared Tauri desktop shell for Right Suite apps: webview hardening, window state, native menu, tray, single instance, deep links, autostart, rich clipboard, watchdog and engine wiring."
@@ -27,7 +27,7 @@ engine = ["dep:rightkit-job-queue"]
 viewer = []
 # Required by `DevToolsPolicy::ContentOnly`: compiles Tauri's devtools in so a registered content
 # webview can be inspected. Every other webview stays non-inspectable. Only an app on the
-# `right-release` allow-list (`packages/release/devtools-policy.json`, today only ViewRight) may
+# `right-release` allow-list (`packages/release/devtools-policy.json`) may
 # ship a build with it; every other app must leave it off. Never a default feature.
 content-devtools = ["tauri/devtools", "tauri/unstable"]
 # DEVELOPMENT/QA BUILDS ONLY. Compiles the QA control-command helpers an app registers on its `rightkit-qa`
@@ -79,7 +79,7 @@ rightkit-notifications = { version = "0.1.0", path = "../rightkit-notifications"
 rightkit-signal = { version = "0.1.0", path = "../rightkit-signal" }
 rightkit-app-update = { version = "0.2.0", path = "../rightkit-app-update", optional = true }
 rightkit-credentials = { version = "0.5.3", path = "../rightkit-credentials", optional = true }
-rightkit-fs = { version = "0.4.9", path = "../rightkit-fs", default-features = false, features = ["fs"] }
+rightkit-fs = { version = "0.5.0", path = "../rightkit-fs", default-features = false, features = ["fs"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 tauri-plugin-updater = { version = ">=2.10.1, <3", optional = true, default-features = true }
@@ -98,7 +98,7 @@ libc = "0.2"
 objc2 = "0.6"
 objc2-foundation = { version = "0.3", features = ["NSArray", "NSData", "NSString", "NSURL", "NSValue", "NSGeometry", "NSObject", "NSBundle", "NSDictionary", "NSError", "NSNotification", "NSDistributedNotificationCenter"] }
 block2 = "0.6"
-objc2-app-kit = { version = "0.3", features = ["NSWindow", "NSButton", "NSControl", "NSView", "NSResponder", "NSPasteboard", "NSPasteboardItem", "NSApplication"] }
+objc2-app-kit = { version = "0.3", features = ["NSWindow", "NSButton", "NSControl", "NSView", "NSResponder", "NSPasteboard", "NSPasteboardItem", "NSApplication", "NSScreen", "NSWorkspace"] }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Threading", "Win32_Graphics_Gdi", "Win32_System_LibraryLoader", "Win32_UI_WindowsAndMessaging"] }

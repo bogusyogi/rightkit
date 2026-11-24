@@ -1,6 +1,6 @@
-# rightkit-automation 0.7.2 registry consumer (`paths`, `desktop-context` features)
+# rightkit-automation 0.7.3 registry consumer (`paths`, `desktop-context` features)
 
-Standalone consumer, outside the workspace, pinning `rightkit-automation =0.7.2`
+Standalone consumer, outside the workspace, pinning `rightkit-automation =0.7.3`
 exactly with `paths` and `desktop-context`, and `rightkit-daemon =0.9.0` exactly so the
 returned `Suite` type can be named. No path, Git, workspace, patch, or
 test-seam dependency, and no `Cargo.lock` committed in this directory (the

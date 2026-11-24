@@ -2,6 +2,7 @@ import Foundation
 
 #if canImport(Darwin)
 import Darwin
+import CRightKitDarwinNotify
 
 /// Errors from the cross-process wake.
 public enum DaemonWakeError: Error, Equatable, Sendable {
@@ -216,14 +217,14 @@ public final class DaemonWakeListener: @unchecked Sendable {
 /// notifications (rightkit#404 decision: the daemon stays portable). A Darwin notification is not
 /// scoped to the user or the suite, so never treat it as authorization.
 public final class DarwinNotifyObserver: @unchecked Sendable {
-    private var token: Int32 = NOTIFY_TOKEN_INVALID
+    private var token: Int32?
     private let lock = NSLock()
 
     /// Register for `name`; `handler` runs on `queue` for each post (posts may coalesce).
     public init(name: String, queue: DispatchQueue = .main, handler: @escaping @Sendable () -> Void) throws {
-        var newToken: Int32 = NOTIFY_TOKEN_INVALID
-        let status = notify_register_dispatch(name, &newToken, queue) { _ in handler() }
-        guard status == UInt32(NOTIFY_STATUS_OK) else {
+        var newToken: Int32 = 0
+        let status = rkd_notify_register_dispatch(name, &newToken, queue) { _ in handler() }
+        guard status == rkd_notify_status_ok() else {
             throw DaemonWakeError.system(operation: "notify_register_dispatch", errno: Int32(truncatingIfNeeded: status))
         }
         token = newToken
@@ -233,17 +234,17 @@ public final class DarwinNotifyObserver: @unchecked Sendable {
     public func cancel() {
         lock.lock()
         defer { lock.unlock() }
-        guard token != NOTIFY_TOKEN_INVALID else { return }
-        notify_cancel(token)
-        token = NOTIFY_TOKEN_INVALID
+        guard let token else { return }
+        rkd_notify_cancel(token)
+        self.token = nil
     }
 
     deinit { cancel() }
 
     /// Post a Darwin notification for `name`.
     public static func post(_ name: String) throws {
-        let status = notify_post(name)
-        guard status == UInt32(NOTIFY_STATUS_OK) else {
+        let status = rkd_notify_post(name)
+        guard status == rkd_notify_status_ok() else {
             throw DaemonWakeError.system(operation: "notify_post", errno: Int32(truncatingIfNeeded: status))
         }
     }

@@ -1,6 +1,6 @@
 # rightkit-asr
 
-Parakeet ONNX and Whisper decoding runtime for Right Suite applications. It reconciles the generic Parakeet ONNX runtime used by Right Suite products into one crate. It is published to crates.io; the latest registry version is 0.2.4, and this source is 0.3.0, unpublished (see [INDEX.md](../../INDEX.md)).
+Parakeet ONNX and Whisper decoding runtime for Right Suite applications. It reconciles the generic Parakeet ONNX runtime used by Right Suite products into one crate. This source is 0.5.1 (see [INDEX.md](../../INDEX.md)).
 
 Catalog capability: `speech-recognition`.
 
@@ -21,6 +21,7 @@ Do not put product policy (model selection, downloads, environment variables) in
 | Feature | Default | Enables |
 |---|---|---|
 | `cpu` | yes | CPU build marker. It adds no dependency. |
+| `kws-ffi` | no | Native C ABI over streaming keyword spotting; packaged header `include/rightkit_asr_kws.h`. |
 | `whisper-tokenizers` | yes | HF `tokenizers` for the Whisper CoreML decoder, the CTC and EOU Parakeet decoders and Cohere (`Cargo.toml:63`). |
 | `ort-defaults` | yes | Nothing. It is an empty feature kept so existing lists resolve (`Cargo.toml:68`). The suite API level lives in `rightkit-onnx`; this crate does not use `ort/default`. |
 | `ort-tracing` | no | `rightkit-onnx/tracing`: forwards ONNX Runtime log lines into `tracing` (`Cargo.toml:71`). |
@@ -155,3 +156,36 @@ A hosted runner has none of these assets, so each test prints `SKIP <test>: ...`
 - `src/whisper/cpp.rs`, unit test `new_symbols_resolve_in_pinned_library`: `RIGHTKIT_WHISPER_LIB`.
 - `tests/e2e_whisper_ggml.rs` cancel, deadline, progress and `DecodeQuality` tests: the same library and model gate.
 - `tests/certify_heardright.rs`: an opt-in run against a live HeardRight speech service, enabled by `RIGHTKIT_ASR_CERTIFY=1`, with the HeardRight Parakeet bundle at `RIGHTKIT_PARAKEET_COREML_DIR` (or its default folder).
+
+## Native keyword spotting
+
+Enable `kws-ffi` for `rightkit_asr::kws_ffi`; native hosts expose its
+`rightkit_asr_*` symbols through their static library. Include
+`include/rightkit_asr_kws.h` in native callers. No additional dependency is required.
+
+Call `rightkit_asr_kws_runtime_init` before creating spotters. NULL keeps this
+entry point's completed binding or initializes statically linked ORT on iOS;
+other targets require an absolute runtime library path through `rightkit-onnx`.
+A different binding fails. iOS rejects an existing ort API whose installation
+this entry point cannot prove. Successful API installation remains recorded
+when environment creation fails: retry NULL for that same binding. A failed
+initialization does not permit spotter creation.
+
+`rightkit_asr_kws_spotter_create` accepts model directory, keyword file,
+keyword threshold, beam width (`max_active_paths` >= 1) & `active_path_ttl_frames`.
+TTL units are 40 ms encoder frames; zero or negative disables expiry. Spotters
+use one CPU thread, zero trailing blanks, keyword score 1.0 & no automatic
+trailing-blank reset. Model names are exported as `kws_ffi::ENCODER_FILE`,
+`DECODER_FILE`, `JOINER_FILE` & `TOKENS_FILE`.
+
+Create streams through `rightkit_asr_kws_stream_create`; feed mono 16 kHz samples
+with `_stream_accept`, then call `_stream_decode` while `_stream_is_ready` returns
+1. `_stream_result_json` reports each detection once with `keyword`, `timestamps`
+(seconds, two decimals) & `tokens`; `_stream_reset` clears decoding state.
+Status calls return 0 for success or -1 for failure; readiness returns 1, 0 or -1.
+
+Serialize calls on each spotter & its streams. Destroy streams before their
+spotter using matching `*_destroy` calls. Release every result or error string
+with `rightkit_asr_string_free`. Destroy & string-free accept NULL. `error_out`
+may be NULL; otherwise it is cleared on entry & receives an owned message on
+failure. Panics are caught at C entry points & reported as failed calls.

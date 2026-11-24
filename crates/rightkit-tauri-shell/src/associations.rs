@@ -1,6 +1,6 @@
 //! File-association status and default-handler control (Orthic-Labs/rightkit#670).
 //!
-//! Donor: ViewRight `commands/mac_associations/*`, generalised. The app passes its bundle id and
+//! Mechanism: host `commands/mac_associations/*`, generalised. The app passes its bundle id and
 //! its type list ([`AssociationSpec`]); nothing here knows a format, an app name or a ProgID.
 //!
 //! - **macOS**: the default handler of a UTI is read through `NSWorkspace

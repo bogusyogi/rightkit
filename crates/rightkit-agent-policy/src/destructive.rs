@@ -40,7 +40,9 @@ fn reason(command: &str, depth: usize) -> Option<&'static str> {
                 return Some(reason);
             }
         }
-        if let Some(reason) = written_then_run(&clauses, depth) {
+        // A shell's `-c` code string runs in sequence with the clauses around it, so a file it
+        // writes can be run by a later clause (`sh -c "echo '...' > x.sh" && sh x.sh`).
+        if let Some(reason) = written_then_run(&inline_shell_code(clauses), depth) {
             return Some(reason);
         }
     }
@@ -506,6 +508,46 @@ fn written_then_run(clauses: &[Clause], depth: usize) -> Option<&'static str> {
     None
 }
 
+/// Shells whose `-c` code string runs in line with the command around them.
+const SHELLS: &[&str] = &[
+    "sh", "bash", "zsh", "dash", "ksh", "mksh", "ash", "fish", "csh", "tcsh",
+];
+
+/// `clauses` with each shell `-c` clause followed by the clauses of its code string, in place,
+/// so `written_then_run` links a write inside the string to a run after it (issue 457 item 4).
+/// The string itself is checked as code separately (`check_clause` queues it).
+fn inline_shell_code(clauses: Vec<Clause>) -> Vec<Clause> {
+    let mut out = Vec::with_capacity(clauses.len());
+    for clause in clauses {
+        let inner = {
+            let ops = operands(&clause.words);
+            // The shell may itself follow wrappers (`sudo sh -c ...`); shells count as wrappers
+            // in `command_start`, so look for the first bare shell word directly.
+            let flag = |w: &Word| {
+                w.bare
+                    && w.text.starts_with('-')
+                    && !w.text.starts_with("--")
+                    && w.text.contains('c')
+            };
+            ops.iter()
+                .position(|w| w.bare && is_named(w, SHELLS))
+                .and_then(|s| {
+                    (s + 1..ops.len())
+                        .take_while(|&i| ops[i].text.starts_with('-'))
+                        .find(|&i| flag(ops[i]))
+                })
+                .and_then(|i| ops.get(i + 1))
+                .map(|w| w.text.clone())
+        };
+        out.push(clause);
+        if let Some(code) = inner {
+            let mut queued = Code::new(); // already queued for checking by `check_clause`
+            out.extend(split_clauses(&code, &mut queued));
+        }
+    }
+    out
+}
+
 /// Programs that only print or search: they never write a file their arguments name, so their
 /// arguments (`echo 'rm -rf /'`) are text, not files written.
 const PRINTERS: &[&str] = &["echo", "printf", "grep", "egrep", "fgrep", "rg"];
@@ -597,16 +639,13 @@ fn runs_file(clauses: &[Clause], j: usize, writer: usize, file: &str) -> bool {
     let ops = operands(&clause.words);
     let (at, data, behind) = shape(&ops);
     let cands = candidates(&ops, at, behind && !data);
-    // Behind a wrapper the program follows the wrapper's options and numeric arguments
-    // (`timeout 5 x.sh`, `nice -n 5 x.sh`, `sudo timeout 2s x.sh`), and may be a bare name found
-    // on PATH (issue 457 item 2). A wrapper with a non-numeric positional argument
-    // (`flock lockfile x.sh`, `su user x.sh`) is still a listed limit.
-    let wrapped = if behind && !data {
-        wrapped_program(&ops)
-    } else {
-        None
-    };
-    let program = |i: &&usize| **i == at || Some(**i) == wrapped || ops[**i].text.contains('/');
+    // Behind a wrapper the program follows the wrapper's options and arguments, and may be a
+    // bare name found on PATH (issue 457 item 2): `timeout 5 x.sh`, `nice -n 5 x.sh`, and also a
+    // wrapper with a non-numeric positional argument (`flock lockfile x.sh`, `su user x.sh`).
+    // Which word the wrapper runs depends on the wrapper, so behind one any word that names the
+    // file just written counts as the program.
+    let wrapped_run = behind && !data;
+    let program = |i: &&usize| **i == at || wrapped_run || ops[**i].text.contains('/');
     if cands
         .iter()
         .filter(program)
@@ -627,23 +666,6 @@ fn runs_file(clauses: &[Clause], j: usize, writer: usize, file: &str) -> bool {
         }
         p -= 1;
     }
-}
-
-/// The index of the program a wrapper-led clause runs: the first word after the leading wrappers
-/// that is not an option, an assignment or a number or duration (`5`, `2s`, `0.5`, `-n`).
-fn wrapped_program(ops: &[&Word]) -> Option<usize> {
-    let numeric = |t: &str| {
-        let digits = t.trim_end_matches(|c: char| c.is_ascii_alphabetic());
-        !digits.is_empty() && digits.chars().all(|c| c.is_ascii_digit() || c == '.')
-    };
-    (0..ops.len()).find(|&i| {
-        let text = ops[i].text.as_str();
-        !(is_assignment(ops[i])
-            || KEYWORDS.contains(&text)
-            || WRAPPERS.contains(&basename(text))
-            || text.starts_with('-')
-            || numeric(text))
-    })
 }
 
 /// Whether a clause names `file` other than as the target of an output redirection.
@@ -843,7 +865,15 @@ fn split_clauses(text: &str, code: &mut Code) -> Vec<Clause> {
                 }
             }
             '&' if c.get(i + 1) == Some(&'>') => i = redirection(&c, i, &mut b),
-            ';' | '&' | '(' | ')' => b.end_clause(),
+            ';' | '&' => b.end_clause(),
+            '(' => {
+                b.end_clause();
+                b.group_starts.push(b.clauses.len());
+            }
+            ')' => {
+                b.end_clause();
+                b.close_group();
+            }
             '<' if c.get(i + 1) == Some(&'<') && c.get(i + 2) == Some(&'<') => {
                 b.op("<<<".to_string());
                 i += 2;
@@ -885,6 +915,10 @@ struct Builder {
     word: Option<Word>,
     /// The next clause pushed is fed by a pipe.
     piped: bool,
+    /// Clause indices where the open `( ... )` and `{ ...; }` groups began.
+    group_starts: Vec<usize>,
+    /// The clauses of the group that just closed, while nothing has followed it yet.
+    closed_group: Option<(usize, usize)>,
 }
 
 impl Builder {
@@ -900,13 +934,44 @@ impl Builder {
     }
 
     fn end_word(&mut self) {
-        self.words.extend(self.word.take());
+        if let Some(word) = self.word.take() {
+            // `{` and `}` open and close a brace group only as the first word of a command.
+            if word.bare && self.words.is_empty() && word.text == "{" {
+                self.group_starts.push(self.clauses.len());
+                return;
+            }
+            if word.bare && self.words.is_empty() && word.text == "}" {
+                self.close_group();
+                return;
+            }
+            self.words.push(word);
+        }
+    }
+
+    fn close_group(&mut self) {
+        if let Some(start) = self.group_starts.pop() {
+            self.closed_group = Some((start, self.clauses.len()));
+        }
     }
 
     fn end_clause(&mut self) {
         self.end_word();
         if !self.words.is_empty() {
             let words = std::mem::take(&mut self.words);
+            // `( ... ) > f` and `{ ...; } > f`: the redirection applies to every command in the
+            // group, so each of them is given it (issue 457 item 1).
+            let redirect_only =
+                words.len().is_multiple_of(2) && words.chunks(2).all(|pair| is_redirect(&pair[0]));
+            if let Some((start, end)) = self.closed_group.take() {
+                if redirect_only && end == self.clauses.len() {
+                    for clause in &mut self.clauses[start..end] {
+                        clause.words.extend(words.iter().map(|w| Word {
+                            text: w.text.clone(),
+                            bare: w.bare,
+                        }));
+                    }
+                }
+            }
             self.clauses.push(Clause {
                 words,
                 stdin: Vec::new(),

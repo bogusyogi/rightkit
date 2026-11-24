@@ -1,6 +1,6 @@
 # rightkit-tauri-shell
 
-Shared Tauri desktop shell for Right Suite applications. It owns hardened webviews (`HardeningScript`, navigation and popup policy), window state, the native menu and tray, single-instance arbitration, deep links, autostart, rich clipboard, notifications, a watchdog, presence, and optional engine sidecar wiring. Its entry point is `Shell::builder(app_id).build().plugin()`, with lower-level modules public.
+Shared Tauri shell for desktop applications. It owns hardened webviews (`HardeningScript`, navigation and popup policy), window state, the native menu and tray, single-instance arbitration, deep links, autostart, rich clipboard, notifications, a watchdog, presence, and optional engine sidecar wiring. Its entry point is `Shell::builder(app_id).build().plugin()`, with lower-level modules public.
 
 **Use it** in a Right Suite Tauri app's native host, so every app gets the same shell behavior.
 
@@ -8,13 +8,15 @@ Shared Tauri desktop shell for Right Suite applications. It owns hardened webvie
 
 ## Features
 
+macOS applications locked to Tauri 2.11 must enable `tauri/macos-private-api` in their macOS dependency to compile the window transparency builder. Tauri 2.12 exposes this builder without that feature.
+
 | Feature | Default | Pulls in | Effect |
 |---|---|---|---|
 | `engine` | off | `rightkit-job-queue` (optional; `rightkit-child-process` is an unconditional dependency) | Engine sidecar wiring over `rightkit-job-queue` `EngineClient`. Opt in; it pulls `rightkit-job-queue` (db, time, uuid). |
 | `viewer` | on | nothing | The document-viewer surface: `preview`, `stream`, `site`, `print` and `content_webview` with `preview_protocol`, `stream_protocol`, `site_protocol`, the `rk_shell_stream_grant`, `rk_shell_site_*`, `rk_shell_print` and `rightkit_preview_*` commands, `ContentProfile`/`ContentWebviewSpec`, and the preview-document caller refusal. An app with `default-features = false` must add `viewer` to keep them. |
 | `wv2-0_38` | off | `windows` 0.61, `webview2-com` 0.38 | Windows types for apps locked to Tauri 2.11. Use `default-features = false, features = ["wv2-0_38"]` & retain other selected features. |
 | `wv2-0_39` | on | `windows` 0.62, `webview2-com` 0.39 | Windows types for Tauri 2.12; default since 0.5.0. Enabling both selects 0.39. |
-| `content-devtools` | off | `tauri/devtools` | Required by `DevToolsPolicy::ContentOnly`. Only an app on the `right-release` allow-list (today ViewRight) may ship it; see "DevTools policy". Never a default feature. |
+| `content-devtools` | off | `tauri/devtools` | Required by `DevToolsPolicy::ContentOnly`. Only an app on the `right-release` allow-list (as defined by release policy) may ship it; see "DevTools policy". Never a default feature. |
 | `host-services` | off | `rightkit-app-settings` 0.3.0 | Shared host services (`src/host/`): settings bridge, write-only API-key slots, legal receipt, and the `HostCallerPolicy` that gates them. Adds the `rightkit_settings_*`, `rightkit_secrets_*`, `rightkit_legal_receipt_*` and `rightkit_preview_*` commands. |
 | `app-update` | off | `rightkit-app-update` 0.1.0 | Boot probation after an update and the allowlisted fetch bridge as host commands (`rightkit_boot_status`, `rightkit_boot_stage`, `rightkit_boot_ok`, `rightkit_boot_begin`, `rightkit_app_update_fetch`), behind `ServiceId::APP_UPDATE` (`HostServicesBuilder::app_update`). Implies `host-services`. |
 | `logs` | off | `rightkit-logs` 0.3.4 | Renderer log commands `rightkit_logs_write`, `rightkit_logs_collect`, `rightkit_logs_clear` (`src/logs_commands.rs`). `LogsConfig::clear_sources` makes clear cover the app's other logs, and `LogsConfig::settings` fills the bundle's `metadata.settings` (see Logs below). |
@@ -82,9 +84,9 @@ Illustrative; not compiled as a doctest. The compiled references are `tests/poli
 
 ## DevTools policy
 
-**The owner's fixed design, verbatim, never to be changed:** every Right app has absolutely NO access to DevTools: blocked at each and every level that is possible, for the app, its shell and its own UI. The single exception is ViewRight: it opens HTML documents, and DevTools must be available INSIDE that opened HTML content only (the content frame), never for ViewRight's own UI or shell.
+App UI & shell DevTools are denied in every build. Only hosts authorized by release policy may inspect explicitly registered, IPC-isolated opened content. Product authorization & original owner wording live in release policy documentation outside this crate.
 
-Source: `src/devtools.rs` (`OWNER_DECISION`). Written, unverified: nothing here was compiled or run; the macOS and Windows calls are the uncertain part.
+API summary: `src/devtools.rs` (`OWNER_DECISION`). Its text is a general policy summary; authorization remains in the release allow-list. Written, unverified: nothing here was compiled or run; the macOS and Windows calls are the uncertain part.
 
 ### API
 
@@ -115,13 +117,13 @@ Source: `src/devtools.rs` (`OWNER_DECISION`). Written, unverified: nothing here 
 
 `ContentOnly` makes only registered content webviews inspectable: `isInspectable = true` + `developerExtrasEnabled = true` (macOS); `AreDevToolsEnabled = true` with a context menu trimmed to the Inspect item, accelerator keys still off, so the inspector is opened from that item or from `open_content_devtools` (Windows). The shell's DOM, Console and Sources are never reachable because the shell is a different WKWebView / CoreWebView2 whose own setting stays off.
 
-Iframes: inspection of an iframe alone cannot be granted. On both platforms the inspector attaches to a whole webview, so a page whose content is an iframe in the app UI webview would make the UI inspectable. Content must live in its own webview. ViewRight renders HTML previews as iframes today and does not meet this rule; see `docs/plans/2026-10-11-viewright-content-devtools-design.md`.
+Iframes: inspection of an iframe alone cannot be granted. On both platforms the inspector attaches to a whole webview, so a page whose content is an iframe in the app UI webview would make the UI inspectable. Content must live in its own webview.
 
 ### Adoption
 
 - Every app: nothing to call. Do not enable Tauri's `devtools` feature, do not use `Devtools::*` (removed), do not create webviews with `.devtools(true)`.
 - An app that created webviews itself: they pass through `on_webview_ready` like any other and are denied.
-- ViewRight only: enable `content-devtools`, `devtools_policy(ContentOnly)`, register each content webview, declare an application ACL manifest in `build.rs`, scope its capabilities with `webviews` (not `windows`) and set `"devtools": "content-only"` in its `right-release` config.
+- Release-authorized hosts only: enable `content-devtools`, `devtools_policy(ContentOnly)`, register each content webview, declare an application ACL manifest in `build.rs`, scope its capabilities with `webviews` (not `windows`) and set `"devtools": "content-only"` in its `right-release` config.
 - `right-release` refuses `devtools` in a release or update build for any app that is not allow-listed (`packages/release/devtools-policy.json`).
 
 ### Development builds
@@ -175,14 +177,14 @@ use rightkit_tauri_shell::{Module, Shell, ShellPlugin};
 
 // Everything except presence and the watchdog:
 let plugin = ShellPlugin::builder()
-    .shell(Shell::builder("viewright").build())
+    .shell(Shell::builder("example-app").build())
     .without(Module::Presence)
     .without(Module::Watchdog)
     .build();
 
 // Only broker, stream, recovery, frameless and clipboard state:
 let plugin = ShellPlugin::builder()
-    .shell(Shell::builder("viewright").build())
+    .shell(Shell::builder("example-app").build())
     .install_state_only();
 ```
 
@@ -259,7 +261,7 @@ service still takes the report behind the central caller policy; it wins over a 
 
 ### Site-root scheme
 
-`ShellBuilder::site_protocol("viewright-site", SitePolicy::default())` serves allowlisted
+`ShellBuilder::site_protocol("example-site", SitePolicy::default())` serves allowlisted
 subresources beneath a site root. The app grants it for a document it already holds with
 `rk_shell_site_grant` (which returns `{token, root, baseUrl}`) and ends it with
 `rk_shell_site_revoke`. Denied names and the MIME allowlist are part of `SitePolicy`.
@@ -338,21 +340,21 @@ the call until exit; the relaunch is not blocked, since arbitration is the mutex
 
 Exact legacy names (`LegacySingleInstanceNames`, `LegacyAutostartNames`), read from
 `tauri-plugin-single-instance` 2.4.2 and 2.4.3, `tauri-plugin-autostart` 2.5.1, `auto-launch` 0.5.0.
-HeardRight (`identifier` `app.heardright.next`, `productName` `HeardRight`):
+host (`identifier` `app.example.next`, `productName` `host`):
 
-| Item | Derivation | HeardRight |
+| Item | Derivation | host |
 |---|---|---|
-| Windows mutex / window class / title | `<identifier>-sim` / `-sic` / `-siw` | `app.heardright.next-sim` / `-sic` / `-siw` |
-| macOS socket | `/tmp/<identifier with . and - as _>_si.sock` | `/tmp/app_heardright_next_si.sock` |
-| Linux D-Bus name (not probed) | `<identifier>.SingleInstance` | `app.heardright.next.SingleInstance` |
-| Windows Run value | `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, value `<entry name>` | `HeardRight` |
-| macOS LaunchAgent | label `<entry name>`, `~/Library/LaunchAgents/<entry name>.plist` | `HeardRight`, `~/Library/LaunchAgents/HeardRight.plist` |
-| Linux autostart | `~/.config/autostart/<entry name>.desktop` | `HeardRight.desktop` |
+| Windows mutex / window class / title | `<identifier>-sim` / `-sic` / `-siw` | `app.example.next-sim` / `-sic` / `-siw` |
+| macOS socket | `/tmp/<identifier with . and - as _>_si.sock` | `/tmp/app_example_next_si.sock` |
+| Linux D-Bus name (not probed) | `<identifier>.SingleInstance` | `app.example.next.SingleInstance` |
+| Windows Run value | `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, value `<entry name>` | `host` |
+| macOS LaunchAgent | label `<entry name>`, `~/Library/LaunchAgents/<entry name>.plist` | `host`, `~/Library/LaunchAgents/host.plist` |
+| Linux autostart | `~/.config/autostart/<entry name>.desktop` | `host.desktop` |
 
 The entry name is the plugin builder's `app_name`, else `PackageInfo::name`, which is `productName`
 when set and the Cargo package name otherwise. The names assume the plugins' `semver` feature is off
-(HeardRight does not enable it). The plugin also writes a same-named value under
-`...\Explorer\StartupApproved\Run`; the migration leaves it. HeardRight's lockfile pins
+(host does not enable it). The plugin also writes a same-named value under
+`...\Explorer\StartupApproved\Run`; the migration leaves it. host's lockfile pins
 `tauri-plugin-single-instance` 2.4.5, whose source was not available to read; 2.4.2 to 2.4.3 changed
 only the macOS listener (tokio), not the names.
 
@@ -362,7 +364,7 @@ only the macOS listener (tokio), not the names.
 
 ```rust,ignore
 tauri::Builder::default()
-    .plugin(rightkit_tauri_shell::Shell::builder("viewright")
+    .plugin(rightkit_tauri_shell::Shell::builder("example-app")
         .build()
         .single_instance_plugin(|app, argv, cwd| {
             // Handle forwarded files & focus using your app's own policy.
@@ -386,7 +388,7 @@ plugin entry point per app. The lower-level `instance::arbitrate` remains public
 The single-instance service is named `<id>-shell` (`instance::arbitrate`, the plugins) or
 `<id>-instance` (`SingleInstance::claim`), after the id is normalised: ASCII-lowercased, then every
 character outside `[a-z0-9-]` becomes `-`, one for one, nothing collapsed or trimmed. A dotted bundle
-identifier works: `app.mailright` becomes `app-mailright`, `Mail_Right` becomes `mail-right`. An id that
+identifier works: `app.example` becomes `app-example`, `Example_App` becomes `example-app`. An id that
 is already `[a-z0-9-]` is unchanged, so running instances are still found across an upgrade. Distinct
 ids can normalise to one name (`a.b` and `a-b`), which makes them the same app for this purpose.
 `rightkit-daemon` allows 1 to 48 bytes of `[a-z0-9-]`, so an empty id, or one longer than 42 bytes
@@ -399,7 +401,7 @@ name or the typed error. `ShellBuilder::build` still panics on any id outside `[
 ```rust,ignore
 use rightkit_tauri_shell::{HardeningScript, Shell};
 
-let plugin = Shell::builder("viewright")
+let plugin = Shell::builder("example-app")
     .hardening_script(HardeningScript::TopFrameOnly)
     .build()
     .plugin();
@@ -421,11 +423,11 @@ argv/cwd forwarding & guard release.
 `windows::WindowSpec` opens app-relative pages only. `ContentWebviewSpec` opens a window onto a remote `https` origin for sign-in windows and content readers:
 
 ```rust
-let spec = ContentWebviewSpec::new("play-spotify", "https://open.spotify.com/")
-    .allow_origin("https://open.spotify.com")
-    .allow_origin("https://accounts.spotify.com")
-    .popup_origin("https://accounts.google.com")
-    .profile(ContentProfile::new("spotify", profiles_root)?)
+let spec = ContentWebviewSpec::new("remote-content", "https://content.example.com/")
+    .allow_origin("https://content.example.com")
+    .allow_origin("https://account.example.com")
+    .popup_origin("https://signin.example.net")
+    .profile(ContentProfile::new("remote-content", profiles_root)?)
     .app_acl_manifest(true)
     .capability(include_str!("../capabilities/default.json"));
 rightkit_tauri_shell::content_webview::open(&app, &spec)?;
@@ -463,7 +465,7 @@ let cold = rightkit_tauri_shell::open_url::current_urls(); // arrived before any
 
 `Shell::builder(..).on_second_instance(|app, argv, cwd| ..)` replaces the default second-launch behaviour (event plus reveal of the main window); the callback owns focus. Arbitration is unchanged, and URLs on the forwarded argv still reach `open_url` handlers and `current_urls()` before the callback runs. Without a callback nothing changes.
 
-`windows`/`webview2-com` are feature-selected so they match the app's Tauri: `wv2-0_38` (0.61/0.38, Tauri 2.11) or `wv2-0_39` (0.62/0.39, Tauri 2.12, **default since 0.5.0**, `CHANGELOG.md`). A mismatch puts two copies beside Tauri's and `cast()` fails (E0599, found by MailRight). Apps locked to Tauri 2.11 must set `default-features = false, features = ["wv2-0_38"]` & retain other selected features; enabling 0.38 while leaving defaults enabled still selects 0.39.
+`windows`/`webview2-com` are feature-selected so they match the app's Tauri: `wv2-0_38` (0.61/0.38, Tauri 2.11) or `wv2-0_39` (0.62/0.39, Tauri 2.12, **default since 0.5.0**, `CHANGELOG.md`). A mismatch puts two copies beside Tauri's and `cast()` fails (E0599, found by host). Apps locked to Tauri 2.11 must set `default-features = false, features = ["wv2-0_38"]` & retain other selected features; enabling 0.38 while leaving defaults enabled still selects 0.39.
 
 ## Runtime budget
 
@@ -594,3 +596,5 @@ Enable `background-update`, register Tauri's updater plugin, then call `backgrou
 `check_now(app, host)` performs one check regardless of readiness. Both paths validate manifest tier presence & membership before calculating eligibility, then cache & publish `BackgroundUpdateStatus`. `status()` returns process-wide cached status, initially `Idle`; its tagged JSON matches `@rightkit/app-update`'s background session. Reasons remain `auto_install_off` & `pro_required` for wire compatibility. These are metadata checks; download, install & install authorization remain separate.
 
 The detached loop lives until async runtime shutdown & has no cancellation/restart API. Use nonzero regular/retry delays & bounded header lookups. Manual checks can overlap; completed checks replace cached status in completion order. Host command wrappers must enforce their caller policy before exposing status or requesting checks. Existing `os_settings::open_pane(SettingsPane::Microphone)` covers native microphone settings without another launcher.
+
+`hub_window::controller` coordinates the hub, splash and legal handoff. `startup` selects which surface to show, manages renderer readiness and runs ordered setup. Hosts supply routes, copy, appearance, window labels and native callbacks.

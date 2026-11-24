@@ -1,9 +1,38 @@
 # Changelog
 
+## 0.4.1
+
+- Reserve setup meter starts at command receipt, reject stale queued starts and stops, and drain an older admitted start before opening its replacement. Consent stays independent. Existing setup start and stop signatures remain supported.
+
+## 0.4.0
+
+- Coordinate setup visibility, stale command rejection, owned consent & off-UI resource drain with SetupAudioScope.
+- Own each microphone meter worker with an app-held MicMeter. Construct it at runtime, cancel an epoch with stop, and close or drop off the UI thread to drain its capture.
+- Hold a MicrophonePermissionSession for setup consent. Windows callers migrate to the session request method, which owns and drains the grant watch. The legacy free request remains available on other platforms.
+- Declare the actual lifetimes of capture registration, calibration children and setup workers.
+
+## 0.3.10
+
+- Add calibration session completion with owned PCM cleanup, typed outcomes & host callbacks for model activation, engine execution and restart.
+
+## 0.3.9
+
+- Add typed errors for exact capture cuts, including a dropped stream and a release edge before its recording epoch. Existing cut callers retain their current interface.
+
+## 0.3.8
+
+- Seal capture at the original hotkey release using same-host monotonic timestamps. Retain delayed pre-release microphone packets and discard samples captured afterward before resampling.
+- Reject missing timestamps, timeout, capture gaps, and overflow instead of returning an unverified clip.
+
+## 0.3.7 (unpublished)
+
+- Windows capture callback threads register once with MMCSS, preferring `Pro Audio` then `Audio`; registration failure remains advisory. Thread-local ownership retains each registration until callback-thread exit & reverts it on that same thread.
+- MMCSS outcome crosses callback boundary as an atomic numeric status; consumer-side reads, metrics or stop report it once. No callback logging, per-buffer allocation or new public metrics fields; actual stream errors retain existing classification.
+
 ## 0.3.6 (unpublished)
 
 - Added `setup::permissions`: macOS consent & Windows capability classification, device probes, Settings opening & grant polling. Explicit Windows denials take precedence over probes. Host retains UI-thread scheduling, telemetry sink & grant event.
-- Added `setup::calibration_engine::{EngineRun, run_engine_calibration}`: host-selected engine, environment, execution timeout & stdout cap with owned process-tree cleanup & host-defined JSON results. Uses child-process APIs available in 0.5.12, preserving HeardRight's exact dependency pin.
+- Added `setup::calibration_engine::{EngineRun, run_engine_calibration}`: host-selected engine, environment, execution timeout & stdout cap with owned process-tree cleanup & host-defined JSON results. Uses child-process APIs available in 0.5.12.
 - Windows consent timeout cancels & drops its WinRT operation without leaving an indefinitely blocked join thread; each request supersedes previous grant watcher before classification.
 
 ## 0.3.5 (unpublished)
@@ -29,7 +58,7 @@
 
 ## 0.3.1 (2026-10-17)
 
-- Orthic-Labs/rightkit#454: new `mic_align` (`align_mic`, `AlignParams`, `MicAlignment`): mic-to-camera lag by mean-removed normalized cross-correlation, coarse 4x-decimated full-range pass then a full-rate fine pass, with confidence and peak margin. New `room_fill` (`room_tone_fill`, `room_tone_bed`, `FillParams`, `ToneFill`, `rms`, `encode_mono_f32_wav`): looped room-tone fill with equal-power crossfaded seams, scaled to the measured RMS plus `gain_db`. Lifted from CutRight `cutright-audio`, with its tests. Not compiled or run.
+- Orthic-Labs/rightkit#454: new `mic_align` (`align_mic`, `AlignParams`, `MicAlignment`): mic-to-camera lag by mean-removed normalized cross-correlation, coarse 4x-decimated full-range pass then a full-rate fine pass, with confidence and peak margin. New `room_fill` (`room_tone_fill`, `room_tone_bed`, `FillParams`, `ToneFill`, `rms`, `encode_mono_f32_wav`): looped room-tone fill with equal-power crossfaded seams, scaled to the measured RMS plus `gain_db`. Not compiled or run.
 - Lag failures (short, silent or low-correlation input) return `AudioError::Invalid` with a `no mic alignment` message; `AudioError` gains no variant.
 
 - #413 (audio part): `playback::play_once(path)` blocks until a WAV has played through the default output device. It downmixes to mono, resamples linearly, duplicates across device channels, and fails with `Playback` past the file duration plus five seconds. Not run on a device.
@@ -43,7 +72,7 @@
 
 ## 0.3.0
 
-- New feature `playback` (off by default, uses the existing optional `cpal` 0.18.2, no new dependency): `playback::{list_output_devices, OutputSession, OutputControl, OutputDeviceInfo, OutputFormat, OutputStats}`. `OutputSession::open(device)` reports the actual sample rate and channels; interleaved `f32` samples go through a bounded lock-free SPSC ring written in the crate (capacity set at open, `open_with_capacity`). Underrun plays silence; overrun returns the accepted count and never blocks. Latency-adjusted `played_samples()` and `position()` for use as an A/V master clock; `pause`, `resume`, `flush` (drops queued samples and resets the clock), `set_volume` and `set_muted` reach the callback through atomics with no allocation or locking. Underrun and overrun counters, errors as `AudioError`, reopen of the default device after a device loss, and a `Drop` that releases the stream. Requested by Orthic-Labs/rightkit#248 for Ember.
+- New feature `playback` (off by default, uses the existing optional `cpal` 0.18.2, no new dependency): `playback::{list_output_devices, OutputSession, OutputControl, OutputDeviceInfo, OutputFormat, OutputStats}`. `OutputSession::open(device)` reports the actual sample rate and channels; interleaved `f32` samples go through a bounded lock-free SPSC ring written in the crate (capacity set at open, `open_with_capacity`). Underrun plays silence; overrun returns the accepted count and never blocks. Latency-adjusted `played_samples()` and `position()` for use as an A/V master clock; `pause`, `resume`, `flush` (drops queued samples and resets the clock), `set_volume` and `set_muted` reach the callback through atomics with no allocation or locking. Underrun and overrun counters, errors as `AudioError`, reopen of the default device after a device loss, and a `Drop` that releases the stream. Tracked in Orthic-Labs/rightkit#248.
 - Added `AudioError::Playback(String)`. This is a new variant on a public non-`#[non_exhaustive]` enum, so a downstream exhaustive `match` on `AudioError` needs a new arm; that is why this is a minor release.
 
 

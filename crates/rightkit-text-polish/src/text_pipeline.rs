@@ -4,6 +4,7 @@
 //! [`deterministic_polish`] (and its brand-aware and tail variants),
 //! [`parse_control_command`] and [`parse_ai_transform_command`].
 
+mod capitalize;
 mod control;
 mod inline;
 mod normalize;
@@ -26,3 +27,5 @@ pub use polish::{
     deterministic_polish_tail_with_brand, deterministic_polish_with_brand,
     restore_vocabulary_casing, visual_chunk_transcript, BrandHomophones, HomophoneGuard,
 };
+
+pub use capitalize::capitalize_first_alpha;

@@ -1,5 +1,26 @@
 # RightKitSwift changelog
 
+## 0.9.5 - 2026-11-21
+
+- RightKitWatchBridge adds receipt observations, configurable rollback wording and bounded activation replay. Explicit receipt queries still consult durable storage.
+- Watch background scheduling uses asynchronous submission on iOS 27 with the previous path on older SDKs and operating systems.
+- Watch processing coalesces new drain requests during transcription. Recovery preserves corrupt manifests and reconstructs durable recordings while keeping processing history.
+
+## 0.9.4 - 2026-11-21
+
+- RightKitAudio uses the iOS 27 throwing input tap when available and offers an optional setup and configuration event sink.
+- RightKitWatchBridge adds optional incoming UUID assignment and a recording manifest limit that preserves pending recordings.
+- RightKitSpeech adds model setup, installed-model recovery, shared publication, and runtime lifecycle. Explicit entitlement downloads enforce their initial Worker origin and restart after process death. Worker-grant transfers retain background staging.
+
+## 0.9.3 - 2026-11-21
+
+- RightKitActionChannel and RightKitMenuBarHelper provide a bounded macOS action channel and configurable helper lifecycle.
+- RightKitDictationPill provides configurable native presentation infrastructure and generation-scoped splash callbacks. Hosts supply presentation, wording and actions.
+- RightKitWatchBridge adds a durable recording inbox, pending state and background processing with host-provided transcription and persistence.
+- RightKitAudio adds optional retained PCM, speech and health snapshots, and a PCM WAV writer. RightKitSpeech preserves the existing VAD names.
+- RightKitVoiceCommand adds a host-configured voice command parser. RightKitDiagnostics adds a native iOS MetricKit subscriber.
+- RightKitLLM adds host-configured BYOK settings, output validation and available on-device model support.
+
 ## 0.9.1 (unreleased, rightkit#762; not tagged)
 
 - Added macOS products `RightKitActionChannel` for peer-verified action delivery, `RightKitMenuBarHelper` for the status item and helper lifecycle, and `RightKitDictationPill` for overlay and splash state, clipboard, and transitions. Hosts supply identity, views, copy, motion, and actions. Awaiting native qualification.

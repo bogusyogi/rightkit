@@ -209,22 +209,24 @@ pub(crate) fn set_utility_qos() {
     unsafe { libc::pthread_set_qos_class_self_np(libc::qos_class_t::QOS_CLASS_UTILITY, 0) };
 }
 
-/// How long the macOS watchdog waits for the child to leave after `SIGTERM` before `SIGKILL`.
-#[cfg(target_os = "macos")]
+/// How long the parent-death watchdog waits for the child to leave after `SIGTERM` before `SIGKILL`.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 const WATCHDOG_GRACE_STEPS: u32 = 40; // 40 steps of 50 ms: 2 s
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 const WATCHDOG_STEP_NANOS: libc::c_long = 50_000_000;
 /// How long the spawning side waits for the watchdog to report that it is armed.
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 const WATCHDOG_ARM_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 
-/// macOS parent-death tie. macOS has no `PR_SET_PDEATHSIG`, so a small watchdog process is
+/// Parent-death tie for the child's whole process group (macOS and Linux). macOS has no
+/// `PR_SET_PDEATHSIG`, and on Linux that signal reaches the direct child only (a shell's forked
+/// command, or anything the child started, would outlive the supervisor), so a small watchdog process is
 /// started for `child` (a direct, unreaped child of this process that leads its own process
 /// group). The watchdog is forked twice (the middle process exits at once and is reaped here,
 /// so the watchdog is re-parented to launchd and never becomes a zombie of this process), calls
 /// `setsid`, closes every inherited descriptor but its report pipe, and then blocks in a kqueue
-/// holding two `EVFILT_PROC | NOTE_EXIT` knotes: one on this process (the supervisor), one on
-/// the child. It acts as follows:
+/// holding two `EVFILT_PROC | NOTE_EXIT` knotes (macOS), or polling two pidfds (Linux), one on
+/// this process (the supervisor), one on the child. It acts as follows:
 ///
 /// - the child exits first: the watchdog exits, nothing is signalled;
 /// - the supervisor exits first (including `SIGKILL`, with no cleanup): unless the child has
@@ -238,14 +240,16 @@ const WATCHDOG_ARM_TIMEOUT: std::time::Duration = std::time::Duration::from_secs
 /// the child: it has no tie.
 ///
 /// Only async-signal-safe calls run in the forked processes (`fork`, `setsid`, `open`, `dup2`,
-/// `close`, `kqueue`, `kevent`, `kill`, `write`, `_exit`); nothing allocates there.
+/// `close`, `kqueue`, `kevent` or `pidfd_open` and `poll`, `kill`, `nanosleep`, `write`,
+/// `_exit`); nothing allocates there. On Linux older than 5.3 (`pidfd_open` gives `ENOSYS`)
+/// the watchdog polls `kill(pid, 0)` every 50 ms instead, which reads a recycled pid as alive.
 ///
 /// Residual windows, documented in the changelog: the child runs untied between its spawn and
 /// the moment this returns; and the watchdog's final `kill` names a pid after the supervisor
 /// died, so a child that exits and whose number is recycled inside that gap (microseconds, and
 /// the number space must wrap) could be mistaken for the child (the user-space gap
 /// [`crate::identity`] describes).
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 pub(crate) fn arm_parent_death_watch(child: u32) -> io::Result<()> {
     // SAFETY: getpid has no preconditions.
     let supervisor = unsafe { libc::getpid() };
@@ -312,13 +316,13 @@ pub(crate) fn arm_parent_death_watch(child: u32) -> io::Result<()> {
         Ok(())
     } else {
         Err(io::Error::other(
-            "the macOS parent-death watchdog could not be armed",
+            "the parent-death watchdog could not be armed",
         ))
     }
 }
 
 /// True when the watchdog wrote its `A` (armed) byte within [`WATCHDOG_ARM_TIMEOUT`].
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 fn read_ack(fd: libc::c_int) -> bool {
     let deadline = std::time::Instant::now() + WATCHDOG_ARM_TIMEOUT;
     loop {
@@ -351,7 +355,7 @@ fn read_ack(fd: libc::c_int) -> bool {
 }
 
 /// The descriptors this process has open, for the watchdog to close.
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 fn open_descriptors() -> Vec<RawFd> {
     let listed: Option<Vec<RawFd>> = std::fs::read_dir("/dev/fd").ok().map(|entries| {
         entries
@@ -513,12 +517,170 @@ fn run_watchdog(
     }
 }
 
+/// Linux watchdog body: the macOS one with pidfds in place of kqueue knotes. Never returns and
+/// never allocates. See [`arm_parent_death_watch`].
+#[cfg(target_os = "linux")]
+fn run_watchdog(
+    supervisor: libc::pid_t,
+    child: libc::pid_t,
+    ack_read: libc::c_int,
+    ack_write: libc::c_int,
+    inherited: &[RawFd],
+) -> ! {
+    // SAFETY: only async-signal-safe libc calls and raw syscalls, on descriptors and values
+    // owned by this process; every path ends in `_exit`.
+    unsafe {
+        let report = |byte: u8| {
+            libc::write(ack_write, (&byte as *const u8).cast(), 1);
+            libc::close(ack_write);
+        };
+        libc::signal(libc::SIGPIPE, libc::SIG_IGN);
+        libc::setsid();
+        libc::close(ack_read);
+        let null = libc::open(c"/dev/null".as_ptr(), libc::O_RDWR);
+        if null >= 0 {
+            for target in 0..3 {
+                libc::dup2(null, target);
+            }
+            if null > 2 {
+                libc::close(null);
+            }
+        }
+        for &fd in inherited {
+            if fd > 2 && fd != ack_write {
+                libc::close(fd);
+            }
+        }
+        let errno = || *libc::__errno_location();
+        // The child is still the supervisor's unreaped child here (the supervisor waits for
+        // the ack), so its number cannot have been recycled.
+        let child_fd = libc::syscall(libc::SYS_pidfd_open, child, 0) as libc::c_int;
+        let child_open_error = if child_fd < 0 { errno() } else { 0 };
+        let parent_fd = libc::syscall(libc::SYS_pidfd_open, supervisor, 0) as libc::c_int;
+        let parent_open_error = if parent_fd < 0 { errno() } else { 0 };
+        let polling = child_open_error == libc::ENOSYS || parent_open_error == libc::ENOSYS;
+        if !polling {
+            if child_open_error == libc::ESRCH {
+                report(b'A'); // already gone: nothing to tie
+                libc::_exit(0);
+            }
+            if child_open_error != 0 || (parent_open_error != 0 && parent_open_error != libc::ESRCH)
+            {
+                report(b'F');
+                libc::_exit(1);
+            }
+        }
+        report(b'A');
+        let step = libc::timespec {
+            tv_sec: 0,
+            tv_nsec: WATCHDOG_STEP_NANOS,
+        };
+        // Whether `fd` (or, when polling, `pid`) has exited, waiting at most `millis`.
+        let gone = |fd: libc::c_int, pid: libc::pid_t, millis: libc::c_int| -> bool {
+            if polling || fd < 0 {
+                if libc::kill(pid, 0) != 0 && errno() == libc::ESRCH {
+                    return true;
+                }
+                if millis != 0 {
+                    libc::nanosleep(&step, std::ptr::null_mut());
+                }
+                return false;
+            }
+            let mut entry = libc::pollfd {
+                fd,
+                events: libc::POLLIN,
+                revents: 0,
+            };
+            libc::poll(&mut entry, 1, millis) > 0 && entry.revents != 0
+        };
+        // `ESRCH` for the supervisor: it died before the watch began, so act at once.
+        let mut parent_dead = !polling && parent_open_error == libc::ESRCH;
+        while !parent_dead {
+            if polling {
+                parent_dead = gone(-1, supervisor, 0);
+                if !parent_dead && gone(-1, child, 0) {
+                    // Same window as below: a child killed by the death signal goes with the
+                    // supervisor.
+                    libc::nanosleep(
+                        &libc::timespec {
+                            tv_sec: 0,
+                            tv_nsec: 200_000_000,
+                        },
+                        std::ptr::null_mut(),
+                    );
+                    if !gone(-1, supervisor, 0) {
+                        libc::_exit(0);
+                    }
+                    parent_dead = true;
+                }
+                if !parent_dead {
+                    libc::nanosleep(&step, std::ptr::null_mut());
+                }
+                continue;
+            }
+            let mut entries = [
+                libc::pollfd {
+                    fd: parent_fd,
+                    events: libc::POLLIN,
+                    revents: 0,
+                },
+                libc::pollfd {
+                    fd: child_fd,
+                    events: libc::POLLIN,
+                    revents: 0,
+                },
+            ];
+            let ready = libc::poll(entries.as_mut_ptr(), 2, -1);
+            if ready < 0 {
+                if errno() == libc::EINTR {
+                    continue;
+                }
+                libc::_exit(1);
+            }
+            if entries[0].revents != 0 {
+                parent_dead = true;
+            } else if entries[1].revents != 0 {
+                // The direct child's death signal fires with the supervisor's exit, so a child
+                // exit can be reported a moment before the supervisor's: give the supervisor a
+                // short window before deciding the child left on its own.
+                let mut parent = libc::pollfd {
+                    fd: parent_fd,
+                    events: libc::POLLIN,
+                    revents: 0,
+                };
+                if libc::poll(&mut parent, 1, 200) > 0 && parent.revents != 0 {
+                    parent_dead = true;
+                } else {
+                    libc::_exit(0); // the child left first: nothing to do
+                }
+            }
+        }
+        // Unlike macOS, the child itself is no guide here: the direct child's death signal fires
+        // with the supervisor's exit, so the child is usually already gone while what it started
+        // is not. The child leads its own group (setpgid/setsid before exec), so -child is its
+        // group, and a group id is not handed out again while any member lives: signalling -child
+        // reaches only what is left of that group (ESRCH when nothing is).
+        if libc::kill(-child, libc::SIGTERM) != 0 {
+            libc::_exit(0);
+        }
+        for _ in 0..WATCHDOG_GRACE_STEPS {
+            if libc::kill(-child, 0) != 0 {
+                libc::_exit(0);
+            }
+            libc::nanosleep(&step, std::ptr::null_mut());
+        }
+        libc::kill(-child, libc::SIGKILL);
+        libc::_exit(0);
+    }
+}
+
 /// Linux: `PR_SET_PDEATHSIG(SIGTERM)` on the direct child, called in the new process between
-/// `fork` and `exec` (async-signal-safe: `prctl` and `getppid` only). The kernel fires it when
-/// the thread that forked the child exits, and it targets only that child:
+/// `fork` and `exec` (async-signal-safe: `prctl` and `getppid` only). It is the first line of
+/// the tie; [`arm_parent_death_watch`] adds the group-wide one. The kernel fires it when the
+/// thread that forked the child exits, and it targets only that child:
 ///
-/// - it signals the direct child only, never the rest of its process group, so grandchildren
-///   the child started survive unless the child cleans them up;
+/// - it signals the direct child only, never the rest of its process group (the watchdog
+///   covers the group);
 /// - it is a catchable `SIGTERM`, so a child that ignores or handles it can keep running, and
 ///   there is no `SIGKILL` escalation;
 /// - the kernel keys it to the forking *thread*, so a supervisor that spawns from a short-lived

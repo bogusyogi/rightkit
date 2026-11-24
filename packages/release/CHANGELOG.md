@@ -2,8 +2,7 @@
 
 ## 0.6.61
 
-- Export `forbidden-literals.mjs` for host-configured byte scans. Findings report file paths without printing matched values.
-- This entry covers the helper. Gate changes in this package require their own installed qualification.
+- Export a configurable forbidden-literal file scanner through the release SDK.
 
 ## 0.6.60
 

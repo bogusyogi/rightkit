@@ -1,9 +1,13 @@
 # Changelog
 
-## Unreleased
+## 0.3.2
 
-- Own Windows input-hook wiring & report onboarding push-to-talk diagnostics after the host completes the renderer emit.
-- Add ASR compatibility sample selection & evaluation with host-selected thresholds and copy.
+- Add host-configured ASR sample evaluation, capture-folder migration, command-outcome classification, hotkey gates & settings policy.
+- Add opt-in `tauri` feature for routed renderer delivery & native drag/drop conversion over existing `renderer_routes`; hosts keep manifests, window/event names & copy.
+
+## 0.3.1
+
+- Pair native release edges with their capture attempt; keep wake word and existing activation routes available.
 
 ## 0.3.0
 

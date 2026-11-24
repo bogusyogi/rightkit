@@ -35,7 +35,7 @@ anyhow = "1"
 rightkit-agent-engine-protocol = { version = "0.4.0", path = "../rightkit-agent-engine-protocol" }
 rightkit-scheduler = { version = "0.3.0", path = "../rightkit-scheduler" }
 rightkit-agent-engine-runtime-resources = { version = "0.1.0", path = "../rightkit-agent-engine-runtime-resources" }
-rightkit-fs = { version = "0.4.9", features = ["fs", "lock", "json", "digest", "transaction"], path = "../rightkit-fs" }
+rightkit-fs = { version = "0.5.0", features = ["fs", "lock", "json", "digest", "transaction"], path = "../rightkit-fs" }
 rightkit-crypto = { version = "0.1.0", path = "../rightkit-crypto" }
 rightkit-time = { version = "0.1.1", path = "../rightkit-time" }
 rightkit-agent-policy = { version = "0.2.0", path = "../rightkit-agent-policy" }

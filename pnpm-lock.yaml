@@ -559,31 +559,6 @@ importers:
         specifier: ^8.3.4
         version: 8.3.5(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1)
 
-  packages/dictation-ui:
-    dependencies:
-      '@rightkit/library-ui':
-        specifier: workspace:^
-        version: link:../library-ui
-      '@rightkit/platform-ui':
-        specifier: workspace:^
-        version: link:../platform-ui
-      '@rightkit/settings-ui':
-        specifier: workspace:^
-        version: link:../settings-ui
-    devDependencies:
-      '@types/node':
-        specifier: ^26.6.6
-        version: 26.6.6
-      '@types/react':
-        specifier: ^19.3.0
-        version: 19.3.0
-      react:
-        specifier: ^19.3.1
-        version: 19.3.1
-      typescript:
-        specifier: ^7.0.2
-        version: 7.0.2
-
   packages/doc-render:
     dependencies:
       '@types/mdast':
@@ -1047,6 +1022,12 @@ importers:
       '@types/node':
         specifier: ^26.6.6
         version: 26.6.6
+      '@types/react':
+        specifier: ^19.3.0
+        version: 19.3.0
+      react:
+        specifier: ^19.3.1
+        version: 19.3.1
       typescript:
         specifier: ^7.0.2
         version: 7.0.2

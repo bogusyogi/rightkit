@@ -170,6 +170,23 @@ pub fn run(runtime: Arc<Mutex<EngineRuntime>>) -> anyhow::Result<()> {
             write_wire_frame(&writer, &WireFrame::ok(wire_id, json!({})))?;
             return Ok(());
         }
+        // The capture warm-up is the one accepted-style request handled on this read-loop thread
+        // instead of a spawned one. This loop reads stdin in arrival order and spawns each
+        // `recording_started` (Start) request only after the lines before it were handled, so
+        // queueing the warm-up here puts `WorkerCmd::CaptureWarmup` on the worker's single FIFO
+        // command channel before any later Start can queue `WorkerCmd::StartRecording`. The
+        // accepted reply is written only after it is queued. Nothing depends on that order for
+        // correctness: the shell does not wait for this reply before it sends its Start. A warm-up
+        // that gets here first is adopted by the Start of the same attempt; one that loses the race
+        // is fenced by the worker's attempt floor and resumes nothing, and that Start cold starts.
+        // The handler takes one brief runtime lock and does a channel send; it never waits on the
+        // worker.
+        if matches!(req, Request::CaptureWarmup { .. }) {
+            let result = handle(&runtime, &writer, &worker_pump_started, &request_id, req);
+            write_wire_frame(&writer, &accepted_response(wire_id))?;
+            emit_frame(&writer, &result);
+            continue;
+        }
         // Stop / cancel / context requests are acknowledged at once and report their result as an
         // id-less event carrying this engine's generation (failures included, as an error frame):
         // the reply never waits on the work, and the shell fences on the generation.
@@ -310,11 +327,32 @@ pub enum Request {
         /// The shell's last real paste, so voice undo and casing commands see the text it
         /// delivered (the engine never pastes in shell-delivery mode).
         last_pasted: Option<DeliveryRecord>,
+        /// The shortcut press this start belongs to (`EngineFrame::start_attempt_id`). Only the
+        /// capture warm-up of the same attempt is adopted.
+        start_attempt: Option<u64>,
     },
     UpdateRecordingContext {
         session_id: String,
         context: rightkit_dictation_core::engine::RecordingContext,
         recording_target: Option<rightkit_transcript_library::delivery::TargetSnapshot>,
+    },
+    /// Shortcut pressed (start attempt `start_attempt_id`): resume the idle microphone stream now so
+    /// the audio before `StartDictation` of the same attempt is kept. With `revoke` it instead
+    /// closes the attempt (a press that produced no session). No session, no target.
+    CaptureWarmup {
+        start_attempt_id: u64,
+        revoke: bool,
+    },
+    /// The user released the shortcut of start attempt `start_attempt_id` (session `session_id`
+    /// when the shell knows it): seal the recording on the worker's ordered command path and
+    /// answer with an ack of its application. A regular request, answered by its reply.
+    CaptureSeal {
+        start_attempt_id: u64,
+        session_id: Option<String>,
+        /// How long before the frame was sent the user released (milliseconds); see core
+        /// `EnginePayload::CaptureSeal::release_age_ms`.
+        release_age_ms: Option<u64>,
+        release_edge: Option<rightkit_dictation_core::engine::CaptureReleaseEdge>,
     },
     TranscribeFile {
         path: std::path::PathBuf,
@@ -335,9 +373,14 @@ pub enum Request {
         /// request_id-suffix fallback), which must behave exactly as
         /// before this field was added.
         local_only: bool,
+        /// The start attempt of the session being stopped (`EngineFrame::start_attempt_id`).
+        /// Revokes that attempt's capture warm-up even when no session is active.
+        start_attempt: Option<u64>,
     },
     CancelDictation {
         session_id: String,
+        /// As `StopDictation::start_attempt`.
+        start_attempt: Option<u64>,
     },
     RepasteLast,
     CopyLast,
@@ -369,6 +412,7 @@ pub(crate) fn decode_request(frame: EngineFrame) -> Option<Request> {
     let request_id = frame.request_id.clone();
     let recording_target = frame.recording_target.clone();
     let recording_context = frame.recording_context.clone();
+    let start_attempt = frame.start_attempt_id;
     match (frame.schema_name, payload) {
         (EngineHealth, EnginePayload::Health { .. }) => Some(Request::Health),
         (EngineCapabilities, EnginePayload::Capabilities { .. }) => Some(Request::Capabilities),
@@ -434,6 +478,7 @@ pub(crate) fn decode_request(frame: EngineFrame) -> Option<Request> {
             recording_target,
             recording_context,
             last_pasted,
+            start_attempt,
         }),
         (
             RecordingContextCaptured,
@@ -446,6 +491,29 @@ pub(crate) fn decode_request(frame: EngineFrame) -> Option<Request> {
             session_id,
             context,
             recording_target,
+        }),
+        (
+            CaptureWarmup,
+            EnginePayload::CaptureWarmup {
+                start_attempt_id,
+                revoke,
+            },
+        ) => Some(Request::CaptureWarmup {
+            start_attempt_id,
+            revoke,
+        }),
+        (
+            CaptureSeal,
+            EnginePayload::CaptureSeal {
+                start_attempt_id,
+                release_age_ms,
+                release_edge,
+            },
+        ) => Some(Request::CaptureSeal {
+            start_attempt_id,
+            session_id,
+            release_age_ms,
+            release_edge,
         }),
         (FileTranscriptionRequest, EnginePayload::FileTranscriptionRequest { path }) => {
             Some(Request::TranscribeFile {
@@ -465,13 +533,17 @@ pub(crate) fn decode_request(frame: EngineFrame) -> Option<Request> {
             // module doc comment and dispatch #9/#10.
             match stop_kind {
                 Some(StopKind::Cancel) => {
-                    return Some(Request::CancelDictation { session_id: id });
+                    return Some(Request::CancelDictation {
+                        session_id: id,
+                        start_attempt,
+                    });
                 }
                 Some(StopKind::SendEnter) => {
                     return Some(Request::StopDictation {
                         session_id: id,
                         send_enter: true,
                         local_only: false,
+                        start_attempt,
                     });
                 }
                 Some(StopKind::Stop) => {
@@ -479,6 +551,7 @@ pub(crate) fn decode_request(frame: EngineFrame) -> Option<Request> {
                         session_id: id,
                         send_enter: false,
                         local_only: false,
+                        start_attempt,
                     });
                 }
                 Some(StopKind::CancelToHistory) => {
@@ -486,18 +559,23 @@ pub(crate) fn decode_request(frame: EngineFrame) -> Option<Request> {
                         session_id: id,
                         send_enter: false,
                         local_only: true,
+                        start_attempt,
                     });
                 }
                 None => {}
             }
             if request_id.contains(":cancel") {
-                return Some(Request::CancelDictation { session_id: id });
+                return Some(Request::CancelDictation {
+                    session_id: id,
+                    start_attempt,
+                });
             }
             let send_enter = request_id.contains(":send_enter");
             Some(Request::StopDictation {
                 session_id: id,
                 send_enter,
                 local_only: false,
+                start_attempt,
             })
         }
         (TranscriptFinal, EnginePayload::TranscriptFinal { .. }) => None,

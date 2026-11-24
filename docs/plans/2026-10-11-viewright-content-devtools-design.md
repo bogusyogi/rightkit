@@ -4,6 +4,10 @@ Status: design for the ViewRight chat. Nothing here was compiled or run. Every T
 
 ## The rule
 
+Original owner decision, preserved verbatim from `rightkit-tauri-shell::devtools::OWNER_DECISION` before package wording cleanup:
+
+> Every Right app has absolutely NO access to DevTools: blocked at each and every level that is possible, for the app, its shell and its own UI. The single exception is ViewRight: it opens HTML documents, and DevTools must be available INSIDE that opened HTML content only (the content frame), never for ViewRight's own UI or shell.
+
 Owner's fixed design, never to be changed: every Right app has absolutely NO access to DevTools: blocked at each and every level that is possible, for the app, its shell and its own UI. The single exception is ViewRight: it opens HTML documents, and DevTools must be available INSIDE that opened HTML content only (the content frame), never for ViewRight's own UI or shell.
 
 ## Why ViewRight does not meet it today

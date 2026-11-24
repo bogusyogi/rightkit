@@ -1,7 +1,7 @@
 //! Open a pane of the operating system's Settings app by a typed [`SettingsPane`].
 //!
-//! Donors: ViewRight `commands/mac_associations/windows.rs` `open_default_apps`
-//! (`explorer.exe ms-settings:defaultapps`) and HeardRight's hand-written `open
+//! Mechanisms: host `commands/mac_associations/windows.rs` `open_default_apps`
+//! (`explorer.exe ms-settings:defaultapps`) and host's hand-written `open
 //! x-apple.systempreferences:...` calls for the microphone, accessibility and files panes
 //! (`commands/microphone.rs`, `system.rs`, `files.rs`). The pane is a closed enum and each pane maps
 //! to a fixed URI per OS, so no renderer text becomes part of a launch command; the one open-ended

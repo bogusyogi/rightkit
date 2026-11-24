@@ -91,12 +91,14 @@ pub struct LegacyImportEvents {
     pub retried: &'static str,
 }
 
+type LogSink = dyn Fn(&str, &str) + Send + Sync;
+
 /// The in-place import of an older bare licence record: one launch attempt, then a retry on the
 /// next licence call while the cooldown has passed.
 pub struct LegacyImport {
     retry: LegacyImportRetry,
     run: Box<dyn Fn() -> Result<(), String> + Send + Sync>,
-    log: Box<dyn Fn(&str, &str) + Send + Sync>,
+    log: Box<LogSink>,
     events: LegacyImportEvents,
 }
 

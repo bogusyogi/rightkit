@@ -1,6 +1,6 @@
 //! Path broker: the renderer never names a file the user did not hand to the app.
 //!
-//! Donor: ViewRight `path_broker.rs` (granted file set, save-target grants with a bounded
+//! Mechanism: host `path_broker.rs` (granted file set, save-target grants with a bounded
 //! write-target ring, one-shot recent-file tokens, stable per-file stream tokens, per-tab site
 //! roots). Differences from the donor: errors are [`ShellError`] values, random ids come straight
 //! from the OS entropy call with no extra crate, and the broker is a plain type any app can embed.

@@ -3,7 +3,7 @@
 //! The shell owns only the window-side seam: start the engine off the UI thread, expose typed
 //! calls to the webview (`rk_shell_engine_call`), stream engine events to the webview, restart on
 //! demand, and shut the engine down in the ordered exit. Framing, multiplexing and the bounded
-//! shutdown are `EngineClient`; child ownership is `rightkit-child-process`. Donor: HeardRight
+//! shutdown are `EngineClient`; child ownership is `rightkit-child-process`. Mechanism: host
 //! `engine.rs` / `engine_events.rs` (event bridge) and the template's `engine_supervisor`.
 //!
 //! # Host composition (PK06-3, K06)
@@ -17,7 +17,7 @@
 //! * **Presence and idle exit** ([`PresencePolicy`], [`EngineHost::hold`]): who needs the engine
 //!   is a count of holders (a window, a CLI session) plus calls in flight. Once something has used
 //!   the engine and the count has been zero for `idle_exit`, the engine is stopped; the next hold
-//!   or call starts it again. An engine nobody ever used is never idled out (CodeRight's rule). An
+//!   or call starts it again. An engine nobody ever used is never idled out (host's rule). An
 //!   idle stop is not a shutdown and not a crash: no restart budget is spent.
 //! * **A generation latch** (`rightkit_daemon::lifecycle::GenerationFence`): every call is
 //!   bound to the engine generation it was issued under. A reply that arrives after the generation
@@ -25,7 +25,7 @@
 //!   request ran on the old engine is unknowable, so it is never replayed.
 //! * **Snapshots** ([`SnapshotSlot`], [`EngineHost::set_snapshot`]): the latest value of each named
 //!   slot (init, settings, entitlements, auth) is registered in declaration order, with
-//!   a `required` slot holding back the slots after it until it has a value (ScrapeRight's
+//!   a `required` slot holding back the slots after it until it has a value (host's
 //!   "`Init` first"), and replayed to every engine generation before it is `Ready`.
 //!   [`EngineHost::revoke_snapshot`] is the revoking variant: new calls are refused while it
 //!   applies, and an engine that does not acknowledge it is replaced, so a revoked entitlement

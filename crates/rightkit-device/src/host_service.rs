@@ -48,9 +48,8 @@ impl<S: SecureStore<String>> LazyDeviceService<S> {
         if let Some(service) = cell.as_ref() {
             return Ok(service.clone());
         }
-        let store = build_store().map_err(|message| {
-            log(DEVICE_ID_ERROR_EVENT, &message);
-            message
+        let store = build_store().inspect_err(|message| {
+            log(DEVICE_ID_ERROR_EVENT, message);
         })?;
         let service = Arc::new(DeviceService::new(store));
         *cell = Some(service.clone());
@@ -59,8 +58,8 @@ impl<S: SecureStore<String>> LazyDeviceService<S> {
 }
 
 /// The stable raw device id from `service` (created on first use), with failures logged under
-/// [`DEVICE_ID_ERROR_EVENT`]. A read failure is worded "could not read device id from secure
-/// storage: <text>"; any other failure logs its own text.
+/// [`DEVICE_ID_ERROR_EVENT`]. Read failures use
+/// `could not read device id from secure storage: <text>`. Other failures log their own text.
 pub fn device_id_reported<S: SecureStore<String>>(
     service: &DeviceService<S>,
     log: impl Fn(&str, &str),

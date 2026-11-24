@@ -31,6 +31,34 @@ impl RuntimeApp {
         }
     }
 
+    /// The session the runtime currently owns, if any. A start reads it right after
+    /// `prepare_start_dictation_for_attempt` claimed one, to unwind that session if the press is
+    /// cancelled before the start reaches the backend.
+    pub fn active_session_id(&self) -> Option<String> {
+        match self {
+            Self::Engine(runtime) => runtime.active_session.clone(),
+        }
+    }
+
+    /// The session-correlated cancel for a start whose RPC ended in an error or timeout after its
+    /// frame may have reached the engine (`ProductionStart::backend_start`). `None` when
+    /// `session_id` is no longer the active session. Changes no shell state: the caller sends it
+    /// first and clears the shell session only afterwards (`fail_prepared_start`).
+    pub fn prepare_possibly_started_cancel(
+        &self,
+        session_id: &str,
+    ) -> Option<PreparedEngineCancel> {
+        match self {
+            Self::Engine(runtime) => {
+                if runtime.active_session.as_deref() == Some(session_id) {
+                    runtime.prepare_cancel_backend(CancelSource::Watchdog)
+                } else {
+                    None
+                }
+            }
+        }
+    }
+
     /// Default sidecar bootstrap. The shell routes the dictation worker
     /// lifecycle through the supervised the engine binary.
     #[allow(dead_code)]
@@ -166,6 +194,21 @@ impl RuntimeApp {
         }
     }
 
+    /// `prepare_start_dictation` for the press that allocated `start_attempt`; the id is carried
+    /// by this call into the prepared start, with no shared slot.
+    pub fn prepare_start_dictation_for_attempt(
+        &mut self,
+        initial_target: crate::delivery::TargetSnapshot,
+        start_attempt: Option<u64>,
+        observer: impl FnMut(&AppState),
+    ) -> Result<PreparedStart, String> {
+        match self {
+            Self::Engine(runtime) => {
+                runtime.prepare_start_for_attempt(initial_target, start_attempt, observer)
+            }
+        }
+    }
+
     pub fn finalize_prepared_start(
         &mut self,
         result: PreparedStartResult,
@@ -192,6 +235,19 @@ impl RuntimeApp {
         crate::media_control::restore_for_session(session_id, "start_failed");
         match self {
             Self::Engine(runtime) => runtime.fail_prepared_start(session_id, message, observer),
+        }
+    }
+
+    /// A prepared start cancelled before it reached the backend: release its session and return
+    /// to `Armed` (see `EngineRuntime::abort_prepared_start`).
+    pub fn abort_prepared_start(
+        &mut self,
+        session_id: &str,
+        observer: impl FnMut(&AppState),
+    ) -> AppState {
+        crate::media_control::restore_for_session(session_id, "start_cancelled");
+        match self {
+            Self::Engine(runtime) => runtime.abort_prepared_start(session_id, observer),
         }
     }
 

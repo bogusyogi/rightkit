@@ -66,31 +66,42 @@
 #![allow(dead_code)]
 
 pub mod anim;
+pub mod bars;
 pub mod bridge;
+pub mod capsule;
 pub mod clip_override;
 pub mod clipboard;
 pub(crate) mod clock;
 pub(crate) mod cmd_queue;
 pub mod config;
+pub mod delayed;
 pub mod dispatch_queue;
 pub mod draw;
+pub mod event_pipeline;
 pub mod feature_tip;
 pub mod frame;
+pub mod geometry;
 pub mod guardian;
 pub mod guardian_worker;
 pub mod hint;
+pub mod hint_flow;
+pub mod host_glue;
 pub(crate) mod lifecycle;
 pub mod look;
+pub mod native_view;
 pub(crate) mod pending;
 pub mod pill;
 pub mod regions;
 pub(crate) mod retire;
 pub mod reveal_retry;
+pub mod screenshot_notice;
+pub mod session_policy;
 pub mod splash_handoff;
 pub mod synth;
 pub mod text;
 pub mod tip;
 pub mod visibility;
+pub mod visibility_policy;
 
 #[cfg(target_os = "windows")]
 mod driver;
