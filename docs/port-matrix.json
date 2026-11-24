@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generatedAt": "2026-11-17T13:11:10Z",
-  "rightkitHead": "4ef361b35ed2cb8466cdd226dd7d84b36c282f94",
+  "generatedAt": "2026-11-24T16:44:12Z",
+  "rightkitHead": "2550771ac28a37c52b051fc2e837c49c9e6e18c6",
   "legend": [
     {
       "state": "current",
@@ -127,7 +127,7 @@
     {
       "id": "other",
       "name": "Other (no domain assigned)",
-      "packages": 185
+      "packages": 188
     }
   ],
   "triage": null,
@@ -135,9 +135,9 @@
     {
       "name": "coderight",
       "group": "mandatory-set app",
-      "dir": "D:\\Claude\\coderight",
+      "dir": "/Volumes/D/claude/coderight",
       "present": true,
-      "head": "5f06fbefe895a82537c2469accaaceff33ec9462",
+      "head": "570538884f80039502e9f2120b3da81e67573d3d",
       "profile": "desktop",
       "inMandatorySet": true,
       "declaration": {
@@ -157,89 +157,52 @@
         "problems": []
       },
       "scan": {
-        "manifests": 27,
+        "manifests": 26,
         "parseErrors": 0,
-        "pins": 87,
+        "pins": 91,
         "vendored": 0
       },
       "progress": {
         "foundation": {
           "profile": "desktop",
           "rowsTotal": 21,
-          "rowsDeclared": 20,
+          "rowsDeclared": 21,
           "rowsRuled": 0,
-          "rowsOpen": 1,
-          "openRows": [
-            {
-              "id": "M22",
-              "name": "Agent surface",
-              "missing": [
-                "rightkit-agent-tools"
-              ]
-            }
-          ],
+          "rowsOpen": 0,
+          "openRows": [],
           "ownersRequired": 30,
-          "ownersPinned": 29,
-          "ownersCurrent": 20,
-          "percent": 67
+          "ownersPinned": 30,
+          "ownersCurrent": 13,
+          "percent": 43
         },
         "addons": {
-          "total": 63,
-          "pinned": 22,
-          "current": 1,
-          "stale": 1,
+          "total": 78,
+          "pinned": 24,
+          "current": 0,
+          "stale": 3,
           "local": 0
         },
         "exceptions": {
-          "total": 66,
-          "open": 66,
+          "total": 0,
+          "open": 0,
           "expired": 0,
           "withoutIssueOrExpiry": 0,
           "unmatched": 0
         },
         "releasePin": {
-          "state": "current",
-          "req": "0.6.57",
+          "state": "ahead",
+          "req": "0.6.62",
           "latest": "0.6.57",
-          "current": true,
+          "current": false,
           "dev": true
         },
         "check": {
-          "status": "ran",
-          "reason": "",
-          "fail": 142,
-          "known": 0,
-          "stale": 0,
-          "byRule": {
-            "engine-record-store": {
-              "fail": 1,
-              "known": 0
-            },
-            "mandatory-foundation": {
-              "fail": 1,
-              "known": 0
-            },
-            "notice-lock-digest": {
-              "fail": 4,
-              "known": 0
-            },
-            "ownership-exceptions": {
-              "fail": 132,
-              "known": 0
-            },
-            "release-config-identity": {
-              "fail": 1,
-              "known": 0
-            },
-            "shell-window-hidden": {
-              "fail": 2,
-              "known": 0
-            },
-            "suite-key-literal": {
-              "fail": 1,
-              "known": 0
-            }
-          }
+          "status": "not run",
+          "reason": "--with-check not passed",
+          "fail": null,
+          "known": null,
+          "stale": null,
+          "byRule": {}
         }
       },
       "flags": {
@@ -257,15 +220,15 @@
           "owners": [
             {
               "name": "rightkit-tauri-shell",
-              "state": "stale"
+              "state": "ahead"
             },
             {
               "name": "rightkit-device",
-              "state": "stale"
+              "state": "ahead"
             },
             {
               "name": "@rightkit/tauri",
-              "state": "current"
+              "state": "stale"
             }
           ],
           "missing": []
@@ -278,11 +241,11 @@
           "owners": [
             {
               "name": "@rightkit/react-shell",
-              "state": "current"
+              "state": "ahead"
             },
             {
               "name": "@rightkit/platform-ui",
-              "state": "current"
+              "state": "ahead"
             },
             {
               "name": "@rightkit/theme",
@@ -299,11 +262,11 @@
           "owners": [
             {
               "name": "rightkit-job-queue",
-              "state": "current"
+              "state": "stale"
             },
             {
               "name": "rightkit-child-process",
-              "state": "stale"
+              "state": "ahead"
             }
           ],
           "missing": []
@@ -316,7 +279,7 @@
           "owners": [
             {
               "name": "rightkit-job-queue",
-              "state": "current"
+              "state": "stale"
             },
             {
               "name": "rightkit-sidecar",
@@ -333,7 +296,7 @@
           "owners": [
             {
               "name": "rightkit-child-process",
-              "state": "stale"
+              "state": "ahead"
             }
           ],
           "missing": []
@@ -346,7 +309,7 @@
           "owners": [
             {
               "name": "rightkit-daemon",
-              "state": "current"
+              "state": "ahead"
             }
           ],
           "missing": []
@@ -359,7 +322,7 @@
           "owners": [
             {
               "name": "rightkit-daemon",
-              "state": "current"
+              "state": "ahead"
             }
           ],
           "missing": []
@@ -372,7 +335,7 @@
           "owners": [
             {
               "name": "rightkit-fs",
-              "state": "stale"
+              "state": "ahead"
             }
           ],
           "missing": []
@@ -385,7 +348,7 @@
           "owners": [
             {
               "name": "rightkit-db",
-              "state": "current"
+              "state": "stale"
             }
           ],
           "missing": []
@@ -398,11 +361,11 @@
           "owners": [
             {
               "name": "rightkit-app-settings",
-              "state": "current"
+              "state": "stale"
             },
             {
               "name": "@rightkit/settings-ui",
-              "state": "stale"
+              "state": "current"
             }
           ],
           "missing": []
@@ -415,7 +378,7 @@
           "owners": [
             {
               "name": "rightkit-credentials",
-              "state": "stale"
+              "state": "current"
             }
           ],
           "missing": []
@@ -432,11 +395,11 @@
             },
             {
               "name": "rightkit-device",
-              "state": "stale"
+              "state": "ahead"
             },
             {
               "name": "@rightkit/license",
-              "state": "stale"
+              "state": "ahead"
             }
           ],
           "missing": []
@@ -483,7 +446,7 @@
           "owners": [
             {
               "name": "rightkit-logs",
-              "state": "stale"
+              "state": "ahead"
             },
             {
               "name": "@rightkit/logs",
@@ -500,7 +463,7 @@
           "owners": [
             {
               "name": "rightkit-crash",
-              "state": "current"
+              "state": "stale"
             }
           ],
           "missing": []
@@ -539,7 +502,7 @@
           "owners": [
             {
               "name": "@rightkit/release",
-              "state": "current"
+              "state": "ahead"
             }
           ],
           "missing": []
@@ -552,7 +515,7 @@
           "owners": [
             {
               "name": "rightkit-qa",
-              "state": "stale"
+              "state": "ahead"
             },
             {
               "name": "@rightkit/qa",
@@ -568,17 +531,15 @@
         {
           "id": "M22",
           "name": "Agent surface",
-          "status": "open",
+          "status": "declared",
           "ratified": false,
           "owners": [
             {
               "name": "rightkit-agent-tools",
-              "state": "missing"
+              "state": "ahead"
             }
           ],
-          "missing": [
-            "rightkit-agent-tools"
-          ]
+          "missing": []
         }
       ],
       "appleTargets": [
@@ -587,37 +548,41 @@
           "system": "xcodegen",
           "name": "CodeRight",
           "pinKind": "tag",
-          "pinVersion": "0.8.1",
+          "pinVersion": "0.9.6",
           "pinRef": "",
-          "requirement": "exact 0.8.1",
+          "requirement": "exact 0.9.6",
           "products": [
             "RightKitAppleCredentials",
+            "RightKitAudio",
             "RightKitCloudSync",
             "RightKitCredentials",
+            "RightKitDaemonClient",
             "RightKitDiagnostics",
             "RightKitFS",
             "RightKitLicense",
             "RightKitLiveActivity",
+            "RightKitOAuth",
             "RightKitPurchases",
+            "RightKitSpeech",
             "RightKitStore",
             "RightKitUI"
           ],
-          "state": "stale",
-          "detail": "0.8.1→0.9.0"
+          "state": "ahead",
+          "detail": "0.9.6 > 0.9.0"
         },
         {
           "file": "apps/coderight-tauri/macos-native/CodeRightMac/Package.swift",
           "system": "swiftpm",
           "name": "CodeRightMac",
           "pinKind": "tag",
-          "pinVersion": "0.8.1",
+          "pinVersion": "0.9.6",
           "pinRef": "",
-          "requirement": "exact 0.8.1",
+          "requirement": "exact 0.9.6",
           "products": [
             "RightKitAppleCredentials"
           ],
-          "state": "stale",
-          "detail": "0.8.1→0.9.0"
+          "state": "ahead",
+          "detail": "0.9.6 > 0.9.0"
         }
       ],
       "rkReady": [],
@@ -626,24 +591,15 @@
     {
       "name": "cutright",
       "group": "mandatory-set app",
-      "dir": "D:\\Claude\\cutright",
+      "dir": "/Volumes/D/claude/cutright",
       "present": true,
-      "head": "7c5f51006415dc2c4277973885fe4b80a4a1e199",
+      "head": "b2497f8d749af28b845197a0f1a3cd981701c424",
       "profile": "desktop",
       "inMandatorySet": true,
       "declaration": {
         "present": true,
         "error": "",
-        "notApplicable": [
-          {
-            "row": "M9",
-            "ratified": false
-          },
-          {
-            "row": "M17",
-            "ratified": false
-          }
-        ],
+        "notApplicable": [],
         "ignored": []
       },
       "agentSurface": {
@@ -657,24 +613,17 @@
       "scan": {
         "manifests": 10,
         "parseErrors": 0,
-        "pins": 79,
+        "pins": 80,
         "vendored": 0
       },
       "progress": {
         "foundation": {
           "profile": "desktop",
           "rowsTotal": 21,
-          "rowsDeclared": 19,
+          "rowsDeclared": 20,
           "rowsRuled": 0,
-          "rowsOpen": 2,
+          "rowsOpen": 1,
           "openRows": [
-            {
-              "id": "M9",
-              "name": "Database",
-              "missing": [
-                "rightkit-db"
-              ]
-            },
             {
               "id": "M17",
               "name": "HTTP",
@@ -684,15 +633,15 @@
             }
           ],
           "ownersRequired": 30,
-          "ownersPinned": 28,
-          "ownersCurrent": 23,
-          "percent": 77
+          "ownersPinned": 29,
+          "ownersCurrent": 12,
+          "percent": 40
         },
         "addons": {
-          "total": 63,
-          "pinned": 17,
+          "total": 78,
+          "pinned": 18,
           "current": 2,
-          "stale": 0,
+          "stale": 3,
           "local": 0
         },
         "exceptions": {
@@ -710,29 +659,12 @@
           "dev": true
         },
         "check": {
-          "status": "ran",
-          "reason": "",
-          "fail": 17,
-          "known": 0,
-          "stale": 0,
-          "byRule": {
-            "mandatory-foundation": {
-              "fail": 4,
-              "known": 0
-            },
-            "notice-lock-digest": {
-              "fail": 4,
-              "known": 0
-            },
-            "ownership-exceptions": {
-              "fail": 8,
-              "known": 0
-            },
-            "release-config-identity": {
-              "fail": 1,
-              "known": 0
-            }
-          }
+          "status": "not run",
+          "reason": "--with-check not passed",
+          "fail": null,
+          "known": null,
+          "stale": null,
+          "byRule": {}
         }
       },
       "flags": {
@@ -758,7 +690,7 @@
             },
             {
               "name": "@rightkit/tauri",
-              "state": "current"
+              "state": "stale"
             }
           ],
           "missing": []
@@ -771,11 +703,11 @@
           "owners": [
             {
               "name": "@rightkit/react-shell",
-              "state": "current"
+              "state": "stale"
             },
             {
               "name": "@rightkit/platform-ui",
-              "state": "current"
+              "state": "stale"
             },
             {
               "name": "@rightkit/theme",
@@ -792,11 +724,11 @@
           "owners": [
             {
               "name": "rightkit-job-queue",
-              "state": "current"
+              "state": "stale"
             },
             {
               "name": "rightkit-child-process",
-              "state": "current"
+              "state": "stale"
             }
           ],
           "missing": []
@@ -809,7 +741,7 @@
           "owners": [
             {
               "name": "rightkit-job-queue",
-              "state": "current"
+              "state": "stale"
             },
             {
               "name": "rightkit-sidecar",
@@ -826,7 +758,7 @@
           "owners": [
             {
               "name": "rightkit-child-process",
-              "state": "current"
+              "state": "stale"
             }
           ],
           "missing": []
@@ -839,7 +771,7 @@
           "owners": [
             {
               "name": "rightkit-daemon",
-              "state": "current"
+              "state": "stale"
             }
           ],
           "missing": []
@@ -852,7 +784,7 @@
           "owners": [
             {
               "name": "rightkit-daemon",
-              "state": "current"
+              "state": "stale"
             }
           ],
           "missing": []
@@ -865,7 +797,7 @@
           "owners": [
             {
               "name": "rightkit-fs",
-              "state": "current"
+              "state": "stale"
             }
           ],
           "missing": []
@@ -873,17 +805,15 @@
         {
           "id": "M9",
           "name": "Database",
-          "status": "open",
+          "status": "declared",
           "ratified": false,
           "owners": [
             {
               "name": "rightkit-db",
-              "state": "missing"
+              "state": "stale"
             }
           ],
-          "missing": [
-            "rightkit-db"
-          ]
+          "missing": []
         },
         {
           "id": "M10",
@@ -893,7 +823,7 @@
           "owners": [
             {
               "name": "rightkit-app-settings",
-              "state": "current"
+              "state": "stale"
             },
             {
               "name": "@rightkit/settings-ui",
@@ -923,7 +853,7 @@
           "owners": [
             {
               "name": "rightkit-license",
-              "state": "current"
+              "state": "stale"
             },
             {
               "name": "rightkit-device",
@@ -944,7 +874,7 @@
           "owners": [
             {
               "name": "rightkit-license",
-              "state": "current"
+              "state": "stale"
             }
           ],
           "missing": []
@@ -965,7 +895,7 @@
             },
             {
               "name": "@rightkit/onboarding",
-              "state": "current"
+              "state": "stale"
             }
           ],
           "missing": []
@@ -995,7 +925,7 @@
           "owners": [
             {
               "name": "rightkit-crash",
-              "state": "current"
+              "state": "stale"
             }
           ],
           "missing": []
@@ -1083,9 +1013,9 @@
     {
       "name": "genright",
       "group": "mandatory-set app",
-      "dir": "D:\\Claude\\genright",
+      "dir": "/Volumes/D/claude/genright",
       "present": true,
-      "head": "d8e1b9d187aef773258b5d624719d9c535f674d2",
+      "head": "8845dacde9a9795ce03f55f1f3082c8a3a7fea64",
       "profile": "desktop",
       "inMandatorySet": true,
       "declaration": {
@@ -1129,11 +1059,11 @@
           ],
           "ownersRequired": 30,
           "ownersPinned": 29,
-          "ownersCurrent": 20,
-          "percent": 67
+          "ownersCurrent": 11,
+          "percent": 37
         },
         "addons": {
-          "total": 63,
+          "total": 78,
           "pinned": 11,
           "current": 2,
           "stale": 0,
@@ -1154,25 +1084,12 @@
           "dev": true
         },
         "check": {
-          "status": "ran",
-          "reason": "",
-          "fail": 3,
-          "known": 1,
-          "stale": 0,
-          "byRule": {
-            "engine-record-store": {
-              "fail": 0,
-              "known": 1
-            },
-            "mandatory-foundation": {
-              "fail": 1,
-              "known": 0
-            },
-            "notice-lock-digest": {
-              "fail": 2,
-              "known": 0
-            }
-          }
+          "status": "not run",
+          "reason": "--with-check not passed",
+          "fail": null,
+          "known": null,
+          "stale": null,
+          "byRule": {}
         }
       },
       "flags": {
@@ -1198,7 +1115,7 @@
             },
             {
               "name": "@rightkit/tauri",
-              "state": "current"
+              "state": "stale"
             }
           ],
           "missing": []
@@ -1211,11 +1128,11 @@
           "owners": [
             {
               "name": "@rightkit/react-shell",
-              "state": "current"
+              "state": "stale"
             },
             {
               "name": "@rightkit/platform-ui",
-              "state": "current"
+              "state": "stale"
             },
             {
               "name": "@rightkit/theme",
@@ -1232,7 +1149,7 @@
           "owners": [
             {
               "name": "rightkit-job-queue",
-              "state": "current"
+              "state": "stale"
             },
             {
               "name": "rightkit-child-process",
@@ -1249,7 +1166,7 @@
           "owners": [
             {
               "name": "rightkit-job-queue",
-              "state": "current"
+              "state": "stale"
             },
             {
               "name": "rightkit-sidecar",
@@ -1279,7 +1196,7 @@
           "owners": [
             {
               "name": "rightkit-daemon",
-              "state": "current"
+              "state": "stale"
             }
           ],
           "missing": []
@@ -1292,7 +1209,7 @@
           "owners": [
             {
               "name": "rightkit-daemon",
-              "state": "current"
+              "state": "stale"
             }
           ],
           "missing": []
@@ -1333,7 +1250,7 @@
           "owners": [
             {
               "name": "rightkit-app-settings",
-              "state": "current"
+              "state": "stale"
             },
             {
               "name": "@rightkit/settings-ui",
@@ -1363,7 +1280,7 @@
           "owners": [
             {
               "name": "rightkit-license",
-              "state": "current"
+              "state": "stale"
             },
             {
               "name": "rightkit-device",
@@ -1384,7 +1301,7 @@
           "owners": [
             {
               "name": "rightkit-license",
-              "state": "current"
+              "state": "stale"
             }
           ],
           "missing": []
@@ -1405,7 +1322,7 @@
             },
             {
               "name": "@rightkit/onboarding",
-              "state": "current"
+              "state": "stale"
             }
           ],
           "missing": []
@@ -1435,7 +1352,7 @@
           "owners": [
             {
               "name": "rightkit-crash",
-              "state": "current"
+              "state": "stale"
             }
           ],
           "missing": []
@@ -1521,9 +1438,9 @@
     {
       "name": "heardright",
       "group": "mandatory-set app",
-      "dir": "D:\\Claude\\heardright",
+      "dir": "/Volumes/D/claude/heardright",
       "present": true,
-      "head": "d24f3fab4573ffc9bee8571c612cf726e5032495",
+      "head": "100fc45dd733d3b2d500fc107116f32dfbd08e2c",
       "profile": "desktop",
       "inMandatorySet": true,
       "declaration": {
@@ -1564,19 +1481,19 @@
           ],
           "ownersRequired": 30,
           "ownersPinned": 29,
-          "ownersCurrent": 12,
-          "percent": 40
+          "ownersCurrent": 6,
+          "percent": 20
         },
         "addons": {
-          "total": 63,
-          "pinned": 17,
+          "total": 78,
+          "pinned": 23,
           "current": 1,
-          "stale": 1,
+          "stale": 14,
           "local": 0
         },
         "exceptions": {
-          "total": 12,
-          "open": 12,
+          "total": 10,
+          "open": 10,
           "expired": 0,
           "withoutIssueOrExpiry": 0,
           "unmatched": 0
@@ -1589,33 +1506,12 @@
           "dev": true
         },
         "check": {
-          "status": "ran",
-          "reason": "",
-          "fail": 22,
-          "known": 4,
-          "stale": 0,
-          "byRule": {
-            "legal-receipt-native": {
-              "fail": 0,
-              "known": 2
-            },
-            "mandatory-foundation": {
-              "fail": 1,
-              "known": 0
-            },
-            "notice-lock-digest": {
-              "fail": 4,
-              "known": 0
-            },
-            "ownership-exceptions": {
-              "fail": 17,
-              "known": 0
-            },
-            "suite-key-literal": {
-              "fail": 0,
-              "known": 2
-            }
-          }
+          "status": "not run",
+          "reason": "--with-check not passed",
+          "fail": null,
+          "known": null,
+          "stale": null,
+          "byRule": {}
         }
       },
       "flags": {
@@ -1641,7 +1537,7 @@
             },
             {
               "name": "@rightkit/tauri",
-              "state": "current"
+              "state": "stale"
             }
           ],
           "missing": []
@@ -1675,7 +1571,7 @@
           "owners": [
             {
               "name": "rightkit-job-queue",
-              "state": "current"
+              "state": "stale"
             },
             {
               "name": "rightkit-child-process",
@@ -1692,7 +1588,7 @@
           "owners": [
             {
               "name": "rightkit-job-queue",
-              "state": "current"
+              "state": "stale"
             },
             {
               "name": "rightkit-sidecar",
@@ -1761,7 +1657,7 @@
           "owners": [
             {
               "name": "rightkit-db",
-              "state": "current"
+              "state": "stale"
             }
           ],
           "missing": []
@@ -1774,7 +1670,7 @@
           "owners": [
             {
               "name": "rightkit-app-settings",
-              "state": "current"
+              "state": "stale"
             },
             {
               "name": "@rightkit/settings-ui",
@@ -1804,7 +1700,7 @@
           "owners": [
             {
               "name": "rightkit-license",
-              "state": "current"
+              "state": "stale"
             },
             {
               "name": "rightkit-device",
@@ -1825,7 +1721,7 @@
           "owners": [
             {
               "name": "rightkit-license",
-              "state": "current"
+              "state": "stale"
             }
           ],
           "missing": []
@@ -1876,7 +1772,7 @@
           "owners": [
             {
               "name": "rightkit-crash",
-              "state": "current"
+              "state": "stale"
             }
           ],
           "missing": []
@@ -2000,757 +1896,15 @@
           "detail": "=0.9.0"
         }
       ],
-      "rkReady": [
-        {
-          "path": "rk-snapshot/crates/rightkit-agent-tools",
-          "name": "rightkit-agent-tools",
-          "directory": "rightkit-agent-tools",
-          "kind": "cargo",
-          "version": "0.1.2",
-          "publish": "publish = false",
-          "status": "duplicate",
-          "owner": "rightkit-agent-tools",
-          "ownerVersion": "0.4.3",
-          "ownerPublished": true,
-          "statusText": "duplicate of published owner rightkit-agent-tools 0.4.3"
-        },
-        {
-          "path": "rk-snapshot/crates/rightkit-align",
-          "name": "rightkit-align",
-          "directory": "rightkit-align",
-          "kind": "cargo",
-          "version": "0.1.0",
-          "publish": "publish = false",
-          "status": "duplicate",
-          "owner": "rightkit-align",
-          "ownerVersion": "0.1.0",
-          "ownerPublished": false,
-          "statusText": "duplicate of owner rightkit-align (source 0.1.0, not published)"
-        },
-        {
-          "path": "rk-snapshot/crates/rightkit-asr",
-          "name": "rightkit-asr",
-          "directory": "rightkit-asr",
-          "kind": "cargo",
-          "version": "0.2.0",
-          "publish": "publishable",
-          "status": "duplicate",
-          "owner": "rightkit-asr",
-          "ownerVersion": "0.3.0",
-          "ownerPublished": true,
-          "statusText": "duplicate of published owner rightkit-asr 0.3.0"
-        },
-        {
-          "path": "rk-snapshot/crates/rightkit-audio",
-          "name": "rightkit-audio",
-          "directory": "rightkit-audio",
-          "kind": "cargo",
-          "version": "0.2.2",
-          "publish": "publishable",
-          "status": "duplicate",
-          "owner": "rightkit-audio",
-          "ownerVersion": "0.3.1",
-          "ownerPublished": true,
-          "statusText": "duplicate of published owner rightkit-audio 0.3.1"
-        },
-        {
-          "path": "rk-snapshot/crates/rightkit-automation",
-          "name": "rightkit-automation",
-          "directory": "rightkit-automation",
-          "kind": "cargo",
-          "version": "0.3.0",
-          "publish": "publish = false",
-          "status": "duplicate",
-          "owner": "rightkit-automation",
-          "ownerVersion": "0.6.1",
-          "ownerPublished": true,
-          "statusText": "duplicate of published owner rightkit-automation 0.6.1"
-        },
-        {
-          "path": "rk-snapshot/crates/rightkit-browser",
-          "name": "rightkit-browser",
-          "directory": "rightkit-browser",
-          "kind": "cargo",
-          "version": "0.2.4",
-          "publish": "publishable",
-          "status": "duplicate",
-          "owner": "rightkit-browser",
-          "ownerVersion": "0.3.6",
-          "ownerPublished": true,
-          "statusText": "duplicate of published owner rightkit-browser 0.3.6"
-        },
-        {
-          "path": "rk-snapshot/crates/rightkit-cache",
-          "name": "rightkit-cache",
-          "directory": "rightkit-cache",
-          "kind": "cargo",
-          "version": "0.2.0",
-          "publish": "publishable",
-          "status": "duplicate",
-          "owner": "rightkit-cache",
-          "ownerVersion": "0.2.3",
-          "ownerPublished": true,
-          "statusText": "duplicate of published owner rightkit-cache 0.2.3"
-        },
-        {
-          "path": "rk-snapshot/crates/rightkit-channel-memory",
-          "name": "rightkit-channel-memory",
-          "directory": "rightkit-channel-memory",
-          "kind": "cargo",
-          "version": "0.1.0",
-          "publish": "publish = false",
-          "status": "duplicate",
-          "owner": "rightkit-channel-memory",
-          "ownerVersion": "0.2.1",
-          "ownerPublished": true,
-          "statusText": "duplicate of published owner rightkit-channel-memory 0.2.1"
-        },
-        {
-          "path": "rk-snapshot/crates/rightkit-compose",
-          "name": "rightkit-compose",
-          "directory": "rightkit-compose",
-          "kind": "cargo",
-          "version": "0.1.0",
-          "publish": "publish = false",
-          "status": "duplicate",
-          "owner": "rightkit-compose",
-          "ownerVersion": "0.2.0",
-          "ownerPublished": true,
-          "statusText": "duplicate of published owner rightkit-compose 0.2.0"
-        },
-        {
-          "path": "rk-snapshot/crates/rightkit-contracts",
-          "name": "rightkit-contracts",
-          "directory": "rightkit-contracts",
-          "kind": "cargo",
-          "version": "0.1.5",
-          "publish": "publish = false",
-          "status": "duplicate",
-          "owner": "rightkit-contracts",
-          "ownerVersion": "0.1.7",
-          "ownerPublished": true,
-          "statusText": "duplicate of published owner rightkit-contracts 0.1.7"
-        },
-        {
-          "path": "rk-snapshot/crates/rightkit-control",
-          "name": "rightkit-control",
-          "directory": "rightkit-control",
-          "kind": "cargo",
-          "version": "0.3.0",
-          "publish": "publishable",
-          "status": "awaiting promotion",
-          "owner": "",
-          "ownerVersion": "",
-          "ownerPublished": false,
-          "statusText": "awaiting promotion"
-        },
-        {
-          "path": "rk-snapshot/crates/rightkit-crash",
-          "name": "rightkit-crash",
-          "directory": "rightkit-crash",
-          "kind": "cargo",
-          "version": "0.2.1",
-          "publish": "publishable",
-          "status": "duplicate",
-          "owner": "rightkit-crash",
-          "ownerVersion": "0.4.1",
-          "ownerPublished": true,
-          "statusText": "duplicate of published owner rightkit-crash 0.4.1"
-        },
-        {
-          "path": "rk-snapshot/crates/rightkit-daemon",
-          "name": "rightkit-daemon",
-          "directory": "rightkit-daemon",
-          "kind": "cargo",
-          "version": "0.1.3",
-          "publish": "publish = false",
-          "status": "duplicate",
-          "owner": "rightkit-daemon",
-          "ownerVersion": "0.9.0",
-          "ownerPublished": true,
-          "statusText": "duplicate of published owner rightkit-daemon 0.9.0"
-        },
-        {
-          "path": "rk-snapshot/crates/rightkit-db",
-          "name": "rightkit-db",
-          "directory": "rightkit-db",
-          "kind": "cargo",
-          "version": "0.4.0",
-          "publish": "publishable",
-          "status": "duplicate",
-          "owner": "rightkit-db",
-          "ownerVersion": "0.5.8",
-          "ownerPublished": true,
-          "statusText": "duplicate of published owner rightkit-db 0.5.8"
-        },
-        {
-          "path": "rk-snapshot/crates/rightkit-embed",
-          "name": "rightkit-embed",
-          "directory": "rightkit-embed",
-          "kind": "cargo",
-          "version": "0.3.2",
-          "publish": "publishable",
-          "status": "duplicate",
-          "owner": "rightkit-embed",
-          "ownerVersion": "0.6.1",
-          "ownerPublished": true,
-          "statusText": "duplicate of published owner rightkit-embed 0.6.1"
-        },
-        {
-          "path": "rk-snapshot/crates/rightkit-framed-sidecar",
-          "name": "rightkit-framed-sidecar",
-          "directory": "rightkit-framed-sidecar",
-          "kind": "cargo",
-          "version": "0.2.0",
-          "publish": "publishable",
-          "status": "awaiting promotion",
-          "owner": "",
-          "ownerVersion": "",
-          "ownerPublished": false,
-          "statusText": "awaiting promotion"
-        },
-        {
-          "path": "rk-snapshot/crates/rightkit-fs",
-          "name": "rightkit-fs",
-          "directory": "rightkit-fs",
-          "kind": "cargo",
-          "version": "0.3.4",
-          "publish": "publishable",
-          "status": "duplicate",
-          "owner": "rightkit-fs",
-          "ownerVersion": "0.4.16",
-          "ownerPublished": true,
-          "statusText": "duplicate of published owner rightkit-fs 0.4.16"
-        },
-        {
-          "path": "rk-snapshot/crates/rightkit-fsindex",
-          "name": "rightkit-fsindex",
-          "directory": "rightkit-fsindex",
-          "kind": "cargo",
-          "version": "0.2.0",
-          "publish": "publishable",
-          "status": "duplicate",
-          "owner": "rightkit-fsindex",
-          "ownerVersion": "0.5.0",
-          "ownerPublished": true,
-          "statusText": "duplicate of published owner rightkit-fsindex 0.5.0"
-        },
-        {
-          "path": "rk-snapshot/crates/rightkit-hotkeys",
-          "name": "rightkit-hotkeys",
-          "directory": "rightkit-hotkeys",
-          "kind": "cargo",
-          "version": "0.1.0",
-          "publish": "publishable",
-          "status": "duplicate",
-          "owner": "rightkit-hotkeys",
-          "ownerVersion": "0.1.2",
-          "ownerPublished": true,
-          "statusText": "duplicate of published owner rightkit-hotkeys 0.1.2"
-        },
-        {
-          "path": "rk-snapshot/crates/rightkit-http",
-          "name": "rightkit-http",
-          "directory": "rightkit-http",
-          "kind": "cargo",
-          "version": "0.3.0",
-          "publish": "publishable",
-          "status": "duplicate",
-          "owner": "rightkit-http",
-          "ownerVersion": "0.4.0",
-          "ownerPublished": true,
-          "statusText": "duplicate of published owner rightkit-http 0.4.0"
-        },
-        {
-          "path": "rk-snapshot/crates/rightkit-jobs",
-          "name": "rightkit-jobs",
-          "directory": "rightkit-jobs",
-          "kind": "cargo",
-          "version": "0.2.9",
-          "publish": "publishable",
-          "status": "awaiting promotion",
-          "owner": "",
-          "ownerVersion": "",
-          "ownerPublished": false,
-          "statusText": "awaiting promotion"
-        },
-        {
-          "path": "rk-snapshot/crates/rightkit-license",
-          "name": "rightkit-license",
-          "directory": "rightkit-license",
-          "kind": "cargo",
-          "version": "0.2.0",
-          "publish": "publishable",
-          "status": "duplicate",
-          "owner": "rightkit-license",
-          "ownerVersion": "0.3.1",
-          "ownerPublished": true,
-          "statusText": "duplicate of published owner rightkit-license 0.3.1"
-        },
-        {
-          "path": "rk-snapshot/crates/rightkit-llm",
-          "name": "rightkit-llm",
-          "directory": "rightkit-llm",
-          "kind": "cargo",
-          "version": "0.2.0",
-          "publish": "publishable",
-          "status": "duplicate",
-          "owner": "rightkit-llm",
-          "ownerVersion": "0.3.1",
-          "ownerPublished": true,
-          "statusText": "duplicate of published owner rightkit-llm 0.3.1"
-        },
-        {
-          "path": "rk-snapshot/crates/rightkit-logs",
-          "name": "rightkit-logs",
-          "directory": "rightkit-logs",
-          "kind": "cargo",
-          "version": "0.2.2",
-          "publish": "publishable",
-          "status": "duplicate",
-          "owner": "rightkit-logs",
-          "ownerVersion": "0.4.2",
-          "ownerPublished": true,
-          "statusText": "duplicate of published owner rightkit-logs 0.4.2"
-        },
-        {
-          "path": "rk-snapshot/crates/rightkit-mcp",
-          "name": "rightkit-mcp",
-          "directory": "rightkit-mcp",
-          "kind": "cargo",
-          "version": "0.5.3",
-          "publish": "publishable",
-          "status": "duplicate",
-          "owner": "rightkit-mcp",
-          "ownerVersion": "0.7.0",
-          "ownerPublished": true,
-          "statusText": "duplicate of published owner rightkit-mcp 0.7.0"
-        },
-        {
-          "path": "rk-snapshot/crates/rightkit-media",
-          "name": "rightkit-media",
-          "directory": "rightkit-media",
-          "kind": "cargo",
-          "version": "0.2.6",
-          "publish": "publishable",
-          "status": "awaiting promotion",
-          "owner": "",
-          "ownerVersion": "",
-          "ownerPublished": false,
-          "statusText": "awaiting promotion"
-        },
-        {
-          "path": "rk-snapshot/crates/rightkit-models",
-          "name": "rightkit-models",
-          "directory": "rightkit-models",
-          "kind": "cargo",
-          "version": "0.3.0",
-          "publish": "publishable",
-          "status": "duplicate",
-          "owner": "rightkit-models",
-          "ownerVersion": "0.5.1",
-          "ownerPublished": true,
-          "statusText": "duplicate of published owner rightkit-models 0.5.1"
-        },
-        {
-          "path": "rk-snapshot/crates/rightkit-oauth",
-          "name": "rightkit-oauth",
-          "directory": "rightkit-oauth",
-          "kind": "cargo",
-          "version": "0.3.1",
-          "publish": "publishable",
-          "status": "duplicate",
-          "owner": "rightkit-oauth",
-          "ownerVersion": "0.10.0",
-          "ownerPublished": true,
-          "statusText": "duplicate of published owner rightkit-oauth 0.10.0"
-        },
-        {
-          "path": "rk-snapshot/crates/rightkit-ocr",
-          "name": "rightkit-ocr",
-          "directory": "rightkit-ocr",
-          "kind": "cargo",
-          "version": "0.2.1",
-          "publish": "publishable",
-          "status": "duplicate",
-          "owner": "rightkit-ocr",
-          "ownerVersion": "0.2.3",
-          "ownerPublished": true,
-          "statusText": "duplicate of published owner rightkit-ocr 0.2.3"
-        },
-        {
-          "path": "rk-snapshot/crates/rightkit-ort",
-          "name": "rightkit-ort",
-          "directory": "rightkit-ort",
-          "kind": "cargo",
-          "version": "0.2.3",
-          "publish": "publishable",
-          "status": "awaiting promotion",
-          "owner": "",
-          "ownerVersion": "",
-          "ownerPublished": false,
-          "statusText": "awaiting promotion"
-        },
-        {
-          "path": "rk-snapshot/crates/rightkit-overlay",
-          "name": "rightkit-overlay",
-          "directory": "rightkit-overlay",
-          "kind": "cargo",
-          "version": "0.1.1",
-          "publish": "publishable",
-          "status": "duplicate",
-          "owner": "rightkit-overlay",
-          "ownerVersion": "0.2.0",
-          "ownerPublished": true,
-          "statusText": "duplicate of published owner rightkit-overlay 0.2.0"
-        },
-        {
-          "path": "rk-snapshot/crates/rightkit-ownership",
-          "name": "rightkit-ownership",
-          "directory": "rightkit-ownership",
-          "kind": "cargo",
-          "version": "0.2.1",
-          "publish": "publishable",
-          "status": "duplicate",
-          "owner": "rightkit-ownership",
-          "ownerVersion": "0.4.2",
-          "ownerPublished": true,
-          "statusText": "duplicate of published owner rightkit-ownership 0.4.2"
-        },
-        {
-          "path": "rk-snapshot/crates/rightkit-pdf",
-          "name": "rightkit-pdf",
-          "directory": "rightkit-pdf",
-          "kind": "cargo",
-          "version": "0.2.1",
-          "publish": "publishable",
-          "status": "duplicate",
-          "owner": "rightkit-pdf",
-          "ownerVersion": "0.3.3",
-          "ownerPublished": true,
-          "statusText": "duplicate of published owner rightkit-pdf 0.3.3"
-        },
-        {
-          "path": "rk-snapshot/crates/rightkit-playback",
-          "name": "rightkit-playback",
-          "directory": "rightkit-playback",
-          "kind": "cargo",
-          "version": "0.2.0",
-          "publish": "publishable",
-          "status": "duplicate",
-          "owner": "rightkit-playback",
-          "ownerVersion": "0.3.0",
-          "ownerPublished": true,
-          "statusText": "duplicate of published owner rightkit-playback 0.3.0"
-        },
-        {
-          "path": "rk-snapshot/crates/rightkit-process",
-          "name": "rightkit-process",
-          "directory": "rightkit-process",
-          "kind": "cargo",
-          "version": "0.3.4",
-          "publish": "publishable",
-          "status": "awaiting promotion",
-          "owner": "",
-          "ownerVersion": "",
-          "ownerPublished": false,
-          "statusText": "awaiting promotion"
-        },
-        {
-          "path": "rk-snapshot/crates/rightkit-qa",
-          "name": "rightkit-qa",
-          "directory": "rightkit-qa",
-          "kind": "cargo",
-          "version": "0.2.16",
-          "publish": "publishable",
-          "status": "duplicate",
-          "owner": "rightkit-qa",
-          "ownerVersion": "0.10.8",
-          "ownerPublished": true,
-          "statusText": "duplicate of published owner rightkit-qa 0.10.8"
-        },
-        {
-          "path": "rk-snapshot/crates/rightkit-qts",
-          "name": "rightkit-qts",
-          "directory": "rightkit-qts",
-          "kind": "cargo",
-          "version": "0.2.6",
-          "publish": "publishable",
-          "status": "awaiting promotion",
-          "owner": "",
-          "ownerVersion": "",
-          "ownerPublished": false,
-          "statusText": "awaiting promotion"
-        },
-        {
-          "path": "rk-snapshot/crates/rightkit-qts-ggml",
-          "name": "rightkit-qts-ggml",
-          "directory": "rightkit-qts-ggml",
-          "kind": "cargo",
-          "version": "0.1.2",
-          "publish": "publishable",
-          "status": "awaiting promotion",
-          "owner": "",
-          "ownerVersion": "",
-          "ownerPublished": false,
-          "statusText": "awaiting promotion"
-        },
-        {
-          "path": "rk-snapshot/crates/rightkit-qts-ggml-sys",
-          "name": "rightkit-qts-ggml-sys",
-          "directory": "rightkit-qts-ggml-sys",
-          "kind": "cargo",
-          "version": "0.1.2",
-          "publish": "publishable",
-          "status": "awaiting promotion",
-          "owner": "",
-          "ownerVersion": "",
-          "ownerPublished": false,
-          "statusText": "awaiting promotion"
-        },
-        {
-          "path": "rk-snapshot/crates/rightkit-record",
-          "name": "rightkit-record",
-          "directory": "rightkit-record",
-          "kind": "cargo",
-          "version": "0.2.0",
-          "publish": "publish = false",
-          "status": "duplicate",
-          "owner": "rightkit-record",
-          "ownerVersion": "0.3.3",
-          "ownerPublished": true,
-          "statusText": "duplicate of published owner rightkit-record 0.3.3"
-        },
-        {
-          "path": "rk-snapshot/crates/rightkit-record/helpers/macos",
-          "name": "RightKitRecordMacOS",
-          "directory": "macos",
-          "kind": "swift",
-          "version": "-",
-          "publish": "n/a (SwiftPM, tag-based)",
-          "status": "awaiting promotion",
-          "owner": "",
-          "ownerVersion": "",
-          "ownerPublished": false,
-          "statusText": "awaiting promotion"
-        },
-        {
-          "path": "rk-snapshot/crates/rightkit-review",
-          "name": "rightkit-review",
-          "directory": "rightkit-review",
-          "kind": "cargo",
-          "version": "0.2.0",
-          "publish": "publishable",
-          "status": "duplicate",
-          "owner": "rightkit-review",
-          "ownerVersion": "0.4.0",
-          "ownerPublished": true,
-          "statusText": "duplicate of published owner rightkit-review 0.4.0"
-        },
-        {
-          "path": "rk-snapshot/crates/rightkit-sandbox",
-          "name": "rightkit-sandbox",
-          "directory": "rightkit-sandbox",
-          "kind": "cargo",
-          "version": "0.3.4",
-          "publish": "publishable",
-          "status": "duplicate",
-          "owner": "rightkit-sandbox",
-          "ownerVersion": "0.6.1",
-          "ownerPublished": true,
-          "statusText": "duplicate of published owner rightkit-sandbox 0.6.1"
-        },
-        {
-          "path": "rk-snapshot/crates/rightkit-scenario",
-          "name": "rightkit-scenario",
-          "directory": "rightkit-scenario",
-          "kind": "cargo",
-          "version": "0.1.0",
-          "publish": "publishable",
-          "status": "awaiting promotion",
-          "owner": "",
-          "ownerVersion": "",
-          "ownerPublished": false,
-          "statusText": "awaiting promotion"
-        },
-        {
-          "path": "rk-snapshot/crates/rightkit-search",
-          "name": "rightkit-search",
-          "directory": "rightkit-search",
-          "kind": "cargo",
-          "version": "0.2.1",
-          "publish": "publishable",
-          "status": "duplicate",
-          "owner": "rightkit-search",
-          "ownerVersion": "0.4.0",
-          "ownerPublished": true,
-          "statusText": "duplicate of published owner rightkit-search 0.4.0"
-        },
-        {
-          "path": "rk-snapshot/crates/rightkit-secrets",
-          "name": "rightkit-secrets",
-          "directory": "rightkit-secrets",
-          "kind": "cargo",
-          "version": "0.1.4",
-          "publish": "publishable",
-          "status": "awaiting promotion",
-          "owner": "",
-          "ownerVersion": "",
-          "ownerPublished": false,
-          "statusText": "awaiting promotion"
-        },
-        {
-          "path": "rk-snapshot/crates/rightkit-send",
-          "name": "rightkit-send",
-          "directory": "rightkit-send",
-          "kind": "cargo",
-          "version": "0.1.0",
-          "publish": "publish = false",
-          "status": "duplicate",
-          "owner": "rightkit-send",
-          "ownerVersion": "0.2.0",
-          "ownerPublished": true,
-          "statusText": "duplicate of published owner rightkit-send 0.2.0"
-        },
-        {
-          "path": "rk-snapshot/crates/rightkit-service",
-          "name": "rightkit-service",
-          "directory": "rightkit-service",
-          "kind": "cargo",
-          "version": "0.1.5",
-          "publish": "publishable",
-          "status": "awaiting promotion",
-          "owner": "",
-          "ownerVersion": "",
-          "ownerPublished": false,
-          "statusText": "awaiting promotion"
-        },
-        {
-          "path": "rk-snapshot/crates/rightkit-settings",
-          "name": "rightkit-settings",
-          "directory": "rightkit-settings",
-          "kind": "cargo",
-          "version": "0.2.0",
-          "publish": "publishable",
-          "status": "awaiting promotion",
-          "owner": "",
-          "ownerVersion": "",
-          "ownerPublished": false,
-          "statusText": "awaiting promotion"
-        },
-        {
-          "path": "rk-snapshot/crates/rightkit-shell",
-          "name": "rightkit-shell",
-          "directory": "rightkit-shell",
-          "kind": "cargo",
-          "version": "0.3.0",
-          "publish": "publishable",
-          "status": "awaiting promotion",
-          "owner": "",
-          "ownerVersion": "",
-          "ownerPublished": false,
-          "statusText": "awaiting promotion"
-        },
-        {
-          "path": "rk-snapshot/crates/rightkit-speech-client",
-          "name": "rightkit-speech-client",
-          "directory": "rightkit-speech-client",
-          "kind": "cargo",
-          "version": "0.3.4",
-          "publish": "publishable",
-          "status": "duplicate",
-          "owner": "rightkit-speech-client",
-          "ownerVersion": "0.4.0",
-          "ownerPublished": true,
-          "statusText": "duplicate of published owner rightkit-speech-client 0.4.0"
-        },
-        {
-          "path": "rk-snapshot/crates/rightkit-sync",
-          "name": "rightkit-sync",
-          "directory": "rightkit-sync",
-          "kind": "cargo",
-          "version": "0.1.1",
-          "publish": "publishable",
-          "status": "duplicate",
-          "owner": "rightkit-sync",
-          "ownerVersion": "0.2.2",
-          "ownerPublished": true,
-          "statusText": "duplicate of published owner rightkit-sync 0.2.2"
-        },
-        {
-          "path": "rk-snapshot/crates/rightkit-tauri",
-          "name": "rightkit-tauri",
-          "directory": "rightkit-tauri",
-          "kind": "cargo",
-          "version": "0.1.3",
-          "publish": "publishable",
-          "status": "awaiting promotion",
-          "owner": "",
-          "ownerVersion": "",
-          "ownerPublished": false,
-          "statusText": "awaiting promotion"
-        },
-        {
-          "path": "rk-snapshot/crates/rightkit-transcript",
-          "name": "rightkit-transcript",
-          "directory": "rightkit-transcript",
-          "kind": "cargo",
-          "version": "0.3.0",
-          "publish": "publishable",
-          "status": "duplicate",
-          "owner": "rightkit-transcript",
-          "ownerVersion": "0.4.0",
-          "ownerPublished": true,
-          "statusText": "duplicate of published owner rightkit-transcript 0.4.0"
-        },
-        {
-          "path": "rk-snapshot/crates/rightkit-tts",
-          "name": "rightkit-tts",
-          "directory": "rightkit-tts",
-          "kind": "cargo",
-          "version": "0.2.0",
-          "publish": "publishable",
-          "status": "duplicate",
-          "owner": "rightkit-tts",
-          "ownerVersion": "0.2.3",
-          "ownerPublished": true,
-          "statusText": "duplicate of published owner rightkit-tts 0.2.3"
-        },
-        {
-          "path": "rk-snapshot/crates/rightkit-vad",
-          "name": "rightkit-vad",
-          "directory": "rightkit-vad",
-          "kind": "cargo",
-          "version": "0.1.0",
-          "publish": "publishable",
-          "status": "duplicate",
-          "owner": "rightkit-vad",
-          "ownerVersion": "0.1.2",
-          "ownerPublished": true,
-          "statusText": "duplicate of published owner rightkit-vad 0.1.2"
-        },
-        {
-          "path": "rk-snapshot/crates/rightkit-watch",
-          "name": "rightkit-watch",
-          "directory": "rightkit-watch",
-          "kind": "cargo",
-          "version": "0.4.0",
-          "publish": "publishable",
-          "status": "awaiting promotion",
-          "owner": "",
-          "ownerVersion": "",
-          "ownerPublished": false,
-          "statusText": "awaiting promotion"
-        }
-      ],
+      "rkReady": [],
       "toMove": []
     },
     {
       "name": "mailright",
       "group": "mandatory-set app",
-      "dir": "D:\\Claude\\mailright",
+      "dir": "/Volumes/D/claude/mailright",
       "present": true,
-      "head": "be69a57278223568581dd9983fda9c658443f712",
+      "head": "b1377c77d06a950989cbe58e66999e50bfa46fff",
       "profile": "desktop",
       "inMandatorySet": true,
       "declaration": {
@@ -2794,14 +1948,14 @@
           ],
           "ownersRequired": 30,
           "ownersPinned": 29,
-          "ownersCurrent": 22,
-          "percent": 73
+          "ownersCurrent": 11,
+          "percent": 37
         },
         "addons": {
-          "total": 63,
-          "pinned": 11,
+          "total": 78,
+          "pinned": 12,
           "current": 2,
-          "stale": 0,
+          "stale": 2,
           "local": 0
         },
         "exceptions": {
@@ -2819,37 +1973,16 @@
           "dev": true
         },
         "check": {
-          "status": "ran",
-          "reason": "",
-          "fail": 27,
-          "known": 1,
-          "stale": 0,
-          "byRule": {
-            "engine-record-store": {
-              "fail": 0,
-              "known": 1
-            },
-            "legal-receipt-native": {
-              "fail": 1,
-              "known": 0
-            },
-            "mandatory-foundation": {
-              "fail": 1,
-              "known": 0
-            },
-            "notice-lock-digest": {
-              "fail": 3,
-              "known": 0
-            },
-            "ownership-exceptions": {
-              "fail": 22,
-              "known": 0
-            }
-          }
+          "status": "not run",
+          "reason": "--with-check not passed",
+          "fail": null,
+          "known": null,
+          "stale": null,
+          "byRule": {}
         }
       },
       "flags": {
-        "prePushHook": "absent",
+        "prePushHook": "uncommitted",
         "switches": true,
         "journeys": false,
         "releaseConfig": "data"
@@ -2871,7 +2004,7 @@
             },
             {
               "name": "@rightkit/tauri",
-              "state": "current"
+              "state": "stale"
             }
           ],
           "missing": []
@@ -2884,11 +2017,11 @@
           "owners": [
             {
               "name": "@rightkit/react-shell",
-              "state": "current"
+              "state": "stale"
             },
             {
               "name": "@rightkit/platform-ui",
-              "state": "current"
+              "state": "stale"
             },
             {
               "name": "@rightkit/theme",
@@ -2905,7 +2038,7 @@
           "owners": [
             {
               "name": "rightkit-job-queue",
-              "state": "current"
+              "state": "stale"
             },
             {
               "name": "rightkit-child-process",
@@ -2922,7 +2055,7 @@
           "owners": [
             {
               "name": "rightkit-job-queue",
-              "state": "current"
+              "state": "stale"
             },
             {
               "name": "rightkit-sidecar",
@@ -2952,7 +2085,7 @@
           "owners": [
             {
               "name": "rightkit-daemon",
-              "state": "current"
+              "state": "stale"
             }
           ],
           "missing": []
@@ -2965,7 +2098,7 @@
           "owners": [
             {
               "name": "rightkit-daemon",
-              "state": "current"
+              "state": "stale"
             }
           ],
           "missing": []
@@ -2978,7 +2111,7 @@
           "owners": [
             {
               "name": "rightkit-fs",
-              "state": "current"
+              "state": "stale"
             }
           ],
           "missing": []
@@ -2991,7 +2124,7 @@
           "owners": [
             {
               "name": "rightkit-db",
-              "state": "current"
+              "state": "stale"
             }
           ],
           "missing": []
@@ -3004,7 +2137,7 @@
           "owners": [
             {
               "name": "rightkit-app-settings",
-              "state": "current"
+              "state": "stale"
             },
             {
               "name": "@rightkit/settings-ui",
@@ -3034,7 +2167,7 @@
           "owners": [
             {
               "name": "rightkit-license",
-              "state": "current"
+              "state": "stale"
             },
             {
               "name": "rightkit-device",
@@ -3055,7 +2188,7 @@
           "owners": [
             {
               "name": "rightkit-license",
-              "state": "current"
+              "state": "stale"
             }
           ],
           "missing": []
@@ -3076,7 +2209,7 @@
             },
             {
               "name": "@rightkit/onboarding",
-              "state": "current"
+              "state": "stale"
             }
           ],
           "missing": []
@@ -3106,7 +2239,7 @@
           "owners": [
             {
               "name": "rightkit-crash",
-              "state": "current"
+              "state": "stale"
             }
           ],
           "missing": []
@@ -3194,9 +2327,9 @@
     {
       "name": "postright",
       "group": "mandatory-set app",
-      "dir": "D:\\Claude\\postright",
+      "dir": "/Volumes/D/claude/postright",
       "present": true,
-      "head": "d0e3bfeb4d6969811a7ca7937607da55d240cf4f",
+      "head": "2c985df9cf1418b8f4224ab5e8565ed5c44b433b",
       "profile": "desktop",
       "inMandatorySet": true,
       "declaration": {
@@ -3237,14 +2370,14 @@
           ],
           "ownersRequired": 30,
           "ownersPinned": 29,
-          "ownersCurrent": 11,
-          "percent": 37
+          "ownersCurrent": 5,
+          "percent": 17
         },
         "addons": {
-          "total": 63,
-          "pinned": 9,
+          "total": 78,
+          "pinned": 10,
           "current": 2,
-          "stale": 0,
+          "stale": 1,
           "local": 0
         },
         "exceptions": {
@@ -3262,25 +2395,16 @@
           "dev": true
         },
         "check": {
-          "status": "ran",
-          "reason": "",
-          "fail": 1,
-          "known": 1,
-          "stale": 0,
-          "byRule": {
-            "legal-receipt-native": {
-              "fail": 0,
-              "known": 1
-            },
-            "mandatory-foundation": {
-              "fail": 1,
-              "known": 0
-            }
-          }
+          "status": "not run",
+          "reason": "--with-check not passed",
+          "fail": null,
+          "known": null,
+          "stale": null,
+          "byRule": {}
         }
       },
       "flags": {
-        "prePushHook": "absent",
+        "prePushHook": "uncommitted",
         "switches": true,
         "journeys": true,
         "releaseConfig": "data"
@@ -3336,7 +2460,7 @@
           "owners": [
             {
               "name": "rightkit-job-queue",
-              "state": "current"
+              "state": "stale"
             },
             {
               "name": "rightkit-child-process",
@@ -3353,7 +2477,7 @@
           "owners": [
             {
               "name": "rightkit-job-queue",
-              "state": "current"
+              "state": "stale"
             },
             {
               "name": "rightkit-sidecar",
@@ -3383,7 +2507,7 @@
           "owners": [
             {
               "name": "rightkit-daemon",
-              "state": "current"
+              "state": "stale"
             }
           ],
           "missing": []
@@ -3396,7 +2520,7 @@
           "owners": [
             {
               "name": "rightkit-daemon",
-              "state": "current"
+              "state": "stale"
             }
           ],
           "missing": []
@@ -3422,7 +2546,7 @@
           "owners": [
             {
               "name": "rightkit-db",
-              "state": "current"
+              "state": "stale"
             }
           ],
           "missing": []
@@ -3435,7 +2559,7 @@
           "owners": [
             {
               "name": "rightkit-app-settings",
-              "state": "current"
+              "state": "stale"
             },
             {
               "name": "@rightkit/settings-ui",
@@ -3465,7 +2589,7 @@
           "owners": [
             {
               "name": "rightkit-license",
-              "state": "current"
+              "state": "stale"
             },
             {
               "name": "rightkit-device",
@@ -3486,7 +2610,7 @@
           "owners": [
             {
               "name": "rightkit-license",
-              "state": "current"
+              "state": "stale"
             }
           ],
           "missing": []
@@ -3537,7 +2661,7 @@
           "owners": [
             {
               "name": "rightkit-crash",
-              "state": "current"
+              "state": "stale"
             }
           ],
           "missing": []
@@ -3625,9 +2749,9 @@
     {
       "name": "pulse",
       "group": "mandatory-set app",
-      "dir": "D:\\Claude\\pulse",
+      "dir": "/Volumes/D/claude/pulse",
       "present": true,
-      "head": "c3b8cd528fa8f14de70a8cb4246ed6bbdeae29e6",
+      "head": "e2bb9acbf481fb9faffea79ddb8b817da230ffbb",
       "profile": "desktop",
       "inMandatorySet": true,
       "declaration": {
@@ -3663,14 +2787,14 @@
           "openRows": [],
           "ownersRequired": 30,
           "ownersPinned": 30,
-          "ownersCurrent": 20,
-          "percent": 67
+          "ownersCurrent": 9,
+          "percent": 30
         },
         "addons": {
-          "total": 63,
-          "pinned": 24,
+          "total": 78,
+          "pinned": 25,
           "current": 1,
-          "stale": 2,
+          "stale": 7,
           "local": 0
         },
         "exceptions": {
@@ -3688,17 +2812,12 @@
           "dev": true
         },
         "check": {
-          "status": "ran",
-          "reason": "",
-          "fail": 22,
-          "known": 0,
-          "stale": 0,
-          "byRule": {
-            "ownership-exceptions": {
-              "fail": 22,
-              "known": 0
-            }
-          }
+          "status": "not run",
+          "reason": "--with-check not passed",
+          "fail": null,
+          "known": null,
+          "stale": null,
+          "byRule": {}
         }
       },
       "flags": {
@@ -3724,7 +2843,7 @@
             },
             {
               "name": "@rightkit/tauri",
-              "state": "current"
+              "state": "stale"
             }
           ],
           "missing": []
@@ -3737,11 +2856,11 @@
           "owners": [
             {
               "name": "@rightkit/react-shell",
-              "state": "current"
+              "state": "stale"
             },
             {
               "name": "@rightkit/platform-ui",
-              "state": "current"
+              "state": "stale"
             },
             {
               "name": "@rightkit/theme",
@@ -3758,7 +2877,7 @@
           "owners": [
             {
               "name": "rightkit-job-queue",
-              "state": "current"
+              "state": "stale"
             },
             {
               "name": "rightkit-child-process",
@@ -3775,7 +2894,7 @@
           "owners": [
             {
               "name": "rightkit-job-queue",
-              "state": "current"
+              "state": "stale"
             },
             {
               "name": "rightkit-sidecar",
@@ -3805,7 +2924,7 @@
           "owners": [
             {
               "name": "rightkit-daemon",
-              "state": "current"
+              "state": "stale"
             }
           ],
           "missing": []
@@ -3818,7 +2937,7 @@
           "owners": [
             {
               "name": "rightkit-daemon",
-              "state": "current"
+              "state": "stale"
             }
           ],
           "missing": []
@@ -3844,7 +2963,7 @@
           "owners": [
             {
               "name": "rightkit-db",
-              "state": "current"
+              "state": "stale"
             }
           ],
           "missing": []
@@ -3857,7 +2976,7 @@
           "owners": [
             {
               "name": "rightkit-app-settings",
-              "state": "current"
+              "state": "stale"
             },
             {
               "name": "@rightkit/settings-ui",
@@ -3874,7 +2993,7 @@
           "owners": [
             {
               "name": "rightkit-credentials",
-              "state": "current"
+              "state": "stale"
             }
           ],
           "missing": []
@@ -3887,7 +3006,7 @@
           "owners": [
             {
               "name": "rightkit-license",
-              "state": "current"
+              "state": "stale"
             },
             {
               "name": "rightkit-device",
@@ -3908,7 +3027,7 @@
           "owners": [
             {
               "name": "rightkit-license",
-              "state": "current"
+              "state": "stale"
             }
           ],
           "missing": []
@@ -3929,7 +3048,7 @@
             },
             {
               "name": "@rightkit/onboarding",
-              "state": "current"
+              "state": "stale"
             }
           ],
           "missing": []
@@ -3959,7 +3078,7 @@
           "owners": [
             {
               "name": "rightkit-crash",
-              "state": "current"
+              "state": "stale"
             }
           ],
           "missing": []
@@ -4142,9 +3261,9 @@
     {
       "name": "scraperight",
       "group": "mandatory-set app",
-      "dir": "D:\\Claude\\scraperight",
+      "dir": "/Volumes/D/claude/scraperight",
       "present": true,
-      "head": "8d146e6fc75ececbb91fde153df00468503ab014",
+      "head": "3b078b58830c99df28dbcd0a0fc1a4b3b443a31d",
       "profile": "desktop",
       "inMandatorySet": true,
       "declaration": {
@@ -4166,24 +3285,17 @@
       "scan": {
         "manifests": 10,
         "parseErrors": 0,
-        "pins": 75,
+        "pins": 76,
         "vendored": 0
       },
       "progress": {
         "foundation": {
           "profile": "desktop",
           "rowsTotal": 21,
-          "rowsDeclared": 18,
+          "rowsDeclared": 19,
           "rowsRuled": 0,
-          "rowsOpen": 3,
+          "rowsOpen": 2,
           "openRows": [
-            {
-              "id": "M9",
-              "name": "Database",
-              "missing": [
-                "rightkit-db"
-              ]
-            },
             {
               "id": "M20",
               "name": "QA",
@@ -4201,15 +3313,15 @@
             }
           ],
           "ownersRequired": 30,
-          "ownersPinned": 26,
-          "ownersCurrent": 5,
-          "percent": 17
+          "ownersPinned": 27,
+          "ownersCurrent": 4,
+          "percent": 13
         },
         "addons": {
-          "total": 63,
+          "total": 78,
           "pinned": 15,
-          "current": 6,
-          "stale": 1,
+          "current": 5,
+          "stale": 3,
           "local": 0
         },
         "exceptions": {
@@ -4227,37 +3339,16 @@
           "dev": true
         },
         "check": {
-          "status": "ran",
-          "reason": "",
-          "fail": 37,
-          "known": 0,
-          "stale": 0,
-          "byRule": {
-            "engine-record-store": {
-              "fail": 1,
-              "known": 0
-            },
-            "legal-receipt-native": {
-              "fail": 1,
-              "known": 0
-            },
-            "mandatory-foundation": {
-              "fail": 4,
-              "known": 0
-            },
-            "ownership-exceptions": {
-              "fail": 30,
-              "known": 0
-            },
-            "suite-key-literal": {
-              "fail": 1,
-              "known": 0
-            }
-          }
+          "status": "not run",
+          "reason": "--with-check not passed",
+          "fail": null,
+          "known": null,
+          "stale": null,
+          "byRule": {}
         }
       },
       "flags": {
-        "prePushHook": "absent",
+        "prePushHook": "uncommitted",
         "switches": true,
         "journeys": false,
         "releaseConfig": "code"
@@ -4386,7 +3477,7 @@
           "owners": [
             {
               "name": "rightkit-fs",
-              "state": "current"
+              "state": "stale"
             }
           ],
           "missing": []
@@ -4394,17 +3485,15 @@
         {
           "id": "M9",
           "name": "Database",
-          "status": "open",
+          "status": "declared",
           "ratified": false,
           "owners": [
             {
               "name": "rightkit-db",
-              "state": "missing"
+              "state": "stale"
             }
           ],
-          "missing": [
-            "rightkit-db"
-          ]
+          "missing": []
         },
         {
           "id": "M10",
@@ -4645,9 +3734,9 @@
     {
       "name": "viewright",
       "group": "mandatory-set app",
-      "dir": "D:\\Claude\\viewright",
+      "dir": "/Volumes/D/claude/viewright",
       "present": true,
-      "head": "e2e99f605ad966f633108cb2f1dec7b49a61c82a",
+      "head": "644b9fdcf240ab59bd05340433c67f8bab787a67",
       "profile": "desktop",
       "inMandatorySet": true,
       "declaration": {
@@ -4656,19 +3745,11 @@
         "notApplicable": [
           {
             "row": "M3",
-            "ratified": false
-          },
-          {
-            "row": "M4",
-            "ratified": false
+            "ratified": true
           },
           {
             "row": "M7",
-            "ratified": false
-          },
-          {
-            "row": "M17",
-            "ratified": false
+            "ratified": true
           }
         ],
         "ignored": []
@@ -4684,7 +3765,7 @@
       "scan": {
         "manifests": 5,
         "parseErrors": 0,
-        "pins": 39,
+        "pins": 40,
         "vendored": 0
       },
       "progress": {
@@ -4692,16 +3773,9 @@
           "profile": "desktop",
           "rowsTotal": 21,
           "rowsDeclared": 16,
-          "rowsRuled": 0,
-          "rowsOpen": 5,
+          "rowsRuled": 2,
+          "rowsOpen": 3,
           "openRows": [
-            {
-              "id": "M3",
-              "name": "Engine supervision",
-              "missing": [
-                "rightkit-job-queue"
-              ]
-            },
             {
               "id": "M4",
               "name": "Window/CLI protocol",
@@ -4718,13 +3792,6 @@
               ]
             },
             {
-              "id": "M17",
-              "name": "HTTP",
-              "missing": [
-                "rightkit-http"
-              ]
-            },
-            {
               "id": "M22",
               "name": "Agent surface",
               "missing": [
@@ -4733,12 +3800,12 @@
             }
           ],
           "ownersRequired": 30,
-          "ownersPinned": 25,
-          "ownersCurrent": 5,
-          "percent": 17
+          "ownersPinned": 26,
+          "ownersCurrent": 6,
+          "percent": 20
         },
         "addons": {
-          "total": 63,
+          "total": 78,
           "pinned": 8,
           "current": 4,
           "stale": 0,
@@ -4759,29 +3826,12 @@
           "dev": true
         },
         "check": {
-          "status": "ran",
-          "reason": "",
-          "fail": 55,
-          "known": 0,
-          "stale": 0,
-          "byRule": {
-            "mandatory-foundation": {
-              "fail": 9,
-              "known": 0
-            },
-            "notice-lock-digest": {
-              "fail": 3,
-              "known": 0
-            },
-            "ownership-exceptions": {
-              "fail": 42,
-              "known": 0
-            },
-            "release-config-identity": {
-              "fail": 1,
-              "known": 0
-            }
-          }
+          "status": "not run",
+          "reason": "--with-check not passed",
+          "fail": null,
+          "known": null,
+          "stale": null,
+          "byRule": {}
         }
       },
       "flags": {
@@ -4836,21 +3886,10 @@
         {
           "id": "M3",
           "name": "Engine supervision",
-          "status": "open",
-          "ratified": false,
-          "owners": [
-            {
-              "name": "rightkit-job-queue",
-              "state": "missing"
-            },
-            {
-              "name": "rightkit-child-process",
-              "state": "stale"
-            }
-          ],
-          "missing": [
-            "rightkit-job-queue"
-          ]
+          "status": "ruled",
+          "ratified": true,
+          "owners": [],
+          "missing": []
         },
         {
           "id": "M4",
@@ -4901,14 +3940,9 @@
         {
           "id": "M7",
           "name": "Local services",
-          "status": "declared",
-          "ratified": false,
-          "owners": [
-            {
-              "name": "rightkit-daemon",
-              "state": "stale"
-            }
-          ],
+          "status": "ruled",
+          "ratified": true,
+          "owners": [],
           "missing": []
         },
         {
@@ -5057,17 +4091,15 @@
         {
           "id": "M17",
           "name": "HTTP",
-          "status": "open",
+          "status": "declared",
           "ratified": false,
           "owners": [
             {
               "name": "rightkit-http",
-              "state": "missing"
+              "state": "current"
             }
           ],
-          "missing": [
-            "rightkit-http"
-          ]
+          "missing": []
         },
         {
           "id": "M18",
@@ -5139,9 +4171,9 @@
     {
       "name": "ember",
       "group": "deferred app",
-      "dir": "D:\\Claude\\ember",
+      "dir": "/Volumes/D/claude/ember",
       "present": true,
-      "head": "b4a444e704f24b24b6b5e4e9f88ca2762d8f2843",
+      "head": "6fdd9c6428168e707e4ea2c22b25f7a773507b77",
       "profile": null,
       "inMandatorySet": false,
       "declaration": {
@@ -5187,7 +4219,7 @@
       "scan": {
         "manifests": 42,
         "parseErrors": 0,
-        "pins": 87,
+        "pins": 50,
         "vendored": 0
       },
       "progress": {
@@ -5204,17 +4236,17 @@
           "percent": null
         },
         "addons": {
-          "total": 93,
-          "pinned": 36,
-          "current": 5,
-          "stale": 31,
+          "total": 108,
+          "pinned": 33,
+          "current": 1,
+          "stale": 32,
           "local": 0
         },
         "exceptions": {
-          "total": 21,
-          "open": 21,
+          "total": 15,
+          "open": 15,
           "expired": 0,
-          "withoutIssueOrExpiry": 21,
+          "withoutIssueOrExpiry": 15,
           "unmatched": 0
         },
         "releasePin": {
@@ -5265,9 +4297,9 @@
     {
       "name": "sellright",
       "group": "release consumer",
-      "dir": "D:\\Claude\\sellright",
+      "dir": "/Volumes/D/claude/sellright",
       "present": true,
-      "head": "69e552fc98b8f6bbd30343ad5261256d38365d43",
+      "head": "3891db5ee1406d054c0c0d9b4d9f4e7ff187cfbb",
       "profile": null,
       "inMandatorySet": false,
       "declaration": {
@@ -5297,7 +4329,7 @@
           "percent": null
         },
         "addons": {
-          "total": 93,
+          "total": 108,
           "pinned": 3,
           "current": 1,
           "stale": 2,
@@ -5327,7 +4359,7 @@
         }
       },
       "flags": {
-        "prePushHook": "absent",
+        "prePushHook": "uncommitted",
         "switches": true,
         "journeys": false,
         "releaseConfig": "code"
@@ -5357,9 +4389,9 @@
     {
       "name": "legion",
       "group": "tool consumer",
-      "dir": "D:\\Claude\\legion",
+      "dir": "/Volumes/D/claude/legion",
       "present": true,
-      "head": "6ad560cf9f02606999f5418bf6ca42c76e1f62de",
+      "head": "261738096b851f79ddc5ee7f2e98d1cc7aca8ae8",
       "profile": null,
       "inMandatorySet": false,
       "declaration": {
@@ -5389,7 +4421,7 @@
           "percent": null
         },
         "addons": {
-          "total": 93,
+          "total": 108,
           "pinned": 11,
           "current": 4,
           "stale": 5,
@@ -5913,29 +4945,18 @@
         "update-policy"
       ],
       "private": false,
-      "source": "0.4.4",
+      "source": "0.4.5",
       "registry": "0.4.4",
-      "staged": "0.4.4",
+      "staged": "0.4.5",
       "dir": "packages/app-update",
       "toMoveFrom": {},
       "cells": {
         "coderight": {
           "state": "current",
-          "detail": "0.4.4; 2 exceptions: bogusyogi/rightkit#1131/bogusyogi/rightkit#1132, expires 2026-11-30",
+          "detail": "0.4.4",
           "rows": [
             "M18"
-          ],
-          "exceptions": {
-            "count": 2,
-            "expired": 0,
-            "withoutIssue": 0,
-            "withoutExpiry": 0,
-            "issues": [
-              "bogusyogi/rightkit#1131",
-              "bogusyogi/rightkit#1132"
-            ],
-            "earliestExpiry": "2026-11-30"
-          }
+          ]
         },
         "cutright": {
           "state": "current",
@@ -6634,18 +5655,8 @@
       "toMoveFrom": {},
       "cells": {
         "coderight": {
-          "state": "exception",
-          "detail": "1 exception: bogusyogi/rightkit#551, expires 2026-11-30",
-          "exceptions": {
-            "count": 1,
-            "expired": 0,
-            "withoutIssue": 0,
-            "withoutExpiry": 0,
-            "issues": [
-              "bogusyogi/rightkit#551"
-            ],
-            "earliestExpiry": "2026-11-30"
-          }
+          "state": "unused",
+          "detail": ""
         },
         "cutright": {
           "state": "unused",
@@ -6917,20 +5928,10 @@
       "cells": {
         "coderight": {
           "state": "current",
-          "detail": "0.6.3; 1 exception: bogusyogi/rightkit#1138, expires 2026-11-30",
+          "detail": "0.6.3",
           "rows": [
             "M14"
-          ],
-          "exceptions": {
-            "count": 1,
-            "expired": 0,
-            "withoutIssue": 0,
-            "withoutExpiry": 0,
-            "issues": [
-              "bogusyogi/rightkit#1138"
-            ],
-            "earliestExpiry": "2026-11-30"
-          }
+          ]
         },
         "cutright": {
           "state": "current",
@@ -6999,8 +6000,8 @@
           ]
         },
         "ember": {
-          "state": "unused",
-          "detail": ""
+          "state": "stale",
+          "detail": "0.6.1→0.6.3"
         },
         "sellright": {
           "state": "current",
@@ -7096,7 +6097,7 @@
         },
         "ember": {
           "state": "stale",
-          "detail": "0.4.1→0.4.2"
+          "detail": "0.4.0→0.4.2"
         },
         "sellright": {
           "state": "unused",
@@ -7119,9 +6120,9 @@
         "library-ui"
       ],
       "private": false,
-      "source": "0.2.3",
+      "source": "0.2.4",
       "registry": "",
-      "staged": "0.2.3",
+      "staged": "0.2.4",
       "dir": "packages/library-ui",
       "toMoveFrom": {},
       "cells": {
@@ -7188,31 +6189,18 @@
         "licensing"
       ],
       "private": false,
-      "source": "0.3.3",
+      "source": "0.3.4",
       "registry": "0.3.3",
-      "staged": "0.3.3",
+      "staged": "0.3.4",
       "dir": "packages/license",
       "toMoveFrom": {},
       "cells": {
         "coderight": {
-          "state": "stale",
-          "detail": "0.3.2→0.3.3; 4 exceptions: bogusyogi/rightkit#1047/bogusyogi/rightkit#1059+, expires 2026-11-30",
+          "state": "ahead",
+          "detail": "0.3.4 > 0.3.3",
           "rows": [
             "M12"
-          ],
-          "exceptions": {
-            "count": 4,
-            "expired": 0,
-            "withoutIssue": 0,
-            "withoutExpiry": 0,
-            "issues": [
-              "bogusyogi/rightkit#1047",
-              "bogusyogi/rightkit#1059",
-              "bogusyogi/rightkit#1129",
-              "bogusyogi/rightkit#1130"
-            ],
-            "earliestExpiry": "2026-11-30"
-          }
+          ]
         },
         "cutright": {
           "state": "stale",
@@ -7230,18 +6218,17 @@
         },
         "heardright": {
           "state": "current",
-          "detail": "0.3.3; 7 exceptions: bogusyogi/heardright#311/bogusyogi/rightkit#1032, expires 2026-11-30",
+          "detail": "0.3.3; 5 exceptions: bogusyogi/heardright#311, expires 2026-11-30",
           "rows": [
             "M12"
           ],
           "exceptions": {
-            "count": 7,
+            "count": 5,
             "expired": 0,
             "withoutIssue": 0,
             "withoutExpiry": 0,
             "issues": [
-              "bogusyogi/heardright#311",
-              "bogusyogi/rightkit#1032"
+              "bogusyogi/heardright#311"
             ],
             "earliestExpiry": "2026-11-30"
           }
@@ -7440,8 +6427,8 @@
           }
         },
         "ember": {
-          "state": "current",
-          "detail": "0.1.6"
+          "state": "stale",
+          "detail": "0.1.5→0.1.6"
         },
         "sellright": {
           "state": "unused",
@@ -7799,78 +6786,78 @@
         "onboarding-ui"
       ],
       "private": false,
-      "source": "0.6.6",
-      "registry": "0.6.5",
-      "staged": "0.6.6",
+      "source": "0.6.7",
+      "registry": "0.6.6",
+      "staged": "0.6.7",
       "dir": "packages/onboarding",
       "toMoveFrom": {},
       "cells": {
         "coderight": {
           "state": "current",
-          "detail": "0.6.5",
+          "detail": "0.6.6",
           "rows": [
             "M14"
           ]
         },
         "cutright": {
-          "state": "current",
-          "detail": "0.6.5",
+          "state": "stale",
+          "detail": "0.6.5→0.6.6",
           "rows": [
             "M14"
           ]
         },
         "genright": {
-          "state": "current",
-          "detail": "0.6.5",
+          "state": "stale",
+          "detail": "0.6.5→0.6.6",
           "rows": [
             "M14"
           ]
         },
         "heardright": {
           "state": "stale",
-          "detail": "0.6.3→0.6.5",
+          "detail": "0.6.3→0.6.6",
           "rows": [
             "M14"
           ]
         },
         "mailright": {
-          "state": "current",
-          "detail": "0.6.5",
+          "state": "stale",
+          "detail": "0.6.5→0.6.6",
           "rows": [
             "M14"
           ]
         },
         "postright": {
           "state": "stale",
-          "detail": "0.6.3→0.6.5",
+          "detail": "0.6.3→0.6.6",
           "rows": [
             "M14"
           ]
         },
         "pulse": {
-          "state": "current",
-          "detail": "0.6.5",
+          "state": "stale",
+          "detail": "0.6.5→0.6.6",
           "rows": [
             "M14"
           ]
         },
         "scraperight": {
           "state": "stale",
-          "detail": "0.6.3→0.6.5",
+          "detail": "0.6.3→0.6.6",
           "rows": [
             "M14"
           ]
         },
         "viewright": {
           "state": "stale",
-          "detail": "0.6.3→0.6.5",
+          "detail": "0.6.3→0.6.6",
           "rows": [
             "M14"
           ]
         },
         "ember": {
           "state": "stale",
-          "detail": "0.6.3→0.6.5"
+          "detail": "0.6.1→0.6.6"
         },
         "sellright": {
           "state": "unused",
@@ -8029,78 +7016,78 @@
         "platform-ui"
       ],
       "private": false,
-      "source": "0.4.1",
-      "registry": "0.4.1",
-      "staged": "0.4.1",
+      "source": "0.4.3",
+      "registry": "0.4.2",
+      "staged": "0.4.3",
       "dir": "packages/platform-ui",
       "toMoveFrom": {},
       "cells": {
         "coderight": {
-          "state": "current",
-          "detail": "0.4.1",
+          "state": "ahead",
+          "detail": "0.4.3 > 0.4.2",
           "rows": [
             "M2"
           ]
         },
         "cutright": {
-          "state": "current",
-          "detail": "0.4.1",
+          "state": "stale",
+          "detail": "0.4.1→0.4.2",
           "rows": [
             "M2"
           ]
         },
         "genright": {
-          "state": "current",
-          "detail": "0.4.1",
+          "state": "stale",
+          "detail": "0.4.1→0.4.2",
           "rows": [
             "M2"
           ]
         },
         "heardright": {
           "state": "stale",
-          "detail": "0.4.0→0.4.1",
+          "detail": "0.4.0→0.4.2",
           "rows": [
             "M2"
           ]
         },
         "mailright": {
-          "state": "current",
-          "detail": "0.4.1",
+          "state": "stale",
+          "detail": "0.4.1→0.4.2",
           "rows": [
             "M2"
           ]
         },
         "postright": {
           "state": "stale",
-          "detail": "0.4.0→0.4.1",
+          "detail": "0.4.0→0.4.2",
           "rows": [
             "M2"
           ]
         },
         "pulse": {
-          "state": "current",
-          "detail": "0.4.1",
+          "state": "stale",
+          "detail": "0.4.1→0.4.2",
           "rows": [
             "M2"
           ]
         },
         "scraperight": {
           "state": "stale",
-          "detail": "0.4.0→0.4.1",
+          "detail": "0.4.0→0.4.2",
           "rows": [
             "M2"
           ]
         },
         "viewright": {
           "state": "stale",
-          "detail": "0.4.0→0.4.1",
+          "detail": "0.4.0→0.4.2",
           "rows": [
             "M2"
           ]
         },
         "ember": {
           "state": "stale",
-          "detail": "0.4.0→0.4.1"
+          "detail": "0.4.0→0.4.2"
         },
         "sellright": {
           "state": "unused",
@@ -8208,7 +7195,7 @@
         },
         "ember": {
           "state": "stale",
-          "detail": "0.5.2→0.7.0 dev"
+          "detail": "0.5.1→0.7.0 dev"
         },
         "sellright": {
           "state": "unused",
@@ -8304,7 +7291,7 @@
         },
         "ember": {
           "state": "stale",
-          "detail": "0.1.10→0.1.12 dev"
+          "detail": "0.1.8→0.1.12 dev"
         },
         "sellright": {
           "state": "unused",
@@ -8329,58 +7316,43 @@
         "app-shell-ui"
       ],
       "private": false,
-      "source": "0.7.5",
-      "registry": "0.7.4",
-      "staged": "0.7.5",
+      "source": "0.7.7",
+      "registry": "0.7.6",
+      "staged": "0.7.7",
       "dir": "packages/react-shell",
       "toMoveFrom": {},
       "cells": {
         "coderight": {
-          "state": "current",
-          "detail": "0.7.4; 13 exceptions: bogusyogi/rightkit#1003/bogusyogi/rightkit#1107+, expires 2026-11-30",
+          "state": "ahead",
+          "detail": "0.7.7 > 0.7.6",
           "rows": [
             "M2"
-          ],
-          "exceptions": {
-            "count": 13,
-            "expired": 0,
-            "withoutIssue": 0,
-            "withoutExpiry": 0,
-            "issues": [
-              "bogusyogi/rightkit#1003",
-              "bogusyogi/rightkit#1107",
-              "bogusyogi/rightkit#1110",
-              "bogusyogi/rightkit#1111",
-              "bogusyogi/rightkit#1112",
-              "bogusyogi/rightkit#1113"
-            ],
-            "earliestExpiry": "2026-11-30"
-          }
+          ]
         },
         "cutright": {
-          "state": "current",
-          "detail": "0.7.4",
+          "state": "stale",
+          "detail": "0.7.4→0.7.6",
           "rows": [
             "M2"
           ]
         },
         "genright": {
-          "state": "current",
-          "detail": "0.7.4",
+          "state": "stale",
+          "detail": "0.7.4→0.7.6",
           "rows": [
             "M2"
           ]
         },
         "heardright": {
           "state": "stale",
-          "detail": "0.7.2→0.7.4",
+          "detail": "0.7.2→0.7.6",
           "rows": [
             "M2"
           ]
         },
         "mailright": {
-          "state": "current",
-          "detail": "0.7.4; 2 exceptions: bogusyogi/rightkit#729, expires 2026-11-30",
+          "state": "stale",
+          "detail": "0.7.4→0.7.6; 2 exceptions: bogusyogi/rightkit#729, expires 2026-11-30",
           "rows": [
             "M2"
           ],
@@ -8397,21 +7369,21 @@
         },
         "postright": {
           "state": "stale",
-          "detail": "0.7.2→0.7.4",
+          "detail": "0.7.2→0.7.6",
           "rows": [
             "M2"
           ]
         },
         "pulse": {
-          "state": "current",
-          "detail": "0.7.4",
+          "state": "stale",
+          "detail": "0.7.4→0.7.6",
           "rows": [
             "M2"
           ]
         },
         "scraperight": {
           "state": "stale",
-          "detail": "0.7.2→0.7.4; 1 exception: bogusyogi/rightkit#1104, expires 2026-11-30",
+          "detail": "0.7.2→0.7.6; 1 exception: bogusyogi/rightkit#1104, expires 2026-11-30",
           "rows": [
             "M2"
           ],
@@ -8428,7 +7400,7 @@
         },
         "viewright": {
           "state": "stale",
-          "detail": "0.7.2→0.7.4; 4 exceptions: bogusyogi/rightkit#1060/bogusyogi/rightkit#1061+, expires 2026-11-30",
+          "detail": "0.7.2→0.7.6; 4 exceptions: bogusyogi/rightkit#1060/bogusyogi/rightkit#1061+, expires 2026-11-30",
           "rows": [
             "M2"
           ],
@@ -8448,12 +7420,12 @@
         },
         "ember": {
           "state": "stale",
-          "detail": "0.7.1→0.7.4; 6 exceptions: no issue, no expiry",
+          "detail": "0.7.1→0.7.6; 9 exceptions: no issue, no expiry",
           "exceptions": {
-            "count": 6,
+            "count": 9,
             "expired": 0,
-            "withoutIssue": 6,
-            "withoutExpiry": 6,
+            "withoutIssue": 9,
+            "withoutExpiry": 9,
             "issues": [],
             "earliestExpiry": ""
           }
@@ -8483,29 +7455,18 @@
         "release-tooling"
       ],
       "private": false,
-      "source": "0.6.58",
+      "source": "0.6.62",
       "registry": "0.6.57",
-      "staged": "0.6.58",
+      "staged": "0.6.62",
       "dir": "packages/release",
       "toMoveFrom": {},
       "cells": {
         "coderight": {
-          "state": "current",
-          "detail": "0.6.57 dev; 2 exceptions: bogusyogi/rightkit#1136/bogusyogi/rightkit#1142, expires 2026-11-30",
+          "state": "ahead",
+          "detail": "0.6.62 > 0.6.57 dev",
           "rows": [
             "M19"
-          ],
-          "exceptions": {
-            "count": 2,
-            "expired": 0,
-            "withoutIssue": 0,
-            "withoutExpiry": 0,
-            "issues": [
-              "bogusyogi/rightkit#1136",
-              "bogusyogi/rightkit#1142"
-            ],
-            "earliestExpiry": "2026-11-30"
-          }
+          ]
         },
         "cutright": {
           "state": "current",
@@ -8675,81 +7636,71 @@
         "settings-ui"
       ],
       "private": false,
-      "source": "0.7.3",
-      "registry": "0.7.3",
-      "staged": "0.7.3",
+      "source": "0.7.5",
+      "registry": "0.7.4",
+      "staged": "0.7.5",
       "dir": "packages/settings-ui",
       "toMoveFrom": {},
       "cells": {
         "coderight": {
-          "state": "stale",
-          "detail": "0.7.2→0.7.3; 1 exception: bogusyogi/rightkit#620, expires 2026-11-30",
+          "state": "current",
+          "detail": "0.7.4",
           "rows": [
             "M10"
-          ],
-          "exceptions": {
-            "count": 1,
-            "expired": 0,
-            "withoutIssue": 0,
-            "withoutExpiry": 0,
-            "issues": [
-              "bogusyogi/rightkit#620"
-            ],
-            "earliestExpiry": "2026-11-30"
-          }
+          ]
         },
         "cutright": {
           "state": "stale",
-          "detail": "0.7.2→0.7.3",
+          "detail": "0.7.2→0.7.4",
           "rows": [
             "M10"
           ]
         },
         "genright": {
           "state": "stale",
-          "detail": "0.7.2→0.7.3",
+          "detail": "0.7.2→0.7.4",
           "rows": [
             "M10"
           ]
         },
         "heardright": {
           "state": "stale",
-          "detail": "0.7.0→0.7.3",
+          "detail": "0.7.0→0.7.4",
           "rows": [
             "M10"
           ]
         },
         "mailright": {
           "state": "stale",
-          "detail": "0.7.2→0.7.3",
+          "detail": "0.7.2→0.7.4",
           "rows": [
             "M10"
           ]
         },
         "postright": {
           "state": "stale",
-          "detail": "0.7.0→0.7.3",
+          "detail": "0.7.0→0.7.4",
           "rows": [
             "M10"
           ]
         },
         "pulse": {
           "state": "stale",
-          "detail": "0.7.2→0.7.3",
+          "detail": "0.7.2→0.7.4",
           "rows": [
             "M10"
           ]
         },
         "scraperight": {
           "state": "stale",
-          "detail": "0.7.0→0.7.3",
+          "detail": "0.7.0→0.7.4",
           "rows": [
             "M10"
           ]
         },
         "viewright": {
           "state": "stale",
-          "detail": "0.7.2→0.7.3; 4 exceptions: bogusyogi/rightkit#1065/bogusyogi/rightkit#1066+, expires 2026-11-30",
+          "detail": "0.7.2→0.7.4; 4 exceptions: bogusyogi/rightkit#1065/bogusyogi/rightkit#1066+, expires 2026-11-30",
           "rows": [
             "M10"
           ],
@@ -8768,7 +7719,7 @@
         },
         "ember": {
           "state": "stale",
-          "detail": "0.6.1→0.7.3"
+          "detail": "0.6.1→0.7.4"
         },
         "sellright": {
           "state": "unused",
@@ -8995,73 +7946,63 @@
       ],
       "private": false,
       "source": "0.4.3",
-      "registry": "0.4.2",
+      "registry": "0.4.3",
       "staged": "0.4.3",
       "dir": "packages/tauri",
       "toMoveFrom": {},
       "cells": {
         "coderight": {
-          "state": "current",
-          "detail": "0.4.2; 1 exception: bogusyogi/rightkit#1106, expires 2026-11-30",
+          "state": "stale",
+          "detail": "0.4.2→0.4.3",
           "rows": [
             "M1"
-          ],
-          "exceptions": {
-            "count": 1,
-            "expired": 0,
-            "withoutIssue": 0,
-            "withoutExpiry": 0,
-            "issues": [
-              "bogusyogi/rightkit#1106"
-            ],
-            "earliestExpiry": "2026-11-30"
-          }
+          ]
         },
         "cutright": {
-          "state": "current",
-          "detail": "0.4.2",
+          "state": "stale",
+          "detail": "0.4.2→0.4.3",
           "rows": [
             "M1"
           ]
         },
         "genright": {
-          "state": "current",
-          "detail": "0.4.2",
+          "state": "stale",
+          "detail": "0.4.2→0.4.3",
           "rows": [
             "M1"
           ]
         },
         "heardright": {
-          "state": "current",
-          "detail": "0.4.2",
+          "state": "stale",
+          "detail": "0.4.2→0.4.3",
           "rows": [
             "M1"
           ]
         },
         "mailright": {
-          "state": "current",
-          "detail": "0.4.2",
+          "state": "stale",
+          "detail": "0.4.2→0.4.3",
           "rows": [
             "M1"
           ]
         },
         "postright": {
           "state": "stale",
-          "detail": "0.3.0→0.4.2",
+          "detail": "0.3.0→0.4.3",
           "rows": [
             "M1"
           ]
         },
         "pulse": {
-          "state": "current",
-          "detail": "0.4.2",
+          "state": "stale",
+          "detail": "0.4.2→0.4.3",
           "rows": [
             "M1"
           ]
         },
         "scraperight": {
           "state": "stale",
-          "detail": "0.3.0→0.4.2; 1 exception: bogusyogi/rightkit#761, expires 2026-11-30",
+          "detail": "0.3.0→0.4.3; 1 exception: bogusyogi/rightkit#761, expires 2026-11-30",
           "rows": [
             "M1"
           ],
@@ -9078,7 +8019,7 @@
         },
         "viewright": {
           "state": "stale",
-          "detail": "0.3.0→0.4.2; 1 exception: bogusyogi/rightkit#1059, expires 2026-11-30",
+          "detail": "0.3.0→0.4.3; 1 exception: bogusyogi/rightkit#1059, expires 2026-11-30",
           "rows": [
             "M1"
           ],
@@ -9095,7 +8036,7 @@
         },
         "ember": {
           "state": "stale",
-          "detail": "0.3.0→0.4.2"
+          "detail": "0.2.3→0.4.3"
         },
         "sellright": {
           "state": "unused",
@@ -9126,17 +8067,7 @@
       "cells": {
         "coderight": {
           "state": "ahead",
-          "detail": "0.1.4 > 0.1.3; 1 exception: bogusyogi/rightkit#1105, expires 2026-11-30",
-          "exceptions": {
-            "count": 1,
-            "expired": 0,
-            "withoutIssue": 0,
-            "withoutExpiry": 0,
-            "issues": [
-              "bogusyogi/rightkit#1105"
-            ],
-            "earliestExpiry": "2026-11-30"
-          }
+          "detail": "0.1.4 > 0.1.3"
         },
         "cutright": {
           "state": "ahead",
@@ -9200,12 +8131,12 @@
         },
         "ember": {
           "state": "stale",
-          "detail": "0.1.2→0.1.3; 1 exception: no issue, no expiry",
+          "detail": "0.1.1→0.1.3; 2 exceptions: no issue, no expiry",
           "exceptions": {
-            "count": 1,
+            "count": 2,
             "expired": 0,
-            "withoutIssue": 1,
-            "withoutExpiry": 1,
+            "withoutIssue": 2,
+            "withoutExpiry": 2,
             "issues": [],
             "earliestExpiry": ""
           }
@@ -9308,20 +8239,10 @@
       "cells": {
         "coderight": {
           "state": "current",
-          "detail": "0.3.4; 2 exceptions: bogusyogi/rightkit#847, expires 2026-11-30",
+          "detail": "0.3.4",
           "rows": [
             "M2"
-          ],
-          "exceptions": {
-            "count": 2,
-            "expired": 0,
-            "withoutIssue": 0,
-            "withoutExpiry": 0,
-            "issues": [
-              "bogusyogi/rightkit#847"
-            ],
-            "earliestExpiry": "2026-11-30"
-          }
+          ]
         },
         "cutright": {
           "state": "current",
@@ -9623,13 +8544,14 @@
         "os-credential-store"
       ],
       "private": false,
-      "source": "0.9.1",
+      "source": "0.9.6",
       "registry": "0.9.0",
-      "staged": "0.9.1",
+      "staged": "0.9.6",
       "dir": "swift/RightKitSwift",
       "products": [
         "RightKitAccessibility",
         "RightKitAccount",
+        "RightKitActionChannel",
         "RightKitAppleCredentials",
         "RightKitArtifacts",
         "RightKitAudio",
@@ -9640,6 +8562,7 @@
         "RightKitDB",
         "RightKitDaemonClient",
         "RightKitDiagnostics",
+        "RightKitDictationPill",
         "RightKitEngine",
         "RightKitEngineClient",
         "RightKitFS",
@@ -9654,6 +8577,7 @@
         "RightKitLLM",
         "RightKitLicense",
         "RightKitLiveActivity",
+        "RightKitMenuBarHelper",
         "RightKitOAuth",
         "RightKitOverlay",
         "RightKitPurchases",
@@ -9665,27 +8589,15 @@
         "RightKitUI",
         "RightKitURLPolicy",
         "RightKitUpdate",
+        "RightKitVoiceCommand",
         "RightKitWatch",
         "RightKitWatchBridge"
       ],
       "toMoveFrom": {},
       "cells": {
         "coderight": {
-          "state": "stale",
-          "detail": "0.8.1→0.9.0, 2 pins; 4 exceptions: bogusyogi/rightkit#1127/bogusyogi/rightkit#1134+, expires 2026-11-30",
-          "exceptions": {
-            "count": 4,
-            "expired": 0,
-            "withoutIssue": 0,
-            "withoutExpiry": 0,
-            "issues": [
-              "bogusyogi/rightkit#1127",
-              "bogusyogi/rightkit#1134",
-              "bogusyogi/rightkit#1143",
-              "bogusyogi/rightkit#701"
-            ],
-            "earliestExpiry": "2026-11-30"
-          }
+          "state": "ahead",
+          "detail": "0.9.6 > 0.9.0, 2 pins"
         },
         "cutright": {
           "state": "unused",
@@ -10617,9 +9529,9 @@
         "agent-engine"
       ],
       "private": false,
-      "source": "0.1.3",
+      "source": "0.1.4",
       "registry": "",
-      "staged": "0.1.3",
+      "staged": "0.1.4",
       "dir": "crates/rightkit-agent-engine-core",
       "toMoveFrom": {},
       "cells": {
@@ -10885,15 +9797,15 @@
         "agent-runtime-middleware"
       ],
       "private": false,
-      "source": "0.1.3",
+      "source": "0.1.4",
       "registry": "",
-      "staged": "0.1.3",
+      "staged": "0.1.4",
       "dir": "crates/rightkit-agent-engine-runtime-middleware",
       "toMoveFrom": {},
       "cells": {
         "coderight": {
           "state": "ahead",
-          "detail": "0.1.3 (no published version)"
+          "detail": "0.1.4 (no published version)"
         },
         "cutright": {
           "state": "unused",
@@ -11350,9 +10262,9 @@
       "pendingRows": [],
       "capabilities": [],
       "private": false,
-      "source": "0.1.1",
+      "source": "0.1.2",
       "registry": "",
-      "staged": "0.1.1",
+      "staged": "0.1.2",
       "dir": "crates/rightkit-agent-local-models",
       "toMoveFrom": {},
       "cells": {
@@ -11536,7 +10448,7 @@
         },
         "legion": {
           "state": "ahead",
-          "detail": "0.1.0 (no published version), 2 pins"
+          "detail": "0.1.2 (no published version), 2 pins"
         }
       }
     },
@@ -11551,9 +10463,9 @@
         "agent-plugins"
       ],
       "private": false,
-      "source": "0.1.2",
+      "source": "0.1.3",
       "registry": "",
-      "staged": "0.1.2",
+      "staged": "0.1.3",
       "dir": "crates/rightkit-agent-plugins",
       "toMoveFrom": {},
       "cells": {
@@ -11618,15 +10530,15 @@
         "agent-policy"
       ],
       "private": false,
-      "source": "0.2.2",
+      "source": "0.2.4",
       "registry": "",
-      "staged": "0.2.2",
+      "staged": "0.2.4",
       "dir": "crates/rightkit-agent-policy",
       "toMoveFrom": {},
       "cells": {
         "coderight": {
           "state": "ahead",
-          "detail": "0.2.1 (no published version)"
+          "detail": "0.2.4 (no published version)"
         },
         "cutright": {
           "state": "unused",
@@ -12021,21 +10933,11 @@
       "toMoveFrom": {},
       "cells": {
         "coderight": {
-          "state": "exception",
-          "detail": "1 exception: bogusyogi/rightkit#1656, expires 2026-11-30; required by M22",
+          "state": "ahead",
+          "detail": "0.4.4 > 0.4.3",
           "rows": [
             "M22"
-          ],
-          "exceptions": {
-            "count": 1,
-            "expired": 0,
-            "withoutIssue": 0,
-            "withoutExpiry": 0,
-            "issues": [
-              "bogusyogi/rightkit#1656"
-            ],
-            "earliestExpiry": "2026-11-30"
-          }
+          ]
         },
         "cutright": {
           "state": "stale",
@@ -12185,25 +11087,15 @@
         "agent-sessions"
       ],
       "private": false,
-      "source": "0.2.7",
+      "source": "0.2.8",
       "registry": "0.2.0",
-      "staged": "0.2.7",
+      "staged": "0.2.8",
       "dir": "crates/rightkit-agents",
       "toMoveFrom": {},
       "cells": {
         "coderight": {
           "state": "ahead",
-          "detail": "0.2.4 > 0.2.0; 1 exception: bogusyogi/rightkit#1118, expires 2026-11-30",
-          "exceptions": {
-            "count": 1,
-            "expired": 0,
-            "withoutIssue": 0,
-            "withoutExpiry": 0,
-            "issues": [
-              "bogusyogi/rightkit#1118"
-            ],
-            "earliestExpiry": "2026-11-30"
-          }
+          "detail": "0.2.4 > 0.2.0"
         },
         "cutright": {
           "state": "unused",
@@ -12319,6 +11211,71 @@
       }
     },
     {
+      "name": "rightkit-ai-keys",
+      "kind": "cargo",
+      "class": "add-on",
+      "domain": "other",
+      "mandatoryRows": [],
+      "pendingRows": [],
+      "capabilities": [],
+      "private": false,
+      "source": "0.1.1",
+      "registry": "0.1.1",
+      "staged": "0.1.1",
+      "dir": "crates/rightkit-ai-keys",
+      "toMoveFrom": {},
+      "cells": {
+        "coderight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "cutright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "genright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "heardright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "mailright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "postright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "pulse": {
+          "state": "unused",
+          "detail": ""
+        },
+        "scraperight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "viewright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "ember": {
+          "state": "unused",
+          "detail": ""
+        },
+        "sellright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "legion": {
+          "state": "unused",
+          "detail": ""
+        }
+      }
+    },
+    {
       "name": "rightkit-align",
       "kind": "cargo",
       "class": "tool",
@@ -12396,9 +11353,9 @@
         "android-bridge"
       ],
       "private": false,
-      "source": "0.3.1",
+      "source": "0.3.2",
       "registry": "0.3.0",
-      "staged": "0.3.1",
+      "staged": "0.3.2",
       "dir": "crates/rightkit-android",
       "toMoveFrom": {},
       "cells": {
@@ -12506,6 +11463,73 @@
         "pulse": {
           "state": "ahead",
           "detail": "0.1.2 (no published version)"
+        },
+        "scraperight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "viewright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "ember": {
+          "state": "unused",
+          "detail": ""
+        },
+        "sellright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "legion": {
+          "state": "unused",
+          "detail": ""
+        }
+      }
+    },
+    {
+      "name": "rightkit-app-icon",
+      "kind": "cargo",
+      "class": "add-on",
+      "domain": "other",
+      "mandatoryRows": [],
+      "pendingRows": [],
+      "capabilities": [
+        "application-icon-extraction"
+      ],
+      "private": false,
+      "source": "0.1.0",
+      "registry": "0.1.0",
+      "staged": "0.1.0",
+      "dir": "crates/rightkit-app-icon",
+      "toMoveFrom": {},
+      "cells": {
+        "coderight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "cutright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "genright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "heardright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "mailright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "postright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "pulse": {
+          "state": "unused",
+          "detail": ""
         },
         "scraperight": {
           "state": "unused",
@@ -12674,64 +11698,64 @@
         "settings-persistence"
       ],
       "private": false,
-      "source": "0.4.1",
-      "registry": "0.4.1",
-      "staged": "0.4.1",
+      "source": "0.4.2",
+      "registry": "0.4.2",
+      "staged": "0.4.2",
       "dir": "crates/rightkit-app-settings",
       "toMoveFrom": {},
       "cells": {
         "coderight": {
-          "state": "current",
-          "detail": "=0.4.1, 2 pins",
+          "state": "stale",
+          "detail": "0.4.1→0.4.2, 2 pins",
           "rows": [
             "M10"
           ]
         },
         "cutright": {
-          "state": "current",
-          "detail": "=0.4.1, 2 pins",
+          "state": "stale",
+          "detail": "0.4.1→0.4.2, 2 pins",
           "rows": [
             "M10"
           ]
         },
         "genright": {
-          "state": "current",
-          "detail": "=0.4.1, 2 pins",
+          "state": "stale",
+          "detail": "0.4.1→0.4.2, 2 pins",
           "rows": [
             "M10"
           ]
         },
         "heardright": {
-          "state": "current",
-          "detail": "=0.4.1, 3 pins",
+          "state": "stale",
+          "detail": "0.4.1→0.4.2, 3 pins",
           "rows": [
             "M10"
           ]
         },
         "mailright": {
-          "state": "current",
-          "detail": "=0.4.1",
+          "state": "stale",
+          "detail": "0.4.1→0.4.2",
           "rows": [
             "M10"
           ]
         },
         "postright": {
-          "state": "current",
-          "detail": "=0.4.1, 2 pins",
+          "state": "stale",
+          "detail": "0.4.1→0.4.2, 2 pins",
           "rows": [
             "M10"
           ]
         },
         "pulse": {
-          "state": "current",
-          "detail": "=0.4.1, 3 pins",
+          "state": "stale",
+          "detail": "0.4.1→0.4.2, 3 pins",
           "rows": [
             "M10"
           ]
         },
         "scraperight": {
           "state": "stale",
-          "detail": "0.3.1→0.4.1, 2 pins; 2 exceptions: bogusyogi/rightkit#1100/bogusyogi/rightkit#1101, expires 2026-11-30",
+          "detail": "0.3.1→0.4.2, 2 pins; 2 exceptions: bogusyogi/rightkit#1100/bogusyogi/rightkit#1101, expires 2026-11-30",
           "rows": [
             "M10"
           ],
@@ -12749,22 +11773,14 @@
         },
         "viewright": {
           "state": "stale",
-          "detail": "0.3.1→0.4.1",
+          "detail": "0.3.1→0.4.2",
           "rows": [
             "M10"
           ]
         },
         "ember": {
           "state": "stale",
-          "detail": "0.2.4→0.4.1, 3 pins; 10 exceptions: no issue, no expiry",
-          "exceptions": {
-            "count": 10,
-            "expired": 0,
-            "withoutIssue": 10,
-            "withoutExpiry": 10,
-            "issues": [],
-            "earliestExpiry": ""
-          }
+          "detail": "0.2.4→0.4.2"
         },
         "sellright": {
           "state": "unused",
@@ -12792,8 +11808,8 @@
       "toMoveFrom": {},
       "cells": {
         "coderight": {
-          "state": "unused",
-          "detail": ""
+          "state": "ahead",
+          "detail": "0.2.0 (no published version)"
         },
         "cutright": {
           "state": "unused",
@@ -12986,9 +12002,9 @@
         "speech-recognition"
       ],
       "private": false,
-      "source": "0.5.0",
-      "registry": "0.3.0",
-      "staged": "0.5.0",
+      "source": "0.5.2",
+      "registry": "0.5.2",
+      "staged": "0.5.2",
       "dir": "crates/rightkit-asr",
       "toMoveFrom": {},
       "cells": {
@@ -13005,8 +12021,8 @@
           "detail": ""
         },
         "heardright": {
-          "state": "ahead",
-          "detail": "0.5.0 > 0.3.0, 4 pins"
+          "state": "stale",
+          "detail": "0.5.0→0.5.2, 4 pins"
         },
         "mailright": {
           "state": "unused",
@@ -13053,27 +12069,27 @@
         "audio"
       ],
       "private": false,
-      "source": "0.3.4",
-      "registry": "0.3.1",
-      "staged": "0.3.4",
+      "source": "0.4.1",
+      "registry": "0.4.1",
+      "staged": "0.4.1",
       "dir": "crates/rightkit-audio",
       "toMoveFrom": {},
       "cells": {
         "coderight": {
-          "state": "ahead",
-          "detail": "0.3.4 > 0.3.1"
+          "state": "stale",
+          "detail": "0.3.4→0.4.1"
         },
         "cutright": {
-          "state": "ahead",
-          "detail": "0.3.4 > 0.3.1, 2 pins"
+          "state": "stale",
+          "detail": "0.3.4→0.4.1, 2 pins"
         },
         "genright": {
           "state": "unused",
           "detail": ""
         },
         "heardright": {
-          "state": "ahead",
-          "detail": "0.3.4 > 0.3.1, 4 pins"
+          "state": "stale",
+          "detail": "0.3.4→0.4.1, 4 pins"
         },
         "mailright": {
           "state": "unused",
@@ -13187,9 +12203,9 @@
         "desktop-automation"
       ],
       "private": false,
-      "source": "0.7.0",
-      "registry": "0.6.1",
-      "staged": "0.7.0",
+      "source": "0.7.3",
+      "registry": "0.7.3",
+      "staged": "0.7.3",
       "dir": "crates/rightkit-automation",
       "toMoveFrom": {},
       "cells": {
@@ -13206,8 +12222,8 @@
           "detail": ""
         },
         "heardright": {
-          "state": "ahead",
-          "detail": "0.7.0 > 0.6.1, 4 pins; 1 exception: bogusyogi/rightkit#1030, expires 2026-11-30",
+          "state": "stale",
+          "detail": "0.7.0→0.7.3, 4 pins; 1 exception: bogusyogi/rightkit#1030, expires 2026-11-30",
           "exceptions": {
             "count": 1,
             "expired": 0,
@@ -13228,8 +12244,8 @@
           "detail": ""
         },
         "pulse": {
-          "state": "ahead",
-          "detail": "0.7.0 > 0.6.1, 3 pins; 1 exception: bogusyogi/rightkit#852, expires 2026-11-30",
+          "state": "stale",
+          "detail": "0.7.0→0.7.3, 3 pins; 1 exception: bogusyogi/rightkit#852, expires 2026-11-30",
           "exceptions": {
             "count": 1,
             "expired": 0,
@@ -13473,15 +12489,15 @@
         "browser-automation"
       ],
       "private": false,
-      "source": "0.3.11",
+      "source": "0.3.12",
       "registry": "0.3.6",
-      "staged": "0.3.11",
+      "staged": "0.3.12",
       "dir": "crates/rightkit-browser",
       "toMoveFrom": {},
       "cells": {
         "coderight": {
-          "state": "current",
-          "detail": "=0.3.6"
+          "state": "ahead",
+          "detail": "0.3.12 > 0.3.6"
         },
         "cutright": {
           "state": "unused",
@@ -13826,9 +12842,9 @@
         "chat-bridge"
       ],
       "private": false,
-      "source": "0.2.0",
+      "source": "0.2.1",
       "registry": "",
-      "staged": "0.2.0",
+      "staged": "0.2.1",
       "dir": "crates/rightkit-chat-bridge",
       "toMoveFrom": {},
       "cells": {
@@ -13896,35 +12912,23 @@
         "owned-processes"
       ],
       "private": false,
-      "source": "0.5.13",
-      "registry": "0.5.13",
-      "staged": "0.5.13",
+      "source": "0.5.16",
+      "registry": "0.5.14",
+      "staged": "0.5.16",
       "dir": "crates/rightkit-child-process",
       "toMoveFrom": {},
       "cells": {
         "coderight": {
-          "state": "stale",
-          "detail": "0.5.12→0.5.13, 3 pins; 3 exceptions: bogusyogi/rightkit#1115/bogusyogi/rightkit#1116+, expires 2026-11-30",
+          "state": "ahead",
+          "detail": "0.5.16 > 0.5.14, 3 pins",
           "rows": [
             "M3",
             "M5"
-          ],
-          "exceptions": {
-            "count": 3,
-            "expired": 0,
-            "withoutIssue": 0,
-            "withoutExpiry": 0,
-            "issues": [
-              "bogusyogi/rightkit#1115",
-              "bogusyogi/rightkit#1116",
-              "bogusyogi/rightkit#1141"
-            ],
-            "earliestExpiry": "2026-11-30"
-          }
+          ]
         },
         "cutright": {
-          "state": "current",
-          "detail": "=0.5.13",
+          "state": "stale",
+          "detail": "0.5.13→0.5.14",
           "rows": [
             "M3",
             "M5"
@@ -13932,7 +12936,7 @@
         },
         "genright": {
           "state": "stale",
-          "detail": "0.5.12→0.5.13, 2 pins",
+          "detail": "0.5.12→0.5.14, 2 pins",
           "rows": [
             "M3",
             "M5"
@@ -13940,7 +12944,7 @@
         },
         "heardright": {
           "state": "stale",
-          "detail": "0.5.12→0.5.13, 5 pins",
+          "detail": "0.5.12→0.5.14, 5 pins",
           "rows": [
             "M3",
             "M5"
@@ -13948,7 +12952,7 @@
         },
         "mailright": {
           "state": "stale",
-          "detail": "0.5.12→0.5.13",
+          "detail": "0.5.12→0.5.14",
           "rows": [
             "M3",
             "M5"
@@ -13956,7 +12960,7 @@
         },
         "postright": {
           "state": "stale",
-          "detail": "0.5.12→0.5.13, 2 pins",
+          "detail": "0.5.12→0.5.14, 2 pins",
           "rows": [
             "M3",
             "M5"
@@ -13964,7 +12968,7 @@
         },
         "pulse": {
           "state": "stale",
-          "detail": "0.5.12→0.5.13, 5 pins",
+          "detail": "0.5.12→0.5.14, 5 pins",
           "rows": [
             "M3",
             "M5"
@@ -13972,7 +12976,7 @@
         },
         "scraperight": {
           "state": "stale",
-          "detail": "0.5.12→0.5.13, 2 pins",
+          "detail": "0.5.12→0.5.14, 2 pins",
           "rows": [
             "M3",
             "M5"
@@ -13980,7 +12984,7 @@
         },
         "viewright": {
           "state": "stale",
-          "detail": "0.5.7→0.5.13; M3 incomplete: missing rightkit-job-queue",
+          "detail": "0.5.7→0.5.14",
           "rows": [
             "M3",
             "M5"
@@ -13988,7 +12992,7 @@
         },
         "ember": {
           "state": "stale",
-          "detail": "0.5.4→0.5.13, 5 pins"
+          "detail": "0.5.2→0.5.14, 4 pins"
         },
         "sellright": {
           "state": "unused",
@@ -13996,7 +13000,7 @@
         },
         "legion": {
           "state": "stale",
-          "detail": "0.5.7→0.5.13, 4 pins"
+          "detail": "0.5.9→0.5.14, 4 pins"
         }
       }
     },
@@ -14323,7 +13327,7 @@
         },
         "legion": {
           "state": "ahead",
-          "detail": "0.1.0 (no published version), 4 pins"
+          "detail": "0.1.1 (no published version), 4 pins"
         }
       }
     },
@@ -15205,9 +14209,9 @@
         "context-runtime"
       ],
       "private": false,
-      "source": "0.1.4",
+      "source": "0.1.5",
       "registry": "",
-      "staged": "0.1.4",
+      "staged": "0.1.5",
       "dir": "crates/rightkit-context-runtime",
       "toMoveFrom": {},
       "cells": {
@@ -15406,78 +14410,78 @@
         "crash-reporting"
       ],
       "private": false,
-      "source": "0.4.1",
-      "registry": "0.4.1",
-      "staged": "0.4.1",
+      "source": "0.4.2",
+      "registry": "0.4.2",
+      "staged": "0.4.2",
       "dir": "crates/rightkit-crash",
       "toMoveFrom": {},
       "cells": {
         "coderight": {
-          "state": "current",
-          "detail": "=0.4.1, 2 pins",
+          "state": "stale",
+          "detail": "0.4.1→0.4.2, 2 pins",
           "rows": [
             "M16"
           ]
         },
         "cutright": {
-          "state": "current",
-          "detail": "=0.4.1, 2 pins",
+          "state": "stale",
+          "detail": "0.4.1→0.4.2, 2 pins",
           "rows": [
             "M16"
           ]
         },
         "genright": {
-          "state": "current",
-          "detail": "=0.4.1, 2 pins",
+          "state": "stale",
+          "detail": "0.4.1→0.4.2, 2 pins",
           "rows": [
             "M16"
           ]
         },
         "heardright": {
-          "state": "current",
-          "detail": "=0.4.1, 4 pins",
+          "state": "stale",
+          "detail": "0.4.1→0.4.2, 4 pins",
           "rows": [
             "M16"
           ]
         },
         "mailright": {
-          "state": "current",
-          "detail": "=0.4.1, 2 pins",
+          "state": "stale",
+          "detail": "0.4.1→0.4.2, 2 pins",
           "rows": [
             "M16"
           ]
         },
         "postright": {
-          "state": "current",
-          "detail": "=0.4.1, 2 pins",
+          "state": "stale",
+          "detail": "0.4.1→0.4.2, 2 pins",
           "rows": [
             "M16"
           ]
         },
         "pulse": {
-          "state": "current",
-          "detail": "=0.4.1, 4 pins",
+          "state": "stale",
+          "detail": "0.4.1→0.4.2, 4 pins",
           "rows": [
             "M16"
           ]
         },
         "scraperight": {
           "state": "stale",
-          "detail": "0.3.6→0.4.1, 2 pins",
+          "detail": "0.3.6→0.4.2, 2 pins",
           "rows": [
             "M16"
           ]
         },
         "viewright": {
           "state": "stale",
-          "detail": "0.3.6→0.4.1",
+          "detail": "0.3.6→0.4.2",
           "rows": [
             "M16"
           ]
         },
         "ember": {
           "state": "stale",
-          "detail": "0.3.5→0.4.1"
+          "detail": "0.3.3→0.4.2"
         },
         "sellright": {
           "state": "unused",
@@ -15502,68 +14506,57 @@
         "os-credential-store"
       ],
       "private": false,
-      "source": "0.5.5",
-      "registry": "0.5.5",
-      "staged": "0.5.5",
+      "source": "0.5.8",
+      "registry": "0.5.8",
+      "staged": "0.5.8",
       "dir": "crates/rightkit-credentials",
       "toMoveFrom": {},
       "cells": {
         "coderight": {
-          "state": "stale",
-          "detail": "0.5.4→0.5.5, 2 pins; 2 exceptions: bogusyogi/rightkit#1127/bogusyogi/rightkit#701, expires 2026-11-30",
+          "state": "current",
+          "detail": "=0.5.8, 2 pins",
           "rows": [
             "M11"
-          ],
-          "exceptions": {
-            "count": 2,
-            "expired": 0,
-            "withoutIssue": 0,
-            "withoutExpiry": 0,
-            "issues": [
-              "bogusyogi/rightkit#1127",
-              "bogusyogi/rightkit#701"
-            ],
-            "earliestExpiry": "2026-11-30"
-          }
+          ]
         },
         "cutright": {
           "state": "stale",
-          "detail": "0.5.4→0.5.5",
+          "detail": "0.5.4→0.5.8",
           "rows": [
             "M11"
           ]
         },
         "genright": {
           "state": "stale",
-          "detail": "0.5.4→0.5.5, 2 pins",
+          "detail": "0.5.4→0.5.8, 2 pins",
           "rows": [
             "M11"
           ]
         },
         "heardright": {
           "state": "stale",
-          "detail": "0.5.4→0.5.5, 3 pins",
+          "detail": "0.5.4→0.5.8, 3 pins",
           "rows": [
             "M11"
           ]
         },
         "mailright": {
           "state": "stale",
-          "detail": "0.5.4→0.5.5, 2 pins",
+          "detail": "0.5.4→0.5.8, 2 pins",
           "rows": [
             "M11"
           ]
         },
         "postright": {
           "state": "stale",
-          "detail": "0.5.4→0.5.5, 2 pins",
+          "detail": "0.5.4→0.5.8, 2 pins",
           "rows": [
             "M11"
           ]
         },
         "pulse": {
-          "state": "current",
-          "detail": "=0.5.5, 2 pins; 2 exceptions: bogusyogi/rightkit#1038, expires 2026-11-30",
+          "state": "stale",
+          "detail": "0.5.5→0.5.8, 2 pins; 2 exceptions: bogusyogi/rightkit#1038, expires 2026-11-30",
           "rows": [
             "M11"
           ],
@@ -15580,21 +14573,21 @@
         },
         "scraperight": {
           "state": "stale",
-          "detail": "0.4.3→0.5.5, 3 pins",
+          "detail": "0.4.3→0.5.8, 3 pins",
           "rows": [
             "M11"
           ]
         },
         "viewright": {
           "state": "stale",
-          "detail": "0.4.3→0.5.5",
+          "detail": "0.4.3→0.5.8",
           "rows": [
             "M11"
           ]
         },
         "ember": {
           "state": "stale",
-          "detail": "0.3.0→0.5.5"
+          "detail": "0.3.0→0.5.8"
         },
         "sellright": {
           "state": "unused",
@@ -15660,8 +14653,8 @@
           "detail": ""
         },
         "ember": {
-          "state": "current",
-          "detail": "=0.1.0, 7 pins"
+          "state": "unused",
+          "detail": ""
         },
         "sellright": {
           "state": "unused",
@@ -15690,47 +14683,31 @@
         "local-services"
       ],
       "private": false,
-      "source": "0.9.0",
-      "registry": "0.9.0",
-      "staged": "0.9.0",
+      "source": "0.9.2",
+      "registry": "0.9.1",
+      "staged": "0.9.2",
       "dir": "crates/rightkit-daemon",
       "toMoveFrom": {},
       "cells": {
         "coderight": {
-          "state": "current",
-          "detail": "=0.9.0, 2 pins; 13 exceptions: bogusyogi/rightkit#1119/bogusyogi/rightkit#1120+, expires 2026-11-30",
+          "state": "ahead",
+          "detail": "0.9.2 > 0.9.1, 2 pins",
           "rows": [
             "M6",
             "M7"
-          ],
-          "exceptions": {
-            "count": 13,
-            "expired": 0,
-            "withoutIssue": 0,
-            "withoutExpiry": 0,
-            "issues": [
-              "bogusyogi/rightkit#1119",
-              "bogusyogi/rightkit#1120",
-              "bogusyogi/rightkit#1121",
-              "bogusyogi/rightkit#1122",
-              "bogusyogi/rightkit#1123",
-              "bogusyogi/rightkit#590",
-              "bogusyogi/rightkit#666"
-            ],
-            "earliestExpiry": "2026-11-30"
-          }
+          ]
         },
         "cutright": {
-          "state": "current",
-          "detail": "=0.9.0, 2 pins",
+          "state": "stale",
+          "detail": "0.9.0→0.9.1, 2 pins",
           "rows": [
             "M6",
             "M7"
           ]
         },
         "genright": {
-          "state": "current",
-          "detail": "=0.9.0, 3 pins",
+          "state": "stale",
+          "detail": "0.9.0→0.9.1, 3 pins",
           "rows": [
             "M6",
             "M7"
@@ -15738,15 +14715,15 @@
         },
         "heardright": {
           "state": "stale",
-          "detail": "0.5.3→0.9.0; also 5 current",
+          "detail": "0.5.3→0.9.1, 0.9.0→0.9.1, 6 pins",
           "rows": [
             "M6",
             "M7"
           ]
         },
         "mailright": {
-          "state": "current",
-          "detail": "=0.9.0, 2 pins; 4 exceptions: bogusyogi/rightkit#404/bogusyogi/rightkit#989, expires 2026-11-30",
+          "state": "stale",
+          "detail": "0.9.0→0.9.1, 2 pins; 4 exceptions: bogusyogi/rightkit#404/bogusyogi/rightkit#989, expires 2026-11-30",
           "rows": [
             "M6",
             "M7"
@@ -15764,16 +14741,16 @@
           }
         },
         "postright": {
-          "state": "current",
-          "detail": "=0.9.0, 2 pins",
+          "state": "stale",
+          "detail": "0.9.0→0.9.1, 2 pins",
           "rows": [
             "M6",
             "M7"
           ]
         },
         "pulse": {
-          "state": "current",
-          "detail": "=0.9.0, 6 pins; 2 exceptions: bogusyogi/rightkit#1042/bogusyogi/rightkit#852, expires 2026-11-30",
+          "state": "stale",
+          "detail": "0.9.0→0.9.1, 6 pins; 2 exceptions: bogusyogi/rightkit#1042/bogusyogi/rightkit#852, expires 2026-11-30",
           "rows": [
             "M6",
             "M7"
@@ -15792,7 +14769,7 @@
         },
         "scraperight": {
           "state": "stale",
-          "detail": "0.5.1→0.9.0",
+          "detail": "0.5.1→0.9.1",
           "rows": [
             "M6",
             "M7"
@@ -15800,7 +14777,7 @@
         },
         "viewright": {
           "state": "stale",
-          "detail": "0.5.1→0.9.0",
+          "detail": "0.5.1→0.9.1",
           "rows": [
             "M6",
             "M7"
@@ -15898,22 +14875,22 @@
         "sqlite-storage"
       ],
       "private": false,
-      "source": "0.5.8",
-      "registry": "0.5.8",
-      "staged": "0.5.8",
+      "source": "0.5.10",
+      "registry": "0.5.10",
+      "staged": "0.5.10",
       "dir": "crates/rightkit-db",
       "toMoveFrom": {},
       "cells": {
         "coderight": {
-          "state": "current",
-          "detail": "=0.5.8",
+          "state": "stale",
+          "detail": "0.5.8→0.5.10",
           "rows": [
             "M9"
           ]
         },
         "cutright": {
-          "state": "missing",
-          "detail": "M9",
+          "state": "stale",
+          "detail": "0.5.3→0.5.10",
           "rows": [
             "M9"
           ]
@@ -15926,15 +14903,15 @@
           ]
         },
         "heardright": {
-          "state": "current",
-          "detail": "=0.5.8, 3 pins",
+          "state": "stale",
+          "detail": "0.5.8→0.5.10, 3 pins",
           "rows": [
             "M9"
           ]
         },
         "mailright": {
-          "state": "current",
-          "detail": "=0.5.8; 1 exception: bogusyogi/mailright#87, expires 2026-11-30",
+          "state": "stale",
+          "detail": "0.5.8→0.5.10; 1 exception: bogusyogi/mailright#87, expires 2026-11-30",
           "rows": [
             "M9"
           ],
@@ -15950,22 +14927,22 @@
           }
         },
         "postright": {
-          "state": "current",
-          "detail": "=0.5.8",
+          "state": "stale",
+          "detail": "0.5.8→0.5.10",
           "rows": [
             "M9"
           ]
         },
         "pulse": {
-          "state": "current",
-          "detail": "=0.5.8, 4 pins",
+          "state": "stale",
+          "detail": "0.5.8→0.5.10, 4 pins",
           "rows": [
             "M9"
           ]
         },
         "scraperight": {
-          "state": "missing",
-          "detail": "M9",
+          "state": "stale",
+          "detail": "0.5.8→0.5.10",
           "rows": [
             "M9"
           ]
@@ -16200,29 +15177,19 @@
         "tauri-host-adapters"
       ],
       "private": false,
-      "source": "0.5.1",
+      "source": "0.5.2",
       "registry": "0.5.1",
-      "staged": "0.5.1",
+      "staged": "0.5.2",
       "dir": "crates/rightkit-device",
       "toMoveFrom": {},
       "cells": {
         "coderight": {
-          "state": "stale",
-          "detail": "0.5.0→0.5.1, 2 pins; 1 exception: bogusyogi/rightkit#1106, expires 2026-11-30",
+          "state": "ahead",
+          "detail": "0.5.2 > 0.5.1",
           "rows": [
             "M1",
             "M12"
-          ],
-          "exceptions": {
-            "count": 1,
-            "expired": 0,
-            "withoutIssue": 0,
-            "withoutExpiry": 0,
-            "issues": [
-              "bogusyogi/rightkit#1106"
-            ],
-            "earliestExpiry": "2026-11-30"
-          }
+          ]
         },
         "cutright": {
           "state": "current",
@@ -16457,7 +15424,7 @@
     {
       "name": "rightkit-dictation-app-runtime",
       "kind": "cargo",
-      "class": "tool",
+      "class": "add-on",
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
@@ -16465,9 +15432,9 @@
         "dictation-app-runtime"
       ],
       "private": false,
-      "source": "0.2.0",
-      "registry": "",
-      "staged": "0.2.0",
+      "source": "0.3.1",
+      "registry": "0.2.2",
+      "staged": "0.3.1",
       "dir": "crates/rightkit-dictation-app-runtime",
       "toMoveFrom": {},
       "cells": {
@@ -16524,7 +15491,7 @@
     {
       "name": "rightkit-dictation-command-host",
       "kind": "cargo",
-      "class": "tool",
+      "class": "add-on",
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
@@ -16532,9 +15499,9 @@
         "dictation-command-host"
       ],
       "private": false,
-      "source": "0.2.1",
-      "registry": "",
-      "staged": "0.2.1",
+      "source": "0.3.1",
+      "registry": "0.3.1",
+      "staged": "0.3.1",
       "dir": "crates/rightkit-dictation-command-host",
       "toMoveFrom": {},
       "cells": {
@@ -16551,8 +15518,8 @@
           "detail": ""
         },
         "heardright": {
-          "state": "ahead",
-          "detail": "0.2.1 (no published version)"
+          "state": "stale",
+          "detail": "0.2.1→0.3.1"
         },
         "mailright": {
           "state": "unused",
@@ -16591,7 +15558,7 @@
     {
       "name": "rightkit-dictation-core",
       "kind": "cargo",
-      "class": "tool",
+      "class": "add-on",
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
@@ -16599,9 +15566,9 @@
         "dictation"
       ],
       "private": false,
-      "source": "0.3.1",
-      "registry": "",
-      "staged": "0.3.1",
+      "source": "0.3.5",
+      "registry": "0.3.4",
+      "staged": "0.3.5",
       "dir": "crates/rightkit-dictation-core",
       "toMoveFrom": {},
       "cells": {
@@ -16618,8 +15585,8 @@
           "detail": ""
         },
         "heardright": {
-          "state": "ahead",
-          "detail": "0.3.1 (no published version), 2 pins"
+          "state": "stale",
+          "detail": "0.3.1→0.3.4, 2 pins"
         },
         "mailright": {
           "state": "unused",
@@ -16666,9 +15633,9 @@
         "dictation-engine"
       ],
       "private": false,
-      "source": "0.2.0",
+      "source": "0.2.1",
       "registry": "",
-      "staged": "0.2.0",
+      "staged": "0.2.1",
       "dir": "crates/rightkit-dictation-engine",
       "toMoveFrom": {},
       "cells": {
@@ -16725,15 +15692,15 @@
     {
       "name": "rightkit-dictation-ffi",
       "kind": "cargo",
-      "class": "tool",
+      "class": "add-on",
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
       "capabilities": [],
       "private": false,
-      "source": "0.2.0",
-      "registry": "",
-      "staged": "0.2.0",
+      "source": "0.2.1",
+      "registry": "0.2.0",
+      "staged": "0.2.1",
       "dir": "crates/rightkit-dictation-ffi",
       "toMoveFrom": {},
       "cells": {
@@ -16790,7 +15757,7 @@
     {
       "name": "rightkit-dictation-inference",
       "kind": "cargo",
-      "class": "tool",
+      "class": "add-on",
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
@@ -16798,9 +15765,9 @@
         "dictation-inference"
       ],
       "private": false,
-      "source": "0.2.2",
-      "registry": "",
-      "staged": "0.2.2",
+      "source": "0.2.4",
+      "registry": "0.2.4",
+      "staged": "0.2.4",
       "dir": "crates/rightkit-dictation-inference",
       "toMoveFrom": {},
       "cells": {
@@ -16857,7 +15824,7 @@
     {
       "name": "rightkit-dictation-models",
       "kind": "cargo",
-      "class": "tool",
+      "class": "add-on",
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
@@ -16865,10 +15832,75 @@
         "dictation-models"
       ],
       "private": false,
-      "source": "0.2.0",
-      "registry": "",
-      "staged": "0.2.0",
+      "source": "0.3.2",
+      "registry": "0.3.1",
+      "staged": "0.3.2",
       "dir": "crates/rightkit-dictation-models",
+      "toMoveFrom": {},
+      "cells": {
+        "coderight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "cutright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "genright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "heardright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "mailright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "postright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "pulse": {
+          "state": "unused",
+          "detail": ""
+        },
+        "scraperight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "viewright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "ember": {
+          "state": "unused",
+          "detail": ""
+        },
+        "sellright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "legion": {
+          "state": "unused",
+          "detail": ""
+        }
+      }
+    },
+    {
+      "name": "rightkit-dictation-pill",
+      "kind": "cargo",
+      "class": "add-on",
+      "domain": "other",
+      "mandatoryRows": [],
+      "pendingRows": [],
+      "capabilities": [],
+      "private": false,
+      "source": "0.1.1",
+      "registry": "0.1.0",
+      "staged": "0.1.1",
+      "dir": "crates/rightkit-dictation-pill",
       "toMoveFrom": {},
       "cells": {
         "coderight": {
@@ -16932,9 +15964,9 @@
         "dictation-runtime"
       ],
       "private": false,
-      "source": "0.2.2",
+      "source": "0.2.5",
       "registry": "",
-      "staged": "0.2.2",
+      "staged": "0.2.5",
       "dir": "crates/rightkit-dictation-runtime",
       "toMoveFrom": {},
       "cells": {
@@ -16997,9 +16029,9 @@
       "pendingRows": [],
       "capabilities": [],
       "private": false,
-      "source": "0.2.1",
+      "source": "0.3.2",
       "registry": "",
-      "staged": "0.2.1",
+      "staged": "0.3.2",
       "dir": "crates/rightkit-dictation-tauri",
       "toMoveFrom": {},
       "cells": {
@@ -17056,7 +16088,7 @@
     {
       "name": "rightkit-dictation-telemetry",
       "kind": "cargo",
-      "class": "tool",
+      "class": "add-on",
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
@@ -17064,9 +16096,9 @@
         "dictation-telemetry"
       ],
       "private": false,
-      "source": "0.2.0",
-      "registry": "",
-      "staged": "0.2.0",
+      "source": "0.2.3",
+      "registry": "0.2.2",
+      "staged": "0.2.3",
       "dir": "crates/rightkit-dictation-telemetry",
       "toMoveFrom": {},
       "cells": {
@@ -17123,7 +16155,7 @@
     {
       "name": "rightkit-dictation-text-pipeline",
       "kind": "cargo",
-      "class": "tool",
+      "class": "add-on",
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
@@ -17131,9 +16163,9 @@
         "dictation-text-pipeline"
       ],
       "private": false,
-      "source": "0.2.5",
-      "registry": "",
-      "staged": "0.2.5",
+      "source": "0.2.7",
+      "registry": "0.2.7",
+      "staged": "0.2.7",
       "dir": "crates/rightkit-dictation-text-pipeline",
       "toMoveFrom": {},
       "cells": {
@@ -17150,8 +16182,8 @@
           "detail": ""
         },
         "heardright": {
-          "state": "ahead",
-          "detail": "0.2.4 (no published version)"
+          "state": "stale",
+          "detail": "0.2.4→0.2.7"
         },
         "mailright": {
           "state": "unused",
@@ -17269,9 +16301,9 @@
         "xlsx"
       ],
       "private": false,
-      "source": "0.1.5",
+      "source": "0.1.6",
       "registry": "0.1.2",
-      "staged": "0.1.5",
+      "staged": "0.1.6",
       "dir": "crates/rightkit-docs",
       "toMoveFrom": {},
       "cells": {
@@ -17853,7 +16885,7 @@
         },
         "legion": {
           "state": "ahead",
-          "detail": "0.1.0 (no published version), 10 pins"
+          "detail": "0.1.1 (no published version), 10 pins"
         }
       }
     },
@@ -17920,7 +16952,7 @@
         },
         "legion": {
           "state": "ahead",
-          "detail": "0.1.0 (no published version)"
+          "detail": "0.1.1 (no published version)"
         }
       }
     },
@@ -17987,7 +17019,7 @@
         },
         "legion": {
           "state": "ahead",
-          "detail": "0.1.0 (no published version), 2 pins"
+          "detail": "0.1.1 (no published version), 2 pins"
         }
       }
     },
@@ -18054,7 +17086,7 @@
         },
         "legion": {
           "state": "ahead",
-          "detail": "0.1.0 (no published version), 2 pins"
+          "detail": "0.1.1 (no published version), 2 pins"
         }
       }
     },
@@ -18121,7 +17153,7 @@
         },
         "legion": {
           "state": "ahead",
-          "detail": "0.1.0 (no published version), 4 pins"
+          "detail": "0.1.1 (no published version), 4 pins"
         }
       }
     },
@@ -18339,83 +17371,71 @@
         "safe-filesystem"
       ],
       "private": false,
-      "source": "0.4.16",
-      "registry": "0.4.16",
-      "staged": "0.4.16",
+      "source": "0.5.1",
+      "registry": "0.5.0",
+      "staged": "0.5.1",
       "dir": "crates/rightkit-fs",
       "toMoveFrom": {},
       "cells": {
         "coderight": {
-          "state": "stale",
-          "detail": "0.4.15→0.4.16, 3 pins; 3 exceptions: bogusyogi/rightkit#1092/bogusyogi/rightkit#1124+, expires 2026-11-30",
+          "state": "ahead",
+          "detail": "0.5.1 > 0.5.0, 3 pins",
           "rows": [
             "M8"
-          ],
-          "exceptions": {
-            "count": 3,
-            "expired": 0,
-            "withoutIssue": 0,
-            "withoutExpiry": 0,
-            "issues": [
-              "bogusyogi/rightkit#1092",
-              "bogusyogi/rightkit#1124",
-              "bogusyogi/rightkit#1125"
-            ],
-            "earliestExpiry": "2026-11-30"
-          }
+          ]
         },
         "cutright": {
-          "state": "current",
-          "detail": "=0.4.16, 5 pins",
+          "state": "stale",
+          "detail": "0.4.16→0.5.0, 5 pins",
           "rows": [
             "M8"
           ]
         },
         "genright": {
           "state": "stale",
-          "detail": "0.4.15→0.4.16, 5 pins",
+          "detail": "0.4.15→0.5.0, 5 pins",
           "rows": [
             "M8"
           ]
         },
         "heardright": {
           "state": "stale",
-          "detail": "0.4.12→0.4.16, 0.4.15→0.4.16, 6 pins",
+          "detail": "0.4.12→0.5.0, 0.4.15→0.5.0, 6 pins",
           "rows": [
             "M8"
           ]
         },
         "mailright": {
-          "state": "current",
-          "detail": "=0.4.16",
+          "state": "stale",
+          "detail": "0.4.16→0.5.0",
           "rows": [
             "M8"
           ]
         },
         "postright": {
           "state": "stale",
-          "detail": "0.4.15→0.4.16",
+          "detail": "0.4.15→0.5.0",
           "rows": [
             "M8"
           ]
         },
         "pulse": {
           "state": "stale",
-          "detail": "0.4.15→0.4.16, 9 pins",
+          "detail": "0.4.15→0.5.0, 9 pins",
           "rows": [
             "M8"
           ]
         },
         "scraperight": {
-          "state": "current",
-          "detail": "=0.4.16, 4 pins",
+          "state": "stale",
+          "detail": "0.4.16→0.5.0, 4 pins",
           "rows": [
             "M8"
           ]
         },
         "viewright": {
           "state": "stale",
-          "detail": "0.4.9→0.4.16, 2 pins; 2 exceptions: bogusyogi/rightkit#765, expires 2026-11-30",
+          "detail": "0.4.9→0.5.0, 2 pins; 2 exceptions: bogusyogi/rightkit#765, expires 2026-11-30",
           "rows": [
             "M8"
           ],
@@ -18432,7 +17452,7 @@
         },
         "ember": {
           "state": "stale",
-          "detail": "0.4.6→0.4.16, 25 pins; 4 exceptions: no issue, no expiry",
+          "detail": "0.4.4→0.5.0, 13 pins; 4 exceptions: no issue, no expiry",
           "exceptions": {
             "count": 4,
             "expired": 0,
@@ -18448,7 +17468,7 @@
         },
         "legion": {
           "state": "stale",
-          "detail": "0.4.9→0.4.16"
+          "detail": "0.4.9→0.5.0"
         }
       }
     },
@@ -18796,25 +17816,15 @@
         "lifecycle-hooks"
       ],
       "private": false,
-      "source": "0.2.11",
+      "source": "0.3.0",
       "registry": "0.2.0",
-      "staged": "0.2.11",
+      "staged": "0.3.0",
       "dir": "crates/rightkit-hooks",
       "toMoveFrom": {},
       "cells": {
         "coderight": {
-          "state": "exception",
-          "detail": "1 exception: bogusyogi/rightkit#551, expires 2026-11-30",
-          "exceptions": {
-            "count": 1,
-            "expired": 0,
-            "withoutIssue": 0,
-            "withoutExpiry": 0,
-            "issues": [
-              "bogusyogi/rightkit#551"
-            ],
-            "earliestExpiry": "2026-11-30"
-          }
+          "state": "ahead",
+          "detail": "0.3.0 > 0.2.0"
         },
         "cutright": {
           "state": "unused",
@@ -18873,9 +17883,9 @@
         "global-hotkeys"
       ],
       "private": false,
-      "source": "0.1.4",
-      "registry": "0.1.2",
-      "staged": "0.1.4",
+      "source": "0.1.7",
+      "registry": "0.1.6",
+      "staged": "0.1.7",
       "dir": "crates/rightkit-hotkeys",
       "toMoveFrom": {},
       "cells": {
@@ -18892,8 +17902,8 @@
           "detail": ""
         },
         "heardright": {
-          "state": "ahead",
-          "detail": "0.1.4 > 0.1.2"
+          "state": "stale",
+          "detail": "0.1.4→0.1.6"
         },
         "mailright": {
           "state": "unused",
@@ -18904,8 +17914,8 @@
           "detail": ""
         },
         "pulse": {
-          "state": "ahead",
-          "detail": "0.1.4 > 0.1.2"
+          "state": "stale",
+          "detail": "0.1.4→0.1.6"
         },
         "scraperight": {
           "state": "unused",
@@ -18950,20 +17960,10 @@
       "cells": {
         "coderight": {
           "state": "current",
-          "detail": "=0.4.0, 4 pins; 1 exception: bogusyogi/rightkit#1139, expires 2026-11-30",
+          "detail": "=0.4.0, 4 pins",
           "rows": [
             "M17"
-          ],
-          "exceptions": {
-            "count": 1,
-            "expired": 0,
-            "withoutIssue": 0,
-            "withoutExpiry": 0,
-            "issues": [
-              "bogusyogi/rightkit#1139"
-            ],
-            "earliestExpiry": "2026-11-30"
-          }
+          ]
         },
         "cutright": {
           "state": "missing",
@@ -19015,15 +18015,15 @@
           ]
         },
         "viewright": {
-          "state": "missing",
-          "detail": "M17",
+          "state": "current",
+          "detail": "=0.4.0",
           "rows": [
             "M17"
           ]
         },
         "ember": {
           "state": "stale",
-          "detail": "0.3.8→0.4.0, 5 pins"
+          "detail": "0.3.6→0.4.0, 2 pins"
         },
         "sellright": {
           "state": "unused",
@@ -19247,32 +18247,22 @@
       ],
       "private": false,
       "source": "0.6.1",
-      "registry": "0.6.0",
+      "registry": "0.6.1",
       "staged": "0.6.1",
       "dir": "crates/rightkit-job-queue",
       "toMoveFrom": {},
       "cells": {
         "coderight": {
-          "state": "current",
-          "detail": "=0.6.0; 1 exception: bogusyogi/rightkit#1114, expires 2026-11-30",
+          "state": "stale",
+          "detail": "0.6.0→0.6.1",
           "rows": [
             "M3",
             "M4"
-          ],
-          "exceptions": {
-            "count": 1,
-            "expired": 0,
-            "withoutIssue": 0,
-            "withoutExpiry": 0,
-            "issues": [
-              "bogusyogi/rightkit#1114"
-            ],
-            "earliestExpiry": "2026-11-30"
-          }
+          ]
         },
         "cutright": {
-          "state": "current",
-          "detail": "=0.6.0, 2 pins; 2 exceptions: bogusyogi/rightkit#1010/bogusyogi/rightkit#1012, expires 2026-11-30",
+          "state": "stale",
+          "detail": "0.6.0→0.6.1, 2 pins; 2 exceptions: bogusyogi/rightkit#1010/bogusyogi/rightkit#1012, expires 2026-11-30",
           "rows": [
             "M3",
             "M4"
@@ -19290,40 +18280,40 @@
           }
         },
         "genright": {
-          "state": "current",
-          "detail": "=0.6.0, 2 pins",
+          "state": "stale",
+          "detail": "0.6.0→0.6.1, 2 pins",
           "rows": [
             "M3",
             "M4"
           ]
         },
         "heardright": {
-          "state": "current",
-          "detail": "=0.6.0, 2 pins",
+          "state": "stale",
+          "detail": "0.6.0→0.6.1, 2 pins",
           "rows": [
             "M3",
             "M4"
           ]
         },
         "mailright": {
-          "state": "current",
-          "detail": "=0.6.0",
+          "state": "stale",
+          "detail": "0.6.0→0.6.1",
           "rows": [
             "M3",
             "M4"
           ]
         },
         "postright": {
-          "state": "current",
-          "detail": "=0.6.0, 2 pins",
+          "state": "stale",
+          "detail": "0.6.0→0.6.1, 2 pins",
           "rows": [
             "M3",
             "M4"
           ]
         },
         "pulse": {
-          "state": "current",
-          "detail": "=0.6.0, 3 pins",
+          "state": "stale",
+          "detail": "0.6.0→0.6.1, 3 pins",
           "rows": [
             "M3",
             "M4"
@@ -19331,7 +18321,7 @@
         },
         "scraperight": {
           "state": "stale",
-          "detail": "0.5.1→0.6.0, 2 pins; 1 exception: bogusyogi/rightkit#1103, expires 2026-11-30",
+          "detail": "0.5.1→0.6.1, 2 pins; 1 exception: bogusyogi/rightkit#1103, expires 2026-11-30",
           "rows": [
             "M3",
             "M4"
@@ -19349,7 +18339,7 @@
         },
         "viewright": {
           "state": "missing",
-          "detail": "M3, M4",
+          "detail": "M4",
           "rows": [
             "M3",
             "M4"
@@ -19581,71 +18571,57 @@
         "right-suite-api"
       ],
       "private": false,
-      "source": "0.3.1",
-      "registry": "0.3.1",
-      "staged": "0.3.1",
+      "source": "0.3.4",
+      "registry": "0.3.4",
+      "staged": "0.3.4",
       "dir": "crates/rightkit-license",
       "toMoveFrom": {},
       "cells": {
         "coderight": {
           "state": "current",
-          "detail": "=0.3.1, 2 pins; 4 exceptions: bogusyogi/rightkit#1047/bogusyogi/rightkit#1059+, expires 2026-11-30",
+          "detail": "=0.3.4, 2 pins",
           "rows": [
             "M12",
             "M13"
-          ],
-          "exceptions": {
-            "count": 4,
-            "expired": 0,
-            "withoutIssue": 0,
-            "withoutExpiry": 0,
-            "issues": [
-              "bogusyogi/rightkit#1047",
-              "bogusyogi/rightkit#1059",
-              "bogusyogi/rightkit#1129",
-              "bogusyogi/rightkit#1130"
-            ],
-            "earliestExpiry": "2026-11-30"
-          }
+          ]
         },
         "cutright": {
-          "state": "current",
-          "detail": "=0.3.1",
+          "state": "stale",
+          "detail": "0.3.1→0.3.4",
           "rows": [
             "M12",
             "M13"
           ]
         },
         "genright": {
-          "state": "current",
-          "detail": "=0.3.1, 2 pins",
+          "state": "stale",
+          "detail": "0.3.1→0.3.4, 2 pins",
           "rows": [
             "M12",
             "M13"
           ]
         },
         "heardright": {
-          "state": "current",
-          "detail": "=0.3.1; 7 exceptions: bogusyogi/heardright#311/bogusyogi/rightkit#1032, expires 2026-11-30",
+          "state": "stale",
+          "detail": "0.3.1→0.3.4; 5 exceptions: bogusyogi/heardright#311, expires 2026-11-30",
           "rows": [
             "M12",
             "M13"
           ],
           "exceptions": {
-            "count": 7,
+            "count": 5,
             "expired": 0,
             "withoutIssue": 0,
             "withoutExpiry": 0,
             "issues": [
-              "bogusyogi/heardright#311",
-              "bogusyogi/rightkit#1032"
+              "bogusyogi/heardright#311"
             ],
             "earliestExpiry": "2026-11-30"
           }
         },
         "mailright": {
-          "state": "current",
-          "detail": "=0.3.1; 1 exception: bogusyogi/rightkit#991, expires 2026-11-30",
+          "state": "stale",
+          "detail": "0.3.1→0.3.4; 1 exception: bogusyogi/rightkit#991, expires 2026-11-30",
           "rows": [
             "M12",
             "M13"
@@ -19662,16 +18638,16 @@
           }
         },
         "postright": {
-          "state": "current",
-          "detail": "=0.3.1",
+          "state": "stale",
+          "detail": "0.3.1→0.3.4",
           "rows": [
             "M12",
             "M13"
           ]
         },
         "pulse": {
-          "state": "current",
-          "detail": "=0.3.1",
+          "state": "stale",
+          "detail": "0.3.1→0.3.4",
           "rows": [
             "M12",
             "M13"
@@ -19679,7 +18655,7 @@
         },
         "scraperight": {
           "state": "stale",
-          "detail": "0.2.6→0.3.1, 2 pins; 1 exception: bogusyogi/rightkit#1096, expires 2026-11-30",
+          "detail": "0.2.6→0.3.4, 2 pins; 1 exception: bogusyogi/rightkit#1096, expires 2026-11-30",
           "rows": [
             "M12",
             "M13"
@@ -19697,7 +18673,7 @@
         },
         "viewright": {
           "state": "stale",
-          "detail": "0.2.6→0.3.1",
+          "detail": "0.2.6→0.3.4",
           "rows": [
             "M12",
             "M13"
@@ -19728,15 +18704,15 @@
         "llm-providers"
       ],
       "private": false,
-      "source": "0.7.0",
+      "source": "0.7.1",
       "registry": "0.3.1",
-      "staged": "0.7.0",
+      "staged": "0.7.1",
       "dir": "crates/rightkit-llm",
       "toMoveFrom": {},
       "cells": {
         "coderight": {
           "state": "ahead",
-          "detail": "0.7.0 > 0.3.1"
+          "detail": "0.7.1 > 0.3.1"
         },
         "cutright": {
           "state": "unused",
@@ -19871,8 +18847,8 @@
       "toMoveFrom": {},
       "cells": {
         "coderight": {
-          "state": "stale",
-          "detail": "0.4.1→0.4.2, 2 pins",
+          "state": "ahead",
+          "detail": "0.4.3 > 0.4.2, 2 pins",
           "rows": [
             "M15"
           ]
@@ -19977,7 +18953,7 @@
         },
         "ember": {
           "state": "stale",
-          "detail": "0.3.5→0.4.2, 3 pins"
+          "detail": "0.3.3→0.4.2, 2 pins"
         },
         "sellright": {
           "state": "unused",
@@ -20197,15 +19173,15 @@
         "mcp"
       ],
       "private": false,
-      "source": "0.10.0",
+      "source": "0.10.1",
       "registry": "0.7.0",
-      "staged": "0.10.0",
+      "staged": "0.10.1",
       "dir": "crates/rightkit-mcp",
       "toMoveFrom": {},
       "cells": {
         "coderight": {
           "state": "ahead",
-          "detail": "0.10.0 > 0.7.0"
+          "detail": "0.10.1 > 0.7.0"
         },
         "cutright": {
           "state": "unused",
@@ -20240,8 +19216,75 @@
           "detail": ""
         },
         "ember": {
-          "state": "current",
-          "detail": "=0.7.0"
+          "state": "unused",
+          "detail": ""
+        },
+        "sellright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "legion": {
+          "state": "unused",
+          "detail": ""
+        }
+      }
+    },
+    {
+      "name": "rightkit-media-control",
+      "kind": "cargo",
+      "class": "add-on",
+      "domain": "other",
+      "mandatoryRows": [],
+      "pendingRows": [],
+      "capabilities": [
+        "media-session-control"
+      ],
+      "private": false,
+      "source": "0.1.1",
+      "registry": "0.1.1",
+      "staged": "0.1.1",
+      "dir": "crates/rightkit-media-control",
+      "toMoveFrom": {},
+      "cells": {
+        "coderight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "cutright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "genright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "heardright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "mailright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "postright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "pulse": {
+          "state": "unused",
+          "detail": ""
+        },
+        "scraperight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "viewright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "ember": {
+          "state": "unused",
+          "detail": ""
         },
         "sellright": {
           "state": "unused",
@@ -21058,31 +20101,31 @@
         "model-installation"
       ],
       "private": false,
-      "source": "0.7.1",
-      "registry": "0.5.1",
-      "staged": "0.7.1",
+      "source": "0.7.2",
+      "registry": "0.7.2",
+      "staged": "0.7.2",
       "dir": "crates/rightkit-models",
       "toMoveFrom": {},
       "cells": {
         "coderight": {
-          "state": "ahead",
-          "detail": "0.7.1 > 0.5.1"
+          "state": "stale",
+          "detail": "0.7.1→0.7.2"
         },
         "cutright": {
-          "state": "ahead",
-          "detail": "0.7.1 > 0.5.1"
+          "state": "stale",
+          "detail": "0.7.1→0.7.2"
         },
         "genright": {
           "state": "unused",
           "detail": ""
         },
         "heardright": {
-          "state": "ahead",
-          "detail": "0.7.1 > 0.5.1, 2 pins"
+          "state": "stale",
+          "detail": "0.7.1→0.7.2, 2 pins"
         },
         "mailright": {
-          "state": "ahead",
-          "detail": "0.7.1 > 0.5.1"
+          "state": "stale",
+          "detail": "0.7.1→0.7.2"
         },
         "postright": {
           "state": "unused",
@@ -21093,8 +20136,8 @@
           "detail": ""
         },
         "scraperight": {
-          "state": "ahead",
-          "detail": "0.7.1 > 0.5.1, 3 pins; 1 exception: bogusyogi/rightkit#1099, expires 2026-11-30",
+          "state": "stale",
+          "detail": "0.7.1→0.7.2, 3 pins; 1 exception: bogusyogi/rightkit#1099, expires 2026-11-30",
           "exceptions": {
             "count": 1,
             "expired": 0,
@@ -21112,7 +20155,7 @@
         },
         "ember": {
           "state": "stale",
-          "detail": "0.4.4→0.5.1"
+          "detail": "0.3.2→0.7.2"
         },
         "sellright": {
           "state": "unused",
@@ -21407,18 +20450,7 @@
       "cells": {
         "coderight": {
           "state": "ahead",
-          "detail": "0.11.0 > 0.10.0; 2 exceptions: bogusyogi/rightkit#1134/bogusyogi/rightkit#1143, expires 2026-11-30",
-          "exceptions": {
-            "count": 2,
-            "expired": 0,
-            "withoutIssue": 0,
-            "withoutExpiry": 0,
-            "issues": [
-              "bogusyogi/rightkit#1134",
-              "bogusyogi/rightkit#1143"
-            ],
-            "earliestExpiry": "2026-11-30"
-          }
+          "detail": "0.11.0 > 0.10.0"
         },
         "cutright": {
           "state": "unused",
@@ -21688,9 +20720,9 @@
         "windows-native-overlay-renderer"
       ],
       "private": false,
-      "source": "0.1.5",
-      "registry": "0.1.0",
-      "staged": "0.1.5",
+      "source": "0.1.6",
+      "registry": "0.1.6",
+      "staged": "0.1.6",
       "dir": "crates/rightkit-overlay-win",
       "toMoveFrom": {},
       "cells": {
@@ -21707,8 +20739,8 @@
           "detail": ""
         },
         "heardright": {
-          "state": "ahead",
-          "detail": "0.1.5 > 0.1.0"
+          "state": "stale",
+          "detail": "0.1.5→0.1.6"
         },
         "mailright": {
           "state": "unused",
@@ -21719,8 +20751,8 @@
           "detail": ""
         },
         "pulse": {
-          "state": "ahead",
-          "detail": "0.1.5 > 0.1.0; 2 exceptions: bogusyogi/rightkit#914, expires 2026-11-30",
+          "state": "stale",
+          "detail": "0.1.5→0.1.6; 2 exceptions: bogusyogi/rightkit#914, expires 2026-11-30",
           "exceptions": {
             "count": 2,
             "expired": 0,
@@ -22296,7 +21328,7 @@
         },
         "legion": {
           "state": "ahead",
-          "detail": "0.1.0 (no published version), 5 pins"
+          "detail": "0.1.1 (no published version), 5 pins"
         }
       }
     },
@@ -22571,9 +21603,9 @@
       "pendingRows": [],
       "capabilities": [],
       "private": false,
-      "source": "0.1.1",
+      "source": "0.1.2",
       "registry": "",
-      "staged": "0.1.1",
+      "staged": "0.1.2",
       "dir": "crates/rightkit-pty",
       "toMoveFrom": {},
       "cells": {
@@ -22643,15 +21675,15 @@
         "desktop-qa"
       ],
       "private": false,
-      "source": "0.10.8",
+      "source": "0.10.11",
       "registry": "0.10.8",
-      "staged": "0.10.8",
+      "staged": "0.10.11",
       "dir": "crates/rightkit-qa",
       "toMoveFrom": {},
       "cells": {
         "coderight": {
-          "state": "stale",
-          "detail": "0.10.6→0.10.8, 2 pins",
+          "state": "ahead",
+          "detail": "0.10.11 > 0.10.8, 2 pins",
           "rows": [
             "M20"
           ]
@@ -23279,7 +22311,7 @@
         },
         "legion": {
           "state": "ahead",
-          "detail": "0.1.1 (no published version)"
+          "detail": "0.1.2 (no published version)"
         }
       }
     },
@@ -23353,45 +22385,45 @@
     {
       "name": "rightkit-roots",
       "kind": "cargo",
-      "class": "tool",
+      "class": "add-on",
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
       "capabilities": [],
       "private": false,
-      "source": "0.2.0",
-      "registry": "",
-      "staged": "0.2.0",
+      "source": "0.3.0",
+      "registry": "0.2.1",
+      "staged": "0.3.0",
       "dir": "crates/rightkit-roots",
       "toMoveFrom": {},
       "cells": {
         "coderight": {
-          "state": "ahead",
-          "detail": "0.2.0 (no published version), 2 pins"
+          "state": "stale",
+          "detail": "0.2.0→0.2.1; also 1 ahead"
         },
         "cutright": {
-          "state": "ahead",
-          "detail": "0.2.0 (no published version), 2 pins"
+          "state": "stale",
+          "detail": "0.2.0→0.2.1, 2 pins"
         },
         "genright": {
           "state": "unused",
           "detail": ""
         },
         "heardright": {
-          "state": "ahead",
-          "detail": "0.2.0 (no published version)"
+          "state": "stale",
+          "detail": "0.2.0→0.2.1"
         },
         "mailright": {
-          "state": "ahead",
-          "detail": "0.2.0 (no published version), 2 pins"
+          "state": "stale",
+          "detail": "0.2.0→0.2.1, 2 pins"
         },
         "postright": {
-          "state": "ahead",
-          "detail": "0.2.0 (no published version), 2 pins"
+          "state": "stale",
+          "detail": "0.2.0→0.2.1, 2 pins"
         },
         "pulse": {
-          "state": "ahead",
-          "detail": "0.2.0 (no published version), 2 pins"
+          "state": "stale",
+          "detail": "0.2.0→0.2.1, 2 pins"
         },
         "scraperight": {
           "state": "unused",
@@ -23426,29 +22458,15 @@
         "os-sandbox"
       ],
       "private": false,
-      "source": "0.6.6",
+      "source": "0.7.0",
       "registry": "0.6.1",
-      "staged": "0.6.6",
+      "staged": "0.7.0",
       "dir": "crates/rightkit-sandbox",
       "toMoveFrom": {},
       "cells": {
         "coderight": {
           "state": "ahead",
-          "detail": "0.6.5 > 0.6.1; 7 exceptions: bogusyogi/rightkit#557/bogusyogi/rightkit#562+, expires 2026-11-30",
-          "exceptions": {
-            "count": 7,
-            "expired": 0,
-            "withoutIssue": 0,
-            "withoutExpiry": 0,
-            "issues": [
-              "bogusyogi/rightkit#557",
-              "bogusyogi/rightkit#562",
-              "bogusyogi/rightkit#566",
-              "bogusyogi/rightkit#703",
-              "bogusyogi/rightkit#711"
-            ],
-            "earliestExpiry": "2026-11-30"
-          }
+          "detail": "0.7.0 > 0.6.1"
         },
         "cutright": {
           "state": "unused",
@@ -23514,8 +22532,8 @@
       "toMoveFrom": {},
       "cells": {
         "coderight": {
-          "state": "unused",
-          "detail": ""
+          "state": "ahead",
+          "detail": "0.3.0 (no published version)"
         },
         "cutright": {
           "state": "unused",
@@ -23574,25 +22592,15 @@
         "search"
       ],
       "private": false,
-      "source": "0.4.5",
+      "source": "0.4.6",
       "registry": "0.4.0",
-      "staged": "0.4.5",
+      "staged": "0.4.6",
       "dir": "crates/rightkit-search",
       "toMoveFrom": {},
       "cells": {
         "coderight": {
           "state": "ahead",
-          "detail": "0.4.5 > 0.4.0; 1 exception: bogusyogi/rightkit#580, expires 2026-11-30",
-          "exceptions": {
-            "count": 1,
-            "expired": 0,
-            "withoutIssue": 0,
-            "withoutExpiry": 0,
-            "issues": [
-              "bogusyogi/rightkit#580"
-            ],
-            "earliestExpiry": "2026-11-30"
-          }
+          "detail": "0.4.6 > 0.4.0"
         },
         "cutright": {
           "state": "unused",
@@ -23805,20 +22813,10 @@
       "cells": {
         "coderight": {
           "state": "current",
-          "detail": "=0.3.4, 2 pins; 2 exceptions: bogusyogi/rightkit#695, expires 2026-11-30",
+          "detail": "=0.3.4, 2 pins",
           "rows": [
             "M4"
-          ],
-          "exceptions": {
-            "count": 2,
-            "expired": 0,
-            "withoutIssue": 0,
-            "withoutExpiry": 0,
-            "issues": [
-              "bogusyogi/rightkit#695"
-            ],
-            "earliestExpiry": "2026-11-30"
-          }
+          ]
         },
         "cutright": {
           "state": "current",
@@ -23877,8 +22875,8 @@
           ]
         },
         "ember": {
-          "state": "stale",
-          "detail": "0.3.0→0.3.4, 4 pins"
+          "state": "unused",
+          "detail": ""
         },
         "sellright": {
           "state": "unused",
@@ -24301,9 +23299,9 @@
         "cloud-sync"
       ],
       "private": false,
-      "source": "0.3.0",
-      "registry": "0.2.2",
-      "staged": "0.3.0",
+      "source": "0.4.2",
+      "registry": "0.4.1",
+      "staged": "0.4.2",
       "dir": "crates/rightkit-sync",
       "toMoveFrom": {},
       "cells": {
@@ -24320,8 +23318,8 @@
           "detail": ""
         },
         "heardright": {
-          "state": "ahead",
-          "detail": "0.3.0 > 0.2.2"
+          "state": "stale",
+          "detail": "0.3.0→0.4.1"
         },
         "mailright": {
           "state": "unused",
@@ -24332,12 +23330,12 @@
           "detail": ""
         },
         "pulse": {
-          "state": "ahead",
-          "detail": "0.3.0 > 0.2.2"
+          "state": "stale",
+          "detail": "0.3.0→0.4.1"
         },
         "scraperight": {
-          "state": "current",
-          "detail": "=0.2.2, 3 pins; 1 exception: bogusyogi/rightkit#751, expires 2026-11-30",
+          "state": "stale",
+          "detail": "0.2.2→0.4.1, 3 pins; 1 exception: bogusyogi/rightkit#751, expires 2026-11-30",
           "exceptions": {
             "count": 1,
             "expired": 0,
@@ -24579,29 +23577,18 @@
         "desktop-shell"
       ],
       "private": false,
-      "source": "0.8.3",
+      "source": "0.8.7",
       "registry": "0.8.2",
-      "staged": "0.8.3",
+      "staged": "0.8.7",
       "dir": "crates/rightkit-tauri-shell",
       "toMoveFrom": {},
       "cells": {
         "coderight": {
-          "state": "stale",
-          "detail": "0.8.0→0.8.2; 2 exceptions: bogusyogi/rightkit#1105/bogusyogi/rightkit#1138, expires 2026-11-30",
+          "state": "ahead",
+          "detail": "0.8.7 > 0.8.2",
           "rows": [
             "M1"
-          ],
-          "exceptions": {
-            "count": 2,
-            "expired": 0,
-            "withoutIssue": 0,
-            "withoutExpiry": 0,
-            "issues": [
-              "bogusyogi/rightkit#1105",
-              "bogusyogi/rightkit#1138"
-            ],
-            "earliestExpiry": "2026-11-30"
-          }
+          ]
         },
         "cutright": {
           "state": "current",
@@ -24619,19 +23606,18 @@
         },
         "heardright": {
           "state": "stale",
-          "detail": "0.8.0→0.8.2; 4 exceptions: bogusyogi/rightkit#1021/bogusyogi/rightkit#1027+, expires 2026-11-30",
+          "detail": "0.8.0→0.8.2; 2 exceptions: bogusyogi/rightkit#1021/bogusyogi/rightkit#1027, expires 2026-11-30",
           "rows": [
             "M1"
           ],
           "exceptions": {
-            "count": 4,
+            "count": 2,
             "expired": 0,
             "withoutIssue": 0,
             "withoutExpiry": 0,
             "issues": [
               "bogusyogi/rightkit#1021",
-              "bogusyogi/rightkit#1027",
-              "bogusyogi/rightkit#1032"
+              "bogusyogi/rightkit#1027"
             ],
             "earliestExpiry": "2026-11-30"
           }
@@ -24690,12 +23676,12 @@
         },
         "ember": {
           "state": "stale",
-          "detail": "0.4.0→0.8.2; 1 exception: no issue, no expiry",
+          "detail": "0.4.0→0.8.2; 2 exceptions: no issue, no expiry",
           "exceptions": {
-            "count": 1,
+            "count": 2,
             "expired": 0,
-            "withoutIssue": 1,
-            "withoutExpiry": 1,
+            "withoutIssue": 2,
+            "withoutExpiry": 2,
             "issues": [],
             "earliestExpiry": ""
           }
@@ -24780,7 +23766,7 @@
     {
       "name": "rightkit-text-polish",
       "kind": "cargo",
-      "class": "tool",
+      "class": "add-on",
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
@@ -24788,9 +23774,9 @@
         "text-polish"
       ],
       "private": false,
-      "source": "0.1.1",
-      "registry": "",
-      "staged": "0.1.1",
+      "source": "0.1.3",
+      "registry": "0.1.3",
+      "staged": "0.1.3",
       "dir": "crates/rightkit-text-polish",
       "toMoveFrom": {},
       "cells": {
@@ -24807,8 +23793,8 @@
           "detail": ""
         },
         "heardright": {
-          "state": "ahead",
-          "detail": "0.1.1 (no published version)"
+          "state": "stale",
+          "detail": "0.1.1→0.1.3"
         },
         "mailright": {
           "state": "unused",
@@ -24853,15 +23839,15 @@
       "pendingRows": [],
       "capabilities": [],
       "private": false,
-      "source": "0.1.0",
+      "source": "0.1.1",
       "registry": "",
-      "staged": "0.1.0",
+      "staged": "0.1.1",
       "dir": "crates/rightkit-theme",
       "toMoveFrom": {},
       "cells": {
         "coderight": {
-          "state": "unused",
-          "detail": ""
+          "state": "ahead",
+          "detail": "0.1.1 (no published version)"
         },
         "cutright": {
           "state": "unused",
@@ -24928,17 +23914,7 @@
       "cells": {
         "coderight": {
           "state": "ahead",
-          "detail": "0.1.4 > 0.1.0, 2 pins; 1 exception: bogusyogi/rightkit#367, expires 2026-11-30",
-          "exceptions": {
-            "count": 1,
-            "expired": 0,
-            "withoutIssue": 0,
-            "withoutExpiry": 0,
-            "issues": [
-              "bogusyogi/rightkit#367"
-            ],
-            "earliestExpiry": "2026-11-30"
-          }
+          "detail": "0.1.4 > 0.1.0, 2 pins"
         },
         "cutright": {
           "state": "unused",
@@ -24973,8 +23949,8 @@
           "detail": ""
         },
         "ember": {
-          "state": "current",
-          "detail": "=0.1.0, 7 pins"
+          "state": "unused",
+          "detail": ""
         },
         "sellright": {
           "state": "unused",
@@ -25123,7 +24099,7 @@
     {
       "name": "rightkit-transcript-library",
       "kind": "cargo",
-      "class": "tool",
+      "class": "add-on",
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
@@ -25131,9 +24107,9 @@
         "transcript-library"
       ],
       "private": false,
-      "source": "0.1.2",
-      "registry": "",
-      "staged": "0.1.2",
+      "source": "0.1.7",
+      "registry": "0.1.7",
+      "staged": "0.1.7",
       "dir": "crates/rightkit-transcript-library",
       "toMoveFrom": {},
       "cells": {
@@ -25150,8 +24126,8 @@
           "detail": ""
         },
         "heardright": {
-          "state": "ahead",
-          "detail": "0.1.2 (no published version)"
+          "state": "stale",
+          "detail": "0.1.2→0.1.7"
         },
         "mailright": {
           "state": "unused",
