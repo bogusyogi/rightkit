@@ -78,7 +78,7 @@ Capabilities: 223 (58 with fingerprints, 165 declaration-only). Internal owners 
 | context-federation | `rightkit-context-federation` | none | declaration-only | 0 | rightkit-context-federation: staged 0.2.1, not published |
 | context-protocol | `rightkit-context-protocol` | none | declaration-only | 0 | rightkit-context-protocol: staged 0.2.0, not published |
 | context-provider-sdk | `rightkit-context-provider-sdk` | none | declaration-only | 0 | rightkit-context-provider-sdk: staged 0.2.0, not published |
-| context-runtime | `rightkit-context-runtime` | none | declaration-only | 0 | rightkit-context-runtime: staged 0.1.4, not published |
+| context-runtime | `rightkit-context-runtime` | none | declaration-only | 0 | rightkit-context-runtime: published 0.1.4 (crates.io) |
 | crash-reporting | `rightkit-crash` | advise | fingerprinted | 1 (0 block, 1 advise) | rightkit-crash: published 0.4.2 (crates.io) |
 | crypto-primitives | `rightkit-crypto` | none | declaration-only | 0 | rightkit-crypto: published 0.1.0 (crates.io) |
 | dependency-updates | `@rightkit/outdated` | none | declaration-only | 0 | @rightkit/outdated: published 0.3.0 (npm) |
@@ -109,7 +109,7 @@ Capabilities: 223 (58 with fingerprints, 165 declaration-only). Internal owners 
 | document-workspace-ui | `@rightkit/document-workspace` | none | declaration-only | 0 | @rightkit/document-workspace: staged 0.2.1, not published |
 | docx | `rightkit-docs` | none | declaration-only | 0 | rightkit-docs: published 0.1.2 (crates.io) |
 | docx-editor | `@rightkit/docx-editor` | none | declaration-only | 0 | @rightkit/docx-editor: staged 0.1.2, not published |
-| durable-memory | `rightkit-memory-store` | none | declaration-only | 0 | rightkit-memory-store: staged 0.2.0, not published |
+| durable-memory | `rightkit-memory-store` | none | declaration-only | 0 | rightkit-memory-store: published 0.2.0 (crates.io) |
 | durable-memory-core | `rightkit-memory-core` | none | declaration-only | 0 | rightkit-memory-core: staged 0.2.0, not published |
 | embeddings | `rightkit-embed` | advise | fingerprinted | 1 (0 block, 1 advise) | rightkit-embed: published 0.6.1 (crates.io) |
 | engine-host | `rightkit-engine-host` | none | declaration-only | 0 | rightkit-engine-host: staged 0.2.0, not published |

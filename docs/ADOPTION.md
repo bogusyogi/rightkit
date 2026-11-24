@@ -104,7 +104,7 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-context-federation` | crates.io | 0.2.1 | none recorded | 0 | none | - |
 | `rightkit-context-protocol` | crates.io | 0.2.0 | none recorded | 0 | none | - |
 | `rightkit-context-provider-sdk` | crates.io | 0.2.0 | none recorded | 0 | none | - |
-| `rightkit-context-runtime` | crates.io | 0.1.4 | none recorded | 0 | none | - |
+| `rightkit-context-runtime` | crates.io | 0.1.4 | 0.1.4 | 0 | none | - |
 | `rightkit-contracts` | crates.io | 0.1.11 | 0.1.7 | 4 | cutright, genright, heardright, postright | 1 vendored copy; 3 ahead of published |
 | `rightkit-contrast` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-crash` | crates.io | 0.4.1 | 0.4.1 | 8 | coderight, cutright, genright, heardright, mailright, postright, scraperight, viewright | 1 vendored copy; 3 stale |
@@ -180,7 +180,7 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-memory` | crates.io | 0.3.0 | none recorded | 1 | coderight | - |
 | `rightkit-memory-client` | crates.io | 0.1.1 | none recorded | 0 | none | - |
 | `rightkit-memory-core` | crates.io | 0.2.0 | none recorded | 0 | none | - |
-| `rightkit-memory-store` | crates.io | 0.2.0 | none recorded | 0 | none | - |
+| `rightkit-memory-store` | crates.io | 0.2.0 | 0.2.0 | 0 | none | - |
 | `rightkit-mesh` | crates.io | 0.2.2 | none recorded | 0 | none | - |
 | `rightkit-mesh-ffi` | private | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-models` | crates.io | 0.7.1 | 0.5.1 | 5 | coderight, cutright, heardright, mailright, scraperight | 1 vendored copy; 8 ahead of published |

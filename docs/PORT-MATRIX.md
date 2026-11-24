@@ -344,7 +344,7 @@ Not-applicable declarations. Only current ratified rulings remove a mandatory re
 | `rightkit-context-federation` | tool | - | none recorded (staged 0.2.1) | unused | unused | unused | unused | unused | unused | ahead (0.2.1 (no published version)) | unused | unused | unused | unused | unused | - |
 | `rightkit-context-protocol` | tool | - | none recorded (staged 0.2.0) | unused | unused | unused | unused | unused | unused | ahead (0.2.0 (no published version), 3 pins) | unused | unused | unused | unused | unused | - |
 | `rightkit-context-provider-sdk` | tool | - | none recorded (staged 0.2.0) | unused | unused | unused | unused | unused | unused | ahead (0.2.0 (no published version)) | unused | unused | unused | unused | unused | - |
-| `rightkit-context-runtime` | tool | - | none recorded (staged 0.1.4) | unused | unused | unused | unused | unused | unused | unused | unused | unused | unused | unused | unused | - |
+| `rightkit-context-runtime` | tool | - | 0.1.4 | unused | unused | unused | unused | unused | unused | unused | unused | unused | unused | unused | unused | - |
 | `rightkit-contrast` | tool | - | none recorded (staged 0.1.0) | unused | unused | unused | unused | unused | unused | unused | unused | unused | unused | unused | unused | - |
 | `rightkit-daemon-remote` | tool | - | none recorded (staged 0.1.0) | unused | unused | unused | unused | unused | unused | unused | unused | unused | unused | unused | unused | - |
 | `rightkit-decimal` | tool | - | none recorded (staged 0.1.0) | unused | unused | unused | unused | unused | unused | unused | unused | unused | unused | unused | unused | - |
@@ -397,7 +397,7 @@ Not-applicable declarations. Only current ratified rulings remove a mandatory re
 | `rightkit-memory` | tool | - | none recorded (staged 0.3.0) | ahead (0.1.0 (no published version)) | unused | unused | unused | unused | unused | unused | unused | unused | unused | unused | unused | - |
 | `rightkit-memory-client` | tool | - | none recorded (staged 0.1.1) | unused | unused | unused | unused | unused | unused | unused | unused | unused | unused | unused | unused | - |
 | `rightkit-memory-core` | tool | - | none recorded (staged 0.2.0) | unused | unused | unused | unused | unused | unused | ahead (0.2.0 (no published version), 2 pins) | unused | unused | unused | unused | unused | - |
-| `rightkit-memory-store` | tool | - | none recorded (staged 0.2.0) | unused | unused | unused | unused | unused | unused | unused | unused | unused | unused | unused | unused | - |
+| `rightkit-memory-store` | tool | - | 0.2.0 | unused | unused | unused | unused | unused | unused | unused | unused | unused | unused | unused | unused | - |
 | `rightkit-mesh` | tool | - | none recorded (staged 0.2.2) | unused | unused | unused | unused | unused | unused | ahead (0.2.1 (no published version), 3 pins) | unused | unused | unused | unused | unused | - |
 | `rightkit-mesh-ffi` | tool | - | private | unused | unused | unused | unused | unused | unused | unused | unused | unused | unused | unused | unused | - |
 | `rightkit-notch-ui` | tool | - | none recorded (staged 0.2.1) | unused | unused | unused | unused | unused | unused | unused | unused | unused | unused | unused | unused | - |
