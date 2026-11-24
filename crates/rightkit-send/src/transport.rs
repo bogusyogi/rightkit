@@ -216,10 +216,14 @@ pub struct ManifestEntry {
     pub size: u64,
 }
 
-/// A small item.
+/// A small item, with the host's own tag on a batch announce as `A`. `Small` carries it as raw JSON;
+/// a host that wants its own typed tag decodes the original bytes with `SmallOf::<Tag>::decode`, so
+/// nested duplicate keys and other shape rules are the tag type's, not lost in a `serde_json::Value`.
+/// Defaults, absent and null handling, the unknown-field policy and the serialised shape are one
+/// definition for every `A`.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "t", rename_all = "lowercase")]
-pub enum Small {
+pub enum SmallOf<A> {
     Text {
         id: String,
         text: String,
@@ -238,7 +242,7 @@ pub enum Small {
         parts: u32,
         /// A host's own tag on the batch, carried untouched.
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        agent: Option<serde_json::Value>,
+        agent: Option<A>,
     },
     /// One chunk of a batch's manifest, sent before its announce.
     Manifest {
@@ -248,14 +252,17 @@ pub enum Small {
     },
 }
 
-impl Small {
+/// The small item with its tag as raw JSON, as every earlier release carried it.
+pub type Small = SmallOf<serde_json::Value>;
+
+impl<A: Serialize + serde::de::DeserializeOwned> SmallOf<A> {
     pub fn encode(&self) -> Result<Vec<u8>, Error> {
         serde_json::to_vec(self).map_err(|e| Error::Internal {
             detail: e.to_string(),
         })
     }
 
-    pub fn decode(bytes: &[u8]) -> Option<Small> {
+    pub fn decode(bytes: &[u8]) -> Option<SmallOf<A>> {
         serde_json::from_slice(bytes).ok()
     }
 }

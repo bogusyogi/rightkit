@@ -1,26 +1,26 @@
 //! Pictures for the clipboard history: the conversions between what the clipboard holds (a
 //! registered PNG, or a DIB) and what the store keeps (a PNG), the 320-pixel thumbnail of the
 //! spec's section 3.2, and the pixels the strip draws. The picture codec is WIC, the same the
-//! screenshots use; files are the way in and out (the clipboard folder's `.tmp`), as in
-//! the screenshot code, so no stream plumbing is needed. Call `init_com` once on every thread that uses
-//! these.
+//! screenshots use. Clipboard payloads are converted in memory. Call `init_com` on the calling
+//! thread.
 
 use crate::model as clip;
-use std::fs;
 use std::os::windows::ffi::OsStrExt;
 use std::path::Path;
 use windows::Win32::Foundation::{E_FAIL, GENERIC_READ};
 use windows::Win32::Graphics::Imaging::{
     CLSID_WICImagingFactory, GUID_ContainerFormatPng, GUID_WICPixelFormat32bppBGRA,
-    GUID_WICPixelFormat32bppPBGRA, IWICBitmapFrameEncode, IWICImagingFactory, IWICPalette,
-    WICBitmapDitherTypeNone, WICBitmapEncoderNoCache, WICBitmapInterpolationModeFant,
+    GUID_WICPixelFormat32bppPBGRA, IWICBitmapDecoder, IWICBitmapFrameEncode, IWICImagingFactory,
+    IWICPalette, WICBitmapDitherTypeNone, WICBitmapEncoderNoCache, WICBitmapInterpolationModeFant,
     WICBitmapPaletteTypeCustom, WICDecodeMetadataCacheOnDemand, WICRect,
 };
 use windows::Win32::System::Com::StructuredStorage::IPropertyBag2;
 use windows::Win32::System::Com::{
     CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED, CoCreateInstance, CoInitializeEx, IStream,
+    STATFLAG_NONAME, STATSTG, STREAM_SEEK_SET,
 };
-use windows::core::{Error, IUnknown, Interface, PCWSTR};
+use windows::Win32::UI::Shell::SHCreateMemStream;
+use windows::core::{Error, IUnknown, PCWSTR};
 
 /// The longest side of a card's thumbnail (spec 3.2).
 pub const THUMB_SIDE: u32 = 320;
@@ -65,8 +65,45 @@ fn wide(path: &Path) -> Vec<u16> {
 /// scaled down (Fant) while it is read, so a huge image is never held whole.
 pub fn decode_file(path: &Path, max_side: Option<u32>) -> Option<Bitmap> {
     let name = wide(path);
-    // SAFETY: COM is initialised on this thread (`init_com`); every interface is released on
-    // drop, `name` outlives the calls and the pixel buffer is exactly `stride * height` long.
+    // SAFETY: the terminated name outlives this WIC call.
+    decode_first(max_side, |factory| unsafe {
+        factory.CreateDecoderFromFilename(
+            PCWSTR(name.as_ptr()),
+            None,
+            GENERIC_READ,
+            WICDecodeMetadataCacheOnDemand,
+        )
+    })
+}
+
+/// Decodes a stored clipboard image without writing a plaintext copy to disk.
+pub fn decode_png(png: &[u8], max_side: Option<u32>) -> Option<Bitmap> {
+    let (width, height) = png_size(png)?;
+    if png.len() > clip::IMAGE_MAX || width > clip::IMAGE_SIDE_MAX || height > clip::IMAGE_SIDE_MAX
+    {
+        return None;
+    }
+    if max_side.is_none() && u64::from(width) * u64::from(height) > DIB_PIXELS_MAX {
+        return None;
+    }
+    // SAFETY: the calling thread initialised COM. The stream copies the source bytes and
+    // remains alive throughout decoding.
+    let stream = unsafe { SHCreateMemStream(Some(png)) }?;
+    decode_first(max_side, |factory| unsafe {
+        factory.CreateDecoderFromStream(&stream, None, WICDecodeMetadataCacheOnDemand)
+    })
+}
+
+pub(crate) fn dibv5_from_png(png: &[u8]) -> Option<Vec<u8>> {
+    dibv5(&decode_png(png, None)?)
+}
+
+fn decode_first(
+    max_side: Option<u32>,
+    open: impl FnOnce(&IWICImagingFactory) -> Result<IWICBitmapDecoder, Error>,
+) -> Option<Bitmap> {
+    // SAFETY: COM is initialised on this thread. Interfaces are released on drop and each
+    // pixel buffer is exactly `stride * height` long.
     unsafe {
         let run = || -> Result<Bitmap, Error> {
             let factory: IWICImagingFactory = CoCreateInstance(
@@ -74,12 +111,7 @@ pub fn decode_file(path: &Path, max_side: Option<u32>) -> Option<Bitmap> {
                 None::<&IUnknown>,
                 CLSCTX_INPROC_SERVER,
             )?;
-            let decoder = factory.CreateDecoderFromFilename(
-                PCWSTR(name.as_ptr()),
-                None,
-                GENERIC_READ,
-                WICDecodeMetadataCacheOnDemand,
-            )?;
+            let decoder = open(&factory)?;
             let frame = decoder.GetFrame(0)?;
             let converter = factory.CreateFormatConverter()?;
             converter.Initialize(
@@ -186,37 +218,56 @@ pub fn decode_cover(path: &Path, side: u32) -> Option<Vec<u32>> {
 
 /// The picture as PNG bytes.
 pub fn encode_png(bitmap: &Bitmap) -> Option<Vec<u8>> {
-    let path = clip::tmp_file("png")?;
-    let name = wide(&path);
-    // SAFETY: as `decode_file`; the pixel slice is `width * height * 4` bytes.
-    let written = unsafe {
-        let run = || -> Result<(), Error> {
-            let factory: IWICImagingFactory = CoCreateInstance(
-                &CLSID_WICImagingFactory,
-                None::<&IUnknown>,
-                CLSCTX_INPROC_SERVER,
-            )?;
-            let stream = factory.CreateStream()?;
-            stream.InitializeFromFilename(PCWSTR(name.as_ptr()), 0x4000_0000)?; // GENERIC_WRITE
-            let istream: IStream = stream.cast()?;
+    // SAFETY: the frame is initialized and the slice is readable for the call.
+    encode_png_with(|_, frame| unsafe {
+        frame.SetSize(bitmap.width, bitmap.height)?;
+        let mut format = GUID_WICPixelFormat32bppBGRA;
+        frame.SetPixelFormat(&mut format)?;
+        frame.WritePixels(bitmap.height, bitmap.width * 4, &bitmap.bgra)
+    })
+    .ok()
+}
+
+fn encode_png_with(
+    write: impl FnOnce(&IWICImagingFactory, &IWICBitmapFrameEncode) -> Result<(), Error>,
+) -> Result<Vec<u8>, Error> {
+    // SAFETY: the calling thread initialised COM. Interfaces and initialized buffers
+    // remain alive through every call. Stat provides the stream's logical byte count.
+    unsafe {
+        let factory: IWICImagingFactory = CoCreateInstance(
+            &CLSID_WICImagingFactory,
+            None::<&IUnknown>,
+            CLSCTX_INPROC_SERVER,
+        )?;
+        let stream: IStream = SHCreateMemStream(None).ok_or_else(|| Error::from(E_FAIL))?;
+        {
             let encoder = factory.CreateEncoder(&GUID_ContainerFormatPng, std::ptr::null())?;
-            encoder.Initialize(&istream, WICBitmapEncoderNoCache)?;
-            let mut frame: Option<IWICBitmapFrameEncode> = None;
+            encoder.Initialize(&stream, WICBitmapEncoderNoCache)?;
+            let mut frame = None;
             encoder.CreateNewFrame(&mut frame, std::ptr::null_mut())?;
             let frame = frame.ok_or_else(|| Error::from(E_FAIL))?;
             frame.Initialize(None::<&IPropertyBag2>)?;
-            frame.SetSize(bitmap.width, bitmap.height)?;
-            let mut format = GUID_WICPixelFormat32bppBGRA;
-            frame.SetPixelFormat(&mut format)?;
-            frame.WritePixels(bitmap.height, bitmap.width * 4, &bitmap.bgra)?;
+            write(&factory, &frame)?;
             frame.Commit()?;
-            encoder.Commit()
-        };
-        run()
-    };
-    let bytes = written.ok().and_then(|()| std::fs::read(&path).ok());
-    let _ = std::fs::remove_file(&path);
-    bytes
+            encoder.Commit()?;
+        }
+        let mut state = STATSTG::default();
+        stream.Stat(&mut state, STATFLAG_NONAME)?;
+        let size = usize::try_from(state.cbSize)
+            .ok()
+            .filter(|&size| size > 0 && size <= clip::IMAGE_MAX)
+            .ok_or_else(|| Error::from(E_FAIL))?;
+        let mut bytes = vec![0; size];
+        let mut read = 0;
+        stream.Seek(0, STREAM_SEEK_SET, None)?;
+        stream
+            .Read(bytes.as_mut_ptr().cast(), size as u32, Some(&mut read))
+            .ok()?;
+        if read as usize != size {
+            return Err(Error::from(E_FAIL));
+        }
+        Ok(bytes)
+    }
 }
 
 /// A card's thumbnail: the PNG file, scaled so its longest side is `THUMB_SIDE`, as PNG.
@@ -225,17 +276,39 @@ pub fn thumbnail(png: &Path) -> Option<Vec<u8>> {
     encode_png(&small)
 }
 
+pub(crate) fn thumbnail_png(png: &[u8]) -> Option<Vec<u8>> {
+    encode_png(&decode_png(png, Some(THUMB_SIDE))?)
+}
+
 /// A clipboard DIB (a `BITMAPINFOHEADER` or newer and the pixels) as PNG bytes.
 pub fn dib_to_png(dib: &[u8]) -> Option<Vec<u8>> {
     let bmp = bmp_file(dib)?;
-    let source = clip::tmp_file("bmp")?;
-    let target = clip::tmp_file("png")?;
-    let converted =
-        rightkit_fs::atomic_write(&source, &bmp).is_ok() && reencode_png(&source, &target);
-    let bytes = converted.then(|| std::fs::read(&target).ok()).flatten();
-    let _ = std::fs::remove_file(&source);
-    let _ = std::fs::remove_file(&target);
-    bytes
+    u32::try_from(bmp.len()).ok()?;
+    // SAFETY: COM is initialised, the source bytes are copied into the stream and
+    // the stream remains alive until the encoder finishes.
+    let converted = encode_png_with(|factory, output| unsafe {
+        let input = SHCreateMemStream(Some(&bmp)).ok_or_else(|| Error::from(E_FAIL))?;
+        let decoder =
+            factory.CreateDecoderFromStream(&input, None, WICDecodeMetadataCacheOnDemand)?;
+        let picture = decoder.GetFrame(0)?;
+        let (mut width, mut height) = (0, 0);
+        picture.GetSize(&mut width, &mut height)?;
+        if width == 0
+            || height == 0
+            || width > clip::IMAGE_SIDE_MAX
+            || height > clip::IMAGE_SIDE_MAX
+        {
+            return Err(Error::from(E_FAIL));
+        }
+        output.WriteSource(&picture, std::ptr::null())
+    });
+    match converted {
+        Ok(png) => Some(png),
+        Err(error) => {
+            crate::host::log_png_error(&error);
+            None
+        }
+    }
 }
 
 /// A DIB with the 14-byte file header put in front, so WIC can read it.
@@ -337,54 +410,4 @@ pub fn premultiplied(bitmap: &Bitmap) -> Vec<u32> {
             (alpha << 24) | (scale(p[2]) << 16) | (scale(p[1]) << 8) | scale(p[0])
         })
         .collect()
-}
-
-/// Writes the picture file `source` (a clipboard `.bmp`) again as a PNG at `target`. False
-/// when it could not be read or written; a partial `target` is removed.
-pub fn reencode_png(source: &Path, target: &Path) -> bool {
-    let wide = |path: &Path| -> Vec<u16> {
-        path.as_os_str()
-            .encode_wide()
-            .chain(std::iter::once(0))
-            .collect()
-    };
-    let (from, to) = (wide(source), wide(target));
-    // SAFETY: COM is initialised on this thread (the notch's UI thread); every interface is
-    // released on drop and both names outlive the calls.
-    let written = unsafe {
-        (|| -> Result<(), Error> {
-            let factory: IWICImagingFactory = CoCreateInstance(
-                &CLSID_WICImagingFactory,
-                None::<&IUnknown>,
-                CLSCTX_INPROC_SERVER,
-            )?;
-            let decoder = factory.CreateDecoderFromFilename(
-                PCWSTR(from.as_ptr()),
-                None,
-                GENERIC_READ,
-                WICDecodeMetadataCacheOnDemand,
-            )?;
-            let picture = decoder.GetFrame(0)?;
-            let stream = factory.CreateStream()?;
-            stream.InitializeFromFilename(PCWSTR(to.as_ptr()), 0x4000_0000)?; // GENERIC_WRITE
-            let istream: IStream = stream.cast()?;
-            let encoder = factory.CreateEncoder(&GUID_ContainerFormatPng, std::ptr::null())?;
-            encoder.Initialize(&istream, WICBitmapEncoderNoCache)?;
-            let mut frame: Option<IWICBitmapFrameEncode> = None;
-            encoder.CreateNewFrame(&mut frame, std::ptr::null_mut())?;
-            let frame = frame.ok_or_else(|| Error::from(E_FAIL))?;
-            frame.Initialize(None::<&IPropertyBag2>)?;
-            frame.WriteSource(&picture, std::ptr::null())?;
-            frame.Commit()?;
-            encoder.Commit()
-        })()
-    };
-    match written {
-        Ok(()) => true,
-        Err(error) => {
-            crate::host::log_info("clipboard_png_failed", &[("error", &error.message())]);
-            let _ = fs::remove_file(target);
-            false
-        }
-    }
 }

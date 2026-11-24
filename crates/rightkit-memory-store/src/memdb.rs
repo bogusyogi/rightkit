@@ -1005,12 +1005,7 @@ fn resolve_event_db_path(memory_path: &Path) -> PathBuf {
     if let Some(path) = crate::qa_env::event_db() {
         return PathBuf::from(path);
     }
-    let stem = memory_path
-        .file_stem()
-        .and_then(|value| value.to_str())
-        .filter(|value| !value.is_empty())
-        .unwrap_or("cortex");
-    memory_path.with_file_name(format!("{stem}.membrane-events.sqlite3"))
+    crate::db::event_db_path_for_memory(memory_path)
 }
 
 fn refuse_shared_event_file(memory_path: &Path, event_path: &Path) -> rusqlite::Result<()> {

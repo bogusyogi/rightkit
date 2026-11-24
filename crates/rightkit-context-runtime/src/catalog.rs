@@ -146,6 +146,14 @@ impl ContextCatalog {
     /// migrations. The path is recorded so health/output can echo it; the
     /// Cortex DB is never touched.
     pub fn open<P: AsRef<Path>>(path: P) -> rusqlite::Result<Self> {
+        Self::open_with_alternates(path, known_catalog_candidates)
+    }
+
+    /// Obtain alternate catalog paths once, after migration of the canonical store.
+    pub fn open_with_alternates<P: AsRef<Path>>(
+        path: P,
+        alternate_paths: impl FnOnce() -> Vec<PathBuf>,
+    ) -> rusqlite::Result<Self> {
         let path = path.as_ref().to_path_buf();
         if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
             std::fs::create_dir_all(parent).map_err(|e| {
@@ -162,7 +170,7 @@ impl ContextCatalog {
         options.durability = rightkit_db::DurabilityProfile::Full;
         let conn = options.open_writer().map_err(catalog_open_error)?;
         migrate(&conn)?;
-        let startup_report = startup_report(&conn, &path, &known_catalog_candidates(&path))?;
+        let startup_report = startup_report(&conn, &path, &alternate_paths())?;
         Ok(Self {
             conn: Arc::new(Mutex::new(conn)),
             path,
@@ -386,33 +394,33 @@ fn same_file(left: &Path, right: &Path) -> bool {
         }
 }
 
-fn known_catalog_candidates(canonical: &Path) -> Vec<PathBuf> {
-    let mut candidates = BTreeSet::new();
+fn known_catalog_candidates() -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
     if let Some(value) = crate::qa_env::catalog() {
         let path = PathBuf::from(value);
         if path.is_absolute() {
-            candidates.insert(path);
+            candidates.push(path);
         }
     }
     if let Some(value) = crate::qa_env::context_home() {
         let path = PathBuf::from(value);
         if path.is_absolute() {
-            candidates.insert(path.join("catalog.db"));
+            candidates.push(path.join("catalog.db"));
         }
     }
     if let Some(value) = crate::qa_env::cortex_db() {
         let path = PathBuf::from(value);
         if path.is_absolute() {
             if let Some(parent) = path.parent() {
-                candidates.insert(parent.join("catalog.db"));
+                candidates.push(parent.join("catalog.db"));
             }
         }
     }
     if let Some(value) = crate::qa_env::workspace_root() {
         let path = PathBuf::from(value);
         if path.is_absolute() {
-            candidates.insert(path.join("catalog.db"));
-            candidates.insert(path.join("tools/.cache/memory/catalog.db"));
+            candidates.push(path.join("catalog.db"));
+            candidates.push(path.join("tools/.cache/memory/catalog.db"));
         }
     }
     for value in [std::env::var_os("HOME"), std::env::var_os("USERPROFILE")]
@@ -421,13 +429,10 @@ fn known_catalog_candidates(canonical: &Path) -> Vec<PathBuf> {
     {
         let path = PathBuf::from(value);
         if path.is_absolute() {
-            candidates.insert(path.join(".claude/membrane/catalog.db"));
+            candidates.push(path.join(".claude/membrane/catalog.db"));
         }
     }
     candidates
-        .into_iter()
-        .filter(|path| !same_file(path, canonical))
-        .collect()
 }
 
 fn inventory_catalog_alternates(
@@ -438,12 +443,31 @@ fn inventory_catalog_alternates(
     let mut seen = BTreeSet::new();
     let mut alternates = Vec::new();
     for path in candidates {
-        if !path.is_absolute()
-            || same_file(path, canonical)
-            || !path.is_file()
-            || !seen.insert(path.clone())
-        {
+        if !path.is_absolute() || same_file(path, canonical) || !seen.insert(path.clone()) {
             continue;
+        }
+        match std::fs::metadata(path) {
+            Ok(metadata) if !metadata.is_file() => continue,
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory
+                ) =>
+            {
+                continue;
+            }
+            Err(error) => {
+                alternates.push(CatalogAlternate {
+                    path: path.clone(),
+                    status: "unavailable".to_owned(),
+                    schema_version: None,
+                    catalog_installation_id: None,
+                    duplicate_catalog_identity: false,
+                    reason: Some(format!("read_metadata: {error}")),
+                });
+                continue;
+            }
+            Ok(_) => {}
         }
         let alternate = match rightkit_db::open_read_only(path) {
             Ok(conn) => match rightkit_db::user_version(&conn).map_err(catalog_open_error) {
@@ -727,7 +751,7 @@ fn is_expired(grant: &ScopeGrant) -> bool {
 
 /// Request-scoped read avoids waiting on another caller's catalog mutex or
 /// running catalog migrations inside a federation deadline.
-pub(crate) fn lookup_grant_until(
+pub fn lookup_grant_until(
     path: &Path,
     id: &str,
     deadline: rightkit_context_federation::deadline::Deadline,
@@ -740,26 +764,31 @@ pub(crate) fn lookup_grant_until(
             Ok(remaining.min(std::time::Duration::from_secs(5)))
         }
     };
-    remaining()?;
     // Request-scoped busy wait: the read-only open itself honors the remaining deadline.
     let mut options = rightkit_db::DbOptions::new(path);
     options.busy_timeout = remaining()?;
     let conn = options
         .open_read_only()
         .map_err(|error| error.to_string())?;
+    let refresh_busy_timeout = || {
+        conn.busy_timeout(remaining()?)
+            .map_err(|error| error.to_string())
+    };
+    refresh_busy_timeout()?;
     conn.pragma_update(None, "query_only", "ON")
         .map_err(|error| error.to_string())?;
+    refresh_busy_timeout()?;
     let schema_version = rightkit_db::user_version(&conn)
         .map_err(catalog_open_error)
         .map_err(|error| error.to_string())?;
     if schema_version != CATALOG_SCHEMA_VERSION {
         return Err("catalog schema version unavailable for read-only grant lookup".to_owned());
     }
+    refresh_busy_timeout()?;
     let mut stmt = conn
         .prepare("SELECT * FROM scope_grants WHERE id = ?1")
         .map_err(|error| error.to_string())?;
-    conn.busy_timeout(remaining()?)
-        .map_err(|error| error.to_string())?;
+    refresh_busy_timeout()?;
     let result = stmt.query_row([id], grant_from_row).optional();
     remaining()?;
     let mut grant = result.map_err(|error| error.to_string())?;
@@ -1008,10 +1037,11 @@ fn insert_pending_pull_publication_sql(
     )? > 0)
 }
 
-/// Control-aware Pull publication recording. The resident catalog mutex and
-/// SQLite busy wait are both bounded by request control. A transaction keeps
-/// an insert out of the catalog when cancellation arrives before commit.
-pub(crate) fn record_pending_pull_publication_with_control(
+/// Record a pending publication with fresh SQLite busy-wait budgets for begin, insert
+/// and commit. Check cancellation while waiting for the mutex and at commit admission.
+/// A successful commit is authoritative. Actual elapsed time depends on SQLite and OS
+/// scheduling. An I/O failure requires reconciliation against durable state.
+pub fn record_pending_pull_publication_with_control(
     catalog: &ContextCatalog,
     publication: &PendingPullPublicationV1,
     control: &crate::serve::PushRequestControl,
@@ -1020,13 +1050,18 @@ pub(crate) fn record_pending_pull_publication_with_control(
         return Err("invalid pending pull publication".to_owned());
     }
     let ready = || {
+        let remaining = control.deadline.remaining_at(std::time::Instant::now());
         if control.cancellation.is_cancelled() {
             Err("pull request cancelled during catalog publication".to_owned())
-        } else if control.deadline.is_exhausted_at(std::time::Instant::now()) {
+        } else if remaining.is_zero() {
             Err("pull request deadline exhausted during catalog publication".to_owned())
         } else {
-            Ok(control.deadline.remaining_at(std::time::Instant::now()))
+            Ok(remaining)
         }
+    };
+    let set_wait = |conn: &Connection| -> Result<(), String> {
+        conn.busy_timeout(ready()?.min(std::time::Duration::from_millis(25)))
+            .map_err(|error| error.to_string())
     };
 
     let mut conn = loop {
@@ -1042,43 +1077,18 @@ pub(crate) fn record_pending_pull_publication_with_control(
     let installation_id = catalog.startup_report.catalog_installation_id.clone();
 
     loop {
-        let remaining = ready()?;
-        // Use short busy-handler slices so cancellation is observed while a
-        // different SQLite connection holds the database write lock. Restore
-        // the catalog's normal timeout after each attempt.
-        conn.busy_timeout(remaining.min(std::time::Duration::from_millis(25)))
-            .map_err(|error| error.to_string())?;
-        let attempt = {
-            match conn.transaction() {
-                Err(error) => Err(error.to_string()),
-                Ok(tx) => {
-                    if let Err(error) = ready() {
-                        drop(tx);
-                        Err(error)
-                    } else {
-                        let result =
-                            insert_pending_pull_publication_sql(&tx, &installation_id, publication)
-                                .map_err(|error| error.to_string());
-                        match result {
-                            Ok(changed) => match ready() {
-                                Ok(_) => tx
-                                    .commit()
-                                    .map(|()| changed)
-                                    .map_err(|error| error.to_string()),
-                                Err(error) => {
-                                    drop(tx);
-                                    Err(error)
-                                }
-                            },
-                            Err(error) => {
-                                drop(tx);
-                                Err(error)
-                            }
-                        }
-                    }
-                }
-            }
-        };
+        let attempt = (|| {
+            set_wait(&conn)?;
+            let tx = conn.transaction().map_err(|error| error.to_string())?;
+            set_wait(&tx)?;
+            let changed = insert_pending_pull_publication_sql(&tx, &installation_id, publication)
+                .map_err(|error| error.to_string())?;
+            // Cancellation observed here drops the transaction. Once COMMIT begins,
+            // its result is authoritative even if cancellation arrives during the write.
+            set_wait(&tx)?;
+            tx.commit().map_err(|error| error.to_string())?;
+            Ok::<bool, String>(changed)
+        })();
         conn.busy_timeout(std::time::Duration::from_secs(5))
             .map_err(|error| error.to_string())?;
         match attempt {
@@ -1130,7 +1140,7 @@ pub fn has_pending_pull_publication(
 /// Resolve one server-issued pending-publication id within this installation.
 /// This is content-free bridge lookup only; it neither accepts an
 /// acknowledgement nor changes suppression eligibility.
-pub(crate) fn pending_pull_publication(
+pub fn pending_pull_publication(
     catalog: &ContextCatalog,
     publication_id: &str,
 ) -> rusqlite::Result<Option<PendingPullPublicationV1>> {

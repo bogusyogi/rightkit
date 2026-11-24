@@ -89,7 +89,8 @@ pub fn record_observable_event(
     record_observable_event_at_path(event, now_unix_ms, &path)
 }
 
-fn record_observable_event_at_path(
+/// Record an observable event in the caller-selected SQLite database.
+pub fn record_observable_event_at_path(
     event: &ObservableEventV1,
     now_unix_ms: u64,
     path: &Path,
@@ -173,7 +174,7 @@ fn resolve_default_path() -> PathBuf {
     }
     if let Some(path) = crate::qa_env::memory_db() {
         let memory_path = PathBuf::from(path);
-        return derive_event_path(&memory_path);
+        return event_db_path_for_memory(&memory_path);
     }
     // Final fallback: an in-memory database is unusable across processes,
     // but it keeps the function total when no env var is configured (the
@@ -181,11 +182,17 @@ fn resolve_default_path() -> PathBuf {
     PathBuf::from(":memory:")
 }
 
-fn derive_event_path(memory_path: &Path) -> PathBuf {
+/// Derive the companion event database filename for a memory database.
+pub(crate) fn event_db_path_for_memory(memory_path: &Path) -> PathBuf {
+    companion_db_path(memory_path, "cortex", ".membrane-events.sqlite3")
+}
+
+/// Derive a sibling filename using host-selected naming constants.
+pub fn companion_db_path(memory_path: &Path, fallback_stem: &str, suffix: &str) -> PathBuf {
     let stem = memory_path
         .file_stem()
         .and_then(|value| value.to_str())
         .filter(|value| !value.is_empty())
-        .unwrap_or("cortex");
-    memory_path.with_file_name(format!("{stem}.membrane-events.sqlite3"))
+        .unwrap_or(fallback_stem);
+    memory_path.with_file_name(format!("{stem}{suffix}"))
 }

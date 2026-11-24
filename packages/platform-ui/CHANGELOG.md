@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.4
+
+- Additive. New subpath exports `./qr` (`qrMatrix(text)`, `qrSvgPath(matrix)`: a byte-mode QR encoder, error correction M, versions 1 to 20) and `./countdown` (`secondsLeft(expiresAt, now)`, `formatCountdown(seconds)`: neutral countdown clamps). Standalone entries: they pull in no native detection and no UI dependency. Moved from the copies in `@rightkit/agent-ui-approvals` and Pulse.
+
 ## 0.4.2
 
 Additive. Moved from `@rightkit/dictation-ui`, which is being removed.

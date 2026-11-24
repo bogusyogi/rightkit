@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.4
+
+- Add `create_message_only_window_with_title(class_name, title) -> Result<isize, MessageOnlyWindowError>` (`InvalidClassName`, `InvalidTitle`, `CreateFailed(win32_code)`, `Unavailable` off Windows): a message-only window with a caller-chosen title that keeps the native error code. `create_message_only_window` is built on it and returns the same errors as before.
+
 ## 0.2.3
 
 - **`FullScreenProbe::require_borderless`** (additive field, default `false`: today's behaviour). `windows::foreground_fullscreen_on` then counts only a foreground window without a caption and without a sizing border (`style_is_borderless`), measured by its DWM frame bounds (`DWMWA_EXTENDED_FRAME_BOUNDS`, falling back to `GetWindowRect`). A maximised ordinary window on a monitor without a taskbar no longer counts. The shell notification state still applies: a presentation counts, an exclusive Direct3D or Store-app full-screen counts when the window covers the monitor whatever its style, and `QUNS_BUSY` adds nothing beyond the borderless test. Downstream struct literals of `FullScreenProbe` must add the field (`..Default::default()` needs nothing).

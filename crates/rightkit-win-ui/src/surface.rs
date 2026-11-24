@@ -111,6 +111,44 @@ impl Surface {
             self.pixels_mut().copy_from_slice(&canvas.pixels);
         }
     }
+
+    /// Publishes this premultiplied BGRA surface to a layered window. The window takes the
+    /// surface's size. A position moves it to that screen point in the same call.
+    pub fn present(
+        &self,
+        hwnd: HWND,
+        position: Option<(i32, i32)>,
+        alpha: u8,
+    ) -> Result<(), Error> {
+        let size = SIZE {
+            cx: self.width as i32,
+            cy: self.height as i32,
+        };
+        let source = POINT { x: 0, y: 0 };
+        let destination = position.map(|(x, y)| POINT { x, y });
+        let destination_ptr: Option<*const POINT> = destination.as_ref().map(|p| p as *const POINT);
+        let blend = BLENDFUNCTION {
+            BlendOp: 0, // AC_SRC_OVER
+            BlendFlags: 0,
+            SourceConstantAlpha: alpha,
+            AlphaFormat: 1, // AC_SRC_ALPHA: the bitmap carries premultiplied alpha
+        };
+        // SAFETY: all pointers refer to locals that outlive the synchronous call; the source DC
+        // holds the DIB just filled.
+        unsafe {
+            UpdateLayeredWindow(
+                hwnd,
+                None,
+                destination_ptr,
+                Some(&size),
+                Some(self.dc()),
+                Some(&source),
+                COLORREF(0),
+                Some(&blend),
+                ULW_ALPHA,
+            )
+        }
+    }
 }
 
 impl Drop for Surface {
@@ -152,51 +190,30 @@ pub fn present(hwnd: HWND, canvas: &Canvas, position: Option<(i32, i32)>) -> Res
             cache[index].1 = Surface::new(canvas.width, canvas.height)
                 .ok_or_else(|| Error::from(windows::Win32::Foundation::E_FAIL))?;
         }
-        present_with(hwnd, canvas, position, &mut cache[index].1)
+        let surface = &mut cache[index].1;
+        surface.copy_from(canvas);
+        surface.present(hwnd, position, 255)
     })
+}
+
+/// Publishes a canvas with constant opacity over its per-pixel alpha. The temporary
+/// surface is released after the call.
+pub fn present_with_alpha(
+    hwnd: HWND,
+    canvas: &Canvas,
+    position: Option<(i32, i32)>,
+    alpha: u8,
+) -> Result<(), Error> {
+    let mut surface = Surface::new(canvas.width, canvas.height)
+        .ok_or_else(|| Error::from(windows::Win32::Foundation::E_FAIL))?;
+    surface.copy_from(canvas);
+    surface.present(hwnd, position, alpha)
 }
 
 thread_local! {
     /// One surface per window that was presented to, kept between frames (a DC and a DIB per
     /// frame was most of the cost of a moving notch). Single-threaded: `Surface` is not `Send`.
     static PRESENT_SURFACES: RefCell<Vec<(isize, Surface)>> = const { RefCell::new(Vec::new()) };
-}
-
-fn present_with(
-    hwnd: HWND,
-    canvas: &Canvas,
-    position: Option<(i32, i32)>,
-    surface: &mut Surface,
-) -> Result<(), Error> {
-    surface.copy_from(canvas);
-    let size = SIZE {
-        cx: canvas.width as i32,
-        cy: canvas.height as i32,
-    };
-    let source = POINT { x: 0, y: 0 };
-    let destination = position.map(|(x, y)| POINT { x, y });
-    let destination_ptr: Option<*const POINT> = destination.as_ref().map(|p| p as *const POINT);
-    let blend = BLENDFUNCTION {
-        BlendOp: 0, // AC_SRC_OVER
-        BlendFlags: 0,
-        SourceConstantAlpha: 255,
-        AlphaFormat: 1, // AC_SRC_ALPHA: the bitmap carries premultiplied alpha
-    };
-    // SAFETY: all pointers refer to locals that outlive the synchronous call; the source DC
-    // holds the DIB just filled.
-    unsafe {
-        UpdateLayeredWindow(
-            hwnd,
-            None,
-            destination_ptr,
-            Some(&size),
-            Some(surface.dc()),
-            Some(&source),
-            COLORREF(0),
-            Some(&blend),
-            ULW_ALPHA,
-        )
-    }
 }
 
 /// Widths kept by `measure` before the cache starts over (a card's frames ask for the same

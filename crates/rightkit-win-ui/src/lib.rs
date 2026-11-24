@@ -21,3 +21,6 @@ pub mod raii;
 pub mod surface;
 #[cfg(windows)]
 pub mod text_layout;
+
+#[cfg(all(windows, feature = "wic"))]
+pub mod wic;

@@ -440,7 +440,7 @@ pub struct WindowBuild<'a> {
     /// At most [`MAX_TITLE_LEN`] bytes, no NUL.
     pub title: &'a str,
     /// App-relative route starting with `/` (for example `/?view=splash`), at most
-    /// [`MAX_ROUTE_LEN`] bytes, no scheme, no backslash, no NUL.
+    /// [`MAX_ROUTE_LEN`] bytes, no authority, scheme, backslash or control characters.
     pub route: &'a str,
     /// Logical pixels; each side finite, above 0 and at most [`MAX_WINDOW_DIMENSION`].
     pub inner_size: (f64, f64),
@@ -463,12 +463,27 @@ pub struct WindowBuild<'a> {
     pub always_on_top: Option<bool>,
 }
 
+/// Native options that must be set before the webview is created. Omitted options
+/// retain the shared builder's defaults.
+#[derive(Debug, Clone, Default)]
+pub struct NativeWindowOptions {
+    /// Whether the OS should draw window decorations.
+    pub decorations: Option<bool>,
+    /// macOS title bar style.
+    pub title_bar_style: Option<tauri::TitleBarStyle>,
+    /// Whether to hide the macOS title text.
+    pub hidden_title: Option<bool>,
+    /// How the webview runs when the window is hidden or occluded.
+    pub background_throttling: Option<tauri::utils::config::BackgroundThrottlingPolicy>,
+}
+
 fn route_ok(route: &str) -> bool {
     route.starts_with('/')
+        && !route.starts_with("//")
         && route.len() <= MAX_ROUTE_LEN
         && !route.contains("://")
         && !route.contains('\\')
-        && !route.contains('\0')
+        && !route.chars().any(char::is_control)
 }
 
 fn size_ok((w, h): (f64, f64)) -> bool {
@@ -488,6 +503,17 @@ fn size_ok((w, h): (f64, f64)) -> bool {
 pub fn build_window<R: Runtime>(
     app: &AppHandle<R>,
     spec: &WindowBuild<'_>,
+    sink: EventSink,
+) -> Result<WebviewWindow<R>, String> {
+    build_window_with_native_options(app, spec, NativeWindowOptions::default(), sink)
+}
+
+/// Set native options before building a window with the same validation, hidden construction,
+/// and guarded reveal as [`build_window`].
+pub fn build_window_with_native_options<R: Runtime>(
+    app: &AppHandle<R>,
+    spec: &WindowBuild<'_>,
+    native: NativeWindowOptions,
     sink: EventSink,
 ) -> Result<WebviewWindow<R>, String> {
     if crate::windows::safe_label(spec.label).as_deref() != Some(spec.label) {
@@ -535,6 +561,21 @@ pub fn build_window<R: Runtime>(
     }
     if let Some(value) = spec.skip_taskbar {
         builder = builder.skip_taskbar(value);
+    }
+    if let Some(value) = native.decorations {
+        builder = builder.decorations(value);
+    }
+    #[cfg(target_os = "macos")]
+    {
+        if let Some(value) = native.title_bar_style {
+            builder = builder.title_bar_style(value);
+        }
+        if let Some(value) = native.hidden_title {
+            builder = builder.hidden_title(value);
+        }
+    }
+    if let Some(value) = native.background_throttling {
+        builder = builder.background_throttling(value);
     }
     // `windows::builder` builds hidden; nothing here asks the builder to show the window.
     let win = builder.build().map_err(|err| err.to_string())?;

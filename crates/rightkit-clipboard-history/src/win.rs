@@ -293,12 +293,14 @@ pub fn set_bytes(_open: &Open, format: u32, bytes: &[u8]) -> bool {
 }
 
 pub fn set_text(open: &Open, text: &str) -> bool {
-    let bytes: Vec<u8> = std::ffi::OsStr::new(text)
-        .encode_wide()
-        .chain(std::iter::once(0))
-        .flat_map(u16::to_le_bytes)
-        .collect();
-    set_bytes(open, CF_UNICODETEXT, &bytes)
+    let Some(formats) = rightkit_automation::win::clipboard_text::eager_text_formats(text) else {
+        return false;
+    };
+    let mut complete = true;
+    for (format, bytes) in formats {
+        complete &= set_bytes(open, format, &bytes);
+    }
+    complete
 }
 
 pub fn set_dword(open: &Open, format: u32, value: u32) -> bool {
@@ -326,13 +328,6 @@ pub fn hdrop_bytes(paths: &[String]) -> Vec<u8> {
 /// A file list as `CF_HDROP`.
 pub fn set_paths(open: &Open, paths: &[String]) -> bool {
     set_bytes(open, CF_HDROP, &hdrop_bytes(paths))
-}
-
-/// Deletes the copies a card drag made for other apps (the host's drag folder under the temp directory): what was dragged
-/// out is not kept once the history lets go of it. A drag still in the air has its file already
-/// handed over; a later one makes its copy again.
-pub fn clear_drag_copies() {
-    let _ = std::fs::remove_dir_all(std::env::temp_dir().join(crate::host::drag_copy_dir()));
 }
 
 /// A movable block of global memory holding `bytes`, for a data object's medium; the receiver

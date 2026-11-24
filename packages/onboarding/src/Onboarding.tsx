@@ -3,7 +3,7 @@ import { LegalGate } from "@rightkit/legal-ui";
 import { Button } from "@rightkit/react-shell/react";
 import { cx } from "./ui.js";
 import { licenseStep, modelsStep, permissionsStep, signInStep } from "./steps.js";
-import type { EligibilityBasis, LegalAcceptanceRecord, LegalGateDocument, LegalStepConfig, OnboardingLabels, OnboardingProps, OnboardingResult, OnboardingStep, OnboardingStepContext, PersistedOnboardingState, SettingsBackend } from "./types.js";
+import type { EligibilityBasis, LegalAcceptanceRecord, LegalGateDocument, LegalStepConfig, OnboardingLabels, OnboardingProps, OnboardingResult, OnboardingStep, OnboardingStepContext, PersistedOnboardingState, SettingsBackend, SettingsValues } from "./types.js";
 
 const KEY = "onboarding.state";
 const INITIAL: PersistedOnboardingState = { version: 1, currentStep: 0, completed: [], skipped: false, legalAccepted: false };
@@ -107,17 +107,48 @@ export function isStepSettled(state: unknown, stepId: string): boolean {
 }
 
 /**
- * Restarts the setup at its first step ("Show onboarding again"). The setup progress (completed and skipped steps, the
- * set-aside flag) is cleared, but the legal acceptance is kept: the agreement is not asked again, and `legal` stays
- * completed. Reads the stored value first, so the rest of the settings are untouched.
+ * Restarts setup at its first step while keeping its legal receipt.
+ *
+ * Hosts with a separate flow draft can update that draft in the same patch. The
+ * `existingProgress` variant keeps fields it doesn't reset and leaves absent
+ * progress absent. It also allows going to a step without clearing its history.
  */
-export async function restartOnboardingSetup({ settings }: { settings: SettingsBackend }): Promise<void> {
+export async function restartOnboardingSetup({
+  settings,
+  existingProgress,
+  alongside = {},
+}: {
+  settings: SettingsBackend;
+  existingProgress?: { firstStep: number; resetStepProgress: boolean };
+  alongside?: SettingsValues;
+}): Promise<void> {
   const key = onboardingStateKey();
   const snapshot = await settings.load();
-  const state = readState(snapshot.values[key]);
-  await settings.patch({
-    [key]: { ...state, currentStep: 0, skipped: false, skippedSteps: [], completed: state.completed.filter((id) => id === "legal") },
-  }, snapshot.revision);
+  const saved = snapshot.values[key];
+  if (!existingProgress) {
+    const state = readState(saved);
+    await settings.patch({
+      ...alongside,
+      [key]: {
+        ...state,
+        currentStep: 0,
+        skipped: false,
+        skippedSteps: [],
+        completed: state.completed.filter((id) => id === "legal"),
+      },
+    }, snapshot.revision);
+    return;
+  }
+  const patch = { ...alongside };
+  if (saved && typeof saved === "object" && !Array.isArray(saved)) {
+    patch[key] = {
+      ...saved,
+      currentStep: existingProgress.firstStep,
+      skipped: false,
+      ...(existingProgress.resetStepProgress ? { completed: [], skippedSteps: [] } : {}),
+    };
+  }
+  if (Object.keys(patch).length > 0) await settings.patch(patch, snapshot.revision);
 }
 
 /** FNV-1a fallback when SubtleCrypto is unavailable. */

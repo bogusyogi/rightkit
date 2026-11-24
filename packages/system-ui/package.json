@@ -1,6 +1,6 @@
 {
   "name": "@rightkit/system-ui",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "System views (storage, cleanup, duplicates, drive health, apps, activity) and chart helpers for desktop utility apps, over typed clients the host supplies.",
   "license": "MIT OR Apache-2.0",
   "type": "module",
@@ -45,7 +45,23 @@
       "types": "./dist/tauri/index.d.ts",
       "import": "./dist/tauri/index.js"
     },
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./chartGeometry": {
+      "types": "./dist/chartGeometry.d.ts",
+      "import": "./dist/chartGeometry.js"
+    },
+    "./duplicateReview": {
+      "types": "./dist/duplicateReview.d.ts",
+      "import": "./dist/duplicateReview.js"
+    },
+    "./healthReadings": {
+      "types": "./dist/healthReadings.d.ts",
+      "import": "./dist/healthReadings.js"
+    },
+    "./activityTimeline": {
+      "types": "./dist/activityTimeline.d.ts",
+      "import": "./dist/activityTimeline.js"
+    }
   },
   "files": [
     "dist",

@@ -244,3 +244,93 @@ impl TextPainter {
         out
     }
 }
+
+/// Whether `text` has more after the lines shown so far (each counted with its line break).
+fn has_more(text: &str, shown: &[String]) -> bool {
+    let joined: usize = shown.iter().map(|line| line.chars().count() + 1).sum();
+    text.chars().count() > joined
+}
+
+/// `text` broken into at most `lines` lines for which `fits` holds, keeping the layout the
+/// text has: line breaks start a new line, a tab is four spaces, leading spaces are
+/// indentation and stay, and a space is never collapsed. A word for which `fits` fails alone
+/// is broken where it stops fitting (a piece is at least one character). Only the first
+/// `lines * char_budget` characters are looked at, and a text cut by a limit ends in an
+/// ellipsis on its last line. A carriage return stays in the line it ends.
+///
+/// `fits` is the host's own measure of a candidate line (its font, its width), so any painter
+/// can use it. Cost is bounded by the budget, never by the length of `text`. The result has at
+/// least one entry.
+pub fn wrap_preserving(
+    text: &str,
+    lines: usize,
+    char_budget: usize,
+    mut fits: impl FnMut(&str) -> bool,
+) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let mut cut = false;
+    let limit = lines.saturating_mul(char_budget);
+    let text: String = text.chars().take(limit).collect();
+    'paragraphs: for paragraph in text.replace('\t', "    ").split('\n') {
+        let mut current = String::new();
+        let body = paragraph.trim_start_matches(' ');
+        let indent = " ".repeat(paragraph.len() - body.len());
+        for (n, word) in body.split(' ').enumerate() {
+            let word = &if n == 0 {
+                format!("{indent}{word}")
+            } else {
+                word.to_string()
+            };
+            let candidate = if current.is_empty() {
+                word.to_string()
+            } else {
+                format!("{current} {word}")
+            };
+            if fits(&candidate) {
+                current = candidate;
+                continue;
+            }
+            if !current.is_empty() {
+                out.push(std::mem::take(&mut current));
+                if out.len() >= lines {
+                    cut = true;
+                    break 'paragraphs;
+                }
+            }
+            let mut piece = String::new();
+            for c in word.chars() {
+                piece.push(c);
+                if !fits(&piece) && piece.chars().count() > 1 {
+                    piece.pop();
+                    out.push(std::mem::take(&mut piece));
+                    piece.push(c);
+                    if out.len() >= lines {
+                        cut = true;
+                        break 'paragraphs;
+                    }
+                }
+            }
+            current = piece;
+        }
+        out.push(current);
+        if out.len() >= lines {
+            cut = out.len() > lines || has_more(&text, &out);
+            out.truncate(lines);
+            break;
+        }
+    }
+    if out.len() > lines {
+        out.truncate(lines);
+        cut = true;
+    }
+    if cut && let Some(last) = out.last_mut() {
+        while last.chars().count() > 1 && !fits(&format!("{last}{ELLIPSIS}")) {
+            last.pop();
+        }
+        last.push(ELLIPSIS);
+    }
+    if out.is_empty() {
+        out.push(String::new());
+    }
+    out
+}

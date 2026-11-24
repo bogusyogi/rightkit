@@ -223,16 +223,3 @@ pub fn write(path: &Path, bytes: &[u8]) -> bool {
     };
     rightkit_fs::atomic_write(path, &out).is_ok()
 }
-
-/// Runs `f` on a plain copy of `bytes` in the store's `.tmp` folder, for the decoders that take a
-/// path. The copy is removed afterwards.
-pub fn with_plain_file<R>(bytes: &[u8], extension: &str, f: impl FnOnce(&Path) -> R) -> Option<R> {
-    let path = crate::model::tmp_file(extension)?;
-    if fs::write(&path, bytes).is_err() {
-        let _ = fs::remove_file(&path);
-        return None;
-    }
-    let out = f(&path);
-    let _ = fs::remove_file(&path);
-    Some(out)
-}

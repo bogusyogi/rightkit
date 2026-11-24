@@ -109,35 +109,28 @@ pub trait Host: Send + Sync + 'static {
         None
     }
 
-    /// The card size the user chose: `small`, `medium`, `large` or empty for medium.
-    fn card_size(&self) -> String {
-        String::new()
-    }
-
-    /// Where the strip opens: `notch`, `bottom` or empty for the notch.
-    fn placement(&self) -> String {
-        String::new()
-    }
-
-    /// The strip's hot key in the clipboard spec's grammar; empty for the default.
-    fn hotkey_text(&self) -> String {
-        String::new()
-    }
-
-    /// The notch under `point` (screen pixels), when the strip can come out of one.
-    #[cfg(windows)]
-    fn notch_spot_at(&self, _point: (i32, i32)) -> Option<crate::strip::NotchSpot> {
-        None
-    }
-
-    /// Wakes the application's window thread (the hub's counts follow).
-    fn wake_ui(&self) {}
-
-    /// Opens the launcher in its clipboard mode.
-    fn open_launcher_clip(&self) {}
-
     /// The copy burst's dots or its hover preview changed: the notch redraws.
     fn burst_changed(&self) {}
+
+    /// Whether the native clipboard reader may read the desktop session. Fixture copies
+    /// supplied explicitly by the app are independent of this permission.
+    #[cfg(windows)]
+    fn capture_reads_enabled(&self) -> bool {
+        true
+    }
+
+    /// Records a native clipboard operation failure. Keeps the structured Windows error
+    /// available to host diagnostics. The default preserves the informational log.
+    #[cfg(windows)]
+    fn log_win32_error(&self, op: &str, error: &windows::core::Error, ctx: &str) {
+        self.log_info(ctx, &[("operation", op), ("error", &error.message())]);
+    }
+
+    /// Records a WIC PNG re-encode failure. The default keeps the existing log event.
+    #[cfg(windows)]
+    fn log_png_error(&self, error: &windows::core::Error) {
+        self.log_info("clipboard_png_failed", &[("error", &error.message())]);
+    }
 
     /// Records an informational event with `fields`. Never called with clipboard content.
     fn log_info(&self, _event: &str, _fields: &[(&str, &str)]) {}
@@ -229,7 +222,21 @@ pub(crate) fn excluded_apps() -> Vec<String> {
 
 #[cfg(windows)]
 pub(crate) fn log_error(op: &str, error: &windows::core::Error, ctx: &str) {
-    log_info(ctx, &[("operation", op), ("error", &error.message())]);
+    if let Some(host) = HOST.get() {
+        host.log_win32_error(op, error, ctx);
+    }
+}
+
+#[cfg(windows)]
+pub(crate) fn log_png_error(error: &windows::core::Error) {
+    if let Some(host) = HOST.get() {
+        host.log_png_error(error);
+    }
+}
+
+#[cfg(windows)]
+pub(crate) fn capture_reads_enabled() -> bool {
+    HOST.get().is_none_or(|host| host.capture_reads_enabled())
 }
 
 #[cfg(windows)]
@@ -293,42 +300,6 @@ pub fn tf(key: &str, args: &[&str]) -> String {
     }
     out.push_str(rest);
     out
-}
-
-#[cfg(windows)]
-pub(crate) fn card_size() -> String {
-    HOST.get().map(|host| host.card_size()).unwrap_or_default()
-}
-
-#[cfg(windows)]
-pub(crate) fn placement() -> String {
-    HOST.get().map(|host| host.placement()).unwrap_or_default()
-}
-
-#[cfg(windows)]
-pub(crate) fn hotkey_text() -> String {
-    HOST.get()
-        .map(|host| host.hotkey_text())
-        .unwrap_or_default()
-}
-
-#[cfg(windows)]
-pub(crate) fn notch_spot_at(point: (i32, i32)) -> Option<crate::strip::NotchSpot> {
-    HOST.get()?.notch_spot_at(point)
-}
-
-#[cfg(windows)]
-pub(crate) fn wake_ui() {
-    if let Some(host) = HOST.get() {
-        host.wake_ui();
-    }
-}
-
-#[cfg(windows)]
-pub(crate) fn open_launcher_clip() {
-    if let Some(host) = HOST.get() {
-        host.open_launcher_clip();
-    }
 }
 
 #[cfg(windows)]

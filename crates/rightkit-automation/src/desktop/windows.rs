@@ -10,8 +10,9 @@ use std::{
 };
 
 use crate::win::{send_input_batch, RawInput};
-use windows_sys::Win32::Foundation::{CloseHandle, GlobalFree, HWND, LPARAM, LRESULT, WPARAM};
-use windows_sys::Win32::Globalization::{GetThreadLocale, WideCharToMultiByte};
+use windows_sys::Win32::Foundation::{
+    CloseHandle, GlobalFree, HGLOBAL, HWND, LPARAM, LRESULT, WPARAM,
+};
 use windows_sys::Win32::Graphics::Gdi::{
     CopyEnhMetaFileW, DeleteEnhMetaFile, DeleteObject, HBITMAP, HENHMETAFILE,
 };
@@ -560,14 +561,6 @@ struct OwnedBitmap(HBITMAP);
 // mutated; the wrapper keeps deletion/transfer explicit at each boundary.
 unsafe impl Send for OwnedBitmap {}
 
-impl OwnedBitmap {
-    fn into_raw(mut self) -> HBITMAP {
-        let raw = self.0;
-        self.0 = null_mut();
-        raw
-    }
-}
-
 impl Drop for OwnedBitmap {
     fn drop(&mut self) {
         unsafe {
@@ -583,14 +576,6 @@ struct OwnedEnhMetaFile(HENHMETAFILE);
 // Same ownership rule as `OwnedBitmap`: the copy is private to the snapshot
 // and only touched by whichever delivery thread currently holds it.
 unsafe impl Send for OwnedEnhMetaFile {}
-
-impl OwnedEnhMetaFile {
-    fn into_raw(mut self) -> HENHMETAFILE {
-        let raw = self.0;
-        self.0 = null_mut();
-        raw
-    }
-}
 
 impl Drop for OwnedEnhMetaFile {
     fn drop(&mut self) {
@@ -813,64 +798,178 @@ pub fn snapshot_general_clipboard() -> Option<ClipboardSnapshot> {
     }
 }
 
+/// Result of trying to replace one Windows clipboard generation.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ClipboardReplaceOutcome {
+    /// All requested formats were transferred to Windows. The sequence was read under the guard.
+    Written(u32),
+    /// Another writer changed the sequence before any mutation.
+    Changed,
+    /// Win32 could not prepare handles, open the clipboard or empty it. Nothing was written.
+    Unavailable,
+    /// The snapshot could not represent every prior format. Nothing was written.
+    LossySnapshot,
+    /// Windows accepted only part of the replacement. The sequence was read under the guard.
+    /// A retry must still compare it under an open clipboard before replacing anything.
+    Partial(u32),
+}
+
+/// Restore a complete snapshot without consuming it, so callers can retain the original
+/// through contention or a partial write. A retry starts from an empty clipboard again.
+pub fn try_restore_general_clipboard_if_unchanged(
+    snapshot: &ClipboardSnapshot,
+    expected_sequence: u32,
+) -> ClipboardReplaceOutcome {
+    if !snapshot.is_lossless() || (!snapshot.empty && snapshot.format_count() == 0) {
+        return ClipboardReplaceOutcome::LossySnapshot;
+    }
+    replace_with_snapshot(snapshot, expected_sequence)
+}
+
 /// Restore every prior clipboard format only if the app's temporary
 /// transcript is still current. Newer clipboard writes always win.
 pub fn restore_general_clipboard_if_unchanged(
-    mut snapshot: ClipboardSnapshot,
+    snapshot: ClipboardSnapshot,
     expected_sequence: u32,
 ) -> bool {
-    unsafe {
-        if OpenClipboard(null_mut::<c_void>() as HWND) == 0 {
+    match try_restore_general_clipboard_if_unchanged(&snapshot, expected_sequence) {
+        ClipboardReplaceOutcome::Written(_) => true,
+        ClipboardReplaceOutcome::LossySnapshot => {
+            // Preserve the older entry point's partial recovery of a lossy snapshot.
+            let _ = replace_with_snapshot(&snapshot, expected_sequence);
+            false
+        }
+        _ => false,
+    }
+}
+
+fn replace_with_snapshot(
+    snapshot: &ClipboardSnapshot,
+    expected_sequence: u32,
+) -> ClipboardReplaceOutcome {
+    let Some(formats) = prepare_snapshot(snapshot) else {
+        return ClipboardReplaceOutcome::Unavailable;
+    };
+    replace_prepared_clipboard(formats, Some(expected_sequence))
+}
+
+fn prepare_snapshot(snapshot: &ClipboardSnapshot) -> Option<Vec<PreparedFormat>> {
+    let mut formats = Vec::with_capacity(snapshot.format_count());
+    for (format, bytes) in &snapshot.formats {
+        formats.push(PreparedFormat::from_bytes(*format, bytes)?);
+    }
+    for bitmap in &snapshot.bitmaps {
+        // SAFETY: the snapshot still owns bitmap; CopyImage creates a separate DDB.
+        let copy = unsafe { CopyImage(bitmap.0, IMAGE_BITMAP, 0, 0, 0) } as HBITMAP;
+        if copy.is_null() {
+            return None;
+        }
+        formats.push(PreparedFormat::Bitmap(OwnedBitmap(copy)));
+    }
+    for metafile in &snapshot.metafiles {
+        // SAFETY: the snapshot still owns metafile; a null path requests an in-memory copy.
+        let copy = unsafe { CopyEnhMetaFileW(metafile.0, std::ptr::null()) };
+        if copy.is_null() {
+            return None;
+        }
+        formats.push(PreparedFormat::Metafile(OwnedEnhMetaFile(copy)));
+    }
+    Some(formats)
+}
+
+struct OwnedGlobal(HGLOBAL);
+
+impl Drop for OwnedGlobal {
+    fn drop(&mut self) {
+        if !self.0.is_null() {
+            // SAFETY: this handle still belongs to the prepared format.
+            unsafe { GlobalFree(self.0) };
+        }
+    }
+}
+
+enum PreparedFormat {
+    Bytes(u32, OwnedGlobal),
+    Bitmap(OwnedBitmap),
+    Metafile(OwnedEnhMetaFile),
+}
+
+impl PreparedFormat {
+    fn from_bytes(format: u32, bytes: &[u8]) -> Option<Self> {
+        // SAFETY: allocate a movable block of the exact byte size. The owner frees it on failure.
+        let memory = OwnedGlobal(unsafe { GlobalAlloc(GMEM_MOVEABLE, bytes.len()) });
+        if memory.0.is_null() {
+            return None;
+        }
+        let target = unsafe { GlobalLock(memory.0) }.cast::<u8>();
+        if target.is_null() {
+            return None;
+        }
+        // SAFETY: the locked block holds bytes.len() bytes and does not overlap the source.
+        unsafe {
+            std::ptr::copy_nonoverlapping(bytes.as_ptr(), target, bytes.len());
+            GlobalUnlock(memory.0);
+        }
+        Some(Self::Bytes(format, memory))
+    }
+
+    fn publish(mut self, _open: &ExclusiveClipboard) -> bool {
+        let (format, handle) = match &mut self {
+            Self::Bytes(format, memory) => (*format, &mut memory.0),
+            Self::Bitmap(bitmap) => (CF_BITMAP, &mut bitmap.0),
+            Self::Metafile(metafile) => (CF_ENHMETAFILE, &mut metafile.0),
+        };
+        // SAFETY: _open holds the clipboard on this thread and the handle matches the format.
+        if unsafe { SetClipboardData(format, *handle) }.is_null() {
             return false;
         }
-        if GetClipboardSequenceNumber() != expected_sequence {
-            CloseClipboard();
-            return false;
+        *handle = null_mut();
+        true
+    }
+}
+
+struct ExclusiveClipboard;
+
+impl ExclusiveClipboard {
+    fn acquire() -> Option<Self> {
+        // SAFETY: this is an eager write. Pair a successful open with CloseClipboard in Drop.
+        if unsafe { OpenClipboard(null_mut()) } != 0 {
+            Some(Self)
+        } else {
+            None
         }
-        if EmptyClipboard() == 0 {
-            CloseClipboard();
-            return false;
-        }
-        // A snapshot that dropped formats cannot honestly claim a full
-        // restore; surface the failure even though the captured subset is
-        // still put back.
-        let mut restored =
-            snapshot.empty || (snapshot.is_lossless() && snapshot.format_count() > 0);
-        for (format, bytes) in &snapshot.formats {
-            let handle = GlobalAlloc(GMEM_MOVEABLE, bytes.len());
-            if handle.is_null() {
-                restored = false;
-                continue;
-            }
-            let locked = GlobalLock(handle) as *mut u8;
-            if locked.is_null() {
-                GlobalFree(handle);
-                restored = false;
-                continue;
-            }
-            std::ptr::copy_nonoverlapping(bytes.as_ptr(), locked, bytes.len());
-            GlobalUnlock(handle);
-            if SetClipboardData(*format, handle).is_null() {
-                GlobalFree(handle);
-                restored = false;
-            }
-        }
-        for bitmap in snapshot.bitmaps.drain(..) {
-            let bitmap = bitmap.into_raw();
-            if SetClipboardData(2, bitmap as _).is_null() {
-                DeleteObject(bitmap);
-                restored = false;
-            }
-        }
-        for metafile in snapshot.metafiles.drain(..) {
-            let metafile = metafile.into_raw();
-            if SetClipboardData(CF_ENHMETAFILE, metafile as _).is_null() {
-                DeleteEnhMetaFile(metafile);
-                restored = false;
-            }
-        }
-        CloseClipboard();
-        restored
+    }
+}
+
+impl Drop for ExclusiveClipboard {
+    fn drop(&mut self) {
+        // SAFETY: this guard was created only after a successful open on this thread.
+        unsafe { CloseClipboard() };
+    }
+}
+
+fn replace_prepared_clipboard(
+    formats: Vec<PreparedFormat>,
+    expected_sequence: Option<u32>,
+) -> ClipboardReplaceOutcome {
+    let Some(open) = ExclusiveClipboard::acquire() else {
+        return ClipboardReplaceOutcome::Unavailable;
+    };
+    // SAFETY: reads the sequence and empties only while the clipboard is exclusively open.
+    if expected_sequence.is_some_and(|expected| unsafe { GetClipboardSequenceNumber() } != expected)
+    {
+        return ClipboardReplaceOutcome::Changed;
+    }
+    if unsafe { EmptyClipboard() } == 0 {
+        return ClipboardReplaceOutcome::Unavailable;
+    }
+    let complete = formats.into_iter().all(|format| format.publish(&open));
+    // Capture this mutation while no other process can write.
+    let sequence = unsafe { GetClipboardSequenceNumber() };
+    if complete {
+        ClipboardReplaceOutcome::Written(sequence)
+    } else {
+        ClipboardReplaceOutcome::Partial(sequence)
     }
 }
 
@@ -878,171 +977,21 @@ fn write_clipboard_text_guarded(
     text: &str,
     expected_sequence: Option<u32>,
 ) -> Result<u32, ClipboardWriteFailure> {
-    let mut wide: Vec<u16> = text.encode_utf16().collect();
-    wide.push(0);
-    let byte_len = wide.len() * size_of::<u16>();
-    let ansi = clipboard_multibyte_bytes(&wide, 0)?;
-    let oem = clipboard_multibyte_bytes(&wide, 1)?;
-    let locale = unsafe { GetThreadLocale() }.to_ne_bytes().to_vec();
-
-    unsafe {
-        if OpenClipboard(std::ptr::null_mut::<std::ffi::c_void>() as HWND) == 0 {
-            return Err(ClipboardWriteFailure {
-                restore_sequence: None,
-            });
-        }
-        if expected_sequence.is_some_and(|expected| GetClipboardSequenceNumber() != expected) {
-            CloseClipboard();
-            return Err(ClipboardWriteFailure {
-                restore_sequence: None,
-            });
-        }
-
-        let handle = GlobalAlloc(GMEM_MOVEABLE, byte_len);
-        let ansi_handle = GlobalAlloc(GMEM_MOVEABLE, ansi.len());
-        let oem_handle = GlobalAlloc(GMEM_MOVEABLE, oem.len());
-        let locale_handle = GlobalAlloc(GMEM_MOVEABLE, locale.len());
-        if handle.is_null()
-            || ansi_handle.is_null()
-            || oem_handle.is_null()
-            || locale_handle.is_null()
-        {
-            if !handle.is_null() {
-                GlobalFree(handle);
-            }
-            if !ansi_handle.is_null() {
-                GlobalFree(ansi_handle);
-            }
-            if !oem_handle.is_null() {
-                GlobalFree(oem_handle);
-            }
-            if !locale_handle.is_null() {
-                GlobalFree(locale_handle);
-            }
-            CloseClipboard();
-            return Err(ClipboardWriteFailure {
-                restore_sequence: None,
-            });
-        }
-
-        let locked = GlobalLock(handle) as *mut u16;
-        let ansi_locked = GlobalLock(ansi_handle) as *mut u8;
-        let oem_locked = GlobalLock(oem_handle) as *mut u8;
-        let locale_locked = GlobalLock(locale_handle) as *mut u8;
-        if locked.is_null()
-            || ansi_locked.is_null()
-            || oem_locked.is_null()
-            || locale_locked.is_null()
-        {
-            if !locked.is_null() {
-                GlobalUnlock(handle);
-            }
-            if !ansi_locked.is_null() {
-                GlobalUnlock(ansi_handle);
-            }
-            if !oem_locked.is_null() {
-                GlobalUnlock(oem_handle);
-            }
-            if !locale_locked.is_null() {
-                GlobalUnlock(locale_handle);
-            }
-            GlobalFree(handle);
-            GlobalFree(ansi_handle);
-            GlobalFree(oem_handle);
-            GlobalFree(locale_handle);
-            CloseClipboard();
-            return Err(ClipboardWriteFailure {
-                restore_sequence: None,
-            });
-        }
-
-        std::ptr::copy_nonoverlapping(wide.as_ptr(), locked, wide.len());
-        GlobalUnlock(handle);
-        std::ptr::copy_nonoverlapping(ansi.as_ptr(), ansi_locked, ansi.len());
-        GlobalUnlock(ansi_handle);
-        std::ptr::copy_nonoverlapping(oem.as_ptr(), oem_locked, oem.len());
-        GlobalUnlock(oem_handle);
-        std::ptr::copy_nonoverlapping(locale.as_ptr(), locale_locked, locale.len());
-        GlobalUnlock(locale_handle);
-        if EmptyClipboard() == 0 {
-            // The caller still owns an uncommitted movable block until
-            // SetClipboardData succeeds.
-            GlobalFree(handle);
-            GlobalFree(ansi_handle);
-            GlobalFree(oem_handle);
-            GlobalFree(locale_handle);
-            CloseClipboard();
-            return Err(ClipboardWriteFailure {
-                restore_sequence: None,
-            });
-        }
-
-        // Publish all common text formats while clipboard is open. If these
-        // were omitted, CloseClipboard lets Windows synthesize them and bump
-        // sequence after staging; every handle transfers ownership separately.
-        let formats = [CF_UNICODETEXT as u32, 1, 7, 16];
-        let mut handles = [handle, ansi_handle, oem_handle, locale_handle];
-        for (index, format) in formats.into_iter().enumerate() {
-            if SetClipboardData(format, handles[index]).is_null() {
-                let restore_sequence = GetClipboardSequenceNumber();
-                for pending in handles.iter().skip(index) {
-                    if !pending.is_null() {
-                        GlobalFree(*pending);
-                    }
-                }
-                CloseClipboard();
-                return Err(ClipboardWriteFailure {
-                    restore_sequence: Some(restore_sequence),
-                });
-            }
-            handles[index] = std::ptr::null_mut();
-        }
-        let transcript_sequence = GetClipboardSequenceNumber();
-        CloseClipboard();
-        Ok(transcript_sequence)
-    }
-}
-
-fn clipboard_multibyte_bytes(
-    wide: &[u16],
-    codepage: u32,
-) -> Result<Vec<u8>, ClipboardWriteFailure> {
-    let required = unsafe {
-        WideCharToMultiByte(
-            codepage,
-            0,
-            wide.as_ptr(),
-            -1,
-            std::ptr::null_mut(),
-            0,
-            std::ptr::null(),
-            std::ptr::null_mut(),
-        )
+    let fail = ClipboardWriteFailure {
+        restore_sequence: None,
     };
-    if required <= 0 {
-        return Err(ClipboardWriteFailure {
-            restore_sequence: None,
-        });
-    }
-    let mut bytes = vec![0u8; required as usize];
-    let written = unsafe {
-        WideCharToMultiByte(
-            codepage,
-            0,
-            wide.as_ptr(),
-            -1,
-            bytes.as_mut_ptr(),
-            required,
-            std::ptr::null(),
-            std::ptr::null_mut(),
-        )
-    };
-    if written == required {
-        Ok(bytes)
-    } else {
-        Err(ClipboardWriteFailure {
-            restore_sequence: None,
-        })
+    let eager = crate::win::clipboard_text::eager_text_formats(text).ok_or(fail)?;
+    let formats = eager
+        .iter()
+        .map(|(format, bytes)| PreparedFormat::from_bytes(*format, bytes))
+        .collect::<Option<Vec<_>>>()
+        .ok_or(fail)?;
+    match replace_prepared_clipboard(formats, expected_sequence) {
+        ClipboardReplaceOutcome::Written(sequence) => Ok(sequence),
+        ClipboardReplaceOutcome::Partial(sequence) => Err(ClipboardWriteFailure {
+            restore_sequence: Some(sequence),
+        }),
+        _ => Err(fail),
     }
 }
 

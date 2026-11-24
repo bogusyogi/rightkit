@@ -3,6 +3,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen as tauriListen } from "@tauri-apps/api/event";
 import type {
+  ActivityPageReply,
   ActivityTimeline,
   AppDetail,
   AppEntry,
@@ -115,6 +116,7 @@ export function tauriSystemClient(): SystemClient {
     storageInspect: (path) => invoke<Inspect>("storage_inspect", { path }),
     storagePreview: (path) => invoke<ArrayBuffer>("storage_preview", { path }),
     driveHealth: (mounts) => invoke<HealthReport>("drive_health", { mounts }),
+    activityPage: (limit, cursor) => invoke<ActivityPageReply>("activity_page", { limit, cursor }),
     activityTimeline: (limit, before) => invoke<ActivityTimeline>("activity_timeline", { limit, before }),
     homePath: () => invoke<string>("home_path"),
     duplicatesScan: (path) => invoke<DuplicateReport>("duplicates_scan", { path }),

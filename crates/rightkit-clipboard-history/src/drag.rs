@@ -1,10 +1,7 @@
 //! Drag of a card out of the strip (spec 7.11.1): OLE `DoDragDrop` over a data object and a drop
-//! source written here by hand, as raw vtables, because the `windows` crate's `implement`
-//! macro needs `windows-core` named in `windows/Cargo.toml` (it is in the lockfile already, as
-//! the crate's own dependency). What a card carries: text, links, colours and code as text;
-//! rich text as HTML, RTF and text; an image as a PNG, a `CF_DIBV5` and a file promise (a copy
-//! named `Clipboard <date> <time>.png` in `the host's drag folder under the temp directory`, which is emptied the next time
-//! the strip starts); a file item as its paths (`CF_HDROP`).
+//! source. Text, links, colours and code travel as text;
+//! rich text as HTML, RTF and text; images as PNG, `CF_DIBV5`, and a Shell virtual file
+//! named `Clipboard <date> <time>.png`. Actual file items carry their paths (`CF_HDROP`).
 //!
 //! The drop source also finds a drop on the strip's own board tabs and cards (the screen
 //! rectangles it is given) and cancels the drag there: the strip then does the move itself, so
@@ -18,7 +15,15 @@ use std::sync::Mutex;
 use std::sync::PoisonError;
 use std::sync::atomic::{AtomicU32, Ordering};
 use windows::Win32::Foundation::POINT;
+use windows::Win32::Storage::FileSystem::FILE_ATTRIBUTE_NORMAL;
+use windows::Win32::System::Com::STREAM_SEEK_END;
+use windows::Win32::System::DataExchange::RegisterClipboardFormatW;
+use windows::Win32::UI::Shell::{
+    CFSTR_FILECONTENTS, CFSTR_FILEDESCRIPTORW, FD_ATTRIBUTES, FD_FILESIZE, FD_UNICODE,
+    FILEDESCRIPTORW, FILEGROUPDESCRIPTORW, SHCreateMemStream,
+};
 use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
+use windows::core::Interface;
 
 type Hresult = i32;
 
@@ -28,6 +33,9 @@ const E_NOTIMPL: Hresult = 0x8000_4001u32 as i32;
 const E_POINTER: Hresult = 0x8000_4003u32 as i32;
 const E_OUTOFMEMORY: Hresult = 0x8007_000Eu32 as i32;
 const DV_E_FORMATETC: Hresult = 0x8004_0064u32 as i32;
+const DV_E_DVTARGETDEVICE: Hresult = 0x8004_0065u32 as i32;
+const DV_E_DVASPECT: Hresult = 0x8004_006Bu32 as i32;
+const DV_E_LINDEX: Hresult = 0x8004_0068u32 as i32;
 const DV_E_TYMED: Hresult = 0x8004_0069u32 as i32;
 const OLE_E_ADVISENOTSUPPORTED: Hresult = 0x8004_0003u32 as i32;
 const DATA_S_SAMEFORMATETC: Hresult = 0x0004_0130;
@@ -35,6 +43,7 @@ const DRAGDROP_S_DROP: Hresult = 0x0004_0100;
 const DRAGDROP_S_CANCEL: Hresult = 0x0004_0101;
 const DRAGDROP_S_USEDEFAULTCURSORS: Hresult = 0x0004_0102;
 const TYMED_HGLOBAL: u32 = 1;
+const TYMED_ISTREAM: u32 = 4;
 const DVASPECT_CONTENT: u32 = 1;
 const DATADIR_GET: u32 = 1;
 const DROPEFFECT_COPY: u32 = 1;
@@ -79,7 +88,7 @@ struct FormatEtc {
     medium: u32,
 }
 
-/// `STGMEDIUM`, for `TYMED_HGLOBAL` only.
+/// The HGLOBAL and IStream forms of `STGMEDIUM`.
 #[repr(C)]
 struct StgMedium {
     medium: u32,
@@ -91,6 +100,7 @@ struct StgMedium {
 #[link(name = "ole32")]
 unsafe extern "system" {
     fn OleInitialize(reserved: *mut c_void) -> i32;
+    fn OleUninitialize();
     fn DoDragDrop(data: *mut c_void, source: *mut c_void, allowed: u32, effect: *mut u32) -> i32;
 }
 
@@ -103,7 +113,7 @@ unsafe extern "system" {
 /// What a drag carries and where it may land inside the strip (screen rectangles as
 /// `left, top, right, bottom`).
 pub struct Drag {
-    pub formats: Vec<(u32, Vec<u8>)>,
+    pub formats: Formats,
     /// The board tabs, History and Pinned, by id (`history`, `pinned`, a board's id).
     pub tabs: Vec<([i32; 4], String)>,
     /// The cards of a board view, by index.
@@ -122,34 +132,69 @@ pub struct Outcome {
     pub accepted: bool,
 }
 
-/// Targets of the drag in progress, and where it ended on one of them.
-type TabTargets = Vec<([i32; 4], String)>;
-type CardTargets = Vec<([i32; 4], usize)>;
-static TARGETS: Mutex<(TabTargets, CardTargets)> = Mutex::new((Vec::new(), Vec::new()));
-static LANDED: Mutex<Option<Landing>> = Mutex::new(None);
-
-/// Makes the calling thread an OLE one once per process; a no-op after the first call. For a
-/// drag that carries no strip items (a host's file drag), which never empties the folder.
-pub fn ole_init() {
-    static ONCE: std::sync::Once = std::sync::Once::new();
-    ONCE.call_once(|| {
-        // SAFETY: OLE initialisation of the calling (UI) thread, which keeps its apartment.
-        unsafe {
-            OleInitialize(std::ptr::null_mut());
-        }
-    });
-}
-
-/// Makes the thread an OLE one, and empties the folder the last run left file promises in.
-pub(super) fn init() {
-    // SAFETY: OLE initialisation of the calling thread, which keeps its apartment for life.
-    unsafe {
-        OleInitialize(std::ptr::null_mut());
-    }
-    let _ = std::fs::remove_dir_all(std::env::temp_dir().join(crate::host::drag_copy_dir()));
-}
-
 // ---- what a card carries ------------------------------------------------------------------
+
+/// Formats advertised by one drag. Images may include a memory-backed file.
+pub struct Formats {
+    entries: Vec<(u32, Vec<u8>)>,
+    virtual_png: Option<VirtualPng>,
+}
+
+impl From<Vec<(u32, Vec<u8>)>> for Formats {
+    fn from(entries: Vec<(u32, Vec<u8>)>) -> Self {
+        Self {
+            entries,
+            virtual_png: None,
+        }
+    }
+}
+
+/// The format IDs for the indexed file contents & the same bytes as a direct PNG.
+struct VirtualPng {
+    contents: u16,
+    png: u16,
+}
+
+fn virtual_png(png_format: u32, size: usize) -> Option<(u32, Vec<u8>, VirtualPng)> {
+    let size = u32::try_from(size).ok()?;
+    // SAFETY: the Windows constants point to static NUL-terminated strings.
+    let (descriptor, contents) = unsafe {
+        (
+            RegisterClipboardFormatW(CFSTR_FILEDESCRIPTORW),
+            RegisterClipboardFormatW(CFSTR_FILECONTENTS),
+        )
+    };
+    if descriptor == 0 || contents == 0 || png_format == 0 {
+        return None;
+    }
+    let mut group = vec![0; std::mem::size_of::<FILEGROUPDESCRIPTORW>()];
+    group[..4].copy_from_slice(&1u32.to_le_bytes());
+    // Serialize fields into the zeroed Windows layout, including any ABI padding.
+    let start = std::mem::offset_of!(FILEGROUPDESCRIPTORW, fgd);
+    let mut set_u32 = |offset: usize, value: u32| {
+        group[start + offset..start + offset + 4].copy_from_slice(&value.to_le_bytes());
+    };
+    set_u32(
+        std::mem::offset_of!(FILEDESCRIPTORW, dwFlags),
+        (FD_ATTRIBUTES.0 | FD_FILESIZE.0 | FD_UNICODE.0) as u32,
+    );
+    set_u32(
+        std::mem::offset_of!(FILEDESCRIPTORW, dwFileAttributes),
+        FILE_ATTRIBUTE_NORMAL.0,
+    );
+    set_u32(std::mem::offset_of!(FILEDESCRIPTORW, nFileSizeLow), size);
+    let name = utf16z(&format!("Clipboard {}.png", stamp()));
+    let name_start = start + std::mem::offset_of!(FILEDESCRIPTORW, cFileName);
+    group[name_start..name_start + name.len()].copy_from_slice(&name);
+    Some((
+        descriptor,
+        group,
+        VirtualPng {
+            contents: contents as u16,
+            png: png_format as u16,
+        },
+    ))
+}
 
 fn utf16z(text: &str) -> Vec<u8> {
     text.encode_utf16()
@@ -159,10 +204,11 @@ fn utf16z(text: &str) -> Vec<u8> {
 }
 
 /// The formats `item` is dragged as, or `None` when it cannot be read.
-pub(super) fn formats_for(item: &Item) -> Option<Vec<(u32, Vec<u8>)>> {
+pub fn formats_for(item: &Item) -> Option<Formats> {
     let payload = clip::with(|store| store.payload(&item.id))?;
     let f = win::formats();
     let mut out: Vec<(u32, Vec<u8>)> = Vec::new();
+    let mut virtual_file = None;
     match item.kind {
         Kind::File => {
             if payload.paths.is_empty() {
@@ -173,12 +219,11 @@ pub(super) fn formats_for(item: &Item) -> Option<Vec<(u32, Vec<u8>)>> {
         Kind::Image => {
             let path = payload.png.as_ref()?;
             let png = crate::seal::read(path)?;
-            if let Some(file) = promise_file(&png) {
-                out.push((win::CF_HDROP, win::hdrop_bytes(&[file])));
+            if let Some((descriptor, group, file)) = virtual_png(f.png, png.len()) {
+                out.push((descriptor, group));
+                virtual_file = Some(file);
             }
-            if let Some(bitmap) = clip_img::decode_file(path, None)
-                && let Some(dib) = clip_img::dibv5(&bitmap)
-            {
+            if let Some(dib) = clip_img::dibv5_from_png(&png) {
                 out.push((win::CF_DIBV5, dib));
             }
             out.push((f.png, png));
@@ -194,17 +239,10 @@ pub(super) fn formats_for(item: &Item) -> Option<Vec<(u32, Vec<u8>)>> {
         }
         _ => out.push((win::CF_UNICODETEXT, utf16z(&payload.text))),
     }
-    (!out.is_empty()).then_some(out)
-}
-
-/// A copy of `png` in the promise folder, named for the moment: its path.
-fn promise_file(png: &[u8]) -> Option<String> {
-    let dir = std::env::temp_dir().join(crate::host::drag_copy_dir());
-    std::fs::create_dir_all(&dir).ok()?;
-    let name = format!("Clipboard {}.png", stamp());
-    let path = dir.join(name);
-    rightkit_fs::atomic_write(&path, png).ok()?;
-    Some(path.to_string_lossy().into_owned())
+    (!out.is_empty()).then_some(Formats {
+        entries: out,
+        virtual_png: virtual_file,
+    })
 }
 
 /// `2026-10-13 14.05.22`: the local date and time, with no character a file name refuses.
@@ -212,16 +250,7 @@ fn stamp() -> String {
     let offset = rightkit_win_ui::clock::local_offset_secs();
     let seconds = clip::now() as i64 + offset;
     let (days, rest) = (seconds.div_euclid(86_400), seconds.rem_euclid(86_400));
-    // Civil date from a day count (Howard Hinnant's algorithm).
-    let z = days + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = z.rem_euclid(146_097);
-    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let day = doy - (153 * mp + 2) / 5 + 1;
-    let month = if mp < 10 { mp + 3 } else { mp - 9 };
-    let year = yoe + era * 400 + i64::from(month <= 2);
+    let (year, month, day) = rightkit_time::civil_from_days(days);
     format!(
         "{year:04}-{month:02}-{day:02} {:02}.{:02}.{:02}",
         rest / 3600,
@@ -268,6 +297,7 @@ struct DataObject {
     vtbl: &'static DataVtbl,
     refs: AtomicU32,
     formats: Vec<(u16, Vec<u8>)>,
+    virtual_png: Option<VirtualPng>,
 }
 
 static DATA_VTBL: DataVtbl = DataVtbl {
@@ -324,13 +354,37 @@ unsafe extern "system" fn data_release(this: *mut DataObject) -> u32 {
     }
 }
 
-/// Whether the request is one the object can answer: the content aspect on global memory, of a
-/// format it holds.
-fn answers(object: &DataObject, format: &FormatEtc) -> Option<usize> {
-    if format.aspect != DVASPECT_CONTENT || format.medium & TYMED_HGLOBAL == 0 {
-        return None;
+/// Validates the same FORMATETC in GetData and QueryGetData and selects one medium.
+fn requested_data<'a>(
+    object: &'a DataObject,
+    format: &FormatEtc,
+) -> Result<(&'a [u8], u32), Hresult> {
+    if format.aspect != DVASPECT_CONTENT {
+        return Err(DV_E_DVASPECT);
     }
-    object.formats.iter().position(|(f, _)| *f == format.format)
+    if !format.device.is_null() {
+        return Err(DV_E_DVTARGETDEVICE);
+    }
+    let (kind, index, supported) = match &object.virtual_png {
+        Some(file) if file.contents == format.format => {
+            (file.png, 0, TYMED_ISTREAM | TYMED_HGLOBAL)
+        }
+        _ => (format.format, -1, TYMED_HGLOBAL),
+    };
+    let bytes = object
+        .formats
+        .iter()
+        .find(|(number, _)| *number == kind)
+        .map(|(_, bytes)| bytes.as_slice())
+        .ok_or(DV_E_FORMATETC)?;
+    if format.index != index {
+        return Err(DV_E_LINDEX);
+    }
+    match format.medium & supported {
+        mask if mask & TYMED_ISTREAM != 0 => Ok((bytes, TYMED_ISTREAM)),
+        mask if mask & TYMED_HGLOBAL != 0 => Ok((bytes, TYMED_HGLOBAL)),
+        _ => Err(DV_E_TYMED),
+    }
 }
 
 unsafe extern "system" fn data_get_data(
@@ -341,23 +395,31 @@ unsafe extern "system" fn data_get_data(
     if format.is_null() || medium.is_null() {
         return E_POINTER;
     }
-    // SAFETY: the pointers are the caller's; the block handed back is the caller's to free.
+    // SAFETY: the input and output are the caller's. Windows owns the returned medium.
     unsafe {
-        let (object, format) = (&*this, &*format);
-        let Some(at) = answers(object, format) else {
-            return if format.medium & TYMED_HGLOBAL == 0 {
-                DV_E_TYMED
-            } else {
-                DV_E_FORMATETC
-            };
+        let (bytes, kind) = match requested_data(&*this, &*format) {
+            Ok(data) => data,
+            Err(error) => return error,
         };
-        let memory = win::global_from(&object.formats[at].1);
-        if memory.is_null() {
+        let handle = if kind == TYMED_ISTREAM {
+            let Some(stream) = SHCreateMemStream(Some(bytes)) else {
+                return E_OUTOFMEMORY;
+            };
+            // GetData transfers bytes from zero through the returned cursor. This is a
+            // fresh stream for each request. A failed seek drops its reference here.
+            if let Err(error) = stream.Seek(0, STREAM_SEEK_END, None) {
+                return error.code().0;
+            }
+            stream.into_raw()
+        } else {
+            win::global_from(bytes)
+        };
+        if handle.is_null() {
             return E_OUTOFMEMORY;
         }
         *medium = StgMedium {
-            medium: TYMED_HGLOBAL,
-            handle: memory,
+            medium: kind,
+            handle,
             release: std::ptr::null_mut(),
         };
         S_OK
@@ -380,12 +442,7 @@ unsafe extern "system" fn data_query_get_data(
         return E_POINTER;
     }
     // SAFETY: the pointers are the caller's and valid for these reads.
-    let (object, format) = unsafe { (&*this, &*format) };
-    if answers(object, format).is_some() {
-        S_OK
-    } else {
-        DV_E_FORMATETC
-    }
+    requested_data(unsafe { &*this }, unsafe { &*format }).map_or_else(|error| error, |_| S_OK)
 }
 
 unsafe extern "system" fn data_canonical(
@@ -422,7 +479,8 @@ unsafe extern "system" fn data_enum_format(
     }
     // SAFETY: `this` is alive; the shell copies the list it is given.
     unsafe {
-        let list: Vec<FormatEtc> = (*this)
+        let object = &*this;
+        let mut list: Vec<FormatEtc> = object
             .formats
             .iter()
             .map(|(format, _)| FormatEtc {
@@ -433,6 +491,15 @@ unsafe extern "system" fn data_enum_format(
                 medium: TYMED_HGLOBAL,
             })
             .collect();
+        if let Some(file) = &object.virtual_png {
+            list.push(FormatEtc {
+                format: file.contents,
+                device: std::ptr::null_mut(),
+                aspect: DVASPECT_CONTENT,
+                index: 0,
+                medium: TYMED_ISTREAM | TYMED_HGLOBAL,
+            });
+        }
         SHCreateStdEnumFmtEtc(list.len() as u32, list.as_ptr(), out)
     }
 }
@@ -474,6 +541,9 @@ struct SourceVtbl {
 struct DropSource {
     vtbl: &'static SourceVtbl,
     refs: AtomicU32,
+    tabs: Vec<([i32; 4], String)>,
+    cards: Vec<([i32; 4], usize)>,
+    landing: Mutex<Option<Landing>>,
 }
 
 static SOURCE_VTBL: SourceVtbl = SourceVtbl {
@@ -528,7 +598,7 @@ fn within(rect: &[i32; 4], at: &POINT) -> bool {
 }
 
 unsafe extern "system" fn source_query_continue(
-    _this: *mut DropSource,
+    this: *mut DropSource,
     escape: i32,
     keys: u32,
 ) -> Hresult {
@@ -543,22 +613,25 @@ unsafe extern "system" fn source_query_continue(
     let mut at = POINT::default();
     // SAFETY: a plain query of the pointer.
     if unsafe { GetCursorPos(&mut at) }.is_ok() {
-        let targets = TARGETS.lock().unwrap_or_else(PoisonError::into_inner);
-        let landing = targets
-            .0
+        // SAFETY: OLE holds the source reference for this callback.
+        let source = unsafe { &*this };
+        let landing = source
+            .tabs
             .iter()
             .find(|(rect, _)| within(rect, &at))
             .map(|(_, id)| Landing::Tab(id.clone()))
             .or_else(|| {
-                targets
-                    .1
+                source
+                    .cards
                     .iter()
                     .find(|(rect, _)| within(rect, &at))
                     .map(|(_, index)| Landing::Card(*index))
             });
-        drop(targets);
         if let Some(landing) = landing {
-            *LANDED.lock().unwrap_or_else(PoisonError::into_inner) = Some(landing);
+            *source
+                .landing
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner) = Some(landing);
             return DRAGDROP_S_CANCEL;
         }
     }
@@ -571,12 +644,31 @@ unsafe extern "system" fn source_give_feedback(_this: *mut DropSource, _effect: 
 
 // ---- running a drag -----------------------------------------------------------------------
 
+struct OleApartment;
+
+impl Drop for OleApartment {
+    fn drop(&mut self) {
+        // SAFETY: balances the successful initialisation on this thread.
+        unsafe { OleUninitialize() };
+    }
+}
+
 /// Drags `carried` until the button is let go, and says where it landed.
 pub fn run(carried: Drag) -> Outcome {
-    *TARGETS.lock().unwrap_or_else(PoisonError::into_inner) = (carried.tabs, carried.cards);
-    *LANDED.lock().unwrap_or_else(PoisonError::into_inner) = None;
+    // SAFETY: the reserved pointer must be null.
+    let started = unsafe { OleInitialize(std::ptr::null_mut()) };
+    if started < 0 {
+        let error = windows::core::Error::from(windows::core::HRESULT(started));
+        crate::host::log_error("OleInitialize", &error, "clipboard_drag");
+        return Outcome {
+            landing: None,
+            accepted: false,
+        };
+    }
+    let _ole = OleApartment;
     let formats: Vec<(u16, Vec<u8>)> = carried
         .formats
+        .entries
         .into_iter()
         .map(|(format, bytes)| (format as u16, bytes))
         .collect();
@@ -584,26 +676,34 @@ pub fn run(carried: Drag) -> Outcome {
         vtbl: &DATA_VTBL,
         refs: AtomicU32::new(1),
         formats,
+        virtual_png: carried.formats.virtual_png,
     }));
     let source = Box::into_raw(Box::new(DropSource {
         vtbl: &SOURCE_VTBL,
         refs: AtomicU32::new(1),
+        tabs: carried.tabs,
+        cards: carried.cards,
+        landing: Mutex::new(None),
     }));
     let mut effect = 0u32;
     // SAFETY: both are COM objects with the vtables above, alive until released below; the
     // call runs its own message loop and returns when the drag ends.
-    let result = unsafe {
+    let (result, landing) = unsafe {
         let result = DoDragDrop(
             object.cast(),
             source.cast(),
             DROPEFFECT_COPY | DROPEFFECT_LINK,
             &mut effect,
         );
+        let landing = (*source)
+            .landing
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take();
         ((*object).vtbl.release)(object);
         ((*source).vtbl.release)(source);
-        result
+        (result, landing)
     };
-    let landing = LANDED.lock().unwrap_or_else(PoisonError::into_inner).take();
     Outcome {
         accepted: landing.is_none() && result == DRAGDROP_S_DROP && effect != 0,
         landing,
