@@ -7,6 +7,8 @@
 //! * Pure-Rust [`mic_align`] (NCC mic-to-camera lag) and [`room_fill`] (equal-power looped
 //!   room-tone fill).
 //! * WAV I/O ([`wav`]).
+//! * Echo reference and a model-free echo canceller ([`echo`]), so barge-in hears the speaker, not the agent.
+//! * Turn-taking ([`turn`]): end-of-turn decisions with a model-free silence fallback.
 //! * Live capture ([`capture`], feature `capture`) and Windows endpoint/power lifecycle ([`lifecycle`]).
 //! * Audio output (`playback`, feature `playback`): lock-free ring into a cpal output
 //!   stream with a latency-adjusted playback clock.
@@ -20,6 +22,7 @@ pub mod bus;
 pub mod capture;
 pub mod chain;
 pub mod ducking;
+pub mod echo;
 pub mod error;
 pub mod filter;
 #[cfg(feature = "capture")]
@@ -34,6 +37,7 @@ pub mod room_fill;
 pub mod room_tone;
 #[cfg(feature = "capture")]
 pub mod setup;
+pub mod turn;
 pub mod wav;
 
 pub use bus::{dialogue_bus_fragment, GraphFragment};

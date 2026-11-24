@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-audio"
-version = "0.4.1"
+version = "0.4.2"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Reusable audio primitives: typed FFmpeg filter graphs, loudness gates, room tone, ducking, WAV I/O, and cpal capture with resample/downmix/recovery."
@@ -167,3 +167,18 @@ file = "src/setup/calibration_session.rs"
 holds = ["memory"]
 scale = "one owned on-disk PCM file and a sample buffer bounded by sample rate times maximum capture length"
 release = "discard is attempted on every normal exit after reservation and before any resident restart; failures are reported and retained ownership evidence allows recovery once the process is confirmed dead"
+
+[[package.metadata.rightkit.resources]]
+api = "ReferenceTap"
+file = "src/echo.rs"
+holds = ["memory"]
+scale = "a 2 s mono 16 kHz history (128 KB) behind one mutex, plus one 1024-tap filter (4 KB) per EchoCanceller; fixed, independent of how much audio is played"
+release = "Drop"
+static_note = "reference_tap() is one OnceLock<ReferenceTap> (echo.rs): a single fixed-size ring, not a collection that grows; it holds no thread and no stream"
+
+[[package.metadata.rightkit.resources]]
+api = "TurnTracker"
+file = "src/turn.rs"
+holds = ["memory"]
+scale = "at most tail_secs (default 8 s) of 16 kHz mono f32 (512 KB) per tracker, plus the model a host gives it"
+release = "Drop"
