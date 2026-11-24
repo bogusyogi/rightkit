@@ -1793,11 +1793,13 @@
         "./host",
         "./metrics",
         "./package.json",
+        "./processHistory",
         "./styles.css",
         "./tauri",
         "./views/Storage",
         "./views/monitor.css",
-        "./visible"
+        "./visible",
+        "./visiblePoll"
       ],
       "closure": {
         "install": {
@@ -1818,7 +1820,7 @@
       },
       "files": {
         "ci/consumers/npm/system-ui/README.md": "a20081a2b3c56f2875de517424504758f008f9bd4c1b73d4c3afbb558fd84a3b",
-        "ci/consumers/npm/system-ui/consumer.mjs": "8c80088ab184c5bd729f8d1ecb7f95b3dfd731362883e8696b68ffcfea9bf73c",
+        "ci/consumers/npm/system-ui/consumer.mjs": "46c611697739c000d0345fc7b609f5c2d65cf84f67da6d2d6053385f125f4b0a",
         "ci/consumers/npm/system-ui/package.json": "a84d6423d6764dcf2522ae82e53f254e299e1fcf79ebfd9b4e4bc4016e2cee46",
         "ci/consumers/npm/system-ui/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "a0e235cbb1540000a57f1af3b603e5f81c6c14322ad481bf189c497d8358e98f"

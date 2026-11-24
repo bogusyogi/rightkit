@@ -61,6 +61,14 @@
     "./activityTimeline": {
       "types": "./dist/activityTimeline.d.ts",
       "import": "./dist/activityTimeline.js"
+    },
+    "./processHistory": {
+      "types": "./dist/processHistory.d.ts",
+      "import": "./dist/processHistory.js"
+    },
+    "./visiblePoll": {
+      "types": "./dist/visiblePoll.d.ts",
+      "import": "./dist/visiblePoll.js"
     }
   },
   "files": [

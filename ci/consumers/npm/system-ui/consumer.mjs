@@ -8,7 +8,7 @@ const recipeId = 'system-ui-root-export-consumer';
 const result = { recipeId, schemaVersion: 1, ok: false, host: { platform: process.platform, arch: process.arch, node: process.version }, artifact: null, scenarios: [], errors: [], nativeHostQualified: false };
 const failure = error => ({ name: error?.name ?? 'Error', message: String(error?.message ?? error) });
 const required = name => { assert(process.env[name], `${name} is required`); return process.env[name]; };
-const surface = [".", "./activityLease", "./activityTimeline", "./api", "./chartGeometry", "./components/Chart", "./duplicateReview", "./healthReadings", "./host", "./metrics", "./package.json", "./styles.css", "./tauri", "./views/Storage", "./views/monitor.css", "./visible"];
+const surface = [".", "./activityLease", "./activityTimeline", "./api", "./chartGeometry", "./components/Chart", "./duplicateReview", "./healthReadings", "./host", "./metrics", "./package.json", "./processHistory", "./styles.css", "./tauri", "./views/Storage", "./views/monitor.css", "./visible", "./visiblePoll"];
 const expected = ["useActivityLease", "isWindows", "api", "appsApi", "configureSystemHost", "systemHost", "Storage", "Cleanup", "Apps", "Activity", "Duplicates", "visibleInterval", "bytes"];
 
 try {
@@ -21,7 +21,7 @@ try {
   assert.equal(createHash('sha256').update(readFileSync(archive)).digest('hex'), sha256);
   const root = import.meta.resolve('@rightkit/system-ui');
   const entries = { '@rightkit/system-ui': root };
-  const helpers = {"activityTimeline": ["activityRowKey", "useActivityTimeline"], "chartGeometry": ["chartWindow", "nearestChartPoint"], "duplicateReview": ["createDuplicateReview", "useDuplicateReview"], "healthReadings": ["healthSeries", "isWarning", "lacksMetrics"]};
+  const helpers = {"processHistory": ["processHistoryKey", "recordProcessHistory"], "visiblePoll": ["startVisiblePoll", "useVisiblePoll"], "activityTimeline": ["activityRowKey", "useActivityTimeline"], "chartGeometry": ["chartWindow", "nearestChartPoint"], "duplicateReview": ["createDuplicateReview", "useDuplicateReview"], "healthReadings": ["healthSeries", "isWarning", "lacksMetrics"]};
   for (const leaf of Object.keys(helpers)) {
     const specifier = '@rightkit/system-ui/' + leaf;
     entries[specifier] = import.meta.resolve(specifier);
