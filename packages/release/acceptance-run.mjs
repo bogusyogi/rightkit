@@ -13,7 +13,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { cacheStoreDir, launch } from "./acceptance-launch.mjs";
 import { verifierArgv } from "./acceptance-lines.mjs";
@@ -46,6 +46,28 @@ const moveAside = (from, to) => { if (!fs.existsSync(from)) return false; fs.mkd
 /** Ends the gate and every program it started (Windows: the whole tree by pid; elsewhere the process group is the launcher's to signal). */
 const killTree = (pid) => { try { if (process.platform === "win32") execFileSync("taskkill", ["/PID", String(pid), "/T", "/F"], { windowsHide: true, stdio: "ignore" }); else process.kill(pid, "SIGKILL"); } catch { /* already gone */ } };
 
+/**
+ * The machine's total CPU load, sampled every two seconds for the whole acceptance run (Adrian, 2026-11-25: "run the 7 cases on a quiet machine with CPU load
+ * recorded"). A run's time limit (NN11) is only measured on a quiet machine; the record shows whether it was. Windows: typeperf; elsewhere nothing is sampled.
+ */
+export function startCpuSampler(file) {
+  if (process.platform !== "win32") return { stop: () => {}, file: null };
+  const child = spawn("typeperf", ["\\Processor(_Total)\\% Processor Time", "-si", "2", "-f", "CSV", "-o", file, "-y"], { windowsHide: true, stdio: "ignore" });
+  return { file, stop: () => { try { child.kill(); } catch { /* gone */ } } };
+}
+/** Average and peak CPU % between two times, from typeperf's CSV ("MM/DD/YYYY HH:MM:SS.mmm","value"). Null when nothing was sampled in the window. */
+export function cpuBetween(file, fromMs, toMs) {
+  let text = ""; try { text = fs.readFileSync(file, "utf8"); } catch { return null; }
+  const values = [];
+  for (const line of text.split(/\r?\n/).slice(1)) {
+    const m = /^"(\d\d)\/(\d\d)\/(\d{4}) (\d\d):(\d\d):(\d\d)\.(\d+)","([\d.]+)"/.exec(line); if (!m) continue;
+    const at = new Date(Number(m[3]), Number(m[1]) - 1, Number(m[2]), Number(m[4]), Number(m[5]), Number(m[6]), Number(m[7].slice(0, 3))).getTime();
+    if (at >= fromMs && at <= toMs) values.push(Number(m[8]));
+  }
+  if (!values.length) return null;
+  return { samples: values.length, average: Math.round(values.reduce((a, b) => a + b, 0) / values.length), peak: Math.round(Math.max(...values)) };
+}
+
 async function main() {
   const argv = process.argv.slice(2); const opt = (n) => { const i = argv.indexOf(n); return i < 0 ? null : argv[i + 1]; };
   const fixture = opt("--fixture"); const out = opt("--out"); const gate = opt("--gate"); const managed = opt("--managed"); const real = opt("--real");
@@ -61,6 +83,8 @@ async function main() {
     finally { fs.rmSync(dir, { recursive: true, force: true }); }
   };
   fs.mkdirSync(out, { recursive: true });
+  const cpu = startCpuSampler(path.join(out, "cpu.csv"));
+  process.on("exit", () => cpu.stop());
   const record = { schema: "rightkit.acceptance-run/1", casesSha256: sha256(casesBody), gate: path.resolve(gate), startedAt: new Date().toISOString(), cases: {}, realBuild: null };
   const results = {}; const refs = [];
   const one = async (repo, commit, name, { args, kill = false } = {}) => {
@@ -77,10 +101,11 @@ async function main() {
     const imageNow = {};
     for (const j of facts.jobs) for (const exe of Array.isArray(j.testExecutables) ? j.testExecutables : []) { const f = typeof exe === "string" ? exe : exe?.path; if (typeof f !== "string") continue; try { imageNow[f.replace(/^\\\\\?\\/, "").replaceAll("\\", "/").toLowerCase()] = sha256(fs.readFileSync(f.replace(/^\\\\\?\\/, ""))); } catch { /* unreadable: no hash, which fails the line */ } }
     facts = { ...facts, imageNow };
-    console.log(`  ${name}: exit ${code}${killed ? " (killed)" : ""}, ${Math.round(facts.durationMs / 1000)} s, ${facts.jobs.length} broker job(s), ${facts.starts.length} program(s), ${Array.isArray(facts.cacheWritten) ? facts.cacheWritten.length : "?"} store file(s) written`);
+    facts = { ...facts, cpu: cpu.file ? cpuBetween(cpu.file, Date.parse(JSON.parse(fs.readFileSync(path.join(dir, "launch.json"), "utf8")).startedAt), Date.parse(JSON.parse(fs.readFileSync(path.join(dir, "launch.json"), "utf8")).endedAt)) : null };
+    console.log(`  ${name}: exit ${code}${killed ? " (killed)" : ""}, ${Math.round(facts.durationMs / 1000)} s, cpu ${facts.cpu ? `avg ${facts.cpu.average}% peak ${facts.cpu.peak}%` : "not sampled"}, ${facts.jobs.length} broker job(s), ${facts.starts.length} program(s), ${Array.isArray(facts.cacheWritten) ? facts.cacheWritten.length : "?"} store file(s) written`);
     return facts;
   };
-  const lite = (f) => ({ dir: f.dir, commit: f.commit, exit: f.exit, killed: f.killed, durationMs: f.durationMs, jobs: f.jobs.length, programs: f.starts.length, cacheWritten: Array.isArray(f.cacheWritten) ? f.cacheWritten.length : null, processGaps: f.processGaps });
+  const lite = (f) => ({ dir: f.dir, commit: f.commit, exit: f.exit, killed: f.killed, durationMs: f.durationMs, cpu: f.cpu ?? null, jobs: f.jobs.length, programs: f.starts.length, cacheWritten: Array.isArray(f.cacheWritten) ? f.cacheWritten.length : null, processGaps: f.processGaps });
 
   if (fixture) {
     const pinned = cases.fixture.commit; if (git(fixture, ["cat-file", "-t", pinned]) !== "commit") throw new Error(`the fixture has no commit ${pinned}`);

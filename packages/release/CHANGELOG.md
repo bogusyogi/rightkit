@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.70
+
+- NN09 (GC-A27; Adrian, 2026-11-25: "I'm not relaxing NN09"): every carried compile command is handed to the broker as soon as it is ready again. The broker holds one job of a repository at a time (`exclusive:workspace:<repo>` on every receipt), so commands of one workspace never run side by side. 0.6.66 held them back on a misreading: the "two Cargo processes" seen on 0.6.64 were one clippy job's own process tree (`cargo clippy`, `cargo-clippy`, `cargo check`).
+- The acceptance runner records the machine's CPU load for every run (Adrian, 2026-11-25).
+
 ## 0.6.69
 
 - Fix: 0.6.68 (never installed or published) lost the gate's default file functions (`readFile`, `writeFile`, `mkdir`, `chmod`, `readdir`) to a comment, so `--units-file` and every file write of a command-line run failed. Restored, with a test that runs the command-line defaults.

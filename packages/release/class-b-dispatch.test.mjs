@@ -22,9 +22,9 @@ async function startedBeforeFirstEnd(pipeline) {
   return { count, order: started };
 }
 
-test("on a broker host one row of a workspace is in flight at a time, in plan order (they share one output folder and Cargo's lock)", async () => {
-  const one = await startedBeforeFirstEnd(1);
-  assert.equal(one.count, 1); assert.deepEqual(one.order, [0, 1, 2, 3, 4, 5]);
+test("on a broker host every carried row is handed over at once, in plan order; the broker, which holds one job of a repository at a time, orders them", async () => {
+  const all = await startedBeforeFirstEnd(Number.POSITIVE_INFINITY);
+  assert.equal(all.count, 6); assert.deepEqual(all.order, [0, 1, 2, 3, 4, 5]);
 });
 test("every workspace has its own chain, started at the same time", async () => {
   const started = []; const release = [];
@@ -35,9 +35,9 @@ test("every workspace has its own chain, started at the same time", async () => 
   while (release.length || started.length < 6) { release.shift()?.(); await new Promise((r) => setImmediate(r)); }
   await done;
 });
-test("the gate keeps one command per workspace in flight, and ci/shards.json solo is no reason to split a compile", () => {
+test("the gate hands every command over at once, and ci/shards.json solo is no reason to split a compile", () => {
   const gate = fs.readFileSync(path.join(here, "bin", "rightkit-gate.mjs"), "utf8"); const scansSrc = fs.readFileSync(path.join(here, "deterministic-scans.mjs"), "utf8");
-  assert.match(gate, /classBPipeline: 1,/);
+  assert.match(gate, /classBPipeline: Number.POSITIVE_INFINITY,/);
   assert.doesNotMatch(scansSrc, /why = "ci\/shards\.json solo"/); assert.doesNotMatch(scansSrc, /clippyBatchPlan\(clippyEntries, \{ solo: shardSolo/);
   assert.doesNotMatch(gate, /solo\.includes\(unit\) \|\| sidecarBoundCrate/);
 });
