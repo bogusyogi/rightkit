@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.7.7
+
+Additive; no existing export changes.
+
+- `nativeShortcutFromEvent(event, options)` (`shortcuts.ts`, root export): formats a modified physical key as a native-binding shortcut independent of the character typed (`ctrl+alt+shift+meta` order, arrows as `left`/`right`/`up`/`down`, Enter as `return`, letters, digits and punctuation by physical `event.code`). `options.alt` (`"alt"` or `"opt"`), `options.meta` (`"meta"`, `"cmd"` or `null` to reject Meta chords, as Windows clipboard bindings need) and `options.backspace` (`"backspace"` or `"delete"`, the persisted spelling of the physical key) are the host's choices. A key with no modifier returns `null`.
+- `useNativeShortcutCapture({ active, onRecord, onCancel, alt, meta, backspace })` (`react` entry): while `active`, takes window key presses for a native binding. Escape cancels. A newer recorder takes over from an older one on the same window, and the previous one gets `onCancel`. The caller owns the recording state. Replaces the four hand-written recorders in Pulse's Hub (their formatter and listeners).
+- This code was in the tree since the Dell snapshot but in no release; 0.7.6 does not contain it. Written from the reviewed design; not built, not run in a browser.
+
 ## 0.7.6
 
 Additive. Moved from HeardRight; no existing export changes. Imports only `react` (headless-safe).
