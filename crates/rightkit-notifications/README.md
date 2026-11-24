@@ -31,7 +31,7 @@ client.set_badge(2)?;
 - `PushTransport` (host trait), `classify`, `backoff_hint` and `send_alert`: 200 delivered; 410 or `BadDeviceToken` removes the device token; 429 and 5xx (and no answer) return `Retry { after }` with an exponential hint (the server `retry-after` wins); other statuses come back as `Rejected { status, reason }`.
 - `DeviceTokenStore` (host trait, one token per paired device id) and `MemoryTokenStore`.
 
-**The HTTP/2 transport is not here.** APNs requires HTTP/2, and `rightkit-http` has none yet; adding it (the `h2` dependency) is a pending dependency-allowlist decision. Until then the host implements `PushTransport` over its own HTTP/2 client. This crate depends on `rightkit-crypto` for signing and base64url.
+**The HTTP/2 route is decided by the owner.** `HttpPushTransport` (feature `apns-http`, `src/push/http.rs`, the only file that depends on an HTTP stack) sends through `rightkit-http`'s async client, which offers HTTP/1.1 only, and APNs requires HTTP/2. Enabling reqwest's `http2` feature in `rightkit-http` pulls in the `h2` crate, which I did not find in packages/release/ownership-dependency-allowlist.json. Decision needed: allow `h2` for `rightkit-http` (one `http2` feature line there and ALPN `h2`), or a host supplies its own `PushTransport`. Not compiled or run against APNs.
 
 ## Platforms
 
