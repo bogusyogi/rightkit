@@ -1,8 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.5.9
 
-- Additive, feature `protected-key` (#410): `ProtectedKey::existing(credential)` opens a key an app enrolled under its own credential name, without the namespace prefix (Pulse's Windows Hello key `pulse-owner-v1`), and `protected_key::rsa_pkcs1_from_spki` turns the `SubjectPublicKeyInfo` that a Windows Hello `PublicKey::bytes` holds into the PKCS#1 `RSAPublicKey` Pulse derived its key id from. Signing is already the same RSASSA-PKCS1-v1_5 SHA-256 Hello signature over the caller's bytes. Written, not compiled, not run against Hello; no version bump yet.
+- Additive, feature `protected-key` (#410): `ProtectedKey::existing(credential)` opens a key an app enrolled under its own credential name, without the namespace prefix (Pulse's Windows Hello key `pulse-owner-v1`), and `protected_key::rsa_pkcs1_from_spki` turns the `SubjectPublicKeyInfo` that a Windows Hello `PublicKey::bytes` holds into the PKCS#1 `RSAPublicKey` Pulse derived its key id from. Signing is already the same RSASSA-PKCS1-v1_5 SHA-256 Hello signature over the caller's bytes. Written, not compiled, not run against Hello;.
 
 ## 0.5.8
 

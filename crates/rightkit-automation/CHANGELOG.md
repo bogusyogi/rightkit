@@ -1,8 +1,11 @@
 # Changelog
 
-## Unreleased
+## 0.7.5
 
-- Truthful restore (AG-12, RK-13; behaviour fix): the foreground tier of `act` now brings the previously frontmost app back after a failed event too, not only after the last one succeeded, and reports the result: the success detail reads `focus restored` or `focus NOT restored` (it said `focus restored` whatever `restore_front` returned), and a failed event whose restore also failed returns a `Platform` error saying the previous window could not be brought back. Written, not compiled; no version bump yet.
+- Detection of the owner's own input (AG-12, RK-13; additive): module `input_watch` with the `InputWatch` trait (a count of the owner's own keyboard and mouse events, `None` when unknown), `OwnerInput` and `SystemInputWatch`. macOS reads the HID system state counters (the agent's HID-posted foreground events raise them too, so the count is re-based after each of its own events); Windows runs a low-level keyboard and mouse hook on one dedicated thread and counts an event only when its injected flag is clear (it reads that flags word only, never a key code, position or character; one live watch per process); elsewhere the count is unknown, never "no input". `Automation::set_input_watch(Option<Arc<dyn InputWatch>>)` turns it on (off by default): `act` then stops before any tier, and before each foreground event, once the owner has used the keyboard or mouse since the act began, restores the previous window and returns the new `Error::UserInControl`. A new `Error` variant, so an exhaustive match over `Error` in another crate needs an arm. Design decision for Adrian: whether an agent may watch the owner's input at all, and whether a low-level hook on Windows is acceptable (it observes every key and click system-wide to count them). Unverified: that `SetCursorPos` and the crate's own `SendInput` events carry the injected flag so they are not counted, and that macOS HID-tap posts raise the counters as assumed. Written, not compiled or run.
+- Windows, per-event foreground check (AG-12, RK-13): `WinPlatform::foreground` confirms the target process is still the foreground process before every event and returns `FocusMoved` instead of sending into another window. Written, not compiled.
+
+- Truthful restore (AG-12, RK-13; behaviour fix): the foreground tier of `act` now brings the previously frontmost app back after a failed event too, not only after the last one succeeded, and reports the result: the success detail reads `focus restored` or `focus NOT restored` (it said `focus restored` whatever `restore_front` returned), and a failed event whose restore also failed returns a `Platform` error saying the previous window could not be brought back. Written, not compiled;.
 
 ## 0.7.4
 

@@ -1,8 +1,10 @@
 # Changelog
 
-## Unreleased
+## 0.3.12
 
-Additive (AG-10 / RK-12, blueprint 2026-11-24). No version bump yet; the release version is the owner's call. Written, not compiled. No unit tests, per the 2026-11-03 rule.
+- **Added (feature `secret-fill`): `BrowserPage::fill_secret(&Target, &rightkit_crypto::Secret, claimed_origin, clear)`** (AG-14, typed fill on Linux and every other platform the crate runs on). Nothing is typed unless the claimed origin equals the origin of the page's own address and the target is one `<input>` of type password or with an `autocomplete` of `current-password`, `new-password` or `cc-*`; refusals are `Denied` or `Invalid` and carry no value. The audit record holds the character count only. The secret is wiped on drop; the per-key event descriptors are not (a limit). Written, not compiled.
+
+Additive (AG-10 / RK-12, blueprint 2026-11-24). Written, not compiled. No unit tests, per the 2026-11-03 rule.
 
 - **Added: `BrowserPage::act(node_ref, &RefAction) -> ActResult`.** One action on an observed ref (`RefAction::{Click, DoubleClick, Hover, Fill { text, clear }, SelectOption { value }}`), then the diff it caused (`ObservationDiff`: `added` nodes with their new refs, `removed` selectors, `changed` role/name/visible/disabled before and after, both epochs, both URLs, `document_replaced`). The action and the observation after it run under one hold of the page lane. The admission hook sees the ref plus the element's role and name.
 - **Changed: the ref check compares role.** A ref was checked by epoch, tag and name; the role stored at observe was never compared, so a same-tag element that took over a selector with another role passed. The check now also requires the role as `observe` computes it (one shared JavaScript expression, `ROLE_EXPR`, serves both). A mismatch is `BrowserError::StaleRef`, as before. Affects every `Target::Ref` use (`click`, `fill`, ...), not only `act`.

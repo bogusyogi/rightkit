@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-browser"
-version = "0.3.11"
+version = "0.3.12"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Shared Chrome DevTools Protocol browser runtime for Right Suite: multi-page sessions, named profiles, real CDP input, observations with stale-ref checks."
@@ -54,6 +54,9 @@ profile-vault = ["dep:rightkit-credentials", "dep:rightkit-crypto"]
 # pinned SHA-256 in third-party/axe-core/) so the shared owner, not each consumer, ships it (#821).
 # Off by default: a consumer that leaves it off ships no MPL-covered file.
 axe = []
+# `BrowserPage::fill_secret`: typed fill of a password or card field with a wiped secret type, on every platform
+# the crate runs on (the Linux always-on host included). Off by default (pulls rightkit-crypto).
+secret-fill = ["dep:rightkit-crypto"]
 
 [package.metadata.rightkit]
 continuous = "held-resource"

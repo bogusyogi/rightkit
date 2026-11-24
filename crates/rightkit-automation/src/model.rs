@@ -329,6 +329,9 @@ pub enum Error {
         after: Option<i32>,
     },
     Invalid(String),
+    /// The owner used the keyboard or mouse since the act began (only with an input watch set): nothing
+    /// further was sent. The agent's next call should wait for the owner to hand control back.
+    UserInControl,
     /// The caller's admission hook refused the effect before anything ran.
     Denied(String),
     /// Another controller holds the lease on this app.
@@ -369,6 +372,7 @@ impl fmt::Display for Error {
                 write!(f, "frontmost app moved {before:?} -> {after:?}")
             }
             Error::Invalid(s) => write!(f, "invalid: {s}"),
+            Error::UserInControl => write!(f, "the owner is using the keyboard or mouse"),
             Error::Denied(s) => write!(f, "denied by admission: {s}"),
             Error::LeaseHeld { holder, epoch } => {
                 write!(f, "lease held by {holder} (epoch {epoch})")
