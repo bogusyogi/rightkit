@@ -78,3 +78,65 @@ impl Default for Swell {
         Self::new()
     }
 }
+
+/// A card's two swell values together: how far it has slid out of the notch (`slide`) and how far
+/// it has opened (`open`, a beat behind on the way out and a beat ahead on the way in).
+pub struct SwellPair {
+    pub slide: Swell,
+    pub open: Swell,
+}
+
+impl SwellPair {
+    pub const fn new() -> Self {
+        Self {
+            slide: Swell::new(),
+            open: Swell::new(),
+        }
+    }
+
+    /// Back to nothing, at rest.
+    pub fn reset(&mut self) {
+        *self = Self::new();
+    }
+
+    /// The card comes out: the strip slides out now and opens a beat later.
+    pub fn rise(&mut self) {
+        self.slide.aim(1.0);
+        self.open.aim_after(1.0);
+    }
+
+    /// The card goes back in: it closes now and the strip slides in a beat later.
+    pub fn fall(&mut self) {
+        self.open.aim(0.0);
+        self.slide.aim_after(0.0);
+    }
+
+    /// A card already out is replaced: both values go to fully out now, a retarget from where
+    /// they are.
+    pub fn hold_out(&mut self) {
+        self.slide.aim(1.0);
+        self.open.aim(1.0);
+    }
+
+    /// One step of both to now; true while either still moves or waits to.
+    pub fn step(&mut self) -> bool {
+        let sliding = self.slide.step();
+        let opening = self.open.step();
+        sliding || opening
+    }
+
+    pub fn moving(&self) -> bool {
+        self.slide.moving() || self.open.moving()
+    }
+
+    /// `(slide, open)` as they are now.
+    pub fn values(&self) -> (f32, f32) {
+        (self.slide.spring.value, self.open.spring.value)
+    }
+}
+
+impl Default for SwellPair {
+    fn default() -> Self {
+        Self::new()
+    }
+}

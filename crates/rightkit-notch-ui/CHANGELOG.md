@@ -4,6 +4,7 @@
 
 - The card renderer's two premultiplied pixel loops (a strip picture laid over a body, card contents laid over a body) are `rightkit_win_ui::canvas::Canvas::composite_clipped`; the loops in `render` are gone and the output is unchanged. Requires `rightkit-win-ui` 0.1.3.
 - Added `glide::Glide<P>` and `glide::union_window`: a hover card moving to another ring as one body. The body (centre, length, extent) glides on `motion::GLIDE`, the neck anchor follows on `motion::NECK_TRAIL` after `NECK_TRAIL_DELAY`, the old contents fade out as the new fade in over `CROSSFADE_SECONDS`, and `retarget` turns a glide in flight round with the speed it has (each number is a spring of its own, the fade restarts from the opacities it had). `P` is the host's card content and is only carried; the host draws the layers (`render::render_emerging`) at `pose()`, `olds()` and `new_level()`. Moved from Pulse's `windows/src/main.rs`.
+- Added `swell::SwellPair` (`slide` and `open`): the two values every popped-out card has, with `rise` (slide out now, open a beat later), `fall` (close now, slide in a beat later), `hold_out` (a card already out is replaced: both retarget to fully out now), `step`, `moving`, `values` and `reset`. The clipboard strip's preview shares the two springs with the hover card, so a preview that replaces an existing one retargets both at once and a fresh one rises with the beat.
 
 ## 0.2.1
 
