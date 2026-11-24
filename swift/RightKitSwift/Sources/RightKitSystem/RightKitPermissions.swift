@@ -116,9 +116,10 @@ public enum RightKitPermissionProbes {
         return line.drop { $0 == " " }.first == "+" ? .granted : .off
     }
 
-    public static func extensionStatus(identifier: String) -> RightKitPermissionStatus {
+    /// `timeout` bounds the `pluginkit` call (10 s by default; a host that asks at Quit and at launch passes 3).
+    public static func extensionStatus(identifier: String, timeout: TimeInterval = 10) -> RightKitPermissionStatus {
         let result = RightKitBoundedProcess.run(
-            executable: URL(fileURLWithPath: "/usr/bin/pluginkit"), arguments: ["-m", "-i", identifier], timeout: 10)
+            executable: URL(fileURLWithPath: "/usr/bin/pluginkit"), arguments: ["-m", "-i", identifier], timeout: timeout)
         guard result.launchError == nil, !result.timedOut else { return .unknown }
         return parseExtensionStatus(pluginkitOutput: result.stdout, identifier: identifier)
     }
@@ -127,9 +128,19 @@ public enum RightKitPermissionProbes {
     /// Returns whether the command ran and exited 0.
     @discardableResult
     public static func enableExtension(identifier: String) -> Bool {
+        setExtension(identifier: identifier, enabled: true)
+    }
+
+    /// `pluginkit -e use -i <id>` (`enabled`) or `pluginkit -e ignore -i <id>` (not), bounded by `timeout`
+    /// (10 s by default; a host that runs it at Quit and at launch passes 3). Returns whether the command ran
+    /// and exited 0 in time. Disabling is how a host keeps its extension process from running while its
+    /// visible app is not.
+    @discardableResult
+    public static func setExtension(identifier: String, enabled: Bool, timeout: TimeInterval = 10) -> Bool {
         RightKitBoundedProcess.run(
-            executable: URL(fileURLWithPath: "/usr/bin/pluginkit"), arguments: ["-e", "use", "-i", identifier],
-            timeout: 10).succeeded
+            executable: URL(fileURLWithPath: "/usr/bin/pluginkit"),
+            arguments: ["-e", enabled ? "use" : "ignore", "-i", identifier],
+            timeout: timeout).succeeded
     }
 
     // MARK: Login item
