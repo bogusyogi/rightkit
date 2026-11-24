@@ -58,6 +58,7 @@ Loopback fixtures are blocked by default. `tests/e2e.rs` opts in for a local tes
 - `scroll_by(target, dx, dy)` runs `scrollBy` on an element, a point or the window, for cases where a wheel event at the element is wrong.
 - `set_transparent_background(true)` with `screenshot_with(ScreenshotOptions { omit_background: true })` captures a transparent PNG.
 - `BrowserSession::new_page_with(url, PageSetup { interceptor, download })` installs the interceptor and download behaviour before the first request.
+- `act(ref, &RefAction)` runs one action on a ref and returns an `ObservationDiff`; the ref check compares epoch, document (frame and loader), tag, role and name (`StaleRef` on any mismatch); the watchdog refuses the identical no-diff action after `DEFAULT_ACTION_LOOP_LIMIT` repeats (`ActionLoop`) until `reset_action_watch()`.
 - `observe` nodes carry `sensitive`, `frame_id` (the main frame; iframe content is not observed), and `stable_id`; the observation carries `ax`, a depth-bounded accessibility summary.
 - `design_mode` holds the element-picker primitives (isolated-world binding bridge, one-shot native-gesture submit gate, capture geometry), `build_design_mode_script(nonce)` and `BrowserPage::enable_design_mode`. Observation covers the main document only; iframe observation is not implemented.
 - `exceptions()` / `subscribe_exceptions()` return `PageException`s from `Runtime.exceptionThrown`, collected from page creation.

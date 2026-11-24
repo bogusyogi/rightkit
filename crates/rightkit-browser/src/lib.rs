@@ -33,12 +33,15 @@
 //!   metrics, console and (feature `axe`) axe-core output, each hashed and bound to the session,
 //!   process, profile, page, frame, loader and context that produced it, with the terminal
 //!   cleanup outcome ([`StopReport`]) of success, failure, timeout and cancellation alike.
-//! * [`BrowserPage::observe`] returns refs that are checked for staleness before use.
+//! * [`BrowserPage::observe`] returns refs that are checked for staleness before use; [`BrowserPage::act`]
+//!   runs one action on a ref (epoch, document, tag, role and name checked first) and returns the diff,
+//!   and stops a run that repeats the same no-effect action ([`BrowserError::ActionLoop`]).
 //! * [`design_mode`] holds the element-picker primitives: an isolated-world binding bridge,
 //!   a one-shot native-gesture submit gate, device-pixel capture geometry and the picker script builder.
 // The source-only fixture browser is confined by macOS Seatbelt / the Windows sandbox; on other hosts its
 // constructors refuse and the rest of the fixture machinery is unreachable.
 #![cfg_attr(not(any(target_os = "macos", windows)), allow(dead_code))]
+mod act;
 mod capture;
 mod cdp_ext;
 mod config;
@@ -66,6 +69,9 @@ mod session;
 mod vault;
 mod visible;
 
+pub use act::{
+    ActResult, NodeChange, NodeState, ObservationDiff, RefAction, DEFAULT_ACTION_LOOP_LIMIT,
+};
 pub use capture::{
     capture, AxeObservation, AxeSpec, AxeStatus, CaptureArtifact, CaptureBinding,
     CaptureCancellation, CaptureIdentity, CaptureReport, CaptureRequest, CaptureStatus,
