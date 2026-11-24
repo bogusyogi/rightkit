@@ -54,10 +54,15 @@ pub fn host_read_check(input: &Path, app_name: &str) -> Result<(), String> {
                     input.display()
                 ))
             }
-            #[cfg(not(target_os = "macos"))]
+            #[cfg(target_os = "windows")]
             {
                 let _ = app_name;
                 Err("E_PERMISSION: Windows denied access to this file. Check its permissions or copy it somewhere you can open, then try again.".to_string())
+            }
+            #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+            {
+                let _ = app_name;
+                Err("E_PERMISSION: access to this file was denied. Check its permissions or copy it somewhere you can open, then try again.".to_string())
             }
         }
         Err(e) => Err(format!("could not read {}: {e}", input.display())),

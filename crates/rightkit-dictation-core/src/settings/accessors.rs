@@ -240,8 +240,10 @@ mod tests {
 
     #[test]
     fn pill_visibility_and_positions() {
-        let mut b = SettingsBlob::default();
-        b.pill_visibility = Some("during_dictation".into());
+        let mut b = SettingsBlob {
+            pill_visibility: Some("during_dictation".into()),
+            ..SettingsBlob::default()
+        };
         assert_eq!(b.pill_visibility_normalized(), "recording_only");
         b.set_pill_position_for_monitor("p_", "m0", 1.0, 2.0);
         assert_eq!(b.pill_position_for_monitor("p_", "m0"), Some((1.0, 2.0)));

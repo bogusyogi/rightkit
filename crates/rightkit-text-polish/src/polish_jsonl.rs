@@ -93,14 +93,21 @@ pub fn polish_jsonl_line(line: &str, polish: impl Fn(&str) -> String) -> String 
 }
 
 /// Run [`polish_jsonl_line`] over every non-blank line of `input`, writing one output line each.
-/// A line that cannot be read and a write that fails are skipped, as the original harness did.
+/// A line that is not valid UTF-8 is skipped, as the original harness did. Any other read error, and a
+/// failed write (a closed output), stop the run, so a broken pipe cannot loop forever.
 pub fn polish_jsonl(input: impl BufRead, mut output: impl Write, polish: impl Fn(&str) -> String) {
     for line in input.lines() {
-        let Ok(line) = line else { continue };
+        let line = match line {
+            Ok(line) => line,
+            Err(error) if error.kind() == std::io::ErrorKind::InvalidData => continue,
+            Err(_) => break,
+        };
         if line.trim().is_empty() {
             continue;
         }
-        let _ = writeln!(output, "{}", polish_jsonl_line(&line, &polish));
+        if writeln!(output, "{}", polish_jsonl_line(&line, &polish)).is_err() {
+            break;
+        }
     }
 }
 
