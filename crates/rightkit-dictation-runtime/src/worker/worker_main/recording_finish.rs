@@ -137,10 +137,12 @@ impl Worker {
         owner_diagnostics::capture_audio_parts(&session_id, &session.buffer, &[]);
         let final_audio_secs = audio_secs(&session.buffer);
         let final_audio = std::mem::take(&mut session.buffer);
+        let addressed = session.addressed;
         let asr_started = Instant::now();
         let transcribed = self.transcribe_final_result(final_generation, final_audio);
         let result = transcribed.map(|result| {
             crate::worker::FinalTranscript::from_asr(result, crate::worker::StopEvidence::Manual)
+                .addressed(addressed)
         });
         let asr_elapsed_ms = asr_started.elapsed().as_millis() as u64;
         rightkit_dictation_inference::timeline_recorder::mark(|t| &mut t.asr_done_ms);
@@ -239,6 +241,7 @@ impl Worker {
                 stop_evidence: crate::worker::StopEvidence::Standalone {
                     action: standalone_action.clone(),
                 },
+                addressed: false,
             }),
             audio_secs: Some(audio_secs(&session.buffer)),
             send_enter: false,
@@ -426,7 +429,8 @@ impl Worker {
                                         crate::worker::ControlCutStatus::Unresolved
                                     },
                                 },
-                            )),
+                            )
+                            .addressed(session.addressed)),
                             Some(original_text),
                             outcome.boundary_sec,
                             Some(outcome.method),
@@ -595,6 +599,7 @@ impl Worker {
                     cut_status,
                 },
             )
+            .addressed(session.addressed)
         });
         owner_diagnostics::capture_audio_parts(&sid, &session.buffer, &[]);
         let vad_aggregate = self.speech_vad.recording_aggregate();
@@ -701,6 +706,7 @@ impl Worker {
         }
         let final_audio_secs = audio_secs(&session.buffer);
         let final_audio = std::mem::take(&mut session.buffer);
+        let addressed = session.addressed;
         let asr_started = Instant::now();
         let result = self
             .transcribe_final_result(final_generation, final_audio)
@@ -713,6 +719,7 @@ impl Worker {
                         crate::worker::StopEvidence::Silence
                     },
                 )
+                .addressed(addressed)
             });
         let asr_elapsed_ms = asr_started.elapsed().as_millis() as u64;
         let vad_aggregate = self.speech_vad.recording_aggregate();

@@ -93,11 +93,9 @@ impl Worker {
             // can resume anything.
             self.capture.close_attempt(start_attempt);
             let handoff = self.wake.take_handoff();
-            self.session
-                .as_mut()
-                .expect("recording session")
-                .buffer
-                .extend_from_slice(&handoff);
+            let session = self.session.as_mut().expect("recording session");
+            session.addressed = true;
+            session.buffer.extend_from_slice(&handoff);
             trace_recording_start(
                 &session_id,
                 "wake_audio_handoff",
