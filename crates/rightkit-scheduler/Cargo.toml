@@ -18,3 +18,4 @@ rightkit-agent-engine-protocol = { version = "0.4.0", path = "../rightkit-agent-
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 rightkit-time = { version = "0.1.1", path = "../rightkit-time" }
+rightkit-db = { version = "0.5.3", features = ["bundled", "statement-cache"], path = "../rightkit-db" }

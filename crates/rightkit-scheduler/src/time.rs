@@ -86,6 +86,19 @@ pub fn cron_matches_in_time_zone(
     }
     let local_epoch_minute =
         epoch_minute + time_zone_offset_minutes_at(time_zone, epoch_minute)? as i64;
+    cron_matches_local_minute(expr, local_epoch_minute)
+}
+
+/// Whether the 5-field cron `expr` matches the wall-clock minute `local_epoch_minute` (minutes
+/// since 1970-01-01 on the zone's own clock). No zone work: the caller supplies the local minute.
+pub(crate) fn cron_matches_local_minute(
+    expr: &str,
+    local_epoch_minute: i64,
+) -> Result<bool, String> {
+    let parts: Vec<&str> = expr.split_whitespace().collect();
+    if parts.len() != 5 {
+        return Err("cron expression must have exactly 5 fields".to_string());
+    }
     let t = utc_minute(local_epoch_minute);
     // Standard cron: when both day-of-month and day-of-week are restricted, either one matching
     // is enough; when one is `*` the other alone decides.

@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Additive (RK-10, blueprint AG-7): `runner`, the schedule runner as a library on SQLite (`rightkit-db`, new dependency). `claim_due` / `claim_schedule` claim each schedule minute exactly once, keyed on schedule id + UTC minute (primary key, taken with the schedule's cursor in one `BEGIN IMMEDIATE` transaction). Per-schedule misfire policy through the existing `MisfirePolicy` (`Skip`; `Coalesce` = run once for all missed; `CatchUp` = run each). A cron time in a clock gap runs once after the gap; a repeated (overlap) time runs once. Offsets come from `rightkit_time::zones::offset_at`, so named zones are limited to its tables (README). A `confirmed` flag is required: an unconfirmed schedule is never claimed. `init_claim_tables` creates the two tables. Nothing existing changed in behaviour (`cron_matches_in_time_zone` now calls the new crate-private `cron_matches_local_minute`).
+
 ## 0.3.0
 
 - Depends on `rightkit-agent-engine-protocol` 0.4.0 (additive events and fields, see its changelog). Breaking for dependents: the crate exposes protocol types in its public API, so those types are now the 0.4 ones.
