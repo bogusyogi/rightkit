@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.5
+
+- Accept host-resolved alternate paths after migration & report unreadable candidates. Expose budgeted grant reads, controlled publication recording & installation-scoped pending lookup.
+
 ## 0.1.4 (2026-11-16)
 
 - The package no longer ships `src/push/mod.rs`, a module root that nothing declared (the crate's `push` is `pull`, which reaches the other `src/push/*.rs` files by `#[path]`; those stay). No public item, feature or behaviour changes; the compiled library is unchanged.
