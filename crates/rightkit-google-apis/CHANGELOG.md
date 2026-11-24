@@ -8,6 +8,7 @@
 - Calendar reads now follow `nextPageToken`. Added `calendar::list_calendars_with` and `calendar::list_events_with` (over a `&Google`, returning `Paged<T>` with a `truncated` flag), `calendar::PageCap { max_pages, max_items }` (default 40 pages, 10,000 items) and `calendar::Paged`. `list_calendars` and `list_events` keep their signatures and now return every page up to the default cap; before, they returned only the first page (up to 250 and 2,500 items). `list_events` now escapes the calendar id in the URL path (an id containing `#` used to cut the request short).
 - `Google` now implements `Debug`, printing `Google { [redacted] }`.
 - New feature `sealed-store` (off by default), enabling `rightkit-oauth/server`.
+- Known limits: `SealedFileTokenStore` fails closed on Windows (the intended host is Linux); the resolver deletes the stored grant on `invalid_grant`; a sealed-store failure surfaces as `GoogleError::Parse`, not a store-specific variant.
 
 ## 0.2.0
 

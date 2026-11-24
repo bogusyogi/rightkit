@@ -926,6 +926,29 @@ fn incremental_partial(
     }
     log.mark("observe", observed.len() as u64);
 
+    // A rename whose source is unknown to the stored graph (for example an atomic save that
+    // renames an untracked temp file over a source path), or whose source survives the event,
+    // cannot be applied as one path-scoped delta. Decide that before anything is written and
+    // rebuild the root, rather than applying part of it and failing as unsupported.
+    if event_kind == EventKind::Rename {
+        let old = &paths[0];
+        if after_paths.contains(old) || !before_paths.contains(old) {
+            let (stored_nodes, stored_edges, _) = view.counts()?;
+            let stored_rows = stored_nodes.saturating_add(stored_edges);
+            drop(view);
+            return full_build_or_defer(
+                request,
+                context,
+                root,
+                db_path,
+                &stored,
+                stored_rows,
+                "rename source/destination is inconsistent",
+                json!({"renameFrom": old, "renameTo": rename_to}),
+            );
+        }
+    }
+
     let source_hash = graph::source_hash_for_files(&source_files);
     let config_digest = crate::static_provider::build_config_digest_for_files(&source_files);
     let observation =
@@ -1331,12 +1354,6 @@ fn incremental_partial(
     )
     .map_err(|error| delta_error(context, error))?;
     log.mark("apply", 0);
-    if event_kind == EventKind::Rename {
-        let old = &paths[0];
-        if after_paths.contains(old) || !before_paths.contains(old) {
-            return Err(unsupported("rename source/destination is inconsistent"));
-        }
-    }
     let status = post_apply_status(db_path)?;
     log.mark("status", 0);
     bounded_generation_response(
