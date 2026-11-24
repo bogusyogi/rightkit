@@ -81,6 +81,16 @@ pub async fn send_message(
         client_secret.to_string(),
         refresh_token.to_string(),
     );
+    send_message_with(&g, raw_mime, thread_id).await
+}
+
+/// [`send_message`] through an authorised client (for example one built by `Google::with_store`), so no
+/// refresh token is passed. Same request, same error text, same delivery classification.
+pub async fn send_message_with(
+    g: &Google,
+    raw_mime: &str,
+    thread_id: Option<&str>,
+) -> Result<SentRef, String> {
     let raw = super::encode_raw(raw_mime);
     let body = match thread_id {
         Some(t) if !t.is_empty() => serde_json::json!({ "raw": raw, "threadId": t }),

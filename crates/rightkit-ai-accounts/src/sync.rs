@@ -146,9 +146,17 @@ pub(crate) fn is_helper(cmd: &[std::ffi::OsString]) -> bool {
 /// running Desktop might own.
 /// `None` when the process table cannot be read: unknown is not "not running".
 fn instances_for(root: &Path) -> Option<Vec<u32>> {
-    use sysinfo::{ProcessesToUpdate, System};
+    use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
     let mut system = System::new().ok()?;
-    system.refresh_processes(ProcessesToUpdate::All, true);
+    // `refresh_processes` leaves the executable and the command line out, so no process showed a
+    // `--type=` marker or a `--user-data-dir` and every Desktop of any profile counted as using `root`.
+    system.refresh_processes_specifics(
+        ProcessesToUpdate::All,
+        true,
+        ProcessRefreshKind::nothing()
+            .with_cmd(UpdateKind::Always)
+            .with_exe(UpdateKind::Always),
+    );
     let procs = system.processes();
     let wanted = data_dir_key(root);
     let claude = |p: &sysinfo::Process| {

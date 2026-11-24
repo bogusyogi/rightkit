@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-dictation-command-host"
-version = "0.3.1"
+version = "0.3.2"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Dictation command host: voice command dispatch (keys, app launch, Shortcuts, power with confirmation), text delivery and insertion, focus checks and screen capture for a dictation app."
@@ -16,6 +16,7 @@ path = "src/lib.rs"
 [dependencies]
 rightkit-dictation-core = { version = "0.3.3", path = "../rightkit-dictation-core" }
 rightkit-voice-commands = { version = "0.1.0", path = "../rightkit-voice-commands" }
+rightkit-agent-task-contract = { version = "0.1.1", path = "../rightkit-agent-task-contract" }
 rightkit-transcript-library = { version = "0.1.4", path = "../rightkit-transcript-library" }
 rightkit-dictation-text-pipeline = { version = "0.2.0", path = "../rightkit-dictation-text-pipeline" }
 rightkit-automation = { version = "0.7.2", path = "../rightkit-automation", features = ["desktop-context"] }

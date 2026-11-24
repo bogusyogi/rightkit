@@ -8,6 +8,8 @@ pub mod profile;
 pub mod runner;
 pub mod time;
 pub mod timezone;
+#[cfg(feature = "iana-full")]
+mod timezone_full;
 
 pub use model::{DeliveryTarget, ScheduleEntry, ScheduleSpec};
 pub use profile::{

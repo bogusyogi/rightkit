@@ -10,7 +10,8 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const sources = ["bin/rightkit-gate.mjs", "deterministic-scans.mjs", "class-a-cache-history.mjs", "gate-serve.mjs", "snapshot.mjs", "gate/compile.mjs", "gate/calls.mjs"]
   .filter((f) => fs.existsSync(path.join(here, f)));
 
-for (const name of ["RK_GATE_CACHE_DIR", "RK_GATE_LEGACY_ROWS", "RK_GATE_SERVE"]) {
+// Step F (2026-11-24): the lane counts and the gate's temp folder are not a caller's choice either.
+for (const name of ["RK_GATE_CACHE_DIR", "RK_GATE_LEGACY_ROWS", "RK_GATE_SERVE", "RK_GATE_JOBS", "RK_GATE_CLASS_B_JOBS", "RK_GATE_TMPDIR"]) {
   test(`the gate reads no ${name} from its caller`, () => {
     const read = new RegExp(`env\\??\\.${name}\\b|env\\[["']${name}["']\\]`);
     for (const f of sources) assert.doesNotMatch(fs.readFileSync(path.join(here, f), "utf8"), read, `${f} reads ${name}`);

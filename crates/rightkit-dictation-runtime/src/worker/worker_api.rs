@@ -567,6 +567,9 @@ pub struct FinalTranscript {
     pub text: String,
     pub tokens: Vec<TimedToken>,
     pub stop_evidence: StopEvidence,
+    /// The recording began from the wake word (addressed control), not from the dictation key. Only the
+    /// worker sets it, from the wake hand-off of that very recording.
+    pub addressed: bool,
 }
 
 impl FinalTranscript {
@@ -583,7 +586,14 @@ impl FinalTranscript {
                 })
                 .collect(),
             stop_evidence,
+            addressed: false,
         }
+    }
+
+    /// Mark whether the recording began from the wake word.
+    pub fn addressed(mut self, addressed: bool) -> Self {
+        self.addressed = addressed;
+        self
     }
 }
 

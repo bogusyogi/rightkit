@@ -1,8 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.1.4
 
-- `P256Signer` (ECDSA P-256 / SHA-256 signing): `generate`, `from_pkcs8`, `public_key`, `sign` returning the raw 64-byte `r || s` form JWS ES256 needs (APNs provider tokens). Backed by the existing `ring` dependency, no new crate. `Debug` is `P256Signer(<redacted>)`, errors are the opaque `CryptoError`; `generate` returns the PKCS#8 document as a wiped `Secret`. Limit: `ring` cannot wipe its parsed key pair, so only the caller's PKCS#8 copy is wiped. No version bump.
+- `P256Signer` (ECDSA P-256 / SHA-256 signing): `generate`, `from_pkcs8`, `public_key`, `sign` returning the raw 64-byte `r || s` form JWS ES256 needs (APNs provider tokens). Backed by the existing `ring` dependency, no new crate. `Debug` is `P256Signer(<redacted>)`, errors are the opaque `CryptoError`; `generate` returns the PKCS#8 document as a wiped `Secret`. Limit: `ring` cannot wipe its parsed key pair, so only the caller's PKCS#8 copy is wiped.
 
 ## 0.1.3
 

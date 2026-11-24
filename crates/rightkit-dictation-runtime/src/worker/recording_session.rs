@@ -35,6 +35,9 @@ impl SpeechTracker {
 /// recognised as stale through those generations.
 pub(crate) struct RecordingSession {
     pub(crate) id: String,
+    /// The recording began from the wake word (set at the wake hand-off), so its words are addressed to
+    /// the agent. A recording from the dictation key never has it.
+    pub(crate) addressed: bool,
     pub(crate) buffer: Vec<f32>,
     pub(crate) speech: SpeechTracker,
     pub(crate) previous_capture_block: Option<CapturePcmHistory>,
@@ -71,6 +74,7 @@ impl RecordingSession {
     pub(crate) fn new(id: String, now: worker_clock::WorkerInstant) -> Self {
         Self {
             id,
+            addressed: false,
             buffer: Vec::with_capacity(SAMPLE_RATE as usize * 30),
             speech: SpeechTracker::new(now),
             previous_capture_block: None,

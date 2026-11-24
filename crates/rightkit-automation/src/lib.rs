@@ -47,6 +47,7 @@ pub mod events;
 pub mod focus;
 pub mod foreign;
 pub mod in_app;
+pub mod input_watch;
 pub mod json;
 pub mod keys;
 pub mod lease;
@@ -79,6 +80,7 @@ pub use delivery::{DeliveryOptions, DeliveryOutcome, DeliveryRecord, FocusPin, W
 pub use engine::{ActOptions, ActOutcome, Automation, Guard};
 pub use events::{DeniedBy, Journal, LifecycleEvent, MemoryJournal, Metrics};
 pub use focus::{FocusReport, FocusWatch};
+pub use input_watch::{InputWatch, OwnerInput, SystemInputWatch};
 pub use lease::{Fence, Lease, LeaseRequest, LeaseStatus};
 pub use media_keys::{send_media_key, MediaKey};
 pub use model::*;

@@ -13,9 +13,13 @@
 //!   synced copy and destroys its keys at its next start or contact (it cannot be forced while it
 //!   is off; see the module notes in `revoke.rs`).
 //!
+//! * [`SyncKeys`] (feature `sync`): any [`KeyProvider`] as the key provider `rightkit-sync`'s cipher takes.
+//!
 //! Not here: the recovery-phrase (Argon2id) wrap of the design, which is a separate path that
 //! needs a new dependency; and the relay, which only carries the opaque messages of [`transfer`].
 
+#[cfg(feature = "sync")]
+mod bridge;
 mod error;
 mod key;
 mod manager;
@@ -25,6 +29,8 @@ mod util;
 
 pub mod transfer;
 
+#[cfg(feature = "sync")]
+pub use bridge::SyncKeys;
 pub use error::{Error, Result};
 pub use key::{account_scope, DataKey, KeyId, ZoneKey, KEY_LEN};
 pub use manager::{InstallOutcome, KeyManager};

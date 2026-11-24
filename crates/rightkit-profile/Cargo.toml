@@ -1,0 +1,23 @@
+[package]
+name = "rightkit-profile"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.98.0"
+description = "The owner's profile for an assistant: entries in areas with source, true-from date, state and sensitivity, proposals only the owner confirms, history, due questions, the card a run receives behind health and money switches, and a neutral export. Pure logic, no network, no files, no model calls."
+license = "MIT OR Apache-2.0"
+publish = false
+readme = "README.md"
+repository = "https://github.com/bogusyogi/rightkit"
+keywords = ["profile", "assistant", "memory", "agent"]
+categories = ["data-structures"]
+include = ["src/**", "Cargo.toml", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+
+[lib]
+name = "rightkit_profile"
+path = "src/lib.rs"
+
+[dependencies]
+rightkit-fs = { version = "0.5.0", path = "../rightkit-fs", default-features = false, features = ["digest"] }
+rightkit-time = { version = "0.1.4", path = "../rightkit-time" }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = { version = "1" }

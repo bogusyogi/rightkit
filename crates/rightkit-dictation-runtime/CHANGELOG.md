@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.6
+
+- Addressed recordings reach Pulse (VO-1, decision 5 in the Pulse repository's `docs/contracts/voice.md`). A recording that began from the wake word (`FinalTranscript::addressed`, set from the worker's own wake hand-off, `RecordingSession::addressed`) and that no command, AI-transform tail or bare summarize matched is no longer dictated once the host calls the new `host::configure_pulse_handoff(HandoffIdentity)`: finalize phase 2 submits it with `rightkit_dictation_command_host::pulse_handoff::submit_installed`. Only an accepted receipt clears the words (`FinalizeOutcome::CommandDispatched`, action `pulse.task`, detail `<task id> <task status>`); a refused, unreachable or unanswered one keeps them as the new `FinalizeOutcome::HandoffKept { text, message }`, sent to the shell as a transcript event with `cancelled` and `command_failed` set (history, never delivery; the pill's line is in `command_failed`). Nothing is typed or replayed. A recording from the dictation key is never addressed. A host that makes no call keeps today's behaviour. `FinalizeOutcome` gains a variant and `FinalTranscript` a field: source-breaking for an exhaustive `match` and for a struct literal.
+- Not done here: the pill following the task after acceptance (the host shows `command_detail` and polls `pulse_handoff::task_pill`), the follow-up window and compound grammar (VO-2), and a way to resend a kept hand-off on the owner's action.
+
 ## 0.2.5
 
 - Seal exact capture at the validated release edge and retire the producer before reopening the selected microphone.

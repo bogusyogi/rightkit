@@ -374,6 +374,24 @@ pub(crate) fn emit_finalized(
                 }),
             }),
         ),
+        // Pulse did not accept the hand-off: the words stay with the owner (history, not delivery) and the
+        // pill gets the reason.
+        Ok(FinalizeOutcome::HandoffKept { text, message }) => emit_event(
+            writer,
+            EngineSchemaName::TranscriptFinal,
+            Some(session_id),
+            Some(EnginePayload::TranscriptFinal {
+                text,
+                confidence: Some(1.0),
+                diagnostics: diagnostics_value(DiagnosticsPayload {
+                    shell_delivery: Some(true),
+                    cancelled: Some(true),
+                    command_failed: Some(message),
+                    recording_stage_metrics: Some(stage_metrics),
+                    ..Default::default()
+                }),
+            }),
+        ),
         Err(message) => {
             let frame = error_frame(&next_id(), &next_id(), Some(&session_id), &message);
             emit_frame(writer, &frame);

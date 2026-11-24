@@ -2144,3 +2144,101 @@ fn observe_js() -> String {
 /// `null` when the selector no longer matches exactly one element.
 const ELEMENT_IDENTITY_JS: &str = r#"(()=>{const l=document.querySelectorAll(__SELECTOR__);if(l.length!==1)return null;const el=l[0];
 return {tag:el.tagName.toLowerCase(),role:__ROLE__,name:(el.getAttribute('aria-label')||el.innerText||el.value||el.getAttribute('placeholder')||'').trim().slice(0,160)}})()"#;
+
+/// The `http` or `https` origin of `url` (scheme, host, non-default port; lower case; no userinfo, path,
+/// query or fragment), or `None` for any other kind of address.
+#[cfg(feature = "secret-fill")]
+fn origin_of(url: &str) -> Option<String> {
+    let (scheme, rest) = url.trim().split_once("://")?;
+    let scheme = scheme.to_ascii_lowercase();
+    if scheme != "http" && scheme != "https" {
+        return None;
+    }
+    let authority = rest.split(['/', '?', '#']).next()?;
+    let host_port = authority
+        .rsplit_once('@')
+        .map_or(authority, |(_, host)| host)
+        .to_ascii_lowercase();
+    if host_port.is_empty() || host_port.contains(char::is_whitespace) {
+        return None;
+    }
+    let (host, port) = match host_port.rsplit_once(':') {
+        Some((host, port)) if !port.is_empty() && port.bytes().all(|b| b.is_ascii_digit()) => {
+            (host, Some(port))
+        }
+        _ => (host_port.as_str(), None),
+    };
+    if host.is_empty() {
+        return None;
+    }
+    let default = if scheme == "https" { "443" } else { "80" };
+    Some(match port {
+        Some(port) if port != default => format!("{scheme}://{host}:{port}"),
+        _ => format!("{scheme}://{host}"),
+    })
+}
+
+/// True for an `<input>` that is a password or a card field: `type=password`, or an `autocomplete`
+/// token of `current-password`, `new-password` or starting `cc-`. Takes the selector as a JS string literal.
+#[cfg(feature = "secret-fill")]
+const CREDENTIAL_FIELD_JS: &str = r#"(()=>{const e=document.querySelector(__SELECTOR__);
+if(!e||e.tagName!=='INPUT')return false;
+if((e.type||'').toLowerCase()==='password')return true;
+return (e.getAttribute('autocomplete')||'').toLowerCase().split(/\s+/).some(t=>t==='current-password'||t==='new-password'||t.startsWith('cc-'))})()"#;
+
+#[cfg(feature = "secret-fill")]
+impl BrowserPage {
+    /// Type a secret into a password or card field of this page (feature `secret-fill`; works on every
+    /// platform the crate runs on, Linux included).
+    ///
+    /// Refused, with nothing typed, unless: `claimed_origin` is an `http` or `https` address whose origin
+    /// equals the origin of the page's own current address (the page is asked, never the caller's word
+    /// about it), and `target` resolves to one `<input>` that is `type=password` or has an `autocomplete`
+    /// of `current-password`, `new-password` or `cc-*`. The audit record carries only the character count
+    /// (as for `fill`). The secret is a [`rightkit_crypto::Secret`], wiped when dropped; it is typed one
+    /// key event at a time, and the per-key event descriptors this makes are not wiped (a limit).
+    pub async fn fill_secret(
+        &self,
+        target: &Target,
+        secret: &rightkit_crypto::Secret,
+        claimed_origin: &str,
+        clear: bool,
+    ) -> Result<()> {
+        let claimed = origin_of(claimed_origin).ok_or_else(|| {
+            BrowserError::Invalid("the claimed origin is not an http or https address".into())
+        })?;
+        let actual = origin_of(&self.url().await)
+            .ok_or_else(|| BrowserError::Denied("the page has no http or https origin".into()))?;
+        if claimed != actual {
+            return Err(BrowserError::Denied(
+                "the page origin is not the claimed origin".into(),
+            ));
+        }
+        let text = std::str::from_utf8(secret.expose())
+            .map_err(|_| BrowserError::Invalid("the secret is not text".into()))?;
+        self.admit(
+            ActionKind::Fill,
+            None,
+            Some(describe(target)),
+            Some(format!(
+                "chars={} clear={clear} secret",
+                text.chars().count()
+            )),
+        )
+        .await?;
+        let _l = self.lane.lock().await;
+        let selector = self
+            .resolve(target)
+            .await?
+            .ok_or_else(|| BrowserError::Invalid("fill_secret needs an element".into()))?;
+        let is_credential = self
+            .eval_internal(&CREDENTIAL_FIELD_JS.replace("__SELECTOR__", &js(&selector)))
+            .await?;
+        if is_credential.as_bool() != Some(true) {
+            return Err(BrowserError::Denied(
+                "the field is not a password or card field".into(),
+            ));
+        }
+        self.fill_locked(target, text, clear).await
+    }
+}

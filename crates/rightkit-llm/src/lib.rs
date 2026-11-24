@@ -3,7 +3,7 @@
 //!
 //! - [`anthropic::AnthropicProvider`] (Messages API) and
 //!   [`openai::OpenAiCompatProvider`] (chat completions: OpenAI, OpenRouter, Groq,
-//!   DeepSeek, Together, Mistral, xAI, Gemini endpoint, Ollama, LM Studio).
+//!   DeepSeek, Together, Mistral, xAI, Gemini endpoint, Ollama, LM Studio, llama.cpp server).
 //! - [`tools::ToolExecutor`]: runs a model tool-use loop under a gate and a budget, with result
 //!   re-entry.
 //! - Image and video-frame input: [`ContentBlock::Image`], [`image::Frame`].

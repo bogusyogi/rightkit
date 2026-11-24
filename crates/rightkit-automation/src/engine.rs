@@ -6,6 +6,7 @@ use crate::admission::{Admission, Admit, EffectKind, EffectRequest, Settled};
 use crate::events::{Counters, DeniedBy, Journal, LifecycleEvent, Metrics};
 use crate::focus::FocusWatch;
 use crate::in_app::InApp;
+use crate::input_watch::{InputWatch, OwnerInput};
 use crate::keys;
 use crate::lease::{Admitted, Fence, Lease, LeaseRequest, LeaseStatus, Leases};
 use crate::model::*;
@@ -99,6 +100,7 @@ pub struct Automation<P: Platform> {
     session_seq: AtomicU64,
     pub(crate) leases: Leases,
     admission: Mutex<Option<Arc<dyn Admission>>>,
+    input_watch: Mutex<Option<Arc<dyn InputWatch>>>,
     journals: Mutex<Vec<Arc<dyn Journal>>>,
     redactors: Mutex<Vec<Arc<dyn Redactor>>>,
     pub(crate) counters: Counters,
@@ -144,6 +146,7 @@ impl<P: Platform> Automation<P> {
             session_seq: AtomicU64::new(0),
             leases: Leases::default(),
             admission: Mutex::new(None),
+            input_watch: Mutex::new(None),
             journals: Mutex::new(vec![]),
             redactors: Mutex::new(vec![]),
             counters: Counters::default(),
@@ -166,6 +169,12 @@ impl<P: Platform> Automation<P> {
     /// validation and before execution; a denial runs nothing.
     pub fn set_admission(&self, a: Arc<dyn Admission>) {
         *self.admission.lock().unwrap() = Some(a);
+    }
+    /// Turn on detection of the owner's own keyboard and mouse use (see [`crate::input_watch`]): an act
+    /// then stops with `Error::UserInControl` before any tier or foreground event it would send once the
+    /// owner has used the keyboard or mouse since the act began. `None` turns it off, which is the default.
+    pub fn set_input_watch(&self, watch: Option<Arc<dyn InputWatch>>) {
+        *self.input_watch.lock().unwrap() = watch;
     }
     /// Receive structured lifecycle events (start, stop, target exit, denied, lease).
     pub fn add_journal(&self, j: Arc<dyn Journal>) {
@@ -1222,6 +1231,7 @@ impl<P: Platform> Automation<P> {
 
         let front0 = self.front_pid();
         rc.frontmost_before = front0;
+        let owner = OwnerInput::begin(self.input_watch.lock().unwrap().clone());
         // With `strict_focus`, sample the foreground for the whole span of the ladder, so a steal
         // that is undone before the final read still counts. Dropped on any early return.
         let focus_watch = opts.strict_focus.then(|| {
@@ -1247,7 +1257,19 @@ impl<P: Platform> Automation<P> {
             if killed() {
                 return Err(Error::Blocked("kill switch engaged".into()));
             }
-            match self.try_tier(tier, pid, window_id, el.as_ref(), frame, action, front0) {
+            if owner.used() {
+                return Err(Error::UserInControl);
+            }
+            match self.try_tier(
+                tier,
+                pid,
+                window_id,
+                el.as_ref(),
+                frame,
+                action,
+                front0,
+                &owner,
+            ) {
                 Ok(detail) => {
                     rc.attempts.push(Attempt {
                         tier,
@@ -1519,6 +1541,7 @@ impl<P: Platform> Automation<P> {
         frame: Option<Rect>,
         action: &Action,
         front0: Option<i32>,
+        owner: &OwnerInput,
     ) -> std::result::Result<String, TierFail> {
         let skip = |s: &'static str| TierFail {
             error: Error::Unsupported(s),
@@ -1642,19 +1665,50 @@ impl<P: Platform> Automation<P> {
                     }
                     let mut n = 0;
                     for ev in &evs {
-                        self.p.foreground(pid, ev).map_err(|e| TierFail {
-                            error: e,
-                            stop: n > 0,
-                        })?;
+                        // The owner touched the keyboard or mouse since the act began: stop before this
+                        // event, put the window that was in front back, and say whose hands are on it.
+                        if owner.used() {
+                            if let Some(b) = front0 {
+                                if b != pid {
+                                    self.restore_front(b);
+                                }
+                            }
+                            return Err(TierFail {
+                                error: Error::UserInControl,
+                                stop: true,
+                            });
+                        }
+                        if let Err(e) = self.p.foreground(pid, ev) {
+                            // The window that was in front comes back after a failed event too, and
+                            // an error that could not put it back says so instead of hiding it.
+                            let restored = match front0 {
+                                Some(b) if b != pid => self.restore_front(b),
+                                _ => true,
+                            };
+                            return Err(TierFail {
+                                error: if restored {
+                                    e
+                                } else {
+                                    Error::Platform(
+                                        0,
+                                        "a foreground event failed and the previous window could not be brought back",
+                                    )
+                                },
+                                stop: n > 0,
+                            });
+                        }
                         n += 1;
+                        owner.own_event_sent();
                         std::thread::sleep(Duration::from_millis(20));
                     }
-                    if let Some(b) = front0 {
-                        if b != pid {
-                            self.restore_front(b);
-                        }
-                    }
-                    Ok(format!("{n} foreground event(s); focus restored"))
+                    let restored = match front0 {
+                        Some(b) if b != pid => self.restore_front(b),
+                        _ => true,
+                    };
+                    Ok(format!(
+                        "{n} foreground event(s); focus {}",
+                        if restored { "restored" } else { "NOT restored" }
+                    ))
                 }
             }
         }
