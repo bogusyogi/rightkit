@@ -71,6 +71,16 @@ pub async fn create_draft(
         client_secret.to_string(),
         refresh_token.to_string(),
     );
+    create_draft_with(&g, raw_mime, thread_id).await
+}
+
+/// [`create_draft`] through an authorised client (for example one built by `Google::with_store`), so no
+/// refresh token is passed. Never updates or sends. Returns `(draft_id, created_message_id)`.
+pub async fn create_draft_with(
+    g: &Google,
+    raw_mime: &str,
+    thread_id: Option<&str>,
+) -> Result<(String, Option<String>), String> {
     let raw = crate::gmail::encode_raw(raw_mime);
     let message = match thread_id {
         Some(t) if !t.is_empty() => serde_json::json!({ "raw": raw, "threadId": t }),
