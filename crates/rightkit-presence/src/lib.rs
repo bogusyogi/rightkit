@@ -3,3 +3,4 @@
 //! polling loop that reports changes.
 
 pub mod presence;
+pub mod activity;
