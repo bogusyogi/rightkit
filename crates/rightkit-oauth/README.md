@@ -73,6 +73,7 @@ Redirect URIs must still be `https` (`ServerProvider::validate`); loopback `http
 - Desktop token storage uses `rightkit-credentials`. That crate has a macOS Keychain, a Windows Credential Manager and a Linux Secret Service (session bus) backend. Where no such store is available, the `secrets` feature fails closed and cannot store tokens.
 - `SealedFileTokenStore` supports Unix local filesystems with reliable advisory locks and atomic rename. On Windows, construction fails closed; supply an ACL or credential-store adapter there.
 - The `server` code uses `cfg(unix)` in `src/server/store.rs` for file permission checks.
+- `server::ServerStoreAdapter` wraps any `server::TokenStore` (the sealed file store included) as the crate-root `TokenStore`, for one provider name, so `credentials::Resolver` and `rightkit-google-apis`'s `Google::with_store` can use it. The 32-byte key of `SealedFileTokenStore` still comes from the caller (a secret manager or systemd credential), never from a file beside the data.
 
 Published version: see `INDEX.md` at the repository root. Release notes: see `CHANGELOG.md` in this crate.
 

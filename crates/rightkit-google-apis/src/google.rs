@@ -193,11 +193,30 @@ pub fn forget_cached_access_token(client_id: &str, client_secret: &str, refresh_
     tokens.remove(&key);
 }
 
+/// Where a `Google` client gets its access tokens.
+#[derive(Clone)]
+enum Grant {
+    /// A refresh token the caller passed in, shared app-wide through `token_registry`.
+    Refresh {
+        client_id: String,
+        client_secret: String,
+        refresh_token: String,
+    },
+    /// A grant held in a caller-supplied store; clones of the client share this holder.
+    Stored(Arc<AccessTokens>),
+}
+
+/// A Google API client. Holds no token in `Debug` output: it has none, and the grant is
+/// redacted if one is ever added.
 #[derive(Clone)]
 pub struct Google {
-    client_id: String,
-    client_secret: String,
-    refresh_token: String,
+    grant: Grant,
+}
+
+impl std::fmt::Debug for Google {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Google { [redacted] }")
+    }
 }
 
 /// A JSON call: the whole call (retries included) is bounded by `REQUEST_DEADLINE`.
@@ -239,10 +258,34 @@ fn parse_json<T: DeserializeOwned>(url: &str, resp: &Response) -> Result<T, Goog
 impl Google {
     pub fn new(client_id: String, client_secret: String, refresh_token: String) -> Self {
         Self {
-            client_id,
-            client_secret,
-            refresh_token,
+            grant: Grant::Refresh {
+                client_id,
+                client_secret,
+                refresh_token,
+            },
         }
+    }
+
+    /// A client whose grant lives in the caller's `store` under `account`, instead of in a
+    /// refresh token passed here. Access tokens are minted from, and refreshed back into,
+    /// that store (see [`AccessTokens::with_store`]); the refresh token never enters this
+    /// client's fields. `account` names the grant in the store and must not carry secrets.
+    ///
+    /// Clones of the returned client share one token holder. Build it once per account and
+    /// reuse it. An empty or revoked grant surfaces as `GoogleError::Auth`, never a retry
+    /// loop. Put the first grant in the store with
+    /// [`crate::oauth::provision_refresh_token`].
+    pub fn with_store(
+        client_id: &str,
+        client_secret: &str,
+        account: &str,
+        store: Arc<dyn rightkit_oauth::TokenStore>,
+    ) -> Result<Self, GoogleError> {
+        let tokens = AccessTokens::with_store(client_id, client_secret, account, store)
+            .map_err(classify_mint_error)?;
+        Ok(Self {
+            grant: Grant::Stored(Arc::new(tokens)),
+        })
     }
 
     /// A usable access token: the held one while fresh, else a refreshed one.
@@ -290,26 +333,25 @@ impl Google {
 
     /// This account's shared token holder, created on first use.
     fn tokens(&self) -> Result<Arc<AccessTokens>, GoogleError> {
-        let key = self.token_cache_key();
+        let (client_id, client_secret, refresh_token) = match &self.grant {
+            Grant::Stored(held) => return Ok(held.clone()),
+            Grant::Refresh {
+                client_id,
+                client_secret,
+                refresh_token,
+            } => (client_id, client_secret, refresh_token),
+        };
+        let key = token_cache_key(client_id, client_secret, refresh_token);
         let mut tokens = token_registry().lock().unwrap_or_else(|e| e.into_inner());
         if let Some(held) = tokens.get(&key) {
             return Ok(held.clone());
         }
         let held = Arc::new(
-            AccessTokens::new(
-                &self.client_id,
-                &self.client_secret,
-                &self.refresh_token,
-                &key,
-            )
-            .map_err(classify_mint_error)?,
+            AccessTokens::new(client_id, client_secret, refresh_token, &key)
+                .map_err(classify_mint_error)?,
         );
         tokens.insert(key, held.clone());
         Ok(held)
-    }
-
-    fn token_cache_key(&self) -> String {
-        token_cache_key(&self.client_id, &self.client_secret, &self.refresh_token)
     }
 
     /// Authenticated GET returning JSON, with 401-refresh-once + transient retry.

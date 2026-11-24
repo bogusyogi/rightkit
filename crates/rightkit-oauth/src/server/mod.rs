@@ -16,7 +16,7 @@ pub use presets::{
     X_DEFAULT_SCOPES, X_TOKEN_URL,
 };
 pub use provider::{ClientIdParameter, ServerProvider};
-pub use store::{SealedFileTokenStore, TokenStore, TokenStoreGuard};
+pub use store::{SealedFileTokenStore, ServerStoreAdapter, TokenStore, TokenStoreGuard};
 
 use crate::TokenSet;
 use rightkit_http::{percent_encode, Client, Request, RetryPolicy, Secret};

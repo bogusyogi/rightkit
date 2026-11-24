@@ -9,6 +9,11 @@ readme = "README.md"
 repository = "https://github.com/bogusyogi/rightkit"
 include = ["src/**", "data/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
+[features]
+# `oauth::sealed_file_store`: an encrypted file store for refresh tokens (Unix daemons), over
+# rightkit-oauth's `server` module.
+sealed-store = ["rightkit-oauth/server"]
+
 [lib]
 name = "rightkit_google_apis"
 path = "src/lib.rs"
