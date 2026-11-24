@@ -4270,7 +4270,9 @@ export function ignoredCallerVariable(name, platform = process.platform) {
 }
 export async function main(argv, io = {}) {
   const o = {
-    spawn: defaultSpawn, exists: fs.existsSync, // remembers its read-only answers itself (deterministic-scans.mjs isRememberedRead); a wrapper here switched off the pnpm answers kept across runs, which test `spawn === defaultSpawn` readFile: (f) => fs.readFileSync(f, "utf8"), writeFile: fs.writeFileSync, mkdir: fs.mkdirSync, chmod: fs.chmodSync, readdir: fs.readdirSync,
+    // defaultSpawn remembers its read-only answers itself (deterministic-scans.mjs isRememberedRead); a wrapper here switched off the pnpm answers kept
+    // across runs, which test `spawn === defaultSpawn`.
+    spawn: defaultSpawn, exists: fs.existsSync, readFile: (f) => fs.readFileSync(f, "utf8"), writeFile: fs.writeFileSync, mkdir: fs.mkdirSync, chmod: fs.chmodSync, readdir: fs.readdirSync,
     readStdin: () => { try { return process.stdin.isTTY ? "" : fs.readFileSync(0, "utf8"); } catch { return ""; } },
     out: (m) => console.log(m), err: (m) => console.error(m), cwd: process.cwd(), env: process.env, platform: process.platform,
     // Where this gate runs from (the door puts its own shims first on PATH when it is an installed package: doorPath).

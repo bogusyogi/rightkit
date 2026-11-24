@@ -45,3 +45,14 @@ test("F4: a check that skipped executing scans exits 3, never 0", () => {
   const gate = fs.readFileSync(path.join(here, "bin", "rightkit-gate.mjs"), "utf8");
   assert.match(gate, /if \(notRun\.length\) \{ o\.out\(.*PARTIAL.*return 3; \}/);
 });
+test("a run from the command line has every default file function (0.6.68 lost readFile, writeFile, mkdir, chmod and readdir to a comment)", async () => {
+  const fs2 = await import("node:fs"); const os2 = await import("node:os"); const path2 = await import("node:path");
+  const { main } = await import("./bin/rightkit-gate.mjs");
+  const dir = fs2.mkdtempSync(path2.join(os2.tmpdir(), "rk-units-")); const file = path2.join(dir, "units.json"); fs2.writeFileSync(file, JSON.stringify({ units: ["cargo:rightkit-time"] }));
+  const errs = []; const spawn = (c, a) => ({ status: c === "git" && a[1] === "--show-toplevel" ? 0 : 1, stdout: c === "git" && a[1] === "--show-toplevel" ? `${dir}\n` : "", stderr: "stub" });
+  await main(["--to", "check", "--units-file", file, "--commit", "0".repeat(40)], { cwd: dir, out: () => {}, err: (s) => errs.push(String(s)), spawn });
+  assert.equal(errs.filter((e) => /is not a function/.test(e)).length, 0, errs.join("\n"));
+  const src = fs2.readFileSync(new URL("./bin/rightkit-gate.mjs", import.meta.url), "utf8");
+  assert.match(src, /spawn: defaultSpawn, exists: fs\.existsSync, readFile: \(f\) => fs\.readFileSync\(f, "utf8"\), writeFile: fs\.writeFileSync, mkdir: fs\.mkdirSync, chmod: fs\.chmodSync, readdir: fs\.readdirSync,/);
+  fs2.rmSync(dir, { recursive: true, force: true });
+});

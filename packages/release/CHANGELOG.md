@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.69
+
+- Fix: 0.6.68 (never installed or published) lost the gate's default file functions (`readFile`, `writeFile`, `mkdir`, `chmod`, `readdir`) to a comment, so `--units-file` and every file write of a command-line run failed. Restored, with a test that runs the command-line defaults.
+
 ## 0.6.68
 
 Faults the acceptance cases showed on 0.6.67 (GC-A27; rightkit#1514), each with a test.
