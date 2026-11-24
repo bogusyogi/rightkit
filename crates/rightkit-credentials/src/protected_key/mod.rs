@@ -124,6 +124,23 @@ impl ProtectedKey {
         })
     }
 
+    /// The key a program already created under its own credential name `credential`, used exactly as
+    /// given (no namespace prefix): on Windows the Hello credential name, on macOS the keychain
+    /// application tag. For adopting a key an app enrolled before it used this crate (Pulse's
+    /// `pulse-owner-v1`, #410); new keys use [`ProtectedKey::new`]. To re-enrol, [`ProtectedKey::delete`]
+    /// it and call [`ProtectedKey::create`]. `credential` is 1..=128 characters with no control character.
+    pub fn existing(credential: &str) -> Result<Self> {
+        if credential.is_empty()
+            || credential.chars().count() > MAX_NAME
+            || credential.chars().any(char::is_control)
+        {
+            return Err(ProtectedKeyError::InvalidName);
+        }
+        Ok(Self {
+            tag: credential.to_string(),
+        })
+    }
+
     /// Create the key. An existing key is never replaced: its public key is returned instead, so
     /// a caller can call this at every start. Creation may prompt on Windows (Hello enrolment)
     /// and never on macOS.
@@ -162,6 +179,60 @@ impl ProtectedKey {
     pub fn unseal(&self, blob: &[u8], aad: &[u8], reason: &str) -> Result<Secret> {
         sys::unseal(&self.tag, blob, aad, reason).map(Secret::from_bytes)
     }
+}
+
+/// `rsaEncryption` (1.2.840.113549.1.1.1) as DER, the start of an RSA `AlgorithmIdentifier`.
+const RSA_ENCRYPTION_OID: [u8; 11] = [
+    0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x01,
+];
+
+/// One DER element: `(tag, content, rest)`. Lengths up to four bytes.
+fn der_element(input: &[u8]) -> Option<(u8, &[u8], &[u8])> {
+    let (&tag, rest) = input.split_first()?;
+    let (&first, rest) = rest.split_first()?;
+    let (len, rest) = if first < 0x80 {
+        (usize::from(first), rest)
+    } else {
+        let count = usize::from(first & 0x7f);
+        if count == 0 || count > 4 || rest.len() < count {
+            return None;
+        }
+        let (len_bytes, rest) = rest.split_at(count);
+        let len = len_bytes
+            .iter()
+            .fold(0usize, |n, b| (n << 8) | usize::from(*b));
+        (len, rest)
+    };
+    if rest.len() < len {
+        return None;
+    }
+    let (content, rest) = rest.split_at(len);
+    Some((tag, content, rest))
+}
+
+/// The PKCS#1 `RSAPublicKey` inside an RSA X.509 `SubjectPublicKeyInfo`, which is what a Windows Hello
+/// key's [`PublicKey::bytes`] holds. A host that identified its key by the PKCS#1 form (Pulse's key id
+/// is a digest of it, #410) gets the same bytes back. `None` when `spki` is not exactly an RSA
+/// `SubjectPublicKeyInfo`.
+pub fn rsa_pkcs1_from_spki(spki: &[u8]) -> Option<Vec<u8>> {
+    let (tag, body, rest) = der_element(spki)?;
+    if tag != 0x30 || !rest.is_empty() {
+        return None;
+    }
+    let (tag, algorithm, rest) = der_element(body)?;
+    if tag != 0x30 || !algorithm.starts_with(&RSA_ENCRYPTION_OID) {
+        return None;
+    }
+    let (tag, bits, rest) = der_element(rest)?;
+    if tag != 0x03 || !rest.is_empty() {
+        return None;
+    }
+    let (&unused_bits, key) = bits.split_first()?;
+    if unused_bits != 0 {
+        return None;
+    }
+    let (tag, _, tail) = der_element(key)?;
+    (tag == 0x30 && tail.is_empty()).then(|| key.to_vec())
 }
 
 /// PBKDF2-HMAC-SHA256 iteration count for [`seal_with_pin`]. A PIN has little entropy: the OS

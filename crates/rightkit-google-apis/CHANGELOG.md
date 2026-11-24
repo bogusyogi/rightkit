@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.2
+
+- Added authorised-client variants for sending (AG-6), additive: `gmail::send_message_with(g: &Google, raw_mime: &str, thread_id: Option<&str>) -> Result<SentRef, String>`, `drafts::create_draft_with(g: &Google, raw_mime: &str, thread_id: Option<&str>) -> Result<(String, Option<String>), String>` and `gmail::modify_labels_with(g: &Google, ids: &[String], add: &[&str], remove: &[&str]) -> Result<(), String>`. They take a `Google` (for example `Google::with_store`) instead of a client id, secret and refresh token; the requests, error text and the uncertain-send classification are those of `send_message`, `create_draft` and `modify_labels`, which stay and now call them. Written, not compiled. No unit tests, per the 2026-11-03 rule.
+
 ## 0.2.1
 
 - Added `Google::with_store(client_id, client_secret, account, store)`: a client whose refresh token lives in a caller-supplied `rightkit_oauth::TokenStore` instead of being passed as a string. Access tokens are minted from, and refreshed back into, that store; a missing or revoked grant surfaces as `GoogleError::Auth`, with no re-seeding and no retry loop. Clones share one token holder. `Google::new` and every string-taking function are unchanged.
