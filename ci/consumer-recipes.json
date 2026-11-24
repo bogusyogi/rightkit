@@ -2768,9 +2768,9 @@
       "pkId": "PK41",
       "id": "ci/consumers/rightkit-send/src/main.rs",
       "files": {
-        "Cargo.toml": "323da893cb1a84605bf47e4e1c9db8c7fa73d9d2e5b81fc0d3642352d96fb41d",
-        "README.md": "195e478eb96eac322cc8a87af2053fb91e10db36ab47b4c937f3268cced192e3",
-        "src/main.rs": "8a4d1ad0f4cf0a99e397bbd907f9ab98d2d114d579bf873542eea86a02db0c08"
+        "Cargo.toml": "514afe0d8e96f5f18b2af2623576d31934036e2733e2650ede8581ee6736c0bf",
+        "README.md": "41fdf302090f38c13374ba1ec456698fd86515c5564bd11113eeafb9c992b988",
+        "src/main.rs": "860359fc3cbfe1bdbe831d28841a32ac4c04b950bd0e5391875d8baa20462c58"
       }
     },
     "rightkit-sync": {

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.1
+
+- Added `transport::SmallOf<A>`, the small-item wire enum generic over the host's batch tag, and made `Small` the alias `SmallOf<serde_json::Value>`: the existing concrete API, names, variants and serialised shape are unchanged. A host that wants its own typed tag decodes the original bytes with `SmallOf::<Tag>::decode`, so nested duplicate keys and shape rules are the tag type's rather than lost in a `serde_json::Value`; defaults, absent and null handling and the unknown-field policy are one definition for every tag type. The registry consumer covers the raw and the typed shapes.
+
 ## 0.4.0 (unpublished)
 
 Breaking: the trust store is public and keyed by a subject, and the crate gains a transport layer (rightkit#407; Pulse replaces `core/src/localsend` and the mesh re-implementation of the send rules in `engine/src/share_mesh.rs`).
