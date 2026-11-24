@@ -59,6 +59,77 @@ pub const KEY_LEDGER_TRANSCRIPTS: &str = "ledgerTranscriptSearch";
 /// `ledger.history` with redacted snippets of the chats `remoteChatRead` selects. Owner-only; off by
 /// default.
 pub const KEY_LEDGER_SHARE: &str = "ledgerTranscriptShare";
+/// The agent the engine starts may read this account's Gmail and Calendar from the computer that
+/// holds the sealed Google grant (`google.mail_list`, `google.mail_read`, `google.calendar_list`;
+/// AG-1). Off by default, owner-only.
+pub const KEY_ASSISTANT_GOOGLE: &str = "assistantGoogle";
+/// The agent the engine starts may ask the owner for a foreground lease when no quieter route can
+/// do a step of `screen.act` (AG-12, `foreground.rs`). Off by default, owner-only. The plan's four
+/// modes (never, task, ask, when-idle) need an enumerated owner setting; this is the switch that
+/// separates "never" from "ask", and the lease is always asked once per app.
+pub const KEY_AGENT_FOREGROUND: &str = "agentForeground";
+/// How a foreground lease is granted once `agentForeground` is on: `ask` (the owner approves every lease),
+/// `when-idle` (no question after `agentForegroundIdleSeconds` with no input from the owner, else `ask`)
+/// or `task` (no question for a task the owner started). Owner-only. Looseness, tightest first: ask,
+/// when-idle, task.
+pub const KEY_AGENT_FOREGROUND_MODE: &str = "agentForegroundMode";
+/// How long one foreground lease lasts, in seconds (default 120, at most 600). Owner-only.
+pub const KEY_AGENT_FOREGROUND_SECONDS: &str = "agentForegroundSeconds";
+/// Seconds with no input from the owner after which `when-idle` grants a lease without a question
+/// (default 120, 30 to 3600). Owner-only.
+pub const KEY_AGENT_FOREGROUND_IDLE_SECONDS: &str = "agentForegroundIdleSeconds";
+/// `agentForegroundSeconds`: default and ceiling.
+pub const DEFAULT_AGENT_FOREGROUND_SECONDS: u64 = 120;
+pub const HARD_AGENT_FOREGROUND_SECONDS: u64 = 600;
+/// `agentForegroundIdleSeconds`: default, floor and ceiling.
+pub const DEFAULT_AGENT_FOREGROUND_IDLE_SECONDS: u64 = 120;
+pub const MIN_AGENT_FOREGROUND_IDLE_SECONDS: u64 = 30;
+pub const HARD_AGENT_FOREGROUND_IDLE_SECONDS: u64 = 3600;
+
+/// The values of `agentForegroundMode`, loosest last.
+pub const FOREGROUND_MODES: [&str; 3] = ["ask", "when-idle", "task"];
+
+/// Whole seconds from a published or stored JSON number: an integer, or a float with no fraction.
+pub fn whole_seconds(value: &Value) -> Option<u64> {
+    value.as_u64().or_else(|| {
+        value
+            .as_f64()
+            .filter(|f| f.is_finite() && *f >= 0.0 && f.fract() == 0.0)
+            .map(|f| f as u64)
+    })
+}
+/// The noticing loop (AG-2): this computer polls the owner's Gmail, sorts each new message in code, reads typed facts
+/// from it (a model with no tools only for what code cannot place) and raises findings to the Inbox. Off by default,
+/// owner-only. It reads mail through `assistantGoogle`, so it needs that switch and `remoteTools` too.
+pub const KEY_ASSISTANT: &str = "assistant";
+/// The profile (ME-3, provisional: built on the lead's recommendation, the owner to confirm): lets the host app keep the owner's profile
+/// and hand a run its card. Off by default, owner-only. Health and money entries need their own switches below as well.
+pub const KEY_PROFILE: &str = "profile";
+/// Lets a run's card include the owner's health entries (ME-3). Off by default, owner-only. Needs `profile`.
+pub const KEY_PROFILE_HEALTH: &str = "profileHealth";
+/// Lets a run's card include the owner's money entries (ME-3). Off by default, owner-only. Needs `profile`.
+pub const KEY_PROFILE_MONEY: &str = "profileMoney";
+/// Sync of the owner's data across the owner's own computers through the owner's Google Drive app folder (ME-4, provisional:
+/// built on the lead's recommendation, the owner to confirm). Off by default, owner-only.
+pub const KEY_SYNC: &str = "sync";
+/// The deadman wipe of sync (ME-4, provisional): a computer that has not reached the owner's sync for 30 days, or learns it was revoked,
+/// erases its synced copy and the sync key. Off by default, owner-only. Needs `sync`.
+pub const KEY_SYNC_DEADMAN: &str = "syncDeadman";
+/// The agent may create drafts and label, archive and send this account's mail (AG-6). A send still asks for the owner's approval
+/// of the exact message. Off by default, owner-only. It needs `assistantGoogle` as well.
+pub const KEY_ASSISTANT_GOOGLE_WRITE: &str = "assistantGoogleWrite";
+/// This computer tells the always-on computer when you last used it and its presence state (AG-5). Off by default, owner-only.
+pub const KEY_ASSISTANT_PRESENCE: &str = "assistantPresence";
+/// How long after your last input a computer counts as in use, in seconds (AG-5; default 120).
+pub const KEY_ASSISTANT_RECENT_INPUT: &str = "assistantRecentInputSeconds";
+/// How long an alert sits untouched on a computer before the phone gets it too, in seconds (AG-5; default 180).
+pub const KEY_ASSISTANT_ESCALATE: &str = "assistantEscalateSeconds";
+/// Quiet hours for assistant alerts: `HH:MM-HH:MM zone` lines (AG-5). Empty means none.
+pub const KEY_ASSISTANT_QUIET_HOURS: &str = "assistantQuietHours";
+/// The defaults and ceilings of the two alert times.
+pub const DEFAULT_ASSISTANT_RECENT_INPUT: u64 = 120;
+pub const DEFAULT_ASSISTANT_ESCALATE: u64 = 180;
+pub const HARD_ASSISTANT_SECONDS: u64 = 3600;
 /// `screen.observe`'s switch, needed in addition to `remoteTools`. Off by default.
 pub const KEY_SCREEN_OBSERVE: &str = "remoteScreenObserve";
 /// `screen.act`'s own tier-3 switch, needed in addition to `remoteTools`. Off by default.
@@ -112,8 +183,15 @@ pub const KEY_SPOT_TAKEOVER: &str = "remoteScreenSpotTakeover";
 pub const KEY_CHAT_UNLOCK: &str = "chatUnlock";
 /// How long an unlock lasts, in minutes; 0 (the default) is until the chat ends.
 pub const KEY_CHAT_UNLOCK_MINUTES: &str = "chatUnlockMinutes";
+/// The agent the engine starts may answer `agent.request` and `agent.ask` (a phone's ask). Off by
+/// default, owner-only: the engine reads it from its own protected store, never from
+/// `owner app-state.json`.
+pub const KEY_AGENT_REQUESTS: &str = "agentRequests";
 /// The agent the engine starts may act (`agent.act`). Off by default.
 pub const KEY_AGENT_ACTIONS: &str = "agentActions";
+/// The agent the engine starts may keep and look up notes in Membrane's memory store
+/// (`memory.push`, `memory.search`; ME-1). Off by default, owner-only.
+pub const KEY_AGENT_MEMORY: &str = "agentMemory";
 /// Agent browser logins: an agent may ask for a
 /// browser session on the computer that holds the login store; the owner approves each use. Off by
 /// default, owner-only.
@@ -143,11 +221,13 @@ pub const HARD_AGENT_BROWSER_MINUTES: u64 = 240;
 pub const PROTECTED_KEYS: &[&str] = &[
     KEY_CHAT_UNLOCK,
     KEY_CHAT_UNLOCK_MINUTES,
+    KEY_AGENT_REQUESTS,
     KEY_BLOCKED_APPS,
     KEY_AGENT_ACTIONS,
     KEY_AGENT_CLI_PATH,
     KEY_AGENT_BROWSER,
     KEY_AGENT_BROWSER_MINUTES,
+    KEY_AGENT_MEMORY,
     KEY_ROOTS,
     KEY_GATEWAY,
     KEY_CHAT_READ,
@@ -176,6 +256,22 @@ pub const PROTECTED_KEYS: &[&str] = &[
     KEY_LEDGER_TRANSCRIPTS,
     KEY_LEDGER_SHARE,
     KEY_FILES_WRITE,
+    KEY_ASSISTANT_GOOGLE,
+    KEY_AGENT_FOREGROUND,
+    KEY_AGENT_FOREGROUND_MODE,
+    KEY_AGENT_FOREGROUND_SECONDS,
+    KEY_AGENT_FOREGROUND_IDLE_SECONDS,
+    KEY_ASSISTANT,
+    KEY_PROFILE,
+    KEY_PROFILE_HEALTH,
+    KEY_PROFILE_MONEY,
+    KEY_SYNC,
+    KEY_SYNC_DEADMAN,
+    KEY_ASSISTANT_GOOGLE_WRITE,
+    KEY_ASSISTANT_PRESENCE,
+    KEY_ASSISTANT_RECENT_INPUT,
+    KEY_ASSISTANT_ESCALATE,
+    KEY_ASSISTANT_QUIET_HOURS,
     KEY_TOOLS,
 ];
 
@@ -297,13 +393,52 @@ pub struct Settings {
     pub chat_unlock: bool,
     /// `chatUnlockMinutes`: how long an unlock lasts; 0 is until the chat ends.
     pub chat_unlock_minutes: u64,
+    /// `agentRequests`: the agent the engine starts may answer `agent.request` and `agent.ask`. Off
+    /// by default.
+    pub agent_requests: bool,
     /// `agentActions`: the agent the engine starts may act. Off by default.
     pub agent_actions: bool,
+    /// `agentMemory`: the agent the engine starts may write and search Membrane's memory store.
+    /// Off by default.
+    pub agent_memory: bool,
     /// `agentBrowser`: agents may ask for an approved browser session on this computer. Off by
     /// default.
     pub agent_browser: bool,
     /// `agentBrowserSessionMinutes`: the longest such a session lasts.
     pub agent_browser_minutes: u64,
+    /// `assistantGoogle`: the agent the engine starts may read Gmail and Calendar here. Off by
+    /// default.
+    pub assistant_google: bool,
+    /// `agentForeground`: the agent the engine starts may ask for a foreground lease. Off by
+    /// default.
+    pub agent_foreground: bool,
+    /// `agentForegroundMode`: one of `FOREGROUND_MODES`; `ask` when unreadable.
+    pub agent_foreground_mode: String,
+    /// `agentForegroundSeconds`: how long one lease lasts.
+    pub agent_foreground_seconds: u64,
+    /// `agentForegroundIdleSeconds`: the idle time `when-idle` waits for.
+    pub agent_foreground_idle_seconds: u64,
+    /// `assistant`: the noticing loop polls this account's Gmail on this computer. Off by default.
+    pub assistant: bool,
+    /// `profile`: the host app keeps the owner's profile and hands a run its card (ME-3). Off by default.
+    pub profile: bool,
+    /// `profileHealth`: a card may include health entries (ME-3). Off by default.
+    pub profile_health: bool,
+    /// `profileMoney`: a card may include money entries (ME-3). Off by default.
+    pub profile_money: bool,
+    /// `sync`: this computer syncs the owner's data through the owner's Drive app folder (ME-4). Off by default.
+    pub sync: bool,
+    /// `syncDeadman`: erase the synced copy and key after 30 days without reaching the account. Off by default.
+    pub sync_deadman: bool,
+    /// `assistantGoogleWrite`: the agent may draft, label, archive and (with approval) send mail. Off by default.
+    pub assistant_google_write: bool,
+    /// `assistantPresence`: this computer reports its presence to the always-on computer. Off by default.
+    pub assistant_presence: bool,
+    /// `assistantRecentInputSeconds` and `assistantEscalateSeconds`: the alert routing times.
+    pub assistant_recent_input_secs: u64,
+    pub assistant_escalate_secs: u64,
+    /// `assistantQuietHours`: `HH:MM-HH:MM zone` lines.
+    pub assistant_quiet_hours: Vec<String>,
 }
 
 impl Default for Settings {
@@ -323,6 +458,22 @@ impl Default for Settings {
             docs: false,
             docs_max_bytes: DEFAULT_DOCS_MAX_BYTES,
             files_write: false,
+            assistant_google: false,
+            agent_foreground: false,
+            agent_foreground_mode: "ask".to_string(),
+            agent_foreground_seconds: DEFAULT_AGENT_FOREGROUND_SECONDS,
+            agent_foreground_idle_seconds: DEFAULT_AGENT_FOREGROUND_IDLE_SECONDS,
+            assistant: false,
+            profile: false,
+            profile_health: false,
+            profile_money: false,
+            sync: false,
+            sync_deadman: false,
+            assistant_google_write: false,
+            assistant_presence: false,
+            assistant_recent_input_secs: DEFAULT_ASSISTANT_RECENT_INPUT,
+            assistant_escalate_secs: DEFAULT_ASSISTANT_ESCALATE,
+            assistant_quiet_hours: Vec::new(),
             terminals: false,
             term_standing: false,
             term_allow: Vec::new(),
@@ -346,7 +497,9 @@ impl Default for Settings {
             spot_takeover: false,
             chat_unlock: true,
             chat_unlock_minutes: 0,
+            agent_requests: false,
             agent_actions: false,
+            agent_memory: false,
             agent_browser: false,
             agent_browser_minutes: DEFAULT_AGENT_BROWSER_MINUTES,
         }
@@ -375,6 +528,7 @@ impl Settings {
     pub fn from_published(published: &Value) -> Settings {
         Settings {
             agent_actions: published[KEY_AGENT_ACTIONS].as_bool() == Some(true),
+            agent_memory: published[KEY_AGENT_MEMORY].as_bool() == Some(true),
             agent_browser: published[KEY_AGENT_BROWSER].as_bool() == Some(true),
             agent_browser_minutes: published[KEY_AGENT_BROWSER_MINUTES]
                 .as_u64()
@@ -427,6 +581,45 @@ impl Settings {
                 HARD_DOCS_MAX_BYTES,
             ),
             files_write: published[KEY_FILES_WRITE].as_bool() == Some(true),
+            assistant_google: published[KEY_ASSISTANT_GOOGLE].as_bool() == Some(true),
+            agent_foreground: published[KEY_AGENT_FOREGROUND].as_bool() == Some(true),
+            agent_foreground_mode: published[KEY_AGENT_FOREGROUND_MODE]
+                .as_str()
+                .filter(|m| FOREGROUND_MODES.contains(m))
+                .unwrap_or("ask")
+                .to_string(),
+            agent_foreground_seconds: whole_seconds(&published[KEY_AGENT_FOREGROUND_SECONDS])
+                .map_or(DEFAULT_AGENT_FOREGROUND_SECONDS, |n| {
+                    n.clamp(1, HARD_AGENT_FOREGROUND_SECONDS)
+                }),
+            agent_foreground_idle_seconds: whole_seconds(
+                &published[KEY_AGENT_FOREGROUND_IDLE_SECONDS],
+            )
+            .map_or(DEFAULT_AGENT_FOREGROUND_IDLE_SECONDS, |n| {
+                n.clamp(
+                    MIN_AGENT_FOREGROUND_IDLE_SECONDS,
+                    HARD_AGENT_FOREGROUND_IDLE_SECONDS,
+                )
+            }),
+            assistant: published[KEY_ASSISTANT].as_bool() == Some(true),
+            profile: published[KEY_PROFILE].as_bool() == Some(true),
+            profile_health: published[KEY_PROFILE_HEALTH].as_bool() == Some(true),
+            profile_money: published[KEY_PROFILE_MONEY].as_bool() == Some(true),
+            sync: published[KEY_SYNC].as_bool() == Some(true),
+            sync_deadman: published[KEY_SYNC_DEADMAN].as_bool() == Some(true),
+            assistant_google_write: published[KEY_ASSISTANT_GOOGLE_WRITE].as_bool() == Some(true),
+            assistant_presence: published[KEY_ASSISTANT_PRESENCE].as_bool() == Some(true),
+            assistant_recent_input_secs: cap(
+                &published[KEY_ASSISTANT_RECENT_INPUT],
+                DEFAULT_ASSISTANT_RECENT_INPUT,
+                HARD_ASSISTANT_SECONDS,
+            ),
+            assistant_escalate_secs: cap(
+                &published[KEY_ASSISTANT_ESCALATE],
+                DEFAULT_ASSISTANT_ESCALATE,
+                HARD_ASSISTANT_SECONDS,
+            ),
+            assistant_quiet_hours: text_list(&published[KEY_ASSISTANT_QUIET_HOURS]),
             terminals: published[KEY_TERMINALS].as_bool() == Some(true),
             term_standing: published[KEY_TERM_STANDING].as_bool() == Some(true),
             term_allow: text_list(&published[KEY_TERM_ALLOW]),
@@ -454,6 +647,7 @@ impl Settings {
                 DEFAULT_PAYMENTS_MONTH_CAP_CENTS,
             ),
             spot_takeover: published[KEY_SPOT_TAKEOVER].as_bool() == Some(true),
+            agent_requests: published[KEY_AGENT_REQUESTS].as_bool() == Some(true),
             // Fails closed: only an explicit `false` turns the unlock off.
             chat_unlock: published[KEY_CHAT_UNLOCK].as_bool() != Some(false),
             chat_unlock_minutes: published[KEY_CHAT_UNLOCK_MINUTES]
@@ -596,6 +790,42 @@ impl Settings {
         Ok(())
     }
 
+    /// What `memory.push` and `memory.search` need: `remoteTools` and `agentMemory`. The codes
+    /// are `remote_off` and `agent_memory_off`.
+    pub fn require_agent_memory(&self) -> Result<()> {
+        if !self.enabled {
+            return Err(Refusal::new(
+                "remote_off",
+                "remote tools are turned off in the app's settings (remoteTools)",
+            ));
+        }
+        if !self.agent_memory {
+            return Err(Refusal::new(
+                "agent_memory_off",
+                "the agent's memory is turned off in the app's settings (agentMemory)",
+            ));
+        }
+        Ok(())
+    }
+
+    /// What the `browser.*` tools need: `remoteTools` and `agentBrowser`. The codes are
+    /// `remote_off` and `feature_off` (the code the browser module itself answers with).
+    pub fn require_agent_browser(&self) -> Result<()> {
+        if !self.enabled {
+            return Err(Refusal::new(
+                "remote_off",
+                "remote tools are turned off in the app's settings (remoteTools)",
+            ));
+        }
+        if !self.agent_browser {
+            return Err(Refusal::new(
+                "feature_off",
+                "the agent's browser is turned off in the app's settings (agentBrowser)",
+            ));
+        }
+        Ok(())
+    }
+
     /// What `media.control` needs: `remoteTools` and `remoteMedia` (`remote_off`, `media_off`).
     pub fn require_media(&self) -> Result<()> {
         if !self.enabled {
@@ -621,6 +851,81 @@ impl Settings {
             let value = value.trim();
             (key.trim().eq_ignore_ascii_case(field) && !value.is_empty()).then_some(value)
         })
+    }
+}
+
+impl Settings {
+    /// What the `google.*` read tools need: `remoteTools` and `assistantGoogle`. The codes are
+    /// `remote_off` and `assistant_google_off`.
+    pub fn require_assistant_google(&self) -> Result<()> {
+        if !self.enabled {
+            return Err(Refusal::new(
+                "remote_off",
+                "remote tools are turned off in the app's settings (remoteTools)",
+            ));
+        }
+        if !self.assistant_google {
+            return Err(Refusal::new(
+                "assistant_google_off",
+                "reading Google mail and calendar is turned off in the app's settings (assistantGoogle)",
+            ));
+        }
+        Ok(())
+    }
+}
+
+impl Settings {
+    /// What the `google.mail_draft`, `google.mail_label`, `google.mail_archive` and `google.mail_send` tools need: the Google
+    /// reads' switches and `assistantGoogleWrite`. The codes are those of `require_assistant_google` and
+    /// `assistant_google_write_off`.
+    pub fn require_assistant_google_write(&self) -> Result<()> {
+        self.require_assistant_google()?;
+        if !self.assistant_google_write {
+            return Err(Refusal::new(
+                "assistant_google_write_off",
+                "drafting, labelling, archiving and sending mail is turned off in the app's settings (assistantGoogleWrite)",
+            ));
+        }
+        Ok(())
+    }
+}
+
+impl Settings {
+    /// What the noticing loop needs (AG-2): `assistant`, and the Google reads it makes (`remoteTools`
+    /// and `assistantGoogle`). The codes are `assistant_off`, `remote_off` and `assistant_google_off`.
+    pub fn require_assistant(&self) -> Result<()> {
+        if !self.assistant {
+            return Err(Refusal::new(
+                "assistant_off",
+                "the noticing loop is turned off in the app's settings (assistant)",
+            ));
+        }
+        self.require_assistant_google()
+    }
+}
+
+impl Settings {
+    /// What every profile call needs (ME-3): `profile`. The code is `profile_off`. The two sensitive areas also need their own
+    /// switch, which `profile::switches` reads: a card without it simply leaves those entries out.
+    pub fn require_profile(&self) -> Result<()> {
+        if !self.profile {
+            return Err(Refusal::new(
+                "profile_off",
+                "the profile is turned off in the app's settings (profile)",
+            ));
+        }
+        Ok(())
+    }
+
+    /// What sync needs (ME-4): `sync`. The code is `sync_off`.
+    pub fn require_sync(&self) -> Result<()> {
+        if !self.sync {
+            return Err(Refusal::new(
+                "sync_off",
+                "sync is turned off in the app's settings (sync)",
+            ));
+        }
+        Ok(())
     }
 }
 

@@ -20,20 +20,27 @@
 
 #[cfg(feature = "sync")]
 mod bridge;
+mod deadman;
 mod error;
 mod key;
 mod manager;
 mod provider;
 mod revoke;
+mod session;
 mod util;
 
 pub mod transfer;
 
 #[cfg(feature = "sync")]
 pub use bridge::SyncKeys;
+pub use deadman::Deadman;
 pub use error::{Error, Result};
 pub use key::{account_scope, DataKey, KeyId, ZoneKey, KEY_LEN};
 pub use manager::{InstallOutcome, KeyManager};
 pub use provider::{KeyProvider, StaticKeys, ZoneKeys};
 pub use revoke::{issue_revoke_notice, LocalCopy, NoticeOutcome, RevokeWipe};
+#[cfg(feature = "sync")]
+pub use revoke::{learned_of_revocation, publish_revocation, REVOKED_ZONE};
+pub use revoke::{revoke_device, RevokeReport};
+pub use session::DeviceSessions;
 pub use transfer::{format_code, Approver, Requester, TransferContext};

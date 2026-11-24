@@ -5,7 +5,6 @@ edition = "2021"
 rust-version = "1.98.0"
 description = "The noticing loop for an always-on assistant: signals, sorting in code, booking extraction, a tools-off triage contract, typed facts, checks, standing instructions and occurrences, over a storage trait. Pure logic, no network, no model calls."
 license = "MIT OR Apache-2.0"
-publish = false
 readme = "README.md"
 repository = "https://github.com/bogusyogi/rightkit"
 keywords = ["assistant", "triage", "inbox", "agent"]
@@ -17,8 +16,8 @@ name = "rightkit_assist"
 path = "src/lib.rs"
 
 [dependencies]
-rightkit-agent-engine-attention = { version = "0.2.0", path = "../rightkit-agent-engine-attention" }
-rightkit-fs = { version = "0.5.0", path = "../rightkit-fs", default-features = false, features = ["digest"] }
+rightkit-agent-engine-attention = { version = "0.2.1", path = "../rightkit-agent-engine-attention" }
+rightkit-fs = { version = "0.5.0", path = "../rightkit-fs", default-features = false, features = ["fs", "digest"] }
 rightkit-time = { version = "0.1.4", path = "../rightkit-time" }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1" }

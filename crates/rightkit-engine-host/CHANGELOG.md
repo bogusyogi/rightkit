@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.1
+
+- Adds the public module `events` (Pulse's engine event types, moved here; source in the same change). Version bump. Not compiled.
+
 ## 0.2.0 (unpublished)
 
 - `env::AppRoot` is re-exported from `rightkit_roots` (new dependency on `rightkit-roots`); it is the same type `rightkit_daemon::AppRoot` named.

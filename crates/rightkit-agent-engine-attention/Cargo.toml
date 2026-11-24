@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-agent-engine-attention"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Agent attention inbox: unread/needs-input items, snooze, density, quiet hours and deep links as axum routes"
@@ -22,6 +22,7 @@ server = ["dep:axum"]
 [dependencies]
 rightkit-fs = { version = ">=0.4.15, <0.6", path = "../rightkit-fs", default-features = false, features = ["fs"] }
 rightkit-time = { version = "0.1.5", path = "../rightkit-time" }
+rightkit-crypto = { version = "0.1.4", path = "../rightkit-crypto" }
 axum = { version = "0.8", optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1" }

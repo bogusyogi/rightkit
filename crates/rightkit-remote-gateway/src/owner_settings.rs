@@ -6,9 +6,13 @@
 //! store (`protected_store.rs`, the only place the gates are read from) -> this queue, in the
 //! engine's memory -> owner app (`remote.settings.take`, executable verified as owner app), which
 //! applies it to its own preferences and publishes it in `owner app-state.json` for display. A change
-//! that makes a gate less safe (`loosens`) also needs the host app PIN, checked here; a change that
-//! tightens one needs nothing. The baseline a change is judged against is the engine's own value,
-//! never the published file; a baseline that cannot be read or understood counts as less safe.
+//! that makes a gate less safe (`loosens`) also needs the owner, checked here: first the system
+//! check, a signature of an enrolled owner-check key (Windows Hello, Touch ID or the Mac login
+//! password) over a single-use challenge for exactly that key and value (`challenge`,
+//! `unlock::authorise_settings`), and only when that is not available the host app PIN. Never both. A
+//! change that tightens a gate needs nothing. The baseline a change is judged against is the
+//! engine's own value, never the published file; a baseline that cannot be read or understood counts
+//! as less safe.
 //!
 //! The queue only keeps owner app's display in step with the engine: an entry waits until owner app
 //! takes it (newest per key), and a restarted engine queues every stored value again
@@ -39,7 +43,7 @@ const MAX_COMMAND_BYTES: usize = 4096;
 pub const HUB_COMMAND_PREFIX: &str = "hubCommand.";
 
 /// The owner app commands that delete data, change an account, the privileged helper, install an
-/// update or quit the host app. The notches refuse them from a `hub-commands` file, which any
+/// update or quit the host app (#190). The notches refuse them from a `hub-commands` file, which any
 /// process of the user can write; they arrive only as `hubCommand.<id>` through this queue, after
 /// the resident engine checked that the caller is the host app hub's executable. The Mac owner app keeps
 /// the same list (`HubBridge.ownerCommands`), as does the Windows owner app (`bridge::OWNER_COMMANDS`).
@@ -69,7 +73,7 @@ pub fn is_owner_command(command: &Value) -> bool {
 /// The domain label of the owner channel's MAC (`owner_channel_mac`).
 pub const OWNER_CHANNEL_DOMAIN: &str = "pulse.hub.command.v1";
 
-/// The owner channel, the route for an owner command when no resident engine is attached:
+/// The owner channel (#190), the route for an owner command when no resident engine is attached:
 /// owner app starts the hub as its child and hands it a fresh random 32-byte key on the child's
 /// stdin (never argv, the environment or a file). The hub writes the command to `hub-commands` as
 /// `{"signed": <command JSON text>, "counter", "ts", "mac"}`; this is `mac`, the lowercase hex
@@ -249,6 +253,31 @@ pub(super) fn check_shape(key: &str, value: &Value) -> Result<Value> {
         }
         return Ok(Value::from(path));
     }
+    // The lease mode is one of the three words, and the two lease times are whole seconds inside
+    // their bounds (clamped to the hard ones).
+    if key == settings::KEY_AGENT_FOREGROUND_MODE {
+        let mode = value
+            .as_str()
+            .filter(|m| settings::FOREGROUND_MODES.contains(m))
+            .ok_or_else(|| invalid("agentForegroundMode is ask, when-idle or task"))?;
+        return Ok(Value::from(mode));
+    }
+    if key == settings::KEY_AGENT_FOREGROUND_SECONDS {
+        let n = settings::whole_seconds(value)
+            .filter(|n| *n >= 1)
+            .ok_or_else(|| {
+                invalid("agentForegroundSeconds is a whole number of seconds, 1 or more")
+            })?;
+        return Ok(Value::from(n.min(settings::HARD_AGENT_FOREGROUND_SECONDS)));
+    }
+    if key == settings::KEY_AGENT_FOREGROUND_IDLE_SECONDS {
+        let n = settings::whole_seconds(value)
+            .ok_or_else(|| invalid("agentForegroundIdleSeconds is a whole number of seconds"))?;
+        return Ok(Value::from(n.clamp(
+            settings::MIN_AGENT_FOREGROUND_IDLE_SECONDS,
+            settings::HARD_AGENT_FOREGROUND_IDLE_SECONDS,
+        )));
+    }
     if value.is_boolean() {
         return Ok(value.clone());
     }
@@ -306,6 +335,44 @@ pub(super) fn loosens(key: &str, new: &Value, current: Option<&Value>) -> bool {
                 },
             };
             stored_minutes(new).is_none_or(|n| n > before)
+        }
+        // The lease modes, tightest first: ask, when-idle, task. A looser mode, or one that cannot be
+        // read, loosens. No stored value means the default, ask.
+        settings::KEY_AGENT_FOREGROUND_MODE => {
+            let rank = |v: &Value| {
+                v.as_str()
+                    .and_then(|m| settings::FOREGROUND_MODES.iter().position(|x| *x == m))
+            };
+            let before = match current {
+                None => 0,
+                Some(value) => match rank(value) {
+                    Some(n) => n,
+                    None => return true,
+                },
+            };
+            rank(new).is_none_or(|n| n > before)
+        }
+        // A longer lease is more reach.
+        settings::KEY_AGENT_FOREGROUND_SECONDS => {
+            let before = match current {
+                None => settings::DEFAULT_AGENT_FOREGROUND_SECONDS,
+                Some(value) => match settings::whole_seconds(value) {
+                    Some(n) => n,
+                    None => return true,
+                },
+            };
+            settings::whole_seconds(new).is_none_or(|n| n > before)
+        }
+        // A shorter idle time makes `when-idle` grant sooner: looser.
+        settings::KEY_AGENT_FOREGROUND_IDLE_SECONDS => {
+            let before = match current {
+                None => settings::DEFAULT_AGENT_FOREGROUND_IDLE_SECONDS,
+                Some(value) => match settings::whole_seconds(value) {
+                    Some(n) => n,
+                    None => return true,
+                },
+            };
+            settings::whole_seconds(new).is_none_or(|n| n < before)
         }
         // A higher cap is more spending power and needs the PIN; a lower one tightens. No stored
         // value means the default; one that cannot be read as cents is an unknown baseline.
@@ -389,10 +456,60 @@ pub(super) fn loosens(key: &str, new: &Value, current: Option<&Value>) -> bool {
     }
 }
 
+/// The `approval_sig` kind of an owner-check signature of a protected-setting change.
+pub const SETTINGS_PROOF_KIND: &str = "settings";
+
+/// The `action` a `settings` signature commits to: SHA-256 hex of
+/// `pulse.settings.v1\nkey:<key>\nvalue:<SHA-256 hex of the checked value's JSON text>`. `checked`
+/// is the value as [`check_shape`] returns it (a bool, a whole number, a text or a list of texts,
+/// never an object), whose compact JSON text is therefore canonical. So a signature made for one
+/// key cannot change another, and one for one value cannot set another.
+pub fn settings_action(key: &str, checked: &Value) -> String {
+    let value = rightkit_fs::digest::hex(&rightkit_crypto::sha256(checked.to_string().as_bytes()));
+    rightkit_fs::digest::hex(&rightkit_crypto::sha256(
+        format!("pulse.settings.v1\nkey:{key}\nvalue:{value}").as_bytes(),
+    ))
+}
+
+/// The engine's `remote.settings.challenge` with `key` and `value`: `{"needed": false}` when nothing
+/// needs confirming, else `{"needed": true, "kind", "challenge", "action", "client", "expires"}`: a
+/// fresh single-use challenge for the owner's device to sign (`unlock::settings_challenge`) before
+/// `remote.settings.set`. Needed when the change makes a gate less safe than the engine's value
+/// (required), and also when the new value is still looser than the defaults and the engine's copy
+/// is not proven by the PIN seal in this process, so that without a stored proof the value would
+/// read as the closed default after the next restart (a partial tightening of a value the system
+/// check loosened; that one is optional). A change to the defaults or tighter never prompts. It
+/// grants nothing by itself. Engine only, after the resident bridge checked the caller.
+pub fn challenge(key: &str, value: &Value) -> Result<Value> {
+    if key.starts_with(HUB_COMMAND_PREFIX) || !settings::is_protected(key) {
+        return Err(invalid("that setting is not an owner-only setting"));
+    }
+    let new = check_shape(key, value)?;
+    let stored: Map<String, Value> = protected_store::all()?.into_iter().collect();
+    let required = loosens(key, &new, stored.get(key));
+    let optional = loosens(key, &new, None) && !protected_store::sealed_by_pin()?;
+    if !required && !optional {
+        return Ok(serde_json::json!({ "needed": false }));
+    }
+    let mut issued = unlock::settings_challenge(&settings_action(key, &new))?;
+    issued["needed"] = Value::Bool(true);
+    Ok(issued)
+}
+
 /// The engine's `remote.settings.set`: stores one protected change in the engine's own store and
-/// queues it for owner app. `pin` is needed only when the change loosens a gate. Engine only,
-/// after the resident bridge checked the caller.
-pub fn request(key: &str, value: &Value, pin: Option<&str>) -> Result<bool> {
+/// queues it for owner app. A change that loosens a gate is confirmed by the owner first: a
+/// `sig` over a `challenge` from [`challenge`] (an enrolled owner-check key: Windows Hello, Touch ID
+/// or the Mac login password), which is checked before anything else, else the host app `pin`. The
+/// signature's proof is stored with the value (`protected_store::set`). A caller's word that the
+/// system accepted the owner is never a proof. Engine only, after the resident bridge checked the
+/// caller.
+pub fn request(
+    key: &str,
+    value: &Value,
+    pin: Option<&str>,
+    challenge: Option<&str>,
+    sig: Option<&Value>,
+) -> Result<bool> {
     // An owner-only owner app command from the verified hub (`HUB_COMMAND_PREFIX`), not a setting.
     if key.starts_with(HUB_COMMAND_PREFIX) {
         return request_command(key, value);
@@ -404,22 +521,56 @@ pub fn request(key: &str, value: &Value, pin: Option<&str>) -> Result<bool> {
     let _one_change_at_a_time = CHANGE.lock().unwrap_or_else(|e| e.into_inner());
     // The baseline is the engine's own copy; when that cannot be read nothing changes.
     let stored: Map<String, Value> = protected_store::all()?.into_iter().collect();
-    if loosens(key, &new, stored.get(key)) {
-        match pin.filter(|p| !p.is_empty()) {
-            Some(pin) => unlock::confirm_pin(pin)?,
-            None => {
-                return Err(Refusal::new(
-                    "unlock_needs_auth",
-                    "this change makes a gate less safe, so it needs your PIN (set one in Settings > Remote first)",
-                ));
+    let loosened = loosens(key, &new, stored.get(key));
+    let mut proof = None;
+    let mut method = "none";
+    let challenge = challenge.filter(|c| !c.is_empty());
+    let sig = sig.filter(|s| !s.is_null());
+    if loosened {
+        if let (Some(challenge), Some(sig)) = (challenge, sig) {
+            proof = Some(unlock::authorise_settings(
+                &settings_action(key, &new),
+                challenge,
+                sig,
+            )?);
+            method = "owner-check";
+        } else {
+            match pin.filter(|p| !p.is_empty()) {
+                Some(pin) => {
+                    unlock::confirm_pin(pin)?;
+                    method = "pin";
+                }
+                None => {
+                    // With no host app PIN there is nothing to type: say where to set one. A PIN state
+                    // that cannot be read keeps the ordinary refusal.
+                    if matches!(unlock::pin_is_set(), Ok(false)) {
+                        return Err(Refusal::new(
+                            "pin_not_set",
+                            "this change makes a gate less safe, so it needs the system check (Windows Hello, Touch ID or your Mac password) or a host app PIN, and neither was available; set a PIN in the app's settings (Remote access), then turn this on again",
+                        ));
+                    }
+                    return Err(Refusal::new(
+                        "unlock_needs_auth",
+                        "this change makes a gate less safe, so it needs the system check (Windows Hello, Touch ID or your Mac password), which was not available or not confirmed, or your host app PIN",
+                    ));
+                }
             }
         }
+    } else if loosens(key, &new, None)
+        && let (Some(challenge), Some(sig)) = (challenge, sig)
+        && let Ok(checked) = unlock::authorise_settings(&settings_action(key, &new), challenge, sig)
+    {
+        // A change that stays looser than the defaults needs nothing, but a signature given for it
+        // keeps it across a restart; one that does not verify is ignored (nothing is loosened).
+        proof = Some(checked);
+        method = "owner-check";
     }
-    protected_store::set(key, &new)?;
-    // Which gate changed and whether it loosened, never the value.
+    protected_store::set(key, &new, proof)?;
+    // Which gate changed, whether it loosened and how the owner confirmed it, never the value (#580,
+    // settings D7).
     super::audit::record_security(
         "settings.owner_changed",
-        serde_json::json!({ "key": key, "loosened": loosens(key, &new, stored.get(key)) }),
+        serde_json::json!({ "key": key, "loosened": loosened, "method": method }),
     );
     queue(key, new);
     Ok(true)

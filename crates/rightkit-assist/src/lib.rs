@@ -12,12 +12,16 @@
 pub mod booking;
 pub mod calendar;
 pub mod calendar_checks;
+pub mod calendar_poll;
 pub mod checks;
 pub mod digest;
 pub mod facts;
+pub mod file_store;
 pub mod instruction;
 pub mod markup;
 pub mod pipeline;
+pub mod poll;
+pub mod rule_runner;
 pub mod signal;
 pub mod sort;
 pub mod state;

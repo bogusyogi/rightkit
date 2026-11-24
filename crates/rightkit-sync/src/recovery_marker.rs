@@ -401,8 +401,8 @@ impl<H: RecoveryHost> RecoveryLedger<H> {
         };
         marker.pairs.retain(|pair| {
             !consumed.iter().any(|done| {
-                done.source == PathBuf::from(&pair.source)
-                    && done.destination == PathBuf::from(&pair.destination)
+                done.source.as_path() == std::path::Path::new(&pair.source)
+                    && done.destination.as_path() == std::path::Path::new(&pair.destination)
             })
         });
         let ledger = if marker.state == STATE_RETAINED {

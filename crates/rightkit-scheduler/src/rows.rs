@@ -44,7 +44,8 @@ pub struct ScheduleRow {
     pub updated_ms: i64,
 }
 
-fn misfire_word(policy: MisfirePolicy) -> &'static str {
+/// The word a misfire policy is stored and spoken as: `skip`, `coalesce` or `catch_up`.
+pub fn misfire_word(policy: MisfirePolicy) -> &'static str {
     match policy {
         MisfirePolicy::Skip => "skip",
         MisfirePolicy::Coalesce => "coalesce",
@@ -52,7 +53,8 @@ fn misfire_word(policy: MisfirePolicy) -> &'static str {
     }
 }
 
-fn misfire_of(word: &str) -> Option<MisfirePolicy> {
+/// The policy a word names, or `None`.
+pub fn misfire_of(word: &str) -> Option<MisfirePolicy> {
     match word {
         "skip" => Some(MisfirePolicy::Skip),
         "coalesce" => Some(MisfirePolicy::Coalesce),

@@ -22,11 +22,14 @@
 //!   the chat label and policy reference the caller supplies.
 //! * `task_cli` (feature `cli`): the task command line over a host trait.
 
+pub mod act_params;
 pub mod approval;
 pub mod device;
 pub mod effect;
+pub mod engine_source;
 pub mod intent;
 pub mod principal;
+pub mod relay_task;
 pub mod task;
 #[cfg(feature = "cli")]
 pub mod task_cli;

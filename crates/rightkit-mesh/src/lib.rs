@@ -37,8 +37,29 @@ pub mod settings;
 pub mod sync;
 pub mod transfer;
 
+/// The device link lives in `rightkit-device-link-core` (no iroh, no tokio); this keeps
+/// `rightkit_mesh::devicelink::*` paths working.
 #[cfg(feature = "devicelink")]
-pub mod devicelink;
+pub use rightkit_device_link_core as devicelink;
+
+#[cfg(feature = "devicelink")]
+impl rightkit_device_link_core::host_support::PathObservation for PathEvent {
+    fn label(&self) -> &'static str {
+        self.label.as_str()
+    }
+    fn remote(&self) -> &str {
+        &self.remote
+    }
+    fn rtt_ms(&self) -> u64 {
+        self.rtt_ms
+    }
+    fn side(&self) -> &'static str {
+        self.side
+    }
+    fn change(&self) -> &'static str {
+        self.change
+    }
+}
 
 mod util;
 

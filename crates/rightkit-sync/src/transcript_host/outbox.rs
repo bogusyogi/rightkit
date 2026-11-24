@@ -680,8 +680,8 @@ impl Outbox {
         let mut deserializer = serde_json::Deserializer::from_slice(&bytes);
         let outbox = FileSeed(&limits)
             .deserialize(&mut deserializer)
-            .map_err(&refused)?;
-        deserializer.end().map_err(&refused)?;
+            .map_err(refused)?;
+        deserializer.end().map_err(refused)?;
         Ok(outbox)
     }
 

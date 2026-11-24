@@ -21,6 +21,7 @@
 //! Written, not compiled, not run (added 2026-10-23, #460).
 
 mod driver;
+mod watchdog;
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock};
@@ -28,11 +29,16 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde_json::{Value, json};
 
+pub use rightkit_remote_gateway::web_read::clean_site;
+
 use rightkit_owner_approvals::PhoneError;
 use rightkit_owner_approvals::admin_sig::{self, Nonces};
 use rightkit_remote_gateway::settings::Settings;
 
-pub use driver::{Frame, supported};
+pub use driver::{
+    BrowserAct, Driver, Frame, Look, NodeInfo, OBSERVE_TEXT_MAX, SecretFillError, Shot, parse_act,
+    supported,
+};
 use std::collections::HashMap;
 
 /// A request waits this long for the owner.
@@ -174,6 +180,8 @@ struct Sess {
     owner_since_ms: u64,
     /// `login` ended: the owner tapped Done (`true`) or the wait ran out (`false`).
     login_result: Option<bool>,
+    /// The action-loop watchdog of this session (AG-10).
+    dog: watchdog::Dog,
 }
 
 #[derive(Default)]
@@ -237,27 +245,6 @@ pub(crate) fn thread_name(what: &str) -> String {
             .to_lowercase()
             .replace(char::is_whitespace, "-")
     )
-}
-
-/// A host name an agent may name: lower case letters, digits, hyphens and dots, at least one dot,
-/// a last label that is not a number (no IP addresses), at most 253 characters.
-pub fn clean_site(raw: &str) -> Option<String> {
-    let site = raw.trim().trim_end_matches('.').to_ascii_lowercase();
-    if site.len() < 3 || site.len() > 253 || !site.contains('.') {
-        return None;
-    }
-    let labels: Vec<&str> = site.split('.').collect();
-    let ok = labels.iter().all(|l| {
-        !l.is_empty()
-            && l.len() <= 63
-            && !l.starts_with('-')
-            && !l.ends_with('-')
-            && l.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
-    });
-    let last_has_letter = labels
-        .last()
-        .is_some_and(|l| l.bytes().any(|b| b.is_ascii_alphabetic()));
-    (ok && last_has_letter).then_some(site)
 }
 
 /// One line of text from an agent: control characters become spaces, at most `max` characters.
@@ -552,6 +539,25 @@ impl Browser {
         Ok(session.sites.clone())
     }
 
+    /// The address of the agent browser's page while a session is open, for the typed-fill origin
+    /// check; `None` when there is no session.
+    pub fn page_url(&self) -> Option<String> {
+        let (url, _) = self.driver.describe();
+        (!url.is_empty()).then_some(url)
+    }
+
+    /// Types a saved secret into the agent browser's field `target_ref`: the crate refuses unless
+    /// the page's origin is `origin` and the field is a password or card field.
+    pub fn fill_secret(
+        &self,
+        target_ref: &str,
+        value: &str,
+        origin: &str,
+        clear: bool,
+    ) -> Result<(), SecretFillError> {
+        self.driver.fill_secret(target_ref, value, origin, clear)
+    }
+
     /// `pulse browser open`.
     pub fn open(&self, id: &str, url: &str) -> Result<Value, PhoneError> {
         let sites = self.agent_session(id, false)?;
@@ -564,21 +570,95 @@ impl Browser {
     /// this session also the visible text (bounded, secrets masked) and a screenshot inside the
     /// answer. Nothing is written to disk, and the text is never logged here.
     pub fn observe(&self, id: &str) -> Result<Value, PhoneError> {
+        self.look(
+            id,
+            Look {
+                text_chars: driver::OBSERVE_TEXT_MAX,
+                shot: Shot::Field,
+            },
+        )
+    }
+
+    /// `observe` for a caller that chooses what comes with the refs (AG-10): the compact tree of
+    /// the page's controls with the epoch of the observation, and only with the owner's
+    /// page-content grant (BD14), because control names are page text. Without the grant the
+    /// answer holds the address and title and says the content is withheld.
+    pub fn look(&self, id: &str, look: Look) -> Result<Value, PhoneError> {
         self.agent_session(id, false)?;
         let share = lock(&self.state)
             .session
             .as_ref()
             .is_some_and(|s| s.id == id && s.share_content);
-        self.driver.observe(share)
+        self.driver.observe(share, look)
     }
 
-    /// `pulse browser act`: `{"type":"click","x","y"}`, `{"type":"type","text"}`,
-    /// `{"type":"key","key"}` or `{"type":"scroll","dy"}`, in page pixels.
+    /// `pulse browser act`. Either one pixel action (`{"type":"click","x","y"}`,
+    /// `{"type":"type","text"}`, `{"type":"key","key"}` or `{"type":"scroll","dy"}`, in page
+    /// pixels, the owner-view form) or one action on a ref from the last `observe`
+    /// (`{"type":"click","ref"}`, `fill`, `select`, `hover`; see [`parse_act`]).
     pub fn act(&self, id: &str, action: &Value) -> Result<Value, PhoneError> {
         self.agent_session(id, false)?;
+        let kind = action.get("type").and_then(Value::as_str);
+        if action.get("ref").is_some() || matches!(kind, Some("fill" | "select" | "hover")) {
+            return self.act_ref(id, &parse_act(action)?);
+        }
         let input = parse_input(action)?;
         self.driver.input(&[input], 1.0)?;
         Ok(json!({}))
+    }
+
+    /// One action on the page by ref (AG-10): the ref is checked against a fresh reading of the
+    /// page first (a ref from an older epoch is `stale_ref`), the action runs once, and the answer
+    /// is the page's change since: what was added, removed and changed, and whether anything
+    /// showed. An action that is repeated or alternated too often is stopped (`action_loop`).
+    pub fn act_ref(&self, id: &str, act: &BrowserAct) -> Result<Value, PhoneError> {
+        self.agent_session(id, false)?;
+        let (url, _) = self.driver.describe();
+        let sig = watchdog::signature(&[act.kind(), act.node().unwrap_or(""), &url]);
+        let verdict = {
+            let mut st = lock(&self.state);
+            st.session
+                .as_mut()
+                .filter(|s| s.id == id)
+                .map(|s| s.dog.note(sig))
+        };
+        let warning = match verdict {
+            None => return Err(refuse("not_approved", "that session ended")),
+            Some(watchdog::Verdict::Stop(n)) => {
+                return Err(refuse(
+                    "action_loop",
+                    &format!(
+                        "this action has repeated {n} times in the last twenty; nothing was done. Change approach, or ask the owner to take the page with browser_handoff"
+                    ),
+                ));
+            }
+            Some(watchdog::Verdict::Escalate(n)) => Some(format!(
+                "this action has repeated {n} times in the last twenty and will be refused soon; change approach or hand the page to the owner with browser_handoff"
+            )),
+            Some(watchdog::Verdict::Warn(n)) => Some(format!(
+                "this action has repeated {n} times in the last twenty; check that it is doing what you expect"
+            )),
+            Some(watchdog::Verdict::Fine) => None,
+        };
+        let mut answer = self.driver.act(act)?;
+        if let Some(text) = warning {
+            answer["warning"] = Value::String(text);
+        }
+        Ok(answer)
+    }
+
+    /// The address of the session's page, for a caller that words an approval for a keypress.
+    pub fn address(&self, id: &str) -> Result<String, PhoneError> {
+        self.agent_session(id, false)?;
+        Ok(self.driver.describe().0)
+    }
+
+    /// What the agent's last reading of the page says a ref is (its role and name), so the caller
+    /// can word an approval for the exact control. Reads the page fresh, so a ref from an older
+    /// epoch is `stale_ref` here too.
+    pub fn node_of(&self, id: &str, node: &str) -> Result<NodeInfo, PhoneError> {
+        self.agent_session(id, false)?;
+        self.driver.node(node)
     }
 
     /// `pulse browser login`, start: optionally navigate to `url`, then hand the session to the
@@ -598,6 +678,8 @@ impl Browser {
         session.owner_since_ms = now;
         session.last_ms = now;
         session.login_result = None;
+        // The owner's turn is a new start for the watchdog.
+        session.dog.reset();
         self.cv.notify_all();
         Ok(json!({ "state": "needs-owner" }))
     }
@@ -882,6 +964,7 @@ impl Browser {
                 last_ms: now,
                 owner_since_ms: 0,
                 login_result: None,
+                dog: watchdog::Dog::default(),
             });
             st.approving.retain(|a| a != id);
         }

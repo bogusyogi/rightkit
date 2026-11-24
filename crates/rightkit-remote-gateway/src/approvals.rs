@@ -40,11 +40,11 @@ pub const ACT_VALID: Duration = Duration::from_secs(10 * 60);
 pub const PENDING_VALID: Duration = Duration::from_secs(10 * 60);
 /// A session grant ends after this long without a call.
 pub const SESSION_IDLE: Duration = Duration::from_secs(30 * 60);
-/// A standing grant (a family starting `launch:` or `fill:`, one app or site) ends after this
+/// A standing grant (a family starting `launch:`, `fill:` or `web:`, one app or site) ends after this
 /// long without use. It lives in the engine's memory, so an engine restart ends it too.
 pub const STANDING_IDLE: Duration = Duration::from_secs(30 * 24 * 60 * 60);
 /// The family prefixes whose session grants are standing.
-const STANDING_PREFIXES: [&str; 2] = ["launch:", "fill:"];
+const STANDING_PREFIXES: [&str; 3] = ["launch:", "fill:", "web:"];
 /// The session family of a per-chat unlock (`unlock.rs`). Its grants are keyed by client
 /// (`chat:<id>`), end at a time or with the chat, and are given only by `decide_unlock`.
 pub const UNLOCK_FAMILY: &str = "unlock";
@@ -734,6 +734,14 @@ pub fn decide_signed(
             "an approval needs method sig (signed by the owner's key) or pin",
         )),
     }
+}
+
+/// Approves the held request `id` after the engine verified a paired phone's signed owner check for exactly this request
+/// (`phone_approvals.rs`: the phone's enrolled key, over `request_digest`, a single-use challenge): the same record change as
+/// `decide_held` approving, with no `method` because the proof was made by the engine's own phone door, not a caller's word.
+/// An unlock request is never approved here (`decide_inner` refuses it). `Ok(false)`: no such pending request. Engine only.
+pub fn decide_held_verified(id: &str, digest: &str) -> Result<bool> {
+    decide_inner(id, true, digest, false, None, 0)
 }
 
 /// The engine's `remote.unlock.decide`, after the caller proved who the owner is: `unlock.rs`

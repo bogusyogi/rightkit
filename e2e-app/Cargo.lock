@@ -6594,6 +6594,8 @@ dependencies = [
  "objc2-foundation",
  "objc2-user-notifications",
  "rightkit-crypto",
+ "serde",
+ "serde_json",
  "thiserror 2.0.21",
  "windows 0.61.3",
 ]
@@ -6650,7 +6652,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-overlay-win"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "rightkit-overlay",
  "windows-sys 0.61.2",
@@ -6876,6 +6878,7 @@ dependencies = [
  "getrandom 0.4.3",
  "hkdf",
  "rightkit-credentials",
+ "rightkit-fs",
  "rightkit-identity",
  "sha2 0.11.1",
  "thiserror 2.0.21",

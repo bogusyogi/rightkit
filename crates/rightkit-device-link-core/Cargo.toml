@@ -1,0 +1,29 @@
+[package]
+name = "rightkit-device-link-core"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.98.0"
+description = "Transport-agnostic device link: pairing, the paired-device registry, the device circle, revocation, resume tickets, per-request authorization, phone policy and host helpers. No iroh, no tokio, no async runtime."
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/bogusyogi/rightkit"
+keywords = ["device-link", "pairing", "authorization"]
+include = ["src/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+
+[lib]
+name = "rightkit_device_link_core"
+path = "src/lib.rs"
+
+[dependencies]
+rightkit-device-link-types = { version = "0.1.0", path = "../rightkit-device-link-types" }
+rightkit-owner-approvals = { version = "0.1.3", path = "../rightkit-owner-approvals" }
+# Device identity seed in the OS credential store.
+rightkit-credentials = { version = "0.5.0", path = "../rightkit-credentials" }
+rightkit-crypto = { version = "0.1.0", path = "../rightkit-crypto" }
+# Bounded newline-delimited JSON frames for the pairing channel.
+rightkit-sidecar = { version = "0.3.0", path = "../rightkit-sidecar" }
+# Atomic registry writes, hex, and the cross-process lock.
+rightkit-fs = { version = "0.5.0", path = "../rightkit-fs", default-features = false, features = ["fs", "digest", "lock"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+thiserror = "2.0.17"

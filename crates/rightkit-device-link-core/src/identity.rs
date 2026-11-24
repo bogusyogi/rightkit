@@ -4,10 +4,8 @@
 //! requests. It never leaves the credential store except as the 32-byte seed the process
 //! reads into memory to build the signing key; the registry file holds public keys only.
 
-use ring::signature::{ED25519, Ed25519KeyPair, KeyPair, UnparsedPublicKey};
-
 use super::LinkError;
-use rightkit_crypto::sha256;
+use rightkit_crypto::{Ed25519Signer, ed25519_verify, sha256};
 use rightkit_device_link_types::DEVICE_REF_SCHEMA_VERSION;
 use rightkit_device_link_types::{DevicePlatform, DeviceRef};
 use rightkit_fs::digest::hex;
@@ -65,7 +63,7 @@ impl KeyVault for OsKeyVault {
 
 /// The identity seed in an owner-only file, for a headless Linux host with no Secret Service
 /// (a server: no desktop session, no keyring). Used only when the OS store is unavailable there.
-/// The file is created once with `create_new` and mode 0600 inside the engine's private folder;
+/// The file is created once, never replaced, with mode 0600 inside the engine's private folder;
 /// a file that exists but cannot be read is an error, never a reason to mint a new identity.
 #[cfg(target_os = "linux")]
 pub struct FileKeyVault {
@@ -76,26 +74,26 @@ pub struct FileKeyVault {
 impl KeyVault for FileKeyVault {
     fn load_or_create_seed(&self) -> Result<[u8; 32], LinkError> {
         use std::io::{Read, Write};
-        use std::os::unix::fs::OpenOptionsExt;
         let vault = |e: std::io::Error| LinkError::Vault(format!("identity file: {e}"));
         let mut secret = [0u8; 32];
-        match std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
-            .open(&self.path)
-        {
-            Ok(mut file) => {
-                secret = super::wire::random::<32>()?;
-                file.write_all(&secret).map_err(vault)?;
-                file.sync_all().map_err(vault)?;
-            }
-            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+        // Staged owner-only and published with an exclusive no-replace rename: the name never holds a
+        // partial seed, and an existing file is never replaced.
+        let options = rightkit_fs::AtomicWriteOptions {
+            private: true,
+            replace: rightkit_fs::ReplaceMode::NoReplace,
+            ..Default::default()
+        };
+        let minted = super::wire::random::<32>()?;
+        match rightkit_fs::atomic_write_with_options(&self.path, options, |file| {
+            file.write_all(&minted)
+        }) {
+            Ok(()) => secret = minted,
+            Err(rightkit_fs::FsError::AlreadyExists(_)) => {
                 std::fs::File::open(&self.path)
                     .and_then(|mut f| f.read_exact(&mut secret))
                     .map_err(vault)?;
             }
-            Err(e) => return Err(vault(e)),
+            Err(e) => return Err(vault(e.into())),
         }
         let mut input = SEED_DOMAIN.to_vec();
         input.extend_from_slice(&secret);
@@ -159,7 +157,7 @@ pub fn device_id_for_key(public_key: &[u8]) -> String {
 
 /// This device's identity: signing key, public key and the [`DeviceRef`] it presents.
 pub struct DeviceIdentity {
-    key: Ed25519KeyPair,
+    key: Ed25519Signer,
     public: [u8; 32],
     device: DeviceRef,
 }
@@ -180,10 +178,9 @@ impl DeviceIdentity {
         platform: DevicePlatform,
         display_name: Option<String>,
     ) -> Result<Self, LinkError> {
-        let key = Ed25519KeyPair::from_seed_unchecked(seed)
+        let key = Ed25519Signer::from_seed(seed)
             .map_err(|_| LinkError::Vault("identity seed rejected".to_string()))?;
-        let mut public = [0u8; 32];
-        public.copy_from_slice(key.public_key().as_ref());
+        let public = key.public_key();
         let device = DeviceRef {
             schema_version: DEVICE_REF_SCHEMA_VERSION,
             device_id: device_id_for_key(&public),
@@ -215,7 +212,7 @@ impl DeviceIdentity {
 
     /// Sign canonical bytes built with `Enc`; returns the signature as hex.
     pub(crate) fn sign(&self, signing_input: &[u8]) -> String {
-        hex(self.key.sign(signing_input).as_ref())
+        hex(&self.key.sign(signing_input))
     }
 }
 
@@ -225,7 +222,7 @@ pub(crate) fn verify(
     signing_input: &[u8],
     signature: &[u8],
 ) -> Result<(), LinkError> {
-    UnparsedPublicKey::new(&ED25519, public_key)
-        .verify(signing_input, signature)
-        .map_err(|_| LinkError::SignatureInvalid)
+    ed25519_verify(public_key, signing_input, signature)
+        .then_some(())
+        .ok_or(LinkError::SignatureInvalid)
 }

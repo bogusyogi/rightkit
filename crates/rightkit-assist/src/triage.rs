@@ -488,7 +488,7 @@ fn check_shape(shape: Shape, value: &Value, here: &str) -> Result<Option<Got>, S
             Value::String(s) => names
                 .iter()
                 .find(|n| **n == s.as_str())
-                .map(|n| Some(Got::Choice(*n)))
+                .map(|n| Some(Got::Choice(n)))
                 .ok_or_else(|| err(here, "value not allowed")),
             _ => Err(err(here, "expected a listed value")),
         },
@@ -614,7 +614,7 @@ fn strip_fence(raw: &str) -> &str {
     let t = raw.trim();
     if let Some(rest) = t.strip_prefix("```") {
         let rest = rest.strip_prefix("json").unwrap_or(rest);
-        let rest = rest.trim_start_matches(|c: char| c == '\n' || c == '\r');
+        let rest = rest.trim_start_matches(['\n', '\r']);
         return rest.strip_suffix("```").unwrap_or(rest).trim();
     }
     t

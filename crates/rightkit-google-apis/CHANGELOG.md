@@ -2,6 +2,7 @@
 
 ## 0.2.3
 
+- Dependency `rightkit-fs` now enables `fs` as well as `digest` (`send_limits` writes private files). Not compiled.
 - `oauth::SCOPE` gains `https://www.googleapis.com/auth/drive.appdata` (ME-4: sync through the owner's own Drive app folder, `rightkit-sync`'s `drive` backend). A scope added to the sign-in list is requested only by new sign-ins: an account connected before keeps its grant, which lacks the scope, so app data folder calls fail with 403 until the owner reconnects once (everything else is unaffected, as with the earlier contacts change). The scope is also needed on the OAuth consent screen of the Cloud project the host registered, which is the host's own step. Written, not compiled.
 - Added `calendar::create_event_with(g: &Google, calendar_id: &str, ev: EventInput) -> Result<CalEvent, String>` (additive): `create_event` through an authorised client such as `Google::with_store`, with no refresh token. The same request, `EventInput` and `CalEvent`; `create_event` stays and now calls it. The request sends `sendUpdates=all`, so Google emails any attendee named in `ev.attendees`. Written, not compiled.
 

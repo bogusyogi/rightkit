@@ -2,6 +2,7 @@
 
 ## 0.1.0 (unreleased)
 
+- Dependency `rightkit-fs` now enables `fs` as well as `digest` (the `store` module writes private files). `publish = false` removed. Not compiled.
 - First version (RK-8, the profile; blueprint 2026-11-24). Pure logic and plain values: no network, no model calls, no clock reads, no files.
   - `area`: ten areas with stable slugs; health and money carry a sensitivity floor; `Area::CARD` names the identity card's areas.
   - `entry`: `Entry` with value, source (owner, repository, mail or memory), `true_from`, state (confirmed, proposed, stale), sensitivity, optional `review_by`, history of replaced values and the owner's confirmation record; checks for keys, values, references and `YYYY-MM-DD` dates.

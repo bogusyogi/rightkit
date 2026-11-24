@@ -2518,7 +2518,7 @@
       "gateEvidence": "no assets needed; pure geometry, animation, colour, path and offscreen painting only, so it builds and runs on the macOS runner; no window, HWND, owner thread, DWM call, timer or file on any host (OverlayWindow::create is only refused: InvalidConfig everywhere, Unsupported off Windows)",
       "consumes": "PK08 overlay consumers (same family as rightkit-overlay; reviewed recipe, named product consumers not re-read here); rightkit-overlay-win public items used: Easing and Animation (src/anim.rs), Rgba (src/color.rs), scale_for_dpi, device_size, client_to_logical, hit_test, device_regions, HitRegion (src/geometry.rs), rounded_rect_path, parse_svg_path, transform_path (src/path.rs), bar_rects and BarStyle, PaintCtx::offscreen (src/paint.rs), OverlayWindow::create and OverlayConfig (src/window.rs), response_layout::excerpt (src/response_layout.rs, since 0.1.5)",
       "files": {
-        "Cargo.toml": "7583d75e537d98c4467d41115247b904ebc4f2ed1dffdcacdbb11cd708643c59",
+        "Cargo.toml": "2d88c0c703210985c24dfd8b2b167ec6693ea0bb23b70ef45b4e4ad0a3281a8d",
         "README.md": "4c80457471005280ed1574553998ff039557ca500f70e92b2e8d11d7b224117a",
         "src/main.rs": "85d8904eae35b1f289f9fe32144fa9015099faff51d4ead8de0978d055b104ad"
       },
@@ -2989,7 +2989,7 @@
       "pkId": "PK66",
       "id": "ci/consumers/rightkit-agent-engine-attention/src/main.rs",
       "files": {
-        "Cargo.toml": "117adf6a55f09ee070f9478f8ced79fd1a5c9934674aaff3d5c6c9cb6805b124",
+        "Cargo.toml": "e9b15333788739871b42b3702c3892059eaa876738740f248456791b66d830dd",
         "README.md": "ce8350b8b9a5f0166502984aa93172d5989e9a6223cdd0e94ff037da8d22876f",
         "src/main.rs": "6b15cf421749a4ec98bdd32362fd7068f375f2871026a8bea8dbf2be8b206511"
       }
@@ -3643,7 +3643,7 @@
       "pkId": "PK148",
       "id": "ci/consumers/rightkit-engine-host/src/main.rs",
       "files": {
-        "Cargo.toml": "54223349e07aa46a0b7c193fd9f3789b00bb485b30e3782ad1ddba0f468e41d0",
+        "Cargo.toml": "28a3a53881e191a21992a518fa6e5d4408508b389a4516e994d57992cb1cc46d",
         "README.md": "38d1f3d796259b29d2314249830929a59edcdb131fdc520227d51343712efeba",
         "src/main.rs": "fec70708a8a121a8ce5b35a2d3e6e536a14e514cd51593120071f19ebcf5ed90"
       }
@@ -3850,7 +3850,7 @@
       "pkId": "PK168",
       "id": "ci/consumers/rightkit-owner-approvals/src/main.rs",
       "files": {
-        "Cargo.toml": "bec6aba8abad60243b234dd612c3717ae11ced48a26aed9b360f79bb8ccf28ef",
+        "Cargo.toml": "eb9d71f98d6f5d6ab2231827c446e2bd91be6e4f1ddfb83c7b53571dc0a4e9ab",
         "README.md": "2b2cf422073903d90269517e7c75ad11c18582891c22848060b3fc46e2ea4b54",
         "src/main.rs": "d27ffa734d4206d86079e0c3c0f3aedf4b7cb185b1e36aa32679bd5283807e7c"
       }
@@ -3859,7 +3859,7 @@
       "pkId": "PK169",
       "id": "ci/consumers/rightkit-remote-gateway/src/main.rs",
       "files": {
-        "Cargo.toml": "b307f95bb5f2f3b1b8a2380a2e90ffe234a8f47205e2997030d3c69334db429e",
+        "Cargo.toml": "c999b33d3cbd96d5e310313524bf468ec4480ed660f4fcab40f8cde9e8e44028",
         "README.md": "4f2ba6787df27803fedfc399debe234343831301113534f82195c40c9c6b4f43",
         "src/main.rs": "e8075fc42b39ecb3dab23d733b4e9051b63a3961b9a929461c96179f99061451"
       }
@@ -3868,7 +3868,7 @@
       "pkId": "PK170",
       "id": "ci/consumers/rightkit-web-session/src/main.rs",
       "files": {
-        "Cargo.toml": "eb8bbfa03795e73c66845af6c1d2b6a1b33e382691e8c26cbe406046abe343ba",
+        "Cargo.toml": "ac95dc73bbd4665bb9d618384a510a10d1f9e092e677999119c48f053fa215ec",
         "README.md": "7f4262513c9a81a0e37119e1912653a80f6f653319a3719b913c85fc9c9190a5",
         "src/main.rs": "6f6e75f5d7f96a34ad221ae7abebbb31445cef2f0a3b4392137a277e0dda72eb"
       }
@@ -4313,6 +4313,51 @@
         "Cargo.toml": "af3cc31781a9100071f1b599f11a4fd6aecf81984c32c8125a64bbfaa2f4f9fc",
         "README.md": "5b0c85deed90eb46194077a55871d9407ba6e18066e5bf97b642784cc2d94511",
         "src/main.rs": "b015d3f1bd808981646567ad1e5b60dcb8ce79218e340b8b34e0d28398d1c4e0"
+      }
+    },
+    "rightkit-agent-task-journal": {
+      "pkId": "PK257",
+      "id": "ci/consumers/rightkit-agent-task-journal/src/main.rs",
+      "files": {
+        "Cargo.toml": "f8e305c37dae4a7498bff413f303a9e3b9a3eb8572443e9b3c3582442f7aaef2",
+        "README.md": "1622fd59f813d26c2c7bdebe8deb00ced1da5d1651f0ffbcaa42d85f8e31e83c",
+        "src/main.rs": "e89de383e2197d2b5de8cb5e75883b6cf2625e7e789d3cfd76518d926b1333fd"
+      }
+    },
+    "rightkit-assist": {
+      "pkId": "PK258",
+      "id": "ci/consumers/rightkit-assist/src/main.rs",
+      "files": {
+        "Cargo.toml": "46ca7838970fb5a0a742c00e7a1d336db9c54dc918ebcc7bddd509ffe99f4014",
+        "README.md": "8d109a0bd4c3a8e8270eacf4cde10f18d76f584478629f030fe68ce304e453d3",
+        "src/main.rs": "9a24959edc2416c9aa52e5b0f9a97eb4e296bdb517b6c90d532ab0cee6dbe997"
+      }
+    },
+    "rightkit-device-link-core": {
+      "pkId": "PK259",
+      "id": "ci/consumers/rightkit-device-link-core/src/main.rs",
+      "files": {
+        "Cargo.toml": "182a5d60124b6ca9fa9e87051971c76bcb59dc17997fe983e9c4b5f77394b383",
+        "README.md": "f41fc977cf8e3f8d7d8439d35a1808bf7218df840d2318c7fe6f1ad97f487905",
+        "src/main.rs": "579064d71bad94a138714ffa8b7f2f0c31461f56abae67daa6505934b04c5349"
+      }
+    },
+    "rightkit-google-identity": {
+      "pkId": "PK260",
+      "id": "ci/consumers/rightkit-google-identity/src/main.rs",
+      "files": {
+        "Cargo.toml": "5cbda07d6509823b4a0e35f6dfccb1954629a587a391b8d3fea2efbdc1f978f3",
+        "README.md": "fa8ad8a0030a847f204f6f6efd004caa46a5d768514300eb9db2a8261d8426ab",
+        "src/main.rs": "eccf23e7a717b06d994cba347d49e1e289a8e93a29cc34a616c3ac861b85a8ce"
+      }
+    },
+    "rightkit-profile": {
+      "pkId": "PK261",
+      "id": "ci/consumers/rightkit-profile/src/main.rs",
+      "files": {
+        "Cargo.toml": "0087d0586c0f05c751e1338cfe1c917ac975f8886d85d31a207d4718e947fd76",
+        "README.md": "67122cfce1c5a9abcfbd2750663886f8d0b44e0c503c2bd556d4acc4cc751617",
+        "src/main.rs": "e20f57fd78047cc3d404d49fdb3eec23339ad02cec73b6171eb6d998f602f033"
       }
     }
   }

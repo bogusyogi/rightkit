@@ -10065,9 +10065,10 @@ dependencies = [
 
 [[package]]
 name = "rightkit-agent-engine-attention"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "axum",
+ "rightkit-crypto",
  "rightkit-fs",
  "rightkit-time",
  "serde",
@@ -10438,9 +10439,21 @@ name = "rightkit-agent-task-contract"
 version = "0.1.2"
 dependencies = [
  "rightkit-approvals",
+ "rightkit-crypto",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
+]
+
+[[package]]
+name = "rightkit-agent-task-journal"
+version = "0.1.0"
+dependencies = [
+ "rightkit-agent-task-contract",
+ "rightkit-db",
+ "rightkit-fs",
+ "rightkit-job-queue",
+ "serde_json",
 ]
 
 [[package]]
@@ -11335,6 +11348,21 @@ name = "rightkit-device-link"
 version = "0.1.0"
 
 [[package]]
+name = "rightkit-device-link-core"
+version = "0.1.0"
+dependencies = [
+ "rightkit-credentials",
+ "rightkit-crypto",
+ "rightkit-device-link-types",
+ "rightkit-fs",
+ "rightkit-owner-approvals",
+ "rightkit-sidecar",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "rightkit-device-link-types"
 version = "0.1.2"
 dependencies = [
@@ -11689,7 +11717,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-engine-host"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "rightkit-child-process",
  "rightkit-daemon",
@@ -11897,7 +11925,11 @@ dependencies = [
 name = "rightkit-google-identity"
 version = "0.3.0"
 dependencies = [
+ "rightkit-credentials",
+ "rightkit-google-apis",
  "rightkit-oauth",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]
@@ -12375,13 +12407,9 @@ version = "0.2.3"
 dependencies = [
  "iroh",
  "iroh-mdns-address-lookup",
- "rightkit-credentials",
- "rightkit-crypto",
- "rightkit-device-link-types",
+ "rightkit-device-link-core",
  "rightkit-fs",
  "rightkit-logs",
- "rightkit-owner-approvals",
- "rightkit-sidecar",
  "ring",
  "serde",
  "serde_json",
@@ -12450,6 +12478,8 @@ dependencies = [
  "objc2-user-notifications",
  "rightkit-crypto",
  "rightkit-http",
+ "serde",
+ "serde_json",
  "thiserror 2.0.21",
  "tokio",
  "windows 0.61.3",
@@ -12524,7 +12554,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-overlay-win"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "rightkit-overlay",
  "windows-sys 0.61.2",
@@ -12532,7 +12562,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-owner-approvals"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "libc 0.2.191",
  "rightkit-app-host",
@@ -12791,7 +12821,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-remote-gateway"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "libc 0.2.191",
  "portable-pty",
@@ -12807,11 +12837,13 @@ dependencies = [
  "rightkit-device-link-types",
  "rightkit-docs",
  "rightkit-fs",
+ "rightkit-google-apis",
+ "rightkit-google-identity",
  "rightkit-http",
  "rightkit-logs",
  "rightkit-owner-approvals",
  "rightkit-system-monitor",
- "ring",
+ "rightkit-time",
  "serde",
  "serde_json",
  "sysinfo",
@@ -12958,6 +12990,7 @@ dependencies = [
  "jiff",
  "rightkit-agent-engine-protocol",
  "rightkit-db",
+ "rightkit-fs",
  "rightkit-time",
  "serde",
  "serde_json",
@@ -13108,6 +13141,7 @@ dependencies = [
  "getrandom 0.4.3",
  "hkdf",
  "rightkit-credentials",
+ "rightkit-fs",
  "rightkit-identity",
  "rightkit-sync",
  "sha2 0.11.1",
@@ -13378,9 +13412,8 @@ dependencies = [
 
 [[package]]
 name = "rightkit-web-session"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
- "chromiumoxide",
  "libc 0.2.191",
  "rightkit-app-host",
  "rightkit-browser",

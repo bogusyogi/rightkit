@@ -7,6 +7,7 @@ pub mod model;
 pub mod profile;
 pub mod rows;
 pub mod runner;
+pub mod service;
 pub mod time;
 pub mod timezone;
 #[cfg(feature = "iana-full")]

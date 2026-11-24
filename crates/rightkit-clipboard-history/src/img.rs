@@ -90,7 +90,7 @@ pub fn decode_png(png: &[u8], max_side: Option<u32>) -> Option<Bitmap> {
     // remains alive throughout decoding.
     let stream = unsafe { SHCreateMemStream(Some(png)) }?;
     decode_first(max_side, |factory| unsafe {
-        factory.CreateDecoderFromStream(&stream, None, WICDecodeMetadataCacheOnDemand)
+        factory.CreateDecoderFromStream(&stream, std::ptr::null(), WICDecodeMetadataCacheOnDemand)
     })
 }
 
@@ -288,8 +288,11 @@ pub fn dib_to_png(dib: &[u8]) -> Option<Vec<u8>> {
     // the stream remains alive until the encoder finishes.
     let converted = encode_png_with(|factory, output| unsafe {
         let input = SHCreateMemStream(Some(&bmp)).ok_or_else(|| Error::from(E_FAIL))?;
-        let decoder =
-            factory.CreateDecoderFromStream(&input, None, WICDecodeMetadataCacheOnDemand)?;
+        let decoder = factory.CreateDecoderFromStream(
+            &input,
+            std::ptr::null(),
+            WICDecodeMetadataCacheOnDemand,
+        )?;
         let picture = decoder.GetFrame(0)?;
         let (mut width, mut height) = (0, 0);
         picture.GetSize(&mut width, &mut height)?;

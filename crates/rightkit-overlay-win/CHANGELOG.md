@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.7
+
+- Adds the public module `lease_banner` (the lease banner's layout and copy templates, moved from Pulse; source in the same change). Version bump. Not compiled.
+
 ## 0.1.6 (unpublished)
 
 - `OverlayWindow::close_into_join_handle` requests closure & returns the owner thread handle so callers can verify retirement before restart.

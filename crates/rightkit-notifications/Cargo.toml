@@ -18,6 +18,8 @@ apns-http = ["dep:rightkit-http", "dep:tokio"]
 
 [dependencies]
 thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 rightkit-crypto = { version = "0.1.4", path = "../rightkit-crypto" }
 rightkit-http = { version = "0.4.0", path = "../rightkit-http", default-features = false, features = ["async"], optional = true }
 tokio = { version = "1", default-features = false, features = ["rt", "time", "net"], optional = true }
@@ -36,6 +38,6 @@ notify-rust = { version = "4", default-features = false, features = ["z"] }
 
 [package.metadata.rightkit]
 continuous = false
-continuous_reason = "Posts a notification per call through the OS notification service; no polling loop, no network, spawns no thread of its own (permission waits block the caller)."
+continuous_reason = "Posts a notification per call through the OS notification service; no polling loop, no network, spawns no thread of its own (permission waits block the caller); sender::deliver sleeps 1 s, then 2 s, between Retry attempts, and the caller blocks through those sleeps."
 
 # One Cargo workspace and lock per crate (rightkit#1285).

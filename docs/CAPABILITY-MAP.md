@@ -112,7 +112,7 @@ Capabilities: 223 (58 with fingerprints, 165 declaration-only). Internal owners 
 | durable-memory | `rightkit-memory-store` | none | declaration-only | 0 | rightkit-memory-store: published 0.2.1 (crates.io) |
 | durable-memory-core | `rightkit-memory-core` | none | declaration-only | 0 | rightkit-memory-core: staged 0.2.0, not published |
 | embeddings | `rightkit-embed` | advise | fingerprinted | 1 (0 block, 1 advise) | rightkit-embed: published 0.6.1 (crates.io) |
-| engine-host | `rightkit-engine-host` | none | declaration-only | 0 | rightkit-engine-host: staged 0.2.0, not published |
+| engine-host | `rightkit-engine-host` | none | declaration-only | 0 | rightkit-engine-host: staged 0.2.1, not published |
 | evidence | `rightkit-evidence` | none | declaration-only | 0 | rightkit-evidence: staged 0.1.1, not published |
 | evidence-contracts | `rightkit-evidence-contracts` | none | declaration-only | 0 | rightkit-evidence-contracts: staged 0.1.1, not published |
 | evidence-decisions | `rightkit-evidence-decisions` | none | declaration-only | 0 | rightkit-evidence-decisions: staged 0.1.1, not published |
@@ -166,7 +166,7 @@ Capabilities: 223 (58 with fingerprints, 165 declaration-only). Internal owners 
 | os-credential-store | `RightKitSwift`, `rightkit-credentials` | advise | fingerprinted | 7 (0 block, 7 advise) | RightKitSwift: published 0.9.0 (SwiftPM); rightkit-credentials: published 0.5.8 (crates.io) |
 | os-sandbox | `rightkit-sandbox` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-sandbox: published 0.6.1 (crates.io) |
 | owned-processes | `rightkit-child-process` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-child-process: published 0.5.14 (crates.io) |
-| owner-approvals | `rightkit-owner-approvals` | none | declaration-only | 0 | rightkit-owner-approvals: staged 0.1.2, not published |
+| owner-approvals | `rightkit-owner-approvals` | none | declaration-only | 0 | rightkit-owner-approvals: staged 0.1.3, not published |
 | ownership-scanner | `rightkit-ownership` | none | declaration-only | 0 | rightkit-ownership: published 0.4.2 (crates.io) |
 | pdf | `rightkit-pdf` | none | declaration-only | 0 | rightkit-pdf: published 0.3.3 (crates.io) |
 | pdf-engine | `rightkit-pdf` | advise | fingerprinted | 3 (0 block, 3 advise) | rightkit-pdf: published 0.3.3 (crates.io) |
@@ -178,7 +178,7 @@ Capabilities: 223 (58 with fingerprints, 165 declaration-only). Internal owners 
 | privileged-helper | `rightkit-privileged-helper` | none | declaration-only | 0 | rightkit-privileged-helper: staged 0.2.0, not published |
 | qa-evidence | `@rightkit/qa` | advise | fingerprinted | 2 (0 block, 2 advise) | @rightkit/qa: published 0.7.0 (npm) |
 | release-tooling | `@rightkit/release` | advise | fingerprinted | 10 (0 block, 10 advise) | @rightkit/release: published 0.6.75 (npm) |
-| remote-agent-gateway | `rightkit-remote-gateway` | none | declaration-only | 0 | rightkit-remote-gateway: staged 0.1.3, not published |
+| remote-agent-gateway | `rightkit-remote-gateway` | none | declaration-only | 0 | rightkit-remote-gateway: staged 0.1.4, not published |
 | remote-compute | `rightkit-remote-compute` | none | declaration-only | 0 | rightkit-remote-compute: staged 0.2.1, not published |
 | repo-graph | `rightkit-repo-graph` | none | declaration-only | 0 | rightkit-repo-graph: staged 0.3.2, not published |
 | repo-graph-grammars | `rightkit-repo-graph-grammars` | none | declaration-only | 0 | rightkit-repo-graph-grammars: staged 0.1.1, not published |
@@ -231,7 +231,7 @@ Capabilities: 223 (58 with fingerprints, 165 declaration-only). Internal owners 
 | voice-activity-detection | `rightkit-vad` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-vad: published 0.1.2 (crates.io) |
 | voice-commands | `rightkit-voice-commands` | none | declaration-only | 0 | rightkit-voice-commands: staged 0.1.2, not published |
 | waitlist-worker | `@rightkit/waitlist-worker` | none | declaration-only | 0 | @rightkit/waitlist-worker: staged 0.1.0, not published |
-| web-session | `rightkit-web-session` | none | declaration-only | 0 | rightkit-web-session: staged 0.1.1, not published |
+| web-session | `rightkit-web-session` | none | declaration-only | 0 | rightkit-web-session: staged 0.1.2, not published |
 | windows-native-overlay-renderer | `rightkit-overlay-win` | advise | fingerprinted | 1 (0 block, 1 advise) | rightkit-overlay-win: published 0.1.6 (crates.io) |
 | workspace-ui | `@rightkit/workspace-ui` | none | declaration-only | 0 | @rightkit/workspace-ui: staged 0.2.1, not published |
 | xlsx | `rightkit-docs` | none | declaration-only | 0 | rightkit-docs: published 0.1.2 (crates.io) |

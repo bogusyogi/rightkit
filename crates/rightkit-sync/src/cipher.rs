@@ -338,6 +338,7 @@ impl RecordCipher {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn associated_data(
         &self,
         format: u8,

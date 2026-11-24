@@ -26,7 +26,7 @@ const LODGING_TYPES: [&str; 7] = [
 ];
 
 fn last_segment(raw: &str) -> String {
-    raw.rsplit(|c: char| c == '/' || c == '#' || c == ':')
+    raw.rsplit(['/', '#', ':'])
         .next()
         .unwrap_or("")
         .trim()

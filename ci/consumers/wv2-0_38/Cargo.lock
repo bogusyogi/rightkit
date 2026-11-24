@@ -3081,6 +3081,8 @@ dependencies = [
  "objc2-foundation",
  "objc2-user-notifications",
  "rightkit-crypto",
+ "serde",
+ "serde_json",
  "thiserror 2.0.21",
  "windows 0.61.3",
 ]

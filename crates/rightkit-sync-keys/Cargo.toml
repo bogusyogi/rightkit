@@ -19,6 +19,7 @@ sync = ["dep:rightkit-sync"]
 [dependencies]
 rightkit-credentials = { version = "0.5.0", path = "../rightkit-credentials" }
 rightkit-identity = { version = "0.1.1", path = "../rightkit-identity" }
+rightkit-fs = { version = "0.5.0", path = "../rightkit-fs", default-features = false, features = ["fs"] }
 rightkit-sync = { version = "0.4.2", path = "../rightkit-sync", default-features = false, features = ["cipher"], optional = true }
 thiserror = "2"
 getrandom = "0.4"

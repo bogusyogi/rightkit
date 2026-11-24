@@ -4,8 +4,6 @@
 //! made for one message type cannot be replayed as another, and every field is length-prefixed
 //! so two different field lists cannot encode to the same bytes.
 
-use ring::rand::{SecureRandom, SystemRandom};
-
 use super::LinkError;
 use rightkit_device_link_types::{DevicePlatform, DeviceRef, EffectClass};
 
@@ -73,9 +71,7 @@ pub(crate) fn effect_tag(effect: EffectClass) -> &'static str {
 /// `N` bytes from the system RNG.
 pub fn random<const N: usize>() -> Result<[u8; N], LinkError> {
     let mut out = [0u8; N];
-    SystemRandom::new()
-        .fill(&mut out)
-        .map_err(|_| LinkError::Random)?;
+    rightkit_crypto::random_fill(&mut out).map_err(|_| LinkError::Random)?;
     Ok(out)
 }
 

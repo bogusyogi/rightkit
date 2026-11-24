@@ -15,7 +15,7 @@
 //!    but missing is `not_found`.
 //! 3. A credential store is refused as `sensitive_path`: a name below the folder (`.ssh`,
 //!    `.gnupg`, `.aws`, `.config/gh`, `.npmrc`, ...), and the user's own `.claude`, `.codex` and
-//!    The host app state folders. A folder that is itself one of these, or inside one, is never approved.
+//!    The host app state folders and Membrane's folder (its memory store and owner key). A folder that is itself one of these, or inside one, is never approved.
 //! 4. A file or folder is opened without following a link (`O_NOFOLLOW` and `O_NONBLOCK` on unix,
 //!    so a FIFO cannot hang the call; a normal open on Windows, where the handle check below does
 //!    the work) and what was **actually opened** is checked: it is a regular file or a folder, as
@@ -117,11 +117,13 @@ pub fn sensitive(path: &Path) -> bool {
 /// `.claude` and `.codex` (their sign-in files and every chat transcript, which `chat_read` alone
 /// may return, and only for a selected chat), `CLAUDE_CONFIG_DIR`, `CODEX_HOME` and the host app's own
 /// state folder (the chat store, settings and logs; on the Mac `Library/Application
-/// Support/Orthic Labs/the host app`, on Windows `%LOCALAPPDATA%\Orthic Labs\the host app`). Each is listed as written and, when it
-/// exists, as canonicalized.
-fn protected_dirs() -> &'static [PathBuf] {
+/// Support/Orthic Labs/the host app`, on Windows `%LOCALAPPDATA%\Orthic Labs\the host app`). Each is listed as
+/// written, with its canonical form when it existed at first use. A folder that did not exist then
+/// carries `None` and `protected` resolves it again on every call (`canonical_with_tail`), so a
+/// folder created later (Membrane's, on first run) is protected from the moment it exists.
+fn protected_dirs() -> &'static [(PathBuf, Option<PathBuf>)] {
     use std::sync::OnceLock;
-    static DIRS: OnceLock<Vec<PathBuf>> = OnceLock::new();
+    static DIRS: OnceLock<Vec<(PathBuf, Option<PathBuf>)>> = OnceLock::new();
     DIRS.get_or_init(|| {
         let mut dirs: Vec<PathBuf> = Vec::new();
         let account = rightkit_app_host::account_home();
@@ -143,18 +145,106 @@ fn protected_dirs() -> &'static [PathBuf] {
         if let Ok(state) = rightkit_app_host::state_directory() {
             dirs.push(state);
         }
-        let canonical: Vec<PathBuf> = dirs
-            .iter()
-            .filter_map(|d| std::fs::canonicalize(d).ok())
-            .collect();
-        dirs.extend(canonical);
-        dirs
+        // Membrane's folder (`Orthic Labs/Membrane` beside the host app's): its state folder holds the memory
+        // store and the owner key (`runtime/membrane/provenance.key`) that makes a memory the
+        // owner's. No file tool may read it, so the key cannot be copied into a note's text.
+        dirs.extend(membrane_dirs());
+        dirs.into_iter()
+            .map(|dir| {
+                let canonical = std::fs::canonicalize(&dir).ok();
+                (dir, canonical)
+            })
+            .collect()
     })
 }
 
-/// Whether `path` is one of the protected folders or inside one.
+/// The canonical form of `path` when it may not exist: the deepest existing ancestor is
+/// canonicalized (on Windows that gives the `\\?\`-prefixed spelling later canonical paths have)
+/// and the names that do not exist yet are appended as written. `None` when no ancestor resolves.
+fn canonical_with_tail(path: &Path) -> Option<PathBuf> {
+    let mut current = path.to_path_buf();
+    let mut tail: Vec<std::ffi::OsString> = Vec::new();
+    loop {
+        if let Ok(mut canonical) = std::fs::canonicalize(&current) {
+            canonical.extend(tail.iter().rev());
+            return Some(canonical);
+        }
+        tail.push(current.file_name()?.to_os_string());
+        if !current.pop() {
+            return None;
+        }
+    }
+}
+
+/// Membrane's data folder as Membrane resolves it (`<data dir>/Orthic Labs/Membrane`, which holds
+/// `state/`), through the same `AppDirs` the host app's own state folder uses: `%LOCALAPPDATA%\Orthic
+/// Labs\Membrane` on Windows, `~/Library/Application Support/Orthic Labs/Membrane` on the Mac, the
+/// XDG data folder on Linux. A pinned `MEMBRANE_STATE_ROOT` (tests, operators) is protected too.
+fn membrane_dirs() -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+    if let Some(pinned) =
+        rightkit_app_host::env_var("MEMBRANE_STATE_ROOT").filter(|d| !d.is_empty())
+    {
+        dirs.push(PathBuf::from(pinned));
+    }
+    if let Ok(found) = rightkit_fs::AppDirs::resolve_with(
+        &rightkit_fs::AppId::new("Membrane", Some("Orthic Labs")),
+        &rightkit_fs::AppDirsOptions::new(rightkit_fs::AppDirsOs::current()),
+        &|key| rightkit_app_host::env_var(key),
+    ) {
+        dirs.push(found.local);
+    }
+    dirs
+}
+
+/// Whether `path` is one of the protected folders or inside one, whether or not that folder
+/// existed when the list was first built. Compared by components; Windows ignores letter case.
 pub fn protected(path: &Path) -> bool {
-    protected_dirs().iter().any(|dir| path.starts_with(dir))
+    protected_as_written(path)
+        || admin_share_local(path)
+            .iter()
+            .any(|p| protected_as_written(p))
+}
+
+fn protected_as_written(path: &Path) -> bool {
+    protected_dirs().iter().any(|(written, canonical)| {
+        lexically_under(written, path)
+            || match canonical {
+                Some(canonical) => lexically_under(canonical, path),
+                None => canonical_with_tail(written)
+                    .is_some_and(|canonical| lexically_under(&canonical, path)),
+            }
+    })
+}
+
+/// The local drive spellings (`C:\...` and `\\?\C:\...`) of an admin-share path on this computer
+/// (`\\localhost\C$\...`, `\\127.0.0.1\C$\...`, each also as `\\?\UNC\...`), which reach the same
+/// folder yet match no protected entry as written. Empty for any other path.
+#[cfg(windows)]
+fn admin_share_local(path: &Path) -> Vec<PathBuf> {
+    let text = path.to_string_lossy();
+    let rest = text
+        .strip_prefix(r"\\?\UNC\")
+        .or_else(|| text.strip_prefix(r"\\"))
+        .unwrap_or("");
+    let mut parts = rest.splitn(3, '\\');
+    let (host, share, tail) = (parts.next(), parts.next(), parts.next().unwrap_or(""));
+    let local_host = host.is_some_and(|h| h.eq_ignore_ascii_case("localhost") || h == "127.0.0.1");
+    let drive = share
+        .and_then(|s| s.strip_suffix('$'))
+        .filter(|d| d.len() == 1 && d.as_bytes()[0].is_ascii_alphabetic());
+    match (local_host, drive) {
+        (true, Some(d)) => vec![
+            PathBuf::from(format!(r"{d}:\{tail}")),
+            PathBuf::from(format!(r"\\?\{d}:\{tail}")),
+        ],
+        _ => Vec::new(),
+    }
+}
+
+#[cfg(not(windows))]
+fn admin_share_local(_path: &Path) -> Vec<PathBuf> {
+    Vec::new()
 }
 
 /// The approved folders that can be used now. `remote_off` when the master switch is off;
@@ -283,7 +373,7 @@ pub fn resolve(roots: &[Root], requested: &str) -> Result<Resolved> {
     if sensitive(&relative) || protected(&anchor) {
         return Err(Refusal::new(
             "sensitive_path",
-            "that path is a credential or private folder (.ssh, .gnupg, .aws, .claude, .codex, the app's own folder, ...) that remote tools never read",
+            "that path is a credential or private folder (.ssh, .gnupg, .aws, .claude, .codex, the app's and Membrane's own folders, ...) that remote tools never read",
         ));
     }
     if missing > 0 {
@@ -493,60 +583,28 @@ fn open_no_follow(_path: &Path) -> std::io::Result<File> {
     Err(std::io::Error::from(std::io::ErrorKind::Unsupported))
 }
 
-/// The operating system's path for an open file.
-#[cfg(target_os = "macos")]
+/// The operating system's path for the same open handle checked by the caller.
+#[cfg(any(target_os = "macos", target_os = "linux", target_os = "android"))]
 fn handle_path(file: &File) -> Option<PathBuf> {
-    use std::ffi::OsString;
-    use std::os::fd::AsRawFd;
-    use std::os::unix::ffi::OsStringExt;
-    let mut buffer = vec![0u8; libc::PATH_MAX as usize + 1];
-    // SAFETY: F_GETPATH writes a NUL-terminated path of at most PATH_MAX bytes into `buffer`.
-    let rc = unsafe { libc::fcntl(file.as_raw_fd(), libc::F_GETPATH, buffer.as_mut_ptr()) };
-    if rc == -1 {
-        return None;
-    }
-    let length = buffer.iter().position(|b| *b == 0)?;
-    buffer.truncate(length);
-    Some(PathBuf::from(OsString::from_vec(buffer)))
+    rightkit_fs::final_path(file).ok()
 }
 
-#[cfg(all(unix, not(target_os = "macos")))]
+#[cfg(all(
+    unix,
+    not(any(target_os = "macos", target_os = "linux", target_os = "android"))
+))]
 fn handle_path(file: &File) -> Option<PathBuf> {
     use std::os::fd::AsRawFd;
     std::fs::read_link(format!("/proc/self/fd/{}", file.as_raw_fd())).ok()
 }
 
 #[cfg(windows)]
-#[link(name = "kernel32")]
-unsafe extern "system" {
-    fn GetFinalPathNameByHandleW(
-        file: *mut std::ffi::c_void,
-        path: *mut u16,
-        length: u32,
-        flags: u32,
-    ) -> u32;
-}
-
-#[cfg(windows)]
 fn handle_path(file: &File) -> Option<PathBuf> {
-    use std::ffi::OsString;
-    use std::os::windows::ffi::OsStringExt;
-    use std::os::windows::io::AsRawHandle;
-    let mut buffer = vec![0u16; 32_768];
-    // SAFETY: the handle is live for the call and the buffer holds `length` UTF-16 units; flags 0
-    // is FILE_NAME_NORMALIZED with the DOS volume name.
-    let written = unsafe {
-        GetFinalPathNameByHandleW(
-            file.as_raw_handle().cast(),
-            buffer.as_mut_ptr(),
-            buffer.len() as u32,
-            0,
-        )
-    } as usize;
-    if written == 0 || written >= buffer.len() {
-        return None;
-    }
-    Some(PathBuf::from(OsString::from_wide(&buffer[..written])))
+    use std::os::windows::ffi::OsStrExt;
+    // Keep the caller's original 32,768-unit buffer limit, including its terminator.
+    rightkit_fs::handle::final_path_verbatim(file)
+        .ok()
+        .filter(|path| path.as_os_str().encode_wide().count() < 32_768)
 }
 
 #[cfg(not(any(unix, windows)))]

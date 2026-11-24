@@ -78,6 +78,7 @@ mod window;
 mod win;
 
 pub mod icons;
+pub mod lease_banner;
 pub mod response_layout;
 
 pub use anim::{Animation, Easing, FrameInfo};
