@@ -70,3 +70,10 @@ test("the staged files are compared by path and sha256, not by when the receipt 
   fs.writeFileSync(f, "{"); assert.equal(stagedFilesDigest(f), null);
   fs.rmSync(dir, { recursive: true, force: true });
 });
+test("a staging the sync removed is put back from its kept copy when the sources match, and kept after each staging", async () => {
+  const src = (await import("node:fs")).readFileSync(new URL("./bin/rightkit-gate.mjs", import.meta.url), "utf8");
+  // put back: only when the key matches and the receipt is gone from the snapshot
+  assert.match(src, /keyOf\(nowParts\) === prior\.key && Array\.isArray\(prior\.kept\) && typeof prior\.receipt === "string" && !fs\.existsSync\(path\.join\(ds\.path, prior\.receipt\)\)/);
+  // kept: the receipt and every staged file, recorded in the state
+  assert.match(src, /const files = \[receiptAbs, \.\.\.\(Array\.isArray\(result\?\.files\)/); assert.match(src, /\.\.\.\(kept \? \{ kept \} : \{\}\)/);
+});

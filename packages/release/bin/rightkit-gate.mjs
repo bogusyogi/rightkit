@@ -2905,10 +2905,17 @@ export async function stageSidecarsOnce({ o, ds, root, git = null, configs, appD
     const keyOf = (parts) => (parts ? createHash("sha256").update(JSON.stringify(parts)).digest("hex") : null);
     const keyNow = (dirs) => keyOf(partsNow(dirs));
     const nowParts = prior?.schema === 2 ? partsNow(prior.dirs) : null;
+    // The snapshot sync removes ignored outputs (app/src-tauri/binaries/) when the commit changes (acceptance case 3 on 0.6.70). When the sources are those of
+    // the last staging, its kept copy is put back, as the web build's dist cache is; stage-sidecar --if-stale then checks the files and builds nothing.
+    const keptDir = stateFile.replace(/\.json$/, ".files");
+    if (prior?.schema === 2 && nowParts && keyOf(nowParts) === prior.key && Array.isArray(prior.kept) && typeof prior.receipt === "string" && !fs.existsSync(path.join(ds.path, prior.receipt))) {
+      try { for (const rel of prior.kept) { const from = path.join(keptDir, ...rel.split("/")); const to = path.join(ds.path, ...rel.split("/")); fs.mkdirSync(path.dirname(to), { recursive: true }); fs.copyFileSync(from, to); const st = fs.statSync(from); fs.utimesSync(to, st.atime, st.mtime); } }
+      catch (e) { o.out(tag + " [" + stage + "] stage-sidecar " + config + ": the kept staging could not be put back (" + e.message + ")"); }
+    }
     const receiptNow = prior?.schema === 2 && typeof prior.receipt === "string" ? stagedFilesDigest(path.join(ds.path, prior.receipt)) : null;
     const unchanged = Boolean(prior?.schema === 2 && nowParts && keyOf(nowParts) === prior.key && receiptNow === prior.receiptSha256);
     // Why it stages again, in one line, so a missed reuse can be traced from the run's own output.
-    if (!unchanged) o.out(tag + " [" + stage + "] stage-sidecar " + config + " builds: " + (prior?.schema !== 2 ? "no earlier staging is recorded" : !nowParts ? "its sources cannot be read from the commit" : keyOf(nowParts) !== prior.key ? "changed since the last staging: " + (Object.keys(nowParts).filter((k) => nowParts[k] !== prior.parts?.[k]).join(", ") || "unknown part") : "the staged receipt is not the one recorded"));
+    if (!unchanged) o.out(tag + " [" + stage + "] stage-sidecar " + config + " builds: " + (prior?.schema !== 2 ? "no earlier staging is recorded" : !nowParts ? "its sources cannot be read from the commit" : keyOf(nowParts) !== prior.key ? "changed since the last staging: " + (Object.keys(nowParts).filter((k) => nowParts[k] !== prior.parts?.[k]).join(", ") || "unknown part") : "the staged receipt is not the one recorded (recorded " + String(prior.receiptSha256).slice(0, 12) + ", now " + (receiptNow === null ? (fs.existsSync(path.join(ds.path, prior.receipt)) ? "unreadable" : "absent") + " at " + path.join(ds.path, prior.receipt) : String(receiptNow).slice(0, 12)) + ")"));
     let r;
     try {
       o.out(`${tag} [${stage}] right-release stage-sidecar --config ${path.join(ds.path, config)}${target ? ` --target ${target}` : ""}${unchanged ? " --if-stale (its sources are those of the last staging: the staged files are checked, nothing is built)" : ""} (from the snapshot ${ds.path})`);
@@ -2938,7 +2945,9 @@ export async function stageSidecarsOnce({ o, ds, root, git = null, configs, appD
     // The sources this staging was built from, for the next run (NN07). Not recordable (a sidecar not built by Cargo, a package not found): the state is removed.
     try {
       const dirs = git ? sidecarSourceDirs({ git, commit, result }) : null; const k = dirs ? keyNow(dirs) : null; const sha = receiptAbs ? stagedFilesDigest(path.join(ds.path, receiptAbs)) : null;
-      if (k && sha) { fs.mkdirSync(path.dirname(stateFile), { recursive: true }); const tmp = `${stateFile}.${process.pid}.tmp`; fs.writeFileSync(tmp, `${JSON.stringify({ schema: 2, key: k, parts: partsNow(dirs), dirs, receipt: receiptAbs, receiptSha256: sha })}\n`); fs.renameSync(tmp, stateFile); }
+      let kept = null;
+      if (k && sha) { try { const files = [receiptAbs, ...(Array.isArray(result?.files) ? result.files.map((x) => (typeof x?.path === "string" ? underApp(x.path) : null)).filter(Boolean) : [])]; fs.rmSync(keptDir, { recursive: true, force: true }); for (const rel of files) { const from = path.join(ds.path, ...rel.split("/")); const to = path.join(keptDir, ...rel.split("/")); fs.mkdirSync(path.dirname(to), { recursive: true }); fs.copyFileSync(from, to); const st = fs.statSync(from); fs.utimesSync(to, st.atime, st.mtime); } kept = files; } catch (e) { kept = null; o.out(tag + " [" + stage + "] stage-sidecar " + config + ": the staging was not kept (" + e.message + "); the next run builds again"); } }
+      if (k && sha) { fs.mkdirSync(path.dirname(stateFile), { recursive: true }); const tmp = `${stateFile}.${process.pid}.tmp`; fs.writeFileSync(tmp, `${JSON.stringify({ schema: 2, key: k, parts: partsNow(dirs), dirs, receipt: receiptAbs, receiptSha256: sha, ...(kept ? { kept } : {}) })}\n`); fs.renameSync(tmp, stateFile); }
       else fs.rmSync(stateFile, { force: true });
     } catch (e) { o.out(`${tag} [${stage}] stage-sidecar ${config}: the staging state was not recorded (${e.message}); the next run stages again`); }
   }

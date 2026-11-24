@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.71
+
+- NN07: the snapshot sync removes the staged sidecar (app/src-tauri/binaries/) whenever the commit changes, so every run rebuilt it. The gate now keeps a copy of the receipt and staged files after each staging and, when the sidecar's sources match the last staging, puts them back before `stage-sidecar --if-stale`, as the web build's dist cache already does. When it rebuilds anyway it prints both receipt digests.
+
 ## 0.6.70
 
 - NN09 (GC-A27; Adrian, 2026-11-25: "I'm not relaxing NN09"): every carried compile command is handed to the broker as soon as it is ready again. The broker holds one job of a repository at a time (`exclusive:workspace:<repo>` on every receipt), so commands of one workspace never run side by side. 0.6.66 held them back on a misreading: the "two Cargo processes" seen on 0.6.64 were one clippy job's own process tree (`cargo clippy`, `cargo-clippy`, `cargo check`).
