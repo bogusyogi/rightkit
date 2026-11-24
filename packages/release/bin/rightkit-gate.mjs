@@ -166,7 +166,7 @@ export const MOBILE_PLATFORMS = Object.freeze(new Set(["ios", "android"]));
 const CLASS_B_KEY_SCHEMA = "rightkit.class-b-key/3";
 // GC-A24: passing rule-engine verdicts (app rules, RightKit's preflight) of a snapshot, under the checkout's git common directory.
 const RULE_VERDICT_SCHEMA = "rightkit.rule-verdict/1";
-function ruleVerdictCache({ checkout, spawn }) {
+export function ruleVerdictCache({ checkout, spawn }) {
   try {
     const common = spawn("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], { cwd: checkout });
     if (failed(common) || !text(common).trim()) return null;
@@ -175,7 +175,8 @@ function ruleVerdictCache({ checkout, spawn }) {
     return {
       key: (parts) => createHash("sha256").update(canonicalJson({ schema: RULE_VERDICT_SCHEMA, node: process.version, platform: `${process.platform}-${process.arch}`, ...parts })).digest("hex"),
       passed: (k) => { try { return JSON.parse(fs.readFileSync(file(k), "utf8"))?.status === "pass"; } catch { return false; } },
-      pass: (k) => { try { fs.mkdirSync(dir, { recursive: true }); const tmp = `${file(k)}.${process.pid}.tmp`; fs.writeFileSync(tmp, JSON.stringify({ schema: RULE_VERDICT_SCHEMA, status: "pass", at: new Date().toISOString() })); fs.renameSync(tmp, file(k)); } catch { /* a cache */ } },
+      // A pass that is already stored is not written back (GC-A27 NN06: nothing is written for a row whose inputs did not change).
+      pass: (k) => { try { if (JSON.parse(fs.readFileSync(file(k), "utf8"))?.status === "pass") return; } catch { /* not stored yet */ } try { fs.mkdirSync(dir, { recursive: true }); const tmp = `${file(k)}.${process.pid}.tmp`; fs.writeFileSync(tmp, JSON.stringify({ schema: RULE_VERDICT_SCHEMA, status: "pass", at: new Date().toISOString() })); fs.renameSync(tmp, file(k)); } catch { /* a cache */ } },
     };
   } catch { return null; }
 }

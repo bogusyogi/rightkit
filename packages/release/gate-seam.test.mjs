@@ -202,6 +202,13 @@ test("the Class A verdict exists only for a complete green plan and binds commit
   if (process.platform !== "win32") assert.equal(fs.statSync(file).mode & 0o777, 0o600);
   assert.throws(() => writeClassAVerdict(dir, { ...v, status: "fail" }), /passing verdict/);
   assert.throws(() => writeClassAVerdict("relative", v), /absolute/);
+  // GC-A27 NN02: the verdict this run already wrote is not written a second time (its time must stay before the jobs that named it); one an earlier run left is.
+  { const mine = new Date(Date.now() - 5000); fs.utimesSync(file, mine, mine); const since = mine.getTime() - 1000;
+    assert.equal(writeClassAVerdict(dir, v, { since }), file); assert.equal(fs.statSync(file).mtimeMs, mine.getTime(), "the same verdict, written by this run, is left as it is");
+    const old = new Date("2020-01-01T00:00:00Z"); fs.utimesSync(file, old, old);
+    writeClassAVerdict(dir, v, { since }); assert.ok(fs.statSync(file).mtimeMs > old.getTime(), "a file an earlier run left is written afresh");
+    fs.utimesSync(file, mine, mine); fs.writeFileSync(file, "{}\n"); fs.utimesSync(file, mine, mine);
+    writeClassAVerdict(dir, v, { since }); assert.equal(JSON.parse(fs.readFileSync(file, "utf8")).status, "pass", "a different body is replaced"); }
   assert.deepEqual(seamEnv({ commit, classA: file }), { [GATE_COMMIT_ENV]: commit, [CLASS_A_ENV]: file });
   assert.throws(() => seamEnv({ commit, classA: "class-a.json" }), /absolute/);
 });

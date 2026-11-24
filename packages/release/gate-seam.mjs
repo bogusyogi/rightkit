@@ -106,14 +106,20 @@ export function classAVerdict({ commit, tree, repoKey, workspace, scans, scope =
   return { schema: CLASS_A_VERDICT_SCHEMA, commit, tree, repoKey, workspace: ws, scope: normalizeScope(scope), status: "pass", scans: rows };
 }
 
+/** When this gate process started, a second early: a verdict file written at or after it is this run's own. */
+const RUN_STARTED_MS = Date.now() - Math.ceil(process.uptime() * 1000) - 1000;
 /** Writes a verdict atomically (temp file, rename) with mode 0600 and returns its absolute path. Refuses a relative directory. */
-export function writeClassAVerdict(dir, verdict, { fsApi = fs } = {}) {
+export function writeClassAVerdict(dir, verdict, { fsApi = fs, since = RUN_STARTED_MS } = {}) {
   if (!path.isAbsolute(dir)) throw new SeamError("VERDICT", `verdict directory ${dir} must be absolute`);
   if (verdict?.schema !== CLASS_A_VERDICT_SCHEMA || verdict.status !== "pass") throw new SeamError("VERDICT", "only a passing verdict of the current schema is written");
   fsApi.mkdirSync(dir, { recursive: true, mode: 0o700 });
   const file = path.join(dir, verdictFileName({ commit: verdict.commit, scope: verdict.scope ?? "full", workspace: verdict.workspace }));
+  const body = `${JSON.stringify(verdict)}\n`;
+  // The same verdict this run already wrote is not written again (GC-A27 NN02, NN08): a second write moved the file's time past the submission of a job that
+  // named it, so the file no longer showed it was there first (acceptance case 1 on 0.6.63, 2026-11-24). A file an earlier run left is always written afresh.
+  try { const st = fsApi.statSync(file); if (st.mtimeMs >= since && fsApi.readFileSync(file, "utf8") === body) return file; } catch { /* not there yet */ }
   const tmp = `${file}.${process.pid}.${crypto.randomBytes(4).toString("hex")}.tmp`;
-  fsApi.writeFileSync(tmp, `${JSON.stringify(verdict)}\n`, { mode: 0o600 });
+  fsApi.writeFileSync(tmp, body, { mode: 0o600 });
   fsApi.renameSync(tmp, file);
   return file;
 }
