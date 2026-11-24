@@ -44,6 +44,8 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 
+pub mod inbox;
+
 /// Host-specific names the attention routes use. Install once at startup with
 /// [`configure`]; until then [`AttentionConfig::default`] applies.
 #[derive(Debug, Clone, PartialEq, Eq)]
