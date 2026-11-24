@@ -26,10 +26,15 @@
 //! [format = 1][key version][salt: 16][ciphertext][tag: 16]
 //! ```
 //!
-//! Key versions above 255 use format 2, `[2][key version: u32 big-endian][salt: 16][ciphertext]
-//! [tag: 16]`, and the associated data carries the four version bytes. A version up to 255 is
-//! always format 1, so every record sealed before this existed still opens, and a format-2
-//! record with a small version is refused as malformed.
+//! Key versions above 255 use format 2, `[2][key version: u32 big-endian][key id length: u8]
+//! [key id][salt: 16][ciphertext][tag: 16]`. The associated data carries the four version bytes
+//! and the key id, so two keys that share one version (a reset that restarts the counter, two
+//! devices that rotated at once) are told apart: the reader asks the provider for the key with
+//! that id, and a record sealed under another key fails to open instead of opening under the
+//! wrong one. The key id is whatever `VersionedKeyProvider::current_identified` returns (empty
+//! when it returns none). A version up to 255 is always format 1, exactly as before this existed,
+//! so every record sealed earlier still opens, and a format-2 record with a small version is
+//! refused as malformed.
 //!
 //! Associated data (length-prefixed, so fields cannot slide into each other): label, format,
 //! key version, zone, record type, record name, `updatedAt` (present flag and value),
@@ -98,7 +103,8 @@ use crate::traits::{Backend, ChangePage, RecordOutcome, SavePolicy, SyncObserver
 pub const ENC_FIELD: &str = "enc";
 
 const FORMAT: u8 = 1;
-/// Same layout as format 1 with a 4-byte big-endian key version, used only above 255.
+/// Used only above version 255: a 4-byte big-endian key version, then a one-byte length and the
+/// key id, then the salt and ciphertext as in format 1.
 const FORMAT_WIDE: u8 = 2;
 const SALT_LEN: usize = 16;
 const TAG_LEN: usize = 16;
@@ -164,6 +170,27 @@ pub trait VersionedKeyProvider: Send + Sync {
     /// Key for a version found on a downloaded record. `Ok(None)` = this device does not have
     /// that version (yet); the download then fails with `SyncError::Unavailable` and retries.
     fn key_for_version(&self, version: u32) -> SyncResult<Option<CipherKey>>;
+    /// [`VersionedKeyProvider::current_versioned`] plus the id of that key (at most 255 bytes;
+    /// `rightkit-sync-keys` `KeyId::as_str`). The cipher uses this one. A key id is written into
+    /// the header of records sealed above version 255 (format 2) and authenticated; versions up
+    /// to 255 stay in format 1 and carry none. The default returns no id, so an existing provider
+    /// compiles and seals as before. A provider that overrides it must return the same version
+    /// and key as `current_versioned` for one underlying key (read both from one snapshot).
+    fn current_identified(&self) -> SyncResult<(u32, Option<String>, CipherKey)> {
+        let (version, key) = self.current_versioned()?;
+        Ok((version, None, key))
+    }
+    /// [`VersionedKeyProvider::key_for_version`] for a record that names a key id (format 2).
+    /// `None` = the record named none. An override must return `Ok(None)` for an id it does not
+    /// hold at that version, never another key. The default ignores the id.
+    fn key_for_identified(
+        &self,
+        version: u32,
+        key_id: Option<&str>,
+    ) -> SyncResult<Option<CipherKey>> {
+        let _ = key_id;
+        self.key_for_version(version)
+    }
 }
 
 /// Compatibility shim: a [`KeyProvider`] (`u8` versions) as a [`VersionedKeyProvider`].
@@ -315,6 +342,7 @@ impl RecordCipher {
         &self,
         format: u8,
         version: u32,
+        key_id: &[u8],
         record_type: &str,
         record_name: &str,
         updated: Option<i64>,
@@ -328,6 +356,7 @@ impl RecordCipher {
             ad.push(version as u8);
         } else {
             ad.extend_from_slice(&version.to_be_bytes());
+            put_bytes(&mut ad, key_id);
         }
         put_bytes(&mut ad, self.zone.as_bytes());
         put_bytes(&mut ad, record_type.as_bytes());
@@ -365,7 +394,11 @@ impl RecordCipher {
         record: &RawRecord,
         salt: [u8; SALT_LEN],
     ) -> SyncResult<RawRecord> {
-        let (version, key) = self.keys.current_versioned()?;
+        let (version, key_id, key) = self.keys.current_identified()?;
+        let key_id = key_id.unwrap_or_default();
+        if key_id.len() > usize::from(u8::MAX) {
+            return Err(SyncError::Persistence("cipher key id too long".into()));
+        }
         let format = if version > u32::from(u8::MAX) {
             FORMAT_WIDE
         } else {
@@ -391,6 +424,7 @@ impl RecordCipher {
         let ad = self.associated_data(
             format,
             version,
+            key_id.as_bytes(),
             &record.record_type,
             &record.record_name,
             updated,
@@ -407,12 +441,14 @@ impl RecordCipher {
         sealing
             .seal_in_place_append_tag(nonce, Aad::from(&ad), &mut buf)
             .map_err(|_| crypto_failure())?;
-        let mut envelope = Vec::with_capacity(HEADER_LEN + 3 + buf.len());
+        let mut envelope = Vec::with_capacity(HEADER_LEN + 4 + key_id.len() + buf.len());
         envelope.push(format);
         if format == FORMAT {
             envelope.push(version as u8);
         } else {
             envelope.extend_from_slice(&version.to_be_bytes());
+            envelope.push(key_id.len() as u8);
+            envelope.extend_from_slice(key_id.as_bytes());
         }
         envelope.extend_from_slice(&salt);
         envelope.extend_from_slice(&buf);
@@ -437,10 +473,10 @@ impl RecordCipher {
             return Err(OpenError::Malformed("sealed payload too short"));
         }
         let format = envelope[0];
-        let (version, salt_at) = match format {
-            FORMAT => (u32::from(envelope[1]), 2),
+        let (version, key_id, salt_at) = match format {
+            FORMAT => (u32::from(envelope[1]), None, 2),
             FORMAT_WIDE => {
-                if envelope.len() < HEADER_LEN + 3 + TAG_LEN {
+                if envelope.len() < HEADER_LEN + 4 + TAG_LEN {
                     return Err(OpenError::Malformed("sealed payload too short"));
                 }
                 let version =
@@ -449,7 +485,14 @@ impl RecordCipher {
                     // Format 1 is the only encoding of a small version; refuse a second one.
                     return Err(OpenError::Malformed("non-canonical key version"));
                 }
-                (version, 5)
+                let id_len = usize::from(envelope[5]);
+                let id_end = 6 + id_len;
+                if envelope.len() < id_end + SALT_LEN + TAG_LEN {
+                    return Err(OpenError::Malformed("sealed payload too short"));
+                }
+                let key_id = std::str::from_utf8(&envelope[6..id_end])
+                    .map_err(|_| OpenError::Malformed("key id is not text"))?;
+                (version, Some(key_id), id_end)
             }
             _ => return Err(OpenError::Malformed("unknown sealed format")),
         };
@@ -459,7 +502,7 @@ impl RecordCipher {
         let deleted = clear_date(record, field::DELETED_AT)?;
         let key = self
             .keys
-            .key_for_version(version)
+            .key_for_identified(version, key_id.filter(|id| !id.is_empty()))
             .map_err(OpenError::Keys)?
             .ok_or_else(|| match u8::try_from(version) {
                 Ok(v) => OpenError::UnknownKeyVersion(v),
@@ -471,6 +514,7 @@ impl RecordCipher {
         let ad = self.associated_data(
             format,
             version,
+            key_id.unwrap_or("").as_bytes(),
             &record.record_type,
             &record.record_name,
             updated,

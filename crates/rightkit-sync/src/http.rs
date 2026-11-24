@@ -17,7 +17,7 @@
 //!
 //! An app syncing encrypted history through this backend must run its engine with
 //! `SyncConfig::require_consent_on_scope_change` set (see [`sync_config`]) and a scope from
-//! [`account_scope`] (which includes the key id). Otherwise a switch of account or key
+//! [`account_scope`] (which includes the key id; [`canonical_account_scope`] for a new ledger). Otherwise a switch of account or key
 //! silently resets the ledger and publishes local history into the new account.
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -56,21 +56,30 @@ pub fn sync_config() -> SyncConfig {
     }
 }
 
-/// `AuthProvider::account_scope` value: the canonical [`crate::scope::account_scope`] with the key
-/// id bound. A key rotation or an account switch changes it, which resets (or, with consent
-/// required, pauses) the ledger. Same string as `rightkit_sync_keys::account_scope`.
+/// `AuthProvider::account_scope` value: lowercase hex SHA-256 of
+/// `rightkit-cloud|<app>|<zone>|<account_id>|<key_id>`. This is the string this function has always
+/// returned, so a ledger already written under it never resets. A key rotation or an account switch
+/// changes it, which resets (or, with consent required, pauses) the ledger.
+///
+/// New ledgers can opt in to the length-prefixed canonical string with [`canonical_account_scope`].
+/// Switching an existing ledger to it is a scope change.
 pub fn account_scope(app: &str, zone: &str, account_id: &str, key_id: &str) -> String {
-    crate::scope::account_scope(app, zone, account_id, Some(key_id))
-}
-
-/// The scope this module computed before the canonical function: lowercase hex SHA-256 of
-/// `rightkit-cloud|<app>|<zone>|<account_id>|<key_id>`. A host with a ledger already written under
-/// it keeps passing this value; switching to [`account_scope`] is a scope change (the engine
-/// resets, or pauses for consent when `require_consent_on_scope_change` is set).
-pub fn legacy_account_scope(app: &str, zone: &str, account_id: &str, key_id: &str) -> String {
     rightkit_fs::digest::sha256_bytes(
         format!("rightkit-cloud|{app}|{zone}|{account_id}|{key_id}").as_bytes(),
     )
+}
+
+/// Same as [`account_scope`]; kept as the explicit name for a host that wants to say it is
+/// deliberately on the legacy string.
+pub fn legacy_account_scope(app: &str, zone: &str, account_id: &str, key_id: &str) -> String {
+    account_scope(app, zone, account_id, key_id)
+}
+
+/// Opt-in for new ledgers: the canonical [`crate::scope::account_scope`] with the key id bound,
+/// the same string as `rightkit_sync_keys::account_scope`. Never switch a ledger that already has
+/// data to it: the engine would see a scope change and reset (or pause for consent).
+pub fn canonical_account_scope(app: &str, zone: &str, account_id: &str, key_id: &str) -> String {
+    crate::scope::account_scope(app, zone, account_id, Some(key_id))
 }
 
 /// The app's session: the sync bearer token (refreshed by the app as it expires) and the

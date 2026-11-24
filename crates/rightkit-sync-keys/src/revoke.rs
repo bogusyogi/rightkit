@@ -187,6 +187,12 @@ impl RevokeWipe {
     /// Handle a notice that reached this device. Authentication failure is an error and touches
     /// nothing. A notice for another device, or for a key version this device does not hold as
     /// current, is ignored.
+    ///
+    /// A wipe notice must reach this method only over the authenticated device link (the paired,
+    /// already-authenticated channel between the user's devices). It is sealed under the current
+    /// key, but its transport gives no replay protection: a notice captured on an open channel and
+    /// replayed to the target device would wipe it again. Do not relay notices through the sync
+    /// server, a push payload or any unauthenticated path.
     pub fn handle_notice(&self, notice: &[u8]) -> Result<NoticeOutcome> {
         if notice.len() < HEADER_LEN + TAG_LEN || notice.len() > MAX_NOTICE_LEN {
             return Err(Error::Protocol("revoke notice has a bad length"));

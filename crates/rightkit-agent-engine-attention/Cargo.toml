@@ -20,7 +20,7 @@ default = []
 server = ["dep:axum"]
 
 [dependencies]
-rightkit-fs = { version = "0.5.0", path = "../rightkit-fs", default-features = false, features = ["fs"] }
+rightkit-fs = { version = ">=0.4.15, <0.6", path = "../rightkit-fs", default-features = false, features = ["fs"] }
 rightkit-time = { version = "0.1.4", path = "../rightkit-time" }
 axum = { version = "0.8", optional = true }
 serde = { version = "1", features = ["derive"] }
