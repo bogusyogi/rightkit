@@ -413,7 +413,7 @@ Commands:
                                                       Sign and promote one runtime/model artifact
   addon doctor|build|upload|adopt <options>           Manage a signed headless add-on
   provision-model [--config <file>] [--id <bundle>] [--dry-run]  Fetch each modelBundles entry's pinned files into its dest, verifying size and sha256 (resumable; nothing unpinned)
-  direct-release finalize [--config <file>] [--output-dir <dir>] [--dry-run]  Zip, signed release manifest, install.ps1 bootstrap, publication plan for a direct (non-store) release, from the config's directRelease block (checked; uploads nothing)
+  direct-release finalize [--config <file>] [--output-dir <dir>] [--dry-run]  Zip, SLSA provenance and CycloneDX SBOM when the asset names none, signed release manifest, install.ps1 bootstrap, publication plan for a direct (non-store) release, from the config's directRelease block (checked; uploads nothing)
   apple profile renew [--config <file>] [--profile <file>] [--dry-run]
                                                       Renew macOS profile for current Keychain signer
   signing-agent install|uninstall|status              Manage invisible Aqua-session signing service

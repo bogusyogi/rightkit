@@ -4,6 +4,7 @@
 //
 //   1. optional payload archive: `createPortableArchive` zips `sourceDir` into `archive` for every asset that names a `sourceDir`;
 //   2. `collectReleaseAsset` binds each archive to its SLSA provenance and CycloneDX SBOM (both validated against the archive's sha256);
+//      an asset that omits `provenance` or `sbom` gets that file written first (see the config block below);
 //   3. `materializeDirectRelease` writes checksums.json, the release manifest and its detached Azure-signed catalog (Windows signing host);
 //   4. `renderPowerShellBootstrap` writes install.ps1 (the signer the manifest was just signed with is the one it accepts), checked by
 //      `validatePowerShellBootstrap`, and `planBootstrapPublication` writes the bootstrap publication plan (publication is its own step).
@@ -14,7 +15,9 @@
 //     outputDir: "dist/direct-release",                                 // optional (default); --output-dir overrides
 //     assets: [{ target: "windows-x86_64", name: "engine-win-x64.zip", archive: "dist/engine-win-x64.zip", sourceDir?: "dist/payload",
 //                executablePath: "bin/engine.exe", nativeSignaturePolicy: "authenticode-valid",
-//                provenance: "dist/engine-win-x64.intoto.jsonl", sbom: "dist/engine-win-x64.cdx.json" }],
+//                provenance?: "dist/engine-win-x64.intoto.jsonl", sbom?: "dist/engine-win-x64.cdx.json" }],
+//                // omit both: finalize writes provenance-<target>.intoto.jsonl and sbom-<target>.cdx.json in outputDir from the archive's sha256,
+//                // the source commit and the repository
 //     bootstrap: { installRootSubdir, executablePath, activationArgs, statusArgs, preflightArgs?, expectedStatusKind? | healthAssertions?,
 //                  expectedStatus?, priorExecutableMinVersion?, allowLocalReleaseRoot? }
 //   }
@@ -26,9 +29,10 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { spawnSync } from "./background-process.mjs";
 import { CommandSpecError, loadAppConfig, relativeInside } from "./command-spec.mjs";
-import { collectReleaseAsset, createPortableArchive, materializeDirectRelease, planBootstrapPublication, renderPowerShellBootstrap, validatePowerShellBootstrap } from "./direct-bootstrap.mjs";
+import { collectReleaseAsset, createPortableArchive, materializeDirectRelease, planBootstrapPublication, renderPowerShellBootstrap, sha256File, validatePowerShellBootstrap } from "./direct-bootstrap.mjs";
 import { defaultReleaseConfigFile } from "./release-config.mjs";
 import { assertCleanSource } from "./source-gate.mjs";
+import { assertIdentity, materializeCycloneDxSbom, materializeInTotoSlsaProvenance } from "./supply-chain-evidence.mjs";
 
 const fail = (message) => { throw new CommandSpecError(message); };
 const isObject = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
@@ -51,10 +55,20 @@ export function resolveDirectReleaseOptions(config, flags = {}) {
     if (!isObject(asset)) fail(`${where} must be an object`);
     const bad = Object.keys(asset).filter((key) => !ASSET_KEYS.includes(key));
     if (bad.length) fail(`${where} has unknown key(s): ${bad.join(", ")} (allowed: ${ASSET_KEYS.join(", ")})`);
-    for (const key of ["target", "name", "archive", "executablePath", "nativeSignaturePolicy", "provenance", "sbom"]) if (typeof asset[key] !== "string" || !asset[key]) fail(`${where}.${key} is required`);
+    for (const key of ["target", "name", "archive", "executablePath", "nativeSignaturePolicy"]) if (typeof asset[key] !== "string" || !asset[key]) fail(`${where}.${key} is required`);
     for (const key of ["archive", "sourceDir", "provenance", "sbom"]) if (asset[key] !== undefined) relativeInside(asset[key], `${where}.${key}`);
+    if (asset.provenance !== undefined && !asset.provenance.endsWith(".intoto.jsonl")) fail(`${where}.provenance must end in .intoto.jsonl`);
+    if (asset.sbom !== undefined && !asset.sbom.endsWith(".cdx.json")) fail(`${where}.sbom must end in .cdx.json`);
     return asset;
   });
+  for (const key of ["provenance", "sbom"]) {
+    const seen = new Set();
+    for (const asset of assets) {
+      if (asset[key] !== undefined) continue;
+      if (seen.has(asset.target)) fail(`directRelease.assets share target ${asset.target} and omit provenance or sbom: their materialized file names would collide; name provenance and sbom for each`);
+      seen.add(asset.target);
+    }
+  }
   if (!isObject(declared.bootstrap)) fail("directRelease.bootstrap is required (installRootSubdir, executablePath, activationArgs, statusArgs, health)");
   const badBootstrap = Object.keys(declared.bootstrap).filter((key) => !BOOTSTRAP_KEYS.includes(key));
   if (badBootstrap.length) fail(`directRelease.bootstrap has unknown key(s): ${badBootstrap.join(", ")} (allowed: ${BOOTSTRAP_KEYS.join(", ")})`);
@@ -71,28 +85,43 @@ const gitText = (cwd, args) => {
 export function finalizeDirectRelease({ appRoot, config, flags = {}, dryRun = false, repoRoot = gitText(appRoot, ["rev-parse", "--show-toplevel"]).trim() }) {
   const options = resolveDirectReleaseOptions(config, flags);
   const inApp = (relative) => path.join(appRoot, relative);
+  const sourceCommit = gitText(repoRoot, ["rev-parse", "HEAD"]).trim();
   for (const asset of options.assets) {
     if (asset.sourceDir !== undefined && !(existsSync(inApp(asset.sourceDir)) && statSync(inApp(asset.sourceDir)).isDirectory())) fail(`${asset.name}: sourceDir ${asset.sourceDir} is not a directory`);
     if (asset.sourceDir === undefined && !existsSync(inApp(asset.archive))) fail(`${asset.name}: archive ${asset.archive} does not exist (name a sourceDir to have it built)`);
-    for (const key of ["provenance", "sbom"]) if (!existsSync(inApp(asset[key]))) fail(`${asset.name}: ${key} ${asset[key]} does not exist`);
+    for (const key of ["provenance", "sbom"]) if (asset[key] !== undefined && !existsSync(inApp(asset[key]))) fail(`${asset.name}: ${key} ${asset[key]} does not exist`);
+    if (asset.provenance === undefined || asset.sbom === undefined) {
+      try {
+        assertIdentity({ product: options.product, version: options.version, target: asset.target, sourceCommit });
+      } catch (error) {
+        fail(`${asset.name}: ${error.message}`);
+      }
+    }
   }
   if (dryRun) return { dryRun: true, product: options.product, version: options.version, assets: options.assets.map((asset) => asset.name), outputDir: inApp(options.outputDir) };
   assertCleanSource({ status: gitText(repoRoot, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]), commandId: "right-release direct-release finalize" });
-  const sourceCommit = gitText(repoRoot, ["rev-parse", "HEAD"]).trim();
   const outputDir = inApp(options.outputDir);
   mkdirSync(outputDir, { recursive: true });
   const tag = `v${options.version}`;
+  const evidence = [];
   const assets = options.assets.map((asset) => {
     if (asset.sourceDir !== undefined) createPortableArchive({ sourceDir: inApp(asset.sourceDir), outputPath: inApp(asset.archive) });
+    const archivePath = inApp(asset.archive);
+    const archiveFile = { name: asset.name, sha256: sha256File(archivePath), size: statSync(archivePath).size };
+    const provenancePath = asset.provenance ? inApp(asset.provenance) : path.join(outputDir, `provenance-${asset.target}.intoto.jsonl`);
+    const sbomPath = asset.sbom ? inApp(asset.sbom) : path.join(outputDir, `sbom-${asset.target}.cdx.json`);
+    if (!asset.provenance) materializeInTotoSlsaProvenance({ outputPath: provenancePath, product: options.product, version: options.version, target: asset.target, sourceCommit, sourceRepository: `https://github.com/${options.repository}`, subjects: [archiveFile] });
+    if (!asset.sbom) materializeCycloneDxSbom({ outputPath: sbomPath, product: options.product, version: options.version, target: asset.target, sourceCommit, files: [archiveFile] });
+    evidence.push({ target: asset.target, provenancePath, sbomPath, materialized: !asset.provenance || !asset.sbom });
     return collectReleaseAsset({
       target: asset.target,
       name: asset.name,
       url: `https://github.com/${options.repository}/releases/download/${tag}/${asset.name}`,
-      archivePath: inApp(asset.archive),
+      archivePath,
       executablePath: asset.executablePath,
       nativeSignaturePolicy: asset.nativeSignaturePolicy,
-      provenancePath: inApp(asset.provenance),
-      sbomPath: inApp(asset.sbom),
+      provenancePath,
+      sbomPath,
     });
   });
   const release = materializeDirectRelease({
@@ -106,14 +135,14 @@ export function finalizeDirectRelease({ appRoot, config, flags = {}, dryRun = fa
     acceptedManifestSigners: [release.signing.signer],
     ...options.bootstrap,
   });
-  const validation = validatePowerShellBootstrap(script, { product: options.product, acceptedSignerIds: [release.signing.signer.id] });
+  const validation = validatePowerShellBootstrap(script, { product: options.product, acceptedSignerIds: [release.signing.signer.id], allowLocalReleaseRoot: options.bootstrap.allowLocalReleaseRoot === true });
   if (!validation.valid) throw new Error(`generated bootstrap violates its own contract: ${validation.errors.join("; ")}`);
   const scriptPath = path.join(outputDir, "install.ps1");
   writeFileSync(scriptPath, script);
   const plan = planBootstrapPublication({ product: options.product, bootstrapVersion: options.bootstrapVersion, scriptPath });
   const planPath = path.join(outputDir, "bootstrap-publication-plan.json");
   writeFileSync(planPath, `${JSON.stringify(plan, null, 2)}\n`);
-  return { dryRun: false, product: options.product, version: options.version, sourceCommit, outputDir, manifestPath: release.manifestPath, signaturePath: release.signaturePath, scriptPath, planPath, bootstrapSha256: plan.sha256 };
+  return { dryRun: false, product: options.product, version: options.version, sourceCommit, outputDir, manifestPath: release.manifestPath, signaturePath: release.signaturePath, scriptPath, planPath, bootstrapSha256: plan.sha256, evidence };
 }
 
 export function parseDirectReleaseArgs(argv) {
@@ -143,6 +172,7 @@ export async function main(argv = process.argv.slice(2)) {
   }
   console.log(`right-release direct-release finalize: ${outcome.product} ${outcome.version} at ${outcome.sourceCommit.slice(0, 12)}`);
   console.log(`manifest: ${outcome.manifestPath}\nsignature: ${outcome.signaturePath}\nbootstrap: ${outcome.scriptPath} (sha256 ${outcome.bootstrapSha256})\nplan: ${outcome.planPath}`);
+  for (const item of outcome.evidence) console.log(`evidence: ${item.provenancePath} and ${item.sbomPath} (${item.materialized ? "materialized" : "given"})`);
   return 0;
 }
 

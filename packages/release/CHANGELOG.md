@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.62
+
+- `right-release direct-release finalize` materializes the SLSA provenance and CycloneDX SBOM when an asset names none, and passes `allowLocalReleaseRoot` to the bootstrap validator.
+
 ## 0.6.61
 
 - Export a configurable forbidden-literal file scanner through the release SDK.
