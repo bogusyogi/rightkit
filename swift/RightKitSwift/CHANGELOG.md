@@ -3,6 +3,7 @@
 ## 0.9.6 - 2026-11-24
 
 - RightKitAccessibility adds `RightKitAXElement.application(pid:messagingTimeout:)` (a per-element messaging timeout) and `elementsIfReadable(_:)` (an absent or unsupported list is empty, an unreadable or malformed one is unknown). RightKitOverlay adds `RightKitWindowVisibility.isOnScreen(_:)`, `RightKitAllSpacesWindows.contains(ownerPID:layer:matchingSize:)` (WindowServer, hidden and minimized windows included) and ordered `onScreenWindowRecords()` (`OnScreenWindow`: pid, bounds, layer, owner name, alpha) for hosts that detect full-screen or hidden windows.
+- RightKitEngineClient adds `ResidentRecordPolicy` (`allowUntimestamped`, `requireHeartbeat`) for discovering an endpoint from a record: `requireHeartbeat` accepts only a structured heartbeat within the existing freshness limit (future wall-clock timestamps are accepted); an explicit endpoint stays subject to peer verification under either policy. The default keeps the flat-record behaviour.
 
 ## 0.9.5 - 2026-11-21
 
