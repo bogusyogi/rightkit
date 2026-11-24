@@ -66,6 +66,7 @@ pub mod secret;
 pub mod sensitive;
 pub mod text_select;
 pub mod uia_text;
+pub mod verify;
 
 #[cfg(target_os = "macos")]
 pub mod macos;
@@ -89,6 +90,7 @@ pub use policy::{
 };
 pub use redact::{MaskText, Redactor, ShotContext, ShotReport};
 pub use secret::{origin_of_url, FieldOrigin, Secret};
+pub use verify::{compare, observe_compare, Delta, Observed, VerifiedOutcome, Verdict, WindowState};
 pub use text_select::{
     ControlIdentity, DocumentSnapshot, ObservedSelection, SelectionProof, TextSelectError,
     TextSelectResult,

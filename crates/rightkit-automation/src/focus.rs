@@ -43,6 +43,13 @@ impl FocusReport {
     }
 }
 
+/// Dropping a watch without `finish` (an early return) still stops its thread, within one interval.
+impl Drop for FocusWatch {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::SeqCst);
+    }
+}
+
 pub struct FocusWatch {
     stop: Arc<AtomicBool>,
     seen: Arc<Mutex<FocusReport>>,
