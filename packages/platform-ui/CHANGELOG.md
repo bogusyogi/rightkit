@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+Additive.
+
+- `pushToTalkChord(os, alias?)`, `pushToTalkCopy(os, alias?, labels?)` and `pushToTalkSendGesture(os, alias?, labels?)` (root, `./headless`, `src/ptt.ts`), with the type `PushToTalkLabels`: the push-to-talk chord token for `formatChord`, the help sentence ("hold the key, release to paste, how to send") and the short send gesture, from the platform and the configured `rightkit-hotkeys` `PttAlias`. Every word is a default the host can replace through `labels`.
+
 ## 0.4.2
 
 Additive. Moved from `@rightkit/dictation-ui`, which is being removed.

@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Add `setup::mic_devices`: `MicDeviceView` (serialisable input device), `list_input_device_views` (blocking list), and `resolve_saved_device` with `SavedDeviceChoice` (saved-microphone fallback refusal around a host resolver). Additive.
+
 ## 0.4.1
 
 - Reserve setup meter starts at command receipt, reject stale queued starts and stops, and drain an older admitted start before opening its replacement. Consent stays independent. Existing setup start and stop signatures remain supported.

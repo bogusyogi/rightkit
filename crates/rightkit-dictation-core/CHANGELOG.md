@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Add pure typed accessors over `SettingsBlob` (`*_or_default` getters, `audio_policy`, `pill_visibility_normalized`, `model_choice`/`set_model_choice`, `set_close_behavior`, per-monitor `pill_position_for_monitor`/`set_pill_position_for_monitor` under a host key prefix, `replace_retired_asr_backend`) and `settings::{validate_close_behavior, normalize_pill_visibility, pill_position_key, CLOSE_BEHAVIORS, AUDIO_POLICY_CONDITIONED, AUDIO_POLICY_RAW, MODEL_CHOICE_KEY}`. Additive; hosts keep persistence and call these inside their own transaction.
+
 ## 0.3.5
 
 - Accept versioned exact release clock markers on capture seals. Legacy senders may omit the marker. Malformed markers reject the frame.

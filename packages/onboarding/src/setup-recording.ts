@@ -3,6 +3,8 @@
 // event names, key matching and every sentence are inputs. Imports only `react`.
 import { type Dispatch, type SetStateAction, useCallback, useEffect, useRef, useState } from "react";
 import type { PermissionState } from "./types.js";
+import { platformPttMatcher, resolvePttKey } from "./ptt.js";
+import type { PlatformPttMatchers, ResolvePttKeyConfig } from "./ptt.js";
 
 export type MicCheckState = "idle" | "listening" | "verified" | "no_signal" | "unavailable";
 export type ShortcutKind = "toggle" | "send" | "cancel";
@@ -59,10 +61,14 @@ export interface UseSetupRecordingArgs {
   inputDevice: string | undefined;
   /** Stores a chosen input device. */
   patchInputDevice: (value: string) => Promise<unknown>;
-  /** The push-to-talk key setting for this platform. */
-  pttKey: string;
-  /** True when the keyboard event is the push-to-talk key. */
-  isPttKeyEvent: (event: KeyboardEvent, pttKey: string) => boolean;
+  /** The push-to-talk key setting for this platform. Optional when `pttSettings` resolves it. */
+  pttKey?: string;
+  /** True when the keyboard event is the push-to-talk key. Optional when `pttMatchers` picks it by platform. */
+  isPttKeyEvent?: (event: KeyboardEvent, pttKey: string) => boolean;
+  /** Resolves `pttKey` from the host's settings by platform (see `resolvePttKey`). Used when `pttKey` is not passed. */
+  pttSettings?: ResolvePttKeyConfig;
+  /** Picks the matcher by platform (see `platformPttMatcher`). Used when `isPttKeyEvent` is not passed. */
+  pttMatchers?: PlatformPttMatchers;
   /** The chip name of a pressed key, or null when it is not one to show. */
   chordKeyForEvent: (key: string) => string | null;
   setError: Dispatch<SetStateAction<string>>;
@@ -85,12 +91,15 @@ export function useSetupRecording(
     onShortcutsStep,
     inputDevice,
     patchInputDevice,
-    pttKey,
-    isPttKeyEvent,
     chordKeyForEvent,
     setError,
     setPermissionStatus,
   } = args;
+  const pttKey =
+    args.pttKey ?? (args.pttSettings ? resolvePttKey(platform, args.pttSettings) : "");
+  const isPttKeyEvent =
+    args.isPttKeyEvent ??
+    (args.pttMatchers ? platformPttMatcher(platform, args.pttMatchers) : () => false);
   const portRef = useRef(port);
   portRef.current = port;
   const eventsRef = useRef(events);
@@ -311,6 +320,8 @@ export function useSetupRecording(
     micRefreshToken: micProbeRevision,
     micSignalSeen,
     middleClickPulse,
+    /** The push-to-talk key in effect (passed, or resolved from `pttSettings`), for the controls step to show. */
+    pttKey,
     inputDevice,
     retryMicCheck,
     selectMicDevice,
