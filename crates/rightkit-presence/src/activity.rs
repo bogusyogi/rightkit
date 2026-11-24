@@ -47,8 +47,7 @@ impl Signal {
 
 /// Wire-identical to `rightkit_agent_engine_attention::inbox::PresenceState` (same variants, same
 /// camelCase names), so a host can serialise this and deserialise it there, or match it one to one.
-/// That crate has no variant for a locked screen; a locked screen is reported here as `DoNotDisturb`
-/// (not in use, alerts go elsewhere).
+/// A locked screen is `Locked` (not in use, alerts go elsewhere).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum RoutePresence {
@@ -56,6 +55,7 @@ pub enum RoutePresence {
     InMeeting,
     Fullscreen,
     DoNotDisturb,
+    Locked,
 }
 
 /// Raw readings from the platform, before they are combined.
@@ -95,7 +95,7 @@ pub struct ActivityReport {
     pub fullscreen: Signal,
     pub do_not_disturb: Signal,
     pub in_meeting: Signal,
-    /// The single state `route_item` reads. Precedence: locked or Do Not Disturb, then meeting,
+    /// The single state `route_item` reads. Precedence: locked, then Do Not Disturb, then meeting,
     /// then fullscreen; otherwise `Available`. `Unknown` signals do not block.
     pub presence: RoutePresence,
 }
@@ -110,7 +110,9 @@ pub fn report_from(now_unix: i64, raw: &RawSignals, typing_window: Duration) -> 
         Some(d) => Signal::from_bool(d <= typing_window),
         None => Signal::Unknown,
     };
-    let presence = if raw.screen_locked == Signal::Yes || raw.do_not_disturb == Signal::Yes {
+    let presence = if raw.screen_locked == Signal::Yes {
+        RoutePresence::Locked
+    } else if raw.do_not_disturb == Signal::Yes {
         RoutePresence::DoNotDisturb
     } else if raw.in_meeting == Signal::Yes {
         RoutePresence::InMeeting

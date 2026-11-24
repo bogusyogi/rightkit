@@ -504,6 +504,7 @@ pub enum DeviceKind {
 }
 
 /// What a desktop's presence reports. Anything but `Available` keeps the notch quiet.
+/// `Locked` (a locked screen) is not in use, like the others: routing never counts it as a computer in use.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum PresenceState {
@@ -511,6 +512,7 @@ pub enum PresenceState {
     InMeeting,
     Fullscreen,
     DoNotDisturb,
+    Locked,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
