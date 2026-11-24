@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Fixed the hand-off's wire form (RK-14, VO-1): `pulse_handoff::submit` sent a record the Pulse command line refused, a top-level `idempotency_key` that the contract's `VoiceHandoff` does not accept and the transcript, session id, wake id and confidence nested inside `utterance`. `HandoffRecord::to_voice_handoff` now builds the agent task contract's own `VoiceHandoff` and `submit` sends that, so the contract's types decide what is valid. The key is not sent: the command line derives the same `voice:<utterance id>:<generation>` (`HandoffRecord::idempotency_key` is unchanged). `HandoffRecord`, its fields and `validate` are unchanged. New dependency: `rightkit-agent-task-contract` 0.1.1 (already published). Still no caller: the hand-off branch in `rightkit-dictation-runtime` waits on VO-0 (whether the wake listener runs, decision 5) and is not written. Not compiled or run here; rustfmt checked.
+
 ## 0.3.1
 
 - Bind live streaming and final append to a fresh verified caret on the same control. Preserve visible streamed text on cancel or divergent final output and report the copy fallback.
