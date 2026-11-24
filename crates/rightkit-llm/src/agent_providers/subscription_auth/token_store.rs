@@ -421,6 +421,15 @@ pub fn subscription_resolver(provider: &str, store: Store, lock_dir: PathBuf) ->
     build_resolver(provider, Arc::new(KeychainTokenStore::new(store)), lock_dir)
 }
 
+/// Whether this provider has a subscription leg at all, without opening the keychain store or
+/// touching a lock directory. [`subscription_leg`] returns `None` for every provider this
+/// answers `false` for, so a caller can skip the store entirely rather than open it and discard
+/// the result.
+#[must_use]
+pub fn has_subscription_leg(provider: &str) -> bool {
+    matches!(provider, "openai" | "commandcode")
+}
+
 /// The broker's subscription leg for a provider: the [`subscription_resolver`], the same token
 /// store (for status), and the provider's login flow.
 pub fn subscription_leg(

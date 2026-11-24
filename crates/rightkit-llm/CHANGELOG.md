@@ -3,6 +3,7 @@
 ## 0.7.1
 
 - Add opt-in thinking-block binding (beta `thinking-binding-controls-2026-08-01`, drop only foreign-model thinking, 400 matcher, `input_transformations` logger) and a host-set Codex originator header.
+- Add `subscription_auth::has_subscription_leg(provider)`, so a caller can tell whether a provider has a subscription leg without opening the keychain store or a lock directory.
 
 ## 0.7.0 (2026-11-16)
 
