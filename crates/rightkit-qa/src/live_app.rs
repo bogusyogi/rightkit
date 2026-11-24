@@ -57,7 +57,7 @@ pub struct LiveAppConfig {
     pub lock_timeout: Duration,
     /// Name the app's per-user data folder resolves from (`rightkit_fs::app_dirs::AppId`). The
     /// installed (non-dev) flat, machine-local folder is used.
-    pub data_app_name: String,
+    pub data_app_name: &'static str,
     /// Path of the QA config holding `[snapshot]`, relative to `root`. Default `rightkit-qa.toml`.
     pub qa_config: PathBuf,
     /// Settings file inside the app data folder that [`LiveApp::launch_seeded`] writes.
@@ -93,7 +93,7 @@ impl LiveAppConfig {
         root: impl Into<PathBuf>,
         binary_setting: &str,
         default_binary: impl Into<PathBuf>,
-        data_app_name: &str,
+        data_app_name: &'static str,
     ) -> Self {
         LiveAppConfig {
             app: app.to_string(),
@@ -102,7 +102,7 @@ impl LiveAppConfig {
             default_binary: default_binary.into(),
             lock_path: std::env::temp_dir().join(format!("{app}-native-e2e.lock")),
             lock_timeout: Duration::from_secs(60 * 60),
-            data_app_name: data_app_name.to_string(),
+            data_app_name,
             qa_config: PathBuf::from("rightkit-qa.toml"),
             settings_file: "settings.json".to_string(),
             extra_roots: Vec::new(),
@@ -127,7 +127,7 @@ impl LiveAppConfig {
 
     /// The installed app's flat, machine-local data folder.
     pub fn live_data_root(&self) -> PathBuf {
-        let app = rightkit_fs::app_dirs::AppId::new(&self.data_app_name, None);
+        let app = rightkit_fs::app_dirs::AppId::new(self.data_app_name, None);
         let options = rightkit_fs::app_dirs::Options::current().dev(false);
         rightkit_fs::app_dirs::AppDirs::resolve_with_options(app, &options)
             .expect("resolve the installed app-data root")

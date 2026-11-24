@@ -34,20 +34,52 @@ pub struct MacPlayer {
 
 /// The backend. `script_path` returns the probe script's location (bundle layout is the host's).
 pub struct MacBackend {
-    script_path: fn() -> Option<PathBuf>,
+    /// `None` runs [`NOW_PLAYING_PROBE_JXA`] from the command line.
+    script_path: Option<fn() -> Option<PathBuf>>,
 }
+
+/// The built-in now-playing probe (JXA): loads the private MediaRemote framework and prints
+/// `{"bundle": <string|null>, "pid": <integer|null>, "rate": <number|null>}` for the local
+/// now-playing client. [`MacBackend::embedded`] runs it with `osascript -l JavaScript -e`; a host
+/// that prefers its own script keeps [`MacBackend::new`].
+pub const NOW_PLAYING_PROBE_JXA: &str = "ObjC.import('Foundation');\n\
+$.NSBundle.bundleWithPath('/System/Library/PrivateFrameworks/MediaRemote.framework').load;\n\
+var cls = $.NSClassFromString('MRNowPlayingRequest');\n\
+var p = cls.localNowPlayingPlayerPath, it = cls.localNowPlayingItem;\n\
+var info = it.isNil() ? {} : ObjC.deepUnwrap(it.nowPlayingInfo);\n\
+JSON.stringify({bundle: p.isNil()?null:ObjC.unwrap(p.client.bundleIdentifier), pid: p.isNil()?null:p.client.processIdentifier, rate: info.kMRMediaRemoteNowPlayingInfoPlaybackRate === undefined ? null : info.kMRMediaRemoteNowPlayingInfoPlaybackRate});\n";
 
 impl MacBackend {
     pub const fn new(script_path: fn() -> Option<PathBuf>) -> Self {
-        Self { script_path }
+        Self {
+            script_path: Some(script_path),
+        }
+    }
+
+    /// A backend that runs the built-in [`NOW_PLAYING_PROBE_JXA`], so the host bundles no script.
+    /// Same deadline, output cap and parsing as [`MacBackend::new`].
+    pub const fn embedded() -> Self {
+        Self { script_path: None }
     }
 
     /// Runs the host's JXA probe with a hard kill deadline. Returns the raw JSON stdout on
     /// success.
     fn run_probe(&self) -> Option<String> {
-        let script = (self.script_path)()?;
         let mut owned = OwnedCommand::new("/usr/bin/osascript");
-        owned.command_mut().arg("-l").arg("JavaScript").arg(script);
+        match self.script_path {
+            Some(script_path) => {
+                let script = script_path()?;
+                owned.command_mut().arg("-l").arg("JavaScript").arg(script);
+            }
+            None => {
+                owned
+                    .command_mut()
+                    .arg("-l")
+                    .arg("JavaScript")
+                    .arg("-e")
+                    .arg(NOW_PLAYING_PROBE_JXA);
+            }
+        }
         // The owner's capture runner drains stdout on its own thread, terminates and reaps the tree
         // at the deadline, and bounds its own cleanup.
         let options = CaptureOptions::default()

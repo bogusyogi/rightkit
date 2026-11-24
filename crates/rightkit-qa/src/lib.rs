@@ -51,6 +51,14 @@ pub mod config;
 pub mod control;
 #[cfg(feature = "credential-owner")]
 pub mod credential_owner;
+/// Native-surface capture for visual journeys: window discovery, stills, frame sequences, pointer guard and PNG statistics.
+pub mod desktop_capture;
+/// macOS desktop facts and input (`osascript`, pasteboard, AX reads) for journeys that deliver into other apps.
+#[cfg(target_os = "macos")]
+pub mod desktop_mac;
+/// Windows desktop input and a full top-level window listing (tool windows included).
+#[cfg(windows)]
+pub mod desktop_win;
 /// macOS permission-dialog evidence.
 pub mod dialog;
 /// macOS display accessibility preferences and the scroller style, read and required for QA.
@@ -79,6 +87,8 @@ pub mod installed;
 pub mod interactive;
 /// End-to-end journeys: `journeys.toml`, adapter protocol v1 and the `rightkit.journeys.receipt/1` validator.
 pub mod journeys;
+/// A journey session against the owner's real installed app: snapshot arming, run lock, state seeding, launch, relaunch and JS driving.
+pub mod live_app;
 pub mod lock;
 pub mod loudness;
 pub mod media;
@@ -89,6 +99,8 @@ pub mod page;
 pub mod plugin;
 pub mod pool;
 pub mod process;
+/// An assertion log for release-claim journeys (`Proof`).
+pub mod proof;
 pub mod retention;
 /// `rightkit-qa run-tests`: compile test binaries in the broker, run them outside it, write one receipt.
 pub mod run_tests;

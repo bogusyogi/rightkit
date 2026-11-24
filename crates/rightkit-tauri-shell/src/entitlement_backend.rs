@@ -79,6 +79,7 @@ pub struct EntitlementChange {
 /// host mapping, `restart` the host's (idle-gated) restart, and `log` the `(event, detail)` sink.
 /// `context` is a short label recorded in the log line. A thread-start failure is logged, never
 /// raised.
+#[allow(clippy::too_many_arguments)]
 pub fn spawn_check(
     tracker: &'static BackendRestartTracker,
     change: EntitlementChange,

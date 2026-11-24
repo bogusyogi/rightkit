@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Add `update_check_headers_for_stored`, `update_check_header_pairs` and `install_update_headers_refreshing`: the stored-licence read to update-check headers, the pair-list form, and the paid-tier install sequence (runtime, refresh, verified token). Additive.
+
 ## 0.3.4
 
 - Add `install_update_headers`: public tiers carry no credential & paid artifacts require a host-verified signed entitlement.

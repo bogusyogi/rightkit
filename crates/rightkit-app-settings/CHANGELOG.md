@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Added `StoreOptions::typed_flat_migration` (a typed settings struct through the flat migration) and `migrated_default`. Additive.
+
 ## 0.4.2 (unpublished)
 
 - Added `StoreHandle` & `HandleConfig` for lazy bounded opens, retry after refusal, snapshots & host change notifications. Host settings paths, defaults, migration & recovery options remain inputs; event & change callbacks run outside handle locks.
