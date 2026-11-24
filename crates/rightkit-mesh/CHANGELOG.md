@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Additive, feature `devicelink`: `policy::is_owner_paired(record)` and `policy::is_owner_paired_in(registry, device_id)`: the device is active, not revoked, not a guest, and admitted by the owner check. Source for the approvals `Authority` host's owner-paired fact. `authorize` is unchanged in behaviour (its owner test moved into a private helper); it still answers "owner" for a guest, so it must not be used for this fact.
+
 ## 0.2.2
 
 - Feature `devicelink`: `DeviceLink::approve_guest` refuses a guest that has no owner-check signed grant with this computer's redemption of it (a PIN-made or unredeemed guest), and one whose lease exceeds the redeemed (signed) one, as Pulse does. A guest joined by a signed link is approved as before.
