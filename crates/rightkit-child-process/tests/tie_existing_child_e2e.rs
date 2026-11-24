@@ -43,6 +43,9 @@ fn supervise(role: &str) {
         rightkit_child_process::tie_group_to_parent(child.id()).expect("tie");
     }
     println!("shell {}", child.id());
+    // `sh` exits once it has backgrounded both sleeps, and the sleeps keep their own process
+    // group after that. Reap the shell so the supervisor does not leave a zombie behind.
+    let _ = child.wait();
     std::thread::sleep(Duration::from_secs(600));
 }
 

@@ -118,7 +118,7 @@ pub const fn deny_read_enforced() -> bool {
 pub fn signal_scope_enforced() -> bool {
     #[cfg(target_os = "linux")]
     {
-        landlock_abi_version().map_or(false, |v| v >= 6)
+        landlock_abi_version().is_some_and(|v| v >= 6)
     }
     #[cfg(not(target_os = "linux"))]
     {

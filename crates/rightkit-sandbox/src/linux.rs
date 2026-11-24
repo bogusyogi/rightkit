@@ -276,7 +276,7 @@ fn add_root(
     let Ok(root) = std::fs::canonicalize(path) else {
         return Ok(()); // a missing path grants nothing
     };
-    if withheld.iter().any(|w| *w == root) {
+    if withheld.contains(&root) {
         return Ok(());
     }
     *budget += 1;

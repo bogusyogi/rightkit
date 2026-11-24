@@ -3225,6 +3225,10 @@ fn spawn_inner(
     )
 }
 
+/// What one launch needs from its container: the folder grants as `(path, writable)` pairs, the
+/// confined working directory, and the UTF-16 environment block for the child.
+type LaunchContext = (Vec<(PathBuf, bool)>, PathBuf, Vec<u16>);
+
 /// The grants, working directory and environment block of one launch into `prepared`: leases
 /// the image directory and (when the container wants it) the loopback exemption, resolves the
 /// confined cwd, and builds the child's environment with the computed `GIT_CEILING_DIRECTORIES`.
@@ -3235,7 +3239,7 @@ fn launch_context(
     command_cwd: Option<&Path>,
     command_env: &[(String, String)],
     env: &EnvPolicy,
-) -> Result<(Vec<(PathBuf, bool)>, PathBuf, Vec<u16>), SandboxError> {
+) -> Result<LaunchContext, SandboxError> {
     let profile = &prepared.profile;
     let grants: Vec<(PathBuf, bool)> = prepared
         .grants
