@@ -2602,7 +2602,7 @@
       "files": {
         "Cargo.toml": "773dcfa9cf71e161445a78fef9b2fe2fbadb29f0c7487ab06ba7eeb123ab28cd",
         "README.md": "49969ed5d52a95136fd3a2292ff9075c1d8885e7afec17d3f0728f0534748164",
-        "src/main.rs": "bc2da36433862d3958697d8acbf19229dd89c933dd3314570cce6c1b8d74acbd"
+        "src/main.rs": "75252def842aca68965cec155fc7e334ff59d584c94c5a0d2fec4e1d2e6af797"
       }
     },
     "rightkit-llm": {

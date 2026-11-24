@@ -55,17 +55,37 @@ fn zone_keys() {
     let key = DataKey::generate(3).expect("generate");
     let a = key.zone_key("app.one", "zone-a").expect("zone key");
     let again = key.zone_key("app.one", "zone-a").expect("zone key again");
-    assert_eq!(a.as_bytes(), again.as_bytes(), "the same inputs give the same key");
+    assert_eq!(
+        a.as_bytes(),
+        again.as_bytes(),
+        "the same inputs give the same key"
+    );
     assert_eq!(a.version(), 3, "a zone key carries the data key's version");
     assert_eq!(a.key_id(), key.key_id(), "and the data key's id");
     let other_zone = key.zone_key("app.one", "zone-b").expect("other zone");
-    assert_ne!(a.as_bytes(), other_zone.as_bytes(), "another zone gives another key");
+    assert_ne!(
+        a.as_bytes(),
+        other_zone.as_bytes(),
+        "another zone gives another key"
+    );
     let other_app = key.zone_key("app.two", "zone-a").expect("other app");
-    assert_ne!(a.as_bytes(), other_app.as_bytes(), "another app gives another key");
+    assert_ne!(
+        a.as_bytes(),
+        other_app.as_bytes(),
+        "another app gives another key"
+    );
     let other_key = DataKey::generate(3).expect("generate");
     let theirs = other_key.zone_key("app.one", "zone-a").expect("zone key");
-    assert_ne!(a.as_bytes(), theirs.as_bytes(), "another data key gives another key");
-    assert_ne!(a.as_bytes(), key.expose_bytes(), "a zone key is not the data key");
+    assert_ne!(
+        a.as_bytes(),
+        theirs.as_bytes(),
+        "another data key gives another key"
+    );
+    assert_ne!(
+        a.as_bytes(),
+        key.expose_bytes(),
+        "a zone key is not the data key"
+    );
 }
 
 fn scopes() {
@@ -85,7 +105,11 @@ fn scopes() {
         account_scope("app.one", "zone-a", "account-2", &id),
         account_scope("app.one", "zone-a", "account-1", &other),
     ] {
-        assert_ne!(base, changed.expect("scope"), "every input changes the scope");
+        assert_ne!(
+            base,
+            changed.expect("scope"),
+            "every input changes the scope"
+        );
     }
 }
 
@@ -102,9 +126,15 @@ fn static_keys() {
     assert_eq!(by_id.version(), 1, "an older key is found by its id");
     let by_version = keys.key_by_version(2).expect("lookup").expect("held");
     assert_eq!(by_version.key_id(), &id_two, "and by its version");
-    assert!(keys.key_by_version(9).expect("lookup").is_none(), "an unheld version is None");
+    assert!(
+        keys.key_by_version(9).expect("lookup").is_none(),
+        "an unheld version is None"
+    );
     let unheld = KeyId::parse("k0123456789abcdef").expect("id");
-    assert!(keys.key_by_id(&unheld).expect("lookup").is_none(), "an unheld id is None");
+    assert!(
+        keys.key_by_id(&unheld).expect("lookup").is_none(),
+        "an unheld id is None"
+    );
     assert!(
         StaticKeys::new(Vec::new(), "app.one", "zone-a")
             .expect("empty set")
