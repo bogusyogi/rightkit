@@ -13,9 +13,15 @@ include = ["src/**", "data/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LIC
 name = "rightkit_agent_engine_attention"
 path = "src/lib.rs"
 
+[features]
+default = []
+# The axum routes (`attention_routes`, `AttentionRouterState`). Off by default so a host that wants only the
+# inbox, routing and store logic does not pull axum.
+server = ["dep:axum"]
+
 [dependencies]
 rightkit-fs = { version = "0.5.0", path = "../rightkit-fs", default-features = false, features = ["fs"] }
 rightkit-time = { version = "0.1.4", path = "../rightkit-time" }
-axum = { version = "0.8" }
+axum = { version = "0.8", optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1" }
