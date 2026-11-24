@@ -44,6 +44,8 @@ pub mod binary;
 #[cfg(feature = "browser")]
 pub mod browser;
 pub mod budget;
+/// Bookkeeping of a native-overlay visual journey: settle polling, stills, frame sequences, problems and the index file.
+pub mod capture_journey;
 pub mod check;
 /// `rightkit-qa install`, `exec` and `proc`: the commands consumer scripts call (rightkit#430).
 pub mod cli_tools;
@@ -53,6 +55,8 @@ pub mod control;
 pub mod credential_owner;
 /// Native-surface capture for visual journeys: window discovery, stills, frame sequences, pointer guard and PNG statistics.
 pub mod desktop_capture;
+/// Delivery journeys into other apps: target matrix, case receipt, pasteboard-evidence check and (macOS) the target drivers.
+pub mod desktop_delivery;
 /// macOS desktop facts and input (`osascript`, pasteboard, AX reads) for journeys that deliver into other apps.
 #[cfg(target_os = "macos")]
 pub mod desktop_mac;
@@ -95,7 +99,13 @@ pub mod media;
 /// Play an owner's recording as an app's microphone input through a virtual loopback device.
 pub mod mic;
 pub mod mock;
+/// Journey helpers for the RightKit onboarding frame on a live app: step probes, the per-step comparer, rail and resume helpers.
+pub mod onboarding_qa;
+/// Journey helpers for native overlay windows the app reports itself: step report, hit-box and open/close waits.
+pub mod overlay_qa;
 pub mod page;
+/// Page-audit probes and helpers for visual journeys on a live app: layout measurement, footer and tooltip geometry, hover and theme helpers.
+pub mod page_audit;
 pub mod plugin;
 pub mod pool;
 pub mod process;

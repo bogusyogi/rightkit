@@ -17,7 +17,8 @@ fn main() {
         };
         let window = rightkit_automation::desktop::macos::frontmost_window_identity(front.pid);
         let token = window.and_then(|w| {
-            rightkit_automation::desktop::capture_focus_continuity(front.pid as u32, w).map(|t| (w, t))
+            rightkit_automation::desktop::capture_focus_continuity(front.pid as u32, w)
+                .map(|t| (w, t))
         });
         let settled = token.is_some_and(|(w, (at, inst))| {
             rightkit_automation::desktop::validate_focus_continuity_settled(
@@ -40,10 +41,18 @@ fn main() {
             .ok()
             .map(rightkit_automation::desktop::macos::focused_field_is_secure_for_pin);
         let read = pin.as_ref().ok().and_then(|p| {
-            rightkit_automation::desktop::macos::focused_field_context_and_fingerprint_for_pin(p, 1_500)
+            rightkit_automation::desktop::macos::focused_field_context_and_fingerprint_for_pin(
+                p, 1_500,
+            )
         });
         let after = token.is_some_and(|(w, (at, inst))| {
-            rightkit_automation::desktop::validate_focus_continuity(front.pid as u32, w, at, inst, None)
+            rightkit_automation::desktop::validate_focus_continuity(
+                front.pid as u32,
+                w,
+                at,
+                inst,
+                None,
+            )
         });
         println!(
             "round={round} app={} token={} settled={settled} pin={pin_label} secure={secure:?} field_read={} has_text={} fingerprint={} caret_prev_known={} continuity_after_read={after}",

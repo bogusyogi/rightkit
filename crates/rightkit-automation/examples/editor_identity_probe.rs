@@ -14,12 +14,16 @@ fn main() {
         let Some(front) = rightkit_automation::desktop::macos::frontmost_fast() else {
             continue;
         };
-        let Some(window) = rightkit_automation::desktop::macos::frontmost_window_identity(front.pid) else {
+        let Some(window) =
+            rightkit_automation::desktop::macos::frontmost_window_identity(front.pid)
+        else {
             continue;
         };
-        let proof =
-            rightkit_automation::desktop::capture_focus_continuity_with_editor(front.pid as u32, window)
-                .map(|(_, _, editor)| editor);
+        let proof = rightkit_automation::desktop::capture_focus_continuity_with_editor(
+            front.pid as u32,
+            window,
+        )
+        .map(|(_, _, editor)| editor);
         let pin_full = rightkit_automation::desktop::macos::capture_stop_focus_pin().ok();
         let pin = pin_full.as_ref().map(|p| p.editor_identity());
         let within = match (proof, pin_full.as_ref()) {

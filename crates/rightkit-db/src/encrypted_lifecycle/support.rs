@@ -11,8 +11,8 @@
 //! in as closures and the telemetry names come in as inputs.
 
 use super::{
-    EncryptedStore, EncryptedStoreConfig, KeySource, LegacyQuarantineJournal, LifecycleError, QuarantineKind,
-    QuarantineNotice, RebuildReason, RecordedMove, RotationReport,
+    EncryptedStore, EncryptedStoreConfig, KeySource, LegacyQuarantineJournal, LifecycleError,
+    QuarantineKind, QuarantineNotice, RebuildReason, RecordedMove, RotationReport,
 };
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;

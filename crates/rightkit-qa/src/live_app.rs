@@ -26,6 +26,9 @@ use crate::control::{self, Control, LaunchSpec, Mode};
 use crate::harness::{Harness, Scenario};
 use crate::workspace::{self, QaWorkspace};
 
+/// JS body that is true once every finite animation has finished (infinite ones are ignored).
+pub const SETTLED_JS: &str = "return document.getAnimations().every(a => { const t = a.effect && a.effect.getTiming ? a.effect.getTiming() : null; return a.playState !== 'running' || (t && t.iterations === Infinity); });";
+
 /// One JSON state file the harness forces to known values before every launch.
 ///
 /// The file is read from the app data folder (a missing or non-object file starts from
@@ -474,6 +477,17 @@ impl LiveApp {
     /// `Ok` is the command's value, `Err` its refusal text; a command that never answers panics at
     /// the UI wait through [`LiveApp::wait_js`].
     pub fn invoke(&self, command: &str, args: Value) -> Result<Value, String> {
+        self.invoke_within(command, args, self.config.ui_wait)
+    }
+
+    /// [`LiveApp::invoke`] with its own deadline, for a command that legitimately takes minutes
+    /// (a model install, an engine start).
+    pub fn invoke_within(
+        &self,
+        command: &str,
+        args: Value,
+        within: Duration,
+    ) -> Result<Value, String> {
         self.js(&format!(
             "window.__qaInvoke = {{ done: false }}; window.__TAURI_INTERNALS__.invoke({}, {}).then(\
              (value) => {{ window.__qaInvoke = {{ done: true, ok: true, value }}; }}, \
@@ -483,13 +497,19 @@ impl LiveApp {
         ));
         let outcome = self.wait_js(
             "return window.__qaInvoke && window.__qaInvoke.done ? window.__qaInvoke : null",
-            self.config.ui_wait,
+            within,
         );
         if outcome["ok"] == json!(true) {
             Ok(outcome["value"].clone())
         } else {
             Err(outcome["error"].as_str().unwrap_or("").to_string())
         }
+    }
+
+    /// Wait until every finite animation has finished ([`SETTLED_JS`]), finishing frozen ones of a
+    /// hidden window first ([`LiveApp::wait_js_finishing`]).
+    pub fn wait_settled(&self, timeout: Duration) {
+        self.wait_js_finishing(SETTLED_JS, timeout);
     }
 
     /// Capture the window as PNG into the scenario evidence under `name`.

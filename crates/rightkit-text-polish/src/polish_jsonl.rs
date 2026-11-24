@@ -113,4 +113,3 @@ pub fn polish_json_array(input: &str, polish: impl Fn(&str) -> String) -> Result
     let polished: Vec<String> = values.iter().map(|value| polish(value)).collect();
     serde_json::to_string(&polished).map_err(|e| e.to_string())
 }
-

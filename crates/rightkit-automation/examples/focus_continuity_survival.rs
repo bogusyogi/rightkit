@@ -24,7 +24,9 @@ fn main() {
         let Some(front) = rightkit_automation::desktop::macos::frontmost_fast() else {
             continue;
         };
-        let Some(window) = rightkit_automation::desktop::macos::frontmost_window_identity(front.pid) else {
+        let Some(window) =
+            rightkit_automation::desktop::macos::frontmost_window_identity(front.pid)
+        else {
             continue;
         };
         app = front.bundle.unwrap_or_default();

@@ -166,3 +166,68 @@ pub fn click_at(x: i32, y: i32) {
     unsafe { mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, 0) };
     pause(180);
 }
+
+/// The first visible top-level window of `pid` whose title contains `title` and whose size passes
+/// `fits`.
+pub fn visible_window(pid: u32, title: &str, fits: impl Fn(&TopWindow) -> bool) -> Option<TopWindow> {
+    top_windows(pid)
+        .into_iter()
+        .find(|w| w.visible && w.title.contains(title) && fits(w))
+}
+
+/// Wait up to `within` for [`visible_window`]; a timeout names every top-level window of `pid` it saw
+/// instead.
+pub fn wait_window(
+    what: &str,
+    pid: u32,
+    title: &str,
+    within: Duration,
+    fits: impl Fn(&TopWindow) -> bool,
+) -> TopWindow {
+    crate::live_app::wait_until(what, within, || match visible_window(pid, title, &fits) {
+        Some(window) => Ok(Some(window)),
+        None => Err(format!(
+            "windows of {pid}: {}",
+            top_windows(pid)
+                .iter()
+                .map(|w| format!(
+                    "{:?} visible={} {}x{} at {},{}",
+                    w.title, w.visible, w.w, w.h, w.x, w.y
+                ))
+                .collect::<Vec<_>>()
+                .join("; ")
+        )),
+    })
+}
+
+/// A window as `{hwnd, title, visible, x, y, w, h}`.
+pub fn window_json(window: &TopWindow) -> serde_json::Value {
+    serde_json::json!({
+        "hwnd": window.hwnd, "title": window.title, "visible": window.visible,
+        "x": window.x, "y": window.y, "w": window.w, "h": window.h,
+    })
+}
+
+/// A hit-test result as `{hwnd, pid, own_process, title}`.
+pub fn target_json(target: &PointTarget) -> serde_json::Value {
+    serde_json::json!({ "hwnd": target.hwnd, "pid": target.pid, "own_process": target.own_process, "title": target.title })
+}
+
+/// Records and asserts that no top-level window of `pid` whose title contains one of `titles` is still
+/// visible (an overlay left blocking the desktop after a close). `label` names the check
+/// (`no_aux_blockers_<label>`).
+pub fn assert_no_aux_blockers(
+    report: &mut crate::overlay_qa::StepReport,
+    pid: u32,
+    titles: &[&str],
+    label: &str,
+) {
+    let blockers: Vec<serde_json::Value> = top_windows(pid)
+        .iter()
+        .filter(|w| w.visible && titles.iter().any(|t| w.title.contains(t)))
+        .map(window_json)
+        .collect();
+    let name = format!("no_aux_blockers_{label}");
+    report.add(&name, blockers.is_empty(), serde_json::json!({ "windows": blockers }));
+    assert!(blockers.is_empty(), "{name}: {blockers:?}");
+}
