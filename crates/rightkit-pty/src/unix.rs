@@ -147,6 +147,28 @@ impl Terminal {
         Ok(())
     }
 
+    pub(crate) fn winsize(&self) -> io::Result<PtySize> {
+        let mut window: libc::winsize = unsafe { std::mem::zeroed() };
+        // SAFETY: TIOCGWINSZ writes one winsize through the pointer; the master is open for the
+        // life of the Terminal.
+        if unsafe {
+            libc::ioctl(
+                self.master.get_ref().as_raw_fd(),
+                libc::TIOCGWINSZ as _,
+                &mut window,
+            )
+        } < 0
+        {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(PtySize {
+            rows: window.ws_row,
+            cols: window.ws_col,
+            pixel_width: window.ws_xpixel,
+            pixel_height: window.ws_ypixel,
+        })
+    }
+
     /// Nothing to do: the master reads end of file by itself once the slave side is closed.
     pub(crate) fn child_exited(&self) {}
 }

@@ -82,10 +82,7 @@ fn pipe() -> io::Result<(OwnedHandle, OwnedHandle)> {
     })
 }
 
-pub(crate) fn spawn(
-    mut command: OwnedCommand,
-    size: PtySize,
-) -> io::Result<(OwnedChild, Terminal)> {
+pub(crate) fn open_terminal(size: PtySize) -> io::Result<(Terminal, isize)> {
     let runtime = tokio::runtime::Handle::try_current().map_err(io::Error::other)?;
     // The console reads `input_read` (what we write) and writes `output_write` (what we read).
     let (input_read, input_write) = pipe()?;
@@ -105,19 +102,116 @@ pub(crate) fn spawn(
     // The console owns its copies now; ours must close or the pipes never end.
     drop(input_read);
     drop(output_write);
-    // SAFETY: `hpcon` is a live pseudoconsole that `pseudo` keeps open past the spawn call.
-    unsafe { command.windows_pseudoconsole(hpcon.0) };
-    // On failure `pseudo` drops (closing the console) and the pipe ends close with it.
-    let child = command.spawn()?;
     Ok((
-        child,
         Terminal {
             pseudo: Arc::new(Mutex::new(Some(pseudo))),
             input: Mutex::new(Some(File::from(input_write))),
             output: Mutex::new(Some(File::from(output_read))),
             runtime,
         },
+        hpcon.0,
     ))
+}
+
+pub(crate) fn spawn(
+    mut command: OwnedCommand,
+    size: PtySize,
+) -> io::Result<(OwnedChild, Terminal)> {
+    let (terminal, hpcon) = open_terminal(size)?;
+    // SAFETY: `hpcon` is a live pseudoconsole that `terminal` keeps open past the spawn call.
+    unsafe { command.windows_pseudoconsole(hpcon) };
+    // On failure `terminal` drops (closing the console) and the pipe ends close with it.
+    let child = command.spawn()?;
+    Ok((child, terminal))
+}
+
+/// A pseudoconsole and its two bridged pipes with no child. The caller attaches a child with the
+/// `PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE` process attribute (value from [`hpcon`](Self::hpcon)) and
+/// keeps the `ConPty` alive for the child's life.
+#[derive(Debug)]
+pub struct ConPty {
+    terminal: Terminal,
+    hpcon: isize,
+    size: PtySize,
+    reader_taken: bool,
+    writer_taken: bool,
+}
+
+impl ConPty {
+    /// Opens a pseudoconsole of `size`. Call inside a tokio runtime.
+    pub fn open(size: PtySize) -> io::Result<ConPty> {
+        size.validate()?;
+        let (terminal, hpcon) = open_terminal(size)?;
+        Ok(ConPty {
+            terminal,
+            hpcon,
+            size,
+            reader_taken: false,
+            writer_taken: false,
+        })
+    }
+
+    /// The raw `HPCON` value for the process attribute. The caller must not close it, and it is
+    /// only valid while the `ConPty` lives; once [`child_exited`](Self::child_exited) closed the
+    /// console this returns `BrokenPipe`.
+    pub fn hpcon(&self) -> io::Result<isize> {
+        let guard = self
+            .terminal
+            .pseudo
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        if guard.is_none() {
+            return Err(io::Error::new(
+                io::ErrorKind::BrokenPipe,
+                "the pseudoconsole is closed",
+            ));
+        }
+        Ok(self.hpcon)
+    }
+
+    /// The size last set (the initial size until [`resize`](Self::resize) succeeds).
+    pub fn size(&self) -> PtySize {
+        self.size
+    }
+
+    /// The console's output as an `AsyncRead`. Taken once; `None` afterwards.
+    pub fn take_reader(&mut self) -> io::Result<Option<crate::PtyReader>> {
+        if self.reader_taken {
+            return Ok(None);
+        }
+        let reader = crate::PtyReader {
+            inner: self.terminal.reader()?,
+        };
+        self.reader_taken = true;
+        Ok(Some(reader))
+    }
+
+    /// The console's input as an `AsyncWrite` with bounded writes and EOF. Taken once.
+    pub fn take_writer(&mut self) -> io::Result<Option<crate::PtyWriter>> {
+        if self.writer_taken {
+            return Ok(None);
+        }
+        let writer = crate::PtyWriter {
+            inner: self.terminal.writer()?,
+            eof: self.terminal.eof_sequence(),
+        };
+        self.writer_taken = true;
+        Ok(Some(writer))
+    }
+
+    /// Changes the console size (pixel size is ignored on Windows).
+    pub fn resize(&mut self, size: PtySize) -> io::Result<()> {
+        size.validate()?;
+        self.terminal.resize(size)?;
+        self.size = size;
+        Ok(())
+    }
+
+    /// The caller's child exited: closes the pseudoconsole on its own short thread so the output
+    /// stream ends after the last byte. Idempotent.
+    pub fn child_exited(&self) {
+        self.terminal.child_exited();
+    }
 }
 
 impl Terminal {

@@ -26,6 +26,10 @@ let status = child.wait().await?;
 - `PtyCommand` (`new`, `from_argv`, `arg`, `args`, `env`, `env_remove`, `current_dir`, `size`,
   `owned_mut`, `pre_exec_last`) and `PtyChild` (`take_reader`, `take_writer`, `resize`, `wait`,
   `try_wait`, `cancel`, `id`, `process_handle`, `into_owned`).
+- `PtyChild::winsize`: the size the terminal holds, read back from the kernel on Unix; the last size set
+  with pixels 0 on Windows.
+- `ConPty` (Windows): a pseudoconsole and its two bridged pipes with no child, for a sandbox that
+  attaches its own child (`open`, `hpcon`, `size`, `take_reader`, `take_writer`, `resize`, `child_exited`).
 - Containment through `rightkit-child-process` `OwnedCommand`: on Unix the child leads a session with
   the pty slave as controlling terminal (so `SIGINT` from the terminal and `/dev/tty` work and group
   signals reach the whole tree); on Windows the child is created suspended, put in a Job Object and
@@ -44,8 +48,10 @@ let status = child.wait().await?;
 - Windows bridges the two blocking ConPTY pipes to tokio with one thread each. The output pipe of a
   ConPTY ends only when the pseudoconsole is closed, which happens when the child has exited (`wait`,
   `try_wait`, `cancel`) or is dropped.
-- A Windows AppContainer token is not expressible through this crate; a Windows sandbox starts the
-  program it wraps through `from_argv`.
+- Windows: `ConPty` (open the pseudoconsole, hand its `hpcon()` to a process attribute you set yourself,
+  take the same `PtyReader`/`PtyWriter`) is the hook for a sandbox that must start the child with an
+  AppContainer token; rightkit-sandbox `Sandbox::spawn_pty_stream` uses it.
 - The Windows half was written without a Windows host. See `CHANGELOG.md` for the device run.
+  ConPty is exercised end to end by rightkit-sandbox tests/pty_stream_windows.rs on a Windows host.
 
 Release notes: `CHANGELOG.md`.

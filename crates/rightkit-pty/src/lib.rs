@@ -30,8 +30,10 @@
 //!   before `exec` (a seccomp or landlock filter belongs here).
 //! * [`PtyCommand::owned_mut`] is the underlying [`OwnedCommand`]: set its Job limits, priority,
 //!   environment allowlist (`env_allowlist_with_defaults`) and the other options it offers. A
-//!   Windows AppContainer token is not expressible through it; a Windows sandbox runs the
-//!   program it wraps through `from_argv` instead.
+//!   Windows AppContainer token is not expressible through it: a Windows sandbox opens the
+//!   console with `ConPty::open`, starts its AppContainer child itself with the pseudoconsole
+//!   attribute and `SECURITY_CAPABILITIES` in one `CreateProcessW`, and reads and writes through
+//!   `ConPty::take_reader` / `take_writer` (rightkit-sandbox `Sandbox::spawn_pty_stream`).
 //!
 //! # Requirements and limits
 //!
@@ -43,6 +45,8 @@
 //!   or is dropped; output written before that is delivered first.
 //! * Windows I/O is bridged by two threads per child, because ConPTY's pipes are blocking
 //!   anonymous pipes (see `Cargo.toml`, `continuous_reason`). Unix starts no thread.
+//! * A `ConPty` starts the same two bridge threads as a `PtyChild`; the caller calls
+//!   `ConPty::child_exited` after its child exits (or drops the `ConPty`) so the output stream ends.
 //! * Not verified by a unit test: this workspace tests terminals end to end only, against an
 //!   installed app. The Windows half was written without a Windows host and needs the device
 //!   run listed in the changelog.
@@ -64,6 +68,8 @@ mod imp;
 #[cfg(windows)]
 #[path = "windows.rs"]
 mod imp;
+#[cfg(windows)]
+pub use imp::ConPty;
 #[cfg(not(any(unix, windows)))]
 compile_error!("rightkit-pty supports Unix and Windows only");
 
@@ -262,6 +268,18 @@ impl PtyChild {
         self.size
     }
 
+    /// The size the terminal holds now. On Unix it is read back from the kernel (TIOCGWINSZ on the master descriptor), so it includes the pixel size and is what the program sees; not the size last requested.
+    #[cfg(unix)]
+    pub fn winsize(&self) -> io::Result<PtySize> {
+        self.terminal.winsize()
+    }
+
+    /// The last size set, with pixel_width and pixel_height 0 (ConPTY has no pixel size).
+    #[cfg(windows)]
+    pub fn winsize(&self) -> io::Result<PtySize> {
+        Ok(PtySize::new(self.size.rows, self.size.cols))
+    }
+
     /// A shared handle to the child's process (exit observation, resource usage).
     pub fn process_handle(&self) -> io::Result<ProcessHandle> {
         self.owned().process_handle()
@@ -294,7 +312,7 @@ impl PtyChild {
     }
 
     /// Changes the terminal size. The program is told (`SIGWINCH` on Unix, the console buffer
-    /// resize on Windows).
+    /// resize on Windows). Pixel size is applied on Unix and ignored on Windows.
     pub fn resize(&mut self, size: PtySize) -> io::Result<()> {
         size.validate()?;
         self.terminal.resize(size)?;
