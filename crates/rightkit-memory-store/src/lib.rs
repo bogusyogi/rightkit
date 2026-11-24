@@ -42,6 +42,7 @@ pub use memdb::{store_replacement_status, MemDb, StoreReplaceError};
 pub use neutral::{
     export_neutral, export_neutral_from_path, import_neutral, NeutralError, NeutralLineOutcome,
     NeutralMemory, NeutralOutcome, NeutralRejection, NeutralSource, NEUTRAL_FORMAT,
+    NEUTRAL_FORMAT_DRAFT,
 };
 pub use temporal::{
     TemporalFact, TemporalFactQuery, TemporalFactReceipt, TemporalFactStore, TemporalTransition,

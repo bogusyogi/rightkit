@@ -37,9 +37,14 @@ use std::io::{BufRead, Write};
 use std::path::Path;
 use std::time::Duration;
 
-/// Draft format name, written on every line so a line can be checked alone. To be fixed when the
-/// contract owner signs the form; it must stay distinct from `membrane.cortex-backup.v3`.
-pub const NEUTRAL_FORMAT: &str = "membrane.memory-export.v0-draft";
+/// Format name, written on every line so a line can be checked alone. It follows the crate
+/// family's `rightkit.<area>.<thing>.vN` schema naming and stays distinct from
+/// `membrane.cortex-backup.v3`.
+pub const NEUTRAL_FORMAT: &str = "rightkit.memory.neutral.v1";
+
+/// The draft name the Membrane dry-run export (`me2-memory-return.md`, section 4) wrote. The
+/// body of the line is the same form, so import accepts it; export never writes it.
+pub const NEUTRAL_FORMAT_DRAFT: &str = "membrane.memory-export.v0-draft";
 
 /// Errors that stop an export or an import as a whole. A problem with one import line is a
 /// [`NeutralOutcome::Rejected`], not an error.
@@ -155,14 +160,17 @@ pub struct NeutralMemory {
     /// The decoded tier word (the store keeps it as a JSON string, quotes included).
     pub tier: String,
     pub name: String,
-    /// `id_suffix` when the id is `scope/name`, `id_whole` when the whole id is the name.
+    /// `id_suffix_after_scope_prefix` when the id is `scope/name`, `id_unqualified_legacy` when
+    /// the whole id is the name (the values the Membrane dry-run export wrote). Informational:
+    /// import does not use it.
     pub name_source: String,
     pub content: String,
     pub content_bytes: u64,
     pub content_sha256: String,
     pub keywords: Value,
     pub created: String,
-    pub updated: String,
+    /// ISO text as found; `null` when the store has none (an empty stored value is `null`).
+    pub updated: Option<String>,
     pub state: String,
     pub provenance: NeutralProvenance,
     pub lifecycle: NeutralLifecycle,
@@ -250,8 +258,10 @@ fn name_of(id: &str, scope: &str) -> (String, &'static str) {
         .strip_prefix(scope)
         .and_then(|rest| rest.strip_prefix('/'))
     {
-        Some(name) if !name.is_empty() => (name.to_string(), "id_suffix"),
-        _ => (id.to_string(), "id_whole"),
+        Some(name) if !name.is_empty() => {
+            (name.to_string(), "id_suffix_after_scope_prefix")
+        }
+        _ => (id.to_string(), "id_unqualified_legacy"),
     }
 }
 
@@ -412,7 +422,7 @@ pub fn export_neutral(
             content,
             keywords: text_to_value(row.get(4)?),
             created: row.get(5)?,
-            updated: row.get(6)?,
+            updated: row.get::<_, Option<String>>(6)?.filter(|text| !text.is_empty()),
             state: row.get(7)?,
             provenance: NeutralProvenance {
                 producer: row.get(8)?,
@@ -537,10 +547,13 @@ fn import_one(
     rec: &NeutralMemory,
     notes: &mut Vec<String>,
 ) -> rusqlite::Result<NeutralOutcome> {
-    if rec.format != NEUTRAL_FORMAT {
+    if rec.format != NEUTRAL_FORMAT && rec.format != NEUTRAL_FORMAT_DRAFT {
         return Ok(reject(
             "wrong_format",
-            format!("expected {NEUTRAL_FORMAT}, got {}", rec.format),
+            format!(
+                "expected {NEUTRAL_FORMAT} (or the draft {NEUTRAL_FORMAT_DRAFT}), got {}",
+                rec.format
+            ),
         ));
     }
     if rec.id.is_empty() {
@@ -682,7 +695,7 @@ fn import_one(
             value_to_text(&rec.keywords),
             rec.usage.score,
             rec.created,
-            rec.updated,
+            rec.updated.as_deref().unwrap_or(""),
             rec.usage.access_count,
             rec.scope,
             rec.usage.inject_count,
