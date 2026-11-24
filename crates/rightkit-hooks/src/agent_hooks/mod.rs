@@ -1,10 +1,8 @@
-// RIGHTKIT-SERIOUS: host-side hook runner (spawn command hooks, chain, matchers, fail-closed PreToolUse, destructive guard) has no published rightkit-hooks equivalent; rightkit-hooks 0.2.0 only parses Claude/Codex hook payloads inside a hook process (report S-HOOKS-RUNNER)
-//! `host_hooks` — lifecycle hook bus, destructive-action guard, and
-//! runtime hook registration helpers.
+// RIGHTKIT-SERIOUS: host-side hook runner (spawn command hooks, chain, matchers, fail-closed PreToolUse) has no published rightkit-hooks equivalent; rightkit-hooks 0.2.0 only parses Claude/Codex hook payloads inside a hook process (report S-HOOKS-RUNNER)
+//! `host_hooks` — lifecycle hook bus and runtime hook registration helpers.
 
 pub mod bus;
 pub mod chain;
-pub mod guard;
 pub mod registry;
 
 pub use bus::{
@@ -12,8 +10,6 @@ pub use bus::{
     PreToolUseOutcome, PreToolUseReport, ProcessLaunchAdapter,
 };
 pub use chain::{ChainReport, ConfiguredHooks, HookDecision, HookKind, HookResult, HookSpec};
-#[allow(deprecated)]
-pub use guard::{DestructiveGuard, DestructiveGuardDecision};
 pub use registry::{dry_run_hook_with_adapter, HookDryRunReport, HookRegistry, IdentifiedHook};
 
 /// Environment-variable prefix of the variables hooks read and set (`<prefix>_HOOKS_JSON`,

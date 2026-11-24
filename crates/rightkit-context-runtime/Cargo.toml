@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-context-runtime"
-version = "0.1.4"
+version = "0.1.5"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Context runtime: pull/push context packets, durable memory service, ledger, freshness, planning, background review and the resident service."
@@ -37,7 +37,7 @@ rightkit-child-process = { version = "0.5.7", path = "../rightkit-child-process"
 rightkit-daemon = { version = "0.9.0", path = "../rightkit-daemon" }
 rightkit-sync = { version = "0.4.0", path = "../rightkit-sync" }
 rightkit-file-watch = { version = "0.4.2", path = "../rightkit-file-watch" }
-rightkit-hooks = { version = "0.2.1", path = "../rightkit-hooks" }
+rightkit-hooks = { version = "0.3.0", path = "../rightkit-hooks" }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1" }
 thiserror = { version = "2" }

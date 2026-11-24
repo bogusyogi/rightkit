@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.5
+
+- Requires `rightkit-hooks` 0.3.0. No behaviour change.
+
 ## 0.1.4 (2026-11-16)
 
 - The package no longer ships `src/push/mod.rs`, a module root that nothing declared (the crate's `push` is `pull`, which reaches the other `src/push/*.rs` files by `#[path]`; those stay). No public item, feature or behaviour changes; the compiled library is unchanged.
