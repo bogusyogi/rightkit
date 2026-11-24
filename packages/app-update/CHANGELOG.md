@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+Additive. Every new option is off by default: a host that passes none gets the 0.4.4 behaviour.
+
+- `useModalDialog(open, stateKey, options?)` takes `UseModalDialogOptions` (`@rightkit/app-update/react`): `closeOnUnmount` (close the dialog and restore focus to the opener when the component unmounts, for a dialog mounted only while shown), `initialFocus: 'browser'` (leave the focus `showModal()` picks instead of moving it to `primaryRef` on open) and `restoreFocus(opener)` (the host's own focus restore, used on close, on unmount and by the new returned `restoreFocus()`).
+
 ## 0.4.4
 
 - `createNativeAutoUpdateClient.checkOnce` maps the native refusals `expired`, `revoked` and `disabledNoPublicPatch` to `{ kind: 'available', eligible: false, reason: 'pro_required' }`, as `notLicensed` and `tierIneligible` already were. Before, `expired` and `revoked` came back as `{ kind: 'error' }` and `disabledNoPublicPatch` as `reason: 'auto_install_off'`; apps that present these cases as "licence required" no longer need their own refusal sets. `createUpdateSession` needs no change: it passes statuses through. Breaking: callers that read an `error` for an expired or revoked licence now see an ineligible `available` status.
