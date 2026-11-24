@@ -167,8 +167,8 @@ token to its own `DriveTokenSource`. The JNI bridge for both is not in this crat
 
 ```toml
 [dependencies]
-rightkit-oauth = { version = "0.10.0", default-features = false, features = ["server"] }
-rightkit-http = "0.3.0"
+rightkit-oauth = { version = "0.11.1", default-features = false, features = ["server"] }
+rightkit-http = "0.4.0"
 ```
 
 Daemons can omit `secrets` and `system-sources` (`default-features = false`): the `server` feature does not enable `secrets`, and a headless daemon may have no OS credential store (on Linux, no Secret Service on the session bus).
