@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.10.1
+
+- Depends on `rightkit-sandbox` 0.7.0. `ProcessLaunchAdapter`, `ProcessLaunchContext` and `ManagedChild` in the public launcher APIs (`load_with_process_launcher`, `LspMcpBridge::with_process_launcher`, `with_launch_context`) are now the 0.7.0 types; hosts must depend on the same `rightkit-sandbox` version.
+
 ## 0.10.0 (2026-11-16)
 
 Breaking for hosts that relied on the implied OS keyring: the feature `agent_mcp` no longer enables `agent_mcp-os-keyring`. A host that wants stored MCP OAuth tokens in the OS credential store names `agent_mcp-os-keyring` itself (it also enables `rightkit-llm/agent_providers-os-keyring`); without it there are no stored OAuth tokens to attach or refresh and the OAuth login functions are not built. The `rightkit-sandbox` dependency now builds with `default-features = false` and only `execution`. Requires `rightkit-llm` 0.7.0 and `rightkit-agent-config` 0.1.3.
