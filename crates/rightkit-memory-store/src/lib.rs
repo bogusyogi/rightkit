@@ -23,6 +23,7 @@ pub mod db;
 pub mod fts5;
 pub mod installation_identity;
 pub mod memdb;
+pub mod neutral;
 pub mod qa_env;
 pub mod scope;
 pub mod temporal;
@@ -38,6 +39,10 @@ pub use fts5::{
 };
 
 pub use memdb::{store_replacement_status, MemDb, StoreReplaceError};
+pub use neutral::{
+    export_neutral, export_neutral_from_path, import_neutral, NeutralError, NeutralLineOutcome,
+    NeutralMemory, NeutralOutcome, NeutralRejection, NeutralSource, NEUTRAL_FORMAT,
+};
 pub use temporal::{
     TemporalFact, TemporalFactQuery, TemporalFactReceipt, TemporalFactStore, TemporalTransition,
 };
