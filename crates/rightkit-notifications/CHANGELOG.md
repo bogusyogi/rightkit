@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- RK-4, transport-independent: new `push` module. `PhoneAlert` (title and item id only, no body; title capped at 64 characters), `build_provider_jwt` and `ProviderTokenCache` (ES256 via `rightkit_crypto::P256Signer`, refreshed at 50 minutes under Apple's 60-minute rule), `build_request` and `PushRequest` (pure, redacted `Debug`), `PushTransport` host trait with `classify`, `backoff_hint` and `send_alert` (200 ok, 410 or `BadDeviceToken` unregisters, 429 and 5xx retry hint, others reported), and `DeviceTokenStore` with `MemoryTokenStore`.
+- New dependency: workspace crate `rightkit-crypto` 0.1.3 (needs its unreleased `P256Signer`, so it must be published first). No external crate added, no version bump.
+- The HTTP/2 transport waits on the rightkit-http HTTP/2 decision; the host supplies `PushTransport` meanwhile.
+
 ## 0.1.0 (unpublished)
 
 - Fixed (Linux, Windows): `dispatch` is used only by the macOS backend and is allowed as dead code elsewhere; the Linux in-place update ignores its `Result` on purpose (the notification stays shown). Both failed the cross-target clippy rows.

@@ -35,11 +35,18 @@
 //! the numeric badge the shell allows an AUMID app. On Linux there are no action buttons and no badge.
 //! macOS needs an app bundle (`.app` with a bundle identifier); a bare binary gets
 //! [`Error::Unsupported`], never a crash.
+//!
+//! # Phone push
+//!
+//! [`push`] holds the network-free half of APNs phone alerts (alert shape, ES256 provider token,
+//! request description, response policy, device token registry). The HTTP/2 transport is the
+//! host's [`push::PushTransport`] and waits on the rightkit-http HTTP/2 decision.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 mod platform;
+pub mod push;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
