@@ -4,6 +4,7 @@
 
 - Add `win::clipboard_text::eager_text_formats(text)` (Windows): the Unicode, ANSI, OEM and locale clipboard formats of a text, built before the clipboard is opened so publishing all four under one open prevents the automatic format synthesis on close. The desktop clipboard write (`desktop::windows`) uses it instead of its own encoder; behaviour of that write is unchanged. `rightkit-clipboard-history` writes its text through it as well.
 - `eager_text_formats` derives the ANSI and OEM code pages from the thread locale (`GetLocaleInfoW` default ANSI and OEM code page) instead of the system defaults, so the ANSI, OEM and `CF_LOCALE` entries agree on non-default locales.
+- Add `desktop::windows::try_restore_general_clipboard_if_unchanged(&snapshot, expected_sequence) -> ClipboardReplaceOutcome` (`Written`, `Changed`, `Unavailable`, `LossySnapshot`, `Partial`): restores a Win32 clipboard snapshot without consuming it, so a caller keeps the original through contention or a partial write; all native handles are prepared before the clipboard is cleared, and the sequence is read under the guard. `restore_general_clipboard_if_unchanged` keeps its signature and its partial recovery of a lossy snapshot.
 
 ## 0.7.4
 
