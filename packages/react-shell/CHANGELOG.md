@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.7.7
+
+- `Listbox focusOwner="input"` keeps focus in an external text input (completion lists); `Popover keepFocusOnPress`; Listbox forwards dismissOnScroll, dismissOnResize and returnFocus.
+
 ## 0.7.6
 
 Additive. Moved from HeardRight; no existing export changes. Imports only `react` (headless-safe).

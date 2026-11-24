@@ -10,8 +10,13 @@ export interface ListboxProps {
   onClose: () => void;
   /** Accessible name of the listbox. */
   label: string;
-  /** The navigation from `useListNavigation`. Create it with `focusOwner: "list"` so the listbox holds focus. */
+  /** The navigation from `useListNavigation`. Its `focusOwner` must match the `focusOwner` prop of this listbox. */
   nav: ListNavigation;
+  /** Which element holds keyboard focus. "list" (default, today's behaviour): the listbox takes focus on open and receives the keys; create `nav` with `focusOwner: "list"`. "input": focus stays in the text input the list completes (a composer, a search field); create `nav` with `focusOwner: "input"` (the useListNavigation default), spread `nav.getInputProps()` on the input and send its keys through that onKeyDown. */
+  focusOwner?: "list" | "input";
+  dismissOnScroll?: PopoverProps["dismissOnScroll"];
+  dismissOnResize?: PopoverProps["dismissOnResize"];
+  returnFocus?: PopoverProps["returnFocus"];
   placement?: PopoverProps["placement"];
   width?: number;
   className?: string;
@@ -22,16 +27,22 @@ export interface ListboxProps {
  * An anchored listbox: `Popover` with a `role="listbox"` element that takes focus on open and receives the keys from
  * `useListNavigation`. Rows are `ListboxOption`s, optionally in `ListboxGroup`s; the row content stays the app's.
  */
-export function Listbox({ anchor, onClose, label, nav, placement, width, className, children }: ListboxProps) {
+export function Listbox({ anchor, onClose, label, nav, focusOwner = "list", dismissOnScroll, dismissOnResize, returnFocus, placement, width, className, children }: ListboxProps) {
   const listRef = useRef<HTMLDivElement>(null);
 
   // Runs after Popover's own focus effect (a parent's effect runs after its children's), so the list keeps focus.
   useEffect(() => {
-    listRef.current?.focus({ preventScroll: true });
+    if (focusOwner === "list") listRef.current?.focus({ preventScroll: true });
   }, []);
 
   return (
-    <Popover anchor={anchor} onClose={onClose} label={label} placement={placement} width={width} className={cx("rk-listbox-popover", className)}>
+    <Popover anchor={anchor} onClose={onClose} label={label} placement={placement} width={width} className={cx("rk-listbox-popover", className)}
+      takeFocus={focusOwner === "list"}
+      keepFocusOnPress={focusOwner === "input"}
+      dismissOnScroll={dismissOnScroll}
+      dismissOnResize={dismissOnResize}
+      returnFocus={returnFocus}
+    >
       <div
         ref={listRef}
         {...nav.getListProps()}

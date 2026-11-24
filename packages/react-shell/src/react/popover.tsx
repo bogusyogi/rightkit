@@ -27,6 +27,8 @@ export interface PopoverProps {
   slots?: SlotClasses<"root">;
   /** Take focus when the panel opens. Default true. Pass false for a mouse-opened editor panel so the caret and selection stay. */
   takeFocus?: boolean;
+  /** Keep focus where it is when the panel is pressed with a pointer: the panel's mousedown default is prevented, so a text input the panel completes keeps the caret. Text inside the panel cannot then be selected by dragging; scrolling and the scrollbar still work. Default false. */
+  keepFocusOnPress?: boolean;
   /** Close when the window resizes. Default true. */
   dismissOnResize?: boolean;
   /** Close on a scroll outside the panel. Default true. A scroll inside the panel never closes it. */
@@ -44,7 +46,7 @@ export interface PopoverProps {
  * closes on Escape or an outside press, and restores focus to the opener when focus was inside the panel. Positioned
  * below or above its anchor (flipped when it would overflow), like `ContextMenu` with `anchor`.
  */
-export function Popover({ anchor, onClose, label, placement = "bottom-start", width = 240, className, slots, takeFocus = true, dismissOnResize = true, dismissOnScroll = true, returnFocus, children }: PopoverProps) {
+export function Popover({ anchor, onClose, label, placement = "bottom-start", width = 240, className, slots, takeFocus = true, keepFocusOnPress = false, dismissOnResize = true, dismissOnScroll = true, returnFocus, children }: PopoverProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const anchorRef = useRef<Element | null>(anchor);
   anchorRef.current = anchor;
@@ -85,7 +87,7 @@ export function Popover({ anchor, onClose, label, placement = "bottom-start", wi
   }, []);
 
   return createPortal(
-    <div ref={panelRef} role="dialog" aria-label={label} tabIndex={-1} className={cx("rk-popover", className, slots?.root)} style={pos ?? undefined}>
+    <div ref={panelRef} role="dialog" aria-label={label} tabIndex={-1} onMouseDown={keepFocusOnPress ? (event) => event.preventDefault() : undefined} className={cx("rk-popover", className, slots?.root)} style={pos ?? undefined}>
       {children}
     </div>,
     document.body,
