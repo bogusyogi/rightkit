@@ -1,3 +1,4 @@
+import { formatCountdown } from "@rightkit/platform-ui/countdown";
 import { useEffect, useRef, useState } from "react";
 import { Badge, Button, ConfirmDialog, Select } from "@rightkit/react-shell/react";
 import { SettingRow, SettingsGroup } from "@rightkit/settings-ui/core";
@@ -26,8 +27,7 @@ const when = (ms: number): string =>
   new Date(ms).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 
 function countdown(ms: number, now: number): string {
-  const s = Math.max(0, Math.round((ms - now) / 1000));
-  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+  return formatCountdown(Math.round((ms - now) / 1000));
 }
 
 function describe(g: GuestRecord): string {

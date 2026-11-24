@@ -10,6 +10,8 @@ const failure = error => ({ name: error?.name ?? 'Error', message: String(error?
 const required = name => { assert(process.env[name], `${name} is required`); return process.env[name]; };
 const surface = {
   '.': ['DEFAULT_WINDOW_CONTROL_LABELS', 'WINDOW_CONTROL_LABELS', 'blockNativeContextMenu', 'configurePlatform', 'createFullscreenControls', 'createWindowControlLabels', 'createWindowControls', 'formatChord', 'getPlatform', 'isMacPttKeyEvent', 'isTauri', 'isWindowsPttKeyEvent', 'loadPlatform', 'mmss', 'normalizePlatform', 'platformCapabilities', 'platformInitializationScript', 'relativeTimeFrom'],
+  './qr': ['qrMatrix', 'qrSvgPath'],
+  './countdown': ['formatCountdown', 'secondsLeft'],
   './react': ['Kbd', 'usePlatform'],
   './headless': ['DEFAULT_TOAST_TTL', 'attachDismiss', 'attachFocusTrap', 'blockNativeContextMenu', 'clampIndex', 'createExitTransition', 'createToastBus', 'defaultToastBus', 'fitToViewport', 'floatingPanelStyle', 'formatChord', 'isMacPttKeyEvent', 'isWindowsPttKeyEvent', 'matchScore', 'mmss', 'moveIndex', 'normalizePlatform', 'placeTooltip', 'platformInitializationScript', 'rankCommands', 'rankItems', 'readIndex', 'relativeTimeFrom', 'resolveReturnFocus', 'selectByPointer', 'toast', 'tooltipTextFor', 'trackFocusHistory', 'typeaheadMatch', 'useDismiss', 'useExitTransition', 'useFocusTrap', 'useHoverTooltip', 'useLatest', 'useListNavigation', 'useModalDismiss'],
   './qa': ['DEFAULT_WINDOW_CONTROL_LABELS', 'WINDOW_CONTROL_LABELS', 'blockNativeContextMenu', 'bootstrapQaPlatform', 'configurePlatform', 'configureQaPlatform', 'createFullscreenControls', 'createWindowControlLabels', 'createWindowControls', 'formatChord', 'getPlatform', 'isMacPttKeyEvent', 'isTauri', 'isWindowsPttKeyEvent', 'loadPlatform', 'mmss', 'normalizePlatform', 'platformCapabilities', 'platformInitializationScript', 'relativeTimeFrom', 'resolveQaPlatform'],
@@ -38,7 +40,7 @@ try {
   assert(['packed', 'fetched'].includes(resolution));
   assert.match(sha256, /^[a-f0-9]{64}$/);
   assert.equal(createHash('sha256').update(readFileSync(archive)).digest('hex'), sha256);
-  const specifiers = { '.': '@rightkit/platform-ui', './react': '@rightkit/platform-ui/react', './headless': '@rightkit/platform-ui/headless', './qa': '@rightkit/platform-ui/qa' };
+  const specifiers = { '.': '@rightkit/platform-ui', './qr': '@rightkit/platform-ui/qr', './countdown': '@rightkit/platform-ui/countdown', './react': '@rightkit/platform-ui/react', './headless': '@rightkit/platform-ui/headless', './qa': '@rightkit/platform-ui/qa' };
   const root = import.meta.resolve('@rightkit/platform-ui');
   const provenance = validateInstalledArtifact({ fixtureUrl: import.meta.url, archive, sha256, version, resolution, packageName: '@rightkit/platform-ui', rootResolvedUrl: root, entries: Object.fromEntries(Object.values(specifiers).map(specifier => [specifier, import.meta.resolve(specifier)])) });
   result.artifact = provenance.artifact;
@@ -56,7 +58,9 @@ try {
   const reactEntry = await import(provenance.entries['@rightkit/platform-ui/react']);
   const headless = await import(provenance.entries['@rightkit/platform-ui/headless']);
   const qa = await import(provenance.entries['@rightkit/platform-ui/qa']);
-  const modules = { '.': ui, './react': reactEntry, './headless': headless, './qa': qa };
+  const qr = await import(provenance.entries['@rightkit/platform-ui/qr']);
+  const countdown = await import(provenance.entries['@rightkit/platform-ui/countdown']);
+  const modules = { '.': ui, './qr': qr, './countdown': countdown, './react': reactEntry, './headless': headless, './qa': qa };
 
   async function run(name, operation) {
     const entry = { name, ok: false, evidence: null, error: null };

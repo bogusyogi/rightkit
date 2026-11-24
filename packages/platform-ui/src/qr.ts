@@ -1,5 +1,4 @@
-/** A small dependency-free QR Code encoder: byte mode, error correction M, versions 1 to 20, mask chosen by penalty.
- *  The pairing QR holds a public URI of about 250 bytes (version 11). Returns the module matrix (true = dark). */
+/** QR Code byte-mode encoder with error correction M, versions 1 to 20. */
 
 const ECC_PER_BLOCK_M = [-1, 10, 16, 26, 18, 24, 16, 18, 22, 22, 26, 30, 22, 22, 24, 24, 28, 28, 26, 26, 26];
 const BLOCKS_M = [-1, 1, 1, 1, 2, 2, 4, 4, 4, 5, 5, 5, 8, 9, 9, 10, 10, 11, 13, 14, 16];

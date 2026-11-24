@@ -640,8 +640,10 @@
       "scenarios": 12,
       "surface": [
         ".",
+        "./countdown",
         "./headless",
         "./qa",
+        "./qr",
         "./react"
       ],
       "closure": {
@@ -654,7 +656,7 @@
       },
       "files": {
         "ci/consumers/npm/platform-ui/README.md": "529cad97cb28d6ae470612fb3ec624a3230410230ae80913e56c9ec8958b720f",
-        "ci/consumers/npm/platform-ui/consumer.mjs": "bd6e63be57883e3037cbee7cc0603576e6c24221fa7380625535678b90bac7a2",
+        "ci/consumers/npm/platform-ui/consumer.mjs": "76fdb2fe06978565d80d3262ac2bbaec995c154e237b92c260ad048de60d4c0e",
         "ci/consumers/npm/platform-ui/package.json": "adc5f962a645a7faba026a0264093893b32d441f07ebf9a476f5b98db1ea21a9",
         "ci/consumers/npm/platform-ui/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "a0e235cbb1540000a57f1af3b603e5f81c6c14322ad481bf189c497d8358e98f"
