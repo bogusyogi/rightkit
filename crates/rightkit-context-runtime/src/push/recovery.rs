@@ -5,6 +5,7 @@ use rightkit_db::rusqlite::{self, params, Connection, OptionalExtension, Transac
 use rightkit_fs::digest::sha256_bytes;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Duration;
 use tokio_util::sync::CancellationToken;
 
@@ -277,14 +278,42 @@ impl ResolvedArtifact {
     }
 }
 
+/// What one verified restore observed, handed to a store's own observer (see
+/// [`RecoveryStore::with_observer`]). Fields are those of the process-wide telemetry record.
+#[derive(Debug, Clone, Copy)]
+pub struct RecoveryObservation<'a> {
+    pub verb: &'a str,
+    /// Size of the whole stored original, in bytes.
+    pub before_bytes: usize,
+    /// Size of the selected bytes returned, in bytes.
+    pub after_bytes: usize,
+    /// A short `key=value` note, such as `status=verified`.
+    pub metadata: Option<&'a str>,
+    /// The verified source digest the observation is about (hex, no prefix).
+    pub opportunity: Option<&'a str>,
+}
+
+/// A caller's per-store sink for restore observations.
+pub type RecoveryObserver = Arc<dyn Fn(&RecoveryObservation<'_>) + Send + Sync>;
+
 pub struct RecoveryStore {
     directory: PathBuf,
+    observer: Option<RecoveryObserver>,
 }
 impl RecoveryStore {
     pub fn at(directory: impl Into<PathBuf>) -> Self {
         Self {
             directory: directory.into(),
+            observer: None,
         }
+    }
+    /// Route this store's restore observations to `observer` instead of the process-wide telemetry
+    /// sink, so a host with its own counters and sink (Pulse) records each verified restore itself, once,
+    /// after the selected bytes were verified and before the final reference is read. Without one the
+    /// store records through the process-wide telemetry as before.
+    pub fn with_observer(mut self, observer: RecoveryObserver) -> Self {
+        self.observer = Some(observer);
+        self
     }
     pub fn configured() -> Self {
         Self::at(default_directory())
@@ -636,13 +665,22 @@ impl RecoveryStore {
             Ok(text) => ("utf-8", text.to_owned()),
             Err(_) => ("hex", rightkit_fs::digest::hex(selected)),
         };
-        super::telemetry::record(
-            "restore",
-            size,
-            selected.len(),
-            Some("status=verified"),
-            Some(&source_hash),
-        );
+        match &self.observer {
+            Some(observer) => observer(&RecoveryObservation {
+                verb: "restore",
+                before_bytes: size,
+                after_bytes: selected.len(),
+                metadata: Some("status=verified"),
+                opportunity: Some(&source_hash),
+            }),
+            None => super::telemetry::record(
+                "restore",
+                size,
+                selected.len(),
+                Some("status=verified"),
+                Some(&source_hash),
+            ),
+        }
         Ok(ResolvedArtifact {
             reference: Self::reference(
                 &connection,
