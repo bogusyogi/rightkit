@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.72
+
+- NN08: the snapshot is not asked for its top level (the gate knows it is a snapshot when it passes the tracked-file list); the Class-A-only path uses the `--commit` id instead of asking HEAD; content-addressed git questions are remembered whatever folder asks; versions of actionlint, shellcheck, oxlint, cargo-deny and cargo-audit are asked once (rustup proxies and pnpm stay per folder).
+
 ## 0.6.71
 
 - NN07: the snapshot sync removes the staged sidecar (app/src-tauri/binaries/) whenever the commit changes, so every run rebuilt it. The gate now keeps a copy of the receipt and staged files after each staging and, when the sidecar's sources match the last staging, puts them back before `stage-sidecar --if-stale`, as the web build's dist cache already does. When it rebuilds anyway it prints both receipt digests.

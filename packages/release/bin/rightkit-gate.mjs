@@ -5564,7 +5564,8 @@ export async function main(argv, io = {}) {
     if (!classAOnly) {
       const needsForecast = !o.runScans;
       try {
-        const headSha = snapshotBCommit?.commit ?? text(git("rev-parse", "HEAD")).trim();
+        // The selected commit, never asked again: a self-call names it by its full id (NN08: `git rev-parse HEAD` asked twice in one run on 0.6.71).
+        const named = option("--commit"); const headSha = snapshotBCommit?.commit ?? (/^[0-9a-f]{40}$/.test(named ?? "") ? named : text(git("rev-parse", "HEAD")).trim());
         const treeId = text(git("rev-parse", `${headSha}^{tree}`)).trim();
         const common = git("rev-parse", "--git-common-dir");
         if (headSha && treeId && !failed(common) && text(common).trim()) {

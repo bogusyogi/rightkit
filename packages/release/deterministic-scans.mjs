@@ -2333,7 +2333,9 @@ const readMemoKey = (command, args, options = {}) => {
   // git show <sha>:<path>, ls-tree <sha>, cat-file -p <sha>: content-addressed, the same answer wherever it is asked (a repository without the object fails, and a failure is not kept).
   if (/(^|[\\/])git(\.exe)?$/i.test(String(command)) && sub[0] !== "rev-parse") return sha256(JSON.stringify(["object", sub]));
   // A tool's own version is the version of the binary that runs: the program as the environment resolves it.
-  if (a.length === 1 || (a.length === 2 && a[1] === "--version")) {
+  // Only tools with one binary on PATH: rustup's proxies (cargo, rustc, rustfmt) and pnpm resolve a version per folder, so their key keeps the folder.
+  const tool = String(command).replaceAll("\\", "/").split("/").pop().replace(/.(exe|cmd|bat)$/i, "").toLowerCase();
+  if (["actionlint", "shellcheck", "oxlint", "cargo-deny", "cargo-audit"].includes(tool) && (a.length === 1 || (a.length === 2 && a[1] === "--version"))) {
     let file = String(command); try { file = resolveInvocation(command, args, { env: options.env ?? process.env }).file ?? file; } catch { /* as given */ }
     return sha256(JSON.stringify(["version", String(file).toLowerCase(), a]));
   }
@@ -2961,7 +2963,9 @@ async function defaultScanSecrets() {
  */
 export async function ignoredPathSkip(ctx) {
   const git = async (args) => { try { return await ctx.deps.spawn("git", args, { cwd: ctx.contentRoot, encoding: "utf8", env: ctx.deps.env }); } catch { return null; } };
-  const top = await git(["rev-parse", "--show-toplevel"]);
+  // The gate hands the tracked-file list only for a snapshot run: then the content root is a snapshot, which is what this question found out, so it is
+  // not asked (GC-A27 NN08: the snapshot's top level was asked again after the checkout's, acceptance case 3 on 0.6.71).
+  const top = Array.isArray(ctx.trackedFiles) ? null : await git(["rev-parse", "--show-toplevel"]);
   const same = (a, b) => { try { return fs.realpathSync(a) === fs.realpathSync(b); } catch { return path.resolve(a) === path.resolve(b); } };
   if (!top || top.status !== 0 || !same(String(top.stdout ?? "").trim(), ctx.contentRoot)) {
     // Not a git toplevel: a snapshot, which holds the commit's files and also whatever a stage wrote into it (dist/stage, build output), and

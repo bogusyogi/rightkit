@@ -45,3 +45,19 @@ test("the gate runs with defaultSpawn itself, so the pnpm answers kept across ru
   const src = (await import("node:fs")).readFileSync(new URL("./bin/rightkit-gate.mjs", import.meta.url), "utf8");
   assert.match(src, /spawn: defaultSpawn, exists: fs\.existsSync/); assert.doesNotMatch(src, /spawn: rememberReads\(defaultSpawn\)/);
 });
+test("a rustup proxy's or pnpm's version keeps its folder in the key; a fixed tool's does not", () => {
+  const calls = []; const run = rememberReads((c, a, o) => { calls.push(o.cwd); return { status: 0, stdout: "v", stderr: "" }; }, { store: new Map() });
+  run("cargo", ["--version"], { cwd: "D:\a" }); run("cargo", ["--version"], { cwd: "D:\b" }); assert.equal(calls.length, 2, "rustup may pick another toolchain in another folder");
+  run("pnpm", ["--version"], { cwd: "D:\a" }); run("pnpm", ["--version"], { cwd: "D:\b" }); assert.equal(calls.length, 4);
+  run("shellcheck", ["--version"], { cwd: "D:\a" }); run("shellcheck", ["--version"], { cwd: "D:\b" }); assert.equal(calls.length, 5);
+});
+
+test("NN08: a snapshot run does not ask the snapshot for its top level, and the selected commit is not asked for again", async () => {
+  const { ignoredPathSkip } = await import("./deterministic-scans.mjs");
+  const asked = [];
+  const ctx = { contentRoot: "D:\\snap", trackedFiles: ["a.rs"], deps: { env: {}, spawn: async (c, a) => { asked.push(a.join(" ")); return { status: 1, stdout: "" }; } } };
+  await ignoredPathSkip(ctx).catch(() => null);
+  assert.equal(asked.includes("rev-parse --show-toplevel"), false, "the gate already knows the content root is a snapshot");
+  const src = (await import("node:fs")).readFileSync(new URL("./bin/rightkit-gate.mjs", import.meta.url), "utf8");
+  assert.match(src, /snapshotBCommit\?\.commit \?\? \(\/\^\[0-9a-f\]\{40\}\$\/\.test\(named \?\? ""\) \? named :/);
+});

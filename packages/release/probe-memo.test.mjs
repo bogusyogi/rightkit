@@ -140,3 +140,16 @@ test("a broker job's status is kept only once the receipt records the job's end;
     a.equal(storedProbe(cache, "pnpm", pnpm, "k"), null, "a shim that does not name its program is never remembered");
   });
 }
+
+test("NN08 (0.6.70): a fixed tool's version is a fixed question; content-addressed ones and versions need no folder in their key", async () => {
+  const { folderFree } = await import("./probe-memo.mjs");
+  const sha = "a".repeat(40);
+  assert.equal(pureQuestion("actionlint", ["-version"]), true); assert.equal(pureQuestion("C:\\t\\shellcheck.exe", ["--version"]), true);
+  assert.equal(pureQuestion("pnpm", ["--version"]), false, "pnpm resolves a version per folder");
+  assert.equal(pureQuestion("cargo", ["build"]), false); assert.equal(pureQuestion("cargo", ["--version"]), false, "rustup picks cargo per folder");
+  assert.equal(folderFree("git", ["show", `${sha}:package.json`]), true); assert.equal(folderFree("git", ["ls-tree", "-r", "-z", sha]), true);
+  assert.equal(folderFree("git", ["rev-parse", "--verify", "--quiet", `${sha}^{commit}`]), true);
+  assert.equal(folderFree("git", ["rev-parse", "--show-toplevel"]), false, "the top of a checkout is the folder's");
+  assert.equal(folderFree("git", ["rev-parse", "HEAD"]), false, "HEAD is the folder's");
+  assert.equal(folderFree("shellcheck", ["--version"]), true); assert.equal(folderFree("pnpm", ["--version"]), false);
+});

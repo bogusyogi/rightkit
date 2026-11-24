@@ -322,6 +322,14 @@
       ],
       "count": 2,
       "why": "one per npm package"
+    },
+    {
+      "program": "pnpm",
+      "args": [
+        "--version"
+      ],
+      "count": 2,
+      "why": "two different questions: Class A probes pnpm in a neutral folder (its answer is in the pnpm rows' cache keys), compile planning asks in the project folder; pnpm 9+ switches to a project's packageManager version, so the answers can differ. Settled with Gemini, 2026-11-25 (Adrian delegated decisions to Gemini overnight)."
     }
   ],
   "cases": [

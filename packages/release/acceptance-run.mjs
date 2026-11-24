@@ -124,6 +124,9 @@ async function main() {
         if (id === 1) {
           const aside = path.join(out, "set-aside", new Date().toISOString().replace(/[:.]/g, "-"));
           moveAside(storeDir, path.join(aside, "rightkit-gate-cache")); moveAside(historyFileOf(managed, storeDir), path.join(aside, "history.json"));
+          // From nothing includes the sidecar's kept staging (0.6.71): the gate keeps it per snapshot folder, so it outlives the scan store.
+          // Only the fixture's own folder: other repositories' kept stagings are theirs.
+          { const snap = (await import("./snapshot.mjs")).repositoryOf(fixture).key; moveAside(path.join(managed, "sidecar-state", snap), path.join(aside, "sidecar-state", snap)); }
           const dirty = path.join(fixture, "rk", "crates", "rk-leaf", "src", "lib.rs");
           fs.writeFileSync(dirty, "pub fn leaf() -> u32 { this does not compile\n");
           try { runs.push(await one(fixture, commit, "case1", { args })); } finally { git(fixture, ["checkout", "--", "rk/crates/rk-leaf/src/lib.rs"]); }

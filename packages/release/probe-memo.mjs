@@ -26,6 +26,10 @@ export function pureQuestion(cmd, args) {
   if (name === "where" || name === "which") return args.length === 1 && /^[A-Za-z0-9._-]+$/.test(args[0]);
   // A broker job's status, by its id: remembered only once the answer is final (see FINAL_ONLY), never while the job may still change.
   if (name === "rustright") return args.length === 2 && args[0] === "status" && /^[0-9a-f-]{36}$/.test(args[1]);
+  // A tool's own version, asked with nothing else: the version of the binary PATH resolves (GC-A27 NN08: actionlint -version and shellcheck --version
+  // asked once by the lookup pass and again by the real pass, from two probe folders, on 0.6.70). Only tools with one binary on PATH: rustup's proxies
+  // (cargo, rustc, rustfmt) and pnpm resolve a version per folder, so they are not listed.
+  if (FIXED_VERSION_TOOLS.has(name) && args.length === 1 && TOOL_VERSION_FLAGS.has(args[0])) return true;
   if (name !== "git") return false;
   // Leading `-c key=value` pairs configure the call, they are part of the question (and of the key), not a different question.
   let rest = args; while (rest[0] === "-c" && typeof rest[1] === "string" && rest[1].includes("=")) rest = rest.slice(2);
@@ -51,6 +55,23 @@ export function pureQuestion(cmd, args) {
   // The file list of a tree named by its full id, names only or with modes and ids (snapshot.mjs treeEntries).
   // Any listing of a tree named by its full id, whatever its listing flags: kept in this process (only the two forms of treeListOf go to disk).
   if (rest[0] === "ls-tree") return treeListOf(args) !== null || (rest.length >= 2 && SHA.test(rest[rest.length - 1]) && rest.slice(1, -1).every((f) => LS_TREE_FLAGS.has(f)));
+  return false;
+}
+const TOOL_VERSION_FLAGS = new Set(["--version", "-version", "-V"]);
+const FIXED_VERSION_TOOLS = new Set(["actionlint", "shellcheck", "oxlint", "cargo-deny", "cargo-audit"]);
+/**
+ * A question whose answer is fixed by its arguments alone, whatever folder asks it: a git object named by its full id (the same bytes in any
+ * repository that has it; one that does not fails, and a failure is never kept), or a tool's own version (keyed by PATH instead). The checkout and
+ * the snapshot asked these separately, so each was asked twice (NN08, acceptance cases on 0.6.70). Exported for its test.
+ */
+export function folderFree(cmd, args) {
+  const name = path.basename(String(cmd).replaceAll("\\", "/")).toLowerCase().replace(/\.(exe|cmd|bat)$/, "");
+  if (name !== "git") return FIXED_VERSION_TOOLS.has(name) && args.length === 1 && TOOL_VERSION_FLAGS.has(args[0]);
+  let rest = args; while (rest[0] === "-c" && typeof rest[1] === "string" && rest[1].includes("=")) rest = rest.slice(2);
+  if (rest[0] === "show") return rest.length === 2 && /^[0-9a-f]{40}([0-9a-f]{24})?:/.test(rest[1]);
+  if (rest[0] === "cat-file") return rest.length === 3 && SHA.test(rest[2]);
+  if (rest[0] === "ls-tree") return rest.length >= 2 && SHA.test(rest[rest.length - 1]);
+  if (rest[0] === "rev-parse") { const tail = rest.slice(1); return tail.length >= 1 && /^[0-9a-f]{40}/.test(tail[tail.length - 1]) && !tail.some((a) => a === "--show-toplevel" || a === "HEAD"); }
   return false;
 }
 const LS_TREE_FLAGS = new Set(["-r", "-z", "-l", "-t", "--name-only", "--full-tree", "--long"]);
@@ -166,7 +187,9 @@ const copy = (v) => (Buffer.isBuffer(v) ? Buffer.from(v) : v);
 const programNameOf = (cmd) => path.basename(String(cmd).replaceAll("\\", "/")).toLowerCase().replace(/\.(exe|cmd|bat)$/, "");
 const questionKeyOf = (cmd, args, options) => {
   const env = Object.entries(options?.env && typeof options.env === "object" ? options.env : process.env).filter(([k]) => /^GIT_/i.test(k)).sort();
-  return JSON.stringify([programNameOf(cmd), args, path.resolve(typeof options?.cwd === "string" ? options.cwd : process.cwd()), env]);
+  const free = folderFree(cmd, Array.isArray(args) ? args : []);
+  const pathVar = free && programNameOf(cmd) !== "git" ? Object.entries(options?.env && typeof options.env === "object" ? options.env : process.env).filter(([k]) => /^path$/i.test(k)).map(([, v]) => v) : [];
+  return JSON.stringify([programNameOf(cmd), args, free ? pathVar : path.resolve(typeof options?.cwd === "string" ? options.cwd : process.cwd()), env]);
 };
 const piped = (options) => options?.stdio === undefined || options.stdio === "pipe";
 /** A batch read or a grep answer larger than this is not kept in memory: it is asked again. */
