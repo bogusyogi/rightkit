@@ -62,7 +62,10 @@ pub fn schedule_reveal_after_splash(
     match result {
         Ok(started) => started,
         Err(error) => {
-            log(config.error_event, &format!("reason={reason} error={error}"));
+            log(
+                config.error_event,
+                &format!("reason={reason} error={error}"),
+            );
             false
         }
     }
@@ -123,7 +126,10 @@ mod tests {
             let ran = Arc::new(AtomicUsize::new(0));
             let r = ran.clone();
             apply_guardian_batch(
-                Due { evaluate: true, invariant },
+                Due {
+                    evaluate: true,
+                    invariant,
+                },
                 FullscreenSampling::OnWorker,
                 || true,
                 |f| f(),

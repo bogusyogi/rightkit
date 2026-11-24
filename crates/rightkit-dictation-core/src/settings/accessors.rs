@@ -51,6 +51,16 @@ pub fn pill_position_key(prefix: &str, monitor_id: &str) -> String {
     format!("{prefix}{monitor_id}")
 }
 
+/// The settings patch a screenshot-destination choice makes: the destination plus the flag that
+/// the first-run choice was made. Feed it to `apply_patch_to` so a native pill and a renderer
+/// write the same keys.
+pub fn screenshot_destination_patch(destination: &str) -> Value {
+    serde_json::json!({
+        "screenshot_destination": destination,
+        "screenshot_prompt_selected": true,
+    })
+}
+
 impl SettingsBlob {
     /// Stored close behaviour, or [`DEFAULT_CLOSE_BEHAVIOR`].
     pub fn close_behavior_or_default(&self) -> String {
@@ -159,8 +169,10 @@ impl SettingsBlob {
     /// Sets the model choice in `extras`. Typed host-internal write: it bypasses the renderer
     /// patch allowlist by design.
     pub fn set_model_choice(&mut self, value: &str) {
-        self.extras
-            .insert(MODEL_CHOICE_KEY.to_string(), Value::String(value.to_string()));
+        self.extras.insert(
+            MODEL_CHOICE_KEY.to_string(),
+            Value::String(value.to_string()),
+        );
     }
 
     /// Sets the close behaviour after validating it against the patch allowlist.
@@ -172,7 +184,11 @@ impl SettingsBlob {
 
     /// Saved pill position for a monitor as physical pixels `(x, y)`, stored in `extras` under
     /// `{key_prefix}{monitor_id}` as `{"x": f64, "y": f64}`. `None` when never saved or malformed.
-    pub fn pill_position_for_monitor(&self, key_prefix: &str, monitor_id: &str) -> Option<(f64, f64)> {
+    pub fn pill_position_for_monitor(
+        &self,
+        key_prefix: &str,
+        monitor_id: &str,
+    ) -> Option<(f64, f64)> {
         let object = self
             .extras
             .get(&pill_position_key(key_prefix, monitor_id))?

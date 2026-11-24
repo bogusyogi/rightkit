@@ -205,6 +205,14 @@ pub fn clear_if_current(generation: u64) -> Result<Option<u64>, String> {
     Ok(Some(state.generation))
 }
 
+/// A card dismissed itself: whether the host must release the holds it keeps for that card (the
+/// "pill stays expanded" flag and the like). `false` only when [`clear_if_current`] found the
+/// dismissed card already replaced by a newer show; `true` when it cleared the slot or the slot
+/// could not be read (release rather than leave a hold stuck).
+pub fn dismissal_releases_holds(generation: u64) -> bool {
+    !matches!(clear_if_current(generation), Ok(None))
+}
+
 /// Whether a write of the slot (`set`, `clear`, or the settle of a `set_while_showing`) happened
 /// after `generation`, so a show or close that carries `generation` is older than the committed
 /// override and must not reach the view: a card queued for override A must never replace the card

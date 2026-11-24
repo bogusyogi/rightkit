@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Add platform-free `session_glue`: `schedule_reveal_after_splash` (+ `RevealAfterSplash`, `LogSink`) over `RevealRetry`, and `apply_guardian_batch` (+ `FullscreenSampling`) for one guardian pass. The host passes the splash probe, main-thread dispatcher, reveal closures, log sink and event names. Additive.
+- Add `clip_override::dismissal_releases_holds(generation)`: the host's hold-release rule after a card dismisses itself. Additive.
 
 ## 0.1.1 candidate
 

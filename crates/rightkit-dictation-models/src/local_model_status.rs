@@ -153,7 +153,10 @@ mod tests {
 
     #[test]
     fn canonical_and_label() {
-        assert_eq!(canonical_local_asr_backend(" Parakeet-TDT "), BACKEND_CURRENT);
+        assert_eq!(
+            canonical_local_asr_backend(" Parakeet-TDT "),
+            BACKEND_CURRENT
+        );
         assert_eq!(canonical_local_asr_backend("x"), BACKEND_RETIRED);
         let l = LocalAsrLabels::default();
         assert_eq!(local_asr_label("parakeet_tdt_ultra_future", &l), l.current);
@@ -164,8 +167,14 @@ mod tests {
     #[test]
     fn source_classification() {
         let root = Path::new("/r");
-        assert_eq!(classify_model_source(Some(Path::new("/r/a")), root), SOURCE_SHARED);
-        assert_eq!(classify_model_source(Some(Path::new("/x")), root), SOURCE_APP_DATA);
+        assert_eq!(
+            classify_model_source(Some(Path::new("/r/a")), root),
+            SOURCE_SHARED
+        );
+        assert_eq!(
+            classify_model_source(Some(Path::new("/x")), root),
+            SOURCE_APP_DATA
+        );
         assert_eq!(classify_model_source(None, root), SOURCE_MISSING);
     }
 }
