@@ -215,6 +215,18 @@ pub fn validate_frame(frame: &EngineFrame) -> Result<(), EngineContractError> {
                 matches!(payload, EnginePayload::WakeFired { .. })
             })?;
         }
+        EngineSchemaName::FollowUpOpen => {
+            reject_error(frame)?;
+            require_payload(frame, |payload| {
+                matches!(payload, EnginePayload::FollowUpOpen { .. })
+            })?;
+        }
+        EngineSchemaName::FollowUpClose => {
+            reject_error(frame)?;
+            require_payload(frame, |payload| {
+                matches!(payload, EnginePayload::FollowUpClose)
+            })?;
+        }
     }
 
     Ok(())

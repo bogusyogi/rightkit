@@ -225,6 +225,11 @@ pub struct HandoffIdentity {
     pub catalog_version: String,
     /// Version of the destination and action registry the recording was checked against (R1).
     pub registry_version: String,
+    /// Ask for an answer written to be read aloud: the hand-off is submitted as `agent.request` with
+    /// `reply: "speech"`. That is an answer-only run whatever the `agentActions` switch says, so a spoken
+    /// request never starts an acting run. Off: the command line picks the kind (`agent.act` while
+    /// `agentActions` is on).
+    pub spoken_reply: bool,
 }
 
 /// The platform this build runs on, as a hand-off names it.
@@ -248,7 +253,16 @@ impl HandoffIdentity {
     /// R1 left it an agent request, which is the only thing a caller may send. `utterance_id` names the
     /// recording and the generation is 1, so the key (`voice:<utterance_id>:1`) is the same on every
     /// resend. The ASR gives no confidence, so it is recorded as 1.0, as the transcript event does.
-    pub fn record_for(&self, utterance_id: &str, transcript: &str) -> HandoffRecord {
+    ///
+    /// `question_id` is the interview question the agent is waiting on, when there is one: it travels as
+    /// `interview:<question_id>` in `context_refs`, and Pulse accepts it only when it is the question
+    /// Pulse itself has pending for this device. The recorder never decides which question an answer is for.
+    pub fn record_for(
+        &self,
+        utterance_id: &str,
+        transcript: &str,
+        question_id: Option<&str>,
+    ) -> HandoffRecord {
         HandoffRecord {
             utterance: Utterance {
                 schema_version: SCHEMA_VERSION,
@@ -278,7 +292,10 @@ impl HandoffIdentity {
                     registry_version: self.registry_version.clone(),
                 },
             },
-            context_refs: Vec::new(),
+            context_refs: question_id
+                .map(|id| format!("interview:{id}"))
+                .into_iter()
+                .collect(),
         }
     }
 }
@@ -481,13 +498,24 @@ fn run_cli(args: &[&str], stdin: Option<&str>, cli_path: &Path, timeout: Duratio
     }
 }
 
-fn submit_once(json: &str, cli_path: &Path, timeout: Duration) -> Receipt {
-    match run_cli(
-        &["task", "submit", "--stdin"],
-        Some(json),
-        cli_path,
-        timeout,
-    ) {
+/// The params of a spoken-reply request: an answer in one to three short plain sentences.
+const SPOKEN_REPLY_PARAMS: &str = r#"{"schema_version":1,"reply":"speech"}"#;
+
+fn submit_once(json: &str, cli_path: &Path, timeout: Duration, spoken_reply: bool) -> Receipt {
+    let args: &[&str] = if spoken_reply {
+        &[
+            "task",
+            "submit",
+            "--kind",
+            "agent.request",
+            "--params",
+            SPOKEN_REPLY_PARAMS,
+            "--stdin",
+        ]
+    } else {
+        &["task", "submit", "--stdin"]
+    };
+    match run_cli(args, Some(json), cli_path, timeout) {
         CliRun::NotStarted => Receipt::Unreachable,
         CliRun::Silent => Receipt::Unknown,
         CliRun::Output(out) => parse_receipt(&out),
@@ -498,6 +526,17 @@ fn submit_once(json: &str, cli_path: &Path, timeout: Duration) -> Receipt {
 /// `Unreachable` receipt means nothing ran, and its retry is the caller's, on the owner's action or when
 /// Pulse is up.
 pub fn submit(record: &HandoffRecord, cli_path: &Path, timeout: Duration) -> Receipt {
+    submit_with(record, cli_path, timeout, false)
+}
+
+/// [`submit`], asking for a spoken-reply answer when `spoken_reply` is set (see
+/// [`HandoffIdentity::spoken_reply`]).
+pub fn submit_with(
+    record: &HandoffRecord,
+    cli_path: &Path,
+    timeout: Duration,
+    spoken_reply: bool,
+) -> Receipt {
     if let Err(reason) = record.validate() {
         return Receipt::Refused { reason };
     }
@@ -506,9 +545,9 @@ pub fn submit(record: &HandoffRecord, cli_path: &Path, timeout: Duration) -> Rec
             reason: "the hand-off could not be written".to_owned(),
         };
     };
-    let first = submit_once(&json, cli_path, timeout);
+    let first = submit_once(&json, cli_path, timeout, spoken_reply);
     if first == Receipt::Unknown {
-        submit_once(&json, cli_path, timeout)
+        submit_once(&json, cli_path, timeout, spoken_reply)
     } else {
         first
     }
@@ -516,9 +555,9 @@ pub fn submit(record: &HandoffRecord, cli_path: &Path, timeout: Duration) -> Rec
 
 /// [`submit`] to the installed command line ([`default_cli_path`]) within [`CLI_TIMEOUT`] per call. With no
 /// Pulse installed nothing runs, so the receipt is `Unreachable`.
-pub fn submit_installed(record: &HandoffRecord) -> Receipt {
+pub fn submit_installed(record: &HandoffRecord, spoken_reply: bool) -> Receipt {
     match default_cli_path() {
-        Some(path) => submit(record, &path, CLI_TIMEOUT),
+        Some(path) => submit_with(record, &path, CLI_TIMEOUT, spoken_reply),
         None => Receipt::Unreachable,
     }
 }
@@ -547,11 +586,54 @@ pub fn task_pill(task_id: &str, cli_path: &Path, timeout: Duration) -> Option<Ta
 const PILL_ANSWER_WORDS: usize = 12;
 
 fn answer_first_words(task_id: &str, cli_path: &Path, timeout: Duration) -> Option<String> {
+    let text = task_result_text(task_id, cli_path, timeout)?;
+    let words: Vec<&str> = text.split_whitespace().take(PILL_ANSWER_WORDS).collect();
+    (!words.is_empty()).then(|| words.join(" "))
+}
+
+/// The `text` of `pulse task result <task-id>`: the answer of a task that succeeded. `None` for a task
+/// that has not, or when the command line gave nothing readable.
+fn task_result_text(task_id: &str, cli_path: &Path, timeout: Duration) -> Option<String> {
     let CliRun::Output(out) = run_cli(&["task", "result", task_id], None, cli_path, timeout) else {
         return None;
     };
     let v = serde_json::from_str::<serde_json::Value>(out.trim()).ok()?;
-    let text = v.get("result")?.get("text")?.as_str()?;
-    let words: Vec<&str> = text.split_whitespace().take(PILL_ANSWER_WORDS).collect();
-    (!words.is_empty()).then(|| words.join(" "))
+    let text = v.get("result")?.get("text")?.as_str()?.trim();
+    (!text.is_empty()).then(|| text.to_owned())
+}
+
+/// The job kind of an acting run (`agent.act`).
+const KIND_ACT: &str = "agent.act";
+
+/// Up to and including the first sentence end (`.`, `!` or `?` followed by a space or the end).
+fn first_sentence(text: &str) -> &str {
+    let mut chars = text.char_indices().peekable();
+    while let Some((index, c)) = chars.next() {
+        if matches!(c, '.' | '!' | '?') && chars.peek().is_none_or(|(_, next)| next.is_whitespace())
+        {
+            return &text[..index + c.len_utf8()];
+        }
+    }
+    text
+}
+
+/// What to say aloud for a finished task, or `None` when there is nothing to say yet or ever. The text is
+/// the answer `pulse task result` returns, the same words as the notch's answer card. A reply written
+/// for speech (`reply: "speech"`) is spoken whole; the report of an acting run has no speech style, so
+/// only its first sentence is spoken (`docs/contracts/voice.md`, "Speaking the answer"). Playing it is the
+/// speech player's: `rightkit_tts::speech_out::Speaker::speak`.
+pub fn task_speech_text(task_id: &str, cli_path: &Path, timeout: Duration) -> Option<String> {
+    let CliRun::Output(out) = run_cli(&["task", "status", task_id], None, cli_path, timeout) else {
+        return None;
+    };
+    let status = serde_json::from_str::<serde_json::Value>(out.trim()).ok()?;
+    if status.get("status")?.as_str()? != "succeeded" {
+        return None;
+    }
+    let text = task_result_text(task_id, cli_path, timeout)?;
+    if status.get("kind").and_then(|kind| kind.as_str()) == Some(KIND_ACT) {
+        Some(first_sentence(&text).to_owned())
+    } else {
+        Some(text)
+    }
 }

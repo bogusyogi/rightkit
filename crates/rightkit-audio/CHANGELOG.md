@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.2
+
+- New `echo` module (VO-5, `docs/contracts/voice.md` in the Pulse repository): `ReferenceTap` (a time-indexed 16 kHz history of what the speakers play, with a process-wide `reference_tap()`) and `EchoCanceller` (a model-free normalised-LMS filter, `process_with_tap`), so speech over a reply can be heard without the agent's own voice. Playback and capture must share the process, or the host feeds the tap from the process that plays. Not run on a microphone and a speaker.
+- New `turn` module: `TurnTracker`, `TurnPolicy`, the `TurnModel` trait and `is_voiced`. With no model a turn ends after a fixed silence (700 ms); a host that has a model (smart-turn is the candidate; a download, not included) implements the trait. Additive.
+
 ## 0.4.1
 
 - Reserve setup meter starts at command receipt, reject stale queued starts and stops, and drain an older admitted start before opening its replacement. Consent stays independent. Existing setup start and stop signatures remain supported.

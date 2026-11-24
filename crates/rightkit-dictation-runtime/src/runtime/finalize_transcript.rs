@@ -465,16 +465,23 @@ fn pulse_handoff_commit(
     if words.is_empty() || cancelled {
         return None;
     }
-    let receipt = submit_installed(&identity.record_for(session_id, words));
-    let outcome = match receipt {
+    // The interview question Pulse is waiting on, if any, rides along; an accepted hand-off answers it.
+    let question = crate::host::pending_interview_question();
+    let record = identity.record_for(session_id, words, question.as_deref());
+    let outcome = match submit_installed(&record, identity.spoken_reply) {
         Receipt::Accepted {
             task_id,
             task_status,
             ..
-        } => FinalizeOutcome::CommandDispatched {
-            action: "pulse.task".to_string(),
-            detail: format!("{task_id} {task_status}"),
-        },
+        } => {
+            if question.is_some() {
+                crate::host::set_pending_interview_question(None);
+            }
+            FinalizeOutcome::CommandDispatched {
+                action: "pulse.task".to_string(),
+                detail: format!("{task_id} {task_status}"),
+            }
+        }
         kept => FinalizeOutcome::HandoffKept {
             text: words.to_string(),
             message: kept.pill_message().unwrap_or_default(),
